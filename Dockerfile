@@ -21,7 +21,7 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential tzdata && \
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential tzdata gosu && \
   rm -rf /var/lib/apt/lists/*
 
 # Copy minimal metadata first for better layer caching.
@@ -69,6 +69,10 @@ RUN groupadd -r -g ${APP_GID} app && \
   useradd -r -u ${APP_UID} -g app -d /app -s /usr/sbin/nologin app && \
   chown -R app:app /data
 
+# Runtime entrypoint auto-adapts to mounted /data ownership.
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 EXPOSE 8080
 
 # Healthcheck uses the PORT env var.
@@ -76,5 +80,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD python -c "import os, urllib.request; urllib.request.urlopen(f'http://localhost:{os.getenv(\"PORT\", \"8080\")}/healthz').read()"
 
 # Start with env-driven PORT (Zeabur sets this automatically).
-USER app
-CMD ["sh", "-c", "uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8080}"]
+ENTRYPOINT ["/entrypoint.sh"]

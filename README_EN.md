@@ -88,6 +88,7 @@ services:
 
 - Default data directory is `/data`. When `/data` is writable, all data (sessions/accounts/tasks/import-export/logs) stays under `/data` as before.
 - If `/data` is not writable, the service automatically falls back to `/tmp/tg-signpulse` and prints a warning (data may be non-persistent).
+- New images can auto-adapt runtime UID/GID to the mounted `/data` owner, so most VPS users no longer need `chmod 777`.
 - For production, mount a writable persistent volume to `/data` instead of relying on `/tmp`.
 
 Troubleshooting inside the container (do NOT use chmod 777):
@@ -171,6 +172,7 @@ frontend/     # Next.js admin UI
 - Task creation UX improved: task name can be left empty (auto-generated default name), and the input hint was updated accordingly.
 - Added quick task copy/paste: copy a task config from a task card to clipboard, then paste-import from the top-right action; cross-account copy/import is supported.
 - UI fix: corrected layout where dice actions could squeeze the delete button width on smaller screens.
+- Container permission compatibility improved: startup now runs with the mounted `/data` owner UID/GID to reduce write failures and avoid `chmod 777` in common VPS setups.
 
 ### 2026-03-01
 
