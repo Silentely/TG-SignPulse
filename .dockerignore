@@ -77,6 +77,7 @@ data/
 *.session-journal
 
 # Docker
-docker/
+docker/*
+!docker/entrypoint.sh
 docker-compose*.yml
 Dockerfile.*
