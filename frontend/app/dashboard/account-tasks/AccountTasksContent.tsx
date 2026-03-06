@@ -71,8 +71,8 @@ const TaskItem = memo(({ task, loading, onEdit, onRun, onViewLogs, onCopy, onDel
     const copyTaskTitle = language === "zh" ? "\u590D\u5236\u4EFB\u52A1" : "Copy Task";
 
     return (
-        <div className="glass-panel p-5 grid grid-cols-[1fr_auto] gap-4 md:flex md:flex-row md:items-center md:justify-between group hover:border-[#8a3ffc]/30 transition-all">
-            <div className="flex items-start gap-4 min-w-0 md:flex-1">
+        <div className="glass-panel p-4 md:p-5 group hover:border-[#8a3ffc]/30 transition-all">
+            <div className="flex items-start gap-4 min-w-0">
                 <div className="w-10 h-10 rounded-xl bg-[#8a3ffc]/10 flex items-center justify-center text-[#b57dff] shrink-0">
                     <ChatCircleText weight="bold" size={20} />
                 </div>
@@ -99,26 +99,72 @@ const TaskItem = memo(({ task, loading, onEdit, onRun, onViewLogs, onCopy, onDel
                             </div>
                         )}
                     </div>
-                    {task.last_run ? (
-                        <div className="md:hidden mt-auto pt-2 border-t border-white/5 text-[10px] font-mono text-main/40 flex items-center gap-2">
-                            <span className={task.last_run.success ? 'text-emerald-400' : 'text-rose-400'}>
-                                {task.last_run.success ? t("success") : t("failure")}
-                            </span>
-                            <span>
-                                {new Date(task.last_run.time).toLocaleString(language === "zh" ? 'zh-CN' : 'en-US', {
-                                    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
-                                })}
-                            </span>
-                        </div>
-                    ) : (
-                        <div className="md:hidden mt-auto pt-2 border-t border-white/5 text-[10px] text-main/20 font-bold uppercase tracking-widest italic">{t("no_data")}</div>
-                    )}
                 </div>
             </div>
 
-            <div className="flex flex-col items-center gap-3 w-14 self-start md:w-auto md:flex-row md:items-center md:gap-4 md:self-auto md:min-w-[180px]">
+            <div className="mt-3 md:hidden">
                 {task.last_run ? (
-                    <div className="hidden md:flex flex-col items-end">
+                    <div className="text-[10px] font-mono text-main/40 flex items-center gap-2 pt-2 border-t border-white/5">
+                        <span className={task.last_run.success ? "text-emerald-400" : "text-rose-400"}>
+                            {task.last_run.success ? t("success") : t("failure")}
+                        </span>
+                        <span>
+                            {new Date(task.last_run.time).toLocaleString(language === "zh" ? 'zh-CN' : 'en-US', {
+                                month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
+                            })}
+                        </span>
+                    </div>
+                ) : (
+                    <div className="pt-2 border-t border-white/5 text-[10px] text-main/20 font-bold uppercase tracking-widest italic">{t("no_data")}</div>
+                )}
+            </div>
+
+            <div className="mt-3 flex flex-wrap gap-2 md:hidden">
+                <button
+                    onClick={() => onRun(task.name)}
+                    disabled={loading}
+                    className="action-btn !w-10 !h-10 !text-emerald-400 hover:bg-emerald-500/10"
+                    title={t("run")}
+                >
+                    <Play weight="fill" size={14} />
+                </button>
+                <button
+                    onClick={() => onEdit(task)}
+                    disabled={loading}
+                    className="action-btn !w-10 !h-10"
+                    title={t("edit")}
+                >
+                    <PencilSimple weight="bold" size={14} />
+                </button>
+                <button
+                    onClick={() => onViewLogs(task)}
+                    disabled={loading}
+                    className="action-btn !w-10 !h-10 !text-[#8a3ffc] hover:bg-[#8a3ffc]/10"
+                    title={t("task_history_logs")}
+                >
+                    <ListDashes weight="bold" size={14} />
+                </button>
+                <button
+                    onClick={() => onCopy(task.name)}
+                    disabled={loading}
+                    className="action-btn !w-10 !h-10 !text-sky-400 hover:bg-sky-500/10"
+                    title={copyTaskTitle}
+                >
+                    <Copy weight="bold" size={14} />
+                </button>
+                <button
+                    onClick={() => onDelete(task.name)}
+                    disabled={loading}
+                    className="action-btn !w-10 !h-10 !text-rose-400 hover:bg-rose-500/10"
+                    title={t("delete")}
+                >
+                    <Trash weight="bold" size={14} />
+                </button>
+            </div>
+
+            <div className="hidden md:flex mt-4 items-center justify-between gap-4">
+                {task.last_run ? (
+                    <div className="flex flex-col items-end">
                         <div className={`flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest ${task.last_run.success ? 'text-emerald-400' : 'text-rose-400'}`}>
                             {task.last_run.success ? <CheckCircle weight="bold" /> : <XCircle weight="bold" />}
                             {task.last_run.success ? t("success") : t("failure")}
@@ -130,14 +176,14 @@ const TaskItem = memo(({ task, loading, onEdit, onRun, onViewLogs, onCopy, onDel
                         </div>
                     </div>
                 ) : (
-                    <div className="hidden md:block text-[10px] text-main/20 font-bold uppercase tracking-widest italic">{t("no_data")}</div>
+                    <div className="text-[10px] text-main/20 font-bold uppercase tracking-widest italic">{t("no_data")}</div>
                 )}
 
-                <div className="flex flex-col items-center gap-2 md:flex-row md:items-center md:gap-1 bg-black/10 rounded-xl p-1 border border-white/5">
+                <div className="flex items-center gap-1 bg-black/10 rounded-xl p-1 border border-white/5">
                     <button
                         onClick={() => onRun(task.name)}
                         disabled={loading}
-                        className="action-btn !w-11 !h-11 md:!w-8 md:!h-8 !text-emerald-400 hover:bg-emerald-500/10"
+                        className="action-btn !w-8 !h-8 !text-emerald-400 hover:bg-emerald-500/10"
                         title={t("run")}
                     >
                         <Play weight="fill" size={14} />
@@ -145,7 +191,7 @@ const TaskItem = memo(({ task, loading, onEdit, onRun, onViewLogs, onCopy, onDel
                     <button
                         onClick={() => onEdit(task)}
                         disabled={loading}
-                        className="action-btn !w-11 !h-11 md:!w-8 md:!h-8"
+                        className="action-btn !w-8 !h-8"
                         title={t("edit")}
                     >
                         <PencilSimple weight="bold" size={14} />
@@ -153,7 +199,7 @@ const TaskItem = memo(({ task, loading, onEdit, onRun, onViewLogs, onCopy, onDel
                     <button
                         onClick={() => onViewLogs(task)}
                         disabled={loading}
-                        className="action-btn !w-11 !h-11 md:!w-8 md:!h-8 !text-[#8a3ffc] hover:bg-[#8a3ffc]/10"
+                        className="action-btn !w-8 !h-8 !text-[#8a3ffc] hover:bg-[#8a3ffc]/10"
                         title={t("task_history_logs")}
                     >
                         <ListDashes weight="bold" size={14} />
@@ -161,7 +207,7 @@ const TaskItem = memo(({ task, loading, onEdit, onRun, onViewLogs, onCopy, onDel
                     <button
                         onClick={() => onCopy(task.name)}
                         disabled={loading}
-                        className="action-btn !w-11 !h-11 md:!w-8 md:!h-8 !text-sky-400 hover:bg-sky-500/10"
+                        className="action-btn !w-8 !h-8 !text-sky-400 hover:bg-sky-500/10"
                         title={copyTaskTitle}
                     >
                         <Copy weight="bold" size={14} />
@@ -169,7 +215,7 @@ const TaskItem = memo(({ task, loading, onEdit, onRun, onViewLogs, onCopy, onDel
                     <button
                         onClick={() => onDelete(task.name)}
                         disabled={loading}
-                        className="action-btn !w-11 !h-11 md:!w-8 md:!h-8 !text-rose-400 hover:bg-rose-500/10"
+                        className="action-btn !w-8 !h-8 !text-rose-400 hover:bg-rose-500/10"
                         title={t("delete")}
                     >
                         <Trash weight="bold" size={14} />
@@ -262,6 +308,11 @@ export default function AccountTasksContent() {
         range_start: "09:00",
         range_end: "18:00",
     });
+    const [copyTaskDialog, setCopyTaskDialog] = useState<{ taskName: string; config: string } | null>(null);
+    const [showPasteDialog, setShowPasteDialog] = useState(false);
+    const [pasteTaskConfigInput, setPasteTaskConfigInput] = useState("");
+    const [copyingConfig, setCopyingConfig] = useState(false);
+    const [importingPastedConfig, setImportingPastedConfig] = useState(false);
 
     const [checking, setChecking] = useState(true);
     const isZh = language === "zh";
@@ -278,6 +329,14 @@ export default function AccountTasksContent() {
     const aiCalcSendModeLabel = isZh ? "\u8BA1\u7B97\u540E\u53D1\u6587\u672C" : "Math -> Send Text";
     const aiCalcClickModeLabel = isZh ? "\u8BA1\u7B97\u540E\u70B9\u6309\u94AE" : "Math -> Click Button";
     const pasteTaskTitle = isZh ? "\u7C98\u8D34\u5BFC\u5165\u4EFB\u52A1" : "Paste Task";
+    const copyTaskDialogTitle = isZh ? "\u590D\u5236\u4EFB\u52A1\u914D\u7F6E" : "Copy Task Config";
+    const copyTaskDialogDesc = isZh ? "\u4EE5\u4E0B\u662F\u4EFB\u52A1\u914D\u7F6E\uFF0C\u53EF\u624B\u52A8\u590D\u5236\u6216\u70B9\u51FB\u4E00\u952E\u590D\u5236\u3002" : "Task config is ready. Copy manually or use one-click copy.";
+    const copyConfigAction = isZh ? "\u4E00\u952E\u590D\u5236" : "Copy";
+    const pasteTaskDialogTitle = isZh ? "\u7C98\u8D34\u5BFC\u5165\u4EFB\u52A1" : "Paste Task Config";
+    const pasteTaskDialogDesc = isZh ? "\u65E0\u6CD5\u76F4\u63A5\u8BFB\u53D6\u526A\u8D34\u677F\uFF0C\u8BF7\u5728\u4E0B\u65B9\u7C98\u8D34\u914D\u7F6E\u540E\u5BFC\u5165\u3002" : "Clipboard read failed. Paste config below and import.";
+    const pasteTaskDialogPlaceholder = isZh ? "\u5728\u6B64\u7C98\u8D34\u4EFB\u52A1\u914D\u7F6E JSON..." : "Paste task config JSON here...";
+    const importTaskAction = isZh ? "\u5BFC\u5165\u4EFB\u52A1" : "Import Task";
+    const clipboardReadFailed = isZh ? "\u65E0\u6CD5\u8BFB\u53D6\u526A\u8D34\u677F\uFF0C\u5DF2\u5207\u6362\u4E3A\u624B\u52A8\u7C98\u8D34\u5BFC\u5165" : "Clipboard read failed, switched to manual paste import";
     const copyTaskSuccess = (taskName: string) =>
         isZh ? `\u4EFB\u52A1 ${taskName} \u5DF2\u590D\u5236\u5230\u526A\u8D34\u677F` : `Task ${taskName} copied to clipboard`;
     const copyTaskFailed = isZh ? "\u590D\u5236\u4EFB\u52A1\u5931\u8D25" : "Copy task failed";
@@ -510,18 +569,36 @@ export default function AccountTasksContent() {
         }
     };
 
-    const handleCopyTask = async (taskName: string) => {
-        if (!token) return;
-        if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
-            addToast(clipboardUnsupported, "error");
-            return;
+    const importTaskFromConfig = async (rawConfig: string) => {
+        if (!token) return false;
+        const taskConfig = (rawConfig || "").trim();
+        if (!taskConfig) {
+            addToast(t("import_empty"), "error");
+            return false;
         }
 
         try {
             setLoading(true);
+            const result = await importSignTask(token, taskConfig, undefined, accountName);
+            addToast(pasteTaskSuccess(result.task_name), "success");
+            await loadData(token);
+            return true;
+        } catch (err: any) {
+            const message = err?.message ? `${pasteTaskFailed}: ${err.message}` : pasteTaskFailed;
+            addToast(message, "error");
+            return false;
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleCopyTask = async (taskName: string) => {
+        if (!token) return;
+
+        try {
+            setLoading(true);
             const taskConfig = await exportSignTask(token, taskName, accountName);
-            await navigator.clipboard.writeText(taskConfig);
-            addToast(copyTaskSuccess(taskName), "success");
+            setCopyTaskDialog({ taskName, config: taskConfig });
         } catch (err: any) {
             const message = err?.message ? `${copyTaskFailed}: ${err.message}` : copyTaskFailed;
             addToast(message, "error");
@@ -530,29 +607,68 @@ export default function AccountTasksContent() {
         }
     };
 
-    const handlePasteTask = async () => {
-        if (!token) return;
-        if (typeof navigator === "undefined" || !navigator.clipboard?.readText) {
+    const handleCopyTaskConfig = async () => {
+        if (!copyTaskDialog) return;
+        if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
             addToast(clipboardUnsupported, "error");
             return;
         }
-
         try {
-            setLoading(true);
-            const taskConfig = (await navigator.clipboard.readText()).trim();
-            if (!taskConfig) {
-                addToast(t("import_empty"), "error");
-                return;
-            }
-            const result = await importSignTask(token, taskConfig, undefined, accountName);
-            addToast(pasteTaskSuccess(result.task_name), "success");
-            await loadData(token);
+            setCopyingConfig(true);
+            await navigator.clipboard.writeText(copyTaskDialog.config);
+            addToast(copyTaskSuccess(copyTaskDialog.taskName), "success");
         } catch (err: any) {
-            const message = err?.message ? `${pasteTaskFailed}: ${err.message}` : pasteTaskFailed;
+            const message = err?.message ? `${copyTaskFailed}: ${err.message}` : copyTaskFailed;
             addToast(message, "error");
         } finally {
-            setLoading(false);
+            setCopyingConfig(false);
         }
+    };
+
+    const handlePasteDialogImport = async () => {
+        setImportingPastedConfig(true);
+        const ok = await importTaskFromConfig(pasteTaskConfigInput);
+        if (ok) {
+            setShowPasteDialog(false);
+            setPasteTaskConfigInput("");
+        }
+        setImportingPastedConfig(false);
+    };
+
+    const handlePasteTask = async () => {
+        if (!token) return;
+
+        if (typeof navigator !== "undefined" && navigator.clipboard?.readText) {
+            try {
+                const taskConfig = (await navigator.clipboard.readText()).trim();
+                if (taskConfig) {
+                    await importTaskFromConfig(taskConfig);
+                    return;
+                }
+            } catch {
+                addToast(clipboardReadFailed, "error");
+            }
+        } else {
+            addToast(clipboardUnsupported, "error");
+        }
+
+        setPasteTaskConfigInput("");
+        setShowPasteDialog(true);
+    };
+
+    const closeCopyTaskDialog = () => {
+        if (copyingConfig) {
+            return;
+        }
+        setCopyTaskDialog(null);
+    };
+
+    const closePasteTaskDialog = () => {
+        if (importingPastedConfig || loading) {
+            return;
+        }
+        setShowPasteDialog(false);
+        setPasteTaskConfigInput("");
     };
 
     const handleCreateTask = async () => {
@@ -1067,12 +1183,12 @@ export default function AccountTasksContent() {
 
                                 <div className="flex flex-col gap-3">
                                     {(showCreateDialog ? newTask.actions : editTask.actions).map((action, index) => (
-                                        <div key={index} className="flex gap-3 items-start animate-scale-in">
+                                        <div key={index} className="flex gap-3 items-center animate-scale-in">
                                             <div className="shrink-0 w-6 h-10 flex items-center justify-center font-mono text-[10px] text-main/20 font-bold border-r border-white/5">
                                                 {index + 1}
                                             </div>
                                             <select
-                                                className="!w-[160px] !mb-0"
+                                                className="!w-[170px] !h-10 !mb-0"
                                                 value={toActionTypeOption(action)}
                                                 onChange={(e) => {
                                                     const selectedType = e.target.value as ActionTypeOption;
@@ -1103,11 +1219,11 @@ export default function AccountTasksContent() {
                                                 <option value="ai_logic">{aiCalcLabel}</option>
                                             </select>
 
-                                            <div className="flex-1">
+                                            <div className="flex-1 min-w-0">
                                                 {(action.action === 1 || action.action === 3) && (
                                                     <input
                                                         placeholder={action.action === 1 ? sendTextPlaceholder : clickButtonPlaceholder}
-                                                        className="!mb-0"
+                                                        className="!mb-0 !h-10"
                                                         value={action.text || ""}
                                                         onChange={(e) => {
                                                             updateCurrentDialogAction(index, (currentAction) => ({
@@ -1118,12 +1234,12 @@ export default function AccountTasksContent() {
                                                     />
                                                 )}
                                                 {action.action === 2 && (
-                                                    <div className="flex flex-wrap gap-2">
+                                                    <div className="flex items-center gap-2 overflow-x-auto">
                                                         {DICE_OPTIONS.map((d) => (
                                                             <button
                                                                 key={d}
                                                                 type="button"
-                                                                className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg transition-all ${((action as any).dice === d) ? 'bg-[#8a3ffc]/20 border border-[#8a3ffc]/40' : 'bg-white/5 border border-white/5 hover:bg-white/10'}`}
+                                                                className={`w-10 h-10 shrink-0 rounded-xl flex items-center justify-center text-lg transition-all ${((action as any).dice === d) ? 'bg-[#8a3ffc]/20 border border-[#8a3ffc]/40' : 'bg-white/5 border border-white/5 hover:bg-white/10'}`}
                                                                 onClick={() => {
                                                                     updateCurrentDialogAction(index, (currentAction) => ({
                                                                         ...currentAction,
@@ -1140,7 +1256,7 @@ export default function AccountTasksContent() {
                                                     <div className="h-10 px-3 flex items-center gap-2 bg-indigo-500/10 border border-indigo-500/20 rounded-xl">
                                                         <Robot weight="fill" size={16} className="text-[#8183ff]" />
                                                         <select
-                                                            className="!mb-0 !h-8 !py-0 !text-xs !w-[180px]"
+                                                            className="!mb-0 !h-10 !py-0 !text-xs !w-[220px] max-w-full"
                                                             value={action.action === 4 ? "click" : "send"}
                                                             onChange={(e) => {
                                                                 const nextActionId = e.target.value === "click" ? 4 : 6;
@@ -1159,7 +1275,7 @@ export default function AccountTasksContent() {
                                                     <div className="h-10 px-3 flex items-center gap-2 bg-amber-500/10 border border-amber-500/20 rounded-xl">
                                                         <MathOperations weight="fill" size={16} className="text-amber-400" />
                                                         <select
-                                                            className="!mb-0 !h-8 !py-0 !text-xs !w-[180px]"
+                                                            className="!mb-0 !h-10 !py-0 !text-xs !w-[220px] max-w-full"
                                                             value={action.action === 7 ? "click" : "send"}
                                                             onChange={(e) => {
                                                                 const nextActionId = e.target.value === "click" ? 7 : 5;
@@ -1208,6 +1324,87 @@ export default function AccountTasksContent() {
             )
             }
 
+            {copyTaskDialog && (
+                <div className="modal-overlay active">
+                    <div className="glass-panel modal-content !max-w-3xl flex flex-col" onClick={(e) => e.stopPropagation()}>
+                        <header className="modal-header border-b border-white/5 pb-3 mb-0">
+                            <div className="modal-title flex items-center gap-2 !text-base">
+                                <Copy weight="bold" size={18} />
+                                {copyTaskDialogTitle}: {copyTaskDialog.taskName}
+                            </div>
+                            <button onClick={closeCopyTaskDialog} className="modal-close" disabled={copyingConfig}>
+                                <X weight="bold" />
+                            </button>
+                        </header>
+                        <div className="p-5 space-y-3">
+                            <p className="text-xs text-main/60">{copyTaskDialogDesc}</p>
+                            <textarea
+                                className="w-full h-72 !mb-0 font-mono text-xs"
+                                value={copyTaskDialog.config}
+                                readOnly
+                            />
+                        </div>
+                        <footer className="p-5 border-t border-white/5 flex gap-3">
+                            <button
+                                className="btn-secondary flex-1"
+                                onClick={closeCopyTaskDialog}
+                                disabled={copyingConfig}
+                            >
+                                {t("close")}
+                            </button>
+                            <button
+                                className="btn-gradient flex-1"
+                                onClick={handleCopyTaskConfig}
+                                disabled={copyingConfig}
+                            >
+                                {copyingConfig ? <Spinner className="animate-spin" /> : copyConfigAction}
+                            </button>
+                        </footer>
+                    </div>
+                </div>
+            )}
+
+            {showPasteDialog && (
+                <div className="modal-overlay active">
+                    <div className="glass-panel modal-content !max-w-3xl flex flex-col" onClick={(e) => e.stopPropagation()}>
+                        <header className="modal-header border-b border-white/5 pb-3 mb-0">
+                            <div className="modal-title flex items-center gap-2 !text-base">
+                                <ClipboardText weight="bold" size={18} />
+                                {pasteTaskDialogTitle}
+                            </div>
+                            <button onClick={closePasteTaskDialog} className="modal-close" disabled={importingPastedConfig || loading}>
+                                <X weight="bold" />
+                            </button>
+                        </header>
+                        <div className="p-5 space-y-3">
+                            <p className="text-xs text-main/60">{pasteTaskDialogDesc}</p>
+                            <textarea
+                                className="w-full h-72 !mb-0 font-mono text-xs"
+                                placeholder={pasteTaskDialogPlaceholder}
+                                value={pasteTaskConfigInput}
+                                onChange={(e) => setPasteTaskConfigInput(e.target.value)}
+                            />
+                        </div>
+                        <footer className="p-5 border-t border-white/5 flex gap-3">
+                            <button
+                                className="btn-secondary flex-1"
+                                onClick={closePasteTaskDialog}
+                                disabled={importingPastedConfig || loading}
+                            >
+                                {t("cancel")}
+                            </button>
+                            <button
+                                className="btn-gradient flex-1"
+                                onClick={handlePasteDialogImport}
+                                disabled={importingPastedConfig || loading}
+                            >
+                                {importingPastedConfig ? <Spinner className="animate-spin" /> : importTaskAction}
+                            </button>
+                        </footer>
+                    </div>
+                </div>
+            )}
+
             {historyTaskName && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-black/60 backdrop-blur-sm animate-fade-in">
                     <div className="glass-panel w-full max-w-4xl h-[78vh] flex flex-col shadow-2xl border border-white/10 overflow-hidden animate-zoom-in">
@@ -1248,6 +1445,16 @@ export default function AccountTasksContent() {
                                                 </span>
                                             </div>
                                             <div className="p-3 space-y-1">
+                                                <div className="text-main/90">
+                                                    {isZh
+                                                        ? `任务：${historyTaskName}${log.success ? "执行成功" : "执行失败"}`
+                                                        : `Task: ${historyTaskName} ${log.success ? "succeeded" : "failed"}`}
+                                                </div>
+                                                {log.message ? (
+                                                    <div className="text-main/60 break-all">
+                                                        {isZh ? `机器人消息：${log.message}` : `Bot message: ${log.message}`}
+                                                    </div>
+                                                ) : null}
                                                 {log.flow_logs && log.flow_logs.length > 0 ? (
                                                     log.flow_logs.map((line, lineIndex) => (
                                                         <div key={lineIndex} className="text-main/80 flex gap-2">

@@ -422,12 +422,23 @@ async def check_accounts_status(
             names = [item.get("name", "") for item in service.list_accounts()]
             names = [n for n in names if n]
 
-        timeout_seconds = max(1.0, min(float(request.timeout_seconds or 6.0), 20.0))
+        timeout_seconds = max(1.0, min(float(request.timeout_seconds or 8.0), 20.0))
         results: list[AccountStatusItem] = []
         for idx, name in enumerate(names):
-            item = await service.check_account_status(
-                name, timeout_seconds=timeout_seconds
-            )
+            try:
+                item = await service.check_account_status(
+                    name, timeout_seconds=timeout_seconds
+                )
+            except Exception as exc:
+                item = {
+                    "account_name": name,
+                    "ok": False,
+                    "status": "error",
+                    "message": str(exc) or "status check failed",
+                    "code": "STATUS_CHECK_FAILED",
+                    "checked_at": None,
+                    "needs_relogin": False,
+                }
             results.append(AccountStatusItem(**item))
             if idx < len(names) - 1:
                 await asyncio.sleep(0.15)

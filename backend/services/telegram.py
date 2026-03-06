@@ -184,7 +184,7 @@ class TelegramService:
         return session_file.exists()
 
     async def check_account_status(
-        self, account_name: str, timeout_seconds: float = 6.0
+        self, account_name: str, timeout_seconds: float = 8.0
     ) -> Dict[str, Any]:
         """
         检测账号 session 是否可用。
@@ -237,18 +237,33 @@ class TelegramService:
                 }
             in_memory = True
 
-        client = get_client(
-            account_name,
-            proxy=proxy_dict,
-            workdir=self.session_dir,
-            session_string=session_string,
-            in_memory=in_memory,
-        )
-
-        timeout_seconds = max(1.0, min(float(timeout_seconds or 6.0), 20.0))
+        timeout_seconds = max(1.0, min(float(timeout_seconds or 8.0), 20.0))
 
         try:
-            async with client:
+            client = get_client(
+                account_name,
+                proxy=proxy_dict,
+                workdir=self.session_dir,
+                session_string=session_string,
+                in_memory=in_memory,
+            )
+        except Exception as e:
+            return {
+                "account_name": account_name,
+                "ok": False,
+                "status": "error",
+                "message": str(e) or "client init failed",
+                "code": "CLIENT_INIT_FAILED",
+                "checked_at": checked_at,
+                "needs_relogin": False,
+            }
+
+        try:
+            # Reuse shared clients and avoid context-manager disconnect on each refresh.
+            lock = get_account_lock(account_name)
+            async with lock:
+                if not getattr(client, "is_connected", False):
+                    await client.connect()
                 me = await asyncio.wait_for(client.get_me(), timeout=timeout_seconds)
             return {
                 "account_name": account_name,

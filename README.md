@@ -2,25 +2,37 @@
 
 [English README](README_EN.md)
 
-TG-SignPulse 是一款专为 Telegram 设计的自动化管理面板。它集成了多账号管理、自动签到、定时任务及按钮交互等功能，旨在为用户提供高效、智能的 Telegram 自动化方案。
-> AI 驱动：本项目深度集成 AI 辅助能力，部分代码及逻辑由 AI 协作开发。
+TG-SignPulse 是一个 Telegram 自动化管理面板。你可以在网页里管理多个账号，配置自动签到任务，并让任务按固定规则每天自动执行。
 
-## ✨ 功能特色
+> AI 驱动：项目已集成 AI 能力（识图、计算题），可直接用于自动任务流程。
 
-- 多账号管理：支持多账号同时在线，统一调度自动化任务。
-- 全自动工作流：涵盖自动签到、定时消息发送、模拟点击按钮等核心流程。
-- 安全策略：内置任务时间随机化机制，有效降低账号风控风险。
-- 现代化 UI：基于 Next.js 构建的响应式管理后台，简洁易用。
-- AI 辅助增强：集成 AI 视觉与逻辑处理，支持图片选项识别及自动计算题解答。
-- 容器化部署：支持原生 Docker 和 Docker Compose，实现一键部署与迁移。
+## 这个项目是做什么的？
 
-## 快速开始
+- 统一管理多个 Telegram 账号
+- 自动签到、定时发送消息、点击按钮
+- 支持 AI 识图和 AI 计算题动作
+- 在网页中查看任务执行日志和历史结果
+- 适合 VPS 长期运行
+
+## 项目特点
+
+- 多账号管理：一个面板管理多个账号
+- 动作序列：支持「发送文本 / 点击文字按钮 / 发送骰子 / AI识图 / AI计算」
+- 日志可视化：可查看任务执行流程和最后机器人回复
+- 稳定性优化：并发控制、429/超时场景优化、长期运行内存优化
+- 容器化部署：Docker / Docker Compose 开箱即用
+
+## 小白 3 步部署（推荐）
+
+1. 安装 Docker（服务器和本机都可）
+2. 执行下面命令启动容器
+3. 浏览器打开 `http://服务器IP:8080`，用默认账号登录
 
 默认凭据：
-- 账号: `admin`
-- 密码: `admin123`
+- 账号：`admin`
+- 密码：`admin123`
 
-### 使用 Docker Run
+### 一条命令启动
 
 ```bash
 docker run -d \
@@ -28,70 +40,41 @@ docker run -d \
   --restart unless-stopped \
   -p 8080:8080 \
   -v $(pwd)/data:/data \
-  -e PORT=8080 \
   -e TZ=Asia/Shanghai \
-  # 可选：配置 Telegram API 以获得更佳稳定性
-  # -e TG_API_ID=123456 \
-  # -e TG_API_HASH=xxxxxxxxxxxxxxxx \
-  # 可选：arm64 推荐启用 SQLite session 替代模式（避免 database is locked）
-  # -e TG_SESSION_MODE=string \
-  # -e TG_SESSION_NO_UPDATES=1 \
-  # -e TG_GLOBAL_CONCURRENCY=1 \
-  # 可选：面板 2FA 容错窗口（默认 0）
-  # -e APP_TOTP_VALID_WINDOW=1 \
-  # 可选：自定义后端密钥
-  # -e APP_SECRET_KEY=your_secret_key \
-  # 可选：AI 接入 (OpenAI 或兼容接口)
-  # -e OPENAI_API_KEY=sk-xxxx \
-  # -e OPENAI_BASE_URL=https://api.openai.com/v1 \
-  # -e OPENAI_MODEL=gpt-4o \
+  -e APP_SECRET_KEY=your_secret_key \
   ghcr.io/akasls/tg-signpulse:latest
 ```
 
-### 使用 Docker Compose
+如果你走反代（如 Nginx），可改成仅本机监听：
+
+```bash
+-p 127.0.0.1:8080:8080
+```
+
+### Docker Compose（可选）
 
 ```yaml
 services:
   app:
     image: ghcr.io/akasls/tg-signpulse:latest
     container_name: tg-signpulse
+    restart: unless-stopped
     ports:
       - "8080:8080"
     volumes:
       - ./data:/data
     environment:
-      - PORT=8080
       - TZ=Asia/Shanghai
-      # 可选：arm64 推荐启用 SQLite session 替代模式（避免 database is locked）
-      # - TG_SESSION_MODE=string
-      # - TG_SESSION_NO_UPDATES=1
-      # - TG_GLOBAL_CONCURRENCY=1
-      # 可选：面板 2FA 容错窗口（默认 0）
-      # - APP_TOTP_VALID_WINDOW=1
-      # 可选：自定义后端密钥
-      # - APP_SECRET_KEY=your_secret_key
-    restart: unless-stopped
+      - APP_SECRET_KEY=your_secret_key
 ```
 
-### Zeabur 部署
+## 数据目录与权限说明
 
-- 新建项目：在控制台创建一个新项目。
-- 服务配置：选择 Docker 镜像，并填入以下参数：
-  - 镜像地址：`ghcr.io/akasls/tg-signpulse:latest`
-  - 环境变量：变量名 `TZ`，变量值 `Asia/Shanghai`（arm64 推荐额外设置 `TG_SESSION_MODE=string`、`TG_SESSION_NO_UPDATES=1`、`TG_GLOBAL_CONCURRENCY=1`）
-  - 端口设置：端口 `8080`，类型选择 `HTTP`
-  - 持久化卷：卷 ID 填 `data`，路径填 `/data`
-- 开始部署：点击部署按钮。
-- 域名绑定：部署完成后，在服务详情页点击“添加域名”即可生成公网访问地址。
+- 默认数据目录：`/data`
+- 当 `/data` 不可写时，会自动降级到 `/tmp/tg-signpulse`（非持久化）
+- 新镜像已支持根据 `/data` 挂载目录属主 UID/GID 自动适配运行身份，通常无需 `chmod 777`
 
-## 非 root / NAS / ClawCloud 权限说明
-
-- 默认数据目录是 `/data`。当 `/data` 可写时，所有数据（sessions/账号/任务/导入导出/日志）仍写入 `/data`，与旧版本一致。
-- 当 `/data` 不可写时，系统会自动降级到 `/tmp/tg-signpulse` 并输出 warning（提示数据可能不持久化）。
-- 新版镜像已支持根据挂载目录 `/data` 的属主 UID/GID 自动适配运行身份，大多数 VPS 场景无需再手动 `chmod 777`。
-- 生产环境建议为容器挂载可写的持久化卷到 `/data`，而不是依赖 `/tmp`。
-
-排障命令（容器内，不要使用 chmod 777）：
+容器内排查命令：
 
 ```bash
 id
@@ -99,136 +82,65 @@ ls -ld /data
 touch /data/.probe && rm /data/.probe
 ```
 
-如果是宿主机挂载目录，可检查：
+## 常用环境变量（简版）
 
-```bash
-ls -ld ./data
-```
+- `APP_SECRET_KEY`: 面板密钥，强烈建议设置
+- `APP_DATA_DIR`: 自定义数据目录（优先级高于面板配置）
+- `TG_SESSION_MODE`: `file`（默认）或 `string`（arm64 推荐）
+- `TG_SESSION_NO_UPDATES`: `1` 启用 `no_updates`（仅 `string` 模式）
+- `TG_GLOBAL_CONCURRENCY`: 全局并发（默认 `1`）
+- `APP_TOTP_VALID_WINDOW`: 面板 2FA 容错窗口
 
-## 可选环境变量
+## 自定义数据目录
 
-以下变量均为可选，未设置时默认行为与旧版本一致：
+你可以通过两种方式设置数据目录：
 
-- `TG_SESSION_MODE`: `file`（默认）或 `string`。`string` 模式使用 session_string + in_memory，避免 `.session` SQLite 锁（arm64 推荐）。
-- `TG_SESSION_NO_UPDATES`: `1` 启用 `no_updates`（仅在 `string` 模式生效，默认 `0`）。
-- `TG_GLOBAL_CONCURRENCY`: 全局并发限制（默认 `1`，arm64 建议保持 `1`）。
-- `APP_TOTP_VALID_WINDOW`: 面板 2FA 容错窗口（默认 `0`，设为 `1` 允许前后各 1 个 30s 窗口）。
-- `PORT`: 监听端口（默认 `8080`，由容器启动命令读取）。
-- `APP_DATA_DIR`: 自定义数据目录（优先级高于面板配置），例如 `/opt/tg-signpulse-data`。
-
-## 自定义数据目录（新增）
-
-你现在可以通过两种方式设置数据目录：
-
-1. 面板设置（推荐）
-- 进入 `系统设置 -> 全局签到设置 -> 数据目录`。
-- 输入目录后保存。
-- 重启后端服务后生效。
-
-2. 环境变量
-- 设置 `APP_DATA_DIR=/your/path`。
-- 该方式优先级高于面板配置。
+1. 面板设置：`系统设置 -> 全局签到设置 -> 数据目录`
+2. 环境变量：`APP_DATA_DIR=/your/path`
 
 说明：
-- 数据目录会用于存放 sessions、任务配置、日志与数据库等数据。
-- 请确保该目录在容器内可写，并挂载为持久化卷。
-
-## Session 迁移（可选）
-
-从已有 `.session` 文件导出 session_string（不会输出 session_string）：
-
-```bash
-python -m tools.migrate_session
-# 或 python tools/migrate_session.py --account your_account
-```
+- 修改后建议重启后端服务生效
+- 该目录请务必可写，并挂载持久化卷
 
 ## 健康检查
 
-- `GET /healthz`：秒回 200，无外部依赖
-- `GET /readyz`：后台初始化完成后返回 200
-
-## 多架构镜像构建
-
-```bash
-docker buildx build --platform linux/amd64,linux/arm64 -t ghcr.io/akasls/tg-signpulse:latest --push .
-```
-
-GitHub Actions：推送到 `main` 或发布 `v*` 标签会自动构建并推送 GHCR 镜像（`latest` 与提交 SHA 标签）。
+- `GET /healthz`：快速健康检查
+- `GET /readyz`：服务就绪检查
 
 ## 项目结构
 
-```
-backend/      # 基于 FastAPI 的后端服务与任务调度器
-tg_signer/    # 基于 Pyrogram 的 Telegram 自动化核心引擎
-frontend/     # 基于 Next.js 的现代化管理面板
+```text
+backend/      FastAPI 后端与调度器
+tg_signer/    Telegram 自动化核心
+frontend/     Next.js 管理面板
 ```
 
-## 最近更新
+## 更新日志
 
 ### 2026-03-06
 
-- 任务动作序列优化：动作排序调整为「发送文本消息 → 点击文字按钮 → 发送骰子 → AI识图 → AI计算」，并同步优化文案与输入提示。
-- AI 动作交互优化：将「AI识图后发文本/点按钮」合并为 `AI识图`，将「AI计算后发文本/点按钮」合并为 `AI计算`，右侧可直接切换子模式。
-- 任务创建体验优化：任务名称支持留空（自动生成默认名称），并更新输入提示为“留空使用默认名称”。
-- 新增任务快速复制/粘贴：任务卡片支持一键复制配置到剪贴板，任务页右上角支持粘贴导入，支持跨账号复制导入。
-- UI 细节修复：修复发送骰子动作在小屏下导致右侧删除按钮宽度异常的问题。
-- 容器权限兼容增强：启动时会自动按 `/data` 挂载目录属主 UID/GID 运行，减少 VPS 环境下数据目录写入失败与 `chmod 777` 依赖。
+- 任务动作序列优化：排序调整为「发送文本消息 -> 点击文字按钮 -> 发送骰子 -> AI识图 -> AI计算」。
+- AI 动作优化：`AI识图`、`AI计算`支持在右侧子模式切换（发文本 / 点按钮）。
+- 任务复制粘贴优化：
+  - 复制任务改为弹窗展示配置，支持一键复制。
+  - 右上角粘贴导入优先自动读剪贴板，失败时自动弹出手动粘贴导入框。
+- 日志展示优化：任务日志弹窗支持显示“任务：XXX执行成功/失败”及最后机器人消息。
+- 主页状态检测优化：刷新/打开页面时账号状态检测更稳，减少误报“检测失败”。
+- 移动端与弹窗 UI 优化：任务卡片操作区布局更紧凑，动作序列控件高度更统一。
+- 导出编码修复：修复含 emoji 配置导出时的编码问题（UTF-8）。
+- 容器权限兼容增强：按 `/data` 挂载目录属主 UID/GID 自动适配运行身份，降低 VPS 写入失败概率。
 
 ### 2026-03-01
 
-- AI 动作升级：图片识别与计算题均支持“发送文本/点击按钮”两种模式（共 4 种 AI 动作），并支持混合编排。
-- 修复 AI 配置保存问题：保存 `base_url/model` 时不会再清空已保存的 API Key。
-- 登录流程调整：手机号验证码登录改为手动点击保存/验证，不再自动提交。
-- 稳定性优化：降低 `TimeoutError` 与 `429 transport flood` 高频日志（回调重试退避、按场景关闭 updates）。
-- 长时运行优化：修复消息处理器重复注册与日志清理协程堆积，降低内存持续增长风险。
-- 新增自定义数据目录：支持在设置面板配置 `data_dir`（保存后重启生效）。
-
-### 2026-02-07
-
-- 修复扫码登录无法正常完成的问题（含 2FA 提交与授权流程）。
-- 扫码登录状态更稳定，不再回退为“等待扫码”。
-- 登录体验优化：手机号验证码登录支持输入验证码后自动验证。
-- 账号删除更彻底，重启后不再自动恢复。
-- 登录弹窗布局优化：确认按钮统一位置，扫码与手机号登录自适应高度、无滚动条。
-
-### 2026-02-04
-
-- 新增扫码登录（QR）：提供扫码入口、状态轮询、过期刷新/取消，成功后会话与现有登录方式一致。
-- dialogs 获取容错：单条异常不再导致 500，边界异常返回已获取的部分结果并记录 warning。
-- 签到执行强化：仅使用已保存的 chat_id，执行前强制 get_chat 预热，归档/不在最近列表也可成功；失败不再假成功。
-- 账号备注持久化并在账号卡片中展示（无备注不影响旧布局）。
-- 选择频道/群组支持搜索（模糊匹配，基于缓存，分页）。
-
-### 2026-02-03
-
-- 权限兼容：启动时探测 `/data` 可写性，不可写自动降级到 `/tmp/tg-signpulse` 并输出 warning（/data 可写时路径与旧版本一致）。
-- 启动稳定：移除 import 阶段的服务单例与数据库引擎初始化，避免 PaaS/ClawCloud 导入崩溃。
-- 任务更新：scheduler 日志写入统一到 `logs/`，写入失败不影响更新结果。
-- 代理体验：SOCKS5 输入提示文案更新为正确格式，旧输入兼容。
-
-### 2026-02-02
-
-- 新增 `TG_SESSION_MODE=string`：使用 session_string + in_memory，避免 `.session` SQLite 锁（默认仍为 file 模式）。
-- 新增迁移脚本 `python -m tools.migrate_session`：从旧 `.session` 导出 session_string（不打印敏感信息）。
-- 新增全局并发限制 `TG_GLOBAL_CONCURRENCY`（默认 1），并确保同账号串行。
-- 启动阶段移除重活，`/healthz` 可在 1~2 秒内响应；新增 `/readyz`。
-- 新增面板 2FA 容错窗口 `APP_TOTP_VALID_WINDOW`（默认 0，不影响旧行为）。
-- 新增账号备注与代理编辑入口，账号卡片支持编辑。
-- 任务执行/刷新聊天时自动使用账号代理（若配置）。
-- Docker 构建：arm64 跳过 tgcrypto 编译，避免 NAS 本地构建报错。
-
-### 2026-01-29
-
-- 并发优化：引入账号级共享锁，彻底解决 `database is locked` 报错。
-- 写入保护：防止同一账号在登录、任务执行或聊天刷新时的并发冲突。
-- 流程强化：增强了登录流程的鲁棒性。
-- 配置优化：完善了 TG API、Secret 与 AI 相关环境变量的解析逻辑。
-- UI 改进：新增账号字符长度限制，并优化了任务弹窗的时间范围显示。
+- AI 动作升级、AI 配置保存修复、手机号验证码登录改为手动确认。
+- `TimeoutError` 与 `429 transport flood` 高频日志优化。
+- 长时运行稳定性与内存占用优化。
+- 新增自定义数据目录配置。
 
 ## 致谢
 
-本项目在原项目基础上进行了大量重构与功能扩展，感谢：
+本项目基于原项目进行重构与扩展，感谢：
 
-- tg-signer by amchii
+- 原项目：[tg-signer](https://github.com/amchii/tg-signer) by [amchii](https://github.com/amchii)
 
-技术栈支持：FastAPI, Uvicorn, APScheduler, Pyrogram/Kurigram, Next.js, Tailwind CSS, OpenAI SDK.
+技术栈：FastAPI、Uvicorn、APScheduler、Pyrogram/Kurigram、Next.js、Tailwind CSS、OpenAI SDK。

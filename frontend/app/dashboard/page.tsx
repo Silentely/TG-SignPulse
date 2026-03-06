@@ -176,23 +176,59 @@ export default function Dashboard() {
     });
 
     try {
-      const result = await checkAccountsStatus(tokenStr, {
+      const firstPass = await checkAccountsStatus(tokenStr, {
         account_names: accountNames,
-        timeout_seconds: 6,
+        timeout_seconds: 8,
       });
 
-      const nextMap: Record<string, AccountStatusItem> = {};
-      for (const item of result.results || []) {
-        nextMap[item.account_name] = item;
+      const firstMap: Record<string, AccountStatusItem> = {};
+      for (const item of firstPass.results || []) {
+        firstMap[item.account_name] = item;
+      }
+
+      const retryNames = accountNames.filter((name) => {
+        const item = firstMap[name];
+        if (!item) return true;
+        if (item.needs_relogin) return false;
+        return item.status === "error" || item.status === "checking";
+      });
+
+      const retryMap: Record<string, AccountStatusItem> = {};
+      if (retryNames.length > 0) {
+        try {
+          const retryPass = await checkAccountsStatus(tokenStr, {
+            account_names: retryNames,
+            timeout_seconds: 12,
+          });
+          for (const item of retryPass.results || []) {
+            retryMap[item.account_name] = item;
+          }
+        } catch {
+          // keep first-pass result
+        }
       }
 
       setAccountStatusMap((prev) => {
         const merged: Record<string, AccountStatusItem> = {};
         for (const name of accountNames) {
-          merged[name] = nextMap[name] || prev[name] || {
+          const incoming = retryMap[name] || firstMap[name];
+          if (incoming) {
+            const prevItem = prev[name];
+            if (
+              incoming.status === "error" &&
+              !incoming.needs_relogin &&
+              prevItem?.status === "connected"
+            ) {
+              merged[name] = prevItem;
+              continue;
+            }
+            merged[name] = incoming;
+            continue;
+          }
+          merged[name] = prev[name] || {
             account_name: name,
             ok: false,
-            status: "error",
+            status: "checking",
             message: "",
             needs_relogin: false,
           };
@@ -206,7 +242,7 @@ export default function Dashboard() {
           merged[name] = prev[name] || {
             account_name: name,
             ok: false,
-            status: "error",
+            status: "checking",
             message: "",
             needs_relogin: false,
           };

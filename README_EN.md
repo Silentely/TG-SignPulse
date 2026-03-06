@@ -2,26 +2,37 @@
 
 [中文说明](README.md)
 
-TG-SignPulse is an automation management panel for Telegram. It provides multi-account management, auto check-ins, scheduled tasks, and button interactions, offering an efficient and intelligent automation workflow.
+TG-SignPulse is a Telegram automation panel. It helps you manage multiple accounts, run auto check-in tasks, and monitor execution logs from a web UI.
 
-> AI-assisted: This project integrates AI helpers, and some logic was co-developed with AI.
+> AI-powered: AI actions (vision/math) are integrated and can be used directly in task workflows.
 
-## ✨ Features
+## What Is This Project For?
 
-- Multi-account management and unified scheduling
-- Automated check-ins, scheduled messages, and button clicks
-- Time randomization to reduce risk
-- Modern Next.js-based admin UI
-- AI helpers (image option recognition, calculation replies)
-- Docker-first deployment
+- Manage multiple Telegram accounts in one place
+- Automate check-ins, message sending, and button clicking
+- Use AI actions for image recognition and math challenges
+- View execution flow logs and recent bot replies
+- Run reliably on a VPS for long-term automation
 
-## Quick Start
+## Key Features
+
+- Multi-account management
+- Action sequences: `Send Text`, `Click Text Button`, `Send Dice`, `AI Vision`, `AI Calculate`
+- Visual logs with task-level details
+- Stability improvements for timeout/429 scenarios and long-running memory behavior
+- Docker-first deployment (easy to start and migrate)
+
+## Beginner Deployment (3 Steps)
+
+1. Install Docker
+2. Run the container command below
+3. Open `http://YOUR_SERVER_IP:8080` in a browser and log in
 
 Default credentials:
 - Username: `admin`
 - Password: `admin123`
 
-### Docker Run
+### One-command Deploy
 
 ```bash
 docker run -d \
@@ -29,69 +40,41 @@ docker run -d \
   --restart unless-stopped \
   -p 8080:8080 \
   -v $(pwd)/data:/data \
-  -e PORT=8080 \
   -e TZ=Asia/Shanghai \
-  # Optional: set Telegram API for better stability
-  # -e TG_API_ID=123456 \
-  # -e TG_API_HASH=xxxxxxxxxxxxxxxx \
-  # Optional: recommended on arm64 to avoid database is locked
-  # -e TG_SESSION_MODE=string \
-  # -e TG_SESSION_NO_UPDATES=1 \
-  # -e TG_GLOBAL_CONCURRENCY=1 \
-  # Optional: panel 2FA tolerance window (default 0)
-  # -e APP_TOTP_VALID_WINDOW=1 \
-  # Optional: custom backend secret
-  # -e APP_SECRET_KEY=your_secret_key \
-  # Optional: AI config (OpenAI or compatible)
-  # -e OPENAI_API_KEY=sk-xxxx \
-  # -e OPENAI_BASE_URL=https://api.openai.com/v1 \
-  # -e OPENAI_MODEL=gpt-4o \
+  -e APP_SECRET_KEY=your_secret_key \
   ghcr.io/akasls/tg-signpulse:latest
 ```
 
-### Docker Compose
+If you use a reverse proxy, bind locally only:
+
+```bash
+-p 127.0.0.1:8080:8080
+```
+
+### Docker Compose (Optional)
 
 ```yaml
 services:
   app:
     image: ghcr.io/akasls/tg-signpulse:latest
     container_name: tg-signpulse
+    restart: unless-stopped
     ports:
       - "8080:8080"
     volumes:
       - ./data:/data
     environment:
-      - PORT=8080
       - TZ=Asia/Shanghai
-      # Optional: recommended on arm64 to avoid database is locked
-      # - TG_SESSION_MODE=string
-      # - TG_SESSION_NO_UPDATES=1
-      # - TG_GLOBAL_CONCURRENCY=1
-      # Optional: panel 2FA tolerance window (default 0)
-      # - APP_TOTP_VALID_WINDOW=1
-      # Optional: custom backend secret
-      # - APP_SECRET_KEY=your_secret_key
-    restart: unless-stopped
+      - APP_SECRET_KEY=your_secret_key
 ```
 
-### Zeabur Deployment
+## Data Directory & Permissions
 
-- Create a new project in the console.
-- Service configuration: choose Docker image and set:
-  - Image: `ghcr.io/akasls/tg-signpulse:latest`
-  - Env: `TZ=Asia/Shanghai` (arm64 recommended: `TG_SESSION_MODE=string`, `TG_SESSION_NO_UPDATES=1`, `TG_GLOBAL_CONCURRENCY=1`)
-  - Port: `8080`, type `HTTP`
-  - Persistent volume: ID `data`, path `/data`
-- Deploy and then bind a domain in the service details.
+- Default data directory: `/data`
+- If `/data` is not writable, app falls back to `/tmp/tg-signpulse` (non-persistent)
+- New images can auto-adapt runtime UID/GID to `/data` owner in most VPS setups (usually no need for `chmod 777`)
 
-## Non-root / NAS / ClawCloud Permission Notes
-
-- Default data directory is `/data`. When `/data` is writable, all data (sessions/accounts/tasks/import-export/logs) stays under `/data` as before.
-- If `/data` is not writable, the service automatically falls back to `/tmp/tg-signpulse` and prints a warning (data may be non-persistent).
-- New images can auto-adapt runtime UID/GID to the mounted `/data` owner, so most VPS users no longer need `chmod 777`.
-- For production, mount a writable persistent volume to `/data` instead of relying on `/tmp`.
-
-Troubleshooting inside the container (do NOT use chmod 777):
+Container checks:
 
 ```bash
 id
@@ -99,134 +82,65 @@ ls -ld /data
 touch /data/.probe && rm /data/.probe
 ```
 
-If using a host mount, also check:
+## Common Environment Variables
 
-```bash
-ls -ld ./data
-```
+- `APP_SECRET_KEY`: panel secret key (strongly recommended)
+- `APP_DATA_DIR`: custom data directory (higher priority than panel setting)
+- `TG_SESSION_MODE`: `file` (default) or `string` (recommended on arm64)
+- `TG_SESSION_NO_UPDATES`: set `1` to enable `no_updates` (`string` mode only)
+- `TG_GLOBAL_CONCURRENCY`: global concurrency limit (default `1`)
+- `APP_TOTP_VALID_WINDOW`: panel 2FA tolerance window
 
-## Optional Environment Variables
+## Custom Data Directory
 
-All variables are optional; default behavior matches the previous version when not set:
+You can set the data directory in two ways:
 
-- `TG_SESSION_MODE`: `file` (default) or `string`. `string` uses session_string + in_memory to avoid `.session` SQLite locks (recommended on arm64).
-- `TG_SESSION_NO_UPDATES`: `1` enables `no_updates` (only in `string` mode, default `0`).
-- `TG_GLOBAL_CONCURRENCY`: global concurrency limit (default `1`, keep `1` on arm64).
-- `APP_TOTP_VALID_WINDOW`: panel 2FA tolerance window (default `0`, set to `1` to allow ±1 step).
-- `PORT`: listen port (default `8080`, read by container command).
-- `APP_DATA_DIR`: custom data directory (higher priority than panel config), e.g. `/opt/tg-signpulse-data`.
-
-## Custom Data Directory (New)
-
-You can now set the data directory in two ways:
-
-1. Panel setting (recommended)
-- Go to `System Settings -> Global Sign-in Settings -> Data Directory`.
-- Save the path.
-- Restart the backend service to apply.
-
-2. Environment variable
-- Set `APP_DATA_DIR=/your/path`.
-- This has higher priority than the panel setting.
+1. Panel: `System Settings -> Global Sign-in Settings -> Data Directory`
+2. Env var: `APP_DATA_DIR=/your/path`
 
 Notes:
-- The data directory stores sessions, task configs, logs, and the database.
-- Ensure the directory is writable inside the container and mounted as a persistent volume.
-
-## Session Migration (Optional)
-
-Export session_string from existing `.session` files (does not print session_string):
-
-```bash
-python -m tools.migrate_session
-# or python tools/migrate_session.py --account your_account
-```
+- Restart backend service after changing it
+- The path must be writable and mounted as persistent volume
 
 ## Health Checks
 
-- `GET /healthz`: returns 200 immediately with no external dependency
-- `GET /readyz`: returns 200 after background init
-
-## Multi-arch Image Build
-
-```bash
-docker buildx build --platform linux/amd64,linux/arm64 -t ghcr.io/akasls/tg-signpulse:latest --push .
-```
-
-GitHub Actions: pushes to `main` or tags `v*` will auto-build and push GHCR images (`latest` and commit SHA tags).
+- `GET /healthz`: quick health endpoint
+- `GET /readyz`: readiness endpoint
 
 ## Project Structure
 
-```
-backend/      # FastAPI backend and scheduler
-tg_signer/    # Pyrogram-based Telegram automation core
-frontend/     # Next.js admin UI
+```text
+backend/      FastAPI backend and scheduler
+tg_signer/    Telegram automation core
+frontend/     Next.js management panel
 ```
 
-## Recent Updates
+## Changelog
 
 ### 2026-03-06
 
-- Task action sequence refined: action order is now `Send Text Message -> Click Text Button -> Send Dice -> AI Vision -> AI Calculate`, with updated labels/placeholders.
-- AI action UX improved: `AI Vision Send/Click` is unified under `AI Vision`, and `AI Math Send/Click` is unified under `AI Calculate` with an inline sub-mode selector.
-- Task creation UX improved: task name can be left empty (auto-generated default name), and the input hint was updated accordingly.
-- Added quick task copy/paste: copy a task config from a task card to clipboard, then paste-import from the top-right action; cross-account copy/import is supported.
-- UI fix: corrected layout where dice actions could squeeze the delete button width on smaller screens.
-- Container permission compatibility improved: startup now runs with the mounted `/data` owner UID/GID to reduce write failures and avoid `chmod 777` in common VPS setups.
+- Action sequence order optimized: `Send Text -> Click Text Button -> Send Dice -> AI Vision -> AI Calculate`.
+- AI actions refined: `AI Vision` and `AI Calculate` now support inline sub-modes (send text / click button).
+- Task copy/paste UX improved:
+  - Copy now opens a config dialog with one-click copy.
+  - Top-right paste import tries clipboard first; falls back to manual paste dialog when unavailable.
+- Task log dialog improved: now shows `Task: XXX succeeded/failed` and the latest bot reply.
+- Dashboard status checks improved on page open/refresh to reduce false "Check Failed".
+- Mobile/layout polish: task card action area is more compact, action-row control heights are unified.
+- UTF-8 export fix: resolved task copy/export errors with emoji content.
+- Container permission compatibility improved with `/data` owner UID/GID adaptation.
 
 ### 2026-03-01
 
-- AI actions upgraded: both image recognition and math now support two modes each (`send text` / `click button`) for 4 AI action types in total, and can be mixed in one workflow.
-- Fixed AI config save behavior: saving `base_url/model` no longer clears the existing API key.
-- Login flow adjusted: phone code login now requires manual save/verify click (no auto-submit).
-- Stability improvements: reduced frequent `TimeoutError` and `429 transport flood` logs (retry/backoff + scenario-based updates control).
-- Long-run optimization: fixed duplicate message handler registration and cleanup task buildup to reduce memory growth risk.
-- Added custom data directory support: configurable `data_dir` in settings (takes effect after backend restart).
+- AI action upgrade, AI config save fix, and phone code login changed to manual confirmation.
+- Reduced frequent `TimeoutError` and `429 transport flood` logs.
+- Long-running stability and memory optimizations.
+- Added custom data directory support.
 
-### 2026-02-07
+## Acknowledgements
 
-- Fixed QR login completion issues (including 2FA submit and authorization flow).
-- QR login status no longer falls back to “waiting for scan”.
-- Login UX improvements for phone-code flow.
-- Account deletion is now persistent across restarts.
-- Login modal layout refined: unified confirm button placement and no scrollbar for QR/phone login.
+This project is heavily refactored and extended based on the original project:
 
-### 2026-02-04
-
-- Added QR login: new entry, status polling, refresh/cancel on expiry; session output matches existing login.
-- Dialogs fetching made safe: per-item failures no longer cause 500; edge errors return partial results with warnings.
-- Sign execution hardened: uses saved chat_id only and preheats with get_chat; archived/not-recent chats still work; no false success.
-- Account remarks are persisted and shown on account cards (no layout change when empty).
-- Chat selection now supports search (fuzzy match, cached, paginated).
-
-### 2026-02-03
-
-- Permission compatibility: probe `/data` on startup; fall back to `/tmp/tg-signpulse` with a warning if not writable (no behavior change when `/data` is writable).
-- Startup stability: removed import-time service singletons and DB engine initialization to prevent PaaS/ClawCloud import crashes.
-- Task updates: scheduler logs now write under `logs/`; logging failures won't break updates.
-- Proxy UX: SOCKS5 placeholder text updated; legacy inputs remain compatible.
-
-### 2026-02-02
-
-- Added `TG_SESSION_MODE=string`: session_string + in_memory to avoid `.session` SQLite lock (default still file mode).
-- Added migration script `python -m tools.migrate_session` (no sensitive output).
-- Added global concurrency `TG_GLOBAL_CONCURRENCY` (default 1) and per-account serialization.
-- Startup made lightweight; `/healthz` responds in 1–2s; added `/readyz`.
-- Added panel 2FA tolerance `APP_TOTP_VALID_WINDOW` (default 0).
-- Added account remark/proxy editing entry on account cards.
-- Task runs/chat refresh now use account proxy when configured.
-- Docker build: skip tgcrypto on arm64 to avoid NAS local build failures.
-
-### 2026-01-29
-
-- Concurrency improvements: account-level shared lock to fix `database is locked`.
-- Write protection: avoid concurrent conflicts during login/task/chat refresh.
-- Login flow hardening.
-- Config improvements for TG API/Secret/AI env parsing.
-- UI tweaks: account name length limit and task modal time range.
-
-## Credits
-
-- tg-signer by amchii
+- Original project: [tg-signer](https://github.com/amchii/tg-signer) by [amchii](https://github.com/amchii)
 
 Tech stack: FastAPI, Uvicorn, APScheduler, Pyrogram/Kurigram, Next.js, Tailwind CSS, OpenAI SDK.
