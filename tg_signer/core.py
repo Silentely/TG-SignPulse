@@ -1184,13 +1184,18 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
     async def _click_keyboard_by_text(
         self, action: ClickKeyboardByTextAction, message: Message
     ):
+        target_text = (action.text or "").strip()
+        if not target_text:
+            self.log("Click button action has empty target text", level="WARNING")
+            return False
+
         if reply_markup := message.reply_markup:
             if isinstance(reply_markup, InlineKeyboardMarkup):
                 flat_buttons = (b for row in reply_markup.inline_keyboard for b in row)
                 option_to_btn: dict[str, InlineKeyboardButton] = {}
                 for btn in flat_buttons:
                     option_to_btn[btn.text] = btn
-                    if action.text in btn.text:
+                    if btn.text and target_text in btn.text:
                         self.log(f"点击按钮: {btn.text}")
                         await self.request_callback_answer(
                             self.app,
@@ -1199,14 +1204,22 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                             btn.callback_data,
                         )
                         return True
+                self.log(
+                    f"Target button not found in inline keyboard: {target_text}",
+                    level="WARNING",
+                )
             elif isinstance(reply_markup, ReplyKeyboardMarkup):
                 for row in reply_markup.keyboard:
                     for btn in row:
                         btn_text = getattr(btn, "text", None)
-                        if btn_text and action.text in btn_text:
+                        if btn_text and target_text in btn_text:
                             self.log(f"发送按钮文本: {btn_text}")
                             await self.send_message(message.chat.id, btn_text)
                             return True
+                self.log(
+                    f"Target button not found in reply keyboard: {target_text}",
+                    level="WARNING",
+                )
         return False
 
     async def _reply_by_calculation_problem(
@@ -1312,49 +1325,22 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         self.context.waiter.add(chat.chat_id)
         start = time.perf_counter()
         last_message = None
-        while time.perf_counter() - start < timeout:
-            await asyncio.sleep(0.3)
-            messages_dict = self.context.chat_messages.get(chat.chat_id)
-            if not messages_dict:
-                continue
-            messages = list(messages_dict.values())
-            # 暂无新消息
-            if messages[-1] == last_message:
-                continue
-            last_message = messages[-1]
-            for message in messages:
-                self.context.waiting_message = message
-                ok = False
-                if isinstance(action, ClickKeyboardByTextAction):
-                    ok = await self._click_keyboard_by_text(action, message)
-                elif isinstance(action, ReplyByCalculationProblemAction):
-                    ok = await self._reply_by_calculation_problem(action, message)
-                elif isinstance(action, ChooseOptionByImageAction):
-                    ok = await self._choose_option_by_image(action, message)
-                elif isinstance(action, ReplyByImageRecognitionAction):
-                    ok = await self._reply_by_image_recognition(action, message)
-                elif isinstance(action, ClickButtonByCalculationProblemAction):
-                    ok = await self._click_button_by_calculation_problem(action, message)
-                if ok:
-                    self.context.waiter.sub(message.chat.id)
-                    # 将消息ID对应value置为None，保证收到消息的编辑时消息所处的顺序
-                    self.context.chat_messages[chat.chat_id][message.id] = None
-                    return None
-                self.log(f"忽略消息: {readable_message(message)}")
-        # Fallback: try recent history in case message handlers missed the reply.
-        if isinstance(
-            action,
-            (
-                ClickKeyboardByTextAction,
-                ReplyByCalculationProblemAction,
-                ChooseOptionByImageAction,
-                ReplyByImageRecognitionAction,
-                ClickButtonByCalculationProblemAction,
-            ),
-        ):
-            try:
-                self.log("等待超时，尝试从历史消息中查找按钮", level="WARNING")
-                async for message in self.app.get_chat_history(chat.chat_id, limit=5):
+        try:
+            while time.perf_counter() - start < timeout:
+                await asyncio.sleep(0.3)
+                messages_dict = self.context.chat_messages.get(chat.chat_id)
+                if not messages_dict:
+                    continue
+                messages = list(messages_dict.values())
+                # 暂无新消息
+                if messages[-1] == last_message:
+                    continue
+                last_message = messages[-1]
+                for message in messages:
+                    if message is None:
+                        continue
+                    self.context.waiting_message = message
+                    ok = False
                     if isinstance(action, ClickKeyboardByTextAction):
                         ok = await self._click_keyboard_by_text(action, message)
                     elif isinstance(action, ReplyByCalculationProblemAction):
@@ -1363,17 +1349,56 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                         ok = await self._choose_option_by_image(action, message)
                     elif isinstance(action, ReplyByImageRecognitionAction):
                         ok = await self._reply_by_image_recognition(action, message)
-                    else:
-                        ok = await self._click_button_by_calculation_problem(
-                            action, message
-                        )
+                    elif isinstance(action, ClickButtonByCalculationProblemAction):
+                        ok = await self._click_button_by_calculation_problem(action, message)
                     if ok:
+                        # 将消息ID对应value置为None，保证收到消息的编辑时消息所处的顺序
+                        self.context.chat_messages[chat.chat_id][message.id] = None
                         return None
-            except Exception as e:
-                self.log(f"历史消息回退失败: {e}", level="WARNING")
+                    self.log(f"忽略消息: {readable_message(message)}")
+            # Fallback: try recent history in case message handlers missed the reply.
+            if isinstance(
+                action,
+                (
+                    ClickKeyboardByTextAction,
+                    ReplyByCalculationProblemAction,
+                    ChooseOptionByImageAction,
+                    ReplyByImageRecognitionAction,
+                    ClickButtonByCalculationProblemAction,
+                ),
+            ):
+                try:
+                    self.log("等待超时，尝试从历史消息中查找按钮", level="WARNING")
+                    async for message in self.app.get_chat_history(chat.chat_id, limit=5):
+                        if isinstance(action, ClickKeyboardByTextAction):
+                            ok = await self._click_keyboard_by_text(action, message)
+                        elif isinstance(action, ReplyByCalculationProblemAction):
+                            ok = await self._reply_by_calculation_problem(action, message)
+                        elif isinstance(action, ChooseOptionByImageAction):
+                            ok = await self._choose_option_by_image(action, message)
+                        elif isinstance(action, ReplyByImageRecognitionAction):
+                            ok = await self._reply_by_image_recognition(action, message)
+                        else:
+                            ok = await self._click_button_by_calculation_problem(
+                                action, message
+                            )
+                        if ok:
+                            return None
+                except Exception as e:
+                    self.log(f"历史消息回退失败: {e}", level="WARNING")
 
-        self.log(f"等待超时: \nchat: \n{chat} \naction: {action}", level="WARNING")
-        return None
+            self.log(f"等待超时: \nchat: \n{chat} \naction: {action}", level="WARNING")
+            if isinstance(
+                action,
+                (ClickKeyboardByTextAction, ClickButtonByCalculationProblemAction),
+            ):
+                raise RuntimeError(
+                    f"Target button not found within {timeout}s. chat_id={chat.chat_id}, action={action}"
+                )
+            return None
+        finally:
+            self.context.waiter.discard(chat.chat_id)
+            self.context.waiting_message = None
 
     async def request_callback_answer(
         self,

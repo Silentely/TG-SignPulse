@@ -177,6 +177,26 @@ export interface AccountInfo {
   proxy?: string | null;
 }
 
+export interface AccountStatusCheckRequest {
+  account_names?: string[];
+  timeout_seconds?: number;
+}
+
+export interface AccountStatusItem {
+  account_name: string;
+  ok: boolean;
+  status: "connected" | "invalid" | "error" | "not_found" | string;
+  message?: string;
+  code?: string;
+  checked_at?: string;
+  needs_relogin?: boolean;
+  user_id?: number;
+}
+
+export interface AccountStatusCheckResponse {
+  results: AccountStatusItem[];
+}
+
 export const startAccountLogin = (token: string, data: LoginStartRequest) =>
   request<LoginStartResponse>("/accounts/login/start", {
     method: "POST",
@@ -191,6 +211,12 @@ export const verifyAccountLogin = (token: string, data: LoginVerifyRequest) =>
 
 export const listAccounts = (token: string) =>
   request<{ accounts: AccountInfo[]; total: number }>("/accounts", {}, token);
+
+export const checkAccountsStatus = (token: string, data: AccountStatusCheckRequest) =>
+  request<AccountStatusCheckResponse>("/accounts/status/check", {
+    method: "POST",
+    body: JSON.stringify(data),
+  }, token);
 
 export const deleteAccount = (token: string, accountName: string) =>
   request<{ success: boolean; message: string }>(`/accounts/${accountName}`, {
@@ -478,6 +504,8 @@ export interface AccountLog {
   account_name: string;
   task_name: string;
   message: string;
+  summary?: string;
+  bot_message?: string;
   success: boolean;
   created_at: string;
 }
@@ -636,5 +664,30 @@ export const getSignTaskLogs = (token: string, name: string, accountName?: strin
     if (accountName) params.append("account_name", accountName);
     const url = `/sign-tasks/${name}/logs${params.toString() ? `?${params.toString()}` : ""}`;
     return request<string[]>(url, {}, token);
+};
+
+export interface SignTaskHistoryItem {
+  time: string;
+  success: boolean;
+  message?: string;
+  flow_logs?: string[];
+  flow_truncated?: boolean;
+  flow_line_count?: number;
+}
+
+export const getSignTaskHistory = (
+  token: string,
+  name: string,
+  accountName: string,
+  limit: number = 20
+) => {
+  const params = new URLSearchParams();
+  params.append("account_name", accountName);
+  params.append("limit", String(limit));
+  return request<SignTaskHistoryItem[]>(
+    `/sign-tasks/${name}/history?${params.toString()}`,
+    {},
+    token
+  );
 };
 

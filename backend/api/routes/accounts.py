@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import re
 from typing import Optional
 import logging
 
@@ -157,6 +159,32 @@ class AccountUpdateResponse(BaseModel):
     success: bool
     message: str
     account: Optional[AccountInfo] = None
+
+
+class AccountStatusCheckRequest(BaseModel):
+    """批量账号状态检测请求"""
+
+    account_names: Optional[list[str]] = None
+    timeout_seconds: float = 6.0
+
+
+class AccountStatusItem(BaseModel):
+    """账号状态检测结果"""
+
+    account_name: str
+    ok: bool
+    status: str
+    message: str = ""
+    code: Optional[str] = None
+    checked_at: Optional[str] = None
+    needs_relogin: bool = False
+    user_id: Optional[int] = None
+
+
+class AccountStatusCheckResponse(BaseModel):
+    """批量账号状态检测响应"""
+
+    results: list[AccountStatusItem]
 
 
 # ============ API Routes ============
@@ -368,6 +396,50 @@ def list_accounts(current_user: User = Depends(get_current_user)):
         )
 
 
+@router.post("/status/check", response_model=AccountStatusCheckResponse)
+async def check_accounts_status(
+    request: AccountStatusCheckRequest, current_user: User = Depends(get_current_user)
+):
+    """
+    批量检测账号状态。
+
+    说明：
+    - 默认按当前账号列表检测；
+    - 顺序检测并做轻微节流，避免刷新页面时触发请求洪峰。
+    """
+    service = get_telegram_service()
+    try:
+        if request.account_names:
+            names = []
+            seen = set()
+            for name in request.account_names:
+                normalized = (name or "").strip()
+                if not normalized or normalized in seen:
+                    continue
+                seen.add(normalized)
+                names.append(normalized)
+        else:
+            names = [item.get("name", "") for item in service.list_accounts()]
+            names = [n for n in names if n]
+
+        timeout_seconds = max(1.0, min(float(request.timeout_seconds or 6.0), 20.0))
+        results: list[AccountStatusItem] = []
+        for idx, name in enumerate(names):
+            item = await service.check_account_status(
+                name, timeout_seconds=timeout_seconds
+            )
+            results.append(AccountStatusItem(**item))
+            if idx < len(names) - 1:
+                await asyncio.sleep(0.15)
+
+        return AccountStatusCheckResponse(results=results)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"账号状态检测失败: {str(e)}",
+        )
+
+
 @router.delete("/{account_name}", response_model=DeleteAccountResponse)
 async def delete_account(
     account_name: str, current_user: User = Depends(get_current_user)
@@ -464,8 +536,50 @@ class AccountLogItem(BaseModel):
     account_name: str
     task_name: str
     message: str
+    summary: Optional[str] = None
+    bot_message: Optional[str] = None
     success: bool
     created_at: str
+
+
+def _extract_last_bot_message(item: dict) -> str:
+    flow_logs = item.get("flow_logs")
+    if not isinstance(flow_logs, list):
+        return ""
+
+    lines: list[str] = []
+    for raw in flow_logs:
+        if raw is None:
+            continue
+        text = str(raw).strip()
+        if not text:
+            continue
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            line = re.sub(r"^\d{4}-\d{2}-\d{2}[^-]*-\s*", "", line)
+            if line:
+                lines.append(line)
+
+    if not lines:
+        return ""
+
+    for line in reversed(lines):
+        lower = line.lower()
+        if "text:" in lower:
+            idx = lower.find("text:")
+            value = line[idx + 5 :].strip()
+            if value:
+                return value
+
+    keywords = ("sign", "success", "failed", "reward", "points", "checkin")
+    for line in reversed(lines):
+        low = line.lower()
+        if any(keyword in low for keyword in keywords):
+            return line
+
+    return ""
 
 
 class ClearAccountLogsResponse(BaseModel):
@@ -499,6 +613,14 @@ def get_account_logs(
                 created_at=item.get("time", ""),
             )
         )
+
+    for idx, item in enumerate(history[:limit]):
+        if idx >= len(logs):
+            break
+        task_name = logs[idx].task_name or "Unknown Task"
+        success = bool(logs[idx].success)
+        logs[idx].summary = f"Task: {task_name} {'success' if success else 'failed'}"
+        logs[idx].bot_message = _extract_last_bot_message(item) or None
 
     return logs
 

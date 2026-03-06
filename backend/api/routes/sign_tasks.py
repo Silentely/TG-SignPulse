@@ -171,6 +171,15 @@ class RunTaskResult(BaseModel):
     error: str
 
 
+class TaskHistoryItem(BaseModel):
+    time: str
+    success: bool
+    message: str = ""
+    flow_logs: List[str] = Field(default_factory=list)
+    flow_truncated: bool = False
+    flow_line_count: int = 0
+
+
 # API 路由
 
 
@@ -328,6 +337,24 @@ def get_sign_task_logs(
     """获取正在运行任务的实时日志"""
     logs = get_sign_task_service().get_active_logs(task_name, account_name=account_name)
     return logs
+
+
+@router.get("/{task_name}/history", response_model=List[TaskHistoryItem])
+def get_sign_task_history(
+    task_name: str,
+    account_name: str,
+    limit: int = Query(20, ge=1, le=200),
+    current_user=Depends(get_current_user),
+):
+    task = get_sign_task_service().get_task(task_name, account_name=account_name)
+    if not task:
+        raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
+
+    return get_sign_task_service().get_task_history_logs(
+        task_name=task_name,
+        account_name=account_name,
+        limit=limit,
+    )
 
 
 @router.get("/chats/{account_name}", response_model=List[ChatOut])

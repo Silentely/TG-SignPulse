@@ -164,6 +164,14 @@ frontend/     # Next.js admin UI
 
 ## Recent Updates
 
+### 2026-03-06
+
+- Task action sequence refined: action order is now `Send Text Message -> Click Text Button -> Send Dice -> AI Vision -> AI Calculate`, with updated labels/placeholders.
+- AI action UX improved: `AI Vision Send/Click` is unified under `AI Vision`, and `AI Math Send/Click` is unified under `AI Calculate` with an inline sub-mode selector.
+- Task creation UX improved: task name can be left empty (auto-generated default name), and the input hint was updated accordingly.
+- Added quick task copy/paste: copy a task config from a task card to clipboard, then paste-import from the top-right action; cross-account copy/import is supported.
+- UI fix: corrected layout where dice actions could squeeze the delete button width on smaller screens.
+
 ### 2026-03-01
 
 - AI actions upgraded: both image recognition and math now support two modes each (`send text` / `click button`) for 4 AI action types in total, and can be mixed in one workflow.

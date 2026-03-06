@@ -7,6 +7,7 @@ import Link from "next/link";
 import { getToken } from "../../lib/auth";
 import {
   listAccounts,
+  checkAccountsStatus,
   startAccountLogin,
   startQrLogin,
   getQrLoginStatus,
@@ -19,6 +20,7 @@ import {
   clearAccountLogs,
   listSignTasks,
   AccountInfo,
+  AccountStatusItem,
   AccountLog,
   SignTask,
 } from "../../lib/api";
@@ -38,6 +40,15 @@ import { ToastContainer, useToast } from "../../components/ui/toast";
 import { ThemeLanguageToggle } from "../../components/ThemeLanguageToggle";
 import { useLanguage } from "../../context/LanguageContext";
 
+const EMPTY_LOGIN_DATA = {
+  account_name: "",
+  phone_number: "",
+  proxy: "",
+  phone_code: "",
+  password: "",
+  phone_code_hash: "",
+};
+
 export default function Dashboard() {
   const router = useRouter();
   const { t } = useLanguage();
@@ -55,14 +66,8 @@ export default function Dashboard() {
 
   // 添加账号对话框
   const [showAddDialog, setShowAddDialog] = useState(false);
-  const [loginData, setLoginData] = useState({
-    account_name: "",
-    phone_number: "",
-    proxy: "",
-    phone_code: "",
-    password: "",
-    phone_code_hash: "",
-  });
+  const [loginData, setLoginData] = useState({ ...EMPTY_LOGIN_DATA });
+  const [reloginAccountName, setReloginAccountName] = useState<string | null>(null);
   const [loginMode, setLoginMode] = useState<"phone" | "qr">("phone");
   const [qrLogin, setQrLogin] = useState<{
     login_id: string;
@@ -114,13 +119,23 @@ export default function Dashboard() {
   const sanitizeAccountName = (name: string) =>
     name.replace(/[^A-Za-z0-9\u4e00-\u9fff]/g, "");
 
-  const isDuplicateAccountName = useCallback((name: string) => {
+  const isDuplicateAccountName = useCallback((name: string, allowedSameName?: string | null) => {
     const normalized = normalizeAccountName(name).toLowerCase();
     if (!normalized) return false;
-    return accounts.some(acc => acc.name.toLowerCase() === normalized);
+    const allow = normalizeAccountName(allowedSameName || "").toLowerCase();
+    return accounts.some((acc) => {
+      const current = acc.name.toLowerCase();
+      if (allow && current === allow && normalized === allow) {
+        return false;
+      }
+      return current === normalized;
+    });
   }, [accounts, normalizeAccountName]);
 
   const [checking, setChecking] = useState(true);
+  const [dataLoaded, setDataLoaded] = useState(false);
+  const [accountStatusMap, setAccountStatusMap] = useState<Record<string, AccountStatusItem>>({});
+  const statusCheckedRef = useRef(false);
 
   const addToastRef = useRef(addToast);
   const tRef = useRef(t);
@@ -139,6 +154,68 @@ export default function Dashboard() {
     return code ? `${base} (${code})` : base;
   }, []);
 
+  const checkAccountStatusOnce = useCallback(async (tokenStr: string, accountList: AccountInfo[]) => {
+    const accountNames = accountList.map((item) => item.name).filter(Boolean);
+    if (accountNames.length === 0) {
+      setAccountStatusMap({});
+      return;
+    }
+
+    setAccountStatusMap((prev) => {
+      const next = { ...prev };
+      for (const name of accountNames) {
+        next[name] = {
+          account_name: name,
+          ok: false,
+          status: "checking",
+          message: "",
+          needs_relogin: false,
+        };
+      }
+      return next;
+    });
+
+    try {
+      const result = await checkAccountsStatus(tokenStr, {
+        account_names: accountNames,
+        timeout_seconds: 6,
+      });
+
+      const nextMap: Record<string, AccountStatusItem> = {};
+      for (const item of result.results || []) {
+        nextMap[item.account_name] = item;
+      }
+
+      setAccountStatusMap((prev) => {
+        const merged: Record<string, AccountStatusItem> = {};
+        for (const name of accountNames) {
+          merged[name] = nextMap[name] || prev[name] || {
+            account_name: name,
+            ok: false,
+            status: "error",
+            message: "",
+            needs_relogin: false,
+          };
+        }
+        return merged;
+      });
+    } catch {
+      setAccountStatusMap((prev) => {
+        const merged: Record<string, AccountStatusItem> = {};
+        for (const name of accountNames) {
+          merged[name] = prev[name] || {
+            account_name: name,
+            ok: false,
+            status: "error",
+            message: "",
+            needs_relogin: false,
+          };
+        }
+        return merged;
+      });
+    }
+  }, []);
+
   const loadData = useCallback(async (tokenStr: string) => {
     try {
       setLoading(true);
@@ -152,6 +229,7 @@ export default function Dashboard() {
       addToastRef.current(formatErrorMessage("load_failed", err), "error");
     } finally {
       setLoading(false);
+      setDataLoaded(true);
     }
   }, [formatErrorMessage]);
 
@@ -163,11 +241,26 @@ export default function Dashboard() {
     }
     setLocalToken(tokenStr);
     setChecking(false);
+    setDataLoaded(false);
+    statusCheckedRef.current = false;
     loadData(tokenStr);
   }, [loadData]);
 
+  useEffect(() => {
+    if (!token || !dataLoaded || statusCheckedRef.current) return;
+    statusCheckedRef.current = true;
+    checkAccountStatusOnce(token, accounts);
+  }, [token, dataLoaded, accounts, checkAccountStatusOnce]);
+
   const getAccountTaskCount = (accountName: string) => {
     return tasks.filter(task => task.account_name === accountName).length;
+  };
+
+  const openAddDialog = () => {
+    setReloginAccountName(null);
+    setLoginMode("phone");
+    setLoginData({ ...EMPTY_LOGIN_DATA });
+    setShowAddDialog(true);
   };
 
   const handleStartLogin = async () => {
@@ -177,7 +270,7 @@ export default function Dashboard() {
       addToast(t("account_name_phone_required"), "error");
       return;
     }
-    if (isDuplicateAccountName(trimmedAccountName)) {
+    if (isDuplicateAccountName(trimmedAccountName, reloginAccountName)) {
       addToast(t("account_name_duplicate"), "error");
       return;
     }
@@ -208,7 +301,7 @@ export default function Dashboard() {
       addToast(t("account_name_required"), "error");
       return;
     }
-    if (isDuplicateAccountName(trimmedAccountName)) {
+    if (isDuplicateAccountName(trimmedAccountName, reloginAccountName)) {
       addToast(t("account_name_duplicate"), "error");
       return;
     }
@@ -223,6 +316,20 @@ export default function Dashboard() {
         proxy: loginData.proxy || undefined,
       });
       addToast(t("login_success"), "success");
+      setAccountStatusMap((prev) => ({
+        ...prev,
+        [trimmedAccountName]: {
+          account_name: trimmedAccountName,
+          ok: true,
+          status: "connected",
+          message: "",
+          code: "OK",
+          checked_at: new Date().toISOString(),
+          needs_relogin: false,
+        },
+      }));
+      setReloginAccountName(null);
+      setLoginData({ ...EMPTY_LOGIN_DATA });
       setShowAddDialog(false);
       loadData(token);
     } catch (err: any) {
@@ -243,6 +350,7 @@ export default function Dashboard() {
     isDuplicateAccountName,
     loadData,
     normalizeAccountName,
+    reloginAccountName,
     t,
   ]);
 
@@ -363,6 +471,28 @@ export default function Dashboard() {
     setQrPasswordLoading(false);
   }, [clearQrTimers]);
 
+  const openReloginDialog = useCallback((acc: AccountInfo) => {
+    resetQrState();
+    setReloginAccountName(acc.name);
+    setLoginMode("phone");
+    setLoginData({
+      ...EMPTY_LOGIN_DATA,
+      account_name: acc.name,
+      proxy: acc.proxy || "",
+    });
+    setShowAddDialog(true);
+    addToast(t("account_relogin_required"), "error");
+  }, [addToast, resetQrState, t]);
+
+  const handleAccountCardClick = useCallback((acc: AccountInfo) => {
+    const statusInfo = accountStatusMap[acc.name];
+    if (statusInfo?.needs_relogin) {
+      openReloginDialog(acc);
+      return;
+    }
+    router.push(`/dashboard/account-tasks?name=${acc.name}`);
+  }, [accountStatusMap, openReloginDialog, router]);
+
   const performQrLoginStart = useCallback(async (options?: { autoRefresh?: boolean; silent?: boolean; reason?: string }) => {
     if (!token) return null;
     const trimmedAccountName = normalizeAccountName(loginData.account_name);
@@ -372,7 +502,7 @@ export default function Dashboard() {
       }
       return null;
     }
-    if (isDuplicateAccountName(trimmedAccountName)) {
+    if (isDuplicateAccountName(trimmedAccountName, reloginAccountName)) {
       if (!options?.silent) {
         addToast(t("account_name_duplicate"), "error");
       }
@@ -416,6 +546,7 @@ export default function Dashboard() {
     formatErrorMessage,
     isDuplicateAccountName,
     normalizeAccountName,
+    reloginAccountName,
     setQrPhaseSafe,
     t,
   ]);
@@ -436,6 +567,23 @@ export default function Dashboard() {
         password: passwordValue,
       });
       addToast(t("login_success"), "success");
+      const doneAccount = normalizeAccountName(loginData.account_name);
+      if (doneAccount) {
+        setAccountStatusMap((prev) => ({
+          ...prev,
+          [doneAccount]: {
+            account_name: doneAccount,
+            ok: true,
+            status: "connected",
+            message: "",
+            code: "OK",
+            checked_at: new Date().toISOString(),
+            needs_relogin: false,
+          },
+        }));
+      }
+      setReloginAccountName(null);
+      setLoginData({ ...EMPTY_LOGIN_DATA });
       resetQrState();
       setShowAddDialog(false);
       loadData(token);
@@ -456,7 +604,17 @@ export default function Dashboard() {
     } finally {
       setQrPasswordLoading(false);
     }
-  }, [token, qrLogin?.login_id, addToast, resetQrState, loadData, t, formatErrorMessage]);
+  }, [
+    token,
+    qrLogin?.login_id,
+    addToast,
+    resetQrState,
+    loadData,
+    t,
+    formatErrorMessage,
+    loginData.account_name,
+    normalizeAccountName,
+  ]);
 
   const startQrPolling = useCallback((loginId: string, reason: string = "effect") => {
     if (!token || !loginId) return;
@@ -509,6 +667,23 @@ export default function Dashboard() {
         if (status === "success") {
           setQrPhaseSafe("success", "poll_success", { status });
           addToast(t("login_success"), "success");
+          const doneAccount = normalizeAccountName(loginData.account_name);
+          if (doneAccount) {
+            setAccountStatusMap((prev) => ({
+              ...prev,
+              [doneAccount]: {
+                account_name: doneAccount,
+                ok: true,
+                status: "connected",
+                message: "",
+                code: "OK",
+                checked_at: new Date().toISOString(),
+                needs_relogin: false,
+              },
+            }));
+          }
+          setReloginAccountName(null);
+          setLoginData({ ...EMPTY_LOGIN_DATA });
           stopPolling();
           resetQrState();
           setShowAddDialog(false);
@@ -593,6 +768,8 @@ export default function Dashboard() {
     hasToastShown,
     loadData,
     markToastShown,
+    loginData.account_name,
+    normalizeAccountName,
     performQrLoginStart,
     resetQrState,
     setQrPhaseSafe,
@@ -629,6 +806,9 @@ export default function Dashboard() {
     if (qrLogin?.login_id) {
       handleCancelQrLogin();
     }
+    setReloginAccountName(null);
+    setLoginData({ ...EMPTY_LOGIN_DATA });
+    setLoginMode("phone");
     setShowAddDialog(false);
   };
 
@@ -736,11 +916,29 @@ export default function Dashboard() {
           <div className="card-grid">
             {accounts.map((acc) => {
               const initial = acc.name.charAt(0).toUpperCase();
+              const statusInfo = accountStatusMap[acc.name];
+              const status = statusInfo?.status || "checking";
+              const statusKey =
+                status === "connected"
+                  ? "connected"
+                  : status === "invalid" || statusInfo?.needs_relogin
+                    ? "account_status_invalid"
+                    : status === "error"
+                      ? "account_status_error"
+                      : "account_status_checking";
+              const statusIconClass =
+                status === "connected"
+                  ? "text-emerald-400/50"
+                  : status === "invalid" || statusInfo?.needs_relogin
+                    ? "text-rose-400/60"
+                    : status === "error"
+                      ? "text-amber-400/60"
+                      : "text-main/40";
               return (
                 <div
                   key={acc.name}
                   className="glass-panel card !h-44 group cursor-pointer"
-                  onClick={() => router.push(`/dashboard/account-tasks?name=${acc.name}`)}
+                  onClick={() => handleAccountCardClick(acc)}
                 >
                   <div className="card-top">
                     <div className="account-name">
@@ -762,9 +960,13 @@ export default function Dashboard() {
                   <div className="flex-1"></div>
 
                   <div className="card-bottom !pt-3">
-                    <div className="create-time">
-                      <Clock weight="fill" className="text-emerald-400/50" />
-                      <span className="text-[11px] font-medium">{t("connected")}</span>
+                    <div className="create-time" title={statusInfo?.message || ""}>
+                      {status === "checking" ? (
+                        <Spinner className="animate-spin text-main/40" size={12} />
+                      ) : (
+                        <Clock weight="fill" className={statusIconClass} />
+                      )}
+                      <span className="text-[11px] font-medium">{t(statusKey)}</span>
                     </div>
                     <div className="card-actions">
                       <div
@@ -797,7 +999,7 @@ export default function Dashboard() {
             {/* 添加新账号卡片 */}
             <div
               className="card card-add !h-44"
-              onClick={() => { setShowAddDialog(true); }}
+              onClick={openAddDialog}
             >
               <div className="add-icon-circle !w-10 !h-10">
                 <Plus weight="bold" size={20} />
@@ -812,7 +1014,9 @@ export default function Dashboard() {
         <div className="modal-overlay active">
           <div className="glass-panel modal-content modal-content-fit !max-w-[420px] !p-6" onClick={e => e.stopPropagation()}>
             <div className="modal-header !mb-5">
-              <div className="modal-title !text-lg">{t("add_account")}</div>
+              <div className="modal-title !text-lg">
+                {reloginAccountName ? t("relogin_account") : t("add_account")}
+              </div>
               <div className="modal-close" onClick={handleCloseAddDialog}><X weight="bold" /></div>
             </div>
 
@@ -897,7 +1101,11 @@ export default function Dashboard() {
 
                   <div className="flex gap-3 mt-6">
                     <button className="btn-secondary flex-1 h-10 !py-0 !text-xs" onClick={handleCloseAddDialog}>{t("cancel")}</button>
-                    <button className="btn-gradient flex-1 h-10 !py-0 !text-xs" onClick={handleVerifyLogin} disabled={loading}>
+                    <button
+                      className="btn-gradient flex-1 h-10 !py-0 !text-xs"
+                      onClick={handleVerifyLogin}
+                      disabled={loading || !loginData.phone_code.trim()}
+                    >
                       {loading ? <Spinner className="animate-spin" /> : t("confirm_connect")}
                     </button>
                   </div>
@@ -1100,9 +1308,20 @@ export default function Dashboard() {
                           {log.success ? t("success") : t("failure")}
                         </span>
                       </div>
-                      <pre className="whitespace-pre-wrap text-main/60 leading-relaxed overflow-x-auto max-h-[150px] scrollbar-none font-medium">
-                        {log.message}
-                      </pre>
+                      <div className="text-main/70 font-semibold mb-2">
+                        {`${t("task_label")}：${log.task_name}${log.success ? t("task_exec_success") : t("task_exec_failed")}`}
+                      </div>
+                      {log.bot_message ? (
+                        <div className="text-main/60 leading-relaxed whitespace-pre-wrap break-words mb-2">
+                          <span className="text-main/35">{t("bot_reply")}：</span>
+                          {log.bot_message}
+                        </div>
+                      ) : null}
+                      {log.message && !["Success", "Failed", "执行成功", "执行失败"].includes(log.message.trim()) ? (
+                        <pre className="whitespace-pre-wrap text-main/45 leading-relaxed overflow-x-auto max-h-[120px] scrollbar-none font-medium">
+                          {log.message}
+                        </pre>
+                      ) : null}
                     </div>
                   ))}
                 </div>

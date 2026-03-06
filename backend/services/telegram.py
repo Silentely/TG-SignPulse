@@ -183,6 +183,147 @@ class TelegramService:
         session_file = self.session_dir / f"{account_name}.session"
         return session_file.exists()
 
+    async def check_account_status(
+        self, account_name: str, timeout_seconds: float = 6.0
+    ) -> Dict[str, Any]:
+        """
+        检测账号 session 是否可用。
+
+        设计目标：
+        1. 复用共享 Client，不主动关闭正在运行中的任务连接。
+        2. 使用单次 get_me 探活，避免执行重操作。
+        3. 将“会话失效”与“临时网络错误”分开，前端可据此决定是否引导重新登录。
+        """
+        from tg_signer.core import get_client
+
+        checked_at = datetime.utcnow().isoformat() + "Z"
+
+        if not self.account_exists(account_name):
+            return {
+                "account_name": account_name,
+                "ok": False,
+                "status": "not_found",
+                "message": "账号不存在",
+                "code": "ACCOUNT_NOT_FOUND",
+                "checked_at": checked_at,
+                "needs_relogin": True,
+            }
+
+        proxy_dict = None
+        try:
+            profile = get_account_profile(account_name) or {}
+            proxy_value = profile.get("proxy")
+            if proxy_value:
+                proxy_dict = build_proxy_dict(proxy_value)
+        except Exception:
+            proxy_dict = None
+
+        session_mode = get_session_mode()
+        session_string = None
+        in_memory = False
+        if session_mode == "string":
+            session_string = get_account_session_string(
+                account_name
+            ) or load_session_string_file(self.session_dir, account_name)
+            if not session_string:
+                return {
+                    "account_name": account_name,
+                    "ok": False,
+                    "status": "invalid",
+                    "message": "session_string 不存在或已失效",
+                    "code": "ACCOUNT_SESSION_INVALID",
+                    "checked_at": checked_at,
+                    "needs_relogin": True,
+                }
+            in_memory = True
+
+        client = get_client(
+            account_name,
+            proxy=proxy_dict,
+            workdir=self.session_dir,
+            session_string=session_string,
+            in_memory=in_memory,
+        )
+
+        timeout_seconds = max(1.0, min(float(timeout_seconds or 6.0), 20.0))
+
+        try:
+            async with client:
+                me = await asyncio.wait_for(client.get_me(), timeout=timeout_seconds)
+            return {
+                "account_name": account_name,
+                "ok": True,
+                "status": "connected",
+                "message": "",
+                "code": "OK",
+                "checked_at": checked_at,
+                "needs_relogin": False,
+                "user_id": getattr(me, "id", None),
+            }
+        except asyncio.TimeoutError:
+            return {
+                "account_name": account_name,
+                "ok": False,
+                "status": "error",
+                "message": "Request timed out",
+                "code": "TIMEOUT",
+                "checked_at": checked_at,
+                "needs_relogin": False,
+            }
+        except ConnectionError as e:
+            return {
+                "account_name": account_name,
+                "ok": False,
+                "status": "invalid",
+                "message": str(e),
+                "code": "ACCOUNT_SESSION_INVALID",
+                "checked_at": checked_at,
+                "needs_relogin": True,
+            }
+        except Exception as e:
+            err_text = str(e) or type(e).__name__
+            err_upper = err_text.upper()
+            err_lower = err_text.lower()
+            if "SESSION" in err_upper and "INVALID" in err_upper:
+                return {
+                    "account_name": account_name,
+                    "ok": False,
+                    "status": "invalid",
+                    "message": err_text,
+                    "code": "ACCOUNT_SESSION_INVALID",
+                    "checked_at": checked_at,
+                    "needs_relogin": True,
+                }
+            if "UNAUTHORIZED" in err_upper or "AUTH_KEY_UNREGISTERED" in err_upper:
+                return {
+                    "account_name": account_name,
+                    "ok": False,
+                    "status": "invalid",
+                    "message": err_text,
+                    "code": "ACCOUNT_SESSION_INVALID",
+                    "checked_at": checked_at,
+                    "needs_relogin": True,
+                }
+            if "FLOOD_WAIT" in err_upper or "TRANSPORT FLOOD" in err_lower:
+                return {
+                    "account_name": account_name,
+                    "ok": False,
+                    "status": "error",
+                    "message": err_text,
+                    "code": "FLOOD_WAIT",
+                    "checked_at": checked_at,
+                    "needs_relogin": False,
+                }
+            return {
+                "account_name": account_name,
+                "ok": False,
+                "status": "error",
+                "message": err_text,
+                "code": type(e).__name__.upper(),
+                "checked_at": checked_at,
+                "needs_relogin": False,
+            }
+
     async def delete_account(self, account_name: str) -> bool:
         """
         删除账号（删除 session 文件）

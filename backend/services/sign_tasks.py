@@ -78,6 +78,16 @@ class BackendUserSigner(UserSigner):
 class SignTaskService:
     """签到任务服务类"""
 
+    @staticmethod
+    def _read_positive_int_env(name: str, default: int, minimum: int = 1) -> int:
+        raw = os.getenv(name)
+        if raw is None:
+            return default
+        try:
+            return max(int(raw), minimum)
+        except (TypeError, ValueError):
+            return default
+
     def __init__(self):
         from backend.core.config import get_settings
 
@@ -98,6 +108,15 @@ class SignTaskService:
         self._account_last_run_end: Dict[str, float] = {}  # 账号最后一次结束时间
         self._account_cooldown_seconds = int(
             os.getenv("SIGN_TASK_ACCOUNT_COOLDOWN", "5")
+        )
+        self._history_max_entries = self._read_positive_int_env(
+            "SIGN_TASK_HISTORY_MAX_ENTRIES", 100, 10
+        )
+        self._history_max_flow_lines = self._read_positive_int_env(
+            "SIGN_TASK_HISTORY_MAX_FLOW_LINES", 200, 20
+        )
+        self._history_max_line_chars = self._read_positive_int_env(
+            "SIGN_TASK_HISTORY_MAX_LINE_CHARS", 500, 80
         )
         self._cleanup_old_logs()
 
@@ -153,6 +172,88 @@ class SignTaskService:
             safe_task = self._safe_history_key(task_name)
             return self.run_history_dir / f"{safe_account}__{safe_task}.json"
         return self.run_history_dir / f"{self._safe_history_key(task_name)}.json"
+
+    def _normalize_flow_logs(
+        self, flow_logs: Optional[List[str]]
+    ) -> tuple[List[str], bool, int]:
+        if not isinstance(flow_logs, list):
+            return [], False, 0
+
+        total = len(flow_logs)
+        trimmed: List[str] = []
+        for line in flow_logs[: self._history_max_flow_lines]:
+            text = str(line).replace("\r", "").rstrip("\n")
+            if len(text) > self._history_max_line_chars:
+                text = text[: self._history_max_line_chars] + "..."
+            trimmed.append(text)
+        return trimmed, total > len(trimmed), total
+
+    def _load_history_entries(
+        self, task_name: str, account_name: str = ""
+    ) -> List[Dict[str, Any]]:
+        history_file = self._history_file_path(task_name, account_name)
+        legacy_file = self.run_history_dir / f"{self._safe_history_key(task_name)}.json"
+
+        if not history_file.exists():
+            if account_name and legacy_file.exists():
+                history_file = legacy_file
+            elif not account_name and legacy_file.exists():
+                history_file = legacy_file
+            else:
+                return []
+
+        try:
+            with open(history_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            return []
+
+        if isinstance(data, dict):
+            data_list = [data]
+        elif isinstance(data, list):
+            data_list = data
+        else:
+            return []
+
+        entries: List[Dict[str, Any]] = []
+        for item in data_list:
+            if not isinstance(item, dict):
+                continue
+            if account_name:
+                item_account = item.get("account_name")
+                if item_account and item_account != account_name:
+                    continue
+            entries.append(item)
+
+        entries.sort(key=lambda x: x.get("time", ""), reverse=True)
+        return entries
+
+    def get_task_history_logs(
+        self, task_name: str, account_name: str, limit: int = 20
+    ) -> List[Dict[str, Any]]:
+        if limit < 1:
+            limit = 1
+        if limit > 200:
+            limit = 200
+
+        history = self._load_history_entries(task_name, account_name=account_name)
+        result: List[Dict[str, Any]] = []
+        for item in history[:limit]:
+            flow_logs = item.get("flow_logs")
+            if not isinstance(flow_logs, list):
+                flow_logs = []
+
+            result.append(
+                {
+                    "time": item.get("time", ""),
+                    "success": bool(item.get("success", False)),
+                    "message": item.get("message", "") or "",
+                    "flow_logs": [str(line) for line in flow_logs],
+                    "flow_truncated": bool(item.get("flow_truncated", False)),
+                    "flow_line_count": int(item.get("flow_line_count", len(flow_logs))),
+                }
+            )
+        return result
 
     def get_account_history_logs(self, account_name: str) -> List[Dict[str, Any]]:
         """获取某账号下所有任务的最近历史日志"""
@@ -316,18 +417,29 @@ class SignTaskService:
             return None
 
     def _save_run_info(
-        self, task_name: str, success: bool, message: str = "", account_name: str = ""
+        self,
+        task_name: str,
+        success: bool,
+        message: str = "",
+        account_name: str = "",
+        flow_logs: Optional[List[str]] = None,
     ):
         """保存任务执行历史 (保留列表)"""
         from datetime import datetime
 
         history_file = self._history_file_path(task_name, account_name)
+        normalized_logs, flow_truncated, flow_line_count = self._normalize_flow_logs(
+            flow_logs
+        )
 
         new_entry = {
             "time": datetime.now().isoformat(),
             "success": success,
             "message": message,
             "account_name": account_name,
+            "flow_logs": normalized_logs,
+            "flow_truncated": flow_truncated,
+            "flow_line_count": flow_line_count,
         }
 
         history = []
@@ -343,8 +455,8 @@ class SignTaskService:
                 history = []
 
         history.insert(0, new_entry)
-        # 只保留最近 100 条
-        history = history[:100]
+        # 只保留最近 N 条
+        history = history[: self._history_max_entries]
 
         try:
             with open(history_file, "w", encoding="utf-8") as f:
@@ -1232,7 +1344,6 @@ class SignTaskService:
                             raise
 
                 success = True
-                output_str = "\n".join(self._active_logs[task_key])
                 self._active_logs[task_key].append("任务执行完成")
 
                 # 增加缓冲时间，防止同账号连续执行任务时，Session文件锁尚未完全释放导致 "database is locked"
@@ -1251,8 +1362,16 @@ class SignTaskService:
             tg_logger.removeHandler(log_handler)
 
             # 保存执行记录
+            final_logs = list(self._active_logs.get(task_key, []))
+            output_str = "\n".join(final_logs)
             msg = error_msg if not success else ""
-            self._save_run_info(task_name, success, msg, account_name)
+            self._save_run_info(
+                task_name,
+                success,
+                msg,
+                account_name,
+                flow_logs=final_logs,
+            )
 
             # 延迟清理日志（同一 task_key 仅保留一个 cleanup 协程）
             old_cleanup_task = self._cleanup_tasks.get(task_key)

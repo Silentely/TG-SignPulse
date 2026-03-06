@@ -8,9 +8,10 @@ import {
     listSignTasks,
     deleteSignTask,
     runSignTask,
-    getSignTaskLogs,
+    getSignTaskHistory,
     listAccounts,
     SignTask,
+    SignTaskHistoryItem,
     AccountInfo,
 } from "../../../lib/api";
 import {
@@ -23,6 +24,7 @@ import {
     Lightning,
     Clock,
     ChatCircleText,
+    ListDashes,
     ArrowClockwise,
     X,
 } from "@phosphor-icons/react";
@@ -42,6 +44,9 @@ export default function SignTasksPage() {
     const [runningTask, setRunningTask] = useState<string | null>(null);
     const [runLogs, setRunLogs] = useState<string[]>([]);
     const [isDone, setIsDone] = useState(false);
+    const [historyTask, setHistoryTask] = useState<SignTask | null>(null);
+    const [historyLogs, setHistoryLogs] = useState<SignTaskHistoryItem[]>([]);
+    const [historyLoading, setHistoryLoading] = useState(false);
 
     const addToastRef = useRef(addToast);
     const tRef = useRef(t);
@@ -158,6 +163,21 @@ export default function SignTasksPage() {
         }
     };
 
+    const handleShowTaskHistory = async (task: SignTask) => {
+        if (!token) return;
+        setHistoryTask(task);
+        setHistoryLogs([]);
+        setHistoryLoading(true);
+        try {
+            const logs = await getSignTaskHistory(token, task.name, task.account_name, 30);
+            setHistoryLogs(logs);
+        } catch (err: any) {
+            addToast(formatErrorMessage("logs_fetch_failed", err), "error");
+        } finally {
+            setHistoryLoading(false);
+        }
+    };
+
     if (!token || checking) {
         return null;
     }
@@ -264,6 +284,14 @@ export default function SignTasksPage() {
                                                 <PencilSimple weight="bold" size={14} />
                                             </Link>
                                             <button
+                                                onClick={() => handleShowTaskHistory(task)}
+                                                disabled={loading}
+                                                className="action-btn !w-11 !h-11 !text-[#8a3ffc] hover:bg-[#8a3ffc]/10 disabled:opacity-20 disabled:cursor-not-allowed"
+                                                title={t("task_history_logs")}
+                                            >
+                                                <ListDashes weight="bold" size={14} />
+                                            </button>
+                                            <button
                                                 onClick={() => handleDelete(task)}
                                                 disabled={loading}
                                                 className="action-btn !w-11 !h-11 !text-rose-400 hover:bg-rose-500/10 disabled:opacity-20 disabled:cursor-not-allowed"
@@ -346,14 +374,24 @@ export default function SignTasksPage() {
                                             <PencilSimple weight="bold" />
                                         </Link>
                                     </div>
-                                    <button
-                                        onClick={() => handleDelete(task)}
-                                        disabled={loading}
-                                        className="action-btn !text-rose-400 hover:bg-rose-500/10 disabled:opacity-20 disabled:cursor-not-allowed"
-                                        title={t("delete")}
-                                    >
-                                        <Trash weight="bold" />
-                                    </button>
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            onClick={() => handleShowTaskHistory(task)}
+                                            disabled={loading}
+                                            className="action-btn !text-[#8a3ffc] hover:bg-[#8a3ffc]/10 disabled:opacity-20 disabled:cursor-not-allowed"
+                                            title={t("task_history_logs")}
+                                        >
+                                            <ListDashes weight="bold" />
+                                        </button>
+                                        <button
+                                            onClick={() => handleDelete(task)}
+                                            disabled={loading}
+                                            className="action-btn !text-rose-400 hover:bg-rose-500/10 disabled:opacity-20 disabled:cursor-not-allowed"
+                                            title={t("delete")}
+                                        >
+                                            <Trash weight="bold" />
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -423,6 +461,75 @@ export default function SignTasksPage() {
                             >
                                 {isDone ? t("close") : t("task_executing")}
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {historyTask && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-black/60 backdrop-blur-sm animate-fade-in">
+                    <div className="glass-panel w-full max-w-4xl h-[78vh] flex flex-col shadow-2xl border border-white/10 overflow-hidden animate-zoom-in">
+                        <div className="p-4 border-b border-white/5 flex justify-between items-center bg-white/2">
+                            <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-lg bg-[#8a3ffc]/20 flex items-center justify-center text-[#b57dff]">
+                                    <ListDashes weight="bold" size={18} />
+                                </div>
+                                <h3 className="font-bold tracking-tight">
+                                    {t("task_history_logs_title").replace("{name}", historyTask.name)}
+                                </h3>
+                            </div>
+                            <button
+                                onClick={() => setHistoryTask(null)}
+                                className="action-btn !w-8 !h-8 hover:bg-white/10"
+                            >
+                                <X weight="bold" />
+                            </button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-4 font-mono text-[11px] leading-relaxed bg-black/20">
+                            {historyLoading ? (
+                                <div className="flex items-center gap-2 text-main/30 italic">
+                                    <Spinner className="animate-spin" size={12} />
+                                    {t("loading")}
+                                </div>
+                            ) : historyLogs.length === 0 ? (
+                                <div className="text-main/30 italic">{t("task_history_empty")}</div>
+                            ) : (
+                                <div className="space-y-4">
+                                    {historyLogs.map((log, i) => (
+                                        <div key={`${log.time}-${i}`} className="rounded-xl border border-white/5 bg-white/5 overflow-hidden">
+                                            <div className="flex justify-between items-center px-3 py-2 border-b border-white/5 text-[10px]">
+                                                <span className="text-main/30">
+                                                    {new Date(log.time).toLocaleString(language === "zh" ? "zh-CN" : "en-US")}
+                                                </span>
+                                                <span className={log.success ? "text-emerald-400" : "text-rose-400"}>
+                                                    {log.success ? t("success") : t("failure")}
+                                                </span>
+                                            </div>
+                                            <div className="p-3 space-y-1">
+                                                {log.flow_logs && log.flow_logs.length > 0 ? (
+                                                    log.flow_logs.map((line, lineIndex) => (
+                                                        <div key={lineIndex} className="text-main/80 flex gap-2">
+                                                            <span className="text-main/20 select-none w-6 text-right">
+                                                                {(lineIndex + 1).toString().padStart(2, "0")}
+                                                            </span>
+                                                            <span className="break-all">{line}</span>
+                                                        </div>
+                                                    ))
+                                                ) : (
+                                                    <div className="text-main/50">
+                                                        {log.message || t("task_history_no_flow")}
+                                                    </div>
+                                                )}
+                                                {log.flow_truncated && (
+                                                    <div className="text-[10px] text-amber-400/90 mt-2">
+                                                        {t("task_history_truncated").replace("{count}", String(log.flow_line_count || 0))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
