@@ -49,6 +49,7 @@ const EMPTY_LOGIN_DATA = {
   phone_code_hash: "",
 };
 const DASHBOARD_STATUS_CHECKED_KEY = "tg-signpulse:dashboard-status-checked";
+const DASHBOARD_STATUS_CACHE_KEY = "tg-signpulse:dashboard-status-cache";
 
 export default function Dashboard() {
   const router = useRouter();
@@ -174,6 +175,19 @@ export default function Dashboard() {
       return sessionStorage.getItem(DASHBOARD_STATUS_CHECKED_KEY) !== "1";
     } catch {
       return true;
+    }
+  }, []);
+
+  const restoreCachedStatus = useCallback(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = sessionStorage.getItem(DASHBOARD_STATUS_CACHE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return;
+      setAccountStatusMap(parsed as Record<string, AccountStatusItem>);
+    } catch {
+      // ignore cache parse errors
     }
   }, []);
 
@@ -306,8 +320,9 @@ export default function Dashboard() {
     setChecking(false);
     setDataLoaded(false);
     statusCheckedRef.current = false;
+    restoreCachedStatus();
     loadData(tokenStr);
-  }, [loadData]);
+  }, [loadData, restoreCachedStatus]);
 
   useEffect(() => {
     if (!token || !dataLoaded || statusCheckedRef.current) return;
@@ -321,6 +336,17 @@ export default function Dashboard() {
       }
     });
   }, [token, dataLoaded, accounts, checkAccountStatusOnce, shouldRunStatusCheck]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const keys = Object.keys(accountStatusMap || {});
+    if (keys.length === 0) return;
+    try {
+      sessionStorage.setItem(DASHBOARD_STATUS_CACHE_KEY, JSON.stringify(accountStatusMap));
+    } catch {
+      // ignore storage write errors
+    }
+  }, [accountStatusMap]);
 
   const getAccountTaskCount = (accountName: string) => {
     return tasks.filter(task => task.account_name === accountName).length;
