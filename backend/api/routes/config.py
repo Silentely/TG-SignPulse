@@ -16,6 +16,16 @@ from backend.utils.storage import is_writable_dir
 router = APIRouter()
 
 
+def _clear_sign_task_cache() -> None:
+    try:
+        from backend.services.sign_tasks import get_sign_task_service
+
+        get_sign_task_service()._tasks_cache = None
+    except Exception:
+        # Best-effort cache invalidation; import should still succeed.
+        pass
+
+
 class ExportTaskResponse(BaseModel):
     task_name: str
     task_type: str
@@ -103,7 +113,7 @@ def export_sign_task(
 
 
 @router.post("/import/sign", response_model=ImportTaskResponse)
-def import_sign_task(
+async def import_sign_task(
     request: ImportTaskRequest, current_user: User = Depends(get_current_user)
 ):
     try:
@@ -128,7 +138,8 @@ def import_sign_task(
 
         from backend.scheduler import sync_jobs
 
-        sync_jobs()
+        _clear_sign_task_cache()
+        await sync_jobs()
 
         return ImportTaskResponse(
             success=True,
@@ -163,7 +174,7 @@ def export_all_configs(current_user: User = Depends(get_current_user)):
 
 
 @router.post("/import/all", response_model=ImportAllResponse)
-def import_all_configs(
+async def import_all_configs(
     request: ImportAllRequest, current_user: User = Depends(get_current_user)
 ):
     try:
@@ -189,7 +200,8 @@ def import_all_configs(
 
         from backend.scheduler import sync_jobs
 
-        sync_jobs()
+        _clear_sign_task_cache()
+        await sync_jobs()
 
         return ImportAllResponse(
             signs_imported=int(result.get("signs_imported", 0)),
@@ -207,7 +219,7 @@ def import_all_configs(
 
 
 @router.delete("/sign/{task_name}")
-def delete_sign_task(
+async def delete_sign_task(
     task_name: str,
     account_name: Optional[str] = None,
     current_user: User = Depends(get_current_user),
@@ -224,7 +236,8 @@ def delete_sign_task(
 
         from backend.scheduler import sync_jobs
 
-        sync_jobs()
+        _clear_sign_task_cache()
+        await sync_jobs()
 
         return {"success": True, "message": f"Task {task_name} deleted"}
     except ValueError as e:

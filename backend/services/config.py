@@ -212,6 +212,8 @@ class ConfigService:
 
         config = dict(config)
         config.pop("last_run", None)
+        # Keep exported payload account-agnostic for cross-account imports.
+        config.pop("account_name", None)
 
         # 添加元数据
         export_data = {

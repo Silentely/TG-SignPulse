@@ -48,6 +48,7 @@ const EMPTY_LOGIN_DATA = {
   password: "",
   phone_code_hash: "",
 };
+const DASHBOARD_STATUS_CHECKED_KEY = "tg-signpulse:dashboard-status-checked";
 
 export default function Dashboard() {
   const router = useRouter();
@@ -152,6 +153,28 @@ export default function Dashboard() {
     const base = tRef.current ? tRef.current(key) : key;
     const code = err?.code;
     return code ? `${base} (${code})` : base;
+  }, []);
+
+  const shouldRunStatusCheck = useCallback(() => {
+    if (typeof window === "undefined") return true;
+
+    let navType = "";
+    try {
+      const nav = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+      navType = nav?.type || "";
+    } catch {
+      navType = "";
+    }
+
+    if (navType === "reload") {
+      return true;
+    }
+
+    try {
+      return sessionStorage.getItem(DASHBOARD_STATUS_CHECKED_KEY) !== "1";
+    } catch {
+      return true;
+    }
   }, []);
 
   const checkAccountStatusOnce = useCallback(async (tokenStr: string, accountList: AccountInfo[]) => {
@@ -288,9 +311,16 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!token || !dataLoaded || statusCheckedRef.current) return;
+    if (!shouldRunStatusCheck()) return;
     statusCheckedRef.current = true;
-    checkAccountStatusOnce(token, accounts);
-  }, [token, dataLoaded, accounts, checkAccountStatusOnce]);
+    checkAccountStatusOnce(token, accounts).finally(() => {
+      try {
+        sessionStorage.setItem(DASHBOARD_STATUS_CHECKED_KEY, "1");
+      } catch {
+        // ignore storage write errors
+      }
+    });
+  }, [token, dataLoaded, accounts, checkAccountStatusOnce, shouldRunStatusCheck]);
 
   const getAccountTaskCount = (accountName: string) => {
     return tasks.filter(task => task.account_name === accountName).length;

@@ -119,11 +119,11 @@ const TaskItem = memo(({ task, loading, onEdit, onRun, onViewLogs, onCopy, onDel
                 )}
             </div>
 
-            <div className="mt-3 flex flex-wrap gap-2 md:hidden">
+            <div className="mt-3 grid grid-cols-5 gap-2 md:hidden">
                 <button
                     onClick={() => onRun(task.name)}
                     disabled={loading}
-                    className="action-btn !w-10 !h-10 !text-emerald-400 hover:bg-emerald-500/10"
+                    className="action-btn !w-full !h-10 !text-emerald-400 hover:bg-emerald-500/10"
                     title={t("run")}
                 >
                     <Play weight="fill" size={14} />
@@ -131,7 +131,7 @@ const TaskItem = memo(({ task, loading, onEdit, onRun, onViewLogs, onCopy, onDel
                 <button
                     onClick={() => onEdit(task)}
                     disabled={loading}
-                    className="action-btn !w-10 !h-10"
+                    className="action-btn !w-full !h-10"
                     title={t("edit")}
                 >
                     <PencilSimple weight="bold" size={14} />
@@ -139,7 +139,7 @@ const TaskItem = memo(({ task, loading, onEdit, onRun, onViewLogs, onCopy, onDel
                 <button
                     onClick={() => onViewLogs(task)}
                     disabled={loading}
-                    className="action-btn !w-10 !h-10 !text-[#8a3ffc] hover:bg-[#8a3ffc]/10"
+                    className="action-btn !w-full !h-10 !text-[#8a3ffc] hover:bg-[#8a3ffc]/10"
                     title={t("task_history_logs")}
                 >
                     <ListDashes weight="bold" size={14} />
@@ -147,7 +147,7 @@ const TaskItem = memo(({ task, loading, onEdit, onRun, onViewLogs, onCopy, onDel
                 <button
                     onClick={() => onCopy(task.name)}
                     disabled={loading}
-                    className="action-btn !w-10 !h-10 !text-sky-400 hover:bg-sky-500/10"
+                    className="action-btn !w-full !h-10 !text-sky-400 hover:bg-sky-500/10"
                     title={copyTaskTitle}
                 >
                     <Copy weight="bold" size={14} />
@@ -155,7 +155,7 @@ const TaskItem = memo(({ task, loading, onEdit, onRun, onViewLogs, onCopy, onDel
                 <button
                     onClick={() => onDelete(task.name)}
                     disabled={loading}
-                    className="action-btn !w-10 !h-10 !text-rose-400 hover:bg-rose-500/10"
+                    className="action-btn !w-full !h-10 !text-rose-400 hover:bg-rose-500/10"
                     title={t("delete")}
                 >
                     <Trash weight="bold" size={14} />
@@ -164,12 +164,12 @@ const TaskItem = memo(({ task, loading, onEdit, onRun, onViewLogs, onCopy, onDel
 
             <div className="hidden md:flex mt-4 items-center justify-between gap-4">
                 {task.last_run ? (
-                    <div className="flex flex-col items-end">
-                        <div className={`flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest ${task.last_run.success ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    <div className={`flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest ${task.last_run.success ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        <div className="flex items-center gap-1.5">
                             {task.last_run.success ? <CheckCircle weight="bold" /> : <XCircle weight="bold" />}
                             {task.last_run.success ? t("success") : t("failure")}
                         </div>
-                        <div className="text-[10px] text-main/30 font-mono mt-0.5">
+                        <div className="text-[10px] text-main/30 font-mono normal-case tracking-normal">
                             {new Date(task.last_run.time).toLocaleString(language === "zh" ? 'zh-CN' : 'en-US', {
                                 month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
                             })}
@@ -344,6 +344,7 @@ export default function AccountTasksContent() {
         isZh ? `\u4EFB\u52A1 ${taskName} \u5BFC\u5165\u6210\u529F` : `Task ${taskName} imported`;
     const pasteTaskFailed = isZh ? "\u7C98\u8D34\u4EFB\u52A1\u5931\u8D25" : "Paste task failed";
     const clipboardUnsupported = isZh ? "\u5F53\u524D\u73AF\u5883\u4E0D\u652F\u6301\u526A\u8D34\u677F\u64CD\u4F5C" : "Clipboard API is not available";
+    const copyTaskFallbackManual = isZh ? "\u81EA\u52A8\u590D\u5236\u5931\u8D25\uFF0C\u8BF7\u5728\u5F39\u7A97\u5185\u624B\u52A8\u590D\u5236" : "Auto copy failed, please copy manually from dialog";
 
     const sanitizeTaskName = useCallback((raw: string) => {
         return raw
@@ -598,6 +599,15 @@ export default function AccountTasksContent() {
         try {
             setLoading(true);
             const taskConfig = await exportSignTask(token, taskName, accountName);
+            if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+                try {
+                    await navigator.clipboard.writeText(taskConfig);
+                    addToast(copyTaskSuccess(taskName), "success");
+                    return;
+                } catch {
+                    addToast(copyTaskFallbackManual, "error");
+                }
+            }
             setCopyTaskDialog({ taskName, config: taskConfig });
         } catch (err: any) {
             const message = err?.message ? `${copyTaskFailed}: ${err.message}` : copyTaskFailed;
