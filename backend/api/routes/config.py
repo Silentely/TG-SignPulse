@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from backend.core.auth import get_current_user
 from backend.models.user import User
 from backend.services.config import get_config_service
+from backend.utils.storage import is_writable_dir
 
 router = APIRouter()
 
@@ -106,7 +107,14 @@ def import_sign_task(
     request: ImportTaskRequest, current_user: User = Depends(get_current_user)
 ):
     try:
-        success = get_config_service().import_sign_task(
+        service = get_config_service()
+        if not is_writable_dir(service.signs_dir):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Data directory is not writable: {service.signs_dir}",
+            )
+
+        success = service.import_sign_task(
             request.config_json, request.task_name, request.account_name
         )
         if not success:

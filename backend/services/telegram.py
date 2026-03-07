@@ -299,6 +299,20 @@ class TelegramService:
             err_text = str(e) or type(e).__name__
             err_upper = err_text.upper()
             err_lower = err_text.lower()
+            if (
+                "READONLY DATABASE" in err_upper
+                or "PERMISSION DENIED" in err_upper
+                or "ATTEMPT TO WRITE A READONLY DATABASE" in err_upper
+            ):
+                return {
+                    "account_name": account_name,
+                    "ok": False,
+                    "status": "checking",
+                    "message": err_text,
+                    "code": "STORAGE_PERMISSION_DENIED",
+                    "checked_at": checked_at,
+                    "needs_relogin": False,
+                }
             if "SESSION" in err_upper and "INVALID" in err_upper:
                 return {
                     "account_name": account_name,

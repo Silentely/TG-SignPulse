@@ -617,6 +617,7 @@ export default function AccountTasksContent() {
             setCopyingConfig(true);
             await navigator.clipboard.writeText(copyTaskDialog.config);
             addToast(copyTaskSuccess(copyTaskDialog.taskName), "success");
+            setCopyTaskDialog(null);
         } catch (err: any) {
             const message = err?.message ? `${copyTaskFailed}: ${err.message}` : copyTaskFailed;
             addToast(message, "error");
