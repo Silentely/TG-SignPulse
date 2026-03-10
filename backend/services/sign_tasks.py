@@ -315,6 +315,30 @@ class SignTaskService:
             if not task_name:
                 continue
 
+            # --- CLEAR TASK LAST RUN METADATA ---
+            task_dir = self.signs_dir / account_name / task_name
+            if not task_dir.exists():
+                task_dir = self.signs_dir / task_name
+            config_file = task_dir / "config.json"
+            if config_file.exists():
+                try:
+                    import json
+                    with open(config_file, "r", encoding="utf-8") as f:
+                        config = json.load(f)
+                    if "last_run" in config:
+                        del config["last_run"]
+                        with open(config_file, "w", encoding="utf-8") as f:
+                            json.dump(config, f, ensure_ascii=False, indent=2)
+                except Exception:
+                    pass
+            
+            if self._tasks_cache is not None:
+                for t in self._tasks_cache:
+                    if t["name"] == task_name and t.get("account_name") == account_name:
+                        t.pop("last_run", None)
+                        break
+            # ------------------------------------
+
             history_file = self._history_file_path(task_name, account_name)
             if history_file.exists():
                 try:

@@ -1007,7 +1007,7 @@ export default function Dashboard() {
                 const currentStatus = statusInfo?.status || "valid"; // Default to "valid" if statusInfo is undefined
                 const isCheckingOrError = currentStatus === "checking" || (currentStatus === "error" && !statusInfo?.needs_relogin);
                 return currentStatus === "valid"
-                  ? "account_status_valid"
+                  ? "connected"
                   : isCheckingOrError
                     ? "account_status_checking"
                     : "account_status_invalid";
@@ -1047,7 +1047,7 @@ export default function Dashboard() {
 
                   <div className="card-bottom !pt-3">
                     <div className="create-time" title={statusInfo?.message || ""}>
-                      {status === "checking" ? (
+                      {statusKey === "account_status_checking" ? (
                         <Spinner className="animate-spin text-main/40" size={12} />
                       ) : (
                         <Clock weight="fill" className={statusIconClass} />
