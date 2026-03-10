@@ -882,7 +882,7 @@ export default function Dashboard() {
     }
   };
 
-  
+
   // 手动提交 2FA（避免自动重试导致重复请求）
 
   const handleCloseAddDialog = () => {
@@ -1003,22 +1003,23 @@ export default function Dashboard() {
               const status = statusInfo?.status || "checking";
               const isInvalid = status === "invalid" || Boolean(statusInfo?.needs_relogin);
               const isCheckingLike = status === "checking" || (status === "error" && !statusInfo?.needs_relogin);
-              const statusKey =
-                status === "connected"
-                  ? "connected"
-                  : isInvalid
-                    ? "account_status_invalid"
-                    : isCheckingLike
-                      ? "account_status_checking"
-                      : "account_status_error";
-              const statusIconClass =
-                status === "connected"
-                  ? "text-emerald-400/50"
-                  : isInvalid
-                    ? "text-rose-400/60"
-                    : isCheckingLike
-                      ? "text-main/40"
-                      : "text-amber-400/60";
+              const statusKey = (() => {
+                const currentStatus = statusInfo?.status || "valid"; // Default to "valid" if statusInfo is undefined
+                const isCheckingOrError = currentStatus === "checking" || (currentStatus === "error" && !statusInfo?.needs_relogin);
+                return currentStatus === "valid"
+                  ? "account_status_valid"
+                  : isCheckingOrError
+                    ? "account_status_checking"
+                    : "account_status_invalid";
+              })();
+              const statusIconClass = (() => {
+                const currentStatus = statusInfo?.status || "valid"; // Default to "valid" if statusInfo is undefined
+                const isCheckingOrError = currentStatus === "checking" || (currentStatus === "error" && !statusInfo?.needs_relogin);
+                // Since proactive status testing was removed, default "checking" to valid UI unless error.
+                return isCheckingOrError || currentStatus === "valid"
+                  ? "text-emerald-400"
+                  : "text-rose-400";
+              })();
               return (
                 <div
                   key={acc.name}

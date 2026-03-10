@@ -1208,7 +1208,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
     async def _click_keyboard_by_text(
         self, action: ClickKeyboardByTextAction, message: Message
     ):
-        target_text = (action.text or "").strip()
+        target_text = (action.text or "").strip().lower()
         if not target_text:
             self.log("Click button action has empty target text", level="WARNING")
             return False
@@ -1216,11 +1216,12 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         if reply_markup := message.reply_markup:
             if isinstance(reply_markup, InlineKeyboardMarkup):
                 flat_buttons = (b for row in reply_markup.inline_keyboard for b in row)
-                option_to_btn: dict[str, InlineKeyboardButton] = {}
                 for btn in flat_buttons:
-                    option_to_btn[btn.text] = btn
-                    if btn.text and target_text in btn.text:
-                        self.log(f"点击按钮: {btn.text}")
+                    if not btn.text:
+                        continue
+                    btn_text_lower = btn.text.strip().lower()
+                    if target_text in btn_text_lower:
+                        self.log(f"成功匹配到并点击按钮: [{btn.text}] (匹配词: {action.text})")
                         await self.request_callback_answer(
                             self.app,
                             message.chat.id,
@@ -1229,19 +1230,22 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                         )
                         return True
                 self.log(
-                    f"Target button not found in inline keyboard: {target_text}",
+                    f"Target button '{action.text}' not found in inline keyboard.",
                     level="WARNING",
                 )
             elif isinstance(reply_markup, ReplyKeyboardMarkup):
                 for row in reply_markup.keyboard:
                     for btn in row:
-                        btn_text = getattr(btn, "text", None)
-                        if btn_text and target_text in btn_text:
-                            self.log(f"发送按钮文本: {btn_text}")
+                        btn_text = getattr(btn, "text", "")
+                        if not btn_text:
+                            continue
+                        btn_text_lower = btn_text.strip().lower()
+                        if target_text in btn_text_lower:
+                            self.log(f"成功匹配并发送回复键盘文本: [{btn_text}] (匹配词: {action.text})")
                             await self.send_message(message.chat.id, btn_text)
                             return True
                 self.log(
-                    f"Target button not found in reply keyboard: {target_text}",
+                    f"Target button '{action.text}' not found in reply keyboard.",
                     level="WARNING",
                 )
         return False
