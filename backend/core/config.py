@@ -27,7 +27,7 @@ def get_default_secret_key() -> str:
 
 class Settings(BaseSettings):
     app_name: str = "tg-signer-panel"
-    host: str = "0.0.0.0"
+    host: str = os.getenv("APP_HOST", "127.0.0.1")
     port: int = 3000
 
     # 使用函数获取默认密钥

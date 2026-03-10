@@ -85,6 +85,8 @@ touch /data/.probe && rm /data/.probe
 ## 常用环境变量（简版）
 
 - `APP_SECRET_KEY`: 面板密钥，强烈建议设置
+- `ADMIN_PASSWORD`: 初次安装时 admin 账户的默认密码（安全起见强烈建议设置，未设置则默认 admin123）
+- `APP_HOST`: FastAPI 容器监听 IP，防暴露默认 `127.0.0.1`（如需用公网直连或宿主机反代端口请设为 `0.0.0.0`）
 - `APP_DATA_DIR`: 自定义数据目录（优先级高于面板配置）
 - `TG_SESSION_MODE`: `file`（默认）或 `string`（arm64 推荐）
 - `TG_SESSION_NO_UPDATES`: `1` 启用 `no_updates`（仅 `string` 模式）

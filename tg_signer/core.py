@@ -24,7 +24,7 @@ import httpx
 from croniter import CroniterBadCronError, croniter
 from pydantic import BaseModel, ValidationError
 from pyrogram import Client as BaseClient
-from pyrogram import errors, filters
+from pyrogram import errors, filters, raw
 from pyrogram.enums import ChatMembersFilter, ChatType
 from pyrogram.handlers import EditedMessageHandler, MessageHandler
 from pyrogram.methods.utilities.idle import idle
@@ -78,6 +78,30 @@ def _patched_sqlite3_connect(*args, **kwargs):
 
 
 sqlite3.connect = _patched_sqlite3_connect
+
+# Monkeypatch pyrogram.Client.invoke to add backpressure and retry logic for updates
+_original_invoke = BaseClient.invoke
+_get_channel_diff_semaphore = asyncio.Semaphore(50)
+
+async def _patched_invoke(self, query, *args, **kwargs):
+    if isinstance(query, (raw.functions.updates.GetChannelDifference, raw.functions.updates.GetDifference)):
+        async with _get_channel_diff_semaphore:
+            max_retries = 3
+            base_delay = 1.0
+            for attempt in range(max_retries + 1):
+                try:
+                    return await _original_invoke(self, query, *args, **kwargs)
+                except Exception as e:
+                    err_str = str(e).lower()
+                    if isinstance(e, asyncio.TimeoutError) or "timeout" in err_str or "connection" in err_str or "flood" in err_str or "network" in err_str:
+                        if attempt < max_retries:
+                            delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
+                            await asyncio.sleep(delay)
+                            continue
+                    raise
+    return await _original_invoke(self, query, *args, **kwargs)
+
+BaseClient.invoke = _patched_invoke
 
 logger = logging.getLogger("tg-signer")
 

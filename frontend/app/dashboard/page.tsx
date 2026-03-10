@@ -325,19 +325,6 @@ export default function Dashboard() {
   }, [loadData, restoreCachedStatus]);
 
   useEffect(() => {
-    if (!token || !dataLoaded || statusCheckedRef.current) return;
-    if (!shouldRunStatusCheck()) return;
-    statusCheckedRef.current = true;
-    checkAccountStatusOnce(token, accounts).finally(() => {
-      try {
-        sessionStorage.setItem(DASHBOARD_STATUS_CHECKED_KEY, "1");
-      } catch {
-        // ignore storage write errors
-      }
-    });
-  }, [token, dataLoaded, accounts, checkAccountStatusOnce, shouldRunStatusCheck]);
-
-  useEffect(() => {
     if (typeof window === "undefined") return;
     const keys = Object.keys(accountStatusMap || {});
     if (keys.length === 0) return;

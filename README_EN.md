@@ -85,6 +85,8 @@ touch /data/.probe && rm /data/.probe
 ## Common Environment Variables
 
 - `APP_SECRET_KEY`: panel secret key (strongly recommended)
+- `ADMIN_PASSWORD`: initial default password for the admin user (strongly recommended, otherwise defaults to insecure 'admin123')
+- `APP_HOST`: API listening interface (defaults to `127.0.0.1` for security; use `0.0.0.0` if exposing container globally)
 - `APP_DATA_DIR`: custom data directory (higher priority than panel setting)
 - `TG_SESSION_MODE`: `file` (default) or `string` (recommended on arm64)
 - `TG_SESSION_NO_UPDATES`: set `1` to enable `no_updates` (`string` mode only)
