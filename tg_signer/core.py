@@ -85,8 +85,11 @@ _get_channel_diff_semaphore = asyncio.Semaphore(50)
 
 async def _patched_invoke(self, query, *args, **kwargs):
     if isinstance(query, (raw.functions.updates.GetChannelDifference, raw.functions.updates.GetDifference)):
+        # Disable Pyrogram's internal sleep to prevent blocking the semaphore indefinitely
+        kwargs["sleep_threshold"] = 0
+        
         async with _get_channel_diff_semaphore:
-            max_retries = 3
+            max_retries = 2
             base_delay = 1.0
             for attempt in range(max_retries + 1):
                 try:
@@ -96,8 +99,19 @@ async def _patched_invoke(self, query, *args, **kwargs):
                     if isinstance(e, asyncio.TimeoutError) or "timeout" in err_str or "connection" in err_str or "flood" in err_str or "network" in err_str:
                         if attempt < max_retries:
                             delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
+                            if "flood" in err_str and hasattr(e, "value"):
+                                delay = min(e.value, 3.0)  # Wait for a shorter time, max 3 seconds
                             await asyncio.sleep(delay)
                             continue
+                        
+                        logger.warning(f"Drop updates for {type(query).__name__} due to error: {e}")
+                        
+                        if isinstance(query, raw.functions.updates.GetChannelDifference):
+                            from pyrogram.raw.types.updates import ChannelDifferenceEmpty
+                            return ChannelDifferenceEmpty(pts=query.pts, timeout=0, final=True)
+                        elif isinstance(query, raw.functions.updates.GetDifference):
+                            from pyrogram.raw.types.updates import DifferenceEmpty
+                            return DifferenceEmpty(date=query.date, seq=query.pts)
                     raise
     return await _original_invoke(self, query, *args, **kwargs)
 

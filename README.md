@@ -1,4 +1,4 @@
-﻿# TG-SignPulse
+# TG-SignPulse
 
 [English README](README_EN.md)
 
@@ -118,6 +118,9 @@ frontend/     Next.js 管理面板
 ```
 
 ## 更新日志
+
+### 2026-03-12
+- 修复核心底层问题：修复因 Pyrogram 请求超时及 `FloodWait` 重试引发的并发锁饥饿、`Task exception` 未正确回收导致容器内存泄漏及网络高 I/O 问题。
 
 ### 2026-03-06
 

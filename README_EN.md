@@ -1,4 +1,4 @@
-﻿# TG-SignPulse
+# TG-SignPulse
 
 [中文说明](README.md)
 
@@ -118,6 +118,9 @@ frontend/     Next.js management panel
 ```
 
 ## Changelog
+
+### 2026-03-12
+- Core stability fix: Fixed a severe memory leak and high network I/O issue caused by Pyrogram timeout & `FloodWait` infinite retry loops leading to async lock starvation and unretrieved task exceptions.
 
 ### 2026-03-06
 
