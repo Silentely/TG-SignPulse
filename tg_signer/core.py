@@ -21,6 +21,7 @@ from typing import (
 from urllib import parse
 
 import httpx
+import re
 from croniter import CroniterBadCronError, croniter
 from pydantic import BaseModel, ValidationError
 from pyrogram import Client as BaseClient
@@ -986,10 +987,25 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             except Exception:
                 is_peer_invalid = any(x in str(e) for x in ("PEER_ID_INVALID", "CHANNEL_INVALID"))
 
-            if is_peer_invalid and isinstance(chat.chat_id, int) and chat.chat_id > 0:
+            if is_peer_invalid and isinstance(chat.chat_id, int):
                 candidates = []
-                candidates.append(-chat.chat_id)
-                candidates.append(int(f"-100{chat.chat_id}"))
+                if chat.chat_id > 0:
+                    try:
+                        await self.app.get_users(chat.chat_id)
+                        self.log(
+                            f"预热会话使用 get_users 成功: {chat.chat_id}",
+                            level="WARNING",
+                        )
+                        return
+                    except Exception as e2:
+                        last_error = e2
+                    candidates.append(-chat.chat_id)
+                    candidates.append(int(f"-100{chat.chat_id}"))
+                elif chat.chat_id < 0:
+                    # if it's already negative, we don't have many candidates except its absolute value as a user
+                    if not str(chat.chat_id).startswith("-100"):
+                        candidates.append(int(f"-100{abs(chat.chat_id)}"))
+
                 last_error = e
                 for candidate in candidates:
                     if candidate == chat.chat_id:
@@ -1221,12 +1237,23 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             await asyncio.sleep(0.3)
         await self._on_message(client, message)
 
+    def _clean_text_for_match(self, text: str) -> str:
+        if not text:
+            return ""
+        # Remove emojis and zero-width characters (using a broad unicode range for emojis and symbols)
+        text = re.sub(r'[\U00010000-\U0010ffff]', '', text)
+        text = re.sub(r'[\u2600-\u27bf]', '', text)
+        text = re.sub(r'[\u2B50]', '', text)  # ⭐ 
+        # Remove all whitespace, punctuation, and zero width joiners to make fuzzy match extremely forgiving
+        text = re.sub(r'[\s\u200b\u200e\u200f\u202a-\u202e\punctuation]', '', text)
+        return text.strip().lower()
+
     async def _click_keyboard_by_text(
         self, action: ClickKeyboardByTextAction, message: Message
     ):
-        target_text = (action.text or "").strip().lower()
+        target_text = self._clean_text_for_match(action.text)
         if not target_text:
-            self.log("Click button action has empty target text", level="WARNING")
+            self.log("Click button action has empty target text after cleaning", level="WARNING")
             return False
 
         if reply_markup := message.reply_markup:
@@ -1235,8 +1262,8 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 for btn in flat_buttons:
                     if not btn.text:
                         continue
-                    btn_text_lower = btn.text.strip().lower()
-                    if target_text in btn_text_lower:
+                    btn_text_clean = self._clean_text_for_match(btn.text)
+                    if target_text in btn_text_clean:
                         self.log(f"成功匹配到并点击按钮: [{btn.text}] (匹配词: {action.text})")
                         await self.request_callback_answer(
                             self.app,
@@ -1255,8 +1282,8 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                         btn_text = getattr(btn, "text", "")
                         if not btn_text:
                             continue
-                        btn_text_lower = btn_text.strip().lower()
-                        if target_text in btn_text_lower:
+                        btn_text_clean = self._clean_text_for_match(btn_text)
+                        if target_text in btn_text_clean:
                             self.log(f"成功匹配并发送回复键盘文本: [{btn_text}] (匹配词: {action.text})")
                             await self.send_message(message.chat.id, btn_text)
                             return True
