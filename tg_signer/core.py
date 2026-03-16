@@ -85,8 +85,10 @@ _get_channel_diff_semaphore = asyncio.Semaphore(50)
 
 async def _patched_invoke(self, query, *args, **kwargs):
     if isinstance(query, (raw.functions.updates.GetChannelDifference, raw.functions.updates.GetDifference)):
-        # Disable Pyrogram's internal sleep to prevent blocking the semaphore indefinitely
-        kwargs["sleep_threshold"] = 0
+        # Disable Pyrogram's internal sleep and retry mechanisms to prevent blocking the semaphore indefinitely
+        kwargs.setdefault("sleep_threshold", 0)
+        kwargs["retries"] = 0
+        kwargs.setdefault("timeout", 5.0)
         
         async with _get_channel_diff_semaphore:
             max_retries = 2
