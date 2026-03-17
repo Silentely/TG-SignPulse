@@ -988,7 +988,8 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 is_peer_invalid = any(x in str(e) for x in ("PEER_ID_INVALID", "CHANNEL_INVALID"))
 
             if is_peer_invalid and isinstance(chat.chat_id, int):
-                candidates = []
+                last_error = e
+                # First attempt: If it's a positive ID, try get_users (which may still fail if it's completely unknown)
                 if chat.chat_id > 0:
                     try:
                         await self.app.get_users(chat.chat_id)
@@ -1000,14 +1001,47 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                         return
                     except Exception as e2:
                         last_error = e2
+                
+                # Second attempt: Try fetching by cached username BEFORE blind negative guessing
+                cached = self._find_cached_chat(chat.chat_id, chat.name)
+                cached_id_succeeded = False
+                if cached:
+                    username = cached.get("username")
+                    cached_id = cached.get("id")
+                    if username:
+                        try:
+                            resolved = await self.app.get_chat(username)
+                            self.log(
+                                f"预热会话使用缓存用户名成功: {chat.chat_id} -> @{username}",
+                                level="WARNING",
+                            )
+                            chat.chat_id = resolved.id
+                            last_error = None
+                            return
+                        except Exception as e2:
+                            last_error = e2
+                    if last_error is not None and cached_id and cached_id != chat.chat_id:
+                        try:
+                            await self.app.get_chat(cached_id)
+                            self.log(
+                                f"预热会话使用缓存 chat_id 成功: {chat.chat_id} -> {cached_id}",
+                                level="WARNING",
+                            )
+                            chat.chat_id = cached_id
+                            last_error = None
+                            return
+                        except Exception as e2:
+                            last_error = e2
+
+                # Third attempt: Try guessing negative variants if nothing worked
+                candidates = []
+                if chat.chat_id > 0:
                     candidates.append(-chat.chat_id)
                     candidates.append(int(f"-100{chat.chat_id}"))
                 elif chat.chat_id < 0:
-                    # if it's already negative, we don't have many candidates except its absolute value as a user
                     if not str(chat.chat_id).startswith("-100"):
                         candidates.append(int(f"-100{abs(chat.chat_id)}"))
 
-                last_error = e
                 for candidate in candidates:
                     if candidate == chat.chat_id:
                         continue
@@ -1023,34 +1057,6 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                     except Exception as e2:
                         last_error = e2
                         continue
-
-                if last_error is not None:
-                    cached = self._find_cached_chat(chat.chat_id, chat.name)
-                    if cached:
-                        username = cached.get("username")
-                        cached_id = cached.get("id")
-                        if username:
-                            try:
-                                resolved = await self.app.get_chat(username)
-                                self.log(
-                                    f"预热会话使用缓存用户名成功: {chat.chat_id} -> @{username}",
-                                    level="WARNING",
-                                )
-                                chat.chat_id = resolved.id
-                                last_error = None
-                            except Exception as e2:
-                                last_error = e2
-                        if last_error is not None and cached_id:
-                            try:
-                                await self.app.get_chat(cached_id)
-                                self.log(
-                                    f"预热会话使用缓存 chat_id 成功: {chat.chat_id} -> {cached_id}",
-                                    level="WARNING",
-                                )
-                                chat.chat_id = cached_id
-                                last_error = None
-                            except Exception as e2:
-                                last_error = e2
 
                 if last_error is not None:
                     self.log(
