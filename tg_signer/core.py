@@ -795,8 +795,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
 
     def _find_cached_chat(self, chat_id: int, name: Optional[str]) -> Optional[dict]:
         entries = self._load_chat_cache()
-        if not entries:
-            return None
+        
         candidate_ids = {chat_id}
         if isinstance(chat_id, int):
             candidate_ids.add(-chat_id)
@@ -804,21 +803,49 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 candidate_ids.add(int(f"-100{abs(chat_id)}"))
             except Exception:
                 pass
-        for entry in entries:
-            try:
-                if entry.get("id") in candidate_ids:
-                    return entry
-            except Exception:
-                continue
-        if name:
-            name_key = name.strip().lower().lstrip("@")
-            for entry in entries:
-                username = (entry.get("username") or "").strip().lower()
-                title = (entry.get("title") or "").strip().lower()
-                if username and username == name_key:
-                    return entry
-                if title and title == name.strip().lower():
-                    return entry
+        
+        def _search_entries(cache_entries: List[dict]) -> Optional[dict]:
+            for entry in cache_entries:
+                try:
+                    if entry.get("id") in candidate_ids:
+                        return entry
+                except Exception:
+                    continue
+            if name:
+                name_key = name.strip().lower().lstrip("@")
+                for entry in cache_entries:
+                    username = (entry.get("username") or "").strip().lower()
+                    title = (entry.get("title") or "").strip().lower()
+                    if username and username == name_key:
+                        return entry
+                    if title and title == name.strip().lower():
+                        return entry
+            return None
+
+        # 1. Search current account cache
+        found = _search_entries(entries)
+        if found:
+            return found
+            
+        # 2. Search all other accounts caches
+        try:
+            for account_dir in self.tasks_dir.iterdir():
+                if not account_dir.is_dir() or account_dir.name == self._account:
+                    continue
+                other_cache_file = account_dir / "chats_cache.json"
+                if other_cache_file.exists():
+                    try:
+                        with open(other_cache_file, "r", encoding="utf-8") as fp:
+                            other_data = json.load(fp)
+                        if isinstance(other_data, list):
+                            found = _search_entries(other_data)
+                            if found:
+                                return found
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+
         return None
 
     @property
