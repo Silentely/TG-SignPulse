@@ -1004,19 +1004,19 @@ export default function Dashboard() {
               const isInvalid = status === "invalid" || Boolean(statusInfo?.needs_relogin);
               const isCheckingLike = status === "checking" || (status === "error" && !statusInfo?.needs_relogin);
               const statusKey = (() => {
-                const currentStatus = statusInfo?.status || "valid"; // Default to "valid" if statusInfo is undefined
+                const currentStatus = statusInfo?.status || "connected"; // Default to "connected" if statusInfo is undefined
                 const isCheckingOrError = currentStatus === "checking" || (currentStatus === "error" && !statusInfo?.needs_relogin);
-                return currentStatus === "valid"
+                return (currentStatus === "connected" || currentStatus === "valid")
                   ? "connected"
                   : isCheckingOrError
                     ? "account_status_checking"
                     : "account_status_invalid";
               })();
               const statusIconClass = (() => {
-                const currentStatus = statusInfo?.status || "valid"; // Default to "valid" if statusInfo is undefined
+                const currentStatus = statusInfo?.status || "connected"; // Default to "connected" if statusInfo is undefined
                 const isCheckingOrError = currentStatus === "checking" || (currentStatus === "error" && !statusInfo?.needs_relogin);
                 // Since proactive status testing was removed, default "checking" to valid UI unless error.
-                return isCheckingOrError || currentStatus === "valid"
+                return isCheckingOrError || currentStatus === "connected" || currentStatus === "valid"
                   ? "text-emerald-400"
                   : "text-rose-400";
               })();
