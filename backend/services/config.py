@@ -128,7 +128,7 @@ class ConfigService:
             是否成功保存
         """
         account_name = config.get("account_name", "")
-        
+
         if account_name:
             # 使用新版结构: signs/account/task
             task_dir = self.signs_dir / account_name / task_name
@@ -187,7 +187,7 @@ class ConfigService:
             # 这通常是可以接受的，或者我们可以检查父目录是否为空并删除
             import shutil
             shutil.rmtree(task_dir)
-            
+
             return True
         except OSError:
             return False
@@ -288,7 +288,7 @@ class ConfigService:
                             all_configs["signs"][key] = config
                     except Exception:
                         pass
-                
+
                 # 2. 扫描账号层
                 if path.is_dir():
                     for task_dir in path.iterdir():
@@ -323,7 +323,7 @@ class ConfigService:
                         all_configs["monitors"][task_name] = config
                 except (json.JSONDecodeError, OSError):
                     pass
-        
+
         # 导出设置 (新增)
         all_configs["settings"] = {
             "global": self.get_global_settings(),
@@ -394,10 +394,10 @@ class ConfigService:
                     result["errors"].append(
                         f"Failed to import monitor task: {task_name}"
                     )
-            
+
             # 导入设置 (新增)
             settings_data = data.get("settings", {})
-            
+
             # 导入全局设置
             if "global" in settings_data:
                 try:
@@ -405,7 +405,7 @@ class ConfigService:
                     result["settings_imported"] += 1
                 except Exception as e:
                     result["errors"].append(f"Failed to import global settings: {e}")
-            
+
             # 导入 AI 配置
             if "ai" in settings_data and settings_data["ai"]:
                 try:
@@ -433,12 +433,12 @@ class ConfigService:
             try:
                 from backend.services.sign_tasks import get_sign_task_service
                 get_sign_task_service()._tasks_cache = None
-                
+
                 # 可选：触发调度同步？
                 # 如果导入了新任务，调度器并不知道。
                 # 只有 _tasks_cache 清除后，下次调用 list_tasks 才会读文件，但调度器是内存常驻的。
                 # 我们应该调用 sync_jobs!
-                
+
                 # 由于 sync_jobs 是 async 的，而这里是同步方法，可能不太好直接调。
                 # 但 FastAPI 路由是 async 的，我们可以在路由层调用 sync_jobs。
                 # 这里的职责主要是文件操作。清理 cache 是必须的。

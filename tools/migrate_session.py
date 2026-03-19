@@ -3,14 +3,16 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
-import sys
 from pathlib import Path
 
 from pyrogram import Client
 
 from backend.core.config import get_settings
 from backend.services.config import get_config_service
-from backend.utils.tg_session import save_session_string_file, set_account_session_string
+from backend.utils.tg_session import (
+    save_session_string_file,
+    set_account_session_string,
+)
 
 
 def _resolve_api_credentials() -> tuple[int | None, str | None]:

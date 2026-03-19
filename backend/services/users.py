@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import os
 import logging
+import os
+
 from sqlalchemy.orm import Session
 
 from backend.core.security import hash_password

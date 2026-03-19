@@ -9,8 +9,8 @@ import asyncio
 import json
 import logging
 import os
-import traceback
 import time
+import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -19,8 +19,8 @@ from backend.core.config import get_settings
 from backend.utils.account_locks import get_account_lock
 from backend.utils.proxy import build_proxy_dict
 from backend.utils.tg_session import (
-    get_account_session_string,
     get_account_proxy,
+    get_account_session_string,
     get_global_semaphore,
     get_session_mode,
     load_session_string_file,
@@ -331,7 +331,7 @@ class SignTaskService:
                             json.dump(config, f, ensure_ascii=False, indent=2)
                 except Exception:
                     pass
-            
+
             if self._tasks_cache is not None:
                 for t in self._tasks_cache:
                     if t["name"] == task_name and t.get("account_name") == account_name:
@@ -1098,7 +1098,7 @@ class SignTaskService:
                 self._account_locks[account_name] = get_account_lock(account_name)
 
             account_lock = self._account_locks[account_name]
-            
+
             async def _fetch_chats(active_client) -> List[Dict[str, Any]]:
                 local_chats: List[Dict[str, Any]] = []
                 # 使用上下文管理器处理生命周期和锁
@@ -1389,7 +1389,7 @@ class SignTaskService:
             # 保存执行记录
             final_logs = list(self._active_logs.get(task_key, []))
             output_str = "\n".join(final_logs)
-            
+
             last_reply = ""
             if success:
                 for line in reversed(final_logs):
@@ -1399,7 +1399,7 @@ class SignTaskService:
                             reply_part = line.split(splitter, 1)[-1].strip()
                             if reply_part.startswith("Message:"):
                                 reply_part = reply_part[len("Message:"):].strip()
-                            
+
                             if "text: " in reply_part:
                                 text_content = reply_part.split("text: ", 1)[-1].split("\n")[0].strip()
                                 if text_content:
@@ -1410,7 +1410,7 @@ class SignTaskService:
                                     last_reply = reply_part.replace("\n", " ").strip()
                             else:
                                 last_reply = reply_part.replace("\n", " ").strip()
-                                
+
                             if len(last_reply) > 200:
                                 last_reply = last_reply[:197] + "..."
                         except Exception:

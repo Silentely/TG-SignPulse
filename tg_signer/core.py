@@ -4,6 +4,7 @@ import logging
 import os
 import pathlib
 import random
+import re
 import sqlite3
 import time
 from collections import Counter, defaultdict
@@ -21,7 +22,6 @@ from typing import (
 from urllib import parse
 
 import httpx
-import re
 from croniter import CroniterBadCronError, croniter
 from pydantic import BaseModel, ValidationError
 from pyrogram import Client as BaseClient
@@ -33,11 +33,10 @@ from pyrogram.session import Session
 from pyrogram.storage import MemoryStorage
 from pyrogram.types import (
     Chat,
-    InlineKeyboardButton,
     InlineKeyboardMarkup,
-    ReplyKeyboardMarkup,
     Message,
     Object,
+    ReplyKeyboardMarkup,
     User,
 )
 
@@ -50,8 +49,8 @@ from tg_signer.config import (
     HttpCallback,
     MatchConfig,
     MonitorConfig,
-    ReplyByImageRecognitionAction,
     ReplyByCalculationProblemAction,
+    ReplyByImageRecognitionAction,
     SendDiceAction,
     SendTextAction,
     SignChatV3,
@@ -90,7 +89,7 @@ async def _patched_invoke(self, query, *args, **kwargs):
         kwargs.setdefault("sleep_threshold", 0)
         kwargs["retries"] = 0
         kwargs.setdefault("timeout", 5.0)
-        
+
         async with _get_channel_diff_semaphore:
             max_retries = 2
             base_delay = 1.0
@@ -106,11 +105,13 @@ async def _patched_invoke(self, query, *args, **kwargs):
                                 delay = min(e.value, 3.0)  # Wait for a shorter time, max 3 seconds
                             await asyncio.sleep(delay)
                             continue
-                        
+
                         logger.warning(f"Drop updates for {type(query).__name__} due to error: {e}")
-                        
+
                         if isinstance(query, raw.functions.updates.GetChannelDifference):
-                            from pyrogram.raw.types.updates import ChannelDifferenceEmpty
+                            from pyrogram.raw.types.updates import (
+                                ChannelDifferenceEmpty,
+                            )
                             return ChannelDifferenceEmpty(pts=query.pts, timeout=0, final=True)
                         elif isinstance(query, raw.functions.updates.GetDifference):
                             from pyrogram.raw.types.updates import DifferenceEmpty
@@ -193,7 +194,7 @@ class Client(BaseClient):
                     try:
                         if not self.is_connected:
                             await self.connect()
-                        
+
                         try:
                             await self.get_me()
                         except Exception as e:
@@ -213,10 +214,10 @@ class Client(BaseClient):
                                 self.storage.conn.execute("PRAGMA busy_timeout=30000")
                             except Exception as e:
                                 logger.error(f"Failed to enable WAL mode: {e}")
-                        
+
                         # Success! Break loop
                         break
-                    
+
                     except Exception as e:
                         # If this is a database lock and we have retries left, wait and retry
                         is_locked = "database is locked" in str(e)
@@ -226,12 +227,12 @@ class Client(BaseClient):
                                 if self.is_connected:
                                     await self.stop()
                             except: pass
-                            
+
                             wait_time = (attempt + 1) * 2
                             logger.warning(f"Database locked when starting client {self.name}, retrying in {wait_time}s... ({attempt + 1}/{max_retries})")
                             await asyncio.sleep(wait_time)
                             continue
-                        
+
                         # If execution reaches here, it's a fatal error or retries exhausted
                         # Rollback the ref count
                         _CLIENT_REFS[self.key] -= 1
@@ -795,7 +796,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
 
     def _find_cached_chat(self, chat_id: int, name: Optional[str]) -> Optional[dict]:
         entries = self._load_chat_cache()
-        
+
         candidate_ids = {chat_id}
         if isinstance(chat_id, int):
             candidate_ids.add(-chat_id)
@@ -803,7 +804,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 candidate_ids.add(int(f"-100{abs(chat_id)}"))
             except Exception:
                 pass
-        
+
         def _search_entries(cache_entries: List[dict]) -> Optional[dict]:
             for entry in cache_entries:
                 try:
@@ -826,7 +827,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         found = _search_entries(entries)
         if found:
             return found
-            
+
         # 2. Search all other accounts caches
         try:
             for account_dir in self.tasks_dir.iterdir():
@@ -1028,7 +1029,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                         return
                     except Exception as e2:
                         last_error = e2
-                
+
                 # Second attempt: Try fetching by cached username BEFORE blind negative guessing
                 cached = self._find_cached_chat(chat.chat_id, chat.name)
                 cached_id_succeeded = False
@@ -1277,7 +1278,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         # Remove emojis and zero-width characters (using a broad unicode range for emojis and symbols)
         text = re.sub(r'[\U00010000-\U0010ffff]', '', text)
         text = re.sub(r'[\u2600-\u27bf]', '', text)
-        text = re.sub(r'[\u2B50]', '', text)  # ⭐ 
+        text = re.sub(r'[\u2B50]', '', text)  # ⭐
         # Remove all whitespace and zero width joiners to make fuzzy match extremely forgiving
         text = re.sub(r'[\s\u200b\u200e\u200f\u202a-\u202e]', '', text)
         # Remove all common punctuation
