@@ -1389,7 +1389,36 @@ class SignTaskService:
             # 保存执行记录
             final_logs = list(self._active_logs.get(task_key, []))
             output_str = "\n".join(final_logs)
-            msg = error_msg if not success else ""
+            
+            last_reply = ""
+            if success:
+                for line in reversed(final_logs):
+                    if "收到来自「" in line and ("」的消息:" in line or "」对消息的更新，消息:" in line):
+                        try:
+                            splitter = "」的消息:" if "」的消息:" in line else "」对消息的更新，消息:"
+                            reply_part = line.split(splitter, 1)[-1].strip()
+                            if reply_part.startswith("Message:"):
+                                reply_part = reply_part[len("Message:"):].strip()
+                            
+                            if "text: " in reply_part:
+                                text_content = reply_part.split("text: ", 1)[-1].split("\n")[0].strip()
+                                if text_content:
+                                    last_reply = text_content
+                                elif "图片: " in reply_part:
+                                    last_reply = "[图片] " + reply_part.split("图片: ", 1)[-1].split("\n")[0].strip()
+                                else:
+                                    last_reply = reply_part.replace("\n", " ").strip()
+                            else:
+                                last_reply = reply_part.replace("\n", " ").strip()
+                                
+                            if len(last_reply) > 200:
+                                last_reply = last_reply[:197] + "..."
+                        except Exception:
+                            pass
+                        if last_reply:
+                            break
+
+            msg = error_msg if not success else last_reply
             self._save_run_info(
                 task_name,
                 success,
