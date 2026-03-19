@@ -1319,13 +1319,14 @@ class SignTaskService:
                         raise ValueError(f"账号 {account_name} 的 session_string 不存在")
                     use_in_memory = True
                 else:
-                    session_string = load_session_string_file(
-                        session_dir, account_name
-                    )
-                    use_in_memory = bool(session_string)
+                    session_string = None
+                    use_in_memory = False
 
                     if os.getenv("SIGN_TASK_FORCE_IN_MEMORY") == "1":
-                        use_in_memory = True
+                        session_string = load_session_string_file(
+                            session_dir, account_name
+                        )
+                        use_in_memory = bool(session_string)
 
                 task_cfg = self.get_task(task_name, account_name=account_name)
                 requires_updates = self._task_requires_updates(task_cfg)
