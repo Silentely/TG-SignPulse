@@ -546,7 +546,11 @@ export default function AccountTasksContent() {
             if (result.success) {
                 addToast(t("task_run_success").replace("{name}", taskName), "success");
             } else {
-                addToast(t("task_run_failed"), "error");
+                if (result.error && result.error.includes("运行中")) {
+                    addToast(language === "zh" ? "该任务正在运行中，任务结束后才能再次执行" : "Task is currently running, please wait until it finishes.", "info");
+                } else {
+                    addToast(result.error || t("task_run_failed"), "error");
+                }
             }
         } catch (err: any) {
             addToast(formatErrorMessage("task_run_failed", err), "error");

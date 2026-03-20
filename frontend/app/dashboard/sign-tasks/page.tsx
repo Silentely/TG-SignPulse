@@ -150,8 +150,12 @@ export default function SignTasksPage() {
             const result = await runSignTask(token, taskName, accountName);
 
             if (!result.success) {
-                addToast(t("task_run_failed"), "error");
-                setIsDone(true);
+                if (result.error && result.error.includes("运行中")) {
+                    addToast(language === "zh" ? "该任务正在运行中，无法重复开始。正在为您展示其实时进度..." : "Task is currently running. Real-time logs are shown below.", "info");
+                } else {
+                    addToast(result.error || t("task_run_failed"), "error");
+                    setIsDone(true);
+                }
             } else {
                 addToast(t("task_run_success").replace("{name}", taskName), "success");
             }
