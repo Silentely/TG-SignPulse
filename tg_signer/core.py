@@ -1147,10 +1147,12 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         edited_handler_ref = None
 
         async def sign_once():
+            success_count = 0
             for chat in config.chats:
                 self.context.sign_chats[chat.chat_id].append(chat)
                 try:
                     await self.sign_a_chat(chat)
+                    success_count += 1
                 except errors.RPCError as _e:
                     self.log(f"签到失败: {_e} \nchat: \n{chat}")
                     logger.warning(_e, exc_info=True)
@@ -1158,6 +1160,10 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
 
                 self.context.chat_messages[chat.chat_id].clear()
                 await asyncio.sleep(config.sign_interval)
+
+            if success_count == 0 and len(config.chats) > 0:
+                raise RuntimeError("所有会话均执行失败（详细请看运行日志）")
+
             sign_record[str(now.date())] = now.isoformat()
             with open(self.sign_record_file, "w", encoding="utf-8") as fp:
                 json.dump(sign_record, fp)
