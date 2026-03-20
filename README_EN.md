@@ -119,6 +119,11 @@ frontend/     Next.js management panel
 
 ## Changelog
 
+### 2026-03-20
+
+- **SQLite Database Deadlock Fixed**: Hardened the Pyrogram client lifecycle cache, completely eliminating the overlapping `database is locked` errors previously caused by concurrent UI polling overlapping with worker queues. Background executions now smoothly multiplex SQLite connections, resulting in significantly lower I/O and zero queuing deadlocks.
+- **Task Prevention UI**: Improved the frontend with protection logic against double-calling tasks. If the user accidentally clicks 'Run' on an actively executing task, the app will gracefully block the action, display a warning that the task is currently in progress, and immediately pivot to streaming its live logs instead.
+
 ### 2026-03-19
 
 - **Account Status Display Fix**: Fixed a frontend string-matching bug where completely normal accounts were erroneously displayed as "Account Invalid".
