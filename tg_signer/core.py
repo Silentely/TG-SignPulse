@@ -255,9 +255,10 @@ class Client(BaseClient):
             if _CLIENT_REFS[self.key] == 0:
                 try:
                     await self.stop()
-                except ConnectionError:
+                except Exception:
                     pass
-                _CLIENT_INSTANCES.pop(self.key, None)
+                # DO NOT POP FROM _CLIENT_INSTANCES HERE.
+                # Keep the client instance cached so future connections reuse the safe asyncio lock mechanisms.
 
     @property
     def session_string_file(self):
