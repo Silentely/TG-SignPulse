@@ -78,6 +78,7 @@ class ChatConfig(BaseModel):
     actions: List[Dict[str, Any]] = Field(..., description="动作列表")
     delete_after: Optional[int] = Field(None, description="删除延迟（秒）")
     action_interval: int = Field(1, description="动作间隔（秒）")
+    message_thread_id: Optional[int] = Field(None, description="群组话题 Thread ID")
 
 
 class SignTaskCreate(BaseModel):

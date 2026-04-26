@@ -95,7 +95,15 @@ export default function SettingsPage() {
     const [aiTesting, setAITesting] = useState(false);
 
     // 全局设置
-    const [globalSettings, setGlobalSettings] = useState<GlobalSettings>({ sign_interval: null, log_retention_days: 7, data_dir: null });
+    const [globalSettings, setGlobalSettings] = useState<GlobalSettings>({
+        sign_interval: null,
+        log_retention_days: 7,
+        data_dir: null,
+        global_proxy: null,
+        telegram_bot_notify_enabled: false,
+        telegram_bot_token: null,
+        telegram_bot_chat_id: null,
+    });
 
     // Telegram API 配置
     const [telegramConfig, setTelegramConfig] = useState<TelegramConfig | null>(null);
@@ -724,14 +732,54 @@ export default function SettingsPage() {
                                 <p className="mt-1 text-[9px] text-amber-400">{t("data_dir_restart_hint")}</p>
                             </div>
                             <div className="md:col-span-2">
-                                <label className="text-[11px] mb-1">{t("global_proxy") || "Global Proxy"}</label>
+                                <label className="text-[11px] mb-1">{t("global_proxy")}</label>
                                 <input
                                     className="!py-2 !px-4"
                                     value={globalSettings.global_proxy || ""}
                                     onChange={(e) => setGlobalSettings({ ...globalSettings, global_proxy: e.target.value || null })}
-                                    placeholder="http://127.0.0.1:10809"
+                                    placeholder={t("global_proxy_placeholder")}
                                 />
-                                <p className="mt-1 text-[9px] text-[#9496a1]">{t("global_proxy_desc") || "Used as default proxy when logging in new accounts"}</p>
+                                <p className="mt-1 text-[9px] text-[#9496a1]">{t("global_proxy_desc")}</p>
+                            </div>
+                            <div className="md:col-span-2 rounded-xl border border-white/5 bg-white/3 p-3 space-y-3">
+                                <div className="flex items-center justify-between gap-3">
+                                    <div>
+                                        <label className="text-[11px] mb-1">{t("telegram_bot_notify")}</label>
+                                        <p className="text-[9px] text-[#9496a1]">{t("telegram_bot_notify_desc")}</p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        className={`w-12 h-7 rounded-full relative transition-all shadow-sm border-2 ${globalSettings.telegram_bot_notify_enabled ? 'bg-[#8a3ffc] border-[#8a3ffc]' : 'bg-black/20 dark:bg-white/10 border-black/10 dark:border-white/30'}`}
+                                        onClick={() => setGlobalSettings({
+                                            ...globalSettings,
+                                            telegram_bot_notify_enabled: !globalSettings.telegram_bot_notify_enabled,
+                                        })}
+                                        aria-label={t("telegram_bot_notify")}
+                                    >
+                                        <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all shadow-md ${globalSettings.telegram_bot_notify_enabled ? 'left-6' : 'left-0.5'}`}></span>
+                                    </button>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="text-[11px] mb-1">{t("telegram_bot_token")}</label>
+                                        <input
+                                            type="password"
+                                            className="!py-2 !px-4"
+                                            value={globalSettings.telegram_bot_token || ""}
+                                            onChange={(e) => setGlobalSettings({ ...globalSettings, telegram_bot_token: e.target.value || null })}
+                                            placeholder={t("telegram_bot_token_placeholder")}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-[11px] mb-1">{t("telegram_bot_chat_id")}</label>
+                                        <input
+                                            className="!py-2 !px-4"
+                                            value={globalSettings.telegram_bot_chat_id || ""}
+                                            onChange={(e) => setGlobalSettings({ ...globalSettings, telegram_bot_chat_id: e.target.value || null })}
+                                            placeholder={t("telegram_bot_chat_id_placeholder")}
+                                        />
+                                    </div>
+                                </div>
                             </div>
                         </div>
                         <button className="btn-gradient w-fit px-5 !py-2 !text-[11px]" onClick={handleSaveGlobal} disabled={configLoading}>

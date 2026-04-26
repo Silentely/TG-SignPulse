@@ -12,13 +12,18 @@ TG-SignPulse is a Telegram automation panel. It helps you manage multiple accoun
 - Automate check-ins, message sending, and button clicking
 - Use AI actions for image recognition and math challenges
 - View execution flow logs and recent bot replies
+- Run check-ins inside specific Telegram group topics
+- Use clipboard bulk task import/export, global proxy fallback, and failure notifications
 - Run reliably on a VPS for long-term automation
 
 ## Key Features
 
 - Multi-account management
 - Action sequences: `Send Text`, `Click Text Button`, `Send Dice`, `AI Vision`, `AI Calculate`
-- Visual logs with task-level details
+- Topic check-ins for specific Thread/Topic IDs in Telegram forum groups
+- Task migration via clipboard export/import with duplicate skipping
+- Telegram Bot failure notifications and dashboard invalid-session hints when all tasks under an account fail
+- Visual logs with per-run flow details and latest bot replies
 - Stability improvements for timeout/429 scenarios and long-running memory behavior
 - Docker-first deployment (easy to start and migrate)
 
@@ -88,6 +93,7 @@ touch /data/.probe && rm /data/.probe
 - `ADMIN_PASSWORD`: initial default password for the admin user (strongly recommended, otherwise defaults to insecure 'admin123')
 - `APP_HOST`: API listening interface (defaults to `127.0.0.1` for security; use `0.0.0.0` if exposing container globally)
 - `APP_DATA_DIR`: custom data directory (higher priority than panel setting)
+- `TG_PROXY`: Telegram connection proxy; you can also configure a global proxy in the panel
 - `TG_SESSION_MODE`: `file` (default) or `string` (recommended on arm64)
 - `TG_SESSION_NO_UPDATES`: set `1` to enable `no_updates` (`string` mode only)
 - `TG_GLOBAL_CONCURRENCY`: global concurrency limit (default `1`)
@@ -103,6 +109,20 @@ You can set the data directory in two ways:
 Notes:
 - Restart backend service after changing it
 - The path must be writable and mounted as persistent volume
+
+## Common Panel Settings
+
+In `System Settings -> Global Sign-in Settings`, you can configure:
+
+- Global Proxy: used by login, chat refresh, and task execution when an account has no dedicated proxy
+- Telegram Bot Failure Notifications: set Bot Token and target Chat ID to receive failed-task alerts
+- Data Directory: stores sessions, logs, database, and task files
+
+On the account task page, you can:
+
+- Fill in `Topic / Thread ID` so a task only runs inside a specific Telegram group topic
+- Click the top-right export icon to copy all tasks of the current account to the clipboard
+- Click the top-right paste/import action to bulk-import tasks from the clipboard while skipping duplicates
 
 ## Health Checks
 
@@ -121,10 +141,14 @@ frontend/     Next.js management panel
 
 ### 2026-04-26
 
-- **Telegram Topic (Thread) Support**: You can now specify `message_thread_id` to send automatic check-in messages directly to specific topics within Telegram forum groups.
-- **Global Proxy Fallback**: Added a new Global Proxy setting. If individual accounts lack a dedicated proxy, the system gracefully falls back to using the global default proxy during login and execution.
-- **Clipboard Bulk Import/Export**: Added single-click task config Export & Import functionality to the top-right of the task dashboard via clipboard. Automatically skips duplicate existing tasks via backend protection, making cross-server migrations seamless.
-- **Convenient Re-login Experience**: Added a dedicated "Re-login" action button inside the account editing modal on the dashboard, easily recovering lost sessions dynamically without needing to wait for the background invalidation trigger.
+- **Telegram Topic (Thread) Support**: Tasks can now run inside a specific topic of a specific group. Sent messages include `message_thread_id`, and incoming replies from other topics are ignored.
+- **Global Proxy Fallback**: Added a Global Proxy setting. Login, chat refresh, scheduled/manual task execution, and legacy CLI execution use it whenever an account does not have its own proxy.
+- **Clipboard Bulk Import/Export**: The account task page now has top-right actions to export all tasks to the clipboard and paste-import tasks. Imports skip duplicates and attach imported tasks to the current account.
+- **Convenient Re-login Experience**: The account edit modal now includes a Re-login action with complete Chinese/English labels, allowing users to refresh an existing account session directly.
+- **Telegram Bot Failure Notifications**: System Settings now include notification enablement, Bot Token, and notification Chat ID. Failed tasks send account, task, error, and recent log context.
+- **Dashboard Invalid-Session Hint**: If every task under an account failed in its latest run, the dashboard marks the account as session invalid and guides users to re-login.
+- **Frontend Task Log Improvements**: Per-run task flow logs retain more lines and are shown directly in the frontend task history.
+- **Project Health Cleanup**: Fixed simple Ruff findings and made root debug scripts safe for pytest collection.
 
 ### 2026-03-20
 - **SQLite Database Deadlock Fixed**: Hardened the Pyrogram client lifecycle cache, completely eliminating the overlapping `database is locked` errors previously caused by concurrent UI polling overlapping with worker queues. Background executions now smoothly multiplex SQLite connections, resulting in significantly lower I/O and zero queuing deadlocks.

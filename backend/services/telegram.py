@@ -213,6 +213,12 @@ class TelegramService:
         try:
             profile = get_account_profile(account_name) or {}
             proxy_value = profile.get("proxy")
+            if not proxy_value:
+                from backend.services.config import get_config_service
+
+                proxy_value = get_config_service().get_global_settings().get(
+                    "global_proxy"
+                )
             if proxy_value:
                 proxy_dict = build_proxy_dict(proxy_value)
         except Exception:
@@ -430,32 +436,25 @@ class TelegramService:
             return False
 
         try:
-            removed_any = False
             if session_file.exists():
                 session_file.unlink()
-                removed_any = True
 
             # 同时删除可能存在的 .session-journal 文件
             if journal_file.exists():
                 journal_file.unlink()
-                removed_any = True
 
             # 删除 shm 和 wal 文件 (sqlite3)
             if shm_file.exists():
                 shm_file.unlink()
-                removed_any = True
 
             if wal_file.exists():
                 wal_file.unlink()
-                removed_any = True
 
             if session_string_file.exists():
                 session_string_file.unlink()
-                removed_any = True
 
             if has_session_string or account_in_store:
                 delete_account_session_string(account_name)
-                removed_any = True
 
             # 确保 .session_string 残留被清理
             delete_session_string_file(self.session_dir, account_name)

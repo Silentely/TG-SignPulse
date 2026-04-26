@@ -14,14 +14,13 @@ def _clean_text_for_match(text: str) -> str:
     text = re.sub(r'[!"#$%&\'()*+,-./:;<=>?@\[\]^_`{|}~，。！？；：“”‘’（）【】《》]', '', text)
     return text.strip().lower()
 
-target1 = "签到"
-btn1 = "🤖 签到"
-print(f"Test 1: '{target1}' inside '{btn1}' -> {_clean_text_for_match(target1)} in {_clean_text_for_match(btn1)}")
+def test_clean_text_removes_emoji_for_chinese_match():
+    assert _clean_text_for_match("签到") in _clean_text_for_match("🤖 签到")
 
-target2 = "Check-in"
-btn2 = "✅ Check-in"
-print(f"Test 2: '{target2}' inside '{btn2}' -> {_clean_text_for_match(target2)} in {_clean_text_for_match(btn2)}")
 
-# Let's see what \punctuation is doing, because Python's re.sub won't recognize \punctuation unless it's a specific flag or string constant
-target3 = "Check-in"
-print(f"Test 3 Check-in: {_clean_text_for_match(target3)}")
+def test_clean_text_removes_emoji_for_english_match():
+    assert _clean_text_for_match("Check-in") in _clean_text_for_match("✅ Check-in")
+
+
+def test_clean_text_removes_punctuation():
+    assert _clean_text_for_match("Check-in") == "checkin"

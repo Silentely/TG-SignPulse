@@ -113,10 +113,10 @@ class SignTaskService:
             "SIGN_TASK_HISTORY_MAX_ENTRIES", 100, 10
         )
         self._history_max_flow_lines = self._read_positive_int_env(
-            "SIGN_TASK_HISTORY_MAX_FLOW_LINES", 200, 20
+            "SIGN_TASK_HISTORY_MAX_FLOW_LINES", 5000, 20
         )
         self._history_max_line_chars = self._read_positive_int_env(
-            "SIGN_TASK_HISTORY_MAX_LINE_CHARS", 500, 80
+            "SIGN_TASK_HISTORY_MAX_LINE_CHARS", 2000, 80
         )
         self._cleanup_old_logs()
 
@@ -530,6 +530,61 @@ class SignTaskService:
         except Exception as e:
             logging.getLogger('backend.sign_tasks').warning(
                 'Failed to write scheduler log %s: %s', filename, e
+            )
+
+    def _get_effective_proxy(self, account_name: str) -> Optional[str]:
+        proxy_value = get_account_proxy(account_name)
+        if proxy_value:
+            return proxy_value
+        try:
+            from backend.services.config import get_config_service
+
+            global_proxy = get_config_service().get_global_settings().get("global_proxy")
+            if isinstance(global_proxy, str) and global_proxy.strip():
+                return global_proxy.strip()
+        except Exception:
+            pass
+        return None
+
+    async def _send_failure_notification(
+        self,
+        account_name: str,
+        task_name: str,
+        message: str,
+        flow_logs: Optional[List[str]] = None,
+    ) -> None:
+        try:
+            from backend.services.config import get_config_service
+
+            cfg = get_config_service().get_global_settings()
+            if not cfg.get("telegram_bot_notify_enabled"):
+                return
+            bot_token = (cfg.get("telegram_bot_token") or "").strip()
+            chat_id = (cfg.get("telegram_bot_chat_id") or "").strip()
+            if not bot_token or not chat_id:
+                return
+
+            log_tail = "\n".join((flow_logs or [])[-20:])
+            text = (
+                "TG-SignPulse 任务执行失败\n"
+                f"账号: {account_name}\n"
+                f"任务: {task_name}\n"
+                f"错误: {message or '未知错误'}"
+            )
+            if log_tail:
+                text += f"\n\n最近日志:\n{log_tail}"
+            text = text[:3900]
+
+            import httpx
+
+            async with httpx.AsyncClient(timeout=10) as client:
+                await client.post(
+                    f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                    json={"chat_id": chat_id, "text": text},
+                )
+        except Exception as e:
+            logging.getLogger("backend.sign_tasks").warning(
+                "Failed to send Telegram failure notification: %s", e
             )
 
     def list_tasks(
@@ -1075,7 +1130,7 @@ class SignTaskService:
 
         # 使用 get_client 获取（可能共享的）客户端实例
         proxy_dict = None
-        proxy_value = get_account_proxy(account_name)
+        proxy_value = self._get_effective_proxy(account_name)
         if proxy_value:
             proxy_dict = build_proxy_dict(proxy_value)
         client_kwargs = {
@@ -1306,7 +1361,7 @@ class SignTaskService:
                 session_string = None
                 use_in_memory = False
                 proxy_dict = None
-                proxy_value = get_account_proxy(account_name)
+                proxy_value = self._get_effective_proxy(account_name)
                 if proxy_value:
                     proxy_dict = build_proxy_dict(proxy_value)
 
@@ -1426,6 +1481,14 @@ class SignTaskService:
                 account_name,
                 flow_logs=final_logs,
             )
+
+            if not success:
+                await self._send_failure_notification(
+                    account_name,
+                    task_name,
+                    error_msg or msg,
+                    flow_logs=final_logs,
+                )
 
             # 延迟清理日志（同一 task_key 仅保留一个 cleanup 协程）
             old_cleanup_task = self._cleanup_tasks.get(task_key)

@@ -463,6 +463,9 @@ export interface GlobalSettings {
   log_retention_days?: number;    // 日志保留天数，默认 7
   data_dir?: string | null;
   global_proxy?: string | null;
+  telegram_bot_notify_enabled?: boolean;
+  telegram_bot_token?: string | null;
+  telegram_bot_chat_id?: string | null;
 }
 
 export const getGlobalSettings = (token: string) =>
@@ -695,4 +698,3 @@ export const getSignTaskHistory = (
     token
   );
 };
-

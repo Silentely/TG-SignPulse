@@ -15,6 +15,7 @@ import {
     updateSignTask,
     exportSignTask,
     importSignTask,
+    importAllConfigs,
     SignTask,
     SignTaskHistoryItem,
     ChatInfo,
@@ -347,6 +348,7 @@ export default function AccountTasksContent() {
     const pasteTaskFailed = isZh ? "\u7C98\u8D34\u4EFB\u52A1\u5931\u8D25" : "Paste task failed";
     const clipboardUnsupported = isZh ? "\u5F53\u524D\u73AF\u5883\u4E0D\u652F\u6301\u526A\u8D34\u677F\u64CD\u4F5C" : "Clipboard API is not available";
     const copyTaskFallbackManual = isZh ? "\u81EA\u52A8\u590D\u5236\u5931\u8D25\uFF0C\u8BF7\u5728\u5F39\u7A97\u5185\u624B\u52A8\u590D\u5236" : "Auto copy failed, please copy manually from dialog";
+    const copyAllTasksTitle = t("export_all_tasks");
 
     const sanitizeTaskName = useCallback((raw: string) => {
         return raw
@@ -586,6 +588,30 @@ export default function AccountTasksContent() {
 
         try {
             setLoading(true);
+            let parsed: any = null;
+            try {
+                parsed = JSON.parse(taskConfig);
+            } catch {
+                parsed = null;
+            }
+            if (parsed && typeof parsed === "object" && parsed.signs && typeof parsed.signs === "object") {
+                const taskOnlyBundle: { signs: Record<string, any>; monitors: Record<string, any>; settings: Record<string, any> } = {
+                    signs: {},
+                    monitors: {},
+                    settings: {},
+                };
+                for (const [key, value] of Object.entries(parsed.signs)) {
+                    if (!value || typeof value !== "object") continue;
+                    const config: Record<string, any> = { ...(value as Record<string, any>), account_name: accountName };
+                    const taskName = String(config.name || key).split("@")[0];
+                    taskOnlyBundle.signs[`${taskName}@${accountName}`] = config;
+                }
+                await importAllConfigs(token, JSON.stringify(taskOnlyBundle), false);
+                addToast(t("paste_all_tasks_success"), "success");
+                await loadData(token);
+                return { ok: true };
+            }
+
             const result = await importSignTask(token, taskConfig, undefined, accountName);
             addToast(pasteTaskSuccess(result.task_name), "success");
             await loadData(token);
@@ -617,6 +643,42 @@ export default function AccountTasksContent() {
             setCopyTaskDialog({ taskName, config: taskConfig });
         } catch (err: any) {
             const message = err?.message ? `${copyTaskFailed}: ${err.message}` : copyTaskFailed;
+            addToast(message, "error");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleCopyAllTasks = async () => {
+        if (!token) return;
+        if (tasks.length === 0) {
+            addToast(t("copy_all_tasks_empty"), "error");
+            return;
+        }
+        if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+            addToast(clipboardUnsupported, "error");
+            return;
+        }
+
+        try {
+            setLoading(true);
+            const bundle: { signs: Record<string, any>; monitors: Record<string, any>; settings: Record<string, any> } = {
+                signs: {},
+                monitors: {},
+                settings: {},
+            };
+            for (const task of tasks) {
+                const raw = await exportSignTask(token, task.name, accountName);
+                const parsed = JSON.parse(raw);
+                const config = { ...(parsed.config || {}) };
+                config.account_name = accountName;
+                const key = `${parsed.task_name || task.name}@${accountName}`;
+                bundle.signs[key] = config;
+            }
+            await navigator.clipboard.writeText(JSON.stringify(bundle, null, 2));
+            addToast(t("copy_all_tasks_success"), "success");
+        } catch (err: any) {
+            const message = err?.message ? `${t("copy_all_tasks_failed")}: ${err.message}` : t("copy_all_tasks_failed");
             addToast(message, "error");
         } finally {
             setLoading(false);
@@ -905,6 +967,14 @@ export default function AccountTasksContent() {
                         title={t("refresh_chats")}
                     >
                         <ArrowClockwise weight="bold" size={18} className={loading ? 'animate-spin' : ''} />
+                    </button>
+                    <button
+                        onClick={handleCopyAllTasks}
+                        disabled={loading}
+                        className="action-btn !w-8 !h-8 !text-emerald-400 hover:bg-emerald-500/10"
+                        title={copyAllTasksTitle}
+                    >
+                        <Copy weight="bold" size={18} />
                     </button>
                     <button
                         onClick={handlePasteTask}

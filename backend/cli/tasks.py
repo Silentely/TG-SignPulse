@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from typing import Callable, Optional
 
 from backend.core.config import get_settings
@@ -36,11 +37,22 @@ async def async_run_task_cli(
         "--num-of-dialogs",
         str(num_of_dialogs),
     ]
+    env = os.environ.copy()
+    if not env.get("TG_PROXY"):
+        try:
+            from backend.services.config import get_config_service
+
+            global_proxy = get_config_service().get_global_settings().get("global_proxy")
+            if isinstance(global_proxy, str) and global_proxy.strip():
+                env["TG_PROXY"] = global_proxy.strip()
+        except Exception:
+            pass
 
     process = await asyncio.create_subprocess_exec(
         *args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,  # 合并 stdout 和 stderr 以便于即时按顺序捕获日志
+        env=env,
     )
 
     full_output = []

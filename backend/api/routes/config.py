@@ -351,6 +351,9 @@ class GlobalSettingsRequest(BaseModel):
     log_retention_days: int = 7
     data_dir: Optional[str] = None
     global_proxy: Optional[str] = None
+    telegram_bot_notify_enabled: bool = False
+    telegram_bot_token: Optional[str] = None
+    telegram_bot_chat_id: Optional[str] = None
 
 
 class GlobalSettingsResponse(BaseModel):
@@ -358,6 +361,9 @@ class GlobalSettingsResponse(BaseModel):
     log_retention_days: int = 7
     data_dir: Optional[str] = None
     global_proxy: Optional[str] = None
+    telegram_bot_notify_enabled: bool = False
+    telegram_bot_token: Optional[str] = None
+    telegram_bot_chat_id: Optional[str] = None
 
 
 @router.get("/settings", response_model=GlobalSettingsResponse)
@@ -381,6 +387,9 @@ def save_global_settings(
             "sign_interval": request.sign_interval,
             "log_retention_days": request.log_retention_days,
             "global_proxy": request.global_proxy,
+            "telegram_bot_notify_enabled": request.telegram_bot_notify_enabled,
+            "telegram_bot_token": request.telegram_bot_token,
+            "telegram_bot_chat_id": request.telegram_bot_chat_id,
         }
         fields_set = getattr(request, "model_fields_set", getattr(request, "__fields_set__", set()))
         if "data_dir" in fields_set:

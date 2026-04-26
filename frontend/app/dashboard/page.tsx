@@ -339,6 +339,11 @@ export default function Dashboard() {
     return tasks.filter(task => task.account_name === accountName).length;
   };
 
+  const hasAllTasksFailed = useCallback((accountName: string) => {
+    const accountTasks = tasks.filter(task => task.account_name === accountName);
+    return accountTasks.length > 0 && accountTasks.every(task => task.last_run && !task.last_run.success);
+  }, [tasks]);
+
   const openAddDialog = () => {
     setReloginAccountName(null);
     setLoginMode("phone");
@@ -571,12 +576,12 @@ export default function Dashboard() {
 
   const handleAccountCardClick = useCallback((acc: AccountInfo) => {
     const statusInfo = accountStatusMap[acc.name];
-    if (statusInfo?.needs_relogin) {
+    if (statusInfo?.needs_relogin || hasAllTasksFailed(acc.name)) {
       openReloginDialog(acc);
       return;
     }
     router.push(`/dashboard/account-tasks?name=${acc.name}`);
-  }, [accountStatusMap, openReloginDialog, router]);
+  }, [accountStatusMap, hasAllTasksFailed, openReloginDialog, router]);
 
   const performQrLoginStart = useCallback(async (options?: { autoRefresh?: boolean; silent?: boolean; reason?: string }) => {
     if (!token) return null;
@@ -1002,10 +1007,12 @@ export default function Dashboard() {
             {accounts.map((acc) => {
               const initial = acc.name.charAt(0).toUpperCase();
               const statusInfo = accountStatusMap[acc.name];
+              const allTasksFailed = hasAllTasksFailed(acc.name);
               const status = statusInfo?.status || "checking";
-              const isInvalid = status === "invalid" || Boolean(statusInfo?.needs_relogin);
+              const isInvalid = allTasksFailed || status === "invalid" || Boolean(statusInfo?.needs_relogin);
               const isCheckingLike = status === "checking" || (status === "error" && !statusInfo?.needs_relogin);
               const statusKey = (() => {
+                if (allTasksFailed) return "account_status_invalid";
                 const currentStatus = statusInfo?.status || "connected"; // Default to "connected" if statusInfo is undefined
                 const isCheckingOrError = currentStatus === "checking" || (currentStatus === "error" && !statusInfo?.needs_relogin);
                 return (currentStatus === "connected" || currentStatus === "valid")
@@ -1015,6 +1022,7 @@ export default function Dashboard() {
                     : "account_status_invalid";
               })();
               const statusIconClass = (() => {
+                if (allTasksFailed) return "text-rose-400";
                 const currentStatus = statusInfo?.status || "connected"; // Default to "connected" if statusInfo is undefined
                 const isCheckingOrError = currentStatus === "checking" || (currentStatus === "error" && !statusInfo?.needs_relogin);
                 // Since proactive status testing was removed, default "checking" to valid UI unless error.

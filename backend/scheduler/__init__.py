@@ -56,7 +56,7 @@ async def _job_run_sign_task(account_name: str, task_name: str) -> None:
     import asyncio
     import logging
     import random
-    from datetime import datetime, time, timedelta
+    from datetime import datetime, timedelta
 
     from backend.services.sign_tasks import get_sign_task_service
 

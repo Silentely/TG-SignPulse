@@ -226,7 +226,8 @@ class Client(BaseClient):
                             try:
                                 if self.is_connected:
                                     await self.stop()
-                            except: pass
+                            except Exception:
+                                pass
 
                             wait_time = (attempt + 1) * 2
                             logger.warning(f"Database locked when starting client {self.name}, retrying in {wait_time}s... ({attempt + 1}/{max_retries})")
@@ -1033,7 +1034,6 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
 
                 # Second attempt: Try fetching by cached username BEFORE blind negative guessing
                 cached = self._find_cached_chat(chat.chat_id, chat.name)
-                cached_id_succeeded = False
                 if cached:
                     username = cached.get("username")
                     cached_id = cached.get("id")
@@ -1258,6 +1258,20 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         chats = self.context.sign_chats.get(message.chat.id)
         if not chats:
             self.log("忽略意料之外的聊天", level="WARNING")
+            return
+        message_thread_id = getattr(message, "message_thread_id", None) or getattr(
+            message, "reply_to_top_message_id", None
+        )
+        topic_matched = False
+        for chat in chats:
+            if chat.message_thread_id is None or chat.message_thread_id == message_thread_id:
+                topic_matched = True
+                break
+        if not topic_matched:
+            self.log(
+                f"忽略非目标话题消息: chat_id={message.chat.id}, thread_id={message_thread_id}",
+                level="WARNING",
+            )
             return
         self.context.chat_messages[message.chat.id][message.id] = message
 

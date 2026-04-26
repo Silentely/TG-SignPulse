@@ -49,7 +49,7 @@ class ConfigService:
                             if task_dir.is_dir() and (task_dir / "config.json").exists():
                                 tasks.append(task_dir.name)
 
-        return sorted(list(set(tasks)))  # 去重并排序
+        return sorted(set(tasks))  # 去重并排序
 
     def list_monitor_tasks(self) -> List[str]:
         """获取所有监控任务名称列表"""
@@ -594,6 +594,10 @@ class ConfigService:
             "sign_interval": None,  # None 表示使用随机 1-120 秒
             "log_retention_days": 7,
             "data_dir": str(override_data_dir) if override_data_dir else None,
+            "global_proxy": None,
+            "telegram_bot_notify_enabled": False,
+            "telegram_bot_token": None,
+            "telegram_bot_chat_id": None,
         }
 
         if not config_file.exists():
