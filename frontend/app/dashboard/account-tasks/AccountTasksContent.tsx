@@ -284,6 +284,7 @@ export default function AccountTasksContent() {
         chat_id: 0,
         chat_id_manual: "",
         chat_name: "",
+        message_thread_id: undefined as number | undefined,
         actions: [{ action: 1, text: "" }],
         delete_after: undefined as number | undefined,
         action_interval: 1,
@@ -301,6 +302,7 @@ export default function AccountTasksContent() {
         chat_id: 0,
         chat_id_manual: "",
         chat_name: "",
+        message_thread_id: undefined as number | undefined,
         actions: [{ action: 1, text: "" }] as any[],
         delete_after: undefined as number | undefined,
         action_interval: 1,
@@ -733,6 +735,7 @@ export default function AccountTasksContent() {
                 chats: [{
                     chat_id: chatId,
                     name: newTask.chat_name || t("chat_default_name").replace("{id}", String(chatId)),
+                    message_thread_id: newTask.message_thread_id,
                     actions: newTask.actions,
                     delete_after: newTask.delete_after,
                     action_interval: newTask.action_interval,
@@ -753,6 +756,7 @@ export default function AccountTasksContent() {
                 chat_id: 0,
                 chat_id_manual: "",
                 chat_name: "",
+                message_thread_id: undefined,
                 actions: [{ action: 1, text: "" }],
                 delete_after: undefined,
                 action_interval: 1,
@@ -791,6 +795,7 @@ export default function AccountTasksContent() {
             chat_id: chat?.chat_id || 0,
             chat_id_manual: chat?.chat_id?.toString() || "",
             chat_name: chat?.name || "",
+            message_thread_id: chat?.message_thread_id,
             actions: chat?.actions || [{ action: 1, text: "" }],
             delete_after: chat?.delete_after,
             action_interval: chat?.action_interval || 1,
@@ -823,6 +828,7 @@ export default function AccountTasksContent() {
                 chats: [{
                     chat_id: chatId,
                     name: editTask.chat_name || t("chat_default_name").replace("{id}", String(chatId)),
+                    message_thread_id: editTask.message_thread_id,
                     actions: editTask.actions,
                     delete_after: editTask.delete_after,
                     action_interval: editTask.action_interval,
@@ -1152,6 +1158,22 @@ export default function AccountTasksContent() {
                                             ))}
                                         </select>
                                     </div>
+                                </div>
+                                <div className="space-y-2 mt-4">
+                                    <label className="text-[10px] text-main/40 uppercase tracking-wider">{t("topic_id_label") || "Topic/Thread ID (Optional)"}</label>
+                                    <input
+                                        type="number"
+                                        className="!mb-0"
+                                        placeholder={t("topic_id_placeholder") || "Leave blank if not applicable"}
+                                        value={showCreateDialog ? (newTask.message_thread_id || "") : (editTask.message_thread_id || "")}
+                                        onChange={(e) => {
+                                            const val = e.target.value ? parseInt(e.target.value) : undefined;
+                                            showCreateDialog
+                                                ? setNewTask({ ...newTask, message_thread_id: val })
+                                                : setEditTask({ ...editTask, message_thread_id: val });
+                                        }}
+                                    />
+                                </div>
                                     <div className="space-y-2">
                                         <label className="text-[10px] text-main/40 uppercase tracking-wider">{t("manual_chat_id")}</label>
                                         <input

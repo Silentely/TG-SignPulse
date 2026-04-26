@@ -78,6 +78,7 @@ export default function CreateSignTaskPage() {
         actions: any[];
         delete_after?: number;
         action_interval: number;
+        message_thread_id?: number;
     } | null>(null);
 
     const loadChats = useCallback(async (tokenStr: string, accountName: string) => {
@@ -166,6 +167,7 @@ export default function CreateSignTaskPage() {
         setEditingChat({
             chat_id: 0,
             name: "",
+            message_thread_id: undefined,
             actions: [],
             action_interval: 1,
         });
@@ -454,6 +456,16 @@ export default function CreateSignTaskPage() {
                                             {availableChats.map(c => <option key={c.id} value={c.id}>{c.title || c.username}</option>)}
                                         </select>
                                     )}
+                                    <div className="mt-4">
+                                        <label className="text-[10px] text-main/40 uppercase tracking-wider">{t("topic_id_label") || "Topic/Thread ID (Optional)"}</label>
+                                        <input
+                                            type="number"
+                                            className="!mb-0"
+                                            placeholder={t("topic_id_placeholder") || "Leave blank if not applicable"}
+                                            value={editingChat.message_thread_id || ""}
+                                            onChange={(e) => setEditingChat({ ...editingChat, message_thread_id: e.target.value ? parseInt(e.target.value) : undefined })}
+                                        />
+                                    </div>
                                 </div>
 
                                 <div className="space-y-4">

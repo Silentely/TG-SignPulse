@@ -1433,10 +1433,13 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         return False
 
     async def wait_for(self, chat: SignChatV3, action: ActionT, timeout=15):
+        kwargs = {}
+        if chat.message_thread_id is not None:
+            kwargs["message_thread_id"] = chat.message_thread_id
         if isinstance(action, SendTextAction):
-            return await self.send_message(chat.chat_id, action.text, chat.delete_after)
+            return await self.send_message(chat.chat_id, action.text, chat.delete_after, **kwargs)
         elif isinstance(action, SendDiceAction):
-            return await self.send_dice(chat.chat_id, action.dice, chat.delete_after)
+            return await self.send_dice(chat.chat_id, action.dice, chat.delete_after, **kwargs)
         self.context.waiter.add(chat.chat_id)
         start = time.perf_counter()
         last_message = None

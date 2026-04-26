@@ -723,6 +723,16 @@ export default function SettingsPage() {
                                 <p className="mt-1 text-[9px] text-[#9496a1]">{t("data_dir_desc")}</p>
                                 <p className="mt-1 text-[9px] text-amber-400">{t("data_dir_restart_hint")}</p>
                             </div>
+                            <div className="md:col-span-2">
+                                <label className="text-[11px] mb-1">{t("global_proxy") || "Global Proxy"}</label>
+                                <input
+                                    className="!py-2 !px-4"
+                                    value={globalSettings.global_proxy || ""}
+                                    onChange={(e) => setGlobalSettings({ ...globalSettings, global_proxy: e.target.value || null })}
+                                    placeholder="http://127.0.0.1:10809"
+                                />
+                                <p className="mt-1 text-[9px] text-[#9496a1]">{t("global_proxy_desc") || "Used as default proxy when logging in new accounts"}</p>
+                            </div>
                         </div>
                         <button className="btn-gradient w-fit px-5 !py-2 !text-[11px]" onClick={handleSaveGlobal} disabled={configLoading}>
                             {configLoading ? <Spinner className="animate-spin" /> : t("save_global_params")}

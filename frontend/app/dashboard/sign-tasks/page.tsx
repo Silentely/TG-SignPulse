@@ -27,6 +27,8 @@ import {
     ListDashes,
     ArrowClockwise,
     X,
+    Copy,
+    ClipboardText
 } from "@phosphor-icons/react";
 import { ToastContainer, useToast } from "../../../components/ui/toast";
 import { ThemeLanguageToggle } from "../../../components/ThemeLanguageToggle";
@@ -182,6 +184,41 @@ export default function SignTasksPage() {
         }
     };
 
+    const handleExportTasks = async () => {
+        if (!token) return;
+        try {
+            setLoading(true);
+            const { exportAllConfigs } = require("../../../lib/api");
+            const configStr = await exportAllConfigs(token);
+            await navigator.clipboard.writeText(configStr);
+            addToast(t("export_success") || "Export successful, copied to clipboard", "success");
+        } catch (err: any) {
+            addToast(formatErrorMessage("export_failed", err), "error");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleImportTasks = async () => {
+        if (!token) return;
+        try {
+            const text = await navigator.clipboard.readText();
+            if (!text) {
+                addToast(t("import_empty") || "Clipboard is empty", "error");
+                return;
+            }
+            setLoading(true);
+            const { importAllConfigs } = require("../../../lib/api");
+            await importAllConfigs(token, text, false);
+            addToast(t("import_success") || "Import successful", "success");
+            await loadData(token);
+        } catch (err: any) {
+            addToast(formatErrorMessage("import_failed", err), "error");
+        } finally {
+            setLoading(false);
+        }
+    };
+
     if (!token || checking) {
         return null;
     }
@@ -198,6 +235,22 @@ export default function SignTasksPage() {
                     </div>
                 </div>
                 <div className="top-right-actions">
+                    <button
+                        onClick={handleExportTasks}
+                        disabled={loading}
+                        className="action-btn !w-8 !h-8"
+                        title={t("export_tasks") || "Export All Tasks to Clipboard"}
+                    >
+                        <Copy weight="bold" size={18} />
+                    </button>
+                    <button
+                        onClick={handleImportTasks}
+                        disabled={loading}
+                        className="action-btn !w-8 !h-8"
+                        title={t("import_tasks") || "Paste to Import Tasks"}
+                    >
+                        <ClipboardText weight="bold" size={18} />
+                    </button>
                     <button
                         onClick={() => loadData(token)}
                         disabled={loading}

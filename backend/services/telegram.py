@@ -562,8 +562,12 @@ class TelegramService:
             _release_account_lock()
             raise ValueError("Telegram API ID / API Hash 未配置或无效")
 
-        proxy_dict = build_proxy_dict(proxy) if proxy else None
+        if not proxy:
+            global_proxy = config_service.get_global_settings().get("global_proxy")
+            if global_proxy:
+                proxy = global_proxy
 
+        proxy_dict = build_proxy_dict(proxy) if proxy else None
         # 4. 如果是重新登录，尝试先清理旧的 session 文件 (避免 SQLite 锁或损坏)
         # 注意: 如果 session 有效但用户只是想重登，删除也没问题，因为反正要重新验证
         if session_mode == "file":
@@ -726,6 +730,12 @@ class TelegramService:
             self._accounts_cache = None
 
         def _persist_proxy_setting() -> None:
+            nonlocal proxy
+            if not proxy:
+                from backend.services.config import get_config_service
+                global_proxy = get_config_service().get_global_settings().get("global_proxy")
+                if global_proxy:
+                    proxy = global_proxy
             if proxy:
                 from backend.utils.tg_session import set_account_profile
 
@@ -861,6 +871,11 @@ class TelegramService:
                     save_session_string_file(self.session_dir, account_name, session_string)
                 except Exception:
                     pass
+        if not proxy:
+            from backend.services.config import get_config_service
+            global_proxy = get_config_service().get_global_settings().get("global_proxy")
+            if global_proxy:
+                proxy = global_proxy
         if proxy:
             from backend.utils.tg_session import set_account_profile
 
@@ -1022,6 +1037,11 @@ class TelegramService:
         if not api_id or not api_hash:
             _release_account_lock()
             raise ValueError("Telegram API ID / API Hash 未配置或无效")
+
+        if not proxy:
+            global_proxy = config_service.get_global_settings().get("global_proxy")
+            if global_proxy:
+                proxy = global_proxy
 
         proxy_dict = build_proxy_dict(proxy) if proxy else None
 

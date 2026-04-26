@@ -119,8 +119,14 @@ frontend/     Next.js management panel
 
 ## Changelog
 
-### 2026-03-20
+### 2026-04-26
 
+- **Telegram Topic (Thread) Support**: You can now specify `message_thread_id` to send automatic check-in messages directly to specific topics within Telegram forum groups.
+- **Global Proxy Fallback**: Added a new Global Proxy setting. If individual accounts lack a dedicated proxy, the system gracefully falls back to using the global default proxy during login and execution.
+- **Clipboard Bulk Import/Export**: Added single-click task config Export & Import functionality to the top-right of the task dashboard via clipboard. Automatically skips duplicate existing tasks via backend protection, making cross-server migrations seamless.
+- **Convenient Re-login Experience**: Added a dedicated "Re-login" action button inside the account editing modal on the dashboard, easily recovering lost sessions dynamically without needing to wait for the background invalidation trigger.
+
+### 2026-03-20
 - **SQLite Database Deadlock Fixed**: Hardened the Pyrogram client lifecycle cache, completely eliminating the overlapping `database is locked` errors previously caused by concurrent UI polling overlapping with worker queues. Background executions now smoothly multiplex SQLite connections, resulting in significantly lower I/O and zero queuing deadlocks.
 - **Task Prevention UI**: Improved the frontend with protection logic against double-calling tasks. If the user accidentally clicks 'Run' on an actively executing task, the app will gracefully block the action, display a warning that the task is currently in progress, and immediately pivot to streaming its live logs instead.
 

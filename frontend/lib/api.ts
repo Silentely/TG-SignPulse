@@ -462,6 +462,7 @@ export interface GlobalSettings {
   sign_interval?: number | null;  // null 表示随机 1-120 秒
   log_retention_days?: number;    // 日志保留天数，默认 7
   data_dir?: string | null;
+  global_proxy?: string | null;
 }
 
 export const getGlobalSettings = (token: string) =>
@@ -549,6 +550,7 @@ export interface SignTaskChat {
   actions: any[];
   delete_after?: number;
   action_interval: number;
+  message_thread_id?: number;
 }
 
 export interface LastRunInfo {
@@ -694,3 +696,19 @@ export const getSignTaskHistory = (
   );
 };
 
+export const exportAllConfigs = async (token: string): Promise<string> => {
+  const res = await fetch(`${API_BASE_URL}/config/export/all`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!res.ok) throw await handleResponseError(res);
+  const data = await res.json();
+  return JSON.stringify(data, null, 2);
+};
+
+export const importAllConfigs = async (token: string, configJson: string, overwrite: boolean = false): Promise<any> => {
+  return request<any>(`/config/import/all?overwrite=${overwrite}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: configJson
+  }, token);
+};

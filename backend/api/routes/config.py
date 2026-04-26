@@ -350,12 +350,14 @@ class GlobalSettingsRequest(BaseModel):
     sign_interval: Optional[int] = None
     log_retention_days: int = 7
     data_dir: Optional[str] = None
+    global_proxy: Optional[str] = None
 
 
 class GlobalSettingsResponse(BaseModel):
     sign_interval: Optional[int] = None
     log_retention_days: int = 7
     data_dir: Optional[str] = None
+    global_proxy: Optional[str] = None
 
 
 @router.get("/settings", response_model=GlobalSettingsResponse)
@@ -378,6 +380,7 @@ def save_global_settings(
         settings = {
             "sign_interval": request.sign_interval,
             "log_retention_days": request.log_retention_days,
+            "global_proxy": request.global_proxy,
         }
         fields_set = getattr(request, "model_fields_set", getattr(request, "__fields_set__", set()))
         if "data_dir" in fields_set:

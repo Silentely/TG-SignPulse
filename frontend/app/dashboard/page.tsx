@@ -554,7 +554,7 @@ export default function Dashboard() {
     setQrPasswordLoading(false);
   }, [clearQrTimers]);
 
-  const openReloginDialog = useCallback((acc: AccountInfo) => {
+  const openReloginDialog = useCallback((acc: AccountInfo, showToast: boolean = true) => {
     resetQrState();
     setReloginAccountName(acc.name);
     setLoginMode("phone");
@@ -564,7 +564,9 @@ export default function Dashboard() {
       proxy: acc.proxy || "",
     });
     setShowAddDialog(true);
-    addToast(t("account_relogin_required"), "error");
+    if (showToast) {
+      addToast(t("account_relogin_required"), "error");
+    }
   }, [addToast, resetQrState, t]);
 
   const handleAccountCardClick = useCallback((acc: AccountInfo) => {
@@ -1335,6 +1337,15 @@ export default function Dashboard() {
               </div>
 
               <div className="flex gap-3 mt-6">
+                <button 
+                  className="btn-secondary flex-1 h-10 !py-0 !text-xs !bg-amber-500/10 !text-amber-500 hover:!bg-amber-500/20" 
+                  onClick={() => {
+                    setShowEditDialog(false);
+                    openReloginDialog({ name: editData.account_name, proxy: editData.proxy } as any, false);
+                  }}
+                >
+                  {t("relogin") || "Re-login"}
+                </button>
                 <button className="btn-secondary flex-1 h-10 !py-0 !text-xs" onClick={() => setShowEditDialog(false)}>{t("cancel")}</button>
                 <button className="btn-gradient flex-1 h-10 !py-0 !text-xs" onClick={handleSaveEdit} disabled={loading}>
                   {loading ? <Spinner className="animate-spin" /> : t("save")}
