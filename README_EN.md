@@ -24,7 +24,7 @@ TG-SignPulse is a Telegram automation panel. It helps you manage multiple accoun
 - Action sequences: `Send Text`, `Click Text Button`, `Send Dice`, `AI Vision`, `AI Calculate`, `Keyword Monitor`
 - Topic check-ins for specific Thread/Topic IDs in Telegram forum groups
 - Task migration via clipboard export/import with duplicate skipping
-- Telegram Bot failure notifications, keyword-match notifications, and dashboard invalid-session hints when all tasks under an account fail
+- Telegram Bot notifications, keyword-match notifications, and dashboard invalid-session hints when all tasks under an account fail
 - Visual logs with per-run flow details and latest bot replies
 - Stability improvements for timeout/429 scenarios and long-running memory behavior
 - Docker-first deployment (easy to start and migrate)
@@ -127,7 +127,7 @@ Notes:
 In `System Settings -> Global Sign-in Settings`, you can configure:
 
 - Global Proxy: used by login, chat refresh, and task execution when an account has no dedicated proxy
-- Telegram Bot Failure Notifications: set Bot Token and target Chat ID to receive failed-task alerts
+- Telegram Bot Notifications: set Bot Token and target Chat ID to receive failed-task or keyword-match alerts
 - Data Directory: stores sessions, logs, database, and task files
 
 On the account task page, you can:
@@ -167,7 +167,7 @@ frontend/     Next.js management panel
 - **Global Proxy Fallback**: Added a Global Proxy setting. Login, chat refresh, scheduled/manual task execution, and legacy CLI execution use it whenever an account does not have its own proxy.
 - **Clipboard Bulk Import/Export**: The account task page now has top-right actions to export all tasks to the clipboard and paste-import tasks. Imports skip duplicates and attach imported tasks to the current account.
 - **Convenient Re-login Experience**: The account edit modal now includes a Re-login action with complete Chinese/English labels, allowing users to refresh an existing account session directly.
-- **Telegram Bot Failure Notifications**: System Settings now include notification enablement, Bot Token, and notification Chat ID. Failed tasks send account, task, error, and recent log context.
+- **Telegram Bot Notifications**: System Settings now include notification enablement, Bot Token, and notification Chat ID. Failed tasks send account, task, error, and recent log context; keyword matches can also use the same Bot API channel.
 - **Dashboard Invalid-Session Hint**: If every task under an account failed in its latest run, the dashboard marks the account as session invalid and guides users to re-login.
 - **Frontend Task Log Improvements**: Per-run task flow logs retain more lines and are shown directly in the frontend task history.
 - **Project Health Cleanup**: Fixed simple Ruff findings and made root debug scripts safe for pytest collection.

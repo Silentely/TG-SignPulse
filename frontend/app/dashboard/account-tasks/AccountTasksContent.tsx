@@ -339,7 +339,7 @@ export default function AccountTasksContent() {
     const aiCalcLabel = isZh ? "AI\u8BA1\u7B97" : "AI Calculate";
     const keywordNotifyLabel = isZh ? "\u5173\u952E\u8BCD\u76D1\u542C" : "Keyword Monitor";
     const keywordPlaceholder = isZh ? "\u6BCF\u884C\u4E00\u4E2A\u5173\u952E\u8BCD\uFF0C\u4E5F\u652F\u6301\u9017\u53F7\u5206\u9694" : "One keyword per line, comma-separated also works";
-    const barkUrlLabel = isZh ? "Bark 推送 URL" : "Bark Push URL";
+    const barkUrlLabel = isZh ? "Bark 推送" : "Bark Push";
     const forwardPushLabel = isZh ? "\u8F6C\u53D1" : "Forward";
     const forwardThreadIdPlaceholder = isZh ? "\u7559\u7A7A\u5219\u4E0D\u6307\u5B9A\u8BDD\u9898" : "Leave empty for no topic";
     const forwardChatIdLabel = isZh ? "\u8F6C\u53D1 Chat ID" : "Forward Chat ID";
@@ -1213,9 +1213,6 @@ export default function AccountTasksContent() {
                                                     }
                                                 />
                                             </div>
-                                            <div className="text-[10px] text-main/30 mt-1 italic">
-                                                {t("random_time_hint")}
-                                            </div>
                                         </>
                                     )}
                                 </div>
@@ -1366,7 +1363,7 @@ export default function AccountTasksContent() {
                                 <div className="flex flex-col gap-3">
                                     {(showCreateDialog ? newTask.actions : editTask.actions).map((action, index) => (
                                         <div key={index} className="rounded-xl border border-white/5 bg-black/5 p-3 animate-scale-in">
-                                            <div className="grid grid-cols-1 md:grid-cols-[2rem_minmax(0,170px)_minmax(0,1fr)_2.5rem] gap-3 items-start">
+                                            <div className="grid grid-cols-1 md:grid-cols-[2rem_minmax(0,115px)_minmax(0,1fr)_2.5rem] gap-3 items-start">
                                                 <div className="shrink-0 w-8 h-10 flex items-center justify-center font-mono text-[10px] text-main/30 font-bold border border-white/5 rounded-lg bg-white/5">
                                                     {index + 1}
                                                 </div>
@@ -1451,8 +1448,8 @@ export default function AccountTasksContent() {
                                                     </div>
                                                 )}
                                                 {(action.action === 4 || action.action === 6) && (
-                                                    <div className="h-10 px-3 flex items-center gap-2 bg-indigo-500/10 border border-indigo-500/20 rounded-xl">
-                                                        <Robot weight="fill" size={16} className="text-[#8183ff]" />
+                                                    <div className="flex items-center gap-2">
+                                                        <Robot weight="fill" size={16} className="text-main/40 shrink-0" />
                                                         <select
                                                             className="!mb-0 !h-10 !py-0 !text-xs !w-[220px] max-w-full"
                                                             value={action.action === 4 ? "click" : "send"}
@@ -1470,8 +1467,8 @@ export default function AccountTasksContent() {
                                                     </div>
                                                 )}
                                                 {(action.action === 5 || action.action === 7) && (
-                                                    <div className="h-10 px-3 flex items-center gap-2 bg-amber-500/10 border border-amber-500/20 rounded-xl">
-                                                        <MathOperations weight="fill" size={16} className="text-amber-400" />
+                                                    <div className="flex items-center gap-2">
+                                                        <MathOperations weight="fill" size={16} className="text-main/40 shrink-0" />
                                                         <select
                                                             className="!mb-0 !h-10 !py-0 !text-xs !w-[220px] max-w-full"
                                                             value={action.action === 7 ? "click" : "send"}
@@ -1489,21 +1486,10 @@ export default function AccountTasksContent() {
                                                     </div>
                                                 )}
                                                 {action.action === 8 && (
-                                                    <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/10 p-3 space-y-3">
+                                                    <div className="space-y-3">
                                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                                        <div className="space-y-1.5 md:col-span-2">
+                                                        <div className="space-y-1.5">
                                                             <label className="text-[10px] uppercase tracking-wider text-main/40">{t("monitor_keywords")}</label>
-                                                            <textarea
-                                                                className="w-full min-h-[86px] bg-white/2 rounded-xl p-3 text-[11px] text-main/70 border border-white/5 focus:border-[#8a3ffc]/30 outline-none transition-all placeholder:text-main/20 custom-scrollbar"
-                                                                value={(action.keywords || []).join("\n")}
-                                                                onChange={(e) => {
-                                                                    updateCurrentDialogAction(index, (currentAction) => ({
-                                                                        ...currentAction,
-                                                                        keywords: e.target.value.split(/\n|,/).map((item) => item.trim()).filter(Boolean),
-                                                                    }));
-                                                                }}
-                                                                placeholder={keywordPlaceholder}
-                                                            />
                                                         </div>
                                                         <div className="space-y-1.5">
                                                             <label className="text-[10px] uppercase tracking-wider text-main/40">{t("match_mode")}</label>
@@ -1522,21 +1508,23 @@ export default function AccountTasksContent() {
                                                                 <option value="regex">{t("match_regex")}</option>
                                                             </select>
                                                         </div>
-                                                        <label className="h-10 flex items-center gap-2 text-[11px] text-main/60">
-                                                            <input
-                                                                type="checkbox"
-                                                                checked={action.ignore_case ?? true}
+                                                        <div className="space-y-1.5 md:col-span-2">
+                                                            <textarea
+                                                                className="w-full min-h-[86px] bg-white/2 rounded-xl p-3 text-[11px] text-main/70 border border-white/5 focus:border-[#8a3ffc]/30 outline-none transition-all placeholder:text-main/20 custom-scrollbar"
+                                                                value={(action.keywords || []).join("\n")}
                                                                 onChange={(e) => {
                                                                     updateCurrentDialogAction(index, (currentAction) => ({
                                                                         ...currentAction,
-                                                                        ignore_case: e.target.checked,
+                                                                        keywords: e.target.value.split(/\n|,/).map((item) => item.trim()).filter(Boolean),
                                                                     }));
                                                                 }}
+                                                                placeholder={keywordPlaceholder}
                                                             />
-                                                            {t("ignore_case")}
-                                                        </label>
+                                                        </div>
                                                         <div className="space-y-1.5">
                                                             <label className="text-[10px] uppercase tracking-wider text-main/40">{t("push_channel")}</label>
+                                                        </div>
+                                                        <div className="space-y-1.5">
                                                             <select
                                                                 className="!mb-0 !h-10 !py-0 !text-xs"
                                                                 value={action.push_channel || "telegram"}
@@ -1557,6 +1545,11 @@ export default function AccountTasksContent() {
                                                             <>
                                                                 <div className="space-y-1.5">
                                                                     <label className="text-[10px] uppercase tracking-wider text-main/40">{forwardChatIdLabel}</label>
+                                                                </div>
+                                                                <div className="space-y-1.5">
+                                                                    <label className="text-[10px] uppercase tracking-wider text-main/40">{forwardThreadIdLabel}</label>
+                                                                </div>
+                                                                <div className="space-y-1.5">
                                                                     <input
                                                                         className="!mb-0 !h-10 !text-xs"
                                                                         value={action.forward_chat_id || ""}
@@ -1570,7 +1563,6 @@ export default function AccountTasksContent() {
                                                                     />
                                                                 </div>
                                                                 <div className="space-y-1.5">
-                                                                    <label className="text-[10px] uppercase tracking-wider text-main/40">{forwardThreadIdLabel}</label>
                                                                     <input
                                                                         inputMode="numeric"
                                                                         className="!mb-0 !h-10 !text-xs"
@@ -1587,41 +1579,44 @@ export default function AccountTasksContent() {
                                                             </>
                                                         )}
                                                         {(action.push_channel || "telegram") === "bark" && (
-                                                        <div className="space-y-1.5">
-                                                            <label className="text-[10px] uppercase tracking-wider text-main/40">{barkUrlLabel}</label>
-                                                            <input
-                                                                className="!mb-0 !h-10 !text-xs"
-                                                                value={action.bark_url || ""}
-                                                                onChange={(e) => {
-                                                                    updateCurrentDialogAction(index, (currentAction) => ({
-                                                                        ...currentAction,
-                                                                        bark_url: e.target.value,
-                                                                    }));
-                                                                }}
-                                                                placeholder={barkUrlLabel}
-                                                            />
-                                                        </div>
+                                                            <>
+                                                                <div className="space-y-1.5 md:col-span-2">
+                                                                    <label className="text-[10px] uppercase tracking-wider text-main/40">{barkUrlLabel}</label>
+                                                                </div>
+                                                                <div className="space-y-1.5 md:col-span-2">
+                                                                    <input
+                                                                        className="!mb-0 !h-10 !text-xs"
+                                                                        value={action.bark_url || ""}
+                                                                        onChange={(e) => {
+                                                                            updateCurrentDialogAction(index, (currentAction) => ({
+                                                                                ...currentAction,
+                                                                                bark_url: e.target.value,
+                                                                            }));
+                                                                        }}
+                                                                        placeholder={barkUrlLabel}
+                                                                    />
+                                                                </div>
+                                                            </>
                                                         )}
                                                         {(action.push_channel || "telegram") === "custom" && (
-                                                            <div className="space-y-1.5 md:col-span-2">
-                                                                <label className="text-[10px] uppercase tracking-wider text-main/40">{t("custom_push_url")}</label>
-                                                                <input
-                                                                    className="!mb-0 !h-10 !text-xs"
-                                                                    value={action.custom_url || ""}
-                                                                    onChange={(e) => {
-                                                                        updateCurrentDialogAction(index, (currentAction) => ({
-                                                                            ...currentAction,
-                                                                            custom_url: e.target.value,
-                                                                        }));
-                                                                    }}
-                                                                    placeholder={t("custom_push_url_placeholder")}
-                                                                />
-                                                            </div>
-                                                        )}
-                                                        {(action.push_channel || "telegram") === "telegram" && (
-                                                            <div className="rounded-lg border border-white/5 bg-black/10 px-3 py-2 text-[10px] leading-5 text-main/45">
-                                                                {t("use_telegram_bot_settings")}
-                                                            </div>
+                                                            <>
+                                                                <div className="space-y-1.5 md:col-span-2">
+                                                                    <label className="text-[10px] uppercase tracking-wider text-main/40">{t("custom_push_url")}</label>
+                                                                </div>
+                                                                <div className="space-y-1.5 md:col-span-2">
+                                                                    <input
+                                                                        className="!mb-0 !h-10 !text-xs"
+                                                                        value={action.custom_url || ""}
+                                                                        onChange={(e) => {
+                                                                            updateCurrentDialogAction(index, (currentAction) => ({
+                                                                                ...currentAction,
+                                                                                custom_url: e.target.value,
+                                                                            }));
+                                                                        }}
+                                                                        placeholder={t("custom_push_url_placeholder")}
+                                                                    />
+                                                                </div>
+                                                            </>
                                                         )}
                                                         </div>
                                                     </div>
