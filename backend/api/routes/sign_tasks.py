@@ -28,6 +28,15 @@ from backend.services.sign_tasks import get_sign_task_service
 router = APIRouter()
 
 
+async def _restart_keyword_monitors() -> None:
+    try:
+        from backend.services.keyword_monitor import get_keyword_monitor_service
+
+        await get_keyword_monitor_service().restart_from_tasks()
+    except Exception:
+        pass
+
+
 # Pydantic 模型定义
 
 
@@ -226,6 +235,7 @@ async def create_sign_task(
         from backend.scheduler import sync_jobs
 
         await sync_jobs()
+        await _restart_keyword_monitors()
 
         return task
     except Exception as e:
@@ -282,6 +292,7 @@ async def update_sign_task(
         from backend.scheduler import sync_jobs
 
         await sync_jobs()
+        await _restart_keyword_monitors()
 
         return task
     except HTTPException:
@@ -309,6 +320,7 @@ async def delete_sign_task(
     from backend.scheduler import sync_jobs
 
     await sync_jobs()
+    await _restart_keyword_monitors()
 
     return {"ok": True}
 

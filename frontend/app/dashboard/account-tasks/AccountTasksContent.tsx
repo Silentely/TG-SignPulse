@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState, memo, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -47,7 +47,7 @@ import {
 import { ToastContainer, useToast } from "../../../components/ui/toast";
 import { useLanguage } from "../../../context/LanguageContext";
 
-type ActionTypeOption = "1" | "2" | "3" | "ai_vision" | "ai_logic";
+type ActionTypeOption = "1" | "2" | "3" | "ai_vision" | "ai_logic" | "keyword_notify";
 
 const DICE_OPTIONS = [
     "\uD83C\uDFB2",
@@ -288,7 +288,7 @@ export default function AccountTasksContent() {
         return true;
     }, [router]);
 
-    // 闂傚倷绀侀幉锛勬暜濡ゅ啰鐭欓柟瀵稿Х绾句粙鏌熼幆褜鍤熸い鈺冨厴閹綊宕堕妸銉хシ濡炪値鍋侀崐婵嬪箖濡ゅ懏鍋ㄦ繛鍫熷閺侇垶姊烘导娆戠暢婵☆偄瀚伴妴?
+    // 闂傚倸鍊风粈渚€骞夐敍鍕殰婵°倕鍟伴惌娆撴煙鐎电啸缁惧彞绮欓弻鐔煎箚瑜滈崵鐔搞亜閳哄啫鍘撮柟顔肩秺瀹曞爼濡搁妷褏銈锋俊鐐€ら崑渚€宕愬┑瀣畺婵°倕鎳忛崑銊︾箾閸喎顕滈柡渚囧灦濮婄儤瀵煎▎鎴犳殺濠碘槅鍋勭€氫即濡?
     const [showCreateDialog, setShowCreateDialog] = useState(false);
     const [newTask, setNewTask] = useState({
         name: "",
@@ -306,7 +306,7 @@ export default function AccountTasksContent() {
         range_end: "18:00",
     });
 
-    // 缂傚倸鍊搁崐鎼佸磹瑜版帗鍋嬮柣鎰仛椤愯姤銇勯幇鍓佹偧妞も晝鍏橀幃褰掑炊閵娿儳绁峰銈庡亖閸婃繈骞冨Δ鍛仺婵炲牊瀵ч弫顖炴⒑娴兼瑧鐣虫俊顐㈠閵?
+    // 缂傚倸鍊搁崐鎼佸磹閹间礁纾圭憸鐗堝笚閸嬪鏌ｉ幇顒備粵妞ゆ劘濮ら妵鍕箛閸撲焦鍋у銈傛櫇閸忔﹢骞冭ぐ鎺戠倞闁靛鍎崇粊宄邦渻閵堝骸浜栭柛濠冪箞楠炲啫螖閸涱喖浠哄┑鐐茬墛鐎笛囧极椤栫偞鈷戝ù鍏肩懅閻ｈ櫕淇婇銏狀伃闁?
     const [showEditDialog, setShowEditDialog] = useState(false);
     const [editingTaskName, setEditingTaskName] = useState("");
     const [editTask, setEditTask] = useState({
@@ -337,6 +337,9 @@ export default function AccountTasksContent() {
     const sendDiceLabel = isZh ? "\u53D1\u9001\u9AB0\u5B50" : "Send Dice";
     const aiVisionLabel = isZh ? "AI\u8BC6\u56FE" : "AI Vision";
     const aiCalcLabel = isZh ? "AI\u8BA1\u7B97" : "AI Calculate";
+    const keywordNotifyLabel = isZh ? "\u5173\u952E\u8BCD\u76D1\u542C\u901A\u77E5" : "Keyword Notify";
+    const keywordPlaceholder = isZh ? "\u6BCF\u884C\u4E00\u4E2A\u5173\u952E\u8BCD\uFF0C\u4E5F\u652F\u6301\u9017\u53F7\u5206\u9694" : "One keyword per line, comma-separated also works";
+    const pushUrlPlaceholder = isZh ? "Bark \u6216\u81EA\u5B9A\u4E49\u63A8\u9001 URL" : "Bark or custom push URL";
     const sendTextPlaceholder = isZh ? "\u53D1\u9001\u7684\u6587\u672C\u5185\u5BB9" : "Text to send";
     const clickButtonPlaceholder = isZh ? "\u8F93\u5165\u6309\u94AE\u6587\u5B57\uFF0C\u4E0D\u8981\u8868\u60C5\uFF01" : "Button text to click, no emoji";
     const aiVisionSendModeLabel = isZh ? "\u8BC6\u56FE\u540E\u53D1\u6587\u672C" : "Vision -> Send Text";
@@ -379,6 +382,7 @@ export default function AccountTasksContent() {
         if (actionId === 2) return "2";
         if (actionId === 4 || actionId === 6) return "ai_vision";
         if (actionId === 5 || actionId === 7) return "ai_logic";
+        if (actionId === 8) return "keyword_notify";
         return "1";
     }, []);
 
@@ -389,6 +393,18 @@ export default function AccountTasksContent() {
         }
         if (actionId === 2) {
             return Boolean((action?.dice || "").trim());
+        }
+        if (actionId === 8) {
+            const keywords = Array.isArray(action?.keywords) ? action.keywords : [];
+            const hasKeywords = keywords.some((item: string) => (item || "").trim());
+            if (!hasKeywords) return false;
+            if (action?.push_channel === "bark") {
+                return Boolean((action?.bark_url || "").trim());
+            }
+            if (action?.push_channel === "custom") {
+                return Boolean((action?.custom_url || "").trim());
+            }
+            return true;
         }
         return [4, 5, 6, 7].includes(actionId);
     }, []);
@@ -559,7 +575,7 @@ export default function AccountTasksContent() {
         try {
             setLoading(true);
             await deleteSignTask(token, taskName, accountName);
-            // addToast(language === "zh" ? `婵犵數鍋涢顓熸叏妤ｅ喚鏁嬬憸搴ㄥ箞?${taskName} 闂佽娴烽幊鎾诲箟闄囬妵鎰板礃椤旂厧鐎悷婊呭鐢鍩涢弮鈧妵?: `Task ${taskName} deleted`, "success"); // Removed toast as per user request to just refresh
+            // addToast(language === "zh" ? `濠电姷鏁搁崑娑㈩敋椤撶喐鍙忓Δ锝呭枤閺佸鎲告惔銊ョ疄?${taskName} 闂備浇顕уù鐑藉箠閹捐绠熼梽鍥Φ閹版澘绀冩い鏃傚帶閻庮參鎮峰鍛暭閻㈩垱顨婇崺娑㈠籍閳ь剟濡?: `Task ${taskName} deleted`, "success"); // Removed toast as per user request to just refresh
             await loadData(token);
         } catch (err: any) {
             // Only show error if it's NOT a 404 (already deleted/doesn't exist)
@@ -1070,7 +1086,7 @@ export default function AccountTasksContent() {
                 )}
             </main>
 
-            {/* 闂傚倷绀侀幉锛勬暜濡ゅ啰鐭欓柟瀵稿Х绾?缂傚倸鍊搁崐鎼佸磹瑜版帗鍋嬮柣鎰仛椤愯姤銇勯幇鈺佲偓鎰板磻閹剧粯鍋ㄦ繛鍫熷閺侇垶姊烘导娆戠暢婵☆偄瀚伴妴鍛附缁嬪灝鑰垮┑鐐村灦鐢帗绂嶉悙顒佸弿婵☆垰娼￠崫娲煛閸℃绠婚柡宀嬬秮婵℃悂濡烽妷顔荤棯闂佽崵鍠愬ú鏍涘┑鍡╁殨濠电姵鑹剧粻濠氭煟閹存梹娅呭ù婊堢畺閺岋繝宕熼銈囶唺闁?*/}
+            {/* 闂傚倸鍊风粈渚€骞夐敍鍕殰婵°倕鍟伴惌娆撴煙鐎电啸缁?缂傚倸鍊搁崐鎼佸磹閹间礁纾圭憸鐗堝笚閸嬪鏌ｉ幇顒備粵妞ゆ劘濮ら妵鍕箛閳轰讲鍋撻幇鏉跨；闁瑰墽绮崑銊︾箾閸喎顕滈柡渚囧灦濮婄儤瀵煎▎鎴犳殺濠碘槅鍋勭€氫即濡撮崨顔鹃檮缂佸鐏濋懓鍨攽閻愭潙鐏﹂悽顖涘笚缁傚秹鎮欓浣稿伎濠碘槅鍨板锟犲传濞差亝鐓涢柛鈩冾殘缁犲鏌″畝瀣М濠碘剝鎮傛俊鐑藉Ψ椤旇崵妫梻浣藉吹閸犳劕煤閺嶎灛娑樷攽閸♀晛娈ㄦ繝鐢靛У閼瑰墽绮绘繝姘厽闁瑰瓨姊瑰▍鍛瑰鍫㈢暫闁哄矉绻濆畷鐔碱敃閵堝浂鍞洪梺?*/}
             {(showCreateDialog || showEditDialog) && (
                 <div className="modal-overlay active">
                     <div className="glass-panel modal-content !max-w-xl flex flex-col" onClick={e => e.stopPropagation()}>
@@ -1228,7 +1244,7 @@ export default function AccountTasksContent() {
                                                                 >
                                                                     <div className="text-sm font-semibold truncate">{title}</div>
                                                                     <div className="text-[10px] text-main/40 font-mono truncate">
-                                                                        {chat.id}{chat.username ? ` · @${chat.username}` : ""}
+                                                                        {chat.id}{chat.username ? ` 路 @${chat.username}` : ""}
                                                                     </div>
                                                                 </button>
                                                             );
@@ -1359,6 +1375,18 @@ export default function AccountTasksContent() {
                                                         if (selectedType === "2") {
                                                             return { ...currentAction, action: 2, dice: currentAction?.dice || DICE_OPTIONS[0] };
                                                         }
+                                                        if (selectedType === "keyword_notify") {
+                                                            return {
+                                                                ...currentAction,
+                                                                action: 8,
+                                                                keywords: currentAction?.keywords || [],
+                                                                match_mode: currentAction?.match_mode || "contains",
+                                                                ignore_case: currentAction?.ignore_case ?? true,
+                                                                push_channel: currentAction?.push_channel || "telegram",
+                                                                bark_url: currentAction?.bark_url || "",
+                                                                custom_url: currentAction?.custom_url || "",
+                                                            };
+                                                        }
                                                         if (selectedType === "ai_vision") {
                                                             const nextActionId = (currentActionId === 4 || currentActionId === 6) ? currentActionId : 6;
                                                             return { ...currentAction, action: nextActionId };
@@ -1373,6 +1401,7 @@ export default function AccountTasksContent() {
                                                 <option value="2">{sendDiceLabel}</option>
                                                 <option value="ai_vision">{aiVisionLabel}</option>
                                                 <option value="ai_logic">{aiCalcLabel}</option>
+                                                <option value="keyword_notify">{keywordNotifyLabel}</option>
                                             </select>
 
                                             <div className="flex-1 min-w-0">
@@ -1444,6 +1473,75 @@ export default function AccountTasksContent() {
                                                             <option value="send">{aiCalcSendModeLabel}</option>
                                                             <option value="click">{aiCalcClickModeLabel}</option>
                                                         </select>
+                                                    </div>
+                                                )}
+                                                {action.action === 8 && (
+                                                    <div className="space-y-2 rounded-xl border border-cyan-500/20 bg-cyan-500/10 p-3">
+                                                        <textarea
+                                                            className="w-full min-h-[72px] bg-white/2 rounded-xl p-3 text-[11px] text-main/70 border border-white/5 focus:border-[#8a3ffc]/30 outline-none transition-all placeholder:text-main/20 custom-scrollbar"
+                                                            value={(action.keywords || []).join("\n")}
+                                                            onChange={(e) => {
+                                                                updateCurrentDialogAction(index, (currentAction) => ({
+                                                                    ...currentAction,
+                                                                    keywords: e.target.value.split(/\n|,/).map((item) => item.trim()).filter(Boolean),
+                                                                }));
+                                                            }}
+                                                            placeholder={keywordPlaceholder}
+                                                        />
+                                                        <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+                                                            <select
+                                                                className="!mb-0 !h-9 !py-0 !text-xs"
+                                                                value={action.match_mode || "contains"}
+                                                                onChange={(e) => {
+                                                                    updateCurrentDialogAction(index, (currentAction) => ({
+                                                                        ...currentAction,
+                                                                        match_mode: e.target.value,
+                                                                    }));
+                                                                }}
+                                                            >
+                                                                <option value="contains">{t("match_contains")}</option>
+                                                                <option value="exact">{t("match_exact")}</option>
+                                                                <option value="regex">{t("match_regex")}</option>
+                                                            </select>
+                                                            <select
+                                                                className="!mb-0 !h-9 !py-0 !text-xs"
+                                                                value={action.push_channel || "telegram"}
+                                                                onChange={(e) => {
+                                                                    updateCurrentDialogAction(index, (currentAction) => ({
+                                                                        ...currentAction,
+                                                                        push_channel: e.target.value,
+                                                                    }));
+                                                                }}
+                                                            >
+                                                                <option value="telegram">{t("telegram_bot_notify")}</option>
+                                                                <option value="bark">Bark</option>
+                                                                <option value="custom">{t("custom_push_url")}</option>
+                                                            </select>
+                                                            <label className="h-9 flex items-center gap-2 text-[11px] text-main/60">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={action.ignore_case ?? true}
+                                                                    onChange={(e) => {
+                                                                        updateCurrentDialogAction(index, (currentAction) => ({
+                                                                            ...currentAction,
+                                                                            ignore_case: e.target.checked,
+                                                                        }));
+                                                                    }}
+                                                                />
+                                                                {t("ignore_case")}
+                                                            </label>
+                                                            <input
+                                                                className="!mb-0 !h-9 !text-xs"
+                                                                value={action.push_channel === "bark" ? (action.bark_url || "") : (action.custom_url || "")}
+                                                                onChange={(e) => {
+                                                                    updateCurrentDialogAction(index, (currentAction) => action.push_channel === "bark"
+                                                                        ? { ...currentAction, bark_url: e.target.value }
+                                                                        : { ...currentAction, custom_url: e.target.value });
+                                                                }}
+                                                                placeholder={action.push_channel === "telegram" ? t("use_telegram_bot_settings") : pushUrlPlaceholder}
+                                                                disabled={(action.push_channel || "telegram") === "telegram"}
+                                                            />
+                                                        </div>
                                                     </div>
                                                 )}
                                             </div>
@@ -1668,7 +1766,7 @@ export default function AccountTasksContent() {
                                                                 });
                                                             }}
                                                         >
-                                                            {isExpanded ? (isZh ? "收缩" : "Collapse") : (isZh ? "展开完整日志" : "Expand full log")}
+                                                            {isExpanded ? (isZh ? "鏀剁缉" : "Collapse") : (isZh ? "灞曞紑瀹屾暣鏃ュ織" : "Expand full log")}
                                                         </button>
                                                     )}
                                                 </div>
@@ -1679,12 +1777,12 @@ export default function AccountTasksContent() {
                                             <div className="p-3 space-y-1">
                                                 <div className="text-main/90">
                                                     {isZh
-                                                        ? `任务：${historyTaskName}${log.success ? "执行成功" : "执行失败"}`
+                                                        ? `浠诲姟锛?{historyTaskName}${log.success ? "鎵ц鎴愬姛" : "鎵ц澶辫触"}`
                                                         : `Task: ${historyTaskName} ${log.success ? "succeeded" : "failed"}`}
                                                 </div>
                                                 {log.message ? (
                                                     <div className="text-main/60 break-all">
-                                                        {isZh ? `机器人消息：${log.message}` : `Bot message: ${log.message}`}
+                                                        {isZh ? `鏈哄櫒浜烘秷鎭細${log.message}` : `Bot message: ${log.message}`}
                                                     </div>
                                                 ) : null}
                                                 {visibleFlowLogs.length > 0 ? (

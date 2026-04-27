@@ -47,6 +47,7 @@ from tg_signer.config import (
     ClickButtonByCalculationProblemAction,
     ClickKeyboardByTextAction,
     HttpCallback,
+    KeywordNotifyAction,
     MatchConfig,
     MonitorConfig,
     ReplyByCalculationProblemAction,
@@ -1513,6 +1514,9 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             return await self.send_message(chat.chat_id, action.text, chat.delete_after, **kwargs)
         elif isinstance(action, SendDiceAction):
             return await self.send_dice(chat.chat_id, action.dice, chat.delete_after, **kwargs)
+        elif isinstance(action, KeywordNotifyAction):
+            self.log("关键词监听通知动作为后台常驻监听配置，当前运行时跳过")
+            return True
         self.context.waiter.add(chat.chat_id)
         start = time.perf_counter()
         last_message = None

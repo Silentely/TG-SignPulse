@@ -148,7 +148,7 @@ async def on_startup() -> None:
             await sync_jobs()
             from backend.services.keyword_monitor import get_keyword_monitor_service
 
-            await get_keyword_monitor_service().restart_from_settings()
+            await get_keyword_monitor_service().restart_from_tasks()
         except Exception as exc:
             logging.getLogger("backend.startup").error(
                 f"Delayed scheduler sync failed: {exc}"
