@@ -235,8 +235,11 @@ class KeywordMonitorService:
                 body_lines.append(text)
                 forward_text = "\n".join(body_lines)
 
-                forward_chat_id = _parse_forward_chat_id(
-                    rule.action.get("forward_chat_id")
+                push_channel = str(rule.action.get("push_channel") or "telegram").strip()
+                forward_chat_id = (
+                    _parse_forward_chat_id(rule.action.get("forward_chat_id"))
+                    if push_channel == "forward"
+                    else None
                 )
                 if forward_chat_id is not None:
                     try:
@@ -261,30 +264,29 @@ class KeywordMonitorService:
                             exc,
                         )
 
-                push_settings = dict(global_settings)
-                push_settings["keyword_monitor_push_channel"] = rule.action.get(
-                    "push_channel", "telegram"
-                )
-                push_settings["keyword_monitor_bark_url"] = rule.action.get("bark_url")
-                push_settings["keyword_monitor_custom_url"] = rule.action.get(
-                    "custom_url"
-                )
-                await send_keyword_push(
-                    push_settings,
-                    {
-                        "title": "TG-SignPulse keyword matched",
-                        "body": forward_text,
-                        "text": text,
-                        "keyword": matched,
-                        "account_name": account_name,
-                        "task_name": rule.task_name,
-                        "chat_id": getattr(message.chat, "id", None),
-                        "chat_title": chat_title,
-                        "sender": sender,
-                        "message_id": message.id,
-                        "url": url,
-                    },
-                )
+                if push_channel != "forward":
+                    push_settings = dict(global_settings)
+                    push_settings["keyword_monitor_push_channel"] = push_channel
+                    push_settings["keyword_monitor_bark_url"] = rule.action.get("bark_url")
+                    push_settings["keyword_monitor_custom_url"] = rule.action.get(
+                        "custom_url"
+                    )
+                    await send_keyword_push(
+                        push_settings,
+                        {
+                            "title": "TG-SignPulse keyword matched",
+                            "body": forward_text,
+                            "text": text,
+                            "keyword": matched,
+                            "account_name": account_name,
+                            "task_name": rule.task_name,
+                            "chat_id": getattr(message.chat, "id", None),
+                            "chat_title": chat_title,
+                            "sender": sender,
+                            "message_id": message.id,
+                            "url": url,
+                        },
+                    )
         except Exception as exc:
             logger.warning("Keyword monitor handling failed: %s", exc, exc_info=True)
 

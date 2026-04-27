@@ -312,7 +312,7 @@ const translations: Translations = {
         "global_proxy": "全局代理",
         "global_proxy_placeholder": "socks5://127.0.0.1:1080 或 http://127.0.0.1:7890",
         "global_proxy_desc": "未单独设置账号代理时，登录、刷新会话和执行任务默认使用该代理",
-        "telegram_bot_notify": "Telegram 机器人失败通知",
+        "telegram_bot_notify": "Telegram机器人失败通知",
         "telegram_bot_notify_desc": "任务执行失败后通过 Bot API 发送通知",
         "telegram_bot_token": "机器人 Token",
         "telegram_bot_token_placeholder": "BotFather 提供的 token",
