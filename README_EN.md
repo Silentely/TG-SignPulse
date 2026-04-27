@@ -13,16 +13,16 @@ TG-SignPulse is a Telegram automation panel. It helps you manage multiple accoun
 - Use AI actions for image recognition and math challenges
 - View execution flow logs and recent bot replies
 - Run check-ins inside specific Telegram group topics
-- Use clipboard bulk task import/export, global proxy fallback, and failure notifications
+- Use clipboard bulk task import/export, global proxy fallback, failure notifications, and keyword monitoring
 - Run reliably on a VPS for long-term automation
 
 ## Key Features
 
 - Multi-account management
-- Action sequences: `Send Text`, `Click Text Button`, `Send Dice`, `AI Vision`, `AI Calculate`
+- Action sequences: `Send Text`, `Click Text Button`, `Send Dice`, `AI Vision`, `AI Calculate`, `Keyword Monitor`
 - Topic check-ins for specific Thread/Topic IDs in Telegram forum groups
 - Task migration via clipboard export/import with duplicate skipping
-- Telegram Bot failure notifications and dashboard invalid-session hints when all tasks under an account fail
+- Telegram Bot failure notifications, keyword-match notifications, and dashboard invalid-session hints when all tasks under an account fail
 - Visual logs with per-run flow details and latest bot replies
 - Stability improvements for timeout/429 scenarios and long-running memory behavior
 - Docker-first deployment (easy to start and migrate)
@@ -121,6 +121,7 @@ In `System Settings -> Global Sign-in Settings`, you can configure:
 On the account task page, you can:
 
 - Fill in `Topic / Thread ID` so a task only runs inside a specific Telegram group topic
+- Add `Keyword Monitor` to an ordered action sequence to push matched messages to Telegram Bot, Bark, a custom URL, or forward them to a target Chat ID/topic ID
 - Click the top-right export icon to copy all tasks of the current account to the clipboard
 - Click the top-right paste/import action to bulk-import tasks from the clipboard while skipping duplicates
 
@@ -138,6 +139,13 @@ frontend/     Next.js management panel
 ```
 
 ## Changelog
+
+### 2026-04-27
+
+- **Keyword Monitor Action**: Keyword monitoring now lives in the account task ordered action sequence, so it can be configured per task, account, chat, and topic.
+- **Matched Message Forwarding**: Matched messages can be forwarded to a target Chat ID, with optional topic/thread ID support.
+- **Custom Push Channels**: Keyword matches can still notify via Telegram Bot, Bark, or a custom push URL; forwarding failures no longer block the later push notification.
+- **Keyword Monitor Layout**: Keywords, match mode, ignore-case, forward Chat ID, topic ID, push channel, and push URL are now shown as one parameter per row to avoid cramped controls.
 
 ### 2026-04-26
 
