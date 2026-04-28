@@ -159,6 +159,14 @@ frontend/     Next.js management panel
 
 ## Changelog
 
+### 2026-04-29
+
+- **Legacy Sign Task Scheduling Restored**: The scheduler now supports the older `signs/<task>/config.json` layout again, so startup sync correctly discovers and schedules those tasks. Old tasks without `account_name` are matched to existing sessions when possible, without migrating or rewriting user configuration.
+- **More Reliable Button Clicking**: Button text matching now uses Unicode normalization and ignores symbols, spaces, and emoji. Matching works in both directions, inline button clicks have a `Message.click` fallback, and callback retry handling now covers timeout/connection errors up to 5 attempts.
+- **Scheduler Robustness Fix**: Sign task sync skips malformed entries that have no account or task name, avoiding invalid jobs while leaving healthy tasks unaffected.
+- **Frontend Build Config Fix**: The `/api` rewrite remains available for development, while production static export no longer declares ineffective rewrites, removing the Next.js build warning.
+- **Full Project Verification**: Verified with `python -m compileall backend tg_signer`, `pytest -q`, `python -m ruff check .`, `python -m pip check`, frontend `npm run lint`, and `npm run build`. The local machine only has Python 3.14 installed, where importing the Telegram runtime hits an upstream `pyrogram/kurigram` compatibility error; the production Docker image uses Python 3.12, and local development should use Python `>=3.10,<3.14`.
+
 ### 2026-04-28
 
 - **Pre-task Account Status Check**: Sign tasks now verify the account session before execution. If the session is confirmed invalid, tasks for that account are skipped instead of being reported as successful.

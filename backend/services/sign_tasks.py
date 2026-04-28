@@ -24,6 +24,7 @@ from backend.utils.tg_session import (
     get_account_status,
     get_global_semaphore,
     get_session_mode,
+    list_account_names,
     load_session_string_file,
     set_account_status,
 )
@@ -61,7 +62,13 @@ class BackendUserSigner(UserSigner):
     def task_dir(self):
         # 适配后端的目录结构: signs_dir / account_name / task_name
         # self.tasks_dir -> workdir/signs
-        return self.tasks_dir / self._account / self.task_name
+        account_task_dir = self.tasks_dir / self._account / self.task_name
+        if (account_task_dir / "config.json").exists():
+            return account_task_dir
+        legacy_task_dir = self.tasks_dir / self.task_name
+        if (legacy_task_dir / "config.json").exists():
+            return legacy_task_dir
+        return account_task_dir
 
     def ask_for_config(self):
         raise ValueError(
@@ -174,6 +181,75 @@ class SignTaskService:
             safe_task = self._safe_history_key(task_name)
             return self.run_history_dir / f"{safe_account}__{safe_task}.json"
         return self.run_history_dir / f"{self._safe_history_key(task_name)}.json"
+
+    def _known_account_names(self) -> List[str]:
+        names = set()
+        try:
+            names.update(name for name in list_account_names() if name)
+        except Exception:
+            pass
+
+        try:
+            session_dir = settings.resolve_session_dir()
+            for pattern in ("*.session", "*.session_string"):
+                for path in session_dir.glob(pattern):
+                    if path.stem:
+                        names.add(path.stem)
+        except Exception:
+            pass
+
+        return sorted(names)
+
+    def _infer_account_name(
+        self, config: Dict[str, Any], task_dir: Optional[Path] = None
+    ) -> str:
+        account_name = config.get("account_name")
+        if isinstance(account_name, str) and account_name.strip():
+            return account_name.strip()
+
+        if task_dir is not None and task_dir.parent != self.signs_dir:
+            return task_dir.parent.name
+
+        known_accounts = self._known_account_names()
+        if "my_account" in known_accounts:
+            return "my_account"
+        if len(known_accounts) == 1:
+            return known_accounts[0]
+        return ""
+
+    def _resolve_task_dir(
+        self, task_name: str, account_name: Optional[str] = None
+    ) -> Optional[Path]:
+        if account_name:
+            account_task_dir = self.signs_dir / account_name / task_name
+            if (account_task_dir / "config.json").exists():
+                return account_task_dir
+
+            legacy_task_dir = self.signs_dir / task_name
+            config_file = legacy_task_dir / "config.json"
+            if not config_file.exists():
+                return None
+            try:
+                with open(config_file, "r", encoding="utf-8") as f:
+                    config = json.load(f)
+            except Exception:
+                return None
+            if self._infer_account_name(config, legacy_task_dir) == account_name:
+                return legacy_task_dir
+            return None
+
+        legacy_task_dir = self.signs_dir / task_name
+        if (legacy_task_dir / "config.json").exists():
+            return legacy_task_dir
+
+        try:
+            for acc_dir in self.signs_dir.iterdir():
+                nested_task_dir = acc_dir / task_name
+                if acc_dir.is_dir() and (nested_task_dir / "config.json").exists():
+                    return nested_task_dir
+        except Exception:
+            return None
+        return None
 
     @staticmethod
     def _repair_mojibake(text: str) -> str:
@@ -784,11 +860,13 @@ class SignTaskService:
             # 扫描所有子目录 (账号名)
             for account_path in base_dir.iterdir():
                 if not account_path.is_dir():
-                    # 兼容旧路径：直接在 signs 目录下的任务
-                    if (account_path / "config.json").exists():
-                        task_info = self._load_task_config(account_path)
-                        if task_info:
-                            tasks.append(task_info)
+                    continue
+
+                # 兼容旧路径：直接在 signs 目录下的任务
+                if (account_path / "config.json").exists():
+                    task_info = self._load_task_config(account_path)
+                    if task_info:
+                        tasks.append(task_info)
                     continue
 
                 # 扫描账号目录下的任务
@@ -826,16 +904,18 @@ class SignTaskService:
             with open(config_file, "r", encoding="utf-8") as f:
                 config = json.load(f)
 
+            resolved_account_name = self._infer_account_name(config, task_dir)
+
             # 优先从 config 读取 last_run
             last_run = config.get("last_run")
             if not last_run:
                 last_run = self._get_last_run_info(
-                    task_dir, account_name=config.get("account_name", "")
+                    task_dir, account_name=resolved_account_name
                 )
 
             return {
                 "name": task_dir.name,
-                "account_name": config.get("account_name", ""),
+                "account_name": resolved_account_name,
                 "sign_at": config.get("sign_at", ""),
                 "random_seconds": config.get("random_seconds", 0),
                 "sign_interval": config.get("sign_interval", 1),
@@ -855,38 +935,30 @@ class SignTaskService:
         """
         获取单个任务的详细信息
         """
-        if account_name:
-            task_dir = self.signs_dir / account_name / task_name
-        else:
-            # 搜索模式 (兼容旧版或未传 account_name 的情况)
-            task_dir = self.signs_dir / task_name
-            if not (task_dir / "config.json").exists():
-                # 在所有账号目录下搜
-                for acc_dir in self.signs_dir.iterdir():
-                    if (
-                        acc_dir.is_dir()
-                        and (acc_dir / task_name / "config.json").exists()
-                    ):
-                        task_dir = acc_dir / task_name
-                        break
-
-        config_file = task_dir / "config.json"
-
-        if not config_file.exists():
+        task_dir = self._resolve_task_dir(task_name, account_name)
+        if task_dir is None:
             return None
+        config_file = task_dir / "config.json"
 
         try:
             with open(config_file, "r", encoding="utf-8") as f:
                 config = json.load(f)
+            resolved_account_name = self._infer_account_name(config, task_dir)
+            last_run = config.get("last_run")
+            if not last_run:
+                last_run = self._get_last_run_info(
+                    task_dir, account_name=resolved_account_name
+                )
 
             return {
                 "name": task_name,
-                "account_name": config.get("account_name", ""),
+                "account_name": resolved_account_name,
                 "sign_at": config.get("sign_at", ""),
                 "random_seconds": config.get("random_seconds", 0),
                 "sign_interval": config.get("sign_interval", 1),
                 "chats": config.get("chats", []),
                 "enabled": True,
+                "last_run": last_run,
                 "execution_mode": config.get("execution_mode", "fixed"),
                 "range_start": config.get("range_start", ""),
                 "range_end": config.get("range_end", ""),
@@ -1084,20 +1156,7 @@ class SignTaskService:
         """
         删除签到任务
         """
-        task_dir = None
-        if account_name:
-            task_dir = self.signs_dir / account_name / task_name
-            # 如果指定了账号但任务不存在，直接返回失败，不进行搜索
-            if not task_dir.exists():
-                return False
-        else:
-            # 未指定账号，尝试搜索 (兼容旧逻辑，但不推荐)
-            task_dir = self.signs_dir / task_name
-            if not task_dir.exists():
-                for acc_dir in self.signs_dir.iterdir():
-                    if acc_dir.is_dir() and (acc_dir / task_name).exists():
-                        task_dir = acc_dir / task_name
-                        break
+        task_dir = self._resolve_task_dir(task_name, account_name)
 
         if not task_dir or not task_dir.exists():
             return False

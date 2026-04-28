@@ -4,9 +4,9 @@ import logging
 import os
 import pathlib
 import random
-import re
 import sqlite3
 import time
+import unicodedata
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from datetime import time as dt_time
@@ -1338,16 +1338,49 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
     def _clean_text_for_match(self, text: str) -> str:
         if not text:
             return ""
-        # Remove emojis, variation selectors, and zero-width characters before matching.
-        text = re.sub(r'[\U00010000-\U0010ffff]', '', text)
-        text = re.sub(r'[\u2600-\u27bf]', '', text)
-        text = re.sub(r'[\u2B50]', '', text)  # ⭐
-        text = re.sub(r'[\ufe00-\ufe0f\u200c\u200d\u20e3]', '', text)
-        # Remove all whitespace and zero width joiners to make fuzzy match extremely forgiving
-        text = re.sub(r'[\s\u200b\u200e\u200f\u202a-\u202e]', '', text)
-        # Remove all common punctuation
-        text = re.sub(r'[!"#$%&\'()*+,-./:;<=>?@\[\]^_`{|}~，。！？；：“”‘’（）【】《》]', '', text)
-        return text.strip().lower()
+        text = unicodedata.normalize("NFKC", str(text))
+        return "".join(
+            ch
+            for ch in text.lower()
+            if not unicodedata.category(ch).startswith(("P", "S", "Z", "C"))
+        )
+
+    def _button_text_matches(self, target_text: str, button_text: str) -> bool:
+        if not target_text or not button_text:
+            return False
+        if target_text == button_text or target_text in button_text:
+            return True
+        return len(button_text) >= 2 and button_text in target_text
+
+    async def _click_inline_button(self, message: Message, btn) -> bool:
+        callback_data = getattr(btn, "callback_data", None)
+        if callback_data is not None:
+            if await self.request_callback_answer(
+                self.app,
+                message.chat.id,
+                message.id,
+                callback_data,
+            ):
+                return True
+
+        click = getattr(message, "click", None)
+        if callable(click):
+            for args, kwargs in (
+                ((getattr(btn, "text", None),), {}),
+                ((), {"text": getattr(btn, "text", None)}),
+            ):
+                try:
+                    await click(*args, **kwargs)
+                    self.log("点击完成")
+                    return True
+                except TypeError:
+                    continue
+                except Exception as e:
+                    self.log(f"Message.click fallback failed: {e}", level="WARNING")
+                    break
+
+        self.log("按钮没有可用 callback_data，且 fallback 点击失败", level="WARNING")
+        return False
 
     async def _click_keyboard_by_text(
         self,
@@ -1368,15 +1401,9 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                     if not btn.text:
                         continue
                     btn_text_clean = self._clean_text_for_match(btn.text)
-                    if target_text in btn_text_clean:
+                    if self._button_text_matches(target_text, btn_text_clean):
                         self.log(f"成功匹配到并点击按钮: [{btn.text}] (匹配词: {action.text})")
-                        await self.request_callback_answer(
-                            self.app,
-                            message.chat.id,
-                            message.id,
-                            btn.callback_data,
-                        )
-                        return True
+                        return await self._click_inline_button(message, btn)
                 self.log(
                     f"Target button '{action.text}' not found in inline keyboard.",
                     level="WARNING",
@@ -1388,7 +1415,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                         if not btn_text:
                             continue
                         btn_text_clean = self._clean_text_for_match(btn_text)
-                        if target_text in btn_text_clean:
+                        if self._button_text_matches(target_text, btn_text_clean):
                             self.log(f"成功匹配并发送回复键盘文本: [{btn_text}] (匹配词: {action.text})")
                             kwargs = {}
                             if message_thread_id is not None:
@@ -1495,13 +1522,8 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                     if not target_btn:
                         self.log("未找到匹配的按钮", level="WARNING")
                         return False
-                    await self.request_callback_answer(
-                        self.app,
-                        message.chat.id,
-                        message.id,
-                        target_btn.callback_data,
-                    )
-                    clicked += 1
+                    if await self._click_inline_button(message, target_btn):
+                        clicked += 1
                     await asyncio.sleep(0.3)
                 return clicked > 0
         return False
@@ -1650,15 +1672,15 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         message_id: int,
         callback_data: Union[str, bytes],
         **kwargs,
-    ):
-        max_retries = 3
+    ) -> bool:
+        max_retries = 5
         for attempt in range(1, max_retries + 1):
             try:
                 await client.request_callback_answer(
                     chat_id, message_id, callback_data=callback_data, **kwargs
                 )
                 self.log("点击完成")
-                return
+                return True
             except errors.FloodWait as e:
                 wait_seconds = max(int(getattr(e, "value", 1) or 1), 1)
                 self.log(
@@ -1667,9 +1689,9 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 )
                 if attempt >= max_retries:
                     self.log(e, level="ERROR")
-                    return
+                    return False
                 await asyncio.sleep(wait_seconds)
-            except TimeoutError as e:
+            except (TimeoutError, asyncio.TimeoutError, OSError, ConnectionError) as e:
                 backoff = min(2**attempt, 8)
                 self.log(
                     f"回调超时，{backoff}s 后重试 ({attempt}/{max_retries})",
@@ -1677,11 +1699,12 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 )
                 if attempt >= max_retries:
                     self.log(e, level="ERROR")
-                    return
+                    return False
                 await asyncio.sleep(backoff)
             except errors.BadRequest as e:
                 self.log(e, level="ERROR")
-                return
+                return False
+        return False
 
     async def schedule_messages(
         self,

@@ -159,6 +159,14 @@ frontend/     Next.js 管理面板
 
 ## 更新日志
 
+### 2026-04-29
+
+- **旧版签到任务调度恢复**：重新兼容早期 `signs/<task>/config.json` 目录结构，启动同步时会正确扫描并加入 APScheduler；缺少 `account_name` 的旧任务会优先从现有 session 推断账号，不迁移、不重写用户配置，降低对在线用户的影响。
+- **按钮点击稳定性增强**：按钮文本匹配改为 Unicode 归一化并忽略符号、空白和 emoji，支持目标文本与按钮文本双向匹配；Inline 按钮点击增加 `Message.click` 回退路径，callback 超时/连接异常重试增加到 5 次。
+- **调度器健壮性修复**：同步任务时会跳过缺少账号或任务名的异常配置，避免生成无效 job 并影响其他正常任务。
+- **前端构建配置修复**：开发环境仍保留 `/api` 代理，生产静态导出不再声明无效 rewrites，消除 Next.js 构建警告。
+- **完整项目复检**：已通过 `python -m compileall backend tg_signer`、`pytest -q`、`python -m ruff check .`、`python -m pip check`、前端 `npm run lint` 和 `npm run build`。本机仅安装 Python 3.14，直接导入 Telegram 运行时会触发上游 `pyrogram/kurigram` 兼容错误；生产 Docker 镜像使用 Python 3.12，本地开发请使用 Python `>=3.10,<3.14`。
+
 ### 2026-04-28
 
 - **任务前账号状态探测**：签到任务执行前会先检测账号 session 是否可用；确认失效时会跳过该账号任务，避免无效账号误报执行成功。

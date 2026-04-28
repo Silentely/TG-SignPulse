@@ -187,7 +187,13 @@ async def sync_jobs() -> None:
         sign_task_service = get_sign_task_service()
         sign_tasks = sign_task_service.list_tasks(force_refresh=False)
         for st in sign_tasks:
-            job_id = f"sign-{st['account_name']}-{st['name']}"
+            account_name = str(st.get("account_name") or "").strip()
+            task_name = str(st.get("name") or "").strip()
+            if not account_name or not task_name:
+                print(f"Skip scheduling sign task with missing account/name: {st}")
+                continue
+
+            job_id = f"sign-{account_name}-{task_name}"
             desired_ids.add(job_id)
 
             # SignTask 目前默认都是启用的，或者根据 st['enabled']
@@ -209,11 +215,11 @@ async def sync_jobs() -> None:
                         _job_run_sign_task,
                         trigger=trigger,
                         id=job_id,
-                        args=[st["account_name"], st["name"]],
+                        args=[account_name, task_name],
                         replace_existing=True,
                     )
             except Exception as e:
-                print(f"Error scheduling sign task {st['name']}: {e}")
+                print(f"Error scheduling sign task {task_name}: {e}")
 
         # remove obsolete jobs
         for job_id in existing_ids - desired_ids:
