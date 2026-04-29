@@ -470,6 +470,8 @@ export interface GlobalSettings {
   data_dir?: string | null;
   global_proxy?: string | null;
   telegram_bot_notify_enabled?: boolean;
+  telegram_bot_login_notify_enabled?: boolean;
+  telegram_bot_task_failure_enabled?: boolean;
   telegram_bot_token?: string | null;
   telegram_bot_chat_id?: string | null;
   telegram_bot_message_thread_id?: number | null;
@@ -581,6 +583,7 @@ export interface SignTask {
   execution_mode?: "fixed" | "range";
   range_start?: string;
   range_end?: string;
+  notify_on_failure?: boolean;
 }
 
 export interface CreateSignTaskRequest {
@@ -593,6 +596,7 @@ export interface CreateSignTaskRequest {
   execution_mode?: "fixed" | "range";
   range_start?: string;
   range_end?: string;
+  notify_on_failure?: boolean;
 }
 
 export interface UpdateSignTaskRequest {
@@ -603,6 +607,7 @@ export interface UpdateSignTaskRequest {
   execution_mode?: "fixed" | "range";
   range_start?: string;
   range_end?: string;
+  notify_on_failure?: boolean;
 }
 
 export interface ChatInfo {

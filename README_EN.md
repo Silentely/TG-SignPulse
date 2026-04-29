@@ -161,6 +161,10 @@ frontend/     Next.js management panel
 
 ### 2026-04-29
 
+- **Keyword Monitor Continue Actions**: `Push Channel` now includes `Continue Actions`. After a keyword match, the monitor can continue with an action sequence, including send text, click button, dice, AI vision, and AI calculation. Text actions support quick variables such as `{keyword}`, `{message}`, `{sender}`, `{chat_title}`, and `{url}`.
+- **Telegram Bot Notification Refactor**: Telegram Bot notifications now live in their own Settings component, with a master switch, login notification switch, and task failure notification switch. When login notifications are enabled, every panel login sends the login IP to Telegram.
+- **Per-task Failure Notification Control**: Create/edit task dialogs now include a default-enabled `Failure Notify` checkbox beside the title. Disabling it prevents that task from sending Telegram failure notifications even when global failure notifications are enabled.
+- **Task Execution and Log Accuracy Fixes**: Fixed account cards getting stuck on "checking", moved account status checks to task execution time, ensured legacy tasks execute after peer preheating instead of being falsely reported as successful, and repaired common mojibake in historical logs.
 - **Legacy Sign Task Scheduling Restored**: The scheduler now supports the older `signs/<task>/config.json` layout again, so startup sync correctly discovers and schedules those tasks. Old tasks without `account_name` are matched to existing sessions when possible, without migrating or rewriting user configuration.
 - **More Reliable Button Clicking**: Button text matching now uses Unicode normalization and ignores symbols, spaces, and emoji. Matching works in both directions, inline button clicks have a `Message.click` fallback, and callback retry handling now covers timeout/connection errors up to 5 attempts.
 - **Scheduler Robustness Fix**: Sign task sync skips malformed entries that have no account or task name, avoiding invalid jobs while leaving healthy tasks unaffected.

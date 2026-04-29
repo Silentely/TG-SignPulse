@@ -366,6 +366,8 @@ class GlobalSettingsRequest(BaseModel):
     data_dir: Optional[str] = None
     global_proxy: Optional[str] = None
     telegram_bot_notify_enabled: bool = False
+    telegram_bot_login_notify_enabled: bool = False
+    telegram_bot_task_failure_enabled: bool = True
     telegram_bot_token: Optional[str] = None
     telegram_bot_chat_id: Optional[str] = None
     telegram_bot_message_thread_id: Optional[int] = None
@@ -377,6 +379,8 @@ class GlobalSettingsResponse(BaseModel):
     data_dir: Optional[str] = None
     global_proxy: Optional[str] = None
     telegram_bot_notify_enabled: bool = False
+    telegram_bot_login_notify_enabled: bool = False
+    telegram_bot_task_failure_enabled: bool = True
     telegram_bot_token: Optional[str] = None
     telegram_bot_chat_id: Optional[str] = None
     telegram_bot_message_thread_id: Optional[int] = None
@@ -404,6 +408,8 @@ async def save_global_settings(
             "log_retention_days": request.log_retention_days,
             "global_proxy": request.global_proxy,
             "telegram_bot_notify_enabled": request.telegram_bot_notify_enabled,
+            "telegram_bot_login_notify_enabled": request.telegram_bot_login_notify_enabled,
+            "telegram_bot_task_failure_enabled": request.telegram_bot_task_failure_enabled,
             "telegram_bot_token": request.telegram_bot_token,
             "telegram_bot_chat_id": request.telegram_bot_chat_id,
             "telegram_bot_message_thread_id": request.telegram_bot_message_thread_id,

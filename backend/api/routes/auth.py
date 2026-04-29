@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -14,6 +15,7 @@ from backend.models.user import User
 from backend.schemas.auth import LoginRequest, TokenResponse, UserOut
 
 router = APIRouter()
+logger = logging.getLogger("backend.auth")
 
 
 class ResetTOTPRequest(BaseModel):
@@ -31,7 +33,12 @@ class ResetTOTPResponse(BaseModel):
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(payload: LoginRequest, db: Session = Depends(get_db)):
+def login(
+    payload: LoginRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
     print(f"[DEBUG] Login attempt for user: {payload.username}")
     user = authenticate_user(db, payload.username, payload.password)
     if not user:
@@ -54,6 +61,25 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
         data={"sub": user.username},
         expires_delta=timedelta(hours=12),
     )
+    try:
+        from backend.services.config import get_config_service
+        from backend.services.push_notifications import send_login_notification
+
+        forwarded_for = request.headers.get("x-forwarded-for", "")
+        ip_address = (
+            forwarded_for.split(",", 1)[0].strip()
+            or request.headers.get("x-real-ip", "").strip()
+            or (request.client.host if request.client else "")
+        )
+        settings = get_config_service().get_global_settings()
+        background_tasks.add_task(
+            send_login_notification,
+            settings,
+            username=user.username,
+            ip_address=ip_address,
+        )
+    except Exception as exc:
+        logger.warning("Failed to queue login notification: %s", exc)
     return TokenResponse(access_token=access_token)
 
 

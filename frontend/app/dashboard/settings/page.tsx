@@ -48,6 +48,7 @@ import {
 import { ToastContainer, useToast } from "../../../components/ui/toast";
 import { ThemeLanguageToggle } from "../../../components/ThemeLanguageToggle";
 import { useLanguage } from "../../../context/LanguageContext";
+import { TelegramBotNotificationSettings } from "./TelegramBotNotificationSettings";
 
 export default function SettingsPage() {
     const router = useRouter();
@@ -101,6 +102,8 @@ export default function SettingsPage() {
         data_dir: null,
         global_proxy: null,
         telegram_bot_notify_enabled: false,
+        telegram_bot_login_notify_enabled: false,
+        telegram_bot_task_failure_enabled: true,
         telegram_bot_token: null,
         telegram_bot_chat_id: null,
         telegram_bot_message_thread_id: null,
@@ -742,64 +745,19 @@ export default function SettingsPage() {
                                 />
                                 <p className="mt-1 text-[9px] text-[#9496a1]">{t("global_proxy_desc")}</p>
                             </div>
-                            <div className="md:col-span-2 rounded-xl border border-white/5 bg-white/3 p-3 space-y-3">
-                                <div className="flex items-center justify-between gap-3">
-                                    <div>
-                                        <label className="text-[11px] mb-1">{t("telegram_bot_notify")}</label>
-                                        <p className="text-[9px] text-[#9496a1]">{t("telegram_bot_notify_desc")}</p>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        className={`w-12 h-7 rounded-full relative transition-all shadow-sm border-2 ${globalSettings.telegram_bot_notify_enabled ? 'bg-[#8a3ffc] border-[#8a3ffc]' : 'bg-black/20 dark:bg-white/10 border-black/10 dark:border-white/30'}`}
-                                        onClick={() => setGlobalSettings({
-                                            ...globalSettings,
-                                            telegram_bot_notify_enabled: !globalSettings.telegram_bot_notify_enabled,
-                                        })}
-                                        aria-label={t("telegram_bot_notify")}
-                                    >
-                                        <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all shadow-md ${globalSettings.telegram_bot_notify_enabled ? 'left-6' : 'left-0.5'}`}></span>
-                                    </button>
-                                </div>
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                    <div>
-                                        <label className="text-[11px] mb-1">{t("telegram_bot_token")}</label>
-                                        <input
-                                            type="password"
-                                            className="!py-2 !px-4"
-                                            value={globalSettings.telegram_bot_token || ""}
-                                            onChange={(e) => setGlobalSettings({ ...globalSettings, telegram_bot_token: e.target.value || null })}
-                                            placeholder={t("telegram_bot_token_placeholder")}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="text-[11px] mb-1">{t("telegram_bot_chat_id")}</label>
-                                        <input
-                                            className="!py-2 !px-4"
-                                            value={globalSettings.telegram_bot_chat_id || ""}
-                                            onChange={(e) => setGlobalSettings({ ...globalSettings, telegram_bot_chat_id: e.target.value || null })}
-                                            placeholder={t("telegram_bot_chat_id_placeholder")}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="text-[11px] mb-1">{t("telegram_bot_thread_id")}</label>
-                                        <input
-                                            inputMode="numeric"
-                                            className="!py-2 !px-4"
-                                            value={globalSettings.telegram_bot_message_thread_id ?? ""}
-                                            onChange={(e) => setGlobalSettings({
-                                                ...globalSettings,
-                                                telegram_bot_message_thread_id: e.target.value ? parseInt(e.target.value) : null,
-                                            })}
-                                            placeholder={t("telegram_bot_thread_id_placeholder")}
-                                        />
-                                    </div>
-                                </div>
-                            </div>
                         </div>
                         <button className="btn-gradient w-fit px-5 !py-2 !text-[11px]" onClick={handleSaveGlobal} disabled={configLoading}>
                             {configLoading ? <Spinner className="animate-spin" /> : t("save_global_params")}
                         </button>
                     </div>
+
+                    <TelegramBotNotificationSettings
+                        settings={globalSettings}
+                        setSettings={setGlobalSettings}
+                        loading={configLoading}
+                        onSave={handleSaveGlobal}
+                        t={t}
+                    />
 
                     {/* Telegram API 閰嶇疆 */}
                     <div className="glass-panel p-4">

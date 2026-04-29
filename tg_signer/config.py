@@ -242,7 +242,7 @@ class KeywordNotifyAction(SignAction):
     keywords: List[str]
     match_mode: Literal["contains", "exact", "regex"] = "contains"
     ignore_case: bool = True
-    push_channel: Literal["telegram", "forward", "bark", "custom"] = "telegram"
+    push_channel: Literal["telegram", "forward", "bark", "custom", "continue"] = "telegram"
     bark_url: Optional[str] = None
     custom_url: Optional[str] = None
     forward_chat_id: Optional[Union[int, str]] = None

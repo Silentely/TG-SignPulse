@@ -682,6 +682,8 @@ class SignTaskService:
             cfg = get_config_service().get_global_settings()
             if not cfg.get("telegram_bot_notify_enabled"):
                 return
+            if not cfg.get("telegram_bot_task_failure_enabled", True):
+                return
             bot_token = (cfg.get("telegram_bot_token") or "").strip()
             chat_id = (cfg.get("telegram_bot_chat_id") or "").strip()
             if not bot_token or not chat_id:
@@ -769,6 +771,7 @@ class SignTaskService:
         account_name: str,
         task_name: str,
         message: str,
+        notify_on_failure: bool = True,
     ) -> bool:
         current = get_account_status(account_name)
         already_notified = bool(current.get("invalid_notified_at"))
@@ -781,7 +784,7 @@ class SignTaskService:
             needs_relogin=True,
             invalid_notified_at=notified_at,
         )
-        if not already_notified:
+        if not already_notified and notify_on_failure:
             await self._send_account_invalid_notification(
                 account_name=account_name,
                 task_name=task_name,
@@ -794,6 +797,7 @@ class SignTaskService:
         account_name: str,
         task_name: str,
         no_updates: bool,
+        notify_on_failure: bool = True,
     ) -> Optional[str]:
         stored_status = get_account_status(account_name)
         if (
@@ -804,7 +808,9 @@ class SignTaskService:
                 str(stored_status.get("message") or "").strip()
                 or f"账号 {account_name} 登录已失效，请重新登录"
             )
-            await self._mark_account_invalid(account_name, task_name, message)
+            await self._mark_account_invalid(
+                account_name, task_name, message, notify_on_failure=notify_on_failure
+            )
             return message
 
         try:
@@ -835,7 +841,9 @@ class SignTaskService:
                 str(result.get("message") or "").strip()
                 or f"账号 {account_name} 登录已失效，请重新登录"
             )
-            await self._mark_account_invalid(account_name, task_name, message)
+            await self._mark_account_invalid(
+                account_name, task_name, message, notify_on_failure=notify_on_failure
+            )
             return message
 
         return None
@@ -965,6 +973,7 @@ class SignTaskService:
                 "execution_mode": config.get("execution_mode", "fixed"),
                 "range_start": config.get("range_start", ""),
                 "range_end": config.get("range_end", ""),
+                "notify_on_failure": config.get("notify_on_failure", True),
             }
         except Exception:
             return None
@@ -980,6 +989,7 @@ class SignTaskService:
         execution_mode: str = "fixed",
         range_start: str = "",
         range_end: str = "",
+        notify_on_failure: bool = True,
     ) -> Dict[str, Any]:
         """
         创建新的签到任务
@@ -1016,6 +1026,7 @@ class SignTaskService:
             "execution_mode": execution_mode,
             "range_start": range_start,
             "range_end": range_end,
+            "notify_on_failure": notify_on_failure,
         }
 
         config_file = task_dir / "config.json"
@@ -1053,6 +1064,7 @@ class SignTaskService:
             "execution_mode": execution_mode,
             "range_start": range_start,
             "range_end": range_end,
+            "notify_on_failure": notify_on_failure,
         }
 
     def update_task(
@@ -1066,6 +1078,7 @@ class SignTaskService:
         execution_mode: Optional[str] = None,
         range_start: Optional[str] = None,
         range_end: Optional[str] = None,
+        notify_on_failure: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """
         更新签到任务
@@ -1104,6 +1117,9 @@ class SignTaskService:
             "range_end": range_end
             if range_end is not None
             else existing.get("range_end", ""),
+            "notify_on_failure": notify_on_failure
+            if notify_on_failure is not None
+            else existing.get("notify_on_failure", True),
         }
 
         # 保存配置
@@ -1153,6 +1169,7 @@ class SignTaskService:
             "execution_mode": config.get("execution_mode", "fixed"),
             "range_start": config.get("range_start", ""),
             "range_end": config.get("range_end", ""),
+            "notify_on_failure": config.get("notify_on_failure", True),
         }
 
     def delete_task(self, task_name: str, account_name: Optional[str] = None) -> bool:
@@ -1556,6 +1573,7 @@ class SignTaskService:
         error_msg = ""
         output_str = ""
         account_invalid_detected = False
+        task_notify_on_failure = True
 
         try:
             task_cfg = self.get_task(task_name, account_name=account_name)
@@ -1563,11 +1581,13 @@ class SignTaskService:
                 raise ValueError(f"Task {task_name} does not exist or cannot be loaded")
             requires_updates = self._task_requires_updates(task_cfg)
             signer_no_updates = not requires_updates
+            task_notify_on_failure = bool(task_cfg.get("notify_on_failure", True))
 
             invalid_reason = await self._check_account_before_task(
                 account_name,
                 task_name,
                 no_updates=signer_no_updates,
+                notify_on_failure=task_notify_on_failure,
             )
             if invalid_reason:
                 account_invalid_detected = True
@@ -1684,7 +1704,12 @@ class SignTaskService:
             if account_invalid_detected or self._is_invalid_session_error(e):
                 account_invalid_detected = True
                 invalid_message = str(e) or f"账号 {account_name} 登录已失效，请重新登录"
-                await self._mark_account_invalid(account_name, task_name, invalid_message)
+                await self._mark_account_invalid(
+                    account_name,
+                    task_name,
+                    invalid_message,
+                    notify_on_failure=task_notify_on_failure,
+                )
             error_msg = f"任务执行出错: {str(e)}"
             self._active_logs[task_key].append(error_msg)
             # 打印堆栈以便调试
@@ -1757,7 +1782,7 @@ class SignTaskService:
                 flow_logs=final_logs,
             )
 
-            if not success and not account_invalid_detected:
+            if not success and not account_invalid_detected and task_notify_on_failure:
                 await self._send_failure_notification(
                     account_name,
                     task_name,

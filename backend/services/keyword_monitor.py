@@ -93,7 +93,7 @@ def _parse_forward_chat_id(value: Any) -> Optional[Union[int, str]]:
         return text
 
 
-_TEMPLATE_PATTERN = re.compile(r"\$\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
+_TEMPLATE_PATTERN = re.compile(r"(?:\$\{|\{)([a-zA-Z_][a-zA-Z0-9_]*)\}")
 
 
 def _read_positive_int_env(name: str, default: int, minimum: int = 1) -> int:
@@ -725,6 +725,7 @@ class KeywordMonitorService:
                 )
 
                 push_channel = str(rule.action.get("push_channel") or "telegram").strip()
+                continue_enabled = push_channel == "continue"
                 forward_chat_id = (
                     _parse_forward_chat_id(rule.action.get("forward_chat_id"))
                     if push_channel == "forward"
@@ -753,7 +754,7 @@ class KeywordMonitorService:
                             exc,
                         )
 
-                if push_channel != "forward":
+                if push_channel not in {"forward", "continue"}:
                     push_settings = dict(global_settings)
                     push_settings["keyword_monitor_push_channel"] = push_channel
                     push_settings["keyword_monitor_bark_url"] = rule.action.get("bark_url")
@@ -776,13 +777,14 @@ class KeywordMonitorService:
                             "url": url,
                         },
                     )
-                await self._execute_continue_actions(
-                    account_name=account_name,
-                    client=client,
-                    rule=rule,
-                    message=message,
-                    variables=variables,
-                )
+                if continue_enabled:
+                    await self._execute_continue_actions(
+                        account_name=account_name,
+                        client=client,
+                        rule=rule,
+                        message=message,
+                        variables=variables,
+                    )
         except Exception as exc:
             logger.warning("Keyword monitor handling failed: %s", exc, exc_info=True)
 

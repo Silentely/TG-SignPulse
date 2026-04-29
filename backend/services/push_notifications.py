@@ -103,3 +103,33 @@ async def send_keyword_push(settings: Dict[str, Any], payload: Dict[str, Any]) -
     async with httpx.AsyncClient(timeout=10) as client:
         response = await client.post(custom_url, json=request_payload)
         response.raise_for_status()
+
+
+async def send_login_notification(
+    settings: Dict[str, Any],
+    *,
+    username: str,
+    ip_address: str,
+) -> None:
+    if not settings.get("telegram_bot_notify_enabled"):
+        return
+    if not settings.get("telegram_bot_login_notify_enabled"):
+        return
+
+    bot_token = (settings.get("telegram_bot_token") or "").strip()
+    chat_id = (settings.get("telegram_bot_chat_id") or "").strip()
+    if not bot_token or not chat_id:
+        logger.warning("Telegram login notification is not configured")
+        return
+
+    text = (
+        "TG-SignPulse 登录通知\n"
+        f"用户: {username}\n"
+        f"IP: {ip_address or 'unknown'}"
+    )
+    await send_telegram_bot_message(
+        bot_token=bot_token,
+        chat_id=chat_id,
+        text=text,
+        message_thread_id=_as_int_or_none(settings.get("telegram_bot_message_thread_id")),
+    )
