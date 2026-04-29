@@ -342,6 +342,15 @@ export default function AccountTasksContent() {
     const forwardThreadIdPlaceholder = isZh ? "\u53EF\u9009" : "Optional";
     const forwardChatIdLabel = isZh ? "\u8F6C\u53D1 Chat ID" : "Forward Chat ID";
     const forwardThreadIdLabel = isZh ? "\u8F6C\u53D1\u8BDD\u9898 ID" : "Forward Topic ID";
+    const keywordContinueLabel = isZh ? "\u547D\u4E2D\u540E\u7EE7\u7EED\u6267\u884C" : "Continue After Match";
+    const keywordContinueHint = isZh
+        ? "\u6587\u672C\u52A8\u4F5C\u652F\u6301 ${keyword}\u3001${message}\u3001${sender}\u3001${chat_title}\u3001${url}"
+        : "Text actions support ${keyword}, ${message}, ${sender}, ${chat_title}, ${url}";
+    const keywordContinueAddLabel = isZh ? "\u6DFB\u52A0\u540E\u7EED\u52A8\u4F5C" : "Add Continue Action";
+    const continueChatIdLabel = isZh ? "\u6267\u884C Chat ID" : "Action Chat ID";
+    const continueThreadIdLabel = isZh ? "\u6267\u884C\u8BDD\u9898 ID" : "Action Topic ID";
+    const continueIntervalLabel = isZh ? "\u52A8\u4F5C\u95F4\u9694(\u79D2)" : "Action Interval (s)";
+    const continueChatIdPlaceholder = isZh ? "\u7559\u7A7A\u4F7F\u7528\u547D\u4E2D\u6D88\u606F\u6765\u6E90" : "Blank uses matched chat";
     const sendTextPlaceholder = isZh ? "\u53D1\u9001\u7684\u6587\u672C\u5185\u5BB9" : "Text to send";
     const clickButtonPlaceholder = isZh ? "\u8F93\u5165\u6309\u94AE\u6587\u5B57\uFF0C\u4E0D\u8981\u8868\u60C5\uFF01" : "Button text to click, no emoji";
     const aiVisionSendModeLabel = isZh ? "\u8BC6\u56FE\u540E\u53D1\u6587\u672C" : "Vision -> Send Text";
@@ -388,6 +397,17 @@ export default function AccountTasksContent() {
         return "1";
     }, []);
 
+    const isContinueActionValid = useCallback((action: any) => {
+        const actionId = Number(action?.action);
+        if (actionId === 1 || actionId === 3) {
+            return Boolean((action?.text || "").trim());
+        }
+        if (actionId === 2) {
+            return Boolean((action?.dice || "").trim());
+        }
+        return [4, 5, 6, 7].includes(actionId);
+    }, []);
+
     const isActionValid = useCallback((action: any) => {
         const actionId = Number(action?.action);
         if (actionId === 1 || actionId === 3) {
@@ -409,10 +429,14 @@ export default function AccountTasksContent() {
             if (action?.push_channel === "custom") {
                 return Boolean((action?.custom_url || "").trim());
             }
+            const continueActions = Array.isArray(action?.continue_actions) ? action.continue_actions : [];
+            if (continueActions.some((item: any) => !isContinueActionValid(item))) {
+                return false;
+            }
             return true;
         }
         return [4, 5, 6, 7].includes(actionId);
-    }, []);
+    }, [isContinueActionValid]);
 
     const loadData = useCallback(async (tokenStr: string) => {
         try {
@@ -1009,6 +1033,35 @@ export default function AccountTasksContent() {
         });
     }, [showCreateDialog]);
 
+    const updateKeywordContinueAction = useCallback((actionIndex: number, continueIndex: number, updater: (action: any) => any) => {
+        updateCurrentDialogAction(actionIndex, (currentAction) => {
+            const continueActions = Array.isArray(currentAction?.continue_actions) ? [...currentAction.continue_actions] : [];
+            if (continueIndex < 0 || continueIndex >= continueActions.length) return currentAction;
+            continueActions[continueIndex] = updater(continueActions[continueIndex] || { action: 1, text: "${keyword}" });
+            return { ...currentAction, continue_actions: continueActions };
+        });
+    }, [updateCurrentDialogAction]);
+
+    const addKeywordContinueAction = useCallback((actionIndex: number) => {
+        updateCurrentDialogAction(actionIndex, (currentAction) => {
+            const continueActions = Array.isArray(currentAction?.continue_actions) ? currentAction.continue_actions : [];
+            return {
+                ...currentAction,
+                continue_actions: [...continueActions, { action: 1, text: "${keyword}" }],
+            };
+        });
+    }, [updateCurrentDialogAction]);
+
+    const removeKeywordContinueAction = useCallback((actionIndex: number, continueIndex: number) => {
+        updateCurrentDialogAction(actionIndex, (currentAction) => {
+            const continueActions = Array.isArray(currentAction?.continue_actions) ? currentAction.continue_actions : [];
+            return {
+                ...currentAction,
+                continue_actions: continueActions.filter((_: any, index: number) => index !== continueIndex),
+            };
+        });
+    }, [updateCurrentDialogAction]);
+
     if (!token || checking) {
         return null;
     }
@@ -1392,6 +1445,10 @@ export default function AccountTasksContent() {
                                                                     custom_url: currentAction?.custom_url || "",
                                                                     forward_chat_id: currentAction?.forward_chat_id || "",
                                                                     forward_message_thread_id: currentAction?.forward_message_thread_id,
+                                                                    continue_chat_id: currentAction?.continue_chat_id || "",
+                                                                    continue_message_thread_id: currentAction?.continue_message_thread_id,
+                                                                    continue_action_interval: currentAction?.continue_action_interval ?? 1,
+                                                                    continue_actions: currentAction?.continue_actions || [],
                                                                 };
                                                             }
                                                             if (selectedType === "ai_vision") {
@@ -1601,6 +1658,182 @@ export default function AccountTasksContent() {
                                                                 </div>
                                                             </>
                                                         )}
+                                                        </div>
+                                                        <div className="border-t border-white/10 pt-3 space-y-3">
+                                                            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                                                                <div className="min-w-0">
+                                                                    <div className="text-[10px] uppercase tracking-wider text-main/40">{keywordContinueLabel}</div>
+                                                                    <div className="text-[10px] text-main/35 truncate" title={keywordContinueHint}>{keywordContinueHint}</div>
+                                                                </div>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => addKeywordContinueAction(index)}
+                                                                    className="btn-secondary !h-8 !px-3 !text-[10px] shrink-0"
+                                                                >
+                                                                    + {keywordContinueAddLabel}
+                                                                </button>
+                                                            </div>
+                                                            <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_120px] gap-3">
+                                                                <div className="space-y-1.5">
+                                                                    <label className="text-[10px] uppercase tracking-wider text-main/40">{continueChatIdLabel}</label>
+                                                                    <input
+                                                                        className="!mb-0 !h-10 !text-xs"
+                                                                        value={action.continue_chat_id || ""}
+                                                                        onChange={(e) => {
+                                                                            updateCurrentDialogAction(index, (currentAction) => ({
+                                                                                ...currentAction,
+                                                                                continue_chat_id: e.target.value,
+                                                                            }));
+                                                                        }}
+                                                                        placeholder={continueChatIdPlaceholder}
+                                                                    />
+                                                                </div>
+                                                                <div className="space-y-1.5">
+                                                                    <label className="text-[10px] uppercase tracking-wider text-main/40">{continueThreadIdLabel}</label>
+                                                                    <input
+                                                                        inputMode="numeric"
+                                                                        className="!mb-0 !h-10 !text-xs"
+                                                                        value={action.continue_message_thread_id ?? ""}
+                                                                        onChange={(e) => {
+                                                                            updateCurrentDialogAction(index, (currentAction) => ({
+                                                                                ...currentAction,
+                                                                                continue_message_thread_id: e.target.value ? parseInt(e.target.value) : undefined,
+                                                                            }));
+                                                                        }}
+                                                                        placeholder={forwardThreadIdPlaceholder}
+                                                                    />
+                                                                </div>
+                                                                <div className="space-y-1.5">
+                                                                    <label className="text-[10px] uppercase tracking-wider text-main/40">{continueIntervalLabel}</label>
+                                                                    <input
+                                                                        inputMode="decimal"
+                                                                        className="!mb-0 !h-10 !text-xs"
+                                                                        value={action.continue_action_interval ?? 1}
+                                                                        onChange={(e) => {
+                                                                            const nextValue = e.target.value === "" ? 0 : Number(e.target.value);
+                                                                            updateCurrentDialogAction(index, (currentAction) => ({
+                                                                                ...currentAction,
+                                                                                continue_action_interval: Number.isFinite(nextValue) ? nextValue : 1,
+                                                                            }));
+                                                                        }}
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                            {(action.continue_actions || []).length > 0 && (
+                                                                <div className="flex flex-col gap-2">
+                                                                    {(action.continue_actions || []).map((continueAction: any, continueIndex: number) => (
+                                                                        <div key={continueIndex} className="grid grid-cols-1 md:grid-cols-[2rem_minmax(0,135px)_minmax(0,1fr)_2.25rem] gap-2 items-start rounded-lg border border-white/5 bg-black/10 p-2">
+                                                                            <div className="shrink-0 w-8 h-10 flex items-center justify-center font-mono text-[10px] text-main/30 font-bold border border-white/5 rounded-lg bg-white/5">
+                                                                                {continueIndex + 1}
+                                                                            </div>
+                                                                            <select
+                                                                                className="!h-10 !mb-0"
+                                                                                value={toActionTypeOption(continueAction) === "keyword_notify" ? "1" : toActionTypeOption(continueAction)}
+                                                                                onChange={(e) => {
+                                                                                    const selectedType = e.target.value as ActionTypeOption;
+                                                                                    updateKeywordContinueAction(index, continueIndex, (currentAction) => {
+                                                                                        const currentActionId = Number(currentAction?.action);
+                                                                                        if (selectedType === "1") {
+                                                                                            return { ...currentAction, action: 1, text: currentAction?.text || "${keyword}" };
+                                                                                        }
+                                                                                        if (selectedType === "3") {
+                                                                                            return { ...currentAction, action: 3, text: currentAction?.text || "" };
+                                                                                        }
+                                                                                        if (selectedType === "2") {
+                                                                                            return { ...currentAction, action: 2, dice: currentAction?.dice || DICE_OPTIONS[0] };
+                                                                                        }
+                                                                                        if (selectedType === "ai_vision") {
+                                                                                            const nextActionId = (currentActionId === 4 || currentActionId === 6) ? currentActionId : 6;
+                                                                                            return { ...currentAction, action: nextActionId };
+                                                                                        }
+                                                                                        const nextActionId = (currentActionId === 5 || currentActionId === 7) ? currentActionId : 5;
+                                                                                        return { ...currentAction, action: nextActionId };
+                                                                                    });
+                                                                                }}
+                                                                            >
+                                                                                <option value="1">{sendTextLabel}</option>
+                                                                                <option value="3">{clickTextButtonLabel}</option>
+                                                                                <option value="2">{sendDiceLabel}</option>
+                                                                                <option value="ai_vision">{aiVisionLabel}</option>
+                                                                                <option value="ai_logic">{aiCalcLabel}</option>
+                                                                            </select>
+                                                                            <div className="min-w-0">
+                                                                                {(Number(continueAction.action) === 1 || Number(continueAction.action) === 3) && (
+                                                                                    <input
+                                                                                        placeholder={Number(continueAction.action) === 1 ? sendTextPlaceholder : clickButtonPlaceholder}
+                                                                                        className="!mb-0 !h-10 !text-xs"
+                                                                                        value={continueAction.text || ""}
+                                                                                        onChange={(e) => {
+                                                                                            updateKeywordContinueAction(index, continueIndex, (currentAction) => ({
+                                                                                                ...currentAction,
+                                                                                                text: e.target.value,
+                                                                                            }));
+                                                                                        }}
+                                                                                    />
+                                                                                )}
+                                                                                {Number(continueAction.action) === 2 && (
+                                                                                    <div className="flex items-center gap-2 overflow-x-auto">
+                                                                                        {DICE_OPTIONS.map((d) => (
+                                                                                            <button
+                                                                                                key={d}
+                                                                                                type="button"
+                                                                                                className={`w-10 h-10 shrink-0 rounded-xl flex items-center justify-center text-lg transition-all ${((continueAction as any).dice === d) ? 'bg-[#8a3ffc]/20 border border-[#8a3ffc]/40' : 'bg-white/5 border border-white/5 hover:bg-white/10'}`}
+                                                                                                onClick={() => {
+                                                                                                    updateKeywordContinueAction(index, continueIndex, (currentAction) => ({
+                                                                                                        ...currentAction,
+                                                                                                        dice: d,
+                                                                                                    }));
+                                                                                                }}
+                                                                                            >
+                                                                                                {d}
+                                                                                            </button>
+                                                                                        ))}
+                                                                                    </div>
+                                                                                )}
+                                                                                {(Number(continueAction.action) === 4 || Number(continueAction.action) === 6) && (
+                                                                                    <select
+                                                                                        className="!mb-0 !h-10 !py-0 !text-xs !w-[220px] max-w-full"
+                                                                                        value={Number(continueAction.action) === 4 ? "click" : "send"}
+                                                                                        onChange={(e) => {
+                                                                                            const nextActionId = e.target.value === "click" ? 4 : 6;
+                                                                                            updateKeywordContinueAction(index, continueIndex, (currentAction) => ({
+                                                                                                ...currentAction,
+                                                                                                action: nextActionId,
+                                                                                            }));
+                                                                                        }}
+                                                                                    >
+                                                                                        <option value="send">{aiVisionSendModeLabel}</option>
+                                                                                        <option value="click">{aiVisionClickModeLabel}</option>
+                                                                                    </select>
+                                                                                )}
+                                                                                {(Number(continueAction.action) === 5 || Number(continueAction.action) === 7) && (
+                                                                                    <select
+                                                                                        className="!mb-0 !h-10 !py-0 !text-xs !w-[220px] max-w-full"
+                                                                                        value={Number(continueAction.action) === 7 ? "click" : "send"}
+                                                                                        onChange={(e) => {
+                                                                                            const nextActionId = e.target.value === "click" ? 7 : 5;
+                                                                                            updateKeywordContinueAction(index, continueIndex, (currentAction) => ({
+                                                                                                ...currentAction,
+                                                                                                action: nextActionId,
+                                                                                            }));
+                                                                                        }}
+                                                                                    >
+                                                                                        <option value="send">{aiCalcSendModeLabel}</option>
+                                                                                        <option value="click">{aiCalcClickModeLabel}</option>
+                                                                                    </select>
+                                                                                )}
+                                                                            </div>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => removeKeywordContinueAction(index, continueIndex)}
+                                                                                className="action-btn shrink-0 !w-9 !h-10 !text-rose-400 !bg-rose-500/5 hover:!bg-rose-500/10"
+                                                                            >
+                                                                                <Trash weight="bold" size={14} />
+                                                                            </button>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 )}
@@ -1827,7 +2060,7 @@ export default function AccountTasksContent() {
                                                                 });
                                                             }}
                                                         >
-                                                            {isExpanded ? (isZh ? "鏀剁缉" : "Collapse") : (isZh ? "灞曞紑瀹屾暣鏃ュ織" : "Expand full log")}
+                                                            {isExpanded ? (isZh ? "\u6536\u8d77" : "Collapse") : (isZh ? "\u5c55\u5f00\u5b8c\u6574\u65e5\u5fd7" : "Expand full log")}
                                                         </button>
                                                     )}
                                                 </div>
@@ -1837,13 +2070,11 @@ export default function AccountTasksContent() {
                                             </div>
                                             <div className="p-3 space-y-1">
                                                 <div className="text-main/90">
-                                                    {isZh
-                                                        ? `浠诲姟锛?{historyTaskName}${log.success ? "鎵ц鎴愬姛" : "鎵ц澶辫触"}`
-                                                        : `Task: ${historyTaskName} ${log.success ? "succeeded" : "failed"}`}
+                                                    {`${t("task_label")}: ${historyTaskName} ${log.success ? t("task_exec_success") : t("task_exec_failed")}`}
                                                 </div>
                                                 {log.message ? (
                                                     <div className="text-main/60 break-all">
-                                                        {isZh ? `鏈哄櫒浜烘秷鎭細${log.message}` : `Bot message: ${log.message}`}
+                                                        {`${t("bot_reply")}: ${log.message}`}
                                                     </div>
                                                 ) : null}
                                                 {visibleFlowLogs.length > 0 ? (

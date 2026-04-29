@@ -793,6 +793,7 @@ class SignTaskService:
         self,
         account_name: str,
         task_name: str,
+        no_updates: bool,
     ) -> Optional[str]:
         stored_status = get_account_status(account_name)
         if (
@@ -810,7 +811,9 @@ class SignTaskService:
             from backend.services.telegram import get_telegram_service
 
             result = await get_telegram_service().check_account_status(
-                account_name, timeout_seconds=10.0
+                account_name,
+                timeout_seconds=10.0,
+                no_updates=no_updates,
             )
         except Exception as e:
             logging.getLogger("backend.sign_tasks").warning(
@@ -1555,7 +1558,17 @@ class SignTaskService:
         account_invalid_detected = False
 
         try:
-            invalid_reason = await self._check_account_before_task(account_name, task_name)
+            task_cfg = self.get_task(task_name, account_name=account_name)
+            if not task_cfg:
+                raise ValueError(f"Task {task_name} does not exist or cannot be loaded")
+            requires_updates = self._task_requires_updates(task_cfg)
+            signer_no_updates = not requires_updates
+
+            invalid_reason = await self._check_account_before_task(
+                account_name,
+                task_name,
+                no_updates=signer_no_updates,
+            )
             if invalid_reason:
                 account_invalid_detected = True
                 error_msg = f"账号 {account_name} 登录已失效，请重新登录: {invalid_reason}"
@@ -1624,9 +1637,6 @@ class SignTaskService:
                             )
                             use_in_memory = bool(session_string)
 
-                    task_cfg = self.get_task(task_name, account_name=account_name)
-                    requires_updates = self._task_requires_updates(task_cfg)
-                    signer_no_updates = not requires_updates
                     self._active_logs[task_key].append(
                         f"消息更新监听: {'开启' if requires_updates else '关闭'}"
                     )

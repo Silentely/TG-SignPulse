@@ -84,6 +84,27 @@ sqlite3.connect = _patched_sqlite3_connect
 _original_invoke = BaseClient.invoke
 _get_channel_diff_semaphore = asyncio.Semaphore(50)
 
+
+def _read_positive_float_env(name: str, default: float, minimum: float = 1.0) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return max(float(raw), minimum)
+    except (TypeError, ValueError):
+        return default
+
+
+def _read_positive_int_env(name: str, default: int, minimum: int = 1) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return max(int(raw), minimum)
+    except (TypeError, ValueError):
+        return default
+
+
 async def _patched_invoke(self, query, *args, **kwargs):
     if isinstance(query, (raw.functions.updates.GetChannelDifference, raw.functions.updates.GetDifference)):
         # Disable Pyrogram's internal sleep and retry mechanisms to prevent blocking the semaphore indefinitely
@@ -181,6 +202,7 @@ _CLIENT_ASYNC_LOCKS: dict[str, asyncio.Lock] = {}
 class Client(BaseClient):
     def __init__(self, name: str, *args, **kwargs):
         key = kwargs.pop("key", None)
+        self._tg_signpulse_no_updates = kwargs.get("no_updates")
         super().__init__(name, *args, **kwargs)
         self.key = key or str(pathlib.Path(self.workdir).joinpath(self.name).resolve())
         if self.in_memory and not self.session_string:
@@ -343,7 +365,20 @@ def get_client(
 
     key = str(pathlib.Path(workdir).joinpath(name).resolve())
     if key in _CLIENT_INSTANCES:
-        return _CLIENT_INSTANCES[key]
+        existing = _CLIENT_INSTANCES[key]
+        requested_no_updates = kwargs.get("no_updates")
+        existing_no_updates = getattr(existing, "_tg_signpulse_no_updates", None)
+        refs = _CLIENT_REFS.get(key, 0)
+        if (
+            requested_no_updates is not None
+            and existing_no_updates is not None
+            and requested_no_updates != existing_no_updates
+            and refs <= 0
+            and not getattr(existing, "is_connected", False)
+        ):
+            _CLIENT_INSTANCES.pop(key, None)
+        else:
+            return existing
     client = Client(
         name,
         api_id=api_id,
@@ -1042,77 +1077,84 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
 
             if is_peer_invalid and isinstance(chat.chat_id, int):
                 last_error = e
-                # First attempt: If it's a positive ID, try get_users (which may still fail if it's completely unknown)
+                resolved_peer = False
+
+                # Historical configs may store a user/bot id before Pyrogram knows
+                # its access hash. get_users warms the local peer cache.
                 if chat.chat_id > 0:
                     try:
                         await self.app.get_users(chat.chat_id)
                         self.log(
-                            f"预热会话使用 get_users 成功: {chat.chat_id}",
+                            f"Preheated peer with get_users: {chat.chat_id}",
                             level="WARNING",
                         )
-                        # The user/bot is now in the storage, we can simply return
-                        return
+                        resolved_peer = True
+                        last_error = None
                     except Exception as e2:
                         last_error = e2
 
-                # Second attempt: Try fetching by cached username BEFORE blind negative guessing
-                cached = self._find_cached_chat(chat.chat_id, chat.name)
-                if cached:
-                    username = cached.get("username")
-                    cached_id = cached.get("id")
-                    if username:
-                        try:
-                            resolved = await self.app.get_chat(username)
-                            self.log(
-                                f"预热会话使用缓存用户名成功: {chat.chat_id} -> @{username}",
-                                level="WARNING",
-                            )
-                            chat.chat_id = resolved.id
-                            last_error = None
-                            return
-                        except Exception as e2:
-                            last_error = e2
-                    if last_error is not None and cached_id and cached_id != chat.chat_id:
-                        try:
-                            await self.app.get_chat(cached_id)
-                            self.log(
-                                f"预热会话使用缓存 chat_id 成功: {chat.chat_id} -> {cached_id}",
-                                level="WARNING",
-                            )
-                            chat.chat_id = cached_id
-                            last_error = None
-                            return
-                        except Exception as e2:
-                            last_error = e2
+                if not resolved_peer:
+                    cached = self._find_cached_chat(chat.chat_id, chat.name)
+                    if cached:
+                        username = cached.get("username")
+                        cached_id = cached.get("id")
+                        if username:
+                            try:
+                                resolved = await self.app.get_chat(username)
+                                self.log(
+                                    f"Preheated peer with cached username: {chat.chat_id} -> @{username}",
+                                    level="WARNING",
+                                )
+                                chat.chat_id = resolved.id
+                                resolved_peer = True
+                                last_error = None
+                            except Exception as e2:
+                                last_error = e2
+                        if (
+                            not resolved_peer
+                            and cached_id
+                            and cached_id != chat.chat_id
+                        ):
+                            try:
+                                await self.app.get_chat(cached_id)
+                                self.log(
+                                    f"Preheated peer with cached chat_id: {chat.chat_id} -> {cached_id}",
+                                    level="WARNING",
+                                )
+                                chat.chat_id = cached_id
+                                resolved_peer = True
+                                last_error = None
+                            except Exception as e2:
+                                last_error = e2
 
-                # Third attempt: Try guessing negative variants if nothing worked
-                candidates = []
-                if chat.chat_id > 0:
-                    candidates.append(-chat.chat_id)
-                    candidates.append(int(f"-100{chat.chat_id}"))
-                elif chat.chat_id < 0:
-                    if not str(chat.chat_id).startswith("-100"):
+                if not resolved_peer:
+                    candidates = []
+                    if chat.chat_id > 0:
+                        candidates.append(-chat.chat_id)
+                        candidates.append(int(f"-100{chat.chat_id}"))
+                    elif chat.chat_id < 0 and not str(chat.chat_id).startswith("-100"):
                         candidates.append(int(f"-100{abs(chat.chat_id)}"))
 
-                for candidate in candidates:
-                    if candidate == chat.chat_id:
-                        continue
-                    try:
-                        await self.app.get_chat(candidate)
-                        self.log(
-                            f"预热会话使用回退 chat_id 成功: {chat.chat_id} -> {candidate}",
-                            level="WARNING",
-                        )
-                        chat.chat_id = candidate
-                        last_error = None
-                        break
-                    except Exception as e2:
-                        last_error = e2
-                        continue
+                    for candidate in candidates:
+                        if candidate == chat.chat_id:
+                            continue
+                        try:
+                            await self.app.get_chat(candidate)
+                            self.log(
+                                f"Preheated peer with fallback chat_id: {chat.chat_id} -> {candidate}",
+                                level="WARNING",
+                            )
+                            chat.chat_id = candidate
+                            resolved_peer = True
+                            last_error = None
+                            break
+                        except Exception as e2:
+                            last_error = e2
+                            continue
 
-                if last_error is not None:
+                if not resolved_peer:
                     self.log(
-                        f"预热会话失败: chat_id={chat.chat_id}, error={type(last_error).__name__}: {last_error}",
+                        f"Failed to preheat chat_id={chat.chat_id}, error={type(last_error).__name__}: {last_error}",
                         level="ERROR",
                     )
                     raise RuntimeError(
@@ -1174,6 +1216,8 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         config = self.load_config(self.cfg_cls)
         if config.requires_ai:
             self.ensure_ai_cfg()
+        if not config.chats:
+            raise RuntimeError("Task config has no chats to execute")
 
         sign_record = self.load_sign_record()
         chat_ids = [c.chat_id for c in config.chats]
@@ -1528,7 +1572,9 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 return clicked > 0
         return False
 
-    async def wait_for(self, chat: SignChatV3, action: ActionT, timeout=15):
+    async def wait_for(self, chat: SignChatV3, action: ActionT, timeout=None):
+        if timeout is None:
+            timeout = _read_positive_float_env("SIGN_TASK_ACTION_TIMEOUT", 25.0, 5.0)
         kwargs = {}
         if chat.message_thread_id is not None:
             kwargs["message_thread_id"] = chat.message_thread_id
@@ -1539,6 +1585,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         elif isinstance(action, KeywordNotifyAction):
             self.log("关键词监听通知动作为后台常驻监听配置，当前运行时跳过")
             return True
+        history_limit = _read_positive_int_env("SIGN_TASK_HISTORY_LOOKBACK", 12, 3)
         self.context.waiter.add(chat.chat_id)
         start = time.perf_counter()
         last_message = None
@@ -1546,7 +1593,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             if isinstance(action, ClickKeyboardByTextAction):
                 self.log("先从最近消息中查找可点击按钮")
                 try:
-                    async for message in self.app.get_chat_history(chat.chat_id, limit=8):
+                    async for message in self.app.get_chat_history(chat.chat_id, limit=history_limit):
                         if chat.message_thread_id is not None:
                             msg_thread_id = getattr(message, "message_thread_id", None) or getattr(
                                 message, "reply_to_top_message_id", None
@@ -1635,7 +1682,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             ):
                 try:
                     self.log("等待超时，尝试从历史消息中查找按钮", level="WARNING")
-                    async for message in self.app.get_chat_history(chat.chat_id, limit=5):
+                    async for message in self.app.get_chat_history(chat.chat_id, limit=history_limit):
                         if isinstance(action, ClickKeyboardByTextAction):
                             ok = await self._click_keyboard_by_text(
                                 action,

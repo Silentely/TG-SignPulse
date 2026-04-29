@@ -203,7 +203,10 @@ class TelegramService:
         return session_file.exists()
 
     async def check_account_status(
-        self, account_name: str, timeout_seconds: float = 8.0
+        self,
+        account_name: str,
+        timeout_seconds: float = 8.0,
+        no_updates: bool = True,
     ) -> Dict[str, Any]:
         """
         检测账号 session 是否可用。
@@ -278,6 +281,7 @@ class TelegramService:
                 workdir=self.session_dir,
                 session_string=session_string,
                 in_memory=in_memory,
+                no_updates=no_updates,
             )
         except Exception as e:
             return {

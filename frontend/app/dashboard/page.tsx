@@ -7,7 +7,6 @@ import Link from "next/link";
 import { getToken } from "../../lib/auth";
 import {
   listAccounts,
-  checkAccountsStatus,
   startAccountLogin,
   startQrLogin,
   getQrLoginStatus,
@@ -48,8 +47,6 @@ const EMPTY_LOGIN_DATA = {
   password: "",
   phone_code_hash: "",
 };
-const DASHBOARD_STATUS_CHECKED_KEY = "tg-signpulse:dashboard-status-checked";
-const DASHBOARD_STATUS_CACHE_KEY = "tg-signpulse:dashboard-status-cache";
 
 export default function Dashboard() {
   const router = useRouter();
@@ -135,9 +132,7 @@ export default function Dashboard() {
   }, [accounts, normalizeAccountName]);
 
   const [checking, setChecking] = useState(true);
-  const [dataLoaded, setDataLoaded] = useState(false);
   const [accountStatusMap, setAccountStatusMap] = useState<Record<string, AccountStatusItem>>({});
-  const statusCheckedRef = useRef(false);
 
   const addToastRef = useRef(addToast);
   const tRef = useRef(t);
@@ -156,143 +151,6 @@ export default function Dashboard() {
     return code ? `${base} (${code})` : base;
   }, []);
 
-  const shouldRunStatusCheck = useCallback(() => {
-    if (typeof window === "undefined") return true;
-
-    let navType = "";
-    try {
-      const nav = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
-      navType = nav?.type || "";
-    } catch {
-      navType = "";
-    }
-
-    if (navType === "reload") {
-      return true;
-    }
-
-    try {
-      return sessionStorage.getItem(DASHBOARD_STATUS_CHECKED_KEY) !== "1";
-    } catch {
-      return true;
-    }
-  }, []);
-
-  const restoreCachedStatus = useCallback(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const raw = sessionStorage.getItem(DASHBOARD_STATUS_CACHE_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return;
-      setAccountStatusMap(parsed as Record<string, AccountStatusItem>);
-    } catch {
-      // ignore cache parse errors
-    }
-  }, []);
-
-  const checkAccountStatusOnce = useCallback(async (tokenStr: string, accountList: AccountInfo[]) => {
-    const accountNames = accountList.map((item) => item.name).filter(Boolean);
-    if (accountNames.length === 0) {
-      setAccountStatusMap({});
-      return;
-    }
-
-    setAccountStatusMap((prev) => {
-      const next = { ...prev };
-      for (const name of accountNames) {
-        next[name] = {
-          account_name: name,
-          ok: false,
-          status: "checking",
-          message: "",
-          needs_relogin: false,
-        };
-      }
-      return next;
-    });
-
-    try {
-      const firstPass = await checkAccountsStatus(tokenStr, {
-        account_names: accountNames,
-        timeout_seconds: 8,
-      });
-
-      const firstMap: Record<string, AccountStatusItem> = {};
-      for (const item of firstPass.results || []) {
-        firstMap[item.account_name] = item;
-      }
-
-      const retryNames = accountNames.filter((name) => {
-        const item = firstMap[name];
-        if (!item) return true;
-        if (item.needs_relogin) return false;
-        return item.status === "error" || item.status === "checking";
-      });
-
-      const retryMap: Record<string, AccountStatusItem> = {};
-      if (retryNames.length > 0) {
-        try {
-          const retryPass = await checkAccountsStatus(tokenStr, {
-            account_names: retryNames,
-            timeout_seconds: 12,
-          });
-          for (const item of retryPass.results || []) {
-            retryMap[item.account_name] = item;
-          }
-        } catch {
-          // keep first-pass result
-        }
-      }
-
-      setAccountStatusMap((prev) => {
-        const merged: Record<string, AccountStatusItem> = {};
-        for (const name of accountNames) {
-          const incomingRaw = retryMap[name] || firstMap[name];
-          const incoming =
-            incomingRaw && incomingRaw.status === "error" && !incomingRaw.needs_relogin
-              ? { ...incomingRaw, status: "checking" as const }
-              : incomingRaw;
-          if (incoming) {
-            const prevItem = prev[name];
-            if (
-              incoming.status === "error" &&
-              !incoming.needs_relogin &&
-              prevItem?.status === "connected"
-            ) {
-              merged[name] = prevItem;
-              continue;
-            }
-            merged[name] = incoming;
-            continue;
-          }
-          merged[name] = prev[name] || {
-            account_name: name,
-            ok: false,
-            status: "checking",
-            message: "",
-            needs_relogin: false,
-          };
-        }
-        return merged;
-      });
-    } catch {
-      setAccountStatusMap((prev) => {
-        const merged: Record<string, AccountStatusItem> = {};
-        for (const name of accountNames) {
-          merged[name] = prev[name] || {
-            account_name: name,
-            ok: false,
-            status: "checking",
-            message: "",
-            needs_relogin: false,
-          };
-        }
-        return merged;
-      });
-    }
-  }, []);
-
   const loadData = useCallback(async (tokenStr: string) => {
     try {
       setLoading(true);
@@ -301,18 +159,20 @@ export default function Dashboard() {
         listSignTasks(tokenStr),
       ]);
       setAccounts(accountsData.accounts);
-      setAccountStatusMap((prev) => {
-        const next = { ...prev };
+      setAccountStatusMap(() => {
+        const next: Record<string, AccountStatusItem> = {};
         for (const acc of accountsData.accounts) {
-          if (!acc.status && !acc.needs_relogin) continue;
+          const rawStatus = acc.status || "connected";
+          const needsRelogin = Boolean(acc.needs_relogin) || rawStatus === "invalid" || rawStatus === "not_found";
+          const status = needsRelogin ? "invalid" : "connected";
           next[acc.name] = {
             account_name: acc.name,
-            ok: acc.status === "connected" || acc.status === "valid",
-            status: acc.status || "connected",
+            ok: !needsRelogin,
+            status,
             message: acc.status_message || "",
             code: acc.status_code || undefined,
             checked_at: acc.status_checked_at || undefined,
-            needs_relogin: Boolean(acc.needs_relogin),
+            needs_relogin: needsRelogin,
           };
         }
         return next;
@@ -322,7 +182,6 @@ export default function Dashboard() {
       addToastRef.current(formatErrorMessage("load_failed", err), "error");
     } finally {
       setLoading(false);
-      setDataLoaded(true);
     }
   }, [formatErrorMessage]);
 
@@ -334,35 +193,8 @@ export default function Dashboard() {
     }
     setLocalToken(tokenStr);
     setChecking(false);
-    setDataLoaded(false);
-    statusCheckedRef.current = false;
-    restoreCachedStatus();
     loadData(tokenStr);
-  }, [loadData, restoreCachedStatus]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const keys = Object.keys(accountStatusMap || {});
-    if (keys.length === 0) return;
-    try {
-      sessionStorage.setItem(DASHBOARD_STATUS_CACHE_KEY, JSON.stringify(accountStatusMap));
-    } catch {
-      // ignore storage write errors
-    }
-  }, [accountStatusMap]);
-
-  useEffect(() => {
-    if (!token || !dataLoaded || statusCheckedRef.current || accounts.length === 0) return;
-    if (!shouldRunStatusCheck()) return;
-    statusCheckedRef.current = true;
-    checkAccountStatusOnce(token, accounts).finally(() => {
-      try {
-        sessionStorage.setItem(DASHBOARD_STATUS_CHECKED_KEY, "1");
-      } catch {
-        // ignore storage write errors
-      }
-    });
-  }, [accounts, checkAccountStatusOnce, dataLoaded, shouldRunStatusCheck, token]);
+  }, [loadData]);
 
   const getAccountTaskCount = (accountName: string) => {
     return tasks.filter(task => task.account_name === accountName).length;
@@ -1033,28 +865,11 @@ export default function Dashboard() {
             {accounts.map((acc) => {
               const initial = acc.name.charAt(0).toUpperCase();
               const statusInfo = accountStatusMap[acc.name];
-              const status = statusInfo?.status || acc.status || "checking";
+              const rawStatus = statusInfo?.status || acc.status || "connected";
               const needsRelogin = Boolean(statusInfo?.needs_relogin || acc.needs_relogin);
-              const isInvalid = status === "invalid" || needsRelogin;
-              const statusKey = (() => {
-                if (isInvalid) return "account_status_invalid";
-                const currentStatus = statusInfo?.status || acc.status || "connected"; // Default to "connected" if statusInfo is undefined
-                const isCheckingOrError = currentStatus === "checking" || (currentStatus === "error" && !needsRelogin);
-                return (currentStatus === "connected" || currentStatus === "valid")
-                  ? "connected"
-                  : isCheckingOrError
-                    ? "account_status_checking"
-                    : "account_status_invalid";
-              })();
-              const statusIconClass = (() => {
-                if (isInvalid) return "text-rose-400";
-                const currentStatus = statusInfo?.status || acc.status || "connected"; // Default to "connected" if statusInfo is undefined
-                const isCheckingOrError = currentStatus === "checking" || (currentStatus === "error" && !needsRelogin);
-                // Since proactive status testing was removed, default "checking" to valid UI unless error.
-                return isCheckingOrError || currentStatus === "connected" || currentStatus === "valid"
-                  ? "text-emerald-400"
-                  : "text-rose-400";
-              })();
+              const isInvalid = needsRelogin || rawStatus === "invalid" || rawStatus === "not_found";
+              const statusKey = isInvalid ? "account_status_invalid" : "connected";
+              const statusIconClass = isInvalid ? "text-rose-400" : "text-emerald-400";
               return (
                 <div
                   key={acc.name}
@@ -1082,11 +897,7 @@ export default function Dashboard() {
 
                   <div className="card-bottom !pt-3">
                     <div className="create-time" title={statusInfo?.message || acc.status_message || ""}>
-                      {statusKey === "account_status_checking" && !isInvalid ? (
-                        <Spinner className="animate-spin text-main/40" size={12} />
-                      ) : (
-                        <Clock weight="fill" className={statusIconClass} />
-                      )}
+                      <Clock weight="fill" className={statusIconClass} />
                       <span className="text-[11px] font-medium">{t(statusKey)}</span>
                     </div>
                     <div className="card-actions">
@@ -1439,15 +1250,15 @@ export default function Dashboard() {
                         </span>
                       </div>
                       <div className="text-main/70 font-semibold mb-2">
-                        {`${t("task_label")}：${log.task_name}${log.success ? t("task_exec_success") : t("task_exec_failed")}`}
+                        {`${t("task_label")}: ${log.task_name} ${log.success ? t("task_exec_success") : t("task_exec_failed")}`}
                       </div>
                       {log.bot_message ? (
                         <div className="text-main/60 leading-relaxed whitespace-pre-wrap break-words mb-2">
-                          <span className="text-main/35">{t("bot_reply")}：</span>
+                          <span className="text-main/35">{t("bot_reply")}: </span>
                           {log.bot_message}
                         </div>
                       ) : null}
-                      {log.message && !["Success", "Failed", "执行成功", "执行失败"].includes(log.message.trim()) ? (
+                      {log.message && !["Success", "Failed", t("task_exec_success"), t("task_exec_failed")].includes(log.message.trim()) ? (
                         <pre className="whitespace-pre-wrap text-main/45 leading-relaxed overflow-x-auto max-h-[120px] scrollbar-none font-medium">
                           {log.message}
                         </pre>

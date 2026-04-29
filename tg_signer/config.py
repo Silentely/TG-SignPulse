@@ -3,6 +3,7 @@ from datetime import time
 from enum import Enum
 from functools import cached_property
 from typing import (
+    Any,
     ClassVar,
     Dict,
     List,
@@ -13,7 +14,7 @@ from typing import (
     Union,
 )
 
-from pydantic import AnyHttpUrl, BaseModel, ValidationError
+from pydantic import AnyHttpUrl, BaseModel, Field, ValidationError
 from pyrogram.types import Chat, Message
 from typing_extensions import Self, TypeAlias
 
@@ -241,11 +242,15 @@ class KeywordNotifyAction(SignAction):
     keywords: List[str]
     match_mode: Literal["contains", "exact", "regex"] = "contains"
     ignore_case: bool = True
-    push_channel: Literal["telegram", "bark", "custom"] = "telegram"
+    push_channel: Literal["telegram", "forward", "bark", "custom"] = "telegram"
     bark_url: Optional[str] = None
     custom_url: Optional[str] = None
     forward_chat_id: Optional[Union[int, str]] = None
     forward_message_thread_id: Optional[int] = None
+    continue_chat_id: Optional[Union[int, str]] = None
+    continue_message_thread_id: Optional[int] = None
+    continue_action_interval: float = 1
+    continue_actions: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 ActionT: TypeAlias = Union[
