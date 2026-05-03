@@ -31,6 +31,11 @@ DEFAULT_CONTINUE_TIMEOUT = 25
 DEFAULT_HISTORY_LIMIT = 10
 
 
+def _is_callback_data_invalid(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return "data_invalid" in text or "encrypted data is invalid" in text
+
+
 @dataclass(frozen=True)
 class KeywordMonitorRule:
     account_name: str
@@ -494,11 +499,19 @@ class KeywordMonitorService:
                 await asyncio.sleep(wait_seconds)
             except (TimeoutError, asyncio.TimeoutError, OSError, ConnectionError) as exc:
                 if attempt >= max_retries:
-                    logger.warning("Keyword monitor callback timed out: %s", exc)
+                    logger.warning(
+                        "Keyword monitor button callback did not respond after retries: %s",
+                        exc,
+                    )
                     return False
                 await asyncio.sleep(min(2**attempt, 6))
             except Exception as exc:
-                logger.warning("Keyword monitor callback failed: %s", exc)
+                if _is_callback_data_invalid(exc):
+                    logger.warning(
+                        "Keyword monitor callback returned DATA_INVALID; waiting for follow-up messages"
+                    )
+                    return False
+                logger.warning("Keyword monitor callback could not be confirmed: %s", exc)
                 return False
         return False
 
@@ -522,7 +535,15 @@ class KeywordMonitorService:
                 except TypeError:
                     continue
                 except Exception as exc:
-                    logger.warning("Keyword monitor Message.click failed: %s", exc)
+                    if _is_callback_data_invalid(exc):
+                        logger.warning(
+                            "Keyword monitor Message.click could not confirm callback; waiting for follow-up messages"
+                        )
+                    else:
+                        logger.warning(
+                            "Keyword monitor Message.click could not confirm callback: %s",
+                            exc,
+                        )
                     return False
         return False
 
