@@ -1182,7 +1182,14 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 self.context.chat_messages[chat.chat_id].clear()
                 for index, action in enumerate(chat.actions, start=1):
                     self.log(f"开始第 {index}/{total_actions} 步动作: {action}")
-                    result = await self.wait_for(chat, action)
+                    next_action = (
+                        chat.actions[index] if index < total_actions else None
+                    )
+                    result = await self.wait_for(
+                        chat,
+                        action,
+                        next_action=next_action,
+                    )
                     if result is False:
                         raise RuntimeError(
                             f"第 {index}/{total_actions} 步动作执行失败: {action}"
@@ -1397,12 +1404,6 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         self.log(
             f"收到来自「{message.from_user.username or message.from_user.id}」对消息的更新，消息: {readable_message(message)}"
         )
-        # 避免更新正在处理的消息，等待处理完成
-        while (
-            self.context.waiting_message
-            and self.context.waiting_message.id == message.id
-        ):
-            await asyncio.sleep(0.3)
         await self._on_message(client, message)
 
     def _clean_text_for_match(self, text: str) -> str:
@@ -1506,6 +1507,207 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             for message_id, marker in current_state.items():
                 if before_state.get(message_id) != marker:
                     return True
+        return False
+
+    def _message_has_button_text(
+        self,
+        message: Message,
+        text: str,
+    ) -> bool:
+        target_text = self._clean_text_for_match(text)
+        if not target_text:
+            return False
+
+        reply_markup = getattr(message, "reply_markup", None)
+        if isinstance(reply_markup, InlineKeyboardMarkup):
+            rows = reply_markup.inline_keyboard
+        elif isinstance(reply_markup, ReplyKeyboardMarkup):
+            rows = reply_markup.keyboard
+        else:
+            return False
+
+        for row in rows:
+            for button in row:
+                button_text = (
+                    button if isinstance(button, str) else getattr(button, "text", "")
+                )
+                if not button_text:
+                    continue
+                if self._button_text_matches(
+                    target_text,
+                    self._clean_text_for_match(button_text),
+                ):
+                    return True
+        return False
+
+    def _message_supports_next_action(self, action: ActionT, message: Message) -> bool:
+        if message is None:
+            return False
+        reply_markup = getattr(message, "reply_markup", None)
+        if isinstance(action, ClickKeyboardByTextAction):
+            return self._message_has_button_text(message, action.text)
+        if isinstance(action, ChooseOptionByImageAction):
+            return bool(message.photo and isinstance(reply_markup, InlineKeyboardMarkup))
+        if isinstance(action, ReplyByCalculationProblemAction):
+            return bool(message.text or message.caption)
+        if isinstance(action, ReplyByImageRecognitionAction):
+            return bool(message.photo)
+        if isinstance(action, ClickButtonByCalculationProblemAction):
+            return bool((message.text or message.caption) and reply_markup)
+        return False
+
+    async def _chat_has_action_candidate(
+        self,
+        chat: SignChatV3,
+        action: ActionT,
+        *,
+        history_limit: int,
+    ) -> bool:
+        messages_dict = self.context.chat_messages.get(chat.chat_id) or {}
+        for message in reversed(list(messages_dict.values())):
+            if self._message_matches_chat_thread(message, chat) and (
+                self._message_supports_next_action(action, message)
+            ):
+                return True
+
+        try:
+            async for message in self.app.get_chat_history(
+                chat.chat_id,
+                limit=history_limit,
+            ):
+                if self._message_matches_chat_thread(message, chat) and (
+                    self._message_supports_next_action(action, message)
+                ):
+                    return True
+        except Exception as e:
+            self.log(f"下一步动作候选消息检查失败: {e}", level="WARNING")
+        return False
+
+    async def _wait_for_next_action_candidate(
+        self,
+        chat: SignChatV3,
+        next_action: ActionT,
+        before_state: dict[int, tuple],
+        *,
+        history_limit: int,
+        timeout: float,
+    ) -> bool:
+        deadline = time.perf_counter() + max(timeout, 0.5)
+        while time.perf_counter() < deadline:
+            await asyncio.sleep(0.3)
+            current_state = await self._chat_state_snapshot(
+                chat,
+                history_limit=history_limit,
+            )
+            changed_ids = {
+                message_id
+                for message_id, marker in current_state.items()
+                if before_state.get(message_id) != marker
+            }
+
+            messages_dict = self.context.chat_messages.get(chat.chat_id) or {}
+            for message in messages_dict.values():
+                if (
+                    self._message_matches_chat_thread(message, chat)
+                    and getattr(message, "id", None) in changed_ids
+                    and self._message_supports_next_action(next_action, message)
+                ):
+                    return True
+
+            try:
+                async for message in self.app.get_chat_history(
+                    chat.chat_id,
+                    limit=history_limit,
+                ):
+                    if (
+                        self._message_matches_chat_thread(message, chat)
+                        and getattr(message, "id", None) in changed_ids
+                        and self._message_supports_next_action(next_action, message)
+                    ):
+                        return True
+            except Exception as e:
+                self.log(f"下一步动作候选消息检查失败: {e}", level="WARNING")
+        return False
+
+    def _message_has_terminal_success_text(self, message: Message) -> bool:
+        text = "\n".join(
+            item
+            for item in [
+                getattr(message, "text", None),
+                getattr(message, "caption", None),
+            ]
+            if item
+        ).lower()
+        if not text.strip():
+            return False
+        failure_markers = (
+            "失败",
+            "错误",
+            "异常",
+            "未成功",
+            "无法",
+            "failed",
+            "failure",
+            "error",
+            "invalid",
+        )
+        if any(marker in text for marker in failure_markers):
+            return False
+        success_markers = (
+            "签到成功",
+            "已签到",
+            "成功",
+            "完成",
+            "success",
+            "successful",
+            "done",
+            "completed",
+        )
+        return any(marker in text for marker in success_markers)
+
+    async def _wait_for_terminal_success(
+        self,
+        chat: SignChatV3,
+        before_state: dict[int, tuple],
+        *,
+        history_limit: int,
+        timeout: float,
+    ) -> bool:
+        deadline = time.perf_counter() + max(timeout, 0.5)
+        while time.perf_counter() < deadline:
+            await asyncio.sleep(0.3)
+            current_state = await self._chat_state_snapshot(
+                chat,
+                history_limit=history_limit,
+            )
+            changed_ids = {
+                message_id
+                for message_id, marker in current_state.items()
+                if before_state.get(message_id) != marker
+            }
+
+            messages_dict = self.context.chat_messages.get(chat.chat_id) or {}
+            for message in messages_dict.values():
+                if (
+                    self._message_matches_chat_thread(message, chat)
+                    and getattr(message, "id", None) in changed_ids
+                    and self._message_has_terminal_success_text(message)
+                ):
+                    return True
+
+            try:
+                async for message in self.app.get_chat_history(
+                    chat.chat_id,
+                    limit=history_limit,
+                ):
+                    if (
+                        self._message_matches_chat_thread(message, chat)
+                        and getattr(message, "id", None) in changed_ids
+                        and self._message_has_terminal_success_text(message)
+                    ):
+                        return True
+            except Exception as e:
+                self.log(f"最终成功消息检查失败: {e}", level="WARNING")
         return False
 
     async def _click_inline_button(self, message: Message, btn) -> bool:
@@ -1706,7 +1908,14 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 return clicked > 0
         return False
 
-    async def wait_for(self, chat: SignChatV3, action: ActionT, timeout=None):
+    async def wait_for(
+        self,
+        chat: SignChatV3,
+        action: ActionT,
+        timeout=None,
+        *,
+        next_action: Optional[ActionT] = None,
+    ):
         if timeout is None:
             timeout = _read_positive_float_env("SIGN_TASK_ACTION_TIMEOUT", 25.0, 5.0)
         kwargs = {}
@@ -1755,18 +1964,34 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                             return True
                         if matched:
                             self.context.waiting_message = None
-                            if await self._wait_for_chat_advance(
+                            follow_timeout = min(6.0, timeout)
+                            if next_action is not None:
+                                if await self._wait_for_next_action_candidate(
+                                    chat,
+                                    next_action,
+                                    before_click_state,
+                                    history_limit=history_limit,
+                                    timeout=follow_timeout,
+                                ):
+                                    self.log(
+                                        "按钮点击返回异常，但检测到下一步动作已可执行，继续下一步"
+                                    )
+                                    return True
+                                self.log(
+                                    "按钮点击返回异常，且未检测到下一步动作，准备重试完整流程",
+                                    level="WARNING",
+                                )
+                                return False
+                            if await self._wait_for_terminal_success(
                                 chat,
                                 before_click_state,
                                 history_limit=history_limit,
-                                timeout=min(5.0, timeout),
+                                timeout=follow_timeout,
                             ):
-                                self.log(
-                                    "按钮点击返回异常，但检测到机器人消息已更新，继续下一步"
-                                )
+                                self.log("按钮点击返回异常，但检测到明确成功消息")
                                 return True
                             self.log(
-                                "按钮点击返回异常，且未检测到机器人消息更新，准备重试完整流程",
+                                "按钮点击返回异常，且未检测到明确成功消息，准备重试完整流程",
                                 level="WARNING",
                             )
                             return False
@@ -1806,18 +2031,34 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                                     return True
                                 if matched:
                                     self.context.waiting_message = None
-                                    if await self._wait_for_chat_advance(
+                                    follow_timeout = min(6.0, timeout)
+                                    if next_action is not None:
+                                        if await self._wait_for_next_action_candidate(
+                                            chat,
+                                            next_action,
+                                            before_click_state,
+                                            history_limit=history_limit,
+                                            timeout=follow_timeout,
+                                        ):
+                                            self.log(
+                                                "按钮点击返回异常，但检测到下一步动作已可执行，继续下一步"
+                                            )
+                                            return True
+                                        self.log(
+                                            "按钮点击返回异常，且未检测到下一步动作，准备重试完整流程",
+                                            level="WARNING",
+                                        )
+                                        return False
+                                    if await self._wait_for_terminal_success(
                                         chat,
                                         before_click_state,
                                         history_limit=history_limit,
-                                        timeout=min(5.0, timeout),
+                                        timeout=follow_timeout,
                                     ):
-                                        self.log(
-                                            "按钮点击返回异常，但检测到机器人消息已更新，继续下一步"
-                                        )
+                                        self.log("按钮点击返回异常，但检测到明确成功消息")
                                         return True
                                     self.log(
-                                        "按钮点击返回异常，且未检测到机器人消息更新，准备重试完整流程",
+                                        "按钮点击返回异常，且未检测到明确成功消息，准备重试完整流程",
                                         level="WARNING",
                                     )
                                     return False

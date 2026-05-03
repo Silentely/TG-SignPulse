@@ -211,6 +211,86 @@ def _messages_state(messages: list[Message]) -> dict[int, tuple[Any, ...]]:
     }
 
 
+def _message_has_button_text(message: Message, text: str) -> bool:
+    target_text = _clean_text_for_match(text)
+    if not target_text:
+        return False
+
+    reply_markup = getattr(message, "reply_markup", None)
+    if isinstance(reply_markup, InlineKeyboardMarkup):
+        rows = reply_markup.inline_keyboard
+    elif isinstance(reply_markup, ReplyKeyboardMarkup):
+        rows = reply_markup.keyboard
+    else:
+        return False
+
+    for row in rows:
+        for button in row:
+            button_text = button if isinstance(button, str) else getattr(button, "text", "")
+            if not button_text:
+                continue
+            if _button_text_matches(target_text, _clean_text_for_match(button_text)):
+                return True
+    return False
+
+
+def _message_supports_continue_action(message: Message, action: Dict[str, Any]) -> bool:
+    try:
+        action_id = int(action.get("action"))
+    except (TypeError, ValueError):
+        return False
+
+    reply_markup = getattr(message, "reply_markup", None)
+    if action_id == 3:
+        return _message_has_button_text(message, str(action.get("text") or ""))
+    if action_id == 4:
+        return bool(message.photo and isinstance(reply_markup, InlineKeyboardMarkup))
+    if action_id == 5:
+        return bool(message.text or message.caption)
+    if action_id == 6:
+        return bool(message.photo)
+    if action_id == 7:
+        return bool((message.text or message.caption) and reply_markup)
+    return False
+
+
+def _message_has_terminal_success_text(message: Message) -> bool:
+    text = "\n".join(
+        item
+        for item in [
+            getattr(message, "text", None),
+            getattr(message, "caption", None),
+        ]
+        if item
+    ).lower()
+    if not text.strip():
+        return False
+    failure_markers = (
+        "失败",
+        "错误",
+        "异常",
+        "未成功",
+        "无法",
+        "failed",
+        "failure",
+        "error",
+        "invalid",
+    )
+    if any(marker in text for marker in failure_markers):
+        return False
+    success_markers = (
+        "签到成功",
+        "已签到",
+        "成功",
+        "完成",
+        "success",
+        "successful",
+        "done",
+        "completed",
+    )
+    return any(marker in text for marker in success_markers)
+
+
 class KeywordMonitorService:
     def __init__(self) -> None:
         self._handler_refs: list[tuple[str, Any, Any]] = []
@@ -565,6 +645,62 @@ class KeywordMonitorService:
                     return True
         return False
 
+    async def _wait_for_continue_action_candidate(
+        self,
+        client: Any,
+        chat_id: Union[int, str],
+        thread_id: Optional[int],
+        action: Dict[str, Any],
+        before_state: dict[int, tuple[Any, ...]],
+        *,
+        limit: int,
+        timeout: float,
+    ) -> bool:
+        deadline = time.perf_counter() + max(timeout, 0.5)
+        while time.perf_counter() < deadline:
+            await asyncio.sleep(0.5)
+            messages = await self._recent_messages(client, chat_id, thread_id, limit)
+            current_state = _messages_state(messages)
+            changed_ids = {
+                message_id
+                for message_id, marker in current_state.items()
+                if before_state.get(message_id) != marker
+            }
+            for message in messages:
+                if (
+                    message.id in changed_ids
+                    and _message_supports_continue_action(message, action)
+                ):
+                    return True
+        return False
+
+    async def _wait_for_terminal_success(
+        self,
+        client: Any,
+        chat_id: Union[int, str],
+        thread_id: Optional[int],
+        before_state: dict[int, tuple[Any, ...]],
+        *,
+        limit: int,
+        timeout: float,
+    ) -> bool:
+        deadline = time.perf_counter() + max(timeout, 0.5)
+        while time.perf_counter() < deadline:
+            await asyncio.sleep(0.5)
+            messages = await self._recent_messages(client, chat_id, thread_id, limit)
+            current_state = _messages_state(messages)
+            changed_ids = {
+                message_id
+                for message_id, marker in current_state.items()
+                if before_state.get(message_id) != marker
+            }
+            for message in messages:
+                if message.id in changed_ids and _message_has_terminal_success_text(
+                    message
+                ):
+                    return True
+        return False
+
     async def _download_photo_bytes(self, client: Any, message: Message) -> bytes:
         image_buffer = await client.download_media(message.photo.file_id, in_memory=True)
         image_buffer.seek(0)
@@ -650,6 +786,7 @@ class KeywordMonitorService:
         target_thread_id: Optional[int],
         action: Dict[str, Any],
         timeout: Optional[float] = None,
+        next_action: Optional[Dict[str, Any]] = None,
     ) -> bool:
         action_id = int(action.get("action"))
         kwargs: Dict[str, Any] = {}
@@ -701,23 +838,44 @@ class KeywordMonitorService:
                     )
                     if clicked:
                         return True
-                    if matched and await self._wait_for_chat_advance(
-                        client,
-                        target_chat_id,
-                        target_thread_id,
-                        before_state,
-                        limit=limit,
-                        timeout=min(5.0, action_timeout),
-                    ):
-                        logger.info(
-                            "Keyword monitor button click returned false, "
-                            "but chat advanced; continuing"
-                        )
-                        return True
                     if matched:
+                        follow_timeout = min(6.0, action_timeout)
+                        if next_action is not None:
+                            if await self._wait_for_continue_action_candidate(
+                                client,
+                                target_chat_id,
+                                target_thread_id,
+                                next_action,
+                                before_state,
+                                limit=limit,
+                                timeout=follow_timeout,
+                            ):
+                                logger.info(
+                                    "Keyword monitor button click returned false, "
+                                    "but next action is ready; continuing"
+                                )
+                                return True
+                            logger.warning(
+                                "Keyword monitor button click returned false, "
+                                "and next action is not ready"
+                            )
+                            return False
+                        if await self._wait_for_terminal_success(
+                            client,
+                            target_chat_id,
+                            target_thread_id,
+                            before_state,
+                            limit=limit,
+                            timeout=follow_timeout,
+                        ):
+                            logger.info(
+                                "Keyword monitor button click returned false, "
+                                "but terminal success text was detected"
+                            )
+                            return True
                         logger.warning(
                             "Keyword monitor button click returned false, "
-                            "and chat did not advance"
+                            "and no terminal success text was detected"
                         )
                         return False
                     continue
@@ -762,8 +920,16 @@ class KeywordMonitorService:
         await self._warm_chat(client, target_chat_id)
         lock = get_account_lock(account_name)
         async with lock:
-            for index, raw_action in enumerate(continue_actions, start=1):
-                action = _render_action_templates(raw_action, variables)
+            rendered_actions = [
+                _render_action_templates(raw_action, variables)
+                for raw_action in continue_actions
+            ]
+            for index, action in enumerate(rendered_actions, start=1):
+                next_action = (
+                    rendered_actions[index]
+                    if index < len(rendered_actions)
+                    else None
+                )
                 started = time.perf_counter()
                 try:
                     result = await asyncio.wait_for(
@@ -773,6 +939,7 @@ class KeywordMonitorService:
                             target_thread_id,
                             action,
                             timeout=timeout,
+                            next_action=next_action,
                         ),
                         timeout=timeout + 1,
                     )
