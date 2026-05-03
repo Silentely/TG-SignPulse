@@ -7,6 +7,7 @@ import re
 import time
 import unicodedata
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
 from pyrogram import errors, filters
@@ -326,6 +327,120 @@ class KeywordMonitorService:
         self._rules: list[KeywordMonitorRule] = []
         self._active_key = ""
         self._lock = asyncio.Lock()
+        self._task_logs: dict[tuple[str, str], list[str]] = {}
+        self._task_status: dict[tuple[str, str], dict[str, Any]] = {}
+
+    def _task_key(self, account_name: str, task_name: str) -> tuple[str, str]:
+        return account_name, task_name
+
+    def _append_task_log(
+        self,
+        account_name: str,
+        task_name: str,
+        line: str,
+        *,
+        active: Optional[bool] = None,
+    ) -> None:
+        key = self._task_key(account_name, task_name)
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        logs = self._task_logs.setdefault(key, [])
+        logs.append(f"{timestamp} - {line}")
+        if len(logs) > 1000:
+            del logs[:-1000]
+
+        status = self._task_status.setdefault(key, {})
+        status["updated_at"] = datetime.now().isoformat(timespec="seconds")
+        status["message"] = line
+        if active is not None:
+            status["active"] = active
+
+    def _append_rule_log(
+        self,
+        rule: KeywordMonitorRule,
+        line: str,
+        *,
+        active: Optional[bool] = None,
+    ) -> None:
+        self._append_task_log(
+            rule.account_name,
+            rule.task_name,
+            line,
+            active=active,
+        )
+
+    def get_task_logs(self, task_name: str, account_name: Optional[str] = None) -> list[str]:
+        if account_name:
+            return list(self._task_logs.get(self._task_key(account_name, task_name), []))
+
+        for (_item_account, item_task), logs in self._task_logs.items():
+            if item_task == task_name:
+                return list(logs)
+        return []
+
+    def get_task_history_entry(
+        self,
+        task_name: str,
+        account_name: str,
+    ) -> Optional[dict[str, Any]]:
+        key = self._task_key(account_name, task_name)
+        logs = self._task_logs.get(key) or []
+        status = self._task_status.get(key)
+        if not logs and not status:
+            return None
+
+        flow_logs = list(logs[-500:])
+        return {
+            "time": (status or {}).get("updated_at", ""),
+            "success": bool((status or {}).get("active", False)),
+            "message": (status or {}).get("message", "关键词后台监听状态"),
+            "flow_logs": flow_logs,
+            "flow_truncated": len(logs) > len(flow_logs),
+            "flow_line_count": len(logs),
+        }
+
+    def _describe_rule(self, rule: KeywordMonitorRule) -> str:
+        keywords = _parse_keywords(
+            rule.action.get("keywords"),
+            split_commas=_keyword_split_commas(rule.action),
+        )
+        preview = ", ".join(keywords[:3])
+        if len(keywords) > 3:
+            preview += f" ... 共 {len(keywords)} 条"
+        push_channel = str(rule.action.get("push_channel") or "telegram").strip()
+        continue_actions = self._continue_actions(rule.action)
+        parts = [
+            f"Chat={rule.chat_name}({rule.chat_id})",
+            f"匹配方式={rule.action.get('match_mode') or 'contains'}",
+            f"关键词={preview or '-'}",
+            f"命中处理={push_channel}",
+        ]
+        if rule.message_thread_id is not None:
+            parts.append(f"话题ID={rule.message_thread_id}")
+        if push_channel == "continue":
+            parts.append(f"后续动作={len(continue_actions)} 步")
+        return "，".join(parts)
+
+    def _describe_continue_action(self, action: Dict[str, Any]) -> str:
+        try:
+            action_id = int(action.get("action"))
+        except (TypeError, ValueError):
+            return f"未知动作: {action}"
+        if action_id == 1:
+            text = str(action.get("text") or "")
+            return f"发送文本: {text[:120]}"
+        if action_id == 2:
+            return f"发送骰子: {action.get('dice') or '🎲'}"
+        if action_id == 3:
+            return f"点击按钮: {action.get('text') or ''}"
+        if action_id == 4:
+            return "AI 识图选择按钮"
+        if action_id == 5:
+            return "AI 计算并发送答案"
+        if action_id == 6:
+            return "AI 识图并发送文本"
+        if action_id == 7:
+            return "AI 计算并点击按钮"
+        return f"动作 {action_id}"
 
     def _rules_key(self, rules: list[KeywordMonitorRule]) -> str:
         return repr(
@@ -995,6 +1110,15 @@ class KeywordMonitorService:
                 _render_action_templates(raw_action, variables)
                 for raw_action in continue_actions
             ]
+            self._append_rule_log(
+                rule,
+                f"开始执行关键词命中后续动作：{len(rendered_actions)} 步，目标 Chat={target_chat_id}"
+                + (
+                    f"，话题ID={target_thread_id}"
+                    if target_thread_id is not None
+                    else ""
+                ),
+            )
             for index, action in enumerate(rendered_actions, start=1):
                 next_action = (
                     rendered_actions[index]
@@ -1002,6 +1126,11 @@ class KeywordMonitorService:
                     else None
                 )
                 started = time.perf_counter()
+                action_desc = self._describe_continue_action(action)
+                self._append_rule_log(
+                    rule,
+                    f"后续动作 {index}/{len(rendered_actions)} 开始：{action_desc}",
+                )
                 try:
                     result = await asyncio.wait_for(
                         self._execute_continue_action(
@@ -1023,6 +1152,10 @@ class KeywordMonitorService:
                         exc,
                         exc_info=True,
                     )
+                    self._append_rule_log(
+                        rule,
+                        f"后续动作 {index}/{len(rendered_actions)} 执行异常：{exc}",
+                    )
                     return
                 if not result:
                     logger.warning(
@@ -1031,10 +1164,19 @@ class KeywordMonitorService:
                         len(continue_actions),
                         rule.task_name,
                     )
+                    self._append_rule_log(
+                        rule,
+                        f"后续动作 {index}/{len(rendered_actions)} 执行失败：{action_desc}",
+                    )
                     return
+                self._append_rule_log(
+                    rule,
+                    f"后续动作 {index}/{len(rendered_actions)} 执行成功：{action_desc}",
+                )
                 elapsed = time.perf_counter() - started
                 if interval > 0 and index < len(continue_actions):
                     await asyncio.sleep(max(interval - elapsed, 0.0))
+            self._append_rule_log(rule, "关键词命中后续动作全部执行完成")
 
     async def _on_message(self, account_name: str, client: Any, message: Message) -> None:
         try:
@@ -1083,6 +1225,15 @@ class KeywordMonitorService:
                 matched = self._match_keyword(rule.action, text)
                 if not matched:
                     continue
+                text_preview = text.replace("\n", " ").strip()
+                if len(text_preview) > 160:
+                    text_preview = text_preview[:157] + "..."
+                self._append_rule_log(
+                    rule,
+                    f"关键词命中：Chat={chat_title}({getattr(message.chat, 'id', '')})，"
+                    f"消息ID={getattr(message, 'id', '')}，捕获值={matched}，消息={text_preview}",
+                    active=True,
+                )
                 body_lines = [
                     f"Task: {rule.task_name}",
                     f"Chat: {chat_title}",
@@ -1127,11 +1278,24 @@ class KeywordMonitorService:
                             forward_payload[:3900],
                             **forward_kwargs,
                         )
+                        self._append_rule_log(
+                            rule,
+                            f"关键词命中消息已转发：目标 Chat={forward_chat_id}"
+                            + (
+                                f"，话题ID={forward_thread_id}"
+                                if forward_thread_id is not None
+                                else ""
+                            ),
+                        )
                     except Exception as exc:
                         logger.warning(
                             "Failed to forward keyword match to %r: %s",
                             forward_chat_id,
                             exc,
+                        )
+                        self._append_rule_log(
+                            rule,
+                            f"关键词命中消息转发失败：目标 Chat={forward_chat_id}，错误={exc}",
                         )
 
                 if push_channel not in {"forward", "continue"}:
@@ -1157,6 +1321,10 @@ class KeywordMonitorService:
                             "url": url,
                         },
                     )
+                    self._append_rule_log(
+                        rule,
+                        f"关键词命中通知已处理：推送方式={push_channel}",
+                    )
                 if continue_enabled:
                     await self._execute_continue_actions(
                         account_name=account_name,
@@ -1180,6 +1348,15 @@ class KeywordMonitorService:
             rules = self._load_rules()
             key = self._rules_key(rules)
             if key == self._active_key and self._handlers_are_active_for(rules):
+                for rule in rules:
+                    if not self._task_logs.get(
+                        self._task_key(rule.account_name, rule.task_name)
+                    ):
+                        self._append_rule_log(
+                            rule,
+                            f"关键词后台监听运行中：{self._describe_rule(rule)}",
+                            active=True,
+                        )
                 return
 
             await self.stop()
@@ -1221,6 +1398,12 @@ class KeywordMonitorService:
                             "Keyword monitor account %s has no session_string",
                             account_name,
                         )
+                        for rule in account_rules:
+                            self._append_rule_log(
+                                rule,
+                                "关键词后台监听启动失败：账号没有可用 session_string",
+                                active=False,
+                            )
                         continue
 
                 lock = get_account_lock(account_name)
@@ -1271,6 +1454,12 @@ class KeywordMonitorService:
                             account_name,
                             exc_info=True,
                         )
+                        for rule in account_rules:
+                            self._append_rule_log(
+                                rule,
+                                "关键词后台监听启动失败：Telegram client 启动失败，请检查账号登录状态、代理或 API 配置",
+                                active=False,
+                            )
                         continue
 
                     self._handler_refs.append((account_name, client, handler_ref))
@@ -1278,10 +1467,22 @@ class KeywordMonitorService:
                     logger.info(
                         "Keyword monitor started for %s in %s", account_name, chat_ids
                     )
+                    for rule in account_rules:
+                        self._append_rule_log(
+                            rule,
+                            f"关键词后台监听已启动：{self._describe_rule(rule)}",
+                            active=True,
+                        )
 
             self._active_key = key if started_accounts == set(accounts) else ""
 
     async def stop(self) -> None:
+        for rule in self._rules:
+            self._append_rule_log(
+                rule,
+                "关键词后台监听已停止",
+                active=False,
+            )
         for account_name, client, handler_ref in self._handler_refs:
             lock = get_account_lock(account_name)
             async with lock:

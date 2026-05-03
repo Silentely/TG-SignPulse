@@ -165,6 +165,7 @@ frontend/     Next.js 管理面板
 - **关键词命中后续动作修复**：命中关键词后执行“后续动作”时，点击按钮动作会等待并轮询最近消息中的可点击按钮；找不到按钮时不再直接发送按钮文本，避免把 `签到`、`Redeem Code` 等按钮名当作普通消息发出。
 - **关键词监听兑换流程修复**：正则匹配现在会优先把第一个捕获组作为 `{keyword}`，例如 `gift code\s*:\s*([A-Za-z0-9-]+)` 会提取 `ABC123ABC`；点击按钮后若 callback 无法确认但聊天已推进，后续“发送文本/骰子”动作会继续执行，支持“点击 `Redeem Code` 后发送 `{keyword}`”的兑换流程。
 - **关键词监听输入修复**：前端在正则模式下按行拆分关键词，不再按逗号拆分，避免 `{8,12}` 这类正则量词被切坏。
+- **关键词监听日志增强**：任务日志和历史日志现在会显示后台监听状态，包括监听启动/停止、监听 Chat、匹配方式、关键词命中、捕获值，以及命中后续动作每一步的开始、成功或失败，便于确认关键词监听是否正在后台运行。
 - **签到按钮流程重试增强**：普通签到任务点击按钮失败时不再发送按钮文本，而是从第 1 步重新执行完整脚本流程；默认最多重试 3 次，可通过 `SIGN_TASK_FLOW_RETRY_ATTEMPTS` 调整。
 - **完整项目复检**：已通过 `python -m compileall backend tg_signer tools test_client_cache.py test_keyword_monitor.py test_peer.py test_regex.py`、`pytest -q`、`python -m ruff check .`、`python -m pip check`、`git diff --check`、前端 `npm run lint` 和 `npm run build`。本机仅安装 Python 3.14 且未安装 Docker，无法在本机启动生产 Python 3.12 容器；生产 Docker 镜像仍使用 Python 3.12，本地开发请继续使用 Python `>=3.10,<3.14`。
 

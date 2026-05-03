@@ -157,6 +157,23 @@ class SignTaskService:
                     return True
         return False
 
+    @staticmethod
+    def _task_has_keyword_monitor(task_config: Optional[Dict[str, Any]]) -> bool:
+        if not isinstance(task_config, dict):
+            return False
+        for chat in task_config.get("chats") or []:
+            if not isinstance(chat, dict):
+                continue
+            for action in chat.get("actions") or []:
+                if not isinstance(action, dict):
+                    continue
+                try:
+                    if int(action.get("action")) == 8:
+                        return True
+                except (TypeError, ValueError):
+                    continue
+        return False
+
     def _cleanup_old_logs(self):
         """清理超过 3 天的日志"""
         from datetime import datetime, timedelta
@@ -352,6 +369,17 @@ class SignTaskService:
 
         history = self._load_history_entries(task_name, account_name=account_name)
         result: List[Dict[str, Any]] = []
+        try:
+            from backend.services.keyword_monitor import get_keyword_monitor_service
+
+            monitor_entry = get_keyword_monitor_service().get_task_history_entry(
+                task_name,
+                account_name,
+            )
+            if monitor_entry:
+                result.append(monitor_entry)
+        except Exception:
+            pass
         for item in history[:limit]:
             flow_logs = item.get("flow_logs")
             if not isinstance(flow_logs, list):
@@ -1526,12 +1554,33 @@ class SignTaskService:
         self, task_name: str, account_name: Optional[str] = None
     ) -> List[str]:
         """获取正在运行任务的日志"""
+        monitor_logs: List[str] = []
+        try:
+            from backend.services.keyword_monitor import get_keyword_monitor_service
+
+            monitor_logs = get_keyword_monitor_service().get_task_logs(
+                task_name,
+                account_name,
+            )
+        except Exception:
+            monitor_logs = []
+
         if account_name:
-            return self._active_logs.get(self._task_key(account_name, task_name), [])
+            logs = list(self._active_logs.get(self._task_key(account_name, task_name), []))
+            if monitor_logs:
+                if logs:
+                    logs.append("---- 关键词后台监听日志 ----")
+                logs.extend(monitor_logs)
+            return logs
         # 兼容旧接口：返回第一个同名任务的日志
         for key in self._find_task_keys(task_name):
-            return self._active_logs.get(key, [])
-        return []
+            logs = list(self._active_logs.get(key, []))
+            if monitor_logs:
+                if logs:
+                    logs.append("---- 关键词后台监听日志 ----")
+                logs.extend(monitor_logs)
+            return logs
+        return monitor_logs
 
     def is_task_running(self, task_name: str, account_name: Optional[str] = None) -> bool:
         """检查任务是否正在运行"""
@@ -1580,6 +1629,7 @@ class SignTaskService:
             if not task_cfg:
                 raise ValueError(f"Task {task_name} does not exist or cannot be loaded")
             requires_updates = self._task_requires_updates(task_cfg)
+            has_keyword_monitor = self._task_has_keyword_monitor(task_cfg)
             signer_no_updates = not requires_updates
             task_notify_on_failure = bool(task_cfg.get("notify_on_failure", True))
 
@@ -1594,6 +1644,18 @@ class SignTaskService:
                 error_msg = f"账号 {account_name} 登录已失效，请重新登录: {invalid_reason}"
                 self._active_logs[task_key].append(error_msg)
             else:
+                if has_keyword_monitor:
+                    try:
+                        from backend.services.keyword_monitor import (
+                            get_keyword_monitor_service,
+                        )
+
+                        await get_keyword_monitor_service().restart_from_tasks()
+                    except Exception as exc:
+                        self._active_logs[task_key].append(
+                            f"关键词后台监听刷新失败: {exc}"
+                        )
+
                 async with account_lock:
                     last_end = self._account_last_run_end.get(account_name)
                     if last_end:
@@ -1660,6 +1722,10 @@ class SignTaskService:
                     self._active_logs[task_key].append(
                         f"消息更新监听: {'开启' if requires_updates else '关闭'}"
                     )
+                    if has_keyword_monitor:
+                        self._active_logs[task_key].append(
+                            "关键词监听说明: 该动作由后台常驻监听服务执行；本次手动运行只会刷新并展示后台监听状态，不代表监听只运行一次。"
+                        )
 
                     # 实例化 UserSigner (使用 BackendUserSigner)
                     # 注意: UserSigner 内部会使用 get_client 复用 client

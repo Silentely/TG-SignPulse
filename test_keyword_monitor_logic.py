@@ -193,6 +193,13 @@ async def test_keyword_continue_redeem_flow_click_then_sends_captured_code(monke
     )
 
     assert client.sent_messages == [(chat.id, "ABC123ABC", {})]
+    monitor_logs = service.get_task_logs("redeem", "acct")
+    assert any("开始执行关键词命中后续动作" in line for line in monitor_logs)
+    assert any("后续动作 1/2 开始：点击按钮: Redeem Code" in line for line in monitor_logs)
+    assert any("后续动作 2/2 执行成功：发送文本: ABC123ABC" in line for line in monitor_logs)
+    history_entry = service.get_task_history_entry("redeem", "acct")
+    assert history_entry
+    assert history_entry["flow_logs"] == monitor_logs
 
 
 @pytest.mark.asyncio
@@ -248,3 +255,6 @@ async def test_keyword_monitor_handles_repeated_matching_messages(monkeypatch):
     )
 
     assert matched_codes == ["ABC123ABC", "XYZ789XYZ"]
+    monitor_logs = service.get_task_logs("redeem", "acct")
+    assert any("关键词命中" in line and "捕获值=ABC123ABC" in line for line in monitor_logs)
+    assert any("关键词命中" in line and "捕获值=XYZ789XYZ" in line for line in monitor_logs)
