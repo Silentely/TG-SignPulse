@@ -58,6 +58,11 @@ const DICE_OPTIONS = [
 
 const KEYWORD_VARIABLES = ["{keyword}", "{message}", "{sender}", "{chat_title}", "{url}"] as const;
 
+const splitKeywordInput = (value: string, matchMode?: string) => {
+    const splitter = matchMode === "regex" ? /\n/ : /\n|,/;
+    return value.split(splitter).map((item) => item.trim()).filter(Boolean);
+};
+
 // Memoized Task Item Component
 const TaskItem = memo(({ task, loading, running, onEdit, onRun, onViewLogs, onCopy, onDelete, t, language }: {
     task: SignTask;
@@ -1578,7 +1583,7 @@ export default function AccountTasksContent() {
                                                                 onChange={(e) => {
                                                                     updateCurrentDialogAction(index, (currentAction) => ({
                                                                         ...currentAction,
-                                                                        keywords: e.target.value.split(/\n|,/).map((item) => item.trim()).filter(Boolean),
+                                                                        keywords: splitKeywordInput(e.target.value, currentAction?.match_mode || action.match_mode || "contains"),
                                                                     }));
                                                                 }}
                                                                 placeholder={keywordPlaceholder}

@@ -46,12 +46,36 @@ class KeywordMonitorRule:
     action: Dict[str, Any]
 
 
-def _parse_keywords(value: Any) -> List[str]:
+def _parse_keywords(value: Any, *, split_commas: bool = True) -> List[str]:
     if isinstance(value, list):
         raw_items = value
-    else:
+    elif split_commas:
         raw_items = re.split(r"[\n,]+", str(value or ""))
+    else:
+        raw_items = str(value or "").splitlines()
     return [str(item).strip() for item in raw_items if str(item).strip()]
+
+
+def _keyword_split_commas(action: Dict[str, Any]) -> bool:
+    return (action.get("match_mode") or "contains").strip() != "regex"
+
+
+def _regex_keyword_value(match: re.Match[str]) -> str:
+    for group in match.groups():
+        if group is not None:
+            value = str(group).strip()
+            if value:
+                return value
+    return match.group(0).strip()
+
+
+def _is_immediate_continue_action(action: Optional[Dict[str, Any]]) -> bool:
+    if not action:
+        return False
+    try:
+        return int(action.get("action")) in {1, 2}
+    except (TypeError, ValueError):
+        return False
 
 
 def _message_text(message: Message) -> str:
@@ -351,7 +375,10 @@ class KeywordMonitorService:
                         action_id = int(action.get("action"))
                     except (TypeError, ValueError, AttributeError):
                         continue
-                    if action_id != 8 or not _parse_keywords(action.get("keywords")):
+                    if action_id != 8 or not _parse_keywords(
+                        action.get("keywords"),
+                        split_commas=_keyword_split_commas(action),
+                    ):
                         continue
                     rules.append(
                         KeywordMonitorRule(
@@ -368,7 +395,10 @@ class KeywordMonitorService:
         return rules
 
     def _match_keyword(self, action: Dict[str, Any], text: str) -> Optional[str]:
-        keywords = _parse_keywords(action.get("keywords"))
+        keywords = _parse_keywords(
+            action.get("keywords"),
+            split_commas=_keyword_split_commas(action),
+        )
         if not keywords or not text:
             return None
 
@@ -383,8 +413,9 @@ class KeywordMonitorService:
             if mode == "regex":
                 flags = re.IGNORECASE if ignore_case else 0
                 try:
-                    if re.search(keyword, text, flags=flags):
-                        return keyword
+                    match = re.search(keyword, text, flags=flags)
+                    if match:
+                        return _regex_keyword_value(match)
                 except re.error as exc:
                     logger.warning("Invalid keyword monitor regex %r: %s", keyword, exc)
                 continue
@@ -862,6 +893,25 @@ class KeywordMonitorService:
                     if matched:
                         follow_timeout = min(6.0, action_timeout)
                         if next_action is not None:
+                            if _is_immediate_continue_action(next_action):
+                                if await self._wait_for_chat_advance(
+                                    client,
+                                    target_chat_id,
+                                    target_thread_id,
+                                    before_state,
+                                    limit=limit,
+                                    timeout=follow_timeout,
+                                ):
+                                    logger.info(
+                                        "Keyword monitor button click returned false, "
+                                        "but chat advanced before immediate next action; continuing"
+                                    )
+                                    return True
+                                logger.warning(
+                                    "Keyword monitor button click returned false, "
+                                    "and chat did not advance before immediate next action"
+                                )
+                                return False
                             if await self._wait_for_continue_action_candidate(
                                 client,
                                 target_chat_id,
