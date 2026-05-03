@@ -172,7 +172,7 @@ def _message_matches_thread(message: Message, message_thread_id: Optional[int]) 
 
 class KeywordMonitorService:
     def __init__(self) -> None:
-        self._handler_refs: list[tuple[Any, Any]] = []
+        self._handler_refs: list[tuple[str, Any, Any]] = []
         self._rules: list[KeywordMonitorRule] = []
         self._active_key = ""
         self._lock = asyncio.Lock()
@@ -190,6 +190,19 @@ class KeywordMonitorService:
                 for rule in rules
             ]
         )
+
+    def _handlers_are_active_for(self, rules: list[KeywordMonitorRule]) -> bool:
+        expected_accounts = {rule.account_name for rule in rules}
+        if not expected_accounts:
+            return not self._handler_refs
+
+        active_accounts = {
+            account_name
+            for account_name, client, _handler_ref in self._handler_refs
+            if getattr(client, "is_connected", False)
+            and getattr(client, "_tg_signpulse_no_updates", None) is False
+        }
+        return expected_accounts.issubset(active_accounts)
 
     def _load_rules(self) -> list[KeywordMonitorRule]:
         from backend.services.sign_tasks import get_sign_task_service
@@ -558,6 +571,7 @@ class KeywordMonitorService:
         target_chat_id: Union[int, str],
         target_thread_id: Optional[int],
         action: Dict[str, Any],
+        timeout: Optional[float] = None,
     ) -> bool:
         action_id = int(action.get("action"))
         kwargs: Dict[str, Any] = {}
@@ -576,31 +590,56 @@ class KeywordMonitorService:
             await client.send_dice(target_chat_id, dice, **kwargs)
             return True
 
-        recent_message = await self._find_recent_message(
-            client, target_chat_id, target_thread_id, action_id
+        action_timeout = timeout or _read_positive_float_env(
+            "KEYWORD_MONITOR_CONTINUE_ACTION_TIMEOUT", DEFAULT_CONTINUE_TIMEOUT, 1.0
         )
-        if recent_message is None:
-            logger.warning(
-                "Keyword monitor continue action %s found no usable recent message in %r",
-                action_id,
+        deadline = time.perf_counter() + action_timeout
+        limit = _read_positive_int_env(
+            "KEYWORD_MONITOR_CONTINUE_HISTORY_LIMIT", DEFAULT_HISTORY_LIMIT, 1
+        )
+
+        while time.perf_counter() < deadline:
+            recent_messages = await self._recent_messages(
+                client,
                 target_chat_id,
+                target_thread_id,
+                limit,
             )
-            return False
+            usable_messages = [
+                message
+                for message in recent_messages
+                if self._message_supports_action(message, action_id)
+            ]
 
-        if action_id == 3:
-            if await self._click_keyboard_by_text(
-                client, target_chat_id, target_thread_id, action, recent_message
-            ):
-                return True
-            fallback_text = str(action.get("text") or "").strip()
-            if fallback_text:
-                await client.send_message(target_chat_id, fallback_text, **kwargs)
-                return True
-            return False
+            for recent_message in usable_messages:
+                if action_id == 3:
+                    if await self._click_keyboard_by_text(
+                        client,
+                        target_chat_id,
+                        target_thread_id,
+                        action,
+                        recent_message,
+                    ):
+                        return True
+                    continue
 
-        return await self._execute_ai_action(
-            client, target_chat_id, target_thread_id, action, recent_message
+                if await self._execute_ai_action(
+                    client,
+                    target_chat_id,
+                    target_thread_id,
+                    action,
+                    recent_message,
+                ):
+                    return True
+
+            await asyncio.sleep(0.5)
+
+        logger.warning(
+            "Keyword monitor continue action %s timed out waiting for usable message in %r",
+            action_id,
+            target_chat_id,
         )
+        return False
 
     async def _execute_continue_actions(
         self,
@@ -630,9 +669,13 @@ class KeywordMonitorService:
                 try:
                     result = await asyncio.wait_for(
                         self._execute_continue_action(
-                            client, target_chat_id, target_thread_id, action
+                            client,
+                            target_chat_id,
+                            target_thread_id,
+                            action,
+                            timeout=timeout,
                         ),
-                        timeout=timeout,
+                        timeout=timeout + 1,
                     )
                 except Exception as exc:
                     logger.warning(
@@ -791,11 +834,15 @@ class KeywordMonitorService:
     async def restart_from_tasks(self) -> None:
         async with self._lock:
             from backend.services.config import get_config_service
-            from tg_signer.core import get_client
+            from tg_signer.core import (
+                _CLIENT_INSTANCES,
+                close_client_by_name,
+                get_client,
+            )
 
             rules = self._load_rules()
             key = self._rules_key(rules)
-            if key == self._active_key:
+            if key == self._active_key and self._handlers_are_active_for(rules):
                 return
 
             await self.stop()
@@ -815,6 +862,7 @@ class KeywordMonitorService:
                 api_id = None
 
             accounts = sorted({rule.account_name for rule in rules})
+            started_accounts: set[str] = set()
             for account_name in accounts:
                 account_rules = [rule for rule in rules if rule.account_name == account_name]
                 chat_ids = sorted({rule.chat_id for rule in account_rules})
@@ -838,46 +886,79 @@ class KeywordMonitorService:
                         )
                         continue
 
-                client = get_client(
-                    account_name,
-                    proxy=proxy,
-                    workdir=session_dir,
-                    session_string=session_string,
-                    in_memory=in_memory,
-                    api_id=api_id,
-                    api_hash=api_hash,
-                    no_updates=False,
-                )
-
-                async def handler(client, message: Message, name: str = account_name) -> None:
-                    await self._on_message(name, client, message)
-
-                handler_ref = client.add_handler(
-                    MessageHandler(
-                        handler,
-                        filters.chat(chat_ids) & (filters.text | filters.caption),
-                    )
-                )
-                self._handler_refs.append((client, handler_ref))
-
                 lock = get_account_lock(account_name)
                 async with lock:
-                    if not getattr(client, "is_connected", False):
-                        await client.start()
-                logger.info(
-                    "Keyword monitor started for %s in %s", account_name, chat_ids
-                )
+                    client_key = str(session_dir.joinpath(account_name).resolve())
+                    existing = _CLIENT_INSTANCES.get(client_key)
+                    if (
+                        existing is not None
+                        and getattr(existing, "_tg_signpulse_no_updates", None) is True
+                    ):
+                        logger.info(
+                            "Recreating keyword monitor client for %s with updates enabled",
+                            account_name,
+                        )
+                        await close_client_by_name(account_name, workdir=session_dir)
 
-            self._active_key = key
+                    client = get_client(
+                        account_name,
+                        proxy=proxy,
+                        workdir=session_dir,
+                        session_string=session_string,
+                        in_memory=in_memory,
+                        api_id=api_id,
+                        api_hash=api_hash,
+                        no_updates=False,
+                    )
+
+                    async def handler(
+                        client, message: Message, name: str = account_name
+                    ) -> None:
+                        await self._on_message(name, client, message)
+
+                    handler_ref = client.add_handler(
+                        MessageHandler(
+                            handler,
+                            filters.chat(chat_ids) & (filters.text | filters.caption),
+                        )
+                    )
+                    try:
+                        await client.__aenter__()
+                    except Exception:
+                        try:
+                            client.remove_handler(*handler_ref)
+                        except Exception:
+                            pass
+                        logger.warning(
+                            "Keyword monitor failed to start for %s",
+                            account_name,
+                            exc_info=True,
+                        )
+                        continue
+
+                    self._handler_refs.append((account_name, client, handler_ref))
+                    started_accounts.add(account_name)
+                    logger.info(
+                        "Keyword monitor started for %s in %s", account_name, chat_ids
+                    )
+
+            self._active_key = key if started_accounts == set(accounts) else ""
 
     async def stop(self) -> None:
-        for client, handler_ref in self._handler_refs:
-            try:
-                client.remove_handler(*handler_ref)
-            except Exception:
-                pass
+        for account_name, client, handler_ref in self._handler_refs:
+            lock = get_account_lock(account_name)
+            async with lock:
+                try:
+                    client.remove_handler(*handler_ref)
+                except Exception:
+                    pass
+                try:
+                    await client.__aexit__(None, None, None)
+                except Exception:
+                    pass
         self._handler_refs = []
         self._rules = []
+        self._active_key = ""
 
 
 _keyword_monitor_service: Optional[KeywordMonitorService] = None

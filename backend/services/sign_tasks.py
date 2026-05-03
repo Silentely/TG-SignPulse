@@ -139,7 +139,7 @@ class SignTaskService:
         chats = task_config.get("chats")
         if not isinstance(chats, list):
             return True
-        response_actions = {3, 4, 5, 6, 7}
+        response_actions = {3, 4, 5, 6, 7, 8}
         for chat in chats:
             if not isinstance(chat, dict):
                 continue

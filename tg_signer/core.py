@@ -1172,14 +1172,40 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         total_actions = len(chat.actions)
         if total_actions == 0:
             raise RuntimeError("任务没有配置任何执行动作")
-        for index, action in enumerate(chat.actions, start=1):
-            self.log(f"开始第 {index}/{total_actions} 步动作: {action}")
-            result = await self.wait_for(chat, action)
-            if result is False:
-                raise RuntimeError(f"第 {index}/{total_actions} 步动作执行失败: {action}")
-            self.log(f"完成第 {index}/{total_actions} 步动作: {action}")
-            self.context.waiting_message = None
-            await asyncio.sleep(chat.action_interval)
+        max_flow_attempts = _read_positive_int_env("SIGN_TASK_FLOW_RETRY_ATTEMPTS", 3, 1)
+        last_error: Optional[Exception] = None
+
+        for flow_attempt in range(1, max_flow_attempts + 1):
+            if max_flow_attempts > 1:
+                self.log(f"开始第 {flow_attempt}/{max_flow_attempts} 次脚本流程尝试")
+            try:
+                self.context.chat_messages[chat.chat_id].clear()
+                for index, action in enumerate(chat.actions, start=1):
+                    self.log(f"开始第 {index}/{total_actions} 步动作: {action}")
+                    result = await self.wait_for(chat, action)
+                    if result is False:
+                        raise RuntimeError(
+                            f"第 {index}/{total_actions} 步动作执行失败: {action}"
+                        )
+                    self.log(f"完成第 {index}/{total_actions} 步动作: {action}")
+                    self.context.waiting_message = None
+                    await asyncio.sleep(chat.action_interval)
+                return
+            except Exception as exc:
+                last_error = exc
+                self.context.waiting_message = None
+                if flow_attempt >= max_flow_attempts:
+                    break
+                self.log(
+                    f"脚本流程第 {flow_attempt}/{max_flow_attempts} 次尝试失败，"
+                    f"将从第 1 步重新开始: {exc}",
+                    level="WARNING",
+                )
+                await asyncio.sleep(max(float(chat.action_interval or 0), 1.0))
+
+        raise RuntimeError(
+            f"脚本流程尝试 {max_flow_attempts} 次仍失败: {last_error}"
+        ) from last_error
 
     async def run(
         self, num_of_dialogs=20, only_once: bool = False, force_rerun: bool = False
@@ -1396,6 +1422,16 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             return True
         return len(button_text) >= 2 and button_text in target_text
 
+    def _message_matches_chat_thread(self, message: Message, chat: SignChatV3) -> bool:
+        if message is None:
+            return False
+        if chat.message_thread_id is None:
+            return True
+        msg_thread_id = getattr(message, "message_thread_id", None) or getattr(
+            message, "reply_to_top_message_id", None
+        )
+        return msg_thread_id == chat.message_thread_id
+
     async def _click_inline_button(self, message: Message, btn) -> bool:
         callback_data = getattr(btn, "callback_data", None)
         if callback_data is not None:
@@ -1591,48 +1627,49 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         last_message = None
         try:
             if isinstance(action, ClickKeyboardByTextAction):
-                self.log("先从最近消息中查找可点击按钮")
-                try:
-                    async for message in self.app.get_chat_history(chat.chat_id, limit=history_limit):
-                        if chat.message_thread_id is not None:
-                            msg_thread_id = getattr(message, "message_thread_id", None) or getattr(
-                                message, "reply_to_top_message_id", None
-                            )
-                            if msg_thread_id != chat.message_thread_id:
-                                continue
+                self.log("等待并查找可点击按钮")
+                next_history_scan = 0.0
+                while time.perf_counter() - start < timeout:
+                    messages_dict = self.context.chat_messages.get(chat.chat_id) or {}
+                    for message in reversed(list(messages_dict.values())):
+                        if not self._message_matches_chat_thread(message, chat):
+                            continue
+                        self.context.waiting_message = message
                         ok = await self._click_keyboard_by_text(
                             action,
                             message,
                             message_thread_id=chat.message_thread_id,
                         )
                         if ok:
+                            self.context.chat_messages[chat.chat_id][message.id] = None
                             return True
-                except Exception as e:
-                    self.log(f"最近消息按钮查找失败: {e}", level="WARNING")
+
+                    now_ts = time.perf_counter()
+                    if now_ts >= next_history_scan:
+                        next_history_scan = now_ts + 1.5
+                        try:
+                            async for message in self.app.get_chat_history(
+                                chat.chat_id,
+                                limit=history_limit,
+                            ):
+                                if not self._message_matches_chat_thread(message, chat):
+                                    continue
+                                ok = await self._click_keyboard_by_text(
+                                    action,
+                                    message,
+                                    message_thread_id=chat.message_thread_id,
+                                )
+                                if ok:
+                                    return True
+                        except Exception as e:
+                            self.log(f"最近消息按钮查找失败: {e}", level="WARNING")
+
+                    await asyncio.sleep(0.3)
+
                 self.log(
-                    f"未在最近消息中匹配到按钮，尝试直接发送按钮文本: {action.text}",
+                    f"未在 {timeout}s 内找到可点击按钮，不再直接发送按钮文本: {action.text}",
                     level="WARNING",
                 )
-                before_message_ids = set(
-                    self.context.chat_messages.get(chat.chat_id, {}).keys()
-                )
-                await self.send_message(
-                    chat.chat_id,
-                    action.text,
-                    **kwargs,
-                )
-                direct_send_wait_until = time.perf_counter() + min(6, timeout)
-                while time.perf_counter() < direct_send_wait_until:
-                    await asyncio.sleep(0.3)
-                    messages_dict = self.context.chat_messages.get(chat.chat_id)
-                    if not messages_dict:
-                        continue
-                    for message_id, message in messages_dict.items():
-                        if message_id in before_message_ids or message is None:
-                            continue
-                        self.log("直接发送按钮文本后收到新消息，继续执行后续动作")
-                        return True
-                self.log("直接发送按钮文本后未收到响应，判定该动作失败", level="WARNING")
                 return False
 
             while time.perf_counter() - start < timeout:

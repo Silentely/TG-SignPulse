@@ -367,6 +367,7 @@ class SignChatV3(BaseJSONConfig):
             SupportAction.REPLY_BY_CALCULATION_PROBLEM,
             SupportAction.REPLY_BY_IMAGE_RECOGNITION,
             SupportAction.CLICK_BUTTON_BY_CALCULATION_PROBLEM,
+            SupportAction.KEYWORD_NOTIFY,
         }
         return any(action.action in response_actions for action in self.actions)
 

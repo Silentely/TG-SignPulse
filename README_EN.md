@@ -159,6 +159,13 @@ frontend/     Next.js management panel
 
 ## Changelog
 
+### 2026-05-03
+
+- **Keyword Monitor Residency Fix**: Keyword monitor actions are now treated as Telegram-update-dependent tasks. The background monitor ensures account clients run with `no_updates=False` and recreates stale non-update clients, preventing saved monitor tasks from silently missing incoming messages.
+- **Keyword Continue Action Fix**: When a keyword match runs continue actions, button-click actions now wait for and poll recent messages for matching buttons. If no button is found, the runner no longer sends the button label as plain text.
+- **Check-in Button Flow Retries**: Normal sign/check-in button actions no longer fall back to sending button text. On button-click failure, the full script flow restarts from step 1, up to 3 attempts by default; tune with `SIGN_TASK_FLOW_RETRY_ATTEMPTS`.
+- **Full Project Verification**: Verified with `python -m compileall backend tg_signer tools test_client_cache.py test_keyword_monitor.py test_peer.py test_regex.py`, `pytest -q`, `python -m ruff check .`, `python -m pip check`, `git diff --check`, frontend `npm run lint`, and `npm run build`. This machine only has Python 3.14 and no Docker, so the production Python 3.12 container could not be started locally; the production Docker image still uses Python 3.12, and local development should continue to use Python `>=3.10,<3.14`.
+
 ### 2026-04-29
 
 - **Keyword Monitor Continue Actions**: `Push Channel` now includes `Continue Actions`. After a keyword match, the monitor can continue with an action sequence, including send text, click button, dice, AI vision, and AI calculation. Text actions support quick variables such as `{keyword}`, `{message}`, `{sender}`, `{chat_title}`, and `{url}`.

@@ -159,6 +159,13 @@ frontend/     Next.js 管理面板
 
 ## 更新日志
 
+### 2026-05-03
+
+- **关键词监听常驻修复**：关键词监听动作现在会被识别为需要 Telegram updates 的任务；后台监听启动时会确保账号 client 以 `no_updates=False` 运行，并在旧 client 不可接收更新时自动重建，避免保存了监听任务但实际收不到消息。
+- **关键词命中后续动作修复**：命中关键词后执行“后续动作”时，点击按钮动作会等待并轮询最近消息中的可点击按钮；找不到按钮时不再直接发送按钮文本，避免把 `签到`、`Redeem Code` 等按钮名当作普通消息发出。
+- **签到按钮流程重试增强**：普通签到任务点击按钮失败时不再发送按钮文本，而是从第 1 步重新执行完整脚本流程；默认最多重试 3 次，可通过 `SIGN_TASK_FLOW_RETRY_ATTEMPTS` 调整。
+- **完整项目复检**：已通过 `python -m compileall backend tg_signer tools test_client_cache.py test_keyword_monitor.py test_peer.py test_regex.py`、`pytest -q`、`python -m ruff check .`、`python -m pip check`、`git diff --check`、前端 `npm run lint` 和 `npm run build`。本机仅安装 Python 3.14 且未安装 Docker，无法在本机启动生产 Python 3.12 容器；生产 Docker 镜像仍使用 Python 3.12，本地开发请继续使用 Python `>=3.10,<3.14`。
+
 ### 2026-04-29
 
 - **关键词监听后续动作**：`推送方式` 新增 `后续动作` 选项，命中关键词后可直接继续执行动作序列；支持发送文本、点击按钮、骰子、AI 识图和 AI 计算，并支持 `{keyword}`、`{message}`、`{sender}`、`{chat_title}`、`{url}` 等变量快捷插入。
