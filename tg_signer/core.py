@@ -1432,6 +1432,82 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         )
         return msg_thread_id == chat.message_thread_id
 
+    def _reply_markup_marker(self, reply_markup):
+        if isinstance(reply_markup, InlineKeyboardMarkup):
+            return (
+                "inline",
+                tuple(
+                    tuple(getattr(button, "text", "") for button in row)
+                    for row in reply_markup.inline_keyboard
+                ),
+            )
+        if isinstance(reply_markup, ReplyKeyboardMarkup):
+            return (
+                "reply",
+                tuple(
+                    tuple(
+                        button if isinstance(button, str) else getattr(button, "text", "")
+                        for button in row
+                    )
+                    for row in reply_markup.keyboard
+                ),
+            )
+        return None
+
+    def _message_state_marker(self, message: Message):
+        return (
+            getattr(message, "id", None),
+            getattr(message, "text", None),
+            getattr(message, "caption", None),
+            getattr(message, "edit_date", None),
+            self._reply_markup_marker(getattr(message, "reply_markup", None)),
+        )
+
+    async def _chat_state_snapshot(
+        self,
+        chat: SignChatV3,
+        *,
+        history_limit: int,
+    ) -> dict[int, tuple]:
+        state: dict[int, tuple] = {}
+        messages_dict = self.context.chat_messages.get(chat.chat_id) or {}
+        for message in messages_dict.values():
+            if not self._message_matches_chat_thread(message, chat):
+                continue
+            state[message.id] = self._message_state_marker(message)
+
+        try:
+            async for message in self.app.get_chat_history(
+                chat.chat_id,
+                limit=history_limit,
+            ):
+                if not self._message_matches_chat_thread(message, chat):
+                    continue
+                state[message.id] = self._message_state_marker(message)
+        except Exception as e:
+            self.log(f"点击前消息状态快照失败: {e}", level="WARNING")
+        return state
+
+    async def _wait_for_chat_advance(
+        self,
+        chat: SignChatV3,
+        before_state: dict[int, tuple],
+        *,
+        history_limit: int,
+        timeout: float,
+    ) -> bool:
+        deadline = time.perf_counter() + max(timeout, 0.5)
+        while time.perf_counter() < deadline:
+            await asyncio.sleep(0.25)
+            current_state = await self._chat_state_snapshot(
+                chat,
+                history_limit=history_limit,
+            )
+            for message_id, marker in current_state.items():
+                if before_state.get(message_id) != marker:
+                    return True
+        return False
+
     async def _click_inline_button(self, message: Message, btn) -> bool:
         callback_data = getattr(btn, "callback_data", None)
         if callback_data is not None:
@@ -1462,17 +1538,19 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         self.log("按钮没有可用 callback_data，且 fallback 点击失败", level="WARNING")
         return False
 
-    async def _click_keyboard_by_text(
+    async def _click_keyboard_by_text_result(
         self,
         action: ClickKeyboardByTextAction,
         message: Message,
         *,
         message_thread_id: Optional[int] = None,
-    ):
+        before_click=None,
+        log_not_found: bool = True,
+    ) -> tuple[bool, bool]:
         target_text = self._clean_text_for_match(action.text)
         if not target_text:
             self.log("Click button action has empty target text after cleaning", level="WARNING")
-            return False
+            return False, False
 
         if reply_markup := message.reply_markup:
             if isinstance(reply_markup, InlineKeyboardMarkup):
@@ -1483,11 +1561,14 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                     btn_text_clean = self._clean_text_for_match(btn.text)
                     if self._button_text_matches(target_text, btn_text_clean):
                         self.log(f"成功匹配到并点击按钮: [{btn.text}] (匹配词: {action.text})")
-                        return await self._click_inline_button(message, btn)
-                self.log(
-                    f"Target button '{action.text}' not found in inline keyboard.",
-                    level="WARNING",
-                )
+                        if before_click:
+                            await before_click()
+                        return await self._click_inline_button(message, btn), True
+                if log_not_found:
+                    self.log(
+                        f"Target button '{action.text}' not found in inline keyboard.",
+                        level="WARNING",
+                    )
             elif isinstance(reply_markup, ReplyKeyboardMarkup):
                 for row in reply_markup.keyboard:
                     for btn in row:
@@ -1500,13 +1581,30 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                             kwargs = {}
                             if message_thread_id is not None:
                                 kwargs["message_thread_id"] = message_thread_id
+                            if before_click:
+                                await before_click()
                             await self.send_message(message.chat.id, btn_text, **kwargs)
-                            return True
-                self.log(
-                    f"Target button '{action.text}' not found in reply keyboard.",
-                    level="WARNING",
-                )
-        return False
+                            return True, True
+                if log_not_found:
+                    self.log(
+                        f"Target button '{action.text}' not found in reply keyboard.",
+                        level="WARNING",
+                    )
+        return False, False
+
+    async def _click_keyboard_by_text(
+        self,
+        action: ClickKeyboardByTextAction,
+        message: Message,
+        *,
+        message_thread_id: Optional[int] = None,
+    ):
+        clicked, _matched = await self._click_keyboard_by_text_result(
+            action,
+            message,
+            message_thread_id=message_thread_id,
+        )
+        return clicked
 
     async def _reply_by_calculation_problem(
         self, action: ReplyByCalculationProblemAction, message
@@ -1635,32 +1733,94 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                         if not self._message_matches_chat_thread(message, chat):
                             continue
                         self.context.waiting_message = message
-                        ok = await self._click_keyboard_by_text(
+
+                        before_click_state: dict[int, tuple] = {}
+
+                        async def remember_before_click():
+                            nonlocal before_click_state
+                            before_click_state = await self._chat_state_snapshot(
+                                chat,
+                                history_limit=history_limit,
+                            )
+
+                        ok, matched = await self._click_keyboard_by_text_result(
                             action,
                             message,
                             message_thread_id=chat.message_thread_id,
+                            before_click=remember_before_click,
+                            log_not_found=False,
                         )
                         if ok:
                             self.context.chat_messages[chat.chat_id][message.id] = None
                             return True
+                        if matched:
+                            self.context.waiting_message = None
+                            if await self._wait_for_chat_advance(
+                                chat,
+                                before_click_state,
+                                history_limit=history_limit,
+                                timeout=min(5.0, timeout),
+                            ):
+                                self.log(
+                                    "按钮点击返回异常，但检测到机器人消息已更新，继续下一步"
+                                )
+                                return True
+                            self.log(
+                                "按钮点击返回异常，且未检测到机器人消息更新，准备重试完整流程",
+                                level="WARNING",
+                            )
+                            return False
 
                     now_ts = time.perf_counter()
                     if now_ts >= next_history_scan:
                         next_history_scan = now_ts + 1.5
                         try:
+                            history_messages = []
                             async for message in self.app.get_chat_history(
                                 chat.chat_id,
                                 limit=history_limit,
                             ):
+                                history_messages.append(message)
+
+                            for message in history_messages:
                                 if not self._message_matches_chat_thread(message, chat):
                                     continue
-                                ok = await self._click_keyboard_by_text(
+
+                                before_click_state: dict[int, tuple] = {}
+
+                                async def remember_before_click():
+                                    nonlocal before_click_state
+                                    before_click_state = await self._chat_state_snapshot(
+                                        chat,
+                                        history_limit=history_limit,
+                                    )
+
+                                ok, matched = await self._click_keyboard_by_text_result(
                                     action,
                                     message,
                                     message_thread_id=chat.message_thread_id,
+                                    before_click=remember_before_click,
+                                    log_not_found=False,
                                 )
                                 if ok:
                                     return True
+                                if matched:
+                                    self.context.waiting_message = None
+                                    if await self._wait_for_chat_advance(
+                                        chat,
+                                        before_click_state,
+                                        history_limit=history_limit,
+                                        timeout=min(5.0, timeout),
+                                    ):
+                                        self.log(
+                                            "按钮点击返回异常，但检测到机器人消息已更新，继续下一步"
+                                        )
+                                        return True
+                                    self.log(
+                                        "按钮点击返回异常，且未检测到机器人消息更新，准备重试完整流程",
+                                        level="WARNING",
+                                    )
+                                    return False
                         except Exception as e:
                             self.log(f"最近消息按钮查找失败: {e}", level="WARNING")
 

@@ -170,6 +170,47 @@ def _message_matches_thread(message: Message, message_thread_id: Optional[int]) 
     return msg_thread_id == message_thread_id
 
 
+def _reply_markup_marker(reply_markup: Any) -> Any:
+    if isinstance(reply_markup, InlineKeyboardMarkup):
+        return (
+            "inline",
+            tuple(
+                tuple(getattr(button, "text", "") for button in row)
+                for row in reply_markup.inline_keyboard
+            ),
+        )
+    if isinstance(reply_markup, ReplyKeyboardMarkup):
+        return (
+            "reply",
+            tuple(
+                tuple(
+                    button if isinstance(button, str) else getattr(button, "text", "")
+                    for button in row
+                )
+                for row in reply_markup.keyboard
+            ),
+        )
+    return None
+
+
+def _message_state_marker(message: Message) -> tuple[Any, ...]:
+    return (
+        getattr(message, "id", None),
+        getattr(message, "text", None),
+        getattr(message, "caption", None),
+        getattr(message, "edit_date", None),
+        _reply_markup_marker(getattr(message, "reply_markup", None)),
+    )
+
+
+def _messages_state(messages: list[Message]) -> dict[int, tuple[Any, ...]]:
+    return {
+        message.id: _message_state_marker(message)
+        for message in messages
+        if message is not None
+    }
+
+
 class KeywordMonitorService:
     def __init__(self) -> None:
         self._handler_refs: list[tuple[str, Any, Any]] = []
@@ -405,17 +446,17 @@ class KeywordMonitorService:
                     return False
         return False
 
-    async def _click_keyboard_by_text(
+    async def _click_keyboard_by_text_result(
         self,
         client: Any,
         target_chat_id: Union[int, str],
         target_thread_id: Optional[int],
         action: Dict[str, Any],
         message: Message,
-    ) -> bool:
+    ) -> tuple[bool, bool]:
         target_text = _clean_text_for_match(str(action.get("text") or ""))
         if not target_text:
-            return False
+            return False, False
 
         reply_markup = getattr(message, "reply_markup", None)
         if isinstance(reply_markup, InlineKeyboardMarkup):
@@ -425,8 +466,8 @@ class KeywordMonitorService:
                 if not button_text:
                     continue
                 if _button_text_matches(target_text, _clean_text_for_match(button_text)):
-                    return await self._click_inline_button(client, message, button)
-            return False
+                    return await self._click_inline_button(client, message, button), True
+            return False, False
 
         if isinstance(reply_markup, ReplyKeyboardMarkup):
             for row in reply_markup.keyboard:
@@ -441,8 +482,25 @@ class KeywordMonitorService:
                         if target_thread_id is not None:
                             kwargs["message_thread_id"] = target_thread_id
                         await client.send_message(target_chat_id, button_text, **kwargs)
-                        return True
-        return False
+                        return True, True
+        return False, False
+
+    async def _click_keyboard_by_text(
+        self,
+        client: Any,
+        target_chat_id: Union[int, str],
+        target_thread_id: Optional[int],
+        action: Dict[str, Any],
+        message: Message,
+    ) -> bool:
+        clicked, _matched = await self._click_keyboard_by_text_result(
+            client,
+            target_chat_id,
+            target_thread_id,
+            action,
+            message,
+        )
+        return clicked
 
     async def _recent_messages(
         self,
@@ -486,6 +544,26 @@ class KeywordMonitorService:
             if self._message_supports_action(message, action_id):
                 return message
         return None
+
+    async def _wait_for_chat_advance(
+        self,
+        client: Any,
+        chat_id: Union[int, str],
+        thread_id: Optional[int],
+        before_state: dict[int, tuple[Any, ...]],
+        *,
+        limit: int,
+        timeout: float,
+    ) -> bool:
+        deadline = time.perf_counter() + max(timeout, 0.5)
+        while time.perf_counter() < deadline:
+            await asyncio.sleep(0.5)
+            messages = await self._recent_messages(client, chat_id, thread_id, limit)
+            current_state = _messages_state(messages)
+            for message_id, marker in current_state.items():
+                if before_state.get(message_id) != marker:
+                    return True
+        return False
 
     async def _download_photo_bytes(self, client: Any, message: Message) -> bytes:
         image_buffer = await client.download_media(message.photo.file_id, in_memory=True)
@@ -613,14 +691,35 @@ class KeywordMonitorService:
 
             for recent_message in usable_messages:
                 if action_id == 3:
-                    if await self._click_keyboard_by_text(
+                    before_state = _messages_state(recent_messages)
+                    clicked, matched = await self._click_keyboard_by_text_result(
                         client,
                         target_chat_id,
                         target_thread_id,
                         action,
                         recent_message,
-                    ):
+                    )
+                    if clicked:
                         return True
+                    if matched and await self._wait_for_chat_advance(
+                        client,
+                        target_chat_id,
+                        target_thread_id,
+                        before_state,
+                        limit=limit,
+                        timeout=min(5.0, action_timeout),
+                    ):
+                        logger.info(
+                            "Keyword monitor button click returned false, "
+                            "but chat advanced; continuing"
+                        )
+                        return True
+                    if matched:
+                        logger.warning(
+                            "Keyword monitor button click returned false, "
+                            "and chat did not advance"
+                        )
+                        return False
                     continue
 
                 if await self._execute_ai_action(
