@@ -127,10 +127,14 @@ _test*.json
 .agent
 
 frontend/node_modules/
+node_modules/
 frontend/.next/
 frontend/out/
 frontend/tsconfig.tsbuildinfo
 frontend/.env.local
+docs/.vitepress/cache/
+docs/.vitepress/.temp/
+docs/.vitepress/dist/
 .venv/
 .venv*/
 .ruff_cache/

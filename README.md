@@ -1,5 +1,7 @@
 # TG-SignPulse
 
+> Docs: [docs/README.md](docs/README.md)
+
 > Telegram 多账号自动签到、消息动作编排与关键词监听面板。
 
 [English README](README_EN.md) · [健康检查](#健康检查) · [更新日志](#更新日志)
