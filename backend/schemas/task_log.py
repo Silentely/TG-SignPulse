@@ -5,6 +5,13 @@ from typing import Optional
 
 from pydantic import BaseModel
 
+try:
+    from pydantic import ConfigDict
+except ImportError:  # pragma: no cover - pydantic v1 compatibility
+    ConfigDict = None
+
+_PYDANTIC_V2 = hasattr(BaseModel, "model_validate")
+
 
 class TaskLogOut(BaseModel):
     id: int
@@ -15,5 +22,8 @@ class TaskLogOut(BaseModel):
     started_at: datetime
     finished_at: Optional[datetime] = None
 
-    class Config:
-        orm_mode = True
+    if _PYDANTIC_V2 and ConfigDict is not None:
+        model_config = ConfigDict(from_attributes=True)
+    else:
+        class Config:
+            orm_mode = True

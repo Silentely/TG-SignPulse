@@ -5,6 +5,13 @@ from typing import Optional
 
 from pydantic import BaseModel
 
+try:
+    from pydantic import ConfigDict
+except ImportError:  # pragma: no cover - pydantic v1 compatibility
+    ConfigDict = None
+
+_PYDANTIC_V2 = hasattr(BaseModel, "model_validate")
+
 
 class TaskBase(BaseModel):
     name: str  # 对应 tg-signer 的 task_name
@@ -30,5 +37,8 @@ class TaskOut(TaskBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        orm_mode = True
+    if _PYDANTIC_V2 and ConfigDict is not None:
+        model_config = ConfigDict(from_attributes=True)
+    else:
+        class Config:
+            orm_mode = True

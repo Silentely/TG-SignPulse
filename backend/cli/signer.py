@@ -36,7 +36,7 @@ def login_account(
     input_data = ("\n".join(input_parts) + "\n") if input_parts else None
     return subprocess.run(
         args,
-        input=input_data.encode() if input_data else None,
+        input=input_data,
         capture_output=True,
         text=True,
     )

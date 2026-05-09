@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from backend.core.config import get_settings
+from backend.utils.names import validate_storage_name
 from backend.utils.storage import (
     clear_data_dir_override,
     is_writable_dir,
@@ -96,7 +97,9 @@ class ConfigService:
         Returns:
             配置字典，如果不存在则返回 None
         """
+        task_name = validate_storage_name(task_name, field_name="task_name")
         if account_name:
+            account_name = validate_storage_name(account_name, field_name="account_name")
             task_dir = self.signs_dir / account_name / task_name
             config_file = task_dir / "config.json"
             if not config_file.exists():
@@ -127,9 +130,11 @@ class ConfigService:
         Returns:
             是否成功保存
         """
+        task_name = validate_storage_name(task_name, field_name="task_name")
         account_name = config.get("account_name", "")
 
         if account_name:
+            account_name = validate_storage_name(account_name, field_name="account_name")
             # 使用新版结构: signs/account/task
             task_dir = self.signs_dir / account_name / task_name
         else:
@@ -159,7 +164,9 @@ class ConfigService:
         Returns:
             是否成功删除
         """
+        task_name = validate_storage_name(task_name, field_name="task_name")
         if account_name:
+            account_name = validate_storage_name(account_name, field_name="account_name")
             task_dir = self.signs_dir / account_name / task_name
             if not task_dir.exists():
                 return False
@@ -249,10 +256,16 @@ class ConfigService:
                 return False
 
             # 确定任务名称
-            final_task_name = task_name or data.get("task_name", "imported_task")
+            final_task_name = validate_storage_name(
+                task_name or data.get("task_name", "imported_task"),
+                field_name="task_name",
+            )
 
             config = data["config"]
             if account_name:
+                account_name = validate_storage_name(
+                    account_name, field_name="account_name"
+                )
                 config["account_name"] = account_name
 
             # 保存配置

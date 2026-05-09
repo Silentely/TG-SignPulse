@@ -1,3 +1,4 @@
+import sys
 from typing import Dict, Literal
 
 from typing_extensions import TypeAlias
@@ -268,4 +269,19 @@ class UserInput:
 
 
 def print_to_user(*args, sep=" ", end="\n", flush=False, **kwargs):
-    return print(*args, sep=sep, end=end, flush=flush, **kwargs)
+    text = sep.join(str(arg) for arg in args) + end
+    stream = kwargs.get("file") or sys.stdout
+    try:
+        stream.write(text)
+    except UnicodeEncodeError:
+        encoding = getattr(stream, "encoding", None) or "utf-8"
+        safe_text = text.encode(encoding, errors="backslashreplace").decode(
+            encoding,
+            errors="ignore",
+        )
+        stream.write(safe_text)
+    if flush:
+        try:
+            stream.flush()
+        except Exception:
+            pass

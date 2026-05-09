@@ -414,7 +414,10 @@ async def save_global_settings(
             "telegram_bot_chat_id": request.telegram_bot_chat_id,
             "telegram_bot_message_thread_id": request.telegram_bot_message_thread_id,
         }
-        fields_set = getattr(request, "model_fields_set", getattr(request, "__fields_set__", set()))
+        if hasattr(request, "model_fields_set"):
+            fields_set = request.model_fields_set
+        else:
+            fields_set = request.__fields_set__
         if "data_dir" in fields_set:
             settings["data_dir"] = request.data_dir
 

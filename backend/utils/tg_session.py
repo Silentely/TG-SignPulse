@@ -3,11 +3,11 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
 from backend.core.config import get_settings
+from backend.utils.time import utc_now_iso
 
 _SESSION_MODE_ENV = "TG_SESSION_MODE"
 _SESSION_MODE_FILE = "file"
@@ -106,7 +106,7 @@ def set_account_session_string(account_name: str, session_string: str) -> None:
     if not isinstance(entry, dict):
         entry = {}
     entry["session_string"] = session_string.strip()
-    entry["updated_at"] = datetime.utcnow().isoformat()
+    entry["updated_at"] = utc_now_iso()
     accounts[account_name] = entry
     _save_account_store(data)
 
@@ -117,6 +117,29 @@ def delete_account_session_string(account_name: str) -> None:
     if isinstance(accounts, dict) and account_name in accounts:
         accounts.pop(account_name, None)
         _save_account_store(data)
+
+
+def rename_account_entry(old_account_name: str, new_account_name: str) -> None:
+    if old_account_name == new_account_name:
+        return
+
+    data = _load_account_store()
+    accounts = data.get("accounts")
+    if not isinstance(accounts, dict):
+        accounts = {}
+        data["accounts"] = accounts
+
+    entry = accounts.pop(old_account_name, None)
+    if entry is None:
+        return
+    if new_account_name in accounts:
+        raise ValueError(f"account_name {new_account_name} already exists")
+
+    if not isinstance(entry, dict):
+        entry = {}
+    entry["updated_at"] = utc_now_iso()
+    accounts[new_account_name] = entry
+    _save_account_store(data)
 
 
 def get_account_profile(account_name: str) -> dict[str, Any]:
@@ -167,7 +190,7 @@ def set_account_profile(
         entry["remark"] = remark.strip() if isinstance(remark, str) else remark
     if proxy is not None:
         entry["proxy"] = proxy.strip() if isinstance(proxy, str) else proxy
-    entry["updated_at"] = datetime.utcnow().isoformat()
+    entry["updated_at"] = utc_now_iso()
     accounts[account_name] = entry
     _save_account_store(data)
 
@@ -205,13 +228,13 @@ def set_account_status(
     entry["status"] = status
     entry["status_message"] = message or ""
     entry["status_code"] = code
-    entry["status_checked_at"] = datetime.utcnow().isoformat()
+    entry["status_checked_at"] = utc_now_iso()
     entry["needs_relogin"] = bool(needs_relogin)
     if invalid_notified_at is not None:
         entry["invalid_notified_at"] = invalid_notified_at
     if status != "invalid":
         entry.pop("invalid_notified_at", None)
-    entry["updated_at"] = datetime.utcnow().isoformat()
+    entry["updated_at"] = utc_now_iso()
     accounts[account_name] = entry
     _save_account_store(data)
 

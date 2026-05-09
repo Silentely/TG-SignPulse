@@ -35,7 +35,10 @@ RUN pip install --no-cache-dir "pydantic<2" "fastapi==0.109.2"
 RUN pip install --no-cache-dir "bcrypt==4.0.1"
 
 # Install project and runtime deps.
-COPY . /app
+COPY README.md pyproject.toml pyotp.py /app/
+COPY backend /app/backend
+COPY tg_signer /app/tg_signer
+COPY jose /app/jose
 RUN pip install --no-cache-dir . && \
   pip install --no-cache-dir \
   uvicorn[standard] \

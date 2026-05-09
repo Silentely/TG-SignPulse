@@ -1,140 +1,163 @@
 "use client";
 
-import { Robot as BotIcon, Spinner } from "@phosphor-icons/react";
-import { GlobalSettings } from "../../../lib/api";
+import { Robot, Spinner } from "@phosphor-icons/react";
+import type { GlobalSettings } from "../../../lib/api";
 
 type Props = {
-    settings: GlobalSettings;
-    setSettings: (settings: GlobalSettings) => void;
-    loading: boolean;
-    onSave: () => void;
-    t: (key: string) => string;
+  settings: GlobalSettings;
+  setSettings: (settings: GlobalSettings) => void;
+  loading: boolean;
+  onSave: () => void;
+  t: (key: string) => string;
 };
 
-function Toggle({
-    checked,
-    onChange,
-    label,
+function formatNotifyTarget(settings: GlobalSettings) {
+  if (!settings.telegram_bot_chat_id) return "";
+  return settings.telegram_bot_message_thread_id
+    ? `${settings.telegram_bot_chat_id}/${settings.telegram_bot_message_thread_id}`
+    : settings.telegram_bot_chat_id;
+}
+
+function parseNotifyTarget(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return {
+      telegram_bot_chat_id: null,
+      telegram_bot_message_thread_id: null,
+    };
+  }
+
+  const [chatIdPart, threadIdPart] = trimmed.split("/", 2);
+  const chatId = chatIdPart?.trim() || null;
+  const threadId = threadIdPart?.trim();
+
+  return {
+    telegram_bot_chat_id: chatId,
+    telegram_bot_message_thread_id:
+      threadId && /^\d+$/.test(threadId) ? parseInt(threadId, 10) : null,
+  };
+}
+
+function SettingSwitch({
+  checked,
+  onToggle,
+  title,
+  description,
 }: {
-    checked: boolean;
-    onChange: () => void;
-    label: string;
+  checked: boolean;
+  onToggle: () => void;
+  title: string;
+  description?: string;
 }) {
-    return (
-        <button
-            type="button"
-            className={`w-12 h-7 rounded-full relative transition-all shadow-sm border-2 ${checked ? "bg-[#8a3ffc] border-[#8a3ffc]" : "bg-black/20 dark:bg-white/10 border-black/10 dark:border-white/30"}`}
-            onClick={onChange}
-            aria-label={label}
-        >
-            <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all shadow-md ${checked ? "left-6" : "left-0.5"}`} />
-        </button>
-    );
+  return (
+    <div className="demo-switch-card">
+      <div className="min-w-0">
+        <div className="text-sm font-medium text-main">{title}</div>
+        {description ? <div className="mt-1 text-xs text-main/50">{description}</div> : null}
+      </div>
+      <button
+        type="button"
+        className="demo-switch-wrapper shrink-0"
+        onClick={onToggle}
+        aria-label={title}
+      >
+        <span className={`demo-switch ${checked ? "is-on" : ""}`} />
+      </button>
+    </div>
+  );
 }
 
 export function TelegramBotNotificationSettings({
-    settings,
-    setSettings,
-    loading,
-    onSave,
-    t,
+  settings,
+  setSettings,
+  loading,
+  onSave,
+  t,
 }: Props) {
-    return (
-        <div className="glass-panel p-4">
-            <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 bg-cyan-500/10 rounded-xl text-cyan-400">
-                    <BotIcon weight="bold" size={18} />
-                </div>
-                <h2 className="text-lg font-bold">{t("telegram_bot_notify")}</h2>
-            </div>
+  return (
+    <section className="glass-panel demo-surface-card">
+      <div className="demo-surface-header flex items-center justify-between gap-3">
+        <h3 className="demo-section-title !mb-0">
+          <Robot weight="fill" size={16} className="text-[#2AABEE]" />
+          <span>{t("telegram_bot_notify")}</span>
+        </h3>
+        <button
+          type="button"
+          className="demo-switch-wrapper"
+          onClick={() =>
+            setSettings({
+              ...settings,
+              telegram_bot_notify_enabled: !settings.telegram_bot_notify_enabled,
+            })
+          }
+          aria-label={t("telegram_bot_master_switch")}
+        >
+          <span className={`demo-switch ${settings.telegram_bot_notify_enabled ? "is-on" : ""}`} />
+        </button>
+      </div>
 
-            <div className="space-y-4">
-                <div className="rounded-xl border border-white/5 bg-white/3 p-3 flex items-center justify-between gap-3">
-                    <div>
-                        <label className="text-[11px] mb-1">{t("telegram_bot_master_switch")}</label>
-                        <p className="text-[9px] text-[#9496a1]">{t("telegram_bot_notify_desc")}</p>
-                    </div>
-                    <Toggle
-                        checked={Boolean(settings.telegram_bot_notify_enabled)}
-                        label={t("telegram_bot_master_switch")}
-                        onChange={() => setSettings({
-                            ...settings,
-                            telegram_bot_notify_enabled: !settings.telegram_bot_notify_enabled,
-                        })}
-                    />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                        <label className="text-[11px] mb-1">{t("telegram_bot_token")}</label>
-                        <input
-                            type="password"
-                            className="!py-2 !px-4"
-                            value={settings.telegram_bot_token || ""}
-                            onChange={(e) => setSettings({ ...settings, telegram_bot_token: e.target.value || null })}
-                            placeholder={t("telegram_bot_token_placeholder")}
-                        />
-                    </div>
-                    <div>
-                        <label className="text-[11px] mb-1">{t("telegram_bot_chat_id")}</label>
-                        <input
-                            className="!py-2 !px-4"
-                            value={settings.telegram_bot_chat_id || ""}
-                            onChange={(e) => setSettings({ ...settings, telegram_bot_chat_id: e.target.value || null })}
-                            placeholder={t("telegram_bot_chat_id_placeholder")}
-                        />
-                    </div>
-                    <div>
-                        <label className="text-[11px] mb-1">{t("telegram_bot_thread_id")}</label>
-                        <input
-                            inputMode="numeric"
-                            className="!py-2 !px-4"
-                            value={settings.telegram_bot_message_thread_id ?? ""}
-                            onChange={(e) => setSettings({
-                                ...settings,
-                                telegram_bot_message_thread_id: e.target.value ? parseInt(e.target.value) : null,
-                            })}
-                            placeholder={t("telegram_bot_thread_id_placeholder")}
-                        />
-                    </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className="rounded-xl border border-white/5 bg-black/5 p-3 flex items-center justify-between gap-3">
-                        <div>
-                            <label className="text-[11px] mb-1">{t("telegram_login_notify")}</label>
-                            <p className="text-[9px] text-[#9496a1]">{t("telegram_login_notify_desc")}</p>
-                        </div>
-                        <Toggle
-                            checked={Boolean(settings.telegram_bot_login_notify_enabled)}
-                            label={t("telegram_login_notify")}
-                            onChange={() => setSettings({
-                                ...settings,
-                                telegram_bot_login_notify_enabled: !settings.telegram_bot_login_notify_enabled,
-                            })}
-                        />
-                    </div>
-
-                    <div className="rounded-xl border border-white/5 bg-black/5 p-3 flex items-center justify-between gap-3">
-                        <div>
-                            <label className="text-[11px] mb-1">{t("telegram_task_failure_notify")}</label>
-                            <p className="text-[9px] text-[#9496a1]">{t("telegram_task_failure_notify_desc")}</p>
-                        </div>
-                        <Toggle
-                            checked={settings.telegram_bot_task_failure_enabled !== false}
-                            label={t("telegram_task_failure_notify")}
-                            onChange={() => setSettings({
-                                ...settings,
-                                telegram_bot_task_failure_enabled: !(settings.telegram_bot_task_failure_enabled !== false),
-                            })}
-                        />
-                    </div>
-                </div>
-
-                <button className="btn-gradient w-fit px-5 !py-2 !text-[11px]" onClick={onSave} disabled={loading}>
-                    {loading ? <Spinner className="animate-spin" /> : t("save")}
-                </button>
-            </div>
+      <div className="demo-surface-body space-y-4">
+        <div>
+          <label>{t("telegram_bot_token")}</label>
+          <input
+            type="password"
+            value={settings.telegram_bot_token || ""}
+            onChange={(e) =>
+              setSettings({
+                ...settings,
+                telegram_bot_token: e.target.value.trim() || null,
+              })
+            }
+            placeholder={t("telegram_bot_token_placeholder")}
+          />
         </div>
-    );
+
+        <div>
+          <label>{`${t("telegram_bot_chat_id")} / ${t("telegram_bot_thread_id")}`}</label>
+          <input
+            value={formatNotifyTarget(settings)}
+            onChange={(e) =>
+              setSettings({
+                ...settings,
+                ...parseNotifyTarget(e.target.value),
+              })
+            }
+            placeholder="-1003820990608/67"
+          />
+          <p className="demo-form-note">-1003820990608 或 -1003820990608/67</p>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <SettingSwitch
+            checked={Boolean(settings.telegram_bot_login_notify_enabled)}
+            onToggle={() =>
+              setSettings({
+                ...settings,
+                telegram_bot_login_notify_enabled: !settings.telegram_bot_login_notify_enabled,
+              })
+            }
+            title={t("telegram_login_notify")}
+            description={t("telegram_login_notify_desc")}
+          />
+
+          <SettingSwitch
+            checked={settings.telegram_bot_task_failure_enabled !== false}
+            onToggle={() =>
+              setSettings({
+                ...settings,
+                telegram_bot_task_failure_enabled: !(settings.telegram_bot_task_failure_enabled !== false),
+              })
+            }
+            title={t("telegram_task_failure_notify")}
+            description={t("telegram_task_failure_notify_desc")}
+          />
+        </div>
+
+        <button type="button" className="btn-gradient" onClick={onSave} disabled={loading}>
+          {loading ? <Spinner className="animate-spin" size={16} /> : null}
+          <span>{t("save")}</span>
+        </button>
+      </div>
+    </section>
+  );
 }

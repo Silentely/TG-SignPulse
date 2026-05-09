@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime
-
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
 
 from backend.core.database import Base
+from backend.utils.time import utc_now_naive
 
 
 class TaskLog(Base):
@@ -16,7 +15,7 @@ class TaskLog(Base):
     status = Column(String(32), nullable=False, default="pending")
     log_path = Column(String(255), nullable=True)
     output = Column(Text, nullable=True)
-    started_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    started_at = Column(DateTime, default=utc_now_naive, nullable=False)
     finished_at = Column(DateTime, nullable=True)
 
     task = relationship("Task", back_populates="logs")

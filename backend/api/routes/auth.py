@@ -10,12 +10,19 @@ from sqlalchemy.orm import Session
 from backend.core import auth as auth_core
 from backend.core.auth import authenticate_user, create_access_token, verify_totp
 from backend.core.database import get_db
+from backend.core.rate_limit import compose_rate_limit_key, get_rate_limiter
 from backend.core.security import verify_password
 from backend.models.user import User
 from backend.schemas.auth import LoginRequest, TokenResponse, UserOut
 
 router = APIRouter()
 logger = logging.getLogger("backend.auth")
+rate_limiter = get_rate_limiter()
+
+LOGIN_RATE_LIMIT_DETAIL = "Too many login attempts. Please try again later."
+RESET_TOTP_RATE_LIMIT_DETAIL = (
+    "Too many TOTP reset attempts. Please try again later."
+)
 
 
 class ResetTOTPRequest(BaseModel):
@@ -39,24 +46,30 @@ def login(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
-    print(f"[DEBUG] Login attempt for user: {payload.username}")
+    login_key = compose_rate_limit_key(request, payload.username)
+    rate_limiter.hit(
+        scope="auth.login",
+        key=login_key,
+        max_attempts=5,
+        window_seconds=300,
+        block_seconds=900,
+        detail=LOGIN_RATE_LIMIT_DETAIL,
+    )
     user = authenticate_user(db, payload.username, payload.password)
     if not user:
-        print(f"[DEBUG] Authentication failed for user: {payload.username}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password",
         )
-    print(f"[DEBUG] User authenticated: {user.username}, TOTP Secret: {bool(user.totp_secret)}")
     if user.totp_secret:
         if not payload.totp_code or not verify_totp(
             user.totp_secret, payload.totp_code
         ):
-            print(f"[DEBUG] TOTP verification failed for user: {user.username}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="TOTP_REQUIRED_OR_INVALID",
             )
+    rate_limiter.reset("auth.login", login_key)
     access_token = create_access_token(
         data={"sub": user.username},
         expires_delta=timedelta(hours=12),
@@ -89,7 +102,11 @@ def me(current_user: User = Depends(auth_core.get_current_user)):
 
 
 @router.post("/reset-totp", response_model=ResetTOTPResponse)
-def reset_totp(request: ResetTOTPRequest, db: Session = Depends(get_db)):
+def reset_totp(
+    request: ResetTOTPRequest,
+    http_request: Request,
+    db: Session = Depends(get_db),
+):
     """
     强制重置 TOTP（不需要 TOTP 验证码，只需要密码）
 
@@ -97,6 +114,16 @@ def reset_totp(request: ResetTOTPRequest, db: Session = Depends(get_db)):
     需要提供正确的用户名和密码。
     """
     # 验证用户名和密码
+    reset_key = compose_rate_limit_key(http_request, request.username)
+    rate_limiter.hit(
+        scope="auth.reset_totp",
+        key=reset_key,
+        max_attempts=5,
+        window_seconds=600,
+        block_seconds=1800,
+        detail=RESET_TOTP_RATE_LIMIT_DETAIL,
+    )
+
     user = db.query(User).filter(User.username == request.username).first()
     if not user:
         raise HTTPException(
@@ -108,12 +135,21 @@ def reset_totp(request: ResetTOTPRequest, db: Session = Depends(get_db)):
             status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误"
         )
 
-    # 如果没有启用 TOTP，提示无需重置
-    if not user.totp_secret:
-        return ResetTOTPResponse(success=True, message="该用户未启用两步验证，无需重置")
-
-    # 清除 TOTP secret
+    had_totp_enabled = bool(user.totp_secret)
     user.totp_secret = None
     db.commit()
+    try:
+        from backend.api.routes.user import clear_pending_totp_secret
+
+        clear_pending_totp_secret(user.id)
+    except Exception:
+        pass
+    rate_limiter.reset("auth.reset_totp", reset_key)
+
+    if not had_totp_enabled:
+        return ResetTOTPResponse(
+            success=True,
+            message="该用户未启用两步验证，待确认设置已清理",
+        )
 
     return ResetTOTPResponse(success=True, message="两步验证已重置，现在可以正常登录")

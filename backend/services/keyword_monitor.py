@@ -3,16 +3,14 @@
 import asyncio
 import logging
 import os
+import random
 import re
 import time
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Union
-
-from pyrogram import errors, filters
-from pyrogram.handlers import MessageHandler
-from pyrogram.types import InlineKeyboardMarkup, Message, ReplyKeyboardMarkup
 
 from backend.core.config import get_settings
 from backend.services.push_notifications import send_keyword_push
@@ -27,6 +25,53 @@ from backend.utils.tg_session import (
 
 logger = logging.getLogger("backend.keyword_monitor")
 settings = get_settings()
+_PYROGRAM_IMPORT_ERROR: Exception | None = None
+
+try:
+    from pyrogram import errors, filters
+    from pyrogram.handlers import MessageHandler
+    from pyrogram.types import InlineKeyboardMarkup, Message, ReplyKeyboardMarkup
+except Exception as exc:  # pragma: no cover - fallback for unsupported runtimes
+    _PYROGRAM_IMPORT_ERROR = exc
+
+    class _RPCError(Exception):
+        pass
+
+    class _FloodWait(_RPCError):
+        def __init__(self, *args, value: int = 0, **kwargs):
+            super().__init__(*args)
+            self.value = value
+
+    errors = SimpleNamespace(FloodWait=_FloodWait)
+
+    class _FilterExpr:
+        def __and__(self, other):
+            return self
+
+        def __or__(self, other):
+            return self
+
+    filters = SimpleNamespace(
+        text=_FilterExpr(),
+        caption=_FilterExpr(),
+        chat=lambda *args, **kwargs: _FilterExpr(),
+    )
+
+    class MessageHandler:  # type: ignore[no-redef]
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError(
+                "Telegram runtime dependencies are unavailable. "
+                "Use Python 3.10-3.13 with a compatible pyrogram/kurigram install."
+            ) from _PYROGRAM_IMPORT_ERROR
+
+    class InlineKeyboardMarkup:  # type: ignore[no-redef]
+        inline_keyboard = ()
+
+    class ReplyKeyboardMarkup:  # type: ignore[no-redef]
+        keyboard = ()
+
+    class Message:  # type: ignore[no-redef]
+        pass
 
 DEFAULT_CONTINUE_TIMEOUT = 25
 DEFAULT_HISTORY_LIMIT = 10
@@ -146,6 +191,28 @@ def _read_positive_float_env(name: str, default: float, minimum: float = 0.0) ->
         return default
 
 
+def _resolve_action_delay(action: Dict[str, Any], fallback_delay: float = 0.0) -> float:
+    raw_delay = action.get("delay")
+    if raw_delay is None:
+        return max(float(fallback_delay or 0.0), 0.0)
+
+    delay_text = str(raw_delay).strip()
+    if not delay_text:
+        return max(float(fallback_delay or 0.0), 0.0)
+
+    try:
+        if "-" in delay_text:
+            start_text, end_text = delay_text.split("-", 1)
+            start = float(start_text)
+            end = float(end_text)
+            if end < start:
+                start, end = end, start
+            return max(random.uniform(start, end), 0.0)
+        return max(float(delay_text), 0.0)
+    except (TypeError, ValueError):
+        return max(float(fallback_delay or 0.0), 0.0)
+
+
 def _render_template(value: Any, variables: Dict[str, str]) -> Any:
     if not isinstance(value, str):
         return value
@@ -193,11 +260,23 @@ def _button_text_matches(target_text: str, button_text: str) -> bool:
 def _message_matches_thread(message: Message, message_thread_id: Optional[int]) -> bool:
     if message_thread_id is None:
         return True
-    msg_thread_id = _as_int_or_none(
-        getattr(message, "message_thread_id", None)
-        or getattr(message, "reply_to_top_message_id", None)
-    )
-    return msg_thread_id == message_thread_id
+    return message_thread_id in _message_thread_candidates(message)
+
+
+def _message_thread_candidates(message: Message) -> list[int]:
+    candidates: list[int] = []
+    for raw_value in (
+        getattr(message, "message_thread_id", None),
+        getattr(message, "direct_messages_chat_topic_id", None),
+        getattr(message, "reply_to_top_message_id", None),
+        getattr(message, "reply_to_message_id", None),
+        getattr(getattr(message, "topic", None), "id", None),
+    ):
+        value = _as_int_or_none(raw_value)
+        if value is None or value in candidates:
+            continue
+        candidates.append(value)
+    return candidates
 
 
 def _reply_markup_marker(reply_markup: Any) -> Any:
@@ -264,6 +343,24 @@ def _message_has_button_text(message: Message, text: str) -> bool:
     return False
 
 
+def _collect_clickable_buttons(message: Message) -> list[tuple[str, Any, str]]:
+    reply_markup = getattr(message, "reply_markup", None)
+    clickable_buttons: list[tuple[str, Any, str]] = []
+    if isinstance(reply_markup, InlineKeyboardMarkup):
+        for row in reply_markup.inline_keyboard:
+            for button in row:
+                button_text = getattr(button, "text", "")
+                if button_text:
+                    clickable_buttons.append(("inline", button, button_text))
+    elif isinstance(reply_markup, ReplyKeyboardMarkup):
+        for row in reply_markup.keyboard:
+            for button in row:
+                button_text = button if isinstance(button, str) else getattr(button, "text", "")
+                if button_text:
+                    clickable_buttons.append(("reply", button, button_text))
+    return clickable_buttons
+
+
 def _message_supports_continue_action(message: Message, action: Dict[str, Any]) -> bool:
     try:
         action_id = int(action.get("action"))
@@ -274,7 +371,7 @@ def _message_supports_continue_action(message: Message, action: Dict[str, Any]) 
     if action_id == 3:
         return _message_has_button_text(message, str(action.get("text") or ""))
     if action_id == 4:
-        return bool(message.photo and isinstance(reply_markup, InlineKeyboardMarkup))
+        return bool(message.photo and _collect_clickable_buttons(message))
     if action_id == 5:
         return bool(message.text or message.caption)
     if action_id == 6:
@@ -329,9 +426,100 @@ class KeywordMonitorService:
         self._lock = asyncio.Lock()
         self._task_logs: dict[tuple[str, str], list[str]] = {}
         self._task_status: dict[tuple[str, str], dict[str, Any]] = {}
+        self._skip_log_times: dict[tuple[str, str, str], float] = {}
+        self._ai_tools: Optional[Any] = None
+        self._ai_cfg_signature: Optional[tuple[str, str, str]] = None
+
+    async def _ensure_client_ready(self, client: Any) -> None:
+        if getattr(client, "is_connected", False):
+            if not getattr(client, "is_initialized", False):
+                try:
+                    await client.initialize()
+                except ConnectionError as exc:
+                    if "already initialized" not in str(exc).lower():
+                        raise
+            return
+
+        is_authorized = await client.connect()
+        if not is_authorized:
+            raise ConnectionError("Session invalid: unauthorized")
+
+        try:
+            await client.get_me()
+        except Exception as exc:
+            raise ConnectionError(f"Session invalid: {exc}") from exc
+
+        if not getattr(client, "is_initialized", False):
+            try:
+                await client.initialize()
+            except ConnectionError as exc:
+                if "already initialized" not in str(exc).lower():
+                    raise
+
+    async def _call_client_with_retry(
+        self,
+        client: Any,
+        callback,
+        *,
+        operation: str,
+        max_retries: int = 4,
+    ):
+        for attempt in range(1, max_retries + 1):
+            try:
+                return await callback()
+            except errors.FloodWait as exc:
+                wait_seconds = max(int(getattr(exc, "value", 1) or 1), 1)
+                logger.warning(
+                    "%s hit FloodWait, retrying in %ss (%s/%s)",
+                    operation,
+                    wait_seconds,
+                    attempt,
+                    max_retries,
+                )
+                if attempt >= max_retries:
+                    raise
+                await asyncio.sleep(wait_seconds)
+            except (TimeoutError, asyncio.TimeoutError, OSError, ConnectionError) as exc:
+                backoff = min(2 ** (attempt - 1), 8)
+                logger.warning(
+                    "%s transient failure, retrying in %ss (%s/%s): %s: %s",
+                    operation,
+                    backoff,
+                    attempt,
+                    max_retries,
+                    type(exc).__name__,
+                    exc,
+                )
+                if attempt >= max_retries:
+                    raise
+                try:
+                    await self._ensure_client_ready(client)
+                except Exception as reconnect_exc:
+                    logger.warning(
+                        "%s reconnect failed: %s: %s",
+                        operation,
+                        type(reconnect_exc).__name__,
+                        reconnect_exc,
+                    )
+                await asyncio.sleep(backoff)
 
     def _task_key(self, account_name: str, task_name: str) -> tuple[str, str]:
         return account_name, task_name
+
+    def _should_log_rule_event(
+        self,
+        rule: KeywordMonitorRule,
+        event_key: str,
+        *,
+        interval_seconds: float = 30.0,
+    ) -> bool:
+        now = time.monotonic()
+        cache_key = (rule.account_name, rule.task_name, event_key)
+        last_logged_at = self._skip_log_times.get(cache_key, 0.0)
+        if now - last_logged_at < interval_seconds:
+            return False
+        self._skip_log_times[cache_key] = now
+        return True
 
     def _append_task_log(
         self,
@@ -539,10 +727,8 @@ class KeywordMonitorService:
         return None
 
     def _message_thread_id(self, message: Message) -> Optional[int]:
-        return _as_int_or_none(
-            getattr(message, "message_thread_id", None)
-            or getattr(message, "reply_to_top_message_id", None)
-        )
+        candidates = _message_thread_candidates(message)
+        return candidates[0] if candidates else None
 
     def _build_variables(
         self,
@@ -608,13 +794,25 @@ class KeywordMonitorService:
         except (TypeError, ValueError):
             return 1.0
 
+    @staticmethod
+    def _build_ai_cfg_signature(cfg: Dict[str, Any]) -> tuple[str, str, str]:
+        return (
+            str(cfg.get("api_key") or ""),
+            str(cfg.get("base_url") or ""),
+            str(cfg.get("model") or ""),
+        )
+
     def _get_ai_tools(self):
         from tg_signer.ai_tools import AITools, OpenAIConfigManager
 
         for workdir in (settings.resolve_session_dir(), settings.resolve_workdir()):
             cfg = OpenAIConfigManager(workdir).load_config()
             if cfg:
-                return AITools(cfg)
+                signature = self._build_ai_cfg_signature(cfg)
+                if self._ai_tools is None or self._ai_cfg_signature != signature:
+                    self._ai_tools = AITools(cfg)
+                    self._ai_cfg_signature = signature
+                return self._ai_tools
         raise RuntimeError("OpenAI config is required for keyword monitor AI actions")
 
     async def _warm_chat(self, client: Any, chat_id: Union[int, str]) -> None:
@@ -650,6 +848,14 @@ class KeywordMonitorService:
                         exc,
                     )
                     return False
+                try:
+                    await self._ensure_client_ready(client)
+                except Exception as reconnect_exc:
+                    logger.warning(
+                        "Keyword monitor callback reconnect failed: %s: %s",
+                        type(reconnect_exc).__name__,
+                        reconnect_exc,
+                    )
                 await asyncio.sleep(min(2**attempt, 6))
             except Exception as exc:
                 if _is_callback_data_invalid(exc):
@@ -728,7 +934,13 @@ class KeywordMonitorService:
                         kwargs: Dict[str, Any] = {}
                         if target_thread_id is not None:
                             kwargs["message_thread_id"] = target_thread_id
-                        await client.send_message(target_chat_id, button_text, **kwargs)
+                        await self._call_client_with_retry(
+                            client,
+                            lambda _button_text=button_text, _kwargs=dict(kwargs): client.send_message(
+                                target_chat_id, _button_text, **_kwargs
+                            ),
+                            operation=f"keyword monitor send reply keyboard {target_chat_id}",
+                        )
                         return True, True
         return False, False
 
@@ -756,18 +968,25 @@ class KeywordMonitorService:
         thread_id: Optional[int],
         limit: int,
     ) -> list[Message]:
-        messages: list[Message] = []
-        async for message in client.get_chat_history(chat_id, limit=limit):
-            if _message_matches_thread(message, thread_id):
-                messages.append(message)
-        return messages
+        async def _load_messages() -> list[Message]:
+            messages: list[Message] = []
+            async for message in client.get_chat_history(chat_id, limit=limit):
+                if _message_matches_thread(message, thread_id):
+                    messages.append(message)
+            return messages
+
+        return await self._call_client_with_retry(
+            client,
+            _load_messages,
+            operation=f"keyword monitor get_chat_history {chat_id}",
+        )
 
     def _message_supports_action(self, message: Message, action_id: int) -> bool:
         reply_markup = getattr(message, "reply_markup", None)
         if action_id == 3:
             return bool(reply_markup)
         if action_id == 4:
-            return bool(message.photo and isinstance(reply_markup, InlineKeyboardMarkup))
+            return bool(message.photo and _collect_clickable_buttons(message))
         if action_id == 5:
             return bool(message.text or message.caption)
         if action_id == 6:
@@ -889,23 +1108,49 @@ class KeywordMonitorService:
 
         if action_id == 5:
             query = (message.text or message.caption or "").strip()
-            answer = (await ai_tools.calculate_problem(query) or "").strip()
+            answer = (
+                await ai_tools.calculate_problem(
+                    query,
+                    system_prompt=action.get("ai_prompt"),
+                )
+                or ""
+            ).strip()
             if not answer:
                 return False
-            await client.send_message(target_chat_id, answer, **kwargs)
+            await self._call_client_with_retry(
+                client,
+                lambda: client.send_message(target_chat_id, answer, **kwargs),
+                operation=f"keyword monitor AI text reply {target_chat_id}",
+            )
             return True
 
         if action_id == 6:
             image_bytes = await self._download_photo_bytes(client, message)
-            answer = (await ai_tools.extract_text_by_image(image_bytes) or "").strip()
+            answer = (
+                await ai_tools.extract_text_by_image(
+                    image_bytes,
+                    system_prompt=action.get("ai_prompt"),
+                )
+                or ""
+            ).strip()
             if not answer:
                 return False
-            await client.send_message(target_chat_id, answer, **kwargs)
+            await self._call_client_with_retry(
+                client,
+                lambda: client.send_message(target_chat_id, answer, **kwargs),
+                operation=f"keyword monitor AI OCR reply {target_chat_id}",
+            )
             return True
 
         if action_id == 7:
             query = (message.text or message.caption or "").strip()
-            answer = (await ai_tools.calculate_problem(query) or "").strip()
+            answer = (
+                await ai_tools.calculate_problem(
+                    query,
+                    system_prompt=action.get("ai_prompt"),
+                )
+                or ""
+            ).strip()
             if not answer:
                 return False
             proxy_action = {"action": 3, "text": answer}
@@ -914,20 +1159,19 @@ class KeywordMonitorService:
             )
 
         if action_id == 4:
-            reply_markup = getattr(message, "reply_markup", None)
-            if not isinstance(reply_markup, InlineKeyboardMarkup) or not message.photo:
+            if not message.photo:
                 return False
-            flat_buttons = [button for row in reply_markup.inline_keyboard for button in row]
-            clickable_buttons = [button for button in flat_buttons if getattr(button, "text", None)]
+            clickable_buttons = _collect_clickable_buttons(message)
             if not clickable_buttons:
                 return False
             image_bytes = await self._download_photo_bytes(client, message)
             question_text = (message.caption or message.text or "").strip() or "Choose the correct option"
-            options = [button.text for button in clickable_buttons]
+            options = [button_text for _, _, button_text in clickable_buttons]
             result_indexes = await ai_tools.choose_options_by_image(
                 image_bytes,
                 question_text,
                 list(enumerate(options, start=1)),
+                system_prompt=action.get("ai_prompt"),
             )
             clicked = 0
             for result_index in result_indexes:
@@ -939,7 +1183,18 @@ class KeywordMonitorService:
                     selected_index = result_index
                 else:
                     return False
-                if await self._click_inline_button(client, message, clickable_buttons[selected_index]):
+                button_kind, button, button_text = clickable_buttons[selected_index]
+                if button_kind == "inline":
+                    if await self._click_inline_button(client, message, button):
+                        clicked += 1
+                else:
+                    await self._call_client_with_retry(
+                        client,
+                        lambda _button_text=button_text, _kwargs=dict(kwargs): client.send_message(
+                            target_chat_id, _button_text, **_kwargs
+                        ),
+                        operation=f"keyword monitor reply keyboard click {target_chat_id}",
+                    )
                     clicked += 1
                 await asyncio.sleep(0.3)
             return clicked > 0
@@ -964,12 +1219,20 @@ class KeywordMonitorService:
             text = str(action.get("text") or "").strip()
             if not text:
                 return False
-            await client.send_message(target_chat_id, text, **kwargs)
+            await self._call_client_with_retry(
+                client,
+                lambda: client.send_message(target_chat_id, text, **kwargs),
+                operation=f"keyword monitor continue send_message {target_chat_id}",
+            )
             return True
 
         if action_id == 2:
             dice = str(action.get("dice") or "🎲").strip() or "🎲"
-            await client.send_dice(target_chat_id, dice, **kwargs)
+            await self._call_client_with_retry(
+                client,
+                lambda: client.send_dice(target_chat_id, dice, **kwargs),
+                operation=f"keyword monitor continue send_dice {target_chat_id}",
+            )
             return True
 
         action_timeout = timeout or _read_positive_float_env(
@@ -1125,8 +1388,17 @@ class KeywordMonitorService:
                     if index < len(rendered_actions)
                     else None
                 )
-                started = time.perf_counter()
                 action_desc = self._describe_continue_action(action)
+                action_delay = _resolve_action_delay(
+                    action,
+                    interval if index > 1 else 0.0,
+                )
+                if action_delay > 0:
+                    self._append_rule_log(
+                        rule,
+                        f"后续动作 {index}/{len(rendered_actions)} 等待 {action_delay:g} 秒后执行：{action_desc}",
+                    )
+                    await asyncio.sleep(action_delay)
                 self._append_rule_log(
                     rule,
                     f"后续动作 {index}/{len(rendered_actions)} 开始：{action_desc}",
@@ -1173,9 +1445,6 @@ class KeywordMonitorService:
                     rule,
                     f"后续动作 {index}/{len(rendered_actions)} 执行成功：{action_desc}",
                 )
-                elapsed = time.perf_counter() - started
-                if interval > 0 and index < len(continue_actions):
-                    await asyncio.sleep(max(interval - elapsed, 0.0))
             self._append_rule_log(rule, "关键词命中后续动作全部执行完成")
 
     async def _on_message(self, account_name: str, client: Any, message: Message) -> None:
@@ -1186,17 +1455,38 @@ class KeywordMonitorService:
             if not text:
                 return
             message_thread_id = self._message_thread_id(message)
-            matched_rules = [
+            same_chat_rules = [
                 rule
                 for rule in self._rules
                 if rule.account_name == account_name
                 and rule.chat_id == message.chat.id
-                and (
-                    rule.message_thread_id is None
-                    or rule.message_thread_id == message_thread_id
-                )
+            ]
+            if not same_chat_rules:
+                return
+            matched_rules = [
+                rule
+                for rule in same_chat_rules
+                if _message_matches_thread(message, rule.message_thread_id)
             ]
             if not matched_rules:
+                thread_candidates = _message_thread_candidates(message)
+                for rule in same_chat_rules:
+                    if rule.message_thread_id is None:
+                        continue
+                    if not self._should_log_rule_event(
+                        rule,
+                        "thread_mismatch",
+                        interval_seconds=45.0,
+                    ):
+                        continue
+                    self._append_rule_log(
+                        rule,
+                        "监听收到消息但话题ID不匹配："
+                        f"配置={rule.message_thread_id}，"
+                        f"消息={message_thread_id if message_thread_id is not None else '-'}，"
+                        f"候选={thread_candidates or ['-']}",
+                        active=True,
+                    )
                 return
 
             global_settings = get_config_service().get_global_settings()
@@ -1224,6 +1514,19 @@ class KeywordMonitorService:
             for rule in matched_rules:
                 matched = self._match_keyword(rule.action, text)
                 if not matched:
+                    if self._should_log_rule_event(
+                        rule,
+                        "keyword_miss",
+                        interval_seconds=60.0,
+                    ):
+                        text_preview = text.replace("\n", " ").strip()
+                        if len(text_preview) > 120:
+                            text_preview = text_preview[:117] + "..."
+                        self._append_rule_log(
+                            rule,
+                            f"监听收到消息但关键词未命中：消息={text_preview}",
+                            active=True,
+                        )
                     continue
                 text_preview = text.replace("\n", " ").strip()
                 if len(text_preview) > 160:
@@ -1273,10 +1576,14 @@ class KeywordMonitorService:
                         forward_payload = forward_text
                         if url:
                             forward_payload += f"\n\nLink: {url}"
-                        await client.send_message(
-                            forward_chat_id,
-                            forward_payload[:3900],
-                            **forward_kwargs,
+                        await self._call_client_with_retry(
+                            client,
+                            lambda _forward_chat_id=forward_chat_id, _forward_payload=forward_payload[:3900], _forward_kwargs=dict(forward_kwargs): client.send_message(
+                                _forward_chat_id,
+                                _forward_payload,
+                                **_forward_kwargs,
+                            ),
+                            operation=f"keyword monitor forward match {forward_chat_id}",
                         )
                         self._append_rule_log(
                             rule,

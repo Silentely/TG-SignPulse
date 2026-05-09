@@ -7,18 +7,41 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from backend.core.auth import get_current_user
+from backend.core.rate_limit import compose_rate_limit_key, get_rate_limiter
 from backend.models.user import User
 from backend.services.telegram import get_telegram_service
+from backend.utils.task_logs import extract_last_target_message
 
 router = APIRouter()
 logger = logging.getLogger("backend.qr_login")
+rate_limiter = get_rate_limiter()
+
+
+def _apply_rate_limit(
+    scope: str,
+    request: Request,
+    detail: str,
+    *parts: str,
+    max_attempts: int,
+    window_seconds: int,
+    block_seconds: int,
+) -> str:
+    key = compose_rate_limit_key(request, *parts)
+    rate_limiter.hit(
+        scope=scope,
+        key=key,
+        max_attempts=max_attempts,
+        window_seconds=window_seconds,
+        block_seconds=block_seconds,
+        detail=detail,
+    )
+    return key
 
 
 # ============ Schemas ============
@@ -152,6 +175,7 @@ class DeleteAccountResponse(BaseModel):
 
 
 class AccountUpdateRequest(BaseModel):
+    new_account_name: Optional[str] = None
     """更新账号备注/代理"""
 
     remark: Optional[str] = None
@@ -197,7 +221,9 @@ class AccountStatusCheckResponse(BaseModel):
 
 @router.post("/login/start", response_model=LoginStartResponse)
 async def start_account_login(
-    request: LoginStartRequest, current_user: User = Depends(get_current_user)
+    request: LoginStartRequest,
+    http_request: Request,
+    current_user: User = Depends(get_current_user),
 ):
     """
     开始账号登录流程（发送验证码）
@@ -207,11 +233,22 @@ async def start_account_login(
     3. 返回 phone_code_hash 用于后续验证
     """
     try:
+        limit_key = _apply_rate_limit(
+            "accounts.login.start",
+            http_request,
+            "Too many account login code requests. Please try again later.",
+            request.account_name,
+            request.phone_number,
+            max_attempts=6,
+            window_seconds=600,
+            block_seconds=900,
+        )
         result = await get_telegram_service().start_login(
             account_name=request.account_name,
             phone_number=request.phone_number,
             proxy=request.proxy,
         )
+        rate_limiter.reset("accounts.login.start", limit_key)
 
         return LoginStartResponse(**result)
 
@@ -226,7 +263,9 @@ async def start_account_login(
 
 @router.post("/login/verify", response_model=LoginVerifyResponse)
 async def verify_account_login(
-    request: LoginVerifyRequest, current_user: User = Depends(get_current_user)
+    request: LoginVerifyRequest,
+    http_request: Request,
+    current_user: User = Depends(get_current_user),
 ):
     """
     验证账号登录（输入验证码和可选的2FA密码）
@@ -236,6 +275,16 @@ async def verify_account_login(
     3. 验证成功后，生成 session 文件
     """
     try:
+        limit_key = _apply_rate_limit(
+            "accounts.login.verify",
+            http_request,
+            "Too many account login verification attempts. Please try again later.",
+            request.account_name,
+            request.phone_number,
+            max_attempts=8,
+            window_seconds=600,
+            block_seconds=900,
+        )
         result = await get_telegram_service().verify_login(
             account_name=request.account_name,
             phone_number=request.phone_number,
@@ -244,6 +293,7 @@ async def verify_account_login(
             password=request.password,
             proxy=request.proxy,
         )
+        rate_limiter.reset("accounts.login.verify", limit_key)
 
         return LoginVerifyResponse(
             success=True,
@@ -264,13 +314,25 @@ async def verify_account_login(
 
 @router.post("/qr/start", response_model=QrLoginStartResponse)
 async def start_qr_login(
-    request: QrLoginStartRequest, current_user: User = Depends(get_current_user)
+    request: QrLoginStartRequest,
+    http_request: Request,
+    current_user: User = Depends(get_current_user),
 ):
     """开始扫码登录流程"""
     try:
+        limit_key = _apply_rate_limit(
+            "accounts.qr.start",
+            http_request,
+            "Too many QR login requests. Please try again later.",
+            request.account_name,
+            max_attempts=8,
+            window_seconds=600,
+            block_seconds=900,
+        )
         result = await get_telegram_service().start_qr_login(
             account_name=request.account_name, proxy=request.proxy
         )
+        rate_limiter.reset("accounts.qr.start", limit_key)
 
         qr_image = None
         try:
@@ -334,13 +396,25 @@ async def get_qr_login_status(
 
 @router.post("/qr/password", response_model=QrLoginPasswordResponse)
 async def submit_qr_login_password(
-    request: QrLoginPasswordRequest, current_user: User = Depends(get_current_user)
+    request: QrLoginPasswordRequest,
+    http_request: Request,
+    current_user: User = Depends(get_current_user),
 ):
     """提交扫码登录 2FA 密码"""
     try:
+        limit_key = _apply_rate_limit(
+            "accounts.qr.password",
+            http_request,
+            "Too many QR password attempts. Please try again later.",
+            request.login_id,
+            max_attempts=5,
+            window_seconds=600,
+            block_seconds=900,
+        )
         result = await get_telegram_service().submit_qr_password(
             request.login_id, request.password
         )
+        rate_limiter.reset("accounts.qr.password", limit_key)
         account = result.get("account")
         if account:
             account = AccountInfo(**account)
@@ -456,6 +530,38 @@ async def check_accounts_status(
         )
 
 
+@router.get("/logs/recent", response_model=list[dict])
+def get_recent_account_logs(
+    limit: int = 50, current_user: User = Depends(get_current_user)
+):
+    from backend.services.sign_tasks import get_sign_task_service
+
+    if limit < 1:
+        limit = 1
+    if limit > 200:
+        limit = 200
+
+    history = get_sign_task_service().get_recent_history_logs(limit=limit)
+    logs: list[dict] = []
+    for idx, item in enumerate(history):
+        task_name = item.get("task_name", "Unknown Task")
+        success = bool(item.get("success", False))
+        logs.append(
+            {
+                "id": idx + 1,
+                "account_name": item.get("account_name", ""),
+                "task_name": task_name,
+                "message": item.get("message")
+                or ("Task succeeded" if success else "Task failed"),
+                "summary": f"Task: {task_name} {'success' if success else 'failed'}",
+                "bot_message": _extract_last_bot_message(item) or None,
+                "success": success,
+                "created_at": item.get("time", ""),
+            }
+        )
+    return logs
+
+
 @router.delete("/{account_name}", response_model=DeleteAccountResponse)
 async def delete_account(
     account_name: str, current_user: User = Depends(get_current_user)
@@ -497,7 +603,7 @@ def check_account_exists(
 
 
 @router.patch("/{account_name}", response_model=AccountUpdateResponse)
-def update_account(
+async def update_account(
     account_name: str,
     request: AccountUpdateRequest,
     current_user: User = Depends(get_current_user),
@@ -505,45 +611,84 @@ def update_account(
     """
     更新账号备注/代理（不影响登录状态）
     """
-    if not get_telegram_service().account_exists(account_name):
+    service = get_telegram_service()
+    accounts = service.list_accounts(force_refresh=True)
+    current_account = next(
+        (
+            acc
+            for acc in accounts
+            if str(acc.get("name") or "").strip().lower() == account_name.strip().lower()
+        ),
+        None,
+    )
+    if not current_account:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"账号 {account_name} 不存在",
+            detail=f"Account {account_name} not found",
         )
+
     try:
         from backend.utils.tg_session import set_account_profile
 
+        actual_account_name = str(current_account.get("name") or account_name).strip()
+        target_account_name = (
+            request.new_account_name.strip()
+            if isinstance(request.new_account_name, str) and request.new_account_name.strip()
+            else actual_account_name
+        )
+        renamed = target_account_name != actual_account_name
+        if renamed:
+            target_account_name = await service.rename_account(
+                actual_account_name,
+                target_account_name,
+            )
+
         set_account_profile(
-            account_name,
+            target_account_name,
             remark=request.remark,
             proxy=request.proxy,
         )
 
-        # 刷新缓存并返回更新后的账号信息
-        service = get_telegram_service()
-        updated = None
-        try:
-            accounts = service.list_accounts(force_refresh=True)
-            updated = next(
-                (acc for acc in accounts if acc.get("name") == account_name), None
-            )
-        except Exception:
-            updated = None
+        if renamed:
+            from backend.scheduler import sync_jobs
 
+            await sync_jobs()
+
+        try:
+            from backend.services.keyword_monitor import get_keyword_monitor_service
+
+            await get_keyword_monitor_service().restart_from_tasks()
+        except Exception:
+            pass
+
+        updated = next(
+            (
+                acc
+                for acc in service.list_accounts(force_refresh=True)
+                if acc.get("name") == target_account_name
+            ),
+            None,
+        )
         if not updated:
-            raise ValueError("账号信息更新后未找到对应账号")
+            raise ValueError("璐﹀彿淇℃伅鏇存柊鍚庢湭鎵惧埌瀵瑰簲璐﹀彿")
 
         return AccountUpdateResponse(
             success=True,
-            message="账号信息已更新",
+            message="Account updated",
             account=AccountInfo(**updated),
+        )
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
         )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"更新账号信息失败: {str(e)}",
+            detail=f"鏇存柊璐﹀彿淇℃伅澶辫触: {str(e)}",
         )
-
 
 class AccountLogItem(BaseModel):
     """账号日志项"""
@@ -559,43 +704,10 @@ class AccountLogItem(BaseModel):
 
 
 def _extract_last_bot_message(item: dict) -> str:
-    flow_logs = item.get("flow_logs")
-    if not isinstance(flow_logs, list):
-        return ""
-
-    lines: list[str] = []
-    for raw in flow_logs:
-        if raw is None:
-            continue
-        text = str(raw).strip()
-        if not text:
-            continue
-        for line in text.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            line = re.sub(r"^\d{4}-\d{2}-\d{2}[^-]*-\s*", "", line)
-            if line:
-                lines.append(line)
-
-    if not lines:
-        return ""
-
-    for line in reversed(lines):
-        lower = line.lower()
-        if "text:" in lower:
-            idx = lower.find("text:")
-            value = line[idx + 5 :].strip()
-            if value:
-                return value
-
-    keywords = ("sign", "success", "failed", "reward", "points", "checkin")
-    for line in reversed(lines):
-        low = line.lower()
-        if any(keyword in low for keyword in keywords):
-            return line
-
-    return ""
+    stored = str(item.get("last_target_message") or "").strip()
+    if stored:
+        return stored
+    return extract_last_target_message(item.get("flow_logs"))
 
 
 class ClearAccountLogsResponse(BaseModel):
@@ -607,12 +719,37 @@ class ClearAccountLogsResponse(BaseModel):
     code: Optional[str] = None
 
 
+@router.post("/logs/clear", response_model=ClearAccountLogsResponse)
+def clear_recent_account_logs(current_user: User = Depends(get_current_user)):
+    """清理全部最近任务执行日志"""
+    try:
+        from backend.services.sign_tasks import get_sign_task_service
+
+        result = get_sign_task_service().clear_all_history_logs()
+        return ClearAccountLogsResponse(
+            success=True,
+            cleared=result.get("removed_entries", 0),
+            message="All logs cleared",
+            code="LOGS_CLEARED",
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="CLEAR_LOGS_FAILED",
+        )
+
+
 @router.get("/{account_name}/logs", response_model=list[AccountLogItem])
 def get_account_logs(
     account_name: str, limit: int = 100, current_user: User = Depends(get_current_user)
 ):
     """获取账号的任务执行历史日志"""
     from backend.services.sign_tasks import get_sign_task_service
+
+    if limit < 1:
+        limit = 1
+    if limit > 200:
+        limit = 200
 
     history = get_sign_task_service().get_account_history_logs(account_name)
 

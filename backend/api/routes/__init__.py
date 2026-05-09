@@ -1,6 +1,16 @@
 from fastapi import APIRouter
 
-from backend.api.routes import accounts, auth, config, events, sign_tasks, tasks, user
+from backend.api.routes import (
+    accounts,
+    auth,
+    config,
+    events,
+    tasks,
+    user,
+)
+from backend.api.routes import (
+    sign_tasks_v2 as sign_tasks,
+)
 
 router = APIRouter()
 router.include_router(auth.router, prefix="/auth", tags=["auth"])

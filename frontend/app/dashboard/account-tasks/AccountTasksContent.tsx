@@ -2,7 +2,6 @@
 
 import { useEffect, useState, memo, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
 import { getToken } from "../../../lib/auth";
 import {
     listSignTasks,
@@ -23,7 +22,6 @@ import {
     CreateSignTaskRequest,
 } from "../../../lib/api";
 import {
-    CaretLeft,
     Plus,
     Play,
     PencilSimple,
@@ -36,14 +34,19 @@ import {
     Hourglass,
     ArrowClockwise,
     ListDashes,
-    X,
     DotsThreeVertical,
     Lightning,
     Copy,
     ClipboardText
 } from "@phosphor-icons/react";
+import { DashboardShell } from "../../../components/dashboard-shell";
+import { DialogShell } from "../../../components/dialog-shell";
+import { EmptyState } from "../../../components/empty-state";
+import { PageLoader } from "../../../components/page-loader";
+import { TaskLogView } from "../../../components/task-log-view";
 import { ToastContainer, useToast } from "../../../components/ui/toast";
 import { useLanguage } from "../../../context/LanguageContext";
+import { normalizeFlowLogLines } from "../../../lib/task-log-format";
 
 type ActionTypeOption = "1" | "2" | "3" | "ai_vision" | "ai_logic" | "keyword_notify";
 
@@ -79,9 +82,9 @@ const TaskItem = memo(({ task, loading, running, onEdit, onRun, onViewLogs, onCo
     const copyTaskTitle = language === "zh" ? "\u590D\u5236\u4EFB\u52A1" : "Copy Task";
 
     return (
-        <div className={`glass-panel p-4 md:p-5 group hover:border-[#8a3ffc]/30 transition-all ${running ? "border-emerald-500/40 shadow-[0_0_0_1px_rgba(16,185,129,0.25)]" : ""}`}>
+        <div className={`glass-panel p-4 md:p-5 group hover:border-[#2AABEE]/30 transition-all ${running ? "border-emerald-500/40 shadow-[0_0_0_1px_rgba(16,185,129,0.25)]" : ""}`}>
             <div className="flex items-start gap-4 min-w-0">
-                <div className="w-10 h-10 rounded-xl bg-[#8a3ffc]/10 flex items-center justify-center text-[#b57dff] shrink-0">
+                <div className="w-10 h-10 rounded-xl bg-[#2AABEE]/10 flex items-center justify-center text-[#2AABEE] shrink-0">
                     <ChatCircleText weight="bold" size={20} />
                 </div>
                 <div className="min-w-0 flex-1 flex flex-col gap-2">
@@ -107,7 +110,7 @@ const TaskItem = memo(({ task, loading, running, onEdit, onRun, onViewLogs, onCo
                             </span>
                         </div>
                         {task.random_seconds > 0 && (
-                            <div className="flex items-center gap-1 text-[#8a3ffc]/60">
+                            <div className="flex items-center gap-1 text-[#2AABEE]/60">
                                 <Hourglass weight="bold" size={12} />
                                 <span className="text-[10px] font-bold">~{Math.round(task.random_seconds / 60)}m</span>
                             </div>
@@ -153,7 +156,7 @@ const TaskItem = memo(({ task, loading, running, onEdit, onRun, onViewLogs, onCo
                 <button
                     onClick={() => onViewLogs(task)}
                     disabled={loading}
-                    className="action-btn !w-full !h-10 !text-[#8a3ffc] hover:bg-[#8a3ffc]/10"
+                    className="action-btn !w-full !h-10 !text-[#2AABEE] hover:bg-[#2AABEE]/10"
                     title={t("task_history_logs")}
                 >
                     <ListDashes weight="bold" size={14} />
@@ -213,7 +216,7 @@ const TaskItem = memo(({ task, loading, running, onEdit, onRun, onViewLogs, onCo
                     <button
                         onClick={() => onViewLogs(task)}
                         disabled={loading}
-                        className="action-btn !w-8 !h-8 !text-[#8a3ffc] hover:bg-[#8a3ffc]/10"
+                        className="action-btn !w-8 !h-8 !text-[#2AABEE] hover:bg-[#2AABEE]/10"
                         title={t("task_history_logs")}
                     >
                         <ListDashes weight="bold" size={14} />
@@ -288,7 +291,7 @@ export default function AccountTasksContent() {
             toast(message, "error");
         }
         setTimeout(() => {
-            router.replace("/dashboard");
+            router.replace("/dashboard/accounts");
         }, 800);
         return true;
     }, [router]);
@@ -306,7 +309,7 @@ export default function AccountTasksContent() {
         actions: [{ action: 1, text: "" }],
         delete_after: undefined as number | undefined,
         action_interval: 1,
-        execution_mode: "range" as "fixed" | "range",
+        execution_mode: "range" as "fixed" | "range" | "listen",
         range_start: "09:00",
         range_end: "18:00",
         notify_on_failure: true,
@@ -325,7 +328,7 @@ export default function AccountTasksContent() {
         actions: [{ action: 1, text: "" }] as any[],
         delete_after: undefined as number | undefined,
         action_interval: 1,
-        execution_mode: "fixed" as "fixed" | "range",
+        execution_mode: "fixed" as "fixed" | "range" | "listen",
         range_start: "09:00",
         range_end: "18:00",
         notify_on_failure: true,
@@ -368,6 +371,16 @@ export default function AccountTasksContent() {
     const aiVisionClickModeLabel = isZh ? "\u8BC6\u56FE\u540E\u70B9\u6309\u94AE" : "Vision -> Click Button";
     const aiCalcSendModeLabel = isZh ? "\u8BA1\u7B97\u540E\u53D1\u6587\u672C" : "Math -> Send Text";
     const aiCalcClickModeLabel = isZh ? "\u8BA1\u7B97\u540E\u70B9\u6309\u94AE" : "Math -> Click Button";
+    const aiPromptLabel = isZh ? "AI 提示词（可选）" : "AI Prompt (Optional)";
+    const aiPromptHint = isZh
+        ? "留空使用默认提示词；填写后只作用于当前这个 AI 动作。"
+        : "Leave empty to use the default prompt. A custom prompt only applies to this AI action.";
+    const aiVisionPromptPlaceholder = isZh
+        ? "可选：自定义识图 system prompt，例如强调诗词填空、按钮顺序或忽略图片 LOGO。"
+        : "Optional: custom vision system prompt, e.g. emphasize poem completion, button order, or ignoring logos.";
+    const aiCalcPromptPlaceholder = isZh
+        ? "可选：自定义计算/答题 system prompt，例如只返回按钮文字或只输出最终答案。"
+        : "Optional: custom math/QA system prompt, e.g. return only the button text or only the final answer.";
     const pasteTaskTitle = isZh ? "\u7C98\u8D34\u5BFC\u5165\u4EFB\u52A1" : "Paste Task";
     const copyTaskDialogTitle = isZh ? "\u590D\u5236\u4EFB\u52A1\u914D\u7F6E" : "Copy Task Config";
     const copyTaskDialogDesc = isZh ? "\u4EE5\u4E0B\u662F\u4EFB\u52A1\u914D\u7F6E\uFF0C\u53EF\u624B\u52A8\u590D\u5236\u6216\u70B9\u51FB\u4E00\u952E\u590D\u5236\u3002" : "Task config is ready. Copy manually or use one-click copy.";
@@ -483,7 +496,7 @@ export default function AccountTasksContent() {
             return;
         }
         if (!accountName) {
-            window.location.replace("/dashboard");
+            window.location.replace("/dashboard/accounts");
             return;
         }
         setLocalToken(tokenStr);
@@ -543,7 +556,7 @@ export default function AccountTasksContent() {
             try {
                 const logs = await getSignTaskLogs(token, liveLogTaskName, accountName);
                 if (!cancelled) {
-                    setLiveLogs(logs || []);
+                    setLiveLogs(normalizeFlowLogLines(logs || []));
                 }
             } catch {
                 // Live logs are best-effort; the final result toast still reports errors.
@@ -640,7 +653,7 @@ export default function AccountTasksContent() {
             const result = await runSignTask(token, taskName, accountName);
             try {
                 const logs = await getSignTaskLogs(token, taskName, accountName);
-                setLiveLogs(logs || []);
+                setLiveLogs(normalizeFlowLogLines(logs || []));
             } catch {
                 // ignore live log refresh errors after completion
             }
@@ -671,7 +684,12 @@ export default function AccountTasksContent() {
         setHistoryLoading(true);
         try {
             const logs = await getSignTaskHistory(token, task.name, accountName, 30);
-            setHistoryLogs(logs);
+            setHistoryLogs(
+                logs.map((item) => ({
+                    ...item,
+                    flow_logs: normalizeFlowLogLines(item.flow_logs || []),
+                }))
+            );
         } catch (err: any) {
             addToast(formatErrorMessage("logs_fetch_failed", err), "error");
         } finally {
@@ -1094,63 +1112,67 @@ export default function AccountTasksContent() {
         return null;
     }
 
-    return (
-        <div id="account-tasks-view" className="w-full h-full flex flex-col">
-            <nav className="navbar">
-                <div className="nav-brand">
-                    <div className="flex items-center gap-4">
-                        <Link href="/dashboard" className="action-btn" title={t("sidebar_home")}>
-                            <CaretLeft weight="bold" />
-                        </Link>
-                        <h1 className="text-lg font-bold tracking-tight">{accountName}</h1>
-                    </div>
-                </div>
-                <div className="top-right-actions">
-                    <button
-                        onClick={refreshChats}
-                        disabled={loading}
-                        className="action-btn"
-                        title={t("refresh_chats")}
-                    >
-                        <ArrowClockwise weight="bold" className={loading ? 'animate-spin' : ''} />
-                    </button>
-                    <button
-                        onClick={handleCopyAllTasks}
-                        disabled={loading}
-                        className="action-btn"
-                        title={copyAllTasksTitle}
-                    >
-                        <Copy weight="bold" />
-                    </button>
-                    <button
-                        onClick={handlePasteTask}
-                        disabled={loading}
-                        className="action-btn"
-                        title={pasteTaskTitle}
-                    >
-                        <ClipboardText weight="bold" />
-                    </button>
-                    <button onClick={() => setShowCreateDialog(true)} className="action-btn" title={t("add_task")}>
-                        <Plus weight="bold" />
-                    </button>
-                </div>
-            </nav>
+    const accountTasksSubtitle = language === "zh"
+        ? "管理该账号下的独立任务，以及它参与的共享任务配置。"
+        : "Manage account-specific tasks and shared task mappings for this account.";
 
-            <main className="main-content !pt-6">
+    return (
+        <>
+            <DashboardShell
+                title={accountName}
+                subtitle={accountTasksSubtitle}
+                activeNav="accounts"
+                headerActions={
+                    <>
+                        <button
+                            onClick={refreshChats}
+                            disabled={loading}
+                            className="action-btn"
+                            title={t("refresh_chats")}
+                        >
+                            <ArrowClockwise weight="bold" className={loading ? 'animate-spin' : ''} />
+                        </button>
+                        <button
+                            onClick={handleCopyAllTasks}
+                            disabled={loading}
+                            className="action-btn"
+                            title={copyAllTasksTitle}
+                        >
+                            <Copy weight="bold" />
+                        </button>
+                        <button
+                            onClick={handlePasteTask}
+                            disabled={loading}
+                            className="action-btn"
+                            title={pasteTaskTitle}
+                        >
+                            <ClipboardText weight="bold" />
+                        </button>
+                        <button onClick={() => setShowCreateDialog(true)} className="action-btn" title={t("add_task")}>
+                            <Plus weight="bold" />
+                        </button>
+                    </>
+                }
+            >
+                <div className="pt-2">
 
                 {loading && tasks.length === 0 ? (
-                    <div className="w-full py-20 flex flex-col items-center justify-center text-main/20">
-                        <Spinner size={40} weight="bold" className="animate-spin mb-4" />
-                        <p className="text-xs uppercase tracking-widest font-bold font-mono">{t("loading")}</p>
-                    </div>
+                    <PageLoader label={t("loading")} />
                 ) : tasks.length === 0 ? (
-                    <div className="glass-panel p-20 flex flex-col items-center text-center justify-center border-dashed border-2 group hover:border-[#8a3ffc]/30 transition-all cursor-pointer" onClick={() => setShowCreateDialog(true)}>
-                        <div className="w-20 h-20 rounded-3xl bg-main/5 flex items-center justify-center text-main/20 mb-6 group-hover:scale-110 transition-transform group-hover:bg-[#8a3ffc]/10 group-hover:text-[#8a3ffc]">
-                            <Plus size={40} weight="bold" />
-                        </div>
-                        <h3 className="text-xl font-bold mb-2">{t("no_tasks")}</h3>
-                        <p className="text-sm text-[#9496a1]">{t("no_tasks_desc")}</p>
-                    </div>
+                    <EmptyState
+                        icon={ChatCircleText}
+                        title={t("no_tasks")}
+                        description={t("no_tasks_desc")}
+                        action={
+                            <button
+                                onClick={() => setShowCreateDialog(true)}
+                                className="btn-gradient !w-auto !rounded-2xl px-6"
+                            >
+                                <Plus weight="bold" />
+                                <span>{t("add_task")}</span>
+                            </button>
+                        }
+                    />
                 ) : (
                     <div className="flex flex-col gap-3">
                         {tasks.map((task) => (
@@ -1170,41 +1192,52 @@ export default function AccountTasksContent() {
                         ))}
                     </div>
                 )}
-            </main>
+                </div>
+            </DashboardShell>
 
             {/* 闂傚倸鍊风粈渚€骞夐敍鍕殰婵°倕鍟伴惌娆撴煙鐎电啸缁?缂傚倸鍊搁崐鎼佸磹閹间礁纾圭憸鐗堝笚閸嬪鏌ｉ幇顒備粵妞ゆ劘濮ら妵鍕箛閳轰讲鍋撻幇鏉跨；闁瑰墽绮崑銊︾箾閸喎顕滈柡渚囧灦濮婄儤瀵煎▎鎴犳殺濠碘槅鍋勭€氫即濡撮崨顔鹃檮缂佸鐏濋懓鍨攽閻愭潙鐏﹂悽顖涘笚缁傚秹鎮欓浣稿伎濠碘槅鍨板锟犲传濞差亝鐓涢柛鈩冾殘缁犲鏌″畝瀣М濠碘剝鎮傛俊鐑藉Ψ椤旇崵妫梻浣藉吹閸犳劕煤閺嶎灛娑樷攽閸♀晛娈ㄦ繝鐢靛У閼瑰墽绮绘繝姘厽闁瑰瓨姊瑰▍鍛瑰鍫㈢暫闁哄矉绻濆畷鐔碱敃閵堝浂鍞洪梺?*/}
             {(showCreateDialog || showEditDialog) && (
-                <div className="modal-overlay active">
-                    <div className="glass-panel modal-content !max-w-xl flex flex-col" onClick={e => e.stopPropagation()}>
-                        <header className="modal-header border-b border-white/5 pb-3 mb-2">
-                            <div className="modal-title flex items-center gap-2 !text-base min-w-0">
-                                <div className="p-2 bg-[#8a3ffc]/10 rounded-lg text-[#b57dff]">
-                                    <Lightning weight="fill" size={20} />
-                                </div>
-                                <span className="truncate">{showCreateDialog ? t("create_task") : `${t("edit_task")}: ${editingTaskName}`}</span>
-                                <label className="ml-2 inline-flex items-center gap-1.5 text-[10px] text-main/50 font-medium whitespace-nowrap">
-                                    <input
-                                        type="checkbox"
-                                        className="!mb-0 h-3.5 w-3.5 accent-[#8a3ffc]"
-                                        checked={showCreateDialog ? newTask.notify_on_failure : editTask.notify_on_failure}
-                                        onChange={(e) => {
-                                            showCreateDialog
-                                                ? setNewTask({ ...newTask, notify_on_failure: e.target.checked })
-                                                : setEditTask({ ...editTask, notify_on_failure: e.target.checked });
-                                        }}
-                                    />
-                                    {taskFailureNotifyLabel}
-                                </label>
-                            </div>
-                            <div
+                <DialogShell
+                    title={showCreateDialog ? t("create_task") : `${t("edit_task")}: ${editingTaskName}`}
+                    icon={Lightning}
+                    onClose={() => { setShowCreateDialog(false); setShowEditDialog(false); }}
+                    titleClassName="flex-wrap"
+                    headerClassName="items-start sm:items-center"
+                    bodyClassName="custom-scrollbar !p-0"
+                    headerExtras={
+                        <label className="inline-flex items-center gap-1.5 text-[10px] text-main/50 font-medium whitespace-nowrap">
+                            <input
+                                type="checkbox"
+                                className="!mb-0 h-3.5 w-3.5 accent-[#2AABEE]"
+                                checked={showCreateDialog ? newTask.notify_on_failure : editTask.notify_on_failure}
+                                onChange={(e) => {
+                                    showCreateDialog
+                                        ? setNewTask({ ...newTask, notify_on_failure: e.target.checked })
+                                        : setEditTask({ ...editTask, notify_on_failure: e.target.checked });
+                                }}
+                            />
+                            {taskFailureNotifyLabel}
+                        </label>
+                    }
+                    footer={
+                        <div className="flex gap-3">
+                            <button
+                                className="btn-secondary flex-1"
                                 onClick={() => { setShowCreateDialog(false); setShowEditDialog(false); }}
-                                className="modal-close"
                             >
-                                <X weight="bold" />
-                            </div>
-                        </header>
-
-                        <div className="flex-1 overflow-y-auto p-5 space-y-4 custom-scrollbar">
+                                {t("cancel")}
+                            </button>
+                            <button
+                                className="btn-gradient flex-1"
+                                onClick={showCreateDialog ? handleCreateTask : handleSaveEdit}
+                                disabled={loading}
+                            >
+                                {loading ? <Spinner className="animate-spin" /> : (showCreateDialog ? t("add_task") : t("save_changes"))}
+                            </button>
+                        </div>
+                    }
+                >
+                        <div className="space-y-4 p-5">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
                                 {showCreateDialog ? (
                                     <div className="space-y-2">
@@ -1234,7 +1267,7 @@ export default function AccountTasksContent() {
                                         className="w-full"
                                         value={showCreateDialog ? newTask.execution_mode : editTask.execution_mode}
                                         onChange={(e) => {
-                                            const mode = e.target.value as "fixed" | "range";
+                                            const mode = e.target.value as "fixed" | "range" | "listen";
                                             showCreateDialog
                                                 ? setNewTask({ ...newTask, execution_mode: mode })
                                                 : setEditTask({ ...editTask, execution_mode: mode });
@@ -1358,11 +1391,11 @@ export default function AccountTasksContent() {
                                             <button
                                                 onClick={handleRefreshChats}
                                                 disabled={refreshingChats}
-                                                className="text-[10px] text-[#8a3ffc] hover:text-[#8a3ffc]/80 transition-colors uppercase font-bold tracking-tighter flex items-center gap-1"
+                                                className="text-[10px] text-[#2AABEE] hover:text-[#2AABEE]/80 transition-colors uppercase font-bold tracking-tighter flex items-center gap-1"
                                                 title={t("refresh_chat_title")}
                                             >
                                                 {refreshingChats ? (
-                                                    <div className="w-3 h-3 border-2 border-[#8a3ffc] border-t-transparent rounded-full animate-spin"></div>
+                                                    <div className="w-3 h-3 border-2 border-[#2AABEE] border-t-transparent rounded-full animate-spin"></div>
                                                 ) : <ArrowClockwise weight="bold" size={12} />}
                                                 {t("refresh_list")}
                                             </button>
@@ -1529,7 +1562,7 @@ export default function AccountTasksContent() {
                                                             <button
                                                                 key={d}
                                                                 type="button"
-                                                                className={`w-10 h-10 shrink-0 rounded-xl flex items-center justify-center text-lg transition-all ${((action as any).dice === d) ? 'bg-[#8a3ffc]/20 border border-[#8a3ffc]/40' : 'bg-white/5 border border-white/5 hover:bg-white/10'}`}
+                                                                className={`w-10 h-10 shrink-0 rounded-xl flex items-center justify-center text-lg transition-all ${((action as any).dice === d) ? 'bg-[#2AABEE]/20 border border-[#2AABEE]/40' : 'bg-white/5 border border-white/5 hover:bg-white/10'}`}
                                                                 onClick={() => {
                                                                     updateCurrentDialogAction(index, (currentAction) => ({
                                                                         ...currentAction,
@@ -1543,42 +1576,91 @@ export default function AccountTasksContent() {
                                                     </div>
                                                 )}
                                                 {(action.action === 4 || action.action === 6) && (
-                                                    <select
-                                                        className="!mb-0 !h-10 !py-0 !text-xs !w-[220px] max-w-full"
-                                                        value={action.action === 4 ? "click" : "send"}
-                                                        onChange={(e) => {
-                                                            const nextActionId = e.target.value === "click" ? 4 : 6;
-                                                            updateCurrentDialogAction(index, (currentAction) => ({
-                                                                ...currentAction,
-                                                                action: nextActionId,
-                                                            }));
-                                                        }}
-                                                    >
-                                                        <option value="send">{aiVisionSendModeLabel}</option>
-                                                        <option value="click">{aiVisionClickModeLabel}</option>
-                                                    </select>
+                                                    <div className="space-y-2">
+                                                        <select
+                                                            className="!mb-0 !h-10 !py-0 !text-xs !w-[220px] max-w-full"
+                                                            value={action.action === 4 ? "click" : "send"}
+                                                            onChange={(e) => {
+                                                                const nextActionId = e.target.value === "click" ? 4 : 6;
+                                                                updateCurrentDialogAction(index, (currentAction) => ({
+                                                                    ...currentAction,
+                                                                    action: nextActionId,
+                                                                }));
+                                                            }}
+                                                        >
+                                                            <option value="send">{aiVisionSendModeLabel}</option>
+                                                            <option value="click">{aiVisionClickModeLabel}</option>
+                                                        </select>
+                                                        <div className="space-y-1">
+                                                            <label className="text-[10px] uppercase tracking-wider text-main/40">{aiPromptLabel}</label>
+                                                            <textarea
+                                                                className="w-full min-h-[86px] bg-white/2 rounded-xl p-3 text-[11px] text-main/70 border border-white/5 focus:border-[#2AABEE]/30 outline-none transition-all placeholder:text-main/20 custom-scrollbar"
+                                                                value={action.ai_prompt || ""}
+                                                                onChange={(e) => {
+                                                                    updateCurrentDialogAction(index, (currentAction) => ({
+                                                                        ...currentAction,
+                                                                        ai_prompt: e.target.value,
+                                                                    }));
+                                                                }}
+                                                                placeholder={aiVisionPromptPlaceholder}
+                                                            />
+                                                            <div className="text-[10px] text-main/35">{aiPromptHint}</div>
+                                                        </div>
+                                                    </div>
                                                 )}
                                                 {(action.action === 5 || action.action === 7) && (
-                                                    <select
-                                                        className="!mb-0 !h-10 !py-0 !text-xs !w-[220px] max-w-full"
-                                                        value={action.action === 7 ? "click" : "send"}
-                                                        onChange={(e) => {
-                                                            const nextActionId = e.target.value === "click" ? 7 : 5;
-                                                            updateCurrentDialogAction(index, (currentAction) => ({
-                                                                ...currentAction,
-                                                                action: nextActionId,
-                                                            }));
-                                                        }}
-                                                    >
-                                                        <option value="send">{aiCalcSendModeLabel}</option>
-                                                        <option value="click">{aiCalcClickModeLabel}</option>
-                                                    </select>
+                                                    <div className="space-y-2">
+                                                        <select
+                                                            className="!mb-0 !h-10 !py-0 !text-xs !w-[220px] max-w-full"
+                                                            value={action.action === 7 ? "click" : "send"}
+                                                            onChange={(e) => {
+                                                                const nextActionId = e.target.value === "click" ? 7 : 5;
+                                                                updateCurrentDialogAction(index, (currentAction) => ({
+                                                                    ...currentAction,
+                                                                    action: nextActionId,
+                                                                }));
+                                                            }}
+                                                        >
+                                                            <option value="send">{aiCalcSendModeLabel}</option>
+                                                            <option value="click">{aiCalcClickModeLabel}</option>
+                                                        </select>
+                                                        <div className="space-y-1">
+                                                            <label className="text-[10px] uppercase tracking-wider text-main/40">{aiPromptLabel}</label>
+                                                            <textarea
+                                                                className="w-full min-h-[86px] bg-white/2 rounded-xl p-3 text-[11px] text-main/70 border border-white/5 focus:border-[#2AABEE]/30 outline-none transition-all placeholder:text-main/20 custom-scrollbar"
+                                                                value={action.ai_prompt || ""}
+                                                                onChange={(e) => {
+                                                                    updateCurrentDialogAction(index, (currentAction) => ({
+                                                                        ...currentAction,
+                                                                        ai_prompt: e.target.value,
+                                                                    }));
+                                                                }}
+                                                                placeholder={aiCalcPromptPlaceholder}
+                                                            />
+                                                            <div className="text-[10px] text-main/35">{aiPromptHint}</div>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                {action.action !== 8 && (
+                                                    <div className="mt-2">
+                                                        <input
+                                                            className="!mb-0 !h-10 !text-xs"
+                                                            value={action.delay || ""}
+                                                            onChange={(e) => {
+                                                                updateCurrentDialogAction(index, (currentAction) => ({
+                                                                    ...currentAction,
+                                                                    delay: e.target.value.replace(/[^\d.\-]/g, ""),
+                                                                }));
+                                                            }}
+                                                            placeholder={isZh ? "动作延迟：1 或 1-3" : "Action delay: 1 or 1-3"}
+                                                        />
+                                                    </div>
                                                 )}
                                                 {action.action === 8 && (
                                                     <div className="rounded-lg border border-white/10 bg-white/[0.035] p-3 space-y-3">
                                                         <div className="space-y-1.5">
                                                             <textarea
-                                                                className="w-full min-h-[86px] bg-white/2 rounded-xl p-3 text-[11px] text-main/70 border border-white/5 focus:border-[#8a3ffc]/30 outline-none transition-all placeholder:text-main/20 custom-scrollbar"
+                                                                className="w-full min-h-[86px] bg-white/2 rounded-xl p-3 text-[11px] text-main/70 border border-white/5 focus:border-[#2AABEE]/30 outline-none transition-all placeholder:text-main/20 custom-scrollbar"
                                                                 value={(action.keywords || []).join("\n")}
                                                                 onChange={(e) => {
                                                                     updateCurrentDialogAction(index, (currentAction) => ({
@@ -1691,7 +1773,7 @@ export default function AccountTasksContent() {
                                                                 </div>
                                                                 <div className="space-y-1.5 md:col-span-2">
                                                                     <textarea
-                                                                        className="!mb-0 min-h-[64px] w-full bg-white/2 rounded-xl p-3 !text-[10px] text-main/70 border border-white/5 focus:border-[#8a3ffc]/30 outline-none transition-all placeholder:text-main/20 custom-scrollbar"
+                                                                        className="!mb-0 min-h-[64px] w-full bg-white/2 rounded-xl p-3 !text-[10px] text-main/70 border border-white/5 focus:border-[#2AABEE]/30 outline-none transition-all placeholder:text-main/20 custom-scrollbar"
                                                                         value={action.custom_url || ""}
                                                                         onChange={(e) => {
                                                                             updateCurrentDialogAction(index, (currentAction) => ({
@@ -1835,7 +1917,7 @@ export default function AccountTasksContent() {
                                                                                                         key={variable}
                                                                                                         type="button"
                                                                                                         onClick={() => appendKeywordVariable(index, continueIndex, variable)}
-                                                                                                        className="h-7 px-2 rounded-lg border border-white/5 bg-white/5 hover:bg-[#8a3ffc]/15 hover:border-[#8a3ffc]/30 text-[10px] font-mono text-main/70 transition-colors"
+                                                                                                        className="h-7 px-2 rounded-lg border border-white/5 bg-white/5 hover:bg-[#2AABEE]/15 hover:border-[#2AABEE]/30 text-[10px] font-mono text-main/70 transition-colors"
                                                                                                     >
                                                                                                         {variable}
                                                                                                     </button>
@@ -1850,7 +1932,7 @@ export default function AccountTasksContent() {
                                                                                             <button
                                                                                                 key={d}
                                                                                                 type="button"
-                                                                                                className={`w-10 h-10 shrink-0 rounded-xl flex items-center justify-center text-lg transition-all ${((continueAction as any).dice === d) ? 'bg-[#8a3ffc]/20 border border-[#8a3ffc]/40' : 'bg-white/5 border border-white/5 hover:bg-white/10'}`}
+                                                                                                className={`w-10 h-10 shrink-0 rounded-xl flex items-center justify-center text-lg transition-all ${((continueAction as any).dice === d) ? 'bg-[#2AABEE]/20 border border-[#2AABEE]/40' : 'bg-white/5 border border-white/5 hover:bg-white/10'}`}
                                                                                                 onClick={() => {
                                                                                                     updateKeywordContinueAction(index, continueIndex, (currentAction) => ({
                                                                                                         ...currentAction,
@@ -1864,36 +1946,70 @@ export default function AccountTasksContent() {
                                                                                     </div>
                                                                                 )}
                                                                                 {(continueActionId === 4 || continueActionId === 6) && (
-                                                                                    <select
-                                                                                        className="!mb-0 !h-10 !py-0 !text-xs !w-[220px] max-w-full"
-                                                                                        value={continueActionId === 4 ? "click" : "send"}
-                                                                                        onChange={(e) => {
-                                                                                            const nextActionId = e.target.value === "click" ? 4 : 6;
-                                                                                            updateKeywordContinueAction(index, continueIndex, (currentAction) => ({
-                                                                                                ...currentAction,
-                                                                                                action: nextActionId,
-                                                                                            }));
-                                                                                        }}
-                                                                                    >
-                                                                                        <option value="send">{aiVisionSendModeLabel}</option>
-                                                                                        <option value="click">{aiVisionClickModeLabel}</option>
-                                                                                    </select>
+                                                                                    <div className="space-y-2">
+                                                                                        <select
+                                                                                            className="!mb-0 !h-10 !py-0 !text-xs !w-[220px] max-w-full"
+                                                                                            value={continueActionId === 4 ? "click" : "send"}
+                                                                                            onChange={(e) => {
+                                                                                                const nextActionId = e.target.value === "click" ? 4 : 6;
+                                                                                                updateKeywordContinueAction(index, continueIndex, (currentAction) => ({
+                                                                                                    ...currentAction,
+                                                                                                    action: nextActionId,
+                                                                                                }));
+                                                                                            }}
+                                                                                        >
+                                                                                            <option value="send">{aiVisionSendModeLabel}</option>
+                                                                                            <option value="click">{aiVisionClickModeLabel}</option>
+                                                                                        </select>
+                                                                                        <div className="space-y-1">
+                                                                                            <label className="text-[10px] uppercase tracking-wider text-main/40">{aiPromptLabel}</label>
+                                                                                            <textarea
+                                                                                                className="w-full min-h-[86px] bg-white/2 rounded-xl p-3 text-[11px] text-main/70 border border-white/5 focus:border-[#2AABEE]/30 outline-none transition-all placeholder:text-main/20 custom-scrollbar"
+                                                                                                value={continueAction.ai_prompt || ""}
+                                                                                                onChange={(e) => {
+                                                                                                    updateKeywordContinueAction(index, continueIndex, (currentAction) => ({
+                                                                                                        ...currentAction,
+                                                                                                        ai_prompt: e.target.value,
+                                                                                                    }));
+                                                                                                }}
+                                                                                                placeholder={aiVisionPromptPlaceholder}
+                                                                                            />
+                                                                                            <div className="text-[10px] text-main/35">{aiPromptHint}</div>
+                                                                                        </div>
+                                                                                    </div>
                                                                                 )}
                                                                                 {(continueActionId === 5 || continueActionId === 7) && (
-                                                                                    <select
-                                                                                        className="!mb-0 !h-10 !py-0 !text-xs !w-[220px] max-w-full"
-                                                                                        value={continueActionId === 7 ? "click" : "send"}
-                                                                                        onChange={(e) => {
-                                                                                            const nextActionId = e.target.value === "click" ? 7 : 5;
-                                                                                            updateKeywordContinueAction(index, continueIndex, (currentAction) => ({
-                                                                                                ...currentAction,
-                                                                                                action: nextActionId,
-                                                                                            }));
-                                                                                        }}
-                                                                                    >
-                                                                                        <option value="send">{aiCalcSendModeLabel}</option>
-                                                                                        <option value="click">{aiCalcClickModeLabel}</option>
-                                                                                    </select>
+                                                                                    <div className="space-y-2">
+                                                                                        <select
+                                                                                            className="!mb-0 !h-10 !py-0 !text-xs !w-[220px] max-w-full"
+                                                                                            value={continueActionId === 7 ? "click" : "send"}
+                                                                                            onChange={(e) => {
+                                                                                                const nextActionId = e.target.value === "click" ? 7 : 5;
+                                                                                                updateKeywordContinueAction(index, continueIndex, (currentAction) => ({
+                                                                                                    ...currentAction,
+                                                                                                    action: nextActionId,
+                                                                                                }));
+                                                                                            }}
+                                                                                        >
+                                                                                            <option value="send">{aiCalcSendModeLabel}</option>
+                                                                                            <option value="click">{aiCalcClickModeLabel}</option>
+                                                                                        </select>
+                                                                                        <div className="space-y-1">
+                                                                                            <label className="text-[10px] uppercase tracking-wider text-main/40">{aiPromptLabel}</label>
+                                                                                            <textarea
+                                                                                                className="w-full min-h-[86px] bg-white/2 rounded-xl p-3 text-[11px] text-main/70 border border-white/5 focus:border-[#2AABEE]/30 outline-none transition-all placeholder:text-main/20 custom-scrollbar"
+                                                                                                value={continueAction.ai_prompt || ""}
+                                                                                                onChange={(e) => {
+                                                                                                    updateKeywordContinueAction(index, continueIndex, (currentAction) => ({
+                                                                                                        ...currentAction,
+                                                                                                        ai_prompt: e.target.value,
+                                                                                                    }));
+                                                                                                }}
+                                                                                                placeholder={aiCalcPromptPlaceholder}
+                                                                                            />
+                                                                                            <div className="text-[10px] text-main/35">{aiPromptHint}</div>
+                                                                                        </div>
+                                                                                    </div>
                                                                                 )}
                                                                             </div>
                                                                         );
@@ -1917,48 +2033,20 @@ export default function AccountTasksContent() {
                                 </div>
                             </div>
                         </div>
-
-                        <footer className="p-6 border-t border-white/5 flex gap-3">
-                            <button
-                                className="btn-secondary flex-1"
-                                onClick={() => { setShowCreateDialog(false); setShowEditDialog(false); }}
-                            >
-                                {t("cancel")}
-                            </button>
-                            <button
-                                className="btn-gradient flex-1"
-                                onClick={showCreateDialog ? handleCreateTask : handleSaveEdit}
-                                disabled={loading}
-                            >
-                                {loading ? <Spinner className="animate-spin" /> : (showCreateDialog ? t("add_task") : t("save_changes"))}
-                            </button>
-                        </footer>
-                    </div>
-                </div>
+                </DialogShell>
             )
             }
 
             {copyTaskDialog && (
-                <div className="modal-overlay active">
-                    <div className="glass-panel modal-content !max-w-3xl flex flex-col" onClick={(e) => e.stopPropagation()}>
-                        <header className="modal-header border-b border-white/5 pb-3 mb-0">
-                            <div className="modal-title flex items-center gap-2 !text-base">
-                                <Copy weight="bold" size={18} />
-                                {copyTaskDialogTitle}: {copyTaskDialog.taskName}
-                            </div>
-                            <button onClick={closeCopyTaskDialog} className="modal-close" disabled={copyingConfig}>
-                                <X weight="bold" />
-                            </button>
-                        </header>
-                        <div className="p-5 space-y-3">
-                            <p className="text-xs text-main/60">{copyTaskDialogDesc}</p>
-                            <textarea
-                                className="w-full h-72 !mb-0 font-mono text-xs"
-                                value={copyTaskDialog.config}
-                                readOnly
-                            />
-                        </div>
-                        <footer className="p-5 border-t border-white/5 flex gap-3">
+                <DialogShell
+                    title={`${copyTaskDialogTitle}: ${copyTaskDialog.taskName}`}
+                    icon={Copy}
+                    size="xl"
+                    onClose={closeCopyTaskDialog}
+                    closeDisabled={copyingConfig}
+                    bodyClassName="space-y-3"
+                    footer={
+                        <div className="flex gap-3">
                             <button
                                 className="btn-secondary flex-1"
                                 onClick={closeCopyTaskDialog}
@@ -1973,33 +2061,28 @@ export default function AccountTasksContent() {
                             >
                                 {copyingConfig ? <Spinner className="animate-spin" /> : copyConfigAction}
                             </button>
-                        </footer>
-                    </div>
-                </div>
+                        </div>
+                    }
+                >
+                    <p className="text-xs text-main/60">{copyTaskDialogDesc}</p>
+                    <textarea
+                        className="w-full h-72 !mb-0 font-mono text-xs"
+                        value={copyTaskDialog.config}
+                        readOnly
+                    />
+                </DialogShell>
             )}
 
             {showPasteDialog && (
-                <div className="modal-overlay active">
-                    <div className="glass-panel modal-content !max-w-3xl flex flex-col" onClick={(e) => e.stopPropagation()}>
-                        <header className="modal-header border-b border-white/5 pb-3 mb-0">
-                            <div className="modal-title flex items-center gap-2 !text-base">
-                                <ClipboardText weight="bold" size={18} />
-                                {pasteTaskDialogTitle}
-                            </div>
-                            <button onClick={closePasteTaskDialog} className="modal-close" disabled={importingPastedConfig || loading}>
-                                <X weight="bold" />
-                            </button>
-                        </header>
-                        <div className="p-5 space-y-3">
-                            <p className="text-xs text-main/60">{pasteTaskDialogDesc}</p>
-                            <textarea
-                                className="w-full h-72 !mb-0 font-mono text-xs"
-                                placeholder={pasteTaskDialogPlaceholder}
-                                value={pasteTaskConfigInput}
-                                onChange={(e) => setPasteTaskConfigInput(e.target.value)}
-                            />
-                        </div>
-                        <footer className="p-5 border-t border-white/5 flex gap-3">
+                <DialogShell
+                    title={pasteTaskDialogTitle}
+                    icon={ClipboardText}
+                    size="xl"
+                    onClose={closePasteTaskDialog}
+                    closeDisabled={importingPastedConfig || loading}
+                    bodyClassName="space-y-3"
+                    footer={
+                        <div className="flex gap-3">
                             <button
                                 className="btn-secondary flex-1"
                                 onClick={closePasteTaskDialog}
@@ -2014,166 +2097,133 @@ export default function AccountTasksContent() {
                             >
                                 {importingPastedConfig ? <Spinner className="animate-spin" /> : importTaskAction}
                             </button>
-                        </footer>
-                    </div>
-                </div>
+                        </div>
+                    }
+                >
+                    <p className="text-xs text-main/60">{pasteTaskDialogDesc}</p>
+                    <textarea
+                        className="w-full h-72 !mb-0 font-mono text-xs"
+                        placeholder={pasteTaskDialogPlaceholder}
+                        value={pasteTaskConfigInput}
+                        onChange={(e) => setPasteTaskConfigInput(e.target.value)}
+                    />
+                </DialogShell>
             )}
 
             {liveLogTaskName && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-black/60 backdrop-blur-sm animate-fade-in">
-                    <div className="glass-panel w-full max-w-4xl h-[72vh] flex flex-col shadow-2xl border border-white/10 overflow-hidden animate-zoom-in">
-                        <div className="p-4 border-b border-white/5 flex justify-between items-center bg-white/2">
-                            <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-lg bg-emerald-500/15 flex items-center justify-center text-emerald-400">
-                                    {runningTaskNames.has(liveLogTaskName) ? (
-                                        <Spinner className="animate-spin" size={18} />
-                                    ) : (
-                                        <ListDashes weight="bold" size={18} />
-                                    )}
-                                </div>
-                                <h3 className="font-bold tracking-tight">
-                                    {t("task_run_logs_title").replace("{name}", liveLogTaskName)}
-                                </h3>
-                            </div>
-                            <button
-                                onClick={() => setLiveLogTaskName(null)}
-                                className="action-btn !w-8 !h-8 hover:bg-white/10"
-                            >
-                                <X weight="bold" />
-                            </button>
+                <DialogShell
+                    title={t("task_run_logs_title").replace("{name}", liveLogTaskName)}
+                    icon={ListDashes}
+                    iconClassName="bg-emerald-500/15 text-emerald-400"
+                    size="2xl"
+                    panelClassName="h-[72vh]"
+                    onClose={() => setLiveLogTaskName(null)}
+                    bodyClassName="bg-black/20 font-mono text-[11px] leading-relaxed"
+                >
+                    {liveLogs.length === 0 ? (
+                        <div className="flex items-center gap-2 text-main/30 italic">
+                            {runningTaskNames.has(liveLogTaskName) ? (
+                                <Spinner className="animate-spin" size={12} />
+                            ) : null}
+                            {t("logs_waiting")}
                         </div>
-                        <div className="flex-1 overflow-y-auto p-4 font-mono text-[11px] leading-relaxed bg-black/20">
-                            {liveLogs.length === 0 ? (
-                                <div className="flex items-center gap-2 text-main/30 italic">
-                                    {runningTaskNames.has(liveLogTaskName) ? (
-                                        <Spinner className="animate-spin" size={12} />
-                                    ) : null}
-                                    {t("logs_waiting")}
-                                </div>
-                            ) : (
-                                <div className="space-y-1">
-                                    {liveLogs.map((line, index) => (
-                                        <div key={`${index}-${line}`} className="text-main/80 flex gap-2">
-                                            <span className="text-main/20 select-none w-8 text-right">
-                                                {(index + 1).toString().padStart(2, "0")}
-                                            </span>
-                                            <span className="break-all">{line}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
+                    ) : (
+                        <div className="space-y-2">
+                            <TaskLogView
+                                lines={liveLogs}
+                                lastTargetLabel={isZh ? "任务对象最后消息" : "Last Target Message"}
+                            />
                         </div>
-                    </div>
-                </div>
+                    )}
+                </DialogShell>
             )}
 
             {historyTaskName && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-black/60 backdrop-blur-sm animate-fade-in">
-                    <div className="glass-panel w-full max-w-4xl h-[78vh] flex flex-col shadow-2xl border border-white/10 overflow-hidden animate-zoom-in">
-                        <div className="p-4 border-b border-white/5 flex justify-between items-center bg-white/2">
-                            <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-lg bg-[#8a3ffc]/20 flex items-center justify-center text-[#b57dff]">
-                                    <ListDashes weight="bold" size={18} />
-                                </div>
-                                <h3 className="font-bold tracking-tight">
-                                    {t("task_history_logs_title").replace("{name}", historyTaskName)}
-                                </h3>
-                            </div>
-                            <button
-                                onClick={() => setHistoryTaskName(null)}
-                                className="action-btn !w-8 !h-8 hover:bg-white/10"
-                            >
-                                <X weight="bold" />
-                            </button>
+                <DialogShell
+                    title={t("task_history_logs_title").replace("{name}", historyTaskName)}
+                    icon={ListDashes}
+                    size="2xl"
+                    panelClassName="h-[78vh]"
+                    onClose={() => setHistoryTaskName(null)}
+                    bodyClassName="bg-black/20 font-mono text-[11px] leading-relaxed"
+                >
+                    {historyLoading ? (
+                        <div className="flex items-center gap-2 text-main/30 italic">
+                            <Spinner className="animate-spin" size={12} />
+                            {t("loading")}
                         </div>
-                        <div className="flex-1 overflow-y-auto p-4 font-mono text-[11px] leading-relaxed bg-black/20">
-                            {historyLoading ? (
-                                <div className="flex items-center gap-2 text-main/30 italic">
-                                    <Spinner className="animate-spin" size={12} />
-                                    {t("loading")}
-                                </div>
-                            ) : historyLogs.length === 0 ? (
-                                <div className="text-main/30 italic">{t("task_history_empty")}</div>
-                            ) : (
-                                <div className="space-y-4">
-                                    {historyLogs.map((log, i) => {
-                                        const logKey = `${log.time}-${i}`;
-                                        const hasMultiLineLogs = Boolean(log.flow_logs && log.flow_logs.length > 1);
-                                        const isExpanded = expandedHistoryLogs.has(logKey);
-                                        const visibleFlowLogs = hasMultiLineLogs && !isExpanded
-                                            ? (log.flow_logs || []).slice(0, 1)
-                                            : (log.flow_logs || []);
-                                        return (
-                                        <div key={logKey} className="rounded-xl border border-white/5 bg-white/5 overflow-hidden">
-                                            <div className="flex justify-between items-center px-3 py-2 border-b border-white/5 text-[10px]">
-                                                <div className="flex items-center gap-2 min-w-0">
-                                                    <span className="text-main/30 truncate">
-                                                        {new Date(log.time).toLocaleString(language === "zh" ? "zh-CN" : "en-US")}
-                                                    </span>
-                                                    {hasMultiLineLogs && (
-                                                        <button
-                                                            type="button"
-                                                            className="text-[#8a3ffc] hover:text-[#b57dff] font-bold shrink-0"
-                                                            onClick={() => {
-                                                                setExpandedHistoryLogs((prev) => {
-                                                                    const next = new Set(prev);
-                                                                    if (next.has(logKey)) {
-                                                                        next.delete(logKey);
-                                                                    } else {
-                                                                        next.add(logKey);
-                                                                    }
-                                                                    return next;
-                                                                });
-                                                            }}
-                                                        >
-                                                            {isExpanded ? (isZh ? "\u6536\u8d77" : "Collapse") : (isZh ? "\u5c55\u5f00\u5b8c\u6574\u65e5\u5fd7" : "Expand full log")}
-                                                        </button>
-                                                    )}
-                                                </div>
-                                                <span className={log.success ? "text-emerald-400" : "text-rose-400"}>
-                                                    {log.success ? t("success") : t("failure")}
-                                                </span>
-                                            </div>
-                                            <div className="p-3 space-y-1">
-                                                <div className="text-main/90">
-                                                    {`${t("task_label")}: ${historyTaskName} ${log.success ? t("task_exec_success") : t("task_exec_failed")}`}
-                                                </div>
-                                                {log.message ? (
-                                                    <div className="text-main/60 break-all">
-                                                        {`${t("bot_reply")}: ${log.message}`}
-                                                    </div>
-                                                ) : null}
-                                                {visibleFlowLogs.length > 0 ? (
-                                                    visibleFlowLogs.map((line, lineIndex) => (
-                                                        <div key={lineIndex} className="text-main/80 flex gap-2">
-                                                            <span className="text-main/20 select-none w-6 text-right">
-                                                                {(lineIndex + 1).toString().padStart(2, "0")}
-                                                            </span>
-                                                            <span className="break-all">{line}</span>
-                                                        </div>
-                                                    ))
-                                                ) : (
-                                                    <div className="text-main/50">
-                                                        {log.message || t("task_history_no_flow")}
-                                                    </div>
-                                                )}
-                                                {log.flow_truncated && (
-                                                    <div className="text-[10px] text-amber-400/90 mt-2">
-                                                        {t("task_history_truncated").replace("{count}", String(log.flow_line_count || 0))}
-                                                    </div>
-                                                )}
-                                            </div>
+                    ) : historyLogs.length === 0 ? (
+                        <div className="text-main/30 italic">{t("task_history_empty")}</div>
+                    ) : (
+                        <div className="space-y-4">
+                            {historyLogs.map((log, i) => {
+                                const logKey = `${log.time}-${i}`;
+                                const hasMultiLineLogs = Boolean(log.flow_logs && log.flow_logs.length > 1);
+                                const isExpanded = expandedHistoryLogs.has(logKey);
+                                const visibleFlowLogs = hasMultiLineLogs && !isExpanded
+                                    ? (log.flow_logs || []).slice(0, 1)
+                                    : (log.flow_logs || []);
+                                return (
+                                <div key={logKey} className="rounded-xl border border-white/5 bg-white/5 overflow-hidden">
+                                    <div className="flex justify-between items-center px-3 py-2 border-b border-white/5 text-[10px]">
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <span className="text-main/30 truncate">
+                                                {new Date(log.time).toLocaleString(language === "zh" ? "zh-CN" : "en-US")}
+                                            </span>
+                                            {hasMultiLineLogs && (
+                                                <button
+                                                    type="button"
+                                                    className="text-[#2AABEE] hover:text-[#67C6F8] font-bold shrink-0"
+                                                    onClick={() => {
+                                                        setExpandedHistoryLogs((prev) => {
+                                                            const next = new Set(prev);
+                                                            if (next.has(logKey)) {
+                                                                next.delete(logKey);
+                                                            } else {
+                                                                next.add(logKey);
+                                                            }
+                                                            return next;
+                                                        });
+                                                    }}
+                                                >
+                                                    {isExpanded ? (isZh ? "\u6536\u8d77" : "Collapse") : (isZh ? "\u5c55\u5f00\u5b8c\u6574\u65e5\u5fd7" : "Expand full log")}
+                                                </button>
+                                            )}
                                         </div>
-                                        );
-                                    })}
+                                        <span className={log.success ? "text-emerald-400" : "text-rose-400"}>
+                                            {log.success ? t("success") : t("failure")}
+                                        </span>
+                                    </div>
+                                    <div className="p-3 space-y-1">
+                                        <div className="text-main/90">
+                                            {`${t("task_label")}: ${historyTaskName} ${log.success ? t("task_exec_success") : t("task_exec_failed")}`}
+                                        </div>
+                                        {log.message ? (
+                                            <div className="text-main/60 whitespace-pre-wrap break-words">
+                                                {`${t("bot_reply")}: ${log.message}`}
+                                            </div>
+                                        ) : null}
+                                        <TaskLogView
+                                            lines={visibleFlowLogs}
+                                            lastTargetMessage={log.last_target_message}
+                                            lastTargetLabel={isZh ? "\u4EFB\u52A1\u5BF9\u8C61\u6700\u540E\u6D88\u606F" : "Last Target Message"}
+                                            fallbackText={log.message || t("task_history_no_flow")}
+                                        />
+                                        {log.flow_truncated && (
+                                            <div className="text-[10px] text-amber-400/90 mt-2">
+                                                {t("task_history_truncated").replace("{count}", String(log.flow_line_count || 0))}
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
-                            )}
+                                );
+                            })}
                         </div>
-                    </div>
-                </div>
+                    )}
+                </DialogShell>
             )}
 
             <ToastContainer toasts={toasts} removeToast={removeToast} />
-        </div >
+        </>
     );
 }

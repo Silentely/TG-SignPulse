@@ -20,12 +20,24 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         if (savedTheme) {
             setTheme(savedTheme);
             if (savedTheme === 'light') {
+                document.documentElement.classList.remove('dark');
                 document.documentElement.classList.add('light');
                 document.body.setAttribute('data-theme', 'light');
+            } else {
+                document.documentElement.classList.remove('light');
+                document.documentElement.classList.add('dark');
+                document.body.removeAttribute('data-theme');
             }
         } else if (window.matchMedia('(prefers-color-scheme: light)').matches) {
             // Default to light if system prefers it, but the app default is dark
             // For now, stick to 'dark' as base if no preference saved
+            document.documentElement.classList.remove('light');
+            document.documentElement.classList.add('dark');
+            document.body.removeAttribute('data-theme');
+        } else {
+            document.documentElement.classList.remove('light');
+            document.documentElement.classList.add('dark');
+            document.body.removeAttribute('data-theme');
         }
         setMounted(true);
     }, []);
@@ -35,10 +47,12 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         setTheme(newTheme);
         localStorage.setItem('tg-signer-theme', newTheme);
         if (newTheme === 'light') {
+            document.documentElement.classList.remove('dark');
             document.documentElement.classList.add('light');
             document.body.setAttribute('data-theme', 'light');
         } else {
             document.documentElement.classList.remove('light');
+            document.documentElement.classList.add('dark');
             document.body.removeAttribute('data-theme');
         }
     };

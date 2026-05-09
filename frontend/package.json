@@ -3,30 +3,49 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -H 127.0.0.1 -p 3000",
     "build": "next build",
-    "start": "next start",
-    "lint": "next lint"
+    "start": "node scripts/preview-server.mjs",
+    "lint": "eslint . --ext .js,.jsx,.ts,.tsx --max-warnings=0"
   },
   "dependencies": {
-    "@phosphor-icons/react": "^2.1.10",
-    "autoprefixer": "^10.4.16",
-    "class-variance-authority": "^0.7.0",
-    "clsx": "^2.0.0",
-    "lucide-react": "^0.372.0",
-    "next": "^14.2.3",
-    "postcss": "^8.4.31",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "tailwind-merge": "^2.2.1",
-    "tailwindcss": "^3.4.3"
+    "http-proxy": "^1.18.1",
+    "serve-handler": "^6.1.6"
   },
   "devDependencies": {
+    "@phosphor-icons/react": "^2.1.10",
     "@types/node": "^20.11.19",
     "@types/react": "^18.2.46",
     "@types/react-dom": "^18.2.18",
+    "autoprefixer": "^10.4.16",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.0.0",
     "eslint": "^8.56.0",
-    "eslint-config-next": "^14.2.3",
+    "eslint-config-next": "^14.2.35",
+    "lucide-react": "^0.372.0",
+    "next": "^14.2.35",
+    "postcss": "^8.5.14",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "tailwind-merge": "^2.2.1",
+    "tailwindcss": "^3.4.3",
     "typescript": "^5.3.3"
+  },
+  "overrides": {
+    "micromatch": {
+      "picomatch": "^2.3.2"
+    },
+    "anymatch": {
+      "picomatch": "^2.3.2"
+    },
+    "readdirp": {
+      "picomatch": "^2.3.2"
+    },
+    "tinyglobby": {
+      "picomatch": "^4.0.4"
+    },
+    "fdir": {
+      "picomatch": "^4.0.4"
+    }
   }
 }

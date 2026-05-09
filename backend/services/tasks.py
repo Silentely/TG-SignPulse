@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 from typing import List, Optional
 
@@ -12,6 +12,8 @@ from backend.core.config import get_settings
 from backend.models.account import Account
 from backend.models.task import Task
 from backend.models.task_log import TaskLog
+from backend.utils.time import utc_now_naive
+from tg_signer.async_utils import create_logged_task
 
 settings = get_settings()
 
@@ -34,7 +36,7 @@ def list_tasks(db: Session) -> List[Task]:
 
 def cleanup_old_logs(db: Session, days: int = 3) -> int:
     """清理超过指定天数的任务日志和文件"""
-    cutoff = datetime.utcnow() - timedelta(days=days)
+    cutoff = utc_now_naive() - timedelta(days=days)
 
     # 获取旧日志
     old_logs = db.query(TaskLog).filter(TaskLog.started_at < cutoff).all()
@@ -106,7 +108,7 @@ def delete_task(db: Session, task: Task) -> None:
 def _create_log_file(task: Task) -> Path:
     logs_dir = settings.resolve_logs_dir()
     logs_dir.mkdir(parents=True, exist_ok=True)
-    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    ts = utc_now_naive().strftime("%Y%m%d_%H%M%S")
     return logs_dir / f"task_{task.id}_{ts}.log"
 
 
@@ -131,7 +133,7 @@ async def run_task_once(db: Session, task: Task) -> TaskLog:
         task_id=task.id,
         status="running",
         log_path=str(log_file),
-        started_at=datetime.utcnow(),
+        started_at=utc_now_naive(),
     )
     db.add(task_log)
     db.commit()
@@ -157,7 +159,7 @@ async def run_task_once(db: Session, task: Task) -> TaskLog:
             fp.write(full_output)
 
         # 更新数据库记录
-        task_log.finished_at = datetime.utcnow()
+        task_log.finished_at = utc_now_naive()
         task_log.status = "success" if returncode == 0 else "failed"
         if returncode != 0:
             task_log.output = (
@@ -186,7 +188,10 @@ async def run_task_once(db: Session, task: Task) -> TaskLog:
             if not is_task_running(task.id):
                 _active_logs.pop(task.id, None)
 
-        asyncio.create_task(cleanup())
+        create_logged_task(
+            cleanup(),
+            description=f"legacy task log cleanup {task.id}",
+        )
 
     return task_log
 

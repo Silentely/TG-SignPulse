@@ -1,4 +1,5 @@
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -54,6 +55,50 @@ def test_keyword_continue_action_template_rendering():
     assert rendered["text"] == "hit=ABC; from=tester; raw=ABC 123"
 
 
+def test_message_matches_thread_uses_reply_to_message_id_fallback():
+    from backend.services.keyword_monitor import _message_matches_thread
+
+    message = SimpleNamespace(
+        message_thread_id=None,
+        direct_messages_chat_topic_id=None,
+        reply_to_top_message_id=None,
+        reply_to_message_id=67,
+        topic=None,
+    )
+
+    assert _message_matches_thread(message, 67) is True
+    assert _message_matches_thread(message, 68) is False
+
+
+def test_message_matches_thread_uses_direct_messages_topic_id():
+    from backend.services.keyword_monitor import _message_matches_thread
+
+    message = SimpleNamespace(
+        message_thread_id=None,
+        direct_messages_chat_topic_id=67,
+        reply_to_top_message_id=None,
+        reply_to_message_id=None,
+        topic=None,
+    )
+
+    assert _message_matches_thread(message, 67) is True
+    assert _message_matches_thread(message, 68) is False
+
+
+def test_keyword_continue_action_supports_reply_keyboard_ai_choice():
+    from backend.services.keyword_monitor import (
+        ReplyKeyboardMarkup,
+        _message_supports_continue_action,
+    )
+
+    message = SimpleNamespace(
+        photo=object(),
+        reply_markup=ReplyKeyboardMarkup([["院", "因"], ["外", "里"]]),
+    )
+
+    assert _message_supports_continue_action(message, {"action": 4}) is True
+
+
 @pytest.mark.asyncio
 async def test_keyword_continue_click_does_not_send_button_text(monkeypatch):
     from backend.services import keyword_monitor
@@ -86,3 +131,75 @@ async def test_keyword_continue_click_does_not_send_button_text(monkeypatch):
 
     assert result is False
     assert client.sent_messages == []
+
+
+@pytest.mark.asyncio
+async def test_keyword_continue_actions_wait_before_delayed_step(monkeypatch):
+    from backend.services import keyword_monitor
+
+    sleep_calls = []
+    executed_actions = []
+
+    async def fake_sleep(seconds):
+        sleep_calls.append(seconds)
+        return None
+
+    async def fake_execute_continue_action(
+        client,
+        target_chat_id,
+        target_thread_id,
+        action,
+        timeout=None,
+        next_action=None,
+    ):
+        executed_actions.append((target_chat_id, target_thread_id, action.get("text")))
+        return True
+
+    async def fake_warm_chat(_client, _chat_id):
+        return None
+
+    monkeypatch.setattr(keyword_monitor.asyncio, "sleep", fake_sleep)
+
+    service = keyword_monitor.KeywordMonitorService()
+    monkeypatch.setattr(service, "_execute_continue_action", fake_execute_continue_action)
+    monkeypatch.setattr(service, "_warm_chat", fake_warm_chat)
+
+    rule = keyword_monitor.KeywordMonitorRule(
+        account_name="acct",
+        task_name="delay-demo",
+        chat_id=-100123,
+        chat_name="Demo",
+        message_thread_id=None,
+        action={
+            "push_channel": "continue",
+            "continue_action_interval": 1,
+            "continue_actions": [
+                {"action": 1, "text": "first"},
+                {"action": 1, "text": "second", "delay": "5"},
+            ],
+        },
+    )
+    message = SimpleNamespace(
+        chat=SimpleNamespace(id=-100123),
+        message_thread_id=None,
+        direct_messages_chat_topic_id=None,
+        reply_to_top_message_id=None,
+        reply_to_message_id=None,
+        topic=None,
+    )
+
+    await service._execute_continue_actions(
+        account_name="acct",
+        client=object(),
+        rule=rule,
+        message=message,
+        variables={},
+    )
+
+    assert executed_actions == [
+        (-100123, None, "first"),
+        (-100123, None, "second"),
+    ]
+    assert sleep_calls == [5.0]
+    monitor_logs = service.get_task_logs("delay-demo", "acct")
+    assert any("等待 5 秒后执行" in line for line in monitor_logs)

@@ -237,7 +237,11 @@ export const checkAccountExists = (token: string, accountName: string) =>
 export const updateAccount = (
   token: string,
   accountName: string,
-  data: { remark?: string | null; proxy?: string | null }
+  data: {
+    new_account_name?: string | null;
+    remark?: string | null;
+    proxy?: string | null;
+  }
 ) =>
   request<{ success: boolean; message: string; account?: AccountInfo | null }>(`/accounts/${accountName}`, {
     method: "PATCH",
@@ -398,8 +402,24 @@ export const setupTOTP = (token: string) =>
     method: "POST",
   }, token);
 
-export const getTOTPQRCode = (token: string) =>
-  `${API_BASE}/user/totp/qrcode?token=${token}`;
+export const fetchTOTPQRCode = async (token: string) => {
+  const res = await fetch(`${API_BASE}/user/totp/qrcode`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    let errorMessage = "QR code fetch failed";
+    try {
+      const errorData = await res.json();
+      errorMessage = errorData.detail || errorData.message || JSON.stringify(errorData);
+    } catch {
+      errorMessage = await res.text() || errorMessage;
+    }
+    throw new Error(errorMessage);
+  }
+  const blob = await res.blob();
+  return window.URL.createObjectURL(blob);
+};
 
 export const enableTOTP = (token: string, totpCode: string) =>
   request<{ success: boolean; message: string }>("/user/totp/enable", {
@@ -529,6 +549,16 @@ export interface AccountLog {
 export const getAccountLogs = (token: string, accountName: string, limit: number = 100) =>
   request<AccountLog[]>(`/accounts/${accountName}/logs?limit=${limit}`, {}, token);
 
+export const getRecentAccountLogs = (token: string, limit: number = 50) =>
+  request<AccountLog[]>(`/accounts/logs/recent?limit=${limit}`, {}, token);
+
+export const clearRecentAccountLogs = (token: string) =>
+  request<{ success: boolean; cleared: number; message: string; code?: string }>(
+    "/accounts/logs/clear",
+    { method: "POST" },
+    token
+  );
+
 export const clearAccountLogs = (token: string, accountName: string) =>
   request<{ success: boolean; cleared: number; message: string; code?: string }>(
     `/accounts/${accountName}/logs/clear`,
@@ -574,37 +604,42 @@ export interface LastRunInfo {
 export interface SignTask {
   name: string;
   account_name: string;
+  account_names?: string[];
   sign_at: string;
   chats: SignTaskChat[];
   random_seconds: number;
   sign_interval: number;
   enabled: boolean;
   last_run?: LastRunInfo | null;
-  execution_mode?: "fixed" | "range";
+  execution_mode?: "fixed" | "range" | "listen";
   range_start?: string;
   range_end?: string;
   notify_on_failure?: boolean;
+  task_group_id?: string;
+  last_run_account_name?: string;
 }
 
 export interface CreateSignTaskRequest {
   name: string;
   account_name: string;
+  account_names?: string[];
   sign_at: string;
   chats: SignTaskChat[];
   random_seconds?: number;
   sign_interval?: number;
-  execution_mode?: "fixed" | "range";
+  execution_mode?: "fixed" | "range" | "listen";
   range_start?: string;
   range_end?: string;
   notify_on_failure?: boolean;
 }
 
 export interface UpdateSignTaskRequest {
+  account_names?: string[];
   sign_at?: string;
   chats?: SignTaskChat[];
   random_seconds?: number;
   sign_interval?: number;
-  execution_mode?: "fixed" | "range";
+  execution_mode?: "fixed" | "range" | "listen";
   range_start?: string;
   range_end?: string;
   notify_on_failure?: boolean;
@@ -629,6 +664,7 @@ export async function listSignTasks(token: string, accountName?: string, forceRe
   const params = new URLSearchParams();
   if (accountName) params.append('account_name', accountName);
   if (forceRefresh) params.append('force_refresh', 'true');
+  if (!accountName) params.append('aggregate', 'true');
   const url = `/sign-tasks${params.toString() ? `?${params.toString()}` : ''}`;
   return request<SignTask[]>(url, {}, token);
 }
@@ -636,7 +672,7 @@ export async function listSignTasks(token: string, accountName?: string, forceRe
 export const getSignTask = (token: string, name: string, accountName?: string) => {
   const params = new URLSearchParams();
   if (accountName) params.append("account_name", accountName);
-  const url = `/sign-tasks/${name}${params.toString() ? `?${params.toString()}` : ""}`;
+  const url = `/sign-tasks/${encodeURIComponent(name)}${params.toString() ? `?${params.toString()}` : ""}`;
   return request<SignTask>(url, {}, token);
 };
 
@@ -647,23 +683,54 @@ export const createSignTask = (token: string, data: CreateSignTaskRequest) =>
   }, token);
 
 export const updateSignTask = (token: string, name: string, data: UpdateSignTaskRequest, accountName?: string) =>
-  request<SignTask>(`/sign-tasks/${name}${accountName ? `?account_name=${accountName}` : ''}`, {
+  request<SignTask>(`/sign-tasks/${encodeURIComponent(name)}${accountName ? `?account_name=${encodeURIComponent(accountName)}` : ''}`, {
     method: "PUT",
     body: JSON.stringify(data),
   }, token);
 
 export const deleteSignTask = (token: string, name: string, accountName?: string) =>
-  request<{ ok: boolean }>(`/sign-tasks/${name}${accountName ? `?account_name=${accountName}` : ''}`, {
+  request<{ ok: boolean }>(`/sign-tasks/${encodeURIComponent(name)}${accountName ? `?account_name=${encodeURIComponent(accountName)}` : ''}`, {
     method: "DELETE",
   }, token);
 
 export const runSignTask = (token: string, name: string, accountName: string) =>
-  request<{ success: boolean; output: string; error: string }>(`/sign-tasks/${name}/run?account_name=${accountName}`, {
+  request<{ success: boolean; output: string; error: string }>(`/sign-tasks/${encodeURIComponent(name)}/run?account_name=${encodeURIComponent(accountName)}`, {
     method: "POST",
   }, token);
 
+export interface SignTaskRunStatus {
+  run_id: string;
+  state: "idle" | "stale" | "running" | "finished" | string;
+  success?: boolean | null;
+  error?: string;
+  output?: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
+export const startSignTaskRun = (token: string, name: string, accountName: string) =>
+  request<SignTaskRunStatus>(`/sign-tasks/${encodeURIComponent(name)}/run/start?account_name=${encodeURIComponent(accountName)}`, {
+    method: "POST",
+  }, token);
+
+export const getSignTaskRunStatus = (
+  token: string,
+  name: string,
+  accountName: string,
+  runId?: string
+) => {
+  const params = new URLSearchParams();
+  params.append("account_name", accountName);
+  if (runId) params.append("run_id", runId);
+  return request<SignTaskRunStatus>(
+    `/sign-tasks/${encodeURIComponent(name)}/run/status?${params.toString()}`,
+    {},
+    token
+  );
+};
+
 export const getAccountChats = (token: string, accountName: string, forceRefresh?: boolean) =>
-  request<ChatInfo[]>(`/sign-tasks/chats/${accountName}${forceRefresh ? '?force_refresh=true' : ''}`, {}, token);
+  request<ChatInfo[]>(`/sign-tasks/chats/${encodeURIComponent(accountName)}${forceRefresh ? '?force_refresh=true' : ''}`, {}, token);
 
 export const searchAccountChats = (
   token: string,
@@ -676,13 +743,13 @@ export const searchAccountChats = (
   params.append("q", query);
   params.append("limit", String(limit));
   params.append("offset", String(offset));
-  return request<ChatSearchResponse>(`/sign-tasks/chats/${accountName}/search?${params.toString()}`, {}, token);
+  return request<ChatSearchResponse>(`/sign-tasks/chats/${encodeURIComponent(accountName)}/search?${params.toString()}`, {}, token);
 };
 
 export const getSignTaskLogs = (token: string, name: string, accountName?: string) => {
     const params = new URLSearchParams();
     if (accountName) params.append("account_name", accountName);
-    const url = `/sign-tasks/${name}/logs${params.toString() ? `?${params.toString()}` : ""}`;
+    const url = `/sign-tasks/${encodeURIComponent(name)}/logs${params.toString() ? `?${params.toString()}` : ""}`;
     return request<string[]>(url, {}, token);
 };
 
@@ -693,19 +760,21 @@ export interface SignTaskHistoryItem {
   flow_logs?: string[];
   flow_truncated?: boolean;
   flow_line_count?: number;
+  account_name?: string;
+  last_target_message?: string;
 }
 
 export const getSignTaskHistory = (
   token: string,
   name: string,
-  accountName: string,
+  accountName?: string,
   limit: number = 20
 ) => {
   const params = new URLSearchParams();
-  params.append("account_name", accountName);
+  if (accountName) params.append("account_name", accountName);
   params.append("limit", String(limit));
   return request<SignTaskHistoryItem[]>(
-    `/sign-tasks/${name}/history?${params.toString()}`,
+    `/sign-tasks/${encodeURIComponent(name)}/history?${params.toString()}`,
     {},
     token
   );

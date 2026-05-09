@@ -15,8 +15,23 @@ from typing import (
 )
 
 from pydantic import AnyHttpUrl, BaseModel, Field, ValidationError
-from pyrogram.types import Chat, Message
 from typing_extensions import Self, TypeAlias
+
+try:
+    from pydantic import ConfigDict
+except ImportError:  # pragma: no cover - pydantic v1 compatibility
+    ConfigDict = None
+
+_PYDANTIC_V2 = hasattr(BaseModel, "model_validate")
+
+try:
+    from pyrogram.types import Chat, Message
+except Exception:  # pragma: no cover - import fallback for unsupported runtimes
+    class Chat:  # type: ignore[no-redef]
+        pass
+
+    class Message:  # type: ignore[no-redef]
+        pass
 
 
 def get_display_width(text: str) -> int:
@@ -53,19 +68,32 @@ class BaseJSONConfig(BaseModel):
     olds: ClassVar[Optional[List[Type["BaseJSONConfig"]]]] = None
     is_current: ClassVar[bool] = False
 
-    class Config:
-        keep_untouched = (cached_property,)
-        arbitrary_types_allowed = True
+    if _PYDANTIC_V2 and ConfigDict is not None:
+        model_config = ConfigDict(
+            ignored_types=(cached_property,),
+            arbitrary_types_allowed=True,
+        )
+    else:
+        class Config:
+            keep_untouched = (cached_property,)
+            arbitrary_types_allowed = True
 
     @classmethod
     def valid(cls, d):
         try:
-            instance = cls.parse_obj(d)
+            validator = getattr(cls, "model_validate", None)
+            if callable(validator):
+                instance = validator(d)
+            else:
+                instance = cls.parse_obj(d)
         except (ValidationError, TypeError):
             return None
         return instance
 
     def to_jsonable(self):
+        dumper = getattr(self, "model_dump", None)
+        if callable(dumper):
+            return dumper()
         return self.dict()
 
     @classmethod
@@ -195,6 +223,7 @@ class SupportAction(int, Enum):
 
 class SignAction(BaseModel):
     action: SupportAction
+    delay: Optional[str] = None
 
 
 class SendTextAction(SignAction):
@@ -218,23 +247,27 @@ class ChooseOptionByImageAction(SignAction):
     action: Literal[SupportAction.CHOOSE_OPTION_BY_IMAGE] = (
         SupportAction.CHOOSE_OPTION_BY_IMAGE
     )
+    ai_prompt: Optional[str] = None
 
 
 class ReplyByCalculationProblemAction(SignAction):
     action: Literal[SupportAction.REPLY_BY_CALCULATION_PROBLEM] = (
         SupportAction.REPLY_BY_CALCULATION_PROBLEM
     )
+    ai_prompt: Optional[str] = None
 
 class ReplyByImageRecognitionAction(SignAction):
     action: Literal[SupportAction.REPLY_BY_IMAGE_RECOGNITION] = (
         SupportAction.REPLY_BY_IMAGE_RECOGNITION
     )
+    ai_prompt: Optional[str] = None
 
 
 class ClickButtonByCalculationProblemAction(SignAction):
     action: Literal[SupportAction.CLICK_BUTTON_BY_CALCULATION_PROBLEM] = (
         SupportAction.CLICK_BUTTON_BY_CALCULATION_PROBLEM
     )
+    ai_prompt: Optional[str] = None
 
 
 class KeywordNotifyAction(SignAction):

@@ -25,10 +25,6 @@ export default function Home() {
     return null;
   }
 
-  return (
-    <div className="min-h-screen flex items-center justify-center px-4">
-      <LoginForm />
-    </div>
-  );
+  return <LoginForm />;
 }
 

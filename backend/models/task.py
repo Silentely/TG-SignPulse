@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime
-
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
 
 from backend.core.database import Base
+from backend.utils.time import utc_now_naive
 
 
 class Task(Base):
@@ -17,9 +16,9 @@ class Task(Base):
     enabled = Column(Boolean, default=True, nullable=False)
     account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False, index=True)
     last_run_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utc_now_naive, nullable=False)
     updated_at = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+        DateTime, default=utc_now_naive, onupdate=utc_now_naive, nullable=False
     )
 
     account = relationship("Account", back_populates="tasks")

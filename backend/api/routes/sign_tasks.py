@@ -18,7 +18,13 @@ from fastapi import (
     status,
 )
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, validator
+
+try:
+    from pydantic import BaseModel, Field, field_validator
+    validator = None
+except ImportError:  # pragma: no cover - pydantic v1 compatibility
+    from pydantic import BaseModel, Field, validator
+    field_validator = None
 from sqlalchemy.orm import Session
 
 from backend.core.auth import get_current_user, verify_token
@@ -26,6 +32,13 @@ from backend.core.database import get_db
 from backend.services.sign_tasks import get_sign_task_service
 
 router = APIRouter()
+
+
+def _model_dump(model: BaseModel) -> Dict[str, Any]:
+    dumper = getattr(model, "model_dump", None)
+    if callable(dumper):
+        return dumper()
+    return model.dict()
 
 
 async def _restart_keyword_monitors() -> None:
@@ -95,6 +108,10 @@ class SignTaskCreate(BaseModel):
 
     name: str = Field(..., description="任务名称")
     account_name: str = Field(..., description="关联的账号名称")
+    account_names: Optional[List[str]] = Field(
+        None,
+        description="共享该任务的账号名称列表",
+    )
     sign_at: str = Field(..., description="签到时间（CRON 表达式）")
     chats: List[ChatConfig] = Field(..., description="Chat 配置列表")
     random_seconds: int = Field(0, description="随机延迟秒数")
@@ -107,22 +124,38 @@ class SignTaskCreate(BaseModel):
 
     notify_on_failure: bool = Field(True, description="Send notification when task fails")
 
-    @validator("name")
-    def name_must_be_valid_filename(cls, v):
-        import re
+    if field_validator is not None:
+        @field_validator("name")
+        @classmethod
+        def name_must_be_valid_filename(cls, v):
+            import re
 
-        if not v or not v.strip():
-            raise ValueError("任务名称不能为空")
-        # Windows 文件名非法字符检查
-        invalid_chars = r'[<>:"/\\|?*]'
-        if re.search(invalid_chars, v):
-            raise ValueError('任务名称不能包含特殊字符: < > : " / \\ | ? *')
-        return v
+            if not v or not v.strip():
+                raise ValueError("任务名称不能为空")
+            invalid_chars = r'[<>:"/\\|?*]'
+            if re.search(invalid_chars, v):
+                raise ValueError('任务名称不能包含特殊字符: < > : " / \\ | ? *')
+            return v
+    else:
+        @validator("name", allow_reuse=True)
+        def name_must_be_valid_filename(cls, v):
+            import re
+
+            if not v or not v.strip():
+                raise ValueError("任务名称不能为空")
+            invalid_chars = r'[<>:"/\\|?*]'
+            if re.search(invalid_chars, v):
+                raise ValueError('任务名称不能包含特殊字符: < > : " / \\ | ? *')
+            return v
 
 
 class SignTaskUpdate(BaseModel):
     """更新签到任务请求"""
 
+    account_names: Optional[List[str]] = Field(
+        None,
+        description="共享该任务的账号名称列表",
+    )
     sign_at: Optional[str] = Field(None, description="签到时间（CRON 表达式）")
     chats: Optional[List[ChatConfig]] = Field(None, description="Chat 配置列表")
     random_seconds: Optional[int] = Field(None, description="随机延迟秒数")
@@ -148,6 +181,7 @@ class SignTaskOut(BaseModel):
 
     name: str
     account_name: str = ""
+    account_names: List[str] = Field(default_factory=list)
     sign_at: str
     chats: List[Dict[str, Any]]
     random_seconds: int
@@ -158,6 +192,8 @@ class SignTaskOut(BaseModel):
     range_start: Optional[str] = None
     range_end: Optional[str] = None
     notify_on_failure: bool = True
+    task_group_id: str = ""
+    last_run_account_name: str = ""
 
 
 class ChatOut(BaseModel):
@@ -194,6 +230,8 @@ class TaskHistoryItem(BaseModel):
     flow_logs: List[str] = Field(default_factory=list)
     flow_truncated: bool = False
     flow_line_count: int = 0
+    account_name: str = ""
+    last_target_message: str = ""
 
 
 # API 路由
@@ -201,7 +239,10 @@ class TaskHistoryItem(BaseModel):
 
 @router.get("", response_model=List[SignTaskOut])
 def list_sign_tasks(
-    account_name: Optional[str] = None, current_user=Depends(get_current_user)
+    account_name: Optional[str] = None,
+    aggregate: bool = Query(False),
+    force_refresh: bool = Query(False),
+    current_user=Depends(get_current_user),
 ):
     """
     获取所有签到任务列表
@@ -209,7 +250,11 @@ def list_sign_tasks(
     Args:
         account_name: 可选，按账号名筛选任务
     """
-    tasks = get_sign_task_service().list_tasks(account_name=account_name)
+    tasks = get_sign_task_service().list_tasks(
+        account_name=account_name,
+        force_refresh=force_refresh,
+        aggregate=aggregate,
+    )
     return tasks
 
 
@@ -223,11 +268,12 @@ async def create_sign_task(
 
     try:
         # 转换 chats 为字典列表
-        chats_dict = [chat.dict() for chat in payload.chats]
+        chats_dict = [_model_dump(chat) for chat in payload.chats]
 
         task = get_sign_task_service().create_task(
             task_name=payload.name,
             account_name=payload.account_name,
+            account_names=payload.account_names,
             sign_at=payload.sign_at,
             chats=chats_dict,
             random_seconds=payload.random_seconds,
@@ -245,6 +291,13 @@ async def create_sign_task(
         await _restart_keyword_monitors()
 
         return task
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        ) from e
     except Exception as e:
         print(f"创建任务失败: {str(e)}")
         traceback.print_exc()
@@ -281,7 +334,7 @@ async def update_sign_task(
         # 转换 chats 为字典列表
         chats_dict = None
         if payload.chats is not None:
-            chats_dict = [chat.dict() for chat in payload.chats]
+            chats_dict = [_model_dump(chat) for chat in payload.chats]
 
         task = get_sign_task_service().update_task(
             task_name=task_name,
@@ -290,6 +343,7 @@ async def update_sign_task(
             random_seconds=payload.random_seconds,
             sign_interval=payload.sign_interval,
             account_name=account_name or existing.get("account_name"),
+            account_names=payload.account_names,
             execution_mode=payload.execution_mode,
             range_start=payload.range_start,
             range_end=payload.range_end,
@@ -305,6 +359,11 @@ async def update_sign_task(
         return task
     except HTTPException:
         raise
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        ) from e
     except Exception as e:
         import traceback
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import sqlite3
 from pathlib import Path
@@ -42,6 +43,7 @@ from backend.scheduler import (  # noqa: E402
 )
 from backend.services.users import ensure_admin  # noqa: E402
 from backend.utils.paths import ensure_data_dirs  # noqa: E402
+from tg_signer.async_utils import create_logged_task  # noqa: E402
 
 
 # Silence /health check logs
@@ -68,7 +70,7 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -156,11 +158,20 @@ async def on_startup() -> None:
         finally:
             app.state.ready = True
 
-    asyncio.create_task(_post_startup())
+    app.state.startup_task = create_logged_task(
+        _post_startup(),
+        logger=logging.getLogger("backend.startup"),
+        description="backend delayed startup sync",
+    )
 
 
 @app.on_event("shutdown")
 async def on_shutdown() -> None:
+    startup_task = getattr(app.state, "startup_task", None)
+    if startup_task is not None and not startup_task.done():
+        startup_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await startup_task
     shutdown_scheduler()
     try:
         from backend.services.keyword_monitor import get_keyword_monitor_service

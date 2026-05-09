@@ -14,6 +14,34 @@ from tg_signer.utils import UserInput, print_to_user
 
 DEFAULT_MODEL = "gpt-4o"
 
+DEFAULT_CHOOSE_OPTION_BY_IMAGE_PROMPT = """你是一个**图片识别助手**，可以根据提供的图片和问题选择出**唯一正确**的选项，如果你觉得每个都不对，也要给出一个你认为最符合的答案，以如下JSON格式输出你的回复：
+{
+  "option": 1,  // 整数，表示选项的序号，从0开始。
+  "reason": "这么选择的原因，30字以内"
+}
+option字段表示你选择的选项。
+"""
+
+DEFAULT_CHOOSE_OPTIONS_BY_IMAGE_PROMPT = (
+    "You solve Telegram bot visual or text verification challenges. "
+    "Use the image, caption, and button options to decide which button(s) "
+    "must be clicked, in exact order. Challenges may ask to complete a poem, "
+    "idiom, phrase, math result, or image question. The buttons may come from "
+    "an inline keyboard or a reply keyboard. Return JSON only: "
+    '{"options":[1],"reason":"short reason"}. '
+    "The options field must be a list of option indexes starting at 1. "
+    "If only one click is needed, return a one-item list."
+)
+
+DEFAULT_EXTRACT_TEXT_BY_IMAGE_PROMPT = (
+    "You are an OCR assistant. Extract the most relevant text from the image. "
+    "Return plain text only, no markdown, no explanation."
+)
+
+DEFAULT_CALCULATE_PROBLEM_PROMPT = (
+    "你是一个**答题助手**，可以根据用户的问题给出正确的回答，只需要回复答案，不要解释，不要输出任何其他内容。"
+)
+
 
 def encode_image(image: bytes):
     return base64.b64encode(image).decode("utf-8")
@@ -36,7 +64,7 @@ class OpenAIConfigManager:
         return bool(os.environ.get("OPENAI_API_KEY"))
 
     def has_config(self) -> bool:
-        return self.has_env_config() and bool(self.load_file_config())
+        return bool(self.load_config())
 
     def load_file_config(self) -> Optional[dict]:
         config_file = self.get_config_file()
@@ -116,15 +144,10 @@ class AITools:
         options: list[tuple[int, str]],
         client: "AsyncOpenAI" = None,
         model: str = None,
+        system_prompt: str | None = None,
         temperature=0.1,
     ) -> int:
-        sys_prompt = """你是一个**图片识别助手**，可以根据提供的图片和问题选择出**唯一正确**的选项，如果你觉得每个都不对，也要给出一个你认为最符合的答案，以如下JSON格式输出你的回复：
-    {
-      "option": 1,  // 整数，表示选项的序号，从0开始。
-      "reason": "这么选择的原因，30字以内"
-    }
-    option字段表示你选择的选项。
-    """
+        sys_prompt = (system_prompt or "").strip() or DEFAULT_CHOOSE_OPTION_BY_IMAGE_PROMPT
         client = client or self.client
         model = model or self.default_model
         text_query = f"问题为：{query}, 选项为：{json.dumps(options)}。"
@@ -162,17 +185,10 @@ class AITools:
         options: list[tuple[int, str]],
         client: "AsyncOpenAI" = None,
         model: str = None,
+        system_prompt: str | None = None,
         temperature=0.1,
     ) -> list[int]:
-        sys_prompt = (
-            "You solve Telegram bot visual or text verification challenges. "
-            "Use the image, caption, and button options to decide which button(s) "
-            "must be clicked, in exact order. Challenges may ask to complete a poem, "
-            "idiom, phrase, math result, or image question. Return JSON only: "
-            '{"options":[1],"reason":"short reason"}. '
-            "The options field must be a list of option indexes starting at 1. "
-            "If only one click is needed, return a one-item list."
-        )
+        sys_prompt = (system_prompt or "").strip() or DEFAULT_CHOOSE_OPTIONS_BY_IMAGE_PROMPT
         client = client or self.client
         model = model or self.default_model
         text_query = (
@@ -221,12 +237,10 @@ class AITools:
         query: str = "",
         client: "AsyncOpenAI" = None,
         model: str = None,
+        system_prompt: str | None = None,
         temperature=0.1,
     ) -> str:
-        sys_prompt = (
-            "You are an OCR assistant. Extract the most relevant text from the image. "
-            "Return plain text only, no markdown, no explanation."
-        )
+        sys_prompt = (system_prompt or "").strip() or DEFAULT_EXTRACT_TEXT_BY_IMAGE_PROMPT
         client = client or self.client
         model = model or self.default_model
         text_query = query or "Extract the key text from this image."
@@ -258,9 +272,10 @@ class AITools:
         query: str,
         client: "AsyncOpenAI" = None,
         model: str = None,
+        system_prompt: str | None = None,
         temperature=0.1,
     ) -> str:
-        sys_prompt = """你是一个**答题助手**，可以根据用户的问题给出正确的回答，只需要回复答案，不要解释，不要输出任何其他内容。"""
+        sys_prompt = (system_prompt or "").strip() or DEFAULT_CALCULATE_PROBLEM_PROMPT
         model = model or self.default_model
         client = client or self.client
         text = f"问题是: {query}\n\n只需要给出答案，不要解释，不要输出任何其他内容。The answer is:"

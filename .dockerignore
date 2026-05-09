@@ -25,6 +25,8 @@ MANIFEST
 venv/
 ENV/
 env/
+.venv/
+.venv*/
 
 # IDEs
 .vscode/
@@ -53,6 +55,7 @@ docs/
 
 # Tests
 tests/
+test_*.py
 .pytest_cache/
 .tox/
 .coverage
@@ -63,11 +66,13 @@ frontend/node_modules/
 frontend/.next/
 frontend/out/
 frontend/.env.local
+frontend/.eslintcache
 
 
 # Logs
 logs/
 *.log
+*.pid
 
 # Data
 .signer/

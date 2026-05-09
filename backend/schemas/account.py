@@ -5,6 +5,13 @@ from typing import Optional
 
 from pydantic import BaseModel
 
+try:
+    from pydantic import ConfigDict
+except ImportError:  # pragma: no cover - pydantic v1 compatibility
+    ConfigDict = None
+
+_PYDANTIC_V2 = hasattr(BaseModel, "model_validate")
+
 
 class AccountBase(BaseModel):
     account_name: str
@@ -36,5 +43,8 @@ class AccountOut(AccountBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        orm_mode = True
+    if _PYDANTIC_V2 and ConfigDict is not None:
+        model_config = ConfigDict(from_attributes=True)
+    else:
+        class Config:
+            orm_mode = True

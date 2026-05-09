@@ -131,4 +131,15 @@ frontend/.next/
 frontend/out/
 frontend/tsconfig.tsbuildinfo
 frontend/.env.local
+.venv/
+.venv*/
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+*.pid
+.tg_signpulse_data_dir
+.local-data/
+.local-login-data/
+.test-run-data/
+.test-run-data-override
 

@@ -1,19 +1,20 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Optional
 
-import pyotp
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
+import pyotp
 from backend.core.config import get_settings
 from backend.core.database import get_db
 from backend.core.security import verify_password
 from backend.models.user import User
+from backend.utils.time import utc_now
+from jose import JWTError, jwt
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
@@ -22,7 +23,7 @@ settings = get_settings()
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
-    expire = datetime.utcnow() + (
+    expire = utc_now() + (
         expires_delta or timedelta(hours=settings.access_token_expire_hours)
     )
     to_encode.update({"exp": expire})

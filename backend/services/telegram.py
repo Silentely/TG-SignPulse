@@ -7,15 +7,16 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import logging
 import os
 import secrets
 import time
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from backend.core.config import get_settings
 from backend.utils.account_locks import get_account_lock
+from backend.utils.names import validate_storage_name
 from backend.utils.proxy import build_proxy_dict
 from backend.utils.tg_session import (
     delete_account_session_string,
@@ -28,10 +29,13 @@ from backend.utils.tg_session import (
     is_string_session_mode,
     list_account_names,
     load_session_string_file,
+    rename_account_entry,
     save_session_string_file,
     set_account_session_string,
     set_account_status,
 )
+from backend.utils.time import utc_from_timestamp_iso_z, utc_now_iso_z
+from tg_signer.async_utils import create_logged_task
 
 settings = get_settings()
 logger = logging.getLogger("backend.qr_login")
@@ -50,6 +54,10 @@ class TelegramService:
         self._accounts_cache: Optional[List[Dict[str, Any]]] = None
 
     @staticmethod
+    def _normalize_account_name(account_name: str) -> str:
+        return validate_storage_name(account_name, field_name="account_name")
+
+    @staticmethod
     def _account_status_payload(account_name: str) -> Dict[str, Any]:
         status = get_account_status(account_name)
         return {
@@ -59,6 +67,49 @@ class TelegramService:
             "status_checked_at": status.get("checked_at"),
             "needs_relogin": bool(status.get("needs_relogin", False)),
         }
+
+    @staticmethod
+    def _move_path(source, target) -> None:
+        if not source.exists():
+            return
+
+        source_resolved = str(source.resolve()).lower()
+        target_resolved = str(target.resolve()).lower()
+        if source_resolved == target_resolved:
+            if str(source) == str(target):
+                return
+            temp_target = source.with_name(
+                f"{source.name}.__rename_tmp__{secrets.token_hex(6)}"
+            )
+            source.replace(temp_target)
+            temp_target.replace(target)
+            return
+
+        if target.exists():
+            raise ValueError(f"目标路径已存在: {target}")
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        source.replace(target)
+
+    @staticmethod
+    def _rename_pending_login_records(old_account_name: str, new_account_name: str) -> None:
+        for store in (_login_sessions, _qr_login_sessions):
+            replacements = []
+            for key, value in list(store.items()):
+                if not isinstance(value, dict):
+                    continue
+                if str(value.get("account_name") or "").strip() != old_account_name:
+                    continue
+                next_key = (
+                    key.replace(f"{old_account_name}_", f"{new_account_name}_", 1)
+                    if isinstance(key, str) and key.startswith(f"{old_account_name}_")
+                    else key
+                )
+                replacements.append((key, next_key, {**value, "account_name": new_account_name}))
+
+            for old_key, next_key, next_value in replacements:
+                store.pop(old_key, None)
+                store[next_key] = next_value
 
     def list_accounts(self, force_refresh: bool = False) -> List[Dict[str, Any]]:
         """
@@ -182,6 +233,7 @@ class TelegramService:
     def account_exists(self, account_name: str) -> bool:
         """检查账号是否存在"""
         # 优先查缓存
+        account_name = self._normalize_account_name(account_name)
         if self._accounts_cache is not None:
             for acc in self._accounts_cache:
                 if acc["name"] == account_name:
@@ -218,7 +270,8 @@ class TelegramService:
         """
         from tg_signer.core import get_client
 
-        checked_at = datetime.utcnow().isoformat() + "Z"
+        account_name = self._normalize_account_name(account_name)
+        checked_at = utc_now_iso_z()
 
         if not self.account_exists(account_name):
             return {
@@ -451,6 +504,7 @@ class TelegramService:
             是否成功删除
         """
         # 确保释放资源
+        account_name = self._normalize_account_name(account_name)
         from tg_signer.core import close_client_by_name
 
         # 尝试关闭 active client
@@ -520,6 +574,98 @@ class TelegramService:
         except OSError:
             return False
 
+    async def rename_account(
+        self,
+        account_name: str,
+        new_account_name: str,
+    ) -> str:
+        account_name = self._normalize_account_name(account_name)
+        new_account_name = self._normalize_account_name(new_account_name)
+        if account_name == new_account_name:
+            return account_name
+
+        accounts = self.list_accounts(force_refresh=True)
+        existing_by_lower = {
+            str(item.get("name") or "").strip().lower(): str(item.get("name") or "").strip()
+            for item in accounts
+            if str(item.get("name") or "").strip()
+        }
+
+        actual_account_name = existing_by_lower.get(account_name.lower())
+        if not actual_account_name:
+            raise ValueError(f"账号 {account_name} 不存在")
+
+        conflict_name = existing_by_lower.get(new_account_name.lower())
+        if conflict_name and conflict_name.lower() != actual_account_name.lower():
+            raise ValueError(f"账号 {new_account_name} 已存在")
+
+        ordered_names = sorted(
+            {actual_account_name, new_account_name},
+            key=lambda value: value.lower(),
+        )
+        first_lock = get_account_lock(ordered_names[0])
+        second_lock = get_account_lock(ordered_names[-1])
+
+        from tg_signer.core import close_client_by_name
+
+        async def _perform_rename() -> None:
+            await close_client_by_name(
+                actual_account_name,
+                workdir=self.session_dir,
+            )
+            if new_account_name.lower() != actual_account_name.lower():
+                await close_client_by_name(
+                    new_account_name,
+                    workdir=self.session_dir,
+                )
+
+            session_paths = [
+                (
+                    self.session_dir / f"{actual_account_name}.session",
+                    self.session_dir / f"{new_account_name}.session",
+                ),
+                (
+                    self.session_dir / f"{actual_account_name}.session-journal",
+                    self.session_dir / f"{new_account_name}.session-journal",
+                ),
+                (
+                    self.session_dir / f"{actual_account_name}.session-shm",
+                    self.session_dir / f"{new_account_name}.session-shm",
+                ),
+                (
+                    self.session_dir / f"{actual_account_name}.session-wal",
+                    self.session_dir / f"{new_account_name}.session-wal",
+                ),
+                (
+                    self.session_dir / f"{actual_account_name}.session_string",
+                    self.session_dir / f"{new_account_name}.session_string",
+                ),
+            ]
+
+            for source, target in session_paths:
+                self._move_path(source, target)
+
+            rename_account_entry(actual_account_name, new_account_name)
+            self._rename_pending_login_records(actual_account_name, new_account_name)
+
+            from backend.services.sign_tasks import get_sign_task_service
+
+            get_sign_task_service().rename_account_references(
+                actual_account_name,
+                new_account_name,
+            )
+
+            self._accounts_cache = None
+
+        async with first_lock:
+            if second_lock is first_lock:
+                await _perform_rename()
+            else:
+                async with second_lock:
+                    await _perform_rename()
+
+        return new_account_name
+
     async def start_login(
         self, account_name: str, phone_number: str, proxy: Optional[str] = None
     ) -> Dict[str, Any]:
@@ -540,6 +686,8 @@ class TelegramService:
             包含 phone_code_hash 的字典
         """
         import gc
+
+        account_name = self._normalize_account_name(account_name)
 
         from pyrogram import Client
         from pyrogram.errors import FloodWait, PhoneNumberInvalid
@@ -745,6 +893,8 @@ class TelegramService:
         Returns:
             登录结果
         """
+        account_name = self._normalize_account_name(account_name)
+
         from pyrogram.errors import (
             PasswordHashInvalid,
             PhoneCodeExpired,
@@ -1014,6 +1164,16 @@ class TelegramService:
         data = _qr_login_sessions.pop(login_id, None)
         if not data:
             return
+        expire_task = data.get("expire_task")
+        current_task = asyncio.current_task()
+        if (
+            expire_task is not None
+            and expire_task is not current_task
+            and not expire_task.done()
+        ):
+            expire_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await expire_task
         client = data.get("client")
         handler = data.get("handler")
         if client and handler:
@@ -1058,7 +1218,7 @@ class TelegramService:
         current = int(data.get("expires_ts") or 0)
         if current < min_expires:
             data["expires_ts"] = min_expires
-            data["expires_at"] = datetime.utcfromtimestamp(min_expires).isoformat() + "Z"
+            data["expires_at"] = utc_from_timestamp_iso_z(min_expires)
 
     async def _expire_qr_login(self, login_id: str, expires_ts: int) -> None:
         while True:
@@ -1081,6 +1241,8 @@ class TelegramService:
         self, account_name: str, proxy: Optional[str] = None
     ) -> Dict[str, Any]:
         import gc
+
+        account_name = self._normalize_account_name(account_name)
 
         from pyrogram import Client, handlers, raw
         from pyrogram.errors import FloodWait
@@ -1185,7 +1347,7 @@ class TelegramService:
 
             token_expires = getattr(result, "expires", None)
             expires_ts = self._normalize_login_token_expires(token_expires)
-            expires_at = datetime.utcfromtimestamp(expires_ts).isoformat() + "Z"
+            expires_at = utc_from_timestamp_iso_z(expires_ts)
             qr_uri = "tg://login?token=" + base64.urlsafe_b64encode(
                 token_bytes
             ).decode("utf-8")
@@ -1235,9 +1397,9 @@ class TelegramService:
                             data["expires_ts"] = self._normalize_login_token_expires(
                                 token_expires
                             )
-                            data["expires_at"] = datetime.utcfromtimestamp(
+                            data["expires_at"] = utc_from_timestamp_iso_z(
                                 data["expires_ts"]
-                            ).isoformat() + "Z"
+                            )
                         data["scan_seen"] = True
                         data["status"] = "scanned_wait_confirm"
                         self._log_qr_state(login_id, "scanned_wait_confirm", data)
@@ -1247,7 +1409,11 @@ class TelegramService:
             except Exception:
                 pass
 
-            asyncio.create_task(self._expire_qr_login(login_id, expires_ts))
+            session_data["expire_task"] = create_logged_task(
+                self._expire_qr_login(login_id, expires_ts),
+                logger=logger,
+                description=f"QR login expiry watcher {login_id}",
+            )
 
             return {
                 "login_id": login_id,
@@ -1452,9 +1618,9 @@ class TelegramService:
                         data["expires_ts"] = self._normalize_login_token_expires(
                             token_expires
                         )
-                        data["expires_at"] = datetime.utcfromtimestamp(
+                        data["expires_at"] = utc_from_timestamp_iso_z(
                             data["expires_ts"]
-                        ).isoformat() + "Z"
+                        )
                     if result.token:
                         data["token"] = result.token
                     data["status"] = "scanned_wait_confirm"
@@ -1524,9 +1690,9 @@ class TelegramService:
                                         data["expires_ts"] = self._normalize_login_token_expires(
                                             token_expires
                                         )
-                                        data["expires_at"] = datetime.utcfromtimestamp(
+                                        data["expires_at"] = utc_from_timestamp_iso_z(
                                             data["expires_ts"]
-                                        ).isoformat() + "Z"
+                                        )
                                     if export_result.token:
                                         data["token"] = export_result.token
                                     data["status"] = "scanned_wait_confirm"
@@ -1734,9 +1900,9 @@ class TelegramService:
                             data["expires_ts"] = self._normalize_login_token_expires(
                                 token_expires
                             )
-                            data["expires_at"] = datetime.utcfromtimestamp(
+                            data["expires_at"] = utc_from_timestamp_iso_z(
                                 data["expires_ts"]
-                            ).isoformat() + "Z"
+                            )
                         if result.token:
                             data["token"] = result.token
 
@@ -1823,9 +1989,9 @@ class TelegramService:
                                     data["expires_ts"] = (
                                         self._normalize_login_token_expires(token_expires)
                                     )
-                                    data["expires_at"] = datetime.utcfromtimestamp(
+                                    data["expires_at"] = utc_from_timestamp_iso_z(
                                         data["expires_ts"]
-                                    ).isoformat() + "Z"
+                                    )
                                 if export_result.token:
                                     data["token"] = export_result.token
                         except Exception:
@@ -1881,9 +2047,9 @@ class TelegramService:
                         data["expires_ts"] = self._normalize_login_token_expires(
                             token_expires
                         )
-                        data["expires_at"] = datetime.utcfromtimestamp(
+                        data["expires_at"] = utc_from_timestamp_iso_z(
                             data["expires_ts"]
-                        ).isoformat() + "Z"
+                        )
                     if data.get("token") != result.token:
                         data["token"] = result.token
                     raise ValueError("请先在手机端确认登录")
