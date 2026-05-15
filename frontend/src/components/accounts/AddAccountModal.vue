@@ -217,7 +217,13 @@ const handleSave = async () => {
       emit('success')
       handleClose()
     } catch (e: any) {
-      error.value = e.message || t('addAccount.verifyFailed')
+      // 如果错误提示包含2FA相关信息，显示密码提示
+      const msg = e.message || ''
+      if (msg.includes('两步验证') || msg.includes('2FA') || msg.includes('SESSION_PASSWORD_NEEDED')) {
+        error.value = t('addAccount.needPassword')
+      } else {
+        error.value = msg || t('addAccount.verifyFailed')
+      }
       loading.value = false
     }
   } else {
