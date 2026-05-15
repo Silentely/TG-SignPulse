@@ -37,7 +37,17 @@ async function request<T>(
     try {
       const errorData = await res.json();
       if (errorData && typeof errorData === "object") {
-        errorMessage = errorData.detail || errorData.message || JSON.stringify(errorData);
+        const detail = errorData.detail;
+        if (typeof detail === "string") {
+          errorMessage = detail;
+        } else if (Array.isArray(detail)) {
+          // FastAPI validation error format: [{loc, msg, type}]
+          errorMessage = detail.map((d: any) => d.msg || JSON.stringify(d)).join('; ');
+        } else if (detail && typeof detail === "object") {
+          errorMessage = JSON.stringify(detail);
+        } else {
+          errorMessage = errorData.message || JSON.stringify(errorData);
+        }
         errorCode = errorData.code;
       } else {
         errorMessage = JSON.stringify(errorData);
