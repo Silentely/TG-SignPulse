@@ -17,7 +17,7 @@ const stats = ref([
 ])
 
 const logs = ref<any[]>([])
-
+const pageLoading = ref(true)
 const formatTime = (isoString: string) => {
   if (!isoString) return ''
   const d = new Date(isoString)
@@ -26,6 +26,7 @@ const formatTime = (isoString: string) => {
 
 onMounted(async () => {
   await loadDashboardData()
+  pageLoading.value = false
   refreshTimer = setInterval(loadDashboardData, 30000)
 })
 
@@ -84,6 +85,12 @@ const loadDashboardData = async () => {
 
 <template>
   <div class="space-y-8">
+    <!-- Page Loading -->
+    <div v-if="pageLoading" class="flex items-center justify-center py-20">
+      <svg class="animate-spin w-6 h-6 text-gray-400" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+    </div>
+
+    <template v-else>
     <!-- Stats -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
       <div 
@@ -141,5 +148,6 @@ const loadDashboardData = async () => {
         </div>
       </div>
     </Modal>
+    </template>
   </div>
 </template>

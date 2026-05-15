@@ -26,6 +26,7 @@ const filterDate = ref('')
 const filterStatus = ref<'' | 'success' | 'error'>('')
 
 const logs = ref<any[]>([])
+const pageLoading = ref(true)
 const accountsList = ref<string[]>([])
 const selectedLog = ref<any>(null)
 const logDetail = ref<any>(null)
@@ -120,11 +121,16 @@ const loadLoginLogs = async () => {
   }
 }
 
-const loadLogs = () => {
-  if (activeTab.value === 'tasks') {
-    loadTaskLogs()
-  } else {
-    loadLoginLogs()
+const loadLogs = async () => {
+  pageLoading.value = true
+  try {
+    if (activeTab.value === 'tasks') {
+      await loadTaskLogs()
+    } else {
+      await loadLoginLogs()
+    }
+  } finally {
+    pageLoading.value = false
   }
 }
 
@@ -204,7 +210,11 @@ onMounted(() => {
 
     <!-- Logs List -->
     <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/60 p-3 sm:p-5 flex-1 min-h-[500px] overflow-y-auto">
-      <div v-if="activeTab === 'tasks'" class="font-mono text-xs space-y-0">
+      <!-- Page Loading -->
+      <div v-if="pageLoading" class="flex items-center justify-center py-20">
+        <svg class="animate-spin w-6 h-6 text-gray-400" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+      </div>
+      <div v-else-if="activeTab === 'tasks'" class="font-mono text-xs space-y-0">
         <!-- Empty state -->
         <div v-if="logs.length === 0" class="flex flex-col items-center justify-center py-16 text-center font-sans">
           <p class="text-sm text-gray-500">{{ t('logs.empty') }}</p>

@@ -10,7 +10,7 @@ import EditAccountModal from '../components/accounts/EditAccountModal.vue'
 const router = useRouter()
 const { t } = useI18n()
 const accounts = ref<any[]>([])
-
+const pageLoading = ref(true)
 const showAddModal = ref(false)
 const showEditModal = ref(false)
 const showAddMenu = ref(false)
@@ -59,6 +59,8 @@ const loadAccounts = async () => {
     }
   } catch (e) {
     console.error('Failed to fetch accounts', e)
+  } finally {
+    pageLoading.value = false
   }
 }
 
@@ -135,8 +137,13 @@ const goTasks = (name: string) => {
 
 <template>
   <div class="relative min-h-[80vh]">
+    <!-- Page Loading -->
+    <div v-if="pageLoading" class="flex items-center justify-center py-20">
+      <svg class="animate-spin w-6 h-6 text-gray-400" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+    </div>
+
     <!-- Empty State -->
-    <div v-if="accounts.length === 0" class="flex flex-col items-center justify-center py-20 text-center">
+    <div v-else-if="accounts.length === 0" class="flex flex-col items-center justify-center py-20 text-center">
       <div class="w-16 h-16 bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-800/60 flex items-center justify-center mb-4">
         <svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
       </div>
