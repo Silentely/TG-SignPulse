@@ -63,5 +63,5 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.vars.outputs.tags }}
-          cache-from: type=gha
+          cache-from: ${{ startsWith(github.ref, 'refs/tags/') && '' || 'type=gha' }}
           cache-to: type=gha,mode=max
