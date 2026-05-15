@@ -328,6 +328,7 @@ const messages: Record<string, Record<string, string>> = {
 
     // Task Form extras
     'taskForm.refreshChats': '刷新列表',
+    'taskForm.loadingChats': '加载会话中...',
 
     // Logs detail translations
     'logs.detail.LOGIN_SUCCESS': '登录成功',
@@ -660,6 +661,7 @@ const messages: Record<string, Record<string, string>> = {
 
     // Task Form extras
     'taskForm.refreshChats': 'Refresh',
+    'taskForm.loadingChats': 'Loading chats...',
 
     // Logs detail translations
     'logs.detail.LOGIN_SUCCESS': 'Login successful',

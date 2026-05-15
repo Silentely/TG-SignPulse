@@ -77,30 +77,32 @@ const loadChats = async (n: string, forceRefresh: boolean = false) => {
   if (loadChatsAbort) { loadChatsAbort.abort(); loadChatsAbort = null }
   const controller = new AbortController()
   loadChatsAbort = controller
+  chatListRefreshing.value = true
   const token = localStorage.getItem('tg-signer-token')||''
   try {
     const result = await getAccountChats(token, n, forceRefresh)
-    if (controller.signal.aborted) return // Stale response, discard
+    if (controller.signal.aborted) return
     availableChats.value = result || []
   } catch(e: any) {
     if (controller.signal.aborted) return
     console.error('loadChats failed:', e)
     availableChats.value = []
   } finally {
-    if (loadChatsAbort === controller) loadChatsAbort = null
+    if (loadChatsAbort === controller) { loadChatsAbort = null; chatListRefreshing.value = false }
   }
 }
-const refreshChats = async () => { if (!selectedAccount.value || chatListRefreshing.value) return; chatListRefreshing.value = true; try { await loadChats(selectedAccount.value, true) } finally { chatListRefreshing.value = false } }
+const refreshChats = async () => { if (!selectedAccount.value || chatListRefreshing.value) return; await loadChats(selectedAccount.value, true) }
 watch(selectedAccounts,(v)=>{if(v.length>0&&!v.includes(selectedAccount.value))selectedAccount.value=v[0];else if(v.length===0){selectedAccount.value='';availableChats.value=[]}})
 watch(selectedAccount, async (v)=>{
   availableChats.value=[]
   if(v) {
-    // First try cached (fast)
     await loadChats(v, false)
-    // If cache was empty, auto force refresh
+    // If cache was empty and account didn't change, try force refresh
     if (availableChats.value.length === 0 && v === selectedAccount.value) {
       await loadChats(v, true)
     }
+  } else {
+    chatListRefreshing.value = false
   }
 })
 let st:any=null
@@ -140,7 +142,7 @@ onMounted(()=>{loadAccounts()})
       <h4 class="mb-4 text-xs font-bold uppercase tracking-widest text-sky-500">{{ t('taskForm.targetChat') }}</h4>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div class="space-y-1.5"><label class="text-xs font-medium text-gray-500">{{ t('taskForm.chatSourceAccount') }}</label><CustomSelect v-model="selectedAccount" :options="selectedAccounts.map(a => ({label: a, value: a}))" /></div>
-        <div class="space-y-1.5"><label class="text-xs font-medium text-gray-500 flex items-center justify-between">{{ t('taskForm.selectFromList') }}<button type="button" @click="refreshChats" :disabled="chatListRefreshing || !selectedAccount" class="flex items-center gap-1 text-[10px] text-sky-500 hover:text-sky-700 dark:hover:text-sky-300 font-medium disabled:opacity-50 disabled:cursor-not-allowed"><RefreshCw class="w-3 h-3" :class="chatListRefreshing ? 'animate-spin' : ''" /> {{ t('taskForm.refreshChats') }}</button></label><CustomSelect v-model="selectedChatId" :disabled="chatListRefreshing" :options="[{label: t('taskForm.selectChat'), value:0}, ...availableChats.map(c => ({label: c.title || c.username || c.id, value: c.id}))]" @update:modelValue="selectedChatName = availableChats.find(c => c.id === $event)?.title || availableChats.find(c => c.id === $event)?.username || String($event)" /></div>
+        <div class="space-y-1.5"><label class="text-xs font-medium text-gray-500 flex items-center justify-between">{{ t('taskForm.selectFromList') }}<button type="button" @click="refreshChats" :disabled="chatListRefreshing || !selectedAccount" class="flex items-center gap-1 text-[10px] text-sky-500 hover:text-sky-700 dark:hover:text-sky-300 font-medium disabled:opacity-50 disabled:cursor-not-allowed"><RefreshCw class="w-3 h-3" :class="chatListRefreshing ? 'animate-spin' : ''" /> {{ t('taskForm.refreshChats') }}</button></label><CustomSelect v-model="selectedChatId" :disabled="chatListRefreshing" :options="[{label: chatListRefreshing ? t('taskForm.loadingChats') : t('taskForm.selectChat'), value:0}, ...availableChats.map(c => ({label: c.title || c.username || c.id, value: c.id}))]" @update:modelValue="selectedChatName = availableChats.find(c => c.id === $event)?.title || availableChats.find(c => c.id === $event)?.username || String($event)" /></div>
         <div class="space-y-1.5 relative"><label class="text-xs font-medium text-gray-500">{{ t('taskForm.searchChat') }}</label><div class="relative"><input v-model="chatSearch" :placeholder="t('taskForm.searchPlaceholder')" class="w-full h-10 px-3 text-sm border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900 outline-none focus:border-gray-400" /><div v-if="chatSearch.trim()" class="absolute top-11 left-0 right-0 z-10 max-h-40 overflow-y-auto bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/60 shadow-lg"><div v-if="chatSearchLoading" class="p-3 text-xs text-gray-400">{{ t('taskForm.searching') }}</div><template v-else><div v-for="chat in chatSearchResults" :key="chat.id" @click="selectChat(chat)" class="p-2 border-b border-gray-100 dark:border-gray-800/60 hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer text-sm"><div class="font-medium truncate">{{ chat.title || chat.username || chat.id }}</div><div class="text-[10px] text-gray-400 font-mono">{{ chat.id }}</div></div><div v-if="!chatSearchResults.length" class="p-3 text-xs text-gray-400">{{ t('taskForm.noResults') }}</div></template></div></div></div>
         <div class="space-y-1.5"><label class="text-xs font-medium text-gray-500">{{ t('taskForm.threadId') }}</label><input v-model="messageThreadId" :placeholder="t('taskForm.threadIdPlaceholder')" class="w-full h-10 px-3 text-sm border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900 outline-none focus:border-gray-400" /></div>
       </div>
