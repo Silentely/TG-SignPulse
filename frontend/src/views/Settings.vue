@@ -10,6 +10,7 @@ const settings = ref({
   logDays: 7,
   dataDir: '',
   proxy: '',
+  concurrency: 1,
   botEnabled: false,
   botLoginNotify: false,
   botTaskFailure: false,
@@ -54,6 +55,7 @@ onMounted(async () => {
     settings.value.logDays = res.log_retention_days || 7
     settings.value.dataDir = res.data_dir || ''
     settings.value.proxy = res.global_proxy || ''
+    settings.value.concurrency = res.tg_global_concurrency || 1
     settings.value.botEnabled = res.telegram_bot_notify_enabled || false
     settings.value.botLoginNotify = res.telegram_bot_login_notify_enabled || false
     settings.value.botTaskFailure = res.telegram_bot_task_failure_enabled || false
@@ -87,6 +89,7 @@ const saveSettings = async () => {
       log_retention_days: settings.value.logDays,
       data_dir: settings.value.dataDir || null,
       global_proxy: settings.value.proxy || null,
+      tg_global_concurrency: settings.value.concurrency || 1,
     })
     showToast(t('settings.saveSuccess'))
   } catch (e: any) {
@@ -250,6 +253,10 @@ const handleImport = async (e: Event) => {
             <div class="space-y-1.5">
               <label class="text-xs text-gray-500 block">{{ t('settings.proxy') }}</label>
               <input v-model="settings.proxy" type="text" placeholder="socks5://127.0.0.1:1080" class="w-full bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-white dark:focus:bg-gray-800 placeholder:text-gray-400">
+            </div>
+            <div class="space-y-1.5">
+              <label class="text-xs text-gray-500 block">{{ t('settings.concurrency') }}</label>
+              <input v-model.number="settings.concurrency" type="number" min="1" max="10" :placeholder="t('settings.concurrencyPlaceholder')" class="w-full bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-white dark:focus:bg-gray-800 placeholder:text-gray-400">
             </div>
             <div class="pt-2">
               <button @click="saveSettings" :disabled="loading" class="w-full py-2 text-sm bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-white transition-colors disabled:opacity-50">{{ loading ? t('settings.saving') : t('settings.saveGeneral') }}</button>

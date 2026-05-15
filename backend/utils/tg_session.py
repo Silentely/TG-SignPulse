@@ -34,15 +34,36 @@ def get_no_updates_flag() -> bool:
 def get_global_semaphore() -> asyncio.Semaphore:
     global _GLOBAL_SEMAPHORE
     if _GLOBAL_SEMAPHORE is None:
-        raw = (os.getenv("TG_GLOBAL_CONCURRENCY") or "1").strip()
-        try:
-            limit = int(raw)
-        except ValueError:
-            limit = 1
-        if limit < 1:
-            limit = 1
+        limit = _resolve_concurrency_limit()
         _GLOBAL_SEMAPHORE = asyncio.Semaphore(limit)
     return _GLOBAL_SEMAPHORE
+
+
+def _resolve_concurrency_limit() -> int:
+    # Priority: env var > global settings > default 1
+    raw = (os.getenv("TG_GLOBAL_CONCURRENCY") or "").strip()
+    if raw:
+        try:
+            return max(int(raw), 1)
+        except ValueError:
+            pass
+    try:
+        from backend.services.config import get_config_service
+        settings = get_config_service().get_global_settings()
+        val = settings.get("tg_global_concurrency")
+        if val is not None:
+            return max(int(val), 1)
+    except Exception:
+        pass
+    return 1
+
+
+def update_global_semaphore(new_limit: int) -> None:
+    """Update the global semaphore with a new concurrency limit at runtime."""
+    global _GLOBAL_SEMAPHORE
+    if new_limit < 1:
+        new_limit = 1
+    _GLOBAL_SEMAPHORE = asyncio.Semaphore(new_limit)
 
 
 def _account_store_path() -> Path:

@@ -608,6 +608,7 @@ class ConfigService:
             "log_retention_days": 7,
             "data_dir": str(override_data_dir) if override_data_dir else None,
             "global_proxy": None,
+            "tg_global_concurrency": 1,
             "telegram_bot_notify_enabled": False,
             "telegram_bot_login_notify_enabled": False,
             "telegram_bot_task_failure_enabled": True,
@@ -663,9 +664,19 @@ class ConfigService:
         try:
             with open(config_file, "w", encoding="utf-8") as f:
                 json.dump(merged, f, ensure_ascii=False, indent=2)
-            return True
         except OSError:
             return False
+
+        # Apply concurrency change at runtime
+        concurrency_val = merged.get("tg_global_concurrency")
+        if concurrency_val is not None:
+            try:
+                from backend.utils.tg_session import update_global_semaphore
+                update_global_semaphore(int(concurrency_val))
+            except Exception:
+                pass
+
+        return True
 
     # ============ Telegram API 配置 ============
 

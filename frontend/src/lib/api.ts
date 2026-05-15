@@ -499,6 +499,7 @@ export interface GlobalSettings {
   log_retention_days?: number;    // 日志保留天数，默认 7
   data_dir?: string | null;
   global_proxy?: string | null;
+  tg_global_concurrency?: number | null;
   telegram_bot_notify_enabled?: boolean;
   telegram_bot_login_notify_enabled?: boolean;
   telegram_bot_task_failure_enabled?: boolean;
