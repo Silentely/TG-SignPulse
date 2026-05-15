@@ -251,11 +251,11 @@ const handleImport = async (e: Event) => {
           <div class="space-y-5">
             <div class="space-y-1.5">
               <label class="text-xs text-gray-500 block">API ID</label>
-              <input v-model="tgConfig.api_id" type="text" class="w-full bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-white dark:focus:bg-gray-800">
+              <input v-model="tgConfig.api_id" type="password" class="w-full bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-white dark:focus:bg-gray-800">
             </div>
             <div class="space-y-1.5">
               <label class="text-xs text-gray-500 block">API Hash</label>
-              <input v-model="tgConfig.api_hash" type="text" class="w-full bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-white dark:focus:bg-gray-800">
+              <input v-model="tgConfig.api_hash" type="password" class="w-full bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-white dark:focus:bg-gray-800">
             </div>
             <div class="p-3 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-800/50 text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
               <p class="font-medium mb-1">{{ t('settings.tgApiWarningTitle') }}</p>
@@ -336,6 +336,9 @@ const handleImport = async (e: Event) => {
                 <input v-model="settings.botTaskFailure" type="checkbox" class="w-4 h-4 text-gray-900 dark:text-gray-100 bg-gray-100 border-gray-300 rounded focus:ring-0 dark:bg-gray-800 dark:border-gray-600">
                 <span class="text-sm text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-gray-100 transition-colors">{{ t('settings.taskFailNotify') }}</span>
               </label>
+            </div>
+            <div class="pt-2">
+              <button @click="saveSettings" :disabled="loading" class="w-full py-2 text-sm bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-white transition-colors disabled:opacity-50">{{ loading ? t('settings.saving') : t('settings.saveChanges') }}</button>
             </div>
           </div>
         </section>
