@@ -245,7 +245,7 @@ const handleImport = async (e: Event) => {
             </div>
             <div class="space-y-1.5">
               <label class="text-xs text-gray-500 block">{{ t('settings.dataDir') }}</label>
-              <input v-model="settings.dataDir" type="text" class="w-full bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-white dark:focus:bg-gray-800">
+              <input v-model="settings.dataDir" type="text" placeholder="/data" class="w-full bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-white dark:focus:bg-gray-800 placeholder:text-gray-400">
             </div>
             <div class="space-y-1.5">
               <label class="text-xs text-gray-500 block">{{ t('settings.proxy') }}</label>

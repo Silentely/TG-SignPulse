@@ -10,6 +10,14 @@ import DatePicker from '../components/DatePicker.vue'
 const { locale, t } = useI18n()
 const route = useRoute()
 
+const translateLoginDetail = (detail: string | null | undefined, success: boolean): string => {
+  if (!detail) return success ? t('logs.loginSuccess') : t('logs.loginFailed')
+  const key = `logs.detail.${detail}`
+  const translated = t(key)
+  if (translated !== key) return translated
+  return detail
+}
+
 const activeTab = ref<'tasks' | 'login'>('tasks')
 
 const filterTask = ref('')
@@ -105,7 +113,7 @@ const loadLoginLogs = async () => {
       username: l.username,
       ip: l.ip_address || '-',
       status: l.success ? 'success' : 'error',
-      text: l.detail || (l.success ? t('logs.loginSuccess') : t('logs.loginFailed'))
+      text: translateLoginDetail(l.detail, l.success)
     }))
   } catch (e) {
     console.error('Failed to fetch login logs', e)

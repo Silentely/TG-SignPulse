@@ -317,6 +317,22 @@ const messages: Record<string, Record<string, string>> = {
     'login.signIn': '登 录',
     'login.authenticating': '登录中...',
     'login.failed': '登录失败',
+
+    // MultiSelect
+    'multiSelect.placeholder': '请选择',
+    'multiSelect.all': '全选',
+    'multiSelect.allAccounts': '全部账号',
+    'multiSelect.selected': '项已选',
+    'multiSelect.noOptions': '无选项',
+
+    // Task Form extras
+    'taskForm.refreshChats': '刷新列表',
+
+    // Logs detail translations
+    'logs.detail.LOGIN_SUCCESS': '登录成功',
+    'logs.detail.INVALID_USERNAME_OR_PASSWORD': '用户名或密码错误',
+    'logs.detail.TOTP_REQUIRED_OR_INVALID': '两步验证码错误或缺失',
+    'logs.detail.RATE_LIMITED': '请求过于频繁，已被限流',
   },
   en: {
     // Navigation
@@ -632,6 +648,22 @@ const messages: Record<string, Record<string, string>> = {
     'login.signIn': 'Sign In',
     'login.authenticating': 'Authenticating...',
     'login.failed': 'Login failed',
+
+    // MultiSelect
+    'multiSelect.placeholder': 'Select',
+    'multiSelect.all': 'All',
+    'multiSelect.allAccounts': 'All Accounts',
+    'multiSelect.selected': 'selected',
+    'multiSelect.noOptions': 'No options',
+
+    // Task Form extras
+    'taskForm.refreshChats': 'Refresh',
+
+    // Logs detail translations
+    'logs.detail.LOGIN_SUCCESS': 'Login successful',
+    'logs.detail.INVALID_USERNAME_OR_PASSWORD': 'Invalid username or password',
+    'logs.detail.TOTP_REQUIRED_OR_INVALID': '2FA code invalid or missing',
+    'logs.detail.RATE_LIMITED': 'Too many requests, rate limited',
   }
 }
 
