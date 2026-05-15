@@ -49,6 +49,7 @@ const reset = async () => {
   codeSent.value = false
   qrImage.value = ''
   loginId.value = ''
+  loading.value = false
 }
 
 watch(() => props.isOpen, (val) => {
@@ -212,6 +213,7 @@ const handleSave = async () => {
       if (form.value.remark) {
         try { await updateAccount(token, form.value.account_name, { remark: form.value.remark }) } catch (err) {}
       }
+      loading.value = false
       emit('success')
       handleClose()
     } catch (e: any) {
