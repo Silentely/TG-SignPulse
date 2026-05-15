@@ -71,10 +71,38 @@ const loadAccounts = async () => {
   } catch (e) { console.error(e) }
 }
 const parseActions = (raw: any[]) => { const p: any[] = []; for (const a of raw) { if (a.delay) p.push({id:Date.now()+Math.random(),type:'delay',value:String(a.delay),aiPrompt:''}); if(a.action===1)p.push({id:Date.now()+Math.random(),type:'send_text',value:a.text||'',aiPrompt:''}); else if(a.action===3)p.push({id:Date.now()+Math.random(),type:'click_text_button',value:a.text||'',aiPrompt:''}); else if(a.action===4)p.push({id:Date.now()+Math.random(),type:'vision_click',value:'',aiPrompt:a.ai_prompt||''}); else if(a.action===5)p.push({id:Date.now()+Math.random(),type:'calc_send',value:'',aiPrompt:a.ai_prompt||''}); else if(a.action===6)p.push({id:Date.now()+Math.random(),type:'vision_send',value:'',aiPrompt:a.ai_prompt||''}); else if(a.action===7)p.push({id:Date.now()+Math.random(),type:'calc_click',value:'',aiPrompt:a.ai_prompt||''}); } if(p.length>0)actions.value=p }
-const loadChats = async (n: string, forceRefresh: boolean = false) => { const t=localStorage.getItem('tg-signer-token')||''; try{const result = await getAccountChats(t,n,forceRefresh); availableChats.value = result || []}catch(e){console.error(e); availableChats.value=[]} }
+let loadChatsAbort: AbortController | null = null
+const loadChats = async (n: string, forceRefresh: boolean = false) => {
+  // Cancel previous request to avoid race conditions
+  if (loadChatsAbort) { loadChatsAbort.abort(); loadChatsAbort = null }
+  const controller = new AbortController()
+  loadChatsAbort = controller
+  const token = localStorage.getItem('tg-signer-token')||''
+  try {
+    const result = await getAccountChats(token, n, forceRefresh)
+    if (controller.signal.aborted) return // Stale response, discard
+    availableChats.value = result || []
+  } catch(e: any) {
+    if (controller.signal.aborted) return
+    console.error('loadChats failed:', e)
+    availableChats.value = []
+  } finally {
+    if (loadChatsAbort === controller) loadChatsAbort = null
+  }
+}
 const refreshChats = async () => { if (!selectedAccount.value || chatListRefreshing.value) return; chatListRefreshing.value = true; try { await loadChats(selectedAccount.value, true) } finally { chatListRefreshing.value = false } }
 watch(selectedAccounts,(v)=>{if(v.length>0&&!v.includes(selectedAccount.value))selectedAccount.value=v[0];else if(v.length===0){selectedAccount.value='';availableChats.value=[]}})
-watch(selectedAccount,(v)=>{availableChats.value=[];if(v)loadChats(v, true)})
+watch(selectedAccount, async (v)=>{
+  availableChats.value=[]
+  if(v) {
+    // First try cached (fast)
+    await loadChats(v, false)
+    // If cache was empty, auto force refresh
+    if (availableChats.value.length === 0 && v === selectedAccount.value) {
+      await loadChats(v, true)
+    }
+  }
+})
 let st:any=null
 watch(chatSearch,(v)=>{if(!v.trim()){chatSearchResults.value=[];return};if(st)clearTimeout(st);st=setTimeout(async()=>{chatSearchLoading.value=true;try{const t=localStorage.getItem('tg-signer-token')||'';const r=await searchAccountChats(t,selectedAccount.value,v.trim());chatSearchResults.value=r.items||[]}catch(e){console.error(e)}finally{chatSearchLoading.value=false}},300)})
 const selectChat=(c:any)=>{selectedChatId.value=c.id;selectedChatName.value=c.title||c.username||String(c.id);chatSearch.value='';chatSearchResults.value=[]}
