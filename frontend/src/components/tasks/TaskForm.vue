@@ -134,10 +134,7 @@ onMounted(()=>{loadAccounts()})
       </div>
       <div class="space-y-1.5">
         <label class="text-xs font-semibold text-gray-500 tracking-wide uppercase">{{ t('taskForm.linkedAccounts') }}</label>
-        <div class="flex gap-2">
-          <button type="button" @click="allAccountsMode = true; selectedAccounts = accounts.map(a => a.name)" class="shrink-0 h-10 px-3 text-xs border transition-colors" :class="allAccountsMode ? 'bg-blue-50 dark:bg-blue-500/10 border-blue-300 dark:border-blue-700 text-blue-600 dark:text-blue-400 font-medium' : 'border-gray-200 dark:border-gray-800/60 text-gray-500 hover:border-gray-400 bg-white dark:bg-gray-900'">{{ t('taskForm.allAccounts') }}</button>
-          <div class="flex-1"><MultiSelect v-model="selectedAccounts" :options="accountOptions" :placeholder="t('taskForm.linkedAccountsPlaceholder')" :disabled="allAccountsMode" @update:modelValue="allAccountsMode = false" /></div>
-        </div>
+        <MultiSelect v-model="selectedAccounts" :options="accountOptions" :placeholder="t('taskForm.linkedAccountsPlaceholder')" :allMode="allAccountsMode" @update:allMode="allAccountsMode = $event" />
       </div>
       <div class="space-y-1.5">
         <label class="text-xs font-semibold text-gray-500 tracking-wide uppercase">{{ t('taskForm.scheduleMode') }}</label>
