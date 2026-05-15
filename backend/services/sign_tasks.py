@@ -2852,11 +2852,9 @@ class SignTaskService:
                             # 尝试获取用户信息，如果失败说明 session 无效
                             await active_client.get_me()
 
-                            # Method 1: Try iter_dialogs with offset-based pagination
-                            # to skip problematic dialogs
+                            # Try get_dialogs with async for
                             try:
-                                dialogs_list = await active_client.get_dialogs()
-                                for dialog in dialogs_list:
+                                async for dialog in active_client.get_dialogs():
                                     try:
                                         chat = getattr(dialog, "chat", None)
                                         if chat is None:
@@ -2868,7 +2866,7 @@ class SignTaskService:
                                         chat_type = getattr(chat, "type", None)
                                         type_name = chat_type.name.lower() if chat_type else "private"
 
-                                        chat_info = {
+                                        local_chats.append({
                                             "id": chat_id,
                                             "title": getattr(chat, "title", None)
                                             or getattr(chat, "first_name", None)
@@ -2876,60 +2874,46 @@ class SignTaskService:
                                             or str(chat_id),
                                             "username": getattr(chat, "username", None),
                                             "type": type_name,
-                                        }
-
-                                        local_chats.append(chat_info)
+                                        })
                                     except Exception:
                                         continue
                             except Exception as e:
                                 logger.warning(
-                                    f"get_dialogs 失败: {type(e).__name__}: {e}"
+                                    f"get_dialogs 失败 (已获取 {len(local_chats)} 个): {type(e).__name__}: {e}"
                                 )
 
-                            # Method 2: If get_dialogs failed, try get_me + search
+                            # Fallback: if get_dialogs returned nothing, try search_global
                             if not local_chats:
-                                logger.info(
-                                    f"get_dialogs 返回空结果，尝试使用 search_global 获取会话"
-                                )
-                                try:
-                                    # Get at least some chats via search
-                                    me = await active_client.get_me()
-                                    # Try to get recent chats from saved messages history
-                                    search_terms = ["", "a", "b", "1"]
-                                    seen_ids = set()
-                                    for term in search_terms:
-                                        try:
-                                            results = await active_client.search_global(term, limit=50)
-                                            async for msg in results:
-                                                try:
-                                                    chat = getattr(msg, "chat", None)
-                                                    if chat is None:
-                                                        continue
-                                                    chat_id = getattr(chat, "id", None)
-                                                    if chat_id is None or chat_id in seen_ids:
-                                                        continue
-                                                    seen_ids.add(chat_id)
-
-                                                    chat_type = getattr(chat, "type", None)
-                                                    type_name = chat_type.name.lower() if chat_type else "private"
-
-                                                    local_chats.append({
-                                                        "id": chat_id,
-                                                        "title": getattr(chat, "title", None)
-                                                        or getattr(chat, "first_name", None)
-                                                        or getattr(chat, "username", None)
-                                                        or str(chat_id),
-                                                        "username": getattr(chat, "username", None),
-                                                        "type": type_name,
-                                                    })
-                                                except Exception:
+                                logger.info("get_dialogs 返回空，尝试 search_global 获取会话")
+                                seen_ids: set = set()
+                                for term in ["", "a", "1"]:
+                                    try:
+                                        async for msg in active_client.search_global(term, limit=50):
+                                            try:
+                                                chat = getattr(msg, "chat", None)
+                                                if chat is None:
                                                     continue
-                                        except Exception:
-                                            continue
-                                except Exception as e2:
-                                    logger.warning(
-                                        f"search_global 也失败: {type(e2).__name__}: {e2}"
-                                    )
+                                                chat_id = getattr(chat, "id", None)
+                                                if chat_id is None or chat_id in seen_ids:
+                                                    continue
+                                                seen_ids.add(chat_id)
+
+                                                chat_type = getattr(chat, "type", None)
+                                                type_name = chat_type.name.lower() if chat_type else "private"
+
+                                                local_chats.append({
+                                                    "id": chat_id,
+                                                    "title": getattr(chat, "title", None)
+                                                    or getattr(chat, "first_name", None)
+                                                    or getattr(chat, "username", None)
+                                                    or str(chat_id),
+                                                    "username": getattr(chat, "username", None),
+                                                    "type": type_name,
+                                                })
+                                            except Exception:
+                                                continue
+                                    except Exception:
+                                        continue
 
                 return local_chats
 
