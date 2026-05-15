@@ -87,6 +87,24 @@ const saveSettings = async () => {
       log_retention_days: settings.value.logDays,
       data_dir: settings.value.dataDir || null,
       global_proxy: settings.value.proxy || null,
+    })
+    showToast(t('settings.saveSuccess'))
+  } catch (e: any) {
+    showToast(e.message || t('settings.saveFailed'))
+  } finally {
+    loading.value = false
+  }
+}
+
+const botLoading = ref(false)
+
+const saveBotSettings = async () => {
+  const token = localStorage.getItem('tg-signer-token') || ''
+  if (!token) return
+
+  botLoading.value = true
+  try {
+    await saveGlobalSettings(token, {
       telegram_bot_notify_enabled: settings.value.botEnabled,
       telegram_bot_login_notify_enabled: settings.value.botLoginNotify,
       telegram_bot_task_failure_enabled: settings.value.botTaskFailure,
@@ -98,7 +116,7 @@ const saveSettings = async () => {
   } catch (e: any) {
     showToast(e.message || t('settings.saveFailed'))
   } finally {
-    loading.value = false
+    botLoading.value = false
   }
 }
 
@@ -338,7 +356,7 @@ const handleImport = async (e: Event) => {
               </label>
             </div>
             <div class="pt-2">
-              <button @click="saveSettings" :disabled="loading" class="w-full py-2 text-sm bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-white transition-colors disabled:opacity-50">{{ loading ? t('settings.saving') : t('settings.saveChanges') }}</button>
+              <button @click="saveBotSettings" :disabled="botLoading" class="w-full py-2 text-sm bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-white transition-colors disabled:opacity-50">{{ botLoading ? t('settings.saving') : t('settings.saveChanges') }}</button>
             </div>
           </div>
         </section>
