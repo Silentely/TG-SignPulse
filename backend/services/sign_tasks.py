@@ -2789,37 +2789,31 @@ class SignTaskService:
                                     try:
                                         chat = getattr(dialog, "chat", None)
                                         if chat is None:
-                                            logger.warning(
-                                                "get_dialogs 返回空 chat，已跳过"
-                                            )
                                             continue
                                         chat_id = getattr(chat, "id", None)
                                         if chat_id is None:
-                                            logger.warning(
-                                                "get_dialogs 返回 chat.id 为空，已跳过"
-                                            )
                                             continue
+
+                                        chat_type = getattr(chat, "type", None)
+                                        type_name = chat_type.name.lower() if chat_type else "private"
 
                                         chat_info = {
                                             "id": chat_id,
-                                            "title": chat.title
-                                            or chat.first_name
-                                            or chat.username
+                                            "title": getattr(chat, "title", None)
+                                            or getattr(chat, "first_name", None)
+                                            or getattr(chat, "username", None)
                                             or str(chat_id),
-                                            "username": chat.username,
-                                            "type": chat.type.name.lower(),
+                                            "username": getattr(chat, "username", None),
+                                            "type": type_name,
                                         }
 
                                         local_chats.append(chat_info)
-                                    except Exception as e:
-                                        logger.warning(
-                                            f"处理 dialog 失败，已跳过: {type(e).__name__}: {e}"
-                                        )
+                                    except Exception:
                                         continue
                             except Exception as e:
                                 # Pyrogram 边界异常：保留已获取结果
                                 logger.warning(
-                                    f"get_dialogs 中断，返回已获取结果: {type(e).__name__}: {e}"
+                                    f"get_dialogs 中断，已获取 {len(local_chats)} 个会话: {type(e).__name__}: {e}"
                                 )
                 return local_chats
 
