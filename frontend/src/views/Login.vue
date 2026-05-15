@@ -15,13 +15,12 @@ const { isDark, toggleTheme } = useTheme()
 const username = ref('')
 const password = ref('')
 const totpCode = ref('')
-const showTotp = ref(false)
+const showTotp = ref(true)
 const errorMsg = ref('')
 const loading = ref(false)
 
 const handleLogin = async () => {
   if (!username.value || !password.value) return
-  if (showTotp.value && !totpCode.value) return
   try {
     loading.value = true
     errorMsg.value = ''
@@ -29,8 +28,8 @@ const handleLogin = async () => {
       username: username.value,
       password: password.value,
     }
-    if (showTotp.value && totpCode.value) {
-      payload.totp_code = totpCode.value
+    if (totpCode.value.trim()) {
+      payload.totp_code = totpCode.value.trim()
     }
     const res = await login(payload)
     if (res.access_token) {
