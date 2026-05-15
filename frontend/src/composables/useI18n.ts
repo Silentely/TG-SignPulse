@@ -143,6 +143,7 @@ const messages: Record<string, Record<string, string>> = {
     // Logs
     'logs.taskLogs': '任务执行日志',
     'logs.auditLogs': '系统审计日志',
+    'logs.taskPrefix': '任务: ',
     'logs.allAccounts': '全部账号',
     'logs.allStatus': '全部状态',
     'logs.success': '成功',
@@ -474,6 +475,7 @@ const messages: Record<string, Record<string, string>> = {
     // Logs
     'logs.taskLogs': 'Task Execution Logs',
     'logs.auditLogs': 'System Audit Logs',
+    'logs.taskPrefix': 'Task: ',
     'logs.allAccounts': 'All Accounts',
     'logs.allStatus': 'All Status',
     'logs.success': 'Success',

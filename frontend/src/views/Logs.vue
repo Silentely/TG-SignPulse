@@ -88,7 +88,7 @@ const loadTaskLogs = async () => {
       account: l.account_name,
       task: l.task_name,
       status: l.success ? 'success' : 'error',
-      text: l.summary || l.message,
+      text: l.success ? `${t('logs.taskPrefix')}${l.task_name} ${t('logs.success')}` : `${t('logs.taskPrefix')}${l.task_name} ${t('logs.failed')}`,
       flow_line_count: l.flow_line_count || 0
     }))
   } catch (e) {

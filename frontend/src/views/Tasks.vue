@@ -11,7 +11,7 @@ import TaskLogsModal from '../components/tasks/TaskLogsModal.vue'
 const route = useRoute()
 const { t } = useI18n()
 const tasks = ref<any[]>([])
-
+const pageLoading = ref(true)
 const showAddModal = ref(false)
 const showEditModal = ref(false)
 const showLogsModal = ref(false)
@@ -42,6 +42,7 @@ const loadTasks = async () => {
   const token = localStorage.getItem('tg-signer-token') || ''
   if (!token) return
 
+  pageLoading.value = true
   try {
     const accountName = route.query.account as string | undefined
     const res = await listSignTasks(token, accountName)
@@ -98,6 +99,8 @@ const loadTasks = async () => {
     }
   } catch (e) {
     console.error('Failed to fetch tasks', e)
+  } finally {
+    pageLoading.value = false
   }
 }
 
@@ -160,8 +163,13 @@ const openLogs = (task: any) => {
 
 <template>
   <div class="relative min-h-[80vh]">
+    <!-- Page Loading -->
+    <div v-if="pageLoading" class="flex items-center justify-center py-20">
+      <svg class="animate-spin w-6 h-6 text-gray-400" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+    </div>
+
     <!-- Empty State -->
-    <div v-if="tasks.length === 0" class="flex flex-col items-center justify-center py-20 text-center">
+    <div v-else-if="tasks.length === 0" class="flex flex-col items-center justify-center py-20 text-center">
       <div class="w-16 h-16 bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-800/60 flex items-center justify-center mb-4">
         <svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
       </div>
