@@ -308,6 +308,10 @@ const messages: Record<string, Record<string, string>> = {
     // Login
     'login.username': '用户名',
     'login.password': '密码',
+    'login.totpCode': '两步验证码',
+    'login.totpPlaceholder': '6位验证码',
+    'login.totpRequired': '此账号已开启两步验证，请输入验证码',
+    'login.totpInvalid': '验证码错误，请重新输入',
     'login.usernamePlaceholder': '请输入账号',
     'login.passwordPlaceholder': '请输入密码',
     'login.signIn': '登 录',
@@ -619,6 +623,10 @@ const messages: Record<string, Record<string, string>> = {
     // Login
     'login.username': 'Username',
     'login.password': 'Password',
+    'login.totpCode': '2FA Code',
+    'login.totpPlaceholder': '6-digit code',
+    'login.totpRequired': '2FA is enabled for this account, please enter the code',
+    'login.totpInvalid': 'Invalid code, please try again',
     'login.usernamePlaceholder': 'Enter your username',
     'login.passwordPlaceholder': 'Enter your password',
     'login.signIn': 'Sign In',

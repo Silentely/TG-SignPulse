@@ -14,21 +14,42 @@ const { isDark, toggleTheme } = useTheme()
 
 const username = ref('')
 const password = ref('')
+const totpCode = ref('')
+const showTotp = ref(false)
 const errorMsg = ref('')
 const loading = ref(false)
 
 const handleLogin = async () => {
   if (!username.value || !password.value) return
+  if (showTotp.value && !totpCode.value) return
   try {
     loading.value = true
     errorMsg.value = ''
-    const res = await login({ username: username.value, password: password.value })
+    const payload: { username: string; password: string; totp_code?: string } = {
+      username: username.value,
+      password: password.value,
+    }
+    if (showTotp.value && totpCode.value) {
+      payload.totp_code = totpCode.value
+    }
+    const res = await login(payload)
     if (res.access_token) {
       authStore.setToken(res.access_token)
       router.push('/dashboard')
     }
   } catch (e: any) {
-    errorMsg.value = e.message || t('login.failed')
+    const detail = e.message || ''
+    if (detail === 'TOTP_REQUIRED_OR_INVALID' || detail.includes('TOTP')) {
+      showTotp.value = true
+      if (totpCode.value) {
+        errorMsg.value = t('login.totpInvalid')
+      } else {
+        errorMsg.value = t('login.totpRequired')
+      }
+      totpCode.value = ''
+    } else {
+      errorMsg.value = detail || t('login.failed')
+    }
   } finally {
     loading.value = false
   }
@@ -68,6 +89,19 @@ const openGithub = () => {
             autocomplete="current-password"
             :placeholder="t('login.passwordPlaceholder')"
             class="w-full bg-white dark:bg-gray-950 border border-gray-300 dark:border-gray-800/60 text-gray-900 dark:text-gray-200 px-3 py-2 outline-none focus:border-gray-500 dark:focus:border-gray-600 transition-colors"
+          >
+        </div>
+
+        <div v-if="showTotp">
+          <label class="block text-xs text-gray-500 mb-1.5">{{ t('login.totpCode') }}</label>
+          <input 
+            v-model="totpCode" 
+            type="text" 
+            inputmode="numeric"
+            autocomplete="one-time-code"
+            maxlength="6"
+            :placeholder="t('login.totpPlaceholder')"
+            class="w-full bg-white dark:bg-gray-950 border border-gray-300 dark:border-gray-800/60 text-gray-900 dark:text-gray-200 px-3 py-2 outline-none focus:border-gray-500 dark:focus:border-gray-600 transition-colors tracking-widest text-center font-mono"
           >
         </div>
 
