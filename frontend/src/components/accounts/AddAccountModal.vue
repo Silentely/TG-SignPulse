@@ -85,17 +85,20 @@ const pollStatus = async (token: string, lid: string) => {
     const res = await getQrLoginStatus(token, lid)
     if (res.status === 'success') {
       clearInterval(pollInterval)
+      pollInterval = null
       if (form.value.remark) {
         try {
           await updateAccount(token, form.value.account_name, { remark: form.value.remark })
         } catch (err) {}
       }
+      loading.value = false
       emit('success')
       handleClose()
     } else if (res.status === 'waiting_for_password') {
       // 如果已经填了密码，自动提交
       if (form.value.password) {
         clearInterval(pollInterval)
+        pollInterval = null
         handleQrPasswordSubmit(token, lid)
       } else {
         error.value = t('addAccount.needPassword')
