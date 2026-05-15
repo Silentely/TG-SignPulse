@@ -276,8 +276,7 @@ const handleImport = async (e: Event) => {
               <input v-model="tgConfig.api_hash" type="password" class="w-full bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-white dark:focus:bg-gray-800">
             </div>
             <div class="p-3 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-800/50 text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
-              <p class="font-medium mb-1">{{ t('settings.tgApiWarningTitle') }}</p>
-              <p>{{ t('settings.tgApiWarningDesc') }} <a href="https://my.telegram.org" target="_blank" rel="noopener" class="underline hover:text-amber-900 dark:hover:text-amber-300 font-medium">my.telegram.org</a></p>
+              <p>由于默认 API 可能存在大量自动化操作，如果该 API 的请求账号出现多个被封可能影响整个 API 权重！为了你的账号安全，我强烈建议你申请一个自己的开发者 API，申请地址：<a href="https://my.telegram.org/auth" target="_blank" rel="noopener" class="underline hover:text-amber-900 dark:hover:text-amber-300 font-medium">https://my.telegram.org/auth</a></p>
             </div>
             <div class="pt-2">
               <button @click="saveTgConfig" :disabled="tgLoading || !tgConfig.api_id || !tgConfig.api_hash" class="w-full py-2 text-sm bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-white transition-colors disabled:opacity-50">{{ tgLoading ? t('settings.saving') : t('settings.saveTgConfig') }}</button>
@@ -345,7 +344,7 @@ const handleImport = async (e: Event) => {
               <label class="text-xs text-gray-500 block">{{ t('settings.threadId') }}</label>
               <input v-model="settings.botThreadId" type="text" :placeholder="t('settings.threadIdPlaceholder')" class="w-full bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-white dark:focus:bg-gray-800">
             </div>
-            <div class="space-y-3 pt-2">
+            <div class="flex flex-wrap gap-x-6 gap-y-3 pt-2">
               <label class="flex items-center gap-2 cursor-pointer group">
                 <input v-model="settings.botLoginNotify" type="checkbox" class="w-4 h-4 text-gray-900 dark:text-gray-100 bg-gray-100 border-gray-300 rounded focus:ring-0 dark:bg-gray-800 dark:border-gray-600">
                 <span class="text-sm text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-gray-100 transition-colors">{{ t('settings.loginFailNotify') }}</span>
