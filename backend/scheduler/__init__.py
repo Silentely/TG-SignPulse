@@ -199,7 +199,9 @@ async def sync_jobs() -> None:
         # 2. 同步签到任务 (SignTask)
         # 使用缓存的任务列表，减少 I/O
         sign_task_service = get_sign_task_service()
-        sign_tasks = sign_task_service.list_tasks(force_refresh=False)
+        # Expand wildcard tasks for newly added accounts
+        sign_task_service._expand_wildcard_tasks()
+        sign_tasks = sign_task_service.list_tasks(force_refresh=True)
         for st in sign_tasks:
             account_name = str(st.get("account_name") or "").strip()
             task_name = str(st.get("name") or "").strip()

@@ -12,6 +12,7 @@ const props = defineProps<{ initialTask?: any }>()
 const emit = defineEmits<{ (e: 'update:payload', value: any): void }>()
 const accounts = ref<any[]>([])
 const selectedAccounts = ref<string[]>([])
+const allAccountsMode = ref(false)
 const selectedAccount = ref('')
 const accountOptions = computed(() => accounts.value.map(a => ({ label: a.name, value: a.name })))
 const scheduleMode = ref<'scheduled' | 'listen'>('scheduled')
@@ -45,8 +46,14 @@ const loadAccounts = async () => {
       if (props.initialTask.execution_mode === 'range') timeRange.value = props.initialTask.range_start + '-' + props.initialTask.range_end
       else timeRange.value = props.initialTask.sign_at || '08:00-19:00'
       const taskAccs = props.initialTask.account_names?.length ? props.initialTask.account_names : [props.initialTask.account_name]
-      selectedAccounts.value = taskAccs.filter((a: string) => accounts.value.some(acc => acc.name === a))
-      selectedAccount.value = selectedAccounts.value[0] || ''
+      if (taskAccs.includes('*')) {
+        allAccountsMode.value = true
+        selectedAccounts.value = accounts.value.map(a => a.name)
+      } else {
+        allAccountsMode.value = false
+        selectedAccounts.value = taskAccs.filter((a: string) => accounts.value.some(acc => acc.name === a))
+      }
+      selectedAccount.value = selectedAccounts.value[0] || (accounts.value[0]?.name || '')
       if (props.initialTask.chats?.length > 0) {
         const chat = props.initialTask.chats[0]
         selectedChatId.value = Number(chat.chat_id) || 0
@@ -65,7 +72,7 @@ const loadAccounts = async () => {
         } else if (chat.actions) parseActions(chat.actions)
       }
     } else {
-      if (accounts.value.length > 0) { selectedAccounts.value = accounts.value.map(a => a.name); selectedAccount.value = selectedAccounts.value[0] || '' }
+      if (accounts.value.length > 0) { allAccountsMode.value = true; selectedAccounts.value = accounts.value.map(a => a.name); selectedAccount.value = selectedAccounts.value[0] || '' }
     }
     if (selectedAccount.value) loadChats(selectedAccount.value)
   } catch (e) { console.error(e) }
@@ -114,8 +121,8 @@ const moveAction=(i:number,d:number)=>{if(i+d<0||i+d>=actions.value.length)retur
 const buildPayload=()=>{let em='fixed',sa='08:00',rs='',re='';if(scheduleMode.value==='listen')em='listen';else{const p=timeRange.value.split('-');if(p.length===2){em='range';rs=p[0].trim();re=p[1].trim();sa=rs}else sa=timeRange.value.trim()||'08:00'}
 const ba:any[]=[];for(const a of actions.value){const o:any={};if(a.type==='delay')continue;if(a.type==='send_text'){o.action=1;o.text=a.value}else if(a.type==='send_dice'){o.action=2;o.dice=a.value||'\uD83C\uDFB2'}else if(a.type==='click_text_button'){o.action=3;o.text=a.value}else if(a.type==='vision_click'){o.action=4;if(a.aiPrompt)o.ai_prompt=a.aiPrompt}else if(a.type==='calc_send'){o.action=5;if(a.aiPrompt)o.ai_prompt=a.aiPrompt}else if(a.type==='vision_send'){o.action=6;if(a.aiPrompt)o.ai_prompt=a.aiPrompt}else if(a.type==='calc_click'){o.action=7;if(a.aiPrompt)o.ai_prompt=a.aiPrompt};const prev=actions.value[actions.value.indexOf(a)-1];if(prev&&prev.type==='delay'&&prev.value)o.delay=prev.value;ba.push(o)}
 let ca=ba;if(scheduleMode.value==='listen'){const kw=listenerKeywords.value.split('\n').map((k: string)=>k.trim()).filter(Boolean);const la:any={action:8,keywords:kw,match_mode:listenerMatchMode.value,push_channel:listenerPushChannel.value};if(listenerPushChannel.value==='forward'){if(listenerForwardChatId.value)la.forward_chat_id=listenerForwardChatId.value;if(listenerForwardThreadId.value)la.forward_message_thread_id=listenerForwardThreadId.value};if(listenerPushChannel.value==='bark'&&listenerBarkUrl.value)la.bark_url=listenerBarkUrl.value;if(listenerPushChannel.value==='custom'&&listenerCustomUrl.value)la.custom_url=listenerCustomUrl.value;if(listenerPushChannel.value==='continue'&&ba.length>0)la.continue_actions=ba;ca=[la]}
-return{name:taskName.value||selectedChatName.value||`task_${Date.now()}`,account_name:selectedAccounts.value[0]||'',account_names:selectedAccounts.value,sign_at:sa,execution_mode:em,range_start:rs,range_end:re,random_seconds:0,chats:[{chat_id:selectedChatId.value,name:selectedChatName.value,actions:ca,message_thread_id:messageThreadId.value?Number(messageThreadId.value):undefined}]}}
-watch([taskName,selectedAccounts,scheduleMode,timeRange,selectedChatId,selectedChatName,messageThreadId,actions,listenerKeywords,listenerMatchMode,listenerPushChannel,listenerForwardChatId,listenerForwardThreadId,listenerBarkUrl,listenerCustomUrl],()=>{emit('update:payload',buildPayload())},{deep:true})
+return{name:taskName.value||selectedChatName.value||`task_${Date.now()}`,account_name:selectedAccounts.value[0]||'',account_names:allAccountsMode.value ? ['*'] : selectedAccounts.value,sign_at:sa,execution_mode:em,range_start:rs,range_end:re,random_seconds:0,chats:[{chat_id:selectedChatId.value,name:selectedChatName.value,actions:ca,message_thread_id:messageThreadId.value?Number(messageThreadId.value):undefined}]}}
+watch([taskName,selectedAccounts,allAccountsMode,scheduleMode,timeRange,selectedChatId,selectedChatName,messageThreadId,actions,listenerKeywords,listenerMatchMode,listenerPushChannel,listenerForwardChatId,listenerForwardThreadId,listenerBarkUrl,listenerCustomUrl],()=>{emit('update:payload',buildPayload())},{deep:true})
 onMounted(()=>{loadAccounts()})
 </script>
 <template>
@@ -127,7 +134,10 @@ onMounted(()=>{loadAccounts()})
       </div>
       <div class="space-y-1.5">
         <label class="text-xs font-semibold text-gray-500 tracking-wide uppercase">{{ t('taskForm.linkedAccounts') }}</label>
-        <MultiSelect v-model="selectedAccounts" :options="accountOptions" :placeholder="t('taskForm.linkedAccountsPlaceholder')" />
+        <div class="flex gap-2">
+          <button type="button" @click="allAccountsMode = true; selectedAccounts = accounts.map(a => a.name)" class="shrink-0 h-10 px-3 text-xs border transition-colors" :class="allAccountsMode ? 'bg-blue-50 dark:bg-blue-500/10 border-blue-300 dark:border-blue-700 text-blue-600 dark:text-blue-400 font-medium' : 'border-gray-200 dark:border-gray-800/60 text-gray-500 hover:border-gray-400 bg-white dark:bg-gray-900'">{{ t('taskForm.allAccounts') }}</button>
+          <div class="flex-1"><MultiSelect v-model="selectedAccounts" :options="accountOptions" :placeholder="t('taskForm.linkedAccountsPlaceholder')" :disabled="allAccountsMode" @update:modelValue="allAccountsMode = false" /></div>
+        </div>
       </div>
       <div class="space-y-1.5">
         <label class="text-xs font-semibold text-gray-500 tracking-wide uppercase">{{ t('taskForm.scheduleMode') }}</label>

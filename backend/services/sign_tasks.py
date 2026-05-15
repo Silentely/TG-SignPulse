@@ -517,6 +517,11 @@ class SignTaskService:
         def _append(value: Optional[str]) -> None:
             if not isinstance(value, str):
                 return
+            # Preserve wildcard marker
+            if value.strip() == "*":
+                if "*" not in ordered:
+                    ordered.append("*")
+                return
             cleaned = validate_storage_name(value, field_name="account_name")
             if cleaned and cleaned not in ordered:
                 ordered.append(cleaned)
@@ -526,6 +531,62 @@ class SignTaskService:
                 _append(item)
         _append(account_name)
         return ordered
+
+    def _expand_account_names(self, account_names: List[str]) -> List[str]:
+        """Expand wildcard '*' to all currently registered accounts."""
+        if "*" in account_names:
+            all_accounts = list_account_names()
+            return all_accounts if all_accounts else account_names
+        return account_names
+
+    def _expand_wildcard_tasks(self) -> None:
+        """
+        For tasks with account_names: ["*"], create task directories
+        for any accounts that don't have them yet.
+        """
+        if not self.signs_dir.exists():
+            return
+        all_accounts = list_account_names()
+        if not all_accounts:
+            return
+
+        # Scan all existing task configs looking for wildcard
+        seen_wildcard_tasks: List[tuple] = []  # (task_name, config, source_dir)
+        for account_dir in self.signs_dir.iterdir():
+            if not account_dir.is_dir():
+                continue
+            for task_dir in account_dir.iterdir():
+                if not task_dir.is_dir():
+                    continue
+                config_file = task_dir / "config.json"
+                if not config_file.exists():
+                    continue
+                try:
+                    with open(config_file, "r", encoding="utf-8") as f:
+                        config = json.load(f)
+                    stored_names = config.get("account_names", [])
+                    if isinstance(stored_names, list) and "*" in stored_names:
+                        seen_wildcard_tasks.append((task_dir.name, config, task_dir))
+                except Exception:
+                    continue
+
+        # For each wildcard task, ensure all accounts have a directory
+        for task_name, base_config, _ in seen_wildcard_tasks:
+            for acc in all_accounts:
+                target_dir = self.signs_dir / acc / task_name
+                if target_dir.exists():
+                    continue
+                # Create task for this account
+                target_dir.mkdir(parents=True, exist_ok=True)
+                new_config = dict(base_config)
+                new_config["account_name"] = acc
+                try:
+                    with open(target_dir / "config.json", "w", encoding="utf-8") as f:
+                        json.dump(new_config, f, ensure_ascii=False, indent=2)
+                except Exception:
+                    pass
+
+        self._tasks_cache = None
 
     def _resolve_account_names_from_config(
         self,
@@ -2219,6 +2280,13 @@ class SignTaskService:
         if not target_accounts:
             raise ValueError("必须指定至少一个账号名称")
 
+        # Preserve the original list (may contain "*") for config storage
+        stored_account_names = list(target_accounts)
+        # Expand wildcard for actual directory creation and scheduling
+        target_accounts = self._expand_account_names(target_accounts)
+        if not target_accounts:
+            raise ValueError("没有可用的账号")
+
         if sign_interval is None:
             config_service = get_config_service()
             global_settings = config_service.get_global_settings()
@@ -2242,7 +2310,7 @@ class SignTaskService:
                 "_version": 4,
                 "task_group_id": task_group_id,
                 "account_name": current_account,
-                "account_names": target_accounts,
+                "account_names": stored_account_names,
                 "sign_at": sign_at,
                 "random_seconds": random_seconds,
                 "sign_interval": sign_interval,
