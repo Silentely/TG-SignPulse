@@ -148,7 +148,11 @@ async def _job_maintenance() -> None:
         print(f"Maintenance: 已清理 {count} 条数据库任务日志")
 
         # 清理签到任务日志
-        get_sign_task_service()._cleanup_old_logs()
+        sign_service = get_sign_task_service()
+        sign_service._cleanup_old_logs()
+
+        # 清理内存中的过期状态
+        sign_service._prune_stale_entries()
     finally:
         db.close()
 

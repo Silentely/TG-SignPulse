@@ -1,55 +1,83 @@
-# TG-SignPulse
+<p align="center">
+  <img src="docs/public/logo.svg" width="80" height="80" alt="TG-SignPulse Logo">
+</p>
 
-> Docs: [docs/README.md](docs/README.md)
+<h1 align="center">TG-SignPulse</h1>
 
-> Telegram 多账号自动签到、消息动作编排与关键词监听面板。
+<p align="center">
+  <strong>Telegram 多账号自动化管理面板</strong><br>
+  签到 · 消息编排 · 关键词监听 · AI 验证
+</p>
 
-[English README](README_EN.md) · [健康检查](#健康检查) · [更新日志](#更新日志)
+<p align="center">
+  <a href="https://github.com/AkaSLs/tg-signpulse/releases"><img src="https://img.shields.io/badge/version-v2.0.0-blue" alt="Version"></a>
+  <a href="https://github.com/AkaSLs/tg-signpulse/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-BSD--3--Clause-green" alt="License"></a>
+  <img src="https://img.shields.io/badge/python-3.10--3.13-blue" alt="Python">
+  <img src="https://img.shields.io/badge/node-20+-green" alt="Node.js">
+  <a href="https://github.com/AkaSLs/tg-signpulse/pkgs/container/tg-signpulse"><img src="https://img.shields.io/badge/ghcr.io-available-purple" alt="GHCR"></a>
+</p>
 
-TG-SignPulse 是一个 Telegram 自动化管理面板。你可以在网页里管理多个账号，配置自动签到任务，并让任务按固定规则每天自动执行。
+<p align="center">
+  <a href="README_EN.md">English</a> · <a href="docs/README.md">完整文档</a> · <a href="docs/guide/quick-start.md">快速开始</a> · <a href="#更新日志">更新日志</a>
+</p>
 
-> AI 驱动：项目已集成 AI 能力（识图、计算题），可直接用于自动任务流程。
+---
 
-## 这个项目是做什么的？
+## 项目简介
 
-- 统一管理多个 Telegram 账号
-- 自动签到、定时发送消息、点击按钮
-- 支持 AI 识图和 AI 计算题动作
-- 在网页中查看任务执行日志和历史结果
-- 支持指定 Telegram 群组话题运行签到
-- 支持任务剪贴板批量导入导出、全局代理、失败通知和关键词监听
-- 适合 VPS 长期运行
+TG-SignPulse 是一个 Telegram 自动化管理面板。你可以在网页中管理多个 Telegram 账号，配置自动签到任务，并让任务按固定规则或随机时间段每天自动执行。
 
-## 项目亮点
+> 🤖 AI 驱动：已集成 OpenAI 兼容接口，支持识图、计算题、OCR 等自动验证流程。
 
-- 多账号管理：一个面板管理多个账号
-- 动作序列：支持「发送文本 / 点击文字按钮 / 发送骰子 / AI识图 / AI计算 / 关键词监听」
-- 话题签到：支持在 Telegram Forum 群组的指定 Thread/Topic 内执行
-- 任务迁移：可将当前账号下全部任务导出到剪贴板，也可一键粘贴导入并自动跳过重复任务
-- 通知与状态：支持 Telegram机器人通知、关键词命中通知，以及任务执行前账号失效检测
-- 日志可视化：可直接查看每次执行的流程日志和最后机器人回复
-- 稳定性优化：并发控制、429/超时场景优化、长期运行内存优化
-- 容器化部署：Docker / Docker Compose 开箱即用
+---
 
 ## 功能概览
 
 | 模块 | 能力 |
-| --- | --- |
-| 账号管理 | 多账号登录、代理配置、状态检测、重新登录 |
-| 任务编排 | 定时/随机时间段执行，支持动作序列和动作间隔 |
-| 话题支持 | 群组 `Thread ID` 级别的发送与回复过滤 |
-| 关键词监听 | 命中关键词后可选择 Telegram机器人、转发、Bark 或自定义 URL |
-| 运维能力 | Docker 部署、持久化数据目录、健康检查、配置导入导出 |
+|------|------|
+| **账号管理** | 多账号登录（短信/二维码）、代理配置、状态检测、重新登录 |
+| **任务编排** | 定时/随机时间段/监听触发，支持有序动作序列和动作间隔 |
+| **动作类型** | 发送文本、点击按钮、发送骰子、AI 识图、AI 计算、关键词监听 |
+| **话题支持** | 群组 Thread ID 级别的发送与回复过滤 |
+| **关键词监听** | 包含/完全匹配/正则，命中后支持 Telegram Bot、转发、Bark、自定义 URL、后续动作 |
+| **通知推送** | 任务失败通知、账号失效通知、登录通知、关键词命中通知 |
+| **运维能力** | Docker 部署、持久化数据、健康检查、配置导入导出、日志可视化 |
 
-## 小白 3 步部署（推荐）
+---
 
-1. 安装 Docker（服务器和本机都可）
-2. 执行下面命令启动容器
-3. 浏览器打开 `http://服务器IP:8080`，用默认账号登录
+## 技术栈
 
-默认凭据：
-- 账号：`admin`
-- 密码：`admin123`
+```
+┌─────────────────────────────────────────────────────────┐
+│  Frontend          Vue 3 + Vue Router + Pinia           │
+│                    Tailwind CSS 4 + Lucide Icons         │
+│                    Vite + PWA                            │
+├─────────────────────────────────────────────────────────┤
+│  Backend           FastAPI + Uvicorn                     │
+│                    SQLAlchemy + SQLite (WAL)             │
+│                    APScheduler (AsyncIO)                 │
+│                    JWT + TOTP 2FA + bcrypt               │
+├─────────────────────────────────────────────────────────┤
+│  Telegram Engine   Pyrogram / Kurigram                   │
+│                    Session File / String 双模式          │
+├─────────────────────────────────────────────────────────┤
+│  AI Integration    OpenAI SDK (兼容接口)                 │
+│                    识图 / OCR / 计算题 / 推断点击         │
+├─────────────────────────────────────────────────────────┤
+│  Infrastructure    Docker Multi-stage Build              │
+│                    GitHub Actions CI/CD                   │
+│                    GHCR Container Registry               │
+└─────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 快速开始
+
+### 前置条件
+
+- Docker 24+ 与 Docker Compose
+- 至少一个 Telegram 账号
 
 ### 一条命令启动
 
@@ -60,17 +88,12 @@ docker run -d \
   -p 8080:8080 \
   -v $(pwd)/data:/data \
   -e TZ=Asia/Shanghai \
-  -e APP_SECRET_KEY=your_secret_key \
+  -e APP_SECRET_KEY=$(openssl rand -base64 32) \
+  -e ADMIN_PASSWORD=your_strong_password \
   ghcr.io/akasls/tg-signpulse:latest
 ```
 
-如果你走反代（如 Nginx），可改成仅本机监听：
-
-```bash
--p 127.0.0.1:8080:8080
-```
-
-### Docker Compose（可选）
+### Docker Compose
 
 ```yaml
 services:
@@ -85,170 +108,202 @@ services:
     environment:
       - TZ=Asia/Shanghai
       - APP_SECRET_KEY=your_secret_key
+      - ADMIN_PASSWORD=your_strong_password
 ```
-
-## 数据目录与权限说明
-
-- 默认数据目录：`/data`
-- 当 `/data` 不可写时，会自动降级到 `/tmp/tg-signpulse`（非持久化）
-- 新镜像已支持根据 `/data` 挂载目录属主 UID/GID 自动适配运行身份，通常无需 `chmod 777`
-
-容器内排查命令：
 
 ```bash
-id
-ls -ld /data
-touch /data/.probe && rm /data/.probe
+docker compose up -d
 ```
 
-## 常用环境变量（简版）
+### 登录面板
 
-- `APP_SECRET_KEY`: 面板密钥，强烈建议设置
-- `ADMIN_PASSWORD`: 初次安装时 admin 账户的默认密码（安全起见强烈建议设置，未设置则默认 admin123）
-- `APP_HOST`: FastAPI 容器监听 IP，防暴露默认 `127.0.0.1`（如需用公网直连或宿主机反代端口请设为 `0.0.0.0`）
-- `APP_DATA_DIR`: 自定义数据目录（优先级高于面板配置）
-- `TG_PROXY`: Telegram 连接代理；也可在面板设置全局代理
-- `TG_SESSION_MODE`: `file`（默认）或 `string`（arm64 推荐）
-- `TG_SESSION_NO_UPDATES`: `1` 启用 `no_updates`（仅 `string` 模式）
-- `TG_GLOBAL_CONCURRENCY`: 全局并发（默认 `1`）
-- `APP_TOTP_VALID_WINDOW`: 面板 2FA 容错窗口
+浏览器打开 `http://服务器IP:8080`
 
-## 自定义数据目录
+- 用户名：`admin`
+- 密码：你设置的 `ADMIN_PASSWORD`（未设置则查看 `data/.admin_bootstrap_password`）
 
-你可以通过两种方式设置数据目录：
-
-1. 面板设置：`系统设置 -> 全局签到设置 -> 数据目录`
-2. 环境变量：`APP_DATA_DIR=/your/path`
-
-说明：
-- 修改后建议重启后端服务生效
-- 该目录请务必可写，并挂载持久化卷
-
-## 本地开发
-
-- 推荐使用 Python 3.12；项目支持 Python `>=3.10,<3.14`
-- 不建议使用 Python 3.14 及以上版本，本项目依赖的 Telegram/Pydantic 运行时组件暂未完全兼容
-- 前端使用 Node.js 20，进入 `frontend/` 后执行 `npm ci`
-
-## 常用面板设置
-
-在 `系统设置 -> 全局签到设置` 中可以配置：
-
-- 全局代理：账号未单独配置代理时，登录、刷新会话和执行任务会默认使用该代理
-- Telegram机器人通知：填写 Bot Token 和通知 Chat ID 后，任务失败、账号登录失效或关键词命中会自动发送通知
-- 数据目录：用于保存 sessions、logs、数据库和任务数据
-
-在账号任务页可以：
-
-- 为目标群组填写 `话题 / Thread ID`，让签到只在指定话题内执行
-- 在有序动作序列中添加 `关键词监听`，并在 `推送方式` 下拉框中选择 Telegram机器人、转发、Bark 或自定义 URL
-- 仅当选择 `转发`、`Bark` 或 `自定义推送 URL` 时，页面才显示对应参数输入框，减少无关配置干扰
-- 点击右上角导出图标，将当前账号全部任务复制到剪贴板
-- 点击右上角“粘贴导入任务”，从剪贴板批量导入任务并跳过已存在的重复任务
-
-## 健康检查
-
-- `GET /healthz`：快速健康检查
-- `GET /readyz`：服务就绪检查
+---
 
 ## 项目结构
 
 ```text
-backend/      FastAPI 后端与调度器
-tg_signer/    Telegram 自动化核心
-frontend/     Next.js 管理面板
+TG-SignPulse/
+├── backend/            # FastAPI 后端
+│   ├── api/            #   API 路由层
+│   ├── core/           #   配置、认证、数据库
+│   ├── models/         #   SQLAlchemy 数据模型
+│   ├── services/       #   业务逻辑层
+│   ├── scheduler/      #   APScheduler 调度器
+│   └── utils/          #   工具函数
+├── tg_signer/          # Telegram 自动化引擎
+│   ├── core.py         #   签到执行核心
+│   ├── config.py       #   任务配置模型 (V1→V2→V3)
+│   └── ai_tools.py     #   AI 工具集成
+├── frontend/           # Vue 3 前端
+│   ├── src/
+│   └── vite.config.ts
+├── docker/             # Docker 入口脚本
+├── docs/               # 项目文档 (VitePress)
+├── Dockerfile          # 多阶段构建
+├── docker-compose.yml  # Compose 编排
+└── pyproject.toml      # Python 项目配置
 ```
+
+---
+
+## 文档
+
+完整文档请查看 [docs/README.md](docs/README.md)，包含：
+
+- [快速开始](docs/guide/quick-start.md) — 5 分钟部署并创建第一个任务
+- [Docker 部署](docs/deploy/docker.md) — 镜像策略、Compose、反向代理、升级
+- [配置参考](docs/reference/configuration.md) — 环境变量、数据目录、配置文件
+- [账号管理](docs/guide/accounts.md) — 登录方式、代理、会话模式
+- [任务编排](docs/guide/tasks.md) — 动作类型、执行模式、多账号共享
+- [AI 动作](docs/guide/ai.md) — OpenAI 配置与自定义提示词
+- [关键词监听](docs/guide/keyword-monitor.md) — 匹配规则、推送通道、后续动作
+- [系统架构](docs/reference/architecture.md) — 前后端、调度器、执行引擎
+
+---
+
+## 常用环境变量
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `APP_SECRET_KEY` | JWT 密钥（生产必设） | 自动生成 |
+| `ADMIN_PASSWORD` | 管理员初始密码 | 随机生成 |
+| `APP_DATA_DIR` | 数据目录 | `/data` |
+| `TZ` | 时区 | `Asia/Shanghai` |
+| `TG_SESSION_MODE` | 会话模式 `file`/`string` | `file` |
+| `TG_GLOBAL_CONCURRENCY` | 全局并发数 | `1` |
+| `TG_PROXY` | Telegram 全局代理 | 无 |
+
+更多配置请查看 [配置参考](docs/reference/configuration.md)。
+
+---
+
+## 本地开发
+
+```bash
+# 后端
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -e ".[dev]"
+uvicorn backend.main:app --reload --port 8080
+
+# 前端
+cd frontend
+npm ci
+npm run dev
+```
+
+- Python 3.10–3.13（推荐 3.12）
+- Node.js 20+
+- 不建议使用 Python 3.14+（Telegram 运行时依赖尚未兼容）
+
+---
+
+## 健康检查
+
+```bash
+curl http://127.0.0.1:8080/healthz   # 快速健康检查
+curl http://127.0.0.1:8080/readyz    # 服务就绪检查
+```
+
+---
 
 ## 更新日志
 
+### v2.0.0 (2026-05-15)
+
+**版本化管理**：从本版本开始采用语义化版本号。
+
+**代码质量**
+- 全面清理 DEBUG print 语句，替换为结构化 logging
+- 修复 `accounts.py` 中的乱码错误消息
+- 修复 SPA fallback 在生产环境错误重定向到开发服务器的问题
+- Docker Compose 移除过时的 `version` 字段，补充 tmpfs 挂载
+- 前端 `vite-plugin-pwa` 移至 devDependencies
+
+**文档**
+- 重写 README，增加技术栈说明和项目结构
+- 更新 docs 文档体系，完善部署指南和配置参考
+- 修正默认密码文档与实际行为不一致的问题
+
+---
+
+<details>
+<summary><strong>历史更新日志</strong></summary>
+
 ### 2026-05-03
 
-- **关键词监听常驻修复**：关键词监听动作现在会被识别为需要 Telegram updates 的任务；后台监听启动时会确保账号 client 以 `no_updates=False` 运行，并在旧 client 不可接收更新时自动重建，避免保存了监听任务但实际收不到消息。
-- **关键词命中后续动作修复**：命中关键词后执行“后续动作”时，点击按钮动作会等待并轮询最近消息中的可点击按钮；找不到按钮时不再直接发送按钮文本，避免把 `签到`、`Redeem Code` 等按钮名当作普通消息发出。
-- **关键词监听兑换流程修复**：正则匹配现在会优先把第一个捕获组作为 `{keyword}`，例如 `gift code\s*:\s*([A-Za-z0-9-]+)` 会提取 `ABC123ABC`；点击按钮后若 callback 无法确认但聊天已推进，后续“发送文本/骰子”动作会继续执行，支持“点击 `Redeem Code` 后发送 `{keyword}`”的兑换流程。
-- **关键词监听输入修复**：前端在正则模式下按行拆分关键词，不再按逗号拆分，避免 `{8,12}` 这类正则量词被切坏。
-- **关键词监听日志增强**：任务日志和历史日志现在会显示后台监听状态，包括监听启动/停止、监听 Chat、匹配方式、关键词命中、捕获值，以及命中后续动作每一步的开始、成功或失败，便于确认关键词监听是否正在后台运行。
-- **签到按钮流程重试增强**：普通签到任务点击按钮失败时不再发送按钮文本，而是从第 1 步重新执行完整脚本流程；默认最多重试 3 次，可通过 `SIGN_TASK_FLOW_RETRY_ATTEMPTS` 调整。
-- **完整项目复检**：已通过 `python -m compileall backend tg_signer tools test_client_cache.py test_keyword_monitor.py test_peer.py test_regex.py`、`pytest -q`、`python -m ruff check .`、`python -m pip check`、`git diff --check`、前端 `npm run lint` 和 `npm run build`。本机仅安装 Python 3.14 且未安装 Docker，无法在本机启动生产 Python 3.12 容器；生产 Docker 镜像仍使用 Python 3.12，本地开发请继续使用 Python `>=3.10,<3.14`。
+- 关键词监听常驻修复：关键词监听动作现在会被识别为需要 Telegram updates 的任务
+- 关键词命中后续动作修复：点击按钮动作会等待并轮询最近消息中的可点击按钮
+- 签到按钮流程重试增强：按钮点击失败时从第 1 步重新执行，默认最多重试 3 次
 
 ### 2026-04-29
 
-- **关键词监听后续动作**：`推送方式` 新增 `后续动作` 选项，命中关键词后可直接继续执行动作序列；支持发送文本、点击按钮、骰子、AI 识图和 AI 计算，并支持 `{keyword}`、`{message}`、`{sender}`、`{chat_title}`、`{url}` 等变量快捷插入。
-- **Telegram 机器人通知重构**：设置页已将 Telegram 机器人通知拆成独立配置组件，新增总开关、登录通知开关和任务失败通知开关；开启登录通知后，每次面板用户登录都会推送登录 IP。
-- **任务级失败通知控制**：任务创建/编辑弹窗标题旁新增 `失败通知` 勾选框，默认开启；取消后该任务失败不会触发 Telegram 任务失败通知，即使全局失败通知开关已开启。
-- **任务执行与日志准确性修复**：修复主页账号状态卡片长期卡在“检测中”的问题；任务执行前按需检查账号状态，旧任务会继续实际执行而不是预热后误报成功，历史日志乱码也做了兼容修复。
-- **旧版签到任务调度恢复**：重新兼容早期 `signs/<task>/config.json` 目录结构，启动同步时会正确扫描并加入 APScheduler；缺少 `account_name` 的旧任务会优先从现有 session 推断账号，不迁移、不重写用户配置，降低对在线用户的影响。
-- **按钮点击稳定性增强**：按钮文本匹配改为 Unicode 归一化并忽略符号、空白和 emoji，支持目标文本与按钮文本双向匹配；Inline 按钮点击增加 `Message.click` 回退路径，callback 超时/连接异常重试增加到 5 次。
-- **调度器健壮性修复**：同步任务时会跳过缺少账号或任务名的异常配置，避免生成无效 job 并影响其他正常任务。
-- **前端构建配置修复**：开发环境仍保留 `/api` 代理，生产静态导出不再声明无效 rewrites，消除 Next.js 构建警告。
-- **完整项目复检**：已通过 `python -m compileall backend tg_signer`、`pytest -q`、`python -m ruff check .`、`python -m pip check`、前端 `npm run lint` 和 `npm run build`。本机仅安装 Python 3.14，直接导入 Telegram 运行时会触发上游 `pyrogram/kurigram` 兼容错误；生产 Docker 镜像使用 Python 3.12，本地开发请使用 Python `>=3.10,<3.14`。
+- 关键词监听后续动作：命中关键词后可直接继续执行动作序列
+- Telegram 机器人通知重构：独立配置组件，新增总开关和分类开关
+- 任务级失败通知控制：可单独关闭某个任务的失败通知
 
 ### 2026-04-28
 
-- **任务前账号状态探测**：签到任务执行前会先检测账号 session 是否可用；确认失效时会跳过该账号任务，避免无效账号误报执行成功。
-- **账号失效通知与持久标记**：账号失效会写入账号状态，并通过系统设置中的 Telegram机器人通知用户；同一轮失效状态不会重复轰炸通知。
-- **首页重登入口优化**：首页账号卡片左下角直接显示“登录失效”，点击失效账号会打开重新登录窗口，不再依赖“全部任务失败”这种间接判断。
-- **任务日志编码修复**：任务运行日志、历史日志读取和账号日志导出统一按 UTF-8 处理，并兼容修复常见乱码历史记录。
-- **Python 版本约束**：项目元数据已收紧为 Python `>=3.10,<3.14`，与 Docker 镜像使用的 Python 3.12 保持一致，避免不兼容解释器下安装运行。
-- **项目健康检查**：已通过 `compileall`、`pytest`、`ruff check .`、前端 `npm run lint` 和 `npm run build`。
+- 任务前账号状态探测：执行前检测 session 是否可用
+- 账号失效通知与持久标记
+- 首页重登入口优化
 
 ### 2026-04-27
 
-- **关键词监听动作**：关键词监听已改为账号任务页有序动作序列中的动作，可按任务、账号、群组和话题独立配置。
-- **关键词监听交互优化**：转发已并入 `推送方式` 下拉框，选择转发才显示转发 Chat ID 和话题 ID；选择 Bark 或自定义 URL 时才显示对应 URL 输入框。
-- **动作序列布局优化**：每个动作改为「序号 + 动作类型 + 参数区 + 删除」结构，关键词监听参数按两列分组展示，长参数自动独占一行。
-- **目标会话表单优化**：`话题 / Thread ID（可选）` 已移动到 `或手动输入聊天 ID` 同一行，创建和编辑任务时布局一致。
-- **命中消息转发**：关键词命中后支持将消息内容和链接转发到指定 Chat ID，也支持填写话题 ID 转发到指定话题。
+- 关键词监听改为有序动作序列中的动作
+- 动作序列布局优化
+- 命中消息转发支持
 
 ### 2026-04-26
 
-- **Telegram 话题 (Thread/Topic) 支持**：支持在指定群组的指定话题内执行签到；发送消息会带上 `message_thread_id`，接收回复时也会过滤非目标话题消息。
-- **全局代理回退机制**：新增全局代理设置。账号未配置独立代理时，登录、刷新会话、定时/手动任务执行和旧 CLI 执行都会默认使用全局代理。
-- **剪贴板批量导入导出**：账号任务页右上角新增“导出全部任务到剪贴板”和“粘贴导入任务”，批量导入时会自动跳过已存在的重复任务，并将任务归属到当前账号。
-- **便捷重登体验**：账号编辑弹窗新增“重新登录”按钮，中文/英文文案已补齐，可直接覆盖原账号会话完成重新登录。
-- **Telegram Bot 失败通知**：系统设置中新增机器人通知开关、Bot Token 和通知 Chat ID。任务失败后会发送账号、任务、错误和最近日志。
-- **首页登录失效提示**：如果某个账号下所有任务最近一次都失败，首页账号卡片会显示“登录失效”，点击卡片会引导重新登录。
-- **前端任务日志增强**：任务历史日志保留更多流程行，并直接展示每次执行日志，便于排查失败原因。
-- **项目检查清理**：修复 Ruff 报告的简单规范问题，并将根目录调试脚本调整为可被 pytest 正常收集。
+- Telegram 话题 (Thread/Topic) 支持
+- 全局代理回退机制
+- 剪贴板批量导入导出
+- Telegram Bot 失败通知
 
 ### 2026-03-20
-- **SQLite 死锁修复**：完善了 Pyrogram 客户端实例和底层的生命周期缓存，彻底修复了由于高并发请求和后台任务轮询导致的 `database is locked` 互斥死锁问题。如今并发的后台签到队列会平滑共用连接进行极速的写入，极大降低了硬盘 I/O 且杜绝了任务卡死。
-- **防止任务重复执行 UI 防护**：前端新增防连点与重叠保护。当用户点击“运行任务”时，若任务已在执行，系统不仅会弹出“该任务正在运行中”的柔性截断提示，并且能在全局面板无缝切换为您呈现该任务当前的实时拉取日志流。
+
+- SQLite 死锁修复
+- 防止任务重复执行 UI 防护
 
 ### 2026-03-19
 
-- **主页状态显示修复**：修复由于前端状态对比字样问题导致账号“正常”却误报“账号失效”的显示错误。
-- **老账号签到异常修复**：修复老账号（基于本地 `.session` 文件的环境）在执行任务时被错误锁定在纯内存模式，从而导致 SQLite 本地数据丢失、出现 `PeerIdInvalid` 并导致签到失败的问题。恢复了纯本地存储后，跨账号复制任务的解析逻辑也更加稳定。
-- **机器人最近回复可视**：优化日志解析引擎。当任务包含向机器人发送消息时，现支持从底量日志中无感提取机器人的最后一句话或图片回复，并直接高亮在前端的可视化任务面板与历史大表哥中。
-- **代码规范排版**：执行了全面的 Linter 与 Ruff 的扫描，修复多处过期导入。
+- 主页状态显示修复
+- 老账号签到异常修复
+- 机器人最近回复可视
 
 ### 2026-03-12
-- 修复核心底层问题：修复因 Pyrogram 请求超时及 `FloodWait` 重试引发的并发锁饥饿、`Task exception` 未正确回收导致容器内存泄漏及网络高 I/O 问题。
+
+- 修复 Pyrogram 超时及 FloodWait 导致的内存泄漏
 
 ### 2026-03-06
 
-- 任务动作序列优化：排序调整为「发送文本消息 -> 点击文字按钮 -> 发送骰子 -> AI识图 -> AI计算」。
-- AI 动作优化：`AI识图`、`AI计算`支持在右侧子模式切换（发文本 / 点按钮）。
-- 任务复制粘贴优化：
-  - 复制任务改为弹窗展示配置，支持一键复制。
-  - 右上角粘贴导入优先自动读剪贴板，失败时自动弹出手动粘贴导入框。
-- 日志展示优化：任务日志弹窗支持显示“任务：XXX执行成功/失败”及最后机器人消息。
-- 主页状态检测优化：刷新/打开页面时账号状态检测更稳，减少误报“检测失败”。
-- 移动端与弹窗 UI 优化：任务卡片操作区布局更紧凑，动作序列控件高度更统一。
-- 导出编码修复：修复含 emoji 配置导出时的编码问题（UTF-8）。
-- 容器权限兼容增强：按 `/data` 挂载目录属主 UID/GID 自动适配运行身份，降低 VPS 写入失败概率。
+- 任务动作序列优化
+- AI 动作子模式切换
+- 任务复制粘贴优化
+- 容器权限兼容增强
 
 ### 2026-03-01
 
-- AI 动作升级、AI 配置保存修复、手机号验证码登录改为手动确认。
-- `TimeoutError` 与 `429 transport flood` 高频日志优化。
-- 长时运行稳定性与内存占用优化。
-- 新增自定义数据目录配置。
+- AI 动作升级
+- 长时运行稳定性优化
+- 自定义数据目录支持
+
+</details>
+
+---
 
 ## 致谢
 
-本项目基于原项目进行重构与扩展，感谢：
+本项目基于 [tg-signer](https://github.com/amchii/tg-signer) by [amchii](https://github.com/amchii) 进行重构与扩展。
 
-- 原项目：[tg-signer](https://github.com/amchii/tg-signer) by [amchii](https://github.com/amchii)
+---
 
-技术栈：FastAPI、Uvicorn、APScheduler、Pyrogram/Kurigram、Next.js、Tailwind CSS、OpenAI SDK。
+## License
+
+[BSD-3-Clause](LICENSE)

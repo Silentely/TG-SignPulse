@@ -484,6 +484,64 @@ def search_account_chats(
         raise HTTPException(status_code=500, detail=f"搜索对话列表失败: {str(e)}")
 
 
+@router.get("/chats/{account_name}/avatar/{chat_id}")
+async def get_chat_avatar(
+    account_name: str,
+    chat_id: int,
+    current_user=Depends(get_current_user),
+):
+    """获取 Chat 对象的头像（带本地缓存）"""
+    import time
+    from pathlib import Path
+
+    from fastapi.responses import FileResponse, Response
+
+    from backend.core.config import get_settings
+
+    settings = get_settings()
+    avatar_cache_dir = settings.resolve_workdir() / "avatars" / "chats"
+    avatar_cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_file = avatar_cache_dir / f"{account_name}_{chat_id}.jpg"
+    no_avatar_marker = avatar_cache_dir / f"{account_name}_{chat_id}.no_avatar"
+
+    # 如果已标记为无头像（7天内），直接返回 404
+    if no_avatar_marker.exists():
+        age = time.time() - no_avatar_marker.stat().st_mtime
+        if age < 604800:  # 7 days
+            raise HTTPException(status_code=404, detail="No avatar available")
+        else:
+            no_avatar_marker.unlink(missing_ok=True)
+
+    # 如果缓存存在且不超过 7 天，直接返回
+    if cache_file.exists():
+        age = time.time() - cache_file.stat().st_mtime
+        if age < 604800:  # 7 days
+            return FileResponse(cache_file, media_type="image/jpeg")
+
+    # 尝试下载
+    try:
+        from backend.services.telegram import get_telegram_service
+
+        avatar_bytes = await get_telegram_service().download_chat_avatar(
+            account_name, chat_id
+        )
+        if avatar_bytes:
+            cache_file.write_bytes(avatar_bytes)
+            # 清除无头像标记
+            no_avatar_marker.unlink(missing_ok=True)
+            return Response(content=avatar_bytes, media_type="image/jpeg")
+        else:
+            # 标记为无头像，避免重复请求
+            no_avatar_marker.write_text("")
+    except Exception:
+        if cache_file.exists():
+            return FileResponse(cache_file, media_type="image/jpeg")
+        # 标记为无头像
+        no_avatar_marker.write_text("")
+
+    raise HTTPException(status_code=404, detail="No avatar available")
+
+
 @router.websocket("/ws/{task_name}")
 async def sign_task_logs_ws(
     websocket: WebSocket,

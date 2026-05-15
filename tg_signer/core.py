@@ -415,13 +415,16 @@ class Client(BaseClient):
             return
         async with lock:
             _CLIENT_REFS[self.key] -= 1
-            if _CLIENT_REFS[self.key] == 0:
+            if _CLIENT_REFS[self.key] <= 0:
+                _CLIENT_REFS[self.key] = 0
                 try:
                     await self.stop()
                 except Exception:
                     pass
-                # DO NOT POP FROM _CLIENT_INSTANCES HERE.
-                # Keep the client instance cached so future connections reuse the safe asyncio lock mechanisms.
+                # Remove from cache when no longer in use to prevent memory growth
+                _CLIENT_INSTANCES.pop(self.key, None)
+                _CLIENT_REFS.pop(self.key, None)
+                _CLIENT_ASYNC_LOCKS.pop(self.key, None)
 
     @property
     def session_string_file(self):
@@ -1573,8 +1576,10 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                     )
                     logger.warning(_e, exc_info=True)
                     continue
+                finally:
+                    # Always clear chat messages to prevent memory accumulation
+                    self.context.chat_messages[chat.chat_id].clear()
 
-                self.context.chat_messages[chat.chat_id].clear()
                 await asyncio.sleep(config.sign_interval)
 
             if success_count == 0 and len(config.chats) > 0:
@@ -1596,59 +1601,64 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 return False
             return True
 
-        while True:
-            if need_update_handlers and message_handler_ref is None:
-                message_handler_ref = self.app.add_handler(
-                    MessageHandler(self.on_message, filters.chat(chat_ids))
-                )
-                edited_handler_ref = self.app.add_handler(
-                    EditedMessageHandler(self.on_edited_message, filters.chat(chat_ids))
-                )
-            try:
-                started_here = False
-                if not getattr(self.app, "is_connected", False):
-                    await self.app.start()
-                    started_here = True
+        try:
+            while True:
+                if need_update_handlers and message_handler_ref is None:
+                    message_handler_ref = self.app.add_handler(
+                        MessageHandler(self.on_message, filters.chat(chat_ids))
+                    )
+                    edited_handler_ref = self.app.add_handler(
+                        EditedMessageHandler(self.on_edited_message, filters.chat(chat_ids))
+                    )
                 try:
-                    now = get_now()
-                    now_date_str = str(now.date())
-                    self.context = self.ensure_ctx()
-                    if need_sign(now_date_str):
-                        if only_once and config.random_seconds > 0:
-                            delay = random.randint(0, int(config.random_seconds))
-                            if delay > 0:
-                                self.log(f"单次执行随机延迟: {delay} 秒")
-                                await asyncio.sleep(delay)
-                        await sign_once()
-                finally:
-                    if started_here:
-                        await self.app.stop()
+                    started_here = False
+                    if not getattr(self.app, "is_connected", False):
+                        await self.app.start()
+                        started_here = True
+                    try:
+                        now = get_now()
+                        now_date_str = str(now.date())
+                        self.context = self.ensure_ctx()
+                        if need_sign(now_date_str):
+                            if only_once and config.random_seconds > 0:
+                                delay = random.randint(0, int(config.random_seconds))
+                                if delay > 0:
+                                    self.log(f"单次执行随机延迟: {delay} 秒")
+                                    await asyncio.sleep(delay)
+                            await sign_once()
+                    finally:
+                        if started_here:
+                            await self.app.stop()
 
-            except (OSError, errors.Unauthorized) as e:
-                logger.exception(e)
-                await asyncio.sleep(30)
-                continue
+                except (OSError, errors.Unauthorized) as e:
+                    logger.exception(e)
+                    await asyncio.sleep(30)
+                    continue
 
-            if only_once:
-                break
-            cron_it = croniter(self._validate_sign_at(config.sign_at), now)
-            next_run: datetime = cron_it.next(datetime) + timedelta(
-                seconds=random.randint(0, int(config.random_seconds))
-            )
-            self.log(f"下次运行时间: {next_run}")
-            await asyncio.sleep((next_run - now).total_seconds())
-
-
-        if message_handler_ref:
-            try:
-                self.app.remove_handler(*message_handler_ref)
-            except Exception:
-                pass
-        if edited_handler_ref:
-            try:
-                self.app.remove_handler(*edited_handler_ref)
-            except Exception:
-                pass
+                if only_once:
+                    break
+                cron_it = croniter(self._validate_sign_at(config.sign_at), now)
+                next_run: datetime = cron_it.next(datetime) + timedelta(
+                    seconds=random.randint(0, int(config.random_seconds))
+                )
+                self.log(f"下次运行时间: {next_run}")
+                await asyncio.sleep((next_run - now).total_seconds())
+        finally:
+            # Always clean up handlers, even on exception
+            if message_handler_ref:
+                try:
+                    self.app.remove_handler(*message_handler_ref)
+                except Exception:
+                    pass
+            if edited_handler_ref:
+                try:
+                    self.app.remove_handler(*edited_handler_ref)
+                except Exception:
+                    pass
+            # Clear context to release message references
+            if hasattr(self, 'context') and self.context is not None:
+                self.context.chat_messages.clear()
+                self.context.sign_chats.clear()
 
     async def run_once(self, num_of_dialogs):
         return await self.run(num_of_dialogs, only_once=True, force_rerun=True)
@@ -1692,7 +1702,13 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 level="WARNING",
             )
             return
-        self.context.chat_messages[message.chat.id][message.id] = message
+        chat_msgs = self.context.chat_messages[message.chat.id]
+        chat_msgs[message.id] = message
+        # Bound message cache per chat to prevent memory growth
+        if len(chat_msgs) > 200:
+            oldest_keys = sorted(chat_msgs.keys())[:100]
+            for k in oldest_keys:
+                chat_msgs.pop(k, None)
 
     async def on_message(self, client: Client, message: Message):
         await self._on_message(client, message)

@@ -602,6 +602,53 @@ def check_account_exists(
     return {"exists": exists, "account_name": account_name}
 
 
+@router.get("/{account_name}/avatar")
+async def get_account_avatar(
+    account_name: str, current_user: User = Depends(get_current_user)
+):
+    """获取账号 Telegram 头像（带本地缓存）"""
+    import time
+
+    from fastapi.responses import FileResponse, Response
+    from backend.core.config import get_settings
+
+    settings = get_settings()
+    avatar_cache_dir = settings.resolve_workdir() / "avatars"
+    avatar_cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_file = avatar_cache_dir / f"{account_name}.jpg"
+    no_avatar_marker = avatar_cache_dir / f"{account_name}.no_avatar"
+
+    # 如果已标记为无头像（7天内），直接返回 404
+    if no_avatar_marker.exists():
+        age = time.time() - no_avatar_marker.stat().st_mtime
+        if age < 604800:
+            raise HTTPException(status_code=404, detail="No avatar available")
+        else:
+            no_avatar_marker.unlink(missing_ok=True)
+
+    # 如果缓存存在且不超过 7 天，直接返回
+    if cache_file.exists():
+        age = time.time() - cache_file.stat().st_mtime
+        if age < 604800:
+            return FileResponse(cache_file, media_type="image/jpeg")
+
+    # 尝试下载头像
+    try:
+        avatar_bytes = await get_telegram_service().download_account_avatar(account_name)
+        if avatar_bytes:
+            cache_file.write_bytes(avatar_bytes)
+            no_avatar_marker.unlink(missing_ok=True)
+            return Response(content=avatar_bytes, media_type="image/jpeg")
+        else:
+            no_avatar_marker.write_text("")
+    except Exception:
+        if cache_file.exists():
+            return FileResponse(cache_file, media_type="image/jpeg")
+        no_avatar_marker.write_text("")
+
+    raise HTTPException(status_code=404, detail="No avatar available")
+
+
 @router.patch("/{account_name}", response_model=AccountUpdateResponse)
 async def update_account(
     account_name: str,
@@ -670,7 +717,7 @@ async def update_account(
             None,
         )
         if not updated:
-            raise ValueError("璐﹀彿淇℃伅鏇存柊鍚庢湭鎵惧埌瀵瑰簲璐﹀彿")
+            raise ValueError("账号信息更新后未找到对应账号")
 
         return AccountUpdateResponse(
             success=True,
@@ -687,7 +734,7 @@ async def update_account(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"鏇存柊璐﹀彿淇℃伅澶辫触: {str(e)}",
+            detail=f"更新账号信息失败: {str(e)}",
         )
 
 class AccountLogItem(BaseModel):

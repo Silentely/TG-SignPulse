@@ -122,7 +122,6 @@ _test*.json
 
 .signer
 *.session_string
-.nicegui
 
 .agent
 
@@ -146,4 +145,14 @@ docs/.vitepress/dist/
 .local-login-data/
 .test-run-data/
 .test-run-data-override
+
+# Development logs and temp files
+backend-*.log
+backend-*.pid
+frontend-*.log
+next-dev.*.log
+bandit_report*.json
+ruff_errors.txt
+git_show_head*.txt
+test_*.py
 

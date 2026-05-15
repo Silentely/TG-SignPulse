@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   app:
     build: .
@@ -17,6 +15,7 @@ services:
     read_only: true
     tmpfs:
       - /tmp
+      - /app/__pycache__
     security_opt:
       - no-new-privileges:true
     cap_drop:

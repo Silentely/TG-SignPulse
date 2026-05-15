@@ -3,13 +3,15 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 import sqlite3
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 # Monkeypatch sqlite3.connect to increase default timeout
@@ -100,11 +102,16 @@ def ready_check(response: Response) -> dict[str, str]:
 
 # 静态前端托管（Mode A: 单容器，FastAPI 提供静态文件）
 # 挂载 Next.js 静态资源
-app.mount(
-    "/_next",
-    StaticFiles(directory="/web/_next"),
-    name="nextjs_static",
-)
+web_dir = Path("/web")
+next_static_dir = web_dir / "_next"
+frontend_dev_url = os.getenv("FRONTEND_DEV_SERVER_URL", "http://127.0.0.1:3000")
+
+if next_static_dir.exists():
+    app.mount(
+        "/_next",
+        StaticFiles(directory=str(next_static_dir)),
+        name="nextjs_static",
+    )
 
 
 # Catch-all 路由：处理所有前端路由，返回 index.html
@@ -115,7 +122,6 @@ async def serve_spa(full_path: str):
     这样刷新页面时不会 404
     """
     # 检查是否是静态文件请求
-    web_dir = Path("/web")
     file_path = web_dir / full_path
 
     # 如果文件存在且不是目录，直接返回文件
@@ -132,8 +138,25 @@ async def serve_spa(full_path: str):
     if index_path.exists():
         return FileResponse(index_path)
 
-    # 如果 index.html 也不存在，返回 404
-    return {"detail": "Frontend not built"}
+    # 如果 index.html 也不存在，开发模式下重定向到前端开发服务器，生产环境返回 404
+    if os.getenv("FRONTEND_DEV_SERVER_URL"):
+        normalized_path = full_path if full_path.startswith("/") else f"/{full_path}"
+        if not normalized_path:
+            normalized_path = "/"
+
+        parsed_frontend = urlsplit(frontend_dev_url)
+        redirect_target = urlunsplit(
+            (
+                parsed_frontend.scheme,
+                parsed_frontend.netloc,
+                normalized_path,
+                "",
+                "",
+            )
+        )
+        return RedirectResponse(url=redirect_target, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+
+    return Response(content="Not Found", status_code=status.HTTP_404_NOT_FOUND)
 
 
 @app.on_event("startup")

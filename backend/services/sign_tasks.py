@@ -1,4 +1,4 @@
-"""
+﻿"""
 签到任务服务层
 提供签到任务的 CRUD 操作和执行功能
 """
@@ -10,7 +10,6 @@ import json
 import logging
 import os
 import re
-import sys
 import time
 import traceback
 import uuid
@@ -39,16 +38,12 @@ from tg_signer.core import UserSigner, get_client
 
 settings = get_settings()
 
+_service_logger = logging.getLogger("backend.sign_tasks")
+
 
 def _safe_print(*args, sep: str = " ", end: str = "\n") -> None:
     text = sep.join(str(arg) for arg in args) + end
-    stream = sys.stdout
-    encoding = getattr(stream, "encoding", None) or "utf-8"
-    safe_text = text.encode(encoding, errors="backslashreplace").decode(
-        encoding, errors="ignore"
-    )
-    stream.write(safe_text)
-    stream.flush()
+    _service_logger.debug(text.rstrip())
 
 
 print = _safe_print
@@ -134,8 +129,8 @@ class SignTaskService:
         self.run_history_dir = self.workdir / "history"
         self.signs_dir.mkdir(parents=True, exist_ok=True)
         self.run_history_dir.mkdir(parents=True, exist_ok=True)
-        print(
-            f"DEBUG: 初始化 SignTaskService, signs_dir={self.signs_dir}, exists={self.signs_dir.exists()}"
+        _service_logger.info(
+            "SignTaskService initialized, signs_dir=%s", self.signs_dir
         )
         self._active_logs: Dict[tuple[str, str], List[str]] = {}  # (account, task) -> logs
         self._active_tasks: Dict[tuple[str, str], bool] = {}  # (account, task) -> running
@@ -158,7 +153,44 @@ class SignTaskService:
         self._history_max_line_chars = self._read_positive_int_env(
             "SIGN_TASK_HISTORY_MAX_LINE_CHARS", 2000, 80
         )
+        self._max_account_last_run_entries = 100  # Bound account tracking
         self._cleanup_old_logs()
+
+    def _prune_stale_entries(self) -> None:
+        """Remove stale entries from internal tracking dicts to prevent memory growth."""
+        # Prune _active_tasks entries that are False (task completed)
+        stale_keys = [k for k, v in self._active_tasks.items() if not v]
+        for key in stale_keys:
+            self._active_tasks.pop(key, None)
+
+        # Prune _active_logs for tasks that are no longer running and have no cleanup pending
+        for key in list(self._active_logs.keys()):
+            if not self._active_tasks.get(key, False) and key not in self._cleanup_tasks:
+                self._active_logs.pop(key, None)
+
+        # Prune completed background run tasks
+        done_keys = [k for k, t in self._background_run_tasks.items() if t.done()]
+        for key in done_keys:
+            self._background_run_tasks.pop(key, None)
+
+        # Prune completed cleanup tasks
+        done_cleanup = [k for k, t in self._cleanup_tasks.items() if t.done()]
+        for key in done_cleanup:
+            self._cleanup_tasks.pop(key, None)
+
+        done_status_cleanup = [k for k, t in self._run_status_cleanup_tasks.items() if t.done()]
+        for key in done_status_cleanup:
+            self._run_status_cleanup_tasks.pop(key, None)
+
+        # Bound _account_last_run_end to prevent unbounded growth
+        if len(self._account_last_run_end) > self._max_account_last_run_entries:
+            # Keep only the most recent entries
+            sorted_entries = sorted(
+                self._account_last_run_end.items(), key=lambda x: x[1], reverse=True
+            )
+            self._account_last_run_end = dict(
+                sorted_entries[: self._max_account_last_run_entries]
+            )
 
     @staticmethod
     def _task_requires_updates(task_config: Optional[Dict[str, Any]]) -> bool:
@@ -765,6 +797,70 @@ class SignTaskService:
         entries.sort(key=lambda x: x.get("time", ""), reverse=True)
         return entries
 
+    def _resolve_existing_history_file(
+        self, task_name: str, account_name: str = ""
+    ) -> Optional[Path]:
+        history_file = self._history_file_path(task_name, account_name)
+        legacy_file = self.run_history_dir / f"{self._safe_history_key(task_name)}.json"
+
+        if history_file.exists():
+            return history_file
+        if legacy_file.exists():
+            return legacy_file
+        return None
+
+    @staticmethod
+    def _load_history_payload_from_file(history_file: Path) -> List[Any]:
+        try:
+            with open(history_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            return []
+
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            return [data]
+        return []
+
+    def _set_task_last_run_metadata(
+        self,
+        task_name: str,
+        account_name: str = "",
+        last_run: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        try:
+            task_dir = self._resolve_task_dir(task_name, account_name or None)
+        except Exception:
+            task_dir = None
+
+        if task_dir is not None:
+            config_file = task_dir / "config.json"
+            if config_file.exists():
+                try:
+                    with open(config_file, "r", encoding="utf-8") as f:
+                        config = json.load(f)
+                    if last_run:
+                        config["last_run"] = last_run
+                    else:
+                        config.pop("last_run", None)
+                    with open(config_file, "w", encoding="utf-8") as f:
+                        json.dump(config, f, ensure_ascii=False, indent=2)
+                except Exception:
+                    pass
+
+        if self._tasks_cache is not None:
+            for task in self._tasks_cache:
+                if not isinstance(task, dict):
+                    continue
+                if task.get("name") != task_name or task.get("account_name") != account_name:
+                    continue
+                if last_run:
+                    task["last_run"] = last_run
+                else:
+                    task.pop("last_run", None)
+                break
+
     def _legacy_get_task_history_logs(
         self, task_name: str, account_name: str, limit: int = 20
     ) -> List[Dict[str, Any]]:
@@ -900,6 +996,177 @@ class SignTaskService:
 
         recent.sort(key=lambda item: str(item.get("time") or ""), reverse=True)
         return recent[:limit]
+
+    def get_filtered_history_logs(
+        self,
+        account_name: Optional[str] = None,
+        date: Optional[str] = None,
+        limit: int = 200,
+    ) -> List[Dict[str, Any]]:
+        if limit < 1:
+            limit = 1
+        if limit > 1000:
+            limit = 1000
+
+        normalized_account = (
+            validate_storage_name(account_name, field_name="account_name")
+            if account_name
+            else None
+        )
+        normalized_date = str(date or "").strip()[:10]
+        history_items: List[Dict[str, Any]] = []
+        seen_pairs: set[tuple[str, str]] = set()
+
+        for task in self.list_tasks(
+            account_name=normalized_account,
+            force_refresh=False,
+            aggregate=False,
+        ):
+            task_name = str(task.get("name") or "").strip()
+            current_account = str(task.get("account_name") or "").strip()
+            if not task_name or not current_account:
+                continue
+
+            pair = (current_account, task_name)
+            if pair in seen_pairs:
+                continue
+            seen_pairs.add(pair)
+
+            history = self._load_history_entries(task_name, account_name=current_account)
+            for item in history:
+                timestamp = str(item.get("time") or "")
+                if normalized_date and not timestamp.startswith(normalized_date):
+                    continue
+
+                flow_logs = item.get("flow_logs")
+                if not isinstance(flow_logs, list):
+                    flow_logs = []
+
+                history_items.append(
+                    {
+                        "time": timestamp,
+                        "success": bool(item.get("success", False)),
+                        "message": self._repair_mojibake(item.get("message", "") or ""),
+                        "flow_logs": [self._repair_mojibake(str(line)) for line in flow_logs],
+                        "flow_truncated": bool(item.get("flow_truncated", False)),
+                        "flow_line_count": int(item.get("flow_line_count", len(flow_logs))),
+                        "task_name": task_name,
+                        "account_name": current_account,
+                        "last_target_message": str(
+                            item.get("last_target_message") or ""
+                        ).strip()
+                        or extract_last_target_message(flow_logs),
+                    }
+                )
+
+        history_items.sort(key=lambda item: str(item.get("time") or ""), reverse=True)
+        return history_items[:limit]
+
+    def get_history_log_detail(
+        self,
+        account_name: str,
+        task_name: str,
+        created_at: str,
+    ) -> Optional[Dict[str, Any]]:
+        normalized_account = validate_storage_name(
+            account_name, field_name="account_name"
+        )
+        normalized_task = validate_storage_name(task_name, field_name="task_name")
+        target_time = str(created_at or "").strip()
+        if not target_time:
+            return None
+
+        for item in self._load_history_entries(
+            normalized_task, account_name=normalized_account
+        ):
+            timestamp = str(item.get("time") or "")
+            if timestamp != target_time:
+                continue
+
+            flow_logs = item.get("flow_logs")
+            if not isinstance(flow_logs, list):
+                flow_logs = []
+
+            return {
+                "time": timestamp,
+                "success": bool(item.get("success", False)),
+                "message": self._repair_mojibake(item.get("message", "") or ""),
+                "flow_logs": [self._repair_mojibake(str(line)) for line in flow_logs],
+                "flow_truncated": bool(item.get("flow_truncated", False)),
+                "flow_line_count": int(item.get("flow_line_count", len(flow_logs))),
+                "task_name": normalized_task,
+                "account_name": normalized_account,
+                "last_target_message": str(item.get("last_target_message") or "").strip()
+                or extract_last_target_message(flow_logs),
+            }
+
+        return None
+
+    def delete_history_log(
+        self,
+        account_name: str,
+        task_name: str,
+        created_at: str,
+    ) -> bool:
+        normalized_account = validate_storage_name(
+            account_name, field_name="account_name"
+        )
+        normalized_task = validate_storage_name(task_name, field_name="task_name")
+        target_time = str(created_at or "").strip()
+        if not target_time:
+            return False
+
+        history_file = self._resolve_existing_history_file(
+            normalized_task, normalized_account
+        )
+        if history_file is None:
+            return False
+
+        raw_entries = self._load_history_payload_from_file(history_file)
+        kept_entries: List[Any] = []
+        deleted = False
+
+        for entry in raw_entries:
+            if not isinstance(entry, dict):
+                kept_entries.append(entry)
+                continue
+
+            entry_time = str(entry.get("time") or "")
+            entry_account = str(entry.get("account_name") or "")
+            account_matches = not entry_account or entry_account == normalized_account
+
+            if not deleted and entry_time == target_time and account_matches:
+                deleted = True
+                continue
+
+            kept_entries.append(entry)
+
+        if not deleted:
+            return False
+
+        if kept_entries:
+            with open(history_file, "w", encoding="utf-8") as f:
+                json.dump(kept_entries, f, ensure_ascii=False, indent=2)
+        else:
+            try:
+                history_file.unlink()
+            except FileNotFoundError:
+                pass
+
+        remaining_entries = [
+            entry
+            for entry in kept_entries
+            if isinstance(entry, dict)
+            and str(entry.get("account_name") or normalized_account) == normalized_account
+        ]
+        remaining_entries.sort(key=lambda item: str(item.get("time") or ""), reverse=True)
+        latest_entry = remaining_entries[0] if remaining_entries else None
+        self._set_task_last_run_metadata(
+            normalized_task,
+            normalized_account,
+            latest_entry if isinstance(latest_entry, dict) else None,
+        )
+        return True
 
     @staticmethod
     def _count_history_entries(data: Any) -> int:
@@ -1166,7 +1433,7 @@ class SignTaskService:
                         with open(config_file, "w", encoding="utf-8") as f:
                             json.dump(config, f, ensure_ascii=False, indent=2)
                     except Exception as e:
-                        print(f"DEBUG: 更新任务配置 last_run 失败: {e}")
+                        _service_logger.debug(f"更新任务配置 last_run 失败: {e}")
 
             # 2. 更新内存缓存 (关键优化：避免置空 self._tasks_cache)
             if self._tasks_cache is not None:
@@ -1176,7 +1443,7 @@ class SignTaskService:
                         break
 
         except Exception as e:
-            print(f"DEBUG: 保存运行信息失败: {str(e)}")
+            _service_logger.debug(f"保存运行信息失败: {str(e)}")
 
     def _append_scheduler_log(self, filename: str, message: str) -> None:
         try:
@@ -1404,7 +1671,7 @@ class SignTaskService:
         tasks = []
         base_dir = self.signs_dir
 
-        print(f"DEBUG: 扫描任务目录: {base_dir}")
+        _service_logger.debug(f"扫描任务目录: {base_dir}")
         try:
             # 扫描所有子目录 (账号名)
             for account_path in base_dir.iterdir():
@@ -1440,7 +1707,7 @@ class SignTaskService:
             return self._tasks_cache
 
         except Exception as e:
-            print(f"DEBUG: 扫描任务出错: {str(e)}")
+            _service_logger.debug(f"扫描任务出错: {str(e)}")
             return []
 
     def _load_task_config(self, task_dir: Path) -> Optional[Dict[str, Any]]:
@@ -1571,7 +1838,7 @@ class SignTaskService:
             with open(config_file, "w", encoding="utf-8") as f:
                 json.dump(config, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            print(f"DEBUG: 写入配置文件失败: {str(e)}")
+            _service_logger.debug(f"写入配置文件失败: {str(e)}")
             raise
 
         # Invalidate cache
@@ -1587,7 +1854,7 @@ class SignTaskService:
                 enabled=True,
             )
         except Exception as e:
-            print(f"DEBUG: 更新调度任务失败: {e}")
+            _service_logger.debug(f"更新调度任务失败: {e}")
 
         return {
             "name": task_name,
@@ -1746,7 +2013,7 @@ class SignTaskService:
 
                     remove_sign_task_job(real_account_name, task_name)
                 except Exception as e:
-                    print(f"DEBUG: 移除调度任务失败: {e}")
+                    _service_logger.debug(f"移除调度任务失败: {e}")
 
             return True
         except Exception:
@@ -1829,7 +2096,7 @@ class SignTaskService:
             tasks = []
             base_dir = self.signs_dir
 
-            print(f"DEBUG: 扫描任务目录: {base_dir}")
+            _service_logger.debug(f"扫描任务目录: {base_dir}")
             try:
                 for account_path in base_dir.iterdir():
                     if not account_path.is_dir():
@@ -1854,7 +2121,7 @@ class SignTaskService:
                 )
                 tasks = self._tasks_cache
             except Exception as e:
-                print(f"DEBUG: 扫描任务出错: {str(e)}")
+                _service_logger.debug(f"扫描任务出错: {str(e)}")
                 return []
 
         if account_name:
@@ -2008,7 +2275,7 @@ class SignTaskService:
                 else:
                     remove_sign_task_job(current_account, task_name)
         except Exception as e:
-            print(f"DEBUG: 更新调度任务失败: {e}")
+            _service_logger.debug(f"更新调度任务失败: {e}")
 
         related = self._find_related_task_infos(task_name, target_accounts[0])
         if len(target_accounts) > 1:
@@ -2419,7 +2686,7 @@ class SignTaskService:
 
             await get_telegram_service().delete_account(account_name)
         except Exception as e:
-            print(f"DEBUG: 清理无效 Session 失败: {e}")
+            _service_logger.debug(f"清理无效 Session 失败: {e}")
 
         # 清理 chats 缓存，避免后续误用旧数据
         try:
@@ -2599,7 +2866,7 @@ class SignTaskService:
                 with open(cache_file, "w", encoding="utf-8") as f:
                     json.dump(chats, f, ensure_ascii=False, indent=2)
             except Exception as e:
-                print(f"DEBUG: 保存 Chat 缓存失败: {e}")
+                _service_logger.debug(f"保存 Chat 缓存失败: {e}")
 
             return chats
 
@@ -2833,7 +3100,7 @@ class SignTaskService:
         # 检查是否能获取锁 (非阻塞检查，如果已被锁定则说明该账号有其他任务在运行)
         # 这里我们希望排队等待，还是直接报错？
         # 考虑到定时任务同时触发，应该排队执行。
-        print(f"DEBUG: 等待获取账号锁 {account_name}...")
+        _service_logger.debug(f"等待获取账号锁 {account_name}...")
 
         task_key = self._task_key(account_name, task_name)
         self._active_tasks[task_key] = True
@@ -2903,7 +3170,7 @@ class SignTaskService:
                         tg_logger.setLevel(logging.INFO)
                     tg_logger.addHandler(log_handler)
 
-                    print(f"DEBUG: 已获取账号锁 {account_name}，开始执行任务 {task_name}")
+                    _service_logger.debug(f"已获取账号锁 {account_name}，开始执行任务 {task_name}")
                     self._active_logs[task_key].append(
                         f"开始执行任务: {task_name} (账号: {account_name})"
                     )
@@ -2978,13 +3245,23 @@ class SignTaskService:
                         no_updates=signer_no_updates,
                     )
 
-                    # 执行任务（数据库锁冲突时重试）
+                    # 执行任务（数据库锁冲突时重试，带超时保护）
+                    task_timeout = float(
+                        os.getenv("SIGN_TASK_EXECUTION_TIMEOUT", "300")
+                    )
                     async with get_global_semaphore():
                         max_retries = 3
                         for attempt in range(max_retries):
                             try:
-                                await signer.run_once(num_of_dialogs=20)
+                                await asyncio.wait_for(
+                                    signer.run_once(num_of_dialogs=20),
+                                    timeout=task_timeout,
+                                )
                                 break
+                            except asyncio.TimeoutError:
+                                raise RuntimeError(
+                                    f"任务执行超时（{int(task_timeout)}秒），已强制终止"
+                                )
                             except Exception as e:
                                 if "database is locked" in str(e).lower():
                                     if attempt < max_retries - 1:
@@ -3156,6 +3433,9 @@ class SignTaskService:
                 logger=logging.getLogger("backend.sign_tasks"),
                 description=f"active log cleanup {account_name}/{task_name}",
             )
+
+        # Periodic pruning of stale entries to prevent memory growth
+        self._prune_stale_entries()
 
         return {
             "success": success,

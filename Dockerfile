@@ -1,4 +1,4 @@
-﻿FROM node:20-slim AS frontend-builder
+FROM node:20-slim AS frontend-builder
 
 WORKDIR /frontend
 
@@ -60,7 +60,7 @@ RUN if [ "${TARGETPLATFORM:-}" = "linux/amd64" ] || [ "$(uname -m)" = "x86_64" ]
 
 # Frontend static files served from /web.
 RUN mkdir -p /web
-COPY --from=frontend-builder /frontend/out /web
+COPY --from=frontend-builder /frontend/dist /web
 
 # Data dir (mapped via volume).
 RUN mkdir -p /data

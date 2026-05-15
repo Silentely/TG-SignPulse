@@ -1,4 +1,4 @@
-"""
+﻿"""
 Telegram 服务层
 提供 Telegram 账号管理和操作的核心功能
 """
@@ -253,6 +253,150 @@ class TelegramService:
 
         session_file = self.session_dir / f"{account_name}.session"
         return session_file.exists()
+
+    async def download_account_avatar(self, account_name: str) -> Optional[bytes]:
+        """
+        下载账号的 Telegram 头像。
+
+        Returns:
+            头像的 JPEG 字节数据，如果没有头像则返回 None
+        """
+        from tg_signer.core import get_client
+
+        account_name = self._normalize_account_name(account_name)
+
+        if not self.account_exists(account_name):
+            return None
+
+        proxy_dict = None
+        try:
+            profile = get_account_profile(account_name) or {}
+            proxy_value = profile.get("proxy")
+            if not proxy_value:
+                from backend.services.config import get_config_service
+                proxy_value = get_config_service().get_global_settings().get("global_proxy")
+            if proxy_value:
+                proxy_dict = build_proxy_dict(proxy_value)
+        except Exception:
+            proxy_dict = None
+
+        session_mode = get_session_mode()
+        session_string = None
+        in_memory = False
+        if session_mode == "string":
+            session_string = get_account_session_string(
+                account_name
+            ) or load_session_string_file(self.session_dir, account_name)
+            if not session_string:
+                return None
+            in_memory = True
+
+        try:
+            client = get_client(
+                account_name,
+                proxy=proxy_dict,
+                workdir=self.session_dir,
+                session_string=session_string,
+                in_memory=in_memory,
+                no_updates=True,
+            )
+
+            lock = get_account_lock(account_name)
+            async with lock:
+                async with client:
+                    me = await asyncio.wait_for(client.get_me(), timeout=10)
+                    if not me or not getattr(me, "photo", None):
+                        return None
+
+                    # Download the small profile photo
+                    photo_bytes = await asyncio.wait_for(
+                        client.download_media(me.photo.small_file_id, in_memory=True),
+                        timeout=15,
+                    )
+                    if photo_bytes:
+                        photo_bytes.seek(0)
+                        return photo_bytes.read()
+                    return None
+        except Exception as e:
+            logger.debug("Failed to download avatar for %s: %s", account_name, e)
+            return None
+
+    async def download_chat_avatar(
+        self, account_name: str, chat_id: int
+    ) -> Optional[bytes]:
+        """
+        下载 Chat 对象的头像。
+
+        Returns:
+            头像的 JPEG 字节数据，如果没有头像则返回 None
+        """
+        from tg_signer.core import get_client
+
+        account_name = self._normalize_account_name(account_name)
+
+        if not self.account_exists(account_name):
+            return None
+
+        proxy_dict = None
+        try:
+            profile = get_account_profile(account_name) or {}
+            proxy_value = profile.get("proxy")
+            if not proxy_value:
+                from backend.services.config import get_config_service
+                proxy_value = get_config_service().get_global_settings().get("global_proxy")
+            if proxy_value:
+                proxy_dict = build_proxy_dict(proxy_value)
+        except Exception:
+            proxy_dict = None
+
+        session_mode = get_session_mode()
+        session_string = None
+        in_memory = False
+        if session_mode == "string":
+            session_string = get_account_session_string(
+                account_name
+            ) or load_session_string_file(self.session_dir, account_name)
+            if not session_string:
+                return None
+            in_memory = True
+
+        try:
+            client = get_client(
+                account_name,
+                proxy=proxy_dict,
+                workdir=self.session_dir,
+                session_string=session_string,
+                in_memory=in_memory,
+                no_updates=True,
+            )
+
+            lock = get_account_lock(account_name)
+            async with lock:
+                async with client:
+                    chat = await asyncio.wait_for(
+                        client.get_chat(chat_id), timeout=10
+                    )
+                    if not chat or not getattr(chat, "photo", None):
+                        return None
+
+                    photo_bytes = await asyncio.wait_for(
+                        client.download_media(
+                            chat.photo.small_file_id, in_memory=True
+                        ),
+                        timeout=15,
+                    )
+                    if photo_bytes:
+                        photo_bytes.seek(0)
+                        return photo_bytes.read()
+                    return None
+        except Exception as e:
+            logger.debug(
+                "Failed to download chat avatar for %s/%s: %s",
+                account_name,
+                chat_id,
+                e,
+            )
+            return None
 
     async def check_account_status(
         self,
@@ -511,7 +655,7 @@ class TelegramService:
         try:
             await close_client_by_name(account_name, workdir=self.session_dir)
         except Exception as e:
-            print(f"DEBUG: 关闭 Account Client 失败: {e}")
+            logger.debug(f"关闭 Account Client 失败: {e}")
 
         session_file = self.session_dir / f"{account_name}.session"
         journal_file = self.session_dir / f"{account_name}.session-journal"
@@ -728,7 +872,7 @@ class TelegramService:
         try:
             await close_client_by_name(account_name, workdir=self.session_dir)
         except Exception as e:
-            print(f"DEBUG: start_login 清理后台客户端失败: {e}")
+            logger.debug(f"start_login 清理后台客户端失败: {e}")
 
         # 3. 强制垃圾回收，释放可能的未关闭文件句柄 (Windows 特性)
         gc.collect()
@@ -781,7 +925,7 @@ class TelegramService:
                             aux_file.unlink()
                 except OSError as e:
                     # 如果删除失败，说明真的被锁得很死，或者权限问题
-                    print(f"DEBUG: 删除旧 Session 文件失败: {e} - 可能文件仍被占用")
+                    logger.debug(f"删除旧 Session 文件失败: {e} - 可能文件仍被占用")
                     # 这里不抛出异常，尝试继续，也许 Pyrogram 能处理?
                     # 但通常 "unable to open database file" 就是因为这个。
                     pass

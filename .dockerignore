@@ -80,6 +80,12 @@ sessions/
 data/
 *.session
 *.session-journal
+.local-data/
+.local-login-data/
+.tg_signpulse_data_dir
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
 
 # Docker
 docker/*
