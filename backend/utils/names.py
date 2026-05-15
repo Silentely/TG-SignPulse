@@ -1,9 +1,5 @@
 from __future__ import annotations
 
-import re
-
-_INVALID_STORAGE_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
-
 
 def validate_storage_name(value: str, *, field_name: str) -> str:
     if not isinstance(value, str):
@@ -14,10 +10,9 @@ def validate_storage_name(value: str, *, field_name: str) -> str:
         raise ValueError(f"{field_name} cannot be empty")
     if cleaned in {".", ".."}:
         raise ValueError(f"{field_name} cannot be '.' or '..'")
-    if cleaned.endswith((" ", ".")):
-        raise ValueError(f"{field_name} cannot end with a space or dot")
-    if _INVALID_STORAGE_CHARS.search(cleaned):
+    # Only forbid path separators and null bytes (filesystem safety on Linux)
+    if '/' in cleaned or '\\' in cleaned or '\x00' in cleaned:
         raise ValueError(
-            f"{field_name} contains invalid filesystem characters: < > : \" / \\ | ? *"
+            f"{field_name} cannot contain path separators: / \\"
         )
     return cleaned

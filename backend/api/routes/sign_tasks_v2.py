@@ -75,23 +75,19 @@ class SignTaskCreate(BaseModel):
         @field_validator("name")
         @classmethod
         def name_must_be_valid_filename(cls, v: str) -> str:
-            import re
-
             if not v or not v.strip():
                 raise ValueError("任务名称不能为空")
-            if re.search(r'[<>:"/\\|?*]', v):
-                raise ValueError('任务名称不能包含特殊字符: < > : " / \\ | ? *')
-            return v
+            if '/' in v or '\\' in v:
+                raise ValueError('任务名称不能包含路径分隔符: / \\')
+            return v.strip()
     else:
         @validator("name", allow_reuse=True)
         def name_must_be_valid_filename(cls, v: str) -> str:
-            import re
-
             if not v or not v.strip():
                 raise ValueError("任务名称不能为空")
-            if re.search(r'[<>:"/\\|?*]', v):
-                raise ValueError('任务名称不能包含特殊字符: < > : " / \\ | ? *')
-            return v
+            if '/' in v or '\\' in v:
+                raise ValueError('任务名称不能包含路径分隔符: / \\')
+            return v.strip()
 
 
 class SignTaskUpdate(BaseModel):
