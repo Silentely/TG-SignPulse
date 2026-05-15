@@ -95,13 +95,27 @@ const handleDelete = async (name: string) => {
   }
 }
 
+const checkingAccount = ref('')
+
 const handleCheck = async (name: string) => {
   const token = localStorage.getItem('tg-signer-token') || ''
+  checkingAccount.value = name
   try {
-    await checkAccountsStatus(token, { account_names: [name] })
+    const res = await checkAccountsStatus(token, { account_names: [name] })
     await loadAccounts()
+    // Show result
+    const result = res.results?.[0]
+    if (result) {
+      if (result.ok) {
+        alert(`✅ ${name}: ${t('accounts.checkOk')}`)
+      } else {
+        alert(`❌ ${name}: ${result.message || t('accounts.loginExpired')}`)
+      }
+    }
   } catch (e) {
     alert(t('accounts.checkFailed'))
+  } finally {
+    checkingAccount.value = ''
   }
 }
 
@@ -191,8 +205,9 @@ const goTasks = (name: string) => {
 
       <!-- Actions -->
       <div class="mt-auto pt-3 border-t border-gray-100 dark:border-gray-800/40 grid grid-cols-5 gap-1">
-        <button @click="handleCheck(acc.name)" class="flex flex-col items-center gap-0.5 py-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded transition-colors" :title="t('accounts.checkStatus')">
-          <Play class="w-3.5 h-3.5" />
+        <button @click="handleCheck(acc.name)" :disabled="checkingAccount === acc.name" class="flex flex-col items-center gap-0.5 py-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded transition-colors disabled:opacity-50" :title="t('accounts.checkStatus')">
+          <svg v-if="checkingAccount === acc.name" class="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+          <Play v-else class="w-3.5 h-3.5" />
           <span class="text-[10px]">{{ t('accounts.check') }}</span>
         </button>
         <button @click="goTasks(acc.name)" class="flex flex-col items-center gap-0.5 py-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded transition-colors" :title="t('accounts.viewTasks')">
