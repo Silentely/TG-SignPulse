@@ -445,7 +445,8 @@ def get_sign_task_logs(
     account_name: str | None = None,
     current_user=Depends(get_current_user),
 ):
-    return get_sign_task_service().get_active_logs(task_name, account_name=account_name)
+    effective_account = account_name if (account_name and account_name != "*") else None
+    return get_sign_task_service().get_active_logs(task_name, account_name=effective_account)
 
 
 @router.get("/{task_name}/history", response_model=List[TaskHistoryItem])
@@ -603,6 +604,9 @@ async def sign_task_logs_ws(
 
     await websocket.accept()
 
+    # Resolve empty/wildcard account_name to None for broader matching
+    effective_account = account_name if (account_name and account_name != "*") else None
+
     last_idx = 0
     connected_at = asyncio.get_running_loop().time()
     seen_activity = False
@@ -610,11 +614,11 @@ async def sign_task_logs_ws(
         while True:
             active_logs = get_sign_task_service().get_active_logs(
                 task_name,
-                account_name=account_name,
+                account_name=effective_account,
             )
             is_running = get_sign_task_service().is_task_running(
                 task_name,
-                account_name=account_name,
+                account_name=effective_account,
             )
             if is_running or bool(active_logs):
                 seen_activity = True

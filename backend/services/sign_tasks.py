@@ -3307,14 +3307,20 @@ class SignTaskService:
                             raise ValueError(f"账号 {account_name} 的 session_string 不存在")
                         use_in_memory = True
                     else:
-                        session_string = None
-                        use_in_memory = False
+                        # File mode: prefer in-memory to avoid SQLite "database is locked"
+                        # Try to load session_string from .session_string file as fallback
+                        session_string = load_session_string_file(
+                            session_dir, account_name
+                        )
+                        if session_string:
+                            use_in_memory = True
+                        else:
+                            use_in_memory = False
 
-                        if os.getenv("SIGN_TASK_FORCE_IN_MEMORY") == "1":
-                            session_string = load_session_string_file(
-                                session_dir, account_name
-                            )
-                            use_in_memory = bool(session_string)
+                        if os.getenv("SIGN_TASK_FORCE_IN_MEMORY") == "0":
+                            # Explicitly disabled in-memory mode
+                            session_string = None
+                            use_in_memory = False
 
                     self._active_logs[task_key].append(
                         f"消息更新监听: {'开启' if requires_updates else '关闭'}"
