@@ -126,7 +126,7 @@ const handleQrPasswordSubmit = async (token: string, lid: string) => {
       password: form.value.password
     })
     // 如果后端直接返回 success，说明登录已完成，无需再轮询
-    if (res.success || res.status === 'success') {
+    if (res.success) {
       if (form.value.remark) {
         try {
           await updateAccount(token, form.value.account_name, { remark: form.value.remark })
