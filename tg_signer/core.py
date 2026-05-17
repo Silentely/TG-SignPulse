@@ -531,7 +531,12 @@ def get_client(
         api_id = api_id or _api_id
         api_hash = api_hash or _api_hash
 
-    key = str(pathlib.Path(workdir).joinpath(name).resolve())
+    # Use separate cache keys for in-memory vs file-mode clients to prevent
+    # database lock conflicts when keyword monitor (file mode) and manual
+    # task execution (in-memory mode) run on the same account
+    base_key = str(pathlib.Path(workdir).joinpath(name).resolve())
+    key = f"{base_key}::memory" if (in_memory and session_string) else base_key
+
     if key in _CLIENT_INSTANCES:
         existing = _CLIENT_INSTANCES[key]
         requested_no_updates = kwargs.get("no_updates")

@@ -10,6 +10,7 @@ const { t } = useI18n()
 const props = defineProps<{
   isOpen: boolean
   task: any | null
+  runAccount?: string  // Account selected for running (overrides task default)
 }>()
 
 const emit = defineEmits<{
@@ -26,6 +27,8 @@ const logContainer = ref<HTMLElement | null>(null)
 
 const getTaskAccountName = (task: any): string => {
   if (!task) return ''
+  // If runAccount is provided (user just clicked Run), use that
+  if (props.runAccount) return props.runAccount
   const name = task.raw?.account_name || task.account_name || ''
   if (name && name !== '*') return name
   const names = task.raw?.account_names || task.account_names || []
@@ -40,8 +43,8 @@ const loadLogs = async () => {
   loading.value = true
   const token = localStorage.getItem('tg-signer-token') || ''
   try {
-    // Pass undefined when no real account name to let backend aggregate all accounts
-    const accountName = getTaskAccountName(props.task) || undefined
+    // If running a specific account, get its history; otherwise aggregate
+    const accountName = props.runAccount || getTaskAccountName(props.task) || undefined
     const res = await getSignTaskHistory(token, props.task.name, accountName)
     logs.value = Array.isArray(res) ? res : ((res as any).data || [])
   } catch (e) {

@@ -17,6 +17,7 @@ const showEditModal = ref(false)
 const showLogsModal = ref(false)
 const editingTask = ref<any>(null)
 const logsTask = ref<any>(null)
+const logsRunAccount = ref<string>('')  // Account that just executed the task
 
 // Account selection for run
 const runMenuTask = ref<any>(null)
@@ -218,7 +219,8 @@ const doRun = async (task: any, accountName: string) => {
   const token = localStorage.getItem('tg-signer-token') || ''
   try {
     await startSignTaskRun(token, task.name, accountName)
-    // Open logs modal to show real-time execution
+    // Open logs modal with the specific account that was just run
+    logsRunAccount.value = accountName
     logsTask.value = task
     showLogsModal.value = true
   } catch(e: any) {
@@ -236,6 +238,7 @@ const openEdit = (task: any) => {
 }
 
 const openLogs = (task: any) => {
+  logsRunAccount.value = ''  // No specific run account, show aggregated history
   logsTask.value = task
   showLogsModal.value = true
 }
@@ -376,6 +379,6 @@ const openLogs = (task: any) => {
     <!-- Modals -->
     <AddTaskModal :isOpen="showAddModal" @close="showAddModal = false" @success="loadTasks" />
     <EditTaskModal :isOpen="showEditModal" :task="editingTask" @close="showEditModal = false" @success="loadTasks" />
-    <TaskLogsModal :isOpen="showLogsModal" :task="logsTask" @close="showLogsModal = false" />
+    <TaskLogsModal :isOpen="showLogsModal" :task="logsTask" :runAccount="logsRunAccount" @close="showLogsModal = false" />
   </div>
 </template>
