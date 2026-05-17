@@ -2,7 +2,7 @@
 import { ref, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Play, FileText, Edit2, Trash2, Plus, Radio, Clock, Shuffle } from 'lucide-vue-next'
-import { listSignTasks, deleteSignTask, startSignTaskRun } from '../lib/api' 
+import { listSignTasks, deleteSignTask, startSignTaskRun, listAccounts } from '../lib/api' 
 import { useI18n } from '../composables/useI18n'
 import AddTaskModal from '../components/tasks/AddTaskModal.vue'
 import EditTaskModal from '../components/tasks/EditTaskModal.vue'
@@ -17,6 +17,20 @@ const showEditModal = ref(false)
 const showLogsModal = ref(false)
 const editingTask = ref<any>(null)
 const logsTask = ref<any>(null)
+
+// Account selection for run
+const runMenuTask = ref<any>(null)
+const runMenuAccounts = ref<string[]>([])
+const allAccounts = ref<string[]>([])
+
+const loadAllAccounts = async () => {
+  const token = localStorage.getItem('tg-signer-token') || ''
+  if (!token) return
+  try {
+    const res = await listAccounts(token)
+    allAccounts.value = (res.accounts || []).map((a: any) => a.name)
+  } catch { }
+}
 
 const formatDate = (dateStr: string) => {
   if (!dateStr) return '-'
@@ -112,6 +126,7 @@ const loadTasks = async () => {
 
 onMounted(() => {
   loadTasks()
+  loadAllAccounts()
 })
 
 const loadChatAvatar = async (task: any, accountName: string, chatId: number) => {
@@ -145,10 +160,31 @@ const handleDelete = async (task: any) => {
   }
 }
 
-const handleRun = async (task: any) => {
+const getTaskRealAccounts = (task: any): string[] => {
+  const names = task.account_names || []
+  if (names.includes('*')) {
+    // Wildcard: expand to all accounts
+    return allAccounts.value.length > 0 ? allAccounts.value : []
+  }
+  return names.filter((n: string) => n && n !== '*')
+}
+
+const handleRun = (task: any) => {
+  const accounts = getTaskRealAccounts(task.raw)
+  if (accounts.length <= 1) {
+    // Single account or no accounts - run directly
+    doRun(task, accounts[0] || getTaskAccountName(task.raw))
+  } else {
+    // Multiple accounts - show selection menu
+    runMenuTask.value = task
+    runMenuAccounts.value = accounts
+  }
+}
+
+const doRun = async (task: any, accountName: string) => {
+  runMenuTask.value = null
   const token = localStorage.getItem('tg-signer-token') || ''
   try {
-    const accountName = getTaskAccountName(task.raw)
     await startSignTaskRun(token, task.name, accountName)
     // Open logs modal to show real-time execution
     logsTask.value = task
@@ -156,6 +192,10 @@ const handleRun = async (task: any) => {
   } catch(e: any) {
     alert(`${t('tasks.triggerFailed')}: ${e.message}`)
   }
+}
+
+const closeRunMenu = () => {
+  runMenuTask.value = null
 }
 
 const openEdit = (task: any) => {
@@ -170,7 +210,7 @@ const openLogs = (task: any) => {
 </script>
 
 <template>
-  <div class="relative min-h-[80vh]">
+  <div class="relative min-h-[80vh]" @click="closeRunMenu">
     <!-- Page Loading -->
     <div v-if="pageLoading" class="flex items-center justify-center py-20">
       <svg class="animate-spin w-6 h-6 text-gray-400" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
@@ -253,16 +293,29 @@ const openLogs = (task: any) => {
 
       <!-- Actions Area -->
       <div class="flex items-center justify-between sm:justify-end gap-2 sm:gap-1.5 mt-2 sm:mt-0 transition-opacity duration-200 shrink-0 sm:pl-4">
-        <button 
-          @click="task.raw.execution_mode !== 'listen' && handleRun(task)" 
-          class="flex-1 sm:flex-none flex justify-center items-center gap-1 px-2 py-1.5 rounded transition-colors text-xs"
-          :class="task.raw.execution_mode === 'listen' ? 'text-gray-300 dark:text-gray-700 cursor-not-allowed' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800'"
-          :title="t('tasks.executeNow')"
-          :disabled="task.raw.execution_mode === 'listen'"
-        >
-          <Play class="w-3.5 h-3.5" />
-          <span class="text-xs">{{ t('tasks.execute') }}</span>
-        </button>
+        <div class="relative flex-1 sm:flex-none" @click.stop>
+          <button 
+            @click="task.raw.execution_mode !== 'listen' && handleRun(task)" 
+            class="w-full sm:w-auto flex justify-center items-center gap-1 px-2 py-1.5 rounded transition-colors text-xs"
+            :class="task.raw.execution_mode === 'listen' ? 'text-gray-300 dark:text-gray-700 cursor-not-allowed' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800'"
+            :title="t('tasks.executeNow')"
+            :disabled="task.raw.execution_mode === 'listen'"
+          >
+            <Play class="w-3.5 h-3.5" />
+            <span class="text-xs">{{ t('tasks.execute') }}</span>
+          </button>
+          <!-- Account selection dropdown -->
+          <div v-if="runMenuTask === task" class="absolute top-full left-0 sm:right-0 sm:left-auto mt-1 z-50 min-w-[140px] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-lg py-1">
+            <div class="px-3 py-1.5 text-[10px] text-gray-400 font-medium uppercase tracking-wide border-b border-gray-100 dark:border-gray-800">{{ t('tasks.selectAccount') }}</div>
+            <button 
+              v-for="acc in runMenuAccounts" :key="acc"
+              @click="doRun(task, acc)"
+              class="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors truncate"
+            >
+              {{ acc }}
+            </button>
+          </div>
+        </div>
         <button @click="openLogs(task)" class="flex-1 sm:flex-none flex justify-center items-center gap-1 px-2 py-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 rounded transition-colors text-xs" :title="t('tasks.viewLogs')">
           <FileText class="w-3.5 h-3.5" />
           <span class="text-xs">{{ t('tasks.logs') }}</span>
