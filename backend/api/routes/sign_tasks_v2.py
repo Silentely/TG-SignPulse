@@ -551,7 +551,13 @@ async def get_chat_avatar(
     chat_id: int,
     current_user=Depends(get_current_user),
 ):
-    """获取 Chat 对象的头像（带本地缓存）"""
+    """获取 Chat 对象的头像（带本地缓存）
+
+    Cache strategy: avatar is keyed by chat_id only since the same chat
+    has the same avatar regardless of which account fetches it.
+    If the requested account can't find the chat, fall back to trying
+    other available accounts.
+    """
     import time
     from pathlib import Path
 
@@ -562,43 +568,71 @@ async def get_chat_avatar(
     settings = get_settings()
     avatar_cache_dir = settings.resolve_workdir() / "avatars" / "chats"
     avatar_cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_file = avatar_cache_dir / f"{account_name}_{chat_id}.jpg"
-    no_avatar_marker = avatar_cache_dir / f"{account_name}_{chat_id}.no_avatar"
 
-    # 如果已标记为无头像（7天内），直接返回 404
+    # Use chat_id-based cache (avatar is global per chat, not per account)
+    cache_file = avatar_cache_dir / f"chat_{chat_id}.jpg"
+    no_avatar_marker = avatar_cache_dir / f"chat_{chat_id}.no_avatar"
+
+    # Legacy account-specific cache files (for backward compatibility)
+    legacy_cache_file = avatar_cache_dir / f"{account_name}_{chat_id}.jpg"
+
+    # If no-avatar marker is recent (7 days), return 404
     if no_avatar_marker.exists():
         age = time.time() - no_avatar_marker.stat().st_mtime
-        if age < 604800:  # 7 days
+        if age < 604800:
             raise HTTPException(status_code=404, detail="No avatar available")
         else:
             no_avatar_marker.unlink(missing_ok=True)
 
-    # 如果缓存存在且不超过 7 天，直接返回
+    # If chat-level cache exists and is fresh, use it
     if cache_file.exists():
         age = time.time() - cache_file.stat().st_mtime
-        if age < 604800:  # 7 days
+        if age < 604800:
             return FileResponse(cache_file, media_type="image/jpeg")
 
-    # 尝试下载
+    # If legacy account-specific cache exists, migrate it to chat-level
+    if legacy_cache_file.exists():
+        age = time.time() - legacy_cache_file.stat().st_mtime
+        if age < 604800:
+            try:
+                import shutil
+                shutil.copy2(legacy_cache_file, cache_file)
+            except Exception:
+                pass
+            return FileResponse(cache_file, media_type="image/jpeg")
+
+    # Try to download avatar - first with the requested account, then fall back
+    from backend.services.telegram import get_telegram_service
+    from backend.utils.tg_session import list_account_names
+
+    telegram_service = get_telegram_service()
+    accounts_to_try = [account_name]
+    # Add other accounts as fallback
     try:
-        from backend.services.telegram import get_telegram_service
-
-        avatar_bytes = await get_telegram_service().download_chat_avatar(
-            account_name, chat_id
-        )
-        if avatar_bytes:
-            cache_file.write_bytes(avatar_bytes)
-            # 清除无头像标记
-            no_avatar_marker.unlink(missing_ok=True)
-            return Response(content=avatar_bytes, media_type="image/jpeg")
-        else:
-            # 标记为无头像，避免重复请求
-            no_avatar_marker.write_text("")
+        all_accounts = list_account_names()
+        for acc in all_accounts:
+            if acc and acc != account_name and acc not in accounts_to_try:
+                accounts_to_try.append(acc)
     except Exception:
-        if cache_file.exists():
-            return FileResponse(cache_file, media_type="image/jpeg")
-        # 标记为无头像
+        pass
+
+    for try_account in accounts_to_try:
+        try:
+            avatar_bytes = await telegram_service.download_chat_avatar(
+                try_account, chat_id
+            )
+            if avatar_bytes:
+                cache_file.write_bytes(avatar_bytes)
+                no_avatar_marker.unlink(missing_ok=True)
+                return Response(content=avatar_bytes, media_type="image/jpeg")
+        except Exception:
+            continue
+
+    # No account could fetch the avatar - mark as no avatar
+    try:
         no_avatar_marker.write_text("")
+    except Exception:
+        pass
 
     raise HTTPException(status_code=404, detail="No avatar available")
 

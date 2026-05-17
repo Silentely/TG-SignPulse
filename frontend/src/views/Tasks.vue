@@ -136,13 +136,22 @@ const loadChatAvatar = async (task: any, accountName: string, chatId: number) =>
   const token = localStorage.getItem('tg-signer-token') || ''
   // Use chat_id as cache key - avatar is the same regardless of which account fetched it
   const cacheKey = `chat_avatar_${chatId}`
+  const noAvatarKey = `chat_avatar_${chatId}_404`
   
   // Check localStorage cache first (persists across browser sessions)
   const cached = localStorage.getItem(cacheKey)
-  if (cached) {
-    if (cached === '__no_avatar__') return  // Marked as no avatar
+  if (cached && cached !== '__no_avatar__') {
     task.chatAvatarUrl = cached
     return
+  }
+
+  // Check if we recently confirmed no avatar (within 1 hour) to avoid spam
+  const noAvatarTime = localStorage.getItem(noAvatarKey)
+  if (noAvatarTime) {
+    const age = Date.now() - parseInt(noAvatarTime, 10)
+    if (age < 3600000) {  // 1 hour
+      return
+    }
   }
 
   try {
@@ -153,6 +162,8 @@ const loadChatAvatar = async (task: any, accountName: string, chatId: number) =>
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
       task.chatAvatarUrl = url
+      // Clear no-avatar marker
+      localStorage.removeItem(noAvatarKey)
       // Cache as data URL for persistence
       try {
         const reader = new FileReader()
@@ -169,8 +180,8 @@ const loadChatAvatar = async (task: any, accountName: string, chatId: number) =>
         reader.readAsDataURL(blob)
       } catch {}
     } else if (res.status === 404) {
-      // Mark as no avatar to avoid repeated requests
-      try { localStorage.setItem(cacheKey, '__no_avatar__') } catch {}
+      // Mark with timestamp to retry after 1 hour
+      try { localStorage.setItem(noAvatarKey, String(Date.now())) } catch {}
     }
   } catch {
     // Network error, don't cache
