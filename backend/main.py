@@ -196,11 +196,21 @@ def _pre_export_session_strings() -> None:
     from backend.utils.tg_session import (
         get_session_mode,
         load_session_string_file,
-        list_account_names,
     )
 
     session_dir = settings.resolve_session_dir()
     logger = logging.getLogger("backend.startup")
+
+    # Clean up any stray "*" directories (legacy bug from update_task wildcard handling)
+    try:
+        signs_dir = settings.resolve_workdir() / "signs"
+        wildcard_dir = signs_dir / "*"
+        if wildcard_dir.exists() and wildcard_dir.is_dir():
+            import shutil
+            shutil.rmtree(wildcard_dir)
+            logger.info("Cleaned up stray '*' task directory")
+    except Exception as exc:
+        logger.warning(f"Failed to clean wildcard dir: {exc}")
 
     # Only needed in file mode - string mode already has session strings
     if get_session_mode() == "string":

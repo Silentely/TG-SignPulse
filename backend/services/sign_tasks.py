@@ -666,16 +666,28 @@ class SignTaskService:
     def _aggregate_tasks(self, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         grouped: Dict[str, Dict[str, Any]] = {}
 
+        def _first_real_account(names: List[str], fallback: str = "") -> str:
+            for n in names:
+                if n and n != "*":
+                    return n
+            return fallback if fallback and fallback != "*" else ""
+
         for task in tasks:
             key = self._task_group_key(task)
             existing = grouped.get(key)
             if existing is None:
-                grouped[key] = {
+                merged = {
                     **task,
                     "account_names": self._normalize_account_names(
                         task.get("account_names"), task.get("account_name")
                     ),
                 }
+                # Ensure account_name is a real one, not "*"
+                if not merged.get("account_name") or merged.get("account_name") == "*":
+                    merged["account_name"] = _first_real_account(
+                        merged["account_names"], task.get("account_name") or ""
+                    )
+                grouped[key] = merged
                 continue
 
             merged_accounts = self._normalize_account_names(
@@ -690,7 +702,11 @@ class SignTaskService:
                 latest_last_run_account_name = task.get("account_name") or ""
 
             existing["account_names"] = merged_accounts
-            existing["account_name"] = merged_accounts[0] if merged_accounts else ""
+            # Pick first real account name, not "*"
+            existing["account_name"] = _first_real_account(
+                merged_accounts,
+                existing.get("account_name") or task.get("account_name") or "",
+            )
             existing["last_run"] = latest_last_run
             existing["last_run_account_name"] = latest_last_run_account_name
 
@@ -2396,6 +2412,15 @@ class SignTaskService:
         if not target_accounts:
             raise ValueError("任务至少需要保留一个账号")
 
+        # Preserve original list (may contain "*") for config storage
+        stored_account_names = list(target_accounts)
+        # Expand wildcard "*" to actual account names for directory creation
+        target_accounts = self._expand_account_names(target_accounts)
+        if not target_accounts:
+            raise ValueError("没有可用的账号")
+        # Also expand existing_accounts for proper diff calculation
+        existing_accounts = self._expand_account_names(existing_accounts)
+
         current_group_id = str(existing.get("task_group_id") or "").strip()
         next_group_id = ""
         if len(target_accounts) > 1:
@@ -2460,7 +2485,7 @@ class SignTaskService:
                 "_version": 4,
                 "task_group_id": next_group_id,
                 "account_name": current_account,
-                "account_names": target_accounts,
+                "account_names": stored_account_names,
                 "sign_at": next_sign_at,
                 "random_seconds": next_random_seconds,
                 "sign_interval": next_sign_interval,

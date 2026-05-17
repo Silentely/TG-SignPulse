@@ -56,6 +56,10 @@ class ChatConfig(BaseModel):
     delete_after: Optional[int] = Field(None, description="Delete delay seconds")
     action_interval: int = Field(1, description="Action interval seconds")
     message_thread_id: Optional[int] = Field(None, description="Thread ID")
+    source_account: Optional[str] = Field(None, description="Account used to look up this chat (for avatar)")
+
+    class Config:
+        extra = "allow"
 
 
 class SignTaskCreate(BaseModel):

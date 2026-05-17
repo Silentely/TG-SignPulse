@@ -109,11 +109,13 @@ const loadTasks = async () => {
       }
     })
 
-    // Load chat avatars using resolved account name
+    // Load chat avatars - prefer chat.source_account (the account that selected the chat),
+    // fall back to first real account from task's account list
     for (const task of tasks.value) {
       const firstChat = task.raw.chats?.[0]
-      const avatarAccount = getTaskAccountName(task.raw)
-      if (firstChat && avatarAccount) {
+      if (!firstChat) continue
+      const avatarAccount = firstChat.source_account || getTaskAccountName(task.raw)
+      if (avatarAccount) {
         loadChatAvatar(task, avatarAccount, firstChat.chat_id)
       }
     }
@@ -131,11 +133,13 @@ onMounted(() => {
 
 const loadChatAvatar = async (task: any, accountName: string, chatId: number) => {
   const token = localStorage.getItem('tg-signer-token') || ''
-  const cacheKey = `avatar_${accountName}_${chatId}`
+  // Use chat_id as cache key - avatar is the same regardless of which account fetched it
+  const cacheKey = `chat_avatar_${chatId}`
   
-  // Check sessionStorage cache first
-  const cached = sessionStorage.getItem(cacheKey)
+  // Check localStorage cache first (persists across browser sessions)
+  const cached = localStorage.getItem(cacheKey)
   if (cached) {
+    if (cached === '__no_avatar__') return  // Marked as no avatar
     task.chatAvatarUrl = cached
     return
   }
@@ -148,17 +152,27 @@ const loadChatAvatar = async (task: any, accountName: string, chatId: number) =>
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
       task.chatAvatarUrl = url
-      // Cache as data URL for persistence across page navigations
+      // Cache as data URL for persistence
       try {
         const reader = new FileReader()
         reader.onload = () => {
-          if (reader.result) sessionStorage.setItem(cacheKey, reader.result as string)
+          if (reader.result) {
+            try {
+              localStorage.setItem(cacheKey, reader.result as string)
+            } catch {
+              // localStorage quota exceeded - fall back to sessionStorage
+              try { sessionStorage.setItem(cacheKey, reader.result as string) } catch {}
+            }
+          }
         }
         reader.readAsDataURL(blob)
       } catch {}
+    } else if (res.status === 404) {
+      // Mark as no avatar to avoid repeated requests
+      try { localStorage.setItem(cacheKey, '__no_avatar__') } catch {}
     }
   } catch {
-    // No avatar, keep fallback
+    // Network error, don't cache
   }
 }
 
