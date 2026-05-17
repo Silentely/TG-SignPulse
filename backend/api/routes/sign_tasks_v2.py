@@ -333,14 +333,28 @@ async def delete_sign_task(
 @router.post("/{task_name}/run", response_model=RunTaskResult)
 async def run_sign_task(
     task_name: str,
-    account_name: str,
+    account_name: Optional[str] = None,
     current_user=Depends(get_current_user),
 ):
     try:
-        task = get_sign_task_service().get_task(task_name, account_name=account_name)
-        if not task:
-            raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
-        return await get_sign_task_service().run_task_with_logs(account_name, task_name)
+        resolved_account = account_name
+        if not resolved_account or resolved_account == "*":
+            task = get_sign_task_service().get_task(task_name, aggregate=True)
+            if not task:
+                raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
+            for name in task.get("account_names", []):
+                if name and name != "*":
+                    resolved_account = name
+                    break
+            if not resolved_account or resolved_account == "*":
+                resolved_account = task.get("account_name", "")
+            if not resolved_account or resolved_account == "*":
+                raise HTTPException(status_code=400, detail="无法确定执行账号")
+        else:
+            task = get_sign_task_service().get_task(task_name, account_name=resolved_account)
+            if not task:
+                raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
+        return await get_sign_task_service().run_task_with_logs(resolved_account, task_name)
     except HTTPException:
         raise
     except ValueError as e:
@@ -353,14 +367,30 @@ async def run_sign_task(
 @router.post("/{task_name}/run/start", response_model=RunTaskStartResult)
 async def start_sign_task_run(
     task_name: str,
-    account_name: str,
+    account_name: Optional[str] = None,
     current_user=Depends(get_current_user),
 ):
     try:
-        task = get_sign_task_service().get_task(task_name, account_name=account_name)
-        if not task:
-            raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
-        return await get_sign_task_service().start_task_run(account_name, task_name)
+        # Resolve account_name: if not provided or wildcard, find first real account
+        resolved_account = account_name
+        if not resolved_account or resolved_account == "*":
+            task = get_sign_task_service().get_task(task_name, aggregate=True)
+            if not task:
+                raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
+            # Find first real account from account_names
+            for name in task.get("account_names", []):
+                if name and name != "*":
+                    resolved_account = name
+                    break
+            if not resolved_account or resolved_account == "*":
+                resolved_account = task.get("account_name", "")
+            if not resolved_account or resolved_account == "*":
+                raise HTTPException(status_code=400, detail="无法确定执行账号")
+        else:
+            task = get_sign_task_service().get_task(task_name, account_name=resolved_account)
+            if not task:
+                raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
+        return await get_sign_task_service().start_task_run(resolved_account, task_name)
     except HTTPException:
         raise
     except ValueError as e:
@@ -373,16 +403,30 @@ async def start_sign_task_run(
 @router.get("/{task_name}/run/status", response_model=RunTaskStatusResult)
 def get_sign_task_run_status(
     task_name: str,
-    account_name: str,
+    account_name: Optional[str] = None,
     run_id: Optional[str] = None,
     current_user=Depends(get_current_user),
 ):
     try:
-        task = get_sign_task_service().get_task(task_name, account_name=account_name)
-        if not task:
-            raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
+        resolved_account = account_name
+        if not resolved_account or resolved_account == "*":
+            task = get_sign_task_service().get_task(task_name, aggregate=True)
+            if not task:
+                raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
+            for name in task.get("account_names", []):
+                if name and name != "*":
+                    resolved_account = name
+                    break
+            if not resolved_account or resolved_account == "*":
+                resolved_account = task.get("account_name", "")
+            if not resolved_account or resolved_account == "*":
+                raise HTTPException(status_code=400, detail="无法确定执行账号")
+        else:
+            task = get_sign_task_service().get_task(task_name, account_name=resolved_account)
+            if not task:
+                raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
         return get_sign_task_service().get_task_run_status(
-            account_name,
+            resolved_account,
             task_name,
             run_id=run_id,
         )
@@ -412,17 +456,19 @@ def get_sign_task_history(
     current_user=Depends(get_current_user),
 ):
     try:
+        # Treat empty string and wildcard as None (aggregate mode)
+        effective_account = account_name if (account_name and account_name != "*") else None
         task = get_sign_task_service().get_task(
             task_name,
-            account_name=account_name,
-            aggregate=account_name is None,
+            account_name=effective_account,
+            aggregate=effective_account is None,
         )
         if not task:
             raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
 
         return get_sign_task_service().get_task_history_logs(
             task_name=task_name,
-            account_name=account_name,
+            account_name=effective_account,
             limit=limit,
         )
     except HTTPException:

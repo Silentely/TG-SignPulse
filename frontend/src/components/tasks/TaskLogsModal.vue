@@ -27,12 +27,10 @@ const logContainer = ref<HTMLElement | null>(null)
 const getTaskAccountName = (task: any): string => {
   if (!task) return ''
   const name = task.raw?.account_name || task.account_name || ''
-  if (name) return name
+  if (name && name !== '*') return name
   const names = task.raw?.account_names || task.account_names || []
-  if (names.length > 0) {
-    // Skip wildcard '*', use first real account name
-    const realName = names.find((n: string) => n && n !== '*')
-    return realName || ''
+  for (const n of names) {
+    if (n && n !== '*') return n
   }
   return ''
 }
@@ -42,7 +40,7 @@ const loadLogs = async () => {
   loading.value = true
   const token = localStorage.getItem('tg-signer-token') || ''
   try {
-    // Use getTaskAccountName to properly resolve account, pass undefined if empty to let backend aggregate
+    // Pass undefined when no real account name to let backend aggregate all accounts
     const accountName = getTaskAccountName(props.task) || undefined
     const res = await getSignTaskHistory(token, props.task.name, accountName)
     logs.value = Array.isArray(res) ? res : ((res as any).data || [])

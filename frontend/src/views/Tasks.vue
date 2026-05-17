@@ -34,11 +34,12 @@ const formatDate = (dateStr: string) => {
 }
 
 const getTaskAccountName = (task: any): string => {
-  // Fix: fallback to account_names[0] when account_name is empty, skip wildcard '*'
-  if (task.account_name && task.account_name !== '*') return task.account_name
-  if (task.account_names && task.account_names.length > 0) {
-    const realName = task.account_names.find((n: string) => n && n !== '*')
-    return realName || ''
+  // Resolve a usable account name from task data, skipping wildcard '*'
+  const name = task.account_name || ''
+  if (name && name !== '*') return name
+  const names = task.account_names || []
+  for (const n of names) {
+    if (n && n !== '*') return n
   }
   return ''
 }
@@ -94,12 +95,12 @@ const loadTasks = async () => {
       }
     })
 
-    // Load chat avatars - fix: use getTaskAccountName to handle account_names fallback
+    // Load chat avatars using resolved account name
     for (const task of tasks.value) {
       const firstChat = task.raw.chats?.[0]
-      const accountName = getTaskAccountName(task.raw)
-      if (firstChat && accountName) {
-        loadChatAvatar(task, accountName, firstChat.chat_id)
+      const avatarAccount = getTaskAccountName(task.raw)
+      if (firstChat && avatarAccount) {
+        loadChatAvatar(task, avatarAccount, firstChat.chat_id)
       }
     }
   } catch (e) {
@@ -136,7 +137,8 @@ const handleDelete = async (task: any) => {
   if (!confirm(`${t('tasks.deleteConfirm')} ${task.name} ?`)) return
   const token = localStorage.getItem('tg-signer-token') || ''
   try {
-    await deleteSignTask(token, task.name, getTaskAccountName(task.raw))
+    const accountName = getTaskAccountName(task.raw) || undefined
+    await deleteSignTask(token, task.name, accountName)
     await loadTasks()
   } catch (e: any) {
     alert(`${t('tasks.deleteFailed')}: ${e.message || t('tasks.unknownError')}`)

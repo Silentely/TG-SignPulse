@@ -31,11 +31,13 @@ const handleSave = async () => {
   loading.value = true
   error.value = ''
   try {
-    // Resolve account_name: prefer direct value, fallback to account_names[0], skip wildcard
+    // Resolve account_name: use direct value, skip wildcard, fallback to account_names
     let accountName = props.task.account_name || ''
     if (!accountName || accountName === '*') {
       const names = props.task.account_names || []
-      accountName = names.find((n: string) => n && n !== '*') || ''
+      for (const n of names) {
+        if (n && n !== '*') { accountName = n; break }
+      }
     }
     await updateSignTask(token, props.task.name, { ...payload.value, notify_on_failure: notifyOnFailure.value }, accountName || undefined)
     emit('success')
