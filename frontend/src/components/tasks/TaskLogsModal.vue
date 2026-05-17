@@ -24,12 +24,27 @@ let ws: WebSocket | null = null
 let pollTimer: ReturnType<typeof setInterval> | null = null
 const logContainer = ref<HTMLElement | null>(null)
 
+const getTaskAccountName = (task: any): string => {
+  if (!task) return ''
+  const name = task.raw?.account_name || task.account_name || ''
+  if (name) return name
+  const names = task.raw?.account_names || task.account_names || []
+  if (names.length > 0) {
+    // Skip wildcard '*', use first real account name
+    const realName = names.find((n: string) => n && n !== '*')
+    return realName || ''
+  }
+  return ''
+}
+
 const loadLogs = async () => {
   if (!props.task) return
   loading.value = true
   const token = localStorage.getItem('tg-signer-token') || ''
   try {
-    const res = await getSignTaskHistory(token, props.task.name, props.task.raw?.account_name)
+    // Use getTaskAccountName to properly resolve account, pass undefined if empty to let backend aggregate
+    const accountName = getTaskAccountName(props.task) || undefined
+    const res = await getSignTaskHistory(token, props.task.name, accountName)
     logs.value = Array.isArray(res) ? res : ((res as any).data || [])
   } catch (e) {
     console.error('Failed to fetch logs', e)
@@ -43,7 +58,7 @@ const connectWebSocket = () => {
   if (!props.task) return
   const token = localStorage.getItem('tg-signer-token') || ''
   const taskName = encodeURIComponent(props.task.name)
-  const accountName = props.task.raw?.account_name || ''
+  const accountName = getTaskAccountName(props.task) || ''
   const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   const wsHost = window.location.host
   const wsUrl = `${wsProtocol}//${wsHost}/api/sign-tasks/ws/${taskName}?token=${encodeURIComponent(token)}&account_name=${encodeURIComponent(accountName)}`
@@ -99,8 +114,9 @@ const startPolling = () => {
   pollTimer = setInterval(async () => {
     if (!props.task) return
     const token = localStorage.getItem('tg-signer-token') || ''
+    const accountName = getTaskAccountName(props.task) || ''
     try {
-      const res = await fetch(`/api/sign-tasks/${encodeURIComponent(props.task.name)}/logs?account_name=${encodeURIComponent(props.task.raw?.account_name || '')}`, {
+      const res = await fetch(`/api/sign-tasks/${encodeURIComponent(props.task.name)}/logs?account_name=${encodeURIComponent(accountName)}`, {
         headers: { Authorization: `Bearer ${token}` }
       })
       if (res.ok) {
@@ -115,7 +131,7 @@ const startPolling = () => {
         }
       }
       // Check if task is still running
-      const statusRes = await fetch(`/api/sign-tasks/${encodeURIComponent(props.task.name)}/run/status?account_name=${encodeURIComponent(props.task.raw?.account_name || '')}`, {
+      const statusRes = await fetch(`/api/sign-tasks/${encodeURIComponent(props.task.name)}/run/status?account_name=${encodeURIComponent(accountName)}`, {
         headers: { Authorization: `Bearer ${token}` }
       })
       if (statusRes.ok) {

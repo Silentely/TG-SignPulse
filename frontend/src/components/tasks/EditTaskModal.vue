@@ -31,7 +31,13 @@ const handleSave = async () => {
   loading.value = true
   error.value = ''
   try {
-    await updateSignTask(token, props.task.name, { ...payload.value, notify_on_failure: notifyOnFailure.value }, props.task.account_name)
+    // Resolve account_name: prefer direct value, fallback to account_names[0], skip wildcard
+    let accountName = props.task.account_name || ''
+    if (!accountName || accountName === '*') {
+      const names = props.task.account_names || []
+      accountName = names.find((n: string) => n && n !== '*') || ''
+    }
+    await updateSignTask(token, props.task.name, { ...payload.value, notify_on_failure: notifyOnFailure.value }, accountName || undefined)
     emit('success')
     emit('close')
   } catch (e: any) {

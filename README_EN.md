@@ -4,13 +4,16 @@
 
 <h1 align="center">TG-SignPulse</h1>
 
+> [!CAUTION]
+> **⚠️ v2.0 Upgrade Notice:** Due to significant architectural changes (multi-account task support, etc.), this version is NOT fully backward-compatible with older data. Please **clear your `data/` directory and redeploy** before upgrading. Back up your data first if needed.
+
 <p align="center">
   <strong>Telegram Multi-Account Automation Panel</strong><br>
   Check-ins · Action Workflows · Keyword Monitoring · AI Verification
 </p>
 
 <p align="center">
-  <a href="https://github.com/AkaSLs/tg-signpulse/releases"><img src="https://img.shields.io/badge/version-v2.0.0-blue" alt="Version"></a>
+  <a href="https://github.com/AkaSLs/tg-signpulse/releases"><img src="https://img.shields.io/badge/version-v2.0.1-blue" alt="Version"></a>
   <a href="https://github.com/AkaSLs/tg-signpulse/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-BSD--3--Clause-green" alt="License"></a>
   <img src="https://img.shields.io/badge/python-3.10--3.13-blue" alt="Python">
   <img src="https://img.shields.io/badge/node-20+-green" alt="Node.js">

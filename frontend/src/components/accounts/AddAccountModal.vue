@@ -94,7 +94,7 @@ const pollStatus = async (token: string, lid: string) => {
       loading.value = false
       emit('success')
       handleClose()
-    } else if (res.status === 'waiting_for_password') {
+    } else if (res.status === 'waiting_for_password' || res.status === 'password_required') {
       // 如果已经填了密码，自动提交
       if (form.value.password) {
         clearInterval(pollInterval)
@@ -103,9 +103,12 @@ const pollStatus = async (token: string, lid: string) => {
       } else {
         error.value = t('addAccount.needPassword')
         clearInterval(pollInterval)
+        pollInterval = null
+        loading.value = false
       }
-    } else if (res.status === 'failed') {
+    } else if (res.status === 'failed' || res.status === 'expired') {
       clearInterval(pollInterval)
+      pollInterval = null
       error.value = res.message || t('addAccount.qrFailed')
       loading.value = false
     }
@@ -118,11 +121,24 @@ const handleQrPasswordSubmit = async (token: string, lid: string) => {
   loading.value = true
   error.value = ''
   try {
-    await submitQrPassword(token, {
+    const res = await submitQrPassword(token, {
       login_id: lid,
       password: form.value.password
     })
-    // 提交密码后继续轮询
+    // 如果后端直接返回 success，说明登录已完成，无需再轮询
+    if (res.success || res.status === 'success') {
+      if (form.value.remark) {
+        try {
+          await updateAccount(token, form.value.account_name, { remark: form.value.remark })
+        } catch (err) {}
+      }
+      loading.value = false
+      emit('success')
+      handleClose()
+      return
+    }
+    // 否则继续轮询等待最终状态
+    if (pollInterval) clearInterval(pollInterval)
     pollInterval = setInterval(() => pollStatus(token, lid), 3000)
   } catch (e: any) {
     error.value = e.message || t('addAccount.passwordFailed')
@@ -239,6 +255,13 @@ const handleSave = async () => {
     if (form.value.password) {
       await handleQrPasswordSubmit(token, loginId.value)
     } else {
+      // 没有密码时，检查当前轮询是否还在运行
+      // 如果轮询在运行，说明还在等待后端确认，不需要用户操作
+      if (pollInterval) {
+        // 轮询中，等待自动完成
+        loading.value = false
+        return
+      }
       error.value = t('addAccount.enterPasswordOrWait')
       loading.value = false
     }

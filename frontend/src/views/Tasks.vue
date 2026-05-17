@@ -34,8 +34,13 @@ const formatDate = (dateStr: string) => {
 }
 
 const getTaskAccountName = (task: any): string => {
-  // Fix: fallback to account_names[0] when account_name is empty
-  return task.account_name || (task.account_names && task.account_names.length > 0 ? task.account_names[0] : '')
+  // Fix: fallback to account_names[0] when account_name is empty, skip wildcard '*'
+  if (task.account_name && task.account_name !== '*') return task.account_name
+  if (task.account_names && task.account_names.length > 0) {
+    const realName = task.account_names.find((n: string) => n && n !== '*')
+    return realName || ''
+  }
+  return ''
 }
 
 const loadTasks = async () => {
@@ -131,7 +136,7 @@ const handleDelete = async (task: any) => {
   if (!confirm(`${t('tasks.deleteConfirm')} ${task.name} ?`)) return
   const token = localStorage.getItem('tg-signer-token') || ''
   try {
-    await deleteSignTask(token, task.name, task.raw.account_name)
+    await deleteSignTask(token, task.name, getTaskAccountName(task.raw))
     await loadTasks()
   } catch (e: any) {
     alert(`${t('tasks.deleteFailed')}: ${e.message || t('tasks.unknownError')}`)
@@ -141,7 +146,8 @@ const handleDelete = async (task: any) => {
 const handleRun = async (task: any) => {
   const token = localStorage.getItem('tg-signer-token') || ''
   try {
-    await startSignTaskRun(token, task.name, task.raw.account_name)
+    const accountName = getTaskAccountName(task.raw)
+    await startSignTaskRun(token, task.name, accountName)
     // Open logs modal to show real-time execution
     logsTask.value = task
     showLogsModal.value = true
