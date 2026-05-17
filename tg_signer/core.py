@@ -198,6 +198,38 @@ def _patched_sqlite3_connect(*args, **kwargs):
 
 sqlite3.connect = _patched_sqlite3_connect
 
+# Monkeypatch pyrogram FileStorage.open to skip VACUUM (causes exclusive locks)
+# and enable WAL mode + busy_timeout immediately on open
+try:
+    from pyrogram.storage.file_storage import FileStorage as _PyrogramFileStorage
+
+    _original_file_storage_open = _PyrogramFileStorage.open
+
+    async def _patched_file_storage_open(self):
+        path = self.database
+        file_exists = path.is_file()
+
+        self.conn = _original_sqlite3_connect(str(path), timeout=30, check_same_thread=False)
+
+        # Enable WAL mode and busy_timeout BEFORE any writes
+        try:
+            self.conn.execute("PRAGMA journal_mode=WAL")
+            self.conn.execute("PRAGMA busy_timeout=30000")
+        except Exception:
+            pass
+
+        if not file_exists:
+            self.create()
+        else:
+            self.update()
+
+        # Skip VACUUM - it requires exclusive lock and blocks other connections.
+        # WAL mode handles fragmentation well enough for session files.
+
+    _PyrogramFileStorage.open = _patched_file_storage_open
+except Exception:
+    pass
+
 # Monkeypatch pyrogram.Client.invoke to add backpressure and retry logic for updates
 _original_invoke = BaseClient.invoke
 _get_channel_diff_semaphore = asyncio.Semaphore(50)
@@ -343,7 +375,7 @@ class Client(BaseClient):
             _CLIENT_REFS[self.key] += 1
             if _CLIENT_REFS[self.key] == 1:
                 # Retry loop for database locks
-                max_retries = 3
+                max_retries = 5
                 for attempt in range(max_retries):
                     try:
                         if not self.is_connected:
@@ -369,7 +401,7 @@ class Client(BaseClient):
                             if "already initialized" not in str(e).lower():
                                 raise e
 
-                        # Enable WAL mode after start
+                        # Enable WAL mode after start (redundant with patch but safe)
                         if hasattr(self, "storage") and hasattr(self.storage, "conn"):
                             try:
                                 self.storage.conn.execute("PRAGMA journal_mode=WAL")
@@ -382,7 +414,7 @@ class Client(BaseClient):
 
                     except Exception as e:
                         # If this is a database lock and we have retries left, wait and retry
-                        is_locked = "database is locked" in str(e)
+                        is_locked = "database is locked" in str(e).lower()
                         if is_locked and attempt < max_retries - 1:
                             # Cleanup before retry
                             try:
@@ -391,7 +423,7 @@ class Client(BaseClient):
                             except Exception:
                                 pass
 
-                            wait_time = (attempt + 1) * 2
+                            wait_time = 2 + (attempt * 3)
                             logger.warning(f"Database locked when starting client {self.name}, retrying in {wait_time}s... ({attempt + 1}/{max_retries})")
                             await asyncio.sleep(wait_time)
                             continue

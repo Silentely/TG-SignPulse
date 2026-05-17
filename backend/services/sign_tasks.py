@@ -3344,7 +3344,7 @@ class SignTaskService:
                         os.getenv("SIGN_TASK_EXECUTION_TIMEOUT", "300")
                     )
                     async with get_global_semaphore():
-                        max_retries = 3
+                        max_retries = 5
                         for attempt in range(max_retries):
                             try:
                                 await asyncio.wait_for(
@@ -3359,9 +3359,9 @@ class SignTaskService:
                             except Exception as e:
                                 if "database is locked" in str(e).lower():
                                     if attempt < max_retries - 1:
-                                        delay = (attempt + 1) * 3
+                                        delay = 3 + (attempt * 3)
                                         self._active_logs[task_key].append(
-                                            f"Session 被锁定，{delay} 秒后重试..."
+                                            f"Session 被锁定，{delay} 秒后重试... ({attempt + 1}/{max_retries})"
                                         )
                                         await asyncio.sleep(delay)
                                         continue
