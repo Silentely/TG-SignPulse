@@ -65,14 +65,17 @@ const connectWebSocket = () => {
   const wsUrl = `${wsProtocol}//${wsHost}/api/sign-tasks/ws/${taskName}?token=${encodeURIComponent(token)}&account_name=${encodeURIComponent(accountName)}`
 
   realtimeLogs.value = []
-  isRunning.value = true
+  // Only show "running" state when user just clicked Run (runAccount provided)
+  // For "View Logs" mode, isRunning will be set true only when WS confirms task is actually running
+  isRunning.value = !!props.runAccount
 
   try {
     ws = new WebSocket(wsUrl)
   } catch {
-    // WebSocket not available, fall back to polling
-    isRunning.value = false
-    startPolling()
+    if (props.runAccount) {
+      isRunning.value = false
+      startPolling()
+    }
     return
   }
 
@@ -97,12 +100,13 @@ const connectWebSocket = () => {
     } catch {}
   }
   ws.onerror = () => {
-    // WebSocket failed, fall back to polling
-    isRunning.value = true
-    startPolling()
+    if (props.runAccount) {
+      isRunning.value = true
+      startPolling()
+    }
   }
   ws.onclose = () => {
-    if (isRunning.value) {
+    if (isRunning.value && props.runAccount) {
       // Unexpected close while running, try polling
       startPolling()
     }
@@ -161,9 +165,16 @@ const disconnectWebSocket = () => {
 
 watch(() => props.isOpen, (newVal) => {
   if (newVal) {
-    loadLogs()
-    // Try to connect WebSocket for real-time logs
-    connectWebSocket()
+    // For "View Logs" mode (no runAccount): only show history, no realtime
+    // For "Run" mode (runAccount set): only show realtime, history loads after task done
+    if (props.runAccount) {
+      // Just clicked Run - clear logs and connect WebSocket for live updates
+      logs.value = []
+      connectWebSocket()
+    } else {
+      // Just viewing - load history only
+      loadLogs()
+    }
   } else {
     logs.value = []
     realtimeLogs.value = []

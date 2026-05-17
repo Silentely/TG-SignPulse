@@ -348,25 +348,38 @@ class SignTaskService:
         fallback_text = ""
         fallback_timestamp = None
 
-        async with signer.app:
-            for chat in chats:
-                if not isinstance(chat, dict):
-                    continue
-                chat_id = chat.get("chat_id")
-                if chat_id in (None, ""):
-                    continue
+        # Skip if client was already terminated/disconnected after task finished
+        try:
+            app = signer.app
+            if app is None:
+                return ""
+            # Check if client is still usable (not terminated)
+            if not getattr(app, "is_connected", False) and not getattr(app, "is_initialized", False):
+                # Client already torn down - don't try to re-enter
+                return ""
+        except Exception:
+            return ""
 
-                try:
-                    async for message in signer.app.get_chat_history(
-                        chat_id,
-                        limit=history_limit,
-                    ):
-                        if not self._message_matches_thread(message, chat):
-                            continue
+        try:
+            async with signer.app:
+                for chat in chats:
+                    if not isinstance(chat, dict):
+                        continue
+                    chat_id = chat.get("chat_id")
+                    if chat_id in (None, ""):
+                        continue
 
-                        candidate = self._format_target_message_summary(message)
-                        if not candidate:
-                            continue
+                    try:
+                        async for message in signer.app.get_chat_history(
+                            chat_id,
+                            limit=history_limit,
+                        ):
+                            if not self._message_matches_thread(message, chat):
+                                continue
+
+                            candidate = self._format_target_message_summary(message)
+                            if not candidate:
+                                continue
 
                         message_time = getattr(message, "date", None)
                         from_user = getattr(message, "from_user", None)
@@ -385,8 +398,11 @@ class SignTaskService:
                         ):
                             fallback_text = candidate
                             fallback_timestamp = message_time
-                except Exception:
-                    continue
+                    except Exception:
+                        continue
+        except Exception:
+            # Silently ignore errors like "Client is already terminated"
+            pass
 
         return best_text or fallback_text
 
