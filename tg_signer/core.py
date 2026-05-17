@@ -1569,17 +1569,13 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
     async def in_memory_run(
         self, num_of_dialogs=20, only_once: bool = False, force_rerun: bool = False
     ):
-        started_here = False
-        if not getattr(self.app, "is_connected", False):
-            await self.app.start()
-            started_here = True
-        try:
+        # Use the proper async context manager to integrate with ref counting
+        # This avoids "Client is already terminated" when normal_run's internal
+        # login() also uses 'async with app' which decrements refs to 0
+        async with self.app:
             await self.normal_run(
                 num_of_dialogs, only_once=only_once, force_rerun=force_rerun
             )
-        finally:
-            if started_here:
-                await self.app.stop()
 
     async def normal_run(
         self, num_of_dialogs=20, only_once: bool = False, force_rerun: bool = False
@@ -1665,7 +1661,12 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                             await sign_once()
                     finally:
                         if started_here:
-                            await self.app.stop()
+                            try:
+                                if getattr(self.app, "is_connected", False):
+                                    await self.app.stop()
+                            except ConnectionError:
+                                # Already terminated - ignore
+                                pass
 
                 except (OSError, errors.Unauthorized) as e:
                     logger.exception(e)

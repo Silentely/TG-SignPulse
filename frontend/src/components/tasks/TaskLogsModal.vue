@@ -95,7 +95,8 @@ const connectWebSocket = () => {
         })
       } else if (msg.type === 'done') {
         isRunning.value = false
-        setTimeout(loadLogs, 1000)
+        // Don't auto-load history when task finishes via Run button
+        // The realtime log already shows the latest run's complete output
       }
     } catch {}
   }
@@ -144,7 +145,7 @@ const startPolling = () => {
         if (status.state !== 'running') {
           isRunning.value = false
           if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
-          setTimeout(loadLogs, 1000)
+          // Don't auto-load history - realtime logs already show the result
         }
       }
     } catch {}
