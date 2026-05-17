@@ -168,6 +168,9 @@ async def on_startup() -> None:
         ensure_admin(db)
     await init_scheduler(sync_on_startup=False)
 
+    # Pre-export session strings from .session files to avoid SQLite locks during task execution
+    _pre_export_session_strings()
+
     async def _post_startup() -> None:
         try:
             await sync_jobs()
@@ -186,6 +189,34 @@ async def on_startup() -> None:
         logger=logging.getLogger("backend.startup"),
         description="backend delayed startup sync",
     )
+
+
+def _pre_export_session_strings() -> None:
+    """Export session strings from all .session files at startup to enable in-memory mode."""
+    from backend.utils.tg_session import (
+        get_session_mode,
+        load_session_string_file,
+        list_account_names,
+    )
+
+    session_dir = settings.resolve_session_dir()
+    logger = logging.getLogger("backend.startup")
+
+    # Only needed in file mode - string mode already has session strings
+    if get_session_mode() == "string":
+        return
+
+    # Export for all accounts that have .session files
+    exported = 0
+    for session_file in session_dir.glob("*.session"):
+        account_name = session_file.stem
+        # load_session_string_file will auto-export if .session_string doesn't exist
+        result = load_session_string_file(session_dir, account_name)
+        if result:
+            exported += 1
+
+    if exported:
+        logger.info(f"Pre-exported {exported} session strings for in-memory task execution")
 
 
 @app.on_event("shutdown")

@@ -2371,6 +2371,11 @@ class SignTaskService:
     ) -> Dict[str, Any]:
         """Update one task and fan out the config to all linked accounts."""
         task_name = validate_storage_name(task_name, field_name="task_name")
+
+        # Normalize account_name: skip wildcard, resolve to real account
+        if account_name == "*":
+            account_name = None
+
         existing = self.get_task(
             task_name,
             account_name=account_name,
