@@ -1,7 +1,6 @@
 services:
   app:
-    build: .
-    image: tg-signpulse:latest
+    image: ghcr.io/akasls/tg-signpulse:latest
     container_name: tg-signpulse
     ports:
       - "8080:8080"
