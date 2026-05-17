@@ -131,13 +131,31 @@ onMounted(() => {
 
 const loadChatAvatar = async (task: any, accountName: string, chatId: number) => {
   const token = localStorage.getItem('tg-signer-token') || ''
+  const cacheKey = `avatar_${accountName}_${chatId}`
+  
+  // Check sessionStorage cache first
+  const cached = sessionStorage.getItem(cacheKey)
+  if (cached) {
+    task.chatAvatarUrl = cached
+    return
+  }
+
   try {
     const res = await fetch(`/api/sign-tasks/chats/${encodeURIComponent(accountName)}/avatar/${chatId}`, {
       headers: { Authorization: `Bearer ${token}` }
     })
     if (res.ok) {
       const blob = await res.blob()
-      task.chatAvatarUrl = URL.createObjectURL(blob)
+      const url = URL.createObjectURL(blob)
+      task.chatAvatarUrl = url
+      // Cache as data URL for persistence across page navigations
+      try {
+        const reader = new FileReader()
+        reader.onload = () => {
+          if (reader.result) sessionStorage.setItem(cacheKey, reader.result as string)
+        }
+        reader.readAsDataURL(blob)
+      } catch {}
     }
   } catch {
     // No avatar, keep fallback

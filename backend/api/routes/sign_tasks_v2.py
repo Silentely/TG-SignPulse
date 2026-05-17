@@ -262,13 +262,27 @@ async def update_sign_task(
     current_user=Depends(get_current_user),
 ):
     try:
+        # Normalize: treat empty string and wildcard as None for lookup
+        effective_account = account_name if (account_name and account_name != "*") else None
         existing = get_sign_task_service().get_task(
             task_name,
-            account_name=account_name,
-            aggregate=account_name is None,
+            account_name=effective_account,
+            aggregate=effective_account is None,
         )
         if not existing:
             raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
+
+        # Resolve a real account_name for update_task (skip wildcard)
+        resolved_account = effective_account or ""
+        if not resolved_account:
+            for name in existing.get("account_names", []):
+                if name and name != "*":
+                    resolved_account = name
+                    break
+            if not resolved_account:
+                resolved_account = existing.get("account_name", "")
+            if resolved_account == "*":
+                resolved_account = ""
 
         chats_dict = (
             [_model_dump(chat) for chat in payload.chats]
@@ -277,7 +291,7 @@ async def update_sign_task(
         )
         task = get_sign_task_service().update_task(
             task_name=task_name,
-            account_name=account_name or existing.get("account_name"),
+            account_name=resolved_account or None,
             account_names=payload.account_names,
             sign_at=payload.sign_at,
             chats=chats_dict,

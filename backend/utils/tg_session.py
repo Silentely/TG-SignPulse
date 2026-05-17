@@ -267,12 +267,73 @@ def session_string_file_path(session_dir: Path, account_name: str) -> Path:
 def load_session_string_file(session_dir: Path, account_name: str) -> Optional[str]:
     path = session_string_file_path(session_dir, account_name)
     if not path.exists():
-        return None
+        # Try to export session string from .session SQLite file
+        return _export_session_string_from_file(session_dir, account_name)
     try:
         content = path.read_text(encoding="utf-8").strip()
     except Exception:
         return None
     return content or None
+
+
+def _export_session_string_from_file(session_dir: Path, account_name: str) -> Optional[str]:
+    """Extract session string from .session SQLite file and cache it."""
+    import sqlite3
+    import struct
+    import base64
+
+    session_file = session_dir / f"{account_name}.session"
+    if not session_file.exists():
+        return None
+
+    try:
+        conn = sqlite3.connect(str(session_file), timeout=10, check_same_thread=False)
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=10000")
+        except Exception:
+            pass
+
+        try:
+            row = conn.execute(
+                "SELECT dc_id, api_id, test_mode, auth_key, user_id, is_bot FROM sessions"
+            ).fetchone()
+        except Exception:
+            conn.close()
+            return None
+
+        if not row:
+            conn.close()
+            return None
+
+        dc_id, api_id, test_mode, auth_key, user_id, is_bot = row
+        conn.close()
+
+        if not auth_key or not user_id:
+            return None
+
+        # Pack into pyrogram session string format (version 1)
+        packed = struct.pack(
+            ">B?256sQ?",
+            dc_id,
+            bool(test_mode),
+            auth_key,
+            user_id,
+            bool(is_bot),
+        )
+        session_string = base64.urlsafe_b64encode(packed).decode("ascii").rstrip("=")
+        session_string = "1" + session_string  # Version prefix
+
+        # Cache it to .session_string file for future use
+        try:
+            cache_path = session_string_file_path(session_dir, account_name)
+            cache_path.write_text(session_string, encoding="utf-8")
+        except Exception:
+            pass
+
+        return session_string
+    except Exception:
+        return None
 
 
 def save_session_string_file(
