@@ -2515,6 +2515,9 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
     ):
         if not message.photo:
             return False
+        if self._collect_clickable_buttons(message):
+            self.log("跳过带按钮的图片消息，等待真正的验证码/题目图片")
+            return False
         self._log_received_target_message(message)
         self.log("AI 正在分析图片中的文字")
         image_buffer: BinaryIO = await self.app.download_media(
