@@ -1,8 +1,9 @@
 import base64
+import asyncio
 import json
 import os
 import pathlib
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING, Any, Union
 
 import json_repair
 from typing_extensions import Optional, Required, TypedDict
@@ -137,6 +138,73 @@ class AITools:
         )
         self.default_model = cfg.get("model") or DEFAULT_MODEL
 
+    @staticmethod
+    def _normalize_option_text(text: Any) -> str:
+        return "".join(str(text).split()).lower()
+
+    @staticmethod
+    def _ai_timeout() -> float:
+        try:
+            timeout = float(os.environ.get("AI_VISION_TIMEOUT", "15"))
+        except ValueError:
+            return 15.0
+        return max(3.0, timeout)
+
+    @classmethod
+    def _coerce_option_index(cls, result: Any, options: list[tuple[int, str]]) -> int:
+        if isinstance(result, list):
+            result = next((item for item in result if item is not None), None)
+
+        if isinstance(result, dict):
+            if isinstance(result.get("options"), list) and result["options"]:
+                result = result["options"][0]
+            else:
+                for key in ("option", "index", "choice", "answer", "button", "text"):
+                    if key in result:
+                        result = result[key]
+                        break
+
+        if isinstance(result, dict):
+            raise ValueError(f"AI result does not contain an option: {result}")
+
+        if isinstance(result, int):
+            return result
+
+        if isinstance(result, str):
+            stripped = result.strip()
+            if stripped.lstrip("+-").isdigit():
+                return int(stripped)
+            normalized_result = cls._normalize_option_text(stripped)
+            for index, option_text in options:
+                normalized_option = cls._normalize_option_text(option_text)
+                if normalized_result == normalized_option:
+                    return index
+            for index, option_text in options:
+                normalized_option = cls._normalize_option_text(option_text)
+                if normalized_option and normalized_option in normalized_result:
+                    return index
+
+        raise ValueError(f"Could not parse AI option result: {result}")
+
+    @classmethod
+    def _coerce_option_indexes(cls, result: Any, options: list[tuple[int, str]]) -> list[int]:
+        if isinstance(result, list):
+            if len(result) == 1 and isinstance(result[0], dict):
+                result = result[0]
+            else:
+                return [cls._coerce_option_index(item, options) for item in result]
+
+        if isinstance(result, dict):
+            raw_options = result.get("options")
+            if raw_options is None:
+                raw_options = result.get("option")
+            if raw_options is not None:
+                if not isinstance(raw_options, list):
+                    raw_options = [raw_options]
+                return [cls._coerce_option_index(item, options) for item in raw_options]
+
+        return [cls._coerce_option_index(result, options)]
+
     async def choose_option_by_image(
         self,
         image: bytes,
@@ -150,7 +218,7 @@ class AITools:
         sys_prompt = (system_prompt or "").strip() or DEFAULT_CHOOSE_OPTION_BY_IMAGE_PROMPT
         client = client or self.client
         model = model or self.default_model
-        text_query = f"问题为：{query}, 选项为：{json.dumps(options)}。"
+        text_query = f"问题为：{query}, 选项为：{json.dumps(options, ensure_ascii=False)}。"
         messages = [
             {"role": "system", "content": sys_prompt},
             {
@@ -167,16 +235,20 @@ class AITools:
             },
         ]
         # noinspection PyTypeChecker
-        completion = await client.chat.completions.create(
-            messages=messages,
-            model=model,
-            response_format={"type": "json_object"},
-            stream=False,
-            temperature=temperature,
+        completion = await asyncio.wait_for(
+            client.chat.completions.create(
+                messages=messages,
+                model=model,
+                response_format={"type": "json_object"},
+                stream=False,
+                temperature=temperature,
+                max_tokens=80,
+            ),
+            timeout=self._ai_timeout(),
         )
         message = completion.choices[0].message
         result = json_repair.loads(message.content)
-        return int(result["option"])
+        return self._coerce_option_index(result, options)
 
     async def choose_options_by_image(
         self,
@@ -210,26 +282,19 @@ class AITools:
                 ],
             },
         ]
-        completion = await client.chat.completions.create(
-            messages=messages,
-            model=model,
-            response_format={"type": "json_object"},
-            stream=False,
-            temperature=temperature,
+        completion = await asyncio.wait_for(
+            client.chat.completions.create(
+                messages=messages,
+                model=model,
+                response_format={"type": "json_object"},
+                stream=False,
+                temperature=temperature,
+                max_tokens=120,
+            ),
+            timeout=self._ai_timeout(),
         )
         result = json_repair.loads(completion.choices[0].message.content)
-        raw_options = result.get("options")
-        if raw_options is None:
-            raw_options = [result.get("option")]
-        if not isinstance(raw_options, list):
-            raw_options = [raw_options]
-        selected: list[int] = []
-        for item in raw_options:
-            try:
-                selected.append(int(item))
-            except (TypeError, ValueError):
-                continue
-        return selected
+        return self._coerce_option_indexes(result, options)
 
     async def extract_text_by_image(
         self,
