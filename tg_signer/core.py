@@ -1480,17 +1480,25 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         if total_actions == 0:
             raise RuntimeError("任务没有配置任何执行动作")
         max_flow_attempts = _read_positive_int_env("SIGN_TASK_FLOW_RETRY_ATTEMPTS", 3, 1)
+        retry_backoff_steps = _read_positive_int_env("SIGN_TASK_RETRY_BACKOFF_STEPS", 2, 0)
         last_error: Optional[Exception] = None
+        last_successful_index = 0
 
         for flow_attempt in range(1, max_flow_attempts + 1):
+            start_index = max(1, last_successful_index - retry_backoff_steps) if flow_attempt > 1 else 1
             if max_flow_attempts > 1:
-                self.log(f"开始第 {flow_attempt}/{max_flow_attempts} 次脚本流程尝试")
+                if flow_attempt > 1 and start_index > 1:
+                    self.log(f"开始第 {flow_attempt}/{max_flow_attempts} 次脚本流程尝试，从第 {start_index} 步继续")
+                else:
+                    self.log(f"开始第 {flow_attempt}/{max_flow_attempts} 次脚本流程尝试")
             try:
-                self.context.chat_messages[chat.chat_id].clear()
+                if start_index == 1:
+                    self.context.chat_messages[chat.chat_id].clear()
                 self.context.stop_after_current_action = False
                 self.context.stop_reason = None
                 self.context.last_callback_answer = None
-                for index, action in enumerate(chat.actions, start=1):
+                for index in range(start_index, total_actions + 1):
+                    action = chat.actions[index - 1]
                     action_description = self._set_current_action_context(
                         index,
                         total_actions,
@@ -1525,6 +1533,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                         self.log(
                             f"{self._current_action_step_label()}执行完成：{action_description}"
                         )
+                        last_successful_index = index
                         if self.context.stop_after_current_action:
                             stop_reason = (self.context.stop_reason or "").strip()
                             self.log(
@@ -1544,9 +1553,10 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 self.context.waiting_message = None
                 if flow_attempt >= max_flow_attempts:
                     break
+                backoff_info = f"，从第 {max(1, last_successful_index - retry_backoff_steps)} 步继续" if last_successful_index > 1 else "，将从第 1 步重新开始"
                 self.log(
-                    f"脚本流程第 {flow_attempt}/{max_flow_attempts} 次尝试失败，"
-                    f"将从第 1 步重新开始: {exc}",
+                    f"脚本流程第 {flow_attempt}/{max_flow_attempts} 次尝试失败"
+                    f"{backoff_info}: {exc}",
                     level="WARNING",
                 )
                 await asyncio.sleep(max(float(chat.action_interval or 0), 1.0))
