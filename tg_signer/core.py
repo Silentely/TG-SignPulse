@@ -1484,7 +1484,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         total_actions = len(chat.actions)
         if total_actions == 0:
             raise RuntimeError("任务没有配置任何执行动作")
-        max_flow_attempts = _read_positive_int_env("SIGN_TASK_FLOW_RETRY_ATTEMPTS", 3, 1)
+        max_flow_attempts = _read_positive_int_env("SIGN_TASK_FLOW_RETRY_ATTEMPTS", 1, 1)
         retry_backoff_steps = _read_positive_int_env("SIGN_TASK_RETRY_BACKOFF_STEPS", 2, 0)
         last_error: Optional[Exception] = None
         last_successful_index = 0
