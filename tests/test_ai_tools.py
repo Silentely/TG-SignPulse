@@ -1,4 +1,7 @@
 import unittest
+from io import BytesIO
+
+from PIL import Image
 
 from tg_signer.ai_tools import AITools
 
@@ -22,6 +25,31 @@ class AIToolsOptionParsingTest(unittest.TestCase):
     def test_coerce_option_index_rejects_unknown_response(self):
         with self.assertRaises(ValueError):
             AITools._coerce_option_index({"reason": "no option"}, self.options)
+
+    def test_extract_relevant_query_prefers_question_line(self):
+        query = (
+            "请在 30 秒内点击图中事物的按钮以完成签到\n\n"
+            "每天只有一次机会, 失败或者过期当天不可重试"
+        )
+        self.assertEqual(
+            AITools._extract_relevant_query(query),
+            "请在 30 秒内点击图中事物的按钮以完成签到",
+        )
+
+    def test_prepare_vision_image_resizes_large_input(self):
+        image = Image.new("RGB", (1600, 1200), "white")
+        for x in range(420, 1180):
+            for y in range(260, 940):
+                image.putpixel((x, y), (20, 20, 20))
+
+        buffer = BytesIO()
+        image.save(buffer, format="PNG")
+
+        prepared = AITools._prepare_vision_image(buffer.getvalue())
+        with Image.open(BytesIO(prepared)) as prepared_image:
+            self.assertLessEqual(max(prepared_image.size), 640)
+            self.assertLess(prepared_image.width, 1600)
+            self.assertLess(prepared_image.height, 1200)
 
 
 if __name__ == "__main__":

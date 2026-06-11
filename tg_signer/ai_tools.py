@@ -1,12 +1,19 @@
-import base64
 import asyncio
+import base64
+import io
 import json
 import os
 import pathlib
+import re
 from typing import TYPE_CHECKING, Any, Union
 
 import json_repair
 from typing_extensions import Optional, Required, TypedDict
+
+try:
+    from PIL import Image
+except Exception:  # pragma: no cover - Pillow is optional at runtime
+    Image = None
 
 if TYPE_CHECKING:
     from openai import AsyncOpenAI  # 在性能弱的机器上导入openai包实在有些慢
@@ -15,23 +22,32 @@ from tg_signer.utils import UserInput, print_to_user
 
 DEFAULT_MODEL = "gpt-4o"
 
-DEFAULT_CHOOSE_OPTION_BY_IMAGE_PROMPT = """你是一个**图片识别助手**，可以根据提供的图片和问题选择出**唯一正确**的选项，如果你觉得每个都不对，也要给出一个你认为最符合的答案，以如下JSON格式输出你的回复：
-{
-  "option": 1,  // 整数，表示选项的序号，从0开始。
-  "reason": "这么选择的原因，30字以内"
-}
-option字段表示你选择的选项。
-"""
+DEFAULT_CHOOSE_OPTION_BY_IMAGE_PROMPT = (
+    "You are a low-latency visual matcher for Telegram sign-in challenges. "
+    "Choose exactly one option whose text best matches the main object or "
+    "concept shown in the image and the question. Ignore retry warnings, "
+    "time-limit reminders, and other unrelated footer text. Return JSON only: "
+    '{"option":1}. The option value must be one of the provided indexes, '
+    "starting at 1."
+)
 
 DEFAULT_CHOOSE_OPTIONS_BY_IMAGE_PROMPT = (
-    "You solve Telegram bot visual or text verification challenges. "
-    "Use the image, caption, and button options to decide which button(s) "
-    "must be clicked, in exact order. Challenges may ask to complete a poem, "
-    "idiom, phrase, math result, or image question. The buttons may come from "
-    "an inline keyboard or a reply keyboard. Return JSON only: "
-    '{"options":[1],"reason":"short reason"}. '
+    "You solve Telegram bot image or text challenges. Read only the actual "
+    "question and the button list. Use the image when the question refers to "
+    "the picture. Unless the question explicitly asks for multiple clicks or "
+    "building a phrase, return exactly one option. Ignore retry warnings, "
+    "time-limit reminders, and unrelated footer text. Return JSON only: "
+    '{"options":[1]}. '
     "The options field must be a list of option indexes starting at 1. "
     "If only one click is needed, return a one-item list."
+)
+
+DEFAULT_SINGLE_OBJECT_CHOICE_PROMPT = (
+    "You are a fast image classifier for a Telegram sign-in button challenge. "
+    "The image usually contains one main object on a clean background. Pick "
+    "the single button whose text best names that object. Do not explain. "
+    'Return JSON only: {"options":[1]}. '
+    "The option indexes start at 1."
 )
 
 DEFAULT_EXTRACT_TEXT_BY_IMAGE_PROMPT = (
@@ -132,6 +148,26 @@ def get_openai_client(
 
 
 class AITools:
+    _QUESTION_LINE_HINTS = (
+        "点击",
+        "选择",
+        "选出",
+        "找出",
+        "识别",
+        "图中",
+        "图片",
+        "图里",
+        "图上的",
+        "图示",
+        "image",
+        "photo",
+        "picture",
+        "shown",
+        "select",
+        "choose",
+        "click",
+    )
+
     def __init__(self, cfg: OpenAIConfig):
         self.client = get_openai_client(
             api_key=cfg["api_key"], base_url=cfg.get("base_url")
@@ -145,10 +181,98 @@ class AITools:
     @staticmethod
     def _ai_timeout() -> float:
         try:
-            timeout = float(os.environ.get("AI_VISION_TIMEOUT", "15"))
+            timeout = float(os.environ.get("AI_VISION_TIMEOUT", "20"))
         except ValueError:
-            return 15.0
+            return 20.0
         return max(3.0, timeout)
+
+    @staticmethod
+    def _read_positive_int_env(name: str, default: int, minimum: int) -> int:
+        try:
+            value = int(os.environ.get(name, str(default)))
+        except (TypeError, ValueError):
+            return default
+        return max(minimum, value)
+
+    @classmethod
+    def _extract_relevant_query(cls, query: str) -> str:
+        if not query:
+            return ""
+        lines = []
+        for raw_line in str(query).splitlines():
+            line = re.sub(r"\s+", " ", raw_line).strip()
+            if line:
+                lines.append(line)
+        if not lines:
+            return ""
+
+        for line in lines:
+            lowered = line.lower()
+            if any(hint in line or hint in lowered for hint in cls._QUESTION_LINE_HINTS):
+                return line[:160]
+        return lines[0][:160]
+
+    @classmethod
+    def _looks_like_single_object_choice(
+        cls, query: str, options: list[tuple[int, str]]
+    ) -> bool:
+        if not options or len(options) > 8:
+            return False
+        normalized_query = cls._extract_relevant_query(query).lower()
+        if not any(
+            keyword in normalized_query
+            for keyword in ("图", "图片", "image", "photo", "picture", "object")
+        ):
+            return False
+        short_label_count = sum(
+            1
+            for _, option_text in options
+            if 0 < len(cls._normalize_option_text(option_text)) <= 16
+        )
+        return short_label_count == len(options)
+
+    @classmethod
+    def _crop_light_border(cls, image: "Image.Image") -> "Image.Image":
+        white_threshold = cls._read_positive_int_env(
+            "AI_VISION_WHITE_THRESHOLD", 245, 200
+        )
+        mask = image.convert("L").point(lambda px: 255 if px < white_threshold else 0)
+        bbox = mask.getbbox()
+        if not bbox or bbox == (0, 0, image.width, image.height):
+            return image
+
+        padding = max(12, min(image.size) // 32)
+        left = max(0, bbox[0] - padding)
+        top = max(0, bbox[1] - padding)
+        right = min(image.width, bbox[2] + padding)
+        bottom = min(image.height, bbox[3] + padding)
+        return image.crop((left, top, right, bottom))
+
+    @classmethod
+    def _prepare_vision_image(cls, image: bytes) -> bytes:
+        if Image is None:
+            return image
+
+        try:
+            with Image.open(io.BytesIO(image)) as raw_image:
+                prepared = raw_image.convert("RGB")
+        except Exception:
+            return image
+
+        prepared = cls._crop_light_border(prepared)
+        max_edge = cls._read_positive_int_env("AI_VISION_MAX_EDGE", 640, 224)
+        if max(prepared.size) > max_edge:
+            resampling = getattr(Image, "Resampling", Image).LANCZOS
+            prepared.thumbnail((max_edge, max_edge), resampling)
+
+        quality = cls._read_positive_int_env("AI_VISION_JPEG_QUALITY", 85, 40)
+        output = io.BytesIO()
+        prepared.save(output, format="JPEG", quality=quality, optimize=True)
+        return output.getvalue()
+
+    @staticmethod
+    def _format_option_lines(options: list[tuple[int, str]]) -> str:
+        return "\n".join(f"{index}. {text}" for index, text in options)
 
     @classmethod
     def _coerce_option_index(cls, result: Any, options: list[tuple[int, str]]) -> int:
@@ -218,7 +342,12 @@ class AITools:
         sys_prompt = (system_prompt or "").strip() or DEFAULT_CHOOSE_OPTION_BY_IMAGE_PROMPT
         client = client or self.client
         model = model or self.default_model
-        text_query = f"问题为：{query}, 选项为：{json.dumps(options, ensure_ascii=False)}。"
+        image = self._prepare_vision_image(image)
+        query = self._extract_relevant_query(query) or "选择最符合图片的选项"
+        text_query = (
+            f"Question:\n{query}\n\n"
+            f"Options:\n{self._format_option_lines(options)}"
+        )
         messages = [
             {"role": "system", "content": sys_prompt},
             {
@@ -242,7 +371,7 @@ class AITools:
                 response_format={"type": "json_object"},
                 stream=False,
                 temperature=temperature,
-                max_tokens=80,
+                max_tokens=24,
             ),
             timeout=self._ai_timeout(),
         )
@@ -260,12 +389,19 @@ class AITools:
         system_prompt: str | None = None,
         temperature=0.1,
     ) -> list[int]:
-        sys_prompt = (system_prompt or "").strip() or DEFAULT_CHOOSE_OPTIONS_BY_IMAGE_PROMPT
+        if (system_prompt or "").strip():
+            sys_prompt = system_prompt.strip()
+        elif self._looks_like_single_object_choice(query, options):
+            sys_prompt = DEFAULT_SINGLE_OBJECT_CHOICE_PROMPT
+        else:
+            sys_prompt = DEFAULT_CHOOSE_OPTIONS_BY_IMAGE_PROMPT
         client = client or self.client
         model = model or self.default_model
+        image = self._prepare_vision_image(image)
+        query = self._extract_relevant_query(query) or "Choose the correct option"
         text_query = (
-            f"Question/caption:\n{query}\n\n"
-            f"Button options in row order:\n{json.dumps(options, ensure_ascii=False)}"
+            f"Question:\n{query}\n\n"
+            f"Button options in row order:\n{self._format_option_lines(options)}"
         )
         messages = [
             {"role": "system", "content": sys_prompt},
@@ -289,7 +425,7 @@ class AITools:
                 response_format={"type": "json_object"},
                 stream=False,
                 temperature=temperature,
-                max_tokens=120,
+                max_tokens=32,
             ),
             timeout=self._ai_timeout(),
         )
