@@ -4,6 +4,7 @@ from io import BytesIO
 from PIL import Image
 
 from tg_signer.ai_tools import AITools
+from tg_signer.core import _is_callback_confirmation_unavailable
 
 
 class AIToolsOptionParsingTest(unittest.TestCase):
@@ -54,3 +55,19 @@ class AIToolsOptionParsingTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CallbackFallbackTest(unittest.TestCase):
+    def test_channel_invalid_is_treated_as_confirmation_fallback(self):
+        self.assertTrue(
+            _is_callback_confirmation_unavailable(
+                RuntimeError("Telegram says: [400 CHANNEL_INVALID] - invalid channel")
+            )
+        )
+
+    def test_unrelated_bad_request_is_not_treated_as_confirmation_fallback(self):
+        self.assertFalse(
+            _is_callback_confirmation_unavailable(
+                RuntimeError("Telegram says: [400 MESSAGE_NOT_MODIFIED]")
+            )
+        )

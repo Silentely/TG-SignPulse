@@ -307,6 +307,11 @@ def _is_callback_data_invalid(exc: BaseException) -> bool:
     return "data_invalid" in text or "encrypted data is invalid" in text
 
 
+def _is_callback_confirmation_unavailable(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return "channel_invalid" in text or "peer_id_invalid" in text
+
+
 def readable_message(message: Message):
     s = "\nMessage: "
     s += f"\n  text: {message.text or ''}"
@@ -2958,6 +2963,12 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 if _is_callback_data_invalid(e):
                     self.log(
                         "Telegram 返回 DATA_INVALID，按钮点击结果无法由 callback API 确认，将改用后续消息判断",
+                        level="WARNING",
+                    )
+                    return None
+                if _is_callback_confirmation_unavailable(e):
+                    self.log(
+                        f"Telegram 无法确认按钮回调({type(e).__name__})，将改用后续消息判断",
                         level="WARNING",
                     )
                     return None
