@@ -1592,6 +1592,32 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 num_of_dialogs, only_once=only_once, force_rerun=force_rerun
             )
 
+    async def _run_config_chats(self, config) -> int:
+        success_count = 0
+        for chat in config.chats:
+            self.context.sign_chats[chat.chat_id].append(chat)
+            try:
+                await self.sign_a_chat(chat)
+                success_count += 1
+            except Exception as exc:
+                self.log(
+                    f"签到失败: {exc} (chat_id={chat.chat_id})",
+                    level="WARNING",
+                )
+                logger.warning(
+                    "Sign chat failed for chat_id=%s",
+                    chat.chat_id,
+                    exc_info=True,
+                )
+                continue
+            finally:
+                # Always clear chat messages to prevent memory accumulation
+                self.context.chat_messages[chat.chat_id].clear()
+
+            await asyncio.sleep(config.sign_interval)
+
+        return success_count
+
     async def normal_run(
         self, num_of_dialogs=20, only_once: bool = False, force_rerun: bool = False
     ):
@@ -1611,25 +1637,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         edited_handler_ref = None
 
         async def sign_once():
-            success_count = 0
-            for chat in config.chats:
-                self.context.sign_chats[chat.chat_id].append(chat)
-                try:
-                    await self.sign_a_chat(chat)
-                    success_count += 1
-                except errors.RPCError as _e:
-                    self.log(
-                        f"签到失败: {_e} (chat_id={chat.chat_id})",
-                        level="WARNING",
-                    )
-                    logger.warning(_e, exc_info=True)
-                    continue
-                finally:
-                    # Always clear chat messages to prevent memory accumulation
-                    self.context.chat_messages[chat.chat_id].clear()
-
-                await asyncio.sleep(config.sign_interval)
-
+            success_count = await self._run_config_chats(config)
             if success_count == 0 and len(config.chats) > 0:
                 raise RuntimeError("所有会话均执行失败（详细请看运行日志）")
 
