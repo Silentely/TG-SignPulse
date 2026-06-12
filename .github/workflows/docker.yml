@@ -4,6 +4,14 @@ on:
   push:
     branches: ["**"]
     tags: ["v*"]
+    paths:
+      - "backend/**"
+      - "tg_signer/**"
+      - "tools/**"
+      - "frontend/**"
+      - "Dockerfile"
+      - "docker/**"
+      - ".github/workflows/docker.yml"
   workflow_dispatch:
 
 permissions:
@@ -11,7 +19,7 @@ permissions:
   packages: write
 
 concurrency:
-  group: docker-${{ github.ref }}
+  group: docker-build-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
