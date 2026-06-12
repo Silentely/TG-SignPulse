@@ -4,8 +4,6 @@
 
 <h1 align="center">TG-SignPulse</h1>
 
-> [!CAUTION]
-> **⚠️ v2.0 升级须知：** 由于架构改动较大（支持一个任务关联多个账号等），本版本未对老版本数据做完整兼容。升级前请 **清空 `data/` 目录后重新部署**，避免数据异常。如需保留旧数据请先备份。
 
 <p align="center">
   <strong>Telegram 多账号自动化管理面板</strong><br>
@@ -13,7 +11,6 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Silentely/TG-SignPulse/releases"><img src="https://img.shields.io/badge/version-v2.0.1-blue" alt="Version"></a>
   <a href="https://github.com/Silentely/TG-SignPulse/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-BSD--3--Clause-green" alt="License"></a>
   <img src="https://img.shields.io/badge/python-3.10--3.13-blue" alt="Python">
   <img src="https://img.shields.io/badge/node-20+-green" alt="Node.js">
@@ -21,7 +18,7 @@
 </p>
 
 <p align="center">
-  <a href="README_EN.md">English</a> · <a href="docs/README.md">完整文档</a> · <a href="docs/guide/quick-start.md">快速开始</a> · <a href="#更新日志">更新日志</a>
+  <a href="README_EN.md">English</a> · <a href="docs/README.md">完整文档</a> · <a href="docs/guide/quick-start.md">快速开始</a>
 </p>
 
 ---
@@ -214,104 +211,6 @@ curl http://127.0.0.1:8080/readyz    # 服务就绪检查
 ```
 
 ---
-
-## 更新日志
-
-### v2.0.1 (2026-05-16)
-
-**Bug 修复**
-- 修复扫码登录成功后弹窗卡在"处理中..."的问题（后端返回 `password_required` 状态前端未正确匹配、密码提交成功后未检查返回值仍继续轮询已清理的 session）
-- 修复任务编排页面点击"查看日志"后弹窗无法显示历史日志的问题（多账号任务 `account_name` 为空字符串导致后端查询失败）
-- 修复任务编排页面不显示任务对象（机器人）头像的问题（`account_names` 包含通配符 `*` 时未正确解析为实际账号名）
-- 修复编辑/删除/执行多账号任务时 `account_name` 传空导致操作失败的问题
-
-**文档**
-- README 顶部添加 v2.0 升级兼容性警告提示
-
-### v2.0.0 (2026-05-15)
-
-**版本化管理**：从本版本开始采用语义化版本号。
-
-**代码质量**
-- 全面清理 DEBUG print 语句，替换为结构化 logging
-- 修复 `accounts.py` 中的乱码错误消息
-- 修复 SPA fallback 在生产环境错误重定向到开发服务器的问题
-- Docker Compose 移除过时的 `version` 字段，补充 tmpfs 挂载
-- 前端 `vite-plugin-pwa` 移至 devDependencies
-
-**文档**
-- 重写 README，增加技术栈说明和项目结构
-- 更新 docs 文档体系，完善部署指南和配置参考
-- 修正默认密码文档与实际行为不一致的问题
-
----
-
-<details>
-<summary><strong>历史更新日志</strong></summary>
-
-### 2026-05-03
-
-- 关键词监听常驻修复：关键词监听动作现在会被识别为需要 Telegram updates 的任务
-- 关键词命中后续动作修复：点击按钮动作会等待并轮询最近消息中的可点击按钮
-- 签到按钮流程重试增强：按钮点击失败时从第 1 步重新执行，默认最多重试 3 次
-
-### 2026-04-29
-
-- 关键词监听后续动作：命中关键词后可直接继续执行动作序列
-- Telegram 机器人通知重构：独立配置组件，新增总开关和分类开关
-- 任务级失败通知控制：可单独关闭某个任务的失败通知
-
-### 2026-04-28
-
-- 任务前账号状态探测：执行前检测 session 是否可用
-- 账号失效通知与持久标记
-- 首页重登入口优化
-
-### 2026-04-27
-
-- 关键词监听改为有序动作序列中的动作
-- 动作序列布局优化
-- 命中消息转发支持
-
-### 2026-04-26
-
-- Telegram 话题 (Thread/Topic) 支持
-- 全局代理回退机制
-- 剪贴板批量导入导出
-- Telegram Bot 失败通知
-
-### 2026-03-20
-
-- SQLite 死锁修复
-- 防止任务重复执行 UI 防护
-
-### 2026-03-19
-
-- 主页状态显示修复
-- 老账号签到异常修复
-- 机器人最近回复可视
-
-### 2026-03-12
-
-- 修复 Pyrogram 超时及 FloodWait 导致的内存泄漏
-
-### 2026-03-06
-
-- 任务动作序列优化
-- AI 动作子模式切换
-- 任务复制粘贴优化
-- 容器权限兼容增强
-
-### 2026-03-01
-
-- AI 动作升级
-- 长时运行稳定性优化
-- 自定义数据目录支持
-
-</details>
-
----
-
 ## 致谢
 
 本项目基于 [tg-signer](https://github.com/amchii/tg-signer) by [amchii](https://github.com/amchii) 进行重构与扩展。

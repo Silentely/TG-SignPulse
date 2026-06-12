@@ -4,16 +4,12 @@
 
 <h1 align="center">TG-SignPulse</h1>
 
-> [!CAUTION]
-> **⚠️ v2.0 Upgrade Notice:** Due to significant architectural changes (multi-account task support, etc.), this version is NOT fully backward-compatible with older data. Please **clear your `data/` directory and redeploy** before upgrading. Back up your data first if needed.
-
 <p align="center">
   <strong>Telegram Multi-Account Automation Panel</strong><br>
   Check-ins · Action Workflows · Keyword Monitoring · AI Verification
 </p>
 
 <p align="center">
-  <a href="https://github.com/Silentely/TG-SignPulse/releases"><img src="https://img.shields.io/badge/version-v2.0.1-blue" alt="Version"></a>
   <a href="https://github.com/Silentely/TG-SignPulse/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-BSD--3--Clause-green" alt="License"></a>
   <img src="https://img.shields.io/badge/python-3.10--3.13-blue" alt="Python">
   <img src="https://img.shields.io/badge/node-20+-green" alt="Node.js">
@@ -21,7 +17,7 @@
 </p>
 
 <p align="center">
-  <a href="README.md">中文说明</a> · <a href="docs/README.md">Documentation</a> · <a href="docs/guide/quick-start.md">Quick Start</a> · <a href="#changelog">Changelog</a>
+  <a href="README.md">中文说明</a> · <a href="docs/README.md">Documentation</a> · <a href="docs/guide/quick-start.md">Quick Start</a>
 </p>
 
 ---
@@ -212,27 +208,6 @@ curl http://127.0.0.1:8080/readyz    # Readiness check
 ```
 
 ---
-
-## Changelog
-
-### v2.0.0 (2026-05-15)
-
-**Versioned releases**: Starting from this version, the project uses semantic versioning.
-
-**Code Quality**
-- Replaced all DEBUG print statements with structured logging
-- Fixed garbled error messages in `accounts.py`
-- Fixed SPA fallback incorrectly redirecting to dev server in production
-- Docker Compose: removed deprecated `version` field, added tmpfs mounts
-- Moved `vite-plugin-pwa` to devDependencies
-
-**Documentation**
-- Rewrote README with tech stack overview and project structure
-- Updated docs with deployment guide and configuration reference
-- Fixed default password documentation inconsistency
-
----
-
 ## Acknowledgements
 
 Based on [tg-signer](https://github.com/amchii/tg-signer) by [amchii](https://github.com/amchii), heavily refactored and extended.
