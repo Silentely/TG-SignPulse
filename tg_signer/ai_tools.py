@@ -2,6 +2,7 @@ import asyncio
 import base64
 import io
 import json
+import logging
 import os
 import pathlib
 import re
@@ -28,7 +29,8 @@ DEFAULT_CHOOSE_OPTION_BY_IMAGE_PROMPT = (
     "concept shown in the image and the question. Ignore retry warnings, "
     "time-limit reminders, and other unrelated footer text. Return JSON only: "
     '{"option":1}. The option value must be one of the provided indexes, '
-    "starting at 1."
+    "starting at 1. If JSON mode is unavailable, return only the chosen option "
+    "index or option text."
 )
 
 DEFAULT_CHOOSE_OPTIONS_BY_IMAGE_PROMPT = (
@@ -39,7 +41,8 @@ DEFAULT_CHOOSE_OPTIONS_BY_IMAGE_PROMPT = (
     "time-limit reminders, and unrelated footer text. Return JSON only: "
     '{"options":[1]}. '
     "The options field must be a list of option indexes starting at 1. "
-    "If only one click is needed, return a one-item list."
+    "If only one click is needed, return a one-item list. If JSON mode is "
+    "unavailable, return only the chosen option index or option text."
 )
 
 DEFAULT_SINGLE_OBJECT_CHOICE_PROMPT = (
@@ -47,7 +50,8 @@ DEFAULT_SINGLE_OBJECT_CHOICE_PROMPT = (
     "The image usually contains one main object on a clean background. Pick "
     "the single button whose text best names that object. Do not explain. "
     'Return JSON only: {"options":[1]}. '
-    "The option indexes start at 1."
+    "The option indexes start at 1. If JSON mode is unavailable, return only "
+    "the chosen option index or option text."
 )
 
 DEFAULT_EXTRACT_TEXT_BY_IMAGE_PROMPT = (
@@ -62,6 +66,9 @@ DEFAULT_CALCULATE_PROBLEM_PROMPT = (
 
 def encode_image(image: bytes):
     return base64.b64encode(image).decode("utf-8")
+
+
+logger = logging.getLogger("tg-signer")
 
 
 class OpenAIConfig(TypedDict, total=False):
@@ -329,6 +336,56 @@ class AITools:
 
         return [cls._coerce_option_index(result, options)]
 
+    @staticmethod
+    def _should_retry_without_json_mode(exc: Exception) -> bool:
+        text = str(exc).lower()
+        indicators = (
+            "response_format",
+            "json_object",
+            "bad_response_status_code",
+            "openai_error",
+            "unsupported",
+        )
+        return any(indicator in text for indicator in indicators)
+
+    async def _create_visual_completion(
+        self,
+        *,
+        client: "AsyncOpenAI",
+        model: str,
+        messages: list[dict[str, Any]],
+        temperature: float,
+        max_tokens: int,
+        expect_json: bool,
+    ):
+        kwargs = {
+            "messages": messages,
+            "model": model,
+            "stream": False,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        if expect_json:
+            kwargs["response_format"] = {"type": "json_object"}
+
+        try:
+            return await asyncio.wait_for(
+                client.chat.completions.create(**kwargs),
+                timeout=self._ai_timeout(),
+            )
+        except Exception as exc:
+            if not expect_json or not self._should_retry_without_json_mode(exc):
+                raise
+            logger.warning(
+                "AI provider rejected structured JSON mode, retrying without response_format: %s",
+                exc,
+            )
+            kwargs.pop("response_format", None)
+            return await asyncio.wait_for(
+                client.chat.completions.create(**kwargs),
+                timeout=self._ai_timeout(),
+            )
+
     async def choose_option_by_image(
         self,
         image: bytes,
@@ -363,17 +420,13 @@ class AITools:
                 ],
             },
         ]
-        # noinspection PyTypeChecker
-        completion = await asyncio.wait_for(
-            client.chat.completions.create(
-                messages=messages,
-                model=model,
-                response_format={"type": "json_object"},
-                stream=False,
-                temperature=temperature,
-                max_tokens=24,
-            ),
-            timeout=self._ai_timeout(),
+        completion = await self._create_visual_completion(
+            client=client,
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=24,
+            expect_json=True,
         )
         message = completion.choices[0].message
         result = json_repair.loads(message.content)
@@ -418,16 +471,13 @@ class AITools:
                 ],
             },
         ]
-        completion = await asyncio.wait_for(
-            client.chat.completions.create(
-                messages=messages,
-                model=model,
-                response_format={"type": "json_object"},
-                stream=False,
-                temperature=temperature,
-                max_tokens=32,
-            ),
-            timeout=self._ai_timeout(),
+        completion = await self._create_visual_completion(
+            client=client,
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=32,
+            expect_json=True,
         )
         result = json_repair.loads(completion.choices[0].message.content)
         return self._coerce_option_indexes(result, options)

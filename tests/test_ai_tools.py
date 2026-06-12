@@ -1,5 +1,6 @@
 import unittest
 from io import BytesIO
+from types import SimpleNamespace
 
 from PIL import Image
 
@@ -71,3 +72,47 @@ class CallbackFallbackTest(unittest.TestCase):
                 RuntimeError("Telegram says: [400 MESSAGE_NOT_MODIFIED]")
             )
         )
+
+
+class _FakeCompletions:
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.calls = []
+
+    async def create(self, **kwargs):
+        self.calls.append(kwargs)
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+
+class AIToolsJsonFallbackTest(unittest.IsolatedAsyncioTestCase):
+    async def test_choose_options_by_image_retries_without_json_mode(self):
+        fake_completions = _FakeCompletions(
+            [
+                RuntimeError("Error code: 403 - {'message': 'openai_error', 'code': 'bad_response_status_code', 'detail': 'response_format json_object unsupported'}"),
+                SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            message=SimpleNamespace(content='{"options":[2]}')
+                        )
+                    ]
+                ),
+            ]
+        )
+        fake_client = SimpleNamespace(
+            chat=SimpleNamespace(completions=fake_completions)
+        )
+        tools = AITools({"api_key": "test", "model": "gpt-4o"})
+        tools.client = fake_client
+
+        result = await tools.choose_options_by_image(
+            b"fake-image",
+            "Choose the correct option",
+            [(1, "apple"), (2, "banana")],
+        )
+
+        self.assertEqual(result, [2])
+        self.assertIn("response_format", fake_completions.calls[0])
+        self.assertNotIn("response_format", fake_completions.calls[1])
