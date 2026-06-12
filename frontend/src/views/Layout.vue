@@ -27,7 +27,7 @@ const currentTitle = computed(() => {
 })
 
 const openGithub = () => {
-  window.open('https://github.com/akasls/TG-SignPulse', '_blank')
+  window.open('https://github.com/Silentely/TG-SignPulse', '_blank')
 }
 
 const handleNavClick = () => {

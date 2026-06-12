@@ -156,3 +156,9 @@ ruff_errors.txt
 git_show_head*.txt
 test_*.py
 
+# agent
+.claude
+.omx
+.omc
+.ace-tools
+

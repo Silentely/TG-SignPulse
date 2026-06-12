@@ -15,8 +15,8 @@
 
 | 环境 | 镜像 |
 |------|------|
-| 生产 | `ghcr.io/akasls/tg-signpulse:latest` 或 `ghcr.io/akasls/tg-signpulse:v2.0.0` |
-| 测试 | `ghcr.io/akasls/tg-signpulse:test-main` |
+| 生产 | `ghcr.io/silentely/tg-signpulse:latest` 或 `ghcr.io/silentely/tg-signpulse:v2.0.0` |
+| 测试 | `ghcr.io/silentely/tg-signpulse:test-main` |
 
 ## 3. 最小启动
 
@@ -31,7 +31,7 @@ docker run -d \
   -e TZ=Asia/Shanghai \
   -e APP_SECRET_KEY=$(openssl rand -base64 32) \
   -e ADMIN_PASSWORD=your_strong_password \
-  ghcr.io/akasls/tg-signpulse:latest
+  ghcr.io/silentely/tg-signpulse:latest
 ```
 
 ### 方式二：Docker Compose
@@ -41,7 +41,7 @@ docker run -d \
 ```yaml
 services:
   app:
-    image: ghcr.io/akasls/tg-signpulse:latest
+    image: ghcr.io/silentely/tg-signpulse:latest
     container_name: tg-signpulse
     restart: unless-stopped
     ports:

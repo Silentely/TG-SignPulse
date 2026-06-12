@@ -17,7 +17,7 @@ hero:
       link: /deploy/docker
     - theme: alt
       text: GitHub 仓库
-      link: https://github.com/akasls/TG-SignPulse
+      link: https://github.com/Silentely/TG-SignPulse
 
 features:
   - title: 多账号共享任务

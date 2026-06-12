@@ -13,11 +13,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/AkaSLs/tg-signpulse/releases"><img src="https://img.shields.io/badge/version-v2.0.1-blue" alt="Version"></a>
-  <a href="https://github.com/AkaSLs/tg-signpulse/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-BSD--3--Clause-green" alt="License"></a>
+  <a href="https://github.com/Silentely/TG-SignPulse/releases"><img src="https://img.shields.io/badge/version-v2.0.1-blue" alt="Version"></a>
+  <a href="https://github.com/Silentely/TG-SignPulse/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-BSD--3--Clause-green" alt="License"></a>
   <img src="https://img.shields.io/badge/python-3.10--3.13-blue" alt="Python">
   <img src="https://img.shields.io/badge/node-20+-green" alt="Node.js">
-  <a href="https://github.com/AkaSLs/tg-signpulse/pkgs/container/tg-signpulse"><img src="https://img.shields.io/badge/ghcr.io-available-purple" alt="GHCR"></a>
+  <a href="https://github.com/Silentely/TG-SignPulse/pkgs/container/tg-signpulse"><img src="https://img.shields.io/badge/ghcr.io-available-purple" alt="GHCR"></a>
 </p>
 
 <p align="center">
@@ -93,7 +93,7 @@ docker run -d \
   -e TZ=Asia/Shanghai \
   -e APP_SECRET_KEY=$(openssl rand -base64 32) \
   -e ADMIN_PASSWORD=your_strong_password \
-  ghcr.io/akasls/tg-signpulse:latest
+  ghcr.io/silentely/tg-signpulse:latest
 ```
 
 ### Docker Compose
@@ -101,7 +101,7 @@ docker run -d \
 ```yaml
 services:
   app:
-    image: ghcr.io/akasls/tg-signpulse:latest
+    image: ghcr.io/silentely/tg-signpulse:latest
     container_name: tg-signpulse
     restart: unless-stopped
     ports:
