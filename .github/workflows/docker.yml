@@ -41,13 +41,23 @@ jobs:
           short_sha="${GITHUB_SHA::12}"
 
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            # Tag 推送：生成版本标签 + latest
             {
               echo "tags<<EOF"
               echo "${image}:${GITHUB_REF_NAME}"
               echo "${image}:latest"
               echo "EOF"
             } >> "${GITHUB_OUTPUT}"
+          elif [[ "${GITHUB_REF_NAME}" == "main" ]]; then
+            # main 分支：生成 latest
+            {
+              echo "tags<<EOF"
+              echo "${image}:latest"
+              echo "${image}:main-${short_sha}"
+              echo "EOF"
+            } >> "${GITHUB_OUTPUT}"
           else
+            # 其他分支：生成 test- 前缀的测试标签
             safe_ref="$(echo "${GITHUB_REF_NAME}" | tr '[:upper:]' '[:lower:]' | sed 's#[^a-z0-9._-]#-#g')"
             {
               echo "tags<<EOF"
