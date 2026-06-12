@@ -57,6 +57,26 @@ def get_signer(
     return signer
 
 
+async def _run_signers_isolated(signer_entries: list[tuple[str, UserSigner, int]]) -> None:
+    failures: list[tuple[str, Exception]] = []
+
+    for label, signer, num_of_dialogs in signer_entries:
+        try:
+            await signer.run(num_of_dialogs)
+        except Exception as exc:
+            failures.append((label, exc))
+            logging.getLogger("tg-signer").exception(
+                "Signer task failed: %s",
+                label,
+            )
+
+    if failures:
+        lines = [f"{label}: {exc}" for label, exc in failures]
+        raise click.ClickException(
+            "部分任务执行失败, 其余任务已继续执行:\n" + "\n".join(lines)
+        )
+
+
 @click.group(name="tg-signer", help="使用<子命令> --help查看使用说明", cls=AliasedGroup)
 @click.option(
     "--log-level",
@@ -227,11 +247,11 @@ def run(obj, task_names, num_of_dialogs):
         raise click.UsageError("At least one task name is required")
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    coros = []
+    signer_entries = []
     for task_name in task_names:
         signer = get_signer(task_name, obj, loop=loop)
-        coros.append(signer.run(num_of_dialogs))
-    loop.run_until_complete(asyncio.gather(*coros))
+        signer_entries.append((f"task:{task_name}", signer, num_of_dialogs))
+    loop.run_until_complete(_run_signers_isolated(signer_entries))
 
 
 @tg_signer.command(help="运行一次签到任务，即使该签到任务今日已执行过")
@@ -444,12 +464,13 @@ def multi_run(obj, accounts, task_name, num_of_dialogs):
     logger.info(f"开始使用一套配置({task_name})同时运行多个账号..")
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    coros = []
+    signer_entries = []
     for account in accounts:
-        obj["account"] = account
-        signer = get_signer(task_name, obj, loop=loop)
-        coros.append(signer.run(num_of_dialogs))
-    loop.run_until_complete(asyncio.gather(*coros))
+        ctx_obj = dict(obj)
+        ctx_obj["account"] = account
+        signer = get_signer(task_name, ctx_obj, loop=loop)
+        signer_entries.append((f"account:{account}", signer, num_of_dialogs))
+    loop.run_until_complete(_run_signers_isolated(signer_entries))
 
 
 @tg_signer.command(name="llm-config", help="配置大模型API")
