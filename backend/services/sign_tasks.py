@@ -3222,7 +3222,7 @@ class SignTaskService:
         return any(key[1] == task_name for key, running in self._active_tasks.items() if running)
 
     async def run_task_with_logs(
-        self, account_name: str, task_name: str, run_id: str = None
+        self, account_name: str, task_name: str, run_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """运行任务并实时捕获日志 (In-Process)"""
 

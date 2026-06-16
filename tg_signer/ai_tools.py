@@ -302,7 +302,7 @@ class AITools:
 
         if isinstance(result, dict):
             logger.error(f"AI 返回结果中未找到选项字段 | result_type={type(result).__name__} keys={list(result.keys())}")
-            raise ValueError(f"AI result does not contain an option: {type(result).__name__}")
+            raise ValueError(f"AI result does not contain an option: {safe_text_preview(result, 100)}")
 
         if isinstance(result, int):
             return result
@@ -322,7 +322,7 @@ class AITools:
                     return index
 
         logger.error(f"AI 返回结果无法解析为选项索引 | result_type={type(result).__name__} result_chars={len(str(result))} options_count={len(options)}")
-        raise ValueError(f"Could not parse AI option result: {type(result).__name__}")
+        raise ValueError(f"Could not parse AI option result: {safe_text_preview(result, 100)}")
 
     @classmethod
     def _coerce_option_indexes(cls, result: Any, options: list[tuple[int, str]]) -> list[int]:
