@@ -71,9 +71,7 @@ def _configure_backend_logging():
     - CRITICAL: 严重错误
 
     访问日志处理：
-    由于 uvicorn 启动时会重新配置 logging handler，
-    必须在 app startup 事件中重新应用过滤器。
-    此函数仅设置初始值，实际过滤在 startup 事件中完成。
+    直接删除 uvicorn.access 的所有 handler，从根源禁用访问日志输出。
     """
     log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
     level_no = logging.getLevelName(log_level)
@@ -81,11 +79,18 @@ def _configure_backend_logging():
         logging.getLogger().setLevel(level_no)
         logging.getLogger("backend").setLevel(level_no)
         logging.getLogger("uvicorn").setLevel(level_no)
-        # 访问日志通过 handler 的 level 控制，而非 filter
+
+        # 暴力删除 uvicorn.access 的所有 handler，从根源禁用
         access_logger = logging.getLogger("uvicorn.access")
-        access_logger.setLevel(logging.DEBUG if level_no <= logging.DEBUG else logging.WARNING)
-        # 添加健康检查过滤器（始终生效）
-        access_logger.addFilter(HealthCheckFilter())
+        access_logger.handlers.clear()
+        access_logger.propagate = False
+        access_logger.disabled = True
+
+        # 只在 DEBUG 模式下重新启用访问日志
+        if level_no <= logging.DEBUG:
+            access_logger.disabled = False
+            access_logger.setLevel(logging.DEBUG)
+            access_logger.addFilter(HealthCheckFilter())
 
 _configure_backend_logging()
 
