@@ -61,6 +61,19 @@ class HealthCheckFilter(logging.Filter):
 
 logging.getLogger("uvicorn.access").addFilter(HealthCheckFilter())
 
+# 配置后端日志等级，支持 LOG_LEVEL 环境变量
+def _configure_backend_logging():
+    """配置后端日志等级，从环境变量 LOG_LEVEL 读取，默认为 INFO"""
+    log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
+    level_no = logging.getLevelName(log_level)
+    if isinstance(level_no, int):
+        logging.getLogger().setLevel(level_no)
+        logging.getLogger("backend").setLevel(level_no)
+        logging.getLogger("uvicorn").setLevel(level_no)
+        logging.getLogger("uvicorn.access").setLevel(level_no)
+
+_configure_backend_logging()
+
 settings = get_settings()
 
 app = FastAPI(title=settings.app_name, version="0.1.0")

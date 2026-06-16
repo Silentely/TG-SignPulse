@@ -82,10 +82,12 @@ async def _run_signers_isolated(signer_entries: list[tuple[str, UserSigner, int]
     "--log-level",
     "-l",
     "log_level",
-    default="info",
+    default=None,
     show_default=True,
+    show_envvar=True,
+    envvar="LOG_LEVEL",
     type=click.Choice(["debug", "info", "warn", "error"], case_sensitive=False),
-    help="日志等级, `debug`, `info`, `warn`, `error`",
+    help="日志等级, `debug`, `info`, `warn`, `error`，可通过环境变量 LOG_LEVEL 配置",
 )
 @click.option(
     "--log-file",
@@ -170,6 +172,11 @@ def tg_signer(
     in_memory: bool,
 ):
     from tg_signer.logger import configure_logger
+
+    # 如果 CLI 没有指定日志等级，尝试从环境变量读取，默认为 INFO
+    if log_level is None:
+        import os
+        log_level = os.environ.get("LOG_LEVEL", "INFO").lower()
 
     logger = configure_logger(log_level=log_level, log_dir=log_dir, log_file=log_file)
     ctx.ensure_object(dict)

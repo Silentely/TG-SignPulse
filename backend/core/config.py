@@ -111,6 +111,7 @@ class Settings(BaseModel):
     signer_workdir: Optional[Path] = None
     session_dir: Optional[Path] = None
     logs_dir: Optional[Path] = None
+    log_level: str = "INFO"
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -136,6 +137,7 @@ class Settings(BaseModel):
             signer_workdir=_read_path_env(env, "APP_SIGNER_WORKDIR"),
             session_dir=_read_path_env(env, "APP_SESSION_DIR"),
             logs_dir=_read_path_env(env, "APP_LOGS_DIR"),
+            log_level=_read_env(env, "LOG_LEVEL", "APP_LOG_LEVEL", default="INFO"),
         )
 
     @property
