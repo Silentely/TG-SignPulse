@@ -59,26 +59,12 @@ class HealthCheckFilter(logging.Filter):
         )
 
 
-class AccessLogLevelFilter(logging.Filter):
-    """将 uvicorn access log 的级别从 INFO 强制转换为 DEBUG"""
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        if record.levelno == logging.INFO:
-            record.levelno = logging.DEBUG
-            record.levelname = "DEBUG"
-            msg = record.getMessage()
-            if msg.startswith("INFO:"):
-                record.msg = msg[5:].lstrip()
-                record.args = ()
-        return True
-
-
 # 配置后端日志等级，支持 LOG_LEVEL 环境变量
 def _configure_backend_logging():
     """配置后端日志等级，从环境变量 LOG_LEVEL 读取，默认为 INFO
 
     日志等级说明：
-    - DEBUG: 详细的调试信息，包括 uvicorn 访问日志
+    - DEBUG: 详细的调试信息，包括 uvicorn 访问日志（过滤健康检查端点）
     - INFO: 应用常规运行信息（默认）
     - WARNING: 警告信息
     - ERROR: 错误信息
@@ -86,33 +72,44 @@ def _configure_backend_logging():
 
     访问日志处理：
     直接删除 uvicorn.access 的所有 handler，从根源禁用访问日志输出。
+    DEBUG 模式下重新启用，但过滤健康检查端点以减少噪音。
     """
     log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
     level_no = logging.getLevelName(log_level)
-    if isinstance(level_no, int):
-        logging.getLogger().setLevel(level_no)
-        logging.getLogger("backend").setLevel(level_no)
-        logging.getLogger("uvicorn").setLevel(level_no)
 
-        # 暴力删除 uvicorn.access 的所有 handler，从根源禁用
-        access_logger = logging.getLogger("uvicorn.access")
-        access_logger.handlers.clear()
-        access_logger.propagate = False
-        access_logger.disabled = True
+    # 验证日志等级有效性
+    if not isinstance(level_no, int):
+        logging.warning(f"Invalid LOG_LEVEL '{log_level}', falling back to INFO")
+        level_no = logging.INFO
 
-        # 只在 DEBUG 模式下重新启用访问日志
-        if level_no <= logging.DEBUG:
-            access_logger.disabled = False
-            access_logger.setLevel(logging.DEBUG)
-            # DEBUG 模式下显示所有访问日志，包括健康检查
-            access_logger.addFilter(AccessLogLevelFilter())  # 将 INFO 转换为 DEBUG
-            # 添加 stderr handler 输出访问日志
-            handler = logging.StreamHandler()
-            handler.setLevel(logging.DEBUG)
-            handler.setFormatter(logging.Formatter("%(levelname)s:\t%(message)s"))
-            access_logger.addHandler(handler)
+    # 配置根日志器和主要模块日志器
+    logging.getLogger().setLevel(level_no)
+    logging.getLogger("backend").setLevel(level_no)
+    logging.getLogger("uvicorn").setLevel(level_no)
 
-_configure_backend_logging()
+    # 暴力删除 uvicorn.access 的所有 handler，从根源禁用
+    access_logger = logging.getLogger("uvicorn.access")
+    access_logger.handlers.clear()
+    access_logger.propagate = False
+    access_logger.disabled = True
+
+    # 只在 DEBUG 模式下重新启用访问日志
+    if level_no <= logging.DEBUG:
+        access_logger.disabled = False
+        access_logger.setLevel(logging.DEBUG)
+        # DEBUG 模式下过滤健康检查端点，减少日志噪音
+        access_logger.addFilter(HealthCheckFilter())
+        # 添加 stderr handler 输出访问日志（使用详细格式）
+        handler = logging.StreamHandler()
+        handler.setLevel(logging.DEBUG)
+        handler.setFormatter(logging.Formatter(
+            "[%(levelname)s] [%(name)s] %(asctime)s - %(message)s"
+        ))
+        access_logger.addHandler(handler)
+
+
+# 注意：不在此处调用 _configure_backend_logging()
+# 因为 uvicorn 启动后会重置 logging 配置，需要在 on_startup 事件中重新配置
 
 settings = get_settings()
 

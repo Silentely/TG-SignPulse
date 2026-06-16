@@ -36,7 +36,13 @@ def configure_logger(
     max_bytes: int = 1024 * 1024 * 3,
 ):
     level = log_level.strip().upper()
-    level_no: int = logging.getLevelName(level)
+    level_no = logging.getLevelName(level)
+
+    # 验证日志等级有效性
+    if not isinstance(level_no, int):
+        logging.warning(f"Invalid log_level '{log_level}', falling back to INFO")
+        level_no = logging.INFO
+
     logger = logging.getLogger(name)
     logger.setLevel(level_no)
     logger.handlers.clear()
@@ -64,7 +70,9 @@ def configure_logger(
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
 
-    if logging.WARNING >= level_no:
+    # 修复逻辑：当前日志等级足够低时才创建分级日志文件
+    # level_no <= logging.WARNING 表示当前等级能够记录 WARNING 及以上
+    if level_no <= logging.WARNING:
         warn_file_handler = RotatingFileHandler(
             log_dir / "warn.log",
             maxBytes=max_bytes,
@@ -76,7 +84,7 @@ def configure_logger(
         warn_file_handler.setFormatter(formatter)
         logger.addHandler(warn_file_handler)
 
-    if logging.ERROR >= level_no:
+    if level_no <= logging.ERROR:
         error_file_handler = RotatingFileHandler(
             log_dir / "error.log",
             maxBytes=max_bytes,
@@ -86,10 +94,21 @@ def configure_logger(
         error_file_handler.setLevel(logging.ERROR)
         error_file_handler.addFilter(MinLevelFilter(logging.ERROR))
         error_file_handler.setFormatter(formatter)
-
         logger.addHandler(error_file_handler)
+
+    # 配置 Pyrogram 日志（如果启用）
     if os.environ.get("PYROGRAM_LOG_ON", "0") == "1":
         pyrogram_logger = logging.getLogger("pyrogram")
-        pyrogram_logger.setLevel(level)
-        pyrogram_logger.addHandler(console_handler)
+        pyrogram_logger.setLevel(level_no)  # 使用 level_no 而不是 level 字符串
+        # 创建新的 handler 避免复用导致的重复输出
+        pyrogram_handler = logging.StreamHandler()
+        pyrogram_stream = getattr(pyrogram_handler, "stream", None)
+        if hasattr(pyrogram_stream, "reconfigure"):
+            try:
+                pyrogram_stream.reconfigure(encoding="utf-8")
+            except Exception:
+                pass
+        pyrogram_handler.setFormatter(formatter)
+        pyrogram_logger.addHandler(pyrogram_handler)
+
     return logger

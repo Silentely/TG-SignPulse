@@ -24,13 +24,16 @@ from backend.utils.tg_session import (
     load_session_string_file,
 )
 
-logger = logging.getLogger("backend.keyword_monitor")
-settings = get_settings()
 
-
+# 自定义异常类：AI 调用不可恢复错误
 class TerminalAIActionError(Exception):
     """AI 调用发生不可恢复错误，后续动作应立即失败而非重试"""
     pass
+
+
+# 模块级别变量
+logger = logging.getLogger("backend.keyword_monitor")
+settings = get_settings()
 _PYROGRAM_IMPORT_ERROR: Exception | None = None
 
 try:

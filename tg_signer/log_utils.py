@@ -131,12 +131,9 @@ def safe_traceback_preview(tb: str, max_lines: int = 6, max_line_chars: int = 20
         leading_spaces = len(line) - len(line.lstrip())
         indent = line[:leading_spaces]
         content = line[leading_spaces:]
-        content = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", content)
-        for pattern in _SECRET_PATTERNS:
-            content = pattern.sub("[REDACTED]", content)
-        if len(content) > max_line_chars:
-            content = content[:max_line_chars - 3] + "..."
-        safe_lines.append(f"{indent}{content}")
+        # 复用 safe_text_preview 避免重复逻辑
+        safe_content = safe_text_preview(content, max_line_chars)
+        safe_lines.append(f"{indent}{safe_content}")
     return "\n".join(safe_lines)
 
 
