@@ -91,6 +91,11 @@ def _configure_backend_logging():
             access_logger.disabled = False
             access_logger.setLevel(logging.DEBUG)
             access_logger.addFilter(HealthCheckFilter())
+            # 添加 stderr handler 输出访问日志
+            handler = logging.StreamHandler()
+            handler.setLevel(logging.DEBUG)
+            handler.setFormatter(logging.Formatter("%(levelname)s:\t%(message)s"))
+            access_logger.addHandler(handler)
 
 _configure_backend_logging()
 
