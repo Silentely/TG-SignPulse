@@ -1472,7 +1472,7 @@ class KeywordMonitorService:
                         "terminal AI failure" if is_terminal else "failed",
                         rule.task_name,
                         exc,
-                        exc_info=not is_terminal,
+                        exc_info=True,
                     )
                     self._append_rule_log(
                         rule,

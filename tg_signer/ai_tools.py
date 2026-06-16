@@ -396,10 +396,18 @@ class AITools:
                 safe_text_preview(exc, 200),
             )
             kwargs.pop("response_format", None)
-            return await asyncio.wait_for(
+            _retry_start = time.monotonic()
+            result = await asyncio.wait_for(
                 client.chat.completions.create(**kwargs),
                 timeout=self._ai_timeout(),
             )
+            _retry_elapsed = (time.monotonic() - _retry_start) * 1000
+            _usage = getattr(result, "usage", None)
+            _tokens = ""
+            if _usage:
+                _tokens = f" | tokens: prompt={getattr(_usage, 'prompt_tokens', '?')} completion={getattr(_usage, 'completion_tokens', '?')}"
+            logger.debug(f"AI API 重试完成（无 JSON 模式） | model={model} elapsed_ms={_retry_elapsed:.0f}{_tokens}")
+            return result
 
     async def choose_option_by_image(
         self,

@@ -25,10 +25,10 @@ _SECRET_PATTERNS = [
     re.compile(r"(?<![A-Za-z0-9+/=])[A-Za-z0-9+/]{128,}={0,2}(?![A-Za-z0-9+/=])"),
     # 带凭据的 URL（http/https/socks4/socks5）
     re.compile(r"(?:https?|socks[45])://[^:]+:[^@]+@[^\s]+"),
-    # Authorization header
-    re.compile(r"(?:authorization|x-api-key)\s*[:=]\s*(?:\S+\s+)?\S+", re.IGNORECASE),
-    # api_key=xxx 或 api_key: xxx 字段值
-    re.compile(r"(?:api_key|api_secret|access_token|refresh_token)\s*[:=]\s*\S+", re.IGNORECASE),
+    # Authorization header（支持带引号：'Authorization': 'Bearer xxx'）
+    re.compile(r"""(?:['"]?(?:authorization|x-api-key)['"]?\s*[:=]\s*)(?:\S+\s+)?\S+""", re.IGNORECASE),
+    # api_key=xxx 或 'api_key': xxx 字段值（支持带引号）
+    re.compile(r"""(?:['"]?(?:api_key|api_secret|access_token|refresh_token)['"]?\s*[:=]\s*)['"]?\S+['"]?""", re.IGNORECASE),
 ]
 
 

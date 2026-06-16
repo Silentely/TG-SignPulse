@@ -3441,7 +3441,8 @@ class SignTaskService:
                     notify_on_failure=task_notify_on_failure,
                 )
             # 脱敏异常摘要写入任务日志流（会持久化、API 展示、通知外发）
-            error_msg = f"任务执行出错: {safe_exception_summary(e, 300)}"
+            _run_tag = f"[run_id={run_id}] " if run_id else ""
+            error_msg = f"{_run_tag}任务执行出错: {safe_exception_summary(e, 300)}"
             self._active_logs[task_key].append(error_msg)
             # 脱敏 traceback 写入任务日志流
             _tb = traceback.format_exc()
@@ -3450,7 +3451,8 @@ class SignTaskService:
                 for _line in _safe_tb.splitlines():
                     self._active_logs[task_key].append(f"  {_line}")
             # 服务端日志保留完整 exc_info（仅写入本地日志文件，不外发）
-            _service_logger.error(f"任务执行出错 [{account_name}/{task_name}]: {e}", exc_info=True)
+            _run_id_tag = f" [run_id={run_id}]" if run_id else ""
+            _service_logger.error(f"任务执行出错{_run_id_tag} [{account_name}/{task_name}]: {e}", exc_info=True)
         finally:
             self._account_last_run_end[account_name] = time.time()
             try:
