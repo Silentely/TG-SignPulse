@@ -63,14 +63,33 @@ logging.getLogger("uvicorn.access").addFilter(HealthCheckFilter())
 
 # 配置后端日志等级，支持 LOG_LEVEL 环境变量
 def _configure_backend_logging():
-    """配置后端日志等级，从环境变量 LOG_LEVEL 读取，默认为 INFO"""
+    """配置后端日志等级，从环境变量 LOG_LEVEL 读取，默认为 INFO
+
+    日志等级说明：
+    - DEBUG: 详细的调试信息，包括 uvicorn 访问日志
+    - INFO: 应用常规运行信息（默认）
+    - WARNING: 警告信息
+    - ERROR: 错误信息
+    - CRITICAL: 严重错误
+
+    访问日志处理：
+    uvicorn.access 的访问日志使用过滤器控制，
+    只有在 LOG_LEVEL=DEBUG 时才会显示访问日志。
+    """
     log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
     level_no = logging.getLevelName(log_level)
     if isinstance(level_no, int):
         logging.getLogger().setLevel(level_no)
         logging.getLogger("backend").setLevel(level_no)
         logging.getLogger("uvicorn").setLevel(level_no)
-        logging.getLogger("uvicorn.access").setLevel(level_no)
+        # 访问日志使用过滤器控制
+        access_logger = logging.getLogger("uvicorn.access")
+        access_logger.setLevel(logging.DEBUG)
+        # 移除现有的过滤器（如果有）
+        access_logger.filters.clear()
+        # 添加访问日志过滤器，只在 DEBUG 模式下显示
+        if level_no > logging.DEBUG:
+            access_logger.addFilter(lambda record: False)
 
 _configure_backend_logging()
 
