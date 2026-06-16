@@ -26,6 +26,11 @@ from backend.utils.tg_session import (
 
 logger = logging.getLogger("backend.keyword_monitor")
 settings = get_settings()
+
+
+class TerminalAIActionError(Exception):
+    """AI 调用发生不可恢复错误，后续动作应立即失败而非重试"""
+    pass
 _PYROGRAM_IMPORT_ERROR: Exception | None = None
 
 try:
@@ -1125,7 +1130,7 @@ class KeywordMonitorService:
             except Exception as e:
                 _elapsed = (time.monotonic() - _start) * 1000
                 logger.error(f"关键词监听 AI 调用失败 | chat={target_chat_id} | method=calculate_problem elapsed_ms={_elapsed:.0f} error={type(e).__name__}: {safe_text_preview(e, 200)}")
-                return False
+                raise TerminalAIActionError(f"AI calculate_problem failed: {type(e).__name__}") from e
             if not answer:
                 return False
             await self._call_client_with_retry(
@@ -1153,7 +1158,7 @@ class KeywordMonitorService:
             except Exception as e:
                 _elapsed = (time.monotonic() - _start) * 1000
                 logger.error(f"关键词监听 AI 调用失败 | chat={target_chat_id} | method=extract_text_by_image elapsed_ms={_elapsed:.0f} error={type(e).__name__}: {safe_text_preview(e, 200)}")
-                return False
+                raise TerminalAIActionError(f"AI extract_text_by_image failed: {type(e).__name__}") from e
             if not answer:
                 return False
             await self._call_client_with_retry(
@@ -1181,7 +1186,7 @@ class KeywordMonitorService:
             except Exception as e:
                 _elapsed = (time.monotonic() - _start) * 1000
                 logger.error(f"关键词监听 AI 调用失败 | chat={target_chat_id} | method=calculate_problem elapsed_ms={_elapsed:.0f} error={type(e).__name__}: {safe_text_preview(e, 200)}")
-                return False
+                raise TerminalAIActionError(f"AI calculate+click failed: {type(e).__name__}") from e
             if not answer:
                 return False
             proxy_action = {"action": 3, "text": answer}
@@ -1213,7 +1218,7 @@ class KeywordMonitorService:
             except Exception as e:
                 _elapsed = (time.monotonic() - _start) * 1000
                 logger.error(f"关键词监听 AI 调用失败 | chat={target_chat_id} | method=choose_options_by_image elapsed_ms={_elapsed:.0f} error={type(e).__name__}: {safe_text_preview(e, 200)}")
-                return False
+                raise TerminalAIActionError(f"AI choose_options_by_image failed: {type(e).__name__}") from e
             clicked = 0
             for result_index in result_indexes:
                 if result_index == 0:
@@ -1457,17 +1462,21 @@ class KeywordMonitorService:
                         timeout=timeout + 1,
                     )
                 except Exception as exc:
-                    logger.warning(
-                        "Keyword monitor continue action %s/%s failed for task %s: %s",
+                    is_terminal = isinstance(exc, TerminalAIActionError)
+                    log_level = logging.ERROR if is_terminal else logging.WARNING
+                    logger.log(
+                        log_level,
+                        "Keyword monitor continue action %s/%s %s for task %s: %s",
                         index,
                         len(continue_actions),
+                        "terminal AI failure" if is_terminal else "failed",
                         rule.task_name,
                         exc,
-                        exc_info=True,
+                        exc_info=not is_terminal,
                     )
                     self._append_rule_log(
                         rule,
-                        f"后续动作 {index}/{len(rendered_actions)} 执行异常：{exc}",
+                        f"后续动作 {index}/{len(rendered_actions)} {'AI 调用不可恢复失败' if is_terminal else '执行异常'}：{exc}",
                     )
                     return
                 if not result:

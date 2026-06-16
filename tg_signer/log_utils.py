@@ -26,7 +26,7 @@ _SECRET_PATTERNS = [
     # 带凭据的 URL（http/https/socks4/socks5）
     re.compile(r"(?:https?|socks[45])://[^:]+:[^@]+@[^\s]+"),
     # Authorization header
-    re.compile(r"(?:authorization|x-api-key)\s*[:=]\s*\S+", re.IGNORECASE),
+    re.compile(r"(?:authorization|x-api-key)\s*[:=]\s*(?:\S+\s+)?\S+", re.IGNORECASE),
     # api_key=xxx 或 api_key: xxx 字段值
     re.compile(r"(?:api_key|api_secret|access_token|refresh_token)\s*[:=]\s*\S+", re.IGNORECASE),
 ]
@@ -94,7 +94,7 @@ def safe_ai_request_meta(
         f"model={model}",
     ]
     if has_image:
-        parts.append(f"has_image=true")
+        parts.append("has_image=true")
         if image_bytes > 0:
             parts.append(f"image_bytes={image_bytes}")
     if query_chars > 0:
@@ -102,7 +102,7 @@ def safe_ai_request_meta(
     if options_count > 0:
         parts.append(f"options_count={options_count}")
     if custom_prompt:
-        parts.append(f"custom_prompt=true")
+        parts.append("custom_prompt=true")
     return " | ".join(parts)
 
 
@@ -127,7 +127,16 @@ def safe_traceback_preview(tb: str, max_lines: int = 6, max_line_chars: int = 20
     tail = lines[-max_lines:]
     safe_lines = []
     for line in tail:
-        safe_lines.append(safe_text_preview(line, max_line_chars))
+        # 保留行首缩进（traceback 可读性），仅对内容部分脱敏
+        leading_spaces = len(line) - len(line.lstrip())
+        indent = line[:leading_spaces]
+        content = line[leading_spaces:]
+        content = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", content)
+        for pattern in _SECRET_PATTERNS:
+            content = pattern.sub("[REDACTED]", content)
+        if len(content) > max_line_chars:
+            content = content[:max_line_chars - 3] + "..."
+        safe_lines.append(f"{indent}{content}")
     return "\n".join(safe_lines)
 
 
