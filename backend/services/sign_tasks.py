@@ -35,6 +35,7 @@ from backend.utils.tg_session import (
 from backend.utils.time import utc_now_iso
 from tg_signer.async_utils import create_logged_task
 from tg_signer.core import UserSigner, get_client
+from tg_signer.log_utils import safe_exception_summary, safe_traceback_preview
 
 settings = get_settings()
 
@@ -1526,7 +1527,7 @@ class SignTaskService:
                         with open(config_file, "w", encoding="utf-8") as f:
                             json.dump(config, f, ensure_ascii=False, indent=2)
                     except Exception as e:
-                        _service_logger.debug(f"更新任务配置 last_run 失败: {e}")
+                        _service_logger.warning(f"更新任务配置 last_run 失败: {e}")
 
             # 2. 更新内存缓存 (关键优化：避免置空 self._tasks_cache)
             if self._tasks_cache is not None:
@@ -1536,7 +1537,7 @@ class SignTaskService:
                         break
 
         except Exception as e:
-            _service_logger.debug(f"保存运行信息失败: {str(e)}")
+            _service_logger.warning(f"保存运行信息失败: {str(e)}")
 
     def _append_scheduler_log(self, filename: str, message: str) -> None:
         try:
@@ -3145,7 +3146,7 @@ class SignTaskService:
             result: Dict[str, Any]
             state = "finished"
             try:
-                result = await self.run_task_with_logs(account_name, task_name)
+                result = await self.run_task_with_logs(account_name, task_name, run_id=run_id)
             except asyncio.CancelledError:
                 state = "cancelled"
                 result = {
@@ -3221,7 +3222,7 @@ class SignTaskService:
         return any(key[1] == task_name for key, running in self._active_tasks.items() if running)
 
     async def run_task_with_logs(
-        self, account_name: str, task_name: str
+        self, account_name: str, task_name: str, run_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """运行任务并实时捕获日志 (In-Process)"""
 
@@ -3241,10 +3242,14 @@ class SignTaskService:
         # 这里我们希望排队等待，还是直接报错？
         # 考虑到定时任务同时触发，应该排队执行。
         _service_logger.debug(f"等待获取账号锁 {account_name}...")
+        if run_id:
+            _service_logger.info(f"任务运行 run_id={run_id} [{account_name}/{task_name}]")
 
         task_key = self._task_key(account_name, task_name)
         self._active_tasks[task_key] = True
         self._active_logs[task_key] = []
+        if run_id:
+            self._active_logs[task_key].append(f"[run_id={run_id}]")
 
         # 获取 logger 实例
         tg_logger = logging.getLogger("tg-signer")
@@ -3435,12 +3440,19 @@ class SignTaskService:
                     invalid_message,
                     notify_on_failure=task_notify_on_failure,
                 )
-            error_msg = f"任务执行出错: {str(e)}"
+            # 脱敏异常摘要写入任务日志流（会持久化、API 展示、通知外发）
+            _run_tag = f"[run_id={run_id}] " if run_id else ""
+            error_msg = f"{_run_tag}任务执行出错: {safe_exception_summary(e, 300)}"
             self._active_logs[task_key].append(error_msg)
-            # 打印堆栈以便调试
-            traceback.print_exc()
-            logger = logging.getLogger("backend")
-            logger.error(error_msg)
+            # 脱敏 traceback 写入任务日志流
+            _tb = traceback.format_exc()
+            _safe_tb = safe_traceback_preview(_tb, max_lines=6, max_line_chars=200)
+            if _safe_tb:
+                for _line in _safe_tb.splitlines():
+                    self._active_logs[task_key].append(f"  {_line}")
+            # 服务端日志保留完整 exc_info（仅写入本地日志文件，不外发）
+            _run_id_tag = f" [run_id={run_id}]" if run_id else ""
+            _service_logger.error(f"任务执行出错{_run_id_tag} [{account_name}/{task_name}]: {e}", exc_info=True)
         finally:
             self._account_last_run_end[account_name] = time.time()
             try:

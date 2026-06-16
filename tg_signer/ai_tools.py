@@ -6,6 +6,7 @@ import logging
 import os
 import pathlib
 import re
+import time
 from typing import TYPE_CHECKING, Any, Union
 
 import json_repair
@@ -19,6 +20,7 @@ except Exception:  # pragma: no cover - Pillow is optional at runtime
 if TYPE_CHECKING:
     from openai import AsyncOpenAI  # 在性能弱的机器上导入openai包实在有些慢
 
+from tg_signer.log_utils import safe_text_preview
 from tg_signer.utils import UserInput, print_to_user
 
 DEFAULT_MODEL = "gpt-4o"
@@ -260,6 +262,7 @@ class AITools:
         if Image is None:
             return image
 
+        original_size = len(image)
         try:
             with Image.open(io.BytesIO(image)) as raw_image:
                 prepared = raw_image.convert("RGB")
@@ -275,7 +278,9 @@ class AITools:
         quality = cls._read_positive_int_env("AI_VISION_JPEG_QUALITY", 85, 40)
         output = io.BytesIO()
         prepared.save(output, format="JPEG", quality=quality, optimize=True)
-        return output.getvalue()
+        result = output.getvalue()
+        logger.debug(f"AI 图片预处理 | 原始: {original_size} bytes | 处理后: {len(result)} bytes | 尺寸: {prepared.size}")
+        return result
 
     @staticmethod
     def _format_option_lines(options: list[tuple[int, str]]) -> str:
@@ -296,7 +301,8 @@ class AITools:
                         break
 
         if isinstance(result, dict):
-            raise ValueError(f"AI result does not contain an option: {result}")
+            logger.error(f"AI 返回结果中未找到选项字段 | result_type={type(result).__name__} keys={list(result.keys())}")
+            raise ValueError(f"AI result does not contain an option: {safe_text_preview(result, 100)}")
 
         if isinstance(result, int):
             return result
@@ -315,7 +321,8 @@ class AITools:
                 if normalized_option and normalized_option in normalized_result:
                     return index
 
-        raise ValueError(f"Could not parse AI option result: {result}")
+        logger.error(f"AI 返回结果无法解析为选项索引 | result_type={type(result).__name__} result_chars={len(str(result))} options_count={len(options)}")
+        raise ValueError(f"Could not parse AI option result: {safe_text_preview(result, 100)}")
 
     @classmethod
     def _coerce_option_indexes(cls, result: Any, options: list[tuple[int, str]]) -> list[int]:
@@ -368,23 +375,39 @@ class AITools:
         if expect_json:
             kwargs["response_format"] = {"type": "json_object"}
 
+        _start = time.monotonic()
         try:
-            return await asyncio.wait_for(
+            result = await asyncio.wait_for(
                 client.chat.completions.create(**kwargs),
                 timeout=self._ai_timeout(),
             )
+            _elapsed = (time.monotonic() - _start) * 1000
+            _usage = getattr(result, "usage", None)
+            _tokens = ""
+            if _usage:
+                _tokens = f" | tokens: prompt={getattr(_usage, 'prompt_tokens', '?')} completion={getattr(_usage, 'completion_tokens', '?')}"
+            logger.debug(f"AI API 调用完成 | model={model} elapsed_ms={_elapsed:.0f}{_tokens}")
+            return result
         except Exception as exc:
             if not expect_json or not self._should_retry_without_json_mode(exc):
                 raise
             logger.warning(
                 "AI provider rejected structured JSON mode, retrying without response_format: %s",
-                exc,
+                safe_text_preview(exc, 200),
             )
             kwargs.pop("response_format", None)
-            return await asyncio.wait_for(
+            _retry_start = time.monotonic()
+            result = await asyncio.wait_for(
                 client.chat.completions.create(**kwargs),
                 timeout=self._ai_timeout(),
             )
+            _retry_elapsed = (time.monotonic() - _retry_start) * 1000
+            _usage = getattr(result, "usage", None)
+            _tokens = ""
+            if _usage:
+                _tokens = f" | tokens: prompt={getattr(_usage, 'prompt_tokens', '?')} completion={getattr(_usage, 'completion_tokens', '?')}"
+            logger.debug(f"AI API 重试完成（无 JSON 模式） | model={model} elapsed_ms={_retry_elapsed:.0f}{_tokens}")
+            return result
 
     async def choose_option_by_image(
         self,

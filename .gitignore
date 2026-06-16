@@ -160,5 +160,4 @@ test_*.py
 .claude
 .omx
 .omc
-.ace-tools
-
+.ace-tool/

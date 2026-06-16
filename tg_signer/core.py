@@ -54,6 +54,7 @@ from tg_signer.config import (
 
 from .ai_tools import AITools, OpenAIConfigManager
 from .async_utils import create_logged_task
+from .log_utils import safe_ai_request_meta, safe_ai_result_meta, safe_text_preview
 from .notification.server_chan import sc_send
 from .utils import UserInput, print_to_user
 
@@ -882,6 +883,7 @@ class BaseUserWorker(Generic[ConfigT]):
                         )
                         if print_chat:
                             print_to_user(readable_chat(chat))
+                        logger.debug(readable_chat(chat))
                     except Exception as e:
                         self.log(
                             f"处理 dialog 失败，已跳过: {type(e).__name__}: {e}",
@@ -893,6 +895,7 @@ class BaseUserWorker(Generic[ConfigT]):
                     f"get_dialogs 中断，返回已获取结果: {type(e).__name__}: {e}",
                     level="WARNING",
                 )
+            self.log(f"登录完成，获取到 {len(latest_chats)} 个对话")
 
             with open(
                 self.get_user_dir(me).joinpath("latest_chats.json"),
@@ -2518,17 +2521,28 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             self._log_received_target_message(message)
             self.log("AI 正在分析计算题")
             self.log(f"题目内容：{self._normalize_log_text(message.text, 220)}")
-            if (action.ai_prompt or "").strip():
+            ai_prompt = action.ai_prompt if (action.ai_prompt or "").strip() else None
+            if ai_prompt:
                 self.log("当前 AI 动作使用自定义提示词")
-            answer = await self.get_ai_tools().calculate_problem(
-                message.text,
-                system_prompt=action.ai_prompt,
-            )
-            answer = (answer or "").strip()
+            model = self.get_ai_tools().default_model
+            self.log(f"AI 请求 | {safe_ai_request_meta(method='calculate_problem', model=model, query_chars=len(message.text), custom_prompt=bool(ai_prompt))}")
+            _start = time.monotonic()
+            try:
+                answer = await self.get_ai_tools().calculate_problem(
+                    message.text,
+                    system_prompt=ai_prompt,
+                )
+                _elapsed = (time.monotonic() - _start) * 1000
+                answer = (answer or "").strip()
+                self.log(f"AI 响应 | {safe_ai_result_meta(method='calculate_problem', model=model, elapsed_ms=_elapsed, response_chars=len(answer))}")
+            except Exception as e:
+                _elapsed = (time.monotonic() - _start) * 1000
+                self.log(f"AI 调用失败 | method=calculate_problem model={model} elapsed_ms={_elapsed:.0f} error={type(e).__name__}: {safe_text_preview(e, 200)}", level="ERROR")
+                raise
             if not answer:
                 self.log("AI 未返回有效答案", level="WARNING")
                 return False
-            self.log(f"AI 计算结果：{answer}")
+            self.log(f"AI 计算完成 | answer_chars={len(answer)} | 预览: {safe_text_preview(answer, 80)}", level="DEBUG")
             await self.send_message(message.chat.id, answer)
             return True
         return False
@@ -2548,17 +2562,28 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         )
         image_buffer.seek(0)
         image_bytes = image_buffer.read()
-        if (action.ai_prompt or "").strip():
+        ai_prompt = action.ai_prompt if (action.ai_prompt or "").strip() else None
+        if ai_prompt:
             self.log("当前 AI 动作使用自定义提示词")
-        text = await self.get_ai_tools().extract_text_by_image(
-            image_bytes,
-            system_prompt=action.ai_prompt,
-        )
-        text = (text or "").strip()
+        model = self.get_ai_tools().default_model
+        self.log(f"AI 请求 | {safe_ai_request_meta(method='extract_text_by_image', model=model, has_image=True, image_bytes=len(image_bytes), custom_prompt=bool(ai_prompt))}")
+        _start = time.monotonic()
+        try:
+            text = await self.get_ai_tools().extract_text_by_image(
+                image_bytes,
+                system_prompt=ai_prompt,
+            )
+            _elapsed = (time.monotonic() - _start) * 1000
+            text = (text or "").strip()
+            self.log(f"AI 响应 | {safe_ai_result_meta(method='extract_text_by_image', model=model, elapsed_ms=_elapsed, response_chars=len(text))}")
+        except Exception as e:
+            _elapsed = (time.monotonic() - _start) * 1000
+            self.log(f"AI 调用失败 | method=extract_text_by_image model={model} elapsed_ms={_elapsed:.0f} error={type(e).__name__}: {safe_text_preview(e, 200)}", level="ERROR")
+            raise
         if not text:
             self.log("AI 未识别到可发送文本", level="WARNING")
             return False
-        self.log(f"AI 识别结果：{text}")
+        self.log(f"AI OCR 完成 | text_chars={len(text)} | 预览: {safe_text_preview(text, 80)}", level="DEBUG")
         await self.send_message(message.chat.id, text)
         return True
 
@@ -2569,17 +2594,28 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             return False
         self._log_received_target_message(message)
         self.log("AI 正在计算按钮答案")
-        if (action.ai_prompt or "").strip():
+        ai_prompt = action.ai_prompt if (action.ai_prompt or "").strip() else None
+        if ai_prompt:
             self.log("当前 AI 动作使用自定义提示词")
-        answer = await self.get_ai_tools().calculate_problem(
-            message.text,
-            system_prompt=action.ai_prompt,
-        )
-        answer = (answer or "").strip()
+        model = self.get_ai_tools().default_model
+        self.log(f"AI 请求 | {safe_ai_request_meta(method='calculate_problem', model=model, query_chars=len(message.text), custom_prompt=bool(ai_prompt))}")
+        _start = time.monotonic()
+        try:
+            answer = await self.get_ai_tools().calculate_problem(
+                message.text,
+                system_prompt=ai_prompt,
+            )
+            _elapsed = (time.monotonic() - _start) * 1000
+            answer = (answer or "").strip()
+            self.log(f"AI 响应 | {safe_ai_result_meta(method='calculate_problem', model=model, elapsed_ms=_elapsed, response_chars=len(answer))}")
+        except Exception as e:
+            _elapsed = (time.monotonic() - _start) * 1000
+            self.log(f"AI 调用失败 | method=calculate_problem model={model} elapsed_ms={_elapsed:.0f} error={type(e).__name__}: {safe_text_preview(e, 200)}", level="ERROR")
+            raise
         if not answer:
             self.log("AI 未返回可用于点击的答案", level="WARNING")
             return False
-        self.log(f"AI 计算结果：{answer}")
+        self.log(f"AI 计算完成 | answer_chars={len(answer)} | 预览: {safe_text_preview(answer, 80)}", level="DEBUG")
         proxy_action = ClickKeyboardByTextAction(text=answer)
         return await self._click_keyboard_by_text(proxy_action, message)
 
@@ -2602,14 +2638,25 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             question_text = (message.caption or message.text or "").strip()
             if not question_text:
                 question_text = "选择正确的选项"
-            if (action.ai_prompt or "").strip():
+            ai_prompt = action.ai_prompt if (action.ai_prompt or "").strip() else None
+            if ai_prompt:
                 self.log("当前 AI 动作使用自定义提示词")
-            result_indexes = await self.get_ai_tools().choose_options_by_image(
-                image_bytes,
-                question_text,
-                list(enumerate(options, start=1)),
-                system_prompt=action.ai_prompt,
-            )
+            model = self.get_ai_tools().default_model
+            self.log(f"AI 请求 | {safe_ai_request_meta(method='choose_options_by_image', model=model, has_image=True, image_bytes=len(image_bytes), query_chars=len(question_text), options_count=len(options), custom_prompt=bool(ai_prompt))}")
+            _start = time.monotonic()
+            try:
+                result_indexes = await self.get_ai_tools().choose_options_by_image(
+                    image_bytes,
+                    question_text,
+                    list(enumerate(options, start=1)),
+                    system_prompt=ai_prompt,
+                )
+                _elapsed = (time.monotonic() - _start) * 1000
+                self.log(f"AI 响应 | {safe_ai_result_meta(method='choose_options_by_image', model=model, elapsed_ms=_elapsed, result_type='list', result_count=len(result_indexes or []))}")
+            except Exception as e:
+                _elapsed = (time.monotonic() - _start) * 1000
+                self.log(f"AI 调用失败 | method=choose_options_by_image model={model} elapsed_ms={_elapsed:.0f} error={type(e).__name__}: {safe_text_preview(e, 200)}", level="ERROR")
+                raise
             if not result_indexes:
                 self.log("AI 未返回可点击选项", level="WARNING")
                 return False
@@ -2625,7 +2672,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                     self.log(f"AI 返回了非法选项序号: {result_index}", level="WARNING")
                     return False
                 button_kind, target_btn, result = clickable_buttons[selected_idx]
-                self.log(f"AI 选择并点击选项：{result}")
+                self.log(f"AI 选择并点击选项 | index={selected_idx + 1} | preview={safe_text_preview(result, 60)}", level="DEBUG")
                 if button_kind == "inline":
                     if await self._click_inline_button(message, target_btn):
                         clicked += 1
