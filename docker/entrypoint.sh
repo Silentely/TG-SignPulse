@@ -4,6 +4,15 @@ set -eu
 PORT_VALUE="${PORT:-8080}"
 AUTO_FIX_PERMS="${APP_AUTO_FIX_DATA_PERMS:-1}"
 
+# 根据 LOG_LEVEL 控制 uvicorn access log
+# DEBUG 时输出到 stderr，否则禁用（输出到 /dev/null）
+LOG_LEVEL_UPPER="$(echo "${LOG_LEVEL:-INFO}" | tr '[:lower:]' '[:upper:]')"
+if [ "${LOG_LEVEL_UPPER}" = "DEBUG" ]; then
+  ACCESS_LOG_OPT="--access-log"
+else
+  ACCESS_LOG_OPT="--no-access-log"
+fi
+
 # Default runtime identity (kept for compatibility with existing images).
 DEFAULT_UID="${APP_UID:-10001}"
 DEFAULT_GID="${APP_GID:-10001}"
@@ -39,9 +48,9 @@ if [ "$(id -u)" -eq 0 ]; then
 
   # If mounted volume is root-owned, keep root to preserve writability.
   if [ "${TARGET_UID}" = "0" ] || [ "${TARGET_GID}" = "0" ]; then
-    exec uvicorn backend.main:app --host 0.0.0.0 --port "${PORT_VALUE}"
+    exec uvicorn backend.main:app --host 0.0.0.0 --port "${PORT_VALUE}" ${ACCESS_LOG_OPT}
   fi
-  exec gosu "${TARGET_UID}:${TARGET_GID}" uvicorn backend.main:app --host 0.0.0.0 --port "${PORT_VALUE}"
+  exec gosu "${TARGET_UID}:${TARGET_GID}" uvicorn backend.main:app --host 0.0.0.0 --port "${PORT_VALUE}" ${ACCESS_LOG_OPT}
 fi
 
-exec uvicorn backend.main:app --host 0.0.0.0 --port "${PORT_VALUE}"
+exec uvicorn backend.main:app --host 0.0.0.0 --port "${PORT_VALUE}" ${ACCESS_LOG_OPT}

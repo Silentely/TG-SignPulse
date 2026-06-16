@@ -59,8 +59,6 @@ class HealthCheckFilter(logging.Filter):
         )
 
 
-logging.getLogger("uvicorn.access").addFilter(HealthCheckFilter())
-
 # 配置后端日志等级，支持 LOG_LEVEL 环境变量
 def _configure_backend_logging():
     """配置后端日志等级，从环境变量 LOG_LEVEL 读取，默认为 INFO
@@ -73,8 +71,9 @@ def _configure_backend_logging():
     - CRITICAL: 严重错误
 
     访问日志处理：
-    uvicorn.access 的访问日志使用过滤器控制，
-    只有在 LOG_LEVEL=DEBUG 时才会显示访问日志。
+    由于 uvicorn 启动时会重新配置 logging handler，
+    必须在 app startup 事件中重新应用过滤器。
+    此函数仅设置初始值，实际过滤在 startup 事件中完成。
     """
     log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
     level_no = logging.getLevelName(log_level)
@@ -82,14 +81,11 @@ def _configure_backend_logging():
         logging.getLogger().setLevel(level_no)
         logging.getLogger("backend").setLevel(level_no)
         logging.getLogger("uvicorn").setLevel(level_no)
-        # 访问日志使用过滤器控制
+        # 访问日志通过 handler 的 level 控制，而非 filter
         access_logger = logging.getLogger("uvicorn.access")
-        access_logger.setLevel(logging.DEBUG)
-        # 移除现有的过滤器（如果有）
-        access_logger.filters.clear()
-        # 添加访问日志过滤器，只在 DEBUG 模式下显示
-        if level_no > logging.DEBUG:
-            access_logger.addFilter(lambda record: False)
+        access_logger.setLevel(logging.DEBUG if level_no <= logging.DEBUG else logging.WARNING)
+        # 添加健康检查过滤器（始终生效）
+        access_logger.addFilter(HealthCheckFilter())
 
 _configure_backend_logging()
 
@@ -193,6 +189,9 @@ async def serve_spa(full_path: str):
 
 @app.on_event("startup")
 async def on_startup() -> None:
+    # 重新应用日志配置（uvicorn 启动后会重新配置 logging，覆盖之前的设置）
+    _configure_backend_logging()
+
     ensure_data_dirs(settings)
     init_engine()
     Base.metadata.create_all(bind=get_engine())
