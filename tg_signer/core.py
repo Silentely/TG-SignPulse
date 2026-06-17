@@ -2525,7 +2525,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             if ai_prompt:
                 self.log("当前 AI 动作使用自定义提示词")
             model = self.get_ai_tools().default_model
-            self.log(f"AI 请求 | {safe_ai_request_meta(method='calculate_problem', model=model, query_chars=len(message.text), custom_prompt=bool(ai_prompt))}")
+            self.log(f"AI 请求 | {safe_ai_request_meta(method='calculate_problem', model=model, query_chars=len(message.text), custom_prompt=bool(ai_prompt), question_preview=message.text)}")
             _start = time.monotonic()
             try:
                 answer = await self.get_ai_tools().calculate_problem(
@@ -2534,7 +2534,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 )
                 _elapsed = (time.monotonic() - _start) * 1000
                 answer = (answer or "").strip()
-                self.log(f"AI 响应 | {safe_ai_result_meta(method='calculate_problem', model=model, elapsed_ms=_elapsed, response_chars=len(answer))}")
+                self.log(f"AI 响应 | {safe_ai_result_meta(method='calculate_problem', model=model, elapsed_ms=_elapsed, response_chars=len(answer), selected_options=[answer] if answer else [])}")
             except Exception as e:
                 _elapsed = (time.monotonic() - _start) * 1000
                 self.log(f"AI 调用失败 | method=calculate_problem model={model} elapsed_ms={_elapsed:.0f} error={type(e).__name__}: {safe_text_preview(e, 200)}", level="ERROR")
@@ -2575,7 +2575,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             )
             _elapsed = (time.monotonic() - _start) * 1000
             text = (text or "").strip()
-            self.log(f"AI 响应 | {safe_ai_result_meta(method='extract_text_by_image', model=model, elapsed_ms=_elapsed, response_chars=len(text))}")
+            self.log(f"AI 响应 | {safe_ai_result_meta(method='extract_text_by_image', model=model, elapsed_ms=_elapsed, response_chars=len(text), selected_options=[text] if text else [])}")
         except Exception as e:
             _elapsed = (time.monotonic() - _start) * 1000
             self.log(f"AI 调用失败 | method=extract_text_by_image model={model} elapsed_ms={_elapsed:.0f} error={type(e).__name__}: {safe_text_preview(e, 200)}", level="ERROR")
@@ -2598,7 +2598,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         if ai_prompt:
             self.log("当前 AI 动作使用自定义提示词")
         model = self.get_ai_tools().default_model
-        self.log(f"AI 请求 | {safe_ai_request_meta(method='calculate_problem', model=model, query_chars=len(message.text), custom_prompt=bool(ai_prompt))}")
+        self.log(f"AI 请求 | {safe_ai_request_meta(method='calculate_problem', model=model, query_chars=len(message.text), custom_prompt=bool(ai_prompt), question_preview=message.text)}")
         _start = time.monotonic()
         try:
             answer = await self.get_ai_tools().calculate_problem(
@@ -2607,7 +2607,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             )
             _elapsed = (time.monotonic() - _start) * 1000
             answer = (answer or "").strip()
-            self.log(f"AI 响应 | {safe_ai_result_meta(method='calculate_problem', model=model, elapsed_ms=_elapsed, response_chars=len(answer))}")
+            self.log(f"AI 响应 | {safe_ai_result_meta(method='calculate_problem', model=model, elapsed_ms=_elapsed, response_chars=len(answer), selected_options=[answer] if answer else [])}")
         except Exception as e:
             _elapsed = (time.monotonic() - _start) * 1000
             self.log(f"AI 调用失败 | method=calculate_problem model={model} elapsed_ms={_elapsed:.0f} error={type(e).__name__}: {safe_text_preview(e, 200)}", level="ERROR")
@@ -2642,7 +2642,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             if ai_prompt:
                 self.log("当前 AI 动作使用自定义提示词")
             model = self.get_ai_tools().default_model
-            self.log(f"AI 请求 | {safe_ai_request_meta(method='choose_options_by_image', model=model, has_image=True, image_bytes=len(image_bytes), query_chars=len(question_text), options_count=len(options), custom_prompt=bool(ai_prompt))}")
+            self.log(f"AI 请求 | {safe_ai_request_meta(method='choose_options_by_image', model=model, has_image=True, image_bytes=len(image_bytes), query_chars=len(question_text), options_count=len(options), custom_prompt=bool(ai_prompt), question_preview=question_text, options_preview=options)}")
             _start = time.monotonic()
             try:
                 result_indexes = await self.get_ai_tools().choose_options_by_image(
@@ -2652,7 +2652,15 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                     system_prompt=ai_prompt,
                 )
                 _elapsed = (time.monotonic() - _start) * 1000
-                self.log(f"AI 响应 | {safe_ai_result_meta(method='choose_options_by_image', model=model, elapsed_ms=_elapsed, result_type='list', result_count=len(result_indexes or []))}")
+                # 收集选中的选项内容
+                selected_options = []
+                if result_indexes:
+                    for idx in result_indexes:
+                        if 1 <= idx <= len(options):
+                            selected_options.append(options[idx - 1])
+                        elif 0 <= idx < len(options):
+                            selected_options.append(options[idx])
+                self.log(f"AI 响应 | {safe_ai_result_meta(method='choose_options_by_image', model=model, elapsed_ms=_elapsed, result_type='list', result_count=len(result_indexes or []), selected_options=selected_options)}")
             except Exception as e:
                 _elapsed = (time.monotonic() - _start) * 1000
                 self.log(f"AI 调用失败 | method=choose_options_by_image model={model} elapsed_ms={_elapsed:.0f} error={type(e).__name__}: {safe_text_preview(e, 200)}", level="ERROR")
