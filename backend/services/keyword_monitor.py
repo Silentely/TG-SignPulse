@@ -1118,7 +1118,7 @@ class KeywordMonitorService:
         if action_id == 5:
             query = (message.text or message.caption or "").strip()
             model = ai_tools.default_model
-            logger.info(f"关键词监听 AI 请求 | chat={target_chat_id} | {safe_ai_request_meta(method='calculate_problem', model=model, query_chars=len(query))}")
+            logger.info(f"关键词监听 AI 请求 | chat={target_chat_id} | {safe_ai_request_meta(method='calculate_problem', model=model, query_chars=len(query), question_preview=query)}")
             _start = time.monotonic()
             try:
                 answer = (
@@ -1129,7 +1129,7 @@ class KeywordMonitorService:
                     or ""
                 ).strip()
                 _elapsed = (time.monotonic() - _start) * 1000
-                logger.info(f"关键词监听 AI 响应 | chat={target_chat_id} | {safe_ai_result_meta(method='calculate_problem', model=model, elapsed_ms=_elapsed, response_chars=len(answer))}")
+                logger.info(f"关键词监听 AI 响应 | chat={target_chat_id} | {safe_ai_result_meta(method='calculate_problem', model=model, elapsed_ms=_elapsed, response_chars=len(answer), selected_options=[answer] if answer else [])}")
             except Exception as e:
                 _elapsed = (time.monotonic() - _start) * 1000
                 logger.error(f"关键词监听 AI 调用失败 | chat={target_chat_id} | method=calculate_problem elapsed_ms={_elapsed:.0f} error={type(e).__name__}: {safe_text_preview(e, 200)}")
@@ -1157,7 +1157,7 @@ class KeywordMonitorService:
                     or ""
                 ).strip()
                 _elapsed = (time.monotonic() - _start) * 1000
-                logger.info(f"关键词监听 AI 响应 | chat={target_chat_id} | {safe_ai_result_meta(method='extract_text_by_image', model=model, elapsed_ms=_elapsed, response_chars=len(answer))}")
+                logger.info(f"关键词监听 AI 响应 | chat={target_chat_id} | {safe_ai_result_meta(method='extract_text_by_image', model=model, elapsed_ms=_elapsed, response_chars=len(answer), selected_options=[answer] if answer else [])}")
             except Exception as e:
                 _elapsed = (time.monotonic() - _start) * 1000
                 logger.error(f"关键词监听 AI 调用失败 | chat={target_chat_id} | method=extract_text_by_image elapsed_ms={_elapsed:.0f} error={type(e).__name__}: {safe_text_preview(e, 200)}")
@@ -1174,7 +1174,7 @@ class KeywordMonitorService:
         if action_id == 7:
             query = (message.text or message.caption or "").strip()
             model = ai_tools.default_model
-            logger.info(f"关键词监听 AI 请求 | chat={target_chat_id} | {safe_ai_request_meta(method='calculate_problem', model=model, query_chars=len(query))}")
+            logger.info(f"关键词监听 AI 请求 | chat={target_chat_id} | {safe_ai_request_meta(method='calculate_problem', model=model, query_chars=len(query), question_preview=query)}")
             _start = time.monotonic()
             try:
                 answer = (
@@ -1185,7 +1185,7 @@ class KeywordMonitorService:
                     or ""
                 ).strip()
                 _elapsed = (time.monotonic() - _start) * 1000
-                logger.info(f"关键词监听 AI 响应 | chat={target_chat_id} | {safe_ai_result_meta(method='calculate_problem', model=model, elapsed_ms=_elapsed, response_chars=len(answer))}")
+                logger.info(f"关键词监听 AI 响应 | chat={target_chat_id} | {safe_ai_result_meta(method='calculate_problem', model=model, elapsed_ms=_elapsed, response_chars=len(answer), selected_options=[answer] if answer else [])}")
             except Exception as e:
                 _elapsed = (time.monotonic() - _start) * 1000
                 logger.error(f"关键词监听 AI 调用失败 | chat={target_chat_id} | method=calculate_problem elapsed_ms={_elapsed:.0f} error={type(e).__name__}: {safe_text_preview(e, 200)}")
@@ -1207,7 +1207,7 @@ class KeywordMonitorService:
             question_text = (message.caption or message.text or "").strip() or "Choose the correct option"
             options = [button_text for _, _, button_text in clickable_buttons]
             model = ai_tools.default_model
-            logger.info(f"关键词监听 AI 请求 | chat={target_chat_id} | {safe_ai_request_meta(method='choose_options_by_image', model=model, has_image=True, image_bytes=len(image_bytes), query_chars=len(question_text), options_count=len(options))}")
+            logger.info(f"关键词监听 AI 请求 | chat={target_chat_id} | {safe_ai_request_meta(method='choose_options_by_image', model=model, has_image=True, image_bytes=len(image_bytes), query_chars=len(question_text), options_count=len(options), question_preview=question_text, options_preview=options)}")
             _start = time.monotonic()
             try:
                 result_indexes = await ai_tools.choose_options_by_image(
@@ -1217,7 +1217,15 @@ class KeywordMonitorService:
                     system_prompt=action.get("ai_prompt"),
                 )
                 _elapsed = (time.monotonic() - _start) * 1000
-                logger.info(f"关键词监听 AI 响应 | chat={target_chat_id} | {safe_ai_result_meta(method='choose_options_by_image', model=model, elapsed_ms=_elapsed, result_type='list', result_count=len(result_indexes or []))}")
+                # 收集选中的选项内容
+                selected_options = []
+                if result_indexes:
+                    for idx in result_indexes:
+                        if 1 <= idx <= len(options):
+                            selected_options.append(options[idx - 1])
+                        elif 0 <= idx < len(options):
+                            selected_options.append(options[idx])
+                logger.info(f"关键词监听 AI 响应 | chat={target_chat_id} | {safe_ai_result_meta(method='choose_options_by_image', model=model, elapsed_ms=_elapsed, result_type='list', result_count=len(result_indexes or []), selected_options=selected_options)}")
             except Exception as e:
                 _elapsed = (time.monotonic() - _start) * 1000
                 logger.error(f"关键词监听 AI 调用失败 | chat={target_chat_id} | method=choose_options_by_image elapsed_ms={_elapsed:.0f} error={type(e).__name__}: {safe_text_preview(e, 200)}")
