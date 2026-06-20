@@ -8,6 +8,7 @@
 | 分支推送 | `ghcr.io/<owner>/tg-signpulse:test-<short-sha>` | 精确回溯 |
 | Git 标签 `v*` | `ghcr.io/<owner>/tg-signpulse:vX.Y.Z` | 生产 |
 | Git 标签 `v*` | `ghcr.io/<owner>/tg-signpulse:latest` | 生产（滚动） |
+| 预发验证 | `ghcr.io/<owner>/tg-signpulse:staging` | 预发环境固定入口 |
 
 ## 快速部署
 
@@ -43,6 +44,8 @@ services:
       APP_DATA_DIR: /data
       APP_SECRET_KEY: replace-with-a-long-random-string
       ADMIN_PASSWORD: replace-with-a-strong-password
+    mem_limit: 512m
+    cpus: 1.0
     init: true
     read_only: true
     tmpfs:
@@ -152,6 +155,20 @@ panel.example.com {
 ```
 
 > 💡 使用反向代理时，建议将容器端口绑定到本地：`-p 127.0.0.1:8080:8080`
+
+## CI/CD 缓存
+
+镜像构建建议分层缓存：
+
+- 前端：先复制 `frontend/package*.json` 并运行 `npm ci`，再复制源码构建。
+- 后端：优先缓存 Python wheel / pip 下载目录，依赖文件变化时再失效。
+- Docker Buildx：启用 registry cache 或 GitHub Actions cache，减少多平台构建耗时。
+
+预发流程建议：
+
+1. 每次主分支构建推送 `test-<short-sha>`。
+2. 预发环境显式部署该 sha 标签并验证。
+3. 验证通过后再移动或发布 `staging` 标签，避免预发环境隐式漂移。
 
 ## 升级
 

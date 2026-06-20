@@ -9,11 +9,18 @@ import time
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime
-from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Union
 
 from backend.core.config import get_settings
 from backend.services.push_notifications import send_keyword_push
+from tg_signer.compat import (
+    InlineKeyboardMarkup,
+    Message,
+    MessageHandler,
+    ReplyKeyboardMarkup,
+    errors,
+    filters,
+)
 from tg_signer.log_utils import safe_ai_request_meta, safe_ai_result_meta, safe_text_preview
 from backend.utils.account_locks import get_account_lock
 from backend.utils.proxy import build_proxy_dict
@@ -34,53 +41,6 @@ class TerminalAIActionError(Exception):
 # 模块级别变量
 logger = logging.getLogger("backend.keyword_monitor")
 settings = get_settings()
-_PYROGRAM_IMPORT_ERROR: Exception | None = None
-
-try:
-    from pyrogram import errors, filters
-    from pyrogram.handlers import MessageHandler
-    from pyrogram.types import InlineKeyboardMarkup, Message, ReplyKeyboardMarkup
-except Exception as exc:  # pragma: no cover - fallback for unsupported runtimes
-    _PYROGRAM_IMPORT_ERROR = exc
-
-    class _RPCError(Exception):
-        pass
-
-    class _FloodWait(_RPCError):
-        def __init__(self, *args, value: int = 0, **kwargs):
-            super().__init__(*args)
-            self.value = value
-
-    errors = SimpleNamespace(FloodWait=_FloodWait)
-
-    class _FilterExpr:
-        def __and__(self, other):
-            return self
-
-        def __or__(self, other):
-            return self
-
-    filters = SimpleNamespace(
-        text=_FilterExpr(),
-        caption=_FilterExpr(),
-        chat=lambda *args, **kwargs: _FilterExpr(),
-    )
-
-    class MessageHandler:  # type: ignore[no-redef]
-        def __init__(self, *args, **kwargs):
-            raise RuntimeError(
-                "Telegram runtime dependencies are unavailable. "
-                "Use Python 3.10-3.13 with a compatible pyrogram/kurigram install."
-            ) from _PYROGRAM_IMPORT_ERROR
-
-    class InlineKeyboardMarkup:  # type: ignore[no-redef]
-        inline_keyboard = ()
-
-    class ReplyKeyboardMarkup:  # type: ignore[no-redef]
-        keyboard = ()
-
-    class Message:  # type: ignore[no-redef]
-        pass
 
 DEFAULT_CONTINUE_TIMEOUT = 25
 DEFAULT_HISTORY_LIMIT = 10

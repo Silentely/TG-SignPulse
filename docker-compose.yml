@@ -4,6 +4,8 @@ services:
     container_name: tg-signpulse
     ports:
       - "8080:8080"
+    mem_limit: 512m
+    cpus: 1.0
     volumes:
       - ./data:/data
     environment:

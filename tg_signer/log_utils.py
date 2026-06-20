@@ -15,8 +15,8 @@ _SECRET_PATTERNS = [
     re.compile(r"sk-[A-Za-z0-9_-]{8,}"),
     # Telegram session string（长 base64-like 字符串，通常 >100 字符）
     re.compile(r"[A-Za-z0-9+/=_-]{80,}={0,2}"),
-    # Telegram bot token（数字:字母数字串）
-    re.compile(r"\d{8,12}:[A-Za-z0-9_-]{30,}"),
+    # Telegram bot token（数字:字母数字串，兼容较短的测试 token）
+    re.compile(r"\d{8,12}:[A-Za-z0-9_-]{10,}"),
     # Telegram api_hash（32 位十六进制）
     re.compile(r"[0-9a-fA-F]{32}(?=[^0-9a-fA-F]|$)"),
     # data:image base64 图片

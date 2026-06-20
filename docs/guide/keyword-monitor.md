@@ -16,17 +16,18 @@
 
 ## 匹配方式
 
-当前支持三种匹配模式：
+当前支持四种匹配模式：
 
 - `contains`：包含
 - `exact`：完全匹配
 - `regex`：正则表达式
+- `all`：不筛选关键词，监听范围内任意新消息都会命中
 
 默认行为：
 
 - 监听任务默认 `ignore_case = true`
 - `contains` 和 `exact` 支持换行或逗号分隔多个关键词
-- `regex` 模式按“每行一个正则”处理
+- `regex` 模式按”每行一个正则”处理
 
 ## 推送通道
 
@@ -69,7 +70,20 @@
 
 - `bark_url`
 
-### 5. `custom`
+### 5. `serverchan`
+
+通过 ServerChan / Server 酱发送通知。配置字段：
+
+- `push_via_server_chan`：设为 `true` 启用
+- `server_chan_send_key`：ServerChan 的 SendKey
+
+如果面板没有独立 ServerChan 字段，可通过 `custom` URL 接入：
+
+```text
+https://sctapi.ftqq.com/<sendkey>.send?title={title}&desp={body}
+```
+
+### 6. `custom`
 
 把命中消息推送到自定义 URL。
 
@@ -77,6 +91,15 @@
 
 - `GET` 模板 URL：URL 中可使用 `{title}`、`{body}`、`{url}`
 - `POST JSON`：如果 URL 中没有模板变量，则直接发 JSON
+
+## UDP/HTTP 外部转发
+
+执行引擎支持在监听命中后把原始消息转发到外部系统：
+
+- `udp`：适合发给本机或内网的轻量事件接收器，字段包括 `host`、`port`。
+- `http`：适合调用 Webhook，字段包括 `url`，系统会发送 JSON 负载。
+
+外部转发适合接入现有自动化平台、审计流水线或自建告警系统。生产环境建议只指向内网地址或可信 HTTPS 端点。
 
 ## 后续动作
 

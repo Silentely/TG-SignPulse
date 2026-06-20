@@ -8,13 +8,14 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
+import jwt
+from jwt import PyJWTError
 import pyotp
 from backend.core.config import get_settings
 from backend.core.database import get_db
 from backend.core.security import verify_password
 from backend.models.user import User
 from backend.utils.time import utc_now
-from jose import JWTError, jwt
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
@@ -73,7 +74,7 @@ def get_current_user(
         username: str = payload.get("sub")  # type: ignore[assignment]
         if username is None:
             raise credentials_exception
-    except JWTError:
+    except PyJWTError:
         raise credentials_exception
     user = db.query(User).filter(User.username == username).first()
     if user is None:
@@ -104,7 +105,7 @@ def verify_token(token: str, db: Session) -> Optional[User]:
         username: str = payload.get("sub")  # type: ignore[assignment]
         if username is None:
             return None
-    except JWTError:
+    except PyJWTError:
         return None
     user = db.query(User).filter(User.username == username).first()
     return user

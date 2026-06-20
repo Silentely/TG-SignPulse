@@ -5,6 +5,7 @@ import contextlib
 import logging
 import os
 import sqlite3
+from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
@@ -125,7 +126,16 @@ def _configure_backend_logging():
 
 settings = get_settings()
 
-app = FastAPI(title=settings.app_name, version="0.1.0")
+@asynccontextmanager
+async def lifespan(fastapi_app: FastAPI):
+    await on_startup()
+    try:
+        yield
+    finally:
+        await on_shutdown()
+
+
+app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
 app.state.ready = False
 
 app.add_middleware(GZipMiddleware, minimum_size=1000)
@@ -136,8 +146,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_allow_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
 )
 
 # API 路由必须在静态文件挂载之前注册，并使用 /api 前缀
@@ -176,6 +186,19 @@ if next_static_dir.exists():
     )
 
 
+def _resolve_web_file(full_path: str) -> Path | None:
+    """安全解析文件路径，防止路径遍历攻击"""
+    web_root = web_dir.resolve()
+    candidate = (web_root / full_path).resolve()
+    try:
+        candidate.relative_to(web_root)
+    except ValueError:
+        return None
+    if candidate.exists() and candidate.is_file():
+        return candidate
+    return None
+
+
 # Catch-all 路由：处理所有前端路由，返回 index.html
 @app.get("/{full_path:path}")
 async def serve_spa(full_path: str):
@@ -183,16 +206,14 @@ async def serve_spa(full_path: str):
     SPA fallback: 对于所有非 API 路由，返回 index.html
     这样刷新页面时不会 404
     """
-    # 检查是否是静态文件请求
-    file_path = web_dir / full_path
-
-    # 如果文件存在且不是目录，直接返回文件
-    if file_path.exists() and file_path.is_file():
+    # 检查是否是静态文件请求（带路径遍历防护）
+    file_path = _resolve_web_file(full_path)
+    if file_path is not None:
         return FileResponse(file_path)
 
-    # 尝试添加 .html 后缀（Next.js 导出通常会生成 .html 文件）
-    html_path = web_dir / f"{full_path}.html"
-    if html_path.exists() and html_path.is_file():
+    # 尝试添加 .html 后缀
+    html_path = _resolve_web_file(f"{full_path}.html")
+    if html_path is not None:
         return FileResponse(html_path)
 
     # 否则返回 index.html（SPA 路由）
@@ -221,7 +242,6 @@ async def serve_spa(full_path: str):
     return Response(content="Not Found", status_code=status.HTTP_404_NOT_FOUND)
 
 
-@app.on_event("startup")
 async def on_startup() -> None:
     # 重新应用日志配置（uvicorn 启动后会重新配置 logging，覆盖之前的设置）
     _configure_backend_logging()
@@ -294,7 +314,6 @@ def _pre_export_session_strings() -> None:
         logger.info(f"Pre-exported {exported} session strings for in-memory task execution")
 
 
-@app.on_event("shutdown")
 async def on_shutdown() -> None:
     startup_task = getattr(app.state, "startup_task", None)
     if startup_task is not None and not startup_task.done():
@@ -307,4 +326,4 @@ async def on_shutdown() -> None:
 
         await get_keyword_monitor_service().stop()
     except Exception:
-        pass
+        logging.getLogger("backend.shutdown").exception("Keyword monitor shutdown failed")

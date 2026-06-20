@@ -35,6 +35,8 @@ dependencies = [
     "passlib[bcrypt]",
     "bcrypt",
     "qrcode[pil]",
+    "cryptography",
+    "filelock",
 ]
 
 [dependency-groups]

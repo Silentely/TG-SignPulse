@@ -10,7 +10,6 @@ import unicodedata
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from datetime import time as dt_time
-from types import SimpleNamespace
 from typing import (
     Any,
     BinaryIO,
@@ -52,136 +51,34 @@ from tg_signer.config import (
     UDPForward,
 )
 
+_PYDANTIC_V2 = hasattr(BaseModel, "model_validate")
+
+from .compat import (
+    _PYROGRAM_IMPORT_ERROR,
+    _raise_pyrogram_import_error,
+    BaseClient,
+    Chat,
+    ChatMembersFilter,
+    ChatType,
+    EditedMessageHandler,
+    InlineKeyboardMarkup,
+    MemoryStorage,
+    Message,
+    MessageHandler,
+    Object,
+    ReplyKeyboardMarkup,
+    Session,
+    User,
+    errors,
+    filters,
+    idle,
+    raw,
+)
 from .ai_tools import AITools, OpenAIConfigManager
 from .async_utils import create_logged_task
 from .log_utils import safe_ai_request_meta, safe_ai_result_meta, safe_text_preview
 from .notification.server_chan import sc_send
 from .utils import UserInput, print_to_user
-
-_PYDANTIC_V2 = hasattr(BaseModel, "model_validate")
-_PYROGRAM_IMPORT_ERROR: Exception | None = None
-
-try:
-    from pyrogram import Client as BaseClient
-    from pyrogram import errors, filters, raw
-    from pyrogram.enums import ChatMembersFilter, ChatType
-    from pyrogram.handlers import EditedMessageHandler, MessageHandler
-    from pyrogram.methods.utilities.idle import idle
-    from pyrogram.session import Session
-    from pyrogram.storage import MemoryStorage
-    from pyrogram.types import (
-        Chat,
-        InlineKeyboardMarkup,
-        Message,
-        Object,
-        ReplyKeyboardMarkup,
-        User,
-    )
-except Exception as exc:  # pragma: no cover - fallback for unsupported runtimes
-    _PYROGRAM_IMPORT_ERROR = exc
-
-    def _raise_pyrogram_import_error() -> None:
-        raise RuntimeError(
-            "Telegram runtime dependencies are unavailable. "
-            "Use Python 3.10-3.13 with a compatible pyrogram/kurigram install."
-        ) from _PYROGRAM_IMPORT_ERROR
-
-    class _RPCError(Exception):
-        pass
-
-    class _FloodWait(_RPCError):
-        def __init__(self, *args, value: int = 0, **kwargs):
-            super().__init__(*args)
-            self.value = value
-
-    errors = SimpleNamespace(
-        RPCError=_RPCError,
-        FloodWait=_FloodWait,
-        BadRequest=_RPCError,
-        Unauthorized=_RPCError,
-    )
-
-    class _FilterExpr:
-        def __and__(self, other):
-            return self
-
-        def __or__(self, other):
-            return self
-
-    filters = SimpleNamespace(
-        text=_FilterExpr(),
-        caption=_FilterExpr(),
-        chat=lambda *args, **kwargs: _FilterExpr(),
-    )
-
-    raw = SimpleNamespace(
-        functions=SimpleNamespace(
-            updates=SimpleNamespace(
-                GetChannelDifference=type("GetChannelDifference", (), {}),
-                GetDifference=type("GetDifference", (), {}),
-                GetState=type("GetState", (), {}),
-            )
-        )
-    )
-
-    class ChatMembersFilter:  # type: ignore[no-redef]
-        SEARCH = "search"
-        ADMINISTRATORS = "administrators"
-
-    class ChatType:  # type: ignore[no-redef]
-        BOT = "bot"
-        GROUP = "group"
-        SUPERGROUP = "supergroup"
-        CHANNEL = "channel"
-
-    class MessageHandler:  # type: ignore[no-redef]
-        def __init__(self, *args, **kwargs):
-            self.args = args
-            self.kwargs = kwargs
-
-    class EditedMessageHandler(MessageHandler):  # type: ignore[no-redef]
-        pass
-
-    async def idle():  # type: ignore[no-redef]
-        _raise_pyrogram_import_error()
-
-    class Session:  # type: ignore[no-redef]
-        START_TIMEOUT = 5
-
-    class MemoryStorage:  # type: ignore[no-redef]
-        def __init__(self, *args, **kwargs):
-            self.args = args
-            self.kwargs = kwargs
-
-    class BaseClient:  # type: ignore[no-redef]
-        def __init__(self, *args, **kwargs):
-            _raise_pyrogram_import_error()
-
-        async def invoke(self, *args, **kwargs):
-            _raise_pyrogram_import_error()
-
-    class Chat:  # type: ignore[no-redef]
-        pass
-
-    class InlineKeyboardMarkup:  # type: ignore[no-redef]
-        inline_keyboard = ()
-
-    class Message:  # type: ignore[no-redef]
-        pass
-
-    class Object:  # type: ignore[no-redef]
-        @staticmethod
-        def default(obj):
-            return str(obj)
-
-    class ReplyKeyboardMarkup:  # type: ignore[no-redef]
-        keyboard = ()
-
-    class User:  # type: ignore[no-redef]
-        pass
-else:
-    def _raise_pyrogram_import_error() -> None:
-        return None
 
 # Monkeypatch sqlite3.connect to increase default timeout
 _original_sqlite3_connect = sqlite3.connect

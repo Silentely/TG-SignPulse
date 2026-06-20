@@ -5,7 +5,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
+import tempfile
+import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -23,6 +27,43 @@ settings = get_settings()
 
 class ConfigService:
     """配置管理服务类"""
+
+    _file_lock = threading.RLock()
+
+    def _read_json_file(self, path: Path, default: Any = None) -> Any:
+        """带进程内锁读取 JSON，避免同进程并发读写交错。"""
+        if not path.exists():
+            return default
+        try:
+            with self._file_lock:
+                with open(path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return default
+
+    def _write_json_file(self, path: Path, data: Any) -> bool:
+        """原子写入 JSON，避免异常中断时留下半截配置文件。"""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = None
+        with self._file_lock:
+            try:
+                fd, temp_name = tempfile.mkstemp(
+                    prefix=f".{path.name}.",
+                    suffix=".tmp",
+                    dir=str(path.parent),
+                )
+                temp_path = Path(temp_name)
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(temp_path, path)
+                return True
+            except Exception:
+                if temp_path is not None:
+                    with contextlib.suppress(OSError):
+                        temp_path.unlink()
+                return False
 
     def __init__(self):
         self.workdir = settings.resolve_workdir()

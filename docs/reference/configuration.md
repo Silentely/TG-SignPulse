@@ -12,8 +12,19 @@
 | `APP_PORT` | `3000` | | 本地直接运行时的监听端口 |
 | `PORT` | `8080` | | Docker 容器内实际监听端口 |
 | `TZ` | `Asia/Hong_Kong` (本地) / `Asia/Shanghai` (容器) | | 时区，影响任务调度 |
+| `LOG_LEVEL` / `APP_LOG_LEVEL` | `INFO` | | 后端日志级别，可选 `DEBUG`、`INFO`、`WARNING`、`ERROR`、`CRITICAL` |
 | `APP_TOTP_VALID_WINDOW` | `1` | | 面板 2FA 时间窗口容差（0=仅当前30s） |
 | `APP_ACCESS_TOKEN_EXPIRE_HOURS` | `12` | | JWT Token 过期时间（小时） |
+
+## CORS 部署拓扑
+
+`APP_CORS_ALLOW_ORIGINS` 只影响浏览器跨域访问 API 的场景：
+
+- 前后端同源部署：例如统一通过 `https://panel.example.com` 访问，通常不需要额外放宽 CORS。
+- 前端独立域名：例如前端是 `https://app.example.com`、后端是 `https://api.example.com`，必须把前端完整 origin 写入 `APP_CORS_ALLOW_ORIGINS`。
+- 本地开发：默认允许 `http://127.0.0.1:3000` 和 `http://localhost:3000`。
+
+生产环境不要使用通配符；多 origin 用英文逗号分隔。
 
 ## Telegram 相关
 
@@ -166,3 +177,11 @@
 - `APP_SECRET_KEY` 未设置时，自动生成并持久化到 `.app_secret_key`
 - `TG_SESSION_MODE=string` 时，session string 存入 `sessions/accounts.json`
 - 任务日志默认保留 3 天，由每日凌晨 3 点的维护任务自动清理
+- `LOG_LEVEL=DEBUG` 会重新启用 uvicorn access log，但仍会过滤健康检查端点以减少噪音
+
+## 配置缓存行为
+
+`backend.core.config.get_settings()` 使用 `functools.lru_cache()` 缓存环境变量解析结果。
+
+- 进程启动后修改 `.env` 或环境变量不会自动生效，需要重启后端进程。
+- 测试中如果临时修改环境变量，需要调用 `get_settings.cache_clear()` 后再重新导入或读取配置。

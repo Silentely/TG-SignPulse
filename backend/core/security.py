@@ -1,17 +1,23 @@
-from passlib.context import CryptContext
+from __future__ import annotations
 
-# 配置 bcrypt 上下文
-pwd_context = CryptContext(
-    schemes=["bcrypt"],
-    deprecated="auto",
-)
+import bcrypt
 
 
 def hash_password(password: str) -> str:
     """哈希密码"""
-    return pwd_context.hash(password)
+    if not isinstance(password, str):
+        raise TypeError("password must be a string")
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """验证密码"""
-    return pwd_context.verify(plain_password, hashed_password)
+    if not isinstance(plain_password, str) or not isinstance(hashed_password, str):
+        return False
+    try:
+        return bcrypt.checkpw(
+            plain_password.encode("utf-8"),
+            hashed_password.encode("utf-8"),
+        )
+    except ValueError:
+        return False

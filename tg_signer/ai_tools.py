@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from openai import AsyncOpenAI  # 在性能弱的机器上导入openai包实在有些慢
 
 from tg_signer.log_utils import safe_text_preview
+from tg_signer.security import decrypt_secret, encrypt_secret, is_encrypted_secret
 from tg_signer.utils import UserInput, print_to_user
 
 DEFAULT_MODEL = "gpt-4o"
@@ -99,12 +100,15 @@ class OpenAIConfigManager:
                 c = json.load(fp)
             # 简单验证必需字段
             if "api_key" in c:
+                # 解密 API key
+                c["api_key"] = decrypt_secret(c["api_key"])
                 return c
         return None
 
     def save_config(self, api_key: str, base_url: str = None, model: str = None):
         config_file = self.get_config_file()
-        config = OpenAIConfig(api_key=api_key, base_url=base_url, model=model)
+        encrypted_key = encrypt_secret(api_key)
+        config = OpenAIConfig(api_key=encrypted_key, base_url=base_url, model=model)
         with open(config_file, "w", encoding="utf-8") as fp:
             json.dump(config, fp, ensure_ascii=False, indent=2)
 
