@@ -20,6 +20,7 @@ except Exception:  # pragma: no cover - Pillow is optional at runtime
 if TYPE_CHECKING:
     from openai import AsyncOpenAI  # 在性能弱的机器上导入openai包实在有些慢
 
+from cryptography.fernet import InvalidToken
 from tg_signer.log_utils import safe_text_preview
 from tg_signer.security import decrypt_secret, encrypt_secret, is_encrypted_secret
 from tg_signer.utils import UserInput, print_to_user
@@ -101,7 +102,11 @@ class OpenAIConfigManager:
             # 简单验证必需字段
             if "api_key" in c:
                 # 解密 API key
-                c["api_key"] = decrypt_secret(c["api_key"])
+                try:
+                    c["api_key"] = decrypt_secret(c["api_key"])
+                except InvalidToken:
+                    logger.warning("Failed to decrypt stored API key, returning None")
+                    return None
                 return c
         return None
 

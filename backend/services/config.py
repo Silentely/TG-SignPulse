@@ -59,10 +59,13 @@ class ConfigService:
                     os.fsync(f.fileno())
                 os.replace(temp_path, path)
                 return True
-            except Exception:
+            except Exception as exc:
                 if temp_path is not None:
                     with contextlib.suppress(OSError):
                         temp_path.unlink()
+                logging.getLogger("backend.config").exception(
+                    "Failed to write JSON file: %s", path
+                )
                 return False
 
     def __init__(self):

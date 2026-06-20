@@ -47,6 +47,9 @@ def memory_session_local(isolated_env: Path):
         autoflush=False,
         autocommit=False,
     )
+    # 赋值给模块级变量，确保 get_engine()/get_session_local() 使用内存 DB
+    database_module._engine = engine
+    database_module._SessionLocal = testing_session_local
     try:
         yield testing_session_local
     finally:

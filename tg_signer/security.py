@@ -66,7 +66,13 @@ def encrypt_secret(value: Optional[str]) -> Optional[str]:
     if not value:
         return value
     if is_encrypted_secret(value):
-        return value
+        # 验证前缀字符串确实可解密，防止伪造前缀绕过加密
+        try:
+            token = value[len(_ENCRYPTED_PREFIX):]
+            get_fernet().decrypt(token.encode("ascii"))
+            return value  # 已正确加密，直接返回
+        except InvalidToken:
+            pass  # 伪造前缀，重新加密
     token = get_fernet().encrypt(value.encode("utf-8")).decode("ascii")
     return f"{_ENCRYPTED_PREFIX}{token}"
 
@@ -82,4 +88,6 @@ def decrypt_secret(value: Optional[str]) -> Optional[str]:
         token = value[len(_ENCRYPTED_PREFIX):]
         return get_fernet().decrypt(token.encode("ascii")).decode("utf-8")
     except InvalidToken:
-        return value
+        raise InvalidToken(
+            f"Failed to decrypt secret value (wrong APP_SECRET_KEY or corrupted data)"
+        )
