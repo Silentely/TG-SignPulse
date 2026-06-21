@@ -324,12 +324,18 @@ def save_ai_config(
     request: AIConfigRequest, current_user: User = Depends(get_current_user)
 ):
     try:
-        get_config_service().save_ai_config(
+        if not get_config_service().save_ai_config(
             api_key=request.api_key,
             base_url=request.base_url,
             model=request.model,
-        )
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to save AI config: write failed",
+            )
         return AIConfigSaveResponse(success=True, message="AI config saved")
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
@@ -424,8 +430,14 @@ async def save_global_settings(
         if "data_dir" in fields_set:
             settings["data_dir"] = request.data_dir
 
-        get_config_service().save_global_settings(settings)
+        if not get_config_service().save_global_settings(settings):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to save global settings: write failed",
+            )
         return AIConfigSaveResponse(success=True, message="Global settings saved")
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
