@@ -97,7 +97,10 @@ ValueError: invalid literal
 
         # safe_text_preview 会折叠连续空白
         # 这是预期的新行为
-        assert "  " not in result.lstrip()  # 行内容部分不应有连续空格
+        # 检查每行的内容部分（去除行首缩进后）不应有连续空格
+        for line in result.splitlines():
+            content = line.lstrip()
+            assert "  " not in content, f"行内容部分不应有连续空格: {line!r}"
 
 
 class TestConfigureLogger:

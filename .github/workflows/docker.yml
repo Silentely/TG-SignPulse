@@ -23,7 +23,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install test dependencies
+        run: python -m pip install -e ".[dev]"
+
+      - name: Run pytest
+        run: pytest
+
   build-and-push:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -49,10 +68,10 @@ jobs:
               echo "EOF"
             } >> "${GITHUB_OUTPUT}"
           elif [[ "${GITHUB_REF_NAME}" == "main" ]]; then
-            # main 分支：生成 latest
+            # main 分支：生成 staging 标签，不覆盖 latest
             {
               echo "tags<<EOF"
-              echo "${image}:latest"
+              echo "${image}:staging"
               echo "${image}:main-${short_sha}"
               echo "EOF"
             } >> "${GITHUB_OUTPUT}"
@@ -81,5 +100,5 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.vars.outputs.tags }}
-          no-cache: true
+          cache-from: type=gha
           cache-to: type=gha,mode=max

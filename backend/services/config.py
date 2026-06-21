@@ -5,7 +5,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
+import logging
+import os
+import tempfile
+import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -23,6 +28,46 @@ settings = get_settings()
 
 class ConfigService:
     """配置管理服务类"""
+
+    _file_lock = threading.RLock()
+
+    def _read_json_file(self, path: Path, default: Any = None) -> Any:
+        """带进程内锁读取 JSON，避免同进程并发读写交错。"""
+        if not path.exists():
+            return default
+        try:
+            with self._file_lock:
+                with open(path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return default
+
+    def _write_json_file(self, path: Path, data: Any) -> bool:
+        """原子写入 JSON，避免异常中断时留下半截配置文件。"""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = None
+        with self._file_lock:
+            try:
+                fd, temp_name = tempfile.mkstemp(
+                    prefix=f".{path.name}.",
+                    suffix=".tmp",
+                    dir=str(path.parent),
+                )
+                temp_path = Path(temp_name)
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(temp_path, path)
+                return True
+            except Exception:
+                if temp_path is not None:
+                    with contextlib.suppress(OSError):
+                        temp_path.unlink()
+                logging.getLogger("backend.config").exception(
+                    "Failed to write JSON file: %s", path
+                )
+                return False
 
     def __init__(self):
         self.workdir = settings.resolve_workdir()
@@ -113,11 +158,7 @@ class ConfigService:
             task_dir = matches[0]
             config_file = task_dir / "config.json"
 
-        try:
-            with open(config_file, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, OSError):
-            return None
+        return self._read_json_file(config_file)
 
     def save_sign_config(self, task_name: str, config: Dict) -> bool:
         """
@@ -144,12 +185,7 @@ class ConfigService:
         task_dir.mkdir(parents=True, exist_ok=True)
         config_file = task_dir / "config.json"
 
-        try:
-            with open(config_file, "w", encoding="utf-8") as f:
-                json.dump(config, f, ensure_ascii=False, indent=2)
-            return True
-        except OSError:
-            return False
+        return self._write_json_file(config_file, config)
 
     def delete_sign_config(
         self, task_name: str, account_name: Optional[str] = None
@@ -291,51 +327,41 @@ class ConfigService:
             # 1. 扫描顶层 (旧版)
             for path in self.signs_dir.iterdir():
                 if path.is_dir() and (path / "config.json").exists():
-                    try:
-                        with open(path / "config.json", "r", encoding="utf-8") as f:
-                            config = json.load(f)
-                            config.pop("last_run", None)
-                            key = path.name
-                            if key in all_configs["signs"]:
-                                key = f"{key}_{config.get('account_name', 'default')}"
-                            all_configs["signs"][key] = config
-                    except Exception:
-                        pass
+                    config = self._read_json_file(path / "config.json")
+                    if config is not None:
+                        config.pop("last_run", None)
+                        key = path.name
+                        if key in all_configs["signs"]:
+                            key = f"{key}_{config.get('account_name', 'default')}"
+                        all_configs["signs"][key] = config
 
                 # 2. 扫描账号层
                 if path.is_dir():
                     for task_dir in path.iterdir():
                         if task_dir.is_dir() and (task_dir / "config.json").exists():
-                            try:
-                                with open(task_dir / "config.json", "r", encoding="utf-8") as f:
-                                    config = json.load(f)
-                                    config.pop("last_run", None)
-                                    key = f"{task_dir.name}_{path.name}"
-                                    account_name = config.get("account_name")
-                                    if account_name:
-                                        key = f"{config.get('name', task_dir.name)}@{account_name}"
-                                    else:
-                                        key = config.get("name", task_dir.name)
+                            config = self._read_json_file(task_dir / "config.json")
+                            if config is not None:
+                                config.pop("last_run", None)
+                                key = f"{task_dir.name}_{path.name}"
+                                account_name = config.get("account_name")
+                                if account_name:
+                                    key = f"{config.get('name', task_dir.name)}@{account_name}"
+                                else:
+                                    key = config.get("name", task_dir.name)
 
-                                    if key in all_configs["signs"]:
-                                        import uuid
-                                        key = f"{key}_{str(uuid.uuid4())[:8]}"
+                                if key in all_configs["signs"]:
+                                    import uuid
+                                    key = f"{key}_{str(uuid.uuid4())[:8]}"
 
-                                    all_configs["signs"][key] = config
-                            except Exception:
-                                pass
+                                all_configs["signs"][key] = config
 
         # 导出所有监控任务
         for task_name in self.list_monitor_tasks():
             config_file = self.monitors_dir / task_name / "config.json"
-            if config_file.exists():
-                try:
-                    with open(config_file, "r", encoding="utf-8") as f:
-                        config = json.load(f)
-                        config.pop("last_run", None)
-                        all_configs["monitors"][task_name] = config
-                except (json.JSONDecodeError, OSError):
-                    pass
+            config = self._read_json_file(config_file)
+            if config is not None:
+                config.pop("last_run", None)
+                all_configs["monitors"][task_name] = config
 
         # 导出设置 (新增)
         all_configs["settings"] = {
@@ -399,11 +425,9 @@ class ConfigService:
                     continue
 
                 task_dir.mkdir(parents=True, exist_ok=True)
-                try:
-                    with open(config_file, "w", encoding="utf-8") as f:
-                        json.dump(config, f, ensure_ascii=False, indent=2)
+                if self._write_json_file(config_file, config):
                     result["monitors_imported"] += 1
-                except OSError:
+                else:
                     result["errors"].append(
                         f"Failed to import monitor task: {task_name}"
                     )
@@ -414,8 +438,10 @@ class ConfigService:
             # 导入全局设置
             if "global" in settings_data:
                 try:
-                    self.save_global_settings(settings_data["global"])
-                    result["settings_imported"] += 1
+                    if self.save_global_settings(settings_data["global"]):
+                        result["settings_imported"] += 1
+                    else:
+                        result["errors"].append("Failed to import global settings")
                 except Exception as e:
                     result["errors"].append(f"Failed to import global settings: {e}")
 
@@ -423,12 +449,11 @@ class ConfigService:
             if "ai" in settings_data and settings_data["ai"]:
                 try:
                     ai_conf = settings_data["ai"]
-                    # 注意：如果 masking 处理过 api_key (e.g. ****)，这里需要处理吗？
-                    # 当前 export_ai_config 直接读取文件，应该包含完整 key（文件里是明文）。前端展示才 mask。
-                    # 所以这里导出的是完整 key，可以直接导入。
                     if ai_conf.get("api_key"):
-                        self.save_ai_config(ai_conf["api_key"], ai_conf.get("base_url"), ai_conf.get("model"))
-                        result["settings_imported"] += 1
+                        if self.save_ai_config(ai_conf["api_key"], ai_conf.get("base_url"), ai_conf.get("model")):
+                            result["settings_imported"] += 1
+                        else:
+                            result["errors"].append("Failed to import AI config")
                 except Exception as e:
                     result["errors"].append(f"Failed to import AI config: {e}")
 
@@ -437,8 +462,10 @@ class ConfigService:
                 try:
                     tg_conf = settings_data["telegram"]
                     if tg_conf.get("is_custom") and tg_conf.get("api_id") and tg_conf.get("api_hash"):
-                         self.save_telegram_config(str(tg_conf["api_id"]), tg_conf["api_hash"])
-                         result["settings_imported"] += 1
+                        if self.save_telegram_config(str(tg_conf["api_id"]), tg_conf["api_hash"]):
+                            result["settings_imported"] += 1
+                        else:
+                            result["errors"].append("Failed to import Telegram config")
                 except Exception as e:
                     result["errors"].append(f"Failed to import Telegram config: {e}")
 
@@ -478,15 +505,7 @@ class ConfigService:
             配置字典，如果不存在则返回 None
         """
         config_file = self._get_ai_config_file()
-
-        if not config_file.exists():
-            return None
-
-        try:
-            with open(config_file, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, OSError):
-            return None
+        return self._read_json_file(config_file)
 
     def save_ai_config(
         self,
@@ -517,12 +536,7 @@ class ConfigService:
 
         config_file = self._get_ai_config_file()
 
-        try:
-            with open(config_file, "w", encoding="utf-8") as f:
-                json.dump(config, f, ensure_ascii=False, indent=2)
-            return True
-        except OSError:
-            return False
+        return self._write_json_file(config_file, config)
 
     def delete_ai_config(self) -> bool:
         """
@@ -617,21 +631,14 @@ class ConfigService:
             "telegram_bot_message_thread_id": None,
         }
 
-        if not config_file.exists():
+        settings = self._read_json_file(config_file)
+        if settings is None or not isinstance(settings, dict):
             return default_settings
-
-        try:
-            with open(config_file, "r", encoding="utf-8") as f:
-                settings = json.load(f)
-                if not isinstance(settings, dict):
-                    return default_settings
-                # 合并默认设置
-                for key, value in default_settings.items():
-                    if key not in settings:
-                        settings[key] = value
-                return settings
-        except (json.JSONDecodeError, OSError):
-            return default_settings
+        # 合并默认设置
+        for key, value in default_settings.items():
+            if key not in settings:
+                settings[key] = value
+        return settings
 
     def save_global_settings(self, settings: Dict) -> bool:
         """
@@ -661,10 +668,7 @@ class ConfigService:
             clear_data_dir_override()
             merged["data_dir"] = None
 
-        try:
-            with open(config_file, "w", encoding="utf-8") as f:
-                json.dump(merged, f, ensure_ascii=False, indent=2)
-        except OSError:
+        if not self._write_json_file(config_file, merged):
             return False
 
         # Apply concurrency change at runtime
@@ -704,19 +708,14 @@ class ConfigService:
             "is_custom": False,
         }
 
-        if not config_file.exists():
+        config = self._read_json_file(config_file)
+        if config is None:
             return default_config
-
-        try:
-            with open(config_file, "r", encoding="utf-8") as f:
-                config = json.load(f)
-                # 如果有自定义配置，标记为自定义
-                if config.get("api_id") and config.get("api_hash"):
-                    config["is_custom"] = True
-                    return config
-                else:
-                    return default_config
-        except (json.JSONDecodeError, OSError):
+        # 如果有自定义配置，标记为自定义
+        if config.get("api_id") and config.get("api_hash"):
+            config["is_custom"] = True
+            return config
+        else:
             return default_config
 
     def save_telegram_config(self, api_id: str, api_hash: str) -> bool:
@@ -737,12 +736,7 @@ class ConfigService:
 
         config_file = self._get_telegram_config_file()
 
-        try:
-            with open(config_file, "w", encoding="utf-8") as f:
-                json.dump(config, f, ensure_ascii=False, indent=2)
-            return True
-        except OSError:
-            return False
+        return self._write_json_file(config_file, config)
 
     def reset_telegram_config(self) -> bool:
         """

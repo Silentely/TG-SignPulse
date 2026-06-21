@@ -20,6 +20,22 @@ curl http://127.0.0.1:8080/readyz
 
 当 `/readyz` 返回 `503` 时，说明应用还在启动中。
 
+## 告警配置
+
+建议至少配置三类告警：
+
+| 告警 | 建议阈值 | 响应动作 |
+| --- | --- | --- |
+| `/readyz` 连续失败 | 3 次以上 | 检查启动日志、数据库锁和数据目录权限 |
+| 任务失败率升高 | 15 分钟内失败率超过 30% | 检查账号状态、代理和目标机器人响应 |
+| 监听任务无事件 | 预期活跃聊天 30 分钟无命中 | 检查 Telegram 会话、监听任务状态和 updates 设置 |
+
+通知通道可选：
+
+- Telegram Bot 全局通知
+- Bark / ServerChan / 自定义 Webhook
+- 外部监控系统通过 `/healthz`、`/readyz` 主动探测
+
 ## 查看日志
 
 ### Docker 日志
@@ -50,11 +66,46 @@ docker logs -f tg-signpulse
 - `.openai_config.json`
 - `.telegram_api.json`
 
-示例：
+示例（在项目根目录执行）：
 
 ```bash
-tar -czf tg-signpulse-backup-$(date +%F).tar.gz data
+tar -czf "tg-signpulse-backup-$(date +%F).tar.gz" -C "$(pwd)" data
 ```
+
+### 自动化备份脚本
+
+生产环境建议用宿主机 cron 定时备份 `data/`：
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+# 解析项目根目录的绝对路径，确保从任意工作目录执行都能正确定位
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+DATA_DIR="${APP_DATA_DIR:-$PROJECT_ROOT/data}"
+
+# 验证 data 目录存在
+if [ ! -d "$DATA_DIR" ]; then
+    echo "错误: 数据目录不存在: $DATA_DIR" >&2
+    exit 1
+fi
+
+# 解析为绝对路径，确保 APP_DATA_DIR 指向项目外目录时也能正确备份
+DATA_DIR="$(cd "$DATA_DIR" && pwd)"
+
+backup_dir="${BACKUP_DIR:-$PROJECT_ROOT/backups}"
+mkdir -p "$backup_dir"
+
+ts="$(date +%Y%m%d-%H%M%S)"
+tar -czf "$backup_dir/tg-signpulse-data-$ts.tar.gz" \
+    -C "$(dirname "$DATA_DIR")" \
+    "$(basename "$DATA_DIR")"
+
+find "$backup_dir" -name 'tg-signpulse-data-*.tar.gz' -mtime +14 -delete
+```
+
+如果任务运行频率很高，备份前先执行 `docker compose stop app`，备份完成后再启动，避免备份期间发生 SQLite 写锁冲突。
 
 ## 恢复
 
@@ -129,4 +180,36 @@ watch -n 5 'curl -fsS http://127.0.0.1:8080/readyz || true'
 - 先在测试标签上验证
 - 确认 AI、登录、监听、共享任务都能正常工作
 - 再把生产环境切到正式标签
+
+## 事件响应手册
+
+### 场景 1：服务不可用
+
+1. 检查 `docker ps` 和 `docker logs --tail=200 tg-signpulse`。
+2. 请求 `/healthz` 与 `/readyz`，确认是进程未启动还是启动未完成。
+3. 检查 `data/` 权限、磁盘空间和最近一次升级变更。
+
+### 场景 2：数据库锁定
+
+1. 确认没有多个容器实例挂载同一个 `data/`。
+2. 检查是否有长时间运行的任务或外部脚本占用 `db.sqlite`。
+3. 重启单个应用实例；如果仍复现，降低任务并发并保留日志。
+
+### 场景 3：账号需要重新登录
+
+1. 在面板查看账号状态是否为 `needs_relogin`。
+2. 重新完成 Telegram 登录流程。
+3. 如果多个账号同时失效，优先检查代理和 Telegram API 配置。
+
+### 场景 4：监听任务不触发
+
+1. 确认任务执行模式是 `listen` 且任务已启用。
+2. 检查 `TG_SESSION_MODE`、`TG_SESSION_NO_UPDATES` 和账号会话是否允许接收 updates。
+3. 修改监听规则后触发一次调度同步或重启后端，让监听器重建。
+
+### 场景 5：通知发送失败
+
+1. 检查 Telegram Bot token、chat_id、Bark URL、ServerChan sendkey 或自定义 Webhook。
+2. 用 `curl` 在宿主机直接访问通知端点，排除网络与 DNS 问题。
+3. 对外部 HTTP 通道增加接收端幂等，避免重试导致重复处理。
 

@@ -161,3 +161,4 @@ test_*.py
 .omx
 .omc
 .ace-tool/
+.full-review/
