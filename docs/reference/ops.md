@@ -30,7 +30,11 @@ curl http://127.0.0.1:8080/readyz
 | 任务失败率升高 | 15 分钟内失败率超过 30% | 检查账号状态、代理和目标机器人响应 |
 | 监听任务无事件 | 预期活跃聊天 30 分钟无命中 | 检查 Telegram 会话、监听任务状态和 updates 设置 |
 
-通知通道可以使用 Telegram Bot 全局通知、Bark / ServerChan / 自定义 Webhook、外部监控系统通过 `/healthz`、`/readyz` 主动探测。
+通知通道可选：
+
+- Telegram Bot 全局通知
+- Bark / ServerChan / 自定义 Webhook
+- 外部监控系统通过 `/healthz`、`/readyz` 主动探测
 
 ## 查看日志
 
@@ -101,7 +105,7 @@ tar -czf "$backup_dir/tg-signpulse-data-$ts.tar.gz" \
 find "$backup_dir" -name 'tg-signpulse-data-*.tar.gz' -mtime +14 -delete
 ```
 
-如果任务运行频率很高，备份前先执行 `docker compose stop app`，备份完成后再启动，避免 SQLite 文件处于写入中。
+如果任务运行频率很高，备份前先执行 `docker compose stop app`，备份完成后再启动，避免备份期间发生 SQLite 写锁冲突。
 
 ## 恢复
 
