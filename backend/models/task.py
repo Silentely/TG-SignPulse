@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import relationship
 
 from backend.core.database import Base
@@ -9,6 +9,11 @@ from backend.utils.time import utc_now_naive
 
 class Task(Base):
     __tablename__ = "tasks"
+
+    __table_args__ = (
+        Index("ix_tasks_account_enabled", "account_id", "enabled"),
+        Index("ix_tasks_cron_enabled", "cron", "enabled"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)

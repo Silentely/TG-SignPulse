@@ -5,7 +5,8 @@ from datetime import timedelta
 from pathlib import Path
 from typing import List, Optional
 
-from sqlalchemy.orm import Session
+from sqlalchemy import case, func
+from sqlalchemy.orm import Session, joinedload
 
 from backend.cli.tasks import async_run_task_cli
 from backend.core.config import get_settings
@@ -31,7 +32,18 @@ def is_task_running(task_id: int) -> bool:
 
 
 def list_tasks(db: Session) -> List[Task]:
-    return db.query(Task).order_by(Task.id.desc()).all()
+    """
+    获取全部任务列表（joinedload 优化版）。
+
+    使用 joinedload 预加载 account 关系，避免遍历结果时
+    触发 N+1 延迟加载查询。适用于列表页需要展示关联账号的场景。
+    """
+    return (
+        db.query(Task)
+        .options(joinedload(Task.account))
+        .order_by(Task.id.desc())
+        .all()
+    )
 
 
 def cleanup_old_logs(db: Session, days: int = 3) -> int:
@@ -194,6 +206,68 @@ async def run_task_once(db: Session, task: Task) -> TaskLog:
         )
 
     return task_log
+
+
+def get_tasks_with_accounts(db: Session) -> List[dict]:
+    """
+    获取所有任务及其关联账号信息（joinedload 优化版）。
+
+    使用 SQLAlchemy joinedload 进行即时加载，将原本的 N+1 查询
+    合并为单条 SQL（LEFT OUTER JOIN），避免访问 task.account 时
+    触发额外的延迟加载查询。
+
+    返回字典列表，每个字典包含任务字段和对应的账号名称，
+    便于前端一次性渲染任务列表而无需额外查询。
+    """
+    tasks = (
+        db.query(Task)
+        .options(joinedload(Task.account))
+        .order_by(Task.id.desc())
+        .all()
+    )
+    result: List[dict] = []
+    for task in tasks:
+        account = task.account
+        result.append({
+            "task_id": task.id,
+            "task_name": task.name,
+            "cron": task.cron,
+            "enabled": task.enabled,
+            "account_id": account.id,
+            "account_name": account.account_name,
+            "account_status": account.status,
+            "last_run_at": task.last_run_at,
+            "created_at": task.created_at,
+            "updated_at": task.updated_at,
+        })
+    return result
+
+
+def get_task_stats(db: Session) -> dict:
+    """
+    获取任务统计信息。
+
+    返回包含以下字段的字典：
+    - total: 任务总数
+    - enabled: 已启用任务数
+    - disabled: 已禁用任务数
+    - with_logs: 存在运行日志的任务数（去重）
+    """
+    stats = db.query(
+        func.count(Task.id).label("total"),
+        func.count(case((Task.enabled.is_(True), 1))).label("enabled"),
+    ).first()
+    total = stats.total if stats else 0
+    enabled = stats.enabled if stats else 0
+
+    with_logs = db.query(TaskLog.task_id).distinct().count()
+
+    return {
+        "total": total,
+        "enabled": enabled,
+        "disabled": total - enabled,
+        "with_logs": with_logs,
+    }
 
 
 def list_task_logs(db: Session, task_id: int, limit: int = 50) -> List[TaskLog]:

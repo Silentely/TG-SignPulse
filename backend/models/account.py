@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Column, DateTime, Integer, String, Text
+from sqlalchemy import Column, DateTime, Index, Integer, String, Text
 from sqlalchemy.orm import relationship
 
 from backend.core.database import Base
@@ -9,6 +9,10 @@ from backend.utils.time import utc_now_naive
 
 class Account(Base):
     __tablename__ = "accounts"
+
+    __table_args__ = (
+        Index("ix_accounts_status_created", "status", "created_at"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     account_name = Column(String(100), unique=True, nullable=False, index=True)

@@ -21,6 +21,7 @@ from backend.models.task_log import TaskLog
 from backend.scheduler import sync_jobs
 from backend.schemas.task import TaskCreate, TaskOut, TaskUpdate
 from backend.schemas.task_log import TaskLogOut
+from backend.schemas.task_stats import TaskStatsOut
 from backend.services import tasks as task_service
 
 router = APIRouter()
@@ -49,6 +50,15 @@ async def create_task(
     )
     await sync_jobs()
     return task
+
+
+@router.get("/stats", response_model=TaskStatsOut)
+def get_task_stats(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """获取任务统计信息（聚合查询）"""
+    return task_service.get_task_stats(db)
 
 
 @router.get("/{task_id}", response_model=TaskOut)
