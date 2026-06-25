@@ -117,16 +117,13 @@ async def batch_task_operation(
             )
             fail_count += 1
 
-    # 非 run 操作需要同步调度器
+    # 非 run 操作需要同步调度器（与单任务端点行为一致，失败时抛出异常）
     if payload.action in (
         BatchAction.ENABLE,
         BatchAction.DISABLE,
         BatchAction.DELETE,
     ):
-        try:
-            await sync_jobs()
-        except Exception as e:
-            logger.error("调度器同步失败: %s", e)
+        await sync_jobs()
 
     return BatchTaskResponse(
         total=len(payload.task_ids),
