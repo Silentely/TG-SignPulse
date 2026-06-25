@@ -17,9 +17,12 @@ from sqlalchemy.orm import Session, sessionmaker
 
 def create_memory_engine():
     """创建内存 SQLite 引擎（用于测试）"""
+    from sqlalchemy.pool import StaticPool
+
     engine = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False, "timeout": 30},
+        poolclass=StaticPool,
     )
     return engine
 
@@ -86,6 +89,7 @@ class MockDBSession:
         mock_query.limit.return_value = mock_query
         mock_query.offset.return_value = mock_query
         mock_query.count.return_value = len(results)
+        mock_query.distinct.return_value = mock_query
         mock_query.one.return_value = results[0] if results else None
         mock_query.one_or_none.return_value = results[0] if len(results) == 1 else None
         return mock_query
@@ -109,23 +113,15 @@ class MockDBSession:
 @contextmanager
 def mock_db_dependency(db_session: Optional[MockDBSession] = None):
     """
-    模拟 FastAPI 的 get_db 依赖注入
+    模拟数据库会话依赖
 
     用法:
         with mock_db_dependency() as db:
-            # db 是 MockDBSession 实例
             service = SomeService(db)
             ...
     """
     if db_session is None:
         db_session = MockDBSession()
-
-    def override_get_db():
-        try:
-            yield db_session
-        finally:
-            db_session.close()
-
     yield db_session
 
 

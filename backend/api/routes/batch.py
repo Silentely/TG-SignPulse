@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
@@ -21,6 +23,8 @@ from backend.schemas.batch import (
     BatchTaskResult,
 )
 from backend.services import tasks as task_service
+
+logger = logging.getLogger("backend.batch")
 
 router = APIRouter()
 
@@ -80,18 +84,35 @@ async def batch_task_operation(
                 success_count += 1
 
             elif payload.action == BatchAction.RUN:
-                await task_service.run_task_once(db, task)
-                results.append(
-                    BatchTaskResult(task_id=task_id, success=True, message="已执行")
-                )
-                success_count += 1
+                try:
+                    await task_service.run_task_once(db, task)
+                    results.append(
+                        BatchTaskResult(
+                            task_id=task_id, success=True, message="已执行"
+                        )
+                    )
+                    success_count += 1
+                except Exception as run_exc:
+                    logger.warning(
+                        "批量执行任务 %d 失败: %s", task_id, run_exc
+                    )
+                    results.append(
+                        BatchTaskResult(
+                            task_id=task_id,
+                            success=False,
+                            message="任务执行失败",
+                        )
+                    )
+                    fail_count += 1
 
         except Exception as e:
+            logger.error("批量操作任务 %d 异常: %s", task_id, e)
+            db.rollback()
             results.append(
                 BatchTaskResult(
                     task_id=task_id,
                     success=False,
-                    message=f"操作失败: {str(e)}",
+                    message="操作失败",
                 )
             )
             fail_count += 1
@@ -102,7 +123,10 @@ async def batch_task_operation(
         BatchAction.DISABLE,
         BatchAction.DELETE,
     ):
-        await sync_jobs()
+        try:
+            await sync_jobs()
+        except Exception as e:
+            logger.error("调度器同步失败: %s", e)
 
     return BatchTaskResponse(
         total=len(payload.task_ids),

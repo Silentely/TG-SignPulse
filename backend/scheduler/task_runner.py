@@ -119,11 +119,19 @@ class TaskRunner:
 
     def update_concurrency(self, new_limit: int) -> None:
         """
-        运行时更新并发限制
+        更新并发限制（仅在无活跃任务时安全）
 
         参数:
             new_limit: 新的并发数，小于 1 时自动修正为 1
+
+        注意:
+            有活跃任务时调用会抛出 RuntimeError，避免并发控制异常。
         """
+        if self._active_tasks:
+            raise RuntimeError(
+                f"无法在活跃任务运行时更新并发限制"
+                f"（当前 {len(self._active_tasks)} 个活跃任务）"
+            )
         if new_limit < 1:
             new_limit = 1
         self._max_concurrency = new_limit

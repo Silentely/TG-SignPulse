@@ -131,9 +131,12 @@ def memory_session_local(isolated_env: Path):
     database_module._engine = None
     database_module._SessionLocal = None
 
+    from sqlalchemy.pool import StaticPool
+
     engine = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False, "timeout": 30},
+        poolclass=StaticPool,
     )
     database_module.Base.metadata.create_all(bind=engine)
     testing_session_local = sessionmaker(

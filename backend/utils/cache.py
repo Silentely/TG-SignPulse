@@ -129,12 +129,14 @@ class TTLCache(Generic[T]):
     # 批量操作
     # ------------------------------------------------------------------
 
+    _SENTINEL = object()
+
     def get_many(self, keys: list[str]) -> dict[str, Any]:
-        """批量获取，仅返回命中的键值对。"""
+        """批量获取，仅返回命中的键值对（支持缓存 None 值）。"""
         result: dict[str, Any] = {}
         for key in keys:
-            val = self.get(key)
-            if val is not None:
+            val = self.get(key, default=self._SENTINEL)
+            if val is not self._SENTINEL:
                 result[key] = val
         return result
 

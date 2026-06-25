@@ -35,12 +35,22 @@ class BatchTaskRequest(BaseModel):
 
     @validator("task_ids")
     def validate_task_ids(cls, v: List[int]) -> List[int]:
-        """校验 task_ids 长度在 1-100 之间"""
+        """校验 task_ids：正整数、去重、长度 1-100"""
         if len(v) < 1:
             raise ValueError("task_ids 至少需要 1 个元素")
         if len(v) > 100:
             raise ValueError("task_ids 最多允许 100 个元素")
-        return v
+        for tid in v:
+            if tid < 1:
+                raise ValueError(f"task_ids 必须为正整数，收到 {tid}")
+        # 去重但保持顺序
+        seen: set[int] = set()
+        deduped: List[int] = []
+        for tid in v:
+            if tid not in seen:
+                seen.add(tid)
+                deduped.append(tid)
+        return deduped
 
 
 class BatchTaskResult(BaseModel):

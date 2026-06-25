@@ -119,7 +119,8 @@ class AsyncFileManager:
         Returns:
             成功删除返回 True，文件不存在返回 False
         """
-        if not await aiofiles.os.path.exists(str(path)):
+        try:
+            await aiofiles.os.remove(str(path))
+            return True
+        except FileNotFoundError:
             return False
-        await aiofiles.os.remove(str(path))
-        return True

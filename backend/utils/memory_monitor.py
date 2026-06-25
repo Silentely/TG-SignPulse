@@ -88,6 +88,12 @@ class MemoryMonitor:
     max_history: int = 100
     check_interval: float = 30.0
 
+    def __post_init__(self) -> None:
+        """初始化 psutil 进程句柄，校验参数合法性"""
+        if self.max_history < 1:
+            raise ValueError(f"max_history 必须 >= 1，收到 {self.max_history}")
+        self._process = psutil.Process()
+
     # 内部状态
     _process: Optional[psutil.Process] = field(
         default=None, init=False, repr=False
@@ -102,10 +108,6 @@ class MemoryMonitor:
         default_factory=list, init=False, repr=False
     )
     _last_gc_forced: bool = field(default=False, init=False, repr=False)
-
-    def __post_init__(self) -> None:
-        """初始化 psutil 进程句柄"""
-        self._process = psutil.Process()
 
     # ------------------------------------------------------------------
     # 公共 API
