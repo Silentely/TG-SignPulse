@@ -30,13 +30,15 @@ http://127.0.0.1:3000
 
 主要路由包括：
 
-- `/api/auth`
-- `/api/user`
-- `/api/accounts`
-- `/api/tasks`
-- `/api/sign-tasks`
-- `/api/config`
-- `/api/events`
+- `/api/auth` — 认证与登录
+- `/api/user` — 用户管理
+- `/api/accounts` — 账号管理
+- `/api/tasks` — 任务管理
+- `/api/sign-tasks` — 签到任务配置
+- `/api/logs` — 执行日志
+- `/api/config` — 系统配置
+- `/api/events` — 事件流
+- `/api/batch` — 批量操作（启用/禁用/删除/执行）
 
 后端负责：
 

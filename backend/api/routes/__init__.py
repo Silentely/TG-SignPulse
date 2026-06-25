@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from backend.api.routes import (
     accounts,
     auth,
+    batch,
     config,
     events,
     logs,
@@ -20,3 +21,4 @@ router.include_router(sign_tasks_v2.router, prefix="/sign-tasks", tags=["sign-ta
 router.include_router(logs.router, prefix="/logs", tags=["logs"])
 router.include_router(config.router, prefix="/config", tags=["config"])
 router.include_router(events.router, prefix="/events", tags=["events"])
+router.include_router(batch.router, prefix="/batch", tags=["batch"])

@@ -63,3 +63,56 @@
 - 后台任务必须记录异常，不能让 `asyncio.create_task` 的异常静默丢失。
 - 新增环境变量必须同步更新 `docs/reference/configuration.md`。
 - 涉及部署行为的变更必须同步更新 `docs/deploy/docker.md` 或 `docs/reference/ops.md`。
+
+## 测试规范
+
+### 测试基础设施
+
+测试目录 `tests/` 下包含完整的测试基础设施：
+
+| 目录/文件 | 说明 |
+| --- | --- |
+| `conftest.py` | 全局 fixtures（数据库会话、测试客户端、Mock 对象） |
+| `fixtures/` | 预定义测试数据（账号、任务、消息） |
+| `mocks/` | Mock 对象（Telegram 客户端、数据库会话、AI 服务） |
+| `factories/` | 测试数据工厂（AccountFactory、TaskFactory 等） |
+| `utils/` | 测试辅助函数（时间工具、环境管理、断言增强） |
+
+### 运行测试
+
+```bash
+# 运行全部测试
+pytest
+
+# 运行指定模块
+pytest tests/test_core.py -v
+
+# 运行并查看覆盖率
+pytest --cov=tg_signer --cov-report=term-missing
+
+# 跳过覆盖率阈值检查（用于新增 backend/ 模块测试）
+pytest --no-cov
+```
+
+### 覆盖率配置
+
+`pyproject.toml` 中配置了 pytest-cov：
+
+- `tg_signer` 包的 `fail_under` 阈值为 25%
+- `backend/` 模块暂未纳入覆盖率统计
+- 新增测试用例时，优先覆盖核心逻辑和边界条件
+
+### 新增依赖
+
+近期新增的运行时依赖：
+
+| 依赖 | 用途 |
+| --- | --- |
+| `aiofiles` | 异步文件读写（`backend/utils/async_io.py`） |
+| `psutil>=5.9.0` | 内存监控（`backend/utils/memory_monitor.py`） |
+
+前端新增依赖：
+
+| 依赖 | 用途 |
+| --- | --- |
+| `vue-i18n@9` | 多语言支持（中英文切换） |
