@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/Silentely/TG-SignPulse/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-BSD--3--Clause-green" alt="License"></a>
   <img src="https://img.shields.io/badge/python-3.10--3.13-blue" alt="Python">
-  <img src="https://img.shields.io/badge/node-20+-green" alt="Node.js">
+  <img src="https://img.shields.io/badge/node-22+-green" alt="Node.js">
   <a href="https://github.com/Silentely/TG-SignPulse/pkgs/container/tg-signpulse"><img src="https://img.shields.io/badge/ghcr.io-available-purple" alt="GHCR"></a>
 </p>
 
@@ -195,7 +195,7 @@ npm run dev
 ```
 
 - Python 3.10–3.13 (3.12 recommended)
-- Node.js 20+
+- Node.js 22.12.0+
 - Python 3.14+ is not recommended (Telegram runtime deps not yet compatible)
 
 ---
