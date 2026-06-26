@@ -1270,9 +1270,12 @@ class KeywordMonitorService:
         task_name: str = "",
     ) -> bool:
         """执行 action_id=9：向指定 Bot 发送 /start 命令，参数从模板变量替换。"""
-        logger.info(
-            "Bot 链接 action 开始 | bot_username=%s | source_message=%s | variables=%s",
-            action.get("bot_username"), "present" if source_message else "None", variables,
+        logger.warning(
+            "[BOT_LINK_ENTRY] bot_username=%s | source_message=%s | variables=%s | action=%s",
+            action.get("bot_username"),
+            "present" if source_message else "None",
+            variables,
+            action,
         )
         bot_username = str(action.get("bot_username") or "").strip()
         if not bot_username:
@@ -1354,8 +1357,8 @@ class KeywordMonitorService:
         task_name: str = "",
     ) -> bool:
         action_id = int(action.get("action"))
-        logger.info(
-            "_execute_continue_action | action_id=%s | action=%s | source_message=%s",
+        logger.warning(
+            "[CONTINUE_ACTION_ENTRY] action_id=%s | action=%s | source_message=%s",
             action_id, action, "present" if source_message else "None",
         )
         kwargs: Dict[str, Any] = {}
