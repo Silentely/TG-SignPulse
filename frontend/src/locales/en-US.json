@@ -101,6 +101,8 @@
     "sendText": "Send Text",
     "clickButton": "Click Button",
     "sendDice": "Send Dice",
+    "botLink": "Trigger Bot Link",
+    "botUsernamePlaceholder": "Bot username, e.g. GYFMsky_bot",
     "aiVision": "── AI Vision ──",
     "visionSend": "Vision -> Text",
     "visionClick": "Vision -> Click",

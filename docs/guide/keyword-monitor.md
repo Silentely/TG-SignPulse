@@ -114,6 +114,7 @@ https://sctapi.ftqq.com/<sendkey>.send?title={title}&desp={body}
 - `5` 回复计算题
 - `6` AI 识图后回复文本
 - `7` AI 计算后点击按钮
+- `9` 触发 Bot 链接：向指定 Bot 发送 `/start` 命令，参数从关键词捕获值自动替换（配置 `bot_username`，可选 `start_param` 模板，默认 `{keyword}`）
 
 后续动作同样支持 `ai_prompt`。
 
@@ -179,6 +180,17 @@ https://sctapi.ftqq.com/<sendkey>.send?title={title}&desp={body}
 - 推送：`forward`
 - `forward_chat_id`：`-1001234567890`
 - `forward_message_thread_id`：目标话题 ID
+
+### 示例 4：命中后自动触发 Bot 注册链接
+
+- 模式：`regex`
+- 关键词：`Register_(\w+)`
+- 推送：`continue`
+- 后续动作：触发 Bot 链接
+  - Bot 用户名：`GYFMsky_bot`
+
+当消息包含 `MSKY-30-Register_KsdaqumLAS` 时，正则捕获 `KsdaqumLAS`，
+系统自动向 `@GYFMsky_bot` 发送 `/start KsdaqumLAS`。
 
 ## 设计建议
 
