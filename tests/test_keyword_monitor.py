@@ -159,6 +159,82 @@ class TestBotLinkAction:
         assert service._message_supports_action(msg, 9) is False
 
     @pytest.mark.asyncio
+    async def test_bot_link_caption_fallback(self, service, mock_client):
+        """消息无 text 但有 caption 时应正常触发"""
+        source_msg = MagicMock()
+        source_msg.text = None
+        source_msg.caption = "Register_ABC123"
+
+        action = {"action": 9, "bot_username": "caption_bot"}
+        variables = {"keyword": "ABC123"}
+
+        result = await service._execute_bot_link_action(
+            mock_client, -1001234567890, None, action,
+            source_message=source_msg, variables=variables,
+        )
+        assert result is True
+        mock_client.send_message.assert_called_once_with(
+            "caption_bot", "/start ABC123"
+        )
+
+    @pytest.mark.asyncio
+    async def test_bot_link_logs_account_and_task(self, service, mock_client):
+        """成功时 account_name 和 task_name 应写入日志"""
+        source_msg = MagicMock()
+        source_msg.text = "test"
+        source_msg.caption = None
+
+        action = {"action": 9, "bot_username": "log_bot"}
+        variables = {"keyword": "code1"}
+
+        await service._execute_bot_link_action(
+            mock_client, -1001234567890, None, action,
+            source_message=source_msg, variables=variables,
+            account_name="my_account", task_name="my_task",
+        )
+        logs = service.get_task_logs("my_task", "my_account")
+        assert any("Bot 链接触发成功" in line for line in logs)
+
+    @pytest.mark.asyncio
+    async def test_bot_link_no_variables_uses_default_template(self, service, mock_client):
+        """variables=None 时默认 {keyword} 模板应渲染为空，返回 False"""
+        source_msg = MagicMock()
+        source_msg.text = "test"
+        source_msg.caption = None
+
+        action = {"action": 9, "bot_username": "no_var_bot"}
+
+        result = await service._execute_bot_link_action(
+            mock_client, -1001234567890, None, action,
+            source_message=source_msg, variables=None,
+        )
+        assert result is False
+        mock_client.send_message.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_bot_link_whitespace_bot_username(self, service, mock_client):
+        """bot_username 为纯空格时应返回 False"""
+        source_msg = MagicMock()
+        source_msg.text = "test"
+        source_msg.caption = None
+
+        action = {"action": 9, "bot_username": "   "}
+        variables = {"keyword": "test"}
+
+        result = await service._execute_bot_link_action(
+            mock_client, -1001234567890, None, action,
+            source_message=source_msg, variables=variables,
+        )
+        assert result is False
+        mock_client.send_message.assert_not_called()
+
+    def test_describe_bot_link_no_username(self, service):
+        """无 bot_username 时描述应不含 @"""
+        action = {"action": 9}
+        desc = service._describe_continue_action(action)
+        assert desc == "触发 Bot 链接"
+
+    @pytest.mark.asyncio
     async def test_bot_link_custom_start_param(self, service, mock_client):
         """自定义 start_param 模板应正确替换"""
         source_msg = MagicMock()
