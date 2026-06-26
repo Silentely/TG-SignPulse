@@ -1242,13 +1242,13 @@ class KeywordMonitorService:
             logger.warning("Bot 链接触发跳过：未配置 bot_username")
             return False
         if source_message is None:
+            logger.debug("Bot 链接触发跳过：无源消息")
             return False
 
         variables = variables or {}
-        start_param = _render_template(
-            str(action.get("start_param") or "{keyword}"), variables
-        )
-        start_param = str(start_param).strip()
+        start_param = str(_render_template(
+            action.get("start_param") or "{keyword}", variables
+        )).strip()
         if not start_param:
             logger.warning("Bot 链接触发跳过：start_param 为空")
             return False

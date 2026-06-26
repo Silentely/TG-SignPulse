@@ -157,3 +157,22 @@ class TestBotLinkAction:
         msg.text = None
         msg.caption = None
         assert service._message_supports_action(msg, 9) is False
+
+    @pytest.mark.asyncio
+    async def test_bot_link_custom_start_param(self, service, mock_client):
+        """自定义 start_param 模板应正确替换"""
+        source_msg = MagicMock()
+        source_msg.text = "验证码: 123456"
+        source_msg.caption = None
+
+        action = {"action": 9, "bot_username": "custom_bot", "start_param": "{message}"}
+        variables = {"keyword": "123456", "message": "验证码: 123456"}
+
+        result = await service._execute_bot_link_action(
+            mock_client, -1001234567890, None, action,
+            source_message=source_msg, variables=variables,
+        )
+        assert result is True
+        mock_client.send_message.assert_called_once_with(
+            "custom_bot", "/start 验证码: 123456"
+        )
