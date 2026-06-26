@@ -1320,6 +1320,10 @@ class KeywordMonitorService:
         task_name: str = "",
     ) -> bool:
         action_id = int(action.get("action"))
+        logger.info(
+            "_execute_continue_action | action_id=%s | action=%s | source_message=%s",
+            action_id, action, "present" if source_message else "None",
+        )
         kwargs: Dict[str, Any] = {}
         if target_thread_id is not None:
             kwargs["message_thread_id"] = target_thread_id
