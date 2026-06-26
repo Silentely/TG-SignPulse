@@ -41,7 +41,7 @@ class TerminalAIActionError(Exception):
 # 模块级别变量
 logger = logging.getLogger("backend.keyword_monitor")
 settings = get_settings()
-_KEYWORD_MONITOR_VERSION = os.getenv("GIT_SHA", "dev")[:12]
+_KEYWORD_MONITOR_VERSION = f"{os.getenv('GIT_BRANCH', 'dev')}-{os.getenv('GIT_SHA', 'dev')[:7]}"
 
 DEFAULT_CONTINUE_TIMEOUT = 25
 DEFAULT_HISTORY_LIMIT = 10
