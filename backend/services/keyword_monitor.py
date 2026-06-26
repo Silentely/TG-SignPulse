@@ -1237,6 +1237,10 @@ class KeywordMonitorService:
         task_name: str = "",
     ) -> bool:
         """执行 action_id=9：向指定 Bot 发送 /start 命令，参数从模板变量替换。"""
+        logger.info(
+            "Bot 链接 action 开始 | bot_username=%s | source_message=%s | variables=%s",
+            action.get("bot_username"), "present" if source_message else "None", variables,
+        )
         bot_username = str(action.get("bot_username") or "").strip()
         if not bot_username:
             logger.warning("Bot 链接触发跳过：未配置 bot_username")
@@ -1268,6 +1272,10 @@ class KeywordMonitorService:
                 k: v for k, v in self._bot_link_last_sent.items() if v > cutoff
             }
 
+        logger.info(
+            "Bot 链接 action 发送 | bot=%s | param=%s | chat=%s",
+            bot_username, start_param, target_chat_id,
+        )
         try:
             await self._call_client_with_retry(
                 client,
@@ -1276,6 +1284,7 @@ class KeywordMonitorService:
                 ),
                 operation=f"keyword monitor bot link {bot_username}",
             )
+            logger.info("Bot 链接 action 成功 | bot=%s | param=%s", bot_username, start_param)
             self._append_rule_log(
                 KeywordMonitorRule(
                     account_name=account_name,
@@ -1290,8 +1299,9 @@ class KeywordMonitorService:
             return True
         except Exception as exc:
             logger.warning(
-                "Keyword monitor bot link send failed for %s: %s: %s",
-                bot_username, type(exc).__name__, str(exc)[:200],
+                "Bot 链接 action 异常 | bot=%s | param=%s | error=%s: %s",
+                bot_username, start_param, type(exc).__name__, str(exc)[:200],
+                exc_info=True,
             )
             return False
 
