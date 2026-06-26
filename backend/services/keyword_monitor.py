@@ -551,6 +551,7 @@ class KeywordMonitorService:
             "time": (status or {}).get("updated_at", ""),
             "success": bool((status or {}).get("active", False)),
             "message": (status or {}).get("message", "关键词后台监听状态"),
+            "account_name": account_name,
             "flow_logs": flow_logs,
             "flow_truncated": len(logs) > len(flow_logs),
             "flow_line_count": len(logs),
