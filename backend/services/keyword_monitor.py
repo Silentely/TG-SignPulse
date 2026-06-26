@@ -398,6 +398,7 @@ class KeywordMonitorService:
         self._skip_log_times: dict[tuple[str, str, str], float] = {}
         self._ai_tools: Optional[Any] = None
         self._ai_cfg_signature: Optional[tuple[str, str, str]] = None
+        self._bot_link_last_sent: dict[str, float] = {}
 
     async def _ensure_client_ready(self, client: Any) -> None:
         if getattr(client, "is_connected", False):
@@ -597,6 +598,9 @@ class KeywordMonitorService:
             return "AI 识图并发送文本"
         if action_id == 7:
             return "AI 计算并点击按钮"
+        if action_id == 9:
+            bot = str(action.get("bot_username") or "").strip()
+            return f"触发 Bot 链接: @{bot}" if bot else "触发 Bot 链接"
         return f"动作 {action_id}"
 
     def _rules_key(self, rules: list[KeywordMonitorRule]) -> str:
@@ -729,7 +733,7 @@ class KeywordMonitorService:
         if not isinstance(actions, list):
             return []
 
-        supported = {1, 2, 3, 4, 5, 6, 7}
+        supported = {1, 2, 3, 4, 5, 6, 7, 9}
         result: list[Dict[str, Any]] = []
         for item in actions:
             if not isinstance(item, dict):
@@ -962,6 +966,8 @@ class KeywordMonitorService:
             return bool(message.photo)
         if action_id == 7:
             return bool((message.text or message.caption) and reply_markup)
+        if action_id == 9:
+            return bool(message.text or message.caption)
         return False
 
     async def _find_recent_message(
@@ -1218,6 +1224,77 @@ class KeywordMonitorService:
 
         return False
 
+    async def _execute_bot_link_action(
+        self,
+        client: Any,
+        target_chat_id: Union[int, str],
+        target_thread_id: Optional[int],
+        action: Dict[str, Any],
+        *,
+        source_message: Optional[Message] = None,
+        variables: Optional[Dict[str, str]] = None,
+        account_name: str = "",
+        task_name: str = "",
+    ) -> bool:
+        """执行 action_id=9：向指定 Bot 发送 /start 命令，参数从模板变量替换。"""
+        bot_username = str(action.get("bot_username") or "").strip()
+        if not bot_username:
+            logger.warning("Bot 链接触发跳过：未配置 bot_username")
+            return False
+        if source_message is None:
+            return False
+
+        variables = variables or {}
+        start_param = _render_template(
+            str(action.get("start_param") or "{keyword}"), variables
+        )
+        start_param = str(start_param).strip()
+        if not start_param:
+            logger.warning("Bot 链接触发跳过：start_param 为空")
+            return False
+
+        now = time.monotonic()
+        last_sent = self._bot_link_last_sent.get(bot_username, 0.0)
+        if now - last_sent < 30.0:
+            logger.debug(
+                "Bot 链接触发跳过：@%s 最近 %.1f 秒内已触发",
+                bot_username, now - last_sent,
+            )
+            return False
+        self._bot_link_last_sent[bot_username] = now
+        if len(self._bot_link_last_sent) > 1000:
+            cutoff = now - 300.0
+            self._bot_link_last_sent = {
+                k: v for k, v in self._bot_link_last_sent.items() if v > cutoff
+            }
+
+        try:
+            await self._call_client_with_retry(
+                client,
+                lambda _bot=bot_username, _param=start_param: client.send_message(
+                    _bot, f"/start {_param}"
+                ),
+                operation=f"keyword monitor bot link {bot_username}",
+            )
+            self._append_rule_log(
+                KeywordMonitorRule(
+                    account_name=account_name,
+                    task_name=task_name,
+                    chat_id=target_chat_id if isinstance(target_chat_id, int) else 0,
+                    chat_name=str(target_chat_id),
+                    message_thread_id=target_thread_id,
+                    action=action,
+                ),
+                f"Bot 链接触发成功：向 @{bot_username} 发送 /start {start_param}",
+            )
+            return True
+        except Exception as exc:
+            logger.warning(
+                "Keyword monitor bot link send failed for %s: %s: %s",
+                bot_username, type(exc).__name__, str(exc)[:200],
+            )
+            return False
+
     async def _execute_continue_action(
         self,
         client: Any,
@@ -1226,6 +1303,11 @@ class KeywordMonitorService:
         action: Dict[str, Any],
         timeout: Optional[float] = None,
         next_action: Optional[Dict[str, Any]] = None,
+        *,
+        source_message: Optional[Message] = None,
+        variables: Optional[Dict[str, str]] = None,
+        account_name: str = "",
+        task_name: str = "",
     ) -> bool:
         action_id = int(action.get("action"))
         kwargs: Dict[str, Any] = {}
@@ -1251,6 +1333,15 @@ class KeywordMonitorService:
                 operation=f"keyword monitor continue send_dice {target_chat_id}",
             )
             return True
+
+        if action_id == 9:
+            return await self._execute_bot_link_action(
+                client, target_chat_id, target_thread_id, action,
+                source_message=source_message,
+                variables=variables,
+                account_name=account_name,
+                task_name=task_name,
+            )
 
         action_timeout = timeout or _read_positive_float_env(
             "KEYWORD_MONITOR_CONTINUE_ACTION_TIMEOUT", DEFAULT_CONTINUE_TIMEOUT, 1.0
@@ -1429,6 +1520,10 @@ class KeywordMonitorService:
                             action,
                             timeout=timeout,
                             next_action=next_action,
+                            source_message=message,
+                            variables=variables,
+                            account_name=account_name,
+                            task_name=rule.task_name,
                         ),
                         timeout=timeout + 1,
                     )
@@ -1825,6 +1920,7 @@ class KeywordMonitorService:
         self._handler_refs = []
         self._rules = []
         self._active_key = ""
+        self._bot_link_last_sent.clear()
 
 
 _keyword_monitor_service: Optional[KeywordMonitorService] = None
