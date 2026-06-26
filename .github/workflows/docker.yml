@@ -2,7 +2,7 @@ name: Docker Image
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "dev"]
     tags: ["v*"]
     paths:
       - "backend/**"
@@ -68,11 +68,19 @@ jobs:
               echo "EOF"
             } >> "${GITHUB_OUTPUT}"
           elif [[ "${GITHUB_REF_NAME}" == "main" ]]; then
-            # main 分支：生成 staging 标签，不覆盖 latest
+            # main 分支：生成 latest 标签
             {
               echo "tags<<EOF"
-              echo "${image}:staging"
+              echo "${image}:latest"
               echo "${image}:main-${short_sha}"
+              echo "EOF"
+            } >> "${GITHUB_OUTPUT}"
+          elif [[ "${GITHUB_REF_NAME}" == "dev" ]]; then
+            # dev 分支：生成 dev 标签
+            {
+              echo "tags<<EOF"
+              echo "${image}:dev"
+              echo "${image}:dev-${short_sha}"
               echo "EOF"
             } >> "${GITHUB_OUTPUT}"
           else
