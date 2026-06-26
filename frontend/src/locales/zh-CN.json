@@ -41,6 +41,7 @@
     "emptyHint": "点击右下角按钮创建第一个签到任务",
     "notExecuted": "未执行",
     "continuousRunning": "持续运行",
+    "paused": "已暂停",
     "success": "成功",
     "failed": "失败",
     "noTarget": "无目标",
@@ -55,6 +56,9 @@
     "deleteConfirm": "确定删除任务",
     "deleteFailed": "删除失败",
     "triggerFailed": "触发失败",
+    "pause": "暂停",
+    "resume": "恢复",
+    "toggleFailed": "切换状态失败",
     "unknownError": "未知错误"
   },
   "taskForm": {
@@ -78,6 +82,8 @@
     "noResults": "无结果",
     "threadId": "话题 ID (可选)",
     "threadIdPlaceholder": "留空则不指定话题",
+    "senderFilter": "发送者过滤 (可选)",
+    "senderFilterPlaceholder": "留空则监听所有人，多个用逗号分隔",
     "keywordListener": "关键词监听设置",
     "keywords": "关键词 (每行一个)",
     "keywordsPlaceholder": "例如: 签到",

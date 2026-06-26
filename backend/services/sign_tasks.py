@@ -1830,7 +1830,7 @@ class SignTaskService:
                 "random_seconds": config.get("random_seconds", 0),
                 "sign_interval": config.get("sign_interval", 1),
                 "chats": config.get("chats", []),
-                "enabled": True,
+                "enabled": config.get("enabled", True),
                 "last_run": last_run,
                 "execution_mode": config.get("execution_mode", "fixed"),
                 "range_start": config.get("range_start", ""),
@@ -1867,7 +1867,7 @@ class SignTaskService:
                 "random_seconds": config.get("random_seconds", 0),
                 "sign_interval": config.get("sign_interval", 1),
                 "chats": config.get("chats", []),
-                "enabled": True,
+                "enabled": config.get("enabled", True),
                 "last_run": last_run,
                 "execution_mode": config.get("execution_mode", "fixed"),
                 "range_start": config.get("range_start", ""),
@@ -1924,6 +1924,7 @@ class SignTaskService:
             "range_start": range_start,
             "range_end": range_end,
             "notify_on_failure": notify_on_failure,
+            "enabled": True,
         }
 
         config_file = task_dir / "config.json"
@@ -2017,6 +2018,7 @@ class SignTaskService:
             "notify_on_failure": notify_on_failure
             if notify_on_failure is not None
             else existing.get("notify_on_failure", True),
+            "enabled": existing.get("enabled", True),
         }
 
         # 保存配置
@@ -2041,7 +2043,7 @@ class SignTaskService:
                 config.get("range_start")
                 if config.get("execution_mode") == "range"
                 else config["sign_at"],
-                enabled=True,
+                enabled=config.get("enabled", True),
             )
         except Exception as e:
             msg = f"DEBUG: 更新调度任务失败: {e}"
@@ -2062,7 +2064,7 @@ class SignTaskService:
             "random_seconds": config["random_seconds"],
             "sign_interval": config["sign_interval"],
             "chats": config["chats"],
-            "enabled": True,
+            "enabled": config.get("enabled", True),
             "execution_mode": config.get("execution_mode", "fixed"),
             "range_start": config.get("range_start", ""),
             "range_end": config.get("range_end", ""),
@@ -2258,7 +2260,7 @@ class SignTaskService:
                 chats=config.get("chats", []),
                 random_seconds=config.get("random_seconds", 0),
                 sign_interval=config.get("sign_interval", 1),
-                enabled=True,
+                enabled=config.get("enabled", True),
                 last_run=last_run,
                 execution_mode=config.get("execution_mode", "fixed"),
                 range_start=config.get("range_start", ""),
@@ -2352,6 +2354,7 @@ class SignTaskService:
                 "range_start": range_start,
                 "range_end": range_end,
                 "notify_on_failure": notify_on_failure,
+                "enabled": True,
             }
 
             with open(task_dir / "config.json", "w", encoding="utf-8") as f:
@@ -2401,6 +2404,7 @@ class SignTaskService:
         range_start: Optional[str] = None,
         range_end: Optional[str] = None,
         notify_on_failure: Optional[bool] = None,
+        enabled: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """Update one task and fan out the config to all linked accounts."""
         task_name = validate_storage_name(task_name, field_name="task_name")
@@ -2471,6 +2475,11 @@ class SignTaskService:
             if notify_on_failure is not None
             else bool(existing.get("notify_on_failure", True))
         )
+        next_enabled = (
+            enabled
+            if enabled is not None
+            else bool(existing.get("enabled", True))
+        )
         should_schedule = next_execution_mode != "listen"
 
         existing_dirs = dict(self._iter_task_dirs(task_name, existing_accounts))
@@ -2511,6 +2520,7 @@ class SignTaskService:
                 "range_start": next_range_start,
                 "range_end": next_range_end,
                 "notify_on_failure": next_notify_on_failure,
+                "enabled": next_enabled,
             }
             last_run = existing_last_run_map.get(current_account)
             if last_run:
@@ -2532,7 +2542,7 @@ class SignTaskService:
                     current_account,
                     task_name,
                     next_range_start if next_execution_mode == "range" else next_sign_at,
-                    enabled=True,
+                    enabled=next_enabled,
                 )
             else:
                 remove_sign_task_job(current_account, task_name)

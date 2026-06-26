@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { Play, FileText, Edit2, Trash2, Plus, Radio, Clock, Shuffle } from 'lucide-vue-next'
-import { listSignTasks, deleteSignTask, startSignTaskRun, listAccounts } from '../lib/api' 
+import { Play, FileText, Edit2, Trash2, Plus, Radio, Clock, Shuffle, Power } from 'lucide-vue-next'
+import { listSignTasks, deleteSignTask, startSignTaskRun, listAccounts, toggleSignTaskEnabled } from '../lib/api' 
 import { useI18n } from '../composables/useI18n'
 import AddTaskModal from '../components/tasks/AddTaskModal.vue'
 import EditTaskModal from '../components/tasks/EditTaskModal.vue'
@@ -88,7 +88,7 @@ const loadTasks = async () => {
       let lastRunSuccess: boolean | null = null
       // Listen mode tasks run 24H continuously, show "持续运行" instead of "未执行"
       if (task.execution_mode === 'listen' && !task.last_run) {
-        lastRunStr = t('tasks.continuousRunning')
+        lastRunStr = task.enabled !== false ? t('tasks.continuousRunning') : t('tasks.paused')
       }
       if (task.last_run) {
         lastRunSuccess = task.last_run.success
@@ -104,6 +104,7 @@ const loadTasks = async () => {
         lastRunSuccess,
         modeIcon,
         isListenMode: task.execution_mode === 'listen',
+        enabled: task.enabled !== false,
         chatAvatarUrl: '',
         chatName: firstChat ? (firstChat.name || `Chat ${firstChat.chat_id}`) : '',
         raw: task
@@ -204,6 +205,17 @@ const handleDelete = async (task: any) => {
   }
 }
 
+const handleToggleEnabled = async (task: any) => {
+  const token = localStorage.getItem('tg-signer-token') || ''
+  try {
+    const accountName = getTaskAccountName(task.raw) || undefined
+    await toggleSignTaskEnabled(token, task.name, accountName)
+    await loadTasks()
+  } catch (e: any) {
+    alert(`${t('tasks.toggleFailed') || '切换状态失败'}: ${e.message || t('tasks.unknownError')}`)
+  }
+}
+
 const getTaskRealAccounts = (task: any): string[] => {
   const names = task.account_names || []
   if (names.includes('*')) {
@@ -272,9 +284,10 @@ const openLogs = (task: any) => {
     </div>
 
     <div v-else class="flex flex-col gap-2 pb-20">
-    <div 
+    <div
       v-for="task in tasks" :key="task.id"
       class="group flex flex-col sm:flex-row sm:items-center p-4 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/60 hover:border-gray-300 dark:hover:border-gray-700 transition-colors"
+      :class="{ 'opacity-50': !task.enabled }"
     >
       <!-- Mobile Layout: Avatar + Name + Status -->
       <div class="flex-1 flex gap-3 w-full overflow-hidden">
@@ -339,9 +352,20 @@ const openLogs = (task: any) => {
 
       <!-- Actions Area -->
       <div class="flex items-center justify-between sm:justify-end gap-2 sm:gap-1.5 mt-2 sm:mt-0 transition-opacity duration-200 shrink-0 sm:pl-4">
+        <!-- Toggle enabled/paused -->
+        <button
+          @click="handleToggleEnabled(task)"
+          class="flex-1 sm:flex-none flex justify-center items-center gap-1 px-2 py-1.5 rounded transition-colors text-xs"
+          :class="task.enabled ? 'text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20' : 'text-gray-400 dark:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800'"
+          :title="task.enabled ? t('tasks.pause') : t('tasks.resume')"
+        >
+          <Power class="w-3.5 h-3.5" />
+          <span class="text-xs">{{ task.enabled ? t('tasks.pause') : t('tasks.resume') }}</span>
+        </button>
+        <!-- Execute (disabled for listen mode) -->
         <div class="relative flex-1 sm:flex-none" @click.stop>
-          <button 
-            @click="task.raw.execution_mode !== 'listen' && handleRun(task)" 
+          <button
+            @click="task.raw.execution_mode !== 'listen' && handleRun(task)"
             class="w-full sm:w-auto flex justify-center items-center gap-1 px-2 py-1.5 rounded transition-colors text-xs"
             :class="task.raw.execution_mode === 'listen' ? 'text-gray-300 dark:text-gray-700 cursor-not-allowed' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800'"
             :title="t('tasks.executeNow')"
@@ -353,7 +377,7 @@ const openLogs = (task: any) => {
           <!-- Account selection dropdown -->
           <div v-if="runMenuTask === task" class="absolute top-full left-0 sm:right-0 sm:left-auto mt-1 z-50 min-w-[140px] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-lg py-1">
             <div class="px-3 py-1.5 text-[10px] text-gray-400 font-medium uppercase tracking-wide border-b border-gray-100 dark:border-gray-800">{{ t('tasks.selectAccount') }}</div>
-            <button 
+            <button
               v-for="acc in runMenuAccounts" :key="acc"
               @click="doRun(task, acc)"
               class="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors truncate"

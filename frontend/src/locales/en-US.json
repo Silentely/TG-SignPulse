@@ -41,6 +41,7 @@
     "emptyHint": "Click the button below to create your first task",
     "notExecuted": "Not executed",
     "continuousRunning": "Running",
+    "paused": "Paused",
     "success": "Success",
     "failed": "Failed",
     "noTarget": "No target",
@@ -55,6 +56,9 @@
     "deleteConfirm": "Delete task",
     "deleteFailed": "Delete failed",
     "triggerFailed": "Trigger failed",
+    "pause": "Pause",
+    "resume": "Resume",
+    "toggleFailed": "Toggle status failed",
     "unknownError": "Unknown error"
   },
   "taskForm": {
@@ -78,6 +82,8 @@
     "noResults": "No results",
     "threadId": "Thread ID (optional)",
     "threadIdPlaceholder": "Leave empty for no thread",
+    "senderFilter": "Sender Filter (optional)",
+    "senderFilterPlaceholder": "Empty = listen all, comma-separated usernames",
     "keywordListener": "Keyword Listener Settings",
     "keywords": "Keywords (one per line)",
     "keywordsPlaceholder": "e.g. check-in",

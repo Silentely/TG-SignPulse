@@ -348,6 +348,57 @@ async def delete_sign_task(
         ) from e
 
 
+@router.patch("/{task_name}/toggle-enabled", response_model=SignTaskOut)
+async def toggle_sign_task_enabled(
+    task_name: str,
+    account_name: Optional[str] = None,
+    current_user=Depends(get_current_user),
+):
+    """切换任务的启用/暂停状态"""
+    try:
+        effective_account = account_name if (account_name and account_name != "*") else None
+        existing = get_sign_task_service().get_task(
+            task_name,
+            account_name=effective_account,
+            aggregate=effective_account is None,
+        )
+        if not existing:
+            raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
+
+        resolved_account = effective_account or ""
+        if not resolved_account:
+            for name in existing.get("account_names", []):
+                if name and name != "*":
+                    resolved_account = name
+                    break
+            if not resolved_account:
+                resolved_account = existing.get("account_name", "")
+            if resolved_account == "*":
+                resolved_account = ""
+
+        current_enabled = bool(existing.get("enabled", True))
+        task = get_sign_task_service().update_task(
+            task_name=task_name,
+            account_name=resolved_account or None,
+            enabled=not current_enabled,
+        )
+
+        from backend.scheduler import sync_jobs
+
+        await sync_jobs()
+        await _restart_keyword_monitors()
+        return task
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        ) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"切换任务状态失败: {str(e)}")
+
+
 @router.post("/{task_name}/run", response_model=RunTaskResult)
 async def run_sign_task(
     task_name: str,

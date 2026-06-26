@@ -58,6 +58,7 @@ class KeywordMonitorRule:
     chat_id: int
     chat_name: str
     message_thread_id: Optional[int]
+    sender_filter: Optional[List[str]]
     action: Dict[str, Any]
 
 
@@ -230,6 +231,31 @@ def _message_matches_thread(message: Message, message_thread_id: Optional[int]) 
     if message_thread_id is None:
         return True
     return message_thread_id in _message_thread_candidates(message)
+
+
+def _parse_sender_filter(value: Any) -> Optional[List[str]]:
+    """解析发送者过滤列表。支持逗号或换行分隔的用户名列表。"""
+    if not value:
+        return None
+    if isinstance(value, list):
+        items = [str(s).strip().lower() for s in value if str(s).strip()]
+    else:
+        items = [
+            s.strip().lower().lstrip("@")
+            for s in re.split(r"[\n,]+", str(value))
+            if s.strip()
+        ]
+    return items if items else None
+
+
+def _message_matches_sender(message: Message, sender_filter: Optional[List[str]]) -> bool:
+    """检查消息发送者是否在白名单中。sender_filter 为 None 表示不过滤。"""
+    if sender_filter is None:
+        return True
+    if not message.from_user:
+        return False
+    username = (message.from_user.username or "").lower()
+    return username in sender_filter
 
 
 def _message_thread_candidates(message: Message) -> list[int]:
@@ -575,6 +601,8 @@ class KeywordMonitorService:
         ]
         if rule.message_thread_id is not None:
             parts.append(f"话题ID={rule.message_thread_id}")
+        if rule.sender_filter is not None:
+            parts.append(f"发送者={','.join(rule.sender_filter)}")
         if push_channel == "continue":
             parts.append(f"后续动作={len(continue_actions)} 步")
         return "，".join(parts)
@@ -612,6 +640,7 @@ class KeywordMonitorService:
                     "task_name": rule.task_name,
                     "chat_id": rule.chat_id,
                     "message_thread_id": rule.message_thread_id,
+                    "sender_filter": rule.sender_filter,
                     "action": rule.action,
                 }
                 for rule in rules
@@ -665,6 +694,9 @@ class KeywordMonitorService:
                             chat_name=str(chat.get("name") or chat_id_int),
                             message_thread_id=_as_int_or_none(
                                 chat.get("message_thread_id")
+                            ),
+                            sender_filter=_parse_sender_filter(
+                                chat.get("sender_filter")
                             ),
                             action=dict(action),
                         )
@@ -1293,6 +1325,7 @@ class KeywordMonitorService:
                     chat_id=target_chat_id if isinstance(target_chat_id, int) else 0,
                     chat_name=str(target_chat_id),
                     message_thread_id=target_thread_id,
+                    sender_filter=None,
                     action=action,
                 ),
                 f"Bot 链接触发成功：向 @{bot_username} 发送 /start {start_param}",
@@ -1598,6 +1631,7 @@ class KeywordMonitorService:
                 rule
                 for rule in same_chat_rules
                 if _message_matches_thread(message, rule.message_thread_id)
+                and _message_matches_sender(message, rule.sender_filter)
             ]
             if not matched_rules:
                 thread_candidates = _message_thread_candidates(message)

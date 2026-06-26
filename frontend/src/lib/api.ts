@@ -819,6 +819,11 @@ export const deleteSignTask = (token: string, name: string, accountName?: string
     method: "DELETE",
   }, token);
 
+export const toggleSignTaskEnabled = (token: string, name: string, accountName?: string) =>
+  request<SignTask>(`/sign-tasks/${encodeURIComponent(name)}/toggle-enabled${accountName ? `?account_name=${encodeURIComponent(accountName)}` : ''}`, {
+    method: "PATCH",
+  }, token);
+
 export const runSignTask = (token: string, name: string, accountName: string) =>
   request<{ success: boolean; output: string; error: string }>(`/sign-tasks/${encodeURIComponent(name)}/run?account_name=${encodeURIComponent(accountName)}`, {
     method: "POST",
