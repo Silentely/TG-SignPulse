@@ -94,7 +94,16 @@ def _configure_backend_logging():
         level_no = logging.INFO
 
     # 配置根日志器和主要模块日志器
-    logging.getLogger().setLevel(level_no)
+    root = logging.getLogger()
+    root.setLevel(level_no)
+    # 确保 root logger 有 handler，否则 INFO 级别消息会被 lastResort 静默丢弃
+    if not root.handlers:
+        _handler = logging.StreamHandler()
+        _handler.setLevel(level_no)
+        _handler.setFormatter(logging.Formatter(
+            "[%(levelname)s] [%(name)s] %(asctime)s - %(message)s"
+        ))
+        root.addHandler(_handler)
     logging.getLogger("backend").setLevel(level_no)
     logging.getLogger("uvicorn").setLevel(level_no)
 
