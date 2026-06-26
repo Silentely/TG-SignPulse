@@ -246,6 +246,13 @@ async def on_startup() -> None:
     # 重新应用日志配置（uvicorn 启动后会重新配置 logging，覆盖之前的设置）
     _configure_backend_logging()
 
+    # 版本标记
+    _git_branch = os.getenv("GIT_BRANCH", "dev")
+    _git_sha = os.getenv("GIT_SHA", "dev")[:7]
+    logging.getLogger("backend.startup").info(
+        "TG-SignPulse version=%s-%s", _git_branch, _git_sha
+    )
+
     ensure_data_dirs(settings)
     init_engine()
     Base.metadata.create_all(bind=get_engine())
