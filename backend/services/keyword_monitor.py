@@ -41,6 +41,7 @@ class TerminalAIActionError(Exception):
 # 模块级别变量
 logger = logging.getLogger("backend.keyword_monitor")
 settings = get_settings()
+_KEYWORD_MONITOR_VERSION = os.getenv("GIT_SHA", "dev")[:12]
 
 DEFAULT_CONTINUE_TIMEOUT = 25
 DEFAULT_HISTORY_LIMIT = 10
@@ -1810,6 +1811,7 @@ class KeywordMonitorService:
 
     async def restart_from_tasks(self) -> None:
         async with self._lock:
+            logger.info("Keyword monitor version=%s", _KEYWORD_MONITOR_VERSION)
             from backend.services.config import get_config_service
             from tg_signer.core import (
                 _CLIENT_INSTANCES,
