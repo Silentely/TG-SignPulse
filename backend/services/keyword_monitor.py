@@ -1242,7 +1242,7 @@ class KeywordMonitorService:
             logger.warning("Bot 链接触发跳过：未配置 bot_username")
             return False
         if source_message is None:
-            logger.debug("Bot 链接触发跳过：无源消息")
+            logger.warning("Bot 链接触发跳过：source_message 为 None，bot_username=%s", bot_username)
             return False
 
         variables = variables or {}
