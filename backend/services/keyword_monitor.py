@@ -48,6 +48,7 @@ settings = get_settings()
 
 DEFAULT_CONTINUE_TIMEOUT = 25
 DEFAULT_HISTORY_LIMIT = 10
+DEFAULT_COMMAND_PREFIX = "/start"
 
 
 def _is_callback_data_invalid(exc: BaseException) -> bool:
@@ -428,7 +429,7 @@ class KeywordMonitorService:
         self._skip_log_times: dict[tuple[str, str, str], float] = {}
         self._ai_tools: Optional[Any] = None
         self._ai_cfg_signature: Optional[tuple[str, str, str]] = None
-        self._bot_link_last_sent: dict[str, float] = {}
+        self._bot_cmd_last_sent: dict[str, float] = {}
 
     async def _ensure_client_ready(self, client: Any) -> None:
         if getattr(client, "is_connected", False):
@@ -633,7 +634,7 @@ class KeywordMonitorService:
             return "AI 计算并点击按钮"
         if action_id == 9:
             bot = str(action.get("bot_username") or "").strip()
-            cmd = str(action.get("command_prefix") or "/start").strip()
+            cmd = str(action.get("command_prefix") or DEFAULT_COMMAND_PREFIX).strip()
             return f"触发 Bot 命令: @{bot} {cmd}" if bot else f"触发 Bot 命令 {cmd}"
         return f"动作 {action_id}"
 
@@ -1298,25 +1299,25 @@ class KeywordMonitorService:
             logger.warning("Bot 命令触发跳过：start_param 为空")
             return False
 
+        command_prefix = str(action.get("command_prefix") or DEFAULT_COMMAND_PREFIX).strip()
+        if not command_prefix.startswith("/"):
+            command_prefix = f"/{command_prefix}"
+
         now = time.monotonic()
         rate_key = f"{account_name}:{bot_username}"
-        last_sent = self._bot_link_last_sent.get(rate_key, 0.0)
+        last_sent = self._bot_cmd_last_sent.get(rate_key, 0.0)
         if now - last_sent < 30.0:
             logger.debug(
                 "Bot 命令触发跳过：@%s (账号=%s) 最近 %.1f 秒内已触发",
                 bot_username, account_name, now - last_sent,
             )
             return False
-        self._bot_link_last_sent[rate_key] = now
-        if len(self._bot_link_last_sent) > 1000:
+        self._bot_cmd_last_sent[rate_key] = now
+        if len(self._bot_cmd_last_sent) > 1000:
             cutoff = now - 300.0
-            self._bot_link_last_sent = {
-                k: v for k, v in self._bot_link_last_sent.items() if v > cutoff
+            self._bot_cmd_last_sent = {
+                k: v for k, v in self._bot_cmd_last_sent.items() if v > cutoff
             }
-
-        command_prefix = str(action.get("command_prefix") or "/start").strip()
-        if not command_prefix.startswith("/"):
-            command_prefix = f"/{command_prefix}"
 
         logger.info(
             "Bot 命令 action 发送 | bot=%s | cmd=%s | param=%s | chat=%s",
@@ -1352,8 +1353,8 @@ class KeywordMonitorService:
             return True
         except Exception as exc:
             logger.warning(
-                "Bot 命令 action 异常 | bot=%s | param=%s | error=%s: %s",
-                bot_username, start_param, type(exc).__name__, str(exc)[:200],
+                "Bot 命令 action 异常 | bot=%s | cmd=%s | param=%s | error=%s: %s",
+                bot_username, command_prefix, start_param, type(exc).__name__, str(exc)[:200],
                 exc_info=True,
             )
             return False
@@ -1988,7 +1989,7 @@ class KeywordMonitorService:
         self._handler_refs = []
         self._rules = []
         self._active_key = ""
-        self._bot_link_last_sent.clear()
+        self._bot_cmd_last_sent.clear()
 
 
 _keyword_monitor_service: Optional[KeywordMonitorService] = None
