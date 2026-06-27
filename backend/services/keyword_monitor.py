@@ -1314,14 +1314,20 @@ class KeywordMonitorService:
             bot_username, start_param, target_chat_id,
         )
         try:
-            await self._call_client_with_retry(
+            result = await self._call_client_with_retry(
                 client,
                 lambda _bot=bot_username, _param=start_param: client.send_message(
                     _bot, f"/start {_param}"
                 ),
                 operation=f"keyword monitor bot link {bot_username}",
             )
-            logger.info("Bot 链接 action 成功 | bot=%s | param=%s", bot_username, start_param)
+            msg_id = getattr(result, "id", None)
+            chat = getattr(result, "chat", None)
+            chat_id = getattr(chat, "id", None)
+            logger.info(
+                "Bot 链接 action 成功 | bot=%s | param=%s | msg_id=%s | result_chat_id=%s",
+                bot_username, start_param, msg_id, chat_id,
+            )
             self._append_rule_log(
                 KeywordMonitorRule(
                     account_name=account_name,
