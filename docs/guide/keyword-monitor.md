@@ -201,6 +201,8 @@ https://sctapi.ftqq.com/<sendkey>.send?title={title}&desp={body}
 当消息包含 `MSKY-30-Register_KsdaqumLAS` 时，正则捕获 `KsdaqumLAS`，
 系统自动向 `@GYFMsky_bot` 发送 `/start KsdaqumLAS`。
 
+> **注意**：通过 API 发送给 Bot 的 `/start` 消息**不会显示在 Telegram 客户端的对话列表中**，这是 Telegram 的设计行为，不影响功能。Bot 端确实收到了消息并会正常响应。可通过任务日志中的「Bot 链接 action 成功」确认发送状态。
+
 ## 设计建议
 
 - 监听规则尽量按聊天拆分，避免一个任务承载太多不同语义
