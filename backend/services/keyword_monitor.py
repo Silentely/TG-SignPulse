@@ -13,6 +13,14 @@ from typing import Any, Dict, List, Optional, Union
 
 from backend.core.config import get_settings
 from backend.services.push_notifications import send_keyword_push
+from backend.utils.account_locks import get_account_lock
+from backend.utils.proxy import build_proxy_dict
+from backend.utils.tg_session import (
+    get_account_proxy,
+    get_account_session_string,
+    get_session_mode,
+    load_session_string_file,
+)
 from tg_signer.compat import (
     InlineKeyboardMarkup,
     Message,
@@ -21,14 +29,10 @@ from tg_signer.compat import (
     errors,
     filters,
 )
-from tg_signer.log_utils import safe_ai_request_meta, safe_ai_result_meta, safe_text_preview
-from backend.utils.account_locks import get_account_lock
-from backend.utils.proxy import build_proxy_dict
-from backend.utils.tg_session import (
-    get_account_proxy,
-    get_account_session_string,
-    get_session_mode,
-    load_session_string_file,
+from tg_signer.log_utils import (
+    safe_ai_request_meta,
+    safe_ai_result_meta,
+    safe_text_preview,
 )
 
 

@@ -4,12 +4,12 @@ import os
 from datetime import timedelta
 from typing import Optional
 
+import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
+from jwt import PyJWTError
 from sqlalchemy.orm import Session
 
-import jwt
-from jwt import PyJWTError
 import pyotp
 from backend.core.config import get_settings
 from backend.core.database import get_db

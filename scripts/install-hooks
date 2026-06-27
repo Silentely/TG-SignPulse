@@ -1,0 +1,31 @@
+#!/bin/bash
+# 安装 Git hooks
+# 用法：bash scripts/install-hooks
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+HOOKS_DIR="$ROOT/.git/hooks"
+SCRIPTS_DIR="$ROOT/scripts"
+
+# 确保 .git/hooks 目录存在
+mkdir -p "$HOOKS_DIR"
+
+# 链接 pre-push 钩子
+HOOK="$HOOKS_DIR/pre-push"
+SOURCE="$SCRIPTS_DIR/pre-push"
+
+if [ -L "$HOOK" ]; then
+    echo "♻️  更新 pre-push 钩子"
+    rm "$HOOK"
+elif [ -f "$HOOK" ]; then
+    echo "⚠️  已存在 pre-push 钩子，备份为 pre-push.bak"
+    mv "$HOOK" "$HOOK.bak"
+fi
+
+ln -s "$SOURCE" "$HOOK"
+chmod +x "$SOURCE"
+
+echo "✅ pre-push 钩子已安装"
+echo "   推送时自动执行：ruff 检查 → 前端类型检查 → 后端测试"
+echo "   跳过方式：SKIP_PUSH_HOOK=1 git push 或 git push --no-verify"

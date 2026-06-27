@@ -89,5 +89,5 @@ def decrypt_secret(value: Optional[str]) -> Optional[str]:
         return get_fernet().decrypt(token.encode("ascii")).decode("utf-8")
     except InvalidToken:
         raise InvalidToken(
-            f"Failed to decrypt secret value (wrong APP_SECRET_KEY or corrupted data)"
+            "Failed to decrypt secret value (wrong APP_SECRET_KEY or corrupted data)"
         )
