@@ -1294,15 +1294,14 @@ class KeywordMonitorService:
             return False
 
         now = time.monotonic()
-        rate_key = f"{account_name}:{bot_username}"
-        last_sent = self._bot_link_last_sent.get(rate_key, 0.0)
+        last_sent = self._bot_link_last_sent.get(bot_username, 0.0)
         if now - last_sent < 30.0:
             logger.debug(
-                "Bot 链接触发跳过：@%s (账号=%s) 最近 %.1f 秒内已触发",
-                bot_username, account_name, now - last_sent,
+                "Bot 链接触发跳过：@%s 最近 %.1f 秒内已触发",
+                bot_username, now - last_sent,
             )
             return False
-        self._bot_link_last_sent[rate_key] = now
+        self._bot_link_last_sent[bot_username] = now
         if len(self._bot_link_last_sent) > 1000:
             cutoff = now - 300.0
             self._bot_link_last_sent = {
