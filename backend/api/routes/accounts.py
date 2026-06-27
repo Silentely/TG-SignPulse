@@ -610,6 +610,7 @@ async def get_account_avatar(
     import time
 
     from fastapi.responses import FileResponse, Response
+
     from backend.core.config import get_settings
 
     settings = get_settings()

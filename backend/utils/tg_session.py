@@ -278,9 +278,9 @@ def load_session_string_file(session_dir: Path, account_name: str) -> Optional[s
 
 def _export_session_string_from_file(session_dir: Path, account_name: str) -> Optional[str]:
     """Extract session string from .session SQLite file and cache it."""
+    import base64
     import sqlite3
     import struct
-    import base64
 
     session_file = session_dir / f"{account_name}.session"
     if not session_file.exists():

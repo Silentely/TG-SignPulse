@@ -610,7 +610,6 @@ async def get_chat_avatar(
     other available accounts.
     """
     import time
-    from pathlib import Path
 
     from fastapi.responses import FileResponse, Response
 

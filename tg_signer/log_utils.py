@@ -8,7 +8,6 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
-
 # 敏感字段模式：匹配 API key、session string、token 等
 _SECRET_PATTERNS = [
     # OpenAI / 通用 sk-* API key

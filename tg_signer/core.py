@@ -53,9 +53,10 @@ from tg_signer.config import (
 
 _PYDANTIC_V2 = hasattr(BaseModel, "model_validate")
 
-from .compat import (
+from .ai_tools import AITools, OpenAIConfigManager  # noqa: E402
+from .async_utils import create_logged_task  # noqa: E402
+from .compat import (  # noqa: E402
     _PYROGRAM_IMPORT_ERROR,
-    _raise_pyrogram_import_error,
     BaseClient,
     Chat,
     ChatMembersFilter,
@@ -69,16 +70,19 @@ from .compat import (
     ReplyKeyboardMarkup,
     Session,
     User,
+    _raise_pyrogram_import_error,
     errors,
     filters,
     idle,
     raw,
 )
-from .ai_tools import AITools, OpenAIConfigManager
-from .async_utils import create_logged_task
-from .log_utils import safe_ai_request_meta, safe_ai_result_meta, safe_text_preview
-from .notification.server_chan import sc_send
-from .utils import UserInput, print_to_user
+from .log_utils import (  # noqa: E402
+    safe_ai_request_meta,
+    safe_ai_result_meta,
+    safe_text_preview,
+)
+from .notification.server_chan import sc_send  # noqa: E402
+from .utils import UserInput, print_to_user  # noqa: E402
 
 # Monkeypatch sqlite3.connect to increase default timeout
 _original_sqlite3_connect = sqlite3.connect

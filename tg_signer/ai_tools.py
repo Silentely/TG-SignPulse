@@ -21,8 +21,9 @@ if TYPE_CHECKING:
     from openai import AsyncOpenAI  # 在性能弱的机器上导入openai包实在有些慢
 
 from cryptography.fernet import InvalidToken
+
 from tg_signer.log_utils import safe_text_preview
-from tg_signer.security import decrypt_secret, encrypt_secret, is_encrypted_secret
+from tg_signer.security import decrypt_secret, encrypt_secret
 from tg_signer.utils import UserInput, print_to_user
 
 DEFAULT_MODEL = "gpt-4o"
