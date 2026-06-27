@@ -144,6 +144,15 @@ https://sctapi.ftqq.com/<sendkey>.send?title={title}&desp={body}
 
 如果你只想监听某个论坛话题，请填写 `message_thread_id`。否则留空即可。
 
+## 发送者过滤（白名单）
+
+监听规则支持按发送者用户名过滤，仅匹配指定账号发送的消息：
+
+- `sender_filter`：填写用户名（不带 `@`），多个用逗号或换行分隔
+- 留空表示不过滤，监听所有人的消息
+
+示例：填写 `user1,user2` 则只监听这两个用户发送的消息，其他人发送的消息会被忽略。
+
 ## 自定义推送 URL 的 JSON 负载
 
 当 `custom_url` 不包含模板变量时，系统会 `POST` 一个 JSON 负载，常见字段包括：
