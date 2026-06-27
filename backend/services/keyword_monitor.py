@@ -633,7 +633,8 @@ class KeywordMonitorService:
             return "AI 计算并点击按钮"
         if action_id == 9:
             bot = str(action.get("bot_username") or "").strip()
-            return f"触发 Bot 链接: @{bot}" if bot else "触发 Bot 链接"
+            cmd = str(action.get("command_prefix") or "/start").strip()
+            return f"触发 Bot 命令: @{bot} {cmd}" if bot else f"触发 Bot 命令 {cmd}"
         return f"动作 {action_id}"
 
     def _rules_key(self, rules: list[KeywordMonitorRule]) -> str:
@@ -1273,9 +1274,9 @@ class KeywordMonitorService:
         account_name: str = "",
         task_name: str = "",
     ) -> bool:
-        """执行 action_id=9：向指定 Bot 发送 /start 命令，参数从模板变量替换。"""
+        """执行 action_id=9：向指定 Bot 发送命令，参数从模板变量替换。"""
         logger.warning(
-            "[BOT_LINK_ENTRY] bot_username=%s | source_message=%s | variables=%s | action=%s",
+            "[BOT_CMD_ENTRY] bot_username=%s | source_message=%s | variables=%s | action=%s",
             action.get("bot_username"),
             "present" if source_message else "None",
             variables,
@@ -1283,10 +1284,10 @@ class KeywordMonitorService:
         )
         bot_username = str(action.get("bot_username") or "").strip()
         if not bot_username:
-            logger.warning("Bot 链接触发跳过：未配置 bot_username")
+            logger.warning("Bot 命令触发跳过：未配置 bot_username")
             return False
         if source_message is None:
-            logger.warning("Bot 链接触发跳过：source_message 为 None，bot_username=%s", bot_username)
+            logger.warning("Bot 命令触发跳过：source_message 为 None，bot_username=%s", bot_username)
             return False
 
         variables = variables or {}
@@ -1294,7 +1295,7 @@ class KeywordMonitorService:
             action.get("start_param") or "{keyword}", variables
         )).strip()
         if not start_param:
-            logger.warning("Bot 链接触发跳过：start_param 为空")
+            logger.warning("Bot 命令触发跳过：start_param 为空")
             return False
 
         now = time.monotonic()
@@ -1302,7 +1303,7 @@ class KeywordMonitorService:
         last_sent = self._bot_link_last_sent.get(rate_key, 0.0)
         if now - last_sent < 30.0:
             logger.debug(
-                "Bot 链接触发跳过：@%s (账号=%s) 最近 %.1f 秒内已触发",
+                "Bot 命令触发跳过：@%s (账号=%s) 最近 %.1f 秒内已触发",
                 bot_username, account_name, now - last_sent,
             )
             return False
@@ -1313,23 +1314,27 @@ class KeywordMonitorService:
                 k: v for k, v in self._bot_link_last_sent.items() if v > cutoff
             }
 
+        command_prefix = str(action.get("command_prefix") or "/start").strip()
+        if not command_prefix.startswith("/"):
+            command_prefix = f"/{command_prefix}"
+
         logger.info(
-            "Bot 链接 action 发送 | bot=%s | param=%s | chat=%s",
-            bot_username, start_param, target_chat_id,
+            "Bot 命令 action 发送 | bot=%s | cmd=%s | param=%s | chat=%s",
+            bot_username, command_prefix, start_param, target_chat_id,
         )
         try:
             result = await self._call_client_with_retry(
                 client,
-                lambda _bot=bot_username, _param=start_param: client.send_message(
-                    _bot, f"/start {_param}"
+                lambda _bot=bot_username, _param=start_param, _cmd=command_prefix: client.send_message(
+                    _bot, f"{_cmd} {_param}"
                 ),
-                operation=f"keyword monitor bot link {bot_username}",
+                operation=f"keyword monitor bot cmd {bot_username}",
             )
             msg_id = getattr(result, "id", None)
             chat = getattr(result, "chat", None)
             chat_id = getattr(chat, "id", None)
             logger.info(
-                "Bot 链接 action 成功 | bot=%s | param=%s | msg_id=%s | result_chat_id=%s",
+                "Bot 命令 action 成功 | bot=%s | param=%s | msg_id=%s | result_chat_id=%s",
                 bot_username, start_param, msg_id, chat_id,
             )
             self._append_rule_log(
@@ -1342,12 +1347,12 @@ class KeywordMonitorService:
                     sender_filter=None,
                     action=action,
                 ),
-                f"Bot 链接触发成功：向 @{bot_username} 发送 /start {start_param}",
+                f"Bot 命令触发成功：向 @{bot_username} 发送 {command_prefix} {start_param}",
             )
             return True
         except Exception as exc:
             logger.warning(
-                "Bot 链接 action 异常 | bot=%s | param=%s | error=%s: %s",
+                "Bot 命令 action 异常 | bot=%s | param=%s | error=%s: %s",
                 bot_username, start_param, type(exc).__name__, str(exc)[:200],
                 exc_info=True,
             )

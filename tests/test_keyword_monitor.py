@@ -1,7 +1,7 @@
 """
-关键词监听 Bot 链接触发测试
+关键词监听 Bot 命令触发测试
 
-测试从 action 配置读取 bot_username，使用关键词捕获值作为 /start 参数。
+测试从 action 配置读取 bot_username，使用关键词捕获值作为命令参数。
 """
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -10,7 +10,7 @@ from backend.services.keyword_monitor import KeywordMonitorService
 
 
 class TestBotLinkAction:
-    """测试 action_id=9（触发 Bot 链接）的执行逻辑"""
+    """测试 action_id=9（触发 Bot 命令）的执行逻辑"""
 
     @pytest.fixture
     def service(self):
@@ -142,7 +142,7 @@ class TestBotLinkAction:
         """_describe_continue_action 应正确描述 action_id=9"""
         action = {"action": 9, "bot_username": "GYFMsky_bot"}
         desc = service._describe_continue_action(action)
-        assert desc == "触发 Bot 链接: @GYFMsky_bot"
+        assert desc == "触发 Bot 命令: @GYFMsky_bot /start"
 
     def test_message_supports_action_9(self, service):
         """有 text 或 caption 的消息应支持 action_id=9"""
@@ -193,7 +193,7 @@ class TestBotLinkAction:
             account_name="my_account", task_name="my_task",
         )
         logs = service.get_task_logs("my_task", "my_account")
-        assert any("Bot 链接触发成功" in line for line in logs)
+        assert any("Bot 命令触发成功" in line for line in logs)
 
     @pytest.mark.asyncio
     async def test_bot_link_no_variables_uses_default_template(self, service, mock_client):
@@ -232,7 +232,7 @@ class TestBotLinkAction:
         """无 bot_username 时描述应不含 @"""
         action = {"action": 9}
         desc = service._describe_continue_action(action)
-        assert desc == "触发 Bot 链接"
+        assert desc == "触发 Bot 命令 /start"
 
     @pytest.mark.asyncio
     async def test_bot_link_custom_start_param(self, service, mock_client):
@@ -252,3 +252,43 @@ class TestBotLinkAction:
         mock_client.send_message.assert_called_once_with(
             "custom_bot", "/start 验证码: 123456"
         )
+
+    @pytest.mark.asyncio
+    async def test_bot_link_custom_command_prefix(self, service, mock_client):
+        """自定义命令前缀"""
+        source_msg = MagicMock()
+        source_msg.text = "test"
+        source_msg.caption = None
+
+        action = {"action": 9, "bot_username": "test_bot", "command_prefix": "/get"}
+        variables = {"keyword": "abc"}
+
+        result = await service._execute_bot_link_action(
+            mock_client, -1001234567890, None, action,
+            source_message=source_msg, variables=variables,
+        )
+        assert result is True
+        mock_client.send_message.assert_called_once_with("test_bot", "/get abc")
+
+    @pytest.mark.asyncio
+    async def test_bot_link_default_command_prefix(self, service, mock_client):
+        """默认命令前缀为 /start"""
+        source_msg = MagicMock()
+        source_msg.text = "test"
+        source_msg.caption = None
+
+        action = {"action": 9, "bot_username": "test_bot"}
+        variables = {"keyword": "abc"}
+
+        result = await service._execute_bot_link_action(
+            mock_client, -1001234567890, None, action,
+            source_message=source_msg, variables=variables,
+        )
+        assert result is True
+        mock_client.send_message.assert_called_once_with("test_bot", "/start abc")
+
+    def test_describe_bot_command_with_prefix(self, service):
+        """describe 输出包含命令前缀"""
+        action = {"action": 9, "bot_username": "GYFMsky_bot", "command_prefix": "/verify"}
+        desc = service._describe_continue_action(action)
+        assert desc == "触发 Bot 命令: @GYFMsky_bot /verify"
