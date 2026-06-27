@@ -634,7 +634,7 @@ class KeywordMonitorService:
             return "AI 计算并点击按钮"
         if action_id == 9:
             bot = str(action.get("bot_username") or "").strip()
-            cmd = str(action.get("command_prefix") or DEFAULT_COMMAND_PREFIX).strip()
+            cmd = str(action.get("command_prefix") or "").strip() or DEFAULT_COMMAND_PREFIX
             return f"触发 Bot 命令: @{bot} {cmd}" if bot else f"触发 Bot 命令 {cmd}"
         return f"动作 {action_id}"
 
@@ -1299,7 +1299,7 @@ class KeywordMonitorService:
             logger.warning("Bot 命令触发跳过：start_param 为空")
             return False
 
-        command_prefix = str(action.get("command_prefix") or DEFAULT_COMMAND_PREFIX).strip()
+        command_prefix = str(action.get("command_prefix") or "").strip() or DEFAULT_COMMAND_PREFIX
         if not command_prefix.startswith("/"):
             command_prefix = f"/{command_prefix}"
 

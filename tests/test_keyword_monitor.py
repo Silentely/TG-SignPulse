@@ -292,3 +292,106 @@ class TestBotLinkAction:
         action = {"action": 9, "bot_username": "GYFMsky_bot", "command_prefix": "/verify"}
         desc = service._describe_continue_action(action)
         assert desc == "触发 Bot 命令: @GYFMsky_bot /verify"
+
+    @pytest.mark.asyncio
+    async def test_command_prefix_auto_slash(self, service, mock_client):
+        """command_prefix 不带 / 时自动补全"""
+        source_msg = MagicMock()
+        source_msg.text = "test"
+        source_msg.caption = None
+
+        action = {"action": 9, "bot_username": "test_bot", "command_prefix": "get"}
+        variables = {"keyword": "abc"}
+
+        result = await service._execute_bot_link_action(
+            mock_client, -1001234567890, None, action,
+            source_message=source_msg, variables=variables,
+        )
+        assert result is True
+        mock_client.send_message.assert_called_once_with("test_bot", "/get abc")
+
+    @pytest.mark.asyncio
+    async def test_command_prefix_empty_string_defaults(self, service, mock_client):
+        """command_prefix 为空字符串时回退默认 /start"""
+        source_msg = MagicMock()
+        source_msg.text = "test"
+        source_msg.caption = None
+
+        action = {"action": 9, "bot_username": "test_bot", "command_prefix": ""}
+        variables = {"keyword": "abc"}
+
+        result = await service._execute_bot_link_action(
+            mock_client, -1001234567890, None, action,
+            source_message=source_msg, variables=variables,
+        )
+        assert result is True
+        mock_client.send_message.assert_called_once_with("test_bot", "/start abc")
+
+    @pytest.mark.asyncio
+    async def test_command_prefix_whitespace_defaults(self, service, mock_client):
+        """command_prefix 为纯空格时回退默认 /start"""
+        source_msg = MagicMock()
+        source_msg.text = "test"
+        source_msg.caption = None
+
+        action = {"action": 9, "bot_username": "test_bot", "command_prefix": "   "}
+        variables = {"keyword": "abc"}
+
+        result = await service._execute_bot_link_action(
+            mock_client, -1001234567890, None, action,
+            source_message=source_msg, variables=variables,
+        )
+        assert result is True
+        mock_client.send_message.assert_called_once_with("test_bot", "/start abc")
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_per_account(self, service, mock_client):
+        """不同账号同一 Bot 的速率限制应独立"""
+        source_msg = MagicMock()
+        source_msg.text = "test"
+        source_msg.caption = None
+
+        action = {"action": 9, "bot_username": "shared_bot"}
+        variables = {"keyword": "code1"}
+
+        # 账号 A 触发
+        result1 = await service._execute_bot_link_action(
+            mock_client, -1001234567890, None, action,
+            source_message=source_msg, variables=variables,
+            account_name="account_A",
+        )
+        assert result1 is True
+
+        # 账号 B 同一 Bot 应独立触发（不被阻塞）
+        variables["keyword"] = "code2"
+        result2 = await service._execute_bot_link_action(
+            mock_client, -1001234567890, None, action,
+            source_message=source_msg, variables=variables,
+            account_name="account_B",
+        )
+        assert result2 is True
+        assert mock_client.send_message.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_exception_log_includes_cmd(self, service, mock_client):
+        """异常日志应包含 command_prefix 字段"""
+        source_msg = MagicMock()
+        source_msg.text = "test"
+        source_msg.caption = None
+
+        mock_client.send_message = AsyncMock(side_effect=ConnectionError("网络错误"))
+        action = {"action": 9, "bot_username": "fail_bot", "command_prefix": "/get"}
+        variables = {"keyword": "test"}
+
+        with patch.object(service, '_append_rule_log'):
+            result = await service._execute_bot_link_action(
+                mock_client, -1001234567890, None, action,
+                source_message=source_msg, variables=variables,
+            )
+        assert result is False
+
+    def test_describe_command_prefix_empty_defaults(self, service):
+        """describe 中空 command_prefix 应回退默认 /start"""
+        action = {"action": 9, "bot_username": "test_bot", "command_prefix": ""}
+        desc = service._describe_continue_action(action)
+        assert "/start" in desc
