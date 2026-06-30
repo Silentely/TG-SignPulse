@@ -708,8 +708,8 @@ class ConfigService:
     # ============ Telegram API 配置 ============
 
     # 默认的 Telegram API 凭证
-    DEFAULT_TG_API_ID = ""
-    DEFAULT_TG_API_HASH = ""
+    DEFAULT_TG_API_ID = "611335"
+    DEFAULT_TG_API_HASH = "d524b414d21f4d37f08684c1df41ac9c"
 
     def _get_telegram_config_file(self) -> Path:
         """获取 Telegram API 配置文件路径"""

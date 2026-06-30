@@ -3,12 +3,16 @@ import { ref, watch } from 'vue'
 import Modal from '../Modal.vue'
 import { updateAccount } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
+import { useAuthStore } from '../../stores/auth'
+import type { AccountUiItem } from '../../lib/types'
+import { getErrorMessage } from '../../lib/types'
 
 const { t } = useI18n()
+const authStore = useAuthStore()
 
-const props = defineProps<{ 
+const props = defineProps<{
   isOpen: boolean
-  account: any
+  account: AccountUiItem
 }>()
 
 const emit = defineEmits<{ (e: 'close'): void, (e: 'success'): void, (e: 'relogin', name: string): void }>()
@@ -26,14 +30,14 @@ watch(() => props.isOpen, (val) => {
     form.value = {
       new_account_name: props.account.name || '',
       remark: props.account.remark || '',
-      proxy: props.account.proxy || ''
+      proxy: props.account.raw.proxy || ''
     }
     error.value = ''
   }
 })
 
 const handleSave = async () => {
-  const token = localStorage.getItem('tg-signer-token')
+  const token = authStore.token
   if (!token || !props.account) return
 
   loading.value = true
@@ -46,8 +50,8 @@ const handleSave = async () => {
     })
     emit('success')
     emit('close')
-  } catch (e: any) {
-    error.value = e.message || t('editAccount.saveFailed')
+  } catch (e: unknown) {
+    error.value = getErrorMessage(e) || t('editAccount.saveFailed')
   } finally {
     loading.value = false
   }

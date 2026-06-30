@@ -1,4 +1,5 @@
-import type { Task, TaskLog, TokenResponse } from "./types";
+import type { Task, TaskLog, TokenResponse, ApiError, FastApiValidationError } from "./types";
+import { useAuthStore } from "../stores/auth";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "/api";
 
@@ -42,7 +43,7 @@ async function request<T>(
           errorMessage = detail;
         } else if (Array.isArray(detail)) {
           // FastAPI validation error format: [{loc, msg, type}]
-          errorMessage = detail.map((d: any) => d.msg || JSON.stringify(d)).join('; ');
+          errorMessage = (detail as FastApiValidationError[]).map((d) => d.msg || JSON.stringify(d)).join('; ');
         } else if (detail && typeof detail === "object") {
           errorMessage = JSON.stringify(detail);
         } else {
@@ -65,15 +66,15 @@ async function request<T>(
     // 注意：登录相关请求（不带 token）不应触发跳转
     if (res.status === 401 && token) {
       if (typeof window !== "undefined") {
-        const currentToken = localStorage.getItem("tg-signer-token");
-        if (currentToken === token) {
-          localStorage.removeItem("tg-signer-token");
+        const authStore = useAuthStore();
+        if (authStore.token === token) {
+          authStore.clearToken();
           window.location.href = "/";
         }
       }
     }
 
-    const err: any = new Error(errorMessage);
+    const err = new Error(errorMessage) as ApiError;
     err.status = res.status;
     if (errorCode) {
       err.code = errorCode;
@@ -715,7 +716,7 @@ export const deleteTaskHistoryLog = (
 export interface SignTaskChat {
   chat_id: number;
   name: string;
-  actions: any[];
+  actions: import("./types").RawTaskAction[];
   delete_after?: number;
   action_interval: number;
   message_thread_id?: number;
@@ -895,6 +896,10 @@ export interface SignTaskHistoryItem {
   flow_line_count?: number;
   account_name?: string;
   last_target_message?: string;
+  // 兼容模板中的可选访问
+  created_at?: string;
+  bot_message?: string;
+  summary?: string;
 }
 
 export const getSignTaskHistory = (

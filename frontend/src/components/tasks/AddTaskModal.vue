@@ -3,8 +3,10 @@ import { ref, watch, useTemplateRef } from 'vue'
 import Modal from '../Modal.vue'
 import TaskForm from './TaskForm.vue'
 import { createSignTask } from '../../lib/api'
+import type { CreateSignTaskRequest } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
 import { useAuthStore } from '../../stores/auth'
+import { getErrorMessage } from '../../lib/types'
 
 const { t } = useI18n()
 const authStore = useAuthStore()
@@ -12,7 +14,7 @@ const authStore = useAuthStore()
 const props = defineProps<{ isOpen: boolean }>()
 const emit = defineEmits<{ (e: 'close'): void, (e: 'success'): void }>()
 
-const payload = ref<any>({})
+const payload = ref<Partial<CreateSignTaskRequest>>({})
 const taskFormRef = useTemplateRef<InstanceType<typeof TaskForm>>('taskForm')
 const notifyOnFailure = ref(true)
 const loading = ref(false)
@@ -36,11 +38,11 @@ const handleSave = async () => {
   loading.value = true
   error.value = ''
   try {
-    await createSignTask(token, { ...payload.value, notify_on_failure: notifyOnFailure.value })
+    await createSignTask(token, { ...payload.value, notify_on_failure: notifyOnFailure.value } as CreateSignTaskRequest)
     emit('success')
     emit('close')
-  } catch (e: any) {
-    error.value = e.message || t('taskModal.addFailed')
+  } catch (e: unknown) {
+    error.value = getErrorMessage(e) || t('taskModal.addFailed')
   } finally {
     loading.value = false
   }

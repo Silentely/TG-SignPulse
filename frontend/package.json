@@ -11,7 +11,9 @@
     "build": "vue-tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "vue-tsc -p tsconfig.app.json --noEmit"
   },
   "dependencies": {
     "lucide-vue-next": "^1.0.0",
@@ -21,11 +23,15 @@
     "vue-router": "^5.0.6"
   },
   "devDependencies": {
+    "@pinia/testing": "^1.0.3",
     "@tailwindcss/postcss": "^4.3.0",
     "@types/node": "^24.12.3",
     "@vitejs/plugin-vue": "^6.0.6",
+    "@vitest/coverage-v8": "^4.1.9",
+    "@vue/test-utils": "^2.4.11",
     "@vue/tsconfig": "^0.9.1",
     "autoprefixer": "^10.5.0",
+    "jsdom": "^29.1.1",
     "postcss": "^8.5.14",
     "tailwindcss": "^4.3.0",
     "typescript": "~6.0.2",

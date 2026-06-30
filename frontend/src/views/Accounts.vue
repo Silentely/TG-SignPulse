@@ -4,22 +4,25 @@ import { useRouter } from 'vue-router'
 import { Play, FileText, Edit2, Trash2, Plus, QrCode, Phone, Zap } from 'lucide-vue-next'
 import { listAccounts, deleteAccount, checkAccountsStatus } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
+import { useAuthStore } from '../stores/auth'
+import type { AccountUiItem } from '../lib/types'
 import AddAccountModal from '../components/accounts/AddAccountModal.vue'
 import EditAccountModal from '../components/accounts/EditAccountModal.vue'
 
 const router = useRouter()
 const { t } = useI18n()
-const accounts = ref<any[]>([])
+const authStore = useAuthStore()
+const accounts = ref<AccountUiItem[]>([])
 const pageLoading = ref(true)
 const showAddModal = ref(false)
 const showEditModal = ref(false)
 const showAddMenu = ref(false)
 const initialMethod = ref<'code' | 'qr'>('code')
 const initialAccountName = ref('')
-const editingAccount = ref<any>(null)
+const editingAccount = ref<AccountUiItem | null>(null)
 
 const loadAccounts = async () => {
-  const token = localStorage.getItem('tg-signer-token') || ''
+  const token = authStore.token || ''
   if (!token) return
 
   try {
@@ -64,8 +67,8 @@ const loadAccounts = async () => {
   }
 }
 
-const loadAvatar = async (acc: any) => {
-  const token = localStorage.getItem('tg-signer-token') || ''
+const loadAvatar = async (acc: AccountUiItem) => {
+  const token = authStore.token || ''
   try {
     const res = await fetch(`/api/accounts/${encodeURIComponent(acc.name)}/avatar`, {
       headers: { Authorization: `Bearer ${token}` }
@@ -86,7 +89,7 @@ onMounted(() => {
 
 const handleDelete = async (name: string) => {
   if (!confirm(`${t('accounts.deleteConfirm')} ${name} ?`)) return
-  const token = localStorage.getItem('tg-signer-token') || ''
+  const token = authStore.token || ''
   try {
     await deleteAccount(token, name)
     await loadAccounts()
@@ -98,7 +101,7 @@ const handleDelete = async (name: string) => {
 const checkingAccount = ref('')
 
 const handleCheck = async (name: string) => {
-  const token = localStorage.getItem('tg-signer-token') || ''
+  const token = authStore.token || ''
   checkingAccount.value = name
   try {
     const res = await checkAccountsStatus(token, { account_names: [name] })
@@ -119,7 +122,7 @@ const handleCheck = async (name: string) => {
   }
 }
 
-const openEdit = (acc: any) => {
+const openEdit = (acc: AccountUiItem) => {
   editingAccount.value = acc
   showEditModal.value = true
 }
@@ -218,7 +221,7 @@ const goTasks = (name: string) => {
           <FileText class="w-3.5 h-3.5" />
           <span class="text-[10px]">{{ t('accounts.logs') }}</span>
         </button>
-        <button @click="openEdit(acc.raw)" class="flex flex-col items-center gap-0.5 py-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded transition-colors" :title="t('accounts.edit')">
+        <button @click="openEdit(acc)" class="flex flex-col items-center gap-0.5 py-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded transition-colors" :title="t('accounts.edit')">
           <Edit2 class="w-3.5 h-3.5" />
           <span class="text-[10px]">{{ t('accounts.editBtn') }}</span>
         </button>
@@ -253,6 +256,6 @@ const goTasks = (name: string) => {
 
     <!-- Modals -->
     <AddAccountModal :isOpen="showAddModal" :initialMethod="initialMethod" :initialAccountName="initialAccountName" @close="showAddModal = false" @success="loadAccounts" />
-    <EditAccountModal :isOpen="showEditModal" :account="editingAccount" @close="showEditModal = false" @success="loadAccounts" @relogin="handleRelogin" />
+    <EditAccountModal v-if="editingAccount" :isOpen="showEditModal" :account="editingAccount" @close="showEditModal = false" @success="loadAccounts" @relogin="handleRelogin" />
   </div>
 </template>

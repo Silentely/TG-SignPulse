@@ -32,8 +32,8 @@
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `TG_API_ID` | 空（必须配置） | Telegram API ID |
-| `TG_API_HASH` | 空（必须配置） | Telegram API HASH |
+| `TG_API_ID` | 内置默认 | Telegram API ID（可选，从 my.telegram.org 获取自定义值） |
+| `TG_API_HASH` | 内置默认 | Telegram API HASH（可选，同上） |
 | `TG_SESSION_MODE` | `file` | 会话模式：`file`（本地 SQLite）/ `string`（内存+JSON） |
 | `TG_SESSION_NO_UPDATES` | `0` | 是否禁止接收 updates（仅 string 模式） |
 | `TG_NO_UPDATES` | `0` | `TG_SESSION_NO_UPDATES` 的兼容别名 |
@@ -141,7 +141,7 @@ environment:
 }
 ```
 
-不设置时需要用户自行配置（面板「系统设置 → Telegram API」）。自定义配置从 [my.telegram.org](https://my.telegram.org) 获取。
+不设置时使用内置默认配置。自定义配置从 [my.telegram.org](https://my.telegram.org) 获取。
 
 ## 数据目录结构
 
