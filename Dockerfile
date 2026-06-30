@@ -4,10 +4,11 @@ WORKDIR /frontend
 
 # Copy dependency manifests first for better layer caching.
 COPY frontend/package*.json ./
-RUN npm install
+RUN npm install --prefer-offline
 
 COPY frontend/ ./
-RUN npm run build
+# Skip vue-tsc type check (already done in CI), only run vite build
+RUN npx vite build
 
 
 FROM python:3.12-slim AS app
@@ -28,53 +29,39 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential tzdata gosu && \
   rm -rf /var/lib/apt/lists/*
 
-# Copy minimal metadata first for better layer caching.
-COPY pyproject.toml ./
-COPY tg_signer/__init__.py ./tg_signer/__init__.py
-
-# Install core deps (FastAPI uses Pydantic v1 here).
-RUN pip install --no-cache-dir "pydantic<2" "fastapi==0.109.2"
-
-# Install bcrypt early to keep backend requirements consistent.
-RUN pip install --no-cache-dir "bcrypt==4.0.1"
-
-# Install project and runtime deps.
-COPY README.md pyproject.toml pyotp.py /app/
+# Install all Python dependencies in a single layer for faster builds.
+COPY pyproject.toml pyotp.py README.md /app/
+COPY tg_signer/__init__.py /app/tg_signer/__init__.py
 COPY backend /app/backend
 COPY tg_signer /app/tg_signer
-RUN pip install --no-cache-dir . && \
-  pip install --no-cache-dir \
+
+ARG TARGETPLATFORM
+RUN pip install --no-cache-dir . \
+  "pydantic<2" \
+  "fastapi==0.109.2" \
+  "bcrypt==4.0.1" \
   uvicorn[standard] \
   sqlalchemy \
   "passlib[bcrypt]==1.7.4" \
   pyotp \
   qrcode[pil] \
   apscheduler \
-  python-multipart
-
-# Install tgcrypto only on amd64 to avoid arm64 build failures.
-ARG TARGETPLATFORM
-RUN if [ "${TARGETPLATFORM:-}" = "linux/amd64" ] || [ "$(uname -m)" = "x86_64" ]; then \
+  python-multipart \
+  && if [ "${TARGETPLATFORM:-}" = "linux/amd64" ] || [ "$(uname -m)" = "x86_64" ]; then \
     pip install --no-cache-dir tgcrypto; \
-  else \
-    echo "Skipping tgcrypto on ${TARGETPLATFORM:-unknown}"; \
   fi
 
 # Frontend static files served from /web.
-RUN mkdir -p /web
 COPY --from=frontend-builder /frontend/dist /web
 
-# Data dir (mapped via volume).
-RUN mkdir -p /data
-
-# Non-root user.
+# Data dir + non-root user + entrypoint.
 ARG APP_UID=10001
 ARG APP_GID=10001
-RUN groupadd -r -g ${APP_GID} app && \
+RUN mkdir -p /data && \
+  groupadd -r -g ${APP_GID} app && \
   useradd -r -u ${APP_UID} -g app -d /app -s /usr/sbin/nologin app && \
   chown -R app:app /data
 
-# Runtime entrypoint auto-adapts to mounted /data ownership.
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
