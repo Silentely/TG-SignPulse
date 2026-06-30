@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import Layout from '../views/Layout.vue'
+import { useAuthStore } from '../stores/auth'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -25,19 +26,13 @@ const router = createRouter({
 })
 
 router.beforeEach((to) => {
-  const token = localStorage.getItem('tg-signer-token')
-  if (to.name !== 'login' && !token) {
+  const authStore = useAuthStore()
+  if (to.name !== 'login' && !authStore.token) {
     return { name: 'login' }
-  } else if (to.name === 'login' && token) {
-    // Basic JWT expiry check
-    try {
-      const payload = JSON.parse(atob(token.split('.')[1]))
-      if (payload.exp && payload.exp * 1000 < Date.now()) {
-        localStorage.removeItem('tg-signer-token')
-        return { name: 'login' }
-      }
-    } catch {
-      // If token is malformed, let the server reject it
+  } else if (to.name === 'login' && authStore.token) {
+    if (authStore.isTokenExpired()) {
+      authStore.clearToken()
+      return { name: 'login' }
     }
     return { name: 'dashboard' }
   }

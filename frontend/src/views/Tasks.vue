@@ -2,34 +2,39 @@
 import { ref, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Play, FileText, Edit2, Trash2, Plus, Radio, Clock, Shuffle, Power } from 'lucide-vue-next'
-import { listSignTasks, deleteSignTask, startSignTaskRun, listAccounts, toggleSignTaskEnabled } from '../lib/api' 
+import { listSignTasks, deleteSignTask, startSignTaskRun, listAccounts, toggleSignTaskEnabled } from '../lib/api'
+import type { SignTask, AccountInfo } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
+import { useAuthStore } from '../stores/auth'
+import type { TaskUiItem } from '../lib/types'
+import { getErrorMessage } from '../lib/types'
 import AddTaskModal from '../components/tasks/AddTaskModal.vue'
 import EditTaskModal from '../components/tasks/EditTaskModal.vue'
 import TaskLogsModal from '../components/tasks/TaskLogsModal.vue'
 
 const route = useRoute()
 const { t } = useI18n()
-const tasks = ref<any[]>([])
+const authStore = useAuthStore()
+const tasks = ref<TaskUiItem[]>([])
 const pageLoading = ref(true)
 const showAddModal = ref(false)
 const showEditModal = ref(false)
 const showLogsModal = ref(false)
-const editingTask = ref<any>(null)
-const logsTask = ref<any>(null)
+const editingTask = ref<SignTask | null>(null)
+const logsTask = ref<TaskUiItem | null>(null)
 const logsRunAccount = ref<string>('')  // Account that just executed the task
 
 // Account selection for run
-const runMenuTask = ref<any>(null)
+const runMenuTask = ref<TaskUiItem | null>(null)
 const runMenuAccounts = ref<string[]>([])
 const allAccounts = ref<string[]>([])
 
 const loadAllAccounts = async () => {
-  const token = localStorage.getItem('tg-signer-token') || ''
+  const token = authStore.token || ''
   if (!token) return
   try {
     const res = await listAccounts(token)
-    allAccounts.value = (res.accounts || []).map((a: any) => a.name)
+    allAccounts.value = (res.accounts || []).map((a: AccountInfo) => a.name)
   } catch { }
 }
 
@@ -48,11 +53,12 @@ const formatDate = (dateStr: string) => {
   }
 }
 
-const getTaskAccountName = (task: any): string => {
+const getTaskAccountName = (task: SignTask | TaskUiItem): string => {
   // Resolve a usable account name from task data, skipping wildcard '*'
-  const name = task.account_name || ''
+  const raw = 'raw' in task ? task.raw : task
+  const name = raw.account_name || ''
   if (name && name !== '*') return name
-  const names = task.account_names || []
+  const names = raw.account_names || []
   for (const n of names) {
     if (n && n !== '*') return n
   }
@@ -60,19 +66,19 @@ const getTaskAccountName = (task: any): string => {
 }
 
 const loadTasks = async () => {
-  const token = localStorage.getItem('tg-signer-token') || ''
+  const token = authStore.token || ''
   if (!token) return
 
   pageLoading.value = true
   try {
     const accountName = route.query.account as string | undefined
     const res = await listSignTasks(token, accountName)
-    tasks.value = res.map((task: any) => {
+    tasks.value = res.map((task: SignTask) => {
       const firstChat = task.chats && task.chats.length > 0 ? task.chats[0] : null
       const targetStr = firstChat ? `${firstChat.chat_id}${firstChat.message_thread_id ? '|' + firstChat.message_thread_id : ''}` : t('tasks.noTarget')
       
       let scheduleMode = ''
-      let modeIcon: any = Clock
+      let modeIcon: typeof Clock | typeof Radio | typeof Shuffle = Clock
       if (task.execution_mode === 'listen') {
         scheduleMode = t('tasks.listenMode')
         modeIcon = Radio
@@ -133,8 +139,8 @@ onMounted(() => {
   loadAllAccounts()
 })
 
-const loadChatAvatar = async (task: any, accountName: string, chatId: number) => {
-  const token = localStorage.getItem('tg-signer-token') || ''
+const loadChatAvatar = async (task: TaskUiItem, accountName: string, chatId: number) => {
+  const token = authStore.token || ''
   // Use chat_id as cache key - avatar is the same regardless of which account fetched it
   const cacheKey = `chat_avatar_${chatId}`
   const noAvatarKey = `chat_avatar_${chatId}_404`
@@ -193,31 +199,32 @@ watch(() => route.query.account, () => {
   loadTasks()
 })
 
-const handleDelete = async (task: any) => {
+const handleDelete = async (task: TaskUiItem) => {
   if (!confirm(`${t('tasks.deleteConfirm')} ${task.name} ?`)) return
-  const token = localStorage.getItem('tg-signer-token') || ''
+  const token = authStore.token || ''
   try {
     const accountName = getTaskAccountName(task.raw) || undefined
     await deleteSignTask(token, task.name, accountName)
     await loadTasks()
-  } catch (e: any) {
-    alert(`${t('tasks.deleteFailed')}: ${e.message || t('tasks.unknownError')}`)
+  } catch (e: unknown) {
+    alert(`${t('tasks.deleteFailed')}: ${getErrorMessage(e) || t('tasks.unknownError')}`)
   }
 }
 
-const handleToggleEnabled = async (task: any) => {
-  const token = localStorage.getItem('tg-signer-token') || ''
+const handleToggleEnabled = async (task: TaskUiItem) => {
+  const token = authStore.token || ''
   try {
     const accountName = getTaskAccountName(task.raw) || undefined
     await toggleSignTaskEnabled(token, task.name, accountName)
     await loadTasks()
-  } catch (e: any) {
-    alert(`${t('tasks.toggleFailed') || '切换状态失败'}: ${e.message || t('tasks.unknownError')}`)
+  } catch (e: unknown) {
+    alert(`${t('tasks.toggleFailed') || '切换状态失败'}: ${getErrorMessage(e) || t('tasks.unknownError')}`)
   }
 }
 
-const getTaskRealAccounts = (task: any): string[] => {
-  const names = task.account_names || []
+const getTaskRealAccounts = (task: TaskUiItem | SignTask): string[] => {
+  const raw = 'raw' in task ? task.raw : task
+  const names = raw.account_names || []
   if (names.includes('*')) {
     // Wildcard: expand to all accounts
     return allAccounts.value.length > 0 ? allAccounts.value : []
@@ -225,8 +232,8 @@ const getTaskRealAccounts = (task: any): string[] => {
   return names.filter((n: string) => n && n !== '*')
 }
 
-const handleRun = (task: any) => {
-  const accounts = getTaskRealAccounts(task.raw)
+const handleRun = (task: TaskUiItem) => {
+  const accounts = getTaskRealAccounts(task)
   if (accounts.length <= 1) {
     // Single account or no accounts - run directly
     doRun(task, accounts[0] || getTaskAccountName(task.raw))
@@ -237,17 +244,17 @@ const handleRun = (task: any) => {
   }
 }
 
-const doRun = async (task: any, accountName: string) => {
+const doRun = async (task: TaskUiItem, accountName: string) => {
   runMenuTask.value = null
-  const token = localStorage.getItem('tg-signer-token') || ''
+  const token = authStore.token || ''
   try {
     await startSignTaskRun(token, task.name, accountName)
     // Open logs modal with the specific account that was just run
     logsRunAccount.value = accountName
     logsTask.value = task
     showLogsModal.value = true
-  } catch(e: any) {
-    alert(`${t('tasks.triggerFailed')}: ${e.message}`)
+  } catch(e: unknown) {
+    alert(`${t('tasks.triggerFailed')}: ${getErrorMessage(e)}`)
   }
 }
 
@@ -255,12 +262,12 @@ const closeRunMenu = () => {
   runMenuTask.value = null
 }
 
-const openEdit = (task: any) => {
+const openEdit = (task: TaskUiItem) => {
   editingTask.value = task.raw
   showEditModal.value = true
 }
 
-const openLogs = (task: any) => {
+const openLogs = (task: TaskUiItem) => {
   logsRunAccount.value = ''  // No specific run account, show aggregated history
   logsTask.value = task
   showLogsModal.value = true
@@ -413,7 +420,7 @@ const openLogs = (task: any) => {
 
     <!-- Modals -->
     <AddTaskModal :isOpen="showAddModal" @close="showAddModal = false" @success="loadTasks" />
-    <EditTaskModal :isOpen="showEditModal" :task="editingTask" @close="showEditModal = false" @success="loadTasks" />
+    <EditTaskModal v-if="editingTask" :isOpen="showEditModal" :task="editingTask" @close="showEditModal = false" @success="loadTasks" />
     <TaskLogsModal :isOpen="showLogsModal" :task="logsTask" :runAccount="logsRunAccount" @close="showLogsModal = false" />
   </div>
 </template>

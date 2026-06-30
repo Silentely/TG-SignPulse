@@ -2,12 +2,16 @@
 import { ref, onMounted, watch, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { getTaskHistoryLogs, getTaskHistoryLogDetail, getLoginAuditLogs, listAccounts } from '../lib/api'
+import type { TaskHistoryLog, LoginAuditLog, TaskHistoryLogDetail, AccountInfo } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
+import { useAuthStore } from '../stores/auth'
+import type { TaskLogUiItem, LoginLogUiItem } from '../lib/types'
 import Modal from '../components/Modal.vue'
 import CustomSelect from '../components/CustomSelect.vue'
 import DatePicker from '../components/DatePicker.vue'
 
 const { locale, t } = useI18n()
+const authStore = useAuthStore()
 const route = useRoute()
 
 const translateLoginDetail = (detail: string | null | undefined, success: boolean): string => {
@@ -25,11 +29,11 @@ const filterAccount = ref('')
 const filterDate = ref('')
 const filterStatus = ref<'' | 'success' | 'error'>('')
 
-const logs = ref<any[]>([])
+const logs = ref<TaskLogUiItem[]>([])
 const pageLoading = ref(true)
 const accountsList = ref<string[]>([])
-const selectedLog = ref<any>(null)
-const logDetail = ref<any>(null)
+const selectedLog = ref<TaskLogUiItem | null>(null)
+const logDetail = ref<TaskHistoryLogDetail | null>(null)
 const detailLoading = ref(false)
 
 const accountOptions = computed(() => [
@@ -44,11 +48,11 @@ const statusOptions = computed(() => [
 ])
 
 const loadAccounts = async () => {
-  const token = localStorage.getItem('tg-signer-token') || ''
+  const token = authStore.token || ''
   if (!token) return
   try {
     const res = await listAccounts(token)
-    accountsList.value = res.accounts.map((a: any) => a.name)
+    accountsList.value = res.accounts.map((a: AccountInfo) => a.name)
   } catch (e) {
     console.error('Failed to load accounts for filter', e)
   }
@@ -62,7 +66,7 @@ const formatTime = (isoString: string) => {
 }
 
 const loadTaskLogs = async () => {
-  const token = localStorage.getItem('tg-signer-token') || ''
+  const token = authStore.token || ''
   if (!token) return
 
   try {
@@ -74,15 +78,15 @@ const loadTaskLogs = async () => {
 
     let filtered = res
     if (filterTask.value) {
-      filtered = filtered.filter((l: any) => l.task_name.includes(filterTask.value))
+      filtered = filtered.filter((l: TaskHistoryLog) => l.task_name.includes(filterTask.value))
     }
     if (filterStatus.value) {
-      filtered = filtered.filter((l: any) => 
+      filtered = filtered.filter((l: TaskHistoryLog) => 
         filterStatus.value === 'success' ? l.success : !l.success
       )
     }
 
-    logs.value = filtered.map((l: any) => ({
+    logs.value = filtered.map((l: TaskHistoryLog) => ({
       id: l.id,
       time: formatTime(l.created_at),
       created_at: l.created_at,
@@ -97,9 +101,9 @@ const loadTaskLogs = async () => {
   }
 }
 
-const loginLogs = ref<any[]>([])
+const loginLogs = ref<LoginLogUiItem[]>([])
 const loadLoginLogs = async () => {
-  const token = localStorage.getItem('tg-signer-token') || ''
+  const token = authStore.token || ''
   if (!token) return
 
   try {
@@ -108,7 +112,7 @@ const loadLoginLogs = async () => {
       date: filterDate.value || undefined
     })
 
-    loginLogs.value = res.map((l: any) => ({
+    loginLogs.value = res.map((l: LoginAuditLog) => ({
       id: l.id,
       time: formatTime(l.created_at),
       username: l.username,
@@ -134,12 +138,12 @@ const loadLogs = async () => {
   }
 }
 
-const openLogDetail = async (log: any) => {
+const openLogDetail = async (log: TaskLogUiItem) => {
   selectedLog.value = log
   logDetail.value = null
 
   // Fetch full detail with flow_logs
-  const token = localStorage.getItem('tg-signer-token') || ''
+  const token = authStore.token || ''
   if (!token || !log.account || !log.task || !log.created_at) return
 
   detailLoading.value = true

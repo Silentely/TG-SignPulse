@@ -3,14 +3,18 @@ import { ref, watch } from 'vue'
 import Modal from '../Modal.vue'
 import TaskForm from './TaskForm.vue'
 import { updateSignTask } from '../../lib/api'
+import type { SignTask, UpdateSignTaskRequest } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
+import { useAuthStore } from '../../stores/auth'
+import { getErrorMessage } from '../../lib/types'
 
 const { t } = useI18n()
+const authStore = useAuthStore()
 
-const props = defineProps<{ isOpen: boolean, task: any }>()
+const props = defineProps<{ isOpen: boolean, task: SignTask }>()
 const emit = defineEmits<{ (e: 'close'): void, (e: 'success'): void }>()
 
-const payload = ref<any>({})
+const payload = ref<Partial<UpdateSignTaskRequest>>({})
 const notifyOnFailure = ref(true)
 
 const loading = ref(false)
@@ -25,7 +29,7 @@ watch(() => props.isOpen, (val) => {
 })
 
 const handleSave = async () => {
-  const token = localStorage.getItem('tg-signer-token')
+  const token = authStore.token
   if (!token || !props.task) return
 
   loading.value = true
@@ -42,8 +46,8 @@ const handleSave = async () => {
     await updateSignTask(token, props.task.name, { ...payload.value, notify_on_failure: notifyOnFailure.value }, accountName || undefined)
     emit('success')
     emit('close')
-  } catch (e: any) {
-    error.value = e.message || t('taskModal.saveFailed')
+  } catch (e: unknown) {
+    error.value = getErrorMessage(e) || t('taskModal.saveFailed')
   } finally {
     loading.value = false
   }

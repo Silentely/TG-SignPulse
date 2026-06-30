@@ -3,8 +3,11 @@ import { ref, watch, onUnmounted } from 'vue'
 import Modal from '../Modal.vue'
 import { startAccountLogin, verifyAccountLogin, updateAccount, startQrLogin, getQrLoginStatus, submitQrPassword, cancelQrLogin } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
+import { useAuthStore } from '../../stores/auth'
+import { getErrorMessage } from '../../lib/types'
 
 const { t } = useI18n()
+const authStore = useAuthStore()
 
 const props = defineProps<{ isOpen: boolean, initialMethod?: 'code' | 'qr', initialAccountName?: string }>()
 const emit = defineEmits<{ (e: 'close'): void, (e: 'success'): void }>()
@@ -30,18 +33,20 @@ const codeSent = ref(false)
 // QR login specific
 const qrImage = ref('')
 const loginId = ref('')
-let pollInterval: any = null
+let pollInterval: number | undefined = undefined
 
 const reset = async () => {
   if (pollInterval) {
     clearInterval(pollInterval)
-    pollInterval = null
+    pollInterval = undefined
   }
   if (loginId.value) {
     try {
-      const token = localStorage.getItem('tg-signer-token') || ''
+      const token = authStore.token || ''
       if (token) await cancelQrLogin(token, loginId.value)
-    } catch (e) {}
+    } catch (e: unknown) {
+      console.warn('cancelQrLogin failed:', getErrorMessage(e))
+    }
   }
   form.value = { account_name: props.initialAccountName || '', remark: '', phone_number: '', phone_code: '', password: '', proxy: '' }
   phoneCodeHash.value = ''
@@ -85,7 +90,7 @@ const pollStatus = async (token: string, lid: string) => {
     const res = await getQrLoginStatus(token, lid)
     if (res.status === 'success') {
       clearInterval(pollInterval)
-      pollInterval = null
+      pollInterval = undefined
       if (form.value.remark) {
         try {
           await updateAccount(token, form.value.account_name, { remark: form.value.remark })
@@ -98,17 +103,17 @@ const pollStatus = async (token: string, lid: string) => {
       // 如果已经填了密码，自动提交
       if (form.value.password) {
         clearInterval(pollInterval)
-        pollInterval = null
+        pollInterval = undefined
         handleQrPasswordSubmit(token, lid)
       } else {
         error.value = t('addAccount.needPassword')
         clearInterval(pollInterval)
-        pollInterval = null
+        pollInterval = undefined
         loading.value = false
       }
     } else if (res.status === 'failed' || res.status === 'expired') {
       clearInterval(pollInterval)
-      pollInterval = null
+      pollInterval = undefined
       error.value = res.message || t('addAccount.qrFailed')
       loading.value = false
     }
@@ -140,8 +145,8 @@ const handleQrPasswordSubmit = async (token: string, lid: string) => {
     // 否则继续轮询等待最终状态
     if (pollInterval) clearInterval(pollInterval)
     pollInterval = setInterval(() => pollStatus(token, lid), 3000)
-  } catch (e: any) {
-    error.value = e.message || t('addAccount.passwordFailed')
+  } catch (e: unknown) {
+    error.value = getErrorMessage(e) || t('addAccount.passwordFailed')
     loading.value = false
   }
 }
@@ -151,7 +156,7 @@ const handleGetQr = async () => {
     error.value = t('addAccount.nameRequired')
     return
   }
-  const token = localStorage.getItem('tg-signer-token')
+  const token = authStore.token
   if (!token) return
 
   loading.value = true
@@ -166,8 +171,8 @@ const handleGetQr = async () => {
     
     if (pollInterval) clearInterval(pollInterval)
     pollInterval = setInterval(() => pollStatus(token, res.login_id), 3000)
-  } catch (e: any) {
-    error.value = e.message || t('addAccount.getQrFailed')
+  } catch (e: unknown) {
+    error.value = getErrorMessage(e) || t('addAccount.getQrFailed')
   } finally {
     loading.value = false
   }
@@ -180,7 +185,7 @@ const handleSendCode = async () => {
     error.value = t('addAccount.namePhoneRequired')
     return
   }
-  const token = localStorage.getItem('tg-signer-token')
+  const token = authStore.token
   if (!token) return
 
   loading.value = true
@@ -195,15 +200,15 @@ const handleSendCode = async () => {
     codeSent.value = true
     error.value = t('addAccount.codeSent')
     setTimeout(() => { if (error.value === t('addAccount.codeSent')) error.value = '' }, 3000)
-  } catch (e: any) {
-    error.value = e.message || t('addAccount.sendCodeFailed')
+  } catch (e: unknown) {
+    error.value = getErrorMessage(e) || t('addAccount.sendCodeFailed')
   } finally {
     loading.value = false
   }
 }
 
 const handleSave = async () => {
-  const token = localStorage.getItem('tg-signer-token')
+  const token = authStore.token
   if (!token) return
 
   loading.value = true
@@ -235,9 +240,9 @@ const handleSave = async () => {
       loading.value = false
       emit('success')
       handleClose()
-    } catch (e: any) {
+    } catch (e: unknown) {
       // 如果错误提示包含2FA相关信息，显示密码提示
-      const msg = e.message || ''
+      const msg = getErrorMessage(e) || ''
       if (msg.includes('两步验证') || msg.includes('2FA') || msg.includes('SESSION_PASSWORD_NEEDED')) {
         error.value = t('addAccount.needPassword')
       } else {

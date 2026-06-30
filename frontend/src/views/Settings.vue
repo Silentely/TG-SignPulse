@@ -2,8 +2,11 @@
 import { ref, onMounted } from 'vue'
 import { getGlobalSettings, saveGlobalSettings, getTelegramConfig, saveTelegramConfig, resetTelegramConfig, getAIConfig, saveAIConfig, testAIConnection, exportAllConfigs, importAllConfigs } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
+import { useAuthStore } from '../stores/auth'
+import { getErrorMessage } from '../lib/types'
 
 const { t } = useI18n()
+const authStore = useAuthStore()
 
 const settings = ref({
   checkInterval: '',
@@ -42,7 +45,7 @@ const showToast = (msg: string) => {
 }
 
 onMounted(async () => {
-  const token = localStorage.getItem('tg-signer-token') || ''
+  const token = authStore.token || ''
   if (!token) return
 
   try {
@@ -79,7 +82,7 @@ onMounted(async () => {
 })
 
 const saveSettings = async () => {
-  const token = localStorage.getItem('tg-signer-token') || ''
+  const token = authStore.token || ''
   if (!token) return
 
   loading.value = true
@@ -92,8 +95,8 @@ const saveSettings = async () => {
       tg_global_concurrency: settings.value.concurrency || 1,
     })
     showToast(t('settings.saveSuccess'))
-  } catch (e: any) {
-    showToast(e.message || t('settings.saveFailed'))
+  } catch (e: unknown) {
+    showToast(getErrorMessage(e) || t('settings.saveFailed'))
   } finally {
     loading.value = false
   }
@@ -102,7 +105,7 @@ const saveSettings = async () => {
 const botLoading = ref(false)
 
 const saveBotSettings = async () => {
-  const token = localStorage.getItem('tg-signer-token') || ''
+  const token = authStore.token || ''
   if (!token) return
 
   botLoading.value = true
@@ -116,28 +119,28 @@ const saveBotSettings = async () => {
       telegram_bot_message_thread_id: settings.value.botThreadId ? parseInt(settings.value.botThreadId) : null,
     })
     showToast(t('settings.saveSuccess'))
-  } catch (e: any) {
-    showToast(e.message || t('settings.saveFailed'))
+  } catch (e: unknown) {
+    showToast(getErrorMessage(e) || t('settings.saveFailed'))
   } finally {
     botLoading.value = false
   }
 }
 
 const saveTgConfig = async () => {
-  const token = localStorage.getItem('tg-signer-token') || ''
+  const token = authStore.token || ''
   tgLoading.value = true
   try {
     await saveTelegramConfig(token, { api_id: tgConfig.value.api_id, api_hash: tgConfig.value.api_hash })
     showToast(t('settings.tgConfigSaved'))
-  } catch (e: any) {
-    showToast(e.message || t('settings.saveFailed'))
+  } catch (e: unknown) {
+    showToast(getErrorMessage(e) || t('settings.saveFailed'))
   } finally {
     tgLoading.value = false
   }
 }
 
 const resetTgConfig = async () => {
-  const token = localStorage.getItem('tg-signer-token') || ''
+  const token = authStore.token || ''
   if (!confirm(t('settings.resetConfirm'))) return
   tgLoading.value = true
   try {
@@ -145,15 +148,15 @@ const resetTgConfig = async () => {
     tgConfig.value.api_id = ''
     tgConfig.value.api_hash = ''
     showToast(t('settings.resetSuccess'))
-  } catch (e: any) {
-    showToast(e.message || t('settings.resetFailed'))
+  } catch (e: unknown) {
+    showToast(getErrorMessage(e) || t('settings.resetFailed'))
   } finally {
     tgLoading.value = false
   }
 }
 
 const saveAiConfig = async () => {
-  const token = localStorage.getItem('tg-signer-token') || ''
+  const token = authStore.token || ''
   aiLoading.value = true
   try {
     await saveAIConfig(token, {
@@ -162,28 +165,28 @@ const saveAiConfig = async () => {
       api_key: aiConfig.value.api_key || undefined
     })
     showToast(t('settings.aiConfigSaved'))
-  } catch (e: any) {
-    showToast(e.message || t('settings.saveFailed'))
+  } catch (e: unknown) {
+    showToast(getErrorMessage(e) || t('settings.saveFailed'))
   } finally {
     aiLoading.value = false
   }
 }
 
 const testAi = async () => {
-  const token = localStorage.getItem('tg-signer-token') || ''
+  const token = authStore.token || ''
   aiLoading.value = true
   try {
     const res = await testAIConnection(token)
     showToast(res.message || t('settings.testSuccess'))
-  } catch (e: any) {
-    showToast(e.message || t('settings.testFailed'))
+  } catch (e: unknown) {
+    showToast(getErrorMessage(e) || t('settings.testFailed'))
   } finally {
     aiLoading.value = false
   }
 }
 
 const handleExport = async () => {
-  const token = localStorage.getItem('tg-signer-token') || ''
+  const token = authStore.token || ''
   dataLoading.value = true
   try {
     const jsonStr = await exportAllConfigs(token)
@@ -197,8 +200,8 @@ const handleExport = async () => {
     a.remove()
     URL.revokeObjectURL(url)
     showToast(t('settings.exportSuccess'))
-  } catch (e: any) {
-    showToast(e.message || t('settings.exportFailed'))
+  } catch (e: unknown) {
+    showToast(getErrorMessage(e) || t('settings.exportFailed'))
   } finally {
     dataLoading.value = false
   }
@@ -211,13 +214,13 @@ const handleImport = async (e: Event) => {
   const reader = new FileReader()
   reader.onload = async (ev) => {
     const jsonStr = ev.target?.result as string
-    const token = localStorage.getItem('tg-signer-token') || ''
+    const token = authStore.token || ''
     dataLoading.value = true
     try {
       await importAllConfigs(token, jsonStr, true)
       showToast(t('settings.importSuccess'))
-    } catch (err: any) {
-      showToast(err.message || t('settings.importFailed'))
+    } catch (err: unknown) {
+      showToast(getErrorMessage(err) || t('settings.importFailed'))
     } finally {
       dataLoading.value = false
     }

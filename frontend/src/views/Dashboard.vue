@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { listAccounts, listSignTasks, getRecentAccountLogs } from '../lib/api'
+import type { AccountInfo, AccountLog } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
+import { useAuthStore } from '../stores/auth'
+import type { DashboardLog } from '../lib/types'
 import Modal from '../components/Modal.vue'
 
 const { t } = useI18n()
+const authStore = useAuthStore()
 
 let refreshTimer: ReturnType<typeof setInterval> | null = null
-const selectedLog = ref<any>(null)
+const selectedLog = ref<DashboardLog | null>(null)
 
 const stats = ref([
   { key: 'dashboard.activeAccounts', value: '...' },
@@ -16,7 +20,7 @@ const stats = ref([
   { key: 'dashboard.recentFailure', value: '...' },
 ])
 
-const logs = ref<any[]>([])
+const logs = ref<DashboardLog[]>([])
 const pageLoading = ref(true)
 const formatTime = (isoString: string) => {
   if (!isoString) return ''
@@ -38,25 +42,25 @@ onUnmounted(() => {
 })
 
 const loadDashboardData = async () => {
-  const token = localStorage.getItem('tg-signer-token') || ''
+  const token = authStore.token || ''
   if (!token) return
 
-    let accRes: { accounts: any[]; total: number } = { accounts: [], total: 0 }
-    let tasksRes: any[] = []
-    let logsRes: any[] = []
+    let accRes: { accounts: AccountInfo[]; total: number } = { accounts: [], total: 0 }
+    let tasksRes: Awaited<ReturnType<typeof listSignTasks>> = []
+    let logsRes: AccountLog[] = []
 
     try { accRes = await listAccounts(token) } catch (e) { console.error('Failed to load accounts', e) }
     try { tasksRes = await listSignTasks(token) } catch (e) { console.error('Failed to load tasks', e) }
     try { logsRes = await getRecentAccountLogs(token, 20) } catch (e) { console.error('Failed to load logs', e) }
 
-    const activeAccs = accRes.accounts ? accRes.accounts.filter((a: any) => a.status === 'connected' || a.status === 'checking').length : 0
+    const activeAccs = accRes.accounts ? accRes.accounts.filter((a: AccountInfo) => a.status === 'connected' || a.status === 'checking').length : 0
     
     const today = new Date().toISOString().split('T')[0]
     let todaySuccess = 0
     let todayFail = 0
     
     if (Array.isArray(logsRes)) {
-      logsRes.forEach((l: any) => {
+      logsRes.forEach((l: AccountLog) => {
         if (l.created_at.startsWith(today)) {
           if (l.success) todaySuccess++
           else todayFail++
@@ -72,7 +76,7 @@ const loadDashboardData = async () => {
     ]
 
     if (Array.isArray(logsRes)) {
-      logs.value = logsRes.map((l: any) => ({
+      logs.value = logsRes.map((l: AccountLog) => ({
         time: formatTime(l.created_at),
         account: l.account_name,
         task: l.task_name,

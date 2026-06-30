@@ -6,6 +6,7 @@ import { login } from '../lib/api'
 import { useAuthStore } from '../stores/auth'
 import { useI18n } from '../composables/useI18n'
 import { useTheme } from '../composables/useTheme'
+import { getErrorMessage } from '../lib/types'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -36,8 +37,8 @@ const handleLogin = async () => {
       authStore.setToken(res.access_token)
       router.push('/dashboard')
     }
-  } catch (e: any) {
-    const detail = e.message || ''
+  } catch (e: unknown) {
+    const detail = getErrorMessage(e)
     if (detail === 'TOTP_REQUIRED_OR_INVALID' || detail.includes('TOTP')) {
       showTotp.value = true
       if (totpCode.value) {

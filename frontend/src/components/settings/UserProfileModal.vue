@@ -4,8 +4,11 @@ import { useRouter } from 'vue-router'
 import Modal from '../Modal.vue'
 import { changePassword, changeUsername, getTOTPStatus, setupTOTP, fetchTOTPQRCode, enableTOTP, disableTOTP } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
+import { useAuthStore } from '../../stores/auth'
+import { getErrorMessage } from '../../lib/types'
 
 const { t } = useI18n()
+const authStore = useAuthStore()
 
 const props = defineProps<{ isOpen: boolean }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
@@ -27,7 +30,7 @@ const error = ref('')
 const successMessage = ref('')
 
 const handleUsernameChange = async () => {
-  const token = localStorage.getItem('tg-signer-token')
+  const token = authStore.token
   if (!token) return
 
   loading.value = true
@@ -38,19 +41,19 @@ const handleUsernameChange = async () => {
     successMessage.value = t('profile.usernameChanged')
     usernameForm.value.new_username = ''
     usernameForm.value.password = ''
-    // If a new token is returned, update it
+    // If a new token is returned, update it via authStore to keep state in sync
     if (res.access_token) {
-      localStorage.setItem('tg-signer-token', res.access_token)
+      authStore.setToken(res.access_token)
     }
-  } catch (e: any) {
-    error.value = e.message || t('profile.changeFailed')
+  } catch (e: unknown) {
+    error.value = getErrorMessage(e) || t('profile.changeFailed')
   } finally {
     loading.value = false
   }
 }
 
 const handlePasswordChange = async () => {
-  const token = localStorage.getItem('tg-signer-token')
+  const token = authStore.token
   if (!token) return
 
   loading.value = true
@@ -61,8 +64,8 @@ const handlePasswordChange = async () => {
     successMessage.value = t('profile.passwordChanged')
     form.value.old_password = ''
     form.value.new_password = ''
-  } catch (e: any) {
-    error.value = e.message || t('profile.changeFailed')
+  } catch (e: unknown) {
+    error.value = getErrorMessage(e) || t('profile.changeFailed')
   } finally {
     loading.value = false
   }
@@ -75,7 +78,7 @@ const totpCode = ref('')
 const totpSecret = ref('')
 
 const checkTOTP = async () => {
-  const token = localStorage.getItem('tg-signer-token')
+  const token = authStore.token
   if (!token) return
   try {
     const res = await getTOTPStatus(token)
@@ -107,7 +110,7 @@ watch(() => props.isOpen, (val) => {
 
 const handleEnableTOTP = async () => {
   if (!totpCode.value) return
-  const token = localStorage.getItem('tg-signer-token')
+  const token = authStore.token
   if (!token) return
 
   loading.value = true
@@ -117,8 +120,8 @@ const handleEnableTOTP = async () => {
     successMessage.value = t('profile.totpEnableSuccess')
     totpCode.value = ''
     await checkTOTP()
-  } catch (e: any) {
-    error.value = e.message || t('profile.verifyFailed')
+  } catch (e: unknown) {
+    error.value = getErrorMessage(e) || t('profile.verifyFailed')
   } finally {
     loading.value = false
   }
@@ -126,7 +129,7 @@ const handleEnableTOTP = async () => {
 
 const handleDisableTOTP = async () => {
   if (!totpCode.value) return
-  const token = localStorage.getItem('tg-signer-token')
+  const token = authStore.token
   if (!token) return
 
   loading.value = true
@@ -136,15 +139,15 @@ const handleDisableTOTP = async () => {
     successMessage.value = t('profile.totpDisableSuccess')
     totpCode.value = ''
     await checkTOTP()
-  } catch (e: any) {
-    error.value = e.message || t('profile.disableFailed')
+  } catch (e: unknown) {
+    error.value = getErrorMessage(e) || t('profile.disableFailed')
   } finally {
     loading.value = false
   }
 }
 
 const handleLogout = () => {
-  localStorage.removeItem('tg-signer-token')
+  authStore.clearToken()
   router.push('/login')
 }
 </script>

@@ -3,13 +3,17 @@ import { ref, watch, nextTick } from 'vue'
 import { Loader2, RefreshCw } from 'lucide-vue-next'
 import Modal from '../Modal.vue'
 import { getSignTaskHistory } from '../../lib/api'
+import type { SignTaskHistoryItem } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
+import { useAuthStore } from '../../stores/auth'
+import type { TaskUiItem } from '../../lib/types'
 
 const { t } = useI18n()
+const authStore = useAuthStore()
 
 const props = defineProps<{
   isOpen: boolean
-  task: any | null
+  task: TaskUiItem | null
   runAccount?: string  // Account selected for running (overrides task default)
 }>()
 
@@ -17,7 +21,7 @@ const emit = defineEmits<{
   (e: 'close'): void
 }>()
 
-const logs = ref<any[]>([])
+const logs = ref<SignTaskHistoryItem[]>([])
 const realtimeLogs = ref<string[]>([])
 const loading = ref(false)
 const isRunning = ref(false)
@@ -25,13 +29,13 @@ let ws: WebSocket | null = null
 let pollTimer: ReturnType<typeof setInterval> | null = null
 const logContainer = ref<HTMLElement | null>(null)
 
-const getTaskAccountName = (task: any): string => {
+const getTaskAccountName = (task: TaskUiItem): string => {
   if (!task) return ''
-  // If runAccount is provided (user just clicked Run), use that
   if (props.runAccount) return props.runAccount
-  const name = task.raw?.account_name || task.account_name || ''
+  const raw = task.raw
+  const name = raw.account_name || ''
   if (name && name !== '*') return name
-  const names = task.raw?.account_names || task.account_names || []
+  const names = raw.account_names || []
   for (const n of names) {
     if (n && n !== '*') return n
   }
@@ -41,13 +45,13 @@ const getTaskAccountName = (task: any): string => {
 const loadLogs = async () => {
   if (!props.task) return
   loading.value = true
-  const token = localStorage.getItem('tg-signer-token') || ''
+  const token = authStore.token || ''
   try {
     // If running a specific account, get its history; otherwise aggregate
     const accountName = props.runAccount || getTaskAccountName(props.task) || undefined
     const res = await getSignTaskHistory(token, props.task.name, accountName)
-    logs.value = Array.isArray(res) ? res : ((res as any).data || [])
-  } catch (e) {
+    logs.value = Array.isArray(res) ? res : []
+  } catch (e: unknown) {
     console.error('Failed to fetch logs', e)
     logs.value = []
   } finally {
@@ -57,7 +61,7 @@ const loadLogs = async () => {
 
 const connectWebSocket = () => {
   if (!props.task) return
-  const token = localStorage.getItem('tg-signer-token') || ''
+  const token = authStore.token || ''
   const taskName = encodeURIComponent(props.task.name)
   const accountName = getTaskAccountName(props.task) || ''
   const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -119,7 +123,7 @@ const startPolling = () => {
   if (pollTimer) return
   pollTimer = setInterval(async () => {
     if (!props.task) return
-    const token = localStorage.getItem('tg-signer-token') || ''
+    const token = authStore.token || ''
     const accountName = getTaskAccountName(props.task) || ''
     try {
       const res = await fetch(`/api/sign-tasks/${encodeURIComponent(props.task.name)}/logs?account_name=${encodeURIComponent(accountName)}`, {
@@ -193,7 +197,7 @@ const formatDate = (dateStr: string) => {
     const mi = String(d.getMinutes()).padStart(2, '0')
     const se = String(d.getSeconds()).padStart(2, '0')
     return `${mo}/${da} ${ho}:${mi}:${se}`
-  } catch (e) {
+  } catch (e: unknown) {
     return dateStr
   }
 }
@@ -248,7 +252,7 @@ const formatDate = (dateStr: string) => {
                 {{ log.success ? t('taskLogs.success') : t('taskLogs.failed') }}
               </span>
             </span>
-            <span class="text-xs text-gray-500">{{ formatDate(log.time || log.created_at) }}</span>
+            <span class="text-xs text-gray-500">{{ formatDate(log.time || log.created_at || '') }}</span>
           </div>
 
           <div v-if="log.last_target_message || log.bot_message" class="mt-2 text-sm text-gray-700 dark:text-gray-300">
