@@ -5,8 +5,10 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
+import jwt
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
+from jwt import PyJWTError as JWTError
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -21,7 +23,6 @@ from backend.core.config import get_settings
 from backend.core.database import get_db
 from backend.core.security import hash_password, verify_password
 from backend.models.user import User
-from jose import JWTError, jwt
 
 try:
     import qrcode

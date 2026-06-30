@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import threading
 from datetime import timedelta
 from typing import Optional
 
@@ -21,6 +22,23 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 settings = get_settings()
 
+# TOTP 重放保护：记录已使用的 code（hash → 首次使用时间）
+_used_totp_codes: dict[str, float] = {}
+_totp_lock = threading.Lock()
+_TOTP_CODE_REUSE_WINDOW = 120  # 2 分钟（覆盖当前 + 上一个窗口）
+
+
+def _cleanup_used_totp_codes() -> None:
+    """清理过期的已使用 code 记录"""
+    import time
+    now = time.monotonic()
+    expired = [
+        k for k, v in _used_totp_codes.items()
+        if now - v > _TOTP_CODE_REUSE_WINDOW
+    ]
+    for k in expired:
+        _used_totp_codes.pop(k, None)
+
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
@@ -32,6 +50,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 
 
 def verify_totp(secret: str, code: str) -> bool:
+    """验证 TOTP code，同一 code 在窗口期内不可重复使用"""
     try:
         if not isinstance(code, str):
             return False
@@ -47,7 +66,21 @@ def verify_totp(secret: str, code: str) -> bool:
             valid_window = 1
         if valid_window < 0:
             valid_window = 0
-        return totp.verify(code, valid_window=valid_window)
+        if not totp.verify(code, valid_window=valid_window):
+            return False
+
+        # 重放保护：使用 secret+code 的哈希作为 key（线程安全）
+        import hashlib
+        import time
+        code_hash = hashlib.sha256(f"{secret}:{code}".encode()).hexdigest()[:16]
+        now = time.monotonic()
+        with _totp_lock:
+            if code_hash in _used_totp_codes:
+                return False  # 该 code 已被使用过
+            _used_totp_codes[code_hash] = now
+        # 清理过期条目（锁外执行，避免增加锁持有时间）
+        _cleanup_used_totp_codes()
+        return True
     except Exception:
         return False
 

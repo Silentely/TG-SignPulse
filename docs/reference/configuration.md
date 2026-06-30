@@ -32,13 +32,36 @@
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `TG_API_ID` | 内置默认 | 自定义 Telegram API ID（从 my.telegram.org 获取） |
-| `TG_API_HASH` | 内置默认 | 自定义 Telegram API HASH |
+| `TG_API_ID` | 空（必须配置） | Telegram API ID |
+| `TG_API_HASH` | 空（必须配置） | Telegram API HASH |
 | `TG_SESSION_MODE` | `file` | 会话模式：`file`（本地 SQLite）/ `string`（内存+JSON） |
 | `TG_SESSION_NO_UPDATES` | `0` | 是否禁止接收 updates（仅 string 模式） |
 | `TG_NO_UPDATES` | `0` | `TG_SESSION_NO_UPDATES` 的兼容别名 |
-| `TG_GLOBAL_CONCURRENCY` | `1` | 全局 Telegram 操作并发上限 |
+| `TG_GLOBAL_CONCURRENCY` | 自动（CPU核心数，上限5） | 全局 Telegram 操作并发上限，可通过此变量覆盖自动值 |
 | `TG_PROXY` | 无 | CLI / 执行层的兜底代理 |
+
+### 获取 Telegram API 凭证
+
+`TG_API_ID` 和 `TG_API_HASH` 是使用 Telegram API 的必要凭证，需要从 Telegram 官方申请：
+
+1. 打开 [https://my.telegram.org](https://my.telegram.org)
+2. 使用你的 Telegram 手机号登录（输入手机号后会收到验证码）
+3. 登录后点击 **「API development tools」**
+4. 填写应用信息（App title 和 Short name 可随意填写，其他字段可留空）
+5. 点击 **「Create application」**
+6. 页面会显示 `App api_id` 和 `App api_hash` — 分别对应 `TG_API_ID` 和 `TG_API_HASH`
+
+> ⚠️ 每个 Telegram 账号只能创建一个 API 应用。请妥善保管凭证，不要提交到公开仓库。
+
+在 Docker Compose 中配置：
+
+```yaml
+environment:
+  - TG_API_ID=12345678
+  - TG_API_HASH=abcdef1234567890abcdef1234567890
+```
+
+或在面板「系统设置 → Telegram API」中填写。
 
 ## 任务执行相关
 
@@ -96,11 +119,13 @@
 
 ```json
 {
-  "api_key": "sk-...",
+  "api_key": "<Fernet加密的密文>",
   "base_url": "https://api.openai.com/v1",
   "model": "gpt-4o"
 }
 ```
+
+> ⚠️ `api_key` 字段存储的是 Fernet 加密后的密文（以 `gAAAAA` 开头），由面板自动加密/解密。从旧版本升级后首次保存会自动将明文转换为加密格式。
 
 支持任何 OpenAI 兼容接口（如 Azure OpenAI、本地 LLM 等）。
 
@@ -116,7 +141,7 @@
 }
 ```
 
-不设置时使用内置默认配置。自定义配置从 [my.telegram.org](https://my.telegram.org) 获取。
+不设置时需要用户自行配置（面板「系统设置 → Telegram API」）。自定义配置从 [my.telegram.org](https://my.telegram.org) 获取。
 
 ## 数据目录结构
 
@@ -180,6 +205,8 @@
 - `TG_SESSION_MODE=string` 时，session string 存入 `sessions/accounts.json`
 - 任务日志默认保留 3 天，由每日凌晨 3 点的维护任务自动清理
 - `LOG_LEVEL=DEBUG` 会重新启用 uvicorn access log，但仍会过滤健康检查端点以减少噪音
+- TOTP 验证具有重放保护：同一验证码在 2 分钟窗口内不可重复使用
+- `TG_GLOBAL_CONCURRENCY` 未设置时，自动根据 CPU 核心数计算（上限为 5）
 
 ## 配置缓存行为
 

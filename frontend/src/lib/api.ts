@@ -719,6 +719,8 @@ export interface SignTaskChat {
   delete_after?: number;
   action_interval: number;
   message_thread_id?: number;
+  sender_filter?: string;
+  source_account?: string;
 }
 
 export interface LastRunInfo {

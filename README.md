@@ -175,7 +175,7 @@ TG-SignPulse/
 | `APP_DATA_DIR` | 数据目录 | `/data` |
 | `TZ` | 时区 | `Asia/Shanghai` |
 | `TG_SESSION_MODE` | 会话模式 `file`/`string` | `file` |
-| `TG_GLOBAL_CONCURRENCY` | 全局并发数 | `1` |
+| `TG_GLOBAL_CONCURRENCY` | 全局并发数 | `自动（CPU核心数，上限5）` |
 | `TG_PROXY` | Telegram 全局代理 | 无 |
 
 更多配置请查看 [配置参考](docs/reference/configuration.md)。

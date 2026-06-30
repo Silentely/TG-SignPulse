@@ -55,7 +55,9 @@ def _resolve_concurrency_limit() -> int:
             return max(int(val), 1)
     except Exception:
         pass
-    return 1
+    # 默认：根据 CPU 核心数动态计算，上限为 5
+    import os as _os
+    return min(_os.cpu_count() or 4, 5)
 
 
 def update_global_semaphore(new_limit: int) -> None:

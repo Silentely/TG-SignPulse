@@ -9,10 +9,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
-from fastapi import FastAPI, Response, status
+from fastapi import FastAPI, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 # Monkeypatch sqlite3.connect to increase default timeout
@@ -147,6 +147,27 @@ async def lifespan(fastapi_app: FastAPI):
 app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
 app.state.ready = False
 
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """全局异常处理器：仅捕获未处理的异常，不拦截 HTTPException"""
+    # FastAPI 的 HTTPException（401/403/404 等）应由框架正常处理
+    from fastapi.exceptions import HTTPException as FastAPIHTTPException
+    if isinstance(exc, FastAPIHTTPException):
+        raise exc
+
+    logging.getLogger("backend.exception").error(
+        "Unhandled exception on %s %s: %s",
+        request.method,
+        request.url.path,
+        exc,
+        exc_info=True,
+    )
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"detail": "Internal Server Error"},
+    )
+
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
@@ -209,6 +230,10 @@ def _resolve_web_file(full_path: str) -> Path | None:
 
 
 # Catch-all 路由：处理所有前端路由，返回 index.html
+# 注意：FastAPI 的 /docs、/redoc、/openapi.json 在此路由之前已自动注册，
+# 因此不会被此 catch-all 拦截。无需额外排除。
+
+
 @app.get("/{full_path:path}")
 async def serve_spa(full_path: str):
     """

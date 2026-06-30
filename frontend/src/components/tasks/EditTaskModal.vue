@@ -1,16 +1,19 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, useTemplateRef } from 'vue'
 import Modal from '../Modal.vue'
 import TaskForm from './TaskForm.vue'
 import { updateSignTask } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
+import { useAuthStore } from '../../stores/auth'
 
 const { t } = useI18n()
+const authStore = useAuthStore()
 
 const props = defineProps<{ isOpen: boolean, task: any }>()
 const emit = defineEmits<{ (e: 'close'): void, (e: 'success'): void }>()
 
 const payload = ref<any>({})
+const taskFormRef = useTemplateRef<InstanceType<typeof TaskForm>>('taskForm')
 const notifyOnFailure = ref(true)
 
 const loading = ref(false)
@@ -25,8 +28,11 @@ watch(() => props.isOpen, (val) => {
 })
 
 const handleSave = async () => {
-  const token = localStorage.getItem('tg-signer-token')
+  const token = authStore.token
   if (!token || !props.task) return
+
+  // 保存前同步刷新 payload，避免防抖延迟导致提交旧值
+  taskFormRef.value?.flushPayload?.()
 
   loading.value = true
   error.value = ''
@@ -64,7 +70,7 @@ const handleSave = async () => {
         {{ error }}
       </div>
       
-      <TaskForm v-if="isOpen && task" :initialTask="task" @update:payload="payload = $event" />
+      <TaskForm v-if="isOpen && task" ref="taskForm" :initialTask="task" @update:payload="payload = $event" />
     </div>
 
     <template #footer>

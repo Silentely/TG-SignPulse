@@ -44,6 +44,60 @@ logger = logging.getLogger("backend.qr_login")
 _login_sessions = {}
 _qr_login_sessions = {}
 
+# 登录 session 清理常量
+_LOGIN_SESSION_MAX_AGE = 1800  # 手机号登录 session 最大存活时间（30 分钟）
+_QR_LOGIN_SESSION_MAX_AGE = 600  # 扫码登录 session 最大存活时间（10 分钟）
+_MAX_LOGIN_SESSIONS = 50  # 每种登录 session 的最大数量
+
+
+async def _release_login_session(value: Any) -> None:
+    """断开登录 session 中的客户端连接并释放锁"""
+    client = value.get("client")
+    if client:
+        try:
+            if getattr(client, "is_connected", False):
+                await client.disconnect()
+        except Exception:
+            pass
+    lock = value.get("lock")
+    if lock and lock.locked():
+        lock.release()
+
+
+async def _cleanup_expired_login_sessions() -> None:
+    """清理过期的登录 session，防止内存泄漏。
+
+    检查 `_login_sessions` 和 `_qr_login_sessions` 中超过最大存活时间的条目，
+    断开其中的 Pyrogram 客户端并释放锁。当条目总数超过上限时，按创建时间淘汰最旧的条目。
+    """
+    now = time.monotonic()
+
+    # 清理过期条目
+    for store, max_age in (
+        (_login_sessions, _LOGIN_SESSION_MAX_AGE),
+        (_qr_login_sessions, _QR_LOGIN_SESSION_MAX_AGE),
+    ):
+        expired_keys = [
+            key for key, value in list(store.items())
+            if value.get("_created_at") is not None
+            and (now - value["_created_at"]) > max_age
+        ]
+        for key in expired_keys:
+            value = store.pop(key, None)
+            if value:
+                await _release_login_session(value)
+
+    # 容量溢出保护：按 _created_at 淘汰最旧条目
+    for store in (_login_sessions, _qr_login_sessions):
+        while len(store) > _MAX_LOGIN_SESSIONS:
+            oldest_key = min(
+                store.keys(),
+                key=lambda k: store[k].get("_created_at", float("inf")),
+            )
+            value = store.pop(oldest_key, None)
+            if value:
+                await _release_login_session(value)
+
 
 class TelegramService:
     """Telegram 服务类"""
@@ -829,7 +883,6 @@ class TelegramService:
         Returns:
             包含 phone_code_hash 的字典
         """
-        import gc
 
         account_name = self._normalize_account_name(account_name)
 
@@ -837,6 +890,8 @@ class TelegramService:
         from pyrogram.errors import FloodWait, PhoneNumberInvalid
 
         from tg_signer.core import close_client_by_name
+
+        await _cleanup_expired_login_sessions()
 
         account_lock = get_account_lock(account_name)
         session_mode = get_session_mode()
@@ -873,9 +928,6 @@ class TelegramService:
             await close_client_by_name(account_name, workdir=self.session_dir)
         except Exception as e:
             logger.debug(f"start_login 清理后台客户端失败: {e}")
-
-        # 3. 强制垃圾回收，释放可能的未关闭文件句柄 (Windows 特性)
-        gc.collect()
 
         # 获取 API credentials
         from backend.services.config import get_config_service
@@ -964,6 +1016,7 @@ class TelegramService:
                 "phone_number": phone_number,
                 "lock": account_lock,
                 "account_name": account_name,
+                "_created_at": time.monotonic(),
             }
 
             # 保持连接，避免 session 变化导致验证码失效 (PhoneCodeExpired)
@@ -1384,7 +1437,6 @@ class TelegramService:
     async def start_qr_login(
         self, account_name: str, proxy: Optional[str] = None
     ) -> Dict[str, Any]:
-        import gc
 
         account_name = self._normalize_account_name(account_name)
 
@@ -1392,6 +1444,8 @@ class TelegramService:
         from pyrogram.errors import FloodWait
 
         from tg_signer.core import close_client_by_name
+
+        await _cleanup_expired_login_sessions()
 
         account_lock = get_account_lock(account_name)
         session_mode = get_session_mode()
@@ -1413,8 +1467,6 @@ class TelegramService:
             await close_client_by_name(account_name, workdir=self.session_dir)
         except Exception:
             pass
-
-        gc.collect()
 
         # API credentials
         from backend.services.config import get_config_service
@@ -1512,6 +1564,7 @@ class TelegramService:
                 "api_id": api_id,
                 "api_hash": api_hash,
                 "handler": None,
+                "_created_at": time.monotonic(),
             }
             _qr_login_sessions[login_id] = session_data
             self._log_qr_state(login_id, "waiting_scan", session_data)

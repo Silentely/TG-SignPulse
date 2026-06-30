@@ -42,13 +42,11 @@ RUN pip install --no-cache-dir "bcrypt==4.0.1"
 COPY README.md pyproject.toml pyotp.py /app/
 COPY backend /app/backend
 COPY tg_signer /app/tg_signer
-COPY jose /app/jose
 RUN pip install --no-cache-dir . && \
   pip install --no-cache-dir \
   uvicorn[standard] \
   sqlalchemy \
   "passlib[bcrypt]==1.7.4" \
-  "python-jose[cryptography]" \
   pyotp \
   qrcode[pil] \
   apscheduler \
