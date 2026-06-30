@@ -1,6 +1,6 @@
 # TG-SignPulse
 
-> Telegram 签名脉冲监测系统 — 自动化 Telegram 签到、消息发送、关键词监控、AI 回复等任务的统一管理面板。
+> Telegram 消息监测系统 — 自动化 Telegram 签到、消息发送、关键词监控、AI 回复等任务的统一管理面板。
 
 ## 变更记录 (Changelog)
 
