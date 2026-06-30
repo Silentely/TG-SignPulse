@@ -4,7 +4,7 @@ WORKDIR /frontend
 
 # Copy dependency manifests first for better layer caching.
 COPY frontend/package*.json ./
-RUN npm ci
+RUN npm install
 
 COPY frontend/ ./
 RUN npm run build
