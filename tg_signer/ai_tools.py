@@ -365,6 +365,78 @@ class AITools:
         )
         return any(indicator in text for indicator in indicators)
 
+    @staticmethod
+    def _get_exception_status_code(exc: Exception) -> int | None:
+        """从异常对象或错误文本中提取 HTTP 状态码。"""
+        for attr in ("status_code", "code"):
+            value = getattr(exc, attr, None)
+            if isinstance(value, int):
+                return value
+            if isinstance(value, str) and value.isdigit():
+                return int(value)
+
+        response = getattr(exc, "response", None)
+        value = getattr(response, "status_code", None)
+        if isinstance(value, int):
+            return value
+
+        text = str(exc)
+        for pattern in (r"Error code:\s*(\d{3})", r"['\"]code['\"]:\s*(\d{3})"):
+            match = re.search(pattern, text)
+            if match:
+                return int(match.group(1))
+        return None
+
+    @classmethod
+    def _should_retry_transient_ai_error(cls, exc: Exception) -> bool:
+        """判断 AI 视觉请求错误是否为瞬时故障（可重试）。
+        配额耗尽（RESOURCE_EXHAUSTED / free_tier）不视为瞬时故障。
+        """
+        if isinstance(exc, TimeoutError):
+            return True
+
+        text = str(exc).lower()
+        # 配额耗尽不可重试，避免无意义请求
+        quota_markers = (
+            "quota exceeded",
+            "resource_exhausted",
+            "free_tier",
+            "check your plan and billing",
+        )
+        if any(marker in text for marker in quota_markers):
+            return False
+
+        status_code = cls._get_exception_status_code(exc)
+        if status_code in {429, 500, 502, 503, 504}:
+            return True
+
+        transient_markers = (
+            "unavailable",
+            "high demand",
+            "rate limit",
+            "rate_limit",
+            "temporarily unavailable",
+            "try again later",
+            "server error",
+            "bad gateway",
+            "gateway timeout",
+        )
+        return any(marker in text for marker in transient_markers)
+
+    @classmethod
+    def _vision_retry_attempts(cls) -> int:
+        """AI 视觉请求最大重试次数，默认 2。"""
+        return cls._read_positive_int_env("AI_VISION_RETRY_ATTEMPTS", 2, 1)
+
+    @staticmethod
+    def _vision_retry_delay(attempt: int) -> float:
+        """AI 视觉请求重试延迟（秒），线性递增。"""
+        try:
+            base_delay = float(os.environ.get("AI_VISION_RETRY_DELAY", "0.6"))
+        except ValueError:
+            base_delay = 0.6
+        return max(0.0, base_delay) * attempt
+
     async def _create_visual_completion(
         self,
         *,

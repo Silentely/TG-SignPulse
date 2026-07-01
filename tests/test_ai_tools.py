@@ -1,3 +1,4 @@
+import os
 import unittest
 from io import BytesIO
 from types import SimpleNamespace
@@ -116,3 +117,76 @@ class AIToolsJsonFallbackTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, [2])
         self.assertIn("response_format", fake_completions.calls[0])
         self.assertNotIn("response_format", fake_completions.calls[1])
+
+
+class TransientErrorRetryTest(unittest.TestCase):
+    """AI 视觉瞬时错误重试基础设施测试。"""
+
+    def test_extracts_status_code_from_exception_attribute(self):
+        exc = RuntimeError("something")
+        exc.status_code = 503
+        self.assertEqual(AITools._get_exception_status_code(exc), 503)
+
+    def test_extracts_status_code_from_error_text(self):
+        exc = RuntimeError("Error code: 429 - rate limited")
+        self.assertEqual(AITools._get_exception_status_code(exc), 429)
+
+    def test_extracts_code_from_json_in_error_text(self):
+        exc = RuntimeError('{"code": 500, "message": "internal error"}')
+        self.assertEqual(AITools._get_exception_status_code(exc), 500)
+
+    def test_returns_none_for_no_status(self):
+        exc = RuntimeError("some random error")
+        self.assertIsNone(AITools._get_exception_status_code(exc))
+
+    def test_timeout_is_treated_as_transient(self):
+        self.assertTrue(AITools._should_retry_transient_ai_error(TimeoutError()))
+
+    def test_quota_exhaustion_is_not_retried(self):
+        exc = RuntimeError(
+            "Error code: 429 - {'error': {'status': 'RESOURCE_EXHAUSTED', "
+            "'message': 'You exceeded your current quota, free_tier'}}"
+        )
+        self.assertFalse(AITools._should_retry_transient_ai_error(exc))
+
+    def test_503_unavailable_is_retried(self):
+        exc = RuntimeError("Error code: 503 - {'error': {'status': 'UNAVAILABLE'}}")
+        self.assertTrue(AITools._should_retry_transient_ai_error(exc))
+
+    def test_400_bad_request_is_not_retried(self):
+        exc = RuntimeError("Error code: 400 - bad request")
+        self.assertFalse(AITools._should_retry_transient_ai_error(exc))
+
+    def test_rate_limit_text_is_retried(self):
+        exc = RuntimeError("rate limit exceeded, try again later")
+        self.assertTrue(AITools._should_retry_transient_ai_error(exc))
+
+    def test_high_demand_text_is_retried(self):
+        exc = RuntimeError("server is experiencing high demand")
+        self.assertTrue(AITools._should_retry_transient_ai_error(exc))
+
+    def test_vision_retry_attempts_reads_from_env(self):
+        old = os.environ.get("AI_VISION_RETRY_ATTEMPTS")
+        try:
+            os.environ["AI_VISION_RETRY_ATTEMPTS"] = "5"
+            self.assertEqual(AITools._vision_retry_attempts(), 5)
+        finally:
+            if old is None:
+                os.environ.pop("AI_VISION_RETRY_ATTEMPTS", None)
+            else:
+                os.environ["AI_VISION_RETRY_ATTEMPTS"] = old
+
+    def test_vision_retry_attempts_uses_default(self):
+        old = os.environ.get("AI_VISION_RETRY_ATTEMPTS")
+        try:
+            os.environ.pop("AI_VISION_RETRY_ATTEMPTS", None)
+            self.assertEqual(AITools._vision_retry_attempts(), 2)
+        finally:
+            if old is not None:
+                os.environ["AI_VISION_RETRY_ATTEMPTS"] = old
+
+    def test_vision_retry_delay_scales_with_attempt(self):
+        delay1 = AITools._vision_retry_delay(1)
+        delay3 = AITools._vision_retry_delay(3)
+        self.assertGreaterEqual(delay1, 0.0)
+        self.assertGreaterEqual(delay3, delay1)
