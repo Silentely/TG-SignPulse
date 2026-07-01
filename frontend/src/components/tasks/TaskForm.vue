@@ -24,11 +24,13 @@ const accountOptions = computed(() => accounts.value.map(a => ({ label: a.name, 
 const scheduleMode = ref<'scheduled' | 'listen'>('scheduled')
 const timeRange = ref('08:00-19:00')
 const taskName = ref('')
+const retryCount = ref(3)
 const availableChats = ref<ChatInfo[]>([])
 const chatSearch = ref('')
 const chatSearchResults = ref<ChatInfo[]>([])
 const chatSearchLoading = ref(false)
 const chatListRefreshing = ref(false)
+const chatListError = ref('')
 const selectedChatId = ref<number>(0)
 const selectedChatName = ref('')
 const messageThreadId = ref('')
@@ -49,6 +51,7 @@ const loadAccounts = async () => {
     accounts.value = res.accounts || []
     if (props.initialTask) {
       taskName.value = props.initialTask.name || ''
+      retryCount.value = props.initialTask.retry_count ?? 3
       scheduleMode.value = props.initialTask.execution_mode === 'listen' ? 'listen' : 'scheduled'
       if (props.initialTask.execution_mode === 'range') timeRange.value = props.initialTask.range_start + '-' + props.initialTask.range_end
       else timeRange.value = props.initialTask.sign_at || '08:00-19:00'
@@ -96,6 +99,7 @@ const loadChats = async (n: string, forceRefresh: boolean = false) => {
   const controller = new AbortController()
   loadChatsAbort = controller
   chatListRefreshing.value = true
+  chatListError.value = ''
   const token = authStore.token||''
   try {
     const result = await getAccountChats(token, n, forceRefresh)
@@ -103,7 +107,12 @@ const loadChats = async (n: string, forceRefresh: boolean = false) => {
     availableChats.value = result || []
   } catch(e: unknown) {
     if (controller.signal.aborted) return
-    console.error('loadChats failed:', getErrorMessage(e))
+    const msg = getErrorMessage(e)
+    if (msg.includes('登录已失效') || msg.includes('session') || msg.includes('Session')) {
+      chatListError.value = t('taskForm.sessionInvalid')
+    } else {
+      chatListError.value = t('taskForm.loadFailed')
+    }
     availableChats.value = []
   } finally {
     if (loadChatsAbort === controller) { loadChatsAbort = null; chatListRefreshing.value = false }
@@ -161,6 +170,7 @@ const buildPayload = () => {
     account_name: selectedAccounts.value[0] || '',
     account_names: allAccountsMode.value ? ['*'] : selectedAccounts.value,
     sign_at: sa, execution_mode: em, range_start: rs, range_end: re, random_seconds: 0,
+    retry_count: retryCount.value,
     chats: [{
       chat_id: selectedChatId.value, name: selectedChatName.value,
       actions: ca as import("../../lib/types").RawTaskAction[],
@@ -175,7 +185,7 @@ const debouncedEmit = debounce(() => { emit('update:payload', buildPayload()) },
 /** 同步刷新 payload（保存前调用，确保拿到最新值） */
 const flushPayload = () => { emit('update:payload', buildPayload()) }
 defineExpose({ flushPayload })
-watch([taskName,selectedAccounts,allAccountsMode,scheduleMode,timeRange,selectedChatId,selectedChatName,messageThreadId,senderFilter,actions,listenerKeywords,listenerMatchMode,listenerPushChannel,listenerForwardChatId,listenerForwardThreadId,listenerBarkUrl,listenerCustomUrl], () => { debouncedEmit() }, {deep:true})
+watch([taskName,selectedAccounts,allAccountsMode,scheduleMode,timeRange,selectedChatId,selectedChatName,messageThreadId,senderFilter,actions,retryCount,listenerKeywords,listenerMatchMode,listenerPushChannel,listenerForwardChatId,listenerForwardThreadId,listenerBarkUrl,listenerCustomUrl], () => { debouncedEmit() }, {deep:true})
 onMounted(()=>{loadAccounts()})
 </script>
 <template>
@@ -197,12 +207,16 @@ onMounted(()=>{loadAccounts()})
         <label class="text-xs font-semibold text-gray-500 tracking-wide uppercase">{{ t('taskForm.timeRange') }}</label>
         <input v-model="timeRange" :disabled="scheduleMode === 'listen'" :placeholder="scheduleMode === 'listen' ? '24H' : t('taskForm.timeRangePlaceholder')" class="w-full h-10 px-3 text-sm border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 outline-none focus:border-gray-400 disabled:opacity-50 disabled:bg-gray-50 dark:disabled:bg-gray-950" />
       </div>
+      <div class="space-y-1.5">
+        <label class="text-xs font-semibold text-gray-500 tracking-wide uppercase">{{ t('taskForm.retryCount') }}</label>
+        <input v-model.number="retryCount" type="number" min="0" max="99" class="w-full h-10 px-3 text-sm border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 outline-none focus:border-gray-400" />
+      </div>
     </div>
     <div class="p-4 border border-sky-100 dark:border-gray-800/60 bg-sky-50/50 dark:bg-gray-900/40">
       <h4 class="mb-4 text-xs font-bold uppercase tracking-widest text-sky-500">{{ t('taskForm.targetChat') }}</h4>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div class="space-y-1.5"><label class="text-xs font-medium text-gray-500">{{ t('taskForm.chatSourceAccount') }}</label><CustomSelect v-model="selectedAccount" :options="selectedAccounts.map(a => ({label: a, value: a}))" /></div>
-        <div class="space-y-1.5"><label class="text-xs font-medium text-gray-500 flex items-center justify-between">{{ t('taskForm.selectFromList') }}<button type="button" @click="refreshChats" :disabled="chatListRefreshing || !selectedAccount" class="flex items-center gap-1 text-[10px] text-sky-500 hover:text-sky-700 dark:hover:text-sky-300 font-medium disabled:opacity-50 disabled:cursor-not-allowed"><RefreshCw class="w-3 h-3" :class="chatListRefreshing ? 'animate-spin' : ''" /> {{ t('taskForm.refreshChats') }}</button></label><CustomSelect v-model="selectedChatId" :disabled="chatListRefreshing" :options="[{label: chatListRefreshing ? t('taskForm.loadingChats') : t('taskForm.selectChat'), value:0}, ...availableChats.map(c => ({label: c.title || c.username || String(c.id), value: c.id}))]" @update:modelValue="selectedChatName = availableChats.find(c => c.id === $event)?.title || availableChats.find(c => c.id === $event)?.username || String($event)" /></div>
+        <div class="space-y-1.5"><label class="text-xs font-medium text-gray-500 flex items-center justify-between">{{ t('taskForm.selectFromList') }}<button type="button" @click="refreshChats" :disabled="chatListRefreshing || !selectedAccount" class="flex items-center gap-1 text-[10px] text-sky-500 hover:text-sky-700 dark:hover:text-sky-300 font-medium disabled:opacity-50 disabled:cursor-not-allowed"><RefreshCw class="w-3 h-3" :class="chatListRefreshing ? 'animate-spin' : ''" /> {{ t('taskForm.refreshChats') }}</button></label><CustomSelect v-model="selectedChatId" :disabled="chatListRefreshing" :options="[{label: chatListRefreshing ? t('taskForm.loadingChats') : t('taskForm.selectChat'), value:0}, ...availableChats.map(c => ({label: c.title || c.username || String(c.id), value: c.id}))]" @update:modelValue="selectedChatName = availableChats.find(c => c.id === $event)?.title || availableChats.find(c => c.id === $event)?.username || String($event)" /><p v-if="chatListError" class="text-xs text-amber-600 dark:text-amber-400 mt-1">{{ chatListError }}</p></div>
         <div class="space-y-1.5 relative"><label class="text-xs font-medium text-gray-500">{{ t('taskForm.searchChat') }}</label><div class="relative"><input v-model="chatSearch" :placeholder="t('taskForm.searchPlaceholder')" class="w-full h-10 px-3 text-sm border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900 outline-none focus:border-gray-400" /><div v-if="chatSearch.trim()" class="absolute top-11 left-0 right-0 z-10 max-h-40 overflow-y-auto bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/60 shadow-lg"><div v-if="chatSearchLoading" class="p-3 text-xs text-gray-400">{{ t('taskForm.searching') }}</div><template v-else><div v-for="chat in chatSearchResults" :key="chat.id" @click="selectChat(chat)" class="p-2 border-b border-gray-100 dark:border-gray-800/60 hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer text-sm"><div class="font-medium truncate">{{ chat.title || chat.username || chat.id }}</div><div class="text-[10px] text-gray-400 font-mono">{{ chat.id }}</div></div><div v-if="!chatSearchResults.length" class="p-3 text-xs text-gray-400">{{ t('taskForm.noResults') }}</div></template></div></div></div>
         <div class="space-y-1.5"><label class="text-xs font-medium text-gray-500">{{ t('taskForm.threadId') }}</label><input v-model="messageThreadId" :placeholder="t('taskForm.threadIdPlaceholder')" class="w-full h-10 px-3 text-sm border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900 outline-none focus:border-gray-400" /></div>
         <div class="space-y-1.5"><label class="text-xs font-medium text-gray-500">{{ t('taskForm.senderFilter') }}</label><input v-model="senderFilter" :placeholder="t('taskForm.senderFilterPlaceholder')" class="w-full h-10 px-3 text-sm border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900 outline-none focus:border-gray-400" /></div>

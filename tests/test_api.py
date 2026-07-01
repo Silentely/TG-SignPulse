@@ -857,3 +857,125 @@ class TestTaskAPI:
         # 确认删除
         verify_resp = api_client.get(f"/api/tasks/{task_id}", headers=_auth(token))
         assert verify_resp.status_code == 404
+
+
+# ============================================================================
+# 新增功能测试：timezone、retry_count
+# ============================================================================
+
+
+class TestTimezoneSettings:
+    """时区配置 API 测试"""
+
+    def test_get_settings_returns_timezone(self, api_client, db):
+        """GET /api/config/settings 应返回 timezone 字段"""
+        token = _login(api_client)
+        resp = api_client.get("/api/config/settings", headers=_auth(token))
+        assert resp.status_code == 200
+        assert "timezone" in resp.json()
+        assert resp.json()["timezone"]  # 非空
+
+    def test_save_timezone(self, api_client, db):
+        """POST /api/config/settings 可保存时区"""
+        token = _login(api_client)
+        resp = api_client.post(
+            "/api/config/settings",
+            json={"timezone": "Asia/Tokyo"},
+            headers=_auth(token),
+        )
+        assert resp.status_code == 200
+        # 验证保存成功
+        get_resp = api_client.get("/api/config/settings", headers=_auth(token))
+        assert get_resp.json()["timezone"] == "Asia/Tokyo"
+
+    def test_save_invalid_timezone_rejected(self, api_client, db):
+        """无效时区应返回 400"""
+        token = _login(api_client)
+        resp = api_client.post(
+            "/api/config/settings",
+            json={"timezone": "Invalid/Zone"},
+            headers=_auth(token),
+        )
+        assert resp.status_code == 400
+
+    def test_partial_save_preserves_timezone(self, api_client, db):
+        """保存其他字段时不应覆盖已有时区"""
+        token = _login(api_client)
+        # 先设置时区
+        api_client.post(
+            "/api/config/settings",
+            json={"timezone": "Europe/Berlin"},
+            headers=_auth(token),
+        )
+        # 再保存其他字段（不传 timezone）
+        api_client.post(
+            "/api/config/settings",
+            json={"tg_global_concurrency": 3},
+            headers=_auth(token),
+        )
+        # 时区应保持不变
+        get_resp = api_client.get("/api/config/settings", headers=_auth(token))
+        assert get_resp.json()["timezone"] == "Europe/Berlin"
+
+
+class TestRetryCountValidation:
+    """retry_count 后端校验测试"""
+
+    def test_retry_count_negative_rejected(self, api_client, db):
+        """retry_count < 0 应被拒绝"""
+        token = _login(api_client)
+        _create_account(db, account_name="acc1")
+        db.commit()
+        resp = api_client.post(
+            "/api/sign-tasks",
+            json={
+                "name": "test_task",
+                "account_name": "acc1",
+                "account_names": ["acc1"],
+                "sign_at": "08:00",
+                "chats": [{"chat_id": 123, "name": "test", "actions": [{"action": 1, "text": "hi"}]}],
+                "retry_count": -1,
+            },
+            headers=_auth(token),
+        )
+        assert resp.status_code == 422
+
+    def test_retry_count_over_99_rejected(self, api_client, db):
+        """retry_count > 99 应被拒绝"""
+        token = _login(api_client)
+        _create_account(db, account_name="acc1")
+        db.commit()
+        resp = api_client.post(
+            "/api/sign-tasks",
+            json={
+                "name": "test_task",
+                "account_name": "acc1",
+                "account_names": ["acc1"],
+                "sign_at": "08:00",
+                "chats": [{"chat_id": 123, "name": "test", "actions": [{"action": 1, "text": "hi"}]}],
+                "retry_count": 100,
+            },
+            headers=_auth(token),
+        )
+        assert resp.status_code == 422
+
+    def test_retry_count_valid_accepted(self, api_client, db):
+        """有效 retry_count 应被接受"""
+        token = _login(api_client)
+        _create_account(db, account_name="acc1")
+        db.commit()
+        with patch("backend.api.routes.sign_tasks_v2.asyncio.ensure_future"):
+            resp = api_client.post(
+                "/api/sign-tasks",
+                json={
+                    "name": "test_retry",
+                    "account_name": "acc1",
+                    "account_names": ["acc1"],
+                    "sign_at": "08:00",
+                    "chats": [{"chat_id": 123, "name": "test", "actions": [{"action": 1, "text": "hi"}]}],
+                    "retry_count": 5,
+                },
+                headers=_auth(token),
+            )
+        assert resp.status_code == 201
+        assert resp.json()["retry_count"] == 5
