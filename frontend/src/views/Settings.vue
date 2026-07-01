@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { getGlobalSettings, saveGlobalSettings, getTelegramConfig, saveTelegramConfig, resetTelegramConfig, getAIConfig, saveAIConfig, testAIConnection, exportAllConfigs, importAllConfigs } from '../lib/api'
+import { getGlobalSettings, saveGlobalSettings, getTelegramConfig, saveTelegramConfig, resetTelegramConfig, getAIConfig, saveAIConfig, testAIConnection, exportAllConfigs, importAllConfigs, runDeviceKeepalive } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
 import CustomSelect from '../components/CustomSelect.vue'
 import { useAuthStore } from '../stores/auth'
@@ -15,6 +15,8 @@ const settings = ref({
   dataDir: '',
   proxy: '',
   concurrency: 1,
+  deviceKeepaliveEnabled: true,
+  deviceKeepaliveIntervalDays: 30,
   botEnabled: false,
   botLoginNotify: false,
   botTaskFailure: false,
@@ -87,6 +89,8 @@ onMounted(async () => {
     settings.value.dataDir = res.data_dir || ''
     settings.value.proxy = res.global_proxy || ''
     settings.value.concurrency = res.tg_global_concurrency || 1
+    settings.value.deviceKeepaliveEnabled = res.device_keepalive_enabled !== false
+    settings.value.deviceKeepaliveIntervalDays = res.device_keepalive_interval_days || 30
     settings.value.botEnabled = res.telegram_bot_notify_enabled || false
     settings.value.botLoginNotify = res.telegram_bot_login_notify_enabled || false
     settings.value.botTaskFailure = res.telegram_bot_task_failure_enabled || false
@@ -122,6 +126,8 @@ const saveSettings = async () => {
       data_dir: settings.value.dataDir || null,
       global_proxy: settings.value.proxy || null,
       tg_global_concurrency: settings.value.concurrency || 1,
+      device_keepalive_enabled: settings.value.deviceKeepaliveEnabled,
+      device_keepalive_interval_days: settings.value.deviceKeepaliveIntervalDays || 30,
       timezone: settings.value.timezone,
     })
     showToast(t('settings.saveSuccess'))
@@ -133,6 +139,22 @@ const saveSettings = async () => {
 }
 
 const botLoading = ref(false)
+const keepaliveLoading = ref(false)
+
+const runKeepaliveNow = async () => {
+  const token = authStore.token || ''
+  if (!token) return
+
+  keepaliveLoading.value = true
+  try {
+    const res = await runDeviceKeepalive(token)
+    showToast(`${t('settings.keepaliveDone')}：${res.kept_alive}/${res.checked}，${t('settings.failed')} ${res.failed}`)
+  } catch (e: any) {
+    showToast(e.message || t('settings.keepaliveFailed'))
+  } finally {
+    keepaliveLoading.value = false
+  }
+}
 
 const saveBotSettings = async () => {
   const token = authStore.token || ''
@@ -290,6 +312,28 @@ const handleImport = async (e: Event) => {
             <div class="space-y-1.5">
               <label class="text-xs text-gray-500 block">{{ t('settings.concurrency') }}</label>
               <input v-model.number="settings.concurrency" type="number" min="1" max="10" :placeholder="t('settings.concurrencyPlaceholder')" class="w-full bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-white dark:focus:bg-gray-800 placeholder:text-gray-400">
+            </div>
+            <div class="p-3 bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-gray-800/60 space-y-3">
+              <div class="flex items-center justify-between gap-3">
+                <div>
+                  <label class="text-xs text-gray-600 dark:text-gray-300 block">{{ t('settings.deviceKeepalive') }}</label>
+                  <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.deviceKeepaliveDesc') }}</p>
+                </div>
+                <button
+                  @click="settings.deviceKeepaliveEnabled = !settings.deviceKeepaliveEnabled"
+                  class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus:outline-none"
+                  :class="settings.deviceKeepaliveEnabled ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-700'"
+                >
+                  <span class="inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform" :class="settings.deviceKeepaliveEnabled ? 'translate-x-4' : 'translate-x-1'" />
+                </button>
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
+                <input v-model.number="settings.deviceKeepaliveIntervalDays" type="number" min="1" max="170" :disabled="!settings.deviceKeepaliveEnabled" class="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-white dark:focus:bg-gray-800 disabled:opacity-50">
+                <button @click="runKeepaliveNow" :disabled="keepaliveLoading" class="px-3 py-2 text-xs text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/60 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors disabled:opacity-50">
+                  {{ keepaliveLoading ? t('settings.saving') : t('settings.keepaliveNow') }}
+                </button>
+              </div>
+              <p class="text-[10px] text-gray-500">{{ t('settings.deviceKeepaliveIntervalHint') }}</p>
             </div>
             <div class="space-y-1.5">
               <label class="text-xs text-gray-500 block">{{ t('settings.timezone') }}</label>

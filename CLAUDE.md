@@ -11,6 +11,7 @@
 | 2026-06-30 | 补扫：backend/utils/ 13 个工具模块、tools/ 迁移脚本、前端剩余 3 个 Views |
 | 2026-06-30 | 补扫：前端 Composables、tg_signer/config.py 配置模型；验证 5 项关键发现 |
 | 2026-06-30 | 补扫：tg_signer/core.py 前半段（Client 生命周期）、前端 13 个 Components；规划 token/any 修复方案 |
+| 2026-07-01 | 新增账号设备管理、设备保活、官方消息查看、批量状态检查功能 |
 
 ## 项目愿景
 
