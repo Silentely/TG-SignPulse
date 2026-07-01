@@ -34,11 +34,14 @@ class TestResolveConcurrencyLimit:
             assert _resolve_concurrency_limit() == 1
 
     def test_dynamic_default_based_on_cpu(self):
-        """无环境变量时应返回 min(cpu_count, 5)"""
+        """无环境变量且无保存配置时应返回 min(cpu_count, 5)"""
         from backend.utils.tg_session import _resolve_concurrency_limit
 
+        mock_service = MagicMock()
+        mock_service.get_global_settings.return_value = {}
         with patch.dict(os.environ, {}, clear=False), \
-             patch("backend.utils.tg_session.os.getenv", side_effect=lambda k, *a: os.environ.get(k, "")):
+             patch("backend.utils.tg_session.os.getenv", side_effect=lambda k, *a: os.environ.get(k, "")), \
+             patch("backend.services.config.get_config_service", return_value=mock_service):
             result = _resolve_concurrency_limit()
             cpu_count = os.cpu_count() or 4
             expected = min(cpu_count, 5)

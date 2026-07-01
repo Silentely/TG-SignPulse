@@ -5,6 +5,7 @@ Clean sign-task routes with shared multi-account task support.
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import (
@@ -31,8 +32,6 @@ from backend.core.database import get_db
 from backend.services.sign_tasks import get_sign_task_service
 
 router = APIRouter()
-
-import logging
 
 _sync_logger = logging.getLogger("backend.sign_tasks_api")
 
