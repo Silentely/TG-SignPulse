@@ -487,3 +487,29 @@ class TodayTerminalSuccessTest(unittest.IsolatedAsyncioTestCase):
 
         result = await signer._chat_has_today_terminal_success(chat, history_limit=20)
         self.assertFalse(result)
+
+
+class SuccessTextDetectionTest(unittest.TestCase):
+    """签到成功文本检测增强测试。"""
+
+    def test_strong_success_overrides_prior_verification_error(self):
+        """验证码错误文本后跟签到成功，应判定为成功。"""
+        from tg_signer.core import UserSigner
+
+        signer = object.__new__(UserSigner)
+        text = "验证码错误!\n🎉 签到成功，获得了 20积分\n💰总积分：1563"
+        self.assertTrue(signer._text_has_terminal_success_text(text))
+
+    def test_sign_opportunity_exhausted_is_success(self):
+        """签到机会已用完表示今日已签到。"""
+        from tg_signer.core import UserSigner
+
+        signer = object.__new__(UserSigner)
+        self.assertTrue(signer._text_has_terminal_success_text("签到机会已用完"))
+
+    def test_today_cannot_sign_again_is_success(self):
+        """今天不能再签到表示今日已签到。"""
+        from tg_signer.core import UserSigner
+
+        signer = object.__new__(UserSigner)
+        self.assertTrue(signer._text_has_terminal_success_text("今天不能再签到"))

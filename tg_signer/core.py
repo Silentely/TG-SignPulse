@@ -2111,6 +2111,29 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         normalized = str(text or "").strip().lower()
         if not normalized:
             return False
+        # 强成功标记优先检查：即使消息中包含失败/验证等文本，只要有明确的成功标记就判定为成功
+        # 场景：某些 bot 会在"验证码错误"后跟"签到成功"
+        strong_success_markers = (
+            "签到成功",
+            "已签到",
+            "已经签到",
+            "已经签到过",
+            "今天已经签到",
+            "今日已签到",
+            "今日已经签到",
+            "您今天已经签到",
+            "您今日已签到",
+            "签到过了",
+            "重复签到",
+            "签到机会已用完",
+            "机会已用完",
+            "今天不能再签到",
+            "任务完成",
+            "执行完成",
+            "操作完成",
+        )
+        if any(marker in normalized for marker in strong_success_markers):
+            return True
         failure_markers = (
             "失败",
             "错误",
@@ -2149,24 +2172,6 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         )
         if any(marker in normalized for marker in additional_action_markers):
             return False
-        strong_success_markers = (
-            "签到成功",
-            "已签到",
-            "已经签到",
-            "已经签到过",
-            "今天已经签到",
-            "今日已签到",
-            "今日已经签到",
-            "您今天已经签到",
-            "您今日已签到",
-            "签到过了",
-            "重复签到",
-            "任务完成",
-            "执行完成",
-            "操作完成",
-        )
-        if any(marker in normalized for marker in strong_success_markers):
-            return True
         generic_success_markers = (
             "成功",
             "完成",
@@ -2210,6 +2215,9 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             "您今日已签到",
             "签到过了",
             "重复签到",
+            "签到机会已用完",
+            "机会已用完",
+            "今天不能再签到",
             "任务完成",
             "执行完成",
             "操作完成",
