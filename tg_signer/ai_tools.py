@@ -457,39 +457,53 @@ class AITools:
         if expect_json:
             kwargs["response_format"] = {"type": "json_object"}
 
-        _start = time.monotonic()
-        try:
-            result = await asyncio.wait_for(
-                client.chat.completions.create(**kwargs),
-                timeout=self._ai_timeout(),
-            )
-            _elapsed = (time.monotonic() - _start) * 1000
-            _usage = getattr(result, "usage", None)
-            _tokens = ""
-            if _usage:
-                _tokens = f" | tokens: prompt={getattr(_usage, 'prompt_tokens', '?')} completion={getattr(_usage, 'completion_tokens', '?')}"
-            logger.debug(f"AI API 调用完成 | model={model} elapsed_ms={_elapsed:.0f}{_tokens}")
-            return result
-        except Exception as exc:
-            if not expect_json or not self._should_retry_without_json_mode(exc):
+        attempts = self._vision_retry_attempts()
+        last_error: Exception | None = None
+
+        for attempt in range(1, attempts + 1):
+            _start = time.monotonic()
+            try:
+                result = await asyncio.wait_for(
+                    client.chat.completions.create(**kwargs),
+                    timeout=self._ai_timeout(),
+                )
+                _elapsed = (time.monotonic() - _start) * 1000
+                _usage = getattr(result, "usage", None)
+                _tokens = ""
+                if _usage:
+                    _tokens = f" | tokens: prompt={getattr(_usage, 'prompt_tokens', '?')} completion={getattr(_usage, 'completion_tokens', '?')}"
+                logger.debug(f"AI API 调用完成 | model={model} elapsed_ms={_elapsed:.0f}{_tokens}")
+                return result
+            except Exception as exc:
+                _elapsed = (time.monotonic() - _start) * 1000
+                last_error = exc
+
+                # JSON mode 降级：首次失败时去掉 response_format 重试
+                if expect_json and self._should_retry_without_json_mode(exc):
+                    logger.warning(
+                        "AI provider 不支持 JSON mode，降级重试: %s",
+                        safe_text_preview(exc, 200),
+                    )
+                    kwargs.pop("response_format", None)
+                    expect_json = False
+                    continue
+
+                # 瞬时错误重试：503/429/500/502/504/超时
+                if self._should_retry_transient_ai_error(exc) and attempt < attempts:
+                    delay = self._vision_retry_delay(attempt)
+                    logger.warning(
+                        "AI 视觉请求瞬时错误，%g 秒后重试 (%d/%d): %s: %s",
+                        delay, attempt, attempts,
+                        type(exc).__name__,
+                        safe_text_preview(exc, 200),
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+
+                # 不可重试的错误或已达最大重试次数
                 raise
-            logger.warning(
-                "AI provider rejected structured JSON mode, retrying without response_format: %s",
-                safe_text_preview(exc, 200),
-            )
-            kwargs.pop("response_format", None)
-            _retry_start = time.monotonic()
-            result = await asyncio.wait_for(
-                client.chat.completions.create(**kwargs),
-                timeout=self._ai_timeout(),
-            )
-            _retry_elapsed = (time.monotonic() - _retry_start) * 1000
-            _usage = getattr(result, "usage", None)
-            _tokens = ""
-            if _usage:
-                _tokens = f" | tokens: prompt={getattr(_usage, 'prompt_tokens', '?')} completion={getattr(_usage, 'completion_tokens', '?')}"
-            logger.debug(f"AI API 重试完成（无 JSON 模式） | model={model} elapsed_ms={_retry_elapsed:.0f}{_tokens}")
-            return result
+
+        raise last_error
 
     async def choose_option_by_image(
         self,

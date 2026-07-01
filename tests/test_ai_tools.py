@@ -190,3 +190,90 @@ class TransientErrorRetryTest(unittest.TestCase):
         delay3 = AITools._vision_retry_delay(3)
         self.assertGreaterEqual(delay1, 0.0)
         self.assertGreaterEqual(delay3, delay1)
+
+
+class VisualCompletionRetryTest(unittest.IsolatedAsyncioTestCase):
+    """_create_visual_completion 瞬时错误重试集成测试。"""
+
+    async def test_retries_on_transient_503_error(self):
+        fake_completions = _FakeCompletions(
+            [
+                RuntimeError("Error code: 503 - {'error': {'status': 'UNAVAILABLE'}}"),
+                SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            message=SimpleNamespace(content='{"options":[2]}')
+                        )
+                    ]
+                ),
+            ]
+        )
+        fake_client = SimpleNamespace(
+            chat=SimpleNamespace(completions=fake_completions)
+        )
+        tools = AITools({"api_key": "test", "model": "gpt-4o"})
+        tools.client = fake_client
+
+        result = await tools.choose_options_by_image(
+            b"fake-image",
+            "Choose the correct option",
+            [(1, "apple"), (2, "banana")],
+        )
+
+        self.assertEqual(result, [2])
+        self.assertEqual(len(fake_completions.calls), 2)
+
+    async def test_does_not_retry_on_quota_exhaustion(self):
+        fake_completions = _FakeCompletions(
+            [
+                RuntimeError(
+                    "Error code: 429 - {'error': {'status': 'RESOURCE_EXHAUSTED', "
+                    "'message': 'You exceeded your current quota, free_tier'}}"
+                ),
+            ]
+        )
+        fake_client = SimpleNamespace(
+            chat=SimpleNamespace(completions=fake_completions)
+        )
+        tools = AITools({"api_key": "test", "model": "gpt-4o"})
+        tools.client = fake_client
+
+        with self.assertRaises(RuntimeError):
+            await tools.choose_options_by_image(
+                b"fake-image",
+                "Choose the correct option",
+                [(1, "apple"), (2, "banana")],
+            )
+        self.assertEqual(len(fake_completions.calls), 1)
+
+    async def test_retries_on_timeout(self):
+        call_count = 0
+        original_create = None
+
+        async def slow_create(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise TimeoutError("request timed out")
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(content='{"options":[1]}')
+                    )
+                ]
+            )
+
+        fake_client = SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=slow_create))
+        )
+        tools = AITools({"api_key": "test", "model": "gpt-4o"})
+        tools.client = fake_client
+
+        result = await tools.choose_options_by_image(
+            b"fake-image",
+            "Choose the correct option",
+            [(1, "apple"), (2, "banana")],
+        )
+
+        self.assertEqual(result, [1])
+        self.assertEqual(call_count, 2)
