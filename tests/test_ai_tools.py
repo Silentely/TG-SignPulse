@@ -412,3 +412,78 @@ class ImageUrlFormatTest(unittest.IsolatedAsyncioTestCase):
 
         image_url = fake_completions.calls[0]["messages"][1]["content"][1]["image_url"]["url"]
         self.assertEqual(image_url, "ZmFrZS1pbWFnZQ==")
+
+
+class TodayTerminalSuccessTest(unittest.IsolatedAsyncioTestCase):
+    """签到前今日已完成检测测试。"""
+
+    def test_message_from_today_returns_true(self):
+        from tg_signer.core import UserSigner
+        from datetime import datetime, timezone
+
+        signer = object.__new__(UserSigner)
+        message = SimpleNamespace(
+            date=datetime.now(timezone.utc),
+        )
+        self.assertTrue(signer._message_is_from_today(message))
+
+    def test_message_from_yesterday_returns_false(self):
+        from tg_signer.core import UserSigner
+        from datetime import datetime, timedelta, timezone
+
+        signer = object.__new__(UserSigner)
+        message = SimpleNamespace(
+            date=datetime.now(timezone.utc) - timedelta(days=1),
+        )
+        self.assertFalse(signer._message_is_from_today(message))
+
+    def test_message_without_date_returns_false(self):
+        from tg_signer.core import UserSigner
+
+        signer = object.__new__(UserSigner)
+        message = SimpleNamespace(date=None)
+        self.assertFalse(signer._message_is_from_today(message))
+
+    async def test_chat_has_today_terminal_success_from_cache(self):
+        from tg_signer.core import UserSigner
+        from datetime import datetime, timezone
+
+        signer = object.__new__(UserSigner)
+        signer.log = lambda *args, **kwargs: None
+        signer.context = signer.ensure_ctx()
+
+        chat = SimpleNamespace(chat_id=123, message_thread_id=None)
+        message = SimpleNamespace(
+            id=1,
+            chat=SimpleNamespace(id=123),
+            text="🎉 签到成功，获得了 20积分",
+            caption=None,
+            date=datetime.now(timezone.utc),
+            edit_date=None,
+            message_thread_id=None,
+            reply_to_top_message_id=None,
+        )
+        signer.context.chat_messages[123] = {1: message}
+        signer.app = SimpleNamespace()
+
+        result = await signer._chat_has_today_terminal_success(chat, history_limit=20)
+        self.assertTrue(result)
+
+    async def test_chat_has_no_success_returns_false(self):
+        from tg_signer.core import UserSigner
+
+        signer = object.__new__(UserSigner)
+        signer.log = lambda *args, **kwargs: None
+        signer.context = signer.ensure_ctx()
+
+        chat = SimpleNamespace(chat_id=123, message_thread_id=None)
+        signer.context.chat_messages[123] = {}
+
+        async def fake_history(*args, **kwargs):
+            for msg in []:
+                yield msg
+
+        signer.app = SimpleNamespace(get_chat_history=fake_history)
+
+        result = await signer._chat_has_today_terminal_success(chat, history_limit=20)
+        self.assertFalse(result)

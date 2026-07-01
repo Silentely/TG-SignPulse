@@ -1388,6 +1388,21 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         total_actions = len(chat.actions)
         if total_actions == 0:
             raise RuntimeError("任务没有配置任何执行动作")
+        # 签到前预检查：检测今日是否已完成
+        if await self._chat_has_today_terminal_success(
+            chat,
+            history_limit=_read_positive_int_env(
+                "SIGN_TASK_COMPLETION_LOOKBACK", 20, 3
+            ),
+        ):
+            stop_reason = (self.context.stop_reason or "").strip()
+            self.log(
+                "检测到今日任务已完成，跳过任务对象"
+                + (f": {stop_reason}" if stop_reason else "")
+            )
+            self.context.stop_reason = None
+            self.context.last_callback_answer = None
+            return
         max_flow_attempts = _read_positive_int_env("SIGN_TASK_FLOW_RETRY_ATTEMPTS", 1, 1)
         # 优先从上下文变量读取任务级重试次数，回退到环境变量读取结果
         try:
@@ -2204,6 +2219,58 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             "completed",
         )
         return any(marker in normalized for marker in callback_success_markers)
+
+    def _message_is_from_today(self, message: Message) -> bool:
+        """判断消息是否属于今天（按任务时区 UTC+8 计算）。"""
+        message_date = getattr(message, "date", None) or getattr(
+            message, "edit_date", None
+        )
+        if not isinstance(message_date, datetime):
+            return False
+        if message_date.tzinfo is None:
+            message_date = message_date.replace(tzinfo=timezone.utc)
+        task_timezone = timezone(timedelta(hours=8))
+        return message_date.astimezone(task_timezone).date() == datetime.now(
+            task_timezone
+        ).date()
+
+    async def _chat_has_today_terminal_success(
+        self,
+        chat: SignChatV3,
+        *,
+        history_limit: int,
+    ) -> bool:
+        """检查该 chat 今日是否已有签到成功记录。
+        先查内存消息缓存，再查 Telegram 聊天历史。
+        """
+        messages_dict = self.context.chat_messages.get(chat.chat_id) or {}
+        for message in reversed(list(messages_dict.values())):
+            if message is None:
+                continue
+            if not self._message_matches_chat_thread(message, chat):
+                continue
+            if self._message_is_from_today(
+                message
+            ) and self._message_has_terminal_success_text(message):
+                self.context.stop_reason = self._summarize_target_message(message)
+                self._log_received_target_message(message, prefix="收到回复")
+                return True
+        try:
+            async for message in self.app.get_chat_history(
+                chat.chat_id,
+                limit=history_limit,
+            ):
+                if not self._message_matches_chat_thread(message, chat):
+                    continue
+                if self._message_is_from_today(
+                    message
+                ) and self._message_has_terminal_success_text(message):
+                    self.context.stop_reason = self._summarize_target_message(message)
+                    self._log_received_target_message(message, prefix="收到回复")
+                    return True
+        except Exception as e:
+            self.log(f"今日完成状态检查失败: {e}", level="WARNING")
+        return False
 
     def _message_has_terminal_success_text(self, message: Message) -> bool:
         text = "\n".join(
