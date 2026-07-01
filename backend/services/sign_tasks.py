@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import logging
 import os
@@ -38,6 +39,11 @@ from tg_signer.core import UserSigner, get_client
 from tg_signer.log_utils import safe_exception_summary, safe_traceback_preview
 
 settings = get_settings()
+
+# 任务级重试次数上下文变量（替代进程级环境变量，避免并发串扰）
+_task_retry_count_var: contextvars.ContextVar[int] = contextvars.ContextVar(
+    "task_retry_count", default=1
+)
 
 _service_logger = logging.getLogger("backend.sign_tasks")
 
@@ -656,6 +662,7 @@ class SignTaskService:
         notify_on_failure: bool = True,
         task_group_id: str = "",
         last_run_account_name: str = "",
+        retry_count: int = 3,
     ) -> Dict[str, Any]:
         normalized_accounts = self._normalize_account_names(
             account_names, primary_account_name
@@ -678,6 +685,7 @@ class SignTaskService:
             "notify_on_failure": notify_on_failure,
             "task_group_id": task_group_id,
             "last_run_account_name": last_run_account_name,
+            "retry_count": retry_count,
         }
 
     def _aggregate_tasks(self, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -2270,6 +2278,7 @@ class SignTaskService:
                 last_run_account_name=str(
                     (last_run or {}).get("account_name") or resolved_account_name
                 ),
+                retry_count=int(config.get("retry_count", 3)),
             )
         except Exception:
             return None
@@ -2306,6 +2315,7 @@ class SignTaskService:
         range_start: str = "",
         range_end: str = "",
         notify_on_failure: bool = True,
+        retry_count: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Create a sign task that can be shared by multiple accounts."""
         from backend.services.config import get_config_service
@@ -2354,6 +2364,7 @@ class SignTaskService:
                 "range_start": range_start,
                 "range_end": range_end,
                 "notify_on_failure": notify_on_failure,
+                "retry_count": retry_count if retry_count is not None else 3,
                 "enabled": True,
             }
 
@@ -2404,6 +2415,7 @@ class SignTaskService:
         range_start: Optional[str] = None,
         range_end: Optional[str] = None,
         notify_on_failure: Optional[bool] = None,
+        retry_count: Optional[int] = None,
         enabled: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """Update one task and fan out the config to all linked accounts."""
@@ -2480,6 +2492,11 @@ class SignTaskService:
             if enabled is not None
             else bool(existing.get("enabled", True))
         )
+        next_retry_count = (
+            retry_count
+            if retry_count is not None
+            else int(existing.get("retry_count", 3))
+        )
         should_schedule = next_execution_mode != "listen"
 
         existing_dirs = dict(self._iter_task_dirs(task_name, existing_accounts))
@@ -2520,6 +2537,7 @@ class SignTaskService:
                 "range_start": next_range_start,
                 "range_end": next_range_end,
                 "notify_on_failure": next_notify_on_failure,
+                "retry_count": next_retry_count,
                 "enabled": next_enabled,
             }
             last_run = existing_last_run_map.get(current_account)
@@ -3405,6 +3423,10 @@ class SignTaskService:
                         api_hash=api_hash,
                         no_updates=signer_no_updates,
                     )
+
+                    # 从任务配置读取 retry_count，设置为上下文变量供 UserSigner 流程重试使用
+                    task_retry_count = int(task_cfg.get("retry_count", 3))
+                    _task_retry_count_var.set(task_retry_count)
 
                     # 执行任务（数据库锁冲突时重试，带超时保护）
                     task_timeout = float(

@@ -378,6 +378,7 @@ class GlobalSettingsRequest(BaseModel):
     telegram_bot_token: Optional[str] = None
     telegram_bot_chat_id: Optional[str] = None
     telegram_bot_message_thread_id: Optional[int] = None
+    timezone: Optional[str] = None
 
 
 class GlobalSettingsResponse(BaseModel):
@@ -392,12 +393,15 @@ class GlobalSettingsResponse(BaseModel):
     telegram_bot_token: Optional[str] = None
     telegram_bot_chat_id: Optional[str] = None
     telegram_bot_message_thread_id: Optional[int] = None
+    timezone: str = "Asia/Hong_Kong"
 
 
 @router.get("/settings", response_model=GlobalSettingsResponse)
 def get_global_settings(current_user: User = Depends(get_current_user)):
     try:
         settings = get_config_service().get_global_settings()
+        from backend.core.config import get_settings
+        settings.setdefault("timezone", get_settings().timezone)
         return GlobalSettingsResponse(**settings)
     except Exception as e:
         raise HTTPException(
@@ -423,18 +427,42 @@ async def save_global_settings(
             "telegram_bot_chat_id": request.telegram_bot_chat_id,
             "telegram_bot_message_thread_id": request.telegram_bot_message_thread_id,
         }
-        if hasattr(request, "model_fields_set"):
-            fields_set = request.model_fields_set
-        else:
-            fields_set = request.__fields_set__
+        # Pydantic v2 用 model_fields_set，v1 用 __fields_set__
+        fields_set = getattr(request, "model_fields_set", None) or getattr(request, "__fields_set__", set())
         if "data_dir" in fields_set:
             settings["data_dir"] = request.data_dir
+        if "timezone" in fields_set:
+            settings["timezone"] = request.timezone
+
+        # 校验时区格式
+        if request.timezone:
+            try:
+                from zoneinfo import ZoneInfo
+
+                ZoneInfo(request.timezone)
+            except Exception:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"无效的时区: {request.timezone}",
+                )
 
         if not get_config_service().save_global_settings(settings):
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to save global settings: write failed",
             )
+        # 时区变更时同步调度器（后台执行，不阻塞响应）
+        if request.timezone:
+            import asyncio
+            from backend.scheduler import sync_jobs
+
+            async def _safe_tz_sync():
+                try:
+                    await sync_jobs()
+                except Exception as e:
+                    import logging
+                    logging.getLogger("backend.config_api").warning(f"时区变更调度同步失败: {e}")
+            asyncio.ensure_future(_safe_tz_sync())
         return AIConfigSaveResponse(success=True, message="Global settings saved")
     except HTTPException:
         raise

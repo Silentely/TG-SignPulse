@@ -32,6 +32,20 @@ from backend.services.sign_tasks import get_sign_task_service
 
 router = APIRouter()
 
+import logging
+
+_sync_logger = logging.getLogger("backend.sign_tasks_api")
+
+
+async def _safe_background_sync() -> None:
+    """后台执行调度同步和监控重启，捕获异常避免静默丢失"""
+    try:
+        from backend.scheduler import sync_jobs
+        await sync_jobs()
+        await _restart_keyword_monitors()
+    except Exception as e:
+        _sync_logger.warning(f"后台调度同步失败: {e}")
+
 
 def _model_dump(model: BaseModel) -> Dict[str, Any]:
     dumper = getattr(model, "model_dump", None)
@@ -74,6 +88,7 @@ class SignTaskCreate(BaseModel):
     range_start: Optional[str] = Field(None, description="Range start")
     range_end: Optional[str] = Field(None, description="Range end")
     notify_on_failure: bool = Field(True, description="Failure notification switch")
+    retry_count: Optional[int] = Field(None, ge=0, le=99, description="Retry count per task, default 3")
 
     if field_validator is not None:
         @field_validator("name")
@@ -104,6 +119,7 @@ class SignTaskUpdate(BaseModel):
     range_start: Optional[str] = Field(None, description="Range start")
     range_end: Optional[str] = Field(None, description="Range end")
     notify_on_failure: Optional[bool] = Field(None, description="Failure notification switch")
+    retry_count: Optional[int] = Field(None, ge=0, le=99, description="Retry count per task")
 
 
 class LastRunInfo(BaseModel):
@@ -128,6 +144,7 @@ class SignTaskOut(BaseModel):
     notify_on_failure: bool = True
     task_group_id: str = ""
     last_run_account_name: str = ""
+    retry_count: int = 3
 
 
 class ChatOut(BaseModel):
@@ -215,12 +232,11 @@ async def create_sign_task(
             range_start=payload.range_start or "",
             range_end=payload.range_end or "",
             notify_on_failure=payload.notify_on_failure,
+            retry_count=payload.retry_count,
         )
 
-        from backend.scheduler import sync_jobs
-
-        await sync_jobs()
-        await _restart_keyword_monitors()
+        # 调度同步和监控重启放到后台执行，避免阻塞 HTTP 响应
+        asyncio.ensure_future(_safe_background_sync())
         return task
     except HTTPException:
         raise
@@ -305,12 +321,11 @@ async def update_sign_task(
             range_start=payload.range_start,
             range_end=payload.range_end,
             notify_on_failure=payload.notify_on_failure,
+            retry_count=payload.retry_count,
         )
 
-        from backend.scheduler import sync_jobs
-
-        await sync_jobs()
-        await _restart_keyword_monitors()
+        # 调度同步和监控重启放到后台执行，避免阻塞 HTTP 响应
+        asyncio.ensure_future(_safe_background_sync())
         return task
     except HTTPException:
         raise
@@ -334,10 +349,8 @@ async def delete_sign_task(
         if not success:
             raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
 
-        from backend.scheduler import sync_jobs
-
-        await sync_jobs()
-        await _restart_keyword_monitors()
+        # 调度同步和监控重启放到后台执行，避免阻塞 HTTP 响应
+        asyncio.ensure_future(_safe_background_sync())
         return {"ok": True}
     except HTTPException:
         raise
@@ -383,10 +396,8 @@ async def toggle_sign_task_enabled(
             enabled=not current_enabled,
         )
 
-        from backend.scheduler import sync_jobs
-
-        await sync_jobs()
-        await _restart_keyword_monitors()
+        # 调度同步和监控重启放到后台执行，避免阻塞 HTTP 响应
+        asyncio.ensure_future(_safe_background_sync())
         return task
     except HTTPException:
         raise

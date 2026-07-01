@@ -677,6 +677,15 @@ class ConfigService:
         merged = dict(self.get_global_settings())
         merged.update(settings)
 
+        # 校验时区格式（防止导入配置等绕过路由层校验）
+        tz_value = merged.get("timezone")
+        if tz_value:
+            try:
+                from zoneinfo import ZoneInfo
+                ZoneInfo(str(tz_value))
+            except Exception:
+                raise ValueError(f"无效的时区: {tz_value}")
+
         data_dir_value = merged.get("data_dir")
         if isinstance(data_dir_value, str):
             data_dir_value = data_dir_value.strip()

@@ -1389,6 +1389,14 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         if total_actions == 0:
             raise RuntimeError("任务没有配置任何执行动作")
         max_flow_attempts = _read_positive_int_env("SIGN_TASK_FLOW_RETRY_ATTEMPTS", 1, 1)
+        # 优先从上下文变量读取任务级重试次数，回退到环境变量读取结果
+        try:
+            from backend.services.sign_tasks import _task_retry_count_var
+            _ctx_val = _task_retry_count_var.get()
+            if _ctx_val and _ctx_val > 0:
+                max_flow_attempts = _ctx_val
+        except (ImportError, LookupError):
+            pass
         retry_backoff_steps = _read_positive_int_env("SIGN_TASK_RETRY_BACKOFF_STEPS", 2, 0)
         last_error: Optional[Exception] = None
         last_successful_index = 0

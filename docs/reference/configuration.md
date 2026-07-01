@@ -13,6 +13,38 @@
 | `PORT` | `8080` | | Docker 容器内实际监听端口 |
 | `TZ` | `Asia/Hong_Kong` (本地) / `Asia/Shanghai` (容器) | | 时区，影响任务调度 |
 | `LOG_LEVEL` / `APP_LOG_LEVEL` | `INFO` | | 后端日志级别，可选 `DEBUG`、`INFO`、`WARNING`、`ERROR`、`CRITICAL` |
+
+### 时区管理
+
+时区可通过两种方式配置：
+
+**方式一：环境变量（部署时）**
+
+在 Docker Compose 或启动命令中设置 `TZ` 环境变量：
+
+```yaml
+environment:
+  - TZ=Asia/Shanghai
+```
+
+**方式二：Web 面板（运行时）**
+
+进入 **Settings → 通用设置 → 时区**，选择目标时区后保存。支持 22 个常用时区：
+
+| 区域 | 可选时区 |
+|------|----------|
+| 亚洲 | Shanghai、Hong Kong、Tokyo、Seoul、Singapore、Taipei、Bangkok、Dubai、Kolkata |
+| 欧洲 | London、Berlin、Paris、Moscow |
+| 美洲 | New York、Chicago、Denver、Los Angeles、Sao Paulo |
+| 大洋洲/非洲 | Sydney、Cairo |
+| 通用 | UTC |
+
+**生效规则：**
+
+- 面板设置优先于环境变量
+- 新创建的调度任务立即使用当前时区
+- 已有任务的触发器时区需要重启服务后生效（面板会输出日志提示）
+- 时区值遵循 IANA 时区数据库标准
 | `APP_TOTP_VALID_WINDOW` | `1` | | 面板 2FA 时间窗口容差（0=仅当前30s） |
 | `APP_ACCESS_TOKEN_EXPIRE_HOURS` | `12` | | JWT Token 过期时间（小时） |
 

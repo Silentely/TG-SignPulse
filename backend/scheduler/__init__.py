@@ -22,7 +22,7 @@ def _parse_clock_time(value: str):
     raise ValueError(f"Invalid clock time: {value}")
 
 
-def create_cron_trigger(cron_str: str) -> CronTrigger:
+def create_cron_trigger(cron_str: str, timezone: str = "") -> CronTrigger:
     """自动解析格式并创建 CronTrigger，支持 5位和6位 cron 表达式以及 HH:MM 或 HH:MM:SS"""
     if ":" in cron_str:
         parts = cron_str.split(":")
@@ -36,6 +36,17 @@ def create_cron_trigger(cron_str: str) -> CronTrigger:
         except ValueError:
             pass
 
+    # 获取有效时区：优先使用传入参数，否则从全局配置回退到环境变量
+    tz = timezone
+    if not tz:
+        try:
+            from backend.services.config import get_config_service
+            from backend.core.config import get_settings
+            saved_settings = get_config_service().get_global_settings()
+            tz = saved_settings.get("timezone") or get_settings().timezone
+        except Exception:
+            tz = ""
+
     parts = cron_str.split()
     if len(parts) == 6:
         return CronTrigger(
@@ -44,9 +55,10 @@ def create_cron_trigger(cron_str: str) -> CronTrigger:
             hour=parts[2],
             day=parts[3],
             month=parts[4],
-            day_of_week=parts[5]
+            day_of_week=parts[5],
+            timezone=tz or None,
         )
-    return CronTrigger.from_crontab(cron_str)
+    return CronTrigger.from_crontab(cron_str, timezone=tz or None)
 
 
 async def _job_run_task(task_id: int) -> None:
@@ -164,6 +176,22 @@ async def sync_jobs() -> None:
     if scheduler is None:
         return
 
+    # 每次同步时检查时区是否变更，运行时无法直接修改调度器时区，仅记录日志
+    import logging
+    _tz_logger = logging.getLogger("backend.scheduler")
+    try:
+        from backend.services.config import get_config_service
+        from backend.core.config import get_settings
+
+        saved_settings = get_config_service().get_global_settings()
+        saved_tz = saved_settings.get("timezone")
+        desired_tz = saved_tz or get_settings().timezone
+        scheduler_tz = str(getattr(scheduler, 'timezone', ''))
+        if desired_tz and desired_tz != scheduler_tz:
+            _tz_logger.info(f"时区已变更 ({scheduler_tz} → {desired_tz})，将在下次调度器重启后生效")
+    except Exception as e:
+        _tz_logger.warning(f"时区变更检测失败: {e}")
+
     from backend.services.sign_tasks import get_sign_task_service
 
     db: Session = get_session_local()()
@@ -254,9 +282,19 @@ async def init_scheduler(sync_on_startup: bool = True) -> AsyncIOScheduler:
     if scheduler is None:
         from backend.core.config import get_settings
 
+        from backend.services.config import get_config_service
         settings = get_settings()
+        # 优先使用 Web UI 保存的时区，否则使用环境变量
+        tz = settings.timezone
+        try:
+            saved_settings = get_config_service().get_global_settings()
+            saved_tz = saved_settings.get("timezone")
+            if saved_tz:
+                tz = saved_tz
+        except Exception:
+            pass
         scheduler = AsyncIOScheduler(
-            timezone=settings.timezone,
+            timezone=tz,
             job_defaults={
                 "misfire_grace_time": 3600,  # 允许任务延迟 1 小时执行
                 "coalesce": True,  # 合并积压的执行
