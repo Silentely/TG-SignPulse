@@ -413,6 +413,84 @@ class ImageUrlFormatTest(unittest.IsolatedAsyncioTestCase):
         image_url = fake_completions.calls[0]["messages"][1]["content"][1]["image_url"]["url"]
         self.assertEqual(image_url, "ZmFrZS1pbWFnZQ==")
 
+    async def test_similar_domain_not_mistaken_for_zhipu(self):
+        """相似域名（如 open.bigmodel.cn.evil.com）不应被识别为 Zhipu。"""
+        for base_url in (
+            "https://open.bigmodel.cn.evil.com/api/paas/v4",
+            "https://evil-open.bigmodel.cn.attacker.test/v1",
+            "https://api.openai.com/v1?next=open.bigmodel.cn",
+            "https://user:pass@open.bigmodel.cn.evil.com/v1",
+        ):
+            with self.subTest(base_url=base_url):
+                fake_completions = _FakeCompletions(
+                    [
+                        SimpleNamespace(
+                            choices=[
+                                SimpleNamespace(
+                                    message=SimpleNamespace(content='{"options":[1]}')
+                                )
+                            ]
+                        ),
+                    ]
+                )
+                fake_client = SimpleNamespace(
+                    chat=SimpleNamespace(completions=fake_completions)
+                )
+                tools = AITools(
+                    {
+                        "api_key": "test",
+                        "base_url": base_url,
+                        "model": "gpt-4o",
+                    }
+                )
+                tools.client = fake_client
+
+                await tools.choose_options_by_image(
+                    b"fake-image",
+                    "Choose the correct option",
+                    [(1, "apple"), (2, "banana")],
+                )
+
+                image_url = fake_completions.calls[0]["messages"][1]["content"][1]["image_url"]["url"]
+                self.assertTrue(
+                    image_url.startswith("data:image/jpeg;base64,"),
+                    f"Expected data URL for {base_url}, got: {image_url}",
+                )
+
+    async def test_uppercase_zhipu_host_still_recognized(self):
+        """大写 hostname 仍应被识别为 Zhipu。"""
+        fake_completions = _FakeCompletions(
+            [
+                SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            message=SimpleNamespace(content='{"options":[1]}')
+                        )
+                    ]
+                ),
+            ]
+        )
+        fake_client = SimpleNamespace(
+            chat=SimpleNamespace(completions=fake_completions)
+        )
+        tools = AITools(
+            {
+                "api_key": "test",
+                "base_url": "HTTPS://OPEN.BIGMODEL.CN/api/paas/v4",
+                "model": "GLM-4.6V-Flash",
+            }
+        )
+        tools.client = fake_client
+
+        await tools.choose_options_by_image(
+            b"fake-image",
+            "Choose the correct option",
+            [(1, "apple"), (2, "banana")],
+        )
+
+        image_url = fake_completions.calls[0]["messages"][1]["content"][1]["image_url"]["url"]
+        self.assertEqual(image_url, "ZmFrZS1pbWFnZQ==")
+
 
 class TodayTerminalSuccessTest(unittest.IsolatedAsyncioTestCase):
     """签到前今日已完成检测测试。"""

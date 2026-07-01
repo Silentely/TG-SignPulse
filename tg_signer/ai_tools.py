@@ -297,16 +297,22 @@ class AITools:
     def _format_option_lines(options: list[tuple[int, str]]) -> str:
         return "\n".join(f"{index}. {text}" for index, text in options)
 
+    _ZHIPU_HOSTNAMES = frozenset({"open.bigmodel.cn", "api.z.ai"})
+
     def _format_image_url(self, image: bytes) -> str:
         """根据 API 端点格式化图片 URL。
         Zhipu GLM 系列端点期望原始 base64，不支持 data URL 前缀。
+        使用 urlparse 精确匹配 hostname，避免子域名或 query 注入绕过。
         """
         encoded_image = encode_image(image)
-        if any(
-            host in self.base_url.lower()
-            for host in ("open.bigmodel.cn", "api.z.ai")
-        ):
-            return encoded_image
+        try:
+            from urllib.parse import urlparse
+
+            parsed = urlparse(self.base_url)
+            if parsed.hostname and parsed.hostname.lower() in self._ZHIPU_HOSTNAMES:
+                return encoded_image
+        except Exception:
+            pass
         return f"data:image/jpeg;base64,{encoded_image}"
 
     @classmethod
