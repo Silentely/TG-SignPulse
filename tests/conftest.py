@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import json
 import os
@@ -21,6 +22,20 @@ from typing import Any, Dict
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _ensure_event_loop():
+    """确保测试前后都有可用的事件循环。
+    IsolatedAsyncioTestCase 会在 teardown 时关闭循环，
+    导致后续同步测试中 Pyrogram BaseClient.__init__ 获取不到循环而失败。
+    """
+    yield
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
