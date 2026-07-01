@@ -305,14 +305,11 @@ class AITools:
         使用 urlparse 精确匹配 hostname，避免子域名或 query 注入绕过。
         """
         encoded_image = encode_image(image)
-        try:
-            from urllib.parse import urlparse
+        from urllib.parse import urlparse
 
-            parsed = urlparse(self.base_url)
-            if parsed.hostname and parsed.hostname.lower() in self._ZHIPU_HOSTNAMES:
-                return encoded_image
-        except Exception:
-            pass
+        parsed = urlparse(self.base_url)
+        if parsed.hostname and parsed.hostname.lower() in self._ZHIPU_HOSTNAMES:
+            return encoded_image
         return f"data:image/jpeg;base64,{encoded_image}"
 
     @classmethod
