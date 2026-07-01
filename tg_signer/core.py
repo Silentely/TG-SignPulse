@@ -2111,8 +2111,6 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         normalized = str(text or "").strip().lower()
         if not normalized:
             return False
-        # 强成功标记优先检查：即使消息中包含失败/验证等文本，只要有明确的成功标记就判定为成功
-        # 场景：某些 bot 会在"验证码错误"后跟"签到成功"
         strong_success_markers = (
             "签到成功",
             "已签到",
@@ -2132,21 +2130,19 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             "执行完成",
             "操作完成",
         )
-        if any(marker in normalized for marker in strong_success_markers):
-            return True
         failure_markers = (
             "失败",
             "错误",
             "异常",
             "未成功",
+            "未签到",
+            "没有签到",
             "无法",
             "failed",
             "failure",
             "error",
             "invalid",
         )
-        if any(marker in normalized for marker in failure_markers):
-            return False
         additional_action_markers = (
             "请完成",
             "请先",
@@ -2170,6 +2166,25 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             "滑块",
             "拖动",
         )
+        # 按行切分后逐行判断：同一行内失败/动作标记优先于成功标记
+        # 但后续独立行的明确成功可覆盖之前行的失败（如"验证码错误\n签到成功"）
+        lines = [line.strip() for line in normalized.splitlines() if line.strip()]
+        has_any_success_line = False
+        for line in lines:
+            line_has_success = any(m in line for m in strong_success_markers)
+            line_has_failure = any(m in line for m in failure_markers)
+            line_has_action = any(m in line for m in additional_action_markers)
+            if line_has_success and not line_has_failure and not line_has_action:
+                # 纯成功行：标记存在，后续可覆盖
+                has_any_success_line = True
+            elif line_has_success and (line_has_failure or line_has_action):
+                # 矛盾行（如"签到失败，签到成功"、"请完成验证后签到成功"）：不视为成功
+                continue
+        if has_any_success_line:
+            return True
+        # 全局检查：无强成功标记时，回退到通用成功 + 上下文匹配
+        if any(marker in normalized for marker in failure_markers):
+            return False
         if any(marker in normalized for marker in additional_action_markers):
             return False
         generic_success_markers = (

@@ -513,3 +513,31 @@ class SuccessTextDetectionTest(unittest.TestCase):
 
         signer = object.__new__(UserSigner)
         self.assertTrue(signer._text_has_terminal_success_text("今天不能再签到"))
+
+    def test_contradictory_same_line_is_not_success(self):
+        """同一行内矛盾文本（签到失败，签到成功）不应判定为成功。"""
+        from tg_signer.core import UserSigner
+
+        signer = object.__new__(UserSigner)
+        self.assertFalse(signer._text_has_terminal_success_text("签到失败，签到成功"))
+
+    def test_failure_prefix_negates_success(self):
+        """否定前缀（未签到成功）不应判定为成功。"""
+        from tg_signer.core import UserSigner
+
+        signer = object.__new__(UserSigner)
+        self.assertFalse(signer._text_has_terminal_success_text("未签到成功"))
+
+    def test_action_required_before_success_is_not_success(self):
+        """需要先完成验证的消息不应判定为成功。"""
+        from tg_signer.core import UserSigner
+
+        signer = object.__new__(UserSigner)
+        self.assertFalse(signer._text_has_terminal_success_text("请完成验证后签到成功"))
+
+    def test_newline_separated_failure_then_success_is_success(self):
+        """不同行的失败+成功应判定为成功（如验证码错误后跟签到成功）。"""
+        from tg_signer.core import UserSigner
+
+        signer = object.__new__(UserSigner)
+        self.assertTrue(signer._text_has_terminal_success_text("验证码错误!\n签到成功，获得积分"))
