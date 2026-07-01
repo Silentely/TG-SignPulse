@@ -488,6 +488,89 @@ class TodayTerminalSuccessTest(unittest.IsolatedAsyncioTestCase):
         result = await signer._chat_has_today_terminal_success(chat, history_limit=20)
         self.assertFalse(result)
 
+    async def test_non_bot_message_does_not_trigger_skip(self):
+        """群里非 bot 用户的成功消息不应导致跳过。"""
+        from tg_signer.core import UserSigner
+        from datetime import datetime, timezone
+
+        signer = object.__new__(UserSigner)
+        signer.log = lambda *args, **kwargs: None
+        signer.context = signer.ensure_ctx()
+
+        chat = SimpleNamespace(chat_id=-100123, message_thread_id=None)
+        # 模拟非 bot 用户发送的消息（from_user.is_bot=False）
+        message = SimpleNamespace(
+            id=1,
+            chat=SimpleNamespace(id=-100123),
+            text="🎉 张三签到成功，获得了 20积分",
+            caption=None,
+            from_user=SimpleNamespace(is_bot=False),
+            date=datetime.now(timezone.utc),
+            edit_date=None,
+            message_thread_id=None,
+            reply_to_top_message_id=None,
+        )
+        signer.context.chat_messages[-100123] = {1: message}
+        signer.app = SimpleNamespace()
+
+        result = await signer._chat_has_today_terminal_success(chat, history_limit=20)
+        self.assertFalse(result)
+
+    async def test_bot_message_triggers_skip(self):
+        """bot 发送的成功消息应导致跳过。"""
+        from tg_signer.core import UserSigner
+        from datetime import datetime, timezone
+
+        signer = object.__new__(UserSigner)
+        signer.log = lambda *args, **kwargs: None
+        signer.context = signer.ensure_ctx()
+
+        chat = SimpleNamespace(chat_id=-100123, message_thread_id=None)
+        # 模拟 bot 发送的消息（from_user.is_bot=True）
+        message = SimpleNamespace(
+            id=1,
+            chat=SimpleNamespace(id=-100123),
+            text="🎉 签到成功，获得了 20积分",
+            caption=None,
+            from_user=SimpleNamespace(is_bot=True),
+            date=datetime.now(timezone.utc),
+            edit_date=None,
+            message_thread_id=None,
+            reply_to_top_message_id=None,
+        )
+        signer.context.chat_messages[-100123] = {1: message}
+        signer.app = SimpleNamespace()
+
+        result = await signer._chat_has_today_terminal_success(chat, history_limit=20)
+        self.assertTrue(result)
+
+    async def test_no_from_user_still_checks(self):
+        """没有 from_user 的消息（如系统消息）仍应检查。"""
+        from tg_signer.core import UserSigner
+        from datetime import datetime, timezone
+
+        signer = object.__new__(UserSigner)
+        signer.log = lambda *args, **kwargs: None
+        signer.context = signer.ensure_ctx()
+
+        chat = SimpleNamespace(chat_id=123, message_thread_id=None)
+        message = SimpleNamespace(
+            id=1,
+            chat=SimpleNamespace(id=123),
+            text="🎉 签到成功，获得了 20积分",
+            caption=None,
+            from_user=None,
+            date=datetime.now(timezone.utc),
+            edit_date=None,
+            message_thread_id=None,
+            reply_to_top_message_id=None,
+        )
+        signer.context.chat_messages[123] = {1: message}
+        signer.app = SimpleNamespace()
+
+        result = await signer._chat_has_today_terminal_success(chat, history_limit=20)
+        self.assertTrue(result)
+
 
 class SuccessTextDetectionTest(unittest.TestCase):
     """签到成功文本检测增强测试。"""

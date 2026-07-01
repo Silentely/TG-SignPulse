@@ -2265,12 +2265,17 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
     ) -> bool:
         """检查该 chat 今日是否已有签到成功记录。
         先查内存消息缓存，再查 Telegram 聊天历史。
+        仅检查 bot 发送的消息（from_user.is_bot），避免群里其他用户的消息导致误跳过。
         """
         messages_dict = self.context.chat_messages.get(chat.chat_id) or {}
         for message in reversed(list(messages_dict.values())):
             if message is None:
                 continue
             if not self._message_matches_chat_thread(message, chat):
+                continue
+            # 只检查 bot 发送的消息，避免群里其他人的成功消息导致误跳过
+            from_user = getattr(message, "from_user", None)
+            if from_user is not None and not getattr(from_user, "is_bot", False):
                 continue
             if self._message_is_from_today(
                 message
@@ -2284,6 +2289,10 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 limit=history_limit,
             ):
                 if not self._message_matches_chat_thread(message, chat):
+                    continue
+                # 只检查 bot 发送的消息
+                from_user = getattr(message, "from_user", None)
+                if from_user is not None and not getattr(from_user, "is_bot", False):
                     continue
                 if self._message_is_from_today(
                     message
