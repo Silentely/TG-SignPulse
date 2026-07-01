@@ -278,6 +278,108 @@ class VisualCompletionRetryTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, [1])
         self.assertEqual(call_count, 2)
 
+    async def test_json_fallback_works_with_retry_attempts_1(self):
+        """AI_VISION_RETRY_ATTEMPTS=1 时 JSON fallback 仍应成功。"""
+        old = os.environ.get("AI_VISION_RETRY_ATTEMPTS")
+        try:
+            os.environ["AI_VISION_RETRY_ATTEMPTS"] = "1"
+            fake_completions = _FakeCompletions(
+                [
+                    RuntimeError("Error code: 403 - {'message': 'openai_error', 'code': 'bad_response_status_code', 'detail': 'response_format json_object unsupported'}"),
+                    SimpleNamespace(
+                        choices=[
+                            SimpleNamespace(
+                                message=SimpleNamespace(content='{"options":[2]}')
+                            )
+                        ]
+                    ),
+                ]
+            )
+            fake_client = SimpleNamespace(
+                chat=SimpleNamespace(completions=fake_completions)
+            )
+            tools = AITools({"api_key": "test", "model": "gpt-4o"})
+            tools.client = fake_client
+
+            result = await tools.choose_options_by_image(
+                b"fake-image",
+                "Choose the correct option",
+                [(1, "apple"), (2, "banana")],
+            )
+
+            self.assertEqual(result, [2])
+            self.assertEqual(len(fake_completions.calls), 2)
+            # 第一次调用有 response_format，第二次没有
+            self.assertIn("response_format", fake_completions.calls[0])
+            self.assertNotIn("response_format", fake_completions.calls[1])
+        finally:
+            if old is None:
+                os.environ.pop("AI_VISION_RETRY_ATTEMPTS", None)
+            else:
+                os.environ["AI_VISION_RETRY_ATTEMPTS"] = old
+
+    async def test_json_fallback_then_transient_error_still_retries(self):
+        """JSON fallback 后遇到 503 仍应按瞬时重试策略处理。"""
+        fake_completions = _FakeCompletions(
+            [
+                RuntimeError("Error code: 403 - response_format json_object unsupported"),
+                RuntimeError("Error code: 503 - UNAVAILABLE"),
+                SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            message=SimpleNamespace(content='{"options":[2]}')
+                        )
+                    ]
+                ),
+            ]
+        )
+        fake_client = SimpleNamespace(
+            chat=SimpleNamespace(completions=fake_completions)
+        )
+        tools = AITools({"api_key": "test", "model": "gpt-4o"})
+        tools.client = fake_client
+
+        result = await tools.choose_options_by_image(
+            b"fake-image",
+            "Choose the correct option",
+            [(1, "apple"), (2, "banana")],
+        )
+
+        self.assertEqual(result, [2])
+        self.assertEqual(len(fake_completions.calls), 3)
+
+    async def test_consecutive_transient_failures_respect_max_attempts(self):
+        """连续瞬时失败时调用次数应受限于 AI_VISION_RETRY_ATTEMPTS。"""
+        old = os.environ.get("AI_VISION_RETRY_ATTEMPTS")
+        try:
+            os.environ["AI_VISION_RETRY_ATTEMPTS"] = "3"
+            fake_completions = _FakeCompletions(
+                [
+                    RuntimeError("Error code: 503 - UNAVAILABLE"),
+                    RuntimeError("Error code: 503 - UNAVAILABLE"),
+                    RuntimeError("Error code: 503 - UNAVAILABLE"),
+                ]
+            )
+            fake_client = SimpleNamespace(
+                chat=SimpleNamespace(completions=fake_completions)
+            )
+            tools = AITools({"api_key": "test", "model": "gpt-4o"})
+            tools.client = fake_client
+
+            with self.assertRaises(RuntimeError):
+                await tools.choose_options_by_image(
+                    b"fake-image",
+                    "Choose the correct option",
+                    [(1, "apple"), (2, "banana")],
+                )
+            # 总调用次数 = AI_VISION_RETRY_ATTEMPTS（3 次）
+            self.assertEqual(len(fake_completions.calls), 3)
+        finally:
+            if old is None:
+                os.environ.pop("AI_VISION_RETRY_ATTEMPTS", None)
+            else:
+                os.environ["AI_VISION_RETRY_ATTEMPTS"] = old
+
 
 class AITimeoutTest(unittest.TestCase):
     """AI 视觉超时默认值测试。"""
