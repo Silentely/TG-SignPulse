@@ -497,7 +497,7 @@ class AITools:
                 _elapsed = (time.monotonic() - _start) * 1000
                 last_error = exc
 
-                # JSON mode 降级：首次失败时去掉 response_format 重试
+                # JSON mode 降级：去掉 response_format 后在同一 attempt 内重试（不消耗重试预算）
                 if expect_json and self._should_retry_without_json_mode(exc):
                     logger.warning(
                         "AI provider 不支持 JSON mode，降级重试: %s",
@@ -505,7 +505,30 @@ class AITools:
                     )
                     kwargs.pop("response_format", None)
                     expect_json = False
-                    continue
+                    # 在同一 attempt 内重试，不推进 attempt 计数
+                    _start = time.monotonic()
+                    try:
+                        result = await asyncio.wait_for(
+                            client.chat.completions.create(**kwargs),
+                            timeout=self._ai_timeout(),
+                        )
+                        _elapsed = (time.monotonic() - _start) * 1000
+                        logger.debug(f"AI API 降级完成（无 JSON 模式） | model={model} elapsed_ms={_elapsed:.0f}")
+                        return result
+                    except Exception as fallback_exc:
+                        last_error = fallback_exc
+                        # 降级也失败了，继续走瞬时重试逻辑
+                        if self._should_retry_transient_ai_error(fallback_exc) and attempt < attempts:
+                            delay = self._vision_retry_delay(attempt)
+                            logger.warning(
+                                "AI 视觉请求降级后瞬时错误，%g 秒后重试 (%d/%d): %s: %s",
+                                delay, attempt, attempts,
+                                type(fallback_exc).__name__,
+                                safe_text_preview(fallback_exc, 200),
+                            )
+                            await asyncio.sleep(delay)
+                            continue
+                        raise
 
                 # 瞬时错误重试：503/429/500/502/504/超时
                 if self._should_retry_transient_ai_error(exc) and attempt < attempts:
