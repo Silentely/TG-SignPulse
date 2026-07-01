@@ -5,7 +5,6 @@ import json
 import logging
 import os
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any, Dict, List
 
 from backend.core.config import get_settings

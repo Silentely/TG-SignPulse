@@ -478,6 +478,7 @@ async def save_global_settings(
         # 时区变更时同步调度器（后台执行，不阻塞响应）
         if "timezone" in settings:
             import asyncio
+
             from backend.scheduler import sync_jobs
 
             async def _safe_tz_sync():

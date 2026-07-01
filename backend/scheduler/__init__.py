@@ -40,8 +40,8 @@ def create_cron_trigger(cron_str: str, timezone: str = "") -> CronTrigger:
     tz = timezone
     if not tz:
         try:
-            from backend.services.config import get_config_service
             from backend.core.config import get_settings
+            from backend.services.config import get_config_service
             saved_settings = get_config_service().get_global_settings()
             tz = saved_settings.get("timezone") or get_settings().timezone
         except Exception:
@@ -200,8 +200,8 @@ async def sync_jobs() -> None:
     import logging
     _tz_logger = logging.getLogger("backend.scheduler")
     try:
-        from backend.services.config import get_config_service
         from backend.core.config import get_settings
+        from backend.services.config import get_config_service
 
         saved_settings = get_config_service().get_global_settings()
         saved_tz = saved_settings.get("timezone")
@@ -301,7 +301,6 @@ async def init_scheduler(sync_on_startup: bool = True) -> AsyncIOScheduler:
     global scheduler
     if scheduler is None:
         from backend.core.config import get_settings
-
         from backend.services.config import get_config_service
         settings = get_settings()
         # 优先使用 Web UI 保存的时区，否则使用环境变量
