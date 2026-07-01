@@ -421,6 +421,10 @@ class AITools:
             "resource_exhausted",
             "free_tier",
             "check your plan and billing",
+            "insufficient_quota",
+            "billing hard limit",
+            "out of quota",
+            "exceeded your current quota",
         )
         if any(marker in text for marker in quota_markers):
             return False
@@ -444,7 +448,9 @@ class AITools:
 
     @classmethod
     def _vision_retry_attempts(cls) -> int:
-        """AI 视觉请求最大重试次数，默认 2。"""
+        """AI 视觉请求总尝试次数（含首次请求），默认 2。
+        例如值为 3 时表示 1 次首次请求 + 2 次重试。
+        """
         return cls._read_positive_int_env("AI_VISION_RETRY_ATTEMPTS", 2, 1)
 
     @staticmethod
