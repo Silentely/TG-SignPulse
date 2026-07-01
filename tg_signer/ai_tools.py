@@ -200,9 +200,9 @@ class AITools:
     @staticmethod
     def _ai_timeout() -> float:
         try:
-            timeout = float(os.environ.get("AI_VISION_TIMEOUT", "20"))
+            timeout = float(os.environ.get("AI_VISION_TIMEOUT", "8"))
         except ValueError:
-            return 20.0
+            return 8.0
         return max(3.0, timeout)
 
     @staticmethod
