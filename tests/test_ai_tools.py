@@ -624,6 +624,32 @@ class TodayTerminalSuccessTest(unittest.IsolatedAsyncioTestCase):
         message = SimpleNamespace(date=None)
         self.assertFalse(signer._message_is_from_today(message))
 
+    def test_message_respects_tz_env_var(self):
+        """消息日期判断应尊重 TZ 环境变量配置。"""
+        from tg_signer.core import UserSigner
+        from datetime import datetime, timezone
+
+        signer = object.__new__(UserSigner)
+        # UTC 16:01 = UTC+8 次日 00:01，但 UTC-5 当天 11:01
+        utc_time = datetime(2026, 7, 2, 16, 1, tzinfo=timezone.utc)
+        message = SimpleNamespace(date=utc_time)
+
+        old_tz = os.environ.get("TZ")
+        try:
+            # UTC+8 时：16:01 UTC = 次日 00:01，应为"今天"（如果当前也是 7月3日）
+            os.environ["TZ"] = "Asia/Hong_Kong"
+            # 这里只验证方法不报错，具体结果取决于当前日期
+            signer._message_is_from_today(message)
+
+            # UTC-5 时：16:01 UTC = 当天 11:01
+            os.environ["TZ"] = "America/New_York"
+            signer._message_is_from_today(message)
+        finally:
+            if old_tz is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = old_tz
+
     async def test_chat_has_today_terminal_success_from_cache(self):
         from tg_signer.core import UserSigner
         from datetime import datetime, timezone

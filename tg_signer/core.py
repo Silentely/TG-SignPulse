@@ -2243,8 +2243,19 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         )
         return any(marker in normalized for marker in callback_success_markers)
 
+    @staticmethod
+    def _get_task_timezone():
+        """获取任务时区，优先读取 TZ/APP_TIMEZONE 环境变量，回退到 Asia/Hong_Kong。"""
+        tz_name = os.environ.get("TZ") or os.environ.get("APP_TIMEZONE") or "Asia/Hong_Kong"
+        try:
+            from zoneinfo import ZoneInfo
+            return ZoneInfo(tz_name)
+        except (ImportError, KeyError):
+            # zoneinfo 不可用或时区名称无效时回退到 UTC+8
+            return timezone(timedelta(hours=8))
+
     def _message_is_from_today(self, message: Message) -> bool:
-        """判断消息是否属于今天（按任务时区 UTC+8 计算）。"""
+        """判断消息是否属于今天（按任务时区计算）。"""
         message_date = getattr(message, "date", None) or getattr(
             message, "edit_date", None
         )
@@ -2252,10 +2263,8 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             return False
         if message_date.tzinfo is None:
             message_date = message_date.replace(tzinfo=timezone.utc)
-        task_timezone = timezone(timedelta(hours=8))
-        return message_date.astimezone(task_timezone).date() == datetime.now(
-            task_timezone
-        ).date()
+        task_tz = self._get_task_timezone()
+        return message_date.astimezone(task_tz).date() == datetime.now(task_tz).date()
 
     async def _chat_has_today_terminal_success(
         self,
