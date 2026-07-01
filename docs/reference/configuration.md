@@ -105,6 +105,18 @@ environment:
 | `SIGN_TASK_HISTORY_MAX_ENTRIES` | `100` | 每个任务保留的历史记录条数 |
 | `SIGN_TASK_HISTORY_MAX_FLOW_LINES` | `5000` | 历史记录中保留的最大流程日志行数 |
 | `SIGN_TASK_HISTORY_MAX_LINE_CHARS` | `2000` | 单行日志最大字符数 |
+| `SIGN_TASK_COMPLETION_LOOKBACK` | `20` | 签到前检查历史消息条数（用于跳过今日已完成的任务） |
+
+## AI 视觉相关
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `AI_VISION_TIMEOUT` | `8` | AI 视觉请求超时秒数（最小 3） |
+| `AI_VISION_RETRY_ATTEMPTS` | `2` | AI 视觉请求总尝试次数（含首次请求，最小 1） |
+| `AI_VISION_RETRY_DELAY` | `0.6` | 重试基础延迟秒数（线性递增：attempt × delay） |
+| `AI_VISION_MAX_EDGE` | `640` | 图片预处理最大边长像素 |
+| `AI_VISION_JPEG_QUALITY` | `85` | 图片预处理 JPEG 压缩质量 |
+| `AI_VISION_WHITE_THRESHOLD` | `245` | 图片白色边框裁剪阈值 |
 
 ## 容器相关
 
