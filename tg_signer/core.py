@@ -1276,6 +1276,50 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 sign_record = json.load(fp)
         return sign_record
 
+    @staticmethod
+    def _is_transient_step_error(exc: Exception) -> bool:
+        """判断步骤级错误是否为瞬时故障（值得在当前步骤重试）。
+        仅用于流程内步级重试，避免因单步瞬时失败而重启整个脚本流程。
+        配额耗尽、计费限制等永久错误不视为瞬时故障。
+        """
+        if isinstance(exc, (TimeoutError, asyncio.TimeoutError)):
+            return True
+        text = str(exc).lower()
+        # 永久错误优先排除，避免 "429 Too Many Requests: insufficient_quota" 被误判
+        permanent_markers = (
+            "quota exceeded",
+            "resource_exhausted",
+            "insufficient_quota",
+            "billing hard limit",
+            "out of quota",
+            "exceeded your current quota",
+            "check your plan and billing",
+            "invalid api key",
+            "invalid_request_error",
+            "authentication",
+            "permission denied",
+        )
+        if any(marker in text for marker in permanent_markers):
+            return False
+        transient_markers = (
+            "timeout",
+            "timed out",
+            "connection reset",
+            "connection refused",
+            "connection aborted",
+            "temporary failure",
+            "service unavailable",
+            "bad gateway",
+            "gateway timeout",
+            "too many requests",
+            "rate limit",
+            "floodwait",
+            "flood_wait",
+            "flood wait",
+            "network is unreachable",
+        )
+        return any(marker in text for marker in transient_markers)
+
     async def sign_a_chat(
         self,
         chat: SignChatV3,
@@ -1412,12 +1456,14 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 max_flow_attempts = _ctx_val
         except (ImportError, LookupError):
             pass
-        retry_backoff_steps = _read_positive_int_env("SIGN_TASK_RETRY_BACKOFF_STEPS", 2, 0)
+        retry_backoff_steps = _read_positive_int_env("SIGN_TASK_RETRY_BACKOFF_STEPS", 0, 0)
         last_error: Optional[Exception] = None
         last_successful_index = 0
 
         for flow_attempt in range(1, max_flow_attempts + 1):
-            start_index = max(1, last_successful_index - retry_backoff_steps) if flow_attempt > 1 else 1
+            # 从失败步骤开始回退，而非从最后成功步骤；retry_backoff_steps=0 表示从失败步骤原地重试
+            failed_index = last_successful_index + 1 if last_successful_index > 0 else 1
+            start_index = max(1, failed_index - retry_backoff_steps) if flow_attempt > 1 else 1
             if max_flow_attempts > 1:
                 if flow_attempt > 1 and start_index > 1:
                     self.log(f"开始第 {flow_attempt}/{max_flow_attempts} 次脚本流程尝试，从第 {start_index} 步继续")
@@ -1453,11 +1499,29 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                         next_action = (
                             chat.actions[index] if index < total_actions else None
                         )
-                        result = await self.wait_for(
-                            chat,
-                            action,
-                            next_action=next_action,
-                        )
+                        # 步级重试：对瞬时错误（AI 超时、网络抖动等）在当前步骤内重试一次，
+                        # 避免升级为流程级重试导致已完成的步骤（如 /checkin）被重复执行。
+                        # 总尝试 2 次（1 次首次 + 1 次重试），与 AI 工具层内部重试不叠加过度。
+                        _step_max_retries = 2
+                        for _step_attempt in range(1, _step_max_retries + 1):
+                            try:
+                                result = await self.wait_for(
+                                    chat,
+                                    action,
+                                    next_action=next_action,
+                                )
+                                break
+                            except Exception as step_exc:
+                                if self._is_transient_step_error(step_exc) and _step_attempt < _step_max_retries:
+                                    self.log(
+                                        f"{self._current_action_step_label()}瞬时错误，"
+                                        f"{_step_attempt}/{_step_max_retries} 次重试: "
+                                        f"{type(step_exc).__name__}: {safe_text_preview(step_exc, 120)}",
+                                        level="WARNING",
+                                    )
+                                    await asyncio.sleep(1.0)
+                                    continue
+                                raise
                         if result is False:
                             raise RuntimeError(
                                 f"{self._current_action_step_label()}执行失败：{action_description}"
@@ -1485,7 +1549,8 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 self.context.waiting_message = None
                 if flow_attempt >= max_flow_attempts:
                     break
-                backoff_info = f"，从第 {max(1, last_successful_index - retry_backoff_steps)} 步继续" if last_successful_index > 1 else "，将从第 1 步重新开始"
+                _resume_idx = max(1, (last_successful_index + 1) - retry_backoff_steps) if last_successful_index > 0 else 1
+                backoff_info = f"，从第 {_resume_idx} 步继续" if _resume_idx > 1 else "，将从第 1 步重新开始"
                 self.log(
                     f"脚本流程第 {flow_attempt}/{max_flow_attempts} 次尝试失败"
                     f"{backoff_info}: {exc}",

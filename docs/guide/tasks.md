@@ -155,7 +155,7 @@
 **重试策略：**
 
 - 重试时从上次失败的步骤继续，而非从头开始
-- 支持退避步数（`SIGN_TASK_RETRY_BACKOFF_STEPS`，默认 2），即回退若干步后重试
+- 支持退避步数（`SIGN_TASK_RETRY_BACKOFF_STEPS`，默认 0），即回退若干步后重试（0 = 从失败步骤原地重试）
 - 重试次数存储在任务配置 JSON 中，支持导入导出
 
 **API 字段：** `retry_count`（`CreateSignTaskRequest` / `UpdateSignTaskRequest`），范围 `0–99`。

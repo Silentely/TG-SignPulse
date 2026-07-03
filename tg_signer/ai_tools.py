@@ -161,11 +161,16 @@ def get_openai_client(
     from httpx import Timeout
     from openai import AsyncOpenAI, OpenAIError
 
-    # httpx 超时配置：read 超时设为较长值，避免与 asyncio.wait_for 的总超时竞态。
+    # httpx 超时配置：read 超时动态跟随 AI_VISION_TIMEOUT，避免与 asyncio.wait_for 的总超时竞态。
     # asyncio.wait_for 负责整体超时控制，httpx 超时仅作为底层安全兜底。
+    try:
+        _ai_timeout = float(os.environ.get("AI_VISION_TIMEOUT", "15"))
+    except ValueError:
+        _ai_timeout = 15.0
+    _read_timeout = max(_ai_timeout + 15.0, 30.0)
     kwargs.setdefault(
         "timeout",
-        Timeout(connect=5.0, read=30.0, write=10.0, pool=2.0),
+        Timeout(connect=5.0, read=_read_timeout, write=10.0, pool=2.0),
     )
     try:
         return AsyncOpenAI(api_key=api_key, base_url=base_url, **kwargs)
