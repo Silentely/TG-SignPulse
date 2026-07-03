@@ -11,7 +11,11 @@ on:
       - "frontend/**"
       - "Dockerfile"
       - "docker/**"
+      - "pyproject.toml"
       - ".github/workflows/docker.yml"
+      - "!docs/**"
+      - "!**/*.md"
+      - "!.claude/**"
   workflow_dispatch:
 
 permissions:
@@ -25,6 +29,7 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -36,17 +41,25 @@ jobs:
           cache: "pip"
 
       - name: Install test dependencies
-        run: python -m pip install -e ".[dev]"
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]" pytest-xdist
 
-      - name: Run pytest
-        run: pytest
+      - name: Run pytest (parallel)
+        run: pytest tests/ -n auto --dist loadgroup -x -q --tb=short --no-header --ignore=tools
 
   build-and-push:
     needs: test
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+        # 仅 tag 推送时启用 QEMU（ARM 构建需要）
+        if: startsWith(github.ref, 'refs/tags/v')
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -58,6 +71,13 @@ jobs:
           owner="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
           image="ghcr.io/${owner}/tg-signpulse"
           short_sha="${GITHUB_SHA::12}"
+
+          # 计算平台：tag 推送用双平台，分支推送仅 amd64
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            echo "platforms=linux/amd64,linux/arm64" >> "${GITHUB_OUTPUT}"
+          else
+            echo "platforms=linux/amd64" >> "${GITHUB_OUTPUT}"
+          fi
 
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             # Tag 推送：生成版本标签 + latest
@@ -106,7 +126,7 @@ jobs:
         with:
           context: .
           push: true
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ steps.vars.outputs.platforms }}
           tags: ${{ steps.vars.outputs.tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
