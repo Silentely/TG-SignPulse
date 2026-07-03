@@ -384,11 +384,11 @@ class VisualCompletionRetryTest(unittest.IsolatedAsyncioTestCase):
 class AITimeoutTest(unittest.TestCase):
     """AI 视觉超时默认值测试。"""
 
-    def test_default_timeout_is_8_seconds(self):
+    def test_default_timeout_is_15_seconds(self):
         old = os.environ.get("AI_VISION_TIMEOUT")
         try:
             os.environ.pop("AI_VISION_TIMEOUT", None)
-            self.assertEqual(AITools._ai_timeout(), 8.0)
+            self.assertEqual(AITools._ai_timeout(), 15.0)
         finally:
             if old is not None:
                 os.environ["AI_VISION_TIMEOUT"] = old
@@ -396,8 +396,8 @@ class AITimeoutTest(unittest.TestCase):
     def test_env_timeout_overrides_default(self):
         old = os.environ.get("AI_VISION_TIMEOUT")
         try:
-            os.environ["AI_VISION_TIMEOUT"] = "15"
-            self.assertEqual(AITools._ai_timeout(), 15.0)
+            os.environ["AI_VISION_TIMEOUT"] = "20"
+            self.assertEqual(AITools._ai_timeout(), 20.0)
         finally:
             if old is not None:
                 os.environ["AI_VISION_TIMEOUT"] = old

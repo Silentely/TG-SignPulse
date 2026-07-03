@@ -111,7 +111,7 @@ environment:
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `AI_VISION_TIMEOUT` | `8` | AI 视觉请求超时秒数（最小 3） |
+| `AI_VISION_TIMEOUT` | `15` | AI 视觉请求超时秒数（最小 3） |
 | `AI_VISION_RETRY_ATTEMPTS` | `2` | AI 视觉请求总尝试次数（含首次请求，最小 1） |
 | `AI_VISION_RETRY_DELAY` | `0.6` | 重试基础延迟秒数（线性递增：attempt × delay） |
 | `AI_VISION_MAX_EDGE` | `640` | 图片预处理最大边长像素 |
