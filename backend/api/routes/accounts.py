@@ -216,6 +216,47 @@ class AccountStatusCheckResponse(BaseModel):
     results: list[AccountStatusItem]
 
 
+class AccountDeviceItem(BaseModel):
+    """Telegram 已登录设备/授权会话"""
+
+    hash: str
+    current: bool = False
+    official_app: bool = False
+    password_pending: bool = False
+    device_model: str = ""
+    platform: str = ""
+    system_version: str = ""
+    app_name: str = ""
+    app_version: str = ""
+    date_created: Optional[str] = None
+    date_active: Optional[str] = None
+    ip: str = ""
+    country: str = ""
+    region: str = ""
+
+
+class AccountDevicesResponse(BaseModel):
+    devices: list[AccountDeviceItem]
+    total: int
+
+
+class TerminateDeviceResponse(BaseModel):
+    success: bool
+    message: str
+
+
+class OfficialMessageItem(BaseModel):
+    id: Optional[int] = None
+    date: Optional[str] = None
+    text: str = ""
+    outgoing: bool = False
+
+
+class OfficialMessagesResponse(BaseModel):
+    messages: list[OfficialMessageItem]
+    total: int
+
+
 # ============ API Routes ============
 
 
@@ -600,6 +641,77 @@ def check_account_exists(
     """检查账号是否存在"""
     exists = get_telegram_service().account_exists(account_name)
     return {"exists": exists, "account_name": account_name}
+
+
+@router.get("/{account_name}/devices", response_model=AccountDevicesResponse)
+async def list_account_devices(
+    account_name: str, current_user: User = Depends(get_current_user)
+):
+    """获取账号已登录设备/授权会话列表。"""
+    try:
+        devices = await get_telegram_service().list_account_devices(account_name)
+        return AccountDevicesResponse(
+            devices=[AccountDeviceItem(**item) for item in devices],
+            total=len(devices),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error("获取设备列表失败: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="获取设备列表失败，请稍后重试",
+        )
+
+
+@router.delete("/{account_name}/devices/{auth_hash}", response_model=TerminateDeviceResponse)
+async def terminate_account_device(
+    account_name: str,
+    auth_hash: str,
+    current_user: User = Depends(get_current_user),
+):
+    """踢下线指定已登录设备。"""
+    try:
+        success = await get_telegram_service().terminate_account_device(
+            account_name, int(auth_hash)
+        )
+        return TerminateDeviceResponse(
+            success=success,
+            message="设备已下线" if success else "设备下线失败",
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error("设备下线失败: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="设备下线失败，请稍后重试",
+        )
+
+
+@router.get("/{account_name}/official-messages", response_model=OfficialMessagesResponse)
+async def list_account_official_messages(
+    account_name: str,
+    limit: int = 20,
+    current_user: User = Depends(get_current_user),
+):
+    """读取账号和 Telegram 官方服务号 777000 的最近消息。"""
+    try:
+        messages = await get_telegram_service().list_official_messages(
+            account_name, limit=limit
+        )
+        return OfficialMessagesResponse(
+            messages=[OfficialMessageItem(**item) for item in messages],
+            total=len(messages),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error("获取官方消息失败: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="获取官方消息失败，请稍后重试",
+        )
 
 
 @router.get("/{account_name}/avatar")

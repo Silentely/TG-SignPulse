@@ -13,6 +13,38 @@
 | `PORT` | `8080` | | Docker 容器内实际监听端口 |
 | `TZ` | `Asia/Hong_Kong` (本地) / `Asia/Shanghai` (容器) | | 时区，影响任务调度 |
 | `LOG_LEVEL` / `APP_LOG_LEVEL` | `INFO` | | 后端日志级别，可选 `DEBUG`、`INFO`、`WARNING`、`ERROR`、`CRITICAL` |
+
+### 时区管理
+
+时区可通过两种方式配置：
+
+**方式一：环境变量（部署时）**
+
+在 Docker Compose 或启动命令中设置 `TZ` 环境变量：
+
+```yaml
+environment:
+  - TZ=Asia/Shanghai
+```
+
+**方式二：Web 面板（运行时）**
+
+进入 **Settings → 通用设置 → 时区**，选择目标时区后保存。支持 22 个常用时区：
+
+| 区域 | 可选时区 |
+|------|----------|
+| 亚洲 | Shanghai、Hong Kong、Tokyo、Seoul、Singapore、Taipei、Bangkok、Dubai、Kolkata |
+| 欧洲 | London、Berlin、Paris、Moscow |
+| 美洲 | New York、Chicago、Denver、Los Angeles、Sao Paulo |
+| 大洋洲/非洲 | Sydney、Cairo |
+| 通用 | UTC |
+
+**生效规则：**
+
+- 面板设置优先于环境变量
+- 新创建的调度任务立即使用当前时区
+- 已有任务的触发器时区需要重启服务后生效（面板会输出日志提示）
+- 时区值遵循 IANA 时区数据库标准
 | `APP_TOTP_VALID_WINDOW` | `1` | | 面板 2FA 时间窗口容差（0=仅当前30s） |
 | `APP_ACCESS_TOKEN_EXPIRE_HOURS` | `12` | | JWT Token 过期时间（小时） |
 
@@ -32,13 +64,36 @@
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `TG_API_ID` | 内置默认 | 自定义 Telegram API ID（从 my.telegram.org 获取） |
-| `TG_API_HASH` | 内置默认 | 自定义 Telegram API HASH |
+| `TG_API_ID` | 内置默认 | Telegram API ID（可选，从 my.telegram.org 获取自定义值） |
+| `TG_API_HASH` | 内置默认 | Telegram API HASH（可选，同上） |
 | `TG_SESSION_MODE` | `file` | 会话模式：`file`（本地 SQLite）/ `string`（内存+JSON） |
 | `TG_SESSION_NO_UPDATES` | `0` | 是否禁止接收 updates（仅 string 模式） |
 | `TG_NO_UPDATES` | `0` | `TG_SESSION_NO_UPDATES` 的兼容别名 |
-| `TG_GLOBAL_CONCURRENCY` | `1` | 全局 Telegram 操作并发上限 |
+| `TG_GLOBAL_CONCURRENCY` | 自动（CPU核心数，上限5） | 全局 Telegram 操作并发上限，可通过此变量覆盖自动值 |
 | `TG_PROXY` | 无 | CLI / 执行层的兜底代理 |
+
+### 获取 Telegram API 凭证
+
+`TG_API_ID` 和 `TG_API_HASH` 是使用 Telegram API 的必要凭证，需要从 Telegram 官方申请：
+
+1. 打开 [https://my.telegram.org](https://my.telegram.org)
+2. 使用你的 Telegram 手机号登录（输入手机号后会收到验证码）
+3. 登录后点击 **「API development tools」**
+4. 填写应用信息（App title 和 Short name 可随意填写，其他字段可留空）
+5. 点击 **「Create application」**
+6. 页面会显示 `App api_id` 和 `App api_hash` — 分别对应 `TG_API_ID` 和 `TG_API_HASH`
+
+> ⚠️ 每个 Telegram 账号只能创建一个 API 应用。请妥善保管凭证，不要提交到公开仓库。
+
+在 Docker Compose 中配置：
+
+```yaml
+environment:
+  - TG_API_ID=12345678
+  - TG_API_HASH=abcdef1234567890abcdef1234567890
+```
+
+或在面板「系统设置 → Telegram API」中填写。
 
 ## 任务执行相关
 
@@ -47,9 +102,22 @@
 | `SIGN_TASK_EXECUTION_TIMEOUT` | `300` | 单次任务执行超时（秒） |
 | `SIGN_TASK_ACCOUNT_COOLDOWN` | `5` | 同一账号两次执行间的冷却时间（秒） |
 | `SIGN_TASK_FLOW_RETRY_ATTEMPTS` | `1` | 按钮点击失败后重试整个流程的次数（默认不重试；设为 `>1` 时启用流程级重试） |
+| `SIGN_TASK_RETRY_BACKOFF_STEPS` | `0` | 流程重试时回退的步数（0 = 从失败步骤继续，不重发已完成的步骤） |
 | `SIGN_TASK_HISTORY_MAX_ENTRIES` | `100` | 每个任务保留的历史记录条数 |
 | `SIGN_TASK_HISTORY_MAX_FLOW_LINES` | `5000` | 历史记录中保留的最大流程日志行数 |
 | `SIGN_TASK_HISTORY_MAX_LINE_CHARS` | `2000` | 单行日志最大字符数 |
+| `SIGN_TASK_COMPLETION_LOOKBACK` | `20` | 签到前检查历史消息条数（用于跳过今日已完成的任务） |
+
+## AI 视觉相关
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `AI_VISION_TIMEOUT` | `15` | AI 视觉请求超时秒数（最小 3） |
+| `AI_VISION_RETRY_ATTEMPTS` | `2` | AI 视觉请求总尝试次数（含首次请求，最小 1） |
+| `AI_VISION_RETRY_DELAY` | `0.6` | 重试基础延迟秒数（线性递增：attempt × delay） |
+| `AI_VISION_MAX_EDGE` | `640` | 图片预处理最大边长像素 |
+| `AI_VISION_JPEG_QUALITY` | `85` | 图片预处理 JPEG 压缩质量 |
+| `AI_VISION_WHITE_THRESHOLD` | `245` | 图片白色边框裁剪阈值 |
 
 ## 容器相关
 
@@ -96,11 +164,13 @@
 
 ```json
 {
-  "api_key": "sk-...",
+  "api_key": "<Fernet加密的密文>",
   "base_url": "https://api.openai.com/v1",
   "model": "gpt-4o"
 }
 ```
+
+> ⚠️ `api_key` 字段存储的是 Fernet 加密后的密文（以 `gAAAAA` 开头），由面板自动加密/解密。从旧版本升级后首次保存会自动将明文转换为加密格式。
 
 支持任何 OpenAI 兼容接口（如 Azure OpenAI、本地 LLM 等）。
 
@@ -180,6 +250,8 @@
 - `TG_SESSION_MODE=string` 时，session string 存入 `sessions/accounts.json`
 - 任务日志默认保留 3 天，由每日凌晨 3 点的维护任务自动清理
 - `LOG_LEVEL=DEBUG` 会重新启用 uvicorn access log，但仍会过滤健康检查端点以减少噪音
+- TOTP 验证具有重放保护：同一验证码在 2 分钟窗口内不可重复使用
+- `TG_GLOBAL_CONCURRENCY` 未设置时，自动根据 CPU 核心数计算（上限为 5）
 
 ## 配置缓存行为
 

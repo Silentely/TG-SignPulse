@@ -94,6 +94,22 @@ pytest --cov=tg_signer --cov-report=term-missing
 pytest --no-cov
 ```
 
+### 前端测试
+
+前端使用 Vitest 进行单元测试：
+
+```bash
+cd frontend
+
+# 运行全部测试
+npm test
+
+# 监听模式
+npm run test:watch
+```
+
+测试文件位于 `frontend/src/test/` 目录。
+
 ### 覆盖率配置
 
 `pyproject.toml` 中配置了 pytest-cov：

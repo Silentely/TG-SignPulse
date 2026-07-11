@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { Play, FileText, Edit2, Trash2, Plus, QrCode, Phone, Zap } from 'lucide-vue-next'
+import { Play, FileText, Edit2, Trash2, Plus, QrCode, Phone, Zap, MonitorSmartphone, MessageCircle, CheckCircle2 } from 'lucide-vue-next'
 import { listAccounts, deleteAccount, checkAccountsStatus } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
@@ -10,6 +10,8 @@ import type { AccountUiItem } from '../lib/types'
 import { getErrorMessage } from '../lib/types'
 import AddAccountModal from '../components/accounts/AddAccountModal.vue'
 import EditAccountModal from '../components/accounts/EditAccountModal.vue'
+import DeviceManagerModal from '../components/accounts/DeviceManagerModal.vue'
+import OfficialMessagesModal from '../components/accounts/OfficialMessagesModal.vue'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -23,6 +25,10 @@ const showAddMenu = ref(false)
 const initialMethod = ref<'code' | 'qr'>('code')
 const initialAccountName = ref('')
 const editingAccount = ref<AccountUiItem | null>(null)
+const showDeviceModal = ref(false)
+const deviceAccountName = ref('')
+const showOfficialMessagesModal = ref(false)
+const officialMessagesAccountName = ref('')
 
 const loadAccounts = async () => {
   const token = authStore.token || ''
@@ -104,6 +110,7 @@ const handleDelete = async (name: string) => {
 }
 
 const checkingAccount = ref('')
+const batchChecking = ref(false)
 
 const handleCheck = async (name: string) => {
   const token = authStore.token || ''
@@ -127,9 +134,44 @@ const handleCheck = async (name: string) => {
   }
 }
 
+const handleBatchCheck = async () => {
+  const token = authStore.token || ''
+  const names = accounts.value.map(acc => acc.name).filter(Boolean)
+  if (!token || names.length === 0) return
+
+  batchChecking.value = true
+  try {
+    const res = await checkAccountsStatus(token, { account_names: names, timeout_seconds: 8 })
+    await loadAccounts()
+    const ok = res.results.filter(item => item.ok).length
+    const failed = res.results.length - ok
+    const failedLines = res.results
+      .filter(item => !item.ok)
+      .slice(0, 8)
+      .map(item => `- ${item.account_name}: ${item.message || item.code || t('accounts.loginExpired')}`)
+      .join('\n')
+    const more = failed > 8 ? `\n... +${failed - 8}` : ''
+    alert(`✅ ${t('accounts.batchCheckDone')}\n${t('accounts.checkOkCount')}: ${ok}\n${t('accounts.checkFailedCount')}: ${failed}${failedLines ? `\n\n${failedLines}${more}` : ''}`)
+  } catch (e) {
+    alert(t('accounts.checkFailed'))
+  } finally {
+    batchChecking.value = false
+  }
+}
+
 const openEdit = (acc: AccountUiItem) => {
   editingAccount.value = acc
   showEditModal.value = true
+}
+
+const openDevices = (name: string) => {
+  deviceAccountName.value = name
+  showDeviceModal.value = true
+}
+
+const openOfficialMessages = (name: string) => {
+  officialMessagesAccountName.value = name
+  showOfficialMessagesModal.value = true
 }
 
 const handleRelogin = (name: string) => {
@@ -173,8 +215,23 @@ const goTasks = (name: string) => {
       <p class="text-xs text-gray-500">{{ t('accounts.emptyHint') }}</p>
     </div>
 
-    <div v-else class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 pb-20">
-    <div 
+    <div v-else class="space-y-4 pb-20">
+      <div class="flex items-center justify-between gap-3 p-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/60">
+        <div class="text-xs text-gray-500">
+          {{ t('accounts.total') }}：{{ accounts.length }}
+        </div>
+        <button
+          @click="handleBatchCheck"
+          :disabled="batchChecking"
+          class="inline-flex items-center gap-2 px-3 py-2 text-xs bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-white transition-colors disabled:opacity-50"
+        >
+          <svg v-if="batchChecking" class="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+          <CheckCircle2 v-else class="w-3.5 h-3.5" />
+          {{ batchChecking ? t('accounts.batchChecking') : t('accounts.batchCheck') }}
+        </button>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
+    <div
       v-for="acc in accounts" :key="acc.id"
       class="group relative flex flex-col p-5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/60 hover:border-gray-300 dark:hover:border-gray-700 transition-colors"
     >
@@ -222,7 +279,7 @@ const goTasks = (name: string) => {
       </div>
 
       <!-- Actions -->
-      <div class="mt-auto pt-3 border-t border-gray-100 dark:border-gray-800/40 grid grid-cols-5 gap-1">
+      <div class="mt-auto pt-3 border-t border-gray-100 dark:border-gray-800/40 grid grid-cols-7 gap-1">
         <button @click="handleCheck(acc.name)" :disabled="checkingAccount === acc.name" class="flex flex-col items-center gap-0.5 py-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded transition-colors disabled:opacity-50" :title="t('accounts.checkStatus')">
           <svg v-if="checkingAccount === acc.name" class="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
           <Play v-else class="w-3.5 h-3.5" />
@@ -236,6 +293,14 @@ const goTasks = (name: string) => {
           <FileText class="w-3.5 h-3.5" />
           <span class="text-[10px]">{{ t('accounts.logs') }}</span>
         </button>
+        <button @click="openDevices(acc.name)" class="flex flex-col items-center gap-0.5 py-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded transition-colors" :title="t('accounts.devices')">
+          <MonitorSmartphone class="w-3.5 h-3.5" />
+          <span class="text-[10px]">{{ t('accounts.devicesShort') }}</span>
+        </button>
+        <button @click="openOfficialMessages(acc.name)" class="flex flex-col items-center gap-0.5 py-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded transition-colors" :title="t('accounts.officialMessages')">
+          <MessageCircle class="w-3.5 h-3.5" />
+          <span class="text-[10px]">{{ t('accounts.officialMessagesShort') }}</span>
+        </button>
         <button @click="openEdit(acc)" class="flex flex-col items-center gap-0.5 py-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded transition-colors" :title="t('accounts.edit')">
           <Edit2 class="w-3.5 h-3.5" />
           <span class="text-[10px]">{{ t('accounts.editBtn') }}</span>
@@ -247,7 +312,8 @@ const goTasks = (name: string) => {
       </div>
     </div>
     </div>
-    
+    </div>
+
     <!-- FAB for Adding Account -->
     <div class="fixed bottom-6 right-6 lg:bottom-8 lg:right-8 z-40 flex flex-col items-end gap-2">
       <transition enter-active-class="transition duration-200 ease-out" enter-from-class="opacity-0 translate-y-2" enter-to-class="opacity-100 translate-y-0" leave-active-class="transition duration-150 ease-in" leave-from-class="opacity-100 translate-y-0" leave-to-class="opacity-0 translate-y-2">
@@ -272,5 +338,7 @@ const goTasks = (name: string) => {
     <!-- Modals -->
     <AddAccountModal :isOpen="showAddModal" :initialMethod="initialMethod" :initialAccountName="initialAccountName" @close="showAddModal = false" @success="loadAccounts" />
     <EditAccountModal v-if="editingAccount" :isOpen="showEditModal" :account="editingAccount" @close="showEditModal = false" @success="loadAccounts" @relogin="handleRelogin" />
+    <DeviceManagerModal :isOpen="showDeviceModal" :accountName="deviceAccountName" @close="showDeviceModal = false" />
+    <OfficialMessagesModal :isOpen="showOfficialMessagesModal" :accountName="officialMessagesAccountName" @close="showOfficialMessagesModal = false" />
   </div>
 </template>

@@ -363,10 +363,13 @@ class ConfigService:
                 config.pop("last_run", None)
                 all_configs["monitors"][task_name] = config
 
-        # 导出设置 (新增)
+        # 导出设置 (新增) — AI 配置脱敏处理
+        ai_config = self.get_ai_config()
+        if ai_config and ai_config.get("api_key"):
+            ai_config["api_key"] = "***MASKED***"
         all_configs["settings"] = {
             "global": self.get_global_settings(),
-            "ai": self.get_ai_config(),
+            "ai": ai_config,
             "telegram": self.get_telegram_config(),
         }
 
@@ -499,13 +502,23 @@ class ConfigService:
 
     def get_ai_config(self) -> Optional[Dict]:
         """
-        获取 AI 配置
+        获取 AI 配置，优先解密加密的 API Key，兼容旧版明文
 
         Returns:
             配置字典，如果不存在则返回 None
         """
         config_file = self._get_ai_config_file()
-        return self._read_json_file(config_file)
+        raw = self._read_json_file(config_file)
+        if not raw:
+            return None
+
+        api_key = raw.get("api_key", "")
+
+        return {
+            "api_key": api_key,
+            "base_url": raw.get("base_url"),
+            "model": raw.get("model"),
+        }
 
     def save_ai_config(
         self,
@@ -514,7 +527,7 @@ class ConfigService:
         model: Optional[str] = None,
     ) -> bool:
         """
-        保存 AI 配置
+        保存 AI 配置，API Key 使用 Fernet 加密存储
 
         Args:
             api_key: OpenAI API Key
@@ -530,13 +543,23 @@ class ConfigService:
         if not final_api_key:
             raise ValueError("API Key 不能为空")
 
-        config = {"api_key": final_api_key}
-        config["base_url"] = base_url if base_url else None
-        config["model"] = model if model else None
-
         config_file = self._get_ai_config_file()
+        existing_raw = self._read_json_file(config_file) or {}
 
-        return self._write_json_file(config_file, config)
+        # 使用 Fernet 加密，但存储为 api_key 字段以兼容 OpenAIConfigManager
+        try:
+            from tg_signer.security import encrypt_secret
+            existing_raw["api_key"] = encrypt_secret(final_api_key)
+        except Exception as exc:
+            logging.getLogger("backend.config").error(
+                "AI API Key 加密失败，拒绝保存明文: %s", exc
+            )
+            raise ValueError("API Key 加密失败，请检查 APP_SECRET_KEY 配置") from exc
+
+        existing_raw["base_url"] = base_url if base_url else None
+        existing_raw["model"] = model if model else None
+
+        return self._write_json_file(config_file, existing_raw)
 
     def delete_ai_config(self) -> bool:
         """
@@ -622,7 +645,9 @@ class ConfigService:
             "log_retention_days": 7,
             "data_dir": str(override_data_dir) if override_data_dir else None,
             "global_proxy": None,
-            "tg_global_concurrency": 1,
+            "tg_global_concurrency": None,  # None 表示使用动态默认 min(cpu_count, 5)
+            "device_keepalive_enabled": True,
+            "device_keepalive_interval_days": 30,
             "telegram_bot_notify_enabled": False,
             "telegram_bot_login_notify_enabled": False,
             "telegram_bot_task_failure_enabled": True,
@@ -653,6 +678,15 @@ class ConfigService:
         config_file = self._get_global_settings_file()
         merged = dict(self.get_global_settings())
         merged.update(settings)
+
+        # 校验时区格式（防止导入配置等绕过路由层校验）
+        tz_value = merged.get("timezone")
+        if tz_value:
+            try:
+                from zoneinfo import ZoneInfo
+                ZoneInfo(str(tz_value))
+            except Exception:
+                raise ValueError(f"无效的时区: {tz_value}")
 
         data_dir_value = merged.get("data_dir")
         if isinstance(data_dir_value, str):

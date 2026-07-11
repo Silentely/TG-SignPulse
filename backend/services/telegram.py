@@ -44,6 +44,60 @@ logger = logging.getLogger("backend.qr_login")
 _login_sessions = {}
 _qr_login_sessions = {}
 
+# 登录 session 清理常量
+_LOGIN_SESSION_MAX_AGE = 1800  # 手机号登录 session 最大存活时间（30 分钟）
+_QR_LOGIN_SESSION_MAX_AGE = 600  # 扫码登录 session 最大存活时间（10 分钟）
+_MAX_LOGIN_SESSIONS = 50  # 每种登录 session 的最大数量
+
+
+async def _release_login_session(value: Any) -> None:
+    """断开登录 session 中的客户端连接并释放锁"""
+    client = value.get("client")
+    if client:
+        try:
+            if getattr(client, "is_connected", False):
+                await client.disconnect()
+        except Exception:
+            pass
+    lock = value.get("lock")
+    if lock and lock.locked():
+        lock.release()
+
+
+async def _cleanup_expired_login_sessions() -> None:
+    """清理过期的登录 session，防止内存泄漏。
+
+    检查 `_login_sessions` 和 `_qr_login_sessions` 中超过最大存活时间的条目，
+    断开其中的 Pyrogram 客户端并释放锁。当条目总数超过上限时，按创建时间淘汰最旧的条目。
+    """
+    now = time.monotonic()
+
+    # 清理过期条目
+    for store, max_age in (
+        (_login_sessions, _LOGIN_SESSION_MAX_AGE),
+        (_qr_login_sessions, _QR_LOGIN_SESSION_MAX_AGE),
+    ):
+        expired_keys = [
+            key for key, value in list(store.items())
+            if value.get("_created_at") is not None
+            and (now - value["_created_at"]) > max_age
+        ]
+        for key in expired_keys:
+            value = store.pop(key, None)
+            if value:
+                await _release_login_session(value)
+
+    # 容量溢出保护：按 _created_at 淘汰最旧条目
+    for store in (_login_sessions, _qr_login_sessions):
+        while len(store) > _MAX_LOGIN_SESSIONS:
+            oldest_key = min(
+                store.keys(),
+                key=lambda k: store[k].get("_created_at", float("inf")),
+            )
+            value = store.pop(oldest_key, None)
+            if value:
+                await _release_login_session(value)
+
 
 class TelegramService:
     """Telegram 服务类"""
@@ -398,6 +452,57 @@ class TelegramService:
             )
             return None
 
+    def _build_account_client(
+        self,
+        account_name: str,
+        no_updates: bool = True,
+    ):
+        """
+        构建账号客户端（辅助方法，减少代码重复）。
+
+        返回 (client, proxy_dict) 元组。
+        """
+        from tg_signer.core import get_client
+
+        account_name = self._normalize_account_name(account_name)
+
+        proxy_dict = None
+        try:
+            profile = get_account_profile(account_name) or {}
+            proxy_value = profile.get("proxy")
+            if not proxy_value:
+                from backend.services.config import get_config_service
+
+                proxy_value = get_config_service().get_global_settings().get(
+                    "global_proxy"
+                )
+            if proxy_value:
+                proxy_dict = build_proxy_dict(proxy_value)
+        except Exception:
+            proxy_dict = None
+
+        session_mode = get_session_mode()
+        session_string = None
+        in_memory = False
+        if session_mode == "string":
+            session_string = get_account_session_string(
+                account_name
+            ) or load_session_string_file(self.session_dir, account_name)
+            if not session_string:
+                raise ValueError("session_string 不存在或已失效")
+            in_memory = True
+
+        client = get_client(
+            account_name,
+            proxy=proxy_dict,
+            workdir=self.session_dir,
+            session_string=session_string,
+            in_memory=in_memory,
+            no_updates=no_updates,
+        )
+
+        return client, proxy_dict
+
     async def check_account_status(
         self,
         account_name: str,
@@ -637,6 +742,134 @@ class TelegramService:
                 "needs_relogin": False,
             }
 
+    async def list_account_devices(
+        self,
+        account_name: str,
+        timeout_seconds: float = 12.0,
+    ) -> List[Dict[str, Any]]:
+        """列出账号当前 Telegram 已登录设备/授权会话。"""
+        from pyrogram import raw
+
+        account_name = self._normalize_account_name(account_name)
+        if not self.account_exists(account_name):
+            raise ValueError("账号不存在")
+
+        client, _ = self._build_account_client(account_name, no_updates=True)
+
+        timeout_seconds = max(1.0, min(float(timeout_seconds or 12.0), 30.0))
+        lock = get_account_lock(account_name)
+        async with lock:
+            if not getattr(client, "is_connected", False):
+                await client.connect()
+            result = await asyncio.wait_for(
+                client.invoke(raw.functions.account.GetAuthorizations()),
+                timeout=timeout_seconds,
+            )
+
+        devices = []
+        for item in getattr(result, "authorizations", []) or []:
+            devices.append(
+                {
+                    "hash": str(getattr(item, "hash", "")),
+                    "current": bool(getattr(item, "current", False)),
+                    "official_app": bool(getattr(item, "official_app", False)),
+                    "password_pending": bool(getattr(item, "password_pending", False)),
+                    "device_model": getattr(item, "device_model", "") or "",
+                    "platform": getattr(item, "platform", "") or "",
+                    "system_version": getattr(item, "system_version", "") or "",
+                    "app_name": getattr(item, "app_name", "") or "",
+                    "app_version": getattr(item, "app_version", "") or "",
+                    "date_created": utc_from_timestamp_iso_z(
+                        getattr(item, "date_created", 0)
+                    )
+                    if getattr(item, "date_created", None)
+                    else None,
+                    "date_active": utc_from_timestamp_iso_z(
+                        getattr(item, "date_active", 0)
+                    )
+                    if getattr(item, "date_active", None)
+                    else None,
+                    "ip": getattr(item, "ip", "") or "",
+                    "country": getattr(item, "country", "") or "",
+                    "region": getattr(item, "region", "") or "",
+                }
+            )
+        return devices
+
+    async def terminate_account_device(
+        self,
+        account_name: str,
+        auth_hash: int,
+        timeout_seconds: float = 12.0,
+    ) -> bool:
+        """踢下线指定 Telegram 授权会话。不能踢当前正在使用的会话。"""
+        from pyrogram import raw
+
+        account_name = self._normalize_account_name(account_name)
+        if not self.account_exists(account_name):
+            raise ValueError("账号不存在")
+
+        devices = await self.list_account_devices(
+            account_name, timeout_seconds=timeout_seconds
+        )
+        target = next((d for d in devices if str(d.get("hash")) == str(auth_hash)), None)
+        if not target:
+            raise ValueError("设备不存在或已下线")
+        if target.get("current"):
+            raise ValueError("不能踢下线当前正在使用的会话")
+
+        client, _ = self._build_account_client(account_name, no_updates=True)
+
+        timeout_seconds = max(1.0, min(float(timeout_seconds or 12.0), 30.0))
+        lock = get_account_lock(account_name)
+        async with lock:
+            if not getattr(client, "is_connected", False):
+                await client.connect()
+            result = await asyncio.wait_for(
+                client.invoke(raw.functions.account.ResetAuthorization(hash=auth_hash)),
+                timeout=timeout_seconds,
+            )
+        return bool(result)
+
+    async def list_official_messages(
+        self,
+        account_name: str,
+        limit: int = 20,
+        timeout_seconds: float = 12.0,
+    ) -> List[Dict[str, Any]]:
+        """读取账号与 Telegram 官方服务号 777000 的最近消息。"""
+        account_name = self._normalize_account_name(account_name)
+        if not self.account_exists(account_name):
+            raise ValueError("账号不存在")
+
+        client, _ = self._build_account_client(account_name, no_updates=True)
+
+        limit = max(1, min(int(limit or 20), 50))
+        timeout_seconds = max(1.0, min(float(timeout_seconds or 12.0), 30.0))
+        lock = get_account_lock(account_name)
+
+        async def _read_messages() -> List[Dict[str, Any]]:
+            if not getattr(client, "is_connected", False):
+                await client.connect()
+
+            messages: List[Dict[str, Any]] = []
+            async for msg in client.get_chat_history(777000, limit=limit):
+                text = getattr(msg, "text", None) or getattr(msg, "caption", None) or ""
+                messages.append(
+                    {
+                        "id": getattr(msg, "id", None),
+                        "date": msg.date.isoformat().replace("+00:00", "Z")
+                        if getattr(msg, "date", None)
+                        else None,
+                        "text": text,
+                        "outgoing": bool(getattr(msg, "outgoing", False)),
+                    }
+                )
+            return messages
+
+        async with lock:
+            return await asyncio.wait_for(_read_messages(), timeout=timeout_seconds)
+
     async def delete_account(self, account_name: str) -> bool:
         """
         删除账号（删除 session 文件）
@@ -829,7 +1062,6 @@ class TelegramService:
         Returns:
             包含 phone_code_hash 的字典
         """
-        import gc
 
         account_name = self._normalize_account_name(account_name)
 
@@ -837,6 +1069,8 @@ class TelegramService:
         from pyrogram.errors import FloodWait, PhoneNumberInvalid
 
         from tg_signer.core import close_client_by_name
+
+        await _cleanup_expired_login_sessions()
 
         account_lock = get_account_lock(account_name)
         session_mode = get_session_mode()
@@ -873,9 +1107,6 @@ class TelegramService:
             await close_client_by_name(account_name, workdir=self.session_dir)
         except Exception as e:
             logger.debug(f"start_login 清理后台客户端失败: {e}")
-
-        # 3. 强制垃圾回收，释放可能的未关闭文件句柄 (Windows 特性)
-        gc.collect()
 
         # 获取 API credentials
         from backend.services.config import get_config_service
@@ -964,6 +1195,7 @@ class TelegramService:
                 "phone_number": phone_number,
                 "lock": account_lock,
                 "account_name": account_name,
+                "_created_at": time.monotonic(),
             }
 
             # 保持连接，避免 session 变化导致验证码失效 (PhoneCodeExpired)
@@ -1384,7 +1616,6 @@ class TelegramService:
     async def start_qr_login(
         self, account_name: str, proxy: Optional[str] = None
     ) -> Dict[str, Any]:
-        import gc
 
         account_name = self._normalize_account_name(account_name)
 
@@ -1392,6 +1623,8 @@ class TelegramService:
         from pyrogram.errors import FloodWait
 
         from tg_signer.core import close_client_by_name
+
+        await _cleanup_expired_login_sessions()
 
         account_lock = get_account_lock(account_name)
         session_mode = get_session_mode()
@@ -1413,8 +1646,6 @@ class TelegramService:
             await close_client_by_name(account_name, workdir=self.session_dir)
         except Exception:
             pass
-
-        gc.collect()
 
         # API credentials
         from backend.services.config import get_config_service
@@ -1512,6 +1743,7 @@ class TelegramService:
                 "api_id": api_id,
                 "api_hash": api_hash,
                 "handler": None,
+                "_created_at": time.monotonic(),
             }
             _qr_login_sessions[login_id] = session_data
             self._log_qr_state(login_id, "waiting_scan", session_data)

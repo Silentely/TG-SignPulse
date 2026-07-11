@@ -10,6 +10,7 @@ tg_signer/core.py 单元测试
 
 from __future__ import annotations
 
+import asyncio
 import os
 import pathlib
 import random
@@ -636,6 +637,53 @@ class TestUserSignerHelpers:
     def test_normalize_log_text_strips_lines(self):
         result = UserSigner._normalize_log_text("  hello  \n  world  ")
         assert result == "hello / world"
+
+    def test_is_transient_step_error_timeout(self):
+        """TimeoutError 判定为瞬时错误"""
+        assert UserSigner._is_transient_step_error(TimeoutError("request timed out")) is True
+
+    def test_is_transient_step_error_asyncio_timeout(self):
+        """asyncio.TimeoutError 判定为瞬时错误"""
+        assert UserSigner._is_transient_step_error(asyncio.TimeoutError()) is True
+
+    def test_is_transient_step_error_connection_reset(self):
+        """连接重置判定为瞬时错误"""
+        assert UserSigner._is_transient_step_error(ConnectionError("Connection reset by peer")) is True
+
+    def test_is_transient_step_error_flood_wait(self):
+        """FloodWait 消息判定为瞬时错误"""
+        assert UserSigner._is_transient_step_error(Exception("FLOOD_WAIT: 30 seconds")) is True
+
+    def test_is_transient_step_error_rate_limit(self):
+        """rate limit 消息判定为瞬时错误"""
+        assert UserSigner._is_transient_step_error(Exception("Too Many Requests: rate limit exceeded")) is True
+
+    def test_is_transient_step_error_non_transient(self):
+        """非瞬时错误返回 False"""
+        assert UserSigner._is_transient_step_error(ValueError("invalid config")) is False
+        assert UserSigner._is_transient_step_error(RuntimeError("step failed")) is False
+
+    def test_is_transient_step_error_quota_exhausted(self):
+        """配额耗尽不属于瞬时错误"""
+        assert UserSigner._is_transient_step_error(Exception("quota exceeded")) is False
+
+    def test_is_transient_step_error_quota_with_429_not_transient(self):
+        """429 + 配额不足的组合文本不误判为瞬时错误（Codex Major 3 回归测试）"""
+        assert UserSigner._is_transient_step_error(
+            Exception("429 Too Many Requests: insufficient_quota")
+        ) is False
+        assert UserSigner._is_transient_step_error(
+            Exception("You exceeded your current quota")
+        ) is False
+        assert UserSigner._is_transient_step_error(
+            Exception("billing hard limit reached")
+        ) is False
+
+    def test_is_transient_step_error_auth_error_not_transient(self):
+        """认证错误不属于瞬时错误"""
+        assert UserSigner._is_transient_step_error(
+            Exception("Invalid API key provided")
+        ) is False
 
 
 # ============================================================================

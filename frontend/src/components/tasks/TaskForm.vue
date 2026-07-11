@@ -10,12 +10,11 @@ import { useToast } from '../../composables/useToast'
 import { useAuthStore } from '../../stores/auth'
 import type { TaskActionItem, RawTaskAction, BuiltAction } from '../../lib/types'
 import { getErrorMessage } from '../../lib/types'
+import { parseActions as parseActionsUtil, nextActionId, buildActions, debounce } from '../../lib/task-form-utils'
 
 const { t } = useI18n()
 const toast = useToast()
 const authStore = useAuthStore()
-
-const DEFAULT_CMD_PREFIX = '/start'
 
 const props = defineProps<{ initialTask?: SignTask }>()
 const emit = defineEmits<{ (e: 'update:payload', value: CreateSignTaskRequest | UpdateSignTaskRequest): void }>()
@@ -27,11 +26,13 @@ const accountOptions = computed(() => accounts.value.map(a => ({ label: a.name, 
 const scheduleMode = ref<'scheduled' | 'listen'>('scheduled')
 const timeRange = ref('08:00-19:00')
 const taskName = ref('')
+const retryCount = ref(3)
 const availableChats = ref<ChatInfo[]>([])
 const chatSearch = ref('')
 const chatSearchResults = ref<ChatInfo[]>([])
 const chatSearchLoading = ref(false)
 const chatListRefreshing = ref(false)
+const chatListError = ref('')
 const selectedChatId = ref<number>(0)
 const selectedChatName = ref('')
 const messageThreadId = ref('')
@@ -43,7 +44,7 @@ const listenerForwardChatId = ref('')
 const listenerForwardThreadId = ref('')
 const listenerBarkUrl = ref('')
 const listenerCustomUrl = ref('')
-const actions = ref<TaskActionItem[]>([{ id: Date.now(), type: 'send_text', value: '', aiPrompt: '' }])
+const actions = ref<TaskActionItem[]>([{ id: nextActionId(), type: 'send_text', value: '', aiPrompt: '' }])
 
 const loadAccounts = async () => {
   try {
@@ -52,6 +53,7 @@ const loadAccounts = async () => {
     accounts.value = res.accounts || []
     if (props.initialTask) {
       taskName.value = props.initialTask.name || ''
+      retryCount.value = props.initialTask.retry_count ?? 3
       scheduleMode.value = props.initialTask.execution_mode === 'listen' ? 'listen' : 'scheduled'
       if (props.initialTask.execution_mode === 'range') timeRange.value = props.initialTask.range_start + '-' + props.initialTask.range_end
       else timeRange.value = props.initialTask.sign_at || '08:00-19:00'
@@ -91,7 +93,10 @@ const loadAccounts = async () => {
     toast.error(getErrorMessage(e, t('taskForm.loadAccountsFailed')))
   }
 }
-const parseActions = (raw: RawTaskAction[]) => { const p: TaskActionItem[] = []; for (const a of raw) { if (a.delay) p.push({id:Date.now()+Math.random(),type:'delay',value:String(a.delay),aiPrompt:''}); if(a.action===1)p.push({id:Date.now()+Math.random(),type:'send_text',value:a.text||'',aiPrompt:''}); else if(a.action===2)p.push({id:Date.now()+Math.random(),type:'send_dice',value:a.dice||'',aiPrompt:''}); else if(a.action===3)p.push({id:Date.now()+Math.random(),type:'click_text_button',value:a.text||'',aiPrompt:''}); else if(a.action===4)p.push({id:Date.now()+Math.random(),type:'vision_click',value:'',aiPrompt:a.ai_prompt||''}); else if(a.action===5)p.push({id:Date.now()+Math.random(),type:'calc_send',value:'',aiPrompt:a.ai_prompt||''}); else if(a.action===6)p.push({id:Date.now()+Math.random(),type:'vision_send',value:'',aiPrompt:a.ai_prompt||''}); else if(a.action===7)p.push({id:Date.now()+Math.random(),type:'calc_click',value:'',aiPrompt:a.ai_prompt||''}); else if(a.action===9)p.push({id:Date.now()+Math.random(),type:'bot_cmd',value:a.bot_username||'',commandPrefix:a.command_prefix||DEFAULT_CMD_PREFIX,aiPrompt:''}); } if(p.length>0)actions.value=p }
+const parseActions = (raw: RawTaskAction[]) => {
+  const parsed = parseActionsUtil(raw)
+  if (parsed.length > 0) actions.value = parsed
+}
 let loadChatsAbort: AbortController | null = null
 const loadChats = async (n: string, forceRefresh: boolean = false) => {
   // Cancel previous request to avoid race conditions
@@ -99,6 +104,7 @@ const loadChats = async (n: string, forceRefresh: boolean = false) => {
   const controller = new AbortController()
   loadChatsAbort = controller
   chatListRefreshing.value = true
+  chatListError.value = ''
   const token = authStore.token||''
   try {
     const result = await getAccountChats(token, n, forceRefresh)
@@ -106,7 +112,12 @@ const loadChats = async (n: string, forceRefresh: boolean = false) => {
     availableChats.value = result || []
   } catch (e: unknown) {
     if (controller.signal.aborted) return
-    console.error('loadChats failed:', getErrorMessage(e))
+    const msg = getErrorMessage(e)
+    if (msg.includes('登录已失效') || msg.includes('session') || msg.includes('Session')) {
+      chatListError.value = t('taskForm.sessionInvalid')
+    } else {
+      chatListError.value = t('taskForm.loadFailed')
+    }
     availableChats.value = []
     if (forceRefresh) {
       toast.error(getErrorMessage(e, t('taskForm.loadChatsFailed')))
@@ -132,14 +143,57 @@ watch(selectedAccount, async (v)=>{
 let st: ReturnType<typeof setTimeout> | null = null
 watch(chatSearch,(v)=>{if(!v.trim()){chatSearchResults.value=[];return};if(st)clearTimeout(st);st=setTimeout(async()=>{chatSearchLoading.value=true;try{const t=authStore.token||'';const r=await searchAccountChats(t,selectedAccount.value,v.trim());chatSearchResults.value=r.items||[]}catch(e){console.error(e)}finally{chatSearchLoading.value=false}},300)})
 const selectChat=(c: ChatInfo)=>{selectedChatId.value=c.id;selectedChatName.value=c.title||c.username||String(c.id);chatSearch.value='';chatSearchResults.value=[]}
-const addAction=()=>actions.value.push({id:Date.now(),type:'send_text',value:'',aiPrompt:''})
+const addAction=()=>actions.value.push({id:nextActionId(),type:'send_text',value:'',aiPrompt:''})
 const removeAction=(i:number)=>actions.value.splice(i,1)
 const moveAction=(i:number,d:number)=>{if(i+d<0||i+d>=actions.value.length)return;const t=actions.value[i];actions.value[i]=actions.value[i+d];actions.value[i+d]=t}
-const buildPayload=()=>{let em:'fixed'|'range'|'listen'='fixed',sa='08:00',rs='',re='';if(scheduleMode.value==='listen')em='listen';else{const p=timeRange.value.split('-');if(p.length===2){em='range';rs=p[0].trim();re=p[1].trim();sa=rs}else sa=timeRange.value.trim()||'08:00'}
-const ba: BuiltAction[]=[];for(const a of actions.value){const o: BuiltAction={action:0};if(a.type==='delay')continue;if(a.type==='send_text'){o.action=1;o.text=a.value}else if(a.type==='send_dice'){o.action=2;o.dice=a.value||'\uD83C\uDFB2'}else if(a.type==='bot_cmd'){o.action=9;o.bot_username=a.value;o.command_prefix=a.commandPrefix||DEFAULT_CMD_PREFIX}else if(a.type==='click_text_button'){o.action=3;o.text=a.value}else if(a.type==='vision_click'){o.action=4;if(a.aiPrompt)o.ai_prompt=a.aiPrompt}else if(a.type==='calc_send'){o.action=5;if(a.aiPrompt)o.ai_prompt=a.aiPrompt}else if(a.type==='vision_send'){o.action=6;if(a.aiPrompt)o.ai_prompt=a.aiPrompt}else if(a.type==='calc_click'){o.action=7;if(a.aiPrompt)o.ai_prompt=a.aiPrompt};const prev=actions.value[actions.value.indexOf(a)-1];if(prev&&prev.type==='delay'&&prev.value)o.delay=prev.value;ba.push(o)}
-let ca=ba;if(scheduleMode.value==='listen'){const kw=listenerKeywords.value.split('\n').map((k: string)=>k.trim()).filter(Boolean);const la: BuiltAction={action:8,keywords:kw,match_mode:listenerMatchMode.value,push_channel:listenerPushChannel.value};if(listenerPushChannel.value==='forward'){if(listenerForwardChatId.value)la.forward_chat_id=listenerForwardChatId.value;if(listenerForwardThreadId.value)la.forward_message_thread_id=listenerForwardThreadId.value};if(listenerPushChannel.value==='bark'&&listenerBarkUrl.value)la.bark_url=listenerBarkUrl.value;if(listenerPushChannel.value==='custom'&&listenerCustomUrl.value)la.custom_url=listenerCustomUrl.value;if(listenerPushChannel.value==='continue'&&ba.length>0)la.continue_actions=ba;ca=[la]}
-return{name:taskName.value||selectedChatName.value||`task_${Date.now()}`,account_name:selectedAccounts.value[0]||'',account_names:allAccountsMode.value ? ['*'] : selectedAccounts.value,sign_at:sa,execution_mode:em,range_start:rs,range_end:re,random_seconds:0,chats:[{chat_id:selectedChatId.value,name:selectedChatName.value,actions:ca as import("../../lib/types").RawTaskAction[],action_interval:1,message_thread_id:messageThreadId.value?Number(messageThreadId.value):undefined,sender_filter:senderFilter.value.trim()||undefined,source_account:selectedAccount.value||undefined}]}}
-watch([taskName,selectedAccounts,allAccountsMode,scheduleMode,timeRange,selectedChatId,selectedChatName,messageThreadId,senderFilter,actions,listenerKeywords,listenerMatchMode,listenerPushChannel,listenerForwardChatId,listenerForwardThreadId,listenerBarkUrl,listenerCustomUrl],()=>{emit('update:payload',buildPayload())},{deep:true})
+const buildPayload = () => {
+  let em: 'fixed' | 'range' | 'listen' = 'fixed'
+  let sa = '08:00', rs = '', re = ''
+  if (scheduleMode.value === 'listen') {
+    em = 'listen'
+  } else {
+    const p = timeRange.value.split('-')
+    if (p.length === 2) { em = 'range'; rs = p[0].trim(); re = p[1].trim(); sa = rs }
+    else sa = timeRange.value.trim() || '08:00'
+  }
+
+  const ba = buildActions(actions.value)
+
+  let ca = ba
+  if (scheduleMode.value === 'listen') {
+    const kw = listenerKeywords.value.split('\n').map((k: string) => k.trim()).filter(Boolean)
+    const la: BuiltAction = { action: 8, keywords: kw, match_mode: listenerMatchMode.value, push_channel: listenerPushChannel.value }
+    if (listenerPushChannel.value === 'forward') {
+      if (listenerForwardChatId.value) la.forward_chat_id = listenerForwardChatId.value
+      if (listenerForwardThreadId.value) la.forward_message_thread_id = listenerForwardThreadId.value
+    }
+    if (listenerPushChannel.value === 'bark' && listenerBarkUrl.value) la.bark_url = listenerBarkUrl.value
+    if (listenerPushChannel.value === 'custom' && listenerCustomUrl.value) la.custom_url = listenerCustomUrl.value
+    if (listenerPushChannel.value === 'continue' && ba.length > 0) la.continue_actions = ba
+    ca = [la]
+  }
+
+  return {
+    name: taskName.value || selectedChatName.value || `task_${Date.now()}`,
+    account_name: selectedAccounts.value[0] || '',
+    account_names: allAccountsMode.value ? ['*'] : selectedAccounts.value,
+    sign_at: sa, execution_mode: em, range_start: rs, range_end: re, random_seconds: 0,
+    retry_count: retryCount.value,
+    chats: [{
+      chat_id: selectedChatId.value, name: selectedChatName.value,
+      actions: ca as import("../../lib/types").RawTaskAction[],
+      action_interval: 1,
+      message_thread_id: messageThreadId.value ? Number(messageThreadId.value) : undefined,
+      sender_filter: senderFilter.value.trim() || undefined,
+      source_account: selectedAccount.value || undefined,
+    }],
+  }
+}
+const debouncedEmit = debounce(() => { emit('update:payload', buildPayload()) }, 300)
+/** 同步刷新 payload（保存前调用，确保拿到最新值） */
+const flushPayload = () => { emit('update:payload', buildPayload()) }
+defineExpose({ flushPayload })
+watch([taskName,selectedAccounts,allAccountsMode,scheduleMode,timeRange,selectedChatId,selectedChatName,messageThreadId,senderFilter,actions,retryCount,listenerKeywords,listenerMatchMode,listenerPushChannel,listenerForwardChatId,listenerForwardThreadId,listenerBarkUrl,listenerCustomUrl], () => { debouncedEmit() }, {deep:true})
 onMounted(()=>{loadAccounts()})
 </script>
 <template>
@@ -161,12 +215,16 @@ onMounted(()=>{loadAccounts()})
         <label class="text-xs font-semibold text-gray-500 tracking-wide uppercase">{{ t('taskForm.timeRange') }}</label>
         <input v-model="timeRange" :disabled="scheduleMode === 'listen'" :placeholder="scheduleMode === 'listen' ? '24H' : t('taskForm.timeRangePlaceholder')" class="w-full h-10 px-3 text-sm border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 outline-none focus:border-gray-400 disabled:opacity-50 disabled:bg-gray-50 dark:disabled:bg-gray-950" />
       </div>
+      <div class="space-y-1.5">
+        <label class="text-xs font-semibold text-gray-500 tracking-wide uppercase">{{ t('taskForm.retryCount') }}</label>
+        <input v-model.number="retryCount" type="number" min="0" max="99" class="w-full h-10 px-3 text-sm border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 outline-none focus:border-gray-400" />
+      </div>
     </div>
     <div class="p-4 border border-sky-100 dark:border-gray-800/60 bg-sky-50/50 dark:bg-gray-900/40">
       <h4 class="mb-4 text-xs font-bold uppercase tracking-widest text-sky-500">{{ t('taskForm.targetChat') }}</h4>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div class="space-y-1.5"><label class="text-xs font-medium text-gray-500">{{ t('taskForm.chatSourceAccount') }}</label><CustomSelect v-model="selectedAccount" :options="selectedAccounts.map(a => ({label: a, value: a}))" /></div>
-        <div class="space-y-1.5"><label class="text-xs font-medium text-gray-500 flex items-center justify-between">{{ t('taskForm.selectFromList') }}<button type="button" @click="refreshChats" :disabled="chatListRefreshing || !selectedAccount" class="flex items-center gap-1 text-[10px] text-sky-500 hover:text-sky-700 dark:hover:text-sky-300 font-medium disabled:opacity-50 disabled:cursor-not-allowed"><RefreshCw class="w-3 h-3" :class="chatListRefreshing ? 'animate-spin' : ''" /> {{ t('taskForm.refreshChats') }}</button></label><CustomSelect v-model="selectedChatId" :disabled="chatListRefreshing" :options="[{label: chatListRefreshing ? t('taskForm.loadingChats') : t('taskForm.selectChat'), value:0}, ...availableChats.map(c => ({label: c.title || c.username || String(c.id), value: c.id}))]" @update:modelValue="selectedChatName = availableChats.find(c => c.id === $event)?.title || availableChats.find(c => c.id === $event)?.username || String($event)" /></div>
+        <div class="space-y-1.5"><label class="text-xs font-medium text-gray-500 flex items-center justify-between">{{ t('taskForm.selectFromList') }}<button type="button" @click="refreshChats" :disabled="chatListRefreshing || !selectedAccount" class="flex items-center gap-1 text-[10px] text-sky-500 hover:text-sky-700 dark:hover:text-sky-300 font-medium disabled:opacity-50 disabled:cursor-not-allowed"><RefreshCw class="w-3 h-3" :class="chatListRefreshing ? 'animate-spin' : ''" /> {{ t('taskForm.refreshChats') }}</button></label><CustomSelect v-model="selectedChatId" :disabled="chatListRefreshing" :options="[{label: chatListRefreshing ? t('taskForm.loadingChats') : t('taskForm.selectChat'), value:0}, ...availableChats.map(c => ({label: c.title || c.username || String(c.id), value: c.id}))]" @update:modelValue="selectedChatName = availableChats.find(c => c.id === $event)?.title || availableChats.find(c => c.id === $event)?.username || String($event)" /><p v-if="chatListError" class="text-xs text-amber-600 dark:text-amber-400 mt-1">{{ chatListError }}</p></div>
         <div class="space-y-1.5 relative"><label class="text-xs font-medium text-gray-500">{{ t('taskForm.searchChat') }}</label><div class="relative"><input v-model="chatSearch" :placeholder="t('taskForm.searchPlaceholder')" class="w-full h-10 px-3 text-sm border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900 outline-none focus:border-gray-400" /><div v-if="chatSearch.trim()" class="absolute top-11 left-0 right-0 z-10 max-h-40 overflow-y-auto bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/60 shadow-lg"><div v-if="chatSearchLoading" class="p-3 text-xs text-gray-400">{{ t('taskForm.searching') }}</div><template v-else><div v-for="chat in chatSearchResults" :key="chat.id" @click="selectChat(chat)" class="p-2 border-b border-gray-100 dark:border-gray-800/60 hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer text-sm"><div class="font-medium truncate">{{ chat.title || chat.username || chat.id }}</div><div class="text-[10px] text-gray-400 font-mono">{{ chat.id }}</div></div><div v-if="!chatSearchResults.length" class="p-3 text-xs text-gray-400">{{ t('taskForm.noResults') }}</div></template></div></div></div>
         <div class="space-y-1.5"><label class="text-xs font-medium text-gray-500">{{ t('taskForm.threadId') }}</label><input v-model="messageThreadId" :placeholder="t('taskForm.threadIdPlaceholder')" class="w-full h-10 px-3 text-sm border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900 outline-none focus:border-gray-400" /></div>
         <div class="space-y-1.5"><label class="text-xs font-medium text-gray-500">{{ t('taskForm.senderFilter') }}</label><input v-model="senderFilter" :placeholder="t('taskForm.senderFilterPlaceholder')" class="w-full h-10 px-3 text-sm border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900 outline-none focus:border-gray-400" /></div>

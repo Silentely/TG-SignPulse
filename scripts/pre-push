@@ -60,10 +60,22 @@ else
 fi
 echo ""
 
-# ── 3. 后端测试（快速模式） ──
+# ── 3. 后端测试（仅后端/引擎变更时，快速并行模式） ──
 echo "🧪 [3/3] 后端测试..."
-if command -v python &>/dev/null && [ -f "pyproject.toml" ]; then
-    if python -m pytest tests/ -x -q --tb=no --no-header 2>&1; then
+# 检测是否有后端相关文件变更
+BACKEND_CHANGED=0
+if git diff --name-only HEAD@{1}..HEAD 2>/dev/null | grep -qE "^(backend/|tg_signer/|tests/|pyproject\.toml)" || \
+   git diff --cached --name-only | grep -qE "^(backend/|tg_signer/|tests/|pyproject\.toml)" || \
+   [ -n "$(git status --porcelain backend/ tg_signer/ tests/ 2>/dev/null)" ]; then
+    BACKEND_CHANGED=1
+fi
+
+if [ "$BACKEND_CHANGED" -eq 0 ]; then
+    echo "   ⏭️  无后端变更，跳过测试"
+elif command -v python &>/dev/null && [ -f "pyproject.toml" ]; then
+    # -n auto: 并行执行  --no-cov: 跳过覆盖率报告（pre-push 不需要）
+    # --lf: 优先跑上次失败的用例，快速失败  -x: 首个失败即停
+    if python -m pytest tests/ -n auto -x -q --tb=short --no-header --no-cov --lf 2>&1; then
         echo "   ✅ 测试通过"
     else
         echo "   ❌ 测试失败，请修复后再推送"

@@ -1276,6 +1276,50 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 sign_record = json.load(fp)
         return sign_record
 
+    @staticmethod
+    def _is_transient_step_error(exc: Exception) -> bool:
+        """判断步骤级错误是否为瞬时故障（值得在当前步骤重试）。
+        仅用于流程内步级重试，避免因单步瞬时失败而重启整个脚本流程。
+        配额耗尽、计费限制等永久错误不视为瞬时故障。
+        """
+        if isinstance(exc, (TimeoutError, asyncio.TimeoutError)):
+            return True
+        text = str(exc).lower()
+        # 永久错误优先排除，避免 "429 Too Many Requests: insufficient_quota" 被误判
+        permanent_markers = (
+            "quota exceeded",
+            "resource_exhausted",
+            "insufficient_quota",
+            "billing hard limit",
+            "out of quota",
+            "exceeded your current quota",
+            "check your plan and billing",
+            "invalid api key",
+            "invalid_request_error",
+            "authentication",
+            "permission denied",
+        )
+        if any(marker in text for marker in permanent_markers):
+            return False
+        transient_markers = (
+            "timeout",
+            "timed out",
+            "connection reset",
+            "connection refused",
+            "connection aborted",
+            "temporary failure",
+            "service unavailable",
+            "bad gateway",
+            "gateway timeout",
+            "too many requests",
+            "rate limit",
+            "floodwait",
+            "flood_wait",
+            "flood wait",
+            "network is unreachable",
+        )
+        return any(marker in text for marker in transient_markers)
+
     async def sign_a_chat(
         self,
         chat: SignChatV3,
@@ -1388,13 +1432,38 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         total_actions = len(chat.actions)
         if total_actions == 0:
             raise RuntimeError("任务没有配置任何执行动作")
+        # 签到前预检查：检测今日是否已完成
+        if await self._chat_has_today_terminal_success(
+            chat,
+            history_limit=_read_positive_int_env(
+                "SIGN_TASK_COMPLETION_LOOKBACK", 20, 3
+            ),
+        ):
+            stop_reason = (self.context.stop_reason or "").strip()
+            self.log(
+                "检测到今日任务已完成，跳过任务对象"
+                + (f": {stop_reason}" if stop_reason else "")
+            )
+            self.context.stop_reason = None
+            self.context.last_callback_answer = None
+            return
         max_flow_attempts = _read_positive_int_env("SIGN_TASK_FLOW_RETRY_ATTEMPTS", 1, 1)
-        retry_backoff_steps = _read_positive_int_env("SIGN_TASK_RETRY_BACKOFF_STEPS", 2, 0)
+        # 优先从上下文变量读取任务级重试次数，回退到环境变量读取结果
+        try:
+            from backend.services.sign_tasks import _task_retry_count_var
+            _ctx_val = _task_retry_count_var.get()
+            if _ctx_val and _ctx_val > 0:
+                max_flow_attempts = _ctx_val
+        except (ImportError, LookupError):
+            pass
+        retry_backoff_steps = _read_positive_int_env("SIGN_TASK_RETRY_BACKOFF_STEPS", 0, 0)
         last_error: Optional[Exception] = None
         last_successful_index = 0
 
         for flow_attempt in range(1, max_flow_attempts + 1):
-            start_index = max(1, last_successful_index - retry_backoff_steps) if flow_attempt > 1 else 1
+            # 从失败步骤开始回退，而非从最后成功步骤；retry_backoff_steps=0 表示从失败步骤原地重试
+            failed_index = last_successful_index + 1 if last_successful_index > 0 else 1
+            start_index = max(1, failed_index - retry_backoff_steps) if flow_attempt > 1 else 1
             if max_flow_attempts > 1:
                 if flow_attempt > 1 and start_index > 1:
                     self.log(f"开始第 {flow_attempt}/{max_flow_attempts} 次脚本流程尝试，从第 {start_index} 步继续")
@@ -1430,11 +1499,29 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                         next_action = (
                             chat.actions[index] if index < total_actions else None
                         )
-                        result = await self.wait_for(
-                            chat,
-                            action,
-                            next_action=next_action,
-                        )
+                        # 步级重试：对瞬时错误（AI 超时、网络抖动等）在当前步骤内重试一次，
+                        # 避免升级为流程级重试导致已完成的步骤（如 /checkin）被重复执行。
+                        # 总尝试 2 次（1 次首次 + 1 次重试），与 AI 工具层内部重试不叠加过度。
+                        _step_max_retries = 2
+                        for _step_attempt in range(1, _step_max_retries + 1):
+                            try:
+                                result = await self.wait_for(
+                                    chat,
+                                    action,
+                                    next_action=next_action,
+                                )
+                                break
+                            except Exception as step_exc:
+                                if self._is_transient_step_error(step_exc) and _step_attempt < _step_max_retries:
+                                    self.log(
+                                        f"{self._current_action_step_label()}瞬时错误，"
+                                        f"{_step_attempt}/{_step_max_retries} 次重试: "
+                                        f"{type(step_exc).__name__}: {safe_text_preview(step_exc, 120)}",
+                                        level="WARNING",
+                                    )
+                                    await asyncio.sleep(1.0)
+                                    continue
+                                raise
                         if result is False:
                             raise RuntimeError(
                                 f"{self._current_action_step_label()}执行失败：{action_description}"
@@ -1462,7 +1549,8 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 self.context.waiting_message = None
                 if flow_attempt >= max_flow_attempts:
                     break
-                backoff_info = f"，从第 {max(1, last_successful_index - retry_backoff_steps)} 步继续" if last_successful_index > 1 else "，将从第 1 步重新开始"
+                _resume_idx = max(1, (last_successful_index + 1) - retry_backoff_steps) if last_successful_index > 0 else 1
+                backoff_info = f"，从第 {_resume_idx} 步继续" if _resume_idx > 1 else "，将从第 1 步重新开始"
                 self.log(
                     f"脚本流程第 {flow_attempt}/{max_flow_attempts} 次尝试失败"
                     f"{backoff_info}: {exc}",
@@ -2088,19 +2176,38 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         normalized = str(text or "").strip().lower()
         if not normalized:
             return False
+        strong_success_markers = (
+            "签到成功",
+            "已签到",
+            "已经签到",
+            "已经签到过",
+            "今天已经签到",
+            "今日已签到",
+            "今日已经签到",
+            "您今天已经签到",
+            "您今日已签到",
+            "签到过了",
+            "重复签到",
+            "签到机会已用完",
+            "机会已用完",
+            "今天不能再签到",
+            "任务完成",
+            "执行完成",
+            "操作完成",
+        )
         failure_markers = (
             "失败",
             "错误",
             "异常",
             "未成功",
+            "未签到",
+            "没有签到",
             "无法",
             "failed",
             "failure",
             "error",
             "invalid",
         )
-        if any(marker in normalized for marker in failure_markers):
-            return False
         additional_action_markers = (
             "请完成",
             "请先",
@@ -2124,26 +2231,27 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             "滑块",
             "拖动",
         )
+        # 按行切分后逐行判断：同一行内失败/动作标记优先于成功标记
+        # 但后续独立行的明确成功可覆盖之前行的失败（如"验证码错误\n签到成功"）
+        lines = [line.strip() for line in normalized.splitlines() if line.strip()]
+        has_any_success_line = False
+        for line in lines:
+            line_has_success = any(m in line for m in strong_success_markers)
+            line_has_failure = any(m in line for m in failure_markers)
+            line_has_action = any(m in line for m in additional_action_markers)
+            if line_has_success and not line_has_failure and not line_has_action:
+                # 纯成功行：标记存在，后续可覆盖
+                has_any_success_line = True
+            elif line_has_success and (line_has_failure or line_has_action):
+                # 矛盾行（如"签到失败，签到成功"、"请完成验证后签到成功"）：不视为成功
+                continue
+        if has_any_success_line:
+            return True
+        # 全局检查：无强成功标记时，回退到通用成功 + 上下文匹配
+        if any(marker in normalized for marker in failure_markers):
+            return False
         if any(marker in normalized for marker in additional_action_markers):
             return False
-        strong_success_markers = (
-            "签到成功",
-            "已签到",
-            "已经签到",
-            "已经签到过",
-            "今天已经签到",
-            "今日已签到",
-            "今日已经签到",
-            "您今天已经签到",
-            "您今日已签到",
-            "签到过了",
-            "重复签到",
-            "任务完成",
-            "执行完成",
-            "操作完成",
-        )
-        if any(marker in normalized for marker in strong_success_markers):
-            return True
         generic_success_markers = (
             "成功",
             "完成",
@@ -2187,6 +2295,9 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             "您今日已签到",
             "签到过了",
             "重复签到",
+            "签到机会已用完",
+            "机会已用完",
+            "今天不能再签到",
             "任务完成",
             "执行完成",
             "操作完成",
@@ -2196,6 +2307,76 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             "completed",
         )
         return any(marker in normalized for marker in callback_success_markers)
+
+    @staticmethod
+    def _get_task_timezone():
+        """获取任务时区，优先读取 TZ/APP_TIMEZONE 环境变量，回退到 Asia/Hong_Kong。"""
+        tz_name = os.environ.get("TZ") or os.environ.get("APP_TIMEZONE") or "Asia/Hong_Kong"
+        try:
+            from zoneinfo import ZoneInfo
+            return ZoneInfo(tz_name)
+        except (ImportError, KeyError):
+            # zoneinfo 不可用或时区名称无效时回退到 UTC+8
+            return timezone(timedelta(hours=8))
+
+    def _message_is_from_today(self, message: Message) -> bool:
+        """判断消息是否属于今天（按任务时区计算）。"""
+        message_date = getattr(message, "date", None) or getattr(
+            message, "edit_date", None
+        )
+        if not isinstance(message_date, datetime):
+            return False
+        if message_date.tzinfo is None:
+            message_date = message_date.replace(tzinfo=timezone.utc)
+        task_tz = self._get_task_timezone()
+        return message_date.astimezone(task_tz).date() == datetime.now(task_tz).date()
+
+    async def _chat_has_today_terminal_success(
+        self,
+        chat: SignChatV3,
+        *,
+        history_limit: int,
+    ) -> bool:
+        """检查该 chat 今日是否已有签到成功记录。
+        先查内存消息缓存，再查 Telegram 聊天历史。
+        仅检查 bot 发送的消息（from_user.is_bot），避免群里其他用户的消息导致误跳过。
+        """
+        messages_dict = self.context.chat_messages.get(chat.chat_id) or {}
+        for message in reversed(list(messages_dict.values())):
+            if message is None:
+                continue
+            if not self._message_matches_chat_thread(message, chat):
+                continue
+            # 只检查 bot 发送的消息，避免群里其他人的成功消息导致误跳过
+            from_user = getattr(message, "from_user", None)
+            if from_user is not None and not getattr(from_user, "is_bot", False):
+                continue
+            if self._message_is_from_today(
+                message
+            ) and self._message_has_terminal_success_text(message):
+                self.context.stop_reason = self._summarize_target_message(message)
+                self._log_received_target_message(message, prefix="收到回复")
+                return True
+        try:
+            async for message in self.app.get_chat_history(
+                chat.chat_id,
+                limit=history_limit,
+            ):
+                if not self._message_matches_chat_thread(message, chat):
+                    continue
+                # 只检查 bot 发送的消息
+                from_user = getattr(message, "from_user", None)
+                if from_user is not None and not getattr(from_user, "is_bot", False):
+                    continue
+                if self._message_is_from_today(
+                    message
+                ) and self._message_has_terminal_success_text(message):
+                    self.context.stop_reason = self._summarize_target_message(message)
+                    self._log_received_target_message(message, prefix="收到回复")
+                    return True
+        except Exception as e:
+            self.log(f"今日完成状态检查失败: {e}", level="WARNING")
+        return False
 
     def _message_has_terminal_success_text(self, message: Message) -> bool:
         text = "\n".join(

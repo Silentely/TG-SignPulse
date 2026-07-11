@@ -158,8 +158,20 @@ def get_openai_client(
     base_url: str = None,
     **kwargs,
 ) -> Optional["AsyncOpenAI"]:
+    from httpx import Timeout
     from openai import AsyncOpenAI, OpenAIError
 
+    # httpx 超时配置：read 超时动态跟随 AI_VISION_TIMEOUT，避免与 asyncio.wait_for 的总超时竞态。
+    # asyncio.wait_for 负责整体超时控制，httpx 超时仅作为底层安全兜底。
+    try:
+        _ai_timeout = float(os.environ.get("AI_VISION_TIMEOUT", "15"))
+    except ValueError:
+        _ai_timeout = 15.0
+    _read_timeout = max(_ai_timeout + 15.0, 30.0)
+    kwargs.setdefault(
+        "timeout",
+        Timeout(connect=5.0, read=_read_timeout, write=10.0, pool=2.0),
+    )
     try:
         return AsyncOpenAI(api_key=api_key, base_url=base_url, **kwargs)
     except OpenAIError:
@@ -191,6 +203,7 @@ class AITools:
         self.client = get_openai_client(
             api_key=cfg["api_key"], base_url=cfg.get("base_url")
         )
+        self.base_url = cfg.get("base_url") or ""
         self.default_model = cfg.get("model") or DEFAULT_MODEL
 
     @staticmethod
@@ -200,9 +213,9 @@ class AITools:
     @staticmethod
     def _ai_timeout() -> float:
         try:
-            timeout = float(os.environ.get("AI_VISION_TIMEOUT", "20"))
+            timeout = float(os.environ.get("AI_VISION_TIMEOUT", "15"))
         except ValueError:
-            return 20.0
+            return 15.0
         return max(3.0, timeout)
 
     @staticmethod
@@ -296,6 +309,21 @@ class AITools:
     def _format_option_lines(options: list[tuple[int, str]]) -> str:
         return "\n".join(f"{index}. {text}" for index, text in options)
 
+    _ZHIPU_HOSTNAMES = frozenset({"open.bigmodel.cn", "api.z.ai"})
+
+    def _format_image_url(self, image: bytes) -> str:
+        """根据 API 端点格式化图片 URL。
+        Zhipu GLM 系列端点期望原始 base64，不支持 data URL 前缀。
+        使用 urlparse 精确匹配 hostname，避免子域名或 query 注入绕过。
+        """
+        encoded_image = encode_image(image)
+        from urllib.parse import urlparse
+
+        parsed = urlparse(self.base_url)
+        if parsed.hostname and parsed.hostname.lower() in self._ZHIPU_HOSTNAMES:
+            return encoded_image
+        return f"data:image/jpeg;base64,{encoded_image}"
+
     @classmethod
     def _coerce_option_index(cls, result: Any, options: list[tuple[int, str]]) -> int:
         if isinstance(result, list):
@@ -365,6 +393,84 @@ class AITools:
         )
         return any(indicator in text for indicator in indicators)
 
+    @staticmethod
+    def _get_exception_status_code(exc: Exception) -> int | None:
+        """从异常对象或错误文本中提取 HTTP 状态码。"""
+        for attr in ("status_code", "code"):
+            value = getattr(exc, attr, None)
+            if isinstance(value, int):
+                return value
+            if isinstance(value, str) and value.isdigit():
+                return int(value)
+
+        response = getattr(exc, "response", None)
+        value = getattr(response, "status_code", None)
+        if isinstance(value, int):
+            return value
+
+        text = str(exc)
+        for pattern in (r"Error code:\s*(\d{3})", r"['\"]code['\"]:\s*(\d{3})"):
+            match = re.search(pattern, text)
+            if match:
+                return int(match.group(1))
+        return None
+
+    @classmethod
+    def _should_retry_transient_ai_error(cls, exc: Exception) -> bool:
+        """判断 AI 视觉请求错误是否为瞬时故障（可重试）。
+        配额耗尽（RESOURCE_EXHAUSTED / free_tier）不视为瞬时故障。
+        """
+        if isinstance(exc, TimeoutError):
+            return True
+
+        text = str(exc).lower()
+        # 配额耗尽不可重试，避免无意义请求
+        quota_markers = (
+            "quota exceeded",
+            "resource_exhausted",
+            "free_tier",
+            "check your plan and billing",
+            "insufficient_quota",
+            "billing hard limit",
+            "out of quota",
+            "exceeded your current quota",
+        )
+        if any(marker in text for marker in quota_markers):
+            return False
+
+        status_code = cls._get_exception_status_code(exc)
+        if status_code in {429, 500, 502, 503, 504}:
+            return True
+
+        transient_markers = (
+            "unavailable",
+            "high demand",
+            "rate limit",
+            "rate_limit",
+            "temporarily unavailable",
+            "try again later",
+            "server error",
+            "bad gateway",
+            "gateway timeout",
+        )
+        return any(marker in text for marker in transient_markers)
+
+    @classmethod
+    def _vision_retry_attempts(cls) -> int:
+        """AI 视觉请求总尝试次数（含首次请求），默认 2。
+        例如值为 3 时表示 1 次首次请求 + 2 次重试。
+        """
+        return cls._read_positive_int_env("AI_VISION_RETRY_ATTEMPTS", 2, 1)
+
+    @staticmethod
+    def _vision_retry_delay(attempt: int) -> float:
+        """AI 视觉请求重试延迟（秒），线性递增。"""
+        try:
+            base_delay = float(os.environ.get("AI_VISION_RETRY_DELAY", "0.6"))
+        except ValueError:
+            base_delay = 0.6
+        return max(0.0, base_delay) * attempt
+
     async def _create_visual_completion(
         self,
         *,
@@ -385,39 +491,76 @@ class AITools:
         if expect_json:
             kwargs["response_format"] = {"type": "json_object"}
 
-        _start = time.monotonic()
-        try:
-            result = await asyncio.wait_for(
-                client.chat.completions.create(**kwargs),
-                timeout=self._ai_timeout(),
-            )
-            _elapsed = (time.monotonic() - _start) * 1000
-            _usage = getattr(result, "usage", None)
-            _tokens = ""
-            if _usage:
-                _tokens = f" | tokens: prompt={getattr(_usage, 'prompt_tokens', '?')} completion={getattr(_usage, 'completion_tokens', '?')}"
-            logger.debug(f"AI API 调用完成 | model={model} elapsed_ms={_elapsed:.0f}{_tokens}")
-            return result
-        except Exception as exc:
-            if not expect_json or not self._should_retry_without_json_mode(exc):
+        attempts = self._vision_retry_attempts()
+        last_error: Exception | None = None
+
+        for attempt in range(1, attempts + 1):
+            _start = time.monotonic()
+            try:
+                result = await asyncio.wait_for(
+                    client.chat.completions.create(**kwargs),
+                    timeout=self._ai_timeout(),
+                )
+                _elapsed = (time.monotonic() - _start) * 1000
+                _usage = getattr(result, "usage", None)
+                _tokens = ""
+                if _usage:
+                    _tokens = f" | tokens: prompt={getattr(_usage, 'prompt_tokens', '?')} completion={getattr(_usage, 'completion_tokens', '?')}"
+                logger.debug(f"AI API 调用完成 | model={model} elapsed_ms={_elapsed:.0f}{_tokens}")
+                return result
+            except Exception as exc:
+                _elapsed = (time.monotonic() - _start) * 1000
+                last_error = exc
+
+                # JSON mode 降级：去掉 response_format 后在同一 attempt 内重试（不消耗重试预算）
+                if expect_json and self._should_retry_without_json_mode(exc):
+                    logger.warning(
+                        "AI provider 不支持 JSON mode，降级重试: %s",
+                        safe_text_preview(exc, 200),
+                    )
+                    kwargs.pop("response_format", None)
+                    expect_json = False
+                    # 在同一 attempt 内重试，不推进 attempt 计数
+                    _start = time.monotonic()
+                    try:
+                        result = await asyncio.wait_for(
+                            client.chat.completions.create(**kwargs),
+                            timeout=self._ai_timeout(),
+                        )
+                        _elapsed = (time.monotonic() - _start) * 1000
+                        logger.debug(f"AI API 降级完成（无 JSON 模式） | model={model} elapsed_ms={_elapsed:.0f}")
+                        return result
+                    except Exception as fallback_exc:
+                        last_error = fallback_exc
+                        # 降级也失败了，继续走瞬时重试逻辑
+                        if self._should_retry_transient_ai_error(fallback_exc) and attempt < attempts:
+                            delay = self._vision_retry_delay(attempt)
+                            logger.warning(
+                                "AI 视觉请求降级后瞬时错误，%g 秒后重试 (%d/%d): %s: %s",
+                                delay, attempt, attempts,
+                                type(fallback_exc).__name__,
+                                safe_text_preview(fallback_exc, 200),
+                            )
+                            await asyncio.sleep(delay)
+                            continue
+                        raise
+
+                # 瞬时错误重试：503/429/500/502/504/超时
+                if self._should_retry_transient_ai_error(exc) and attempt < attempts:
+                    delay = self._vision_retry_delay(attempt)
+                    logger.warning(
+                        "AI 视觉请求瞬时错误，%g 秒后重试 (%d/%d): %s: %s",
+                        delay, attempt, attempts,
+                        type(exc).__name__,
+                        safe_text_preview(exc, 200),
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+
+                # 不可重试的错误或已达最大重试次数
                 raise
-            logger.warning(
-                "AI provider rejected structured JSON mode, retrying without response_format: %s",
-                safe_text_preview(exc, 200),
-            )
-            kwargs.pop("response_format", None)
-            _retry_start = time.monotonic()
-            result = await asyncio.wait_for(
-                client.chat.completions.create(**kwargs),
-                timeout=self._ai_timeout(),
-            )
-            _retry_elapsed = (time.monotonic() - _retry_start) * 1000
-            _usage = getattr(result, "usage", None)
-            _tokens = ""
-            if _usage:
-                _tokens = f" | tokens: prompt={getattr(_usage, 'prompt_tokens', '?')} completion={getattr(_usage, 'completion_tokens', '?')}"
-            logger.debug(f"AI API 重试完成（无 JSON 模式） | model={model} elapsed_ms={_retry_elapsed:.0f}{_tokens}")
-            return result
+
+        raise last_error
 
     async def choose_option_by_image(
         self,
@@ -447,7 +590,7 @@ class AITools:
                     {
                         "type": "image_url",
                         "image_url": {
-                            "url": f"data:image/jpeg;base64,{encode_image(image)}"
+                            "url": self._format_image_url(image)
                         },
                     },
                 ],
@@ -498,7 +641,7 @@ class AITools:
                     {
                         "type": "image_url",
                         "image_url": {
-                            "url": f"data:image/jpeg;base64,{encode_image(image)}"
+                            "url": self._format_image_url(image)
                         },
                     },
                 ],
@@ -537,7 +680,7 @@ class AITools:
                     {
                         "type": "image_url",
                         "image_url": {
-                            "url": f"data:image/jpeg;base64,{encode_image(image)}"
+                            "url": self._format_image_url(image)
                         },
                     },
                 ],

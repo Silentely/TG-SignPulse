@@ -6,7 +6,7 @@ import json
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.core.auth import get_current_user
 from backend.models.user import User
@@ -368,16 +368,19 @@ def delete_ai_config(current_user: User = Depends(get_current_user)):
 
 class GlobalSettingsRequest(BaseModel):
     sign_interval: Optional[int] = None
-    log_retention_days: int = 7
+    log_retention_days: Optional[int] = None
     data_dir: Optional[str] = None
     global_proxy: Optional[str] = None
     tg_global_concurrency: Optional[int] = None
-    telegram_bot_notify_enabled: bool = False
-    telegram_bot_login_notify_enabled: bool = False
-    telegram_bot_task_failure_enabled: bool = True
+    device_keepalive_enabled: Optional[bool] = None
+    device_keepalive_interval_days: Optional[int] = None
+    telegram_bot_notify_enabled: Optional[bool] = None
+    telegram_bot_login_notify_enabled: Optional[bool] = None
+    telegram_bot_task_failure_enabled: Optional[bool] = None
     telegram_bot_token: Optional[str] = None
     telegram_bot_chat_id: Optional[str] = None
     telegram_bot_message_thread_id: Optional[int] = None
+    timezone: Optional[str] = None
 
 
 class GlobalSettingsResponse(BaseModel):
@@ -386,18 +389,23 @@ class GlobalSettingsResponse(BaseModel):
     data_dir: Optional[str] = None
     global_proxy: Optional[str] = None
     tg_global_concurrency: Optional[int] = 1
+    device_keepalive_enabled: bool = True
+    device_keepalive_interval_days: int = 30
     telegram_bot_notify_enabled: bool = False
     telegram_bot_login_notify_enabled: bool = False
     telegram_bot_task_failure_enabled: bool = True
     telegram_bot_token: Optional[str] = None
     telegram_bot_chat_id: Optional[str] = None
     telegram_bot_message_thread_id: Optional[int] = None
+    timezone: str = "Asia/Hong_Kong"
 
 
 @router.get("/settings", response_model=GlobalSettingsResponse)
 def get_global_settings(current_user: User = Depends(get_current_user)):
     try:
         settings = get_config_service().get_global_settings()
+        from backend.core.config import get_settings
+        settings.setdefault("timezone", get_settings().timezone)
         return GlobalSettingsResponse(**settings)
     except Exception as e:
         raise HTTPException(
@@ -411,30 +419,75 @@ async def save_global_settings(
     request: GlobalSettingsRequest, current_user: User = Depends(get_current_user)
 ):
     try:
-        settings = {
-            "sign_interval": request.sign_interval,
-            "log_retention_days": request.log_retention_days,
-            "global_proxy": request.global_proxy,
-            "tg_global_concurrency": request.tg_global_concurrency,
-            "telegram_bot_notify_enabled": request.telegram_bot_notify_enabled,
-            "telegram_bot_login_notify_enabled": request.telegram_bot_login_notify_enabled,
-            "telegram_bot_task_failure_enabled": request.telegram_bot_task_failure_enabled,
-            "telegram_bot_token": request.telegram_bot_token,
-            "telegram_bot_chat_id": request.telegram_bot_chat_id,
-            "telegram_bot_message_thread_id": request.telegram_bot_message_thread_id,
-        }
-        if hasattr(request, "model_fields_set"):
-            fields_set = request.model_fields_set
-        else:
-            fields_set = request.__fields_set__
+        # 只更新前端实际发送的字段，避免默认值覆盖已有配置
+        settings = {}
+        fields_set = getattr(request, "model_fields_set", None) or getattr(request, "__fields_set__", set())
+
+        # 按需更新字段
+        if "sign_interval" in fields_set:
+            settings["sign_interval"] = request.sign_interval
+        if "log_retention_days" in fields_set:
+            settings["log_retention_days"] = request.log_retention_days
         if "data_dir" in fields_set:
             settings["data_dir"] = request.data_dir
+        if "global_proxy" in fields_set:
+            settings["global_proxy"] = request.global_proxy
+        if "tg_global_concurrency" in fields_set:
+            settings["tg_global_concurrency"] = request.tg_global_concurrency
+        if "device_keepalive_enabled" in fields_set:
+            settings["device_keepalive_enabled"] = request.device_keepalive_enabled
+        if "device_keepalive_interval_days" in fields_set and request.device_keepalive_interval_days is not None:
+            settings["device_keepalive_interval_days"] = max(
+                1, min(int(request.device_keepalive_interval_days), 170)
+            )
+        if "telegram_bot_notify_enabled" in fields_set:
+            settings["telegram_bot_notify_enabled"] = request.telegram_bot_notify_enabled
+        if "telegram_bot_login_notify_enabled" in fields_set:
+            settings["telegram_bot_login_notify_enabled"] = request.telegram_bot_login_notify_enabled
+        if "telegram_bot_task_failure_enabled" in fields_set:
+            settings["telegram_bot_task_failure_enabled"] = request.telegram_bot_task_failure_enabled
+        if "telegram_bot_token" in fields_set:
+            settings["telegram_bot_token"] = request.telegram_bot_token
+        if "telegram_bot_chat_id" in fields_set:
+            settings["telegram_bot_chat_id"] = request.telegram_bot_chat_id
+        if "telegram_bot_message_thread_id" in fields_set:
+            settings["telegram_bot_message_thread_id"] = request.telegram_bot_message_thread_id
+        if "timezone" in fields_set:
+            settings["timezone"] = request.timezone
+
+        # 校验时区格式
+        if request.timezone and "timezone" in fields_set:
+            try:
+                from zoneinfo import ZoneInfo
+
+                ZoneInfo(request.timezone)
+            except Exception:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"无效的时区: {request.timezone}",
+                )
+
+        if not settings:
+            return AIConfigSaveResponse(success=True, message="No settings to update")
 
         if not get_config_service().save_global_settings(settings):
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to save global settings: write failed",
             )
+        # 时区变更时同步调度器（后台执行，不阻塞响应）
+        if "timezone" in settings:
+            import asyncio
+
+            from backend.scheduler import sync_jobs
+
+            async def _safe_tz_sync():
+                try:
+                    await sync_jobs()
+                except Exception as e:
+                    import logging
+                    logging.getLogger("backend.config_api").warning(f"时区变更调度同步失败: {e}")
+            asyncio.ensure_future(_safe_tz_sync())
         return AIConfigSaveResponse(success=True, message="Global settings saved")
     except HTTPException:
         raise
@@ -444,6 +497,32 @@ async def save_global_settings(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to save global settings: {str(e)}",
+        )
+
+
+class DeviceKeepaliveResponse(BaseModel):
+    success: bool
+    enabled: bool = True
+    checked: int = 0
+    kept_alive: int = 0
+    skipped: int = 0
+    failed: int = 0
+    interval_days: Optional[int] = None
+    results: list[dict] = Field(default_factory=list)
+
+
+@router.post("/settings/device-keepalive/run", response_model=DeviceKeepaliveResponse)
+async def run_device_keepalive(current_user: User = Depends(get_current_user)):
+    """立即执行一次设备保活。"""
+    try:
+        from backend.services.device_keepalive import get_device_keepalive_service
+
+        result = await get_device_keepalive_service().run_due(force=True)
+        return DeviceKeepaliveResponse(**result)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"设备保活失败: {str(e)}",
         )
 
 

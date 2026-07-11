@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
 import { ChevronDown, Check } from 'lucide-vue-next'
 import { useI18n } from '../composables/useI18n'
 
@@ -17,7 +17,9 @@ const emit = defineEmits<{ (e: 'update:modelValue', val: string | number): void 
 const { t } = useI18n()
 const isOpen = ref(false)
 const selectRef = ref<HTMLElement | null>(null)
+const dropdownRef = ref<HTMLElement | null>(null)
 const activeIndex = ref(-1)
+const dropdownStyle = ref<Record<string, string>>({})
 
 const selectableOptions = computed(() =>
   props.options.filter((o) => !o.disabled)
@@ -37,10 +39,37 @@ const select = (val: string | number) => {
   isOpen.value = false
 }
 
-const handleClickOutside = (e: MouseEvent) => {
-  if (selectRef.value && !selectRef.value.contains(e.target as Node)) {
-    isOpen.value = false
+const updateDropdownPosition = () => {
+  if (!selectRef.value || !isOpen.value) return
+  const rect = selectRef.value.getBoundingClientRect()
+  const dropdownH = 240
+  const spaceBelow = window.innerHeight - rect.bottom
+  const spaceAbove = rect.top
+
+  if (spaceBelow < dropdownH && spaceAbove > spaceBelow) {
+    dropdownStyle.value = {
+      position: 'fixed',
+      left: rect.left + 'px',
+      bottom: (window.innerHeight - rect.top) + 'px',
+      width: rect.width + 'px',
+      zIndex: '9999',
+    }
+  } else {
+    dropdownStyle.value = {
+      position: 'fixed',
+      left: rect.left + 'px',
+      top: rect.bottom + 4 + 'px',
+      width: rect.width + 'px',
+      zIndex: '9999',
+    }
   }
+}
+
+const handleClickOutside = (e: MouseEvent) => {
+  const target = e.target as Node
+  if (selectRef.value?.contains(target)) return
+  if (dropdownRef.value?.contains(target)) return
+  isOpen.value = false
 }
 
 const onKeydown = (e: KeyboardEvent) => {
@@ -75,10 +104,25 @@ const onKeydown = (e: KeyboardEvent) => {
 }
 
 onMounted(() => document.addEventListener('click', handleClickOutside))
-onUnmounted(() => document.removeEventListener('click', handleClickOutside))
+onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutside)
+  window.removeEventListener('scroll', updateDropdownPosition, true)
+  window.removeEventListener('resize', updateDropdownPosition)
+})
 
-watch(isOpen, (open) => {
-  if (!open) activeIndex.value = -1
+watch(isOpen, async (open) => {
+  if (open) {
+    await nextTick()
+    // 检查组件是否仍在打开状态（防止快速关闭后 async 回调仍注册监听器）
+    if (!isOpen.value) return
+    updateDropdownPosition()
+    window.addEventListener('scroll', updateDropdownPosition, true)
+    window.addEventListener('resize', updateDropdownPosition)
+  } else {
+    activeIndex.value = -1
+    window.removeEventListener('scroll', updateDropdownPosition, true)
+    window.removeEventListener('resize', updateDropdownPosition)
+  }
 })
 
 const selectedLabel = computed(() => {
@@ -102,31 +146,35 @@ const selectedLabel = computed(() => {
       <ChevronDown class="w-4 h-4 text-gray-400 transition-transform shrink-0" :class="isOpen ? 'rotate-180' : ''" />
     </button>
 
-    <div
-      v-if="isOpen"
-      role="listbox"
-      class="absolute z-[60] w-full mt-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/60 shadow-lg py-1 max-h-60 overflow-y-auto"
-    >
-      <button
-        v-for="opt in options"
-        :key="String(opt.value)"
-        type="button"
-        role="option"
-        :aria-selected="modelValue === opt.value"
-        :disabled="opt.disabled"
-        class="w-full text-left py-2 text-sm flex items-center justify-between"
-        :class="[
-          opt.disabled ? 'text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-default pt-3 pb-1 px-3' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer',
-          modelValue === opt.value ? 'text-gray-900 dark:text-gray-100 bg-gray-50 dark:bg-gray-800/50' : (!opt.disabled ? 'text-gray-700 dark:text-gray-300' : ''),
-          !opt.disabled && selectableOptions[activeIndex]?.value === opt.value ? 'ring-1 ring-inset ring-gray-300 dark:ring-gray-600' : '',
-          opt.indent ? 'pl-6 pr-3' : 'px-3'
-        ]"
-        @click="!opt.disabled && select(opt.value)"
+    <Teleport to="body">
+      <div
+        v-if="isOpen"
+        ref="dropdownRef"
+        role="listbox"
+        :style="dropdownStyle"
+        class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/60 shadow-lg py-1 max-h-60 overflow-y-auto"
       >
-        <span class="truncate">{{ opt.label }}</span>
-        <Check v-if="modelValue === opt.value && !opt.disabled" class="w-4 h-4 flex-shrink-0" />
-      </button>
-      <div v-if="!options.length" class="px-3 py-2 text-sm text-gray-400">{{ t('common.noOptions') }}</div>
-    </div>
+        <button
+          v-for="opt in options"
+          :key="String(opt.value)"
+          type="button"
+          role="option"
+          :aria-selected="modelValue === opt.value"
+          :disabled="opt.disabled"
+          class="w-full text-left py-2 text-sm flex items-center justify-between"
+          :class="[
+            opt.disabled ? 'text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-default pt-3 pb-1 px-3' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer',
+            modelValue === opt.value ? 'text-gray-900 dark:text-gray-100 bg-gray-50 dark:bg-gray-800/50' : (!opt.disabled ? 'text-gray-700 dark:text-gray-300' : ''),
+            !opt.disabled && selectableOptions[activeIndex]?.value === opt.value ? 'ring-1 ring-inset ring-gray-300 dark:ring-gray-600' : '',
+            opt.indent ? 'pl-6 pr-3' : 'px-3'
+          ]"
+          @click="!opt.disabled && select(opt.value)"
+        >
+          <span class="truncate">{{ opt.label }}</span>
+          <Check v-if="modelValue === opt.value && !opt.disabled" class="w-4 h-4 flex-shrink-0" />
+        </button>
+        <div v-if="!options.length" class="px-3 py-2 text-sm text-gray-400">{{ t('common.noOptions') }}</div>
+      </div>
+    </Teleport>
   </div>
 </template>

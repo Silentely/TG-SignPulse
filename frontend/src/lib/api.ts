@@ -260,6 +260,30 @@ export interface AccountStatusCheckResponse {
   results: AccountStatusItem[];
 }
 
+export interface AccountDeviceInfo {
+  hash: string;
+  current: boolean;
+  official_app: boolean;
+  password_pending: boolean;
+  device_model: string;
+  platform: string;
+  system_version: string;
+  app_name: string;
+  app_version: string;
+  date_created?: string | null;
+  date_active?: string | null;
+  ip: string;
+  country: string;
+  region: string;
+}
+
+export interface OfficialMessageInfo {
+  id?: number | null;
+  date?: string | null;
+  text: string;
+  outgoing: boolean;
+}
+
 export const startAccountLogin = (token: string, data: LoginStartRequest) =>
   request<LoginStartResponse>("/accounts/login/start", {
     method: "POST",
@@ -288,6 +312,17 @@ export const deleteAccount = (token: string, accountName: string) =>
 
 export const checkAccountExists = (token: string, accountName: string) =>
   request<{ exists: boolean; account_name: string }>(`/accounts/${accountName}/exists`, {}, token);
+
+export const listAccountDevices = (token: string, accountName: string) =>
+  request<{ devices: AccountDeviceInfo[]; total: number }>(`/accounts/${encodeURIComponent(accountName)}/devices`, {}, token);
+
+export const terminateAccountDevice = (token: string, accountName: string, authHash: string) =>
+  request<{ success: boolean; message: string }>(`/accounts/${encodeURIComponent(accountName)}/devices/${encodeURIComponent(authHash)}`, {
+    method: "DELETE",
+  }, token);
+
+export const listAccountOfficialMessages = (token: string, accountName: string, limit = 20) =>
+  request<{ messages: OfficialMessageInfo[]; total: number }>(`/accounts/${encodeURIComponent(accountName)}/official-messages?limit=${encodeURIComponent(String(limit))}`, {}, token);
 
 export const updateAccount = (
   token: string,
@@ -545,12 +580,15 @@ export interface GlobalSettings {
   data_dir?: string | null;
   global_proxy?: string | null;
   tg_global_concurrency?: number | null;
+  device_keepalive_enabled?: boolean;
+  device_keepalive_interval_days?: number;
   telegram_bot_notify_enabled?: boolean;
   telegram_bot_login_notify_enabled?: boolean;
   telegram_bot_task_failure_enabled?: boolean;
   telegram_bot_token?: string | null;
   telegram_bot_chat_id?: string | null;
   telegram_bot_message_thread_id?: number | null;
+  timezone?: string;
 }
 
 export const getGlobalSettings = (token: string) =>
@@ -560,6 +598,22 @@ export const saveGlobalSettings = (token: string, settings: GlobalSettings) =>
   request<{ success: boolean; message: string }>("/config/settings", {
     method: "POST",
     body: JSON.stringify(settings),
+  }, token);
+
+export interface DeviceKeepaliveRunResult {
+  success: boolean;
+  enabled: boolean;
+  checked: number;
+  kept_alive: number;
+  skipped: number;
+  failed: number;
+  interval_days?: number | null;
+  results: Array<{ account_name: string; status: string; message?: string }>;
+}
+
+export const runDeviceKeepalive = (token: string) =>
+  request<DeviceKeepaliveRunResult>("/config/settings/device-keepalive/run", {
+    method: "POST",
   }, token);
 
 // ============ Telegram API 配置 ============
@@ -790,6 +844,7 @@ export interface SignTask {
   notify_on_failure?: boolean;
   task_group_id?: string;
   last_run_account_name?: string;
+  retry_count?: number;
 }
 
 export interface CreateSignTaskRequest {
@@ -804,6 +859,7 @@ export interface CreateSignTaskRequest {
   range_start?: string;
   range_end?: string;
   notify_on_failure?: boolean;
+  retry_count?: number;
 }
 
 export interface UpdateSignTaskRequest {
@@ -816,6 +872,7 @@ export interface UpdateSignTaskRequest {
   range_start?: string;
   range_end?: string;
   notify_on_failure?: boolean;
+  retry_count?: number;
 }
 
 export interface ChatInfo {

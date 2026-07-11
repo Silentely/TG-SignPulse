@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { getGlobalSettings, saveGlobalSettings, getTelegramConfig, saveTelegramConfig, resetTelegramConfig, getAIConfig, saveAIConfig, testAIConnection, exportAllConfigs, importAllConfigs } from '../lib/api'
+import { getGlobalSettings, saveGlobalSettings, getTelegramConfig, saveTelegramConfig, resetTelegramConfig, getAIConfig, saveAIConfig, testAIConnection, exportAllConfigs, importAllConfigs, runDeviceKeepalive } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
+import CustomSelect from '../components/CustomSelect.vue'
 import { useAuthStore } from '../stores/auth'
 import { getErrorMessage } from '../lib/types'
 
@@ -16,13 +17,42 @@ const settings = ref({
   dataDir: '',
   proxy: '',
   concurrency: 1,
+  deviceKeepaliveEnabled: true,
+  deviceKeepaliveIntervalDays: 30,
   botEnabled: false,
   botLoginNotify: false,
   botTaskFailure: false,
   botToken: '',
   botChatId: '',
-  botThreadId: ''
+  botThreadId: '',
+  timezone: 'Asia/Hong_Kong'
 })
+
+// 时区选项列表
+const timezoneOptions = [
+  { label: 'Asia/Shanghai (UTC+8)', value: 'Asia/Shanghai' },
+  { label: 'Asia/Hong_Kong (UTC+8)', value: 'Asia/Hong_Kong' },
+  { label: 'Asia/Tokyo (UTC+9)', value: 'Asia/Tokyo' },
+  { label: 'Asia/Seoul (UTC+9)', value: 'Asia/Seoul' },
+  { label: 'Asia/Singapore (UTC+8)', value: 'Asia/Singapore' },
+  { label: 'Asia/Taipei (UTC+8)', value: 'Asia/Taipei' },
+  { label: 'Asia/Bangkok (UTC+7)', value: 'Asia/Bangkok' },
+  { label: 'Asia/Dubai (UTC+4)', value: 'Asia/Dubai' },
+  { label: 'Asia/Kolkata (UTC+5:30)', value: 'Asia/Kolkata' },
+  { label: 'Australia/Sydney (UTC+10/+11)', value: 'Australia/Sydney' },
+  { label: 'America/New_York (UTC-5/-4)', value: 'America/New_York' },
+  { label: 'America/Chicago (UTC-6/-5)', value: 'America/Chicago' },
+  { label: 'America/Denver (UTC-7/-6)', value: 'America/Denver' },
+  { label: 'America/Los_Angeles (UTC-8/-7)', value: 'America/Los_Angeles' },
+  { label: 'America/Sao_Paulo (UTC-3)', value: 'America/Sao_Paulo' },
+  { label: 'Europe/London (UTC+0/+1)', value: 'Europe/London' },
+  { label: 'Europe/Berlin (UTC+1/+2)', value: 'Europe/Berlin' },
+  { label: 'Europe/Paris (UTC+1/+2)', value: 'Europe/Paris' },
+  { label: 'Europe/Moscow (UTC+3)', value: 'Europe/Moscow' },
+  { label: 'Africa/Cairo (UTC+2)', value: 'Africa/Cairo' },
+  { label: 'Pacific/Auckland (UTC+12/+13)', value: 'Pacific/Auckland' },
+  { label: 'UTC', value: 'UTC' },
+]
 
 const tgConfig = ref({
   api_id: '',
@@ -62,12 +92,15 @@ onMounted(async () => {
     settings.value.dataDir = res.data_dir || ''
     settings.value.proxy = res.global_proxy || ''
     settings.value.concurrency = res.tg_global_concurrency || 1
+    settings.value.deviceKeepaliveEnabled = res.device_keepalive_enabled !== false
+    settings.value.deviceKeepaliveIntervalDays = res.device_keepalive_interval_days || 30
     settings.value.botEnabled = res.telegram_bot_notify_enabled || false
     settings.value.botLoginNotify = res.telegram_bot_login_notify_enabled || false
     settings.value.botTaskFailure = res.telegram_bot_task_failure_enabled || false
     settings.value.botToken = res.telegram_bot_token || ''
     settings.value.botChatId = res.telegram_bot_chat_id || ''
     settings.value.botThreadId = res.telegram_bot_message_thread_id ? String(res.telegram_bot_message_thread_id) : ''
+    settings.value.timezone = res.timezone || 'Asia/Hong_Kong'
 
     if (tgRes && tgRes.is_custom) {
       tgConfig.value.api_id = tgRes.api_id
@@ -98,6 +131,9 @@ const saveSettings = async () => {
       data_dir: settings.value.dataDir || null,
       global_proxy: settings.value.proxy || null,
       tg_global_concurrency: settings.value.concurrency || 1,
+      device_keepalive_enabled: settings.value.deviceKeepaliveEnabled,
+      device_keepalive_interval_days: settings.value.deviceKeepaliveIntervalDays || 30,
+      timezone: settings.value.timezone,
     })
     notifySuccess(t('settings.saveSuccess'))
   } catch (e: unknown) {
@@ -108,6 +144,22 @@ const saveSettings = async () => {
 }
 
 const botLoading = ref(false)
+const keepaliveLoading = ref(false)
+
+const runKeepaliveNow = async () => {
+  const token = authStore.token || ''
+  if (!token) return
+
+  keepaliveLoading.value = true
+  try {
+    const res = await runDeviceKeepalive(token)
+    notifySuccess(`${t('settings.keepaliveDone')}：${res.kept_alive}/${res.checked}，${t('settings.failed')} ${res.failed}`)
+  } catch (e: unknown) {
+    notifyError(getErrorMessage(e, t('settings.keepaliveFailed')))
+  } finally {
+    keepaliveLoading.value = false
+  }
+}
 
 const saveBotSettings = async () => {
   const token = authStore.token || ''
@@ -269,6 +321,32 @@ const handleImport = async (e: Event) => {
             <div class="space-y-1.5">
               <label class="text-xs text-gray-500 block">{{ t('settings.concurrency') }}</label>
               <input v-model.number="settings.concurrency" type="number" min="1" max="10" :placeholder="t('settings.concurrencyPlaceholder')" class="w-full bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-white dark:focus:bg-gray-800 placeholder:text-gray-400">
+            </div>
+            <div class="p-3 bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-gray-800/60 space-y-3">
+              <div class="flex items-center justify-between gap-3">
+                <div>
+                  <label class="text-xs text-gray-600 dark:text-gray-300 block">{{ t('settings.deviceKeepalive') }}</label>
+                  <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.deviceKeepaliveDesc') }}</p>
+                </div>
+                <button
+                  @click="settings.deviceKeepaliveEnabled = !settings.deviceKeepaliveEnabled"
+                  class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus:outline-none"
+                  :class="settings.deviceKeepaliveEnabled ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-700'"
+                >
+                  <span class="inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform" :class="settings.deviceKeepaliveEnabled ? 'translate-x-4' : 'translate-x-1'" />
+                </button>
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
+                <input v-model.number="settings.deviceKeepaliveIntervalDays" type="number" min="1" max="170" :disabled="!settings.deviceKeepaliveEnabled" class="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-white dark:focus:bg-gray-800 disabled:opacity-50">
+                <button @click="runKeepaliveNow" :disabled="keepaliveLoading" class="px-3 py-2 text-xs text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/60 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors disabled:opacity-50">
+                  {{ keepaliveLoading ? t('settings.saving') : t('settings.keepaliveNow') }}
+                </button>
+              </div>
+              <p class="text-[10px] text-gray-500">{{ t('settings.deviceKeepaliveIntervalHint') }}</p>
+            </div>
+            <div class="space-y-1.5">
+              <label class="text-xs text-gray-500 block">{{ t('settings.timezone') }}</label>
+              <CustomSelect v-model="settings.timezone" :options="timezoneOptions" className="w-full" />
             </div>
             <div class="pt-2">
               <button @click="saveSettings" :disabled="loading" class="w-full py-2 text-sm bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-white transition-colors disabled:opacity-50">{{ loading ? t('settings.saving') : t('settings.saveGeneral') }}</button>
