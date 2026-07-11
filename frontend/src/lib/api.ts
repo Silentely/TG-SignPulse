@@ -14,6 +14,9 @@ const toRecord = (headers?: HeadersInit): Record<string, string> => {
   return headers as Record<string, string>;
 };
 
+/** 默认请求超时（毫秒），可用 options.signal 覆盖/组合 */
+const DEFAULT_TIMEOUT_MS = 30_000;
+
 async function request<T>(
   path: string,
   options: RequestInit = {},
@@ -26,37 +29,78 @@ async function request<T>(
   if (token) {
     mergedHeaders["Authorization"] = `Bearer ${token}`;
   }
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: mergedHeaders,
-    cache: "no-store", // 禁用缓存，确保获取最新数据
-  });
+
+  const controller = new AbortController();
+  const externalSignal = options.signal;
+  const onExternalAbort = () => controller.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      controller.abort();
+    } else {
+      externalSignal.addEventListener("abort", onExternalAbort, { once: true });
+    }
+  }
+  const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers: mergedHeaders,
+      cache: "no-store", // 禁用缓存，确保获取最新数据
+      signal: controller.signal,
+    });
+  } catch (e: unknown) {
+    clearTimeout(timeoutId);
+    if (externalSignal) {
+      externalSignal.removeEventListener("abort", onExternalAbort);
+    }
+    const isAbort =
+      (e instanceof DOMException && e.name === "AbortError") ||
+      (e instanceof Error && e.name === "AbortError");
+    const err = new Error(isAbort ? "NETWORK_TIMEOUT" : "NETWORK_ERROR") as ApiError;
+    err.status = 0;
+    err.code = isAbort ? "NETWORK_TIMEOUT" : "NETWORK_ERROR";
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+    if (externalSignal) {
+      externalSignal.removeEventListener("abort", onExternalAbort);
+    }
+  }
+
   if (!res.ok) {
-    // 尝试解析 JSON 错误响应
-    let errorMessage = "请求失败";
+    // 尝试解析 JSON 错误响应；默认消息中性，避免中英文混用硬编码
+    let errorMessage = `Request failed (${res.status})`;
     let errorCode: string | undefined;
     try {
       const errorData = await res.json();
       if (errorData && typeof errorData === "object") {
         const detail = errorData.detail;
-        if (typeof detail === "string") {
-          errorMessage = detail;
+        if (typeof detail === "string" && detail.trim()) {
+          errorMessage = detail.trim();
         } else if (Array.isArray(detail)) {
           // FastAPI validation error format: [{loc, msg, type}]
-          errorMessage = (detail as FastApiValidationError[]).map((d) => d.msg || JSON.stringify(d)).join('; ');
+          const msgs = (detail as FastApiValidationError[])
+            .map((d) => (d.msg || "").trim() || JSON.stringify(d))
+            .filter(Boolean);
+          if (msgs.length) errorMessage = msgs.join("; ");
         } else if (detail && typeof detail === "object") {
           errorMessage = JSON.stringify(detail);
+        } else if (typeof errorData.message === "string" && errorData.message.trim()) {
+          errorMessage = errorData.message.trim();
         } else {
-          errorMessage = errorData.message || JSON.stringify(errorData);
+          errorMessage = JSON.stringify(errorData);
         }
         errorCode = errorData.code;
-      } else {
+      } else if (errorData != null) {
         errorMessage = JSON.stringify(errorData);
       }
     } catch {
       // 如果不是 JSON，使用文本
       try {
-        errorMessage = await res.text() || "请求失败";
+        const text = (await res.text()).trim();
+        if (text) errorMessage = text;
       } catch {
         // 忽略
       }

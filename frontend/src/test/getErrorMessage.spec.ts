@@ -10,12 +10,20 @@ describe('getErrorMessage', () => {
     expect(getErrorMessage('plain string error')).toBe('plain string error')
   })
 
-  it('序列化 object 为 JSON', () => {
-    expect(getErrorMessage({ code: 42, detail: 'bad input' })).toBe('{"code":42,"detail":"bad input"}')
+  it('优先提取 object.detail', () => {
+    expect(getErrorMessage({ code: 42, detail: 'bad input' })).toBe('bad input')
   })
 
-  it('空 object 返回序列化结果', () => {
-    expect(getErrorMessage({})).toBe('{}')
+  it('优先提取 object.message', () => {
+    expect(getErrorMessage({ message: 'boom' })).toBe('boom')
+  })
+
+  it('无 message/detail 的 object 序列化为 JSON', () => {
+    expect(getErrorMessage({ code: 42 })).toBe('{"code":42}')
+  })
+
+  it('空 object 回退默认文案', () => {
+    expect(getErrorMessage({})).toBe('Unknown error')
   })
 
   it('null 返回 Unknown error', () => {
@@ -34,7 +42,24 @@ describe('getErrorMessage', () => {
     expect(getErrorMessage(new TypeError('invalid type'))).toBe('invalid type')
   })
 
-  it('空字符串返回空字符串', () => {
-    expect(getErrorMessage('')).toBe('')
+  it('空字符串回退默认文案', () => {
+    expect(getErrorMessage('')).toBe('Unknown error')
+  })
+
+  it('空白字符串回退默认文案', () => {
+    expect(getErrorMessage('   ')).toBe('Unknown error')
+  })
+
+  it('支持自定义 fallback', () => {
+    expect(getErrorMessage(null, '操作失败')).toBe('操作失败')
+  })
+
+  it('Error 空 message 使用 fallback', () => {
+    expect(getErrorMessage(new Error(''), 'fallback')).toBe('fallback')
+  })
+
+  it('映射 NETWORK_TIMEOUT / NETWORK_ERROR', () => {
+    expect(getErrorMessage(new Error('NETWORK_TIMEOUT'))).toBe('Request timed out')
+    expect(getErrorMessage(new Error('NETWORK_ERROR'))).toBe('Network error')
   })
 })

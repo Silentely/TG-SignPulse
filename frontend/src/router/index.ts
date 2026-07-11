@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import Layout from '../views/Layout.vue'
 import { useAuthStore } from '../stores/auth'
+import { resolveAuthRedirect } from '../lib/auth-guard'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -27,15 +28,7 @@ const router = createRouter({
 
 router.beforeEach((to) => {
   const authStore = useAuthStore()
-  if (to.name !== 'login' && !authStore.token) {
-    return { name: 'login' }
-  } else if (to.name === 'login' && authStore.token) {
-    if (authStore.isTokenExpired()) {
-      authStore.clearToken()
-      return { name: 'login' }
-    }
-    return { name: 'dashboard' }
-  }
+  return resolveAuthRedirect(typeof to.name === 'string' ? to.name : null, authStore)
 })
 
 export default router

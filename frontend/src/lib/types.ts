@@ -43,6 +43,8 @@ export interface DashboardLog {
   task: string;
   status: 'success' | 'error';
   text: string;
+  /** ISO 时间，用于日志深链 */
+  created_at?: string;
 }
 
 // ─── Accounts 视图模型 ───
@@ -176,11 +178,38 @@ export interface CacheEntry<T> {
 }
 
 // ─── 工具函数 ───
-export function getErrorMessage(e: unknown): string {
-  if (e instanceof Error) return e.message;
-  if (typeof e === 'string') return e;
-  if (e && typeof e === 'object') return JSON.stringify(e);
-  return 'Unknown error';
+/**
+ * 从未知错误值中提取可读消息。
+ * 空字符串 / 空白消息回退为默认文案，避免 toast 出现空白提示。
+ */
+export function getErrorMessage(e: unknown, fallback = 'Unknown error'): string {
+  if (e instanceof Error) {
+    const msg = (e.message || '').trim()
+    // 网络层约定错误码，给出可读英文回退（UI 可再做 i18n 映射）
+    if (msg === 'NETWORK_TIMEOUT') return 'Request timed out'
+    if (msg === 'NETWORK_ERROR') return 'Network error'
+    return msg || fallback
+  }
+  if (typeof e === 'string') {
+    const msg = e.trim()
+    return msg || fallback
+  }
+  if (e && typeof e === 'object') {
+    const record = e as Record<string, unknown>
+    if (typeof record.message === 'string' && record.message.trim()) {
+      return record.message.trim()
+    }
+    if (typeof record.detail === 'string' && record.detail.trim()) {
+      return record.detail.trim()
+    }
+    try {
+      const serialized = JSON.stringify(e)
+      return serialized && serialized !== '{}' ? serialized : fallback
+    } catch {
+      return fallback
+    }
+  }
+  return fallback
 }
 
 
