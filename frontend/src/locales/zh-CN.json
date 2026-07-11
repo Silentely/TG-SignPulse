@@ -317,7 +317,7 @@
     "cloudPassword": "两步验证(Cloud Password)",
     "cloudPasswordPlaceholder": "未设置请留空",
     "proxy": "SOCKS5 代理 (可选)",
-    "proxyPlaceholder": "socks5://ip:port 或 socks5://user:pass@ip:port",
+    "proxyPlaceholder": "socks5://ip:port 或 socks5://user:pass{'@'}ip:port",
     "qrHint": "打开 Telegram 扫描二维码登录",
     "getQr": "获取二维码",
     "qrArea": "二维码显示区",

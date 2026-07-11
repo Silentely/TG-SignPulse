@@ -317,7 +317,7 @@
     "cloudPassword": "2FA (Cloud Password)",
     "cloudPasswordPlaceholder": "Leave empty if not set",
     "proxy": "SOCKS5 Proxy (optional)",
-    "proxyPlaceholder": "socks5://ip:port or socks5://user:pass@ip:port",
+    "proxyPlaceholder": "socks5://ip:port or socks5://user:pass{'@'}ip:port",
     "qrHint": "Open Telegram and scan the QR code to login",
     "getQr": "Get QR Code",
     "qrArea": "QR code area",
