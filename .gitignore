@@ -154,7 +154,8 @@ next-dev.*.log
 bandit_report*.json
 ruff_errors.txt
 git_show_head*.txt
-test_*.py
+# 仅忽略仓库根目录的临时脚本，不屏蔽 tests/ 下正式用例
+/test_*.py
 
 # agent
 .claude

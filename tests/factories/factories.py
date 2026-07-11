@@ -8,9 +8,8 @@
 
 from __future__ import annotations
 
-import json
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Sequence, Union
+from typing import Any, Dict, List, Optional
 
 from tests.utils.helpers import TEST_API_HASH, TEST_API_ID, utc_now_naive
 

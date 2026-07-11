@@ -13,7 +13,7 @@ import os
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable, Coroutine, Dict, List, Optional, TypeVar
+from typing import Any, Coroutine, Dict, List, Optional, TypeVar
 
 T = TypeVar("T")
 

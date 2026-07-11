@@ -7,10 +7,8 @@ AI 服务 Mock 对象
 
 from __future__ import annotations
 
-import json
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Tuple
-from unittest.mock import AsyncMock, MagicMock
 
 
 class MockCompletionChoice:

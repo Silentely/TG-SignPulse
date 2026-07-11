@@ -10,8 +10,7 @@ from __future__ import annotations
 import asyncio
 from collections import defaultdict
 from types import SimpleNamespace
-from typing import Any, Callable, Dict, List, Optional, Union
-from unittest.mock import AsyncMock, MagicMock
+from typing import Any, Dict, List, Optional, Union
 
 
 class MockMessage:

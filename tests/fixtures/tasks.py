@@ -12,7 +12,6 @@ from typing import Any, Dict, List, Optional
 
 from tests.utils.helpers import utc_now_naive
 
-
 # ---------- 纯字典任务数据 ----------
 
 def make_task_data(

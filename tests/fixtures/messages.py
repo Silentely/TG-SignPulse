@@ -7,18 +7,14 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from tests.mocks.telegram import (
-    MockInlineButton,
-    MockInlineKeyboardMarkup,
     MockMessage,
-    MockReplyKeyboardMarkup,
     MockUser,
     create_mock_inline_keyboard,
     create_mock_reply_keyboard,
 )
-
 
 # ---------- 基础消息 ----------
 
