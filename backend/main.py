@@ -272,6 +272,13 @@ async def on_startup() -> None:
     # Pre-export session strings from .session files to avoid SQLite locks during task execution
     _pre_export_session_strings()
 
+    # 启动内存监控后台任务（阈值可通过 MEMORY_THRESHOLD_MB 覆盖）
+    app.state.memory_monitor_task = create_logged_task(
+        _memory_monitor_loop(),
+        logger=logging.getLogger("backend.memory_monitor"),
+        description="backend memory monitor loop",
+    )
+
     async def _post_startup() -> None:
         try:
             await sync_jobs()
@@ -330,12 +337,54 @@ def _pre_export_session_strings() -> None:
         logger.info(f"Pre-exported {exported} session strings for in-memory task execution")
 
 
+async def _memory_monitor_loop() -> None:
+    """周期性检查进程内存，超阈值时告警并可选触发 GC。"""
+    from backend.utils.memory_monitor import MemoryMonitor
+
+    threshold_mb = float(os.getenv("MEMORY_THRESHOLD_MB", "512") or "512")
+    interval_s = float(os.getenv("MEMORY_CHECK_INTERVAL_S", "60") or "60")
+    monitor = MemoryMonitor(
+        threshold_mb=max(threshold_mb, 64.0),
+        check_interval=max(interval_s, 10.0),
+        gc_enabled=True,
+    )
+    app.state.memory_monitor = monitor
+    logger = logging.getLogger("backend.memory_monitor")
+    logger.info(
+        "内存监控已启动 threshold=%.0fMB interval=%.0fs",
+        monitor.threshold_mb,
+        monitor.check_interval,
+    )
+    try:
+        while True:
+            try:
+                monitor.check()
+            except Exception:
+                logger.exception("内存检查失败")
+            await asyncio.sleep(monitor.check_interval)
+    except asyncio.CancelledError:
+        stats = monitor.get_stats()
+        logger.info(
+            "内存监控已停止 current_rss=%.1fMB alerts=%s",
+            stats.get("current_rss_mb", 0),
+            stats.get("alert_count", 0),
+        )
+        raise
+
+
 async def on_shutdown() -> None:
     startup_task = getattr(app.state, "startup_task", None)
     if startup_task is not None and not startup_task.done():
         startup_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await startup_task
+
+    memory_task = getattr(app.state, "memory_monitor_task", None)
+    if memory_task is not None and not memory_task.done():
+        memory_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await memory_task
+
     shutdown_scheduler()
     try:
         from backend.services.keyword_monitor import get_keyword_monitor_service

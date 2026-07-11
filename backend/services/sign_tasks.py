@@ -2046,8 +2046,8 @@ class SignTaskService:
                 enabled=config.get("enabled", True),
             )
         except Exception as e:
-            msg = f"DEBUG: 更新调度任务失败: {e}"
-            print(msg)
+            msg = f"更新调度任务失败: {e}"
+            logging.getLogger("backend.sign_tasks").warning(msg, exc_info=True)
             self._append_scheduler_log(
                 "scheduler_error.log", f"{datetime.now()}: {msg}"
             )

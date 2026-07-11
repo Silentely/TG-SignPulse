@@ -12,13 +12,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import importlib
-import json
 import os
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Dict
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -26,28 +25,19 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from tests.fixtures.accounts import (
-    ACCOUNT_BASIC,
-    ACCOUNT_LIST,
     make_account_data,
     make_account_dict_list,
 )
 from tests.fixtures.messages import (
-    make_calculation_message,
     make_inline_keyboard_message,
     make_photo_message,
     make_sign_success_message,
-    make_sign_with_keyboard_flow_messages,
     make_text_message,
 )
 from tests.fixtures.tasks import (
     SIGN_CONFIG_V3_BASIC,
     SIGN_CONFIG_V3_MULTI_ACTION,
-    SIGN_CONFIG_V3_MULTI_CHAT,
     SIGN_CONFIG_V3_WITH_AI,
-    SIGN_CONFIG_V3_WITH_KEYWORD,
-    TASK_BASIC,
-    TASK_LIST,
-    make_sign_config_v3_dict,
     make_task_data,
     make_task_data_list,
 )
@@ -56,19 +46,12 @@ from tests.mocks.database import MockDBSession
 from tests.mocks.telegram import (
     MockChat,
     MockDialog,
-    MockInlineButton,
-    MockInlineKeyboardMarkup,
     MockMessage,
-    MockReplyKeyboardMarkup,
     MockTelegramClient,
-    MockUser,
 )
 from tests.utils.helpers import (
-    EnvManager,
     create_temp_config_file,
-    utc_now_naive,
 )
-
 
 # ============================================================================
 # 环境隔离 Fixtures
@@ -108,7 +91,29 @@ def no_external_telegram(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SIGN_TASK_FORCE_IN_MEMORY", "1")
     monkeypatch.setenv("SIGN_TASK_EXECUTION_TIMEOUT", "5")
     monkeypatch.setenv("AI_REQUEST_TIMEOUT", "5")
+    # 测试中拉长内存检查间隔，避免干扰 lifespan 相关用例
+    monkeypatch.setenv("MEMORY_CHECK_INTERVAL_S", "3600")
+    monkeypatch.setenv("MEMORY_THRESHOLD_MB", "8192")
     os.environ.setdefault("OPENAI_API_KEY", "test-openai-key")
+
+
+@pytest.fixture(autouse=True)
+def ensure_event_loop() -> Iterator[None]:
+    """
+    保证同步测试始终有可用的事件循环。
+
+    pytest-asyncio 在 async 用例结束后会关闭 loop，随后同步创建
+    Pyrogram Client / asyncio.Lock 会触发
+    “There is no current event loop in thread 'MainThread'”。
+    """
+    try:
+        loop = asyncio.get_event_loop_policy().get_event_loop()
+        if loop.is_closed():
+            raise RuntimeError("event loop is closed")
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    yield
 
 
 # ============================================================================
