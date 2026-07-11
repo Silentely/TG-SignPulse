@@ -5,6 +5,7 @@ import { Play, FileText, Edit2, Trash2, Plus, Radio, Clock, Shuffle, Power } fro
 import { listSignTasks, deleteSignTask, startSignTaskRun, listAccounts, toggleSignTaskEnabled } from '../lib/api'
 import type { SignTask, AccountInfo } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
+import { useToast } from '../composables/useToast'
 import { useAuthStore } from '../stores/auth'
 import type { TaskUiItem } from '../lib/types'
 import { getErrorMessage } from '../lib/types'
@@ -14,6 +15,7 @@ import TaskLogsModal from '../components/tasks/TaskLogsModal.vue'
 
 const route = useRoute()
 const { t } = useI18n()
+const toast = useToast()
 const authStore = useAuthStore()
 const tasks = ref<TaskUiItem[]>([])
 const pageLoading = ref(true)
@@ -129,6 +131,8 @@ const loadTasks = async () => {
     }
   } catch (e) {
     console.error('Failed to fetch tasks', e)
+    toast.error(getErrorMessage(e, t('tasks.loadFailed')))
+    tasks.value = []
   } finally {
     pageLoading.value = false
   }
@@ -205,9 +209,10 @@ const handleDelete = async (task: TaskUiItem) => {
   try {
     const accountName = getTaskAccountName(task.raw) || undefined
     await deleteSignTask(token, task.name, accountName)
+    toast.success(t('tasks.deleteSuccess'))
     await loadTasks()
   } catch (e: unknown) {
-    alert(`${t('tasks.deleteFailed')}: ${getErrorMessage(e) || t('tasks.unknownError')}`)
+    toast.error(`${t('tasks.deleteFailed')}: ${getErrorMessage(e) || t('tasks.unknownError')}`)
   }
 }
 
@@ -216,9 +221,10 @@ const handleToggleEnabled = async (task: TaskUiItem) => {
   try {
     const accountName = getTaskAccountName(task.raw) || undefined
     await toggleSignTaskEnabled(token, task.name, accountName)
+    toast.success(task.enabled ? t('tasks.pauseSuccess') : t('tasks.resumeSuccess'))
     await loadTasks()
   } catch (e: unknown) {
-    alert(`${t('tasks.toggleFailed') || '切换状态失败'}: ${getErrorMessage(e) || t('tasks.unknownError')}`)
+    toast.error(`${t('tasks.toggleFailed')}: ${getErrorMessage(e) || t('tasks.unknownError')}`)
   }
 }
 
@@ -253,8 +259,8 @@ const doRun = async (task: TaskUiItem, accountName: string) => {
     logsRunAccount.value = accountName
     logsTask.value = task
     showLogsModal.value = true
-  } catch(e: unknown) {
-    alert(`${t('tasks.triggerFailed')}: ${getErrorMessage(e)}`)
+  } catch (e: unknown) {
+    toast.error(`${t('tasks.triggerFailed')}: ${getErrorMessage(e) || t('tasks.unknownError')}`)
   }
 }
 

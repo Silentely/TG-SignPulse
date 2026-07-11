@@ -24,9 +24,9 @@ export function useI18n() {
     localStorage.setItem('tg-signer-locale', newLocale === 'zh-CN' ? 'zh' : 'en')
   }
 
-  // 包装 vue-i18n 的 t 函数，处理嵌套 key（如 'logs.detail.LOGIN_SUCCESS'）
-  function t(key: string): string {
-    return vueT(key)
+  // 包装 vue-i18n 的 t 函数，支持嵌套 key 与命名插值
+  function t(key: string, named?: Record<string, unknown>): string {
+    return named ? String(vueT(key, named)) : String(vueT(key))
   }
 
   return { locale: legacyLocale, toggleLanguage, t }

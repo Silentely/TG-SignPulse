@@ -2,10 +2,12 @@
 import { ref, onMounted } from 'vue'
 import { getGlobalSettings, saveGlobalSettings, getTelegramConfig, saveTelegramConfig, resetTelegramConfig, getAIConfig, saveAIConfig, testAIConnection, exportAllConfigs, importAllConfigs } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
+import { useToast } from '../composables/useToast'
 import { useAuthStore } from '../stores/auth'
 import { getErrorMessage } from '../lib/types'
 
 const { t } = useI18n()
+const toast = useToast()
 const authStore = useAuthStore()
 
 const settings = ref({
@@ -37,16 +39,17 @@ const loading = ref(false)
 const tgLoading = ref(false)
 const aiLoading = ref(false)
 const dataLoading = ref(false)
-const toastMsg = ref('')
+const pageLoading = ref(true)
 
-const showToast = (msg: string) => {
-  toastMsg.value = msg
-  setTimeout(() => toastMsg.value = '', 3000)
-}
+const notifySuccess = (msg: string) => toast.success(msg)
+const notifyError = (msg: string) => toast.error(msg)
 
 onMounted(async () => {
   const token = authStore.token || ''
-  if (!token) return
+  if (!token) {
+    pageLoading.value = false
+    return
+  }
 
   try {
     const [res, tgRes, aiRes] = await Promise.all([
@@ -75,9 +78,11 @@ onMounted(async () => {
       aiConfig.value.base_url = aiRes.base_url || ''
       aiConfig.value.model = aiRes.model || ''
     }
-
   } catch (e) {
     console.error('Failed to load settings', e)
+    notifyError(getErrorMessage(e, t('settings.loadFailed')))
+  } finally {
+    pageLoading.value = false
   }
 })
 
@@ -94,9 +99,9 @@ const saveSettings = async () => {
       global_proxy: settings.value.proxy || null,
       tg_global_concurrency: settings.value.concurrency || 1,
     })
-    showToast(t('settings.saveSuccess'))
+    notifySuccess(t('settings.saveSuccess'))
   } catch (e: unknown) {
-    showToast(getErrorMessage(e) || t('settings.saveFailed'))
+    notifyError(getErrorMessage(e, t('settings.saveFailed')))
   } finally {
     loading.value = false
   }
@@ -118,9 +123,9 @@ const saveBotSettings = async () => {
       telegram_bot_chat_id: settings.value.botChatId || null,
       telegram_bot_message_thread_id: settings.value.botThreadId ? parseInt(settings.value.botThreadId) : null,
     })
-    showToast(t('settings.saveSuccess'))
+    notifySuccess(t('settings.saveSuccess'))
   } catch (e: unknown) {
-    showToast(getErrorMessage(e) || t('settings.saveFailed'))
+    notifyError(getErrorMessage(e, t('settings.saveFailed')))
   } finally {
     botLoading.value = false
   }
@@ -131,9 +136,9 @@ const saveTgConfig = async () => {
   tgLoading.value = true
   try {
     await saveTelegramConfig(token, { api_id: tgConfig.value.api_id, api_hash: tgConfig.value.api_hash })
-    showToast(t('settings.tgConfigSaved'))
+    notifySuccess(t('settings.tgConfigSaved'))
   } catch (e: unknown) {
-    showToast(getErrorMessage(e) || t('settings.saveFailed'))
+    notifyError(getErrorMessage(e, t('settings.saveFailed')))
   } finally {
     tgLoading.value = false
   }
@@ -147,9 +152,9 @@ const resetTgConfig = async () => {
     await resetTelegramConfig(token)
     tgConfig.value.api_id = ''
     tgConfig.value.api_hash = ''
-    showToast(t('settings.resetSuccess'))
+    notifySuccess(t('settings.resetSuccess'))
   } catch (e: unknown) {
-    showToast(getErrorMessage(e) || t('settings.resetFailed'))
+    notifyError(getErrorMessage(e, t('settings.resetFailed')))
   } finally {
     tgLoading.value = false
   }
@@ -164,9 +169,9 @@ const saveAiConfig = async () => {
       model: aiConfig.value.model || undefined,
       api_key: aiConfig.value.api_key || undefined
     })
-    showToast(t('settings.aiConfigSaved'))
+    notifySuccess(t('settings.aiConfigSaved'))
   } catch (e: unknown) {
-    showToast(getErrorMessage(e) || t('settings.saveFailed'))
+    notifyError(getErrorMessage(e, t('settings.saveFailed')))
   } finally {
     aiLoading.value = false
   }
@@ -177,9 +182,9 @@ const testAi = async () => {
   aiLoading.value = true
   try {
     const res = await testAIConnection(token)
-    showToast(res.message || t('settings.testSuccess'))
+    notifySuccess(res.message || t('settings.testSuccess'))
   } catch (e: unknown) {
-    showToast(getErrorMessage(e) || t('settings.testFailed'))
+    notifyError(getErrorMessage(e, t('settings.testFailed')))
   } finally {
     aiLoading.value = false
   }
@@ -199,9 +204,9 @@ const handleExport = async () => {
     a.click()
     a.remove()
     URL.revokeObjectURL(url)
-    showToast(t('settings.exportSuccess'))
+    notifySuccess(t('settings.exportSuccess'))
   } catch (e: unknown) {
-    showToast(getErrorMessage(e) || t('settings.exportFailed'))
+    notifyError(getErrorMessage(e, t('settings.exportFailed')))
   } finally {
     dataLoading.value = false
   }
@@ -218,11 +223,12 @@ const handleImport = async (e: Event) => {
     dataLoading.value = true
     try {
       await importAllConfigs(token, jsonStr, true)
-      showToast(t('settings.importSuccess'))
+      notifySuccess(t('settings.importSuccess'))
     } catch (err: unknown) {
-      showToast(getErrorMessage(err) || t('settings.importFailed'))
+      notifyError(getErrorMessage(err, t('settings.importFailed')))
     } finally {
       dataLoading.value = false
+      target.value = ''
     }
   }
   reader.readAsText(file)
@@ -231,7 +237,10 @@ const handleImport = async (e: Event) => {
 
 <template>
   <div class="max-w-7xl pb-10">
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div v-if="pageLoading" class="flex items-center justify-center py-20">
+      <svg class="animate-spin w-6 h-6 text-gray-400" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+    </div>
+    <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-6">
       
       <!-- 通用设置 + Telegram API（左列） -->
       <div class="flex flex-col gap-6">
@@ -286,7 +295,10 @@ const handleImport = async (e: Event) => {
               <input v-model="tgConfig.api_hash" type="password" class="w-full bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-white dark:focus:bg-gray-800">
             </div>
             <div class="p-3 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-800/50 text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
-              <p>由于默认 API 可能存在大量自动化操作，如果该 API 的请求账号出现多个被封可能影响整个 API 权重！为了你的账号安全，我强烈建议你申请一个自己的开发者 API，申请地址：<a href="https://my.telegram.org/auth" target="_blank" rel="noopener" class="underline hover:text-amber-900 dark:hover:text-amber-300 font-medium">https://my.telegram.org/auth</a></p>
+              <p>
+                {{ t('settings.apiWarning') }}
+                <a href="https://my.telegram.org/auth" target="_blank" rel="noopener noreferrer" class="underline hover:text-amber-900 dark:hover:text-amber-300 font-medium">my.telegram.org</a>
+              </p>
             </div>
             <div class="pt-2">
               <button @click="saveTgConfig" :disabled="tgLoading || !tgConfig.api_id || !tgConfig.api_hash" class="w-full py-2 text-sm bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-white transition-colors disabled:opacity-50">{{ tgLoading ? t('settings.saving') : t('settings.saveTgConfig') }}</button>
@@ -407,19 +419,5 @@ const handleImport = async (e: Event) => {
       </section>
 
     </div>
-
-    <!-- Toast Notification -->
-    <Transition
-      enter-active-class="transition duration-200 ease-out"
-      enter-from-class="opacity-0 translate-y-2"
-      enter-to-class="opacity-100 translate-y-0"
-      leave-active-class="transition duration-150 ease-in"
-      leave-from-class="opacity-100 translate-y-0"
-      leave-to-class="opacity-0 translate-y-2"
-    >
-      <div v-if="toastMsg" class="fixed bottom-10 right-10 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 px-4 py-2 text-sm shadow-xl z-50">
-        {{ toastMsg }}
-      </div>
-    </Transition>
   </div>
 </template>

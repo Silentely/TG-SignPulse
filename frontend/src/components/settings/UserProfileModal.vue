@@ -4,10 +4,12 @@ import { useRouter } from 'vue-router'
 import Modal from '../Modal.vue'
 import { changePassword, changeUsername, getTOTPStatus, setupTOTP, fetchTOTPQRCode, enableTOTP, disableTOTP } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
+import { useToast } from '../../composables/useToast'
 import { useAuthStore } from '../../stores/auth'
 import { getErrorMessage } from '../../lib/types'
 
 const { t } = useI18n()
+const toast = useToast()
 const authStore = useAuthStore()
 
 const props = defineProps<{ isOpen: boolean }>()
@@ -39,6 +41,7 @@ const handleUsernameChange = async () => {
   try {
     const res = await changeUsername(token, usernameForm.value.new_username, usernameForm.value.password)
     successMessage.value = t('profile.usernameChanged')
+    toast.success(t('profile.usernameChanged'))
     usernameForm.value.new_username = ''
     usernameForm.value.password = ''
     // If a new token is returned, update it via authStore to keep state in sync
@@ -62,6 +65,7 @@ const handlePasswordChange = async () => {
   try {
     await changePassword(token, form.value.old_password, form.value.new_password)
     successMessage.value = t('profile.passwordChanged')
+    toast.success(t('profile.passwordChanged'))
     form.value.old_password = ''
     form.value.new_password = ''
   } catch (e: unknown) {
@@ -118,6 +122,7 @@ const handleEnableTOTP = async () => {
   try {
     await enableTOTP(token, totpCode.value)
     successMessage.value = t('profile.totpEnableSuccess')
+    toast.success(t('profile.totpEnableSuccess'))
     totpCode.value = ''
     await checkTOTP()
   } catch (e: unknown) {
@@ -137,6 +142,7 @@ const handleDisableTOTP = async () => {
   try {
     await disableTOTP(token, totpCode.value)
     successMessage.value = t('profile.totpDisableSuccess')
+    toast.success(t('profile.totpDisableSuccess'))
     totpCode.value = ''
     await checkTOTP()
   } catch (e: unknown) {

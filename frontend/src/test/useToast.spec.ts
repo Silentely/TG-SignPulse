@@ -83,4 +83,37 @@ describe('useToast', () => {
     const ids = toasts.value.map(t => t.id)
     expect(new Set(ids).size).toBe(3)
   })
+
+  it('dismiss 可手动关闭指定 toast', () => {
+    const { toasts, show, dismiss } = useToast()
+    show('可关闭')
+    const id = toasts.value[0].id
+    dismiss(id)
+    expect(toasts.value).toHaveLength(0)
+  })
+
+  it('clear 清空全部 toast', () => {
+    const { toasts, show, clear } = useToast()
+    show('a')
+    show('b')
+    clear()
+    expect(toasts.value).toHaveLength(0)
+  })
+
+  it('空消息不会入栈', () => {
+    const { toasts, show } = useToast()
+    show('   ')
+    show('')
+    expect(toasts.value).toHaveLength(0)
+  })
+
+  it('超出上限时淘汰最早条目', () => {
+    const { toasts, show } = useToast()
+    for (let i = 0; i < 6; i++) {
+      show(`msg-${i}`)
+    }
+    expect(toasts.value).toHaveLength(5)
+    expect(toasts.value[0].message).toBe('msg-1')
+    expect(toasts.value[4].message).toBe('msg-5')
+  })
 })

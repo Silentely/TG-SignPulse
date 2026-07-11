@@ -4,13 +4,16 @@ import { useRouter } from 'vue-router'
 import { Play, FileText, Edit2, Trash2, Plus, QrCode, Phone, Zap } from 'lucide-vue-next'
 import { listAccounts, deleteAccount, checkAccountsStatus } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
+import { useToast } from '../composables/useToast'
 import { useAuthStore } from '../stores/auth'
 import type { AccountUiItem } from '../lib/types'
+import { getErrorMessage } from '../lib/types'
 import AddAccountModal from '../components/accounts/AddAccountModal.vue'
 import EditAccountModal from '../components/accounts/EditAccountModal.vue'
 
 const router = useRouter()
 const { t } = useI18n()
+const toast = useToast()
 const authStore = useAuthStore()
 const accounts = ref<AccountUiItem[]>([])
 const pageLoading = ref(true)
@@ -62,6 +65,7 @@ const loadAccounts = async () => {
     }
   } catch (e) {
     console.error('Failed to fetch accounts', e)
+    toast.error(getErrorMessage(e) || t('accounts.loadFailed'))
   } finally {
     pageLoading.value = false
   }
@@ -92,9 +96,10 @@ const handleDelete = async (name: string) => {
   const token = authStore.token || ''
   try {
     await deleteAccount(token, name)
+    toast.success(t('accounts.deleteSuccess'))
     await loadAccounts()
   } catch (e) {
-    alert(t('accounts.deleteFailed'))
+    toast.error(getErrorMessage(e) || t('accounts.deleteFailed'))
   }
 }
 
@@ -110,13 +115,13 @@ const handleCheck = async (name: string) => {
     const result = res.results?.[0]
     if (result) {
       if (result.ok) {
-        alert(`✅ ${name}: ${t('accounts.checkOk')}`)
+        toast.success(`${name}: ${t('accounts.checkOk')}`)
       } else {
-        alert(`❌ ${name}: ${result.message || t('accounts.loginExpired')}`)
+        toast.error(`${name}: ${result.message || t('accounts.loginExpired')}`)
       }
     }
   } catch (e) {
-    alert(t('accounts.checkFailed'))
+    toast.error(getErrorMessage(e) || t('accounts.checkFailed'))
   } finally {
     checkingAccount.value = ''
   }
@@ -191,18 +196,28 @@ const goTasks = (name: string) => {
         </div>
         
         <!-- Status Indicator -->
-        <div class="flex items-center gap-2 shrink-0">
-          <span v-if="acc.status !== 'active'" class="text-[10px]" :class="acc.status === 'empty' ? 'text-amber-600 dark:text-amber-500/70' : 'text-rose-600 dark:text-rose-500'">
-            {{ acc.message }}
-          </span>
-          <div 
-            class="w-1.5 h-1.5 rounded-full"
+        <div class="flex items-center gap-2 shrink-0 max-w-[45%]">
+          <span
+            class="inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded text-[10px] border max-w-full"
             :class="{
-              'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]': acc.status === 'active',
-              'bg-amber-500/60': acc.status === 'empty',
-              'bg-rose-500': acc.status === 'error'
+              'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800/50': acc.status === 'active',
+              'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-800/50': acc.status === 'empty',
+              'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-900/20 dark:text-rose-400 dark:border-rose-800/50': acc.status === 'error',
             }"
-          ></div>
+            :title="acc.message || (acc.status === 'active' ? t('accounts.statusOk') : '')"
+          >
+            <span
+              class="w-1.5 h-1.5 rounded-full shrink-0"
+              :class="{
+                'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]': acc.status === 'active',
+                'bg-amber-500': acc.status === 'empty',
+                'bg-rose-500': acc.status === 'error'
+              }"
+            />
+            <span class="truncate">
+              {{ acc.status === 'active' ? t('accounts.statusOk') : (acc.message || t('accounts.statusUnknown')) }}
+            </span>
+          </span>
         </div>
       </div>
 

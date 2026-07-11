@@ -3,11 +3,13 @@ import { ref, watch } from 'vue'
 import Modal from '../Modal.vue'
 import { updateAccount } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
+import { useToast } from '../../composables/useToast'
 import { useAuthStore } from '../../stores/auth'
 import type { AccountUiItem } from '../../lib/types'
 import { getErrorMessage } from '../../lib/types'
 
 const { t } = useI18n()
+const toast = useToast()
 const authStore = useAuthStore()
 
 const props = defineProps<{
@@ -48,6 +50,7 @@ const handleSave = async () => {
       remark: form.value.remark || null,
       proxy: form.value.proxy || null
     })
+    toast.success(t('editAccount.saveSuccess'))
     emit('success')
     emit('close')
   } catch (e: unknown) {

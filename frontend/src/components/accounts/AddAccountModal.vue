@@ -3,10 +3,12 @@ import { ref, watch, onUnmounted } from 'vue'
 import Modal from '../Modal.vue'
 import { startAccountLogin, verifyAccountLogin, updateAccount, startQrLogin, getQrLoginStatus, submitQrPassword, cancelQrLogin } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
+import { useToast } from '../../composables/useToast'
 import { useAuthStore } from '../../stores/auth'
 import { getErrorMessage } from '../../lib/types'
 
 const { t } = useI18n()
+const toast = useToast()
 const authStore = useAuthStore()
 
 const props = defineProps<{ isOpen: boolean, initialMethod?: 'code' | 'qr', initialAccountName?: string }>()
@@ -97,6 +99,7 @@ const pollStatus = async (token: string, lid: string) => {
         } catch (err) {}
       }
       loading.value = false
+      toast.success(t('addAccount.loginSuccess'))
       emit('success')
       handleClose()
     } else if (res.status === 'waiting_for_password' || res.status === 'password_required') {
@@ -138,6 +141,7 @@ const handleQrPasswordSubmit = async (token: string, lid: string) => {
         } catch (err) {}
       }
       loading.value = false
+      toast.success(t('addAccount.loginSuccess'))
       emit('success')
       handleClose()
       return
@@ -198,8 +202,7 @@ const handleSendCode = async () => {
     })
     phoneCodeHash.value = res.phone_code_hash
     codeSent.value = true
-    error.value = t('addAccount.codeSent')
-    setTimeout(() => { if (error.value === t('addAccount.codeSent')) error.value = '' }, 3000)
+    toast.info(t('addAccount.codeSent'))
   } catch (e: unknown) {
     error.value = getErrorMessage(e) || t('addAccount.sendCodeFailed')
   } finally {
@@ -238,6 +241,7 @@ const handleSave = async () => {
         try { await updateAccount(token, form.value.account_name, { remark: form.value.remark }) } catch (err) {}
       }
       loading.value = false
+      toast.success(t('addAccount.loginSuccess'))
       emit('success')
       handleClose()
     } catch (e: unknown) {

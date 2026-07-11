@@ -6,11 +6,13 @@ import type { SignTask, AccountInfo, ChatInfo, CreateSignTaskRequest, UpdateSign
 import CustomSelect from '../CustomSelect.vue'
 import MultiSelect from '../MultiSelect.vue'
 import { useI18n } from '../../composables/useI18n'
+import { useToast } from '../../composables/useToast'
 import { useAuthStore } from '../../stores/auth'
 import type { TaskActionItem, RawTaskAction, BuiltAction } from '../../lib/types'
 import { getErrorMessage } from '../../lib/types'
 
 const { t } = useI18n()
+const toast = useToast()
 const authStore = useAuthStore()
 
 const DEFAULT_CMD_PREFIX = '/start'
@@ -84,7 +86,10 @@ const loadAccounts = async () => {
       if (accounts.value.length > 0) { allAccountsMode.value = true; selectedAccounts.value = accounts.value.map(a => a.name); selectedAccount.value = selectedAccounts.value[0] || '' }
     }
     if (selectedAccount.value) loadChats(selectedAccount.value)
-  } catch (e: unknown) { console.error(getErrorMessage(e)) }
+  } catch (e: unknown) {
+    console.error(getErrorMessage(e))
+    toast.error(getErrorMessage(e, t('taskForm.loadAccountsFailed')))
+  }
 }
 const parseActions = (raw: RawTaskAction[]) => { const p: TaskActionItem[] = []; for (const a of raw) { if (a.delay) p.push({id:Date.now()+Math.random(),type:'delay',value:String(a.delay),aiPrompt:''}); if(a.action===1)p.push({id:Date.now()+Math.random(),type:'send_text',value:a.text||'',aiPrompt:''}); else if(a.action===2)p.push({id:Date.now()+Math.random(),type:'send_dice',value:a.dice||'',aiPrompt:''}); else if(a.action===3)p.push({id:Date.now()+Math.random(),type:'click_text_button',value:a.text||'',aiPrompt:''}); else if(a.action===4)p.push({id:Date.now()+Math.random(),type:'vision_click',value:'',aiPrompt:a.ai_prompt||''}); else if(a.action===5)p.push({id:Date.now()+Math.random(),type:'calc_send',value:'',aiPrompt:a.ai_prompt||''}); else if(a.action===6)p.push({id:Date.now()+Math.random(),type:'vision_send',value:'',aiPrompt:a.ai_prompt||''}); else if(a.action===7)p.push({id:Date.now()+Math.random(),type:'calc_click',value:'',aiPrompt:a.ai_prompt||''}); else if(a.action===9)p.push({id:Date.now()+Math.random(),type:'bot_cmd',value:a.bot_username||'',commandPrefix:a.command_prefix||DEFAULT_CMD_PREFIX,aiPrompt:''}); } if(p.length>0)actions.value=p }
 let loadChatsAbort: AbortController | null = null
@@ -99,10 +104,13 @@ const loadChats = async (n: string, forceRefresh: boolean = false) => {
     const result = await getAccountChats(token, n, forceRefresh)
     if (controller.signal.aborted) return
     availableChats.value = result || []
-  } catch(e: unknown) {
+  } catch (e: unknown) {
     if (controller.signal.aborted) return
     console.error('loadChats failed:', getErrorMessage(e))
     availableChats.value = []
+    if (forceRefresh) {
+      toast.error(getErrorMessage(e, t('taskForm.loadChatsFailed')))
+    }
   } finally {
     if (loadChatsAbort === controller) { loadChatsAbort = null; chatListRefreshing.value = false }
   }
