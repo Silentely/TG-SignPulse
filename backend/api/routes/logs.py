@@ -156,24 +156,33 @@ def get_task_logs(
         limit=limit,
     )
 
-    return [
-        TaskHistoryLogItem(
-            id=index + 1,
-            account_name=str(item.get("account_name") or ""),
-            task_name=str(item.get("task_name") or "Unknown Task"),
-            message=str(item.get("message") or ""),
-            summary=(
-                f"Task: {str(item.get('task_name') or 'Unknown Task')} "
-                f"{'success' if bool(item.get('success')) else 'failed'}"
-            ),
-            bot_message=str(item.get("last_target_message") or "").strip()
-            or extract_last_target_message(item.get("flow_logs")),
-            success=bool(item.get("success", False)),
-            created_at=str(item.get("time") or ""),
-            flow_line_count=int(item.get("flow_line_count") or 0),
+    items: list[TaskHistoryLogItem] = []
+    for index, item in enumerate(history):
+        task_name = str(item.get("task_name") or "Unknown Task")
+        success = bool(item.get("success", False))
+        last_msg = (
+            str(item.get("last_target_message") or "").strip()
+            or extract_last_target_message(item.get("flow_logs"))
         )
-        for index, item in enumerate(history)
-    ]
+        raw_message = str(item.get("message") or "").strip()
+        # 列表摘要优先展示目标返回内容，其次原始 message，最后状态兜底
+        display_message = last_msg or raw_message or (
+            f"{task_name} · {'success' if success else 'failed'}"
+        )
+        items.append(
+            TaskHistoryLogItem(
+                id=index + 1,
+                account_name=str(item.get("account_name") or ""),
+                task_name=task_name,
+                message=display_message,
+                summary=display_message,
+                bot_message=last_msg or None,
+                success=success,
+                created_at=str(item.get("time") or ""),
+                flow_line_count=int(item.get("flow_line_count") or 0),
+            )
+        )
+    return items
 
 
 @router.get("/tasks/item", response_model=TaskHistoryLogDetailItem)

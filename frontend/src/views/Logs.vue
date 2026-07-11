@@ -1,16 +1,28 @@
 <script setup lang="ts">
 import { ref, onMounted, watch, computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { getTaskHistoryLogs, getTaskHistoryLogDetail, getLoginAuditLogs, listAccounts } from '../lib/api'
+import { Trash2, RefreshCw } from 'lucide-vue-next'
+import {
+  getTaskHistoryLogs,
+  getTaskHistoryLogDetail,
+  getLoginAuditLogs,
+  listAccounts,
+  clearTaskHistoryLogs,
+  clearLoginAuditLogs,
+} from '../lib/api'
 import type { TaskHistoryLog, LoginAuditLog, TaskHistoryLogDetail, AccountInfo } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
+import { useToast } from '../composables/useToast'
 import { useAuthStore } from '../stores/auth'
 import type { TaskLogUiItem, LoginLogUiItem } from '../lib/types'
+import { getErrorMessage } from '../lib/types'
 import Modal from '../components/Modal.vue'
 import CustomSelect from '../components/CustomSelect.vue'
 import DatePicker from '../components/DatePicker.vue'
+import FlowLogViewer from '../components/FlowLogViewer.vue'
 
 const { locale, t } = useI18n()
+const toast = useToast()
 const authStore = useAuthStore()
 const route = useRoute()
 
@@ -29,8 +41,10 @@ const filterAccount = ref('')
 const filterDate = ref('')
 const filterStatus = ref<'' | 'success' | 'error'>('')
 
-const logs = ref<TaskLogUiItem[]>([])
+/** 原始任务日志（服务端结果），客户端再做名称/状态筛选 */
+const rawTaskLogs = ref<TaskHistoryLog[]>([])
 const pageLoading = ref(true)
+const clearing = ref(false)
 const accountsList = ref<string[]>([])
 const selectedLog = ref<TaskLogUiItem | null>(null)
 const logDetail = ref<TaskHistoryLogDetail | null>(null)
@@ -47,6 +61,46 @@ const statusOptions = computed(() => [
   { label: t('logs.failed'), value: 'error' }
 ])
 
+const formatTime = (isoString: string) => {
+  if (!isoString) return ''
+  const d = new Date(isoString)
+  const loc = locale.value === 'zh' ? 'zh-CN' : 'en-US'
+  return d.toLocaleString(loc, { hour12: false })
+}
+
+const toTaskUi = (l: TaskHistoryLog): TaskLogUiItem => {
+  const preview = (l.bot_message || l.message || '').trim()
+  const fallback = l.success
+    ? `${t('logs.taskPrefix')}${l.task_name} ${t('logs.success')}`
+    : `${t('logs.taskPrefix')}${l.task_name} ${t('logs.failed')}`
+  return {
+    id: l.id,
+    time: formatTime(l.created_at),
+    created_at: l.created_at,
+    account: l.account_name,
+    task: l.task_name,
+    status: l.success ? 'success' : 'error',
+    text: preview || fallback,
+    flow_line_count: l.flow_line_count || 0,
+  }
+}
+
+const logs = computed(() => {
+  let filtered = rawTaskLogs.value
+  const taskQ = filterTask.value.trim().toLowerCase()
+  if (taskQ) {
+    filtered = filtered.filter((l) => l.task_name.toLowerCase().includes(taskQ))
+  }
+  if (filterStatus.value) {
+    filtered = filtered.filter((l) =>
+      filterStatus.value === 'success' ? l.success : !l.success
+    )
+  }
+  return filtered.map(toTaskUi)
+})
+
+const loginLogs = ref<LoginLogUiItem[]>([])
+
 const loadAccounts = async () => {
   const token = authStore.token || ''
   if (!token) return
@@ -58,13 +112,6 @@ const loadAccounts = async () => {
   }
 }
 
-const formatTime = (isoString: string) => {
-  if (!isoString) return ''
-  const d = new Date(isoString)
-  const loc = locale.value === 'zh' ? 'zh-CN' : 'en-US'
-  return d.toLocaleString(loc, { hour12: false })
-}
-
 const loadTaskLogs = async () => {
   const token = authStore.token || ''
   if (!token) return
@@ -73,35 +120,16 @@ const loadTaskLogs = async () => {
     const res = await getTaskHistoryLogs(token, {
       limit: 100,
       account_name: filterAccount.value || undefined,
-      date: filterDate.value || undefined
+      date: filterDate.value || undefined,
     })
-
-    let filtered = res
-    if (filterTask.value) {
-      filtered = filtered.filter((l: TaskHistoryLog) => l.task_name.includes(filterTask.value))
-    }
-    if (filterStatus.value) {
-      filtered = filtered.filter((l: TaskHistoryLog) => 
-        filterStatus.value === 'success' ? l.success : !l.success
-      )
-    }
-
-    logs.value = filtered.map((l: TaskHistoryLog) => ({
-      id: l.id,
-      time: formatTime(l.created_at),
-      created_at: l.created_at,
-      account: l.account_name,
-      task: l.task_name,
-      status: l.success ? 'success' : 'error',
-      text: l.success ? `${t('logs.taskPrefix')}${l.task_name} ${t('logs.success')}` : `${t('logs.taskPrefix')}${l.task_name} ${t('logs.failed')}`,
-      flow_line_count: l.flow_line_count || 0
-    }))
+    rawTaskLogs.value = Array.isArray(res) ? res : []
   } catch (e) {
     console.error('Failed to fetch logs', e)
+    toast.error(getErrorMessage(e, t('logs.loadFailed')))
+    rawTaskLogs.value = []
   }
 }
 
-const loginLogs = ref<LoginLogUiItem[]>([])
 const loadLoginLogs = async () => {
   const token = authStore.token || ''
   if (!token) return
@@ -109,7 +137,7 @@ const loadLoginLogs = async () => {
   try {
     const res = await getLoginAuditLogs(token, {
       limit: 100,
-      date: filterDate.value || undefined
+      date: filterDate.value || undefined,
     })
 
     loginLogs.value = res.map((l: LoginAuditLog) => ({
@@ -118,10 +146,12 @@ const loadLoginLogs = async () => {
       username: l.username,
       ip: l.ip_address || '-',
       status: l.success ? 'success' : 'error',
-      text: translateLoginDetail(l.detail, l.success)
+      text: translateLoginDetail(l.detail, l.success),
     }))
   } catch (e) {
     console.error('Failed to fetch login logs', e)
+    toast.error(getErrorMessage(e, t('logs.loadFailed')))
+    loginLogs.value = []
   }
 }
 
@@ -142,7 +172,6 @@ const openLogDetail = async (log: TaskLogUiItem) => {
   selectedLog.value = log
   logDetail.value = null
 
-  // Fetch full detail with flow_logs
   const token = authStore.token || ''
   if (!token || !log.account || !log.task || !log.created_at) return
 
@@ -151,168 +180,300 @@ const openLogDetail = async (log: TaskLogUiItem) => {
     const detail = await getTaskHistoryLogDetail(token, {
       account_name: log.account,
       task_name: log.task,
-      created_at: log.created_at
+      created_at: log.created_at,
     })
     logDetail.value = detail
   } catch (e) {
     console.error('Failed to fetch log detail', e)
+    toast.error(getErrorMessage(e, t('logs.detailLoadFailed')))
   } finally {
     detailLoading.value = false
   }
 }
 
+const handleClear = async () => {
+  const isTasks = activeTab.value === 'tasks'
+  const confirmMsg = isTasks ? t('logs.clearTasksConfirm') : t('logs.clearLoginConfirm')
+  if (!confirm(confirmMsg)) return
+
+  const token = authStore.token || ''
+  if (!token) return
+
+  clearing.value = true
+  try {
+    if (isTasks) {
+      const res = await clearTaskHistoryLogs(token)
+      toast.success(t('logs.clearSuccess', { count: String(res.cleared ?? 0) }))
+      rawTaskLogs.value = []
+    } else {
+      const res = await clearLoginAuditLogs(token)
+      toast.success(t('logs.clearSuccess', { count: String(res.cleared ?? 0) }))
+      loginLogs.value = []
+    }
+  } catch (e) {
+    toast.error(getErrorMessage(e, t('logs.clearFailed')))
+  } finally {
+    clearing.value = false
+  }
+}
+
+// 切换 Tab / 账号 / 日期 → 重新请求服务端
 watch(activeTab, () => {
   loadLogs()
 })
 
-watch([filterTask, filterAccount, filterDate, filterStatus], () => {
+watch([filterAccount, filterDate], () => {
   loadLogs()
 })
 
-onMounted(() => {
+const tryOpenFromQuery = async () => {
+  const taskQ = (route.query.task as string | undefined)?.trim()
+  const atQ = (route.query.at as string | undefined)?.trim()
+  if (!taskQ || !atQ || activeTab.value !== 'tasks') return
+
+  // 等待列表加载后匹配并打开详情
+  const match = rawTaskLogs.value.find(
+    (l) => l.task_name === taskQ && (l.created_at === atQ || l.created_at.startsWith(atQ.slice(0, 19)))
+  ) || rawTaskLogs.value.find((l) => l.task_name === taskQ)
+
+  if (match) {
+    filterTask.value = taskQ
+    await openLogDetail(toTaskUi(match))
+  }
+}
+
+onMounted(async () => {
   const queryAccount = route.query.account as string | undefined
   if (queryAccount) {
     filterAccount.value = queryAccount
   }
+  const queryTask = route.query.task as string | undefined
+  if (queryTask) {
+    filterTask.value = queryTask
+  }
   loadAccounts()
-  loadLogs()
+  await loadLogs()
+  await tryOpenFromQuery()
 })
 </script>
 
 <template>
   <div class="flex flex-col h-full">
-    <!-- Tabs -->
-    <div class="flex gap-6 mb-4 border-b border-gray-200 dark:border-gray-800">
-      <button 
-        @click="activeTab = 'tasks'"
-        class="pb-2 text-sm font-medium transition-colors border-b-2"
-        :class="activeTab === 'tasks' ? 'border-gray-900 dark:border-gray-100 text-gray-900 dark:text-gray-100' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
-      >
-        {{ t('logs.taskLogs') }}
-      </button>
-      <button 
-        @click="activeTab = 'login'"
-        class="pb-2 text-sm font-medium transition-colors border-b-2"
-        :class="activeTab === 'login' ? 'border-gray-900 dark:border-gray-100 text-gray-900 dark:text-gray-100' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
-      >
-        {{ t('logs.auditLogs') }}
-      </button>
+    <!-- Tabs + actions -->
+    <div class="flex items-end justify-between gap-4 mb-4 border-b border-gray-200 dark:border-gray-800">
+      <div class="flex gap-6">
+        <button
+          type="button"
+          class="pb-2 text-sm font-medium transition-colors border-b-2"
+          :class="activeTab === 'tasks' ? 'border-gray-900 dark:border-gray-100 text-gray-900 dark:text-gray-100' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+          @click="activeTab = 'tasks'"
+        >
+          {{ t('logs.taskLogs') }}
+        </button>
+        <button
+          type="button"
+          class="pb-2 text-sm font-medium transition-colors border-b-2"
+          :class="activeTab === 'login' ? 'border-gray-900 dark:border-gray-100 text-gray-900 dark:text-gray-100' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+          @click="activeTab = 'login'"
+        >
+          {{ t('logs.auditLogs') }}
+        </button>
+      </div>
+
+      <div class="flex items-center gap-1 pb-1">
+        <button
+          type="button"
+          class="p-1.5 text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
+          :title="t('common.refresh')"
+          :disabled="pageLoading"
+          @click="loadLogs"
+        >
+          <RefreshCw class="w-4 h-4" :class="{ 'animate-spin': pageLoading }" />
+        </button>
+        <button
+          type="button"
+          class="p-1.5 text-gray-500 hover:text-rose-600 dark:hover:text-rose-400 rounded hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors disabled:opacity-50"
+          :title="t('logs.clear')"
+          :disabled="clearing || pageLoading"
+          @click="handleClear"
+        >
+          <Trash2 class="w-4 h-4" />
+        </button>
+      </div>
     </div>
 
     <!-- Filters -->
-    <div v-if="activeTab === 'tasks'" class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-      <input 
-        v-model="filterTask"
-        type="text" 
-        :placeholder="t('logs.taskName')"
-        class="bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-gray-200 px-3 py-2 outline-none border border-gray-200 dark:border-gray-800/60 focus:border-gray-400 dark:focus:border-gray-600 transition-colors w-full placeholder:text-gray-400 dark:placeholder:text-gray-600"
-      >
-      <CustomSelect v-model="filterAccount" :options="accountOptions" />
-      <CustomSelect v-model="filterStatus" :options="statusOptions" />
+    <div
+      class="grid gap-3 mb-6"
+      :class="activeTab === 'tasks' ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-1 sm:grid-cols-2'"
+    >
+      <template v-if="activeTab === 'tasks'">
+        <input
+          v-model="filterTask"
+          type="text"
+          :placeholder="t('logs.taskName')"
+          class="bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-gray-200 px-3 py-2 outline-none border border-gray-200 dark:border-gray-800/60 focus:border-gray-400 dark:focus:border-gray-600 transition-colors w-full placeholder:text-gray-400 dark:placeholder:text-gray-600"
+        >
+        <CustomSelect v-model="filterAccount" :options="accountOptions" />
+        <CustomSelect v-model="filterStatus" :options="statusOptions" />
+      </template>
       <DatePicker v-model="filterDate" />
     </div>
 
     <!-- Logs List -->
     <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/60 p-3 sm:p-5 flex-1 min-h-[500px] overflow-y-auto">
-      <!-- Page Loading -->
       <div v-if="pageLoading" class="flex items-center justify-center py-20">
         <svg class="animate-spin w-6 h-6 text-gray-400" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
       </div>
-      <div v-else-if="activeTab === 'tasks'" class="font-mono text-xs space-y-0">
-        <!-- Empty state -->
-        <div v-if="logs.length === 0" class="flex flex-col items-center justify-center py-16 text-center font-sans">
+
+      <!-- Task logs -->
+      <div v-else-if="activeTab === 'tasks'" class="text-xs space-y-0">
+        <div v-if="logs.length === 0" class="flex flex-col items-center justify-center py-16 text-center">
           <p class="text-sm text-gray-500">{{ t('logs.empty') }}</p>
           <p class="text-xs text-gray-400 mt-1">{{ t('logs.emptyHint') }}</p>
         </div>
-        <div class="overflow-x-auto">
-          <div v-for="log in logs" :key="log.id" 
+        <div v-else class="overflow-x-auto">
+          <!-- header -->
+          <div class="hidden sm:flex items-center gap-3 px-2 py-1.5 text-[11px] uppercase tracking-wide text-gray-400 dark:text-gray-600 border-b border-gray-100 dark:border-gray-800/60 mb-1">
+            <span class="w-[140px] shrink-0">{{ t('logs.colTime') }}</span>
+            <span class="w-24 shrink-0">{{ t('logs.colAccount') }}</span>
+            <span class="w-28 shrink-0">{{ t('logs.colTask') }}</span>
+            <span class="w-16 shrink-0">{{ t('logs.colStatus') }}</span>
+            <span class="flex-1">{{ t('logs.colSummary') }}</span>
+          </div>
+          <div
+            v-for="log in logs"
+            :key="`${log.account}-${log.task}-${log.created_at}-${log.id}`"
+            class="flex items-center gap-3 hover:bg-gray-50 dark:hover:bg-gray-800/30 px-2 py-2 transition-colors cursor-pointer border-b border-transparent hover:border-gray-100 dark:hover:border-gray-800/40"
             @click="openLogDetail(log)"
-            class="flex items-center gap-4 hover:bg-gray-50 dark:hover:bg-gray-800/30 px-2 py-1.5 transition-colors cursor-pointer whitespace-nowrap min-w-max">
-            <span class="text-gray-500 dark:text-gray-600 shrink-0 w-[140px]">{{ log.time }}</span>
-            <span class="text-gray-700 dark:text-gray-400 shrink-0 w-24 truncate">{{ log.account }}</span>
+          >
+            <span class="font-mono text-gray-500 dark:text-gray-600 shrink-0 w-[140px] text-[11px]">{{ log.time }}</span>
+            <span class="text-gray-700 dark:text-gray-400 shrink-0 w-24 truncate font-medium">{{ log.account }}</span>
             <span class="text-gray-600 dark:text-gray-500 shrink-0 w-28 truncate">{{ log.task }}</span>
-            <div class="shrink-0 w-4 flex items-center justify-center">
-              <div v-if="log.status === 'success'" class="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
-              <div v-else-if="log.status === 'error'" class="w-1.5 h-1.5 rounded-full bg-rose-500"></div>
-            </div>
-            <span 
-              class="truncate max-w-[300px]"
-              :class="{
-                'text-gray-800 dark:text-gray-300': log.status === 'success',
-                'text-rose-600 dark:text-rose-400/90': log.status === 'error',
-              }"
+            <span
+              class="shrink-0 inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded text-[11px] border"
+              :class="log.status === 'success'
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800/50'
+                : 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-900/20 dark:text-rose-400 dark:border-rose-800/50'"
+            >
+              <span
+                class="w-1.5 h-1.5 rounded-full"
+                :class="log.status === 'success' ? 'bg-emerald-500' : 'bg-rose-500'"
+              />
+              {{ log.status === 'success' ? t('logs.success') : t('logs.failed') }}
+            </span>
+            <span
+              class="truncate flex-1 min-w-0"
+              :class="log.status === 'success' ? 'text-gray-700 dark:text-gray-300' : 'text-rose-600 dark:text-rose-400/90'"
+              :title="log.text"
+            >
+              {{ log.text }}
+            </span>
+            <span
+              v-if="log.flow_line_count > 0"
+              class="hidden sm:inline shrink-0 text-[10px] text-gray-400 font-mono"
+            >
+              {{ log.flow_line_count }}{{ t('logs.linesSuffix') }}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Login audit -->
+      <div v-else class="text-xs space-y-0">
+        <div v-if="loginLogs.length === 0" class="flex flex-col items-center justify-center py-16 text-center">
+          <p class="text-sm text-gray-500">{{ t('logs.emptyLogin') }}</p>
+          <p class="text-xs text-gray-400 mt-1">{{ t('logs.emptyLoginHint') }}</p>
+        </div>
+        <div v-else class="overflow-x-auto">
+          <div class="hidden sm:flex items-center gap-3 px-2 py-1.5 text-[11px] uppercase tracking-wide text-gray-400 dark:text-gray-600 border-b border-gray-100 dark:border-gray-800/60 mb-1">
+            <span class="w-[140px] shrink-0">{{ t('logs.colTime') }}</span>
+            <span class="w-24 shrink-0">{{ t('logs.colUser') }}</span>
+            <span class="w-32 shrink-0">{{ t('logs.colIp') }}</span>
+            <span class="w-16 shrink-0">{{ t('logs.colStatus') }}</span>
+            <span class="flex-1">{{ t('logs.colSummary') }}</span>
+          </div>
+          <div
+            v-for="log in loginLogs"
+            :key="log.id"
+            class="flex items-center gap-3 hover:bg-gray-50 dark:hover:bg-gray-800/30 px-2 py-2 transition-colors"
+          >
+            <span class="font-mono text-gray-500 dark:text-gray-600 shrink-0 w-[140px] text-[11px]">{{ log.time }}</span>
+            <span class="text-gray-700 dark:text-gray-400 shrink-0 w-24 truncate font-medium">{{ log.username }}</span>
+            <span class="text-gray-500 shrink-0 w-32 truncate font-mono text-[11px]">{{ log.ip }}</span>
+            <span
+              class="shrink-0 inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded text-[11px] border"
+              :class="log.status === 'success'
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800/50'
+                : 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-900/20 dark:text-rose-400 dark:border-rose-800/50'"
+            >
+              <span
+                class="w-1.5 h-1.5 rounded-full"
+                :class="log.status === 'success' ? 'bg-emerald-500' : 'bg-rose-500'"
+              />
+              {{ log.status === 'success' ? t('logs.success') : t('logs.failed') }}
+            </span>
+            <span
+              class="truncate flex-1"
+              :class="log.status === 'success' ? 'text-gray-700 dark:text-gray-300' : 'text-rose-600 dark:text-rose-400/90'"
             >
               {{ log.text }}
             </span>
           </div>
         </div>
       </div>
-      
-      <div v-else class="font-mono text-xs space-y-2">
-        <div v-for="log in loginLogs" :key="log.id" class="flex items-start gap-4 hover:bg-gray-50 dark:hover:bg-gray-800/30 px-2 py-1.5 -mx-2 transition-colors">
-          <span class="text-gray-500 dark:text-gray-600 shrink-0">{{ log.time }}</span>
-          <span class="text-gray-700 dark:text-gray-400 shrink-0 w-24 truncate">{{ log.username }}</span>
-          <span class="text-gray-500 dark:text-gray-500 shrink-0 w-32 truncate">{{ log.ip }}</span>
-          
-          <div class="shrink-0 w-4 flex items-center justify-center mt-0.5">
-            <div v-if="log.status === 'success'" class="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
-            <div v-else class="w-1.5 h-1.5 rounded-full bg-rose-500"></div>
-          </div>
-
-          <span 
-            class="truncate"
-            :class="{
-              'text-gray-800 dark:text-gray-300': log.status === 'success',
-              'text-rose-600 dark:text-rose-400/90': log.status === 'error'
-            }"
-          >
-            {{ log.text }}
-          </span>
-        </div>
-      </div>
     </div>
 
     <!-- Log Detail Modal -->
-    <Modal :isOpen="!!selectedLog" @close="selectedLog = null; logDetail = null" :title="t('logs.detailTitle')">
+    <Modal
+      :isOpen="!!selectedLog"
+      :title="t('logs.detailTitle')"
+      maxWidthClass="max-w-2xl"
+      @close="selectedLog = null; logDetail = null"
+    >
       <div v-if="selectedLog" class="space-y-3 text-sm">
         <div class="flex items-center gap-3">
-          <div class="w-2 h-2 rounded-full" :class="selectedLog.status === 'success' ? 'bg-emerald-500' : 'bg-rose-500'"></div>
-          <span class="font-medium text-gray-900 dark:text-gray-100">{{ selectedLog.status === 'success' ? t('logs.execSuccess') : t('logs.execFailed') }}</span>
+          <span
+            class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs border"
+            :class="selectedLog.status === 'success'
+              ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800/50'
+              : 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-900/20 dark:text-rose-400 dark:border-rose-800/50'"
+          >
+            <span
+              class="w-1.5 h-1.5 rounded-full"
+              :class="selectedLog.status === 'success' ? 'bg-emerald-500' : 'bg-rose-500'"
+            />
+            {{ selectedLog.status === 'success' ? t('logs.execSuccess') : t('logs.execFailed') }}
+          </span>
         </div>
         <div class="grid grid-cols-2 gap-3 text-xs">
-          <div><span class="text-gray-500">{{ t('logs.time') }}</span><span class="text-gray-900 dark:text-gray-200">{{ selectedLog.time }}</span></div>
-          <div><span class="text-gray-500">{{ t('logs.account') }}</span><span class="text-gray-900 dark:text-gray-200">{{ selectedLog.account }}</span></div>
-          <div class="col-span-2"><span class="text-gray-500">{{ t('logs.task') }}</span><span class="text-gray-900 dark:text-gray-200">{{ selectedLog.task }}</span></div>
+          <div>
+            <span class="text-gray-500">{{ t('logs.time') }}</span>
+            <span class="text-gray-900 dark:text-gray-200 font-mono">{{ selectedLog.time }}</span>
+          </div>
+          <div>
+            <span class="text-gray-500">{{ t('logs.account') }}</span>
+            <span class="text-gray-900 dark:text-gray-200">{{ selectedLog.account }}</span>
+          </div>
+          <div class="col-span-2">
+            <span class="text-gray-500">{{ t('logs.task') }}</span>
+            <span class="text-gray-900 dark:text-gray-200">{{ selectedLog.task }}</span>
+          </div>
         </div>
 
-        <!-- Detailed log content -->
         <div class="pt-2 border-t border-gray-200 dark:border-gray-800/60">
-          <!-- Loading state -->
-          <div v-if="detailLoading" class="flex items-center gap-2 text-xs text-gray-500 py-4 justify-center">
+          <div v-if="detailLoading" class="flex items-center gap-2 text-xs text-gray-500 py-6 justify-center">
             <svg class="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
             {{ t('common.loading') }}
           </div>
 
-          <!-- Last target message -->
-          <div v-if="logDetail?.last_target_message" class="mb-3">
-            <div class="text-xs text-gray-500 mb-1 font-semibold">{{ t('taskLogs.lastResponse') }}</div>
-            <div class="p-2 bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-gray-800/60 text-xs whitespace-pre-wrap break-all max-h-40 overflow-y-auto text-gray-800 dark:text-gray-300">{{ logDetail.last_target_message }}</div>
-          </div>
-
-          <!-- Flow logs (detailed execution log) -->
-          <div v-if="logDetail?.flow_logs && logDetail.flow_logs.length > 0" class="mb-3">
-            <div class="text-xs text-gray-500 mb-1 font-semibold">{{ t('taskLogs.logDetail') }}</div>
-            <div class="p-2 bg-gray-900 text-gray-300 border border-gray-700 text-xs font-mono whitespace-pre-wrap break-all max-h-60 overflow-y-auto">
-              <div v-for="(line, i) in logDetail.flow_logs" :key="i">{{ line }}</div>
-              <div v-if="logDetail.flow_truncated" class="text-gray-500 italic mt-1">{{ t('taskLogs.truncated') }}</div>
-            </div>
-          </div>
-
-          <!-- Summary / fallback message -->
-          <div v-else-if="!detailLoading">
-            <div class="text-xs text-gray-500 mb-1">{{ t('logs.execInfo') }}</div>
-            <div class="p-2 bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-gray-800/60 text-xs font-mono whitespace-pre-wrap break-all max-h-60 overflow-y-auto text-gray-800 dark:text-gray-300">{{ logDetail?.message || selectedLog.text || t('logs.noDetail') }}</div>
-          </div>
+          <FlowLogViewer
+            v-else
+            :lines="logDetail?.flow_logs || []"
+            :last-target-message="logDetail?.last_target_message || logDetail?.bot_message || selectedLog.text"
+            :truncated="!!logDetail?.flow_truncated"
+            :empty-text="logDetail?.message || selectedLog.text || t('logs.noDetail')"
+          />
         </div>
       </div>
     </Modal>
