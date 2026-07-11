@@ -5,14 +5,17 @@
     "tasks": "Tasks",
     "logs": "Logs",
     "settings": "Settings",
-    "profile": "Profile"
+    "profile": "Profile",
+    "mainNav": "Main navigation",
+    "openMenu": "Open menu"
   },
   "dashboard": {
     "activeAccounts": "Active Accounts",
     "totalTasks": "Total Tasks",
     "recentSuccess": "Recent Success",
     "recentFailure": "Recent Failure",
-    "recentLogs": "Recent Task Logs"
+    "recentLogs": "Recent Task Logs",
+    "openInLogs": "View in Logs"
   },
   "accounts": {
     "noRemark": "No remark",
@@ -24,6 +27,8 @@
     "emptyHint": "Click the button below to add your first account",
     "deleteConfirm": "Delete account",
     "deleteFailed": "Delete failed",
+    "deleteSuccess": "Account deleted",
+    "loadFailed": "Failed to load accounts",
     "checkFailed": "Check status failed",
     "checkOk": "Account status OK",
     "check": "Check",
@@ -34,7 +39,9 @@
     "viewLogs": "View Logs",
     "editBtn": "Edit",
     "edit": "Edit Account",
-    "deleteBtn": "Delete"
+    "deleteBtn": "Delete",
+    "statusOk": "OK",
+    "statusUnknown": "Unknown"
   },
   "tasks": {
     "empty": "No tasks yet",
@@ -58,8 +65,12 @@
     "triggerFailed": "Trigger failed",
     "pause": "Pause",
     "resume": "Resume",
+    "pauseSuccess": "Task paused",
+    "resumeSuccess": "Task resumed",
     "toggleFailed": "Toggle status failed",
-    "unknownError": "Unknown error"
+    "unknownError": "Unknown error",
+    "loadFailed": "Failed to load tasks",
+    "deleteSuccess": "Task deleted"
   },
   "taskForm": {
     "taskName": "Task Name",
@@ -123,7 +134,9 @@
     "addAction": "Add Action",
     "notifyOnFailure": "Notify on failure",
     "refreshChats": "Refresh",
-    "loadingChats": "Loading chats..."
+    "loadingChats": "Loading chats...",
+    "loadAccountsFailed": "Failed to load accounts",
+    "loadChatsFailed": "Failed to load chats"
   },
   "taskModal": {
     "addTitle": "Add Task",
@@ -147,7 +160,9 @@
     "failed": "Failed",
     "lastResponse": "Last Response:",
     "logDetail": "Log Details:",
-    "truncated": "...logs truncated"
+    "truncated": "...logs truncated",
+    "expandDetail": "Expand flow",
+    "collapseDetail": "Collapse flow"
   },
   "logs": {
     "taskLogs": "Task Execution Logs",
@@ -160,6 +175,8 @@
     "taskName": "Task name...",
     "empty": "No logs yet",
     "emptyHint": "Logs will appear here after tasks run",
+    "emptyLogin": "No login audit records",
+    "emptyLoginHint": "Panel sign-in events will appear here",
     "loginSuccess": "Login success",
     "loginFailed": "Login failed",
     "detailTitle": "Log Details",
@@ -170,6 +187,24 @@
     "task": "Task: ",
     "execInfo": "Execution Info:",
     "noDetail": "No details",
+    "loadFailed": "Failed to load logs",
+    "detailLoadFailed": "Failed to load log detail",
+    "copy": "Copy",
+    "copied": "Copied",
+    "copyFailed": "Copy failed",
+    "clear": "Clear logs",
+    "clearTasksConfirm": "Clear all task execution logs? This cannot be undone.",
+    "clearLoginConfirm": "Clear all login audit logs? This cannot be undone.",
+    "clearSuccess": "Cleared {count} records",
+    "clearFailed": "Failed to clear logs",
+    "colTime": "Time",
+    "colAccount": "Account",
+    "colTask": "Task",
+    "colStatus": "Status",
+    "colSummary": "Summary",
+    "colUser": "User",
+    "colIp": "IP",
+    "linesSuffix": " lines",
     "detail": {
       "LOGIN_SUCCESS": "Login successful",
       "INVALID_USERNAME_OR_PASSWORD": "Invalid username or password",
@@ -206,6 +241,8 @@
     "tgApiDesc": "Recommended to use your own API credentials to avoid limits.",
     "tgApiWarningTitle": "Why use custom API credentials?",
     "tgApiWarningDesc": "Using the built-in default API may cause account restrictions or login failures. It is strongly recommended to apply for your own credentials at:",
+    "apiWarning": "Default API weight may be affected by heavy automation. For account safety, apply for your own developer API:",
+    "loadFailed": "Failed to load settings",
     "resetDefault": "Reset to Default",
     "resetConfirm": "Reset to official default API?",
     "saveTgConfig": "Save TG Config",
@@ -299,7 +336,8 @@
     "needPassword": "2FA password required, please enter and confirm",
     "qrFailed": "QR scan failed, please retry",
     "getQrFailed": "Failed to get QR code",
-    "passwordFailed": "Password verification failed"
+    "passwordFailed": "Password verification failed",
+    "loginSuccess": "Account signed in"
   },
   "editAccount": {
     "title": "Edit Account",
@@ -312,18 +350,26 @@
     "cancel": "Cancel",
     "saving": "Saving...",
     "saveChanges": "Save Changes",
-    "saveFailed": "Save failed"
+    "saveFailed": "Save failed",
+    "saveSuccess": "Account updated"
   },
   "common": {
     "save": "Save",
     "cancel": "Cancel",
     "confirm": "Confirm",
+    "close": "Close",
     "loading": "Loading...",
     "noData": "No data",
+    "refresh": "Refresh",
+    "github": "GitHub",
+    "changeLanguage": "Change language",
     "lightMode": "Light Mode",
-    "darkMode": "Dark Mode"
+    "darkMode": "Dark Mode",
+    "selectPlaceholder": "Select",
+    "noOptions": "No options"
   },
   "login": {
+    "subtitle": "Telegram multi-account automation panel",
     "username": "Username",
     "password": "Password",
     "totpCode": "2FA Code",
@@ -332,9 +378,16 @@
     "totpInvalid": "Invalid code, please try again",
     "usernamePlaceholder": "Enter your username",
     "passwordPlaceholder": "Enter your password",
+    "showPassword": "Show password",
+    "hidePassword": "Hide password",
     "signIn": "Sign In",
     "authenticating": "Authenticating...",
-    "failed": "Login failed"
+    "failed": "Login failed",
+    "errors": {
+      "INVALID_USERNAME_OR_PASSWORD": "Invalid username or password",
+      "TOTP_REQUIRED_OR_INVALID": "2FA code invalid or missing",
+      "RATE_LIMITED": "Too many requests, please try later"
+    }
   },
   "multiSelect": {
     "placeholder": "Select",

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { LayoutDashboard, Users, Zap, Terminal, Settings, UserCircle, Github, Globe, Moon, Sun, Menu } from 'lucide-vue-next'
 import { useTheme } from '../composables/useTheme'
@@ -8,9 +8,26 @@ import UserProfileModal from '../components/settings/UserProfileModal.vue'
 
 const route = useRoute()
 const { isDark, toggleTheme } = useTheme()
-const { toggleLanguage, t } = useI18n()
+const { locale, toggleLanguage, t } = useI18n()
 const isMobileMenuOpen = ref(false)
 const showProfileModal = ref(false)
+
+const onKeydown = (e: KeyboardEvent) => {
+  if (e.key === 'Escape' && isMobileMenuOpen.value) {
+    isMobileMenuOpen.value = false
+  }
+}
+
+watch(isMobileMenuOpen, (open) => {
+  if (typeof document === 'undefined') return
+  document.body.style.overflow = open ? 'hidden' : ''
+})
+
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeydown)
+  if (typeof document !== 'undefined') document.body.style.overflow = ''
+})
 
 const navigation = [
   { id: 'dashboard', name: 'dashboard', icon: LayoutDashboard, labelKey: 'nav.dashboard' },
@@ -52,14 +69,15 @@ const handleNavClick = () => {
         <span class="ml-4 font-mono font-medium tracking-widest text-gray-900 dark:text-gray-100 whitespace-nowrap">SIGNPULSE</span>
       </div>
 
-      <nav class="flex-1 py-6 flex flex-col gap-2 px-3 overflow-y-auto custom-scrollbar">
+      <nav class="flex-1 py-6 flex flex-col gap-2 px-3 overflow-y-auto custom-scrollbar" :aria-label="t('nav.mainNav')">
         <router-link 
           v-for="nav in navigation" 
           :key="nav.id"
           :to="{ name: nav.name }"
-          @click="handleNavClick"
-          class="flex items-center h-10 px-2.5 transition-colors whitespace-nowrap"
+          class="flex items-center h-10 px-2.5 transition-colors whitespace-nowrap rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
           :class="route.name === nav.name ? 'bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-900/50'"
+          :aria-current="route.name === nav.name ? 'page' : undefined"
+          @click="handleNavClick"
         >
           <component :is="nav.icon" class="w-5 h-5 shrink-0" stroke-width="1.5" />
           <span class="ml-4 text-sm font-medium">{{ t(nav.labelKey) }}</span>
@@ -80,19 +98,42 @@ const handleNavClick = () => {
     <main class="flex-1 w-full pl-0 lg:pl-64 flex flex-col min-h-screen transition-all duration-300 max-w-[100vw]">
       <header class="h-16 flex items-center justify-between px-4 lg:px-8 shrink-0 border-b border-transparent">
         <div class="flex items-center gap-3">
-          <button @click="isMobileMenuOpen = true" class="lg:hidden w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 transition-colors">
+          <button
+            type="button"
+            class="lg:hidden w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 transition-colors rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+            :aria-label="t('nav.openMenu')"
+            @click="isMobileMenuOpen = true"
+          >
             <Menu class="w-5 h-5" />
           </button>
           <h1 class="text-lg font-medium text-gray-900 dark:text-gray-100 tracking-wide truncate max-w-[150px] sm:max-w-none">{{ currentTitle }}</h1>
         </div>
         <div class="flex items-center gap-2 sm:gap-3">
-          <button @click="openGithub" class="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-900 transition-colors rounded" title="GitHub">
+          <button
+            type="button"
+            class="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-900 transition-colors rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+            :title="t('common.github')"
+            :aria-label="t('common.github')"
+            @click="openGithub"
+          >
             <Github class="w-4 h-4" />
           </button>
-          <button @click="toggleLanguage" class="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-900 transition-colors rounded" title="Change Language">
+          <button
+            type="button"
+            class="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-900 transition-colors rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+            :title="locale === 'zh' ? 'English' : '中文'"
+            :aria-label="t('common.changeLanguage')"
+            @click="toggleLanguage"
+          >
             <Globe class="w-4 h-4" />
           </button>
-          <button @click="toggleTheme" class="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-900 transition-colors rounded" title="Toggle Theme">
+          <button
+            type="button"
+            class="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-900 transition-colors rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+            :title="isDark ? t('common.lightMode') : t('common.darkMode')"
+            :aria-label="isDark ? t('common.lightMode') : t('common.darkMode')"
+            @click="toggleTheme"
+          >
             <Moon v-if="!isDark" class="w-4 h-4" />
             <Sun v-else class="w-4 h-4" />
           </button>

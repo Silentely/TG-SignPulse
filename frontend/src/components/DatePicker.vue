@@ -33,8 +33,21 @@ const handleClickOutside = (e: MouseEvent) => {
   }
 }
 
-onMounted(() => document.addEventListener('click', handleClickOutside))
-onUnmounted(() => document.removeEventListener('click', handleClickOutside))
+const onKeydown = (e: KeyboardEvent) => {
+  if (e.key === 'Escape' && isOpen.value) {
+    e.preventDefault()
+    isOpen.value = false
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('click', handleClickOutside)
+  window.addEventListener('keydown', onKeydown)
+})
+onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutside)
+  window.removeEventListener('keydown', onKeydown)
+})
 
 const weekDays = computed(() => {
   if (locale.value === 'zh') return ['日', '一', '二', '三', '四', '五', '六']
@@ -115,11 +128,22 @@ const displayValue = computed(() => {
 
 <template>
   <div class="relative" ref="pickerRef">
-    <button type="button" @click="toggle"
-      class="w-full flex items-center justify-between h-9 sm:h-10 px-3 text-sm border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 outline-none focus:border-gray-400 dark:focus:border-gray-600 transition-colors">
+    <button
+      type="button"
+      class="w-full flex items-center justify-between h-9 sm:h-10 px-3 text-sm border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 outline-none focus:border-gray-400 dark:focus:border-gray-600 transition-colors focus-visible:ring-2 focus-visible:ring-gray-400"
+      :aria-expanded="isOpen"
+      aria-haspopup="dialog"
+      @click="toggle"
+    >
       <span class="truncate" :class="!modelValue ? 'text-gray-400 dark:text-gray-600' : ''">{{ displayValue || placeholder || (locale === 'zh' ? '选择日期' : 'Select date') }}</span>
       <div class="flex items-center gap-1">
-        <button v-if="modelValue" type="button" @click="clear" class="p-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+        <button
+          v-if="modelValue"
+          type="button"
+          class="p-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+          :aria-label="locale === 'zh' ? '清除日期' : 'Clear date'"
+          @click="clear"
+        >
           <X class="w-3 h-3" />
         </button>
         <ChevronDown class="w-4 h-4 text-gray-400 transition-transform" :class="isOpen ? 'rotate-180' : ''" />

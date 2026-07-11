@@ -36,3 +36,15 @@ select option {
   background: #111827;
   color: #9ca3af;
 }
+
+/* 键盘焦点可见环：提升可访问性，不干扰鼠标点击 */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+:focus-visible {
+  outline: 2px solid rgb(156 163 175 / 0.8);
+  outline-offset: 2px;
+}
+.dark :focus-visible {
+  outline-color: rgb(107 114 128 / 0.9);
+}

@@ -5,14 +5,17 @@
     "tasks": "任务编排",
     "logs": "查看日志",
     "settings": "系统设置",
-    "profile": "个人中心"
+    "profile": "个人中心",
+    "mainNav": "主导航",
+    "openMenu": "打开菜单"
   },
   "dashboard": {
     "activeAccounts": "活跃账号",
     "totalTasks": "任务总数",
     "recentSuccess": "近期成功",
     "recentFailure": "近期失败",
-    "recentLogs": "最近任务日志"
+    "recentLogs": "最近任务日志",
+    "openInLogs": "在日志页查看"
   },
   "accounts": {
     "noRemark": "暂无备注",
@@ -24,6 +27,8 @@
     "emptyHint": "点击右下角按钮添加第一个账号",
     "deleteConfirm": "确定删除账号",
     "deleteFailed": "删除失败",
+    "deleteSuccess": "账号已删除",
+    "loadFailed": "加载账号列表失败",
     "checkFailed": "检查状态失败",
     "checkOk": "账号状态正常",
     "check": "检测",
@@ -34,7 +39,9 @@
     "viewLogs": "查看日志",
     "editBtn": "编辑",
     "edit": "编辑账号",
-    "deleteBtn": "删除"
+    "deleteBtn": "删除",
+    "statusOk": "正常",
+    "statusUnknown": "未知"
   },
   "tasks": {
     "empty": "还没有任务",
@@ -58,8 +65,12 @@
     "triggerFailed": "触发失败",
     "pause": "暂停",
     "resume": "恢复",
+    "pauseSuccess": "任务已暂停",
+    "resumeSuccess": "任务已恢复",
     "toggleFailed": "切换状态失败",
-    "unknownError": "未知错误"
+    "unknownError": "未知错误",
+    "loadFailed": "加载任务列表失败",
+    "deleteSuccess": "任务已删除"
   },
   "taskForm": {
     "taskName": "任务名称",
@@ -123,7 +134,9 @@
     "addAction": "添加动作",
     "notifyOnFailure": "失败时发送通知",
     "refreshChats": "刷新列表",
-    "loadingChats": "加载会话中..."
+    "loadingChats": "加载会话中...",
+    "loadAccountsFailed": "加载账号列表失败",
+    "loadChatsFailed": "加载会话列表失败"
   },
   "taskModal": {
     "addTitle": "添加任务",
@@ -147,7 +160,9 @@
     "failed": "失败",
     "lastResponse": "最后返回内容：",
     "logDetail": "日志详情：",
-    "truncated": "...部分日志已截断"
+    "truncated": "...部分日志已截断",
+    "expandDetail": "展开执行流程",
+    "collapseDetail": "收起执行流程"
   },
   "logs": {
     "taskLogs": "任务执行日志",
@@ -160,6 +175,8 @@
     "taskName": "任务名称...",
     "empty": "暂无日志记录",
     "emptyHint": "任务执行后日志会显示在这里",
+    "emptyLogin": "暂无登录审计记录",
+    "emptyLoginHint": "面板登录行为会记录在这里",
     "loginSuccess": "登录成功",
     "loginFailed": "登录失败",
     "detailTitle": "日志详情",
@@ -170,6 +187,24 @@
     "task": "任务：",
     "execInfo": "执行信息：",
     "noDetail": "无详细信息",
+    "loadFailed": "加载日志失败",
+    "detailLoadFailed": "加载日志详情失败",
+    "copy": "复制",
+    "copied": "已复制",
+    "copyFailed": "复制失败",
+    "clear": "清空日志",
+    "clearTasksConfirm": "确定清空全部任务执行日志？此操作不可恢复。",
+    "clearLoginConfirm": "确定清空全部登录审计日志？此操作不可恢复。",
+    "clearSuccess": "已清空 {count} 条记录",
+    "clearFailed": "清空日志失败",
+    "colTime": "时间",
+    "colAccount": "账号",
+    "colTask": "任务",
+    "colStatus": "状态",
+    "colSummary": "摘要",
+    "colUser": "用户",
+    "colIp": "IP",
+    "linesSuffix": " 行",
     "detail": {
       "LOGIN_SUCCESS": "登录成功",
       "INVALID_USERNAME_OR_PASSWORD": "用户名或密码错误",
@@ -206,6 +241,8 @@
     "tgApiDesc": "推荐使用属于你自己的 API 凭证以防限制。",
     "tgApiWarningTitle": "⚠️ 为什么需要自定义 API？",
     "tgApiWarningDesc": "使用内置默认 API 可能导致账号被限制或无法登录。强烈建议前往以下地址申请你自己的凭证：",
+    "apiWarning": "默认 API 可能因大量自动化操作影响权重。为账号安全，强烈建议申请自己的开发者 API：",
+    "loadFailed": "加载设置失败",
     "resetDefault": "恢复官方默认",
     "resetConfirm": "确定要恢复默认官方 API 吗？",
     "saveTgConfig": "保存 TG 配置",
@@ -299,7 +336,8 @@
     "needPassword": "需要两步验证密码，请输入并点击确认保存",
     "qrFailed": "扫码失败，请重试",
     "getQrFailed": "获取二维码失败",
-    "passwordFailed": "密码验证失败"
+    "passwordFailed": "密码验证失败",
+    "loginSuccess": "账号登录成功"
   },
   "editAccount": {
     "title": "编辑账号",
@@ -312,18 +350,26 @@
     "cancel": "取消",
     "saving": "保存中...",
     "saveChanges": "保存更改",
-    "saveFailed": "保存失败"
+    "saveFailed": "保存失败",
+    "saveSuccess": "账号已更新"
   },
   "common": {
     "save": "保存",
     "cancel": "取消",
     "confirm": "确认",
+    "close": "关闭",
     "loading": "加载中...",
     "noData": "暂无数据",
+    "refresh": "刷新",
+    "github": "GitHub",
+    "changeLanguage": "切换语言",
     "lightMode": "浅色模式",
-    "darkMode": "深色模式"
+    "darkMode": "深色模式",
+    "selectPlaceholder": "请选择",
+    "noOptions": "无选项"
   },
   "login": {
+    "subtitle": "Telegram 多账号自动化面板",
     "username": "用户名",
     "password": "密码",
     "totpCode": "两步验证码",
@@ -332,9 +378,16 @@
     "totpInvalid": "验证码错误，请重新输入",
     "usernamePlaceholder": "请输入账号",
     "passwordPlaceholder": "请输入密码",
+    "showPassword": "显示密码",
+    "hidePassword": "隐藏密码",
     "signIn": "登 录",
     "authenticating": "登录中...",
-    "failed": "登录失败"
+    "failed": "登录失败",
+    "errors": {
+      "INVALID_USERNAME_OR_PASSWORD": "用户名或密码错误",
+      "TOTP_REQUIRED_OR_INVALID": "两步验证码错误或缺失",
+      "RATE_LIMITED": "请求过于频繁，请稍后再试"
+    }
   },
   "multiSelect": {
     "placeholder": "请选择",

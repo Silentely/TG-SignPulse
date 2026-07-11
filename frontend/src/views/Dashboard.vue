@@ -1,17 +1,34 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { listAccounts, listSignTasks, getRecentAccountLogs } from '../lib/api'
 import type { AccountInfo, AccountLog } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
+import { useToast } from '../composables/useToast'
 import { useAuthStore } from '../stores/auth'
 import type { DashboardLog } from '../lib/types'
+import { getErrorMessage } from '../lib/types'
 import Modal from '../components/Modal.vue'
 
 const { t } = useI18n()
+const toast = useToast()
 const authStore = useAuthStore()
+const router = useRouter()
 
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 const selectedLog = ref<DashboardLog | null>(null)
+
+/** 跳转到日志页并按账号筛选，附带任务/时间以便自动打开详情 */
+const goToLogs = (log: DashboardLog) => {
+  router.push({
+    name: 'logs',
+    query: {
+      account: log.account || undefined,
+      task: log.task || undefined,
+      at: log.created_at || undefined,
+    },
+  })
+}
 
 const stats = ref([
   { key: 'dashboard.activeAccounts', value: '...' },
@@ -49,9 +66,14 @@ const loadDashboardData = async () => {
     let tasksRes: Awaited<ReturnType<typeof listSignTasks>> = []
     let logsRes: AccountLog[] = []
 
-    try { accRes = await listAccounts(token) } catch (e) { console.error('Failed to load accounts', e) }
-    try { tasksRes = await listSignTasks(token) } catch (e) { console.error('Failed to load tasks', e) }
-    try { logsRes = await getRecentAccountLogs(token, 20) } catch (e) { console.error('Failed to load logs', e) }
+    let loadError: unknown = null
+    try { accRes = await listAccounts(token) } catch (e) { loadError = e; console.error('Failed to load accounts', e) }
+    try { tasksRes = await listSignTasks(token) } catch (e) { loadError = e; console.error('Failed to load tasks', e) }
+    try { logsRes = await getRecentAccountLogs(token, 20) } catch (e) { loadError = e; console.error('Failed to load logs', e) }
+    // 仅首屏加载失败时提示，避免 30s 轮询刷屏
+    if (loadError && pageLoading.value) {
+      toast.error(getErrorMessage(loadError, t('logs.loadFailed')))
+    }
 
     const activeAccs = accRes.accounts ? accRes.accounts.filter((a: AccountInfo) => a.status === 'connected' || a.status === 'checking').length : 0
     
@@ -81,7 +103,8 @@ const loadDashboardData = async () => {
         account: l.account_name,
         task: l.task_name,
         status: l.success ? 'success' : 'error',
-        text: l.message
+        text: (l.bot_message || l.message || '').trim() || l.task_name,
+        created_at: l.created_at,
       }))
     }
 }
@@ -110,23 +133,36 @@ const loadDashboardData = async () => {
     <!-- Terminal Logs -->
     <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/60 p-5 min-h-[400px]">
       <div class="text-xs text-gray-500 font-medium tracking-wide mb-4">{{ t('dashboard.recentLogs') }}</div>
-      <div class="font-mono text-xs overflow-x-auto">
-        <div v-for="(log, idx) in logs" :key="idx" 
+      <div v-if="logs.length === 0" class="flex flex-col items-center justify-center py-16 text-center">
+        <p class="text-sm text-gray-500">{{ t('logs.empty') }}</p>
+        <p class="text-xs text-gray-400 mt-1">{{ t('logs.emptyHint') }}</p>
+      </div>
+      <div v-else class="text-xs overflow-x-auto space-y-0">
+        <div v-for="(log, idx) in logs" :key="idx"
+          class="flex items-center gap-3 hover:bg-gray-50 dark:hover:bg-gray-800/30 px-2 py-2 transition-colors cursor-pointer"
+          :title="t('dashboard.openInLogs')"
           @click="selectedLog = log"
-          class="flex items-center gap-4 hover:bg-gray-50 dark:hover:bg-gray-800/30 px-2 py-1.5 transition-colors cursor-pointer whitespace-nowrap min-w-max">
-          <span class="text-gray-500 dark:text-gray-600 shrink-0">{{ log.time }}</span>
-          <span class="text-gray-700 dark:text-gray-400 shrink-0 w-24 truncate">{{ log.account }}</span>
+          @dblclick="goToLogs(log)"
+        >
+          <span class="font-mono text-gray-500 dark:text-gray-600 shrink-0 w-[72px] text-[11px]">{{ log.time }}</span>
+          <span class="text-gray-700 dark:text-gray-400 shrink-0 w-24 truncate font-medium">{{ log.account }}</span>
           <span class="text-gray-600 dark:text-gray-500 shrink-0 w-28 truncate">{{ log.task }}</span>
-          <div class="shrink-0 w-4 flex items-center justify-center">
-            <div v-if="log.status === 'success'" class="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
-            <div v-else-if="log.status === 'error'" class="w-1.5 h-1.5 rounded-full bg-rose-500"></div>
-          </div>
-          <span 
-            class="truncate max-w-[300px]"
-            :class="{
-              'text-gray-800 dark:text-gray-300': log.status === 'success',
-              'text-rose-600 dark:text-rose-400/90': log.status === 'error',
-            }"
+          <span
+            class="shrink-0 inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded text-[11px] border"
+            :class="log.status === 'success'
+              ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800/50'
+              : 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-900/20 dark:text-rose-400 dark:border-rose-800/50'"
+          >
+            <span
+              class="w-1.5 h-1.5 rounded-full"
+              :class="log.status === 'success' ? 'bg-emerald-500' : 'bg-rose-500'"
+            />
+            {{ log.status === 'success' ? t('logs.success') : t('logs.failed') }}
+          </span>
+          <span
+            class="truncate flex-1 min-w-0"
+            :class="log.status === 'success' ? 'text-gray-700 dark:text-gray-300' : 'text-rose-600 dark:text-rose-400/90'"
+            :title="log.text"
           >
             {{ log.text }}
           </span>
@@ -135,20 +171,39 @@ const loadDashboardData = async () => {
     </div>
 
     <!-- Log Detail Modal -->
-    <Modal :isOpen="!!selectedLog" @close="selectedLog = null" :title="t('logs.detailTitle')">
+    <Modal :isOpen="!!selectedLog" @close="selectedLog = null" :title="t('logs.detailTitle')" maxWidthClass="max-w-lg">
       <div v-if="selectedLog" class="space-y-3 text-sm">
         <div class="flex items-center gap-3">
-          <div class="w-2 h-2 rounded-full" :class="selectedLog.status === 'success' ? 'bg-emerald-500' : 'bg-rose-500'"></div>
-          <span class="font-medium text-gray-900 dark:text-gray-100">{{ selectedLog.status === 'success' ? t('logs.execSuccess') : t('logs.execFailed') }}</span>
+          <span
+            class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs border"
+            :class="selectedLog.status === 'success'
+              ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800/50'
+              : 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-900/20 dark:text-rose-400 dark:border-rose-800/50'"
+          >
+            <span
+              class="w-1.5 h-1.5 rounded-full"
+              :class="selectedLog.status === 'success' ? 'bg-emerald-500' : 'bg-rose-500'"
+            />
+            {{ selectedLog.status === 'success' ? t('logs.execSuccess') : t('logs.execFailed') }}
+          </span>
         </div>
         <div class="grid grid-cols-2 gap-3 text-xs">
-          <div><span class="text-gray-500">{{ t('logs.time') }}</span><span class="text-gray-900 dark:text-gray-200">{{ selectedLog.time }}</span></div>
+          <div><span class="text-gray-500">{{ t('logs.time') }}</span><span class="text-gray-900 dark:text-gray-200 font-mono">{{ selectedLog.time }}</span></div>
           <div><span class="text-gray-500">{{ t('logs.account') }}</span><span class="text-gray-900 dark:text-gray-200">{{ selectedLog.account }}</span></div>
           <div class="col-span-2"><span class="text-gray-500">{{ t('logs.task') }}</span><span class="text-gray-900 dark:text-gray-200">{{ selectedLog.task }}</span></div>
         </div>
         <div class="pt-2 border-t border-gray-200 dark:border-gray-800/60">
-          <div class="text-xs text-gray-500 mb-1">{{ t('logs.execInfo') }}</div>
-          <div class="p-2 bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-gray-800/60 text-xs font-mono whitespace-pre-wrap break-all max-h-60 overflow-y-auto text-gray-800 dark:text-gray-300">{{ selectedLog.text || t('logs.noDetail') }}</div>
+          <div class="text-xs text-gray-500 mb-1 font-semibold">{{ t('logs.execInfo') }}</div>
+          <div class="p-2.5 bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-gray-800/60 text-xs whitespace-pre-wrap break-all max-h-60 overflow-y-auto text-gray-800 dark:text-gray-300">{{ selectedLog.text || t('logs.noDetail') }}</div>
+        </div>
+        <div class="pt-1 flex justify-end">
+          <button
+            type="button"
+            class="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+            @click="goToLogs(selectedLog); selectedLog = null"
+          >
+            {{ t('dashboard.openInLogs') }}
+          </button>
         </div>
       </div>
     </Modal>
