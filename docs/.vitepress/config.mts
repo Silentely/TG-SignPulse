@@ -1,6 +1,6 @@
 import { defineConfig } from "vitepress";
 
-const repository = process.env.GITHUB_REPOSITORY || "akasls/TG-SignPulse";
+const repository = process.env.GITHUB_REPOSITORY || "Silentely/TG-SignPulse";
 const repositoryName = repository.split("/")[1] || "TG-SignPulse";
 const isGitHubActions = process.env.GITHUB_ACTIONS === "true";
 const editBranch =
@@ -64,18 +64,19 @@ export default defineConfig({
         text: "附录",
         items: [
           { text: "常见问题", link: "/faq" },
+          { text: "开发规范", link: "/reference/development" },
           { text: "文档目录", link: "/SUMMARY" }
         ]
       }
     ],
     socialLinks: [
-      { icon: "github", link: "https://github.com/akasls/TG-SignPulse" }
+      { icon: "github", link: "https://github.com/Silentely/TG-SignPulse" }
     ],
     search: {
       provider: "local"
     },
     editLink: {
-      pattern: `https://github.com/akasls/TG-SignPulse/edit/${editBranch}/docs/:path`,
+      pattern: `https://github.com/${repository}/edit/${editBranch}/docs/:path`,
       text: "在 GitHub 上编辑此页"
     },
     outline: {

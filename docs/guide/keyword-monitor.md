@@ -70,20 +70,7 @@
 
 - `bark_url`
 
-### 5. `serverchan`
-
-通过 ServerChan / Server 酱发送通知。配置字段：
-
-- `push_via_server_chan`：设为 `true` 启用
-- `server_chan_send_key`：ServerChan 的 SendKey
-
-如果面板没有独立 ServerChan 字段，可通过 `custom` URL 接入：
-
-```text
-https://sctapi.ftqq.com/<sendkey>.send?title={title}&desp={body}
-```
-
-### 6. `custom`
+### 5. `custom`
 
 把命中消息推送到自定义 URL。
 
@@ -91,6 +78,15 @@ https://sctapi.ftqq.com/<sendkey>.send?title={title}&desp={body}
 
 - `GET` 模板 URL：URL 中可使用 `{title}`、`{body}`、`{url}`
 - `POST JSON`：如果 URL 中没有模板变量，则直接发 JSON
+
+面板监听任务的 `push_channel` 仅支持：`continue`、`telegram`、`forward`、`bark`、`custom`。  
+ServerChan / Server 酱没有独立通道枚举；请用 `custom` 接入，例如：
+
+```text
+https://sctapi.ftqq.com/<sendkey>.send?title={title}&desp={body}
+```
+
+> CLI / `tg_signer` 监控配置（`MatchConfig`）另支持 `push_via_server_chan` + `server_chan_send_key`，与面板 `push_channel` 不是同一套字段。
 
 ## UDP/HTTP 外部转发
 

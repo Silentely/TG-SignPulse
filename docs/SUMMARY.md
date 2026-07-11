@@ -13,5 +13,6 @@
   - [配置参考](reference/configuration.md)
   - [运维手册](reference/ops.md)
   - [系统架构](reference/architecture.md)
+  - [开发规范](reference/development.md)
 - [常见问题](faq.md)
 

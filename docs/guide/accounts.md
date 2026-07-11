@@ -81,16 +81,19 @@ TG_SESSION_NO_UPDATES=0
 
 ## 账号状态检测
 
-面板支持检查账号状态，常见结果包括：
+面板支持检查账号状态。`status` 常见取值：
 
-- `connected`
-- `invalid`
-- `needs_relogin`
+- `connected`：会话可用
+- `invalid`：会话失效
+- `error`：检测过程出错
+- `checking`：检测进行中
+
+另有独立布尔字段 `needs_relogin`：为 `true` 时表示需要重新登录（常见于 `status = invalid`）。
 
 建议：
 
 - 定期检查长期挂机账号
-- 登录异常后尽快重登
+- `needs_relogin` 或 `invalid` 后尽快重登
 - 如果任务失败集中出现在某个账号，先检查账号状态和代理
 
 ## 重新登录

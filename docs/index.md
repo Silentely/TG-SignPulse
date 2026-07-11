@@ -67,8 +67,9 @@ TG-SignPulse 不是单一脚本，而是一套可长期维护的 Telegram 自动
 
 ## 本地预览文档
 
+在仓库根目录执行（`package.json` 的 docs 脚本在根目录，不在 `docs/`）：
+
 ```bash
-cd docs
 npm install
 npm run docs:dev
 ```

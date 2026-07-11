@@ -66,6 +66,7 @@ TG-SignPulse 用来集中管理多个 Telegram 账号，并把「发送消息、
 | [配置参考](reference/configuration.md) | 环境变量、数据目录、配置文件、默认行为 |
 | [运维手册](reference/ops.md) | 健康检查、日志、备份恢复、升级建议 |
 | [系统架构](reference/architecture.md) | 前后端、调度器、执行引擎、数据流 |
+| [开发规范](reference/development.md) | Python/前端基线、测试与变更原则 |
 
 ### 其他
 
@@ -94,7 +95,8 @@ TG-SignPulse/
 │   │   ├── views/      #     页面组件
 │   │   ├── components/ #     通用组件
 │   │   ├── stores/     #     Pinia 状态管理
-│   │   └── api/        #     API 调用层
+│   │   ├── composables/#     组合式函数
+│   │   └── lib/        #     API 调用与类型定义
 │   └── vite.config.ts
 ├── docker/             # Docker 入口脚本
 ├── docs/               # 项目文档 (VitePress)

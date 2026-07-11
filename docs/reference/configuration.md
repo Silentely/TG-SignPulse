@@ -46,7 +46,7 @@
 |------|--------|------|
 | `SIGN_TASK_EXECUTION_TIMEOUT` | `300` | 单次任务执行超时（秒） |
 | `SIGN_TASK_ACCOUNT_COOLDOWN` | `5` | 同一账号两次执行间的冷却时间（秒） |
-| `SIGN_TASK_FLOW_RETRY_ATTEMPTS` | `3` | 按钮点击失败后重试整个流程的次数 |
+| `SIGN_TASK_FLOW_RETRY_ATTEMPTS` | `1` | 按钮点击失败后重试整个流程的次数（默认不重试；设为 `>1` 时启用流程级重试） |
 | `SIGN_TASK_HISTORY_MAX_ENTRIES` | `100` | 每个任务保留的历史记录条数 |
 | `SIGN_TASK_HISTORY_MAX_FLOW_LINES` | `5000` | 历史记录中保留的最大流程日志行数 |
 | `SIGN_TASK_HISTORY_MAX_LINE_CHARS` | `2000` | 单行日志最大字符数 |
