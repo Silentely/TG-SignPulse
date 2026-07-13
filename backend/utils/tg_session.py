@@ -115,7 +115,10 @@ def get_account_session_string(account_name: str) -> Optional[str]:
         return None
     session_string = entry.get("session_string")
     if isinstance(session_string, str) and session_string.strip():
-        return session_string.strip()
+        cleaned = session_string.strip()
+        # 非法串（含历史错误导出）视为不存在，便于调用方回退到文件导出
+        if is_valid_session_string(cleaned):
+            return cleaned
     return None
 
 
@@ -128,7 +131,10 @@ def set_account_session_string(account_name: str, session_string: str) -> None:
     entry = accounts.get(account_name)
     if not isinstance(entry, dict):
         entry = {}
-    entry["session_string"] = session_string.strip()
+    cleaned = session_string.strip()
+    if not is_valid_session_string(cleaned):
+        raise ValueError("invalid pyrogram session_string")
+    entry["session_string"] = cleaned
     entry["updated_at"] = utc_now_iso()
     accounts[account_name] = entry
     _save_account_store(data)
@@ -262,24 +268,79 @@ def set_account_status(
     _save_account_store(data)
 
 
+# 与 kurigram/pyrogram Storage 保持一致的 session_string 格式
+# 见 pyrogram/storage/storage.py：旧格式无 api_id，新格式含 api_id，均无版本前缀
+_OLD_SESSION_STRING_FORMAT = ">B?256sI?"
+_OLD_SESSION_STRING_FORMAT_64 = ">B?256sQ?"
+_SESSION_STRING_FORMAT = ">BI?256sQ?"
+_SESSION_STRING_SIZE = 351
+_SESSION_STRING_SIZE_64 = 356
+
+
 def session_string_file_path(session_dir: Path, account_name: str) -> Path:
     return session_dir / f"{account_name}.session_string"
 
 
+def is_valid_session_string(session_string: Optional[str]) -> bool:
+    """校验是否为 Pyrogram/kurigram 可解码的 session_string。
+
+    拒绝 Telethon 风格前缀（如 ``1`` + base64）及损坏/截断数据，
+    避免 MemoryStorage.open 在 base64 解码阶段抛 binascii.Error。
+    """
+    if not isinstance(session_string, str):
+        return False
+    s = session_string.strip()
+    if not s:
+        return False
+
+    import base64
+    import struct
+
+    try:
+        # 与 pyrogram MemoryStorage.open 相同的 padding 规则
+        decoded = base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+    except Exception:
+        return False
+
+    try:
+        if len(s) in (_SESSION_STRING_SIZE, _SESSION_STRING_SIZE_64):
+            fmt = (
+                _OLD_SESSION_STRING_FORMAT
+                if len(s) == _SESSION_STRING_SIZE
+                else _OLD_SESSION_STRING_FORMAT_64
+            )
+            struct.unpack(fmt, decoded)
+            return True
+        struct.unpack(_SESSION_STRING_FORMAT, decoded)
+        return True
+    except Exception:
+        return False
+
+
 def load_session_string_file(session_dir: Path, account_name: str) -> Optional[str]:
     path = session_string_file_path(session_dir, account_name)
-    if not path.exists():
-        # Try to export session string from .session SQLite file
-        return _export_session_string_from_file(session_dir, account_name)
-    try:
-        content = path.read_text(encoding="utf-8").strip()
-    except Exception:
-        return None
-    return content or None
+    if path.exists():
+        try:
+            content = path.read_text(encoding="utf-8").strip()
+        except Exception:
+            content = ""
+        if content and is_valid_session_string(content):
+            return content
+        # 坏缓存（含历史错误导出的 357 字符串）：删除后从 .session 重导
+        try:
+            path.unlink()
+        except Exception:
+            pass
+    return _export_session_string_from_file(session_dir, account_name)
 
 
 def _export_session_string_from_file(session_dir: Path, account_name: str) -> Optional[str]:
-    """Extract session string from .session SQLite file and cache it."""
+    """从 .session SQLite 导出 Pyrogram 新版 session_string 并缓存。
+
+    格式必须与 ``Client.export_session_string()`` 一致：
+    ``struct.pack(">BI?256sQ?", dc_id, api_id, test_mode, auth_key, user_id, is_bot)``
+    再 urlsafe_b64encode 并去掉 ``=`` padding。**禁止** Telethon 的 ``1`` 版本前缀。
+    """
     import base64
     import sqlite3
     import struct
@@ -314,17 +375,30 @@ def _export_session_string_from_file(session_dir: Path, account_name: str) -> Op
         if not auth_key or not user_id:
             return None
 
-        # Pack into pyrogram session string format (version 1)
+        if isinstance(auth_key, memoryview):
+            auth_key = auth_key.tobytes()
+        elif not isinstance(auth_key, (bytes, bytearray)):
+            auth_key = bytes(auth_key)
+        auth_key = bytes(auth_key)
+        if len(auth_key) < 256:
+            auth_key = auth_key.ljust(256, b"\x00")
+        elif len(auth_key) > 256:
+            auth_key = auth_key[:256]
+
+        # 新版 Pyrogram/kurigram 格式（含 api_id，无版本前缀）
         packed = struct.pack(
-            ">B?256sQ?",
-            dc_id,
+            _SESSION_STRING_FORMAT,
+            int(dc_id),
+            int(api_id or 0),
             bool(test_mode),
             auth_key,
-            user_id,
+            int(user_id),
             bool(is_bot),
         )
         session_string = base64.urlsafe_b64encode(packed).decode("ascii").rstrip("=")
-        session_string = "1" + session_string  # Version prefix
+
+        if not is_valid_session_string(session_string):
+            return None
 
         # Cache it to .session_string file for future use
         try:
