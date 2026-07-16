@@ -11,15 +11,14 @@ const editBranch =
 const base =
   process.env.VITEPRESS_BASE ||
   (isGitHubActions && !process.env.VERCEL ? `/${repositoryName}/` : "/");
+// 生产文档站：https://tg.cosr.eu.org （Vercel 自定义域名）
 const siteUrl =
   process.env.VITEPRESS_SITE_URL ||
-  (process.env.VERCEL_PROJECT_PRODUCTION_URL
-    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
-    : process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : isGitHubActions && !process.env.VERCEL
-        ? `https://${repository.split("/")[0]}.github.io/${repositoryName}`
-        : "http://127.0.0.1:5173");
+  (process.env.VERCEL
+    ? "https://tg.cosr.eu.org"
+    : isGitHubActions && !process.env.VERCEL
+      ? `https://${repository.split("/")[0]}.github.io/${repositoryName}`
+      : "http://127.0.0.1:5173");
 
 export default defineConfig({
   lang: "zh-CN",
@@ -131,6 +130,7 @@ export default defineConfig({
         items: [
           { text: "Docker 部署", link: "/deploy/docker" },
           { text: "Nginx 反向代理", link: "/deploy/nginx" },
+          { text: "Vercel 文档站", link: "/deploy/vercel" },
         ],
       },
       {

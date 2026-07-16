@@ -64,7 +64,7 @@ npm run docs:build
 npm run docs:preview
 ```
 
-托管到 Vercel 见 [Vercel 文档站](/deploy/vercel)。
+在线地址：[https://tg.cosr.eu.org](https://tg.cosr.eu.org/) · 托管说明见 [Vercel 文档站](/deploy/vercel)。
 
 ## 面板一键部署（摘要）
 
