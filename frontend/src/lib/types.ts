@@ -94,6 +94,7 @@ export interface TaskLogUiItem {
   status: 'success' | 'error';
   text: string;
   flow_line_count: number;
+  failure_category?: string;
 }
 
 export interface LoginLogUiItem {

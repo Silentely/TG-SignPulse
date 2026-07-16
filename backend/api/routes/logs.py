@@ -37,6 +37,7 @@ class TaskHistoryLogItem(BaseModel):
     success: bool
     created_at: str
     flow_line_count: int = 0
+    failure_category: Optional[str] = None
 
 
 class TaskHistoryLogDetailItem(TaskHistoryLogItem):
@@ -169,6 +170,7 @@ def get_task_logs(
         display_message = last_msg or raw_message or (
             f"{task_name} · {'success' if success else 'failed'}"
         )
+        failure_category = str(item.get("failure_category") or "").strip() or None
         items.append(
             TaskHistoryLogItem(
                 id=index + 1,
@@ -180,6 +182,7 @@ def get_task_logs(
                 success=success,
                 created_at=str(item.get("time") or ""),
                 flow_line_count=int(item.get("flow_line_count") or 0),
+                failure_category=failure_category,
             )
         )
     return items
@@ -202,6 +205,7 @@ def get_task_log_detail(
     if detail is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="TASK_LOG_NOT_FOUND")
 
+    failure_category = str(detail.get("failure_category") or "").strip() or None
     return TaskHistoryLogDetailItem(
         id=1,
         account_name=str(detail.get("account_name") or ""),
@@ -216,6 +220,7 @@ def get_task_log_detail(
         success=bool(detail.get("success", False)),
         created_at=str(detail.get("time") or ""),
         flow_line_count=int(detail.get("flow_line_count") or 0),
+        failure_category=failure_category,
         flow_logs=[str(line) for line in detail.get("flow_logs") or []],
         flow_truncated=bool(detail.get("flow_truncated", False)),
         last_target_message=str(detail.get("last_target_message") or "").strip() or None,

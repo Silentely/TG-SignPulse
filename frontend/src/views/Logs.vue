@@ -68,6 +68,13 @@ const formatTime = (isoString: string) => {
   return d.toLocaleString(loc, { hour12: false })
 }
 
+const failureCategoryLabel = (cat?: string | null) => {
+  if (!cat || cat === 'none' || cat === 'unknown') return ''
+  const key = `dashboard.failCat.${cat}`
+  const label = t(key)
+  return label === key ? cat : label
+}
+
 const toTaskUi = (l: TaskHistoryLog): TaskLogUiItem => {
   const preview = (l.bot_message || l.message || '').trim()
   const fallback = l.success
@@ -82,6 +89,7 @@ const toTaskUi = (l: TaskHistoryLog): TaskLogUiItem => {
     status: l.success ? 'success' : 'error',
     text: preview || fallback,
     flow_line_count: l.flow_line_count || 0,
+    failure_category: l.failure_category || undefined,
   }
 }
 
@@ -370,6 +378,12 @@ onMounted(async () => {
               {{ log.text }}
             </span>
             <span
+              v-if="log.status === 'error' && failureCategoryLabel(log.failure_category)"
+              class="hidden md:inline shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800/50 dark:bg-amber-900/20 dark:text-amber-400"
+            >
+              {{ failureCategoryLabel(log.failure_category) }}
+            </span>
+            <span
               v-if="log.flow_line_count > 0"
               class="hidden sm:inline shrink-0 text-[10px] text-gray-400 font-mono"
             >
@@ -444,6 +458,12 @@ onMounted(async () => {
               :class="selectedLog.status === 'success' ? 'bg-emerald-500' : 'bg-rose-500'"
             />
             {{ selectedLog.status === 'success' ? t('logs.execSuccess') : t('logs.execFailed') }}
+          </span>
+          <span
+            v-if="selectedLog.status === 'error' && failureCategoryLabel(selectedLog.failure_category || logDetail?.failure_category)"
+            class="inline-flex items-center px-2 py-0.5 rounded text-xs border border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800/50 dark:bg-amber-900/20 dark:text-amber-400"
+          >
+            {{ failureCategoryLabel(selectedLog.failure_category || logDetail?.failure_category) }}
           </span>
         </div>
         <div class="grid grid-cols-2 gap-3 text-xs">

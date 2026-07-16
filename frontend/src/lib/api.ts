@@ -723,6 +723,7 @@ export interface TaskHistoryLog {
   success: boolean;
   created_at: string;
   flow_line_count: number;
+  failure_category?: string | null;
 }
 
 export interface TaskHistoryLogDetail extends TaskHistoryLog {

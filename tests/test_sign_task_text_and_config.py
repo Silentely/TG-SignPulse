@@ -60,3 +60,20 @@ def test_task_has_keyword_monitor():
         )
         is False
     )
+
+
+def test_format_target_message_summary_text_and_media():
+    from backend.services.sign_task_message import (
+        format_target_message_summary,
+        message_matches_thread,
+    )
+
+    class Msg:
+        def __init__(self, **kw):
+            self.__dict__.update(kw)
+
+    assert format_target_message_summary(None) == ""
+    assert format_target_message_summary(Msg(text="hello")) == "hello"
+    assert format_target_message_summary(Msg(photo=object())) == "[图片]"
+    assert message_matches_thread(Msg(message_thread_id=3), {"message_thread_id": 3})
+    assert message_matches_thread(Msg(message_thread_id=1), {"message_thread_id": None})
