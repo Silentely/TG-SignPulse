@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { getGlobalSettings, saveGlobalSettings, getTelegramConfig, saveTelegramConfig, resetTelegramConfig, getAIConfig, saveAIConfig, testAIConnection, exportAllConfigs, importAllConfigs, runDeviceKeepalive } from '../lib/api'
+import { getGlobalSettings, saveGlobalSettings, getTelegramConfig, saveTelegramConfig, resetTelegramConfig, getAIConfig, saveAIConfig, testAIConnection, exportAllConfigs, importAllConfigs, runDeviceKeepalive, getBackupStatus, exportBackupArchive } from '../lib/api'
+import type { BackupStatus } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
 import CustomSelect from '../components/CustomSelect.vue'
@@ -69,6 +70,8 @@ const loading = ref(false)
 const tgLoading = ref(false)
 const aiLoading = ref(false)
 const dataLoading = ref(false)
+const backupLoading = ref(false)
+const backupStatus = ref<BackupStatus | null>(null)
 const pageLoading = ref(true)
 
 const notifySuccess = (msg: string) => toast.success(msg)
@@ -110,6 +113,12 @@ onMounted(async () => {
     if (aiRes && aiRes.has_config) {
       aiConfig.value.base_url = aiRes.base_url || ''
       aiConfig.value.model = aiRes.model || ''
+    }
+
+    try {
+      backupStatus.value = await getBackupStatus(token)
+    } catch (e) {
+      console.error('Failed to load backup status', e)
     }
   } catch (e) {
     console.error('Failed to load settings', e)
@@ -261,6 +270,19 @@ const handleExport = async () => {
     notifyError(getErrorMessage(e, t('settings.exportFailed')))
   } finally {
     dataLoading.value = false
+  }
+}
+
+const handleBackupExport = async () => {
+  const token = authStore.token || ''
+  backupLoading.value = true
+  try {
+    await exportBackupArchive(token)
+    notifySuccess(t('settings.backupExportSuccess'))
+  } catch (e: unknown) {
+    notifyError(getErrorMessage(e, t('settings.backupExportFailed')))
+  } finally {
+    backupLoading.value = false
   }
 }
 
@@ -493,6 +515,27 @@ const handleImport = async (e: Event) => {
               {{ t('settings.importJson') }}
             </button>
           </div>
+        </div>
+
+        <div class="mt-6 pt-5 border-t border-gray-200 dark:border-gray-800/60 max-w-2xl space-y-3">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <h3 class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ t('settings.fullBackup') }}</h3>
+              <p class="text-xs text-gray-500 mt-1">{{ t('settings.fullBackupDesc') }}</p>
+            </div>
+            <button
+              type="button"
+              @click="handleBackupExport"
+              :disabled="backupLoading"
+              class="shrink-0 px-4 py-2 text-sm border border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+            >
+              {{ backupLoading ? t('settings.processing') : t('settings.exportBackup') }}
+            </button>
+          </div>
+          <p v-if="backupStatus" class="text-xs text-gray-500 font-mono">
+            {{ backupStatus.data_dir }} · {{ backupStatus.size_human }}
+            · {{ backupStatus.writable ? t('settings.backupWritable') : t('settings.backupReadonly') }}
+          </p>
         </div>
       </section>
 

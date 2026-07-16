@@ -21,7 +21,6 @@ const emit = defineEmits<{ (e: 'update:payload', value: CreateSignTaskRequest | 
 const accounts = ref<AccountInfo[]>([])
 const selectedAccounts = ref<string[]>([])
 const allAccountsMode = ref(false)
-const selectedAccount = ref('')
 const accountOptions = computed(() => accounts.value.map(a => ({ label: a.name, value: a.name })))
 const scheduleMode = ref<'scheduled' | 'listen'>('scheduled')
 const timeRange = ref('08:00-19:00')
@@ -33,10 +32,42 @@ const chatSearchResults = ref<ChatInfo[]>([])
 const chatSearchLoading = ref(false)
 const chatListRefreshing = ref(false)
 const chatListError = ref('')
-const selectedChatId = ref<number>(0)
-const selectedChatName = ref('')
-const messageThreadId = ref('')
-const senderFilter = ref('')
+/** 多目标聊天（共享动作序列；build 时复制到每个 chat） */
+type TargetChatDraft = {
+  id: number
+  chatId: number
+  chatName: string
+  messageThreadId: string
+  senderFilter: string
+  sourceAccount: string
+}
+let _chatDraftId = 0
+const nextChatDraftId = () => ++_chatDraftId
+const targetChats = ref<TargetChatDraft[]>([
+  { id: nextChatDraftId(), chatId: 0, chatName: '', messageThreadId: '', senderFilter: '', sourceAccount: '' },
+])
+const activeChatIndex = ref(0)
+const activeChat = computed(() => targetChats.value[activeChatIndex.value] || targetChats.value[0])
+const selectedChatId = computed({
+  get: () => activeChat.value?.chatId ?? 0,
+  set: (v: number) => { if (activeChat.value) activeChat.value.chatId = v },
+})
+const selectedChatName = computed({
+  get: () => activeChat.value?.chatName ?? '',
+  set: (v: string) => { if (activeChat.value) activeChat.value.chatName = v },
+})
+const messageThreadId = computed({
+  get: () => activeChat.value?.messageThreadId ?? '',
+  set: (v: string) => { if (activeChat.value) activeChat.value.messageThreadId = v },
+})
+const senderFilter = computed({
+  get: () => activeChat.value?.senderFilter ?? '',
+  set: (v: string) => { if (activeChat.value) activeChat.value.senderFilter = v },
+})
+const selectedAccount = computed({
+  get: () => activeChat.value?.sourceAccount || selectedAccounts.value[0] || '',
+  set: (v: string) => { if (activeChat.value) activeChat.value.sourceAccount = v },
+})
 const listenerKeywords = ref('')
 const listenerMatchMode = ref('contains')
 const listenerPushChannel = ref('continue')
@@ -65,14 +96,18 @@ const loadAccounts = async () => {
         allAccountsMode.value = false
         selectedAccounts.value = taskAccs.filter((a: string) => accounts.value.some(acc => acc.name === a))
       }
-      selectedAccount.value = selectedAccounts.value[0] || (accounts.value[0]?.name || '')
       if (props.initialTask.chats?.length > 0) {
-        const chat = props.initialTask.chats[0]
-        selectedChatId.value = Number(chat.chat_id) || 0
-        selectedChatName.value = chat.name || ''
-        messageThreadId.value = chat.message_thread_id ? String(chat.message_thread_id) : ''
-        senderFilter.value = chat.sender_filter || ''
-        const la = chat.actions?.find((a: RawTaskAction) => a.action === 8)
+        targetChats.value = props.initialTask.chats.map((chat) => ({
+          id: nextChatDraftId(),
+          chatId: Number(chat.chat_id) || 0,
+          chatName: chat.name || '',
+          messageThreadId: chat.message_thread_id ? String(chat.message_thread_id) : '',
+          senderFilter: chat.sender_filter || '',
+          sourceAccount: chat.source_account || selectedAccounts.value[0] || accounts.value[0]?.name || '',
+        }))
+        activeChatIndex.value = 0
+        const primary = props.initialTask.chats[0]
+        const la = primary.actions?.find((a: RawTaskAction) => a.action === 8)
         if (la) {
           listenerKeywords.value = Array.isArray(la.keywords) ? la.keywords.join('\n') : ''
           listenerMatchMode.value = la.match_mode || 'contains'
@@ -82,10 +117,16 @@ const loadAccounts = async () => {
           listenerBarkUrl.value = la.bark_url || ''
           listenerCustomUrl.value = la.custom_url || ''
           if (la.continue_actions) parseActions(la.continue_actions)
-        } else if (chat.actions) parseActions(chat.actions)
+        } else if (primary.actions) parseActions(primary.actions)
+      } else if (selectedAccounts.value[0] || accounts.value[0]?.name) {
+        targetChats.value[0].sourceAccount = selectedAccounts.value[0] || accounts.value[0]?.name || ''
       }
     } else {
-      if (accounts.value.length > 0) { allAccountsMode.value = true; selectedAccounts.value = accounts.value.map(a => a.name); selectedAccount.value = selectedAccounts.value[0] || '' }
+      if (accounts.value.length > 0) {
+        allAccountsMode.value = true
+        selectedAccounts.value = accounts.value.map(a => a.name)
+        targetChats.value[0].sourceAccount = selectedAccounts.value[0] || ''
+      }
     }
     if (selectedAccount.value) loadChats(selectedAccount.value)
   } catch (e: unknown) {
@@ -143,6 +184,24 @@ watch(selectedAccount, async (v)=>{
 let st: ReturnType<typeof setTimeout> | null = null
 watch(chatSearch,(v)=>{if(!v.trim()){chatSearchResults.value=[];return};if(st)clearTimeout(st);st=setTimeout(async()=>{chatSearchLoading.value=true;try{const t=authStore.token||'';const r=await searchAccountChats(t,selectedAccount.value,v.trim());chatSearchResults.value=r.items||[]}catch(e){console.error(e)}finally{chatSearchLoading.value=false}},300)})
 const selectChat=(c: ChatInfo)=>{selectedChatId.value=c.id;selectedChatName.value=c.title||c.username||String(c.id);chatSearch.value='';chatSearchResults.value=[]}
+const addTargetChat = () => {
+  targetChats.value.push({
+    id: nextChatDraftId(),
+    chatId: 0,
+    chatName: '',
+    messageThreadId: '',
+    senderFilter: '',
+    sourceAccount: selectedAccounts.value[0] || '',
+  })
+  activeChatIndex.value = targetChats.value.length - 1
+}
+const removeTargetChat = (idx: number) => {
+  if (targetChats.value.length <= 1) return
+  targetChats.value.splice(idx, 1)
+  if (activeChatIndex.value >= targetChats.value.length) {
+    activeChatIndex.value = targetChats.value.length - 1
+  }
+}
 const addAction=()=>actions.value.push({id:nextActionId(),type:'send_text',value:'',aiPrompt:''})
 const removeAction=(i:number)=>actions.value.splice(i,1)
 const moveAction=(i:number,d:number)=>{if(i+d<0||i+d>=actions.value.length)return;const t=actions.value[i];actions.value[i]=actions.value[i+d];actions.value[i+d]=t}
@@ -173,27 +232,46 @@ const buildPayload = () => {
     ca = [la]
   }
 
+  const chats = targetChats.value
+    .filter((c) => c.chatId)
+    .map((c) => ({
+      chat_id: c.chatId,
+      name: c.chatName,
+      actions: ca as import('../../lib/types').RawTaskAction[],
+      action_interval: 1,
+      message_thread_id: c.messageThreadId ? Number(c.messageThreadId) : undefined,
+      sender_filter: c.senderFilter.trim() || undefined,
+      source_account: c.sourceAccount || undefined,
+    }))
+
+  // 至少一个 chat 占位，避免空配置无法保存
+  const safeChats = chats.length
+    ? chats
+    : [{
+        chat_id: selectedChatId.value || 0,
+        name: selectedChatName.value || '',
+        actions: ca as import('../../lib/types').RawTaskAction[],
+        action_interval: 1,
+        message_thread_id: messageThreadId.value ? Number(messageThreadId.value) : undefined,
+        sender_filter: senderFilter.value.trim() || undefined,
+        source_account: selectedAccount.value || undefined,
+      }]
+
+  const primaryName = safeChats[0]?.name || selectedChatName.value
   return {
-    name: taskName.value || selectedChatName.value || `task_${Date.now()}`,
+    name: taskName.value || primaryName || `task_${Date.now()}`,
     account_name: selectedAccounts.value[0] || '',
     account_names: allAccountsMode.value ? ['*'] : selectedAccounts.value,
     sign_at: sa, execution_mode: em, range_start: rs, range_end: re, random_seconds: 0,
     retry_count: retryCount.value,
-    chats: [{
-      chat_id: selectedChatId.value, name: selectedChatName.value,
-      actions: ca as import("../../lib/types").RawTaskAction[],
-      action_interval: 1,
-      message_thread_id: messageThreadId.value ? Number(messageThreadId.value) : undefined,
-      sender_filter: senderFilter.value.trim() || undefined,
-      source_account: selectedAccount.value || undefined,
-    }],
+    chats: safeChats,
   }
 }
 const debouncedEmit = debounce(() => { emit('update:payload', buildPayload()) }, 300)
 /** 同步刷新 payload（保存前调用，确保拿到最新值） */
 const flushPayload = () => { emit('update:payload', buildPayload()) }
 defineExpose({ flushPayload })
-watch([taskName,selectedAccounts,allAccountsMode,scheduleMode,timeRange,selectedChatId,selectedChatName,messageThreadId,senderFilter,actions,retryCount,listenerKeywords,listenerMatchMode,listenerPushChannel,listenerForwardChatId,listenerForwardThreadId,listenerBarkUrl,listenerCustomUrl], () => { debouncedEmit() }, {deep:true})
+watch([taskName,selectedAccounts,allAccountsMode,scheduleMode,timeRange,targetChats,activeChatIndex,actions,retryCount,listenerKeywords,listenerMatchMode,listenerPushChannel,listenerForwardChatId,listenerForwardThreadId,listenerBarkUrl,listenerCustomUrl], () => { debouncedEmit() }, {deep:true})
 onMounted(()=>{loadAccounts()})
 </script>
 <template>
@@ -221,7 +299,29 @@ onMounted(()=>{loadAccounts()})
       </div>
     </div>
     <div class="p-4 border border-sky-100 dark:border-gray-800/60 bg-sky-50/50 dark:bg-gray-900/40">
-      <h4 class="mb-4 text-xs font-bold uppercase tracking-widest text-sky-500">{{ t('taskForm.targetChat') }}</h4>
+      <div class="mb-4 flex items-center justify-between gap-2">
+        <h4 class="text-xs font-bold uppercase tracking-widest text-sky-500">{{ t('taskForm.targetChat') }}</h4>
+        <button type="button" @click="addTargetChat" class="text-[11px] text-sky-600 dark:text-sky-400 hover:underline">+ {{ t('taskForm.addTargetChat') }}</button>
+      </div>
+      <div v-if="targetChats.length > 1" class="flex flex-wrap gap-2 mb-4">
+        <button
+          v-for="(chat, idx) in targetChats"
+          :key="chat.id"
+          type="button"
+          @click="activeChatIndex = idx"
+          class="px-2 py-1 text-[11px] border transition-colors"
+          :class="activeChatIndex === idx
+            ? 'border-sky-400 bg-sky-50 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300'
+            : 'border-gray-200 dark:border-gray-700 text-gray-500'"
+        >
+          {{ chat.chatName || chat.chatId || `${t('taskForm.targetChat')} ${idx + 1}` }}
+          <span
+            v-if="targetChats.length > 1"
+            class="ml-1 text-gray-400 hover:text-rose-500"
+            @click.stop="removeTargetChat(idx)"
+          >×</span>
+        </button>
+      </div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div class="space-y-1.5"><label class="text-xs font-medium text-gray-500">{{ t('taskForm.chatSourceAccount') }}</label><CustomSelect v-model="selectedAccount" :options="selectedAccounts.map(a => ({label: a, value: a}))" /></div>
         <div class="space-y-1.5"><label class="text-xs font-medium text-gray-500 flex items-center justify-between">{{ t('taskForm.selectFromList') }}<button type="button" @click="refreshChats" :disabled="chatListRefreshing || !selectedAccount" class="flex items-center gap-1 text-[10px] text-sky-500 hover:text-sky-700 dark:hover:text-sky-300 font-medium disabled:opacity-50 disabled:cursor-not-allowed"><RefreshCw class="w-3 h-3" :class="chatListRefreshing ? 'animate-spin' : ''" /> {{ t('taskForm.refreshChats') }}</button></label><CustomSelect v-model="selectedChatId" :disabled="chatListRefreshing" :options="[{label: chatListRefreshing ? t('taskForm.loadingChats') : t('taskForm.selectChat'), value:0}, ...availableChats.map(c => ({label: c.title || c.username || String(c.id), value: c.id}))]" @update:modelValue="selectedChatName = availableChats.find(c => c.id === $event)?.title || availableChats.find(c => c.id === $event)?.username || String($event)" /><p v-if="chatListError" class="text-xs text-amber-600 dark:text-amber-400 mt-1">{{ chatListError }}</p></div>

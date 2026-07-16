@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { listAccounts, listSignTasks, getRecentAccountLogs } from '../lib/api'
-import type { AccountInfo, AccountLog } from '../lib/api'
+import { listAccounts, listSignTasks, getRecentAccountLogs, listScheduledJobs } from '../lib/api'
+import type { AccountInfo, AccountLog, ScheduledJob } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
 import { useAuthStore } from '../stores/auth'
@@ -38,11 +38,27 @@ const stats = ref([
 ])
 
 const logs = ref<DashboardLog[]>([])
+const upcomingJobs = ref<ScheduledJob[]>([])
 const pageLoading = ref(true)
 const formatTime = (isoString: string) => {
   if (!isoString) return ''
   const d = new Date(isoString)
   return d.toLocaleTimeString('en-US', { hour12: false })
+}
+const formatJobTime = (iso?: string | null) => {
+  if (!iso) return '-'
+  try {
+    const d = new Date(iso)
+    return d.toLocaleString(undefined, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
+  } catch {
+    return iso
+  }
+}
+const jobKindLabel = (kind: string) => {
+  if (kind === 'sign') return t('dashboard.jobKindSign')
+  if (kind === 'system') return t('dashboard.jobKindSystem')
+  if (kind === 'legacy_db') return t('dashboard.jobKindLegacy')
+  return kind
 }
 
 onMounted(async () => {
@@ -65,11 +81,13 @@ const loadDashboardData = async () => {
     let accRes: { accounts: AccountInfo[]; total: number } = { accounts: [], total: 0 }
     let tasksRes: Awaited<ReturnType<typeof listSignTasks>> = []
     let logsRes: AccountLog[] = []
+    let jobsRes: Awaited<ReturnType<typeof listScheduledJobs>> | null = null
 
     let loadError: unknown = null
     try { accRes = await listAccounts(token) } catch (e) { loadError = e; console.error('Failed to load accounts', e) }
     try { tasksRes = await listSignTasks(token) } catch (e) { loadError = e; console.error('Failed to load tasks', e) }
     try { logsRes = await getRecentAccountLogs(token, 20) } catch (e) { loadError = e; console.error('Failed to load logs', e) }
+    try { jobsRes = await listScheduledJobs(token) } catch (e) { console.error('Failed to load scheduled jobs', e) }
     // 仅首屏加载失败时提示，避免 30s 轮询刷屏
     if (loadError && pageLoading.value) {
       toast.error(getErrorMessage(loadError, t('logs.loadFailed')))
@@ -107,6 +125,14 @@ const loadDashboardData = async () => {
         created_at: l.created_at,
       }))
     }
+
+    if (jobsRes?.jobs) {
+      upcomingJobs.value = jobsRes.jobs
+        .filter((j) => j.next_run_time && j.kind !== 'system')
+        .slice(0, 8)
+    } else {
+      upcomingJobs.value = []
+    }
 }
 </script>
 
@@ -127,6 +153,26 @@ const loadDashboardData = async () => {
       >
         <span class="text-xs text-gray-500 font-medium tracking-wide">{{ t(stat.key) }}</span>
         <span class="text-2xl font-mono text-gray-900 dark:text-gray-100 mt-2">{{ stat.value }}</span>
+      </div>
+    </div>
+
+    <!-- Upcoming schedule -->
+    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/60 p-5">
+      <div class="text-xs text-gray-500 font-medium tracking-wide mb-4">{{ t('dashboard.upcomingJobs') }}</div>
+      <div v-if="upcomingJobs.length === 0" class="text-xs text-gray-400 py-6 text-center">{{ t('dashboard.noUpcoming') }}</div>
+      <div v-else class="space-y-2">
+        <div
+          v-for="job in upcomingJobs"
+          :key="job.id"
+          class="flex items-center gap-3 text-xs px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-800/30"
+        >
+          <span class="font-mono text-gray-500 w-28 shrink-0">{{ formatJobTime(job.next_run_time) }}</span>
+          <span class="px-1.5 py-0.5 rounded border text-[10px] shrink-0"
+            :class="job.kind === 'sign' ? 'border-sky-200 text-sky-700 dark:border-sky-800 dark:text-sky-300' : 'border-gray-200 text-gray-500'">
+            {{ jobKindLabel(job.kind) }}
+          </span>
+          <span class="truncate text-gray-800 dark:text-gray-200 font-mono" :title="job.id">{{ job.id }}</span>
+        </div>
       </div>
     </div>
 

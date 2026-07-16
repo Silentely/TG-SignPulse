@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { Play, FileText, Edit2, Trash2, Plus, Radio, Clock, Shuffle, Power } from 'lucide-vue-next'
-import { listSignTasks, deleteSignTask, startSignTaskRun, listAccounts, toggleSignTaskEnabled } from '../lib/api'
+import { listSignTasks, deleteSignTask, startSignTaskRun, listAccounts, toggleSignTaskEnabled, batchSignTasks } from '../lib/api'
 import type { SignTask, AccountInfo } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
@@ -30,6 +30,52 @@ const logsRunAccount = ref<string>('')  // Account that just executed the task
 const runMenuTask = ref<TaskUiItem | null>(null)
 const runMenuAccounts = ref<string[]>([])
 const allAccounts = ref<string[]>([])
+const selectedTaskIds = ref<Set<string>>(new Set())
+const batchBusy = ref(false)
+const selectedCount = computed(() => selectedTaskIds.value.size)
+const allSelected = computed(() => tasks.value.length > 0 && selectedTaskIds.value.size === tasks.value.length)
+
+const toggleSelectTask = (id: string) => {
+  const next = new Set(selectedTaskIds.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  selectedTaskIds.value = next
+}
+const toggleSelectAll = () => {
+  if (allSelected.value) {
+    selectedTaskIds.value = new Set()
+  } else {
+    selectedTaskIds.value = new Set(tasks.value.map((t) => t.id))
+  }
+}
+const clearSelection = () => { selectedTaskIds.value = new Set() }
+
+const runBatch = async (action: 'enable' | 'disable' | 'delete' | 'run') => {
+  if (!selectedCount.value || batchBusy.value) return
+  if (action === 'delete' && !confirm(`${t('tasks.batchDeleteConfirm')} (${selectedCount.value})`)) return
+  const token = authStore.token || ''
+  const items = tasks.value
+    .filter((t) => selectedTaskIds.value.has(t.id))
+    .map((t) => ({
+      name: t.name,
+      account_name: getTaskAccountName(t.raw) || undefined,
+    }))
+  batchBusy.value = true
+  try {
+    const res = await batchSignTasks(token, items, action)
+    if (res.fail_count === 0) {
+      toast.success(`${t('tasks.batchSuccess')}: ${res.success_count}`)
+    } else {
+      toast.error(`${t('tasks.batchPartial')}: ok=${res.success_count}, fail=${res.fail_count}`)
+    }
+    clearSelection()
+    await loadTasks()
+  } catch (e: unknown) {
+    toast.error(getErrorMessage(e, t('tasks.batchFailed')))
+  } finally {
+    batchBusy.value = false
+  }
+}
 
 const loadAllAccounts = async () => {
   const token = authStore.token || ''
@@ -297,14 +343,29 @@ const openLogs = (task: TaskUiItem) => {
     </div>
 
     <div v-else class="flex flex-col gap-2 pb-20">
+    <!-- 批量操作栏 -->
+    <div class="flex flex-wrap items-center gap-2 p-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/60">
+      <label class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 cursor-pointer">
+        <input type="checkbox" :checked="allSelected" @change="toggleSelectAll" class="rounded border-gray-300" />
+        {{ t('tasks.selectAll') }}
+      </label>
+      <span v-if="selectedCount" class="text-xs text-gray-500">{{ t('tasks.selectedCount') }}: {{ selectedCount }}</span>
+      <div class="flex-1" />
+      <button type="button" :disabled="!selectedCount || batchBusy" @click="runBatch('enable')" class="px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800">{{ t('tasks.batchEnable') }}</button>
+      <button type="button" :disabled="!selectedCount || batchBusy" @click="runBatch('disable')" class="px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800">{{ t('tasks.batchDisable') }}</button>
+      <button type="button" :disabled="!selectedCount || batchBusy" @click="runBatch('run')" class="px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800">{{ t('tasks.batchRun') }}</button>
+      <button type="button" :disabled="!selectedCount || batchBusy" @click="runBatch('delete')" class="px-2 py-1 text-xs border border-rose-200 text-rose-600 dark:border-rose-800 disabled:opacity-40 hover:bg-rose-50 dark:hover:bg-rose-900/20">{{ t('tasks.batchDelete') }}</button>
+    </div>
     <div
       v-for="task in tasks" :key="task.id"
       class="group flex flex-col sm:flex-row sm:items-center p-4 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/60 hover:border-gray-300 dark:hover:border-gray-700 transition-colors"
-      :class="{ 'opacity-50': !task.enabled }"
+      :class="{ 'opacity-50': !task.enabled, 'ring-1 ring-sky-400/50': selectedTaskIds.has(task.id) }"
     >
       <!-- Mobile Layout: Avatar + Name + Status -->
       <div class="flex-1 flex gap-3 w-full overflow-hidden">
-        
+        <label class="self-center shrink-0 cursor-pointer" @click.stop>
+          <input type="checkbox" :checked="selectedTaskIds.has(task.id)" @change="toggleSelectTask(task.id)" class="rounded border-gray-300" />
+        </label>
         <!-- Avatar - spans both rows, shown on both mobile and PC -->
         <div class="w-9 h-9 sm:w-10 sm:h-10 shrink-0 bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-[9px] text-gray-500 border border-gray-200 dark:border-gray-700 overflow-hidden rounded-sm self-center">
           <img v-if="task.chatAvatarUrl" :src="task.chatAvatarUrl" class="w-full h-full object-cover" />

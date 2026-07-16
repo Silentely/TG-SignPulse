@@ -15,7 +15,13 @@
     "recentSuccess": "Recent Success",
     "recentFailure": "Recent Failure",
     "recentLogs": "Recent Task Logs",
-    "openInLogs": "View in Logs"
+    "openInLogs": "View in Logs",
+    "upcomingJobs": "Upcoming Schedule",
+    "noUpcoming": "No scheduled jobs",
+    "jobKindSign": "Sign",
+    "jobKindSystem": "System",
+    "jobKindLegacy": "Legacy",
+    "nextRun": "Next run"
   },
   "accounts": {
     "noRemark": "No remark",
@@ -101,7 +107,17 @@
     "toggleFailed": "Toggle status failed",
     "unknownError": "Unknown error",
     "loadFailed": "Failed to load tasks",
-    "deleteSuccess": "Task deleted"
+    "deleteSuccess": "Task deleted",
+    "selectAll": "Select all",
+    "selectedCount": "Selected",
+    "batchEnable": "Enable",
+    "batchDisable": "Pause",
+    "batchRun": "Run",
+    "batchDelete": "Delete",
+    "batchDeleteConfirm": "Delete selected tasks?",
+    "batchSuccess": "Batch operation succeeded",
+    "batchPartial": "Batch operation partially failed",
+    "batchFailed": "Batch operation failed"
   },
   "taskForm": {
     "taskName": "Task Name",
@@ -115,6 +131,7 @@
     "timeRange": "Time Range",
     "timeRangePlaceholder": "e.g. 08:00 or 08:00-19:00",
     "targetChat": "Target Chat Settings",
+    "addTargetChat": "Add target chat",
     "chatSourceAccount": "Chat Source Account",
     "selectFromList": "Select from List",
     "selectChat": "Select chat...",
@@ -304,6 +321,13 @@
     "testSuccess": "Connection test passed",
     "testFailed": "Test failed",
     "exportSuccess": "Export successful",
+    "fullBackup": "Full data backup",
+    "fullBackupDesc": "Pack database, sessions and configs under data/ into a tar.gz for migration and recovery.",
+    "exportBackup": "Export backup archive",
+    "backupExportSuccess": "Backup download started",
+    "backupExportFailed": "Backup export failed",
+    "backupWritable": "writable",
+    "backupReadonly": "read-only",
     "exportFailed": "Export failed",
     "importSuccess": "Import successful, refresh page to see updates",
     "importFailed": "Import failed"

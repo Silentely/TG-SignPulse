@@ -1018,3 +1018,120 @@ export const getSignTaskHistory = (
     token
   );
 };
+
+// ============ 新版签到任务批量操作 ============
+
+export type SignBatchAction = "enable" | "disable" | "delete" | "run";
+
+export interface SignBatchTaskItem {
+  name: string;
+  account_name?: string | null;
+}
+
+export interface SignBatchTaskResult {
+  name: string;
+  account_name: string;
+  success: boolean;
+  message: string;
+}
+
+export interface SignBatchTaskResponse {
+  total: number;
+  success_count: number;
+  fail_count: number;
+  results: SignBatchTaskResult[];
+}
+
+export const batchSignTasks = (
+  token: string,
+  tasks: SignBatchTaskItem[],
+  action: SignBatchAction,
+  runAccountName?: string
+) =>
+  request<SignBatchTaskResponse>(
+    "/batch/sign-tasks",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        tasks,
+        action,
+        run_account_name: runAccountName || null,
+      }),
+    },
+    token
+  );
+
+// ============ 运维 Ops ============
+
+export interface ScheduledJob {
+  id: string;
+  name: string;
+  next_run_time?: string | null;
+  trigger: string;
+  kind: "sign" | "legacy_db" | "system" | "other" | string;
+}
+
+export interface ScheduledJobsResponse {
+  jobs: ScheduledJob[];
+  total: number;
+  timezone: string;
+}
+
+export const listScheduledJobs = (token: string) =>
+  request<ScheduledJobsResponse>("/ops/scheduled-jobs", {}, token);
+
+export interface BackupStatus {
+  data_dir: string;
+  writable: boolean;
+  size_bytes: number;
+  size_human: string;
+  entries: Array<{
+    path: string;
+    exists: boolean;
+    size_bytes: number;
+    size_human: string;
+  }>;
+  recommended_paths: string[];
+}
+
+export const getBackupStatus = (token: string) =>
+  request<BackupStatus>("/ops/backup/status", {}, token);
+
+export async function exportBackupArchive(token: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/ops/backup/export`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  if (!res.ok) {
+    let msg = `Backup export failed (${res.status})`;
+    try {
+      const data = await res.json();
+      if (data?.detail) msg = String(data.detail);
+    } catch {
+      /* ignore */
+    }
+    throw new Error(msg);
+  }
+  const blob = await res.blob();
+  const cd = res.headers.get("Content-Disposition") || "";
+  const match = /filename="?([^"]+)"?/.exec(cd);
+  const filename = match?.[1] || `tg-signpulse-backup-${Date.now()}.tar.gz`;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+export interface MemoryStatsResponse {
+  available: boolean;
+  stats: Record<string, unknown>;
+}
+
+export const getMemoryStats = (token: string) =>
+  request<MemoryStatsResponse>("/ops/memory", {}, token);

@@ -1,3 +1,4 @@
+/** @deprecated 旧版 ORM 账号类型；面板账号请用 api.ts 的 AccountInfo */
 export type Account = {
   id: number;
   account_name: string;
@@ -10,6 +11,7 @@ export type Account = {
   updated_at: string;
 };
 
+/** @deprecated 旧版 ORM 任务类型；新任务请用 api.ts 的 SignTask */
 export type Task = {
   id: number;
   name: string;
@@ -21,6 +23,7 @@ export type Task = {
   updated_at: string;
 };
 
+/** @deprecated 旧版 ORM 任务日志；新日志请用 TaskHistoryLog / SignTaskHistoryItem */
 export type TaskLog = {
   id: number;
   task_id: number;

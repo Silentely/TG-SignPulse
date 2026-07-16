@@ -15,7 +15,13 @@
     "recentSuccess": "近期成功",
     "recentFailure": "近期失败",
     "recentLogs": "最近任务日志",
-    "openInLogs": "在日志页查看"
+    "openInLogs": "在日志页查看",
+    "upcomingJobs": "即将执行的调度",
+    "noUpcoming": "暂无待执行调度",
+    "jobKindSign": "签到",
+    "jobKindSystem": "系统",
+    "jobKindLegacy": "旧任务",
+    "nextRun": "下次运行"
   },
   "accounts": {
     "noRemark": "暂无备注",
@@ -101,7 +107,17 @@
     "toggleFailed": "切换状态失败",
     "unknownError": "未知错误",
     "loadFailed": "加载任务列表失败",
-    "deleteSuccess": "任务已删除"
+    "deleteSuccess": "任务已删除",
+    "selectAll": "全选",
+    "selectedCount": "已选",
+    "batchEnable": "批量启用",
+    "batchDisable": "批量暂停",
+    "batchRun": "批量执行",
+    "batchDelete": "批量删除",
+    "batchDeleteConfirm": "确定批量删除所选任务？",
+    "batchSuccess": "批量操作成功",
+    "batchPartial": "批量操作部分失败",
+    "batchFailed": "批量操作失败"
   },
   "taskForm": {
     "taskName": "任务名称",
@@ -115,6 +131,7 @@
     "timeRange": "时间范围",
     "timeRangePlaceholder": "例如 08:00 或 08:00-19:00",
     "targetChat": "目标会话设置",
+    "addTargetChat": "添加目标会话",
     "chatSourceAccount": "会话来源账号",
     "selectFromList": "从列表中选择",
     "selectChat": "选择会话...",
@@ -304,6 +321,13 @@
     "testSuccess": "连接测试成功",
     "testFailed": "测试失败",
     "exportSuccess": "导出成功",
+    "fullBackup": "完整数据备份",
+    "fullBackupDesc": "打包 data 目录中的数据库、会话与配置为 tar.gz，便于迁移与灾难恢复。",
+    "exportBackup": "导出备份包",
+    "backupExportSuccess": "备份包已开始下载",
+    "backupExportFailed": "导出备份失败",
+    "backupWritable": "可写",
+    "backupReadonly": "只读",
     "exportFailed": "导出失败",
     "importSuccess": "导入成功，可能需要刷新页面查看更新",
     "importFailed": "导入失败"
