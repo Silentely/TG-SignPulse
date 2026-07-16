@@ -48,8 +48,23 @@ jobs:
       - name: Run pytest (parallel)
         run: pytest tests/ -n auto --dist loadgroup -x -q --tb=short --no-header --ignore=tools
 
-      - name: Ruff check (backend + tg_signer)
-        run: ruff check backend tg_signer tests --quiet || true
+      - name: Ruff check (核心新模块硬门槛)
+        run: >
+          ruff check
+          backend/services/telegram
+          backend/services/keyword_monitor/rules.py
+          backend/services/keyword_monitor/__init__.py
+          backend/services/sign_task_failure.py
+          backend/services/sign_task_backend.py
+          backend/api/routes/batch.py
+          backend/api/routes/ops.py
+          backend/api/routes/tasks.py
+          backend/scheduler
+          backend/core/pydantic_compat.py
+          tests/test_sign_batch_and_ops.py
+          tests/test_legacy_tasks_readonly.py
+          tests/test_pydantic_compat_and_scale.py
+          --quiet
 
   frontend-test:
     runs-on: ubuntu-latest

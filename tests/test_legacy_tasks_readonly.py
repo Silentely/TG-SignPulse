@@ -1,0 +1,39 @@
+"""旧版 /api/tasks 只读开关测试。"""
+from __future__ import annotations
+
+from datetime import timedelta
+
+from backend.core.auth import create_access_token
+
+
+def _auth() -> dict:
+    token = create_access_token(
+        {"sub": "admin"},
+        expires_delta=timedelta(hours=1),
+    )
+    return {"Authorization": f"Bearer {token}"}
+
+
+def test_legacy_tasks_readonly_blocks_create(client, db_session, monkeypatch):
+    monkeypatch.setenv("APP_LEGACY_TASKS_READONLY", "1")
+    resp = client.post(
+        "/api/tasks",
+        headers=_auth(),
+        json={
+            "name": "x",
+            "cron": "0 8 * * *",
+            "enabled": True,
+            "account_id": 1,
+        },
+    )
+    assert resp.status_code == 410
+    assert "sign-tasks" in resp.json()["detail"]
+
+
+def test_legacy_tasks_list_still_works(client, db_session, monkeypatch):
+    monkeypatch.setenv("APP_LEGACY_TASKS_READONLY", "1")
+    resp = client.get("/api/tasks", headers=_auth())
+    assert resp.status_code == 200
+    assert resp.headers.get("deprecation") == "true" or resp.headers.get(
+        "Deprecation"
+    ) == "true"
