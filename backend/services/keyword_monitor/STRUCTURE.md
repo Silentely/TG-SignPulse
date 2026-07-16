@@ -1,11 +1,11 @@
 # keyword_monitor 拆分说明
 
-当前 `runtime.py` 为完整实现（行为与原 `keyword_monitor.py` 一致）。
-下列锚点供继续按职责迁出：
+当前结构：
 
-- L40: class TerminalAIActionError
-- L75: class KeywordMonitorRule
-- L530: class KeywordMonitorService
-- L1198: async def _execute_ai_action
-- L2102: async def restart_from_tasks
-- L2269: def get_keyword_monitor_service
+| 文件 | 职责 |
+|------|------|
+| `rules.py` | 规则模型、关键词/深链纯函数 |
+| `runtime.py` | `KeywordMonitorService` 生命周期与 handler |
+| `__init__.py` | 对外导出（含私有工具函数兼容测试） |
+
+对外：`from backend.services.keyword_monitor import get_keyword_monitor_service`

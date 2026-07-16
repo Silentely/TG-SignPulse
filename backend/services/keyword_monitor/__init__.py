@@ -1,5 +1,22 @@
-"""backend.services.keyword_monitor 包（自 keyword_monitor.py 拆分）。
+"""关键词监控包。"""
+import asyncio  # noqa: F401  # 兼容测试 patch backend.services.keyword_monitor.asyncio
 
-完整实现位于 runtime；对外 API 与原先模块级导入保持兼容。
-"""
-from backend.services.keyword_monitor.runtime import *  # noqa: F403
+from backend.services.keyword_monitor import rules as _rules
+from backend.services.keyword_monitor.rules import (  # noqa: F401
+    KeywordMonitorRule,
+    TerminalAIActionError,
+)
+from backend.services.keyword_monitor.runtime import (  # noqa: F401
+    KeywordMonitorService,
+    get_keyword_monitor_service,
+)
+
+
+def __getattr__(name: str):
+    if hasattr(_rules, name):
+        return getattr(_rules, name)
+    raise AttributeError(name)
+
+
+def __dir__():
+    return sorted(set(globals()) | set(dir(_rules)))
