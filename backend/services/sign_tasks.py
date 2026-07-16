@@ -23,6 +23,10 @@ from backend.services.sign_task_failure import (
     classify_failure,
     message_indicates_strong_failure,
 )
+from backend.services.sign_task_history_format import (
+    build_history_list_item,
+    clamp_limit,
+)
 from backend.utils.account_locks import get_account_lock
 from backend.utils.cache import TTLCache
 from backend.utils.names import validate_storage_name
@@ -995,10 +999,7 @@ class SignTaskService:
         return all_history
 
     def get_recent_history_logs(self, limit: int = 50) -> List[Dict[str, Any]]:
-        if limit < 1:
-            limit = 1
-        if limit > 200:
-            limit = 200
+        limit = clamp_limit(limit, minimum=1, maximum=200)
 
         recent: List[Dict[str, Any]] = []
         seen_pairs: set[tuple[str, str]] = set()
@@ -1016,26 +1017,16 @@ class SignTaskService:
 
             history = self._load_history_entries(task_name, account_name=account_name)
             for item in history[:limit]:
-                flow_logs = item.get("flow_logs")
-                if not isinstance(flow_logs, list):
-                    flow_logs = []
+                if not isinstance(item, dict):
+                    continue
                 recent.append(
-                    {
-                        "time": item.get("time", ""),
-                        "created_at": item.get("time", ""),
-                        "success": bool(item.get("success", False)),
-                        "message": self._repair_mojibake(item.get("message", "") or ""),
-                        "flow_logs": [self._repair_mojibake(str(line)) for line in flow_logs],
-                        "flow_truncated": bool(item.get("flow_truncated", False)),
-                        "flow_line_count": int(item.get("flow_line_count", len(flow_logs))),
-                        "task_name": task_name,
-                        "account_name": account_name,
-                        "last_target_message": str(
-                            item.get("last_target_message") or ""
-                        ).strip()
-                        or extract_last_target_message(flow_logs),
-                        "failure_category": item.get("failure_category") or "",
-                    }
+                    build_history_list_item(
+                        item,
+                        task_name=task_name,
+                        account_name=account_name,
+                        repair=self._repair_mojibake,
+                        extract_last_target=extract_last_target_message,
+                    )
                 )
 
         recent.sort(key=lambda item: str(item.get("time") or ""), reverse=True)
@@ -1047,10 +1038,7 @@ class SignTaskService:
         date: Optional[str] = None,
         limit: int = 200,
     ) -> List[Dict[str, Any]]:
-        if limit < 1:
-            limit = 1
-        if limit > 1000:
-            limit = 1000
+        limit = clamp_limit(limit, minimum=1, maximum=1000)
 
         normalized_account = (
             validate_storage_name(account_name, field_name="account_name")
@@ -1078,29 +1066,20 @@ class SignTaskService:
 
             history = self._load_history_entries(task_name, account_name=current_account)
             for item in history:
+                if not isinstance(item, dict):
+                    continue
                 timestamp = str(item.get("time") or "")
                 if normalized_date and not timestamp.startswith(normalized_date):
                     continue
 
-                flow_logs = item.get("flow_logs")
-                if not isinstance(flow_logs, list):
-                    flow_logs = []
-
                 history_items.append(
-                    {
-                        "time": timestamp,
-                        "success": bool(item.get("success", False)),
-                        "message": self._repair_mojibake(item.get("message", "") or ""),
-                        "flow_logs": [self._repair_mojibake(str(line)) for line in flow_logs],
-                        "flow_truncated": bool(item.get("flow_truncated", False)),
-                        "flow_line_count": int(item.get("flow_line_count", len(flow_logs))),
-                        "task_name": task_name,
-                        "account_name": current_account,
-                        "last_target_message": str(
-                            item.get("last_target_message") or ""
-                        ).strip()
-                        or extract_last_target_message(flow_logs),
-                    }
+                    build_history_list_item(
+                        item,
+                        task_name=task_name,
+                        account_name=current_account,
+                        repair=self._repair_mojibake,
+                        extract_last_target=extract_last_target_message,
+                    )
                 )
 
         history_items.sort(key=lambda item: str(item.get("time") or ""), reverse=True)
