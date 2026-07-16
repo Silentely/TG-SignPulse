@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 
 from fastapi import (
@@ -33,9 +34,30 @@ _LEGACY_WARN = (
 )
 
 
-def _mark_deprecated(response) -> None:
+def _mark_deprecated(response: Response) -> None:
     response.headers["Deprecation"] = "true"
     response.headers["X-API-Warn"] = _LEGACY_WARN
+
+
+def _legacy_writes_allowed() -> bool:
+    """APP_LEGACY_TASKS_READONLY=1 时拒绝写操作（返回 410）。"""
+    return os.getenv("APP_LEGACY_TASKS_READONLY", "0").strip() not in {
+        "1",
+        "true",
+        "True",
+        "yes",
+    }
+
+
+def _reject_if_readonly() -> None:
+    if not _legacy_writes_allowed():
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail=(
+                "Legacy ORM /api/tasks mutations are disabled "
+                "(APP_LEGACY_TASKS_READONLY=1). Use /api/sign-tasks."
+            ),
+        )
 
 
 @router.get("", response_model=list[TaskOut], deprecated=True)
@@ -48,12 +70,15 @@ def list_tasks(
     return task_service.list_tasks(db)
 
 
-@router.post("", response_model=TaskOut, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=TaskOut, status_code=status.HTTP_201_CREATED, deprecated=True)
 async def create_task(
+    response: Response,
     payload: TaskCreate,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    _mark_deprecated(response)
+    _reject_if_readonly()
     account = db.query(Account).filter(Account.id == payload.account_id).first()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
@@ -68,34 +93,41 @@ async def create_task(
     return task
 
 
-@router.get("/stats", response_model=TaskStatsOut)
+@router.get("/stats", response_model=TaskStatsOut, deprecated=True)
 def get_task_stats(
+    response: Response,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     """获取任务统计信息（聚合查询）"""
+    _mark_deprecated(response)
     return task_service.get_task_stats(db)
 
 
-@router.get("/{task_id}", response_model=TaskOut)
+@router.get("/{task_id}", response_model=TaskOut, deprecated=True)
 def get_task(
+    response: Response,
     task_id: int,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    _mark_deprecated(response)
     task = task_service.get_task(db, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
 
 
-@router.put("/{task_id}", response_model=TaskOut)
+@router.put("/{task_id}", response_model=TaskOut, deprecated=True)
 async def update_task(
+    response: Response,
     task_id: int,
     payload: TaskUpdate,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    _mark_deprecated(response)
+    _reject_if_readonly()
     task = task_service.get_task(db, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -115,12 +147,15 @@ async def update_task(
     return updated
 
 
-@router.delete("/{task_id}", status_code=status.HTTP_200_OK)
+@router.delete("/{task_id}", status_code=status.HTTP_200_OK, deprecated=True)
 async def delete_task(
+    response: Response,
     task_id: int,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    _mark_deprecated(response)
+    _reject_if_readonly()
     task = task_service.get_task(db, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -129,12 +164,15 @@ async def delete_task(
     return {"ok": True}
 
 
-@router.post("/{task_id}/run", response_model=TaskLogOut)
+@router.post("/{task_id}/run", response_model=TaskLogOut, deprecated=True)
 async def run_task(
+    response: Response,
     task_id: int,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    _mark_deprecated(response)
+    _reject_if_readonly()
     task = task_service.get_task(db, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -142,13 +180,15 @@ async def run_task(
     return log
 
 
-@router.get("/{task_id}/logs", response_model=list[TaskLogOut])
+@router.get("/{task_id}/logs", response_model=list[TaskLogOut], deprecated=True)
 def list_logs(
+    response: Response,
     task_id: int,
     limit: int = 50,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    _mark_deprecated(response)
     task = task_service.get_task(db, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")

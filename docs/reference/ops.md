@@ -19,6 +19,7 @@
 | --- | --- |
 | `APP_DATABASE_URL` / `DATABASE_URL` | 可选 SQLAlchemy URL；设置后优先于本地 `db.sqlite` |
 | `APP_SCHEDULER_LOCK` | 默认 `1`：启用 `data/.scheduler.lock`；`0` 关闭 |
+| `APP_LEGACY_TASKS_READONLY` | 默认 `0`；设为 `1` 时旧版 `/api/tasks` 写操作返回 410，强制使用 `/api/sign-tasks` |
 
 同一 `data/` 上多副本时：只有获得调度锁的实例会注册签到/旧任务 job。Telegram 监听仍建议单实例。
 
