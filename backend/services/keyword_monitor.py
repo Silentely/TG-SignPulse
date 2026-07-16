@@ -49,6 +49,21 @@ settings = get_settings()
 DEFAULT_CONTINUE_TIMEOUT = 25
 DEFAULT_HISTORY_LIMIT = 10
 DEFAULT_COMMAND_PREFIX = "/start"
+# 同一账号对同一 Bot 连续发送命令的最小间隔（秒），等待而非跳过
+DEFAULT_BOT_CMD_INTERVAL = 2.0
+# 单次 action 最多处理的注册码/链接数量（调高易触发 Telegram 风控/封禁）
+DEFAULT_BOT_CMD_MAX_BATCH = 5
+_BOT_CMD_MAX_BATCH_RISK_HINT = (
+    "调高 max_batch 可能导致 Telegram 风控、限流甚至账号封禁，请谨慎设置"
+)
+
+# 解析消息中的 Telegram 深链：t.me/bot?start=payload
+_TG_START_LINK_RE = re.compile(
+    r"(?:https?://)?(?:t\.me|telegram\.me|telegram\.dog)/"
+    r"([A-Za-z][A-Za-z0-9_]{3,31})"
+    r"\?start=([A-Za-z0-9_-]+)",
+    re.IGNORECASE,
+)
 
 
 def _is_callback_data_invalid(exc: BaseException) -> bool:
@@ -88,6 +103,100 @@ def _regex_keyword_value(match: re.Match[str]) -> str:
             if value:
                 return value
     return match.group(0).strip()
+
+
+def _normalize_bot_username(value: Any) -> str:
+    """规范化 Bot 用户名：去空白与前导 @。"""
+    return str(value or "").strip().lstrip("@").strip()
+
+
+def _as_bool(value: Any, default: bool = True) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def _as_non_negative_float(value: Any, default: float) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    if number < 0:
+        return default
+    return number
+
+
+def _as_positive_int(value: Any, default: int, minimum: int = 1) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return default
+    if number < minimum:
+        return default
+    return number
+
+
+def _extract_tg_start_links(text: str) -> List[tuple[str, str]]:
+    """从消息文本提取 (bot_username, start_param)，保序去重。"""
+    if not text:
+        return []
+    results: List[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for match in _TG_START_LINK_RE.finditer(text):
+        bot = match.group(1)
+        param = match.group(2)
+        key = (bot.lower(), param)
+        if key in seen:
+            continue
+        seen.add(key)
+        results.append((bot, param))
+    return results
+
+
+def _match_all_keyword_values(action: Dict[str, Any], text: str) -> List[str]:
+    """返回消息中全部命中值（正则 finditer；contains/exact 至多一个）。"""
+    keywords = _parse_keywords(
+        action.get("keywords"),
+        split_commas=_keyword_split_commas(action),
+    )
+    if not keywords or not text:
+        return []
+
+    mode = (action.get("match_mode") or "contains").strip()
+    ignore_case = bool(action.get("ignore_case", True))
+    haystack = text.lower() if ignore_case else text
+    results: List[str] = []
+    seen: set[str] = set()
+
+    for keyword in keywords:
+        needle = keyword.lower() if ignore_case else keyword
+        if mode == "exact":
+            if haystack == needle and keyword not in seen:
+                seen.add(keyword)
+                results.append(keyword)
+            continue
+        if mode == "regex":
+            flags = re.IGNORECASE if ignore_case else 0
+            try:
+                for match in re.finditer(keyword, text, flags=flags):
+                    value = _regex_keyword_value(match)
+                    if value and value not in seen:
+                        seen.add(value)
+                        results.append(value)
+            except re.error as exc:
+                logger.warning("Invalid keyword monitor regex %r: %s", keyword, exc)
+            continue
+        if needle in haystack and keyword not in seen:
+            seen.add(keyword)
+            results.append(keyword)
+    return results
 
 
 def _is_immediate_continue_action(action: Optional[Dict[str, Any]]) -> bool:
@@ -633,9 +742,13 @@ class KeywordMonitorService:
         if action_id == 7:
             return "AI 计算并点击按钮"
         if action_id == 9:
-            bot = str(action.get("bot_username") or "").strip()
+            bot = _normalize_bot_username(action.get("bot_username"))
             cmd = str(action.get("command_prefix") or "").strip() or DEFAULT_COMMAND_PREFIX
-            return f"触发 Bot 命令: @{bot} {cmd}" if bot else f"触发 Bot 命令 {cmd}"
+            if not cmd.startswith("/"):
+                cmd = f"/{cmd}"
+            if bot:
+                return f"触发 Bot 命令: @{bot} {cmd}"
+            return f"触发 Bot 命令 {cmd}（可从深链解析 Bot）"
         return f"动作 {action_id}"
 
     def _rules_key(self, rules: list[KeywordMonitorRule]) -> str:
@@ -710,33 +823,9 @@ class KeywordMonitorService:
         return rules
 
     def _match_keyword(self, action: Dict[str, Any], text: str) -> Optional[str]:
-        keywords = _parse_keywords(
-            action.get("keywords"),
-            split_commas=_keyword_split_commas(action),
-        )
-        if not keywords or not text:
-            return None
-
-        mode = (action.get("match_mode") or "contains").strip()
-        ignore_case = bool(action.get("ignore_case", True))
-        haystack = text.lower() if ignore_case else text
-
-        for keyword in keywords:
-            needle = keyword.lower() if ignore_case else keyword
-            if mode == "exact" and haystack == needle:
-                return keyword
-            if mode == "regex":
-                flags = re.IGNORECASE if ignore_case else 0
-                try:
-                    match = re.search(keyword, text, flags=flags)
-                    if match:
-                        return _regex_keyword_value(match)
-                except re.error as exc:
-                    logger.warning("Invalid keyword monitor regex %r: %s", keyword, exc)
-                continue
-            if mode not in {"exact", "regex"} and needle in haystack:
-                return keyword
-        return None
+        """兼容单值命中：返回首个捕获值。"""
+        matches = _match_all_keyword_values(action, text)
+        return matches[0] if matches else None
 
     def _message_thread_id(self, message: Message) -> Optional[int]:
         candidates = _message_thread_candidates(message)
@@ -1263,6 +1352,119 @@ class KeywordMonitorService:
 
         return False
 
+    def _prune_bot_cmd_rate_map(self) -> None:
+        if len(self._bot_cmd_last_sent) <= 1000:
+            return
+        cutoff = time.monotonic() - 300.0
+        self._bot_cmd_last_sent = {
+            key: sent_at
+            for key, sent_at in self._bot_cmd_last_sent.items()
+            if sent_at > cutoff
+        }
+
+    async def _await_bot_cmd_slot(self, rate_key: str, interval: float) -> None:
+        """等待直到距离上次发送已满足间隔，避免硬跳过批量码。"""
+        if interval <= 0:
+            self._bot_cmd_last_sent[rate_key] = time.monotonic()
+            self._prune_bot_cmd_rate_map()
+            return
+        now = time.monotonic()
+        last_sent = self._bot_cmd_last_sent.get(rate_key, 0.0)
+        wait_seconds = interval - (now - last_sent)
+        if wait_seconds > 0:
+            logger.debug(
+                "Bot 命令间隔等待：key=%s wait=%.2fs interval=%.2fs",
+                rate_key,
+                wait_seconds,
+                interval,
+            )
+            await asyncio.sleep(wait_seconds)
+        self._bot_cmd_last_sent[rate_key] = time.monotonic()
+        self._prune_bot_cmd_rate_map()
+
+    def _collect_bot_cmd_jobs(
+        self,
+        action: Dict[str, Any],
+        *,
+        message_text: str,
+        variables: Dict[str, str],
+        match_action: Optional[Dict[str, Any]] = None,
+    ) -> List[tuple[str, str]]:
+        """
+        收集待发送的 (bot_username, start_param) 列表。
+
+        优先级：
+        1. 消息中的 t.me/?start= 深链（可自动解析 Bot 名）
+        2. 父规则关键词多匹配 + start_param 模板
+        3. 变量中的单个 {keyword}
+        """
+        configured_bot = _normalize_bot_username(action.get("bot_username"))
+        parse_deep_links = _as_bool(action.get("parse_deep_links"), True)
+        multi_match = _as_bool(action.get("multi_match"), True)
+        raw_max_batch = action.get("max_batch")
+        max_batch = _as_positive_int(
+            raw_max_batch, DEFAULT_BOT_CMD_MAX_BATCH, minimum=1
+        )
+        # 显式调高批量上限时提醒风控风险
+        if raw_max_batch is not None and max_batch > DEFAULT_BOT_CMD_MAX_BATCH:
+            logger.warning(
+                "Bot 命令 max_batch=%s 高于默认值 %s：%s",
+                max_batch,
+                DEFAULT_BOT_CMD_MAX_BATCH,
+                _BOT_CMD_MAX_BATCH_RISK_HINT,
+            )
+        jobs: List[tuple[str, str]] = []
+        seen: set[tuple[str, str]] = set()
+
+        def _append_job(bot: str, param: str) -> None:
+            bot_name = _normalize_bot_username(bot)
+            start_param = str(param or "").strip()
+            if not bot_name or not start_param:
+                return
+            key = (bot_name.lower(), start_param)
+            if key in seen:
+                return
+            seen.add(key)
+            jobs.append((bot_name, start_param))
+
+        if parse_deep_links and message_text:
+            for link_bot, link_param in _extract_tg_start_links(message_text):
+                _append_job(configured_bot or link_bot, link_param)
+
+        if not jobs:
+            start_param_tpl = str(action.get("start_param") or "{keyword}")
+            keyword_source = match_action if isinstance(match_action, dict) else action
+            keyword_values: List[str] = []
+            if multi_match and "{keyword}" in start_param_tpl and message_text:
+                keyword_values = _match_all_keyword_values(keyword_source, message_text)
+            if not keyword_values:
+                single = str(variables.get("keyword") or "").strip()
+                if single:
+                    keyword_values = [single]
+
+            if multi_match and "{keyword}" in start_param_tpl and keyword_values:
+                for keyword in keyword_values:
+                    rendered = str(
+                        _render_template(
+                            start_param_tpl, {**variables, "keyword": keyword}
+                        )
+                    ).strip()
+                    _append_job(configured_bot, rendered)
+            else:
+                rendered = str(
+                    _render_template(start_param_tpl, variables)
+                ).strip()
+                _append_job(configured_bot, rendered)
+
+        if len(jobs) > max_batch:
+            logger.warning(
+                "Bot 命令批量截断：候选 %s 条，仅发送前 %s 条。%s",
+                len(jobs),
+                max_batch,
+                _BOT_CMD_MAX_BATCH_RISK_HINT,
+            )
+        return jobs[:max_batch]
+
     async def _execute_bot_link_action(
         self,
         client: Any,
@@ -1274,8 +1476,17 @@ class KeywordMonitorService:
         variables: Optional[Dict[str, str]] = None,
         account_name: str = "",
         task_name: str = "",
+        match_action: Optional[Dict[str, Any]] = None,
     ) -> bool:
-        """执行 action_id=9：向指定 Bot 发送命令，参数从模板变量替换。"""
+        """
+        执行 action_id=9：向 Bot 发送命令。
+
+        增强能力：
+        - 解析消息内 t.me/bot?start= 深链并逐条触发（默认最多 5 条）
+        - 正则多匹配时批量发送捕获值（受 max_batch 限制）
+        - 未配置 bot_username 时可从深链自动解析 Bot 名
+        - 批量发送按间隔等待；调高 max_batch 有风控/封禁风险
+        """
         logger.warning(
             "[BOT_CMD_ENTRY] bot_username=%s | source_message=%s | variables=%s | action=%s",
             action.get("bot_username"),
@@ -1283,81 +1494,112 @@ class KeywordMonitorService:
             variables,
             action,
         )
-        bot_username = str(action.get("bot_username") or "").strip()
-        if not bot_username:
-            logger.warning("Bot 命令触发跳过：未配置 bot_username")
-            return False
         if source_message is None:
-            logger.warning("Bot 命令触发跳过：source_message 为 None，bot_username=%s", bot_username)
+            logger.warning("Bot 命令触发跳过：source_message 为 None")
             return False
 
         variables = variables or {}
-        start_param = str(_render_template(
-            action.get("start_param") or "{keyword}", variables
-        )).strip()
-        if not start_param:
-            logger.warning("Bot 命令触发跳过：start_param 为空")
+        message_text = _message_text(source_message)
+        jobs = self._collect_bot_cmd_jobs(
+            action,
+            message_text=message_text,
+            variables=variables,
+            match_action=match_action,
+        )
+        if not jobs:
+            configured_bot = _normalize_bot_username(action.get("bot_username"))
+            if not configured_bot:
+                logger.warning(
+                    "Bot 命令触发跳过：未配置 bot_username 且消息中无可解析的 t.me/?start= 链接"
+                )
+            else:
+                logger.warning("Bot 命令触发跳过：start_param 为空")
             return False
 
-        command_prefix = str(action.get("command_prefix") or "").strip() or DEFAULT_COMMAND_PREFIX
+        command_prefix = (
+            str(action.get("command_prefix") or "").strip() or DEFAULT_COMMAND_PREFIX
+        )
         if not command_prefix.startswith("/"):
             command_prefix = f"/{command_prefix}"
-
-        now = time.monotonic()
-        rate_key = f"{account_name}:{bot_username}"
-        last_sent = self._bot_cmd_last_sent.get(rate_key, 0.0)
-        if now - last_sent < 30.0:
-            logger.debug(
-                "Bot 命令触发跳过：@%s (账号=%s) 最近 %.1f 秒内已触发",
-                bot_username, account_name, now - last_sent,
-            )
-            return False
-        self._bot_cmd_last_sent[rate_key] = now
-        if len(self._bot_cmd_last_sent) > 1000:
-            cutoff = now - 300.0
-            self._bot_cmd_last_sent = {
-                k: v for k, v in self._bot_cmd_last_sent.items() if v > cutoff
-            }
-
-        logger.info(
-            "Bot 命令 action 发送 | bot=%s | cmd=%s | param=%s | chat=%s",
-            bot_username, command_prefix, start_param, target_chat_id,
+        send_interval = _as_non_negative_float(
+            action.get("send_interval"), DEFAULT_BOT_CMD_INTERVAL
         )
-        try:
-            result = await self._call_client_with_retry(
-                client,
-                lambda _bot=bot_username, _param=start_param, _cmd=command_prefix: client.send_message(
-                    _bot, f"{_cmd} {_param}"
-                ),
-                operation=f"keyword monitor bot cmd {bot_username}",
-            )
-            msg_id = getattr(result, "id", None)
-            chat = getattr(result, "chat", None)
-            chat_id = getattr(chat, "id", None)
-            logger.info(
-                "Bot 命令 action 成功 | bot=%s | param=%s | msg_id=%s | result_chat_id=%s",
-                bot_username, start_param, msg_id, chat_id,
-            )
+
+        log_rule = KeywordMonitorRule(
+            account_name=account_name,
+            task_name=task_name,
+            chat_id=target_chat_id if isinstance(target_chat_id, int) else 0,
+            chat_name=str(target_chat_id),
+            message_thread_id=target_thread_id,
+            sender_filter=None,
+            action=action,
+        )
+        max_batch = _as_positive_int(
+            action.get("max_batch"), DEFAULT_BOT_CMD_MAX_BATCH, minimum=1
+        )
+        if max_batch > DEFAULT_BOT_CMD_MAX_BATCH:
             self._append_rule_log(
-                KeywordMonitorRule(
-                    account_name=account_name,
-                    task_name=task_name,
-                    chat_id=target_chat_id if isinstance(target_chat_id, int) else 0,
-                    chat_name=str(target_chat_id),
-                    message_thread_id=target_thread_id,
-                    sender_filter=None,
-                    action=action,
-                ),
-                f"Bot 命令触发成功：向 @{bot_username} 发送 {command_prefix} {start_param}",
+                log_rule,
+                f"警告：max_batch={max_batch} 高于默认 {DEFAULT_BOT_CMD_MAX_BATCH}，"
+                f"{_BOT_CMD_MAX_BATCH_RISK_HINT}",
             )
-            return True
-        except Exception as exc:
-            logger.warning(
-                "Bot 命令 action 异常 | bot=%s | cmd=%s | param=%s | error=%s: %s",
-                bot_username, command_prefix, start_param, type(exc).__name__, str(exc)[:200],
-                exc_info=True,
+        if len(jobs) > 1:
+            self._append_rule_log(
+                log_rule,
+                f"Bot 命令批量触发：共 {len(jobs)} 条（上限 {max_batch}），"
+                f"间隔 {send_interval:g}s",
             )
-            return False
+
+        success_count = 0
+        for bot_username, start_param in jobs:
+            rate_key = f"{account_name}:{bot_username.lower()}"
+            await self._await_bot_cmd_slot(rate_key, send_interval)
+            logger.info(
+                "Bot 命令 action 发送 | bot=%s | cmd=%s | param=%s | chat=%s",
+                bot_username,
+                command_prefix,
+                start_param,
+                target_chat_id,
+            )
+            try:
+                result = await self._call_client_with_retry(
+                    client,
+                    lambda _bot=bot_username, _param=start_param, _cmd=command_prefix: client.send_message(
+                        _bot, f"{_cmd} {_param}"
+                    ),
+                    operation=f"keyword monitor bot cmd {bot_username}",
+                )
+                msg_id = getattr(result, "id", None)
+                chat = getattr(result, "chat", None)
+                chat_id = getattr(chat, "id", None)
+                logger.info(
+                    "Bot 命令 action 成功 | bot=%s | param=%s | msg_id=%s | result_chat_id=%s",
+                    bot_username,
+                    start_param,
+                    msg_id,
+                    chat_id,
+                )
+                self._append_rule_log(
+                    log_rule,
+                    f"Bot 命令触发成功：向 @{bot_username} 发送 {command_prefix} {start_param}",
+                )
+                success_count += 1
+            except Exception as exc:
+                logger.warning(
+                    "Bot 命令 action 异常 | bot=%s | cmd=%s | param=%s | error=%s: %s",
+                    bot_username,
+                    command_prefix,
+                    start_param,
+                    type(exc).__name__,
+                    str(exc)[:200],
+                    exc_info=True,
+                )
+                self._append_rule_log(
+                    log_rule,
+                    f"Bot 命令触发失败：@{bot_username} {command_prefix} {start_param}，错误={exc}",
+                )
+
+        return success_count > 0
 
     async def _execute_continue_action(
         self,
@@ -1372,6 +1614,7 @@ class KeywordMonitorService:
         variables: Optional[Dict[str, str]] = None,
         account_name: str = "",
         task_name: str = "",
+        match_action: Optional[Dict[str, Any]] = None,
     ) -> bool:
         action_id = int(action.get("action"))
         logger.warning(
@@ -1409,6 +1652,7 @@ class KeywordMonitorService:
                 variables=variables,
                 account_name=account_name,
                 task_name=task_name,
+                match_action=match_action,
             )
 
         action_timeout = timeout or _read_positive_float_env(
@@ -1579,6 +1823,23 @@ class KeywordMonitorService:
                     rule,
                     f"后续动作 {index}/{len(rendered_actions)} 开始：{action_desc}",
                 )
+                # Bot 批量命令需要更长超时：间隔 × 上限 + 缓冲
+                action_timeout = timeout
+                try:
+                    if int(action.get("action")) == 9:
+                        send_interval = _as_non_negative_float(
+                            action.get("send_interval"), DEFAULT_BOT_CMD_INTERVAL
+                        )
+                        max_batch = _as_positive_int(
+                            action.get("max_batch"),
+                            DEFAULT_BOT_CMD_MAX_BATCH,
+                            minimum=1,
+                        )
+                        action_timeout = max(
+                            timeout, send_interval * max_batch + 15.0
+                        )
+                except (TypeError, ValueError):
+                    action_timeout = timeout
                 try:
                     result = await asyncio.wait_for(
                         self._execute_continue_action(
@@ -1586,14 +1847,15 @@ class KeywordMonitorService:
                             target_chat_id,
                             target_thread_id,
                             action,
-                            timeout=timeout,
+                            timeout=action_timeout,
                             next_action=next_action,
                             source_message=message,
                             variables=variables,
                             account_name=account_name,
                             task_name=rule.task_name,
+                            match_action=rule.action,
                         ),
-                        timeout=timeout + 1,
+                        timeout=action_timeout + 1,
                     )
                 except Exception as exc:
                     is_terminal = isinstance(exc, TerminalAIActionError)
@@ -1697,7 +1959,8 @@ class KeywordMonitorService:
                 )
 
             for rule in matched_rules:
-                matched = self._match_keyword(rule.action, text)
+                all_matched = _match_all_keyword_values(rule.action, text)
+                matched = all_matched[0] if all_matched else None
                 if not matched:
                     if self._should_log_rule_event(
                         rule,
@@ -1716,10 +1979,16 @@ class KeywordMonitorService:
                 text_preview = text.replace("\n", " ").strip()
                 if len(text_preview) > 160:
                     text_preview = text_preview[:157] + "..."
+                capture_display = matched
+                if len(all_matched) > 1:
+                    capture_display = f"{','.join(all_matched[:8])}" + (
+                        f"…(+{len(all_matched) - 8})" if len(all_matched) > 8 else ""
+                    )
+                    capture_display = f"{capture_display}（共{len(all_matched)}个）"
                 self._append_rule_log(
                     rule,
                     f"关键词命中：Chat={chat_title}({getattr(message.chat, 'id', '')})，"
-                    f"消息ID={getattr(message, 'id', '')}，捕获值={matched}，消息={text_preview}",
+                    f"消息ID={getattr(message, 'id', '')}，捕获值={capture_display}，消息={text_preview}",
                     active=True,
                 )
                 body_lines = [
@@ -1727,6 +1996,8 @@ class KeywordMonitorService:
                     f"Chat: {chat_title}",
                     f"Keyword: {matched}",
                 ]
+                if len(all_matched) > 1:
+                    body_lines.append(f"Keywords: {', '.join(all_matched[:20])}")
                 if sender:
                     body_lines.append(f"Sender: {sender}")
                 body_lines.append("")

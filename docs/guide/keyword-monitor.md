@@ -110,7 +110,16 @@ https://sctapi.ftqq.com/<sendkey>.send?title={title}&desp={body}
 - `5` 回复计算题
 - `6` AI 识图后回复文本
 - `7` AI 计算后点击按钮
-- `9` 触发 Bot 命令：向指定 Bot 发送命令，参数从关键词捕获值自动替换（配置 `bot_username`，可选 `command_prefix` 命令前缀默认 `/start`，可选 `start_param` 模板默认 `{keyword}`）
+- `9` 触发 Bot 命令：向指定 Bot 发送命令，参数从关键词捕获值或消息内 `t.me/bot?start=` 深链自动替换
+  - `bot_username`：目标 Bot（可选；消息含深链时可自动解析）
+  - `command_prefix`：命令前缀，默认 `/start`
+  - `start_param`：参数模板，默认 `{keyword}`
+  - `multi_match`：是否批量发送全部捕获值，默认 `true`
+  - `parse_deep_links`：是否解析消息内深链，默认 `true`
+  - `send_interval`：批量发送间隔秒数，默认 `2`（等待而非跳过）
+  - `max_batch`：单次最多发送条数，默认 `5`
+
+> ⚠️ **风险提示**：请勿轻易调高 `max_batch`。短时间内向同一 Bot 连发大量 `/start` 容易触发 Telegram 风控、限流，严重时可能导致账号受限或封禁。若消息中的注册码超过 5 条，默认只处理前 5 条。
 
 后续动作同样支持 `ai_prompt`。
 
@@ -198,7 +207,40 @@ https://sctapi.ftqq.com/<sendkey>.send?title={title}&desp={body}
 当消息包含 `MSKY-30-Register_KsdaqumLAS` 时，正则捕获 `KsdaqumLAS`，
 系统自动向 `@GYFMsky_bot` 发送 `/start KsdaqumLAS`。
 
-> **注意**：通过 API 发送给 Bot 的 `/start` 消息**不会显示在 Telegram 客户端的对话列表中**，这是 Telegram 的设计行为，不影响功能。Bot 端确实收到了消息并会正常响应。可通过任务日志中的「Bot 命令 action 成功」确认发送状态。
+一条消息出现多个 `Register_xxx` 时，默认会按间隔（默认 2 秒）依次发送，最多 **5** 条（`max_batch`）。
+
+### 示例 5：消息内多条 `t.me/bot?start=` 深链抢注
+
+消息示例：
+
+```text
+已为您生成了30天注册码3个
+t.me/shrekpublicbot?start=SAKURA-30-Register_Ywyx26Doxi
+t.me/shrekpublicbot?start=SAKURA-30-Register_QjElUtgTgs
+t.me/shrekpublicbot?start=SAKURA-30-Register_Q2NK4Yw68E
+```
+
+推荐配置：
+
+- 模式：`contains` 或 `regex`（任意能命中该消息的规则即可，例如关键词 `注册码`）
+- 推送：`continue`
+- 后续动作：触发 Bot 命令
+  - Bot 用户名：可留空（自动从深链解析 `shrekpublicbot`），也可手动填写
+  - 命令前缀：`/start`
+
+系统会依次发送：
+
+```text
+/start SAKURA-30-Register_Ywyx26Doxi
+/start SAKURA-30-Register_QjElUtgTgs
+/start SAKURA-30-Register_Q2NK4Yw68E
+```
+
+> **优先级**：若消息中存在可解析的 `t.me/?start=` 深链，优先使用深链中的**完整** `start` 参数（而不是正则只捕获后缀）。
+
+> ⚠️ **风险提示**：`max_batch` 默认 5。调高后短时间连发 `/start` 可能触发 Telegram 风控、限流甚至账号封禁，请勿为抢注盲目加大。
+
+> **注意**：通过 API 发送给 Bot 的 `/start` 消息**不会显示在 Telegram 客户端的对话列表中**，这是 Telegram 的设计行为，不影响功能。Bot 端确实收到了消息并会正常响应。可通过任务日志中的「Bot 命令触发成功」确认发送状态。
 
 ## 设计建议
 

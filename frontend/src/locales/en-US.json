@@ -152,7 +152,7 @@
     "clickButton": "Click Button",
     "sendDice": "Send Dice",
     "botCmd": "Trigger Bot Command",
-    "botUsernamePlaceholder": "Bot username, e.g. GYFMsky_bot",
+    "botUsernamePlaceholder": "Bot username (optional if message has t.me/?start= links)",
     "commandPrefixPlaceholder": "Command prefix, default /start",
     "aiVision": "── AI Vision ──",
     "visionSend": "Vision -> Text",
