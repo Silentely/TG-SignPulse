@@ -15,10 +15,17 @@
   <img src="https://img.shields.io/badge/python-3.10--3.13-blue" alt="Python">
   <img src="https://img.shields.io/badge/node-22+-green" alt="Node.js">
   <a href="https://github.com/Silentely/TG-SignPulse/pkgs/container/tg-signpulse"><img src="https://img.shields.io/badge/ghcr.io-available-purple" alt="GHCR"></a>
+  <a href="https://tg.cosr.eu.org"><img src="https://img.shields.io/badge/docs-VitePress-229ED9" alt="Docs"></a>
 </p>
 
 <p align="center">
-  <a href="README_EN.md">English</a> · <a href="docs/README.md">完整文档</a> · <a href="docs/guide/quick-start.md">快速开始</a>
+  <a href="https://tg.cosr.eu.org"><strong>在线文档</strong></a>
+  ·
+  <a href="README_EN.md">English</a>
+  ·
+  <a href="https://tg.cosr.eu.org/guide/quick-start">快速开始</a>
+  ·
+  <a href="docs/README.md">仓库内文档源</a>
 </p>
 
 ---
@@ -69,6 +76,9 @@ TG-SignPulse 是一个 Telegram 自动化管理面板。你可以在网页中管
 │  Infrastructure    Docker Multi-stage Build              │
 │                    GitHub Actions CI/CD                   │
 │                    GHCR Container Registry               │
+├─────────────────────────────────────────────────────────┤
+│  Docs              VitePress → Vercel                    │
+│                    https://tg.cosr.eu.org       │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -145,7 +155,8 @@ TG-SignPulse/
 │   ├── src/
 │   └── vite.config.ts
 ├── docker/             # Docker 入口脚本
-├── docs/               # 项目文档 (VitePress)
+├── docs/               # 文档源 (VitePress) → https://tg.cosr.eu.org
+├── vercel.json         # 文档站 Vercel 构建配置
 ├── Dockerfile          # 多阶段构建
 ├── docker-compose.yml  # Compose 编排
 └── pyproject.toml      # Python 项目配置
@@ -155,16 +166,31 @@ TG-SignPulse/
 
 ## 文档
 
-完整文档请查看 [docs/README.md](docs/README.md)，包含：
+**在线文档站（推荐）**：[https://tg.cosr.eu.org](https://tg.cosr.eu.org/)
 
-- [快速开始](docs/guide/quick-start.md) — 5 分钟部署并创建第一个任务
-- [Docker 部署](docs/deploy/docker.md) — 镜像策略、Compose、反向代理、升级
-- [配置参考](docs/reference/configuration.md) — 环境变量、数据目录、配置文件
-- [账号管理](docs/guide/accounts.md) — 登录方式、代理、会话模式
-- [任务编排](docs/guide/tasks.md) — 动作类型、执行模式、多账号共享
-- [AI 动作](docs/guide/ai.md) — OpenAI 配置与自定义提示词
-- [关键词监听](docs/guide/keyword-monitor.md) — 匹配规则、推送通道、后续动作
-- [系统架构](docs/reference/architecture.md) — 前后端、调度器、执行引擎
+VitePress 构建，托管于 Vercel（自定义域名），与仓库 `docs/` 同步。
+
+| 入口 | 说明 |
+|------|------|
+| [功能介绍](https://tg.cosr.eu.org/features) | 能力一览与适用场景 |
+| [快速开始](https://tg.cosr.eu.org/guide/quick-start) | 5 分钟部署并创建第一个任务 |
+| [Docker 部署](https://tg.cosr.eu.org/deploy/docker) | 镜像、Compose、升级 |
+| [Nginx 反向代理](https://tg.cosr.eu.org/deploy/nginx) | SSE / WebSocket 生产配置 |
+| [Vercel 文档站](https://tg.cosr.eu.org/deploy/vercel) | 文档站如何部署 |
+| [配置参考](https://tg.cosr.eu.org/reference/configuration) | 环境变量、数据目录 |
+| [运维手册](https://tg.cosr.eu.org/reference/ops) | 健康检查、备份、上线清单 |
+| [任务编排](https://tg.cosr.eu.org/guide/tasks) | sign-tasks、动作类型 |
+| [常见问题](https://tg.cosr.eu.org/faq) | 排障、SQLite/PG、旧 API |
+| [系统架构](https://tg.cosr.eu.org/reference/architecture) | 前后端与调度器 |
+
+仓库内 Markdown 源文件在 [`docs/`](docs/README.md)，可本地预览：
+
+```bash
+npm install
+npm run docs:dev    # http://127.0.0.1:5173
+```
+
+> **数据库**：默认 **SQLite**；可选 `APP_DATABASE_URL` 使用 PostgreSQL，并非强制迁移。详见 [FAQ](https://tg.cosr.eu.org/faq)。
 
 ---
 
@@ -175,12 +201,13 @@ TG-SignPulse/
 | `APP_SECRET_KEY` | JWT 密钥（生产必设） | 自动生成 |
 | `ADMIN_PASSWORD` | 管理员初始密码 | 随机生成 |
 | `APP_DATA_DIR` | 数据目录 | `/data` |
+| `APP_DATABASE_URL` | 可选；空=SQLite，可设 Postgres URL | 空 |
 | `TZ` | 时区 | `Asia/Shanghai` |
 | `TG_SESSION_MODE` | 会话模式 `file`/`string` | `file` |
 | `TG_GLOBAL_CONCURRENCY` | 全局并发数 | `自动（CPU核心数，上限5）` |
 | `TG_PROXY` | Telegram 全局代理 | 无 |
 
-更多配置请查看 [配置参考](docs/reference/configuration.md)。
+更多配置请查看 [配置参考](https://tg.cosr.eu.org/reference/configuration)。
 
 ---
 

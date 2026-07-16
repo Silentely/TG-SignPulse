@@ -22,7 +22,7 @@
 | 变量 | 示例 | 说明 |
 |------|------|------|
 | `VITEPRESS_BASE` | `/` | 文档站点 base，Vercel 自定义域名/子域名请用 `/`（默认即可） |
-| `VITEPRESS_SITE_URL` | `https://docs.example.com` | 用于 OG / 结构化数据的绝对站点 URL |
+| `VITEPRESS_SITE_URL` | `https://tg.cosr.eu.org` | 用于 OG / 结构化数据的绝对站点 URL（生产域名） |
 | `VITEPRESS_EDIT_BRANCH` | `dev` | 「在 GitHub 上编辑」链接指向的分支，默认 `main` |
 
 在 Vercel → Project → Settings → Environment Variables 中添加（Production / Preview 按需勾选）。
@@ -53,9 +53,9 @@ VitePress 开启了 `cleanUrls: true`，页面文件为 `guide/quick-start.html`
 ## 绑定自定义域名
 
 1. Project → Settings → Domains  
-2. 添加 `docs.your-domain.com`  
+2. 添加自定义域名（本项目生产域名为 **`tg.cosr.eu.org`**）  
 3. 按 Vercel 提示配置 DNS（CNAME 到 `cname.vercel-dns.com` 或 A 记录）  
-4. 设置环境变量 `VITEPRESS_SITE_URL=https://docs.your-domain.com` 后 **Redeploy**
+4. 设置环境变量 `VITEPRESS_SITE_URL=https://tg.cosr.eu.org` 后 **Redeploy**
 
 ---
 
@@ -105,7 +105,7 @@ npm run docs:preview
 
 文档站与 Vue 面板是两套产物。常见做法：
 
-- 文档：`docs.example.com` → 本 Vercel 项目  
+- 文档：`https://tg.cosr.eu.org` → 本 Vercel 项目  
 - 面板：另一项目 / 自建 Docker  
 
 不要把 `frontend` 的 Vite 输出和文档站混在同一个 Output Directory。
