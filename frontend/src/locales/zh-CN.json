@@ -21,7 +21,9 @@
     "jobKindSign": "签到",
     "jobKindSystem": "系统",
     "jobKindLegacy": "旧任务",
-    "nextRun": "下次运行"
+    "nextRun": "下次运行",
+    "liveOn": "实时",
+    "liveOff": "轮询"
   },
   "accounts": {
     "noRemark": "暂无备注",

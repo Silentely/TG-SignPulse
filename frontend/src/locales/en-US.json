@@ -21,7 +21,9 @@
     "jobKindSign": "Sign",
     "jobKindSystem": "System",
     "jobKindLegacy": "Legacy",
-    "nextRun": "Next run"
+    "nextRun": "Next run",
+    "liveOn": "Live",
+    "liveOff": "Polling"
   },
   "accounts": {
     "noRemark": "No remark",
