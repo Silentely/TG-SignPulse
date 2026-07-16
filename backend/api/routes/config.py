@@ -20,10 +20,14 @@ def _clear_sign_task_cache() -> None:
     try:
         from backend.services.sign_tasks import get_sign_task_service
 
-        get_sign_task_service()._tasks_cache = None
-    except Exception:
+        get_sign_task_service().invalidate_tasks_cache()
+    except Exception as exc:
         # Best-effort cache invalidation; import should still succeed.
-        pass
+        import logging
+
+        logging.getLogger("backend.config_api").debug(
+            "清除签到任务缓存失败: %s", exc
+        )
 
 
 class ExportTaskResponse(BaseModel):

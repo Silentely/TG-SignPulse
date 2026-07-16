@@ -8,6 +8,7 @@ from fastapi import (
     Depends,
     HTTPException,
     Query,
+    Response,
     WebSocket,
     WebSocketDisconnect,
     status,
@@ -26,9 +27,24 @@ from backend.services import tasks as task_service
 
 router = APIRouter()
 
+# 旧版 ORM 任务路由：仅兼容存量客户端，新功能请使用 /api/sign-tasks
+_LEGACY_WARN = (
+    "Deprecated: /api/tasks uses legacy ORM storage. Prefer /api/sign-tasks."
+)
 
-@router.get("", response_model=list[TaskOut])
-def list_tasks(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+
+def _mark_deprecated(response) -> None:
+    response.headers["Deprecation"] = "true"
+    response.headers["X-API-Warn"] = _LEGACY_WARN
+
+
+@router.get("", response_model=list[TaskOut], deprecated=True)
+def list_tasks(
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    _mark_deprecated(response)
     return task_service.list_tasks(db)
 
 

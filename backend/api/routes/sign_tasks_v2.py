@@ -58,8 +58,8 @@ async def _restart_keyword_monitors() -> None:
         from backend.services.keyword_monitor import get_keyword_monitor_service
 
         await get_keyword_monitor_service().restart_from_tasks()
-    except Exception:
-        pass
+    except Exception as exc:
+        _sync_logger.warning("重启关键词监控失败: %s", exc)
 
 
 class ChatConfig(BaseModel):

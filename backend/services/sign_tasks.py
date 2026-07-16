@@ -10,7 +10,6 @@ import contextvars
 import json
 import logging
 import os
-import re
 import time
 import traceback
 import uuid
@@ -19,10 +18,16 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 from backend.core.config import get_settings
+from backend.services.sign_task_backend import BackendUserSigner, TaskLogHandler
+from backend.services.sign_task_failure import (
+    classify_failure,
+    message_indicates_strong_failure,
+)
 from backend.utils.account_locks import get_account_lock
+from backend.utils.cache import TTLCache
 from backend.utils.names import validate_storage_name
 from backend.utils.proxy import build_proxy_dict
-from backend.utils.task_logs import extract_last_target_message, normalize_log_line
+from backend.utils.task_logs import extract_last_target_message
 from backend.utils.tg_session import (
     get_account_proxy,
     get_account_session_string,
@@ -35,7 +40,7 @@ from backend.utils.tg_session import (
 )
 from backend.utils.time import utc_now_iso
 from tg_signer.async_utils import create_logged_task
-from tg_signer.core import UserSigner, get_client
+from tg_signer.core import get_client
 from tg_signer.log_utils import safe_exception_summary, safe_traceback_preview
 
 settings = get_settings()
@@ -47,75 +52,17 @@ _task_retry_count_var: contextvars.ContextVar[int] = contextvars.ContextVar(
 
 _service_logger = logging.getLogger("backend.sign_tasks")
 
-
-def _safe_print(*args, sep: str = " ", end: str = "\n") -> None:
-    text = sep.join(str(arg) for arg in args) + end
-    _service_logger.debug(text.rstrip())
-
-
-print = _safe_print
-
-
-class TaskLogHandler(logging.Handler):
-    """
-    自定义日志处理器，将日志实时写入到内存列表中
-    """
-
-    def __init__(self, log_list: List[str]):
-        super().__init__()
-        self.log_list = log_list
-
-    def emit(self, record):
-        try:
-            msg = normalize_log_line(self.format(record)) or record.getMessage()
-            self.log_list.append(msg)
-            # 保持日志长度，避免内存占用过大
-            if len(self.log_list) > 1000:
-                self.log_list.pop(0)
-        except Exception:
-            self.handleError(record)
-
-
-class BackendUserSigner(UserSigner):
-    """
-    后端专用的 UserSigner，适配后端目录结构并禁止交互式输入
-    """
-
-    @property
-    def task_dir(self):
-        # 适配后端的目录结构: signs_dir / account_name / task_name
-        # self.tasks_dir -> workdir/signs
-        account_task_dir = self.tasks_dir / self._account / self.task_name
-        if (account_task_dir / "config.json").exists():
-            return account_task_dir
-        legacy_task_dir = self.tasks_dir / self.task_name
-        if (legacy_task_dir / "config.json").exists():
-            return legacy_task_dir
-        return account_task_dir
-
-    def ask_for_config(self):
-        raise ValueError(
-            f"任务配置文件不存在: {self.config_file}，且后端模式下禁止交互式输入。"
-        )
-
-    def reconfig(self):
-        raise ValueError(
-            f"任务配置文件不存在: {self.config_file}，且后端模式下禁止交互式输入。"
-        )
-
-    def ask_one(self):
-        raise ValueError("后端模式下禁止交互式输入")
+# 向后兼容：外部若 from sign_tasks import BackendUserSigner / TaskLogHandler
+__all__ = [
+    "BackendUserSigner",
+    "TaskLogHandler",
+    "SignTaskService",
+    "get_sign_task_service",
+]
 
 
 class SignTaskService:
     """签到任务服务类"""
-
-    _STRONG_FAILURE_PATTERNS = (
-        re.compile(r"(签到|任务|执行|操作|请求|发送|点击)\s*(失败|异常|超时)"),
-        re.compile(r"(未找到|找不到).*(按钮|消息|会话|聊天|目标)"),
-        re.compile(r"(账号|会话|session).*(失效|无效|invalid)"),
-        re.compile(r"\b(failed|failure|timed out|timeout|not found|invalid session|error)\b"),
-    )
 
     @staticmethod
     def _read_positive_int_env(name: str, default: int, minimum: int = 1) -> int:
@@ -145,7 +92,10 @@ class SignTaskService:
         self._run_statuses: Dict[tuple[str, str], Dict[str, Any]] = {}
         self._run_status_cleanup_tasks: Dict[tuple[str, str], asyncio.Task] = {}
         self._background_run_tasks: Dict[tuple[str, str], asyncio.Task] = {}
-        self._tasks_cache = None  # 内存缓存
+        self._tasks_cache = None  # 兼容旧引用：list 或 None
+        # TTL 列表缓存（与 _tasks_cache 同步），避免长时间持有过期扫描结果
+        list_ttl = float(os.getenv("SIGN_TASK_LIST_CACHE_TTL", "30") or "30")
+        self._tasks_list_ttl = TTLCache(maxsize=2, ttl=max(list_ttl, 1.0))
         self._account_locks: Dict[str, asyncio.Lock] = {}  # 账号锁
         self._account_last_run_end: Dict[str, float] = {}  # 账号最后一次结束时间
         self._account_cooldown_seconds = int(
@@ -313,25 +263,15 @@ class SignTaskService:
 
     @classmethod
     def _message_indicates_strong_failure(cls, text: str) -> bool:
-        normalized = str(text or "").strip().lower()
-        if not normalized:
-            return False
+        return message_indicates_strong_failure(text)
 
-        success_markers = (
-            "签到成功",
-            "已签到",
-            "任务完成",
-            "执行完成",
-            "操作完成",
-            "success",
-            "successful",
-            "done",
-            "completed",
-        )
-        if any(marker in normalized for marker in success_markers):
-            return False
-
-        return any(pattern.search(normalized) for pattern in cls._STRONG_FAILURE_PATTERNS)
+    def invalidate_tasks_cache(self) -> None:
+        """主动失效任务列表缓存（配置导入/批量变更后调用）。"""
+        self._tasks_cache = None
+        try:
+            self._tasks_list_ttl.clear()
+        except Exception:
+            pass
 
     async def _fetch_last_target_message_from_chat_history(
         self,
@@ -1482,6 +1422,11 @@ class SignTaskService:
         )
         last_target_message = extract_last_target_message(normalized_logs)
 
+        category = classify_failure(
+            error=None if success else message,
+            output="\n".join(normalized_logs[-50:]) if normalized_logs else message,
+            success=success,
+        )
         new_entry = {
             "time": datetime.now().isoformat(),
             "success": success,
@@ -1491,6 +1436,7 @@ class SignTaskService:
             "flow_truncated": flow_truncated,
             "flow_line_count": flow_line_count,
             "last_target_message": last_target_message,
+            "failure_category": category.value,
         }
 
         history = []
@@ -2194,9 +2140,20 @@ class SignTaskService:
     ) -> List[Dict[str, Any]]:
         """Return sign tasks, optionally grouped by shared task set."""
         tasks: List[Dict[str, Any]]
-        if self._tasks_cache is not None and not force_refresh:
-            tasks = self._tasks_cache
+        if not force_refresh:
+            ttl_hit = self._tasks_list_ttl.get("all")
+            if ttl_hit is not None:
+                self._tasks_cache = ttl_hit
+                tasks = ttl_hit
+            elif self._tasks_cache is not None:
+                tasks = self._tasks_cache
+            else:
+                tasks = []
+                force_refresh = True
         else:
+            tasks = []
+
+        if force_refresh or not tasks:
             tasks = []
             base_dir = self.signs_dir
 
@@ -2223,6 +2180,7 @@ class SignTaskService:
                 self._tasks_cache = sorted(
                     tasks, key=lambda item: (item["account_name"], item["name"])
                 )
+                self._tasks_list_ttl.set("all", self._tasks_cache)
                 tasks = self._tasks_cache
             except Exception as e:
                 _service_logger.debug(f"扫描任务出错: {str(e)}")
