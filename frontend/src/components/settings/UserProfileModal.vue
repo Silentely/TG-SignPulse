@@ -7,6 +7,7 @@ import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
 import { useAuthStore } from '../../stores/auth'
 import { getLocalizedErrorMessage } from '../../lib/types'
+import { devLog } from '../../lib/devLog'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -94,7 +95,7 @@ const checkTOTP = async () => {
       qrUrl.value = await fetchTOTPQRCode(token)
     }
   } catch (e) {
-    console.error('Failed to get TOTP status', e)
+    devLog.error('Failed to get TOTP status', e)
   }
 }
 

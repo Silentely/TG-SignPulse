@@ -12,6 +12,7 @@ import AddAccountModal from '../components/accounts/AddAccountModal.vue'
 import EditAccountModal from '../components/accounts/EditAccountModal.vue'
 import DeviceManagerModal from '../components/accounts/DeviceManagerModal.vue'
 import OfficialMessagesModal from '../components/accounts/OfficialMessagesModal.vue'
+import { devLog } from '../lib/devLog'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -70,7 +71,7 @@ const loadAccounts = async () => {
       loadAvatar(acc)
     }
   } catch (e) {
-    console.error('Failed to fetch accounts', e)
+    devLog.error('Failed to fetch accounts', e)
     toast.error(getLocalizedErrorMessage(e, t, t('accounts.loadFailed')))
   } finally {
     pageLoading.value = false

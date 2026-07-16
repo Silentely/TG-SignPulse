@@ -6,6 +6,7 @@ import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
 import { useAuthStore } from '../../stores/auth'
 import { getLocalizedErrorMessage } from '../../lib/types'
+import { devLog } from '../../lib/devLog'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -47,7 +48,7 @@ const reset = async () => {
       const token = authStore.token || ''
       if (token) await cancelQrLogin(token, loginId.value)
     } catch (e: unknown) {
-      console.warn('cancelQrLogin failed:', getLocalizedErrorMessage(e, t))
+      devLog.warn('cancelQrLogin failed:', getLocalizedErrorMessage(e, t))
     }
   }
   form.value = { account_name: props.initialAccountName || '', remark: '', phone_number: '', phone_code: '', password: '', proxy: '' }
@@ -121,7 +122,7 @@ const pollStatus = async (token: string, lid: string) => {
       loading.value = false
     }
   } catch (e) {
-    console.error('QR Poll error', e)
+    devLog.error('QR Poll error', e)
   }
 }
 

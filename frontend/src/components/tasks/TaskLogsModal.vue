@@ -11,6 +11,7 @@ import { useAuthStore } from '../../stores/auth'
 import type { TaskUiItem } from '../../lib/types'
 import { getLocalizedErrorMessage } from '../../lib/types'
 import { normalizeFlowLogLines } from '../../lib/task-log-format'
+import { devLog } from '../../lib/devLog'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -69,7 +70,7 @@ const loadLogs = async () => {
     const res = await getSignTaskHistory(token, props.task.name, accountName)
     logs.value = Array.isArray(res) ? res : []
   } catch (e: unknown) {
-    console.error('Failed to fetch logs', e)
+    devLog.error('Failed to fetch logs', e)
     toast.error(getLocalizedErrorMessage(e, t, t('logs.loadFailed')))
     logs.value = []
   } finally {

@@ -11,6 +11,7 @@ import { useAuthStore } from '../../stores/auth'
 import type { TaskActionItem, RawTaskAction, BuiltAction } from '../../lib/types'
 import { getLocalizedErrorMessage } from '../../lib/types'
 import { parseActions as parseActionsUtil, nextActionId, buildActions, debounce } from '../../lib/task-form-utils'
+import { devLog } from '../../lib/devLog'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -130,7 +131,7 @@ const loadAccounts = async () => {
     }
     if (selectedAccount.value) loadChats(selectedAccount.value)
   } catch (e: unknown) {
-    console.error(getLocalizedErrorMessage(e, t))
+    devLog.error(getLocalizedErrorMessage(e, t))
     toast.error(getLocalizedErrorMessage(e, t, t('taskForm.loadAccountsFailed')))
   }
 }
@@ -182,7 +183,7 @@ watch(selectedAccount, async (v)=>{
   }
 })
 let st: ReturnType<typeof setTimeout> | null = null
-watch(chatSearch,(v)=>{if(!v.trim()){chatSearchResults.value=[];return};if(st)clearTimeout(st);st=setTimeout(async()=>{chatSearchLoading.value=true;try{const t=authStore.token||'';const r=await searchAccountChats(t,selectedAccount.value,v.trim());chatSearchResults.value=r.items||[]}catch(e){console.error(e)}finally{chatSearchLoading.value=false}},300)})
+watch(chatSearch,(v)=>{if(!v.trim()){chatSearchResults.value=[];return};if(st)clearTimeout(st);st=setTimeout(async()=>{chatSearchLoading.value=true;try{const t=authStore.token||'';const r=await searchAccountChats(t,selectedAccount.value,v.trim());chatSearchResults.value=r.items||[]}catch(e){devLog.error('chat search failed', e)}finally{chatSearchLoading.value=false}},300)})
 const selectChat=(c: ChatInfo)=>{selectedChatId.value=c.id;selectedChatName.value=c.title||c.username||String(c.id);chatSearch.value='';chatSearchResults.value=[]}
 const addTargetChat = () => {
   targetChats.value.push({

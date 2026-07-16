@@ -7,6 +7,7 @@ import { useToast } from '../composables/useToast'
 import CustomSelect from '../components/CustomSelect.vue'
 import { useAuthStore } from '../stores/auth'
 import { getLocalizedErrorMessage } from '../lib/types'
+import { devLog } from '../lib/devLog'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -119,15 +120,15 @@ onMounted(async () => {
     try {
       backupStatus.value = await getBackupStatus(token)
     } catch (e) {
-      console.error('Failed to load backup status', e)
+      devLog.error('Failed to load backup status', e)
     }
     try {
       runtimeStatus.value = await getRuntimeStatus(token)
     } catch (e) {
-      console.error('Failed to load runtime status', e)
+      devLog.error('Failed to load runtime status', e)
     }
   } catch (e) {
-    console.error('Failed to load settings', e)
+    devLog.error('Failed to load settings', e)
     notifyError(getLocalizedErrorMessage(e, t, t('settings.loadFailed')))
   } finally {
     pageLoading.value = false

@@ -10,6 +10,7 @@ import {
   clearTaskHistoryLogs,
   clearLoginAuditLogs,
 } from '../lib/api'
+import { devLog } from '../lib/devLog'
 import type { TaskHistoryLog, LoginAuditLog, TaskHistoryLogDetail, AccountInfo } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
@@ -116,7 +117,7 @@ const loadAccounts = async () => {
     const res = await listAccounts(token)
     accountsList.value = res.accounts.map((a: AccountInfo) => a.name)
   } catch (e) {
-    console.error('Failed to load accounts for filter', e)
+    devLog.error('Failed to load accounts for filter', e)
   }
 }
 
@@ -132,7 +133,7 @@ const loadTaskLogs = async () => {
     })
     rawTaskLogs.value = Array.isArray(res) ? res : []
   } catch (e) {
-    console.error('Failed to fetch logs', e)
+    devLog.error('Failed to fetch logs', e)
     toast.error(getLocalizedErrorMessage(e, t, t('logs.loadFailed')))
     rawTaskLogs.value = []
   }
@@ -157,7 +158,7 @@ const loadLoginLogs = async () => {
       text: translateLoginDetail(l.detail, l.success),
     }))
   } catch (e) {
-    console.error('Failed to fetch login logs', e)
+    devLog.error('Failed to fetch login logs', e)
     toast.error(getLocalizedErrorMessage(e, t, t('logs.loadFailed')))
     loginLogs.value = []
   }
@@ -192,7 +193,7 @@ const openLogDetail = async (log: TaskLogUiItem) => {
     })
     logDetail.value = detail
   } catch (e) {
-    console.error('Failed to fetch log detail', e)
+    devLog.error('Failed to fetch log detail', e)
     toast.error(getLocalizedErrorMessage(e, t, t('logs.detailLoadFailed')))
   } finally {
     detailLoading.value = false

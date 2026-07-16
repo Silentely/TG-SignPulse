@@ -9,6 +9,7 @@ import { useAuthStore } from '../stores/auth'
 import type { DashboardLog } from '../lib/types'
 import { getLocalizedErrorMessage } from '../lib/types'
 import Modal from '../components/Modal.vue'
+import { devLog } from '../lib/devLog'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -137,7 +138,7 @@ const connectSignHistorySSE = () => {
         const data = JSON.parse((ev as MessageEvent).data || '{}')
         prependLiveLog(data)
       } catch (e) {
-        console.error('parse sign_log event failed', e)
+        devLog.error('parse sign_log event failed', e)
       }
     })
     signHistorySource.onerror = () => {
@@ -152,7 +153,7 @@ const connectSignHistorySSE = () => {
       scheduleSseReconnect()
     }
   } catch (e) {
-    console.error('SSE connect failed', e)
+    devLog.error('SSE connect failed', e)
     liveConnected.value = false
     scheduleSseReconnect()
   }
@@ -190,10 +191,10 @@ const loadDashboardData = async () => {
     let jobsRes: Awaited<ReturnType<typeof listScheduledJobs>> | null = null
 
     let loadError: unknown = null
-    try { accRes = await listAccounts(token) } catch (e) { loadError = e; console.error('Failed to load accounts', e) }
-    try { tasksRes = await listSignTasks(token) } catch (e) { loadError = e; console.error('Failed to load tasks', e) }
-    try { logsRes = await getRecentAccountLogs(token, 20) } catch (e) { loadError = e; console.error('Failed to load logs', e) }
-    try { jobsRes = await listScheduledJobs(token) } catch (e) { console.error('Failed to load scheduled jobs', e) }
+    try { accRes = await listAccounts(token) } catch (e) { loadError = e; devLog.error('Failed to load accounts', e) }
+    try { tasksRes = await listSignTasks(token) } catch (e) { loadError = e; devLog.error('Failed to load tasks', e) }
+    try { logsRes = await getRecentAccountLogs(token, 20) } catch (e) { loadError = e; devLog.error('Failed to load logs', e) }
+    try { jobsRes = await listScheduledJobs(token) } catch (e) { devLog.error('Failed to load scheduled jobs', e) }
     // 仅首屏加载失败时提示，避免 30s 轮询刷屏
     if (loadError && pageLoading.value) {
       toast.error(getLocalizedErrorMessage(loadError, t, t('logs.loadFailed')))

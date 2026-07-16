@@ -12,6 +12,7 @@ import { getLocalizedErrorMessage } from '../lib/types'
 import AddTaskModal from '../components/tasks/AddTaskModal.vue'
 import EditTaskModal from '../components/tasks/EditTaskModal.vue'
 import TaskLogsModal from '../components/tasks/TaskLogsModal.vue'
+import { devLog } from '../lib/devLog'
 
 const route = useRoute()
 const { t } = useI18n()
@@ -176,7 +177,7 @@ const loadTasks = async () => {
       }
     }
   } catch (e) {
-    console.error('Failed to fetch tasks', e)
+    devLog.error('Failed to fetch tasks', e)
     toast.error(getLocalizedErrorMessage(e, t, t('tasks.loadFailed')))
     tasks.value = []
   } finally {
