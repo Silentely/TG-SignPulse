@@ -1022,6 +1022,7 @@ class SignTaskService:
                 recent.append(
                     {
                         "time": item.get("time", ""),
+                        "created_at": item.get("time", ""),
                         "success": bool(item.get("success", False)),
                         "message": self._repair_mojibake(item.get("message", "") or ""),
                         "flow_logs": [self._repair_mojibake(str(line)) for line in flow_logs],
@@ -1033,6 +1034,7 @@ class SignTaskService:
                             item.get("last_target_message") or ""
                         ).strip()
                         or extract_last_target_message(flow_logs),
+                        "failure_category": item.get("failure_category") or "",
                     }
                 )
 

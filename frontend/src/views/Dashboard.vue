@@ -16,7 +16,9 @@ const authStore = useAuthStore()
 const router = useRouter()
 
 let refreshTimer: ReturnType<typeof setInterval> | null = null
+let signHistorySource: EventSource | null = null
 const selectedLog = ref<DashboardLog | null>(null)
+const liveConnected = ref(false)
 
 /** 跳转到日志页并按账号筛选，附带任务/时间以便自动打开详情 */
 const goToLogs = (log: DashboardLog) => {
@@ -61,10 +63,65 @@ const jobKindLabel = (kind: string) => {
   return kind
 }
 
+const prependLiveLog = (payload: {
+  account_name?: string
+  task_name?: string
+  success?: boolean
+  message?: string
+  created_at?: string
+}) => {
+  const created = payload.created_at || new Date().toISOString()
+  const entry: DashboardLog = {
+    time: formatTime(created),
+    account: payload.account_name || '-',
+    task: payload.task_name || '-',
+    status: payload.success ? 'success' : 'error',
+    text: (payload.message || '').trim() || payload.task_name || '',
+    created_at: created,
+  }
+  logs.value = [entry, ...logs.value].slice(0, 40)
+  // 轻量刷新统计
+  if (payload.success) {
+    const s = stats.value.find((x) => x.key === 'dashboard.recentSuccess')
+    if (s && s.value !== '...') s.value = String(Number(s.value || 0) + 1)
+  } else {
+    const s = stats.value.find((x) => x.key === 'dashboard.recentFailure')
+    if (s && s.value !== '...') s.value = String(Number(s.value || 0) + 1)
+  }
+}
+
+const connectSignHistorySSE = () => {
+  const token = authStore.token || ''
+  if (!token || typeof EventSource === 'undefined') return
+  try {
+    signHistorySource?.close()
+    const url = `/api/events/sign-history?token=${encodeURIComponent(token)}`
+    signHistorySource = new EventSource(url)
+    signHistorySource.addEventListener('ready', () => {
+      liveConnected.value = true
+    })
+    signHistorySource.addEventListener('sign_log', (ev) => {
+      try {
+        const data = JSON.parse((ev as MessageEvent).data || '{}')
+        prependLiveLog(data)
+      } catch (e) {
+        console.error('parse sign_log event failed', e)
+      }
+    })
+    signHistorySource.onerror = () => {
+      liveConnected.value = false
+      // 浏览器会自动重连；保留 30s 轮询兜底
+    }
+  } catch (e) {
+    console.error('SSE connect failed', e)
+  }
+}
+
 onMounted(async () => {
   await loadDashboardData()
   pageLoading.value = false
   refreshTimer = setInterval(loadDashboardData, 30000)
+  connectSignHistorySSE()
 })
 
 onUnmounted(() => {
@@ -72,6 +129,11 @@ onUnmounted(() => {
     clearInterval(refreshTimer)
     refreshTimer = null
   }
+  if (signHistorySource) {
+    signHistorySource.close()
+    signHistorySource = null
+  }
+  liveConnected.value = false
 })
 
 const loadDashboardData = async () => {
@@ -178,7 +240,18 @@ const loadDashboardData = async () => {
 
     <!-- Terminal Logs -->
     <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/60 p-5 min-h-[400px]">
-      <div class="text-xs text-gray-500 font-medium tracking-wide mb-4">{{ t('dashboard.recentLogs') }}</div>
+      <div class="text-xs text-gray-500 font-medium tracking-wide mb-4 flex items-center gap-2">
+        <span>{{ t('dashboard.recentLogs') }}</span>
+        <span
+          class="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border"
+          :class="liveConnected
+            ? 'border-emerald-200 text-emerald-600 dark:border-emerald-800 dark:text-emerald-400'
+            : 'border-gray-200 text-gray-400 dark:border-gray-700'"
+        >
+          <span class="w-1.5 h-1.5 rounded-full" :class="liveConnected ? 'bg-emerald-500' : 'bg-gray-400'" />
+          {{ liveConnected ? t('dashboard.liveOn') : t('dashboard.liveOff') }}
+        </span>
+      </div>
       <div v-if="logs.length === 0" class="flex flex-col items-center justify-center py-16 text-center">
         <p class="text-sm text-gray-500">{{ t('logs.empty') }}</p>
         <p class="text-xs text-gray-400 mt-1">{{ t('logs.emptyHint') }}</p>
