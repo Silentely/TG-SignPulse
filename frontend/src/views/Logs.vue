@@ -15,7 +15,7 @@ import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
 import { useAuthStore } from '../stores/auth'
 import type { TaskLogUiItem, LoginLogUiItem } from '../lib/types'
-import { getErrorMessage } from '../lib/types'
+import { getLocalizedErrorMessage } from '../lib/types'
 import Modal from '../components/Modal.vue'
 import CustomSelect from '../components/CustomSelect.vue'
 import DatePicker from '../components/DatePicker.vue'
@@ -133,7 +133,7 @@ const loadTaskLogs = async () => {
     rawTaskLogs.value = Array.isArray(res) ? res : []
   } catch (e) {
     console.error('Failed to fetch logs', e)
-    toast.error(getErrorMessage(e, t('logs.loadFailed')))
+    toast.error(getLocalizedErrorMessage(e, t, t('logs.loadFailed')))
     rawTaskLogs.value = []
   }
 }
@@ -158,7 +158,7 @@ const loadLoginLogs = async () => {
     }))
   } catch (e) {
     console.error('Failed to fetch login logs', e)
-    toast.error(getErrorMessage(e, t('logs.loadFailed')))
+    toast.error(getLocalizedErrorMessage(e, t, t('logs.loadFailed')))
     loginLogs.value = []
   }
 }
@@ -193,7 +193,7 @@ const openLogDetail = async (log: TaskLogUiItem) => {
     logDetail.value = detail
   } catch (e) {
     console.error('Failed to fetch log detail', e)
-    toast.error(getErrorMessage(e, t('logs.detailLoadFailed')))
+    toast.error(getLocalizedErrorMessage(e, t, t('logs.detailLoadFailed')))
   } finally {
     detailLoading.value = false
   }
@@ -219,7 +219,7 @@ const handleClear = async () => {
       loginLogs.value = []
     }
   } catch (e) {
-    toast.error(getErrorMessage(e, t('logs.clearFailed')))
+    toast.error(getLocalizedErrorMessage(e, t, t('logs.clearFailed')))
   } finally {
     clearing.value = false
   }

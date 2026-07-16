@@ -8,7 +8,7 @@ import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
 import { useAuthStore } from '../stores/auth'
 import type { TaskUiItem } from '../lib/types'
-import { getErrorMessage } from '../lib/types'
+import { getLocalizedErrorMessage } from '../lib/types'
 import AddTaskModal from '../components/tasks/AddTaskModal.vue'
 import EditTaskModal from '../components/tasks/EditTaskModal.vue'
 import TaskLogsModal from '../components/tasks/TaskLogsModal.vue'
@@ -71,7 +71,7 @@ const runBatch = async (action: 'enable' | 'disable' | 'delete' | 'run') => {
     clearSelection()
     await loadTasks()
   } catch (e: unknown) {
-    toast.error(getErrorMessage(e, t('tasks.batchFailed')))
+    toast.error(getLocalizedErrorMessage(e, t, t('tasks.batchFailed')))
   } finally {
     batchBusy.value = false
   }
@@ -177,7 +177,7 @@ const loadTasks = async () => {
     }
   } catch (e) {
     console.error('Failed to fetch tasks', e)
-    toast.error(getErrorMessage(e, t('tasks.loadFailed')))
+    toast.error(getLocalizedErrorMessage(e, t, t('tasks.loadFailed')))
     tasks.value = []
   } finally {
     pageLoading.value = false
@@ -258,7 +258,7 @@ const handleDelete = async (task: TaskUiItem) => {
     toast.success(t('tasks.deleteSuccess'))
     await loadTasks()
   } catch (e: unknown) {
-    toast.error(`${t('tasks.deleteFailed')}: ${getErrorMessage(e) || t('tasks.unknownError')}`)
+    toast.error(`${t('tasks.deleteFailed')}: ${getLocalizedErrorMessage(e, t, t('tasks.unknownError'))}`)
   }
 }
 
@@ -270,7 +270,7 @@ const handleToggleEnabled = async (task: TaskUiItem) => {
     toast.success(task.enabled ? t('tasks.pauseSuccess') : t('tasks.resumeSuccess'))
     await loadTasks()
   } catch (e: unknown) {
-    toast.error(`${t('tasks.toggleFailed')}: ${getErrorMessage(e) || t('tasks.unknownError')}`)
+    toast.error(`${t('tasks.toggleFailed')}: ${getLocalizedErrorMessage(e, t, t('tasks.unknownError'))}`)
   }
 }
 
@@ -306,7 +306,7 @@ const doRun = async (task: TaskUiItem, accountName: string) => {
     logsTask.value = task
     showLogsModal.value = true
   } catch (e: unknown) {
-    toast.error(`${t('tasks.triggerFailed')}: ${getErrorMessage(e) || t('tasks.unknownError')}`)
+    toast.error(`${t('tasks.triggerFailed')}: ${getLocalizedErrorMessage(e, t, t('tasks.unknownError'))}`)
   }
 }
 

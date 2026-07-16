@@ -7,7 +7,7 @@ import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
 import { useAuthStore } from '../stores/auth'
 import type { AccountUiItem } from '../lib/types'
-import { getErrorMessage } from '../lib/types'
+import { getLocalizedErrorMessage } from '../lib/types'
 import AddAccountModal from '../components/accounts/AddAccountModal.vue'
 import EditAccountModal from '../components/accounts/EditAccountModal.vue'
 import DeviceManagerModal from '../components/accounts/DeviceManagerModal.vue'
@@ -71,7 +71,7 @@ const loadAccounts = async () => {
     }
   } catch (e) {
     console.error('Failed to fetch accounts', e)
-    toast.error(getErrorMessage(e) || t('accounts.loadFailed'))
+    toast.error(getLocalizedErrorMessage(e, t, t('accounts.loadFailed')))
   } finally {
     pageLoading.value = false
   }
@@ -105,7 +105,7 @@ const handleDelete = async (name: string) => {
     toast.success(t('accounts.deleteSuccess'))
     await loadAccounts()
   } catch (e) {
-    toast.error(getErrorMessage(e) || t('accounts.deleteFailed'))
+    toast.error(getLocalizedErrorMessage(e, t, t('accounts.deleteFailed')))
   }
 }
 
@@ -128,7 +128,7 @@ const handleCheck = async (name: string) => {
       }
     }
   } catch (e) {
-    toast.error(getErrorMessage(e) || t('accounts.checkFailed'))
+    toast.error(getLocalizedErrorMessage(e, t, t('accounts.checkFailed')))
   } finally {
     checkingAccount.value = ''
   }

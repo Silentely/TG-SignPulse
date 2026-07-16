@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { getErrorMessage } from '../lib/types'
+import {
+  getErrorCode,
+  getErrorMessage,
+  getLocalizedErrorMessage,
+  type ApiError,
+} from '../lib/types'
 
 describe('getErrorMessage', () => {
   it('返回 Error 对象的 message', () => {
@@ -61,5 +66,28 @@ describe('getErrorMessage', () => {
   it('映射 NETWORK_TIMEOUT / NETWORK_ERROR', () => {
     expect(getErrorMessage(new Error('NETWORK_TIMEOUT'))).toBe('Request timed out')
     expect(getErrorMessage(new Error('NETWORK_ERROR'))).toBe('Network error')
+  })
+
+  it('映射 ACCOUNT_SESSION_INVALID code', () => {
+    const err = new Error('session gone') as ApiError
+    err.code = 'ACCOUNT_SESSION_INVALID'
+    expect(getErrorCode(err)).toBe('ACCOUNT_SESSION_INVALID')
+    expect(getErrorMessage(err)).toBe('Account session invalid, please re-login')
+  })
+
+  it('410 旧任务只读映射', () => {
+    const err = new Error(
+      'Legacy task writes disabled (APP_LEGACY_TASKS_READONLY=1). Use /api/sign-tasks',
+    ) as ApiError
+    err.status = 410
+    expect(getErrorMessage(err)).toContain('sign-tasks')
+  })
+
+  it('getLocalizedErrorMessage 使用 t 映射', () => {
+    const err = new Error('NETWORK_TIMEOUT') as ApiError
+    err.code = 'NETWORK_TIMEOUT'
+    const t = (key: string) =>
+      key === 'apiErrors.NETWORK_TIMEOUT' ? '请求超时' : key
+    expect(getLocalizedErrorMessage(err, t)).toBe('请求超时')
   })
 })

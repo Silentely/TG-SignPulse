@@ -19,7 +19,7 @@
 | --- | --- |
 | `APP_DATABASE_URL` / `DATABASE_URL` | 可选 SQLAlchemy URL；设置后优先于本地 `db.sqlite` |
 | `APP_SCHEDULER_LOCK` | 默认 `1`：启用 `data/.scheduler.lock`；`0` 关闭 |
-| `APP_LEGACY_TASKS_READONLY` | **默认 `1`（只读）**；写操作返回 410。临时兼容写可设 `0`。状态见 `GET /api/tasks/legacy-status` |
+| `APP_LEGACY_TASKS_READONLY` | **默认 `1`（只读）**；写操作返回 410。临时兼容写可设 `0`。状态见 `GET /api/tasks/legacy-status`。规划：存量清零后保持只读 → 后续版本移除写开关 → 再删除旧路由/ORM 表 |
 | `APP_MONITOR_ACCOUNT_ALLOWLIST` | 逗号分隔账号名，仅这些账号挂关键词监听 |
 | `APP_MONITOR_SHARD` | 形如 `i/n`（如 `0/3`），按账号名哈希分片监听，多实例各跑一个分片 |
 

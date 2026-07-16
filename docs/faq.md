@@ -29,6 +29,14 @@ data/.admin_bootstrap_password
 - 查看存量：`GET /api/tasks/legacy-status` 或 `python tools/check_legacy_tasks.py`
 - 临时兼容写：仅短期设置 `APP_LEGACY_TASKS_READONLY=0`
 
+### 下线时间表（建议）
+
+| 阶段 | 动作 |
+|------|------|
+| 当前 | 默认只读；面板仅 sign-tasks；运维盘点 ORM 存量 |
+| 迁移完成 | `orm_only_count == 0` 后保持只读，外部脚本改调 sign-tasks |
+| 后续版本 | 可移除写路径兼容开关；再下一阶段删除 `/api/tasks` 与 ORM Task 表（破坏性，需公告） |
+
 ## Dashboard 实时日志连不上
 
 优先检查：

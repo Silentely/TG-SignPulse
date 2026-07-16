@@ -7,7 +7,7 @@ import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
 import { useAuthStore } from '../stores/auth'
 import type { DashboardLog } from '../lib/types'
-import { getErrorMessage } from '../lib/types'
+import { getLocalizedErrorMessage } from '../lib/types'
 import Modal from '../components/Modal.vue'
 
 const { t } = useI18n()
@@ -196,7 +196,7 @@ const loadDashboardData = async () => {
     try { jobsRes = await listScheduledJobs(token) } catch (e) { console.error('Failed to load scheduled jobs', e) }
     // 仅首屏加载失败时提示，避免 30s 轮询刷屏
     if (loadError && pageLoading.value) {
-      toast.error(getErrorMessage(loadError, t('logs.loadFailed')))
+      toast.error(getLocalizedErrorMessage(loadError, t, t('logs.loadFailed')))
     }
 
     const activeAccs = accRes.accounts ? accRes.accounts.filter((a: AccountInfo) => a.status === 'connected' || a.status === 'checking').length : 0

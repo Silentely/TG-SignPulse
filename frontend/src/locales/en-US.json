@@ -9,6 +9,20 @@
     "mainNav": "Main navigation",
     "openMenu": "Open menu"
   },
+  "apiErrors": {
+    "NETWORK_TIMEOUT": "Request timed out",
+    "NETWORK_ERROR": "Network error",
+    "ACCOUNT_SESSION_INVALID": "Account session invalid, please re-login",
+    "TASK_LOG_NOT_FOUND": "Task log not found",
+    "LOGIN_LOG_NOT_FOUND": "Login log not found",
+    "INVALID_DATE_FILTER": "Invalid date filter",
+    "LEGACY_TASKS_READONLY": "Legacy /api/tasks is read-only; use /api/sign-tasks",
+    "TASK_NOT_FOUND": "Task not found",
+    "ACCOUNT_NOT_FOUND": "Account not found",
+    "RATE_LIMITED": "Too many requests, please try later",
+    "INVALID_USERNAME_OR_PASSWORD": "Invalid username or password",
+    "TOTP_REQUIRED_OR_INVALID": "2FA code invalid or missing"
+  },
   "dashboard": {
     "activeAccounts": "Active Accounts",
     "totalTasks": "Total Tasks",
