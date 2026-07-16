@@ -243,10 +243,7 @@ async def batch_task_operation(
     if not _legacy_writes_allowed():
         raise HTTPException(
             status_code=status.HTTP_410_GONE,
-            detail=(
-                "Legacy ORM /api/batch/tasks is disabled by default "
-                "(APP_LEGACY_TASKS_READONLY=1). Use /api/batch/sign-tasks."
-            ),
+            detail="LEGACY_TASKS_READONLY",
         )
 
     results: list[BatchTaskResult] = []

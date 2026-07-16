@@ -2413,20 +2413,25 @@ class SignTaskService:
 
         if account_name:
             logs = list(self._active_logs.get(self._task_key(account_name, task_name), []))
-            if monitor_logs:
-                if logs:
-                    logs.append("---- 关键词后台监听日志 ----")
-                logs.extend(monitor_logs)
-            return logs
+            return self._merge_active_and_monitor_logs(logs, monitor_logs)
         # 兼容旧接口：返回第一个同名任务的日志
         for key in self._find_task_keys(task_name):
             logs = list(self._active_logs.get(key, []))
-            if monitor_logs:
-                if logs:
-                    logs.append("---- 关键词后台监听日志 ----")
-                logs.extend(monitor_logs)
-            return logs
-        return monitor_logs
+            return self._merge_active_and_monitor_logs(logs, monitor_logs)
+        return list(monitor_logs)
+
+    @staticmethod
+    def _merge_active_and_monitor_logs(
+        active_logs: List[str], monitor_logs: List[str]
+    ) -> List[str]:
+        """合并任务实时日志与关键词后台监听日志。"""
+        if not monitor_logs:
+            return list(active_logs)
+        merged = list(active_logs)
+        if merged:
+            merged.append("---- 关键词后台监听日志 ----")
+        merged.extend(monitor_logs)
+        return merged
 
     def _set_run_status(
         self,

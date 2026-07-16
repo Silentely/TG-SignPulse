@@ -51,13 +51,10 @@ def _legacy_writes_allowed() -> bool:
 
 def _reject_if_readonly() -> None:
     if not _legacy_writes_allowed():
+        # detail 使用稳定错误码，便于前端 apiErrors 映射；说明见 X-API-Warn / legacy-status
         raise HTTPException(
             status_code=status.HTTP_410_GONE,
-            detail=(
-                "Legacy ORM /api/tasks mutations are disabled by default "
-                "(APP_LEGACY_TASKS_READONLY=1). Use /api/sign-tasks, "
-                "or set APP_LEGACY_TASKS_READONLY=0 only for temporary compatibility."
-            ),
+            detail="LEGACY_TASKS_READONLY",
         )
 
 

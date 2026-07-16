@@ -27,7 +27,7 @@ def test_legacy_tasks_readonly_blocks_create(client, db_session, monkeypatch):
         },
     )
     assert resp.status_code == 410
-    assert "sign-tasks" in resp.json()["detail"]
+    assert resp.json().get("detail") == "LEGACY_TASKS_READONLY"
 
 
 def test_legacy_tasks_list_still_works(client, db_session, monkeypatch):
@@ -57,7 +57,7 @@ def test_legacy_batch_tasks_readonly(client, db_session, monkeypatch):
         json={"action": "enable", "task_ids": [1]},
     )
     assert resp.status_code == 410
-    assert "sign-tasks" in resp.json()["detail"]
+    assert resp.json().get("detail") == "LEGACY_TASKS_READONLY"
 
 
 def test_readyz_includes_ops_fields(client, db_session):
