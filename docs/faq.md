@@ -50,6 +50,15 @@ data/.admin_bootstrap_password
 - 反向代理是否关闭 SSE 缓冲（见 [Nginx 部署](deploy/nginx.md)）
 - 浏览器控制台是否有 EventSource 错误；面板会指数退避重连
 
+## 是否已经改成 PostgreSQL、取消 SQLite？
+
+**没有。** 默认数据库仍是 **SQLite**（数据目录下的 `db.sqlite`，WAL 模式）。
+
+- 不设置 `APP_DATABASE_URL` / `DATABASE_URL` → 使用 SQLite  
+- 设置 `APP_DATABASE_URL=postgresql+psycopg2://...` 并安装 `psycopg2-binary` → 可选使用 PostgreSQL  
+
+项目**支持** Postgres，但**不强制**迁移，也未移除 SQLite 路径。
+
 ## 为什么重启后数据丢了
 
 通常是因为没有挂载 `/data`，或者 `/data` 不可写导致程序降级到了 `/tmp/tg-signpulse`。

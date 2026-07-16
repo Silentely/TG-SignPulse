@@ -1,6 +1,8 @@
 # 文档目录
 
-- [TG-SignPulse 文档首页](README.md)
+- [文档首页](index.md)
+- [功能介绍](features.md)
+- [TG-SignPulse 文档总览](README.md)
 - 使用指南
   - [快速开始](guide/quick-start.md)
   - [账号管理](guide/accounts.md)
@@ -14,6 +16,7 @@
   - [配置参考](reference/configuration.md)
   - [运维手册](reference/ops.md)
   - [系统架构](reference/architecture.md)
+  - [设备管理](reference/device-management.md)
   - [开发规范](reference/development.md)
 - [常见问题](faq.md)
 

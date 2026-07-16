@@ -137,7 +137,7 @@ AI、全局设置和 Telegram API 配置则单独保存在数据目录根部的 
 
 当前部署模型以**单写主实例**为主：APScheduler、Telegram 客户端会话和关键词监听器默认在持有调度锁的进程内协调。
 
-- **数据库**：默认 SQLite；可通过 `APP_DATABASE_URL` / `DATABASE_URL` 切换到 Postgres 等（SQLAlchemy URL）。面板元数据可外置，但 **Telegram session 仍不宜多进程共享同一账号文件**。
+- **数据库**：**默认仍是 SQLite（WAL）**，并未取消或强制迁走。可通过 `APP_DATABASE_URL` / `DATABASE_URL` **可选**切换到 PostgreSQL 等（SQLAlchemy URL，需对应驱动）。面板元数据可外置，但 **Telegram session 仍不宜多进程共享同一账号文件**。
 - **调度锁**：启动时尝试获取 `data/.scheduler.lock`（`APP_SCHEDULER_LOCK=0` 可关闭）。仅锁持有者注册 `sign-` / `db-` 业务 job，降低多副本重复签到风险。
 - **监听分片**：`APP_MONITOR_SHARD=i/n` + 可选 `APP_MONITOR_ACCOUNT_ALLOWLIST`，按账号拆分关键词监听；**同一账号的 session 仍只能由一个进程持有**。
 - **旧任务 API**：`/api/tasks` 默认只读（`APP_LEGACY_TASKS_READONLY=1`），新功能统一 `/api/sign-tasks`。

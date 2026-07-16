@@ -1,0 +1,6 @@
+{
+  "buildCommand": "cd .. && npm install && npm run docs:build",
+  "outputDirectory": "../docs/.vitepress/dist",
+  "framework": null,
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+}

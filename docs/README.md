@@ -24,6 +24,7 @@ TG-SignPulse 用来集中管理多个 Telegram 账号，并把「发送消息、
 | 认证 | JWT (HS256)、TOTP 2FA、bcrypt、Rate Limiting |
 | Telegram | Pyrogram / Kurigram、Session File / String 双模式 |
 | AI | OpenAI SDK（兼容接口）、识图 / OCR / 计算题 |
+| 数据库 | **默认 SQLite**；可选 `APP_DATABASE_URL` 使用 PostgreSQL |
 | 部署 | Docker Multi-stage、GitHub Actions、GHCR |
 
 ## 核心能力

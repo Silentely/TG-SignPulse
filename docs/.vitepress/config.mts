@@ -10,37 +10,105 @@ const editBranch =
 const base =
   process.env.VITEPRESS_BASE ||
   (isGitHubActions ? `/${repositoryName}/` : "/");
+const siteUrl =
+  process.env.VITEPRESS_SITE_URL ||
+  (isGitHubActions
+    ? `https://${repository.split("/")[0]}.github.io/${repositoryName}`
+    : "http://127.0.0.1:5173");
 
 export default defineConfig({
   lang: "zh-CN",
   title: "TG-SignPulse",
   description:
-    "Telegram 自动化、任务编排、关键词监听与 AI 验证处理文档。",
+    "Telegram 多账号自动化管理面板：签到、消息编排、关键词监听与 AI 验证。",
   base,
   cleanUrls: true,
   lastUpdated: true,
+  ignoreDeadLinks: true,
+
   head: [
-    ["link", { rel: "icon", href: `${base}logo.svg` }],
-    ["meta", { name: "theme-color", content: "#229ED9" }]
+    ["link", { rel: "icon", href: `${base}logo.svg`, type: "image/svg+xml" }],
+    ["meta", { name: "theme-color", content: "#229ED9" }],
+    ["meta", { name: "author", content: "TG-SignPulse" }],
+    ["meta", { property: "og:type", content: "website" }],
+    ["meta", { property: "og:title", content: "TG-SignPulse 文档" }],
+    [
+      "meta",
+      {
+        property: "og:description",
+        content:
+          "Telegram 多账号自动化管理面板：签到、消息编排、关键词监听与 AI 验证。",
+      },
+    ],
+    ["meta", { property: "og:url", content: siteUrl }],
+    ["meta", { property: "og:site_name", content: "TG-SignPulse" }],
+    ["meta", { property: "og:locale", content: "zh_CN" }],
+    ["meta", { property: "og:image", content: `${siteUrl}/logo.svg` }],
+    ["meta", { name: "twitter:card", content: "summary" }],
+    ["meta", { name: "twitter:title", content: "TG-SignPulse 文档" }],
+    [
+      "meta",
+      {
+        name: "twitter:description",
+        content: "Telegram 多账号自动化：签到 · 编排 · 监听 · AI",
+      },
+    ],
+    [
+      "script",
+      { type: "application/ld+json" },
+      JSON.stringify({
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        name: "TG-SignPulse",
+        description:
+          "Telegram 多账号自动化管理面板，支持签到、消息编排、关键词监听与 AI 验证。",
+        url: siteUrl,
+        applicationCategory: "DeveloperApplication",
+        operatingSystem: "Linux, macOS, Windows, Docker",
+        offers: { "@type": "Offer", price: "0", priceCurrency: "CNY" },
+        author: { "@type": "Organization", name: "TG-SignPulse" },
+      }),
+    ],
   ],
+
+  markdown: {
+    lineNumbers: true,
+  },
+
   themeConfig: {
     logo: "/logo.svg",
-    siteTitle: "TG-SignPulse Docs",
+    siteTitle: "TG-SignPulse",
+
     nav: [
       { text: "首页", link: "/" },
+      { text: "功能介绍", link: "/features" },
       { text: "快速开始", link: "/guide/quick-start" },
-      { text: "部署", link: "/deploy/docker" },
-      { text: "配置", link: "/reference/configuration" },
-      { text: "FAQ", link: "/faq" }
+      {
+        text: "部署",
+        items: [
+          { text: "Docker 部署", link: "/deploy/docker" },
+          { text: "Nginx 反向代理", link: "/deploy/nginx" },
+        ],
+      },
+      {
+        text: "参考",
+        items: [
+          { text: "配置参考", link: "/reference/configuration" },
+          { text: "运维手册", link: "/reference/ops" },
+          { text: "系统架构", link: "/reference/architecture" },
+        ],
+      },
+      { text: "常见问题", link: "/faq" },
     ],
+
     sidebar: [
       {
-        text: "开始使用",
+        text: "开始",
         items: [
-          { text: "文档首页", link: "/" },
-          { text: "GitHub 文档入口", link: "/README" },
-          { text: "快速开始", link: "/guide/quick-start" }
-        ]
+          { text: "功能介绍", link: "/features" },
+          { text: "快速开始", link: "/guide/quick-start" },
+          { text: "文档总览", link: "/README" },
+        ],
       },
       {
         text: "使用指南",
@@ -48,53 +116,92 @@ export default defineConfig({
           { text: "账号管理", link: "/guide/accounts" },
           { text: "任务编排", link: "/guide/tasks" },
           { text: "AI 动作", link: "/guide/ai" },
-          { text: "关键词监听", link: "/guide/keyword-monitor" }
-        ]
+          { text: "关键词监听", link: "/guide/keyword-monitor" },
+        ],
       },
       {
-        text: "部署与运维",
+        text: "部署",
         items: [
           { text: "Docker 部署", link: "/deploy/docker" },
-          { text: "配置参考", link: "/reference/configuration" },
-          { text: "运维手册", link: "/reference/ops" },
-          { text: "系统架构", link: "/reference/architecture" }
-        ]
+          { text: "Nginx 反向代理", link: "/deploy/nginx" },
+        ],
       },
       {
-        text: "附录",
+        text: "参考",
+        items: [
+          { text: "配置参考", link: "/reference/configuration" },
+          { text: "运维手册", link: "/reference/ops" },
+          { text: "系统架构", link: "/reference/architecture" },
+          { text: "设备管理", link: "/reference/device-management" },
+          { text: "开发规范", link: "/reference/development" },
+        ],
+      },
+      {
+        text: "帮助",
         items: [
           { text: "常见问题", link: "/faq" },
-          { text: "开发规范", link: "/reference/development" },
-          { text: "文档目录", link: "/SUMMARY" }
-        ]
-      }
+          { text: "文档目录", link: "/SUMMARY" },
+        ],
+      },
     ],
+
     socialLinks: [
-      { icon: "github", link: "https://github.com/Silentely/TG-SignPulse" }
+      { icon: "github", link: `https://github.com/${repository}` },
     ],
+
     search: {
-      provider: "local"
+      provider: "local",
+      options: {
+        translations: {
+          button: {
+            buttonText: "搜索文档",
+            buttonAriaLabel: "搜索文档",
+          },
+          modal: {
+            noResultsText: "无法找到相关结果",
+            resetButtonTitle: "清除查询条件",
+            footer: {
+              selectText: "选择",
+              navigateText: "切换",
+              closeText: "关闭",
+            },
+          },
+        },
+      },
     },
+
     editLink: {
       pattern: `https://github.com/${repository}/edit/${editBranch}/docs/:path`,
-      text: "在 GitHub 上编辑此页"
+      text: "在 GitHub 上编辑此页面",
     },
+
+    lastUpdated: {
+      text: "最后更新于",
+      formatOptions: {
+        dateStyle: "medium",
+        timeStyle: "short",
+      },
+    },
+
     outline: {
       level: [2, 3],
-      label: "本页导航"
+      label: "页面导航",
     },
+
     footer: {
-      message: "TG-SignPulse 文档站点基于 VitePress 构建。",
-      copyright: "Copyright © 2026 TG-SignPulse"
+      message: "基于 <a href=\"https://vitepress.dev/\">VitePress</a> 构建 · 默认 SQLite，可选 PostgreSQL",
+      copyright: "Copyright © 2026 TG-SignPulse",
     },
+
     docFooter: {
       prev: "上一页",
-      next: "下一页"
+      next: "下一页",
     },
+
     returnToTopLabel: "回到顶部",
     sidebarMenuLabel: "菜单",
-    darkModeSwitchLabel: "主题切换",
+    darkModeSwitchLabel: "主题",
     lightModeSwitchTitle: "切换到浅色模式",
-    darkModeSwitchTitle: "切换到深色模式"
-  }
+    darkModeSwitchTitle: "切换到深色模式",
+  },
 });
