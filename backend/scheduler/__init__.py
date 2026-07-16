@@ -196,10 +196,10 @@ async def sync_jobs() -> None:
     if scheduler is None:
         return
 
-    from backend.scheduler.instance_lock import has_scheduler_lock
-
     # 每次同步时检查时区是否变更，运行时无法直接修改调度器时区，仅记录日志
     import logging
+
+    from backend.scheduler.instance_lock import has_scheduler_lock
     _tz_logger = logging.getLogger("backend.scheduler")
     if not has_scheduler_lock():
         # 无锁副本：移除业务 job，避免误调度
