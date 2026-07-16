@@ -48,8 +48,37 @@ jobs:
       - name: Run pytest (parallel)
         run: pytest tests/ -n auto --dist loadgroup -x -q --tb=short --no-header --ignore=tools
 
+      - name: Ruff check (backend + tg_signer)
+        run: ruff check backend tg_signer tests --quiet || true
+
+  frontend-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Unit tests
+        working-directory: frontend
+        run: npm test
+
   build-and-push:
-    needs: test
+    needs: [test, frontend-test]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

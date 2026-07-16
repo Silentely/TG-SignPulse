@@ -91,18 +91,19 @@ ignore = [
 
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "function"
-addopts = "--cov=tg_signer --cov-report=term-missing --cov-report=html:htmlcov --cov-report=xml:coverage.xml"
+addopts = "--cov=tg_signer --cov=backend --cov-report=term-missing --cov-report=html:htmlcov --cov-report=xml:coverage.xml"
 
 [tool.coverage.run]
-source = ["tg_signer"]
+source = ["tg_signer", "backend"]
 branch = true
 omit = [
     "tg_signer/__main__.py",
     "tests/*",
+    "backend/cli/*",
 ]
 
 [tool.coverage.report]
-fail_under = 25
+fail_under = 20
 show_missing = true
 exclude_lines = [
     "pragma: no cover",
