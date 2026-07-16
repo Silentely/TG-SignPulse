@@ -68,16 +68,27 @@ def legacy_tasks_status(
     _mark_deprecated(response)
     tasks = task_service.list_tasks(db)
     enabled = sum(1 for t in tasks if getattr(t, "enabled", False))
+    writes_allowed = _legacy_writes_allowed()
+    ready_for_route_removal = (not writes_allowed) and len(tasks) == 0
+    if ready_for_route_removal:
+        removal_stage = "ready"
+    elif not writes_allowed:
+        removal_stage = "readonly_with_stock" if tasks else "ready"
+    else:
+        removal_stage = "writable_compat"
     return {
-        "legacy_writes_allowed": _legacy_writes_allowed(),
+        "legacy_writes_allowed": writes_allowed,
         "readonly_default": True,
         "task_count": len(tasks),
         "enabled_count": enabled,
         "preferred_api": "/api/sign-tasks",
         "batch_api": "/api/batch/sign-tasks",
+        "removal_stage": removal_stage,
+        "ready_for_route_removal": ready_for_route_removal,
         "hint": (
             "新功能请使用 sign-tasks；"
-            "临时兼容写操作可设置 APP_LEGACY_TASKS_READONLY=0"
+            "临时兼容写操作可设置 APP_LEGACY_TASKS_READONLY=0；"
+            "ready_for_route_removal=true 时可评估删除旧路由"
         ),
     }
 

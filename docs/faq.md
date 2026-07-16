@@ -37,6 +37,11 @@ data/.admin_bootstrap_password
 | 迁移完成 | `orm_only_count == 0` 后保持只读，外部脚本改调 sign-tasks |
 | 后续版本 | 可移除写路径兼容开关；再下一阶段删除 `/api/tasks` 与 ORM Task 表（破坏性，需公告） |
 
+盘点字段：
+
+- `GET /api/tasks/legacy-status` → `removal_stage`、`ready_for_route_removal`
+- `python tools/check_legacy_tasks.py --json` → 同上，并列出 `orm_only_names`
+
 ## Dashboard 实时日志连不上
 
 优先检查：

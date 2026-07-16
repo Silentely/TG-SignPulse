@@ -82,20 +82,49 @@ def main() -> int:
             "off",
         }
 
+        enabled_orm = sum(1 for r in rows if r.get("enabled"))
+        ready_for_removal = (
+            readonly and len(rows) == 0 and len(only_orm) == 0
+        )
+        if ready_for_removal:
+            removal_stage = "ready"
+            removal_hint = (
+                "ORM 无存量且只读已开启，可在后续版本评估删除 /api/tasks 写路径与 ORM Task 表。"
+            )
+        elif readonly and len(only_orm) == 0:
+            removal_stage = "readonly_with_shared_names"
+            removal_hint = (
+                "仅存在名称重叠或 ORM 可迁移项已对齐；保持只读，确认无外部脚本后进入 ready。"
+            )
+        elif not readonly:
+            removal_stage = "writable_compat"
+            removal_hint = (
+                "当前 APP_LEGACY_TASKS_READONLY=0（可写兼容）。生产应改回 1 并迁移到 sign-tasks。"
+            )
+        else:
+            removal_stage = "needs_migration"
+            removal_hint = (
+                f"仍有 {len(only_orm)} 个仅 ORM 任务，请在面板用 sign-tasks 重建后复检。"
+            )
+
         report = {
             "data_dir": str(get_settings().resolve_base_dir()),
             "legacy_readonly": readonly,
             "orm_task_count": len(rows),
+            "orm_enabled_count": enabled_orm,
             "sign_task_count": len(sign_tasks),
             "orm_only_count": len(only_orm),
             "orm_tasks": rows,
             "orm_only_names": [r["name"] for r in only_orm],
             "preferred_api": "/api/sign-tasks",
+            "removal_stage": removal_stage,
+            "ready_for_route_removal": ready_for_removal,
             "migration_hint": (
                 "旧 ORM 任务仅有 name/cron/account，不含完整动作序列。"
                 "请在面板用 sign-tasks 重建流程，或从配置导出 JSON 导入。"
                 "确认无外部写 /api/tasks 后保持 APP_LEGACY_TASKS_READONLY=1。"
             ),
+            "removal_hint": removal_hint,
         }
 
         if args.json:
@@ -105,9 +134,11 @@ def main() -> int:
         print("=== 旧版 ORM 任务检查 ===")
         print(f"数据目录: {report['data_dir']}")
         print(f"旧 API 只读: {report['legacy_readonly']}")
-        print(f"ORM 任务数: {report['orm_task_count']}")
+        print(f"ORM 任务数: {report['orm_task_count']} (enabled={enabled_orm})")
         print(f"sign-tasks 数: {report['sign_task_count']}")
         print(f"仅存在于 ORM 的任务: {report['orm_only_count']}")
+        print(f"下线阶段: {removal_stage}")
+        print(f"可评估删除旧路由: {ready_for_removal}")
         if rows:
             print("\nORM 任务列表:")
             for r in rows:
@@ -119,6 +150,7 @@ def main() -> int:
         else:
             print("\n无 ORM 任务，可安心保持默认只读。")
         print(f"\n建议: {report['migration_hint']}")
+        print(f"下线: {removal_hint}")
         return 0
     finally:
         db.close()
