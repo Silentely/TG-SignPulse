@@ -12,6 +12,7 @@
 - 部署
   - [Docker 部署](deploy/docker.md)
   - [Nginx 反向代理](deploy/nginx.md)
+  - [Vercel 文档站](deploy/vercel.md)
 - 参考
   - [配置参考](reference/configuration.md)
   - [运维手册](reference/ops.md)

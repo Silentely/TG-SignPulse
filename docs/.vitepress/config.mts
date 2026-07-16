@@ -7,14 +7,19 @@ const editBranch =
   process.env.VITEPRESS_EDIT_BRANCH ||
   process.env.GITHUB_REF_NAME ||
   "main";
+// Vercel / 本地默认 base=/；仅 GitHub Actions 构建 Pages 时用仓库名子路径
 const base =
   process.env.VITEPRESS_BASE ||
-  (isGitHubActions ? `/${repositoryName}/` : "/");
+  (isGitHubActions && !process.env.VERCEL ? `/${repositoryName}/` : "/");
 const siteUrl =
   process.env.VITEPRESS_SITE_URL ||
-  (isGitHubActions
-    ? `https://${repository.split("/")[0]}.github.io/${repositoryName}`
-    : "http://127.0.0.1:5173");
+  (process.env.VERCEL_PROJECT_PRODUCTION_URL
+    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+    : process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : isGitHubActions && !process.env.VERCEL
+        ? `https://${repository.split("/")[0]}.github.io/${repositoryName}`
+        : "http://127.0.0.1:5173");
 
 export default defineConfig({
   lang: "zh-CN",
@@ -22,6 +27,7 @@ export default defineConfig({
   description:
     "Telegram 多账号自动化管理面板：签到、消息编排、关键词监听与 AI 验证。",
   base,
+  // Vercel 上配合根目录 vercel.json 的 rewrite 使用 clean URL
   cleanUrls: true,
   lastUpdated: true,
   ignoreDeadLinks: true,
@@ -88,6 +94,7 @@ export default defineConfig({
         items: [
           { text: "Docker 部署", link: "/deploy/docker" },
           { text: "Nginx 反向代理", link: "/deploy/nginx" },
+          { text: "Vercel 文档站", link: "/deploy/vercel" },
         ],
       },
       {
