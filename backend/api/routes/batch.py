@@ -229,11 +229,25 @@ async def batch_task_operation(
     批量任务操作（旧版 ORM `tasks` 表）。
 
     **已弃用**：请改用 `POST /api/batch/sign-tasks`。
+    与 `/api/tasks` 一致：默认只读时返回 410。
     """
+    from fastapi import HTTPException, status
+
+    from backend.api.routes.tasks import _legacy_writes_allowed
+
     response.headers["Deprecation"] = "true"
     response.headers["Sunset"] = "true"
     response.headers["X-API-Warn"] = _LEGACY_DEPRECATION
     logger.warning("调用了已弃用的 /api/batch/tasks：%s", _LEGACY_DEPRECATION)
+
+    if not _legacy_writes_allowed():
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail=(
+                "Legacy ORM /api/batch/tasks is disabled by default "
+                "(APP_LEGACY_TASKS_READONLY=1). Use /api/batch/sign-tasks."
+            ),
+        )
 
     results: list[BatchTaskResult] = []
     success_count = 0

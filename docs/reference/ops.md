@@ -23,6 +23,15 @@
 | `APP_MONITOR_ACCOUNT_ALLOWLIST` | 逗号分隔账号名，仅这些账号挂关键词监听 |
 | `APP_MONITOR_SHARD` | 形如 `i/n`（如 `0/3`），按账号名哈希分片监听，多实例各跑一个分片 |
 
+### 上线检查清单（dev → 生产）
+
+1. **数据目录**：持久化挂载 `APP_DATA_DIR`（含 `db.sqlite` / `sessions` / `.signer`），确认可写。
+2. **旧 API**：面板已用 sign-tasks；若有外部脚本仍 `POST /api/tasks` 或 `/api/batch/tasks`，需改为 sign-tasks，或临时 `APP_LEGACY_TASKS_READONLY=0`。
+3. **单实例**：保持 1 个后端写进程；多副本时必须配调度锁 + 监听分片，且**同一账号 session 不共享**。
+4. **Postgres（可选）**：设置 `APP_DATABASE_URL` 时安装 `psycopg2-binary`，并先迁移 schema。
+5. **反向代理**：`/api/events/*` 关闭缓冲；避免把 `?token=` 打进访问日志。
+6. **健康检查**：使用 `/healthz` / `/readyz`，任务失败看面板日志与通知通道。
+
 同一 `data/` 上多副本时：只有获得调度锁的实例会注册签到/旧任务 job。Telegram 监听仍建议单实例。
 
 ## 健康检查

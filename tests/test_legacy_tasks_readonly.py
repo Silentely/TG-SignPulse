@@ -47,3 +47,14 @@ def test_legacy_status_endpoint(client, db_session, monkeypatch):
     assert body["legacy_writes_allowed"] is False
     assert body["preferred_api"] == "/api/sign-tasks"
     assert "task_count" in body
+
+
+def test_legacy_batch_tasks_readonly(client, db_session, monkeypatch):
+    monkeypatch.setenv("APP_LEGACY_TASKS_READONLY", "1")
+    resp = client.post(
+        "/api/batch/tasks",
+        headers=_auth(),
+        json={"action": "enable", "task_ids": [1]},
+    )
+    assert resp.status_code == 410
+    assert "sign-tasks" in resp.json()["detail"]

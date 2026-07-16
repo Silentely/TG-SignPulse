@@ -24,6 +24,21 @@ def init_engine() -> None:
     connect_args = {}
     if settings.is_sqlite:
         connect_args = {"check_same_thread": False, "timeout": 30}
+    elif url.startswith("postgresql") or url.startswith("postgres"):
+        # 常见遗漏：只改了 APP_DATABASE_URL 却未安装驱动
+        try:
+            import importlib
+
+            if "+psycopg2" in url or url.startswith("postgresql://"):
+                importlib.import_module("psycopg2")
+            elif "+asyncpg" in url:
+                importlib.import_module("asyncpg")
+        except ImportError as exc:
+            raise RuntimeError(
+                "APP_DATABASE_URL 指向 PostgreSQL，但当前环境未安装对应驱动。"
+                "请安装 psycopg2-binary（同步）或调整 URL/驱动，"
+                "或清空 APP_DATABASE_URL 回退 SQLite。"
+            ) from exc
 
     engine = create_engine(
         url,
