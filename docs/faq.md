@@ -18,7 +18,24 @@ data/.admin_bootstrap_password
 - 定时表达式或时间段是否正确
 - 任务是否启用
 - 绑定账号是否仍然有效
-- `/readyz` 是否正常
+- `/readyz` 是否正常（含 `scheduler_lock_held`）
+- 多实例时是否误配 `APP_MONITOR_SHARD` 导致监听不在本机
+
+## 旧 /api/tasks 接口为什么返回 410
+
+从较新版本起，旧 ORM 任务接口默认只读（`APP_LEGACY_TASKS_READONLY=1`）。  
+新功能请使用 `/api/sign-tasks` 与 `/api/batch/sign-tasks`。
+
+- 查看存量：`GET /api/tasks/legacy-status` 或 `python tools/check_legacy_tasks.py`
+- 临时兼容写：仅短期设置 `APP_LEGACY_TASKS_READONLY=0`
+
+## Dashboard 实时日志连不上
+
+优先检查：
+
+- 是否已登录且 token 未过期
+- 反向代理是否关闭 SSE 缓冲（见 [Nginx 部署](deploy/nginx.md)）
+- 浏览器控制台是否有 EventSource 错误；面板会指数退避重连
 
 ## 为什么重启后数据丢了
 

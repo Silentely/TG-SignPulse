@@ -9,6 +9,7 @@
   - [关键词监听](guide/keyword-monitor.md)
 - 部署
   - [Docker 部署](deploy/docker.md)
+  - [Nginx 反向代理](deploy/nginx.md)
 - 参考
   - [配置参考](reference/configuration.md)
   - [运维手册](reference/ops.md)

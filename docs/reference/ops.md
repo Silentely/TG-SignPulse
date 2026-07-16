@@ -26,11 +26,12 @@
 ### 上线检查清单（dev → 生产）
 
 1. **数据目录**：持久化挂载 `APP_DATA_DIR`（含 `db.sqlite` / `sessions` / `.signer`），确认可写。
-2. **旧 API**：面板已用 sign-tasks；若有外部脚本仍 `POST /api/tasks` 或 `/api/batch/tasks`，需改为 sign-tasks，或临时 `APP_LEGACY_TASKS_READONLY=0`。
+2. **旧 API**：面板已用 sign-tasks；发布前执行 `python tools/check_legacy_tasks.py` 或 `GET /api/tasks/legacy-status`。
 3. **单实例**：保持 1 个后端写进程；多副本时必须配调度锁 + 监听分片，且**同一账号 session 不共享**。
 4. **Postgres（可选）**：设置 `APP_DATABASE_URL` 时安装 `psycopg2-binary`，并先迁移 schema。
-5. **反向代理**：`/api/events/*` 关闭缓冲；避免把 `?token=` 打进访问日志。
-6. **健康检查**：使用 `/healthz` / `/readyz`，任务失败看面板日志与通知通道。
+5. **反向代理**：按 [Nginx 样例](../deploy/nginx.md) 配置 SSE/WebSocket；`/api/events/*` 关闭缓冲与 access log。
+6. **健康检查**：`/healthz`、`/readyz`（含锁与只读状态）；登录后可看 `/api/ops/runtime-status`。
+7. **边界冒烟**（可选）：`python scripts/prod_boundary_check.py`
 
 同一 `data/` 上多副本时：只有获得调度锁的实例会注册签到/旧任务 job。Telegram 监听仍建议单实例。
 

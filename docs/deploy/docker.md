@@ -142,7 +142,12 @@ APP_AUTO_FIX_DATA_PERMS=0
 
 ## 反向代理
 
-### Nginx
+生产环境若需 TLS 终止、SSE / WebSocket 正确转发，请使用完整样例：
+
+- 文档：[Nginx 反向代理](./nginx.md)
+- 配置文件：`docker/nginx.conf.example`
+
+### 最小 Nginx（仅 HTTP 反代）
 
 ```nginx
 server {
@@ -170,7 +175,8 @@ panel.example.com {
 }
 ```
 
-> 💡 使用反向代理时，建议将容器端口绑定到本地：`-p 127.0.0.1:8080:8080`
+> 💡 使用反向代理时，建议将容器端口绑定到本地：`-p 127.0.0.1:8080:8080`  
+> SSE 路径 `/api/events/` 必须关闭 `proxy_buffering`，详见 [nginx.md](./nginx.md)。
 
 ## CI/CD 缓存
 
