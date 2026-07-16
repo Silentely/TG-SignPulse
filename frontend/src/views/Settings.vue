@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { getGlobalSettings, saveGlobalSettings, getTelegramConfig, saveTelegramConfig, resetTelegramConfig, getAIConfig, saveAIConfig, testAIConnection, exportAllConfigs, importAllConfigs, runDeviceKeepalive, getBackupStatus, exportBackupArchive } from '../lib/api'
-import type { BackupStatus } from '../lib/api'
+import { getGlobalSettings, saveGlobalSettings, getTelegramConfig, saveTelegramConfig, resetTelegramConfig, getAIConfig, saveAIConfig, testAIConnection, exportAllConfigs, importAllConfigs, runDeviceKeepalive, getBackupStatus, exportBackupArchive, getRuntimeStatus } from '../lib/api'
+import type { BackupStatus, RuntimeStatus } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
 import CustomSelect from '../components/CustomSelect.vue'
@@ -72,6 +72,7 @@ const aiLoading = ref(false)
 const dataLoading = ref(false)
 const backupLoading = ref(false)
 const backupStatus = ref<BackupStatus | null>(null)
+const runtimeStatus = ref<RuntimeStatus | null>(null)
 const pageLoading = ref(true)
 
 const notifySuccess = (msg: string) => toast.success(msg)
@@ -119,6 +120,11 @@ onMounted(async () => {
       backupStatus.value = await getBackupStatus(token)
     } catch (e) {
       console.error('Failed to load backup status', e)
+    }
+    try {
+      runtimeStatus.value = await getRuntimeStatus(token)
+    } catch (e) {
+      console.error('Failed to load runtime status', e)
     }
   } catch (e) {
     console.error('Failed to load settings', e)
@@ -536,6 +542,24 @@ const handleImport = async (e: Event) => {
             {{ backupStatus.data_dir }} · {{ backupStatus.size_human }}
             · {{ backupStatus.writable ? t('settings.backupWritable') : t('settings.backupReadonly') }}
           </p>
+
+          <div v-if="runtimeStatus" class="mt-4 p-3 border border-gray-200 dark:border-gray-800/60 bg-gray-50/50 dark:bg-gray-950/40 text-xs space-y-1.5">
+            <div class="font-medium text-gray-700 dark:text-gray-300 mb-1">{{ t('settings.runtimeStatus') }}</div>
+            <div class="text-gray-600 dark:text-gray-400">
+              {{ t('settings.schedulerLock') }}:
+              <span :class="runtimeStatus.scheduler_lock_held ? 'text-emerald-600' : 'text-amber-600'">
+                {{ runtimeStatus.scheduler_lock_held ? t('settings.lockHeld') : t('settings.lockNotHeld') }}
+              </span>
+            </div>
+            <div class="text-gray-600 dark:text-gray-400">
+              {{ t('settings.legacyWritable') }}:
+              {{ runtimeStatus.legacy_tasks_writable ? t('settings.yes') : t('settings.no') }}
+            </div>
+            <div class="text-gray-600 dark:text-gray-400">
+              DB: {{ runtimeStatus.database_is_sqlite ? 'SQLite' : 'External' }}
+              <span v-if="runtimeStatus.monitor_shard"> · shard {{ runtimeStatus.monitor_shard }}</span>
+            </div>
+          </div>
         </div>
       </section>
 

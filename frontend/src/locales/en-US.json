@@ -342,6 +342,13 @@
     "backupExportFailed": "Backup export failed",
     "backupWritable": "writable",
     "backupReadonly": "read-only",
+    "runtimeStatus": "Runtime status",
+    "schedulerLock": "Scheduler lock",
+    "lockHeld": "Held (this instance schedules)",
+    "lockNotHeld": "Not held (no business jobs here)",
+    "legacyWritable": "Legacy tasks API writable",
+    "yes": "Yes",
+    "no": "No",
     "exportFailed": "Export failed",
     "importSuccess": "Import successful, refresh page to see updates",
     "importFailed": "Import failed"

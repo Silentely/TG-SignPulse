@@ -44,7 +44,11 @@ services:
       APP_DATA_DIR: /data
       APP_SECRET_KEY: replace-with-a-long-random-string
       ADMIN_PASSWORD: replace-with-a-strong-password
-    mem_limit: 512m
+      APP_LEGACY_TASKS_READONLY: "1"
+      APP_SCHEDULER_LOCK: "1"
+      # APP_DATABASE_URL: postgresql+psycopg2://...
+      # APP_MONITOR_SHARD: "0/2"
+    mem_limit: 768m
     cpus: 1.0
     init: true
     read_only: true
@@ -68,6 +72,18 @@ services:
 ```bash
 docker compose up -d
 ```
+
+### 上线后快速自检
+
+```bash
+curl -sS http://127.0.0.1:8080/readyz
+# 期望: {"status":"ready","scheduler_lock_held":true,"legacy_tasks_writable":false,...}
+
+curl -sS -H "Authorization: Bearer <token>" http://127.0.0.1:8080/api/ops/runtime-status
+curl -sS -H "Authorization: Bearer <token>" http://127.0.0.1:8080/api/tasks/legacy-status
+```
+
+更多边界说明见 [运维手册 - 上线检查清单](../reference/ops.md#上线检查清单dev--生产)。
 
 ### 本地源码构建
 

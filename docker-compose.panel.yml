@@ -1,18 +1,40 @@
 version: "3.9"
 
+# 面板生产/自建部署参考。密钥请用 .env 或 secrets 注入，勿提交真实密码。
 services:
   app:
     build: .
+    image: ghcr.io/silentely/tg-signpulse:latest
     container_name: tg-signer-panel
     environment:
       - APP_HOST=0.0.0.0
       - APP_PORT=3000
       - PORT=3000
+      - APP_DATA_DIR=/data
       - TZ=Asia/Shanghai
+      - LOG_LEVEL=INFO
+      # 生产务必设置；不设则首次启动随机密码写入 data/.admin_bootstrap_password
+      # - APP_SECRET_KEY=
+      # - ADMIN_PASSWORD=
+      # 旧 ORM 任务默认只读（推荐保持 1）
+      - APP_LEGACY_TASKS_READONLY=1
+      # 单实例保持 1；多 API 副本时仅写节点持锁
+      - APP_SCHEDULER_LOCK=1
+      # 可选：Postgres
+      # - APP_DATABASE_URL=postgresql+psycopg2://user:pass@db:5432/tg_signpulse
+      # 可选：监听分片（多实例时）
+      # - APP_MONITOR_SHARD=0/2
+      # - APP_MONITOR_ACCOUNT_ALLOWLIST=
     ports:
       - "3000:3000"
     volumes:
       - ./data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3000/readyz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
     init: true
     read_only: true
     tmpfs:
@@ -28,3 +50,5 @@ services:
         max-size: "10m"
         max-file: "3"
     restart: unless-stopped
+    mem_limit: 768m
+    cpus: 1.0

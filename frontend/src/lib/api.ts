@@ -1142,3 +1142,15 @@ export interface MemoryStatsResponse {
 
 export const getMemoryStats = (token: string) =>
   request<MemoryStatsResponse>("/ops/memory", {}, token);
+
+export interface RuntimeStatus {
+  ready: boolean;
+  scheduler_lock_held: boolean;
+  legacy_tasks_writable: boolean;
+  database_is_sqlite: boolean;
+  monitor_shard: string;
+  monitor_allowlist: string;
+}
+
+export const getRuntimeStatus = (token: string) =>
+  request<RuntimeStatus>("/ops/runtime-status", {}, token);

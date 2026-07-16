@@ -195,11 +195,22 @@ def health_checkz() -> dict[str, str]:
 
 
 @app.get("/readyz")
-def ready_check(response: Response) -> dict[str, str]:
-    if app.state.ready:
-        return {"status": "ready"}
-    response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-    return {"status": "starting"}
+def ready_check(response: Response) -> dict:
+    """就绪探针：未完成启动时 503；就绪时附带调度锁与旧 API 写策略（便于运维自查）。"""
+    if not getattr(app.state, "ready", False):
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        return {"status": "starting"}
+
+    payload: dict = {"status": "ready"}
+    try:
+        from backend.api.routes.tasks import _legacy_writes_allowed
+        from backend.scheduler.instance_lock import has_scheduler_lock
+
+        payload["scheduler_lock_held"] = has_scheduler_lock()
+        payload["legacy_tasks_writable"] = _legacy_writes_allowed()
+    except Exception as exc:
+        logging.getLogger("backend.readyz").debug("ready 附加信息失败: %s", exc)
+    return payload
 
 
 # 静态前端托管（Mode A: 单容器，FastAPI 提供静态文件）

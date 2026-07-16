@@ -248,3 +248,35 @@ def memory_stats(
     except Exception as exc:
         logger.debug("读取内存统计失败: %s", exc)
         return MemoryStatsResponse(available=False, stats={"error": str(exc)})
+
+
+class RuntimeStatusResponse(BaseModel):
+    ready: bool
+    scheduler_lock_held: bool = False
+    legacy_tasks_writable: bool = False
+    database_is_sqlite: bool = True
+    monitor_shard: str = ""
+    monitor_allowlist: str = ""
+
+
+@router.get("/runtime-status", response_model=RuntimeStatusResponse)
+def runtime_status(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    """面板/运维用运行时摘要（需登录）。"""
+    import os
+
+    from backend.api.routes.tasks import _legacy_writes_allowed
+    from backend.core.config import get_settings
+    from backend.scheduler.instance_lock import has_scheduler_lock
+
+    settings = get_settings()
+    return RuntimeStatusResponse(
+        ready=bool(getattr(request.app.state, "ready", False)),
+        scheduler_lock_held=has_scheduler_lock(),
+        legacy_tasks_writable=_legacy_writes_allowed(),
+        database_is_sqlite=settings.is_sqlite,
+        monitor_shard=os.getenv("APP_MONITOR_SHARD", "") or "",
+        monitor_allowlist=os.getenv("APP_MONITOR_ACCOUNT_ALLOWLIST", "") or "",
+    )

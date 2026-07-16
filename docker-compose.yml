@@ -4,7 +4,7 @@ services:
     container_name: tg-signpulse
     ports:
       - "8080:8080"
-    mem_limit: 512m
+    mem_limit: 768m
     cpus: 1.0
     volumes:
       - ./data:/data
@@ -13,6 +13,16 @@ services:
       - APP_DATA_DIR=/data
       - TZ=Asia/Shanghai
       - LOG_LEVEL=INFO
+      - APP_LEGACY_TASKS_READONLY=1
+      - APP_SCHEDULER_LOCK=1
+      # - APP_SECRET_KEY=replace-me
+      # - ADMIN_PASSWORD=replace-me
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/readyz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
     init: true
     read_only: true
     tmpfs:

@@ -487,7 +487,9 @@ class ConfigService:
                 # 这里的职责主要是文件操作。清理 cache 是必须的。
                 pass
             except Exception as e:
-                 print(f"Failed to clear cache: {e}")
+                logging.getLogger("backend.config").warning(
+                    "Failed to clear cache: %s", e
+                )
 
         except (json.JSONDecodeError, KeyError) as e:
             result["errors"].append(f"Invalid JSON format: {str(e)}")

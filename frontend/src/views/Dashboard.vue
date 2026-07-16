@@ -17,6 +17,9 @@ const router = useRouter()
 
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 let signHistorySource: EventSource | null = null
+let sseReconnectTimer: ReturnType<typeof setTimeout> | null = null
+let sseReconnectAttempt = 0
+let sseIntentionalClose = false
 const selectedLog = ref<DashboardLog | null>(null)
 const liveConnected = ref(false)
 
@@ -99,15 +102,35 @@ const prependLiveLog = (payload: {
   }
 }
 
+const clearSseReconnect = () => {
+  if (sseReconnectTimer) {
+    clearTimeout(sseReconnectTimer)
+    sseReconnectTimer = null
+  }
+}
+
+const scheduleSseReconnect = () => {
+  if (sseIntentionalClose) return
+  clearSseReconnect()
+  // 指数退避 1s → 2s → … → 30s，避免代理断流后狂连
+  const delay = Math.min(30_000, 1000 * 2 ** Math.min(sseReconnectAttempt, 5))
+  sseReconnectAttempt += 1
+  sseReconnectTimer = setTimeout(() => {
+    connectSignHistorySSE()
+  }, delay)
+}
+
 const connectSignHistorySSE = () => {
   const token = authStore.token || ''
   if (!token || typeof EventSource === 'undefined') return
   try {
     signHistorySource?.close()
+    // EventSource 无法自定义 Header，仅此路径使用 query token
     const url = `/api/events/sign-history?token=${encodeURIComponent(token)}`
     signHistorySource = new EventSource(url)
     signHistorySource.addEventListener('ready', () => {
       liveConnected.value = true
+      sseReconnectAttempt = 0
     })
     signHistorySource.addEventListener('sign_log', (ev) => {
       try {
@@ -119,14 +142,24 @@ const connectSignHistorySSE = () => {
     })
     signHistorySource.onerror = () => {
       liveConnected.value = false
-      // 浏览器会自动重连；保留 30s 轮询兜底
+      // 主动关闭后按退避重连；原生 EventSource 自动重连与手动重连二选一，避免双通道
+      try {
+        signHistorySource?.close()
+      } catch {
+        /* ignore */
+      }
+      signHistorySource = null
+      scheduleSseReconnect()
     }
   } catch (e) {
     console.error('SSE connect failed', e)
+    liveConnected.value = false
+    scheduleSseReconnect()
   }
 }
 
 onMounted(async () => {
+  sseIntentionalClose = false
   await loadDashboardData()
   pageLoading.value = false
   refreshTimer = setInterval(loadDashboardData, 30000)
@@ -134,6 +167,8 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  sseIntentionalClose = true
+  clearSseReconnect()
   if (refreshTimer) {
     clearInterval(refreshTimer)
     refreshTimer = null

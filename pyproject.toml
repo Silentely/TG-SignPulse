@@ -19,8 +19,9 @@ classifiers = [
 dependencies = [
     "kurigram<=2.2.7",
     "click",
-    # 主路径仍兼容 v1；compat 层支持 v2，可在测试环境验证 pydantic>=2
-    "pydantic>=1.10,<3",
+    # 生产钉死 v1，避免无 lockfile 时 pip 拉到 v2 导致运行差异
+    # 业务已具备 pydantic_compat，后续升级可再放宽到 <3
+    "pydantic>=1.10.26,<2",
     "openai",
     "croniter",
     "json_repair",

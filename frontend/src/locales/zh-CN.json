@@ -342,6 +342,13 @@
     "backupExportFailed": "导出备份失败",
     "backupWritable": "可写",
     "backupReadonly": "只读",
+    "runtimeStatus": "运行时状态",
+    "schedulerLock": "调度锁",
+    "lockHeld": "已持有（本实例调度）",
+    "lockNotHeld": "未持有（本实例不调度业务任务）",
+    "legacyWritable": "旧任务 API 可写",
+    "yes": "是",
+    "no": "否",
     "exportFailed": "导出失败",
     "importSuccess": "导入成功，可能需要刷新页面查看更新",
     "importFailed": "导入失败"
