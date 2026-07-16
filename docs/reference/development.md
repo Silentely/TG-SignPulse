@@ -8,7 +8,7 @@
 | --- | --- |
 | Python | `>=3.10,<3.14` |
 | FastAPI | `>=0.109.2` |
-| Pydantic | 当前依赖锁定为 `pydantic<2` |
+| Pydantic | `pydantic>=1.10,<3`（兼容层见 `tg_signer/pydantic_compat.py`） |
 | SQLAlchemy | 当前使用 1.x 风格 API |
 | APScheduler | 进程内调度器，单后端实例运行 |
 
@@ -29,7 +29,7 @@
 - 先迁移测试覆盖充分的边界模型，再迁移核心任务配置模型。
 - 不在业务服务中散落版本判断。
 
-**当前状态（2026-07）**：依赖仍锁定 `pydantic<2`；部分路由已通过 `model_dump`/`dict` 双写兼容（见 `sign_tasks_v2._model_dump`）。完整 v2 迁移列为中期项，需先抬高 backend 覆盖率。
+**当前状态（2026-07）**：依赖放宽为 `pydantic>=1.10,<3`。统一使用 `tg_signer.pydantic_compat`（`model_validate` / `model_dump` / `try_import_field_validator`）。业务模型与路由逐步迁入 compat；CI 默认仍以 v1 路径为主。
 
 ## SQLAlchemy 使用规范
 

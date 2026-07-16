@@ -196,9 +196,23 @@ async def sync_jobs() -> None:
     if scheduler is None:
         return
 
+    from backend.scheduler.instance_lock import has_scheduler_lock
+
     # 每次同步时检查时区是否变更，运行时无法直接修改调度器时区，仅记录日志
     import logging
     _tz_logger = logging.getLogger("backend.scheduler")
+    if not has_scheduler_lock():
+        # 无锁副本：移除业务 job，避免误调度
+        if getattr(scheduler, "running", False):
+            for job in list(scheduler.get_jobs()):
+                jid = str(job.id or "")
+                if jid.startswith("db-") or jid.startswith("sign-"):
+                    try:
+                        scheduler.remove_job(jid)
+                    except Exception:
+                        pass
+        _tz_logger.info("本进程未持有调度锁，已跳过业务任务同步")
+        return
     try:
         from backend.core.config import get_settings
         from backend.services.config import get_config_service
@@ -301,7 +315,9 @@ async def init_scheduler(sync_on_startup: bool = True) -> AsyncIOScheduler:
     global scheduler
     if scheduler is None:
         from backend.core.config import get_settings
+        from backend.scheduler.instance_lock import try_acquire_scheduler_lock
         from backend.services.config import get_config_service
+
         settings = get_settings()
         # 优先使用 Web UI 保存的时区，否则使用环境变量
         tz = settings.timezone
@@ -312,6 +328,10 @@ async def init_scheduler(sync_on_startup: bool = True) -> AsyncIOScheduler:
                 tz = saved_tz
         except Exception:
             pass
+
+        # 多实例场景：仅锁持有者注册业务调度
+        try_acquire_scheduler_lock()
+
         scheduler = AsyncIOScheduler(
             timezone=tz,
             job_defaults={
@@ -346,7 +366,18 @@ async def init_scheduler(sync_on_startup: bool = True) -> AsyncIOScheduler:
 def shutdown_scheduler() -> None:
     global scheduler
     if scheduler:
-        scheduler.shutdown(wait=False)
+        try:
+            if getattr(scheduler, "running", False):
+                scheduler.shutdown(wait=False)
+        except Exception:
+            pass
+        scheduler = None
+    try:
+        from backend.scheduler.instance_lock import release_scheduler_lock
+
+        release_scheduler_lock()
+    except Exception:
+        pass
         scheduler = None
 
 

@@ -20,17 +20,25 @@ def init_engine() -> None:
         return
 
     settings = get_settings()
+    url = settings.database_url
+    connect_args = {}
+    if settings.is_sqlite:
+        connect_args = {"check_same_thread": False, "timeout": 30}
+
     engine = create_engine(
-        settings.database_url,
+        url,
         echo=False,
-        connect_args={"check_same_thread": False, "timeout": 30},
+        connect_args=connect_args,
+        pool_pre_ping=not settings.is_sqlite,
     )
 
-    @event.listens_for(engine, "connect")
-    def set_sqlite_pragma(dbapi_connection, connection_record):
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA journal_mode=WAL")
-        cursor.close()
+    if settings.is_sqlite:
+
+        @event.listens_for(engine, "connect")
+        def set_sqlite_pragma(dbapi_connection, connection_record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.close()
 
     _engine = engine
     _SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
