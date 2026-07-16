@@ -114,6 +114,8 @@ environment:
 | `SIGN_TASK_HISTORY_MAX_AGE_DAYS` | `3` | 启动时清理超过 N 天的 history/*.json |
 | `SIGN_TASK_LIST_CACHE_TTL` | `30` | 任务列表内存缓存秒数 |
 | `SIGN_TASK_ACCOUNT_COOLDOWN` | `5` | 同账号连续执行冷却秒数 |
+| `SIGN_TASK_EXECUTION_TIMEOUT` | `300` | 单次签到执行超时（秒） |
+| `SIGN_TASK_LAST_TARGET_HISTORY_LIMIT` | `8` | 回填 last_target 时拉取聊天历史条数 |
 | `SIGN_TASK_COMPLETION_LOOKBACK` | `20` | 签到前检查历史消息条数（用于跳过今日已完成的任务） |
 
 ## AI 视觉相关

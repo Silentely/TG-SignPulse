@@ -47,6 +47,9 @@ def test_legacy_status_endpoint(client, db_session, monkeypatch):
     assert body["legacy_writes_allowed"] is False
     assert body["preferred_api"] == "/api/sign-tasks"
     assert "task_count" in body
+    assert "removal_stage" in body
+    assert "ready_for_route_removal" in body
+    assert body["ready_for_route_removal"] is (body["task_count"] == 0)
 
 
 def test_legacy_batch_tasks_readonly(client, db_session, monkeypatch):
