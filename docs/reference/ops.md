@@ -88,24 +88,54 @@ docker logs -f tg-signpulse
 - 按钮有没有点击成功
 - 监听任务是不是命中了关键词
 
-## 备份
+## 备份与配置迁移
 
-最简单的备份方法就是整个备份 `data/` 目录。
+面板「设置 → 数据管理」提供两套能力，用途不同：
 
-重点内容：
+| 能力 | 内容 | 可否面板导入 | 用途 |
+|------|------|--------------|------|
+| **配置 JSON** | 任务 / 监控 / 全局与 AI·TG 设置（AI 密钥脱敏） | ✅ 可导入 | 流程迁移、模板拷贝 |
+| **完整备份 tar.gz** | `db.sqlite`、`sessions`、`.signer`、配置文件等 | ❌ 仅导出 | 换机 / 灾难恢复 |
 
-- `db.sqlite`
-- `sessions/`
-- `.signer/`
-- `.global_settings.json`
-- `.openai_config.json`
-- `.telegram_api.json`
+### 配置 JSON 注意
 
-示例（在项目根目录执行）：
+- **不含** Telegram 登录会话；导入后账号仍需已登录或重新登录。
+- 导出的 `api_key` 为 `***MASKED***`；再导入时**不会**用占位符覆盖服务器上已有密钥。
+- 导入成功后会同步调度并尝试重启关键词监听；请刷新页面。
+
+### 完整备份（面板或命令行）
+
+面板「导出备份包」会打包推荐路径（**不含** `.admin_bootstrap_password`）。
+
+宿主机整目录备份示例：
 
 ```bash
 tar -czf "tg-signpulse-backup-$(date +%F).tar.gz" -C "$(pwd)" data
 ```
+
+重点内容：
+
+- `db.sqlite`（及 wal/shm）
+- `sessions/`
+- `.signer/`（任务配置 + 历史）
+- `.global_settings.json` / `.openai_config.json` / `.telegram_api.json`
+
+### 从 tar.gz 恢复（面板无上传恢复，手动操作）
+
+1. **停止** 面板服务（避免写冲突）  
+2. 将备份解压到 `APP_DATA_DIR`（默认 `/data` 或 `./data`），覆盖同名路径  
+3. 确认目录属主/权限可写  
+4. **启动** 服务，用原账号登录验证  
+
+```bash
+# 示例：备份文件在当前目录，数据目录为 ./data
+systemctl stop tg-signpulse   # 按你的部署方式停止
+tar -xzf tg-signpulse-backup-YYYYMMDD-HHMMSS.tar.gz -C ./data
+# 若 tar 内路径已是 db.sqlite、sessions 等，应直接落在 data 根下
+systemctl start tg-signpulse
+```
+
+> PostgreSQL 部署时：`db.sqlite` 备份意义不大，请自行 `pg_dump`；sessions 与 `.signer` 仍须备份。
 
 ### 自动化备份脚本
 

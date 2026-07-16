@@ -50,6 +50,30 @@ class BackupStatusResponse(BaseModel):
     size_human: str = ""
     entries: List[Dict[str, Any]] = Field(default_factory=list)
     recommended_paths: List[str] = Field(default_factory=list)
+    notes: List[str] = Field(default_factory=list)
+    restore_hint: str = ""
+
+
+# 完整备份包含的路径（不含初始密码文件，降低误传风险）
+BACKUP_ARCHIVE_PATHS = (
+    "db.sqlite",
+    "db.sqlite-wal",
+    "db.sqlite-shm",
+    "sessions",
+    ".signer",
+    ".global_settings.json",
+    ".openai_config.json",
+    ".telegram_api.json",
+)
+
+BACKUP_STATUS_PATHS = (
+    "db.sqlite",
+    "sessions",
+    ".signer",
+    ".global_settings.json",
+    ".openai_config.json",
+    ".telegram_api.json",
+)
 
 
 class MemoryStatsResponse(BaseModel):
@@ -132,14 +156,7 @@ def backup_status(current_user: User = Depends(get_current_user)):
 
     settings = get_settings()
     data_dir = Path(settings.resolve_base_dir())
-    recommended = [
-        "db.sqlite",
-        "sessions",
-        ".signer",
-        ".global_settings.json",
-        ".openai_config.json",
-        ".telegram_api.json",
-    ]
+    recommended = list(BACKUP_STATUS_PATHS)
     entries: List[Dict[str, Any]] = []
     total = 0
     for rel in recommended:
@@ -154,7 +171,6 @@ def backup_status(current_user: User = Depends(get_current_user)):
                 "size_human": _human_size(size),
             }
         )
-    # 加上其余顶层占用粗算
     try:
         total = max(total, _dir_size(data_dir))
     except Exception as exc:
@@ -167,6 +183,15 @@ def backup_status(current_user: User = Depends(get_current_user)):
         size_human=_human_size(total),
         entries=entries,
         recommended_paths=recommended,
+        notes=[
+            "完整备份含数据库、会话与 .signer（任务配置与历史），敏感请妥善保管。",
+            "JSON 配置导出不含会话；二者用途不同，勿混用。",
+            "不含 .admin_bootstrap_password（避免初始密码随备份传播）。",
+        ],
+        restore_hint=(
+            "恢复：停止服务 → 解压 tar.gz 到 APP_DATA_DIR 覆盖对应路径 → 重启。"
+            "详见文档运维手册。"
+        ),
     )
 
 
@@ -185,17 +210,7 @@ def export_backup_archive(current_user: User = Depends(get_current_user)):
             detail="数据目录不存在",
         )
 
-    recommended = [
-        "db.sqlite",
-        "db.sqlite-wal",
-        "db.sqlite-shm",
-        "sessions",
-        ".signer",
-        ".global_settings.json",
-        ".openai_config.json",
-        ".telegram_api.json",
-        ".admin_bootstrap_password",
-    ]
+    recommended = list(BACKUP_ARCHIVE_PATHS)
 
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
     tmp_dir = Path(tempfile.mkdtemp(prefix="tg-signpulse-backup-"))

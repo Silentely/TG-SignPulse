@@ -459,16 +459,20 @@ export const exportAllConfigs = async (token: string) => {
   return res.text();
 };
 
+export type ImportAllConfigsResult = {
+  signs_imported: number;
+  signs_skipped: number;
+  monitors_imported: number;
+  monitors_skipped: number;
+  settings_imported: number;
+  settings_skipped?: number;
+  errors: string[];
+  warnings?: string[];
+  message: string;
+};
+
 export const importAllConfigs = (token: string, configJson: string, overwrite = false) =>
-  request<{
-    signs_imported: number;
-    signs_skipped: number;
-    monitors_imported: number;
-    monitors_skipped: number;
-    settings_imported: number;
-    errors: string[];
-    message: string;
-  }>("/config/import/all", {
+  request<ImportAllConfigsResult>("/config/import/all", {
     method: "POST",
     body: JSON.stringify({ config_json: configJson, overwrite }),
   }, token);
@@ -1100,6 +1104,8 @@ export interface BackupStatus {
     size_human: string;
   }>;
   recommended_paths: string[];
+  notes?: string[];
+  restore_hint?: string;
 }
 
 export const getBackupStatus = (token: string) =>

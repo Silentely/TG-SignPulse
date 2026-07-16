@@ -59,7 +59,9 @@ class ImportAllResponse(BaseModel):
     monitors_imported: int
     monitors_skipped: int
     settings_imported: int
+    settings_skipped: int = 0
     errors: list[str]
+    warnings: list[str] = []
     message: str
 
 
@@ -206,8 +208,15 @@ async def import_all_configs(
             message_parts.append(f"monitor tasks skipped: {result['monitors_skipped']}")
         if result.get("settings_imported", 0) > 0:
             message_parts.append(f"settings imported: {result['settings_imported']}")
+        if result.get("settings_skipped", 0) > 0:
+            message_parts.append(f"settings skipped: {result['settings_skipped']}")
+        if result.get("warnings"):
+            message_parts.append(f"warnings: {len(result['warnings'])}")
 
         message = "; ".join(message_parts) if message_parts else "No config imported"
+        # 导入成功后已同步调度；提示前端刷新
+        if not result.get("errors"):
+            message = f"{message}; scheduler synced" if message_parts else "scheduler synced"
 
         from backend.scheduler import sync_jobs
 
@@ -226,7 +235,9 @@ async def import_all_configs(
             monitors_imported=int(result.get("monitors_imported", 0)),
             monitors_skipped=int(result.get("monitors_skipped", 0)),
             settings_imported=int(result.get("settings_imported", 0)),
+            settings_skipped=int(result.get("settings_skipped", 0)),
             errors=[str(item) for item in result.get("errors", [])],
+            warnings=[str(item) for item in result.get("warnings", [])],
             message=message,
         )
     except Exception as e:

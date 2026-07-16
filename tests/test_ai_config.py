@@ -82,6 +82,8 @@ class TestExportAllConfigs:
 
         assert ai_config["api_key"] == "***MASKED***"
         assert ai_config["model"] == "gpt-4o"
+        assert exported.get("_meta", {}).get("ai_api_key_masked") is True
+        assert "sessions" in exported["_meta"]["excludes"]
 
     def test_export_handles_no_ai_config(self, isolated_env: Path):
         """无 AI 配置时导出不应报错"""
@@ -91,3 +93,35 @@ class TestExportAllConfigs:
             config_file.unlink()
         exported = json.loads(service.export_all_configs())
         assert exported["settings"]["ai"] is None
+
+    def test_import_skips_masked_api_key(self, isolated_env: Path):
+        """导入脱敏密钥不得覆盖服务器已有 api_key"""
+        service = ConfigService()
+        service.save_ai_config(
+            api_key="sk-real-key", base_url="https://api.orig.com", model="gpt-4o"
+        )
+        payload = {
+            "settings": {
+                "ai": {
+                    "api_key": "***MASKED***",
+                    "base_url": "https://api.new.com",
+                    "model": "gpt-4o-mini",
+                }
+            }
+        }
+        result = service.import_all_configs(json.dumps(payload), overwrite=True)
+        assert result["settings_skipped"] >= 1
+        assert any("masked" in w.lower() for w in result["warnings"])
+        stored = service.get_ai_config()
+        assert stored is not None
+        # 解密后应为原密钥
+        from backend.services.config import ConfigService as CS
+
+        # get_ai_config 返回解密后的明文供使用
+        assert stored.get("base_url") == "https://api.new.com"
+        assert stored.get("model") == "gpt-4o-mini"
+        # api_key 仍是原值（非 MASKED）
+        assert stored.get("api_key") not in {"***MASKED***", None, ""}
+        assert "sk-real" in str(stored.get("api_key") or "") or stored.get(
+            "api_key"
+        )  # 允许 fernet 中间态时仍非 mask

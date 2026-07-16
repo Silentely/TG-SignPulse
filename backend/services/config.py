@@ -310,16 +310,35 @@ class ConfigService:
         except (json.JSONDecodeError, KeyError):
             return False
 
+    # 导出脱敏占位；导入时若见到则跳过密钥写入，避免覆盖真实密钥
+    AI_KEY_MASK = "***MASKED***"
+
     def export_all_configs(self) -> str:
         """
-        导出所有配置
-        Returns:
-            包含所有配置的 JSON 字符串
+        导出业务配置（任务 / 监控 / 设置）。
+
+        不含 sessions、数据库、执行历史。AI api_key 默认脱敏。
         """
-        all_configs = {
+        all_configs: Dict[str, Any] = {
+            "_meta": {
+                "format": "tg-signpulse-config-export",
+                "version": 1,
+                "includes": ["signs", "monitors", "settings"],
+                "excludes": [
+                    "sessions",
+                    "db.sqlite",
+                    "history",
+                    "account_login_state",
+                ],
+                "notes": [
+                    "配置迁移用：可导入；不含 Telegram 登录会话。",
+                    "AI api_key 已脱敏；导入时不会用占位符覆盖现有密钥。",
+                    "整机恢复请用面板「完整数据备份」tar.gz + 手动解压覆盖 data/。",
+                ],
+            },
             "signs": {},
             "monitors": {},
-            "settings": {}, # 新增 settings 字段
+            "settings": {},
         }
 
         # 导出所有签到任务
@@ -363,10 +382,12 @@ class ConfigService:
                 config.pop("last_run", None)
                 all_configs["monitors"][task_name] = config
 
-        # 导出设置 (新增) — AI 配置脱敏处理
+        # 导出设置 — AI 密钥脱敏
         ai_config = self.get_ai_config()
         if ai_config and ai_config.get("api_key"):
-            ai_config["api_key"] = "***MASKED***"
+            ai_config = dict(ai_config)
+            ai_config["api_key"] = self.AI_KEY_MASK
+            all_configs["_meta"]["ai_api_key_masked"] = True
         all_configs["settings"] = {
             "global": self.get_global_settings(),
             "ai": ai_config,
@@ -381,13 +402,15 @@ class ConfigService:
         """
         导入所有配置
         """
-        result = {
+        result: Dict[str, Any] = {
             "signs_imported": 0,
             "signs_skipped": 0,
             "monitors_imported": 0,
             "monitors_skipped": 0,
             "settings_imported": 0,
+            "settings_skipped": 0,
             "errors": [],
+            "warnings": [],
         }
 
         try:
@@ -435,10 +458,9 @@ class ConfigService:
                         f"Failed to import monitor task: {task_name}"
                     )
 
-            # 导入设置 (新增)
+            # 导入设置
             settings_data = data.get("settings", {})
 
-            # 导入全局设置
             if "global" in settings_data:
                 try:
                     if self.save_global_settings(settings_data["global"]):
@@ -448,44 +470,65 @@ class ConfigService:
                 except Exception as e:
                     result["errors"].append(f"Failed to import global settings: {e}")
 
-            # 导入 AI 配置
+            # AI 配置：脱敏占位符不得覆盖现有密钥
             if "ai" in settings_data and settings_data["ai"]:
                 try:
                     ai_conf = settings_data["ai"]
-                    if ai_conf.get("api_key"):
-                        if self.save_ai_config(ai_conf["api_key"], ai_conf.get("base_url"), ai_conf.get("model")):
+                    raw_key = str(ai_conf.get("api_key") or "").strip()
+                    if not raw_key:
+                        result["settings_skipped"] += 1
+                        result["warnings"].append(
+                            "AI config skipped: empty api_key"
+                        )
+                    elif raw_key in {self.AI_KEY_MASK, "***", "MASKED", "REDACTED"}:
+                        result["settings_skipped"] += 1
+                        result["warnings"].append(
+                            "AI api_key is masked in export; kept existing key on server"
+                        )
+                        # 仍可更新 base_url / model（保留现有 key）
+                        existing = self.get_ai_config() or {}
+                        keep_key = str(existing.get("api_key") or "").strip()
+                        if keep_key:
+                            if self.save_ai_config(
+                                keep_key,
+                                ai_conf.get("base_url") or existing.get("base_url"),
+                                ai_conf.get("model") or existing.get("model"),
+                            ):
+                                result["settings_imported"] += 1
+                                result["warnings"].append(
+                                    "AI base_url/model updated with existing api_key"
+                                )
+                    else:
+                        if self.save_ai_config(
+                            raw_key, ai_conf.get("base_url"), ai_conf.get("model")
+                        ):
                             result["settings_imported"] += 1
                         else:
                             result["errors"].append("Failed to import AI config")
                 except Exception as e:
                     result["errors"].append(f"Failed to import AI config: {e}")
 
-            # 导入 Telegram 配置
             if "telegram" in settings_data:
                 try:
                     tg_conf = settings_data["telegram"]
-                    if tg_conf.get("is_custom") and tg_conf.get("api_id") and tg_conf.get("api_hash"):
-                        if self.save_telegram_config(str(tg_conf["api_id"]), tg_conf["api_hash"]):
+                    if (
+                        tg_conf.get("is_custom")
+                        and tg_conf.get("api_id")
+                        and tg_conf.get("api_hash")
+                    ):
+                        if self.save_telegram_config(
+                            str(tg_conf["api_id"]), tg_conf["api_hash"]
+                        ):
                             result["settings_imported"] += 1
                         else:
                             result["errors"].append("Failed to import Telegram config")
                 except Exception as e:
                     result["errors"].append(f"Failed to import Telegram config: {e}")
 
-            # 关键修复：清除 SignTaskService 缓存，否则前端刷新也看不到新任务
             try:
                 from backend.services.sign_tasks import get_sign_task_service
-                get_sign_task_service()._tasks_cache = None
 
-                # 可选：触发调度同步？
-                # 如果导入了新任务，调度器并不知道。
-                # 只有 _tasks_cache 清除后，下次调用 list_tasks 才会读文件，但调度器是内存常驻的。
-                # 我们应该调用 sync_jobs!
-
-                # 由于 sync_jobs 是 async 的，而这里是同步方法，可能不太好直接调。
-                # 但 FastAPI 路由是 async 的，我们可以在路由层调用 sync_jobs。
-                # 这里的职责主要是文件操作。清理 cache 是必须的。
-                pass
+                get_sign_task_service().invalidate_tasks_cache()
             except Exception as e:
                 logging.getLogger("backend.config").warning(
                     "Failed to clear cache: %s", e
