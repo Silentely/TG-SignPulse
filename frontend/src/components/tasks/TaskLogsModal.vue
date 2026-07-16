@@ -9,7 +9,7 @@ import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
 import { useAuthStore } from '../../stores/auth'
 import type { TaskUiItem } from '../../lib/types'
-import { getErrorMessage } from '../../lib/types'
+import { getLocalizedErrorMessage } from '../../lib/types'
 import { normalizeFlowLogLines } from '../../lib/task-log-format'
 
 const { t } = useI18n()
@@ -70,7 +70,7 @@ const loadLogs = async () => {
     logs.value = Array.isArray(res) ? res : []
   } catch (e: unknown) {
     console.error('Failed to fetch logs', e)
-    toast.error(getErrorMessage(e, t('logs.loadFailed')))
+    toast.error(getLocalizedErrorMessage(e, t, t('logs.loadFailed')))
     logs.value = []
   } finally {
     loading.value = false

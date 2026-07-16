@@ -5,7 +5,7 @@ import { startAccountLogin, verifyAccountLogin, updateAccount, startQrLogin, get
 import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
 import { useAuthStore } from '../../stores/auth'
-import { getErrorMessage } from '../../lib/types'
+import { getLocalizedErrorMessage } from '../../lib/types'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -47,7 +47,7 @@ const reset = async () => {
       const token = authStore.token || ''
       if (token) await cancelQrLogin(token, loginId.value)
     } catch (e: unknown) {
-      console.warn('cancelQrLogin failed:', getErrorMessage(e))
+      console.warn('cancelQrLogin failed:', getLocalizedErrorMessage(e, t))
     }
   }
   form.value = { account_name: props.initialAccountName || '', remark: '', phone_number: '', phone_code: '', password: '', proxy: '' }
@@ -150,7 +150,7 @@ const handleQrPasswordSubmit = async (token: string, lid: string) => {
     if (pollInterval) clearInterval(pollInterval)
     pollInterval = setInterval(() => pollStatus(token, lid), 3000)
   } catch (e: unknown) {
-    error.value = getErrorMessage(e) || t('addAccount.passwordFailed')
+    error.value = getLocalizedErrorMessage(e, t, t('addAccount.passwordFailed'))
     loading.value = false
   }
 }
@@ -176,7 +176,7 @@ const handleGetQr = async () => {
     if (pollInterval) clearInterval(pollInterval)
     pollInterval = setInterval(() => pollStatus(token, res.login_id), 3000)
   } catch (e: unknown) {
-    error.value = getErrorMessage(e) || t('addAccount.getQrFailed')
+    error.value = getLocalizedErrorMessage(e, t, t('addAccount.getQrFailed'))
   } finally {
     loading.value = false
   }
@@ -204,7 +204,7 @@ const handleSendCode = async () => {
     codeSent.value = true
     toast.info(t('addAccount.codeSent'))
   } catch (e: unknown) {
-    error.value = getErrorMessage(e) || t('addAccount.sendCodeFailed')
+    error.value = getLocalizedErrorMessage(e, t, t('addAccount.sendCodeFailed'))
   } finally {
     loading.value = false
   }
@@ -246,7 +246,7 @@ const handleSave = async () => {
       handleClose()
     } catch (e: unknown) {
       // 如果错误提示包含2FA相关信息，显示密码提示
-      const msg = getErrorMessage(e) || ''
+      const msg = getLocalizedErrorMessage(e, t) || ''
       if (msg.includes('两步验证') || msg.includes('2FA') || msg.includes('SESSION_PASSWORD_NEEDED')) {
         error.value = t('addAccount.needPassword')
       } else {

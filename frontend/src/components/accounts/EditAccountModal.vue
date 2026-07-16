@@ -6,7 +6,7 @@ import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
 import { useAuthStore } from '../../stores/auth'
 import type { AccountUiItem } from '../../lib/types'
-import { getErrorMessage } from '../../lib/types'
+import { getLocalizedErrorMessage } from '../../lib/types'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -54,7 +54,7 @@ const handleSave = async () => {
     emit('success')
     emit('close')
   } catch (e: unknown) {
-    error.value = getErrorMessage(e) || t('editAccount.saveFailed')
+    error.value = getLocalizedErrorMessage(e, t, t('editAccount.saveFailed'))
   } finally {
     loading.value = false
   }

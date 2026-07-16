@@ -6,7 +6,7 @@ import { changePassword, changeUsername, getTOTPStatus, setupTOTP, fetchTOTPQRCo
 import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
 import { useAuthStore } from '../../stores/auth'
-import { getErrorMessage } from '../../lib/types'
+import { getLocalizedErrorMessage } from '../../lib/types'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -49,7 +49,7 @@ const handleUsernameChange = async () => {
       authStore.setToken(res.access_token)
     }
   } catch (e: unknown) {
-    error.value = getErrorMessage(e) || t('profile.changeFailed')
+    error.value = getLocalizedErrorMessage(e, t, t('profile.changeFailed'))
   } finally {
     loading.value = false
   }
@@ -69,7 +69,7 @@ const handlePasswordChange = async () => {
     form.value.old_password = ''
     form.value.new_password = ''
   } catch (e: unknown) {
-    error.value = getErrorMessage(e) || t('profile.changeFailed')
+    error.value = getLocalizedErrorMessage(e, t, t('profile.changeFailed'))
   } finally {
     loading.value = false
   }
@@ -126,7 +126,7 @@ const handleEnableTOTP = async () => {
     totpCode.value = ''
     await checkTOTP()
   } catch (e: unknown) {
-    error.value = getErrorMessage(e) || t('profile.verifyFailed')
+    error.value = getLocalizedErrorMessage(e, t, t('profile.verifyFailed'))
   } finally {
     loading.value = false
   }
@@ -146,7 +146,7 @@ const handleDisableTOTP = async () => {
     totpCode.value = ''
     await checkTOTP()
   } catch (e: unknown) {
-    error.value = getErrorMessage(e) || t('profile.disableFailed')
+    error.value = getLocalizedErrorMessage(e, t, t('profile.disableFailed'))
   } finally {
     loading.value = false
   }

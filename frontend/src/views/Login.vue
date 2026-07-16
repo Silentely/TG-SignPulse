@@ -6,7 +6,7 @@ import { login } from '../lib/api'
 import { useAuthStore } from '../stores/auth'
 import { useI18n } from '../composables/useI18n'
 import { useTheme } from '../composables/useTheme'
-import { getErrorMessage } from '../lib/types'
+import { getErrorCode, getLocalizedErrorMessage } from '../lib/types'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -58,15 +58,16 @@ const handleLogin = async () => {
       router.push('/dashboard')
     }
   } catch (e: unknown) {
-    const detail = getErrorMessage(e)
-    if (detail === 'TOTP_REQUIRED_OR_INVALID' || detail.includes('TOTP')) {
+    const code = getErrorCode(e) || ''
+    const detail = getLocalizedErrorMessage(e, t)
+    if (code === 'TOTP_REQUIRED_OR_INVALID' || detail.includes('TOTP') || detail.includes('两步验证')) {
       showTotp.value = true
       errorMsg.value = totpCode.value ? t('login.totpInvalid') : t('login.totpRequired')
       totpCode.value = ''
       await nextTick()
       totpInput.value?.focus()
     } else {
-      errorMsg.value = mapLoginError(detail)
+      errorMsg.value = mapLoginError(code || detail)
     }
   } finally {
     loading.value = false

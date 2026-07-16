@@ -6,7 +6,7 @@ import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
 import CustomSelect from '../components/CustomSelect.vue'
 import { useAuthStore } from '../stores/auth'
-import { getErrorMessage } from '../lib/types'
+import { getLocalizedErrorMessage } from '../lib/types'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -128,7 +128,7 @@ onMounted(async () => {
     }
   } catch (e) {
     console.error('Failed to load settings', e)
-    notifyError(getErrorMessage(e, t('settings.loadFailed')))
+    notifyError(getLocalizedErrorMessage(e, t, t('settings.loadFailed')))
   } finally {
     pageLoading.value = false
   }
@@ -152,7 +152,7 @@ const saveSettings = async () => {
     })
     notifySuccess(t('settings.saveSuccess'))
   } catch (e: unknown) {
-    notifyError(getErrorMessage(e, t('settings.saveFailed')))
+    notifyError(getLocalizedErrorMessage(e, t, t('settings.saveFailed')))
   } finally {
     loading.value = false
   }
@@ -170,7 +170,7 @@ const runKeepaliveNow = async () => {
     const res = await runDeviceKeepalive(token)
     notifySuccess(`${t('settings.keepaliveDone')}：${res.kept_alive}/${res.checked}，${t('settings.failed')} ${res.failed}`)
   } catch (e: unknown) {
-    notifyError(getErrorMessage(e, t('settings.keepaliveFailed')))
+    notifyError(getLocalizedErrorMessage(e, t, t('settings.keepaliveFailed')))
   } finally {
     keepaliveLoading.value = false
   }
@@ -192,7 +192,7 @@ const saveBotSettings = async () => {
     })
     notifySuccess(t('settings.saveSuccess'))
   } catch (e: unknown) {
-    notifyError(getErrorMessage(e, t('settings.saveFailed')))
+    notifyError(getLocalizedErrorMessage(e, t, t('settings.saveFailed')))
   } finally {
     botLoading.value = false
   }
@@ -205,7 +205,7 @@ const saveTgConfig = async () => {
     await saveTelegramConfig(token, { api_id: tgConfig.value.api_id, api_hash: tgConfig.value.api_hash })
     notifySuccess(t('settings.tgConfigSaved'))
   } catch (e: unknown) {
-    notifyError(getErrorMessage(e, t('settings.saveFailed')))
+    notifyError(getLocalizedErrorMessage(e, t, t('settings.saveFailed')))
   } finally {
     tgLoading.value = false
   }
@@ -221,7 +221,7 @@ const resetTgConfig = async () => {
     tgConfig.value.api_hash = ''
     notifySuccess(t('settings.resetSuccess'))
   } catch (e: unknown) {
-    notifyError(getErrorMessage(e, t('settings.resetFailed')))
+    notifyError(getLocalizedErrorMessage(e, t, t('settings.resetFailed')))
   } finally {
     tgLoading.value = false
   }
@@ -238,7 +238,7 @@ const saveAiConfig = async () => {
     })
     notifySuccess(t('settings.aiConfigSaved'))
   } catch (e: unknown) {
-    notifyError(getErrorMessage(e, t('settings.saveFailed')))
+    notifyError(getLocalizedErrorMessage(e, t, t('settings.saveFailed')))
   } finally {
     aiLoading.value = false
   }
@@ -251,7 +251,7 @@ const testAi = async () => {
     const res = await testAIConnection(token)
     notifySuccess(res.message || t('settings.testSuccess'))
   } catch (e: unknown) {
-    notifyError(getErrorMessage(e, t('settings.testFailed')))
+    notifyError(getLocalizedErrorMessage(e, t, t('settings.testFailed')))
   } finally {
     aiLoading.value = false
   }
@@ -273,7 +273,7 @@ const handleExport = async () => {
     URL.revokeObjectURL(url)
     notifySuccess(t('settings.exportSuccess'))
   } catch (e: unknown) {
-    notifyError(getErrorMessage(e, t('settings.exportFailed')))
+    notifyError(getLocalizedErrorMessage(e, t, t('settings.exportFailed')))
   } finally {
     dataLoading.value = false
   }
@@ -286,7 +286,7 @@ const handleBackupExport = async () => {
     await exportBackupArchive(token)
     notifySuccess(t('settings.backupExportSuccess'))
   } catch (e: unknown) {
-    notifyError(getErrorMessage(e, t('settings.backupExportFailed')))
+    notifyError(getLocalizedErrorMessage(e, t, t('settings.backupExportFailed')))
   } finally {
     backupLoading.value = false
   }
@@ -305,7 +305,7 @@ const handleImport = async (e: Event) => {
       await importAllConfigs(token, jsonStr, true)
       notifySuccess(t('settings.importSuccess'))
     } catch (err: unknown) {
-      notifyError(getErrorMessage(err, t('settings.importFailed')))
+      notifyError(getLocalizedErrorMessage(err, t, t('settings.importFailed')))
     } finally {
       dataLoading.value = false
       target.value = ''

@@ -6,7 +6,7 @@ import { createSignTask } from '../../lib/api'
 import type { CreateSignTaskRequest } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
 import { useAuthStore } from '../../stores/auth'
-import { getErrorMessage } from '../../lib/types'
+import { getLocalizedErrorMessage } from '../../lib/types'
 
 const { t } = useI18n()
 const authStore = useAuthStore()
@@ -42,7 +42,7 @@ const handleSave = async () => {
     emit('success')
     emit('close')
   } catch (e: unknown) {
-    error.value = getErrorMessage(e) || t('taskModal.addFailed')
+    error.value = getLocalizedErrorMessage(e, t, t('taskModal.addFailed'))
   } finally {
     loading.value = false
   }

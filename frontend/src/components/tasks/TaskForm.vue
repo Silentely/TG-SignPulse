@@ -9,7 +9,7 @@ import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
 import { useAuthStore } from '../../stores/auth'
 import type { TaskActionItem, RawTaskAction, BuiltAction } from '../../lib/types'
-import { getErrorMessage } from '../../lib/types'
+import { getLocalizedErrorMessage } from '../../lib/types'
 import { parseActions as parseActionsUtil, nextActionId, buildActions, debounce } from '../../lib/task-form-utils'
 
 const { t } = useI18n()
@@ -130,8 +130,8 @@ const loadAccounts = async () => {
     }
     if (selectedAccount.value) loadChats(selectedAccount.value)
   } catch (e: unknown) {
-    console.error(getErrorMessage(e))
-    toast.error(getErrorMessage(e, t('taskForm.loadAccountsFailed')))
+    console.error(getLocalizedErrorMessage(e, t))
+    toast.error(getLocalizedErrorMessage(e, t, t('taskForm.loadAccountsFailed')))
   }
 }
 const parseActions = (raw: RawTaskAction[]) => {
@@ -153,7 +153,7 @@ const loadChats = async (n: string, forceRefresh: boolean = false) => {
     availableChats.value = result || []
   } catch (e: unknown) {
     if (controller.signal.aborted) return
-    const msg = getErrorMessage(e)
+    const msg = getLocalizedErrorMessage(e, t)
     if (msg.includes('登录已失效') || msg.includes('session') || msg.includes('Session')) {
       chatListError.value = t('taskForm.sessionInvalid')
     } else {
@@ -161,7 +161,7 @@ const loadChats = async (n: string, forceRefresh: boolean = false) => {
     }
     availableChats.value = []
     if (forceRefresh) {
-      toast.error(getErrorMessage(e, t('taskForm.loadChatsFailed')))
+      toast.error(getLocalizedErrorMessage(e, t, t('taskForm.loadChatsFailed')))
     }
   } finally {
     if (loadChatsAbort === controller) { loadChatsAbort = null; chatListRefreshing.value = false }
