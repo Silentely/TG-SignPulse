@@ -22,7 +22,9 @@ try:
 except ImportError:  # pragma: no cover - pydantic v1 compatibility
     ConfigDict = None
 
-_PYDANTIC_V2 = hasattr(BaseModel, "model_validate")
+from tg_signer.pydantic_compat import IS_V2 as _PYDANTIC_V2
+from tg_signer.pydantic_compat import model_dump as _compat_model_dump
+from tg_signer.pydantic_compat import model_validate as _compat_model_validate
 
 try:
     from pyrogram.types import Chat, Message
@@ -81,20 +83,12 @@ class BaseJSONConfig(BaseModel):
     @classmethod
     def valid(cls, d):
         try:
-            validator = getattr(cls, "model_validate", None)
-            if callable(validator):
-                instance = validator(d)
-            else:
-                instance = cls.parse_obj(d)
+            return _compat_model_validate(cls, d)
         except (ValidationError, TypeError):
             return None
-        return instance
 
     def to_jsonable(self):
-        dumper = getattr(self, "model_dump", None)
-        if callable(dumper):
-            return dumper()
-        return self.dict()
+        return _compat_model_dump(self)
 
     @classmethod
     def to_current(cls, obj: Self):

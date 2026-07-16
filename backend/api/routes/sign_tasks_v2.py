@@ -47,10 +47,9 @@ async def _safe_background_sync() -> None:
 
 
 def _model_dump(model: BaseModel) -> Dict[str, Any]:
-    dumper = getattr(model, "model_dump", None)
-    if callable(dumper):
-        return dumper()
-    return model.dict()
+    from backend.core.pydantic_compat import model_dump
+
+    return model_dump(model)
 
 
 async def _restart_keyword_monitors() -> None:
