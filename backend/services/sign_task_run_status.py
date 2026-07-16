@@ -45,3 +45,57 @@ def idle_running_placeholder(*, started_at: str) -> Dict[str, Any]:
         started_at=started_at,
         finished_at=None,
     )
+
+
+def resolve_stored_run_status(
+    status: Optional[Dict[str, Any]],
+    *,
+    requested_run_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    解析内存中的 run status。
+
+    - 无记录 → idle
+    - 请求了 run_id 且与当前不一致 → stale
+    - 否则返回副本
+    """
+    if not status:
+        return {
+            "run_id": requested_run_id or "",
+            "state": "idle",
+            "success": None,
+            "error": "",
+            "output": "",
+            "started_at": None,
+            "finished_at": None,
+        }
+    if requested_run_id and status.get("run_id") != requested_run_id:
+        return {
+            "run_id": requested_run_id,
+            "state": "stale",
+            "success": None,
+            "error": "",
+            "output": "",
+            "started_at": None,
+            "finished_at": None,
+        }
+    return dict(status)
+
+
+def build_runner_failure_result(
+    *,
+    cancelled: bool = False,
+    error: str = "",
+) -> Dict[str, Any]:
+    """start_task_run 后台 runner 失败/取消时的统一结果。"""
+    if cancelled:
+        return {
+            "success": False,
+            "error": "Task execution cancelled",
+            "output": "",
+        }
+    return {
+        "success": False,
+        "error": str(error or "Task execution failed"),
+        "output": "",
+    }

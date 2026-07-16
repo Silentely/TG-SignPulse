@@ -20,6 +20,33 @@ def test_normalize_flow_logs():
     assert normalize_flow_logs(["a"]) == ["a"]
 
 
+def test_build_history_run_entry_and_prepend():
+    from backend.services.sign_task_history_format import (
+        build_history_run_entry,
+        prepend_history_entry,
+    )
+
+    entry = build_history_run_entry(
+        success=True,
+        message="ok",
+        account_name="a1",
+        timestamp="t1",
+        normalized_logs=["l1"],
+        flow_truncated=False,
+        flow_line_count=1,
+        last_target_message="bot",
+        failure_category="",
+        repair=lambda s: s,
+    )
+    assert entry["time"] == "t1"
+    assert entry["flow_logs"] == ["l1"]
+    hist = prepend_history_entry([{"time": "old"}], entry, max_entries=2)
+    assert hist[0]["time"] == "t1"
+    assert len(hist) == 2
+    hist2 = prepend_history_entry(None, entry, max_entries=1)
+    assert len(hist2) == 1
+
+
 def test_normalize_and_trim_flow_logs():
     from backend.services.sign_task_history_format import normalize_and_trim_flow_logs
 

@@ -6,7 +6,7 @@
 |------|------|
 | `sign_task_failure.py` | 失败分类 |
 | `sign_task_backend.py` | BackendUserSigner / TaskLogHandler |
-| `sign_task_history_format.py` | 历史列表条目格式化 |
+| `sign_task_history_format.py` | 历史列表/写入条目格式化、flow 截断 |
 | `sign_task_history_io.py` | 历史文件路径 / 加载 / 清理 |
 | `sign_task_run_status.py` | 运行状态字典构造 |
 | `sign_task_text.py` | 乱码修复等文本纯函数 |

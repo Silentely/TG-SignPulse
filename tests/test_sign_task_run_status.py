@@ -31,3 +31,28 @@ def test_idle_running_placeholder():
     assert st["state"] == "running"
     assert st["run_id"] == ""
     assert st["started_at"] == "t0"
+
+
+def test_resolve_stored_run_status_idle_and_stale():
+    from backend.services.sign_task_run_status import resolve_stored_run_status
+
+    idle = resolve_stored_run_status(None, requested_run_id="r1")
+    assert idle["state"] == "idle"
+    assert idle["run_id"] == "r1"
+
+    current = build_run_status(run_id="r2", state="finished", default_started_at="t")
+    stale = resolve_stored_run_status(current, requested_run_id="r1")
+    assert stale["state"] == "stale"
+    same = resolve_stored_run_status(current, requested_run_id="r2")
+    assert same["state"] == "finished"
+    assert same["run_id"] == "r2"
+
+
+def test_build_runner_failure_result():
+    from backend.services.sign_task_run_status import build_runner_failure_result
+
+    c = build_runner_failure_result(cancelled=True)
+    assert c["error"] == "Task execution cancelled"
+    f = build_runner_failure_result(error="boom")
+    assert f["error"] == "boom"
+    assert f["success"] is False

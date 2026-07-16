@@ -29,8 +29,10 @@ from backend.services.sign_task_failure import (
 )
 from backend.services.sign_task_history_format import (
     build_history_list_item,
+    build_history_run_entry,
     clamp_limit,
     normalize_and_trim_flow_logs,
+    prepend_history_entry,
 )
 from backend.services.sign_task_history_io import (
     cleanup_old_history_files,
@@ -59,8 +61,10 @@ from backend.services.sign_task_message import (
 )
 from backend.services.sign_task_run_status import (
     build_run_status,
+    build_runner_failure_result,
     idle_running_placeholder,
     make_task_key,
+    resolve_stored_run_status,
 )
 from backend.services.sign_task_text import repair_mojibake
 from backend.utils.account_locks import get_account_lock
@@ -1182,33 +1186,32 @@ class SignTaskService:
             output="\n".join(normalized_logs[-50:]) if normalized_logs else message,
             success=success,
         )
-        new_entry = {
-            "time": datetime.now().isoformat(),
-            "success": success,
-            "message": self._repair_mojibake(message),
-            "account_name": account_name,
-            "flow_logs": normalized_logs,
-            "flow_truncated": flow_truncated,
-            "flow_line_count": flow_line_count,
-            "last_target_message": last_target_message,
-            "failure_category": category.value,
-        }
+        new_entry = build_history_run_entry(
+            success=success,
+            message=message,
+            account_name=account_name,
+            timestamp=datetime.now().isoformat(),
+            normalized_logs=normalized_logs,
+            flow_truncated=flow_truncated,
+            flow_line_count=flow_line_count,
+            last_target_message=last_target_message,
+            failure_category=category.value,
+            repair=self._repair_mojibake,
+        )
 
-        history = []
+        history_raw: Any = []
         if history_file.exists():
             try:
                 with open(history_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    if isinstance(data, list):
-                        history = data
-                    else:
-                        history = [data]
+                    history_raw = json.load(f)
             except Exception:
-                history = []
+                history_raw = []
 
-        history.insert(0, new_entry)
-        # 只保留最近 N 条
-        history = history[: self._history_max_entries]
+        history = prepend_history_entry(
+            history_raw,
+            new_entry,
+            max_entries=self._history_max_entries,
+        )
 
         try:
             with open(history_file, "w", encoding="utf-8") as f:
@@ -2516,17 +2519,9 @@ class SignTaskService:
                 result = await self.run_task_with_logs(account_name, task_name, run_id=run_id)
             except asyncio.CancelledError:
                 state = "cancelled"
-                result = {
-                    "success": False,
-                    "error": "Task execution cancelled",
-                    "output": "",
-                }
+                result = build_runner_failure_result(cancelled=True)
             except Exception as exc:
-                result = {
-                    "success": False,
-                    "error": str(exc) or "Task execution failed",
-                    "output": "",
-                }
+                result = build_runner_failure_result(error=str(exc) or "")
 
             current_status = self._run_statuses.get(task_key)
             if current_status and current_status.get("run_id") == run_id:
@@ -2559,28 +2554,10 @@ class SignTaskService:
         task_name = validate_storage_name(task_name, field_name="task_name")
 
         task_key = self._task_key(account_name, task_name)
-        status = self._run_statuses.get(task_key)
-        if not status:
-            return {
-                "run_id": run_id or "",
-                "state": "idle",
-                "success": None,
-                "error": "",
-                "output": "",
-                "started_at": None,
-                "finished_at": None,
-            }
-        if run_id and status.get("run_id") != run_id:
-            return {
-                "run_id": run_id,
-                "state": "stale",
-                "success": None,
-                "error": "",
-                "output": "",
-                "started_at": None,
-                "finished_at": None,
-            }
-        return dict(status)
+        return resolve_stored_run_status(
+            self._run_statuses.get(task_key),
+            requested_run_id=run_id,
+        )
 
     def is_task_running(self, task_name: str, account_name: Optional[str] = None) -> bool:
         """检查任务是否正在运行"""

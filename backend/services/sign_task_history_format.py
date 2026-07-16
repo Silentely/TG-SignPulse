@@ -80,3 +80,49 @@ def normalize_and_trim_flow_logs(
             truncated = True
         trimmed.append(text)
     return trimmed, truncated, total
+
+
+def build_history_run_entry(
+    *,
+    success: bool,
+    message: str,
+    account_name: str,
+    timestamp: str,
+    normalized_logs: List[str],
+    flow_truncated: bool,
+    flow_line_count: int,
+    last_target_message: str,
+    failure_category: str,
+    repair: Callable[[str], str],
+) -> Dict[str, Any]:
+    """构造写入 history 文件的单条执行记录。"""
+    return {
+        "time": timestamp,
+        "success": bool(success),
+        "message": repair(str(message or "")),
+        "account_name": account_name,
+        "flow_logs": list(normalized_logs),
+        "flow_truncated": bool(flow_truncated),
+        "flow_line_count": int(flow_line_count),
+        "last_target_message": str(last_target_message or "").strip(),
+        "failure_category": str(failure_category or ""),
+    }
+
+
+def prepend_history_entry(
+    history: Any,
+    entry: Dict[str, Any],
+    *,
+    max_entries: int,
+) -> List[Dict[str, Any]]:
+    """将新记录插入列表头部并截断。"""
+    if isinstance(history, list):
+        items: List[Any] = list(history)
+    elif isinstance(history, dict):
+        items = [history]
+    else:
+        items = []
+    items.insert(0, entry)
+    limit = max(1, int(max_entries or 1))
+    # 保留既有结构；调用方写入 JSON 时允许混入历史脏数据
+    return items[:limit]  # type: ignore[return-value]
