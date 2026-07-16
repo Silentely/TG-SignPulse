@@ -23,7 +23,19 @@
     "jobKindLegacy": "Legacy",
     "nextRun": "Next run",
     "liveOn": "Live",
-    "liveOff": "Polling"
+    "liveOff": "Polling",
+    "failureCategory": "Failure type",
+    "failCat": {
+      "session_invalid": "Session invalid",
+      "flood_wait": "Flood wait",
+      "ai_timeout": "AI timeout",
+      "ai_error": "AI error",
+      "button_not_found": "Button not found",
+      "target_not_found": "Target not found",
+      "network_proxy": "Network/proxy",
+      "timeout": "Timeout",
+      "strong_failure": "Business failure"
+    }
   },
   "accounts": {
     "noRemark": "No remark",

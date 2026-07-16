@@ -63,12 +63,20 @@ const jobKindLabel = (kind: string) => {
   return kind
 }
 
+const failureCategoryLabel = (cat?: string) => {
+  if (!cat || cat === 'none' || cat === 'unknown') return ''
+  const key = `dashboard.failCat.${cat}`
+  const label = t(key)
+  return label === key ? cat : label
+}
+
 const prependLiveLog = (payload: {
   account_name?: string
   task_name?: string
   success?: boolean
   message?: string
   created_at?: string
+  failure_category?: string
 }) => {
   const created = payload.created_at || new Date().toISOString()
   const entry: DashboardLog = {
@@ -78,6 +86,7 @@ const prependLiveLog = (payload: {
     status: payload.success ? 'success' : 'error',
     text: (payload.message || '').trim() || payload.task_name || '',
     created_at: created,
+    failure_category: payload.failure_category || undefined,
   }
   logs.value = [entry, ...logs.value].slice(0, 40)
   // 轻量刷新统计
@@ -185,6 +194,7 @@ const loadDashboardData = async () => {
         status: l.success ? 'success' : 'error',
         text: (l.bot_message || l.message || '').trim() || l.task_name,
         created_at: l.created_at,
+        failure_category: l.failure_category || undefined,
       }))
     }
 
@@ -279,6 +289,12 @@ const loadDashboardData = async () => {
             {{ log.status === 'success' ? t('logs.success') : t('logs.failed') }}
           </span>
           <span
+            v-if="log.status === 'error' && failureCategoryLabel(log.failure_category)"
+            class="shrink-0 px-1.5 py-0.5 rounded text-[10px] border border-amber-200 text-amber-700 dark:border-amber-800 dark:text-amber-400"
+          >
+            {{ failureCategoryLabel(log.failure_category) }}
+          </span>
+          <span
             class="truncate flex-1 min-w-0"
             :class="log.status === 'success' ? 'text-gray-700 dark:text-gray-300' : 'text-rose-600 dark:text-rose-400/90'"
             :title="log.text"
@@ -310,6 +326,10 @@ const loadDashboardData = async () => {
           <div><span class="text-gray-500">{{ t('logs.time') }}</span><span class="text-gray-900 dark:text-gray-200 font-mono">{{ selectedLog.time }}</span></div>
           <div><span class="text-gray-500">{{ t('logs.account') }}</span><span class="text-gray-900 dark:text-gray-200">{{ selectedLog.account }}</span></div>
           <div class="col-span-2"><span class="text-gray-500">{{ t('logs.task') }}</span><span class="text-gray-900 dark:text-gray-200">{{ selectedLog.task }}</span></div>
+          <div v-if="selectedLog.status === 'error' && failureCategoryLabel(selectedLog.failure_category)" class="col-span-2">
+            <span class="text-gray-500">{{ t('dashboard.failureCategory') }}</span>
+            <span class="text-amber-700 dark:text-amber-400">{{ failureCategoryLabel(selectedLog.failure_category) }}</span>
+          </div>
         </div>
         <div class="pt-2 border-t border-gray-200 dark:border-gray-800/60">
           <div class="text-xs text-gray-500 mb-1 font-semibold">{{ t('logs.execInfo') }}</div>

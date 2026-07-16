@@ -48,6 +48,8 @@ export interface DashboardLog {
   text: string;
   /** ISO 时间，用于日志深链 */
   created_at?: string;
+  /** 失败分类（SSE / 历史） */
+  failure_category?: string;
 }
 
 // ─── Accounts 视图模型 ───

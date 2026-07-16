@@ -359,11 +359,13 @@ export const submitQrPassword = (token: string, data: QrLoginPasswordRequest) =>
     body: JSON.stringify(data),
   }, token);
 
-// ============ 任务管理 ============
+// ============ 旧版 ORM 任务（已弃用，请用 sign-tasks） ============
 
+/** @deprecated 使用 listSignTasks */
 export const fetchTasks = (token: string) =>
   request<Task[]>("/tasks", {}, token);
 
+/** @deprecated 使用 createSignTask */
 export const createTask = (
   token: string,
   payload: { name: string; cron: string; account_id: number; enabled: boolean }
@@ -377,6 +379,7 @@ export const createTask = (
     token
   );
 
+/** @deprecated 使用 updateSignTask */
 export const updateTask = (
   token: string,
   id: number,
@@ -391,12 +394,15 @@ export const updateTask = (
     token
   );
 
+/** @deprecated 使用 deleteSignTask */
 export const deleteTask = (token: string, id: number) =>
   request(`/tasks/${id}`, { method: "DELETE" }, token);
 
+/** @deprecated 使用 startSignTaskRun / runSignTask */
 export const runTask = (token: string, id: number) =>
   request<TaskLog>(`/tasks/${id}/run`, { method: "POST" }, token);
 
+/** @deprecated 使用 getSignTaskHistory / getTaskHistoryLogs */
 export const fetchTaskLogs = (token: string, id: number, limit = 50) =>
   request<TaskLog[]>(`/tasks/${id}/logs?limit=${limit}`, {}, token);
 
@@ -654,6 +660,7 @@ export interface AccountLog {
   bot_message?: string;
   success: boolean;
   created_at: string;
+  failure_category?: string | null;
 }
 
 export const getAccountLogs = (token: string, accountName: string, limit: number = 100) =>

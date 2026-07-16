@@ -26,16 +26,16 @@ describe('getErrorMessage', () => {
     expect(getErrorMessage({})).toBe('Unknown error')
   })
 
-  it('null 返回 未知错误', () => {
-    expect(getErrorMessage(null)).toBe('未知错误')
+  it('null 返回默认英文回退', () => {
+    expect(getErrorMessage(null)).toBe('Unknown error')
   })
 
-  it('undefined 返回 未知错误', () => {
-    expect(getErrorMessage(undefined)).toBe('未知错误')
+  it('undefined 返回默认英文回退', () => {
+    expect(getErrorMessage(undefined)).toBe('Unknown error')
   })
 
-  it('number 返回 未知错误', () => {
-    expect(getErrorMessage(42)).toBe('未知错误')
+  it('number 返回默认英文回退', () => {
+    expect(getErrorMessage(42)).toBe('Unknown error')
   })
 
   it('Error 子类（TypeError）正确提取 message', () => {

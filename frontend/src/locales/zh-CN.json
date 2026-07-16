@@ -23,7 +23,19 @@
     "jobKindLegacy": "旧任务",
     "nextRun": "下次运行",
     "liveOn": "实时",
-    "liveOff": "轮询"
+    "liveOff": "轮询",
+    "failureCategory": "失败类型",
+    "failCat": {
+      "session_invalid": "会话失效",
+      "flood_wait": "频率限制",
+      "ai_timeout": "AI 超时",
+      "ai_error": "AI 错误",
+      "button_not_found": "按钮未找到",
+      "target_not_found": "目标未找到",
+      "network_proxy": "网络/代理",
+      "timeout": "超时",
+      "strong_failure": "业务失败"
+    }
   },
   "accounts": {
     "noRemark": "暂无备注",
