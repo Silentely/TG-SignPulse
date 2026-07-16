@@ -14,7 +14,7 @@
   <img src="https://img.shields.io/badge/python-3.10--3.13-blue" alt="Python">
   <img src="https://img.shields.io/badge/node-22+-green" alt="Node.js">
   <a href="https://github.com/Silentely/TG-SignPulse/pkgs/container/tg-signpulse"><img src="https://img.shields.io/badge/ghcr.io-available-purple" alt="GHCR"></a>
-  <a href="https://tg.cosr.eu.org/"><img src="https://img.shields.io/badge/docs-VitePress-229ED9" alt="Docs"></a>
+  <a href="https://tg.cosr.eu.org/"><img src="https://img.shields.io/badge/docs-online-229ED9" alt="Docs"></a>
 </p>
 
 <p align="center">
@@ -23,8 +23,6 @@
   <a href="README.md">中文说明</a>
   ·
   <a href="https://tg.cosr.eu.org/guide/quick-start">Quick Start</a>
-  ·
-  <a href="docs/README.md">Docs source in repo</a>
 </p>
 
 ---
@@ -147,8 +145,7 @@ TG-SignPulse/
 │   └── ai_tools.py     #   AI tool integration
 ├── frontend/           # Vue 3 frontend
 ├── docker/             # Docker entrypoint
-├── docs/               # Docs source (VitePress) → https://tg.cosr.eu.org
-├── vercel.json         # Vercel build for docs site
+├── docs/               # Project documentation
 ├── Dockerfile          # Multi-stage build
 ├── docker-compose.yml  # Compose orchestration
 └── pyproject.toml      # Python project config
@@ -158,26 +155,15 @@ TG-SignPulse/
 
 ## Documentation
 
-**Online docs (recommended):** [https://tg.cosr.eu.org](https://tg.cosr.eu.org/)
-
-Built with VitePress, hosted on Vercel (custom domain), synced from `docs/`.
+Full docs: **[https://tg.cosr.eu.org](https://tg.cosr.eu.org/)**
 
 | Page | Description |
 |------|-------------|
-| [Features](https://tg.cosr.eu.org/features) | Capabilities overview |
 | [Quick Start](https://tg.cosr.eu.org/guide/quick-start) | Deploy and create your first task |
 | [Docker](https://tg.cosr.eu.org/deploy/docker) | Images, Compose, upgrades |
 | [Configuration](https://tg.cosr.eu.org/reference/configuration) | Env vars and data directory |
-| [FAQ](https://tg.cosr.eu.org/faq) | Troubleshooting, SQLite/Postgres, legacy API |
-
-Markdown sources live under [`docs/`](docs/README.md). Local preview:
-
-```bash
-npm install
-npm run docs:dev    # http://127.0.0.1:5173
-```
-
-> **Database:** default is **SQLite**; optional `APP_DATABASE_URL` for PostgreSQL (not required). See [FAQ](https://tg.cosr.eu.org/faq).
+| [Ops](https://tg.cosr.eu.org/reference/ops) | Health checks, backup, go-live |
+| [FAQ](https://tg.cosr.eu.org/faq) | Troubleshooting |
 
 ---
 
