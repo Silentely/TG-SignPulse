@@ -31,6 +31,27 @@ from backend.services.sign_task_history_format import (
     build_history_list_item,
     clamp_limit,
 )
+from backend.services.sign_task_history_io import (
+    cleanup_old_history_files,
+)
+from backend.services.sign_task_history_io import (
+    count_history_entries as count_history_entries_io,
+)
+from backend.services.sign_task_history_io import (
+    history_file_path as history_file_path_io,
+)
+from backend.services.sign_task_history_io import (
+    load_history_entries as load_history_entries_io,
+)
+from backend.services.sign_task_history_io import (
+    load_history_payload_from_file as load_history_payload_from_file_io,
+)
+from backend.services.sign_task_history_io import (
+    resolve_existing_history_file as resolve_existing_history_file_io,
+)
+from backend.services.sign_task_history_io import (
+    safe_history_key as safe_history_key_io,
+)
 from backend.services.sign_task_message import (
     format_target_message_summary,
     message_matches_thread,
@@ -272,28 +293,13 @@ class SignTaskService:
 
     def _cleanup_old_logs(self):
         """清理超过 3 天的日志"""
-        from datetime import datetime, timedelta
-
-        if not self.run_history_dir.exists():
-            return
-
-        limit = datetime.now() - timedelta(days=3)
-        for log_file in self.run_history_dir.glob("*.json"):
-            if log_file.stat().st_mtime < limit.timestamp():
-                try:
-                    log_file.unlink()
-                except Exception:
-                    continue
+        cleanup_old_history_files(self.run_history_dir, max_age_days=3)
 
     def _safe_history_key(self, name: str) -> str:
-        return name.replace("/", "_").replace("\\", "_")
+        return safe_history_key_io(name)
 
     def _history_file_path(self, task_name: str, account_name: str = "") -> Path:
-        if account_name:
-            safe_account = self._safe_history_key(account_name)
-            safe_task = self._safe_history_key(task_name)
-            return self.run_history_dir / f"{safe_account}__{safe_task}.json"
-        return self.run_history_dir / f"{self._safe_history_key(task_name)}.json"
+        return history_file_path_io(self.run_history_dir, task_name, account_name)
 
     @staticmethod
     def _move_storage_path(source: Path, target: Path) -> None:
@@ -685,68 +691,20 @@ class SignTaskService:
     def _load_history_entries(
         self, task_name: str, account_name: str = ""
     ) -> List[Dict[str, Any]]:
-        history_file = self._history_file_path(task_name, account_name)
-        legacy_file = self.run_history_dir / f"{self._safe_history_key(task_name)}.json"
-
-        if not history_file.exists():
-            if account_name and legacy_file.exists():
-                history_file = legacy_file
-            elif not account_name and legacy_file.exists():
-                history_file = legacy_file
-            else:
-                return []
-
-        try:
-            with open(history_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except Exception:
-            return []
-
-        if isinstance(data, dict):
-            data_list = [data]
-        elif isinstance(data, list):
-            data_list = data
-        else:
-            return []
-
-        entries: List[Dict[str, Any]] = []
-        for item in data_list:
-            if not isinstance(item, dict):
-                continue
-            if account_name:
-                item_account = item.get("account_name")
-                if item_account and item_account != account_name:
-                    continue
-            entries.append(item)
-
-        entries.sort(key=lambda x: x.get("time", ""), reverse=True)
-        return entries
+        return load_history_entries_io(
+            self.run_history_dir, task_name, account_name=account_name
+        )
 
     def _resolve_existing_history_file(
         self, task_name: str, account_name: str = ""
     ) -> Optional[Path]:
-        history_file = self._history_file_path(task_name, account_name)
-        legacy_file = self.run_history_dir / f"{self._safe_history_key(task_name)}.json"
-
-        if history_file.exists():
-            return history_file
-        if legacy_file.exists():
-            return legacy_file
-        return None
+        return resolve_existing_history_file_io(
+            self.run_history_dir, task_name, account_name
+        )
 
     @staticmethod
     def _load_history_payload_from_file(history_file: Path) -> List[Any]:
-        try:
-            with open(history_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except Exception:
-            return []
-
-        if isinstance(data, list):
-            return data
-        if isinstance(data, dict):
-            return [data]
-        return []
+        return load_history_payload_from_file_io(history_file)
 
     def _set_task_last_run_metadata(
         self,
@@ -789,54 +747,34 @@ class SignTaskService:
     def get_account_history_logs(self, account_name: str) -> List[Dict[str, Any]]:
         """获取某账号下所有任务的最近历史日志"""
         account_name = validate_storage_name(account_name, field_name="account_name")
-        all_history = []
+        all_history: List[Dict[str, Any]] = []
         if not self.run_history_dir.exists():
             return []
 
-        # 优化：先获取该账号下的任务列表，只读取相关任务的日志
-        # 避免扫描整个 history 目录并读取所有文件
+        # 仅读取该账号任务相关历史，避免全目录扫描
         tasks = self.list_tasks(account_name=account_name)
+        seen_tasks: set[str] = set()
 
         for task in tasks:
-            task_name = task["name"]
-            history_file = self._history_file_path(task_name, account_name)
-
-            if not history_file.exists():
-                legacy_file = self.run_history_dir / f"{task_name}.json"
-                if legacy_file.exists():
-                    history_file = legacy_file
-                else:
-                    continue
-
-            try:
-                with open(history_file, "r", encoding="utf-8") as f:
-                    data_list = json.load(f)
-                    if not isinstance(data_list, list):
-                        data_list = [data_list]
-
-                    # 再次确认 account_name (虽然是从 task 列表来的，但以防万一)
-                    for data in data_list:
-                        if data.get("account_name") == account_name:
-                            data["task_name"] = task_name
-                            data["message"] = self._repair_mojibake(
-                                data.get("message", "") or ""
-                            )
-                            flow_logs = data.get("flow_logs")
-                            if isinstance(flow_logs, list):
-                                data["flow_logs"] = [
-                                    self._repair_mojibake(str(line))
-                                    for line in flow_logs
-                                ]
-                            data["last_target_message"] = (
-                                str(data.get("last_target_message") or "").strip()
-                                or extract_last_target_message(data.get("flow_logs"))
-                            )
-                            all_history.append(data)
-            except Exception:
+            task_name = str(task.get("name") or "").strip()
+            if not task_name or task_name in seen_tasks:
                 continue
+            seen_tasks.add(task_name)
 
-        # 按时间倒序
-        all_history.sort(key=lambda x: x.get("time", ""), reverse=True)
+            for item in self._load_history_entries(task_name, account_name=account_name):
+                if not isinstance(item, dict):
+                    continue
+                all_history.append(
+                    build_history_list_item(
+                        item,
+                        task_name=task_name,
+                        account_name=account_name,
+                        repair=self._repair_mojibake,
+                        extract_last_target=extract_last_target_message,
+                    )
+                )
+
+        all_history.sort(key=lambda x: str(x.get("time") or ""), reverse=True)
         return all_history
 
     def get_recent_history_logs(self, limit: int = 50) -> List[Dict[str, Any]]:
@@ -1025,11 +963,7 @@ class SignTaskService:
 
     @staticmethod
     def _count_history_entries(data: Any) -> int:
-        if isinstance(data, list):
-            return len(data)
-        if isinstance(data, dict):
-            return 1
-        return 0
+        return count_history_entries_io(data)
 
     def _clear_task_last_run_metadata(
         self, task_name: str, account_name: str = ""

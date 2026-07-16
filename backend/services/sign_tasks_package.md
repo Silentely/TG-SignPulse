@@ -7,6 +7,7 @@
 | `sign_task_failure.py` | 失败分类 |
 | `sign_task_backend.py` | BackendUserSigner / TaskLogHandler |
 | `sign_task_history_format.py` | 历史列表条目格式化 |
+| `sign_task_history_io.py` | 历史文件路径 / 加载 / 清理 |
 | `sign_task_text.py` | 乱码修复等文本纯函数 |
 | `sign_task_config_inspect.py` | 任务配置探测（update/关键词监听） |
 | `sign_task_message.py` | 目标消息摘要 / 线程匹配 |
