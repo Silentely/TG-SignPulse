@@ -1,24 +1,14 @@
 """
-tg_signer.core 包（自 monorepo core.py 拆分）
+tg_signer.core 包
 
-子模块：
-- client / worker / signer / monitor：按职责切分的阅读与渐进迁移入口
-- runtime：完整原实现（默认加载，保证行为一致）
-
-对外 import 保持不变：`from tg_signer.core import UserSigner, get_client`
+- client: Client 生命周期与工厂（真源）
+- runtime: BaseUserWorker / UserSigner / UserMonitor
+- worker/signer/monitor: 渐进迁移阅读入口
 """
 from __future__ import annotations
 
-from tg_signer.core import runtime as _runtime
-
-# 将 runtime 的公共与测试用私有符号提升到包命名空间
-from tg_signer.core.runtime import (  # noqa: F401
-    BaseUserWorker,
+from tg_signer.core.client import (
     Client,
-    UserMonitor,
-    UserSigner,
-    UserSignerWorkerContext,
-    Waiter,
     _CLIENT_ASYNC_LOCKS,
     _CLIENT_INSTANCES,
     _CLIENT_REFS,
@@ -37,10 +27,22 @@ from tg_signer.core.runtime import (  # noqa: F401
     readable_chat,
     readable_message,
 )
+from tg_signer.core.runtime import (
+    BaseUserWorker,
+    UserMonitor,
+    UserSigner,
+    UserSignerWorkerContext,
+    Waiter,
+)
 
-# 允许 `tg_signer.core.XXX` 动态访问 runtime 其余符号
+# 动态回退：其余符号仍可从 runtime 取
+from tg_signer.core import runtime as _runtime
+
+
 def __getattr__(name: str):
-    return getattr(_runtime, name)
+    if hasattr(_runtime, name):
+        return getattr(_runtime, name)
+    raise AttributeError(name)
 
 
 def __dir__():
