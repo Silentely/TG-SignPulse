@@ -2,11 +2,51 @@
 关键词监听 Bot 命令触发测试
 
 测试从 action 配置读取 bot_username，使用关键词捕获值作为命令参数。
+覆盖：深链批量解析、正则多匹配、间隔等待发送。
 """
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
-from backend.services.keyword_monitor import KeywordMonitorService
+from backend.services.keyword_monitor import (
+    KeywordMonitorService,
+    _extract_tg_start_links,
+    _match_all_keyword_values,
+)
+
+
+class TestBotLinkHelpers:
+    """纯函数：深链解析与多匹配"""
+
+    def test_extract_multiple_start_links(self):
+        text = (
+            "已为您生成了30天注册码3个\n"
+            "t.me/shrekpublicbot?start=SAKURA-30-Register_Ywyx26Doxi\n"
+            "https://t.me/shrekpublicbot?start=SAKURA-30-Register_QjElUtgTgs\n"
+            "t.me/shrekpublicbot?start=SAKURA-30-Register_Q2NK4Yw68E"
+        )
+        links = _extract_tg_start_links(text)
+        assert links == [
+            ("shrekpublicbot", "SAKURA-30-Register_Ywyx26Doxi"),
+            ("shrekpublicbot", "SAKURA-30-Register_QjElUtgTgs"),
+            ("shrekpublicbot", "SAKURA-30-Register_Q2NK4Yw68E"),
+        ]
+
+    def test_extract_start_links_dedupe(self):
+        text = (
+            "t.me/bot_a?start=CODE1\n"
+            "t.me/bot_a?start=CODE1\n"
+            "t.me/bot_b?start=CODE1"
+        )
+        links = _extract_tg_start_links(text)
+        assert links == [("bot_a", "CODE1"), ("bot_b", "CODE1")]
+
+    def test_match_all_regex_captures(self):
+        action = {
+            "keywords": [r"Register_(\w+)"],
+            "match_mode": "regex",
+        }
+        text = "A-Register_aaa B-Register_bbb C-Register_ccc"
+        assert _match_all_keyword_values(action, text) == ["aaa", "bbb", "ccc"]
 
 
 class TestBotLinkAction:
@@ -43,7 +83,7 @@ class TestBotLinkAction:
 
     @pytest.mark.asyncio
     async def test_bot_link_no_bot_username(self, service, mock_client):
-        """未配置 bot_username 时返回 False"""
+        """未配置 bot_username 且无可解析深链时返回 False"""
         source_msg = MagicMock()
         source_msg.text = "some text"
         source_msg.caption = None
@@ -89,30 +129,39 @@ class TestBotLinkAction:
         mock_client.send_message.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_bot_link_rate_limit(self, service, mock_client):
-        """同一 bot 30 秒内不重复触发"""
+    async def test_bot_link_rate_limit_waits_instead_of_skip(
+        self, service, mock_client
+    ):
+        """同一 bot 连续触发应等待间隔后发送，而不是直接跳过"""
         source_msg = MagicMock()
         source_msg.text = "test"
         source_msg.caption = None
 
-        action = {"action": 9, "bot_username": "rate_bot"}
+        action = {
+            "action": 9,
+            "bot_username": "rate_bot",
+            "send_interval": 2.0,
+        }
         variables = {"keyword": "code1"}
 
-        # 第一次成功
-        result1 = await service._execute_bot_link_action(
-            mock_client, -1001234567890, None, action,
-            source_message=source_msg, variables=variables,
-        )
-        assert result1 is True
+        with patch(
+            "backend.services.keyword_monitor.asyncio.sleep", new_callable=AsyncMock
+        ) as mock_sleep:
+            result1 = await service._execute_bot_link_action(
+                mock_client, -1001234567890, None, action,
+                source_message=source_msg, variables=variables,
+            )
+            assert result1 is True
 
-        # 第二次被速率限制
-        variables["keyword"] = "code2"
-        result2 = await service._execute_bot_link_action(
-            mock_client, -1001234567890, None, action,
-            source_message=source_msg, variables=variables,
-        )
-        assert result2 is False
-        assert mock_client.send_message.call_count == 1
+            variables["keyword"] = "code2"
+            result2 = await service._execute_bot_link_action(
+                mock_client, -1001234567890, None, action,
+                source_message=source_msg, variables=variables,
+            )
+            assert result2 is True
+            assert mock_client.send_message.call_count == 2
+            mock_sleep.assert_called()
+            assert mock_sleep.call_args[0][0] == pytest.approx(2.0, abs=0.05)
 
     @pytest.mark.asyncio
     async def test_bot_link_send_failure(self, service, mock_client):
@@ -229,10 +278,209 @@ class TestBotLinkAction:
         mock_client.send_message.assert_not_called()
 
     def test_describe_bot_link_no_username(self, service):
-        """无 bot_username 时描述应不含 @"""
+        """无 bot_username 时描述提示可从深链解析"""
         action = {"action": 9}
         desc = service._describe_continue_action(action)
-        assert desc == "触发 Bot 命令 /start"
+        assert "触发 Bot 命令 /start" in desc
+        assert "深链" in desc
+
+    @pytest.mark.asyncio
+    async def test_bot_link_parses_multiple_deep_links(self, service, mock_client):
+        """一条消息内多个 t.me/?start= 应全部触发"""
+        source_msg = MagicMock()
+        source_msg.text = (
+            "已为您生成了30天注册码3个\n"
+            "t.me/shrekpublicbot?start=SAKURA-30-Register_Ywyx26Doxi\n"
+            "t.me/shrekpublicbot?start=SAKURA-30-Register_QjElUtgTgs\n"
+            "t.me/shrekpublicbot?start=SAKURA-30-Register_Q2NK4Yw68E"
+        )
+        source_msg.caption = None
+
+        action = {"action": 9, "send_interval": 0}
+        with patch(
+            "backend.services.keyword_monitor.asyncio.sleep", new_callable=AsyncMock
+        ):
+            result = await service._execute_bot_link_action(
+                mock_client, -1001234567890, None, action,
+                source_message=source_msg, variables={},
+            )
+        assert result is True
+        assert mock_client.send_message.call_count == 3
+        mock_client.send_message.assert_has_calls(
+            [
+                call(
+                    "shrekpublicbot",
+                    "/start SAKURA-30-Register_Ywyx26Doxi",
+                ),
+                call(
+                    "shrekpublicbot",
+                    "/start SAKURA-30-Register_QjElUtgTgs",
+                ),
+                call(
+                    "shrekpublicbot",
+                    "/start SAKURA-30-Register_Q2NK4Yw68E",
+                ),
+            ]
+        )
+
+    @pytest.mark.asyncio
+    async def test_bot_link_configured_bot_overrides_link_bot(
+        self, service, mock_client
+    ):
+        """配置了 bot_username 时，优先使用配置的 Bot，参数仍取自深链"""
+        source_msg = MagicMock()
+        source_msg.text = "t.me/other_bot?start=CODE_ABC"
+        source_msg.caption = None
+
+        action = {
+            "action": 9,
+            "bot_username": "@PreferBot",
+            "send_interval": 0,
+        }
+        result = await service._execute_bot_link_action(
+            mock_client, -1001234567890, None, action,
+            source_message=source_msg, variables={},
+        )
+        assert result is True
+        mock_client.send_message.assert_called_once_with(
+            "PreferBot", "/start CODE_ABC"
+        )
+
+    @pytest.mark.asyncio
+    async def test_bot_link_multi_regex_match_action(self, service, mock_client):
+        """父规则正则多捕获时应批量 /start"""
+        source_msg = MagicMock()
+        source_msg.text = "Register_aaa and Register_bbb and Register_ccc"
+        source_msg.caption = None
+
+        action = {"action": 9, "bot_username": "reg_bot", "send_interval": 0}
+        match_action = {
+            "keywords": [r"Register_(\w+)"],
+            "match_mode": "regex",
+        }
+        result = await service._execute_bot_link_action(
+            mock_client, -1001234567890, None, action,
+            source_message=source_msg,
+            variables={"keyword": "aaa"},
+            match_action=match_action,
+        )
+        assert result is True
+        assert mock_client.send_message.call_count == 3
+        mock_client.send_message.assert_has_calls(
+            [
+                call("reg_bot", "/start aaa"),
+                call("reg_bot", "/start bbb"),
+                call("reg_bot", "/start ccc"),
+            ]
+        )
+
+    @pytest.mark.asyncio
+    async def test_bot_link_deep_links_take_priority_over_keyword(
+        self, service, mock_client
+    ):
+        """存在深链时优先走深链完整 payload，而不是仅正则捕获后缀"""
+        source_msg = MagicMock()
+        source_msg.text = (
+            "t.me/shrekpublicbot?start=SAKURA-30-Register_FullCode1\n"
+            "Register_ignored"
+        )
+        source_msg.caption = None
+
+        action = {"action": 9, "bot_username": "shrekpublicbot", "send_interval": 0}
+        match_action = {
+            "keywords": [r"Register_(\w+)"],
+            "match_mode": "regex",
+        }
+        result = await service._execute_bot_link_action(
+            mock_client, -1001234567890, None, action,
+            source_message=source_msg,
+            variables={"keyword": "FullCode1"},
+            match_action=match_action,
+        )
+        assert result is True
+        mock_client.send_message.assert_called_once_with(
+            "shrekpublicbot", "/start SAKURA-30-Register_FullCode1"
+        )
+
+    @pytest.mark.asyncio
+    async def test_bot_link_max_batch_cap(self, service, mock_client):
+        """max_batch 限制单次最多发送条数"""
+        source_msg = MagicMock()
+        source_msg.text = "\n".join(
+            f"t.me/cap_bot?start=CODE{i}" for i in range(5)
+        )
+        source_msg.caption = None
+
+        action = {
+            "action": 9,
+            "send_interval": 0,
+            "max_batch": 2,
+        }
+        result = await service._execute_bot_link_action(
+            mock_client, -1001234567890, None, action,
+            source_message=source_msg, variables={},
+        )
+        assert result is True
+        assert mock_client.send_message.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_bot_link_default_max_batch_is_five(self, service, mock_client):
+        """默认最多发送 5 条，超出部分截断"""
+        source_msg = MagicMock()
+        source_msg.text = "\n".join(
+            f"t.me/cap_bot?start=CODE{i}" for i in range(8)
+        )
+        source_msg.caption = None
+
+        action = {"action": 9, "send_interval": 0}
+        with patch(
+            "backend.services.keyword_monitor.logger.warning"
+        ) as mock_warn:
+            result = await service._execute_bot_link_action(
+                mock_client, -1001234567890, None, action,
+                source_message=source_msg, variables={},
+            )
+        assert result is True
+        assert mock_client.send_message.call_count == 5
+        # 截断与风控提示应出现在 warning 日志中
+        warn_text = " ".join(
+            str(call_args) for call_args in mock_warn.call_args_list
+        )
+        assert "批量截断" in warn_text
+        assert "风控" in warn_text or "封禁" in warn_text
+
+    @pytest.mark.asyncio
+    async def test_bot_link_high_max_batch_logs_risk_warning(
+        self, service, mock_client
+    ):
+        """显式调高 max_batch 时应写入风控警告日志"""
+        source_msg = MagicMock()
+        source_msg.text = "t.me/risk_bot?start=ONLYONE"
+        source_msg.caption = None
+
+        action = {
+            "action": 9,
+            "send_interval": 0,
+            "max_batch": 10,
+        }
+        with patch(
+            "backend.services.keyword_monitor.logger.warning"
+        ) as mock_warn:
+            result = await service._execute_bot_link_action(
+                mock_client, -1001234567890, None, action,
+                source_message=source_msg, variables={},
+            )
+        assert result is True
+        high_batch_calls = [
+            c for c in mock_warn.call_args_list
+            if c.args and "高于默认值" in str(c.args[0])
+        ]
+        assert high_batch_calls, "应记录 max_batch 高于默认的警告"
+        assert high_batch_calls[0].args[1:] == (
+            10,
+            5,
+            "调高 max_batch 可能导致 Telegram 风控、限流甚至账号封禁，请谨慎设置",
+        )
 
     @pytest.mark.asyncio
     async def test_bot_link_custom_start_param(self, service, mock_client):

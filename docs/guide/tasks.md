@@ -92,7 +92,7 @@
 | `6` | AI 识图后回复文本 | OCR 或识图后把结果发出 |
 | `7` | AI 计算后点击按钮 | 先算出结果，再去匹配按钮文本并点击 |
 | `8` | 关键词监听 | 监听模式专用动作 |
-| `9` | 触发 Bot 命令 | 向指定 Bot 发送命令（`bot_username`，可选 `command_prefix` 默认 `/start`，可选 `start_param`）；常用于监听命中后的后续动作，详见 [关键词监听](keyword-monitor.md) |
+| `9` | 触发 Bot 命令 | 向指定 Bot 发送命令；支持解析消息内多条 `t.me/bot?start=` 深链并批量触发（默认最多 5 条、间隔 2s；调高 `max_batch` 有风控/封禁风险）。详见 [关键词监听](keyword-monitor.md) |
 
 ## AI 提示词
 
