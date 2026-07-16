@@ -108,6 +108,8 @@ class Settings(BaseModel):
     timezone: str = "Asia/Hong_Kong"
     data_dir: Path = Field(default_factory=get_initial_data_dir)
     db_path: Optional[Path] = None
+    # 可选完整 SQLAlchemy URL；设置后优先于 sqlite 文件路径（支持 Postgres 等）
+    database_url_override: Optional[str] = None
     signer_workdir: Optional[Path] = None
     session_dir: Optional[Path] = None
     logs_dir: Optional[Path] = None
@@ -134,6 +136,9 @@ class Settings(BaseModel):
             timezone=_read_env(env, "TZ", "APP_TIMEZONE", default="Asia/Hong_Kong"),
             data_dir=_read_path_env(env, "APP_DATA_DIR") or get_initial_data_dir(),
             db_path=_read_path_env(env, "APP_DB_PATH"),
+            database_url_override=_read_env(
+                env, "APP_DATABASE_URL", "DATABASE_URL", default=None
+            ),
             signer_workdir=_read_path_env(env, "APP_SIGNER_WORKDIR"),
             session_dir=_read_path_env(env, "APP_SESSION_DIR"),
             logs_dir=_read_path_env(env, "APP_LOGS_DIR"),
@@ -142,7 +147,13 @@ class Settings(BaseModel):
 
     @property
     def database_url(self) -> str:
+        if self.database_url_override:
+            return str(self.database_url_override).strip()
         return f"sqlite:///{self.resolve_db_path()}?check_same_thread=False"
+
+    @property
+    def is_sqlite(self) -> bool:
+        return self.database_url.startswith("sqlite")
 
     def resolve_db_path(self) -> Path:
         return self.db_path or self.resolve_base_dir() / "db.sqlite"
