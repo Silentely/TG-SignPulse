@@ -111,6 +111,9 @@ environment:
 | `SIGN_TASK_HISTORY_MAX_ENTRIES` | `100` | 每个任务保留的历史记录条数 |
 | `SIGN_TASK_HISTORY_MAX_FLOW_LINES` | `5000` | 历史记录中保留的最大流程日志行数 |
 | `SIGN_TASK_HISTORY_MAX_LINE_CHARS` | `2000` | 单行日志最大字符数 |
+| `SIGN_TASK_HISTORY_MAX_AGE_DAYS` | `3` | 启动时清理超过 N 天的 history/*.json |
+| `SIGN_TASK_LIST_CACHE_TTL` | `30` | 任务列表内存缓存秒数 |
+| `SIGN_TASK_ACCOUNT_COOLDOWN` | `5` | 同账号连续执行冷却秒数 |
 | `SIGN_TASK_COMPLETION_LOOKBACK` | `20` | 签到前检查历史消息条数（用于跳过今日已完成的任务） |
 
 ## AI 视觉相关

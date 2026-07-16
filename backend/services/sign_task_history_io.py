@@ -96,13 +96,22 @@ def count_history_entries(data: Any) -> int:
     return 0
 
 
+def clamp_max_age_days(max_age_days: int, *, default: int = 3, minimum: int = 1) -> int:
+    try:
+        value = int(max_age_days)
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, value)
+
+
 def cleanup_old_history_files(run_history_dir: Path, *, max_age_days: int = 3) -> int:
     """删除过期历史文件，返回删除数量。"""
     from datetime import datetime, timedelta
 
     if not run_history_dir.exists():
         return 0
-    limit = datetime.now() - timedelta(days=max_age_days)
+    days = clamp_max_age_days(max_age_days)
+    limit = datetime.now() - timedelta(days=days)
     removed = 0
     for log_file in run_history_dir.glob("*.json"):
         try:

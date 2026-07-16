@@ -20,6 +20,29 @@ def test_normalize_flow_logs():
     assert normalize_flow_logs(["a"]) == ["a"]
 
 
+def test_normalize_and_trim_flow_logs():
+    from backend.services.sign_task_history_format import normalize_and_trim_flow_logs
+
+    lines, truncated, total = normalize_and_trim_flow_logs(
+        ["a", "b", "c"],
+        repair=lambda s: s,
+        max_lines=2,
+        max_line_chars=10,
+    )
+    assert total == 3
+    assert truncated is True
+    assert lines == ["b", "c"]
+
+    long_lines, long_trunc, _ = normalize_and_trim_flow_logs(
+        ["x" * 20],
+        repair=lambda s: s,
+        max_line_chars=5,
+    )
+    assert long_trunc is True
+    assert long_lines[0].endswith("…")
+    assert len(long_lines[0]) == 5
+
+
 def test_build_history_list_item():
     item = {
         "time": "2026-07-16T10:00:00",

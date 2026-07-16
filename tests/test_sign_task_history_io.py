@@ -61,3 +61,30 @@ def test_count_history_entries():
     assert count_history_entries([1, 2]) == 2
     assert count_history_entries({"a": 1}) == 1
     assert count_history_entries("x") == 0
+
+
+def test_cleanup_respects_max_age_days(tmp_path: Path, monkeypatch):
+    import time
+
+    from backend.services.sign_task_history_io import (
+        clamp_max_age_days,
+        cleanup_old_history_files,
+    )
+
+    assert clamp_max_age_days(0) == 1
+    assert clamp_max_age_days("x") == 3
+
+    old = tmp_path / "old.json"
+    old.write_text("[]", encoding="utf-8")
+    # 设为 10 天前
+    old_mtime = time.time() - 10 * 86400
+    import os
+
+    os.utime(old, (old_mtime, old_mtime))
+    fresh = tmp_path / "fresh.json"
+    fresh.write_text("[]", encoding="utf-8")
+
+    removed = cleanup_old_history_files(tmp_path, max_age_days=3)
+    assert removed == 1
+    assert not old.exists()
+    assert fresh.exists()

@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 
 def normalize_flow_logs(raw: Any) -> List[Any]:
@@ -48,3 +48,35 @@ def clamp_limit(limit: int, *, minimum: int = 1, maximum: int = 200) -> int:
     except (TypeError, ValueError):
         value = minimum
     return max(minimum, min(value, maximum))
+
+
+def normalize_and_trim_flow_logs(
+    flow_logs: Any,
+    *,
+    repair: Callable[[str], str],
+    max_lines: Optional[int] = None,
+    max_line_chars: Optional[int] = None,
+) -> tuple[List[str], bool, int]:
+    """
+    规范化 flow_logs：修复乱码、去换行，可选截断行数/行长。
+
+    返回 (trimmed_lines, truncated, original_count)。
+    """
+    if not isinstance(flow_logs, list):
+        return [], False, 0
+
+    total = len(flow_logs)
+    source = flow_logs
+    truncated = False
+    if max_lines is not None and max_lines > 0 and total > max_lines:
+        source = flow_logs[-max_lines:]
+        truncated = True
+
+    trimmed: List[str] = []
+    for line in source:
+        text = repair(str(line)).replace("\r", "").rstrip("\n")
+        if max_line_chars is not None and max_line_chars > 0 and len(text) > max_line_chars:
+            text = text[: max_line_chars - 1] + "…"
+            truncated = True
+        trimmed.append(text)
+    return trimmed, truncated, total

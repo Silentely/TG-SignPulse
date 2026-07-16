@@ -30,6 +30,7 @@ from backend.services.sign_task_failure import (
 from backend.services.sign_task_history_format import (
     build_history_list_item,
     clamp_limit,
+    normalize_and_trim_flow_logs,
 )
 from backend.services.sign_task_history_io import (
     cleanup_old_history_files,
@@ -55,6 +56,11 @@ from backend.services.sign_task_history_io import (
 from backend.services.sign_task_message import (
     format_target_message_summary,
     message_matches_thread,
+)
+from backend.services.sign_task_run_status import (
+    build_run_status,
+    idle_running_placeholder,
+    make_task_key,
 )
 from backend.services.sign_task_text import repair_mojibake
 from backend.utils.account_locks import get_account_lock
@@ -144,6 +150,9 @@ class SignTaskService:
         self._history_max_line_chars = self._read_positive_int_env(
             "SIGN_TASK_HISTORY_MAX_LINE_CHARS", 2000, 80
         )
+        self._history_max_age_days = self._read_positive_int_env(
+            "SIGN_TASK_HISTORY_MAX_AGE_DAYS", 3, 1
+        )
         self._max_account_last_run_entries = 100  # Bound account tracking
         self._cleanup_old_logs()
 
@@ -208,8 +217,8 @@ class SignTaskService:
         self._tasks_cache = None
         try:
             self._tasks_list_ttl.clear()
-        except Exception:
-            pass
+        except Exception as exc:
+            _service_logger.debug("清除任务列表 TTL 缓存失败: %s", exc)
 
     async def _fetch_last_target_message_from_chat_history(
         self,
@@ -292,8 +301,10 @@ class SignTaskService:
         return best_text or fallback_text
 
     def _cleanup_old_logs(self):
-        """清理超过 3 天的日志"""
-        cleanup_old_history_files(self.run_history_dir, max_age_days=3)
+        """清理超过保留天数的历史文件（SIGN_TASK_HISTORY_MAX_AGE_DAYS）。"""
+        cleanup_old_history_files(
+            self.run_history_dir, max_age_days=self._history_max_age_days
+        )
 
     def _safe_history_key(self, name: str) -> str:
         return safe_history_key_io(name)
@@ -678,15 +689,12 @@ class SignTaskService:
     def _normalize_flow_logs(
         self, flow_logs: Optional[List[str]]
     ) -> tuple[List[str], bool, int]:
-        if not isinstance(flow_logs, list):
-            return [], False, 0
-
-        total = len(flow_logs)
-        trimmed: List[str] = []
-        for line in flow_logs:
-            text = self._repair_mojibake(str(line)).replace("\r", "").rstrip("\n")
-            trimmed.append(text)
-        return trimmed, False, total
+        return normalize_and_trim_flow_logs(
+            flow_logs,
+            repair=self._repair_mojibake,
+            max_lines=self._history_max_flow_lines,
+            max_line_chars=self._history_max_line_chars,
+        )
 
     def _load_history_entries(
         self, task_name: str, account_name: str = ""
@@ -2377,7 +2385,7 @@ class SignTaskService:
         return await self.run_task_with_logs(account_name, task_name)
 
     def _task_key(self, account_name: str, task_name: str) -> tuple[str, str]:
-        return account_name, task_name
+        return make_task_key(account_name, task_name)
 
     def _find_task_keys(self, task_name: str) -> List[tuple[str, str]]:
         return [key for key in self._active_logs.keys() if key[1] == task_name]
@@ -2394,7 +2402,13 @@ class SignTaskService:
                 task_name,
                 account_name,
             )
-        except Exception:
+        except Exception as exc:
+            _service_logger.debug(
+                "读取关键词监听日志失败 task=%s account=%s: %s",
+                task_name,
+                account_name,
+                exc,
+            )
             monitor_logs = []
 
         if account_name:
@@ -2428,15 +2442,16 @@ class SignTaskService:
         finished_at: Optional[str] = None,
     ) -> Dict[str, Any]:
         task_key = self._task_key(account_name, task_name)
-        status = {
-            "run_id": run_id,
-            "state": state,
-            "success": success,
-            "error": str(error or ""),
-            "output": str(output or ""),
-            "started_at": started_at or utc_now_iso(),
-            "finished_at": finished_at,
-        }
+        status = build_run_status(
+            run_id=run_id,
+            state=state,
+            success=success,
+            error=error,
+            output=output,
+            started_at=started_at,
+            finished_at=finished_at,
+            default_started_at=utc_now_iso(),
+        )
         self._run_statuses[task_key] = status
         return dict(status)
 
@@ -2469,15 +2484,7 @@ class SignTaskService:
         if self._active_tasks.get(task_key):
             if existing_status:
                 return dict(existing_status)
-            return {
-                "run_id": "",
-                "state": "running",
-                "success": None,
-                "error": "",
-                "output": "",
-                "started_at": utc_now_iso(),
-                "finished_at": None,
-            }
+            return idle_running_placeholder(started_at=utc_now_iso())
 
         task = self.get_task(task_name, account_name=account_name)
         if not task:
