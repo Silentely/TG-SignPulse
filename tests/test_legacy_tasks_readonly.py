@@ -37,3 +37,13 @@ def test_legacy_tasks_list_still_works(client, db_session, monkeypatch):
     assert resp.headers.get("deprecation") == "true" or resp.headers.get(
         "Deprecation"
     ) == "true"
+
+
+def test_legacy_status_endpoint(client, db_session, monkeypatch):
+    monkeypatch.setenv("APP_LEGACY_TASKS_READONLY", "1")
+    resp = client.get("/api/tasks/legacy-status", headers=_auth())
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["legacy_writes_allowed"] is False
+    assert body["preferred_api"] == "/api/sign-tasks"
+    assert "task_count" in body

@@ -52,6 +52,8 @@ def api_client(tmp_path, monkeypatch) -> Iterator[TestClient]:
     monkeypatch.setenv("SIGN_TASK_EXECUTION_TIMEOUT", "5")
     monkeypatch.setenv("AI_REQUEST_TIMEOUT", "5")
     monkeypatch.setenv("ADMIN_PASSWORD", "admin123")
+    # 遗留 ORM 写路径测试需要关闭默认只读
+    monkeypatch.setenv("APP_LEGACY_TASKS_READONLY", "0")
 
     # 重置数据库模块状态
     config_module.get_settings.cache_clear()

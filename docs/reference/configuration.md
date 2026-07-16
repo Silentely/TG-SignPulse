@@ -13,6 +13,11 @@
 | `PORT` | `8080` | | Docker 容器内实际监听端口 |
 | `TZ` | `Asia/Hong_Kong` (本地) / `Asia/Shanghai` (容器) | | 时区，影响任务调度 |
 | `LOG_LEVEL` / `APP_LOG_LEVEL` | `INFO` | | 后端日志级别，可选 `DEBUG`、`INFO`、`WARNING`、`ERROR`、`CRITICAL` |
+| `APP_DATABASE_URL` / `DATABASE_URL` | （空=本地 SQLite） | | SQLAlchemy URL，可切换 Postgres 等 |
+| `APP_SCHEDULER_LOCK` | `1` | | 多实例调度文件锁；`0` 关闭 |
+| `APP_LEGACY_TASKS_READONLY` | `1` | | 旧 `/api/tasks` 写操作禁用（410）；测试/临时兼容可设 `0` |
+| `APP_MONITOR_SHARD` | （空） | | 监听分片 `i/n`，如 `0/3` |
+| `APP_MONITOR_ACCOUNT_ALLOWLIST` | （空） | | 逗号分隔，仅这些账号参与关键词监听 |
 
 ### 时区管理
 

@@ -301,6 +301,7 @@ class KeywordMonitorService:
         return expected_accounts.issubset(active_accounts)
 
     def _load_rules(self) -> list[KeywordMonitorRule]:
+        from backend.services.keyword_monitor.sharding import account_in_monitor_scope
         from backend.services.sign_tasks import get_sign_task_service
 
         rules: list[KeywordMonitorRule] = []
@@ -309,6 +310,9 @@ class KeywordMonitorService:
             account_name = str(task.get("account_name") or "").strip()
             task_name = str(task.get("name") or "").strip()
             if not account_name or not task_name or not task.get("enabled", True):
+                continue
+            # 多实例分片：不在本实例范围的账号跳过
+            if not account_in_monitor_scope(account_name):
                 continue
             for chat in task.get("chats") or []:
                 chat_id = chat.get("chat_id")

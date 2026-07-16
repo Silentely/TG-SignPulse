@@ -139,8 +139,9 @@ AI、全局设置和 Telegram API 配置则单独保存在数据目录根部的 
 
 - **数据库**：默认 SQLite；可通过 `APP_DATABASE_URL` / `DATABASE_URL` 切换到 Postgres 等（SQLAlchemy URL）。面板元数据可外置，但 **Telegram session 仍不宜多进程共享同一账号文件**。
 - **调度锁**：启动时尝试获取 `data/.scheduler.lock`（`APP_SCHEDULER_LOCK=0` 可关闭）。仅锁持有者注册 `sign-` / `db-` 业务 job，降低多副本重复签到风险。
-- **监听器**：关键词监控依赖长连接 updates，水平扩展前需按账号分片，禁止多实例争用同一 session。
-- **任务队列**：完整队列化（Celery/RQ 等）尚未内置；当前以进程内 APScheduler + 文件锁为过渡方案。
+- **监听分片**：`APP_MONITOR_SHARD=i/n` + 可选 `APP_MONITOR_ACCOUNT_ALLOWLIST`，按账号拆分关键词监听；**同一账号的 session 仍只能由一个进程持有**。
+- **旧任务 API**：`/api/tasks` 默认只读（`APP_LEGACY_TASKS_READONLY=1`），新功能统一 `/api/sign-tasks`。
+- **任务队列**：完整队列化（Celery/RQ 等）尚未内置；当前以进程内 APScheduler + 文件锁 + 监听分片为过渡方案。
 - 数据库锁定的排查步骤见 [运维手册 - 场景 2：数据库锁定](ops.md#场景-2数据库锁定)。
 - 反向代理可以扩展入口流量，但不等同于后端多副本扩展。
 

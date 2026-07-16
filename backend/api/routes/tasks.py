@@ -40,13 +40,13 @@ def _mark_deprecated(response: Response) -> None:
 
 
 def _legacy_writes_allowed() -> bool:
-    """APP_LEGACY_TASKS_READONLY=1 时拒绝写操作（返回 410）。"""
-    return os.getenv("APP_LEGACY_TASKS_READONLY", "0").strip() not in {
-        "1",
-        "true",
-        "True",
-        "yes",
-    }
+    """
+    默认只读（APP_LEGACY_TASKS_READONLY 缺省为 1）。
+
+    显式设置 0/false/no 时允许写，仅用于遗留兼容与测试。
+    """
+    raw = os.getenv("APP_LEGACY_TASKS_READONLY", "1").strip().lower()
+    return raw in {"0", "false", "no", "off"}
 
 
 def _reject_if_readonly() -> None:
@@ -54,10 +54,35 @@ def _reject_if_readonly() -> None:
         raise HTTPException(
             status_code=status.HTTP_410_GONE,
             detail=(
-                "Legacy ORM /api/tasks mutations are disabled "
-                "(APP_LEGACY_TASKS_READONLY=1). Use /api/sign-tasks."
+                "Legacy ORM /api/tasks mutations are disabled by default "
+                "(APP_LEGACY_TASKS_READONLY=1). Use /api/sign-tasks, "
+                "or set APP_LEGACY_TASKS_READONLY=0 only for temporary compatibility."
             ),
         )
+
+
+@router.get("/legacy-status")
+def legacy_tasks_status(
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """旧版 ORM 任务存量与只读策略状态（用于迁移自查）。"""
+    _mark_deprecated(response)
+    tasks = task_service.list_tasks(db)
+    enabled = sum(1 for t in tasks if getattr(t, "enabled", False))
+    return {
+        "legacy_writes_allowed": _legacy_writes_allowed(),
+        "readonly_default": True,
+        "task_count": len(tasks),
+        "enabled_count": enabled,
+        "preferred_api": "/api/sign-tasks",
+        "batch_api": "/api/batch/sign-tasks",
+        "hint": (
+            "新功能请使用 sign-tasks；"
+            "临时兼容写操作可设置 APP_LEGACY_TASKS_READONLY=0"
+        ),
+    }
 
 
 @router.get("", response_model=list[TaskOut], deprecated=True)

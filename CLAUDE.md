@@ -207,7 +207,9 @@ docker run -d -p 3000:3000 -v ./data:/data ghcr.io/<owner>/tg-signpulse:latest
 | 新版 | `sign_tasks_v2.py` + `POST /batch/sign-tasks` | JSON 文件 | `services/sign_tasks.py` | **主路径** |
 
 失败分类：`backend/services/sign_task_failure.py`（写入历史 `failure_category`）。  
-运维：`/api/ops/scheduled-jobs`、`/backup/status`、`/backup/export`、`/memory`。
+运维：`/api/ops/scheduled-jobs`、`/backup/status`、`/backup/export`、`/memory`。  
+旧任务：`/api/tasks` 默认只读（`APP_LEGACY_TASKS_READONLY=1`），状态见 `/api/tasks/legacy-status`。  
+监听分片：`APP_MONITOR_SHARD=i/n`、`APP_MONITOR_ACCOUNT_ALLOWLIST`。
 
 ## AI 使用指引
 

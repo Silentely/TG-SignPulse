@@ -5,6 +5,7 @@
 | 文件 | 职责 |
 |------|------|
 | `rules.py` | 规则模型、关键词/深链纯函数 |
+| `sharding.py` | 多实例账号分片（ALLOWLIST / SHARD） |
 | `runtime.py` | `KeywordMonitorService` 生命周期与 handler |
 | `__init__.py` | 对外导出（含私有工具函数兼容测试） |
 

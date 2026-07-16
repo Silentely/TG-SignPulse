@@ -108,6 +108,8 @@ def no_external_telegram(monkeypatch: pytest.MonkeyPatch) -> None:
     # 测试中拉长内存检查间隔，避免干扰 lifespan 相关用例
     monkeypatch.setenv("MEMORY_CHECK_INTERVAL_S", "3600")
     monkeypatch.setenv("MEMORY_THRESHOLD_MB", "8192")
+    # 生产默认只读旧 /api/tasks；测试需允许写以覆盖遗留兼容路径
+    monkeypatch.setenv("APP_LEGACY_TASKS_READONLY", "0")
     os.environ.setdefault("OPENAI_API_KEY", "test-openai-key")
 
 

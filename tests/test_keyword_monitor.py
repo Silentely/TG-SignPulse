@@ -306,22 +306,11 @@ class TestBotLinkAction:
             )
         assert result is True
         assert mock_client.send_message.call_count == 3
-        mock_client.send_message.assert_has_calls(
-            [
-                call(
-                    "shrekpublicbot",
-                    "/start SAKURA-30-Register_Ywyx26Doxi",
-                ),
-                call(
-                    "shrekpublicbot",
-                    "/start SAKURA-30-Register_QjElUtgTgs",
-                ),
-                call(
-                    "shrekpublicbot",
-                    "/start SAKURA-30-Register_Q2NK4Yw68E",
-                ),
-            ]
-        )
+        assert [c.args for c in mock_client.send_message.call_args_list] == [
+            ("shrekpublicbot", "/start SAKURA-30-Register_Ywyx26Doxi"),
+            ("shrekpublicbot", "/start SAKURA-30-Register_QjElUtgTgs"),
+            ("shrekpublicbot", "/start SAKURA-30-Register_Q2NK4Yw68E"),
+        ]
 
     @pytest.mark.asyncio
     async def test_bot_link_configured_bot_overrides_link_bot(
@@ -366,13 +355,11 @@ class TestBotLinkAction:
         )
         assert result is True
         assert mock_client.send_message.call_count == 3
-        mock_client.send_message.assert_has_calls(
-            [
-                call("reg_bot", "/start aaa"),
-                call("reg_bot", "/start bbb"),
-                call("reg_bot", "/start ccc"),
-            ]
-        )
+        assert [c.args for c in mock_client.send_message.call_args_list] == [
+            ("reg_bot", "/start aaa"),
+            ("reg_bot", "/start bbb"),
+            ("reg_bot", "/start ccc"),
+        ]
 
     @pytest.mark.asyncio
     async def test_bot_link_deep_links_take_priority_over_keyword(
