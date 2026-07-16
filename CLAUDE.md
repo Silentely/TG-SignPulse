@@ -144,7 +144,7 @@ docker run -d -p 3000:3000 -v ./data:/data ghcr.io/<owner>/tg-signpulse:latest
 | `proxy.py` | 代理 URL 标准化 |
 | `account_locks.py` | 账号级异步锁 |
 
-> 4 个零引用模块：`cache.py`, `session_cache.py`, `memory_monitor.py`, `async_io.py`（仅测试使用）
+> 工具层：`cache.TTLCache` 已接入签到任务列表缓存；`memory_monitor` 在 main 启动；`session_cache` / `async_io` 仍以测试与可复用组件形式保留
 
 ### tg_signer/config.py 配置模型（565 行）
 
@@ -197,16 +197,17 @@ docker run -d -p 3000:3000 -v ./data:/data ghcr.io/<owner>/tg-signpulse:latest
 | `useI18n.ts` | 17 | 核心依赖 |
 | `useTheme.ts` | 2 | 正常 |
 | `useToast.ts` | 1 | show 方法未被调用 |
-| `useApiCache.ts` | 0 | 预留未使用 |
+
 
 ### 双任务体系
 
-| 体系 | 路由 | 存储 | 服务 |
-|------|------|------|------|
-| 旧版 | `tasks.py` + `batch.py` | SQLAlchemy ORM | `services/tasks.py` |
-| 新版 | `sign_tasks_v2.py` | JSON 文件 (ConfigService) | `services/sign_tasks.py` |
+| 体系 | 路由 | 存储 | 服务 | 状态 |
+|------|------|------|------|------|
+| 旧版 | `tasks.py` + `POST /batch/tasks` | SQLAlchemy ORM | `services/tasks.py` | **已弃用** |
+| 新版 | `sign_tasks_v2.py` + `POST /batch/sign-tasks` | JSON 文件 | `services/sign_tasks.py` | **主路径** |
 
-⚠️ 新功能应使用新版文件存储体系。
+失败分类：`backend/services/sign_task_failure.py`（写入历史 `failure_category`）。  
+运维：`/api/ops/scheduled-jobs`、`/backup/status`、`/backup/export`、`/memory`。
 
 ## AI 使用指引
 

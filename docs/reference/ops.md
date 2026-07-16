@@ -1,5 +1,17 @@
 # 运维手册
 
+## 面板运维 API
+
+登录后可用（需 JWT）：
+
+| 端点 | 说明 |
+| --- | --- |
+| `GET /api/ops/scheduled-jobs` | 查看 APScheduler 下次执行时间 |
+| `GET /api/ops/backup/status` | 数据目录备份状态与关键路径体积 |
+| `POST /api/ops/backup/export` | 下载推荐路径的 tar.gz 备份包 |
+| `GET /api/ops/memory` | 进程内存监控统计（若已启动） |
+| `POST /api/batch/sign-tasks` | 新版签到任务批量 enable/disable/delete/run |
+
 ## 健康检查
 
 系统提供三个健康端点：

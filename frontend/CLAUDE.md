@@ -97,7 +97,6 @@ npm run preview  # 预览构建产物
 |------|------|
 | `useTheme.ts` | 暗黑/亮色主题切换 |
 | `useToast.ts` | 全局消息提示 |
-| `useApiCache.ts` | API 响应缓存 |
 | `useI18n.ts` | 国际化包装器（兼容旧 API） |
 
 ## 组件结构
@@ -189,21 +188,17 @@ src/components/
 
 | 文件 | 导出 | 引用数 | 职责 |
 |------|------|--------|------|
-| `useI18n.ts` | `useI18n()` | 17 | vue-i18n 适配层，兼容旧版 locale API |
+| `useI18n.ts` | `useI18n()` | 多 | vue-i18n 适配层，兼容旧版 locale API |
 | `useTheme.ts` | `useTheme()` | 2 | 暗黑/亮色主题切换 + View Transitions 动画 |
-| `useToast.ts` | `useToast()`, `ToastItem` | 1 | 全局消息提示（success/error/info），自动消失 |
-| `useApiCache.ts` | `useApiCache<T>()`, `invalidateCache()` | 0 | TTL API 响应缓存（预留，未使用） |
-
-> ⚠️ `useApiCache` 未被任何组件引用，`useToast.show` 也未被调用——两者潜力未充分利用。
+| `useToast.ts` | `useToast()`, `ToastItem` | 多 | 全局消息提示（success/error/info），自动消失 |
 
 ### ⚠️ 注意事项
 
-1. **Accounts.vue 头像加载**：直接使用 `fetch` 而非统一的 `request()` 函数，未走 401 自动跳转逻辑
-2. **Logs.vue 前端筛选**：任务名和状态过滤在前端完成，大数据量时可能有性能问题
-3. **Settings.vue AI Key**：`testAIConnection` 复用 `aiLoading` 状态，可能与保存操作冲突
-4. **类型安全**：views + composables 共 53 处 `any`，全前端 89 处，缺乏严格视图模型定义
-5. **Token 读取不一致**：44 处绕过 authStore 直接读 localStorage（Settings 10处、Tasks 6处、Accounts 4处等）
-6. **错误展示不统一**：console.error / alert / 内联三种风格混用
+1. **主任务路径**：前端一律走 `/api/sign-tasks` 与 `/api/batch/sign-tasks`，勿再接旧版 `/api/tasks`
+2. **TaskForm**：支持多目标会话（共享动作序列）；批量操作在 Tasks 列表页
+3. **Logs.vue 前端筛选**：任务名和状态过滤在前端完成，大数据量时可能有性能问题
+4. **Settings**：支持配置 JSON 导出与完整 data 目录 tar.gz 备份
+5. **类型**：`types.ts` 中 ORM 风格 `Task/TaskLog` 已标记 deprecated，新代码用 `SignTask`
 
 ## 数据模型
 

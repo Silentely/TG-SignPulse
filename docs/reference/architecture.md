@@ -33,12 +33,14 @@ http://127.0.0.1:3000
 - `/api/auth` — 认证与登录
 - `/api/user` — 用户管理
 - `/api/accounts` — 账号管理
-- `/api/tasks` — 任务管理
-- `/api/sign-tasks` — 签到任务配置
+- `/api/sign-tasks` — 签到任务配置（**主路径**，文件存储）
+- `/api/batch/sign-tasks` — 签到任务批量操作（enable/disable/delete/run）
+- `/api/ops` — 运维：调度预览、备份状态/导出、内存统计
 - `/api/logs` — 执行日志
 - `/api/config` — 系统配置
 - `/api/events` — 事件流
-- `/api/batch` — 批量操作（启用/禁用/删除/执行）
+- `/api/tasks` — **已弃用** 旧版 ORM 任务（兼容保留）
+- `/api/batch/tasks` — **已弃用** 旧版 ORM 批量操作
 
 后端负责：
 
