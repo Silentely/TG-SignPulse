@@ -158,17 +158,18 @@ jobs:
             } >> "${GITHUB_OUTPUT}"
           fi
 
-          # 版本号：tag 用 ref 名；否则读 tg_signer/__init__.py 中的 __version__
+          # 版本号：tag 用 ref 名；否则从 tg_signer/__init__.py 读取 __version__
+          # 注意：勿在 YAML run 块内嵌套含引号的 Python heredoc，会导致 workflow 解析失败
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             app_version="${GITHUB_REF_NAME}"
           else
-            app_version="$(python - <<'PY'
-import re, pathlib
-text = pathlib.Path("tg_signer/__init__.py").read_text(encoding="utf-8")
-m = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', text)
-print(m.group(1) if m else "0.0.0")
-PY
-)"
+            app_version="$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' tg_signer/__init__.py | head -1)"
+            if [[ -z "${app_version}" ]]; then
+              app_version="$(sed -n "s/^__version__[[:space:]]*=[[:space:]]*'\([^']*\)'.*/\1/p" tg_signer/__init__.py | head -1)"
+            fi
+            if [[ -z "${app_version}" ]]; then
+              app_version="0.0.0"
+            fi
           fi
           echo "app_version=${app_version}" >> "${GITHUB_OUTPUT}"
           echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "${GITHUB_OUTPUT}"
