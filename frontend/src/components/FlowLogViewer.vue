@@ -97,7 +97,7 @@ function lineTone(text: string): string {
     <!-- 最后返回 -->
     <div v-if="lastTargetItems.length > 0">
       <div class="flex items-center justify-between mb-1.5">
-        <div class="text-xs text-gray-500 font-semibold">{{ t('taskLogs.lastResponse') }}</div>
+        <div class="ui-section-label">{{ t('taskLogs.lastResponse') }}</div>
       </div>
       <div
         class="p-2.5 bg-emerald-50/80 dark:bg-emerald-950/30 border border-emerald-200/70 dark:border-emerald-900/40 text-xs whitespace-pre-wrap break-all max-h-40 overflow-y-auto text-gray-800 dark:text-gray-200"
@@ -112,11 +112,11 @@ function lineTone(text: string): string {
     <!-- 结构化流程 -->
     <div v-if="viewModel.blocks.length > 0 || (lines && lines.length > 0)">
       <div class="flex items-center justify-between mb-1.5">
-        <div class="text-xs text-gray-500 font-semibold">{{ t('taskLogs.logDetail') }}</div>
+        <div class="ui-section-label">{{ t('taskLogs.logDetail') }}</div>
         <button
           v-if="showCopy && copyText"
           type="button"
-          class="inline-flex items-center gap-1 text-[11px] text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 transition-colors px-1.5 py-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800"
+          class="inline-flex items-center gap-1 text-[11px] text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 transition-colors px-1.5 py-0.5 rounded-sm hover:bg-gray-100 dark:hover:bg-white/[0.05]"
           @click="copyLogs"
         >
           <Check v-if="copied" class="w-3 h-3 text-emerald-500" />
@@ -126,12 +126,11 @@ function lineTone(text: string): string {
       </div>
 
       <div
-        class="p-3 bg-gray-950 border border-gray-800 text-xs font-mono max-h-72 overflow-y-auto space-y-2"
-        :class="compact ? 'text-[11px] max-h-48' : ''"
+        class="ui-terminal space-y-2"
+        :class="compact ? 'text-[11px] !max-h-48' : ''"
       >
         <template v-if="viewModel.blocks.length > 0">
           <div v-for="(block, bi) in viewModel.blocks" :key="bi">
-            <!-- 独立行 -->
             <div
               v-if="block.kind === 'line'"
               class="leading-relaxed break-all"
@@ -140,11 +139,10 @@ function lineTone(text: string): string {
               {{ block.text }}
             </div>
 
-            <!-- 分组段落 -->
-            <div v-else class="rounded border border-gray-800/80 bg-gray-900/60 overflow-hidden">
-              <div class="flex items-center gap-2 px-2.5 py-1.5 border-b border-gray-800/80 bg-gray-900">
+            <div v-else class="ui-terminal-block">
+              <div class="flex items-center gap-2 px-2.5 py-1.5 border-b border-gray-800/80 bg-gray-900/90">
                 <span
-                  class="inline-flex items-center justify-center w-4 h-4 text-[10px] font-semibold rounded-sm bg-gray-800 text-gray-300"
+                  class="inline-flex items-center justify-center w-4 h-4 text-[10px] font-semibold rounded-sm bg-sky-500/15 text-sky-300 border border-sky-500/25"
                 >
                   {{ block.label }}
                 </span>
@@ -154,7 +152,7 @@ function lineTone(text: string): string {
                 <div
                   v-for="(item, ii) in block.items"
                   :key="ii"
-                  class="leading-relaxed break-all pl-1 border-l border-gray-800"
+                  class="leading-relaxed break-all pl-1.5 border-l border-gray-700/80"
                   :class="lineTone(item)"
                 >
                   {{ item }}
@@ -164,7 +162,6 @@ function lineTone(text: string): string {
           </div>
         </template>
 
-        <!-- 格式化后为空时回退原始行 -->
         <template v-else>
           <div
             v-for="(line, i) in lines || []"
@@ -176,13 +173,15 @@ function lineTone(text: string): string {
           </div>
         </template>
 
-        <div v-if="truncated" class="text-gray-500 italic pt-1">{{ t('taskLogs.truncated') }}</div>
+        <div v-if="truncated" class="text-gray-500 italic pt-1 border-t border-gray-800/60">
+          {{ t('taskLogs.truncated') }}
+        </div>
       </div>
     </div>
 
     <div
       v-else-if="!hasContent"
-      class="text-xs text-gray-500 py-3 text-center"
+      class="text-xs text-gray-500 py-4 text-center border border-dashed border-gray-200 dark:border-gray-800/60"
     >
       {{ emptyText || t('logs.noDetail') }}
     </div>

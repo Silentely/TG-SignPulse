@@ -14,9 +14,8 @@ const emit = defineEmits<{ (e: 'update:modelValue', val: string): void }>()
 const isOpen = ref(false)
 const pickerRef = ref<HTMLElement | null>(null)
 
-// Current view month/year
 const viewYear = ref(new Date().getFullYear())
-const viewMonth = ref(new Date().getMonth()) // 0-indexed
+const viewMonth = ref(new Date().getMonth())
 
 const toggle = () => {
   isOpen.value = !isOpen.value
@@ -66,15 +65,14 @@ const days = computed(() => {
   const firstDay = new Date(viewYear.value, viewMonth.value, 1).getDay()
   const daysInMonth = new Date(viewYear.value, viewMonth.value + 1, 0).getDate()
   const result: { day: number; date: string; isToday: boolean; isSelected: boolean }[] = []
-  
-  // Empty slots before first day
+
   for (let i = 0; i < firstDay; i++) {
     result.push({ day: 0, date: '', isToday: false, isSelected: false })
   }
-  
+
   const today = new Date()
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
-  
+
   for (let d = 1; d <= daysInMonth; d++) {
     const dateStr = `${viewYear.value}-${String(viewMonth.value + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
     result.push({
@@ -116,6 +114,15 @@ const clear = (e: Event) => {
   emit('update:modelValue', '')
 }
 
+const goToday = () => {
+  const today = new Date()
+  const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+  viewYear.value = today.getFullYear()
+  viewMonth.value = today.getMonth()
+  emit('update:modelValue', dateStr)
+  isOpen.value = false
+}
+
 const displayValue = computed(() => {
   if (!props.modelValue) return ''
   const d = new Date(props.modelValue + 'T00:00:00')
@@ -130,62 +137,90 @@ const displayValue = computed(() => {
   <div class="relative" ref="pickerRef">
     <button
       type="button"
-      class="w-full flex items-center justify-between h-9 sm:h-10 px-3 text-sm border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 outline-none focus:border-gray-400 dark:focus:border-gray-600 transition-colors focus-visible:ring-2 focus-visible:ring-gray-400"
+      class="ui-select-trigger"
+      :class="isOpen ? 'ui-select-trigger-open' : ''"
       :aria-expanded="isOpen"
       aria-haspopup="dialog"
       @click="toggle"
     >
-      <span class="truncate" :class="!modelValue ? 'text-gray-400 dark:text-gray-600' : ''">{{ displayValue || placeholder || (locale === 'zh' ? '选择日期' : 'Select date') }}</span>
-      <div class="flex items-center gap-1">
+      <span class="truncate" :class="!modelValue ? 'text-gray-400 dark:text-gray-500' : ''">
+        {{ displayValue || placeholder || (locale === 'zh' ? '选择日期' : 'Select date') }}
+      </span>
+      <div class="flex items-center gap-0.5 shrink-0">
         <button
           v-if="modelValue"
           type="button"
-          class="p-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+          class="p-0.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded"
           :aria-label="locale === 'zh' ? '清除日期' : 'Clear date'"
           @click="clear"
         >
           <X class="w-3 h-3" />
         </button>
-        <ChevronDown class="w-4 h-4 text-gray-400 transition-transform" :class="isOpen ? 'rotate-180' : ''" />
+        <ChevronDown class="w-4 h-4 text-gray-400 transition-transform duration-200" :class="isOpen ? 'rotate-180' : ''" />
       </div>
     </button>
 
-    <div v-if="isOpen" class="absolute z-[60] mt-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/60 shadow-lg p-3 w-[260px] right-0">
-      <!-- Month navigation -->
-      <div class="flex items-center justify-between mb-2">
-        <button type="button" @click="prevMonth" class="p-1 text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 rounded transition-colors">
-          <ChevronLeft class="w-4 h-4" />
-        </button>
-        <span class="text-xs font-medium text-gray-900 dark:text-gray-100">{{ monthLabel }}</span>
-        <button type="button" @click="nextMonth" class="p-1 text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 rounded transition-colors">
-          <ChevronRight class="w-4 h-4" />
-        </button>
-      </div>
+    <Transition name="dropdown">
+      <div
+        v-if="isOpen"
+        class="absolute z-[60] mt-1 ui-card shadow-[var(--sp-shadow-md)] p-3 w-[272px] right-0"
+        role="dialog"
+      >
+        <div class="flex items-center justify-between mb-2.5">
+          <button type="button" class="ui-icon-btn !w-7 !h-7" :aria-label="locale === 'zh' ? '上个月' : 'Previous month'" @click="prevMonth">
+            <ChevronLeft class="w-4 h-4" />
+          </button>
+          <span class="text-xs font-medium text-gray-900 dark:text-gray-100 tracking-wide">{{ monthLabel }}</span>
+          <button type="button" class="ui-icon-btn !w-7 !h-7" :aria-label="locale === 'zh' ? '下个月' : 'Next month'" @click="nextMonth">
+            <ChevronRight class="w-4 h-4" />
+          </button>
+        </div>
 
-      <!-- Week days header -->
-      <div class="grid grid-cols-7 gap-0 mb-1">
-        <div v-for="wd in weekDays" :key="wd" class="text-center text-[10px] text-gray-500 font-medium py-1">{{ wd }}</div>
-      </div>
+        <div class="grid grid-cols-7 gap-0 mb-1">
+          <div v-for="wd in weekDays" :key="wd" class="text-center text-[10px] text-gray-400 font-medium py-1">{{ wd }}</div>
+        </div>
 
-      <!-- Days grid -->
-      <div class="grid grid-cols-7 gap-0">
-        <button
-          v-for="(item, idx) in days"
-          :key="idx"
-          type="button"
-          @click="selectDate(item.date)"
-          :disabled="!item.day"
-          class="h-8 w-8 mx-auto flex items-center justify-center text-xs rounded transition-colors"
-          :class="[
-            !item.day ? 'invisible' : '',
-            item.isSelected ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-950 font-medium' : '',
-            item.isToday && !item.isSelected ? 'border border-gray-400 dark:border-gray-500 text-gray-900 dark:text-gray-100' : '',
-            !item.isSelected && !item.isToday && item.day ? 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800' : ''
-          ]"
-        >
-          {{ item.day || '' }}
-        </button>
+        <div class="grid grid-cols-7 gap-0.5">
+          <button
+            v-for="(item, idx) in days"
+            :key="idx"
+            type="button"
+            :disabled="!item.day"
+            class="h-8 w-8 mx-auto flex items-center justify-center text-xs rounded-sm transition-colors"
+            :class="[
+              !item.day ? 'invisible' : '',
+              item.isSelected ? 'bg-sky-500 text-white font-medium shadow-sm' : '',
+              item.isToday && !item.isSelected ? 'border border-sky-400/60 text-sky-700 dark:text-sky-300' : '',
+              !item.isSelected && !item.isToday && item.day ? 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/[0.06]' : '',
+            ]"
+            @click="selectDate(item.date)"
+          >
+            {{ item.day || '' }}
+          </button>
+        </div>
+
+        <div class="mt-2.5 pt-2 border-t border-gray-100 dark:border-gray-800/60 flex justify-end">
+          <button
+            type="button"
+            class="text-[11px] text-sky-600 dark:text-sky-400 hover:underline font-medium"
+            @click="goToday"
+          >
+            {{ locale === 'zh' ? '今天' : 'Today' }}
+          </button>
+        </div>
       </div>
-    </div>
+    </Transition>
   </div>
 </template>
+
+<style scoped>
+.dropdown-enter-active,
+.dropdown-leave-active {
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+.dropdown-enter-from,
+.dropdown-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+</style>

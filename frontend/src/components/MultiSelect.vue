@@ -20,6 +20,7 @@ const emit = defineEmits<{
 
 const isOpen = ref(false)
 const selectRef = ref<HTMLElement | null>(null)
+const dropdownRef = ref<HTMLElement | null>(null)
 const dropdownStyle = ref<Record<string, string>>({})
 
 const toggle = () => {
@@ -29,11 +30,9 @@ const toggle = () => {
 
 const toggleAllMode = () => {
   if (props.allMode) {
-    // Deselect all mode, clear selection
     emit('update:allMode', false)
     emit('update:modelValue', [])
   } else {
-    // Enable all mode
     emit('update:allMode', true)
     emit('update:modelValue', props.options.map(o => o.value))
   }
@@ -41,7 +40,6 @@ const toggleAllMode = () => {
 }
 
 const select = (val: string) => {
-  // If in allMode, clicking individual item exits allMode
   if (props.allMode) {
     emit('update:allMode', false)
   }
@@ -81,7 +79,6 @@ const updateDropdownPosition = () => {
 watch(isOpen, async (v) => {
   if (v) {
     await nextTick()
-    // 检查组件是否仍在打开状态（防止快速关闭后 async 回调仍注册监听器）
     if (!isOpen.value) return
     updateDropdownPosition()
     window.addEventListener('scroll', updateDropdownPosition, true)
@@ -93,9 +90,10 @@ watch(isOpen, async (v) => {
 })
 
 const handleClickOutside = (e: MouseEvent) => {
-  if (selectRef.value && !selectRef.value.contains(e.target as Node)) {
-    isOpen.value = false
-  }
+  const target = e.target as Node
+  if (selectRef.value?.contains(target)) return
+  if (dropdownRef.value?.contains(target)) return
+  isOpen.value = false
 }
 
 onMounted(() => document.addEventListener('click', handleClickOutside))
@@ -114,34 +112,65 @@ const selectedLabel = computed(() => {
 </script>
 <template>
   <div class="relative" ref="selectRef" :class="className || 'w-full'">
-    <button type="button" @click="toggle" :disabled="disabled"
-      class="w-full flex items-center justify-between h-10 px-3 text-sm border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 outline-none focus:border-gray-400 disabled:opacity-50 disabled:cursor-not-allowed">
-      <span class="truncate" :class="allMode ? 'text-blue-600 dark:text-blue-400 font-medium' : ''">{{ selectedLabel }}</span>
-      <ChevronDown class="w-4 h-4 text-gray-400 transition-transform" :class="isOpen ? 'rotate-180' : ''" />
+    <button
+      type="button"
+      class="ui-select-trigger"
+      :class="isOpen ? 'ui-select-trigger-open' : ''"
+      :disabled="disabled"
+      :aria-expanded="isOpen"
+      aria-haspopup="listbox"
+      @click="toggle"
+    >
+      <span
+        class="truncate"
+        :class="allMode
+          ? 'text-sky-600 dark:text-sky-400 font-medium'
+          : modelValue.length === 0 ? 'text-gray-400 dark:text-gray-500' : ''"
+      >{{ selectedLabel }}</span>
+      <ChevronDown class="w-4 h-4 text-gray-400 transition-transform duration-200 shrink-0" :class="isOpen ? 'rotate-180' : ''" />
     </button>
 
     <Teleport to="body">
-      <div v-if="isOpen" :style="dropdownStyle" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/60 shadow-lg py-1 max-h-60 overflow-y-auto">
-        <!-- All Accounts option (first, independent) -->
-        <button type="button" @click.stop="toggleAllMode"
-          class="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-800/50 flex items-center justify-between border-b border-gray-100 dark:border-gray-800/40 mb-1"
-          :class="allMode ? 'text-blue-600 dark:text-blue-400 bg-blue-50/50 dark:bg-blue-500/10' : 'text-gray-700 dark:text-gray-300'">
-          <span class="truncate font-medium">{{ t('multiSelect.allAccounts') }}</span>
-          <Check v-if="allMode" class="w-4 h-4 flex-shrink-0" />
-        </button>
-        <!-- Individual accounts -->
-        <button v-for="opt in options" :key="opt.value" type="button"
-          @click.stop="select(opt.value)"
-          class="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-800/50 flex items-center justify-between"
-          :class="[
-            allMode ? 'opacity-40 pointer-events-none' : '',
-            !allMode && modelValue.includes(opt.value) ? 'text-blue-600 dark:text-blue-400 bg-blue-50/50 dark:bg-blue-500/10' : 'text-gray-700 dark:text-gray-300'
-          ]">
-          <span class="truncate">{{ opt.label }}</span>
-          <Check v-if="!allMode && modelValue.includes(opt.value)" class="w-4 h-4 flex-shrink-0" />
-        </button>
-        <div v-if="!options.length" class="px-3 py-2 text-sm text-gray-400">{{ t('multiSelect.noOptions') }}</div>
-      </div>
+      <Transition name="dropdown">
+        <div v-if="isOpen" ref="dropdownRef" :style="dropdownStyle" class="ui-dropdown" role="listbox">
+          <button
+            type="button"
+            class="ui-dropdown-item border-b border-gray-100 dark:border-gray-800/50 mb-0.5"
+            :class="allMode ? 'ui-dropdown-item-active !text-sky-600 dark:!text-sky-400' : ''"
+            @click.stop="toggleAllMode"
+          >
+            <span class="truncate font-medium">{{ t('multiSelect.allAccounts') }}</span>
+            <Check v-if="allMode" class="w-3.5 h-3.5 shrink-0 text-sky-500" />
+          </button>
+          <button
+            v-for="opt in options"
+            :key="opt.value"
+            type="button"
+            class="ui-dropdown-item"
+            :class="[
+              allMode ? 'opacity-40 pointer-events-none' : '',
+              !allMode && modelValue.includes(opt.value) ? 'ui-dropdown-item-active !text-sky-600 dark:!text-sky-400' : '',
+            ]"
+            @click.stop="select(opt.value)"
+          >
+            <span class="truncate">{{ opt.label }}</span>
+            <Check v-if="!allMode && modelValue.includes(opt.value)" class="w-3.5 h-3.5 shrink-0 text-sky-500" />
+          </button>
+          <div v-if="!options.length" class="px-3 py-2.5 text-sm text-gray-400">{{ t('multiSelect.noOptions') }}</div>
+        </div>
+      </Transition>
     </Teleport>
   </div>
 </template>
+
+<style scoped>
+.dropdown-enter-active,
+.dropdown-leave-active {
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+.dropdown-enter-from,
+.dropdown-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+</style>
