@@ -728,109 +728,95 @@ const handleImport = async (e: Event) => {
         </section>
       </div>
 
-      <!-- 数据管理（全宽） -->
-      <section class="ui-card p-6 lg:col-span-2">
-        <div class="mb-6 border-b border-gray-200 dark:border-gray-800/60 pb-3 flex items-start gap-3">
-          <span class="ui-section-icon" aria-hidden="true"><Database class="w-3.5 h-3.5" /></span>
-          <div>
-            <h2 class="text-base font-medium text-gray-900 dark:text-gray-100">{{ t('settings.dataManagement') }}</h2>
-            <p class="text-xs text-gray-500 mt-1">{{ t('settings.dataManagementDesc') }}</p>
+      <!-- 数据管理（左列） -->
+      <div class="flex flex-col gap-6">
+        <section class="ui-card p-6 flex-1">
+          <div class="mb-6 border-b border-gray-200 dark:border-gray-800/60 pb-3 flex items-start gap-3">
+            <span class="ui-section-icon" aria-hidden="true"><Database class="w-3.5 h-3.5" /></span>
+            <div>
+              <h2 class="text-base font-medium text-gray-900 dark:text-gray-100">{{ t('settings.dataManagement') }}</h2>
+              <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.dataManagementDesc') }}</p>
+            </div>
           </div>
-        </div>
 
-        <!-- 配置迁移 JSON -->
-        <div class="max-w-2xl space-y-3 mb-6">
-          <div>
-            <h3 class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ t('settings.configMigrateTitle') }}</h3>
-            <p class="text-xs text-gray-500 mt-1 leading-relaxed">{{ t('settings.configMigrateDesc') }}</p>
-          </div>
-          <div class="flex flex-col sm:flex-row gap-3 max-w-lg">
-            <button
-              type="button"
-              class="ui-btn-primary flex-1 !px-4 !py-2"
-              :disabled="dataLoading"
-              @click="handleExport"
-            >
-              {{ dataLoading ? t('settings.processing') : t('settings.exportJson') }}
-            </button>
-            <div class="relative flex-1">
-              <input
-                type="file"
-                accept="application/json,.json"
-                class="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
-                :disabled="dataLoading"
-                @change="handleImport"
-              />
+          <!-- 配置迁移 JSON -->
+          <div class="space-y-3 mb-6">
+            <div>
+              <h3 class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ t('settings.configMigrateTitle') }}</h3>
+              <p class="text-xs text-gray-500 mt-1 leading-relaxed">{{ t('settings.configMigrateDesc') }}</p>
+            </div>
+            <div class="flex flex-col sm:flex-row gap-3">
               <button
                 type="button"
-                class="ui-btn-secondary w-full !px-4 !py-2"
+                class="ui-btn-primary flex-1 !px-4 !py-2"
                 :disabled="dataLoading"
+                @click="handleExport"
               >
-                {{ t('settings.importJson') }}
+                {{ dataLoading ? t('settings.processing') : t('settings.exportJson') }}
+              </button>
+              <div class="relative flex-1">
+                <input
+                  type="file"
+                  accept="application/json,.json"
+                  class="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
+                  :disabled="dataLoading"
+                  @change="handleImport"
+                />
+                <button
+                  type="button"
+                  class="ui-btn-secondary w-full !px-4 !py-2"
+                  :disabled="dataLoading"
+                >
+                  {{ t('settings.importJson') }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 完整备份 -->
+          <div class="pt-5 border-t border-gray-200 dark:border-gray-800/60 space-y-3">
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <h3 class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ t('settings.fullBackup') }}</h3>
+                <p class="text-xs text-gray-500 mt-1 leading-relaxed">{{ t('settings.fullBackupDesc') }}</p>
+              </div>
+              <button
+                type="button"
+                class="ui-btn-secondary shrink-0 !px-4 !py-2"
+                :disabled="backupLoading"
+                @click="handleBackupExport"
+              >
+                {{ backupLoading ? t('settings.processing') : t('settings.exportBackup') }}
               </button>
             </div>
+            <p v-if="backupStatus" class="text-xs text-gray-500 font-mono">
+              {{ backupStatus.data_dir }} · {{ backupStatus.size_human }}
+              · {{ backupStatus.writable ? t('settings.backupWritable') : t('settings.backupReadonly') }}
+            </p>
+            <p v-if="backupStatus?.restore_hint" class="text-xs text-amber-700 dark:text-amber-400/90">
+              {{ t('settings.backupRestoreHint') }}: {{ backupStatus.restore_hint }}
+            </p>
+            <ul v-if="backupStatus?.notes?.length" class="text-xs text-gray-500 space-y-1 list-disc pl-4">
+              <li v-for="(note, i) in backupStatus.notes" :key="i">{{ note }}</li>
+            </ul>
           </div>
-        </div>
+        </section>
+      </div>
 
-        <!-- 完整备份 -->
-        <div class="pt-5 border-t border-gray-200 dark:border-gray-800/60 max-w-2xl space-y-3">
-          <div class="flex items-center justify-between gap-3">
-            <div>
-              <h3 class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ t('settings.fullBackup') }}</h3>
-              <p class="text-xs text-gray-500 mt-1 leading-relaxed">{{ t('settings.fullBackupDesc') }}</p>
-            </div>
-            <button
-              type="button"
-              class="ui-btn-secondary shrink-0 !px-4 !py-2"
-              :disabled="backupLoading"
-              @click="handleBackupExport"
-            >
-              {{ backupLoading ? t('settings.processing') : t('settings.exportBackup') }}
-            </button>
-          </div>
-          <p v-if="backupStatus" class="text-xs text-gray-500 font-mono">
-            {{ backupStatus.data_dir }} · {{ backupStatus.size_human }}
-            · {{ backupStatus.writable ? t('settings.backupWritable') : t('settings.backupReadonly') }}
-          </p>
-          <p v-if="backupStatus?.restore_hint" class="text-xs text-amber-700 dark:text-amber-400/90">
-            {{ t('settings.backupRestoreHint') }}: {{ backupStatus.restore_hint }}
-          </p>
-          <ul v-if="backupStatus?.notes?.length" class="text-xs text-gray-500 space-y-1 list-disc pl-4">
-            <li v-for="(note, i) in backupStatus.notes" :key="i">{{ note }}</li>
-          </ul>
-
-          <div v-if="runtimeStatus" class="mt-4 p-3 border border-gray-200 dark:border-gray-800/60 bg-gray-50/50 dark:bg-white/[0.02] text-xs space-y-1.5">
-            <div class="font-medium text-gray-700 dark:text-gray-300 mb-1">{{ t('settings.runtimeStatus') }}</div>
-            <div class="text-gray-600 dark:text-gray-400">
-              {{ t('settings.schedulerLock') }}:
-              <span :class="runtimeStatus.scheduler_lock_held ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'">
-                {{ runtimeStatus.scheduler_lock_held ? t('settings.lockHeld') : t('settings.lockNotHeld') }}
-              </span>
-            </div>
-            <div class="text-gray-600 dark:text-gray-400">
-              {{ t('settings.legacyWritable') }}:
-              {{ runtimeStatus.legacy_tasks_writable ? t('settings.yes') : t('settings.no') }}
-            </div>
-            <div class="text-gray-600 dark:text-gray-400">
-              DB: {{ runtimeStatus.database_is_sqlite ? 'SQLite' : 'External' }}
-              <span v-if="runtimeStatus.monitor_shard"> · shard {{ runtimeStatus.monitor_shard }}</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- 关于 / 版本 -->
-        <div class="pt-5 border-t border-gray-200 dark:border-gray-800/60 max-w-2xl space-y-3 mt-5">
-          <div class="flex items-start justify-between gap-3">
+      <!-- 关于 / 版本（右列） -->
+      <div class="flex flex-col gap-6">
+        <section class="ui-card p-6 flex-1">
+          <div class="mb-6 border-b border-gray-200 dark:border-gray-800/60 pb-3 flex items-start justify-between gap-3">
             <div class="flex items-start gap-3 min-w-0">
-              <span class="ui-section-icon mt-0.5" aria-hidden="true"><Info class="w-3.5 h-3.5" /></span>
+              <span class="ui-section-icon" aria-hidden="true"><Info class="w-3.5 h-3.5" /></span>
               <div class="min-w-0">
-                <h3 class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ t('settings.aboutTitle') }}</h3>
-                <p class="text-xs text-gray-500 mt-1 leading-relaxed">{{ t('settings.aboutDesc') }}</p>
+                <h2 class="text-base font-medium text-gray-900 dark:text-gray-100">{{ t('settings.aboutTitle') }}</h2>
+                <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.aboutDesc') }}</p>
               </div>
             </div>
             <button
               type="button"
-              class="ui-btn-secondary shrink-0 !px-4 !py-2 inline-flex items-center gap-1.5"
+              class="ui-btn-secondary shrink-0 !px-3 !py-1 !text-xs inline-flex items-center gap-1.5"
               :disabled="checkLoading || versionLoading || !appVersion"
               @click="handleCheckUpdate(true)"
             >
@@ -839,58 +825,79 @@ const handleImport = async (e: Event) => {
             </button>
           </div>
 
-          <div
-            v-if="appVersion"
-            class="p-3 border border-gray-200 dark:border-gray-800/60 bg-gray-50/50 dark:bg-white/[0.02] text-xs space-y-1.5 font-mono"
-          >
-            <div class="text-gray-600 dark:text-gray-400">
-              <span class="text-gray-500">{{ t('settings.currentVersion') }}:</span>
-              <span class="ml-1 text-gray-900 dark:text-gray-100 font-medium">v{{ appVersion.version }}</span>
-            </div>
-            <div class="text-gray-600 dark:text-gray-400">
-              <span class="text-gray-500">{{ t('settings.gitSha') }}:</span>
-              <span class="ml-1">{{ shortSha(appVersion.git_sha) }}</span>
-            </div>
-            <div class="text-gray-600 dark:text-gray-400">
-              <span class="text-gray-500">{{ t('settings.gitBranch') }}:</span>
-              <span class="ml-1">{{ appVersion.git_branch || t('settings.unknownValue') }}</span>
-            </div>
-            <div class="text-gray-600 dark:text-gray-400">
-              <span class="text-gray-500">{{ t('settings.buildTime') }}:</span>
-              <span class="ml-1">{{ appVersion.build_time || t('settings.unknownValue') }}</span>
-            </div>
-            <div class="text-gray-600 dark:text-gray-400">
-              <span class="text-gray-500">{{ t('settings.pythonRuntime') }}:</span>
-              <span class="ml-1">{{ appVersion.python }}</span>
-            </div>
-          </div>
-          <p v-else-if="versionLoading" class="text-xs text-gray-500">{{ t('settings.processing') }}</p>
-
-          <div
-            v-if="versionBanner"
-            class="text-xs rounded-md px-3 py-2 border"
-            :class="{
-              'border-sky-300/80 bg-sky-50 text-sky-900 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-100': versionBanner.kind === 'update' || versionBanner.kind === 'info',
-              'border-emerald-300/80 bg-emerald-50 text-emerald-900 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-100': versionBanner.kind === 'latest',
-              'border-amber-300/80 bg-amber-50 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100': versionBanner.kind === 'error',
-            }"
-          >
-            <div class="font-medium">{{ versionBanner.text }}</div>
-            <p v-if="versionBanner.kind === 'update'" class="mt-1 opacity-90">{{ t('settings.updateAvailableHint') }}</p>
-            <p v-if="versionBanner.kind === 'update'" class="mt-1 opacity-80 font-mono">{{ t('settings.upgradeDockerHint') }}</p>
-            <a
-              v-if="versionBanner.url"
-              :href="versionBanner.url"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="inline-flex items-center gap-1 mt-2 text-sky-700 dark:text-sky-300 underline-offset-2 hover:underline"
+          <div class="space-y-4">
+            <div
+              v-if="appVersion"
+              class="p-3 border border-gray-200 dark:border-gray-800/60 bg-gray-50/50 dark:bg-white/[0.02] text-xs space-y-1.5 font-mono"
             >
-              {{ t('settings.openRelease') }}
-              <ExternalLink class="w-3 h-3" />
-            </a>
+              <div class="text-gray-600 dark:text-gray-400">
+                <span class="text-gray-500">{{ t('settings.currentVersion') }}:</span>
+                <span class="ml-1 text-gray-900 dark:text-gray-100 font-medium">v{{ appVersion.version }}</span>
+              </div>
+              <div class="text-gray-600 dark:text-gray-400">
+                <span class="text-gray-500">{{ t('settings.gitSha') }}:</span>
+                <span class="ml-1">{{ shortSha(appVersion.git_sha) }}</span>
+              </div>
+              <div class="text-gray-600 dark:text-gray-400">
+                <span class="text-gray-500">{{ t('settings.gitBranch') }}:</span>
+                <span class="ml-1">{{ appVersion.git_branch || t('settings.unknownValue') }}</span>
+              </div>
+              <div class="text-gray-600 dark:text-gray-400">
+                <span class="text-gray-500">{{ t('settings.buildTime') }}:</span>
+                <span class="ml-1">{{ appVersion.build_time || t('settings.unknownValue') }}</span>
+              </div>
+              <div class="text-gray-600 dark:text-gray-400">
+                <span class="text-gray-500">{{ t('settings.pythonRuntime') }}:</span>
+                <span class="ml-1">{{ appVersion.python }}</span>
+              </div>
+            </div>
+            <p v-else-if="versionLoading" class="text-xs text-gray-500">{{ t('settings.processing') }}</p>
+
+            <!-- 运行时状态 -->
+            <div v-if="runtimeStatus" class="p-3 border border-gray-200 dark:border-gray-800/60 bg-gray-50/50 dark:bg-white/[0.02] text-xs space-y-1.5">
+              <div class="font-medium text-gray-700 dark:text-gray-300 mb-1">{{ t('settings.runtimeStatus') }}</div>
+              <div class="text-gray-600 dark:text-gray-400">
+                {{ t('settings.schedulerLock') }}:
+                <span :class="runtimeStatus.scheduler_lock_held ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'">
+                  {{ runtimeStatus.scheduler_lock_held ? t('settings.lockHeld') : t('settings.lockNotHeld') }}
+                </span>
+              </div>
+              <div class="text-gray-600 dark:text-gray-400">
+                {{ t('settings.legacyWritable') }}:
+                {{ runtimeStatus.legacy_tasks_writable ? t('settings.yes') : t('settings.no') }}
+              </div>
+              <div class="text-gray-600 dark:text-gray-400">
+                DB: {{ runtimeStatus.database_is_sqlite ? 'SQLite' : 'External' }}
+                <span v-if="runtimeStatus.monitor_shard"> · shard {{ runtimeStatus.monitor_shard }}</span>
+              </div>
+            </div>
+
+            <div
+              v-if="versionBanner"
+              class="text-xs rounded-md px-3 py-2 border"
+              :class="{
+                'border-sky-300/80 bg-sky-50 text-sky-900 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-100': versionBanner.kind === 'update' || versionBanner.kind === 'info',
+                'border-emerald-300/80 bg-emerald-50 text-emerald-900 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-100': versionBanner.kind === 'latest',
+                'border-amber-300/80 bg-amber-50 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100': versionBanner.kind === 'error',
+              }"
+            >
+              <div class="font-medium">{{ versionBanner.text }}</div>
+              <p v-if="versionBanner.kind === 'update'" class="mt-1 opacity-90">{{ t('settings.updateAvailableHint') }}</p>
+              <p v-if="versionBanner.kind === 'update'" class="mt-1 opacity-80 font-mono">{{ t('settings.upgradeDockerHint') }}</p>
+              <a
+                v-if="versionBanner.url"
+                :href="versionBanner.url"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="inline-flex items-center gap-1 mt-2 text-sky-700 dark:text-sky-300 underline-offset-2 hover:underline"
+              >
+                {{ t('settings.openRelease') }}
+                <ExternalLink class="w-3 h-3" />
+              </a>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      </div>
 
     </div>
   </div>
