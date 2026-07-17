@@ -10,6 +10,8 @@
 | `GET /api/ops/backup/status` | 数据目录备份状态与关键路径体积 |
 | `POST /api/ops/backup/export` | 下载推荐路径的 tar.gz 备份包 |
 | `GET /api/ops/memory` | 进程内存监控统计（若已启动） |
+| `GET /api/ops/version` | 本地版本、Git SHA/分支、构建时间、Python 版本 |
+| `POST /api/ops/version/check?force=false` | 远程更新检查（GitHub Releases；可关；失败 soft-fail） |
 | `POST /api/batch/sign-tasks` | 新版签到任务批量 enable/disable/delete/run |
 | `GET /api/events/sign-history?token=` | 签到历史 SSE（Dashboard 实时流，token 查询参数） |
 
@@ -54,6 +56,22 @@ curl http://127.0.0.1:8080/readyz
 ```
 
 当 `/readyz` 返回 `503` 时，说明应用还在启动中。
+
+## 版本与更新检查
+
+- 本地版本真相源：`tg_signer.__version__`，镜像可通过 `APP_VERSION` 覆盖。
+- 构建元数据：`GIT_SHA`、`GIT_BRANCH`、`BUILD_TIME`（Docker/CI 注入）。
+- 远程检查默认开启；内网可设 `APP_UPDATE_CHECK=0`。关闭后面板仍可用浏览器直连 GitHub 检查。
+- 自定义源：`APP_UPDATE_CHECK_URL`（需返回 GitHub Releases latest 兼容 JSON：`tag_name` + `html_url`）。
+- 服务端缓存 6 小时；`force=true` 跳过缓存。前端另有 24 小时 localStorage 缓存。
+
+示例：
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/api/ops/version
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  "http://127.0.0.1:8080/api/ops/version/check?force=true"
+```
 
 ## 告警配置
 

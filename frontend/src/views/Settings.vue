@@ -1,8 +1,25 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { Settings2, KeyRound, Bot, Sparkles, Database } from 'lucide-vue-next'
-import { getGlobalSettings, saveGlobalSettings, getTelegramConfig, saveTelegramConfig, resetTelegramConfig, getAIConfig, saveAIConfig, testAIConnection, exportAllConfigs, importAllConfigs, runDeviceKeepalive, getBackupStatus, exportBackupArchive, getRuntimeStatus } from '../lib/api'
-import type { BackupStatus, RuntimeStatus } from '../lib/api'
+import { Settings2, KeyRound, Bot, Sparkles, Database, Info, RefreshCw, ExternalLink } from 'lucide-vue-next'
+import {
+  getGlobalSettings,
+  saveGlobalSettings,
+  getTelegramConfig,
+  saveTelegramConfig,
+  resetTelegramConfig,
+  getAIConfig,
+  saveAIConfig,
+  testAIConnection,
+  exportAllConfigs,
+  importAllConfigs,
+  runDeviceKeepalive,
+  getBackupStatus,
+  exportBackupArchive,
+  getRuntimeStatus,
+  getAppVersion,
+  checkAppVersion,
+} from '../lib/api'
+import type { BackupStatus, RuntimeStatus, AppVersionInfo, UpdateCheckInfo } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
 import { useConfirm } from '../composables/useConfirm'
@@ -10,6 +27,12 @@ import CustomSelect from '../components/CustomSelect.vue'
 import { useAuthStore } from '../stores/auth'
 import { getLocalizedErrorMessage } from '../lib/types'
 import { devLog } from '../lib/devLog'
+import {
+  fetchGithubLatestRelease,
+  isUpdateAvailable,
+  loadCachedUpdateCheck,
+  saveCachedUpdateCheck,
+} from '../lib/version-utils'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -79,8 +102,182 @@ const backupStatus = ref<BackupStatus | null>(null)
 const runtimeStatus = ref<RuntimeStatus | null>(null)
 const pageLoading = ref(true)
 
+const appVersion = ref<AppVersionInfo | null>(null)
+const updateInfo = ref<UpdateCheckInfo | null>(null)
+const versionLoading = ref(false)
+const checkLoading = ref(false)
+const versionBanner = ref<{
+  kind: 'update' | 'latest' | 'error' | 'info'
+  text: string
+  url?: string | null
+} | null>(null)
+
 const notifySuccess = (msg: string) => toast.success(msg)
 const notifyError = (msg: string) => toast.error(msg)
+
+const shortSha = (sha?: string) => {
+  if (!sha) return t('settings.unknownValue')
+  return sha.length > 12 ? sha.slice(0, 12) : sha
+}
+
+const applyClientCache = () => {
+  const cached = loadCachedUpdateCheck()
+  if (!cached) return
+  updateInfo.value = {
+    enabled: true,
+    latest_version: cached.latest_version,
+    latest_url: cached.latest_url,
+    update_available: cached.update_available,
+    checked_at: cached.checked_at,
+    error: cached.error,
+    source: 'cache',
+    cached: true,
+  }
+  if (cached.update_available && cached.latest_version) {
+    versionBanner.value = {
+      kind: 'update',
+      text: t('settings.updateAvailable', { version: cached.latest_version }),
+      url: cached.latest_url,
+    }
+  }
+}
+
+const loadVersion = async (token: string) => {
+  versionLoading.value = true
+  try {
+    appVersion.value = await getAppVersion(token)
+    applyClientCache()
+  } catch (e) {
+    devLog.error('Failed to load app version', e)
+  } finally {
+    versionLoading.value = false
+  }
+}
+
+const runBrowserFallbackCheck = async (currentVersion: string) => {
+  const latest = await fetchGithubLatestRelease()
+  const available = isUpdateAvailable(currentVersion, latest.version)
+  const payload = {
+    latest_version: latest.version,
+    latest_url: latest.url,
+    update_available: available,
+    checked_at: new Date().toISOString(),
+    error: null as string | null,
+  }
+  saveCachedUpdateCheck(payload)
+  updateInfo.value = {
+    enabled: true,
+    ...payload,
+    source: 'github_releases_browser',
+    cached: false,
+  }
+  if (available) {
+    versionBanner.value = {
+      kind: 'update',
+      text: t('settings.updateAvailable', { version: latest.version }),
+      url: latest.url,
+    }
+  } else {
+    versionBanner.value = { kind: 'latest', text: t('settings.alreadyLatest') }
+  }
+}
+
+const handleCheckUpdate = async (force = true) => {
+  const token = authStore.token || ''
+  if (!token || !appVersion.value) return
+  checkLoading.value = true
+  versionBanner.value = null
+  const current = appVersion.value.version
+
+  const showFromRemote = (uc: UpdateCheckInfo) => {
+    updateInfo.value = uc
+    if (uc.error && !uc.latest_version) {
+      versionBanner.value = {
+        kind: 'error',
+        text: t('settings.updateCheckFailed', { error: uc.error }),
+      }
+      return
+    }
+    if (uc.update_available && uc.latest_version) {
+      saveCachedUpdateCheck({
+        latest_version: uc.latest_version,
+        latest_url: uc.latest_url,
+        update_available: true,
+        checked_at: uc.checked_at || new Date().toISOString(),
+        error: null,
+      })
+      versionBanner.value = {
+        kind: 'update',
+        text: t('settings.updateAvailable', { version: uc.latest_version }),
+        url: uc.latest_url,
+      }
+      return
+    }
+    saveCachedUpdateCheck({
+      latest_version: uc.latest_version,
+      latest_url: uc.latest_url,
+      update_available: false,
+      checked_at: uc.checked_at || new Date().toISOString(),
+      error: null,
+    })
+    versionBanner.value = { kind: 'latest', text: t('settings.alreadyLatest') }
+  }
+
+  try {
+    if (appVersion.value.update_check_enabled) {
+      try {
+        const res = await checkAppVersion(token, force)
+        appVersion.value = {
+          version: res.version,
+          git_sha: res.git_sha,
+          git_branch: res.git_branch,
+          build_time: res.build_time,
+          app_name: res.app_name,
+          python: res.python,
+          update_check_enabled: res.update_check_enabled,
+        }
+        if (res.update_check.error && !res.update_check.latest_version) {
+          try {
+            await runBrowserFallbackCheck(res.version)
+          } catch (browserErr) {
+            const msg = browserErr instanceof Error ? browserErr.message : String(browserErr)
+            versionBanner.value = {
+              kind: 'error',
+              text: t('settings.updateCheckFailed', {
+                error: res.update_check.error || msg,
+              }),
+            }
+          }
+          return
+        }
+        showFromRemote(res.update_check)
+        return
+      } catch {
+        try {
+          await runBrowserFallbackCheck(current)
+        } catch (browserErr) {
+          const msg = browserErr instanceof Error ? browserErr.message : String(browserErr)
+          versionBanner.value = {
+            kind: 'error',
+            text: t('settings.updateCheckFailed', { error: msg }),
+          }
+        }
+        return
+      }
+    }
+    try {
+      await runBrowserFallbackCheck(current)
+    } catch (browserErr) {
+      const msg = browserErr instanceof Error ? browserErr.message : String(browserErr)
+      versionBanner.value = {
+        kind: 'error',
+        text: t('settings.updateCheckFailed', { error: msg }),
+      }
+    }
+  } finally {
+    checkLoading.value = false
+  }
+}
 
 onMounted(async () => {
   const token = authStore.token || ''
@@ -130,6 +327,7 @@ onMounted(async () => {
     } catch (e) {
       devLog.error('Failed to load runtime status', e)
     }
+    await loadVersion(token)
   } catch (e) {
     devLog.error('Failed to load settings', e)
     notifyError(getLocalizedErrorMessage(e, t, t('settings.loadFailed')))
@@ -625,6 +823,79 @@ const handleImport = async (e: Event) => {
               DB: {{ runtimeStatus.database_is_sqlite ? 'SQLite' : 'External' }}
               <span v-if="runtimeStatus.monitor_shard"> · shard {{ runtimeStatus.monitor_shard }}</span>
             </div>
+          </div>
+        </div>
+
+        <!-- 关于 / 版本 -->
+        <div class="pt-5 border-t border-gray-200 dark:border-gray-800/60 max-w-2xl space-y-3 mt-5">
+          <div class="flex items-start justify-between gap-3">
+            <div class="flex items-start gap-3 min-w-0">
+              <span class="ui-section-icon mt-0.5" aria-hidden="true"><Info class="w-3.5 h-3.5" /></span>
+              <div class="min-w-0">
+                <h3 class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ t('settings.aboutTitle') }}</h3>
+                <p class="text-xs text-gray-500 mt-1 leading-relaxed">{{ t('settings.aboutDesc') }}</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              class="ui-btn-secondary shrink-0 !px-4 !py-2 inline-flex items-center gap-1.5"
+              :disabled="checkLoading || versionLoading || !appVersion"
+              @click="handleCheckUpdate(true)"
+            >
+              <RefreshCw class="w-3.5 h-3.5" :class="checkLoading ? 'animate-spin' : ''" />
+              {{ checkLoading ? t('settings.checkingUpdate') : t('settings.checkUpdate') }}
+            </button>
+          </div>
+
+          <div
+            v-if="appVersion"
+            class="p-3 border border-gray-200 dark:border-gray-800/60 bg-gray-50/50 dark:bg-white/[0.02] text-xs space-y-1.5 font-mono"
+          >
+            <div class="text-gray-600 dark:text-gray-400">
+              <span class="text-gray-500">{{ t('settings.currentVersion') }}:</span>
+              <span class="ml-1 text-gray-900 dark:text-gray-100 font-medium">v{{ appVersion.version }}</span>
+            </div>
+            <div class="text-gray-600 dark:text-gray-400">
+              <span class="text-gray-500">{{ t('settings.gitSha') }}:</span>
+              <span class="ml-1">{{ shortSha(appVersion.git_sha) }}</span>
+            </div>
+            <div class="text-gray-600 dark:text-gray-400">
+              <span class="text-gray-500">{{ t('settings.gitBranch') }}:</span>
+              <span class="ml-1">{{ appVersion.git_branch || t('settings.unknownValue') }}</span>
+            </div>
+            <div class="text-gray-600 dark:text-gray-400">
+              <span class="text-gray-500">{{ t('settings.buildTime') }}:</span>
+              <span class="ml-1">{{ appVersion.build_time || t('settings.unknownValue') }}</span>
+            </div>
+            <div class="text-gray-600 dark:text-gray-400">
+              <span class="text-gray-500">{{ t('settings.pythonRuntime') }}:</span>
+              <span class="ml-1">{{ appVersion.python }}</span>
+            </div>
+          </div>
+          <p v-else-if="versionLoading" class="text-xs text-gray-500">{{ t('settings.processing') }}</p>
+
+          <div
+            v-if="versionBanner"
+            class="text-xs rounded-md px-3 py-2 border"
+            :class="{
+              'border-sky-300/80 bg-sky-50 text-sky-900 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-100': versionBanner.kind === 'update' || versionBanner.kind === 'info',
+              'border-emerald-300/80 bg-emerald-50 text-emerald-900 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-100': versionBanner.kind === 'latest',
+              'border-amber-300/80 bg-amber-50 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100': versionBanner.kind === 'error',
+            }"
+          >
+            <div class="font-medium">{{ versionBanner.text }}</div>
+            <p v-if="versionBanner.kind === 'update'" class="mt-1 opacity-90">{{ t('settings.updateAvailableHint') }}</p>
+            <p v-if="versionBanner.kind === 'update'" class="mt-1 opacity-80 font-mono">{{ t('settings.upgradeDockerHint') }}</p>
+            <a
+              v-if="versionBanner.url"
+              :href="versionBanner.url"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="inline-flex items-center gap-1 mt-2 text-sky-700 dark:text-sky-300 underline-offset-2 hover:underline"
+            >
+              {{ t('settings.openRelease') }}
+              <ExternalLink class="w-3 h-3" />
+            </a>
           </div>
         </div>
       </section>

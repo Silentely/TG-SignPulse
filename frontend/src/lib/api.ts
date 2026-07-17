@@ -1161,3 +1161,38 @@ export interface RuntimeStatus {
 
 export const getRuntimeStatus = (token: string) =>
   request<RuntimeStatus>("/ops/runtime-status", {}, token);
+
+export interface AppVersionInfo {
+  version: string;
+  git_sha: string;
+  git_branch: string;
+  build_time: string;
+  app_name: string;
+  python: string;
+  update_check_enabled: boolean;
+}
+
+export interface UpdateCheckInfo {
+  enabled: boolean;
+  latest_version: string | null;
+  latest_url: string | null;
+  update_available: boolean;
+  checked_at: string | null;
+  error: string | null;
+  source: string;
+  cached: boolean;
+}
+
+export interface AppVersionCheckResult extends AppVersionInfo {
+  update_check: UpdateCheckInfo;
+}
+
+export const getAppVersion = (token: string) =>
+  request<AppVersionInfo>("/ops/version", {}, token);
+
+export const checkAppVersion = (token: string, force = false) =>
+  request<AppVersionCheckResult>(
+    `/ops/version/check?force=${force ? "true" : "false"}`,
+    { method: "POST" },
+    token,
+  );
