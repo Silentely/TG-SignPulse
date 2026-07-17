@@ -14,6 +14,8 @@ from backend.utils.version_info import (
     is_update_check_enabled,
     normalize_version,
     parse_semver,
+    resolve_app_version,
+    validate_update_check_url,
 )
 
 
@@ -42,6 +44,31 @@ class TestSemver:
         assert is_update_available("2.0.0", "") is False
 
 
+class TestResolveVersion:
+    def test_empty_and_placeholder_fallback(self):
+        assert resolve_app_version("2.0.0", "") == "2.0.0"
+        assert resolve_app_version("2.0.0", "0.0.0") == "2.0.0"
+        assert resolve_app_version("2.0.0", "v0.0.0") == "2.0.0"
+        assert resolve_app_version("2.0.0", "0.0.0-dev") == "2.0.0"
+
+    def test_real_env_override(self):
+        assert resolve_app_version("2.0.0", "v2.1.0") == "2.1.0"
+
+
+class TestValidateUrl:
+    def test_https_ok(self):
+        url = "https://api.github.com/repos/Silentely/TG-SignPulse/releases/latest"
+        assert validate_update_check_url(url) == url
+
+    def test_http_rejected(self):
+        with pytest.raises(ValueError, match="https"):
+            validate_update_check_url("http://example.com/x")
+
+    def test_empty_rejected(self):
+        with pytest.raises(ValueError):
+            validate_update_check_url("")
+
+
 class TestLocalInfo:
     def test_falls_back_to_tg_signer_version(self, monkeypatch):
         monkeypatch.delenv("APP_VERSION", raising=False)
@@ -62,6 +89,13 @@ class TestLocalInfo:
         monkeypatch.setenv("APP_VERSION", "v9.9.9")
         info = get_local_version_info()
         assert info["version"] == "9.9.9"
+
+    def test_placeholder_app_version_falls_back(self, monkeypatch):
+        monkeypatch.setenv("APP_VERSION", "0.0.0")
+        info = get_local_version_info()
+        from tg_signer import __version__
+
+        assert info["version"] == __version__
 
 
 class TestUpdateCheckFlag:
@@ -151,3 +185,27 @@ class TestRemoteCheck:
         assert result["update_available"] is False
         assert result["error"]
         assert len(result["error"]) > 0
+
+    def test_network_error_not_cached(self, monkeypatch):
+        """失败结果不得占用成功缓存，后续应再次请求。"""
+        monkeypatch.setenv("APP_UPDATE_CHECK", "1")
+        monkeypatch.setenv("APP_VERSION", "2.0.0")
+        mock_client = MagicMock()
+        mock_client.__enter__.return_value = mock_client
+        mock_client.__exit__.return_value = None
+        mock_client.get.side_effect = Exception("timeout")
+        with patch(
+            "backend.utils.version_info.httpx.Client", return_value=mock_client
+        ):
+            check_remote_update(force=True)
+            check_remote_update(force=False)
+        assert mock_client.get.call_count == 2
+
+    def test_rejects_non_https_custom_url(self, monkeypatch):
+        monkeypatch.setenv("APP_UPDATE_CHECK", "1")
+        monkeypatch.setenv("APP_UPDATE_CHECK_URL", "http://evil.local/latest")
+        result = check_remote_update(force=True)
+        assert result["enabled"] is True
+        assert result["update_available"] is False
+        assert result["error"]
+        assert "https" in result["error"].lower()

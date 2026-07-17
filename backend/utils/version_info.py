@@ -17,6 +17,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple
+from urllib.parse import urlparse
 
 import httpx
 
@@ -27,6 +28,8 @@ DEFAULT_UPDATE_CHECK_URL = (
 )
 UPDATE_CACHE_TTL_SECONDS = 6 * 3600
 _HTTP_TIMEOUT_SECONDS = 8.0
+# Docker 未注入真实版本时的占位，不应覆盖包版本
+_PLACEHOLDER_VERSIONS = frozenset({"0.0.0", "0.0.0-dev"})
 
 _cache_lock = threading.Lock()
 _cache: Dict[str, Any] = {
@@ -104,12 +107,38 @@ def _read_env(*names: str, default: str = "") -> str:
     return default
 
 
+def resolve_app_version(package_version: str, env_version: str = "") -> str:
+    """解析展示/比较用版本：空或占位 APP_VERSION 回退到包版本。"""
+    raw = (env_version or "").strip()
+    if not raw:
+        return str(package_version)
+    normalized = normalize_version(raw)
+    if not normalized or normalized in _PLACEHOLDER_VERSIONS:
+        return str(package_version)
+    return normalized
+
+
+def validate_update_check_url(url: str) -> str:
+    """仅允许 https 远程检查地址，降低 SSRF/误配风险。"""
+    raw = (url or "").strip()
+    if not raw:
+        raise ValueError("update check URL is empty")
+    parsed = urlparse(raw)
+    if parsed.scheme != "https":
+        raise ValueError("update check URL must use https")
+    if not parsed.netloc or parsed.username or parsed.password:
+        raise ValueError("update check URL host is invalid")
+    return raw
+
+
 def get_local_version_info() -> Dict[str, Any]:
     """收集本进程版本与构建信息（无网络）。"""
     from tg_signer import __version__ as package_version
 
-    version_raw = _read_env("APP_VERSION", default=str(package_version))
-    version = normalize_version(version_raw) or str(package_version)
+    version = resolve_app_version(
+        str(package_version),
+        _read_env("APP_VERSION", default=""),
+    )
     git_sha = _read_env("GIT_SHA", default="")
     git_branch = _read_env("GIT_BRANCH", default="")
     build_time = _read_env("BUILD_TIME", "APP_BUILD_TIME", default="")
@@ -150,13 +179,28 @@ def _empty_update_payload(
     }
 
 
+def _safe_release_page_url(raw: Optional[str]) -> Optional[str]:
+    """仅保留 http(s) 发布页链接，避免异常协议进入 API 响应。"""
+    if not raw:
+        return None
+    try:
+        parsed = urlparse(str(raw).strip())
+    except Exception:
+        return None
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return None
+    return str(raw).strip()
+
+
 def _fetch_latest_release(url: str) -> Dict[str, Any]:
+    safe_url = validate_update_check_url(url)
     headers = {
         "Accept": "application/vnd.github+json",
         "User-Agent": "TG-SignPulse-VersionCheck/1.0",
     }
+    # 允许有限跳转（GitHub 可能 30x），超时限制外网耗时
     with httpx.Client(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
-        resp = client.get(url, headers=headers)
+        resp = client.get(safe_url, headers=headers)
         resp.raise_for_status()
         data = resp.json()
     if not isinstance(data, dict):
@@ -164,7 +208,7 @@ def _fetch_latest_release(url: str) -> Dict[str, Any]:
     tag = str(data.get("tag_name") or data.get("name") or "").strip()
     if not tag:
         raise ValueError("release missing tag_name")
-    html_url = str(data.get("html_url") or "").strip() or None
+    html_url = _safe_release_page_url(data.get("html_url"))
     latest = normalize_version(tag)
     local = get_local_version_info()
     return {
@@ -180,7 +224,10 @@ def _fetch_latest_release(url: str) -> Dict[str, Any]:
 
 
 def check_remote_update(*, force: bool = False) -> Dict[str, Any]:
-    """检查远程最新版本；关闭时不联网；失败 soft-fail。"""
+    """检查远程最新版本；关闭时不联网；失败 soft-fail。
+
+    仅缓存成功结果；失败不写缓存，避免短暂网络故障被锁 6 小时。
+    """
     if not is_update_check_enabled():
         return _empty_update_payload(enabled=False)
 
@@ -189,8 +236,18 @@ def check_remote_update(*, force: bool = False) -> Dict[str, Any]:
         with _cache_lock:
             payload = _cache.get("payload")
             expires_at = float(_cache.get("expires_at") or 0.0)
-            if payload is not None and now < expires_at:
+            if (
+                payload is not None
+                and now < expires_at
+                and not payload.get("error")
+                and payload.get("latest_version")
+            ):
                 cached = dict(payload)
+                # 缓存命中时按当前本地版本重算是否可更新
+                local = get_local_version_info()
+                cached["update_available"] = is_update_available(
+                    local["version"], str(cached.get("latest_version") or "")
+                )
                 cached["cached"] = True
                 return cached
 
@@ -199,7 +256,8 @@ def check_remote_update(*, force: bool = False) -> Dict[str, Any]:
         result = _fetch_latest_release(url)
     except Exception as exc:
         logger.warning("远程版本检查失败: %s", exc)
-        result = _empty_update_payload(enabled=True, error=str(exc)[:500])
+        # 不缓存失败结果
+        return _empty_update_payload(enabled=True, error=str(exc)[:300])
 
     with _cache_lock:
         _cache["payload"] = dict(result)

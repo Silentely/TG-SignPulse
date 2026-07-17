@@ -31,6 +31,7 @@ import {
   fetchGithubLatestRelease,
   isUpdateAvailable,
   loadCachedUpdateCheck,
+  safeHttpUrl,
   saveCachedUpdateCheck,
 } from '../lib/version-utils'
 
@@ -103,7 +104,6 @@ const runtimeStatus = ref<RuntimeStatus | null>(null)
 const pageLoading = ref(true)
 
 const appVersion = ref<AppVersionInfo | null>(null)
-const updateInfo = ref<UpdateCheckInfo | null>(null)
 const versionLoading = ref(false)
 const checkLoading = ref(false)
 const versionBanner = ref<{
@@ -120,26 +120,22 @@ const shortSha = (sha?: string) => {
   return sha.length > 12 ? sha.slice(0, 12) : sha
 }
 
+const setUpdateBanner = (
+  kind: 'update' | 'latest' | 'error' | 'info',
+  text: string,
+  url?: string | null,
+) => {
+  versionBanner.value = { kind, text, url: safeHttpUrl(url ?? null) }
+}
+
 const applyClientCache = () => {
   const cached = loadCachedUpdateCheck()
-  if (!cached) return
-  updateInfo.value = {
-    enabled: true,
-    latest_version: cached.latest_version,
-    latest_url: cached.latest_url,
-    update_available: cached.update_available,
-    checked_at: cached.checked_at,
-    error: cached.error,
-    source: 'cache',
-    cached: true,
-  }
-  if (cached.update_available && cached.latest_version) {
-    versionBanner.value = {
-      kind: 'update',
-      text: t('settings.updateAvailable', { version: cached.latest_version }),
-      url: cached.latest_url,
-    }
-  }
+  if (!cached?.update_available || !cached.latest_version) return
+  setUpdateBanner(
+    'update',
+    t('settings.updateAvailable', { version: cached.latest_version }),
+    cached.latest_url,
+  )
 }
 
 const loadVersion = async (token: string) => {
@@ -157,29 +153,57 @@ const loadVersion = async (token: string) => {
 const runBrowserFallbackCheck = async (currentVersion: string) => {
   const latest = await fetchGithubLatestRelease()
   const available = isUpdateAvailable(currentVersion, latest.version)
-  const payload = {
+  const safeUrl = safeHttpUrl(latest.url)
+  saveCachedUpdateCheck({
     latest_version: latest.version,
-    latest_url: latest.url,
+    latest_url: safeUrl,
     update_available: available,
     checked_at: new Date().toISOString(),
-    error: null as string | null,
-  }
-  saveCachedUpdateCheck(payload)
-  updateInfo.value = {
-    enabled: true,
-    ...payload,
-    source: 'github_releases_browser',
-    cached: false,
-  }
+    error: null,
+  })
   if (available) {
-    versionBanner.value = {
-      kind: 'update',
-      text: t('settings.updateAvailable', { version: latest.version }),
-      url: latest.url,
-    }
+    setUpdateBanner(
+      'update',
+      t('settings.updateAvailable', { version: latest.version }),
+      safeUrl,
+    )
   } else {
-    versionBanner.value = { kind: 'latest', text: t('settings.alreadyLatest') }
+    setUpdateBanner('latest', t('settings.alreadyLatest'))
   }
+}
+
+const showFromRemote = (uc: UpdateCheckInfo) => {
+  if (uc.error && !uc.latest_version) {
+    setUpdateBanner(
+      'error',
+      t('settings.updateCheckFailed', { error: uc.error }),
+    )
+    return
+  }
+  const safeUrl = safeHttpUrl(uc.latest_url)
+  if (uc.update_available && uc.latest_version) {
+    saveCachedUpdateCheck({
+      latest_version: uc.latest_version,
+      latest_url: safeUrl,
+      update_available: true,
+      checked_at: uc.checked_at || new Date().toISOString(),
+      error: null,
+    })
+    setUpdateBanner(
+      'update',
+      t('settings.updateAvailable', { version: uc.latest_version }),
+      safeUrl,
+    )
+    return
+  }
+  saveCachedUpdateCheck({
+    latest_version: uc.latest_version,
+    latest_url: safeUrl,
+    update_available: false,
+    checked_at: uc.checked_at || new Date().toISOString(),
+    error: null,
+  })
+  setUpdateBanner('latest', t('settings.alreadyLatest'))
 }
 
 const handleCheckUpdate = async (force = true) => {
@@ -188,40 +212,6 @@ const handleCheckUpdate = async (force = true) => {
   checkLoading.value = true
   versionBanner.value = null
   const current = appVersion.value.version
-
-  const showFromRemote = (uc: UpdateCheckInfo) => {
-    updateInfo.value = uc
-    if (uc.error && !uc.latest_version) {
-      versionBanner.value = {
-        kind: 'error',
-        text: t('settings.updateCheckFailed', { error: uc.error }),
-      }
-      return
-    }
-    if (uc.update_available && uc.latest_version) {
-      saveCachedUpdateCheck({
-        latest_version: uc.latest_version,
-        latest_url: uc.latest_url,
-        update_available: true,
-        checked_at: uc.checked_at || new Date().toISOString(),
-        error: null,
-      })
-      versionBanner.value = {
-        kind: 'update',
-        text: t('settings.updateAvailable', { version: uc.latest_version }),
-        url: uc.latest_url,
-      }
-      return
-    }
-    saveCachedUpdateCheck({
-      latest_version: uc.latest_version,
-      latest_url: uc.latest_url,
-      update_available: false,
-      checked_at: uc.checked_at || new Date().toISOString(),
-      error: null,
-    })
-    versionBanner.value = { kind: 'latest', text: t('settings.alreadyLatest') }
-  }
 
   try {
     if (appVersion.value.update_check_enabled) {
@@ -241,12 +231,12 @@ const handleCheckUpdate = async (force = true) => {
             await runBrowserFallbackCheck(res.version)
           } catch (browserErr) {
             const msg = browserErr instanceof Error ? browserErr.message : String(browserErr)
-            versionBanner.value = {
-              kind: 'error',
-              text: t('settings.updateCheckFailed', {
+            setUpdateBanner(
+              'error',
+              t('settings.updateCheckFailed', {
                 error: res.update_check.error || msg,
               }),
-            }
+            )
           }
           return
         }
@@ -257,22 +247,24 @@ const handleCheckUpdate = async (force = true) => {
           await runBrowserFallbackCheck(current)
         } catch (browserErr) {
           const msg = browserErr instanceof Error ? browserErr.message : String(browserErr)
-          versionBanner.value = {
-            kind: 'error',
-            text: t('settings.updateCheckFailed', { error: msg }),
-          }
+          setUpdateBanner(
+            'error',
+            t('settings.updateCheckFailed', { error: msg }),
+          )
         }
         return
       }
     }
+    // 服务端关闭远程检查：浏览器直连 GitHub
+    setUpdateBanner('info', t('settings.updateCheckDisabled'))
     try {
       await runBrowserFallbackCheck(current)
     } catch (browserErr) {
       const msg = browserErr instanceof Error ? browserErr.message : String(browserErr)
-      versionBanner.value = {
-        kind: 'error',
-        text: t('settings.updateCheckFailed', { error: msg }),
-      }
+      setUpdateBanner(
+        'error',
+        t('settings.updateCheckFailed', { error: msg }),
+      )
     }
   } finally {
     checkLoading.value = false

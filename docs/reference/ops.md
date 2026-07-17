@@ -59,11 +59,11 @@ curl http://127.0.0.1:8080/readyz
 
 ## 版本与更新检查
 
-- 本地版本真相源：`tg_signer.__version__`，镜像可通过 `APP_VERSION` 覆盖。
+- 本地版本真相源：`tg_signer.__version__`。镜像可通过 `APP_VERSION` 覆盖；空值或占位 `0.0.0` 不覆盖包版本。
 - 构建元数据：`GIT_SHA`、`GIT_BRANCH`、`BUILD_TIME`（Docker/CI 注入）。
 - 远程检查默认开启；内网可设 `APP_UPDATE_CHECK=0`。关闭后面板仍可用浏览器直连 GitHub 检查。
-- 自定义源：`APP_UPDATE_CHECK_URL`（需返回 GitHub Releases latest 兼容 JSON：`tag_name` + `html_url`）。
-- 服务端缓存 6 小时；`force=true` 跳过缓存。前端另有 24 小时 localStorage 缓存。
+- 自定义源：`APP_UPDATE_CHECK_URL`（**仅 https**；JSON 需含 `tag_name` + 可选 `html_url`）。
+- 服务端仅缓存**成功**结果 6 小时；失败不缓存。`force=true` 跳过缓存。前端另有 24 小时 localStorage 缓存。
 
 示例：
 

@@ -84,6 +84,18 @@ export function loadCachedUpdateCheck(): ClientUpdateCheckPayload | null {
   }
 }
 
+/** 仅允许 http(s) 外链，防止 javascript: 等协议进入 href。 */
+export function safeHttpUrl(raw: string | null | undefined): string | null {
+  if (!raw) return null
+  try {
+    const u = new URL(String(raw).trim())
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return null
+    return u.toString()
+  } catch {
+    return null
+  }
+}
+
 export async function fetchGithubLatestRelease(
   url: string = DEFAULT_GITHUB_RELEASES_URL,
 ): Promise<{ version: string; url: string | null }> {
@@ -105,6 +117,6 @@ export async function fetchGithubLatestRelease(
   if (!tag) throw new Error('release missing tag_name')
   return {
     version: normalizeVersion(tag),
-    url: data.html_url ? String(data.html_url) : null,
+    url: safeHttpUrl(data.html_url ?? null),
   }
 }

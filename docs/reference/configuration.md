@@ -18,12 +18,12 @@
 | `APP_LEGACY_TASKS_READONLY` | `1` | | 旧 `/api/tasks` 写操作禁用（410）；测试/临时兼容可设 `0` |
 | `APP_MONITOR_SHARD` | （空） | | 监听分片 `i/n`，如 `0/3` |
 | `APP_MONITOR_ACCOUNT_ALLOWLIST` | （空） | | 逗号分隔，仅这些账号参与关键词监听 |
-| `APP_VERSION` | （空=使用包版本） | | 覆盖显示/比较用版本号；Docker 构建注入 |
+| `APP_VERSION` | （空=使用包版本） | | 覆盖显示/比较用版本号；空或 `0.0.0` 占位回退包版本 |
 | `GIT_SHA` | （空） | | Git commit SHA |
 | `GIT_BRANCH` | （空） | | Git 分支或 tag 名 |
 | `BUILD_TIME` | （空） | | UTC 构建时间 ISO 字符串 |
 | `APP_UPDATE_CHECK` | `1` | | `0/false/off` 关闭服务端远程版本检查 |
-| `APP_UPDATE_CHECK_URL` | GitHub Releases latest | | 远程版本 JSON 源 |
+| `APP_UPDATE_CHECK_URL` | GitHub Releases latest | | 远程版本 JSON 源（必须 https） |
 
 ### 时区管理
 

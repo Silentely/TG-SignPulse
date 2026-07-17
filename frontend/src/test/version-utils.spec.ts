@@ -5,6 +5,7 @@ import {
   isUpdateAvailable,
   loadCachedUpdateCheck,
   normalizeVersion,
+  safeHttpUrl,
   saveCachedUpdateCheck,
 } from '../lib/version-utils'
 
@@ -76,5 +77,29 @@ describe('version-utils', () => {
       vi.fn().mockResolvedValue({ ok: false, status: 403, json: async () => ({}) }),
     )
     await expect(fetchGithubLatestRelease()).rejects.toThrow()
+  })
+
+  it('safeHttpUrl allows only http(s)', () => {
+    expect(safeHttpUrl('https://example.com/a')).toBe('https://example.com/a')
+    expect(safeHttpUrl('http://example.com/a')).toBe('http://example.com/a')
+    expect(safeHttpUrl('javascript:alert(1)')).toBeNull()
+    expect(safeHttpUrl('data:text/html,hi')).toBeNull()
+    expect(safeHttpUrl(null)).toBeNull()
+  })
+
+  it('fetchGithubLatestRelease drops unsafe html_url', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          tag_name: 'v1.0.0',
+          html_url: 'javascript:alert(1)',
+        }),
+      }),
+    )
+    const result = await fetchGithubLatestRelease()
+    expect(result.version).toBe('1.0.0')
+    expect(result.url).toBeNull()
   })
 })
