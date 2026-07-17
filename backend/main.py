@@ -144,7 +144,25 @@ async def lifespan(fastapi_app: FastAPI):
         await on_shutdown()
 
 
-app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
+def _app_version() -> str:
+    try:
+        from backend.utils.version_info import get_local_version_info
+
+        return str(get_local_version_info().get("version") or "0.0.0")
+    except Exception:
+        try:
+            from tg_signer import __version__
+
+            return str(__version__)
+        except Exception:
+            return "0.0.0"
+
+
+app = FastAPI(
+    title=settings.app_name,
+    version=_app_version(),
+    lifespan=lifespan,
+)
 app.state.ready = False
 
 

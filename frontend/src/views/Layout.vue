@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import { useAuthStore } from '../stores/auth'
+import { getAppVersion } from '../lib/api'
 import {
   LayoutDashboard,
   Users,
@@ -21,10 +23,29 @@ import { lockBodyScroll, unlockBodyScroll } from '../lib/body-scroll-lock'
 import UserProfileModal from '../components/settings/UserProfileModal.vue'
 
 const route = useRoute()
+const router = useRouter()
+const authStore = useAuthStore()
 const { isDark, toggleTheme } = useTheme()
 const { locale, toggleLanguage, t } = useI18n()
 const isMobileMenuOpen = ref(false)
 const showProfileModal = ref(false)
+const sidebarVersion = ref('')
+
+const loadSidebarVersion = async () => {
+  const token = authStore.token
+  if (!token) return
+  try {
+    const info = await getAppVersion(token)
+    sidebarVersion.value = info.version ? `v${info.version}` : ''
+  } catch {
+    sidebarVersion.value = ''
+  }
+}
+
+const goSettingsAbout = () => {
+  isMobileMenuOpen.value = false
+  router.push({ name: 'settings' })
+}
 
 const onKeydown = (e: KeyboardEvent) => {
   if (e.key === 'Escape' && isMobileMenuOpen.value) {
@@ -45,7 +66,10 @@ watch(isMobileMenuOpen, (open) => {
   }
 })
 
-onMounted(() => window.addEventListener('keydown', onKeydown))
+onMounted(() => {
+  window.addEventListener('keydown', onKeydown)
+  void loadSidebarVersion()
+})
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
   if (menuScrollLocked) {
@@ -96,7 +120,16 @@ const handleNavClick = () => {
         <div class="ui-brand-mark w-7 h-7 text-[11px] shrink-0">TG</div>
         <div class="min-w-0 flex-1">
           <div class="font-mono font-medium tracking-[0.18em] text-gray-900 dark:text-gray-100 text-sm leading-none">SIGNPULSE</div>
-          <div class="text-[10px] text-gray-400 mt-1 tracking-wide truncate">Telegram Ops</div>
+          <div class="text-[10px] text-gray-400 mt-1 tracking-wide truncate">
+            <button
+              v-if="sidebarVersion"
+              type="button"
+              class="hover:text-sky-500 transition-colors"
+              :title="t('settings.aboutTitle')"
+              @click="goSettingsAbout"
+            >{{ sidebarVersion }}</button>
+            <span v-else>Telegram Ops</span>
+          </div>
         </div>
         <!-- 仅移动端抽屉显示关闭；提高可点区域与层级 -->
         <button

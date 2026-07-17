@@ -295,3 +295,58 @@ def runtime_status(
         monitor_shard=os.getenv("APP_MONITOR_SHARD", "") or "",
         monitor_allowlist=os.getenv("APP_MONITOR_ACCOUNT_ALLOWLIST", "") or "",
     )
+
+
+class VersionInfoResponse(BaseModel):
+    version: str
+    git_sha: str = ""
+    git_branch: str = ""
+    build_time: str = ""
+    app_name: str = ""
+    python: str = ""
+    update_check_enabled: bool = True
+
+
+class UpdateCheckInfo(BaseModel):
+    enabled: bool
+    latest_version: Optional[str] = None
+    latest_url: Optional[str] = None
+    update_available: bool = False
+    checked_at: Optional[str] = None
+    error: Optional[str] = None
+    source: str = "github_releases"
+    cached: bool = False
+
+
+class VersionCheckResponse(VersionInfoResponse):
+    update_check: UpdateCheckInfo
+
+
+@router.get("/version", response_model=VersionInfoResponse)
+def get_version(current_user: User = Depends(get_current_user)):
+    """返回本地版本与构建元数据（无外网请求）。"""
+    from backend.utils.version_info import get_local_version_info
+
+    return VersionInfoResponse(**get_local_version_info())
+
+
+@router.post("/version/check", response_model=VersionCheckResponse)
+def check_version(
+    force: bool = False,
+    current_user: User = Depends(get_current_user),
+):
+    """本地版本 + 可选远程更新检查。
+
+    force=true 时跳过服务端缓存。远程失败 soft-fail，HTTP 仍 200。
+    """
+    from backend.utils.version_info import (
+        check_remote_update,
+        get_local_version_info,
+    )
+
+    local = get_local_version_info()
+    remote = check_remote_update(force=force)
+    return VersionCheckResponse(
+        **local,
+        update_check=UpdateCheckInfo(**remote),
+    )

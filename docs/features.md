@@ -45,6 +45,7 @@ TG-SignPulse 是 Telegram 多账号自动化管理面板，把签到、消息交
 ### 运维与可观测
 
 - `/healthz`、`/readyz`（含调度锁、旧 API 只读状态）
+- 版本信息与更新检查（Settings / 侧栏；`/api/ops/version`）
 - Dashboard SSE 实时日志
 - 任务 WebSocket 日志
 - 配置/数据备份导出

@@ -158,6 +158,21 @@ jobs:
             } >> "${GITHUB_OUTPUT}"
           fi
 
+          # 版本号：tag 用 ref 名；否则读 tg_signer/__init__.py 中的 __version__
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            app_version="${GITHUB_REF_NAME}"
+          else
+            app_version="$(python - <<'PY'
+import re, pathlib
+text = pathlib.Path("tg_signer/__init__.py").read_text(encoding="utf-8")
+m = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', text)
+print(m.group(1) if m else "0.0.0")
+PY
+)"
+          fi
+          echo "app_version=${app_version}" >> "${GITHUB_OUTPUT}"
+          echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "${GITHUB_OUTPUT}"
+
       - name: Login to GHCR
         uses: docker/login-action@v4
         with:
@@ -177,3 +192,5 @@ jobs:
           build-args: |
             GIT_SHA=${{ github.sha }}
             GIT_BRANCH=${{ github.ref_name }}
+            APP_VERSION=${{ steps.vars.outputs.app_version }}
+            BUILD_TIME=${{ steps.vars.outputs.build_time }}
