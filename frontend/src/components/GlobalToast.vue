@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { X } from 'lucide-vue-next'
+import { X, CheckCircle2, AlertCircle, Info } from 'lucide-vue-next'
 import { useToast } from '../composables/useToast'
+import { useI18n } from '../composables/useI18n'
 
 const { toasts, dismiss } = useToast()
+const { t } = useI18n()
 </script>
 
 <template>
@@ -20,18 +22,38 @@ const { toasts, dismiss } = useToast()
           v-for="toast in toasts"
           :key="toast.id"
           role="status"
-          class="pointer-events-auto flex items-start gap-2 px-4 py-2.5 text-sm shadow-lg border rounded-md"
+          class="pointer-events-auto flex items-start gap-2.5 px-3.5 py-2.5 text-sm shadow-[var(--sp-shadow-md)] border backdrop-blur-sm"
           :class="{
-            'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800/60 text-gray-900 dark:text-gray-100': toast.type === 'info',
-            'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-800/50 text-emerald-700 dark:text-emerald-400': toast.type === 'success',
-            'bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-800/50 text-rose-700 dark:text-rose-400': toast.type === 'error',
+            'bg-white/95 dark:bg-[var(--sp-bg-elevated)]/95 border-gray-200 dark:border-[var(--sp-border)] text-gray-900 dark:text-gray-100': toast.type === 'info',
+            'bg-emerald-50/95 dark:bg-emerald-950/80 border-emerald-200 dark:border-emerald-800/50 text-emerald-800 dark:text-emerald-300': toast.type === 'success',
+            'bg-rose-50/95 dark:bg-rose-950/80 border-rose-200 dark:border-rose-800/50 text-rose-800 dark:text-rose-300': toast.type === 'error',
           }"
         >
-          <span class="flex-1 break-words leading-relaxed">{{ toast.message }}</span>
+          <CheckCircle2
+            v-if="toast.type === 'success'"
+            class="w-4 h-4 shrink-0 mt-0.5 opacity-90"
+          />
+          <AlertCircle
+            v-else-if="toast.type === 'error'"
+            class="w-4 h-4 shrink-0 mt-0.5 opacity-90"
+          />
+          <Info
+            v-else
+            class="w-4 h-4 shrink-0 mt-0.5 opacity-70"
+          />
+          <div class="flex-1 min-w-0">
+            <div class="break-words leading-relaxed font-medium">{{ toast.message }}</div>
+            <div
+              v-if="toast.description"
+              class="mt-1 text-xs opacity-80 whitespace-pre-wrap break-words leading-relaxed font-normal"
+            >
+              {{ toast.description }}
+            </div>
+          </div>
           <button
             type="button"
-            class="shrink-0 mt-0.5 p-0.5 rounded opacity-60 hover:opacity-100 transition-opacity"
-            :aria-label="'Dismiss'"
+            class="shrink-0 mt-0.5 p-0.5 rounded opacity-50 hover:opacity-100 transition-opacity"
+            :aria-label="t('common.close')"
             @click="dismiss(toast.id)"
           >
             <X class="w-3.5 h-3.5" />

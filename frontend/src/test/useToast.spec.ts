@@ -116,4 +116,12 @@ describe('useToast', () => {
     expect(toasts.value[0].message).toBe('msg-1')
     expect(toasts.value[4].message).toBe('msg-5')
   })
+
+  it('支持 description 多行详情', () => {
+    const { toasts, success } = useToast()
+    success('批量完成', { description: 'ok: 3\nfail: 1' })
+    expect(toasts.value[0].message).toBe('批量完成')
+    expect(toasts.value[0].description).toBe('ok: 3\nfail: 1')
+  })
 })
+

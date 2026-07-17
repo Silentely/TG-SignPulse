@@ -3,7 +3,14 @@ import { ref } from 'vue'
 export interface ToastItem {
   id: number
   message: string
+  /** 可选多行详情 */
+  description?: string
   type: 'success' | 'error' | 'info'
+}
+
+export interface ToastOptions {
+  description?: string
+  duration?: number
 }
 
 /** 同时展示的 toast 上限，超出时淘汰最早的条目 */
@@ -35,11 +42,20 @@ export const useToast = () => {
     toasts.value = []
   }
 
-  const show = (message: string, type: ToastItem['type'] = 'info', duration = 4000) => {
+  const show = (
+    message: string,
+    type: ToastItem['type'] = 'info',
+    durationOrOpts: number | ToastOptions = 4000
+  ) => {
     const text = String(message || '').trim()
     if (!text) return
 
-    // 超出上限时淘汰最早条目
+    const opts: ToastOptions =
+      typeof durationOrOpts === 'number'
+        ? { duration: durationOrOpts }
+        : durationOrOpts || {}
+    const duration = opts.duration ?? (type === 'error' ? 5000 : 4000)
+
     while (toasts.value.length >= MAX_TOASTS) {
       const oldest = toasts.value[0]
       if (!oldest) break
@@ -47,7 +63,12 @@ export const useToast = () => {
     }
 
     const id = nextId++
-    toasts.value.push({ id, message: text, type })
+    toasts.value.push({
+      id,
+      message: text,
+      description: opts.description?.trim() || undefined,
+      type,
+    })
     if (duration > 0) {
       const timer = setTimeout(() => {
         removeToast(id)
@@ -56,9 +77,12 @@ export const useToast = () => {
     }
   }
 
-  const success = (message: string) => show(message, 'success')
-  const error = (message: string) => show(message, 'error', 5000)
-  const info = (message: string) => show(message, 'info')
+  const success = (message: string, opts?: ToastOptions) =>
+    show(message, 'success', opts ?? 4000)
+  const error = (message: string, opts?: ToastOptions) =>
+    show(message, 'error', opts ?? { duration: 5000 })
+  const info = (message: string, opts?: ToastOptions) =>
+    show(message, 'info', opts ?? 4000)
 
   return { toasts, show, success, error, info, dismiss, clear }
 }
