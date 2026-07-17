@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { Settings2, KeyRound, Bot, Sparkles, Database } from 'lucide-vue-next'
 import { getGlobalSettings, saveGlobalSettings, getTelegramConfig, saveTelegramConfig, resetTelegramConfig, getAIConfig, saveAIConfig, testAIConnection, exportAllConfigs, importAllConfigs, runDeviceKeepalive, getBackupStatus, exportBackupArchive, getRuntimeStatus } from '../lib/api'
 import type { BackupStatus, RuntimeStatus } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
+import { useConfirm } from '../composables/useConfirm'
 import CustomSelect from '../components/CustomSelect.vue'
 import { useAuthStore } from '../stores/auth'
 import { getLocalizedErrorMessage } from '../lib/types'
@@ -11,6 +13,7 @@ import { devLog } from '../lib/devLog'
 
 const { t } = useI18n()
 const toast = useToast()
+const { confirm } = useConfirm()
 const authStore = useAuthStore()
 
 const settings = ref({
@@ -214,7 +217,13 @@ const saveTgConfig = async () => {
 
 const resetTgConfig = async () => {
   const token = authStore.token || ''
-  if (!confirm(t('settings.resetConfirm'))) return
+  const ok = await confirm({
+    title: t('settings.resetDefault'),
+    message: t('settings.resetConfirm'),
+    confirmText: t('common.continue'),
+    danger: true,
+  })
+  if (!ok) return
   tgLoading.value = true
   try {
     await resetTelegramConfig(token)
@@ -333,88 +342,103 @@ const handleImport = async (e: Event) => {
 
 <template>
   <div class="max-w-7xl pb-10">
-    <div v-if="pageLoading" class="flex items-center justify-center py-20">
-      <svg class="animate-spin w-6 h-6 text-gray-400" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+    <div v-if="pageLoading" class="grid grid-cols-1 lg:grid-cols-2 gap-6" aria-busy="true">
+      <div v-for="i in 4" :key="i" class="ui-card p-6 space-y-4">
+        <div class="ui-skeleton h-5 w-32" />
+        <div class="ui-skeleton h-3 w-48" />
+        <div class="ui-skeleton h-10 w-full" />
+        <div class="ui-skeleton h-10 w-full" />
+        <div class="ui-skeleton h-10 w-2/3" />
+      </div>
     </div>
     <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-6">
       
       <!-- 通用设置 + Telegram API（左列） -->
       <div class="flex flex-col gap-6">
         <!-- 通用设置 -->
-        <section class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/60 p-6">
-          <div class="mb-6 border-b border-gray-200 dark:border-gray-800/60 pb-3 flex items-center justify-between">
-            <div>
-              <h2 class="text-base font-medium text-gray-900 dark:text-gray-100">{{ t('settings.general') }}</h2>
-              <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.generalDesc') }}</p>
+        <section class="ui-card p-6">
+          <div class="mb-6 border-b border-gray-200 dark:border-gray-800/60 pb-3 flex items-center justify-between gap-3">
+            <div class="flex items-start gap-3 min-w-0">
+              <span class="ui-section-icon" aria-hidden="true"><Settings2 class="w-3.5 h-3.5" /></span>
+              <div class="min-w-0">
+                <h2 class="text-base font-medium text-gray-900 dark:text-gray-100">{{ t('settings.general') }}</h2>
+                <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.generalDesc') }}</p>
+              </div>
             </div>
-            <span v-if="loading" class="text-xs text-gray-500">{{ t('settings.saving') }}</span>
+            <span v-if="loading" class="text-xs text-gray-500 shrink-0">{{ t('settings.saving') }}</span>
           </div>
           <div class="space-y-5">
             <div class="space-y-1.5">
-              <label class="text-xs text-gray-500 block">{{ t('settings.logRetention') }}</label>
-              <input v-model="settings.logDays" type="number" class="w-full bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-white dark:focus:bg-gray-800">
+              <label class="ui-label">{{ t('settings.logRetention') }}</label>
+              <input v-model="settings.logDays" type="number" class="ui-input">
             </div>
             <div class="space-y-1.5">
-              <label class="text-xs text-gray-500 block">{{ t('settings.dataDir') }}</label>
-              <input v-model="settings.dataDir" type="text" placeholder="/data" class="w-full bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-white dark:focus:bg-gray-800 placeholder:text-gray-400">
+              <label class="ui-label">{{ t('settings.dataDir') }}</label>
+              <input v-model="settings.dataDir" type="text" placeholder="/data" class="ui-input">
             </div>
             <div class="space-y-1.5">
-              <label class="text-xs text-gray-500 block">{{ t('settings.proxy') }}</label>
-              <input v-model="settings.proxy" type="text" placeholder="socks5://127.0.0.1:1080" class="w-full bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-white dark:focus:bg-gray-800 placeholder:text-gray-400">
+              <label class="ui-label">{{ t('settings.proxy') }}</label>
+              <input v-model="settings.proxy" type="text" placeholder="socks5://127.0.0.1:1080" class="ui-input">
             </div>
             <div class="space-y-1.5">
-              <label class="text-xs text-gray-500 block">{{ t('settings.concurrency') }}</label>
-              <input v-model.number="settings.concurrency" type="number" min="1" max="10" :placeholder="t('settings.concurrencyPlaceholder')" class="w-full bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-white dark:focus:bg-gray-800 placeholder:text-gray-400">
+              <label class="ui-label">{{ t('settings.concurrency') }}</label>
+              <input v-model.number="settings.concurrency" type="number" min="1" max="10" :placeholder="t('settings.concurrencyPlaceholder')" class="ui-input">
             </div>
-            <div class="p-3 bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-gray-800/60 space-y-3">
+            <div class="p-3 bg-gray-50 dark:bg-white/[0.02] border border-gray-200 dark:border-gray-800/60 space-y-3">
               <div class="flex items-center justify-between gap-3">
                 <div>
                   <label class="text-xs text-gray-600 dark:text-gray-300 block">{{ t('settings.deviceKeepalive') }}</label>
                   <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.deviceKeepaliveDesc') }}</p>
                 </div>
                 <button
+                  type="button"
+                  class="ui-switch"
+                  role="switch"
+                  :aria-checked="settings.deviceKeepaliveEnabled"
+                  :class="settings.deviceKeepaliveEnabled ? 'ui-switch-on' : ''"
                   @click="settings.deviceKeepaliveEnabled = !settings.deviceKeepaliveEnabled"
-                  class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus:outline-none"
-                  :class="settings.deviceKeepaliveEnabled ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-700'"
                 >
-                  <span class="inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform" :class="settings.deviceKeepaliveEnabled ? 'translate-x-4' : 'translate-x-1'" />
+                  <span class="ui-switch-knob" />
                 </button>
               </div>
               <div class="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
-                <input v-model.number="settings.deviceKeepaliveIntervalDays" type="number" min="1" max="170" :disabled="!settings.deviceKeepaliveEnabled" class="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-white dark:focus:bg-gray-800 disabled:opacity-50">
-                <button @click="runKeepaliveNow" :disabled="keepaliveLoading" class="px-3 py-2 text-xs text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/60 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors disabled:opacity-50">
+                <input v-model.number="settings.deviceKeepaliveIntervalDays" type="number" min="1" max="170" :disabled="!settings.deviceKeepaliveEnabled" class="ui-input disabled:opacity-50">
+                <button type="button" class="ui-btn-secondary !px-3 !py-2 !text-xs" :disabled="keepaliveLoading" @click="runKeepaliveNow">
                   {{ keepaliveLoading ? t('settings.saving') : t('settings.keepaliveNow') }}
                 </button>
               </div>
               <p class="text-[10px] text-gray-500">{{ t('settings.deviceKeepaliveIntervalHint') }}</p>
             </div>
             <div class="space-y-1.5">
-              <label class="text-xs text-gray-500 block">{{ t('settings.timezone') }}</label>
+              <label class="ui-label">{{ t('settings.timezone') }}</label>
               <CustomSelect v-model="settings.timezone" :options="timezoneOptions" className="w-full" />
             </div>
             <div class="pt-2">
-              <button @click="saveSettings" :disabled="loading" class="w-full py-2 text-sm bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-white transition-colors disabled:opacity-50">{{ loading ? t('settings.saving') : t('settings.saveGeneral') }}</button>
+              <button type="button" class="ui-btn-primary w-full py-2.5" :disabled="loading" @click="saveSettings">{{ loading ? t('settings.saving') : t('settings.saveGeneral') }}</button>
             </div>
           </div>
         </section>
 
         <!-- Telegram API -->
-        <section class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/60 p-6 flex-1">
-          <div class="mb-6 border-b border-gray-200 dark:border-gray-800/60 pb-3 flex items-center justify-between">
-            <div>
-              <h2 class="text-base font-medium text-gray-900 dark:text-gray-100">{{ t('settings.tgApi') }}</h2>
-              <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.tgApiDesc') }}</p>
+        <section class="ui-card p-6 flex-1">
+          <div class="mb-6 border-b border-gray-200 dark:border-gray-800/60 pb-3 flex items-center justify-between gap-3">
+            <div class="flex items-start gap-3 min-w-0">
+              <span class="ui-section-icon" aria-hidden="true"><KeyRound class="w-3.5 h-3.5" /></span>
+              <div class="min-w-0">
+                <h2 class="text-base font-medium text-gray-900 dark:text-gray-100">{{ t('settings.tgApi') }}</h2>
+                <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.tgApiDesc') }}</p>
+              </div>
             </div>
-            <button @click="resetTgConfig" :disabled="tgLoading" class="px-3 py-1 text-xs text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-gray-800/60 transition-colors disabled:opacity-50">{{ t('settings.resetDefault') }}</button>
+            <button type="button" class="ui-btn-secondary !px-3 !py-1 !text-xs shrink-0" :disabled="tgLoading" @click="resetTgConfig">{{ t('settings.resetDefault') }}</button>
           </div>
           <div class="space-y-5">
             <div class="space-y-1.5">
-              <label class="text-xs text-gray-500 block">API ID</label>
-              <input v-model="tgConfig.api_id" type="password" class="w-full bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-white dark:focus:bg-gray-800">
+              <label class="ui-label">API ID</label>
+              <input v-model="tgConfig.api_id" type="password" class="ui-input" autocomplete="off">
             </div>
             <div class="space-y-1.5">
-              <label class="text-xs text-gray-500 block">API Hash</label>
-              <input v-model="tgConfig.api_hash" type="password" class="w-full bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-white dark:focus:bg-gray-800">
+              <label class="ui-label">API Hash</label>
+              <input v-model="tgConfig.api_hash" type="password" class="ui-input">
             </div>
             <div class="p-3 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-800/50 text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
               <p>
@@ -423,7 +447,7 @@ const handleImport = async (e: Event) => {
               </p>
             </div>
             <div class="pt-2">
-              <button @click="saveTgConfig" :disabled="tgLoading || !tgConfig.api_id || !tgConfig.api_hash" class="w-full py-2 text-sm bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-white transition-colors disabled:opacity-50">{{ tgLoading ? t('settings.saving') : t('settings.saveTgConfig') }}</button>
+              <button type="button" class="ui-btn-primary w-full py-2.5" :disabled="tgLoading || !tgConfig.api_id || !tgConfig.api_hash" @click="saveTgConfig">{{ tgLoading ? t('settings.saving') : t('settings.saveTgConfig') }}</button>
             </div>
           </div>
         </section>
@@ -432,84 +456,96 @@ const handleImport = async (e: Event) => {
       <!-- AI 配置 + Bot 通知（右列） -->
       <div class="flex flex-col gap-6">
         <!-- AI 模型配置 -->
-        <section class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/60 p-6">
-          <div class="mb-6 border-b border-gray-200 dark:border-gray-800/60 pb-3 flex items-center justify-between">
-            <div>
-              <h2 class="text-base font-medium text-gray-900 dark:text-gray-100">{{ t('settings.aiConfig') }}</h2>
-              <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.aiDesc') }}</p>
+        <section class="ui-card p-6">
+          <div class="mb-6 border-b border-gray-200 dark:border-gray-800/60 pb-3 flex items-center justify-between gap-3">
+            <div class="flex items-start gap-3 min-w-0">
+              <span class="ui-section-icon" aria-hidden="true"><Sparkles class="w-3.5 h-3.5" /></span>
+              <div class="min-w-0">
+                <h2 class="text-base font-medium text-gray-900 dark:text-gray-100">{{ t('settings.aiConfig') }}</h2>
+                <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.aiDesc') }}</p>
+              </div>
             </div>
-            <button @click="testAi" :disabled="aiLoading" class="px-3 py-1 text-xs text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-gray-800/60 transition-colors disabled:opacity-50">{{ t('settings.testConnection') }}</button>
+            <button type="button" class="ui-btn-secondary !px-3 !py-1 !text-xs shrink-0" :disabled="aiLoading" @click="testAi">{{ t('settings.testConnection') }}</button>
           </div>
           <div class="space-y-5">
             <div class="space-y-1.5">
-              <label class="text-xs text-gray-500 block">{{ t('settings.apiBaseUrl') }}</label>
-              <input v-model="aiConfig.base_url" type="text" placeholder="https://api.openai.com/v1" class="w-full bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-white dark:focus:bg-gray-800">
+              <label class="ui-label">{{ t('settings.apiBaseUrl') }}</label>
+              <input v-model="aiConfig.base_url" type="text" placeholder="https://api.openai.com/v1" class="ui-input">
             </div>
             <div class="space-y-1.5">
-              <label class="text-xs text-gray-500 block">{{ t('settings.model') }}</label>
-              <input v-model="aiConfig.model" type="text" placeholder="gpt-4" class="w-full bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-white dark:focus:bg-gray-800">
+              <label class="ui-label">{{ t('settings.model') }}</label>
+              <input v-model="aiConfig.model" type="text" placeholder="gpt-4" class="ui-input">
             </div>
             <div class="space-y-1.5">
-              <label class="text-xs text-gray-500 block">{{ t('settings.apiKey') }}</label>
-              <input v-model="aiConfig.api_key" type="password" placeholder="sk-..." class="w-full bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-white dark:focus:bg-gray-800">
+              <label class="ui-label">{{ t('settings.apiKey') }}</label>
+              <input v-model="aiConfig.api_key" type="password" placeholder="sk-..." class="ui-input">
             </div>
             <div class="pt-2">
-              <button @click="saveAiConfig" :disabled="aiLoading" class="w-full py-2 text-sm bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-white transition-colors disabled:opacity-50">{{ aiLoading ? t('settings.saving') : t('settings.saveAiConfig') }}</button>
+              <button type="button" class="ui-btn-primary w-full py-2.5" :disabled="aiLoading" @click="saveAiConfig">{{ aiLoading ? t('settings.saving') : t('settings.saveAiConfig') }}</button>
             </div>
           </div>
         </section>
 
         <!-- Telegram 机器人通知 -->
-        <section class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/60 p-6 flex-1">
-          <div class="mb-6 border-b border-gray-200 dark:border-gray-800/60 pb-3 flex items-center justify-between">
-            <div>
-              <h2 class="text-base font-medium text-gray-900 dark:text-gray-100">{{ t('settings.botNotify') }}</h2>
-              <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.botDesc') }}</p>
+        <section class="ui-card p-6 flex-1">
+          <div class="mb-6 border-b border-gray-200 dark:border-gray-800/60 pb-3 flex items-center justify-between gap-3">
+            <div class="flex items-start gap-3 min-w-0">
+              <span class="ui-section-icon" aria-hidden="true"><Bot class="w-3.5 h-3.5" /></span>
+              <div class="min-w-0">
+                <h2 class="text-base font-medium text-gray-900 dark:text-gray-100">{{ t('settings.botNotify') }}</h2>
+                <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.botDesc') }}</p>
+              </div>
             </div>
             <button 
+              type="button"
+              class="ui-switch shrink-0"
+              role="switch"
+              :aria-checked="settings.botEnabled"
+              :class="settings.botEnabled ? 'ui-switch-on' : ''"
               @click="settings.botEnabled = !settings.botEnabled"
-              class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus:outline-none"
-              :class="settings.botEnabled ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-700'"
             >
-              <span class="inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform" :class="settings.botEnabled ? 'translate-x-4' : 'translate-x-1'" />
+              <span class="ui-switch-knob" />
             </button>
           </div>
 
           <div class="space-y-5">
             <div class="space-y-1.5">
-              <label class="text-xs text-gray-500 block">{{ t('settings.botToken') }}</label>
-              <input v-model="settings.botToken" type="password" placeholder="123456:ABC-DEF..." class="w-full bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-white dark:focus:bg-gray-800">
+              <label class="ui-label">{{ t('settings.botToken') }}</label>
+              <input v-model="settings.botToken" type="password" placeholder="123456:ABC-DEF..." class="ui-input">
             </div>
             <div class="space-y-1.5">
-              <label class="text-xs text-gray-500 block">{{ t('settings.targetChatId') }}</label>
-              <input v-model="settings.botChatId" type="text" placeholder="-1001234567890" class="w-full bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-white dark:focus:bg-gray-800">
+              <label class="ui-label">{{ t('settings.targetChatId') }}</label>
+              <input v-model="settings.botChatId" type="text" placeholder="-1001234567890" class="ui-input">
             </div>
             <div class="space-y-1.5">
-              <label class="text-xs text-gray-500 block">{{ t('settings.threadId') }}</label>
-              <input v-model="settings.botThreadId" type="text" :placeholder="t('settings.threadIdPlaceholder')" class="w-full bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-white dark:focus:bg-gray-800">
+              <label class="ui-label">{{ t('settings.threadId') }}</label>
+              <input v-model="settings.botThreadId" type="text" :placeholder="t('settings.threadIdPlaceholder')" class="ui-input">
             </div>
             <div class="flex flex-wrap gap-x-6 gap-y-3 pt-2">
               <label class="flex items-center gap-2 cursor-pointer group">
-                <input v-model="settings.botLoginNotify" type="checkbox" class="w-4 h-4 text-gray-900 dark:text-gray-100 bg-gray-100 border-gray-300 rounded focus:ring-0 dark:bg-gray-800 dark:border-gray-600">
+                <input v-model="settings.botLoginNotify" type="checkbox" class="w-4 h-4 accent-sky-500 bg-gray-100 border-gray-300 rounded focus:ring-0 dark:bg-gray-800 dark:border-gray-600">
                 <span class="text-sm text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-gray-100 transition-colors">{{ t('settings.loginFailNotify') }}</span>
               </label>
               <label class="flex items-center gap-2 cursor-pointer group">
-                <input v-model="settings.botTaskFailure" type="checkbox" class="w-4 h-4 text-gray-900 dark:text-gray-100 bg-gray-100 border-gray-300 rounded focus:ring-0 dark:bg-gray-800 dark:border-gray-600">
+                <input v-model="settings.botTaskFailure" type="checkbox" class="w-4 h-4 accent-sky-500 bg-gray-100 border-gray-300 rounded focus:ring-0 dark:bg-gray-800 dark:border-gray-600">
                 <span class="text-sm text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-gray-100 transition-colors">{{ t('settings.taskFailNotify') }}</span>
               </label>
             </div>
             <div class="pt-2">
-              <button @click="saveBotSettings" :disabled="botLoading" class="w-full py-2 text-sm bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-white transition-colors disabled:opacity-50">{{ botLoading ? t('settings.saving') : t('settings.saveChanges') }}</button>
+              <button type="button" class="ui-btn-primary w-full py-2.5" :disabled="botLoading" @click="saveBotSettings">{{ botLoading ? t('settings.saving') : t('settings.saveChanges') }}</button>
             </div>
           </div>
         </section>
       </div>
 
       <!-- 数据管理（全宽） -->
-      <section class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/60 p-6 lg:col-span-2">
-        <div class="mb-6 border-b border-gray-200 dark:border-gray-800/60 pb-3">
-          <h2 class="text-base font-medium text-gray-900 dark:text-gray-100">{{ t('settings.dataManagement') }}</h2>
-          <p class="text-xs text-gray-500 mt-1">{{ t('settings.dataManagementDesc') }}</p>
+      <section class="ui-card p-6 lg:col-span-2">
+        <div class="mb-6 border-b border-gray-200 dark:border-gray-800/60 pb-3 flex items-start gap-3">
+          <span class="ui-section-icon" aria-hidden="true"><Database class="w-3.5 h-3.5" /></span>
+          <div>
+            <h2 class="text-base font-medium text-gray-900 dark:text-gray-100">{{ t('settings.dataManagement') }}</h2>
+            <p class="text-xs text-gray-500 mt-1">{{ t('settings.dataManagementDesc') }}</p>
+          </div>
         </div>
 
         <!-- 配置迁移 JSON -->
@@ -521,9 +557,9 @@ const handleImport = async (e: Event) => {
           <div class="flex flex-col sm:flex-row gap-3 max-w-lg">
             <button
               type="button"
-              @click="handleExport"
+              class="ui-btn-primary flex-1 !px-4 !py-2"
               :disabled="dataLoading"
-              class="flex-1 px-4 py-2 text-sm bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-white transition-colors disabled:opacity-50"
+              @click="handleExport"
             >
               {{ dataLoading ? t('settings.processing') : t('settings.exportJson') }}
             </button>
@@ -531,14 +567,14 @@ const handleImport = async (e: Event) => {
               <input
                 type="file"
                 accept="application/json,.json"
-                @change="handleImport"
                 class="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
                 :disabled="dataLoading"
+                @change="handleImport"
               />
               <button
                 type="button"
+                class="ui-btn-secondary w-full !px-4 !py-2"
                 :disabled="dataLoading"
-                class="w-full px-4 py-2 text-sm text-gray-700 dark:text-gray-200 bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-gray-800/60 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
               >
                 {{ t('settings.importJson') }}
               </button>
@@ -555,9 +591,9 @@ const handleImport = async (e: Event) => {
             </div>
             <button
               type="button"
-              @click="handleBackupExport"
+              class="ui-btn-secondary shrink-0 !px-4 !py-2"
               :disabled="backupLoading"
-              class="shrink-0 px-4 py-2 text-sm border border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+              @click="handleBackupExport"
             >
               {{ backupLoading ? t('settings.processing') : t('settings.exportBackup') }}
             </button>
@@ -573,11 +609,11 @@ const handleImport = async (e: Event) => {
             <li v-for="(note, i) in backupStatus.notes" :key="i">{{ note }}</li>
           </ul>
 
-          <div v-if="runtimeStatus" class="mt-4 p-3 border border-gray-200 dark:border-gray-800/60 bg-gray-50/50 dark:bg-gray-950/40 text-xs space-y-1.5">
+          <div v-if="runtimeStatus" class="mt-4 p-3 border border-gray-200 dark:border-gray-800/60 bg-gray-50/50 dark:bg-white/[0.02] text-xs space-y-1.5">
             <div class="font-medium text-gray-700 dark:text-gray-300 mb-1">{{ t('settings.runtimeStatus') }}</div>
             <div class="text-gray-600 dark:text-gray-400">
               {{ t('settings.schedulerLock') }}:
-              <span :class="runtimeStatus.scheduler_lock_held ? 'text-emerald-600' : 'text-amber-600'">
+              <span :class="runtimeStatus.scheduler_lock_held ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'">
                 {{ runtimeStatus.scheduler_lock_held ? t('settings.lockHeld') : t('settings.lockNotHeld') }}
               </span>
             </div>

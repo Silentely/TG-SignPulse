@@ -64,37 +64,37 @@ const handleSave = async () => {
 <template>
   <Modal :isOpen="isOpen" @close="$emit('close')" :title="t('editAccount.title')">
     <div class="space-y-4">
-      <div v-if="error" class="text-xs text-rose-600 dark:text-rose-500 bg-rose-50 dark:bg-rose-500/10 p-2 border border-rose-200 dark:border-transparent">
+      <div v-if="error" class="ui-alert-error">
         {{ error }}
       </div>
 
       <div class="space-y-1.5">
-        <label class="text-xs text-gray-500 block">{{ t('editAccount.nameLabel') }}</label>
+        <label class="ui-label">{{ t('editAccount.nameLabel') }}</label>
         <input 
           v-model="form.new_account_name"
           type="text" 
           :placeholder="t('editAccount.namePlaceholder')"
-          class="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-gray-50 dark:focus:bg-gray-800"
+          class="ui-input"
         >
       </div>
 
       <div class="space-y-1.5">
-        <label class="text-xs text-gray-500 block">{{ t('editAccount.remarkLabel') }}</label>
+        <label class="ui-label">{{ t('editAccount.remarkLabel') }}</label>
         <input 
           v-model="form.remark"
           type="text" 
           :placeholder="t('editAccount.remarkPlaceholder')"
-          class="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-gray-50 dark:focus:bg-gray-800"
+          class="ui-input"
         >
       </div>
 
       <div class="space-y-1.5">
-        <label class="text-xs text-gray-500 block">{{ t('editAccount.proxyLabel') }}</label>
+        <label class="ui-label">{{ t('editAccount.proxyLabel') }}</label>
         <input 
           v-model="form.proxy"
           type="text" 
           placeholder="socks5://..."
-          class="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-gray-50 dark:focus:bg-gray-800"
+          class="ui-input"
         >
       </div>
     </div>
@@ -102,22 +102,25 @@ const handleSave = async () => {
     <template #footer>
       <div class="flex-1">
         <button 
+          type="button"
+          class="ui-btn-danger !px-4 !py-2"
           @click="$emit('relogin', account?.name)"
-          class="px-4 py-2 text-sm text-rose-600 hover:bg-rose-50 dark:text-rose-500 dark:hover:bg-rose-500/10 transition-colors border border-rose-200 dark:border-rose-500/30"
         >
           {{ t('editAccount.relogin') }}
         </button>
       </div>
       <button 
+        type="button"
+        class="ui-btn-secondary !border-transparent !bg-transparent !px-4 !py-2"
         @click="$emit('close')"
-        class="px-4 py-2 text-sm text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
       >
         {{ t('editAccount.cancel') }}
       </button>
       <button 
-        @click="handleSave"
+        type="button"
+        class="ui-btn-primary !px-4 !py-2"
         :disabled="loading"
-        class="px-4 py-2 text-sm bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-white transition-colors disabled:opacity-50"
+        @click="handleSave"
       >
         {{ loading ? t('editAccount.saving') : t('editAccount.saveChanges') }}
       </button>

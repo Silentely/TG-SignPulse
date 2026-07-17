@@ -277,32 +277,43 @@ onMounted(()=>{loadAccounts()})
 </script>
 <template>
   <div class="space-y-6 text-left">
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-5 p-4 border border-gray-200 dark:border-gray-800/60 bg-gray-50/50 dark:bg-gray-900/40">
+    <!-- 01 基础信息 -->
+    <div class="ui-form-section">
+      <div class="ui-form-step mb-4">
+        <span class="ui-form-step-num">01</span>
+        <h4 class="ui-form-step-title">{{ t('taskForm.taskName') }} / {{ t('taskForm.linkedAccounts') }}</h4>
+      </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
       <div class="space-y-1.5">
-        <label class="text-xs font-semibold text-gray-500 tracking-wide uppercase">{{ t('taskForm.taskName') }}</label>
-        <input v-model="taskName" :placeholder="t('taskForm.taskNamePlaceholder')" :disabled="!!props.initialTask" class="w-full h-10 px-3 text-sm border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 outline-none focus:border-gray-400 disabled:opacity-50" />
+        <label class="ui-label-strong">{{ t('taskForm.taskName') }}</label>
+        <input v-model="taskName" :placeholder="t('taskForm.taskNamePlaceholder')" :disabled="!!props.initialTask" class="ui-input disabled:opacity-50" />
       </div>
       <div class="space-y-1.5">
-        <label class="text-xs font-semibold text-gray-500 tracking-wide uppercase">{{ t('taskForm.linkedAccounts') }}</label>
+        <label class="ui-label-strong">{{ t('taskForm.linkedAccounts') }}</label>
         <MultiSelect v-model="selectedAccounts" :options="accountOptions" :placeholder="t('taskForm.linkedAccountsPlaceholder')" :allMode="allAccountsMode" @update:allMode="allAccountsMode = $event" />
       </div>
       <div class="space-y-1.5">
-        <label class="text-xs font-semibold text-gray-500 tracking-wide uppercase">{{ t('taskForm.scheduleMode') }}</label>
+        <label class="ui-label-strong">{{ t('taskForm.scheduleMode') }}</label>
         <CustomSelect v-model="scheduleMode" :options="[{label: t('taskForm.scheduled'), value:'scheduled'}, {label: t('taskForm.listen'), value:'listen'}]" />
       </div>
       <div class="space-y-1.5">
-        <label class="text-xs font-semibold text-gray-500 tracking-wide uppercase">{{ t('taskForm.timeRange') }}</label>
-        <input v-model="timeRange" :disabled="scheduleMode === 'listen'" :placeholder="scheduleMode === 'listen' ? '24H' : t('taskForm.timeRangePlaceholder')" class="w-full h-10 px-3 text-sm border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 outline-none focus:border-gray-400 disabled:opacity-50 disabled:bg-gray-50 dark:disabled:bg-gray-950" />
+        <label class="ui-label-strong">{{ t('taskForm.timeRange') }}</label>
+        <input v-model="timeRange" :disabled="scheduleMode === 'listen'" :placeholder="scheduleMode === 'listen' ? '24H' : t('taskForm.timeRangePlaceholder')" class="ui-input disabled:opacity-50 disabled:bg-gray-50 dark:disabled:bg-gray-950" />
       </div>
       <div class="space-y-1.5">
-        <label class="text-xs font-semibold text-gray-500 tracking-wide uppercase">{{ t('taskForm.retryCount') }}</label>
-        <input v-model.number="retryCount" type="number" min="0" max="99" class="w-full h-10 px-3 text-sm border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 outline-none focus:border-gray-400" />
+        <label class="ui-label-strong">{{ t('taskForm.retryCount') }}</label>
+        <input v-model.number="retryCount" type="number" min="0" max="99" class="ui-input" />
       </div>
     </div>
-    <div class="p-4 border border-sky-100 dark:border-gray-800/60 bg-sky-50/50 dark:bg-gray-900/40">
+    </div>
+    <!-- 02 目标会话 -->
+    <div class="ui-form-section ui-form-section-accent">
       <div class="mb-4 flex items-center justify-between gap-2">
-        <h4 class="text-xs font-bold uppercase tracking-widest text-sky-500">{{ t('taskForm.targetChat') }}</h4>
-        <button type="button" @click="addTargetChat" class="text-[11px] text-sky-600 dark:text-sky-400 hover:underline">+ {{ t('taskForm.addTargetChat') }}</button>
+        <div class="ui-form-step">
+          <span class="ui-form-step-num">02</span>
+          <h4 class="ui-form-step-title text-sky-600 dark:text-sky-400">{{ t('taskForm.targetChat') }}</h4>
+        </div>
+        <button type="button" class="text-[11px] text-sky-600 dark:text-sky-400 hover:underline font-medium" @click="addTargetChat">+ {{ t('taskForm.addTargetChat') }}</button>
       </div>
       <div v-if="targetChats.length > 1" class="flex flex-wrap gap-2 mb-4">
         <button
@@ -310,10 +321,10 @@ onMounted(()=>{loadAccounts()})
           :key="chat.id"
           type="button"
           @click="activeChatIndex = idx"
-          class="px-2 py-1 text-[11px] border transition-colors"
+          class="px-2.5 py-1 text-[11px] border transition-colors max-w-[12rem] truncate"
           :class="activeChatIndex === idx
             ? 'border-sky-400 bg-sky-50 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300'
-            : 'border-gray-200 dark:border-gray-700 text-gray-500'"
+            : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-gray-300 dark:hover:border-gray-600'"
         >
           {{ chat.chatName || chat.chatId || `${t('taskForm.targetChat')} ${idx + 1}` }}
           <span
@@ -324,28 +335,36 @@ onMounted(()=>{loadAccounts()})
         </button>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div class="space-y-1.5"><label class="text-xs font-medium text-gray-500">{{ t('taskForm.chatSourceAccount') }}</label><CustomSelect v-model="selectedAccount" :options="selectedAccounts.map(a => ({label: a, value: a}))" /></div>
-        <div class="space-y-1.5"><label class="text-xs font-medium text-gray-500 flex items-center justify-between">{{ t('taskForm.selectFromList') }}<button type="button" @click="refreshChats" :disabled="chatListRefreshing || !selectedAccount" class="flex items-center gap-1 text-[10px] text-sky-500 hover:text-sky-700 dark:hover:text-sky-300 font-medium disabled:opacity-50 disabled:cursor-not-allowed"><RefreshCw class="w-3 h-3" :class="chatListRefreshing ? 'animate-spin' : ''" /> {{ t('taskForm.refreshChats') }}</button></label><CustomSelect v-model="selectedChatId" :disabled="chatListRefreshing" :options="[{label: chatListRefreshing ? t('taskForm.loadingChats') : t('taskForm.selectChat'), value:0}, ...availableChats.map(c => ({label: c.title || c.username || String(c.id), value: c.id}))]" @update:modelValue="selectedChatName = availableChats.find(c => c.id === $event)?.title || availableChats.find(c => c.id === $event)?.username || String($event)" /><p v-if="chatListError" class="text-xs text-amber-600 dark:text-amber-400 mt-1">{{ chatListError }}</p></div>
-        <div class="space-y-1.5 relative"><label class="text-xs font-medium text-gray-500">{{ t('taskForm.searchChat') }}</label><div class="relative"><input v-model="chatSearch" :placeholder="t('taskForm.searchPlaceholder')" class="w-full h-10 px-3 text-sm border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900 outline-none focus:border-gray-400" /><div v-if="chatSearch.trim()" class="absolute top-11 left-0 right-0 z-10 max-h-40 overflow-y-auto bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/60 shadow-lg"><div v-if="chatSearchLoading" class="p-3 text-xs text-gray-400">{{ t('taskForm.searching') }}</div><template v-else><div v-for="chat in chatSearchResults" :key="chat.id" @click="selectChat(chat)" class="p-2 border-b border-gray-100 dark:border-gray-800/60 hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer text-sm"><div class="font-medium truncate">{{ chat.title || chat.username || chat.id }}</div><div class="text-[10px] text-gray-400 font-mono">{{ chat.id }}</div></div><div v-if="!chatSearchResults.length" class="p-3 text-xs text-gray-400">{{ t('taskForm.noResults') }}</div></template></div></div></div>
-        <div class="space-y-1.5"><label class="text-xs font-medium text-gray-500">{{ t('taskForm.threadId') }}</label><input v-model="messageThreadId" :placeholder="t('taskForm.threadIdPlaceholder')" class="w-full h-10 px-3 text-sm border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900 outline-none focus:border-gray-400" /></div>
-        <div class="space-y-1.5"><label class="text-xs font-medium text-gray-500">{{ t('taskForm.senderFilter') }}</label><input v-model="senderFilter" :placeholder="t('taskForm.senderFilterPlaceholder')" class="w-full h-10 px-3 text-sm border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900 outline-none focus:border-gray-400" /></div>
+        <div class="space-y-1.5"><label class="ui-label">{{ t('taskForm.chatSourceAccount') }}</label><CustomSelect v-model="selectedAccount" :options="selectedAccounts.map(a => ({label: a, value: a}))" /></div>
+        <div class="space-y-1.5"><label class="ui-label flex items-center justify-between gap-2">{{ t('taskForm.selectFromList') }}<button type="button" @click="refreshChats" :disabled="chatListRefreshing || !selectedAccount" class="flex items-center gap-1 text-[10px] text-sky-500 hover:text-sky-700 dark:hover:text-sky-300 font-medium disabled:opacity-50 disabled:cursor-not-allowed"><RefreshCw class="w-3 h-3" :class="chatListRefreshing ? 'animate-spin' : ''" /> {{ t('taskForm.refreshChats') }}</button></label><CustomSelect v-model="selectedChatId" :disabled="chatListRefreshing" :options="[{label: chatListRefreshing ? t('taskForm.loadingChats') : t('taskForm.selectChat'), value:0}, ...availableChats.map(c => ({label: c.title || c.username || String(c.id), value: c.id}))]" @update:modelValue="selectedChatName = availableChats.find(c => c.id === $event)?.title || availableChats.find(c => c.id === $event)?.username || String($event)" /><p v-if="chatListError" class="text-xs text-amber-600 dark:text-amber-400 mt-1">{{ chatListError }}</p></div>
+        <div class="space-y-1.5 relative"><label class="ui-label">{{ t('taskForm.searchChat') }}</label><div class="relative"><input v-model="chatSearch" :placeholder="t('taskForm.searchPlaceholder')" class="ui-input" /><div v-if="chatSearch.trim()" class="absolute top-11 left-0 right-0 z-10 max-h-40 overflow-y-auto ui-dropdown shadow-[var(--sp-shadow-md)]"><div v-if="chatSearchLoading" class="p-3 text-xs text-gray-400">{{ t('taskForm.searching') }}</div><template v-else><div v-for="chat in chatSearchResults" :key="chat.id" @click="selectChat(chat)" class="p-2 border-b border-gray-100 dark:border-gray-800/60 hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer text-sm"><div class="font-medium truncate">{{ chat.title || chat.username || chat.id }}</div><div class="text-[10px] text-gray-400 font-mono">{{ chat.id }}</div></div><div v-if="!chatSearchResults.length" class="p-3 text-xs text-gray-400">{{ t('taskForm.noResults') }}</div></template></div></div></div>
+        <div class="space-y-1.5"><label class="ui-label">{{ t('taskForm.threadId') }}</label><input v-model="messageThreadId" :placeholder="t('taskForm.threadIdPlaceholder')" class="ui-input" /></div>
+        <div class="space-y-1.5"><label class="ui-label">{{ t('taskForm.senderFilter') }}</label><input v-model="senderFilter" :placeholder="t('taskForm.senderFilterPlaceholder')" class="ui-input" /></div>
       </div>
     </div>
-    <div v-if="scheduleMode === 'listen'" class="p-4 border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900">
-      <h4 class="mb-4 text-xs font-bold uppercase tracking-widest text-emerald-500">{{ t('taskForm.keywordListener') }}</h4>
+    <!-- 03 关键词监听（仅 listen） -->
+    <div v-if="scheduleMode === 'listen'" class="ui-form-section !bg-[var(--sp-bg-elevated)]">
+      <div class="ui-form-step mb-4">
+        <span class="ui-form-step-num">03</span>
+        <h4 class="ui-form-step-title text-emerald-600 dark:text-emerald-400">{{ t('taskForm.keywordListener') }}</h4>
+      </div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div class="md:col-span-2 space-y-1.5"><label class="text-xs font-medium text-gray-500">{{ t('taskForm.keywords') }}</label><textarea v-model="listenerKeywords" rows="3" :placeholder="t('taskForm.keywordsPlaceholder')" class="w-full p-3 text-sm border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900 outline-none focus:border-gray-400"></textarea></div>
-        <div class="space-y-1.5"><label class="text-xs font-medium text-gray-500">{{ t('taskForm.matchMode') }}</label><CustomSelect v-model="listenerMatchMode" :options="[{label: t('taskForm.matchContains'), value:'contains'}, {label: t('taskForm.matchExact'), value:'exact'}, {label: t('taskForm.matchRegex'), value:'regex'}]" /></div>
-        <div class="space-y-1.5"><label class="text-xs font-medium text-gray-500">{{ t('taskForm.afterMatch') }}</label><CustomSelect v-model="listenerPushChannel" :options="[{label: t('taskForm.continueActions'), value:'continue'}, {label: t('taskForm.telegramNotify'), value:'telegram'}, {label: t('taskForm.forwardToChat'), value:'forward'}, {label: t('taskForm.barkPush'), value:'bark'}, {label: t('taskForm.customWebhook'), value:'custom'}]" /></div>
-        <template v-if="listenerPushChannel === 'forward'"><div class="space-y-1.5"><label class="text-xs font-medium text-gray-500">{{ t('taskForm.forwardChatId') }}</label><input v-model="listenerForwardChatId" placeholder="-10012345678" class="w-full h-10 px-3 text-sm border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900 outline-none focus:border-gray-400" /></div><div class="space-y-1.5"><label class="text-xs font-medium text-gray-500">{{ t('taskForm.forwardThreadId') }}</label><input v-model="listenerForwardThreadId" :placeholder="t('taskForm.forwardThreadIdPlaceholder')" class="w-full h-10 px-3 text-sm border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900 outline-none focus:border-gray-400" /></div></template>
-        <div v-if="listenerPushChannel === 'bark'" class="md:col-span-2 space-y-1.5"><label class="text-xs font-medium text-gray-500">{{ t('taskForm.barkUrl') }}</label><input v-model="listenerBarkUrl" placeholder="https://api.day.app/xxx" class="w-full h-10 px-3 text-sm border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900 outline-none focus:border-gray-400" /></div>
-        <div v-if="listenerPushChannel === 'custom'" class="md:col-span-2 space-y-1.5"><label class="text-xs font-medium text-gray-500">{{ t('taskForm.webhookUrl') }}</label><input v-model="listenerCustomUrl" :placeholder="t('taskForm.webhookPlaceholder')" class="w-full h-10 px-3 text-sm border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900 outline-none focus:border-gray-400" /></div>
+        <div class="md:col-span-2 space-y-1.5"><label class="ui-label">{{ t('taskForm.keywords') }}</label><textarea v-model="listenerKeywords" rows="3" :placeholder="t('taskForm.keywordsPlaceholder')" class="ui-input !h-auto py-2.5"></textarea></div>
+        <div class="space-y-1.5"><label class="ui-label">{{ t('taskForm.matchMode') }}</label><CustomSelect v-model="listenerMatchMode" :options="[{label: t('taskForm.matchContains'), value:'contains'}, {label: t('taskForm.matchExact'), value:'exact'}, {label: t('taskForm.matchRegex'), value:'regex'}]" /></div>
+        <div class="space-y-1.5"><label class="ui-label">{{ t('taskForm.afterMatch') }}</label><CustomSelect v-model="listenerPushChannel" :options="[{label: t('taskForm.continueActions'), value:'continue'}, {label: t('taskForm.telegramNotify'), value:'telegram'}, {label: t('taskForm.forwardToChat'), value:'forward'}, {label: t('taskForm.barkPush'), value:'bark'}, {label: t('taskForm.customWebhook'), value:'custom'}]" /></div>
+        <template v-if="listenerPushChannel === 'forward'"><div class="space-y-1.5"><label class="ui-label">{{ t('taskForm.forwardChatId') }}</label><input v-model="listenerForwardChatId" placeholder="-10012345678" class="ui-input" /></div><div class="space-y-1.5"><label class="ui-label">{{ t('taskForm.forwardThreadId') }}</label><input v-model="listenerForwardThreadId" :placeholder="t('taskForm.forwardThreadIdPlaceholder')" class="ui-input" /></div></template>
+        <div v-if="listenerPushChannel === 'bark'" class="md:col-span-2 space-y-1.5"><label class="ui-label">{{ t('taskForm.barkUrl') }}</label><input v-model="listenerBarkUrl" placeholder="https://api.day.app/xxx" class="ui-input" /></div>
+        <div v-if="listenerPushChannel === 'custom'" class="md:col-span-2 space-y-1.5"><label class="ui-label">{{ t('taskForm.webhookUrl') }}</label><input v-model="listenerCustomUrl" :placeholder="t('taskForm.webhookPlaceholder')" class="ui-input" /></div>
       </div>
     </div>
-    <div v-if="scheduleMode === 'scheduled' || listenerPushChannel === 'continue'" class="p-4 border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900">
-      <h4 class="mb-4 text-xs font-bold uppercase tracking-widest text-violet-500">{{ t('taskForm.actionSequence') }}</h4>
+    <!-- 动作序列 -->
+    <div v-if="scheduleMode === 'scheduled' || listenerPushChannel === 'continue'" class="ui-form-section !bg-[var(--sp-bg-elevated)]">
+      <div class="ui-form-step mb-4">
+        <span class="ui-form-step-num">{{ scheduleMode === 'listen' ? '04' : '03' }}</span>
+        <h4 class="ui-form-step-title text-violet-600 dark:text-violet-400">{{ t('taskForm.actionSequence') }}</h4>
+      </div>
       <div class="space-y-2">
-        <div v-for="(action, idx) in actions" :key="action.id" class="flex items-center gap-2 p-2 sm:p-3 border border-gray-100 dark:border-gray-800/60 bg-gray-50/50 dark:bg-gray-950/50">
+        <div v-for="(action, idx) in actions" :key="action.id" class="flex items-center gap-2 p-2 sm:p-3 border border-gray-100 dark:border-gray-800/60 bg-gray-50/80 dark:bg-white/[0.02]">
           <!-- Action type select -->
           <div class="shrink-0 w-[120px] sm:w-[140px]">
             <CustomSelect v-model="action.type" :options="[
@@ -364,24 +383,24 @@ onMounted(()=>{loadAccounts()})
           </div>
           <!-- Value input -->
           <div class="flex-1 min-w-0">
-            <input v-if="action.type === 'send_text' || action.type === 'click_text_button'" v-model="action.value" :placeholder="t('taskForm.textPlaceholder')" class="w-full h-9 px-2 text-xs border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900 outline-none focus:border-gray-400" />
-            <input v-else-if="action.type === 'delay'" v-model="action.value" :placeholder="t('taskForm.delayPlaceholder')" class="w-full h-9 px-2 text-xs border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900 outline-none focus:border-gray-400" />
-            <input v-else-if="action.type === 'send_dice'" v-model="action.value" placeholder="🎲" class="w-full h-9 px-2 text-xs border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900 outline-none focus:border-gray-400" />
+            <input v-if="action.type === 'send_text' || action.type === 'click_text_button'" v-model="action.value" :placeholder="t('taskForm.textPlaceholder')" class="ui-input !h-9 !text-xs !px-2" />
+            <input v-else-if="action.type === 'delay'" v-model="action.value" :placeholder="t('taskForm.delayPlaceholder')" class="ui-input !h-9 !text-xs !px-2" />
+            <input v-else-if="action.type === 'send_dice'" v-model="action.value" placeholder="🎲" class="ui-input !h-9 !text-xs !px-2" />
             <template v-else-if="action.type === 'bot_cmd'">
-              <input v-model="action.value" :placeholder="t('taskForm.botUsernamePlaceholder')" class="w-full h-9 px-2 text-xs border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900 outline-none focus:border-gray-400" />
-              <input v-model="action.commandPrefix" :placeholder="t('taskForm.commandPrefixPlaceholder')" class="w-full h-9 px-2 text-xs border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900 outline-none focus:border-gray-400 mt-1" />
+              <input v-model="action.value" :placeholder="t('taskForm.botUsernamePlaceholder')" class="ui-input !h-9 !text-xs !px-2" />
+              <input v-model="action.commandPrefix" :placeholder="t('taskForm.commandPrefixPlaceholder')" class="ui-input !h-9 !text-xs !px-2 mt-1" />
             </template>
-            <input v-else-if="['vision_send','vision_click','calc_send','calc_click'].includes(action.type)" v-model="action.aiPrompt" :placeholder="t('taskForm.aiPromptPlaceholder')" class="w-full h-9 px-2 text-xs border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-900 outline-none focus:border-gray-400" />
+            <input v-else-if="['vision_send','vision_click','calc_send','calc_click'].includes(action.type)" v-model="action.aiPrompt" :placeholder="t('taskForm.aiPromptPlaceholder')" class="ui-input !h-9 !text-xs !px-2" />
             <span v-else class="h-9 flex items-center text-xs text-gray-400 px-2">-</span>
           </div>
           <!-- Move & Delete -->
           <div class="flex items-center gap-0.5 shrink-0">
-            <button type="button" @click="moveAction(idx, -1)" class="p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"><ArrowUp class="w-3.5 h-3.5" /></button>
-            <button type="button" @click="moveAction(idx, 1)" class="p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"><ArrowDown class="w-3.5 h-3.5" /></button>
-            <button type="button" @click="removeAction(idx)" class="p-1 text-gray-400 hover:text-rose-500"><Trash2 class="w-3.5 h-3.5" /></button>
+            <button type="button" @click="moveAction(idx, -1)" class="p-1.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/[0.05] rounded-sm transition-colors"><ArrowUp class="w-3.5 h-3.5" /></button>
+            <button type="button" @click="moveAction(idx, 1)" class="p-1.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/[0.05] rounded-sm transition-colors"><ArrowDown class="w-3.5 h-3.5" /></button>
+            <button type="button" @click="removeAction(idx)" class="p-1.5 text-gray-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-sm transition-colors"><Trash2 class="w-3.5 h-3.5" /></button>
           </div>
         </div>
-        <button type="button" @click="addAction" class="flex items-center gap-1.5 px-3 py-2 text-xs text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 border border-dashed border-gray-300 dark:border-gray-700 hover:border-gray-400 dark:hover:border-gray-600 transition-colors w-full justify-center">
+        <button type="button" @click="addAction" class="flex items-center gap-1.5 px-3 py-2.5 text-xs text-gray-500 hover:text-sky-600 dark:hover:text-sky-400 border border-dashed border-gray-300 dark:border-gray-700 hover:border-sky-400/60 dark:hover:border-sky-500/40 hover:bg-sky-50/50 dark:hover:bg-sky-500/5 transition-colors w-full justify-center">
           <Plus class="w-3.5 h-3.5" /> {{ t('taskForm.addAction') }}
         </button>
       </div>

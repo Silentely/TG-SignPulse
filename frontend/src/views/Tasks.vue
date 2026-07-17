@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted, watch, computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { Play, FileText, Edit2, Trash2, Plus, Radio, Clock, Shuffle, Power } from 'lucide-vue-next'
+import { Play, FileText, Edit2, Trash2, Plus, Radio, Clock, Shuffle, Power, Search } from 'lucide-vue-next'
 import { listSignTasks, deleteSignTask, startSignTaskRun, listAccounts, toggleSignTaskEnabled, batchSignTasks } from '../lib/api'
 import type { SignTask, AccountInfo } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
+import { useConfirm } from '../composables/useConfirm'
 import { useAuthStore } from '../stores/auth'
 import type { TaskUiItem } from '../lib/types'
 import { getLocalizedErrorMessage } from '../lib/types'
@@ -17,6 +18,7 @@ import { devLog } from '../lib/devLog'
 const route = useRoute()
 const { t } = useI18n()
 const toast = useToast()
+const { confirm } = useConfirm()
 const authStore = useAuthStore()
 const tasks = ref<TaskUiItem[]>([])
 const pageLoading = ref(true)
@@ -33,8 +35,20 @@ const runMenuAccounts = ref<string[]>([])
 const allAccounts = ref<string[]>([])
 const selectedTaskIds = ref<Set<string>>(new Set())
 const batchBusy = ref(false)
+const searchQuery = ref('')
 const selectedCount = computed(() => selectedTaskIds.value.size)
-const allSelected = computed(() => tasks.value.length > 0 && selectedTaskIds.value.size === tasks.value.length)
+const filteredTasks = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return tasks.value
+  return tasks.value.filter(
+    (task) =>
+      task.name.toLowerCase().includes(q) ||
+      task.targetStr.toLowerCase().includes(q) ||
+      task.scheduleMode.toLowerCase().includes(q) ||
+      task.lastRunStr.toLowerCase().includes(q)
+  )
+})
+const allSelected = computed(() => filteredTasks.value.length > 0 && filteredTasks.value.every((t) => selectedTaskIds.value.has(t.id)))
 
 const toggleSelectTask = (id: string) => {
   const next = new Set(selectedTaskIds.value)
@@ -44,16 +58,28 @@ const toggleSelectTask = (id: string) => {
 }
 const toggleSelectAll = () => {
   if (allSelected.value) {
-    selectedTaskIds.value = new Set()
+    const next = new Set(selectedTaskIds.value)
+    for (const task of filteredTasks.value) next.delete(task.id)
+    selectedTaskIds.value = next
   } else {
-    selectedTaskIds.value = new Set(tasks.value.map((t) => t.id))
+    const next = new Set(selectedTaskIds.value)
+    for (const task of filteredTasks.value) next.add(task.id)
+    selectedTaskIds.value = next
   }
 }
 const clearSelection = () => { selectedTaskIds.value = new Set() }
 
 const runBatch = async (action: 'enable' | 'disable' | 'delete' | 'run') => {
   if (!selectedCount.value || batchBusy.value) return
-  if (action === 'delete' && !confirm(`${t('tasks.batchDeleteConfirm')} (${selectedCount.value})`)) return
+  if (action === 'delete') {
+    const ok = await confirm({
+      title: t('common.dangerConfirm'),
+      message: `${t('tasks.batchDeleteConfirm')} (${selectedCount.value})`,
+      confirmText: t('common.delete'),
+      danger: true,
+    })
+    if (!ok) return
+  }
   const token = authStore.token || ''
   const items = tasks.value
     .filter((t) => selectedTaskIds.value.has(t.id))
@@ -251,7 +277,13 @@ watch(() => route.query.account, () => {
 })
 
 const handleDelete = async (task: TaskUiItem) => {
-  if (!confirm(`${t('tasks.deleteConfirm')} ${task.name} ?`)) return
+  const ok = await confirm({
+    title: t('common.dangerConfirm'),
+    message: `${t('tasks.deleteConfirm')} ${task.name} ?`,
+    confirmText: t('common.delete'),
+    danger: true,
+  })
+  if (!ok) return
   const token = authStore.token || ''
   try {
     const accountName = getTaskAccountName(task.raw) || undefined
@@ -329,48 +361,103 @@ const openLogs = (task: TaskUiItem) => {
 
 <template>
   <div class="relative min-h-[80vh]" @click="closeRunMenu">
-    <!-- Page Loading -->
-    <div v-if="pageLoading" class="flex items-center justify-center py-20">
-      <svg class="animate-spin w-6 h-6 text-gray-400" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+    <!-- Page Loading skeleton -->
+    <div v-if="pageLoading" class="space-y-2" aria-busy="true">
+      <div class="ui-card p-3">
+        <div class="ui-skeleton h-6 w-full max-w-md" />
+      </div>
+      <div v-for="i in 5" :key="i" class="ui-card p-4 flex items-center gap-3">
+        <div class="ui-skeleton w-10 h-10 shrink-0" />
+        <div class="flex-1 space-y-2">
+          <div class="ui-skeleton h-3.5 w-40" />
+          <div class="ui-skeleton h-3 w-64 max-w-full" />
+        </div>
+      </div>
     </div>
 
     <!-- Empty State -->
-    <div v-else-if="tasks.length === 0" class="flex flex-col items-center justify-center py-20 text-center">
-      <div class="w-16 h-16 bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-800/60 flex items-center justify-center mb-4">
-        <svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+    <div v-else-if="tasks.length === 0" class="ui-empty">
+      <div class="ui-empty-icon">
+        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
       </div>
-      <p class="text-sm text-gray-900 dark:text-gray-100 font-medium mb-1">{{ t('tasks.empty') }}</p>
-      <p class="text-xs text-gray-500">{{ t('tasks.emptyHint') }}</p>
+      <p class="ui-empty-title">{{ t('tasks.empty') }}</p>
+      <p class="ui-empty-desc mb-4">{{ t('tasks.emptyHint') }}</p>
+      <button type="button" class="ui-btn-primary !text-xs !px-3 !py-2" @click="showAddModal = true">
+        <Plus class="w-3.5 h-3.5" /> {{ t('taskModal.addTitle') }}
+      </button>
     </div>
 
     <div v-else class="flex flex-col gap-2 pb-20">
-    <!-- 批量操作栏 -->
-    <div class="flex flex-wrap items-center gap-2 p-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/60">
-      <label class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 cursor-pointer">
-        <input type="checkbox" :checked="allSelected" @change="toggleSelectAll" class="rounded border-gray-300" />
-        {{ t('tasks.selectAll') }}
+    <!-- 批量操作栏（滚动时 sticky） -->
+    <div
+      class="ui-sticky-bar flex flex-wrap items-center gap-2 p-3"
+      :class="selectedCount ? 'ui-sticky-bar-active' : ''"
+      role="toolbar"
+      :aria-label="t('tasks.selectAll')"
+    >
+      <label class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 cursor-pointer select-none" :title="searchQuery.trim() ? t('tasks.selectAllFilteredHint') : undefined">
+        <input
+          type="checkbox"
+          :checked="allSelected"
+          class="ui-checkbox"
+          :aria-checked="allSelected"
+          @change="toggleSelectAll"
+        />
+        {{ searchQuery.trim() ? t('tasks.selectAllFiltered') : t('tasks.selectAll') }}
       </label>
-      <span v-if="selectedCount" class="text-xs text-gray-500">{{ t('tasks.selectedCount') }}: {{ selectedCount }}</span>
+      <div class="relative flex-1 min-w-[8rem] max-w-xs">
+        <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+        <input
+          v-model="searchQuery"
+          type="search"
+          class="ui-input !pl-8 !h-8 !text-xs"
+          :placeholder="t('common.searchPlaceholder')"
+          :aria-label="t('common.search')"
+        >
+      </div>
+      <span
+        v-if="selectedCount"
+        class="inline-flex items-center gap-1.5 text-xs font-mono text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/40 border border-sky-200/70 dark:border-sky-800/50 px-2 py-0.5"
+      >
+        {{ t('tasks.selectedCount') }}: {{ selectedCount }}
+      </span>
+      <button
+        v-if="selectedCount"
+        type="button"
+        class="text-[11px] text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 underline-offset-2 hover:underline"
+        @click="clearSelection"
+      >
+        {{ t('common.cancel') }}
+      </button>
       <div class="flex-1" />
-      <button type="button" :disabled="!selectedCount || batchBusy" @click="runBatch('enable')" class="px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800">{{ t('tasks.batchEnable') }}</button>
-      <button type="button" :disabled="!selectedCount || batchBusy" @click="runBatch('disable')" class="px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800">{{ t('tasks.batchDisable') }}</button>
-      <button type="button" :disabled="!selectedCount || batchBusy" @click="runBatch('run')" class="px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800">{{ t('tasks.batchRun') }}</button>
-      <button type="button" :disabled="!selectedCount || batchBusy" @click="runBatch('delete')" class="px-2 py-1 text-xs border border-rose-200 text-rose-600 dark:border-rose-800 disabled:opacity-40 hover:bg-rose-50 dark:hover:bg-rose-900/20">{{ t('tasks.batchDelete') }}</button>
+      <div class="flex flex-wrap items-center gap-1.5">
+        <button type="button" class="ui-btn-secondary !px-2.5 !py-1 !text-xs" :disabled="!selectedCount || batchBusy" @click="runBatch('enable')">{{ t('tasks.batchEnable') }}</button>
+        <button type="button" class="ui-btn-secondary !px-2.5 !py-1 !text-xs" :disabled="!selectedCount || batchBusy" @click="runBatch('disable')">{{ t('tasks.batchDisable') }}</button>
+        <button type="button" class="ui-btn-secondary !px-2.5 !py-1 !text-xs" :disabled="!selectedCount || batchBusy" @click="runBatch('run')">{{ t('tasks.batchRun') }}</button>
+        <button type="button" class="ui-btn-danger !px-2.5 !py-1 !text-xs" :disabled="!selectedCount || batchBusy" @click="runBatch('delete')">{{ t('tasks.batchDelete') }}</button>
+      </div>
+      <span v-if="batchBusy" class="ui-spinner !w-3.5 !h-3.5 !border-2" aria-hidden="true" />
     </div>
     <div
-      v-for="task in tasks" :key="task.id"
-      class="group flex flex-col sm:flex-row sm:items-center p-4 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/60 hover:border-gray-300 dark:hover:border-gray-700 transition-colors"
-      :class="{ 'opacity-50': !task.enabled, 'ring-1 ring-sky-400/50': selectedTaskIds.has(task.id) }"
+      v-if="filteredTasks.length === 0"
+      class="ui-empty !py-12"
+    >
+      <p class="ui-empty-desc">{{ t('common.noData') }}</p>
+    </div>
+    <div
+      v-for="task in filteredTasks" :key="task.id"
+      class="ui-card ui-card-hover group flex flex-col sm:flex-row sm:items-center p-4"
+      :class="{ 'opacity-50': !task.enabled, 'ring-1 ring-sky-400/40 border-sky-300/50 dark:border-sky-700/40': selectedTaskIds.has(task.id) }"
     >
       <!-- Mobile Layout: Avatar + Name + Status -->
       <div class="flex-1 flex gap-3 w-full overflow-hidden">
         <label class="self-center shrink-0 cursor-pointer" @click.stop>
-          <input type="checkbox" :checked="selectedTaskIds.has(task.id)" @change="toggleSelectTask(task.id)" class="rounded border-gray-300" />
+          <input type="checkbox" :checked="selectedTaskIds.has(task.id)" class="ui-checkbox" @change="toggleSelectTask(task.id)" />
         </label>
         <!-- Avatar - spans both rows, shown on both mobile and PC -->
-        <div class="w-9 h-9 sm:w-10 sm:h-10 shrink-0 bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-[9px] text-gray-500 border border-gray-200 dark:border-gray-700 overflow-hidden rounded-sm self-center">
-          <img v-if="task.chatAvatarUrl" :src="task.chatAvatarUrl" class="w-full h-full object-cover" />
-          <component v-else :is="task.modeIcon" class="w-4 h-4 sm:w-5 sm:h-5" />
+        <div class="w-9 h-9 sm:w-10 sm:h-10 shrink-0 bg-gray-100 dark:bg-gray-800/80 flex items-center justify-center text-[9px] text-gray-500 border border-gray-200 dark:border-gray-700/60 overflow-hidden self-center">
+          <img v-if="task.chatAvatarUrl" :src="task.chatAvatarUrl" class="w-full h-full object-cover" alt="" />
+          <component v-else :is="task.modeIcon" class="w-4 h-4 sm:w-5 sm:h-5 opacity-70" />
         </div>
 
         <!-- Right side: Name row + Badges row -->
@@ -392,11 +479,11 @@ const openLogs = (task: TaskUiItem) => {
           <!-- Row 2 (PC): Badges row - Schedule + Target + Last Run -->
           <div class="hidden sm:flex items-center gap-2">
             <!-- Schedule badge -->
-            <span class="px-2 py-0.5 rounded text-xs font-mono bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-100 dark:border-blue-800/50 truncate" :title="task.scheduleMode">
+            <span class="ui-badge !text-[11px] font-mono bg-sky-50 text-sky-700 border-sky-100 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800/50 truncate max-w-[10rem]" :title="task.scheduleMode">
               {{ task.scheduleMode }}
             </span>
             <!-- Target badge -->
-            <span class="px-2 py-0.5 rounded text-xs font-mono bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 border border-gray-200 dark:border-gray-700/50 truncate" :title="task.targetStr">
+            <span class="ui-badge ui-badge-neutral !text-[11px] font-mono truncate max-w-[12rem]" :title="task.targetStr">
               {{ task.targetStr }}
             </span>
             <!-- Last Run badge (PC) -->
@@ -412,10 +499,10 @@ const openLogs = (task: TaskUiItem) => {
 
           <!-- Mobile Second Row: Schedule + Target -->
           <div class="flex sm:hidden items-center gap-2 w-full overflow-hidden">
-            <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-100 dark:border-blue-800/50 truncate" :title="task.scheduleMode">
+            <span class="ui-badge !text-[10px] font-mono bg-sky-50 text-sky-700 border-sky-100 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800/50 truncate" :title="task.scheduleMode">
               {{ task.scheduleMode }}
             </span>
-            <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 border border-gray-200 dark:border-gray-700/50 truncate" :title="task.targetStr">
+            <span class="ui-badge ui-badge-neutral !text-[10px] font-mono truncate" :title="task.targetStr">
               {{ task.targetStr }}
             </span>
           </div>
@@ -423,64 +510,68 @@ const openLogs = (task: TaskUiItem) => {
       </div>
 
       <!-- Divider for Actions on Mobile -->
-      <div class="sm:hidden w-full border-t border-dashed border-gray-200 dark:border-gray-700 my-3"></div>
+      <div class="sm:hidden w-full border-t border-dashed border-gray-200 dark:border-gray-700/80 my-2.5"></div>
 
-      <!-- Actions Area -->
-      <div class="flex items-center justify-between sm:justify-end gap-2 sm:gap-1.5 mt-2 sm:mt-0 transition-opacity duration-200 shrink-0 sm:pl-4">
-        <!-- Toggle enabled/paused -->
+      <!-- Actions Area：移动端等分，桌面端右对齐 -->
+      <div class="grid grid-cols-5 sm:flex sm:items-center sm:justify-end gap-1 sm:gap-1 mt-1 sm:mt-0 shrink-0 sm:pl-3">
         <button
-          @click="handleToggleEnabled(task)"
-          class="flex-1 sm:flex-none flex justify-center items-center gap-1 px-2 py-1.5 rounded transition-colors text-xs"
-          :class="task.enabled ? 'text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20' : 'text-gray-400 dark:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800'"
+          type="button"
+          class="flex flex-col sm:flex-row justify-center items-center gap-0.5 sm:gap-1 px-1 sm:px-2 py-1.5 rounded-sm transition-colors text-[10px] sm:text-xs"
+          :class="task.enabled ? 'text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20' : 'text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-white/[0.04]'"
           :title="task.enabled ? t('tasks.pause') : t('tasks.resume')"
+          :aria-pressed="task.enabled"
+          @click="handleToggleEnabled(task)"
         >
           <Power class="w-3.5 h-3.5" />
-          <span class="text-xs">{{ task.enabled ? t('tasks.pause') : t('tasks.resume') }}</span>
+          <span class="truncate max-w-full">{{ task.enabled ? t('tasks.pause') : t('tasks.resume') }}</span>
         </button>
-        <!-- Execute (disabled for listen mode) -->
-        <div class="relative flex-1 sm:flex-none" @click.stop>
+        <div class="relative" @click.stop>
           <button
-            @click="task.raw.execution_mode !== 'listen' && handleRun(task)"
-            class="w-full sm:w-auto flex justify-center items-center gap-1 px-2 py-1.5 rounded transition-colors text-xs"
-            :class="task.raw.execution_mode === 'listen' ? 'text-gray-300 dark:text-gray-700 cursor-not-allowed' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800'"
+            type="button"
+            class="w-full flex flex-col sm:flex-row justify-center items-center gap-0.5 sm:gap-1 px-1 sm:px-2 py-1.5 rounded-sm transition-colors text-[10px] sm:text-xs"
+            :class="task.raw.execution_mode === 'listen' ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/[0.04]'"
             :title="t('tasks.executeNow')"
             :disabled="task.raw.execution_mode === 'listen'"
+            @click="task.raw.execution_mode !== 'listen' && handleRun(task)"
           >
             <Play class="w-3.5 h-3.5" />
-            <span class="text-xs">{{ t('tasks.execute') }}</span>
+            <span class="truncate max-w-full">{{ t('tasks.execute') }}</span>
           </button>
-          <!-- Account selection dropdown -->
-          <div v-if="runMenuTask === task" class="absolute top-full left-0 sm:right-0 sm:left-auto mt-1 z-50 min-w-[140px] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-lg py-1">
+          <div v-if="runMenuTask === task" class="absolute top-full left-0 sm:right-0 sm:left-auto mt-1 z-50 min-w-[140px] ui-card shadow-[var(--sp-shadow-md)] py-1">
             <div class="px-3 py-1.5 text-[10px] text-gray-400 font-medium uppercase tracking-wide border-b border-gray-100 dark:border-gray-800">{{ t('tasks.selectAccount') }}</div>
             <button
               v-for="acc in runMenuAccounts" :key="acc"
+              type="button"
+              class="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/[0.04] transition-colors truncate"
               @click="doRun(task, acc)"
-              class="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors truncate"
             >
               {{ acc }}
             </button>
           </div>
         </div>
-        <button @click="openLogs(task)" class="flex-1 sm:flex-none flex justify-center items-center gap-1 px-2 py-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 rounded transition-colors text-xs" :title="t('tasks.viewLogs')">
+        <button type="button" class="flex flex-col sm:flex-row justify-center items-center gap-0.5 sm:gap-1 px-1 sm:px-2 py-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/[0.04] rounded-sm transition-colors text-[10px] sm:text-xs" :title="t('tasks.viewLogs')" @click="openLogs(task)">
           <FileText class="w-3.5 h-3.5" />
-          <span class="text-xs">{{ t('tasks.logs') }}</span>
+          <span class="truncate max-w-full">{{ t('tasks.logs') }}</span>
         </button>
-        <button @click="openEdit(task)" class="flex-1 sm:flex-none flex justify-center items-center gap-1 px-2 py-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 rounded transition-colors text-xs" :title="t('tasks.edit')">
+        <button type="button" class="flex flex-col sm:flex-row justify-center items-center gap-0.5 sm:gap-1 px-1 sm:px-2 py-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/[0.04] rounded-sm transition-colors text-[10px] sm:text-xs" :title="t('tasks.edit')" @click="openEdit(task)">
           <Edit2 class="w-3.5 h-3.5" />
-          <span class="text-xs">{{ t('tasks.edit') }}</span>
+          <span class="truncate max-w-full">{{ t('tasks.edit') }}</span>
         </button>
-        <button @click="handleDelete(task)" class="flex-1 sm:flex-none flex justify-center items-center gap-1 px-2 py-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 rounded transition-colors text-xs" :title="t('tasks.delete')">
+        <button type="button" class="flex flex-col sm:flex-row justify-center items-center gap-0.5 sm:gap-1 px-1 sm:px-2 py-1.5 text-gray-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-sm transition-colors text-[10px] sm:text-xs" :title="t('tasks.delete')" @click="handleDelete(task)">
           <Trash2 class="w-3.5 h-3.5" />
-          <span class="text-xs">{{ t('tasks.delete') }}</span>
+          <span class="truncate max-w-full">{{ t('tasks.delete') }}</span>
         </button>
       </div>
     </div>
     </div>
     
-    <div class="fixed bottom-6 right-6 lg:bottom-8 lg:right-8 z-40 flex flex-col items-end gap-2">
+    <div class="fixed ui-safe-fab z-40 flex flex-col items-end gap-2">
       <button 
+        type="button"
+        class="ui-fab"
+        :aria-label="t('taskModal.addTitle')"
+        :title="t('taskModal.addTitle')"
         @click="showAddModal = true"
-        class="w-11 h-11 flex items-center justify-center bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-950 border border-gray-800 dark:border-gray-200 shadow-md hover:shadow-lg hover:-translate-y-0.5 active:scale-95 transition-all duration-200"
       >
         <Plus class="w-5 h-5" />
       </button>
