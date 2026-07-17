@@ -21,6 +21,7 @@ on:
 permissions:
   contents: read
   packages: write
+  actions: write  # cleanup-old-runs 删除本工作流历史运行记录
 
 concurrency:
   group: docker-build-${{ github.ref }}
@@ -204,3 +205,86 @@ jobs:
             GIT_BRANCH=${{ github.ref_name }}
             APP_VERSION=${{ steps.vars.outputs.app_version }}
             BUILD_TIME=${{ steps.vars.outputs.build_time }}
+
+  # 每次本工作流运行结束后清理历史：至少保留最近 3 次已完成记录，并删除 3 天前的其余记录。
+  # 无 schedule；不依赖构建是否成功/跳过。
+  cleanup-old-runs:
+    name: Cleanup old workflow runs
+    needs: [test, frontend-test, build-and-push]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Delete old Docker Image runs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          WORKFLOW_FILE: docker.yml
+          KEEP_MINIMUM: "3"
+          RETAIN_DAYS: "3"
+          CURRENT_RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Listing completed runs for workflow ${WORKFLOW_FILE} (keep>=${KEEP_MINIMUM}, retain_days=${RETAIN_DAYS})"
+
+          # 按时间倒序，最多取 100 条已完成运行
+          runs_json="$(
+            gh run list \
+              --repo "${GH_REPO}" \
+              --workflow "${WORKFLOW_FILE}" \
+              --status completed \
+              --limit 100 \
+              --json databaseId,createdAt,displayTitle,conclusion
+          )"
+
+          count="$(echo "${runs_json}" | jq 'length')"
+          echo "Found ${count} completed run(s)"
+          if [[ "${count}" -eq 0 ]]; then
+            echo "Nothing to clean"
+            exit 0
+          fi
+
+          now_epoch="$(date -u +%s)"
+          cutoff_epoch="$((now_epoch - RETAIN_DAYS * 86400))"
+          deleted=0
+          kept=0
+          skipped_young=0
+
+          # 索引 0 为最新：前 KEEP_MINIMUM 条始终保留；其余仅当 createdAt 早于 cutoff 时删除
+          while IFS=$'\t' read -r run_id created_at; do
+            [[ -n "${run_id}" ]] || continue
+            # 绝不删除当前这次运行（正常为 in_progress，一般不在 completed 列表里）
+            if [[ "${run_id}" == "${CURRENT_RUN_ID}" ]]; then
+              echo "Skip current run ${run_id}"
+              continue
+            fi
+
+            kept=$((kept + 1))
+            if [[ "${kept}" -le "${KEEP_MINIMUM}" ]]; then
+              echo "Keep recent #${kept}: ${run_id} (${created_at})"
+              continue
+            fi
+
+            created_epoch="$(date -u -d "${created_at}" +%s 2>/dev/null || date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "${created_at}" +%s 2>/dev/null || echo 0)"
+            if [[ "${created_epoch}" -eq 0 ]]; then
+              echo "Skip unparsable date for run ${run_id}: ${created_at}"
+              continue
+            fi
+
+            if [[ "${created_epoch}" -ge "${cutoff_epoch}" ]]; then
+              echo "Keep (within ${RETAIN_DAYS}d): ${run_id} (${created_at})"
+              skipped_young=$((skipped_young + 1))
+              continue
+            fi
+
+            echo "Delete old run ${run_id} (${created_at})"
+            if gh api --method DELETE "repos/${GH_REPO}/actions/runs/${run_id}" >/dev/null; then
+              deleted=$((deleted + 1))
+            else
+              echo "Warning: failed to delete run ${run_id}" >&2
+            fi
+          done < <(echo "${runs_json}" | jq -r '.[] | "\(.databaseId)\t\(.createdAt)"')
+
+          echo "Cleanup done: deleted=${deleted}, recent_kept_slots=${KEEP_MINIMUM}, young_extra_kept=${skipped_young}"
