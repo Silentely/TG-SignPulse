@@ -123,24 +123,26 @@ jobs:
             echo "platforms=linux/amd64" >> "${GITHUB_OUTPUT}"
           fi
 
+          # 镜像标签策略（避免 main 推送与 v* 发版各打一遍 latest）：
+          # - v* tag：正式发版，一次推送 vX.Y.Z + latest + main + main-<sha>（多架构）
+          # - main 分支：仅 main-<sha>（不覆盖 latest；发版请用 tag）
+          # - dev 分支：dev + dev-<sha>
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            # Tag 推送：生成版本标签 + latest
             {
               echo "tags<<EOF"
               echo "${image}:${GITHUB_REF_NAME}"
               echo "${image}:latest"
+              echo "${image}:main"
+              echo "${image}:main-${short_sha}"
               echo "EOF"
             } >> "${GITHUB_OUTPUT}"
           elif [[ "${GITHUB_REF_NAME}" == "main" ]]; then
-            # main 分支：生成 latest 标签
             {
               echo "tags<<EOF"
-              echo "${image}:latest"
               echo "${image}:main-${short_sha}"
               echo "EOF"
             } >> "${GITHUB_OUTPUT}"
           elif [[ "${GITHUB_REF_NAME}" == "dev" ]]; then
-            # dev 分支：生成 dev 标签
             {
               echo "tags<<EOF"
               echo "${image}:dev"
@@ -148,7 +150,6 @@ jobs:
               echo "EOF"
             } >> "${GITHUB_OUTPUT}"
           else
-            # 其他分支：生成 test- 前缀的测试标签
             safe_ref="$(echo "${GITHUB_REF_NAME}" | tr '[:upper:]' '[:lower:]' | sed 's#[^a-z0-9._-]#-#g')"
             {
               echo "tags<<EOF"
