@@ -387,160 +387,158 @@ const openLogs = (task: TaskUiItem) => {
       </button>
     </div>
 
-    <div v-else class="flex flex-col gap-2 pb-20">
-    <!-- 批量操作栏（滚动时 sticky） -->
+    <div v-else class="flex flex-col gap-3 pb-24">
+    <!-- 工具栏：不使用 sticky，避免与列表层叠重叠 -->
     <div
-      class="ui-sticky-bar flex flex-wrap items-center gap-2 p-3"
-      :class="selectedCount ? 'ui-sticky-bar-active' : ''"
+      class="ui-card p-3 space-y-2.5"
+      :class="selectedCount ? 'ring-1 ring-sky-400/30 border-sky-300/40 dark:border-sky-700/40' : ''"
       role="toolbar"
       :aria-label="t('tasks.selectAll')"
     >
-      <label class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 cursor-pointer select-none" :title="searchQuery.trim() ? t('tasks.selectAllFilteredHint') : undefined">
-        <input
-          type="checkbox"
-          :checked="allSelected"
-          class="ui-checkbox"
-          :aria-checked="allSelected"
-          @change="toggleSelectAll"
-        />
-        {{ searchQuery.trim() ? t('tasks.selectAllFiltered') : t('tasks.selectAll') }}
-      </label>
-      <div class="relative flex-1 min-w-[8rem] max-w-xs">
-        <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
-        <input
-          v-model="searchQuery"
-          type="search"
-          class="ui-input !pl-8 !h-8 !text-xs"
-          :placeholder="t('common.searchPlaceholder')"
-          :aria-label="t('common.search')"
+      <div class="flex flex-col sm:flex-row sm:items-center gap-2">
+        <label
+          class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 cursor-pointer select-none shrink-0"
+          :title="searchQuery.trim() ? t('tasks.selectAllFilteredHint') : undefined"
         >
+          <input
+            type="checkbox"
+            :checked="allSelected"
+            class="ui-checkbox"
+            :aria-checked="allSelected"
+            @change="toggleSelectAll"
+          />
+          {{ searchQuery.trim() ? t('tasks.selectAllFiltered') : t('tasks.selectAll') }}
+        </label>
+        <div class="relative flex-1 min-w-0">
+          <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+          <input
+            v-model="searchQuery"
+            type="search"
+            class="ui-input !pl-8 !h-9 !text-xs"
+            :placeholder="t('common.searchPlaceholder')"
+            :aria-label="t('common.search')"
+          >
+        </div>
+        <div v-if="selectedCount" class="flex items-center gap-2 shrink-0">
+          <span class="text-xs font-mono text-sky-700 dark:text-sky-300">
+            {{ t('tasks.selectedCount') }}: {{ selectedCount }}
+          </span>
+          <button
+            type="button"
+            class="text-[11px] text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 underline-offset-2 hover:underline"
+            @click="clearSelection"
+          >
+            {{ t('common.cancel') }}
+          </button>
+        </div>
       </div>
-      <span
-        v-if="selectedCount"
-        class="inline-flex items-center gap-1.5 text-xs font-mono text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/40 border border-sky-200/70 dark:border-sky-800/50 px-2 py-0.5"
-      >
-        {{ t('tasks.selectedCount') }}: {{ selectedCount }}
-      </span>
-      <button
-        v-if="selectedCount"
-        type="button"
-        class="text-[11px] text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 underline-offset-2 hover:underline"
-        @click="clearSelection"
-      >
-        {{ t('common.cancel') }}
-      </button>
-      <div class="flex-1" />
       <div class="flex flex-wrap items-center gap-1.5">
-        <button type="button" class="ui-btn-secondary !px-2.5 !py-1 !text-xs" :disabled="!selectedCount || batchBusy" @click="runBatch('enable')">{{ t('tasks.batchEnable') }}</button>
-        <button type="button" class="ui-btn-secondary !px-2.5 !py-1 !text-xs" :disabled="!selectedCount || batchBusy" @click="runBatch('disable')">{{ t('tasks.batchDisable') }}</button>
-        <button type="button" class="ui-btn-secondary !px-2.5 !py-1 !text-xs" :disabled="!selectedCount || batchBusy" @click="runBatch('run')">{{ t('tasks.batchRun') }}</button>
-        <button type="button" class="ui-btn-danger !px-2.5 !py-1 !text-xs" :disabled="!selectedCount || batchBusy" @click="runBatch('delete')">{{ t('tasks.batchDelete') }}</button>
+        <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs" :disabled="!selectedCount || batchBusy" @click="runBatch('enable')">{{ t('tasks.batchEnable') }}</button>
+        <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs" :disabled="!selectedCount || batchBusy" @click="runBatch('disable')">{{ t('tasks.batchDisable') }}</button>
+        <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs" :disabled="!selectedCount || batchBusy" @click="runBatch('run')">{{ t('tasks.batchRun') }}</button>
+        <button type="button" class="ui-btn-danger !px-2.5 !py-1.5 !text-xs" :disabled="!selectedCount || batchBusy" @click="runBatch('delete')">{{ t('tasks.batchDelete') }}</button>
+        <span v-if="batchBusy" class="ui-spinner !w-3.5 !h-3.5 !border-2" aria-hidden="true" />
       </div>
-      <span v-if="batchBusy" class="ui-spinner !w-3.5 !h-3.5 !border-2" aria-hidden="true" />
     </div>
-    <div
-      v-if="filteredTasks.length === 0"
-      class="ui-empty !py-12"
-    >
+
+    <div v-if="filteredTasks.length === 0" class="ui-empty !py-12">
       <p class="ui-empty-desc">{{ t('common.noData') }}</p>
     </div>
+
     <div
-      v-for="task in filteredTasks" :key="task.id"
-      class="ui-card ui-card-hover group flex flex-col sm:flex-row sm:items-center p-4"
-      :class="{ 'opacity-50': !task.enabled, 'ring-1 ring-sky-400/40 border-sky-300/50 dark:border-sky-700/40': selectedTaskIds.has(task.id) }"
+      v-for="task in filteredTasks"
+      :key="task.id"
+      class="ui-card relative flex flex-col gap-3 p-4"
+      :class="{
+        'opacity-55': !task.enabled,
+        'ring-1 ring-sky-400/40 border-sky-300/50 dark:border-sky-700/40': selectedTaskIds.has(task.id),
+      }"
     >
-      <!-- Mobile Layout: Avatar + Name + Status -->
-      <div class="flex-1 flex gap-3 w-full overflow-hidden">
-        <label class="self-center shrink-0 cursor-pointer" @click.stop>
-          <input type="checkbox" :checked="selectedTaskIds.has(task.id)" class="ui-checkbox" @change="toggleSelectTask(task.id)" />
+      <!-- 主信息行 -->
+      <div class="flex items-start gap-3 min-w-0">
+        <label class="pt-1 shrink-0 cursor-pointer" @click.stop>
+          <input
+            type="checkbox"
+            :checked="selectedTaskIds.has(task.id)"
+            class="ui-checkbox"
+            @change="toggleSelectTask(task.id)"
+          />
         </label>
-        <!-- Avatar - spans both rows, shown on both mobile and PC -->
-        <div class="w-9 h-9 sm:w-10 sm:h-10 shrink-0 bg-gray-100 dark:bg-gray-800/80 flex items-center justify-center text-[9px] text-gray-500 border border-gray-200 dark:border-gray-700/60 overflow-hidden self-center">
+        <div class="w-10 h-10 shrink-0 bg-gray-100 dark:bg-gray-800/80 flex items-center justify-center text-gray-500 border border-gray-200 dark:border-gray-700/60 overflow-hidden">
           <img v-if="task.chatAvatarUrl" :src="task.chatAvatarUrl" class="w-full h-full object-cover" alt="" />
-          <component v-else :is="task.modeIcon" class="w-4 h-4 sm:w-5 sm:h-5 opacity-70" />
+          <component v-else :is="task.modeIcon" class="w-5 h-5 opacity-70" />
         </div>
-
-        <!-- Right side: Name row + Badges row -->
-        <div class="flex-1 flex flex-col gap-1.5 min-w-0">
-          <!-- Row 1: Name + Last Run (mobile) / Name (PC) -->
-          <div class="flex items-center justify-between gap-2">
-            <span class="text-sm font-medium text-gray-900 dark:text-gray-200 truncate" :title="task.name">{{ task.name }}</span>
-            <!-- Last Run on mobile only -->
-            <span class="sm:hidden px-2 py-0.5 rounded text-[10px] border shrink-0"
-                   :title="task.lastRunStr"
-                   :class="task.isListenMode && task.lastRunSuccess === null ? 'bg-orange-50 text-orange-600 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:border-orange-800/50' :
-                           task.lastRunSuccess === null ? 'bg-gray-50 text-gray-500 border-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700' :
-                           (task.lastRunSuccess ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800/50' : 
-                           'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-900/30 dark:text-rose-400 dark:border-rose-800/50')">
-               {{ task.lastRunStr }}
-            </span>
+        <div class="flex-1 min-w-0 space-y-1.5">
+          <div class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate" :title="task.name">
+            {{ task.name }}
           </div>
-
-          <!-- Row 2 (PC): Badges row - Schedule + Target + Last Run -->
-          <div class="hidden sm:flex items-center gap-2">
-            <!-- Schedule badge -->
-            <span class="ui-badge !text-[11px] font-mono bg-sky-50 text-sky-700 border-sky-100 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800/50 truncate max-w-[10rem]" :title="task.scheduleMode">
+          <div class="flex flex-wrap items-center gap-1.5">
+            <span
+              class="ui-badge !text-[11px] font-mono bg-sky-50 text-sky-700 border-sky-100 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800/50 max-w-[12rem] truncate"
+              :title="task.scheduleMode"
+            >
               {{ task.scheduleMode }}
             </span>
-            <!-- Target badge -->
-            <span class="ui-badge ui-badge-neutral !text-[11px] font-mono truncate max-w-[12rem]" :title="task.targetStr">
+            <span
+              class="ui-badge ui-badge-neutral !text-[11px] font-mono max-w-[14rem] truncate"
+              :title="task.targetStr"
+            >
               {{ task.targetStr }}
             </span>
-            <!-- Last Run badge (PC) -->
-            <span class="px-2 py-0.5 rounded text-xs border truncate"
-                  :title="task.lastRunStr"
-                  :class="task.isListenMode && task.lastRunSuccess === null ? 'bg-orange-50 text-orange-600 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:border-orange-800/50' :
-                          task.lastRunSuccess === null ? 'bg-gray-50 text-gray-500 border-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700' :
-                          (task.lastRunSuccess ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800/50' : 
-                          'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-900/30 dark:text-rose-400 dark:border-rose-800/50')">
+            <span
+              class="ui-badge !text-[11px] max-w-full truncate"
+              :title="task.lastRunStr"
+              :class="task.isListenMode && task.lastRunSuccess === null
+                ? 'bg-orange-50 text-orange-600 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:border-orange-800/50'
+                : task.lastRunSuccess === null
+                  ? 'ui-badge-neutral'
+                  : (task.lastRunSuccess ? 'ui-badge-success' : 'ui-badge-error')"
+            >
               {{ task.lastRunStr }}
             </span>
           </div>
-
-          <!-- Mobile Second Row: Schedule + Target -->
-          <div class="flex sm:hidden items-center gap-2 w-full overflow-hidden">
-            <span class="ui-badge !text-[10px] font-mono bg-sky-50 text-sky-700 border-sky-100 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800/50 truncate" :title="task.scheduleMode">
-              {{ task.scheduleMode }}
-            </span>
-            <span class="ui-badge ui-badge-neutral !text-[10px] font-mono truncate" :title="task.targetStr">
-              {{ task.targetStr }}
-            </span>
-          </div>
         </div>
       </div>
 
-      <!-- Divider for Actions on Mobile -->
-      <div class="sm:hidden w-full border-t border-dashed border-gray-200 dark:border-gray-700/80 my-2.5"></div>
-
-      <!-- Actions Area：移动端等分，桌面端右对齐 -->
-      <div class="grid grid-cols-5 sm:flex sm:items-center sm:justify-end gap-1 sm:gap-1 mt-1 sm:mt-0 shrink-0 sm:pl-3">
+      <!-- 操作行：单独一行，避免与内容挤在一起 -->
+      <div class="flex flex-wrap items-center gap-1 border-t border-gray-100 dark:border-gray-800/50 pt-2.5">
         <button
           type="button"
-          class="flex flex-col sm:flex-row justify-center items-center gap-0.5 sm:gap-1 px-1 sm:px-2 py-1.5 rounded-sm transition-colors text-[10px] sm:text-xs"
-          :class="task.enabled ? 'text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20' : 'text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-white/[0.04]'"
+          class="inline-flex items-center gap-1 px-2 py-1.5 rounded-sm text-xs transition-colors"
+          :class="task.enabled
+            ? 'text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20'
+            : 'text-gray-400 hover:bg-gray-100 dark:hover:bg-white/[0.04]'"
           :title="task.enabled ? t('tasks.pause') : t('tasks.resume')"
           :aria-pressed="task.enabled"
           @click="handleToggleEnabled(task)"
         >
           <Power class="w-3.5 h-3.5" />
-          <span class="truncate max-w-full">{{ task.enabled ? t('tasks.pause') : t('tasks.resume') }}</span>
+          <span>{{ task.enabled ? t('tasks.pause') : t('tasks.resume') }}</span>
         </button>
         <div class="relative" @click.stop>
           <button
             type="button"
-            class="w-full flex flex-col sm:flex-row justify-center items-center gap-0.5 sm:gap-1 px-1 sm:px-2 py-1.5 rounded-sm transition-colors text-[10px] sm:text-xs"
-            :class="task.raw.execution_mode === 'listen' ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/[0.04]'"
+            class="inline-flex items-center gap-1 px-2 py-1.5 rounded-sm text-xs transition-colors"
+            :class="task.raw.execution_mode === 'listen'
+              ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
+              : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/[0.04]'"
             :title="t('tasks.executeNow')"
             :disabled="task.raw.execution_mode === 'listen'"
             @click="task.raw.execution_mode !== 'listen' && handleRun(task)"
           >
             <Play class="w-3.5 h-3.5" />
-            <span class="truncate max-w-full">{{ t('tasks.execute') }}</span>
+            <span>{{ t('tasks.execute') }}</span>
           </button>
-          <div v-if="runMenuTask === task" class="absolute top-full left-0 sm:right-0 sm:left-auto mt-1 z-50 min-w-[140px] ui-card shadow-[var(--sp-shadow-md)] py-1">
-            <div class="px-3 py-1.5 text-[10px] text-gray-400 font-medium uppercase tracking-wide border-b border-gray-100 dark:border-gray-800">{{ t('tasks.selectAccount') }}</div>
+          <div
+            v-if="runMenuTask === task"
+            class="absolute top-full left-0 mt-1 z-50 min-w-[140px] ui-card shadow-[var(--sp-shadow-md)] py-1"
+          >
+            <div class="px-3 py-1.5 text-[10px] text-gray-400 font-medium uppercase tracking-wide border-b border-gray-100 dark:border-gray-800">
+              {{ t('tasks.selectAccount') }}
+            </div>
             <button
-              v-for="acc in runMenuAccounts" :key="acc"
+              v-for="acc in runMenuAccounts"
+              :key="acc"
               type="button"
               class="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/[0.04] transition-colors truncate"
               @click="doRun(task, acc)"
@@ -549,17 +547,32 @@ const openLogs = (task: TaskUiItem) => {
             </button>
           </div>
         </div>
-        <button type="button" class="flex flex-col sm:flex-row justify-center items-center gap-0.5 sm:gap-1 px-1 sm:px-2 py-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/[0.04] rounded-sm transition-colors text-[10px] sm:text-xs" :title="t('tasks.viewLogs')" @click="openLogs(task)">
+        <button
+          type="button"
+          class="inline-flex items-center gap-1 px-2 py-1.5 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/[0.04] rounded-sm transition-colors text-xs"
+          :title="t('tasks.viewLogs')"
+          @click="openLogs(task)"
+        >
           <FileText class="w-3.5 h-3.5" />
-          <span class="truncate max-w-full">{{ t('tasks.logs') }}</span>
+          <span>{{ t('tasks.logs') }}</span>
         </button>
-        <button type="button" class="flex flex-col sm:flex-row justify-center items-center gap-0.5 sm:gap-1 px-1 sm:px-2 py-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/[0.04] rounded-sm transition-colors text-[10px] sm:text-xs" :title="t('tasks.edit')" @click="openEdit(task)">
+        <button
+          type="button"
+          class="inline-flex items-center gap-1 px-2 py-1.5 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/[0.04] rounded-sm transition-colors text-xs"
+          :title="t('tasks.edit')"
+          @click="openEdit(task)"
+        >
           <Edit2 class="w-3.5 h-3.5" />
-          <span class="truncate max-w-full">{{ t('tasks.edit') }}</span>
+          <span>{{ t('tasks.edit') }}</span>
         </button>
-        <button type="button" class="flex flex-col sm:flex-row justify-center items-center gap-0.5 sm:gap-1 px-1 sm:px-2 py-1.5 text-gray-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-sm transition-colors text-[10px] sm:text-xs" :title="t('tasks.delete')" @click="handleDelete(task)">
+        <button
+          type="button"
+          class="inline-flex items-center gap-1 px-2 py-1.5 text-gray-600 dark:text-gray-300 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-sm transition-colors text-xs"
+          :title="t('tasks.delete')"
+          @click="handleDelete(task)"
+        >
           <Trash2 class="w-3.5 h-3.5" />
-          <span class="truncate max-w-full">{{ t('tasks.delete') }}</span>
+          <span>{{ t('tasks.delete') }}</span>
         </button>
       </div>
     </div>

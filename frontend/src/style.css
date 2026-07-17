@@ -261,21 +261,8 @@ select option {
   box-shadow: var(--sp-shadow-sm);
 }
 
-/* sticky 工具栏 */
-.ui-sticky-bar {
-  position: sticky;
-  top: calc(var(--sp-header-h) + 0.25rem);
-  z-index: 20;
-  backdrop-filter: blur(10px) saturate(1.15);
-  -webkit-backdrop-filter: blur(10px) saturate(1.15);
-  background: rgb(255 255 255 / 0.92);
-  border: 1px solid var(--sp-border);
-  box-shadow: var(--sp-shadow-sm);
-}
-.dark .ui-sticky-bar {
-  background: rgb(18 21 27 / 0.92);
-}
-.ui-sticky-bar-active {
+/* 工具栏强调（选中时） */
+.ui-toolbar-active {
   border-color: rgb(14 165 233 / 0.35);
   box-shadow: 0 0 0 1px var(--sp-accent-soft), var(--sp-shadow-sm);
 }
