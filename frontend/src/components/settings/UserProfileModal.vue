@@ -161,46 +161,46 @@ const handleLogout = () => {
 
 <template>
   <Modal :isOpen="isOpen" @close="$emit('close')" :title="t('profile.title')">
-    <div class="flex gap-4 mb-6 border-b border-gray-200 dark:border-gray-800/60 pb-2 overflow-x-auto">
+    <div class="flex gap-1 mb-6 border-b border-gray-200 dark:border-gray-800/60 overflow-x-auto">
       <button 
         @click="activeTab = 'username'; error = ''; successMessage = ''"
-        class="text-sm font-medium transition-colors whitespace-nowrap"
-        :class="activeTab === 'username' ? 'text-gray-900 dark:text-gray-100' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300'"
+        class="text-sm font-medium transition-colors whitespace-nowrap px-2.5 pb-2.5 border-b-2 -mb-px"
+        :class="activeTab === 'username' ? 'border-sky-500 text-gray-900 dark:text-gray-100' : 'border-transparent text-gray-500 hover:text-gray-800 dark:hover:text-gray-300'"
       >{{ t('profile.changeUsername') }}</button>
       <button 
         @click="activeTab = 'password'; error = ''; successMessage = ''"
-        class="text-sm font-medium transition-colors whitespace-nowrap"
-        :class="activeTab === 'password' ? 'text-gray-900 dark:text-gray-100' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300'"
+        class="text-sm font-medium transition-colors whitespace-nowrap px-2.5 pb-2.5 border-b-2 -mb-px"
+        :class="activeTab === 'password' ? 'border-sky-500 text-gray-900 dark:text-gray-100' : 'border-transparent text-gray-500 hover:text-gray-800 dark:hover:text-gray-300'"
       >{{ t('profile.changePassword') }}</button>
       <button 
         @click="activeTab = 'totp'; error = ''; successMessage = ''"
-        class="text-sm font-medium transition-colors whitespace-nowrap"
-        :class="activeTab === 'totp' ? 'text-gray-900 dark:text-gray-100' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300'"
+        class="text-sm font-medium transition-colors whitespace-nowrap px-2.5 pb-2.5 border-b-2 -mb-px"
+        :class="activeTab === 'totp' ? 'border-sky-500 text-gray-900 dark:text-gray-100' : 'border-transparent text-gray-500 hover:text-gray-800 dark:hover:text-gray-300'"
       >{{ t('profile.totp') }}</button>
     </div>
 
     <!-- Messages -->
-    <div v-if="error" class="text-xs text-rose-600 dark:text-rose-500 bg-rose-50 dark:bg-rose-500/10 p-2 border border-rose-200 dark:border-transparent mb-4">
+    <div v-if="error" class="ui-alert-error mb-4">
       {{ error }}
     </div>
-    <div v-if="successMessage" class="text-xs text-emerald-600 dark:text-emerald-500 bg-emerald-50 dark:bg-emerald-500/10 p-2 border border-emerald-200 dark:border-transparent mb-4">
+    <div v-if="successMessage" class="mb-4 text-xs text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 p-2 border border-emerald-200 dark:border-emerald-800/40">
       {{ successMessage }}
     </div>
 
     <!-- Username Tab -->
     <div v-if="activeTab === 'username'" class="space-y-4">
       <div class="space-y-1.5">
-        <label class="text-xs text-gray-500 block">{{ t('profile.newUsername') }}</label>
-        <input v-model="usernameForm.new_username" type="text" :placeholder="t('profile.newUsernamePlaceholder')" class="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-gray-50 dark:focus:bg-gray-800">
+        <label class="ui-label">{{ t('profile.newUsername') }}</label>
+        <input v-model="usernameForm.new_username" type="text" :placeholder="t('profile.newUsernamePlaceholder')" class="ui-input">
       </div>
       <div class="space-y-1.5">
-        <label class="text-xs text-gray-500 block">{{ t('profile.currentPassword') }}</label>
-        <input v-model="usernameForm.password" type="password" :placeholder="t('profile.currentPasswordPlaceholder')" class="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-gray-50 dark:focus:bg-gray-800">
+        <label class="ui-label">{{ t('profile.currentPassword') }}</label>
+        <input v-model="usernameForm.password" type="password" :placeholder="t('profile.currentPasswordPlaceholder')" class="ui-input">
       </div>
       <button 
         @click="handleUsernameChange"
         :disabled="loading || !usernameForm.new_username || !usernameForm.password"
-        class="w-full mt-2 px-4 py-2 text-sm bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-white transition-colors disabled:opacity-50"
+        class="ui-btn-primary w-full mt-2 !py-2.5"
       >
         {{ loading ? t('profile.changing') : t('profile.confirmChangeUsername') }}
       </button>
@@ -209,17 +209,17 @@ const handleLogout = () => {
     <!-- Password Tab -->
     <div v-else-if="activeTab === 'password'" class="space-y-4">
       <div class="space-y-1.5">
-        <label class="text-xs text-gray-500 block">{{ t('profile.oldPassword') }}</label>
-        <input v-model="form.old_password" type="password" class="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-gray-50 dark:focus:bg-gray-800">
+        <label class="ui-label">{{ t('profile.oldPassword') }}</label>
+        <input v-model="form.old_password" type="password" class="ui-input">
       </div>
       <div class="space-y-1.5">
-        <label class="text-xs text-gray-500 block">{{ t('profile.newPassword') }}</label>
-        <input v-model="form.new_password" type="password" class="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:bg-gray-50 dark:focus:bg-gray-800">
+        <label class="ui-label">{{ t('profile.newPassword') }}</label>
+        <input v-model="form.new_password" type="password" class="ui-input">
       </div>
       <button 
         @click="handlePasswordChange"
         :disabled="loading || !form.old_password || !form.new_password"
-        class="w-full mt-2 px-4 py-2 text-sm bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-white transition-colors disabled:opacity-50"
+        class="ui-btn-primary w-full mt-2 !py-2.5"
       >
         {{ loading ? t('profile.changing') : t('profile.confirmChangePassword') }}
       </button>
@@ -233,7 +233,7 @@ const handleLogout = () => {
           <p class="text-sm text-emerald-700 dark:text-emerald-400 font-medium">{{ t('profile.totpEnabled') }}</p>
         </div>
         <p class="text-xs text-gray-500">{{ t('profile.totpDisableHint') }}</p>
-        <input v-model="totpCode" type="text" :placeholder="t('profile.totpCodePlaceholder')" maxlength="6" class="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm text-center font-mono tracking-widest outline-none transition-colors focus:bg-gray-50 dark:focus:bg-gray-800">
+        <input v-model="totpCode" type="text" :placeholder="t('profile.totpCodePlaceholder')" maxlength="6" class="ui-input text-center font-mono tracking-widest">
         <button 
           @click="handleDisableTOTP"
           :disabled="loading || !totpCode"
@@ -258,11 +258,11 @@ const handleLogout = () => {
           <code class="text-xs font-mono text-gray-900 dark:text-gray-100 select-all break-all">{{ totpSecret }}</code>
         </div>
         <p class="text-xs text-gray-500">{{ t('profile.totpVerifyHint') }}</p>
-        <input v-model="totpCode" type="text" :placeholder="t('profile.totpCodePlaceholder')" maxlength="6" class="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-transparent text-gray-900 dark:text-gray-200 px-3 py-2 text-sm text-center font-mono tracking-widest outline-none transition-colors focus:bg-gray-50 dark:focus:bg-gray-800">
+        <input v-model="totpCode" type="text" :placeholder="t('profile.totpCodePlaceholder')" maxlength="6" class="ui-input text-center font-mono tracking-widest">
         <button 
           @click="handleEnableTOTP"
           :disabled="loading || !totpCode"
-          class="w-full px-4 py-2 text-sm bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-white transition-colors disabled:opacity-50"
+          class="ui-btn-primary w-full !py-2.5"
         >
           {{ loading ? t('profile.verifying') : t('profile.enableTotp') }}
         </button>
@@ -271,14 +271,16 @@ const handleLogout = () => {
 
     <template #footer>
       <button 
+        type="button"
+        class="ui-btn-danger !border-transparent !px-4 !py-2"
         @click="handleLogout"
-        class="px-4 py-2 text-sm text-rose-600 dark:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors"
       >
         {{ t('profile.logout') }}
       </button>
       <button 
+        type="button"
+        class="ui-btn-secondary !border-transparent !bg-transparent !px-4 !py-2"
         @click="$emit('close')"
-        class="px-4 py-2 text-sm text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
       >
         {{ t('profile.close') }}
       </button>

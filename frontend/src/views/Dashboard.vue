@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { Users, Zap, Terminal, Settings } from 'lucide-vue-next'
 import { listAccounts, listSignTasks, getRecentAccountLogs, listScheduledJobs } from '../lib/api'
 import type { AccountInfo, AccountLog, ScheduledJob } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
@@ -10,6 +11,13 @@ import type { DashboardLog } from '../lib/types'
 import { getLocalizedErrorMessage } from '../lib/types'
 import Modal from '../components/Modal.vue'
 import { devLog } from '../lib/devLog'
+
+const quickLinks = [
+  { name: 'accounts', icon: Users, titleKey: 'dashboard.goAccounts', descKey: 'dashboard.goAccountsDesc' },
+  { name: 'tasks', icon: Zap, titleKey: 'dashboard.goTasks', descKey: 'dashboard.goTasksDesc' },
+  { name: 'logs', icon: Terminal, titleKey: 'dashboard.goLogs', descKey: 'dashboard.goLogsDesc' },
+  { name: 'settings', icon: Settings, titleKey: 'dashboard.goSettings', descKey: 'dashboard.goSettingsDesc' },
+]
 
 const { t } = useI18n()
 const toast = useToast()
@@ -245,38 +253,88 @@ const loadDashboardData = async () => {
 </script>
 
 <template>
-  <div class="space-y-8">
-    <!-- Page Loading -->
-    <div v-if="pageLoading" class="flex items-center justify-center py-20">
-      <svg class="animate-spin w-6 h-6 text-gray-400" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+  <div class="space-y-6">
+    <!-- Page Loading skeleton -->
+    <div v-if="pageLoading" class="space-y-6" aria-busy="true" aria-live="polite">
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+        <div v-for="i in 4" :key="i" class="ui-card p-5 min-h-[96px] space-y-4">
+          <div class="ui-skeleton h-3 w-16" />
+          <div class="ui-skeleton h-8 w-20" />
+        </div>
+      </div>
+      <div class="ui-card p-5 space-y-3">
+        <div class="ui-skeleton h-3 w-28" />
+        <div v-for="i in 3" :key="i" class="ui-skeleton h-8 w-full" />
+      </div>
+      <div class="ui-card p-5 space-y-3 min-h-[240px]">
+        <div class="ui-skeleton h-3 w-24" />
+        <div v-for="i in 6" :key="i" class="ui-skeleton h-7 w-full" />
+      </div>
     </div>
 
     <template v-else>
-    <!-- Stats -->
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-      <div 
-        v-for="stat in stats" 
+    <!-- Stats（可点击跳转） -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+      <button
+        v-for="stat in stats"
         :key="stat.key"
-        class="p-5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/60 flex flex-col justify-between"
+        type="button"
+        class="ui-card ui-card-hover ui-stat p-5 flex flex-col justify-between min-h-[96px] text-left"
+        :style="{
+          '--sp-stat-accent':
+            stat.key === 'dashboard.activeAccounts' ? '#0ea5e9'
+            : stat.key === 'dashboard.totalTasks' ? '#8b5cf6'
+            : stat.key === 'dashboard.recentSuccess' ? '#10b981'
+            : '#f43f5e'
+        }"
+        @click="router.push({
+          name: stat.key === 'dashboard.totalTasks' ? 'tasks'
+            : stat.key === 'dashboard.activeAccounts' ? 'accounts'
+            : 'logs'
+        })"
       >
-        <span class="text-xs text-gray-500 font-medium tracking-wide">{{ t(stat.key) }}</span>
-        <span class="text-2xl font-mono text-gray-900 dark:text-gray-100 mt-2">{{ stat.value }}</span>
+        <span class="ui-section-label">{{ t(stat.key) }}</span>
+        <span class="text-2xl sm:text-3xl font-mono font-medium text-gray-900 dark:text-gray-100 mt-3 tracking-tight">{{ stat.value }}</span>
+      </button>
+    </div>
+
+    <!-- 快捷入口 -->
+    <div>
+      <div class="ui-section-label mb-3">{{ t('dashboard.quickActions') }}</div>
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <button
+          v-for="link in quickLinks"
+          :key="link.name"
+          type="button"
+          class="ui-card ui-card-hover text-left p-4 group"
+          @click="router.push({ name: link.name })"
+        >
+          <div class="flex items-center gap-2.5 mb-2">
+            <span class="ui-section-icon !w-8 !h-8 group-hover:scale-105 transition-transform">
+              <component :is="link.icon" class="w-3.5 h-3.5" stroke-width="1.75" />
+            </span>
+            <span class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ t(link.titleKey) }}</span>
+          </div>
+          <p class="text-[11px] text-gray-500 leading-relaxed line-clamp-2">{{ t(link.descKey) }}</p>
+        </button>
       </div>
     </div>
 
     <!-- Upcoming schedule -->
-    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/60 p-5">
-      <div class="text-xs text-gray-500 font-medium tracking-wide mb-4">{{ t('dashboard.upcomingJobs') }}</div>
-      <div v-if="upcomingJobs.length === 0" class="text-xs text-gray-400 py-6 text-center">{{ t('dashboard.noUpcoming') }}</div>
-      <div v-else class="space-y-2">
+    <div class="ui-card p-5">
+      <div class="ui-section-label mb-4">{{ t('dashboard.upcomingJobs') }}</div>
+      <div v-if="upcomingJobs.length === 0" class="text-xs text-gray-400 py-8 text-center">{{ t('dashboard.noUpcoming') }}</div>
+      <div v-else class="space-y-0.5">
         <div
           v-for="job in upcomingJobs"
           :key="job.id"
-          class="flex items-center gap-3 text-xs px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-800/30"
+          class="ui-list-row flex items-center gap-3 text-xs px-2 py-2 rounded-sm"
         >
           <span class="font-mono text-gray-500 w-28 shrink-0">{{ formatJobTime(job.next_run_time) }}</span>
-          <span class="px-1.5 py-0.5 rounded border text-[10px] shrink-0"
-            :class="job.kind === 'sign' ? 'border-sky-200 text-sky-700 dark:border-sky-800 dark:text-sky-300' : 'border-gray-200 text-gray-500'">
+          <span
+            class="ui-badge shrink-0"
+            :class="job.kind === 'sign' ? 'border-sky-200 text-sky-700 dark:border-sky-800 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/40' : 'ui-badge-neutral'"
+          >
             {{ jobKindLabel(job.kind) }}
           </span>
           <span class="truncate text-gray-800 dark:text-gray-200 font-mono" :title="job.id">{{ job.id }}</span>
@@ -285,26 +343,26 @@ const loadDashboardData = async () => {
     </div>
 
     <!-- Terminal Logs -->
-    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/60 p-5 min-h-[400px]">
-      <div class="text-xs text-gray-500 font-medium tracking-wide mb-4 flex items-center gap-2">
+    <div class="ui-card p-5 min-h-[400px]">
+      <div class="ui-section-label mb-4 flex items-center gap-2 flex-wrap">
         <span>{{ t('dashboard.recentLogs') }}</span>
         <span
-          class="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border"
-          :class="liveConnected
-            ? 'border-emerald-200 text-emerald-600 dark:border-emerald-800 dark:text-emerald-400'
-            : 'border-gray-200 text-gray-400 dark:border-gray-700'"
+          class="ui-badge"
+          :class="liveConnected ? 'ui-badge-success' : 'ui-badge-neutral'"
         >
-          <span class="w-1.5 h-1.5 rounded-full" :class="liveConnected ? 'bg-emerald-500' : 'bg-gray-400'" />
+          <span :class="liveConnected ? 'ui-pulse-dot' : 'ui-badge-dot'" />
           {{ liveConnected ? t('dashboard.liveOn') : t('dashboard.liveOff') }}
         </span>
       </div>
-      <div v-if="logs.length === 0" class="flex flex-col items-center justify-center py-16 text-center">
-        <p class="text-sm text-gray-500">{{ t('logs.empty') }}</p>
-        <p class="text-xs text-gray-400 mt-1">{{ t('logs.emptyHint') }}</p>
+      <div v-if="logs.length === 0" class="ui-empty py-16">
+        <p class="ui-empty-title !text-gray-500 font-normal">{{ t('logs.empty') }}</p>
+        <p class="ui-empty-desc">{{ t('logs.emptyHint') }}</p>
       </div>
       <div v-else class="text-xs overflow-x-auto space-y-0">
-        <div v-for="(log, idx) in logs" :key="idx"
-          class="flex items-center gap-3 hover:bg-gray-50 dark:hover:bg-gray-800/30 px-2 py-2 transition-colors cursor-pointer"
+        <div
+          v-for="(log, idx) in logs"
+          :key="idx"
+          class="ui-list-row flex items-center gap-3 px-2 py-2 cursor-pointer rounded-sm"
           :title="t('dashboard.openInLogs')"
           @click="selectedLog = log"
           @dblclick="goToLogs(log)"
@@ -313,20 +371,15 @@ const loadDashboardData = async () => {
           <span class="text-gray-700 dark:text-gray-400 shrink-0 w-24 truncate font-medium">{{ log.account }}</span>
           <span class="text-gray-600 dark:text-gray-500 shrink-0 w-28 truncate">{{ log.task }}</span>
           <span
-            class="shrink-0 inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded text-[11px] border"
-            :class="log.status === 'success'
-              ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800/50'
-              : 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-900/20 dark:text-rose-400 dark:border-rose-800/50'"
+            class="ui-badge shrink-0"
+            :class="log.status === 'success' ? 'ui-badge-success' : 'ui-badge-error'"
           >
-            <span
-              class="w-1.5 h-1.5 rounded-full"
-              :class="log.status === 'success' ? 'bg-emerald-500' : 'bg-rose-500'"
-            />
+            <span class="ui-badge-dot" />
             {{ log.status === 'success' ? t('logs.success') : t('logs.failed') }}
           </span>
           <span
             v-if="log.status === 'error' && failureCategoryLabel(log.failure_category)"
-            class="shrink-0 px-1.5 py-0.5 rounded text-[10px] border border-amber-200 text-amber-700 dark:border-amber-800 dark:text-amber-400"
+            class="ui-badge ui-badge-warn shrink-0"
           >
             {{ failureCategoryLabel(log.failure_category) }}
           </span>
@@ -346,35 +399,39 @@ const loadDashboardData = async () => {
       <div v-if="selectedLog" class="space-y-3 text-sm">
         <div class="flex items-center gap-3">
           <span
-            class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs border"
-            :class="selectedLog.status === 'success'
-              ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800/50'
-              : 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-900/20 dark:text-rose-400 dark:border-rose-800/50'"
+            class="ui-badge text-xs"
+            :class="selectedLog.status === 'success' ? 'ui-badge-success' : 'ui-badge-error'"
           >
-            <span
-              class="w-1.5 h-1.5 rounded-full"
-              :class="selectedLog.status === 'success' ? 'bg-emerald-500' : 'bg-rose-500'"
-            />
+            <span class="ui-badge-dot" />
             {{ selectedLog.status === 'success' ? t('logs.execSuccess') : t('logs.execFailed') }}
           </span>
         </div>
         <div class="grid grid-cols-2 gap-3 text-xs">
-          <div><span class="text-gray-500">{{ t('logs.time') }}</span><span class="text-gray-900 dark:text-gray-200 font-mono">{{ selectedLog.time }}</span></div>
-          <div><span class="text-gray-500">{{ t('logs.account') }}</span><span class="text-gray-900 dark:text-gray-200">{{ selectedLog.account }}</span></div>
-          <div class="col-span-2"><span class="text-gray-500">{{ t('logs.task') }}</span><span class="text-gray-900 dark:text-gray-200">{{ selectedLog.task }}</span></div>
-          <div v-if="selectedLog.status === 'error' && failureCategoryLabel(selectedLog.failure_category)" class="col-span-2">
-            <span class="text-gray-500">{{ t('dashboard.failureCategory') }}</span>
-            <span class="text-amber-700 dark:text-amber-400">{{ failureCategoryLabel(selectedLog.failure_category) }}</span>
+          <div class="space-y-0.5">
+            <div class="text-gray-500">{{ t('logs.time') }}</div>
+            <div class="text-gray-900 dark:text-gray-200 font-mono">{{ selectedLog.time }}</div>
+          </div>
+          <div class="space-y-0.5">
+            <div class="text-gray-500">{{ t('logs.account') }}</div>
+            <div class="text-gray-900 dark:text-gray-200">{{ selectedLog.account }}</div>
+          </div>
+          <div class="col-span-2 space-y-0.5">
+            <div class="text-gray-500">{{ t('logs.task') }}</div>
+            <div class="text-gray-900 dark:text-gray-200">{{ selectedLog.task }}</div>
+          </div>
+          <div v-if="selectedLog.status === 'error' && failureCategoryLabel(selectedLog.failure_category)" class="col-span-2 space-y-0.5">
+            <div class="text-gray-500">{{ t('dashboard.failureCategory') }}</div>
+            <div class="text-amber-700 dark:text-amber-400">{{ failureCategoryLabel(selectedLog.failure_category) }}</div>
           </div>
         </div>
         <div class="pt-2 border-t border-gray-200 dark:border-gray-800/60">
-          <div class="text-xs text-gray-500 mb-1 font-semibold">{{ t('logs.execInfo') }}</div>
+          <div class="text-xs text-gray-500 mb-1.5 font-medium">{{ t('logs.execInfo') }}</div>
           <div class="p-2.5 bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-gray-800/60 text-xs whitespace-pre-wrap break-all max-h-60 overflow-y-auto text-gray-800 dark:text-gray-300">{{ selectedLog.text || t('logs.noDetail') }}</div>
         </div>
         <div class="pt-1 flex justify-end">
           <button
             type="button"
-            class="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+            class="text-xs text-sky-600 dark:text-sky-400 hover:underline"
             @click="goToLogs(selectedLog); selectedLog = null"
           >
             {{ t('dashboard.openInLogs') }}

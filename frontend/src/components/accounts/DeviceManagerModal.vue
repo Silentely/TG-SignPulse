@@ -4,6 +4,7 @@ import { RefreshCw, ShieldCheck, Smartphone, Trash2 } from 'lucide-vue-next'
 import Modal from '../Modal.vue'
 import { listAccountDevices, terminateAccountDevice, type AccountDeviceInfo } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
+import { useConfirm } from '../../composables/useConfirm'
 
 const props = defineProps<{
   isOpen: boolean
@@ -15,6 +16,7 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const { confirm } = useConfirm()
 const devices = ref<AccountDeviceInfo[]>([])
 const loading = ref(false)
 const error = ref('')
@@ -59,7 +61,13 @@ const loadDevices = async () => {
 
 const terminateDevice = async (device: AccountDeviceInfo) => {
   if (device.current) return
-  if (!confirm(t('accounts.terminateDeviceConfirm'))) return
+  const ok = await confirm({
+    title: t('common.dangerConfirm'),
+    message: t('accounts.terminateDeviceConfirm'),
+    confirmText: t('accounts.terminateDevice'),
+    danger: true,
+  })
+  if (!ok) return
   const token = localStorage.getItem('tg-signer-token') || ''
   if (!token) return
   terminatingHash.value = device.hash
@@ -95,32 +103,33 @@ watch(() => props.isOpen, (open) => {
           {{ t('accounts.devicesHint') }}
         </p>
         <button
-          @click="loadDevices"
+          type="button"
+          class="ui-btn-secondary shrink-0 !px-3 !py-1.5 !text-xs"
           :disabled="loading"
-          class="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs border border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+          @click="loadDevices"
         >
           <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': loading }" />
           {{ t('accounts.refreshDevices') }}
         </button>
       </div>
 
-      <div v-if="error" class="text-xs text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10 border border-rose-100 dark:border-rose-500/20 px-3 py-2">
+      <div v-if="error" class="ui-alert-error">
         {{ error }}
       </div>
 
-      <div v-if="loading && devices.length === 0" class="flex items-center justify-center py-10 text-gray-400">
-        <RefreshCw class="w-5 h-5 animate-spin" />
+      <div v-if="loading && devices.length === 0" class="ui-page-loading !py-10">
+        <div class="ui-spinner" />
       </div>
 
-      <div v-else-if="devices.length === 0" class="py-10 text-center text-sm text-gray-500 border border-dashed border-gray-200 dark:border-gray-800">
-        {{ t('accounts.noDevices') }}
+      <div v-else-if="devices.length === 0" class="ui-empty !py-10">
+        <p class="ui-empty-desc">{{ t('accounts.noDevices') }}</p>
       </div>
 
       <div v-else class="space-y-2">
         <div
           v-for="device in devices"
           :key="device.hash"
-          class="border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-gray-950 p-4"
+          class="ui-card p-4"
         >
           <div class="flex items-start justify-between gap-4">
             <div class="min-w-0 flex items-start gap-3">
@@ -133,10 +142,11 @@ watch(() => props.isOpen, (open) => {
                   <div class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                     {{ deviceTitle(device) }}
                   </div>
-                  <span v-if="device.current" class="text-[10px] px-1.5 py-0.5 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-500/20">
+                  <span v-if="device.current" class="ui-badge ui-badge-success !text-[10px]">
+                    <span class="ui-badge-dot" />
                     {{ t('accounts.currentDevice') }}
                   </span>
-                  <span v-if="device.official_app" class="text-[10px] px-1.5 py-0.5 bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-100 dark:border-blue-500/20">
+                  <span v-if="device.official_app" class="ui-badge !text-[10px] bg-sky-50 text-sky-700 border-sky-100 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800/50">
                     {{ t('accounts.officialApp') }}
                   </span>
                 </div>

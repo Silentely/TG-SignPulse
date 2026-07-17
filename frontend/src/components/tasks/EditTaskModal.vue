@@ -62,13 +62,13 @@ const handleSave = async () => {
   <Modal :isOpen="isOpen" @close="$emit('close')" :title="t('taskModal.editTitle')" maxWidthClass="max-w-3xl">
     <template #header-extra>
       <label class="flex items-center gap-1.5 ml-4 cursor-pointer">
-        <input type="checkbox" v-model="notifyOnFailure" class="rounded border-gray-300 text-gray-900 dark:border-gray-600 dark:text-gray-100 focus:ring-0 w-3.5 h-3.5">
+        <input type="checkbox" v-model="notifyOnFailure" class="rounded border-gray-300 accent-sky-500 w-3.5 h-3.5">
         <span class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('taskForm.notifyOnFailure') }}</span>
       </label>
     </template>
 
     <div class="space-y-4 px-1">
-      <div v-if="error" class="text-xs text-rose-600 dark:text-rose-500 bg-rose-50 dark:bg-rose-500/10 p-2 border border-rose-200 dark:border-transparent rounded-md">
+      <div v-if="error" class="ui-alert-error">
         {{ error }}
       </div>
       
@@ -76,8 +76,8 @@ const handleSave = async () => {
     </div>
 
     <template #footer>
-      <button @click="$emit('close')" class="px-4 py-2 text-sm text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 transition-colors">{{ t('common.cancel') }}</button>
-      <button @click="handleSave" :disabled="loading" class="px-4 py-2 text-sm bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-white transition-colors disabled:opacity-50">
+      <button @click="$emit('close')" class="ui-btn-secondary !border-transparent !bg-transparent !px-4 !py-2">{{ t('common.cancel') }}</button>
+      <button @click="handleSave" :disabled="loading" class="ui-btn-primary !px-4 !py-2">
         {{ loading ? t('taskModal.saving') : t('taskModal.saveChanges') }}
       </button>
     </template>

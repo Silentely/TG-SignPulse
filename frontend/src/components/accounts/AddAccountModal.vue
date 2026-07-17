@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, onUnmounted } from 'vue'
+import { Phone, QrCode } from 'lucide-vue-next'
 import Modal from '../Modal.vue'
 import { startAccountLogin, verifyAccountLogin, updateAccount, startQrLogin, getQrLoginStatus, submitQrPassword, cancelQrLogin } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
@@ -69,7 +70,9 @@ watch(() => props.isOpen, (val) => {
   }
 })
 
+// 仅在弹窗打开时切换登录方式才重置，避免 open 时赋值 method 与 reset 竞态
 watch(loginMethod, () => {
+  if (!props.isOpen) return
   const accountName = form.value.account_name
   const remark = form.value.remark
   const password = form.value.password
@@ -286,56 +289,81 @@ onUnmounted(() => {
 <template>
   <Modal :isOpen="isOpen" @close="handleClose" :title="loginMethod === 'code' ? t('addAccount.codeTitle') : t('addAccount.qrTitle')">
     <div class="space-y-4 pb-2">
-      
-      <div v-if="error" class="text-xs text-rose-600 dark:text-rose-500 bg-rose-50 dark:bg-rose-500/10 p-2 border border-rose-200 dark:border-transparent rounded">
+      <!-- 登录方式分段切换 -->
+      <div class="ui-segment" role="tablist" :aria-label="t('addAccount.accountName')">
+        <button
+          type="button"
+          role="tab"
+          class="ui-segment-btn"
+          :class="loginMethod === 'code' ? 'ui-segment-btn-active' : ''"
+          :aria-selected="loginMethod === 'code'"
+          @click="loginMethod = 'code'"
+        >
+          <Phone class="w-3.5 h-3.5" />
+          {{ t('accounts.codeLogin') }}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          class="ui-segment-btn"
+          :class="loginMethod === 'qr' ? 'ui-segment-btn-active' : ''"
+          :aria-selected="loginMethod === 'qr'"
+          @click="loginMethod = 'qr'"
+        >
+          <QrCode class="w-3.5 h-3.5" />
+          {{ t('accounts.qrLogin') }}
+        </button>
+      </div>
+
+      <div v-if="error" class="ui-alert-error" role="alert">
         {{ error }}
       </div>
 
       <!-- Common Fields -->
       <div class="space-y-1.5">
-        <label class="text-xs text-gray-500 block">{{ t('addAccount.accountName') }} <span class="text-rose-500">*</span></label>
+        <label class="ui-label">{{ t('addAccount.accountName') }} <span class="text-rose-500">*</span></label>
         <input 
           v-model="form.account_name"
           type="text" 
           :placeholder="t('addAccount.accountNamePlaceholder')"
-          class="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:border-gray-500 dark:focus:border-gray-500 rounded-sm"
+          class="ui-input"
         >
       </div>
       
       <div class="space-y-1.5">
-        <label class="text-xs text-gray-500 block">{{ t('addAccount.remark') }}</label>
+        <label class="ui-label">{{ t('addAccount.remark') }}</label>
         <input 
           v-model="form.remark"
           type="text" 
           :placeholder="t('addAccount.remarkPlaceholder')"
-          class="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:border-gray-500 dark:focus:border-gray-500 rounded-sm"
+          class="ui-input"
         >
       </div>
 
       <!-- Code specific fields -->
       <template v-if="loginMethod === 'code'">
         <div class="space-y-1.5">
-          <label class="text-xs text-gray-500 block">{{ t('addAccount.phone') }} <span class="text-rose-500">*</span></label>
+          <label class="ui-label">{{ t('addAccount.phone') }} <span class="text-rose-500">*</span></label>
           <input 
             v-model="form.phone_number"
             type="text" 
             :placeholder="t('addAccount.phonePlaceholder')"
-            class="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:border-gray-500 dark:focus:border-gray-500 rounded-sm"
+            class="ui-input"
           >
         </div>
         <div class="space-y-1.5">
-          <label class="text-xs text-gray-500 block">{{ t('addAccount.verifyCode') }} <span class="text-rose-500">*</span></label>
+          <label class="ui-label">{{ t('addAccount.verifyCode') }} <span class="text-rose-500">*</span></label>
           <div class="flex gap-2">
             <input 
               v-model="form.phone_code"
               type="text" 
               :placeholder="t('addAccount.codePlaceholder')"
-              class="flex-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:border-gray-500 dark:focus:border-gray-500 rounded-sm"
+              class="ui-input flex-1"
             >
             <button 
               @click="handleSendCode"
               :disabled="loading || !form.account_name || !form.phone_number"
-              class="px-4 py-2 text-sm bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-700 rounded-sm whitespace-nowrap disabled:opacity-50"
+              class="ui-btn-secondary !px-4 !py-2 whitespace-nowrap"
             >
               {{ codeSent ? t('addAccount.resendCode') : t('addAccount.getCode') }}
             </button>
@@ -345,27 +373,27 @@ onUnmounted(() => {
 
       <!-- Cloud Password & Proxy for BOTH -->
       <div class="space-y-1.5">
-        <label class="text-xs text-gray-500 block">{{ t('addAccount.cloudPassword') }}</label>
+        <label class="ui-label">{{ t('addAccount.cloudPassword') }}</label>
         <input 
           v-model="form.password"
           type="password" 
           :placeholder="t('addAccount.cloudPasswordPlaceholder')"
-          class="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:border-gray-500 dark:focus:border-gray-500 rounded-sm"
+          class="ui-input"
         >
       </div>
 
       <div class="space-y-1.5">
-        <label class="text-xs text-gray-500 block">{{ t('addAccount.proxy') }}</label>
+        <label class="ui-label">{{ t('addAccount.proxy') }}</label>
         <input 
           v-model="form.proxy"
           type="text" 
           :placeholder="t('addAccount.proxyPlaceholder')"
-          class="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-900 dark:text-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:border-gray-500 dark:focus:border-gray-500 rounded-sm"
+          class="ui-input"
         >
       </div>
 
       <!-- QR specific block -->
-      <div v-if="loginMethod === 'qr'" class="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-4 border border-gray-200 dark:border-gray-800 relative mt-2">
+      <div v-if="loginMethod === 'qr'" class="ui-form-section mt-2">
         <div class="flex justify-between items-center mb-4">
           <span class="text-sm text-gray-700 dark:text-gray-300 font-medium">{{ t('addAccount.qrHint') }}</span>
           <button 
@@ -387,14 +415,14 @@ onUnmounted(() => {
       <div class="w-full flex justify-end gap-3">
         <button 
           @click="handleClose"
-          class="px-5 py-2 text-sm text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
+          class="ui-btn-secondary !border-transparent !bg-transparent !px-5 !py-2"
         >
           {{ t('addAccount.cancel') }}
         </button>
         <button 
           @click="handleSave"
           :disabled="loading"
-          class="px-5 py-2 text-sm bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-white transition-colors rounded-sm disabled:opacity-50"
+          class="ui-btn-primary !px-5 !py-2"
         >
           {{ loading ? t('addAccount.processing') : t('addAccount.confirmSave') }}
         </button>

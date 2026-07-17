@@ -225,17 +225,14 @@ const toggleExpand = (idx: number) => {
   <Modal :isOpen="isOpen" @close="emit('close')" :title="t('taskLogs.title')" maxWidthClass="max-w-4xl">
     <template #header-extra>
       <div class="flex items-center gap-2">
-        <span v-if="isRunning" class="flex items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400">
-          <span class="relative flex h-2 w-2">
-            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-500 opacity-75"></span>
-            <span class="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
-          </span>
+        <span v-if="isRunning" class="ui-badge ui-badge-success !text-sky-700 dark:!text-sky-300 !border-sky-200 dark:!border-sky-800 !bg-sky-50 dark:!bg-sky-950/40">
+          <span class="ui-pulse-dot !bg-sky-500" />
           {{ t('taskLogs.running') }}
         </span>
         <button
           type="button"
+          class="ui-icon-btn disabled:opacity-50"
           :disabled="loading"
-          class="p-1.5 text-gray-500 hover:text-blue-500 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors disabled:opacity-50"
           @click="loadLogs"
         >
           <RefreshCw class="w-4 h-4" :class="{'animate-spin': loading}" />
@@ -246,10 +243,10 @@ const toggleExpand = (idx: number) => {
     <div class="px-1 min-h-[400px] max-h-[60vh] overflow-y-auto flex flex-col">
       <!-- Real-time logs -->
       <div v-if="realtimeLogs.length > 0 || isRunning" class="mb-4">
-        <div class="text-xs font-medium text-gray-500 mb-2">{{ t('taskLogs.realtimeLogs') }}</div>
+        <div class="ui-section-label mb-2">{{ t('taskLogs.realtimeLogs') }}</div>
         <div
           ref="logContainer"
-          class="p-3 bg-gray-950 rounded border border-gray-800 text-xs font-mono whitespace-pre-wrap break-all max-h-60 overflow-y-auto"
+          class="ui-terminal whitespace-pre-wrap break-all !max-h-60"
         >
           <div
             v-for="(line, i) in (displayRealtimeLines.length ? displayRealtimeLines : realtimeLogs)"
@@ -266,31 +263,30 @@ const toggleExpand = (idx: number) => {
       </div>
 
       <!-- Loading / empty -->
-      <div v-if="loading && logs.length === 0 && realtimeLogs.length === 0" class="flex items-center justify-center h-40">
-        <Loader2 class="w-6 h-6 animate-spin text-gray-400" />
+      <div v-if="loading && logs.length === 0 && realtimeLogs.length === 0" class="ui-page-loading !py-10">
+        <div class="ui-spinner" />
       </div>
 
-      <div v-else-if="logs.length === 0 && realtimeLogs.length === 0 && !isRunning" class="flex flex-col items-center justify-center h-40 text-gray-400 text-sm">
-        <span>{{ t('taskLogs.noLogs') }}</span>
+      <div v-else-if="logs.length === 0 && realtimeLogs.length === 0 && !isRunning" class="ui-empty !py-10">
+        <p class="ui-empty-desc">{{ t('taskLogs.noLogs') }}</p>
       </div>
 
       <!-- History -->
       <div v-if="logs.length > 0" class="space-y-3">
-        <div class="text-xs font-medium text-gray-500 mb-2">{{ t('taskLogs.history') }}</div>
+        <div class="ui-section-label mb-2">{{ t('taskLogs.history') }}</div>
         <div
           v-for="(log, idx) in logs"
           :key="idx"
-          class="p-3 bg-gray-50 dark:bg-gray-900/50 rounded-lg border border-gray-100 dark:border-gray-800 text-sm"
+          class="ui-card p-3 text-sm"
         >
           <div class="flex items-center justify-between mb-2 gap-2">
             <span class="font-medium flex items-center gap-3 text-gray-900 dark:text-gray-200 flex-wrap">
               <span>{{ t('taskLogs.account') }}{{ log.account_name || t('taskLogs.unknown') }}</span>
               <span
-                class="px-2 py-0.5 rounded text-xs border"
-                :class="log.success
-                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800/50'
-                  : 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-900/30 dark:text-rose-400 dark:border-rose-800/50'"
+                class="ui-badge"
+                :class="log.success ? 'ui-badge-success' : 'ui-badge-error'"
               >
+                <span class="ui-badge-dot" />
                 {{ log.success ? t('taskLogs.success') : t('taskLogs.failed') }}
               </span>
             </span>
@@ -299,8 +295,8 @@ const toggleExpand = (idx: number) => {
 
           <!-- 摘要：最后返回 -->
           <div v-if="log.last_target_message || log.bot_message" class="mt-2 text-sm text-gray-700 dark:text-gray-300">
-            <div class="font-semibold mb-1 text-xs text-gray-500">{{ t('taskLogs.lastResponse') }}</div>
-            <div class="whitespace-pre-wrap break-all p-2 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 text-xs">
+            <div class="ui-section-label mb-1">{{ t('taskLogs.lastResponse') }}</div>
+            <div class="whitespace-pre-wrap break-all p-2 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 text-xs">
               {{ log.last_target_message || log.bot_message }}
             </div>
           </div>
@@ -309,7 +305,7 @@ const toggleExpand = (idx: number) => {
           <div v-if="(log.flow_logs && log.flow_logs.length > 0) || log.message || log.summary" class="mt-3">
             <button
               type="button"
-              class="text-xs text-blue-600 dark:text-blue-400 hover:underline mb-2"
+              class="text-xs text-sky-600 dark:text-sky-400 hover:underline mb-2"
               @click="toggleExpand(idx)"
             >
               {{ expandedIdx === idx ? t('taskLogs.collapseDetail') : t('taskLogs.expandDetail') }}
