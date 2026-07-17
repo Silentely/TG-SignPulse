@@ -100,11 +100,10 @@ gpt-4o
 ## 测试镜像和正式镜像有什么区别
 
 - `dev` / `dev-*`：dev 分支滚动构建，适合预发
-- `main-*`：main 分支快照；发版 tag 还会打浮动 `main`
-- `vX.Y.Z` + `latest`：仅在推送 Git 标签 `v*` 时一次生成（正式版）
-- `test-*`：其他功能分支推送
+- `vX.Y.Z` + `latest` + 浮动 `main`：仅在推送 Git 标签 `v*` 时一次生成（正式版）
+- `main` 合并：只跑 CI 测试，**不**构建 Docker；要镜像请打 tag
 
-不要长期把 `dev` / `test-*` 当正式版使用。`latest` 只跟随正式 tag，不跟 main 每次合并。
+不要长期把 `dev` 当正式版使用。`latest` 只跟随正式 tag。
 
 ## 监听任务为什么没命中
 
