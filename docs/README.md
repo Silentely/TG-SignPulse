@@ -149,8 +149,9 @@ Browser (Vue 3 SPA)
 
 | 触发条件 | 镜像标签 | 用途 |
 |----------|----------|------|
-| 分支推送 | `test-<branch>` / `test-<sha>` | 测试环境 |
-| Git 标签 `v*` | `v2.1.0` + `latest` | 生产环境 |
+| `dev` 推送 | `dev` / `dev-<sha>` | 开发预发 |
+| `main` 推送 | `main-<sha>` | main 快照（不覆盖 latest） |
+| Git 标签 `v*` | `vX.Y.Z` + `latest` + `main` + `main-<sha>` | 正式发版（一次构建） |
 
 ## 推荐阅读顺序
 

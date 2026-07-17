@@ -4,11 +4,12 @@
 
 | 触发条件 | 镜像标签 | 用途 |
 |----------|----------|------|
-| 分支推送 | `ghcr.io/<owner>/tg-signpulse:test-<branch>` | 测试 |
-| 分支推送 | `ghcr.io/<owner>/tg-signpulse:test-<short-sha>` | 精确回溯 |
-| Git 标签 `v*` | `ghcr.io/<owner>/tg-signpulse:vX.Y.Z` | 生产 |
-| Git 标签 `v*` | `ghcr.io/<owner>/tg-signpulse:latest` | 生产（滚动） |
-| 预发验证 | `ghcr.io/<owner>/tg-signpulse:staging` | 预发环境固定入口 |
+| `dev` 推送 | `…:dev` / `…:dev-<sha>` | 开发/预发 |
+| `main` 推送 | `…:main-<sha>` | main 快照（**不**覆盖 `latest`） |
+| 其他分支 | `…:test-<branch>` / `…:test-<sha>` | 临时测试 |
+| Git 标签 `v*` | **一次推送** `…:vX.Y.Z` + `…:latest` + `…:main` + `…:main-<sha>` | 正式发版（多架构） |
+
+> 发版请：`merge → main` 后打 `vX.Y.Z`。正式镜像以 **tag 构建** 为准；`main` 分支推送不再单独打 `latest`，避免与发版重复构建。
 
 ## 快速部署
 
