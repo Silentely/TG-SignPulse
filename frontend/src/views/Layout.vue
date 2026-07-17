@@ -1,16 +1,35 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { LayoutDashboard, Users, Zap, Terminal, Settings, UserCircle, Github, Globe, Moon, Sun, Menu } from 'lucide-vue-next'
+import {
+  LayoutDashboard,
+  Users,
+  Zap,
+  Terminal,
+  Settings,
+  UserCircle,
+  Github,
+  Globe,
+  Moon,
+  Sun,
+  Menu,
+  X,
+  Search,
+  ChevronUp,
+} from 'lucide-vue-next'
 import { useTheme } from '../composables/useTheme'
 import { useI18n } from '../composables/useI18n'
+import { useCommandPalette } from '../composables/useCommandPalette'
+import { lockBodyScroll, unlockBodyScroll } from '../lib/body-scroll-lock'
 import UserProfileModal from '../components/settings/UserProfileModal.vue'
 
 const route = useRoute()
 const { isDark, toggleTheme } = useTheme()
 const { locale, toggleLanguage, t } = useI18n()
+const { show: showCommandPalette } = useCommandPalette()
 const isMobileMenuOpen = ref(false)
 const showProfileModal = ref(false)
+const showScrollTop = ref(false)
 
 const onKeydown = (e: KeyboardEvent) => {
   if (e.key === 'Escape' && isMobileMenuOpen.value) {
@@ -18,15 +37,45 @@ const onKeydown = (e: KeyboardEvent) => {
   }
 }
 
+const onScroll = () => {
+  showScrollTop.value = window.scrollY > 320
+}
+
+const scrollToTop = () => {
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+const onOpenProfile = () => {
+  showProfileModal.value = true
+  isMobileMenuOpen.value = false
+}
+
+let menuScrollLocked = false
 watch(isMobileMenuOpen, (open) => {
-  if (typeof document === 'undefined') return
-  document.body.style.overflow = open ? 'hidden' : ''
+  if (open) {
+    if (!menuScrollLocked) {
+      lockBodyScroll()
+      menuScrollLocked = true
+    }
+  } else if (menuScrollLocked) {
+    unlockBodyScroll()
+    menuScrollLocked = false
+  }
 })
 
-onMounted(() => window.addEventListener('keydown', onKeydown))
+onMounted(() => {
+  window.addEventListener('keydown', onKeydown)
+  window.addEventListener('scroll', onScroll, { passive: true })
+  window.addEventListener('sp:open-profile', onOpenProfile)
+})
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
-  if (typeof document !== 'undefined') document.body.style.overflow = ''
+  window.removeEventListener('scroll', onScroll)
+  window.removeEventListener('sp:open-profile', onOpenProfile)
+  if (menuScrollLocked) {
+    unlockBodyScroll()
+    menuScrollLocked = false
+  }
 })
 
 const navigation = [
@@ -43,6 +92,12 @@ const currentTitle = computed(() => {
   return t(current.labelKey)
 })
 
+const breadcrumb = computed(() => {
+  const current = navigation.find(n => n.name === route.name)
+  if (!current) return 'TG-SignPulse'
+  return `TG-SignPulse / ${t(current.labelKey)}`
+})
+
 const openGithub = () => {
   window.open('https://github.com/Silentely/TG-SignPulse', '_blank')
 }
@@ -53,65 +108,103 @@ const handleNavClick = () => {
 </script>
 
 <template>
-  <div class="flex min-h-screen w-full overflow-x-hidden bg-gray-50 dark:bg-gray-950 text-gray-700 dark:text-gray-300 font-sans">
+  <div class="flex min-h-screen w-full overflow-x-hidden text-gray-700 dark:text-gray-300 font-sans">
     
-    <!-- Mobile Menu Overlay -->
-    <div v-if="isMobileMenuOpen" class="fixed inset-0 bg-gray-900/40 dark:bg-black/60 backdrop-blur-sm z-40 lg:hidden" @click="isMobileMenuOpen = false"></div>
+    <div
+      v-if="isMobileMenuOpen"
+      class="fixed inset-0 bg-gray-900/40 dark:bg-black/60 backdrop-blur-sm z-40 lg:hidden"
+      @click="isMobileMenuOpen = false"
+    />
 
-    <!-- Sidebar -->
-    <!-- PC端固定 w-64，移动端抽屉式滑动 -->
     <aside 
-      class="fixed inset-y-0 left-0 z-50 flex flex-col bg-white dark:bg-gray-950 border-r border-gray-200 dark:border-gray-800/60 transition-transform duration-300 ease-in-out w-64"
+      class="ui-sidebar fixed inset-y-0 left-0 z-50 flex flex-col transition-transform duration-300 ease-in-out w-64"
       :class="isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'"
     >
-      <div class="flex items-center h-16 px-5 border-b border-gray-200 dark:border-gray-800/60">
-        <div class="w-6 h-6 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-950 flex items-center justify-center shrink-0 font-bold text-xs tracking-tighter">TG</div>
-        <span class="ml-4 font-mono font-medium tracking-widest text-gray-900 dark:text-gray-100 whitespace-nowrap">SIGNPULSE</span>
+      <div class="flex items-center h-14 px-5 border-b border-[var(--sp-border)]">
+        <div class="ui-brand-mark w-7 h-7 text-[11px] shrink-0">TG</div>
+        <div class="ml-3 min-w-0 flex-1">
+          <div class="font-mono font-medium tracking-[0.18em] text-gray-900 dark:text-gray-100 text-sm leading-none">SIGNPULSE</div>
+          <div class="text-[10px] text-gray-400 mt-1 tracking-wide truncate">Telegram Ops</div>
+        </div>
+        <button
+          type="button"
+          class="ui-icon-btn lg:hidden shrink-0"
+          :aria-label="t('common.close')"
+          @click="isMobileMenuOpen = false"
+        >
+          <X class="w-4 h-4" />
+        </button>
       </div>
 
-      <nav class="flex-1 py-6 flex flex-col gap-2 px-3 overflow-y-auto custom-scrollbar" :aria-label="t('nav.mainNav')">
+      <nav class="flex-1 py-5 flex flex-col gap-1 px-3 overflow-y-auto custom-scrollbar" :aria-label="t('nav.mainNav')">
         <router-link 
           v-for="nav in navigation" 
           :key="nav.id"
           :to="{ name: nav.name }"
-          class="flex items-center h-10 px-2.5 transition-colors whitespace-nowrap rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
-          :class="route.name === nav.name ? 'bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-900/50'"
+          class="flex items-center h-10 px-3 transition-colors whitespace-nowrap rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/50"
+          :class="route.name === nav.name
+            ? 'ui-nav-active'
+            : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/[0.03]'"
           :aria-current="route.name === nav.name ? 'page' : undefined"
           @click="handleNavClick"
         >
-          <component :is="nav.icon" class="w-5 h-5 shrink-0" stroke-width="1.5" />
-          <span class="ml-4 text-sm font-medium">{{ t(nav.labelKey) }}</span>
+          <component :is="nav.icon" class="w-[18px] h-[18px] shrink-0 opacity-80" stroke-width="1.5" />
+          <span class="ml-3 text-sm font-medium">{{ t(nav.labelKey) }}</span>
         </router-link>
       </nav>
 
-      <!-- User Center (Bottom) -->
-      <div class="border-t border-gray-200 dark:border-gray-800/60 p-3">
-        <button @click="showProfileModal = true; isMobileMenuOpen = false" class="flex items-center w-full h-10 px-2.5 transition-colors whitespace-nowrap text-gray-500 hover:text-gray-900 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-900/50">
-          <UserCircle class="w-5 h-5 shrink-0" stroke-width="1.5" />
-          <span class="ml-4 text-sm font-medium">{{ t('nav.profile') }}</span>
+      <div class="border-t border-[var(--sp-border)] p-3 space-y-1">
+        <button
+          type="button"
+          class="flex items-center w-full h-10 px-3 transition-colors whitespace-nowrap rounded-md text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/[0.03]"
+          @click="showCommandPalette(); isMobileMenuOpen = false"
+        >
+          <Search class="w-[18px] h-[18px] shrink-0 opacity-80" stroke-width="1.5" />
+          <span class="ml-3 text-sm font-medium flex-1 text-left">{{ t('common.commandPalette') }}</span>
+          <kbd class="text-[10px] font-mono text-gray-400 border border-gray-200 dark:border-gray-700 px-1 py-0.5">⌘K</kbd>
+        </button>
+        <button
+          type="button"
+          class="flex items-center w-full h-10 px-3 transition-colors whitespace-nowrap rounded-md text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/[0.03]"
+          @click="showProfileModal = true; isMobileMenuOpen = false"
+        >
+          <UserCircle class="w-[18px] h-[18px] shrink-0 opacity-80" stroke-width="1.5" />
+          <span class="ml-3 text-sm font-medium">{{ t('nav.profile') }}</span>
         </button>
       </div>
     </aside>
 
-    <!-- Main Content -->
-    <!-- PC端左侧留白 pl-64, 移动端 pl-0 -->
     <main class="flex-1 w-full pl-0 lg:pl-64 flex flex-col min-h-screen transition-all duration-300 max-w-[100vw]">
-      <header class="h-16 flex items-center justify-between px-4 lg:px-8 shrink-0 border-b border-transparent">
-        <div class="flex items-center gap-3">
+      <header class="ui-header-glass sticky top-0 z-30 h-14 flex items-center justify-between px-4 lg:px-8 shrink-0">
+        <div class="flex items-center gap-3 min-w-0">
           <button
             type="button"
-            class="lg:hidden w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 transition-colors rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+            class="ui-icon-btn lg:hidden"
             :aria-label="t('nav.openMenu')"
             @click="isMobileMenuOpen = true"
           >
             <Menu class="w-5 h-5" />
           </button>
-          <h1 class="text-lg font-medium text-gray-900 dark:text-gray-100 tracking-wide truncate max-w-[150px] sm:max-w-none">{{ currentTitle }}</h1>
+          <div class="min-w-0">
+            <div class="text-[10px] text-gray-400 tracking-wide truncate hidden sm:block">{{ breadcrumb }}</div>
+            <h1 class="text-base sm:text-lg font-medium text-gray-900 dark:text-gray-100 tracking-wide truncate leading-tight">
+              {{ currentTitle }}
+            </h1>
+          </div>
         </div>
-        <div class="flex items-center gap-2 sm:gap-3">
+        <div class="flex items-center gap-1 sm:gap-1.5">
           <button
             type="button"
-            class="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-900 transition-colors rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+            class="ui-icon-btn hidden sm:inline-flex"
+            :title="t('common.commandPalette') + ' (⌘K)'"
+            :aria-label="t('common.commandPalette')"
+            @click="showCommandPalette"
+          >
+            <Search class="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            class="ui-icon-btn"
             :title="t('common.github')"
             :aria-label="t('common.github')"
             @click="openGithub"
@@ -120,7 +213,7 @@ const handleNavClick = () => {
           </button>
           <button
             type="button"
-            class="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-900 transition-colors rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+            class="ui-icon-btn"
             :title="locale === 'zh' ? 'English' : '中文'"
             :aria-label="t('common.changeLanguage')"
             @click="toggleLanguage"
@@ -129,10 +222,10 @@ const handleNavClick = () => {
           </button>
           <button
             type="button"
-            class="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-900 transition-colors rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+            class="ui-icon-btn"
             :title="isDark ? t('common.lightMode') : t('common.darkMode')"
             :aria-label="isDark ? t('common.lightMode') : t('common.darkMode')"
-            @click="toggleTheme"
+            @click="toggleTheme($event)"
           >
             <Moon v-if="!isDark" class="w-4 h-4" />
             <Sun v-else class="w-4 h-4" />
@@ -140,7 +233,7 @@ const handleNavClick = () => {
         </div>
       </header>
 
-      <div class="flex-1 px-4 lg:px-8 pb-12 overflow-x-hidden">
+      <div class="flex-1 px-4 lg:px-8 py-6 pb-12 overflow-x-hidden">
         <router-view v-slot="{ Component }">
           <transition name="fade" mode="out-in">
             <component :is="Component" />
@@ -148,9 +241,23 @@ const handleNavClick = () => {
         </router-view>
       </div>
 
-      <!-- Global Modals -->
       <UserProfileModal :isOpen="showProfileModal" @close="showProfileModal = false" />
     </main>
+
+    <!-- 回到顶部 -->
+    <Transition name="fade">
+      <button
+        v-if="showScrollTop"
+        type="button"
+        class="fixed left-1/2 -translate-x-1/2 bottom-6 z-30 ui-btn-secondary !px-3 !py-1.5 !text-xs shadow-[var(--sp-shadow-md)] lg:left-auto lg:translate-x-0 lg:right-[5.5rem]"
+        :aria-label="t('common.scrollTop')"
+        :title="t('common.scrollTop')"
+        @click="scrollToTop"
+      >
+        <ChevronUp class="w-3.5 h-3.5" />
+        {{ t('common.scrollTop') }}
+      </button>
+    </Transition>
   </div>
 </template>
 
@@ -164,10 +271,24 @@ const handleNavClick = () => {
 <style scoped>
 .fade-enter-active,
 .fade-leave-active {
-  transition: opacity 0.2s ease;
+  transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
 }
-.fade-enter-from,
+.fade-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
 .fade-leave-to {
   opacity: 0;
+  transform: translateY(-4px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .fade-enter-active,
+  .fade-leave-active {
+    transition: opacity 0.01ms;
+  }
+  .fade-enter-from,
+  .fade-leave-to {
+    transform: none;
+  }
 }
 </style>
