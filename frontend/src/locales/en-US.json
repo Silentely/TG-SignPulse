@@ -492,18 +492,7 @@
     "retryHint": "Check your network and try again",
     "loadFailed": "Failed to load",
     "search": "Search",
-    "searchPlaceholder": "Search…",
-    "commandPalette": "Command palette",
-    "scrollTop": "Back to top"
-  },
-  "command": {
-    "title": "Command palette",
-    "placeholder": "Type a command or page…",
-    "empty": "No matching commands",
-    "groupNav": "Navigation",
-    "groupAction": "Actions",
-    "navigate": "Move",
-    "select": "Select"
+    "searchPlaceholder": "Search…"
   },
   "login": {
     "subtitle": "Telegram multi-account automation panel",

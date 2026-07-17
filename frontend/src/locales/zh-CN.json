@@ -492,18 +492,7 @@
     "retryHint": "请检查网络后重试",
     "loadFailed": "加载失败",
     "search": "搜索",
-    "searchPlaceholder": "搜索…",
-    "commandPalette": "命令面板",
-    "scrollTop": "回到顶部"
-  },
-  "command": {
-    "title": "命令面板",
-    "placeholder": "输入命令或页面名称…",
-    "empty": "无匹配命令",
-    "groupNav": "导航",
-    "groupAction": "操作",
-    "navigate": "移动",
-    "select": "选择"
+    "searchPlaceholder": "搜索…"
   },
   "login": {
     "subtitle": "Telegram 多账号自动化面板",
