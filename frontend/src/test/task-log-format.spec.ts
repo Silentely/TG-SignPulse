@@ -75,4 +75,37 @@ describe('buildTaskLogViewModel', () => {
     expect(lines.some((t) => t.includes('出错'))).toBe(true)
     expect(lines.some((t) => t.includes('最终状态'))).toBe(true)
   })
+
+  it('展示后端 TaskLogHandler 捕获的真实过程日志形态', () => {
+    // 模拟 flow_logs：外壳行 + runtime self.log 经 Handler 格式化后的行
+    const flowLogs = [
+      '[run_id=61285738792b48f9a109054caca9f0eb]',
+      '开始执行任务: emby-厂妹 (账号: dahao)',
+      '消息更新监听: 开启',
+      '2026-07-18 20:54:20,896 - 账户「dahao」- 任务「emby-厂妹」: 开始登录...',
+      '2026-07-18 20:54:23,253 - 账户「dahao」- 任务「emby-厂妹」: Preheated peer with cached username: 1429576125 -> @EmbyPublicBot',
+      '2026-07-18 20:54:23,518 - 账户「dahao」- 任务「emby-厂妹」: 开始第 1/3 次脚本流程尝试',
+      '2026-07-18 20:54:23,731 - 账户「dahao」- 任务「emby-厂妹」: 第 2/2 步将在 1 秒后执行：识图后点按钮',
+      '2026-07-18 20:54:34,505 - 账户「dahao」- 任务「emby-厂妹」: 点击完成',
+      '2026-07-18 20:54:34,806 - 账户「dahao」- 任务「emby-厂妹」: 第 2/2 步执行完成：识图后点按钮',
+      '任务执行完成',
+    ]
+    const vm = buildTaskLogViewModel(flowLogs)
+    const flat = vm.blocks
+      .flatMap((b) => {
+        if (b.kind === 'line') return [b.text]
+        return [b.title, ...b.items]
+      })
+      .join('\n')
+
+    // 外壳与登录
+    expect(flat).toContain('开始执行任务')
+    expect(flat).toContain('执行登录')
+    // 流程分段
+    expect(flat).toMatch(/开始第 1\/3 次脚本流程尝试/)
+    expect(flat).toContain('点击完成')
+    // 步骤完成应出现在 section items 中（识图后点按钮原文）
+    expect(flat).toContain('识图后点按钮')
+    expect(flat).toContain('任务执行完成')
+  })
 })

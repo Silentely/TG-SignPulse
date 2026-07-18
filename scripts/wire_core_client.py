@@ -134,7 +134,7 @@ from tg_signer.core.client import (  # noqa: F401
     readable_message,
 )
 
-logger = logging.getLogger("tg_signer")
+logger = logging.getLogger("tg-signer")
 _PYDANTIC_V2 = hasattr(BaseModel, "model_validate")
 
 '''
