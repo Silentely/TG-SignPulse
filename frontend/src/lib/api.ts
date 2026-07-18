@@ -901,6 +901,7 @@ export interface SignTask {
   range_start?: string;
   range_end?: string;
   notify_on_failure?: boolean;
+  notify_on_success?: boolean;
   task_group_id?: string;
   last_run_account_name?: string;
   retry_count?: number;
@@ -918,6 +919,7 @@ export interface CreateSignTaskRequest {
   range_start?: string;
   range_end?: string;
   notify_on_failure?: boolean;
+  notify_on_success?: boolean;
   retry_count?: number;
 }
 
@@ -931,6 +933,7 @@ export interface UpdateSignTaskRequest {
   range_start?: string;
   range_end?: string;
   notify_on_failure?: boolean;
+  notify_on_success?: boolean;
   retry_count?: number;
 }
 

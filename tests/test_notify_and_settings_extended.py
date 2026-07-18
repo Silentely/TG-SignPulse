@@ -376,3 +376,29 @@ class TestCloneSignTask:
             headers=_auth_headers(),
         )
         assert resp.status_code == 400
+
+    def test_notify_on_success_roundtrip(self, client, db_session, isolated_env):
+        """创建时写入 notify_on_success，更新后可读回。"""
+        from backend.services.sign_tasks import get_sign_task_service
+
+        svc = get_sign_task_service()
+        with patch.object(svc, "_normalize_account_names", return_value=["acc1"]), patch.object(
+            svc, "_expand_account_names", return_value=["acc1"]
+        ), patch("backend.scheduler.add_or_update_sign_task_job"), patch(
+            "backend.scheduler.remove_sign_task_job"
+        ), patch("backend.api.routes.sign_tasks_v2.asyncio.ensure_future"):
+            created = svc.create_task(
+                task_name="notify_ok",
+                sign_at="10:00",
+                chats=[{"chat_id": 1, "name": "c", "actions": [{"action": 1, "text": "x"}]}],
+                account_name="acc1",
+                account_names=["acc1"],
+                notify_on_success=False,
+            )
+            assert created.get("notify_on_success") is False
+            updated = svc.update_task(
+                task_name="notify_ok",
+                account_name="acc1",
+                notify_on_success=True,
+            )
+            assert updated.get("notify_on_success") is True

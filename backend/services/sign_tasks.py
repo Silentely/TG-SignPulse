@@ -545,6 +545,7 @@ class SignTaskService:
         range_start: str = "",
         range_end: str = "",
         notify_on_failure: bool = True,
+        notify_on_success: bool = True,
         task_group_id: str = "",
         last_run_account_name: str = "",
         retry_count: int = 3,
@@ -568,6 +569,7 @@ class SignTaskService:
             "range_start": range_start,
             "range_end": range_end,
             "notify_on_failure": notify_on_failure,
+            "notify_on_success": notify_on_success,
             "task_group_id": task_group_id,
             "last_run_account_name": last_run_account_name,
             "retry_count": retry_count,
@@ -1647,6 +1649,7 @@ class SignTaskService:
                 range_start=config.get("range_start", ""),
                 range_end=config.get("range_end", ""),
                 notify_on_failure=config.get("notify_on_failure", True),
+                notify_on_success=config.get("notify_on_success", True),
                 task_group_id=str(config.get("task_group_id") or ""),
                 last_run_account_name=str(
                     (last_run or {}).get("account_name") or resolved_account_name
@@ -1688,6 +1691,7 @@ class SignTaskService:
         range_start: str = "",
         range_end: str = "",
         notify_on_failure: bool = True,
+        notify_on_success: bool = True,
         retry_count: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Create a sign task that can be shared by multiple accounts."""
@@ -1737,6 +1741,7 @@ class SignTaskService:
                 "range_start": range_start,
                 "range_end": range_end,
                 "notify_on_failure": notify_on_failure,
+                "notify_on_success": notify_on_success,
                 "retry_count": retry_count if retry_count is not None else 3,
                 "enabled": True,
             }
@@ -1817,6 +1822,7 @@ class SignTaskService:
             range_start=str(src.get("range_start") or ""),
             range_end=str(src.get("range_end") or ""),
             notify_on_failure=bool(src.get("notify_on_failure", True)),
+            notify_on_success=bool(src.get("notify_on_success", True)),
             retry_count=src.get("retry_count"),
         )
 
@@ -1833,6 +1839,7 @@ class SignTaskService:
         range_start: Optional[str] = None,
         range_end: Optional[str] = None,
         notify_on_failure: Optional[bool] = None,
+        notify_on_success: Optional[bool] = None,
         retry_count: Optional[int] = None,
         enabled: Optional[bool] = None,
     ) -> Dict[str, Any]:
@@ -1905,6 +1912,11 @@ class SignTaskService:
             if notify_on_failure is not None
             else bool(existing.get("notify_on_failure", True))
         )
+        next_notify_on_success = (
+            notify_on_success
+            if notify_on_success is not None
+            else bool(existing.get("notify_on_success", True))
+        )
         next_enabled = (
             enabled
             if enabled is not None
@@ -1955,6 +1967,7 @@ class SignTaskService:
                 "range_start": next_range_start,
                 "range_end": next_range_end,
                 "notify_on_failure": next_notify_on_failure,
+                "notify_on_success": next_notify_on_success,
                 "retry_count": next_retry_count,
                 "enabled": next_enabled,
             }
@@ -2684,6 +2697,7 @@ class SignTaskService:
         output_str = ""
         account_invalid_detected = False
         task_notify_on_failure = True
+        task_notify_on_success = True
         task_cfg: Optional[Dict[str, Any]] = None
         signer: Optional[BackendUserSigner] = None
 
@@ -2695,6 +2709,7 @@ class SignTaskService:
             has_keyword_monitor = self._task_has_keyword_monitor(task_cfg)
             signer_no_updates = not requires_updates
             task_notify_on_failure = bool(task_cfg.get("notify_on_failure", True))
+            task_notify_on_success = bool(task_cfg.get("notify_on_success", True))
 
             invalid_reason = await self._check_account_before_task(
                 account_name,
@@ -2997,7 +3012,7 @@ class SignTaskService:
                         last_target_message=last_target_message or None,
                         flow_logs=final_logs,
                     )
-                elif success:
+                elif success and task_notify_on_success:
                     await self._send_success_notification(
                         account_name,
                         task_name,

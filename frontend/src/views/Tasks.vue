@@ -14,6 +14,7 @@ import { getLocalizedErrorMessage } from '../lib/types'
 import AddTaskModal from '../components/tasks/AddTaskModal.vue'
 import EditTaskModal from '../components/tasks/EditTaskModal.vue'
 import TaskLogsModal from '../components/tasks/TaskLogsModal.vue'
+import Modal from '../components/Modal.vue'
 import { devLog } from '../lib/devLog'
 
 const route = useRoute()
@@ -40,6 +41,9 @@ const batchBusy = ref(false)
 const searchQuery = ref('')
 const selectedCount = computed(() => selectedTaskIds.value.size)
 const cloneBusy = ref(false)
+const showCloneModal = ref(false)
+const cloneSource = ref<TaskUiItem | null>(null)
+const cloneName = ref('')
 const filteredTasks = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
   if (!q) return tasks.value
@@ -279,16 +283,40 @@ watch(() => route.query.account, () => {
   loadTasks()
 })
 
-const handleClone = async (task: TaskUiItem) => {
-  if (cloneBusy.value) return
-  const defaultName = `${task.name}_copy`
-  const newName = window.prompt(t('tasks.cloneName'), defaultName)
-  if (!newName || !newName.trim()) return
+const openCloneModal = (task: TaskUiItem) => {
+  cloneSource.value = task
+  cloneName.value = `${task.name}_copy`
+  showCloneModal.value = true
+}
+
+const closeCloneModal = () => {
+  showCloneModal.value = false
+  cloneSource.value = null
+  cloneName.value = ''
+}
+
+const submitClone = async () => {
+  if (cloneBusy.value || !cloneSource.value) return
+  const newName = cloneName.value.trim()
+  if (!newName) {
+    toast.error(t('tasks.cloneNameRequired'))
+    return
+  }
+  if (/[/\\]/.test(newName)) {
+    toast.error(t('tasks.cloneNameInvalid'))
+    return
+  }
   const token = authStore.token || ''
   cloneBusy.value = true
   try {
-    await cloneSignTask(token, task.name, newName.trim(), task.raw.account_name || undefined)
+    await cloneSignTask(
+      token,
+      cloneSource.value.name,
+      newName,
+      cloneSource.value.raw.account_name || undefined,
+    )
     toast.success(t('tasks.cloneSuccess'))
+    closeCloneModal()
     await loadTasks()
   } catch (e) {
     toast.error(getLocalizedErrorMessage(e, t, t('tasks.cloneFailed')))
@@ -617,7 +645,7 @@ const openLogs = (task: TaskUiItem) => {
           class="inline-flex items-center gap-1 px-2 py-1.5 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/[0.04] rounded-sm transition-colors text-xs"
           :title="t('tasks.clone')"
           :disabled="cloneBusy"
-          @click="handleClone(task)"
+          @click="openCloneModal(task)"
         >
           <span>{{ t('tasks.clone') }}</span>
         </button>
@@ -665,5 +693,32 @@ const openLogs = (task: TaskUiItem) => {
     />
     <EditTaskModal v-if="editingTask" :isOpen="showEditModal" :task="editingTask" @close="showEditModal = false" @success="loadTasks" />
     <TaskLogsModal :isOpen="showLogsModal" :task="logsTask" :runAccount="logsRunAccount" @close="showLogsModal = false" />
+
+    <Modal :isOpen="showCloneModal" :title="t('tasks.cloneTitle')" maxWidthClass="max-w-sm" @close="closeCloneModal">
+      <div class="space-y-3">
+        <p class="text-xs text-gray-500">
+          {{ t('tasks.cloneFrom', { name: cloneSource?.name || '' }) }}
+        </p>
+        <div class="space-y-1.5">
+          <label class="ui-label" for="clone-task-name">{{ t('tasks.cloneName') }}</label>
+          <input
+            id="clone-task-name"
+            v-model="cloneName"
+            type="text"
+            class="ui-input"
+            autocomplete="off"
+            @keyup.enter="submitClone"
+          >
+        </div>
+      </div>
+      <template #footer>
+        <button type="button" class="ui-btn-secondary !border-transparent !bg-transparent !px-4 !py-2" @click="closeCloneModal">
+          {{ t('common.cancel') }}
+        </button>
+        <button type="button" class="ui-btn-primary !px-4 !py-2" :disabled="cloneBusy" @click="submitClone">
+          {{ cloneBusy ? t('tasks.cloning') : t('tasks.clone') }}
+        </button>
+      </template>
+    </Modal>
   </div>
 </template>

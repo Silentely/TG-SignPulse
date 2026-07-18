@@ -24,6 +24,7 @@ const emit = defineEmits<{ (e: 'close'): void, (e: 'success'): void }>()
 const payload = ref<Partial<CreateSignTaskRequest>>({})
 const taskFormRef = useTemplateRef<InstanceType<typeof TaskForm>>('taskForm')
 const notifyOnFailure = ref(true)
+const notifyOnSuccess = ref(true)
 const loading = ref(false)
 const error = ref('')
 /** 打开弹窗时固定一次，避免 computed 重算改名 */
@@ -42,6 +43,7 @@ watch(() => props.isOpen, (val) => {
     error.value = ''
     payload.value = {}
     notifyOnFailure.value = true
+    notifyOnSuccess.value = true
     if (props.templateId && getTemplateById(props.templateId)) {
       try {
         templateSeed.value = buildSignTaskFromTemplate(props.templateId, {
@@ -79,7 +81,11 @@ const handleSave = async () => {
   loading.value = true
   error.value = ''
   try {
-    await createSignTask(token, { ...payload.value, notify_on_failure: notifyOnFailure.value } as CreateSignTaskRequest)
+    await createSignTask(token, {
+      ...payload.value,
+      notify_on_failure: notifyOnFailure.value,
+      notify_on_success: notifyOnSuccess.value,
+    } as CreateSignTaskRequest)
     emit('success')
     emit('close')
   } catch (e: unknown) {
@@ -93,10 +99,16 @@ const handleSave = async () => {
 <template>
   <Modal :isOpen="isOpen" @close="$emit('close')" :title="modalTitle" maxWidthClass="max-w-3xl">
     <template #header-extra>
-      <label class="flex items-center gap-1.5 ml-4 cursor-pointer">
-        <input type="checkbox" v-model="notifyOnFailure" class="rounded border-gray-300 accent-sky-500 w-3.5 h-3.5">
-        <span class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('taskForm.notifyOnFailure') }}</span>
-      </label>
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-1 ml-4">
+        <label class="flex items-center gap-1.5 cursor-pointer">
+          <input type="checkbox" v-model="notifyOnFailure" class="rounded border-gray-300 accent-sky-500 w-3.5 h-3.5">
+          <span class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('taskForm.notifyOnFailure') }}</span>
+        </label>
+        <label class="flex items-center gap-1.5 cursor-pointer">
+          <input type="checkbox" v-model="notifyOnSuccess" class="rounded border-gray-300 accent-sky-500 w-3.5 h-3.5">
+          <span class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('taskForm.notifyOnSuccess') }}</span>
+        </label>
+      </div>
     </template>
 
     <div class="space-y-4 px-1">

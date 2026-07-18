@@ -86,6 +86,7 @@ class SignTaskCreate(BaseModel):
     range_start: Optional[str] = Field(None, description="Range start")
     range_end: Optional[str] = Field(None, description="Range end")
     notify_on_failure: bool = Field(True, description="Failure notification switch")
+    notify_on_success: bool = Field(True, description="Success notification switch")
     retry_count: Optional[int] = Field(None, ge=0, le=99, description="Retry count per task, default 3")
 
     if field_validator is not None:
@@ -117,6 +118,7 @@ class SignTaskUpdate(BaseModel):
     range_start: Optional[str] = Field(None, description="Range start")
     range_end: Optional[str] = Field(None, description="Range end")
     notify_on_failure: Optional[bool] = Field(None, description="Failure notification switch")
+    notify_on_success: Optional[bool] = Field(None, description="Success notification switch")
     retry_count: Optional[int] = Field(None, ge=0, le=99, description="Retry count per task")
 
 
@@ -140,6 +142,7 @@ class SignTaskOut(BaseModel):
     range_start: Optional[str] = None
     range_end: Optional[str] = None
     notify_on_failure: bool = True
+    notify_on_success: bool = True
     task_group_id: str = ""
     last_run_account_name: str = ""
     retry_count: int = 3
@@ -230,6 +233,7 @@ async def create_sign_task(
             range_start=payload.range_start or "",
             range_end=payload.range_end or "",
             notify_on_failure=payload.notify_on_failure,
+            notify_on_success=payload.notify_on_success,
             retry_count=payload.retry_count,
         )
 
@@ -319,6 +323,7 @@ async def update_sign_task(
             range_start=payload.range_start,
             range_end=payload.range_end,
             notify_on_failure=payload.notify_on_failure,
+            notify_on_success=payload.notify_on_success,
             retry_count=payload.retry_count,
         )
 

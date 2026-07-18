@@ -172,7 +172,11 @@
     "pushServerChan": "ServerChan",
     "serverChanKey": "ServerChan SendKey",
     "templateNeedAccount": "Add an account before using templates",
-    "templateHint": "Opened new task form — select a chat and actions, then save"
+    "templateHint": "Opened new task form — select a chat and actions, then save",
+    "cloneNameRequired": "Enter a new task name",
+    "cloneNameInvalid": "Task name cannot contain path separators",
+    "cloneFrom": "Clone from: {name}",
+    "cloning": "Cloning…"
   },
   "taskForm": {
     "taskName": "Task Name",
@@ -242,7 +246,8 @@
     "refreshChats": "Refresh",
     "loadingChats": "Loading chats...",
     "loadAccountsFailed": "Failed to load accounts",
-    "loadChatsFailed": "Failed to load chats"
+    "loadChatsFailed": "Failed to load chats",
+    "notifyOnSuccess": "Notify on success"
   },
   "taskModal": {
     "addTitle": "Add Task",
@@ -447,7 +452,11 @@
     "importConflicts": "Conflicts",
     "emptyAdvancedHint": "Empty uses env or built-in defaults",
     "showSecret": "Show",
-    "hideSecret": "Hide"
+    "hideSecret": "Hide",
+    "unsavedTitle": "Unsaved changes",
+    "unsavedMessage": "Leave settings and discard unsaved changes?",
+    "leaveAnyway": "Leave anyway",
+    "unsavedBanner": "You have unsaved changes — remember to save each section"
   },
   "profile": {
     "title": "Profile",
