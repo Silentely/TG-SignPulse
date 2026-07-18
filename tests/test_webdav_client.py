@@ -17,6 +17,7 @@ from backend.services.webdav_client import (
     iter_webdav_file,
     list_webdav_files,
     prune_webdav_backups,
+    check_webdav_connection,
     upload_file_to_webdav,
     validate_backup_filename,
     validate_webdav_url,
@@ -310,3 +311,131 @@ def test_iter_webdav_file_yields_chunks():
             )
         )
     assert data == b"aabb"
+
+
+def _mock_httpx_client(request_side_effect=None, request_return=None, head_return=None):
+    mock_client = MagicMock()
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=False)
+    if request_side_effect is not None:
+        mock_client.request.side_effect = request_side_effect
+    elif request_return is not None:
+        mock_client.request.return_value = request_return
+    if head_return is not None:
+        mock_client.head.return_value = head_return
+    return mock_client
+
+
+def test_webdav_connection_ok_when_dir_exists():
+    """远端目录已存在：PROPFIND 207 → 成功。"""
+    mock_client = _mock_httpx_client(
+        request_return=MagicMock(status_code=207, text="")
+    )
+    with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client):
+        r = check_webdav_connection(
+            base_url="https://dav.example.com/files/u",
+            username="u",
+            password="p",
+            remote_dir="tg-signpulse-backups",
+        )
+    assert r["success"] is True
+    assert r["status_code"] == 207
+    assert "成功" in r["message"]
+
+
+def test_webdav_connection_ok_when_remote_dir_missing_returns_403():
+    """
+    回归：未备份过时远端目录不存在，部分 WebDAV 对 PROPFIND 返回 403。
+    不得误判为鉴权失败；应回退探测 base 并判定连接成功。
+    """
+    target_403 = MagicMock(status_code=403, text="Forbidden")
+    base_207 = MagicMock(status_code=207, text="")
+
+    def _request(method, url, **kwargs):
+        # 第一次打 remote_dir → 403；第二次打 base → 207
+        if "tg-signpulse-backups" in str(url):
+            return target_403
+        return base_207
+
+    mock_client = _mock_httpx_client(request_side_effect=_request)
+    with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client):
+        r = check_webdav_connection(
+            base_url="https://dav.example.com/files/u",
+            username="u",
+            password="p",
+            remote_dir="tg-signpulse-backups",
+        )
+    assert r["success"] is True
+    assert r["status_code"] == 207
+    assert "首次上传" in r["message"] or "不存在" in r["message"]
+    assert mock_client.request.call_count == 2
+
+
+def test_webdav_connection_ok_when_remote_dir_missing_returns_404():
+    """远端目录 404 时回退 base PROPFIND 成功。"""
+    target_404 = MagicMock(status_code=404, text="")
+    base_207 = MagicMock(status_code=207, text="")
+
+    def _request(method, url, **kwargs):
+        if "tg-signpulse-backups" in str(url):
+            return target_404
+        return base_207
+
+    mock_client = _mock_httpx_client(request_side_effect=_request)
+    with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client):
+        r = check_webdav_connection(
+            base_url="https://dav.example.com/files/u",
+            username="u",
+            password="p",
+            remote_dir="tg-signpulse-backups",
+        )
+    assert r["success"] is True
+    assert "首次上传" in r["message"] or "不存在" in r["message"]
+
+
+def test_webdav_connection_auth_fail_when_base_also_403():
+    """base 与 remote_dir 均 403 → 真正鉴权失败。"""
+    always_403 = MagicMock(status_code=403, text="Forbidden")
+    mock_client = _mock_httpx_client(request_return=always_403)
+    with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client):
+        r = check_webdav_connection(
+            base_url="https://dav.example.com/files/u",
+            username="u",
+            password="bad",
+            remote_dir="tg-signpulse-backups",
+        )
+    assert r["success"] is False
+    assert "认证失败" in r["message"]
+    assert r["status_code"] == 403
+
+
+def test_webdav_connection_auth_fail_on_401():
+    """401 仍按鉴权失败处理（不因 remote_dir 回退掩盖）。"""
+    mock_client = _mock_httpx_client(
+        request_return=MagicMock(status_code=401, text="Unauthorized")
+    )
+    with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client):
+        r = check_webdav_connection(
+            base_url="https://dav.example.com/files/u",
+            username="u",
+            password="bad",
+            remote_dir="tg-signpulse-backups",
+        )
+    assert r["success"] is False
+    assert "401" in r["message"]
+
+
+def test_webdav_connection_base_only_403_is_auth_fail():
+    """未配置 remote_dir 时 base 403 直接鉴权失败。"""
+    mock_client = _mock_httpx_client(
+        request_return=MagicMock(status_code=403, text="")
+    )
+    with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client):
+        r = check_webdav_connection(
+            base_url="https://dav.example.com/files/u",
+            username="u",
+            password="p",
+            remote_dir="",
+        )
+    assert r["success"] is False
+    assert "认证失败" in r["message"]

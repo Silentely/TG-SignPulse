@@ -540,7 +540,7 @@ class TestWebdavBackupChain:
             headers=_auth_headers(),
         )
         with patch(
-            "backend.services.webdav_client.test_webdav_connection",
+            "backend.services.webdav_client.check_webdav_connection",
             return_value={"success": True, "message": "ok", "status_code": 207},
         ) as test_m:
             resp = client.post(

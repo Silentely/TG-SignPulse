@@ -499,7 +499,86 @@ def prune_webdav_backups(
     }
 
 
-def test_webdav_connection(
+def _propfind(
+    client: httpx.Client,
+    url: str,
+    *,
+    depth: str = "0",
+) -> httpx.Response:
+    """统一 PROPFIND 请求头，避免部分服务因缺 Content-Type 返回 4xx。"""
+    return client.request(
+        "PROPFIND",
+        url,
+        headers={
+            "Depth": depth,
+            "Content-Type": "application/xml; charset=utf-8",
+        },
+        content=_PROPFIND_PROP,
+    )
+
+
+def _probe_base_reachable(
+    client: httpx.Client,
+    base: str,
+    *,
+    missing_hint: bool = False,
+) -> dict:
+    """
+    探测 base URL 是否可达（用于远端目录尚未创建时的回退）。
+
+    missing_hint=True 时成功文案提示目录可能需首次上传时创建。
+    """
+    base_resp = _propfind(client, base, depth="0")
+    if base_resp.status_code in (207, 200):
+        msg = (
+            "WebDAV 连接成功（远端备份目录尚不存在，将在首次上传时自动创建）"
+            if missing_hint
+            else "WebDAV 连接成功"
+        )
+        return {
+            "success": True,
+            "message": msg,
+            "status_code": base_resp.status_code,
+        }
+    if base_resp.status_code in (401, 403):
+        return {
+            "success": False,
+            "message": f"认证失败 HTTP {base_resp.status_code}",
+            "status_code": base_resp.status_code,
+        }
+    # PROPFIND 不支持时回退 HEAD
+    if base_resp.status_code in (404, 405, 501):
+        head = client.head(base)
+        if head.status_code < 400:
+            msg = (
+                "WebDAV 服务可达（目录可能需首次上传时创建）"
+                if missing_hint
+                else "WebDAV 服务可达"
+            )
+            return {
+                "success": True,
+                "message": msg,
+                "status_code": head.status_code,
+            }
+        if head.status_code in (401, 403):
+            return {
+                "success": False,
+                "message": f"认证失败 HTTP {head.status_code}",
+                "status_code": head.status_code,
+            }
+        return {
+            "success": False,
+            "message": f"探测失败 HTTP {head.status_code}",
+            "status_code": head.status_code,
+        }
+    return {
+        "success": False,
+        "message": f"探测失败 HTTP {base_resp.status_code}",
+        "status_code": base_resp.status_code,
+    }
+
+
+def check_webdav_connection(
     *,
     base_url: str,
     username: str,
@@ -507,7 +586,16 @@ def test_webdav_connection(
     remote_dir: str = "",
     timeout: float = 15.0,
 ) -> dict:
-    """用 PROPFIND/HEAD 探测 WebDAV 是否可访问。"""
+    """
+    用 PROPFIND/HEAD 探测 WebDAV 是否可访问。
+
+    注意：部分 WebDAV（含部分 Nextcloud/NAS/代理）对「尚未存在」的
+    远端目录 PROPFIND 会返回 403 而非 404。测试连接不得将其直接判为
+    鉴权失败；应回退探测 base URL。上传路径会先 MKCOL 建目录，故
+    「先上传再测试」会偶然成功。
+
+    函数名不用 test_ 前缀，避免被 pytest 误收集。
+    """
     base = validate_webdav_url(base_url)
     user = (username or "").strip()
     if not user:
@@ -517,36 +605,28 @@ def test_webdav_connection(
     auth = (user, password or "")
 
     with httpx.Client(timeout=timeout, auth=auth, follow_redirects=True) as client:
-        # 优先 PROPFIND Depth:0
-        resp = client.request(
-            "PROPFIND",
-            target,
-            headers={"Depth": "0"},
-            content=_PROPFIND_PROP,
-        )
-        if resp.status_code in (207, 200, 404, 405):
-            # 404 可能是目录不存在但仍可建；405 表示方法不支持，再试 HEAD
-            if resp.status_code in (207, 200):
-                return {"success": True, "message": "WebDAV 连接成功", "status_code": resp.status_code}
-            head = client.head(base)
-            if head.status_code < 400 or head.status_code in (401, 403):
-                # 401 表示服务在但凭据可能不对
-                if head.status_code in (401, 403):
-                    return {
-                        "success": False,
-                        "message": f"认证失败 HTTP {head.status_code}",
-                        "status_code": head.status_code,
-                    }
-                return {
-                    "success": True,
-                    "message": "WebDAV 服务可达（目录可能需首次上传时创建）",
-                    "status_code": head.status_code,
-                }
+        resp = _propfind(client, target, depth="0")
+
+        if resp.status_code in (207, 200):
             return {
-                "success": False,
-                "message": f"探测失败 HTTP {resp.status_code}",
+                "success": True,
+                "message": "WebDAV 连接成功",
                 "status_code": resp.status_code,
             }
+
+        # 目录不存在 / 方法不支持：回退探测 base
+        # 403：仅当探测的是 remote_dir（非 base）时，可能表示「集合不存在」
+        # 而非真正的鉴权失败（上传后目录存在则 403 会消失）
+        dir_maybe_missing = bool(dir_rel) and resp.status_code in (403, 404)
+        method_quirk = resp.status_code in (404, 405, 501)
+
+        if dir_maybe_missing or method_quirk:
+            return _probe_base_reachable(
+                client,
+                base,
+                missing_hint=bool(dir_rel) and resp.status_code in (403, 404),
+            )
+
         if resp.status_code in (401, 403):
             return {
                 "success": False,

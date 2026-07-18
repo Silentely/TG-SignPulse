@@ -351,11 +351,11 @@ class WebDavTestResponse(BaseModel):
 def test_webdav_backup(current_user: User = Depends(get_current_user)):
     """测试已保存的 WebDAV 配置连通性。"""
     from backend.services.config import get_config_service
-    from backend.services.webdav_client import test_webdav_connection
+    from backend.services.webdav_client import check_webdav_connection
 
     cfg = get_config_service().get_global_settings()
     try:
-        result = test_webdav_connection(
+        result = check_webdav_connection(
             base_url=str(cfg.get("webdav_url") or ""),
             username=str(cfg.get("webdav_username") or ""),
             password=str(cfg.get("webdav_password") or ""),
