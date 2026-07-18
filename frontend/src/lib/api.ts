@@ -614,7 +614,10 @@ export interface GlobalSettings {
   auto_backup_keep?: number | null;
   webdav_url?: string | null;
   webdav_username?: string | null;
+  /** GET 永不返回明文；写入时仅在非空时更新 */
   webdav_password?: string | null;
+  /** 服务端是否已保存 WebDAV 密码 */
+  webdav_password_set?: boolean;
   webdav_remote_dir?: string | null;
 }
 
@@ -1160,6 +1163,14 @@ export interface BackupStatus {
   recommended_paths: string[];
   notes?: string[];
   restore_hint?: string;
+  webdav_configured?: boolean;
+  auto_backup_enabled?: boolean;
+  local_auto_backups?: Array<{
+    name: string;
+    size_bytes: number;
+    size_human: string;
+    mtime: string;
+  }>;
 }
 
 export const getBackupStatus = (token: string) =>

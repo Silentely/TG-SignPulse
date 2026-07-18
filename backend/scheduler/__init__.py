@@ -213,12 +213,16 @@ async def _job_auto_backup() -> None:
             keep=auto_backup_keep(cfg),
             webdav_settings=cfg,
         )
+        wd = result.get("webdav") or {}
         logger.info(
-            "Auto backup finished: path=%s size=%s pruned=%s webdav=%s",
+            "Auto backup finished: path=%s size=%s pruned=%s "
+            "local_removed=%s webdav=%s webdav_error=%s",
             result.get("path"),
             result.get("size_bytes"),
             result.get("pruned"),
-            (result.get("webdav") or {}).get("success"),
+            result.get("local_removed"),
+            wd.get("success"),
+            wd.get("error"),
         )
     except Exception as exc:
         logger.error("Auto backup job failed: %s", exc, exc_info=True)

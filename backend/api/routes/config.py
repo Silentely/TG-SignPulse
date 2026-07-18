@@ -445,16 +445,24 @@ class GlobalSettingsResponse(BaseModel):
     auto_backup_keep: Optional[int] = 3
     webdav_url: Optional[str] = None
     webdav_username: Optional[str] = None
+    # GET 永不回传明文密码；用 webdav_password_set 表示已落盘
     webdav_password: Optional[str] = None
+    webdav_password_set: bool = False
     webdav_remote_dir: Optional[str] = "tg-signpulse-backups"
 
 
 @router.get("/settings", response_model=GlobalSettingsResponse)
 def get_global_settings(current_user: User = Depends(get_current_user)):
     try:
-        settings = get_config_service().get_global_settings()
+        settings = dict(get_config_service().get_global_settings())
         from backend.core.config import get_settings
         settings.setdefault("timezone", get_settings().timezone)
+        # 脱敏：API 响应不暴露 WebDAV 密码明文
+        raw_pwd = settings.get("webdav_password")
+        settings["webdav_password_set"] = bool(
+            raw_pwd is not None and str(raw_pwd).strip() != ""
+        )
+        settings["webdav_password"] = None
         return GlobalSettingsResponse(**settings)
     except Exception as e:
         raise HTTPException(

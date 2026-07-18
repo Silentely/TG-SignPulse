@@ -87,7 +87,7 @@ def run_auto_backup(
     paths: Optional[Iterable[str]] = None,
     webdav_settings: Optional[dict] = None,
 ) -> dict:
-    """执行一次自动备份；若配置了 WebDAV 则上传后可清理本地副本。"""
+    """执行一次自动备份；WebDAV 上传成功后删除本地副本以节省磁盘。"""
     backup_dir = data_dir / "backups"
     backup_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -102,11 +102,14 @@ def run_auto_backup(
             "path": "",
             "size_bytes": 0,
             "pruned": 0,
+            "local_removed": False,
             "error": str(exc),
             "webdav": None,
         }
     size = dest.stat().st_size if dest.exists() else 0
     webdav_result = None
+    local_removed = False
+    path_out = str(dest)
     wd = webdav_settings or {}
     if (wd.get("webdav_url") or "").strip():
         try:
@@ -122,12 +125,23 @@ def run_auto_backup(
         except Exception as exc:
             logger.warning("自动备份 WebDAV 上传失败: %s", exc)
             webdav_result = {"success": False, "error": str(exc)}
+
+        # 远端已有副本则删本地，失败则保留便于补传
+        if webdav_result and webdav_result.get("success"):
+            try:
+                dest.unlink(missing_ok=True)
+                local_removed = True
+                path_out = str(webdav_result.get("remote_url") or "")
+            except OSError as exc:
+                logger.warning("删除本地自动备份失败 %s: %s", dest, exc)
+
     removed = prune_backups(backup_dir, keep)
     return {
         "success": True,
-        "path": str(dest),
+        "path": path_out,
         "size_bytes": size,
         "pruned": removed,
+        "local_removed": local_removed,
         "webdav": webdav_result,
     }
 

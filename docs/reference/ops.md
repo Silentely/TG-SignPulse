@@ -17,6 +17,14 @@
 | `POST /api/sign-tasks/{name}/clone` | 克隆签到任务 |
 | `POST /api/ops/backup/export` | 完整备份：已配置 WebDAV 时上传远端；否则回退浏览器下载 |
 | `POST /api/ops/backup/webdav/test` | 测试全局设置中的 WebDAV 连通性 |
+
+### WebDAV 完整备份
+
+1. 在 **设置 → 完整备份** 填写 URL / 用户名 / 密码 / 远端目录，可先 **测试连接**。
+2. **上传备份到 WebDAV** 会先落盘当前表单配置，再打包并上传（避免未保存导致用旧配置）。
+3. `GET /api/config/settings` **不回传** WebDAV 密码明文，仅 `webdav_password_set=true/false`；空密码字段表示「不修改」。
+4. 开启自动备份后，调度任务在上传 WebDAV **成功**时删除本地 `backups/auto-*.tar.gz`；失败则保留本地副本。
+5. `GET /api/ops/backup/status` 含 `webdav_configured`、`auto_backup_enabled`、最近本地自动备份列表。
 | `POST /api/batch/sign-tasks` | 新版签到任务批量 enable/disable/delete/run |
 | `GET /api/events/sign-history?token=` | 签到历史 SSE（Dashboard 实时流，token 查询参数） |
 

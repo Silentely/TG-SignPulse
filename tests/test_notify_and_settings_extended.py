@@ -45,6 +45,7 @@ class TestAdvancedSettingsApi:
             "webdav_url",
             "webdav_username",
             "webdav_password",
+            "webdav_password_set",
             "webdav_remote_dir",
         ):
             assert key in body, f"missing key {key}"
@@ -435,8 +436,15 @@ class TestWebdavBackupChain:
         got = client.get("/api/config/settings", headers=_auth_headers()).json()
         assert got["webdav_url"] == "https://dav.example.com/remote.php/dav/files/u"
         assert got["webdav_username"] == "user1"
-        assert got["webdav_password"] == "secret"
+        # GET 脱敏：不回传明文，仅标记已设置
+        assert got.get("webdav_password") in (None, "")
+        assert got.get("webdav_password_set") is True
         assert got["webdav_remote_dir"] == "my-backups"
+        # 磁盘上仍为明文供上传使用
+        from backend.services.config import get_config_service
+
+        stored = get_config_service().get_global_settings()
+        assert stored["webdav_password"] == "secret"
 
     def test_webdav_password_empty_keeps_existing(self, client, db_session):
         client.post(
@@ -455,8 +463,11 @@ class TestWebdavBackupChain:
             headers=_auth_headers(),
         )
         got = client.get("/api/config/settings", headers=_auth_headers()).json()
-        assert got["webdav_password"] == "keep-me"
+        assert got.get("webdav_password_set") is True
         assert got["webdav_username"] == "u2"
+        from backend.services.config import get_config_service
+
+        assert get_config_service().get_global_settings()["webdav_password"] == "keep-me"
 
     def test_backup_export_uploads_when_webdav_configured(
         self, client, db_session, isolated_env
@@ -572,6 +583,82 @@ class TestWebdavBackupChain:
             )
         assert result["success"] is True
         assert result["webdav"]["success"] is True
+        assert result.get("local_removed") is True
+        # 上传成功后本地副本应已删除
+        assert not list((data / "backups").glob("auto-*.tar.gz"))
+        assert result["path"] == "https://x/a.tar.gz"
         m.assert_called_once()
         assert m.call_args.kwargs["remote_dir"] == "bk"
         assert m.call_args.kwargs["username"] == "u"
+
+    def test_auto_backup_keeps_local_when_webdav_fails(self, isolated_env: Path):
+        from backend.services.backup_archive import run_auto_backup
+
+        data = isolated_env
+        (data / ".global_settings.json").write_text("{}", encoding="utf-8")
+
+        with patch(
+            "backend.services.webdav_client.upload_file_to_webdav",
+            side_effect=RuntimeError("HTTP 502"),
+        ):
+            result = run_auto_backup(
+                data,
+                keep=2,
+                webdav_settings={
+                    "webdav_url": "https://dav.example.com/dav",
+                    "webdav_username": "u",
+                    "webdav_password": "p",
+                },
+            )
+        assert result["success"] is True
+        assert result.get("local_removed") is False
+        assert result["webdav"]["success"] is False
+        assert list((data / "backups").glob("auto-*.tar.gz"))
+
+    def test_backup_export_rejects_missing_credentials(self, client, db_session):
+        client.post(
+            "/api/config/settings",
+            json={
+                "webdav_url": "https://dav.example.com/dav",
+                "webdav_username": "",
+                "webdav_password": "p",
+            },
+            headers=_auth_headers(),
+        )
+        # 仅 URL、无用户名
+        client.post(
+            "/api/config/settings",
+            json={"webdav_url": "https://dav.example.com/dav", "webdav_username": None},
+            headers=_auth_headers(),
+        )
+        # 直接设内部配置：有 URL 无用户名
+        from backend.services.config import get_config_service
+
+        get_config_service().save_global_settings(
+            {
+                "webdav_url": "https://dav.example.com/dav",
+                "webdav_username": None,
+                "webdav_password": "p",
+            }
+        )
+        resp = client.post("/api/ops/backup/export", headers=_auth_headers())
+        assert resp.status_code == 400
+        assert "用户名" in resp.json().get("detail", "")
+
+    def test_backup_status_includes_webdav_flags(self, client, db_session):
+        client.post(
+            "/api/config/settings",
+            json={
+                "webdav_url": "https://dav.example.com/dav",
+                "webdav_username": "u",
+                "webdav_password": "p",
+                "auto_backup_enabled": True,
+            },
+            headers=_auth_headers(),
+        )
+        resp = client.get("/api/ops/backup/status", headers=_auth_headers())
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["webdav_configured"] is True
+        assert body["auto_backup_enabled"] is True
+        assert "local_auto_backups" in body

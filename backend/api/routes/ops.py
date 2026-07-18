@@ -51,6 +51,9 @@ class BackupStatusResponse(BaseModel):
     recommended_paths: List[str] = Field(default_factory=list)
     notes: List[str] = Field(default_factory=list)
     restore_hint: str = ""
+    webdav_configured: bool = False
+    auto_backup_enabled: bool = False
+    local_auto_backups: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 # 完整备份包含的路径（不含初始密码文件，降低误传风险）
@@ -151,6 +154,7 @@ def list_scheduled_jobs(current_user: User = Depends(get_current_user)):
 @router.get("/backup/status", response_model=BackupStatusResponse)
 def backup_status(current_user: User = Depends(get_current_user)):
     """返回数据目录备份相关状态，便于面板提示运维。"""
+    from backend.services.config import get_config_service
     from backend.utils.storage import is_writable_dir
 
     settings = get_settings()
@@ -175,6 +179,34 @@ def backup_status(current_user: User = Depends(get_current_user)):
     except Exception as exc:
         logger.debug("计算数据目录大小失败: %s", exc)
 
+    cfg = get_config_service().get_global_settings()
+    webdav_configured = bool((cfg.get("webdav_url") or "").strip())
+    auto_backup_enabled = bool(cfg.get("auto_backup_enabled"))
+
+    local_auto: List[Dict[str, Any]] = []
+    backup_dir = data_dir / "backups"
+    if backup_dir.is_dir():
+        files = sorted(
+            backup_dir.glob("auto-*.tar.gz"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )[:5]
+        for f in files:
+            try:
+                st = f.stat()
+                local_auto.append(
+                    {
+                        "name": f.name,
+                        "size_bytes": st.st_size,
+                        "size_human": _human_size(st.st_size),
+                        "mtime": datetime.fromtimestamp(
+                            st.st_mtime, tz=timezone.utc
+                        ).isoformat(),
+                    }
+                )
+            except OSError:
+                continue
+
     return BackupStatusResponse(
         data_dir=str(data_dir),
         writable=is_writable_dir(data_dir),
@@ -186,11 +218,15 @@ def backup_status(current_user: User = Depends(get_current_user)):
             "完整备份含数据库、会话与 .signer（任务配置与历史），敏感请妥善保管。",
             "JSON 配置导出不含会话；二者用途不同，勿混用。",
             "不含 .admin_bootstrap_password（避免初始密码随备份传播）。",
+            "自动备份在 WebDAV 上传成功后会删除本地副本；失败时保留本地文件。",
         ],
         restore_hint=(
             "恢复：停止服务 → 解压 tar.gz 到 APP_DATA_DIR 覆盖对应路径 → 重启。"
             "详见文档运维手册。"
         ),
+        webdav_configured=webdav_configured,
+        auto_backup_enabled=auto_backup_enabled,
+        local_auto_backups=local_auto,
     )
 
 
@@ -216,6 +252,24 @@ def export_backup_archive(current_user: User = Depends(get_current_user)):
 
     cfg = get_config_service().get_global_settings()
     webdav_url = (cfg.get("webdav_url") or "").strip()
+    webdav_user = str(cfg.get("webdav_username") or "").strip()
+    webdav_password = str(cfg.get("webdav_password") or "")
+    webdav_remote = str(
+        cfg.get("webdav_remote_dir") or "tg-signpulse-backups"
+    ).strip() or "tg-signpulse-backups"
+
+    # 已声明 WebDAV 时先校验凭据，避免空打包后再失败
+    if webdav_url:
+        if not webdav_user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="WebDAV 用户名未配置，请先保存用户名",
+            )
+        if not webdav_password.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="WebDAV 密码未配置，请先填写并保存密码",
+            )
 
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
     tmp_dir = Path(tempfile.mkdtemp(prefix="tg-signpulse-backup-"))
@@ -233,11 +287,9 @@ def export_backup_archive(current_user: User = Depends(get_current_user)):
             try:
                 result = upload_file_to_webdav(
                     base_url=webdav_url,
-                    username=str(cfg.get("webdav_username") or ""),
-                    password=str(cfg.get("webdav_password") or ""),
-                    remote_dir=str(
-                        cfg.get("webdav_remote_dir") or "tg-signpulse-backups"
-                    ),
+                    username=webdav_user,
+                    password=webdav_password,
+                    remote_dir=webdav_remote,
                     local_path=archive_path,
                 )
             except ValueError as exc:

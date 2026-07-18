@@ -418,7 +418,9 @@ onMounted(async () => {
     settings.value.autoBackupKeep = res.auto_backup_keep || 3
     settings.value.webdavUrl = res.webdav_url || ''
     settings.value.webdavUsername = res.webdav_username || ''
-    settings.value.webdavPassword = res.webdav_password || ''
+    // 密码不回传明文：仅根据 password_set 展示「已保存」提示
+    settings.value.webdavPassword = ''
+    webdavPasswordSet.value = !!res.webdav_password_set
     settings.value.webdavRemoteDir = res.webdav_remote_dir || 'tg-signpulse-backups'
 
     if (tgRes && tgRes.is_custom) {
@@ -522,8 +524,14 @@ const saveAdvancedSettings = async () => {
   advancedLoading.value = true
   try {
     await saveGlobalSettings(token, buildAdvancedPayload())
+    afterWebdavSettingsSaved()
     markSectionClean('advanced')
     notifySuccess(t('settings.saveSuccess'))
+    try {
+      backupStatus.value = await getBackupStatus(token)
+    } catch {
+      /* ignore */
+    }
   } catch (e: unknown) {
     notifyError(getLocalizedErrorMessage(e, t, t('settings.saveFailed')))
   } finally {
@@ -543,6 +551,7 @@ const saveAllSettings = async () => {
       ...buildBotPayload(),
       ...buildAdvancedPayload(),
     })
+    afterWebdavSettingsSaved()
     markSectionClean('general')
     markSectionClean('bot')
     markSectionClean('advanced')
@@ -695,17 +704,41 @@ const handleExport = async () => {
 }
 
 const webdavTestLoading = ref(false)
+/** 服务端是否已保存 WebDAV 密码（GET 不回传明文） */
+const webdavPasswordSet = ref(false)
+
+const validateWebdavForm = (): boolean => {
+  if (!settings.value.webdavUrl.trim()) {
+    notifyError(t('settings.webdavRequired'))
+    return false
+  }
+  if (!settings.value.webdavUsername.trim()) {
+    notifyError(t('settings.webdavUsernameRequired'))
+    return false
+  }
+  if (!settings.value.webdavPassword && !webdavPasswordSet.value) {
+    notifyError(t('settings.webdavPasswordRequired'))
+    return false
+  }
+  return true
+}
+
+/** 保存 advanced 后：若本次提交了新密码则标记已保存并清空输入框 */
+const afterWebdavSettingsSaved = () => {
+  if (settings.value.webdavPassword) {
+    webdavPasswordSet.value = true
+    settings.value.webdavPassword = ''
+  }
+}
 
 const handleBackupExport = async () => {
   const token = authStore.token || ''
-  if (!settings.value.webdavUrl.trim()) {
-    notifyError(t('settings.webdavRequired'))
-    return
-  }
+  if (!validateWebdavForm()) return
   backupLoading.value = true
   try {
     // 服务端读已落盘配置：上传前先保存 WebDAV/备份相关字段
     await saveGlobalSettings(token, buildAdvancedPayload())
+    afterWebdavSettingsSaved()
     markSectionClean('advanced')
     const res = await exportBackupArchive(token)
     if (res.mode === 'webdav') {
@@ -718,6 +751,11 @@ const handleBackupExport = async () => {
       // 服务端未读到 WebDAV（配置异常）时的兼容回退
       notifySuccess(t('settings.backupExportSuccess'))
     }
+    try {
+      backupStatus.value = await getBackupStatus(token)
+    } catch {
+      /* ignore refresh errors */
+    }
   } catch (e: unknown) {
     notifyError(getLocalizedErrorMessage(e, t, t('settings.backupExportFailed')))
   } finally {
@@ -727,15 +765,13 @@ const handleBackupExport = async () => {
 
 const handleWebdavTest = async () => {
   const token = authStore.token || ''
-  if (!settings.value.webdavUrl.trim()) {
-    notifyError(t('settings.webdavRequired'))
-    return
-  }
+  if (!validateWebdavForm()) return
   // 先保存当前 WebDAV 配置再测
   advancedLoading.value = true
   webdavTestLoading.value = true
   try {
     await saveGlobalSettings(token, buildAdvancedPayload())
+    afterWebdavSettingsSaved()
     markSectionClean('advanced')
     const res = await testWebdavBackup(token)
     if (res.success) notifySuccess(res.message || t('settings.webdavTestOk'))
@@ -1176,7 +1212,13 @@ const handleImport = async (e: Event) => {
               </div>
               <div class="space-y-1.5">
                 <label class="ui-label">{{ t('settings.webdavPassword') }}</label>
-                <input v-model="settings.webdavPassword" type="password" class="ui-input" autocomplete="current-password" :placeholder="t('settings.webdavPasswordHint')">
+                <input
+                  v-model="settings.webdavPassword"
+                  type="password"
+                  class="ui-input"
+                  autocomplete="current-password"
+                  :placeholder="webdavPasswordSet ? t('settings.webdavPasswordSavedHint') : t('settings.webdavPasswordHint')"
+                >
               </div>
             </div>
             <div class="space-y-1.5">
@@ -1232,10 +1274,22 @@ const handleImport = async (e: Event) => {
                 {{ advancedLoading ? t('settings.saving') : t('settings.saveBackupSettings') }}
               </button>
             </div>
-            <p v-if="backupStatus" class="text-xs text-gray-500 font-mono">
-              {{ backupStatus.data_dir }} · {{ backupStatus.size_human }}
-              · {{ backupStatus.writable ? t('settings.backupWritable') : t('settings.backupReadonly') }}
-            </p>
+            <div v-if="backupStatus" class="text-xs text-gray-500 space-y-1">
+              <p class="font-mono">
+                {{ backupStatus.data_dir }} · {{ backupStatus.size_human }}
+                · {{ backupStatus.writable ? t('settings.backupWritable') : t('settings.backupReadonly') }}
+              </p>
+              <p>
+                WebDAV:
+                {{ backupStatus.webdav_configured ? t('settings.webdavConfiguredYes') : t('settings.webdavConfiguredNo') }}
+                · {{ t('settings.autoBackup') }}:
+                {{ backupStatus.auto_backup_enabled ? t('settings.backupOn') : t('settings.backupOff') }}
+              </p>
+              <p v-if="backupStatus.local_auto_backups?.length" class="font-mono text-[10px] text-gray-400">
+                {{ t('settings.localAutoBackups') }}:
+                {{ backupStatus.local_auto_backups.map((b) => b.name).join(', ') }}
+              </p>
+            </div>
             <p class="text-xs text-amber-700 dark:text-amber-400/90">
               {{ t('settings.backupRestoreHint') }}
             </p>
