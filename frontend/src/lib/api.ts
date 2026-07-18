@@ -1191,6 +1191,12 @@ export async function exportBackupArchive(token: string): Promise<{
   const ct = (res.headers.get("Content-Type") || "").toLowerCase();
   if (ct.includes("application/json")) {
     const data = await res.json();
+    // 服务端失败应走 !res.ok；若 body 显式 success=false 也按失败处理
+    if (data && data.success === false) {
+      throw new Error(
+        String(data.message || data.detail || "WebDAV backup upload failed"),
+      );
+    }
     return {
       mode: "webdav",
       message: data.message,

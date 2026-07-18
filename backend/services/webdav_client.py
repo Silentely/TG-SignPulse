@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 from urllib.parse import quote, urljoin, urlparse
 
 import httpx
 
 logger = logging.getLogger("backend.webdav")
+
+# 备份包可能较大：连接短超时，读写长超时
+_DEFAULT_UPLOAD_TIMEOUT = httpx.Timeout(30.0, read=600.0, write=600.0, pool=30.0)
+_MKCOL_OK = frozenset({201, 200, 405, 409, 301, 302})
 
 
 def _join_url(base: str, *parts: str) -> str:
@@ -39,6 +43,25 @@ def validate_webdav_url(url: str) -> str:
     return raw.rstrip("/")
 
 
+def _ensure_remote_dirs(client: httpx.Client, base: str, dir_rel: str) -> None:
+    """逐级 MKCOL 创建远端目录（兼容 Nextcloud 等多级路径）。"""
+    segs = [s for s in (dir_rel or "").split("/") if s]
+    if not segs:
+        return
+    acc: list[str] = []
+    for seg in segs:
+        acc.append(seg)
+        dir_url = _join_url(base, *acc)
+        mk = client.request("MKCOL", dir_url)
+        if mk.status_code not in _MKCOL_OK:
+            logger.debug(
+                "MKCOL %s -> %s %s",
+                dir_url,
+                mk.status_code,
+                (mk.text or "")[:200],
+            )
+
+
 def upload_file_to_webdav(
     *,
     base_url: str,
@@ -47,7 +70,7 @@ def upload_file_to_webdav(
     remote_dir: str,
     local_path: Path,
     filename: Optional[str] = None,
-    timeout: float = 120.0,
+    timeout: Optional[Union[float, httpx.Timeout]] = None,
 ) -> dict:
     """
     将本地文件 PUT 到 WebDAV。
@@ -67,21 +90,23 @@ def upload_file_to_webdav(
     auth = (user, password or "")
 
     file_url = _join_url(base, dir_rel, name) if dir_rel else _join_url(base, name)
-    dir_url = _join_url(base, dir_rel) if dir_rel else base
+    req_timeout = timeout if timeout is not None else _DEFAULT_UPLOAD_TIMEOUT
 
-    with httpx.Client(timeout=timeout, auth=auth, follow_redirects=True) as client:
-        # 尝试创建远端目录（已存在时多数服务返回 405/409/301）
+    with httpx.Client(timeout=req_timeout, auth=auth, follow_redirects=True) as client:
+        # 多级目录逐段创建（已存在时多数服务返回 405/409/301）
         if dir_rel:
-            mk = client.request("MKCOL", dir_url)
-            if mk.status_code not in (201, 200, 405, 409, 301, 302):
-                logger.debug("MKCOL %s -> %s %s", dir_url, mk.status_code, mk.text[:200])
+            _ensure_remote_dirs(client, base, dir_rel)
 
-        data = local_path.read_bytes()
-        put = client.put(
-            file_url,
-            content=data,
-            headers={"Content-Type": "application/gzip"},
-        )
+        # 流式上传，避免大备份包整包读入内存
+        with local_path.open("rb") as fh:
+            put = client.put(
+                file_url,
+                content=fh,
+                headers={
+                    "Content-Type": "application/gzip",
+                    "Content-Length": str(local_path.stat().st_size),
+                },
+            )
         if put.status_code not in (200, 201, 204):
             detail = (put.text or "")[:300]
             raise RuntimeError(
