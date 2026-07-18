@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 from urllib.parse import quote
 
@@ -16,6 +17,40 @@ def _as_int_or_none(value: Any) -> Optional[int]:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def is_in_quiet_hours(
+    settings: Dict[str, Any], now: Optional[datetime] = None
+) -> bool:
+    """判断当前是否处于通知静默时段（支持跨午夜）。"""
+    if not settings.get("telegram_bot_quiet_hours_enabled"):
+        return False
+    start_s = str(settings.get("telegram_bot_quiet_hours_start") or "23:00")
+    end_s = str(settings.get("telegram_bot_quiet_hours_end") or "07:00")
+    try:
+        sh, sm = [int(x) for x in start_s.split(":")[:2]]
+        eh, em = [int(x) for x in end_s.split(":")[:2]]
+    except (TypeError, ValueError):
+        return False
+    tz_name = str(settings.get("timezone") or "UTC")
+    try:
+        from zoneinfo import ZoneInfo
+
+        tz = ZoneInfo(tz_name)
+    except Exception:
+        tz = timezone.utc
+    current = now or datetime.now(tz)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=tz)
+    else:
+        current = current.astimezone(tz)
+    minutes = current.hour * 60 + current.minute
+    start_m, end_m = sh * 60 + sm, eh * 60 + em
+    if start_m == end_m:
+        return False
+    if start_m < end_m:
+        return start_m <= minutes < end_m
+    return minutes >= start_m or minutes < end_m
 
 
 async def send_telegram_bot_message(
@@ -46,6 +81,20 @@ async def send_keyword_push(settings: Dict[str, Any], payload: Dict[str, Any]) -
     title = str(payload.get("title") or "TG-SignPulse 关键词命中")
     body = str(payload.get("body") or "")
     url = str(payload.get("url") or "")
+
+    if channel in ("server_chan", "server酱"):
+        sendkey = (
+            settings.get("keyword_monitor_server_chan_send_key")
+            or settings.get("server_chan_send_key")
+            or ""
+        ).strip()
+        if not sendkey:
+            logger.warning("Server酱 sendkey 未配置")
+            return
+        from tg_signer.notification.server_chan import sc_send
+
+        await sc_send(sendkey, title, desp=body)
+        return
 
     if channel == "telegram":
         bot_token = (settings.get("telegram_bot_token") or "").strip()
@@ -115,6 +164,8 @@ async def send_login_notification(
         return
     if not settings.get("telegram_bot_login_notify_enabled"):
         return
+    if is_in_quiet_hours(settings):
+        return
 
     bot_token = (settings.get("telegram_bot_token") or "").strip()
     chat_id = (settings.get("telegram_bot_chat_id") or "").strip()
@@ -127,6 +178,41 @@ async def send_login_notification(
         f"用户: {username}\n"
         f"IP: {ip_address or 'unknown'}"
     )
+    await send_telegram_bot_message(
+        bot_token=bot_token,
+        chat_id=chat_id,
+        text=text,
+        message_thread_id=_as_int_or_none(settings.get("telegram_bot_message_thread_id")),
+    )
+
+
+async def send_task_success_notification(
+    settings: Dict[str, Any],
+    *,
+    account_name: str,
+    task_name: str,
+    message: str = "",
+) -> None:
+    """任务成功时的 Bot 通知。"""
+    if not settings.get("telegram_bot_notify_enabled"):
+        return
+    if not settings.get("telegram_bot_task_success_enabled"):
+        return
+    if is_in_quiet_hours(settings):
+        return
+
+    bot_token = (settings.get("telegram_bot_token") or "").strip()
+    chat_id = (settings.get("telegram_bot_chat_id") or "").strip()
+    if not bot_token or not chat_id:
+        return
+
+    text = (
+        "TG-SignPulse 任务执行成功\n"
+        f"账号: {account_name}\n"
+        f"任务: {task_name}"
+    )
+    if message:
+        text += f"\n摘要: {str(message)[:500]}"
     await send_telegram_bot_message(
         bot_token=bot_token,
         chat_id=chat_id,

@@ -1593,6 +1593,10 @@ class KeywordMonitorService:
                     push_settings["keyword_monitor_custom_url"] = rule.action.get(
                         "custom_url"
                     )
+                    push_settings["keyword_monitor_server_chan_send_key"] = (
+                        rule.action.get("server_chan_send_key")
+                        or rule.action.get("server_chan_sendkey")
+                    )
                     await send_keyword_push(
                         push_settings,
                         {

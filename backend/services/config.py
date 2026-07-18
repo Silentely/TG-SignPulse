@@ -696,9 +696,22 @@ class ConfigService:
             "telegram_bot_notify_enabled": False,
             "telegram_bot_login_notify_enabled": False,
             "telegram_bot_task_failure_enabled": True,
+            "telegram_bot_task_success_enabled": False,
+            "telegram_bot_quiet_hours_enabled": False,
+            "telegram_bot_quiet_hours_start": "23:00",
+            "telegram_bot_quiet_hours_end": "07:00",
             "telegram_bot_token": None,
             "telegram_bot_chat_id": None,
             "telegram_bot_message_thread_id": None,
+            "sign_task_execution_timeout": None,
+            "sign_task_account_cooldown": None,
+            "sign_task_flow_retry_attempts": None,
+            "sign_task_history_max_age_days": None,
+            "ai_vision_timeout": None,
+            "ai_vision_retry_attempts": None,
+            "auto_backup_enabled": False,
+            "auto_backup_interval_hours": 24,
+            "auto_backup_keep": 3,
         }
 
         settings = self._read_json_file(config_file)
@@ -759,7 +772,91 @@ class ConfigService:
             except Exception:
                 pass
 
+        # 同步高级参数到环境变量，供 tg_signer 等仍读 env 的路径使用
+        env_sync = {
+            "sign_task_execution_timeout": "SIGN_TASK_EXECUTION_TIMEOUT",
+            "sign_task_account_cooldown": "SIGN_TASK_ACCOUNT_COOLDOWN",
+            "sign_task_flow_retry_attempts": "SIGN_TASK_FLOW_RETRY_ATTEMPTS",
+            "sign_task_history_max_age_days": "SIGN_TASK_HISTORY_MAX_AGE_DAYS",
+            "ai_vision_timeout": "AI_VISION_TIMEOUT",
+            "ai_vision_retry_attempts": "AI_VISION_RETRY_ATTEMPTS",
+        }
+        for gkey, ekey in env_sync.items():
+            val = merged.get(gkey)
+            if val is not None and str(val).strip() != "":
+                os.environ[ekey] = str(int(val) if not isinstance(val, str) else val)
+
         return True
+
+    def preview_import_all(self, json_str: str) -> Dict[str, Any]:
+        """预览导入内容，不写盘。"""
+        errors: List[str] = []
+        try:
+            data = json.loads(json_str)
+        except json.JSONDecodeError as e:
+            return {
+                "signs_count": 0,
+                "monitors_count": 0,
+                "settings_keys": [],
+                "conflicts": [],
+                "errors": [str(e)],
+            }
+        if not isinstance(data, dict):
+            return {
+                "signs_count": 0,
+                "monitors_count": 0,
+                "settings_keys": [],
+                "conflicts": [],
+                "errors": ["配置根节点必须是对象"],
+            }
+
+        signs = data.get("signs") or {}
+        monitors = data.get("monitors") or {}
+        settings_data = data.get("settings") or {}
+        if not isinstance(signs, dict):
+            signs = {}
+            errors.append("signs 字段格式无效")
+        if not isinstance(monitors, dict):
+            monitors = {}
+            errors.append("monitors 字段格式无效")
+        if not isinstance(settings_data, dict):
+            settings_data = {}
+
+        conflicts: List[str] = []
+        for key, config in signs.items():
+            task_name = ""
+            account_name = None
+            if isinstance(config, dict):
+                task_name = str(config.get("name") or key.split("@")[0])
+                account_name = config.get("account_name")
+            else:
+                task_name = str(key.split("@")[0])
+            exists = False
+            if account_name:
+                exists = (self.signs_dir / str(account_name) / task_name).exists()
+            else:
+                exists = (self.signs_dir / task_name).exists() or bool(
+                    self._find_sign_task_dirs(task_name)
+                )
+            if exists:
+                conflicts.append(f"sign:{task_name}")
+
+        for task_name in monitors:
+            if (self.monitors_dir / str(task_name) / "config.json").exists():
+                conflicts.append(f"monitor:{task_name}")
+
+        settings_keys: List[str] = []
+        for section in ("global", "ai", "telegram"):
+            if section in settings_data and settings_data[section]:
+                settings_keys.append(section)
+
+        return {
+            "signs_count": len(signs),
+            "monitors_count": len(monitors),
+            "settings_keys": settings_keys,
+            "conflicts": conflicts,
+            "errors": errors,
+        }
 
     # ============ Telegram API 配置 ============
 

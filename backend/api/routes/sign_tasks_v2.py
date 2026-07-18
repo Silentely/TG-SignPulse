@@ -408,6 +408,37 @@ async def toggle_sign_task_enabled(
         raise HTTPException(status_code=500, detail=f"切换任务状态失败: {str(e)}")
 
 
+class CloneTaskRequest(BaseModel):
+    new_name: str = Field(..., description="Cloned task name")
+    account_name: Optional[str] = Field(None, description="Source account hint")
+
+
+@router.post(
+    "/{task_name}/clone",
+    response_model=SignTaskOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def clone_sign_task(
+    task_name: str,
+    payload: CloneTaskRequest,
+    current_user=Depends(get_current_user),
+):
+    try:
+        task = get_sign_task_service().clone_task(
+            task_name=task_name,
+            new_name=payload.new_name,
+            account_name=payload.account_name,
+        )
+        return task
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"克隆任务失败: {e}",
+        )
+
+
 @router.post("/{task_name}/run", response_model=RunTaskResult)
 async def run_sign_task(
     task_name: str,
