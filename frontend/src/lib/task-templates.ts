@@ -12,6 +12,8 @@ export type TaskTemplate = {
   descKey: string
   execution_mode: 'fixed' | 'range' | 'listen'
   sign_at: string
+  range_start?: string
+  range_end?: string
   actions: RawTaskAction[]
 }
 
@@ -33,6 +35,42 @@ export const BUILT_IN_TEMPLATES: TaskTemplate[] = [
     actions: [
       { action: 1, text: '/start' },
       { action: 3, text: '签到' },
+    ],
+  },
+  {
+    id: 'morning_range',
+    nameKey: 'tasks.tpl.morningRange',
+    descKey: 'tasks.tpl.morningRangeDesc',
+    execution_mode: 'range',
+    sign_at: '08:00',
+    range_start: '08:00',
+    range_end: '10:00',
+    actions: [{ action: 1, text: '/sign' }],
+  },
+  {
+    id: 'dice_checkin',
+    nameKey: 'tasks.tpl.diceCheckin',
+    descKey: 'tasks.tpl.diceCheckinDesc',
+    execution_mode: 'fixed',
+    sign_at: '09:30',
+    actions: [
+      { action: 1, text: '签到' },
+      { action: 2, dice: '🎲' },
+    ],
+  },
+  {
+    id: 'listen_keyword',
+    nameKey: 'tasks.tpl.listenKeyword',
+    descKey: 'tasks.tpl.listenKeywordDesc',
+    execution_mode: 'listen',
+    sign_at: '00:00',
+    actions: [
+      {
+        action: 8,
+        keywords: ['签到成功', '已签到'],
+        match_mode: 'contains',
+        push_channel: 'telegram',
+      },
     ],
   },
 ]
@@ -75,8 +113,8 @@ export function buildPayloadFromTemplate(
     account_names: account ? [account] : [],
     sign_at: tpl.sign_at,
     execution_mode: tpl.execution_mode,
-    range_start: '',
-    range_end: '',
+    range_start: tpl.range_start || '',
+    range_end: tpl.range_end || '',
     random_seconds: 0,
     retry_count: 3,
     chats: [
