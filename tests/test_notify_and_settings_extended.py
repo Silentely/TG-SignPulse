@@ -39,6 +39,7 @@ class TestAdvancedSettingsApi:
             "telegram_bot_quiet_hours_enabled",
             "telegram_bot_quiet_hours_start",
             "telegram_bot_quiet_hours_end",
+            "telegram_bot_token_set",
             "auto_backup_enabled",
             "auto_backup_interval_hours",
             "auto_backup_keep",
