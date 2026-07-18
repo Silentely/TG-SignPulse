@@ -465,7 +465,8 @@
     "unsavedBanner": "当前有未保存的更改，请记得点击对应区块的保存按钮",
     "saveAll": "保存全部",
     "saveAllSuccess": "全部设置已保存",
-    "saveAllPartial": "部分设置保存失败"
+    "saveAllPartial": "部分设置保存失败",
+    "dirtySections": "已修改"
   },
   "profile": {
     "title": "个人中心",

@@ -465,7 +465,8 @@
     "unsavedBanner": "You have unsaved changes — remember to save each section",
     "saveAll": "Save all",
     "saveAllSuccess": "All settings saved",
-    "saveAllPartial": "Some settings failed to save"
+    "saveAllPartial": "Some settings failed to save",
+    "dirtySections": "Changed"
   },
   "profile": {
     "title": "Profile",

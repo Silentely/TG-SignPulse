@@ -44,6 +44,17 @@ const cloneBusy = ref(false)
 const showCloneModal = ref(false)
 const cloneSource = ref<TaskUiItem | null>(null)
 const cloneName = ref('')
+const showTemplateMenu = ref(false)
+
+const toggleTemplateMenu = (e?: Event) => {
+  e?.stopPropagation()
+  showTemplateMenu.value = !showTemplateMenu.value
+}
+
+const pickTemplate = (templateId: string) => {
+  showTemplateMenu.value = false
+  handleCreateFromTemplate(templateId)
+}
 const filteredTasks = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
   if (!q) return tasks.value
@@ -414,6 +425,7 @@ const doRun = async (task: TaskUiItem, accountName: string) => {
 
 const closeRunMenu = () => {
   runMenuTask.value = null
+  showTemplateMenu.value = false
 }
 
 const openEdit = (task: TaskUiItem) => {
@@ -451,24 +463,31 @@ const openLogs = (task: TaskUiItem) => {
       </div>
       <p class="ui-empty-title">{{ t('tasks.empty') }}</p>
       <p class="ui-empty-desc mb-4">{{ t('tasks.emptyHint') }}</p>
-      <div class="relative group/tpl">
-        <button type="button" class="ui-btn-secondary !text-xs !px-3 !py-2">{{ t('tasks.fromTemplate') }}</button>
-        <div class="hidden group-hover/tpl:block absolute right-0 top-full mt-1 z-20 min-w-[12rem] ui-dropdown shadow-[var(--sp-shadow-md)] p-1">
-          <button
-            v-for="tpl in BUILT_IN_TEMPLATES"
-            :key="tpl.id"
-            type="button"
-            class="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-white/[0.04] rounded-sm"
-            @click="handleCreateFromTemplate(tpl.id)"
-          >
-            <div class="font-medium">{{ t(tpl.nameKey) }}</div>
-            <div class="text-[10px] text-gray-500">{{ t(tpl.descKey) }}</div>
+      <div class="flex flex-wrap items-center justify-center gap-2">
+        <div class="relative" @click.stop>
+          <button type="button" class="ui-btn-secondary !text-xs !px-3 !py-2" @click="toggleTemplateMenu">
+            {{ t('tasks.fromTemplate') }}
           </button>
+          <div
+            v-if="showTemplateMenu"
+            class="absolute left-1/2 -translate-x-1/2 top-full mt-1 z-20 min-w-[14rem] max-h-64 overflow-y-auto ui-dropdown shadow-[var(--sp-shadow-md)] p-1"
+          >
+            <button
+              v-for="tpl in BUILT_IN_TEMPLATES"
+              :key="tpl.id"
+              type="button"
+              class="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-white/[0.04] rounded-sm"
+              @click="pickTemplate(tpl.id)"
+            >
+              <div class="font-medium">{{ t(tpl.nameKey) }}</div>
+              <div class="text-[10px] text-gray-500">{{ t(tpl.descKey) }}</div>
+            </button>
+          </div>
         </div>
+        <button type="button" class="ui-btn-primary !text-xs !px-3 !py-2" @click="openAddBlank">
+          <Plus class="w-3.5 h-3.5" /> {{ t('taskModal.addTitle') }}
+        </button>
       </div>
-      <button type="button" class="ui-btn-primary !text-xs !px-3 !py-2" @click="openAddBlank">
-        <Plus class="w-3.5 h-3.5" /> {{ t('taskModal.addTitle') }}
-      </button>
     </div>
 
     <div v-else class="flex flex-col gap-3 pb-24">
@@ -521,6 +540,29 @@ const openLogs = (task: TaskUiItem) => {
         <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs" :disabled="!selectedCount || batchBusy" @click="runBatch('disable')">{{ t('tasks.batchDisable') }}</button>
         <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs" :disabled="!selectedCount || batchBusy" @click="runBatch('run')">{{ t('tasks.batchRun') }}</button>
         <button type="button" class="ui-btn-danger !px-2.5 !py-1.5 !text-xs" :disabled="!selectedCount || batchBusy" @click="runBatch('delete')">{{ t('tasks.batchDelete') }}</button>
+        <div class="relative ml-auto" @click.stop>
+          <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs" @click="toggleTemplateMenu">
+            {{ t('tasks.fromTemplate') }}
+          </button>
+          <div
+            v-if="showTemplateMenu"
+            class="absolute right-0 top-full mt-1 z-30 min-w-[14rem] max-h-64 overflow-y-auto ui-dropdown shadow-[var(--sp-shadow-md)] p-1"
+          >
+            <button
+              v-for="tpl in BUILT_IN_TEMPLATES"
+              :key="tpl.id"
+              type="button"
+              class="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-white/[0.04] rounded-sm"
+              @click="pickTemplate(tpl.id)"
+            >
+              <div class="font-medium">{{ t(tpl.nameKey) }}</div>
+              <div class="text-[10px] text-gray-500">{{ t(tpl.descKey) }}</div>
+            </button>
+          </div>
+        </div>
+        <button type="button" class="ui-btn-primary !px-2.5 !py-1.5 !text-xs" @click="openAddBlank">
+          <Plus class="w-3.5 h-3.5" /> {{ t('taskModal.addTitle') }}
+        </button>
         <span v-if="batchBusy" class="ui-spinner !w-3.5 !h-3.5 !border-2" aria-hidden="true" />
       </div>
     </div>

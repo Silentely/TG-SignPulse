@@ -38,6 +38,15 @@ import {
   safeHttpUrl,
   saveCachedUpdateCheck,
 } from '../lib/version-utils'
+import {
+  buildAdvancedPayload as buildAdvancedPayloadOf,
+  buildBotPayload as buildBotPayloadOf,
+  buildGeneralPayload as buildGeneralPayloadOf,
+  dirtySectionLabels,
+  isAnySectionDirty,
+  snapAllSections,
+  type SettingsSection,
+} from '../lib/settings-form'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -130,33 +139,43 @@ const revealSecrets = ref({
   botToken: false,
 })
 
-/** 已保存基线：用于脏检查 */
-const savedBaseline = ref('')
-const markClean = () => {
-  savedBaseline.value = JSON.stringify({
-    settings: settings.value,
-    tgConfig: tgConfig.value,
-    aiConfig: {
-      base_url: aiConfig.value.base_url,
-      model: aiConfig.value.model,
-      // 密钥输入为空时表示「未改」；不把空密钥当脏
-      api_key: aiConfig.value.api_key ? '***set***' : '',
-    },
-  })
+/** 分段脏检查基线（分块保存只清对应段） */
+const sectionBaseline = ref<Record<SettingsSection, string> | null>(null)
+
+const currentSectionSnaps = () =>
+  snapAllSections(settings.value, tgConfig.value, aiConfig.value)
+
+const markAllClean = () => {
+  sectionBaseline.value = currentSectionSnaps()
 }
-const isDirty = computed(() => {
-  if (!savedBaseline.value) return false
-  const current = JSON.stringify({
-    settings: settings.value,
-    tgConfig: tgConfig.value,
-    aiConfig: {
-      base_url: aiConfig.value.base_url,
-      model: aiConfig.value.model,
-      api_key: aiConfig.value.api_key ? '***set***' : '',
-    },
-  })
-  return current !== savedBaseline.value
-})
+
+const markSectionClean = (section: SettingsSection) => {
+  if (!sectionBaseline.value) {
+    markAllClean()
+    return
+  }
+  sectionBaseline.value = {
+    ...sectionBaseline.value,
+    [section]: snapSectionFor(section),
+  }
+}
+
+const snapSectionFor = (section: SettingsSection) =>
+  currentSectionSnaps()[section]
+
+const isDirty = computed(() =>
+  isAnySectionDirty(sectionBaseline.value, currentSectionSnaps()),
+)
+
+const dirtyLabels = computed(() =>
+  dirtySectionLabels(sectionBaseline.value, currentSectionSnaps(), {
+    general: t('settings.general'),
+    bot: t('settings.botNotify'),
+    advanced: t('settings.advanced'),
+    tg: t('settings.tgApi'),
+    ai: t('settings.aiConfig'),
+  }),
+)
 
 const onBeforeUnload = (e: BeforeUnloadEvent) => {
   if (!isDirty.value) return
@@ -174,12 +193,6 @@ onBeforeRouteLeave(async () => {
   })
   return ok
 })
-
-const emptyToNull = (v: string | number | '') => {
-  if (v === '' || v === null || v === undefined) return null
-  const n = typeof v === 'number' ? v : parseInt(String(v), 10)
-  return Number.isFinite(n) ? n : null
-}
 
 const formatMemoryRss = () => {
   const stats = memoryStats.value?.stats || {}
@@ -425,7 +438,7 @@ onMounted(async () => {
       devLog.error('Failed to load memory stats', e)
     }
     await loadVersion(token)
-    markClean()
+    markAllClean()
     window.addEventListener('beforeunload', onBeforeUnload)
   } catch (e) {
     devLog.error('Failed to load settings', e)
@@ -439,44 +452,9 @@ onUnmounted(() => {
   window.removeEventListener('beforeunload', onBeforeUnload)
 })
 
-/** 全局 settings 分段 payload，便于分块保存与一键全保存 */
-const buildGeneralPayload = () => ({
-  sign_interval: settings.value.checkInterval ? parseInt(String(settings.value.checkInterval), 10) : null,
-  log_retention_days: settings.value.logDays,
-  data_dir: settings.value.dataDir || null,
-  global_proxy: settings.value.proxy || null,
-  tg_global_concurrency: settings.value.concurrency || 1,
-  device_keepalive_enabled: settings.value.deviceKeepaliveEnabled,
-  device_keepalive_interval_days: settings.value.deviceKeepaliveIntervalDays || 30,
-  timezone: settings.value.timezone,
-})
-
-const buildBotPayload = () => ({
-  telegram_bot_notify_enabled: settings.value.botEnabled,
-  telegram_bot_login_notify_enabled: settings.value.botLoginNotify,
-  telegram_bot_task_failure_enabled: settings.value.botTaskFailure,
-  telegram_bot_task_success_enabled: settings.value.botTaskSuccess,
-  telegram_bot_quiet_hours_enabled: settings.value.quietEnabled,
-  telegram_bot_quiet_hours_start: settings.value.quietStart || '23:00',
-  telegram_bot_quiet_hours_end: settings.value.quietEnd || '07:00',
-  telegram_bot_token: settings.value.botToken || null,
-  telegram_bot_chat_id: settings.value.botChatId || null,
-  telegram_bot_message_thread_id: settings.value.botThreadId
-    ? parseInt(settings.value.botThreadId, 10)
-    : null,
-})
-
-const buildAdvancedPayload = () => ({
-  sign_task_execution_timeout: emptyToNull(settings.value.execTimeout as string | number),
-  sign_task_account_cooldown: emptyToNull(settings.value.accountCooldown as string | number),
-  sign_task_flow_retry_attempts: emptyToNull(settings.value.flowRetry as string | number),
-  sign_task_history_max_age_days: emptyToNull(settings.value.historyMaxAge as string | number),
-  ai_vision_timeout: emptyToNull(settings.value.aiVisionTimeout as string | number),
-  ai_vision_retry_attempts: emptyToNull(settings.value.aiVisionRetry as string | number),
-  auto_backup_enabled: settings.value.autoBackupEnabled,
-  auto_backup_interval_hours: settings.value.autoBackupInterval || 24,
-  auto_backup_keep: settings.value.autoBackupKeep || 3,
-})
+const buildGeneralPayload = () => buildGeneralPayloadOf(settings.value)
+const buildBotPayload = () => buildBotPayloadOf(settings.value)
+const buildAdvancedPayload = () => buildAdvancedPayloadOf(settings.value)
 
 const saveSettings = async () => {
   const token = authStore.token || ''
@@ -485,7 +463,7 @@ const saveSettings = async () => {
   loading.value = true
   try {
     await saveGlobalSettings(token, buildGeneralPayload())
-    markClean()
+    markSectionClean('general')
     notifySuccess(t('settings.saveSuccess'))
   } catch (e: unknown) {
     notifyError(getLocalizedErrorMessage(e, t, t('settings.saveFailed')))
@@ -520,7 +498,7 @@ const saveBotSettings = async () => {
   botLoading.value = true
   try {
     await saveGlobalSettings(token, buildBotPayload())
-    markClean()
+    markSectionClean('bot')
     notifySuccess(t('settings.saveSuccess'))
   } catch (e: unknown) {
     notifyError(getLocalizedErrorMessage(e, t, t('settings.saveFailed')))
@@ -535,7 +513,7 @@ const saveAdvancedSettings = async () => {
   advancedLoading.value = true
   try {
     await saveGlobalSettings(token, buildAdvancedPayload())
-    markClean()
+    markSectionClean('advanced')
     notifySuccess(t('settings.saveSuccess'))
   } catch (e: unknown) {
     notifyError(getLocalizedErrorMessage(e, t, t('settings.saveFailed')))
@@ -556,16 +534,22 @@ const saveAllSettings = async () => {
       ...buildBotPayload(),
       ...buildAdvancedPayload(),
     })
+    markSectionClean('general')
+    markSectionClean('bot')
+    markSectionClean('advanced')
     if (tgConfig.value.api_id && tgConfig.value.api_hash) {
       try {
         await saveTelegramConfig(token, {
           api_id: tgConfig.value.api_id,
           api_hash: tgConfig.value.api_hash,
         })
+        markSectionClean('tg')
       } catch (e: unknown) {
         partial.push(t('settings.tgApi'))
         devLog.error('saveAll tg failed', e)
       }
+    } else {
+      markSectionClean('tg')
     }
     if (aiConfig.value.base_url || aiConfig.value.model || aiConfig.value.api_key) {
       try {
@@ -575,12 +559,14 @@ const saveAllSettings = async () => {
           api_key: aiConfig.value.api_key || undefined,
         })
         aiConfig.value.api_key = ''
+        markSectionClean('ai')
       } catch (e: unknown) {
         partial.push(t('settings.aiConfig'))
         devLog.error('saveAll ai failed', e)
       }
+    } else {
+      markSectionClean('ai')
     }
-    markClean()
     if (partial.length) {
       notifyError(`${t('settings.saveAllPartial')}: ${partial.join(', ')}`)
     } else {
@@ -613,7 +599,7 @@ const saveTgConfig = async () => {
   tgLoading.value = true
   try {
     await saveTelegramConfig(token, { api_id: tgConfig.value.api_id, api_hash: tgConfig.value.api_hash })
-    markClean()
+    markSectionClean('tg')
     notifySuccess(t('settings.tgConfigSaved'))
   } catch (e: unknown) {
     notifyError(getLocalizedErrorMessage(e, t, t('settings.saveFailed')))
@@ -636,7 +622,7 @@ const resetTgConfig = async () => {
     await resetTelegramConfig(token)
     tgConfig.value.api_id = ''
     tgConfig.value.api_hash = ''
-    markClean()
+    markSectionClean('tg')
     notifySuccess(t('settings.resetSuccess'))
   } catch (e: unknown) {
     notifyError(getLocalizedErrorMessage(e, t, t('settings.resetFailed')))
@@ -655,7 +641,7 @@ const saveAiConfig = async () => {
       api_key: aiConfig.value.api_key || undefined
     })
     aiConfig.value.api_key = ''
-    markClean()
+    markSectionClean('ai')
     notifySuccess(t('settings.aiConfigSaved'))
   } catch (e: unknown) {
     notifyError(getLocalizedErrorMessage(e, t, t('settings.saveFailed')))
@@ -772,7 +758,12 @@ const handleImport = async (e: Event) => {
       class="sticky top-0 z-20 mb-4 flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs border border-amber-200 dark:border-amber-800/50 bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-200 shadow-sm"
       role="status"
     >
-      <span>{{ t('settings.unsavedBanner') }}</span>
+      <div class="min-w-0">
+        <div>{{ t('settings.unsavedBanner') }}</div>
+        <div v-if="dirtyLabels.length" class="mt-0.5 text-[10px] opacity-90">
+          {{ t('settings.dirtySections') }}: {{ dirtyLabels.join(' · ') }}
+        </div>
+      </div>
       <button
         type="button"
         class="ui-btn-primary !px-3 !py-1.5 !text-xs shrink-0"
