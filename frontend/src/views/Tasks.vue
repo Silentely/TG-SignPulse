@@ -2,8 +2,8 @@
 import { ref, onMounted, watch, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { Play, FileText, Edit2, Trash2, Plus, Radio, Clock, Shuffle, Power, Search } from 'lucide-vue-next'
-import { listSignTasks, deleteSignTask, startSignTaskRun, listAccounts, toggleSignTaskEnabled, batchSignTasks, cloneSignTask, createSignTask } from '../lib/api'
-import { BUILT_IN_TEMPLATES, buildPayloadFromTemplate } from '../lib/task-templates'
+import { listSignTasks, deleteSignTask, startSignTaskRun, listAccounts, toggleSignTaskEnabled, batchSignTasks, cloneSignTask } from '../lib/api'
+import { BUILT_IN_TEMPLATES } from '../lib/task-templates'
 import type { SignTask, AccountInfo } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
@@ -296,24 +296,16 @@ const handleClone = async (task: TaskUiItem) => {
   }
 }
 
-const handleCreateFromTemplate = async (templateId: string) => {
-  const token = authStore.token || ''
-  const account = allAccounts.value[0]
-  if (!account) {
-    toast.error(t('tasks.loadFailed'))
+const handleCreateFromTemplate = (templateId: string) => {
+  // 不直接 createSignTask：模板缺少真实 chat_id，避免落库 chat_id=0 的无效任务。
+  // 打开新建弹窗，由用户补全会话后再保存（模板草稿仅作提示）。
+  void templateId
+  if (!allAccounts.value.length) {
+    toast.error(t('tasks.templateNeedAccount'))
     return
   }
-  try {
-    const draft = buildPayloadFromTemplate(templateId, {
-      account_name: account,
-      task_name: `${templateId}_${Date.now().toString(36)}`,
-    })
-    await createSignTask(token, draft as Parameters<typeof createSignTask>[1])
-    toast.success(t('tasks.cloneSuccess'))
-    await loadTasks()
-  } catch (e) {
-    toast.error(getLocalizedErrorMessage(e, t, t('tasks.cloneFailed')))
-  }
+  showAddModal.value = true
+  toast.success(t('tasks.templateHint'))
 }
 
 const handleDelete = async (task: TaskUiItem) => {

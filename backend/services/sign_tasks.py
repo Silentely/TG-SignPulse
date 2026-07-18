@@ -1786,19 +1786,30 @@ class SignTaskService:
         src = self.get_task(task_name, account_name=account_name)
         if not src:
             raise ValueError("源任务不存在")
-        if self.get_task(new_name, account_name=account_name):
+        # 任一账号目录下已存在同名任务则拒绝，避免 create 静默覆盖
+        if self._find_related_task_infos(new_name):
             raise ValueError("目标任务名已存在")
 
         chats = src.get("chats") or []
+        if not isinstance(chats, list):
+            chats = []
         account_names = src.get("account_names") or []
+        if not isinstance(account_names, list):
+            account_names = []
         primary = account_name or src.get("account_name") or (
             account_names[0] if account_names else ""
         )
+        if not primary and not account_names:
+            raise ValueError("源任务缺少账号信息，无法克隆")
+        try:
+            random_seconds = int(src.get("random_seconds") or 0)
+        except (TypeError, ValueError):
+            random_seconds = 0
         return self.create_task(
             task_name=new_name,
-            sign_at=src.get("sign_at") or "08:00",
-            chats=list(chats),
-            random_seconds=int(src.get("random_seconds") or 0),
+            sign_at=str(src.get("sign_at") or "08:00"),
+            chats=[dict(c) for c in chats if isinstance(c, dict)],
+            random_seconds=random_seconds,
             sign_interval=src.get("sign_interval"),
             account_name=str(primary or ""),
             account_names=list(account_names) if account_names else [str(primary)],

@@ -245,6 +245,8 @@ def _sync_auto_backup_job() -> None:
                 trigger=IntervalTrigger(hours=hours),
                 id=job_id,
                 replace_existing=True,
+                max_instances=1,
+                coalesce=True,
             )
             logger.info("Auto backup job registered: every %sh", hours)
         else:

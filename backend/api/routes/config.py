@@ -637,7 +637,10 @@ async def test_bot_notification(
     chat_id = (cfg.get("telegram_bot_chat_id") or "").strip()
     if not bot_token or not chat_id:
         return BotTestResponse(success=False, message="未配置 Bot Token 或 Chat ID")
-    text = (request.message or "TG-SignPulse 通知测试：连接正常").strip()
+    raw_msg = (request.message or "").strip()
+    text = raw_msg or "TG-SignPulse 通知测试：连接正常"
+    # 限制长度，避免误填超大文本导致 Telegram API 失败
+    text = text[:3900]
     try:
         from backend.services.push_notifications import send_telegram_bot_message
 
@@ -654,7 +657,9 @@ async def test_bot_notification(
         )
         return BotTestResponse(success=True, message="测试消息已发送")
     except Exception as e:
-        return BotTestResponse(success=False, message=f"发送失败: {e}")
+        # 不回传完整异常栈，避免 token/网络细节外泄到前端
+        err = type(e).__name__
+        return BotTestResponse(success=False, message=f"发送失败: {err}")
 
 
 class ImportPreviewRequest(BaseModel):

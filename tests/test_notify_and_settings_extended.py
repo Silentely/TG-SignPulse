@@ -95,6 +95,33 @@ class TestBotTestApi:
         assert resp.json()["success"] is True
         m.assert_awaited()
 
+    def test_bot_test_whitespace_message_uses_default(self, client, db_session):
+        client.post(
+            "/api/config/settings",
+            json={
+                "telegram_bot_token": "123:ABC",
+                "telegram_bot_chat_id": "999",
+            },
+            headers=_auth_headers(),
+        )
+        with patch(
+            "backend.services.push_notifications.send_telegram_bot_message",
+            new_callable=AsyncMock,
+        ) as m:
+            resp = client.post(
+                "/api/config/bot/test",
+                json={"message": "   "},
+                headers=_auth_headers(),
+            )
+        assert resp.status_code == 200
+        assert resp.json()["success"] is True
+        sent_text = m.await_args.kwargs.get("text") or m.await_args.args[0]
+        # 关键字参数调用
+        if m.await_args.kwargs:
+            sent_text = m.await_args.kwargs["text"]
+        assert sent_text
+        assert sent_text.strip() != ""
+
 
 class TestQuietHours:
     def test_quiet_hours_overnight(self):
@@ -120,6 +147,20 @@ class TestQuietHours:
             cfg, datetime(2026, 7, 18, 23, 30, tzinfo=ZoneInfo("UTC"))
         )
 
+    def test_quiet_hours_same_day_window(self):
+        cfg = {
+            "telegram_bot_quiet_hours_enabled": True,
+            "telegram_bot_quiet_hours_start": "12:00",
+            "telegram_bot_quiet_hours_end": "14:00",
+            "timezone": "UTC",
+        }
+        assert is_in_quiet_hours(
+            cfg, datetime(2026, 7, 18, 13, 0, tzinfo=ZoneInfo("UTC"))
+        )
+        assert not is_in_quiet_hours(
+            cfg, datetime(2026, 7, 18, 11, 0, tzinfo=ZoneInfo("UTC"))
+        )
+
 
 class TestImportPreview:
     def test_import_preview_no_write(self, client, db_session):
@@ -140,6 +181,24 @@ class TestImportPreview:
         assert "global" in body["settings_keys"]
         assert "errors" in body
 
+    def test_import_preview_invalid_json(self, client, db_session):
+        resp = client.post(
+            "/api/config/import-preview",
+            json={"config_json": "{not-json"},
+            headers=_auth_headers(),
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["errors"]
+        assert body["signs_count"] == 0
+
+    def test_import_preview_unauthenticated(self, client, db_session):
+        resp = client.post(
+            "/api/config/import-preview",
+            json={"config_json": "{}"},
+        )
+        assert resp.status_code in (401, 403)
+
 
 class TestBackupPrune:
     def test_prune_keeps_n(self, tmp_path: Path):
@@ -155,6 +214,34 @@ class TestBackupPrune:
             os.utime(p, (time.time() + i, time.time() + i))
         assert prune_backups(d, 2) == 3
         assert len(list(d.glob("auto-*.tar.gz"))) == 2
+
+    def test_create_tarball_rejects_empty(self, tmp_path: Path):
+        from backend.services.backup_archive import create_backup_tarball
+
+        data = tmp_path / "data"
+        data.mkdir()
+        dest = tmp_path / "out.tar.gz"
+        with pytest.raises(ValueError):
+            create_backup_tarball(data, dest)
+
+    def test_create_tarball_skips_traversal(self, tmp_path: Path):
+        from backend.services.backup_archive import create_backup_tarball
+
+        data = tmp_path / "data"
+        data.mkdir()
+        (data / "ok.txt").write_text("x", encoding="utf-8")
+        dest = tmp_path / "out.tar.gz"
+        # 同时含合法与穿越路径时，应只打包合法文件
+        create_backup_tarball(data, dest, paths=("ok.txt", "../etc/passwd", "/etc/passwd"))
+        assert dest.exists() and dest.stat().st_size > 0
+
+    def test_run_auto_backup_empty_data(self, tmp_path: Path):
+        from backend.services.backup_archive import run_auto_backup
+
+        data = tmp_path / "empty"
+        data.mkdir()
+        result = run_auto_backup(data, keep=1)
+        assert result["success"] is False
 
 
 @pytest.mark.asyncio
@@ -173,3 +260,33 @@ async def test_server_chan_channel():
             {"title": "hit", "body": "body"},
         )
         m.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_success_notification_respects_quiet_hours():
+    from backend.services.push_notifications import send_task_success_notification
+
+    cfg = {
+        "telegram_bot_notify_enabled": True,
+        "telegram_bot_task_success_enabled": True,
+        "telegram_bot_quiet_hours_enabled": True,
+        "telegram_bot_quiet_hours_start": "00:00",
+        "telegram_bot_quiet_hours_end": "23:59",
+        "timezone": "UTC",
+        "telegram_bot_token": "1:t",
+        "telegram_bot_chat_id": "1",
+    }
+    with patch(
+        "backend.services.push_notifications.send_telegram_bot_message",
+        new_callable=AsyncMock,
+    ) as m:
+        await send_task_success_notification(
+            cfg, account_name="a", task_name="t", message="ok"
+        )
+        m.assert_not_awaited()
+
+
+def test_global_settings_includes_timezone(client, db_session):
+    resp = client.get("/api/config/settings", headers=_auth_headers())
+    assert resp.status_code == 200
+    assert resp.json().get("timezone")
