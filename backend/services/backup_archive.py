@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import tarfile
 from datetime import datetime
 from pathlib import Path
@@ -28,14 +27,36 @@ def create_backup_tarball(
     dest: Path,
     paths: Sequence[str] = DEFAULT_BACKUP_PATHS,
 ) -> Path:
-    """将 data_dir 下推荐路径打包为 tar.gz。"""
+    """将 data_dir 下推荐路径打包为 tar.gz。
+
+    仅添加 data_dir 内真实存在的路径；拒绝指向目录外的符号链接逃逸。
+    若无任何可打包内容则抛出 ValueError。
+    """
+    data_dir = data_dir.resolve()
     dest.parent.mkdir(parents=True, exist_ok=True)
+    added = 0
     with tarfile.open(dest, "w:gz") as tar:
         for rel in paths:
-            src = data_dir / rel
+            # 拒绝绝对路径与父目录穿越
+            if not rel or rel.startswith("/") or ".." in Path(rel).parts:
+                logger.warning("跳过非法备份路径: %s", rel)
+                continue
+            src = (data_dir / rel).resolve()
+            try:
+                src.relative_to(data_dir)
+            except ValueError:
+                logger.warning("跳过 data_dir 外路径: %s", rel)
+                continue
             if not src.exists():
                 continue
             tar.add(src, arcname=rel)
+            added += 1
+    if added == 0:
+        try:
+            dest.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise ValueError("没有可备份的文件")
     return dest
 
 
@@ -71,7 +92,17 @@ def run_auto_backup(
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
     dest = backup_dir / f"auto-{ts}.tar.gz"
     path_tuple = tuple(paths) if paths is not None else DEFAULT_BACKUP_PATHS
-    create_backup_tarball(data_dir, dest, path_tuple)
+    try:
+        create_backup_tarball(data_dir, dest, path_tuple)
+    except ValueError as exc:
+        logger.warning("自动备份跳过: %s", exc)
+        return {
+            "success": False,
+            "path": "",
+            "size_bytes": 0,
+            "pruned": 0,
+            "error": str(exc),
+        }
     size = dest.stat().st_size if dest.exists() else 0
     removed = prune_backups(backup_dir, keep)
     return {

@@ -170,7 +170,9 @@
       "clickButtonDesc": "先发 /start 再点签到按钮"
     },
     "pushServerChan": "Server酱",
-    "serverChanKey": "Server酱 SendKey"
+    "serverChanKey": "Server酱 SendKey",
+    "templateNeedAccount": "请先添加账号后再使用模板",
+    "templateHint": "已打开新建任务，请选择目标会话并填写动作后保存"
   },
   "taskForm": {
     "taskName": "任务名称",

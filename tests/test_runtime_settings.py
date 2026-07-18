@@ -77,3 +77,23 @@ def test_sign_interval_none_when_empty():
         return_value={"sign_interval": None},
     ):
         assert get_sign_interval_seconds() is None
+
+
+def test_resolve_invalid_raw_falls_back_to_default():
+    assert (
+        resolve_int_setting(
+            {"sign_task_execution_timeout": "not-a-number"},
+            "sign_task_execution_timeout",
+            "SIGN_TASK_EXECUTION_TIMEOUT",
+            300,
+        )
+        == 300
+    )
+
+
+def test_sign_interval_clamped():
+    with patch(
+        "backend.services.runtime_settings._global_settings",
+        return_value={"sign_interval": 99999},
+    ):
+        assert get_sign_interval_seconds() == 3600

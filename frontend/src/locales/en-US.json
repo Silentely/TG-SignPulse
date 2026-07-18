@@ -170,7 +170,9 @@
       "clickButtonDesc": "Send /start then click check-in"
     },
     "pushServerChan": "ServerChan",
-    "serverChanKey": "ServerChan SendKey"
+    "serverChanKey": "ServerChan SendKey",
+    "templateNeedAccount": "Add an account before using templates",
+    "templateHint": "Opened new task form — select a chat and actions, then save"
   },
   "taskForm": {
     "taskName": "Task Name",

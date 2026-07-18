@@ -716,11 +716,18 @@ class ConfigService:
 
         settings = self._read_json_file(config_file)
         if settings is None or not isinstance(settings, dict):
-            return default_settings
-        # 合并默认设置
-        for key, value in default_settings.items():
-            if key not in settings:
-                settings[key] = value
+            settings = dict(default_settings)
+        else:
+            # 合并默认设置
+            for key, value in default_settings.items():
+                if key not in settings:
+                    settings[key] = value
+        # 时区：文件值优先，否则回退环境/核心配置（静默时段等依赖）
+        if not settings.get("timezone"):
+            try:
+                settings["timezone"] = get_settings().timezone
+            except Exception:
+                settings.setdefault("timezone", "Asia/Hong_Kong")
         return settings
 
     def save_global_settings(self, settings: Dict) -> bool:
@@ -783,8 +790,14 @@ class ConfigService:
         }
         for gkey, ekey in env_sync.items():
             val = merged.get(gkey)
-            if val is not None and str(val).strip() != "":
-                os.environ[ekey] = str(int(val) if not isinstance(val, str) else val)
+            if val is None or str(val).strip() == "":
+                continue
+            try:
+                os.environ[ekey] = str(int(val))
+            except (TypeError, ValueError):
+                logging.getLogger("backend.config").debug(
+                    "跳过无效 env 同步 %s=%r", ekey, val
+                )
 
         return True
 
