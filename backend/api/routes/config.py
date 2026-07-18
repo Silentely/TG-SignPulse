@@ -409,6 +409,10 @@ class GlobalSettingsRequest(BaseModel):
     auto_backup_enabled: Optional[bool] = None
     auto_backup_interval_hours: Optional[int] = None
     auto_backup_keep: Optional[int] = None
+    webdav_url: Optional[str] = None
+    webdav_username: Optional[str] = None
+    webdav_password: Optional[str] = None
+    webdav_remote_dir: Optional[str] = None
 
 
 class GlobalSettingsResponse(BaseModel):
@@ -439,6 +443,10 @@ class GlobalSettingsResponse(BaseModel):
     auto_backup_enabled: bool = False
     auto_backup_interval_hours: Optional[int] = 24
     auto_backup_keep: Optional[int] = 3
+    webdav_url: Optional[str] = None
+    webdav_username: Optional[str] = None
+    webdav_password: Optional[str] = None
+    webdav_remote_dir: Optional[str] = "tg-signpulse-backups"
 
 
 @router.get("/settings", response_model=GlobalSettingsResponse)
@@ -544,6 +552,24 @@ async def save_global_settings(
             v = request.auto_backup_keep
             settings["auto_backup_keep"] = (
                 None if v is None else max(1, min(int(v), 30))
+            )
+        if "webdav_url" in fields_set:
+            settings["webdav_url"] = (
+                (request.webdav_url or "").strip() or None
+            )
+        if "webdav_username" in fields_set:
+            settings["webdav_username"] = (
+                (request.webdav_username or "").strip() or None
+            )
+        if "webdav_password" in fields_set:
+            # 空字符串表示不修改已有密码
+            pwd = request.webdav_password
+            if pwd is not None and str(pwd).strip() != "":
+                settings["webdav_password"] = str(pwd)
+        if "webdav_remote_dir" in fields_set:
+            settings["webdav_remote_dir"] = (
+                (request.webdav_remote_dir or "").strip()
+                or "tg-signpulse-backups"
             )
 
         # 校验时区格式

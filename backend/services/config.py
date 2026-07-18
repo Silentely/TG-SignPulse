@@ -712,6 +712,10 @@ class ConfigService:
             "auto_backup_enabled": False,
             "auto_backup_interval_hours": 24,
             "auto_backup_keep": 3,
+            "webdav_url": None,
+            "webdav_username": None,
+            "webdav_password": None,
+            "webdav_remote_dir": "tg-signpulse-backups",
         }
 
         settings = self._read_json_file(config_file)

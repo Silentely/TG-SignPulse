@@ -17,6 +17,7 @@ import {
   runDeviceKeepalive,
   getBackupStatus,
   exportBackupArchive,
+  testWebdavBackup,
   getRuntimeStatus,
   getAppVersion,
   checkAppVersion,
@@ -81,6 +82,10 @@ const settings = ref({
   autoBackupEnabled: false,
   autoBackupInterval: 24,
   autoBackupKeep: 3,
+  webdavUrl: '',
+  webdavUsername: '',
+  webdavPassword: '',
+  webdavRemoteDir: 'tg-signpulse-backups',
 })
 
 // 时区选项列表
@@ -411,6 +416,10 @@ onMounted(async () => {
     settings.value.autoBackupEnabled = res.auto_backup_enabled || false
     settings.value.autoBackupInterval = res.auto_backup_interval_hours || 24
     settings.value.autoBackupKeep = res.auto_backup_keep || 3
+    settings.value.webdavUrl = res.webdav_url || ''
+    settings.value.webdavUsername = res.webdav_username || ''
+    settings.value.webdavPassword = res.webdav_password || ''
+    settings.value.webdavRemoteDir = res.webdav_remote_dir || 'tg-signpulse-backups'
 
     if (tgRes && tgRes.is_custom) {
       tgConfig.value.api_id = tgRes.api_id
@@ -685,16 +694,53 @@ const handleExport = async () => {
   }
 }
 
+const webdavTestLoading = ref(false)
+
 const handleBackupExport = async () => {
   const token = authStore.token || ''
+  if (!settings.value.webdavUrl.trim()) {
+    notifyError(t('settings.webdavRequired'))
+    return
+  }
   backupLoading.value = true
   try {
-    await exportBackupArchive(token)
-    notifySuccess(t('settings.backupExportSuccess'))
+    const res = await exportBackupArchive(token)
+    if (res.mode === 'webdav') {
+      notifySuccess(
+        res.remote_url
+          ? `${t('settings.backupWebdavSuccess')}: ${res.filename || ''}`
+          : t('settings.backupWebdavSuccess'),
+      )
+    } else {
+      notifySuccess(t('settings.backupExportSuccess'))
+    }
   } catch (e: unknown) {
     notifyError(getLocalizedErrorMessage(e, t, t('settings.backupExportFailed')))
   } finally {
     backupLoading.value = false
+  }
+}
+
+const handleWebdavTest = async () => {
+  const token = authStore.token || ''
+  if (!settings.value.webdavUrl.trim()) {
+    notifyError(t('settings.webdavRequired'))
+    return
+  }
+  // 先保存当前 WebDAV 配置再测
+  advancedLoading.value = true
+  webdavTestLoading.value = true
+  try {
+    await saveGlobalSettings(token, buildAdvancedPayload())
+    markSectionClean('advanced')
+    const res = await testWebdavBackup(token)
+    if (res.success) notifySuccess(res.message || t('settings.webdavTestOk'))
+    else notifyError(res.message || t('settings.webdavTestFailed'))
+  } catch (e: unknown) {
+    notifyError(getLocalizedErrorMessage(e, t, t('settings.webdavTestFailed')))
+  } finally {
+    advancedLoading.value = false
+    webdavTestLoading.value = false
   }
 }
 
@@ -856,7 +902,7 @@ const handleImport = async (e: Event) => {
         </section>
 
         <!-- Telegram API -->
-        <section class="ui-card p-6 flex-1">
+        <section class="ui-card p-6">
           <div class="mb-6 border-b border-gray-200 dark:border-gray-800/60 pb-3 flex items-center justify-between gap-3">
             <div class="flex items-start gap-3 min-w-0">
               <span class="ui-section-icon" aria-hidden="true"><KeyRound class="w-3.5 h-3.5" /></span>
@@ -931,6 +977,43 @@ const handleImport = async (e: Event) => {
                 </button>
               </div>
             </div>
+            <!-- 高级执行 / AI 视觉（从关于页移入） -->
+            <div class="pt-4 border-t border-gray-200 dark:border-gray-800/60 space-y-3">
+              <div>
+                <h3 class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ t('settings.advanced') }}</h3>
+                <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.advancedDesc') }}</p>
+                <p class="text-[10px] text-gray-500">{{ t('settings.emptyAdvancedHint') }}</p>
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div class="space-y-1">
+                  <label class="text-[10px] text-gray-500">{{ t('settings.execTimeout') }}</label>
+                  <input v-model="settings.execTimeout" type="number" min="30" max="3600" class="ui-input" />
+                </div>
+                <div class="space-y-1">
+                  <label class="text-[10px] text-gray-500">{{ t('settings.accountCooldown') }}</label>
+                  <input v-model="settings.accountCooldown" type="number" min="0" max="600" class="ui-input" />
+                </div>
+                <div class="space-y-1">
+                  <label class="text-[10px] text-gray-500">{{ t('settings.flowRetry') }}</label>
+                  <input v-model="settings.flowRetry" type="number" min="1" max="10" class="ui-input" />
+                </div>
+                <div class="space-y-1">
+                  <label class="text-[10px] text-gray-500">{{ t('settings.historyMaxAge') }}</label>
+                  <input v-model="settings.historyMaxAge" type="number" min="1" max="90" class="ui-input" />
+                </div>
+                <div class="space-y-1">
+                  <label class="text-[10px] text-gray-500">{{ t('settings.aiVisionTimeout') }}</label>
+                  <input v-model="settings.aiVisionTimeout" type="number" min="3" max="120" class="ui-input" />
+                </div>
+                <div class="space-y-1">
+                  <label class="text-[10px] text-gray-500">{{ t('settings.aiVisionRetry') }}</label>
+                  <input v-model="settings.aiVisionRetry" type="number" min="1" max="8" class="ui-input" />
+                </div>
+              </div>
+              <button type="button" class="ui-btn-secondary w-full !py-2 !text-xs" :disabled="advancedLoading" @click="saveAdvancedSettings">
+                {{ advancedLoading ? t('settings.saving') : t('settings.saveAdvanced') }}
+              </button>
+            </div>
             <div class="pt-2">
               <button type="button" class="ui-btn-primary w-full py-2.5" :disabled="aiLoading" @click="saveAiConfig">{{ aiLoading ? t('settings.saving') : t('settings.saveAiConfig') }}</button>
             </div>
@@ -938,7 +1021,7 @@ const handleImport = async (e: Event) => {
         </section>
 
         <!-- Telegram 机器人通知 -->
-        <section class="ui-card p-6 flex-1">
+        <section class="ui-card p-6">
           <div class="mb-6 border-b border-gray-200 dark:border-gray-800/60 pb-3 flex items-center justify-between gap-3">
             <div class="flex items-start gap-3 min-w-0">
               <span class="ui-section-icon" aria-hidden="true"><Bot class="w-3.5 h-3.5" /></span>
@@ -1029,7 +1112,7 @@ const handleImport = async (e: Event) => {
 
       <!-- 数据管理（左列） -->
       <div class="flex flex-col gap-6">
-        <section class="ui-card p-6 flex-1">
+        <section class="ui-card p-6">
           <div class="mb-6 border-b border-gray-200 dark:border-gray-800/60 pb-3 flex items-start gap-3">
             <span class="ui-section-icon" aria-hidden="true"><Database class="w-3.5 h-3.5" /></span>
             <div>
@@ -1072,20 +1155,46 @@ const handleImport = async (e: Event) => {
             </div>
           </div>
 
-          <!-- 完整备份 -->
+          <!-- 完整备份 → WebDAV -->
           <div class="pt-5 border-t border-gray-200 dark:border-gray-800/60 space-y-3">
-            <div class="flex items-center justify-between gap-3">
-              <div>
-                <h3 class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ t('settings.fullBackup') }}</h3>
-                <p class="text-xs text-gray-500 mt-1 leading-relaxed">{{ t('settings.fullBackupDesc') }}</p>
+            <div>
+              <h3 class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ t('settings.fullBackup') }}</h3>
+              <p class="text-xs text-gray-500 mt-1 leading-relaxed">{{ t('settings.fullBackupDesc') }}</p>
+            </div>
+            <div class="space-y-1.5">
+              <label class="ui-label">{{ t('settings.webdavUrl') }}</label>
+              <input v-model="settings.webdavUrl" type="url" :placeholder="t('settings.webdavUrlPlaceholder')" class="ui-input" autocomplete="off">
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div class="space-y-1.5">
+                <label class="ui-label">{{ t('settings.webdavUsername') }}</label>
+                <input v-model="settings.webdavUsername" type="text" class="ui-input" autocomplete="username">
               </div>
+              <div class="space-y-1.5">
+                <label class="ui-label">{{ t('settings.webdavPassword') }}</label>
+                <input v-model="settings.webdavPassword" type="password" class="ui-input" autocomplete="current-password" :placeholder="t('settings.webdavPasswordHint')">
+              </div>
+            </div>
+            <div class="space-y-1.5">
+              <label class="ui-label">{{ t('settings.webdavRemoteDir') }}</label>
+              <input v-model="settings.webdavRemoteDir" type="text" placeholder="tg-signpulse-backups" class="ui-input">
+            </div>
+            <div class="flex flex-col sm:flex-row gap-2">
               <button
                 type="button"
-                class="ui-btn-secondary shrink-0 !px-4 !py-2"
+                class="ui-btn-primary flex-1 !px-4 !py-2"
                 :disabled="backupLoading"
                 @click="handleBackupExport"
               >
-                {{ backupLoading ? t('settings.processing') : t('settings.exportBackup') }}
+                {{ backupLoading ? t('settings.processing') : t('settings.exportBackupWebdav') }}
+              </button>
+              <button
+                type="button"
+                class="ui-btn-secondary flex-1 !px-4 !py-2"
+                :disabled="webdavTestLoading || advancedLoading"
+                @click="handleWebdavTest"
+              >
+                {{ webdavTestLoading ? t('settings.testing') : t('settings.webdavTest') }}
               </button>
             </div>
             <div class="p-3 bg-gray-50 dark:bg-white/[0.02] border border-gray-200 dark:border-gray-800/60 space-y-3">
@@ -1116,26 +1225,23 @@ const handleImport = async (e: Event) => {
                 </div>
               </div>
               <button type="button" class="ui-btn-secondary w-full !py-2 !text-xs" :disabled="advancedLoading" @click="saveAdvancedSettings">
-                {{ advancedLoading ? t('settings.saving') : t('settings.saveAdvanced') }}
+                {{ advancedLoading ? t('settings.saving') : t('settings.saveBackupSettings') }}
               </button>
             </div>
             <p v-if="backupStatus" class="text-xs text-gray-500 font-mono">
               {{ backupStatus.data_dir }} · {{ backupStatus.size_human }}
               · {{ backupStatus.writable ? t('settings.backupWritable') : t('settings.backupReadonly') }}
             </p>
-            <p v-if="backupStatus?.restore_hint" class="text-xs text-amber-700 dark:text-amber-400/90">
-              {{ t('settings.backupRestoreHint') }}: {{ backupStatus.restore_hint }}
+            <p class="text-xs text-amber-700 dark:text-amber-400/90">
+              {{ t('settings.backupRestoreHint') }}
             </p>
-            <ul v-if="backupStatus?.notes?.length" class="text-xs text-gray-500 space-y-1 list-disc pl-4">
-              <li v-for="(note, i) in backupStatus.notes" :key="i">{{ note }}</li>
-            </ul>
           </div>
         </section>
       </div>
 
       <!-- 关于 / 版本（右列） -->
       <div class="flex flex-col gap-6">
-        <section class="ui-card p-6 flex-1">
+        <section class="ui-card p-6">
           <div class="mb-6 border-b border-gray-200 dark:border-gray-800/60 pb-3 flex items-start justify-between gap-3">
             <div class="flex items-start gap-3 min-w-0">
               <span class="ui-section-icon" aria-hidden="true"><Info class="w-3.5 h-3.5" /></span>
@@ -1203,44 +1309,6 @@ const handleImport = async (e: Event) => {
               <div v-if="memoryStats?.available" class="text-gray-600 dark:text-gray-400">
                 {{ t('settings.memoryRss') }}: {{ formatMemoryRss() }}
               </div>
-            </div>
-
-            <!-- 高级执行 / AI -->
-            <div class="p-3 border border-gray-200 dark:border-gray-800/60 bg-gray-50/50 dark:bg-white/[0.02] text-xs space-y-3">
-              <div>
-                <div class="font-medium text-gray-700 dark:text-gray-300">{{ t('settings.advanced') }}</div>
-                <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.advancedDesc') }}</p>
-                <p class="text-[10px] text-gray-500">{{ t('settings.emptyAdvancedHint') }}</p>
-              </div>
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <div class="space-y-1">
-                  <label class="text-[10px] text-gray-500">{{ t('settings.execTimeout') }}</label>
-                  <input v-model="settings.execTimeout" type="number" min="30" max="3600" class="ui-input" />
-                </div>
-                <div class="space-y-1">
-                  <label class="text-[10px] text-gray-500">{{ t('settings.accountCooldown') }}</label>
-                  <input v-model="settings.accountCooldown" type="number" min="0" max="600" class="ui-input" />
-                </div>
-                <div class="space-y-1">
-                  <label class="text-[10px] text-gray-500">{{ t('settings.flowRetry') }}</label>
-                  <input v-model="settings.flowRetry" type="number" min="1" max="10" class="ui-input" />
-                </div>
-                <div class="space-y-1">
-                  <label class="text-[10px] text-gray-500">{{ t('settings.historyMaxAge') }}</label>
-                  <input v-model="settings.historyMaxAge" type="number" min="1" max="90" class="ui-input" />
-                </div>
-                <div class="space-y-1">
-                  <label class="text-[10px] text-gray-500">{{ t('settings.aiVisionTimeout') }}</label>
-                  <input v-model="settings.aiVisionTimeout" type="number" min="3" max="120" class="ui-input" />
-                </div>
-                <div class="space-y-1">
-                  <label class="text-[10px] text-gray-500">{{ t('settings.aiVisionRetry') }}</label>
-                  <input v-model="settings.aiVisionRetry" type="number" min="1" max="8" class="ui-input" />
-                </div>
-              </div>
-              <button type="button" class="ui-btn-primary w-full !py-2" :disabled="advancedLoading" @click="saveAdvancedSettings">
-                {{ advancedLoading ? t('settings.saving') : t('settings.saveAdvanced') }}
-              </button>
             </div>
 
             <div

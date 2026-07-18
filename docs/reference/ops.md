@@ -15,6 +15,8 @@
 | `POST /api/config/bot/test` | Bot 通知测试发送 |
 | `POST /api/config/import-preview` | 配置导入预览（不写盘） |
 | `POST /api/sign-tasks/{name}/clone` | 克隆签到任务 |
+| `POST /api/ops/backup/export` | 完整备份：已配置 WebDAV 时上传远端；否则回退浏览器下载 |
+| `POST /api/ops/backup/webdav/test` | 测试全局设置中的 WebDAV 连通性 |
 | `POST /api/batch/sign-tasks` | 新版签到任务批量 enable/disable/delete/run |
 | `GET /api/events/sign-history?token=` | 签到历史 SSE（Dashboard 实时流，token 查询参数） |
 

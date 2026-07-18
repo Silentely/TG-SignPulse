@@ -198,10 +198,15 @@ def backup_status(current_user: User = Depends(get_current_user)):
 @router.post("/backup/export")
 def export_backup_archive(current_user: User = Depends(get_current_user)):
     """
-    打包 data 目录关键路径为 tar.gz 并下载。
+    打包 data 目录关键路径为 tar.gz 并上传到 WebDAV。
 
-    仅包含推荐备份路径；不会导出系统临时文件。
+    WebDAV 配置取自全局设置（webdav_url / username / password / remote_dir）。
+    兼容旧客户端：若未配置 WebDAV，仍可回退为浏览器下载。
     """
+    from backend.services.backup_archive import create_backup_tarball
+    from backend.services.config import get_config_service
+    from backend.services.webdav_client import upload_file_to_webdav
+
     settings = get_settings()
     data_dir = Path(settings.resolve_base_dir())
     if not data_dir.exists():
@@ -210,24 +215,54 @@ def export_backup_archive(current_user: User = Depends(get_current_user)):
             detail="数据目录不存在",
         )
 
-    recommended = list(BACKUP_ARCHIVE_PATHS)
+    cfg = get_config_service().get_global_settings()
+    webdav_url = (cfg.get("webdav_url") or "").strip()
 
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
     tmp_dir = Path(tempfile.mkdtemp(prefix="tg-signpulse-backup-"))
     archive_path = tmp_dir / f"tg-signpulse-backup-{ts}.tar.gz"
 
     try:
-        with tarfile.open(archive_path, "w:gz") as tar:
-            for rel in recommended:
-                src = data_dir / rel
-                if not src.exists():
-                    continue
-                tar.add(src, arcname=rel)
-        if archive_path.stat().st_size == 0:
+        create_backup_tarball(data_dir, archive_path, BACKUP_ARCHIVE_PATHS)
+        if not archive_path.exists() or archive_path.stat().st_size == 0:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="没有可备份的文件",
             )
+
+        if webdav_url:
+            try:
+                result = upload_file_to_webdav(
+                    base_url=webdav_url,
+                    username=str(cfg.get("webdav_username") or ""),
+                    password=str(cfg.get("webdav_password") or ""),
+                    remote_dir=str(
+                        cfg.get("webdav_remote_dir") or "tg-signpulse-backups"
+                    ),
+                    local_path=archive_path,
+                )
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=str(exc),
+                ) from exc
+            except Exception as exc:
+                logger.exception("WebDAV 上传失败")
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"WebDAV 上传失败: {exc}",
+                ) from exc
+            finally:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+            return {
+                "success": True,
+                "message": "备份已上传到 WebDAV",
+                "remote_url": result.get("remote_url"),
+                "filename": result.get("filename"),
+                "size_bytes": result.get("size_bytes"),
+            }
+
+        # 未配置 WebDAV：回退为本地下载
         def _cleanup() -> None:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -240,6 +275,12 @@ def export_backup_archive(current_user: User = Depends(get_current_user)):
     except HTTPException:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         raise
+    except ValueError as exc:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
     except Exception as exc:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         logger.exception("导出备份失败")
@@ -247,6 +288,34 @@ def export_backup_archive(current_user: User = Depends(get_current_user)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"导出备份失败: {exc}",
         ) from exc
+
+
+class WebDavTestResponse(BaseModel):
+    success: bool
+    message: str
+    status_code: Optional[int] = None
+
+
+@router.post("/backup/webdav/test", response_model=WebDavTestResponse)
+def test_webdav_backup(current_user: User = Depends(get_current_user)):
+    """测试已保存的 WebDAV 配置连通性。"""
+    from backend.services.config import get_config_service
+    from backend.services.webdav_client import test_webdav_connection
+
+    cfg = get_config_service().get_global_settings()
+    try:
+        result = test_webdav_connection(
+            base_url=str(cfg.get("webdav_url") or ""),
+            username=str(cfg.get("webdav_username") or ""),
+            password=str(cfg.get("webdav_password") or ""),
+            remote_dir=str(cfg.get("webdav_remote_dir") or "tg-signpulse-backups"),
+        )
+        return WebDavTestResponse(**result)
+    except ValueError as exc:
+        return WebDavTestResponse(success=False, message=str(exc))
+    except Exception as exc:
+        logger.exception("WebDAV 测试失败")
+        return WebDavTestResponse(success=False, message=f"测试失败: {exc}")
 
 
 @router.get("/memory", response_model=MemoryStatsResponse)

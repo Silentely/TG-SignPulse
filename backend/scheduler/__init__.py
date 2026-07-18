@@ -208,12 +208,17 @@ async def _job_auto_backup() -> None:
         if not should_run_auto_backup(cfg):
             return
         data_dir = Path(get_settings().resolve_base_dir())
-        result = run_auto_backup(data_dir, keep=auto_backup_keep(cfg))
+        result = run_auto_backup(
+            data_dir,
+            keep=auto_backup_keep(cfg),
+            webdav_settings=cfg,
+        )
         logger.info(
-            "Auto backup finished: path=%s size=%s pruned=%s",
+            "Auto backup finished: path=%s size=%s pruned=%s webdav=%s",
             result.get("path"),
             result.get("size_bytes"),
             result.get("pruned"),
+            (result.get("webdav") or {}).get("success"),
         )
     except Exception as exc:
         logger.error("Auto backup job failed: %s", exc, exc_info=True)

@@ -85,8 +85,9 @@ def run_auto_backup(
     *,
     keep: int = 3,
     paths: Optional[Iterable[str]] = None,
+    webdav_settings: Optional[dict] = None,
 ) -> dict:
-    """执行一次自动备份并清理旧文件。"""
+    """执行一次自动备份；若配置了 WebDAV 则上传后可清理本地副本。"""
     backup_dir = data_dir / "backups"
     backup_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -102,14 +103,32 @@ def run_auto_backup(
             "size_bytes": 0,
             "pruned": 0,
             "error": str(exc),
+            "webdav": None,
         }
     size = dest.stat().st_size if dest.exists() else 0
+    webdav_result = None
+    wd = webdav_settings or {}
+    if (wd.get("webdav_url") or "").strip():
+        try:
+            from backend.services.webdav_client import upload_file_to_webdav
+
+            webdav_result = upload_file_to_webdav(
+                base_url=str(wd.get("webdav_url") or ""),
+                username=str(wd.get("webdav_username") or ""),
+                password=str(wd.get("webdav_password") or ""),
+                remote_dir=str(wd.get("webdav_remote_dir") or "tg-signpulse-backups"),
+                local_path=dest,
+            )
+        except Exception as exc:
+            logger.warning("自动备份 WebDAV 上传失败: %s", exc)
+            webdav_result = {"success": False, "error": str(exc)}
     removed = prune_backups(backup_dir, keep)
     return {
         "success": True,
         "path": str(dest),
         "size_bytes": size,
         "pruned": removed,
+        "webdav": webdav_result,
     }
 
 

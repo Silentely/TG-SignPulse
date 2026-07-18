@@ -40,6 +40,10 @@ const baseSettings = (): SettingsFormState => ({
   autoBackupEnabled: false,
   autoBackupInterval: 24,
   autoBackupKeep: 3,
+  webdavUrl: '',
+  webdavUsername: '',
+  webdavPassword: '',
+  webdavRemoteDir: 'tg-signpulse-backups',
 })
 
 describe('settings-form', () => {

@@ -612,6 +612,10 @@ export interface GlobalSettings {
   auto_backup_enabled?: boolean;
   auto_backup_interval_hours?: number | null;
   auto_backup_keep?: number | null;
+  webdav_url?: string | null;
+  webdav_username?: string | null;
+  webdav_password?: string | null;
+  webdav_remote_dir?: string | null;
 }
 
 export const getGlobalSettings = (token: string) =>
@@ -1161,7 +1165,13 @@ export interface BackupStatus {
 export const getBackupStatus = (token: string) =>
   request<BackupStatus>("/ops/backup/status", {}, token);
 
-export async function exportBackupArchive(token: string): Promise<void> {
+/** 完整备份：优先上传 WebDAV；未配置时服务端可能回退为下载流 */
+export async function exportBackupArchive(token: string): Promise<{
+  mode: "webdav" | "download";
+  message?: string;
+  remote_url?: string;
+  filename?: string;
+}> {
   const res = await fetch(`${API_BASE}/ops/backup/export`, {
     method: "POST",
     headers: {
@@ -1178,6 +1188,16 @@ export async function exportBackupArchive(token: string): Promise<void> {
     }
     throw new Error(msg);
   }
+  const ct = (res.headers.get("Content-Type") || "").toLowerCase();
+  if (ct.includes("application/json")) {
+    const data = await res.json();
+    return {
+      mode: "webdav",
+      message: data.message,
+      remote_url: data.remote_url,
+      filename: data.filename,
+    };
+  }
   const blob = await res.blob();
   const cd = res.headers.get("Content-Disposition") || "";
   const match = /filename="?([^"]+)"?/.exec(cd);
@@ -1190,7 +1210,15 @@ export async function exportBackupArchive(token: string): Promise<void> {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+  return { mode: "download", filename };
 }
+
+export const testWebdavBackup = (token: string) =>
+  request<{ success: boolean; message: string; status_code?: number }>(
+    "/ops/backup/webdav/test",
+    { method: "POST" },
+    token,
+  );
 
 export interface MemoryStatsResponse {
   available: boolean;

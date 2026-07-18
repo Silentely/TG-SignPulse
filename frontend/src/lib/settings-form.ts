@@ -31,6 +31,10 @@ export type SettingsFormState = {
   autoBackupEnabled: boolean
   autoBackupInterval: number
   autoBackupKeep: number
+  webdavUrl: string
+  webdavUsername: string
+  webdavPassword: string
+  webdavRemoteDir: string
 }
 
 export type TgFormState = { api_id: string; api_hash: string }
@@ -85,6 +89,11 @@ export function buildAdvancedPayload(s: SettingsFormState) {
     auto_backup_enabled: s.autoBackupEnabled,
     auto_backup_interval_hours: s.autoBackupInterval || 24,
     auto_backup_keep: s.autoBackupKeep || 3,
+    webdav_url: s.webdavUrl || null,
+    webdav_username: s.webdavUsername || null,
+    // 空密码表示不覆盖服务端已有值
+    ...(s.webdavPassword ? { webdav_password: s.webdavPassword } : {}),
+    webdav_remote_dir: s.webdavRemoteDir || 'tg-signpulse-backups',
   }
 }
 
@@ -131,6 +140,10 @@ export function snapSection(
         autoBackupEnabled: s.autoBackupEnabled,
         autoBackupInterval: s.autoBackupInterval,
         autoBackupKeep: s.autoBackupKeep,
+        webdavUrl: s.webdavUrl,
+        webdavUsername: s.webdavUsername,
+        webdavPassword: s.webdavPassword ? '***set***' : '',
+        webdavRemoteDir: s.webdavRemoteDir,
       })
     case 'tg':
       return JSON.stringify({
