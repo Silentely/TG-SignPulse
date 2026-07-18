@@ -19,6 +19,7 @@ import {
   exportBackupArchive,
   testWebdavBackup,
   listWebdavBackupFiles,
+  downloadWebdavBackup,
   getRuntimeStatus,
   getAppVersion,
   checkAppVersion,
@@ -782,6 +783,33 @@ const handleListRemoteBackups = async () => {
   }
 }
 
+const remoteDownloadName = ref('')
+const handleDownloadRemoteBackup = async (name: string) => {
+  const token = authStore.token || ''
+  if (!name) return
+  remoteDownloadName.value = name
+  try {
+    const res = await downloadWebdavBackup(token, name)
+    notifySuccess(`${t('settings.webdavDownloadOk')}: ${res.filename}`)
+  } catch (e: unknown) {
+    notifyError(getLocalizedErrorMessage(e, t, t('settings.webdavDownloadFailed')))
+  } finally {
+    remoteDownloadName.value = ''
+  }
+}
+
+const formatBytes = (n?: number | null) => {
+  if (n == null || !Number.isFinite(n)) return ''
+  const units = ['B', 'KB', 'MB', 'GB']
+  let v = Number(n)
+  let i = 0
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024
+    i += 1
+  }
+  return i === 0 ? `${Math.round(v)} ${units[i]}` : `${v.toFixed(1)} ${units[i]}`
+}
+
 const handleBackupExport = async () => {
   const token = authStore.token || ''
   if (!validateWebdavForm()) return
@@ -1309,11 +1337,26 @@ const handleImport = async (e: Event) => {
             </div>
             <div v-if="remoteWebdavFiles.length || remoteWebdavMessage" class="text-xs space-y-1.5">
               <p v-if="remoteWebdavMessage" class="text-gray-500">{{ remoteWebdavMessage }}</p>
-              <ul v-if="remoteWebdavFiles.length" class="font-mono text-[11px] text-gray-600 dark:text-gray-400 space-y-0.5 max-h-28 overflow-y-auto">
-                <li v-for="f in remoteWebdavFiles" :key="f.name + (f.mtime || '')">
-                  {{ f.name }}
-                  <span v-if="f.size_bytes != null" class="text-gray-400">· {{ f.size_bytes }} B</span>
-                  <span v-if="f.mtime" class="text-gray-400">· {{ f.mtime }}</span>
+              <p class="text-[10px] text-gray-400">{{ t('settings.webdavDownloadHint') }}</p>
+              <ul v-if="remoteWebdavFiles.length" class="text-[11px] text-gray-600 dark:text-gray-400 space-y-1 max-h-36 overflow-y-auto">
+                <li
+                  v-for="f in remoteWebdavFiles"
+                  :key="f.name + (f.mtime || '')"
+                  class="flex items-center justify-between gap-2 font-mono"
+                >
+                  <span class="min-w-0 truncate">
+                    {{ f.name }}
+                    <span v-if="f.size_bytes != null" class="text-gray-400">· {{ formatBytes(f.size_bytes) }}</span>
+                    <span v-if="f.mtime" class="text-gray-400">· {{ f.mtime }}</span>
+                  </span>
+                  <button
+                    type="button"
+                    class="ui-btn-secondary shrink-0 !px-2 !py-0.5 !text-[10px]"
+                    :disabled="remoteDownloadName === f.name"
+                    @click="handleDownloadRemoteBackup(f.name)"
+                  >
+                    {{ remoteDownloadName === f.name ? t('settings.processing') : t('settings.webdavDownload') }}
+                  </button>
                 </li>
               </ul>
             </div>

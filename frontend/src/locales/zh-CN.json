@@ -491,6 +491,10 @@
     "webdavListOk": "已获取远端备份列表",
     "webdavListEmpty": "远端目录暂无 .tar.gz 备份",
     "webdavListFailed": "获取远端备份列表失败",
+    "webdavDownload": "下载",
+    "webdavDownloadOk": "已开始下载远端备份",
+    "webdavDownloadFailed": "下载远端备份失败",
+    "webdavDownloadHint": "下载到本机后请停服再解压覆盖 data/ 恢复；面板不会在线热恢复。",
     "botTokenSavedHint": "已保存（留空不修改，输入新 Token 可覆盖）",
     "saveBackupSettings": "保存备份设置"
   },

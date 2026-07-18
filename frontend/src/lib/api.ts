@@ -1254,6 +1254,43 @@ export const listWebdavBackupFiles = (token: string) =>
     status_code?: number;
   }>("/ops/backup/webdav/files", {}, token);
 
+/** 从 WebDAV 下载指定备份包到浏览器 */
+export async function downloadWebdavBackup(
+  token: string,
+  name: string,
+): Promise<{ filename: string }> {
+  const qs = new URLSearchParams({ name });
+  const res = await fetch(
+    `${API_BASE}/ops/backup/webdav/download?${qs.toString()}`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  if (!res.ok) {
+    let msg = `Download failed (${res.status})`;
+    try {
+      const data = await res.json();
+      if (data?.detail) msg = String(data.detail);
+    } catch {
+      /* ignore */
+    }
+    throw new Error(msg);
+  }
+  const blob = await res.blob();
+  const cd = res.headers.get("Content-Disposition") || "";
+  const match = /filename="?([^"]+)"?/.exec(cd);
+  const filename = match?.[1] || name;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  return { filename };
+}
+
 export interface MemoryStatsResponse {
   available: boolean;
   stats: Record<string, unknown>;

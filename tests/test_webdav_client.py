@@ -11,8 +11,12 @@ from backend.services.webdav_client import (
     _ensure_remote_dirs,
     _join_url,
     _parse_propfind_entries,
+    delete_webdav_file,
+    download_webdav_file,
     list_webdav_files,
+    prune_webdav_backups,
     upload_file_to_webdav,
+    validate_backup_filename,
     validate_webdav_url,
 )
 
@@ -190,3 +194,79 @@ def test_list_webdav_files_filters_tar_gz():
     assert len(result["files"]) == 1
     assert result["files"][0]["name"] == "auto-1.tar.gz"
     assert result["files"][0]["size_bytes"] == 1024
+
+
+def test_validate_backup_filename():
+    assert validate_backup_filename("auto-20260101-120000.tar.gz").endswith(".tar.gz")
+    with pytest.raises(ValueError):
+        validate_backup_filename("../etc/passwd.tar.gz")
+    with pytest.raises(ValueError):
+        validate_backup_filename("a/b.tar.gz")
+    with pytest.raises(ValueError):
+        validate_backup_filename("notes.txt")
+
+
+def test_delete_webdav_file():
+    mock_client = MagicMock()
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=False)
+    mock_client.delete.return_value = MagicMock(status_code=204, text="")
+    with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client):
+        r = delete_webdav_file(
+            base_url="https://dav.example.com/files/u",
+            username="u",
+            password="p",
+            remote_dir="bk",
+            filename="auto-1.tar.gz",
+        )
+    assert r["success"] is True
+    mock_client.delete.assert_called_once()
+
+
+def test_download_webdav_file(tmp_path: Path):
+    dest = tmp_path / "out.tar.gz"
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.iter_bytes = MagicMock(return_value=[b"abc", b"def"])
+    mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+    mock_resp.__exit__ = MagicMock(return_value=False)
+
+    mock_client = MagicMock()
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=False)
+    mock_client.stream.return_value = mock_resp
+
+    with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client):
+        path = download_webdav_file(
+            base_url="https://dav.example.com/files/u",
+            username="u",
+            password="p",
+            remote_dir="bk",
+            filename="auto-1.tar.gz",
+            dest_path=dest,
+        )
+    assert path.read_bytes() == b"abcdef"
+
+
+def test_prune_webdav_backups_keeps_n():
+    files = [
+        {"name": f"auto-{i}.tar.gz", "mtime": f"2025-01-0{i}"}
+        for i in range(5, 0, -1)
+    ]
+    with patch(
+        "backend.services.webdav_client.list_webdav_files",
+        return_value={"success": True, "files": files},
+    ), patch(
+        "backend.services.webdav_client.delete_webdav_file",
+        return_value={"success": True},
+    ) as del_m:
+        r = prune_webdav_backups(
+            base_url="https://dav.example.com/files/u",
+            username="u",
+            password="p",
+            remote_dir="bk",
+            keep=2,
+        )
+    assert r["removed"] == 3
+    assert r["kept"] == 2
+    assert del_m.call_count == 3

@@ -419,6 +419,74 @@ def list_webdav_backup_files(current_user: User = Depends(get_current_user)):
         return WebDavListResponse(success=False, message=f"列表失败: {exc}")
 
 
+@router.get("/backup/webdav/download")
+def download_webdav_backup_file(
+    name: str,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    从已配置 WebDAV 下载指定备份包到浏览器。
+
+    仅允许安全的 .tar.gz 文件名；不直接解压恢复（恢复请离线覆盖 data/）。
+    """
+    from backend.services.config import get_config_service
+    from backend.services.webdav_client import (
+        download_webdav_file,
+        validate_backup_filename,
+    )
+
+    try:
+        safe_name = validate_backup_filename(name)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    cfg = get_config_service().get_global_settings()
+    url = (cfg.get("webdav_url") or "").strip()
+    if not url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="未配置 WebDAV URL",
+        )
+
+    tmp_dir = Path(tempfile.mkdtemp(prefix="tg-signpulse-webdav-dl-"))
+    dest = tmp_dir / safe_name
+    try:
+        download_webdav_file(
+            base_url=url,
+            username=str(cfg.get("webdav_username") or ""),
+            password=str(cfg.get("webdav_password") or ""),
+            remote_dir=str(cfg.get("webdav_remote_dir") or "tg-signpulse-backups"),
+            filename=safe_name,
+            dest_path=dest,
+        )
+
+        def _cleanup() -> None:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+        return FileResponse(
+            path=str(dest),
+            filename=safe_name,
+            media_type="application/gzip",
+            background=BackgroundTask(_cleanup),
+        )
+    except ValueError as exc:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except Exception as exc:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        logger.exception("WebDAV 下载失败")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"WebDAV 下载失败: {exc}",
+        ) from exc
+
+
 @router.get("/memory", response_model=MemoryStatsResponse)
 def memory_stats(
     request: Request,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, List, Optional, Union
@@ -15,6 +16,7 @@ logger = logging.getLogger("backend.webdav")
 # 备份包可能较大：连接短超时，读写长超时
 _DEFAULT_UPLOAD_TIMEOUT = httpx.Timeout(30.0, read=600.0, write=600.0, pool=30.0)
 _MKCOL_OK = frozenset({201, 200, 405, 409, 301, 302})
+_DELETE_OK = frozenset({200, 204, 404})  # 404 视为已删除
 _DAV_NS = {"d": "DAV:"}
 _PROPFIND_PROP = (
     b'<?xml version="1.0" encoding="utf-8"?>'
@@ -22,6 +24,8 @@ _PROPFIND_PROP = (
     b"<d:prop><d:displayname/><d:getcontentlength/><d:getlastmodified/>"
     b"<d:resourcetype/></d:prop></d:propfind>"
 )
+# 仅允许安全备份文件名，防止路径穿越
+_SAFE_BACKUP_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,200}\.tar\.gz$")
 
 
 def _join_url(base: str, *parts: str) -> str:
@@ -49,6 +53,17 @@ def validate_webdav_url(url: str) -> str:
     if not parsed.netloc:
         raise ValueError("WebDAV URL 无效")
     return raw.rstrip("/")
+
+
+def validate_backup_filename(name: str) -> str:
+    """校验远端备份文件名（仅 basename + .tar.gz）。"""
+    raw = (name or "").strip()
+    if not raw or "/" in raw or "\\" in raw or ".." in raw:
+        raise ValueError("非法备份文件名")
+    base = Path(raw).name
+    if base != raw or not _SAFE_BACKUP_NAME.match(base):
+        raise ValueError("备份文件名须为安全的 .tar.gz 名称")
+    return base
 
 
 def _ensure_remote_dirs(client: httpx.Client, base: str, dir_rel: str) -> None:
@@ -265,7 +280,141 @@ def list_webdav_files(
             "files": files,
             "message": f"共 {len(files)} 个文件" if files else "目录为空",
             "status_code": resp.status_code,
+            "total_matched": len(entries),
         }
+
+
+def delete_webdav_file(
+    *,
+    base_url: str,
+    username: str,
+    password: str,
+    remote_dir: str,
+    filename: str,
+    timeout: float = 30.0,
+) -> dict:
+    """删除远端备份文件（按目录 + 安全文件名构造 URL）。"""
+    base = validate_webdav_url(base_url)
+    user = (username or "").strip()
+    if not user:
+        raise ValueError("WebDAV 用户名不能为空")
+    name = validate_backup_filename(filename)
+    dir_rel = (remote_dir or "").strip().strip("/")
+    file_url = _join_url(base, dir_rel, name) if dir_rel else _join_url(base, name)
+    auth = (user, password or "")
+
+    with httpx.Client(timeout=timeout, auth=auth, follow_redirects=True) as client:
+        resp = client.delete(file_url)
+        if resp.status_code not in _DELETE_OK:
+            detail = (resp.text or "")[:200]
+            raise RuntimeError(
+                f"WebDAV 删除失败 HTTP {resp.status_code}: {detail or resp.reason_phrase}"
+            )
+    return {"success": True, "filename": name, "status_code": resp.status_code}
+
+
+def download_webdav_file(
+    *,
+    base_url: str,
+    username: str,
+    password: str,
+    remote_dir: str,
+    filename: str,
+    dest_path: Path,
+    timeout: Optional[Union[float, httpx.Timeout]] = None,
+) -> Path:
+    """从 WebDAV 流式下载备份到本地 dest_path。"""
+    base = validate_webdav_url(base_url)
+    user = (username or "").strip()
+    if not user:
+        raise ValueError("WebDAV 用户名不能为空")
+    name = validate_backup_filename(filename)
+    dir_rel = (remote_dir or "").strip().strip("/")
+    file_url = _join_url(base, dir_rel, name) if dir_rel else _join_url(base, name)
+    auth = (user, password or "")
+    req_timeout = timeout if timeout is not None else _DEFAULT_UPLOAD_TIMEOUT
+    dest_path = Path(dest_path)
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with httpx.Client(timeout=req_timeout, auth=auth, follow_redirects=True) as client:
+        with client.stream("GET", file_url) as resp:
+            if resp.status_code != 200:
+                detail = ""
+                try:
+                    detail = (resp.read() or b"")[:200].decode("utf-8", errors="replace")
+                except Exception:
+                    detail = resp.reason_phrase or ""
+                raise RuntimeError(
+                    f"WebDAV 下载失败 HTTP {resp.status_code}: {detail}"
+                )
+            with dest_path.open("wb") as fh:
+                for chunk in resp.iter_bytes():
+                    if chunk:
+                        fh.write(chunk)
+    if not dest_path.is_file() or dest_path.stat().st_size == 0:
+        try:
+            dest_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise RuntimeError("WebDAV 下载结果为空")
+    return dest_path
+
+
+def prune_webdav_backups(
+    *,
+    base_url: str,
+    username: str,
+    password: str,
+    remote_dir: str,
+    keep: int = 3,
+    name_suffix: str = ".tar.gz",
+    timeout: float = 60.0,
+) -> dict:
+    """保留远端最近 keep 份备份，删除更旧的 .tar.gz。"""
+    keep = max(0, int(keep))
+    listed = list_webdav_files(
+        base_url=base_url,
+        username=username,
+        password=password,
+        remote_dir=remote_dir,
+        name_suffix=name_suffix,
+        limit=100,
+        timeout=timeout,
+    )
+    if not listed.get("success"):
+        return {
+            "success": False,
+            "removed": 0,
+            "kept": 0,
+            "error": listed.get("message") or "list failed",
+        }
+    files = list(listed.get("files") or [])
+    # list 已按 mtime 倒序；仅保留前 keep
+    to_keep = files[:keep] if keep > 0 else []
+    to_delete = files[keep:] if keep > 0 else files
+    removed = 0
+    errors: List[str] = []
+    for item in to_delete:
+        name = str(item.get("name") or "")
+        try:
+            delete_webdav_file(
+                base_url=base_url,
+                username=username,
+                password=password,
+                remote_dir=remote_dir,
+                filename=name,
+                timeout=timeout,
+            )
+            removed += 1
+        except Exception as exc:
+            logger.warning("远端备份删除失败 %s: %s", name, exc)
+            errors.append(f"{name}: {exc}")
+    return {
+        "success": len(errors) == 0,
+        "removed": removed,
+        "kept": len(to_keep),
+        "errors": errors,
+    }
 
 
 def test_webdav_connection(

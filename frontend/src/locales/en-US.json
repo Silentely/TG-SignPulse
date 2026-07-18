@@ -491,6 +491,10 @@
     "webdavListOk": "Remote backup list loaded",
     "webdavListEmpty": "No .tar.gz backups in remote directory",
     "webdavListFailed": "Failed to list remote backups",
+    "webdavDownload": "Download",
+    "webdavDownloadOk": "Remote backup download started",
+    "webdavDownloadFailed": "Failed to download remote backup",
+    "webdavDownloadHint": "After download, stop the service and extract over data/ to restore. The panel does not hot-restore online.",
     "botTokenSavedHint": "Saved (leave empty to keep; enter a new token to replace)",
     "saveBackupSettings": "Save backup settings"
   },

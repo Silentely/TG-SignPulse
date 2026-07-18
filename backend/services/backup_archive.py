@@ -102,12 +102,15 @@ def run_auto_backup(
             "path": "",
             "size_bytes": 0,
             "pruned": 0,
+            "remote_pruned": 0,
+            "remote_prune": None,
             "local_removed": False,
             "error": str(exc),
             "webdav": None,
         }
     size = dest.stat().st_size if dest.exists() else 0
     webdav_result = None
+    remote_prune = None
     local_removed = False
     path_out = str(dest)
     wd = webdav_settings or {}
@@ -135,12 +138,31 @@ def run_auto_backup(
             except OSError as exc:
                 logger.warning("删除本地自动备份失败 %s: %s", dest, exc)
 
+            # 远端按 keep 轮转清理旧包
+            try:
+                from backend.services.webdav_client import prune_webdav_backups
+
+                remote_prune = prune_webdav_backups(
+                    base_url=str(wd.get("webdav_url") or ""),
+                    username=str(wd.get("webdav_username") or ""),
+                    password=str(wd.get("webdav_password") or ""),
+                    remote_dir=str(
+                        wd.get("webdav_remote_dir") or "tg-signpulse-backups"
+                    ),
+                    keep=keep,
+                )
+            except Exception as exc:
+                logger.warning("远端备份清理失败: %s", exc)
+                remote_prune = {"success": False, "removed": 0, "error": str(exc)}
+
     removed = prune_backups(backup_dir, keep)
     return {
         "success": True,
         "path": path_out,
         "size_bytes": size,
         "pruned": removed,
+        "remote_pruned": (remote_prune or {}).get("removed", 0),
+        "remote_prune": remote_prune,
         "local_removed": local_removed,
         "webdav": webdav_result,
     }

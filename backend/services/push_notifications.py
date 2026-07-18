@@ -219,3 +219,47 @@ async def send_task_success_notification(
         text=text,
         message_thread_id=_as_int_or_none(settings.get("telegram_bot_message_thread_id")),
     )
+
+
+async def send_auto_backup_failure_notification(
+    settings: Dict[str, Any],
+    *,
+    error: str,
+    detail: str = "",
+) -> None:
+    """自动备份失败时的 Bot 通知（打包失败或 WebDAV 上传失败）。
+
+    复用总开关 telegram_bot_notify_enabled；任务失败开关开启时更积极通知。
+    静默时段跳过。
+    """
+    if not settings.get("telegram_bot_notify_enabled"):
+        return
+    # 未单独配置「任务失败」时也允许通知（运维类事件）
+    # 若显式关闭失败通知则跳过
+    if settings.get("telegram_bot_task_failure_enabled") is False:
+        return
+    if is_in_quiet_hours(settings):
+        return
+
+    bot_token = (settings.get("telegram_bot_token") or "").strip()
+    chat_id = (settings.get("telegram_bot_chat_id") or "").strip()
+    if not bot_token or not chat_id:
+        return
+
+    text = (
+        "TG-SignPulse 自动备份失败\n"
+        f"原因: {str(error)[:800]}"
+    )
+    if detail:
+        text += f"\n详情: {str(detail)[:500]}"
+    try:
+        await send_telegram_bot_message(
+            bot_token=bot_token,
+            chat_id=chat_id,
+            text=text,
+            message_thread_id=_as_int_or_none(
+                settings.get("telegram_bot_message_thread_id")
+            ),
+        )
+    except Exception as exc:
+        logger.warning("自动备份失败通知发送失败: %s", exc)

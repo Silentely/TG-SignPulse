@@ -195,6 +195,7 @@ async def _job_auto_backup() -> None:
     from pathlib import Path
 
     logger = logging.getLogger("backend.scheduler")
+    cfg: dict = {}
     try:
         from backend.core.config import get_settings
         from backend.services.backup_archive import (
@@ -203,6 +204,9 @@ async def _job_auto_backup() -> None:
             should_run_auto_backup,
         )
         from backend.services.config import get_config_service
+        from backend.services.push_notifications import (
+            send_auto_backup_failure_notification,
+        )
 
         cfg = get_config_service().get_global_settings()
         if not should_run_auto_backup(cfg):
@@ -215,17 +219,41 @@ async def _job_auto_backup() -> None:
         )
         wd = result.get("webdav") or {}
         logger.info(
-            "Auto backup finished: path=%s size=%s pruned=%s "
+            "Auto backup finished: path=%s size=%s pruned=%s remote_pruned=%s "
             "local_removed=%s webdav=%s webdav_error=%s",
             result.get("path"),
             result.get("size_bytes"),
             result.get("pruned"),
+            result.get("remote_pruned"),
             result.get("local_removed"),
             wd.get("success"),
             wd.get("error"),
         )
+        # 打包失败，或配置了 WebDAV 但上传失败 → 通知
+        fail_reason = ""
+        if not result.get("success"):
+            fail_reason = str(result.get("error") or "备份打包失败")
+        elif (cfg.get("webdav_url") or "").strip() and wd.get("success") is False:
+            fail_reason = str(wd.get("error") or "WebDAV 上传失败")
+        if fail_reason:
+            await send_auto_backup_failure_notification(
+                cfg,
+                error=fail_reason,
+                detail=f"path={result.get('path') or '-'}",
+            )
     except Exception as exc:
         logger.error("Auto backup job failed: %s", exc, exc_info=True)
+        try:
+            from backend.services.push_notifications import (
+                send_auto_backup_failure_notification,
+            )
+
+            if cfg:
+                await send_auto_backup_failure_notification(
+                    cfg, error=str(exc), detail="scheduler exception"
+                )
+        except Exception:
+            pass
 
 
 def _sync_auto_backup_job() -> None:

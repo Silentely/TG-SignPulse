@@ -746,3 +746,93 @@ class TestWebdavBackupChain:
         assert body["files"][0]["name"] == "auto-x.tar.gz"
         m.assert_called_once()
         assert m.call_args.kwargs["remote_dir"] == "bk"
+
+    def test_download_webdav_rejects_bad_name(self, client, db_session):
+        resp = client.get(
+            "/api/ops/backup/webdav/download",
+            params={"name": "../evil.tar.gz"},
+            headers=_auth_headers(),
+        )
+        assert resp.status_code == 400
+
+    def test_download_webdav_endpoint_streams(self, client, db_session, tmp_path):
+        client.post(
+            "/api/config/settings",
+            json={
+                "webdav_url": "https://dav.example.com/dav",
+                "webdav_username": "u",
+                "webdav_password": "p",
+                "webdav_remote_dir": "bk",
+            },
+            headers=_auth_headers(),
+        )
+
+        def _fake_dl(**kwargs):
+            p = Path(kwargs["dest_path"])
+            p.write_bytes(b"gzip-bytes")
+            return p
+
+        with patch(
+            "backend.services.webdav_client.download_webdav_file",
+            side_effect=_fake_dl,
+        ):
+            resp = client.get(
+                "/api/ops/backup/webdav/download",
+                params={"name": "auto-1.tar.gz"},
+                headers=_auth_headers(),
+            )
+        assert resp.status_code == 200
+        assert resp.content == b"gzip-bytes"
+
+    def test_auto_backup_prunes_remote_after_upload(self, isolated_env: Path):
+        from backend.services.backup_archive import run_auto_backup
+
+        data = isolated_env
+        (data / ".global_settings.json").write_text("{}", encoding="utf-8")
+        with patch(
+            "backend.services.webdav_client.upload_file_to_webdav",
+            return_value={
+                "success": True,
+                "remote_url": "https://x/a.tar.gz",
+                "filename": "a.tar.gz",
+                "size_bytes": 3,
+            },
+        ), patch(
+            "backend.services.webdav_client.prune_webdav_backups",
+            return_value={"success": True, "removed": 2, "kept": 3},
+        ) as prune_m:
+            result = run_auto_backup(
+                data,
+                keep=3,
+                webdav_settings={
+                    "webdav_url": "https://dav.example.com/dav",
+                    "webdav_username": "u",
+                    "webdav_password": "p",
+                    "webdav_remote_dir": "bk",
+                },
+            )
+        assert result["success"] is True
+        assert result.get("remote_pruned") == 2
+        prune_m.assert_called_once()
+        assert prune_m.call_args.kwargs["keep"] == 3
+
+
+@pytest.mark.asyncio
+async def test_auto_backup_failure_notification_sends():
+    from backend.services.push_notifications import send_auto_backup_failure_notification
+
+    with patch(
+        "backend.services.push_notifications.send_telegram_bot_message",
+        new_callable=AsyncMock,
+    ) as m:
+        await send_auto_backup_failure_notification(
+            {
+                "telegram_bot_notify_enabled": True,
+                "telegram_bot_task_failure_enabled": True,
+                "telegram_bot_token": "1:t",
+                "telegram_bot_chat_id": "2",
+                "telegram_bot_quiet_hours_enabled": False,
+            },
+            error="WebDAV 上传失败",
+        )
+        m.assert_awaited()
