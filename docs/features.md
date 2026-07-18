@@ -54,13 +54,14 @@ TG-SignPulse 是 Telegram 多账号自动化管理面板，把签到、消息交
 - 版本信息与更新检查（Settings / 侧栏；`/api/ops/version`）
 - Dashboard SSE 实时日志
 - 任务 WebSocket 日志
-- 配置/数据备份导出；可选定时自动备份（`backups/auto-*.tar.gz`）
+- 配置/数据备份导出；可选定时自动备份（本地 / WebDAV）
+- WebDAV：测试连接、列出远端、流式下载、自动备份失败 Bot 通知
 - 配置导入预览（dry-run）
 - 任务克隆与内置模板（文本/按钮/时段/骰子/关键词监听；预填动作后须选会话）
 - 系统设置未保存提示与「保存全部」
 - 旧任务存量盘点：`GET /api/tasks/legacy-status`、`tools/check_legacy_tasks.py`
 
-详见 [运维手册](/reference/ops)。
+详见 [WebDAV 备份与恢复](/guide/backup-webdav)、[运维手册](/reference/ops)。
 
 ## 适合场景
 
@@ -78,5 +79,6 @@ TG-SignPulse 是 Telegram 多账号自动化管理面板，把签到、消息交
 ## 下一步
 
 - [快速开始](/guide/quick-start)
+- [WebDAV 备份与恢复](/guide/backup-webdav)
 - [Docker 部署](/deploy/docker)
 - [配置参考](/reference/configuration)

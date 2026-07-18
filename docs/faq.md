@@ -61,7 +61,11 @@ data/.admin_bootstrap_password
 | AI 密钥 | 导出脱敏，导入不覆盖已有密钥 | 随配置文件原样打包 |
 
 - 只想搬任务流程 → 用 **JSON**  
-- 换服务器整机恢复 → 用 **完整备份**，停止服务后解压到 data 目录再启动（见 [运维手册](reference/ops.md)）
+- 换服务器整机恢复 → 用 **完整备份**（可上传 WebDAV），停止服务后解压到 data 目录再启动（见 [WebDAV 备份与恢复](guide/backup-webdav.md)、[运维手册](reference/ops.md)）
+
+## 如何配置 WebDAV 自动备份？
+
+见 [WebDAV 备份与恢复](guide/backup-webdav.md)：设置 → 完整备份 → 填 URL/账号 → 测试连接 → 开启自动备份并保存。上传成功会清理本地副本并按保留份数轮转远端；失败会尽量发 Bot 通知。
 
 ## 是否已经改成 PostgreSQL、取消 SQLite？
 

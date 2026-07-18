@@ -292,5 +292,5 @@ environment:
 | `telegram_bot_task_success_enabled` | 任务成功通知 |
 | `telegram_bot_quiet_hours_*` | 静默时段 |
 | `auto_backup_enabled` / `interval_hours` / `keep` | 自动备份（可选上传 WebDAV） |
-| `webdav_url` / `webdav_username` / `webdav_password` / `webdav_remote_dir` | 完整备份 WebDAV 目标（面板「数据管理」配置） |
+| `webdav_url` / `webdav_username` / `webdav_password` / `webdav_remote_dir` | 完整备份 WebDAV 目标（面板「完整备份」；用法见 [WebDAV 备份与恢复](/guide/backup-webdav)） |
 

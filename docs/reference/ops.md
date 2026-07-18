@@ -18,20 +18,20 @@
 | `POST /api/ops/backup/export` | 完整备份：已配置 WebDAV 时上传远端；否则回退浏览器下载 |
 | `POST /api/ops/backup/webdav/test` | 测试全局设置中的 WebDAV 连通性 |
 | `GET /api/ops/backup/webdav/files` | 列出远端目录 `.tar.gz` 备份（PROPFIND） |
-| `GET /api/ops/backup/webdav/download?name=` | 下载指定远端 `.tar.gz`（安全文件名） |
-
-### WebDAV 完整备份
-
-1. 在 **设置 → 完整备份** 填写 URL / 用户名 / 密码 / 远端目录，可先 **测试连接** / **列出远端备份**。
-2. **上传备份到 WebDAV** 会先落盘当前表单配置，再打包并上传（避免未保存导致用旧配置）。
-3. `GET /api/config/settings` **不回传** WebDAV 密码与 Bot Token 明文，仅 `*_set=true/false`；空字段表示「不修改」。
-4. 配置 JSON 导出会脱敏 AI key / WebDAV 密码 / Bot Token；导入时占位符不覆盖现有密钥。
-5. 开启自动备份后：WebDAV 上传成功会删本地副本，并按 `auto_backup_keep` **清理远端旧包**；失败则保留本地并 **Bot 通知**（仅需通知总开关 + Token/Chat，与任务失败开关独立）。
-6. 远端列表支持 **流式下载** 到本机；恢复请停服后解压覆盖 `APP_DATA_DIR`，面板不做在线热恢复。
-7. 配置 JSON 导入时脱敏占位不会覆盖现有密钥，需在目标环境重新填写 WebDAV 密码 / Bot Token / AI Key。
-8. `GET /api/ops/backup/status` 含 `webdav_configured`、`auto_backup_enabled`、最近本地自动备份列表。
+| `GET /api/ops/backup/webdav/download?name=` | 流式下载指定远端 `.tar.gz`（安全文件名） |
 | `POST /api/batch/sign-tasks` | 新版签到任务批量 enable/disable/delete/run |
 | `GET /api/events/sign-history?token=` | 签到历史 SSE（Dashboard 实时流，token 查询参数） |
+
+### WebDAV 完整备份（摘要）
+
+用户操作步骤见 **[WebDAV 备份与恢复](/guide/backup-webdav)**。实现要点：
+
+1. 上传/测试/列表前前端会先落盘 WebDAV 配置；服务端只读已保存设置。  
+2. `GET /api/config/settings` 不回传 WebDAV 密码与 Bot Token 明文，仅 `*_set`。  
+3. 配置 JSON 导出脱敏上述密钥；导入占位不覆盖已有值。  
+4. 自动备份：WebDAV 成功则删本地并按 `auto_backup_keep` 清理远端；失败保留本地并 Bot 通知（仅总开关）。  
+5. 下载为流式响应；恢复须停服后解压覆盖 `APP_DATA_DIR`。  
+6. `GET /api/ops/backup/status` 含 `webdav_configured`、`auto_backup_enabled`、最近本地自动备份列表。
 
 ### 多实例与数据库
 
@@ -141,7 +141,9 @@ docker logs -f tg-signpulse
 
 ### 完整备份（面板或命令行）
 
-面板「导出备份包」会打包推荐路径（**不含** `.admin_bootstrap_password`）。
+面板 **WebDAV 完整备份** 的逐步说明见 [WebDAV 备份与恢复](/guide/backup-webdav)。
+
+面板上传/导出备份包会打包推荐路径（**不含** `.admin_bootstrap_password`）。
 
 宿主机整目录备份示例：
 

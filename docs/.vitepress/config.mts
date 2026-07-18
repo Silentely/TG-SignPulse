@@ -122,6 +122,7 @@ export default defineConfig({
           { text: "任务编排", link: "/guide/tasks" },
           { text: "AI 动作", link: "/guide/ai" },
           { text: "关键词监听", link: "/guide/keyword-monitor" },
+          { text: "WebDAV 备份与恢复", link: "/guide/backup-webdav" },
         ],
       },
       {

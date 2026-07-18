@@ -59,6 +59,7 @@ TG-SignPulse 用来集中管理多个 Telegram 账号，并把「发送消息、
 | [任务编排](guide/tasks.md) | 任务模型、动作类型、执行模式、多账号共享 |
 | [AI 动作](guide/ai.md) | OpenAI 配置、默认模型、自定义提示词 |
 | [关键词监听](guide/keyword-monitor.md) | 监听模式、推送通道、后续动作、模板变量 |
+| [WebDAV 备份与恢复](guide/backup-webdav.md) | 完整备份、自动备份、远端下载、换机恢复 |
 
 ### 配置指南
 
@@ -159,6 +160,7 @@ Browser (Vue 3 SPA)
 2. [Docker 部署](deploy/docker.md)
 3. [账号管理](guide/accounts.md)
 4. [任务编排](guide/tasks.md)
+4b. [WebDAV 备份与恢复](guide/backup-webdav.md)
 5. [配置参考](reference/configuration.md)
 6. [AI 动作](guide/ai.md)
 7. [关键词监听](guide/keyword-monitor.md)
