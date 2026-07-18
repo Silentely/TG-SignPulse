@@ -24,6 +24,7 @@ const authStore = useAuthStore()
 const tasks = ref<TaskUiItem[]>([])
 const pageLoading = ref(true)
 const showAddModal = ref(false)
+const addTemplateId = ref<string | null>(null)
 const showEditModal = ref(false)
 const showLogsModal = ref(false)
 const editingTask = ref<SignTask | null>(null)
@@ -296,16 +297,24 @@ const handleClone = async (task: TaskUiItem) => {
   }
 }
 
+const openAddBlank = () => {
+  addTemplateId.value = null
+  showAddModal.value = true
+}
+
+const closeAddModal = () => {
+  showAddModal.value = false
+  addTemplateId.value = null
+}
+
 const handleCreateFromTemplate = (templateId: string) => {
-  // 不直接 createSignTask：模板缺少真实 chat_id，避免落库 chat_id=0 的无效任务。
-  // 打开新建弹窗，由用户补全会话后再保存（模板草稿仅作提示）。
-  void templateId
+  // 预填动作到新建表单；chat_id 仍由用户选择，避免落库无效任务
   if (!allAccounts.value.length) {
     toast.error(t('tasks.templateNeedAccount'))
     return
   }
+  addTemplateId.value = templateId
   showAddModal.value = true
-  toast.success(t('tasks.templateHint'))
 }
 
 const handleDelete = async (task: TaskUiItem) => {
@@ -429,7 +438,7 @@ const openLogs = (task: TaskUiItem) => {
           </button>
         </div>
       </div>
-      <button type="button" class="ui-btn-primary !text-xs !px-3 !py-2" @click="showAddModal = true">
+      <button type="button" class="ui-btn-primary !text-xs !px-3 !py-2" @click="openAddBlank">
         <Plus class="w-3.5 h-3.5" /> {{ t('taskModal.addTitle') }}
       </button>
     </div>
@@ -640,14 +649,20 @@ const openLogs = (task: TaskUiItem) => {
         class="ui-fab"
         :aria-label="t('taskModal.addTitle')"
         :title="t('taskModal.addTitle')"
-        @click="showAddModal = true"
+        @click="openAddBlank"
       >
         <Plus class="w-5 h-5" />
       </button>
     </div>
 
     <!-- Modals -->
-    <AddTaskModal :isOpen="showAddModal" @close="showAddModal = false" @success="loadTasks" />
+    <AddTaskModal
+      :isOpen="showAddModal"
+      :template-id="addTemplateId"
+      :prefer-account="allAccounts[0] || null"
+      @close="closeAddModal"
+      @success="loadTasks"
+    />
     <EditTaskModal v-if="editingTask" :isOpen="showEditModal" :task="editingTask" @close="showEditModal = false" @success="loadTasks" />
     <TaskLogsModal :isOpen="showLogsModal" :task="logsTask" :runAccount="logsRunAccount" @close="showLogsModal = false" />
   </div>

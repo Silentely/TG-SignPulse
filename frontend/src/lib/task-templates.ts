@@ -3,13 +3,16 @@
  * action 枚举与 task-form-utils / SupportAction 对齐。
  */
 
+import type { SignTask, SignTaskChat } from './api'
+import type { RawTaskAction } from './types'
+
 export type TaskTemplate = {
   id: string
   nameKey: string
   descKey: string
   execution_mode: 'fixed' | 'range' | 'listen'
   sign_at: string
-  actions: Array<Record<string, unknown>>
+  actions: RawTaskAction[]
 }
 
 export const BUILT_IN_TEMPLATES: TaskTemplate[] = [
@@ -47,16 +50,20 @@ export type TemplateDraft = {
   chats: Array<{
     chat_id: number
     name: string
-    actions: Array<Record<string, unknown>>
+    actions: RawTaskAction[]
     action_interval: number
   }>
+}
+
+export function getTemplateById(templateId: string): TaskTemplate | undefined {
+  return BUILT_IN_TEMPLATES.find((t) => t.id === templateId)
 }
 
 export function buildPayloadFromTemplate(
   templateId: string,
   opts: { account_name: string; chat_id?: number; chat_name?: string; task_name?: string },
 ): TemplateDraft {
-  const tpl = BUILT_IN_TEMPLATES.find((t) => t.id === templateId)
+  const tpl = getTemplateById(templateId)
   if (!tpl) {
     throw new Error(`unknown template: ${templateId}`)
   }
@@ -80,5 +87,36 @@ export function buildPayloadFromTemplate(
         action_interval: 1,
       },
     ],
+  }
+}
+
+/**
+ * 转为 TaskForm 可消费的 initialTask 形状。
+ * chat_id 可为 0：表单打开后由用户选择真实会话再保存。
+ */
+export function buildSignTaskFromTemplate(
+  templateId: string,
+  opts: { account_name: string; task_name?: string },
+): SignTask {
+  const draft = buildPayloadFromTemplate(templateId, opts)
+  const chats: SignTaskChat[] = draft.chats.map((c) => ({
+    chat_id: c.chat_id,
+    name: c.name,
+    actions: c.actions,
+    action_interval: c.action_interval,
+  }))
+  return {
+    name: draft.name,
+    account_name: draft.account_name,
+    account_names: draft.account_names,
+    sign_at: draft.sign_at,
+    chats,
+    random_seconds: draft.random_seconds,
+    sign_interval: 1,
+    enabled: true,
+    execution_mode: draft.execution_mode,
+    range_start: draft.range_start || undefined,
+    range_end: draft.range_end || undefined,
+    retry_count: draft.retry_count,
   }
 }

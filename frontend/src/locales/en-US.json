@@ -251,7 +251,10 @@
     "saveFailed": "Save failed",
     "saving": "Saving...",
     "saveChanges": "Save Changes",
-    "confirmAdd": "Confirm"
+    "confirmAdd": "Confirm",
+    "addFromTemplate": "New task from template",
+    "templatePrefillHint": "Template actions and schedule prefilled — pick a target chat before saving",
+    "needChat": "Select at least one valid target chat"
   },
   "taskLogs": {
     "title": "Task Execution Logs",
@@ -442,7 +445,9 @@
     "autoBackupKeep": "Keep count",
     "importPreviewTitle": "Import preview",
     "importConflicts": "Conflicts",
-    "emptyAdvancedHint": "Empty uses env or built-in defaults"
+    "emptyAdvancedHint": "Empty uses env or built-in defaults",
+    "showSecret": "Show",
+    "hideSecret": "Hide"
   },
   "profile": {
     "title": "Profile",

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { Settings2, KeyRound, Bot, Sparkles, Database, Info, RefreshCw, ExternalLink } from 'lucide-vue-next'
+import { Settings2, KeyRound, Bot, Sparkles, Database, Info, RefreshCw, ExternalLink, Eye, EyeOff } from 'lucide-vue-next'
 import {
   getGlobalSettings,
   saveGlobalSettings,
@@ -121,6 +121,13 @@ const memoryStats = ref<MemoryStatsResponse | null>(null)
 const advancedLoading = ref(false)
 const botTestLoading = ref(false)
 const pageLoading = ref(true)
+/** 密钥字段显隐（默认隐藏） */
+const revealSecrets = ref({
+  tgApiId: false,
+  tgApiHash: false,
+  aiKey: false,
+  botToken: false,
+})
 
 const emptyToNull = (v: string | number | '') => {
   if (v === '' || v === null || v === undefined) return null
@@ -739,11 +746,21 @@ const handleImport = async (e: Event) => {
           <div class="space-y-5">
             <div class="space-y-1.5">
               <label class="ui-label">API ID</label>
-              <input v-model="tgConfig.api_id" type="password" class="ui-input" autocomplete="off">
+              <div class="relative">
+                <input v-model="tgConfig.api_id" :type="revealSecrets.tgApiId ? 'text' : 'password'" class="ui-input pr-10" autocomplete="off">
+                <button type="button" class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200" :aria-label="revealSecrets.tgApiId ? t('settings.hideSecret') : t('settings.showSecret')" @click="revealSecrets.tgApiId = !revealSecrets.tgApiId">
+                  <EyeOff v-if="revealSecrets.tgApiId" class="w-4 h-4" /><Eye v-else class="w-4 h-4" />
+                </button>
+              </div>
             </div>
             <div class="space-y-1.5">
               <label class="ui-label">API Hash</label>
-              <input v-model="tgConfig.api_hash" type="password" class="ui-input">
+              <div class="relative">
+                <input v-model="tgConfig.api_hash" :type="revealSecrets.tgApiHash ? 'text' : 'password'" class="ui-input pr-10">
+                <button type="button" class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200" :aria-label="revealSecrets.tgApiHash ? t('settings.hideSecret') : t('settings.showSecret')" @click="revealSecrets.tgApiHash = !revealSecrets.tgApiHash">
+                  <EyeOff v-if="revealSecrets.tgApiHash" class="w-4 h-4" /><Eye v-else class="w-4 h-4" />
+                </button>
+              </div>
             </div>
             <div class="p-3 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-800/50 text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
               <p>
@@ -783,7 +800,12 @@ const handleImport = async (e: Event) => {
             </div>
             <div class="space-y-1.5">
               <label class="ui-label">{{ t('settings.apiKey') }}</label>
-              <input v-model="aiConfig.api_key" type="password" placeholder="sk-..." class="ui-input">
+              <div class="relative">
+                <input v-model="aiConfig.api_key" :type="revealSecrets.aiKey ? 'text' : 'password'" placeholder="sk-..." class="ui-input pr-10">
+                <button type="button" class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200" :aria-label="revealSecrets.aiKey ? t('settings.hideSecret') : t('settings.showSecret')" @click="revealSecrets.aiKey = !revealSecrets.aiKey">
+                  <EyeOff v-if="revealSecrets.aiKey" class="w-4 h-4" /><Eye v-else class="w-4 h-4" />
+                </button>
+              </div>
             </div>
             <div class="pt-2">
               <button type="button" class="ui-btn-primary w-full py-2.5" :disabled="aiLoading" @click="saveAiConfig">{{ aiLoading ? t('settings.saving') : t('settings.saveAiConfig') }}</button>
@@ -816,7 +838,12 @@ const handleImport = async (e: Event) => {
           <div class="space-y-5">
             <div class="space-y-1.5">
               <label class="ui-label">{{ t('settings.botToken') }}</label>
-              <input v-model="settings.botToken" type="password" placeholder="123456:ABC-DEF..." class="ui-input">
+              <div class="relative">
+                <input v-model="settings.botToken" :type="revealSecrets.botToken ? 'text' : 'password'" placeholder="123456:ABC-DEF..." class="ui-input pr-10">
+                <button type="button" class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200" :aria-label="revealSecrets.botToken ? t('settings.hideSecret') : t('settings.showSecret')" @click="revealSecrets.botToken = !revealSecrets.botToken">
+                  <EyeOff v-if="revealSecrets.botToken" class="w-4 h-4" /><Eye v-else class="w-4 h-4" />
+                </button>
+              </div>
             </div>
             <div class="space-y-1.5">
               <label class="ui-label">{{ t('settings.targetChatId') }}</label>

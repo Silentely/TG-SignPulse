@@ -251,7 +251,10 @@
     "saveFailed": "保存失败",
     "saving": "保存中...",
     "saveChanges": "保存更改",
-    "confirmAdd": "确认添加"
+    "confirmAdd": "确认添加",
+    "addFromTemplate": "从模板新建任务",
+    "templatePrefillHint": "已预填模板动作与时间，请选择目标会话后再保存",
+    "needChat": "请至少选择一个有效的目标会话"
   },
   "taskLogs": {
     "title": "任务执行日志",
@@ -442,7 +445,9 @@
     "autoBackupKeep": "保留份数",
     "importPreviewTitle": "导入预览",
     "importConflicts": "冲突项",
-    "emptyAdvancedHint": "留空则使用环境变量或内置默认"
+    "emptyAdvancedHint": "留空则使用环境变量或内置默认",
+    "showSecret": "显示",
+    "hideSecret": "隐藏"
   },
   "profile": {
     "title": "个人中心",
