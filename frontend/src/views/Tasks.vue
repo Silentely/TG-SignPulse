@@ -2,7 +2,8 @@
 import { ref, onMounted, watch, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { Play, FileText, Edit2, Trash2, Plus, Radio, Clock, Shuffle, Power, Search } from 'lucide-vue-next'
-import { listSignTasks, deleteSignTask, startSignTaskRun, listAccounts, toggleSignTaskEnabled, batchSignTasks } from '../lib/api'
+import { listSignTasks, deleteSignTask, startSignTaskRun, listAccounts, toggleSignTaskEnabled, batchSignTasks, cloneSignTask, createSignTask } from '../lib/api'
+import { BUILT_IN_TEMPLATES, buildPayloadFromTemplate } from '../lib/task-templates'
 import type { SignTask, AccountInfo } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
@@ -37,6 +38,7 @@ const selectedTaskIds = ref<Set<string>>(new Set())
 const batchBusy = ref(false)
 const searchQuery = ref('')
 const selectedCount = computed(() => selectedTaskIds.value.size)
+const cloneBusy = ref(false)
 const filteredTasks = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
   if (!q) return tasks.value
@@ -276,6 +278,44 @@ watch(() => route.query.account, () => {
   loadTasks()
 })
 
+const handleClone = async (task: TaskUiItem) => {
+  if (cloneBusy.value) return
+  const defaultName = `${task.name}_copy`
+  const newName = window.prompt(t('tasks.cloneName'), defaultName)
+  if (!newName || !newName.trim()) return
+  const token = authStore.token || ''
+  cloneBusy.value = true
+  try {
+    await cloneSignTask(token, task.name, newName.trim(), task.raw.account_name || undefined)
+    toast.success(t('tasks.cloneSuccess'))
+    await loadTasks()
+  } catch (e) {
+    toast.error(getLocalizedErrorMessage(e, t, t('tasks.cloneFailed')))
+  } finally {
+    cloneBusy.value = false
+  }
+}
+
+const handleCreateFromTemplate = async (templateId: string) => {
+  const token = authStore.token || ''
+  const account = allAccounts.value[0]
+  if (!account) {
+    toast.error(t('tasks.loadFailed'))
+    return
+  }
+  try {
+    const draft = buildPayloadFromTemplate(templateId, {
+      account_name: account,
+      task_name: `${templateId}_${Date.now().toString(36)}`,
+    })
+    await createSignTask(token, draft as Parameters<typeof createSignTask>[1])
+    toast.success(t('tasks.cloneSuccess'))
+    await loadTasks()
+  } catch (e) {
+    toast.error(getLocalizedErrorMessage(e, t, t('tasks.cloneFailed')))
+  }
+}
+
 const handleDelete = async (task: TaskUiItem) => {
   const ok = await confirm({
     title: t('common.dangerConfirm'),
@@ -382,6 +422,21 @@ const openLogs = (task: TaskUiItem) => {
       </div>
       <p class="ui-empty-title">{{ t('tasks.empty') }}</p>
       <p class="ui-empty-desc mb-4">{{ t('tasks.emptyHint') }}</p>
+      <div class="relative group/tpl">
+        <button type="button" class="ui-btn-secondary !text-xs !px-3 !py-2">{{ t('tasks.fromTemplate') }}</button>
+        <div class="hidden group-hover/tpl:block absolute right-0 top-full mt-1 z-20 min-w-[12rem] ui-dropdown shadow-[var(--sp-shadow-md)] p-1">
+          <button
+            v-for="tpl in BUILT_IN_TEMPLATES"
+            :key="tpl.id"
+            type="button"
+            class="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-white/[0.04] rounded-sm"
+            @click="handleCreateFromTemplate(tpl.id)"
+          >
+            <div class="font-medium">{{ t(tpl.nameKey) }}</div>
+            <div class="text-[10px] text-gray-500">{{ t(tpl.descKey) }}</div>
+          </button>
+        </div>
+      </div>
       <button type="button" class="ui-btn-primary !text-xs !px-3 !py-2" @click="showAddModal = true">
         <Plus class="w-3.5 h-3.5" /> {{ t('taskModal.addTitle') }}
       </button>
@@ -555,6 +610,15 @@ const openLogs = (task: TaskUiItem) => {
         >
           <FileText class="w-3.5 h-3.5" />
           <span>{{ t('tasks.logs') }}</span>
+        </button>
+        <button
+          type="button"
+          class="inline-flex items-center gap-1 px-2 py-1.5 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/[0.04] rounded-sm transition-colors text-xs"
+          :title="t('tasks.clone')"
+          :disabled="cloneBusy"
+          @click="handleClone(task)"
+        >
+          <span>{{ t('tasks.clone') }}</span>
         </button>
         <button
           type="button"

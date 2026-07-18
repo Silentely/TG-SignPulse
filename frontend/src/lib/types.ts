@@ -142,6 +142,7 @@ export interface RawTaskAction {
   forward_message_thread_id?: string;
   bark_url?: string;
   custom_url?: string;
+  server_chan_send_key?: string;
   continue_actions?: RawTaskAction[];
 }
 
@@ -161,6 +162,7 @@ export interface BuiltAction {
   forward_message_thread_id?: string;
   bark_url?: string;
   custom_url?: string;
+  server_chan_send_key?: string;
   continue_actions?: BuiltAction[];
 }
 

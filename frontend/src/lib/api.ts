@@ -595,10 +595,23 @@ export interface GlobalSettings {
   telegram_bot_notify_enabled?: boolean;
   telegram_bot_login_notify_enabled?: boolean;
   telegram_bot_task_failure_enabled?: boolean;
+  telegram_bot_task_success_enabled?: boolean;
+  telegram_bot_quiet_hours_enabled?: boolean;
+  telegram_bot_quiet_hours_start?: string | null;
+  telegram_bot_quiet_hours_end?: string | null;
   telegram_bot_token?: string | null;
   telegram_bot_chat_id?: string | null;
   telegram_bot_message_thread_id?: number | null;
   timezone?: string;
+  sign_task_execution_timeout?: number | null;
+  sign_task_account_cooldown?: number | null;
+  sign_task_flow_retry_attempts?: number | null;
+  sign_task_history_max_age_days?: number | null;
+  ai_vision_timeout?: number | null;
+  ai_vision_retry_attempts?: number | null;
+  auto_backup_enabled?: boolean;
+  auto_backup_interval_hours?: number | null;
+  auto_backup_keep?: number | null;
 }
 
 export const getGlobalSettings = (token: string) =>
@@ -608,6 +621,40 @@ export const saveGlobalSettings = (token: string, settings: GlobalSettings) =>
   request<{ success: boolean; message: string }>("/config/settings", {
     method: "POST",
     body: JSON.stringify(settings),
+  }, token);
+
+export const testBotNotification = (token: string, message?: string) =>
+  request<{ success: boolean; message: string }>("/config/bot/test", {
+    method: "POST",
+    body: JSON.stringify({ message: message || undefined }),
+  }, token);
+
+export interface ImportPreviewResult {
+  signs_count: number;
+  monitors_count: number;
+  settings_keys: string[];
+  conflicts: string[];
+  errors: string[];
+}
+
+export const importConfigPreview = (token: string, configJson: string) =>
+  request<ImportPreviewResult>("/config/import-preview", {
+    method: "POST",
+    body: JSON.stringify({ config_json: configJson }),
+  }, token);
+
+export const cloneSignTask = (
+  token: string,
+  taskName: string,
+  newName: string,
+  accountName?: string,
+) =>
+  request<SignTask>(`/sign-tasks/${encodeURIComponent(taskName)}/clone`, {
+    method: "POST",
+    body: JSON.stringify({
+      new_name: newName,
+      account_name: accountName || undefined,
+    }),
   }, token);
 
 export interface DeviceKeepaliveRunResult {

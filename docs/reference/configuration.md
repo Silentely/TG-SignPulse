@@ -275,3 +275,21 @@ environment:
 
 - 进程启动后修改 `.env` 或环境变量不会自动生效，需要重启后端进程。
 - 测试中如果临时修改环境变量，需要调用 `get_settings.cache_clear()` 后再重新导入或读取配置。
+
+
+## 面板高级设置字段（`.global_settings.json`）
+
+以下字段可在系统设置中配置；`null`/空表示回退环境变量或内置默认。
+
+| 字段 | 说明 |
+|------|------|
+| `sign_interval` | 多账号签到间隔秒数 |
+| `sign_task_execution_timeout` | 单次执行超时（秒） |
+| `sign_task_account_cooldown` | 账号冷却（秒） |
+| `sign_task_flow_retry_attempts` | 流程重试次数 |
+| `sign_task_history_max_age_days` | 历史保留天数 |
+| `ai_vision_timeout` / `ai_vision_retry_attempts` | AI 视觉超时与重试 |
+| `telegram_bot_task_success_enabled` | 任务成功通知 |
+| `telegram_bot_quiet_hours_*` | 静默时段 |
+| `auto_backup_enabled` / `interval_hours` / `keep` | 自动备份 |
+

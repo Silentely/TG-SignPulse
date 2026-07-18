@@ -76,6 +76,7 @@ const listenerForwardChatId = ref('')
 const listenerForwardThreadId = ref('')
 const listenerBarkUrl = ref('')
 const listenerCustomUrl = ref('')
+const listenerServerChanKey = ref('')
 const actions = ref<TaskActionItem[]>([{ id: nextActionId(), type: 'send_text', value: '', aiPrompt: '' }])
 
 const loadAccounts = async () => {
@@ -117,6 +118,7 @@ const loadAccounts = async () => {
           listenerForwardThreadId.value = la.forward_message_thread_id ? String(la.forward_message_thread_id) : ''
           listenerBarkUrl.value = la.bark_url || ''
           listenerCustomUrl.value = la.custom_url || ''
+          listenerServerChanKey.value = la.server_chan_send_key || ''
           if (la.continue_actions) parseActions(la.continue_actions)
         } else if (primary.actions) parseActions(primary.actions)
       } else if (selectedAccounts.value[0] || accounts.value[0]?.name) {
@@ -229,6 +231,9 @@ const buildPayload = () => {
     }
     if (listenerPushChannel.value === 'bark' && listenerBarkUrl.value) la.bark_url = listenerBarkUrl.value
     if (listenerPushChannel.value === 'custom' && listenerCustomUrl.value) la.custom_url = listenerCustomUrl.value
+    if (listenerPushChannel.value === 'server_chan' && listenerServerChanKey.value) {
+      la.server_chan_send_key = listenerServerChanKey.value
+    }
     if (listenerPushChannel.value === 'continue' && ba.length > 0) la.continue_actions = ba
     ca = [la]
   }
@@ -272,7 +277,7 @@ const debouncedEmit = debounce(() => { emit('update:payload', buildPayload()) },
 /** 同步刷新 payload（保存前调用，确保拿到最新值） */
 const flushPayload = () => { emit('update:payload', buildPayload()) }
 defineExpose({ flushPayload })
-watch([taskName,selectedAccounts,allAccountsMode,scheduleMode,timeRange,targetChats,activeChatIndex,actions,retryCount,listenerKeywords,listenerMatchMode,listenerPushChannel,listenerForwardChatId,listenerForwardThreadId,listenerBarkUrl,listenerCustomUrl], () => { debouncedEmit() }, {deep:true})
+watch([taskName,selectedAccounts,allAccountsMode,scheduleMode,timeRange,targetChats,activeChatIndex,actions,retryCount,listenerKeywords,listenerMatchMode,listenerPushChannel,listenerForwardChatId,listenerForwardThreadId,listenerBarkUrl,listenerCustomUrl,listenerServerChanKey], () => { debouncedEmit() }, {deep:true})
 onMounted(()=>{loadAccounts()})
 </script>
 <template>
@@ -351,9 +356,10 @@ onMounted(()=>{loadAccounts()})
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div class="md:col-span-2 space-y-1.5"><label class="ui-label">{{ t('taskForm.keywords') }}</label><textarea v-model="listenerKeywords" rows="3" :placeholder="t('taskForm.keywordsPlaceholder')" class="ui-input !h-auto py-2.5"></textarea></div>
         <div class="space-y-1.5"><label class="ui-label">{{ t('taskForm.matchMode') }}</label><CustomSelect v-model="listenerMatchMode" :options="[{label: t('taskForm.matchContains'), value:'contains'}, {label: t('taskForm.matchExact'), value:'exact'}, {label: t('taskForm.matchRegex'), value:'regex'}]" /></div>
-        <div class="space-y-1.5"><label class="ui-label">{{ t('taskForm.afterMatch') }}</label><CustomSelect v-model="listenerPushChannel" :options="[{label: t('taskForm.continueActions'), value:'continue'}, {label: t('taskForm.telegramNotify'), value:'telegram'}, {label: t('taskForm.forwardToChat'), value:'forward'}, {label: t('taskForm.barkPush'), value:'bark'}, {label: t('taskForm.customWebhook'), value:'custom'}]" /></div>
+        <div class="space-y-1.5"><label class="ui-label">{{ t('taskForm.afterMatch') }}</label><CustomSelect v-model="listenerPushChannel" :options="[{label: t('taskForm.continueActions'), value:'continue'}, {label: t('taskForm.telegramNotify'), value:'telegram'}, {label: t('taskForm.forwardToChat'), value:'forward'}, {label: t('taskForm.barkPush'), value:'bark'}, {label: t('tasks.pushServerChan'), value:'server_chan'}, {label: t('taskForm.customWebhook'), value:'custom'}]" /></div>
         <template v-if="listenerPushChannel === 'forward'"><div class="space-y-1.5"><label class="ui-label">{{ t('taskForm.forwardChatId') }}</label><input v-model="listenerForwardChatId" placeholder="-10012345678" class="ui-input" /></div><div class="space-y-1.5"><label class="ui-label">{{ t('taskForm.forwardThreadId') }}</label><input v-model="listenerForwardThreadId" :placeholder="t('taskForm.forwardThreadIdPlaceholder')" class="ui-input" /></div></template>
         <div v-if="listenerPushChannel === 'bark'" class="md:col-span-2 space-y-1.5"><label class="ui-label">{{ t('taskForm.barkUrl') }}</label><input v-model="listenerBarkUrl" placeholder="https://api.day.app/xxx" class="ui-input" /></div>
+        <div v-if="listenerPushChannel === 'server_chan'" class="md:col-span-2 space-y-1.5"><label class="ui-label">{{ t('tasks.serverChanKey') }}</label><input v-model="listenerServerChanKey" placeholder="SCTxxxx" class="ui-input" /></div>
         <div v-if="listenerPushChannel === 'custom'" class="md:col-span-2 space-y-1.5"><label class="ui-label">{{ t('taskForm.webhookUrl') }}</label><input v-model="listenerCustomUrl" :placeholder="t('taskForm.webhookPlaceholder')" class="ui-input" /></div>
       </div>
     </div>

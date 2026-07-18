@@ -12,6 +12,9 @@
 | `GET /api/ops/memory` | 进程内存监控统计（若已启动） |
 | `GET /api/ops/version` | 本地版本、Git SHA/分支、构建时间、Python 版本 |
 | `POST /api/ops/version/check?force=false` | 远程更新检查（GitHub Releases；可关；失败 soft-fail） |
+| `POST /api/config/bot/test` | Bot 通知测试发送 |
+| `POST /api/config/import-preview` | 配置导入预览（不写盘） |
+| `POST /api/sign-tasks/{name}/clone` | 克隆签到任务 |
 | `POST /api/batch/sign-tasks` | 新版签到任务批量 enable/disable/delete/run |
 | `GET /api/events/sign-history?token=` | 签到历史 SSE（Dashboard 实时流，token 查询参数） |
 

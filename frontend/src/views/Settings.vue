@@ -12,14 +12,17 @@ import {
   testAIConnection,
   exportAllConfigs,
   importAllConfigs,
+  importConfigPreview,
   runDeviceKeepalive,
   getBackupStatus,
   exportBackupArchive,
   getRuntimeStatus,
   getAppVersion,
   checkAppVersion,
+  testBotNotification,
+  getMemoryStats,
 } from '../lib/api'
-import type { BackupStatus, RuntimeStatus, AppVersionInfo, UpdateCheckInfo } from '../lib/api'
+import type { BackupStatus, RuntimeStatus, AppVersionInfo, UpdateCheckInfo, MemoryStatsResponse } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
 import { useConfirm } from '../composables/useConfirm'
@@ -51,10 +54,23 @@ const settings = ref({
   botEnabled: false,
   botLoginNotify: false,
   botTaskFailure: false,
+  botTaskSuccess: false,
+  quietEnabled: false,
+  quietStart: '23:00',
+  quietEnd: '07:00',
   botToken: '',
   botChatId: '',
   botThreadId: '',
-  timezone: 'Asia/Hong_Kong'
+  timezone: 'Asia/Hong_Kong',
+  execTimeout: '' as string | number,
+  accountCooldown: '' as string | number,
+  flowRetry: '' as string | number,
+  historyMaxAge: '' as string | number,
+  aiVisionTimeout: '' as string | number,
+  aiVisionRetry: '' as string | number,
+  autoBackupEnabled: false,
+  autoBackupInterval: 24,
+  autoBackupKeep: 3,
 })
 
 // 时区选项列表
@@ -101,7 +117,25 @@ const dataLoading = ref(false)
 const backupLoading = ref(false)
 const backupStatus = ref<BackupStatus | null>(null)
 const runtimeStatus = ref<RuntimeStatus | null>(null)
+const memoryStats = ref<MemoryStatsResponse | null>(null)
+const advancedLoading = ref(false)
+const botTestLoading = ref(false)
 const pageLoading = ref(true)
+
+const emptyToNull = (v: string | number | '') => {
+  if (v === '' || v === null || v === undefined) return null
+  const n = typeof v === 'number' ? v : parseInt(String(v), 10)
+  return Number.isFinite(n) ? n : null
+}
+
+const formatMemoryRss = () => {
+  const stats = memoryStats.value?.stats || {}
+  const rssMb = stats.rss_mb ?? stats.rssMb
+  if (typeof rssMb === 'number') return `${rssMb.toFixed(1)} MB`
+  const rss = stats.rss_bytes ?? stats.rss
+  if (typeof rss === 'number') return `${(rss / (1024 * 1024)).toFixed(1)} MB`
+  return t('settings.unknownValue')
+}
 
 const appVersion = ref<AppVersionInfo | null>(null)
 const versionLoading = ref(false)
@@ -294,10 +328,23 @@ onMounted(async () => {
     settings.value.botEnabled = res.telegram_bot_notify_enabled || false
     settings.value.botLoginNotify = res.telegram_bot_login_notify_enabled || false
     settings.value.botTaskFailure = res.telegram_bot_task_failure_enabled || false
+    settings.value.botTaskSuccess = res.telegram_bot_task_success_enabled || false
+    settings.value.quietEnabled = res.telegram_bot_quiet_hours_enabled || false
+    settings.value.quietStart = res.telegram_bot_quiet_hours_start || '23:00'
+    settings.value.quietEnd = res.telegram_bot_quiet_hours_end || '07:00'
     settings.value.botToken = res.telegram_bot_token || ''
     settings.value.botChatId = res.telegram_bot_chat_id || ''
     settings.value.botThreadId = res.telegram_bot_message_thread_id ? String(res.telegram_bot_message_thread_id) : ''
     settings.value.timezone = res.timezone || 'Asia/Hong_Kong'
+    settings.value.execTimeout = res.sign_task_execution_timeout ?? ''
+    settings.value.accountCooldown = res.sign_task_account_cooldown ?? ''
+    settings.value.flowRetry = res.sign_task_flow_retry_attempts ?? ''
+    settings.value.historyMaxAge = res.sign_task_history_max_age_days ?? ''
+    settings.value.aiVisionTimeout = res.ai_vision_timeout ?? ''
+    settings.value.aiVisionRetry = res.ai_vision_retry_attempts ?? ''
+    settings.value.autoBackupEnabled = res.auto_backup_enabled || false
+    settings.value.autoBackupInterval = res.auto_backup_interval_hours || 24
+    settings.value.autoBackupKeep = res.auto_backup_keep || 3
 
     if (tgRes && tgRes.is_custom) {
       tgConfig.value.api_id = tgRes.api_id
@@ -318,6 +365,11 @@ onMounted(async () => {
       runtimeStatus.value = await getRuntimeStatus(token)
     } catch (e) {
       devLog.error('Failed to load runtime status', e)
+    }
+    try {
+      memoryStats.value = await getMemoryStats(token)
+    } catch (e) {
+      devLog.error('Failed to load memory stats', e)
     }
     await loadVersion(token)
   } catch (e) {
@@ -380,6 +432,10 @@ const saveBotSettings = async () => {
       telegram_bot_notify_enabled: settings.value.botEnabled,
       telegram_bot_login_notify_enabled: settings.value.botLoginNotify,
       telegram_bot_task_failure_enabled: settings.value.botTaskFailure,
+      telegram_bot_task_success_enabled: settings.value.botTaskSuccess,
+      telegram_bot_quiet_hours_enabled: settings.value.quietEnabled,
+      telegram_bot_quiet_hours_start: settings.value.quietStart || '23:00',
+      telegram_bot_quiet_hours_end: settings.value.quietEnd || '07:00',
       telegram_bot_token: settings.value.botToken || null,
       telegram_bot_chat_id: settings.value.botChatId || null,
       telegram_bot_message_thread_id: settings.value.botThreadId ? parseInt(settings.value.botThreadId) : null,
@@ -389,6 +445,45 @@ const saveBotSettings = async () => {
     notifyError(getLocalizedErrorMessage(e, t, t('settings.saveFailed')))
   } finally {
     botLoading.value = false
+  }
+}
+
+const saveAdvancedSettings = async () => {
+  const token = authStore.token || ''
+  if (!token) return
+  advancedLoading.value = true
+  try {
+    await saveGlobalSettings(token, {
+      sign_task_execution_timeout: emptyToNull(settings.value.execTimeout as string | number),
+      sign_task_account_cooldown: emptyToNull(settings.value.accountCooldown as string | number),
+      sign_task_flow_retry_attempts: emptyToNull(settings.value.flowRetry as string | number),
+      sign_task_history_max_age_days: emptyToNull(settings.value.historyMaxAge as string | number),
+      ai_vision_timeout: emptyToNull(settings.value.aiVisionTimeout as string | number),
+      ai_vision_retry_attempts: emptyToNull(settings.value.aiVisionRetry as string | number),
+      auto_backup_enabled: settings.value.autoBackupEnabled,
+      auto_backup_interval_hours: settings.value.autoBackupInterval || 24,
+      auto_backup_keep: settings.value.autoBackupKeep || 3,
+    })
+    notifySuccess(t('settings.saveSuccess'))
+  } catch (e: unknown) {
+    notifyError(getLocalizedErrorMessage(e, t, t('settings.saveFailed')))
+  } finally {
+    advancedLoading.value = false
+  }
+}
+
+const testBot = async () => {
+  const token = authStore.token || ''
+  if (!token) return
+  botTestLoading.value = true
+  try {
+    const res = await testBotNotification(token)
+    if (res.success) notifySuccess(res.message)
+    else notifyError(res.message)
+  } catch (e: unknown) {
+    notifyError(getLocalizedErrorMessage(e, t, t('settings.testFailed')))
+  } finally {
+    botTestLoading.value = false
   }
 }
 
@@ -502,6 +597,21 @@ const handleImport = async (e: Event) => {
     const token = authStore.token || ''
     dataLoading.value = true
     try {
+      const preview = await importConfigPreview(token, jsonStr)
+      if (preview.errors?.length) {
+        notifyError(`${t('settings.importFailed')}: ${preview.errors.slice(0, 2).join('; ')}`)
+        return
+      }
+      const conflictHint = preview.conflicts?.length
+        ? `\n${t('settings.importConflicts')}: ${preview.conflicts.slice(0, 5).join(', ')}${preview.conflicts.length > 5 ? '…' : ''}`
+        : ''
+      const ok = await confirm({
+        title: t('settings.importPreviewTitle'),
+        message: `signs=${preview.signs_count}, monitors=${preview.monitors_count}, settings=${(preview.settings_keys || []).join(',') || '-'}${conflictHint}`,
+        confirmText: t('common.continue'),
+        danger: Boolean(preview.conflicts?.length),
+      })
+      if (!ok) return
       const result = await importAllConfigs(token, jsonStr, true)
       const warnings = result.warnings || []
       const errors = result.errors || []
@@ -573,6 +683,11 @@ const handleImport = async (e: Event) => {
             <div class="space-y-1.5">
               <label class="ui-label">{{ t('settings.concurrency') }}</label>
               <input v-model.number="settings.concurrency" type="number" min="1" max="10" :placeholder="t('settings.concurrencyPlaceholder')" class="ui-input">
+            </div>
+            <div class="space-y-1.5">
+              <label class="ui-label">{{ t('settings.signInterval') }}</label>
+              <input v-model="settings.checkInterval" type="number" min="0" max="3600" :placeholder="t('settings.signIntervalPlaceholder')" class="ui-input">
+              <p class="text-[10px] text-gray-500">{{ t('settings.signIntervalHint') }}</p>
             </div>
             <div class="p-3 bg-gray-50 dark:bg-white/[0.02] border border-gray-200 dark:border-gray-800/60 space-y-3">
               <div class="flex items-center justify-between gap-3">
@@ -720,9 +835,42 @@ const handleImport = async (e: Event) => {
                 <input v-model="settings.botTaskFailure" type="checkbox" class="w-4 h-4 accent-sky-500 bg-gray-100 border-gray-300 rounded focus:ring-0 dark:bg-gray-800 dark:border-gray-600">
                 <span class="text-sm text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-gray-100 transition-colors">{{ t('settings.taskFailNotify') }}</span>
               </label>
+              <label class="flex items-center gap-2 cursor-pointer group">
+                <input v-model="settings.botTaskSuccess" type="checkbox" class="w-4 h-4 accent-sky-500 bg-gray-100 border-gray-300 rounded focus:ring-0 dark:bg-gray-800 dark:border-gray-600">
+                <span class="text-sm text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-gray-100 transition-colors">{{ t('settings.taskSuccessNotify') }}</span>
+              </label>
             </div>
-            <div class="pt-2">
-              <button type="button" class="ui-btn-primary w-full py-2.5" :disabled="botLoading" @click="saveBotSettings">{{ botLoading ? t('settings.saving') : t('settings.saveChanges') }}</button>
+            <div class="p-3 bg-gray-50 dark:bg-white/[0.02] border border-gray-200 dark:border-gray-800/60 space-y-3">
+              <div class="flex items-center justify-between gap-3">
+                <div>
+                  <label class="text-xs text-gray-600 dark:text-gray-300 block">{{ t('settings.quietHours') }}</label>
+                  <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.quietHoursDesc') }}</p>
+                </div>
+                <button
+                  type="button"
+                  class="ui-switch"
+                  role="switch"
+                  :aria-checked="settings.quietEnabled"
+                  :class="settings.quietEnabled ? 'ui-switch-on' : ''"
+                  @click="settings.quietEnabled = !settings.quietEnabled"
+                >
+                  <span class="ui-switch-knob" />
+                </button>
+              </div>
+              <div class="grid grid-cols-2 gap-2" v-if="settings.quietEnabled">
+                <div class="space-y-1">
+                  <label class="text-[10px] text-gray-500">{{ t('settings.quietStart') }}</label>
+                  <input v-model="settings.quietStart" type="text" placeholder="23:00" class="ui-input" />
+                </div>
+                <div class="space-y-1">
+                  <label class="text-[10px] text-gray-500">{{ t('settings.quietEnd') }}</label>
+                  <input v-model="settings.quietEnd" type="text" placeholder="07:00" class="ui-input" />
+                </div>
+              </div>
+            </div>
+            <div class="pt-2 flex flex-col sm:flex-row gap-2">
+              <button type="button" class="ui-btn-primary flex-1 py-2.5" :disabled="botLoading" @click="saveBotSettings">{{ botLoading ? t('settings.saving') : t('settings.saveChanges') }}</button>
+              <button type="button" class="ui-btn-secondary flex-1 py-2.5" :disabled="botTestLoading" @click="testBot">{{ botTestLoading ? t('settings.testing') : t('settings.testBot') }}</button>
             </div>
           </div>
         </section>
@@ -787,6 +935,37 @@ const handleImport = async (e: Event) => {
                 @click="handleBackupExport"
               >
                 {{ backupLoading ? t('settings.processing') : t('settings.exportBackup') }}
+              </button>
+            </div>
+            <div class="p-3 bg-gray-50 dark:bg-white/[0.02] border border-gray-200 dark:border-gray-800/60 space-y-3">
+              <div class="flex items-center justify-between gap-3">
+                <div>
+                  <label class="text-xs text-gray-600 dark:text-gray-300 block">{{ t('settings.autoBackup') }}</label>
+                  <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.autoBackupDesc') }}</p>
+                </div>
+                <button
+                  type="button"
+                  class="ui-switch"
+                  role="switch"
+                  :aria-checked="settings.autoBackupEnabled"
+                  :class="settings.autoBackupEnabled ? 'ui-switch-on' : ''"
+                  @click="settings.autoBackupEnabled = !settings.autoBackupEnabled"
+                >
+                  <span class="ui-switch-knob" />
+                </button>
+              </div>
+              <div class="grid grid-cols-2 gap-2">
+                <div class="space-y-1">
+                  <label class="text-[10px] text-gray-500">{{ t('settings.autoBackupInterval') }}</label>
+                  <input v-model.number="settings.autoBackupInterval" type="number" min="1" max="168" class="ui-input" :disabled="!settings.autoBackupEnabled" />
+                </div>
+                <div class="space-y-1">
+                  <label class="text-[10px] text-gray-500">{{ t('settings.autoBackupKeep') }}</label>
+                  <input v-model.number="settings.autoBackupKeep" type="number" min="1" max="30" class="ui-input" :disabled="!settings.autoBackupEnabled" />
+                </div>
+              </div>
+              <button type="button" class="ui-btn-secondary w-full !py-2 !text-xs" :disabled="advancedLoading" @click="saveAdvancedSettings">
+                {{ advancedLoading ? t('settings.saving') : t('settings.saveAdvanced') }}
               </button>
             </div>
             <p v-if="backupStatus" class="text-xs text-gray-500 font-mono">
@@ -870,6 +1049,47 @@ const handleImport = async (e: Event) => {
                 DB: {{ runtimeStatus.database_is_sqlite ? 'SQLite' : 'External' }}
                 <span v-if="runtimeStatus.monitor_shard"> · shard {{ runtimeStatus.monitor_shard }}</span>
               </div>
+              <div v-if="memoryStats?.available" class="text-gray-600 dark:text-gray-400">
+                {{ t('settings.memoryRss') }}: {{ formatMemoryRss() }}
+              </div>
+            </div>
+
+            <!-- 高级执行 / AI -->
+            <div class="p-3 border border-gray-200 dark:border-gray-800/60 bg-gray-50/50 dark:bg-white/[0.02] text-xs space-y-3">
+              <div>
+                <div class="font-medium text-gray-700 dark:text-gray-300">{{ t('settings.advanced') }}</div>
+                <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.advancedDesc') }}</p>
+                <p class="text-[10px] text-gray-500">{{ t('settings.emptyAdvancedHint') }}</p>
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div class="space-y-1">
+                  <label class="text-[10px] text-gray-500">{{ t('settings.execTimeout') }}</label>
+                  <input v-model="settings.execTimeout" type="number" min="30" max="3600" class="ui-input" />
+                </div>
+                <div class="space-y-1">
+                  <label class="text-[10px] text-gray-500">{{ t('settings.accountCooldown') }}</label>
+                  <input v-model="settings.accountCooldown" type="number" min="0" max="600" class="ui-input" />
+                </div>
+                <div class="space-y-1">
+                  <label class="text-[10px] text-gray-500">{{ t('settings.flowRetry') }}</label>
+                  <input v-model="settings.flowRetry" type="number" min="1" max="10" class="ui-input" />
+                </div>
+                <div class="space-y-1">
+                  <label class="text-[10px] text-gray-500">{{ t('settings.historyMaxAge') }}</label>
+                  <input v-model="settings.historyMaxAge" type="number" min="1" max="90" class="ui-input" />
+                </div>
+                <div class="space-y-1">
+                  <label class="text-[10px] text-gray-500">{{ t('settings.aiVisionTimeout') }}</label>
+                  <input v-model="settings.aiVisionTimeout" type="number" min="3" max="120" class="ui-input" />
+                </div>
+                <div class="space-y-1">
+                  <label class="text-[10px] text-gray-500">{{ t('settings.aiVisionRetry') }}</label>
+                  <input v-model="settings.aiVisionRetry" type="number" min="1" max="8" class="ui-input" />
+                </div>
+              </div>
+              <button type="button" class="ui-btn-primary w-full !py-2" :disabled="advancedLoading" @click="saveAdvancedSettings">
+                {{ advancedLoading ? t('settings.saving') : t('settings.saveAdvanced') }}
+              </button>
             </div>
 
             <div
