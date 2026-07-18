@@ -189,6 +189,73 @@ async def _job_device_keepalive() -> None:
         logger.error("Device keepalive job failed: %s", exc, exc_info=True)
 
 
+async def _job_auto_backup() -> None:
+    """按全局设置执行自动备份。"""
+    import logging
+    from pathlib import Path
+
+    logger = logging.getLogger("backend.scheduler")
+    try:
+        from backend.core.config import get_settings
+        from backend.services.backup_archive import (
+            auto_backup_keep,
+            run_auto_backup,
+            should_run_auto_backup,
+        )
+        from backend.services.config import get_config_service
+
+        cfg = get_config_service().get_global_settings()
+        if not should_run_auto_backup(cfg):
+            return
+        data_dir = Path(get_settings().resolve_base_dir())
+        result = run_auto_backup(data_dir, keep=auto_backup_keep(cfg))
+        logger.info(
+            "Auto backup finished: path=%s size=%s pruned=%s",
+            result.get("path"),
+            result.get("size_bytes"),
+            result.get("pruned"),
+        )
+    except Exception as exc:
+        logger.error("Auto backup job failed: %s", exc, exc_info=True)
+
+
+def _sync_auto_backup_job() -> None:
+    """根据全局设置注册/移除自动备份 interval job。"""
+    global scheduler
+    if scheduler is None:
+        return
+    import logging
+
+    from apscheduler.triggers.interval import IntervalTrigger
+
+    logger = logging.getLogger("backend.scheduler")
+    job_id = "system-auto-backup"
+    try:
+        from backend.services.backup_archive import (
+            auto_backup_interval_hours,
+            should_run_auto_backup,
+        )
+        from backend.services.config import get_config_service
+
+        cfg = get_config_service().get_global_settings()
+        if should_run_auto_backup(cfg):
+            hours = auto_backup_interval_hours(cfg)
+            scheduler.add_job(
+                _job_auto_backup,
+                trigger=IntervalTrigger(hours=hours),
+                id=job_id,
+                replace_existing=True,
+            )
+            logger.info("Auto backup job registered: every %sh", hours)
+        else:
+            try:
+                scheduler.remove_job(job_id)
+            except Exception:
+                pass
+    except Exception as exc:
+        logger.warning("同步自动备份任务失败: %s", exc)
+
+
 async def sync_jobs() -> None:
     """
     Sync APScheduler jobs from DB tasks table and file-based sign tasks.
@@ -223,6 +290,7 @@ async def sync_jobs() -> None:
         scheduler_tz = str(getattr(scheduler, 'timezone', ''))
         if desired_tz and desired_tz != scheduler_tz:
             _tz_logger.info(f"时区已变更 ({scheduler_tz} → {desired_tz})，将在下次调度器重启后生效")
+        _sync_auto_backup_job()
     except Exception as e:
         _tz_logger.warning(f"时区变更检测失败: {e}")
 
@@ -357,6 +425,8 @@ async def init_scheduler(sync_on_startup: bool = True) -> AsyncIOScheduler:
             id="system-device-keepalive",
             replace_existing=True,
         )
+
+        _sync_auto_backup_job()
 
         if sync_on_startup:
             await sync_jobs()

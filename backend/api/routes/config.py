@@ -392,10 +392,23 @@ class GlobalSettingsRequest(BaseModel):
     telegram_bot_notify_enabled: Optional[bool] = None
     telegram_bot_login_notify_enabled: Optional[bool] = None
     telegram_bot_task_failure_enabled: Optional[bool] = None
+    telegram_bot_task_success_enabled: Optional[bool] = None
+    telegram_bot_quiet_hours_enabled: Optional[bool] = None
+    telegram_bot_quiet_hours_start: Optional[str] = None
+    telegram_bot_quiet_hours_end: Optional[str] = None
     telegram_bot_token: Optional[str] = None
     telegram_bot_chat_id: Optional[str] = None
     telegram_bot_message_thread_id: Optional[int] = None
     timezone: Optional[str] = None
+    sign_task_execution_timeout: Optional[int] = None
+    sign_task_account_cooldown: Optional[int] = None
+    sign_task_flow_retry_attempts: Optional[int] = None
+    sign_task_history_max_age_days: Optional[int] = None
+    ai_vision_timeout: Optional[int] = None
+    ai_vision_retry_attempts: Optional[int] = None
+    auto_backup_enabled: Optional[bool] = None
+    auto_backup_interval_hours: Optional[int] = None
+    auto_backup_keep: Optional[int] = None
 
 
 class GlobalSettingsResponse(BaseModel):
@@ -409,10 +422,23 @@ class GlobalSettingsResponse(BaseModel):
     telegram_bot_notify_enabled: bool = False
     telegram_bot_login_notify_enabled: bool = False
     telegram_bot_task_failure_enabled: bool = True
+    telegram_bot_task_success_enabled: bool = False
+    telegram_bot_quiet_hours_enabled: bool = False
+    telegram_bot_quiet_hours_start: Optional[str] = "23:00"
+    telegram_bot_quiet_hours_end: Optional[str] = "07:00"
     telegram_bot_token: Optional[str] = None
     telegram_bot_chat_id: Optional[str] = None
     telegram_bot_message_thread_id: Optional[int] = None
     timezone: str = "Asia/Hong_Kong"
+    sign_task_execution_timeout: Optional[int] = None
+    sign_task_account_cooldown: Optional[int] = None
+    sign_task_flow_retry_attempts: Optional[int] = None
+    sign_task_history_max_age_days: Optional[int] = None
+    ai_vision_timeout: Optional[int] = None
+    ai_vision_retry_attempts: Optional[int] = None
+    auto_backup_enabled: bool = False
+    auto_backup_interval_hours: Optional[int] = 24
+    auto_backup_keep: Optional[int] = 3
 
 
 @router.get("/settings", response_model=GlobalSettingsResponse)
@@ -461,6 +487,14 @@ async def save_global_settings(
             settings["telegram_bot_login_notify_enabled"] = request.telegram_bot_login_notify_enabled
         if "telegram_bot_task_failure_enabled" in fields_set:
             settings["telegram_bot_task_failure_enabled"] = request.telegram_bot_task_failure_enabled
+        if "telegram_bot_task_success_enabled" in fields_set:
+            settings["telegram_bot_task_success_enabled"] = request.telegram_bot_task_success_enabled
+        if "telegram_bot_quiet_hours_enabled" in fields_set:
+            settings["telegram_bot_quiet_hours_enabled"] = request.telegram_bot_quiet_hours_enabled
+        if "telegram_bot_quiet_hours_start" in fields_set:
+            settings["telegram_bot_quiet_hours_start"] = request.telegram_bot_quiet_hours_start
+        if "telegram_bot_quiet_hours_end" in fields_set:
+            settings["telegram_bot_quiet_hours_end"] = request.telegram_bot_quiet_hours_end
         if "telegram_bot_token" in fields_set:
             settings["telegram_bot_token"] = request.telegram_bot_token
         if "telegram_bot_chat_id" in fields_set:
@@ -469,6 +503,48 @@ async def save_global_settings(
             settings["telegram_bot_message_thread_id"] = request.telegram_bot_message_thread_id
         if "timezone" in fields_set:
             settings["timezone"] = request.timezone
+        if "sign_task_execution_timeout" in fields_set:
+            v = request.sign_task_execution_timeout
+            settings["sign_task_execution_timeout"] = (
+                None if v is None else max(30, min(int(v), 3600))
+            )
+        if "sign_task_account_cooldown" in fields_set:
+            v = request.sign_task_account_cooldown
+            settings["sign_task_account_cooldown"] = (
+                None if v is None else max(0, min(int(v), 600))
+            )
+        if "sign_task_flow_retry_attempts" in fields_set:
+            v = request.sign_task_flow_retry_attempts
+            settings["sign_task_flow_retry_attempts"] = (
+                None if v is None else max(1, min(int(v), 10))
+            )
+        if "sign_task_history_max_age_days" in fields_set:
+            v = request.sign_task_history_max_age_days
+            settings["sign_task_history_max_age_days"] = (
+                None if v is None else max(1, min(int(v), 90))
+            )
+        if "ai_vision_timeout" in fields_set:
+            v = request.ai_vision_timeout
+            settings["ai_vision_timeout"] = (
+                None if v is None else max(3, min(int(v), 120))
+            )
+        if "ai_vision_retry_attempts" in fields_set:
+            v = request.ai_vision_retry_attempts
+            settings["ai_vision_retry_attempts"] = (
+                None if v is None else max(1, min(int(v), 8))
+            )
+        if "auto_backup_enabled" in fields_set:
+            settings["auto_backup_enabled"] = request.auto_backup_enabled
+        if "auto_backup_interval_hours" in fields_set:
+            v = request.auto_backup_interval_hours
+            settings["auto_backup_interval_hours"] = (
+                None if v is None else max(1, min(int(v), 168))
+            )
+        if "auto_backup_keep" in fields_set:
+            v = request.auto_backup_keep
+            settings["auto_backup_keep"] = (
+                None if v is None else max(1, min(int(v), 30))
+            )
 
         # 校验时区格式
         if request.timezone and "timezone" in fields_set:
@@ -490,8 +566,8 @@ async def save_global_settings(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to save global settings: write failed",
             )
-        # 时区变更时同步调度器（后台执行，不阻塞响应）
-        if "timezone" in settings:
+        # 时区/自动备份变更时同步调度器（后台执行，不阻塞响应）
+        if "timezone" in settings or "auto_backup_enabled" in settings or "auto_backup_interval_hours" in settings:
             import asyncio
 
             from backend.scheduler import sync_jobs
@@ -501,7 +577,7 @@ async def save_global_settings(
                     await sync_jobs()
                 except Exception as e:
                     import logging
-                    logging.getLogger("backend.config_api").warning(f"时区变更调度同步失败: {e}")
+                    logging.getLogger("backend.config_api").warning(f"设置变更调度同步失败: {e}")
             asyncio.ensure_future(_safe_tz_sync())
         return AIConfigSaveResponse(success=True, message="Global settings saved")
     except HTTPException:
@@ -538,6 +614,74 @@ async def run_device_keepalive(current_user: User = Depends(get_current_user)):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"设备保活失败: {str(e)}",
+        )
+
+
+class BotTestRequest(BaseModel):
+    message: Optional[str] = None
+
+
+class BotTestResponse(BaseModel):
+    success: bool
+    message: str
+
+
+@router.post("/bot/test", response_model=BotTestResponse)
+async def test_bot_notification(
+    request: BotTestRequest = BotTestRequest(),
+    current_user: User = Depends(get_current_user),
+):
+    """使用已保存的 Bot 配置发送测试消息。"""
+    cfg = get_config_service().get_global_settings()
+    bot_token = (cfg.get("telegram_bot_token") or "").strip()
+    chat_id = (cfg.get("telegram_bot_chat_id") or "").strip()
+    if not bot_token or not chat_id:
+        return BotTestResponse(success=False, message="未配置 Bot Token 或 Chat ID")
+    text = (request.message or "TG-SignPulse 通知测试：连接正常").strip()
+    try:
+        from backend.services.push_notifications import send_telegram_bot_message
+
+        thread_id = cfg.get("telegram_bot_message_thread_id")
+        try:
+            thread_id = int(thread_id) if thread_id not in (None, "") else None
+        except (TypeError, ValueError):
+            thread_id = None
+        await send_telegram_bot_message(
+            bot_token=bot_token,
+            chat_id=chat_id,
+            text=text,
+            message_thread_id=thread_id,
+        )
+        return BotTestResponse(success=True, message="测试消息已发送")
+    except Exception as e:
+        return BotTestResponse(success=False, message=f"发送失败: {e}")
+
+
+class ImportPreviewRequest(BaseModel):
+    config_json: str
+
+
+class ImportPreviewResponse(BaseModel):
+    signs_count: int = 0
+    monitors_count: int = 0
+    settings_keys: list[str] = Field(default_factory=list)
+    conflicts: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+
+
+@router.post("/import-preview", response_model=ImportPreviewResponse)
+def import_preview(
+    request: ImportPreviewRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """预览配置导入，不写盘。"""
+    try:
+        result = get_config_service().preview_import_all(request.config_json)
+        return ImportPreviewResponse(**result)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"导入预览失败: {e}",
         )
 
 

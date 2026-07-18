@@ -142,9 +142,7 @@ class SignTaskService:
         self._tasks_list_ttl = TTLCache(maxsize=2, ttl=max(list_ttl, 1.0))
         self._account_locks: Dict[str, asyncio.Lock] = {}  # 账号锁
         self._account_last_run_end: Dict[str, float] = {}  # 账号最后一次结束时间
-        self._account_cooldown_seconds = int(
-            os.getenv("SIGN_TASK_ACCOUNT_COOLDOWN", "5")
-        )
+        # 冷却/历史天数通过 property 读 runtime_settings（面板可覆盖 env）
         self._history_max_entries = self._read_positive_int_env(
             "SIGN_TASK_HISTORY_MAX_ENTRIES", 100, 10
         )
@@ -154,11 +152,20 @@ class SignTaskService:
         self._history_max_line_chars = self._read_positive_int_env(
             "SIGN_TASK_HISTORY_MAX_LINE_CHARS", 2000, 80
         )
-        self._history_max_age_days = self._read_positive_int_env(
-            "SIGN_TASK_HISTORY_MAX_AGE_DAYS", 3, 1
-        )
         self._max_account_last_run_entries = 100  # Bound account tracking
         self._cleanup_old_logs()
+
+    @property
+    def _account_cooldown_seconds(self) -> int:
+        from backend.services.runtime_settings import get_account_cooldown
+
+        return get_account_cooldown()
+
+    @property
+    def _history_max_age_days(self) -> int:
+        from backend.services.runtime_settings import get_history_max_age_days
+
+        return get_history_max_age_days()
 
     def _prune_stale_entries(self) -> None:
         """Remove stale entries from internal tracking dicts to prevent memory growth."""
@@ -1293,6 +1300,13 @@ class SignTaskService:
                 return
             if not cfg.get("telegram_bot_task_failure_enabled", True):
                 return
+            from backend.services.push_notifications import (
+                is_in_quiet_hours,
+                send_telegram_bot_message,
+            )
+
+            if is_in_quiet_hours(cfg):
+                return
             bot_token = (cfg.get("telegram_bot_token") or "").strip()
             chat_id = (cfg.get("telegram_bot_chat_id") or "").strip()
             if not bot_token or not chat_id:
@@ -1318,7 +1332,6 @@ class SignTaskService:
                 text += f"\nLast target message: {last_target_message}"
             if log_tail:
                 text += f"\n\n最近日志:\n{log_tail}"
-            from backend.services.push_notifications import send_telegram_bot_message
 
             await send_telegram_bot_message(
                 bot_token=bot_token,
@@ -1329,6 +1342,28 @@ class SignTaskService:
         except Exception as e:
             logging.getLogger("backend.sign_tasks").warning(
                 "Failed to send Telegram failure notification: %s", e
+            )
+
+    async def _send_success_notification(
+        self,
+        account_name: str,
+        task_name: str,
+        message: str = "",
+    ) -> None:
+        try:
+            from backend.services.config import get_config_service
+            from backend.services.push_notifications import send_task_success_notification
+
+            cfg = get_config_service().get_global_settings()
+            await send_task_success_notification(
+                cfg,
+                account_name=account_name,
+                task_name=task_name,
+                message=message or "",
+            )
+        except Exception as e:
+            logging.getLogger("backend.sign_tasks").warning(
+                "Failed to send Telegram success notification: %s", e
             )
 
     async def _send_account_invalid_notification(
@@ -1739,6 +1774,40 @@ class SignTaskService:
         if task is None:
             raise ValueError(f"任务 {task_name} 创建后无法读取")
         return task
+
+    def clone_task(
+        self,
+        task_name: str,
+        new_name: str,
+        account_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """克隆签到任务为新名称（清除运行态字段）。"""
+        new_name = validate_storage_name(new_name, field_name="new_name")
+        src = self.get_task(task_name, account_name=account_name)
+        if not src:
+            raise ValueError("源任务不存在")
+        if self.get_task(new_name, account_name=account_name):
+            raise ValueError("目标任务名已存在")
+
+        chats = src.get("chats") or []
+        account_names = src.get("account_names") or []
+        primary = account_name or src.get("account_name") or (
+            account_names[0] if account_names else ""
+        )
+        return self.create_task(
+            task_name=new_name,
+            sign_at=src.get("sign_at") or "08:00",
+            chats=list(chats),
+            random_seconds=int(src.get("random_seconds") or 0),
+            sign_interval=src.get("sign_interval"),
+            account_name=str(primary or ""),
+            account_names=list(account_names) if account_names else [str(primary)],
+            execution_mode=str(src.get("execution_mode") or "fixed"),
+            range_start=str(src.get("range_start") or ""),
+            range_end=str(src.get("range_end") or ""),
+            notify_on_failure=bool(src.get("notify_on_failure", True)),
+            retry_count=src.get("retry_count"),
+        )
 
     def update_task(
         self,
@@ -2745,9 +2814,9 @@ class SignTaskService:
                     _task_retry_count_var.set(task_retry_count)
 
                     # 执行任务（数据库锁冲突时重试，带超时保护）
-                    task_timeout = float(
-                        os.getenv("SIGN_TASK_EXECUTION_TIMEOUT", "300")
-                    )
+                    from backend.services.runtime_settings import get_execution_timeout
+
+                    task_timeout = float(get_execution_timeout())
                     async with get_global_semaphore():
                         max_retries = 5
                         for attempt in range(max_retries):
@@ -2916,6 +2985,12 @@ class SignTaskService:
                         error_msg or msg,
                         last_target_message=last_target_message or None,
                         flow_logs=final_logs,
+                    )
+                elif success:
+                    await self._send_success_notification(
+                        account_name,
+                        task_name,
+                        message=str(msg or last_reply or ""),
                     )
             finally:
                 self._active_tasks[task_key] = False
