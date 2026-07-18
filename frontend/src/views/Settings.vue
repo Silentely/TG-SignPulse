@@ -704,14 +704,18 @@ const handleBackupExport = async () => {
   }
   backupLoading.value = true
   try {
+    // 服务端读已落盘配置：上传前先保存 WebDAV/备份相关字段
+    await saveGlobalSettings(token, buildAdvancedPayload())
+    markSectionClean('advanced')
     const res = await exportBackupArchive(token)
     if (res.mode === 'webdav') {
       notifySuccess(
-        res.remote_url
-          ? `${t('settings.backupWebdavSuccess')}: ${res.filename || ''}`
+        res.filename
+          ? `${t('settings.backupWebdavSuccess')}: ${res.filename}`
           : t('settings.backupWebdavSuccess'),
       )
     } else {
+      // 服务端未读到 WebDAV（配置异常）时的兼容回退
       notifySuccess(t('settings.backupExportSuccess'))
     }
   } catch (e: unknown) {

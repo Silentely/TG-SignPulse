@@ -42,6 +42,10 @@ class TestAdvancedSettingsApi:
             "auto_backup_enabled",
             "auto_backup_interval_hours",
             "auto_backup_keep",
+            "webdav_url",
+            "webdav_username",
+            "webdav_password",
+            "webdav_remote_dir",
         ):
             assert key in body, f"missing key {key}"
 
@@ -402,3 +406,156 @@ class TestCloneSignTask:
                 notify_on_success=True,
             )
             assert updated.get("notify_on_success") is True
+
+
+class TestWebdavBackupChain:
+    """WebDAV 配置落盘 → 备份上传 / 测试连通 链路。"""
+
+    @pytest.fixture(autouse=True)
+    def _reset_config_service(self, isolated_env, client):
+        """ConfigService 单例绑定 workdir，测试间强制重建避免串配置。"""
+        import backend.services.config as config_mod
+
+        config_mod._config_service = None
+        yield
+        config_mod._config_service = None
+
+    def test_webdav_settings_roundtrip(self, client, db_session):
+        resp = client.post(
+            "/api/config/settings",
+            json={
+                "webdav_url": "https://dav.example.com/remote.php/dav/files/u",
+                "webdav_username": "user1",
+                "webdav_password": "secret",
+                "webdav_remote_dir": "my-backups",
+            },
+            headers=_auth_headers(),
+        )
+        assert resp.status_code == 200
+        got = client.get("/api/config/settings", headers=_auth_headers()).json()
+        assert got["webdav_url"] == "https://dav.example.com/remote.php/dav/files/u"
+        assert got["webdav_username"] == "user1"
+        assert got["webdav_password"] == "secret"
+        assert got["webdav_remote_dir"] == "my-backups"
+
+    def test_webdav_password_empty_keeps_existing(self, client, db_session):
+        client.post(
+            "/api/config/settings",
+            json={
+                "webdav_url": "https://dav.example.com/files/u",
+                "webdav_username": "u",
+                "webdav_password": "keep-me",
+            },
+            headers=_auth_headers(),
+        )
+        # 不传 password 字段 → 不覆盖
+        client.post(
+            "/api/config/settings",
+            json={"webdav_username": "u2"},
+            headers=_auth_headers(),
+        )
+        got = client.get("/api/config/settings", headers=_auth_headers()).json()
+        assert got["webdav_password"] == "keep-me"
+        assert got["webdav_username"] == "u2"
+
+    def test_backup_export_uploads_when_webdav_configured(
+        self, client, db_session, isolated_env
+    ):
+        client.post(
+            "/api/config/settings",
+            json={
+                "webdav_url": "https://dav.example.com/dav/files/u",
+                "webdav_username": "u",
+                "webdav_password": "p",
+                "webdav_remote_dir": "tg-backups",
+            },
+            headers=_auth_headers(),
+        )
+
+        def _fake_tarball(data_dir, dest, paths):
+            Path(dest).write_bytes(b"fake-tar-gz")
+            return Path(dest)
+
+        with patch(
+            "backend.services.backup_archive.create_backup_tarball",
+            side_effect=_fake_tarball,
+        ), patch(
+            "backend.services.webdav_client.upload_file_to_webdav",
+            return_value={
+                "success": True,
+                "remote_url": "https://dav.example.com/x.tar.gz",
+                "filename": "x.tar.gz",
+                "size_bytes": 11,
+            },
+        ) as upload_m:
+            resp = client.post("/api/ops/backup/export", headers=_auth_headers())
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["success"] is True
+        assert body.get("remote_url")
+        upload_m.assert_called_once()
+
+    def test_backup_export_requires_files_without_webdav(
+        self, client, db_session, isolated_env
+    ):
+        # 空数据目录且无 WebDAV → 400 无文件
+        with patch(
+            "backend.services.backup_archive.create_backup_tarball",
+            side_effect=ValueError("没有可备份的文件"),
+        ):
+            resp = client.post("/api/ops/backup/export", headers=_auth_headers())
+        assert resp.status_code == 400
+        assert "备份" in resp.json().get("detail", "") or "文件" in resp.json().get(
+            "detail", ""
+        )
+
+    def test_webdav_test_endpoint_uses_saved_config(self, client, db_session):
+        client.post(
+            "/api/config/settings",
+            json={
+                "webdav_url": "https://dav.example.com/dav",
+                "webdav_username": "u",
+                "webdav_password": "p",
+            },
+            headers=_auth_headers(),
+        )
+        with patch(
+            "backend.services.webdav_client.test_webdav_connection",
+            return_value={"success": True, "message": "ok", "status_code": 207},
+        ):
+            resp = client.post(
+                "/api/ops/backup/webdav/test",
+                headers=_auth_headers(),
+            )
+        assert resp.status_code == 200
+        assert resp.json()["success"] is True
+
+    def test_auto_backup_uploads_webdav(self, tmp_path: Path):
+        from backend.services.backup_archive import run_auto_backup
+
+        data = tmp_path / "data"
+        data.mkdir()
+        (data / ".global_settings.json").write_text("{}", encoding="utf-8")
+
+        with patch(
+            "backend.services.webdav_client.upload_file_to_webdav",
+            return_value={
+                "success": True,
+                "remote_url": "https://x/a.tar.gz",
+                "filename": "a.tar.gz",
+                "size_bytes": 3,
+            },
+        ) as m:
+            result = run_auto_backup(
+                data,
+                keep=2,
+                webdav_settings={
+                    "webdav_url": "https://dav.example.com/dav",
+                    "webdav_username": "u",
+                    "webdav_password": "p",
+                    "webdav_remote_dir": "bk",
+                },
+            )
+        assert result["success"] is True
+        assert result["webdav"]["success"] is True
+        m.assert_called_once()
