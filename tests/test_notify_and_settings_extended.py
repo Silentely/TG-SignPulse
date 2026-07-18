@@ -493,7 +493,14 @@ class TestWebdavBackupChain:
         body = resp.json()
         assert body["success"] is True
         assert body.get("remote_url")
+        assert body.get("filename") == "x.tar.gz"
         upload_m.assert_called_once()
+        # 必须使用已落盘配置，而非请求体
+        call_kw = upload_m.call_args.kwargs
+        assert call_kw["base_url"] == "https://dav.example.com/dav/files/u"
+        assert call_kw["username"] == "u"
+        assert call_kw["password"] == "p"
+        assert call_kw["remote_dir"] == "tg-backups"
 
     def test_backup_export_requires_files_without_webdav(
         self, client, db_session, isolated_env
@@ -516,25 +523,32 @@ class TestWebdavBackupChain:
                 "webdav_url": "https://dav.example.com/dav",
                 "webdav_username": "u",
                 "webdav_password": "p",
+                "webdav_remote_dir": "nested/dir",
             },
             headers=_auth_headers(),
         )
         with patch(
             "backend.services.webdav_client.test_webdav_connection",
             return_value={"success": True, "message": "ok", "status_code": 207},
-        ):
+        ) as test_m:
             resp = client.post(
                 "/api/ops/backup/webdav/test",
                 headers=_auth_headers(),
             )
         assert resp.status_code == 200
         assert resp.json()["success"] is True
+        test_m.assert_called_once()
+        kw = test_m.call_args.kwargs
+        assert kw["base_url"] == "https://dav.example.com/dav"
+        assert kw["username"] == "u"
+        assert kw["password"] == "p"
+        assert kw["remote_dir"] == "nested/dir"
 
-    def test_auto_backup_uploads_webdav(self, tmp_path: Path):
+    def test_auto_backup_uploads_webdav(self, isolated_env: Path):
+        """纯 unit：复用 isolated_env 数据目录，避免与 autouse 抢建 tmp_path/data。"""
         from backend.services.backup_archive import run_auto_backup
 
-        data = tmp_path / "data"
-        data.mkdir()
+        data = isolated_env
         (data / ".global_settings.json").write_text("{}", encoding="utf-8")
 
         with patch(
@@ -559,3 +573,5 @@ class TestWebdavBackupChain:
         assert result["success"] is True
         assert result["webdav"]["success"] is True
         m.assert_called_once()
+        assert m.call_args.kwargs["remote_dir"] == "bk"
+        assert m.call_args.kwargs["username"] == "u"
