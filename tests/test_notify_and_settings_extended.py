@@ -665,26 +665,27 @@ class TestWebdavBackupChain:
         assert "local_auto_backups" in body
 
     def test_bot_token_masked_on_get_and_empty_keeps(self, client, db_session):
-        client.post(
+        unique_token = "123456:AAAsecret-bot-mask-test"
+        resp = client.post(
             "/api/config/settings",
-            json={"telegram_bot_token": "123456:AAAsecret"},
+            json={"telegram_bot_token": unique_token},
             headers=_auth_headers(),
         )
+        assert resp.status_code == 200
         got = client.get("/api/config/settings", headers=_auth_headers()).json()
         assert got.get("telegram_bot_token") in (None, "")
         assert got.get("telegram_bot_token_set") is True
         # 不传 token → 保留
-        client.post(
+        resp2 = client.post(
             "/api/config/settings",
             json={"telegram_bot_chat_id": "-1001"},
             headers=_auth_headers(),
         )
+        assert resp2.status_code == 200
         from backend.services.config import get_config_service
 
-        assert (
-            get_config_service().get_global_settings()["telegram_bot_token"]
-            == "123456:AAAsecret"
-        )
+        stored = get_config_service().get_global_settings()["telegram_bot_token"]
+        assert stored == unique_token
 
     def test_export_masks_webdav_and_bot_secrets(self, client, db_session, isolated_env):
         client.post(
@@ -767,14 +768,13 @@ class TestWebdavBackupChain:
             headers=_auth_headers(),
         )
 
-        def _fake_dl(**kwargs):
-            p = Path(kwargs["dest_path"])
-            p.write_bytes(b"gzip-bytes")
-            return p
+        def _fake_iter(**kwargs):
+            yield b"gzip-"
+            yield b"bytes"
 
         with patch(
-            "backend.services.webdav_client.download_webdav_file",
-            side_effect=_fake_dl,
+            "backend.services.webdav_client.iter_webdav_file",
+            side_effect=lambda **kw: _fake_iter(**kw),
         ):
             resp = client.get(
                 "/api/ops/backup/webdav/download",
@@ -825,10 +825,11 @@ async def test_auto_backup_failure_notification_sends():
         "backend.services.push_notifications.send_telegram_bot_message",
         new_callable=AsyncMock,
     ) as m:
+        # 不依赖 task_failure 开关（运维事件独立）
         await send_auto_backup_failure_notification(
             {
                 "telegram_bot_notify_enabled": True,
-                "telegram_bot_task_failure_enabled": True,
+                "telegram_bot_task_failure_enabled": False,
                 "telegram_bot_token": "1:t",
                 "telegram_bot_chat_id": "2",
                 "telegram_bot_quiet_hours_enabled": False,

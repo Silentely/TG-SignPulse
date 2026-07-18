@@ -8,11 +8,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from backend.services.webdav_client import (
+    _backup_sort_key,
     _ensure_remote_dirs,
     _join_url,
     _parse_propfind_entries,
     delete_webdav_file,
     download_webdav_file,
+    iter_webdav_file,
     list_webdav_files,
     prune_webdav_backups,
     upload_file_to_webdav,
@@ -250,7 +252,7 @@ def test_download_webdav_file(tmp_path: Path):
 
 def test_prune_webdav_backups_keeps_n():
     files = [
-        {"name": f"auto-{i}.tar.gz", "mtime": f"2025-01-0{i}"}
+        {"name": f"auto-{i}.tar.gz", "mtime": f"Wed, 0{i} Jan 2025 12:00:00 GMT"}
         for i in range(5, 0, -1)
     ]
     with patch(
@@ -270,3 +272,41 @@ def test_prune_webdav_backups_keeps_n():
     assert r["removed"] == 3
     assert r["kept"] == 2
     assert del_m.call_count == 3
+
+
+def test_backup_sort_key_prefers_http_date_and_filename_ts():
+    newer = _backup_sort_key(
+        {"name": "x.tar.gz", "mtime": "Thu, 02 Jan 2025 12:00:00 GMT"}
+    )
+    older = _backup_sort_key(
+        {"name": "y.tar.gz", "mtime": "Wed, 01 Jan 2025 12:00:00 GMT"}
+    )
+    assert newer > older
+    by_name = _backup_sort_key({"name": "auto-20260102-010203.tar.gz", "mtime": ""})
+    by_name_old = _backup_sort_key(
+        {"name": "auto-20260101-010203.tar.gz", "mtime": ""}
+    )
+    assert by_name > by_name_old
+
+
+def test_iter_webdav_file_yields_chunks():
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.iter_bytes = MagicMock(return_value=[b"aa", b"bb"])
+    mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+    mock_resp.__exit__ = MagicMock(return_value=False)
+    mock_client = MagicMock()
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=False)
+    mock_client.stream.return_value = mock_resp
+    with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client):
+        data = b"".join(
+            iter_webdav_file(
+                base_url="https://dav.example.com/files/u",
+                username="u",
+                password="p",
+                remote_dir="bk",
+                filename="auto-1.tar.gz",
+            )
+        )
+    assert data == b"aabb"

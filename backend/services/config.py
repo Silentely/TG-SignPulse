@@ -23,8 +23,6 @@ from backend.utils.storage import (
     save_data_dir_override,
 )
 
-settings = get_settings()
-
 
 class ConfigService:
     """配置管理服务类"""
@@ -70,13 +68,44 @@ class ConfigService:
                 return False
 
     def __init__(self):
-        self.workdir = settings.resolve_workdir()
-        self.signs_dir = self.workdir / "signs"
-        self.monitors_dir = self.workdir / "monitors"
+        # 路径一律经 _ensure_paths / 属性解析，避免单例绑定过期 workdir
+        self._workdir: Optional[Path] = None
+        self._signs_dir: Optional[Path] = None
+        self._monitors_dir: Optional[Path] = None
+        self._ensure_paths()
 
-        # 确保目录存在
-        self.signs_dir.mkdir(parents=True, exist_ok=True)
-        self.monitors_dir.mkdir(parents=True, exist_ok=True)
+    def _ensure_paths(self) -> None:
+        """按当前环境同步 workdir（测试会切换 APP_DATA_DIR；get_settings 有缓存）。"""
+        # 若 env 中的 APP_DATA_DIR 与缓存不一致则清缓存（仅测试热切换场景）
+        env_data = (os.environ.get("APP_DATA_DIR") or "").strip()
+        cached = get_settings()
+        if env_data and str(cached.data_dir) != env_data:
+            get_settings.cache_clear()
+        workdir = get_settings().resolve_workdir()
+        if self._workdir != workdir:
+            self._workdir = workdir
+            self._signs_dir = workdir / "signs"
+            self._monitors_dir = workdir / "monitors"
+            self._signs_dir.mkdir(parents=True, exist_ok=True)
+            self._monitors_dir.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def workdir(self) -> Path:
+        self._ensure_paths()
+        assert self._workdir is not None
+        return self._workdir
+
+    @property
+    def signs_dir(self) -> Path:
+        self._ensure_paths()
+        assert self._signs_dir is not None
+        return self._signs_dir
+
+    @property
+    def monitors_dir(self) -> Path:
+        self._ensure_paths()
+        assert self._monitors_dir is not None
+        return self._monitors_dir
 
     def list_sign_tasks(self) -> List[str]:
         """获取所有签到任务名称列表"""
@@ -988,4 +1017,7 @@ def get_config_service() -> ConfigService:
     global _config_service
     if _config_service is None:
         _config_service = ConfigService()
+    else:
+        # 环境数据目录变更时重建，避免单例绑定旧 workdir
+        _config_service._ensure_paths()
     return _config_service

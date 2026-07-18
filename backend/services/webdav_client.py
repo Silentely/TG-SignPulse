@@ -5,8 +5,10 @@ from __future__ import annotations
 import logging
 import re
 import xml.etree.ElementTree as ET
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
-from typing import Any, List, Optional, Union
+from typing import Any, Iterator, List, Optional, Union
 from urllib.parse import quote, unquote, urljoin, urlparse
 
 import httpx
@@ -269,11 +271,8 @@ def list_webdav_files(
                 for e in entries
                 if str(e.get("name") or "").lower().endswith(suffix)
             ]
-        # 按 mtime 字符串倒序（HTTP-date 可字典序近似）；无 mtime 则按名
-        entries.sort(
-            key=lambda e: (e.get("mtime") or "", e.get("name") or ""),
-            reverse=True,
-        )
+        # 优先解析 HTTP-date；失败则回退文件名中的时间戳片段
+        entries.sort(key=_backup_sort_key, reverse=True)
         files: List[dict[str, Any]] = entries[:limit]
         return {
             "success": True,
@@ -282,6 +281,34 @@ def list_webdav_files(
             "status_code": resp.status_code,
             "total_matched": len(entries),
         }
+
+
+def _parse_mtime_key(mtime: Optional[str], name: str) -> tuple:
+    """生成排序键：(epoch, name)，越大越新。"""
+    epoch = 0.0
+    raw = (mtime or "").strip()
+    if raw:
+        try:
+            dt = parsedate_to_datetime(raw)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            epoch = dt.timestamp()
+        except (TypeError, ValueError, IndexError, OverflowError):
+            epoch = 0.0
+    if epoch <= 0:
+        # auto-YYYYMMDD-HHMMSS / tg-signpulse-backup-YYYYMMDD-HHMMSS
+        m = re.search(r"(20\d{6})-(\d{6})", name or "")
+        if m:
+            try:
+                dt = datetime.strptime(m.group(1) + m.group(2), "%Y%m%d%H%M%S")
+                epoch = dt.replace(tzinfo=timezone.utc).timestamp()
+            except ValueError:
+                epoch = 0.0
+    return (epoch, name or "")
+
+
+def _backup_sort_key(entry: dict) -> tuple:
+    return _parse_mtime_key(entry.get("mtime"), str(entry.get("name") or ""))
 
 
 def delete_webdav_file(
@@ -313,6 +340,17 @@ def delete_webdav_file(
     return {"success": True, "filename": name, "status_code": resp.status_code}
 
 
+def _webdav_file_url(
+    base_url: str, remote_dir: str, filename: str
+) -> tuple[str, str, str]:
+    """返回 (base, safe_name, file_url)。"""
+    base = validate_webdav_url(base_url)
+    name = validate_backup_filename(filename)
+    dir_rel = (remote_dir or "").strip().strip("/")
+    file_url = _join_url(base, dir_rel, name) if dir_rel else _join_url(base, name)
+    return base, name, file_url
+
+
 def download_webdav_file(
     *,
     base_url: str,
@@ -324,13 +362,10 @@ def download_webdav_file(
     timeout: Optional[Union[float, httpx.Timeout]] = None,
 ) -> Path:
     """从 WebDAV 流式下载备份到本地 dest_path。"""
-    base = validate_webdav_url(base_url)
     user = (username or "").strip()
     if not user:
         raise ValueError("WebDAV 用户名不能为空")
-    name = validate_backup_filename(filename)
-    dir_rel = (remote_dir or "").strip().strip("/")
-    file_url = _join_url(base, dir_rel, name) if dir_rel else _join_url(base, name)
+    _, name, file_url = _webdav_file_url(base_url, remote_dir, filename)
     auth = (user, password or "")
     req_timeout = timeout if timeout is not None else _DEFAULT_UPLOAD_TIMEOUT
     dest_path = Path(dest_path)
@@ -358,6 +393,53 @@ def download_webdav_file(
             pass
         raise RuntimeError("WebDAV 下载结果为空")
     return dest_path
+
+
+def iter_webdav_file(
+    *,
+    base_url: str,
+    username: str,
+    password: str,
+    remote_dir: str,
+    filename: str,
+    timeout: Optional[Union[float, httpx.Timeout]] = None,
+    chunk_size: int = 64 * 1024,
+) -> Iterator[bytes]:
+    """
+    流式读取远端备份内容（不落本地临时整包）。
+
+    调用方必须完整消费迭代器，以便关闭 HTTP 连接。
+    """
+    user = (username or "").strip()
+    if not user:
+        raise ValueError("WebDAV 用户名不能为空")
+    _, _name, file_url = _webdav_file_url(base_url, remote_dir, filename)
+    auth = (user, password or "")
+    req_timeout = timeout if timeout is not None else _DEFAULT_UPLOAD_TIMEOUT
+
+    client = httpx.Client(timeout=req_timeout, auth=auth, follow_redirects=True)
+    try:
+        with client.stream("GET", file_url) as resp:
+            if resp.status_code != 200:
+                detail = ""
+                try:
+                    detail = (resp.read() or b"")[:200].decode(
+                        "utf-8", errors="replace"
+                    )
+                except Exception:
+                    detail = resp.reason_phrase or ""
+                raise RuntimeError(
+                    f"WebDAV 下载失败 HTTP {resp.status_code}: {detail}"
+                )
+            got_any = False
+            for chunk in resp.iter_bytes(chunk_size=chunk_size):
+                if chunk:
+                    got_any = True
+                    yield chunk
+            if not got_any:
+                raise RuntimeError("WebDAV 下载结果为空")
+    finally:
+        client.close()
 
 
 def prune_webdav_backups(

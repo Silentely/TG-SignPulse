@@ -229,14 +229,10 @@ async def send_auto_backup_failure_notification(
 ) -> None:
     """自动备份失败时的 Bot 通知（打包失败或 WebDAV 上传失败）。
 
-    复用总开关 telegram_bot_notify_enabled；任务失败开关开启时更积极通知。
-    静默时段跳过。
+    仅依赖通知总开关 + 已配置 Token/Chat；不绑定任务失败开关
+    （备份是运维事件，与签到任务失败相互独立）。静默时段仍跳过。
     """
     if not settings.get("telegram_bot_notify_enabled"):
-        return
-    # 未单独配置「任务失败」时也允许通知（运维类事件）
-    # 若显式关闭失败通知则跳过
-    if settings.get("telegram_bot_task_failure_enabled") is False:
         return
     if is_in_quiet_hours(settings):
         return

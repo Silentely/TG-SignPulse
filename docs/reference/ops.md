@@ -26,9 +26,10 @@
 2. **上传备份到 WebDAV** 会先落盘当前表单配置，再打包并上传（避免未保存导致用旧配置）。
 3. `GET /api/config/settings` **不回传** WebDAV 密码与 Bot Token 明文，仅 `*_set=true/false`；空字段表示「不修改」。
 4. 配置 JSON 导出会脱敏 AI key / WebDAV 密码 / Bot Token；导入时占位符不覆盖现有密钥。
-5. 开启自动备份后：WebDAV 上传成功会删本地副本，并按 `auto_backup_keep` **清理远端旧包**；失败则保留本地并 **Bot 通知**（总开关开启且未关闭任务失败通知）。
-6. 远端列表支持 **下载** 到本机；恢复请停服后解压覆盖 `APP_DATA_DIR`，面板不做在线热恢复。
-7. `GET /api/ops/backup/status` 含 `webdav_configured`、`auto_backup_enabled`、最近本地自动备份列表。
+5. 开启自动备份后：WebDAV 上传成功会删本地副本，并按 `auto_backup_keep` **清理远端旧包**；失败则保留本地并 **Bot 通知**（仅需通知总开关 + Token/Chat，与任务失败开关独立）。
+6. 远端列表支持 **流式下载** 到本机；恢复请停服后解压覆盖 `APP_DATA_DIR`，面板不做在线热恢复。
+7. 配置 JSON 导入时脱敏占位不会覆盖现有密钥，需在目标环境重新填写 WebDAV 密码 / Bot Token / AI Key。
+8. `GET /api/ops/backup/status` 含 `webdav_configured`、`auto_backup_enabled`、最近本地自动备份列表。
 | `POST /api/batch/sign-tasks` | 新版签到任务批量 enable/disable/delete/run |
 | `GET /api/events/sign-history?token=` | 签到历史 SSE（Dashboard 实时流，token 查询参数） |
 
