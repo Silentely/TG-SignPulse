@@ -70,6 +70,16 @@ describe('settings-form', () => {
     expect(p.telegram_bot_notify_enabled).toBe(true)
   })
 
+  it('buildBotPayload omits empty token (keep server value)', () => {
+    const s = baseSettings()
+    s.botToken = ''
+    const p = buildBotPayload(s) as Record<string, unknown>
+    expect('telegram_bot_token' in p).toBe(false)
+    s.botToken = '123:ABC'
+    const p2 = buildBotPayload(s) as Record<string, unknown>
+    expect(p2.telegram_bot_token).toBe('123:ABC')
+  })
+
   it('buildAdvancedPayload nulls empty numbers', () => {
     const p = buildAdvancedPayload(baseSettings())
     expect(p.sign_task_execution_timeout).toBeNull()

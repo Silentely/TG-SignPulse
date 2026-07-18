@@ -431,6 +431,7 @@ class GlobalSettingsResponse(BaseModel):
     telegram_bot_quiet_hours_start: Optional[str] = "23:00"
     telegram_bot_quiet_hours_end: Optional[str] = "07:00"
     telegram_bot_token: Optional[str] = None
+    telegram_bot_token_set: bool = False
     telegram_bot_chat_id: Optional[str] = None
     telegram_bot_message_thread_id: Optional[int] = None
     timezone: str = "Asia/Hong_Kong"
@@ -457,12 +458,17 @@ def get_global_settings(current_user: User = Depends(get_current_user)):
         settings = dict(get_config_service().get_global_settings())
         from backend.core.config import get_settings
         settings.setdefault("timezone", get_settings().timezone)
-        # 脱敏：API 响应不暴露 WebDAV 密码明文
+        # 脱敏：API 响应不暴露 WebDAV 密码 / Bot Token 明文
         raw_pwd = settings.get("webdav_password")
         settings["webdav_password_set"] = bool(
             raw_pwd is not None and str(raw_pwd).strip() != ""
         )
         settings["webdav_password"] = None
+        raw_token = settings.get("telegram_bot_token")
+        settings["telegram_bot_token_set"] = bool(
+            raw_token is not None and str(raw_token).strip() != ""
+        )
+        settings["telegram_bot_token"] = None
         return GlobalSettingsResponse(**settings)
     except Exception as e:
         raise HTTPException(
@@ -512,7 +518,10 @@ async def save_global_settings(
         if "telegram_bot_quiet_hours_end" in fields_set:
             settings["telegram_bot_quiet_hours_end"] = request.telegram_bot_quiet_hours_end
         if "telegram_bot_token" in fields_set:
-            settings["telegram_bot_token"] = request.telegram_bot_token
+            # 空字符串表示不修改已有 Token（与 webdav_password 一致）
+            tok = request.telegram_bot_token
+            if tok is not None and str(tok).strip() != "":
+                settings["telegram_bot_token"] = str(tok).strip()
         if "telegram_bot_chat_id" in fields_set:
             settings["telegram_bot_chat_id"] = request.telegram_bot_chat_id
         if "telegram_bot_message_thread_id" in fields_set:

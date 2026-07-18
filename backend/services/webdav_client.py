@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import logging
+import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Optional, Union
-from urllib.parse import quote, urljoin, urlparse
+from typing import Any, List, Optional, Union
+from urllib.parse import quote, unquote, urljoin, urlparse
 
 import httpx
 
@@ -14,6 +15,13 @@ logger = logging.getLogger("backend.webdav")
 # 备份包可能较大：连接短超时，读写长超时
 _DEFAULT_UPLOAD_TIMEOUT = httpx.Timeout(30.0, read=600.0, write=600.0, pool=30.0)
 _MKCOL_OK = frozenset({201, 200, 405, 409, 301, 302})
+_DAV_NS = {"d": "DAV:"}
+_PROPFIND_PROP = (
+    b'<?xml version="1.0" encoding="utf-8"?>'
+    b'<d:propfind xmlns:d="DAV:">'
+    b"<d:prop><d:displayname/><d:getcontentlength/><d:getlastmodified/>"
+    b"<d:resourcetype/></d:prop></d:propfind>"
+)
 
 
 def _join_url(base: str, *parts: str) -> str:
@@ -121,6 +129,145 @@ def upload_file_to_webdav(
     }
 
 
+def _local_name(tag: str) -> str:
+    if "}" in tag:
+        return tag.rsplit("}", 1)[-1]
+    return tag
+
+
+def _parse_propfind_entries(xml_text: str, base_url: str) -> List[dict]:
+    """解析 PROPFIND multistatus，返回文件条目（跳过集合目录自身）。"""
+    entries: List[dict] = []
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as exc:
+        raise RuntimeError(f"WebDAV 列表响应无法解析: {exc}") from exc
+
+    base_path = urlparse(base_url.rstrip("/") + "/").path.rstrip("/")
+
+    for resp_el in root.iter():
+        if _local_name(resp_el.tag) != "response":
+            continue
+        href = ""
+        size: Optional[int] = None
+        mtime = ""
+        is_collection = False
+        displayname = ""
+        for child in resp_el.iter():
+            ln = _local_name(child.tag)
+            if ln == "href" and child.text and not href:
+                href = child.text.strip()
+            elif ln == "getcontentlength" and child.text:
+                try:
+                    size = int(child.text.strip())
+                except ValueError:
+                    size = None
+            elif ln == "getlastmodified" and child.text:
+                mtime = child.text.strip()
+            elif ln == "displayname" and child.text:
+                displayname = child.text.strip()
+            elif ln == "collection":
+                is_collection = True
+        if not href or is_collection:
+            continue
+        # 解析文件名
+        path = urlparse(href).path if "://" in href else href
+        path = unquote(path.rstrip("/"))
+        name = path.rsplit("/", 1)[-1] if path else ""
+        if not name:
+            name = displayname
+        if not name:
+            continue
+        # 跳过目录本身（href 恰好等于目标目录）
+        if path.rstrip("/") == base_path:
+            continue
+        entries.append(
+            {
+                "name": name,
+                "href": href,
+                "size_bytes": size,
+                "mtime": mtime or None,
+            }
+        )
+    return entries
+
+
+def list_webdav_files(
+    *,
+    base_url: str,
+    username: str,
+    password: str,
+    remote_dir: str = "",
+    name_suffix: str = ".tar.gz",
+    limit: int = 20,
+    timeout: float = 30.0,
+) -> dict:
+    """
+    PROPFIND Depth:1 列出远端目录中的备份文件。
+
+    返回 {success, files: [{name, href, size_bytes, mtime}], message?}
+    """
+    base = validate_webdav_url(base_url)
+    user = (username or "").strip()
+    if not user:
+        raise ValueError("WebDAV 用户名不能为空")
+    dir_rel = (remote_dir or "").strip().strip("/")
+    target = _join_url(base, dir_rel) if dir_rel else base
+    auth = (user, password or "")
+    limit = max(1, min(int(limit), 100))
+
+    with httpx.Client(timeout=timeout, auth=auth, follow_redirects=True) as client:
+        resp = client.request(
+            "PROPFIND",
+            target,
+            headers={"Depth": "1", "Content-Type": "application/xml; charset=utf-8"},
+            content=_PROPFIND_PROP,
+        )
+        if resp.status_code in (401, 403):
+            return {
+                "success": False,
+                "files": [],
+                "message": f"认证失败 HTTP {resp.status_code}",
+                "status_code": resp.status_code,
+            }
+        if resp.status_code == 404:
+            return {
+                "success": True,
+                "files": [],
+                "message": "远端目录不存在（尚未上传过备份）",
+                "status_code": 404,
+            }
+        if resp.status_code not in (207, 200):
+            detail = (resp.text or "")[:200]
+            return {
+                "success": False,
+                "files": [],
+                "message": f"列出失败 HTTP {resp.status_code}: {detail}",
+                "status_code": resp.status_code,
+            }
+
+        entries = _parse_propfind_entries(resp.text or "", target)
+        suffix = (name_suffix or "").lower()
+        if suffix:
+            entries = [
+                e
+                for e in entries
+                if str(e.get("name") or "").lower().endswith(suffix)
+            ]
+        # 按 mtime 字符串倒序（HTTP-date 可字典序近似）；无 mtime 则按名
+        entries.sort(
+            key=lambda e: (e.get("mtime") or "", e.get("name") or ""),
+            reverse=True,
+        )
+        files: List[dict[str, Any]] = entries[:limit]
+        return {
+            "success": True,
+            "files": files,
+            "message": f"共 {len(files)} 个文件" if files else "目录为空",
+            "status_code": resp.status_code,
+        }
+
+
 def test_webdav_connection(
     *,
     base_url: str,
@@ -144,7 +291,7 @@ def test_webdav_connection(
             "PROPFIND",
             target,
             headers={"Depth": "0"},
-            content=b'<?xml version="1.0"?><propfind xmlns="DAV:"><prop><resourcetype/></prop></propfind>',
+            content=_PROPFIND_PROP,
         )
         if resp.status_code in (207, 200, 404, 405):
             # 404 可能是目录不存在但仍可建；405 表示方法不支持，再试 HEAD

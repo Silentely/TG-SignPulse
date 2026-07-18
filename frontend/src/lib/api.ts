@@ -599,7 +599,9 @@ export interface GlobalSettings {
   telegram_bot_quiet_hours_enabled?: boolean;
   telegram_bot_quiet_hours_start?: string | null;
   telegram_bot_quiet_hours_end?: string | null;
+  /** GET 不回传明文；写入时仅非空时更新 */
   telegram_bot_token?: string | null;
+  telegram_bot_token_set?: boolean;
   telegram_bot_chat_id?: string | null;
   telegram_bot_message_thread_id?: number | null;
   timezone?: string;
@@ -1236,6 +1238,21 @@ export const testWebdavBackup = (token: string) =>
     { method: "POST" },
     token,
   );
+
+export interface WebDavRemoteFile {
+  name: string;
+  href?: string;
+  size_bytes?: number | null;
+  mtime?: string | null;
+}
+
+export const listWebdavBackupFiles = (token: string) =>
+  request<{
+    success: boolean;
+    files: WebDavRemoteFile[];
+    message?: string;
+    status_code?: number;
+  }>("/ops/backup/webdav/files", {}, token);
 
 export interface MemoryStatsResponse {
   available: boolean;
