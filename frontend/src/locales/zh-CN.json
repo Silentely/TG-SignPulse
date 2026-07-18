@@ -167,7 +167,13 @@
       "simpleText": "简单文本签到",
       "simpleTextDesc": "发送 /checkin 文本",
       "clickButton": "文本+点按钮",
-      "clickButtonDesc": "先发 /start 再点签到按钮"
+      "clickButtonDesc": "先发 /start 再点签到按钮",
+      "morningRange": "早间时段签到",
+      "morningRangeDesc": "08:00–10:00 时段发送 /sign",
+      "diceCheckin": "骰子签到",
+      "diceCheckinDesc": "发送文本后掷骰子",
+      "listenKeyword": "关键词监听",
+      "listenKeywordDesc": "监听签到成功类关键词并通知"
     },
     "pushServerChan": "Server酱",
     "serverChanKey": "Server酱 SendKey",
@@ -456,7 +462,10 @@
     "unsavedTitle": "有未保存的更改",
     "unsavedMessage": "离开设置页将丢失未保存的修改，确定离开？",
     "leaveAnyway": "仍要离开",
-    "unsavedBanner": "当前有未保存的更改，请记得点击对应区块的保存按钮"
+    "unsavedBanner": "当前有未保存的更改，请记得点击对应区块的保存按钮",
+    "saveAll": "保存全部",
+    "saveAllSuccess": "全部设置已保存",
+    "saveAllPartial": "部分设置保存失败"
   },
   "profile": {
     "title": "个人中心",

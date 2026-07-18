@@ -7,8 +7,8 @@ import {
 } from '../lib/task-templates'
 
 describe('task-templates', () => {
-  it('has at least 2 templates', () => {
-    expect(BUILT_IN_TEMPLATES.length).toBeGreaterThanOrEqual(2)
+  it('has at least 5 templates', () => {
+    expect(BUILT_IN_TEMPLATES.length).toBeGreaterThanOrEqual(5)
   })
 
   it('builds send_text fixed task', () => {
@@ -43,7 +43,30 @@ describe('task-templates', () => {
     expect(task.chats[0].actions?.length).toBe(2)
     expect(task.chats[0].actions?.[0].action).toBe(1)
     expect(task.chats[0].actions?.[1].action).toBe(3)
-    // 允许 chat_id=0，由用户在表单中选择会话
     expect(task.chats[0].chat_id).toBe(0)
+  })
+
+  it('morning_range uses range mode and time window', () => {
+    const task = buildSignTaskFromTemplate('morning_range', {
+      account_name: 'a',
+    })
+    expect(task.execution_mode).toBe('range')
+    expect(task.range_start).toBe('08:00')
+    expect(task.range_end).toBe('10:00')
+  })
+
+  it('dice_checkin includes dice action', () => {
+    const p = buildPayloadFromTemplate('dice_checkin', { account_name: 'a' })
+    expect(p.chats[0].actions.some((a) => a.action === 2)).toBe(true)
+  })
+
+  it('listen_keyword uses listen mode and action 8', () => {
+    const task = buildSignTaskFromTemplate('listen_keyword', {
+      account_name: 'a',
+    })
+    expect(task.execution_mode).toBe('listen')
+    const act = task.chats[0].actions?.[0]
+    expect(act?.action).toBe(8)
+    expect(Array.isArray(act?.keywords)).toBe(true)
   })
 })

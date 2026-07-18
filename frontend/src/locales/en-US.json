@@ -167,7 +167,13 @@
       "simpleText": "Simple text check-in",
       "simpleTextDesc": "Send /checkin text",
       "clickButton": "Text + click button",
-      "clickButtonDesc": "Send /start then click check-in"
+      "clickButtonDesc": "Send /start then click check-in",
+      "morningRange": "Morning range check-in",
+      "morningRangeDesc": "Send /sign in 08:00–10:00 window",
+      "diceCheckin": "Dice check-in",
+      "diceCheckinDesc": "Send text then roll a dice",
+      "listenKeyword": "Keyword listen",
+      "listenKeywordDesc": "Listen for check-in keywords and notify"
     },
     "pushServerChan": "ServerChan",
     "serverChanKey": "ServerChan SendKey",
@@ -456,7 +462,10 @@
     "unsavedTitle": "Unsaved changes",
     "unsavedMessage": "Leave settings and discard unsaved changes?",
     "leaveAnyway": "Leave anyway",
-    "unsavedBanner": "You have unsaved changes — remember to save each section"
+    "unsavedBanner": "You have unsaved changes — remember to save each section",
+    "saveAll": "Save all",
+    "saveAllSuccess": "All settings saved",
+    "saveAllPartial": "Some settings failed to save"
   },
   "profile": {
     "title": "Profile",

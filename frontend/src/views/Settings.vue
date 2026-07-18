@@ -439,22 +439,52 @@ onUnmounted(() => {
   window.removeEventListener('beforeunload', onBeforeUnload)
 })
 
+/** 全局 settings 分段 payload，便于分块保存与一键全保存 */
+const buildGeneralPayload = () => ({
+  sign_interval: settings.value.checkInterval ? parseInt(String(settings.value.checkInterval), 10) : null,
+  log_retention_days: settings.value.logDays,
+  data_dir: settings.value.dataDir || null,
+  global_proxy: settings.value.proxy || null,
+  tg_global_concurrency: settings.value.concurrency || 1,
+  device_keepalive_enabled: settings.value.deviceKeepaliveEnabled,
+  device_keepalive_interval_days: settings.value.deviceKeepaliveIntervalDays || 30,
+  timezone: settings.value.timezone,
+})
+
+const buildBotPayload = () => ({
+  telegram_bot_notify_enabled: settings.value.botEnabled,
+  telegram_bot_login_notify_enabled: settings.value.botLoginNotify,
+  telegram_bot_task_failure_enabled: settings.value.botTaskFailure,
+  telegram_bot_task_success_enabled: settings.value.botTaskSuccess,
+  telegram_bot_quiet_hours_enabled: settings.value.quietEnabled,
+  telegram_bot_quiet_hours_start: settings.value.quietStart || '23:00',
+  telegram_bot_quiet_hours_end: settings.value.quietEnd || '07:00',
+  telegram_bot_token: settings.value.botToken || null,
+  telegram_bot_chat_id: settings.value.botChatId || null,
+  telegram_bot_message_thread_id: settings.value.botThreadId
+    ? parseInt(settings.value.botThreadId, 10)
+    : null,
+})
+
+const buildAdvancedPayload = () => ({
+  sign_task_execution_timeout: emptyToNull(settings.value.execTimeout as string | number),
+  sign_task_account_cooldown: emptyToNull(settings.value.accountCooldown as string | number),
+  sign_task_flow_retry_attempts: emptyToNull(settings.value.flowRetry as string | number),
+  sign_task_history_max_age_days: emptyToNull(settings.value.historyMaxAge as string | number),
+  ai_vision_timeout: emptyToNull(settings.value.aiVisionTimeout as string | number),
+  ai_vision_retry_attempts: emptyToNull(settings.value.aiVisionRetry as string | number),
+  auto_backup_enabled: settings.value.autoBackupEnabled,
+  auto_backup_interval_hours: settings.value.autoBackupInterval || 24,
+  auto_backup_keep: settings.value.autoBackupKeep || 3,
+})
+
 const saveSettings = async () => {
   const token = authStore.token || ''
   if (!token) return
 
   loading.value = true
   try {
-    await saveGlobalSettings(token, {
-      sign_interval: settings.value.checkInterval ? parseInt(settings.value.checkInterval) : null,
-      log_retention_days: settings.value.logDays,
-      data_dir: settings.value.dataDir || null,
-      global_proxy: settings.value.proxy || null,
-      tg_global_concurrency: settings.value.concurrency || 1,
-      device_keepalive_enabled: settings.value.deviceKeepaliveEnabled,
-      device_keepalive_interval_days: settings.value.deviceKeepaliveIntervalDays || 30,
-      timezone: settings.value.timezone,
-    })
+    await saveGlobalSettings(token, buildGeneralPayload())
     markClean()
     notifySuccess(t('settings.saveSuccess'))
   } catch (e: unknown) {
@@ -466,6 +496,7 @@ const saveSettings = async () => {
 
 const botLoading = ref(false)
 const keepaliveLoading = ref(false)
+const saveAllLoading = ref(false)
 
 const runKeepaliveNow = async () => {
   const token = authStore.token || ''
@@ -488,18 +519,7 @@ const saveBotSettings = async () => {
 
   botLoading.value = true
   try {
-    await saveGlobalSettings(token, {
-      telegram_bot_notify_enabled: settings.value.botEnabled,
-      telegram_bot_login_notify_enabled: settings.value.botLoginNotify,
-      telegram_bot_task_failure_enabled: settings.value.botTaskFailure,
-      telegram_bot_task_success_enabled: settings.value.botTaskSuccess,
-      telegram_bot_quiet_hours_enabled: settings.value.quietEnabled,
-      telegram_bot_quiet_hours_start: settings.value.quietStart || '23:00',
-      telegram_bot_quiet_hours_end: settings.value.quietEnd || '07:00',
-      telegram_bot_token: settings.value.botToken || null,
-      telegram_bot_chat_id: settings.value.botChatId || null,
-      telegram_bot_message_thread_id: settings.value.botThreadId ? parseInt(settings.value.botThreadId) : null,
-    })
+    await saveGlobalSettings(token, buildBotPayload())
     markClean()
     notifySuccess(t('settings.saveSuccess'))
   } catch (e: unknown) {
@@ -514,23 +534,62 @@ const saveAdvancedSettings = async () => {
   if (!token) return
   advancedLoading.value = true
   try {
-    await saveGlobalSettings(token, {
-      sign_task_execution_timeout: emptyToNull(settings.value.execTimeout as string | number),
-      sign_task_account_cooldown: emptyToNull(settings.value.accountCooldown as string | number),
-      sign_task_flow_retry_attempts: emptyToNull(settings.value.flowRetry as string | number),
-      sign_task_history_max_age_days: emptyToNull(settings.value.historyMaxAge as string | number),
-      ai_vision_timeout: emptyToNull(settings.value.aiVisionTimeout as string | number),
-      ai_vision_retry_attempts: emptyToNull(settings.value.aiVisionRetry as string | number),
-      auto_backup_enabled: settings.value.autoBackupEnabled,
-      auto_backup_interval_hours: settings.value.autoBackupInterval || 24,
-      auto_backup_keep: settings.value.autoBackupKeep || 3,
-    })
+    await saveGlobalSettings(token, buildAdvancedPayload())
     markClean()
     notifySuccess(t('settings.saveSuccess'))
   } catch (e: unknown) {
     notifyError(getLocalizedErrorMessage(e, t, t('settings.saveFailed')))
   } finally {
     advancedLoading.value = false
+  }
+}
+
+/** 一次提交全局设置 + 可选 TG/AI，解决分块保存遗漏 */
+const saveAllSettings = async () => {
+  const token = authStore.token || ''
+  if (!token) return
+  saveAllLoading.value = true
+  const partial: string[] = []
+  try {
+    await saveGlobalSettings(token, {
+      ...buildGeneralPayload(),
+      ...buildBotPayload(),
+      ...buildAdvancedPayload(),
+    })
+    if (tgConfig.value.api_id && tgConfig.value.api_hash) {
+      try {
+        await saveTelegramConfig(token, {
+          api_id: tgConfig.value.api_id,
+          api_hash: tgConfig.value.api_hash,
+        })
+      } catch (e: unknown) {
+        partial.push(t('settings.tgApi'))
+        devLog.error('saveAll tg failed', e)
+      }
+    }
+    if (aiConfig.value.base_url || aiConfig.value.model || aiConfig.value.api_key) {
+      try {
+        await saveAIConfig(token, {
+          base_url: aiConfig.value.base_url || undefined,
+          model: aiConfig.value.model || undefined,
+          api_key: aiConfig.value.api_key || undefined,
+        })
+        aiConfig.value.api_key = ''
+      } catch (e: unknown) {
+        partial.push(t('settings.aiConfig'))
+        devLog.error('saveAll ai failed', e)
+      }
+    }
+    markClean()
+    if (partial.length) {
+      notifyError(`${t('settings.saveAllPartial')}: ${partial.join(', ')}`)
+    } else {
+      notifySuccess(t('settings.saveAllSuccess'))
+    }
+  } catch (e: unknown) {
+    notifyError(getLocalizedErrorMessage(e, t, t('settings.saveFailed')))
+  } finally {
+    saveAllLoading.value = false
   }
 }
 
@@ -710,10 +769,18 @@ const handleImport = async (e: Event) => {
   <div class="max-w-7xl pb-10">
     <div
       v-if="isDirty && !pageLoading"
-      class="mb-4 px-3 py-2 text-xs border border-amber-200 dark:border-amber-800/50 bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-200"
+      class="sticky top-0 z-20 mb-4 flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs border border-amber-200 dark:border-amber-800/50 bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-200 shadow-sm"
       role="status"
     >
-      {{ t('settings.unsavedBanner') }}
+      <span>{{ t('settings.unsavedBanner') }}</span>
+      <button
+        type="button"
+        class="ui-btn-primary !px-3 !py-1.5 !text-xs shrink-0"
+        :disabled="saveAllLoading || loading || botLoading || advancedLoading || tgLoading || aiLoading"
+        @click="saveAllSettings"
+      >
+        {{ saveAllLoading ? t('settings.saving') : t('settings.saveAll') }}
+      </button>
     </div>
     <div v-if="pageLoading" class="grid grid-cols-1 lg:grid-cols-2 gap-6" aria-busy="true">
       <div v-for="i in 4" :key="i" class="ui-card p-6 space-y-4">
