@@ -93,7 +93,6 @@ export default defineConfig({
         items: [
           { text: "Docker 部署", link: "/deploy/docker" },
           { text: "Nginx 反向代理", link: "/deploy/nginx" },
-          { text: "Vercel 文档站", link: "/deploy/vercel" },
         ],
       },
       {
@@ -130,7 +129,6 @@ export default defineConfig({
         items: [
           { text: "Docker 部署", link: "/deploy/docker" },
           { text: "Nginx 反向代理", link: "/deploy/nginx" },
-          { text: "Vercel 文档站", link: "/deploy/vercel" },
         ],
       },
       {
@@ -147,7 +145,6 @@ export default defineConfig({
         text: "帮助",
         items: [
           { text: "常见问题", link: "/faq" },
-          { text: "文档目录", link: "/SUMMARY" },
         ],
       },
     ],
