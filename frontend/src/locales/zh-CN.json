@@ -172,7 +172,11 @@
     "pushServerChan": "Server酱",
     "serverChanKey": "Server酱 SendKey",
     "templateNeedAccount": "请先添加账号后再使用模板",
-    "templateHint": "已打开新建任务，请选择目标会话并填写动作后保存"
+    "templateHint": "已打开新建任务，请选择目标会话并填写动作后保存",
+    "cloneNameRequired": "请输入新任务名",
+    "cloneNameInvalid": "任务名不能包含路径分隔符",
+    "cloneFrom": "克隆自：{name}",
+    "cloning": "克隆中…"
   },
   "taskForm": {
     "taskName": "任务名称",
@@ -242,7 +246,8 @@
     "refreshChats": "刷新列表",
     "loadingChats": "加载会话中...",
     "loadAccountsFailed": "加载账号列表失败",
-    "loadChatsFailed": "加载会话列表失败"
+    "loadChatsFailed": "加载会话列表失败",
+    "notifyOnSuccess": "成功时通知"
   },
   "taskModal": {
     "addTitle": "添加任务",
@@ -447,7 +452,11 @@
     "importConflicts": "冲突项",
     "emptyAdvancedHint": "留空则使用环境变量或内置默认",
     "showSecret": "显示",
-    "hideSecret": "隐藏"
+    "hideSecret": "隐藏",
+    "unsavedTitle": "有未保存的更改",
+    "unsavedMessage": "离开设置页将丢失未保存的修改，确定离开？",
+    "leaveAnyway": "仍要离开",
+    "unsavedBanner": "当前有未保存的更改，请记得点击对应区块的保存按钮"
   },
   "profile": {
     "title": "个人中心",

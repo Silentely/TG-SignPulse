@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { onBeforeRouteLeave } from 'vue-router'
 import { Settings2, KeyRound, Bot, Sparkles, Database, Info, RefreshCw, ExternalLink, Eye, EyeOff } from 'lucide-vue-next'
 import {
   getGlobalSettings,
@@ -127,6 +128,51 @@ const revealSecrets = ref({
   tgApiHash: false,
   aiKey: false,
   botToken: false,
+})
+
+/** 已保存基线：用于脏检查 */
+const savedBaseline = ref('')
+const markClean = () => {
+  savedBaseline.value = JSON.stringify({
+    settings: settings.value,
+    tgConfig: tgConfig.value,
+    aiConfig: {
+      base_url: aiConfig.value.base_url,
+      model: aiConfig.value.model,
+      // 密钥输入为空时表示「未改」；不把空密钥当脏
+      api_key: aiConfig.value.api_key ? '***set***' : '',
+    },
+  })
+}
+const isDirty = computed(() => {
+  if (!savedBaseline.value) return false
+  const current = JSON.stringify({
+    settings: settings.value,
+    tgConfig: tgConfig.value,
+    aiConfig: {
+      base_url: aiConfig.value.base_url,
+      model: aiConfig.value.model,
+      api_key: aiConfig.value.api_key ? '***set***' : '',
+    },
+  })
+  return current !== savedBaseline.value
+})
+
+const onBeforeUnload = (e: BeforeUnloadEvent) => {
+  if (!isDirty.value) return
+  e.preventDefault()
+  e.returnValue = ''
+}
+
+onBeforeRouteLeave(async () => {
+  if (!isDirty.value) return true
+  const ok = await confirm({
+    title: t('settings.unsavedTitle'),
+    message: t('settings.unsavedMessage'),
+    confirmText: t('settings.leaveAnyway'),
+    danger: true,
+  })
+  return ok
 })
 
 const emptyToNull = (v: string | number | '') => {
@@ -379,12 +425,18 @@ onMounted(async () => {
       devLog.error('Failed to load memory stats', e)
     }
     await loadVersion(token)
+    markClean()
+    window.addEventListener('beforeunload', onBeforeUnload)
   } catch (e) {
     devLog.error('Failed to load settings', e)
     notifyError(getLocalizedErrorMessage(e, t, t('settings.loadFailed')))
   } finally {
     pageLoading.value = false
   }
+})
+
+onUnmounted(() => {
+  window.removeEventListener('beforeunload', onBeforeUnload)
 })
 
 const saveSettings = async () => {
@@ -403,6 +455,7 @@ const saveSettings = async () => {
       device_keepalive_interval_days: settings.value.deviceKeepaliveIntervalDays || 30,
       timezone: settings.value.timezone,
     })
+    markClean()
     notifySuccess(t('settings.saveSuccess'))
   } catch (e: unknown) {
     notifyError(getLocalizedErrorMessage(e, t, t('settings.saveFailed')))
@@ -447,6 +500,7 @@ const saveBotSettings = async () => {
       telegram_bot_chat_id: settings.value.botChatId || null,
       telegram_bot_message_thread_id: settings.value.botThreadId ? parseInt(settings.value.botThreadId) : null,
     })
+    markClean()
     notifySuccess(t('settings.saveSuccess'))
   } catch (e: unknown) {
     notifyError(getLocalizedErrorMessage(e, t, t('settings.saveFailed')))
@@ -471,6 +525,7 @@ const saveAdvancedSettings = async () => {
       auto_backup_interval_hours: settings.value.autoBackupInterval || 24,
       auto_backup_keep: settings.value.autoBackupKeep || 3,
     })
+    markClean()
     notifySuccess(t('settings.saveSuccess'))
   } catch (e: unknown) {
     notifyError(getLocalizedErrorMessage(e, t, t('settings.saveFailed')))
@@ -499,6 +554,7 @@ const saveTgConfig = async () => {
   tgLoading.value = true
   try {
     await saveTelegramConfig(token, { api_id: tgConfig.value.api_id, api_hash: tgConfig.value.api_hash })
+    markClean()
     notifySuccess(t('settings.tgConfigSaved'))
   } catch (e: unknown) {
     notifyError(getLocalizedErrorMessage(e, t, t('settings.saveFailed')))
@@ -521,6 +577,7 @@ const resetTgConfig = async () => {
     await resetTelegramConfig(token)
     tgConfig.value.api_id = ''
     tgConfig.value.api_hash = ''
+    markClean()
     notifySuccess(t('settings.resetSuccess'))
   } catch (e: unknown) {
     notifyError(getLocalizedErrorMessage(e, t, t('settings.resetFailed')))
@@ -538,6 +595,8 @@ const saveAiConfig = async () => {
       model: aiConfig.value.model || undefined,
       api_key: aiConfig.value.api_key || undefined
     })
+    aiConfig.value.api_key = ''
+    markClean()
     notifySuccess(t('settings.aiConfigSaved'))
   } catch (e: unknown) {
     notifyError(getLocalizedErrorMessage(e, t, t('settings.saveFailed')))
@@ -649,6 +708,13 @@ const handleImport = async (e: Event) => {
 
 <template>
   <div class="max-w-7xl pb-10">
+    <div
+      v-if="isDirty && !pageLoading"
+      class="mb-4 px-3 py-2 text-xs border border-amber-200 dark:border-amber-800/50 bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-200"
+      role="status"
+    >
+      {{ t('settings.unsavedBanner') }}
+    </div>
     <div v-if="pageLoading" class="grid grid-cols-1 lg:grid-cols-2 gap-6" aria-busy="true">
       <div v-for="i in 4" :key="i" class="ui-card p-6 space-y-4">
         <div class="ui-skeleton h-5 w-32" />
