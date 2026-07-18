@@ -369,6 +369,56 @@ def test_webdav_backup(current_user: User = Depends(get_current_user)):
         return WebDavTestResponse(success=False, message=f"测试失败: {exc}")
 
 
+class WebDavFileEntry(BaseModel):
+    name: str
+    href: str = ""
+    size_bytes: Optional[int] = None
+    mtime: Optional[str] = None
+
+
+class WebDavListResponse(BaseModel):
+    success: bool
+    files: List[WebDavFileEntry] = Field(default_factory=list)
+    message: str = ""
+    status_code: Optional[int] = None
+
+
+@router.get("/backup/webdav/files", response_model=WebDavListResponse)
+def list_webdav_backup_files(current_user: User = Depends(get_current_user)):
+    """列出已保存 WebDAV 配置下远端目录中的 .tar.gz 备份。"""
+    from backend.services.config import get_config_service
+    from backend.services.webdav_client import list_webdav_files
+
+    cfg = get_config_service().get_global_settings()
+    url = (cfg.get("webdav_url") or "").strip()
+    if not url:
+        return WebDavListResponse(
+            success=False,
+            message="未配置 WebDAV URL",
+        )
+    try:
+        result = list_webdav_files(
+            base_url=url,
+            username=str(cfg.get("webdav_username") or ""),
+            password=str(cfg.get("webdav_password") or ""),
+            remote_dir=str(cfg.get("webdav_remote_dir") or "tg-signpulse-backups"),
+            name_suffix=".tar.gz",
+            limit=20,
+        )
+        files = [WebDavFileEntry(**f) for f in (result.get("files") or [])]
+        return WebDavListResponse(
+            success=bool(result.get("success")),
+            files=files,
+            message=str(result.get("message") or ""),
+            status_code=result.get("status_code"),
+        )
+    except ValueError as exc:
+        return WebDavListResponse(success=False, message=str(exc))
+    except Exception as exc:
+        logger.exception("WebDAV 列表失败")
+        return WebDavListResponse(success=False, message=f"列表失败: {exc}")
+
+
 @router.get("/memory", response_model=MemoryStatsResponse)
 def memory_stats(
     request: Request,

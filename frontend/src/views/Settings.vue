@@ -18,13 +18,14 @@ import {
   getBackupStatus,
   exportBackupArchive,
   testWebdavBackup,
+  listWebdavBackupFiles,
   getRuntimeStatus,
   getAppVersion,
   checkAppVersion,
   testBotNotification,
   getMemoryStats,
 } from '../lib/api'
-import type { BackupStatus, RuntimeStatus, AppVersionInfo, UpdateCheckInfo, MemoryStatsResponse } from '../lib/api'
+import type { BackupStatus, RuntimeStatus, AppVersionInfo, UpdateCheckInfo, MemoryStatsResponse, WebDavRemoteFile } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
 import { useConfirm } from '../composables/useConfirm'
@@ -403,7 +404,9 @@ onMounted(async () => {
     settings.value.quietEnabled = res.telegram_bot_quiet_hours_enabled || false
     settings.value.quietStart = res.telegram_bot_quiet_hours_start || '23:00'
     settings.value.quietEnd = res.telegram_bot_quiet_hours_end || '07:00'
-    settings.value.botToken = res.telegram_bot_token || ''
+    // Token 不回传明文
+    settings.value.botToken = ''
+    botTokenSet.value = !!res.telegram_bot_token_set
     settings.value.botChatId = res.telegram_bot_chat_id || ''
     settings.value.botThreadId = res.telegram_bot_message_thread_id ? String(res.telegram_bot_message_thread_id) : ''
     settings.value.timezone = res.timezone || 'Asia/Hong_Kong'
@@ -509,6 +512,7 @@ const saveBotSettings = async () => {
   botLoading.value = true
   try {
     await saveGlobalSettings(token, buildBotPayload())
+    afterBotTokenSaved()
     markSectionClean('bot')
     notifySuccess(t('settings.saveSuccess'))
   } catch (e: unknown) {
@@ -552,6 +556,7 @@ const saveAllSettings = async () => {
       ...buildAdvancedPayload(),
     })
     afterWebdavSettingsSaved()
+    afterBotTokenSaved()
     markSectionClean('general')
     markSectionClean('bot')
     markSectionClean('advanced')
@@ -704,8 +709,13 @@ const handleExport = async () => {
 }
 
 const webdavTestLoading = ref(false)
+const webdavListLoading = ref(false)
+const remoteWebdavFiles = ref<WebDavRemoteFile[]>([])
+const remoteWebdavMessage = ref('')
 /** 服务端是否已保存 WebDAV 密码（GET 不回传明文） */
 const webdavPasswordSet = ref(false)
+/** 服务端是否已保存 Bot Token */
+const botTokenSet = ref(false)
 
 const validateWebdavForm = (): boolean => {
   if (!settings.value.webdavUrl.trim()) {
@@ -728,6 +738,47 @@ const afterWebdavSettingsSaved = () => {
   if (settings.value.webdavPassword) {
     webdavPasswordSet.value = true
     settings.value.webdavPassword = ''
+  }
+}
+
+const afterBotTokenSaved = () => {
+  if (settings.value.botToken) {
+    botTokenSet.value = true
+    settings.value.botToken = ''
+  }
+}
+
+const handleListRemoteBackups = async () => {
+  const token = authStore.token || ''
+  if (!settings.value.webdavUrl.trim()) {
+    notifyError(t('settings.webdavRequired'))
+    return
+  }
+  webdavListLoading.value = true
+  remoteWebdavMessage.value = ''
+  try {
+    // 先落盘当前表单，确保列表用最新凭据
+    await saveGlobalSettings(token, buildAdvancedPayload())
+    afterWebdavSettingsSaved()
+    markSectionClean('advanced')
+    const res = await listWebdavBackupFiles(token)
+    if (!res.success) {
+      remoteWebdavFiles.value = []
+      remoteWebdavMessage.value = res.message || t('settings.webdavListFailed')
+      notifyError(remoteWebdavMessage.value)
+      return
+    }
+    remoteWebdavFiles.value = res.files || []
+    remoteWebdavMessage.value =
+      res.message ||
+      (remoteWebdavFiles.value.length
+        ? t('settings.webdavListOk')
+        : t('settings.webdavListEmpty'))
+  } catch (e: unknown) {
+    remoteWebdavFiles.value = []
+    notifyError(getLocalizedErrorMessage(e, t, t('settings.webdavListFailed')))
+  } finally {
+    webdavListLoading.value = false
   }
 }
 
@@ -1086,7 +1137,12 @@ const handleImport = async (e: Event) => {
             <div class="space-y-1.5">
               <label class="ui-label">{{ t('settings.botToken') }}</label>
               <div class="relative">
-                <input v-model="settings.botToken" :type="revealSecrets.botToken ? 'text' : 'password'" placeholder="123456:ABC-DEF..." class="ui-input pr-10">
+                <input
+                  v-model="settings.botToken"
+                  :type="revealSecrets.botToken ? 'text' : 'password'"
+                  :placeholder="botTokenSet ? t('settings.botTokenSavedHint') : '123456:ABC-DEF...'"
+                  class="ui-input pr-10"
+                >
                 <button type="button" class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200" :aria-label="revealSecrets.botToken ? t('settings.hideSecret') : t('settings.showSecret')" @click="revealSecrets.botToken = !revealSecrets.botToken">
                   <EyeOff v-if="revealSecrets.botToken" class="w-4 h-4" /><Eye v-else class="w-4 h-4" />
                 </button>
@@ -1242,6 +1298,24 @@ const handleImport = async (e: Event) => {
               >
                 {{ webdavTestLoading ? t('settings.testing') : t('settings.webdavTest') }}
               </button>
+              <button
+                type="button"
+                class="ui-btn-secondary flex-1 !px-4 !py-2"
+                :disabled="webdavListLoading || advancedLoading"
+                @click="handleListRemoteBackups"
+              >
+                {{ webdavListLoading ? t('settings.processing') : t('settings.webdavListRemote') }}
+              </button>
+            </div>
+            <div v-if="remoteWebdavFiles.length || remoteWebdavMessage" class="text-xs space-y-1.5">
+              <p v-if="remoteWebdavMessage" class="text-gray-500">{{ remoteWebdavMessage }}</p>
+              <ul v-if="remoteWebdavFiles.length" class="font-mono text-[11px] text-gray-600 dark:text-gray-400 space-y-0.5 max-h-28 overflow-y-auto">
+                <li v-for="f in remoteWebdavFiles" :key="f.name + (f.mtime || '')">
+                  {{ f.name }}
+                  <span v-if="f.size_bytes != null" class="text-gray-400">· {{ f.size_bytes }} B</span>
+                  <span v-if="f.mtime" class="text-gray-400">· {{ f.mtime }}</span>
+                </li>
+              </ul>
             </div>
             <div class="p-3 bg-gray-50 dark:bg-white/[0.02] border border-gray-200 dark:border-gray-800/60 space-y-3">
               <div class="flex items-center justify-between gap-3">

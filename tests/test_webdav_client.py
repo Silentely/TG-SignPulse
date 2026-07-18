@@ -10,6 +10,8 @@ import pytest
 from backend.services.webdav_client import (
     _ensure_remote_dirs,
     _join_url,
+    _parse_propfind_entries,
+    list_webdav_files,
     upload_file_to_webdav,
     validate_webdav_url,
 )
@@ -121,3 +123,70 @@ def test_upload_http_error_raises(tmp_path: Path):
                 remote_dir="bk",
                 local_path=f,
             )
+
+
+_SAMPLE_PROPFIND = """<?xml version="1.0"?>
+<d:multistatus xmlns:d="DAV:">
+  <d:response>
+    <d:href>/remote.php/dav/files/u/bk/</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:resourcetype><d:collection/></d:resourcetype>
+        <d:displayname>bk</d:displayname>
+      </d:prop>
+    </d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/remote.php/dav/files/u/bk/auto-1.tar.gz</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:resourcetype/>
+        <d:getcontentlength>1024</d:getcontentlength>
+        <d:getlastmodified>Wed, 01 Jan 2025 12:00:00 GMT</d:getlastmodified>
+        <d:displayname>auto-1.tar.gz</d:displayname>
+      </d:prop>
+    </d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/remote.php/dav/files/u/bk/readme.txt</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:resourcetype/>
+        <d:getcontentlength>10</d:getcontentlength>
+        <d:displayname>readme.txt</d:displayname>
+      </d:prop>
+    </d:propstat>
+  </d:response>
+</d:multistatus>
+"""
+
+
+def test_parse_propfind_entries_skips_collections():
+    entries = _parse_propfind_entries(
+        _SAMPLE_PROPFIND, "https://dav.example.com/remote.php/dav/files/u/bk"
+    )
+    names = {e["name"] for e in entries}
+    assert "auto-1.tar.gz" in names
+    assert "readme.txt" in names
+    assert "bk" not in names
+
+
+def test_list_webdav_files_filters_tar_gz():
+    mock_client = MagicMock()
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=False)
+    mock_client.request.return_value = MagicMock(
+        status_code=207, text=_SAMPLE_PROPFIND
+    )
+    with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client):
+        result = list_webdav_files(
+            base_url="https://dav.example.com/remote.php/dav/files/u",
+            username="u",
+            password="p",
+            remote_dir="bk",
+            name_suffix=".tar.gz",
+        )
+    assert result["success"] is True
+    assert len(result["files"]) == 1
+    assert result["files"][0]["name"] == "auto-1.tar.gz"
+    assert result["files"][0]["size_bytes"] == 1024

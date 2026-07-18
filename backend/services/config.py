@@ -312,12 +312,14 @@ class ConfigService:
 
     # 导出脱敏占位；导入时若见到则跳过密钥写入，避免覆盖真实密钥
     AI_KEY_MASK = "***MASKED***"
+    SECRET_MASKS = frozenset({AI_KEY_MASK, "***", "MASKED", "REDACTED", "***MASKED***"})
 
     def export_all_configs(self) -> str:
         """
         导出业务配置（任务 / 监控 / 设置）。
 
-        不含 sessions、数据库、执行历史。AI api_key 默认脱敏。
+        不含 sessions、数据库、执行历史。
+        AI api_key / WebDAV 密码 / Bot Token 默认脱敏。
         """
         all_configs: Dict[str, Any] = {
             "_meta": {
@@ -332,7 +334,7 @@ class ConfigService:
                 ],
                 "notes": [
                     "配置迁移用：可导入；不含 Telegram 登录会话。",
-                    "AI api_key 已脱敏；导入时不会用占位符覆盖现有密钥。",
+                    "AI api_key / WebDAV 密码 / Bot Token 已脱敏；导入时不会用占位符覆盖现有密钥。",
                     "整机恢复请用面板「完整数据备份」tar.gz + 手动解压覆盖 data/。",
                 ],
             },
@@ -382,14 +384,23 @@ class ConfigService:
                 config.pop("last_run", None)
                 all_configs["monitors"][task_name] = config
 
-        # 导出设置 — AI 密钥脱敏
+        # 导出设置 — 敏感字段脱敏
         ai_config = self.get_ai_config()
         if ai_config and ai_config.get("api_key"):
             ai_config = dict(ai_config)
             ai_config["api_key"] = self.AI_KEY_MASK
             all_configs["_meta"]["ai_api_key_masked"] = True
+
+        global_settings = dict(self.get_global_settings())
+        if global_settings.get("webdav_password"):
+            global_settings["webdav_password"] = self.AI_KEY_MASK
+            all_configs["_meta"]["webdav_password_masked"] = True
+        if global_settings.get("telegram_bot_token"):
+            global_settings["telegram_bot_token"] = self.AI_KEY_MASK
+            all_configs["_meta"]["telegram_bot_token_masked"] = True
+
         all_configs["settings"] = {
-            "global": self.get_global_settings(),
+            "global": global_settings,
             "ai": ai_config,
             "telegram": self.get_telegram_config(),
         }
@@ -463,7 +474,26 @@ class ConfigService:
 
             if "global" in settings_data:
                 try:
-                    if self.save_global_settings(settings_data["global"]):
+                    gs = dict(settings_data["global"] or {})
+                    # 脱敏占位不得覆盖已有 WebDAV 密码 / Bot Token
+                    for secret_key, warn in (
+                        (
+                            "webdav_password",
+                            "webdav_password is masked in export; kept existing",
+                        ),
+                        (
+                            "telegram_bot_token",
+                            "telegram_bot_token is masked in export; kept existing",
+                        ),
+                    ):
+                        raw = str(gs.get(secret_key) or "").strip()
+                        if raw in self.SECRET_MASKS:
+                            gs.pop(secret_key, None)
+                            result["warnings"].append(warn)
+                        elif not raw and secret_key in gs:
+                            # 空串：不覆盖
+                            gs.pop(secret_key, None)
+                    if self.save_global_settings(gs):
                         result["settings_imported"] += 1
                     else:
                         result["errors"].append("Failed to import global settings")
@@ -480,7 +510,7 @@ class ConfigService:
                         result["warnings"].append(
                             "AI config skipped: empty api_key"
                         )
-                    elif raw_key in {self.AI_KEY_MASK, "***", "MASKED", "REDACTED"}:
+                    elif raw_key in self.SECRET_MASKS:
                         result["settings_skipped"] += 1
                         result["warnings"].append(
                             "AI api_key is masked in export; kept existing key on server"

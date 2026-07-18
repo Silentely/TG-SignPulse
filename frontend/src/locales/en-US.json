@@ -487,6 +487,11 @@
     "localAutoBackups": "Local auto backups",
     "backupOn": "on",
     "backupOff": "off",
+    "webdavListRemote": "List remote backups",
+    "webdavListOk": "Remote backup list loaded",
+    "webdavListEmpty": "No .tar.gz backups in remote directory",
+    "webdavListFailed": "Failed to list remote backups",
+    "botTokenSavedHint": "Saved (leave empty to keep; enter a new token to replace)",
     "saveBackupSettings": "Save backup settings"
   },
   "profile": {

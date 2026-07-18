@@ -70,7 +70,8 @@ export function buildBotPayload(s: SettingsFormState) {
     telegram_bot_quiet_hours_enabled: s.quietEnabled,
     telegram_bot_quiet_hours_start: s.quietStart || '23:00',
     telegram_bot_quiet_hours_end: s.quietEnd || '07:00',
-    telegram_bot_token: s.botToken || null,
+    // 空 Token 表示不覆盖服务端已有值
+    ...(s.botToken ? { telegram_bot_token: s.botToken } : {}),
     telegram_bot_chat_id: s.botChatId || null,
     telegram_bot_message_thread_id: s.botThreadId
       ? parseInt(s.botThreadId, 10)

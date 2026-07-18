@@ -487,6 +487,11 @@
     "localAutoBackups": "本地自动备份",
     "backupOn": "开",
     "backupOff": "关",
+    "webdavListRemote": "列出远端备份",
+    "webdavListOk": "已获取远端备份列表",
+    "webdavListEmpty": "远端目录暂无 .tar.gz 备份",
+    "webdavListFailed": "获取远端备份列表失败",
+    "botTokenSavedHint": "已保存（留空不修改，输入新 Token 可覆盖）",
     "saveBackupSettings": "保存备份设置"
   },
   "profile": {

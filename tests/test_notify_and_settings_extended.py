@@ -662,3 +662,86 @@ class TestWebdavBackupChain:
         assert body["webdav_configured"] is True
         assert body["auto_backup_enabled"] is True
         assert "local_auto_backups" in body
+
+    def test_bot_token_masked_on_get_and_empty_keeps(self, client, db_session):
+        client.post(
+            "/api/config/settings",
+            json={"telegram_bot_token": "123456:AAAsecret"},
+            headers=_auth_headers(),
+        )
+        got = client.get("/api/config/settings", headers=_auth_headers()).json()
+        assert got.get("telegram_bot_token") in (None, "")
+        assert got.get("telegram_bot_token_set") is True
+        # 不传 token → 保留
+        client.post(
+            "/api/config/settings",
+            json={"telegram_bot_chat_id": "-1001"},
+            headers=_auth_headers(),
+        )
+        from backend.services.config import get_config_service
+
+        assert (
+            get_config_service().get_global_settings()["telegram_bot_token"]
+            == "123456:AAAsecret"
+        )
+
+    def test_export_masks_webdav_and_bot_secrets(self, client, db_session, isolated_env):
+        client.post(
+            "/api/config/settings",
+            json={
+                "webdav_url": "https://dav.example.com/dav",
+                "webdav_username": "u",
+                "webdav_password": "super-secret",
+                "telegram_bot_token": "999:BOTSECRET",
+            },
+            headers=_auth_headers(),
+        )
+        resp = client.get("/api/config/export/all", headers=_auth_headers())
+        assert resp.status_code == 200
+        data = json.loads(resp.content.decode("utf-8"))
+        g = data.get("settings", {}).get("global", {})
+        assert g.get("webdav_password") == "***MASKED***"
+        assert g.get("telegram_bot_token") == "***MASKED***"
+        dump = json.dumps(data)
+        assert "super-secret" not in dump
+        assert "BOTSECRET" not in dump
+        meta = data.get("_meta", {})
+        assert meta.get("webdav_password_masked") is True
+        assert meta.get("telegram_bot_token_masked") is True
+
+    def test_list_webdav_files_endpoint(self, client, db_session):
+        client.post(
+            "/api/config/settings",
+            json={
+                "webdav_url": "https://dav.example.com/dav",
+                "webdav_username": "u",
+                "webdav_password": "p",
+                "webdav_remote_dir": "bk",
+            },
+            headers=_auth_headers(),
+        )
+        with patch(
+            "backend.services.webdav_client.list_webdav_files",
+            return_value={
+                "success": True,
+                "files": [
+                    {
+                        "name": "auto-x.tar.gz",
+                        "href": "/bk/auto-x.tar.gz",
+                        "size_bytes": 9,
+                        "mtime": "Wed, 01 Jan 2025 00:00:00 GMT",
+                    }
+                ],
+                "message": "ok",
+                "status_code": 207,
+            },
+        ) as m:
+            resp = client.get(
+                "/api/ops/backup/webdav/files", headers=_auth_headers()
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["success"] is True
+        assert body["files"][0]["name"] == "auto-x.tar.gz"
+        m.assert_called_once()
+        assert m.call_args.kwargs["remote_dir"] == "bk"
