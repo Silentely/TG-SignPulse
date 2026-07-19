@@ -189,3 +189,52 @@ def test_resolve_effective_retry_key_presence_contract():
     assert resolve_effective_retry_count({"name": "x"}, 5) == 5
     assert resolve_effective_retry_count({"retry_count": 0}, 5) == 0
     assert resolve_effective_retry_count({"retry_count": None}, 5) == 5
+
+
+def test_cancel_task_run_no_background():
+    from backend.services.sign_tasks import SignTaskService
+
+    svc = SignTaskService.__new__(SignTaskService)
+    svc._run_statuses = {}
+    svc._background_run_tasks = {}
+    svc._active_tasks = {}
+    svc._active_logs = {}
+    res = SignTaskService.cancel_task_run(svc, "acc1", "daily")
+    assert res["ok"] is False
+    assert res["cancelled"] is False
+
+
+def test_cancel_task_run_cancels_background():
+    from unittest.mock import MagicMock
+
+    from backend.services.sign_tasks import SignTaskService
+
+    svc = SignTaskService.__new__(SignTaskService)
+    bg = MagicMock()
+    bg.done.return_value = False
+    svc._run_statuses = {("acc1", "daily"): {"run_id": "r1", "state": "running"}}
+    svc._background_run_tasks = {("acc1", "daily"): bg}
+    svc._active_tasks = {("acc1", "daily"): True}
+    svc._active_logs = {("acc1", "daily"): []}
+    res = SignTaskService.cancel_task_run(svc, "acc1", "daily", run_id="r1")
+    assert res["ok"] is True
+    assert res["cancelled"] is True
+    bg.cancel.assert_called_once()
+
+
+def test_cancel_task_run_run_id_mismatch():
+    from unittest.mock import MagicMock
+
+    from backend.services.sign_tasks import SignTaskService
+
+    svc = SignTaskService.__new__(SignTaskService)
+    bg = MagicMock()
+    bg.done.return_value = False
+    svc._run_statuses = {("acc1", "daily"): {"run_id": "r1", "state": "running"}}
+    svc._background_run_tasks = {("acc1", "daily"): bg}
+    svc._active_tasks = {("acc1", "daily"): True}
+    svc._active_logs = {}
+    res = SignTaskService.cancel_task_run(svc, "acc1", "daily", run_id="other")
+    assert res["ok"] is False
+    assert res["cancelled"] is False
+    bg.cancel.assert_not_called()

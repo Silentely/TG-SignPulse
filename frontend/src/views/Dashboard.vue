@@ -92,12 +92,23 @@ const failureCategoryLabel = (cat?: string) => {
 }
 
 const openActiveRun = (run: ActiveRunSummary) => {
-  // Tasks 页已支持 query.account 过滤；不传未实现的 highlight
   router.push({
     name: 'tasks',
     query: {
       account: run.account_name || undefined,
+      task: run.task_name || undefined,
     },
+  })
+}
+
+const openFailureCategory = (category: string) => {
+  if (category === 'session_invalid') {
+    router.push({ name: 'accounts' })
+    return
+  }
+  router.push({
+    name: 'logs',
+    query: { category: category || undefined },
   })
 }
 
@@ -388,13 +399,15 @@ const loadDashboardData = async () => {
           {{ t('common.noData') }}
         </div>
         <div v-else class="flex flex-wrap gap-2">
-          <span
+          <button
             v-for="item in failureBreakdown"
             :key="item.category"
-            class="ui-badge ui-badge-error !text-[11px]"
+            type="button"
+            class="ui-badge ui-badge-error !text-[11px] cursor-pointer hover:opacity-90"
+            @click="openFailureCategory(item.category)"
           >
             {{ failureCategoryLabel(item.category) || item.category }}: {{ item.count }}
-          </span>
+          </button>
         </div>
       </div>
     </div>

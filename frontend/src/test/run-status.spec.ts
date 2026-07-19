@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest'
 import {
   aggregateFailureCategories,
   badgeTone,
+  formatActiveRunLabel,
   formatPhaseDetail,
+  groupActiveRunsByTask,
   isRunInProgress,
   phaseLabel,
+  remainingWaitSeconds,
   stateLabel,
 } from '../lib/run-status'
 
@@ -56,5 +59,32 @@ describe('run-status helpers', () => {
     expect(items[0]).toEqual({ category: 'timeout', count: 2 })
     expect(items.find((x) => x.category === 'session_invalid')?.count).toBe(1)
     expect(items.find((x) => x.category === 'unknown')?.count).toBe(1)
+  })
+
+  it('remainingWaitSeconds countdown', () => {
+    const fetched = 1_000_000
+    expect(remainingWaitSeconds(10, fetched, fetched + 3500)).toBe(7)
+    expect(remainingWaitSeconds(2, fetched, fetched + 5000)).toBe(0)
+    expect(remainingWaitSeconds(null, fetched, fetched)).toBe(null)
+  })
+
+  it('groupActiveRunsByTask multi account', () => {
+    const map = groupActiveRunsByTask([
+      { task_name: 'daily', account_name: 'a', state: 'running', started_at: 't2' },
+      { task_name: 'daily', account_name: 'b', state: 'running', started_at: 't1' },
+      { task_name: 'other', account_name: 'a', state: 'finished' },
+    ])
+    expect(map.daily).toHaveLength(2)
+    expect(map.daily[0].account_name).toBe('a')
+    expect(map.other).toBeUndefined()
+  })
+
+  it('formatActiveRunLabel with cooldown seconds', () => {
+    const label = formatActiveRunLabel(
+      { state: 'running', phase: 'cooldown' },
+      t,
+      { remainingSec: 9 },
+    )
+    expect(label).toContain('9s')
   })
 })

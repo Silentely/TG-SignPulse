@@ -223,6 +223,13 @@ class RunTaskStatusResult(BaseModel):
     retry_count_effective: Optional[int] = None
 
 
+class CancelRunResult(BaseModel):
+    ok: bool
+    cancelled: bool = False
+    error: str = ""
+    status: Optional[RunTaskStatusResult] = None
+
+
 class TaskHistoryItem(BaseModel):
     time: str
     success: bool
@@ -557,6 +564,28 @@ async def start_sign_task_run(
         ) from e
 
 
+def _resolve_task_account(task_name: str, account_name: Optional[str]) -> str:
+    """解析执行账号；无法确定时抛 HTTPException。"""
+    resolved_account = account_name
+    if not resolved_account or resolved_account == "*":
+        task = get_sign_task_service().get_task(task_name, aggregate=True)
+        if not task:
+            raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
+        for name in task.get("account_names", []):
+            if name and name != "*":
+                resolved_account = name
+                break
+        if not resolved_account or resolved_account == "*":
+            resolved_account = task.get("account_name", "")
+        if not resolved_account or resolved_account == "*":
+            raise HTTPException(status_code=400, detail="无法确定执行账号")
+    else:
+        task = get_sign_task_service().get_task(task_name, account_name=resolved_account)
+        if not task:
+            raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
+    return str(resolved_account)
+
+
 @router.get("/{task_name}/run/status", response_model=RunTaskStatusResult)
 def get_sign_task_run_status(
     task_name: str,
@@ -565,27 +594,49 @@ def get_sign_task_run_status(
     current_user=Depends(get_current_user),
 ):
     try:
-        resolved_account = account_name
-        if not resolved_account or resolved_account == "*":
-            task = get_sign_task_service().get_task(task_name, aggregate=True)
-            if not task:
-                raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
-            for name in task.get("account_names", []):
-                if name and name != "*":
-                    resolved_account = name
-                    break
-            if not resolved_account or resolved_account == "*":
-                resolved_account = task.get("account_name", "")
-            if not resolved_account or resolved_account == "*":
-                raise HTTPException(status_code=400, detail="无法确定执行账号")
-        else:
-            task = get_sign_task_service().get_task(task_name, account_name=resolved_account)
-            if not task:
-                raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
+        resolved_account = _resolve_task_account(task_name, account_name)
         return get_sign_task_service().get_task_run_status(
             resolved_account,
             task_name,
             run_id=run_id,
+        )
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        ) from e
+
+
+@router.post("/{task_name}/run/cancel", response_model=CancelRunResult)
+def cancel_sign_task_run(
+    task_name: str,
+    account_name: Optional[str] = None,
+    run_id: Optional[str] = None,
+    current_user=Depends(get_current_user),
+):
+    """取消进行中的签到运行。"""
+    try:
+        resolved_account = _resolve_task_account(task_name, account_name)
+        result = get_sign_task_service().cancel_task_run(
+            resolved_account,
+            task_name,
+            run_id=run_id,
+        )
+        # status 可能为纯 dict；校验失败时降级为 None，避免 500
+        status_raw = result.get("status")
+        status_model = None
+        if isinstance(status_raw, dict) and status_raw.get("state") is not None:
+            try:
+                status_model = RunTaskStatusResult(**status_raw)
+            except Exception:
+                status_model = None
+        return CancelRunResult(
+            ok=bool(result.get("ok")),
+            cancelled=bool(result.get("cancelled")),
+            error=str(result.get("error") or ""),
+            status=status_model,
         )
     except HTTPException:
         raise

@@ -308,6 +308,7 @@ onMounted(()=>{loadAccounts()})
       <div class="space-y-1.5">
         <label class="ui-label-strong">{{ t('taskForm.retryCount') }}</label>
         <input v-model.number="retryCount" type="number" min="0" max="99" class="ui-input" />
+        <p class="text-[10px] text-gray-500 mt-1 leading-relaxed">{{ t('taskForm.retryCountHint') }}</p>
       </div>
     </div>
     </div>

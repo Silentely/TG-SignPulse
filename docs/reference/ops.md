@@ -17,6 +17,7 @@
 | `POST /api/sign-tasks/{name}/clone` | 克隆签到任务 |
 | `GET /api/sign-tasks/runs/active` | 内存中进行中的签到 run（phase / 账号 / 任务） |
 | `GET /api/sign-tasks/{name}/run/status` | 单任务 run 状态（含 `state` / `phase` / `failure_category`） |
+| `POST /api/sign-tasks/{name}/run/cancel` | 取消进行中的签到 run（协作式 cancel） |
 | `POST /api/ops/backup/export` | 完整备份：已配置 WebDAV 时上传远端；否则回退浏览器下载 |
 | `POST /api/ops/backup/webdav/test` | 测试全局设置中的 WebDAV 连通性 |
 | `GET /api/ops/backup/webdav/files` | 列出远端目录 `.tar.gz` 备份（PROPFIND） |

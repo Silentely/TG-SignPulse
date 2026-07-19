@@ -186,7 +186,13 @@
     "cloneNameRequired": "请输入新任务名",
     "cloneNameInvalid": "任务名不能包含路径分隔符",
     "cloneFrom": "克隆自：{name}",
-    "cloning": "克隆中…"
+    "cloning": "克隆中…",
+    "cancelRun": "停止",
+    "cancelSuccess": "已请求取消任务",
+    "cancelFailed": "取消失败",
+    "cancelNeedAccount": "无法确定运行账号",
+    "accountInvalid": "账号失效",
+    "accountInvalidHint": "账号登录已失效，请重新登录后再执行"
   },
   "taskForm": {
     "taskName": "任务名称",
@@ -257,7 +263,8 @@
     "loadingChats": "加载会话中...",
     "loadAccountsFailed": "加载账号列表失败",
     "loadChatsFailed": "加载会话列表失败",
-    "notifyOnSuccess": "成功时通知"
+    "notifyOnSuccess": "成功时通知",
+    "retryCountHint": "此值写入任务配置后优先于系统设置中的流程重试。全局缺省仅在任务 config 未含 retry_count 键时生效。"
   },
   "taskModal": {
     "addTitle": "添加任务",
@@ -334,7 +341,9 @@
       "INVALID_USERNAME_OR_PASSWORD": "用户名或密码错误",
       "TOTP_REQUIRED_OR_INVALID": "两步验证码错误或缺失",
       "RATE_LIMITED": "请求过于频繁，已被限流"
-    }
+    },
+    "allCategories": "全部分类",
+    "colCategory": "失败分类"
   },
   "settings": {
     "general": "通用设置",
@@ -500,7 +509,9 @@
     "webdavDownloadFailed": "下载远端备份失败",
     "webdavDownloadHint": "下载到本机后请停服再解压覆盖 data/ 恢复；面板不会在线热恢复。",
     "botTokenSavedHint": "已保存（留空不修改，输入新 Token 可覆盖）",
-    "saveBackupSettings": "保存备份设置"
+    "saveBackupSettings": "保存备份设置",
+    "flowRetryHint": "仅当任务 config 未写入 retry_count 键时作为缺省；任务表单中的重试次数优先。",
+    "execTimeoutHint": "单次 run_once 超时秒数，超时后状态为 timeout。"
   },
   "profile": {
     "title": "个人中心",

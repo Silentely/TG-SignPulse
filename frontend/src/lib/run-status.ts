@@ -136,3 +136,58 @@ export function aggregateFailureCategories(
     .map(([category, count]) => ({ category, count }))
     .sort((a, b) => b.count - a.count)
 }
+
+/**
+ * 冷却倒计时：根据 wait_seconds + 轮询时间估算剩余秒。
+ * remainingAtFetch 为拉取时服务端 wait_seconds；fetchedAtMs 为本地 Date.now()。
+ */
+export function remainingWaitSeconds(
+  remainingAtFetch: number | null | undefined,
+  fetchedAtMs: number,
+  nowMs: number = Date.now(),
+): number | null {
+  if (remainingAtFetch == null || !Number.isFinite(remainingAtFetch)) return null
+  if (remainingAtFetch <= 0) return 0
+  const elapsed = Math.max(0, (nowMs - fetchedAtMs) / 1000)
+  return Math.max(0, Math.ceil(remainingAtFetch - elapsed))
+}
+
+/** 展示用 phase 文案：有倒计时则拼到 phase 标签后，优先 i18n phase */
+export function formatActiveRunLabel(
+  status: SignTaskRunStatusLike | null | undefined,
+  t: Translate,
+  opts?: { remainingSec?: number | null },
+): string {
+  if (!status || !isRunInProgress(status)) return ''
+  const phase = phaseLabel(status.phase, t) || t('runStatus.inProgress')
+  const rem = opts?.remainingSec
+  if (rem != null && rem > 0 && String(status.phase || '') === 'cooldown') {
+    return `${phase} ${rem}s`
+  }
+  // 细节含账号名时作副信息，主标签仍用 phase
+  return phase
+}
+
+/** 按 task_name 分组活跃 run，同任务多账号保留全部 */
+export function groupActiveRunsByTask(
+  runs: ActiveRunSummary[],
+): Record<string, ActiveRunSummary[]> {
+  const map: Record<string, ActiveRunSummary[]> = {}
+  for (const run of runs) {
+    const name = String(run.task_name || '')
+    if (!name || !isRunInProgress(run)) continue
+    if (!map[name]) map[name] = []
+    map[name].push(run)
+  }
+  for (const key of Object.keys(map)) {
+    map[key].sort((a, b) => String(b.started_at || '').localeCompare(String(a.started_at || '')))
+  }
+  return map
+}
+
+export function pickPrimaryActiveRun(
+  runs: ActiveRunSummary[] | undefined | null,
+): ActiveRunSummary | null {
+  if (!runs || !runs.length) return null
+  return runs[0] || null
+}

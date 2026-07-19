@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { Play, FileText, Edit2, Trash2, Plus, Radio, Clock, Shuffle, Power, Search } from 'lucide-vue-next'
-import { listSignTasks, deleteSignTask, startSignTaskRun, listAccounts, toggleSignTaskEnabled, batchSignTasks, cloneSignTask, listActiveSignTaskRuns } from '../lib/api'
+import { Play, FileText, Edit2, Trash2, Plus, Radio, Clock, Shuffle, Power, Search, Square } from 'lucide-vue-next'
+import { listSignTasks, deleteSignTask, startSignTaskRun, listAccounts, toggleSignTaskEnabled, batchSignTasks, cloneSignTask, listActiveSignTaskRuns, cancelSignTaskRun } from '../lib/api'
 import { BUILT_IN_TEMPLATES } from '../lib/task-templates'
 import type { SignTask, AccountInfo, ActiveRunSummary } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
@@ -19,9 +19,13 @@ import { devLog } from '../lib/devLog'
 import {
   badgeTone,
   badgeToneClass,
+  formatActiveRunLabel,
   formatPhaseDetail,
+  groupActiveRunsByTask,
   isRunInProgress,
   phaseLabel,
+  pickPrimaryActiveRun,
+  remainingWaitSeconds,
 } from '../lib/run-status'
 
 const route = useRoute()
@@ -239,21 +243,29 @@ const loadTasks = async () => {
   }
 }
 
-/** task_name → 最新 active_run 摘要（短轮询合并） */
-const activeRunByTask = ref<Record<string, ActiveRunSummary>>({})
+/** task_name → 该任务下全部活跃 run（多账号） */
+const activeRunsByTask = ref<Record<string, ActiveRunSummary[]>>({})
+/** 拉取 active-runs 时的本地时间，用于冷却倒计时 */
+const activeRunsFetchedAt = ref(0)
+const nowTick = ref(Date.now())
 let activePollTimer: ReturnType<typeof setInterval> | null = null
+let countdownTimer: ReturnType<typeof setInterval> | null = null
+const cancelBusyKey = ref('')
+const accountStatusMap = ref<Record<string, string>>({})
+const accountNeedsRelogin = ref<Record<string, boolean>>({})
 
-const hasAnyActiveRun = computed(() => Object.keys(activeRunByTask.value).length > 0)
+const hasAnyActiveRun = computed(() => Object.keys(activeRunsByTask.value).length > 0)
 
 const syncActiveRunsFromTasks = (items: TaskUiItem[]) => {
-  const next: Record<string, ActiveRunSummary> = {}
+  const flat: ActiveRunSummary[] = []
   for (const task of items) {
     const ar = task.raw.active_run
     if (ar && isRunInProgress(ar)) {
-      next[task.name] = ar
+      flat.push({ ...ar, task_name: ar.task_name || task.name })
     }
   }
-  activeRunByTask.value = next
+  activeRunsByTask.value = groupActiveRunsByTask(flat)
+  activeRunsFetchedAt.value = Date.now()
 }
 
 const refreshActiveRuns = async () => {
@@ -261,16 +273,8 @@ const refreshActiveRuns = async () => {
   if (!token) return
   try {
     const res = await listActiveSignTaskRuns(token)
-    const next: Record<string, ActiveRunSummary> = {}
-    for (const run of res.runs || []) {
-      const name = String(run.task_name || '')
-      if (!name) continue
-      const prev = next[name]
-      if (!prev || String(run.started_at || '') > String(prev.started_at || '')) {
-        next[name] = run
-      }
-    }
-    activeRunByTask.value = next
+    activeRunsByTask.value = groupActiveRunsByTask(res.runs || [])
+    activeRunsFetchedAt.value = Date.now()
   } catch (e) {
     devLog.error('Failed to refresh active runs', e)
   }
@@ -281,35 +285,133 @@ const ensureActivePolling = () => {
     if (!activePollTimer) {
       activePollTimer = setInterval(refreshActiveRuns, 4000)
     }
-  } else if (activePollTimer) {
-    clearInterval(activePollTimer)
-    activePollTimer = null
+    if (!countdownTimer) {
+      countdownTimer = setInterval(() => {
+        nowTick.value = Date.now()
+      }, 1000)
+    }
+  } else {
+    if (activePollTimer) {
+      clearInterval(activePollTimer)
+      activePollTimer = null
+    }
+    if (countdownTimer) {
+      clearInterval(countdownTimer)
+      countdownTimer = null
+    }
   }
 }
 
 watch(hasAnyActiveRun, () => ensureActivePolling())
 
+const taskActiveRuns = (task: TaskUiItem): ActiveRunSummary[] => {
+  return activeRunsByTask.value[task.name] || (task.raw.active_run && isRunInProgress(task.raw.active_run)
+    ? [task.raw.active_run]
+    : [])
+}
+
 const taskActiveRun = (task: TaskUiItem): ActiveRunSummary | null => {
-  return activeRunByTask.value[task.name] || task.raw.active_run || null
+  return pickPrimaryActiveRun(taskActiveRuns(task))
 }
 
 const activeRunBadgeText = (task: TaskUiItem): string => {
   const ar = taskActiveRun(task)
   if (!ar || !isRunInProgress(ar)) return ''
-  const detail = formatPhaseDetail(ar, t)
-  if (detail) return detail
-  return phaseLabel(ar.phase, t) || t('runStatus.inProgress')
+  void nowTick.value
+  const rem = remainingWaitSeconds(ar.wait_seconds, activeRunsFetchedAt.value, nowTick.value)
+  return formatActiveRunLabel(ar, t, { remainingSec: rem })
 }
 
-onMounted(() => {
+const activeRunTooltip = (task: TaskUiItem): string => {
+  const runs = taskActiveRuns(task)
+  if (!runs.length) return ''
+  return runs
+    .map((r) => {
+      const acc = r.account_name || '-'
+      const ph = phaseLabel(r.phase, t) || formatPhaseDetail(r, t)
+      return `${acc}: ${ph}`
+    })
+    .join('\n')
+}
+
+const isAccountInvalid = (accountName: string) => {
+  if (accountNeedsRelogin.value[accountName]) return true
+  const st = accountStatusMap.value[accountName] || ''
+  return st === 'invalid' || st === 'error' || /expired|offline|disconnected/i.test(st)
+}
+
+const taskHasInvalidAccount = (task: TaskUiItem): boolean => {
+  const names = [
+    ...(task.raw.account_names || []),
+    task.raw.account_name || '',
+  ].filter((n) => n && n !== '*')
+  return names.some((n) => isAccountInvalid(n))
+}
+
+const handleCancelRun = async (task: TaskUiItem) => {
+  const ar = taskActiveRun(task)
+  if (!ar?.account_name) {
+    toast.error(t('tasks.cancelNeedAccount'))
+    return
+  }
+  const key = `${task.name}:${ar.account_name}`
+  if (cancelBusyKey.value === key) return
+  cancelBusyKey.value = key
+  const token = authStore.token || ''
+  try {
+    const res = await cancelSignTaskRun(token, task.name, ar.account_name, ar.run_id)
+    if (res.ok && res.cancelled) {
+      toast.success(t('tasks.cancelSuccess'))
+      await refreshActiveRuns()
+    } else {
+      toast.error(res.error || t('tasks.cancelFailed'))
+    }
+  } catch (e: unknown) {
+    toast.error(getLocalizedErrorMessage(e, t, t('tasks.cancelFailed')))
+  } finally {
+    cancelBusyKey.value = ''
+  }
+}
+
+const applyRouteQueryFilters = () => {
+  const taskQ = (route.query.task as string | undefined)?.trim()
+  if (taskQ) {
+    searchQuery.value = taskQ
+  }
+}
+
+onMounted(async () => {
+  applyRouteQueryFilters()
   loadTasks()
   loadAllAccounts()
+  try {
+    const token = authStore.token || ''
+    if (token) {
+      const res = await listAccounts(token)
+      const map: Record<string, string> = {}
+      const relogin: Record<string, boolean> = {}
+      for (const a of res.accounts || []) {
+        map[a.name] = String(a.status || '')
+        relogin[a.name] = !!a.needs_relogin
+      }
+      accountStatusMap.value = map
+      accountNeedsRelogin.value = relogin
+    }
+  } catch (e) {
+    devLog.error('Failed to load account status map', e)
+  }
 })
+
+watch(() => route.query.task, () => applyRouteQueryFilters())
 
 onUnmounted(() => {
   if (activePollTimer) {
     clearInterval(activePollTimer)
     activePollTimer = null
+  }
+  if (countdownTimer) {
+    clearInterval(countdownTimer)
+    countdownTimer = null
   }
 })
 
@@ -705,10 +807,20 @@ const openLogs = (task: TaskUiItem) => {
               v-if="taskActiveRun(task) && isRunInProgress(taskActiveRun(task))"
               class="ui-badge !text-[11px] max-w-[16rem] truncate border"
               :class="badgeToneClass(badgeTone(taskActiveRun(task)))"
-              :title="activeRunBadgeText(task)"
+              :title="activeRunTooltip(task) || activeRunBadgeText(task)"
             >
               <span class="ui-pulse-dot !bg-sky-500 mr-1" />
               {{ activeRunBadgeText(task) }}
+              <template v-if="taskActiveRuns(task).length > 1">
+                ·{{ taskActiveRuns(task).length }}
+              </template>
+            </span>
+            <span
+              v-if="taskHasInvalidAccount(task)"
+              class="ui-badge ui-badge-error !text-[11px]"
+              :title="t('tasks.accountInvalidHint')"
+            >
+              {{ t('tasks.accountInvalid') }}
             </span>
           </div>
         </div>
@@ -729,16 +841,27 @@ const openLogs = (task: TaskUiItem) => {
           <Power class="w-3.5 h-3.5" />
           <span>{{ task.enabled ? t('tasks.pause') : t('tasks.resume') }}</span>
         </button>
+        <button
+          v-if="taskActiveRun(task) && isRunInProgress(taskActiveRun(task))"
+          type="button"
+          class="inline-flex items-center gap-1 px-2 py-1.5 rounded-sm text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors"
+          :title="t('tasks.cancelRun')"
+          :disabled="cancelBusyKey === `${task.name}:${taskActiveRun(task)?.account_name || ''}`"
+          @click="handleCancelRun(task)"
+        >
+          <Square class="w-3.5 h-3.5" />
+          <span>{{ t('tasks.cancelRun') }}</span>
+        </button>
         <div class="relative" @click.stop>
           <button
             type="button"
             class="inline-flex items-center gap-1 px-2 py-1.5 rounded-sm text-xs transition-colors"
-            :class="task.raw.execution_mode === 'listen'
+            :class="task.raw.execution_mode === 'listen' || taskHasInvalidAccount(task)
               ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
               : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/[0.04]'"
-            :title="t('tasks.executeNow')"
-            :disabled="task.raw.execution_mode === 'listen'"
-            @click="task.raw.execution_mode !== 'listen' && handleRun(task)"
+            :title="taskHasInvalidAccount(task) ? t('tasks.accountInvalidHint') : t('tasks.executeNow')"
+            :disabled="task.raw.execution_mode === 'listen' || taskHasInvalidAccount(task)"
+            @click="task.raw.execution_mode !== 'listen' && !taskHasInvalidAccount(task) && handleRun(task)"
           >
             <Play class="w-3.5 h-3.5" />
             <span>{{ t('tasks.execute') }}</span>

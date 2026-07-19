@@ -186,7 +186,13 @@
     "cloneNameRequired": "Enter a new task name",
     "cloneNameInvalid": "Task name cannot contain path separators",
     "cloneFrom": "Clone from: {name}",
-    "cloning": "Cloning…"
+    "cloning": "Cloning…",
+    "cancelRun": "Stop",
+    "cancelSuccess": "Cancel requested",
+    "cancelFailed": "Cancel failed",
+    "cancelNeedAccount": "Cannot resolve running account",
+    "accountInvalid": "Account invalid",
+    "accountInvalidHint": "Account session expired; re-login before running"
   },
   "taskForm": {
     "taskName": "Task Name",
@@ -257,7 +263,8 @@
     "loadingChats": "Loading chats...",
     "loadAccountsFailed": "Failed to load accounts",
     "loadChatsFailed": "Failed to load chats",
-    "notifyOnSuccess": "Notify on success"
+    "notifyOnSuccess": "Notify on success",
+    "retryCountHint": "Once saved on the task, this overrides the global flow-retry setting. Global default applies only when retry_count is absent from the task config."
   },
   "taskModal": {
     "addTitle": "Add Task",
@@ -334,7 +341,9 @@
       "INVALID_USERNAME_OR_PASSWORD": "Invalid username or password",
       "TOTP_REQUIRED_OR_INVALID": "2FA code invalid or missing",
       "RATE_LIMITED": "Too many requests, rate limited"
-    }
+    },
+    "allCategories": "All categories",
+    "colCategory": "Failure category"
   },
   "settings": {
     "general": "General Settings",
@@ -500,7 +509,9 @@
     "webdavDownloadFailed": "Failed to download remote backup",
     "webdavDownloadHint": "After download, stop the service and extract over data/ to restore. The panel does not hot-restore online.",
     "botTokenSavedHint": "Saved (leave empty to keep; enter a new token to replace)",
-    "saveBackupSettings": "Save backup settings"
+    "saveBackupSettings": "Save backup settings",
+    "flowRetryHint": "Used only when the task config has no retry_count key; task form value wins.",
+    "execTimeoutHint": "Timeout seconds for a single run_once; timed-out runs use state=timeout."
   },
   "profile": {
     "title": "Profile",

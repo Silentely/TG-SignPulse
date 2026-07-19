@@ -31,6 +31,7 @@ import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
 import { useConfirm } from '../composables/useConfirm'
 import CustomSelect from '../components/CustomSelect.vue'
+import SettingsFieldHint from '../components/settings/SettingsFieldHint.vue'
 import { useAuthStore } from '../stores/auth'
 import { getLocalizedErrorMessage } from '../lib/types'
 import { devLog } from '../lib/devLog'
@@ -1107,6 +1108,7 @@ const handleImport = async (e: Event) => {
                 <div class="space-y-1">
                   <label class="text-[10px] text-gray-500">{{ t('settings.execTimeout') }}</label>
                   <input v-model="settings.execTimeout" type="number" min="30" max="3600" class="ui-input" />
+                  <SettingsFieldHint :text="t('settings.execTimeoutHint')" />
                 </div>
                 <div class="space-y-1">
                   <label class="text-[10px] text-gray-500">{{ t('settings.accountCooldown') }}</label>
@@ -1115,6 +1117,7 @@ const handleImport = async (e: Event) => {
                 <div class="space-y-1">
                   <label class="text-[10px] text-gray-500">{{ t('settings.flowRetry') }}</label>
                   <input v-model="settings.flowRetry" type="number" min="1" max="10" class="ui-input" />
+                  <SettingsFieldHint :text="t('settings.flowRetryHint')" />
                 </div>
                 <div class="space-y-1">
                   <label class="text-[10px] text-gray-500">{{ t('settings.historyMaxAge') }}</label>

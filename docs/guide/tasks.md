@@ -15,6 +15,25 @@
 
 > 面板与 API 请使用 **sign-tasks**（`/api/sign-tasks`）。旧版 ORM `/api/tasks` 默认只读，仅作兼容。
 
+## 运行状态与可观测
+
+手动/定时触发后，运行状态保存在服务端内存，面板可实时查看：
+
+| 字段 | 说明 |
+|------|------|
+| `state` | 粗粒度：`running` / `finished` / `timeout` / `cancelled` 等 |
+| `phase` | 细粒度：`starting` → `checking_account` → `waiting_lock` → `cooldown` → `running` → `finalizing` |
+| `failure_category` | 失败分类（会话失效、超时、Flood 等） |
+
+相关 API：
+
+- `POST /api/sign-tasks/{name}/run/start` — 异步启动
+- `GET /api/sign-tasks/{name}/run/status` — 查询状态
+- `POST /api/sign-tasks/{name}/run/cancel` — 取消进行中的运行
+- `GET /api/sign-tasks/runs/active` — 当前全部进行中的 run
+
+任务表单中的 **重试次数** 写入 config 后优先于系统设置「流程重试」；全局缺省仅在任务 config **未包含** `retry_count` 键时生效。
+
 ## 多账号共享任务
 
 共享任务用于“一套流程，多号复用”。
