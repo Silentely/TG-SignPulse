@@ -697,7 +697,9 @@ class ConfigService:
 
         api_key = config.get("api_key")
         base_url = config.get("base_url")
-        model = config.get("model", "gpt-4o")
+        from tg_signer.ai_tools import DEFAULT_MODEL
+
+        model = config.get("model") or DEFAULT_MODEL
 
         if not api_key:
             return {"success": False, "message": "API Key 为空"}
