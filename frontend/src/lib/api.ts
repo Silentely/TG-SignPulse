@@ -896,6 +896,17 @@ export interface LastRunInfo {
   message?: string;
 }
 
+export interface ActiveRunSummary {
+  run_id?: string;
+  state?: string;
+  phase?: string | null;
+  phase_detail?: string;
+  account_name?: string;
+  task_name?: string;
+  started_at?: string | null;
+  wait_seconds?: number | null;
+}
+
 export interface SignTask {
   name: string;
   account_name: string;
@@ -914,6 +925,7 @@ export interface SignTask {
   task_group_id?: string;
   last_run_account_name?: string;
   retry_count?: number;
+  active_run?: ActiveRunSummary | null;
 }
 
 export interface CreateSignTaskRequest {
@@ -1006,12 +1018,20 @@ export const runSignTask = (token: string, name: string, accountName: string) =>
 
 export interface SignTaskRunStatus {
   run_id: string;
-  state: "idle" | "stale" | "running" | "finished" | string;
+  state: "idle" | "stale" | "running" | "finished" | "cancelled" | "timeout" | string;
   success?: boolean | null;
   error?: string;
   output?: string;
   started_at?: string | null;
   finished_at?: string | null;
+  phase?: string | null;
+  phase_detail?: string;
+  wait_seconds?: number | null;
+  account_name?: string;
+  task_name?: string;
+  failure_category?: string | null;
+  timeout_seconds?: number | null;
+  retry_count_effective?: number | null;
 }
 
 export const startSignTaskRun = (token: string, name: string, accountName: string) =>
@@ -1034,6 +1054,9 @@ export const getSignTaskRunStatus = (
     token
   );
 };
+
+export const listActiveSignTaskRuns = (token: string) =>
+  request<{ runs: ActiveRunSummary[] }>(`/sign-tasks/runs/active`, {}, token);
 
 export const getAccountChats = (token: string, accountName: string, forceRefresh?: boolean) =>
   request<ChatInfo[]>(`/sign-tasks/chats/${encodeURIComponent(accountName)}${forceRefresh ? '?force_refresh=true' : ''}`, {}, token);

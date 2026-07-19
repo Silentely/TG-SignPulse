@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, computed } from 'vue'
+import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { Play, FileText, Edit2, Trash2, Plus, Radio, Clock, Shuffle, Power, Search } from 'lucide-vue-next'
-import { listSignTasks, deleteSignTask, startSignTaskRun, listAccounts, toggleSignTaskEnabled, batchSignTasks, cloneSignTask } from '../lib/api'
+import { listSignTasks, deleteSignTask, startSignTaskRun, listAccounts, toggleSignTaskEnabled, batchSignTasks, cloneSignTask, listActiveSignTaskRuns } from '../lib/api'
 import { BUILT_IN_TEMPLATES } from '../lib/task-templates'
-import type { SignTask, AccountInfo } from '../lib/api'
+import type { SignTask, AccountInfo, ActiveRunSummary } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
 import { useConfirm } from '../composables/useConfirm'
@@ -16,6 +16,13 @@ import EditTaskModal from '../components/tasks/EditTaskModal.vue'
 import TaskLogsModal from '../components/tasks/TaskLogsModal.vue'
 import Modal from '../components/Modal.vue'
 import { devLog } from '../lib/devLog'
+import {
+  badgeTone,
+  badgeToneClass,
+  formatPhaseDetail,
+  isRunInProgress,
+  phaseLabel,
+} from '../lib/run-status'
 
 const route = useRoute()
 const { t } = useI18n()
@@ -210,6 +217,9 @@ const loadTasks = async () => {
       }
     })
 
+    syncActiveRunsFromTasks(tasks.value)
+    ensureActivePolling()
+
     // Load chat avatars - prefer chat.source_account (the account that selected the chat),
     // fall back to first real account from task's account list
     for (const task of tasks.value) {
@@ -229,9 +239,78 @@ const loadTasks = async () => {
   }
 }
 
+/** task_name → 最新 active_run 摘要（短轮询合并） */
+const activeRunByTask = ref<Record<string, ActiveRunSummary>>({})
+let activePollTimer: ReturnType<typeof setInterval> | null = null
+
+const hasAnyActiveRun = computed(() => Object.keys(activeRunByTask.value).length > 0)
+
+const syncActiveRunsFromTasks = (items: TaskUiItem[]) => {
+  const next: Record<string, ActiveRunSummary> = {}
+  for (const task of items) {
+    const ar = task.raw.active_run
+    if (ar && isRunInProgress(ar)) {
+      next[task.name] = ar
+    }
+  }
+  activeRunByTask.value = next
+}
+
+const refreshActiveRuns = async () => {
+  const token = authStore.token || ''
+  if (!token) return
+  try {
+    const res = await listActiveSignTaskRuns(token)
+    const next: Record<string, ActiveRunSummary> = {}
+    for (const run of res.runs || []) {
+      const name = String(run.task_name || '')
+      if (!name) continue
+      const prev = next[name]
+      if (!prev || String(run.started_at || '') > String(prev.started_at || '')) {
+        next[name] = run
+      }
+    }
+    activeRunByTask.value = next
+  } catch (e) {
+    devLog.error('Failed to refresh active runs', e)
+  }
+}
+
+const ensureActivePolling = () => {
+  if (hasAnyActiveRun.value) {
+    if (!activePollTimer) {
+      activePollTimer = setInterval(refreshActiveRuns, 4000)
+    }
+  } else if (activePollTimer) {
+    clearInterval(activePollTimer)
+    activePollTimer = null
+  }
+}
+
+watch(hasAnyActiveRun, () => ensureActivePolling())
+
+const taskActiveRun = (task: TaskUiItem): ActiveRunSummary | null => {
+  return activeRunByTask.value[task.name] || task.raw.active_run || null
+}
+
+const activeRunBadgeText = (task: TaskUiItem): string => {
+  const ar = taskActiveRun(task)
+  if (!ar || !isRunInProgress(ar)) return ''
+  const detail = formatPhaseDetail(ar, t)
+  if (detail) return detail
+  return phaseLabel(ar.phase, t) || t('runStatus.inProgress')
+}
+
 onMounted(() => {
   loadTasks()
   loadAllAccounts()
+})
+
+onUnmounted(() => {
+  if (activePollTimer) {
+    clearInterval(activePollTimer)
+    activePollTimer = null
+  }
 })
 
 const loadChatAvatar = async (task: TaskUiItem, accountName: string, chatId: number) => {
@@ -621,6 +700,15 @@ const openLogs = (task: TaskUiItem) => {
                   : (task.lastRunSuccess ? 'ui-badge-success' : 'ui-badge-error')"
             >
               {{ task.lastRunStr }}
+            </span>
+            <span
+              v-if="taskActiveRun(task) && isRunInProgress(taskActiveRun(task))"
+              class="ui-badge !text-[11px] max-w-[16rem] truncate border"
+              :class="badgeToneClass(badgeTone(taskActiveRun(task)))"
+              :title="activeRunBadgeText(task)"
+            >
+              <span class="ui-pulse-dot !bg-sky-500 mr-1" />
+              {{ activeRunBadgeText(task) }}
             </span>
           </div>
         </div>

@@ -57,8 +57,12 @@
       "target_not_found": "目标未找到",
       "network_proxy": "网络/代理",
       "timeout": "超时",
-      "strong_failure": "业务失败"
-    }
+      "strong_failure": "业务失败",
+      "unknown": "未知"
+    },
+    "activeRuns": "活跃运行",
+    "noActiveRuns": "当前无运行中任务",
+    "failureBreakdown": "失败分类"
   },
   "accounts": {
     "noRemark": "暂无备注",
@@ -635,5 +639,27 @@
     "allAccounts": "全部账号",
     "selected": "项已选",
     "noOptions": "无选项"
+  },
+  "runStatus": {
+    "phase": {
+      "starting": "启动中",
+      "checking_account": "检查账号",
+      "waiting_lock": "等待账号锁",
+      "cooldown": "账号冷却",
+      "running": "执行中",
+      "finalizing": "收尾中"
+    },
+    "state": {
+      "idle": "空闲",
+      "running": "进行中",
+      "finished": "已结束",
+      "cancelled": "已取消",
+      "stale": "已过期",
+      "timeout": "超时"
+    },
+    "activeRuns": "活跃运行",
+    "noActiveRuns": "当前无运行中任务",
+    "failureBreakdown": "失败分类",
+    "inProgress": "运行中"
   }
 }

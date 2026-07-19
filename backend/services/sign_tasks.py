@@ -24,6 +24,7 @@ from backend.services.sign_task_config_inspect import (
     task_requires_updates,
 )
 from backend.services.sign_task_failure import (
+    FailureCategory,
     classify_failure,
     message_indicates_strong_failure,
 )
@@ -60,11 +61,24 @@ from backend.services.sign_task_message import (
     message_matches_thread,
 )
 from backend.services.sign_task_run_status import (
+    PHASE_CHECKING_ACCOUNT,
+    PHASE_COOLDOWN,
+    PHASE_FINALIZING,
+    PHASE_RUNNING,
+    PHASE_STARTING,
+    PHASE_WAITING_LOCK,
+    RUN_STATE_CANCELLED,
+    RUN_STATE_FINISHED,
+    RUN_STATE_RUNNING,
+    RUN_STATE_TIMEOUT,
     build_run_status,
     build_runner_failure_result,
     idle_running_placeholder,
+    is_timeout_error_message,
     make_task_key,
+    resolve_effective_retry_count,
     resolve_stored_run_status,
+    summarize_active_run,
 )
 from backend.services.sign_task_text import repair_mojibake
 from backend.utils.account_locks import get_account_lock
@@ -1609,8 +1623,57 @@ class SignTaskService:
             ]
 
         if aggregate:
-            return self._aggregate_tasks(tasks)
-        return tasks
+            tasks = self._aggregate_tasks(tasks)
+        return self._attach_active_runs(tasks)
+
+    def _attach_active_runs(self, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """为任务列表挂载轻量 active_run 摘要。"""
+        result: List[Dict[str, Any]] = []
+        for task in tasks:
+            item = dict(task)
+            item["active_run"] = self._resolve_active_run_for_task(item)
+            result.append(item)
+        return result
+
+    def _resolve_active_run_for_task(
+        self, task: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        task_name = str(task.get("name") or "")
+        if not task_name:
+            return None
+        candidates: List[str] = []
+        for name in task.get("account_names") or []:
+            if name and name != "*":
+                candidates.append(str(name))
+        primary = str(task.get("account_name") or "")
+        if primary and primary != "*" and primary not in candidates:
+            candidates.insert(0, primary)
+
+        best: Optional[Dict[str, Any]] = None
+        best_started = ""
+        for acc in candidates:
+            status = self._run_statuses.get(self._task_key(acc, task_name))
+            summary = summarize_active_run(status)
+            if not summary:
+                continue
+            started = str(summary.get("started_at") or "")
+            if best is None or started > best_started:
+                best = summary
+                best_started = started
+        return best
+
+    def list_active_runs(self) -> List[Dict[str, Any]]:
+        """返回内存中 state=running 的 run 摘要列表。"""
+        runs: List[Dict[str, Any]] = []
+        for status in self._run_statuses.values():
+            summary = summarize_active_run(status)
+            if summary:
+                runs.append(summary)
+        runs.sort(key=lambda r: str(r.get("started_at") or ""), reverse=True)
+        if len(runs) > 100:
+            _service_logger.warning("active runs truncated: %s", len(runs))
+            runs = runs[:100]
+        return runs
 
     def _load_task_config(self, task_dir: Path) -> Optional[Dict[str, Any]]:
         """Load one task config and normalize multi-account metadata."""
@@ -1671,12 +1734,17 @@ class SignTaskService:
             if not related:
                 return None
             grouped = self._aggregate_tasks(related)
-            return grouped[0] if grouped else None
-
-        task_dir = self._resolve_task_dir(task_name, account_name)
-        if task_dir is None:
+            task = grouped[0] if grouped else None
+        else:
+            task_dir = self._resolve_task_dir(task_name, account_name)
+            if task_dir is None:
+                return None
+            task = self._load_task_config(task_dir)
+        if not task:
             return None
-        return self._load_task_config(task_dir)
+        out = dict(task)
+        out["active_run"] = self._resolve_active_run_for_task(out)
+        return out
 
     def create_task(
         self,
@@ -2541,8 +2609,23 @@ class SignTaskService:
         output: str = "",
         started_at: Optional[str] = None,
         finished_at: Optional[str] = None,
+        phase: Optional[str] = None,
+        phase_detail: str = "",
+        wait_seconds: Optional[float] = None,
+        failure_category: Optional[str] = None,
+        timeout_seconds: Optional[float] = None,
+        retry_count_effective: Optional[int] = None,
+        preserve_started_at: bool = True,
     ) -> Dict[str, Any]:
         task_key = self._task_key(account_name, task_name)
+        prev = self._run_statuses.get(task_key) or {}
+        # 同 run 内默认保留 started_at / 已写入的 timeout/retry，避免 phase 刷新丢字段
+        if preserve_started_at and not started_at and prev.get("run_id") == run_id:
+            started_at = prev.get("started_at")
+        if timeout_seconds is None and prev.get("run_id") == run_id:
+            timeout_seconds = prev.get("timeout_seconds")
+        if retry_count_effective is None and prev.get("run_id") == run_id:
+            retry_count_effective = prev.get("retry_count_effective")
         status = build_run_status(
             run_id=run_id,
             state=state,
@@ -2552,9 +2635,44 @@ class SignTaskService:
             started_at=started_at,
             finished_at=finished_at,
             default_started_at=utc_now_iso(),
+            phase=phase,
+            phase_detail=phase_detail,
+            wait_seconds=wait_seconds,
+            account_name=account_name,
+            task_name=task_name,
+            failure_category=failure_category,
+            timeout_seconds=timeout_seconds,
+            retry_count_effective=retry_count_effective,
         )
         self._run_statuses[task_key] = status
         return dict(status)
+
+    def _update_run_phase(
+        self,
+        account_name: str,
+        task_name: str,
+        *,
+        run_id: Optional[str],
+        phase: str,
+        phase_detail: str = "",
+        wait_seconds: Optional[float] = None,
+        timeout_seconds: Optional[float] = None,
+        retry_count_effective: Optional[int] = None,
+    ) -> None:
+        """仅在有 run_id 时推进 phase（保持 state=running）。"""
+        if not run_id:
+            return
+        self._set_run_status(
+            account_name,
+            task_name,
+            run_id=run_id,
+            state=RUN_STATE_RUNNING,
+            phase=phase,
+            phase_detail=phase_detail,
+            wait_seconds=wait_seconds,
+            timeout_seconds=timeout_seconds,
+            retry_count_effective=retry_count_effective,
+        )
 
     def _schedule_run_status_cleanup(self, account_name: str, task_name: str) -> None:
         task_key = self._task_key(account_name, task_name)
@@ -2597,37 +2715,59 @@ class SignTaskService:
             account_name,
             task_name,
             run_id=run_id,
-            state="running",
+            state=RUN_STATE_RUNNING,
             success=None,
             error="",
             output="",
             started_at=started_at,
             finished_at=None,
+            phase=PHASE_STARTING,
+            phase_detail="任务已启动",
+            preserve_started_at=False,
         )
 
         async def runner() -> None:
             result: Dict[str, Any]
-            state = "finished"
+            state = RUN_STATE_FINISHED
             try:
                 result = await self.run_task_with_logs(account_name, task_name, run_id=run_id)
+                if result.get("timed_out") or is_timeout_error_message(
+                    str(result.get("error") or "")
+                ):
+                    state = RUN_STATE_TIMEOUT
             except asyncio.CancelledError:
-                state = "cancelled"
+                state = RUN_STATE_CANCELLED
                 result = build_runner_failure_result(cancelled=True)
             except Exception as exc:
                 result = build_runner_failure_result(error=str(exc) or "")
+                if result.get("timed_out"):
+                    state = RUN_STATE_TIMEOUT
 
             current_status = self._run_statuses.get(task_key)
             if current_status and current_status.get("run_id") == run_id:
+                success = bool(result.get("success", False))
+                error = str(result.get("error") or "")
+                category = result.get("failure_category")
+                if not success and not category:
+                    category = classify_failure(
+                        error=error,
+                        output=str(result.get("output") or ""),
+                        success=False,
+                    ).value
+                if success:
+                    category = None
                 self._set_run_status(
                     account_name,
                     task_name,
                     run_id=run_id,
                     state=state,
-                    success=bool(result.get("success", False)),
-                    error=str(result.get("error") or ""),
+                    success=success,
+                    error=error,
                     output=str(result.get("output") or ""),
                     started_at=started_at,
                     finished_at=utc_now_iso(),
+                    phase=None,
+                    failure_category=category,
                 )
                 self._schedule_run_status_cleanup(account_name, task_name)
             self._background_run_tasks.pop(task_key, None)
@@ -2667,7 +2807,13 @@ class SignTaskService:
         task_name = validate_storage_name(task_name, field_name="task_name")
 
         if self.is_task_running(task_name, account_name):
-            return {"success": False, "error": "任务已经在运行中", "output": ""}
+            return {
+                "success": False,
+                "error": "任务已经在运行中",
+                "output": "",
+                "timed_out": False,
+                "failure_category": None,
+            }
 
         # 初始化账号锁（跨服务共享）
         if account_name not in self._account_locks:
@@ -2675,9 +2821,7 @@ class SignTaskService:
 
         account_lock = self._account_locks[account_name]
 
-        # 检查是否能获取锁 (非阻塞检查，如果已被锁定则说明该账号有其他任务在运行)
-        # 这里我们希望排队等待，还是直接报错？
-        # 考虑到定时任务同时触发，应该排队执行。
+        # 定时任务同时触发时排队等待账号锁
         _service_logger.debug(f"等待获取账号锁 {account_name}...")
         if run_id:
             _service_logger.info(f"任务运行 run_id={run_id} [{account_name}/{task_name}]")
@@ -2696,13 +2840,16 @@ class SignTaskService:
         error_msg = ""
         output_str = ""
         account_invalid_detected = False
+        timed_out = False
         task_notify_on_failure = True
         task_notify_on_success = True
         task_cfg: Optional[Dict[str, Any]] = None
         signer: Optional[BackendUserSigner] = None
 
         try:
-            task_cfg = self.get_task(task_name, account_name=account_name)
+            # 执行路径读磁盘配置，不走 get_task（避免挂 active_run 的额外开销）
+            task_dir = self._resolve_task_dir(task_name, account_name)
+            task_cfg = self._load_task_config(task_dir) if task_dir else None
             if not task_cfg:
                 raise ValueError(f"Task {task_name} does not exist or cannot be loaded")
             requires_updates = self._task_requires_updates(task_cfg)
@@ -2710,6 +2857,14 @@ class SignTaskService:
             signer_no_updates = not requires_updates
             task_notify_on_failure = bool(task_cfg.get("notify_on_failure", True))
             task_notify_on_success = bool(task_cfg.get("notify_on_success", True))
+
+            self._update_run_phase(
+                account_name,
+                task_name,
+                run_id=run_id,
+                phase=PHASE_CHECKING_ACCOUNT,
+                phase_detail=f"检查账号 {account_name}",
+            )
 
             invalid_reason = await self._check_account_before_task(
                 account_name,
@@ -2734,14 +2889,32 @@ class SignTaskService:
                             f"关键词后台监听刷新失败: {exc}"
                         )
 
+                self._update_run_phase(
+                    account_name,
+                    task_name,
+                    run_id=run_id,
+                    phase=PHASE_WAITING_LOCK,
+                    phase_detail=f"等待账号锁 {account_name}",
+                )
+
                 async with account_lock:
                     last_end = self._account_last_run_end.get(account_name)
                     if last_end:
                         gap = time.time() - last_end
                         wait_seconds = self._account_cooldown_seconds - gap
                         if wait_seconds > 0:
+                            # 向上取整秒，便于 UI 展示剩余冷却
+                            wait_i = max(1, int(wait_seconds) if wait_seconds == int(wait_seconds) else int(wait_seconds) + 1)
+                            self._update_run_phase(
+                                account_name,
+                                task_name,
+                                run_id=run_id,
+                                phase=PHASE_COOLDOWN,
+                                phase_detail=f"等待账号冷却 {wait_i} 秒",
+                                wait_seconds=float(wait_i),
+                            )
                             self._active_logs[task_key].append(
-                                f"等待账号冷却 {int(wait_seconds)} 秒"
+                                f"等待账号冷却 {wait_i} 秒"
                             )
                             await asyncio.sleep(wait_seconds)
 
@@ -2835,14 +3008,32 @@ class SignTaskService:
                         no_updates=signer_no_updates,
                     )
 
-                    # 从任务配置读取 retry_count，设置为上下文变量供 UserSigner 流程重试使用
-                    task_retry_count = int(task_cfg.get("retry_count", 3))
+                    # 流程重试：配置文件存在 retry_count 键用任务值，否则用全局设置
+                    from backend.services.runtime_settings import (
+                        get_execution_timeout,
+                        get_flow_retry_attempts,
+                    )
+
+                    raw_task_cfg = self._load_raw_task_config_dict(
+                        task_name, account_name
+                    )
+                    task_retry_count = resolve_effective_retry_count(
+                        raw_task_cfg, get_flow_retry_attempts()
+                    )
                     _task_retry_count_var.set(task_retry_count)
 
                     # 执行任务（数据库锁冲突时重试，带超时保护）
-                    from backend.services.runtime_settings import get_execution_timeout
-
                     task_timeout = float(get_execution_timeout())
+                    self._update_run_phase(
+                        account_name,
+                        task_name,
+                        run_id=run_id,
+                        phase=PHASE_RUNNING,
+                        phase_detail=f"执行中（超时 {int(task_timeout)}s，重试 {task_retry_count}）",
+                        wait_seconds=None,
+                        timeout_seconds=task_timeout,
+                        retry_count_effective=task_retry_count,
+                    )
                     async with get_global_semaphore():
                         max_retries = 5
                         for attempt in range(max_retries):
@@ -2853,6 +3044,7 @@ class SignTaskService:
                                 )
                                 break
                             except asyncio.TimeoutError:
+                                timed_out = True
                                 raise RuntimeError(
                                     f"任务执行超时（{int(task_timeout)}秒），已强制终止"
                                 )
@@ -2867,6 +3059,13 @@ class SignTaskService:
                                         continue
                                 raise
 
+                    self._update_run_phase(
+                        account_name,
+                        task_name,
+                        run_id=run_id,
+                        phase=PHASE_FINALIZING,
+                        phase_detail="写入执行历史",
+                    )
                     success = True
                     self._active_logs[task_key].append("任务执行完成")
 
@@ -2874,6 +3073,8 @@ class SignTaskService:
                     await asyncio.sleep(2)
 
         except Exception as e:
+            if is_timeout_error_message(str(e)) or timed_out:
+                timed_out = True
             if account_invalid_detected or self._is_invalid_session_error(e):
                 account_invalid_detected = True
                 invalid_message = str(e) or f"账号 {account_name} 登录已失效，请重新登录"
@@ -3043,11 +3244,40 @@ class SignTaskService:
         # Periodic pruning of stale entries to prevent memory growth
         self._prune_stale_entries()
 
+        failure_category = None
+        if not success:
+            failure_category = classify_failure(
+                error=error_msg,
+                output=output_str,
+                success=False,
+            ).value
+            if timed_out:
+                failure_category = FailureCategory.TIMEOUT.value
+
         return {
             "success": success,
             "output": output_str,
             "error": error_msg,
+            "timed_out": timed_out,
+            "failure_category": failure_category,
         }
+
+    def _load_raw_task_config_dict(
+        self, task_name: str, account_name: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """读取磁盘 config.json 原字典（用于判断 retry_count 键是否存在）。"""
+        task_dir = self._resolve_task_dir(task_name, account_name)
+        if task_dir is None:
+            return {}
+        config_file = task_dir / "config.json"
+        if not config_file.exists():
+            return {}
+        try:
+            with open(config_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
 
 
 # 创建全局实例

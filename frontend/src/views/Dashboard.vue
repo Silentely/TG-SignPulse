@@ -2,8 +2,8 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Users, Zap, Terminal, Settings } from 'lucide-vue-next'
-import { listAccounts, listSignTasks, getRecentAccountLogs, listScheduledJobs } from '../lib/api'
-import type { AccountInfo, AccountLog, ScheduledJob } from '../lib/api'
+import { listAccounts, listSignTasks, getRecentAccountLogs, listScheduledJobs, listActiveSignTaskRuns } from '../lib/api'
+import type { AccountInfo, AccountLog, ActiveRunSummary, ScheduledJob } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
 import { useAuthStore } from '../stores/auth'
@@ -11,6 +11,13 @@ import type { DashboardLog } from '../lib/types'
 import { getLocalizedErrorMessage } from '../lib/types'
 import Modal from '../components/Modal.vue'
 import { devLog } from '../lib/devLog'
+import {
+  aggregateFailureCategories,
+  badgeTone,
+  badgeToneClass,
+  formatPhaseDetail,
+  phaseLabel,
+} from '../lib/run-status'
 
 const quickLinks = [
   { name: 'accounts', icon: Users, titleKey: 'dashboard.goAccounts', descKey: 'dashboard.goAccountsDesc' },
@@ -53,6 +60,8 @@ const stats = ref([
 
 const logs = ref<DashboardLog[]>([])
 const upcomingJobs = ref<ScheduledJob[]>([])
+const activeRuns = ref<ActiveRunSummary[]>([])
+const failureBreakdown = ref<Array<{ category: string; count: number }>>([])
 const pageLoading = ref(true)
 const formatTime = (isoString: string) => {
   if (!isoString) return ''
@@ -76,10 +85,20 @@ const jobKindLabel = (kind: string) => {
 }
 
 const failureCategoryLabel = (cat?: string) => {
-  if (!cat || cat === 'none' || cat === 'unknown') return ''
+  if (!cat || cat === 'none') return ''
   const key = `dashboard.failCat.${cat}`
   const label = t(key)
   return label === key ? cat : label
+}
+
+const openActiveRun = (run: ActiveRunSummary) => {
+  // Tasks 页已支持 query.account 过滤；不传未实现的 highlight
+  router.push({
+    name: 'tasks',
+    query: {
+      account: run.account_name || undefined,
+    },
+  })
 }
 
 const prependLiveLog = (payload: {
@@ -197,12 +216,14 @@ const loadDashboardData = async () => {
     let tasksRes: Awaited<ReturnType<typeof listSignTasks>> = []
     let logsRes: AccountLog[] = []
     let jobsRes: Awaited<ReturnType<typeof listScheduledJobs>> | null = null
+    let activeRes: { runs: ActiveRunSummary[] } = { runs: [] }
 
     let loadError: unknown = null
     try { accRes = await listAccounts(token) } catch (e) { loadError = e; devLog.error('Failed to load accounts', e) }
     try { tasksRes = await listSignTasks(token) } catch (e) { loadError = e; devLog.error('Failed to load tasks', e) }
-    try { logsRes = await getRecentAccountLogs(token, 20) } catch (e) { loadError = e; devLog.error('Failed to load logs', e) }
+    try { logsRes = await getRecentAccountLogs(token, 50) } catch (e) { loadError = e; devLog.error('Failed to load logs', e) }
     try { jobsRes = await listScheduledJobs(token) } catch (e) { devLog.error('Failed to load scheduled jobs', e) }
+    try { activeRes = await listActiveSignTaskRuns(token) } catch (e) { devLog.error('Failed to load active runs', e) }
     // 仅首屏加载失败时提示，避免 30s 轮询刷屏
     if (loadError && pageLoading.value) {
       toast.error(getLocalizedErrorMessage(loadError, t, t('logs.loadFailed')))
@@ -231,7 +252,8 @@ const loadDashboardData = async () => {
     ]
 
     if (Array.isArray(logsRes)) {
-      logs.value = logsRes.map((l: AccountLog) => ({
+      // 多取用于失败分类聚合；列表展示仍限制 20 条
+      logs.value = logsRes.slice(0, 20).map((l: AccountLog) => ({
         time: formatTime(l.created_at),
         account: l.account_name,
         task: l.task_name,
@@ -249,6 +271,16 @@ const loadDashboardData = async () => {
     } else {
       upcomingJobs.value = []
     }
+
+    activeRuns.value = Array.isArray(activeRes.runs) ? activeRes.runs : []
+    failureBreakdown.value = aggregateFailureCategories(
+      Array.isArray(logsRes)
+        ? logsRes.map((l) => ({
+            success: !!l.success,
+            failure_category: l.failure_category,
+          }))
+        : [],
+    )
 }
 </script>
 
@@ -317,6 +349,53 @@ const loadDashboardData = async () => {
           </div>
           <p class="text-[11px] text-gray-500 leading-relaxed line-clamp-2">{{ t(link.descKey) }}</p>
         </button>
+      </div>
+    </div>
+
+    <!-- 活跃运行 + 失败分类 -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div class="ui-card p-5">
+        <div class="ui-section-label mb-4">{{ t('dashboard.activeRuns') }}</div>
+        <div v-if="activeRuns.length === 0" class="text-xs text-gray-400 py-6 text-center">
+          {{ t('dashboard.noActiveRuns') }}
+        </div>
+        <div v-else class="space-y-1">
+          <button
+            v-for="(run, idx) in activeRuns"
+            :key="`${run.task_name}-${run.account_name}-${run.run_id}-${idx}`"
+            type="button"
+            class="ui-list-row w-full flex items-center gap-2 text-xs px-2 py-2 rounded-sm text-left"
+            @click="openActiveRun(run)"
+          >
+            <span
+              class="ui-badge shrink-0 border !text-[10px]"
+              :class="badgeToneClass(badgeTone(run))"
+            >
+              <span class="ui-pulse-dot !bg-sky-500" />
+              {{ phaseLabel(run.phase, t) || formatPhaseDetail(run, t) || t('runStatus.inProgress') }}
+            </span>
+            <span class="font-mono truncate text-gray-800 dark:text-gray-200" :title="run.task_name">{{ run.task_name || '-' }}</span>
+            <span class="text-gray-500 truncate shrink-0 max-w-[6rem]" :title="run.account_name">{{ run.account_name || '-' }}</span>
+            <span class="ml-auto text-[10px] text-gray-400 font-mono shrink-0 truncate max-w-[40%]" :title="formatPhaseDetail(run, t)">
+              {{ formatPhaseDetail(run, t) }}
+            </span>
+          </button>
+        </div>
+      </div>
+      <div class="ui-card p-5">
+        <div class="ui-section-label mb-4">{{ t('dashboard.failureBreakdown') }}</div>
+        <div v-if="failureBreakdown.length === 0" class="text-xs text-gray-400 py-6 text-center">
+          {{ t('common.noData') }}
+        </div>
+        <div v-else class="flex flex-wrap gap-2">
+          <span
+            v-for="item in failureBreakdown"
+            :key="item.category"
+            class="ui-badge ui-badge-error !text-[11px]"
+          >
+            {{ failureCategoryLabel(item.category) || item.category }}: {{ item.count }}
+          </span>
+        </div>
       </div>
     </div>
 

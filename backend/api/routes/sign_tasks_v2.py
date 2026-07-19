@@ -128,6 +128,23 @@ class LastRunInfo(BaseModel):
     message: str = ""
 
 
+class ActiveRunSummary(BaseModel):
+    """任务列表 / 活跃运行轻量摘要。"""
+
+    run_id: str = ""
+    state: str = "running"
+    phase: Optional[str] = None
+    phase_detail: str = ""
+    account_name: str = ""
+    task_name: str = ""
+    started_at: Optional[str] = None
+    wait_seconds: Optional[float] = None
+
+
+class ActiveRunsResponse(BaseModel):
+    runs: List[ActiveRunSummary] = Field(default_factory=list)
+
+
 class SignTaskOut(BaseModel):
     name: str
     account_name: str = ""
@@ -146,6 +163,7 @@ class SignTaskOut(BaseModel):
     task_group_id: str = ""
     last_run_account_name: str = ""
     retry_count: int = 3
+    active_run: Optional[ActiveRunSummary] = None
 
 
 class ChatOut(BaseModel):
@@ -177,6 +195,14 @@ class RunTaskStartResult(BaseModel):
     output: str = ""
     started_at: Optional[str] = None
     finished_at: Optional[str] = None
+    phase: Optional[str] = None
+    phase_detail: str = ""
+    wait_seconds: Optional[float] = None
+    account_name: str = ""
+    task_name: str = ""
+    failure_category: Optional[str] = None
+    timeout_seconds: Optional[float] = None
+    retry_count_effective: Optional[int] = None
 
 
 class RunTaskStatusResult(BaseModel):
@@ -187,6 +213,14 @@ class RunTaskStatusResult(BaseModel):
     output: str = ""
     started_at: Optional[str] = None
     finished_at: Optional[str] = None
+    phase: Optional[str] = None
+    phase_detail: str = ""
+    wait_seconds: Optional[float] = None
+    account_name: str = ""
+    task_name: str = ""
+    failure_category: Optional[str] = None
+    timeout_seconds: Optional[float] = None
+    retry_count_effective: Optional[int] = None
 
 
 class TaskHistoryItem(BaseModel):
@@ -212,6 +246,15 @@ def list_sign_tasks(
         aggregate=aggregate,
         force_refresh=force_refresh,
     )
+
+
+@router.get("/runs/active", response_model=ActiveRunsResponse)
+def list_active_sign_task_runs(
+    current_user=Depends(get_current_user),
+):
+    """当前内存中进行中的签到运行（供 Dashboard / 列表短轮询）。"""
+    runs = get_sign_task_service().list_active_runs()
+    return ActiveRunsResponse(runs=runs)
 
 
 @router.post("", response_model=SignTaskOut, status_code=status.HTTP_201_CREATED)
@@ -757,6 +800,8 @@ async def sign_task_logs_ws(
     last_idx = 0
     connected_at = asyncio.get_running_loop().time()
     seen_activity = False
+    # 仅在 phase/state 等变化时推 status，避免 0.5s 心跳刷屏
+    last_status_sig = None  # type: ignore[var-annotated]
     try:
         while True:
             active_logs = get_sign_task_service().get_active_logs(
@@ -770,6 +815,32 @@ async def sign_task_logs_ws(
             if is_running or bool(active_logs):
                 seen_activity = True
 
+            run_status = {}
+            try:
+                if effective_account:
+                    run_status = get_sign_task_service().get_task_run_status(
+                        effective_account,
+                        task_name,
+                    )
+            except Exception:
+                run_status = {}
+
+            status_payload = {
+                "phase": run_status.get("phase"),
+                "phase_detail": run_status.get("phase_detail") or "",
+                "failure_category": run_status.get("failure_category"),
+                "state": run_status.get("state"),
+                "wait_seconds": run_status.get("wait_seconds"),
+            }
+            status_sig = (
+                status_payload.get("phase"),
+                status_payload.get("phase_detail"),
+                status_payload.get("state"),
+                status_payload.get("failure_category"),
+                status_payload.get("wait_seconds"),
+                is_running,
+            )
+
             if len(active_logs) > last_idx:
                 new_logs = active_logs[last_idx:]
                 await websocket.send_json(
@@ -777,9 +848,21 @@ async def sign_task_logs_ws(
                         "type": "logs",
                         "data": new_logs,
                         "is_running": is_running,
+                        **status_payload,
                     }
                 )
                 last_idx = len(active_logs)
+                last_status_sig = status_sig
+            elif is_running and run_status and status_sig != last_status_sig:
+                # phase 变化时推送，避免卡在 starting 展示
+                await websocket.send_json(
+                    {
+                        "type": "status",
+                        "is_running": True,
+                        **status_payload,
+                    }
+                )
+                last_status_sig = status_sig
 
             if (
                 not is_running
@@ -789,7 +872,13 @@ async def sign_task_logs_ws(
                     or asyncio.get_running_loop().time() - connected_at >= 15
                 )
             ):
-                await websocket.send_json({"type": "done", "is_running": False})
+                await websocket.send_json(
+                    {
+                        "type": "done",
+                        "is_running": False,
+                        **status_payload,
+                    }
+                )
                 break
 
             await asyncio.sleep(0.5)

@@ -57,8 +57,12 @@
       "target_not_found": "Target not found",
       "network_proxy": "Network/proxy",
       "timeout": "Timeout",
-      "strong_failure": "Business failure"
-    }
+      "strong_failure": "Business failure",
+      "unknown": "Unknown"
+    },
+    "activeRuns": "Active runs",
+    "noActiveRuns": "No tasks running",
+    "failureBreakdown": "Failure breakdown"
   },
   "accounts": {
     "noRemark": "No remark",
@@ -635,5 +639,27 @@
     "allAccounts": "All Accounts",
     "selected": "selected",
     "noOptions": "No options"
+  },
+  "runStatus": {
+    "phase": {
+      "starting": "Starting",
+      "checking_account": "Checking account",
+      "waiting_lock": "Waiting for lock",
+      "cooldown": "Cooldown",
+      "running": "Running",
+      "finalizing": "Finalizing"
+    },
+    "state": {
+      "idle": "Idle",
+      "running": "In progress",
+      "finished": "Finished",
+      "cancelled": "Cancelled",
+      "stale": "Stale",
+      "timeout": "Timed out"
+    },
+    "activeRuns": "Active runs",
+    "noActiveRuns": "No tasks running",
+    "failureBreakdown": "Failure breakdown",
+    "inProgress": "Running"
   }
 }

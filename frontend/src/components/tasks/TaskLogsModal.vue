@@ -12,6 +12,14 @@ import type { TaskUiItem } from '../../lib/types'
 import { getLocalizedErrorMessage } from '../../lib/types'
 import { normalizeFlowLogLines } from '../../lib/task-log-format'
 import { devLog } from '../../lib/devLog'
+import {
+  badgeTone,
+  badgeToneClass,
+  failureCategoryLabel,
+  formatPhaseDetail,
+  phaseLabel,
+  stateLabel,
+} from '../../lib/run-status'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -31,9 +39,40 @@ const logs = ref<SignTaskHistoryItem[]>([])
 const realtimeLogs = ref<string[]>([])
 const loading = ref(false)
 const isRunning = ref(false)
+const livePhase = ref<string | null>(null)
+const livePhaseDetail = ref('')
+const liveFailureCategory = ref<string | null>(null)
+const liveState = ref<string | null>(null)
 let ws: WebSocket | null = null
 let pollTimer: ReturnType<typeof setInterval> | null = null
 const logContainer = ref<HTMLElement | null>(null)
+
+const applyStatusPayload = (msg: Record<string, unknown>) => {
+  if (msg.phase !== undefined) livePhase.value = (msg.phase as string) || null
+  if (msg.phase_detail !== undefined) livePhaseDetail.value = String(msg.phase_detail || '')
+  if (msg.failure_category !== undefined) {
+    liveFailureCategory.value = (msg.failure_category as string) || null
+  }
+  if (msg.state !== undefined) liveState.value = (msg.state as string) || null
+}
+
+const liveStatusLabel = computed(() => {
+  if (livePhaseDetail.value) return livePhaseDetail.value
+  if (livePhase.value) return phaseLabel(livePhase.value, t)
+  if (liveState.value && liveState.value !== 'running') return stateLabel(liveState.value, t)
+  return t('taskLogs.running')
+})
+
+const liveStatusToneClass = computed(() =>
+  badgeToneClass(
+    badgeTone({
+      state: liveState.value || (isRunning.value ? 'running' : 'finished'),
+      phase: livePhase.value,
+      success: liveState.value === 'finished' ? true : liveState.value === 'timeout' ? false : null,
+      failure_category: liveFailureCategory.value,
+    }),
+  ),
+)
 
 /** 展开查看原始流日志的历史条目索引 */
 const expandedIdx = ref<number | null>(null)
@@ -89,6 +128,10 @@ const connectWebSocket = () => {
 
   realtimeLogs.value = []
   isRunning.value = !!props.runAccount
+  livePhase.value = props.runAccount ? 'starting' : null
+  livePhaseDetail.value = ''
+  liveFailureCategory.value = null
+  liveState.value = props.runAccount ? 'running' : null
 
   try {
     ws = new WebSocket(wsUrl)
@@ -106,6 +149,7 @@ const connectWebSocket = () => {
   ws.onmessage = (event) => {
     try {
       const msg = JSON.parse(event.data)
+      applyStatusPayload(msg)
       if (msg.type === 'logs' && Array.isArray(msg.data)) {
         realtimeLogs.value.push(...msg.data)
         isRunning.value = msg.is_running !== false
@@ -114,8 +158,13 @@ const connectWebSocket = () => {
             logContainer.value.scrollTop = logContainer.value.scrollHeight
           }
         })
+      } else if (msg.type === 'status') {
+        isRunning.value = msg.is_running !== false
       } else if (msg.type === 'done') {
         isRunning.value = false
+        if (!liveState.value || liveState.value === 'running') {
+          liveState.value = msg.state || 'finished'
+        }
       }
     } catch {
       // ignore malformed frames
@@ -161,6 +210,7 @@ const startPolling = () => {
       })
       if (statusRes.ok) {
         const status = await statusRes.json()
+        applyStatusPayload(status)
         if (status.state !== 'running') {
           isRunning.value = false
           if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
@@ -182,15 +232,21 @@ const disconnectWebSocket = () => {
     pollTimer = null
   }
   isRunning.value = false
+  livePhase.value = null
+  livePhaseDetail.value = ''
 }
 
 watch(() => props.isOpen, (newVal) => {
   if (newVal) {
     expandedIdx.value = null
+    liveFailureCategory.value = null
     if (props.runAccount) {
       logs.value = []
       connectWebSocket()
     } else {
+      livePhase.value = null
+      livePhaseDetail.value = ''
+      liveState.value = null
       loadLogs()
     }
   } else {
@@ -224,10 +280,21 @@ const toggleExpand = (idx: number) => {
 <template>
   <Modal :isOpen="isOpen" @close="emit('close')" :title="t('taskLogs.title')" maxWidthClass="max-w-4xl">
     <template #header-extra>
-      <div class="flex items-center gap-2">
-        <span v-if="isRunning" class="ui-badge ui-badge-success !text-sky-700 dark:!text-sky-300 !border-sky-200 dark:!border-sky-800 !bg-sky-50 dark:!bg-sky-950/40">
-          <span class="ui-pulse-dot !bg-sky-500" />
-          {{ t('taskLogs.running') }}
+      <div class="flex items-center gap-2 flex-wrap justify-end">
+        <span
+          v-if="isRunning || (liveState && liveState !== 'idle')"
+          class="ui-badge !text-[11px] border max-w-[18rem] truncate"
+          :class="liveStatusToneClass"
+          :title="liveStatusLabel"
+        >
+          <span v-if="isRunning" class="ui-pulse-dot !bg-sky-500" />
+          {{ liveStatusLabel }}
+        </span>
+        <span
+          v-if="liveFailureCategory && !isRunning"
+          class="ui-badge ui-badge-error !text-[11px]"
+        >
+          {{ failureCategoryLabel(liveFailureCategory, t) }}
         </span>
         <button
           type="button"
@@ -241,6 +308,16 @@ const toggleExpand = (idx: number) => {
     </template>
 
     <div class="px-1 min-h-[400px] max-h-[60vh] overflow-y-auto flex flex-col">
+      <!-- 运行 phase 状态条（实时） -->
+      <div
+        v-if="runAccount && (isRunning || livePhaseDetail || livePhase)"
+        class="mb-3 px-3 py-2 rounded-sm border text-xs flex flex-wrap items-center gap-2"
+        :class="liveStatusToneClass"
+      >
+        <span class="font-medium">{{ formatPhaseDetail({ phase: livePhase, phase_detail: livePhaseDetail }, t) || liveStatusLabel }}</span>
+        <span v-if="liveState && liveState !== 'running'" class="opacity-80">· {{ stateLabel(liveState, t) }}</span>
+      </div>
+
       <!-- Real-time logs -->
       <div v-if="realtimeLogs.length > 0 || isRunning" class="mb-4">
         <div class="ui-section-label mb-2">{{ t('taskLogs.realtimeLogs') }}</div>

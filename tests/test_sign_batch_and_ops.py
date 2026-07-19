@@ -48,6 +48,80 @@ class TestFailureClassification:
         assert "会话" in failure_category_label(FailureCategory.SESSION_INVALID)
 
 
+class TestActiveRunsApi:
+    def test_list_active_runs_requires_auth(self, client):
+        resp = client.get("/api/sign-tasks/runs/active")
+        assert resp.status_code in (401, 403)
+
+    def test_list_active_runs_ok(self, client, db_session):
+        service = MagicMock()
+        service.list_active_runs.return_value = [
+            {
+                "run_id": "r1",
+                "state": "running",
+                "phase": "cooldown",
+                "phase_detail": "等待账号冷却 3 秒",
+                "account_name": "acc1",
+                "task_name": "daily",
+                "started_at": "2026-07-19T10:00:00+00:00",
+                "wait_seconds": 3,
+            }
+        ]
+        with patch(
+            "backend.api.routes.sign_tasks_v2.get_sign_task_service",
+            return_value=service,
+        ):
+            resp = client.get(
+                "/api/sign-tasks/runs/active",
+                headers=_auth_headers(),
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "runs" in body
+        assert len(body["runs"]) == 1
+        assert body["runs"][0]["phase"] == "cooldown"
+        assert body["runs"][0]["task_name"] == "daily"
+
+    def test_run_status_schema_fields(self, client, db_session):
+        service = MagicMock()
+        service.get_task.return_value = {
+            "name": "daily",
+            "account_name": "acc1",
+            "account_names": ["acc1"],
+        }
+        service.get_task_run_status.return_value = {
+            "run_id": "r9",
+            "state": "running",
+            "phase": "waiting_lock",
+            "phase_detail": "等待账号锁 acc1",
+            "wait_seconds": None,
+            "account_name": "acc1",
+            "task_name": "daily",
+            "success": None,
+            "error": "",
+            "output": "",
+            "started_at": "t0",
+            "finished_at": None,
+            "failure_category": None,
+            "timeout_seconds": 300,
+            "retry_count_effective": 2,
+        }
+        with patch(
+            "backend.api.routes.sign_tasks_v2.get_sign_task_service",
+            return_value=service,
+        ):
+            resp = client.get(
+                "/api/sign-tasks/daily/run/status",
+                headers=_auth_headers(),
+                params={"account_name": "acc1"},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["phase"] == "waiting_lock"
+        assert data["retry_count_effective"] == 2
+        assert data["timeout_seconds"] == 300
+
+
 class TestSignBatchApi:
     def test_batch_enable_sign_tasks(self, client, db_session):
         """批量 enable 应调用 SignTaskService.update_task。"""
