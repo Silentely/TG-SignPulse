@@ -594,205 +594,32 @@ class ImageUrlFormatTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(image_url, "ZmFrZS1pbWFnZQ==")
 
 
-class TodayTerminalSuccessTest(unittest.IsolatedAsyncioTestCase):
-    """签到前今日已完成检测测试。"""
+class MidFlowTerminalSuccessTest(unittest.TestCase):
+    """执行中终态停止：预检已删除，仅保留文案/回调判定能力。"""
 
-    def test_precheck_today_done_disabled_by_default(self):
-        """默认不扫历史跳过，避免误伤定时/手动签到。"""
+    def test_precheck_helpers_removed(self):
+        """签到前扫历史预检相关 API 必须不存在。"""
         from tg_signer.core import UserSigner
 
-        old = os.environ.pop("SIGN_TASK_PRECHECK_TODAY_DONE", None)
-        try:
-            self.assertFalse(UserSigner._should_precheck_today_terminal_success())
-            os.environ["SIGN_TASK_PRECHECK_TODAY_DONE"] = "1"
-            self.assertTrue(UserSigner._should_precheck_today_terminal_success())
-            os.environ["SIGN_TASK_PRECHECK_TODAY_DONE"] = "0"
-            self.assertFalse(UserSigner._should_precheck_today_terminal_success())
-        finally:
-            if old is None:
-                os.environ.pop("SIGN_TASK_PRECHECK_TODAY_DONE", None)
-            else:
-                os.environ["SIGN_TASK_PRECHECK_TODAY_DONE"] = old
+        self.assertFalse(hasattr(UserSigner, "_chat_has_today_terminal_success"))
+        self.assertFalse(hasattr(UserSigner, "_should_precheck_today_terminal_success"))
+        self.assertFalse(hasattr(UserSigner, "_message_is_from_today"))
+        # 执行中终态判定仍保留
+        self.assertTrue(hasattr(UserSigner, "_wait_for_terminal_success"))
+        self.assertTrue(hasattr(UserSigner, "_message_has_terminal_success_text"))
+        self.assertTrue(hasattr(UserSigner, "_text_has_terminal_success_text"))
+        self.assertTrue(hasattr(UserSigner, "_callback_text_has_terminal_success_text"))
 
-    def test_message_from_today_returns_true(self):
+    def test_callback_already_signed_is_terminal(self):
         from tg_signer.core import UserSigner
-        from datetime import datetime, timezone
 
         signer = object.__new__(UserSigner)
-        message = SimpleNamespace(
-            date=datetime.now(timezone.utc),
+        self.assertTrue(
+            signer._callback_text_has_terminal_success_text("今日已签到")
         )
-        self.assertTrue(signer._message_is_from_today(message))
-
-    def test_message_from_yesterday_returns_false(self):
-        from tg_signer.core import UserSigner
-        from datetime import datetime, timedelta, timezone
-
-        signer = object.__new__(UserSigner)
-        message = SimpleNamespace(
-            date=datetime.now(timezone.utc) - timedelta(days=1),
+        self.assertTrue(
+            signer._callback_text_has_terminal_success_text("您今天已经签到")
         )
-        self.assertFalse(signer._message_is_from_today(message))
-
-    def test_message_without_date_returns_false(self):
-        from tg_signer.core import UserSigner
-
-        signer = object.__new__(UserSigner)
-        message = SimpleNamespace(date=None)
-        self.assertFalse(signer._message_is_from_today(message))
-
-    def test_message_respects_tz_env_var(self):
-        """消息日期判断应尊重 TZ 环境变量配置。"""
-        from tg_signer.core import UserSigner
-        from datetime import datetime, timezone
-
-        signer = object.__new__(UserSigner)
-        # UTC 16:01 = UTC+8 次日 00:01，但 UTC-5 当天 11:01
-        utc_time = datetime(2026, 7, 2, 16, 1, tzinfo=timezone.utc)
-        message = SimpleNamespace(date=utc_time)
-
-        old_tz = os.environ.get("TZ")
-        try:
-            # UTC+8 时：16:01 UTC = 次日 00:01，应为"今天"（如果当前也是 7月3日）
-            os.environ["TZ"] = "Asia/Hong_Kong"
-            # 这里只验证方法不报错，具体结果取决于当前日期
-            signer._message_is_from_today(message)
-
-            # UTC-5 时：16:01 UTC = 当天 11:01
-            os.environ["TZ"] = "America/New_York"
-            signer._message_is_from_today(message)
-        finally:
-            if old_tz is None:
-                os.environ.pop("TZ", None)
-            else:
-                os.environ["TZ"] = old_tz
-
-    async def test_chat_has_today_terminal_success_from_cache(self):
-        from tg_signer.core import UserSigner
-        from datetime import datetime, timezone
-
-        signer = object.__new__(UserSigner)
-        signer.log = lambda *args, **kwargs: None
-        signer.context = signer.ensure_ctx()
-
-        chat = SimpleNamespace(chat_id=123, message_thread_id=None)
-        message = SimpleNamespace(
-            id=1,
-            chat=SimpleNamespace(id=123),
-            text="🎉 签到成功，获得了 20积分",
-            caption=None,
-            date=datetime.now(timezone.utc),
-            edit_date=None,
-            message_thread_id=None,
-            reply_to_top_message_id=None,
-        )
-        signer.context.chat_messages[123] = {1: message}
-        signer.app = SimpleNamespace()
-
-        result = await signer._chat_has_today_terminal_success(chat, history_limit=20)
-        self.assertTrue(result)
-
-    async def test_chat_has_no_success_returns_false(self):
-        from tg_signer.core import UserSigner
-
-        signer = object.__new__(UserSigner)
-        signer.log = lambda *args, **kwargs: None
-        signer.context = signer.ensure_ctx()
-
-        chat = SimpleNamespace(chat_id=123, message_thread_id=None)
-        signer.context.chat_messages[123] = {}
-
-        async def fake_history(*args, **kwargs):
-            for msg in []:
-                yield msg
-
-        signer.app = SimpleNamespace(get_chat_history=fake_history)
-
-        result = await signer._chat_has_today_terminal_success(chat, history_limit=20)
-        self.assertFalse(result)
-
-    async def test_non_bot_message_does_not_trigger_skip(self):
-        """群里非 bot 用户的成功消息不应导致跳过。"""
-        from tg_signer.core import UserSigner
-        from datetime import datetime, timezone
-
-        signer = object.__new__(UserSigner)
-        signer.log = lambda *args, **kwargs: None
-        signer.context = signer.ensure_ctx()
-
-        chat = SimpleNamespace(chat_id=-100123, message_thread_id=None)
-        # 模拟非 bot 用户发送的消息（from_user.is_bot=False）
-        message = SimpleNamespace(
-            id=1,
-            chat=SimpleNamespace(id=-100123),
-            text="🎉 张三签到成功，获得了 20积分",
-            caption=None,
-            from_user=SimpleNamespace(is_bot=False),
-            date=datetime.now(timezone.utc),
-            edit_date=None,
-            message_thread_id=None,
-            reply_to_top_message_id=None,
-        )
-        signer.context.chat_messages[-100123] = {1: message}
-        signer.app = SimpleNamespace()
-
-        result = await signer._chat_has_today_terminal_success(chat, history_limit=20)
-        self.assertFalse(result)
-
-    async def test_bot_message_triggers_skip(self):
-        """bot 发送的成功消息应导致跳过。"""
-        from tg_signer.core import UserSigner
-        from datetime import datetime, timezone
-
-        signer = object.__new__(UserSigner)
-        signer.log = lambda *args, **kwargs: None
-        signer.context = signer.ensure_ctx()
-
-        chat = SimpleNamespace(chat_id=-100123, message_thread_id=None)
-        # 模拟 bot 发送的消息（from_user.is_bot=True）
-        message = SimpleNamespace(
-            id=1,
-            chat=SimpleNamespace(id=-100123),
-            text="🎉 签到成功，获得了 20积分",
-            caption=None,
-            from_user=SimpleNamespace(is_bot=True),
-            date=datetime.now(timezone.utc),
-            edit_date=None,
-            message_thread_id=None,
-            reply_to_top_message_id=None,
-        )
-        signer.context.chat_messages[-100123] = {1: message}
-        signer.app = SimpleNamespace()
-
-        result = await signer._chat_has_today_terminal_success(chat, history_limit=20)
-        self.assertTrue(result)
-
-    async def test_no_from_user_still_checks(self):
-        """没有 from_user 的消息（如系统消息）仍应检查。"""
-        from tg_signer.core import UserSigner
-        from datetime import datetime, timezone
-
-        signer = object.__new__(UserSigner)
-        signer.log = lambda *args, **kwargs: None
-        signer.context = signer.ensure_ctx()
-
-        chat = SimpleNamespace(chat_id=123, message_thread_id=None)
-        message = SimpleNamespace(
-            id=1,
-            chat=SimpleNamespace(id=123),
-            text="🎉 签到成功，获得了 20积分",
-            caption=None,
-            from_user=None,
-            date=datetime.now(timezone.utc),
-            edit_date=None,
-            message_thread_id=None,
-            reply_to_top_message_id=None,
-        )
-        signer.context.chat_messages[123] = {1: message}
-        signer.app = SimpleNamespace()
-
-        result = await signer._chat_has_today_terminal_success(chat, history_limit=20)
-        self.assertTrue(result)
 
 
 class SuccessTextDetectionTest(unittest.TestCase):

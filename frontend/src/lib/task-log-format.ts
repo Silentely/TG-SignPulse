@@ -248,10 +248,6 @@ export function buildTaskLogViewModel(
       addSectionItem(line);
       continue;
     }
-    if (line.startsWith("检测到今日任务已完成，跳过任务对象")) {
-      addSectionItem(line);
-      continue;
-    }
 
     if (/^第 \d+\/\d+ 步执行完成：点击文字按钮：/.test(line)) {
       continue;

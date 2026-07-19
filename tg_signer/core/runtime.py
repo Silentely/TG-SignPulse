@@ -14,7 +14,7 @@ import random
 import time
 import unicodedata
 from collections import Counter, defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from datetime import time as dt_time
 from typing import (
     Any,
@@ -1021,25 +1021,8 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         total_actions = len(chat.actions)
         if total_actions == 0:
             raise RuntimeError("任务没有配置任何执行动作")
-        # 签到前扫历史「今日已完成」默认关闭：手动/定时都直接执行动作流，
-        # 由执行过程中 bot 回调/新消息（已签到、签到成功等）触发 stop_after_current_action。
-        # 旧行为仅在 SIGN_TASK_PRECHECK_TODAY_DONE=1 时启用（兼容少数需省 API 的场景）。
-        if self._should_precheck_today_terminal_success():
-            if await self._chat_has_today_terminal_success(
-                chat,
-                history_limit=_read_positive_int_env(
-                    "SIGN_TASK_COMPLETION_LOOKBACK", 20, 3
-                ),
-            ):
-                stop_reason = (self.context.stop_reason or "").strip()
-                self.log(
-                    "检测到今日任务已完成，跳过任务对象"
-                    + (f": {stop_reason}" if stop_reason else "")
-                    + "（已启用 SIGN_TASK_PRECHECK_TODAY_DONE）"
-                )
-                self.context.stop_reason = None
-                self.context.last_callback_answer = None
-                return
+        # 不扫历史预跳过：手动/定时均直接执行动作流；
+        # 执行中由 bot 回调/新消息（已签到、签到成功等）触发 stop_after_current_action。
         max_flow_attempts = _read_positive_int_env("SIGN_TASK_FLOW_RETRY_ATTEMPTS", 1, 1)
         # 优先从上下文变量读取任务级重试次数，回退到环境变量读取结果
         try:
@@ -1900,89 +1883,6 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             "completed",
         )
         return any(marker in normalized for marker in callback_success_markers)
-
-    @staticmethod
-    def _get_task_timezone():
-        """获取任务时区，优先读取 TZ/APP_TIMEZONE 环境变量，回退到 Asia/Hong_Kong。"""
-        tz_name = os.environ.get("TZ") or os.environ.get("APP_TIMEZONE") or "Asia/Hong_Kong"
-        try:
-            from zoneinfo import ZoneInfo
-            return ZoneInfo(tz_name)
-        except (ImportError, KeyError):
-            # zoneinfo 不可用或时区名称无效时回退到 UTC+8
-            return timezone(timedelta(hours=8))
-
-    @staticmethod
-    def _should_precheck_today_terminal_success() -> bool:
-        """是否启用签到前扫历史跳过。
-
-        默认关闭：直接跑动作流，依赖执行中 bot 返回「已签到/签到成功」再停止。
-        仅当 SIGN_TASK_PRECHECK_TODAY_DONE 为真值时恢复旧的历史预检行为。
-        """
-        raw = (os.environ.get("SIGN_TASK_PRECHECK_TODAY_DONE") or "0").strip().lower()
-        return raw in {"1", "true", "yes", "on"}
-
-    def _message_is_from_today(self, message: Message) -> bool:
-        """判断消息是否属于今天（按任务时区计算）。"""
-        message_date = getattr(message, "date", None) or getattr(
-            message, "edit_date", None
-        )
-        if not isinstance(message_date, datetime):
-            return False
-        if message_date.tzinfo is None:
-            message_date = message_date.replace(tzinfo=timezone.utc)
-        task_tz = self._get_task_timezone()
-        return message_date.astimezone(task_tz).date() == datetime.now(task_tz).date()
-
-    async def _chat_has_today_terminal_success(
-        self,
-        chat: SignChatV3,
-        *,
-        history_limit: int,
-    ) -> bool:
-        """检查该 chat 今日是否已有签到成功记录（仅可选预检使用）。
-
-        默认执行路径不再调用本方法；执行中完成判定走回调/新消息
-        （_wait_for_terminal_success / _callback_text_has_terminal_success_text）。
-        先查内存消息缓存，再查 Telegram 聊天历史。
-        仅检查 bot 发送的消息（from_user.is_bot），避免群里其他用户的消息导致误跳过。
-        """
-        messages_dict = self.context.chat_messages.get(chat.chat_id) or {}
-        for message in reversed(list(messages_dict.values())):
-            if message is None:
-                continue
-            if not self._message_matches_chat_thread(message, chat):
-                continue
-            # 只检查 bot 发送的消息，避免群里其他人的成功消息导致误跳过
-            from_user = getattr(message, "from_user", None)
-            if from_user is not None and not getattr(from_user, "is_bot", False):
-                continue
-            if self._message_is_from_today(
-                message
-            ) and self._message_has_terminal_success_text(message):
-                self.context.stop_reason = self._summarize_target_message(message)
-                self._log_received_target_message(message, prefix="收到回复")
-                return True
-        try:
-            async for message in self.app.get_chat_history(
-                chat.chat_id,
-                limit=history_limit,
-            ):
-                if not self._message_matches_chat_thread(message, chat):
-                    continue
-                # 只检查 bot 发送的消息
-                from_user = getattr(message, "from_user", None)
-                if from_user is not None and not getattr(from_user, "is_bot", False):
-                    continue
-                if self._message_is_from_today(
-                    message
-                ) and self._message_has_terminal_success_text(message):
-                    self.context.stop_reason = self._summarize_target_message(message)
-                    self._log_received_target_message(message, prefix="收到回复")
-                    return True
-        except Exception as e:
-            self.log(f"今日完成状态检查失败: {e}", level="WARNING")
-        return False
 
     def _message_has_terminal_success_text(self, message: Message) -> bool:
         text = "\n".join(
