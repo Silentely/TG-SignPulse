@@ -42,6 +42,7 @@ import {
   safeHttpUrl,
   saveCachedUpdateCheck,
 } from '../lib/version-utils'
+import { formatMemoryRssFromStats } from '../lib/memory-format'
 import {
   buildAdvancedPayload as buildAdvancedPayloadOf,
   buildBotPayload as buildBotPayloadOf,
@@ -202,14 +203,8 @@ onBeforeRouteLeave(async () => {
   return ok
 })
 
-const formatMemoryRss = () => {
-  const stats = memoryStats.value?.stats || {}
-  const rssMb = stats.rss_mb ?? stats.rssMb
-  if (typeof rssMb === 'number') return `${rssMb.toFixed(1)} MB`
-  const rss = stats.rss_bytes ?? stats.rss
-  if (typeof rss === 'number') return `${(rss / (1024 * 1024)).toFixed(1)} MB`
-  return t('settings.unknownValue')
-}
+const formatMemoryRss = () =>
+  formatMemoryRssFromStats(memoryStats.value?.stats, t('settings.unknownValue'))
 
 const appVersion = ref<AppVersionInfo | null>(null)
 const versionLoading = ref(false)
