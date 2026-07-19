@@ -94,7 +94,7 @@ data/.admin_bootstrap_password
 默认模型是：
 
 ```text
-gpt-4o
+gpt-5-nano
 ```
 
 ## 现在能不能自定义 AI 提示词

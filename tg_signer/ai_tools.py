@@ -26,7 +26,7 @@ from tg_signer.log_utils import safe_text_preview
 from tg_signer.security import decrypt_secret, encrypt_secret
 from tg_signer.utils import UserInput, print_to_user
 
-DEFAULT_MODEL = "gpt-4o"
+DEFAULT_MODEL = "gpt-5-nano"
 
 DEFAULT_CHOOSE_OPTION_BY_IMAGE_PROMPT = (
     "You are a low-latency visual matcher for Telegram sign-in challenges. "

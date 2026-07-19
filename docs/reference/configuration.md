@@ -185,7 +185,7 @@ environment:
 {
   "api_key": "<Fernet加密的密文>",
   "base_url": "https://api.openai.com/v1",
-  "model": "gpt-4o"
+  "model": "gpt-5-nano"
 }
 ```
 

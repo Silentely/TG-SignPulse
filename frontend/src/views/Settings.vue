@@ -1086,7 +1086,7 @@ const handleImport = async (e: Event) => {
             </div>
             <div class="space-y-1.5">
               <label class="ui-label">{{ t('settings.model') }}</label>
-              <input v-model="aiConfig.model" type="text" placeholder="gpt-4" class="ui-input">
+              <input v-model="aiConfig.model" type="text" placeholder="gpt-5-nano" class="ui-input">
             </div>
             <div class="space-y-1.5">
               <label class="ui-label">{{ t('settings.apiKey') }}</label>
@@ -1107,29 +1107,29 @@ const handleImport = async (e: Event) => {
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div class="space-y-1">
                   <label class="text-[10px] text-gray-500">{{ t('settings.execTimeout') }}</label>
-                  <input v-model="settings.execTimeout" type="number" min="30" max="3600" class="ui-input" />
+                  <input v-model="settings.execTimeout" type="number" min="30" max="3600" :placeholder="t('settings.execTimeoutPlaceholder')" class="ui-input" />
                   <SettingsFieldHint :text="t('settings.execTimeoutHint')" />
                 </div>
                 <div class="space-y-1">
                   <label class="text-[10px] text-gray-500">{{ t('settings.accountCooldown') }}</label>
-                  <input v-model="settings.accountCooldown" type="number" min="0" max="600" class="ui-input" />
+                  <input v-model="settings.accountCooldown" type="number" min="0" max="600" :placeholder="t('settings.accountCooldownPlaceholder')" class="ui-input" />
                 </div>
                 <div class="space-y-1">
                   <label class="text-[10px] text-gray-500">{{ t('settings.flowRetry') }}</label>
-                  <input v-model="settings.flowRetry" type="number" min="1" max="10" class="ui-input" />
+                  <input v-model="settings.flowRetry" type="number" min="1" max="10" :placeholder="t('settings.flowRetryPlaceholder')" class="ui-input" />
                   <SettingsFieldHint :text="t('settings.flowRetryHint')" />
                 </div>
                 <div class="space-y-1">
                   <label class="text-[10px] text-gray-500">{{ t('settings.historyMaxAge') }}</label>
-                  <input v-model="settings.historyMaxAge" type="number" min="1" max="90" class="ui-input" />
+                  <input v-model="settings.historyMaxAge" type="number" min="1" max="90" :placeholder="t('settings.historyMaxAgePlaceholder')" class="ui-input" />
                 </div>
                 <div class="space-y-1">
                   <label class="text-[10px] text-gray-500">{{ t('settings.aiVisionTimeout') }}</label>
-                  <input v-model="settings.aiVisionTimeout" type="number" min="3" max="120" class="ui-input" />
+                  <input v-model="settings.aiVisionTimeout" type="number" min="3" max="120" :placeholder="t('settings.aiVisionTimeoutPlaceholder')" class="ui-input" />
                 </div>
                 <div class="space-y-1">
                   <label class="text-[10px] text-gray-500">{{ t('settings.aiVisionRetry') }}</label>
-                  <input v-model="settings.aiVisionRetry" type="number" min="1" max="8" class="ui-input" />
+                  <input v-model="settings.aiVisionRetry" type="number" min="1" max="8" :placeholder="t('settings.aiVisionRetryPlaceholder')" class="ui-input" />
                 </div>
               </div>
               <button type="button" class="ui-btn-secondary w-full !py-2 !text-xs" :disabled="advancedLoading" @click="saveAdvancedSettings">
