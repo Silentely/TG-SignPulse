@@ -76,6 +76,19 @@ describe('buildTaskLogViewModel', () => {
     expect(lines.some((t) => t.includes('最终状态'))).toBe(true)
   })
 
+  it('展示执行中因 bot 返回已完成而停止的日志', () => {
+    const vm = buildTaskLogViewModel([
+      '开始第 1/1 次脚本流程尝试',
+      '检测到任务已完成，停止执行后续动作: 今日已签到',
+      '任务执行完成',
+    ])
+    const flat = vm.blocks
+      .flatMap((b) => (b.kind === 'line' ? [b.text] : [b.title, ...b.items]))
+      .join('\n')
+    expect(flat).toContain('检测到任务已完成，停止执行后续动作')
+    expect(flat).toContain('今日已签到')
+  })
+
   it('展示后端 TaskLogHandler 捕获的真实过程日志形态', () => {
     // 模拟 flow_logs：外壳行 + runtime self.log 经 Handler 格式化后的行
     const flowLogs = [

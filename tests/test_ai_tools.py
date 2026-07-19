@@ -597,6 +597,23 @@ class ImageUrlFormatTest(unittest.IsolatedAsyncioTestCase):
 class TodayTerminalSuccessTest(unittest.IsolatedAsyncioTestCase):
     """签到前今日已完成检测测试。"""
 
+    def test_precheck_today_done_disabled_by_default(self):
+        """默认不扫历史跳过，避免误伤定时/手动签到。"""
+        from tg_signer.core import UserSigner
+
+        old = os.environ.pop("SIGN_TASK_PRECHECK_TODAY_DONE", None)
+        try:
+            self.assertFalse(UserSigner._should_precheck_today_terminal_success())
+            os.environ["SIGN_TASK_PRECHECK_TODAY_DONE"] = "1"
+            self.assertTrue(UserSigner._should_precheck_today_terminal_success())
+            os.environ["SIGN_TASK_PRECHECK_TODAY_DONE"] = "0"
+            self.assertFalse(UserSigner._should_precheck_today_terminal_success())
+        finally:
+            if old is None:
+                os.environ.pop("SIGN_TASK_PRECHECK_TODAY_DONE", None)
+            else:
+                os.environ["SIGN_TASK_PRECHECK_TODAY_DONE"] = old
+
     def test_message_from_today_returns_true(self):
         from tg_signer.core import UserSigner
         from datetime import datetime, timezone
