@@ -43,6 +43,7 @@ const filterTask = ref('')
 const filterAccount = ref('')
 const filterDate = ref('')
 const filterStatus = ref<'' | 'success' | 'error'>('')
+const filterCategory = ref('')
 
 /** 原始任务日志（服务端结果），客户端再做名称/状态筛选 */
 const rawTaskLogs = ref<TaskHistoryLog[]>([])
@@ -62,6 +63,20 @@ const statusOptions = computed(() => [
   { label: t('logs.allStatus'), value: '' },
   { label: t('logs.success'), value: 'success' },
   { label: t('logs.failed'), value: 'error' }
+])
+
+const categoryOptions = computed(() => [
+  { label: t('logs.allCategories'), value: '' },
+  { label: t('dashboard.failCat.session_invalid'), value: 'session_invalid' },
+  { label: t('dashboard.failCat.flood_wait'), value: 'flood_wait' },
+  { label: t('dashboard.failCat.timeout'), value: 'timeout' },
+  { label: t('dashboard.failCat.ai_timeout'), value: 'ai_timeout' },
+  { label: t('dashboard.failCat.ai_error'), value: 'ai_error' },
+  { label: t('dashboard.failCat.button_not_found'), value: 'button_not_found' },
+  { label: t('dashboard.failCat.target_not_found'), value: 'target_not_found' },
+  { label: t('dashboard.failCat.network_proxy'), value: 'network_proxy' },
+  { label: t('dashboard.failCat.strong_failure'), value: 'strong_failure' },
+  { label: t('dashboard.failCat.unknown'), value: 'unknown' },
 ])
 
 const formatTime = (isoString: string) => {
@@ -106,6 +121,12 @@ const logs = computed(() => {
     filtered = filtered.filter((l) =>
       filterStatus.value === 'success' ? l.success : !l.success
     )
+  }
+  if (filterCategory.value) {
+    filtered = filtered.filter((l) => {
+      const cat = String(l.failure_category || 'unknown')
+      return !l.success && cat === filterCategory.value
+    })
   }
   return filtered.map(toTaskUi)
 })
@@ -268,6 +289,11 @@ onMounted(async () => {
   if (queryTask) {
     filterTask.value = queryTask
   }
+  const queryCategory = (route.query.category as string | undefined)?.trim()
+  if (queryCategory) {
+    filterCategory.value = queryCategory
+    filterStatus.value = 'error'
+  }
   loadAccounts()
   await loadLogs()
   await tryOpenFromQuery()
@@ -335,6 +361,7 @@ onMounted(async () => {
           >
           <CustomSelect v-model="filterAccount" :options="accountOptions" :ariaLabel="t('logs.colAccount')" />
           <CustomSelect v-model="filterStatus" :options="statusOptions" :ariaLabel="t('logs.colStatus')" />
+          <CustomSelect v-model="filterCategory" :options="categoryOptions" :ariaLabel="t('logs.colCategory')" />
         </template>
         <DatePicker v-model="filterDate" />
       </div>

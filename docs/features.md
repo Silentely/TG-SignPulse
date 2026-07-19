@@ -54,8 +54,9 @@ TG-SignPulse 是 Telegram 多账号自动化管理面板，把签到、消息交
 - 版本信息与更新检查（Settings / 侧栏；`/api/ops/version`）
 - Dashboard SSE 实时日志
 - 任务 WebSocket 日志（含运行 phase：等锁 / 冷却 / 执行中）
-- 任务运行状态：`GET /api/sign-tasks/runs/active`、`/run/status`（`state` + `phase` + `failure_category`）
-- Dashboard 活跃运行摘要与失败分类聚合
+- 任务运行状态：`GET /api/sign-tasks/runs/active`、`/run/status`、`/run/cancel`（`state` + `phase` + `failure_category`）
+- Dashboard 活跃运行摘要与失败分类聚合（可点筛选日志 / 会话失效跳转账号）
+- 任务列表：冷却倒计时、多账号 phase、停止运行、账号失效提示
 - 配置/数据备份导出；可选定时自动备份（本地 / WebDAV）
 - WebDAV：测试连接、列出远端、流式下载、自动备份失败 Bot 通知
 - 配置导入预览（dry-run）

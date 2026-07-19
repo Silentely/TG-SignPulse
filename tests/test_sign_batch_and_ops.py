@@ -53,6 +53,59 @@ class TestActiveRunsApi:
         resp = client.get("/api/sign-tasks/runs/active")
         assert resp.status_code in (401, 403)
 
+    def test_cancel_run_not_running(self, client, db_session):
+        service = MagicMock()
+        service.get_task.return_value = {
+            "name": "daily",
+            "account_name": "acc1",
+            "account_names": ["acc1"],
+        }
+        service.cancel_task_run.return_value = {
+            "ok": False,
+            "cancelled": False,
+            "error": "当前没有进行中的运行",
+            "status": {"state": "idle", "run_id": ""},
+        }
+        with patch(
+            "backend.api.routes.sign_tasks_v2.get_sign_task_service",
+            return_value=service,
+        ):
+            resp = client.post(
+                "/api/sign-tasks/daily/run/cancel",
+                headers=_auth_headers(),
+                params={"account_name": "acc1"},
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["ok"] is False
+        assert body["cancelled"] is False
+        service.cancel_task_run.assert_called_once()
+
+    def test_cancel_run_ok(self, client, db_session):
+        service = MagicMock()
+        service.get_task.return_value = {
+            "name": "daily",
+            "account_name": "acc1",
+            "account_names": ["acc1"],
+        }
+        service.cancel_task_run.return_value = {
+            "ok": True,
+            "cancelled": True,
+            "error": "",
+            "status": {"state": "running", "run_id": "r1", "phase": "running"},
+        }
+        with patch(
+            "backend.api.routes.sign_tasks_v2.get_sign_task_service",
+            return_value=service,
+        ):
+            resp = client.post(
+                "/api/sign-tasks/daily/run/cancel",
+                headers=_auth_headers(),
+                params={"account_name": "acc1", "run_id": "r1"},
+            )
+        assert resp.status_code == 200
+        assert resp.json()["cancelled"] is True
+
     def test_list_active_runs_ok(self, client, db_session):
         service = MagicMock()
         service.list_active_runs.return_value = [

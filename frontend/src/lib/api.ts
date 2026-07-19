@@ -1058,6 +1058,27 @@ export const getSignTaskRunStatus = (
 export const listActiveSignTaskRuns = (token: string) =>
   request<{ runs: ActiveRunSummary[] }>(`/sign-tasks/runs/active`, {}, token);
 
+export const cancelSignTaskRun = (
+  token: string,
+  name: string,
+  accountName: string,
+  runId?: string
+) => {
+  const params = new URLSearchParams();
+  params.append("account_name", accountName);
+  if (runId) params.append("run_id", runId);
+  return request<{
+    ok: boolean;
+    cancelled: boolean;
+    error?: string;
+    status?: SignTaskRunStatus;
+  }>(
+    `/sign-tasks/${encodeURIComponent(name)}/run/cancel?${params.toString()}`,
+    { method: "POST" },
+    token
+  );
+};
+
 export const getAccountChats = (token: string, accountName: string, forceRefresh?: boolean) =>
   request<ChatInfo[]>(`/sign-tasks/chats/${encodeURIComponent(accountName)}${forceRefresh ? '?force_refresh=true' : ''}`, {}, token);
 
