@@ -243,7 +243,13 @@ export function buildTaskLogViewModel(
       continue;
     }
 
+    // 执行中因 bot 返回「已签到/签到成功」而停止：保留在详情中便于确认
     if (line.startsWith("检测到任务已完成，停止执行后续动作")) {
+      addSectionItem(line);
+      continue;
+    }
+    if (line.startsWith("检测到今日任务已完成，跳过任务对象")) {
+      addSectionItem(line);
       continue;
     }
 
