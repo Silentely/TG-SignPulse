@@ -520,8 +520,24 @@ async def close_client_by_name(name: str, workdir: Union[str, pathlib.Path] = ".
         _CLIENT_REFS.pop(key, None)
 
 
+def get_task_timezone():
+    """任务时区：TZ / APP_TIMEZONE，默认 Asia/Hong_Kong（与 UTC+8 一致）。"""
+    tz_name = (
+        (os.environ.get("TZ") or os.environ.get("APP_TIMEZONE") or "Asia/Hong_Kong")
+        .strip()
+        or "Asia/Hong_Kong"
+    )
+    try:
+        from zoneinfo import ZoneInfo
+
+        return ZoneInfo(tz_name)
+    except Exception:
+        return timezone(timedelta(hours=8))
+
+
 def get_now():
-    return datetime.now(tz=timezone(timedelta(hours=8)))
+    """当前任务时区时间（默认香港/UTC+8，可被 TZ/APP_TIMEZONE 覆盖）。"""
+    return datetime.now(tz=get_task_timezone())
 
 
 def make_dirs(path: pathlib.Path, exist_ok=True):

@@ -46,19 +46,28 @@ from tg_signer.config import SendTextAction, SendDiceAction
 
 
 class TestGetNow:
-    """get_now 返回 UTC+8 时区的当前时间"""
+    """get_now 返回任务时区（默认 Asia/Hong_Kong ≈ UTC+8）当前时间"""
 
     def test_returns_timezone_aware_datetime(self):
         result = get_now()
         assert result.tzinfo is not None
 
-    def test_timezone_offset_is_utc_plus_8(self):
+    def test_default_timezone_offset_is_utc_plus_8(self, monkeypatch):
+        monkeypatch.delenv("TZ", raising=False)
+        monkeypatch.delenv("APP_TIMEZONE", raising=False)
         result = get_now()
         expected_offset = timedelta(hours=8)
         assert result.utcoffset() == expected_offset
 
-    def test_returns_current_time_within_tolerance(self):
+    def test_respects_tz_env(self, monkeypatch):
+        monkeypatch.setenv("TZ", "UTC")
+        result = get_now()
+        assert result.utcoffset() == timedelta(0)
+
+    def test_returns_current_time_within_tolerance(self, monkeypatch):
         """返回时间与实际时间相差不超过 2 秒"""
+        monkeypatch.delenv("TZ", raising=False)
+        monkeypatch.delenv("APP_TIMEZONE", raising=False)
         before = datetime.now(tz=timezone(timedelta(hours=8)))
         result = get_now()
         after = datetime.now(tz=timezone(timedelta(hours=8)))

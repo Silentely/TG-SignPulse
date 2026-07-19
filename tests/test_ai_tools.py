@@ -2,6 +2,7 @@ import os
 import unittest
 from io import BytesIO
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 from PIL import Image
 
@@ -594,8 +595,8 @@ class ImageUrlFormatTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(image_url, "ZmFrZS1pbWFnZQ==")
 
 
-class MidFlowTerminalSuccessTest(unittest.TestCase):
-    """执行中终态停止：预检已删除，仅保留文案/回调判定能力。"""
+class MidFlowTerminalSuccessTest(unittest.IsolatedAsyncioTestCase):
+    """执行中终态停止：预检已删除；发送后/历史回退边界。"""
 
     def test_precheck_helpers_removed(self):
         """签到前扫历史预检相关 API 必须不存在。"""
@@ -609,6 +610,8 @@ class MidFlowTerminalSuccessTest(unittest.TestCase):
         self.assertTrue(hasattr(UserSigner, "_message_has_terminal_success_text"))
         self.assertTrue(hasattr(UserSigner, "_text_has_terminal_success_text"))
         self.assertTrue(hasattr(UserSigner, "_callback_text_has_terminal_success_text"))
+        self.assertTrue(hasattr(UserSigner, "_message_is_actionable_target"))
+        self.assertTrue(hasattr(UserSigner, "_maybe_stop_after_send"))
 
     def test_callback_already_signed_is_terminal(self):
         from tg_signer.core import UserSigner
@@ -620,6 +623,89 @@ class MidFlowTerminalSuccessTest(unittest.TestCase):
         self.assertTrue(
             signer._callback_text_has_terminal_success_text("您今天已经签到")
         )
+
+    def test_actionable_target_skips_terminal_and_non_bot(self):
+        from tg_signer.core import UserSigner
+
+        signer = object.__new__(UserSigner)
+        # 已终态：不可再作为操作对象
+        done = SimpleNamespace(
+            text="🎉 签到成功，获得了 1 积分",
+            caption=None,
+            from_user=SimpleNamespace(is_bot=True),
+        )
+        self.assertFalse(signer._message_is_actionable_target(done))
+        # 群聊路人：不可操作
+        human = SimpleNamespace(
+            text="请点击下方按钮",
+            caption=None,
+            from_user=SimpleNamespace(is_bot=False),
+        )
+        self.assertFalse(signer._message_is_actionable_target(human))
+        # bot 验证消息：可操作
+        bot_challenge = SimpleNamespace(
+            text="请选择正确图片",
+            caption=None,
+            from_user=SimpleNamespace(is_bot=True),
+        )
+        self.assertTrue(signer._message_is_actionable_target(bot_challenge))
+        # 无 from_user（频道等）：可操作
+        channel = SimpleNamespace(text="请完成验证", caption=None, from_user=None)
+        self.assertTrue(signer._message_is_actionable_target(channel))
+
+    def test_post_send_terminal_timeout_env(self):
+        from tg_signer.core import UserSigner
+
+        signer = object.__new__(UserSigner)
+        old = os.environ.pop("SIGN_TASK_POST_SEND_TERMINAL_TIMEOUT", None)
+        try:
+            self.assertEqual(signer._post_send_terminal_timeout(), 3.0)
+            os.environ["SIGN_TASK_POST_SEND_TERMINAL_TIMEOUT"] = "0"
+            self.assertEqual(signer._post_send_terminal_timeout(), 0.0)
+            os.environ["SIGN_TASK_POST_SEND_TERMINAL_TIMEOUT"] = "5.5"
+            self.assertEqual(signer._post_send_terminal_timeout(), 5.5)
+        finally:
+            if old is None:
+                os.environ.pop("SIGN_TASK_POST_SEND_TERMINAL_TIMEOUT", None)
+            else:
+                os.environ["SIGN_TASK_POST_SEND_TERMINAL_TIMEOUT"] = old
+
+    async def test_maybe_stop_after_send_sets_flag_on_terminal(self):
+        from tg_signer.core import UserSigner
+
+        signer = object.__new__(UserSigner)
+        signer.log = lambda *a, **k: None
+        signer.context = signer.ensure_ctx()
+        signer._post_send_terminal_timeout = lambda: 1.0
+
+        async def fake_wait(*args, **kwargs):
+            signer.context.stop_reason = "今日已签到"
+            return True
+
+        signer._wait_for_terminal_success = fake_wait
+
+        chat = SimpleNamespace(chat_id=1, message_thread_id=None)
+        await signer._maybe_stop_after_send(
+            chat, before_state={1: ("x",)}, history_limit=8
+        )
+        self.assertTrue(signer.context.stop_after_current_action)
+        self.assertEqual(signer.context.stop_reason, "今日已签到")
+
+    async def test_maybe_stop_after_send_disabled_when_timeout_zero(self):
+        from tg_signer.core import UserSigner
+
+        signer = object.__new__(UserSigner)
+        signer.log = lambda *a, **k: None
+        signer.context = signer.ensure_ctx()
+        signer._post_send_terminal_timeout = lambda: 0.0
+        signer._wait_for_terminal_success = AsyncMock(return_value=True)
+
+        chat = SimpleNamespace(chat_id=1, message_thread_id=None)
+        await signer._maybe_stop_after_send(
+            chat, before_state={}, history_limit=8
+        )
+        self.assertFalse(signer.context.stop_after_current_action)
+        signer._wait_for_terminal_success.assert_not_called()
 
 
 class SuccessTextDetectionTest(unittest.TestCase):

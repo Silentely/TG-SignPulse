@@ -1895,6 +1895,59 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         )
         return self._text_has_terminal_success_text(text)
 
+    def _message_is_actionable_target(self, message: Optional[Message]) -> bool:
+        """当前步骤是否应处理该消息。
+
+        跳过已终态成功文案（避免对历史「签到成功」再点按钮/识图），
+        以及群聊中非 bot 用户消息（避免误点他人气泡）。
+        from_user 为空（频道帖等）仍允许处理。
+        """
+        if message is None:
+            return False
+        if self._message_has_terminal_success_text(message):
+            return False
+        from_user = getattr(message, "from_user", None)
+        if from_user is not None and not getattr(from_user, "is_bot", False):
+            return False
+        return True
+
+    def _post_send_terminal_timeout(self) -> float:
+        """发送文本/骰子后等待 bot 终态回复的秒数；0 表示不等待。"""
+        raw = os.getenv("SIGN_TASK_POST_SEND_TERMINAL_TIMEOUT")
+        if raw is None or str(raw).strip() == "":
+            return 3.0
+        try:
+            return max(float(raw), 0.0)
+        except (TypeError, ValueError):
+            return 3.0
+
+    async def _maybe_stop_after_send(
+        self,
+        chat: SignChatV3,
+        *,
+        before_state: dict,
+        history_limit: int,
+    ) -> None:
+        """发送后短等 bot 终态（已签到/签到成功），命中则停止后续步骤。
+
+        before_state 必须在 send 之前快照；仅认发送后的消息变更，不会把未变更的历史成功当完成。
+        """
+        timeout = self._post_send_terminal_timeout()
+        if timeout <= 0:
+            return
+        if await self._wait_for_terminal_success(
+            chat,
+            before_state,
+            history_limit=history_limit,
+            timeout=timeout,
+        ):
+            self.context.stop_after_current_action = True
+            reason = (self.context.stop_reason or "").strip()
+            self.log(
+                "发送后检测到任务完成响应，将停止后续动作"
+                + (f": {reason}" if reason else "")
+            )
+
     async def _wait_for_terminal_success(
         self,
         chat: SignChatV3,
@@ -2296,14 +2349,33 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         kwargs = {}
         if chat.message_thread_id is not None:
             kwargs["message_thread_id"] = chat.message_thread_id
+        history_limit = _read_positive_int_env("SIGN_TASK_HISTORY_LOOKBACK", 12, 3)
         if isinstance(action, SendTextAction):
-            return await self.send_message(chat.chat_id, action.text, chat.delete_after, **kwargs)
+            # 必须在 send 前快照，否则 bot 若已秒回会漏检
+            before_state = await self._chat_state_snapshot(
+                chat, history_limit=history_limit
+            )
+            result = await self.send_message(
+                chat.chat_id, action.text, chat.delete_after, **kwargs
+            )
+            await self._maybe_stop_after_send(
+                chat, before_state=before_state, history_limit=history_limit
+            )
+            return result
         elif isinstance(action, SendDiceAction):
-            return await self.send_dice(chat.chat_id, action.dice, chat.delete_after, **kwargs)
+            before_state = await self._chat_state_snapshot(
+                chat, history_limit=history_limit
+            )
+            result = await self.send_dice(
+                chat.chat_id, action.dice, chat.delete_after, **kwargs
+            )
+            await self._maybe_stop_after_send(
+                chat, before_state=before_state, history_limit=history_limit
+            )
+            return result
         elif isinstance(action, KeywordNotifyAction):
             self.log("关键词监听通知动作为后台常驻监听配置，当前运行时跳过")
             return True
-        history_limit = _read_positive_int_env("SIGN_TASK_HISTORY_LOOKBACK", 12, 3)
         self.context.waiter.add(chat.chat_id)
         start = time.perf_counter()
         last_message = None
@@ -2317,6 +2389,8 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                         if message is None:
                             continue
                         if not self._message_matches_chat_thread(message, chat):
+                            continue
+                        if not self._message_is_actionable_target(message):
                             continue
                         self._log_received_target_message(message)
                         self.context.waiting_message = message
@@ -2400,6 +2474,8 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                                 if message is None:
                                     continue
                                 if not self._message_matches_chat_thread(message, chat):
+                                    continue
+                                if not self._message_is_actionable_target(message):
                                     continue
                                 self._log_received_target_message(message)
 
@@ -2489,6 +2565,10 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 for message in messages:
                     if message is None:
                         continue
+                    if not self._message_matches_chat_thread(message, chat):
+                        continue
+                    if not self._message_is_actionable_target(message):
+                        continue
                     self.context.waiting_message = message
                     self._log_received_target_message(message)
                     ok = False
@@ -2524,6 +2604,10 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 try:
                     self.log("等待超时，尝试从最近消息回退处理当前步骤", level="WARNING")
                     async for message in self.app.get_chat_history(chat.chat_id, limit=history_limit):
+                        if not self._message_matches_chat_thread(message, chat):
+                            continue
+                        if not self._message_is_actionable_target(message):
+                            continue
                         self._log_received_target_message(message)
                         if isinstance(action, ClickKeyboardByTextAction):
                             ok = await self._click_keyboard_by_text(
