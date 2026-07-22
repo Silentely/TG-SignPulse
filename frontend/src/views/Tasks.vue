@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
-import { useRoute } from 'vue-router'
-import { Play, FileText, Edit2, Trash2, Plus, Radio, Clock, Shuffle, Power, Search, Square } from 'lucide-vue-next'
+import { useRoute, useRouter } from 'vue-router'
+import { Play, FileText, Edit2, Trash2, Plus, Radio, Clock, Shuffle, Power, Search, Square, X } from 'lucide-vue-next'
 import { listSignTasks, deleteSignTask, startSignTaskRun, listAccounts, toggleSignTaskEnabled, batchSignTasks, cloneSignTask, listActiveSignTaskRuns, cancelSignTaskRun } from '../lib/api'
 import { BUILT_IN_TEMPLATES } from '../lib/task-templates'
 import type { SignTask, AccountInfo, ActiveRunSummary } from '../lib/api'
@@ -29,6 +29,7 @@ import {
 } from '../lib/run-status'
 
 const route = useRoute()
+const router = useRouter()
 const { t } = useI18n()
 const toast = useToast()
 const { confirm } = useConfirm()
@@ -37,6 +38,11 @@ const tasks = ref<TaskUiItem[]>([])
 const pageLoading = ref(true)
 const showAddModal = ref(false)
 const addTemplateId = ref<string | null>(null)
+/** 账号深链筛选（query.account） */
+const accountFilter = computed(() => {
+  const q = route.query.account
+  return typeof q === 'string' ? q.trim() : ''
+})
 const showEditModal = ref(false)
 const showLogsModal = ref(false)
 const editingTask = ref<SignTask | null>(null)
@@ -178,8 +184,14 @@ const loadTasks = async () => {
     const accountName = route.query.account as string | undefined
     const res = await listSignTasks(token, accountName)
     tasks.value = res.map((task: SignTask) => {
-      const firstChat = task.chats && task.chats.length > 0 ? task.chats[0] : null
-      const targetStr = firstChat ? `${firstChat.chat_id}${firstChat.message_thread_id ? '|' + firstChat.message_thread_id : ''}` : t('tasks.noTarget')
+      const chats = task.chats || []
+      const firstChat = chats.length > 0 ? chats[0] : null
+      const targetCount = chats.length
+      const primaryLabel = firstChat
+        ? (firstChat.name || `${firstChat.chat_id}${firstChat.message_thread_id ? '|' + firstChat.message_thread_id : ''}`)
+        : t('tasks.noTarget')
+      // 列表主标签只显示首个目标；额外数量由 +N badge 展示
+      const targetStr = primaryLabel
       
       let scheduleMode = ''
       let modeIcon: typeof Clock | typeof Radio | typeof Shuffle = Clock
@@ -210,6 +222,7 @@ const loadTasks = async () => {
         name: task.name,
         scheduleMode,
         targetStr,
+        targetCount,
         lastRunStr,
         lastRunSuccess,
         modeIcon,
@@ -527,6 +540,17 @@ const closeAddModal = () => {
   addTemplateId.value = null
 }
 
+const clearAccountFilter = () => {
+  const nextQuery = { ...route.query }
+  delete nextQuery.account
+  router.push({ name: 'tasks', query: nextQuery })
+}
+
+const preferAccountForCreate = computed(() => {
+  if (accountFilter.value) return accountFilter.value
+  return allAccounts.value[0] || null
+})
+
 const handleCreateFromTemplate = (templateId: string) => {
   // 预填动作到新建表单；chat_id 仍由用户选择，避免落库无效任务
   if (!allAccounts.value.length) {
@@ -638,40 +662,77 @@ const openLogs = (task: TaskUiItem) => {
     </div>
 
     <!-- Empty State -->
-    <div v-else-if="tasks.length === 0" class="ui-empty">
-      <div class="ui-empty-icon">
-        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-      </div>
-      <p class="ui-empty-title">{{ t('tasks.empty') }}</p>
-      <p class="ui-empty-desc mb-4">{{ t('tasks.emptyHint') }}</p>
-      <div class="flex flex-wrap items-center justify-center gap-2">
-        <div class="relative" @click.stop>
-          <button type="button" class="ui-btn-secondary !text-xs !px-3 !py-2" @click="toggleTemplateMenu">
-            {{ t('tasks.fromTemplate') }}
-          </button>
-          <div
-            v-if="showTemplateMenu"
-            class="absolute left-1/2 -translate-x-1/2 top-full mt-1 z-20 min-w-[14rem] max-h-64 overflow-y-auto ui-dropdown shadow-[var(--sp-shadow-md)] p-1"
-          >
-            <button
-              v-for="tpl in BUILT_IN_TEMPLATES"
-              :key="tpl.id"
-              type="button"
-              class="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-white/[0.04] rounded-sm"
-              @click="pickTemplate(tpl.id)"
-            >
-              <div class="font-medium">{{ t(tpl.nameKey) }}</div>
-              <div class="text-[10px] text-gray-500">{{ t(tpl.descKey) }}</div>
-            </button>
-          </div>
+    <div v-else-if="tasks.length === 0" class="space-y-3">
+      <div
+        v-if="accountFilter"
+        class="ui-card flex flex-wrap items-center justify-between gap-2 px-3 py-2 border border-sky-200/70 dark:border-sky-800/50 bg-sky-50/80 dark:bg-sky-950/30"
+      >
+        <div class="text-xs text-sky-800 dark:text-sky-200 min-w-0">
+          <span class="text-sky-600/80 dark:text-sky-400/80">{{ t('tasks.accountFilter') }}：</span>
+          <span class="font-mono font-medium truncate">{{ accountFilter }}</span>
         </div>
-        <button type="button" class="ui-btn-primary !text-xs !px-3 !py-2" @click="openAddBlank">
-          <Plus class="w-3.5 h-3.5" /> {{ t('taskModal.addTitle') }}
+        <button
+          type="button"
+          class="inline-flex items-center gap-1 text-[11px] text-sky-700 dark:text-sky-300 hover:underline shrink-0"
+          @click="clearAccountFilter"
+        >
+          <X class="w-3 h-3" />
+          {{ t('tasks.clearAccountFilter') }}
         </button>
+      </div>
+      <div class="ui-empty">
+        <div class="ui-empty-icon">
+          <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+        </div>
+        <p class="ui-empty-title">{{ t('tasks.empty') }}</p>
+        <p class="ui-empty-desc mb-4">{{ t('tasks.emptyHint') }}</p>
+        <div class="flex flex-wrap items-center justify-center gap-2">
+          <div class="relative" @click.stop>
+            <button type="button" class="ui-btn-secondary !text-xs !px-3 !py-2" @click="toggleTemplateMenu">
+              {{ t('tasks.fromTemplate') }}
+            </button>
+            <div
+              v-if="showTemplateMenu"
+              class="absolute left-1/2 -translate-x-1/2 top-full mt-1 z-20 min-w-[14rem] max-h-64 overflow-y-auto ui-dropdown shadow-[var(--sp-shadow-md)] p-1"
+            >
+              <button
+                v-for="tpl in BUILT_IN_TEMPLATES"
+                :key="tpl.id"
+                type="button"
+                class="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-white/[0.04] rounded-sm"
+                @click="pickTemplate(tpl.id)"
+              >
+                <div class="font-medium">{{ t(tpl.nameKey) }}</div>
+                <div class="text-[10px] text-gray-500">{{ t(tpl.descKey) }}</div>
+              </button>
+            </div>
+          </div>
+          <button type="button" class="ui-btn-primary !text-xs !px-3 !py-2" @click="openAddBlank">
+            <Plus class="w-3.5 h-3.5" /> {{ t('taskModal.addTitle') }}
+          </button>
+        </div>
       </div>
     </div>
 
     <div v-else class="flex flex-col gap-3 pb-24">
+    <!-- 账号深链筛选条 -->
+    <div
+      v-if="accountFilter"
+      class="ui-card flex flex-wrap items-center justify-between gap-2 px-3 py-2 border border-sky-200/70 dark:border-sky-800/50 bg-sky-50/80 dark:bg-sky-950/30"
+    >
+      <div class="text-xs text-sky-800 dark:text-sky-200 min-w-0">
+        <span class="text-sky-600/80 dark:text-sky-400/80">{{ t('tasks.accountFilter') }}：</span>
+        <span class="font-mono font-medium truncate">{{ accountFilter }}</span>
+      </div>
+      <button
+        type="button"
+        class="inline-flex items-center gap-1 text-[11px] text-sky-700 dark:text-sky-300 hover:underline shrink-0"
+        @click="clearAccountFilter"
+      >
+        <X class="w-3 h-3" />
+        {{ t('tasks.clearAccountFilter') }}
+      </button>
+    </div>
     <!-- 工具栏：不使用 sticky，避免与列表层叠重叠 -->
     <div
       class="ui-card p-3 space-y-2.5"
@@ -787,10 +848,17 @@ const openLogs = (task: TaskUiItem) => {
               {{ task.scheduleMode }}
             </span>
             <span
-              class="ui-badge ui-badge-neutral !text-[11px] font-mono max-w-[14rem] truncate"
+              class="ui-badge ui-badge-neutral !text-[11px] font-mono max-w-[16rem] truncate"
               :title="task.targetStr"
             >
               {{ task.targetStr }}
+            </span>
+            <span
+              v-if="task.targetCount > 1"
+              class="ui-badge !text-[11px] bg-violet-50 text-violet-700 border-violet-100 dark:bg-violet-950/40 dark:text-violet-300 dark:border-violet-800/50"
+              :title="task.targetStr"
+            >
+              {{ t('tasks.extraTargets', { n: task.targetCount - 1 }) }}
             </span>
             <span
               class="ui-badge !text-[11px] max-w-full truncate"
@@ -940,7 +1008,7 @@ const openLogs = (task: TaskUiItem) => {
     <AddTaskModal
       :isOpen="showAddModal"
       :template-id="addTemplateId"
-      :prefer-account="allAccounts[0] || null"
+      :prefer-account="preferAccountForCreate"
       @close="closeAddModal"
       @success="loadTasks"
     />

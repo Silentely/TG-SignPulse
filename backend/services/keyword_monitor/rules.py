@@ -353,6 +353,66 @@ def _message_matches_sender(message: Message, sender_filter: Optional[List[str]]
     return username in sender_filter
 
 
+def _action_ignore_self(action: Dict[str, Any]) -> bool:
+    """是否忽略自己发送的消息；缺省 True。"""
+    return _as_bool(action.get("ignore_self"), default=True)
+
+
+def _message_is_self(message: Message) -> bool:
+    user = getattr(message, "from_user", None)
+    if user is None:
+        return False
+    return bool(getattr(user, "is_self", False))
+
+
+def _action_time_window(action: Dict[str, Any]) -> tuple[Optional[str], Optional[str]]:
+    """读取动作上的监听时间窗配置。"""
+    from backend.utils.time_window import normalize_time_window
+
+    return normalize_time_window(
+        action.get("active_time_start"),
+        action.get("active_time_end"),
+    )
+
+
+def _resolve_panel_timezone() -> str:
+    """读取面板任务时区（与调度器一致），失败回退空串由工具层用 UTC。"""
+    try:
+        from backend.services.config import get_config_service
+
+        settings = get_config_service().get_global_settings() or {}
+        tz = str(settings.get("timezone") or "").strip()
+        if tz:
+            return tz
+    except Exception:
+        pass
+    try:
+        return str(get_settings().timezone or "").strip()
+    except Exception:
+        return ""
+
+
+def _action_in_active_time_window(
+    action: Dict[str, Any],
+    *,
+    now: Optional[Any] = None,
+    tz_name: Optional[str] = None,
+) -> bool:
+    """判断当前时间是否在动作配置的监听时间窗内（按面板时区）。"""
+    from datetime import datetime
+
+    from backend.utils.time_window import is_within_time_window, resolve_tz
+
+    start, end = _action_time_window(action)
+    if not start or not end:
+        return True
+    panel_tz = (tz_name if tz_name is not None else _resolve_panel_timezone()) or None
+    if now is not None:
+        return is_within_time_window(now, start, end, tz_name=panel_tz)
+    tz = resolve_tz(panel_tz)
+    return is_within_time_window(datetime.now(tz), start, end, tz_name=panel_tz)
+
+
 def _message_thread_candidates(message: Message) -> list[int]:
     candidates: list[int] = []
     for raw_value in (

@@ -327,6 +327,10 @@ class TestKeywordNotifyAction:
         assert action.match_mode == "contains"
         assert action.ignore_case is True
         assert action.push_channel == "telegram"
+        # 默认忽略自己消息，时间窗关闭
+        assert action.ignore_self is True
+        assert action.active_time_start is None
+        assert action.active_time_end is None
 
     def test_create_with_all_options(self):
         """创建全参数关键词通知动作"""

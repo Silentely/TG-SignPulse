@@ -269,6 +269,11 @@ class KeywordNotifyAction(SignAction):
     keywords: List[str]
     match_mode: Literal["contains", "exact", "regex"] = "contains"
     ignore_case: bool = True
+    # 默认忽略自己发送的消息，避免自动回复/后续动作死循环
+    ignore_self: bool = True
+    # 限定监听时间段（HH:MM，支持跨午夜）；均空表示全天
+    active_time_start: Optional[str] = None
+    active_time_end: Optional[str] = None
     push_channel: Literal["telegram", "forward", "bark", "custom", "continue"] = "telegram"
     bark_url: Optional[str] = None
     custom_url: Optional[str] = None
