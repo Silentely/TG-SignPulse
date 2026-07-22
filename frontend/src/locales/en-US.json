@@ -119,7 +119,13 @@
     "loadingOfficialMessages": "Loading official messages...",
     "noOfficialMessages": "No official messages",
     "emptyMessage": "Empty message",
-    "refresh": "Refresh"
+    "refresh": "Refresh",
+    "batchCheckStarted": "Batch check started",
+    "batchCheckProgress": "Progress {done}/{total}",
+    "batchCheckCancel": "Cancel check",
+    "batchCheckCancelRequested": "Cancel requested",
+    "batchCheckCanceled": "Batch check canceled",
+    "batchCheckFailed": "Batch check failed"
   },
   "tasks": {
     "empty": "No tasks yet",
@@ -312,7 +318,23 @@
     "logDetail": "Log Details:",
     "truncated": "...logs truncated",
     "expandDetail": "Expand flow",
-    "collapseDetail": "Collapse flow"
+    "collapseDetail": "Collapse flow",
+    "hitsTab": "Hits",
+    "hitsList": "List",
+    "hitsGroups": "Groups",
+    "groupByChat": "By chat",
+    "groupByAccount": "By account",
+    "groupByTask": "By task",
+    "hitsEmpty": "No keyword hits yet",
+    "hitsLoadFailed": "Failed to load hits",
+    "hitsExport": "Export CSV",
+    "hitsExportDone": "Hits exported",
+    "hitsExportFailed": "Export failed",
+    "hitsClear": "Clear hits",
+    "hitsClearConfirm": "Clear all hit records for this task? This cannot be undone.",
+    "hitsCleared": "Cleared {n} hits",
+    "hitsClearFailed": "Failed to clear hits",
+    "hitsOpenMessage": "Open message"
   },
   "logs": {
     "taskLogs": "Task Execution Logs",

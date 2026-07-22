@@ -1519,6 +1519,28 @@ class KeywordMonitorService:
                     f"消息ID={getattr(message, 'id', '')}，捕获值={capture_display}，消息={text_preview}",
                     active=True,
                 )
+                # 结构化命中记录（列表 / 分组 / 导出）
+                try:
+                    from backend.services.keyword_monitor.hits import record_keyword_hit
+
+                    record_keyword_hit(
+                        account_name=account_name,
+                        task_name=rule.task_name,
+                        chat_id=getattr(message.chat, "id", None),
+                        chat_title=chat_title,
+                        keyword=matched,
+                        keywords=all_matched,
+                        message_id=getattr(message, "id", None),
+                        message_text=text,
+                        sender=sender,
+                        url=url,
+                        push_channel=str(
+                            rule.action.get("push_channel") or "telegram"
+                        ).strip(),
+                        message_thread_id=message_thread_id,
+                    )
+                except Exception as hit_exc:
+                    logger.warning("Failed to persist keyword hit record: %s", hit_exc)
                 body_lines = [
                     f"Task: {rule.task_name}",
                     f"Chat: {chat_title}",

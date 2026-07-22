@@ -1,8 +1,16 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { Play, FileText, Edit2, Trash2, Plus, QrCode, Phone, Zap, MonitorSmartphone, MessageCircle, CheckCircle2, Search } from 'lucide-vue-next'
-import { listAccounts, deleteAccount, checkAccountsStatus } from '../lib/api'
+import {
+  listAccounts,
+  deleteAccount,
+  checkAccountsStatus,
+  startAccountStatusCheckJob,
+  getAccountStatusCheckJob,
+  cancelAccountStatusCheckJob,
+} from '../lib/api'
+import type { AccountStatusJob } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
 import { useConfirm } from '../composables/useConfirm'
@@ -136,14 +144,82 @@ const handleDelete = async (name: string) => {
 
 const checkingAccount = ref('')
 const batchChecking = ref(false)
+const batchJob = ref<AccountStatusJob | null>(null)
+let batchPollTimer: ReturnType<typeof setInterval> | null = null
+
+const clearBatchPoll = () => {
+  if (batchPollTimer) {
+    clearInterval(batchPollTimer)
+    batchPollTimer = null
+  }
+}
+
+onUnmounted(() => {
+  clearBatchPoll()
+})
+
+const applyBatchJobResult = async (job: AccountStatusJob) => {
+  await loadAccounts()
+  const summary = job.summary || {}
+  const ok = Number(summary.ok ?? job.progress?.ok ?? 0)
+  const failed = Number(summary.fail ?? job.progress?.fail ?? 0)
+  if (job.status === 'canceled') {
+    toast.error(t('accounts.batchCheckCanceled'), {
+      description: `${t('accounts.checkOkCount')}: ${ok} · ${t('accounts.checkFailedCount')}: ${failed}`,
+    })
+    return
+  }
+  if (job.status === 'failed') {
+    toast.error(t('accounts.checkFailed'), {
+      description: job.error || t('accounts.batchCheckFailed'),
+    })
+    return
+  }
+  if (failed === 0) {
+    toast.success(t('accounts.batchCheckDone'), {
+      description: `${t('accounts.checkOkCount')}: ${ok}`,
+    })
+  } else {
+    const failedPreview = (job.results || [])
+      .filter((item) => !item.ok)
+      .slice(0, 5)
+      .map((item) => `${item.account_name}: ${item.message || item.code || t('accounts.loginExpired')}`)
+      .join('\n')
+    toast.error(t('accounts.batchCheckDone'), {
+      description: `${t('accounts.checkOkCount')}: ${ok} · ${t('accounts.checkFailedCount')}: ${failed}\n${failedPreview}`,
+      duration: 8000,
+    })
+  }
+}
+
+const pollBatchJob = async (jobId: string) => {
+  const token = authStore.token || ''
+  if (!token) return
+  try {
+    const job = await getAccountStatusCheckJob(token, jobId)
+    batchJob.value = job
+    if (job.status === 'running' || job.status === 'canceling') {
+      return
+    }
+    clearBatchPoll()
+    batchChecking.value = false
+    await applyBatchJobResult(job)
+    batchJob.value = null
+  } catch (e) {
+    clearBatchPoll()
+    batchChecking.value = false
+    batchJob.value = null
+    toast.error(getLocalizedErrorMessage(e, t, t('accounts.checkFailed')))
+  }
+}
 
 const handleCheck = async (name: string) => {
   const token = authStore.token || ''
   checkingAccount.value = name
   try {
+    // 单账号仍走同步接口，响应更快
     const res = await checkAccountsStatus(token, { account_names: [name] })
     await loadAccounts()
-    // Show result
     const result = res.results?.[0]
     if (result) {
       if (result.ok) {
@@ -163,9 +239,32 @@ const handleBatchCheck = async () => {
   const token = authStore.token || ''
   const names = accounts.value.map(acc => acc.name).filter(Boolean)
   if (!token || names.length === 0) return
+  if (batchChecking.value) return
 
   batchChecking.value = true
+  batchJob.value = null
+  clearBatchPoll()
   try {
+    // 多账号走 Job：可取消、可展示进度，避免 HTTP 长阻塞
+    if (names.length >= 2) {
+      const job = await startAccountStatusCheckJob(token, {
+        account_names: names,
+        timeout_seconds: 8,
+      })
+      batchJob.value = job
+      toast.success(t('accounts.batchCheckStarted'), {
+        description: t('accounts.batchCheckProgress', {
+          done: job.progress?.done ?? 0,
+          total: job.progress?.total ?? names.length,
+        }),
+      })
+      batchPollTimer = setInterval(() => {
+        void pollBatchJob(job.job_id)
+      }, 1200)
+      await pollBatchJob(job.job_id)
+      return
+    }
+
     const res = await checkAccountsStatus(token, { account_names: names, timeout_seconds: 8 })
     await loadAccounts()
     const ok = res.results.filter(item => item.ok).length
@@ -188,7 +287,22 @@ const handleBatchCheck = async () => {
   } catch (e) {
     toast.error(getLocalizedErrorMessage(e, t, t('accounts.checkFailed')))
   } finally {
-    batchChecking.value = false
+    if (!batchPollTimer) {
+      batchChecking.value = false
+    }
+  }
+}
+
+const handleCancelBatchCheck = async () => {
+  const token = authStore.token || ''
+  const jobId = batchJob.value?.job_id
+  if (!token || !jobId) return
+  try {
+    await cancelAccountStatusCheckJob(token, jobId)
+    toast.success(t('accounts.batchCheckCancelRequested'))
+    await pollBatchJob(jobId)
+  } catch (e) {
+    toast.error(getLocalizedErrorMessage(e, t, t('accounts.checkFailed')))
   }
 }
 
@@ -296,16 +410,35 @@ const goTasks = (name: string) => {
             :aria-label="t('common.search')"
           >
         </div>
-        <button
-          type="button"
-          class="ui-btn-primary !px-3 !py-2 !text-xs shrink-0"
-          :disabled="batchChecking"
-          @click="handleBatchCheck"
-        >
-          <span v-if="batchChecking" class="ui-spinner !w-3.5 !h-3.5 !border-2" />
-          <CheckCircle2 v-else class="w-3.5 h-3.5" />
-          {{ batchChecking ? t('accounts.batchChecking') : t('accounts.batchCheck') }}
-        </button>
+        <div class="flex items-center gap-2 shrink-0">
+          <span
+            v-if="batchChecking && batchJob"
+            class="text-[11px] font-mono text-sky-700 dark:text-sky-300 hidden sm:inline"
+          >
+            {{ t('accounts.batchCheckProgress', {
+              done: batchJob.progress?.done ?? 0,
+              total: batchJob.progress?.total ?? accounts.length,
+            }) }}
+          </span>
+          <button
+            v-if="batchChecking && batchJob?.job_id"
+            type="button"
+            class="ui-btn-secondary !px-3 !py-2 !text-xs"
+            @click="handleCancelBatchCheck"
+          >
+            {{ t('accounts.batchCheckCancel') }}
+          </button>
+          <button
+            type="button"
+            class="ui-btn-primary !px-3 !py-2 !text-xs"
+            :disabled="batchChecking"
+            @click="handleBatchCheck"
+          >
+            <span v-if="batchChecking" class="ui-spinner !w-3.5 !h-3.5 !border-2" />
+            <CheckCircle2 v-else class="w-3.5 h-3.5" />
+            {{ batchChecking ? t('accounts.batchChecking') : t('accounts.batchCheck') }}
+          </button>
+        </div>
       </div>
       <div v-if="filteredAccounts.length === 0" class="ui-empty !py-12">
         <p class="ui-empty-desc">{{ t('common.noData') }}</p>

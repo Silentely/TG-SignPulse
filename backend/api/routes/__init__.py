@@ -6,6 +6,7 @@ from backend.api.routes import (
     batch,
     config,
     events,
+    keyword_hits,
     logs,
     ops,
     sign_tasks_v2,
@@ -25,3 +26,6 @@ router.include_router(config.router, prefix="/config", tags=["config"])
 router.include_router(events.router, prefix="/events", tags=["events"])
 router.include_router(batch.router, prefix="/batch", tags=["batch"])
 router.include_router(ops.router, prefix="/ops", tags=["ops"])
+router.include_router(
+    keyword_hits.router, prefix="/keyword-hits", tags=["keyword-hits"]
+)
