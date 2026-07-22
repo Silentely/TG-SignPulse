@@ -521,11 +521,13 @@ async def check_accounts_status(
     request: AccountStatusCheckRequest, current_user: User = Depends(get_current_user)
 ):
     """
-    批量检测账号状态。
+    批量检测账号状态（同步，兼容旧客户端）。
 
+    账号较多时建议改用 POST /accounts/status/check-jobs 异步 Job。
     说明：
     - 默认按当前账号列表检测；
     - 顺序检测并做轻微节流，避免刷新页面时触发请求洪峰。
+    - 超过 8 个账号时仍同步执行，但前端批量入口已切到 Job API。
     """
     service = get_telegram_service()
     try:
@@ -569,6 +571,74 @@ async def check_accounts_status(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"账号状态检测失败: {str(e)}",
         )
+
+
+class AccountStatusJobStartRequest(BaseModel):
+    """异步批量状态检测 Job 请求"""
+
+    account_names: Optional[list[str]] = None
+    timeout_seconds: float = 8.0
+
+
+@router.post("/status/check-jobs", status_code=status.HTTP_201_CREATED)
+async def start_account_status_check_job(
+    request: AccountStatusJobStartRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """启动账号会话状态批量检测 Job（可取消、可查询进度）。"""
+    from backend.services.account_status_jobs import start_account_status_check_job
+
+    try:
+        return start_account_status_check_job(
+            account_names=request.account_names,
+            timeout_seconds=request.timeout_seconds,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except Exception as e:
+        logger.exception("start account status job failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"启动批量状态检测失败: {e}",
+        )
+
+
+@router.get("/status/check-jobs")
+def list_account_status_check_jobs(
+    limit: int = 20,
+    current_user: User = Depends(get_current_user),
+):
+    from backend.services.account_status_jobs import list_account_status_jobs
+
+    return {"jobs": list_account_status_jobs(limit=max(1, min(limit, 50)))}
+
+
+@router.get("/status/check-jobs/{job_id}")
+def get_account_status_check_job(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    from backend.services.account_status_jobs import get_account_status_job
+
+    job = get_account_status_job(job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job 不存在")
+    return job
+
+
+@router.post("/status/check-jobs/{job_id}/cancel")
+def cancel_account_status_check_job(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    from backend.services.account_status_jobs import cancel_account_status_job
+
+    if not cancel_account_status_job(job_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="无法取消（不存在或已结束）",
+        )
+    return {"ok": True, "job_id": job_id}
 
 
 @router.get("/logs/recent", response_model=list[dict])

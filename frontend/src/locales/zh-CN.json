@@ -119,7 +119,13 @@
     "loadingOfficialMessages": "正在读取官方消息...",
     "noOfficialMessages": "暂无官方消息",
     "emptyMessage": "空消息",
-    "refresh": "刷新"
+    "refresh": "刷新",
+    "batchCheckStarted": "已启动批量检测",
+    "batchCheckProgress": "进度 {done}/{total}",
+    "batchCheckCancel": "取消检测",
+    "batchCheckCancelRequested": "已请求取消批量检测",
+    "batchCheckCanceled": "批量检测已取消",
+    "batchCheckFailed": "批量检测失败"
   },
   "tasks": {
     "empty": "还没有任务",
@@ -312,7 +318,23 @@
     "logDetail": "日志详情：",
     "truncated": "...部分日志已截断",
     "expandDetail": "展开执行流程",
-    "collapseDetail": "收起执行流程"
+    "collapseDetail": "收起执行流程",
+    "hitsTab": "命中记录",
+    "hitsList": "列表",
+    "hitsGroups": "分组",
+    "groupByChat": "按会话",
+    "groupByAccount": "按账号",
+    "groupByTask": "按任务",
+    "hitsEmpty": "暂无关键词命中记录",
+    "hitsLoadFailed": "加载命中记录失败",
+    "hitsExport": "导出 CSV",
+    "hitsExportDone": "命中记录已导出",
+    "hitsExportFailed": "导出失败",
+    "hitsClear": "清空命中",
+    "hitsClearConfirm": "确定清空当前任务的命中记录？此操作不可恢复。",
+    "hitsCleared": "已清空 {n} 条命中记录",
+    "hitsClearFailed": "清空失败",
+    "hitsOpenMessage": "打开消息"
   },
   "logs": {
     "taskLogs": "任务执行日志",
