@@ -14,7 +14,7 @@ import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from backend.core.config import get_settings
 
@@ -27,6 +27,9 @@ MAX_LIST_LIMIT = 500
 _lock = threading.Lock()
 _records: List[Dict[str, Any]] = []
 _loaded = False
+
+# Excel/CSV 公式注入前缀
+_CSV_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
 
 
 def _utc_now_iso() -> str:
@@ -42,6 +45,16 @@ def _hits_path() -> Path:
     path = get_settings().resolve_workdir() / "keyword_monitor" / "hits.jsonl"
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def _csv_cell(value: Any) -> str:
+    """将单元格转为字符串，并防止公式注入。"""
+    if value is None:
+        return ""
+    text = str(value)
+    if text and text[0] in _CSV_FORMULA_PREFIXES:
+        return "'" + text
+    return text
 
 
 def _ensure_loaded() -> None:
@@ -108,20 +121,27 @@ def record_keyword_hit(
     text = str(message_text or "").replace("\r\n", "\n").strip()
     if len(text) > 500:
         text = text[:497] + "..."
+    # URL 仅保留 http(s)，避免 javascript: 等危险协议进入导出/展示
+    raw_url = str(url or "").strip()
+    safe_url = ""
+    if raw_url.lower().startswith(("http://", "https://")):
+        safe_url = raw_url[:500]
     record: Dict[str, Any] = {
         "id": uuid.uuid4().hex,
         "time": _utc_now_iso(),
-        "account_name": str(account_name or "").strip(),
-        "task_name": str(task_name or "").strip(),
+        "account_name": str(account_name or "").strip()[:120],
+        "task_name": str(task_name or "").strip()[:120],
         "chat_id": chat_id,
-        "chat_title": str(chat_title or "").strip(),
-        "keyword": str(keyword or "").strip(),
-        "keywords": [str(k) for k in (keywords or []) if str(k).strip()][:20],
+        "chat_title": str(chat_title or "").strip()[:200],
+        "keyword": str(keyword or "").strip()[:200],
+        "keywords": [str(k).strip()[:200] for k in (keywords or []) if str(k).strip()][
+            :20
+        ],
         "message_id": message_id,
         "message_text": text,
-        "sender": str(sender or "").strip(),
-        "url": str(url or "").strip(),
-        "push_channel": str(push_channel or "").strip(),
+        "sender": str(sender or "").strip()[:120],
+        "url": safe_url,
+        "push_channel": str(push_channel or "").strip()[:40],
         "message_thread_id": message_thread_id,
     }
     with _lock:
@@ -143,9 +163,16 @@ def list_keyword_hits(
     task_name: Optional[str] = None,
     limit: int = DEFAULT_LIST_LIMIT,
     offset: int = 0,
+    max_limit: int = MAX_LIST_LIMIT,
 ) -> Dict[str, Any]:
+    """
+    列出命中记录。
+
+    max_limit 用于导出场景放宽上限（默认列表仍限制 MAX_LIST_LIMIT）。
+    """
     _ensure_loaded()
-    limit = max(1, min(int(limit or DEFAULT_LIST_LIMIT), MAX_LIST_LIMIT))
+    ceiling = max(1, min(int(max_limit or MAX_LIST_LIMIT), MAX_RECORDS))
+    limit = max(1, min(int(limit or DEFAULT_LIST_LIMIT), ceiling))
     offset = max(0, int(offset or 0))
     account = (account_name or "").strip()
     task = (task_name or "").strip()
@@ -158,9 +185,7 @@ def list_keyword_hits(
             and (not task or item.get("task_name") == task)
         ]
         total = len(filtered)
-        items = filtered[offset : offset + limit]
-        # 浅拷贝，避免外部修改内存缓存
-        items = [dict(item) for item in items]
+        items = [dict(item) for item in filtered[offset : offset + limit]]
 
     return {
         "total": total,
@@ -182,16 +207,22 @@ def group_keyword_hits(
     每组保留最近 limit_per_group 条，并统计 count。
     """
     _ensure_loaded()
+    normalized_group = (group_by or "task").strip().lower()
+    if normalized_group not in {"task", "account", "chat"}:
+        normalized_group = "task"
     key_field = {
         "task": "task_name",
         "account": "account_name",
         "chat": "chat_id",
-    }.get((group_by or "task").strip().lower(), "task_name")
+    }[normalized_group]
     per = max(1, min(int(limit_per_group or 20), 100))
     account = (account_name or "").strip()
     task = (task_name or "").strip()
 
-    buckets: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    # 内存 key：chat 用 (id, title) 元组，避免 title 含分隔符时解析错误
+    buckets: Dict[Union[str, Tuple[str, str]], List[Dict[str, Any]]] = defaultdict(list)
+    counts: Dict[Union[str, Tuple[str, str]], int] = defaultdict(int)
+
     with _lock:
         for item in _records:
             if account and item.get("account_name") != account:
@@ -200,51 +231,34 @@ def group_keyword_hits(
                 continue
             raw_key = item.get(key_field)
             if key_field == "chat_id":
-                label = str(item.get("chat_title") or raw_key or "-")
-                key = f"{raw_key}|{label}"
+                bucket_key: Union[str, Tuple[str, str]] = (
+                    str(raw_key if raw_key is not None else "-"),
+                    str(item.get("chat_title") or raw_key or "-"),
+                )
             else:
-                key = str(raw_key or "-")
-            if len(buckets[key]) < per:
-                buckets[key].append(dict(item))
+                bucket_key = str(raw_key or "-")
+            counts[bucket_key] += 1
+            if len(buckets[bucket_key]) < per:
+                buckets[bucket_key].append(dict(item))
 
-    groups = []
-    for key, items in buckets.items():
-        if key_field == "chat_id" and "|" in key:
-            chat_id, chat_title = key.split("|", 1)
-            group_key = chat_id
-            group_label = chat_title
-        else:
-            group_key = key
-            group_label = key
-        # count：同 key 的全量条数（不只是截断后的）
-        groups.append(
-            {
-                "key": group_key,
-                "label": group_label,
-                "count": _count_group(key_field, group_key, account, task),
-                "items": items,
-            }
-        )
+        groups = []
+        for key, items in buckets.items():
+            if isinstance(key, tuple):
+                group_key, group_label = key
+            else:
+                group_key = key
+                group_label = key
+            groups.append(
+                {
+                    "key": group_key,
+                    "label": group_label,
+                    "count": counts[key],
+                    "items": items,
+                }
+            )
+
     groups.sort(key=lambda g: (-int(g["count"]), str(g["label"])))
-    return {"group_by": group_by if group_by in {"task", "account", "chat"} else "task", "groups": groups}
-
-
-def _count_group(
-    key_field: str,
-    group_key: str,
-    account: str,
-    task: str,
-) -> int:
-    count = 0
-    for item in _records:
-        if account and item.get("account_name") != account:
-            continue
-        if task and item.get("task_name") != task:
-            continue
-        raw = item.get(key_field)
-        if str(raw if raw is not None else "-") == str(group_key):
-            count += 1
-    return count
+    return {"group_by": normalized_group, "groups": groups}
 
 
 def export_keyword_hits_csv(
@@ -253,12 +267,13 @@ def export_keyword_hits_csv(
     task_name: Optional[str] = None,
     limit: int = 2000,
 ) -> str:
-    """导出 CSV 文本（UTF-8 BOM 友好：调用方加 BOM 可选）。"""
+    """导出 CSV 文本（UTF-8 BOM 由路由层添加）。"""
     data = list_keyword_hits(
         account_name=account_name,
         task_name=task_name,
         limit=min(max(1, int(limit or 2000)), MAX_RECORDS),
         offset=0,
+        max_limit=MAX_RECORDS,
     )
     buf = io.StringIO()
     writer = csv.writer(buf)
@@ -282,21 +297,19 @@ def export_keyword_hits_csv(
     for item in data["items"]:
         writer.writerow(
             [
-                item.get("time") or "",
-                item.get("account_name") or "",
-                item.get("task_name") or "",
-                item.get("chat_id") if item.get("chat_id") is not None else "",
-                item.get("chat_title") or "",
-                item.get("keyword") or "",
-                "|".join(item.get("keywords") or []),
-                item.get("sender") or "",
-                item.get("message_id") if item.get("message_id") is not None else "",
-                item.get("message_text") or "",
-                item.get("url") or "",
-                item.get("push_channel") or "",
-                item.get("message_thread_id")
-                if item.get("message_thread_id") is not None
-                else "",
+                _csv_cell(item.get("time")),
+                _csv_cell(item.get("account_name")),
+                _csv_cell(item.get("task_name")),
+                _csv_cell(item.get("chat_id")),
+                _csv_cell(item.get("chat_title")),
+                _csv_cell(item.get("keyword")),
+                _csv_cell("|".join(item.get("keywords") or [])),
+                _csv_cell(item.get("sender")),
+                _csv_cell(item.get("message_id")),
+                _csv_cell(item.get("message_text")),
+                _csv_cell(item.get("url")),
+                _csv_cell(item.get("push_channel")),
+                _csv_cell(item.get("message_thread_id")),
             ]
         )
     return buf.getvalue()

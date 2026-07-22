@@ -8,10 +8,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from typing import Any, Dict, List, Optional
 
 from backend.core.config import get_settings
 from backend.services.background_job import BackgroundJobStore
+from backend.utils.names import validate_storage_name
 
 logger = logging.getLogger("backend.account_status_jobs")
 
@@ -23,6 +25,8 @@ MAX_TIMEOUT = 20.0
 INTER_DELAY_SECONDS = 0.15
 
 _store: Optional[BackgroundJobStore] = None
+# 防止并发 start 竞态创建两个请求同时通过“无 running”检查
+_start_lock = threading.Lock()
 
 
 def get_account_status_job_store() -> BackgroundJobStore:
@@ -43,6 +47,13 @@ def _normalize_names(account_names: Optional[List[str]]) -> List[str]:
         for name in account_names:
             normalized = (name or "").strip()
             if not normalized or normalized in seen:
+                continue
+            # 与路径段校验一致，拒绝穿越/非法账号名
+            try:
+                normalized = validate_storage_name(
+                    normalized, field_name="account_name"
+                )
+            except ValueError:
                 continue
             seen.add(normalized)
             names.append(normalized)
@@ -146,30 +157,34 @@ def start_account_status_check_job(
     timeout = _clamp_timeout(timeout_seconds)
     store = get_account_status_job_store()
 
-    # 同一时刻只允许一个 running 批量检测，避免对 Telegram 过载
-    for job in store.list_jobs(limit=10):
-        if job.get("kind") == KIND and job.get("status") in {"running", "canceling"}:
-            raise ValueError("已有批量状态检测在运行，请稍后再试或先取消")
+    with _start_lock:
+        # 同一时刻只允许一个 running 批量检测，避免对 Telegram 过载
+        for job in store.list_jobs(limit=10):
+            if job.get("kind") == KIND and job.get("status") in {
+                "running",
+                "canceling",
+            }:
+                raise ValueError("已有批量状态检测在运行，请稍后再试或先取消")
 
-    created = store.create_job(
-        kind=KIND,
-        payload={
-            "account_names": names,
-            "timeout_seconds": timeout,
-        },
-        progress={"total": len(names), "done": 0, "ok": 0, "fail": 0},
-    )
-    job_id = str(created["job_id"])
+        created = store.create_job(
+            kind=KIND,
+            payload={
+                "account_names": names,
+                "timeout_seconds": timeout,
+            },
+            progress={"total": len(names), "done": 0, "ok": 0, "fail": 0},
+        )
+        job_id = str(created["job_id"])
 
-    async def _runner() -> None:
-        try:
-            await _run_status_check(job_id, names, timeout)
-        except Exception as exc:
-            logger.exception("account status job %s failed", job_id)
-            store.mark_failed(job_id, str(exc) or "status check job failed")
+        async def _runner() -> None:
+            try:
+                await _run_status_check(job_id, names, timeout)
+            except Exception as exc:
+                logger.exception("account status job %s failed", job_id)
+                store.mark_failed(job_id, str(exc) or "status check job failed")
 
-    store.start_background(job_id, _runner, name=f"account-status-{job_id[:8]}")
-    return store.get_job(job_id) or created
+        store.start_background(job_id, _runner, name=f"account-status-{job_id[:8]}")
+        return store.get_job(job_id) or created
 
 
 def get_account_status_job(job_id: str) -> Optional[Dict[str, Any]]:
