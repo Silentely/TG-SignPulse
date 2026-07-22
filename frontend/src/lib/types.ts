@@ -74,6 +74,8 @@ export interface TaskUiItem {
   name: string;
   scheduleMode: string;
   targetStr: string;
+  /** 目标会话总数（多 chat 时用于 +N 展示） */
+  targetCount: number;
   lastRunStr: string;
   lastRunSuccess: boolean | null;
   modeIcon: Component;
@@ -138,6 +140,9 @@ export interface RawTaskAction {
   keywords?: string[];
   match_mode?: string;
   push_channel?: string;
+  ignore_self?: boolean;
+  active_time_start?: string;
+  active_time_end?: string;
   forward_chat_id?: string;
   forward_message_thread_id?: string;
   bark_url?: string;
@@ -158,6 +163,9 @@ export interface BuiltAction {
   keywords?: string[];
   match_mode?: string;
   push_channel?: string;
+  ignore_self?: boolean;
+  active_time_start?: string;
+  active_time_end?: string;
   forward_chat_id?: string;
   forward_message_thread_id?: string;
   bark_url?: string;

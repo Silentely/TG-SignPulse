@@ -17,7 +17,11 @@ const { t } = useI18n()
 const toast = useToast()
 const authStore = useAuthStore()
 
-const props = defineProps<{ initialTask?: SignTask }>()
+const props = defineProps<{
+  initialTask?: SignTask
+  /** 新建时预填关联账号（来自账号卡片深链） */
+  preferAccount?: string | null
+}>()
 const emit = defineEmits<{ (e: 'update:payload', value: CreateSignTaskRequest | UpdateSignTaskRequest): void }>()
 const accounts = ref<AccountInfo[]>([])
 const selectedAccounts = ref<string[]>([])
@@ -27,12 +31,16 @@ const scheduleMode = ref<'scheduled' | 'listen'>('scheduled')
 const timeRange = ref('08:00-19:00')
 const taskName = ref('')
 const retryCount = ref(3)
+/** 新建多目标：shared=一任务多会话；split=按会话拆成独立任务 */
+const createMode = ref<'shared' | 'split'>('shared')
 const availableChats = ref<ChatInfo[]>([])
 const chatSearch = ref('')
 const chatSearchResults = ref<ChatInfo[]>([])
 const chatSearchLoading = ref(false)
 const chatListRefreshing = ref(false)
 const chatListError = ref('')
+/** 会话列表多选勾选（批量加入目标） */
+const bulkSelectedChatIds = ref<number[]>([])
 /** 多目标聊天（共享动作序列；build 时复制到每个 chat） */
 type TargetChatDraft = {
   id: number
@@ -77,7 +85,14 @@ const listenerForwardThreadId = ref('')
 const listenerBarkUrl = ref('')
 const listenerCustomUrl = ref('')
 const listenerServerChanKey = ref('')
+/** 监听：忽略自己消息（默认开） */
+const listenerIgnoreSelf = ref(true)
+/** 监听时间窗 */
+const listenerTimeWindowEnabled = ref(false)
+const listenerActiveTimeStart = ref('09:00')
+const listenerActiveTimeEnd = ref('22:00')
 const actions = ref<TaskActionItem[]>([{ id: nextActionId(), type: 'send_text', value: '', aiPrompt: '' }])
+const isEditing = computed(() => !!props.initialTask)
 
 const loadAccounts = async () => {
   try {
@@ -85,6 +100,7 @@ const loadAccounts = async () => {
     const res = await listAccounts(token)
     accounts.value = res.accounts || []
     if (props.initialTask) {
+      createMode.value = 'shared'
       taskName.value = props.initialTask.name || ''
       retryCount.value = props.initialTask.retry_count ?? 3
       scheduleMode.value = props.initialTask.execution_mode === 'listen' ? 'listen' : 'scheduled'
@@ -119,13 +135,26 @@ const loadAccounts = async () => {
           listenerBarkUrl.value = la.bark_url || ''
           listenerCustomUrl.value = la.custom_url || ''
           listenerServerChanKey.value = la.server_chan_send_key || ''
+          listenerIgnoreSelf.value = la.ignore_self !== false
+          const hasWindow = !!(la.active_time_start && la.active_time_end)
+          listenerTimeWindowEnabled.value = hasWindow
+          if (hasWindow) {
+            listenerActiveTimeStart.value = String(la.active_time_start)
+            listenerActiveTimeEnd.value = String(la.active_time_end)
+          }
           if (la.continue_actions) parseActions(la.continue_actions)
         } else if (primary.actions) parseActions(primary.actions)
       } else if (selectedAccounts.value[0] || accounts.value[0]?.name) {
         targetChats.value[0].sourceAccount = selectedAccounts.value[0] || accounts.value[0]?.name || ''
       }
     } else {
-      if (accounts.value.length > 0) {
+      // 新建：优先深链账号，否则默认全选
+      const prefer = (props.preferAccount || '').trim()
+      if (prefer && accounts.value.some(a => a.name === prefer)) {
+        allAccountsMode.value = false
+        selectedAccounts.value = [prefer]
+        targetChats.value[0].sourceAccount = prefer
+      } else if (accounts.value.length > 0) {
         allAccountsMode.value = true
         selectedAccounts.value = accounts.value.map(a => a.name)
         targetChats.value[0].sourceAccount = selectedAccounts.value[0] || ''
@@ -205,6 +234,45 @@ const removeTargetChat = (idx: number) => {
     activeChatIndex.value = targetChats.value.length - 1
   }
 }
+const toggleBulkChat = (chatId: number) => {
+  const set = new Set(bulkSelectedChatIds.value)
+  if (set.has(chatId)) set.delete(chatId)
+  else set.add(chatId)
+  bulkSelectedChatIds.value = Array.from(set)
+}
+const applyBulkPickedChats = () => {
+  if (!bulkSelectedChatIds.value.length) {
+    toast.error(t('taskForm.noChatSelected'))
+    return
+  }
+  const existing = new Set(targetChats.value.map(c => c.chatId).filter(Boolean))
+  const source = selectedAccount.value || selectedAccounts.value[0] || ''
+  let added = 0
+  for (const id of bulkSelectedChatIds.value) {
+    if (existing.has(id)) continue
+    const chat = availableChats.value.find(c => c.id === id)
+    const draft: TargetChatDraft = {
+      id: nextChatDraftId(),
+      chatId: id,
+      chatName: chat?.title || chat?.username || String(id),
+      messageThreadId: '',
+      senderFilter: '',
+      sourceAccount: source,
+    }
+    // 若当前唯一目标为空，先填第一个
+    if (targetChats.value.length === 1 && !targetChats.value[0].chatId) {
+      targetChats.value[0] = draft
+    } else {
+      targetChats.value.push(draft)
+    }
+    existing.add(id)
+    added += 1
+  }
+  bulkSelectedChatIds.value = []
+  if (added > 0) {
+    activeChatIndex.value = targetChats.value.length - 1
+  }
+}
 const addAction=()=>actions.value.push({id:nextActionId(),type:'send_text',value:'',aiPrompt:''})
 const removeAction=(i:number)=>actions.value.splice(i,1)
 const moveAction=(i:number,d:number)=>{if(i+d<0||i+d>=actions.value.length)return;const t=actions.value[i];actions.value[i]=actions.value[i+d];actions.value[i+d]=t}
@@ -224,7 +292,26 @@ const buildPayload = () => {
   let ca = ba
   if (scheduleMode.value === 'listen') {
     const kw = listenerKeywords.value.split('\n').map((k: string) => k.trim()).filter(Boolean)
-    const la: BuiltAction = { action: 8, keywords: kw, match_mode: listenerMatchMode.value, push_channel: listenerPushChannel.value }
+    const la: BuiltAction = {
+      action: 8,
+      keywords: kw,
+      match_mode: listenerMatchMode.value,
+      push_channel: listenerPushChannel.value,
+      ignore_self: listenerIgnoreSelf.value,
+    }
+    if (listenerTimeWindowEnabled.value) {
+      // HTML time 可能是 HH:MM:SS，统一截到 HH:MM
+      const norm = (v: string) => {
+        const m = v.trim().match(/^(\d{1,2}):(\d{2})/)
+        return m ? `${m[1].padStart(2, '0')}:${m[2]}` : v.trim()
+      }
+      const start = norm(listenerActiveTimeStart.value)
+      const end = norm(listenerActiveTimeEnd.value)
+      if (start && end) {
+        la.active_time_start = start
+        la.active_time_end = end
+      }
+    }
     if (listenerPushChannel.value === 'forward') {
       if (listenerForwardChatId.value) la.forward_chat_id = listenerForwardChatId.value
       if (listenerForwardThreadId.value) la.forward_message_thread_id = listenerForwardThreadId.value
@@ -238,8 +325,16 @@ const buildPayload = () => {
     ca = [la]
   }
 
+  // chat_id 可能为负数（超级群/频道）；仅排除 0 / NaN，并按 id 去重
+  const seenChatIds = new Set<number>()
   const chats = targetChats.value
-    .filter((c) => c.chatId)
+    .filter((c) => {
+      const id = Number(c.chatId)
+      if (!Number.isFinite(id) || id === 0) return false
+      if (seenChatIds.has(id)) return false
+      seenChatIds.add(id)
+      return true
+    })
     .map((c) => ({
       chat_id: c.chatId,
       name: c.chatName,
@@ -276,8 +371,8 @@ const buildPayload = () => {
 const debouncedEmit = debounce(() => { emit('update:payload', buildPayload()) }, 300)
 /** 同步刷新 payload（保存前调用，确保拿到最新值） */
 const flushPayload = () => { emit('update:payload', buildPayload()) }
-defineExpose({ flushPayload })
-watch([taskName,selectedAccounts,allAccountsMode,scheduleMode,timeRange,targetChats,activeChatIndex,actions,retryCount,listenerKeywords,listenerMatchMode,listenerPushChannel,listenerForwardChatId,listenerForwardThreadId,listenerBarkUrl,listenerCustomUrl,listenerServerChanKey], () => { debouncedEmit() }, {deep:true})
+defineExpose({ flushPayload, buildPayload, createMode })
+watch([taskName,selectedAccounts,allAccountsMode,scheduleMode,timeRange,targetChats,activeChatIndex,actions,retryCount,listenerKeywords,listenerMatchMode,listenerPushChannel,listenerForwardChatId,listenerForwardThreadId,listenerBarkUrl,listenerCustomUrl,listenerServerChanKey,listenerIgnoreSelf,listenerTimeWindowEnabled,listenerActiveTimeStart,listenerActiveTimeEnd,createMode], () => { debouncedEmit() }, {deep:true})
 onMounted(()=>{loadAccounts()})
 </script>
 <template>
@@ -321,6 +416,17 @@ onMounted(()=>{loadAccounts()})
         </div>
         <button type="button" class="text-[11px] text-sky-600 dark:text-sky-400 hover:underline font-medium" @click="addTargetChat">+ {{ t('taskForm.addTargetChat') }}</button>
       </div>
+      <div v-if="!isEditing" class="mb-4 space-y-1.5">
+        <label class="ui-label">{{ t('taskForm.targetCreateMode') }}</label>
+        <CustomSelect
+          v-model="createMode"
+          :options="[
+            { label: t('tasks.createModeShared'), value: 'shared' },
+            { label: t('tasks.createModeSplit'), value: 'split' },
+          ]"
+        />
+        <p class="text-[10px] text-gray-500 leading-relaxed">{{ t('tasks.createModeHint') }}</p>
+      </div>
       <div v-if="targetChats.length > 1" class="flex flex-wrap gap-2 mb-4">
         <button
           v-for="(chat, idx) in targetChats"
@@ -347,6 +453,40 @@ onMounted(()=>{loadAccounts()})
         <div class="space-y-1.5"><label class="ui-label">{{ t('taskForm.threadId') }}</label><input v-model="messageThreadId" :placeholder="t('taskForm.threadIdPlaceholder')" class="ui-input" /></div>
         <div class="space-y-1.5"><label class="ui-label">{{ t('taskForm.senderFilter') }}</label><input v-model="senderFilter" :placeholder="t('taskForm.senderFilterPlaceholder')" class="ui-input" /></div>
       </div>
+      <!-- 从会话列表批量勾选 -->
+      <div v-if="availableChats.length" class="mt-4 border border-dashed border-gray-200 dark:border-gray-700/60 p-3 space-y-2">
+        <div class="flex items-center justify-between gap-2">
+          <div>
+            <div class="text-[11px] font-medium text-gray-700 dark:text-gray-300">{{ t('taskForm.pickFromChatList') }}</div>
+            <p class="text-[10px] text-gray-500">{{ t('taskForm.bulkPickHint') }}</p>
+          </div>
+          <button
+            type="button"
+            class="ui-btn-secondary !px-2.5 !py-1 !text-[11px]"
+            :disabled="!bulkSelectedChatIds.length"
+            @click="applyBulkPickedChats"
+          >
+            {{ t('taskForm.bulkPickChats') }}
+            <span v-if="bulkSelectedChatIds.length">({{ bulkSelectedChatIds.length }})</span>
+          </button>
+        </div>
+        <div class="max-h-36 overflow-y-auto space-y-1">
+          <label
+            v-for="chat in availableChats.slice(0, 40)"
+            :key="chat.id"
+            class="flex items-center gap-2 px-1.5 py-1 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/[0.03] cursor-pointer rounded-sm"
+          >
+            <input
+              type="checkbox"
+              class="ui-checkbox"
+              :checked="bulkSelectedChatIds.includes(chat.id)"
+              @change="toggleBulkChat(chat.id)"
+            />
+            <span class="truncate flex-1">{{ chat.title || chat.username || chat.id }}</span>
+            <span class="font-mono text-[10px] text-gray-400 shrink-0">{{ chat.id }}</span>
+          </label>
+        </div>
+      </div>
     </div>
     <!-- 03 关键词监听（仅 listen） -->
     <div v-if="scheduleMode === 'listen'" class="ui-form-section !bg-[var(--sp-bg-elevated)]">
@@ -358,6 +498,30 @@ onMounted(()=>{loadAccounts()})
         <div class="md:col-span-2 space-y-1.5"><label class="ui-label">{{ t('taskForm.keywords') }}</label><textarea v-model="listenerKeywords" rows="3" :placeholder="t('taskForm.keywordsPlaceholder')" class="ui-input !h-auto py-2.5"></textarea></div>
         <div class="space-y-1.5"><label class="ui-label">{{ t('taskForm.matchMode') }}</label><CustomSelect v-model="listenerMatchMode" :options="[{label: t('taskForm.matchContains'), value:'contains'}, {label: t('taskForm.matchExact'), value:'exact'}, {label: t('taskForm.matchRegex'), value:'regex'}]" /></div>
         <div class="space-y-1.5"><label class="ui-label">{{ t('taskForm.afterMatch') }}</label><CustomSelect v-model="listenerPushChannel" :options="[{label: t('taskForm.continueActions'), value:'continue'}, {label: t('taskForm.telegramNotify'), value:'telegram'}, {label: t('taskForm.forwardToChat'), value:'forward'}, {label: t('taskForm.barkPush'), value:'bark'}, {label: t('tasks.pushServerChan'), value:'server_chan'}, {label: t('taskForm.customWebhook'), value:'custom'}]" /></div>
+        <div class="md:col-span-2 flex flex-col gap-1">
+          <label class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 cursor-pointer select-none">
+            <input v-model="listenerIgnoreSelf" type="checkbox" class="ui-checkbox" />
+            {{ t('taskForm.ignoreSelfMessages') }}
+          </label>
+          <p class="text-[10px] text-gray-500 leading-relaxed pl-6">{{ t('taskForm.ignoreSelfHint') }}</p>
+        </div>
+        <div class="md:col-span-2 space-y-2">
+          <label class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 cursor-pointer select-none">
+            <input v-model="listenerTimeWindowEnabled" type="checkbox" class="ui-checkbox" />
+            {{ t('taskForm.timeWindowEnabled') }}
+          </label>
+          <div v-if="listenerTimeWindowEnabled" class="grid grid-cols-2 gap-3 pl-6">
+            <div class="space-y-1">
+              <label class="ui-label">{{ t('taskForm.timeWindowStart') }}</label>
+              <input v-model="listenerActiveTimeStart" type="time" class="ui-input" />
+            </div>
+            <div class="space-y-1">
+              <label class="ui-label">{{ t('taskForm.timeWindowEnd') }}</label>
+              <input v-model="listenerActiveTimeEnd" type="time" class="ui-input" />
+            </div>
+          </div>
+          <p class="text-[10px] text-gray-500 leading-relaxed pl-6">{{ t('taskForm.timeWindowHint') }}</p>
+        </div>
         <template v-if="listenerPushChannel === 'forward'"><div class="space-y-1.5"><label class="ui-label">{{ t('taskForm.forwardChatId') }}</label><input v-model="listenerForwardChatId" placeholder="-10012345678" class="ui-input" /></div><div class="space-y-1.5"><label class="ui-label">{{ t('taskForm.forwardThreadId') }}</label><input v-model="listenerForwardThreadId" :placeholder="t('taskForm.forwardThreadIdPlaceholder')" class="ui-input" /></div></template>
         <div v-if="listenerPushChannel === 'bark'" class="md:col-span-2 space-y-1.5"><label class="ui-label">{{ t('taskForm.barkUrl') }}</label><input v-model="listenerBarkUrl" placeholder="https://api.day.app/xxx" class="ui-input" /></div>
         <div v-if="listenerPushChannel === 'server_chan'" class="md:col-span-2 space-y-1.5"><label class="ui-label">{{ t('tasks.serverChanKey') }}</label><input v-model="listenerServerChanKey" placeholder="SCTxxxx" class="ui-input" /></div>

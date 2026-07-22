@@ -192,7 +192,15 @@
     "cancelFailed": "Cancel failed",
     "cancelNeedAccount": "Cannot resolve running account",
     "accountInvalid": "Account invalid",
-    "accountInvalidHint": "Account session expired; re-login before running"
+    "accountInvalidHint": "Account session expired; re-login before running",
+    "accountFilter": "Account filter",
+    "clearAccountFilter": "Clear account filter",
+    "extraTargets": "+{n} more",
+    "createModeShared": "One task, multi-chat",
+    "createModeSplit": "Separate tasks per chat",
+    "createModeHint": "Shared: one task runs over all chats; Split: create one task per selected chat",
+    "splitCreateSuccess": "Created {count} separate tasks",
+    "splitCreatePartial": "Partial success: ok {ok}, fail {fail}"
   },
   "taskForm": {
     "taskName": "Task Name",
@@ -264,7 +272,18 @@
     "loadAccountsFailed": "Failed to load accounts",
     "loadChatsFailed": "Failed to load chats",
     "notifyOnSuccess": "Notify on success",
-    "retryCountHint": "Once saved on the task, this overrides the global flow-retry setting. Global default applies only when retry_count is absent from the task config."
+    "retryCountHint": "Once saved on the task, this overrides the global flow-retry setting. Global default applies only when retry_count is absent from the task config.",
+    "targetCreateMode": "Multi-target create mode",
+    "pickFromChatList": "Pick from chat list",
+    "ignoreSelfMessages": "Ignore own messages",
+    "ignoreSelfHint": "On by default to avoid reply loops",
+    "timeWindowEnabled": "Active time window",
+    "timeWindowStart": "Start time",
+    "timeWindowEnd": "End time",
+    "timeWindowHint": "Supports overnight windows e.g. 23:00–02:00; empty means all day",
+    "bulkPickChats": "Add selected chats",
+    "bulkPickHint": "Check chats to add them as targets",
+    "noChatSelected": "Select at least one chat"
   },
   "taskModal": {
     "addTitle": "Add Task",

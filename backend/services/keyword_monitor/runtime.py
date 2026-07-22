@@ -1434,11 +1434,14 @@ class KeywordMonitorService:
             ]
             if not same_chat_rules:
                 return
+            is_self_message = _message_is_self(message)
             matched_rules = [
                 rule
                 for rule in same_chat_rules
                 if _message_matches_thread(message, rule.message_thread_id)
                 and _message_matches_sender(message, rule.sender_filter)
+                and not (is_self_message and _action_ignore_self(rule.action))
+                and _action_in_active_time_window(rule.action)
             ]
             if not matched_rules:
                 thread_candidates = _message_thread_candidates(message)

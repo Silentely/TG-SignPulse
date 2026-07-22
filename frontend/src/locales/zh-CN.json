@@ -192,7 +192,15 @@
     "cancelFailed": "取消失败",
     "cancelNeedAccount": "无法确定运行账号",
     "accountInvalid": "账号失效",
-    "accountInvalidHint": "账号登录已失效，请重新登录后再执行"
+    "accountInvalidHint": "账号登录已失效，请重新登录后再执行",
+    "accountFilter": "当前账号",
+    "clearAccountFilter": "清除账号筛选",
+    "extraTargets": "+{n} 个目标",
+    "createModeShared": "一个任务多会话",
+    "createModeSplit": "多个独立任务",
+    "createModeHint": "共享：一个任务依次处理多个会话；独立：按会话各建一个同名动作任务",
+    "splitCreateSuccess": "已创建 {count} 个独立任务",
+    "splitCreatePartial": "部分成功：成功 {ok}，失败 {fail}"
   },
   "taskForm": {
     "taskName": "任务名称",
@@ -264,7 +272,18 @@
     "loadAccountsFailed": "加载账号列表失败",
     "loadChatsFailed": "加载会话列表失败",
     "notifyOnSuccess": "成功时通知",
-    "retryCountHint": "此值写入任务配置后优先于系统设置中的流程重试。全局缺省仅在任务 config 未含 retry_count 键时生效。"
+    "retryCountHint": "此值写入任务配置后优先于系统设置中的流程重试。全局缺省仅在任务 config 未含 retry_count 键时生效。",
+    "targetCreateMode": "多目标创建方式",
+    "pickFromChatList": "从会话列表勾选",
+    "ignoreSelfMessages": "忽略自己发送的消息",
+    "ignoreSelfHint": "默认开启，避免自动回复或后续动作触发死循环",
+    "timeWindowEnabled": "限定监听时间段",
+    "timeWindowStart": "开始时间",
+    "timeWindowEnd": "结束时间",
+    "timeWindowHint": "支持跨午夜，例如 23:00–02:00；留空表示全天",
+    "bulkPickChats": "勾选加入目标",
+    "bulkPickHint": "勾选后添加到目标会话列表（可多选）",
+    "noChatSelected": "请至少选择一个会话"
   },
   "taskModal": {
     "addTitle": "添加任务",
