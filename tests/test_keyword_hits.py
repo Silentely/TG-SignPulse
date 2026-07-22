@@ -72,6 +72,21 @@ def test_group_by_chat():
     assert len(same["items"]) == 3
 
 
+def test_group_chat_title_with_pipe_does_not_break_key():
+    hits_mod.record_keyword_hit(
+        account_name="a",
+        task_name="t",
+        chat_id=-1,
+        chat_title="A|B|C",
+        keyword="k",
+    )
+    grouped = hits_mod.group_keyword_hits(group_by="chat")
+    assert len(grouped["groups"]) == 1
+    assert grouped["groups"][0]["key"] == "-1"
+    assert grouped["groups"][0]["label"] == "A|B|C"
+    assert grouped["groups"][0]["count"] == 1
+
+
 def test_export_csv_contains_header_and_rows():
     hits_mod.record_keyword_hit(
         account_name="acc",
@@ -83,6 +98,52 @@ def test_export_csv_contains_header_and_rows():
     assert "account_name" in csv_text
     assert "kw" in csv_text
     assert "acc" in csv_text
+
+
+def test_export_limit_not_capped_at_list_default():
+    for i in range(30):
+        hits_mod.record_keyword_hit(
+            account_name="a",
+            task_name="t",
+            keyword=f"k{i}",
+            message_text=f"m{i}",
+        )
+    # 列表默认 max_limit=500，但 export 用 max_limit=MAX_RECORDS
+    data = hits_mod.list_keyword_hits(limit=600, max_limit=hits_mod.MAX_RECORDS)
+    assert data["total"] == 30
+    assert len(data["items"]) == 30
+    csv_text = hits_mod.export_keyword_hits_csv(limit=25)
+    # header + 25 rows
+    assert csv_text.count("\n") >= 25
+
+
+def test_export_csv_formula_injection_escaped():
+    hits_mod.record_keyword_hit(
+        account_name="acc",
+        task_name="task",
+        keyword="=1+1",
+        message_text="+cmd",
+    )
+    csv_text = hits_mod.export_keyword_hits_csv()
+    assert "'=1+1" in csv_text
+    assert "'+cmd" in csv_text
+
+
+def test_record_strips_javascript_url():
+    rec = hits_mod.record_keyword_hit(
+        account_name="a",
+        task_name="t",
+        url="javascript:alert(1)",
+        keyword="k",
+    )
+    assert rec["url"] == ""
+    rec2 = hits_mod.record_keyword_hit(
+        account_name="a",
+        task_name="t",
+        url="https://t.me/c/1/2",
+        keyword="k2",
+    )
+    assert rec2["url"].startswith("https://")
 
 
 def test_clear_filtered():

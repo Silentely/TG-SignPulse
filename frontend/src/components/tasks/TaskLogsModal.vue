@@ -395,6 +395,21 @@ const formatDate = (dateStr: string) => {
 const toggleExpand = (idx: number) => {
   expandedIdx.value = expandedIdx.value === idx ? null : idx
 }
+
+/** 仅允许 http(s) 链接，避免 javascript: 等危险协议 */
+const safeHitUrl = (url?: string | null): string | null => {
+  const text = String(url || '').trim()
+  if (!text) return null
+  try {
+    const parsed = new URL(text)
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      return parsed.href
+    }
+  } catch {
+    // ignore
+  }
+  return null
+}
 </script>
 
 <template>
@@ -527,13 +542,14 @@ const toggleExpand = (idx: number) => {
             <div class="text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-all line-clamp-3">
               {{ hit.message_text || '-' }}
             </div>
-            <a
-              v-if="hit.url"
-              :href="hit.url"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="text-sky-600 dark:text-sky-400 hover:underline"
-            >{{ t('taskLogs.hitsOpenMessage') }}</a>
+            <template v-if="safeHitUrl(hit.url)">
+              <a
+                :href="safeHitUrl(hit.url)!"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="text-sky-600 dark:text-sky-400 hover:underline"
+              >{{ t('taskLogs.hitsOpenMessage') }}</a>
+            </template>
           </div>
         </div>
 

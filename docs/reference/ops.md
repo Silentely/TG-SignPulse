@@ -24,6 +24,14 @@
 | `GET /api/ops/backup/webdav/download?name=` | 流式下载指定远端 `.tar.gz`（安全文件名） |
 | `POST /api/batch/sign-tasks` | 新版签到任务批量 enable/disable/delete/run |
 | `GET /api/events/sign-history?token=` | 签到历史 SSE（Dashboard 实时流，token 查询参数） |
+| `POST /api/accounts/status/check` | 同步批量账号会话检测（兼容；账号多时易阻塞） |
+| `POST /api/accounts/status/check-jobs` | 异步批量账号会话检测 Job（可取消、可查进度） |
+| `GET /api/accounts/status/check-jobs/{job_id}` | 查询批量检测 Job 状态 / 结果 |
+| `POST /api/accounts/status/check-jobs/{job_id}/cancel` | 取消进行中的批量检测 Job |
+| `GET /api/keyword-hits` | 关键词命中记录列表（可按账号/任务过滤） |
+| `GET /api/keyword-hits/groups` | 命中记录分组（`group_by=task\|account\|chat`） |
+| `GET /api/keyword-hits/export` | 导出命中记录 CSV（UTF-8 BOM） |
+| `DELETE /api/keyword-hits` | 清空命中记录（可按账号/任务过滤） |
 
 ### WebDAV 完整备份（摘要）
 
