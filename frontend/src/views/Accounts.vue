@@ -279,6 +279,7 @@ const pollBatchJob = async (jobId: string) => {
     batchChecking.value = false
     await applyBatchJobResult(job)
     batchJob.value = null
+    // 保留 lastBatchFailedNames 供「重检异常」；仅清过程态
     batchResultMap.value = {}
     lastLiveRefreshDone = 0
   } catch (e) {
@@ -287,6 +288,7 @@ const pollBatchJob = async (jobId: string) => {
     batchJob.value = null
     batchResultMap.value = {}
     lastLiveRefreshDone = 0
+    // 轮询失败时不清除 lastBatchFailedNames，避免重检入口被误抹掉
     toast.error(getLocalizedErrorMessage(e, t, t('accounts.checkFailed')))
   }
 }

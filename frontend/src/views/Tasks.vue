@@ -455,10 +455,29 @@ const applyLogsDeepLink = () => {
   if (tab !== 'hits' || !taskQ || !tasks.value.length) return
   const found = tasks.value.find((t) => t.name === taskQ)
   if (!found || !found.isListenMode) return
+  // 已对同一任务打开命中 Tab 时不重复打断
+  if (
+    showLogsModal.value
+    && logsTask.value?.name === taskQ
+    && logsInitialTab.value === 'hits'
+  ) {
+    return
+  }
   logsRunAccount.value = ''
   logsTask.value = found
   logsInitialTab.value = 'hits'
   showLogsModal.value = true
+}
+
+/** 关闭日志弹窗时去掉 tab=hits，避免列表刷新/轮询再次自动弹窗 */
+const closeLogsModal = () => {
+  showLogsModal.value = false
+  logsInitialTab.value = null
+  if (String(route.query.tab || '').trim() === 'hits') {
+    const nextQuery = { ...route.query }
+    delete nextQuery.tab
+    router.replace({ name: 'tasks', query: nextQuery })
+  }
 }
 
 onMounted(async () => {
@@ -1135,7 +1154,7 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
       :task="logsTask"
       :runAccount="logsRunAccount"
       :initial-tab="logsInitialTab"
-      @close="showLogsModal = false; logsInitialTab = null"
+      @close="closeLogsModal"
     />
 
     <Modal :isOpen="showCloneModal" :title="t('tasks.cloneTitle')" maxWidthClass="max-w-sm" @close="closeCloneModal">
