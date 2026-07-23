@@ -37,6 +37,8 @@ const props = defineProps<{
   isOpen: boolean
   task: TaskUiItem | null
   runAccount?: string  // Account selected for running (overrides task default)
+  /** 打开时默认 Tab：history | hits（监听任务有效） */
+  initialTab?: 'history' | 'hits' | null
 }>()
 
 const emit = defineEmits<{
@@ -404,9 +406,11 @@ watch(() => props.isOpen, (newVal) => {
   if (newVal) {
     expandedIdx.value = null
     liveFailureCategory.value = null
-    panelTab.value = 'history'
     hitsView.value = 'list'
     hitGroupBy.value = 'chat'
+    // 深链可直接打开命中 Tab
+    const wantHits = props.initialTab === 'hits' && isListenTask.value
+    panelTab.value = wantHits ? 'hits' : 'history'
     if (props.runAccount) {
       logs.value = []
       connectWebSocket()
@@ -418,6 +422,7 @@ watch(() => props.isOpen, (newVal) => {
     }
     if (isListenTask.value) {
       void loadHits()
+      if (wantHits) ensureHitsAutoRefresh()
     }
   } else {
     logs.value = []

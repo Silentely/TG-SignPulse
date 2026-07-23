@@ -430,6 +430,73 @@ const handleCancelBatchCheck = async () => {
   }
 }
 
+/** 最近一次批量结果中的失败账号（用于一键重检） */
+const lastFailedAccountNames = computed(() => {
+  const names = new Set<string>()
+  for (const item of Object.values(batchResultMap.value)) {
+    if (item && !item.ok && item.account_name) names.add(item.account_name)
+  }
+  for (const acc of accounts.value) {
+    if (acc.status === 'error' && acc.name) names.add(acc.name)
+  }
+  return Array.from(names)
+})
+
+const handleRecheckFailed = async () => {
+  const token = authStore.token || ''
+  const names = lastFailedAccountNames.value
+  if (!token || names.length === 0) {
+    toast.error(t('accounts.batchCheckNoFailed'))
+    return
+  }
+  if (batchChecking.value) return
+
+  batchChecking.value = true
+  batchJob.value = null
+  batchResultMap.value = {}
+  lastLiveRefreshDone = 0
+  clearBatchPoll()
+  try {
+    if (names.length >= 2) {
+      const job = await startAccountStatusCheckJob(token, {
+        account_names: names,
+        timeout_seconds: 8,
+      })
+      batchJob.value = job
+      toast.success(t('accounts.batchRecheckStarted'), {
+        description: t('accounts.batchCheckProgress', {
+          done: 0,
+          total: names.length,
+        }),
+      })
+      startPollingJob(job.job_id)
+      await pollBatchJob(job.job_id)
+      return
+    }
+    const res = await checkAccountsStatus(token, {
+      account_names: names,
+      timeout_seconds: 8,
+    })
+    await loadAccounts()
+    const ok = res.results.filter((item) => item.ok).length
+    const failed = res.results.length - ok
+    if (failed === 0) {
+      toast.success(t('accounts.batchCheckDone'), {
+        description: `${t('accounts.checkOkCount')}: ${ok}`,
+      })
+    } else {
+      toast.error(t('accounts.batchCheckDone'), {
+        description: `${t('accounts.checkOkCount')}: ${ok} · ${t('accounts.checkFailedCount')}: ${failed}`,
+        duration: 8000,
+      })
+    }
+  } catch (e) {
+    toast.error(getLocalizedErrorMessage(e, t, t('accounts.checkFailed')))
+  } finally {
+    if (!batchPollTimer) batchChecking.value = false
+  }
+}
+
 const openEdit = (acc: AccountUiItem) => {
   editingAccount.value = acc
   showEditModal.value = true
@@ -565,6 +632,16 @@ const goTasks = (name: string) => {
             @click="handleCancelBatchCheck"
           >
             {{ t('accounts.batchCheckCancel') }}
+          </button>
+          <button
+            v-if="!batchChecking && lastFailedAccountNames.length > 0"
+            type="button"
+            class="ui-btn-secondary !px-3 !py-2 !text-xs"
+            :title="t('accounts.batchRecheckFailedHint')"
+            @click="handleRecheckFailed"
+          >
+            {{ t('accounts.batchRecheckFailed') }}
+            <span class="font-mono opacity-80">({{ lastFailedAccountNames.length }})</span>
           </button>
           <button
             type="button"
