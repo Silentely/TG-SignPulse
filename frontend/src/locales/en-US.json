@@ -62,7 +62,12 @@
     },
     "activeRuns": "Active runs",
     "noActiveRuns": "No tasks running",
-    "failureBreakdown": "Failure breakdown"
+    "failureBreakdown": "Failure breakdown",
+    "recentHits": "Recent keyword hits",
+    "noRecentHits": "No hits yet",
+    "statusJobs": "Account status jobs",
+    "noStatusJobs": "No batch checks yet",
+    "viewTasks": "View tasks"
   },
   "accounts": {
     "noRemark": "No remark",
@@ -126,7 +131,9 @@
     "batchCheckCancelRequested": "Cancel requested",
     "batchCheckCanceled": "Batch check canceled",
     "batchCheckFailed": "Batch check failed",
-    "batchCheckOkFail": "OK {ok} · Fail {fail}"
+    "batchCheckOkFail": "OK {ok} · Fail {fail}",
+    "batchCheckScoped": "Checking filtered {n}/{total} accounts",
+    "batchCheckNoTarget": "No accounts to check"
   },
   "tasks": {
     "empty": "No tasks yet",
@@ -207,7 +214,8 @@
     "createModeSplit": "Separate tasks per chat",
     "createModeHint": "Shared: one task runs over all chats; Split: create one task per selected chat",
     "splitCreateSuccess": "Created {count} separate tasks",
-    "splitCreatePartial": "Partial success: ok {ok}, fail {fail}"
+    "splitCreatePartial": "Partial success: ok {ok}, fail {fail}",
+    "createSuccess": "Task created"
   },
   "taskForm": {
     "taskName": "Task Name",

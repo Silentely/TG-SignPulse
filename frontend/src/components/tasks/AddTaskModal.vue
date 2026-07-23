@@ -5,11 +5,13 @@ import TaskForm from './TaskForm.vue'
 import { createSignTask } from '../../lib/api'
 import type { CreateSignTaskRequest, SignTask } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
+import { useToast } from '../../composables/useToast'
 import { useAuthStore } from '../../stores/auth'
 import { getLocalizedErrorMessage } from '../../lib/types'
 import { buildSignTaskFromTemplate, getTemplateById } from '../../lib/task-templates'
 
 const { t } = useI18n()
+const toast = useToast()
 const authStore = useAuthStore()
 
 const props = defineProps<{
@@ -133,10 +135,12 @@ const handleSave = async () => {
       const usedNames = new Set<string>()
       let ok = 0
       let fail = 0
-      const errors: string[] = []
+      const createdNames: string[] = []
+      const errorLines: string[] = []
       for (const chat of validChats) {
         const chatId = Number(chat.chat_id)
         const taskName = buildSplitTaskName(baseName, chatId, usedNames)
+        const chatLabel = chat.name || String(chatId)
         try {
           await createSignTask(token, {
             ...base,
@@ -144,26 +148,46 @@ const handleSave = async () => {
             chats: [chat],
           })
           ok += 1
+          createdNames.push(taskName)
         } catch (e: unknown) {
           fail += 1
-          errors.push(getLocalizedErrorMessage(e, t))
+          errorLines.push(
+            `${chatLabel}: ${getLocalizedErrorMessage(e, t)}`,
+          )
         }
       }
       if (fail === 0) {
+        toast.success(t('tasks.splitCreateSuccess', { count: ok }), {
+          description: createdNames.slice(0, 5).join('\n')
+            + (createdNames.length > 5 ? `\n…(+${createdNames.length - 5})` : ''),
+        })
         emit('success')
         emit('close')
       } else if (ok > 0) {
-        error.value = t('tasks.splitCreatePartial', { ok, fail })
+        const detail = [
+          t('tasks.splitCreatePartial', { ok, fail }),
+          ...errorLines.slice(0, 5),
+        ].join('\n')
+        error.value = detail
+        toast.error(t('tasks.splitCreatePartial', { ok, fail }), {
+          description: errorLines.slice(0, 5).join('\n'),
+          duration: 8000,
+        })
         emit('success')
         // 部分成功时保持弹窗，便于用户看到错误摘要
       } else {
-        error.value = errors[0] || t('taskModal.addFailed')
+        error.value = errorLines[0] || t('taskModal.addFailed')
+        toast.error(t('taskModal.addFailed'), {
+          description: errorLines.slice(0, 5).join('\n'),
+          duration: 8000,
+        })
       }
     } else {
       await createSignTask(token, {
         ...base,
         chats: validChats,
       })
+      toast.success(t('tasks.createSuccess'))
       emit('success')
       emit('close')
     }

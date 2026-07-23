@@ -330,8 +330,15 @@ const handleCheck = async (name: string) => {
 
 const handleBatchCheck = async () => {
   const token = authStore.token || ''
-  const names = accounts.value.map(acc => acc.name).filter(Boolean)
-  if (!token || names.length === 0) return
+  // 有搜索筛选时只检测当前可见账号，避免误扫全量
+  const source = searchQuery.value.trim()
+    ? filteredAccounts.value
+    : accounts.value
+  const names = source.map((acc) => acc.name).filter(Boolean)
+  if (!token || names.length === 0) {
+    toast.error(t('accounts.batchCheckNoTarget'))
+    return
+  }
   if (batchChecking.value) return
 
   batchChecking.value = true
@@ -340,6 +347,14 @@ const handleBatchCheck = async () => {
   lastLiveRefreshDone = 0
   clearBatchPoll()
   try {
+    const scopedHint =
+      searchQuery.value.trim() && names.length < accounts.value.length
+        ? t('accounts.batchCheckScoped', {
+            n: names.length,
+            total: accounts.value.length,
+          })
+        : undefined
+
     // 多账号走 Job：可取消、可展示进度，避免 HTTP 长阻塞
     if (names.length >= 2) {
       const job = await startAccountStatusCheckJob(token, {
@@ -348,10 +363,15 @@ const handleBatchCheck = async () => {
       })
       batchJob.value = job
       toast.success(t('accounts.batchCheckStarted'), {
-        description: t('accounts.batchCheckProgress', {
-          done: job.progress?.done ?? 0,
-          total: job.progress?.total ?? names.length,
-        }),
+        description: [
+          scopedHint,
+          t('accounts.batchCheckProgress', {
+            done: job.progress?.done ?? 0,
+            total: job.progress?.total ?? names.length,
+          }),
+        ]
+          .filter(Boolean)
+          .join('\n'),
       })
       startPollingJob(job.job_id)
       await pollBatchJob(job.job_id)
@@ -364,7 +384,12 @@ const handleBatchCheck = async () => {
     const failed = res.results.length - ok
     if (failed === 0) {
       toast.success(t('accounts.batchCheckDone'), {
-        description: `${t('accounts.checkOkCount')}: ${ok}`,
+        description: [
+          scopedHint,
+          `${t('accounts.checkOkCount')}: ${ok}`,
+        ]
+          .filter(Boolean)
+          .join('\n'),
       })
     } else {
       const failedPreview = res.results
@@ -373,7 +398,13 @@ const handleBatchCheck = async () => {
         .map(item => `${item.account_name}: ${item.message || item.code || t('accounts.loginExpired')}`)
         .join('\n')
       toast.error(t('accounts.batchCheckDone'), {
-        description: `${t('accounts.checkOkCount')}: ${ok} · ${t('accounts.checkFailedCount')}: ${failed}\n${failedPreview}`,
+        description: [
+          scopedHint,
+          `${t('accounts.checkOkCount')}: ${ok} · ${t('accounts.checkFailedCount')}: ${failed}`,
+          failedPreview,
+        ]
+          .filter(Boolean)
+          .join('\n'),
         duration: 8000,
       })
     }
