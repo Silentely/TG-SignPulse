@@ -150,6 +150,8 @@ const batchChecking = ref(false)
 const batchJob = ref<AccountStatusJob | null>(null)
 /** Job 已返回的结果按账号名索引，用于卡片实时着色 */
 const batchResultMap = ref<Record<string, AccountStatusItem>>({})
+/** 最近一次批量/重检结束后的失败账号名（仅用于「重检异常」） */
+const lastBatchFailedNames = ref<string[]>([])
 let batchPollTimer: ReturnType<typeof setInterval> | null = null
 let lastLiveRefreshDone = 0
 
@@ -214,6 +216,10 @@ const applyLiveResults = (results: AccountStatusItem[] | undefined) => {
 
 const applyBatchJobResult = async (job: AccountStatusJob) => {
   applyLiveResults(job.results)
+  // 记录本轮失败名单，供「重检异常」精确使用（不混入历史失效账号）
+  lastBatchFailedNames.value = (job.results || [])
+    .filter((item) => item && !item.ok && item.account_name)
+    .map((item) => item.account_name)
   await loadAccounts()
   const summary = job.summary || {}
   const ok = Number(summary.ok ?? job.progress?.ok ?? 0)
@@ -379,6 +385,9 @@ const handleBatchCheck = async () => {
     }
 
     const res = await checkAccountsStatus(token, { account_names: names, timeout_seconds: 8 })
+    lastBatchFailedNames.value = res.results
+      .filter((item) => !item.ok && item.account_name)
+      .map((item) => item.account_name)
     await loadAccounts()
     const ok = res.results.filter(item => item.ok).length
     const failed = res.results.length - ok
@@ -430,21 +439,12 @@ const handleCancelBatchCheck = async () => {
   }
 }
 
-/** 最近一次批量结果中的失败账号（用于一键重检） */
-const lastFailedAccountNames = computed(() => {
-  const names = new Set<string>()
-  for (const item of Object.values(batchResultMap.value)) {
-    if (item && !item.ok && item.account_name) names.add(item.account_name)
-  }
-  for (const acc of accounts.value) {
-    if (acc.status === 'error' && acc.name) names.add(acc.name)
-  }
-  return Array.from(names)
-})
+/** 最近一次批量检测失败的账号（仅 job results，不含历史失效） */
+const lastFailedAccountNames = computed(() => lastBatchFailedNames.value)
 
 const handleRecheckFailed = async () => {
   const token = authStore.token || ''
-  const names = lastFailedAccountNames.value
+  const names = [...lastBatchFailedNames.value]
   if (!token || names.length === 0) {
     toast.error(t('accounts.batchCheckNoFailed'))
     return
@@ -477,6 +477,9 @@ const handleRecheckFailed = async () => {
       account_names: names,
       timeout_seconds: 8,
     })
+    lastBatchFailedNames.value = res.results
+      .filter((item) => !item.ok && item.account_name)
+      .map((item) => item.account_name)
     await loadAccounts()
     const ok = res.results.filter((item) => item.ok).length
     const failed = res.results.length - ok

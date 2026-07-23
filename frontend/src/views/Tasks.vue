@@ -57,6 +57,8 @@ const allAccounts = ref<string[]>([])
 const selectedTaskIds = ref<Set<string>>(new Set())
 const batchBusy = ref(false)
 const searchQuery = ref('')
+/** 任务模式筛选：全部 / 仅监听 / 仅定时 */
+const modeFilter = ref<'all' | 'listen' | 'scheduled'>('all')
 const selectedCount = computed(() => selectedTaskIds.value.size)
 const cloneBusy = ref(false)
 const showCloneModal = ref(false)
@@ -74,9 +76,15 @@ const pickTemplate = (templateId: string) => {
   handleCreateFromTemplate(templateId)
 }
 const filteredTasks = computed(() => {
+  let list = tasks.value
+  if (modeFilter.value === 'listen') {
+    list = list.filter((task) => task.isListenMode)
+  } else if (modeFilter.value === 'scheduled') {
+    list = list.filter((task) => !task.isListenMode)
+  }
   const q = searchQuery.value.trim().toLowerCase()
-  if (!q) return tasks.value
-  return tasks.value.filter(
+  if (!q) return list
+  return list.filter(
     (task) =>
       task.name.toLowerCase().includes(q) ||
       task.targetStr.toLowerCase().includes(q) ||
@@ -84,6 +92,7 @@ const filteredTasks = computed(() => {
       task.lastRunStr.toLowerCase().includes(q)
   )
 })
+const listenTaskCount = computed(() => tasks.value.filter((t) => t.isListenMode).length)
 const allSelected = computed(() => filteredTasks.value.length > 0 && filteredTasks.value.every((t) => selectedTaskIds.value.has(t.id)))
 
 const toggleSelectTask = (id: string) => {
@@ -239,6 +248,8 @@ const loadTasks = async () => {
     syncActiveRunsFromTasks(tasks.value)
     ensureActivePolling()
     void loadListenHitCounts()
+    if (listenTaskCount.value > 0) ensureHitCountPolling()
+    else clearHitCountPolling()
 
     // Load chat avatars - prefer chat.source_account (the account that selected the chat),
     // fall back to first real account from task's account list
@@ -282,6 +293,21 @@ const loadListenHitCounts = async () => {
     }
   } catch (e) {
     devLog.error('Failed to load hit counts', e)
+  }
+}
+
+let hitCountTimer: ReturnType<typeof setInterval> | null = null
+const ensureHitCountPolling = () => {
+  if (hitCountTimer) return
+  // 有监听任务时定期刷新角标（与日志弹窗自动刷新节奏接近）
+  hitCountTimer = setInterval(() => {
+    if (listenTaskCount.value > 0) void loadListenHitCounts()
+  }, 15000)
+}
+const clearHitCountPolling = () => {
+  if (hitCountTimer) {
+    clearInterval(hitCountTimer)
+    hitCountTimer = null
   }
 }
 
@@ -473,6 +499,7 @@ onUnmounted(() => {
     clearInterval(countdownTimer)
     countdownTimer = null
   }
+  clearHitCountPolling()
 })
 
 const loadChatAvatar = async (task: TaskUiItem, accountName: string, chatId: number) => {
@@ -811,6 +838,39 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
             :placeholder="t('common.searchPlaceholder')"
             :aria-label="t('common.search')"
           >
+        </div>
+        <div class="flex items-center gap-1 shrink-0 text-[11px]">
+          <button
+            type="button"
+            class="px-2 py-1 rounded-sm border transition-colors"
+            :class="modeFilter === 'all'
+              ? 'border-sky-400 text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/30'
+              : 'border-gray-200 dark:border-gray-700 text-gray-500'"
+            @click="modeFilter = 'all'"
+          >
+            {{ t('tasks.filterAll') }}
+          </button>
+          <button
+            type="button"
+            class="px-2 py-1 rounded-sm border transition-colors"
+            :class="modeFilter === 'listen'
+              ? 'border-orange-400 text-orange-700 dark:text-orange-300 bg-orange-50 dark:bg-orange-950/30'
+              : 'border-gray-200 dark:border-gray-700 text-gray-500'"
+            @click="modeFilter = 'listen'"
+          >
+            {{ t('tasks.filterListen') }}
+            <span v-if="listenTaskCount" class="font-mono opacity-80">({{ listenTaskCount }})</span>
+          </button>
+          <button
+            type="button"
+            class="px-2 py-1 rounded-sm border transition-colors"
+            :class="modeFilter === 'scheduled'
+              ? 'border-violet-400 text-violet-700 dark:text-violet-300 bg-violet-50 dark:bg-violet-950/30'
+              : 'border-gray-200 dark:border-gray-700 text-gray-500'"
+            @click="modeFilter = 'scheduled'"
+          >
+            {{ t('tasks.filterScheduled') }}
+          </button>
         </div>
         <div v-if="selectedCount" class="flex items-center gap-2 shrink-0">
           <span class="text-xs font-mono text-sky-700 dark:text-sky-300">
