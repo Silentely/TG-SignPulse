@@ -76,6 +76,8 @@ export interface TaskUiItem {
   targetStr: string;
   /** 目标会话总数（多 chat 时用于 +N 展示） */
   targetCount: number;
+  /** 监听任务最近命中条数（可选，列表角标） */
+  hitCount?: number;
   lastRunStr: string;
   lastRunSuccess: boolean | null;
   modeIcon: Component;

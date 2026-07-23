@@ -133,7 +133,11 @@
     "batchCheckFailed": "Batch check failed",
     "batchCheckOkFail": "OK {ok} · Fail {fail}",
     "batchCheckScoped": "Checking filtered {n}/{total} accounts",
-    "batchCheckNoTarget": "No accounts to check"
+    "batchCheckNoTarget": "No accounts to check",
+    "batchRecheckFailed": "Recheck failed",
+    "batchRecheckFailedHint": "Re-check only accounts currently marked failed",
+    "batchRecheckStarted": "Rechecking failed accounts",
+    "batchCheckNoFailed": "No failed accounts to recheck"
   },
   "tasks": {
     "empty": "No tasks yet",
@@ -215,7 +219,9 @@
     "createModeHint": "Shared: one task runs over all chats; Split: create one task per selected chat",
     "splitCreateSuccess": "Created {count} separate tasks",
     "splitCreatePartial": "Partial success: ok {ok}, fail {fail}",
-    "createSuccess": "Task created"
+    "createSuccess": "Task created",
+    "hitsBadge": "Hits {n}",
+    "hitsBadgeHint": "Open keyword hit records"
   },
   "taskForm": {
     "taskName": "Task Name",

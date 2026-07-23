@@ -133,7 +133,11 @@
     "batchCheckFailed": "批量检测失败",
     "batchCheckOkFail": "正常 {ok} · 异常 {fail}",
     "batchCheckScoped": "仅检测筛选结果 {n}/{total} 个账号",
-    "batchCheckNoTarget": "当前没有可检测的账号"
+    "batchCheckNoTarget": "当前没有可检测的账号",
+    "batchRecheckFailed": "重检异常",
+    "batchRecheckFailedHint": "仅重新检测当前标记为异常的账号",
+    "batchRecheckStarted": "已开始重检异常账号",
+    "batchCheckNoFailed": "当前没有异常账号需要重检"
   },
   "tasks": {
     "empty": "还没有任务",
@@ -215,7 +219,9 @@
     "createModeHint": "共享：一个任务依次处理多个会话；独立：按会话各建一个同名动作任务",
     "splitCreateSuccess": "已创建 {count} 个独立任务",
     "splitCreatePartial": "部分成功：成功 {ok}，失败 {fail}",
-    "createSuccess": "任务已创建"
+    "createSuccess": "任务已创建",
+    "hitsBadge": "命中 {n}",
+    "hitsBadgeHint": "查看关键词命中记录"
   },
   "taskForm": {
     "taskName": "任务名称",

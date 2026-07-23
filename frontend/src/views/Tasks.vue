@@ -2,7 +2,7 @@
 import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Play, FileText, Edit2, Trash2, Plus, Radio, Clock, Shuffle, Power, Search, Square, X } from 'lucide-vue-next'
-import { listSignTasks, deleteSignTask, startSignTaskRun, listAccounts, toggleSignTaskEnabled, batchSignTasks, cloneSignTask, listActiveSignTaskRuns, cancelSignTaskRun } from '../lib/api'
+import { listSignTasks, deleteSignTask, startSignTaskRun, listAccounts, toggleSignTaskEnabled, batchSignTasks, cloneSignTask, listActiveSignTaskRuns, cancelSignTaskRun, listKeywordHitGroups } from '../lib/api'
 import { BUILT_IN_TEMPLATES } from '../lib/task-templates'
 import type { SignTask, AccountInfo, ActiveRunSummary } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
@@ -48,6 +48,7 @@ const showLogsModal = ref(false)
 const editingTask = ref<SignTask | null>(null)
 const logsTask = ref<TaskUiItem | null>(null)
 const logsRunAccount = ref<string>('')  // Account that just executed the task
+const logsInitialTab = ref<'history' | 'hits' | null>(null)
 
 // Account selection for run
 const runMenuTask = ref<TaskUiItem | null>(null)
@@ -223,6 +224,7 @@ const loadTasks = async () => {
         scheduleMode,
         targetStr,
         targetCount,
+        hitCount: 0,
         lastRunStr,
         lastRunSuccess,
         modeIcon,
@@ -236,6 +238,7 @@ const loadTasks = async () => {
 
     syncActiveRunsFromTasks(tasks.value)
     ensureActivePolling()
+    void loadListenHitCounts()
 
     // Load chat avatars - prefer chat.source_account (the account that selected the chat),
     // fall back to first real account from task's account list
@@ -253,6 +256,32 @@ const loadTasks = async () => {
     tasks.value = []
   } finally {
     pageLoading.value = false
+  }
+}
+
+/** 为监听任务填充命中计数角标（失败静默） */
+const loadListenHitCounts = async () => {
+  const token = authStore.token || ''
+  if (!token) return
+  const listenTasks = tasks.value.filter((t) => t.isListenMode)
+  if (!listenTasks.length) return
+  try {
+    // 一次按 task 分组拿全量 count，避免 N 次请求
+    const res = await listKeywordHitGroups(token, {
+      account_name: accountFilter.value || undefined,
+      group_by: 'task',
+      limit_per_group: 1,
+    })
+    const countByTask = new Map<string, number>()
+    for (const g of res.groups || []) {
+      countByTask.set(String(g.key), Number(g.count || 0))
+    }
+    for (const task of tasks.value) {
+      if (!task.isListenMode) continue
+      task.hitCount = countByTask.get(task.name) || 0
+    }
+  } catch (e) {
+    devLog.error('Failed to load hit counts', e)
   }
 }
 
@@ -393,9 +422,23 @@ const applyRouteQueryFilters = () => {
   }
 }
 
+/** 深链 ?tab=hits&task=xxx 时自动打开日志命中 Tab */
+const applyLogsDeepLink = () => {
+  const tab = String(route.query.tab || '').trim()
+  const taskQ = (route.query.task as string | undefined)?.trim()
+  if (tab !== 'hits' || !taskQ || !tasks.value.length) return
+  const found = tasks.value.find((t) => t.name === taskQ)
+  if (!found || !found.isListenMode) return
+  logsRunAccount.value = ''
+  logsTask.value = found
+  logsInitialTab.value = 'hits'
+  showLogsModal.value = true
+}
+
 onMounted(async () => {
   applyRouteQueryFilters()
-  loadTasks()
+  await loadTasks()
+  applyLogsDeepLink()
   loadAllAccounts()
   try {
     const token = authStore.token || ''
@@ -416,6 +459,10 @@ onMounted(async () => {
 })
 
 watch(() => route.query.task, () => applyRouteQueryFilters())
+watch(
+  () => [route.query.tab, route.query.task, tasks.value.length] as const,
+  () => applyLogsDeepLink(),
+)
 
 onUnmounted(() => {
   if (activePollTimer) {
@@ -638,9 +685,10 @@ const openEdit = (task: TaskUiItem) => {
   showEditModal.value = true
 }
 
-const openLogs = (task: TaskUiItem) => {
+const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
   logsRunAccount.value = ''  // No specific run account, show aggregated history
   logsTask.value = task
+  logsInitialTab.value = tab
   showLogsModal.value = true
 }
 </script>
@@ -860,6 +908,15 @@ const openLogs = (task: TaskUiItem) => {
             >
               {{ t('tasks.extraTargets', { n: task.targetCount - 1 }) }}
             </span>
+            <button
+              v-if="task.isListenMode && (task.hitCount || 0) > 0"
+              type="button"
+              class="ui-badge !text-[11px] bg-emerald-50 text-emerald-700 border-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/50 cursor-pointer hover:opacity-90"
+              :title="t('tasks.hitsBadgeHint')"
+              @click.stop="openLogs(task, 'hits')"
+            >
+              {{ t('tasks.hitsBadge', { n: task.hitCount }) }}
+            </button>
             <span
               class="ui-badge !text-[11px] max-w-full truncate"
               :title="task.lastRunStr"
@@ -1013,7 +1070,13 @@ const openLogs = (task: TaskUiItem) => {
       @success="loadTasks"
     />
     <EditTaskModal v-if="editingTask" :isOpen="showEditModal" :task="editingTask" @close="showEditModal = false" @success="loadTasks" />
-    <TaskLogsModal :isOpen="showLogsModal" :task="logsTask" :runAccount="logsRunAccount" @close="showLogsModal = false" />
+    <TaskLogsModal
+      :isOpen="showLogsModal"
+      :task="logsTask"
+      :runAccount="logsRunAccount"
+      :initial-tab="logsInitialTab"
+      @close="showLogsModal = false; logsInitialTab = null"
+    />
 
     <Modal :isOpen="showCloneModal" :title="t('tasks.cloneTitle')" maxWidthClass="max-w-sm" @close="closeCloneModal">
       <div class="space-y-3">

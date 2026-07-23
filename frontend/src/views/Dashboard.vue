@@ -135,6 +135,7 @@ const openKeywordHit = (hit: KeywordHitRecord) => {
     query: {
       account: hit.account_name || undefined,
       task: hit.task_name || undefined,
+      tab: 'hits',
     },
   })
 }
