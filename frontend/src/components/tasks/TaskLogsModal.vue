@@ -50,18 +50,24 @@ const isRunning = ref(false)
 /** 监听任务：命中记录 Tab */
 const panelTab = ref<'history' | 'hits'>('history')
 const hitsLoading = ref(false)
+const hitsLoadingMore = ref(false)
 const hitRecords = ref<KeywordHitRecord[]>([])
 const hitTotal = ref(0)
 const hitGroups = ref<KeywordHitGroup[]>([])
 const hitGroupBy = ref<'task' | 'account' | 'chat'>('chat')
 const hitsView = ref<'list' | 'groups'>('list')
+const HITS_PAGE_SIZE = 50
 const livePhase = ref<string | null>(null)
 const livePhaseDetail = ref('')
 const liveFailureCategory = ref<string | null>(null)
 const liveState = ref<string | null>(null)
 let ws: WebSocket | null = null
 let pollTimer: ReturnType<typeof setInterval> | null = null
+let hitsAutoRefreshTimer: ReturnType<typeof setInterval> | null = null
 const logContainer = ref<HTMLElement | null>(null)
+const canLoadMoreHits = computed(
+  () => hitsView.value === 'list' && hitRecords.value.length < hitTotal.value,
+)
 
 const applyStatusPayload = (msg: Record<string, unknown>) => {
   if (msg.phase !== undefined) livePhase.value = (msg.phase as string) || null
@@ -135,9 +141,32 @@ const loadLogs = async () => {
   }
 }
 
-const loadHits = async () => {
+const clearHitsAutoRefresh = () => {
+  if (hitsAutoRefreshTimer) {
+    clearInterval(hitsAutoRefreshTimer)
+    hitsAutoRefreshTimer = null
+  }
+}
+
+const ensureHitsAutoRefresh = () => {
+  clearHitsAutoRefresh()
+  if (!props.isOpen || !isListenTask.value || panelTab.value !== 'hits') return
+  // 监听任务打开命中 Tab 时静默刷新，便于观察新命中
+  hitsAutoRefreshTimer = setInterval(() => {
+    void loadHits({ silent: true })
+  }, 8000)
+}
+
+const loadHits = async (opts?: { silent?: boolean; append?: boolean }) => {
   if (!props.task) return
-  hitsLoading.value = true
+  const silent = !!opts?.silent
+  const append = !!opts?.append && hitsView.value === 'list'
+  if (append) {
+    if (hitsLoadingMore.value || !canLoadMoreHits.value) return
+    hitsLoadingMore.value = true
+  } else if (!silent) {
+    hitsLoading.value = true
+  }
   const token = authStore.token || ''
   const accountName = props.runAccount || getTaskAccountName(props.task) || undefined
   try {
@@ -152,26 +181,55 @@ const loadHits = async () => {
       hitTotal.value = hitGroups.value.reduce((sum, g) => sum + (g.count || 0), 0)
       hitRecords.value = []
     } else {
+      const offset = append ? hitRecords.value.length : 0
       const res = await listKeywordHits(token, {
         account_name: accountName,
         task_name: props.task.name,
-        limit: 100,
-        offset: 0,
+        limit: HITS_PAGE_SIZE,
+        offset,
       })
-      hitRecords.value = res.items || []
+      const items = res.items || []
+      if (append) {
+        // 按 id 去重拼接
+        const seen = new Set(hitRecords.value.map((h) => h.id))
+        hitRecords.value = [
+          ...hitRecords.value,
+          ...items.filter((h) => h.id && !seen.has(h.id)),
+        ]
+      } else if (silent && hitRecords.value.length > 0) {
+        // 静默刷新：合并新记录到顶部，保留已加载更多
+        const existingIds = new Set(hitRecords.value.map((h) => h.id))
+        const fresh = items.filter((h) => h.id && !existingIds.has(h.id))
+        if (fresh.length) {
+          hitRecords.value = [...fresh, ...hitRecords.value]
+        } else {
+          // 无新记录时更新首页重叠部分的字段
+          const byId = new Map(items.map((h) => [h.id, h]))
+          hitRecords.value = hitRecords.value.map((h) => byId.get(h.id) || h)
+        }
+      } else {
+        hitRecords.value = items
+      }
       hitTotal.value = res.total || 0
       hitGroups.value = []
     }
   } catch (e: unknown) {
     devLog.error('Failed to fetch keyword hits', e)
-    toast.error(getLocalizedErrorMessage(e, t, t('taskLogs.hitsLoadFailed')))
-    hitRecords.value = []
-    hitGroups.value = []
-    hitTotal.value = 0
+    if (!silent) {
+      toast.error(getLocalizedErrorMessage(e, t, t('taskLogs.hitsLoadFailed')))
+      if (!append) {
+        hitRecords.value = []
+        hitGroups.value = []
+        hitTotal.value = 0
+      }
+    }
   } finally {
     hitsLoading.value = false
+    hitsLoadingMore.value = false
   }
 }
+
+const loadMoreHits = () => loadHits({ append: true })
 
 const exportHits = async () => {
   if (!props.task) return
@@ -366,7 +424,9 @@ watch(() => props.isOpen, (newVal) => {
     realtimeLogs.value = []
     hitRecords.value = []
     hitGroups.value = []
+    hitTotal.value = 0
     expandedIdx.value = null
+    clearHitsAutoRefresh()
     disconnectWebSocket()
   }
 })
@@ -374,6 +434,15 @@ watch(() => props.isOpen, (newVal) => {
 watch([hitsView, hitGroupBy], () => {
   if (props.isOpen && isListenTask.value && panelTab.value === 'hits') {
     void loadHits()
+  }
+})
+
+watch(panelTab, (tab) => {
+  if (tab === 'hits' && props.isOpen && isListenTask.value) {
+    void loadHits()
+    ensureHitsAutoRefresh()
+  } else {
+    clearHitsAutoRefresh()
   }
 })
 
@@ -410,6 +479,9 @@ const safeHitUrl = (url?: string | null): string | null => {
   }
   return null
 }
+
+/** 列表项缓存安全 URL，避免模板重复解析 */
+const hitLink = (hit: KeywordHitRecord) => safeHitUrl(hit.url)
 </script>
 
 <template>
@@ -506,6 +578,7 @@ const safeHitUrl = (url?: string | null): string | null => {
             <option value="account">{{ t('taskLogs.groupByAccount') }}</option>
             <option value="task">{{ t('taskLogs.groupByTask') }}</option>
           </select>
+          <span class="text-[10px] text-gray-400 hidden md:inline">{{ t('taskLogs.hitsAutoRefreshHint') }}</span>
           <button
             type="button"
             class="ml-auto text-[11px] text-rose-600 dark:text-rose-400 hover:underline"
@@ -538,18 +611,31 @@ const safeHitUrl = (url?: string | null): string | null => {
             <div class="text-gray-600 dark:text-gray-400 truncate">
               {{ hit.chat_title || hit.chat_id || '-' }}
               <span v-if="hit.sender" class="text-gray-400"> · {{ hit.sender }}</span>
+              <span v-if="hit.push_channel" class="text-gray-400"> · {{ hit.push_channel }}</span>
             </div>
             <div class="text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-all line-clamp-3">
               {{ hit.message_text || '-' }}
             </div>
-            <template v-if="safeHitUrl(hit.url)">
+            <template v-if="hitLink(hit)">
               <a
-                :href="safeHitUrl(hit.url)!"
+                :href="hitLink(hit)!"
                 target="_blank"
                 rel="noopener noreferrer"
                 class="text-sky-600 dark:text-sky-400 hover:underline"
               >{{ t('taskLogs.hitsOpenMessage') }}</a>
             </template>
+          </div>
+          <div v-if="canLoadMoreHits" class="pt-1 flex justify-center">
+            <button
+              type="button"
+              class="ui-btn-secondary !px-3 !py-1.5 !text-xs"
+              :disabled="hitsLoadingMore"
+              @click="loadMoreHits"
+            >
+              <span v-if="hitsLoadingMore" class="ui-spinner !w-3 !h-3 !border-2 mr-1" />
+              {{ t('taskLogs.hitsLoadMore') }}
+              <span class="font-mono opacity-70 ml-1">({{ hitRecords.length }}/{{ hitTotal }})</span>
+            </button>
           </div>
         </div>
 

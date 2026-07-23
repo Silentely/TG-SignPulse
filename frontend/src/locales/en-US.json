@@ -125,7 +125,8 @@
     "batchCheckCancel": "Cancel check",
     "batchCheckCancelRequested": "Cancel requested",
     "batchCheckCanceled": "Batch check canceled",
-    "batchCheckFailed": "Batch check failed"
+    "batchCheckFailed": "Batch check failed",
+    "batchCheckOkFail": "OK {ok} · Fail {fail}"
   },
   "tasks": {
     "empty": "No tasks yet",
@@ -334,7 +335,9 @@
     "hitsClearConfirm": "Clear all hit records for this task? This cannot be undone.",
     "hitsCleared": "Cleared {n} hits",
     "hitsClearFailed": "Failed to clear hits",
-    "hitsOpenMessage": "Open message"
+    "hitsOpenMessage": "Open message",
+    "hitsLoadMore": "Load more",
+    "hitsAutoRefreshHint": "Auto-refreshes about every 8s while open"
   },
   "logs": {
     "taskLogs": "Task Execution Logs",

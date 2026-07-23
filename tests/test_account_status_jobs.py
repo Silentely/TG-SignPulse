@@ -48,6 +48,8 @@ async def test_run_status_check_updates_progress_and_results(tmp_path: Path):
     assert job["summary"]["ok"] == 1
     assert job["summary"]["fail"] == 1
     assert len(job["results"]) == 2
+    # 过程中应已写入 results（最终态仍保留）
+    assert job["results"][0]["account_name"] == "a"
 
 
 def test_start_rejects_when_already_running(monkeypatch):

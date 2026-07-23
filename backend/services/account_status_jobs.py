@@ -122,17 +122,28 @@ async def _run_status_check(job_id: str, names: List[str], timeout_seconds: floa
         results.append(item)
         if item.get("ok"):
             ok_count += 1
-            store.append_log(job_id, "info", f"{name}: 正常", ref=name)
+            store.append_log(job_id, "info", f"{name}: 正常", ref=name, persist=False)
         else:
             fail_count += 1
             msg = item.get("message") or item.get("code") or item.get("status") or "异常"
-            store.append_log(job_id, "error", f"{name}: {msg}", ref=name)
+            store.append_log(job_id, "error", f"{name}: {msg}", ref=name, persist=False)
 
+        # 过程结果落盘，供前端轮询渐进刷新卡片状态
+        job = store.jobs.get(job_id)
+        if job is not None:
+            job["results"] = list(results)
+            job["summary"] = {
+                "total": len(names),
+                "checked": len(results),
+                "ok": ok_count,
+                "fail": fail_count,
+            }
         store.update_progress(
             job_id,
             done=idx + 1,
             total=len(names),
             extra={"ok": ok_count, "fail": fail_count},
+            persist=True,
         )
         if idx < len(names) - 1 and not store.is_cancel_requested(job_id):
             await asyncio.sleep(INTER_DELAY_SECONDS)

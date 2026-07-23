@@ -337,6 +337,13 @@ export const getAccountStatusCheckJob = (token: string, jobId: string) =>
     token,
   );
 
+export const listAccountStatusCheckJobs = (token: string, limit = 10) =>
+  request<{ jobs: AccountStatusJob[] }>(
+    `/accounts/status/check-jobs?limit=${encodeURIComponent(String(limit))}`,
+    {},
+    token,
+  );
+
 export const cancelAccountStatusCheckJob = (token: string, jobId: string) =>
   request<{ ok: boolean; job_id: string }>(
     `/accounts/status/check-jobs/${encodeURIComponent(jobId)}/cancel`,
