@@ -8,9 +8,10 @@ import {
   checkAccountsStatus,
   startAccountStatusCheckJob,
   getAccountStatusCheckJob,
+  listAccountStatusCheckJobs,
   cancelAccountStatusCheckJob,
 } from '../lib/api'
-import type { AccountStatusJob } from '../lib/api'
+import type { AccountStatusJob, AccountStatusItem } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
 import { useConfirm } from '../composables/useConfirm'
@@ -120,8 +121,10 @@ const loadAvatar = async (acc: AccountUiItem) => {
   acc.avatarLoaded = true
 }
 
-onMounted(() => {
-  loadAccounts()
+onMounted(async () => {
+  await loadAccounts()
+  // 刷新页面后恢复未完成的批量检测
+  void resumeActiveBatchJob()
 })
 
 const handleDelete = async (name: string) => {
@@ -145,7 +148,17 @@ const handleDelete = async (name: string) => {
 const checkingAccount = ref('')
 const batchChecking = ref(false)
 const batchJob = ref<AccountStatusJob | null>(null)
+/** Job 已返回的结果按账号名索引，用于卡片实时着色 */
+const batchResultMap = ref<Record<string, AccountStatusItem>>({})
 let batchPollTimer: ReturnType<typeof setInterval> | null = null
+let lastLiveRefreshDone = 0
+
+const batchProgressPct = computed(() => {
+  const total = Number(batchJob.value?.progress?.total || 0)
+  const done = Number(batchJob.value?.progress?.done || 0)
+  if (total <= 0) return 0
+  return Math.min(100, Math.round((done / total) * 100))
+})
 
 const clearBatchPoll = () => {
   if (batchPollTimer) {
@@ -158,7 +171,49 @@ onUnmounted(() => {
   clearBatchPoll()
 })
 
+/** 将 Job 中间结果合并到账号卡片状态（不重拉全量列表） */
+const applyLiveResults = (results: AccountStatusItem[] | undefined) => {
+  if (!results?.length) return
+  const map = { ...batchResultMap.value }
+  for (const item of results) {
+    if (!item?.account_name) continue
+    map[item.account_name] = item
+  }
+  batchResultMap.value = map
+
+  // 同步更新列表中的状态展示
+  for (const acc of accounts.value) {
+    const r = map[acc.name]
+    if (!r) continue
+    if (r.ok) {
+      acc.status = 'active'
+      acc.message = ''
+      if (acc.raw) {
+        acc.raw.status = 'connected'
+        acc.raw.needs_relogin = false
+        acc.raw.status_message = r.message || ''
+      }
+    } else if (r.needs_relogin || r.status === 'invalid') {
+      acc.status = 'error'
+      acc.message = t('accounts.loginExpired')
+      if (acc.raw) {
+        acc.raw.status = 'invalid'
+        acc.raw.needs_relogin = true
+        acc.raw.status_message = r.message || ''
+      }
+    } else {
+      acc.status = 'error'
+      acc.message = r.message || t('accounts.statusUnknown')
+      if (acc.raw) {
+        acc.raw.status = r.status || 'error'
+        acc.raw.status_message = r.message || ''
+      }
+    }
+  }
+}
+
 const applyBatchJobResult = async (job: AccountStatusJob) => {
+  applyLiveResults(job.results)
   await loadAccounts()
   const summary = job.summary || {}
   const ok = Number(summary.ok ?? job.progress?.ok ?? 0)
@@ -192,24 +247,62 @@ const applyBatchJobResult = async (job: AccountStatusJob) => {
   }
 }
 
+const startPollingJob = (jobId: string) => {
+  clearBatchPoll()
+  batchPollTimer = setInterval(() => {
+    void pollBatchJob(jobId)
+  }, 1200)
+}
+
 const pollBatchJob = async (jobId: string) => {
   const token = authStore.token || ''
   if (!token) return
   try {
     const job = await getAccountStatusCheckJob(token, jobId)
     batchJob.value = job
+    // 进行中：用已有 results 渐进刷新卡片
     if (job.status === 'running' || job.status === 'canceling') {
+      const done = Number(job.progress?.done || 0)
+      if (done > lastLiveRefreshDone) {
+        lastLiveRefreshDone = done
+        applyLiveResults(job.results)
+      }
       return
     }
     clearBatchPoll()
     batchChecking.value = false
     await applyBatchJobResult(job)
     batchJob.value = null
+    batchResultMap.value = {}
+    lastLiveRefreshDone = 0
   } catch (e) {
     clearBatchPoll()
     batchChecking.value = false
     batchJob.value = null
+    batchResultMap.value = {}
+    lastLiveRefreshDone = 0
     toast.error(getLocalizedErrorMessage(e, t, t('accounts.checkFailed')))
+  }
+}
+
+/** 页面进入时恢复未完成的批量检测 Job */
+const resumeActiveBatchJob = async () => {
+  const token = authStore.token || ''
+  if (!token || batchChecking.value) return
+  try {
+    const res = await listAccountStatusCheckJobs(token, 5)
+    const active = (res.jobs || []).find(
+      (j) => j.status === 'running' || j.status === 'canceling',
+    )
+    if (!active?.job_id) return
+    batchChecking.value = true
+    batchJob.value = active
+    lastLiveRefreshDone = Number(active.progress?.done || 0)
+    applyLiveResults(active.results)
+    startPollingJob(active.job_id)
+    await pollBatchJob(active.job_id)
+  } catch {
+    // 恢复失败不打扰用户
   }
 }
 
@@ -243,6 +336,8 @@ const handleBatchCheck = async () => {
 
   batchChecking.value = true
   batchJob.value = null
+  batchResultMap.value = {}
+  lastLiveRefreshDone = 0
   clearBatchPoll()
   try {
     // 多账号走 Job：可取消、可展示进度，避免 HTTP 长阻塞
@@ -258,9 +353,7 @@ const handleBatchCheck = async () => {
           total: job.progress?.total ?? names.length,
         }),
       })
-      batchPollTimer = setInterval(() => {
-        void pollBatchJob(job.job_id)
-      }, 1200)
+      startPollingJob(job.job_id)
       await pollBatchJob(job.job_id)
       return
     }
@@ -411,15 +504,29 @@ const goTasks = (name: string) => {
           >
         </div>
         <div class="flex items-center gap-2 shrink-0">
-          <span
+          <div
             v-if="batchChecking && batchJob"
-            class="text-[11px] font-mono text-sky-700 dark:text-sky-300 hidden sm:inline"
+            class="hidden sm:flex flex-col items-end gap-0.5 min-w-[7rem]"
           >
-            {{ t('accounts.batchCheckProgress', {
-              done: batchJob.progress?.done ?? 0,
-              total: batchJob.progress?.total ?? accounts.length,
-            }) }}
-          </span>
+            <span class="text-[11px] font-mono text-sky-700 dark:text-sky-300">
+              {{ t('accounts.batchCheckProgress', {
+                done: batchJob.progress?.done ?? 0,
+                total: batchJob.progress?.total ?? accounts.length,
+              }) }}
+              <template v-if="(batchJob.progress?.ok ?? 0) + (batchJob.progress?.fail ?? 0) > 0">
+                · {{ t('accounts.batchCheckOkFail', {
+                  ok: batchJob.progress?.ok ?? 0,
+                  fail: batchJob.progress?.fail ?? 0,
+                }) }}
+              </template>
+            </span>
+            <div class="w-full h-1 rounded-full bg-sky-100 dark:bg-sky-950/50 overflow-hidden">
+              <div
+                class="h-full bg-sky-500 transition-all duration-300"
+                :style="{ width: `${batchProgressPct}%` }"
+              />
+            </div>
+          </div>
           <button
             v-if="batchChecking && batchJob?.job_id"
             type="button"

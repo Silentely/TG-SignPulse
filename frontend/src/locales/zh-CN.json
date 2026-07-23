@@ -125,7 +125,8 @@
     "batchCheckCancel": "取消检测",
     "batchCheckCancelRequested": "已请求取消批量检测",
     "batchCheckCanceled": "批量检测已取消",
-    "batchCheckFailed": "批量检测失败"
+    "batchCheckFailed": "批量检测失败",
+    "batchCheckOkFail": "正常 {ok} · 异常 {fail}"
   },
   "tasks": {
     "empty": "还没有任务",
@@ -334,7 +335,9 @@
     "hitsClearConfirm": "确定清空当前任务的命中记录？此操作不可恢复。",
     "hitsCleared": "已清空 {n} 条命中记录",
     "hitsClearFailed": "清空失败",
-    "hitsOpenMessage": "打开消息"
+    "hitsOpenMessage": "打开消息",
+    "hitsLoadMore": "加载更多",
+    "hitsAutoRefreshHint": "打开本页时约每 8 秒自动刷新"
   },
   "logs": {
     "taskLogs": "任务执行日志",
