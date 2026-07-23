@@ -2,8 +2,23 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Users, Zap, Terminal, Settings } from 'lucide-vue-next'
-import { listAccounts, listSignTasks, getRecentAccountLogs, listScheduledJobs, listActiveSignTaskRuns } from '../lib/api'
-import type { AccountInfo, AccountLog, ActiveRunSummary, ScheduledJob } from '../lib/api'
+import {
+  listAccounts,
+  listSignTasks,
+  getRecentAccountLogs,
+  listScheduledJobs,
+  listActiveSignTaskRuns,
+  listKeywordHits,
+  listAccountStatusCheckJobs,
+} from '../lib/api'
+import type {
+  AccountInfo,
+  AccountLog,
+  ActiveRunSummary,
+  ScheduledJob,
+  KeywordHitRecord,
+  AccountStatusJob,
+} from '../lib/api'
 import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
 import { useAuthStore } from '../stores/auth'
@@ -62,6 +77,8 @@ const logs = ref<DashboardLog[]>([])
 const upcomingJobs = ref<ScheduledJob[]>([])
 const activeRuns = ref<ActiveRunSummary[]>([])
 const failureBreakdown = ref<Array<{ category: string; count: number }>>([])
+const recentHits = ref<KeywordHitRecord[]>([])
+const statusJobs = ref<AccountStatusJob[]>([])
 const pageLoading = ref(true)
 const formatTime = (isoString: string) => {
   if (!isoString) return ''
@@ -110,6 +127,31 @@ const openFailureCategory = (category: string) => {
     name: 'logs',
     query: { category: category || undefined },
   })
+}
+
+const openKeywordHit = (hit: KeywordHitRecord) => {
+  router.push({
+    name: 'tasks',
+    query: {
+      account: hit.account_name || undefined,
+      task: hit.task_name || undefined,
+    },
+  })
+}
+
+const openStatusJob = () => {
+  router.push({ name: 'accounts' })
+}
+
+const statusJobLabel = (job: AccountStatusJob) => {
+  const done = job.progress?.done ?? 0
+  const total = job.progress?.total ?? 0
+  const ok = job.progress?.ok ?? job.summary?.ok ?? 0
+  const fail = job.progress?.fail ?? job.summary?.fail ?? 0
+  if (job.status === 'running' || job.status === 'canceling') {
+    return `${done}/${total} · ${ok}/${fail}`
+  }
+  return `${job.summary?.ok ?? ok}/${job.summary?.fail ?? fail}`
 }
 
 const prependLiveLog = (payload: {
@@ -228,6 +270,8 @@ const loadDashboardData = async () => {
     let logsRes: AccountLog[] = []
     let jobsRes: Awaited<ReturnType<typeof listScheduledJobs>> | null = null
     let activeRes: { runs: ActiveRunSummary[] } = { runs: [] }
+    let hitsRes: Awaited<ReturnType<typeof listKeywordHits>> | null = null
+    let statusJobsRes: Awaited<ReturnType<typeof listAccountStatusCheckJobs>> | null = null
 
     let loadError: unknown = null
     try { accRes = await listAccounts(token) } catch (e) { loadError = e; devLog.error('Failed to load accounts', e) }
@@ -235,6 +279,8 @@ const loadDashboardData = async () => {
     try { logsRes = await getRecentAccountLogs(token, 50) } catch (e) { loadError = e; devLog.error('Failed to load logs', e) }
     try { jobsRes = await listScheduledJobs(token) } catch (e) { devLog.error('Failed to load scheduled jobs', e) }
     try { activeRes = await listActiveSignTaskRuns(token) } catch (e) { devLog.error('Failed to load active runs', e) }
+    try { hitsRes = await listKeywordHits(token, { limit: 8, offset: 0 }) } catch (e) { devLog.error('Failed to load keyword hits', e) }
+    try { statusJobsRes = await listAccountStatusCheckJobs(token, 5) } catch (e) { devLog.error('Failed to load status jobs', e) }
     // 仅首屏加载失败时提示，避免 30s 轮询刷屏
     if (loadError && pageLoading.value) {
       toast.error(getLocalizedErrorMessage(loadError, t, t('logs.loadFailed')))
@@ -292,6 +338,13 @@ const loadDashboardData = async () => {
           }))
         : [],
     )
+    recentHits.value = hitsRes?.items || []
+    // 优先展示进行中的 Job，其次最近完成的
+    const allStatusJobs = statusJobsRes?.jobs || []
+    const activeStatus = allStatusJobs.filter(
+      (j) => j.status === 'running' || j.status === 'canceling',
+    )
+    statusJobs.value = (activeStatus.length ? activeStatus : allStatusJobs).slice(0, 3)
 }
 </script>
 
@@ -407,6 +460,92 @@ const loadDashboardData = async () => {
             @click="openFailureCategory(item.category)"
           >
             {{ failureCategoryLabel(item.category) || item.category }}: {{ item.count }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 最近关键词命中 + 账号状态 Job -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div class="ui-card p-5">
+        <div class="ui-section-label mb-4 flex items-center justify-between gap-2">
+          <span>{{ t('dashboard.recentHits') }}</span>
+          <button
+            type="button"
+            class="text-[11px] text-sky-600 dark:text-sky-400 hover:underline"
+            @click="router.push({ name: 'tasks' })"
+          >
+            {{ t('dashboard.viewTasks') }}
+          </button>
+        </div>
+        <div v-if="recentHits.length === 0" class="text-xs text-gray-400 py-6 text-center">
+          {{ t('dashboard.noRecentHits') }}
+        </div>
+        <div v-else class="space-y-1">
+          <button
+            v-for="hit in recentHits"
+            :key="hit.id"
+            type="button"
+            class="ui-list-row w-full flex items-center gap-2 text-xs px-2 py-2 rounded-sm text-left"
+            @click="openKeywordHit(hit)"
+          >
+            <span class="font-mono text-sky-700 dark:text-sky-300 shrink-0 max-w-[5.5rem] truncate" :title="hit.keyword">
+              {{ hit.keyword || '-' }}
+            </span>
+            <span class="truncate text-gray-700 dark:text-gray-300" :title="hit.task_name">
+              {{ hit.task_name || '-' }}
+            </span>
+            <span class="text-gray-500 truncate shrink-0 max-w-[5rem]" :title="hit.account_name">
+              {{ hit.account_name || '-' }}
+            </span>
+            <span class="ml-auto text-[10px] text-gray-400 font-mono shrink-0">
+              {{ formatTime(hit.time) }}
+            </span>
+          </button>
+        </div>
+      </div>
+      <div class="ui-card p-5">
+        <div class="ui-section-label mb-4 flex items-center justify-between gap-2">
+          <span>{{ t('dashboard.statusJobs') }}</span>
+          <button
+            type="button"
+            class="text-[11px] text-sky-600 dark:text-sky-400 hover:underline"
+            @click="openStatusJob"
+          >
+            {{ t('dashboard.goAccounts') }}
+          </button>
+        </div>
+        <div v-if="statusJobs.length === 0" class="text-xs text-gray-400 py-6 text-center">
+          {{ t('dashboard.noStatusJobs') }}
+        </div>
+        <div v-else class="space-y-1">
+          <button
+            v-for="job in statusJobs"
+            :key="job.job_id"
+            type="button"
+            class="ui-list-row w-full flex items-center gap-2 text-xs px-2 py-2 rounded-sm text-left"
+            @click="openStatusJob"
+          >
+            <span
+              class="ui-badge shrink-0 !text-[10px]"
+              :class="job.status === 'running' || job.status === 'canceling'
+                ? 'border-sky-200 text-sky-700 dark:border-sky-800 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/40'
+                : job.status === 'failed'
+                  ? 'ui-badge-error'
+                  : 'ui-badge-neutral'"
+            >
+              <span
+                v-if="job.status === 'running' || job.status === 'canceling'"
+                class="ui-pulse-dot !bg-sky-500"
+              />
+              {{ job.status }}
+            </span>
+            <span class="font-mono text-gray-700 dark:text-gray-300 truncate">
+              {{ statusJobLabel(job) }}
+            </span>
+            <span class="ml-auto text-[10px] text-gray-400 font-mono shrink-0">
+              {{ formatTime(job.updated_at || job.created_at || '') }}
+            </span>
           </button>
         </div>
       </div>

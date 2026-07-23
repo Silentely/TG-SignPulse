@@ -62,7 +62,12 @@
     },
     "activeRuns": "活跃运行",
     "noActiveRuns": "当前无运行中任务",
-    "failureBreakdown": "失败分类"
+    "failureBreakdown": "失败分类",
+    "recentHits": "最近关键词命中",
+    "noRecentHits": "暂无命中记录",
+    "statusJobs": "账号状态检测",
+    "noStatusJobs": "暂无批量检测记录",
+    "viewTasks": "查看任务"
   },
   "accounts": {
     "noRemark": "暂无备注",
@@ -126,7 +131,9 @@
     "batchCheckCancelRequested": "已请求取消批量检测",
     "batchCheckCanceled": "批量检测已取消",
     "batchCheckFailed": "批量检测失败",
-    "batchCheckOkFail": "正常 {ok} · 异常 {fail}"
+    "batchCheckOkFail": "正常 {ok} · 异常 {fail}",
+    "batchCheckScoped": "仅检测筛选结果 {n}/{total} 个账号",
+    "batchCheckNoTarget": "当前没有可检测的账号"
   },
   "tasks": {
     "empty": "还没有任务",
@@ -207,7 +214,8 @@
     "createModeSplit": "多个独立任务",
     "createModeHint": "共享：一个任务依次处理多个会话；独立：按会话各建一个同名动作任务",
     "splitCreateSuccess": "已创建 {count} 个独立任务",
-    "splitCreatePartial": "部分成功：成功 {ok}，失败 {fail}"
+    "splitCreatePartial": "部分成功：成功 {ok}，失败 {fail}",
+    "createSuccess": "任务已创建"
   },
   "taskForm": {
     "taskName": "任务名称",
