@@ -221,7 +221,10 @@
     "splitCreatePartial": "Partial success: ok {ok}, fail {fail}",
     "createSuccess": "Task created",
     "hitsBadge": "Hits {n}",
-    "hitsBadgeHint": "Open keyword hit records"
+    "hitsBadgeHint": "Open keyword hit records",
+    "filterAll": "All",
+    "filterListen": "Listen",
+    "filterScheduled": "Scheduled"
   },
   "taskForm": {
     "taskName": "Task Name",
