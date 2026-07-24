@@ -1,0 +1,49 @@
+{
+  "issuer": "https://tg.cosr.eu.org",
+  "authorization_endpoint": "https://tg.cosr.eu.org/auth.md#登录示例",
+  "token_endpoint": "https://tg.cosr.eu.org/auth.md#登录示例",
+  "jwks_uri": "https://tg.cosr.eu.org/.well-known/jwks.json",
+  "registration_endpoint": "https://tg.cosr.eu.org/auth.md#自托管面板注册--开通",
+  "scopes_supported": [
+    "panel.read",
+    "panel.write",
+    "ops.read",
+    "ops.write"
+  ],
+  "response_types_supported": [
+    "token"
+  ],
+  "grant_types_supported": [
+    "password"
+  ],
+  "token_endpoint_auth_methods_supported": [
+    "none",
+    "client_secret_post"
+  ],
+  "service_documentation": "https://tg.cosr.eu.org/auth.md",
+  "ui_locales_supported": [
+    "zh-CN",
+    "en"
+  ],
+  "agent_auth": {
+    "skill": "https://tg.cosr.eu.org/auth.md",
+    "register_uri": "https://tg.cosr.eu.org/auth.md#自托管面板注册--开通",
+    "identity_types_supported": [
+      "anonymous"
+    ],
+    "anonymous": {
+      "credential_types_supported": [
+        "username_password",
+        "username_password_totp"
+      ],
+      "claim_uri": "https://tg.cosr.eu.org/auth.md#登录示例"
+    },
+    "supported_methods": [
+      {
+        "type": "password",
+        "description": "使用管理员分配的面板账号密码（及可选 TOTP）调用自托管实例 POST /api/auth/login 换取 JWT",
+        "claim_uri": "https://tg.cosr.eu.org/auth.md#登录示例"
+      }
+    ]
+  }
+}

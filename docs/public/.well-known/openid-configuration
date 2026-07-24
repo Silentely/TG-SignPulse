@@ -1,0 +1,34 @@
+{
+  "issuer": "https://tg.cosr.eu.org",
+  "authorization_endpoint": "https://tg.cosr.eu.org/auth.md#登录示例",
+  "token_endpoint": "https://tg.cosr.eu.org/auth.md#登录示例",
+  "jwks_uri": "https://tg.cosr.eu.org/.well-known/jwks.json",
+  "response_types_supported": [
+    "token"
+  ],
+  "subject_types_supported": [
+    "public"
+  ],
+  "id_token_signing_alg_values_supported": [
+    "HS256"
+  ],
+  "scopes_supported": [
+    "openid",
+    "panel.read",
+    "panel.write",
+    "ops.read",
+    "ops.write"
+  ],
+  "token_endpoint_auth_methods_supported": [
+    "none",
+    "client_secret_post"
+  ],
+  "claims_supported": [
+    "sub",
+    "exp"
+  ],
+  "grant_types_supported": [
+    "password"
+  ],
+  "service_documentation": "https://tg.cosr.eu.org/auth.md"
+}

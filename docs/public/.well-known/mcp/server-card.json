@@ -1,0 +1,52 @@
+{
+  "serverInfo": {
+    "name": "tg-signpulse-docs",
+    "version": "2.2.0",
+    "title": "TG-SignPulse Documentation",
+    "description": "文档发现卡片：帮助 Agent 定位 TG-SignPulse 文档、配置与自托管 API 入口。文档站本身不运行交互式 MCP 传输；完整面板 API 由自托管实例提供。"
+  },
+  "description": "TG-SignPulse 文档站的 MCP Server Card（SEP-1649）。用于 agent 发现文档入口、llms.txt、OpenAPI 桩与认证说明。",
+  "url": "https://tg.cosr.eu.org/",
+  "transport": {
+    "type": "http",
+    "endpoint": "https://tg.cosr.eu.org/.well-known/mcp/server-card.json"
+  },
+  "icons": [
+    {
+      "src": "https://tg.cosr.eu.org/logo.svg",
+      "mimeType": "image/svg+xml"
+    }
+  ],
+  "capabilities": {
+    "tools": false,
+    "resources": true,
+    "prompts": false
+  },
+  "resources": [
+    {
+      "name": "llms-txt",
+      "uri": "https://tg.cosr.eu.org/llms.txt",
+      "description": "LLM 友好文档索引"
+    },
+    {
+      "name": "auth-md",
+      "uri": "https://tg.cosr.eu.org/auth.md",
+      "description": "Agent 认证与注册说明"
+    },
+    {
+      "name": "openapi-stub",
+      "uri": "https://tg.cosr.eu.org/.well-known/openapi-selfhosted.json",
+      "description": "自托管面板 OpenAPI 发现桩"
+    },
+    {
+      "name": "quick-start",
+      "uri": "https://tg.cosr.eu.org/guide/quick-start",
+      "description": "快速开始指南"
+    }
+  ],
+  "documentationUrl": "https://tg.cosr.eu.org/",
+  "repository": {
+    "url": "https://github.com/Silentely/TG-SignPulse",
+    "source": "github"
+  }
+}

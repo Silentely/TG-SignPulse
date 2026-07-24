@@ -164,3 +164,6 @@ git_show_head*.txt
 .ace-tool/
 .full-review/
 docs/superpowers/
+
+# VitePress agent markdown sources (build-generated)
+docs/public/_sources/

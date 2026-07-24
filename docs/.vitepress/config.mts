@@ -30,11 +30,40 @@ export default defineConfig({
   cleanUrls: true,
   lastUpdated: true,
   ignoreDeadLinks: true,
+  // public/ 为静态资源目录；其中的 .md 仅供 Agent 发现，不作为文档页编译
+  srcExclude: ["**/public/**", "**/superpowers/**"],
 
   head: [
     ["link", { rel: "icon", href: `${base}logo.svg`, type: "image/svg+xml" }],
+    ["link", { rel: "sitemap", href: `${siteUrl}/sitemap.xml`, type: "application/xml" }],
+    [
+      "link",
+      {
+        rel: "api-catalog",
+        href: `${siteUrl}/.well-known/api-catalog`,
+        type: "application/linkset+json",
+      },
+    ],
+    [
+      "link",
+      {
+        rel: "service-doc",
+        href: `${siteUrl}/auth.md`,
+        type: "text/markdown",
+      },
+    ],
+    [
+      "link",
+      {
+        rel: "alternate",
+        type: "text/plain",
+        href: `${siteUrl}/llms.txt`,
+        title: "llms.txt",
+      },
+    ],
     ["meta", { name: "theme-color", content: "#229ED9" }],
     ["meta", { name: "author", content: "TG-SignPulse" }],
+    ["meta", { name: "robots", content: "index,follow" }],
     ["meta", { property: "og:type", content: "website" }],
     ["meta", { property: "og:title", content: "TG-SignPulse 文档" }],
     [
@@ -93,6 +122,7 @@ export default defineConfig({
         items: [
           { text: "Docker 部署", link: "/deploy/docker" },
           { text: "Nginx 反向代理", link: "/deploy/nginx" },
+          { text: "DNS-AID（Agent 发现）", link: "/deploy/dns-aid" },
         ],
       },
       {
@@ -130,6 +160,7 @@ export default defineConfig({
         items: [
           { text: "Docker 部署", link: "/deploy/docker" },
           { text: "Nginx 反向代理", link: "/deploy/nginx" },
+          { text: "DNS-AID（Agent 发现）", link: "/deploy/dns-aid" },
         ],
       },
       {

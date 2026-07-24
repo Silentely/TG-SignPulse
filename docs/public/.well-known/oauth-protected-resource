@@ -1,0 +1,19 @@
+{
+  "resource": "https://tg.cosr.eu.org/",
+  "authorization_servers": [
+    "https://tg.cosr.eu.org"
+  ],
+  "scopes_supported": [
+    "panel.read",
+    "panel.write",
+    "ops.read",
+    "ops.write"
+  ],
+  "bearer_methods_supported": [
+    "header"
+  ],
+  "resource_documentation": "https://tg.cosr.eu.org/auth.md",
+  "resource_signing_alg_values_supported": [
+    "HS256"
+  ]
+}
