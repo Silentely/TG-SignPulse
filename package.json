@@ -5,8 +5,10 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "docs:dev": "vitepress dev docs --host 127.0.0.1 --port 5173",
-    "docs:build": "vitepress build docs",
+    "docs:agent-assets": "node scripts/prepare-docs-agent-assets.mjs",
+    "docs:verify-agent": "node scripts/verify-docs-agent-assets.mjs",
+    "docs:dev": "npm run docs:agent-assets && vitepress dev docs --host 127.0.0.1 --port 5173",
+    "docs:build": "npm run docs:agent-assets && vitepress build docs",
     "docs:preview": "vitepress preview docs --host 127.0.0.1 --port 4173"
   },
   "devDependencies": {

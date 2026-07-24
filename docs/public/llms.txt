@@ -1,0 +1,78 @@
+# TG-SignPulse
+
+> Telegram 多账号自动化管理面板：签到、消息编排、关键词监听与 AI 验证。
+
+文档站：https://tg.cosr.eu.org
+源码：https://github.com/Silentely/TG-SignPulse
+版本：2.2.0
+
+## 产品摘要
+
+TG-SignPulse 提供 Web 面板统一管理多个 Telegram 账号，支持定时签到、消息交互、关键词监控和 AI 辅助回复。技术栈为 Vue 3 + FastAPI + Pyrogram/kurigram，默认 SQLite，可选 PostgreSQL，Docker 一键部署。
+
+## 推荐阅读顺序
+
+1. [功能介绍](https://tg.cosr.eu.org/features)：能力边界与适用场景
+2. [快速开始](https://tg.cosr.eu.org/guide/quick-start)：5 分钟部署到第一个任务
+3. [Docker 部署](https://tg.cosr.eu.org/deploy/docker)：生产部署与持久化
+4. [配置参考](https://tg.cosr.eu.org/reference/configuration)：环境变量与数据目录
+5. [运维手册](https://tg.cosr.eu.org/reference/ops)：健康检查、备份、版本与调度
+
+## 完整文档目录
+
+### 开始
+
+- [首页](https://tg.cosr.eu.org/): 产品总览
+- [功能介绍](https://tg.cosr.eu.org/features): 核心能力
+- [文档总览](https://tg.cosr.eu.org/README): 导航索引
+- [快速开始](https://tg.cosr.eu.org/guide/quick-start): 安装与首次使用
+
+### 使用指南
+
+- [账号管理](https://tg.cosr.eu.org/guide/accounts): 短信/二维码登录、2FA、代理
+- [任务编排](https://tg.cosr.eu.org/guide/tasks): 动作类型、调度、多账号共享
+- [AI 动作](https://tg.cosr.eu.org/guide/ai): OpenAI 兼容接口与提示词
+- [关键词监听](https://tg.cosr.eu.org/guide/keyword-monitor): 匹配规则与推送
+- [WebDAV 备份](https://tg.cosr.eu.org/guide/backup-webdav): 备份与换机恢复
+
+### 部署
+
+- [Docker 部署](https://tg.cosr.eu.org/deploy/docker)
+- [Nginx 反向代理](https://tg.cosr.eu.org/deploy/nginx)
+
+### 参考
+
+- [配置参考](https://tg.cosr.eu.org/reference/configuration)
+- [运维手册](https://tg.cosr.eu.org/reference/ops)
+- [系统架构](https://tg.cosr.eu.org/reference/architecture)
+- [设备管理](https://tg.cosr.eu.org/reference/device-management)
+- [开发规范](https://tg.cosr.eu.org/reference/development)
+- [常见问题](https://tg.cosr.eu.org/faq)
+
+## 机器可读入口
+
+- Sitemap: https://tg.cosr.eu.org/sitemap.xml
+- robots.txt: https://tg.cosr.eu.org/robots.txt
+- API Catalog: https://tg.cosr.eu.org/.well-known/api-catalog
+- Agent Skills: https://tg.cosr.eu.org/.well-known/agent-skills/index.json
+- MCP Server Card: https://tg.cosr.eu.org/.well-known/mcp/server-card.json
+- Auth 说明: https://tg.cosr.eu.org/auth.md
+- OAuth 资源元数据: https://tg.cosr.eu.org/.well-known/oauth-protected-resource
+- OAuth 授权服务器元数据: https://tg.cosr.eu.org/.well-known/oauth-authorization-server
+
+## 自托管 API 说明
+
+文档站本身是静态 VitePress 站点。完整 REST API（OpenAPI）由你自己部署的面板实例提供：
+
+- OpenAPI JSON: `{panel-origin}/openapi.json`
+- Swagger UI: `{panel-origin}/docs`
+- 健康检查: `{panel-origin}/healthz`
+- 登录: `POST {panel-origin}/api/auth/login`（OAuth2 password + JWT Bearer）
+
+## 内容策略
+
+- search=yes：允许检索与摘要
+- ai-input=yes：允许作为上下文输入回答问题
+- ai-train=no：禁止用于模型训练
+
+请求 Markdown 版本时，请发送 `Accept: text/markdown`。
