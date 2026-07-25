@@ -7,23 +7,25 @@ tg_signer.core 包
 """
 from __future__ import annotations
 
+# 动态回退：其余符号仍可从 runtime 取
+from tg_signer.core import runtime as _runtime
 from tg_signer.core.client import (
-    Client,
     _CLIENT_ASYNC_LOCKS,
     _CLIENT_INSTANCES,
     _CLIENT_REFS,
+    Client,
     _is_callback_confirmation_unavailable,
     _is_callback_data_invalid,
-    _patched_invoke,
-    _patched_sqlite3_connect,
+    _patched_invoke,  # noqa: F401 — 副作用导入：触发 monkey-patch 装配
+    _patched_sqlite3_connect,  # noqa: F401 — 副作用导入：触发 monkey-patch 装配
     _read_positive_float_env,
     _read_positive_int_env,
     close_client_by_name,
     get_api_config,
     get_client,
     get_now,
-    get_task_timezone,
     get_proxy,
+    get_task_timezone,
     make_dirs,
     readable_chat,
     readable_message,
@@ -35,9 +37,6 @@ from tg_signer.core.runtime import (
     UserSignerWorkerContext,
     Waiter,
 )
-
-# 动态回退：其余符号仍可从 runtime 取
-from tg_signer.core import runtime as _runtime
 
 
 def __getattr__(name: str):
@@ -73,4 +72,6 @@ __all__ = [
     "_CLIENT_ASYNC_LOCKS",
     "_is_callback_confirmation_unavailable",
     "_is_callback_data_invalid",
+    "_patched_invoke",
+    "_patched_sqlite3_connect",
 ]

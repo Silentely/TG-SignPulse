@@ -13,7 +13,10 @@ import unicodedata
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
+# 确保 rules 中以下划线开头的符号也可通过 star import 获得
+import backend.services.keyword_monitor.rules as _km_rules
 from backend.core.config import get_settings
+from backend.services.keyword_monitor.rules import *  # noqa: F403
 from backend.services.push_notifications import send_keyword_push
 from backend.utils.account_locks import get_account_lock
 from backend.utils.proxy import build_proxy_dict
@@ -36,10 +39,6 @@ from tg_signer.log_utils import (
     safe_ai_result_meta,
     safe_text_preview,
 )
-from backend.services.keyword_monitor.rules import *  # noqa: F403
-
-# 确保 rules 中以下划线开头的符号也可通过 star import 获得
-import backend.services.keyword_monitor.rules as _km_rules
 
 for _name, _val in vars(_km_rules).items():
     if _name.startswith("__"):

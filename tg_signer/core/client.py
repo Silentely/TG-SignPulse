@@ -1,89 +1,40 @@
 """Client 生命周期与工厂（从 core 拆分）。"""
 import asyncio
-import json
 import logging
 import os
 import pathlib
 import random
 import sqlite3
-import time
-import unicodedata
-from collections import Counter, defaultdict
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from datetime import time as dt_time
 from typing import (
-    Any,
-    BinaryIO,
-    Generic,
-    List,
-    Optional,
-    Type,
-    TypeVar,
     Union,
 )
 from urllib import parse
 
-import httpx
-from croniter import CroniterBadCronError, croniter
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel
 
 try:
     from pydantic import ConfigDict
 except ImportError:  # pragma: no cover - pydantic v1 compatibility
     ConfigDict = None
 
-from tg_signer.config import (
-    ActionT,
-    BaseJSONConfig,
-    ChooseOptionByImageAction,
-    ClickButtonByCalculationProblemAction,
-    ClickKeyboardByTextAction,
-    HttpCallback,
-    KeywordNotifyAction,
-    MatchConfig,
-    MonitorConfig,
-    ReplyByCalculationProblemAction,
-    ReplyByImageRecognitionAction,
-    SendDiceAction,
-    SendTextAction,
-    SignChatV3,
-    SignConfigV3,
-    SupportAction,
-    UDPForward,
-)
 
 _PYDANTIC_V2 = hasattr(BaseModel, "model_validate")
 
-from tg_signer.ai_tools import AITools, OpenAIConfigManager  # noqa: E402
-from tg_signer.async_utils import create_logged_task  # noqa: E402
 from tg_signer.compat import (  # noqa: E402
     _PYROGRAM_IMPORT_ERROR,
     BaseClient,
     Chat,
-    ChatMembersFilter,
     ChatType,
-    EditedMessageHandler,
     InlineKeyboardMarkup,
     MemoryStorage,
     Message,
-    MessageHandler,
-    Object,
     ReplyKeyboardMarkup,
     Session,
-    User,
     _raise_pyrogram_import_error,
-    errors,
-    filters,
-    idle,
     raw,
 )
-from tg_signer.log_utils import (  # noqa: E402
-    safe_ai_request_meta,
-    safe_ai_result_meta,
-    safe_text_preview,
-)
-from tg_signer.notification.server_chan import sc_send  # noqa: E402
-from tg_signer.utils import UserInput, print_to_user  # noqa: E402
 
 # Monkeypatch sqlite3.connect to increase default timeout
 _original_sqlite3_connect = sqlite3.connect

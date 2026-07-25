@@ -13,31 +13,10 @@ tg_signer/config.py 单元测试
 from __future__ import annotations
 
 import json
-from typing import Any, Dict
 
 import pytest
 from pydantic import ValidationError
 
-from tg_signer.config import (
-    ActionT,
-    BaseJSONConfig,
-    ChooseOptionByImageAction,
-    ClickButtonByCalculationProblemAction,
-    ClickKeyboardByTextAction,
-    KeywordNotifyAction,
-    ReplyByCalculationProblemAction,
-    ReplyByImageRecognitionAction,
-    SendDiceAction,
-    SendTextAction,
-    SignAction,
-    SignChatV3,
-    SignConfigV1,
-    SignConfigV2,
-    SignConfigV3,
-    SupportAction,
-    get_display_width,
-    pad_text_to_width,
-)
 from tests.fixtures.tasks import (
     SIGN_CONFIG_V3_BASIC,
     SIGN_CONFIG_V3_DICE,
@@ -47,7 +26,24 @@ from tests.fixtures.tasks import (
     SIGN_CONFIG_V3_WITH_KEYWORD,
     make_sign_config_v3_dict,
 )
-
+from tg_signer.config import (
+    BaseJSONConfig,
+    ChooseOptionByImageAction,
+    ClickButtonByCalculationProblemAction,
+    ClickKeyboardByTextAction,
+    KeywordNotifyAction,
+    ReplyByCalculationProblemAction,
+    ReplyByImageRecognitionAction,
+    SendDiceAction,
+    SendTextAction,
+    SignChatV3,
+    SignConfigV1,
+    SignConfigV2,
+    SignConfigV3,
+    SupportAction,
+    get_display_width,
+    pad_text_to_width,
+)
 
 # ============================================================================
 # 工具函数测试

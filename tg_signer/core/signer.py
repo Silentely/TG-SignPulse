@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from tg_signer.core.worker import *  # noqa: F403
 
+
 class UserSigner(BaseUserWorker[SignConfigV3]):
     _workdir = ".signer"
     _tasks_dir = "signs"

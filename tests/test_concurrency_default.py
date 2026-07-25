@@ -2,9 +2,7 @@
 from __future__ import annotations
 
 import os
-from unittest.mock import patch, MagicMock
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 
 class TestResolveConcurrencyLimit:
@@ -60,7 +58,10 @@ class TestUpdateGlobalSemaphore:
 
     def test_update_changes_semaphore_limit(self):
         """更新后信号量应使用新值"""
-        from backend.utils.tg_session import update_global_semaphore, get_global_semaphore
+        from backend.utils.tg_session import (
+            get_global_semaphore,
+            update_global_semaphore,
+        )
 
         original = get_global_semaphore()
         original_limit = original._value

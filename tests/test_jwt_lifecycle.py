@@ -71,7 +71,7 @@ class TestTokenTampering:
 class TestTokenCrossKey:
     def test_different_secret_invalidates_token(self, client, db_session):
         """不同密钥签发的 token 应返回 401"""
-        token = create_access_token({"sub": "admin"})
+        _ = create_access_token({"sub": "admin"})  # 默认密钥签发，仅作对照基线
         # 手动构造一个用不同密钥签发的 token
         import jwt
 

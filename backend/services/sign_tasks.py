@@ -1358,7 +1358,9 @@ class SignTaskService:
     ) -> None:
         try:
             from backend.services.config import get_config_service
-            from backend.services.push_notifications import send_task_success_notification
+            from backend.services.push_notifications import (
+                send_task_success_notification,
+            )
 
             cfg = get_config_service().get_global_settings()
             await send_task_success_notification(

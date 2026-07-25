@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, patch
 from zoneinfo import ZoneInfo
 
 import pytest
+
 from backend.core.auth import create_access_token
 from backend.services.backup_archive import prune_backups
 from backend.services.push_notifications import is_in_quiet_hours
@@ -819,7 +820,9 @@ class TestWebdavBackupChain:
 
 @pytest.mark.asyncio
 async def test_auto_backup_failure_notification_sends():
-    from backend.services.push_notifications import send_auto_backup_failure_notification
+    from backend.services.push_notifications import (
+        send_auto_backup_failure_notification,
+    )
 
     with patch(
         "backend.services.push_notifications.send_telegram_bot_message",

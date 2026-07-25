@@ -97,6 +97,14 @@ ignore = [
     "B904"  # raise without from inside except
 ]
 
+# tg_signer/core 的 worker/signer/monitor 是从 runtime.py(3039行) 渐进拆分的过渡态，
+# 用 star import 透传符号是设计选择；F405 在此属预期，等 runtime 大拆分时一并处理。
+# CI 硬门槛（.github/workflows/docker.yml）本就不覆盖 tg_signer/core。
+[tool.ruff.lint.per-file-ignores]
+"tg_signer/core/worker.py" = ["F405"]
+"tg_signer/core/signer.py" = ["F405"]
+"tg_signer/core/monitor.py" = ["F405"]
+
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "function"
 addopts = "--cov=tg_signer --cov=backend --cov-report=term-missing --cov-report=html:htmlcov --cov-report=xml:coverage.xml"

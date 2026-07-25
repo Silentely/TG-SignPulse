@@ -11,34 +11,26 @@ tg_signer/core.py 单元测试
 from __future__ import annotations
 
 import asyncio
-import os
 import pathlib
 import random
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from tg_signer.compat import ChatType
 from tg_signer.core import (
-    Client,
-    Waiter,
+    _CLIENT_INSTANCES,
     UserSigner,
-    get_now,
+    Waiter,
+    _read_positive_float_env,
+    _read_positive_int_env,
     get_api_config,
     get_client,
+    get_now,
     get_proxy,
     make_dirs,
     readable_chat,
-    _read_positive_float_env,
-    _read_positive_int_env,
-    _CLIENT_INSTANCES,
-    _CLIENT_REFS,
-    _CLIENT_ASYNC_LOCKS,
 )
-from tg_signer.config import SendTextAction, SendDiceAction
-
 
 # ============================================================================
 # 辅助函数测试
@@ -104,7 +96,7 @@ class TestMakeDirs:
 
     def test_nested_directories(self, tmp_path):
         target = tmp_path / "a" / "b" / "c"
-        result = make_dirs(target)
+        make_dirs(target)
         assert target.is_dir()
 
 
@@ -317,7 +309,7 @@ class TestClientSessionString:
 
     def test_session_string_file_path(self, tmp_path):
         """session_string_file 属性返回正确的路径"""
-        from tg_signer.core import get_client, _CLIENT_INSTANCES
+        from tg_signer.core import _CLIENT_INSTANCES, get_client
         keys_before = set(_CLIENT_INSTANCES.keys())
         try:
             client = get_client(
@@ -335,7 +327,7 @@ class TestClientSessionString:
 
     def test_load_session_string_from_file(self, tmp_path):
         """load_session_string 从文件读取 session 字符串"""
-        from tg_signer.core import get_client, _CLIENT_INSTANCES
+        from tg_signer.core import _CLIENT_INSTANCES, get_client
         keys_before = set(_CLIENT_INSTANCES.keys())
         try:
             client = get_client(
@@ -356,7 +348,7 @@ class TestClientSessionString:
 
     def test_load_session_string_missing_file(self, tmp_path):
         """文件不存在时返回 None（Pyrogram BaseClient 默认值）"""
-        from tg_signer.core import get_client, _CLIENT_INSTANCES
+        from tg_signer.core import _CLIENT_INSTANCES, get_client
         keys_before = set(_CLIENT_INSTANCES.keys())
         try:
             client = get_client(

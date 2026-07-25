@@ -9,12 +9,9 @@
 
 from __future__ import annotations
 
-import re
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from backend.utils.proxy import build_proxy_dict, normalize_proxy_url
 from backend.utils.time import (
@@ -26,7 +23,6 @@ from backend.utils.time import (
     utc_now_iso_z,
     utc_now_naive,
 )
-
 
 # ============================================================================
 # 时间工具测试
@@ -62,7 +58,7 @@ class TestUtcNow:
         # 需要保留 timezone.utc 的真实引用
         mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
 
-        result = utc_now()
+        utc_now()
         mock_dt.now.assert_called_once_with(UTC)
 
 

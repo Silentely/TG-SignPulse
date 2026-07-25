@@ -25,9 +25,7 @@ from sqlalchemy.pool import StaticPool
 
 from backend.core import config as config_module
 from backend.core import database as database_module
-from backend.core.auth import create_access_token
 from backend.models.account import Account
-
 
 # ============================================================================
 # 测试专用 Fixtures

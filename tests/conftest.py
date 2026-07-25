@@ -20,20 +20,6 @@ from pathlib import Path
 from typing import Any, Dict
 
 import pytest
-
-
-@pytest.fixture(autouse=True)
-def _ensure_event_loop():
-    """确保测试前后都有可用的事件循环。
-    IsolatedAsyncioTestCase 会在 teardown 时关闭循环，
-    导致后续同步测试中 Pyrogram BaseClient.__init__ 获取不到循环而失败。
-    """
-    yield
-    try:
-        asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -66,6 +52,22 @@ from tests.mocks.telegram import (
 from tests.utils.helpers import (
     create_temp_config_file,
 )
+
+
+@pytest.fixture(autouse=True)
+def _ensure_event_loop():
+    """确保测试前后都有可用的事件循环。
+
+    IsolatedAsyncioTestCase 会在 teardown 时关闭循环，导致后续同步测试中
+    Pyrogram BaseClient.__init__ 获取不到循环而失败。故放在 import 之后、
+    其余 fixture 之前注册，确保它是首个 autouse fixture。
+    """
+    yield
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
 
 # ============================================================================
 # 环境隔离 Fixtures
