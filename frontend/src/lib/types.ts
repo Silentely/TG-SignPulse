@@ -1,38 +1,5 @@
-/** @deprecated 旧版 ORM 账号类型；面板账号请用 api.ts 的 AccountInfo */
-export type Account = {
-  id: number;
-  account_name: string;
-  api_id: string;
-  api_hash: string;
-  proxy?: string | null;
-  status: string;
-  last_login_at?: string | null;
-  created_at: string;
-  updated_at: string;
-};
-
-/** @deprecated 旧版 ORM 任务类型；新任务请用 api.ts 的 SignTask */
-export type Task = {
-  id: number;
-  name: string;
-  cron: string;
-  enabled: boolean;
-  account_id: number;
-  last_run_at?: string | null;
-  created_at: string;
-  updated_at: string;
-};
-
-/** @deprecated 旧版 ORM 任务日志；新日志请用 TaskHistoryLog / SignTaskHistoryItem */
-export type TaskLog = {
-  id: number;
-  task_id: number;
-  status: string;
-  log_path?: string | null;
-  output?: string | null;
-  started_at: string;
-  finished_at?: string | null;
-};
+/** 旧版 ORM 账号/任务/任务日志类型已删除：面板统一使用 api.ts 的 AccountInfo / SignTask / SignTaskHistoryItem。
+ *  保留 TokenResponse 及下方视图模型类型。 */
 
 export type TokenResponse = {
   access_token: string;
