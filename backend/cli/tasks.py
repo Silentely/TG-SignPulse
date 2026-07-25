@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from typing import Callable, Optional
 
@@ -47,8 +48,11 @@ async def async_run_task_cli(
             global_proxy = get_config_service().get_global_settings().get("global_proxy")
             if isinstance(global_proxy, str) and global_proxy.strip():
                 env["TG_PROXY"] = global_proxy.strip()
-        except Exception:
-            pass
+        except (ImportError, AttributeError, ValueError, KeyError) as exc:
+            # 配置服务不可用时回退到无代理环境，不阻塞 CLI 执行
+            logging.getLogger("backend.cli").debug(
+                "读取全局代理配置失败，使用默认无代理: %s", exc
+            )
 
     process = await asyncio.create_subprocess_exec(
         *args,

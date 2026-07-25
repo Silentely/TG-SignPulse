@@ -145,16 +145,29 @@ async def lifespan(fastapi_app: FastAPI):
 
 
 def _app_version() -> str:
+    """解析应用版本：优先 version_info，失败回退到包版本，最终回退占位符。
+
+    仅捕获导入与属性访问相关的具体异常，避免吞掉编程错误；
+    降级时记录 warning 日志便于排障。
+    """
     try:
         from backend.utils.version_info import get_local_version_info
 
         return str(get_local_version_info().get("version") or "0.0.0")
-    except Exception:
+    except (ImportError, AttributeError, ValueError, TypeError):
+        logging.getLogger("backend.startup").debug(
+            "version_info 解析失败，回退到 tg_signer.__version__",
+            exc_info=True,
+        )
         try:
             from tg_signer import __version__
 
             return str(__version__)
-        except Exception:
+        except (ImportError, AttributeError):
+            logging.getLogger("backend.startup").warning(
+                "tg_signer.__version__ 也不可用，版本回退到 0.0.0",
+                exc_info=True,
+            )
             return "0.0.0"
 
 
@@ -226,7 +239,7 @@ def ready_check(response: Response) -> dict:
 
         payload["scheduler_lock_held"] = has_scheduler_lock()
         payload["legacy_tasks_writable"] = _legacy_writes_allowed()
-    except Exception as exc:
+    except (ImportError, AttributeError) as exc:
         logging.getLogger("backend.readyz").debug("ready 附加信息失败: %s", exc)
     return payload
 
@@ -340,8 +353,9 @@ async def on_startup() -> None:
 
             await get_keyword_monitor_service().restart_from_tasks()
         except Exception as exc:
-            logging.getLogger("backend.startup").error(
-                f"Delayed scheduler sync failed: {exc}"
+            # 顶层兜底：启动阶段任何未处理异常都不能让进程崩溃
+            logging.getLogger("backend.startup").exception(
+                "Delayed scheduler sync failed: %s", exc
             )
         finally:
             app.state.ready = True
@@ -371,8 +385,8 @@ def _pre_export_session_strings() -> None:
             import shutil
             shutil.rmtree(wildcard_dir)
             logger.info("Cleaned up stray '*' task directory")
-    except Exception as exc:
-        logger.warning(f"Failed to clean wildcard dir: {exc}")
+    except OSError as exc:
+        logger.warning("清理通配符目录失败: %s", exc)
 
     # Only needed in file mode - string mode already has session strings
     if get_session_mode() == "string":
@@ -414,6 +428,7 @@ async def _memory_monitor_loop() -> None:
             try:
                 monitor.check()
             except Exception:
+                # 内存检查可能因 psutil 系统调用瞬时失败；保留宽捕获确保监控循环不退出
                 logger.exception("内存检查失败")
             await asyncio.sleep(monitor.check_interval)
     except asyncio.CancelledError:
@@ -445,4 +460,5 @@ async def on_shutdown() -> None:
 
         await get_keyword_monitor_service().stop()
     except Exception:
+        # 顶层兜底：关闭阶段任何异常不能阻止进程退出
         logging.getLogger("backend.shutdown").exception("Keyword monitor shutdown failed")

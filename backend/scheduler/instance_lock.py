@@ -71,8 +71,9 @@ def release_scheduler_lock() -> None:
     if _lock is not None and _held:
         try:
             _lock.release()
-        except Exception as exc:  # pragma: no cover
-            logger.debug("释放调度锁失败: %s", exc)
+        except Exception as exc:  # pragma: no cover - 取决于 filelock 内部状态
+            # filelock 的 release 在异常状态下可能抛出未知错误；记录后继续清理
+            logger.debug("释放调度锁失败: %s", exc, exc_info=True)
     _held = False
     _lock = None
 

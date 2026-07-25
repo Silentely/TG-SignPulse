@@ -190,6 +190,7 @@ class TaskRunner:
             )
 
         except Exception as exc:
+            # 顶层兜底：任务执行入口需捕获所有异常以保证其他任务不被影响
             status = TaskStatus.FAILED
             error_value = exc
 
@@ -207,7 +208,12 @@ class TaskRunner:
                 try:
                     self._on_task_done(task_result)
                 except Exception:
-                    logger.exception("任务回调执行失败: %s", task_id)
+                    # 回调失败不能影响任务执行流程；记录完整堆栈便于排障
+                    logger.exception(
+                        "任务回调执行失败: task_id=%s status=%s",
+                        task_id,
+                        task_result.status,
+                    )
 
             self._active_tasks.pop(task_id, None)
 
@@ -276,6 +282,11 @@ class TaskRunner:
                     )
                 )
             except Exception as exc:
+                # 顶层兜底：单任务异常不影响其他任务结果收集
+                logger.exception(
+                    "收集任务结果失败: %s",
+                    getattr(exc, "__class__", type(exc)).__name__,
+                )
                 results.append(
                     TaskResult(
                         task_id="unknown",

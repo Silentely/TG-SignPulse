@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import threading
 from datetime import timedelta
@@ -81,7 +82,17 @@ def verify_totp(secret: str, code: str) -> bool:
         # 清理过期条目（锁外执行，避免增加锁持有时间）
         _cleanup_used_totp_codes()
         return True
+    except (ValueError, TypeError, OSError) as exc:
+        # pyotp/hashlib/系统调用相关异常视为验证失败，不向上抛出
+        logging.getLogger("backend.auth").warning(
+            "TOTP 验证过程异常，按失败处理: %s", exc
+        )
+        return False
     except Exception:
+        # 兜底：未知异常不能让认证接口崩溃
+        logging.getLogger("backend.auth").exception(
+            "TOTP 验证发生未知异常，按失败处理"
+        )
         return False
 
 
