@@ -1,8 +1,9 @@
-"""AI 配置加密存储测试 — 覆盖 config.py 的 save/get/export 路径"""
+"""AI 配置加密存储测试 — 覆盖 config.py 的 save/get/export/test 路径"""
 from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -44,9 +45,23 @@ class TestSaveAiConfigEncryption:
         assert raw["base_url"] == "https://custom.api.com"
         assert raw["model"] == "gpt-4o"
 
+    def test_save_without_key_preserves_existing(self, isolated_env: Path):
+        """仅更新 model/base_url 时不得破坏已有密钥"""
+        service = ConfigService()
+        service.save_ai_config(
+            api_key="sk-original-key", base_url="https://a.example", model="gpt-4o"
+        )
+        service.save_ai_config(api_key=None, base_url="https://b.example", model="gpt-4o-mini")
+
+        config = service.get_ai_config()
+        assert config is not None
+        assert config["api_key"] == "sk-original-key"
+        assert config["base_url"] == "https://b.example"
+        assert config["model"] == "gpt-4o-mini"
+
 
 class TestGetAiConfig:
-    """get_ai_config 应正确读取配置"""
+    """get_ai_config 应正确读取并解密配置"""
 
     def test_get_returns_none_when_no_config(self, isolated_env: Path):
         """无配置文件时返回 None"""
@@ -56,17 +71,58 @@ class TestGetAiConfig:
             config_file.unlink()
         assert service.get_ai_config() is None
 
-    def test_get_returns_saved_config(self, isolated_env: Path):
-        """保存后能正确读取配置（返回密文）"""
+    def test_get_returns_decrypted_plaintext(self, isolated_env: Path):
+        """保存后读取应返回解密明文，磁盘仍为密文"""
         service = ConfigService()
-        service.save_ai_config(api_key="sk-test-abc", base_url="https://api.test.com", model="gpt-4o")
+        service.save_ai_config(
+            api_key="sk-test-abc", base_url="https://api.test.com", model="gpt-4o"
+        )
 
         config = service.get_ai_config()
         assert config is not None
         assert config["base_url"] == "https://api.test.com"
         assert config["model"] == "gpt-4o"
-        # api_key 是密文（Fernet 格式），不是明文
-        assert config["api_key"].startswith("fernet:"), "应为 Fernet 加密格式"
+        assert config["api_key"] == "sk-test-abc", "业务路径应拿到明文"
+
+        raw = json.loads(
+            (service.workdir / ".openai_config.json").read_text(encoding="utf-8")
+        )
+        assert raw["api_key"].startswith("fernet:"), "磁盘应为密文"
+        assert raw["api_key"] != "sk-test-abc"
+
+
+class TestTestAiConnection:
+    """test_ai_connection 必须使用解密后的明文 Key"""
+
+    @pytest.mark.asyncio
+    async def test_uses_decrypted_key_not_ciphertext(self, isolated_env: Path):
+        """保存加密 Key 后，测试连接应把明文传给 OpenAI 客户端"""
+        service = ConfigService()
+        service.save_ai_config(
+            api_key="sk-live-plaintext-key",
+            base_url="https://api.openai.com/v1",
+            model="gpt-4o-mini",
+        )
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "test ok"
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+
+        captured: dict = {}
+
+        def _fake_openai(**kwargs):
+            captured.update(kwargs)
+            return mock_client
+
+        with patch("openai.AsyncOpenAI", side_effect=_fake_openai):
+            result = await service.test_ai_connection()
+
+        assert result["success"] is True
+        assert captured.get("api_key") == "sk-live-plaintext-key"
+        assert not str(captured.get("api_key", "")).startswith("fernet:")
 
 
 class TestExportAllConfigs:
@@ -114,14 +170,7 @@ class TestExportAllConfigs:
         assert any("masked" in w.lower() for w in result["warnings"])
         stored = service.get_ai_config()
         assert stored is not None
-        # 解密后应为原密钥
-        from backend.services.config import ConfigService as CS
-
         # get_ai_config 返回解密后的明文供使用
         assert stored.get("base_url") == "https://api.new.com"
         assert stored.get("model") == "gpt-4o-mini"
-        # api_key 仍是原值（非 MASKED）
-        assert stored.get("api_key") not in {"***MASKED***", None, ""}
-        assert "sk-real" in str(stored.get("api_key") or "") or stored.get(
-            "api_key"
-        )  # 允许 fernet 中间态时仍非 mask
+        assert stored.get("api_key") == "sk-real-key"

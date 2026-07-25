@@ -606,7 +606,11 @@ class ConfigService:
 
     def get_ai_config(self) -> Optional[Dict]:
         """
-        获取 AI 配置，优先解密加密的 API Key，兼容旧版明文
+        获取 AI 配置，优先解密加密的 API Key，兼容旧版明文。
+
+        返回值中的 api_key 始终为明文（或无法解密时为空），
+        供测试连接、脱敏展示等业务路径直接使用。
+        磁盘上仍以 Fernet 密文存储。
 
         Returns:
             配置字典，如果不存在则返回 None
@@ -616,7 +620,17 @@ class ConfigService:
         if not raw:
             return None
 
-        api_key = raw.get("api_key", "")
+        api_key = raw.get("api_key", "") or ""
+        if api_key:
+            try:
+                from tg_signer.security import decrypt_secret
+
+                api_key = decrypt_secret(api_key) or ""
+            except Exception as exc:
+                logging.getLogger("backend.config").warning(
+                    "AI API Key 解密失败，返回空密钥: %s", exc
+                )
+                api_key = ""
 
         return {
             "api_key": api_key,
@@ -685,24 +699,33 @@ class ConfigService:
 
     async def test_ai_connection(self) -> Dict:
         """
-        测试 AI 连接
+        测试 AI 连接。
 
-        Returns:
-            测试结果
+        使用 get_ai_config() 拿到的明文 API Key 发起请求；
+        不得把磁盘上的 Fernet 密文直接传给 OpenAI。
         """
         config = self.get_ai_config()
 
         if not config:
             return {"success": False, "message": "未配置 AI API Key"}
 
-        api_key = config.get("api_key")
+        api_key = (config.get("api_key") or "").strip()
         base_url = config.get("base_url")
         from tg_signer.ai_tools import DEFAULT_MODEL
 
         model = config.get("model") or DEFAULT_MODEL
 
         if not api_key:
-            return {"success": False, "message": "API Key 为空"}
+            return {"success": False, "message": "API Key 为空或解密失败"}
+
+        # 防御：若仍是密文格式，说明解密链路异常，拒绝外发
+        from tg_signer.security import is_encrypted_secret
+
+        if is_encrypted_secret(api_key):
+            return {
+                "success": False,
+                "message": "API Key 解密失败，请检查 APP_SECRET_KEY 后重新保存",
+            }
 
         try:
             from openai import AsyncOpenAI
