@@ -200,13 +200,14 @@ pip install -e ".[dev]"
 uvicorn backend.main:app --reload --port 8080
 
 # 前端
+nvm use
 cd frontend
 npm ci
 npm run dev
 ```
 
 - Python 3.10–3.13（推荐 3.12）
-- Node.js 22.12.0+
+- Node.js 22.23.1（以仓库 `.nvmrc` 为准，不支持跨主版本开发）
 - 不建议使用 Python 3.14+（Telegram 运行时依赖尚未兼容）
 
 ---

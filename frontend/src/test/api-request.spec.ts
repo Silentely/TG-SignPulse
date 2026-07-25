@@ -164,13 +164,13 @@ describe('api.request - 401 处理', () => {
     )
 
     const api = await importApi()
-    const result = expect(api.exportBackupArchive('valid-token')).resolves.toMatchObject({
-      mode: 'webdav',
-      filename: 'backup.tar.gz',
-    })
-
-    await vi.advanceTimersByTimeAsync(31_000)
-    await result
+    await Promise.all([
+      expect(api.exportBackupArchive('valid-token')).resolves.toMatchObject({
+        mode: 'webdav',
+        filename: 'backup.tar.gz',
+      }),
+      vi.advanceTimersByTimeAsync(31_000),
+    ])
   })
 
   it('WebDAV 备份下载不受普通 API 的 30 秒默认超时限制', async () => {
@@ -182,7 +182,7 @@ describe('api.request - 401 处理', () => {
       new Promise<Response>((resolve, reject) => {
         const timer = setTimeout(() => {
           resolve(
-            new Response(new Blob(['backup']), {
+            new Response('backup', {
               status: 200,
               headers: { 'Content-Disposition': 'attachment; filename="remote.tar.gz"' },
             }),
@@ -200,12 +200,12 @@ describe('api.request - 401 处理', () => {
     )
 
     const api = await importApi()
-    const result = expect(
-      api.downloadWebdavBackup('valid-token', 'remote.tar.gz'),
-    ).resolves.toEqual({ filename: 'remote.tar.gz' })
-
-    await vi.advanceTimersByTimeAsync(31_000)
-    await result
+    await Promise.all([
+      expect(api.downloadWebdavBackup('valid-token', 'remote.tar.gz')).resolves.toEqual({
+        filename: 'remote.tar.gz',
+      }),
+      vi.advanceTimersByTimeAsync(31_000),
+    ])
     expect(click).toHaveBeenCalledOnce()
     expect(createObjectUrl).toHaveBeenCalledOnce()
     expect(revokeObjectUrl).toHaveBeenCalledWith('blob:backup')

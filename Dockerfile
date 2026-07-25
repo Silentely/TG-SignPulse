@@ -1,4 +1,5 @@
-FROM node:22-slim AS frontend-builder
+# 与 .nvmrc、package.json engines 和 GitHub Actions 保持一致。
+FROM node:22.23.1-slim AS frontend-builder
 
 WORKDIR /frontend
 

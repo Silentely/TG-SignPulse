@@ -67,7 +67,7 @@ graph TD
 ### 前置要求
 
 - Python 3.10-3.13
-- Node.js >= 22.12.0
+- Node.js 22.23.1（以 `.nvmrc` 为准；CI 与 Docker 使用同一版本）
 
 ### 本地开发
 

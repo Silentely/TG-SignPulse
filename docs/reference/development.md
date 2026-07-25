@@ -7,6 +7,7 @@
 | 组件 | 要求 |
 | --- | --- |
 | Python | `>=3.10,<3.14` |
+| Node.js | `22.23.1`（以仓库 `.nvmrc` 为准） |
 | FastAPI | `>=0.109.2` |
 | Pydantic | `pydantic>=1.10,<3`（兼容层见 `tg_signer/pydantic_compat.py`） |
 | SQLAlchemy | 当前使用 1.x 风格 API |
@@ -101,6 +102,7 @@ pytest --no-cov
 前端使用 Vitest 进行单元测试：
 
 ```bash
+nvm use
 cd frontend
 
 # 运行全部测试
@@ -111,6 +113,26 @@ npm run test:watch
 ```
 
 测试文件位于 `frontend/src/test/` 目录。
+
+本地、GitHub Actions 和 Docker 前端构建统一使用 `.nvmrc` 指定的 Node.js
+22.23.1。不要使用其他 Node 主版本验证后直接提交；升级 Node 时必须同步更新
+`.nvmrc`、两个 `package.json` 的 `engines`、Dockerfile，并重新运行完整前端测试与构建。
+
+#### jsdom 与 Node Web API 测试约束
+
+Vitest 的 jsdom 环境和 Node/Undici 可能分别提供 `Blob`、`File`、`Response`、
+`ReadableStream` 等 Web API。不同 realm 的对象即使名称相同，也不保证可以互相传递。
+
+- 构造真实 `Response` 测试夹具时，正文优先使用字符串或字节数组，再通过
+  `response.blob()` 验证 Blob 消费路径。
+- 不要把 jsdom 创建的 `Blob` 直接传给 Node/Undici 的 `Response`；这在部分平台会因
+  缺少兼容的 `stream()` 方法而失败。
+- 必须测试流异常时，使用 `ReadableStream` 明确触发 `controller.error()`，不要伪造可重复
+  读取的简化响应对象。
+- fake timer 与异步断言应放入同一个已等待的 `Promise.all()`，避免留下未等待的
+  `expect(...).resolves`。
+- 涉及 Node Web API 的测试在提交前至少执行 `nvm use && cd frontend && npm test`，并运行
+  `npm run typecheck` 与 `npm run build`。
 
 ### 覆盖率配置
 
