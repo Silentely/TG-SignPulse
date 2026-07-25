@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from pathlib import Path
 
@@ -280,7 +281,9 @@ async def task_logs_ws(
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        print(f"WS Error for Task {task_id}: {e}")
+        logging.getLogger("backend.api.tasks").warning(
+            "WS Error for Task %s: %s", task_id, e
+        )
     finally:
         try:
             await websocket.close()

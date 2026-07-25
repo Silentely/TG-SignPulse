@@ -97,7 +97,6 @@ def get_writable_base_dir() -> Path:
         f"WARNING: /data is not writable. Falling back to {fallback}; "
         "data may be non-persistent."
     )
-    print(message)
     logging.getLogger("backend.storage").warning(message)
     _BASE_DIR = fallback
     return _BASE_DIR

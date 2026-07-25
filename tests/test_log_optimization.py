@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 # 导入待测试的函数
-from tg_signer.log_utils import safe_traceback_preview, safe_text_preview
+from tg_signer.log_utils import safe_traceback_preview
 
 
 class TestSafeTracebackPreview:
@@ -168,8 +168,6 @@ class TestConfigureLogger:
                     log_level="INFO",
                     log_dir=tmpdir,
                 )
-                pyrogram_logger = logging.getLogger("pyrogram")
-                first_count = len(pyrogram_logger.handlers)
 
                 # 第二次调用（模拟重复配置）
                 configure_logger(
@@ -177,7 +175,6 @@ class TestConfigureLogger:
                     log_level="INFO",
                     log_dir=tmpdir,
                 )
-                second_count = len(pyrogram_logger.handlers)
 
                 # 注意：当前实现可能会重复添加，这是已知问题
                 # 这个测试会失败，标记为 xfail
@@ -253,3 +250,33 @@ class TestRunIdFormat:
 # 运行测试的辅助函数
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])
+
+
+class TestNoBarePrintInProduction:
+    """生产模块不得残留 bare print() 调试语句。
+
+    print 走 stdout，会绕过 LOG_LEVEL 过滤与结构化日志，
+    在 Docker 生产环境丢失日志层级。统一改用 logging.getLogger。
+    """
+
+    # 待扫描的生产模块文件路径（相对项目根）
+    _TARGETS = [
+        "backend/scheduler/__init__.py",
+        "backend/utils/storage.py",
+        "backend/api/routes/tasks.py",
+        "tg_signer/core/runtime.py",
+        "tg_signer/core/monitor.py",
+    ]
+
+    @pytest.mark.parametrize("rel_path", _TARGETS)
+    def test_no_bare_print_statement(self, rel_path):
+        # 直接读源码文本做静态扫描，避免 import 触发预存的链式 NameError
+        src = Path(rel_path).read_text(encoding="utf-8")
+        offending = [
+            f"{i+1}: {line.strip()}"
+            for i, line in enumerate(src.splitlines())
+            if line.strip().startswith("print(")
+        ]
+        assert offending == [], (
+            f"{rel_path} 残留 bare print() 调试语句: {offending}"
+        )

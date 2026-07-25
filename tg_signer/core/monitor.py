@@ -1,7 +1,11 @@
 """UserMonitor（从 core 拆分）。"""
 from __future__ import annotations
 
+import logging
+
 from tg_signer.core.worker import *  # noqa: F403
+
+logger = logging.getLogger("tg-signer.monitor")
 
 class UserMonitor(BaseUserWorker[MonitorConfig]):
     _workdir = ".monitor"
@@ -284,4 +288,4 @@ class _UDPProtocol(asyncio.DatagramProtocol):
         pass  # 不需要处理接收的数据
 
     def error_received(self, exc):
-        print(f"UDP error received: {exc}")
+        logger.warning("UDP error received: %s", exc)

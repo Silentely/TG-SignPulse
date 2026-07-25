@@ -26,7 +26,6 @@ from typing import (
     TypeVar,
     Union,
 )
-from urllib import parse
 
 import httpx
 from croniter import CroniterBadCronError, croniter
@@ -37,6 +36,24 @@ try:
 except ImportError:  # pragma: no cover
     ConfigDict = None
 
+from tg_signer.ai_tools import AITools, OpenAIConfigManager
+from tg_signer.async_utils import create_logged_task
+from tg_signer.compat import (
+    _PYROGRAM_IMPORT_ERROR,
+    ChatMembersFilter,
+    EditedMessageHandler,
+    InlineKeyboardMarkup,
+    Message,
+    MessageHandler,
+    Object,
+    ReplyKeyboardMarkup,
+    User,
+    _raise_pyrogram_import_error,
+    errors,
+    filters,
+    idle,
+    raw,
+)
 from tg_signer.config import (
     ActionT,
     BaseJSONConfig,
@@ -56,42 +73,15 @@ from tg_signer.config import (
     SupportAction,
     UDPForward,
 )
-from tg_signer.ai_tools import AITools, OpenAIConfigManager
-from tg_signer.async_utils import create_logged_task
-from tg_signer.compat import (
-    Chat,
-    ChatMembersFilter,
-    ChatType,
-    EditedMessageHandler,
-    InlineKeyboardMarkup,
-    MemoryStorage,
-    Message,
-    MessageHandler,
-    Object,
-    ReplyKeyboardMarkup,
-    Session,
-    User,
-    errors,
-    filters,
-    idle,
-    raw,
-)
-from tg_signer.log_utils import (
-    safe_ai_request_meta,
-    safe_ai_result_meta,
-    safe_text_preview,
-)
-from tg_signer.notification.server_chan import sc_send
-from tg_signer.utils import UserInput, print_to_user
 
 # Client 真源：生命周期与工厂
 from tg_signer.core.client import (  # noqa: F401
-    OPENAI_USE_PROMPT,
-    DICE_EMOJIS,
-    Client,
     _CLIENT_ASYNC_LOCKS,
     _CLIENT_INSTANCES,
     _CLIENT_REFS,
+    DICE_EMOJIS,
+    OPENAI_USE_PROMPT,
+    Client,
     _is_callback_confirmation_unavailable,
     _is_callback_data_invalid,
     _patched_invoke,
@@ -107,6 +97,13 @@ from tg_signer.core.client import (  # noqa: F401
     readable_chat,
     readable_message,
 )
+from tg_signer.log_utils import (
+    safe_ai_request_meta,
+    safe_ai_result_meta,
+    safe_text_preview,
+)
+from tg_signer.notification.server_chan import sc_send
+from tg_signer.utils import UserInput, print_to_user
 
 # 与 CLI / client / 后端 TaskLogHandler 统一使用历史名 tg-signer，
 # 避免过程日志打到另一 logger 导致面板 flow_logs 只有外壳行。
@@ -3036,4 +3033,4 @@ class _UDPProtocol(asyncio.DatagramProtocol):
         pass  # 不需要处理接收的数据
 
     def error_received(self, exc):
-        print(f"UDP error received: {exc}")
+        logger.warning("UDP error received: %s", exc)
