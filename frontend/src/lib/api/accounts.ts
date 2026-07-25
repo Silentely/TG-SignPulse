@@ -1,7 +1,7 @@
 /**
  * 账号管理 API：登录流程、CRUD、状态检测、设备、官方消息、账号日志。
  */
-import { API_BASE, request } from "./core";
+import { API_BASE, request, requestBlob } from "./core";
 
 export interface LoginStartRequest {
   account_name: string;
@@ -304,3 +304,10 @@ export const exportAccountLogs = async (token: string, accountName: string) => {
   a.remove();
   window.URL.revokeObjectURL(url);
 };
+
+/**
+ * 下载账号头像。复用 requestBlob 的鉴权与 401 跳转；失败时抛 ApiError，
+ * 调用方按需 catch 回退到默认头像。
+ */
+export const fetchAccountAvatar = (token: string, accountName: string) =>
+  requestBlob(`/accounts/${encodeURIComponent(accountName)}/avatar`, {}, token);

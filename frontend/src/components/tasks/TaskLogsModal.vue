@@ -7,10 +7,12 @@ import {
   getSignTaskHistory,
   listKeywordHits,
   listKeywordHitGroups,
-  exportKeywordHitsUrl,
+  exportKeywordHitsBlob,
+  getSignTaskLogs,
+  getSignTaskRunStatus,
   clearKeywordHits,
 } from '../../lib/api'
-import type { SignTaskHistoryItem, KeywordHitRecord, KeywordHitGroup } from '../../lib/api'
+import type { SignTaskHistoryItem, KeywordHitRecord, KeywordHitGroup, SignTaskRunStatus } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
 import { useConfirm } from '../../composables/useConfirm'
@@ -71,7 +73,7 @@ const canLoadMoreHits = computed(
   () => hitsView.value === 'list' && hitRecords.value.length < hitTotal.value,
 )
 
-const applyStatusPayload = (msg: Record<string, unknown>) => {
+const applyStatusPayload = (msg: Record<string, unknown> | SignTaskRunStatus) => {
   if (msg.phase !== undefined) livePhase.value = (msg.phase as string) || null
   if (msg.phase_detail !== undefined) livePhaseDetail.value = String(msg.phase_detail || '')
   if (msg.failure_category !== undefined) {
@@ -237,17 +239,12 @@ const exportHits = async () => {
   if (!props.task) return
   const token = authStore.token || ''
   const accountName = props.runAccount || getTaskAccountName(props.task) || undefined
-  const url = exportKeywordHitsUrl({
-    account_name: accountName,
-    task_name: props.task.name,
-    limit: 2000,
-  })
   try {
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
+    const blob = await exportKeywordHitsBlob(token, {
+      account_name: accountName,
+      task_name: props.task.name,
+      limit: 2000,
     })
-    if (!res.ok) throw new Error(`export failed: ${res.status}`)
-    const blob = await res.blob()
     const a = document.createElement('a')
     const objectUrl = URL.createObjectURL(blob)
     a.href = objectUrl
@@ -357,30 +354,20 @@ const startPolling = () => {
     const token = authStore.token || ''
     const accountName = getTaskAccountName(props.task) || ''
     try {
-      const res = await fetch(`/api/sign-tasks/${encodeURIComponent(props.task.name)}/logs?account_name=${encodeURIComponent(accountName)}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-      if (res.ok) {
-        const data = await res.json()
-        if (Array.isArray(data) && data.length > 0) {
-          realtimeLogs.value = data
-          nextTick(() => {
-            if (logContainer.value) {
-              logContainer.value.scrollTop = logContainer.value.scrollHeight
-            }
-          })
-        }
+      const data = await getSignTaskLogs(token, props.task.name, accountName)
+      if (Array.isArray(data) && data.length > 0) {
+        realtimeLogs.value = data
+        nextTick(() => {
+          if (logContainer.value) {
+            logContainer.value.scrollTop = logContainer.value.scrollHeight
+          }
+        })
       }
-      const statusRes = await fetch(`/api/sign-tasks/${encodeURIComponent(props.task.name)}/run/status?account_name=${encodeURIComponent(accountName)}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-      if (statusRes.ok) {
-        const status = await statusRes.json()
-        applyStatusPayload(status)
-        if (status.state !== 'running') {
-          isRunning.value = false
-          if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
-        }
+      const status = await getSignTaskRunStatus(token, props.task.name, accountName)
+      applyStatusPayload(status)
+      if (status.state !== 'running') {
+        isRunning.value = false
+        if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
       }
     } catch {
       // keep polling

@@ -134,3 +134,106 @@ export async function request<T>(
   }
   return res.json();
 }
+
+/**
+ * 下载二进制响应（如头像、CSV 导出）。复用 request 的鉴权、超时、401 跳转
+ * 与错误解析逻辑，成功时返回 Blob 而非 JSON。
+ */
+export async function requestBlob(
+  path: string,
+  options: RequestInit = {},
+  token?: string | null
+): Promise<Blob> {
+  const mergedHeaders: Record<string, string> = {
+    ...toRecord(options.headers),
+  };
+  if (token) {
+    mergedHeaders["Authorization"] = `Bearer ${token}`;
+  }
+
+  const controller = new AbortController();
+  const externalSignal = options.signal;
+  const onExternalAbort = () => controller.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      controller.abort();
+    } else {
+      externalSignal.addEventListener("abort", onExternalAbort, { once: true });
+    }
+  }
+  const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers: mergedHeaders,
+      cache: "no-store",
+      signal: controller.signal,
+    });
+  } catch (e: unknown) {
+    clearTimeout(timeoutId);
+    if (externalSignal) {
+      externalSignal.removeEventListener("abort", onExternalAbort);
+    }
+    const isAbort =
+      (e instanceof DOMException && e.name === "AbortError") ||
+      (e instanceof Error && e.name === "AbortError");
+    const err = new Error(isAbort ? "NETWORK_TIMEOUT" : "NETWORK_ERROR") as ApiError;
+    err.status = 0;
+    err.code = isAbort ? "NETWORK_TIMEOUT" : "NETWORK_ERROR";
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+    if (externalSignal) {
+      externalSignal.removeEventListener("abort", onExternalAbort);
+    }
+  }
+
+  if (!res.ok) {
+    let errorMessage = `Request failed (${res.status})`;
+    try {
+      const errorData = await res.json();
+      if (errorData && typeof errorData === "object") {
+        const detail = errorData.detail;
+        if (typeof detail === "string" && detail.trim()) {
+          errorMessage = detail.trim();
+        } else if (Array.isArray(detail)) {
+          const msgs = (detail as FastApiValidationError[])
+            .map((d) => (d.msg || "").trim() || JSON.stringify(d))
+            .filter(Boolean);
+          if (msgs.length) errorMessage = msgs.join("; ");
+        } else if (detail && typeof detail === "object") {
+          errorMessage = JSON.stringify(detail);
+        } else if (typeof errorData.message === "string" && errorData.message.trim()) {
+          errorMessage = errorData.message.trim();
+        } else {
+          errorMessage = JSON.stringify(errorData);
+        }
+      }
+    } catch {
+      // 非 JSON 错误响应，使用文本兜底
+      try {
+        const text = (await res.text()).trim();
+        if (text) errorMessage = text;
+      } catch {
+        // 忽略
+      }
+    }
+
+    if (res.status === 401 && token) {
+      if (typeof window !== "undefined") {
+        const authStore = useAuthStore();
+        if (authStore.token === token) {
+          authStore.clearToken();
+          window.location.href = "/";
+        }
+      }
+    }
+
+    const err = new Error(errorMessage) as ApiError;
+    err.status = res.status;
+    throw err;
+  }
+  return res.blob();
+}

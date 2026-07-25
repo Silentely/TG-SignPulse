@@ -2,7 +2,7 @@
 import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Play, FileText, Edit2, Trash2, Plus, Radio, Clock, Shuffle, Power, Search, Square, X } from 'lucide-vue-next'
-import { listSignTasks, deleteSignTask, startSignTaskRun, listAccounts, toggleSignTaskEnabled, batchSignTasks, cloneSignTask, listActiveSignTaskRuns, cancelSignTaskRun, listKeywordHitGroups } from '../lib/api'
+import { listSignTasks, deleteSignTask, startSignTaskRun, listAccounts, toggleSignTaskEnabled, batchSignTasks, cloneSignTask, listActiveSignTaskRuns, cancelSignTaskRun, listKeywordHitGroups, fetchChatAvatar } from '../lib/api'
 import { BUILT_IN_TEMPLATES } from '../lib/task-templates'
 import type { SignTask, AccountInfo, ActiveRunSummary } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
@@ -544,36 +544,31 @@ const loadChatAvatar = async (task: TaskUiItem, accountName: string, chatId: num
   }
 
   try {
-    const res = await fetch(`/api/sign-tasks/chats/${encodeURIComponent(accountName)}/avatar/${chatId}`, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
-    if (res.ok) {
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      task.chatAvatarUrl = url
-      // Clear no-avatar marker
-      localStorage.removeItem(noAvatarKey)
-      // Cache as data URL for persistence
-      try {
-        const reader = new FileReader()
-        reader.onload = () => {
-          if (reader.result) {
-            try {
-              localStorage.setItem(cacheKey, reader.result as string)
-            } catch {
-              // localStorage quota exceeded - fall back to sessionStorage
-              try { sessionStorage.setItem(cacheKey, reader.result as string) } catch {}
-            }
+    const blob = await fetchChatAvatar(token, accountName, chatId)
+    const url = URL.createObjectURL(blob)
+    task.chatAvatarUrl = url
+    // Clear no-avatar marker
+    localStorage.removeItem(noAvatarKey)
+    // Cache as data URL for persistence
+    try {
+      const reader = new FileReader()
+      reader.onload = () => {
+        if (reader.result) {
+          try {
+            localStorage.setItem(cacheKey, reader.result as string)
+          } catch {
+            // localStorage quota exceeded - fall back to sessionStorage
+            try { sessionStorage.setItem(cacheKey, reader.result as string) } catch {}
           }
         }
-        reader.readAsDataURL(blob)
-      } catch {}
-    } else if (res.status === 404) {
-      // Mark with timestamp to retry after 1 hour
+      }
+      reader.readAsDataURL(blob)
+    } catch {}
+  } catch (e: unknown) {
+    // 404 标记 1 小时内不重试；其他网络错误不缓存
+    if (e && typeof e === 'object' && 'status' in e && (e as { status: number }).status === 404) {
       try { localStorage.setItem(noAvatarKey, String(Date.now())) } catch {}
     }
-  } catch {
-    // Network error, don't cache
   }
 }
 

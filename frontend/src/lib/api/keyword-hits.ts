@@ -1,7 +1,7 @@
 /**
  * 关键词命中记录 API：列表、分组、导出 URL、清理。
  */
-import { request } from "./core";
+import { request, requestBlob } from "./core";
 
 /** 关键词命中记录 */
 export interface KeywordHitRecord {
@@ -107,4 +107,20 @@ export const clearKeywordHits = (
     { method: "DELETE" },
     token,
   );
+};
+
+/**
+ * 下载关键词命中记录导出（CSV）。复用 requestBlob 的鉴权与 401 跳转；
+ * exportKeywordHitsUrl 仅构造 URL，本函数实际拉取二进制内容。
+ */
+export const exportKeywordHitsBlob = (
+  token: string,
+  params?: { account_name?: string; task_name?: string; limit?: number },
+) => {
+  const q = new URLSearchParams();
+  if (params?.account_name) q.set("account_name", params.account_name);
+  if (params?.task_name) q.set("task_name", params.task_name);
+  if (params?.limit != null) q.set("limit", String(params.limit));
+  const qs = q.toString();
+  return requestBlob(`/keyword-hits/export${qs ? `?${qs}` : ""}`, {}, token);
 };

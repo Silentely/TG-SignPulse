@@ -1,7 +1,7 @@
 /**
  * 签到任务管理 API：CRUD、执行、运行状态、历史、批量操作、聊天查询。
  */
-import { request } from "./core";
+import { request, requestBlob } from "./core";
 import type { RawTaskAction } from "../types";
 
 export interface SignTaskChat {
@@ -299,4 +299,19 @@ export const batchSignTasks = (
       }),
     },
     token
+  );
+
+/**
+ * 下载任务聊天头像。复用 requestBlob 的鉴权与 401 跳转；失败时抛 ApiError，
+ * 调用方按需 catch 回退到默认头像。
+ */
+export const fetchChatAvatar = (
+  token: string,
+  accountName: string,
+  chatId: number | string,
+) =>
+  requestBlob(
+    `/sign-tasks/chats/${encodeURIComponent(accountName)}/avatar/${encodeURIComponent(String(chatId))}`,
+    {},
+    token,
   );

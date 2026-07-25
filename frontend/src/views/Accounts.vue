@@ -10,6 +10,7 @@ import {
   getAccountStatusCheckJob,
   listAccountStatusCheckJobs,
   cancelAccountStatusCheckJob,
+  fetchAccountAvatar,
 } from '../lib/api'
 import type { AccountStatusJob, AccountStatusItem } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
@@ -108,13 +109,8 @@ const loadAccounts = async () => {
 const loadAvatar = async (acc: AccountUiItem) => {
   const token = authStore.token || ''
   try {
-    const res = await fetch(`/api/accounts/${encodeURIComponent(acc.name)}/avatar`, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
-    if (res.ok) {
-      const blob = await res.blob()
-      acc.avatarUrl = URL.createObjectURL(blob)
-    }
+    const blob = await fetchAccountAvatar(token, acc.name)
+    acc.avatarUrl = URL.createObjectURL(blob)
   } catch {
     // No avatar available, keep fallback
   }
