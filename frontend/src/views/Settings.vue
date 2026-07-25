@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
-import { Settings2, KeyRound, Bot, Sparkles, Database, Info, RefreshCw, ExternalLink, Eye, EyeOff } from 'lucide-vue-next'
 import {
   getGlobalSettings,
   saveGlobalSettings,
@@ -30,8 +29,6 @@ import type { BackupStatus, RuntimeStatus, AppVersionInfo, UpdateCheckInfo, Memo
 import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
 import { useConfirm } from '../composables/useConfirm'
-import CustomSelect from '../components/CustomSelect.vue'
-import SettingsFieldHint from '../components/settings/SettingsFieldHint.vue'
 import { useAuthStore } from '../stores/auth'
 import { getLocalizedErrorMessage } from '../lib/types'
 import { devLog } from '../lib/devLog'
@@ -42,7 +39,6 @@ import {
   safeHttpUrl,
   saveCachedUpdateCheck,
 } from '../lib/version-utils'
-import { formatMemoryRssFromStats } from '../lib/memory-format'
 import {
   buildAdvancedPayload as buildAdvancedPayloadOf,
   buildBotPayload as buildBotPayloadOf,
@@ -51,14 +47,23 @@ import {
   isAnySectionDirty,
   snapAllSections,
   type SettingsSection,
+  type SettingsFormState,
+  type TgFormState,
+  type AiFormState,
 } from '../lib/settings-form'
+import GeneralSettings from '../components/settings/GeneralSettings.vue'
+import TelegramApiSettings from '../components/settings/TelegramApiSettings.vue'
+import AiSettings from '../components/settings/AiSettings.vue'
+import BotNotifySettings from '../components/settings/BotNotifySettings.vue'
+import DataManagementSettings from '../components/settings/DataManagementSettings.vue'
+import AboutSettings from '../components/settings/AboutSettings.vue'
 
 const { t } = useI18n()
 const toast = useToast()
 const { confirm } = useConfirm()
 const authStore = useAuthStore()
 
-const settings = ref({
+const settings = ref<SettingsFormState>({
   checkInterval: '',
   logDays: 7,
   dataDir: '',
@@ -118,12 +123,12 @@ const timezoneOptions = [
   { label: 'UTC', value: 'UTC' },
 ]
 
-const tgConfig = ref({
+const tgConfig = ref<TgFormState>({
   api_id: '',
   api_hash: ''
 })
 
-const aiConfig = ref({
+const aiConfig = ref<AiFormState>({
   base_url: '',
   model: '',
   api_key: ''
@@ -203,9 +208,6 @@ onBeforeRouteLeave(async () => {
   return ok
 })
 
-const formatMemoryRss = () =>
-  formatMemoryRssFromStats(memoryStats.value?.stats, t('settings.unknownValue'))
-
 const appVersion = ref<AppVersionInfo | null>(null)
 const versionLoading = ref(false)
 const checkLoading = ref(false)
@@ -217,11 +219,6 @@ const versionBanner = ref<{
 
 const notifySuccess = (msg: string) => toast.success(msg)
 const notifyError = (msg: string) => toast.error(msg)
-
-const shortSha = (sha?: string) => {
-  if (!sha) return t('settings.unknownValue')
-  return sha.length > 12 ? sha.slice(0, 12) : sha
-}
 
 const setUpdateBanner = (
   kind: 'update' | 'latest' | 'error' | 'info',
@@ -717,6 +714,8 @@ const remoteWebdavMessage = ref('')
 const webdavPasswordSet = ref(false)
 /** 服务端是否已保存 Bot Token */
 const botTokenSet = ref(false)
+/** 当前下载的远程文件名 */
+const remoteDownloadName = ref('')
 
 const validateWebdavForm = (): boolean => {
   if (!settings.value.webdavUrl.trim()) {
@@ -783,7 +782,6 @@ const handleListRemoteBackups = async () => {
   }
 }
 
-const remoteDownloadName = ref('')
 const handleDownloadRemoteBackup = async (name: string) => {
   const token = authStore.token || ''
   if (!name) return
@@ -796,18 +794,6 @@ const handleDownloadRemoteBackup = async (name: string) => {
   } finally {
     remoteDownloadName.value = ''
   }
-}
-
-const formatBytes = (n?: number | null) => {
-  if (n == null || !Number.isFinite(n)) return ''
-  const units = ['B', 'KB', 'MB', 'GB']
-  let v = Number(n)
-  let i = 0
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024
-    i += 1
-  }
-  return i === 0 ? `${Math.round(v)} ${units[i]}` : `${v.toFixed(1)} ${units[i]}`
 }
 
 const handleBackupExport = async () => {
@@ -863,14 +849,11 @@ const handleWebdavTest = async () => {
   }
 }
 
-const handleImport = async (e: Event) => {
-  const target = e.target as HTMLInputElement
-  if (!target.files || !target.files[0]) return
-  const file = target.files[0]
+const handleImportFile = async (file: File) => {
+  const token = authStore.token || ''
   const reader = new FileReader()
   reader.onload = async (ev) => {
     const jsonStr = ev.target?.result as string
-    const token = authStore.token || ''
     dataLoading.value = true
     try {
       const preview = await importConfigPreview(token, jsonStr)
@@ -909,10 +892,16 @@ const handleImport = async (e: Event) => {
       notifyError(getLocalizedErrorMessage(err, t, t('settings.importFailed')))
     } finally {
       dataLoading.value = false
-      target.value = ''
     }
   }
   reader.readAsText(file)
+}
+
+const toggleReveal = (key: 'tgApiId' | 'tgApiHash' | 'aiKey' | 'botToken') => {
+  revealSecrets.value = {
+    ...revealSecrets.value,
+    [key]: !revealSecrets.value[key],
+  }
 }
 </script>
 
@@ -948,571 +937,87 @@ const handleImport = async (e: Event) => {
       </div>
     </div>
     <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      
+
       <!-- 通用设置 + Telegram API（左列） -->
       <div class="flex flex-col gap-6">
-        <!-- 通用设置 -->
-        <section class="ui-card p-6">
-          <div class="mb-6 border-b border-gray-200 dark:border-gray-800/60 pb-3 flex items-center justify-between gap-3">
-            <div class="flex items-start gap-3 min-w-0">
-              <span class="ui-section-icon" aria-hidden="true"><Settings2 class="w-3.5 h-3.5" /></span>
-              <div class="min-w-0">
-                <h2 class="text-base font-medium text-gray-900 dark:text-gray-100">{{ t('settings.general') }}</h2>
-                <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.generalDesc') }}</p>
-              </div>
-            </div>
-            <span v-if="loading" class="text-xs text-gray-500 shrink-0">{{ t('settings.saving') }}</span>
-          </div>
-          <div class="space-y-5">
-            <div class="space-y-1.5">
-              <label class="ui-label">{{ t('settings.logRetention') }}</label>
-              <input v-model="settings.logDays" type="number" class="ui-input">
-            </div>
-            <div class="space-y-1.5">
-              <label class="ui-label">{{ t('settings.dataDir') }}</label>
-              <input v-model="settings.dataDir" type="text" placeholder="/data" class="ui-input">
-            </div>
-            <div class="space-y-1.5">
-              <label class="ui-label">{{ t('settings.proxy') }}</label>
-              <input v-model="settings.proxy" type="text" placeholder="socks5://127.0.0.1:1080" class="ui-input">
-            </div>
-            <div class="space-y-1.5">
-              <label class="ui-label">{{ t('settings.concurrency') }}</label>
-              <input v-model.number="settings.concurrency" type="number" min="1" max="10" :placeholder="t('settings.concurrencyPlaceholder')" class="ui-input">
-            </div>
-            <div class="space-y-1.5">
-              <label class="ui-label">{{ t('settings.signInterval') }}</label>
-              <input v-model="settings.checkInterval" type="number" min="0" max="3600" :placeholder="t('settings.signIntervalPlaceholder')" class="ui-input">
-              <p class="text-[10px] text-gray-500">{{ t('settings.signIntervalHint') }}</p>
-            </div>
-            <div class="p-3 bg-gray-50 dark:bg-white/[0.02] border border-gray-200 dark:border-gray-800/60 space-y-3">
-              <div class="flex items-center justify-between gap-3">
-                <div>
-                  <label class="text-xs text-gray-600 dark:text-gray-300 block">{{ t('settings.deviceKeepalive') }}</label>
-                  <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.deviceKeepaliveDesc') }}</p>
-                </div>
-                <button
-                  type="button"
-                  class="ui-switch"
-                  role="switch"
-                  :aria-checked="settings.deviceKeepaliveEnabled"
-                  :class="settings.deviceKeepaliveEnabled ? 'ui-switch-on' : ''"
-                  @click="settings.deviceKeepaliveEnabled = !settings.deviceKeepaliveEnabled"
-                >
-                  <span class="ui-switch-knob" />
-                </button>
-              </div>
-              <div class="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
-                <input v-model.number="settings.deviceKeepaliveIntervalDays" type="number" min="1" max="170" :disabled="!settings.deviceKeepaliveEnabled" class="ui-input disabled:opacity-50">
-                <button type="button" class="ui-btn-secondary !px-3 !py-2 !text-xs" :disabled="keepaliveLoading" @click="runKeepaliveNow">
-                  {{ keepaliveLoading ? t('settings.saving') : t('settings.keepaliveNow') }}
-                </button>
-              </div>
-              <p class="text-[10px] text-gray-500">{{ t('settings.deviceKeepaliveIntervalHint') }}</p>
-            </div>
-            <div class="space-y-1.5">
-              <label class="ui-label">{{ t('settings.timezone') }}</label>
-              <CustomSelect v-model="settings.timezone" :options="timezoneOptions" className="w-full" />
-            </div>
-            <div class="pt-2">
-              <button type="button" class="ui-btn-primary w-full py-2.5" :disabled="loading" @click="saveSettings">{{ loading ? t('settings.saving') : t('settings.saveGeneral') }}</button>
-            </div>
-          </div>
-        </section>
-
-        <!-- Telegram API -->
-        <section class="ui-card p-6">
-          <div class="mb-6 border-b border-gray-200 dark:border-gray-800/60 pb-3 flex items-center justify-between gap-3">
-            <div class="flex items-start gap-3 min-w-0">
-              <span class="ui-section-icon" aria-hidden="true"><KeyRound class="w-3.5 h-3.5" /></span>
-              <div class="min-w-0">
-                <h2 class="text-base font-medium text-gray-900 dark:text-gray-100">{{ t('settings.tgApi') }}</h2>
-                <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.tgApiDesc') }}</p>
-              </div>
-            </div>
-            <button type="button" class="ui-btn-secondary !px-3 !py-1 !text-xs shrink-0" :disabled="tgLoading" @click="resetTgConfig">{{ t('settings.resetDefault') }}</button>
-          </div>
-          <div class="space-y-5">
-            <div class="space-y-1.5">
-              <label class="ui-label">API ID</label>
-              <div class="relative">
-                <input v-model="tgConfig.api_id" :type="revealSecrets.tgApiId ? 'text' : 'password'" class="ui-input pr-10" autocomplete="off">
-                <button type="button" class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200" :aria-label="revealSecrets.tgApiId ? t('settings.hideSecret') : t('settings.showSecret')" @click="revealSecrets.tgApiId = !revealSecrets.tgApiId">
-                  <EyeOff v-if="revealSecrets.tgApiId" class="w-4 h-4" /><Eye v-else class="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-            <div class="space-y-1.5">
-              <label class="ui-label">API Hash</label>
-              <div class="relative">
-                <input v-model="tgConfig.api_hash" :type="revealSecrets.tgApiHash ? 'text' : 'password'" class="ui-input pr-10">
-                <button type="button" class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200" :aria-label="revealSecrets.tgApiHash ? t('settings.hideSecret') : t('settings.showSecret')" @click="revealSecrets.tgApiHash = !revealSecrets.tgApiHash">
-                  <EyeOff v-if="revealSecrets.tgApiHash" class="w-4 h-4" /><Eye v-else class="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-            <div class="p-3 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-800/50 text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
-              <p>
-                {{ t('settings.apiWarning') }}
-                <a href="https://my.telegram.org/auth" target="_blank" rel="noopener noreferrer" class="underline hover:text-amber-900 dark:hover:text-amber-300 font-medium">my.telegram.org</a>
-              </p>
-            </div>
-            <div class="pt-2">
-              <button type="button" class="ui-btn-primary w-full py-2.5" :disabled="tgLoading || !tgConfig.api_id || !tgConfig.api_hash" @click="saveTgConfig">{{ tgLoading ? t('settings.saving') : t('settings.saveTgConfig') }}</button>
-            </div>
-          </div>
-        </section>
+        <GeneralSettings
+          v-model="settings"
+          :timezone-options="timezoneOptions"
+          :loading="loading"
+          :keepalive-loading="keepaliveLoading"
+          @save="saveSettings"
+          @run-keepalive="runKeepaliveNow"
+        />
+        <TelegramApiSettings
+          v-model="tgConfig"
+          :reveal="{ tgApiId: revealSecrets.tgApiId, tgApiHash: revealSecrets.tgApiHash }"
+          :loading="tgLoading"
+          @save="saveTgConfig"
+          @reset="resetTgConfig"
+          @toggle-reveal="toggleReveal"
+        />
       </div>
 
       <!-- AI 配置 + Bot 通知（右列） -->
       <div class="flex flex-col gap-6">
-        <!-- AI 模型配置 -->
-        <section class="ui-card p-6">
-          <div class="mb-6 border-b border-gray-200 dark:border-gray-800/60 pb-3 flex items-center justify-between gap-3">
-            <div class="flex items-start gap-3 min-w-0">
-              <span class="ui-section-icon" aria-hidden="true"><Sparkles class="w-3.5 h-3.5" /></span>
-              <div class="min-w-0">
-                <h2 class="text-base font-medium text-gray-900 dark:text-gray-100">{{ t('settings.aiConfig') }}</h2>
-                <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.aiDesc') }}</p>
-              </div>
-            </div>
-            <button type="button" class="ui-btn-secondary !px-3 !py-1 !text-xs shrink-0" :disabled="aiLoading" @click="testAi">{{ t('settings.testConnection') }}</button>
-          </div>
-          <div class="space-y-5">
-            <div class="space-y-1.5">
-              <label class="ui-label">{{ t('settings.apiBaseUrl') }}</label>
-              <input v-model="aiConfig.base_url" type="text" placeholder="https://api.openai.com/v1" class="ui-input">
-            </div>
-            <div class="space-y-1.5">
-              <label class="ui-label">{{ t('settings.model') }}</label>
-              <input v-model="aiConfig.model" type="text" placeholder="gpt-5-nano" class="ui-input">
-            </div>
-            <div class="space-y-1.5">
-              <label class="ui-label">{{ t('settings.apiKey') }}</label>
-              <div class="relative">
-                <input v-model="aiConfig.api_key" :type="revealSecrets.aiKey ? 'text' : 'password'" placeholder="sk-..." class="ui-input pr-10">
-                <button type="button" class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200" :aria-label="revealSecrets.aiKey ? t('settings.hideSecret') : t('settings.showSecret')" @click="revealSecrets.aiKey = !revealSecrets.aiKey">
-                  <EyeOff v-if="revealSecrets.aiKey" class="w-4 h-4" /><Eye v-else class="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-            <!-- 高级执行 / AI 视觉（从关于页移入） -->
-            <div class="pt-4 border-t border-gray-200 dark:border-gray-800/60 space-y-3">
-              <div>
-                <h3 class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ t('settings.advanced') }}</h3>
-                <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.advancedDesc') }}</p>
-                <p class="text-[10px] text-gray-500">{{ t('settings.emptyAdvancedHint') }}</p>
-              </div>
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <div class="space-y-1">
-                  <label class="text-[10px] text-gray-500">{{ t('settings.execTimeout') }}</label>
-                  <input v-model="settings.execTimeout" type="number" min="30" max="3600" :placeholder="t('settings.execTimeoutPlaceholder')" class="ui-input" />
-                  <SettingsFieldHint :text="t('settings.execTimeoutHint')" />
-                </div>
-                <div class="space-y-1">
-                  <label class="text-[10px] text-gray-500">{{ t('settings.accountCooldown') }}</label>
-                  <input v-model="settings.accountCooldown" type="number" min="0" max="600" :placeholder="t('settings.accountCooldownPlaceholder')" class="ui-input" />
-                </div>
-                <div class="space-y-1">
-                  <label class="text-[10px] text-gray-500">{{ t('settings.flowRetry') }}</label>
-                  <input v-model="settings.flowRetry" type="number" min="1" max="10" :placeholder="t('settings.flowRetryPlaceholder')" class="ui-input" />
-                  <SettingsFieldHint :text="t('settings.flowRetryHint')" />
-                </div>
-                <div class="space-y-1">
-                  <label class="text-[10px] text-gray-500">{{ t('settings.historyMaxAge') }}</label>
-                  <input v-model="settings.historyMaxAge" type="number" min="1" max="90" :placeholder="t('settings.historyMaxAgePlaceholder')" class="ui-input" />
-                </div>
-                <div class="space-y-1">
-                  <label class="text-[10px] text-gray-500">{{ t('settings.aiVisionTimeout') }}</label>
-                  <input v-model="settings.aiVisionTimeout" type="number" min="3" max="120" :placeholder="t('settings.aiVisionTimeoutPlaceholder')" class="ui-input" />
-                </div>
-                <div class="space-y-1">
-                  <label class="text-[10px] text-gray-500">{{ t('settings.aiVisionRetry') }}</label>
-                  <input v-model="settings.aiVisionRetry" type="number" min="1" max="8" :placeholder="t('settings.aiVisionRetryPlaceholder')" class="ui-input" />
-                </div>
-              </div>
-              <button type="button" class="ui-btn-secondary w-full !py-2 !text-xs" :disabled="advancedLoading" @click="saveAdvancedSettings">
-                {{ advancedLoading ? t('settings.saving') : t('settings.saveAdvanced') }}
-              </button>
-            </div>
-            <div class="pt-2">
-              <button type="button" class="ui-btn-primary w-full py-2.5" :disabled="aiLoading" @click="saveAiConfig">{{ aiLoading ? t('settings.saving') : t('settings.saveAiConfig') }}</button>
-            </div>
-          </div>
-        </section>
-
-        <!-- Telegram 机器人通知 -->
-        <section class="ui-card p-6">
-          <div class="mb-6 border-b border-gray-200 dark:border-gray-800/60 pb-3 flex items-center justify-between gap-3">
-            <div class="flex items-start gap-3 min-w-0">
-              <span class="ui-section-icon" aria-hidden="true"><Bot class="w-3.5 h-3.5" /></span>
-              <div class="min-w-0">
-                <h2 class="text-base font-medium text-gray-900 dark:text-gray-100">{{ t('settings.botNotify') }}</h2>
-                <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.botDesc') }}</p>
-              </div>
-            </div>
-            <button 
-              type="button"
-              class="ui-switch shrink-0"
-              role="switch"
-              :aria-checked="settings.botEnabled"
-              :class="settings.botEnabled ? 'ui-switch-on' : ''"
-              @click="settings.botEnabled = !settings.botEnabled"
-            >
-              <span class="ui-switch-knob" />
-            </button>
-          </div>
-
-          <div class="space-y-5">
-            <div class="space-y-1.5">
-              <label class="ui-label">{{ t('settings.botToken') }}</label>
-              <div class="relative">
-                <input
-                  v-model="settings.botToken"
-                  :type="revealSecrets.botToken ? 'text' : 'password'"
-                  :placeholder="botTokenSet ? t('settings.botTokenSavedHint') : '123456:ABC-DEF...'"
-                  class="ui-input pr-10"
-                >
-                <button type="button" class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200" :aria-label="revealSecrets.botToken ? t('settings.hideSecret') : t('settings.showSecret')" @click="revealSecrets.botToken = !revealSecrets.botToken">
-                  <EyeOff v-if="revealSecrets.botToken" class="w-4 h-4" /><Eye v-else class="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-            <div class="space-y-1.5">
-              <label class="ui-label">{{ t('settings.targetChatId') }}</label>
-              <input v-model="settings.botChatId" type="text" placeholder="-1001234567890" class="ui-input">
-            </div>
-            <div class="space-y-1.5">
-              <label class="ui-label">{{ t('settings.threadId') }}</label>
-              <input v-model="settings.botThreadId" type="text" :placeholder="t('settings.threadIdPlaceholder')" class="ui-input">
-            </div>
-            <div class="flex flex-wrap gap-x-6 gap-y-3 pt-2">
-              <label class="flex items-center gap-2 cursor-pointer group">
-                <input v-model="settings.botLoginNotify" type="checkbox" class="w-4 h-4 accent-sky-500 bg-gray-100 border-gray-300 rounded focus:ring-0 dark:bg-gray-800 dark:border-gray-600">
-                <span class="text-sm text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-gray-100 transition-colors">{{ t('settings.loginFailNotify') }}</span>
-              </label>
-              <label class="flex items-center gap-2 cursor-pointer group">
-                <input v-model="settings.botTaskFailure" type="checkbox" class="w-4 h-4 accent-sky-500 bg-gray-100 border-gray-300 rounded focus:ring-0 dark:bg-gray-800 dark:border-gray-600">
-                <span class="text-sm text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-gray-100 transition-colors">{{ t('settings.taskFailNotify') }}</span>
-              </label>
-              <label class="flex items-center gap-2 cursor-pointer group">
-                <input v-model="settings.botTaskSuccess" type="checkbox" class="w-4 h-4 accent-sky-500 bg-gray-100 border-gray-300 rounded focus:ring-0 dark:bg-gray-800 dark:border-gray-600">
-                <span class="text-sm text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-gray-100 transition-colors">{{ t('settings.taskSuccessNotify') }}</span>
-              </label>
-            </div>
-            <div class="p-3 bg-gray-50 dark:bg-white/[0.02] border border-gray-200 dark:border-gray-800/60 space-y-3">
-              <div class="flex items-center justify-between gap-3">
-                <div>
-                  <label class="text-xs text-gray-600 dark:text-gray-300 block">{{ t('settings.quietHours') }}</label>
-                  <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.quietHoursDesc') }}</p>
-                </div>
-                <button
-                  type="button"
-                  class="ui-switch"
-                  role="switch"
-                  :aria-checked="settings.quietEnabled"
-                  :class="settings.quietEnabled ? 'ui-switch-on' : ''"
-                  @click="settings.quietEnabled = !settings.quietEnabled"
-                >
-                  <span class="ui-switch-knob" />
-                </button>
-              </div>
-              <div class="grid grid-cols-2 gap-2" v-if="settings.quietEnabled">
-                <div class="space-y-1">
-                  <label class="text-[10px] text-gray-500">{{ t('settings.quietStart') }}</label>
-                  <input v-model="settings.quietStart" type="text" placeholder="23:00" class="ui-input" />
-                </div>
-                <div class="space-y-1">
-                  <label class="text-[10px] text-gray-500">{{ t('settings.quietEnd') }}</label>
-                  <input v-model="settings.quietEnd" type="text" placeholder="07:00" class="ui-input" />
-                </div>
-              </div>
-            </div>
-            <div class="pt-2 flex flex-col sm:flex-row gap-2">
-              <button type="button" class="ui-btn-primary flex-1 py-2.5" :disabled="botLoading" @click="saveBotSettings">{{ botLoading ? t('settings.saving') : t('settings.saveChanges') }}</button>
-              <button type="button" class="ui-btn-secondary flex-1 py-2.5" :disabled="botTestLoading" @click="testBot">{{ botTestLoading ? t('settings.testing') : t('settings.testBot') }}</button>
-            </div>
-          </div>
-        </section>
+        <AiSettings
+          v-model:ai-model-value="aiConfig"
+          v-model:settings-model-value="settings"
+          :reveal="{ aiKey: revealSecrets.aiKey }"
+          :ai-loading="aiLoading"
+          :advanced-loading="advancedLoading"
+          @save-ai="saveAiConfig"
+          @save-advanced="saveAdvancedSettings"
+          @test-ai="testAi"
+          @toggle-reveal="toggleReveal"
+        />
+        <BotNotifySettings
+          v-model="settings"
+          :bot-token-set="botTokenSet"
+          :reveal="{ botToken: revealSecrets.botToken }"
+          :bot-loading="botLoading"
+          :bot-test-loading="botTestLoading"
+          @save="saveBotSettings"
+          @test="testBot"
+          @toggle-reveal="toggleReveal"
+        />
       </div>
 
       <!-- 数据管理（左列） -->
       <div class="flex flex-col gap-6">
-        <section class="ui-card p-6">
-          <div class="mb-6 border-b border-gray-200 dark:border-gray-800/60 pb-3 flex items-start gap-3">
-            <span class="ui-section-icon" aria-hidden="true"><Database class="w-3.5 h-3.5" /></span>
-            <div>
-              <h2 class="text-base font-medium text-gray-900 dark:text-gray-100">{{ t('settings.dataManagement') }}</h2>
-              <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.dataManagementDesc') }}</p>
-            </div>
-          </div>
-
-          <!-- 配置迁移 JSON -->
-          <div class="space-y-3 mb-6">
-            <div>
-              <h3 class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ t('settings.configMigrateTitle') }}</h3>
-              <p class="text-xs text-gray-500 mt-1 leading-relaxed">{{ t('settings.configMigrateDesc') }}</p>
-            </div>
-            <div class="flex flex-col sm:flex-row gap-3">
-              <button
-                type="button"
-                class="ui-btn-primary flex-1 !px-4 !py-2"
-                :disabled="dataLoading"
-                @click="handleExport"
-              >
-                {{ dataLoading ? t('settings.processing') : t('settings.exportJson') }}
-              </button>
-              <div class="relative flex-1">
-                <input
-                  type="file"
-                  accept="application/json,.json"
-                  class="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
-                  :disabled="dataLoading"
-                  @change="handleImport"
-                />
-                <button
-                  type="button"
-                  class="ui-btn-secondary w-full !px-4 !py-2"
-                  :disabled="dataLoading"
-                >
-                  {{ t('settings.importJson') }}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- 完整备份 → WebDAV -->
-          <div class="pt-5 border-t border-gray-200 dark:border-gray-800/60 space-y-3">
-            <div>
-              <h3 class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ t('settings.fullBackup') }}</h3>
-              <p class="text-xs text-gray-500 mt-1 leading-relaxed">{{ t('settings.fullBackupDesc') }}</p>
-            </div>
-            <div class="space-y-1.5">
-              <label class="ui-label">{{ t('settings.webdavUrl') }}</label>
-              <input v-model="settings.webdavUrl" type="url" :placeholder="t('settings.webdavUrlPlaceholder')" class="ui-input" autocomplete="off">
-            </div>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <div class="space-y-1.5">
-                <label class="ui-label">{{ t('settings.webdavUsername') }}</label>
-                <input v-model="settings.webdavUsername" type="text" class="ui-input" autocomplete="username">
-              </div>
-              <div class="space-y-1.5">
-                <label class="ui-label">{{ t('settings.webdavPassword') }}</label>
-                <input
-                  v-model="settings.webdavPassword"
-                  type="password"
-                  class="ui-input"
-                  autocomplete="current-password"
-                  :placeholder="webdavPasswordSet ? t('settings.webdavPasswordSavedHint') : t('settings.webdavPasswordHint')"
-                >
-              </div>
-            </div>
-            <div class="space-y-1.5">
-              <label class="ui-label">{{ t('settings.webdavRemoteDir') }}</label>
-              <input v-model="settings.webdavRemoteDir" type="text" placeholder="tg-signpulse-backups" class="ui-input">
-            </div>
-            <div class="flex flex-col sm:flex-row gap-2">
-              <button
-                type="button"
-                class="ui-btn-primary flex-1 !px-4 !py-2"
-                :disabled="backupLoading"
-                @click="handleBackupExport"
-              >
-                {{ backupLoading ? t('settings.processing') : t('settings.exportBackupWebdav') }}
-              </button>
-              <button
-                type="button"
-                class="ui-btn-secondary flex-1 !px-4 !py-2"
-                :disabled="webdavTestLoading || advancedLoading"
-                @click="handleWebdavTest"
-              >
-                {{ webdavTestLoading ? t('settings.testing') : t('settings.webdavTest') }}
-              </button>
-              <button
-                type="button"
-                class="ui-btn-secondary flex-1 !px-4 !py-2"
-                :disabled="webdavListLoading || advancedLoading"
-                @click="handleListRemoteBackups"
-              >
-                {{ webdavListLoading ? t('settings.processing') : t('settings.webdavListRemote') }}
-              </button>
-            </div>
-            <div v-if="remoteWebdavFiles.length || remoteWebdavMessage" class="text-xs space-y-1.5">
-              <p v-if="remoteWebdavMessage" class="text-gray-500">{{ remoteWebdavMessage }}</p>
-              <p class="text-[10px] text-gray-400">{{ t('settings.webdavDownloadHint') }}</p>
-              <ul v-if="remoteWebdavFiles.length" class="text-[11px] text-gray-600 dark:text-gray-400 space-y-1 max-h-36 overflow-y-auto">
-                <li
-                  v-for="f in remoteWebdavFiles"
-                  :key="f.name + (f.mtime || '')"
-                  class="flex items-center justify-between gap-2 font-mono"
-                >
-                  <span class="min-w-0 truncate">
-                    {{ f.name }}
-                    <span v-if="f.size_bytes != null" class="text-gray-400">· {{ formatBytes(f.size_bytes) }}</span>
-                    <span v-if="f.mtime" class="text-gray-400">· {{ f.mtime }}</span>
-                  </span>
-                  <button
-                    type="button"
-                    class="ui-btn-secondary shrink-0 !px-2 !py-0.5 !text-[10px]"
-                    :disabled="remoteDownloadName === f.name"
-                    @click="handleDownloadRemoteBackup(f.name)"
-                  >
-                    {{ remoteDownloadName === f.name ? t('settings.processing') : t('settings.webdavDownload') }}
-                  </button>
-                </li>
-              </ul>
-            </div>
-            <div class="p-3 bg-gray-50 dark:bg-white/[0.02] border border-gray-200 dark:border-gray-800/60 space-y-3">
-              <div class="flex items-center justify-between gap-3">
-                <div>
-                  <label class="text-xs text-gray-600 dark:text-gray-300 block">{{ t('settings.autoBackup') }}</label>
-                  <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.autoBackupDesc') }}</p>
-                </div>
-                <button
-                  type="button"
-                  class="ui-switch"
-                  role="switch"
-                  :aria-checked="settings.autoBackupEnabled"
-                  :class="settings.autoBackupEnabled ? 'ui-switch-on' : ''"
-                  @click="settings.autoBackupEnabled = !settings.autoBackupEnabled"
-                >
-                  <span class="ui-switch-knob" />
-                </button>
-              </div>
-              <div class="grid grid-cols-2 gap-2">
-                <div class="space-y-1">
-                  <label class="text-[10px] text-gray-500">{{ t('settings.autoBackupInterval') }}</label>
-                  <input v-model.number="settings.autoBackupInterval" type="number" min="1" max="168" class="ui-input" :disabled="!settings.autoBackupEnabled" />
-                </div>
-                <div class="space-y-1">
-                  <label class="text-[10px] text-gray-500">{{ t('settings.autoBackupKeep') }}</label>
-                  <input v-model.number="settings.autoBackupKeep" type="number" min="1" max="30" class="ui-input" :disabled="!settings.autoBackupEnabled" />
-                </div>
-              </div>
-              <button type="button" class="ui-btn-secondary w-full !py-2 !text-xs" :disabled="advancedLoading" @click="saveAdvancedSettings">
-                {{ advancedLoading ? t('settings.saving') : t('settings.saveBackupSettings') }}
-              </button>
-            </div>
-            <div v-if="backupStatus" class="text-xs text-gray-500 space-y-1">
-              <p class="font-mono">
-                {{ backupStatus.data_dir }} · {{ backupStatus.size_human }}
-                · {{ backupStatus.writable ? t('settings.backupWritable') : t('settings.backupReadonly') }}
-              </p>
-              <p>
-                WebDAV:
-                {{ backupStatus.webdav_configured ? t('settings.webdavConfiguredYes') : t('settings.webdavConfiguredNo') }}
-                · {{ t('settings.autoBackup') }}:
-                {{ backupStatus.auto_backup_enabled ? t('settings.backupOn') : t('settings.backupOff') }}
-              </p>
-              <p v-if="backupStatus.local_auto_backups?.length" class="font-mono text-[10px] text-gray-400">
-                {{ t('settings.localAutoBackups') }}:
-                {{ backupStatus.local_auto_backups.map((b) => b.name).join(', ') }}
-              </p>
-            </div>
-            <p class="text-xs text-amber-700 dark:text-amber-400/90">
-              {{ t('settings.backupRestoreHint') }}
-            </p>
-          </div>
-        </section>
+        <DataManagementSettings
+          v-model="settings"
+          :webdav-password-set="webdavPasswordSet"
+          :backup-status="backupStatus"
+          :remote-files="remoteWebdavFiles"
+          :remote-message="remoteWebdavMessage"
+          :remote-download-name="remoteDownloadName"
+          :data-loading="dataLoading"
+          :backup-loading="backupLoading"
+          :webdav-test-loading="webdavTestLoading"
+          :webdav-list-loading="webdavListLoading"
+          :advanced-loading="advancedLoading"
+          @export-json="handleExport"
+          @import-json="handleImportFile"
+          @backup-export="handleBackupExport"
+          @webdav-test="handleWebdavTest"
+          @webdav-list="handleListRemoteBackups"
+          @webdav-download="handleDownloadRemoteBackup"
+          @save-advanced="saveAdvancedSettings"
+        />
       </div>
 
       <!-- 关于 / 版本（右列） -->
       <div class="flex flex-col gap-6">
-        <section class="ui-card p-6">
-          <div class="mb-6 border-b border-gray-200 dark:border-gray-800/60 pb-3 flex items-start justify-between gap-3">
-            <div class="flex items-start gap-3 min-w-0">
-              <span class="ui-section-icon" aria-hidden="true"><Info class="w-3.5 h-3.5" /></span>
-              <div class="min-w-0">
-                <h2 class="text-base font-medium text-gray-900 dark:text-gray-100">{{ t('settings.aboutTitle') }}</h2>
-                <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.aboutDesc') }}</p>
-              </div>
-            </div>
-            <button
-              type="button"
-              class="ui-btn-secondary shrink-0 !px-3 !py-1 !text-xs inline-flex items-center gap-1.5"
-              :disabled="checkLoading || versionLoading || !appVersion"
-              @click="handleCheckUpdate(true)"
-            >
-              <RefreshCw class="w-3.5 h-3.5" :class="checkLoading ? 'animate-spin' : ''" />
-              {{ checkLoading ? t('settings.checkingUpdate') : t('settings.checkUpdate') }}
-            </button>
-          </div>
-
-          <div class="space-y-4">
-            <div
-              v-if="appVersion"
-              class="p-3 border border-gray-200 dark:border-gray-800/60 bg-gray-50/50 dark:bg-white/[0.02] text-xs space-y-1.5 font-mono"
-            >
-              <div class="text-gray-600 dark:text-gray-400">
-                <span class="text-gray-500">{{ t('settings.currentVersion') }}:</span>
-                <span class="ml-1 text-gray-900 dark:text-gray-100 font-medium">v{{ appVersion.version }}</span>
-              </div>
-              <div class="text-gray-600 dark:text-gray-400">
-                <span class="text-gray-500">{{ t('settings.gitSha') }}:</span>
-                <span class="ml-1">{{ shortSha(appVersion.git_sha) }}</span>
-              </div>
-              <div class="text-gray-600 dark:text-gray-400">
-                <span class="text-gray-500">{{ t('settings.gitBranch') }}:</span>
-                <span class="ml-1">{{ appVersion.git_branch || t('settings.unknownValue') }}</span>
-              </div>
-              <div class="text-gray-600 dark:text-gray-400">
-                <span class="text-gray-500">{{ t('settings.buildTime') }}:</span>
-                <span class="ml-1">{{ appVersion.build_time || t('settings.unknownValue') }}</span>
-              </div>
-              <div class="text-gray-600 dark:text-gray-400">
-                <span class="text-gray-500">{{ t('settings.pythonRuntime') }}:</span>
-                <span class="ml-1">{{ appVersion.python }}</span>
-              </div>
-            </div>
-            <p v-else-if="versionLoading" class="text-xs text-gray-500">{{ t('settings.processing') }}</p>
-
-            <!-- 运行时状态 -->
-            <div v-if="runtimeStatus" class="p-3 border border-gray-200 dark:border-gray-800/60 bg-gray-50/50 dark:bg-white/[0.02] text-xs space-y-1.5">
-              <div class="font-medium text-gray-700 dark:text-gray-300 mb-1">{{ t('settings.runtimeStatus') }}</div>
-              <div class="text-gray-600 dark:text-gray-400">
-                {{ t('settings.schedulerLock') }}:
-                <span :class="runtimeStatus.scheduler_lock_held ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'">
-                  {{ runtimeStatus.scheduler_lock_held ? t('settings.lockHeld') : t('settings.lockNotHeld') }}
-                </span>
-              </div>
-              <div class="text-gray-600 dark:text-gray-400">
-                {{ t('settings.legacyWritable') }}:
-                {{ runtimeStatus.legacy_tasks_writable ? t('settings.yes') : t('settings.no') }}
-              </div>
-              <div class="text-gray-600 dark:text-gray-400">
-                DB: {{ runtimeStatus.database_is_sqlite ? 'SQLite' : 'External' }}
-                <span v-if="runtimeStatus.monitor_shard"> · shard {{ runtimeStatus.monitor_shard }}</span>
-              </div>
-              <div v-if="memoryStats?.available" class="text-gray-600 dark:text-gray-400">
-                {{ t('settings.memoryRss') }}: {{ formatMemoryRss() }}
-              </div>
-            </div>
-
-            <div
-              v-if="versionBanner"
-              class="text-xs rounded-md px-3 py-2 border"
-              :class="{
-                'border-sky-300/80 bg-sky-50 text-sky-900 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-100': versionBanner.kind === 'update' || versionBanner.kind === 'info',
-                'border-emerald-300/80 bg-emerald-50 text-emerald-900 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-100': versionBanner.kind === 'latest',
-                'border-amber-300/80 bg-amber-50 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100': versionBanner.kind === 'error',
-              }"
-            >
-              <div class="font-medium">{{ versionBanner.text }}</div>
-              <p v-if="versionBanner.kind === 'update'" class="mt-1 opacity-90">{{ t('settings.updateAvailableHint') }}</p>
-              <p v-if="versionBanner.kind === 'update'" class="mt-1 opacity-80 font-mono">{{ t('settings.upgradeDockerHint') }}</p>
-              <a
-                v-if="versionBanner.url"
-                :href="versionBanner.url"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="inline-flex items-center gap-1 mt-2 text-sky-700 dark:text-sky-300 underline-offset-2 hover:underline"
-              >
-                {{ t('settings.openRelease') }}
-                <ExternalLink class="w-3 h-3" />
-              </a>
-            </div>
-          </div>
-        </section>
+        <AboutSettings
+          :app-version="appVersion"
+          :runtime-status="runtimeStatus"
+          :memory-stats="memoryStats"
+          :version-banner="versionBanner"
+          :version-loading="versionLoading"
+          :check-loading="checkLoading"
+          @check-update="handleCheckUpdate(true)"
+        />
       </div>
 
     </div>
