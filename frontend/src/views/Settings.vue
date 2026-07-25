@@ -675,7 +675,11 @@ const testAi = async () => {
   aiLoading.value = true
   try {
     const res = await testAIConnection(token)
-    notifySuccess(res.message || t('settings.testSuccess'))
+    if (res.success) {
+      notifySuccess(res.message || t('settings.testSuccess'))
+    } else {
+      notifyError(res.message || t('settings.testFailed'))
+    }
   } catch (e: unknown) {
     notifyError(getLocalizedErrorMessage(e, t, t('settings.testFailed')))
   } finally {

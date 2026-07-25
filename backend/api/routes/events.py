@@ -11,23 +11,30 @@ from fastapi.responses import StreamingResponse
 from backend.core.auth import get_current_user, verify_token
 from backend.core.database import get_session_local
 from backend.models.task_log import TaskLog
+from backend.models.user import User
 
 router = APIRouter()
 
 
-def _require_token(token: Optional[str]) -> dict:
+def _require_token(token: Optional[str]) -> User:
+    """校验 EventSource 查询参数中的 JWT，返回已认证用户。"""
     if not token or not str(token).strip():
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
         )
-    payload = verify_token(str(token).strip())
-    if not payload or not payload.get("sub"):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token",
-        )
-    return payload
+    session_local = get_session_local()
+    db = session_local()
+    try:
+        user = verify_token(str(token).strip(), db)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token",
+            )
+        return user
+    finally:
+        db.close()
 
 
 async def _logs_event_stream(
