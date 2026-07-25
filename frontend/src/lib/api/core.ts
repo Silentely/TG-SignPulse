@@ -21,17 +21,18 @@ export const toRecord = (headers?: HeadersInit): Record<string, string> => {
 /** 默认请求超时（毫秒），可用 options.signal 覆盖/组合 */
 export const DEFAULT_TIMEOUT_MS = 30_000;
 
-export async function request<T>(
+/**
+ * 内部请求基元：鉴权 header、超时、abort 传播、!res.ok 错误解析与 401 跳转。
+ * 成功时返回原始 Response，由调用方决定 JSON/Blob 解析方式。
+ */
+async function fetchWithAuth(
   path: string,
-  options: RequestInit = {},
+  headers: Record<string, string>,
+  options: RequestInit,
   token?: string | null
-): Promise<T> {
-  const mergedHeaders: Record<string, string> = {
-    ...toRecord(options.headers),
-    "Content-Type": "application/json",
-  };
+): Promise<Response> {
   if (token) {
-    mergedHeaders["Authorization"] = `Bearer ${token}`;
+    headers["Authorization"] = `Bearer ${token}`;
   }
 
   const controller = new AbortController();
@@ -50,8 +51,8 @@ export async function request<T>(
   try {
     res = await fetch(`${API_BASE}${path}`, {
       ...options,
-      headers: mergedHeaders,
-      cache: "no-store", // 禁用缓存，确保获取最新数据
+      headers,
+      cache: "no-store",
       signal: controller.signal,
     });
   } catch (e: unknown) {
@@ -111,7 +112,6 @@ export async function request<T>(
     }
 
     // 如果是认证失败 (401) 且请求携带了 token，清除 token 并跳转到登录页
-    // 注意：登录相关请求（不带 token）不应触发跳转
     if (res.status === 401 && token) {
       if (typeof window !== "undefined") {
         const authStore = useAuthStore();
@@ -129,6 +129,19 @@ export async function request<T>(
     }
     throw err;
   }
+  return res;
+}
+
+export async function request<T>(
+  path: string,
+  options: RequestInit = {},
+  token?: string | null
+): Promise<T> {
+  const headers: Record<string, string> = {
+    ...toRecord(options.headers),
+    "Content-Type": "application/json",
+  };
+  const res = await fetchWithAuth(path, headers, options, token);
   if (res.status === 204) {
     return {} as T;
   }
@@ -136,104 +149,17 @@ export async function request<T>(
 }
 
 /**
- * 下载二进制响应（如头像、CSV 导出）。复用 request 的鉴权、超时、401 跳转
- * 与错误解析逻辑，成功时返回 Blob 而非 JSON。
+ * 下载二进制响应（如头像、CSV 导出）。
+ * 成功时返回 Blob 而非 JSON。
  */
 export async function requestBlob(
   path: string,
   options: RequestInit = {},
   token?: string | null
 ): Promise<Blob> {
-  const mergedHeaders: Record<string, string> = {
+  const headers: Record<string, string> = {
     ...toRecord(options.headers),
   };
-  if (token) {
-    mergedHeaders["Authorization"] = `Bearer ${token}`;
-  }
-
-  const controller = new AbortController();
-  const externalSignal = options.signal;
-  const onExternalAbort = () => controller.abort();
-  if (externalSignal) {
-    if (externalSignal.aborted) {
-      controller.abort();
-    } else {
-      externalSignal.addEventListener("abort", onExternalAbort, { once: true });
-    }
-  }
-  const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
-
-  let res: Response;
-  try {
-    res = await fetch(`${API_BASE}${path}`, {
-      ...options,
-      headers: mergedHeaders,
-      cache: "no-store",
-      signal: controller.signal,
-    });
-  } catch (e: unknown) {
-    clearTimeout(timeoutId);
-    if (externalSignal) {
-      externalSignal.removeEventListener("abort", onExternalAbort);
-    }
-    const isAbort =
-      (e instanceof DOMException && e.name === "AbortError") ||
-      (e instanceof Error && e.name === "AbortError");
-    const err = new Error(isAbort ? "NETWORK_TIMEOUT" : "NETWORK_ERROR") as ApiError;
-    err.status = 0;
-    err.code = isAbort ? "NETWORK_TIMEOUT" : "NETWORK_ERROR";
-    throw err;
-  } finally {
-    clearTimeout(timeoutId);
-    if (externalSignal) {
-      externalSignal.removeEventListener("abort", onExternalAbort);
-    }
-  }
-
-  if (!res.ok) {
-    let errorMessage = `Request failed (${res.status})`;
-    try {
-      const errorData = await res.json();
-      if (errorData && typeof errorData === "object") {
-        const detail = errorData.detail;
-        if (typeof detail === "string" && detail.trim()) {
-          errorMessage = detail.trim();
-        } else if (Array.isArray(detail)) {
-          const msgs = (detail as FastApiValidationError[])
-            .map((d) => (d.msg || "").trim() || JSON.stringify(d))
-            .filter(Boolean);
-          if (msgs.length) errorMessage = msgs.join("; ");
-        } else if (detail && typeof detail === "object") {
-          errorMessage = JSON.stringify(detail);
-        } else if (typeof errorData.message === "string" && errorData.message.trim()) {
-          errorMessage = errorData.message.trim();
-        } else {
-          errorMessage = JSON.stringify(errorData);
-        }
-      }
-    } catch {
-      // 非 JSON 错误响应，使用文本兜底
-      try {
-        const text = (await res.text()).trim();
-        if (text) errorMessage = text;
-      } catch {
-        // 忽略
-      }
-    }
-
-    if (res.status === 401 && token) {
-      if (typeof window !== "undefined") {
-        const authStore = useAuthStore();
-        if (authStore.token === token) {
-          authStore.clearToken();
-          window.location.href = "/";
-        }
-      }
-    }
-
-    const err = new Error(errorMessage) as ApiError;
-    err.status = res.status;
-    throw err;
-  }
+  const res = await fetchWithAuth(path, headers, options, token);
   return res.blob();
 }

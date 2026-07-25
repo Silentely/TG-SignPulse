@@ -581,6 +581,8 @@ def add_or_update_sign_task_job(
 
 def remove_sign_task_job(account_name: str, task_name: str) -> None:
     """动态移除签到任务 Job"""
+    from apscheduler.jobstores.base import JobLookupError
+
     global scheduler
     if not scheduler:
         return
@@ -591,7 +593,7 @@ def remove_sign_task_job(account_name: str, task_name: str) -> None:
         if scheduler.get_job(job_id):
             scheduler.remove_job(job_id)
             logger.info("Scheduler: 已移除任务 %s", job_id)
-    except (KeyError, RuntimeError) as e:
+    except (JobLookupError, RuntimeError) as e:
         logger.error("Scheduler: 移除任务 %s 失败（调度器状态错误）: %s", job_id, e)
     except Exception:
         logger.exception("Scheduler: 移除任务 %s 发生未知异常", job_id)

@@ -285,7 +285,7 @@ class TaskRunner:
                 # 顶层兜底：单任务异常不影响其他任务结果收集
                 logger.exception(
                     "收集任务结果失败: %s",
-                    getattr(exc, "__class__", type(exc)).__name__,
+                    type(exc).__name__,
                 )
                 results.append(
                     TaskResult(
