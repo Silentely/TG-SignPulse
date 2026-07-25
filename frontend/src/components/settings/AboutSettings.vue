@@ -6,6 +6,7 @@
 import { Info, RefreshCw, ExternalLink } from 'lucide-vue-next'
 import { useI18n } from '../../composables/useI18n'
 import type { AppVersionInfo, RuntimeStatus, MemoryStatsResponse } from '../../lib/api'
+import { formatMemoryRssFromStats } from '../../lib/memory-format'
 
 type VersionBannerKind = 'update' | 'latest' | 'error' | 'info'
 interface VersionBanner {
@@ -35,14 +36,10 @@ const shortSha = (sha?: string) => {
 }
 
 const formatMemoryRss = () => {
-  const stats = props.memoryStats?.stats
-  if (!stats) return ''
-  // 复用父页面相同口径：rss -> MB / GB
-  const rss = (stats as Record<string, number>).rss
-  if (!Number.isFinite(rss)) return ''
-  const mb = rss / 1024 / 1024
-  if (mb < 1024) return `${mb.toFixed(1)} MB`
-  return `${(mb / 1024).toFixed(2)} GB`
+  return formatMemoryRssFromStats(
+    props.memoryStats?.stats,
+    t('settings.unknownValue'),
+  )
 }
 </script>
 

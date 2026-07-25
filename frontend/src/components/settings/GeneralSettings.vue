@@ -32,14 +32,16 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
+type NumberInputKey = 'logDays' | 'concurrency' | 'deviceKeepaliveIntervalDays'
+
 /** 字段级更新：浅拷贝并覆盖单个字段，保证父组件 ref 收到新对象引用 */
 const update = <K extends keyof SettingsFormState>(key: K, value: SettingsFormState[K]) => {
   emit('update:modelValue', { ...props.modelValue, [key]: value } as SettingsFormState)
 }
 
-const onNumberInput = (key: keyof SettingsFormState, e: Event) => {
-  const num = Number((e.target as HTMLInputElement).value)
-  update(key, num as never)
+const onNumberInput = (key: NumberInputKey, e: Event) => {
+  const value = (e.target as HTMLInputElement).value
+  update(key, value === '' ? '' : Number(value))
 }
 
 const onStringInput = (key: keyof SettingsFormState, e: Event) => {

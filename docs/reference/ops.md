@@ -8,7 +8,6 @@
 | --- | --- |
 | `GET /api/ops/scheduled-jobs` | 查看 APScheduler 下次执行时间 |
 | `GET /api/ops/backup/status` | 数据目录备份状态与关键路径体积 |
-| `POST /api/ops/backup/export` | 下载推荐路径的 tar.gz 备份包 |
 | `GET /api/ops/memory` | 进程内存监控统计（若已启动） |
 | `GET /api/ops/version` | 本地版本、Git SHA/分支、构建时间、Python 版本 |
 | `POST /api/ops/version/check?force=false` | 远程更新检查（GitHub Releases；可关；失败 soft-fail） |
@@ -326,4 +325,3 @@ watch -n 5 'curl -fsS http://127.0.0.1:8080/readyz || true'
 1. 检查 Telegram Bot token、chat_id、Bark URL、ServerChan sendkey 或自定义 Webhook。
 2. 用 `curl` 在宿主机直接访问通知端点，排除网络与 DNS 问题。
 3. 对外部 HTTP 通道增加接收端幂等，避免重试导致重复处理。
-

@@ -61,6 +61,19 @@ describe('settings-form', () => {
     expect(p.timezone).toBe('Asia/Hong_Kong')
   })
 
+  it('buildGeneralPayload normalizes empty numeric fields to safe defaults', () => {
+    const s = baseSettings()
+    s.logDays = ''
+    s.concurrency = ''
+    s.deviceKeepaliveIntervalDays = ''
+
+    const p = buildGeneralPayload(s)
+
+    expect(p.log_retention_days).toBe(7)
+    expect(p.tg_global_concurrency).toBe(1)
+    expect(p.device_keepalive_interval_days).toBe(30)
+  })
+
   it('buildBotPayload parses thread id', () => {
     const s = baseSettings()
     s.botThreadId = '42'

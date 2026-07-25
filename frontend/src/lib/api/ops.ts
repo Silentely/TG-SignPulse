@@ -54,7 +54,14 @@ export async function exportBackupArchive(token: string): Promise<{
   remote_url?: string;
   filename?: string;
 }> {
-  const res = await fetchWithAuth("/ops/backup/export", {}, { method: "POST" }, token);
+  // 压缩与 WebDAV 上传可能超过普通 API 的 30 秒窗口，保持长任务可完成。
+  const res = await fetchWithAuth(
+    "/ops/backup/export",
+    {},
+    { method: "POST" },
+    token,
+    null,
+  );
   const ct = (res.headers.get("Content-Type") || "").toLowerCase();
   if (ct.includes("application/json")) {
     const data = await res.json();
@@ -118,6 +125,7 @@ export async function downloadWebdavBackup(
     {},
     {},
     token,
+    null,
   );
   const blob = await res.blob();
   const cd = res.headers.get("Content-Disposition") || "";

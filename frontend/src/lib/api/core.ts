@@ -18,7 +18,7 @@ export const toRecord = (headers?: HeadersInit): Record<string, string> => {
   return headers as Record<string, string>;
 };
 
-/** 默认请求超时（毫秒），可用 options.signal 覆盖/组合 */
+/** 默认请求超时（毫秒）；长耗时请求可显式传 null 关闭固定超时。 */
 export const DEFAULT_TIMEOUT_MS = 30_000;
 
 /**
@@ -29,7 +29,8 @@ export async function fetchWithAuth(
   path: string,
   headers: Record<string, string>,
   options: RequestInit,
-  token?: string | null
+  token?: string | null,
+  timeoutMs: number | null = DEFAULT_TIMEOUT_MS,
 ): Promise<Response> {
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
@@ -45,7 +46,9 @@ export async function fetchWithAuth(
       externalSignal.addEventListener("abort", onExternalAbort, { once: true });
     }
   }
-  const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+  const timeoutId = timeoutMs === null
+    ? null
+    : setTimeout(() => controller.abort(), timeoutMs);
 
   let res: Response;
   try {
@@ -56,7 +59,7 @@ export async function fetchWithAuth(
       signal: controller.signal,
     });
   } catch (e: unknown) {
-    clearTimeout(timeoutId);
+    if (timeoutId !== null) clearTimeout(timeoutId);
     if (externalSignal) {
       externalSignal.removeEventListener("abort", onExternalAbort);
     }
@@ -68,7 +71,7 @@ export async function fetchWithAuth(
     err.code = isAbort ? "NETWORK_TIMEOUT" : "NETWORK_ERROR";
     throw err;
   } finally {
-    clearTimeout(timeoutId);
+    if (timeoutId !== null) clearTimeout(timeoutId);
     if (externalSignal) {
       externalSignal.removeEventListener("abort", onExternalAbort);
     }
@@ -78,36 +81,39 @@ export async function fetchWithAuth(
     // 尝试解析 JSON 错误响应；默认消息中性，避免中英文混用硬编码
     let errorMessage = `Request failed (${res.status})`;
     let errorCode: string | undefined;
+    let responseText = "";
     try {
-      const errorData = await res.json();
-      if (errorData && typeof errorData === "object") {
-        const detail = errorData.detail;
-        if (typeof detail === "string" && detail.trim()) {
-          errorMessage = detail.trim();
-        } else if (Array.isArray(detail)) {
-          // FastAPI validation error format: [{loc, msg, type}]
-          const msgs = (detail as FastApiValidationError[])
-            .map((d) => (d.msg || "").trim() || JSON.stringify(d))
-            .filter(Boolean);
-          if (msgs.length) errorMessage = msgs.join("; ");
-        } else if (detail && typeof detail === "object") {
-          errorMessage = JSON.stringify(detail);
-        } else if (typeof errorData.message === "string" && errorData.message.trim()) {
-          errorMessage = errorData.message.trim();
-        } else {
+      responseText = (await res.text()).trim();
+    } catch {
+      // 响应状态已确定时，正文读取失败不应绕过统一错误封装。
+    }
+    if (responseText) {
+      try {
+        const errorData = JSON.parse(responseText);
+        if (errorData && typeof errorData === "object") {
+          const detail = errorData.detail;
+          if (typeof detail === "string" && detail.trim()) {
+            errorMessage = detail.trim();
+          } else if (Array.isArray(detail)) {
+            // FastAPI validation error format: [{loc, msg, type}]
+            const msgs = (detail as FastApiValidationError[])
+              .map((d) => (d.msg || "").trim() || JSON.stringify(d))
+              .filter(Boolean);
+            if (msgs.length) errorMessage = msgs.join("; ");
+          } else if (detail && typeof detail === "object") {
+            errorMessage = JSON.stringify(detail);
+          } else if (typeof errorData.message === "string" && errorData.message.trim()) {
+            errorMessage = errorData.message.trim();
+          } else {
+            errorMessage = JSON.stringify(errorData);
+          }
+          errorCode = errorData.code;
+        } else if (errorData != null) {
           errorMessage = JSON.stringify(errorData);
         }
-        errorCode = errorData.code;
-      } else if (errorData != null) {
-        errorMessage = JSON.stringify(errorData);
-      }
-    } catch {
-      // 如果不是 JSON，使用文本
-      try {
-        const text = (await res.text()).trim();
-        if (text) errorMessage = text;
       } catch {
-        // 忽略
+        // 响应体只能读取一次；非 JSON 时直接使用已读取的文本。
+        errorMessage = responseText;
       }
     }
 

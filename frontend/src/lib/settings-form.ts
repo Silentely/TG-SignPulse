@@ -5,12 +5,12 @@
 
 export type SettingsFormState = {
   checkInterval: string
-  logDays: number
+  logDays: number | ''
   dataDir: string
   proxy: string
-  concurrency: number
+  concurrency: number | ''
   deviceKeepaliveEnabled: boolean
-  deviceKeepaliveIntervalDays: number
+  deviceKeepaliveIntervalDays: number | ''
   botEnabled: boolean
   botLoginNotify: boolean
   botTaskFailure: boolean
@@ -51,12 +51,12 @@ export function emptyToNull(v: string | number | '' | null | undefined): number 
 export function buildGeneralPayload(s: SettingsFormState) {
   return {
     sign_interval: s.checkInterval ? parseInt(String(s.checkInterval), 10) : null,
-    log_retention_days: s.logDays,
+    log_retention_days: emptyToNull(s.logDays) ?? 7,
     data_dir: s.dataDir || null,
     global_proxy: s.proxy || null,
-    tg_global_concurrency: s.concurrency || 1,
+    tg_global_concurrency: emptyToNull(s.concurrency) ?? 1,
     device_keepalive_enabled: s.deviceKeepaliveEnabled,
-    device_keepalive_interval_days: s.deviceKeepaliveIntervalDays || 30,
+    device_keepalive_interval_days: emptyToNull(s.deviceKeepaliveIntervalDays) ?? 30,
     timezone: s.timezone,
   }
 }

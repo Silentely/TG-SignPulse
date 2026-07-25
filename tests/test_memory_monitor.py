@@ -148,4 +148,3 @@ def test_snapshot_has_memory_fields():
     assert snap.rss_mb > 0
     assert snap.vms_mb >= 0
     assert snap.available_mb >= 0
-
