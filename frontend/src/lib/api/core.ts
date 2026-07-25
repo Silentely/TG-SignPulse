@@ -25,7 +25,7 @@ export const DEFAULT_TIMEOUT_MS = 30_000;
  * 内部请求基元：鉴权 header、超时、abort 传播、!res.ok 错误解析与 401 跳转。
  * 成功时返回原始 Response，由调用方决定 JSON/Blob 解析方式。
  */
-async function fetchWithAuth(
+export async function fetchWithAuth(
   path: string,
   headers: Record<string, string>,
   options: RequestInit,

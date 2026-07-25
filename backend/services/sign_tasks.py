@@ -1252,7 +1252,7 @@ class SignTaskService:
                         with open(config_file, "w", encoding="utf-8") as f:
                             json.dump(config, f, ensure_ascii=False, indent=2)
                     except Exception as e:
-                        _service_logger.warning(f"更新任务配置 last_run 失败: {e}")
+                        _service_logger.warning("更新任务配置 last_run 失败: %s", e)
 
             # 2. 更新内存缓存 (关键优化：避免置空 self._tasks_cache)
             if self._tasks_cache is not None:
@@ -1262,7 +1262,7 @@ class SignTaskService:
                         break
 
         except Exception as e:
-            _service_logger.warning(f"保存运行信息失败: {str(e)}")
+            _service_logger.warning("保存运行信息失败: %s", e)
 
     def _append_scheduler_log(self, filename: str, message: str) -> None:
         try:
@@ -1580,7 +1580,7 @@ class SignTaskService:
             tasks = []
             base_dir = self.signs_dir
 
-            _service_logger.debug(f"扫描任务目录: {base_dir}")
+            _service_logger.debug("扫描任务目录: %s", base_dir)
             try:
                 for account_path in base_dir.iterdir():
                     if not account_path.is_dir():
@@ -1606,7 +1606,7 @@ class SignTaskService:
                 self._tasks_list_ttl.set("all", self._tasks_cache)
                 tasks = self._tasks_cache
             except Exception as e:
-                _service_logger.debug(f"扫描任务出错: {str(e)}")
+                _service_logger.debug("扫描任务出错: %s", e)
                 return []
 
         if account_name:
@@ -1828,7 +1828,7 @@ class SignTaskService:
                 else:
                     remove_sign_task_job(current_account, task_name)
         except Exception as e:
-            _service_logger.debug(f"更新调度任务失败: {e}")
+            _service_logger.debug("更新调度任务失败: %s", e)
 
         related = self._find_related_task_infos(task_name, target_accounts[0])
         if len(target_accounts) > 1:
@@ -2320,7 +2320,7 @@ class SignTaskService:
 
             await get_telegram_service().delete_account(account_name)
         except Exception as e:
-            _service_logger.debug(f"清理无效 Session 失败: {e}")
+            _service_logger.debug("清理无效 Session 失败: %s", e)
 
         # 清理 chats 缓存，避免后续误用旧数据
         try:
@@ -2526,7 +2526,7 @@ class SignTaskService:
                 with open(cache_file, "w", encoding="utf-8") as f:
                     json.dump(chats, f, ensure_ascii=False, indent=2)
             except Exception as e:
-                _service_logger.debug(f"保存 Chat 缓存失败: {e}")
+                _service_logger.debug("保存 Chat 缓存失败: %s", e)
 
             return chats
 

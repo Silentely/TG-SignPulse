@@ -73,9 +73,9 @@ async def execute_sign_task(
     account_lock = svc._account_locks[account_name]
 
     # 定时任务同时触发时排队等待账号锁
-    _service_logger.debug(f"等待获取账号锁 {account_name}...")
+    _service_logger.debug("等待获取账号锁 %s...", account_name)
     if run_id:
-        _service_logger.info(f"任务运行 run_id={run_id} [{account_name}/{task_name}]")
+        _service_logger.info("任务运行 run_id=%s [%s/%s]", run_id, account_name, task_name)
 
     task_key = svc._task_key(account_name, task_name)
     svc._active_tasks[task_key] = True
@@ -178,7 +178,7 @@ async def execute_sign_task(
                     tg_logger.setLevel(logging.INFO)
                 tg_logger.addHandler(log_handler)
 
-                _service_logger.debug(f"已获取账号锁 {account_name}，开始执行任务 {task_name}")
+                _service_logger.debug("已获取账号锁 %s，开始执行任务 %s", account_name, task_name)
                 svc._active_logs[task_key].append(
                     f"开始执行任务: {task_name} (账号: {account_name})"
                 )
@@ -346,7 +346,7 @@ async def execute_sign_task(
             for _line in _safe_tb.splitlines():
                 svc._active_logs[task_key].append(f"  {_line}")
         # 服务端日志保留完整 exc_info（仅写入本地日志文件，不外发）
-        _service_logger.error(f"任务执行出错{_run_id_tag} [{account_name}/{task_name}]: {e}", exc_info=True)
+        _service_logger.error("任务执行出错%s [%s/%s]: %s", _run_id_tag, account_name, task_name, e, exc_info=True)
     finally:
         svc._account_last_run_end[account_name] = time.time()
         try:

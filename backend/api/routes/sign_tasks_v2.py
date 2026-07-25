@@ -43,7 +43,7 @@ async def _safe_background_sync() -> None:
         await sync_jobs()
         await _restart_keyword_monitors()
     except Exception as e:
-        _sync_logger.warning(f"后台调度同步失败: {e}")
+        _sync_logger.warning("后台调度同步失败: %s", e)
 
 
 def _model_dump(model: BaseModel) -> Dict[str, Any]:

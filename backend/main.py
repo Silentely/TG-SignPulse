@@ -90,7 +90,7 @@ def _configure_backend_logging():
 
     # 验证日志等级有效性
     if not isinstance(level_no, int):
-        logging.warning(f"Invalid LOG_LEVEL '{log_level}', falling back to INFO")
+        logging.warning("Invalid LOG_LEVEL '%s', falling back to INFO", log_level)
         level_no = logging.INFO
 
     # 配置根日志器和主要模块日志器
@@ -402,7 +402,7 @@ def _pre_export_session_strings() -> None:
             exported += 1
 
     if exported:
-        logger.info(f"Pre-exported {exported} session strings for in-memory task execution")
+        logger.info("Pre-exported %s session strings for in-memory task execution", exported)
 
 
 async def _memory_monitor_loop() -> None:

@@ -39,8 +39,8 @@ const loadMessages = async () => {
   try {
     const res = await listAccountOfficialMessages(token, props.accountName, 20)
     messages.value = res.messages || []
-  } catch (e: any) {
-    error.value = e.message || t('accounts.officialMessagesFailed')
+  } catch (e: unknown) {
+    error.value = e instanceof Error ? e.message : t('accounts.officialMessagesFailed')
   } finally {
     loading.value = false
   }

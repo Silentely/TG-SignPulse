@@ -1,4 +1,5 @@
 /** 前端版本比较、GitHub 回退检查与本地缓存。 */
+import { devLog } from './devLog'
 
 export const DEFAULT_GITHUB_RELEASES_URL =
   'https://api.github.com/repos/Silentely/TG-SignPulse/releases/latest'
@@ -63,8 +64,8 @@ export function saveCachedUpdateCheck(payload: ClientUpdateCheckPayload): void {
       CACHE_KEY,
       JSON.stringify({ saved_at: Date.now(), payload }),
     )
-  } catch {
-    /* ignore quota */
+  } catch (e) {
+    devLog.warn('Failed to cache update check', e)
   }
 }
 
@@ -79,7 +80,8 @@ export function loadCachedUpdateCheck(): ClientUpdateCheckPayload | null {
     if (!parsed?.saved_at || !parsed.payload) return null
     if (Date.now() - parsed.saved_at > CACHE_TTL_MS) return null
     return parsed.payload
-  } catch {
+  } catch (e) {
+    devLog.warn('Failed to read cached update check', e)
     return null
   }
 }

@@ -2,7 +2,7 @@
  * 系统设置 API：用户资料（密码/用户名/TOTP）、AI 配置、全局设置、
  * Telegram API 配置、设备保活。
  */
-import { API_BASE, request } from "./core";
+import { request, requestBlob } from "./core";
 
 // ─── 用户设置 ───
 
@@ -21,21 +21,7 @@ export const setupTOTP = (token: string) =>
   }, token);
 
 export const fetchTOTPQRCode = async (token: string) => {
-  const res = await fetch(`${API_BASE}/user/totp/qrcode`, {
-    headers: { Authorization: `Bearer ${token}` },
-    cache: "no-store",
-  });
-  if (!res.ok) {
-    let errorMessage = "QR code fetch failed";
-    try {
-      const errorData = await res.json();
-      errorMessage = errorData.detail || errorData.message || JSON.stringify(errorData);
-    } catch {
-      errorMessage = await res.text() || errorMessage;
-    }
-    throw new Error(errorMessage);
-  }
-  const blob = await res.blob();
+  const blob = await requestBlob("/user/totp/qrcode", {}, token);
   return window.URL.createObjectURL(blob);
 };
 

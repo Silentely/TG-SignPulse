@@ -52,8 +52,8 @@ const loadDevices = async () => {
   try {
     const res = await listAccountDevices(token, props.accountName)
     devices.value = res.devices || []
-  } catch (e: any) {
-    error.value = e?.message || t('accounts.devicesLoadFailed')
+  } catch (e: unknown) {
+    error.value = e instanceof Error ? e.message : t('accounts.devicesLoadFailed')
   } finally {
     loading.value = false
   }
@@ -75,8 +75,8 @@ const terminateDevice = async (device: AccountDeviceInfo) => {
   try {
     await terminateAccountDevice(token, props.accountName, device.hash)
     await loadDevices()
-  } catch (e: any) {
-    error.value = e?.message || t('accounts.terminateDeviceFailed')
+  } catch (e: unknown) {
+    error.value = e instanceof Error ? e.message : t('accounts.terminateDeviceFailed')
   } finally {
     terminatingHash.value = ''
   }

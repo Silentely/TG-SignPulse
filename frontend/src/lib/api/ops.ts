@@ -1,7 +1,7 @@
 /**
  * 运维 Ops API：调度预览、备份导出、WebDAV 备份、内存统计、版本检查、运行时状态。
  */
-import { API_BASE, request } from "./core";
+import { fetchWithAuth, request } from "./core";
 
 export interface ScheduledJob {
   id: string;
@@ -54,26 +54,10 @@ export async function exportBackupArchive(token: string): Promise<{
   remote_url?: string;
   filename?: string;
 }> {
-  const res = await fetch(`${API_BASE}/ops/backup/export`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  });
-  if (!res.ok) {
-    let msg = `Backup export failed (${res.status})`;
-    try {
-      const data = await res.json();
-      if (data?.detail) msg = String(data.detail);
-    } catch {
-      /* ignore */
-    }
-    throw new Error(msg);
-  }
+  const res = await fetchWithAuth("/ops/backup/export", {}, { method: "POST" }, token);
   const ct = (res.headers.get("Content-Type") || "").toLowerCase();
   if (ct.includes("application/json")) {
     const data = await res.json();
-    // 服务端失败应走 !res.ok；若 body 显式 success=false 也按失败处理
     if (data && data.success === false) {
       throw new Error(
         String(data.message || data.detail || "WebDAV backup upload failed"),
@@ -129,22 +113,12 @@ export async function downloadWebdavBackup(
   name: string,
 ): Promise<{ filename: string }> {
   const qs = new URLSearchParams({ name });
-  const res = await fetch(
-    `${API_BASE}/ops/backup/webdav/download?${qs.toString()}`,
-    {
-      headers: { Authorization: `Bearer ${token}` },
-    },
+  const res = await fetchWithAuth(
+    `/ops/backup/webdav/download?${qs.toString()}`,
+    {},
+    {},
+    token,
   );
-  if (!res.ok) {
-    let msg = `Download failed (${res.status})`;
-    try {
-      const data = await res.json();
-      if (data?.detail) msg = String(data.detail);
-    } catch {
-      /* ignore */
-    }
-    throw new Error(msg);
-  }
   const blob = await res.blob();
   const cd = res.headers.get("Content-Disposition") || "";
   const match = /filename="?([^"]+)"?/.exec(cd);

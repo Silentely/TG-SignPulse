@@ -111,7 +111,7 @@ class TelegramPhoneLoginMixin:
         try:
             await close_client_by_name(account_name, workdir=self.session_dir)
         except Exception as e:
-            logger.debug(f"start_login 清理后台客户端失败: {e}")
+            logger.debug("start_login 清理后台客户端失败: %s", e)
 
         # 获取 API credentials
         from backend.services.config import get_config_service
@@ -161,7 +161,7 @@ class TelegramPhoneLoginMixin:
                             aux_file.unlink()
                 except OSError as e:
                     # 如果删除失败，说明真的被锁得很死，或者权限问题
-                    logger.debug(f"删除旧 Session 文件失败: {e} - 可能文件仍被占用")
+                    logger.debug("删除旧 Session 文件失败: %s - 可能文件仍被占用", e)
                     # 这里不抛出异常，尝试继续，也许 Pyrogram 能处理?
                     # 但通常 "unable to open database file" 就是因为这个。
                     pass

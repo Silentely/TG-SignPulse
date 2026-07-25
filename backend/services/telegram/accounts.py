@@ -681,7 +681,7 @@ class TelegramAccountsMixin:
         try:
             await close_client_by_name(account_name, workdir=self.session_dir)
         except Exception as e:
-            logger.debug(f"关闭 Account Client 失败: {e}")
+            logger.debug("关闭 Account Client 失败: %s", e)
 
         session_file = self.session_dir / f"{account_name}.session"
         journal_file = self.session_dir / f"{account_name}.session-journal"

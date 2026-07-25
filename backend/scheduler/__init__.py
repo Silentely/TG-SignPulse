@@ -89,7 +89,7 @@ async def _job_run_sign_task(account_name: str, task_name: str) -> None:
 
     logger = logging.getLogger("backend.scheduler")
     try:
-        logger.info(f"Scheduler: 正在运行签到任务 {task_name} (账号: {account_name})")
+        logger.info("Scheduler: 正在运行签到任务 %s (账号: %s)", task_name, account_name)
 
         # 获取任务配置，检查是否为随机时间段模式
         sign_task_service = get_sign_task_service()
@@ -149,7 +149,7 @@ async def _job_run_sign_task(account_name: str, task_name: str) -> None:
         sign_task_service = get_sign_task_service()
         result = await sign_task_service.run_task_with_logs(account_name, task_name)
         if result.get("success"):
-            logger.info(f"Scheduler: 任务 {task_name} 执行成功")
+            logger.info("Scheduler: 任务 %s 执行成功", task_name)
         else:
             logger.error(
                 "Scheduler: 任务 %s 执行失败: %s",
@@ -356,10 +356,10 @@ async def sync_jobs() -> None:
         desired_tz = saved_tz or get_settings().timezone
         scheduler_tz = str(getattr(scheduler, 'timezone', ''))
         if desired_tz and desired_tz != scheduler_tz:
-            _tz_logger.info(f"时区已变更 ({scheduler_tz} → {desired_tz})，将在下次调度器重启后生效")
+            _tz_logger.info("时区已变更 (%s → %s)，将在下次调度器重启后生效", scheduler_tz, desired_tz)
         _sync_auto_backup_job()
     except (ImportError, AttributeError, ValueError, KeyError) as e:
-        _tz_logger.warning(f"时区变更检测失败: {e}")
+        _tz_logger.warning("时区变更检测失败: %s", e)
     except Exception:
         _tz_logger.exception("时区变更检测发生未知异常")
 
