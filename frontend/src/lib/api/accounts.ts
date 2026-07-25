@@ -1,7 +1,7 @@
 /**
  * 账号管理 API：登录流程、CRUD、状态检测、设备、官方消息、账号日志。
  */
-import { API_BASE, request, requestBlob } from "./core";
+import { request, requestBlob } from "./core";
 
 export interface LoginStartRequest {
   account_name: string;
@@ -288,13 +288,7 @@ export const clearAccountLogs = (token: string, accountName: string) =>
   );
 
 export const exportAccountLogs = async (token: string, accountName: string) => {
-  const res = await fetch(`${API_BASE}/accounts/${accountName}/logs/export`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  });
-  if (!res.ok) throw new Error("Export failed");
-  const blob = await res.blob();
+  const blob = await requestBlob(`/accounts/${encodeURIComponent(accountName)}/logs/export`, {}, token);
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

@@ -608,9 +608,13 @@ class ConfigService:
         """
         获取 AI 配置，优先解密加密的 API Key，兼容旧版明文。
 
-        返回值中的 api_key 始终为明文（或无法解密时为空），
+        返回值中的 api_key 始终为明文（或无法解密时为 None），
         供测试连接、脱敏展示等业务路径直接使用。
         磁盘上仍以 Fernet 密文存储。
+
+        api_key 含义：
+        - None：配置文件不存在，或解密失败（APP_SECRET_KEY 不匹配）
+        - 非空字符串：正常明文 key
 
         Returns:
             配置字典，如果不存在则返回 None
@@ -628,9 +632,11 @@ class ConfigService:
                 api_key = decrypt_secret(api_key) or ""
             except Exception as exc:
                 logging.getLogger("backend.config").warning(
-                    "AI API Key 解密失败，返回空密钥: %s", exc
+                    "AI API Key 解密失败（可能 APP_SECRET_KEY 不匹配），"
+                    "调用方将表现为'未配置': %s",
+                    exc,
                 )
-                api_key = ""
+                api_key = None
 
         return {
             "api_key": api_key,

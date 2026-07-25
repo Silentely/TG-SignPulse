@@ -1,30 +1,21 @@
 /**
  * 配置管理 API：任务配置列表、单任务/全量导入导出、预览、删除。
  */
-import { API_BASE, request } from "./core";
+import { request, requestText } from "./core";
 import type { SignTask } from "./sign-tasks";
 
 export const listConfigTasks = (token: string) =>
   request<{ sign_tasks: string[]; monitor_tasks: string[]; total: number }>("/config/tasks", {}, token);
 
-export const exportSignTask = async (token: string, taskName: string, accountName?: string) => {
+export const exportSignTask = (token: string, taskName: string, accountName?: string) => {
   const params = new URLSearchParams();
   if (accountName) params.append("account_name", accountName);
-  const url = `${API_BASE}/config/export/sign/${taskName}${params.toString() ? `?${params.toString()}` : ""}`;
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) {
-    let errorMessage = "Export failed";
-    try {
-      const errorData = await res.json();
-      errorMessage = errorData.detail || errorData.message || JSON.stringify(errorData);
-    } catch {
-      errorMessage = await res.text() || "Export failed";
-    }
-    throw new Error(errorMessage);
-  }
-  return res.text();
+  const qs = params.toString();
+  return requestText(
+    `/config/export/sign/${taskName}${qs ? `?${qs}` : ""}`,
+    {},
+    token,
+  );
 };
 
 export const importSignTask = (
@@ -38,22 +29,8 @@ export const importSignTask = (
     body: JSON.stringify({ config_json: configJson, task_name: taskName, account_name: accountName }),
   }, token);
 
-export const exportAllConfigs = async (token: string) => {
-  const res = await fetch(`${API_BASE}/config/export/all`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) {
-    let errorMessage = "Export failed";
-    try {
-      const errorData = await res.json();
-      errorMessage = errorData.detail || errorData.message || JSON.stringify(errorData);
-    } catch {
-      errorMessage = await res.text() || "Export failed";
-    }
-    throw new Error(errorMessage);
-  }
-  return res.text();
-};
+export const exportAllConfigs = (token: string) =>
+  requestText("/config/export/all", {}, token);
 
 export type ImportAllConfigsResult = {
   signs_imported: number;

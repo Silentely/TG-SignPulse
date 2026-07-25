@@ -353,8 +353,13 @@ const startPolling = () => {
     if (!props.task) return
     const token = authStore.token || ''
     const accountName = getTaskAccountName(props.task) || ''
-    try {
-      const data = await getSignTaskLogs(token, props.task.name, accountName)
+    // logs 与 status 独立容错：任一失败不阻塞另一个
+    const [logsResult, statusResult] = await Promise.allSettled([
+      getSignTaskLogs(token, props.task.name, accountName),
+      getSignTaskRunStatus(token, props.task.name, accountName),
+    ])
+    if (logsResult.status === 'fulfilled') {
+      const data = logsResult.value
       if (Array.isArray(data) && data.length > 0) {
         realtimeLogs.value = data
         nextTick(() => {
@@ -363,14 +368,13 @@ const startPolling = () => {
           }
         })
       }
-      const status = await getSignTaskRunStatus(token, props.task.name, accountName)
-      applyStatusPayload(status)
-      if (status.state !== 'running') {
+    }
+    if (statusResult.status === 'fulfilled') {
+      applyStatusPayload(statusResult.value)
+      if (statusResult.value.state !== 'running') {
         isRunning.value = false
         if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
       }
-    } catch {
-      // keep polling
     }
   }, 1500)
 }

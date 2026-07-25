@@ -163,3 +163,19 @@ export async function requestBlob(
   const res = await fetchWithAuth(path, headers, options, token);
   return res.blob();
 }
+
+/**
+ * 下载文本响应（如 JSON 导出、纯文本日志）。
+ * 成功时返回纯文本，复用鉴权、超时与 401 跳转。
+ */
+export async function requestText(
+  path: string,
+  options: RequestInit = {},
+  token?: string | null
+): Promise<string> {
+  const headers: Record<string, string> = {
+    ...toRecord(options.headers),
+  };
+  const res = await fetchWithAuth(path, headers, options, token);
+  return res.text();
+}
