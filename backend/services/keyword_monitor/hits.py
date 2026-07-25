@@ -14,7 +14,7 @@ import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, TypedDict, Union
 
 from backend.core.config import get_settings
 
@@ -25,11 +25,55 @@ DEFAULT_LIST_LIMIT = 100
 MAX_LIST_LIMIT = 500
 
 _lock = threading.Lock()
-_records: List[Dict[str, Any]] = []
+_records: List["HitRecord"] = []
 _loaded = False
 
 # Excel/CSV 公式注入前缀
 _CSV_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+class HitRecord(TypedDict, total=False):
+    """单条关键词命中记录（JSONL 落盘结构）。"""
+
+    id: str
+    time: str
+    account_name: str
+    task_name: str
+    chat_id: Union[int, str]
+    chat_title: str
+    keyword: str
+    keywords: List[str]
+    message_id: Optional[int]
+    message_text: str
+    sender: str
+    url: str
+    push_channel: str
+    message_thread_id: Optional[int]
+
+
+class HitListResponse(TypedDict):
+    """list_keyword_hits 返回结构。"""
+
+    total: int
+    offset: int
+    limit: int
+    items: List[HitRecord]
+
+
+class HitGroup(TypedDict):
+    """group_keyword_hits 单个分组。"""
+
+    key: Union[str, Tuple[str, str]]
+    label: str
+    count: int
+    items: List[HitRecord]
+
+
+class HitGroupResponse(TypedDict):
+    """group_keyword_hits 返回结构。"""
+
+    group_by: str
+    groups: List[HitGroup]
 
 
 def _utc_now_iso() -> str:
@@ -65,7 +109,7 @@ def _ensure_loaded() -> None:
         if _loaded:
             return
         path = _hits_path()
-        loaded: List[Dict[str, Any]] = []
+        loaded: List[HitRecord] = []
         if path.exists():
             try:
                 with path.open("r", encoding="utf-8") as fp:
@@ -105,17 +149,17 @@ def record_keyword_hit(
     *,
     account_name: str,
     task_name: str,
-    chat_id: Any = None,
+    chat_id: Optional[Union[int, str]] = None,
     chat_title: str = "",
     keyword: str = "",
     keywords: Optional[List[str]] = None,
-    message_id: Any = None,
+    message_id: Optional[int] = None,
     message_text: str = "",
     sender: str = "",
     url: str = "",
     push_channel: str = "",
-    message_thread_id: Any = None,
-) -> Dict[str, Any]:
+    message_thread_id: Optional[int] = None,
+) -> HitRecord:
     """追加一条命中记录并落盘。"""
     _ensure_loaded()
     text = str(message_text or "").replace("\r\n", "\n").strip()
@@ -126,7 +170,7 @@ def record_keyword_hit(
     safe_url = ""
     if raw_url.lower().startswith(("http://", "https://")):
         safe_url = raw_url[:500]
-    record: Dict[str, Any] = {
+    record: HitRecord = {
         "id": uuid.uuid4().hex,
         "time": _utc_now_iso(),
         "account_name": str(account_name or "").strip()[:120],
@@ -164,7 +208,7 @@ def list_keyword_hits(
     limit: int = DEFAULT_LIST_LIMIT,
     offset: int = 0,
     max_limit: int = MAX_LIST_LIMIT,
-) -> Dict[str, Any]:
+) -> HitListResponse:
     """
     列出命中记录。
 
@@ -201,7 +245,7 @@ def group_keyword_hits(
     task_name: Optional[str] = None,
     group_by: str = "task",
     limit_per_group: int = 20,
-) -> Dict[str, Any]:
+) -> HitGroupResponse:
     """
     按 task / account / chat 分组命中记录。
     每组保留最近 limit_per_group 条，并统计 count。
@@ -220,7 +264,7 @@ def group_keyword_hits(
     task = (task_name or "").strip()
 
     # 内存 key：chat 用 (id, title) 元组，避免 title 含分隔符时解析错误
-    buckets: Dict[Union[str, Tuple[str, str]], List[Dict[str, Any]]] = defaultdict(list)
+    buckets: Dict[Union[str, Tuple[str, str]], List[HitRecord]] = defaultdict(list)
     counts: Dict[Union[str, Tuple[str, str]], int] = defaultdict(int)
 
     with _lock:
