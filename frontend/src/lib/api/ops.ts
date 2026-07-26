@@ -1,7 +1,14 @@
 /**
  * 运维 Ops API：调度预览、备份导出、WebDAV 备份、内存统计、版本检查、运行时状态。
  */
-import { fetchWithAuth, LONG_TIMEOUT_MS, MEDIUM_TIMEOUT_MS, request } from "./core";
+import {
+  createRequestAbort,
+  fetchWithAuth,
+  LONG_TIMEOUT_MS,
+  MEDIUM_TIMEOUT_MS,
+  request,
+} from "./core";
+import type { ApiError } from "../types";
 
 export interface ScheduledJob {
   id: string;
@@ -54,42 +61,70 @@ export async function exportBackupArchive(token: string): Promise<{
   remote_url?: string;
   filename?: string;
 }> {
-  // 压缩与 WebDAV 上传可能超过普通 API 的 30 秒窗口；与服务端 httpx 600s 对齐。
-  const res = await fetchWithAuth(
-    "/ops/backup/export",
-    {},
-    { method: "POST" },
-    token,
-    LONG_TIMEOUT_MS,
-  );
-  const ct = (res.headers.get("Content-Type") || "").toLowerCase();
-  if (ct.includes("application/json")) {
-    const data = await res.json();
-    if (data && data.success === false) {
-      throw new Error(
-        String(data.message || data.detail || "WebDAV backup upload failed"),
-      );
+  // 整段墙钟超时：打包 + 上传/下载 body 均受 LONG_TIMEOUT 约束
+  const abort = createRequestAbort(LONG_TIMEOUT_MS, null);
+  try {
+    const res = await fetchWithAuth(
+      "/ops/backup/export",
+      {},
+      { method: "POST", signal: abort.signal },
+      token,
+      null,
+    );
+    const ct = (res.headers.get("Content-Type") || "").toLowerCase();
+    if (ct.includes("application/json")) {
+      const data = await res.json();
+      if (data && data.success === false) {
+        throw new Error(
+          String(data.message || data.detail || "WebDAV backup upload failed"),
+        );
+      }
+      return {
+        mode: "webdav",
+        message: data.message,
+        remote_url: data.remote_url,
+        filename: data.filename,
+      };
     }
-    return {
-      mode: "webdav",
-      message: data.message,
-      remote_url: data.remote_url,
-      filename: data.filename,
-    };
+    const blob = await res.blob();
+    const cd = res.headers.get("Content-Disposition") || "";
+    const match = /filename="?([^"]+)"?/.exec(cd);
+    const filename = match?.[1] || `tg-signpulse-backup-${Date.now()}.tar.gz`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    return { mode: "download", filename };
+  } catch (e: unknown) {
+    if (
+      e &&
+      typeof e === "object" &&
+      "code" in e &&
+      String((e as ApiError).code || "").startsWith("NETWORK_")
+    ) {
+      throw e;
+    }
+    if (
+      (e instanceof DOMException && e.name === "AbortError") ||
+      (e instanceof Error && e.name === "AbortError")
+    ) {
+      const err = new Error(
+        abort.wasAbortedByTimeout() ? "NETWORK_TIMEOUT" : "NETWORK_ABORTED",
+      ) as ApiError;
+      err.status = 0;
+      err.code = abort.wasAbortedByTimeout()
+        ? "NETWORK_TIMEOUT"
+        : "NETWORK_ABORTED";
+      throw err;
+    }
+    throw e;
+  } finally {
+    abort.cleanup();
   }
-  const blob = await res.blob();
-  const cd = res.headers.get("Content-Disposition") || "";
-  const match = /filename="?([^"]+)"?/.exec(cd);
-  const filename = match?.[1] || `tg-signpulse-backup-${Date.now()}.tar.gz`;
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-  return { mode: "download", filename };
 }
 
 export const testWebdavBackup = (token: string) =>
@@ -121,26 +156,54 @@ export async function downloadWebdavBackup(
   name: string,
 ): Promise<{ filename: string }> {
   const qs = new URLSearchParams({ name });
-  const res = await fetchWithAuth(
-    `/ops/backup/webdav/download?${qs.toString()}`,
-    {},
-    {},
-    token,
-    LONG_TIMEOUT_MS,
-  );
-  const blob = await res.blob();
-  const cd = res.headers.get("Content-Disposition") || "";
-  const match = /filename="?([^"]+)"?/.exec(cd);
-  const filename = match?.[1] || name;
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-  return { filename };
+  const abort = createRequestAbort(LONG_TIMEOUT_MS, null);
+  try {
+    const res = await fetchWithAuth(
+      `/ops/backup/webdav/download?${qs.toString()}`,
+      {},
+      { signal: abort.signal },
+      token,
+      null,
+    );
+    const blob = await res.blob();
+    const cd = res.headers.get("Content-Disposition") || "";
+    const match = /filename="?([^"]+)"?/.exec(cd);
+    const filename = match?.[1] || name;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    return { filename };
+  } catch (e: unknown) {
+    if (
+      e &&
+      typeof e === "object" &&
+      "code" in e &&
+      String((e as ApiError).code || "").startsWith("NETWORK_")
+    ) {
+      throw e;
+    }
+    if (
+      (e instanceof DOMException && e.name === "AbortError") ||
+      (e instanceof Error && e.name === "AbortError")
+    ) {
+      const err = new Error(
+        abort.wasAbortedByTimeout() ? "NETWORK_TIMEOUT" : "NETWORK_ABORTED",
+      ) as ApiError;
+      err.status = 0;
+      err.code = abort.wasAbortedByTimeout()
+        ? "NETWORK_TIMEOUT"
+        : "NETWORK_ABORTED";
+      throw err;
+    }
+    throw e;
+  } finally {
+    abort.cleanup();
+  }
 }
 
 export interface MemoryStatsResponse {

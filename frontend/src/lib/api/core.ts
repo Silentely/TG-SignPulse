@@ -20,15 +20,15 @@ export const toRecord = (headers?: HeadersInit): Record<string, string> => {
 
 /**
  * 默认请求超时（毫秒）。
- * 语义：仅约束到 Response headers 到达（TTFB）；body 读取阶段不再受此计时器约束。
- * 长耗时请求可传 LONG_TIMEOUT_MS，或 null 关闭固定超时。
+ * request / requestBlob / requestText：覆盖「发起到 body 读完」的整段墙钟时间。
+ * 直接使用 fetchWithAuth 时：仅约束到 Response headers（TTFB），body 由调用方负责。
  */
 export const DEFAULT_TIMEOUT_MS = 30_000;
 
 /** 长任务（备份/大导出/配置导入导出）与服务端 WebDAV 读写上限对齐。 */
 export const LONG_TIMEOUT_MS = 600_000;
 
-/** 中等耗时接口（WebDAV 探测、设备保活等），默认 30s 偏紧。 */
+/** 中等耗时接口（WebDAV 探测、设备保活、会话检测等）。 */
 export const MEDIUM_TIMEOUT_MS = 120_000;
 
 /** 并发 401 时只跳转一次，避免头像批量拉取触发多次 location 赋值。 */
@@ -49,15 +49,101 @@ export function resetAuthRedirectGateForTests(): void {
   authRedirectScheduled = false;
 }
 
+type AbortCode = "NETWORK_TIMEOUT" | "NETWORK_ABORTED" | "NETWORK_ERROR";
+type AbortReason = "timeout" | "external";
+
+/** 跨嵌套 AbortSignal 传播超时/取消原因（request 外层 → fetchWithAuth 内层） */
+const abortReasonBySignal = new WeakMap<AbortSignal, AbortReason>();
+
+function toNetworkError(
+  e: unknown,
+  abortedByTimeout: boolean,
+  abortedByExternal: boolean,
+): ApiError {
+  const isAbort =
+    (e instanceof DOMException && e.name === "AbortError") ||
+    (e instanceof Error && e.name === "AbortError");
+  let code: AbortCode = "NETWORK_ERROR";
+  if (isAbort) {
+    code = abortedByExternal
+      ? "NETWORK_ABORTED"
+      : abortedByTimeout
+        ? "NETWORK_TIMEOUT"
+        : "NETWORK_ABORTED";
+  }
+  const err = new Error(code) as ApiError;
+  err.status = 0;
+  err.code = code;
+  return err;
+}
+
 /**
- * 内部请求基元：鉴权 header、超时、abort 传播、!res.ok 错误解析与 401 跳转。
+ * 组合外部 AbortSignal 与可选超时，返回统一 signal 与 cleanup。
+ * 超时在 cleanup 前一直有效，可覆盖 headers + body 整段操作。
+ */
+export function createRequestAbort(
+  timeoutMs: number | null,
+  externalSignal?: AbortSignal | null,
+): {
+  signal: AbortSignal;
+  cleanup: () => void;
+  wasAbortedByTimeout: () => boolean;
+  wasAbortedByExternal: () => boolean;
+} {
+  const controller = new AbortController();
+  let abortedByTimeout = false;
+  let abortedByExternal = false;
+
+  const markAndAbort = (reason: AbortReason) => {
+    if (reason === "timeout") abortedByTimeout = true;
+    else abortedByExternal = true;
+    abortReasonBySignal.set(controller.signal, reason);
+    controller.abort();
+  };
+
+  const onExternalAbort = () => {
+    // 若外层 signal 本身因超时 abort，继承 timeout，避免被误标为用户取消
+    const parentReason = externalSignal
+      ? abortReasonBySignal.get(externalSignal)
+      : undefined;
+    markAndAbort(parentReason === "timeout" ? "timeout" : "external");
+  };
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      const parentReason = abortReasonBySignal.get(externalSignal);
+      markAndAbort(parentReason === "timeout" ? "timeout" : "external");
+    } else {
+      externalSignal.addEventListener("abort", onExternalAbort, { once: true });
+    }
+  }
+  const timeoutId =
+    timeoutMs === null
+      ? null
+      : setTimeout(() => {
+          markAndAbort("timeout");
+        }, timeoutMs);
+
+  const cleanup = () => {
+    if (timeoutId !== null) clearTimeout(timeoutId);
+    if (externalSignal) {
+      externalSignal.removeEventListener("abort", onExternalAbort);
+    }
+  };
+
+  return {
+    signal: controller.signal,
+    cleanup,
+    wasAbortedByTimeout: () => abortedByTimeout,
+    wasAbortedByExternal: () => abortedByExternal,
+  };
+}
+
+/**
+ * 内部请求基元：鉴权 header、可选超时、abort 传播、!res.ok 错误解析与 401 跳转。
  * 成功时返回原始 Response，由调用方决定 JSON/Blob 解析方式。
  *
- * 超时语义：计时器在 headers 到达后清除；body 下载不受 DEFAULT/LONG 超时限制。
- * abort 语义：
- * - 超时触发 → NETWORK_TIMEOUT
- * - 调用方 signal 取消 → NETWORK_ABORTED
- * - 其他网络失败 → NETWORK_ERROR
+ * timeoutMs 语义（本函数内）：仅约束到 headers 到达；若需覆盖 body，
+ * 请用 request/requestBlob/requestText，或自行 createRequestAbort + timeoutMs=null。
  */
 export async function fetchWithAuth(
   path: string,
@@ -70,30 +156,7 @@ export async function fetchWithAuth(
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const controller = new AbortController();
-  const externalSignal = options.signal;
-  // 区分超时 abort 与外部取消，避免卸载/导航误报「请求超时」
-  let abortedByTimeout = false;
-  let abortedByExternal = false;
-  const onExternalAbort = () => {
-    abortedByExternal = true;
-    controller.abort();
-  };
-  if (externalSignal) {
-    if (externalSignal.aborted) {
-      abortedByExternal = true;
-      controller.abort();
-    } else {
-      externalSignal.addEventListener("abort", onExternalAbort, { once: true });
-    }
-  }
-  const timeoutId =
-    timeoutMs === null
-      ? null
-      : setTimeout(() => {
-          abortedByTimeout = true;
-          controller.abort();
-        }, timeoutMs);
+  const abort = createRequestAbort(timeoutMs, options.signal ?? null);
 
   let res: Response;
   try {
@@ -101,38 +164,20 @@ export async function fetchWithAuth(
       ...options,
       headers,
       cache: "no-store",
-      signal: controller.signal,
+      signal: abort.signal,
     });
   } catch (e: unknown) {
-    if (timeoutId !== null) clearTimeout(timeoutId);
-    if (externalSignal) {
-      externalSignal.removeEventListener("abort", onExternalAbort);
-    }
-    const isAbort =
-      (e instanceof DOMException && e.name === "AbortError") ||
-      (e instanceof Error && e.name === "AbortError");
-    let code = "NETWORK_ERROR";
-    if (isAbort) {
-      // 外部取消优先：即使两者同时触发，用户主动取消更贴近真实意图
-      code = abortedByExternal
-        ? "NETWORK_ABORTED"
-        : abortedByTimeout
-          ? "NETWORK_TIMEOUT"
-          : "NETWORK_ABORTED";
-    }
-    const err = new Error(code) as ApiError;
-    err.status = 0;
-    err.code = code;
-    throw err;
-  } finally {
-    if (timeoutId !== null) clearTimeout(timeoutId);
-    if (externalSignal) {
-      externalSignal.removeEventListener("abort", onExternalAbort);
-    }
+    abort.cleanup();
+    throw toNetworkError(
+      e,
+      abort.wasAbortedByTimeout(),
+      abort.wasAbortedByExternal(),
+    );
   }
+  // headers 已到达：TTFB 超时结束（body 由 request* 的外层超时继续管，或调用方自管）
+  abort.cleanup();
 
   if (!res.ok) {
-    // 尝试解析 JSON 错误响应；默认消息中性，避免中英文混用硬编码
     let errorMessage = `Request failed (${res.status})`;
     let errorCode: string | undefined;
     let responseText = "";
@@ -149,7 +194,6 @@ export async function fetchWithAuth(
           if (typeof detail === "string" && detail.trim()) {
             errorMessage = detail.trim();
           } else if (Array.isArray(detail)) {
-            // FastAPI validation error format: [{loc, msg, type}]
             const msgs = (detail as FastApiValidationError[])
               .map((d) => (d.msg || "").trim() || JSON.stringify(d))
               .filter(Boolean);
@@ -169,12 +213,10 @@ export async function fetchWithAuth(
           errorMessage = JSON.stringify(errorData);
         }
       } catch {
-        // 响应体只能读取一次；非 JSON 时直接使用已读取的文本。
         errorMessage = responseText;
       }
     }
 
-    // 认证失败 (401) 且请求携带了 token：闸门防抖，批量并发只跳转一次
     if (res.status === 401 && token) {
       redirectToLoginIfTokenMatches(token);
     }
@@ -189,26 +231,90 @@ export async function fetchWithAuth(
   return res;
 }
 
+/**
+ * 带整段墙钟超时的请求：headers + body 解析均在 timeoutMs 内。
+ * 内部对 fetchWithAuth 关闭 TTFB 超时，改由外层 createRequestAbort 统一约束。
+ */
+async function requestWithTotalTimeout<T>(
+  path: string,
+  options: RequestInit,
+  token: string | null | undefined,
+  timeoutMs: number | null,
+  parse: (res: Response) => Promise<T>,
+  extraHeaders?: Record<string, string>,
+): Promise<T> {
+  const abort = createRequestAbort(timeoutMs, options.signal ?? null);
+  const headers: Record<string, string> = {
+    ...toRecord(options.headers),
+    ...extraHeaders,
+  };
+  try {
+    const res = await fetchWithAuth(
+      path,
+      headers,
+      { ...options, signal: abort.signal },
+      token,
+      null,
+    );
+    return await parse(res);
+  } catch (e: unknown) {
+    // 外层总超时经 signal 传入 fetchWithAuth 时会被标成 NETWORK_ABORTED，
+    // 这里按外层 flag 纠正为 TIMEOUT / ABORTED。
+    if (abort.wasAbortedByTimeout()) {
+      const err = new Error("NETWORK_TIMEOUT") as ApiError;
+      err.status = 0;
+      err.code = "NETWORK_TIMEOUT";
+      throw err;
+    }
+    if (abort.wasAbortedByExternal()) {
+      const err = new Error("NETWORK_ABORTED") as ApiError;
+      err.status = 0;
+      err.code = "NETWORK_ABORTED";
+      throw err;
+    }
+    if (
+      e &&
+      typeof e === "object" &&
+      "code" in e &&
+      (e as ApiError).code &&
+      String((e as ApiError).code).startsWith("NETWORK_")
+    ) {
+      throw e;
+    }
+    if (
+      (e instanceof DOMException && e.name === "AbortError") ||
+      (e instanceof Error && e.name === "AbortError")
+    ) {
+      throw toNetworkError(e, false, false);
+    }
+    throw e;
+  } finally {
+    abort.cleanup();
+  }
+}
+
 export async function request<T>(
   path: string,
   options: RequestInit = {},
   token?: string | null,
   timeoutMs: number | null = DEFAULT_TIMEOUT_MS,
 ): Promise<T> {
-  const headers: Record<string, string> = {
-    ...toRecord(options.headers),
-    "Content-Type": "application/json",
-  };
-  const res = await fetchWithAuth(path, headers, options, token, timeoutMs);
-  if (res.status === 204) {
-    return {} as T;
-  }
-  return res.json();
+  return requestWithTotalTimeout(
+    path,
+    options,
+    token,
+    timeoutMs,
+    async (res) => {
+      if (res.status === 204) return {} as T;
+      return res.json() as Promise<T>;
+    },
+    { "Content-Type": "application/json" },
+  );
 }
 
 /**
  * 下载二进制响应（如头像、CSV 导出）。
- * 成功时返回 Blob 而非 JSON。
+ * 超时覆盖发起到 blob() 完成。
  */
 export async function requestBlob(
   path: string,
@@ -216,16 +322,18 @@ export async function requestBlob(
   token?: string | null,
   timeoutMs: number | null = DEFAULT_TIMEOUT_MS,
 ): Promise<Blob> {
-  const headers: Record<string, string> = {
-    ...toRecord(options.headers),
-  };
-  const res = await fetchWithAuth(path, headers, options, token, timeoutMs);
-  return res.blob();
+  return requestWithTotalTimeout(
+    path,
+    options,
+    token,
+    timeoutMs,
+    (res) => res.blob(),
+  );
 }
 
 /**
  * 下载文本响应（如 JSON 导出、纯文本日志）。
- * 成功时返回纯文本，复用鉴权、超时与 401 跳转。
+ * 超时覆盖发起到 text() 完成。
  */
 export async function requestText(
   path: string,
@@ -233,9 +341,11 @@ export async function requestText(
   token?: string | null,
   timeoutMs: number | null = DEFAULT_TIMEOUT_MS,
 ): Promise<string> {
-  const headers: Record<string, string> = {
-    ...toRecord(options.headers),
-  };
-  const res = await fetchWithAuth(path, headers, options, token, timeoutMs);
-  return res.text();
+  return requestWithTotalTimeout(
+    path,
+    options,
+    token,
+    timeoutMs,
+    (res) => res.text(),
+  );
 }
