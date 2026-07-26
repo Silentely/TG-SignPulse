@@ -144,7 +144,7 @@ docker run -d -p 3000:3000 -v ./data:/data ghcr.io/<owner>/tg-signpulse:latest
 | `proxy.py` | 代理 URL 标准化 |
 | `account_locks.py` | 账号级异步锁 |
 
-> 工具层：`cache.TTLCache` 已接入签到任务列表缓存；`memory_monitor` 在 main 启动；历史列表走 `sign_task_history_index` 轻量索引
+> 工具层：`cache.TTLCache` 已接入签到任务列表缓存；`memory_monitor` 在 main 启动；历史列表走 `sign_task_history_index`；SSE 走 `sign_history_events` 进程内总线（30s 索引兜底）
 
 ### tg_signer/config.py 配置模型（565 行）
 

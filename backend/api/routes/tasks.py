@@ -77,6 +77,13 @@ def legacy_tasks_status(
         removal_stage = "readonly_with_stock" if tasks else "ready"
     else:
         removal_stage = "writable_compat"
+    checklist = [
+        "确认无外部脚本/旧客户端写 /api/tasks 与 /api/batch/tasks",
+        "保持 APP_LEGACY_TASKS_READONLY=1",
+        "运行 tools/check_legacy_tasks.py 确认 orm_task_count=0",
+        "确认面板与调度仅使用 /api/sign-tasks",
+        "ready_for_route_removal=true 后可评估删除 routes/tasks 写路径与 ORM Task 表",
+    ]
     return {
         "legacy_writes_allowed": writes_allowed,
         "readonly_default": True,
@@ -86,6 +93,8 @@ def legacy_tasks_status(
         "batch_api": "/api/batch/sign-tasks",
         "removal_stage": removal_stage,
         "ready_for_route_removal": ready_for_route_removal,
+        "removal_checklist": checklist,
+        "check_tool": "python tools/check_legacy_tasks.py --json",
         "hint": (
             "新功能请使用 sign-tasks；"
             "临时兼容写操作可设置 APP_LEGACY_TASKS_READONLY=0；"

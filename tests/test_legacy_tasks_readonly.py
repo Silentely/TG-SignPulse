@@ -50,6 +50,8 @@ def test_legacy_status_endpoint(client, db_session, monkeypatch):
     assert "removal_stage" in body
     assert "ready_for_route_removal" in body
     assert body["ready_for_route_removal"] is (body["task_count"] == 0)
+    assert isinstance(body.get("removal_checklist"), list)
+    assert body.get("check_tool")
 
 
 def test_legacy_batch_tasks_readonly(client, db_session, monkeypatch):
