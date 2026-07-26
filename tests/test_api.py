@@ -26,6 +26,7 @@ from sqlalchemy.pool import StaticPool
 from backend.core import config as config_module
 from backend.core import database as database_module
 from backend.models.account import Account
+from backend.models.task import Task
 
 # ============================================================================
 # 测试专用 Fixtures
@@ -50,8 +51,6 @@ def api_client(tmp_path, monkeypatch) -> Iterator[TestClient]:
     monkeypatch.setenv("SIGN_TASK_EXECUTION_TIMEOUT", "5")
     monkeypatch.setenv("AI_REQUEST_TIMEOUT", "5")
     monkeypatch.setenv("ADMIN_PASSWORD", "admin123")
-    # 遗留 ORM 写路径测试需要关闭默认只读
-    monkeypatch.setenv("APP_LEGACY_TASKS_READONLY", "0")
 
     # 重置数据库模块状态
     config_module.get_settings.cache_clear()
@@ -490,77 +489,52 @@ class TestAccountAPI:
         assert len(data["results"]) == 2
 
 
+
+
+def _seed_legacy_task(db, account, name="seed_task", cron="0 6 * * *", enabled=True):
+    """直接写 ORM，供只读 GET 用例准备数据（写 API 已永久 410）。"""
+    task = Task(name=name, cron=cron, enabled=enabled, account_id=account.id)
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+    return task
+
+
 # ============================================================================
 # 任务 API 测试
 # ============================================================================
 
 
 class TestTaskAPI:
-    """任务 API 端点测试"""
+    """旧版 /api/tasks：写路径永久 410；只读 GET 仍可用。"""
 
     def test_list_tasks_empty(self, api_client, db):
-        """任务列表：无任务时返回空列表"""
-
         token = _login(api_client)
-
         resp = api_client.get("/api/tasks", headers=_auth(token))
-
         assert resp.status_code == 200
         assert resp.json() == []
 
     def test_list_tasks_unauthenticated(self, api_client, db):
-        """未认证访问任务列表：返回 401"""
         resp = api_client.get("/api/tasks")
         assert resp.status_code == 401
 
-    def test_create_task(self, api_client, db):
-        """创建任务：返回新任务详情"""
-
+    def test_create_task_gone(self, api_client, db):
         token = _login(api_client)
         account = _create_account(db)
-
-        with patch("backend.api.routes.tasks.sync_jobs", new_callable=AsyncMock):
-            resp = api_client.post(
-                "/api/tasks",
-                json={
-                    "name": "daily_sign",
-                    "cron": "0 6 * * *",
-                    "enabled": True,
-                    "account_id": account.id,
-                },
-                headers=_auth(token),
-            )
-
-        assert resp.status_code == 201
-        data = resp.json()
-        assert data["name"] == "daily_sign"
-        assert data["cron"] == "0 6 * * *"
-        assert data["enabled"] is True
-        assert data["account_id"] == account.id
-        assert "id" in data
-
-    def test_create_task_account_not_found(self, api_client, db):
-        """创建任务失败：关联账号不存在返回 404"""
-
-        token = _login(api_client)
-
-        with patch("backend.api.routes.tasks.sync_jobs", new_callable=AsyncMock):
-            resp = api_client.post(
-                "/api/tasks",
-                json={
-                    "name": "orphan_task",
-                    "cron": "0 6 * * *",
-                    "enabled": True,
-                    "account_id": 9999,
-                },
-                headers=_auth(token),
-            )
-
-        assert resp.status_code == 404
-        assert "Account not found" in resp.json()["detail"]
+        resp = api_client.post(
+            "/api/tasks",
+            json={
+                "name": "daily_sign",
+                "cron": "0 6 * * *",
+                "enabled": True,
+                "account_id": account.id,
+            },
+            headers=_auth(token),
+        )
+        assert resp.status_code == 410
+        assert resp.json().get("detail") == "LEGACY_TASKS_READONLY"
 
     def test_create_task_unauthenticated(self, api_client, db):
-        """未认证创建任务：返回 401"""
         resp = api_client.post(
             "/api/tasks",
             json={"name": "task", "cron": "0 6 * * *", "enabled": True, "account_id": 1},
@@ -568,295 +542,90 @@ class TestTaskAPI:
         assert resp.status_code == 401
 
     def test_get_task(self, api_client, db):
-        """获取单个任务：返回任务详情"""
-
         token = _login(api_client)
         account = _create_account(db)
-
-        with patch("backend.api.routes.tasks.sync_jobs", new_callable=AsyncMock):
-            create_resp = api_client.post(
-                "/api/tasks",
-                json={"name": "fetch_task", "cron": "30 8 * * *", "enabled": True, "account_id": account.id},
-                headers=_auth(token),
-            )
-        task_id = create_resp.json()["id"]
-
-        resp = api_client.get(f"/api/tasks/{task_id}", headers=_auth(token))
-
+        task = _seed_legacy_task(db, account, name="fetch_task", cron="30 8 * * *")
+        resp = api_client.get(f"/api/tasks/{task.id}", headers=_auth(token))
         assert resp.status_code == 200
         data = resp.json()
-        assert data["id"] == task_id
+        assert data["id"] == task.id
         assert data["name"] == "fetch_task"
         assert data["cron"] == "30 8 * * *"
 
     def test_get_task_not_found(self, api_client, db):
-        """获取不存在的任务：返回 404"""
-
         token = _login(api_client)
-
         resp = api_client.get("/api/tasks/9999", headers=_auth(token))
         assert resp.status_code == 404
         assert "Task not found" in resp.json()["detail"]
 
-    def test_update_task(self, api_client, db):
-        """更新任务：修改名称和 cron 表达式"""
-
+    def test_update_task_gone(self, api_client, db):
         token = _login(api_client)
         account = _create_account(db)
+        task = _seed_legacy_task(db, account, name="old_name")
+        resp = api_client.put(
+            f"/api/tasks/{task.id}",
+            json={"name": "new_name", "cron": "30 9 * * 1-5"},
+            headers=_auth(token),
+        )
+        assert resp.status_code == 410
+        assert resp.json().get("detail") == "LEGACY_TASKS_READONLY"
 
-        with patch("backend.api.routes.tasks.sync_jobs", new_callable=AsyncMock):
-            create_resp = api_client.post(
-                "/api/tasks",
-                json={"name": "old_name", "cron": "0 6 * * *", "enabled": True, "account_id": account.id},
-                headers=_auth(token),
-            )
-        task_id = create_resp.json()["id"]
-
-        with patch("backend.api.routes.tasks.sync_jobs", new_callable=AsyncMock):
-            resp = api_client.put(
-                f"/api/tasks/{task_id}",
-                json={"name": "new_name", "cron": "30 9 * * 1-5"},
-                headers=_auth(token),
-            )
-
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["name"] == "new_name"
-        assert data["cron"] == "30 9 * * 1-5"
-        assert data["id"] == task_id
-
-    def test_update_task_toggle_enabled(self, api_client, db):
-        """切换任务启用状态"""
-
+    def test_delete_task_gone(self, api_client, db):
         token = _login(api_client)
         account = _create_account(db)
-
-        with patch("backend.api.routes.tasks.sync_jobs", new_callable=AsyncMock):
-            create_resp = api_client.post(
-                "/api/tasks",
-                json={"name": "toggle_task", "cron": "0 6 * * *", "enabled": True, "account_id": account.id},
-                headers=_auth(token),
-            )
-        task_id = create_resp.json()["id"]
-        assert create_resp.json()["enabled"] is True
-
-        # 禁用任务
-        with patch("backend.api.routes.tasks.sync_jobs", new_callable=AsyncMock):
-            resp = api_client.put(
-                f"/api/tasks/{task_id}",
-                json={"enabled": False},
-                headers=_auth(token),
-            )
-        assert resp.status_code == 200
-        assert resp.json()["enabled"] is False
-
-        # 重新启用任务
-        with patch("backend.api.routes.tasks.sync_jobs", new_callable=AsyncMock):
-            resp = api_client.put(
-                f"/api/tasks/{task_id}",
-                json={"enabled": True},
-                headers=_auth(token),
-            )
-        assert resp.status_code == 200
-        assert resp.json()["enabled"] is True
-
-    def test_update_task_not_found(self, api_client, db):
-        """更新不存在的任务：返回 404"""
-
-        token = _login(api_client)
-
-        resp = api_client.put("/api/tasks/9999", json={"name": "nope"}, headers=_auth(token))
-        assert resp.status_code == 404
-
-    def test_update_task_change_account(self, api_client, db):
-        """更新任务的关联账号"""
-
-        token = _login(api_client)
-        account_1 = _create_account(db, "account_1")
-        account_2 = _create_account(db, "account_2")
-
-        with patch("backend.api.routes.tasks.sync_jobs", new_callable=AsyncMock):
-            create_resp = api_client.post(
-                "/api/tasks",
-                json={"name": "move_task", "cron": "0 6 * * *", "enabled": True, "account_id": account_1.id},
-                headers=_auth(token),
-            )
-        task_id = create_resp.json()["id"]
-
-        with patch("backend.api.routes.tasks.sync_jobs", new_callable=AsyncMock):
-            resp = api_client.put(
-                f"/api/tasks/{task_id}",
-                json={"account_id": account_2.id},
-                headers=_auth(token),
-            )
-
-        assert resp.status_code == 200
-        assert resp.json()["account_id"] == account_2.id
-
-    def test_update_task_invalid_account(self, api_client, db):
-        """更新任务关联到不存在的账号：返回 404"""
-
-        token = _login(api_client)
-        account = _create_account(db)
-
-        with patch("backend.api.routes.tasks.sync_jobs", new_callable=AsyncMock):
-            create_resp = api_client.post(
-                "/api/tasks",
-                json={"name": "my_task", "cron": "0 6 * * *", "enabled": True, "account_id": account.id},
-                headers=_auth(token),
-            )
-        task_id = create_resp.json()["id"]
-
-        with patch("backend.api.routes.tasks.sync_jobs", new_callable=AsyncMock):
-            resp = api_client.put(
-                f"/api/tasks/{task_id}",
-                json={"account_id": 9999},
-                headers=_auth(token),
-            )
-
-        assert resp.status_code == 404
-
-    def test_delete_task(self, api_client, db):
-        """删除任务：成功后返回 ok"""
-
-        token = _login(api_client)
-        account = _create_account(db)
-
-        with patch("backend.api.routes.tasks.sync_jobs", new_callable=AsyncMock):
-            create_resp = api_client.post(
-                "/api/tasks",
-                json={"name": "doomed_task", "cron": "0 6 * * *", "enabled": True, "account_id": account.id},
-                headers=_auth(token),
-            )
-        task_id = create_resp.json()["id"]
-
-        with patch("backend.api.routes.tasks.sync_jobs", new_callable=AsyncMock):
-            resp = api_client.delete(f"/api/tasks/{task_id}", headers=_auth(token))
-
-        assert resp.status_code == 200
-        assert resp.json()["ok"] is True
-
-        # 确认任务已删除
-        resp = api_client.get(f"/api/tasks/{task_id}", headers=_auth(token))
-        assert resp.status_code == 404
-
-    def test_delete_task_not_found(self, api_client, db):
-        """删除不存在的任务：返回 404"""
-
-        token = _login(api_client)
-
-        resp = api_client.delete("/api/tasks/9999", headers=_auth(token))
-        assert resp.status_code == 404
+        task = _seed_legacy_task(db, account, name="doomed_task")
+        resp = api_client.delete(f"/api/tasks/{task.id}", headers=_auth(token))
+        assert resp.status_code == 410
+        assert resp.json().get("detail") == "LEGACY_TASKS_READONLY"
+        # 只读 GET 仍可见
+        get_resp = api_client.get(f"/api/tasks/{task.id}", headers=_auth(token))
+        assert get_resp.status_code == 200
 
     def test_delete_task_unauthenticated(self, api_client, db):
-        """未认证删除任务：返回 401"""
         resp = api_client.delete("/api/tasks/1")
         assert resp.status_code == 401
 
-    def test_list_tasks_with_data(self, api_client, db):
-        """任务列表：创建多个任务后返回列表"""
-
+    def test_run_task_gone(self, api_client, db):
         token = _login(api_client)
         account = _create_account(db)
+        task = _seed_legacy_task(db, account, name="run_me")
+        resp = api_client.post(f"/api/tasks/{task.id}/run", headers=_auth(token))
+        assert resp.status_code == 410
+        assert resp.json().get("detail") == "LEGACY_TASKS_READONLY"
 
-        with patch("backend.api.routes.tasks.sync_jobs", new_callable=AsyncMock):
-            api_client.post(
-                "/api/tasks",
-                json={"name": "task_a", "cron": "0 6 * * *", "enabled": True, "account_id": account.id},
-                headers=_auth(token),
-            )
-            api_client.post(
-                "/api/tasks",
-                json={"name": "task_b", "cron": "0 7 * * *", "enabled": False, "account_id": account.id},
-                headers=_auth(token),
-            )
-
+    def test_list_tasks_with_data(self, api_client, db):
+        token = _login(api_client)
+        account = _create_account(db)
+        _seed_legacy_task(db, account, name="task_a", cron="0 6 * * *", enabled=True)
+        _seed_legacy_task(db, account, name="task_b", cron="0 7 * * *", enabled=False)
         resp = api_client.get("/api/tasks", headers=_auth(token))
-
         assert resp.status_code == 200
         data = resp.json()
         assert len(data) == 2
-        task_names = {t["name"] for t in data}
-        assert task_names == {"task_a", "task_b"}
+        assert {t["name"] for t in data} == {"task_a", "task_b"}
 
     def test_get_task_logs_empty(self, api_client, db):
-        """获取任务日志：无日志时返回空列表"""
-
         token = _login(api_client)
         account = _create_account(db)
-
-        with patch("backend.api.routes.tasks.sync_jobs", new_callable=AsyncMock):
-            create_resp = api_client.post(
-                "/api/tasks",
-                json={"name": "logged_task", "cron": "0 6 * * *", "enabled": True, "account_id": account.id},
-                headers=_auth(token),
-            )
-        task_id = create_resp.json()["id"]
-
-        resp = api_client.get(f"/api/tasks/{task_id}/logs", headers=_auth(token))
-
+        task = _seed_legacy_task(db, account, name="logged_task")
+        resp = api_client.get(f"/api/tasks/{task.id}/logs", headers=_auth(token))
         assert resp.status_code == 200
         assert resp.json() == []
 
     def test_get_task_logs_not_found(self, api_client, db):
-        """获取不存在任务的日志：返回 404"""
-
         token = _login(api_client)
-
         resp = api_client.get("/api/tasks/9999/logs", headers=_auth(token))
         assert resp.status_code == 404
 
-    def test_task_full_crud_flow(self, api_client, db):
-        """完整 CRUD 流程：创建 -> 获取 -> 更新 -> 列表 -> 删除 -> 确认删除"""
-
+    def test_legacy_readonly_status_writes_removed(self, api_client, db):
         token = _login(api_client)
-        account = _create_account(db)
+        resp = api_client.get("/api/tasks/legacy-status", headers=_auth(token))
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["legacy_writes_allowed"] is False
+        assert body.get("legacy_writes_removed") is True
+        assert body["ready_for_route_removal"] is True
 
-        # 创建
-        with patch("backend.api.routes.tasks.sync_jobs", new_callable=AsyncMock):
-            create_resp = api_client.post(
-                "/api/tasks",
-                json={
-                    "name": "full_flow_task",
-                    "cron": "0 6 * * *",
-                    "enabled": True,
-                    "account_id": account.id,
-                },
-                headers=_auth(token),
-            )
-        assert create_resp.status_code == 201
-        task_id = create_resp.json()["id"]
-
-        # 获取
-        get_resp = api_client.get(f"/api/tasks/{task_id}", headers=_auth(token))
-        assert get_resp.status_code == 200
-        assert get_resp.json()["name"] == "full_flow_task"
-
-        # 更新
-        with patch("backend.api.routes.tasks.sync_jobs", new_callable=AsyncMock):
-            update_resp = api_client.put(
-                f"/api/tasks/{task_id}",
-                json={"name": "updated_flow_task", "enabled": False},
-                headers=_auth(token),
-            )
-        assert update_resp.status_code == 200
-        assert update_resp.json()["name"] == "updated_flow_task"
-        assert update_resp.json()["enabled"] is False
-
-        # 列表
-        list_resp = api_client.get("/api/tasks", headers=_auth(token))
-        assert list_resp.status_code == 200
-        assert len(list_resp.json()) == 1
-        assert list_resp.json()[0]["name"] == "updated_flow_task"
-
-        # 删除
-        with patch("backend.api.routes.tasks.sync_jobs", new_callable=AsyncMock):
-            delete_resp = api_client.delete(f"/api/tasks/{task_id}", headers=_auth(token))
-        assert delete_resp.status_code == 200
-
-        # 确认删除
-        verify_resp = api_client.get(f"/api/tasks/{task_id}", headers=_auth(token))
-        assert verify_resp.status_code == 404
 
 
 # ============================================================================

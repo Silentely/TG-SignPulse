@@ -18,10 +18,8 @@ from backend.core.database import get_db
 from backend.models.user import User
 from backend.scheduler import sync_jobs
 from backend.schemas.batch import (
-    BatchAction,
     BatchTaskRequest,
     BatchTaskResponse,
-    BatchTaskResult,
 )
 from backend.schemas.sign_batch import (
     SignBatchAction,
@@ -29,7 +27,6 @@ from backend.schemas.sign_batch import (
     SignBatchTaskResponse,
     SignBatchTaskResult,
 )
-from backend.services import tasks as task_service
 from backend.services.sign_tasks import get_sign_task_service
 
 logger = logging.getLogger("backend.batch")
@@ -228,107 +225,19 @@ async def batch_task_operation(
     """
     批量任务操作（旧版 ORM `tasks` 表）。
 
-    **已弃用**：请改用 `POST /api/batch/sign-tasks`。
-    与 `/api/tasks` 一致：默认只读时返回 410。
+    **已弃用且写路径永久关闭**：请改用 `POST /api/batch/sign-tasks`。
+    始终返回 410（`LEGACY_TASKS_READONLY`）。
     """
     from fastapi import HTTPException, status
 
-    from backend.api.routes.tasks import _legacy_writes_allowed
-
-    response.headers["Deprecation"] = "true"
-    response.headers["Sunset"] = "true"
-    response.headers["X-API-Warn"] = _LEGACY_DEPRECATION
     logger.warning("调用了已弃用的 /api/batch/tasks：%s", _LEGACY_DEPRECATION)
-
-    if not _legacy_writes_allowed():
-        raise HTTPException(
-            status_code=status.HTTP_410_GONE,
-            detail="LEGACY_TASKS_READONLY",
-        )
-
-    results: list[BatchTaskResult] = []
-    success_count = 0
-    fail_count = 0
-
-    for task_id in payload.task_ids:
-        try:
-            task = task_service.get_task(db, task_id)
-            if not task:
-                results.append(
-                    BatchTaskResult(
-                        task_id=task_id,
-                        success=False,
-                        message="任务不存在",
-                    )
-                )
-                fail_count += 1
-                continue
-
-            if payload.action == BatchAction.ENABLE:
-                task_service.update_task(db, task, enabled=True)
-                results.append(
-                    BatchTaskResult(task_id=task_id, success=True, message="已启用")
-                )
-                success_count += 1
-
-            elif payload.action == BatchAction.DISABLE:
-                task_service.update_task(db, task, enabled=False)
-                results.append(
-                    BatchTaskResult(task_id=task_id, success=True, message="已禁用")
-                )
-                success_count += 1
-
-            elif payload.action == BatchAction.DELETE:
-                task_service.delete_task(db, task)
-                results.append(
-                    BatchTaskResult(task_id=task_id, success=True, message="已删除")
-                )
-                success_count += 1
-
-            elif payload.action == BatchAction.RUN:
-                try:
-                    await task_service.run_task_once(db, task)
-                    results.append(
-                        BatchTaskResult(
-                            task_id=task_id, success=True, message="已执行"
-                        )
-                    )
-                    success_count += 1
-                except Exception as run_exc:
-                    logger.warning(
-                        "批量执行任务 %d 失败: %s", task_id, run_exc
-                    )
-                    results.append(
-                        BatchTaskResult(
-                            task_id=task_id,
-                            success=False,
-                            message="任务执行失败",
-                        )
-                    )
-                    fail_count += 1
-
-        except Exception as e:
-            logger.error("批量操作任务 %d 异常: %s", task_id, e)
-            db.rollback()
-            results.append(
-                BatchTaskResult(
-                    task_id=task_id,
-                    success=False,
-                    message="操作失败",
-                )
-            )
-            fail_count += 1
-
-    if payload.action in (
-        BatchAction.ENABLE,
-        BatchAction.DISABLE,
-        BatchAction.DELETE,
-    ):
-        await sync_jobs()
-
-    return BatchTaskResponse(
-        total=len(payload.task_ids),
-        success_count=success_count,
-        fail_count=fail_count,
-        results=results,
+    # headers 挂在 HTTPException 上，确保 410 响应仍带 Deprecation
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="LEGACY_TASKS_READONLY",
+        headers={
+            "Deprecation": "true",
+            "Sunset": "true",
+            "X-API-Warn": _LEGACY_DEPRECATION,
+        },
     )

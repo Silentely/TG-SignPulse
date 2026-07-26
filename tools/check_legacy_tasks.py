@@ -7,7 +7,7 @@
     python tools/check_legacy_tasks.py
     APP_DATA_DIR=./data python tools/check_legacy_tasks.py --json
 
-不修改任何数据；生产默认 APP_LEGACY_TASKS_READONLY=1 时写接口已关闭。
+不修改任何数据；旧 /api/tasks 写路径已永久关闭（410）。
 """
 from __future__ import annotations
 
@@ -45,71 +45,73 @@ def main() -> int:
     db = get_session_local()()
 
     try:
-        orm_tasks = (
-            db.query(Task)
-            .options(joinedload(Task.account))
-            .order_by(Task.id.asc())
-            .all()
-        )
         rows = []
-        for t in orm_tasks:
-            account_name = None
-            if getattr(t, "account", None) is not None:
-                account_name = getattr(t.account, "account_name", None) or getattr(
-                    t.account, "name", None
-                )
-            rows.append(
-                {
-                    "id": t.id,
-                    "name": t.name,
-                    "cron": t.cron,
-                    "enabled": bool(t.enabled),
-                    "account_id": t.account_id,
-                    "account_name": account_name,
-                    "last_run_at": t.last_run_at.isoformat() if t.last_run_at else None,
-                }
+        try:
+            orm_tasks = (
+                db.query(Task)
+                .options(joinedload(Task.account))
+                .order_by(Task.id.asc())
+                .all()
             )
+            for t in orm_tasks:
+                account_name = None
+                if getattr(t, "account", None) is not None:
+                    account_name = getattr(t.account, "account_name", None) or getattr(
+                        t.account, "name", None
+                    )
+                rows.append(
+                    {
+                        "id": t.id,
+                        "name": t.name,
+                        "cron": t.cron,
+                        "enabled": bool(t.enabled),
+                        "account_id": t.account_id,
+                        "account_name": account_name,
+                        "last_run_at": t.last_run_at.isoformat()
+                        if t.last_run_at
+                        else None,
+                    }
+                )
+        except Exception as exc:
+            # 无 tasks 表 / 未初始化 DB：视为零存量
+            print(
+                f"注意: 读取 ORM tasks 失败（按零存量处理）: {exc}",
+                file=sys.stderr,
+            )
+            rows = []
 
         sign_service = get_sign_task_service()
         sign_tasks = sign_service.list_tasks(force_refresh=True, aggregate=True)
         sign_names = {str(x.get("name") or "") for x in sign_tasks}
 
         only_orm = [r for r in rows if r["name"] not in sign_names]
-        readonly = os.getenv("APP_LEGACY_TASKS_READONLY", "1").strip().lower() not in {
-            "0",
-            "false",
-            "no",
-            "off",
-        }
+        # 写路径已永久关闭
+        readonly = True
+        writes_removed = True
 
         enabled_orm = sum(1 for r in rows if r.get("enabled"))
-        ready_for_removal = (
-            readonly and len(rows) == 0 and len(only_orm) == 0
-        )
+        ready_for_removal = len(rows) == 0 and len(only_orm) == 0
         if ready_for_removal:
-            removal_stage = "ready"
+            removal_stage = "writes_removed_ready"
             removal_hint = (
-                "ORM 无存量且只读已开启，可在后续版本评估删除 /api/tasks 写路径与 ORM Task 表。"
+                "写路径已永久关闭且 ORM 无存量，可评估删除只读 /api/tasks 路由与 ORM Task 表。"
             )
-        elif readonly and len(only_orm) == 0:
-            removal_stage = "readonly_with_shared_names"
+        elif len(only_orm) == 0:
+            removal_stage = "writes_removed_with_shared_names"
             removal_hint = (
-                "仅存在名称重叠或 ORM 可迁移项已对齐；保持只读，确认无外部脚本后进入 ready。"
-            )
-        elif not readonly:
-            removal_stage = "writable_compat"
-            removal_hint = (
-                "当前 APP_LEGACY_TASKS_READONLY=0（可写兼容）。生产应改回 1 并迁移到 sign-tasks。"
+                "写路径已关闭；ORM 仅有与 sign-tasks 重名项。确认无外部依赖后可删只读路由。"
             )
         else:
-            removal_stage = "needs_migration"
+            removal_stage = "writes_removed_needs_migration"
             removal_hint = (
-                f"仍有 {len(only_orm)} 个仅 ORM 任务，请在面板用 sign-tasks 重建后复检。"
+                f"写路径已关闭，仍有 {len(only_orm)} 个仅 ORM 任务，"
+                "请在面板用 sign-tasks 重建后复检。"
             )
 
         report = {
             "data_dir": str(get_settings().resolve_base_dir()),
             "legacy_readonly": readonly,
+            "legacy_writes_removed": writes_removed,
             "orm_task_count": len(rows),
             "orm_enabled_count": enabled_orm,
             "sign_task_count": len(sign_tasks),
@@ -122,7 +124,7 @@ def main() -> int:
             "migration_hint": (
                 "旧 ORM 任务仅有 name/cron/account，不含完整动作序列。"
                 "请在面板用 sign-tasks 重建流程，或从配置导出 JSON 导入。"
-                "确认无外部写 /api/tasks 后保持 APP_LEGACY_TASKS_READONLY=1。"
+                "写路径已永久 410，不可再通过 APP_LEGACY_TASKS_READONLY=0 打开。"
             ),
             "removal_hint": removal_hint,
         }

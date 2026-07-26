@@ -23,23 +23,23 @@ data/.admin_bootstrap_password
 
 ## 旧 /api/tasks 接口为什么返回 410
 
-从较新版本起，旧 ORM 任务接口默认只读（`APP_LEGACY_TASKS_READONLY=1`）。  
-新功能请使用 `/api/sign-tasks` 与 `/api/batch/sign-tasks`。
+旧 ORM 任务写路径（`POST/PUT/DELETE/run` 与 `/api/batch/tasks`）已**永久关闭**，固定返回 410（`LEGACY_TASKS_READONLY`）。  
+新功能请使用 `/api/sign-tasks` 与 `/api/batch/sign-tasks`。只读列表/详情/日志仍保留。
 
 - 查看存量：`GET /api/tasks/legacy-status` 或 `python tools/check_legacy_tasks.py`
-- 临时兼容写：仅短期设置 `APP_LEGACY_TASKS_READONLY=0`
+- `APP_LEGACY_TASKS_READONLY=0` **不再**打开写能力
 
 ### 下线时间表（建议）
 
 | 阶段 | 动作 |
 |------|------|
-| 当前 | 默认只读；面板仅 sign-tasks；运维盘点 ORM 存量 |
-| 迁移完成 | `orm_only_count == 0` 后保持只读，外部脚本改调 sign-tasks |
-| 后续版本 | 可移除写路径兼容开关；再下一阶段删除 `/api/tasks` 与 ORM Task 表（破坏性，需公告） |
+| 当前 | 写路径永久 410；面板仅 sign-tasks；运维盘点 ORM 存量 |
+| 迁移完成 | `orm_only_count == 0` 后可评估删除只读路由 |
+| 后续版本 | 删除 `/api/tasks` 只读路由与 ORM Task 表（破坏性，需公告） |
 
 盘点字段：
 
-- `GET /api/tasks/legacy-status` → `removal_stage`、`ready_for_route_removal`
+- `GET /api/tasks/legacy-status` → `legacy_writes_removed`、`removal_stage`、`ready_for_route_removal`
 - `python tools/check_legacy_tasks.py --json` → 同上，并列出 `orm_only_names`
 
 ## Dashboard 实时日志连不上

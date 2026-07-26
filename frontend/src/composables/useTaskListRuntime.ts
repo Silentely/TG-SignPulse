@@ -1,9 +1,9 @@
 /**
  * 签到列表运行时：活跃 run 轮询、命中角标、头像、账号状态与取消。
  */
-import { ref, computed, watch, onUnmounted, type Ref, type ComputedRef } from 'vue'
+import { ref, watch, onUnmounted, type Ref, type ComputedRef } from 'vue'
+import { storeToRefs } from 'pinia'
 import {
-  listActiveSignTaskRuns,
   cancelSignTaskRun,
   listKeywordHitGroups,
   fetchChatAvatar,
@@ -15,13 +15,13 @@ import { getLocalizedErrorMessage } from '../lib/types'
 import { useI18n } from './useI18n'
 import { useToast } from './useToast'
 import { useAuthStore } from '../stores/auth'
+import { useActiveRunsStore } from '../stores/activeRuns'
 import { devLog } from '../lib/devLog'
 import { AVATAR_FETCH_CONCURRENCY, mapPool } from '../lib/async-pool'
 import { startChainPoll, type ChainPollHandle } from '../lib/chain-poll'
 import {
   formatActiveRunLabel,
   formatPhaseDetail,
-  groupActiveRunsByTask,
   isRunInProgress,
   phaseLabel,
   pickPrimaryActiveRun,
@@ -37,18 +37,16 @@ export function useTaskListRuntime(options: {
   const { t } = useI18n()
   const toast = useToast()
   const authStore = useAuthStore()
+  const activeRunsStore = useActiveRunsStore()
+  const { byTask: activeRunsByTask, fetchedAt: activeRunsFetchedAt, hasAnyActive: hasAnyActiveRun } =
+    storeToRefs(activeRunsStore)
 
-  const activeRunsByTask = ref<Record<string, ActiveRunSummary[]>>({})
-  const activeRunsFetchedAt = ref(0)
   const nowTick = ref(Date.now())
-  let activePollHandle: ChainPollHandle | null = null
   let countdownTimer: ReturnType<typeof setInterval> | null = null
   let hitCountHandle: ChainPollHandle | null = null
   const cancelBusyKey = ref('')
   const accountStatusMap = ref<Record<string, string>>({})
   const accountNeedsRelogin = ref<Record<string, boolean>>({})
-
-  const hasAnyActiveRun = computed(() => Object.keys(activeRunsByTask.value).length > 0)
 
   const syncActiveRunsFromTasks = (items: TaskUiItem[]) => {
     const flat: ActiveRunSummary[] = []
@@ -58,46 +56,30 @@ export function useTaskListRuntime(options: {
         flat.push({ ...ar, task_name: ar.task_name || task.name })
       }
     }
-    activeRunsByTask.value = groupActiveRunsByTask(flat)
-    activeRunsFetchedAt.value = Date.now()
+    activeRunsStore.seedFromTaskActiveRuns(flat)
   }
 
   const refreshActiveRuns = async () => {
-    const token = authStore.token || ''
-    if (!token) return
-    try {
-      const res = await listActiveSignTaskRuns(token)
-      activeRunsByTask.value = groupActiveRunsByTask(res.runs || [])
-      activeRunsFetchedAt.value = Date.now()
-    } catch (e) {
-      devLog.error('Failed to refresh active runs', e)
-    }
+    await activeRunsStore.refresh()
+    activeRunsStore.ensurePolling()
   }
 
   const ensureActivePolling = () => {
+    activeRunsStore.ensurePolling()
     if (hasAnyActiveRun.value) {
-      if (!activePollHandle?.active) {
-        activePollHandle = startChainPoll(refreshActiveRuns, {
-          intervalMs: 4000,
-          runImmediately: false,
-        })
-      }
       if (!countdownTimer) {
         countdownTimer = setInterval(() => {
           nowTick.value = Date.now()
         }, 1000)
       }
-    } else {
-      activePollHandle?.stop()
-      activePollHandle = null
-      if (countdownTimer) {
-        clearInterval(countdownTimer)
-        countdownTimer = null
-      }
+    } else if (countdownTimer) {
+      clearInterval(countdownTimer)
+      countdownTimer = null
     }
   }
 
-  watch(hasAnyActiveRun, () => ensureActivePolling())
+  watch(() => hasAnyActiveRun.value, () => ensureActivePolling())
+  activeRunsStore.acquire()
 
   const loadListenHitCounts = async () => {
     const token = authStore.token || ''
@@ -292,13 +274,12 @@ export function useTaskListRuntime(options: {
   }
 
   const stopAll = () => {
-    activePollHandle?.stop()
-    activePollHandle = null
     if (countdownTimer) {
       clearInterval(countdownTimer)
       countdownTimer = null
     }
     clearHitCountPolling()
+    activeRunsStore.release()
   }
 
   onUnmounted(() => {

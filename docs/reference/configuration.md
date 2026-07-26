@@ -15,7 +15,7 @@
 | `LOG_LEVEL` / `APP_LOG_LEVEL` | `INFO` | | 后端日志级别，可选 `DEBUG`、`INFO`、`WARNING`、`ERROR`、`CRITICAL` |
 | `APP_DATABASE_URL` / `DATABASE_URL` | （空=本地 SQLite） | | SQLAlchemy URL，可切换 Postgres 等 |
 | `APP_SCHEDULER_LOCK` | `1` | | 多实例调度文件锁；`0` 关闭 |
-| `APP_LEGACY_TASKS_READONLY` | `1` | | 旧 `/api/tasks` 写操作禁用（410）；测试/临时兼容可设 `0` |
+| `APP_LEGACY_TASKS_READONLY` | `1` | | 历史变量；旧 `/api/tasks` 写路径已永久关闭（410），设 `0` 亦无效 |
 | `APP_MONITOR_SHARD` | （空） | | 监听分片 `i/n`，如 `0/3` |
 | `APP_MONITOR_ACCOUNT_ALLOWLIST` | （空） | | 逗号分隔，仅这些账号参与关键词监听 |
 | `APP_VERSION` | （空=使用包版本） | | 覆盖显示/比较用版本号；空或 `0.0.0` 占位回退包版本 |

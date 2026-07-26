@@ -7,14 +7,12 @@ import {
   listSignTasks,
   getRecentAccountLogs,
   listScheduledJobs,
-  listActiveSignTaskRuns,
   listKeywordHits,
   listAccountStatusCheckJobs,
 } from '../lib/api'
 import type {
   AccountInfo,
   AccountLog,
-  ActiveRunSummary,
   ScheduledJob,
   KeywordHitRecord,
   AccountStatusJob,
@@ -24,9 +22,11 @@ import { getLocalizedErrorMessage } from '../lib/types'
 import { useI18n } from './useI18n'
 import { useToast } from './useToast'
 import { useAuthStore } from '../stores/auth'
+import { useActiveRunsStore } from '../stores/activeRuns'
 import { devLog } from '../lib/devLog'
 import { startChainPoll, type ChainPollHandle } from '../lib/chain-poll'
 import { aggregateFailureCategories } from '../lib/run-status'
+import { storeToRefs } from 'pinia'
 
 const formatTime = (isoString: string) => {
   if (!isoString) return ''
@@ -38,6 +38,8 @@ export function useDashboardData() {
   const { t } = useI18n()
   const toast = useToast()
   const authStore = useAuthStore()
+  const activeRunsStore = useActiveRunsStore()
+  const { runs: activeRuns } = storeToRefs(activeRunsStore)
 
   let refreshHandle: ChainPollHandle | null = null
   let signHistorySource: EventSource | null = null
@@ -55,7 +57,6 @@ export function useDashboardData() {
   ])
   const logs = ref<DashboardLog[]>([])
   const upcomingJobs = ref<ScheduledJob[]>([])
-  const activeRuns = ref<ActiveRunSummary[]>([])
   const failureBreakdown = ref<Array<{ category: string; count: number }>>([])
   const recentHits = ref<KeywordHitRecord[]>([])
   const statusJobs = ref<AccountStatusJob[]>([])
@@ -149,7 +150,6 @@ export function useDashboardData() {
     let tasksRes: Awaited<ReturnType<typeof listSignTasks>> = []
     let logsRes: AccountLog[] = []
     let jobsRes: Awaited<ReturnType<typeof listScheduledJobs>> | null = null
-    let activeRes: { runs: ActiveRunSummary[] } = { runs: [] }
     let hitsRes: Awaited<ReturnType<typeof listKeywordHits>> | null = null
     let statusJobsRes: Awaited<ReturnType<typeof listAccountStatusCheckJobs>> | null = null
 
@@ -158,7 +158,7 @@ export function useDashboardData() {
     try { tasksRes = await listSignTasks(token) } catch (e) { loadError = e; devLog.error('Failed to load tasks', e) }
     try { logsRes = await getRecentAccountLogs(token, 50) } catch (e) { loadError = e; devLog.error('Failed to load logs', e) }
     try { jobsRes = await listScheduledJobs(token) } catch (e) { devLog.error('Failed to load scheduled jobs', e) }
-    try { activeRes = await listActiveSignTaskRuns(token) } catch (e) { devLog.error('Failed to load active runs', e) }
+    try { await activeRunsStore.refresh() } catch (e) { devLog.error('Failed to load active runs', e) }
     try { hitsRes = await listKeywordHits(token, { limit: 8, offset: 0 }) } catch (e) { devLog.error('Failed to load keyword hits', e) }
     try { statusJobsRes = await listAccountStatusCheckJobs(token, 5) } catch (e) { devLog.error('Failed to load status jobs', e) }
 
@@ -210,7 +210,7 @@ export function useDashboardData() {
       upcomingJobs.value = []
     }
 
-    activeRuns.value = Array.isArray(activeRes.runs) ? activeRes.runs : []
+    activeRunsStore.ensurePolling()
     failureBreakdown.value = aggregateFailureCategories(
       Array.isArray(logsRes)
         ? logsRes.map((l) => ({
@@ -229,6 +229,7 @@ export function useDashboardData() {
 
   onMounted(async () => {
     sseIntentionalClose = false
+    activeRunsStore.acquire()
     await loadDashboardData()
     pageLoading.value = false
     refreshHandle = startChainPoll(loadDashboardData, {
@@ -248,6 +249,7 @@ export function useDashboardData() {
       signHistorySource = null
     }
     liveConnected.value = false
+    activeRunsStore.release()
   })
 
   return {

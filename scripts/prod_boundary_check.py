@@ -70,17 +70,15 @@ def main() -> int:
         if need not in paths:
             errors.append(f"missing route {need}")
 
-    # 4) 旧任务默认只读
+    # 4) 旧任务写路径永久关闭（环境变量无法再打开）
     from backend.api.routes.tasks import _legacy_writes_allowed
 
     os.environ.pop("APP_LEGACY_TASKS_READONLY", None)
-    # re-read with default: function reads env each call
-    os.environ["APP_LEGACY_TASKS_READONLY"] = "1"
     if _legacy_writes_allowed():
-        errors.append("legacy writes should be denied when READONLY=1")
+        errors.append("legacy writes must always be denied")
     os.environ["APP_LEGACY_TASKS_READONLY"] = "0"
-    if not _legacy_writes_allowed():
-        errors.append("legacy writes should be allowed when READONLY=0")
+    if _legacy_writes_allowed():
+        errors.append("legacy writes must stay denied even when READONLY=0")
 
     # 5) 分片边界
     from backend.services.keyword_monitor.sharding import account_in_monitor_scope

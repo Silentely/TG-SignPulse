@@ -23,6 +23,20 @@ const api = vi.hoisted(() => ({
   listAccountStatusCheckJobs: vi.fn(),
 }))
 
+const activeRunsStoreMock = vi.hoisted(() => {
+  const store = {
+    runs: { value: [] as unknown[] },
+    refresh: vi.fn(async () => {
+      const res = await api.listActiveSignTaskRuns('tok')
+      store.runs.value = res?.runs || []
+    }),
+    ensurePolling: vi.fn(),
+    acquire: vi.fn(),
+    release: vi.fn(),
+  }
+  return store
+})
+
 const pollState = vi.hoisted(() => ({
   ticks: [] as Array<() => Promise<void>>,
   stops: [] as Array<ReturnType<typeof vi.fn>>,
@@ -35,6 +49,16 @@ vi.mock('../composables/useToast', () => ({
   useToast: () => toastSpy,
 }))
 vi.mock('../lib/api', () => api)
+vi.mock('../stores/activeRuns', () => ({
+  useActiveRunsStore: () => activeRunsStoreMock,
+}))
+vi.mock('pinia', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('pinia')>()
+  return {
+    ...actual,
+    storeToRefs: (store: Record<string, unknown>) => store,
+  }
+})
 vi.mock('../lib/chain-poll', () => ({
   startChainPoll: vi.fn((tick: () => void | Promise<void>, opts?: { runImmediately?: boolean }) => {
     const stop = vi.fn()
@@ -74,6 +98,11 @@ describe('useDashboardData (mount + SSE + poll)', () => {
     for (const fn of Object.values(api)) {
       fn.mockReset()
     }
+    activeRunsStoreMock.runs.value = []
+    activeRunsStoreMock.refresh.mockClear()
+    activeRunsStoreMock.ensurePolling.mockClear()
+    activeRunsStoreMock.acquire.mockClear()
+    activeRunsStoreMock.release.mockClear()
 
     OriginalEventSource = globalThis.EventSource
     globalThis.EventSource = MockEventSource as unknown as typeof EventSource

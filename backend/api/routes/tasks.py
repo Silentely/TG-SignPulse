@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from pathlib import Path
 
 from fastapi import (
@@ -19,9 +18,7 @@ from sqlalchemy.orm import Session
 
 from backend.core.auth import get_current_user, verify_token
 from backend.core.database import get_db
-from backend.models.account import Account
 from backend.models.task_log import TaskLog
-from backend.scheduler import sync_jobs
 from backend.schemas.task import TaskCreate, TaskOut, TaskUpdate
 from backend.schemas.task_log import TaskLogOut
 from backend.schemas.task_stats import TaskStatsOut
@@ -42,21 +39,20 @@ def _mark_deprecated(response: Response) -> None:
 
 def _legacy_writes_allowed() -> bool:
     """
-    默认只读（APP_LEGACY_TASKS_READONLY 缺省为 1）。
+    旧版 ORM 任务写路径已永久关闭。
 
-    显式设置 0/false/no 时允许写，仅用于遗留兼容与测试。
+    历史环境变量 APP_LEGACY_TASKS_READONLY 不再开启写能力，
+    仅保留函数名供 ops/边界检查引用。新功能请使用 /api/sign-tasks。
     """
-    raw = os.getenv("APP_LEGACY_TASKS_READONLY", "1").strip().lower()
-    return raw in {"0", "false", "no", "off"}
+    return False
 
 
-def _reject_if_readonly() -> None:
-    if not _legacy_writes_allowed():
-        # detail 使用稳定错误码，便于前端 apiErrors 映射；说明见 X-API-Warn / legacy-status
-        raise HTTPException(
-            status_code=status.HTTP_410_GONE,
-            detail="LEGACY_TASKS_READONLY",
-        )
+def _reject_legacy_writes() -> None:
+    """所有写操作统一 410（稳定错误码 LEGACY_TASKS_READONLY）。"""
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="LEGACY_TASKS_READONLY",
+    )
 
 
 @router.get("/legacy-status")
@@ -65,27 +61,26 @@ def legacy_tasks_status(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """旧版 ORM 任务存量与只读策略状态（用于迁移自查）。"""
+    """旧版 ORM 任务存量与写路径下线状态（用于迁移自查）。"""
     _mark_deprecated(response)
     tasks = task_service.list_tasks(db)
     enabled = sum(1 for t in tasks if getattr(t, "enabled", False))
-    writes_allowed = _legacy_writes_allowed()
-    ready_for_route_removal = (not writes_allowed) and len(tasks) == 0
+    writes_allowed = _legacy_writes_allowed()  # 恒为 False
+    ready_for_route_removal = len(tasks) == 0
     if ready_for_route_removal:
-        removal_stage = "ready"
-    elif not writes_allowed:
-        removal_stage = "readonly_with_stock" if tasks else "ready"
+        removal_stage = "writes_removed_ready"
     else:
-        removal_stage = "writable_compat"
+        removal_stage = "writes_removed_with_stock"
     checklist = [
-        "确认无外部脚本/旧客户端写 /api/tasks 与 /api/batch/tasks",
-        "保持 APP_LEGACY_TASKS_READONLY=1",
+        "写路径已永久关闭（POST/PUT/DELETE/run 与 /api/batch/tasks 均 410）",
+        "确认无外部脚本依赖旧写接口",
         "运行 tools/check_legacy_tasks.py 确认 orm_task_count=0",
         "确认面板与调度仅使用 /api/sign-tasks",
-        "ready_for_route_removal=true 后可评估删除 routes/tasks 写路径与 ORM Task 表",
+        "ready_for_route_removal=true 后可评估删除只读路由与 ORM Task 表",
     ]
     return {
         "legacy_writes_allowed": writes_allowed,
+        "legacy_writes_removed": True,
         "readonly_default": True,
         "task_count": len(tasks),
         "enabled_count": enabled,
@@ -97,8 +92,8 @@ def legacy_tasks_status(
         "check_tool": "python tools/check_legacy_tasks.py --json",
         "hint": (
             "新功能请使用 sign-tasks；"
-            "临时兼容写操作可设置 APP_LEGACY_TASKS_READONLY=0；"
-            "ready_for_route_removal=true 时可评估删除旧路由"
+            "旧 /api/tasks 写路径已永久移除（410）；"
+            "仅保留只读列表/详情/日志与 legacy-status"
         ),
     }
 
@@ -121,19 +116,7 @@ async def create_task(
     current_user=Depends(get_current_user),
 ):
     _mark_deprecated(response)
-    _reject_if_readonly()
-    account = db.query(Account).filter(Account.id == payload.account_id).first()
-    if not account:
-        raise HTTPException(status_code=404, detail="Account not found")
-    task = task_service.create_task(
-        db,
-        name=payload.name,
-        cron=payload.cron,
-        enabled=payload.enabled,
-        account_id=payload.account_id,
-    )
-    await sync_jobs()
-    return task
+    _reject_legacy_writes()
 
 
 @router.get("/stats", response_model=TaskStatsOut, deprecated=True)
@@ -170,24 +153,7 @@ async def update_task(
     current_user=Depends(get_current_user),
 ):
     _mark_deprecated(response)
-    _reject_if_readonly()
-    task = task_service.get_task(db, task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    if payload.account_id is not None:
-        account = db.query(Account).filter(Account.id == payload.account_id).first()
-        if not account:
-            raise HTTPException(status_code=404, detail="Account not found")
-    updated = task_service.update_task(
-        db,
-        task,
-        name=payload.name,
-        cron=payload.cron,
-        enabled=payload.enabled,
-        account_id=payload.account_id,
-    )
-    await sync_jobs()
-    return updated
+    _reject_legacy_writes()
 
 
 @router.delete("/{task_id}", status_code=status.HTTP_200_OK, deprecated=True)
@@ -198,13 +164,7 @@ async def delete_task(
     current_user=Depends(get_current_user),
 ):
     _mark_deprecated(response)
-    _reject_if_readonly()
-    task = task_service.get_task(db, task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    task_service.delete_task(db, task)
-    await sync_jobs()
-    return {"ok": True}
+    _reject_legacy_writes()
 
 
 @router.post("/{task_id}/run", response_model=TaskLogOut, deprecated=True)
@@ -215,12 +175,7 @@ async def run_task(
     current_user=Depends(get_current_user),
 ):
     _mark_deprecated(response)
-    _reject_if_readonly()
-    task = task_service.get_task(db, task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    log = await task_service.run_task_once(db, task)
-    return log
+    _reject_legacy_writes()
 
 
 @router.get("/{task_id}/logs", response_model=list[TaskLogOut], deprecated=True)

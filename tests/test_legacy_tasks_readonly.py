@@ -1,4 +1,4 @@
-"""旧版 /api/tasks 只读开关测试。"""
+"""旧版 /api/tasks 写路径永久关闭测试。"""
 from __future__ import annotations
 
 from datetime import timedelta
@@ -14,8 +14,9 @@ def _auth() -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-def test_legacy_tasks_readonly_blocks_create(client, db_session, monkeypatch):
-    monkeypatch.setenv("APP_LEGACY_TASKS_READONLY", "1")
+def test_legacy_tasks_write_always_gone(client, db_session, monkeypatch):
+    # 即使显式尝试开启旧写开关，也应 410
+    monkeypatch.setenv("APP_LEGACY_TASKS_READONLY", "0")
     resp = client.post(
         "/api/tasks",
         headers=_auth(),
@@ -31,7 +32,6 @@ def test_legacy_tasks_readonly_blocks_create(client, db_session, monkeypatch):
 
 
 def test_legacy_tasks_list_still_works(client, db_session, monkeypatch):
-    monkeypatch.setenv("APP_LEGACY_TASKS_READONLY", "1")
     resp = client.get("/api/tasks", headers=_auth())
     assert resp.status_code == 200
     assert resp.headers.get("deprecation") == "true" or resp.headers.get(
@@ -40,11 +40,11 @@ def test_legacy_tasks_list_still_works(client, db_session, monkeypatch):
 
 
 def test_legacy_status_endpoint(client, db_session, monkeypatch):
-    monkeypatch.setenv("APP_LEGACY_TASKS_READONLY", "1")
     resp = client.get("/api/tasks/legacy-status", headers=_auth())
     assert resp.status_code == 200
     body = resp.json()
     assert body["legacy_writes_allowed"] is False
+    assert body.get("legacy_writes_removed") is True
     assert body["preferred_api"] == "/api/sign-tasks"
     assert "task_count" in body
     assert "removal_stage" in body
@@ -54,8 +54,8 @@ def test_legacy_status_endpoint(client, db_session, monkeypatch):
     assert body.get("check_tool")
 
 
-def test_legacy_batch_tasks_readonly(client, db_session, monkeypatch):
-    monkeypatch.setenv("APP_LEGACY_TASKS_READONLY", "1")
+def test_legacy_batch_tasks_gone(client, db_session, monkeypatch):
+    monkeypatch.setenv("APP_LEGACY_TASKS_READONLY", "0")
     resp = client.post(
         "/api/batch/tasks",
         headers=_auth(),
@@ -67,12 +67,12 @@ def test_legacy_batch_tasks_readonly(client, db_session, monkeypatch):
 
 def test_readyz_includes_ops_fields(client, db_session):
     resp = client.get("/readyz")
-    # client fixture 启动完成后应为 ready
     assert resp.status_code == 200
     body = resp.json()
     assert body.get("status") == "ready"
     assert "scheduler_lock_held" in body
     assert "legacy_tasks_writable" in body
+    assert body.get("legacy_tasks_writable") is False
     assert body.get("scheduler_role") in {"primary", "replica"}
     if body["scheduler_lock_held"]:
         assert body["scheduler_role"] == "primary"
