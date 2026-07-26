@@ -116,16 +116,13 @@ const toggleSelectAll = () => {
 }
 const clearSelection = () => { selectedTaskIds.value = new Set() }
 
-/** 是否有激活中的列表筛选（搜索 / 模式） */
+/** 是否有激活中的列表筛选（搜索 / 模式 / 账号深链） */
 const hasListFilters = computed(
-  () => searchQuery.value.trim().length > 0 || modeFilter.value !== 'all',
+  () =>
+    searchQuery.value.trim().length > 0
+    || modeFilter.value !== 'all'
+    || !!accountFilter.value,
 )
-
-/** 清除搜索与模式筛选（不含账号深链，账号条有独立清除） */
-const clearListFilters = () => {
-  searchQuery.value = ''
-  modeFilter.value = 'all'
-}
 
 const runBatch = async (action: 'enable' | 'disable' | 'delete' | 'run') => {
   if (!selectedCount.value || batchBusy.value) return
@@ -151,7 +148,17 @@ const runBatch = async (action: 'enable' | 'disable' | 'delete' | 'run') => {
     if (res.fail_count === 0) {
       toast.success(t('tasks.batchSuccessDetail', { ok: res.success_count }))
     } else {
-      toast.error(t('tasks.batchPartialDetail', { ok: res.success_count, fail: res.fail_count }))
+      const failedNames = (res.results || [])
+        .filter((r) => !r.success)
+        .map((r) => r.name)
+        .filter(Boolean)
+        .slice(0, 3)
+      const detail = failedNames.length
+        ? ` · ${failedNames.join(', ')}${(res.fail_count || 0) > failedNames.length ? '…' : ''}`
+        : ''
+      toast.error(
+        `${t('tasks.batchPartialDetail', { ok: res.success_count, fail: res.fail_count })}${detail}`,
+      )
     }
     clearSelection()
     await loadTasks()
@@ -651,6 +658,13 @@ const clearAccountFilter = () => {
   router.push({ name: 'tasks', query: nextQuery })
 }
 
+/** 清除搜索、模式筛选与账号深链（与 chip / 空态「清除筛选」一致） */
+const clearListFilters = () => {
+  searchQuery.value = ''
+  modeFilter.value = 'all'
+  if (accountFilter.value) clearAccountFilter()
+}
+
 const preferAccountForCreate = computed(() => {
   if (accountFilter.value) return accountFilter.value
   return allAccounts.value[0] || null
@@ -994,6 +1008,16 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
           <X class="w-3 h-3 shrink-0 opacity-70" />
         </button>
         <button
+          v-if="accountFilter"
+          type="button"
+          class="inline-flex items-center gap-1 max-w-[12rem] px-2 py-0.5 rounded-sm text-[11px] bg-sky-50 text-sky-800 border border-sky-100 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800/50"
+          :title="t('tasks.clearAccountFilter')"
+          @click="clearAccountFilter"
+        >
+          <span class="truncate">{{ t('tasks.accountFilter') }}: {{ accountFilter }}</span>
+          <X class="w-3 h-3 shrink-0 opacity-70" />
+        </button>
+        <button
           type="button"
           class="text-[11px] text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 underline-offset-2 hover:underline ml-auto shrink-0"
           @click="clearListFilters"
@@ -1008,7 +1032,14 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
         <p class="ui-empty-title !text-gray-500 font-normal">{{ t('common.filterNoResults') }}</p>
         <p class="ui-empty-desc mb-3">{{ t('common.filterNoResultsHint') }}</p>
         <button type="button" class="ui-btn-secondary !text-xs !px-3 !py-2" @click="clearListFilters">
-          {{ t('common.clearFilters') }}
+          {{ t('common.clearAllFilters') }}
+        </button>
+      </template>
+      <template v-else-if="accountFilter && tasks.length === 0">
+        <p class="ui-empty-title !text-gray-500 font-normal">{{ t('common.filterNoResults') }}</p>
+        <p class="ui-empty-desc mb-3">{{ t('tasks.accountFilterEmpty') }}</p>
+        <button type="button" class="ui-btn-secondary !text-xs !px-3 !py-2" @click="clearAccountFilter">
+          {{ t('tasks.clearAccountFilter') }}
         </button>
       </template>
       <p v-else class="ui-empty-desc">{{ t('common.noData') }}</p>

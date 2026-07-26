@@ -223,6 +223,7 @@
     "accountInvalidHint": "Account session expired; re-login before running",
     "accountFilter": "Account filter",
     "clearAccountFilter": "Clear account filter",
+    "accountFilterEmpty": "No tasks for this account — clear the account filter to see all",
     "extraTargets": "+{n} more",
     "createModeShared": "One task, multi-chat",
     "createModeSplit": "Separate tasks per chat",
@@ -704,6 +705,7 @@
     "filterNoResults": "No matching results",
     "filterNoResultsHint": "Try adjusting your search or filters",
     "clearFilters": "Clear filters",
+    "clearAllFilters": "Clear all filters",
     "activeFilters": "Filters"
   },
   "login": {

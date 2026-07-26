@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, watch, computed } from 'vue'
-import { useRoute } from 'vue-router'
-import { Trash2, RefreshCw } from 'lucide-vue-next'
+import { useRoute, useRouter } from 'vue-router'
+import { Trash2, RefreshCw, X } from 'lucide-vue-next'
 import {
   getTaskHistoryLogs,
   getTaskHistoryLogDetail,
@@ -29,6 +29,7 @@ const toast = useToast()
 const { confirm } = useConfirm()
 const authStore = useAuthStore()
 const route = useRoute()
+const router = useRouter()
 
 const translateLoginDetail = (detail: string | null | undefined, success: boolean): string => {
   if (!detail) return success ? t('logs.loginSuccess') : t('logs.loginFailed')
@@ -280,6 +281,16 @@ const tryOpenFromQuery = async () => {
   }
 }
 
+/** 清除失败分类筛选，并去掉路由上的 category query */
+const clearCategoryFilter = () => {
+  filterCategory.value = ''
+  if (route.query.category) {
+    const nextQuery = { ...route.query }
+    delete nextQuery.category
+    router.replace({ name: 'logs', query: nextQuery })
+  }
+}
+
 /** 从路由 query 同步筛选（支持 Dashboard 深链；query 消失时清掉对应筛选项） */
 const applyRouteQueryFilters = () => {
   const queryAccount = typeof route.query.account === 'string' ? route.query.account.trim() : ''
@@ -361,7 +372,7 @@ watch(
     </div>
 
     <!-- Filters -->
-    <div class="ui-card p-3 mb-5">
+    <div class="ui-card p-3 mb-5 space-y-2.5">
       <div
         class="grid gap-3"
         :class="activeTab === 'tasks' ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-1 sm:grid-cols-2'"
@@ -379,6 +390,40 @@ watch(
           <CustomSelect v-model="filterCategory" :options="categoryOptions" :ariaLabel="t('logs.colCategory')" />
         </template>
         <DatePicker v-model="filterDate" />
+      </div>
+      <!-- 激活筛选 chip：失败分类 / 任务名 可一键清 -->
+      <div
+        v-if="activeTab === 'tasks' && (filterCategory || filterTask.trim() || filterStatus === 'error')"
+        class="flex flex-wrap items-center gap-1.5 pt-0.5 border-t border-gray-100 dark:border-gray-800/50"
+      >
+        <span class="text-[10px] text-gray-400 shrink-0">{{ t('common.activeFilters') }}</span>
+        <button
+          v-if="filterCategory"
+          type="button"
+          class="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-[11px] bg-amber-50 text-amber-900 border border-amber-100 dark:bg-amber-950/40 dark:text-amber-200 dark:border-amber-800/50"
+          @click="clearCategoryFilter"
+        >
+          {{ failureCategoryLabel(filterCategory) || filterCategory }}
+          <X class="w-3 h-3 shrink-0 opacity-70" />
+        </button>
+        <button
+          v-if="filterStatus === 'error'"
+          type="button"
+          class="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-[11px] bg-rose-50 text-rose-800 border border-rose-100 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800/50"
+          @click="filterStatus = ''"
+        >
+          {{ t('logs.failed') }}
+          <X class="w-3 h-3 shrink-0 opacity-70" />
+        </button>
+        <button
+          v-if="filterTask.trim()"
+          type="button"
+          class="inline-flex items-center gap-1 max-w-[12rem] px-2 py-0.5 rounded-sm text-[11px] bg-sky-50 text-sky-800 border border-sky-100 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800/50"
+          @click="filterTask = ''"
+        >
+          <span class="truncate">{{ t('logs.colTask') }}: {{ filterTask.trim() }}</span>
+          <X class="w-3 h-3 shrink-0 opacity-70" />
+        </button>
       </div>
     </div>
 

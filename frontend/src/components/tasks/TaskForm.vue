@@ -21,6 +21,11 @@ const props = defineProps<{
   initialTask?: SignTask
   /** 新建时预填关联账号（来自账号卡片深链） */
   preferAccount?: string | null
+  /**
+   * 锁定任务名（仅真实「编辑已有任务」）。
+   * 模板新建也会传 initialTask 作预填，但名称应可改、且需校验。
+   */
+  lockTaskName?: boolean
 }>()
 const emit = defineEmits<{ (e: 'update:payload', value: CreateSignTaskRequest | UpdateSignTaskRequest): void }>()
 const accounts = ref<AccountInfo[]>([])
@@ -111,13 +116,14 @@ const shouldAutoExpandAdvanced = () => {
 }
 
 const validateTaskName = () => {
-  // 新建允许空名（自动生成）；编辑时名称只读
-  if (props.initialTask) {
+  // 编辑已有任务：名称只读，不校验
+  if (props.lockTaskName) {
     taskNameError.value = ''
     return
   }
   const name = taskName.value.trim()
   if (!name) {
+    // 空白新建允许空名（自动生成）；模板预填名通常非空
     taskNameError.value = ''
     return
   }
@@ -430,7 +436,7 @@ onMounted(()=>{loadAccounts()})
           id="task-form-name"
           v-model="taskName"
           :placeholder="t('taskForm.taskNamePlaceholder')"
-          :disabled="!!props.initialTask"
+          :disabled="!!props.lockTaskName"
           class="ui-input disabled:opacity-50"
           :class="taskNameError ? '!border-rose-400 dark:!border-rose-500' : ''"
           :aria-invalid="!!taskNameError"

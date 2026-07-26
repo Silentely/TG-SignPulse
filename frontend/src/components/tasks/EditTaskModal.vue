@@ -89,7 +89,13 @@ const handleSave = async () => {
         {{ error }}
       </div>
       
-      <TaskForm v-if="isOpen && task" ref="taskForm" :initialTask="task" @update:payload="payload = $event" />
+      <TaskForm
+        v-if="isOpen && task"
+        ref="taskForm"
+        :initialTask="task"
+        lock-task-name
+        @update:payload="payload = $event"
+      />
     </div>
 
     <template #footer>

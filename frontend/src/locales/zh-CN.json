@@ -223,6 +223,7 @@
     "accountInvalidHint": "账号登录已失效，请重新登录后再执行",
     "accountFilter": "当前账号",
     "clearAccountFilter": "清除账号筛选",
+    "accountFilterEmpty": "该账号下没有任务，可清除账号筛选查看全部",
     "extraTargets": "+{n} 个目标",
     "createModeShared": "一个任务多会话",
     "createModeSplit": "多个独立任务",
@@ -704,6 +705,7 @@
     "filterNoResults": "没有匹配的结果",
     "filterNoResultsHint": "试试调整搜索关键词或筛选条件",
     "clearFilters": "清除筛选",
+    "clearAllFilters": "清除全部筛选",
     "activeFilters": "当前筛选"
   },
   "login": {
