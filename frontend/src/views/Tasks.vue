@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Play, FileText, Edit2, Trash2, Plus, Radio, Clock, Shuffle, Power, Search, Square, X, Copy } from 'lucide-vue-next'
+import { Play, FileText, Edit2, Trash2, Plus, Radio, Clock, Shuffle, Power, Search, Square, X, Copy, LayoutTemplate, Pause } from 'lucide-vue-next'
 import { listSignTasks, deleteSignTask, startSignTaskRun, listAccounts, toggleSignTaskEnabled, batchSignTasks, cloneSignTask, listActiveSignTaskRuns, cancelSignTaskRun, listKeywordHitGroups, fetchChatAvatar } from '../lib/api'
 import { BUILT_IN_TEMPLATES } from '../lib/task-templates'
 import type { SignTask, AccountInfo, ActiveRunSummary } from '../lib/api'
@@ -116,6 +116,17 @@ const toggleSelectAll = () => {
 }
 const clearSelection = () => { selectedTaskIds.value = new Set() }
 
+/** 是否有激活中的列表筛选（搜索 / 模式） */
+const hasListFilters = computed(
+  () => searchQuery.value.trim().length > 0 || modeFilter.value !== 'all',
+)
+
+/** 清除搜索与模式筛选（不含账号深链，账号条有独立清除） */
+const clearListFilters = () => {
+  searchQuery.value = ''
+  modeFilter.value = 'all'
+}
+
 const runBatch = async (action: 'enable' | 'disable' | 'delete' | 'run') => {
   if (!selectedCount.value || batchBusy.value) return
   if (action === 'delete') {
@@ -138,9 +149,9 @@ const runBatch = async (action: 'enable' | 'disable' | 'delete' | 'run') => {
   try {
     const res = await batchSignTasks(token, items, action)
     if (res.fail_count === 0) {
-      toast.success(`${t('tasks.batchSuccess')}: ${res.success_count}`)
+      toast.success(t('tasks.batchSuccessDetail', { ok: res.success_count }))
     } else {
-      toast.error(`${t('tasks.batchPartial')}: ok=${res.success_count}, fail=${res.fail_count}`)
+      toast.error(t('tasks.batchPartialDetail', { ok: res.success_count, fail: res.fail_count }))
     }
     clearSelection()
     await loadTasks()
@@ -906,12 +917,25 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
         </div>
       </div>
       <div class="flex flex-wrap items-center gap-1.5">
-        <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs" :disabled="!selectedCount || batchBusy" @click="runBatch('enable')">{{ t('tasks.batchEnable') }}</button>
-        <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs" :disabled="!selectedCount || batchBusy" @click="runBatch('disable')">{{ t('tasks.batchDisable') }}</button>
-        <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs" :disabled="!selectedCount || batchBusy" @click="runBatch('run')">{{ t('tasks.batchRun') }}</button>
-        <button type="button" class="ui-btn-danger !px-2.5 !py-1.5 !text-xs" :disabled="!selectedCount || batchBusy" @click="runBatch('delete')">{{ t('tasks.batchDelete') }}</button>
+        <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs inline-flex items-center gap-1" :disabled="!selectedCount || batchBusy" @click="runBatch('enable')">
+          <Power class="w-3.5 h-3.5" />
+          {{ t('tasks.batchEnable') }}
+        </button>
+        <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs inline-flex items-center gap-1" :disabled="!selectedCount || batchBusy" @click="runBatch('disable')">
+          <Pause class="w-3.5 h-3.5" />
+          {{ t('tasks.batchDisable') }}
+        </button>
+        <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs inline-flex items-center gap-1" :disabled="!selectedCount || batchBusy" @click="runBatch('run')">
+          <Play class="w-3.5 h-3.5" />
+          {{ t('tasks.batchRun') }}
+        </button>
+        <button type="button" class="ui-btn-danger !px-2.5 !py-1.5 !text-xs inline-flex items-center gap-1" :disabled="!selectedCount || batchBusy" @click="runBatch('delete')">
+          <Trash2 class="w-3.5 h-3.5" />
+          {{ t('tasks.batchDelete') }}
+        </button>
         <div class="relative ml-auto" @click.stop>
-          <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs" @click="toggleTemplateMenu">
+          <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs inline-flex items-center gap-1" @click="toggleTemplateMenu">
+            <LayoutTemplate class="w-3.5 h-3.5" />
             {{ t('tasks.fromTemplate') }}
           </button>
           <div
@@ -938,7 +962,14 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
     </div>
 
     <div v-if="filteredTasks.length === 0" class="ui-empty !py-12">
-      <p class="ui-empty-desc">{{ t('common.noData') }}</p>
+      <template v-if="tasks.length > 0 && hasListFilters">
+        <p class="ui-empty-title !text-gray-500 font-normal">{{ t('common.filterNoResults') }}</p>
+        <p class="ui-empty-desc mb-3">{{ t('common.filterNoResultsHint') }}</p>
+        <button type="button" class="ui-btn-secondary !text-xs !px-3 !py-2" @click="clearListFilters">
+          {{ t('common.clearFilters') }}
+        </button>
+      </template>
+      <p v-else class="ui-empty-desc">{{ t('common.noData') }}</p>
     </div>
 
     <div
@@ -1105,7 +1136,8 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
           :disabled="cloneBusy"
           @click="openCloneModal(task)"
         >
-          <Copy class="w-3.5 h-3.5" />
+          <span v-if="cloneBusy" class="ui-spinner !w-3.5 !h-3.5 !border-2" aria-hidden="true" />
+          <Copy v-else class="w-3.5 h-3.5" />
           <span>{{ t('tasks.clone') }}</span>
         </button>
         <button

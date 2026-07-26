@@ -182,7 +182,9 @@
     "batchDelete": "批量删除",
     "batchDeleteConfirm": "确定批量删除所选任务？",
     "batchSuccess": "批量操作成功",
+    "batchSuccessDetail": "批量操作成功：{ok} 项",
     "batchPartial": "批量操作部分失败",
+    "batchPartialDetail": "批量操作部分失败：成功 {ok}，失败 {fail}",
     "batchFailed": "批量操作失败",
     "clone": "克隆",
     "cloneTitle": "克隆任务",
@@ -693,7 +695,10 @@
     "retryHint": "请检查网络后重试",
     "loadFailed": "加载失败",
     "search": "搜索",
-    "searchPlaceholder": "搜索…"
+    "searchPlaceholder": "搜索…",
+    "filterNoResults": "没有匹配的结果",
+    "filterNoResultsHint": "试试调整搜索关键词或筛选条件",
+    "clearFilters": "清除筛选"
   },
   "login": {
     "subtitle": "Telegram 多账号自动化面板",

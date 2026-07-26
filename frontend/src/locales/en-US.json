@@ -182,7 +182,9 @@
     "batchDelete": "Delete",
     "batchDeleteConfirm": "Delete selected tasks?",
     "batchSuccess": "Batch operation succeeded",
+    "batchSuccessDetail": "Batch succeeded: {ok} item(s)",
     "batchPartial": "Batch operation partially failed",
+    "batchPartialDetail": "Batch partially failed: {ok} ok, {fail} failed",
     "batchFailed": "Batch operation failed",
     "clone": "Clone",
     "cloneTitle": "Clone task",
@@ -693,7 +695,10 @@
     "retryHint": "Check your network and try again",
     "loadFailed": "Failed to load",
     "search": "Search",
-    "searchPlaceholder": "Search…"
+    "searchPlaceholder": "Search…",
+    "filterNoResults": "No matching results",
+    "filterNoResultsHint": "Try adjusting your search or filters",
+    "clearFilters": "Clear filters"
   },
   "login": {
     "subtitle": "Telegram multi-account automation panel",

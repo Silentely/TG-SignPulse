@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { Play, FileText, Edit2, Trash2, Plus, QrCode, Phone, Zap, MonitorSmartphone, MessageCircle, CheckCircle2, Search } from 'lucide-vue-next'
+import { Play, FileText, Edit2, Trash2, Plus, QrCode, Phone, Zap, MonitorSmartphone, MessageCircle, CheckCircle2, Search, RefreshCw, XCircle } from 'lucide-vue-next'
 import {
   listAccounts,
   deleteAccount,
@@ -58,6 +58,12 @@ const filteredAccounts = computed(() => {
       (a.message || '').toLowerCase().includes(q)
   )
 })
+
+const hasListFilters = computed(() => searchQuery.value.trim().length > 0)
+
+const clearListFilters = () => {
+  searchQuery.value = ''
+}
 
 const loadAccounts = async () => {
   const token = authStore.token || ''
@@ -639,24 +645,26 @@ const goTasks = (name: string) => {
           <button
             v-if="batchChecking && batchJob?.job_id"
             type="button"
-            class="ui-btn-secondary !px-3 !py-2 !text-xs"
+            class="ui-btn-secondary !px-3 !py-2 !text-xs inline-flex items-center gap-1"
             @click="handleCancelBatchCheck"
           >
+            <XCircle class="w-3.5 h-3.5" />
             {{ t('accounts.batchCheckCancel') }}
           </button>
           <button
             v-if="!batchChecking && lastFailedAccountNames.length > 0"
             type="button"
-            class="ui-btn-secondary !px-3 !py-2 !text-xs"
+            class="ui-btn-secondary !px-3 !py-2 !text-xs inline-flex items-center gap-1"
             :title="t('accounts.batchRecheckFailedHint')"
             @click="handleRecheckFailed"
           >
+            <RefreshCw class="w-3.5 h-3.5" />
             {{ t('accounts.batchRecheckFailed') }}
             <span class="font-mono opacity-80">({{ lastFailedAccountNames.length }})</span>
           </button>
           <button
             type="button"
-            class="ui-btn-primary !px-3 !py-2 !text-xs"
+            class="ui-btn-primary !px-3 !py-2 !text-xs inline-flex items-center gap-1"
             :disabled="batchChecking"
             @click="handleBatchCheck"
           >
@@ -667,7 +675,14 @@ const goTasks = (name: string) => {
         </div>
       </div>
       <div v-if="filteredAccounts.length === 0" class="ui-empty !py-12">
-        <p class="ui-empty-desc">{{ t('common.noData') }}</p>
+        <template v-if="accounts.length > 0 && hasListFilters">
+          <p class="ui-empty-title !text-gray-500 font-normal">{{ t('common.filterNoResults') }}</p>
+          <p class="ui-empty-desc mb-3">{{ t('common.filterNoResultsHint') }}</p>
+          <button type="button" class="ui-btn-secondary !text-xs !px-3 !py-2" @click="clearListFilters">
+            {{ t('common.clearFilters') }}
+          </button>
+        </template>
+        <p v-else class="ui-empty-desc">{{ t('common.noData') }}</p>
       </div>
       <div v-else class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
     <div
