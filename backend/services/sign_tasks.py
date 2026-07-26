@@ -1811,6 +1811,8 @@ class SignTaskService:
         if sign_interval is None:
             sign_interval = 1
 
+        from backend.services.sign_task_config_build import build_sign_task_config
+
         task_group_id = uuid.uuid4().hex if len(target_accounts) > 1 else ""
         should_schedule = execution_mode != "listen"
         trigger_cron = range_start if execution_mode == "range" else sign_at
@@ -1822,23 +1824,22 @@ class SignTaskService:
             task_dir = account_dir / task_name
             task_dir.mkdir(parents=True, exist_ok=True)
 
-            config = {
-                "_version": 4,
-                "task_group_id": task_group_id,
-                "account_name": current_account,
-                "account_names": stored_account_names,
-                "sign_at": sign_at,
-                "random_seconds": random_seconds,
-                "sign_interval": sign_interval,
-                "chats": chats,
-                "execution_mode": execution_mode,
-                "range_start": range_start,
-                "range_end": range_end,
-                "notify_on_failure": notify_on_failure,
-                "notify_on_success": notify_on_success,
-                "retry_count": retry_count if retry_count is not None else 3,
-                "enabled": True,
-            }
+            config = build_sign_task_config(
+                account_name=current_account,
+                account_names=stored_account_names,
+                task_group_id=task_group_id,
+                sign_at=sign_at,
+                random_seconds=random_seconds,
+                sign_interval=int(sign_interval),
+                chats=chats,
+                execution_mode=execution_mode,
+                range_start=range_start,
+                range_end=range_end,
+                notify_on_failure=notify_on_failure,
+                notify_on_success=notify_on_success,
+                retry_count=retry_count if retry_count is not None else 3,
+                enabled=True,
+            )
 
             with open(task_dir / "config.json", "w", encoding="utf-8") as f:
                 json.dump(config, f, ensure_ascii=False, indent=2)
@@ -1973,54 +1974,41 @@ class SignTaskService:
         # Also expand existing_accounts for proper diff calculation
         existing_accounts = self._expand_account_names(existing_accounts)
 
-        current_group_id = str(existing.get("task_group_id") or "").strip()
-        next_group_id = ""
-        if len(target_accounts) > 1:
-            next_group_id = current_group_id or uuid.uuid4().hex
+        from backend.services.sign_task_config_build import (
+            build_sign_task_config,
+            next_task_group_id,
+            resolve_update_field_values,
+        )
 
-        next_sign_at = sign_at if sign_at is not None else str(existing["sign_at"])
-        next_random_seconds = (
-            random_seconds
-            if random_seconds is not None
-            else int(existing["random_seconds"])
+        next_group_id = next_task_group_id(
+            str(existing.get("task_group_id") or ""),
+            len(target_accounts),
         )
-        next_sign_interval = (
-            sign_interval
-            if sign_interval is not None
-            else int(existing["sign_interval"])
+        fields = resolve_update_field_values(
+            existing,
+            sign_at=sign_at,
+            chats=chats,
+            random_seconds=random_seconds,
+            sign_interval=sign_interval,
+            execution_mode=execution_mode,
+            range_start=range_start,
+            range_end=range_end,
+            notify_on_failure=notify_on_failure,
+            notify_on_success=notify_on_success,
+            retry_count=retry_count,
+            enabled=enabled,
         )
-        next_chats = chats if chats is not None else existing["chats"]
-        next_execution_mode = (
-            execution_mode
-            if execution_mode is not None
-            else str(existing.get("execution_mode", "fixed"))
-        )
-        next_range_start = (
-            range_start if range_start is not None else str(existing.get("range_start", ""))
-        )
-        next_range_end = (
-            range_end if range_end is not None else str(existing.get("range_end", ""))
-        )
-        next_notify_on_failure = (
-            notify_on_failure
-            if notify_on_failure is not None
-            else bool(existing.get("notify_on_failure", True))
-        )
-        next_notify_on_success = (
-            notify_on_success
-            if notify_on_success is not None
-            else bool(existing.get("notify_on_success", True))
-        )
-        next_enabled = (
-            enabled
-            if enabled is not None
-            else bool(existing.get("enabled", True))
-        )
-        next_retry_count = (
-            retry_count
-            if retry_count is not None
-            else int(existing.get("retry_count", 3))
-        )
+        next_sign_at = fields["sign_at"]
+        next_random_seconds = fields["random_seconds"]
+        next_sign_interval = fields["sign_interval"]
+        next_chats = fields["chats"]
+        next_execution_mode = fields["execution_mode"]
+        next_range_start = fields["range_start"]
+        next_range_end = fields["range_end"]
+        next_notify_on_failure = fields["notify_on_failure"]
+        next_notify_on_success = fields["notify_on_success"]
+        next_enabled = fields["enabled"]
+        next_retry_count = fields["retry_count"]
         should_schedule = next_execution_mode != "listen"
 
         existing_dirs = dict(self._iter_task_dirs(task_name, existing_accounts))
@@ -2048,26 +2036,23 @@ class SignTaskService:
             desired_dir = self.signs_dir / current_account / task_name
             desired_dir.mkdir(parents=True, exist_ok=True)
 
-            config: Dict[str, Any] = {
-                "_version": 4,
-                "task_group_id": next_group_id,
-                "account_name": current_account,
-                "account_names": stored_account_names,
-                "sign_at": next_sign_at,
-                "random_seconds": next_random_seconds,
-                "sign_interval": next_sign_interval,
-                "chats": next_chats,
-                "execution_mode": next_execution_mode,
-                "range_start": next_range_start,
-                "range_end": next_range_end,
-                "notify_on_failure": next_notify_on_failure,
-                "notify_on_success": next_notify_on_success,
-                "retry_count": next_retry_count,
-                "enabled": next_enabled,
-            }
-            last_run = existing_last_run_map.get(current_account)
-            if last_run:
-                config["last_run"] = last_run
+            config = build_sign_task_config(
+                account_name=current_account,
+                account_names=stored_account_names,
+                task_group_id=next_group_id,
+                sign_at=next_sign_at,
+                random_seconds=next_random_seconds,
+                sign_interval=next_sign_interval,
+                chats=next_chats,
+                execution_mode=next_execution_mode,
+                range_start=next_range_start,
+                range_end=next_range_end,
+                notify_on_failure=next_notify_on_failure,
+                notify_on_success=next_notify_on_success,
+                retry_count=next_retry_count,
+                enabled=next_enabled,
+                last_run=existing_last_run_map.get(current_account),
+            )
 
             with open(desired_dir / "config.json", "w", encoding="utf-8") as f:
                 json.dump(config, f, ensure_ascii=False, indent=2)
@@ -2128,35 +2113,17 @@ class SignTaskService:
         if old_account_dir.exists():
             self._move_storage_path(old_account_dir, new_account_dir)
 
+        from backend.services.sign_task_config_build import apply_account_rename_to_config
+
         for config_path in self.signs_dir.glob("*/*/config.json"):
             try:
                 config = json.loads(config_path.read_text(encoding="utf-8"))
-            except Exception:
+            except (OSError, json.JSONDecodeError, UnicodeDecodeError, TypeError, ValueError):
                 continue
             if not isinstance(config, dict):
                 continue
 
-            changed = False
-            if str(config.get("account_name") or "").strip() == old_account_name:
-                config["account_name"] = new_account_name
-                changed = True
-
-            account_names = config.get("account_names")
-            if isinstance(account_names, list):
-                next_account_names: List[str] = []
-                for item in account_names:
-                    current_name = str(item or "").strip()
-                    if not current_name:
-                        continue
-                    if current_name == old_account_name:
-                        current_name = new_account_name
-                    if current_name not in next_account_names:
-                        next_account_names.append(current_name)
-                if next_account_names != account_names:
-                    config["account_names"] = next_account_names
-                    changed = True
-
-            if not changed:
+            if not apply_account_rename_to_config(config, old_account_name, new_account_name):
                 continue
 
             config_path.write_text(

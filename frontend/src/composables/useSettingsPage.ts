@@ -13,36 +13,18 @@ import {
   getAIConfig,
   saveAIConfig,
   testAIConnection,
-  exportAllConfigs,
-  importAllConfigs,
-  importConfigPreview,
   runDeviceKeepalive,
-  getBackupStatus,
-  exportBackupArchive,
-  testWebdavBackup,
-  listWebdavBackupFiles,
-  downloadWebdavBackup,
   getRuntimeStatus,
-  getAppVersion,
-  checkAppVersion,
   testBotNotification,
   getMemoryStats,
 } from '../lib/api'
-import type { BackupStatus, RuntimeStatus, AppVersionInfo, UpdateCheckInfo, MemoryStatsResponse, WebDavRemoteFile } from '../lib/api'
+import type { RuntimeStatus, MemoryStatsResponse } from '../lib/api'
 import { useI18n } from './useI18n'
 import { useToast } from './useToast'
 import { useConfirm } from './useConfirm'
 import { useAuthStore } from '../stores/auth'
 import { getLocalizedErrorMessage } from '../lib/types'
 import { devLog } from '../lib/devLog'
-import {
-  fetchGithubLatestRelease,
-  friendlyGithubError,
-  isUpdateAvailable,
-  loadCachedUpdateCheck,
-  safeHttpUrl,
-  saveCachedUpdateCheck,
-} from '../lib/version-utils'
 import {
   buildAdvancedPayload as buildAdvancedPayloadOf,
   buildAiRuntimePayload as buildAiRuntimePayloadOf,
@@ -57,6 +39,8 @@ import {
   type TgFormState,
   type AiFormState,
 } from '../lib/settings-form'
+import { useSettingsVersionCheck } from './useSettingsVersionCheck'
+import { useSettingsBackup } from './useSettingsBackup'
 
 export function useSettingsPage() {
   const { t } = useI18n()
@@ -140,14 +124,18 @@ export function useSettingsPage() {
   const loading = ref(false)
   const tgLoading = ref(false)
   const aiLoading = ref(false)
-  const dataLoading = ref(false)
-  const backupLoading = ref(false)
-  const backupStatus = ref<BackupStatus | null>(null)
   const runtimeStatus = ref<RuntimeStatus | null>(null)
   const memoryStats = ref<MemoryStatsResponse | null>(null)
   const advancedLoading = ref(false)
   const botTestLoading = ref(false)
   const pageLoading = ref(true)
+  const botTokenSet = ref(false)
+  const afterBotTokenSaved = () => {
+    if (settings.value.botToken) {
+      botTokenSet.value = true
+      settings.value.botToken = ''
+    }
+  }
   /** 密钥字段显隐（默认隐藏） */
   const revealSecrets = ref({
     tgApiId: false,
@@ -212,171 +200,48 @@ export function useSettingsPage() {
     return ok
   })
 
-  const appVersion = ref<AppVersionInfo | null>(null)
-  const versionLoading = ref(false)
-  const checkLoading = ref(false)
-  const versionBanner = ref<{
-    kind: 'update' | 'latest' | 'error' | 'info'
-    text: string
-    url?: string | null
-  } | null>(null)
+  const {
+    appVersion,
+    versionLoading,
+    checkLoading,
+    versionBanner,
+    loadVersion,
+    handleCheckUpdate,
+  } = useSettingsVersionCheck()
 
-  const notifySuccess = (msg: string) => toast.success(msg)
-  const notifyError = (msg: string) => toast.error(msg)
+  const buildGeneralPayload = () => buildGeneralPayloadOf(settings.value)
+  const buildBotPayload = () => buildBotPayloadOf(settings.value)
+  const buildAdvancedPayload = () => buildAdvancedPayloadOf(settings.value)
+  const buildAiRuntimePayload = () => buildAiRuntimePayloadOf(settings.value)
+  const buildBackupPayload = () => buildBackupPayloadOf(settings.value)
 
-  const setUpdateBanner = (
-    kind: 'update' | 'latest' | 'error' | 'info',
-    text: string,
-    url?: string | null,
-  ) => {
-    versionBanner.value = { kind, text, url: safeHttpUrl(url ?? null) }
-  }
+  const {
+    dataLoading,
+    backupLoading,
+    backupStatus,
+    advancedLoading: backupAdvancedLoading,
+    webdavTestLoading,
+    webdavListLoading,
+    remoteWebdavFiles,
+    remoteWebdavMessage,
+    webdavPasswordSet,
+    remoteDownloadName,
+    afterWebdavSettingsSaved,
+    handleExport,
+    handleListRemoteBackups,
+    handleDownloadRemoteBackup,
+    handleBackupExport,
+    handleWebdavTest,
+    handleImportFile,
+    loadBackupStatus,
+  } = useSettingsBackup({
+    settings,
+    buildBackupPayload,
+    markSectionClean: (section) => markSectionClean(section),
+    notifySuccess,
+    notifyError,
+  })
 
-  const applyClientCache = () => {
-    const cached = loadCachedUpdateCheck()
-    if (!cached?.update_available || !cached.latest_version) return
-    setUpdateBanner(
-      'update',
-      t('settings.updateAvailable', { version: cached.latest_version }),
-      cached.latest_url,
-    )
-  }
-
-  const loadVersion = async (token: string) => {
-    versionLoading.value = true
-    try {
-      appVersion.value = await getAppVersion(token)
-      applyClientCache()
-    } catch (e) {
-      devLog.error('Failed to load app version', e)
-    } finally {
-      versionLoading.value = false
-    }
-  }
-
-  const runBrowserFallbackCheck = async (currentVersion: string) => {
-    const latest = await fetchGithubLatestRelease()
-    const available = isUpdateAvailable(currentVersion, latest.version)
-    const safeUrl = safeHttpUrl(latest.url)
-    saveCachedUpdateCheck({
-      latest_version: latest.version,
-      latest_url: safeUrl,
-      update_available: available,
-      checked_at: new Date().toISOString(),
-      error: null,
-    })
-    if (available) {
-      setUpdateBanner(
-        'update',
-        t('settings.updateAvailable', { version: latest.version }),
-        safeUrl,
-      )
-    } else {
-      setUpdateBanner('latest', t('settings.alreadyLatest'))
-    }
-  }
-
-  const showFromRemote = (uc: UpdateCheckInfo) => {
-    if (uc.error && !uc.latest_version) {
-      setUpdateBanner(
-        'error',
-        t('settings.updateCheckFailed', { error: uc.error }),
-      )
-      return
-    }
-    const safeUrl = safeHttpUrl(uc.latest_url)
-    if (uc.update_available && uc.latest_version) {
-      saveCachedUpdateCheck({
-        latest_version: uc.latest_version,
-        latest_url: safeUrl,
-        update_available: true,
-        checked_at: uc.checked_at || new Date().toISOString(),
-        error: null,
-      })
-      setUpdateBanner(
-        'update',
-        t('settings.updateAvailable', { version: uc.latest_version }),
-        safeUrl,
-      )
-      return
-    }
-    saveCachedUpdateCheck({
-      latest_version: uc.latest_version,
-      latest_url: safeUrl,
-      update_available: false,
-      checked_at: uc.checked_at || new Date().toISOString(),
-      error: null,
-    })
-    setUpdateBanner('latest', t('settings.alreadyLatest'))
-  }
-
-  const handleCheckUpdate = async (force = true) => {
-    const token = authStore.token || ''
-    if (!token || !appVersion.value) return
-    checkLoading.value = true
-    versionBanner.value = null
-    const current = appVersion.value.version
-
-    try {
-      if (appVersion.value.update_check_enabled) {
-        try {
-          const res = await checkAppVersion(token, force)
-          appVersion.value = {
-            version: res.version,
-            git_sha: res.git_sha,
-            git_branch: res.git_branch,
-            build_time: res.build_time,
-            app_name: res.app_name,
-            python: res.python,
-            update_check_enabled: res.update_check_enabled,
-          }
-          if (res.update_check.error && !res.update_check.latest_version) {
-            try {
-              await runBrowserFallbackCheck(res.version)
-            } catch (browserErr) {
-              // 优先展示服务端友好文案（已含限流提示），浏览器错误再压短
-              const msg =
-                res.update_check.error ||
-                friendlyGithubError(browserErr)
-              setUpdateBanner(
-                'error',
-                t('settings.updateCheckFailed', { error: msg }),
-              )
-            }
-            return
-          }
-          showFromRemote(res.update_check)
-          return
-        } catch {
-          try {
-            await runBrowserFallbackCheck(current)
-          } catch (browserErr) {
-            setUpdateBanner(
-              'error',
-              t('settings.updateCheckFailed', {
-                error: friendlyGithubError(browserErr),
-              }),
-            )
-          }
-          return
-        }
-      }
-      // 服务端关闭远程检查：浏览器直连 GitHub
-      setUpdateBanner('info', t('settings.updateCheckDisabled'))
-      try {
-        await runBrowserFallbackCheck(current)
-      } catch (browserErr) {
-        setUpdateBanner(
-          'error',
-          t('settings.updateCheckFailed', {
-            error: friendlyGithubError(browserErr),
-          }),
-        )
-      }
-    } finally {
-      checkLoading.value = false
-    }
-  }
 
   onMounted(async () => {
     const token = authStore.token || ''
@@ -441,7 +306,7 @@ export function useSettingsPage() {
       }
 
       try {
-        backupStatus.value = await getBackupStatus(token)
+        await loadBackupStatus(token)
       } catch (e) {
         devLog.error('Failed to load backup status', e)
       }
@@ -469,12 +334,6 @@ export function useSettingsPage() {
   onUnmounted(() => {
     window.removeEventListener('beforeunload', onBeforeUnload)
   })
-
-  const buildGeneralPayload = () => buildGeneralPayloadOf(settings.value)
-  const buildBotPayload = () => buildBotPayloadOf(settings.value)
-  const buildAdvancedPayload = () => buildAdvancedPayloadOf(settings.value)
-  const buildAiRuntimePayload = () => buildAiRuntimePayloadOf(settings.value)
-  const buildBackupPayload = () => buildBackupPayloadOf(settings.value)
 
   const saveSettings = async () => {
     const token = authStore.token || ''
@@ -539,7 +398,7 @@ export function useSettingsPage() {
       markSectionClean('advanced')
       notifySuccess(t('settings.saveSuccess'))
       try {
-        backupStatus.value = await getBackupStatus(token)
+        await loadBackupStatus(token)
       } catch {
         /* ignore */
       }
@@ -717,219 +576,6 @@ export function useSettingsPage() {
     }
   }
 
-  const handleExport = async () => {
-    const token = authStore.token || ''
-    dataLoading.value = true
-    try {
-      const jsonStr = await exportAllConfigs(token)
-      const blob = new Blob([jsonStr], { type: 'application/json' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `tg-signpulse-export-${new Date().toISOString().split('T')[0]}.json`
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
-      notifySuccess(t('settings.exportSuccess'))
-    } catch (e: unknown) {
-      notifyError(getLocalizedErrorMessage(e, t, t('settings.exportFailed')))
-    } finally {
-      dataLoading.value = false
-    }
-  }
-
-  const webdavTestLoading = ref(false)
-  const webdavListLoading = ref(false)
-  const remoteWebdavFiles = ref<WebDavRemoteFile[]>([])
-  const remoteWebdavMessage = ref('')
-  /** 服务端是否已保存 WebDAV 密码（GET 不回传明文） */
-  const webdavPasswordSet = ref(false)
-  /** 服务端是否已保存 Bot Token */
-  const botTokenSet = ref(false)
-  /** 当前下载的远程文件名 */
-  const remoteDownloadName = ref('')
-
-  const validateWebdavForm = (): boolean => {
-    if (!settings.value.webdavUrl.trim()) {
-      notifyError(t('settings.webdavRequired'))
-      return false
-    }
-    if (!settings.value.webdavUsername.trim()) {
-      notifyError(t('settings.webdavUsernameRequired'))
-      return false
-    }
-    if (!settings.value.webdavPassword && !webdavPasswordSet.value) {
-      notifyError(t('settings.webdavPasswordRequired'))
-      return false
-    }
-    return true
-  }
-
-  /** 保存 advanced 后：若本次提交了新密码则标记已保存并清空输入框 */
-  const afterWebdavSettingsSaved = () => {
-    if (settings.value.webdavPassword) {
-      webdavPasswordSet.value = true
-      settings.value.webdavPassword = ''
-    }
-  }
-
-  const afterBotTokenSaved = () => {
-    if (settings.value.botToken) {
-      botTokenSet.value = true
-      settings.value.botToken = ''
-    }
-  }
-
-  const handleListRemoteBackups = async () => {
-    const token = authStore.token || ''
-    if (!settings.value.webdavUrl.trim()) {
-      notifyError(t('settings.webdavRequired'))
-      return
-    }
-    webdavListLoading.value = true
-    remoteWebdavMessage.value = ''
-    try {
-      // 先落盘当前表单，确保列表用最新凭据
-      await saveGlobalSettings(token, buildBackupPayload())
-      afterWebdavSettingsSaved()
-      markSectionClean('advanced')
-      const res = await listWebdavBackupFiles(token)
-      if (!res.success) {
-        remoteWebdavFiles.value = []
-        remoteWebdavMessage.value = res.message || t('settings.webdavListFailed')
-        notifyError(remoteWebdavMessage.value)
-        return
-      }
-      remoteWebdavFiles.value = res.files || []
-      remoteWebdavMessage.value =
-        res.message ||
-        (remoteWebdavFiles.value.length
-          ? t('settings.webdavListOk')
-          : t('settings.webdavListEmpty'))
-    } catch (e: unknown) {
-      remoteWebdavFiles.value = []
-      notifyError(getLocalizedErrorMessage(e, t, t('settings.webdavListFailed')))
-    } finally {
-      webdavListLoading.value = false
-    }
-  }
-
-  const handleDownloadRemoteBackup = async (name: string) => {
-    const token = authStore.token || ''
-    if (!name) return
-    remoteDownloadName.value = name
-    try {
-      const res = await downloadWebdavBackup(token, name)
-      notifySuccess(`${t('settings.webdavDownloadOk')}: ${res.filename}`)
-    } catch (e: unknown) {
-      notifyError(getLocalizedErrorMessage(e, t, t('settings.webdavDownloadFailed')))
-    } finally {
-      remoteDownloadName.value = ''
-    }
-  }
-
-  const handleBackupExport = async () => {
-    const token = authStore.token || ''
-    if (!validateWebdavForm()) return
-    backupLoading.value = true
-    try {
-      // 服务端读已落盘配置：上传前先保存 WebDAV/备份相关字段
-      await saveGlobalSettings(token, buildBackupPayload())
-      afterWebdavSettingsSaved()
-      markSectionClean('advanced')
-      const res = await exportBackupArchive(token)
-      if (res.mode === 'webdav') {
-        notifySuccess(
-          res.filename
-            ? `${t('settings.backupWebdavSuccess')}: ${res.filename}`
-            : t('settings.backupWebdavSuccess'),
-        )
-      } else {
-        // 服务端未读到 WebDAV（配置异常）时的兼容回退
-        notifySuccess(t('settings.backupExportSuccess'))
-      }
-      try {
-        backupStatus.value = await getBackupStatus(token)
-      } catch {
-        /* ignore refresh errors */
-      }
-    } catch (e: unknown) {
-      notifyError(getLocalizedErrorMessage(e, t, t('settings.backupExportFailed')))
-    } finally {
-      backupLoading.value = false
-    }
-  }
-
-  const handleWebdavTest = async () => {
-    const token = authStore.token || ''
-    if (!validateWebdavForm()) return
-    // 先保存当前 WebDAV 配置再测
-    advancedLoading.value = true
-    webdavTestLoading.value = true
-    try {
-      await saveGlobalSettings(token, buildBackupPayload())
-      afterWebdavSettingsSaved()
-      markSectionClean('advanced')
-      const res = await testWebdavBackup(token)
-      if (res.success) notifySuccess(res.message || t('settings.webdavTestOk'))
-      else notifyError(res.message || t('settings.webdavTestFailed'))
-    } catch (e: unknown) {
-      notifyError(getLocalizedErrorMessage(e, t, t('settings.webdavTestFailed')))
-    } finally {
-      advancedLoading.value = false
-      webdavTestLoading.value = false
-    }
-  }
-
-  const handleImportFile = async (file: File) => {
-    const token = authStore.token || ''
-    const reader = new FileReader()
-    reader.onload = async (ev) => {
-      const jsonStr = ev.target?.result as string
-      dataLoading.value = true
-      try {
-        const preview = await importConfigPreview(token, jsonStr)
-        if (preview.errors?.length) {
-          notifyError(`${t('settings.importFailed')}: ${preview.errors.slice(0, 2).join('; ')}`)
-          return
-        }
-        const conflictHint = preview.conflicts?.length
-          ? `\n${t('settings.importConflicts')}: ${preview.conflicts.slice(0, 5).join(', ')}${preview.conflicts.length > 5 ? '…' : ''}`
-          : ''
-        const ok = await confirm({
-          title: t('settings.importPreviewTitle'),
-          message: `signs=${preview.signs_count}, monitors=${preview.monitors_count}, settings=${(preview.settings_keys || []).join(',') || '-'}${conflictHint}`,
-          confirmText: t('common.continue'),
-          danger: Boolean(preview.conflicts?.length),
-        })
-        if (!ok) return
-        const result = await importAllConfigs(token, jsonStr, true)
-        const warnings = result.warnings || []
-        const errors = result.errors || []
-        const summary = [
-          result.message,
-          warnings.length ? warnings.slice(0, 3).join('; ') : '',
-          errors.length ? errors.slice(0, 3).join('; ') : '',
-        ]
-          .filter(Boolean)
-          .join(' · ')
-        if (errors.length) {
-          notifyError(`${t('settings.importWithErrors')}: ${summary}`)
-        } else if (warnings.length) {
-          notifySuccess(`${t('settings.importPartial')}: ${summary}`)
-        } else {
-          notifySuccess(t('settings.importSuccess'))
-        }
-      } catch (err: unknown) {
-        notifyError(getLocalizedErrorMessage(err, t, t('settings.importFailed')))
-      } finally {
-        dataLoading.value = false
-      }
-    }
-    reader.readAsText(file)
-  }
-
   const toggleReveal = (key: 'tgApiId' | 'tgApiHash' | 'aiKey' | 'botToken') => {
     revealSecrets.value = {
       ...revealSecrets.value,
@@ -937,58 +583,58 @@ export function useSettingsPage() {
     }
   }
 
-    return {
-      t,
-      settings,
-      timezoneOptions,
-      tgConfig,
-      aiConfig,
-      aiKeyDecryptFailed,
-      loading,
-      tgLoading,
-      aiLoading,
-      dataLoading,
-      backupLoading,
-      backupStatus,
-      runtimeStatus,
-      memoryStats,
-      advancedLoading,
-      botTestLoading,
-      pageLoading,
-      revealSecrets,
-      isDirty,
-      dirtyLabels,
-      appVersion,
-      versionLoading,
-      checkLoading,
-      versionBanner,
-      botLoading,
-      keepaliveLoading,
-      saveAllLoading,
-      webdavTestLoading,
-      webdavListLoading,
-      remoteWebdavFiles,
-      remoteWebdavMessage,
-      webdavPasswordSet,
-      botTokenSet,
-      remoteDownloadName,
-      saveSettings,
-      runKeepaliveNow,
-      saveBotSettings,
-      saveAdvancedSettings,
-      saveAllSettings,
-      testBot,
-      saveTgConfig,
-      resetTgConfig,
-      saveAiConfig,
-      testAi,
-      handleExport,
-      handleImportFile,
-      handleBackupExport,
-      handleWebdavTest,
-      handleListRemoteBackups,
-      handleDownloadRemoteBackup,
-      handleCheckUpdate,
-      toggleReveal,
-    }
+  return {
+    t,
+    settings,
+    timezoneOptions,
+    tgConfig,
+    aiConfig,
+    aiKeyDecryptFailed,
+    loading,
+    tgLoading,
+    aiLoading,
+    dataLoading,
+    backupLoading,
+    backupStatus,
+    runtimeStatus,
+    memoryStats,
+    advancedLoading,
+    botTestLoading,
+    pageLoading,
+    revealSecrets,
+    isDirty,
+    dirtyLabels,
+    appVersion,
+    versionLoading,
+    checkLoading,
+    versionBanner,
+    botLoading,
+    keepaliveLoading,
+    saveAllLoading,
+    webdavTestLoading,
+    webdavListLoading,
+    remoteWebdavFiles,
+    remoteWebdavMessage,
+    webdavPasswordSet,
+    botTokenSet,
+    remoteDownloadName,
+    saveSettings,
+    runKeepaliveNow,
+    saveBotSettings,
+    saveAdvancedSettings,
+    saveAllSettings,
+    testBot,
+    saveTgConfig,
+    resetTgConfig,
+    saveAiConfig,
+    testAi,
+    handleExport,
+    handleImportFile,
+    handleBackupExport,
+    handleWebdavTest,
+    handleListRemoteBackups,
+    handleDownloadRemoteBackup,
+    handleCheckUpdate,
+    toggleReveal,
+  }
 }

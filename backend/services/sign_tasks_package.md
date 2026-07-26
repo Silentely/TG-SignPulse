@@ -13,6 +13,7 @@
 | `sign_task_config_inspect.py` | 任务配置探测（update/关键词监听） |
 | `sign_task_message.py` | 目标消息摘要 / 线程匹配 |
 | `sign_task_chats.py` | 会话缓存检索、dialog 映射、缓存读写 |
+| `sign_task_config_build.py` | 配置字典构造、更新字段合并、账号引用改名 |
 | `sign_tasks.py` | SignTaskService 主体（CRUD/执行/历史） |
 
 渐进迁移原则：新逻辑优先落独立模块，再由 `SignTaskService` 调用；对外保持 `get_sign_task_service()` 不变。

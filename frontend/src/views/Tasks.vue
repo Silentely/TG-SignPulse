@@ -14,7 +14,7 @@ import { getLocalizedErrorMessage } from '../lib/types'
 import AddTaskModal from '../components/tasks/AddTaskModal.vue'
 import EditTaskModal from '../components/tasks/EditTaskModal.vue'
 import TaskLogsModal from '../components/tasks/TaskLogsModal.vue'
-import Modal from '../components/Modal.vue'
+import CloneTaskModal from '../components/tasks/CloneTaskModal.vue'
 import { devLog } from '../lib/devLog'
 import { AVATAR_FETCH_CONCURRENCY, mapPool } from '../lib/async-pool'
 import { startChainPoll, type ChainPollHandle } from '../lib/chain-poll'
@@ -70,7 +70,6 @@ const selectedCount = computed(() => selectedTaskIds.value.size)
 const cloneBusy = ref(false)
 const showCloneModal = ref(false)
 const cloneSource = ref<TaskUiItem | null>(null)
-const cloneName = ref('')
 const showTemplateMenu = ref(false)
 
 const toggleTemplateMenu = (e?: Event) => {
@@ -590,19 +589,17 @@ watch(() => route.query.account, () => {
 
 const openCloneModal = (task: TaskUiItem) => {
   cloneSource.value = task
-  cloneName.value = `${task.name}_copy`
   showCloneModal.value = true
 }
 
 const closeCloneModal = () => {
   showCloneModal.value = false
   cloneSource.value = null
-  cloneName.value = ''
 }
 
-const submitClone = async () => {
+const submitClone = async (rawName: string) => {
   if (cloneBusy.value || !cloneSource.value) return
-  const newName = cloneName.value.trim()
+  const newName = rawName.trim()
   if (!newName) {
     toast.error(t('tasks.cloneNameRequired'))
     return
@@ -1265,31 +1262,12 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
       @close="closeLogsModal"
     />
 
-    <Modal :isOpen="showCloneModal" :title="t('tasks.cloneTitle')" maxWidthClass="max-w-sm" @close="closeCloneModal">
-      <div class="space-y-3">
-        <p class="text-xs text-gray-500">
-          {{ t('tasks.cloneFrom', { name: cloneSource?.name || '' }) }}
-        </p>
-        <div class="space-y-1.5">
-          <label class="ui-label" for="clone-task-name">{{ t('tasks.cloneName') }}</label>
-          <input
-            id="clone-task-name"
-            v-model="cloneName"
-            type="text"
-            class="ui-input"
-            autocomplete="off"
-            @keyup.enter="submitClone"
-          >
-        </div>
-      </div>
-      <template #footer>
-        <button type="button" class="ui-btn-secondary !border-transparent !bg-transparent !px-4 !py-2" @click="closeCloneModal">
-          {{ t('common.cancel') }}
-        </button>
-        <button type="button" class="ui-btn-primary !px-4 !py-2" :disabled="cloneBusy" @click="submitClone">
-          {{ cloneBusy ? t('tasks.cloning') : t('tasks.clone') }}
-        </button>
-      </template>
-    </Modal>
+    <CloneTaskModal
+      :isOpen="showCloneModal"
+      :source-name="cloneSource?.name || ''"
+      :busy="cloneBusy"
+      @close="closeCloneModal"
+      @submit="submitClone"
+    />
   </div>
 </template>
