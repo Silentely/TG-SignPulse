@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   emptyToNull,
+  parseNumberInputValue,
   buildGeneralPayload,
   buildBotPayload,
   buildAdvancedPayload,
@@ -52,6 +53,14 @@ describe('settings-form', () => {
     expect(emptyToNull('12')).toBe(12)
     expect(emptyToNull('x')).toBeNull()
     expect(emptyToNull(0)).toBe(0)
+  })
+
+  it('parseNumberInputValue keeps empty and drops NaN', () => {
+    expect(parseNumberInputValue('')).toBe('')
+    expect(parseNumberInputValue('3')).toBe(3)
+    expect(parseNumberInputValue('1.5')).toBe(1.5)
+    expect(parseNumberInputValue('abc')).toBe('')
+    expect(parseNumberInputValue('NaN')).toBe('')
   })
 
   it('buildGeneralPayload maps fields', () => {

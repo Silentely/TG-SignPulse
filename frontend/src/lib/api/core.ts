@@ -28,6 +28,24 @@ export const DEFAULT_TIMEOUT_MS = 30_000;
 /** 长任务（备份/大导出/配置导入导出）与服务端 WebDAV 读写上限对齐。 */
 export const LONG_TIMEOUT_MS = 600_000;
 
+/** 并发 401 时只跳转一次，避免头像批量拉取触发多次 location 赋值。 */
+let authRedirectScheduled = false;
+
+function redirectToLoginIfTokenMatches(token: string): void {
+  if (typeof window === "undefined") return;
+  if (authRedirectScheduled) return;
+  const authStore = useAuthStore();
+  if (authStore.token !== token) return;
+  authRedirectScheduled = true;
+  authStore.clearToken();
+  window.location.href = "/";
+}
+
+/** 测试用：复位 401 跳转闸门。 */
+export function resetAuthRedirectGateForTests(): void {
+  authRedirectScheduled = false;
+}
+
 /**
  * 内部请求基元：鉴权 header、超时、abort 传播、!res.ok 错误解析与 401 跳转。
  * 成功时返回原始 Response，由调用方决定 JSON/Blob 解析方式。
@@ -153,15 +171,9 @@ export async function fetchWithAuth(
       }
     }
 
-    // 如果是认证失败 (401) 且请求携带了 token，清除 token 并跳转到登录页
+    // 认证失败 (401) 且请求携带了 token：闸门防抖，批量并发只跳转一次
     if (res.status === 401 && token) {
-      if (typeof window !== "undefined") {
-        const authStore = useAuthStore();
-        if (authStore.token === token) {
-          authStore.clearToken();
-          window.location.href = "/";
-        }
-      }
+      redirectToLoginIfTokenMatches(token);
     }
 
     const err = new Error(errorMessage) as ApiError;

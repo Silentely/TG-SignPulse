@@ -129,6 +129,40 @@ def test_export_csv_formula_injection_escaped():
     assert "'+cmd" in csv_text
 
 
+def test_load_normalizes_dirty_jsonl(tmp_path: Path, monkeypatch):
+    """历史脏行：无 id / 非法类型 / 危险 URL 应被过滤或收敛。"""
+    hits_mod.reset_hits_for_tests()
+
+    class _Settings:
+        def resolve_workdir(self):
+            return tmp_path
+
+    monkeypatch.setattr(hits_mod, "get_settings", lambda: _Settings())
+    path = hits_mod._hits_path()
+    lines = [
+        '{"id":"good1","time":"2026-01-01T00:00:00Z","account_name":"a",'
+        '"task_name":"t","keyword":"k","message_text":"ok",'
+        '"url":"javascript:alert(1)","message_id":"12","keywords":["x",1,null]}',
+        "not-json",
+        '{"keyword":"no-id"}',
+        '{"id":"","keyword":"empty-id"}',
+        '{"id":"good2","chat_id":{"nested":1},"message_id":true,'
+        '"url":"https://example.com/a","message_text":"' + ("z" * 600) + '"}',
+    ]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    data = hits_mod.list_keyword_hits(limit=10)
+    assert data["total"] == 2
+    by_id = {item["id"]: item for item in data["items"]}
+    assert by_id["good1"]["url"] == ""
+    assert by_id["good1"]["message_id"] == 12
+    assert by_id["good1"]["keywords"] == ["x", "1"]
+    assert by_id["good2"]["url"] == "https://example.com/a"
+    assert by_id["good2"]["message_id"] is None
+    assert isinstance(by_id["good2"]["chat_id"], str)
+    assert len(by_id["good2"]["message_text"]) <= 500
+
+
 def test_record_strips_javascript_url():
     rec = hits_mod.record_keyword_hit(
         account_name="a",

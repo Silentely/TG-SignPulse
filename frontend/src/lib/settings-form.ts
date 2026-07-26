@@ -48,9 +48,19 @@ export function emptyToNull(v: string | number | '' | null | undefined): number 
   return Number.isFinite(n) ? n : null
 }
 
+/**
+ * 数字输入框 value → 表单值。
+ * 空串保留 ''（由 payload 归一化默认值）；非法/NaN 同样回落为 ''，避免写入 NaN。
+ */
+export function parseNumberInputValue(raw: string): number | '' {
+  if (raw === '') return ''
+  const n = Number(raw)
+  return Number.isFinite(n) ? n : ''
+}
+
 export function buildGeneralPayload(s: SettingsFormState) {
   return {
-    sign_interval: s.checkInterval ? parseInt(String(s.checkInterval), 10) : null,
+    sign_interval: emptyToNull(s.checkInterval),
     log_retention_days: emptyToNull(s.logDays) ?? 7,
     data_dir: s.dataDir || null,
     global_proxy: s.proxy || null,

@@ -101,6 +101,68 @@ def _csv_cell(value: Any) -> str:
     return text
 
 
+def _as_optional_int(value: Any) -> Optional[int]:
+    if value is None or value is False:
+        return None
+    if isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_hit_record(raw: Dict[str, Any]) -> Optional[HitRecord]:
+    """
+    将 JSONL 行归一为 HitRecord。
+
+    仅要求 id 为非空字符串；其余字段做截断与类型收敛，
+    避免历史脏数据在列表/导出时炸类型或注入异常结构。
+    """
+    rid = str(raw.get("id") or "").strip()
+    if not rid:
+        return None
+
+    keywords_raw = raw.get("keywords")
+    keywords: List[str] = []
+    if isinstance(keywords_raw, list):
+        for k in keywords_raw[:20]:
+            s = str(k or "").strip()[:200]
+            if s:
+                keywords.append(s)
+
+    chat_id = raw.get("chat_id")
+    if chat_id is not None and not isinstance(chat_id, (int, str)):
+        chat_id = str(chat_id)
+
+    message_text = str(raw.get("message_text") or "").replace("\r\n", "\n").strip()
+    if len(message_text) > 500:
+        message_text = message_text[:497] + "..."
+
+    raw_url = str(raw.get("url") or "").strip()
+    safe_url = ""
+    if raw_url.lower().startswith(("http://", "https://")):
+        safe_url = raw_url[:500]
+
+    record: HitRecord = {
+        "id": rid[:64],
+        "time": str(raw.get("time") or "")[:40],
+        "account_name": str(raw.get("account_name") or "").strip()[:120],
+        "task_name": str(raw.get("task_name") or "").strip()[:120],
+        "chat_id": chat_id,  # type: ignore[typeddict-item]
+        "chat_title": str(raw.get("chat_title") or "").strip()[:200],
+        "keyword": str(raw.get("keyword") or "").strip()[:200],
+        "keywords": keywords,
+        "message_id": _as_optional_int(raw.get("message_id")),
+        "message_text": message_text,
+        "sender": str(raw.get("sender") or "").strip()[:120],
+        "url": safe_url,
+        "push_channel": str(raw.get("push_channel") or "").strip()[:40],
+        "message_thread_id": _as_optional_int(raw.get("message_thread_id")),
+    }
+    return record
+
+
 def _ensure_loaded() -> None:
     global _loaded, _records
     if _loaded:
@@ -121,8 +183,11 @@ def _ensure_loaded() -> None:
                             item = json.loads(text)
                         except json.JSONDecodeError:
                             continue
-                        if isinstance(item, dict) and item.get("id"):
-                            loaded.append(item)
+                        if not isinstance(item, dict):
+                            continue
+                        normalized = _normalize_hit_record(item)
+                        if normalized is not None:
+                            loaded.append(normalized)
             except OSError as exc:
                 logger.warning("load keyword hits failed: %s", exc)
         # 文件顺序为追加；内存保持新→旧

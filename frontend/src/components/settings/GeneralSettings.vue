@@ -6,7 +6,7 @@
 import { Settings2 } from 'lucide-vue-next'
 import CustomSelect from '../CustomSelect.vue'
 import { useI18n } from '../../composables/useI18n'
-import type { SettingsFormState } from '../../lib/settings-form'
+import { parseNumberInputValue, type SettingsFormState } from '../../lib/settings-form'
 
 interface TimezoneOption {
   label: string
@@ -41,7 +41,7 @@ const update = <K extends keyof SettingsFormState>(key: K, value: SettingsFormSt
 
 const onNumberInput = (key: NumberInputKey, e: Event) => {
   const value = (e.target as HTMLInputElement).value
-  update(key, value === '' ? '' : Number(value))
+  update(key, parseNumberInputValue(value))
 }
 
 const onStringInput = (key: keyof SettingsFormState, e: Event) => {

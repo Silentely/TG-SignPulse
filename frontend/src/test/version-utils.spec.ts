@@ -79,6 +79,35 @@ describe('version-utils', () => {
     await expect(fetchGithubLatestRelease()).rejects.toThrow()
   })
 
+  it('fetchGithubLatestRelease aborts on timeout', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (_url: string, options?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            options?.signal?.addEventListener(
+              'abort',
+              () => reject(new DOMException('Aborted', 'AbortError')),
+              { once: true },
+            )
+          }),
+      ),
+    )
+    let caught: unknown
+    const pending = fetchGithubLatestRelease(undefined, 1000).then(
+      () => {
+        throw new Error('expected timeout')
+      },
+      (e: unknown) => {
+        caught = e
+      },
+    )
+    await Promise.all([pending, vi.advanceTimersByTimeAsync(1000)])
+    expect(String((caught as Error)?.message || '')).toMatch(/timed out/i)
+    vi.useRealTimers()
+  })
+
   it('safeHttpUrl allows only http(s)', () => {
     expect(safeHttpUrl('https://example.com/a')).toBe('https://example.com/a')
     expect(safeHttpUrl('http://example.com/a')).toBe('http://example.com/a')

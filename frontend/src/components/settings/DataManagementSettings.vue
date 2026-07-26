@@ -5,7 +5,7 @@
  */
 import { Database } from 'lucide-vue-next'
 import { useI18n } from '../../composables/useI18n'
-import type { SettingsFormState } from '../../lib/settings-form'
+import { parseNumberInputValue, type SettingsFormState } from '../../lib/settings-form'
 import type { BackupStatus, WebDavRemoteFile } from '../../lib/api'
 
 const props = defineProps<{
@@ -56,7 +56,7 @@ const onStringInput = (key: keyof SettingsFormState, e: Event) => {
 
 const onNumberInput = (key: keyof SettingsFormState, e: Event) => {
   const v = (e.target as HTMLInputElement).value
-  update(key, (v === '' ? '' : Number(v)) as never)
+  update(key, parseNumberInputValue(v) as never)
 }
 
 const onFileChange = (e: Event) => {

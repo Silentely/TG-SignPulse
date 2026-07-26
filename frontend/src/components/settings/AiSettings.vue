@@ -7,7 +7,11 @@
 import { Sparkles, Eye, EyeOff } from 'lucide-vue-next'
 import { useI18n } from '../../composables/useI18n'
 import SettingsFieldHint from './SettingsFieldHint.vue'
-import type { AiFormState, SettingsFormState } from '../../lib/settings-form'
+import {
+  parseNumberInputValue,
+  type AiFormState,
+  type SettingsFormState,
+} from '../../lib/settings-form'
 
 interface RevealSecrets {
   aiKey: boolean
@@ -53,7 +57,7 @@ const onAiInput = (key: keyof AiFormState, e: Event) => {
 
 const onSettingsNumberInput = (key: keyof SettingsFormState, e: Event) => {
   const v = (e.target as HTMLInputElement).value
-  updateSettings(key, (v === '' ? '' : Number(v)) as never)
+  updateSettings(key, parseNumberInputValue(v) as never)
 }
 </script>
 

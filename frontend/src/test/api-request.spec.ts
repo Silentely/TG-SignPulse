@@ -17,10 +17,12 @@ async function importApi() {
 }
 
 describe('api.request - 401 处理', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     localStorage.clear()
     setActivePinia(createPinia())
     mockFetch.mockReset()
+    const core = await import('../lib/api/core')
+    core.resetAuthRedirectGateForTests()
   })
 
   afterEach(() => {
@@ -39,6 +41,27 @@ describe('api.request - 401 处理', () => {
 
     expect(store.token).toBeNull()
     expect(window.location.href).toContain('/')
+  })
+
+  it('并发多个 401 只触发一次跳转闸门', async () => {
+    const store = useAuthStore()
+    store.setToken('expired-token')
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse({ detail: 'Unauthorized' }, 401))
+      .mockResolvedValueOnce(jsonResponse({ detail: 'Unauthorized' }, 401))
+      .mockResolvedValueOnce(jsonResponse({ detail: 'Unauthorized' }, 401))
+
+    const clearSpy = vi.spyOn(store, 'clearToken')
+    const api = await importApi()
+    const results = await Promise.allSettled([
+      api.listAccounts('expired-token'),
+      api.listAccounts('expired-token'),
+      api.listAccounts('expired-token'),
+    ])
+    expect(results.every((r) => r.status === 'rejected')).toBe(true)
+    expect(store.token).toBeNull()
+    // 闸门保证 clearToken 只执行一次，避免批量头像 401 风暴
+    expect(clearSpy).toHaveBeenCalledTimes(1)
   })
 
   it('401 不匹配当前 token 时不清除', async () => {

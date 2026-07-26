@@ -98,15 +98,41 @@ export function safeHttpUrl(raw: string | null | undefined): string | null {
   }
 }
 
+/** GitHub Releases 检查超时（毫秒）；弱网下避免设置页长期挂起。 */
+export const GITHUB_RELEASE_TIMEOUT_MS = 12_000
+
 export async function fetchGithubLatestRelease(
   url: string = DEFAULT_GITHUB_RELEASES_URL,
+  timeoutMs: number = GITHUB_RELEASE_TIMEOUT_MS,
 ): Promise<{ version: string; url: string | null }> {
-  const res = await fetch(url, {
-    headers: {
-      Accept: 'application/vnd.github+json',
-    },
-    cache: 'no-store',
-  })
+  const controller = new AbortController()
+  const timer =
+    timeoutMs > 0
+      ? setTimeout(() => controller.abort(), timeoutMs)
+      : null
+  let res: Response
+  try {
+    res = await fetch(url, {
+      headers: {
+        Accept: 'application/vnd.github+json',
+      },
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+  } catch (e: unknown) {
+    const isAbort =
+      (e instanceof DOMException && e.name === 'AbortError') ||
+      (e instanceof Error && e.name === 'AbortError')
+    throw new Error(
+      isAbort
+        ? `GitHub releases timed out after ${timeoutMs}ms`
+        : e instanceof Error
+          ? e.message
+          : 'GitHub releases network error',
+    )
+  } finally {
+    if (timer !== null) clearTimeout(timer)
+  }
   if (!res.ok) {
     throw new Error(`GitHub releases HTTP ${res.status}`)
   }
