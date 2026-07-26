@@ -5,6 +5,8 @@ import {
   buildGeneralPayload,
   buildBotPayload,
   buildAdvancedPayload,
+  buildAiRuntimePayload,
+  buildBackupPayload,
   snapAllSections,
   isAnySectionDirty,
   dirtySectionLabels,
@@ -108,6 +110,30 @@ describe('settings-form', () => {
     expect(p.auto_backup_keep).toBe(3)
   })
 
+  it('buildAiRuntimePayload only includes runtime fields', () => {
+    const s = baseSettings()
+    s.execTimeout = 120
+    s.aiVisionTimeout = 20
+    s.autoBackupEnabled = true
+    const p = buildAiRuntimePayload(s) as Record<string, unknown>
+    expect(p.sign_task_execution_timeout).toBe(120)
+    expect(p.ai_vision_timeout).toBe(20)
+    expect('auto_backup_enabled' in p).toBe(false)
+    expect('webdav_url' in p).toBe(false)
+  })
+
+  it('buildBackupPayload only includes backup/webdav fields', () => {
+    const s = baseSettings()
+    s.execTimeout = 120
+    s.webdavUrl = 'https://dav.example'
+    s.webdavPassword = 'secret'
+    const p = buildBackupPayload(s) as Record<string, unknown>
+    expect(p.webdav_url).toBe('https://dav.example')
+    expect(p.webdav_password).toBe('secret')
+    expect('sign_task_execution_timeout' in p).toBe(false)
+    expect('ai_vision_timeout' in p).toBe(false)
+  })
+
   it('section dirty is independent', () => {
     const s = baseSettings()
     const tg: TgFormState = { api_id: '', api_hash: '' }
@@ -129,6 +155,23 @@ describe('settings-form', () => {
       ai: 'I',
     })
     expect(labels).toEqual(['B'])
+  })
+
+  it('ai runtime fields dirty ai section; backup fields dirty advanced', () => {
+    const s = baseSettings()
+    const tg: TgFormState = { api_id: '', api_hash: '' }
+    const ai: AiFormState = { base_url: '', model: '', api_key: '' }
+    const baseline = snapAllSections(s, tg, ai)
+
+    const sRuntime = { ...s, execTimeout: 90 }
+    const curRuntime = snapAllSections(sRuntime, tg, ai)
+    expect(curRuntime.ai).not.toBe(baseline.ai)
+    expect(curRuntime.advanced).toBe(baseline.advanced)
+
+    const sBackup = { ...s, autoBackupEnabled: true }
+    const curBackup = snapAllSections(sBackup, tg, ai)
+    expect(curBackup.advanced).not.toBe(baseline.advanced)
+    expect(curBackup.ai).toBe(baseline.ai)
   })
 
   it('secret fields mask in snapshot (bot token / ai key)', () => {

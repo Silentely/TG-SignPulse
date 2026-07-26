@@ -34,6 +34,7 @@ import { getLocalizedErrorMessage } from '../lib/types'
 import { devLog } from '../lib/devLog'
 import {
   fetchGithubLatestRelease,
+  friendlyGithubError,
   isUpdateAvailable,
   loadCachedUpdateCheck,
   safeHttpUrl,
@@ -41,6 +42,8 @@ import {
 } from '../lib/version-utils'
 import {
   buildAdvancedPayload as buildAdvancedPayloadOf,
+  buildAiRuntimePayload as buildAiRuntimePayloadOf,
+  buildBackupPayload as buildBackupPayloadOf,
   buildBotPayload as buildBotPayloadOf,
   buildGeneralPayload as buildGeneralPayloadOf,
   dirtySectionLabels,
@@ -187,7 +190,8 @@ const dirtyLabels = computed(() =>
   dirtySectionLabels(sectionBaseline.value, currentSectionSnaps(), {
     general: t('settings.general'),
     bot: t('settings.botNotify'),
-    advanced: t('settings.advanced'),
+    // advanced 段仅含备份/WebDAV（数据管理）
+    advanced: t('settings.dataManagement'),
     tg: t('settings.tgApi'),
     ai: t('settings.aiConfig'),
   }),
@@ -332,12 +336,13 @@ const handleCheckUpdate = async (force = true) => {
           try {
             await runBrowserFallbackCheck(res.version)
           } catch (browserErr) {
-            const msg = browserErr instanceof Error ? browserErr.message : String(browserErr)
+            // 优先展示服务端友好文案（已含限流提示），浏览器错误再压短
+            const msg =
+              res.update_check.error ||
+              friendlyGithubError(browserErr)
             setUpdateBanner(
               'error',
-              t('settings.updateCheckFailed', {
-                error: res.update_check.error || msg,
-              }),
+              t('settings.updateCheckFailed', { error: msg }),
             )
           }
           return
@@ -348,10 +353,11 @@ const handleCheckUpdate = async (force = true) => {
         try {
           await runBrowserFallbackCheck(current)
         } catch (browserErr) {
-          const msg = browserErr instanceof Error ? browserErr.message : String(browserErr)
           setUpdateBanner(
             'error',
-            t('settings.updateCheckFailed', { error: msg }),
+            t('settings.updateCheckFailed', {
+              error: friendlyGithubError(browserErr),
+            }),
           )
         }
         return
@@ -362,10 +368,11 @@ const handleCheckUpdate = async (force = true) => {
     try {
       await runBrowserFallbackCheck(current)
     } catch (browserErr) {
-      const msg = browserErr instanceof Error ? browserErr.message : String(browserErr)
       setUpdateBanner(
         'error',
-        t('settings.updateCheckFailed', { error: msg }),
+        t('settings.updateCheckFailed', {
+          error: friendlyGithubError(browserErr),
+        }),
       )
     }
   } finally {
@@ -468,6 +475,8 @@ onUnmounted(() => {
 const buildGeneralPayload = () => buildGeneralPayloadOf(settings.value)
 const buildBotPayload = () => buildBotPayloadOf(settings.value)
 const buildAdvancedPayload = () => buildAdvancedPayloadOf(settings.value)
+const buildAiRuntimePayload = () => buildAiRuntimePayloadOf(settings.value)
+const buildBackupPayload = () => buildBackupPayloadOf(settings.value)
 
 const saveSettings = async () => {
   const token = authStore.token || ''
@@ -521,12 +530,13 @@ const saveBotSettings = async () => {
   }
 }
 
+/** 数据管理：仅保存备份 / WebDAV 字段 */
 const saveAdvancedSettings = async () => {
   const token = authStore.token || ''
   if (!token) return
   advancedLoading.value = true
   try {
-    await saveGlobalSettings(token, buildAdvancedPayload())
+    await saveGlobalSettings(token, buildBackupPayload())
     afterWebdavSettingsSaved()
     markSectionClean('advanced')
     notifySuccess(t('settings.saveSuccess'))
@@ -653,20 +663,36 @@ const resetTgConfig = async () => {
   }
 }
 
+/** 统一保存 AI 模型配置 + 高级执行/视觉运行时参数 */
 const saveAiConfig = async () => {
   const token = authStore.token || ''
   aiLoading.value = true
   try {
-    await saveAIConfig(token, {
-      base_url: aiConfig.value.base_url || undefined,
-      model: aiConfig.value.model || undefined,
-      api_key: aiConfig.value.api_key || undefined
-    })
-    // 用户重填 Key 后清除解密失败提示
-    if (aiConfig.value.api_key) {
-      aiKeyDecryptFailed.value = false
+    // 运行时参数写入全局 settings（与模型配置同一按钮）
+    await saveGlobalSettings(token, buildAiRuntimePayload())
+
+    const hasAiInput = !!(
+      aiConfig.value.base_url ||
+      aiConfig.value.model ||
+      aiConfig.value.api_key
+    )
+    try {
+      await saveAIConfig(token, {
+        base_url: aiConfig.value.base_url || undefined,
+        model: aiConfig.value.model || undefined,
+        api_key: aiConfig.value.api_key || undefined,
+      })
+      // 用户重填 Key 后清除解密失败提示
+      if (aiConfig.value.api_key) {
+        aiKeyDecryptFailed.value = false
+      }
+      aiConfig.value.api_key = ''
+    } catch (e: unknown) {
+      // 仅改运行时且尚未配置 AI Key 时，模型保存失败可忽略
+      if (hasAiInput) throw e
+      devLog.error('saveAi model skipped (runtime-only or no key yet)', e)
     }
-    aiConfig.value.api_key = ''
+
     markSectionClean('ai')
     notifySuccess(t('settings.aiConfigSaved'))
   } catch (e: unknown) {
@@ -767,7 +793,7 @@ const handleListRemoteBackups = async () => {
   remoteWebdavMessage.value = ''
   try {
     // 先落盘当前表单，确保列表用最新凭据
-    await saveGlobalSettings(token, buildAdvancedPayload())
+    await saveGlobalSettings(token, buildBackupPayload())
     afterWebdavSettingsSaved()
     markSectionClean('advanced')
     const res = await listWebdavBackupFiles(token)
@@ -811,7 +837,7 @@ const handleBackupExport = async () => {
   backupLoading.value = true
   try {
     // 服务端读已落盘配置：上传前先保存 WebDAV/备份相关字段
-    await saveGlobalSettings(token, buildAdvancedPayload())
+    await saveGlobalSettings(token, buildBackupPayload())
     afterWebdavSettingsSaved()
     markSectionClean('advanced')
     const res = await exportBackupArchive(token)
@@ -844,7 +870,7 @@ const handleWebdavTest = async () => {
   advancedLoading.value = true
   webdavTestLoading.value = true
   try {
-    await saveGlobalSettings(token, buildAdvancedPayload())
+    await saveGlobalSettings(token, buildBackupPayload())
     afterWebdavSettingsSaved()
     markSectionClean('advanced')
     const res = await testWebdavBackup(token)
@@ -974,10 +1000,8 @@ const toggleReveal = (key: 'tgApiId' | 'tgApiHash' | 'aiKey' | 'botToken') => {
           v-model:settings-model-value="settings"
           :reveal="{ aiKey: revealSecrets.aiKey }"
           :ai-loading="aiLoading"
-          :advanced-loading="advancedLoading"
           :key-decrypt-failed="aiKeyDecryptFailed"
           @save-ai="saveAiConfig"
-          @save-advanced="saveAdvancedSettings"
           @test-ai="testAi"
           @toggle-reveal="toggleReveal"
         />

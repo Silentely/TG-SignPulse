@@ -87,7 +87,8 @@ export function buildBotPayload(s: SettingsFormState) {
   }
 }
 
-export function buildAdvancedPayload(s: SettingsFormState) {
+/** AI 区块内的运行时参数（任务超时/冷却/视觉等），由「保存 AI 配置」一并提交 */
+export function buildAiRuntimePayload(s: SettingsFormState) {
   return {
     sign_task_execution_timeout: emptyToNull(s.execTimeout),
     sign_task_account_cooldown: emptyToNull(s.accountCooldown),
@@ -95,6 +96,12 @@ export function buildAdvancedPayload(s: SettingsFormState) {
     sign_task_history_max_age_days: emptyToNull(s.historyMaxAge),
     ai_vision_timeout: emptyToNull(s.aiVisionTimeout),
     ai_vision_retry_attempts: emptyToNull(s.aiVisionRetry),
+  }
+}
+
+/** 数据管理区块：自动备份 + WebDAV，由「保存备份设置」提交 */
+export function buildBackupPayload(s: SettingsFormState) {
+  return {
     auto_backup_enabled: s.autoBackupEnabled,
     auto_backup_interval_hours: s.autoBackupInterval || 24,
     auto_backup_keep: s.autoBackupKeep || 3,
@@ -103,6 +110,14 @@ export function buildAdvancedPayload(s: SettingsFormState) {
     // 空密码表示不覆盖服务端已有值
     ...(s.webdavPassword ? { webdav_password: s.webdavPassword } : {}),
     webdav_remote_dir: s.webdavRemoteDir || 'tg-signpulse-backups',
+  }
+}
+
+/** 兼容：运行时参数 + 备份/WebDAV 全量 advanced 字段（saveAll / WebDAV 操作） */
+export function buildAdvancedPayload(s: SettingsFormState) {
+  return {
+    ...buildAiRuntimePayload(s),
+    ...buildBackupPayload(s),
   }
 }
 
@@ -139,13 +154,8 @@ export function snapSection(
         botThreadId: s.botThreadId,
       })
     case 'advanced':
+      // 仅备份/WebDAV（数据管理区）；AI 运行时参数归入 ai 段
       return JSON.stringify({
-        execTimeout: s.execTimeout,
-        accountCooldown: s.accountCooldown,
-        flowRetry: s.flowRetry,
-        historyMaxAge: s.historyMaxAge,
-        aiVisionTimeout: s.aiVisionTimeout,
-        aiVisionRetry: s.aiVisionRetry,
         autoBackupEnabled: s.autoBackupEnabled,
         autoBackupInterval: s.autoBackupInterval,
         autoBackupKeep: s.autoBackupKeep,
@@ -164,6 +174,12 @@ export function snapSection(
         base_url: ai.base_url,
         model: ai.model,
         api_key: ai.api_key ? '***set***' : '',
+        execTimeout: s.execTimeout,
+        accountCooldown: s.accountCooldown,
+        flowRetry: s.flowRetry,
+        historyMaxAge: s.historyMaxAge,
+        aiVisionTimeout: s.aiVisionTimeout,
+        aiVisionRetry: s.aiVisionRetry,
       })
   }
 }

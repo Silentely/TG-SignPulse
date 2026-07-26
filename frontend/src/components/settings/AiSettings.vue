@@ -2,7 +2,7 @@
 /**
  * AI 配置区块：base_url / model / api_key，测试连接按钮。
  * 内嵌「高级执行 / AI 视觉」子区块（execTimeout / accountCooldown / flowRetry /
- * historyMaxAge / aiVisionTimeout / aiVisionRetry）——历史上与 AI 视觉相关，按原 UI 保留。
+ * historyMaxAge / aiVisionTimeout / aiVisionRetry），与模型配置一并由「保存 AI 配置」提交。
  */
 import { Sparkles, Eye, EyeOff } from 'lucide-vue-next'
 import { useI18n } from '../../composables/useI18n'
@@ -24,10 +24,8 @@ const props = defineProps<{
   settingsModelValue: SettingsFormState
   /** 密钥显隐（仅 aiKey） */
   reveal: Pick<RevealSecrets, 'aiKey'>
-  /** AI 保存中 */
+  /** AI 保存中（含高级运行时参数） */
   aiLoading?: boolean
-  /** 高级保存中 */
-  advancedLoading?: boolean
   /** 服务端 Key 解密失败（需重填 Key，仍可改 model/base_url） */
   keyDecryptFailed?: boolean
 }>()
@@ -36,7 +34,6 @@ const emit = defineEmits<{
   (e: 'update:aiModelValue', value: AiFormState): void
   (e: 'update:settingsModelValue', value: SettingsFormState): void
   (e: 'save-ai'): void
-  (e: 'save-advanced'): void
   (e: 'test-ai'): void
   (e: 'toggle-reveal', key: 'aiKey'): void
 }>()
@@ -129,9 +126,6 @@ const onSettingsNumberInput = (key: keyof SettingsFormState, e: Event) => {
             <input :value="settingsModelValue.aiVisionRetry" @input="onSettingsNumberInput('aiVisionRetry', $event)" type="number" min="1" max="8" :placeholder="t('settings.aiVisionRetryPlaceholder')" class="ui-input" />
           </div>
         </div>
-        <button type="button" class="ui-btn-secondary w-full !py-2 !text-xs" :disabled="advancedLoading" @click="emit('save-advanced')">
-          {{ advancedLoading ? t('settings.saving') : t('settings.saveAdvanced') }}
-        </button>
       </div>
       <div class="pt-2">
         <button type="button" class="ui-btn-primary w-full py-2.5" :disabled="aiLoading" @click="emit('save-ai')">{{ aiLoading ? t('settings.saving') : t('settings.saveAiConfig') }}</button>
