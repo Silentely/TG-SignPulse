@@ -1,30 +1,22 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, computed } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { Download, Loader2, RefreshCw } from 'lucide-vue-next'
 import Modal from '../Modal.vue'
 import FlowLogViewer from '../FlowLogViewer.vue'
-import {
-  getSignTaskHistory,
-  getSignTaskLogs,
-  getSignTaskRunStatus,
-} from '../../lib/api'
-import type { SignTaskHistoryItem, SignTaskRunStatus } from '../../lib/api'
+import { getSignTaskHistory } from '../../lib/api'
+import type { SignTaskHistoryItem, KeywordHitRecord } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
 import { useAuthStore } from '../../stores/auth'
 import { useTaskHits } from '../../composables/useTaskHits'
+import { useTaskRunStream } from '../../composables/useTaskRunStream'
 import type { TaskUiItem } from '../../lib/types'
 import { getLocalizedErrorMessage } from '../../lib/types'
 import { normalizeFlowLogLines } from '../../lib/task-log-format'
-import { startChainPoll, type ChainPollHandle } from '../../lib/chain-poll'
 import { devLog } from '../../lib/devLog'
 import {
-  badgeTone,
-  badgeToneClass,
   failureCategoryLabel,
   formatPhaseDetail,
-  phaseLabel,
-  stateLabel,
 } from '../../lib/run-status'
 
 const { t } = useI18n()
@@ -44,43 +36,10 @@ const emit = defineEmits<{
 }>()
 
 const logs = ref<SignTaskHistoryItem[]>([])
-const realtimeLogs = ref<string[]>([])
 const loading = ref(false)
-const isRunning = ref(false)
 /** 监听任务：命中记录 Tab */
 const panelTab = ref<'history' | 'hits'>('history')
-const livePhase = ref<string | null>(null)
-const livePhaseDetail = ref('')
-const liveFailureCategory = ref<string | null>(null)
-const liveState = ref<string | null>(null)
-let ws: WebSocket | null = null
 const logContainer = ref<HTMLElement | null>(null)
-const applyStatusPayload = (msg: Record<string, unknown> | SignTaskRunStatus) => {
-  if (msg.phase !== undefined) livePhase.value = (msg.phase as string) || null
-  if (msg.phase_detail !== undefined) livePhaseDetail.value = String(msg.phase_detail || '')
-  if (msg.failure_category !== undefined) {
-    liveFailureCategory.value = (msg.failure_category as string) || null
-  }
-  if (msg.state !== undefined) liveState.value = (msg.state as string) || null
-}
-
-const liveStatusLabel = computed(() => {
-  if (livePhaseDetail.value) return livePhaseDetail.value
-  if (livePhase.value) return phaseLabel(livePhase.value, t)
-  if (liveState.value && liveState.value !== 'running') return stateLabel(liveState.value, t)
-  return t('taskLogs.running')
-})
-
-const liveStatusToneClass = computed(() =>
-  badgeToneClass(
-    badgeTone({
-      state: liveState.value || (isRunning.value ? 'running' : 'finished'),
-      phase: livePhase.value,
-      success: liveState.value === 'finished' ? true : liveState.value === 'timeout' ? false : null,
-      failure_category: liveFailureCategory.value,
-    }),
-  ),
-)
 
 /** 展开查看原始流日志的历史条目索引 */
 const expandedIdx = ref<number | null>(null)
@@ -97,8 +56,6 @@ const getTaskAccountName = (task: TaskUiItem): string => {
   }
   return ''
 }
-
-const displayRealtimeLines = computed(() => normalizeFlowLogLines(realtimeLogs.value))
 
 const lineTone = (text: string): string => {
   const s = text.toLowerCase()
@@ -128,7 +85,9 @@ const loadLogs = async () => {
 }
 
 const taskNameRef = computed(() => props.task?.name || '')
-const accountNameRef = computed(() => (props.task ? (props.runAccount || getTaskAccountName(props.task) || undefined) : undefined))
+const accountNameForHits = computed(() => (props.task ? (props.runAccount || getTaskAccountName(props.task) || undefined) : undefined))
+const accountNameForStream = computed(() => (props.task ? getTaskAccountName(props.task) : ''))
+const runAccountRef = computed(() => props.runAccount)
 const isOpenRef = computed(() => props.isOpen)
 
 const {
@@ -149,134 +108,39 @@ const {
   resetHitsState,
 } = useTaskHits({
   taskName: taskNameRef,
-  accountName: accountNameRef,
+  accountName: accountNameForHits,
   isListenTask,
   isOpen: isOpenRef,
   panelTab,
 })
 
-const connectWebSocket = () => {
-  if (!props.task) return
-  const token = authStore.token || ''
-  const taskName = encodeURIComponent(props.task.name)
-  const accountName = getTaskAccountName(props.task) || ''
-  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const wsHost = window.location.host
-  const wsUrl = `${wsProtocol}//${wsHost}/api/sign-tasks/ws/${taskName}?token=${encodeURIComponent(token)}&account_name=${encodeURIComponent(accountName)}`
+const {
+  realtimeLogs,
+  isRunning,
+  livePhase,
+  livePhaseDetail,
+  liveFailureCategory,
+  liveState,
+  liveStatusLabel,
+  liveStatusToneClass,
+  connect: connectWebSocket,
+  disconnect: disconnectWebSocket,
+  resetLiveFailure,
+  clearLiveStatus,
+  clearRealtimeLogs,
+} = useTaskRunStream({
+  taskName: taskNameRef,
+  accountName: accountNameForStream,
+  runAccount: runAccountRef,
+  logContainer,
+})
 
-  realtimeLogs.value = []
-  isRunning.value = !!props.runAccount
-  livePhase.value = props.runAccount ? 'starting' : null
-  livePhaseDetail.value = ''
-  liveFailureCategory.value = null
-  liveState.value = props.runAccount ? 'running' : null
-
-  try {
-    ws = new WebSocket(wsUrl)
-  } catch {
-    if (props.runAccount) {
-      isRunning.value = false
-      startPolling()
-    }
-    return
-  }
-
-  ws.onopen = () => {
-    // Connected successfully
-  }
-  ws.onmessage = (event) => {
-    try {
-      const msg = JSON.parse(event.data)
-      applyStatusPayload(msg)
-      if (msg.type === 'logs' && Array.isArray(msg.data)) {
-        realtimeLogs.value.push(...msg.data)
-        isRunning.value = msg.is_running !== false
-        nextTick(() => {
-          if (logContainer.value) {
-            logContainer.value.scrollTop = logContainer.value.scrollHeight
-          }
-        })
-      } else if (msg.type === 'status') {
-        isRunning.value = msg.is_running !== false
-      } else if (msg.type === 'done') {
-        isRunning.value = false
-        if (!liveState.value || liveState.value === 'running') {
-          liveState.value = msg.state || 'finished'
-        }
-      }
-    } catch {
-      // ignore malformed frames
-    }
-  }
-  ws.onerror = () => {
-    if (props.runAccount) {
-      isRunning.value = true
-      startPolling()
-    }
-  }
-  ws.onclose = () => {
-    if (isRunning.value && props.runAccount) {
-      startPolling()
-    }
-    ws = null
-  }
-}
-
-const POLL_INTERVAL_MS = 1500
-let pollHandle: ChainPollHandle | null = null
-
-const stopPolling = () => {
-  pollHandle?.stop()
-  pollHandle = null
-}
-
-const startPolling = () => {
-  if (pollHandle?.active) return
-  pollHandle = startChainPoll(async () => {
-    if (!props.task) return
-    const token = authStore.token || ''
-    const accountName = getTaskAccountName(props.task) || ''
-    const [logsResult, statusResult] = await Promise.allSettled([
-      getSignTaskLogs(token, props.task.name, accountName),
-      getSignTaskRunStatus(token, props.task.name, accountName),
-    ])
-    if (!pollHandle?.active) return
-    if (logsResult.status === 'fulfilled') {
-      const data = logsResult.value
-      if (Array.isArray(data) && data.length > 0) {
-        realtimeLogs.value = data
-        nextTick(() => {
-          if (logContainer.value) {
-            logContainer.value.scrollTop = logContainer.value.scrollHeight
-          }
-        })
-      }
-    }
-    if (statusResult.status === 'fulfilled') {
-      applyStatusPayload(statusResult.value)
-      if (statusResult.value.state !== 'running') {
-        isRunning.value = false
-        stopPolling()
-      }
-    }
-  }, { intervalMs: POLL_INTERVAL_MS })
-}
-
-const disconnectWebSocket = () => {
-  if (ws) {
-    ws.close()
-    ws = null
-  }
-  stopPolling()
-  isRunning.value = false
-  livePhase.value = null
-  livePhaseDetail.value = ''
-}
+const displayRealtimeLines = computed(() => normalizeFlowLogLines(realtimeLogs.value))
 
 watch(() => props.isOpen, (newVal) => {
   if (newVal) {
     expandedIdx.value = null
-    liveFailureCategory.value = null
+    resetLiveFailure()
     hitsView.value = 'list'
     hitGroupBy.value = 'chat'
     // 深链可直接打开命中 Tab
@@ -286,9 +150,7 @@ watch(() => props.isOpen, (newVal) => {
       logs.value = []
       connectWebSocket()
     } else {
-      livePhase.value = null
-      livePhaseDetail.value = ''
-      liveState.value = null
+      clearLiveStatus()
       loadLogs()
     }
     if (isListenTask.value) {
@@ -297,7 +159,7 @@ watch(() => props.isOpen, (newVal) => {
     }
   } else {
     logs.value = []
-    realtimeLogs.value = []
+    clearRealtimeLogs()
     expandedIdx.value = null
     resetHitsState()
     disconnectWebSocket()

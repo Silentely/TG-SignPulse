@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, computed } from 'vue'
-import { Plus, Trash2, ArrowUp, ArrowDown, RefreshCw, ChevronDown } from 'lucide-vue-next'
+import { Plus, Trash2, ArrowUp, ArrowDown, ChevronDown } from 'lucide-vue-next'
 import { listAccounts, getAccountChats, searchAccountChats } from '../../lib/api'
 import type { SignTask, AccountInfo, ChatInfo, CreateSignTaskRequest, UpdateSignTaskRequest } from '../../lib/api'
 import CustomSelect from '../CustomSelect.vue'
 import MultiSelect from '../MultiSelect.vue'
+import TaskFormTargetSection from './TaskFormTargetSection.vue'
+import TaskFormListenSection from './TaskFormListenSection.vue'
+import type { TargetChatDraft } from './TaskFormTargetSection.vue'
 import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
 import { useAuthStore } from '../../stores/auth'
@@ -51,14 +54,6 @@ const chatListError = ref('')
 /** 会话列表多选勾选（批量加入目标） */
 const bulkSelectedChatIds = ref<number[]>([])
 /** 多目标聊天（共享动作序列；build 时复制到每个 chat） */
-type TargetChatDraft = {
-  id: number
-  chatId: number
-  chatName: string
-  messageThreadId: string
-  senderFilter: string
-  sourceAccount: string
-}
 let _chatDraftId = 0
 const nextChatDraftId = () => ++_chatDraftId
 const targetChats = ref<TargetChatDraft[]>([
@@ -479,135 +474,67 @@ onMounted(()=>{loadAccounts()})
     </div>
     </div>
     <!-- 02 目标会话 -->
-    <div class="ui-form-section ui-form-section-accent">
-      <div class="mb-4 flex items-center justify-between gap-2">
-        <div class="ui-form-step">
-          <span class="ui-form-step-num">02</span>
-          <h4 class="ui-form-step-title text-sky-600 dark:text-sky-400">{{ t('taskForm.targetChat') }}</h4>
-        </div>
-        <button type="button" class="text-[11px] text-sky-600 dark:text-sky-400 hover:underline font-medium" @click="addTargetChat">+ {{ t('taskForm.addTargetChat') }}</button>
-      </div>
-      <div v-if="!isEditing" class="mb-4 space-y-1.5">
-        <label class="ui-label">{{ t('taskForm.targetCreateMode') }}</label>
-        <CustomSelect
-          v-model="createMode"
-          :options="[
-            { label: t('tasks.createModeShared'), value: 'shared' },
-            { label: t('tasks.createModeSplit'), value: 'split' },
-          ]"
-        />
-        <p class="text-[10px] text-gray-500 leading-relaxed">{{ t('tasks.createModeHint') }}</p>
-      </div>
-      <div v-if="targetChats.length > 1" class="flex flex-wrap gap-2 mb-4">
-        <button
-          v-for="(chat, idx) in targetChats"
-          :key="chat.id"
-          type="button"
-          @click="activeChatIndex = idx"
-          class="px-2.5 py-1 text-[11px] border transition-colors max-w-[12rem] truncate"
-          :class="activeChatIndex === idx
-            ? 'border-sky-400 bg-sky-50 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300'
-            : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-gray-300 dark:hover:border-gray-600'"
-        >
-          {{ chat.chatName || chat.chatId || `${t('taskForm.targetChat')} ${idx + 1}` }}
-          <span
-            v-if="targetChats.length > 1"
-            class="ml-1 text-gray-400 hover:text-rose-500"
-            @click.stop="removeTargetChat(idx)"
-          >×</span>
-        </button>
-      </div>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div class="space-y-1.5"><label class="ui-label">{{ t('taskForm.chatSourceAccount') }}</label><CustomSelect v-model="selectedAccount" :options="selectedAccounts.map(a => ({label: a, value: a}))" /></div>
-        <div class="space-y-1.5"><label class="ui-label flex items-center justify-between gap-2">{{ t('taskForm.selectFromList') }}<button type="button" @click="refreshChats" :disabled="chatListRefreshing || !selectedAccount" class="flex items-center gap-1 text-[10px] text-sky-500 hover:text-sky-700 dark:hover:text-sky-300 font-medium disabled:opacity-50 disabled:cursor-not-allowed"><RefreshCw class="w-3 h-3" :class="chatListRefreshing ? 'animate-spin' : ''" /> {{ t('taskForm.refreshChats') }}</button></label><CustomSelect v-model="selectedChatId" :disabled="chatListRefreshing" :options="[{label: chatListRefreshing ? t('taskForm.loadingChats') : t('taskForm.selectChat'), value:0}, ...availableChats.map(c => ({label: c.title || c.username || String(c.id), value: c.id}))]" @update:modelValue="selectedChatName = availableChats.find(c => c.id === $event)?.title || availableChats.find(c => c.id === $event)?.username || String($event)" /><p v-if="chatListError" class="text-xs text-amber-600 dark:text-amber-400 mt-1">{{ chatListError }}</p></div>
-        <div class="space-y-1.5 relative"><label class="ui-label">{{ t('taskForm.searchChat') }}</label><div class="relative"><input v-model="chatSearch" :placeholder="t('taskForm.searchPlaceholder')" class="ui-input" /><div v-if="chatSearch.trim()" class="absolute top-11 left-0 right-0 z-10 max-h-40 overflow-y-auto ui-dropdown shadow-[var(--sp-shadow-md)]"><div v-if="chatSearchLoading" class="p-3 text-xs text-gray-400">{{ t('taskForm.searching') }}</div><template v-else><div v-for="chat in chatSearchResults" :key="chat.id" @click="selectChat(chat)" class="p-2 border-b border-gray-100 dark:border-gray-800/60 hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer text-sm"><div class="font-medium truncate">{{ chat.title || chat.username || chat.id }}</div><div class="text-[10px] text-gray-400 font-mono">{{ chat.id }}</div></div><div v-if="!chatSearchResults.length" class="p-3 text-xs text-gray-400">{{ t('taskForm.noResults') }}</div></template></div></div></div>
-      </div>
-      <!-- 与「高级选项」联动：话题 / 发送者过滤 -->
-      <div v-if="showAdvanced" class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4 pt-3 border-t border-dashed border-gray-200 dark:border-gray-700/60">
-        <div class="space-y-1.5">
-          <label class="ui-label" for="task-form-thread">{{ t('taskForm.threadId') }}</label>
-          <input id="task-form-thread" v-model="messageThreadId" :placeholder="t('taskForm.threadIdPlaceholder')" class="ui-input" />
-        </div>
-        <div class="space-y-1.5">
-          <label class="ui-label" for="task-form-sender">{{ t('taskForm.senderFilter') }}</label>
-          <input id="task-form-sender" v-model="senderFilter" :placeholder="t('taskForm.senderFilterPlaceholder')" class="ui-input" />
-        </div>
-      </div>
-      <!-- 从会话列表批量勾选 -->
-      <div v-if="availableChats.length" class="mt-4 border border-dashed border-gray-200 dark:border-gray-700/60 p-3 space-y-2">
-        <div class="flex items-center justify-between gap-2">
-          <div>
-            <div class="text-[11px] font-medium text-gray-700 dark:text-gray-300">{{ t('taskForm.pickFromChatList') }}</div>
-            <p class="text-[10px] text-gray-500">{{ t('taskForm.bulkPickHint') }}</p>
-          </div>
-          <button
-            type="button"
-            class="ui-btn-secondary !px-2.5 !py-1 !text-[11px]"
-            :disabled="!bulkSelectedChatIds.length"
-            @click="applyBulkPickedChats"
-          >
-            {{ t('taskForm.bulkPickChats') }}
-            <span v-if="bulkSelectedChatIds.length">({{ bulkSelectedChatIds.length }})</span>
-          </button>
-        </div>
-        <div class="max-h-36 overflow-y-auto space-y-1">
-          <label
-            v-for="chat in availableChats.slice(0, 40)"
-            :key="chat.id"
-            class="flex items-center gap-2 px-1.5 py-1 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/[0.03] cursor-pointer rounded-sm"
-          >
-            <input
-              type="checkbox"
-              class="ui-checkbox"
-              :checked="bulkSelectedChatIds.includes(chat.id)"
-              @change="toggleBulkChat(chat.id)"
-            />
-            <span class="truncate flex-1">{{ chat.title || chat.username || chat.id }}</span>
-            <span class="font-mono text-[10px] text-gray-400 shrink-0">{{ chat.id }}</span>
-          </label>
-        </div>
-      </div>
-    </div>
+    <TaskFormTargetSection
+      :is-editing="isEditing"
+      :create-mode="createMode"
+      :target-chats="targetChats"
+      :active-chat-index="activeChatIndex"
+      :selected-account="selectedAccount"
+      :selected-accounts="selectedAccounts"
+      :selected-chat-id="selectedChatId"
+      :message-thread-id="messageThreadId"
+      :sender-filter="senderFilter"
+      :show-advanced="showAdvanced"
+      :available-chats="availableChats"
+      :chat-search="chatSearch"
+      :chat-search-results="chatSearchResults"
+      :chat-search-loading="chatSearchLoading"
+      :chat-list-refreshing="chatListRefreshing"
+      :chat-list-error="chatListError"
+      :bulk-selected-chat-ids="bulkSelectedChatIds"
+      @add-target="addTargetChat"
+      @remove-target="removeTargetChat"
+      @update:active-chat-index="activeChatIndex = $event"
+      @update:create-mode="createMode = $event"
+      @update:selected-account="selectedAccount = $event"
+      @update:selected-chat-id="selectedChatId = $event"
+      @update:selected-chat-name="selectedChatName = $event"
+      @update:message-thread-id="messageThreadId = $event"
+      @update:sender-filter="senderFilter = $event"
+      @update:chat-search="chatSearch = $event"
+      @refresh-chats="refreshChats"
+      @select-chat="selectChat"
+      @toggle-bulk-chat="toggleBulkChat"
+      @apply-bulk-picked="applyBulkPickedChats"
+    />
     <!-- 03 关键词监听（仅 listen） -->
-    <div v-if="scheduleMode === 'listen'" class="ui-form-section !bg-[var(--sp-bg-elevated)]">
-      <div class="ui-form-step mb-4">
-        <span class="ui-form-step-num">03</span>
-        <h4 class="ui-form-step-title text-emerald-600 dark:text-emerald-400">{{ t('taskForm.keywordListener') }}</h4>
-      </div>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div class="md:col-span-2 space-y-1.5"><label class="ui-label">{{ t('taskForm.keywords') }}</label><textarea v-model="listenerKeywords" rows="3" :placeholder="t('taskForm.keywordsPlaceholder')" class="ui-input !h-auto py-2.5"></textarea></div>
-        <div class="space-y-1.5"><label class="ui-label">{{ t('taskForm.matchMode') }}</label><CustomSelect v-model="listenerMatchMode" :options="[{label: t('taskForm.matchContains'), value:'contains'}, {label: t('taskForm.matchExact'), value:'exact'}, {label: t('taskForm.matchRegex'), value:'regex'}]" /></div>
-        <div class="space-y-1.5"><label class="ui-label">{{ t('taskForm.afterMatch') }}</label><CustomSelect v-model="listenerPushChannel" :options="[{label: t('taskForm.continueActions'), value:'continue'}, {label: t('taskForm.telegramNotify'), value:'telegram'}, {label: t('taskForm.forwardToChat'), value:'forward'}, {label: t('taskForm.barkPush'), value:'bark'}, {label: t('tasks.pushServerChan'), value:'server_chan'}, {label: t('taskForm.customWebhook'), value:'custom'}]" /></div>
-        <div class="md:col-span-2 flex flex-col gap-1">
-          <label class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 cursor-pointer select-none">
-            <input v-model="listenerIgnoreSelf" type="checkbox" class="ui-checkbox" />
-            {{ t('taskForm.ignoreSelfMessages') }}
-          </label>
-          <p class="text-[10px] text-gray-500 leading-relaxed pl-6">{{ t('taskForm.ignoreSelfHint') }}</p>
-        </div>
-        <div class="md:col-span-2 space-y-2">
-          <label class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 cursor-pointer select-none">
-            <input v-model="listenerTimeWindowEnabled" type="checkbox" class="ui-checkbox" />
-            {{ t('taskForm.timeWindowEnabled') }}
-          </label>
-          <div v-if="listenerTimeWindowEnabled" class="grid grid-cols-2 gap-3 pl-6">
-            <div class="space-y-1">
-              <label class="ui-label">{{ t('taskForm.timeWindowStart') }}</label>
-              <input v-model="listenerActiveTimeStart" type="time" class="ui-input" />
-            </div>
-            <div class="space-y-1">
-              <label class="ui-label">{{ t('taskForm.timeWindowEnd') }}</label>
-              <input v-model="listenerActiveTimeEnd" type="time" class="ui-input" />
-            </div>
-          </div>
-          <p class="text-[10px] text-gray-500 leading-relaxed pl-6">{{ t('taskForm.timeWindowHint') }}</p>
-        </div>
-        <template v-if="listenerPushChannel === 'forward'"><div class="space-y-1.5"><label class="ui-label">{{ t('taskForm.forwardChatId') }}</label><input v-model="listenerForwardChatId" placeholder="-10012345678" class="ui-input" /></div><div class="space-y-1.5"><label class="ui-label">{{ t('taskForm.forwardThreadId') }}</label><input v-model="listenerForwardThreadId" :placeholder="t('taskForm.forwardThreadIdPlaceholder')" class="ui-input" /></div></template>
-        <div v-if="listenerPushChannel === 'bark'" class="md:col-span-2 space-y-1.5"><label class="ui-label">{{ t('taskForm.barkUrl') }}</label><input v-model="listenerBarkUrl" placeholder="https://api.day.app/xxx" class="ui-input" /></div>
-        <div v-if="listenerPushChannel === 'server_chan'" class="md:col-span-2 space-y-1.5"><label class="ui-label">{{ t('tasks.serverChanKey') }}</label><input v-model="listenerServerChanKey" placeholder="SCTxxxx" class="ui-input" /></div>
-        <div v-if="listenerPushChannel === 'custom'" class="md:col-span-2 space-y-1.5"><label class="ui-label">{{ t('taskForm.webhookUrl') }}</label><input v-model="listenerCustomUrl" :placeholder="t('taskForm.webhookPlaceholder')" class="ui-input" /></div>
-      </div>
-    </div>
+    <TaskFormListenSection
+      v-if="scheduleMode === 'listen'"
+      :keywords="listenerKeywords"
+      :match-mode="listenerMatchMode"
+      :push-channel="listenerPushChannel"
+      :ignore-self="listenerIgnoreSelf"
+      :time-window-enabled="listenerTimeWindowEnabled"
+      :active-time-start="listenerActiveTimeStart"
+      :active-time-end="listenerActiveTimeEnd"
+      :forward-chat-id="listenerForwardChatId"
+      :forward-thread-id="listenerForwardThreadId"
+      :bark-url="listenerBarkUrl"
+      :server-chan-key="listenerServerChanKey"
+      :custom-url="listenerCustomUrl"
+      @update:keywords="listenerKeywords = $event"
+      @update:match-mode="listenerMatchMode = $event"
+      @update:push-channel="listenerPushChannel = $event"
+      @update:ignore-self="listenerIgnoreSelf = $event"
+      @update:time-window-enabled="listenerTimeWindowEnabled = $event"
+      @update:active-time-start="listenerActiveTimeStart = $event"
+      @update:active-time-end="listenerActiveTimeEnd = $event"
+      @update:forward-chat-id="listenerForwardChatId = $event"
+      @update:forward-thread-id="listenerForwardThreadId = $event"
+      @update:bark-url="listenerBarkUrl = $event"
+      @update:server-chan-key="listenerServerChanKey = $event"
+      @update:custom-url="listenerCustomUrl = $event"
+    />
     <!-- 动作序列 -->
     <div v-if="scheduleMode === 'scheduled' || listenerPushChannel === 'continue'" class="ui-form-section !bg-[var(--sp-bg-elevated)]">
       <div class="ui-form-step mb-4">
