@@ -423,7 +423,7 @@ const handleBatchCheck = async () => {
   } catch (e) {
     toast.error(getLocalizedErrorMessage(e, t, t('accounts.checkFailed')))
   } finally {
-    if (!batchPollTimer) {
+    if (!batchPollHandle?.active) {
       batchChecking.value = false
     }
   }
@@ -499,7 +499,7 @@ const handleRecheckFailed = async () => {
   } catch (e) {
     toast.error(getLocalizedErrorMessage(e, t, t('accounts.checkFailed')))
   } finally {
-    if (!batchPollTimer) batchChecking.value = false
+    if (!batchPollHandle?.active) batchChecking.value = false
   }
 }
 
