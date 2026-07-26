@@ -68,6 +68,7 @@
     "activeRuns": "活跃运行",
     "noActiveRuns": "当前无运行中任务",
     "failureBreakdown": "失败分类",
+    "noFailureBreakdown": "近期暂无失败分类",
     "recentHits": "最近关键词命中",
     "noRecentHits": "暂无命中记录",
     "statusJobs": "账号状态检测",
@@ -699,7 +700,8 @@
     "searchPlaceholder": "搜索…",
     "filterNoResults": "没有匹配的结果",
     "filterNoResultsHint": "试试调整搜索关键词或筛选条件",
-    "clearFilters": "清除筛选"
+    "clearFilters": "清除筛选",
+    "activeFilters": "当前筛选"
   },
   "login": {
     "subtitle": "Telegram 多账号自动化面板",

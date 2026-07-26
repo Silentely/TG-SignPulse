@@ -959,6 +959,48 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
         </button>
         <span v-if="batchBusy" class="ui-spinner !w-3.5 !h-3.5 !border-2" aria-hidden="true" />
       </div>
+      <!-- 激活中的筛选：chip 一键清除 -->
+      <div
+        v-if="hasListFilters"
+        class="flex flex-wrap items-center gap-1.5 pt-0.5 border-t border-gray-100 dark:border-gray-800/50"
+      >
+        <span class="text-[10px] text-gray-400 shrink-0">{{ t('common.activeFilters') }}</span>
+        <button
+          v-if="searchQuery.trim()"
+          type="button"
+          class="inline-flex items-center gap-1 max-w-[14rem] px-2 py-0.5 rounded-sm text-[11px] bg-sky-50 text-sky-800 border border-sky-100 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800/50"
+          :title="t('common.clearFilters')"
+          @click="searchQuery = ''"
+        >
+          <span class="truncate">{{ t('common.search') }}: {{ searchQuery.trim() }}</span>
+          <X class="w-3 h-3 shrink-0 opacity-70" />
+        </button>
+        <button
+          v-if="modeFilter === 'listen'"
+          type="button"
+          class="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-[11px] bg-orange-50 text-orange-800 border border-orange-100 dark:bg-orange-950/40 dark:text-orange-300 dark:border-orange-800/50"
+          @click="modeFilter = 'all'"
+        >
+          {{ t('tasks.filterListen') }}
+          <X class="w-3 h-3 shrink-0 opacity-70" />
+        </button>
+        <button
+          v-if="modeFilter === 'scheduled'"
+          type="button"
+          class="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-[11px] bg-violet-50 text-violet-800 border border-violet-100 dark:bg-violet-950/40 dark:text-violet-300 dark:border-violet-800/50"
+          @click="modeFilter = 'all'"
+        >
+          {{ t('tasks.filterScheduled') }}
+          <X class="w-3 h-3 shrink-0 opacity-70" />
+        </button>
+        <button
+          type="button"
+          class="text-[11px] text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 underline-offset-2 hover:underline ml-auto shrink-0"
+          @click="clearListFilters"
+        >
+          {{ t('common.clearFilters') }}
+        </button>
+      </div>
     </div>
 
     <div v-if="filteredTasks.length === 0" class="ui-empty !py-12">
@@ -999,15 +1041,16 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
           <div class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate" :title="task.name">
             {{ task.name }}
           </div>
-          <div class="flex flex-wrap items-center gap-1.5">
+          <!-- 次要信息：调度 / 目标；状态徽章另组 -->
+          <div class="flex flex-wrap items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
             <span
-              class="ui-badge !text-[11px] font-mono bg-sky-50 text-sky-700 border-sky-100 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800/50 max-w-[12rem] truncate"
+              class="ui-badge !text-[10px] font-mono bg-sky-50 text-sky-700 border-sky-100 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800/50 max-w-[min(12rem,100%)] truncate"
               :title="task.scheduleMode"
             >
               {{ task.scheduleMode }}
             </span>
             <span
-              class="ui-badge ui-badge-neutral !text-[11px] font-mono max-w-[16rem] truncate"
+              class="ui-badge ui-badge-neutral !text-[10px] font-mono max-w-[min(16rem,100%)] truncate"
               :title="task.targetStr"
             >
               {{ task.targetStr }}

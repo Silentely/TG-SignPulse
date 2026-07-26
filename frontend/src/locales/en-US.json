@@ -699,7 +699,8 @@
     "searchPlaceholder": "Search…",
     "filterNoResults": "No matching results",
     "filterNoResultsHint": "Try adjusting your search or filters",
-    "clearFilters": "Clear filters"
+    "clearFilters": "Clear filters",
+    "activeFilters": "Filters"
   },
   "login": {
     "subtitle": "Telegram multi-account automation panel",

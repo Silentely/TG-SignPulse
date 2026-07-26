@@ -423,8 +423,8 @@ const loadDashboardData = async () => {
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <div class="ui-card p-5">
         <div class="ui-section-label mb-4">{{ t('dashboard.activeRuns') }}</div>
-        <div v-if="activeRuns.length === 0" class="text-xs text-gray-400 py-6 text-center">
-          {{ t('dashboard.noActiveRuns') }}
+        <div v-if="activeRuns.length === 0" class="ui-empty !py-8">
+          <p class="ui-empty-desc">{{ t('dashboard.noActiveRuns') }}</p>
         </div>
         <div v-else class="space-y-1">
           <button
@@ -451,8 +451,8 @@ const loadDashboardData = async () => {
       </div>
       <div class="ui-card p-5">
         <div class="ui-section-label mb-4">{{ t('dashboard.failureBreakdown') }}</div>
-        <div v-if="failureBreakdown.length === 0" class="text-xs text-gray-400 py-6 text-center">
-          {{ t('common.noData') }}
+        <div v-if="failureBreakdown.length === 0" class="ui-empty !py-8">
+          <p class="ui-empty-desc">{{ t('dashboard.noFailureBreakdown') }}</p>
         </div>
         <div v-else class="flex flex-wrap gap-2">
           <button
@@ -481,8 +481,8 @@ const loadDashboardData = async () => {
             {{ t('dashboard.viewTasks') }}
           </button>
         </div>
-        <div v-if="recentHits.length === 0" class="text-xs text-gray-400 py-6 text-center">
-          {{ t('dashboard.noRecentHits') }}
+        <div v-if="recentHits.length === 0" class="ui-empty !py-8">
+          <p class="ui-empty-desc">{{ t('dashboard.noRecentHits') }}</p>
         </div>
         <div v-else class="space-y-1">
           <button
@@ -518,8 +518,8 @@ const loadDashboardData = async () => {
             {{ t('dashboard.goAccounts') }}
           </button>
         </div>
-        <div v-if="statusJobs.length === 0" class="text-xs text-gray-400 py-6 text-center">
-          {{ t('dashboard.noStatusJobs') }}
+        <div v-if="statusJobs.length === 0" class="ui-empty !py-8">
+          <p class="ui-empty-desc">{{ t('dashboard.noStatusJobs') }}</p>
         </div>
         <div v-else class="space-y-1">
           <button

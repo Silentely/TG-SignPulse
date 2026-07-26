@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { Play, FileText, Edit2, Trash2, Plus, QrCode, Phone, Zap, MonitorSmartphone, MessageCircle, CheckCircle2, Search, RefreshCw, XCircle } from 'lucide-vue-next'
+import { Play, FileText, Edit2, Trash2, Plus, QrCode, Phone, Zap, MonitorSmartphone, MessageCircle, CheckCircle2, Search, RefreshCw, XCircle, X } from 'lucide-vue-next'
 import {
   listAccounts,
   deleteAccount,
@@ -614,9 +614,20 @@ const goTasks = (name: string) => {
             v-model="searchQuery"
             type="search"
             class="ui-input !pl-8 !h-9 !text-xs"
+            :class="searchQuery.trim() ? '!pr-8' : ''"
             :placeholder="t('common.searchPlaceholder')"
             :aria-label="t('common.search')"
           >
+          <button
+            v-if="searchQuery.trim()"
+            type="button"
+            class="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded-sm"
+            :title="t('common.clearFilters')"
+            :aria-label="t('common.clearFilters')"
+            @click="clearListFilters"
+          >
+            <X class="w-3.5 h-3.5" />
+          </button>
         </div>
         <div class="flex items-center gap-2 shrink-0">
           <div
