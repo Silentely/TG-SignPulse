@@ -39,7 +39,7 @@ http://127.0.0.1:3000
 - `/api/logs` — 执行日志
 - `/api/config` — 系统配置
 - `/api/events` — 事件流
-- `/api/tasks` — **已弃用** 旧版 ORM 任务（兼容保留）
+- `/api/tasks` — **已移除**（请用 `/api/sign-tasks`）
 - `/api/batch/tasks` — **已弃用** 旧版 ORM 批量操作
 
 后端负责：
@@ -140,7 +140,7 @@ AI、全局设置和 Telegram API 配置则单独保存在数据目录根部的 
 - **数据库**：**默认仍是 SQLite（WAL）**，并未取消或强制迁走。可通过 `APP_DATABASE_URL` / `DATABASE_URL` **可选**切换到 PostgreSQL 等（SQLAlchemy URL，需对应驱动）。面板元数据可外置，但 **Telegram session 仍不宜多进程共享同一账号文件**。
 - **调度锁**：启动时尝试获取 `data/.scheduler.lock`（`APP_SCHEDULER_LOCK=0` 可关闭）。仅锁持有者注册 `sign-` / `db-` 业务 job，降低多副本重复签到风险。
 - **监听分片**：`APP_MONITOR_SHARD=i/n` + 可选 `APP_MONITOR_ACCOUNT_ALLOWLIST`，按账号拆分关键词监听；**同一账号的 session 仍只能由一个进程持有**。
-- **旧任务 API**：`/api/tasks` 默认只读（`APP_LEGACY_TASKS_READONLY=1`），新功能统一 `/api/sign-tasks`。
+- **旧任务 API**：`/api/tasks` 已移除，统一 `/api/sign-tasks`。
 - **任务队列**：完整队列化（Celery/RQ 等）尚未内置；当前以进程内 APScheduler + 文件锁 + 监听分片为过渡方案。
 - 数据库锁定的排查步骤见 [运维手册 - 场景 2：数据库锁定](ops.md#场景-2数据库锁定)。
 - 反向代理可以扩展入口流量，但不等同于后端多副本扩展。

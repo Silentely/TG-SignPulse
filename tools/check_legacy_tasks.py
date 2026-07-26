@@ -7,7 +7,7 @@
     python tools/check_legacy_tasks.py
     APP_DATA_DIR=./data python tools/check_legacy_tasks.py --json
 
-不修改任何数据；旧 /api/tasks 写路径已永久关闭（410）。
+不修改任何数据；旧 /api/tasks HTTP 路由已删除；本工具仅盘点 ORM 残留表。
 """
 from __future__ import annotations
 
@@ -94,7 +94,7 @@ def main() -> int:
         if ready_for_removal:
             removal_stage = "writes_removed_ready"
             removal_hint = (
-                "写路径已永久关闭且 ORM 无存量，可评估删除只读 /api/tasks 路由与 ORM Task 表。"
+                "HTTP 路由已删除且 ORM 无存量；可评估删除 ORM Task/TaskLog 模型与 services.tasks。"
             )
         elif len(only_orm) == 0:
             removal_stage = "writes_removed_with_shared_names"
@@ -124,7 +124,7 @@ def main() -> int:
             "migration_hint": (
                 "旧 ORM 任务仅有 name/cron/account，不含完整动作序列。"
                 "请在面板用 sign-tasks 重建流程，或从配置导出 JSON 导入。"
-                "写路径已永久 410，不可再通过 APP_LEGACY_TASKS_READONLY=0 打开。"
+                "HTTP 路由已删除；请仅使用 /api/sign-tasks。"
             ),
             "removal_hint": removal_hint,
         }

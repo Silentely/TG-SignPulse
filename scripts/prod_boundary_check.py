@@ -61,7 +61,6 @@ def main() -> int:
         "/api/ops/memory",
         "/api/events/sign-history",
         "/api/events/logs",
-        "/api/tasks/legacy-status",
         "/api/sign-tasks",
         "/api/accounts",
         "/health",
@@ -70,15 +69,12 @@ def main() -> int:
         if need not in paths:
             errors.append(f"missing route {need}")
 
-    # 4) 旧任务写路径永久关闭（环境变量无法再打开）
-    from backend.api.routes.tasks import _legacy_writes_allowed
-
-    os.environ.pop("APP_LEGACY_TASKS_READONLY", None)
-    if _legacy_writes_allowed():
-        errors.append("legacy writes must always be denied")
-    os.environ["APP_LEGACY_TASKS_READONLY"] = "0"
-    if _legacy_writes_allowed():
-        errors.append("legacy writes must stay denied even when READONLY=0")
+    # 4) 旧 /api/tasks 路由应已完全移除
+    paths = {getattr(r, "path", None) for r in app.routes}
+    if any(isinstance(x, str) and x.startswith("/api/tasks") for x in paths):
+        errors.append("legacy /api/tasks routes should be removed")
+    if "/api/batch/tasks" in paths:
+        errors.append("legacy /api/batch/tasks should be removed")
 
     # 5) 分片边界
     from backend.services.keyword_monitor.sharding import account_in_monitor_scope

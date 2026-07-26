@@ -208,7 +208,7 @@ docker run -d -p 3000:3000 -v ./data:/data ghcr.io/<owner>/tg-signpulse:latest
 
 失败分类：`backend/services/sign_task_failure.py`（写入历史 `failure_category`）。  
 运维：`/api/ops/scheduled-jobs`、`/backup/status`、`/backup/export`、`/memory`。  
-旧任务：`/api/tasks` 写路径已永久关闭（410）；只读列表/legacy-status 仍保留。  
+旧任务：`/api/tasks` 与 `/api/batch/tasks` 已完全移除；请使用 sign-tasks。  
 监听分片：`APP_MONITOR_SHARD=i/n`、`APP_MONITOR_ACCOUNT_ALLOWLIST`。
 
 ## AI 使用指引

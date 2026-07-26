@@ -234,12 +234,13 @@ def ready_check(response: Response) -> dict:
 
     payload: dict = {"status": "ready"}
     try:
-        from backend.api.routes.tasks import _legacy_writes_allowed
         from backend.scheduler.instance_lock import has_scheduler_lock
 
         lock_held = has_scheduler_lock()
         payload["scheduler_lock_held"] = lock_held
-        payload["legacy_tasks_writable"] = _legacy_writes_allowed()
+        # 旧 /api/tasks 已移除，写能力恒为 false
+        payload["legacy_tasks_writable"] = False
+        payload["legacy_tasks_removed"] = True
         # 副本进程（未持锁）时显式提示：业务 cron 不在本实例执行
         payload["scheduler_role"] = "primary" if lock_held else "replica"
     except (ImportError, AttributeError) as exc:

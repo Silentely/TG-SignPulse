@@ -26,7 +26,6 @@ from sqlalchemy.pool import StaticPool
 from backend.core import config as config_module
 from backend.core import database as database_module
 from backend.models.account import Account
-from backend.models.task import Task
 
 # ============================================================================
 # 测试专用 Fixtures
@@ -491,14 +490,6 @@ class TestAccountAPI:
 
 
 
-def _seed_legacy_task(db, account, name="seed_task", cron="0 6 * * *", enabled=True):
-    """直接写 ORM，供只读 GET 用例准备数据（写 API 已永久 410）。"""
-    task = Task(name=name, cron=cron, enabled=enabled, account_id=account.id)
-    db.add(task)
-    db.commit()
-    db.refresh(task)
-    return task
-
 
 # ============================================================================
 # 任务 API 测试
@@ -506,125 +497,27 @@ def _seed_legacy_task(db, account, name="seed_task", cron="0 6 * * *", enabled=T
 
 
 class TestTaskAPI:
-    """旧版 /api/tasks：写路径永久 410；只读 GET 仍可用。"""
+    """旧版 /api/tasks 已完全移除。"""
 
-    def test_list_tasks_empty(self, api_client, db):
+    def test_legacy_routes_return_404(self, api_client, db):
         token = _login(api_client)
-        resp = api_client.get("/api/tasks", headers=_auth(token))
-        assert resp.status_code == 200
-        assert resp.json() == []
+        headers = _auth(token)
+        gone = {404, 405}
 
-    def test_list_tasks_unauthenticated(self, api_client, db):
-        resp = api_client.get("/api/tasks")
-        assert resp.status_code == 401
+        def assert_gone(resp):
+            assert resp.status_code in gone, resp.text
 
-    def test_create_task_gone(self, api_client, db):
-        token = _login(api_client)
-        account = _create_account(db)
-        resp = api_client.post(
-            "/api/tasks",
-            json={
-                "name": "daily_sign",
-                "cron": "0 6 * * *",
-                "enabled": True,
-                "account_id": account.id,
-            },
-            headers=_auth(token),
+        assert_gone(api_client.get("/api/tasks", headers=headers))
+        assert_gone(api_client.get("/api/tasks/1", headers=headers))
+        assert_gone(
+            api_client.post(
+                "/api/tasks",
+                json={"name": "x", "cron": "0 6 * * *", "enabled": True, "account_id": 1},
+                headers=headers,
+            )
         )
-        assert resp.status_code == 410
-        assert resp.json().get("detail") == "LEGACY_TASKS_READONLY"
-
-    def test_create_task_unauthenticated(self, api_client, db):
-        resp = api_client.post(
-            "/api/tasks",
-            json={"name": "task", "cron": "0 6 * * *", "enabled": True, "account_id": 1},
-        )
-        assert resp.status_code == 401
-
-    def test_get_task(self, api_client, db):
-        token = _login(api_client)
-        account = _create_account(db)
-        task = _seed_legacy_task(db, account, name="fetch_task", cron="30 8 * * *")
-        resp = api_client.get(f"/api/tasks/{task.id}", headers=_auth(token))
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["id"] == task.id
-        assert data["name"] == "fetch_task"
-        assert data["cron"] == "30 8 * * *"
-
-    def test_get_task_not_found(self, api_client, db):
-        token = _login(api_client)
-        resp = api_client.get("/api/tasks/9999", headers=_auth(token))
-        assert resp.status_code == 404
-        assert "Task not found" in resp.json()["detail"]
-
-    def test_update_task_gone(self, api_client, db):
-        token = _login(api_client)
-        account = _create_account(db)
-        task = _seed_legacy_task(db, account, name="old_name")
-        resp = api_client.put(
-            f"/api/tasks/{task.id}",
-            json={"name": "new_name", "cron": "30 9 * * 1-5"},
-            headers=_auth(token),
-        )
-        assert resp.status_code == 410
-        assert resp.json().get("detail") == "LEGACY_TASKS_READONLY"
-
-    def test_delete_task_gone(self, api_client, db):
-        token = _login(api_client)
-        account = _create_account(db)
-        task = _seed_legacy_task(db, account, name="doomed_task")
-        resp = api_client.delete(f"/api/tasks/{task.id}", headers=_auth(token))
-        assert resp.status_code == 410
-        assert resp.json().get("detail") == "LEGACY_TASKS_READONLY"
-        # 只读 GET 仍可见
-        get_resp = api_client.get(f"/api/tasks/{task.id}", headers=_auth(token))
-        assert get_resp.status_code == 200
-
-    def test_delete_task_unauthenticated(self, api_client, db):
-        resp = api_client.delete("/api/tasks/1")
-        assert resp.status_code == 401
-
-    def test_run_task_gone(self, api_client, db):
-        token = _login(api_client)
-        account = _create_account(db)
-        task = _seed_legacy_task(db, account, name="run_me")
-        resp = api_client.post(f"/api/tasks/{task.id}/run", headers=_auth(token))
-        assert resp.status_code == 410
-        assert resp.json().get("detail") == "LEGACY_TASKS_READONLY"
-
-    def test_list_tasks_with_data(self, api_client, db):
-        token = _login(api_client)
-        account = _create_account(db)
-        _seed_legacy_task(db, account, name="task_a", cron="0 6 * * *", enabled=True)
-        _seed_legacy_task(db, account, name="task_b", cron="0 7 * * *", enabled=False)
-        resp = api_client.get("/api/tasks", headers=_auth(token))
-        assert resp.status_code == 200
-        data = resp.json()
-        assert len(data) == 2
-        assert {t["name"] for t in data} == {"task_a", "task_b"}
-
-    def test_get_task_logs_empty(self, api_client, db):
-        token = _login(api_client)
-        account = _create_account(db)
-        task = _seed_legacy_task(db, account, name="logged_task")
-        resp = api_client.get(f"/api/tasks/{task.id}/logs", headers=_auth(token))
-        assert resp.status_code == 200
-        assert resp.json() == []
-
-    def test_get_task_logs_not_found(self, api_client, db):
-        token = _login(api_client)
-        resp = api_client.get("/api/tasks/9999/logs", headers=_auth(token))
-        assert resp.status_code == 404
-
-    def test_legacy_readonly_status_writes_removed(self, api_client, db):
-        token = _login(api_client)
-        resp = api_client.get("/api/tasks/legacy-status", headers=_auth(token))
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["legacy_writes_allowed"] is False
-        assert body.get("legacy_writes_removed") is True
-        assert body["ready_for_route_removal"] is True
+        assert_gone(api_client.delete("/api/tasks/1", headers=headers))
+        assert_gone(api_client.post("/api/tasks/1/run", headers=headers))
 
 
 

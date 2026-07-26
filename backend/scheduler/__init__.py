@@ -8,8 +8,6 @@ from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy.orm import Session
 
 from backend.core.database import get_session_local
-from backend.models.task import Task
-from backend.services.tasks import run_task_once
 
 scheduler: AsyncIOScheduler | None = None
 
@@ -66,18 +64,6 @@ def create_cron_trigger(cron_str: str, timezone: str = "") -> CronTrigger:
         )
     return CronTrigger.from_crontab(cron_str, timezone=tz or None)
 
-
-async def _job_run_task(task_id: int) -> None:
-    db: Session = get_session_local()()
-    try:
-        # 这里的查询是同步的，对于 SQLite 且任务量不大可以接受
-        task = db.query(Task).filter(Task.id == task_id).first()
-        if not task or not task.enabled:
-            return
-        # run_task_once 将被改为 async
-        await run_task_once(db, task)
-    finally:
-        db.close()
 
 
 async def _job_run_sign_task(account_name: str, task_name: str) -> None:
@@ -173,13 +159,19 @@ async def _job_maintenance() -> None:
     db: Session = get_session_local()()
     try:
         from backend.services.sign_tasks import get_sign_task_service
-        from backend.services.tasks import cleanup_old_logs
 
-        # 清理数据库任务日志
-        count = cleanup_old_logs(db, days=3)
-        logging.getLogger("backend.scheduler").info(
-            "Maintenance: 已清理 %s 条数据库任务日志", count
-        )
+        # 遗留 ORM TaskLog 清理（表不存在则跳过）
+        try:
+            from backend.services.tasks import cleanup_old_logs
+
+            count = cleanup_old_logs(db, days=3)
+            logging.getLogger("backend.scheduler").info(
+                "Maintenance: 已清理 %s 条遗留 ORM 任务日志", count
+            )
+        except Exception as exc:
+            logging.getLogger("backend.scheduler").debug(
+                "Maintenance: 跳过 ORM 日志清理: %s", exc
+            )
 
         # 清理签到任务日志
         sign_service = get_sign_task_service()
@@ -324,7 +316,7 @@ def _sync_auto_backup_job() -> None:
 
 async def sync_jobs() -> None:
     """
-    Sync APScheduler jobs from DB tasks table and file-based sign tasks.
+    Sync APScheduler jobs from file-based sign tasks (legacy ORM tasks removed).
     """
     if scheduler is None:
         return
@@ -367,101 +359,76 @@ async def sync_jobs() -> None:
 
     from backend.services.sign_tasks import get_sign_task_service
 
-    db: Session = get_session_local()()
-    try:
-        # 1. 同步数据库任务
-        tasks = db.query(Task).filter(Task.enabled).all()
-        existing_ids = {
-            job.id
-            for job in scheduler.get_jobs()
-            if job.id.startswith("db-") or job.id.startswith("sign-")
-        }
-        desired_ids = set()
+    # 同步签到任务 (SignTask)；旧 ORM db-* job 不再注册
+    existing_ids = {
+        job.id
+        for job in scheduler.get_jobs()
+        if str(job.id or "").startswith("db-") or str(job.id or "").startswith("sign-")
+    }
+    desired_ids = set()
 
-        for task in tasks:
-            job_id = f"db-{task.id}"
-            desired_ids.add(job_id)
-
+    # 主动移除遗留 db-* 任务
+    for job_id in list(existing_ids):
+        if str(job_id).startswith("db-"):
             try:
-                trigger = create_cron_trigger(task.cron)
-                if job_id in existing_ids:
-                    scheduler.reschedule_job(job_id, trigger=trigger)
-                else:
-                    scheduler.add_job(
-                        _job_run_task,
-                        trigger=trigger,
-                        id=job_id,
-                        args=[task.id],
-                        replace_existing=True,
-                    )
-            except (ValueError, KeyError, RuntimeError) as e:
-                logging.getLogger("backend.scheduler").warning(
-                    "Error scheduling DB task %s: %s", task.id, e
+                scheduler.remove_job(job_id)
+            except JobLookupError:
+                pass
+            existing_ids.discard(job_id)
+
+    sign_task_service = get_sign_task_service()
+    # Expand wildcard tasks for newly added accounts
+    sign_task_service._expand_wildcard_tasks()
+    sign_tasks = sign_task_service.list_tasks(force_refresh=True)
+    for st in sign_tasks:
+        account_name = str(st.get("account_name") or "").strip()
+        task_name = str(st.get("name") or "").strip()
+        if not account_name or not task_name:
+            logging.getLogger("backend.scheduler").warning(
+                "Skip scheduling sign task with missing account/name: %s", st
+            )
+            continue
+
+        job_id = f"sign-{account_name}-{task_name}"
+        desired_ids.add(job_id)
+
+        if not st.get("enabled", True):
+            if job_id in existing_ids:
+                scheduler.remove_job(job_id)
+            continue
+
+        if st.get("execution_mode") == "listen":
+            if job_id in existing_ids:
+                scheduler.remove_job(job_id)
+            continue
+
+        try:
+            trigger = create_cron_trigger(st["sign_at"])
+            if st.get("execution_mode") == "range" and st.get("range_start"):
+                trigger = create_cron_trigger(st["range_start"])
+
+            if job_id in existing_ids:
+                scheduler.reschedule_job(job_id, trigger=trigger)
+            else:
+                scheduler.add_job(
+                    _job_run_sign_task,
+                    trigger=trigger,
+                    id=job_id,
+                    args=[account_name, task_name],
+                    replace_existing=True,
                 )
-            except Exception:
-                logging.getLogger("backend.scheduler").exception(
-                    "调度 DB 任务 %s 发生未知异常", task.id
-                )
+        except (ValueError, KeyError, RuntimeError) as e:
+            logging.getLogger("backend.scheduler").warning(
+                "Error scheduling sign task %s: %s", task_name, e
+            )
+        except Exception:
+            logging.getLogger("backend.scheduler").exception(
+                "调度签到任务 %s 发生未知异常", task_name
+            )
 
-        # 2. 同步签到任务 (SignTask)
-        # 使用缓存的任务列表，减少 I/O
-        sign_task_service = get_sign_task_service()
-        # Expand wildcard tasks for newly added accounts
-        sign_task_service._expand_wildcard_tasks()
-        sign_tasks = sign_task_service.list_tasks(force_refresh=True)
-        for st in sign_tasks:
-            account_name = str(st.get("account_name") or "").strip()
-            task_name = str(st.get("name") or "").strip()
-            if not account_name or not task_name:
-                logging.getLogger("backend.scheduler").warning(
-                    "Skip scheduling sign task with missing account/name: %s", st
-                )
-                continue
-
-            job_id = f"sign-{account_name}-{task_name}"
-            desired_ids.add(job_id)
-
-            # SignTask 目前默认都是启用的，或者根据 st['enabled']
-            if not st.get("enabled", True):
-                if job_id in existing_ids:
-                    scheduler.remove_job(job_id)
-                continue
-
-            if st.get("execution_mode") == "listen":
-                if job_id in existing_ids:
-                    scheduler.remove_job(job_id)
-                continue
-
-            try:
-                trigger = create_cron_trigger(st["sign_at"])
-                if st.get("execution_mode") == "range" and st.get("range_start"):
-                    trigger = create_cron_trigger(st["range_start"])
-
-                if job_id in existing_ids:
-                    scheduler.reschedule_job(job_id, trigger=trigger)
-                else:
-                    # 使用新的 job wrapper
-                    scheduler.add_job(
-                        _job_run_sign_task,
-                        trigger=trigger,
-                        id=job_id,
-                        args=[account_name, task_name],
-                        replace_existing=True,
-                    )
-            except (ValueError, KeyError, RuntimeError) as e:
-                logging.getLogger("backend.scheduler").warning(
-                    "Error scheduling sign task %s: %s", task_name, e
-                )
-            except Exception:
-                logging.getLogger("backend.scheduler").exception(
-                    "调度签到任务 %s 发生未知异常", task_name
-                )
-
-        # remove obsolete jobs
-        for job_id in existing_ids - desired_ids:
-            scheduler.remove_job(job_id)
-    finally:
-        db.close()
+    # remove obsolete jobs
+    for job_id in existing_ids - desired_ids:
+        scheduler.remove_job(job_id)
 
 
 async def init_scheduler(sync_on_startup: bool = True) -> AsyncIOScheduler:

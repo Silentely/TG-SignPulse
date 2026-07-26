@@ -1,8 +1,7 @@
 """
 批量操作 API 路由
 
-- POST /batch/sign-tasks ：新版签到任务（文件存储）批量操作（推荐）
-- POST /batch/tasks      ：旧版 ORM 任务批量操作（已弃用，仅兼容）
+- POST /batch/sign-tasks ：签到任务（文件存储）批量操作
 """
 
 from __future__ import annotations
@@ -10,17 +9,10 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Response
-from sqlalchemy.orm import Session
-
+from fastapi import APIRouter, Depends
 from backend.core.auth import get_current_user
-from backend.core.database import get_db
 from backend.models.user import User
 from backend.scheduler import sync_jobs
-from backend.schemas.batch import (
-    BatchTaskRequest,
-    BatchTaskResponse,
-)
 from backend.schemas.sign_batch import (
     SignBatchAction,
     SignBatchTaskRequest,
@@ -32,12 +24,6 @@ from backend.services.sign_tasks import get_sign_task_service
 logger = logging.getLogger("backend.batch")
 
 router = APIRouter()
-
-_LEGACY_DEPRECATION = (
-    "Legacy /api/batch/tasks and /api/tasks are deprecated. "
-    "Use /api/batch/sign-tasks and /api/sign-tasks instead."
-)
-
 
 async def _restart_keyword_monitors() -> None:
     try:
@@ -207,37 +193,4 @@ async def batch_sign_task_operation(
         success_count=success_count,
         fail_count=fail_count,
         results=results,
-    )
-
-
-@router.post(
-    "/tasks",
-    response_model=BatchTaskResponse,
-    deprecated=True,
-    summary="[Deprecated] 旧版 ORM 任务批量操作",
-)
-async def batch_task_operation(
-    payload: BatchTaskRequest,
-    response: Response,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """
-    批量任务操作（旧版 ORM `tasks` 表）。
-
-    **已弃用且写路径永久关闭**：请改用 `POST /api/batch/sign-tasks`。
-    始终返回 410（`LEGACY_TASKS_READONLY`）。
-    """
-    from fastapi import HTTPException, status
-
-    logger.warning("调用了已弃用的 /api/batch/tasks：%s", _LEGACY_DEPRECATION)
-    # headers 挂在 HTTPException 上，确保 410 响应仍带 Deprecation
-    raise HTTPException(
-        status_code=status.HTTP_410_GONE,
-        detail="LEGACY_TASKS_READONLY",
-        headers={
-            "Deprecation": "true",
-            "Sunset": "true",
-            "X-API-Warn": _LEGACY_DEPRECATION,
-        },
     )

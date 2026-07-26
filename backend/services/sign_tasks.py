@@ -1635,24 +1635,20 @@ class SignTaskService(SignTaskCrudMixin):
 
     # CRUD: create/clone/update/rename/delete 见 SignTaskCrudMixin
 
+
     async def get_account_chats(
         self, account_name: str, force_refresh: bool = False
     ) -> List[Dict[str, Any]]:
-        """
-        获取账号的 Chat 列表 (带缓存)
-        """
-        from backend.services.sign_task_chats import load_chats_cache_file
+        """获取账号的 Chat 列表（带缓存）。"""
+        from backend.services.sign_task_chats import get_account_chats_cached
 
-        account_name = validate_storage_name(account_name, field_name="account_name")
-        cache_file = self.signs_dir / account_name / "chats_cache.json"
-
-        if not force_refresh:
-            cached = load_chats_cache_file(cache_file)
-            if cached is not None:
-                return cached
-
-        # 如果没有缓存或强制刷新，执行刷新逻辑
-        return await self.refresh_account_chats(account_name)
+        return await get_account_chats_cached(
+            account_name,
+            signs_dir=self.signs_dir,
+            force_refresh=force_refresh,
+            refresh_fn=self.refresh_account_chats,
+            validate_name=validate_storage_name,
+        )
 
     def search_account_chats(
         self,
@@ -1662,201 +1658,47 @@ class SignTaskService(SignTaskCrudMixin):
         limit: int = 50,
         offset: int = 0,
     ) -> Dict[str, Any]:
-        """
-        通过缓存搜索账号的 Chat 列表（不触发全量 get_dialogs）
-        """
-        from backend.services.sign_task_chats import (
-            empty_chat_search_page,
-            load_chats_cache_file,
-            search_chats_in_cache,
-        )
+        """通过缓存搜索账号的 Chat 列表（不触发全量 get_dialogs）。"""
+        from backend.services.sign_task_chats import search_account_chats_cached
 
-        account_name = validate_storage_name(account_name, field_name="account_name")
-        cache_file = self.signs_dir / account_name / "chats_cache.json"
-        data = load_chats_cache_file(cache_file)
-        if data is None:
-            return empty_chat_search_page(limit=limit, offset=offset)
-        return search_chats_in_cache(data, query, limit=limit, offset=offset)
+        return search_account_chats_cached(
+            account_name,
+            query,
+            signs_dir=self.signs_dir,
+            limit=limit,
+            offset=offset,
+            validate_name=validate_storage_name,
+        )
 
     @staticmethod
     def _is_invalid_session_error(err: Exception) -> bool:
-        msg = str(err)
-        if not msg:
-            return False
-        upper = msg.upper()
-        return (
-            "AUTH_KEY_UNREGISTERED" in upper
-            or "AUTH_KEY_INVALID" in upper
-            or "SESSION_REVOKED" in upper
-            or "SESSION_EXPIRED" in upper
-            or "USER_DEACTIVATED" in upper
-        )
+        from backend.services.sign_task_chats import is_invalid_session_error
+
+        return is_invalid_session_error(err)
 
     async def _cleanup_invalid_session(self, account_name: str) -> None:
-        try:
-            from backend.services.telegram import get_telegram_service
+        from backend.services.sign_task_chats import (
+            cleanup_invalid_session_and_chat_cache,
+        )
 
-            await get_telegram_service().delete_account(account_name)
-        except Exception as e:
-            _service_logger.debug("清理无效 Session 失败: %s", e)
-
-        # 清理 chats 缓存，避免后续误用旧数据
-        try:
-            cache_file = self.signs_dir / account_name / "chats_cache.json"
-            if cache_file.exists():
-                cache_file.unlink()
-        except Exception:
-            pass
+        await cleanup_invalid_session_and_chat_cache(
+            account_name, signs_dir=self.signs_dir
+        )
 
     async def refresh_account_chats(self, account_name: str) -> List[Dict[str, Any]]:
-        """
-        连接 Telegram 并刷新 Chat 列表
-        """
-        account_name = validate_storage_name(account_name, field_name="account_name")
-
-        from backend.core.config import get_settings
-        from backend.services.config import get_config_service
+        """连接 Telegram 并刷新 Chat 列表。"""
         from backend.services.sign_task_chats import (
-            SEARCH_GLOBAL_FALLBACK_TERMS,
-            append_mapped_chat,
-            build_chat_client_kwargs,
-            client_kwargs_with_fallback_session,
-            resolve_account_session_for_chats,
-            resolve_telegram_api_credentials,
-            save_chats_cache_file,
+            refresh_account_chats as refresh_account_chats_impl,
         )
 
-        settings = get_settings()
-        session_dir = settings.resolve_session_dir()
-        session_mode = get_session_mode()
-        session_info = resolve_account_session_for_chats(
+        return await refresh_account_chats_impl(
             account_name,
-            session_dir=session_dir,
-            session_mode=session_mode,
-            get_session_string=get_account_session_string,
-            load_session_string_file_fn=load_session_string_file,
-        )
-        session_string = session_info["session_string"]
-        fallback_session_string = session_info["fallback_session_string"]
-        used_fallback_session = session_info["used_fallback_session"]
-
-        config_service = get_config_service()
-        tg_config = config_service.get_telegram_config()
-        api_id, api_hash = resolve_telegram_api_credentials(
-            tg_config,
-            env_api_id=os.getenv("TG_API_ID"),
-            env_api_hash=os.getenv("TG_API_HASH"),
+            signs_dir=self.signs_dir,
+            get_effective_proxy=self._get_effective_proxy,
+            account_locks=self._account_locks,
+            validate_name=validate_storage_name,
         )
 
-        proxy_dict = None
-        proxy_value = self._get_effective_proxy(account_name)
-        if proxy_value:
-            proxy_dict = build_proxy_dict(proxy_value)
-        client_kwargs = build_chat_client_kwargs(
-            account_name=account_name,
-            workdir=session_dir,
-            api_id=api_id,
-            api_hash=api_hash,
-            session_string=session_string,
-            in_memory=session_mode == "string",
-            proxy=proxy_dict,
-        )
-        client = get_client(**client_kwargs)
-
-        chats: List[Dict[str, Any]] = []
-        logger = logging.getLogger("backend")
-        try:
-            if account_name not in self._account_locks:
-                self._account_locks[account_name] = get_account_lock(account_name)
-
-            account_lock = self._account_locks[account_name]
-
-            async def _fetch_chats(active_client) -> List[Dict[str, Any]]:
-                local_chats: List[Dict[str, Any]] = []
-                async with account_lock:
-                    async with get_global_semaphore():
-                        async with active_client:
-                            await active_client.get_me()
-
-                            try:
-                                async for dialog in active_client.get_dialogs():
-                                    try:
-                                        append_mapped_chat(
-                                            local_chats,
-                                            getattr(dialog, "chat", None),
-                                        )
-                                    except Exception:
-                                        continue
-                            except Exception as e:
-                                logger.warning(
-                                    f"get_dialogs 失败 (已获取 {len(local_chats)} 个): {type(e).__name__}: {e}"
-                                )
-
-                            if not local_chats:
-                                logger.info("get_dialogs 返回空，尝试 search_global 获取会话")
-                                seen_ids: set = set()
-                                for term in SEARCH_GLOBAL_FALLBACK_TERMS:
-                                    try:
-                                        async for msg in active_client.search_global(
-                                            term, limit=50
-                                        ):
-                                            try:
-                                                append_mapped_chat(
-                                                    local_chats,
-                                                    getattr(msg, "chat", None),
-                                                    seen_ids=seen_ids,
-                                                )
-                                            except Exception:
-                                                continue
-                                    except Exception:
-                                        continue
-
-                return local_chats
-
-            try:
-                chats = await _fetch_chats(client)
-            except Exception as e:
-                if self._is_invalid_session_error(e):
-                    if fallback_session_string and not used_fallback_session:
-                        logger.warning(
-                            "Session invalid for %s, retry with session_string: %s",
-                            account_name,
-                            e,
-                        )
-                        try:
-                            from tg_signer.core import close_client_by_name
-
-                            await close_client_by_name(account_name, workdir=session_dir)
-                        except Exception:
-                            pass
-                        used_fallback_session = True
-                        client = get_client(
-                            **client_kwargs_with_fallback_session(
-                                client_kwargs, fallback_session_string
-                            )
-                        )
-                        chats = await _fetch_chats(client)
-                    else:
-                        logger.warning(
-                            "Session invalid for %s: %s",
-                            account_name,
-                            e,
-                        )
-                        await self._cleanup_invalid_session(account_name)
-                        raise ValueError(f"账号 {account_name} 登录已失效，请重新登录")
-                else:
-                    raise
-
-            account_dir = self.signs_dir / account_name
-            cache_file = account_dir / "chats_cache.json"
-            if not save_chats_cache_file(cache_file, chats):
-                _service_logger.debug("保存 Chat 缓存失败: %s", cache_file)
-
-            return chats
-
-        except Exception as e:
-            # client 上下文管理器会自动处理 disconnect/stop，这里只需要处理业务异常
-            raise e
 
     async def run_task(self, account_name: str, task_name: str) -> Dict[str, Any]:
         """

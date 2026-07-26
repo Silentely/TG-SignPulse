@@ -50,14 +50,14 @@
 | --- | --- |
 | `APP_DATABASE_URL` / `DATABASE_URL` | 可选 SQLAlchemy URL；设置后优先于本地 `db.sqlite` |
 | `APP_SCHEDULER_LOCK` | 默认 `1`：启用 `data/.scheduler.lock`；`0` 关闭 |
-| `APP_LEGACY_TASKS_READONLY` | 历史变量；**写路径已永久关闭**（环境变量无法再打开）。状态见 `GET /api/tasks/legacy-status`（`legacy_writes_removed=true`）或 `python tools/check_legacy_tasks.py`。规划：ORM 存量 0 → 评估删除只读路由/ORM Task 表 |
+| `APP_LEGACY_TASKS_READONLY` | 历史变量，已无路由消费。`/api/tasks` 已删除；盘点 ORM 残留用 `python tools/check_legacy_tasks.py` |
 | `APP_MONITOR_ACCOUNT_ALLOWLIST` | 逗号分隔账号名，仅这些账号挂关键词监听 |
 | `APP_MONITOR_SHARD` | 形如 `i/n`（如 `0/3`），按账号名哈希分片监听，多实例各跑一个分片 |
 
 ### 上线检查清单（dev → 生产）
 
 1. **数据目录**：持久化挂载 `APP_DATA_DIR`（含 `db.sqlite` / `sessions` / `.signer`），确认可写。
-2. **旧 API**：面板已用 sign-tasks；发布前执行 `python tools/check_legacy_tasks.py` 或 `GET /api/tasks/legacy-status`。
+2. **旧 API**：`/api/tasks` 已删除；发布前可执行 `python tools/check_legacy_tasks.py` 盘点 ORM 残留。
 3. **单实例**：保持 1 个后端写进程；多副本时必须配调度锁 + 监听分片，且**同一账号 session 不共享**。
 4. **Postgres（可选）**：设置 `APP_DATABASE_URL` 时安装 `psycopg2-binary`，并先迁移 schema。
 5. **反向代理**：按 [Nginx 样例](../deploy/nginx.md) 配置 SSE/WebSocket；`/api/events/*` 关闭缓冲与 access log。

@@ -528,7 +528,6 @@ def runtime_status(
     """面板/运维用运行时摘要（需登录）。"""
     import os
 
-    from backend.api.routes.tasks import _legacy_writes_allowed
     from backend.core.config import get_settings
     from backend.scheduler.instance_lock import has_scheduler_lock
 
@@ -538,7 +537,7 @@ def runtime_status(
         ready=bool(getattr(request.app.state, "ready", False)),
         scheduler_lock_held=lock_held,
         scheduler_role="primary" if lock_held else "replica",
-        legacy_tasks_writable=_legacy_writes_allowed(),
+        legacy_tasks_writable=False,
         database_is_sqlite=settings.is_sqlite,
         monitor_shard=os.getenv("APP_MONITOR_SHARD", "") or "",
         monitor_allowlist=os.getenv("APP_MONITOR_ACCOUNT_ALLOWLIST", "") or "",

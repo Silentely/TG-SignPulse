@@ -265,3 +265,250 @@ def client_kwargs_with_fallback_session(
     retry["in_memory"] = True
     retry["no_updates"] = True
     return retry
+
+
+# ---------------------------------------------------------------------------
+# 网络拉取：刷新 Telegram dialogs 并写缓存（原 SignTaskService.refresh_account_chats）
+# ---------------------------------------------------------------------------
+
+import os
+from typing import Awaitable, Callable, MutableMapping
+
+import logging as _logging
+
+_fetch_logger = _logging.getLogger("backend.sign_task_chats")
+
+
+def is_invalid_session_error(err: Exception) -> bool:
+    """判断是否为 session 失效类错误。"""
+    msg = str(err)
+    if not msg:
+        return False
+    upper = msg.upper()
+    return (
+        "AUTH_KEY_UNREGISTERED" in upper
+        or "AUTH_KEY_INVALID" in upper
+        or "SESSION_REVOKED" in upper
+        or "SESSION_EXPIRED" in upper
+        or "USER_DEACTIVATED" in upper
+    )
+
+
+async def get_account_chats_cached(
+    account_name: str,
+    *,
+    signs_dir: Path,
+    force_refresh: bool = False,
+    refresh_fn: Callable[[str], Awaitable[List[Dict[str, Any]]]],
+    validate_name: Callable[..., str],
+) -> List[Dict[str, Any]]:
+    """读缓存或调用 refresh_fn 刷新。"""
+    account_name = validate_name(account_name, field_name="account_name")
+    cache_file = signs_dir / account_name / "chats_cache.json"
+    if not force_refresh:
+        cached = load_chats_cache_file(cache_file)
+        if cached is not None:
+            return cached
+    return await refresh_fn(account_name)
+
+
+def search_account_chats_cached(
+    account_name: str,
+    query: str,
+    *,
+    signs_dir: Path,
+    limit: int = 50,
+    offset: int = 0,
+    validate_name: Callable[..., str],
+) -> Dict[str, Any]:
+    """通过缓存搜索，不触发 get_dialogs。"""
+    account_name = validate_name(account_name, field_name="account_name")
+    cache_file = signs_dir / account_name / "chats_cache.json"
+    data = load_chats_cache_file(cache_file)
+    if data is None:
+        return empty_chat_search_page(limit=limit, offset=offset)
+    return search_chats_in_cache(data, query, limit=limit, offset=offset)
+
+
+async def cleanup_invalid_session_and_chat_cache(
+    account_name: str,
+    *,
+    signs_dir: Path,
+) -> None:
+    """删除账号 session 并清理 chats 缓存。"""
+    try:
+        from backend.services.telegram import get_telegram_service
+
+        await get_telegram_service().delete_account(account_name)
+    except Exception as e:
+        _fetch_logger.debug("清理无效 Session 失败: %s", e)
+    try:
+        cache_file = signs_dir / account_name / "chats_cache.json"
+        if cache_file.exists():
+            cache_file.unlink()
+    except Exception:
+        pass
+
+
+async def refresh_account_chats(
+    account_name: str,
+    *,
+    signs_dir: Path,
+    get_effective_proxy: Callable[[str], Optional[str]],
+    account_locks: MutableMapping[str, Any],
+    validate_name: Callable[..., str],
+) -> List[Dict[str, Any]]:
+    """
+    连接 Telegram 并刷新 Chat 列表，写入 signs_dir/<account>/chats_cache.json。
+    """
+    from backend.core.config import get_settings
+    from backend.services.config import get_config_service
+    from backend.utils.account_locks import get_account_lock
+    from backend.utils.proxy import build_proxy_dict
+    from backend.utils.tg_session import (
+        get_account_session_string,
+        get_global_semaphore,
+        get_session_mode,
+        load_session_string_file,
+    )
+    from tg_signer.core import get_client
+
+    account_name = validate_name(account_name, field_name="account_name")
+
+    settings = get_settings()
+    session_dir = settings.resolve_session_dir()
+    session_mode = get_session_mode()
+    session_info = resolve_account_session_for_chats(
+        account_name,
+        session_dir=session_dir,
+        session_mode=session_mode,
+        get_session_string=get_account_session_string,
+        load_session_string_file_fn=load_session_string_file,
+    )
+    session_string = session_info["session_string"]
+    fallback_session_string = session_info["fallback_session_string"]
+    used_fallback_session = session_info["used_fallback_session"]
+
+    config_service = get_config_service()
+    tg_config = config_service.get_telegram_config()
+    api_id, api_hash = resolve_telegram_api_credentials(
+        tg_config,
+        env_api_id=os.getenv("TG_API_ID"),
+        env_api_hash=os.getenv("TG_API_HASH"),
+    )
+
+    proxy_dict = None
+    proxy_value = get_effective_proxy(account_name)
+    if proxy_value:
+        proxy_dict = build_proxy_dict(proxy_value)
+    client_kwargs = build_chat_client_kwargs(
+        account_name=account_name,
+        workdir=session_dir,
+        api_id=api_id,
+        api_hash=api_hash,
+        session_string=session_string,
+        in_memory=session_mode == "string",
+        proxy=proxy_dict,
+    )
+    client = get_client(**client_kwargs)
+
+    chats: List[Dict[str, Any]] = []
+    logger = _fetch_logger
+    try:
+        if account_name not in account_locks:
+            account_locks[account_name] = get_account_lock(account_name)
+
+        account_lock = account_locks[account_name]
+
+        async def _fetch_chats(active_client) -> List[Dict[str, Any]]:
+            local_chats: List[Dict[str, Any]] = []
+            async with account_lock:
+                async with get_global_semaphore():
+                    async with active_client:
+                        await active_client.get_me()
+
+                        try:
+                            async for dialog in active_client.get_dialogs():
+                                try:
+                                    append_mapped_chat(
+                                        local_chats,
+                                        getattr(dialog, "chat", None),
+                                    )
+                                except Exception:
+                                    continue
+                        except Exception as e:
+                            logger.warning(
+                                "get_dialogs 失败 (已获取 %s 个): %s: %s",
+                                len(local_chats),
+                                type(e).__name__,
+                                e,
+                            )
+
+                        if not local_chats:
+                            logger.info(
+                                "get_dialogs 返回空，尝试 search_global 获取会话"
+                            )
+                            seen_ids: set = set()
+                            for term in SEARCH_GLOBAL_FALLBACK_TERMS:
+                                try:
+                                    async for msg in active_client.search_global(
+                                        term, limit=50
+                                    ):
+                                        try:
+                                            append_mapped_chat(
+                                                local_chats,
+                                                getattr(msg, "chat", None),
+                                                seen_ids=seen_ids,
+                                            )
+                                        except Exception:
+                                            continue
+                                except Exception:
+                                    continue
+
+            return local_chats
+
+        try:
+            chats = await _fetch_chats(client)
+        except Exception as e:
+            if is_invalid_session_error(e):
+                if fallback_session_string and not used_fallback_session:
+                    logger.warning(
+                        "Session invalid for %s, retry with session_string: %s",
+                        account_name,
+                        e,
+                    )
+                    try:
+                        from tg_signer.core import close_client_by_name
+
+                        await close_client_by_name(account_name, workdir=session_dir)
+                    except Exception:
+                        pass
+                    used_fallback_session = True
+                    client = get_client(
+                        **client_kwargs_with_fallback_session(
+                            client_kwargs, fallback_session_string
+                        )
+                    )
+                    chats = await _fetch_chats(client)
+                else:
+                    logger.warning(
+                        "Session invalid for %s: %s",
+                        account_name,
+                        e,
+                    )
+                    await cleanup_invalid_session_and_chat_cache(
+                        account_name, signs_dir=signs_dir
+                    )
+                    raise ValueError(f"账号 {account_name} 登录已失效，请重新登录")
+            else:
+                raise
+
+        account_dir = signs_dir / account_name
+        cache_file = account_dir / "chats_cache.json"
+        if not save_chats_cache_file(cache_file, chats):
+            logger.debug("保存 Chat 缓存失败: %s", cache_file)
+
+        return chats
+
+    except Exception as e:
+        raise e

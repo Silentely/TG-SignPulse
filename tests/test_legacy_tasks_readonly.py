@@ -1,4 +1,4 @@
-"""旧版 /api/tasks 写路径永久关闭测试。"""
+"""旧版 /api/tasks 已完全移除：路由 404，readyz 标记 removed。"""
 from __future__ import annotations
 
 from datetime import timedelta
@@ -14,55 +14,35 @@ def _auth() -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-def test_legacy_tasks_write_always_gone(client, db_session, monkeypatch):
-    # 即使显式尝试开启旧写开关，也应 410
-    monkeypatch.setenv("APP_LEGACY_TASKS_READONLY", "0")
-    resp = client.post(
-        "/api/tasks",
-        headers=_auth(),
-        json={
-            "name": "x",
-            "cron": "0 8 * * *",
-            "enabled": True,
-            "account_id": 1,
-        },
+def _gone(status_code: int) -> bool:
+    """路由已移除：404，或被 SPA/挂载仅允许部分方法时的 405。"""
+    return status_code in {404, 405}
+
+
+def test_legacy_tasks_routes_gone(client, db_session):
+    headers = _auth()
+    assert _gone(client.get("/api/tasks", headers=headers).status_code)
+    assert _gone(client.get("/api/tasks/legacy-status", headers=headers).status_code)
+    assert _gone(
+        client.post(
+            "/api/tasks",
+            headers=headers,
+            json={"name": "x", "cron": "0 8 * * *", "enabled": True, "account_id": 1},
+        ).status_code
     )
-    assert resp.status_code == 410
-    assert resp.json().get("detail") == "LEGACY_TASKS_READONLY"
-
-
-def test_legacy_tasks_list_still_works(client, db_session, monkeypatch):
-    resp = client.get("/api/tasks", headers=_auth())
-    assert resp.status_code == 200
-    assert resp.headers.get("deprecation") == "true" or resp.headers.get(
-        "Deprecation"
-    ) == "true"
-
-
-def test_legacy_status_endpoint(client, db_session, monkeypatch):
-    resp = client.get("/api/tasks/legacy-status", headers=_auth())
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["legacy_writes_allowed"] is False
-    assert body.get("legacy_writes_removed") is True
-    assert body["preferred_api"] == "/api/sign-tasks"
-    assert "task_count" in body
-    assert "removal_stage" in body
-    assert "ready_for_route_removal" in body
-    assert body["ready_for_route_removal"] is (body["task_count"] == 0)
-    assert isinstance(body.get("removal_checklist"), list)
-    assert body.get("check_tool")
-
-
-def test_legacy_batch_tasks_gone(client, db_session, monkeypatch):
-    monkeypatch.setenv("APP_LEGACY_TASKS_READONLY", "0")
-    resp = client.post(
-        "/api/batch/tasks",
-        headers=_auth(),
-        json={"action": "enable", "task_ids": [1]},
+    assert _gone(
+        client.post(
+            "/api/batch/tasks",
+            headers=headers,
+            json={"action": "enable", "task_ids": [1]},
+        ).status_code
     )
+
+
+def test_legacy_events_logs_gone(client, db_session):
+    resp = client.get("/api/events/logs", headers=_auth())
     assert resp.status_code == 410
-    assert resp.json().get("detail") == "LEGACY_TASKS_READONLY"
+    assert resp.json().get("detail") == "LEGACY_EVENTS_LOGS_REMOVED"
 
 
 def test_readyz_includes_ops_fields(client, db_session):
@@ -71,8 +51,8 @@ def test_readyz_includes_ops_fields(client, db_session):
     body = resp.json()
     assert body.get("status") == "ready"
     assert "scheduler_lock_held" in body
-    assert "legacy_tasks_writable" in body
     assert body.get("legacy_tasks_writable") is False
+    assert body.get("legacy_tasks_removed") is True
     assert body.get("scheduler_role") in {"primary", "replica"}
     if body["scheduler_lock_held"]:
         assert body["scheduler_role"] == "primary"
@@ -87,3 +67,4 @@ def test_runtime_status_requires_auth(client, db_session):
     body = resp.json()
     assert "scheduler_lock_held" in body
     assert "database_is_sqlite" in body
+    assert body.get("legacy_tasks_writable") is False
