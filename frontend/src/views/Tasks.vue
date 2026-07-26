@@ -1071,14 +1071,24 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
             >
               {{ t('tasks.hitsBadge', { n: task.hitCount }) }}
             </button>
+            <button
+              v-if="task.lastRunSuccess === false"
+              type="button"
+              class="ui-badge ui-badge-error !text-[11px] max-w-full truncate cursor-pointer hover:opacity-90"
+              :title="t('tasks.viewLogs')"
+              @click.stop="openLogs(task)"
+            >
+              {{ task.lastRunStr }}
+            </button>
             <span
+              v-else
               class="ui-badge !text-[11px] max-w-full truncate"
               :title="task.lastRunStr"
               :class="task.isListenMode && task.lastRunSuccess === null
                 ? 'bg-orange-50 text-orange-600 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:border-orange-800/50'
                 : task.lastRunSuccess === null
                   ? 'ui-badge-neutral'
-                  : (task.lastRunSuccess ? 'ui-badge-success' : 'ui-badge-error')"
+                  : 'ui-badge-success'"
             >
               {{ task.lastRunStr }}
             </span>

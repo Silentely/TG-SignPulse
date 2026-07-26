@@ -53,6 +53,7 @@
     "goSettings": "Settings",
     "goSettingsDesc": "Proxy, AI, notifications, and backups",
     "failureCategory": "Failure type",
+    "openFailureInLogs": "View this failure type in logs",
     "failCat": {
       "session_invalid": "Session invalid",
       "flood_wait": "Flood wait",
@@ -68,6 +69,7 @@
     "activeRuns": "Active runs",
     "noActiveRuns": "No tasks running",
     "failureBreakdown": "Failure breakdown",
+    "noFailureBreakdown": "No recent failure categories",
     "recentHits": "Recent keyword hits",
     "noRecentHits": "No hits yet",
     "statusJobs": "Account status jobs",

@@ -31,6 +31,7 @@ import {
   aggregateFailureCategories,
   badgeTone,
   badgeToneClass,
+  failureCategoryLabel as mapFailureCategoryLabel,
   formatPhaseDetail,
   phaseLabel,
 } from '../lib/run-status'
@@ -55,14 +56,18 @@ let sseIntentionalClose = false
 const selectedLog = ref<DashboardLog | null>(null)
 const liveConnected = ref(false)
 
-/** 跳转到日志页并按账号筛选，附带任务/时间以便自动打开详情 */
+/** 跳转到日志页并按账号筛选，附带任务/时间/失败分类以便自动打开详情 */
 const goToLogs = (log: DashboardLog) => {
   router.push({
     name: 'logs',
     query: {
-      account: log.account || undefined,
-      task: log.task || undefined,
+      account: log.account && log.account !== '-' ? log.account : undefined,
+      task: log.task && log.task !== '-' ? log.task : undefined,
       at: log.created_at || undefined,
+      category:
+        log.status === 'error' && log.failure_category
+          ? log.failure_category
+          : undefined,
     },
   })
 }
@@ -102,12 +107,7 @@ const jobKindLabel = (kind: string) => {
   return kind
 }
 
-const failureCategoryLabel = (cat?: string) => {
-  if (!cat || cat === 'none') return ''
-  const key = `dashboard.failCat.${cat}`
-  const label = t(key)
-  return label === key ? cat : label
-}
+const failureCategoryLabel = (cat?: string) => mapFailureCategoryLabel(cat, t)
 
 const openActiveRun = (run: ActiveRunSummary) => {
   router.push({
@@ -611,12 +611,15 @@ const loadDashboardData = async () => {
             <span class="ui-badge-dot" />
             {{ log.status === 'success' ? t('logs.success') : t('logs.failed') }}
           </span>
-          <span
+          <button
             v-if="log.status === 'error' && failureCategoryLabel(log.failure_category)"
-            class="ui-badge ui-badge-warn shrink-0"
+            type="button"
+            class="ui-badge ui-badge-warn shrink-0 cursor-pointer hover:opacity-90"
+            :title="t('dashboard.openFailureInLogs')"
+            @click.stop="openFailureCategory(String(log.failure_category))"
           >
             {{ failureCategoryLabel(log.failure_category) }}
-          </span>
+          </button>
           <span
             class="truncate flex-1 min-w-0"
             :class="log.status === 'success' ? 'text-gray-700 dark:text-gray-300' : 'text-rose-600 dark:text-rose-400/90'"
@@ -655,7 +658,14 @@ const loadDashboardData = async () => {
           </div>
           <div v-if="selectedLog.status === 'error' && failureCategoryLabel(selectedLog.failure_category)" class="col-span-2 space-y-0.5">
             <div class="text-gray-500">{{ t('dashboard.failureCategory') }}</div>
-            <div class="text-amber-700 dark:text-amber-400">{{ failureCategoryLabel(selectedLog.failure_category) }}</div>
+            <button
+              type="button"
+              class="text-amber-700 dark:text-amber-400 hover:underline text-left"
+              :title="t('dashboard.openFailureInLogs')"
+              @click="openFailureCategory(String(selectedLog.failure_category)); selectedLog = null"
+            >
+              {{ failureCategoryLabel(selectedLog.failure_category) }}
+            </button>
           </div>
         </div>
         <div class="pt-2 border-t border-gray-200 dark:border-gray-800/60">

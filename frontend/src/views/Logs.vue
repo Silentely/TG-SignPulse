@@ -22,6 +22,7 @@ import Modal from '../components/Modal.vue'
 import CustomSelect from '../components/CustomSelect.vue'
 import DatePicker from '../components/DatePicker.vue'
 import FlowLogViewer from '../components/FlowLogViewer.vue'
+import { failureCategoryLabel as mapFailureCategoryLabel } from '../lib/run-status'
 
 const { locale, t } = useI18n()
 const toast = useToast()
@@ -87,10 +88,9 @@ const formatTime = (isoString: string) => {
 }
 
 const failureCategoryLabel = (cat?: string | null) => {
-  if (!cat || cat === 'none' || cat === 'unknown') return ''
-  const key = `dashboard.failCat.${cat}`
-  const label = t(key)
-  return label === key ? cat : label
+  // 列表角标：unknown 不单独展示，避免噪音
+  if (!cat || cat === 'unknown') return ''
+  return mapFailureCategoryLabel(cat, t)
 }
 
 const toTaskUi = (l: TaskHistoryLog): TaskLogUiItem => {
@@ -280,7 +280,8 @@ const tryOpenFromQuery = async () => {
   }
 }
 
-onMounted(async () => {
+/** 从路由 query 同步筛选（支持 Dashboard 深链 category/account/task） */
+const applyRouteQueryFilters = () => {
   const queryAccount = route.query.account as string | undefined
   if (queryAccount) {
     filterAccount.value = queryAccount
@@ -294,10 +295,21 @@ onMounted(async () => {
     filterCategory.value = queryCategory
     filterStatus.value = 'error'
   }
+}
+
+onMounted(async () => {
+  applyRouteQueryFilters()
   loadAccounts()
   await loadLogs()
   await tryOpenFromQuery()
 })
+
+watch(
+  () => [route.query.category, route.query.account, route.query.task] as const,
+  () => {
+    applyRouteQueryFilters()
+  },
+)
 </script>
 
 <template>

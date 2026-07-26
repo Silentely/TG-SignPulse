@@ -53,6 +53,7 @@
     "goSettings": "系统设置",
     "goSettingsDesc": "代理、AI、通知与备份",
     "failureCategory": "失败类型",
+    "openFailureInLogs": "在日志中查看此类失败",
     "failCat": {
       "session_invalid": "会话失效",
       "flood_wait": "频率限制",
