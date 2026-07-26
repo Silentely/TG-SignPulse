@@ -2,7 +2,7 @@
  * 系统设置 API：用户资料（密码/用户名/TOTP）、AI 配置、全局设置、
  * Telegram API 配置、设备保活。
  */
-import { request, requestBlob } from "./core";
+import { MEDIUM_TIMEOUT_MS, request, requestBlob } from "./core";
 
 // ─── 用户设置 ───
 
@@ -156,9 +156,13 @@ export interface DeviceKeepaliveRunResult {
 }
 
 export const runDeviceKeepalive = (token: string) =>
-  request<DeviceKeepaliveRunResult>("/config/settings/device-keepalive/run", {
-    method: "POST",
-  }, token);
+  request<DeviceKeepaliveRunResult>(
+    "/config/settings/device-keepalive/run",
+    { method: "POST" },
+    token,
+    // 多账号保活可能超过默认 30s
+    MEDIUM_TIMEOUT_MS,
+  );
 
 // ─── Telegram API 配置 ───
 

@@ -66,7 +66,7 @@ const livePhaseDetail = ref('')
 const liveFailureCategory = ref<string | null>(null)
 const liveState = ref<string | null>(null)
 let ws: WebSocket | null = null
-let pollTimer: ReturnType<typeof setInterval> | null = null
+let pollTimer: ReturnType<typeof setTimeout> | null = null
 let hitsAutoRefreshTimer: ReturnType<typeof setInterval> | null = null
 const logContainer = ref<HTMLElement | null>(null)
 const canLoadMoreHits = computed(
@@ -347,47 +347,64 @@ const connectWebSocket = () => {
   }
 }
 
-/** 防止 setInterval + async 在弱网下叠多轮 in-flight 请求 */
-let pollInFlight = false
+/** 链式轮询：上一轮结束后再等间隔，弱网下不会叠多轮 in-flight */
+const POLL_INTERVAL_MS = 1500
+let pollStopped = true
+
+const stopPolling = () => {
+  pollStopped = true
+  if (pollTimer) {
+    clearTimeout(pollTimer)
+    pollTimer = null
+  }
+}
+
+const schedulePollTick = (delayMs: number) => {
+  if (pollStopped) return
+  pollTimer = setTimeout(() => {
+    void runPollTick()
+  }, delayMs)
+}
+
+const runPollTick = async () => {
+  pollTimer = null
+  if (pollStopped || !props.task) return
+  const token = authStore.token || ''
+  const accountName = getTaskAccountName(props.task) || ''
+  // logs 与 status 独立容错：任一失败不阻塞另一个
+  const [logsResult, statusResult] = await Promise.allSettled([
+    getSignTaskLogs(token, props.task.name, accountName),
+    getSignTaskRunStatus(token, props.task.name, accountName),
+  ])
+  if (pollStopped) return
+  if (logsResult.status === 'fulfilled') {
+    const data = logsResult.value
+    if (Array.isArray(data) && data.length > 0) {
+      realtimeLogs.value = data
+      nextTick(() => {
+        if (logContainer.value) {
+          logContainer.value.scrollTop = logContainer.value.scrollHeight
+        }
+      })
+    }
+  }
+  if (statusResult.status === 'fulfilled') {
+    applyStatusPayload(statusResult.value)
+    if (statusResult.value.state !== 'running') {
+      isRunning.value = false
+      stopPolling()
+      return
+    }
+  }
+  schedulePollTick(POLL_INTERVAL_MS)
+}
 
 const startPolling = () => {
-  if (pollTimer) return
-  pollTimer = setInterval(async () => {
-    if (!props.task || pollInFlight) return
-    pollInFlight = true
-    try {
-      const token = authStore.token || ''
-      const accountName = getTaskAccountName(props.task) || ''
-      // logs 与 status 独立容错：任一失败不阻塞另一个
-      const [logsResult, statusResult] = await Promise.allSettled([
-        getSignTaskLogs(token, props.task.name, accountName),
-        getSignTaskRunStatus(token, props.task.name, accountName),
-      ])
-      if (logsResult.status === 'fulfilled') {
-        const data = logsResult.value
-        if (Array.isArray(data) && data.length > 0) {
-          realtimeLogs.value = data
-          nextTick(() => {
-            if (logContainer.value) {
-              logContainer.value.scrollTop = logContainer.value.scrollHeight
-            }
-          })
-        }
-      }
-      if (statusResult.status === 'fulfilled') {
-        applyStatusPayload(statusResult.value)
-        if (statusResult.value.state !== 'running') {
-          isRunning.value = false
-          if (pollTimer) {
-            clearInterval(pollTimer)
-            pollTimer = null
-          }
-        }
-      }
-    } finally {
-      pollInFlight = false
-    }
-  }, 1500)
+  // 已在轮询（等待中或 in-flight）则不重复启动
+  if (!pollStopped) return
+  pollStopped = false
+  // 立即拉一次，再进入间隔续跑
+  void runPollTick()
 }
 
 const disconnectWebSocket = () => {
@@ -395,11 +412,7 @@ const disconnectWebSocket = () => {
     ws.close()
     ws = null
   }
-  if (pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
-  }
-  pollInFlight = false
+  stopPolling()
   isRunning.value = false
   livePhase.value = null
   livePhaseDetail.value = ''

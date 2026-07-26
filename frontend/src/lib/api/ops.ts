@@ -1,7 +1,7 @@
 /**
  * 运维 Ops API：调度预览、备份导出、WebDAV 备份、内存统计、版本检查、运行时状态。
  */
-import { fetchWithAuth, LONG_TIMEOUT_MS, request } from "./core";
+import { fetchWithAuth, LONG_TIMEOUT_MS, MEDIUM_TIMEOUT_MS, request } from "./core";
 
 export interface ScheduledJob {
   id: string;
@@ -97,6 +97,7 @@ export const testWebdavBackup = (token: string) =>
     "/ops/backup/webdav/test",
     { method: "POST" },
     token,
+    MEDIUM_TIMEOUT_MS,
   );
 
 export interface WebDavRemoteFile {
@@ -112,7 +113,7 @@ export const listWebdavBackupFiles = (token: string) =>
     files: WebDavRemoteFile[];
     message?: string;
     status_code?: number;
-  }>("/ops/backup/webdav/files", {}, token);
+  }>("/ops/backup/webdav/files", {}, token, MEDIUM_TIMEOUT_MS);
 
 /** 从 WebDAV 下载指定备份包到浏览器 */
 export async function downloadWebdavBackup(

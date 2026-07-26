@@ -25,6 +25,7 @@ import DeviceManagerModal from '../components/accounts/DeviceManagerModal.vue'
 import OfficialMessagesModal from '../components/accounts/OfficialMessagesModal.vue'
 import PageRetry from '../components/PageRetry.vue'
 import { devLog } from '../lib/devLog'
+import { AVATAR_FETCH_CONCURRENCY, mapPool } from '../lib/async-pool'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -93,10 +94,8 @@ const loadAccounts = async () => {
         raw: acc
       }
     })
-    // Load avatars with auth token
-    for (const acc of accounts.value) {
-      loadAvatar(acc)
-    }
+    // 限流加载头像，避免账号多时并发打满连接
+    void loadAvatars(accounts.value)
   } catch (e) {
     devLog.error('Failed to fetch accounts', e)
     loadError.value = true
@@ -115,6 +114,12 @@ const loadAvatar = async (acc: AccountUiItem) => {
     // No avatar available, keep fallback
   }
   acc.avatarLoaded = true
+}
+
+const loadAvatars = async (list: AccountUiItem[]) => {
+  await mapPool(list, AVATAR_FETCH_CONCURRENCY, async (acc) => {
+    await loadAvatar(acc)
+  })
 }
 
 onMounted(async () => {

@@ -68,7 +68,10 @@ describe('api barrel 完整性', () => {
     expect(typeof core.toRecord).toBe('function')
     expect(typeof core.DEFAULT_TIMEOUT_MS).toBe('number')
     expect(typeof core.LONG_TIMEOUT_MS).toBe('number')
+    expect(typeof core.MEDIUM_TIMEOUT_MS).toBe('number')
     expect(core.LONG_TIMEOUT_MS).toBeGreaterThan(core.DEFAULT_TIMEOUT_MS)
+    expect(core.MEDIUM_TIMEOUT_MS).toBeGreaterThan(core.DEFAULT_TIMEOUT_MS)
+    expect(core.MEDIUM_TIMEOUT_MS).toBeLessThan(core.LONG_TIMEOUT_MS)
   })
 
   it('barrel 导出函数数量 >= 80（防意外删减）', () => {

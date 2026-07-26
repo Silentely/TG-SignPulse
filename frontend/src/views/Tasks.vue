@@ -16,6 +16,7 @@ import EditTaskModal from '../components/tasks/EditTaskModal.vue'
 import TaskLogsModal from '../components/tasks/TaskLogsModal.vue'
 import Modal from '../components/Modal.vue'
 import { devLog } from '../lib/devLog'
+import { AVATAR_FETCH_CONCURRENCY, mapPool } from '../lib/async-pool'
 import {
   badgeTone,
   badgeToneClass,
@@ -251,16 +252,17 @@ const loadTasks = async () => {
     if (listenTaskCount.value > 0) ensureHitCountPolling()
     else clearHitCountPolling()
 
-    // Load chat avatars - prefer chat.source_account (the account that selected the chat),
-    // fall back to first real account from task's account list
-    for (const task of tasks.value) {
+    // 限流加载聊天头像：优先 chat.source_account，否则任务账号
+    const avatarJobs = tasks.value.flatMap((task) => {
       const firstChat = task.raw.chats?.[0]
-      if (!firstChat) continue
+      if (!firstChat) return []
       const avatarAccount = firstChat.source_account || getTaskAccountName(task.raw)
-      if (avatarAccount) {
-        loadChatAvatar(task, avatarAccount, firstChat.chat_id)
-      }
-    }
+      if (!avatarAccount) return []
+      return [{ task, avatarAccount, chatId: firstChat.chat_id as number }]
+    })
+    void mapPool(avatarJobs, AVATAR_FETCH_CONCURRENCY, async (job) => {
+      await loadChatAvatar(job.task, job.avatarAccount, job.chatId)
+    })
   } catch (e) {
     devLog.error('Failed to fetch tasks', e)
     toast.error(getLocalizedErrorMessage(e, t, t('tasks.loadFailed')))

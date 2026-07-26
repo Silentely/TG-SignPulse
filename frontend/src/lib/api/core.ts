@@ -28,6 +28,9 @@ export const DEFAULT_TIMEOUT_MS = 30_000;
 /** 长任务（备份/大导出/配置导入导出）与服务端 WebDAV 读写上限对齐。 */
 export const LONG_TIMEOUT_MS = 600_000;
 
+/** 中等耗时接口（WebDAV 探测、设备保活等），默认 30s 偏紧。 */
+export const MEDIUM_TIMEOUT_MS = 120_000;
+
 /** 并发 401 时只跳转一次，避免头像批量拉取触发多次 location 赋值。 */
 let authRedirectScheduled = false;
 
