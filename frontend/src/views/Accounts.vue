@@ -725,36 +725,36 @@ const goTasks = (name: string) => {
         </div>
       </div>
 
-      <!-- Actions -->
+      <!-- Actions：竖排布局保留，语义走 ui-row-action -->
       <div class="mt-auto pt-3 border-t border-gray-100 dark:border-gray-800/40 grid grid-cols-7 gap-0.5">
-        <button type="button" class="flex flex-col items-center gap-0.5 py-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/[0.04] rounded-sm transition-colors disabled:opacity-50" :disabled="checkingAccount === acc.name" :title="t('accounts.checkStatus')" @click="handleCheck(acc.name)">
+        <button type="button" class="ui-row-action ui-row-action--stack" :disabled="checkingAccount === acc.name" :title="t('accounts.checkStatus')" @click="handleCheck(acc.name)">
           <span v-if="checkingAccount === acc.name" class="ui-spinner !w-3.5 !h-3.5 !border-2" />
           <Play v-else class="w-3.5 h-3.5" />
-          <span class="text-[10px]">{{ t('accounts.check') }}</span>
+          <span>{{ t('accounts.check') }}</span>
         </button>
-        <button type="button" class="flex flex-col items-center gap-0.5 py-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/[0.04] rounded-sm transition-colors" :title="t('accounts.viewTasks')" @click="goTasks(acc.name)">
+        <button type="button" class="ui-row-action ui-row-action--stack" :title="t('accounts.viewTasks')" @click="goTasks(acc.name)">
           <Zap class="w-3.5 h-3.5" />
-          <span class="text-[10px]">{{ t('accounts.tasks') }}</span>
+          <span>{{ t('accounts.tasks') }}</span>
         </button>
-        <button type="button" class="flex flex-col items-center gap-0.5 py-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/[0.04] rounded-sm transition-colors" :title="t('accounts.viewLogs')" @click="goLogs(acc.name)">
+        <button type="button" class="ui-row-action ui-row-action--stack" :title="t('accounts.viewLogs')" @click="goLogs(acc.name)">
           <FileText class="w-3.5 h-3.5" />
-          <span class="text-[10px]">{{ t('accounts.logs') }}</span>
+          <span>{{ t('accounts.logs') }}</span>
         </button>
-        <button type="button" class="flex flex-col items-center gap-0.5 py-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/[0.04] rounded-sm transition-colors" :title="t('accounts.devices')" @click="openDevices(acc.name)">
+        <button type="button" class="ui-row-action ui-row-action--stack" :title="t('accounts.devices')" @click="openDevices(acc.name)">
           <MonitorSmartphone class="w-3.5 h-3.5" />
-          <span class="text-[10px]">{{ t('accounts.devicesShort') }}</span>
+          <span>{{ t('accounts.devicesShort') }}</span>
         </button>
-        <button type="button" class="flex flex-col items-center gap-0.5 py-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/[0.04] rounded-sm transition-colors" :title="t('accounts.officialMessages')" @click="openOfficialMessages(acc.name)">
+        <button type="button" class="ui-row-action ui-row-action--stack" :title="t('accounts.officialMessages')" @click="openOfficialMessages(acc.name)">
           <MessageCircle class="w-3.5 h-3.5" />
-          <span class="text-[10px]">{{ t('accounts.officialMessagesShort') }}</span>
+          <span>{{ t('accounts.officialMessagesShort') }}</span>
         </button>
-        <button type="button" class="flex flex-col items-center gap-0.5 py-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/[0.04] rounded-sm transition-colors" :title="t('accounts.edit')" @click="openEdit(acc)">
+        <button type="button" class="ui-row-action ui-row-action--stack" :title="t('accounts.edit')" @click="openEdit(acc)">
           <Edit2 class="w-3.5 h-3.5" />
-          <span class="text-[10px]">{{ t('accounts.editBtn') }}</span>
+          <span>{{ t('accounts.editBtn') }}</span>
         </button>
-        <button type="button" class="flex flex-col items-center gap-0.5 py-1.5 text-gray-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-sm transition-colors" :title="t('accounts.deleteBtn')" @click="handleDelete(acc.name)">
+        <button type="button" class="ui-row-action ui-row-action--stack ui-row-action--danger" :title="t('accounts.deleteBtn')" @click="handleDelete(acc.name)">
           <Trash2 class="w-3.5 h-3.5" />
-          <span class="text-[10px]">{{ t('accounts.deleteBtn') }}</span>
+          <span>{{ t('accounts.deleteBtn') }}</span>
         </button>
       </div>
     </div>

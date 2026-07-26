@@ -232,6 +232,122 @@ select option {
   cursor: not-allowed;
 }
 
+/*
+ * 行内操作按钮契约（Phase A）
+ * - 横排（Tasks）：.ui-row-action
+ * - 竖排（Accounts）：.ui-row-action.ui-row-action--stack
+ * 布局差异保留；语义（默认/积极/危险/禁用）统一。
+ */
+.ui-row-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.375rem 0.5rem;
+  border-radius: 0.125rem;
+  font-size: 0.75rem;
+  line-height: 1.25;
+  color: rgb(75 85 99);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease, opacity 0.15s ease;
+}
+.dark .ui-row-action {
+  color: rgb(209 213 219);
+}
+.ui-row-action:hover:not(:disabled) {
+  background: rgb(243 244 246);
+}
+.dark .ui-row-action:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.04);
+}
+.ui-row-action:disabled,
+.ui-row-action.is-disabled {
+  color: rgb(209 213 219);
+  cursor: not-allowed;
+  opacity: 1;
+}
+.dark .ui-row-action:disabled,
+.dark .ui-row-action.is-disabled {
+  color: rgb(75 85 99);
+}
+.ui-row-action:disabled:hover,
+.ui-row-action.is-disabled:hover {
+  background: transparent;
+}
+
+/* 积极态：启用中 / 成功向 */
+.ui-row-action--positive {
+  color: rgb(5 150 105);
+}
+.dark .ui-row-action--positive {
+  color: rgb(52 211 153);
+}
+.ui-row-action--positive:hover:not(:disabled) {
+  background: rgb(236 253 245);
+}
+.dark .ui-row-action--positive:hover:not(:disabled) {
+  background: rgb(6 78 59 / 0.2);
+}
+
+/* 危险态：删除 / 取消运行 */
+.ui-row-action--danger {
+  color: rgb(75 85 99);
+}
+.dark .ui-row-action--danger {
+  color: rgb(209 213 219);
+}
+.ui-row-action--danger:hover:not(:disabled) {
+  color: rgb(225 29 72);
+  background: rgb(255 241 242);
+}
+.dark .ui-row-action--danger:hover:not(:disabled) {
+  color: rgb(251 113 133);
+  background: rgb(244 63 94 / 0.1);
+}
+
+/* 危险强调：取消运行等常驻警示色 */
+.ui-row-action--danger-strong {
+  color: rgb(225 29 72);
+}
+.dark .ui-row-action--danger-strong {
+  color: rgb(251 113 133);
+}
+.ui-row-action--danger-strong:hover:not(:disabled) {
+  background: rgb(255 241 242);
+}
+.dark .ui-row-action--danger-strong:hover:not(:disabled) {
+  background: rgb(136 19 55 / 0.2);
+}
+
+/* Accounts 竖排：图标在上、文案在下 */
+.ui-row-action--stack {
+  flex-direction: column;
+  gap: 0.125rem;
+  padding: 0.375rem 0;
+  color: rgb(107 114 128);
+  font-size: 0.625rem;
+}
+.dark .ui-row-action--stack {
+  color: rgb(107 114 128);
+}
+.ui-row-action--stack:hover:not(:disabled) {
+  color: rgb(17 24 39);
+  background: rgb(249 250 251);
+}
+.dark .ui-row-action--stack:hover:not(:disabled) {
+  color: rgb(229 231 235);
+  background: rgb(255 255 255 / 0.04);
+}
+.ui-row-action--stack.ui-row-action--danger:hover:not(:disabled) {
+  color: rgb(225 29 72);
+  background: rgb(255 241 242);
+}
+.dark .ui-row-action--stack.ui-row-action--danger:hover:not(:disabled) {
+  color: rgb(251 113 133);
+  background: rgb(244 63 94 / 0.1);
+}
+
 /* 分段切换（登录方式等） */
 .ui-segment {
   display: grid;

@@ -1066,10 +1066,8 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
       <div class="flex flex-wrap items-center gap-1 border-t border-gray-100 dark:border-gray-800/50 pt-2.5">
         <button
           type="button"
-          class="inline-flex items-center gap-1 px-2 py-1.5 rounded-sm text-xs transition-colors"
-          :class="task.enabled
-            ? 'text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20'
-            : 'text-gray-400 hover:bg-gray-100 dark:hover:bg-white/[0.04]'"
+          class="ui-row-action"
+          :class="task.enabled ? 'ui-row-action--positive' : ''"
           :title="task.enabled ? t('tasks.pause') : t('tasks.resume')"
           :aria-pressed="task.enabled"
           @click="handleToggleEnabled(task)"
@@ -1080,22 +1078,26 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
         <button
           v-if="taskActiveRun(task) && isRunInProgress(taskActiveRun(task))"
           type="button"
-          class="inline-flex items-center gap-1 px-2 py-1.5 rounded-sm text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors"
+          class="ui-row-action ui-row-action--danger-strong"
           :title="t('tasks.cancelRun')"
           :disabled="cancelBusyKey === `${task.name}:${taskActiveRun(task)?.account_name || ''}`"
           @click="handleCancelRun(task)"
         >
-          <Square class="w-3.5 h-3.5" />
+          <span
+            v-if="cancelBusyKey === `${task.name}:${taskActiveRun(task)?.account_name || ''}`"
+            class="ui-spinner !w-3.5 !h-3.5 !border-2"
+            aria-hidden="true"
+          />
+          <Square v-else class="w-3.5 h-3.5" />
           <span>{{ t('tasks.cancelRun') }}</span>
         </button>
         <div class="relative" @click.stop>
           <button
             type="button"
-            class="inline-flex items-center gap-1 px-2 py-1.5 rounded-sm text-xs transition-colors"
-            :class="task.raw.execution_mode === 'listen' || taskHasInvalidAccount(task)
-              ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
-              : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/[0.04]'"
-            :title="taskHasInvalidAccount(task) ? t('tasks.accountInvalidHint') : t('tasks.executeNow')"
+            class="ui-row-action"
+            :title="taskHasInvalidAccount(task)
+              ? t('tasks.accountInvalidHint')
+              : (task.raw.execution_mode === 'listen' ? t('tasks.executeListenHint') : t('tasks.executeNow'))"
             :disabled="task.raw.execution_mode === 'listen' || taskHasInvalidAccount(task)"
             @click="task.raw.execution_mode !== 'listen' && !taskHasInvalidAccount(task) && handleRun(task)"
           >
@@ -1122,7 +1124,7 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
         </div>
         <button
           type="button"
-          class="inline-flex items-center gap-1 px-2 py-1.5 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/[0.04] rounded-sm transition-colors text-xs"
+          class="ui-row-action"
           :title="t('tasks.viewLogs')"
           @click="openLogs(task)"
         >
@@ -1131,7 +1133,7 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
         </button>
         <button
           type="button"
-          class="inline-flex items-center gap-1 px-2 py-1.5 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/[0.04] rounded-sm transition-colors text-xs"
+          class="ui-row-action"
           :title="t('tasks.clone')"
           :disabled="cloneBusy"
           @click="openCloneModal(task)"
@@ -1142,7 +1144,7 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
         </button>
         <button
           type="button"
-          class="inline-flex items-center gap-1 px-2 py-1.5 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/[0.04] rounded-sm transition-colors text-xs"
+          class="ui-row-action"
           :title="t('tasks.edit')"
           @click="openEdit(task)"
         >
@@ -1151,7 +1153,7 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
         </button>
         <button
           type="button"
-          class="inline-flex items-center gap-1 px-2 py-1.5 text-gray-600 dark:text-gray-300 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-sm transition-colors text-xs"
+          class="ui-row-action ui-row-action--danger"
           :title="t('tasks.delete')"
           @click="handleDelete(task)"
         >
