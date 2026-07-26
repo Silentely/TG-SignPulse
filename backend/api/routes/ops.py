@@ -515,6 +515,7 @@ class RuntimeStatusResponse(BaseModel):
     scheduler_lock_held: bool = False
     scheduler_role: str = "replica"
     legacy_tasks_writable: bool = False
+    legacy_tasks_removed: bool = True
     database_is_sqlite: bool = True
     monitor_shard: str = ""
     monitor_allowlist: str = ""
@@ -538,6 +539,7 @@ def runtime_status(
         scheduler_lock_held=lock_held,
         scheduler_role="primary" if lock_held else "replica",
         legacy_tasks_writable=False,
+        legacy_tasks_removed=True,
         database_is_sqlite=settings.is_sqlite,
         monitor_shard=os.getenv("APP_MONITOR_SHARD", "") or "",
         monitor_allowlist=os.getenv("APP_MONITOR_ACCOUNT_ALLOWLIST", "") or "",

@@ -53,7 +53,6 @@ services:
       APP_DATA_DIR: /data
       APP_SECRET_KEY: replace-with-a-long-random-string
       ADMIN_PASSWORD: replace-with-a-strong-password
-      APP_LEGACY_TASKS_READONLY: "1"
       APP_SCHEDULER_LOCK: "1"
       # APP_DATABASE_URL: postgresql+psycopg2://...
       # APP_MONITOR_SHARD: "0/2"
@@ -86,10 +85,10 @@ docker compose up -d
 
 ```bash
 curl -sS http://127.0.0.1:8080/readyz
-# 期望: {"status":"ready","scheduler_lock_held":true,"legacy_tasks_writable":false,...}
+# 期望: {"status":"ready","scheduler_lock_held":true,"legacy_tasks_removed":true,"legacy_tasks_writable":false,...}
 
 curl -sS -H "Authorization: Bearer <token>" http://127.0.0.1:8080/api/ops/runtime-status
-curl -sS -H "Authorization: Bearer <token>" http://127.0.0.1:8080/api/tasks/legacy-status
+# 旧 /api/tasks 已移除；ORM 残留盘点: python tools/check_legacy_tasks.py --json
 ```
 
 更多边界说明见 [运维手册 - 上线检查清单](../reference/ops.md#上线检查清单dev--生产)。

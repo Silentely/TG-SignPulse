@@ -218,9 +218,12 @@ export interface RuntimeStatus {
   ready: boolean;
   scheduler_lock_held: boolean;
   legacy_tasks_writable: boolean;
+  /** 旧 /api/tasks 路由已移除 */
+  legacy_tasks_removed?: boolean;
   database_is_sqlite: boolean;
   monitor_shard: string;
   monitor_allowlist: string;
+  scheduler_role?: string;
 }
 
 export const getRuntimeStatus = (token: string) =>

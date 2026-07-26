@@ -48,6 +48,7 @@ describe('设置页拆分组件契约', () => {
           ready: true,
           scheduler_lock_held: true,
           legacy_tasks_writable: false,
+          legacy_tasks_removed: true,
           database_is_sqlite: true,
           monitor_shard: '',
           monitor_allowlist: '',

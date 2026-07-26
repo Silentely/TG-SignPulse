@@ -174,7 +174,7 @@ const API_ERROR_CODE_MESSAGES: Record<string, string> = {
   LOGIN_LOG_NOT_FOUND: 'Login log not found',
   INVALID_DATE_FILTER: 'Invalid date filter',
   LEGACY_TASKS_READONLY:
-    'Legacy /api/tasks is read-only; use /api/sign-tasks',
+    'Legacy /api/tasks has been removed; use /api/sign-tasks',
   TASK_NOT_FOUND: 'Task not found',
   ACCOUNT_NOT_FOUND: 'Account not found',
   RATE_LIMITED: 'Too many requests, please try later',
@@ -239,7 +239,12 @@ export function getErrorMessage(e: unknown, fallback = 'Unknown error'): string 
         : typeof (e as Record<string, unknown>).detail === 'string'
           ? String((e as Record<string, unknown>).detail).trim()
           : ''
-    if (status === 410 || /legacy.*read-?only|APP_LEGACY_TASKS_READONLY/i.test(msg)) {
+    if (
+      status === 410 ||
+      /legacy.*(read-?only|removed)|APP_LEGACY_TASKS_READONLY|LEGACY_EVENTS_LOGS_REMOVED/i.test(
+        msg,
+      )
+    ) {
       return API_ERROR_CODE_MESSAGES.LEGACY_TASKS_READONLY
     }
   }

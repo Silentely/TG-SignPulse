@@ -78,7 +78,7 @@ describe('getErrorMessage', () => {
 
   it('410 旧任务只读映射', () => {
     const err = new Error(
-      'Legacy task writes disabled (APP_LEGACY_TASKS_READONLY=1). Use /api/sign-tasks',
+      'Legacy /api/tasks has been removed; use /api/sign-tasks',
     ) as ApiError
     err.status = 410
     expect(getErrorMessage(err)).toContain('sign-tasks')

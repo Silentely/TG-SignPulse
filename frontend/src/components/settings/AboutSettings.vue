@@ -102,8 +102,16 @@ const formatMemoryRss = () => {
           </span>
         </div>
         <div class="text-gray-600 dark:text-gray-400">
-          {{ t('settings.legacyWritable') }}:
-          {{ runtimeStatus.legacy_tasks_writable ? t('settings.yes') : t('settings.no') }}
+          {{ t('settings.legacyApi') }}:
+          <span class="text-emerald-600 dark:text-emerald-400">
+            {{
+              runtimeStatus.legacy_tasks_removed !== false
+                ? t('settings.legacyRemoved')
+                : runtimeStatus.legacy_tasks_writable
+                  ? t('settings.yes')
+                  : t('settings.no')
+            }}
+          </span>
         </div>
         <div class="text-gray-600 dark:text-gray-400">
           DB: {{ runtimeStatus.database_is_sqlite ? 'SQLite' : 'External' }}
