@@ -101,7 +101,8 @@ const listenerTimeWindowEnabled = ref(false)
 const listenerActiveTimeStart = ref('09:00')
 const listenerActiveTimeEnd = ref('22:00')
 const actions = ref<TaskActionItem[]>([{ id: nextActionId(), type: 'send_text', value: '', aiPrompt: '' }])
-const isEditing = computed(() => !!props.initialTask)
+/** 仅「编辑已有任务」为 true；模板预填新建不算编辑 */
+const isEditing = computed(() => !!props.lockTaskName)
 
 /** 编辑时若已有非默认高级字段，自动展开 */
 const shouldAutoExpandAdvanced = () => {
