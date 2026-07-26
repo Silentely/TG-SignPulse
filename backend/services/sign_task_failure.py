@@ -71,7 +71,7 @@ _CATEGORY_RULES: tuple[tuple[FailureCategory, tuple[str, ...]], ...] = (
     ),
     (
         FailureCategory.FLOOD_WAIT,
-        ("floodwait", "flood wait", "flood_wait", "太频繁", "slowmode", "wait of"),
+        ("floodwait", "flood wait", "flood_wait", "太频繁", "slowmode"),
     ),
     (
         FailureCategory.AI_TIMEOUT,
