@@ -83,9 +83,7 @@ export function buildBotPayload(s: SettingsFormState) {
     // 空 Token 表示不覆盖服务端已有值
     ...(s.botToken ? { telegram_bot_token: s.botToken } : {}),
     telegram_bot_chat_id: s.botChatId || null,
-    telegram_bot_message_thread_id: s.botThreadId
-      ? parseInt(s.botThreadId, 10)
-      : null,
+    telegram_bot_message_thread_id: emptyToNull(s.botThreadId),
   }
 }
 

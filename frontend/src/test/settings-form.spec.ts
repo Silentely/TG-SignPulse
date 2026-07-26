@@ -143,3 +143,11 @@ describe('settings-form', () => {
     expect(snap.ai).not.toContain('sk')
   })
 })
+
+  it('buildBotPayload ignores invalid thread id', () => {
+    const s = baseSettings()
+    s.botThreadId = 'abc'
+    const p = buildBotPayload(s)
+    expect(p.telegram_bot_message_thread_id).toBeNull()
+  })
+
