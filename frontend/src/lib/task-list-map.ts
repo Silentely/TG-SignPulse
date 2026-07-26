@@ -1,0 +1,134 @@
+/**
+ * 签到列表：SignTask API → TaskUiItem 展示映射（纯逻辑）。
+ */
+import type { SignTask } from './api'
+import type { TaskUiItem } from './types'
+
+export type TaskListMapLabels = {
+  noTarget: string
+  listenMode: string
+  notExecuted: string
+  continuousRunning: string
+  paused: string
+  success: string
+  failed: string
+}
+
+export type ModeIconKind = 'clock' | 'radio' | 'shuffle'
+
+export type MappedTaskListFields = {
+  id: string
+  name: string
+  scheduleMode: string
+  targetStr: string
+  targetCount: number
+  hitCount: number
+  lastRunStr: string
+  lastRunSuccess: boolean | null
+  modeIconKind: ModeIconKind
+  isListenMode: boolean
+  enabled: boolean
+  chatAvatarUrl: string
+  chatName: string
+  raw: SignTask
+}
+
+export function formatTaskListDate(dateStr: string): string {
+  if (!dateStr) return '-'
+  try {
+    const d = new Date(dateStr)
+    const mo = String(d.getMonth() + 1).padStart(2, '0')
+    const da = String(d.getDate()).padStart(2, '0')
+    const ho = String(d.getHours()).padStart(2, '0')
+    const mi = String(d.getMinutes()).padStart(2, '0')
+    const se = String(d.getSeconds()).padStart(2, '0')
+    return `${mo}/${da} ${ho}:${mi}:${se}`
+  } catch {
+    return dateStr
+  }
+}
+
+export function resolveTaskAccountName(task: SignTask | { account_name?: string; account_names?: string[] }): string {
+  const name = task.account_name || ''
+  if (name && name !== '*') return name
+  const names = task.account_names || []
+  for (const n of names) {
+    if (n && n !== '*') return n
+  }
+  return ''
+}
+
+export function resolveTaskRealAccounts(
+  task: SignTask,
+  allAccounts: string[],
+): string[] {
+  const names = task.account_names || []
+  if (names.includes('*')) {
+    return allAccounts.length > 0 ? allAccounts : []
+  }
+  return names.filter((n: string) => n && n !== '*')
+}
+
+/** API 任务 → 列表行字段（modeIcon 由调用方按 kind 绑定组件） */
+export function mapSignTaskToListFields(
+  task: SignTask,
+  labels: TaskListMapLabels,
+): MappedTaskListFields {
+  const chats = task.chats || []
+  const firstChat = chats.length > 0 ? chats[0] : null
+  const targetCount = chats.length
+  const primaryLabel = firstChat
+    ? firstChat.name ||
+      `${firstChat.chat_id}${firstChat.message_thread_id ? '|' + firstChat.message_thread_id : ''}`
+    : labels.noTarget
+  const targetStr = primaryLabel
+
+  let scheduleMode = ''
+  let modeIconKind: ModeIconKind = 'clock'
+  if (task.execution_mode === 'listen') {
+    scheduleMode = labels.listenMode
+    modeIconKind = 'radio'
+  } else if (task.execution_mode === 'range') {
+    scheduleMode = `${task.range_start || '00:00'}-${task.range_end || '23:59'}`
+    modeIconKind = 'shuffle'
+  } else {
+    scheduleMode = task.sign_at || '00:00'
+    modeIconKind = 'clock'
+  }
+
+  let lastRunStr = labels.notExecuted
+  let lastRunSuccess: boolean | null = null
+  if (task.execution_mode === 'listen' && !task.last_run) {
+    lastRunStr = task.enabled !== false ? labels.continuousRunning : labels.paused
+  }
+  if (task.last_run) {
+    lastRunSuccess = task.last_run.success
+    lastRunStr = `${task.last_run.success ? labels.success : labels.failed}-${formatTaskListDate(task.last_run.time)}`
+  }
+
+  return {
+    id: task.name,
+    name: task.name,
+    scheduleMode,
+    targetStr,
+    targetCount,
+    hitCount: 0,
+    lastRunStr,
+    lastRunSuccess,
+    modeIconKind,
+    isListenMode: task.execution_mode === 'listen',
+    enabled: task.enabled !== false,
+    chatAvatarUrl: '',
+    chatName: firstChat ? firstChat.name || `Chat ${firstChat.chat_id}` : '',
+    raw: task,
+  }
+}
+
+/** 将 modeIconKind 绑定为具体图标组件后得到 TaskUiItem */
+export function withModeIcon(
+  fields: MappedTaskListFields,
+  modeIcon: TaskUiItem['modeIcon'],
+): TaskUiItem {
+  const { modeIconKind: _kind, ...rest } = fields
+  return { ...rest, modeIcon }
+}

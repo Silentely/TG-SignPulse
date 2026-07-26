@@ -336,3 +336,26 @@ def test_prune_stale_does_not_drop_terminal_with_finished_at():
     SignTaskService._prune_stale_entries(svc)
     assert ("a", "t") in svc._run_statuses
     assert ("b", "u") not in svc._run_statuses
+
+
+def test_build_cancel_run_response_and_mismatch():
+    from backend.services.sign_task_run_status import (
+        build_cancel_run_response,
+        is_run_id_mismatch,
+    )
+
+    assert is_run_id_mismatch(None, "r1") is False
+    assert is_run_id_mismatch({"run_id": "r1"}, None) is False
+    assert is_run_id_mismatch({"run_id": "r1"}, "r1") is False
+    assert is_run_id_mismatch({"run_id": "r1"}, "r2") is True
+    resp = build_cancel_run_response(
+        ok=False,
+        cancelled=False,
+        error="x",
+        status={"run_id": "r1", "state": "running"},
+        requested_run_id="r2",
+    )
+    assert resp["ok"] is False
+    assert resp["cancelled"] is False
+    assert resp["error"] == "x"
+    assert resp["status"]["state"] == "stale"

@@ -2667,44 +2667,50 @@ class SignTaskService:
         run_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """取消后台进行中的任务运行（协作式 cancel asyncio.Task）。"""
+        from backend.services.sign_task_run_status import (
+            build_cancel_run_response,
+            is_run_id_mismatch,
+        )
+
         account_name = validate_storage_name(account_name, field_name="account_name")
         task_name = validate_storage_name(task_name, field_name="task_name")
         task_key = self._task_key(account_name, task_name)
 
         status = self._run_statuses.get(task_key)
-        if run_id and status and status.get("run_id") and status.get("run_id") != run_id:
-            return {
-                "ok": False,
-                "cancelled": False,
-                "error": "run_id 与当前运行不匹配",
-                "status": resolve_stored_run_status(status, requested_run_id=run_id),
-            }
+        if is_run_id_mismatch(status, run_id):
+            return build_cancel_run_response(
+                ok=False,
+                cancelled=False,
+                error="run_id 与当前运行不匹配",
+                status=status,
+                requested_run_id=run_id,
+            )
 
         bg = self._background_run_tasks.get(task_key)
         if not bg or bg.done():
             if self._active_tasks.get(task_key):
                 # 同步 run 路径可能无 background task；仅标记无法取消
-                return {
-                    "ok": False,
-                    "cancelled": False,
-                    "error": "任务正在执行但无可取消的后台句柄（可能为同步调用）",
-                    "status": resolve_stored_run_status(status),
-                }
-            return {
-                "ok": False,
-                "cancelled": False,
-                "error": "当前没有进行中的运行",
-                "status": resolve_stored_run_status(status),
-            }
+                return build_cancel_run_response(
+                    ok=False,
+                    cancelled=False,
+                    error="任务正在执行但无可取消的后台句柄（可能为同步调用）",
+                    status=status,
+                )
+            return build_cancel_run_response(
+                ok=False,
+                cancelled=False,
+                error="当前没有进行中的运行",
+                status=status,
+            )
 
         bg.cancel()
         self._active_logs.setdefault(task_key, []).append("用户请求取消任务…")
-        return {
-            "ok": True,
-            "cancelled": True,
-            "error": "",
-            "status": resolve_stored_run_status(self._run_statuses.get(task_key)),
-        }
+        return build_cancel_run_response(
+            ok=True,
+            cancelled=True,
+            error="",
+            status=self._run_statuses.get(task_key),
+        )
 
     def get_task_run_status(
         self, account_name: str, task_name: str, run_id: Optional[str] = None

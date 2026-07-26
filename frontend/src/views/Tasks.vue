@@ -2,14 +2,14 @@
 import { ref, onMounted, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Plus, Radio, Clock, Shuffle, X } from 'lucide-vue-next'
-import { listSignTasks, deleteSignTask, startSignTaskRun, listAccounts, toggleSignTaskEnabled, batchSignTasks, cloneSignTask } from '../lib/api'
+import { listSignTasks, listAccounts } from '../lib/api'
 import { BUILT_IN_TEMPLATES } from '../lib/task-templates'
 import type { SignTask, AccountInfo } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
-import { useConfirm } from '../composables/useConfirm'
 import { useAuthStore } from '../stores/auth'
 import { useTaskListRuntime } from '../composables/useTaskListRuntime'
+import { useTaskListActions } from '../composables/useTaskListActions'
 import type { TaskUiItem } from '../lib/types'
 import { getLocalizedErrorMessage } from '../lib/types'
 import AddTaskModal from '../components/tasks/AddTaskModal.vue'
@@ -24,12 +24,16 @@ import {
   hasActiveListFilters,
   type TaskListModeFilter,
 } from '../lib/task-list-filter'
+import {
+  mapSignTaskToListFields,
+  withModeIcon,
+  resolveTaskAccountName,
+} from '../lib/task-list-map'
 
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const toast = useToast()
-const { confirm } = useConfirm()
 const authStore = useAuthStore()
 const tasks = ref<TaskUiItem[]>([])
 const pageLoading = ref(true)
@@ -47,19 +51,12 @@ const logsTask = ref<TaskUiItem | null>(null)
 const logsRunAccount = ref<string>('')  // Account that just executed the task
 const logsInitialTab = ref<'history' | 'hits' | null>(null)
 
-// Account selection for run
-const runMenuTask = ref<TaskUiItem | null>(null)
-const runMenuAccounts = ref<string[]>([])
 const allAccounts = ref<string[]>([])
 const selectedTaskIds = ref<Set<string>>(new Set())
-const batchBusy = ref(false)
 const searchQuery = ref('')
 /** 模式筛选：全部 / 仅监听 / 仅定时 */
 const modeFilter = ref<TaskListModeFilter>('all')
 const selectedCount = computed(() => selectedTaskIds.value.size)
-const cloneBusy = ref(false)
-const showCloneModal = ref(false)
-const cloneSource = ref<TaskUiItem | null>(null)
 const showTemplateMenu = ref(false)
 
 const toggleTemplateMenu = (e?: Event) => {
@@ -101,51 +98,6 @@ const hasListFilters = computed(() =>
   hasActiveListFilters(searchQuery.value, modeFilter.value, accountFilter.value),
 )
 
-const runBatch = async (action: 'enable' | 'disable' | 'delete' | 'run') => {
-  if (!selectedCount.value || batchBusy.value) return
-  if (action === 'delete') {
-    const ok = await confirm({
-      title: t('common.dangerConfirm'),
-      message: `${t('tasks.batchDeleteConfirm')} (${selectedCount.value})`,
-      confirmText: t('common.delete'),
-      danger: true,
-    })
-    if (!ok) return
-  }
-  const token = authStore.token || ''
-  const items = tasks.value
-    .filter((t) => selectedTaskIds.value.has(t.id))
-    .map((t) => ({
-      name: t.name,
-      account_name: getTaskAccountName(t.raw) || undefined,
-    }))
-  batchBusy.value = true
-  try {
-    const res = await batchSignTasks(token, items, action)
-    if (res.fail_count === 0) {
-      toast.success(t('tasks.batchSuccessDetail', { ok: res.success_count }))
-    } else {
-      const failedNames = (res.results || [])
-        .filter((r) => !r.success)
-        .map((r) => r.name)
-        .filter(Boolean)
-        .slice(0, 3)
-      const detail = failedNames.length
-        ? ` · ${failedNames.join(', ')}${(res.fail_count || 0) > failedNames.length ? '…' : ''}`
-        : ''
-      toast.error(
-        `${t('tasks.batchPartialDetail', { ok: res.success_count, fail: res.fail_count })}${detail}`,
-      )
-    }
-    clearSelection()
-    await loadTasks()
-  } catch (e: unknown) {
-    toast.error(getLocalizedErrorMessage(e, t, t('tasks.batchFailed')))
-  } finally {
-    batchBusy.value = false
-  }
-}
-
 const loadAllAccounts = async () => {
   const token = authStore.token || ''
   if (!token) return
@@ -155,31 +107,9 @@ const loadAllAccounts = async () => {
   } catch { }
 }
 
-const formatDate = (dateStr: string) => {
-  if (!dateStr) return '-'
-  try {
-    const d = new Date(dateStr)
-    const mo = String(d.getMonth() + 1).padStart(2, '0')
-    const da = String(d.getDate()).padStart(2, '0')
-    const ho = String(d.getHours()).padStart(2, '0')
-    const mi = String(d.getMinutes()).padStart(2, '0')
-    const se = String(d.getSeconds()).padStart(2, '0')
-    return `${mo}/${da} ${ho}:${mi}:${se}`
-  } catch (e) {
-    return dateStr
-  }
-}
-
-const getTaskAccountName = (task: SignTask | TaskUiItem): string => {
-  // Resolve a usable account name from task data, skipping wildcard '*'
-  const raw = 'raw' in task ? task.raw : task
-  const name = raw.account_name || ''
-  if (name && name !== '*') return name
-  const names = raw.account_names || []
-  for (const n of names) {
-    if (n && n !== '*') return n
-  }
-  return ''
+const getTaskAccountName = (task: SignTask | TaskUiItem | { account_name?: string; account_names?: string[] }): string => {
+  const raw = 'raw' in task ? (task as TaskUiItem).raw : task
+  return resolveTaskAccountName(raw as SignTask)
 }
 
 const {
@@ -207,56 +137,19 @@ const loadTasks = async () => {
   try {
     const accountName = route.query.account as string | undefined
     const res = await listSignTasks(token, accountName)
+    const labels = {
+      noTarget: t('tasks.noTarget'),
+      listenMode: t('tasks.listenMode'),
+      notExecuted: t('tasks.notExecuted'),
+      continuousRunning: t('tasks.continuousRunning'),
+      paused: t('tasks.paused'),
+      success: t('tasks.success'),
+      failed: t('tasks.failed'),
+    }
+    const iconByKind = { clock: Clock, radio: Radio, shuffle: Shuffle } as const
     tasks.value = res.map((task: SignTask) => {
-      const chats = task.chats || []
-      const firstChat = chats.length > 0 ? chats[0] : null
-      const targetCount = chats.length
-      const primaryLabel = firstChat
-        ? (firstChat.name || `${firstChat.chat_id}${firstChat.message_thread_id ? '|' + firstChat.message_thread_id : ''}`)
-        : t('tasks.noTarget')
-      // 列表主标签只显示首个目标；额外数量由 +N badge 展示
-      const targetStr = primaryLabel
-      
-      let scheduleMode = ''
-      let modeIcon: typeof Clock | typeof Radio | typeof Shuffle = Clock
-      if (task.execution_mode === 'listen') {
-        scheduleMode = t('tasks.listenMode')
-        modeIcon = Radio
-      } else if (task.execution_mode === 'range') {
-        scheduleMode = `${task.range_start || '00:00'}-${task.range_end || '23:59'}`
-        modeIcon = Shuffle
-      } else {
-        scheduleMode = task.sign_at || '00:00'
-        modeIcon = Clock
-      }
-                          
-      let lastRunStr = t('tasks.notExecuted')
-      let lastRunSuccess: boolean | null = null
-      // Listen mode tasks run 24H continuously, show "持续运行" instead of "未执行"
-      if (task.execution_mode === 'listen' && !task.last_run) {
-        lastRunStr = task.enabled !== false ? t('tasks.continuousRunning') : t('tasks.paused')
-      }
-      if (task.last_run) {
-        lastRunSuccess = task.last_run.success
-        lastRunStr = `${task.last_run.success ? t('tasks.success') : t('tasks.failed')}-${formatDate(task.last_run.time)}`
-      }
-
-      return {
-        id: task.name,
-        name: task.name,
-        scheduleMode,
-        targetStr,
-        targetCount,
-        hitCount: 0,
-        lastRunStr,
-        lastRunSuccess,
-        modeIcon,
-        isListenMode: task.execution_mode === 'listen',
-        enabled: task.enabled !== false,
-        chatAvatarUrl: '',
-        chatName: firstChat ? (firstChat.name || `Chat ${firstChat.chat_id}`) : '',
-        raw: task
-      }
+      const fields = mapSignTaskToListFields(task, labels)
+      return withModeIcon(fields, iconByKind[fields.modeIconKind])
     })
 
     await afterTasksLoaded()
@@ -267,6 +160,78 @@ const loadTasks = async () => {
   } finally {
     pageLoading.value = false
   }
+}
+
+const {
+  batchBusy,
+  cloneBusy,
+  showCloneModal,
+  cloneSource,
+  runMenuTask,
+  runMenuAccounts,
+  runBatch,
+  openCloneModal,
+  closeCloneModal,
+  submitClone,
+  handleDelete,
+  handleToggleEnabled,
+  handleRun,
+  doRun,
+  closeRunMenu: closeRunMenuOnly,
+} = useTaskListActions({
+  tasks,
+  selectedTaskIds,
+  allAccounts,
+  selectedCount,
+  loadTasks,
+  openLogsAfterRun: (task, accountName) => {
+    logsRunAccount.value = accountName
+    logsTask.value = task
+    showLogsModal.value = true
+  },
+})
+
+const closeRunMenu = () => {
+  closeRunMenuOnly()
+  showTemplateMenu.value = false
+}
+
+const openAddBlank = () => {
+  addTemplateId.value = null
+  showAddModal.value = true
+}
+
+const closeAddModal = () => {
+  showAddModal.value = false
+  addTemplateId.value = null
+}
+
+const clearAccountFilter = () => {
+  const nextQuery = { ...route.query }
+  delete nextQuery.account
+  router.push({ name: 'tasks', query: nextQuery })
+}
+
+/** 清除搜索、模式筛选与账号深链（与 chip / 空态「清除筛选」一致） */
+const clearListFilters = () => {
+  searchQuery.value = ''
+  modeFilter.value = 'all'
+  if (accountFilter.value) clearAccountFilter()
+}
+
+const preferAccountForCreate = computed(() => {
+  if (accountFilter.value) return accountFilter.value
+  return allAccounts.value[0] || null
+})
+
+const handleCreateFromTemplate = (templateId: string) => {
+  // 预填动作到新建表单；chat_id 仍由用户选择，避免落库无效任务
+  if (!allAccounts.value.length) {
+    toast.error(t('tasks.templateNeedAccount'))
+    return
+  }
+  addTemplateId.value = templateId
+  showAddModal.value = true
 }
 
 const applyRouteQueryFilters = () => {
@@ -325,156 +290,6 @@ watch(
 watch(() => route.query.account, () => {
   loadTasks()
 })
-
-const openCloneModal = (task: TaskUiItem) => {
-  cloneSource.value = task
-  showCloneModal.value = true
-}
-
-const closeCloneModal = () => {
-  showCloneModal.value = false
-  cloneSource.value = null
-}
-
-const submitClone = async (rawName: string) => {
-  if (cloneBusy.value || !cloneSource.value) return
-  const newName = rawName.trim()
-  if (!newName) {
-    toast.error(t('tasks.cloneNameRequired'))
-    return
-  }
-  if (/[/\\]/.test(newName)) {
-    toast.error(t('tasks.cloneNameInvalid'))
-    return
-  }
-  const token = authStore.token || ''
-  cloneBusy.value = true
-  try {
-    await cloneSignTask(
-      token,
-      cloneSource.value.name,
-      newName,
-      cloneSource.value.raw.account_name || undefined,
-    )
-    toast.success(t('tasks.cloneSuccess'))
-    closeCloneModal()
-    await loadTasks()
-  } catch (e) {
-    toast.error(getLocalizedErrorMessage(e, t, t('tasks.cloneFailed')))
-  } finally {
-    cloneBusy.value = false
-  }
-}
-
-const openAddBlank = () => {
-  addTemplateId.value = null
-  showAddModal.value = true
-}
-
-const closeAddModal = () => {
-  showAddModal.value = false
-  addTemplateId.value = null
-}
-
-const clearAccountFilter = () => {
-  const nextQuery = { ...route.query }
-  delete nextQuery.account
-  router.push({ name: 'tasks', query: nextQuery })
-}
-
-/** 清除搜索、模式筛选与账号深链（与 chip / 空态「清除筛选」一致） */
-const clearListFilters = () => {
-  searchQuery.value = ''
-  modeFilter.value = 'all'
-  if (accountFilter.value) clearAccountFilter()
-}
-
-const preferAccountForCreate = computed(() => {
-  if (accountFilter.value) return accountFilter.value
-  return allAccounts.value[0] || null
-})
-
-const handleCreateFromTemplate = (templateId: string) => {
-  // 预填动作到新建表单；chat_id 仍由用户选择，避免落库无效任务
-  if (!allAccounts.value.length) {
-    toast.error(t('tasks.templateNeedAccount'))
-    return
-  }
-  addTemplateId.value = templateId
-  showAddModal.value = true
-}
-
-const handleDelete = async (task: TaskUiItem) => {
-  const ok = await confirm({
-    title: t('common.dangerConfirm'),
-    message: `${t('tasks.deleteConfirm')} ${task.name} ?`,
-    confirmText: t('common.delete'),
-    danger: true,
-  })
-  if (!ok) return
-  const token = authStore.token || ''
-  try {
-    const accountName = getTaskAccountName(task.raw) || undefined
-    await deleteSignTask(token, task.name, accountName)
-    toast.success(t('tasks.deleteSuccess'))
-    await loadTasks()
-  } catch (e: unknown) {
-    toast.error(`${t('tasks.deleteFailed')}: ${getLocalizedErrorMessage(e, t, t('tasks.unknownError'))}`)
-  }
-}
-
-const handleToggleEnabled = async (task: TaskUiItem) => {
-  const token = authStore.token || ''
-  try {
-    const accountName = getTaskAccountName(task.raw) || undefined
-    await toggleSignTaskEnabled(token, task.name, accountName)
-    toast.success(task.enabled ? t('tasks.pauseSuccess') : t('tasks.resumeSuccess'))
-    await loadTasks()
-  } catch (e: unknown) {
-    toast.error(`${t('tasks.toggleFailed')}: ${getLocalizedErrorMessage(e, t, t('tasks.unknownError'))}`)
-  }
-}
-
-const getTaskRealAccounts = (task: TaskUiItem | SignTask): string[] => {
-  const raw = 'raw' in task ? task.raw : task
-  const names = raw.account_names || []
-  if (names.includes('*')) {
-    // Wildcard: expand to all accounts
-    return allAccounts.value.length > 0 ? allAccounts.value : []
-  }
-  return names.filter((n: string) => n && n !== '*')
-}
-
-const handleRun = (task: TaskUiItem) => {
-  const accounts = getTaskRealAccounts(task)
-  if (accounts.length <= 1) {
-    // Single account or no accounts - run directly
-    doRun(task, accounts[0] || getTaskAccountName(task.raw))
-  } else {
-    // Multiple accounts - show selection menu
-    runMenuTask.value = task
-    runMenuAccounts.value = accounts
-  }
-}
-
-const doRun = async (task: TaskUiItem, accountName: string) => {
-  runMenuTask.value = null
-  const token = authStore.token || ''
-  try {
-    await startSignTaskRun(token, task.name, accountName)
-    // Open logs modal with the specific account that was just run
-    logsRunAccount.value = accountName
-    logsTask.value = task
-    showLogsModal.value = true
-  } catch (e: unknown) {
-    toast.error(`${t('tasks.triggerFailed')}: ${getLocalizedErrorMessage(e, t, t('tasks.unknownError'))}`)
-  }
-}
-
-const closeRunMenu = () => {
-  runMenuTask.value = null
-  showTemplateMenu.value = false
-}
 
 const openEdit = (task: TaskUiItem) => {
   editingTask.value = task.raw

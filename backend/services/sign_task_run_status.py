@@ -261,3 +261,38 @@ def is_terminal_run_state(state: str) -> bool:
         RUN_STATE_CANCELLED,
         RUN_STATE_TIMEOUT,
     }
+
+
+def build_cancel_run_response(
+    *,
+    ok: bool,
+    cancelled: bool,
+    error: str = "",
+    status: Optional[Dict[str, Any]] = None,
+    requested_run_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """cancel_task_run 统一返回结构。"""
+    return {
+        "ok": bool(ok),
+        "cancelled": bool(cancelled),
+        "error": str(error or ""),
+        "status": resolve_stored_run_status(
+            status, requested_run_id=requested_run_id
+        ),
+    }
+
+
+def is_run_id_mismatch(
+    status: Optional[Mapping[str, Any]],
+    requested_run_id: Optional[str],
+) -> bool:
+    """请求 run_id 与当前状态不一致时返回 True。"""
+    want = str(requested_run_id or "").strip()
+    if not want:
+        return False
+    if not status:
+        return False
+    current = str(status.get("run_id") or "").strip()
+    if not current:
+        return False
+    return current != want

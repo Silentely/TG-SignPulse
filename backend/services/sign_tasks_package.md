@@ -8,7 +8,7 @@
 | `sign_task_backend.py` | BackendUserSigner / TaskLogHandler |
 | `sign_task_history_format.py` | 历史列表/写入条目格式化、flow 截断 |
 | `sign_task_history_io.py` | 历史文件路径 / 加载 / 清理 / config 目录与缓存 last_run |
-| `sign_task_run_status.py` | 运行状态字典构造 |
+| `sign_task_run_status.py` | 运行状态字典构造、取消响应与 run_id 校验 |
 | `sign_task_text.py` | 乱码修复等文本纯函数 |
 | `sign_task_config_inspect.py` | 任务配置探测（update/关键词监听） |
 | `sign_task_message.py` | 目标消息摘要 / 线程匹配 |
