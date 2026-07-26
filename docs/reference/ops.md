@@ -8,6 +8,7 @@
 | --- | --- |
 | `GET /api/ops/scheduled-jobs` | 查看 APScheduler 下次执行时间 |
 | `GET /api/ops/backup/status` | 数据目录备份状态与关键路径体积 |
+| `POST /api/ops/backup/export` | 完整备份：已配置 WebDAV 时上传远端；否则回退浏览器下载 |
 | `GET /api/ops/memory` | 进程内存监控统计（若已启动） |
 | `GET /api/ops/version` | 本地版本、Git SHA/分支、构建时间、Python 版本 |
 | `POST /api/ops/version/check?force=false` | 远程更新检查（GitHub Releases；可关；失败 soft-fail） |

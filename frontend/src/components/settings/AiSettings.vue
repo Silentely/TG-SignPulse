@@ -24,6 +24,8 @@ const props = defineProps<{
   aiLoading?: boolean
   /** 高级保存中 */
   advancedLoading?: boolean
+  /** 服务端 Key 解密失败（需重填 Key，仍可改 model/base_url） */
+  keyDecryptFailed?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -84,6 +86,9 @@ const onSettingsNumberInput = (key: keyof SettingsFormState, e: Event) => {
             <EyeOff v-if="reveal.aiKey" class="w-4 h-4" /><Eye v-else class="w-4 h-4" />
           </button>
         </div>
+        <p v-if="keyDecryptFailed" class="text-[11px] text-amber-600 dark:text-amber-400 leading-snug">
+          {{ t('settings.aiKeyDecryptFailed') }}
+        </p>
       </div>
       <!-- 高级执行 / AI 视觉（从关于页移入） -->
       <div class="pt-4 border-t border-gray-200 dark:border-gray-800/60 space-y-3">

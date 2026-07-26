@@ -18,12 +18,25 @@ export const toRecord = (headers?: HeadersInit): Record<string, string> => {
   return headers as Record<string, string>;
 };
 
-/** 默认请求超时（毫秒）；长耗时请求可显式传 null 关闭固定超时。 */
+/**
+ * 默认请求超时（毫秒）。
+ * 语义：仅约束到 Response headers 到达（TTFB）；body 读取阶段不再受此计时器约束。
+ * 长耗时请求可传 LONG_TIMEOUT_MS，或 null 关闭固定超时。
+ */
 export const DEFAULT_TIMEOUT_MS = 30_000;
+
+/** 长任务（备份/大导出/配置导入导出）与服务端 WebDAV 读写上限对齐。 */
+export const LONG_TIMEOUT_MS = 600_000;
 
 /**
  * 内部请求基元：鉴权 header、超时、abort 传播、!res.ok 错误解析与 401 跳转。
  * 成功时返回原始 Response，由调用方决定 JSON/Blob 解析方式。
+ *
+ * 超时语义：计时器在 headers 到达后清除；body 下载不受 DEFAULT/LONG 超时限制。
+ * abort 语义：
+ * - 超时触发 → NETWORK_TIMEOUT
+ * - 调用方 signal 取消 → NETWORK_ABORTED
+ * - 其他网络失败 → NETWORK_ERROR
  */
 export async function fetchWithAuth(
   path: string,
@@ -38,17 +51,28 @@ export async function fetchWithAuth(
 
   const controller = new AbortController();
   const externalSignal = options.signal;
-  const onExternalAbort = () => controller.abort();
+  // 区分超时 abort 与外部取消，避免卸载/导航误报「请求超时」
+  let abortedByTimeout = false;
+  let abortedByExternal = false;
+  const onExternalAbort = () => {
+    abortedByExternal = true;
+    controller.abort();
+  };
   if (externalSignal) {
     if (externalSignal.aborted) {
+      abortedByExternal = true;
       controller.abort();
     } else {
       externalSignal.addEventListener("abort", onExternalAbort, { once: true });
     }
   }
-  const timeoutId = timeoutMs === null
-    ? null
-    : setTimeout(() => controller.abort(), timeoutMs);
+  const timeoutId =
+    timeoutMs === null
+      ? null
+      : setTimeout(() => {
+          abortedByTimeout = true;
+          controller.abort();
+        }, timeoutMs);
 
   let res: Response;
   try {
@@ -66,9 +90,18 @@ export async function fetchWithAuth(
     const isAbort =
       (e instanceof DOMException && e.name === "AbortError") ||
       (e instanceof Error && e.name === "AbortError");
-    const err = new Error(isAbort ? "NETWORK_TIMEOUT" : "NETWORK_ERROR") as ApiError;
+    let code = "NETWORK_ERROR";
+    if (isAbort) {
+      // 外部取消优先：即使两者同时触发，用户主动取消更贴近真实意图
+      code = abortedByExternal
+        ? "NETWORK_ABORTED"
+        : abortedByTimeout
+          ? "NETWORK_TIMEOUT"
+          : "NETWORK_ABORTED";
+    }
+    const err = new Error(code) as ApiError;
     err.status = 0;
-    err.code = isAbort ? "NETWORK_TIMEOUT" : "NETWORK_ERROR";
+    err.code = code;
     throw err;
   } finally {
     if (timeoutId !== null) clearTimeout(timeoutId);
@@ -102,7 +135,10 @@ export async function fetchWithAuth(
             if (msgs.length) errorMessage = msgs.join("; ");
           } else if (detail && typeof detail === "object") {
             errorMessage = JSON.stringify(detail);
-          } else if (typeof errorData.message === "string" && errorData.message.trim()) {
+          } else if (
+            typeof errorData.message === "string" &&
+            errorData.message.trim()
+          ) {
             errorMessage = errorData.message.trim();
           } else {
             errorMessage = JSON.stringify(errorData);
@@ -141,13 +177,14 @@ export async function fetchWithAuth(
 export async function request<T>(
   path: string,
   options: RequestInit = {},
-  token?: string | null
+  token?: string | null,
+  timeoutMs: number | null = DEFAULT_TIMEOUT_MS,
 ): Promise<T> {
   const headers: Record<string, string> = {
     ...toRecord(options.headers),
     "Content-Type": "application/json",
   };
-  const res = await fetchWithAuth(path, headers, options, token);
+  const res = await fetchWithAuth(path, headers, options, token, timeoutMs);
   if (res.status === 204) {
     return {} as T;
   }
@@ -161,12 +198,13 @@ export async function request<T>(
 export async function requestBlob(
   path: string,
   options: RequestInit = {},
-  token?: string | null
+  token?: string | null,
+  timeoutMs: number | null = DEFAULT_TIMEOUT_MS,
 ): Promise<Blob> {
   const headers: Record<string, string> = {
     ...toRecord(options.headers),
   };
-  const res = await fetchWithAuth(path, headers, options, token);
+  const res = await fetchWithAuth(path, headers, options, token, timeoutMs);
   return res.blob();
 }
 
@@ -177,11 +215,12 @@ export async function requestBlob(
 export async function requestText(
   path: string,
   options: RequestInit = {},
-  token?: string | null
+  token?: string | null,
+  timeoutMs: number | null = DEFAULT_TIMEOUT_MS,
 ): Promise<string> {
   const headers: Record<string, string> = {
     ...toRecord(options.headers),
   };
-  const res = await fetchWithAuth(path, headers, options, token);
+  const res = await fetchWithAuth(path, headers, options, token, timeoutMs);
   return res.text();
 }

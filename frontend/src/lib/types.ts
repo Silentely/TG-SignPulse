@@ -167,6 +167,7 @@ export interface CacheEntry<T> {
 /** 常见 API / 网络错误码 → 默认英文文案（无 i18n 时兜底） */
 const API_ERROR_CODE_MESSAGES: Record<string, string> = {
   NETWORK_TIMEOUT: 'Request timed out',
+  NETWORK_ABORTED: 'Request cancelled',
   NETWORK_ERROR: 'Network error',
   ACCOUNT_SESSION_INVALID: 'Account session invalid, please re-login',
   TASK_LOG_NOT_FOUND: 'Task log not found',

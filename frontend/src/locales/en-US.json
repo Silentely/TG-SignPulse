@@ -11,6 +11,7 @@
   },
   "apiErrors": {
     "NETWORK_TIMEOUT": "Request timed out",
+    "NETWORK_ABORTED": "Request cancelled",
     "NETWORK_ERROR": "Network error",
     "ACCOUNT_SESSION_INVALID": "Account session invalid, please re-login",
     "TASK_LOG_NOT_FOUND": "Task log not found",
@@ -426,6 +427,7 @@
     "timezone": "Timezone",
     "aiConfig": "AI Model Config",
     "aiDesc": "Used for automation tasks requiring semantic understanding.",
+    "aiKeyDecryptFailed": "API Key decrypt failed (APP_SECRET_KEY may have changed). You can still update model/Base URL; re-enter the Key before outbound AI calls.",
     "testConnection": "Test",
     "apiBaseUrl": "API Base URL (empty for official)",
     "model": "Model (empty for default gpt-5-nano)",

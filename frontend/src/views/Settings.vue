@@ -133,6 +133,8 @@ const aiConfig = ref<AiFormState>({
   model: '',
   api_key: ''
 })
+/** 服务端 AI Key 解密失败标记（APP_SECRET_KEY 不匹配） */
+const aiKeyDecryptFailed = ref(false)
 
 const loading = ref(false)
 const tgLoading = ref(false)
@@ -428,6 +430,9 @@ onMounted(async () => {
     if (aiRes && aiRes.has_config) {
       aiConfig.value.base_url = aiRes.base_url || ''
       aiConfig.value.model = aiRes.model || ''
+      aiKeyDecryptFailed.value = !!aiRes.api_key_decrypt_failed
+    } else {
+      aiKeyDecryptFailed.value = false
     }
 
     try {
@@ -657,6 +662,10 @@ const saveAiConfig = async () => {
       model: aiConfig.value.model || undefined,
       api_key: aiConfig.value.api_key || undefined
     })
+    // 用户重填 Key 后清除解密失败提示
+    if (aiConfig.value.api_key) {
+      aiKeyDecryptFailed.value = false
+    }
     aiConfig.value.api_key = ''
     markSectionClean('ai')
     notifySuccess(t('settings.aiConfigSaved'))
@@ -966,6 +975,7 @@ const toggleReveal = (key: 'tgApiId' | 'tgApiHash' | 'aiKey' | 'botToken') => {
           :reveal="{ aiKey: revealSecrets.aiKey }"
           :ai-loading="aiLoading"
           :advanced-loading="advancedLoading"
+          :key-decrypt-failed="aiKeyDecryptFailed"
           @save-ai="saveAiConfig"
           @save-advanced="saveAdvancedSettings"
           @test-ai="testAi"

@@ -145,7 +145,7 @@ describe('api.request - 401 处理', () => {
     expect(store.token).toBeNull()
   })
 
-  it('完整备份不受普通 API 的 30 秒默认超时限制', async () => {
+  it('完整备份使用长超时，不受 30 秒默认限制', async () => {
     vi.useFakeTimers()
     mockFetch.mockImplementationOnce((_url, options: RequestInit) =>
       new Promise<Response>((resolve, reject) => {
@@ -173,7 +173,7 @@ describe('api.request - 401 处理', () => {
     ])
   })
 
-  it('WebDAV 备份下载不受普通 API 的 30 秒默认超时限制', async () => {
+  it('WebDAV 备份下载使用长超时，不受 30 秒默认限制', async () => {
     vi.useFakeTimers()
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
     const createObjectUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:backup')
@@ -209,5 +209,94 @@ describe('api.request - 401 处理', () => {
     expect(click).toHaveBeenCalledOnce()
     expect(createObjectUrl).toHaveBeenCalledOnce()
     expect(revokeObjectUrl).toHaveBeenCalledWith('blob:backup')
+  })
+
+  it('全量配置导出使用长超时', async () => {
+    vi.useFakeTimers()
+    mockFetch.mockImplementationOnce((_url, options: RequestInit) =>
+      new Promise<Response>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          resolve(new Response('{"signs":{}}', { status: 200 }))
+        }, 31_000)
+        options.signal?.addEventListener(
+          'abort',
+          () => {
+            clearTimeout(timer)
+            reject(new DOMException('Aborted', 'AbortError'))
+          },
+          { once: true },
+        )
+      }),
+    )
+
+    const api = await importApi()
+    await Promise.all([
+      expect(api.exportAllConfigs('valid-token')).resolves.toContain('signs'),
+      vi.advanceTimersByTimeAsync(31_000),
+    ])
+  })
+
+  it('默认请求在 30 秒后标记 NETWORK_TIMEOUT', async () => {
+    vi.useFakeTimers()
+    mockFetch.mockImplementationOnce((_url, options: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        options.signal?.addEventListener(
+          'abort',
+          () => reject(new DOMException('Aborted', 'AbortError')),
+          { once: true },
+        )
+      }),
+    )
+
+    const api = await importApi()
+    // 显式 catch，避免 fake timer 推进时出现 unhandled rejection
+    let caught: unknown
+    const pending = api.listAccounts('valid-token').then(
+      () => {
+        throw new Error('expected NETWORK_TIMEOUT')
+      },
+      (e: unknown) => {
+        caught = e
+      },
+    )
+    await Promise.all([pending, vi.advanceTimersByTimeAsync(30_000)])
+    expect(caught).toMatchObject({
+      message: 'NETWORK_TIMEOUT',
+      code: 'NETWORK_TIMEOUT',
+      status: 0,
+    })
+  })
+
+  it('外部 AbortSignal 取消标记为 NETWORK_ABORTED 而非超时', async () => {
+    const controller = new AbortController()
+    mockFetch.mockImplementationOnce((_url, options: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        options.signal?.addEventListener(
+          'abort',
+          () => reject(new DOMException('Aborted', 'AbortError')),
+          { once: true },
+        )
+      }),
+    )
+
+    const core = await import('../lib/api/core')
+    let caught: unknown
+    const pending = core
+      .request('/accounts', { signal: controller.signal }, 'valid-token')
+      .then(
+        () => {
+          throw new Error('expected NETWORK_ABORTED')
+        },
+        (e: unknown) => {
+          caught = e
+        },
+      )
+    controller.abort()
+    await pending
+    expect(caught).toMatchObject({
+      message: 'NETWORK_ABORTED',
+      code: 'NETWORK_ABORTED',
+      status: 0,
+    })
   })
 })

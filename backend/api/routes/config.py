@@ -291,6 +291,8 @@ class AIConfigResponse(BaseModel):
     base_url: Optional[str] = None
     model: Optional[str] = None
     api_key_masked: Optional[str] = None
+    # 磁盘有配置但 APP_SECRET_KEY 不匹配时为 True，前端提示需重填 Key
+    api_key_decrypt_failed: bool = False
 
 
 class AIConfigSaveResponse(BaseModel):
@@ -312,6 +314,7 @@ def get_ai_config(current_user: User = Depends(get_current_user)):
             return AIConfigResponse(has_config=False)
 
         api_key = config.get("api_key", "")
+        decrypt_failed = bool(config.get("api_key_decrypt_failed"))
         if api_key:
             masked = (
                 api_key[:4] + "*" * (len(api_key) - 8) + api_key[-4:]
@@ -326,6 +329,7 @@ def get_ai_config(current_user: User = Depends(get_current_user)):
             base_url=config.get("base_url"),
             model=config.get("model"),
             api_key_masked=masked,
+            api_key_decrypt_failed=decrypt_failed,
         )
     except Exception as e:
         raise HTTPException(

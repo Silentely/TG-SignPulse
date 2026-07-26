@@ -1,7 +1,7 @@
 /**
  * 关键词命中记录 API：列表、分组、导出 URL、清理。
  */
-import { request, requestBlob } from "./core";
+import { LONG_TIMEOUT_MS, request, requestBlob } from "./core";
 
 /** 关键词命中记录 */
 export interface KeywordHitRecord {
@@ -122,5 +122,10 @@ export const exportKeywordHitsBlob = (
   if (params?.task_name) q.set("task_name", params.task_name);
   if (params?.limit != null) q.set("limit", String(params.limit));
   const qs = q.toString();
-  return requestBlob(`/keyword-hits/export${qs ? `?${qs}` : ""}`, {}, token);
+  return requestBlob(
+    `/keyword-hits/export${qs ? `?${qs}` : ""}`,
+    {},
+    token,
+    LONG_TIMEOUT_MS,
+  );
 };

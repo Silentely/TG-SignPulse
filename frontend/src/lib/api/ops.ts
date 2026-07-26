@@ -1,7 +1,7 @@
 /**
  * 运维 Ops API：调度预览、备份导出、WebDAV 备份、内存统计、版本检查、运行时状态。
  */
-import { fetchWithAuth, request } from "./core";
+import { fetchWithAuth, LONG_TIMEOUT_MS, request } from "./core";
 
 export interface ScheduledJob {
   id: string;
@@ -54,13 +54,13 @@ export async function exportBackupArchive(token: string): Promise<{
   remote_url?: string;
   filename?: string;
 }> {
-  // 压缩与 WebDAV 上传可能超过普通 API 的 30 秒窗口，保持长任务可完成。
+  // 压缩与 WebDAV 上传可能超过普通 API 的 30 秒窗口；与服务端 httpx 600s 对齐。
   const res = await fetchWithAuth(
     "/ops/backup/export",
     {},
     { method: "POST" },
     token,
-    null,
+    LONG_TIMEOUT_MS,
   );
   const ct = (res.headers.get("Content-Type") || "").toLowerCase();
   if (ct.includes("application/json")) {
@@ -125,7 +125,7 @@ export async function downloadWebdavBackup(
     {},
     {},
     token,
-    null,
+    LONG_TIMEOUT_MS,
   );
   const blob = await res.blob();
   const cd = res.headers.get("Content-Disposition") || "";

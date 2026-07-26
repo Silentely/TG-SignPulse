@@ -62,9 +62,13 @@ describe('api barrel 完整性', () => {
   it('core 内部导出完整性（域文件直接 import）', () => {
     expect(typeof core.request).toBe('function')
     expect(typeof core.requestBlob).toBe('function')
+    expect(typeof core.requestText).toBe('function')
+    expect(typeof core.fetchWithAuth).toBe('function')
     expect(typeof core.API_BASE).toBe('string')
     expect(typeof core.toRecord).toBe('function')
     expect(typeof core.DEFAULT_TIMEOUT_MS).toBe('number')
+    expect(typeof core.LONG_TIMEOUT_MS).toBe('number')
+    expect(core.LONG_TIMEOUT_MS).toBeGreaterThan(core.DEFAULT_TIMEOUT_MS)
   })
 
   it('barrel 导出函数数量 >= 80（防意外删减）', () => {

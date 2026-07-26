@@ -1,7 +1,7 @@
 /**
  * 账号管理 API：登录流程、CRUD、状态检测、设备、官方消息、账号日志。
  */
-import { request, requestBlob } from "./core";
+import { LONG_TIMEOUT_MS, request, requestBlob } from "./core";
 
 export interface LoginStartRequest {
   account_name: string;
@@ -288,7 +288,12 @@ export const clearAccountLogs = (token: string, accountName: string) =>
   );
 
 export const exportAccountLogs = async (token: string, accountName: string) => {
-  const blob = await requestBlob(`/accounts/${encodeURIComponent(accountName)}/logs/export`, {}, token);
+  const blob = await requestBlob(
+    `/accounts/${encodeURIComponent(accountName)}/logs/export`,
+    {},
+    token,
+    LONG_TIMEOUT_MS,
+  );
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

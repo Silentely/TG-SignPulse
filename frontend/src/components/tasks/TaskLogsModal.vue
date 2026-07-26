@@ -347,34 +347,45 @@ const connectWebSocket = () => {
   }
 }
 
+/** 防止 setInterval + async 在弱网下叠多轮 in-flight 请求 */
+let pollInFlight = false
+
 const startPolling = () => {
   if (pollTimer) return
   pollTimer = setInterval(async () => {
-    if (!props.task) return
-    const token = authStore.token || ''
-    const accountName = getTaskAccountName(props.task) || ''
-    // logs 与 status 独立容错：任一失败不阻塞另一个
-    const [logsResult, statusResult] = await Promise.allSettled([
-      getSignTaskLogs(token, props.task.name, accountName),
-      getSignTaskRunStatus(token, props.task.name, accountName),
-    ])
-    if (logsResult.status === 'fulfilled') {
-      const data = logsResult.value
-      if (Array.isArray(data) && data.length > 0) {
-        realtimeLogs.value = data
-        nextTick(() => {
-          if (logContainer.value) {
-            logContainer.value.scrollTop = logContainer.value.scrollHeight
+    if (!props.task || pollInFlight) return
+    pollInFlight = true
+    try {
+      const token = authStore.token || ''
+      const accountName = getTaskAccountName(props.task) || ''
+      // logs 与 status 独立容错：任一失败不阻塞另一个
+      const [logsResult, statusResult] = await Promise.allSettled([
+        getSignTaskLogs(token, props.task.name, accountName),
+        getSignTaskRunStatus(token, props.task.name, accountName),
+      ])
+      if (logsResult.status === 'fulfilled') {
+        const data = logsResult.value
+        if (Array.isArray(data) && data.length > 0) {
+          realtimeLogs.value = data
+          nextTick(() => {
+            if (logContainer.value) {
+              logContainer.value.scrollTop = logContainer.value.scrollHeight
+            }
+          })
+        }
+      }
+      if (statusResult.status === 'fulfilled') {
+        applyStatusPayload(statusResult.value)
+        if (statusResult.value.state !== 'running') {
+          isRunning.value = false
+          if (pollTimer) {
+            clearInterval(pollTimer)
+            pollTimer = null
           }
-        })
+        }
       }
-    }
-    if (statusResult.status === 'fulfilled') {
-      applyStatusPayload(statusResult.value)
-      if (statusResult.value.state !== 'running') {
-        isRunning.value = false
-        if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
-      }
+    } finally {
+      pollInFlight = false
     }
   }, 1500)
 }
@@ -388,6 +399,7 @@ const disconnectWebSocket = () => {
     clearInterval(pollTimer)
     pollTimer = null
   }
+  pollInFlight = false
   isRunning.value = false
   livePhase.value = null
   livePhaseDetail.value = ''

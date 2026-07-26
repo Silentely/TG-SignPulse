@@ -415,10 +415,19 @@ class ConfigService:
 
         # 导出设置 — 敏感字段脱敏
         ai_config = self.get_ai_config()
-        if ai_config and ai_config.get("api_key"):
+        if ai_config:
             ai_config = dict(ai_config)
-            ai_config["api_key"] = self.AI_KEY_MASK
-            all_configs["_meta"]["ai_api_key_masked"] = True
+            # 导出不对外暴露解密失败内部标记
+            ai_config.pop("api_key_decrypt_failed", None)
+            if ai_config.get("api_key"):
+                ai_config["api_key"] = self.AI_KEY_MASK
+                all_configs["_meta"]["ai_api_key_masked"] = True
+            elif ai_config.get("api_key") is None:
+                # 解密失败或空 key：导出侧用脱敏占位，避免把 None 误当可导入明文
+                raw_file = self._read_json_file(self._get_ai_config_file()) or {}
+                if raw_file.get("api_key"):
+                    ai_config["api_key"] = self.AI_KEY_MASK
+                    all_configs["_meta"]["ai_api_key_masked"] = True
 
         global_settings = dict(self.get_global_settings())
         if global_settings.get("webdav_password"):
@@ -608,13 +617,12 @@ class ConfigService:
         """
         获取 AI 配置，优先解密加密的 API Key，兼容旧版明文。
 
-        返回值中的 api_key 始终为明文（或无法解密时为 None），
-        供测试连接、脱敏展示等业务路径直接使用。
-        磁盘上仍以 Fernet 密文存储。
-
-        api_key 含义：
-        - None：配置文件不存在，或解密失败（APP_SECRET_KEY 不匹配）
-        - 非空字符串：正常明文 key
+        返回值约定：
+        - 整体 None：配置文件不存在或为空
+        - api_key 非空字符串：解密后的明文（或旧版明文）
+        - api_key 为 None 且 api_key_decrypt_failed=True：磁盘有密文但
+          APP_SECRET_KEY 不匹配/损坏，业务路径视为「密钥不可用」
+        - 磁盘上仍以 Fernet 密文存储
 
         Returns:
             配置字典，如果不存在则返回 None
@@ -625,6 +633,7 @@ class ConfigService:
             return None
 
         api_key = raw.get("api_key", "") or ""
+        decrypt_failed = False
         if api_key:
             try:
                 from tg_signer.security import decrypt_secret
@@ -633,15 +642,17 @@ class ConfigService:
             except Exception as exc:
                 logging.getLogger("backend.config").warning(
                     "AI API Key 解密失败（可能 APP_SECRET_KEY 不匹配），"
-                    "调用方将表现为'未配置': %s",
+                    "密钥不可用于外发；仅更新 model/base_url 时将保留磁盘密文: %s",
                     exc,
                 )
                 api_key = None
+                decrypt_failed = True
 
         return {
             "api_key": api_key,
             "base_url": raw.get("base_url"),
             "model": raw.get("model"),
+            "api_key_decrypt_failed": decrypt_failed,
         }
 
     def save_ai_config(
@@ -660,20 +671,40 @@ class ConfigService:
 
         Returns:
             是否成功保存
+
+        边界：
+        - 未传 api_key 时优先复用已解密的明文；若解密失败但磁盘仍有密文，
+          则保留原密文仅更新 base_url/model，避免「密钥在盘上却无法改模型」。
         """
         existing = self.get_ai_config() or {}
         normalized_api_key = (api_key or "").strip()
-        final_api_key = normalized_api_key or existing.get("api_key", "")
-        if not final_api_key:
-            raise ValueError("API Key 不能为空")
+        final_api_key = normalized_api_key or (existing.get("api_key") or "")
 
         config_file = self._get_ai_config_file()
         existing_raw = self._read_json_file(config_file) or {}
+        raw_disk_key = str(existing_raw.get("api_key") or "").strip()
+
+        # 解密失败且本次未提供新 key：保留磁盘密文，只改 base_url/model
+        keep_ciphertext = (
+            not normalized_api_key
+            and not final_api_key
+            and bool(existing.get("api_key_decrypt_failed"))
+            and bool(raw_disk_key)
+        )
+        if not final_api_key and not keep_ciphertext:
+            raise ValueError("API Key 不能为空")
+
+        if keep_ciphertext:
+            # 密文保持不动，仅写元数据字段
+            existing_raw["base_url"] = base_url if base_url else None
+            existing_raw["model"] = model if model else None
+            return self._write_json_file(config_file, existing_raw)
 
         # 使用 Fernet 加密，但存储为 api_key 字段以兼容 OpenAIConfigManager
         try:
             from tg_signer.security import encrypt_secret
-            existing_raw["api_key"] = encrypt_secret(final_api_key)
+
+            existing_raw["api_key"] = encrypt_secret(str(final_api_key))
         except Exception as exc:
             logging.getLogger("backend.config").error(
                 "AI API Key 加密失败，拒绝保存明文: %s", exc

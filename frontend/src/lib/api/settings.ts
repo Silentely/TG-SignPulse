@@ -56,6 +56,8 @@ export interface AIConfig {
   base_url?: string;
   model?: string;
   api_key_masked?: string;
+  /** 磁盘有配置但 APP_SECRET_KEY 不匹配，需重填 Key */
+  api_key_decrypt_failed?: boolean;
 }
 
 export interface AITestResult {

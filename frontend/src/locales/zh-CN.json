@@ -11,6 +11,7 @@
   },
   "apiErrors": {
     "NETWORK_TIMEOUT": "请求超时",
+    "NETWORK_ABORTED": "请求已取消",
     "NETWORK_ERROR": "网络错误",
     "ACCOUNT_SESSION_INVALID": "账号会话失效，请重新登录",
     "TASK_LOG_NOT_FOUND": "任务日志不存在",
@@ -426,6 +427,7 @@
     "timezone": "时区",
     "aiConfig": "AI 模型配置",
     "aiDesc": "用于执行需要语义理解的自动化任务。",
+    "aiKeyDecryptFailed": "API Key 解密失败（可能 APP_SECRET_KEY 已变更）。可先改模型/Base URL 并保存；外发前请重新填写 Key。",
     "testConnection": "测试连接",
     "apiBaseUrl": "API Base URL (留空使用官方)",
     "model": "Model (留空使用默认 gpt-5-nano)",

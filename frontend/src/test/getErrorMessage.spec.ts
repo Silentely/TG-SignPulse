@@ -63,8 +63,9 @@ describe('getErrorMessage', () => {
     expect(getErrorMessage(new Error(''), 'fallback')).toBe('fallback')
   })
 
-  it('映射 NETWORK_TIMEOUT / NETWORK_ERROR', () => {
+  it('映射 NETWORK_TIMEOUT / NETWORK_ABORTED / NETWORK_ERROR', () => {
     expect(getErrorMessage(new Error('NETWORK_TIMEOUT'))).toBe('Request timed out')
+    expect(getErrorMessage(new Error('NETWORK_ABORTED'))).toBe('Request cancelled')
     expect(getErrorMessage(new Error('NETWORK_ERROR'))).toBe('Network error')
   })
 

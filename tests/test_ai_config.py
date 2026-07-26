@@ -91,6 +91,80 @@ class TestGetAiConfig:
         assert raw["api_key"] != "sk-test-abc"
 
 
+class TestAiConfigDecryptFailed:
+    """APP_SECRET_KEY 不匹配时的解密失败边界"""
+
+    def test_get_marks_decrypt_failed(self, isolated_env: Path):
+        """解密失败时返回 api_key=None 且 api_key_decrypt_failed=True"""
+        service = ConfigService()
+        service.save_ai_config(
+            api_key="sk-will-break", base_url="https://a.example", model="gpt-4o"
+        )
+        config_file = service.workdir / ".openai_config.json"
+        raw = json.loads(config_file.read_text(encoding="utf-8"))
+        assert raw["api_key"].startswith("fernet:")
+
+        with patch(
+            "tg_signer.security.decrypt_secret",
+            side_effect=Exception("wrong key"),
+        ):
+            config = service.get_ai_config()
+
+        assert config is not None
+        assert config["api_key"] is None
+        assert config["api_key_decrypt_failed"] is True
+        assert config["base_url"] == "https://a.example"
+        assert config["model"] == "gpt-4o"
+
+    def test_save_without_key_keeps_ciphertext_when_decrypt_failed(
+        self, isolated_env: Path
+    ):
+        """解密失败时仅更新 model/base_url 应保留磁盘密文，不要求重填 Key"""
+        service = ConfigService()
+        service.save_ai_config(
+            api_key="sk-original", base_url="https://a.example", model="gpt-4o"
+        )
+        config_file = service.workdir / ".openai_config.json"
+        cipher_before = json.loads(config_file.read_text(encoding="utf-8"))["api_key"]
+
+        with patch(
+            "tg_signer.security.decrypt_secret",
+            side_effect=Exception("wrong key"),
+        ):
+            ok = service.save_ai_config(
+                api_key=None, base_url="https://b.example", model="gpt-4o-mini"
+            )
+
+        assert ok is True
+        raw = json.loads(config_file.read_text(encoding="utf-8"))
+        assert raw["api_key"] == cipher_before, "密文应原样保留"
+        assert raw["base_url"] == "https://b.example"
+        assert raw["model"] == "gpt-4o-mini"
+
+    def test_save_new_key_replaces_after_decrypt_failed(self, isolated_env: Path):
+        """解密失败后提供新 Key 应重新加密写入"""
+        service = ConfigService()
+        service.save_ai_config(api_key="sk-old", model="gpt-4o")
+        config_file = service.workdir / ".openai_config.json"
+        cipher_before = json.loads(config_file.read_text(encoding="utf-8"))["api_key"]
+
+        with patch(
+            "tg_signer.security.decrypt_secret",
+            side_effect=Exception("wrong key"),
+        ):
+            # get 路径失败，但 save 传入新明文
+            service.save_ai_config(api_key="sk-new-key", model="gpt-4o-mini")
+
+        raw = json.loads(config_file.read_text(encoding="utf-8"))
+        assert raw["api_key"] != cipher_before
+        assert raw["api_key"].startswith("fernet:")
+        # 正常 SECRET 下应可读出新 key
+        stored = service.get_ai_config()
+        assert stored is not None
+        assert stored["api_key"] == "sk-new-key"
+        assert stored.get("api_key_decrypt_failed") is False
+
+
 class TestTestAiConnection:
     """test_ai_connection 必须使用解密后的明文 Key"""
 
