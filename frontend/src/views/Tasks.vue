@@ -29,6 +29,11 @@ import {
   pickPrimaryActiveRun,
   remainingWaitSeconds,
 } from '../lib/run-status'
+import {
+  filterTasksByModeAndQuery,
+  hasActiveListFilters,
+  type TaskListModeFilter,
+} from '../lib/task-list-filter'
 
 const route = useRoute()
 const router = useRouter()
@@ -59,8 +64,8 @@ const allAccounts = ref<string[]>([])
 const selectedTaskIds = ref<Set<string>>(new Set())
 const batchBusy = ref(false)
 const searchQuery = ref('')
-/** 任务模式筛选：全部 / 仅监听 / 仅定时 */
-const modeFilter = ref<'all' | 'listen' | 'scheduled'>('all')
+/** 模式筛选：全部 / 仅监听 / 仅定时 */
+const modeFilter = ref<TaskListModeFilter>('all')
 const selectedCount = computed(() => selectedTaskIds.value.size)
 const cloneBusy = ref(false)
 const showCloneModal = ref(false)
@@ -77,23 +82,9 @@ const pickTemplate = (templateId: string) => {
   showTemplateMenu.value = false
   handleCreateFromTemplate(templateId)
 }
-const filteredTasks = computed(() => {
-  let list = tasks.value
-  if (modeFilter.value === 'listen') {
-    list = list.filter((task) => task.isListenMode)
-  } else if (modeFilter.value === 'scheduled') {
-    list = list.filter((task) => !task.isListenMode)
-  }
-  const q = searchQuery.value.trim().toLowerCase()
-  if (!q) return list
-  return list.filter(
-    (task) =>
-      task.name.toLowerCase().includes(q) ||
-      task.targetStr.toLowerCase().includes(q) ||
-      task.scheduleMode.toLowerCase().includes(q) ||
-      task.lastRunStr.toLowerCase().includes(q)
-  )
-})
+const filteredTasks = computed(() =>
+  filterTasksByModeAndQuery(tasks.value, modeFilter.value, searchQuery.value),
+)
 const listenTaskCount = computed(() => tasks.value.filter((t) => t.isListenMode).length)
 const allSelected = computed(() => filteredTasks.value.length > 0 && filteredTasks.value.every((t) => selectedTaskIds.value.has(t.id)))
 
@@ -117,11 +108,8 @@ const toggleSelectAll = () => {
 const clearSelection = () => { selectedTaskIds.value = new Set() }
 
 /** 是否有激活中的列表筛选（搜索 / 模式 / 账号深链） */
-const hasListFilters = computed(
-  () =>
-    searchQuery.value.trim().length > 0
-    || modeFilter.value !== 'all'
-    || !!accountFilter.value,
+const hasListFilters = computed(() =>
+  hasActiveListFilters(searchQuery.value, modeFilter.value, accountFilter.value),
 )
 
 const runBatch = async (action: 'enable' | 'disable' | 'delete' | 'run') => {

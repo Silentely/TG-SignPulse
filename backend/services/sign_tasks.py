@@ -2254,15 +2254,15 @@ class SignTaskService:
         """
         获取账号的 Chat 列表 (带缓存)
         """
+        from backend.services.sign_task_chats import load_chats_cache_file
+
         account_name = validate_storage_name(account_name, field_name="account_name")
         cache_file = self.signs_dir / account_name / "chats_cache.json"
 
-        if not force_refresh and cache_file.exists():
-            try:
-                with open(cache_file, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception:
-                pass
+        if not force_refresh:
+            cached = load_chats_cache_file(cache_file)
+            if cached is not None:
+                return cached
 
         # 如果没有缓存或强制刷新，执行刷新逻辑
         return await self.refresh_account_chats(account_name)
@@ -2278,61 +2278,18 @@ class SignTaskService:
         """
         通过缓存搜索账号的 Chat 列表（不触发全量 get_dialogs）
         """
+        from backend.services.sign_task_chats import (
+            empty_chat_search_page,
+            load_chats_cache_file,
+            search_chats_in_cache,
+        )
+
         account_name = validate_storage_name(account_name, field_name="account_name")
         cache_file = self.signs_dir / account_name / "chats_cache.json"
-
-        if limit < 1:
-            limit = 1
-        if limit > 200:
-            limit = 200
-        if offset < 0:
-            offset = 0
-
-        if not cache_file.exists():
-            return {"items": [], "total": 0, "limit": limit, "offset": offset}
-
-        try:
-            with open(cache_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except Exception:
-            return {"items": [], "total": 0, "limit": limit, "offset": offset}
-
-        if not isinstance(data, list):
-            return {"items": [], "total": 0, "limit": limit, "offset": offset}
-
-        q = (query or "").strip()
-        if not q:
-            total = len(data)
-            return {
-                "items": data[offset : offset + limit],
-                "total": total,
-                "limit": limit,
-                "offset": offset,
-            }
-
-        is_numeric = q.lstrip("-").isdigit()
-        if is_numeric or q.startswith("-100"):
-            def match(chat: Dict[str, Any]) -> bool:
-                chat_id = chat.get("id")
-                if chat_id is None:
-                    return False
-                return q in str(chat_id)
-        else:
-            q_lower = q.lower()
-
-            def match(chat: Dict[str, Any]) -> bool:
-                title = (chat.get("title") or "").lower()
-                username = (chat.get("username") or "").lower()
-                return q_lower in title or q_lower in username
-
-        filtered = [c for c in data if match(c)]
-        total = len(filtered)
-        return {
-            "items": filtered[offset : offset + limit],
-            "total": total,
-            "limit": limit,
-            "offset": offset,
-        }
+        data = load_chats_cache_file(cache_file)
+        if data is None:
+            return empty_chat_search_page(limit=limit, offset=offset)
+        return search_chats_in_cache(data, query, limit=limit, offset=offset)
 
     @staticmethod
     def _is_invalid_session_error(err: Exception) -> bool:
@@ -2444,6 +2401,8 @@ class SignTaskService:
             account_lock = self._account_locks[account_name]
 
             async def _fetch_chats(active_client) -> List[Dict[str, Any]]:
+                from backend.services.sign_task_chats import map_pyrogram_chat
+
                 local_chats: List[Dict[str, Any]] = []
                 # 使用上下文管理器处理生命周期和锁
                 async with account_lock:
@@ -2456,25 +2415,11 @@ class SignTaskService:
                             try:
                                 async for dialog in active_client.get_dialogs():
                                     try:
-                                        chat = getattr(dialog, "chat", None)
-                                        if chat is None:
-                                            continue
-                                        chat_id = getattr(chat, "id", None)
-                                        if chat_id is None:
-                                            continue
-
-                                        chat_type = getattr(chat, "type", None)
-                                        type_name = chat_type.name.lower() if chat_type else "private"
-
-                                        local_chats.append({
-                                            "id": chat_id,
-                                            "title": getattr(chat, "title", None)
-                                            or getattr(chat, "first_name", None)
-                                            or getattr(chat, "username", None)
-                                            or str(chat_id),
-                                            "username": getattr(chat, "username", None),
-                                            "type": type_name,
-                                        })
+                                        mapped = map_pyrogram_chat(
+                                            getattr(dialog, "chat", None)
+                                        )
+                                        if mapped is not None:
+                                            local_chats.append(mapped)
                                     except Exception:
                                         continue
                             except Exception as e:
@@ -2490,26 +2435,16 @@ class SignTaskService:
                                     try:
                                         async for msg in active_client.search_global(term, limit=50):
                                             try:
-                                                chat = getattr(msg, "chat", None)
-                                                if chat is None:
+                                                mapped = map_pyrogram_chat(
+                                                    getattr(msg, "chat", None)
+                                                )
+                                                if mapped is None:
                                                     continue
-                                                chat_id = getattr(chat, "id", None)
-                                                if chat_id is None or chat_id in seen_ids:
+                                                chat_id = mapped["id"]
+                                                if chat_id in seen_ids:
                                                     continue
                                                 seen_ids.add(chat_id)
-
-                                                chat_type = getattr(chat, "type", None)
-                                                type_name = chat_type.name.lower() if chat_type else "private"
-
-                                                local_chats.append({
-                                                    "id": chat_id,
-                                                    "title": getattr(chat, "title", None)
-                                                    or getattr(chat, "first_name", None)
-                                                    or getattr(chat, "username", None)
-                                                    or str(chat_id),
-                                                    "username": getattr(chat, "username", None),
-                                                    "type": type_name,
-                                                })
+                                                local_chats.append(mapped)
                                             except Exception:
                                                 continue
                                     except Exception:
@@ -2552,15 +2487,12 @@ class SignTaskService:
                     raise
 
             # 保存到缓存
-            account_dir = self.signs_dir / account_name
-            account_dir.mkdir(parents=True, exist_ok=True)
-            cache_file = account_dir / "chats_cache.json"
+            from backend.services.sign_task_chats import save_chats_cache_file
 
-            try:
-                with open(cache_file, "w", encoding="utf-8") as f:
-                    json.dump(chats, f, ensure_ascii=False, indent=2)
-            except Exception as e:
-                _service_logger.debug("保存 Chat 缓存失败: %s", e)
+            account_dir = self.signs_dir / account_name
+            cache_file = account_dir / "chats_cache.json"
+            if not save_chats_cache_file(cache_file, chats):
+                _service_logger.debug("保存 Chat 缓存失败: %s", cache_file)
 
             return chats
 
