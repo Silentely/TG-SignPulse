@@ -1,7 +1,7 @@
 /**
  * 账号管理 API：登录流程、CRUD、状态检测、设备、官方消息、账号日志。
  */
-import { LONG_TIMEOUT_MS, request, requestBlob } from "./core";
+import { LONG_TIMEOUT_MS, MEDIUM_TIMEOUT_MS, request, requestBlob } from "./core";
 
 export interface LoginStartRequest {
   account_name: string;
@@ -148,10 +148,12 @@ export const listAccounts = (token: string) =>
   request<{ accounts: AccountInfo[]; total: number }>("/accounts", {}, token);
 
 export const checkAccountsStatus = (token: string, data: AccountStatusCheckRequest) =>
-  request<AccountStatusCheckResponse>("/accounts/status/check", {
-    method: "POST",
-    body: JSON.stringify(data),
-  }, token);
+  request<AccountStatusCheckResponse>(
+    "/accounts/status/check",
+    { method: "POST", body: JSON.stringify(data) },
+    token,
+    MEDIUM_TIMEOUT_MS,
+  );
 
 /** 异步批量状态检测 Job */
 export interface AccountStatusJob {
@@ -208,7 +210,12 @@ export const checkAccountExists = (token: string, accountName: string) =>
   request<{ exists: boolean; account_name: string }>(`/accounts/${accountName}/exists`, {}, token);
 
 export const listAccountDevices = (token: string, accountName: string) =>
-  request<{ devices: AccountDeviceInfo[]; total: number }>(`/accounts/${encodeURIComponent(accountName)}/devices`, {}, token);
+  request<{ devices: AccountDeviceInfo[]; total: number }>(
+    `/accounts/${encodeURIComponent(accountName)}/devices`,
+    {},
+    token,
+    MEDIUM_TIMEOUT_MS,
+  );
 
 export const terminateAccountDevice = (token: string, accountName: string, authHash: string) =>
   request<{ success: boolean; message: string }>(`/accounts/${encodeURIComponent(accountName)}/devices/${encodeURIComponent(authHash)}`, {
@@ -216,7 +223,12 @@ export const terminateAccountDevice = (token: string, accountName: string, authH
   }, token);
 
 export const listAccountOfficialMessages = (token: string, accountName: string, limit = 20) =>
-  request<{ messages: OfficialMessageInfo[]; total: number }>(`/accounts/${encodeURIComponent(accountName)}/official-messages?limit=${encodeURIComponent(String(limit))}`, {}, token);
+  request<{ messages: OfficialMessageInfo[]; total: number }>(
+    `/accounts/${encodeURIComponent(accountName)}/official-messages?limit=${encodeURIComponent(String(limit))}`,
+    {},
+    token,
+    MEDIUM_TIMEOUT_MS,
+  );
 
 export const updateAccount = (
   token: string,

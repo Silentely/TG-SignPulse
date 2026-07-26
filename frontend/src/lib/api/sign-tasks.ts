@@ -1,7 +1,7 @@
 /**
  * 签到任务管理 API：CRUD、执行、运行状态、历史、批量操作、聊天查询。
  */
-import { request, requestBlob } from "./core";
+import { LONG_TIMEOUT_MS, MEDIUM_TIMEOUT_MS, request, requestBlob } from "./core";
 import type { RawTaskAction } from "../types";
 
 export interface SignTaskChat {
@@ -137,9 +137,12 @@ export const toggleSignTaskEnabled = (token: string, name: string, accountName?:
   }, token);
 
 export const runSignTask = (token: string, name: string, accountName: string) =>
-  request<{ success: boolean; output: string; error: string }>(`/sign-tasks/${encodeURIComponent(name)}/run?account_name=${encodeURIComponent(accountName)}`, {
-    method: "POST",
-  }, token);
+  request<{ success: boolean; output: string; error: string }>(
+    `/sign-tasks/${encodeURIComponent(name)}/run?account_name=${encodeURIComponent(accountName)}`,
+    { method: "POST" },
+    token,
+    LONG_TIMEOUT_MS,
+  );
 
 export interface SignTaskRunStatus {
   run_id: string;
@@ -205,7 +208,12 @@ export const cancelSignTaskRun = (
 };
 
 export const getAccountChats = (token: string, accountName: string, forceRefresh?: boolean) =>
-  request<ChatInfo[]>(`/sign-tasks/chats/${encodeURIComponent(accountName)}${forceRefresh ? '?force_refresh=true' : ''}`, {}, token);
+  request<ChatInfo[]>(
+    `/sign-tasks/chats/${encodeURIComponent(accountName)}${forceRefresh ? '?force_refresh=true' : ''}`,
+    {},
+    token,
+    MEDIUM_TIMEOUT_MS,
+  );
 
 export const searchAccountChats = (
   token: string,
@@ -218,7 +226,7 @@ export const searchAccountChats = (
   params.append("q", query);
   params.append("limit", String(limit));
   params.append("offset", String(offset));
-  return request<ChatSearchResponse>(`/sign-tasks/chats/${encodeURIComponent(accountName)}/search?${params.toString()}`, {}, token);
+  return request<ChatSearchResponse>(`/sign-tasks/chats/${encodeURIComponent(accountName)}/search?${params.toString()}`, {}, token, MEDIUM_TIMEOUT_MS);
 };
 
 export const getSignTaskLogs = (token: string, name: string, accountName?: string) => {
@@ -298,7 +306,8 @@ export const batchSignTasks = (
         run_account_name: runAccountName || null,
       }),
     },
-    token
+    token,
+    MEDIUM_TIMEOUT_MS,
   );
 
 /**
