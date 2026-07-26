@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   emptyToNull,
   parseNumberInputValue,
+  applyGlobalSettingsToForm,
   buildGeneralPayload,
   buildBotPayload,
   buildAdvancedPayload,
@@ -194,3 +195,24 @@ describe('settings-form', () => {
 
 })
 
+describe('applyGlobalSettingsToForm', () => {
+  it('maps server payload into form fields without secrets', () => {
+    const s = baseSettings()
+    const flags = applyGlobalSettingsToForm(s, {
+      sign_interval: 45,
+      log_retention_days: 14,
+      telegram_bot_token_set: true,
+      webdav_password_set: true,
+      telegram_bot_message_thread_id: 9,
+      timezone: 'UTC',
+    })
+    expect(s.checkInterval).toBe('45')
+    expect(s.logDays).toBe(14)
+    expect(s.botToken).toBe('')
+    expect(s.webdavPassword).toBe('')
+    expect(s.botThreadId).toBe('9')
+    expect(s.timezone).toBe('UTC')
+    expect(flags.botTokenSet).toBe(true)
+    expect(flags.webdavPasswordSet).toBe(true)
+  })
+})

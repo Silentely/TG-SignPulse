@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
-import { Download, Loader2, RefreshCw } from 'lucide-vue-next'
+import { Download, RefreshCw } from 'lucide-vue-next'
 import Modal from '../Modal.vue'
-import FlowLogViewer from '../FlowLogViewer.vue'
+import TaskLogsHitsPanel from './TaskLogsHitsPanel.vue'
+import TaskLogsHistoryPanel from './TaskLogsHistoryPanel.vue'
 import { getSignTaskHistory } from '../../lib/api'
 import type { SignTaskHistoryItem, KeywordHitRecord } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
@@ -14,10 +15,7 @@ import type { TaskUiItem } from '../../lib/types'
 import { getLocalizedErrorMessage } from '../../lib/types'
 import { normalizeFlowLogLines } from '../../lib/task-log-format'
 import { devLog } from '../../lib/devLog'
-import {
-  failureCategoryLabel,
-  formatPhaseDetail,
-} from '../../lib/run-status'
+import { failureCategoryLabel } from '../../lib/run-status'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -284,212 +282,43 @@ const hitLink = (hit: KeywordHitRecord) => safeHitUrl(hit.url)
         </button>
       </div>
 
-      <template v-if="panelTab === 'hits' && isListenTask">
-        <div class="mb-3 flex flex-wrap items-center gap-2">
-          <div class="flex items-center gap-1 text-[11px]">
-            <button
-              type="button"
-              class="px-2 py-1 rounded-sm border"
-              :class="hitsView === 'list' ? 'border-sky-400 text-sky-700 dark:text-sky-300' : 'border-gray-200 dark:border-gray-700 text-gray-500'"
-              @click="hitsView = 'list'"
-            >
-              {{ t('taskLogs.hitsList') }}
-            </button>
-            <button
-              type="button"
-              class="px-2 py-1 rounded-sm border"
-              :class="hitsView === 'groups' ? 'border-sky-400 text-sky-700 dark:text-sky-300' : 'border-gray-200 dark:border-gray-700 text-gray-500'"
-              @click="hitsView = 'groups'"
-            >
-              {{ t('taskLogs.hitsGroups') }}
-            </button>
-          </div>
-          <select
-            v-if="hitsView === 'groups'"
-            v-model="hitGroupBy"
-            class="ui-input !h-8 !text-xs !w-auto"
-          >
-            <option value="chat">{{ t('taskLogs.groupByChat') }}</option>
-            <option value="account">{{ t('taskLogs.groupByAccount') }}</option>
-            <option value="task">{{ t('taskLogs.groupByTask') }}</option>
-          </select>
-          <span class="text-[10px] text-gray-400 hidden md:inline">{{ t('taskLogs.hitsAutoRefreshHint') }}</span>
-          <button
-            type="button"
-            class="ml-auto text-[11px] text-rose-600 dark:text-rose-400 hover:underline"
-            @click="clearHits"
-          >
-            {{ t('taskLogs.hitsClear') }}
-          </button>
-        </div>
+      <TaskLogsHitsPanel
+        v-if="panelTab === 'hits' && isListenTask"
+        :hits-loading="hitsLoading"
+        :hits-loading-more="hitsLoadingMore"
+        :hits-view="hitsView"
+        :hit-group-by="hitGroupBy"
+        :hit-records="hitRecords"
+        :hit-groups="hitGroups"
+        :hit-total="hitTotal"
+        :can-load-more-hits="canLoadMoreHits"
+        :format-date="formatDate"
+        :hit-link="hitLink"
+        @update:hits-view="hitsView = $event"
+        @update:hit-group-by="hitGroupBy = $event"
+        @clear-hits="clearHits"
+        @load-more="loadMoreHits"
+      />
 
-        <div v-if="hitsLoading" class="ui-page-loading !py-10">
-          <div class="ui-spinner" />
-        </div>
-        <div v-else-if="hitsView === 'list' && hitRecords.length === 0" class="ui-empty !py-10">
-          <p class="ui-empty-desc">{{ t('taskLogs.hitsEmpty') }}</p>
-        </div>
-        <div v-else-if="hitsView === 'groups' && hitGroups.length === 0" class="ui-empty !py-10">
-          <p class="ui-empty-desc">{{ t('taskLogs.hitsEmpty') }}</p>
-        </div>
-
-        <div v-else-if="hitsView === 'list'" class="space-y-2">
-          <div
-            v-for="hit in hitRecords"
-            :key="hit.id"
-            class="ui-card p-3 text-xs space-y-1.5"
-          >
-            <div class="flex items-center justify-between gap-2">
-              <span class="font-mono text-sky-700 dark:text-sky-300 truncate">{{ hit.keyword || '-' }}</span>
-              <span class="text-gray-500 font-mono shrink-0">{{ formatDate(hit.time) }}</span>
-            </div>
-            <div class="text-gray-600 dark:text-gray-400 truncate">
-              {{ hit.chat_title || hit.chat_id || '-' }}
-              <span v-if="hit.sender" class="text-gray-400"> · {{ hit.sender }}</span>
-              <span v-if="hit.push_channel" class="text-gray-400"> · {{ hit.push_channel }}</span>
-            </div>
-            <div class="text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-all line-clamp-3">
-              {{ hit.message_text || '-' }}
-            </div>
-            <template v-if="hitLink(hit)">
-              <a
-                :href="hitLink(hit)!"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="text-sky-600 dark:text-sky-400 hover:underline"
-              >{{ t('taskLogs.hitsOpenMessage') }}</a>
-            </template>
-          </div>
-          <div v-if="canLoadMoreHits" class="pt-1 flex justify-center">
-            <button
-              type="button"
-              class="ui-btn-secondary !px-3 !py-1.5 !text-xs"
-              :disabled="hitsLoadingMore"
-              @click="loadMoreHits"
-            >
-              <span v-if="hitsLoadingMore" class="ui-spinner !w-3 !h-3 !border-2 mr-1" />
-              {{ t('taskLogs.hitsLoadMore') }}
-              <span class="font-mono opacity-70 ml-1">({{ hitRecords.length }}/{{ hitTotal }})</span>
-            </button>
-          </div>
-        </div>
-
-        <div v-else class="space-y-3">
-          <div
-            v-for="group in hitGroups"
-            :key="group.key"
-            class="ui-card p-3 space-y-2"
-          >
-            <div class="flex items-center justify-between gap-2 text-xs">
-              <span class="font-medium text-gray-900 dark:text-gray-100 truncate">{{ group.label }}</span>
-              <span class="ui-badge ui-badge-neutral !text-[11px] font-mono">{{ group.count }}</span>
-            </div>
-            <div class="space-y-1.5 border-t border-gray-100 dark:border-gray-800/50 pt-2">
-              <div
-                v-for="hit in group.items"
-                :key="hit.id"
-                class="text-[11px] flex items-start justify-between gap-2"
-              >
-                <div class="min-w-0">
-                  <span class="font-mono text-sky-700 dark:text-sky-300">{{ hit.keyword || '-' }}</span>
-                  <span class="text-gray-500 ml-1 truncate">{{ hit.message_text || '' }}</span>
-                </div>
-                <span class="text-gray-400 font-mono shrink-0">{{ formatDate(hit.time) }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </template>
-
-      <template v-else>
-        <!-- 运行 phase 状态条（实时） -->
-        <div
-          v-if="runAccount && (isRunning || livePhaseDetail || livePhase)"
-          class="mb-3 px-3 py-2 rounded-sm border text-xs flex flex-wrap items-center gap-2"
-          :class="liveStatusToneClass"
-        >
-          <span class="font-medium">{{ formatPhaseDetail({ phase: livePhase, phase_detail: livePhaseDetail }, t) || liveStatusLabel }}</span>
-          <span v-if="liveState && liveState !== 'running'" class="opacity-80">· {{ stateLabel(liveState, t) }}</span>
-        </div>
-
-        <!-- Real-time logs -->
-        <div v-if="realtimeLogs.length > 0 || isRunning" class="mb-4">
-          <div class="ui-section-label mb-2">{{ t('taskLogs.realtimeLogs') }}</div>
-          <div
-            ref="logContainer"
-            class="ui-terminal whitespace-pre-wrap break-all !max-h-60"
-          >
-            <div
-              v-for="(line, i) in (displayRealtimeLines.length ? displayRealtimeLines : realtimeLogs)"
-              :key="i"
-              class="leading-relaxed"
-              :class="lineTone(String(line))"
-            >
-              {{ line }}
-            </div>
-            <div v-if="isRunning && realtimeLogs.length === 0" class="text-gray-500 flex items-center gap-2">
-              <Loader2 class="w-3 h-3 animate-spin" /> {{ t('taskLogs.waitingOutput') }}
-            </div>
-          </div>
-        </div>
-
-        <!-- Loading / empty -->
-        <div v-if="loading && logs.length === 0 && realtimeLogs.length === 0" class="ui-page-loading !py-10">
-          <div class="ui-spinner" />
-        </div>
-
-        <div v-else-if="logs.length === 0 && realtimeLogs.length === 0 && !isRunning" class="ui-empty !py-10">
-          <p class="ui-empty-desc">{{ t('taskLogs.noLogs') }}</p>
-        </div>
-
-        <!-- History -->
-        <div v-if="logs.length > 0" class="space-y-3">
-          <div class="ui-section-label mb-2">{{ t('taskLogs.history') }}</div>
-          <div
-            v-for="(log, idx) in logs"
-            :key="idx"
-            class="ui-card p-3 text-sm"
-          >
-            <div class="flex items-center justify-between mb-2 gap-2">
-              <span class="font-medium flex items-center gap-3 text-gray-900 dark:text-gray-200 flex-wrap">
-                <span>{{ t('taskLogs.account') }}{{ log.account_name || t('taskLogs.unknown') }}</span>
-                <span
-                  class="ui-badge"
-                  :class="log.success ? 'ui-badge-success' : 'ui-badge-error'"
-                >
-                  <span class="ui-badge-dot" />
-                  {{ log.success ? t('taskLogs.success') : t('taskLogs.failed') }}
-                </span>
-              </span>
-              <span class="text-xs text-gray-500 font-mono shrink-0">{{ formatDate(log.time || log.created_at || '') }}</span>
-            </div>
-
-            <div v-if="log.last_target_message || log.bot_message" class="mt-2 text-sm text-gray-700 dark:text-gray-300">
-              <div class="ui-section-label mb-1">{{ t('taskLogs.lastResponse') }}</div>
-              <div class="whitespace-pre-wrap break-all p-2 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 text-xs">
-                {{ log.last_target_message || log.bot_message }}
-              </div>
-            </div>
-
-            <div v-if="(log.flow_logs && log.flow_logs.length > 0) || log.message || log.summary" class="mt-3">
-              <button
-                type="button"
-                class="text-xs text-sky-600 dark:text-sky-400 hover:underline mb-2"
-                @click="toggleExpand(idx)"
-              >
-                {{ expandedIdx === idx ? t('taskLogs.collapseDetail') : t('taskLogs.expandDetail') }}
-              </button>
-              <FlowLogViewer
-                v-if="expandedIdx === idx"
-                :lines="log.flow_logs || (log.message || log.summary ? [String(log.message || log.summary)] : [])"
-                :last-target-message="log.last_target_message || log.bot_message"
-                :truncated="!!log.flow_truncated"
-                compact
-              />
-            </div>
-          </div>
-        </div>
-      </template>
+      <TaskLogsHistoryPanel
+        v-else
+        :run-account="runAccount"
+        :is-running="isRunning"
+        :live-phase="livePhase"
+        :live-phase-detail="livePhaseDetail"
+        :live-state="liveState"
+        :live-status-label="liveStatusLabel"
+        :live-status-tone-class="liveStatusToneClass"
+        :realtime-logs="realtimeLogs"
+        :display-realtime-lines="displayRealtimeLines"
+        :loading="loading"
+        :logs="logs"
+        :expanded-idx="expandedIdx"
+        :format-date="formatDate"
+        :line-tone="lineTone"
+        @toggle-expand="toggleExpand"
+        @set-log-container="logContainer = $event"
+      />
     </div>
   </Modal>
 </template>

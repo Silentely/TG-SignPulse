@@ -203,3 +203,65 @@ def map_pyrogram_chat(chat: Any) -> Optional[Dict[str, Any]]:
         "username": getattr(chat, "username", None),
         "type": type_name,
     }
+
+
+SEARCH_GLOBAL_FALLBACK_TERMS = ("", "a", "1")
+
+
+def append_mapped_chat(
+    local_chats: List[Dict[str, Any]],
+    chat: Any,
+    *,
+    seen_ids: Optional[set] = None,
+) -> bool:
+    """
+    将 Pyrogram chat 映射并追加到列表。
+
+    seen_ids 非空时按 id 去重；成功追加返回 True。
+    """
+    mapped = map_pyrogram_chat(chat)
+    if mapped is None:
+        return False
+    chat_id = mapped.get("id")
+    if seen_ids is not None:
+        if chat_id in seen_ids:
+            return False
+        seen_ids.add(chat_id)
+    local_chats.append(mapped)
+    return True
+
+
+def build_chat_client_kwargs(
+    *,
+    account_name: str,
+    workdir: Path,
+    api_id: int,
+    api_hash: str,
+    session_string: Optional[str],
+    in_memory: bool,
+    proxy: Any = None,
+    no_updates: bool = True,
+) -> Dict[str, Any]:
+    """构造 get_client 刷新会话列表用的参数。"""
+    return {
+        "name": account_name,
+        "workdir": workdir,
+        "api_id": api_id,
+        "api_hash": api_hash,
+        "session_string": session_string,
+        "in_memory": in_memory,
+        "proxy": proxy,
+        "no_updates": no_updates,
+    }
+
+
+def client_kwargs_with_fallback_session(
+    client_kwargs: Dict[str, Any],
+    fallback_session_string: str,
+) -> Dict[str, Any]:
+    """session 失效后改用 string session 重试的 kwargs。"""
+    retry = dict(client_kwargs)
+    retry["session_string"] = fallback_session_string
+    retry["in_memory"] = True
+    retry["no_updates"] = True
+    return retry

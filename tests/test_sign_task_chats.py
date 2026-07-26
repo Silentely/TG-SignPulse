@@ -5,6 +5,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from backend.services.sign_task_chats import (
+    append_mapped_chat,
+    build_chat_client_kwargs,
+    client_kwargs_with_fallback_session,
     empty_chat_search_page,
     load_chats_cache_file,
     map_pyrogram_chat,

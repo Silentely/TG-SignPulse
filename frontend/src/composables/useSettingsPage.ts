@@ -26,6 +26,7 @@ import { useAuthStore } from '../stores/auth'
 import { getLocalizedErrorMessage } from '../lib/types'
 import { devLog } from '../lib/devLog'
 import {
+  applyGlobalSettingsToForm,
   buildAdvancedPayload as buildAdvancedPayloadOf,
   buildAiRuntimePayload as buildAiRuntimePayloadOf,
   buildBackupPayload as buildBackupPayloadOf,
@@ -47,6 +48,8 @@ export function useSettingsPage() {
   const toast = useToast()
   const { confirm } = useConfirm()
   const authStore = useAuthStore()
+  const notifySuccess = (msg: string) => toast.success(msg)
+  const notifyError = (msg: string) => toast.error(msg)
 
   const settings = ref<SettingsFormState>({
     checkInterval: '',
@@ -255,41 +258,9 @@ export function useSettingsPage() {
         getTelegramConfig(token).catch(() => null),
         getAIConfig(token).catch(() => null)
       ])
-      settings.value.checkInterval = res.sign_interval ? String(res.sign_interval) : ''
-      settings.value.logDays = res.log_retention_days || 7
-      settings.value.dataDir = res.data_dir || ''
-      settings.value.proxy = res.global_proxy || ''
-      settings.value.concurrency = res.tg_global_concurrency || 1
-      settings.value.deviceKeepaliveEnabled = res.device_keepalive_enabled !== false
-      settings.value.deviceKeepaliveIntervalDays = res.device_keepalive_interval_days || 30
-      settings.value.botEnabled = res.telegram_bot_notify_enabled || false
-      settings.value.botLoginNotify = res.telegram_bot_login_notify_enabled || false
-      settings.value.botTaskFailure = res.telegram_bot_task_failure_enabled || false
-      settings.value.botTaskSuccess = res.telegram_bot_task_success_enabled || false
-      settings.value.quietEnabled = res.telegram_bot_quiet_hours_enabled || false
-      settings.value.quietStart = res.telegram_bot_quiet_hours_start || '23:00'
-      settings.value.quietEnd = res.telegram_bot_quiet_hours_end || '07:00'
-      // Token 不回传明文
-      settings.value.botToken = ''
-      botTokenSet.value = !!res.telegram_bot_token_set
-      settings.value.botChatId = res.telegram_bot_chat_id || ''
-      settings.value.botThreadId = res.telegram_bot_message_thread_id ? String(res.telegram_bot_message_thread_id) : ''
-      settings.value.timezone = res.timezone || 'Asia/Hong_Kong'
-      settings.value.execTimeout = res.sign_task_execution_timeout ?? ''
-      settings.value.accountCooldown = res.sign_task_account_cooldown ?? ''
-      settings.value.flowRetry = res.sign_task_flow_retry_attempts ?? ''
-      settings.value.historyMaxAge = res.sign_task_history_max_age_days ?? ''
-      settings.value.aiVisionTimeout = res.ai_vision_timeout ?? ''
-      settings.value.aiVisionRetry = res.ai_vision_retry_attempts ?? ''
-      settings.value.autoBackupEnabled = res.auto_backup_enabled || false
-      settings.value.autoBackupInterval = res.auto_backup_interval_hours || 24
-      settings.value.autoBackupKeep = res.auto_backup_keep || 3
-      settings.value.webdavUrl = res.webdav_url || ''
-      settings.value.webdavUsername = res.webdav_username || ''
-      // 密码不回传明文：仅根据 password_set 展示「已保存」提示
-      settings.value.webdavPassword = ''
-      webdavPasswordSet.value = !!res.webdav_password_set
-      settings.value.webdavRemoteDir = res.webdav_remote_dir || 'tg-signpulse-backups'
+      const flags = applyGlobalSettingsToForm(settings.value, res)
+      botTokenSet.value = flags.botTokenSet
+      webdavPasswordSet.value = flags.webdavPasswordSet
 
       if (tgRes && tgRes.is_custom) {
         tgConfig.value.api_id = tgRes.api_id

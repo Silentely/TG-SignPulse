@@ -218,3 +218,79 @@ export function dirtySectionLabels(
     .filter((k) => baseline[k] !== current[k])
     .map((k) => labels[k])
 }
+
+/** 服务端全局设置 → 表单字段（不含密钥明文） */
+export function applyGlobalSettingsToForm(
+  s: SettingsFormState,
+  res: {
+    sign_interval?: number | null
+    log_retention_days?: number
+    data_dir?: string | null
+    global_proxy?: string | null
+    tg_global_concurrency?: number | null
+    device_keepalive_enabled?: boolean
+    device_keepalive_interval_days?: number
+    telegram_bot_notify_enabled?: boolean
+    telegram_bot_login_notify_enabled?: boolean
+    telegram_bot_task_failure_enabled?: boolean
+    telegram_bot_task_success_enabled?: boolean
+    telegram_bot_quiet_hours_enabled?: boolean
+    telegram_bot_quiet_hours_start?: string | null
+    telegram_bot_quiet_hours_end?: string | null
+    telegram_bot_token_set?: boolean
+    telegram_bot_chat_id?: string | null
+    telegram_bot_message_thread_id?: number | null
+    timezone?: string
+    sign_task_execution_timeout?: number | null
+    sign_task_account_cooldown?: number | null
+    sign_task_flow_retry_attempts?: number | null
+    sign_task_history_max_age_days?: number | null
+    ai_vision_timeout?: number | null
+    ai_vision_retry_attempts?: number | null
+    auto_backup_enabled?: boolean
+    auto_backup_interval_hours?: number | null
+    auto_backup_keep?: number | null
+    webdav_url?: string | null
+    webdav_username?: string | null
+    webdav_password_set?: boolean
+    webdav_remote_dir?: string | null
+  },
+): { botTokenSet: boolean; webdavPasswordSet: boolean } {
+  s.checkInterval = res.sign_interval ? String(res.sign_interval) : ''
+  s.logDays = res.log_retention_days || 7
+  s.dataDir = res.data_dir || ''
+  s.proxy = res.global_proxy || ''
+  s.concurrency = res.tg_global_concurrency || 1
+  s.deviceKeepaliveEnabled = res.device_keepalive_enabled !== false
+  s.deviceKeepaliveIntervalDays = res.device_keepalive_interval_days || 30
+  s.botEnabled = res.telegram_bot_notify_enabled || false
+  s.botLoginNotify = res.telegram_bot_login_notify_enabled || false
+  s.botTaskFailure = res.telegram_bot_task_failure_enabled || false
+  s.botTaskSuccess = res.telegram_bot_task_success_enabled || false
+  s.quietEnabled = res.telegram_bot_quiet_hours_enabled || false
+  s.quietStart = res.telegram_bot_quiet_hours_start || '23:00'
+  s.quietEnd = res.telegram_bot_quiet_hours_end || '07:00'
+  s.botToken = ''
+  s.botChatId = res.telegram_bot_chat_id || ''
+  s.botThreadId = res.telegram_bot_message_thread_id
+    ? String(res.telegram_bot_message_thread_id)
+    : ''
+  s.timezone = res.timezone || 'Asia/Hong_Kong'
+  s.execTimeout = res.sign_task_execution_timeout ?? ''
+  s.accountCooldown = res.sign_task_account_cooldown ?? ''
+  s.flowRetry = res.sign_task_flow_retry_attempts ?? ''
+  s.historyMaxAge = res.sign_task_history_max_age_days ?? ''
+  s.aiVisionTimeout = res.ai_vision_timeout ?? ''
+  s.aiVisionRetry = res.ai_vision_retry_attempts ?? ''
+  s.autoBackupEnabled = res.auto_backup_enabled || false
+  s.autoBackupInterval = res.auto_backup_interval_hours || 24
+  s.autoBackupKeep = res.auto_backup_keep || 3
+  s.webdavUrl = res.webdav_url || ''
+  s.webdavUsername = res.webdav_username || ''
+  s.webdavPassword = ''
+  s.webdavRemoteDir = res.webdav_remote_dir || 'tg-signpulse-backups'
+  return {
+    botTokenSet: !!res.telegram_bot_token_set,
+    webdavPasswordSet: !!res.webdav_password_set,
+  }
+}

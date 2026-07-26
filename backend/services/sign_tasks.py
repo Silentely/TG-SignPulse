@@ -2274,8 +2274,13 @@ class SignTaskService:
         from backend.core.config import get_settings
         from backend.services.config import get_config_service
         from backend.services.sign_task_chats import (
+            SEARCH_GLOBAL_FALLBACK_TERMS,
+            append_mapped_chat,
+            build_chat_client_kwargs,
+            client_kwargs_with_fallback_session,
             resolve_account_session_for_chats,
             resolve_telegram_api_credentials,
+            save_chats_cache_file,
         )
 
         settings = get_settings()
@@ -2300,52 +2305,43 @@ class SignTaskService:
             env_api_hash=os.getenv("TG_API_HASH"),
         )
 
-        # 使用 get_client 获取（可能共享的）客户端实例
         proxy_dict = None
         proxy_value = self._get_effective_proxy(account_name)
         if proxy_value:
             proxy_dict = build_proxy_dict(proxy_value)
-        client_kwargs = {
-            "name": account_name,
-            "workdir": session_dir,
-            "api_id": api_id,
-            "api_hash": api_hash,
-            "session_string": session_string,
-            "in_memory": session_mode == "string",
-            "proxy": proxy_dict,
-            "no_updates": True,
-        }
+        client_kwargs = build_chat_client_kwargs(
+            account_name=account_name,
+            workdir=session_dir,
+            api_id=api_id,
+            api_hash=api_hash,
+            session_string=session_string,
+            in_memory=session_mode == "string",
+            proxy=proxy_dict,
+        )
         client = get_client(**client_kwargs)
 
         chats: List[Dict[str, Any]] = []
         logger = logging.getLogger("backend")
         try:
-            # 初始化账号锁（跨服务共享）
             if account_name not in self._account_locks:
                 self._account_locks[account_name] = get_account_lock(account_name)
 
             account_lock = self._account_locks[account_name]
 
             async def _fetch_chats(active_client) -> List[Dict[str, Any]]:
-                from backend.services.sign_task_chats import map_pyrogram_chat
-
                 local_chats: List[Dict[str, Any]] = []
-                # 使用上下文管理器处理生命周期和锁
                 async with account_lock:
                     async with get_global_semaphore():
                         async with active_client:
-                            # 尝试获取用户信息，如果失败说明 session 无效
                             await active_client.get_me()
 
-                            # Try get_dialogs with async for
                             try:
                                 async for dialog in active_client.get_dialogs():
                                     try:
-                                        mapped = map_pyrogram_chat(
-                                            getattr(dialog, "chat", None)
+                                        append_mapped_chat(
+                                            local_chats,
+                                            getattr(dialog, "chat", None),
                                         )
-                                        if mapped is not None:
-                                            local_chats.append(mapped)
                                     except Exception:
                                         continue
                             except Exception as e:
@@ -2353,24 +2349,20 @@ class SignTaskService:
                                     f"get_dialogs 失败 (已获取 {len(local_chats)} 个): {type(e).__name__}: {e}"
                                 )
 
-                            # Fallback: if get_dialogs returned nothing, try search_global
                             if not local_chats:
                                 logger.info("get_dialogs 返回空，尝试 search_global 获取会话")
                                 seen_ids: set = set()
-                                for term in ["", "a", "1"]:
+                                for term in SEARCH_GLOBAL_FALLBACK_TERMS:
                                     try:
-                                        async for msg in active_client.search_global(term, limit=50):
+                                        async for msg in active_client.search_global(
+                                            term, limit=50
+                                        ):
                                             try:
-                                                mapped = map_pyrogram_chat(
-                                                    getattr(msg, "chat", None)
+                                                append_mapped_chat(
+                                                    local_chats,
+                                                    getattr(msg, "chat", None),
+                                                    seen_ids=seen_ids,
                                                 )
-                                                if mapped is None:
-                                                    continue
-                                                chat_id = mapped["id"]
-                                                if chat_id in seen_ids:
-                                                    continue
-                                                seen_ids.add(chat_id)
-                                                local_chats.append(mapped)
                                             except Exception:
                                                 continue
                                     except Exception:
@@ -2395,11 +2387,11 @@ class SignTaskService:
                         except Exception:
                             pass
                         used_fallback_session = True
-                        retry_kwargs = dict(client_kwargs)
-                        retry_kwargs["session_string"] = fallback_session_string
-                        retry_kwargs["in_memory"] = True
-                        retry_kwargs["no_updates"] = True
-                        client = get_client(**retry_kwargs)
+                        client = get_client(
+                            **client_kwargs_with_fallback_session(
+                                client_kwargs, fallback_session_string
+                            )
+                        )
                         chats = await _fetch_chats(client)
                     else:
                         logger.warning(
@@ -2411,9 +2403,6 @@ class SignTaskService:
                         raise ValueError(f"账号 {account_name} 登录已失效，请重新登录")
                 else:
                     raise
-
-            # 保存到缓存
-            from backend.services.sign_task_chats import save_chats_cache_file
 
             account_dir = self.signs_dir / account_name
             cache_file = account_dir / "chats_cache.json"

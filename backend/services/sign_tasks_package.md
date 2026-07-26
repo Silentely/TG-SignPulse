@@ -12,7 +12,7 @@
 | `sign_task_text.py` | 乱码修复等文本纯函数 |
 | `sign_task_config_inspect.py` | 任务配置探测（update/关键词监听） |
 | `sign_task_message.py` | 目标消息摘要 / 线程匹配 |
-| `sign_task_chats.py` | 会话缓存检索、dialog 映射、session/API 解析、缓存读写 |
+| `sign_task_chats.py` | 会话缓存检索、dialog 映射、session/API 解析、缓存读写、client kwargs/映射追加 |
 | `sign_task_config_build.py` | 配置字典构造、更新字段合并、账号引用改名 |
 | `sign_task_history_query.py` | 历史条目格式化装配、日期过滤、排序截断、按时间查找 |
 | `sign_tasks.py` | SignTaskService 主体（CRUD/执行/历史） |
