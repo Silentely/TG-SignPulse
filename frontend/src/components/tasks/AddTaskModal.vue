@@ -94,6 +94,10 @@ const handleSave = async () => {
   const token = authStore.token
   if (!token) return
 
+  // 字段级校验（任务名非法字符等）
+  if (taskFormRef.value?.validateForSubmit && !taskFormRef.value.validateForSubmit()) {
+    return
+  }
   // 保存前同步刷新 payload，避免防抖延迟导致提交旧值
   taskFormRef.value?.flushPayload?.()
   const built = taskFormRef.value?.buildPayload?.() as CreateSignTaskRequest | undefined

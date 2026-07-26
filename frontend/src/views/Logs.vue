@@ -280,20 +280,23 @@ const tryOpenFromQuery = async () => {
   }
 }
 
-/** 从路由 query 同步筛选（支持 Dashboard 深链 category/account/task） */
+/** 从路由 query 同步筛选（支持 Dashboard 深链；query 消失时清掉对应筛选项） */
 const applyRouteQueryFilters = () => {
-  const queryAccount = route.query.account as string | undefined
-  if (queryAccount) {
-    filterAccount.value = queryAccount
-  }
-  const queryTask = route.query.task as string | undefined
-  if (queryTask) {
-    filterTask.value = queryTask
-  }
-  const queryCategory = (route.query.category as string | undefined)?.trim()
+  const queryAccount = typeof route.query.account === 'string' ? route.query.account.trim() : ''
+  const queryTask = typeof route.query.task === 'string' ? route.query.task.trim() : ''
+  const queryCategory = typeof route.query.category === 'string' ? route.query.category.trim() : ''
+
+  // 仅在 query 提供值时覆盖；账号/任务允许用户本地改筛选而不被空 query 抹掉
+  // 但 category 深链是「进入意图」，离开该 query 时应复位，避免残留失败分类筛选
+  if (queryAccount) filterAccount.value = queryAccount
+  if (queryTask) filterTask.value = queryTask
+
   if (queryCategory) {
     filterCategory.value = queryCategory
     filterStatus.value = 'error'
+  } else if (filterCategory.value) {
+    // 路由不再带 category（例如从失败深链回到普通日志页）
+    filterCategory.value = ''
   }
 }
 

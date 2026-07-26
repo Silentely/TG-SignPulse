@@ -406,7 +406,12 @@ const buildPayload = () => {
 const debouncedEmit = debounce(() => { emit('update:payload', buildPayload()) }, 300)
 /** 同步刷新 payload（保存前调用，确保拿到最新值） */
 const flushPayload = () => { emit('update:payload', buildPayload()) }
-defineExpose({ flushPayload, buildPayload, createMode })
+/** 供父组件提交前触发；返回是否通过 */
+const validateForSubmit = (): boolean => {
+  validateTaskName()
+  return !taskNameError.value
+}
+defineExpose({ flushPayload, buildPayload, createMode, validateForSubmit })
 watch([taskName,selectedAccounts,allAccountsMode,scheduleMode,timeRange,targetChats,activeChatIndex,actions,retryCount,listenerKeywords,listenerMatchMode,listenerPushChannel,listenerForwardChatId,listenerForwardThreadId,listenerBarkUrl,listenerCustomUrl,listenerServerChanKey,listenerIgnoreSelf,listenerTimeWindowEnabled,listenerActiveTimeStart,listenerActiveTimeEnd,createMode], () => { debouncedEmit() }, {deep:true})
 onMounted(()=>{loadAccounts()})
 </script>
