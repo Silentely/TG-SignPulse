@@ -199,3 +199,28 @@ def create_task_group_id(account_count: int) -> str:
     import uuid
 
     return uuid.uuid4().hex if account_count > 1 else ""
+
+
+def pick_task_write_response(
+    related: List[Dict[str, Any]],
+    *,
+    target_accounts: List[str],
+    aggregate_fn,
+    get_task_fn,
+    not_found_message: str,
+) -> Dict[str, Any]:
+    """
+    create/update 写盘后的统一响应：多账号聚合，否则取首账号任务。
+    aggregate_fn(related) -> list; get_task_fn(name, account) -> dict|None
+    此处 name 由 related[0] 或调用方在 get_task_fn 闭包中绑定。
+    """
+    if len(target_accounts) > 1:
+        grouped = aggregate_fn(related)
+        if grouped:
+            return grouped[0]
+    if not target_accounts:
+        raise ValueError(not_found_message)
+    task = get_task_fn(target_accounts[0])
+    if task is None:
+        raise ValueError(not_found_message)
+    return task

@@ -98,3 +98,38 @@ def test_resolve_schedule_plan_and_diff():
     )
     assert m["a"] == {"ok": 1}
     assert m["b"] is None
+
+
+def test_pick_task_write_response():
+    from backend.services.sign_task_config_build import pick_task_write_response
+
+    related = [{"name": "t", "account_name": "a"}]
+    multi = pick_task_write_response(
+        related,
+        target_accounts=["a", "b"],
+        aggregate_fn=lambda r: [{"name": "t", "account_names": ["a", "b"]}],
+        get_task_fn=lambda acc: {"name": "t", "account_name": acc},
+        not_found_message="missing",
+    )
+    assert multi["account_names"] == ["a", "b"]
+
+    single = pick_task_write_response(
+        related,
+        target_accounts=["a"],
+        aggregate_fn=lambda r: [],
+        get_task_fn=lambda acc: {"name": "t", "account_name": acc},
+        not_found_message="missing",
+    )
+    assert single["account_name"] == "a"
+
+    try:
+        pick_task_write_response(
+            [],
+            target_accounts=["a"],
+            aggregate_fn=lambda r: [],
+            get_task_fn=lambda acc: None,
+            not_found_message="gone",
+        )
+        assert False, "expected ValueError"
+    except ValueError as e:
+        assert "gone" in str(e)

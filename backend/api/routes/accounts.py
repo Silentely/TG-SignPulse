@@ -43,6 +43,13 @@ def _apply_rate_limit(
     return key
 
 
+from backend.api.routes.accounts_helpers import (
+    build_status_check_error_item,
+    clamp_status_check_timeout,
+    find_account_by_name,
+    normalize_unique_account_names,
+    resolve_account_rename_target,
+)
 from backend.api.routes.accounts_schemas import *  # noqa: F403
 
 @router.post("/login/start", response_model=LoginStartResponse)
@@ -316,20 +323,12 @@ async def check_accounts_status(
     """
     service = get_telegram_service()
     try:
-        if request.account_names:
-            names = []
-            seen = set()
-            for name in request.account_names:
-                normalized = (name or "").strip()
-                if not normalized or normalized in seen:
-                    continue
-                seen.add(normalized)
-                names.append(normalized)
-        else:
-            names = [item.get("name", "") for item in service.list_accounts()]
-            names = [n for n in names if n]
-
-        timeout_seconds = max(1.0, min(float(request.timeout_seconds or 8.0), 20.0))
+        fallback = [item.get("name", "") for item in service.list_accounts()]
+        names = normalize_unique_account_names(
+            request.account_names,
+            fallback_names=fallback,
+        )
+        timeout_seconds = clamp_status_check_timeout(request.timeout_seconds)
         results: list[AccountStatusItem] = []
         for idx, name in enumerate(names):
             try:
@@ -337,15 +336,7 @@ async def check_accounts_status(
                     name, timeout_seconds=timeout_seconds
                 )
             except Exception as exc:
-                item = {
-                    "account_name": name,
-                    "ok": False,
-                    "status": "error",
-                    "message": str(exc) or "status check failed",
-                    "code": "STATUS_CHECK_FAILED",
-                    "checked_at": None,
-                    "needs_relogin": False,
-                }
+                item = build_status_check_error_item(name, exc)
             results.append(AccountStatusItem(**item))
             if idx < len(names) - 1:
                 await asyncio.sleep(0.15)
@@ -621,14 +612,7 @@ async def update_account(
     """
     service = get_telegram_service()
     accounts = service.list_accounts(force_refresh=True)
-    current_account = next(
-        (
-            acc
-            for acc in accounts
-            if str(acc.get("name") or "").strip().lower() == account_name.strip().lower()
-        ),
-        None,
-    )
+    current_account = find_account_by_name(accounts, account_name)
     if not current_account:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -639,12 +623,10 @@ async def update_account(
         from backend.utils.tg_session import set_account_profile
 
         actual_account_name = str(current_account.get("name") or account_name).strip()
-        target_account_name = (
-            request.new_account_name.strip()
-            if isinstance(request.new_account_name, str) and request.new_account_name.strip()
-            else actual_account_name
+        target_account_name, renamed = resolve_account_rename_target(
+            actual_account_name,
+            request.new_account_name,
         )
-        renamed = target_account_name != actual_account_name
         if renamed:
             target_account_name = await service.rename_account(
                 actual_account_name,
@@ -669,13 +651,9 @@ async def update_account(
         except Exception:
             pass
 
-        updated = next(
-            (
-                acc
-                for acc in service.list_accounts(force_refresh=True)
-                if acc.get("name") == target_account_name
-            ),
-            None,
+        updated = find_account_by_name(
+            service.list_accounts(force_refresh=True),
+            target_account_name,
         )
         if not updated:
             raise ValueError("账号信息更新后未找到对应账号")

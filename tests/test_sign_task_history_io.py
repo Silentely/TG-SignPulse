@@ -117,3 +117,36 @@ def test_resolve_task_config_dir_and_cache_patch(tmp_path: Path):
     )
     assert "last_run" not in cache[1]
     assert patch_tasks_cache_last_run(None, task_name="t", account_name="a", last_run={}) is False
+
+
+def test_plan_legacy_history_clear():
+    from backend.services.sign_task_history_io import plan_legacy_history_clear
+
+    # 无 account 字段：整文件删除
+    plan = plan_legacy_history_clear(
+        [{"time": "1"}, {"time": "2"}],
+        "acc",
+    )
+    assert plan["remove_file"] is True
+    assert plan["removed_entries"] == 2
+
+    # 多账号共享：只删目标账号
+    plan2 = plan_legacy_history_clear(
+        [
+            {"time": "1", "account_name": "acc"},
+            {"time": "2", "account_name": "other"},
+            "bad",
+        ],
+        "acc",
+    )
+    assert plan2["remove_file"] is False
+    assert plan2["removed_entries"] == 1
+    assert len(plan2["kept"]) == 1
+    assert plan2["kept"][0]["account_name"] == "other"
+
+    # 全部属于目标：删文件
+    plan3 = plan_legacy_history_clear(
+        [{"time": "1", "account_name": "acc"}],
+        "acc",
+    )
+    assert plan3["remove_file"] is True

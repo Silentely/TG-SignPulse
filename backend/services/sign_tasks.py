@@ -1111,29 +1111,11 @@ class SignTaskService:
                     pass
                 continue
 
-            # legacy 鏂囦欢鍙兘娌℃湁 account_name 锛屾槸鏃х増鍗曡处鍙峰湺鏅?
-            has_account_field = any(
-                isinstance(item, dict) and "account_name" in item for item in data_list
-            )
-            if not has_account_field:
-                removed_entries += len(data_list)
-                try:
-                    legacy_file.unlink()
-                    removed_files += 1
-                except Exception:
-                    pass
-                continue
+            from backend.services.sign_task_history_io import plan_legacy_history_clear
 
-            kept: List[Dict[str, Any]] = []
-            for item in data_list:
-                if not isinstance(item, dict):
-                    continue
-                if item.get("account_name") == account_name:
-                    removed_entries += 1
-                else:
-                    kept.append(item)
-
-            if not kept:
+            plan = plan_legacy_history_clear(data_list, account_name)
+            removed_entries += int(plan.get("removed_entries") or 0)
+            if plan.get("remove_file"):
                 try:
                     legacy_file.unlink()
                     removed_files += 1
@@ -1142,7 +1124,7 @@ class SignTaskService:
             else:
                 try:
                     with open(legacy_file, "w", encoding="utf-8") as f:
-                        json.dump(kept, f, ensure_ascii=False, indent=2)
+                        json.dump(plan.get("kept") or [], f, ensure_ascii=False, indent=2)
                 except Exception:
                     pass
 
@@ -1790,6 +1772,7 @@ class SignTaskService:
         from backend.services.sign_task_config_build import (
             build_sign_task_config,
             create_task_group_id,
+            pick_task_write_response,
             resolve_schedule_plan,
         )
 
@@ -1849,14 +1832,13 @@ class SignTaskService:
             _service_logger.debug("更新调度任务失败: %s", e)
 
         related = self._find_related_task_infos(task_name, target_accounts[0])
-        if len(target_accounts) > 1:
-            grouped = self._aggregate_tasks(related)
-            if grouped:
-                return grouped[0]
-        task = self.get_task(task_name, account_name=target_accounts[0])
-        if task is None:
-            raise ValueError(f"任务 {task_name} 创建后无法读取")
-        return task
+        return pick_task_write_response(
+            related,
+            target_accounts=target_accounts,
+            aggregate_fn=self._aggregate_tasks,
+            get_task_fn=lambda acc: self.get_task(task_name, account_name=acc),
+            not_found_message=f"任务 {task_name} 创建后无法读取",
+        )
 
     def clone_task(
         self,
@@ -1961,6 +1943,7 @@ class SignTaskService:
             build_sign_task_config,
             last_run_map_from_related,
             next_task_group_id,
+            pick_task_write_response,
             removed_accounts_diff,
             resolve_schedule_plan,
             resolve_update_field_values,
@@ -2067,14 +2050,13 @@ class SignTaskService:
         )
 
         related = self._find_related_task_infos(task_name, target_accounts[0])
-        if len(target_accounts) > 1:
-            grouped = self._aggregate_tasks(related)
-            if grouped:
-                return grouped[0]
-        task = self.get_task(task_name, account_name=target_accounts[0])
-        if task is None:
-            raise ValueError(f"任务 {task_name} 更新后无法读取")
-        return task
+        return pick_task_write_response(
+            related,
+            target_accounts=target_accounts,
+            aggregate_fn=self._aggregate_tasks,
+            get_task_fn=lambda acc: self.get_task(task_name, account_name=acc),
+            not_found_message=f"任务 {task_name} 更新后无法读取",
+        )
 
     def rename_account_references(
         self,

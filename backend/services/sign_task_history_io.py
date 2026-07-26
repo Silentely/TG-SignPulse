@@ -161,3 +161,44 @@ def patch_tasks_cache_last_run(
             item["last_run"] = last_run
         return True
     return False
+
+
+def plan_legacy_history_clear(
+    data_list: List[Any],
+    account_name: str,
+) -> Dict[str, Any]:
+    """
+    规划清理 legacy 共享 history 文件中某一账号的条目。
+
+    返回:
+      remove_file: 是否应删除整个文件
+      removed_entries: 被移除条数
+      kept: 保留条目（仅当 remove_file=False）
+    """
+    if not data_list:
+        return {"remove_file": True, "removed_entries": 0, "kept": []}
+
+    # 旧版单账号场景：条目无 account_name 字段，整文件归属该账号
+    has_account_field = any(
+        isinstance(item, dict) and "account_name" in item for item in data_list
+    )
+    if not has_account_field:
+        return {
+            "remove_file": True,
+            "removed_entries": len(data_list),
+            "kept": [],
+        }
+
+    kept: List[Dict[str, Any]] = []
+    removed = 0
+    for item in data_list:
+        if not isinstance(item, dict):
+            continue
+        if item.get("account_name") == account_name:
+            removed += 1
+        else:
+            kept.append(item)
+
+    if not kept:
+        return {"remove_file": True, "removed_entries": removed, "kept": []}
+    return {"remove_file": False, "removed_entries": removed, "kept": kept}
