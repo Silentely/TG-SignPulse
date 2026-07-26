@@ -115,6 +115,73 @@ def save_chats_cache_file(cache_file: Path, chats: List[Dict[str, Any]]) -> bool
         return False
 
 
+def resolve_account_session_for_chats(
+    account_name: str,
+    *,
+    session_dir: Path,
+    session_mode: str,
+    get_session_string,
+    load_session_string_file_fn,
+) -> Dict[str, Any]:
+    """
+    解析刷新会话列表所需的 session 参数。
+
+    返回 dict:
+      session_string, fallback_session_string, used_fallback_session, session_file
+    失败抛 ValueError。
+    """
+    session_file = session_dir / f"{account_name}.session"
+    session_string = None
+    fallback_session_string = None
+    used_fallback_session = False
+
+    if session_mode == "string":
+        session_string = (
+            get_session_string(account_name)
+            or load_session_string_file_fn(session_dir, account_name)
+        )
+        if not session_string:
+            raise ValueError(f"账号 {account_name} 登录已失效，请重新登录")
+    else:
+        fallback_session_string = (
+            get_session_string(account_name)
+            or load_session_string_file_fn(session_dir, account_name)
+        )
+        if not session_file.exists():
+            if fallback_session_string:
+                session_string = fallback_session_string
+                used_fallback_session = True
+            else:
+                raise ValueError(f"账号 {account_name} 登录已失效，请重新登录")
+
+    return {
+        "session_string": session_string,
+        "fallback_session_string": fallback_session_string,
+        "used_fallback_session": used_fallback_session,
+        "session_file": session_file,
+    }
+
+
+def resolve_telegram_api_credentials(
+    tg_config: Dict[str, Any],
+    *,
+    env_api_id: Optional[str] = None,
+    env_api_hash: Optional[str] = None,
+) -> tuple[int, str]:
+    """解析 api_id / api_hash；无效时抛 ValueError。"""
+    raw_id = env_api_id or tg_config.get("api_id")
+    raw_hash = env_api_hash or tg_config.get("api_hash")
+    try:
+        api_id = int(raw_id) if raw_id is not None else None
+    except (TypeError, ValueError):
+        api_id = None
+    if isinstance(raw_hash, str):
+        raw_hash = raw_hash.strip()
+    if not api_id or not raw_hash:
+        raise ValueError("未配置 Telegram API ID 或 API Hash")
+    return api_id, str(raw_hash)
+
+
 def map_pyrogram_chat(chat: Any) -> Optional[Dict[str, Any]]:
     """
     将 Pyrogram Chat 对象映射为缓存条目。

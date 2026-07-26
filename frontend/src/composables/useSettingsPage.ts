@@ -219,7 +219,6 @@ export function useSettingsPage() {
     dataLoading,
     backupLoading,
     backupStatus,
-    advancedLoading: backupAdvancedLoading,
     webdavTestLoading,
     webdavListLoading,
     remoteWebdavFiles,

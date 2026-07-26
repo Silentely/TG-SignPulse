@@ -77,6 +77,35 @@ def test_map_pyrogram_chat():
     assert map_pyrogram_chat(SimpleNamespace(id=None)) is None
 
 
+def test_resolve_telegram_api_credentials():
+    from backend.services.sign_task_chats import resolve_telegram_api_credentials
+
+    api_id, api_hash = resolve_telegram_api_credentials(
+        {"api_id": "123", "api_hash": " abc "},
+    )
+    assert api_id == 123
+    assert api_hash == "abc"
+    try:
+        resolve_telegram_api_credentials({})
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
+
+
+def test_resolve_account_session_string_mode(tmp_path: Path):
+    from backend.services.sign_task_chats import resolve_account_session_for_chats
+
+    info = resolve_account_session_for_chats(
+        "acc1",
+        session_dir=tmp_path,
+        session_mode="string",
+        get_session_string=lambda n: "sess-token",
+        load_session_string_file_fn=lambda d, n: None,
+    )
+    assert info["session_string"] == "sess-token"
+    assert info["used_fallback_session"] is False
+
+
 def test_load_save_cache_roundtrip(tmp_path: Path):
     path = tmp_path / "acc" / "chats_cache.json"
     chats = [{"id": 1, "title": "A", "username": None, "type": "private"}]
