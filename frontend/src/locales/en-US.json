@@ -156,6 +156,7 @@
     "listenMode": "Listen (24H)",
     "execute": "Run",
     "executeNow": "Run Now",
+    "executeListenHint": "Listen tasks do not support manual run",
     "selectAccount": "Select account to run",
     "logs": "Logs",
     "viewLogs": "View Logs",
