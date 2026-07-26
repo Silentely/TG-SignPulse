@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Plus, Radio, Clock, Shuffle, Power, Search, X, LayoutTemplate, Pause, Play, Trash2 } from 'lucide-vue-next'
+import { Plus, Radio, Clock, Shuffle, X } from 'lucide-vue-next'
 import { listSignTasks, deleteSignTask, startSignTaskRun, listAccounts, toggleSignTaskEnabled, batchSignTasks, cloneSignTask } from '../lib/api'
 import { BUILT_IN_TEMPLATES } from '../lib/task-templates'
 import type { SignTask, AccountInfo } from '../lib/api'
@@ -17,6 +17,7 @@ import EditTaskModal from '../components/tasks/EditTaskModal.vue'
 import TaskLogsModal from '../components/tasks/TaskLogsModal.vue'
 import CloneTaskModal from '../components/tasks/CloneTaskModal.vue'
 import TaskListCard from '../components/tasks/TaskListCard.vue'
+import TaskListToolbar from '../components/tasks/TaskListToolbar.vue'
 import { devLog } from '../lib/devLog'
 import {
   filterTasksByModeAndQuery,
@@ -576,179 +577,25 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
         {{ t('tasks.clearAccountFilter') }}
       </button>
     </div>
-    <!-- 工具栏：不使用 sticky，避免与列表层叠重叠 -->
-    <div
-      class="ui-card p-3 space-y-2.5"
-      :class="selectedCount ? 'ring-1 ring-sky-400/30 border-sky-300/40 dark:border-sky-700/40' : ''"
-      role="toolbar"
-      :aria-label="t('tasks.selectAll')"
-    >
-      <div class="flex flex-col sm:flex-row sm:items-center gap-2">
-        <label
-          class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 cursor-pointer select-none shrink-0"
-          :title="searchQuery.trim() ? t('tasks.selectAllFilteredHint') : undefined"
-        >
-          <input
-            type="checkbox"
-            :checked="allSelected"
-            class="ui-checkbox"
-            :aria-checked="allSelected"
-            @change="toggleSelectAll"
-          />
-          {{ searchQuery.trim() ? t('tasks.selectAllFiltered') : t('tasks.selectAll') }}
-        </label>
-        <div class="relative flex-1 min-w-0">
-          <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
-          <input
-            v-model="searchQuery"
-            type="search"
-            class="ui-input !pl-8 !h-9 !text-xs"
-            :placeholder="t('common.searchPlaceholder')"
-            :aria-label="t('common.search')"
-          >
-        </div>
-        <div class="flex items-center gap-1 shrink-0 text-[11px]">
-          <button
-            type="button"
-            class="px-2 py-1 rounded-sm border transition-colors"
-            :class="modeFilter === 'all'
-              ? 'border-sky-400 text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/30'
-              : 'border-gray-200 dark:border-gray-700 text-gray-500'"
-            @click="modeFilter = 'all'"
-          >
-            {{ t('tasks.filterAll') }}
-          </button>
-          <button
-            type="button"
-            class="px-2 py-1 rounded-sm border transition-colors"
-            :class="modeFilter === 'listen'
-              ? 'border-orange-400 text-orange-700 dark:text-orange-300 bg-orange-50 dark:bg-orange-950/30'
-              : 'border-gray-200 dark:border-gray-700 text-gray-500'"
-            @click="modeFilter = 'listen'"
-          >
-            {{ t('tasks.filterListen') }}
-            <span v-if="listenTaskCount" class="font-mono opacity-80">({{ listenTaskCount }})</span>
-          </button>
-          <button
-            type="button"
-            class="px-2 py-1 rounded-sm border transition-colors"
-            :class="modeFilter === 'scheduled'
-              ? 'border-violet-400 text-violet-700 dark:text-violet-300 bg-violet-50 dark:bg-violet-950/30'
-              : 'border-gray-200 dark:border-gray-700 text-gray-500'"
-            @click="modeFilter = 'scheduled'"
-          >
-            {{ t('tasks.filterScheduled') }}
-          </button>
-        </div>
-        <div v-if="selectedCount" class="flex items-center gap-2 shrink-0">
-          <span class="text-xs font-mono text-sky-700 dark:text-sky-300">
-            {{ t('tasks.selectedCount') }}: {{ selectedCount }}
-          </span>
-          <button
-            type="button"
-            class="text-[11px] text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 underline-offset-2 hover:underline"
-            @click="clearSelection"
-          >
-            {{ t('common.cancel') }}
-          </button>
-        </div>
-      </div>
-      <div class="flex flex-wrap items-center gap-1.5">
-        <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs inline-flex items-center gap-1" :disabled="!selectedCount || batchBusy" @click="runBatch('enable')">
-          <Power class="w-3.5 h-3.5" />
-          {{ t('tasks.batchEnable') }}
-        </button>
-        <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs inline-flex items-center gap-1" :disabled="!selectedCount || batchBusy" @click="runBatch('disable')">
-          <Pause class="w-3.5 h-3.5" />
-          {{ t('tasks.batchDisable') }}
-        </button>
-        <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs inline-flex items-center gap-1" :disabled="!selectedCount || batchBusy" @click="runBatch('run')">
-          <Play class="w-3.5 h-3.5" />
-          {{ t('tasks.batchRun') }}
-        </button>
-        <button type="button" class="ui-btn-danger !px-2.5 !py-1.5 !text-xs inline-flex items-center gap-1" :disabled="!selectedCount || batchBusy" @click="runBatch('delete')">
-          <Trash2 class="w-3.5 h-3.5" />
-          {{ t('tasks.batchDelete') }}
-        </button>
-        <div class="relative ml-auto" @click.stop>
-          <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs inline-flex items-center gap-1" @click="toggleTemplateMenu">
-            <LayoutTemplate class="w-3.5 h-3.5" />
-            {{ t('tasks.fromTemplate') }}
-          </button>
-          <div
-            v-if="showTemplateMenu"
-            class="absolute right-0 top-full mt-1 z-30 min-w-[14rem] max-h-64 overflow-y-auto ui-dropdown shadow-[var(--sp-shadow-md)] p-1"
-          >
-            <button
-              v-for="tpl in BUILT_IN_TEMPLATES"
-              :key="tpl.id"
-              type="button"
-              class="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-white/[0.04] rounded-sm"
-              @click="pickTemplate(tpl.id)"
-            >
-              <div class="font-medium">{{ t(tpl.nameKey) }}</div>
-              <div class="text-[10px] text-gray-500">{{ t(tpl.descKey) }}</div>
-            </button>
-          </div>
-        </div>
-        <button type="button" class="ui-btn-primary !px-2.5 !py-1.5 !text-xs" @click="openAddBlank">
-          <Plus class="w-3.5 h-3.5" /> {{ t('taskModal.addTitle') }}
-        </button>
-        <span v-if="batchBusy" class="ui-spinner !w-3.5 !h-3.5 !border-2" aria-hidden="true" />
-      </div>
-      <!-- 激活中的筛选：chip 一键清除 -->
-      <div
-        v-if="hasListFilters"
-        class="flex flex-wrap items-center gap-1.5 pt-0.5 border-t border-gray-100 dark:border-gray-800/50"
-      >
-        <span class="text-[10px] text-gray-400 shrink-0">{{ t('common.activeFilters') }}</span>
-        <button
-          v-if="searchQuery.trim()"
-          type="button"
-          class="inline-flex items-center gap-1 max-w-[14rem] px-2 py-0.5 rounded-sm text-[11px] bg-sky-50 text-sky-800 border border-sky-100 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800/50"
-          :title="t('common.clearFilters')"
-          @click="searchQuery = ''"
-        >
-          <span class="truncate">{{ t('common.search') }}: {{ searchQuery.trim() }}</span>
-          <X class="w-3 h-3 shrink-0 opacity-70" />
-        </button>
-        <button
-          v-if="modeFilter === 'listen'"
-          type="button"
-          class="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-[11px] bg-orange-50 text-orange-800 border border-orange-100 dark:bg-orange-950/40 dark:text-orange-300 dark:border-orange-800/50"
-          @click="modeFilter = 'all'"
-        >
-          {{ t('tasks.filterListen') }}
-          <X class="w-3 h-3 shrink-0 opacity-70" />
-        </button>
-        <button
-          v-if="modeFilter === 'scheduled'"
-          type="button"
-          class="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-[11px] bg-violet-50 text-violet-800 border border-violet-100 dark:bg-violet-950/40 dark:text-violet-300 dark:border-violet-800/50"
-          @click="modeFilter = 'all'"
-        >
-          {{ t('tasks.filterScheduled') }}
-          <X class="w-3 h-3 shrink-0 opacity-70" />
-        </button>
-        <button
-          v-if="accountFilter"
-          type="button"
-          class="inline-flex items-center gap-1 max-w-[12rem] px-2 py-0.5 rounded-sm text-[11px] bg-sky-50 text-sky-800 border border-sky-100 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800/50"
-          :title="t('tasks.clearAccountFilter')"
-          @click="clearAccountFilter"
-        >
-          <span class="truncate">{{ t('tasks.accountFilter') }}: {{ accountFilter }}</span>
-          <X class="w-3 h-3 shrink-0 opacity-70" />
-        </button>
-        <button
-          type="button"
-          class="text-[11px] text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 underline-offset-2 hover:underline ml-auto shrink-0"
-          @click="clearListFilters"
-        >
-          {{ t('common.clearFilters') }}
-        </button>
-      </div>
-    </div>
+    <TaskListToolbar
+      v-model:search-query="searchQuery"
+      v-model:mode-filter="modeFilter"
+      :all-selected="allSelected"
+      :selected-count="selectedCount"
+      :batch-busy="batchBusy"
+      :listen-task-count="listenTaskCount"
+      :has-list-filters="hasListFilters"
+      :account-filter="accountFilter"
+      :show-template-menu="showTemplateMenu"
+      @toggle-select-all="toggleSelectAll"
+      @clear-selection="clearSelection"
+      @batch="runBatch"
+      @toggle-template-menu="toggleTemplateMenu"
+      @pick-template="pickTemplate"
+      @open-add="openAddBlank"
+      @clear-list-filters="clearListFilters"
+      @clear-account-filter="clearAccountFilter"
+    />
 
     <div v-if="filteredTasks.length === 0" class="ui-empty !py-12">
       <template v-if="tasks.length > 0 && hasListFilters">

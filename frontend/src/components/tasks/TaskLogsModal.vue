@@ -5,18 +5,14 @@ import Modal from '../Modal.vue'
 import FlowLogViewer from '../FlowLogViewer.vue'
 import {
   getSignTaskHistory,
-  listKeywordHits,
-  listKeywordHitGroups,
-  exportKeywordHitsBlob,
   getSignTaskLogs,
   getSignTaskRunStatus,
-  clearKeywordHits,
 } from '../../lib/api'
-import type { SignTaskHistoryItem, KeywordHitRecord, KeywordHitGroup, SignTaskRunStatus } from '../../lib/api'
+import type { SignTaskHistoryItem, SignTaskRunStatus } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
-import { useConfirm } from '../../composables/useConfirm'
 import { useAuthStore } from '../../stores/auth'
+import { useTaskHits } from '../../composables/useTaskHits'
 import type { TaskUiItem } from '../../lib/types'
 import { getLocalizedErrorMessage } from '../../lib/types'
 import { normalizeFlowLogLines } from '../../lib/task-log-format'
@@ -33,7 +29,6 @@ import {
 
 const { t } = useI18n()
 const toast = useToast()
-const { confirm } = useConfirm()
 const authStore = useAuthStore()
 
 const props = defineProps<{
@@ -54,24 +49,12 @@ const loading = ref(false)
 const isRunning = ref(false)
 /** 监听任务：命中记录 Tab */
 const panelTab = ref<'history' | 'hits'>('history')
-const hitsLoading = ref(false)
-const hitsLoadingMore = ref(false)
-const hitRecords = ref<KeywordHitRecord[]>([])
-const hitTotal = ref(0)
-const hitGroups = ref<KeywordHitGroup[]>([])
-const hitGroupBy = ref<'task' | 'account' | 'chat'>('chat')
-const hitsView = ref<'list' | 'groups'>('list')
-const HITS_PAGE_SIZE = 50
 const livePhase = ref<string | null>(null)
 const livePhaseDetail = ref('')
 const liveFailureCategory = ref<string | null>(null)
 const liveState = ref<string | null>(null)
 let ws: WebSocket | null = null
 const logContainer = ref<HTMLElement | null>(null)
-const canLoadMoreHits = computed(
-  () => hitsView.value === 'list' && hitRecords.value.length < hitTotal.value,
-)
-
 const applyStatusPayload = (msg: Record<string, unknown> | SignTaskRunStatus) => {
   if (msg.phase !== undefined) livePhase.value = (msg.phase as string) || null
   if (msg.phase_detail !== undefined) livePhaseDetail.value = String(msg.phase_detail || '')
@@ -144,138 +127,33 @@ const loadLogs = async () => {
   }
 }
 
-const clearHitsAutoRefresh = () => {
-  hitsPollHandle?.stop()
-  hitsPollHandle = null
-}
+const taskNameRef = computed(() => props.task?.name || '')
+const accountNameRef = computed(() => (props.task ? (props.runAccount || getTaskAccountName(props.task) || undefined) : undefined))
+const isOpenRef = computed(() => props.isOpen)
 
-const ensureHitsAutoRefresh = () => {
-  clearHitsAutoRefresh()
-  if (!props.isOpen || !isListenTask.value || panelTab.value !== 'hits') return
-  hitsPollHandle = startChainPoll(
-    () => loadHits({ silent: true }),
-    { intervalMs: 8000, runImmediately: false },
-  )
-}
-
-const loadHits = async (opts?: { silent?: boolean; append?: boolean }) => {
-  if (!props.task) return
-  const silent = !!opts?.silent
-  const append = !!opts?.append && hitsView.value === 'list'
-  if (append) {
-    if (hitsLoadingMore.value || !canLoadMoreHits.value) return
-    hitsLoadingMore.value = true
-  } else if (!silent) {
-    hitsLoading.value = true
-  }
-  const token = authStore.token || ''
-  const accountName = props.runAccount || getTaskAccountName(props.task) || undefined
-  try {
-    if (hitsView.value === 'groups') {
-      const res = await listKeywordHitGroups(token, {
-        account_name: accountName,
-        task_name: props.task.name,
-        group_by: hitGroupBy.value,
-        limit_per_group: 30,
-      })
-      hitGroups.value = res.groups || []
-      hitTotal.value = hitGroups.value.reduce((sum, g) => sum + (g.count || 0), 0)
-      hitRecords.value = []
-    } else {
-      const offset = append ? hitRecords.value.length : 0
-      const res = await listKeywordHits(token, {
-        account_name: accountName,
-        task_name: props.task.name,
-        limit: HITS_PAGE_SIZE,
-        offset,
-      })
-      const items = res.items || []
-      if (append) {
-        // 按 id 去重拼接
-        const seen = new Set(hitRecords.value.map((h) => h.id))
-        hitRecords.value = [
-          ...hitRecords.value,
-          ...items.filter((h) => h.id && !seen.has(h.id)),
-        ]
-      } else if (silent && hitRecords.value.length > 0) {
-        // 静默刷新：合并新记录到顶部，保留已加载更多
-        const existingIds = new Set(hitRecords.value.map((h) => h.id))
-        const fresh = items.filter((h) => h.id && !existingIds.has(h.id))
-        if (fresh.length) {
-          hitRecords.value = [...fresh, ...hitRecords.value]
-        } else {
-          // 无新记录时更新首页重叠部分的字段
-          const byId = new Map(items.map((h) => [h.id, h]))
-          hitRecords.value = hitRecords.value.map((h) => byId.get(h.id) || h)
-        }
-      } else {
-        hitRecords.value = items
-      }
-      hitTotal.value = res.total || 0
-      hitGroups.value = []
-    }
-  } catch (e: unknown) {
-    devLog.error('Failed to fetch keyword hits', e)
-    if (!silent) {
-      toast.error(getLocalizedErrorMessage(e, t, t('taskLogs.hitsLoadFailed')))
-      if (!append) {
-        hitRecords.value = []
-        hitGroups.value = []
-        hitTotal.value = 0
-      }
-    }
-  } finally {
-    hitsLoading.value = false
-    hitsLoadingMore.value = false
-  }
-}
-
-const loadMoreHits = () => loadHits({ append: true })
-
-const exportHits = async () => {
-  if (!props.task) return
-  const token = authStore.token || ''
-  const accountName = props.runAccount || getTaskAccountName(props.task) || undefined
-  try {
-    const blob = await exportKeywordHitsBlob(token, {
-      account_name: accountName,
-      task_name: props.task.name,
-      limit: 2000,
-    })
-    const a = document.createElement('a')
-    const objectUrl = URL.createObjectURL(blob)
-    a.href = objectUrl
-    a.download = `keyword_hits_${props.task.name}.csv`
-    a.click()
-    URL.revokeObjectURL(objectUrl)
-    toast.success(t('taskLogs.hitsExportDone'))
-  } catch (e: unknown) {
-    toast.error(getLocalizedErrorMessage(e, t, t('taskLogs.hitsExportFailed')))
-  }
-}
-
-const clearHits = async () => {
-  if (!props.task) return
-  const ok = await confirm({
-    title: t('common.dangerConfirm'),
-    message: t('taskLogs.hitsClearConfirm'),
-    confirmText: t('common.delete'),
-    danger: true,
-  })
-  if (!ok) return
-  const token = authStore.token || ''
-  const accountName = props.runAccount || getTaskAccountName(props.task) || undefined
-  try {
-    const res = await clearKeywordHits(token, {
-      account_name: accountName,
-      task_name: props.task.name,
-    })
-    toast.success(t('taskLogs.hitsCleared', { n: res.deleted ?? 0 }))
-    await loadHits()
-  } catch (e: unknown) {
-    toast.error(getLocalizedErrorMessage(e, t, t('taskLogs.hitsClearFailed')))
-  }
-}
+const {
+  hitsLoading,
+  hitsLoadingMore,
+  hitRecords,
+  hitTotal,
+  hitGroups,
+  hitGroupBy,
+  hitsView,
+  canLoadMoreHits,
+  loadHits,
+  loadMoreHits,
+  exportHits,
+  clearHits,
+  ensureHitsAutoRefresh,
+  clearHitsAutoRefresh,
+  resetHitsState,
+} = useTaskHits({
+  taskName: taskNameRef,
+  accountName: accountNameRef,
+  isListenTask,
+  isOpen: isOpenRef,
+  panelTab,
+})
 
 const connectWebSocket = () => {
   if (!props.task) return
@@ -346,7 +224,6 @@ const connectWebSocket = () => {
 
 const POLL_INTERVAL_MS = 1500
 let pollHandle: ChainPollHandle | null = null
-let hitsPollHandle: ChainPollHandle | null = null
 
 const stopPolling = () => {
   pollHandle?.stop()
@@ -421,11 +298,8 @@ watch(() => props.isOpen, (newVal) => {
   } else {
     logs.value = []
     realtimeLogs.value = []
-    hitRecords.value = []
-    hitGroups.value = []
-    hitTotal.value = 0
     expandedIdx.value = null
-    clearHitsAutoRefresh()
+    resetHitsState()
     disconnectWebSocket()
   }
 })

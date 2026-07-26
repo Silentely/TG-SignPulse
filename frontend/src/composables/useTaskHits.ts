@@ -1,0 +1,203 @@
+/**
+ * 签到日志弹窗：关键词命中列表/分组、导出与清空。
+ */
+import { ref, computed, type Ref, type ComputedRef } from 'vue'
+import {
+  listKeywordHits,
+  listKeywordHitGroups,
+  exportKeywordHitsBlob,
+  clearKeywordHits,
+} from '../lib/api'
+import type { KeywordHitRecord, KeywordHitGroup } from '../lib/api'
+import { getLocalizedErrorMessage } from '../lib/types'
+import { useI18n } from './useI18n'
+import { useToast } from './useToast'
+import { useConfirm } from './useConfirm'
+import { useAuthStore } from '../stores/auth'
+import { startChainPoll, type ChainPollHandle } from '../lib/chain-poll'
+import { devLog } from '../lib/devLog'
+
+const HITS_PAGE_SIZE = 50
+
+export function useTaskHits(options: {
+  taskName: ComputedRef<string>
+  accountName: ComputedRef<string | undefined>
+  isListenTask: ComputedRef<boolean>
+  isOpen: ComputedRef<boolean>
+  panelTab: Ref<'history' | 'hits'>
+}) {
+  const { t } = useI18n()
+  const toast = useToast()
+  const { confirm } = useConfirm()
+  const authStore = useAuthStore()
+
+  const hitsLoading = ref(false)
+  const hitsLoadingMore = ref(false)
+  const hitRecords = ref<KeywordHitRecord[]>([])
+  const hitTotal = ref(0)
+  const hitGroups = ref<KeywordHitGroup[]>([])
+  const hitGroupBy = ref<'task' | 'account' | 'chat'>('chat')
+  const hitsView = ref<'list' | 'groups'>('list')
+  let hitsPollHandle: ChainPollHandle | null = null
+
+  const canLoadMoreHits = computed(
+    () => hitsView.value === 'list' && hitRecords.value.length < hitTotal.value,
+  )
+
+  const clearHitsAutoRefresh = () => {
+    hitsPollHandle?.stop()
+    hitsPollHandle = null
+  }
+
+  const loadHits = async (opts?: { silent?: boolean; append?: boolean }) => {
+    if (!options.taskName.value) return
+    const silent = !!opts?.silent
+    const append = !!opts?.append && hitsView.value === 'list'
+    if (append) {
+      if (hitsLoadingMore.value || !canLoadMoreHits.value) return
+      hitsLoadingMore.value = true
+    } else if (!silent) {
+      hitsLoading.value = true
+    }
+    const token = authStore.token || ''
+    const accountName = options.accountName.value
+    try {
+      if (hitsView.value === 'groups') {
+        const res = await listKeywordHitGroups(token, {
+          account_name: accountName,
+          task_name: options.taskName.value,
+          group_by: hitGroupBy.value,
+          limit_per_group: 30,
+        })
+        hitGroups.value = res.groups || []
+        hitTotal.value = hitGroups.value.reduce((sum, g) => sum + (g.count || 0), 0)
+        hitRecords.value = []
+      } else {
+        const offset = append ? hitRecords.value.length : 0
+        const res = await listKeywordHits(token, {
+          account_name: accountName,
+          task_name: options.taskName.value,
+          limit: HITS_PAGE_SIZE,
+          offset,
+        })
+        const items = res.items || []
+        if (append) {
+          const seen = new Set(hitRecords.value.map((h) => h.id))
+          hitRecords.value = [
+            ...hitRecords.value,
+            ...items.filter((h) => h.id && !seen.has(h.id)),
+          ]
+        } else if (silent && hitRecords.value.length > 0) {
+          const existingIds = new Set(hitRecords.value.map((h) => h.id))
+          const fresh = items.filter((h) => h.id && !existingIds.has(h.id))
+          if (fresh.length) {
+            hitRecords.value = [...fresh, ...hitRecords.value]
+          } else {
+            const byId = new Map(items.map((h) => [h.id, h]))
+            hitRecords.value = hitRecords.value.map((h) => byId.get(h.id) || h)
+          }
+        } else {
+          hitRecords.value = items
+        }
+        hitTotal.value = res.total || 0
+        hitGroups.value = []
+      }
+    } catch (e: unknown) {
+      devLog.error('Failed to fetch keyword hits', e)
+      if (!silent) {
+        toast.error(getLocalizedErrorMessage(e, t, t('taskLogs.hitsLoadFailed')))
+        if (!append) {
+          hitRecords.value = []
+          hitGroups.value = []
+          hitTotal.value = 0
+        }
+      }
+    } finally {
+      hitsLoading.value = false
+      hitsLoadingMore.value = false
+    }
+  }
+
+  const ensureHitsAutoRefresh = () => {
+    clearHitsAutoRefresh()
+    if (!options.isOpen.value || !options.isListenTask.value || options.panelTab.value !== 'hits') {
+      return
+    }
+    hitsPollHandle = startChainPoll(
+      () => loadHits({ silent: true }),
+      { intervalMs: 8000, runImmediately: false },
+    )
+  }
+
+  const loadMoreHits = () => loadHits({ append: true })
+
+  const exportHits = async () => {
+    if (!options.taskName.value) return
+    const token = authStore.token || ''
+    try {
+      const blob = await exportKeywordHitsBlob(token, {
+        account_name: options.accountName.value,
+        task_name: options.taskName.value,
+        limit: 2000,
+      })
+      const a = document.createElement('a')
+      const objectUrl = URL.createObjectURL(blob)
+      a.href = objectUrl
+      a.download = `keyword_hits_${options.taskName.value}.csv`
+      a.click()
+      URL.revokeObjectURL(objectUrl)
+      toast.success(t('taskLogs.hitsExportDone'))
+    } catch (e: unknown) {
+      toast.error(getLocalizedErrorMessage(e, t, t('taskLogs.hitsExportFailed')))
+    }
+  }
+
+  const clearHits = async () => {
+    if (!options.taskName.value) return
+    const ok = await confirm({
+      title: t('common.dangerConfirm'),
+      message: t('taskLogs.hitsClearConfirm'),
+      confirmText: t('common.delete'),
+      danger: true,
+    })
+    if (!ok) return
+    const token = authStore.token || ''
+    try {
+      const res = await clearKeywordHits(token, {
+        account_name: options.accountName.value,
+        task_name: options.taskName.value,
+      })
+      toast.success(t('taskLogs.hitsCleared', { n: res.deleted ?? 0 }))
+      await loadHits()
+    } catch (e: unknown) {
+      toast.error(getLocalizedErrorMessage(e, t, t('taskLogs.hitsClearFailed')))
+    }
+  }
+
+  const resetHitsState = () => {
+    hitRecords.value = []
+    hitGroups.value = []
+    hitTotal.value = 0
+    hitsView.value = 'list'
+    hitGroupBy.value = 'chat'
+    clearHitsAutoRefresh()
+  }
+
+  return {
+    hitsLoading,
+    hitsLoadingMore,
+    hitRecords,
+    hitTotal,
+    hitGroups,
+    hitGroupBy,
+    hitsView,
+    canLoadMoreHits,
+    loadHits,
+    loadMoreHits,
+    exportHits,
+    clearHits,
+    ensureHitsAutoRefresh,
+    clearHitsAutoRefresh,
+    resetHitsState,
+  }
+}
