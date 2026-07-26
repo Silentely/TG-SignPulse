@@ -90,7 +90,20 @@ async def _sign_history_event_stream() -> AsyncGenerator[bytes, None]:
                 from backend.services.sign_tasks import get_sign_task_service
 
                 entries = get_sign_task_service().get_recent_history_logs(limit=30)
+            except (OSError, ValueError, KeyError, TypeError, RuntimeError) as exc:
+                # 历史文件 IO/解析异常时降级为空列表，保持 SSE 心跳
+                import logging
+
+                logging.getLogger("backend.events").debug(
+                    "sign history stream read failed: %s", exc, exc_info=True
+                )
+                entries = []
             except Exception:
+                import logging
+
+                logging.getLogger("backend.events").exception(
+                    "sign history stream unexpected error"
+                )
                 entries = []
 
             if not bootstrapped:

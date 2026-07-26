@@ -34,8 +34,10 @@ def create_cron_trigger(cron_str: str, timezone: str = "") -> CronTrigger:
             elif len(parts) == 3:
                 hour, minute, second = parts
                 cron_str = f"{int(second)} {int(minute)} {int(hour)} * * *"
-        except ValueError:
-            pass
+        except ValueError as exc:
+            logging.getLogger("backend.scheduler").debug(
+                "clock-time cron parse failed for %r: %s", cron_str, exc
+            )
 
     # 获取有效时区：优先使用传入参数，否则从全局配置回退到环境变量
     tz = timezone
