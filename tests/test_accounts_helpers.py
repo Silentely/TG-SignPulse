@@ -55,3 +55,19 @@ def test_qr_uri_to_data_url_empty():
     out = qr_uri_to_data_url("tg://login?token=abc")
     if out is not None:
         assert out.startswith("data:image/png;base64,")
+
+
+def test_extract_last_bot_message_prefers_stored_field():
+    """accounts 路由依赖该 helper；import * 不会带入下划线私有名。"""
+    from backend.api.routes import accounts
+    from backend.api.routes.accounts_schemas import _extract_last_bot_message
+
+    assert hasattr(accounts, "_extract_last_bot_message")
+    assert _extract_last_bot_message({"last_target_message": "  已签到  "}) == "已签到"
+    assert (
+        _extract_last_bot_message(
+            {"flow_logs": ["任务对象最后一条消息: 签到成功"]}
+        )
+        == "签到成功"
+    )
+    assert _extract_last_bot_message({}) == ""

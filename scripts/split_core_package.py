@@ -51,30 +51,46 @@ def main() -> None:
         encoding="utf-8",
     )
 
-    worker_text = "".join(lines[config_t:user_signer])
+    # worker/signer/monitor 仅作阅读入口：从 runtime re-export。
+    # 禁止再写「from client/worker import * + 切片正文」——import * 不会带入
+    # 下划线私有名，且 client 也不含 typing/配置依赖，会导致 NameError。
     (PKG / "worker.py").write_text(
-        '"""BaseUserWorker / Waiter / Context（从 core 拆分）。"""\n'
+        '"""BaseUserWorker / Waiter / Context 阅读入口。\n\n'
+        "真源在 `tg_signer.core.runtime`；本模块仅 re-export。\n"
+        '"""\n'
         "from __future__ import annotations\n\n"
-        "from tg_signer.core.client import *  # noqa: F403\n\n"
-        + worker_text,
+        "from tg_signer.core.runtime import (  # noqa: F401\n"
+        "    BaseUserWorker,\n"
+        "    ConfigT,\n"
+        "    UserSignerWorkerContext,\n"
+        "    Waiter,\n"
+        ")\n\n"
+        '__all__ = [\n'
+        '    "ConfigT",\n'
+        '    "BaseUserWorker",\n'
+        '    "Waiter",\n'
+        '    "UserSignerWorkerContext",\n'
+        "]\n",
         encoding="utf-8",
     )
 
-    signer_text = "".join(lines[user_signer:user_monitor])
     (PKG / "signer.py").write_text(
-        '"""UserSigner（从 core 拆分）。"""\n'
+        '"""UserSigner 阅读入口。\n\n'
+        "真源在 `tg_signer.core.runtime`；本模块仅 re-export。\n"
+        '"""\n'
         "from __future__ import annotations\n\n"
-        "from tg_signer.core.worker import *  # noqa: F403\n\n"
-        + signer_text,
+        "from tg_signer.core.runtime import UserSigner  # noqa: F401\n\n"
+        '__all__ = ["UserSigner"]\n',
         encoding="utf-8",
     )
 
-    monitor_text = "".join(lines[user_monitor:])
     (PKG / "monitor.py").write_text(
-        '"""UserMonitor（从 core 拆分）。"""\n'
+        '"""UserMonitor 阅读入口。\n\n'
+        "真源在 `tg_signer.core.runtime`；本模块仅 re-export。\n"
+        '"""\n'
         "from __future__ import annotations\n\n"
-        "from tg_signer.core.worker import *  # noqa: F403\n\n"
-        + monitor_text,
+        "from tg_signer.core.runtime import UserMonitor  # noqa: F401\n\n"
+        '__all__ = ["UserMonitor"]\n',
         encoding="utf-8",
     )
 

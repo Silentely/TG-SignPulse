@@ -5,6 +5,9 @@ from typing import Optional
 
 from pydantic import BaseModel
 
+from backend.utils.task_logs import extract_last_target_message
+
+
 class LoginStartRequest(BaseModel):
     """开始登录请求"""
 

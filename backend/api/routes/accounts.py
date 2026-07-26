@@ -7,15 +7,51 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
+from backend.api.routes.accounts_helpers import (
+    build_status_check_error_item,
+    clamp_status_check_timeout,
+    find_account_by_name,
+    normalize_unique_account_names,
+    qr_uri_to_data_url,
+    resolve_account_rename_target,
+)
+from backend.api.routes.accounts_schemas import (
+    AccountDeviceItem,
+    AccountDevicesResponse,
+    AccountInfo,
+    AccountListResponse,
+    AccountLogItem,
+    AccountStatusCheckRequest,
+    AccountStatusCheckResponse,
+    AccountStatusItem,
+    AccountStatusJobStartRequest,
+    AccountUpdateRequest,
+    AccountUpdateResponse,
+    ClearAccountLogsResponse,
+    DeleteAccountResponse,
+    LoginStartRequest,
+    LoginStartResponse,
+    LoginVerifyRequest,
+    LoginVerifyResponse,
+    OfficialMessageItem,
+    OfficialMessagesResponse,
+    QrLoginCancelRequest,
+    QrLoginCancelResponse,
+    QrLoginPasswordRequest,
+    QrLoginPasswordResponse,
+    QrLoginStartRequest,
+    QrLoginStartResponse,
+    QrLoginStatusResponse,
+    TerminateDeviceResponse,
+    _extract_last_bot_message,
+)
 from backend.core.auth import get_current_user
 from backend.core.rate_limit import compose_rate_limit_key, get_rate_limiter
 from backend.models.user import User
 from backend.services.telegram import get_telegram_service
-from backend.utils.task_logs import extract_last_target_message
 
 router = APIRouter()
 logger = logging.getLogger("backend.qr_login")
@@ -41,17 +77,6 @@ def _apply_rate_limit(
         detail=detail,
     )
     return key
-
-
-from backend.api.routes.accounts_helpers import (
-    build_status_check_error_item,
-    clamp_status_check_timeout,
-    find_account_by_name,
-    normalize_unique_account_names,
-    qr_uri_to_data_url,
-    resolve_account_rename_target,
-)
-from backend.api.routes.accounts_schemas import *  # noqa: F403
 
 @router.post("/login/start", response_model=LoginStartResponse)
 async def start_account_login(
