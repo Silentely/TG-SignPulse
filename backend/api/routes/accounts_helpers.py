@@ -91,3 +91,27 @@ def find_account_by_name(
         if str(acc.get("name") or "").strip().lower() == want:
             return acc
     return None
+
+
+def qr_uri_to_data_url(qr_uri: str) -> Optional[str]:
+    """将扫码登录 URI 渲染为 PNG data URL；依赖缺失或失败返回 None。"""
+    text = str(qr_uri or "").strip()
+    if not text:
+        return None
+    try:
+        import base64
+        from io import BytesIO
+
+        import qrcode
+
+        qr = qrcode.QRCode(version=1, box_size=8, border=2)
+        qr.add_data(text)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        buf = BytesIO()
+        img.save(buf, format="PNG")
+        return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode(
+            "utf-8"
+        )
+    except Exception:
+        return None

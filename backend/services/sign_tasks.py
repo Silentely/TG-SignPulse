@@ -538,22 +538,15 @@ class SignTaskService:
     def _select_latest_last_run(
         current: Optional[Dict[str, Any]], candidate: Optional[Dict[str, Any]]
     ) -> Optional[Dict[str, Any]]:
-        if not candidate:
-            return current
-        if not current:
-            return candidate
-        current_time = str(current.get("time") or "")
-        candidate_time = str(candidate.get("time") or "")
-        return candidate if candidate_time > current_time else current
+        from backend.services.sign_task_group import select_latest_last_run
+
+        return select_latest_last_run(current, candidate)
 
     @staticmethod
     def _task_group_key(task: Dict[str, Any]) -> str:
-        group_id = str(task.get("task_group_id") or "").strip()
-        if group_id:
-            return f"group:{group_id}"
-        account_name = str(task.get("account_name") or "").strip()
-        task_name = str(task.get("name") or "").strip()
-        return f"single:{account_name}:{task_name}"
+        from backend.services.sign_task_group import task_group_key
+
+        return task_group_key(task)
 
     def _build_task_response(
         self,
@@ -602,114 +595,29 @@ class SignTaskService:
         }
 
     def _aggregate_tasks(self, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        grouped: Dict[str, Dict[str, Any]] = {}
+        from backend.services.sign_task_group import aggregate_tasks
 
-        def _first_real_account(names: List[str], fallback: str = "") -> str:
-            for n in names:
-                if n and n != "*":
-                    return n
-            return fallback if fallback and fallback != "*" else ""
-
-        for task in tasks:
-            key = self._task_group_key(task)
-            existing = grouped.get(key)
-            if existing is None:
-                merged = {
-                    **task,
-                    "account_names": self._normalize_account_names(
-                        task.get("account_names"), task.get("account_name")
-                    ),
-                }
-                # Ensure account_name is a real one, not "*"
-                if not merged.get("account_name") or merged.get("account_name") == "*":
-                    merged["account_name"] = _first_real_account(
-                        merged["account_names"], task.get("account_name") or ""
-                    )
-                grouped[key] = merged
-                continue
-
-            merged_accounts = self._normalize_account_names(
-                [*existing.get("account_names", []), *task.get("account_names", [])],
-                existing.get("account_name") or task.get("account_name"),
-            )
-            latest_last_run = self._select_latest_last_run(
-                existing.get("last_run"), task.get("last_run")
-            )
-            latest_last_run_account_name = existing.get("last_run_account_name") or ""
-            if latest_last_run is task.get("last_run"):
-                latest_last_run_account_name = task.get("account_name") or ""
-
-            existing["account_names"] = merged_accounts
-            # Pick first real account name, not "*"
-            existing["account_name"] = _first_real_account(
-                merged_accounts,
-                existing.get("account_name") or task.get("account_name") or "",
-            )
-            existing["last_run"] = latest_last_run
-            existing["last_run_account_name"] = latest_last_run_account_name
-
-        return sorted(
-            grouped.values(),
-            key=lambda item: (
-                ",".join(item.get("account_names", [])),
-                str(item.get("name") or ""),
+        return aggregate_tasks(
+            tasks,
+            normalize_account_names=lambda names, primary=None: self._normalize_account_names(
+                names, primary
             ),
         )
 
     def _find_related_task_infos(
         self, task_name: str, account_name: Optional[str] = None
     ) -> List[Dict[str, Any]]:
+        from backend.services.sign_task_group import filter_related_task_infos
+
         raw_tasks = self.list_tasks(force_refresh=True, aggregate=False)
-        if account_name:
-            current = next(
-                (
-                    task
-                    for task in raw_tasks
-                    if task.get("name") == task_name
-                    and task.get("account_name") == account_name
-                ),
-                None,
-            )
-            if current is None:
-                return []
-
-            group_id = str(current.get("task_group_id") or "").strip()
-            if group_id:
-                return [
-                    task
-                    for task in raw_tasks
-                    if task.get("name") == task_name
-                    and str(task.get("task_group_id") or "").strip() == group_id
-                ]
-
-            current_accounts = self._normalize_account_names(
-                current.get("account_names"), current.get("account_name")
-            )
-            if len(current_accounts) > 1:
-                return [
-                    task
-                    for task in raw_tasks
-                    if task.get("name") == task_name
-                    and self._normalize_account_names(
-                        task.get("account_names"), task.get("account_name")
-                    )
-                    == current_accounts
-                ]
-            return [current]
-
-        exact_matches = [task for task in raw_tasks if task.get("name") == task_name]
-        if not exact_matches:
-            return []
-        if len(exact_matches) == 1:
-            return exact_matches
-
-        grouped = self._aggregate_tasks(exact_matches)
-        if len(grouped) == 1:
-            target_key = self._task_group_key(grouped[0])
-            return [
-                task for task in exact_matches if self._task_group_key(task) == target_key
-            ]
-        return [exact_matches[0]]
+        return filter_related_task_infos(
+            raw_tasks,
+            task_name,
+            account_name,
+            normalize_account_names=lambda names, primary=None: self._normalize_account_names(
+                names, primary
+            ),
+        )
 
     def _iter_task_dirs(
         self, task_name: str, account_names: Iterable[str]

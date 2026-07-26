@@ -48,6 +48,7 @@ from backend.api.routes.accounts_helpers import (
     clamp_status_check_timeout,
     find_account_by_name,
     normalize_unique_account_names,
+    qr_uri_to_data_url,
     resolve_account_rename_target,
 )
 from backend.api.routes.accounts_schemas import *  # noqa: F403
@@ -167,29 +168,10 @@ async def start_qr_login(
         )
         rate_limiter.reset("accounts.qr.start", limit_key)
 
-        qr_image = None
-        try:
-            import base64
-            from io import BytesIO
-
-            import qrcode
-
-            qr = qrcode.QRCode(version=1, box_size=8, border=2)
-            qr.add_data(result["qr_uri"])
-            qr.make(fit=True)
-            img = qr.make_image(fill_color="black", back_color="white")
-            buf = BytesIO()
-            img.save(buf, format="PNG")
-            qr_image = "data:image/png;base64," + base64.b64encode(
-                buf.getvalue()
-            ).decode("utf-8")
-        except Exception:
-            qr_image = None
-
         return QrLoginStartResponse(
             login_id=result["login_id"],
             qr_uri=result["qr_uri"],
-            qr_image=qr_image,
+            qr_image=qr_uri_to_data_url(result.get("qr_uri") or ""),
             expires_at=result["expires_at"],
         )
     except ValueError as e:

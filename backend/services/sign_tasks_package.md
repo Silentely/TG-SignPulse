@@ -15,6 +15,7 @@
 | `sign_task_chats.py` | 会话缓存检索、dialog 映射、session/API 解析、缓存读写、client kwargs/映射追加 |
 | `sign_task_config_build.py` | 配置字典构造、更新字段合并、账号引用改名、调度计划/账号 diff / 写后响应 |
 | `sign_task_history_query.py` | 历史条目格式化装配、日期过滤、排序截断、按时间查找 |
+| `sign_task_group.py` | 任务聚合、关联查找、group key / last_run 比较 |
 | `sign_tasks.py` | SignTaskService 主体（CRUD/执行/历史） |
 
 渐进迁移原则：新逻辑优先落独立模块，再由 `SignTaskService` 调用；对外保持 `get_sign_task_service()` 不变。

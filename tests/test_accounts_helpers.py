@@ -45,3 +45,13 @@ def test_find_account_by_name():
     accounts = [{"name": "Alice"}, {"name": "bob"}]
     assert find_account_by_name(accounts, "alice")["name"] == "Alice"
     assert find_account_by_name(accounts, "missing") is None
+
+
+def test_qr_uri_to_data_url_empty():
+    from backend.api.routes.accounts_helpers import qr_uri_to_data_url
+
+    assert qr_uri_to_data_url("") is None
+    # qrcode may or may not be installed; if present returns data url
+    out = qr_uri_to_data_url("tg://login?token=abc")
+    if out is not None:
+        assert out.startswith("data:image/png;base64,")

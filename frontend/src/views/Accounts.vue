@@ -21,6 +21,10 @@ import OfficialMessagesModal from '../components/accounts/OfficialMessagesModal.
 import PageRetry from '../components/PageRetry.vue'
 import { devLog } from '../lib/devLog'
 import { AVATAR_FETCH_CONCURRENCY, mapPool } from '../lib/async-pool'
+import {
+  filterAccountsByQuery,
+  mapAccountInfoToUiItem,
+} from '../lib/account-list-map'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -42,16 +46,9 @@ const officialMessagesAccountName = ref('')
 const searchQuery = ref('')
 const loadError = ref(false)
 
-const filteredAccounts = computed(() => {
-  const q = searchQuery.value.trim().toLowerCase()
-  if (!q) return accounts.value
-  return accounts.value.filter(
-    (a) =>
-      a.name.toLowerCase().includes(q) ||
-      (a.remark || '').toLowerCase().includes(q) ||
-      (a.message || '').toLowerCase().includes(q)
-  )
-})
+const filteredAccounts = computed(() =>
+  filterAccountsByQuery(accounts.value, searchQuery.value),
+)
 
 const hasListFilters = computed(() => searchQuery.value.trim().length > 0)
 
@@ -66,35 +63,11 @@ const loadAccounts = async () => {
   try {
     loadError.value = false
     const res = await listAccounts(token)
-    accounts.value = res.accounts.map(acc => {
-      let uiStatus = 'active'
-      let message = ''
-
-      if (acc.needs_relogin || acc.status === 'invalid') {
-        uiStatus = 'error'
-        message = t('accounts.loginExpired')
-      } else if (acc.status === 'error') {
-        uiStatus = 'error'
-        message = acc.status_message || ''
-      } else if (acc.status === 'checking') {
-        uiStatus = 'empty'
-        message = t('accounts.checking')
-      } else if (acc.status_message?.includes('流量') || acc.status_message?.includes('额度')) {
-        uiStatus = 'empty'
-        message = acc.status_message
-      }
-
-      return {
-        id: acc.name,
-        name: acc.name,
-        remark: acc.remark,
-        status: uiStatus,
-        message: message,
-        avatarUrl: '',
-        avatarLoaded: false,
-        raw: acc
-      }
-    })
+    const labels = {
+      loginExpired: t('accounts.loginExpired'),
+      checking: t('accounts.checking'),
+    }
+    accounts.value = res.accounts.map((acc) => mapAccountInfoToUiItem(acc, labels))
     // 限流加载头像，避免账号多时并发打满连接
     void loadAvatars(accounts.value)
   } catch (e) {
