@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Play, FileText, Edit2, Trash2, Plus, Radio, Clock, Shuffle, Power, Search, Square, X } from 'lucide-vue-next'
+import { Play, FileText, Edit2, Trash2, Plus, Radio, Clock, Shuffle, Power, Search, Square, X, Copy } from 'lucide-vue-next'
 import { listSignTasks, deleteSignTask, startSignTaskRun, listAccounts, toggleSignTaskEnabled, batchSignTasks, cloneSignTask, listActiveSignTaskRuns, cancelSignTaskRun, listKeywordHitGroups, fetchChatAvatar } from '../lib/api'
 import { BUILT_IN_TEMPLATES } from '../lib/task-templates'
 import type { SignTask, AccountInfo, ActiveRunSummary } from '../lib/api'
@@ -1105,6 +1105,7 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
           :disabled="cloneBusy"
           @click="openCloneModal(task)"
         >
+          <Copy class="w-3.5 h-3.5" />
           <span>{{ t('tasks.clone') }}</span>
         </button>
         <button
