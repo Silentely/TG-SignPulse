@@ -156,3 +156,21 @@ Vitest 的 jsdom 环境和 Node/Undici 可能分别提供 `Blob`、`File`、`Res
 | 依赖 | 用途 |
 | --- | --- |
 | `vue-i18n@9` | 多语言支持（中英文切换） |
+
+
+## 前端 API 请求超时
+
+统一入口：`frontend/src/lib/api/core.ts`。
+
+| 常量 | 默认 | 用途 |
+| --- | --- | --- |
+| `DEFAULT_TIMEOUT_MS` | 30s | 普通 JSON API；覆盖发起到 body 读完 |
+| `MEDIUM_TIMEOUT_MS` | 120s | WebDAV 探测/列表、设备保活、会话检测、聊天列表等 |
+| `LONG_TIMEOUT_MS` | 600s | 完整备份、WebDAV 下载、配置导入导出、同步 run |
+
+说明：
+
+- `request` / `requestBlob` / `requestText`：整段墙钟超时（headers + body）。
+- 直接 `fetchWithAuth`：仅 TTFB；长任务应外层 `createRequestAbort` 覆盖 body。
+- 超时 → `NETWORK_TIMEOUT`；调用方 `AbortSignal` 取消 → `NETWORK_ABORTED`。
+- 页面轮询优先用 `startChainPoll`，避免 `setInterval` + async 叠请求。
