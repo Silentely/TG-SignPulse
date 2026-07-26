@@ -548,7 +548,11 @@ const loadChatAvatar = async (task: TaskUiItem, accountName: string, chatId: num
   try {
     const blob = await fetchChatAvatar(token, accountName, chatId)
     const url = URL.createObjectURL(blob)
+    const prev = task.chatAvatarUrl
     task.chatAvatarUrl = url
+    if (prev && prev.startsWith('blob:')) {
+      try { URL.revokeObjectURL(prev) } catch { /* ignore */ }
+    }
     // Clear no-avatar marker
     localStorage.removeItem(noAvatarKey)
     // Cache as data URL for persistence

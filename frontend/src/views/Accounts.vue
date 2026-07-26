@@ -110,7 +110,12 @@ const loadAvatar = async (acc: AccountUiItem) => {
   const token = authStore.token || ''
   try {
     const blob = await fetchAccountAvatar(token, acc.name)
+    const prev = acc.avatarUrl
     acc.avatarUrl = URL.createObjectURL(blob)
+    // 释放旧 ObjectURL，避免账号列表反复刷新泄漏 blob 引用
+    if (prev && prev.startsWith('blob:')) {
+      try { URL.revokeObjectURL(prev) } catch { /* ignore */ }
+    }
   } catch {
     // No avatar available, keep fallback
   }
