@@ -55,17 +55,23 @@ _CATEGORY_RULES: tuple[tuple[FailureCategory, tuple[str, ...]], ...] = (
         (
             "invalid session",
             "auth key",
+            "authkeyunregistered",
             "session 失效",
             "会话失效",
             "账号失效",
             "unauthorized",
             "user deactivated",
             "session_revoked",
+            "sessionrevoked",
+            "auth_key_unregistered",
+            "user_deactivated",
+            "needs_relogin",
+            "需要重新登录",
         ),
     ),
     (
         FailureCategory.FLOOD_WAIT,
-        ("floodwait", "flood wait", "flood_wait", "太频繁", "slowmode"),
+        ("floodwait", "flood wait", "flood_wait", "太频繁", "slowmode", "wait of"),
     ),
     (
         FailureCategory.AI_TIMEOUT,
@@ -73,11 +79,20 @@ _CATEGORY_RULES: tuple[tuple[FailureCategory, tuple[str, ...]], ...] = (
     ),
     (
         FailureCategory.AI_ERROR,
-        ("openai", "ai error", "vision error", "api key", "quota", "rate limit"),
+        (
+            "openai",
+            "ai error",
+            "vision error",
+            "api key",
+            "quota",
+            "rate limit",
+            "insufficient_quota",
+            "model_not_found",
+        ),
     ),
     (
         FailureCategory.BUTTON_NOT_FOUND,
-        ("未找到按钮", "找不到按钮", "button not found", "no button"),
+        ("未找到按钮", "找不到按钮", "button not found", "no button", "no matching button"),
     ),
     (
         FailureCategory.TARGET_NOT_FOUND,
@@ -88,6 +103,10 @@ _CATEGORY_RULES: tuple[tuple[FailureCategory, tuple[str, ...]], ...] = (
             "找不到聊天",
             "chat not found",
             "peer id invalid",
+            "peer_id_invalid",
+            "username not occupied",
+            "channel_invalid",
+            "channel_private",
         ),
     ),
     (
@@ -101,14 +120,17 @@ _CATEGORY_RULES: tuple[tuple[FailureCategory, tuple[str, ...]], ...] = (
             "timed out connecting",
             "socks",
             "ssl",
+            "connecterror",
+            "clientconnectorerror",
+            "name or service not known",
+            "temporary failure in name resolution",
         ),
     ),
     (
         FailureCategory.TIMEOUT,
-        ("timeout", "timed out", "超时"),
+        ("timeout", "timed out", "超时", "asyncio.timeouterror"),
     ),
 )
-
 
 def message_indicates_strong_failure(text: str) -> bool:
     """目标消息文本是否呈现强失败语义（排除成功标记）。"""

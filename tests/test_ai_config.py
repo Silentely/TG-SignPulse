@@ -248,3 +248,27 @@ class TestExportAllConfigs:
         assert stored.get("base_url") == "https://api.new.com"
         assert stored.get("model") == "gpt-4o-mini"
         assert stored.get("api_key") == "sk-real-key"
+
+
+class TestImportAllConfigsValidation:
+    """import_all_configs 根节点与字段类型校验"""
+
+    def test_reject_non_object_root(self, isolated_env: Path):
+        service = ConfigService()
+        result = service.import_all_configs(json.dumps([1, 2, 3]), overwrite=True)
+        assert result["errors"]
+        assert any("根节点" in e for e in result["errors"])
+        assert result.get("signs_imported", 0) == 0
+
+    def test_invalid_signs_type_recorded(self, isolated_env: Path):
+        service = ConfigService()
+        result = service.import_all_configs(
+            json.dumps({"signs": "not-a-dict", "monitors": {}}),
+            overwrite=True,
+        )
+        assert any("signs" in e for e in result["errors"])
+
+    def test_preview_rejects_non_object(self, isolated_env: Path):
+        service = ConfigService()
+        preview = service.preview_import_all(json.dumps("x"))
+        assert preview["errors"]

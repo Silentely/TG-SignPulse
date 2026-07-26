@@ -71,6 +71,11 @@ def test_readyz_includes_ops_fields(client, db_session):
     assert body.get("status") == "ready"
     assert "scheduler_lock_held" in body
     assert "legacy_tasks_writable" in body
+    assert body.get("scheduler_role") in {"primary", "replica"}
+    if body["scheduler_lock_held"]:
+        assert body["scheduler_role"] == "primary"
+    else:
+        assert body["scheduler_role"] == "replica"
 
 
 def test_runtime_status_requires_auth(client, db_session):

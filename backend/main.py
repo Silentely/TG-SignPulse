@@ -237,8 +237,11 @@ def ready_check(response: Response) -> dict:
         from backend.api.routes.tasks import _legacy_writes_allowed
         from backend.scheduler.instance_lock import has_scheduler_lock
 
-        payload["scheduler_lock_held"] = has_scheduler_lock()
+        lock_held = has_scheduler_lock()
+        payload["scheduler_lock_held"] = lock_held
         payload["legacy_tasks_writable"] = _legacy_writes_allowed()
+        # 副本进程（未持锁）时显式提示：业务 cron 不在本实例执行
+        payload["scheduler_role"] = "primary" if lock_held else "replica"
     except (ImportError, AttributeError) as exc:
         logging.getLogger("backend.readyz").debug("ready 附加信息失败: %s", exc)
     return payload
@@ -442,6 +445,7 @@ async def _memory_monitor_loop() -> None:
 
 
 async def on_shutdown() -> None:
+    log = logging.getLogger("backend.shutdown")
     startup_task = getattr(app.state, "startup_task", None)
     if startup_task is not None and not startup_task.done():
         startup_task.cancel()
@@ -461,4 +465,12 @@ async def on_shutdown() -> None:
         await get_keyword_monitor_service().stop()
     except Exception:
         # 顶层兜底：关闭阶段任何异常不能阻止进程退出
-        logging.getLogger("backend.shutdown").exception("Keyword monitor shutdown failed")
+        log.exception("Keyword monitor shutdown failed")
+
+    # 释放调度文件锁，避免异常退出后锁文件残留导致下一进程误判 replica
+    try:
+        from backend.scheduler.instance_lock import release_scheduler_lock
+
+        release_scheduler_lock()
+    except Exception:
+        log.exception("Scheduler lock release failed")

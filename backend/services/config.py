@@ -58,12 +58,12 @@ class ConfigService:
                     os.fsync(f.fileno())
                 os.replace(temp_path, path)
                 return True
-            except Exception:
+            except (OSError, TypeError, ValueError) as exc:
                 if temp_path is not None:
                     with contextlib.suppress(OSError):
                         temp_path.unlink()
                 logging.getLogger("backend.config").exception(
-                    "Failed to write JSON file: %s", path
+                    "Failed to write JSON file: %s (%s)", path, exc
                 )
                 return False
 
@@ -449,7 +449,9 @@ class ConfigService:
         self, json_str: str, overwrite: bool = False
     ) -> Dict[str, Any]:
         """
-        导入所有配置
+        导入所有配置。
+
+        根节点必须为对象；signs/monitors/settings 非 dict 时记入 errors 并按空处理。
         """
         result: Dict[str, Any] = {
             "signs_imported": 0,
@@ -464,9 +466,25 @@ class ConfigService:
 
         try:
             data = json.loads(json_str)
+            if not isinstance(data, dict):
+                result["errors"].append("配置根节点必须是对象")
+                result["message"] = "导入失败：根节点无效"
+                return result
+
+            signs = data.get("signs") or {}
+            monitors = data.get("monitors") or {}
+            if not isinstance(signs, dict):
+                result["errors"].append("signs 字段格式无效")
+                signs = {}
+            if not isinstance(monitors, dict):
+                result["errors"].append("monitors 字段格式无效")
+                monitors = {}
 
             # 导入签到任务
-            for key, config in data.get("signs", {}).items():
+            for key, config in signs.items():
+                if not isinstance(config, dict):
+                    result["errors"].append(f"Failed to import sign task (invalid entry): {key}")
+                    continue
                 task_name = config.get("name")
                 if not task_name:
                     task_name = key.split("@")[0]
@@ -491,8 +509,13 @@ class ConfigService:
                     result["errors"].append(f"Failed to import sign task: {task_name}")
 
             # 导入监控任务
-            for task_name, config in data.get("monitors", {}).items():
-                task_dir = self.monitors_dir / task_name
+            for task_name, config in monitors.items():
+                if not isinstance(config, dict):
+                    result["errors"].append(
+                        f"Failed to import monitor task (invalid entry): {task_name}"
+                    )
+                    continue
+                task_dir = self.monitors_dir / str(task_name)
                 config_file = task_dir / "config.json"
 
                 if not overwrite and config_file.exists():

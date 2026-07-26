@@ -22,10 +22,13 @@ def test_classify_success_true_returns_none():
 
 def test_classify_session_invalid_by_english():
     assert classify_failure(error="invalid session", success=False) == FailureCategory.SESSION_INVALID
+    assert classify_failure(error="auth_key_unregistered", success=False) == FailureCategory.SESSION_INVALID
+    assert classify_failure(error="needs_relogin", success=False) == FailureCategory.SESSION_INVALID
 
 
 def test_classify_session_invalid_by_chinese():
     assert classify_failure(error="会话失效", success=False) == FailureCategory.SESSION_INVALID
+    assert classify_failure(error="需要重新登录", success=False) == FailureCategory.SESSION_INVALID
 
 
 def test_classify_flood_wait():
@@ -50,10 +53,15 @@ def test_classify_target_not_found():
 
 def test_classify_network_proxy():
     assert classify_failure(error="connection reset by peer", success=False) == FailureCategory.NETWORK_PROXY
+    assert (
+        classify_failure(error="ClientConnectorError: name or service not known", success=False)
+        == FailureCategory.NETWORK_PROXY
+    )
 
 
 def test_classify_timeout_keyword():
     assert classify_failure(error="请求超时", success=False) == FailureCategory.TIMEOUT
+    assert classify_failure(error="asyncio.TimeoutError", success=False) == FailureCategory.TIMEOUT
 
 
 def test_classify_output_text_also_scanned():

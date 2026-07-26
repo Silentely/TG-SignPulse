@@ -95,13 +95,61 @@ def test_build_runner_failure_result():
     c = build_runner_failure_result(cancelled=True)
     assert c["error"] == "Task execution cancelled"
     assert c["timed_out"] is False
+    assert c.get("failure_category") is None
     f = build_runner_failure_result(error="boom")
     assert f["error"] == "boom"
     assert f["success"] is False
+    assert f.get("failure_category") is None
     t = build_runner_failure_result(
         error="任务执行超时（10秒），已强制终止",
     )
     assert t["timed_out"] is True
+    assert t.get("failure_category") == "timeout"
+
+
+def test_resolve_terminal_failure_category():
+    from backend.services.sign_task_run_status import (
+        RUN_STATE_CANCELLED,
+        RUN_STATE_FINISHED,
+        RUN_STATE_TIMEOUT,
+        resolve_terminal_failure_category,
+    )
+
+    assert (
+        resolve_terminal_failure_category(
+            state=RUN_STATE_FINISHED, success=True, error="x"
+        )
+        is None
+    )
+    assert (
+        resolve_terminal_failure_category(
+            state=RUN_STATE_CANCELLED,
+            success=False,
+            error="Task execution cancelled",
+        )
+        is None
+    )
+    assert (
+        resolve_terminal_failure_category(
+            state=RUN_STATE_TIMEOUT, success=False, error="timeout"
+        )
+        == "timeout"
+    )
+    assert (
+        resolve_terminal_failure_category(
+            state=RUN_STATE_FINISHED,
+            success=False,
+            result_category="session_invalid",
+            error="other",
+        )
+        == "session_invalid"
+    )
+    cat = resolve_terminal_failure_category(
+        state=RUN_STATE_FINISHED,
+        success=False,
+        error="invalid session / needs relogin",
+    )
+    assert cat == "session_invalid"
 
 
 def test_resolve_effective_retry_count():
@@ -238,3 +286,53 @@ def test_cancel_task_run_run_id_mismatch():
     assert res["ok"] is False
     assert res["cancelled"] is False
     bg.cancel.assert_not_called()
+
+
+def test_is_terminal_run_state():
+    from backend.services.sign_task_run_status import (
+        RUN_STATE_CANCELLED,
+        RUN_STATE_FINISHED,
+        RUN_STATE_IDLE,
+        RUN_STATE_RUNNING,
+        RUN_STATE_TIMEOUT,
+        is_terminal_run_state,
+    )
+
+    assert is_terminal_run_state(RUN_STATE_FINISHED)
+    assert is_terminal_run_state(RUN_STATE_CANCELLED)
+    assert is_terminal_run_state(RUN_STATE_TIMEOUT)
+    assert not is_terminal_run_state(RUN_STATE_RUNNING)
+    assert not is_terminal_run_state(RUN_STATE_IDLE)
+
+
+def test_prune_stale_does_not_drop_terminal_with_finished_at():
+    """有 finished_at 的终态由 cleanup 定时器负责，prune 不立刻删。"""
+    from backend.services.sign_tasks import SignTaskService
+
+    svc = SignTaskService.__new__(SignTaskService)
+    svc._active_tasks = {}
+    svc._active_logs = {}
+    svc._background_run_tasks = {}
+    svc._cleanup_tasks = {}
+    svc._run_status_cleanup_tasks = {}
+    svc._account_last_run_end = {}
+    svc._max_account_last_run_entries = 100
+    svc._run_statuses = {
+        ("a", "t"): build_run_status(
+            run_id="r1",
+            state=RUN_STATE_FINISHED,
+            success=True,
+            finished_at="2026-07-26T00:00:00+00:00",
+            default_started_at="t0",
+        ),
+        ("b", "u"): build_run_status(
+            run_id="r2",
+            state=RUN_STATE_FINISHED,
+            success=False,
+            finished_at=None,
+            default_started_at="t0",
+        ),
+    }
+    SignTaskService._prune_stale_entries(svc)
+    assert ("a", "t") in svc._run_statuses
+    assert ("b", "u") not in svc._run_statuses

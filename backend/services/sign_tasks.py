@@ -69,6 +69,7 @@ from backend.services.sign_task_run_status import (
     is_timeout_error_message,
     make_task_key,
     resolve_stored_run_status,
+    resolve_terminal_failure_category,
     summarize_active_run,
 )
 from backend.services.sign_task_text import repair_mojibake
@@ -196,6 +197,22 @@ class SignTaskService:
         done_status_cleanup = [k for k, t in self._run_status_cleanup_tasks.items() if t.done()]
         for key in done_status_cleanup:
             self._run_status_cleanup_tasks.pop(key, None)
+
+        # 终态 run status：若已无 active/background，尽快释放（保留 cleanup 定时器负责延迟删除时跳过）
+        from backend.services.sign_task_run_status import is_terminal_run_state
+
+        for key, status in list(self._run_statuses.items()):
+            if key in self._run_status_cleanup_tasks:
+                continue
+            if self._active_tasks.get(key, False):
+                continue
+            if key in self._background_run_tasks:
+                continue
+            if is_terminal_run_state(str((status or {}).get("state") or "")):
+                # 终态已落盘历史后可保留一小段供前端轮询；此处仅在无 cleanup 挂接时清理孤儿
+                finished_at = str((status or {}).get("finished_at") or "")
+                if not finished_at:
+                    self._run_statuses.pop(key, None)
 
         # Bound _account_last_run_end to prevent unbounded growth
         if len(self._account_last_run_end) > self._max_account_last_run_entries:
@@ -1217,7 +1234,14 @@ class SignTaskService:
             try:
                 with open(history_file, "r", encoding="utf-8") as f:
                     history_raw = json.load(f)
-            except Exception:
+            except (OSError, json.JSONDecodeError, UnicodeDecodeError, TypeError, ValueError) as exc:
+                logging.getLogger("backend.sign_tasks").warning(
+                    "读取历史失败 task=%s account=%s file=%s: %s",
+                    task_name,
+                    account_name,
+                    history_file,
+                    exc,
+                )
                 history_raw = []
 
         history = prepend_history_entry(
@@ -1251,8 +1275,13 @@ class SignTaskService:
                         config["last_run"] = new_entry
                         with open(config_file, "w", encoding="utf-8") as f:
                             json.dump(config, f, ensure_ascii=False, indent=2)
-                    except Exception as e:
-                        _service_logger.warning("更新任务配置 last_run 失败: %s", e)
+                    except (OSError, json.JSONDecodeError, TypeError, ValueError) as e:
+                        _service_logger.warning(
+                            "更新任务配置 last_run 失败 task=%s account=%s: %s",
+                            task_name,
+                            account_name,
+                            e,
+                        )
 
             # 2. 更新内存缓存 (关键优化：避免置空 self._tasks_cache)
             if self._tasks_cache is not None:
@@ -1261,8 +1290,13 @@ class SignTaskService:
                         t["last_run"] = new_entry
                         break
 
-        except Exception as e:
-            _service_logger.warning("保存运行信息失败: %s", e)
+        except (OSError, TypeError, ValueError) as e:
+            _service_logger.warning(
+                "保存运行信息失败 task=%s account=%s: %s",
+                task_name,
+                account_name,
+                e,
+            )
 
     def _append_scheduler_log(self, filename: str, message: str) -> None:
         try:
@@ -1271,7 +1305,7 @@ class SignTaskService:
             log_path = logs_dir / filename
             with open(log_path, 'a', encoding='utf-8') as f:
                 f.write(f'{message}\n')
-        except Exception as e:
+        except OSError as e:
             logging.getLogger('backend.sign_tasks').warning(
                 'Failed to write scheduler log %s: %s', filename, e
             )
@@ -2739,15 +2773,14 @@ class SignTaskService:
             if current_status and current_status.get("run_id") == run_id:
                 success = bool(result.get("success", False))
                 error = str(result.get("error") or "")
-                category = result.get("failure_category")
-                if not success and not category:
-                    category = classify_failure(
-                        error=error,
-                        output=str(result.get("output") or ""),
-                        success=False,
-                    ).value
-                if success:
-                    category = None
+                output = str(result.get("output") or "")
+                category = resolve_terminal_failure_category(
+                    state=state,
+                    success=success,
+                    result_category=result.get("failure_category"),
+                    error=error,
+                    output=output,
+                )
                 self._set_run_status(
                     account_name,
                     task_name,
@@ -2755,7 +2788,7 @@ class SignTaskService:
                     state=state,
                     success=success,
                     error=error,
-                    output=str(result.get("output") or ""),
+                    output=output,
                     started_at=started_at,
                     finished_at=utc_now_iso(),
                     phase=None,

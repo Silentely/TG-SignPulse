@@ -193,13 +193,19 @@ def build_runner_failure_result(
     error: str = "",
     timed_out: bool = False,
 ) -> Dict[str, Any]:
-    """start_task_run 后台 runner 失败/取消/超时时的统一结果。"""
+    """start_task_run 后台 runner 失败/取消/超时时的统一结果。
+
+    - cancelled：state 由调用方设为 cancelled，failure_category 为 None（取消不是业务失败分类）
+    - timed_out：带 failure_category=timeout
+    - 其它：failure_category 留给调用方 classify，此处为 None
+    """
     if cancelled:
         return {
             "success": False,
             "error": "Task execution cancelled",
             "output": "",
             "timed_out": False,
+            "failure_category": None,
         }
     if timed_out or is_timeout_error_message(error):
         return {
@@ -207,10 +213,51 @@ def build_runner_failure_result(
             "error": str(error or "Task execution timeout"),
             "output": "",
             "timed_out": True,
+            "failure_category": "timeout",
         }
     return {
         "success": False,
         "error": str(error or "Task execution failed"),
         "output": "",
         "timed_out": False,
+        "failure_category": None,
+    }
+
+
+def resolve_terminal_failure_category(
+    *,
+    state: str,
+    success: bool,
+    result_category: Any = None,
+    error: str = "",
+    output: str = "",
+) -> Optional[str]:
+    """
+    终态 failure_category 收口：
+
+    - success → None
+    - cancelled → None（用 state 表达，不占用 failCat）
+    - 结果已带 category → 规范化字符串
+    - 否则 classify_failure
+    """
+    if success:
+        return None
+    if str(state or "") == RUN_STATE_CANCELLED:
+        return None
+    if result_category is not None and str(result_category).strip():
+        return str(result_category).strip()
+    if str(state or "") == RUN_STATE_TIMEOUT:
+        return "timeout"
+    # 延迟导入，避免 run_status ↔ failure 循环依赖
+    from backend.services.sign_task_failure import classify_failure
+
+    return classify_failure(error=error, output=output, success=False).value
+
+
+def is_terminal_run_state(state: str) -> bool:
+    """是否为 run 终态（非 idle/running/stale）。"""
+    return str(state or "") in {
+        RUN_STATE_FINISHED,
+        RUN_STATE_CANCELLED,
+        RUN_STATE_TIMEOUT,
     }
