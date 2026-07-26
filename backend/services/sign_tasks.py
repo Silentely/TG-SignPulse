@@ -32,6 +32,11 @@ from backend.services.sign_task_history_format import (
     normalize_and_trim_flow_logs,
     prepend_history_entry,
 )
+from backend.services.sign_task_history_query import (
+    collect_formatted_history_items,
+    find_history_item_by_time,
+    sort_history_items_desc,
+)
 from backend.services.sign_task_history_io import (
     cleanup_old_history_files,
 )
@@ -803,21 +808,17 @@ class SignTaskService:
                 continue
             seen_tasks.add(task_name)
 
-            for item in self._load_history_entries(task_name, account_name=account_name):
-                if not isinstance(item, dict):
-                    continue
-                all_history.append(
-                    build_history_list_item(
-                        item,
-                        task_name=task_name,
-                        account_name=account_name,
-                        repair=self._repair_mojibake,
-                        extract_last_target=extract_last_target_message,
-                    )
+            all_history.extend(
+                collect_formatted_history_items(
+                    self._load_history_entries(task_name, account_name=account_name),
+                    task_name=task_name,
+                    account_name=account_name,
+                    repair=self._repair_mojibake,
+                    extract_last_target=extract_last_target_message,
                 )
+            )
 
-        all_history.sort(key=lambda x: str(x.get("time") or ""), reverse=True)
-        return all_history
+        return sort_history_items_desc(all_history)
 
     def get_recent_history_logs(self, limit: int = 50) -> List[Dict[str, Any]]:
         limit = clamp_limit(limit, minimum=1, maximum=200)
@@ -837,21 +838,17 @@ class SignTaskService:
             seen_pairs.add(pair)
 
             history = self._load_history_entries(task_name, account_name=account_name)
-            for item in history[:limit]:
-                if not isinstance(item, dict):
-                    continue
-                recent.append(
-                    build_history_list_item(
-                        item,
-                        task_name=task_name,
-                        account_name=account_name,
-                        repair=self._repair_mojibake,
-                        extract_last_target=extract_last_target_message,
-                    )
+            recent.extend(
+                collect_formatted_history_items(
+                    history[:limit],
+                    task_name=task_name,
+                    account_name=account_name,
+                    repair=self._repair_mojibake,
+                    extract_last_target=extract_last_target_message,
                 )
+            )
 
-        recent.sort(key=lambda item: str(item.get("time") or ""), reverse=True)
-        return recent[:limit]
+        return sort_history_items_desc(recent, limit=limit)
 
     def get_filtered_history_logs(
         self,
@@ -886,25 +883,18 @@ class SignTaskService:
             seen_pairs.add(pair)
 
             history = self._load_history_entries(task_name, account_name=current_account)
-            for item in history:
-                if not isinstance(item, dict):
-                    continue
-                timestamp = str(item.get("time") or "")
-                if normalized_date and not timestamp.startswith(normalized_date):
-                    continue
-
-                history_items.append(
-                    build_history_list_item(
-                        item,
-                        task_name=task_name,
-                        account_name=current_account,
-                        repair=self._repair_mojibake,
-                        extract_last_target=extract_last_target_message,
-                    )
+            history_items.extend(
+                collect_formatted_history_items(
+                    history,
+                    task_name=task_name,
+                    account_name=current_account,
+                    repair=self._repair_mojibake,
+                    extract_last_target=extract_last_target_message,
+                    date_prefix=normalized_date,
                 )
+            )
 
-        history_items.sort(key=lambda item: str(item.get("time") or ""), reverse=True)
-        return history_items[:limit]
+        return sort_history_items_desc(history_items, limit=limit)
 
     def get_history_log_detail(
         self,
@@ -916,26 +906,16 @@ class SignTaskService:
             account_name, field_name="account_name"
         )
         normalized_task = validate_storage_name(task_name, field_name="task_name")
-        target_time = str(created_at or "").strip()
-        if not target_time:
-            return None
-
-        for item in self._load_history_entries(
-            normalized_task, account_name=normalized_account
-        ):
-            timestamp = str(item.get("time") or "")
-            if timestamp != target_time:
-                continue
-
-            return build_history_list_item(
-                item,
-                task_name=normalized_task,
-                account_name=normalized_account,
-                repair=self._repair_mojibake,
-                extract_last_target=extract_last_target_message,
-            )
-
-        return None
+        return find_history_item_by_time(
+            self._load_history_entries(
+                normalized_task, account_name=normalized_account
+            ),
+            target_time=created_at,
+            task_name=normalized_task,
+            account_name=normalized_account,
+            repair=self._repair_mojibake,
+            extract_last_target=extract_last_target_message,
+        )
 
     def delete_history_log(
         self,
@@ -1556,18 +1536,16 @@ class SignTaskService:
             except Exception:
                 pass
 
-            for item in history[:limit]:
-                if not isinstance(item, dict):
-                    continue
-                result.append(
-                    build_history_list_item(
-                        item,
-                        task_name=task_name,
-                        account_name=str(item.get("account_name") or account_name),
-                        repair=self._repair_mojibake,
-                        extract_last_target=extract_last_target_message,
-                    )
+            result.extend(
+                collect_formatted_history_items(
+                    history[:limit],
+                    task_name=task_name,
+                    account_name=str(account_name),
+                    repair=self._repair_mojibake,
+                    extract_last_target=extract_last_target_message,
+                    prefer_entry_account=True,
                 )
+            )
             return result
 
         merged: List[Dict[str, Any]] = []
@@ -1586,8 +1564,7 @@ class SignTaskService:
                 )
             )
 
-        merged.sort(key=lambda item: str(item.get("time") or ""), reverse=True)
-        return merged[:limit]
+        return sort_history_items_desc(merged, limit=limit)
 
     def list_tasks(
         self,
