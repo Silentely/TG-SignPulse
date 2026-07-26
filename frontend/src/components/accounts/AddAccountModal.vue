@@ -5,6 +5,7 @@ import Modal from '../Modal.vue'
 import { startAccountLogin, verifyAccountLogin, updateAccount, startQrLogin, getQrLoginStatus, submitQrPassword, cancelQrLogin } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
+import { startChainPoll, type ChainPollHandle } from '../../lib/chain-poll'
 import { useAuthStore } from '../../stores/auth'
 import { getLocalizedErrorMessage } from '../../lib/types'
 import { devLog } from '../../lib/devLog'
@@ -37,13 +38,11 @@ const codeSent = ref(false)
 // QR login specific
 const qrImage = ref('')
 const loginId = ref('')
-let pollInterval: number | undefined = undefined
+let pollHandle: ChainPollHandle | null = null
 
 const reset = async () => {
-  if (pollInterval) {
-    clearInterval(pollInterval)
-    pollInterval = undefined
-  }
+  pollHandle?.stop()
+  pollHandle = null
   if (loginId.value) {
     try {
       const token = authStore.token || ''
@@ -95,8 +94,8 @@ const pollStatus = async (token: string, lid: string) => {
   try {
     const res = await getQrLoginStatus(token, lid)
     if (res.status === 'success') {
-      clearInterval(pollInterval)
-      pollInterval = undefined
+      pollHandle?.stop()
+      pollHandle = null
       if (form.value.remark) {
         try {
           await updateAccount(token, form.value.account_name, { remark: form.value.remark })
@@ -109,18 +108,18 @@ const pollStatus = async (token: string, lid: string) => {
     } else if (res.status === 'waiting_for_password' || res.status === 'password_required') {
       // 如果已经填了密码，自动提交
       if (form.value.password) {
-        clearInterval(pollInterval)
-        pollInterval = undefined
+        pollHandle?.stop()
+      pollHandle = null
         handleQrPasswordSubmit(token, lid)
       } else {
         error.value = t('addAccount.needPassword')
-        clearInterval(pollInterval)
-        pollInterval = undefined
+        pollHandle?.stop()
+      pollHandle = null
         loading.value = false
       }
     } else if (res.status === 'failed' || res.status === 'expired') {
-      clearInterval(pollInterval)
-      pollInterval = undefined
+      pollHandle?.stop()
+      pollHandle = null
       error.value = res.message || t('addAccount.qrFailed')
       loading.value = false
     }
@@ -151,8 +150,8 @@ const handleQrPasswordSubmit = async (token: string, lid: string) => {
       return
     }
     // 否则继续轮询等待最终状态
-    if (pollInterval) clearInterval(pollInterval)
-    pollInterval = setInterval(() => pollStatus(token, lid), 3000)
+    pollHandle?.stop()
+    pollHandle = startChainPoll(() => pollStatus(token, lid), { intervalMs: 3000 })
   } catch (e: unknown) {
     error.value = getLocalizedErrorMessage(e, t, t('addAccount.passwordFailed'))
     loading.value = false
@@ -177,8 +176,8 @@ const handleGetQr = async () => {
     loginId.value = res.login_id
     qrImage.value = res.qr_image || ''
     
-    if (pollInterval) clearInterval(pollInterval)
-    pollInterval = setInterval(() => pollStatus(token, res.login_id), 3000)
+    pollHandle?.stop()
+    pollHandle = startChainPoll(() => pollStatus(token, res.login_id), { intervalMs: 3000 })
   } catch (e: unknown) {
     error.value = getLocalizedErrorMessage(e, t, t('addAccount.getQrFailed'))
   } finally {
@@ -270,11 +269,8 @@ const handleSave = async () => {
     } else {
       // 没有密码时，检查当前轮询是否还在运行
       // 如果轮询在运行，说明还在等待后端确认，不需要用户操作
-      if (pollInterval) {
-        // 轮询中，等待自动完成
-        loading.value = false
-        return
-      }
+      pollHandle?.stop()
+      pollHandle = null
       error.value = t('addAccount.enterPasswordOrWait')
       loading.value = false
     }
@@ -282,7 +278,7 @@ const handleSave = async () => {
 }
 
 onUnmounted(() => {
-  if (pollInterval) clearInterval(pollInterval)
+  pollHandle?.stop(); pollHandle = null
 })
 </script>
 

@@ -26,6 +26,7 @@ import type { DashboardLog } from '../lib/types'
 import { getLocalizedErrorMessage } from '../lib/types'
 import Modal from '../components/Modal.vue'
 import { devLog } from '../lib/devLog'
+import { startChainPoll, type ChainPollHandle } from '../lib/chain-poll'
 import {
   aggregateFailureCategories,
   badgeTone,
@@ -46,7 +47,7 @@ const toast = useToast()
 const authStore = useAuthStore()
 const router = useRouter()
 
-let refreshTimer: ReturnType<typeof setInterval> | null = null
+let refreshHandle: ChainPollHandle | null = null
 let signHistorySource: EventSource | null = null
 let sseReconnectTimer: ReturnType<typeof setTimeout> | null = null
 let sseReconnectAttempt = 0
@@ -244,17 +245,18 @@ onMounted(async () => {
   sseIntentionalClose = false
   await loadDashboardData()
   pageLoading.value = false
-  refreshTimer = setInterval(loadDashboardData, 30000)
+  refreshHandle = startChainPoll(loadDashboardData, {
+    intervalMs: 30000,
+    runImmediately: false,
+  })
   connectSignHistorySSE()
 })
 
 onUnmounted(() => {
   sseIntentionalClose = true
   clearSseReconnect()
-  if (refreshTimer) {
-    clearInterval(refreshTimer)
-    refreshTimer = null
-  }
+  refreshHandle?.stop()
+  refreshHandle = null
   if (signHistorySource) {
     signHistorySource.close()
     signHistorySource = null

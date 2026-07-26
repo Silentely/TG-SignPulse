@@ -20,6 +20,7 @@ import { useAuthStore } from '../../stores/auth'
 import type { TaskUiItem } from '../../lib/types'
 import { getLocalizedErrorMessage } from '../../lib/types'
 import { normalizeFlowLogLines } from '../../lib/task-log-format'
+import { startChainPoll, type ChainPollHandle } from '../../lib/chain-poll'
 import { devLog } from '../../lib/devLog'
 import {
   badgeTone,
@@ -66,8 +67,6 @@ const livePhaseDetail = ref('')
 const liveFailureCategory = ref<string | null>(null)
 const liveState = ref<string | null>(null)
 let ws: WebSocket | null = null
-let pollTimer: ReturnType<typeof setTimeout> | null = null
-let hitsAutoRefreshTimer: ReturnType<typeof setInterval> | null = null
 const logContainer = ref<HTMLElement | null>(null)
 const canLoadMoreHits = computed(
   () => hitsView.value === 'list' && hitRecords.value.length < hitTotal.value,
@@ -146,19 +145,17 @@ const loadLogs = async () => {
 }
 
 const clearHitsAutoRefresh = () => {
-  if (hitsAutoRefreshTimer) {
-    clearInterval(hitsAutoRefreshTimer)
-    hitsAutoRefreshTimer = null
-  }
+  hitsPollHandle?.stop()
+  hitsPollHandle = null
 }
 
 const ensureHitsAutoRefresh = () => {
   clearHitsAutoRefresh()
   if (!props.isOpen || !isListenTask.value || panelTab.value !== 'hits') return
-  // 监听任务打开命中 Tab 时静默刷新，便于观察新命中
-  hitsAutoRefreshTimer = setInterval(() => {
-    void loadHits({ silent: true })
-  }, 8000)
+  hitsPollHandle = startChainPoll(
+    () => loadHits({ silent: true }),
+    { intervalMs: 8000, runImmediately: false },
+  )
 }
 
 const loadHits = async (opts?: { silent?: boolean; append?: boolean }) => {
@@ -347,64 +344,45 @@ const connectWebSocket = () => {
   }
 }
 
-/** 链式轮询：上一轮结束后再等间隔，弱网下不会叠多轮 in-flight */
 const POLL_INTERVAL_MS = 1500
-let pollStopped = true
+let pollHandle: ChainPollHandle | null = null
+let hitsPollHandle: ChainPollHandle | null = null
 
 const stopPolling = () => {
-  pollStopped = true
-  if (pollTimer) {
-    clearTimeout(pollTimer)
-    pollTimer = null
-  }
-}
-
-const schedulePollTick = (delayMs: number) => {
-  if (pollStopped) return
-  pollTimer = setTimeout(() => {
-    void runPollTick()
-  }, delayMs)
-}
-
-const runPollTick = async () => {
-  pollTimer = null
-  if (pollStopped || !props.task) return
-  const token = authStore.token || ''
-  const accountName = getTaskAccountName(props.task) || ''
-  // logs 与 status 独立容错：任一失败不阻塞另一个
-  const [logsResult, statusResult] = await Promise.allSettled([
-    getSignTaskLogs(token, props.task.name, accountName),
-    getSignTaskRunStatus(token, props.task.name, accountName),
-  ])
-  if (pollStopped) return
-  if (logsResult.status === 'fulfilled') {
-    const data = logsResult.value
-    if (Array.isArray(data) && data.length > 0) {
-      realtimeLogs.value = data
-      nextTick(() => {
-        if (logContainer.value) {
-          logContainer.value.scrollTop = logContainer.value.scrollHeight
-        }
-      })
-    }
-  }
-  if (statusResult.status === 'fulfilled') {
-    applyStatusPayload(statusResult.value)
-    if (statusResult.value.state !== 'running') {
-      isRunning.value = false
-      stopPolling()
-      return
-    }
-  }
-  schedulePollTick(POLL_INTERVAL_MS)
+  pollHandle?.stop()
+  pollHandle = null
 }
 
 const startPolling = () => {
-  // 已在轮询（等待中或 in-flight）则不重复启动
-  if (!pollStopped) return
-  pollStopped = false
-  // 立即拉一次，再进入间隔续跑
-  void runPollTick()
+  if (pollHandle?.active) return
+  pollHandle = startChainPoll(async () => {
+    if (!props.task) return
+    const token = authStore.token || ''
+    const accountName = getTaskAccountName(props.task) || ''
+    const [logsResult, statusResult] = await Promise.allSettled([
+      getSignTaskLogs(token, props.task.name, accountName),
+      getSignTaskRunStatus(token, props.task.name, accountName),
+    ])
+    if (!pollHandle?.active) return
+    if (logsResult.status === 'fulfilled') {
+      const data = logsResult.value
+      if (Array.isArray(data) && data.length > 0) {
+        realtimeLogs.value = data
+        nextTick(() => {
+          if (logContainer.value) {
+            logContainer.value.scrollTop = logContainer.value.scrollHeight
+          }
+        })
+      }
+    }
+    if (statusResult.status === 'fulfilled') {
+      applyStatusPayload(statusResult.value)
+      if (statusResult.value.state !== 'running') {
+        isRunning.value = false
+        stopPolling()
+      }
+    }
+  }, { intervalMs: POLL_INTERVAL_MS })
 }
 
 const disconnectWebSocket = () => {

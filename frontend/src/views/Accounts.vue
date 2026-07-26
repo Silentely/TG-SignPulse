@@ -26,6 +26,7 @@ import OfficialMessagesModal from '../components/accounts/OfficialMessagesModal.
 import PageRetry from '../components/PageRetry.vue'
 import { devLog } from '../lib/devLog'
 import { AVATAR_FETCH_CONCURRENCY, mapPool } from '../lib/async-pool'
+import { startChainPoll, type ChainPollHandle } from '../lib/chain-poll'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -153,7 +154,7 @@ const batchJob = ref<AccountStatusJob | null>(null)
 const batchResultMap = ref<Record<string, AccountStatusItem>>({})
 /** 最近一次批量/重检结束后的失败账号名（仅用于「重检异常」） */
 const lastBatchFailedNames = ref<string[]>([])
-let batchPollTimer: ReturnType<typeof setInterval> | null = null
+let batchPollHandle: ChainPollHandle | null = null
 let lastLiveRefreshDone = 0
 
 const batchProgressPct = computed(() => {
@@ -164,10 +165,8 @@ const batchProgressPct = computed(() => {
 })
 
 const clearBatchPoll = () => {
-  if (batchPollTimer) {
-    clearInterval(batchPollTimer)
-    batchPollTimer = null
-  }
+  batchPollHandle?.stop()
+  batchPollHandle = null
 }
 
 onUnmounted(() => {
@@ -256,9 +255,10 @@ const applyBatchJobResult = async (job: AccountStatusJob) => {
 
 const startPollingJob = (jobId: string) => {
   clearBatchPoll()
-  batchPollTimer = setInterval(() => {
-    void pollBatchJob(jobId)
-  }, 1200)
+  batchPollHandle = startChainPoll(
+    () => pollBatchJob(jobId),
+    { intervalMs: 1200 },
+  )
 }
 
 const pollBatchJob = async (jobId: string) => {

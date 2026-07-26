@@ -17,6 +17,7 @@ import TaskLogsModal from '../components/tasks/TaskLogsModal.vue'
 import Modal from '../components/Modal.vue'
 import { devLog } from '../lib/devLog'
 import { AVATAR_FETCH_CONCURRENCY, mapPool } from '../lib/async-pool'
+import { startChainPoll, type ChainPollHandle } from '../lib/chain-poll'
 import {
   badgeTone,
   badgeToneClass,
@@ -298,19 +299,19 @@ const loadListenHitCounts = async () => {
   }
 }
 
-let hitCountTimer: ReturnType<typeof setInterval> | null = null
+let hitCountHandle: ChainPollHandle | null = null
 const ensureHitCountPolling = () => {
-  if (hitCountTimer) return
-  // 有监听任务时定期刷新角标（与日志弹窗自动刷新节奏接近）
-  hitCountTimer = setInterval(() => {
-    if (listenTaskCount.value > 0) void loadListenHitCounts()
-  }, 15000)
+  if (hitCountHandle?.active) return
+  hitCountHandle = startChainPoll(
+    async () => {
+      if (listenTaskCount.value > 0) await loadListenHitCounts()
+    },
+    { intervalMs: 15000, runImmediately: false },
+  )
 }
 const clearHitCountPolling = () => {
-  if (hitCountTimer) {
-    clearInterval(hitCountTimer)
-    hitCountTimer = null
-  }
+  hitCountHandle?.stop()
+  hitCountHandle = null
 }
 
 /** task_name → 该任务下全部活跃 run（多账号） */
@@ -318,7 +319,7 @@ const activeRunsByTask = ref<Record<string, ActiveRunSummary[]>>({})
 /** 拉取 active-runs 时的本地时间，用于冷却倒计时 */
 const activeRunsFetchedAt = ref(0)
 const nowTick = ref(Date.now())
-let activePollTimer: ReturnType<typeof setInterval> | null = null
+let activePollHandle: ChainPollHandle | null = null
 let countdownTimer: ReturnType<typeof setInterval> | null = null
 const cancelBusyKey = ref('')
 const accountStatusMap = ref<Record<string, string>>({})
@@ -352,8 +353,11 @@ const refreshActiveRuns = async () => {
 
 const ensureActivePolling = () => {
   if (hasAnyActiveRun.value) {
-    if (!activePollTimer) {
-      activePollTimer = setInterval(refreshActiveRuns, 4000)
+    if (!activePollHandle?.active) {
+      activePollHandle = startChainPoll(refreshActiveRuns, {
+        intervalMs: 4000,
+        runImmediately: false,
+      })
     }
     if (!countdownTimer) {
       countdownTimer = setInterval(() => {
@@ -361,10 +365,8 @@ const ensureActivePolling = () => {
       }, 1000)
     }
   } else {
-    if (activePollTimer) {
-      clearInterval(activePollTimer)
-      activePollTimer = null
-    }
+    activePollHandle?.stop()
+    activePollHandle = null
     if (countdownTimer) {
       clearInterval(countdownTimer)
       countdownTimer = null
@@ -512,10 +514,8 @@ watch(
 )
 
 onUnmounted(() => {
-  if (activePollTimer) {
-    clearInterval(activePollTimer)
-    activePollTimer = null
-  }
+  activePollHandle?.stop()
+  activePollHandle = null
   if (countdownTimer) {
     clearInterval(countdownTimer)
     countdownTimer = null
