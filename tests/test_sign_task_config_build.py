@@ -73,3 +73,28 @@ def test_apply_account_rename_to_config():
     assert cfg["account_name"] == "new"
     assert cfg["account_names"] == ["new", "other"]
     assert apply_account_rename_to_config(cfg, "missing", "x") is False
+
+
+def test_resolve_schedule_plan_and_diff():
+    from backend.services.sign_task_config_build import (
+        create_task_group_id,
+        last_run_map_from_related,
+        removed_accounts_diff,
+        resolve_schedule_plan,
+    )
+
+    fixed = resolve_schedule_plan("fixed", sign_at="09:00")
+    assert fixed["should_schedule"] is True
+    assert fixed["trigger_cron"] == "09:00"
+    listen = resolve_schedule_plan("listen", sign_at="09:00")
+    assert listen["should_schedule"] is False
+    rng = resolve_schedule_plan("range", sign_at="08:00", range_start="10:00")
+    assert rng["trigger_cron"] == "10:00"
+    assert removed_accounts_diff(["a", "b", "c"], ["a", "c"]) == ["b"]
+    assert create_task_group_id(1) == ""
+    assert len(create_task_group_id(2)) == 32
+    m = last_run_map_from_related(
+        [{"account_name": "a", "last_run": {"ok": 1}}, {"account_name": "b"}]
+    )
+    assert m["a"] == {"ok": 1}
+    assert m["b"] is None

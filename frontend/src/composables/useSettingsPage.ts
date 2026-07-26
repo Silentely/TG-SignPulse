@@ -6,16 +6,9 @@ import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import {
   getGlobalSettings,
-  saveGlobalSettings,
   getTelegramConfig,
-  saveTelegramConfig,
-  resetTelegramConfig,
   getAIConfig,
-  saveAIConfig,
-  testAIConnection,
-  runDeviceKeepalive,
   getRuntimeStatus,
-  testBotNotification,
   getMemoryStats,
 } from '../lib/api'
 import type { RuntimeStatus, MemoryStatsResponse } from '../lib/api'
@@ -42,6 +35,7 @@ import {
 } from '../lib/settings-form'
 import { useSettingsVersionCheck } from './useSettingsVersionCheck'
 import { useSettingsBackup } from './useSettingsBackup'
+import { useSettingsSave } from './useSettingsSave'
 
 export function useSettingsPage() {
   const { t } = useI18n()
@@ -124,13 +118,8 @@ export function useSettingsPage() {
   /** 服务端 AI Key 解密失败标记（APP_SECRET_KEY 不匹配） */
   const aiKeyDecryptFailed = ref(false)
 
-  const loading = ref(false)
-  const tgLoading = ref(false)
-  const aiLoading = ref(false)
   const runtimeStatus = ref<RuntimeStatus | null>(null)
   const memoryStats = ref<MemoryStatsResponse | null>(null)
-  const advancedLoading = ref(false)
-  const botTestLoading = ref(false)
   const pageLoading = ref(true)
   const botTokenSet = ref(false)
   const afterBotTokenSaved = () => {
@@ -244,6 +233,41 @@ export function useSettingsPage() {
     notifyError,
   })
 
+  const {
+    loading,
+    botLoading,
+    advancedLoading,
+    saveAllLoading,
+    tgLoading,
+    aiLoading,
+    botTestLoading,
+    keepaliveLoading,
+    saveSettings,
+    runKeepaliveNow,
+    saveBotSettings,
+    saveAdvancedSettings,
+    saveAllSettings,
+    testBot,
+    saveTgConfig,
+    resetTgConfig,
+    saveAiConfig,
+    testAi,
+  } = useSettingsSave({
+    tgConfig,
+    aiConfig,
+    aiKeyDecryptFailed,
+    buildGeneralPayload,
+    buildBotPayload,
+    buildAdvancedPayload,
+    buildAiRuntimePayload,
+    buildBackupPayload,
+    markSectionClean,
+    afterBotTokenSaved,
+    afterWebdavSettingsSaved,
+    loadBackupStatus,
+    notifySuccess,
+    notifyError,
+  })
 
   onMounted(async () => {
     const token = authStore.token || ''
@@ -305,246 +329,6 @@ export function useSettingsPage() {
     window.removeEventListener('beforeunload', onBeforeUnload)
   })
 
-  const saveSettings = async () => {
-    const token = authStore.token || ''
-    if (!token) return
-
-    loading.value = true
-    try {
-      await saveGlobalSettings(token, buildGeneralPayload())
-      markSectionClean('general')
-      notifySuccess(t('settings.saveSuccess'))
-    } catch (e: unknown) {
-      notifyError(getLocalizedErrorMessage(e, t, t('settings.saveFailed')))
-    } finally {
-      loading.value = false
-    }
-  }
-
-  const botLoading = ref(false)
-  const keepaliveLoading = ref(false)
-  const saveAllLoading = ref(false)
-
-  const runKeepaliveNow = async () => {
-    const token = authStore.token || ''
-    if (!token) return
-
-    keepaliveLoading.value = true
-    try {
-      const res = await runDeviceKeepalive(token)
-      notifySuccess(`${t('settings.keepaliveDone')}：${res.kept_alive}/${res.checked}，${t('settings.failed')} ${res.failed}`)
-    } catch (e: unknown) {
-      notifyError(getLocalizedErrorMessage(e, t, t('settings.keepaliveFailed')))
-    } finally {
-      keepaliveLoading.value = false
-    }
-  }
-
-  const saveBotSettings = async () => {
-    const token = authStore.token || ''
-    if (!token) return
-
-    botLoading.value = true
-    try {
-      await saveGlobalSettings(token, buildBotPayload())
-      afterBotTokenSaved()
-      markSectionClean('bot')
-      notifySuccess(t('settings.saveSuccess'))
-    } catch (e: unknown) {
-      notifyError(getLocalizedErrorMessage(e, t, t('settings.saveFailed')))
-    } finally {
-      botLoading.value = false
-    }
-  }
-
-  /** 数据管理：仅保存备份 / WebDAV 字段 */
-  const saveAdvancedSettings = async () => {
-    const token = authStore.token || ''
-    if (!token) return
-    advancedLoading.value = true
-    try {
-      await saveGlobalSettings(token, buildBackupPayload())
-      afterWebdavSettingsSaved()
-      markSectionClean('advanced')
-      notifySuccess(t('settings.saveSuccess'))
-      try {
-        await loadBackupStatus(token)
-      } catch {
-        /* ignore */
-      }
-    } catch (e: unknown) {
-      notifyError(getLocalizedErrorMessage(e, t, t('settings.saveFailed')))
-    } finally {
-      advancedLoading.value = false
-    }
-  }
-
-  /** 一次提交全局设置 + 可选 TG/AI，解决分块保存遗漏 */
-  const saveAllSettings = async () => {
-    const token = authStore.token || ''
-    if (!token) return
-    saveAllLoading.value = true
-    const partial: string[] = []
-    try {
-      await saveGlobalSettings(token, {
-        ...buildGeneralPayload(),
-        ...buildBotPayload(),
-        ...buildAdvancedPayload(),
-      })
-      afterWebdavSettingsSaved()
-      afterBotTokenSaved()
-      markSectionClean('general')
-      markSectionClean('bot')
-      markSectionClean('advanced')
-      if (tgConfig.value.api_id && tgConfig.value.api_hash) {
-        try {
-          await saveTelegramConfig(token, {
-            api_id: tgConfig.value.api_id,
-            api_hash: tgConfig.value.api_hash,
-          })
-          markSectionClean('tg')
-        } catch (e: unknown) {
-          partial.push(t('settings.tgApi'))
-          devLog.error('saveAll tg failed', e)
-        }
-      } else {
-        markSectionClean('tg')
-      }
-      if (aiConfig.value.base_url || aiConfig.value.model || aiConfig.value.api_key) {
-        try {
-          await saveAIConfig(token, {
-            base_url: aiConfig.value.base_url || undefined,
-            model: aiConfig.value.model || undefined,
-            api_key: aiConfig.value.api_key || undefined,
-          })
-          aiConfig.value.api_key = ''
-          markSectionClean('ai')
-        } catch (e: unknown) {
-          partial.push(t('settings.aiConfig'))
-          devLog.error('saveAll ai failed', e)
-        }
-      } else {
-        markSectionClean('ai')
-      }
-      if (partial.length) {
-        notifyError(`${t('settings.saveAllPartial')}: ${partial.join(', ')}`)
-      } else {
-        notifySuccess(t('settings.saveAllSuccess'))
-      }
-    } catch (e: unknown) {
-      notifyError(getLocalizedErrorMessage(e, t, t('settings.saveFailed')))
-    } finally {
-      saveAllLoading.value = false
-    }
-  }
-
-  const testBot = async () => {
-    const token = authStore.token || ''
-    if (!token) return
-    botTestLoading.value = true
-    try {
-      const res = await testBotNotification(token)
-      if (res.success) notifySuccess(res.message)
-      else notifyError(res.message)
-    } catch (e: unknown) {
-      notifyError(getLocalizedErrorMessage(e, t, t('settings.testFailed')))
-    } finally {
-      botTestLoading.value = false
-    }
-  }
-
-  const saveTgConfig = async () => {
-    const token = authStore.token || ''
-    tgLoading.value = true
-    try {
-      await saveTelegramConfig(token, { api_id: tgConfig.value.api_id, api_hash: tgConfig.value.api_hash })
-      markSectionClean('tg')
-      notifySuccess(t('settings.tgConfigSaved'))
-    } catch (e: unknown) {
-      notifyError(getLocalizedErrorMessage(e, t, t('settings.saveFailed')))
-    } finally {
-      tgLoading.value = false
-    }
-  }
-
-  const resetTgConfig = async () => {
-    const token = authStore.token || ''
-    const ok = await confirm({
-      title: t('settings.resetDefault'),
-      message: t('settings.resetConfirm'),
-      confirmText: t('common.continue'),
-      danger: true,
-    })
-    if (!ok) return
-    tgLoading.value = true
-    try {
-      await resetTelegramConfig(token)
-      tgConfig.value.api_id = ''
-      tgConfig.value.api_hash = ''
-      markSectionClean('tg')
-      notifySuccess(t('settings.resetSuccess'))
-    } catch (e: unknown) {
-      notifyError(getLocalizedErrorMessage(e, t, t('settings.resetFailed')))
-    } finally {
-      tgLoading.value = false
-    }
-  }
-
-  /** 统一保存 AI 模型配置 + 高级执行/视觉运行时参数 */
-  const saveAiConfig = async () => {
-    const token = authStore.token || ''
-    aiLoading.value = true
-    try {
-      // 运行时参数写入全局 settings（与模型配置同一按钮）
-      await saveGlobalSettings(token, buildAiRuntimePayload())
-
-      const hasAiInput = !!(
-        aiConfig.value.base_url ||
-        aiConfig.value.model ||
-        aiConfig.value.api_key
-      )
-      try {
-        await saveAIConfig(token, {
-          base_url: aiConfig.value.base_url || undefined,
-          model: aiConfig.value.model || undefined,
-          api_key: aiConfig.value.api_key || undefined,
-        })
-        // 用户重填 Key 后清除解密失败提示
-        if (aiConfig.value.api_key) {
-          aiKeyDecryptFailed.value = false
-        }
-        aiConfig.value.api_key = ''
-      } catch (e: unknown) {
-        // 仅改运行时且尚未配置 AI Key 时，模型保存失败可忽略
-        if (hasAiInput) throw e
-        devLog.error('saveAi model skipped (runtime-only or no key yet)', e)
-      }
-
-      markSectionClean('ai')
-      notifySuccess(t('settings.aiConfigSaved'))
-    } catch (e: unknown) {
-      notifyError(getLocalizedErrorMessage(e, t, t('settings.saveFailed')))
-    } finally {
-      aiLoading.value = false
-    }
-  }
-
-  const testAi = async () => {
-    const token = authStore.token || ''
-    aiLoading.value = true
-    try {
-      const res = await testAIConnection(token)
-      if (res.success) {
-        notifySuccess(res.message || t('settings.testSuccess'))
-      } else {
-        notifyError(res.message || t('settings.testFailed'))
-      }
-    } catch (e: unknown) {
-      notifyError(getLocalizedErrorMessage(e, t, t('settings.testFailed')))
-    } finally {
-      aiLoading.value = false
-    }
-  }
 
   const toggleReveal = (key: 'tgApiId' | 'tgApiHash' | 'aiKey' | 'botToken') => {
     revealSecrets.value = {

@@ -1235,18 +1235,16 @@ class SignTaskService:
                 json.dump(history, f, ensure_ascii=False, indent=2)
 
             # 同时更新任务配置中的 last_run
-            # 1. 更新磁盘上的 config.json
+            from backend.services.sign_task_history_io import (
+                patch_tasks_cache_last_run,
+                resolve_task_config_dir,
+            )
+
             task = self.get_task(task_name, account_name)
             if task:
-                # 注意 get_task 返回的是 dict，我们需要路径
-                # 重新构建路径或复用逻辑
-                # 这里为了简单，再次查找路径有点低效，但比全量扫描好
-                # 我们可以利用 self.signs_dir / account_name / task_name
-                # 但考虑到兼容性，还是得稍微判断下
-                task_dir = self.signs_dir / account_name / task_name
-                if not task_dir.exists():
-                    task_dir = self.signs_dir / task_name
-
+                task_dir = resolve_task_config_dir(
+                    self.signs_dir, account_name, task_name
+                )
                 config_file = task_dir / "config.json"
                 if config_file.exists():
                     try:
@@ -1263,12 +1261,13 @@ class SignTaskService:
                             e,
                         )
 
-            # 2. 更新内存缓存 (关键优化：避免置空 self._tasks_cache)
-            if self._tasks_cache is not None:
-                for t in self._tasks_cache:
-                    if t["name"] == task_name and t.get("account_name") == account_name:
-                        t["last_run"] = new_entry
-                        break
+            # 更新内存缓存（避免置空 self._tasks_cache）
+            patch_tasks_cache_last_run(
+                self._tasks_cache,
+                task_name=task_name,
+                account_name=account_name,
+                last_run=new_entry,
+            )
 
         except (OSError, TypeError, ValueError) as e:
             _service_logger.warning(
@@ -1788,11 +1787,18 @@ class SignTaskService:
         if sign_interval is None:
             sign_interval = 1
 
-        from backend.services.sign_task_config_build import build_sign_task_config
+        from backend.services.sign_task_config_build import (
+            build_sign_task_config,
+            create_task_group_id,
+            resolve_schedule_plan,
+        )
 
-        task_group_id = uuid.uuid4().hex if len(target_accounts) > 1 else ""
-        should_schedule = execution_mode != "listen"
-        trigger_cron = range_start if execution_mode == "range" else sign_at
+        task_group_id = create_task_group_id(len(target_accounts))
+        schedule_plan = resolve_schedule_plan(
+            execution_mode, sign_at=sign_at, range_start=range_start
+        )
+        should_schedule = schedule_plan["should_schedule"]
+        trigger_cron = schedule_plan["trigger_cron"]
 
         for current_account in target_accounts:
             account_dir = self.signs_dir / current_account
@@ -1953,7 +1959,10 @@ class SignTaskService:
 
         from backend.services.sign_task_config_build import (
             build_sign_task_config,
+            last_run_map_from_related,
             next_task_group_id,
+            removed_accounts_diff,
+            resolve_schedule_plan,
             resolve_update_field_values,
         )
 
@@ -1986,18 +1995,17 @@ class SignTaskService:
         next_notify_on_success = fields["notify_on_success"]
         next_enabled = fields["enabled"]
         next_retry_count = fields["retry_count"]
-        should_schedule = next_execution_mode != "listen"
+        schedule_plan = resolve_schedule_plan(
+            next_execution_mode,
+            sign_at=next_sign_at,
+            range_start=next_range_start,
+        )
+        should_schedule = schedule_plan["should_schedule"]
+        trigger_cron = schedule_plan["trigger_cron"]
 
         existing_dirs = dict(self._iter_task_dirs(task_name, existing_accounts))
-        existing_last_run_map = {
-            str(task.get("account_name") or ""): task.get("last_run")
-            for task in related_tasks
-        }
-        removed_accounts = [
-            current_account
-            for current_account in existing_accounts
-            if current_account not in target_accounts
-        ]
+        existing_last_run_map = last_run_map_from_related(related_tasks)
+        removed_accounts = removed_accounts_diff(existing_accounts, target_accounts)
 
         import shutil
 
@@ -2046,7 +2054,7 @@ class SignTaskService:
                 add_or_update_sign_task_job(
                     current_account,
                     task_name,
-                    next_range_start if next_execution_mode == "range" else next_sign_at,
+                    trigger_cron,
                     enabled=next_enabled,
                 )
             else:

@@ -150,3 +150,52 @@ def apply_account_rename_to_config(
             config["account_names"] = next_names
             changed = True
     return changed
+
+
+def resolve_schedule_plan(
+    execution_mode: str,
+    *,
+    sign_at: str = "08:00",
+    range_start: str = "",
+) -> Dict[str, Any]:
+    """根据执行模式决定是否调度及 cron 触发表达式。"""
+    mode = str(execution_mode or "fixed")
+    should_schedule = mode != "listen"
+    if mode == "range":
+        trigger = str(range_start or sign_at or "08:00")
+    else:
+        trigger = str(sign_at or "08:00")
+    return {
+        "should_schedule": should_schedule,
+        "trigger_cron": trigger,
+        "execution_mode": mode,
+    }
+
+
+def removed_accounts_diff(
+    existing_accounts: List[str],
+    target_accounts: List[str],
+) -> List[str]:
+    """计算更新后需要移除的账号列表（保持 existing 顺序）。"""
+    target_set = set(target_accounts)
+    return [a for a in existing_accounts if a not in target_set]
+
+
+def last_run_map_from_related(
+    related_tasks: List[Mapping[str, Any]],
+) -> Dict[str, Any]:
+    """从 related task infos 提取 account_name -> last_run。"""
+    out: Dict[str, Any] = {}
+    for task in related_tasks:
+        if not isinstance(task, Mapping):
+            continue
+        acc = str(task.get("account_name") or "")
+        out[acc] = task.get("last_run")
+    return out
+
+
+def create_task_group_id(account_count: int) -> str:
+    """新建任务：多账号生成 group id，单账号为空。"""
+    import uuid
+
+    return uuid.uuid4().hex if account_count > 1 else ""

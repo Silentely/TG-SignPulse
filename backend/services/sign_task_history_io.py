@@ -121,3 +121,43 @@ def cleanup_old_history_files(run_history_dir: Path, *, max_age_days: int = 3) -
         except Exception:
             continue
     return removed
+
+
+def resolve_task_config_dir(
+    signs_dir: Path,
+    account_name: str,
+    task_name: str,
+) -> Path:
+    """优先 account/task 目录，回退到 legacy signs/task。"""
+    preferred = signs_dir / account_name / task_name
+    if preferred.exists():
+        return preferred
+    legacy = signs_dir / task_name
+    if legacy.exists():
+        return legacy
+    return preferred
+
+
+def patch_tasks_cache_last_run(
+    tasks_cache: Optional[List[Any]],
+    *,
+    task_name: str,
+    account_name: str,
+    last_run: Any,
+) -> bool:
+    """就地更新内存任务缓存中的 last_run；命中返回 True。"""
+    if not isinstance(tasks_cache, list):
+        return False
+    for item in tasks_cache:
+        if not isinstance(item, dict):
+            continue
+        if item.get("name") != task_name:
+            continue
+        if item.get("account_name") != account_name:
+            continue
+        if last_run is None:
+            item.pop("last_run", None)
+        else:
+            item["last_run"] = last_run
+        return True
+    return False

@@ -88,3 +88,32 @@ def test_cleanup_respects_max_age_days(tmp_path: Path, monkeypatch):
     assert removed == 1
     assert not old.exists()
     assert fresh.exists()
+
+
+def test_resolve_task_config_dir_and_cache_patch(tmp_path: Path):
+    from backend.services.sign_task_history_io import (
+        patch_tasks_cache_last_run,
+        resolve_task_config_dir,
+    )
+
+    acc_dir = tmp_path / "acc" / "task"
+    acc_dir.mkdir(parents=True)
+    assert resolve_task_config_dir(tmp_path, "acc", "task") == acc_dir
+
+    legacy = tmp_path / "legacy_task"
+    legacy.mkdir()
+    assert resolve_task_config_dir(tmp_path, "missing", "legacy_task") == legacy
+
+    cache = [
+        {"name": "t1", "account_name": "a1"},
+        {"name": "t1", "account_name": "a2", "last_run": {"old": 1}},
+    ]
+    assert patch_tasks_cache_last_run(
+        cache, task_name="t1", account_name="a2", last_run={"new": 2}
+    )
+    assert cache[1]["last_run"] == {"new": 2}
+    assert patch_tasks_cache_last_run(
+        cache, task_name="t1", account_name="a2", last_run=None
+    )
+    assert "last_run" not in cache[1]
+    assert patch_tasks_cache_last_run(None, task_name="t", account_name="a", last_run={}) is False
