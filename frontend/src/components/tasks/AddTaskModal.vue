@@ -202,9 +202,12 @@ const handleSave = async () => {
 <template>
   <Modal :isOpen="isOpen" @close="$emit('close')" :title="modalTitle" maxWidthClass="max-w-3xl">
     <div class="space-y-4">
-      <p v-if="templateId" class="text-[11px] text-gray-500 leading-relaxed">
+      <div
+        v-if="templateId"
+        class="rounded-sm border border-sky-200/80 bg-sky-50/80 dark:border-sky-800/50 dark:bg-sky-950/30 px-3 py-2 text-[11px] text-sky-900 dark:text-sky-200 leading-relaxed"
+      >
         {{ t('taskModal.templatePrefillHint') }}
-      </p>
+      </div>
       <TaskForm
         :key="formKey"
         ref="taskForm"

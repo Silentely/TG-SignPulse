@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, computed } from 'vue'
-import { Plus, Trash2, ArrowUp, ArrowDown, RefreshCw } from 'lucide-vue-next'
+import { Plus, Trash2, ArrowUp, ArrowDown, RefreshCw, ChevronDown } from 'lucide-vue-next'
 import { listAccounts, getAccountChats, searchAccountChats } from '../../lib/api'
 import type { SignTask, AccountInfo, ChatInfo, CreateSignTaskRequest, UpdateSignTaskRequest } from '../../lib/api'
 import CustomSelect from '../CustomSelect.vue'
@@ -31,6 +31,10 @@ const scheduleMode = ref<'scheduled' | 'listen'>('scheduled')
 const timeRange = ref('08:00-19:00')
 const taskName = ref('')
 const retryCount = ref(3)
+/** 高级选项：重试 / 话题 ID / 发送者过滤，新建默认折叠 */
+const showAdvanced = ref(false)
+/** 任务名字段级提示（失焦后） */
+const taskNameError = ref('')
 /** 新建多目标：shared=一任务多会话；split=按会话拆成独立任务 */
 const createMode = ref<'shared' | 'split'>('shared')
 const availableChats = ref<ChatInfo[]>([])
@@ -94,6 +98,36 @@ const listenerActiveTimeEnd = ref('22:00')
 const actions = ref<TaskActionItem[]>([{ id: nextActionId(), type: 'send_text', value: '', aiPrompt: '' }])
 const isEditing = computed(() => !!props.initialTask)
 
+/** 编辑时若已有非默认高级字段，自动展开 */
+const shouldAutoExpandAdvanced = () => {
+  if (!props.initialTask) return false
+  const retry = props.initialTask.retry_count
+  if (retry != null && retry !== 3) return true
+  for (const chat of props.initialTask.chats || []) {
+    if (chat.message_thread_id) return true
+    if (chat.sender_filter) return true
+  }
+  return false
+}
+
+const validateTaskName = () => {
+  // 新建允许空名（自动生成）；编辑时名称只读
+  if (props.initialTask) {
+    taskNameError.value = ''
+    return
+  }
+  const name = taskName.value.trim()
+  if (!name) {
+    taskNameError.value = ''
+    return
+  }
+  if (name.length > 80 || /[/\\]/.test(name)) {
+    taskNameError.value = t('taskForm.taskNameInvalid')
+    return
+  }
+  taskNameError.value = ''
+}
+
 const loadAccounts = async () => {
   try {
     const token = authStore.token || ''
@@ -103,6 +137,7 @@ const loadAccounts = async () => {
       createMode.value = 'shared'
       taskName.value = props.initialTask.name || ''
       retryCount.value = props.initialTask.retry_count ?? 3
+      showAdvanced.value = shouldAutoExpandAdvanced()
       scheduleMode.value = props.initialTask.execution_mode === 'listen' ? 'listen' : 'scheduled'
       if (props.initialTask.execution_mode === 'range') timeRange.value = props.initialTask.range_start + '-' + props.initialTask.range_end
       else timeRange.value = props.initialTask.sign_at || '08:00-19:00'
@@ -385,8 +420,18 @@ onMounted(()=>{loadAccounts()})
       </div>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
       <div class="space-y-1.5">
-        <label class="ui-label-strong">{{ t('taskForm.taskName') }}</label>
-        <input v-model="taskName" :placeholder="t('taskForm.taskNamePlaceholder')" :disabled="!!props.initialTask" class="ui-input disabled:opacity-50" />
+        <label class="ui-label-strong" for="task-form-name">{{ t('taskForm.taskName') }}</label>
+        <input
+          id="task-form-name"
+          v-model="taskName"
+          :placeholder="t('taskForm.taskNamePlaceholder')"
+          :disabled="!!props.initialTask"
+          class="ui-input disabled:opacity-50"
+          :class="taskNameError ? '!border-rose-400 dark:!border-rose-500' : ''"
+          :aria-invalid="!!taskNameError"
+          @blur="validateTaskName"
+        />
+        <p v-if="taskNameError" class="text-[11px] text-rose-600 dark:text-rose-400">{{ taskNameError }}</p>
       </div>
       <div class="space-y-1.5">
         <label class="ui-label-strong">{{ t('taskForm.linkedAccounts') }}</label>
@@ -400,10 +445,24 @@ onMounted(()=>{loadAccounts()})
         <label class="ui-label-strong">{{ t('taskForm.timeRange') }}</label>
         <input v-model="timeRange" :disabled="scheduleMode === 'listen'" :placeholder="scheduleMode === 'listen' ? '24H' : t('taskForm.timeRangePlaceholder')" class="ui-input disabled:opacity-50 disabled:bg-gray-50 dark:disabled:bg-gray-950" />
       </div>
-      <div class="space-y-1.5">
-        <label class="ui-label-strong">{{ t('taskForm.retryCount') }}</label>
-        <input v-model.number="retryCount" type="number" min="0" max="99" class="ui-input" />
-        <p class="text-[10px] text-gray-500 mt-1 leading-relaxed">{{ t('taskForm.retryCountHint') }}</p>
+    </div>
+    <!-- 高级选项：重试等，降低主路径认知负担 -->
+    <div class="mt-4 border-t border-gray-100 dark:border-gray-800/50 pt-3">
+      <button
+        type="button"
+        class="inline-flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
+        :aria-expanded="showAdvanced"
+        @click="showAdvanced = !showAdvanced"
+      >
+        <ChevronDown class="w-3.5 h-3.5 transition-transform" :class="showAdvanced ? 'rotate-180' : ''" />
+        {{ t('taskForm.advancedOptions') }}
+      </button>
+      <div v-if="showAdvanced" class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-5">
+        <div class="space-y-1.5">
+          <label class="ui-label-strong" for="task-form-retry">{{ t('taskForm.retryCount') }}</label>
+          <input id="task-form-retry" v-model.number="retryCount" type="number" min="0" max="99" class="ui-input" />
+          <p class="text-[10px] text-gray-500 mt-1 leading-relaxed">{{ t('taskForm.retryCountHint') }}</p>
+        </div>
       </div>
     </div>
     </div>
@@ -450,8 +509,17 @@ onMounted(()=>{loadAccounts()})
         <div class="space-y-1.5"><label class="ui-label">{{ t('taskForm.chatSourceAccount') }}</label><CustomSelect v-model="selectedAccount" :options="selectedAccounts.map(a => ({label: a, value: a}))" /></div>
         <div class="space-y-1.5"><label class="ui-label flex items-center justify-between gap-2">{{ t('taskForm.selectFromList') }}<button type="button" @click="refreshChats" :disabled="chatListRefreshing || !selectedAccount" class="flex items-center gap-1 text-[10px] text-sky-500 hover:text-sky-700 dark:hover:text-sky-300 font-medium disabled:opacity-50 disabled:cursor-not-allowed"><RefreshCw class="w-3 h-3" :class="chatListRefreshing ? 'animate-spin' : ''" /> {{ t('taskForm.refreshChats') }}</button></label><CustomSelect v-model="selectedChatId" :disabled="chatListRefreshing" :options="[{label: chatListRefreshing ? t('taskForm.loadingChats') : t('taskForm.selectChat'), value:0}, ...availableChats.map(c => ({label: c.title || c.username || String(c.id), value: c.id}))]" @update:modelValue="selectedChatName = availableChats.find(c => c.id === $event)?.title || availableChats.find(c => c.id === $event)?.username || String($event)" /><p v-if="chatListError" class="text-xs text-amber-600 dark:text-amber-400 mt-1">{{ chatListError }}</p></div>
         <div class="space-y-1.5 relative"><label class="ui-label">{{ t('taskForm.searchChat') }}</label><div class="relative"><input v-model="chatSearch" :placeholder="t('taskForm.searchPlaceholder')" class="ui-input" /><div v-if="chatSearch.trim()" class="absolute top-11 left-0 right-0 z-10 max-h-40 overflow-y-auto ui-dropdown shadow-[var(--sp-shadow-md)]"><div v-if="chatSearchLoading" class="p-3 text-xs text-gray-400">{{ t('taskForm.searching') }}</div><template v-else><div v-for="chat in chatSearchResults" :key="chat.id" @click="selectChat(chat)" class="p-2 border-b border-gray-100 dark:border-gray-800/60 hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer text-sm"><div class="font-medium truncate">{{ chat.title || chat.username || chat.id }}</div><div class="text-[10px] text-gray-400 font-mono">{{ chat.id }}</div></div><div v-if="!chatSearchResults.length" class="p-3 text-xs text-gray-400">{{ t('taskForm.noResults') }}</div></template></div></div></div>
-        <div class="space-y-1.5"><label class="ui-label">{{ t('taskForm.threadId') }}</label><input v-model="messageThreadId" :placeholder="t('taskForm.threadIdPlaceholder')" class="ui-input" /></div>
-        <div class="space-y-1.5"><label class="ui-label">{{ t('taskForm.senderFilter') }}</label><input v-model="senderFilter" :placeholder="t('taskForm.senderFilterPlaceholder')" class="ui-input" /></div>
+      </div>
+      <!-- 与「高级选项」联动：话题 / 发送者过滤 -->
+      <div v-if="showAdvanced" class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4 pt-3 border-t border-dashed border-gray-200 dark:border-gray-700/60">
+        <div class="space-y-1.5">
+          <label class="ui-label" for="task-form-thread">{{ t('taskForm.threadId') }}</label>
+          <input id="task-form-thread" v-model="messageThreadId" :placeholder="t('taskForm.threadIdPlaceholder')" class="ui-input" />
+        </div>
+        <div class="space-y-1.5">
+          <label class="ui-label" for="task-form-sender">{{ t('taskForm.senderFilter') }}</label>
+          <input id="task-form-sender" v-model="senderFilter" :placeholder="t('taskForm.senderFilterPlaceholder')" class="ui-input" />
+        </div>
       </div>
       <!-- 从会话列表批量勾选 -->
       <div v-if="availableChats.length" class="mt-4 border border-dashed border-gray-200 dark:border-gray-700/60 p-3 space-y-2">

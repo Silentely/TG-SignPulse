@@ -239,6 +239,8 @@
   "taskForm": {
     "taskName": "任务名称",
     "taskNamePlaceholder": "留空自动生成",
+    "taskNameInvalid": "任务名过长或包含 / \\ 等非法字符",
+    "advancedOptions": "高级选项",
     "linkedAccounts": "关联账号",
     "allAccounts": "全部账号",
     "linkedAccountsPlaceholder": "选择关联账号...",

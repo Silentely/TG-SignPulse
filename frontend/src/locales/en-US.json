@@ -239,6 +239,8 @@
   "taskForm": {
     "taskName": "Task Name",
     "taskNamePlaceholder": "Auto-generate if empty",
+    "taskNameInvalid": "Name is too long or contains / \\ characters",
+    "advancedOptions": "Advanced options",
     "linkedAccounts": "Linked Accounts",
     "allAccounts": "All Accounts",
     "linkedAccountsPlaceholder": "Select accounts...",
