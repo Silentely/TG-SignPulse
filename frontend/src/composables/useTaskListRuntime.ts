@@ -1,0 +1,326 @@
+/**
+ * 签到列表运行时：活跃 run 轮询、命中角标、头像、账号状态与取消。
+ */
+import { ref, computed, watch, onUnmounted, type Ref, type ComputedRef } from 'vue'
+import {
+  listActiveSignTaskRuns,
+  cancelSignTaskRun,
+  listKeywordHitGroups,
+  fetchChatAvatar,
+  listAccounts,
+} from '../lib/api'
+import type { ActiveRunSummary } from '../lib/api'
+import type { TaskUiItem } from '../lib/types'
+import { getLocalizedErrorMessage } from '../lib/types'
+import { useI18n } from './useI18n'
+import { useToast } from './useToast'
+import { useAuthStore } from '../stores/auth'
+import { devLog } from '../lib/devLog'
+import { AVATAR_FETCH_CONCURRENCY, mapPool } from '../lib/async-pool'
+import { startChainPoll, type ChainPollHandle } from '../lib/chain-poll'
+import {
+  formatActiveRunLabel,
+  formatPhaseDetail,
+  groupActiveRunsByTask,
+  isRunInProgress,
+  phaseLabel,
+  pickPrimaryActiveRun,
+  remainingWaitSeconds,
+} from '../lib/run-status'
+
+export function useTaskListRuntime(options: {
+  tasks: Ref<TaskUiItem[]>
+  listenTaskCount: ComputedRef<number>
+  accountFilter: ComputedRef<string>
+  getTaskAccountName: (task: TaskUiItem | { account_name?: string; account_names?: string[] }) => string
+}) {
+  const { t } = useI18n()
+  const toast = useToast()
+  const authStore = useAuthStore()
+
+  const activeRunsByTask = ref<Record<string, ActiveRunSummary[]>>({})
+  const activeRunsFetchedAt = ref(0)
+  const nowTick = ref(Date.now())
+  let activePollHandle: ChainPollHandle | null = null
+  let countdownTimer: ReturnType<typeof setInterval> | null = null
+  let hitCountHandle: ChainPollHandle | null = null
+  const cancelBusyKey = ref('')
+  const accountStatusMap = ref<Record<string, string>>({})
+  const accountNeedsRelogin = ref<Record<string, boolean>>({})
+
+  const hasAnyActiveRun = computed(() => Object.keys(activeRunsByTask.value).length > 0)
+
+  const syncActiveRunsFromTasks = (items: TaskUiItem[]) => {
+    const flat: ActiveRunSummary[] = []
+    for (const task of items) {
+      const ar = task.raw.active_run
+      if (ar && isRunInProgress(ar)) {
+        flat.push({ ...ar, task_name: ar.task_name || task.name })
+      }
+    }
+    activeRunsByTask.value = groupActiveRunsByTask(flat)
+    activeRunsFetchedAt.value = Date.now()
+  }
+
+  const refreshActiveRuns = async () => {
+    const token = authStore.token || ''
+    if (!token) return
+    try {
+      const res = await listActiveSignTaskRuns(token)
+      activeRunsByTask.value = groupActiveRunsByTask(res.runs || [])
+      activeRunsFetchedAt.value = Date.now()
+    } catch (e) {
+      devLog.error('Failed to refresh active runs', e)
+    }
+  }
+
+  const ensureActivePolling = () => {
+    if (hasAnyActiveRun.value) {
+      if (!activePollHandle?.active) {
+        activePollHandle = startChainPoll(refreshActiveRuns, {
+          intervalMs: 4000,
+          runImmediately: false,
+        })
+      }
+      if (!countdownTimer) {
+        countdownTimer = setInterval(() => {
+          nowTick.value = Date.now()
+        }, 1000)
+      }
+    } else {
+      activePollHandle?.stop()
+      activePollHandle = null
+      if (countdownTimer) {
+        clearInterval(countdownTimer)
+        countdownTimer = null
+      }
+    }
+  }
+
+  watch(hasAnyActiveRun, () => ensureActivePolling())
+
+  const loadListenHitCounts = async () => {
+    const token = authStore.token || ''
+    if (!token) return
+    const listenTasks = options.tasks.value.filter((t) => t.isListenMode)
+    if (!listenTasks.length) return
+    try {
+      const res = await listKeywordHitGroups(token, {
+        account_name: options.accountFilter.value || undefined,
+        group_by: 'task',
+        limit_per_group: 1,
+      })
+      const countByTask = new Map<string, number>()
+      for (const g of res.groups || []) {
+        countByTask.set(String(g.key), Number(g.count || 0))
+      }
+      for (const task of options.tasks.value) {
+        if (!task.isListenMode) continue
+        task.hitCount = countByTask.get(task.name) || 0
+      }
+    } catch (e) {
+      devLog.error('Failed to load hit counts', e)
+    }
+  }
+
+  const ensureHitCountPolling = () => {
+    if (hitCountHandle?.active) return
+    hitCountHandle = startChainPoll(
+      async () => {
+        if (options.listenTaskCount.value > 0) await loadListenHitCounts()
+      },
+      { intervalMs: 15000, runImmediately: false },
+    )
+  }
+
+  const clearHitCountPolling = () => {
+    hitCountHandle?.stop()
+    hitCountHandle = null
+  }
+
+  const taskActiveRuns = (task: TaskUiItem): ActiveRunSummary[] => {
+    return activeRunsByTask.value[task.name] || (task.raw.active_run && isRunInProgress(task.raw.active_run)
+      ? [task.raw.active_run]
+      : [])
+  }
+
+  const taskActiveRun = (task: TaskUiItem): ActiveRunSummary | null => {
+    return pickPrimaryActiveRun(taskActiveRuns(task))
+  }
+
+  const activeRunBadgeText = (task: TaskUiItem): string => {
+    const ar = taskActiveRun(task)
+    if (!ar || !isRunInProgress(ar)) return ''
+    void nowTick.value
+    const rem = remainingWaitSeconds(ar.wait_seconds, activeRunsFetchedAt.value, nowTick.value)
+    return formatActiveRunLabel(ar, t, { remainingSec: rem })
+  }
+
+  const activeRunTooltip = (task: TaskUiItem): string => {
+    const runs = taskActiveRuns(task)
+    if (!runs.length) return ''
+    return runs
+      .map((r) => {
+        const acc = r.account_name || '-'
+        const ph = phaseLabel(r.phase, t) || formatPhaseDetail(r, t)
+        return `${acc}: ${ph}`
+      })
+      .join('\n')
+  }
+
+  const isAccountInvalid = (accountName: string) => {
+    if (accountNeedsRelogin.value[accountName]) return true
+    const st = accountStatusMap.value[accountName] || ''
+    return st === 'invalid' || st === 'error' || /expired|offline|disconnected/i.test(st)
+  }
+
+  const taskHasInvalidAccount = (task: TaskUiItem): boolean => {
+    const names = [
+      ...(task.raw.account_names || []),
+      task.raw.account_name || '',
+    ].filter((n) => n && n !== '*')
+    return names.some((n) => isAccountInvalid(n))
+  }
+
+  const handleCancelRun = async (task: TaskUiItem) => {
+    const ar = taskActiveRun(task)
+    if (!ar?.account_name) {
+      toast.error(t('tasks.cancelNeedAccount'))
+      return
+    }
+    const key = `${task.name}:${ar.account_name}`
+    if (cancelBusyKey.value === key) return
+    cancelBusyKey.value = key
+    const token = authStore.token || ''
+    try {
+      const res = await cancelSignTaskRun(token, task.name, ar.account_name, ar.run_id)
+      if (res.ok && res.cancelled) {
+        toast.success(t('tasks.cancelSuccess'))
+        await refreshActiveRuns()
+      } else {
+        toast.error(res.error || t('tasks.cancelFailed'))
+      }
+    } catch (e: unknown) {
+      toast.error(getLocalizedErrorMessage(e, t, t('tasks.cancelFailed')))
+    } finally {
+      cancelBusyKey.value = ''
+    }
+  }
+
+  const loadChatAvatar = async (task: TaskUiItem, accountName: string, chatId: number) => {
+    const token = authStore.token || ''
+    const cacheKey = `chat_avatar_${chatId}`
+    const noAvatarKey = `chat_avatar_${chatId}_404`
+
+    const cached = localStorage.getItem(cacheKey)
+    if (cached && cached !== '__no_avatar__') {
+      task.chatAvatarUrl = cached
+      return
+    }
+
+    const noAvatarTime = localStorage.getItem(noAvatarKey)
+    if (noAvatarTime) {
+      const age = Date.now() - parseInt(noAvatarTime, 10)
+      if (age < 3600000) return
+    }
+
+    try {
+      const blob = await fetchChatAvatar(token, accountName, chatId)
+      const url = URL.createObjectURL(blob)
+      const prev = task.chatAvatarUrl
+      task.chatAvatarUrl = url
+      if (prev && prev.startsWith('blob:')) {
+        try { URL.revokeObjectURL(prev) } catch { /* ignore */ }
+      }
+      localStorage.removeItem(noAvatarKey)
+      try {
+        const reader = new FileReader()
+        reader.onload = () => {
+          if (reader.result) {
+            try {
+              localStorage.setItem(cacheKey, reader.result as string)
+            } catch {
+              try { sessionStorage.setItem(cacheKey, reader.result as string) } catch { /* ignore */ }
+            }
+          }
+        }
+        reader.readAsDataURL(blob)
+      } catch { /* ignore */ }
+    } catch (e: unknown) {
+      if (e && typeof e === 'object' && 'status' in e && (e as { status: number }).status === 404) {
+        try { localStorage.setItem(noAvatarKey, String(Date.now())) } catch { /* ignore */ }
+      }
+    }
+  }
+
+  /** 列表加载后：同步 run、轮询、命中、头像 */
+  const afterTasksLoaded = async () => {
+    syncActiveRunsFromTasks(options.tasks.value)
+    ensureActivePolling()
+    void loadListenHitCounts()
+    if (options.listenTaskCount.value > 0) ensureHitCountPolling()
+    else clearHitCountPolling()
+
+    const avatarJobs = options.tasks.value.flatMap((task) => {
+      const firstChat = task.raw.chats?.[0]
+      if (!firstChat) return []
+      const avatarAccount = firstChat.source_account || options.getTaskAccountName(task.raw)
+      if (!avatarAccount) return []
+      return [{ task, avatarAccount, chatId: firstChat.chat_id as number }]
+    })
+    void mapPool(avatarJobs, AVATAR_FETCH_CONCURRENCY, async (job) => {
+      await loadChatAvatar(job.task, job.avatarAccount, job.chatId)
+    })
+  }
+
+  const loadAccountStatusMap = async () => {
+    try {
+      const token = authStore.token || ''
+      if (!token) return
+      const res = await listAccounts(token)
+      const map: Record<string, string> = {}
+      const relogin: Record<string, boolean> = {}
+      for (const a of res.accounts || []) {
+        map[a.name] = String(a.status || '')
+        relogin[a.name] = !!a.needs_relogin
+      }
+      accountStatusMap.value = map
+      accountNeedsRelogin.value = relogin
+    } catch (e) {
+      devLog.error('Failed to load account status map', e)
+    }
+  }
+
+  const stopAll = () => {
+    activePollHandle?.stop()
+    activePollHandle = null
+    if (countdownTimer) {
+      clearInterval(countdownTimer)
+      countdownTimer = null
+    }
+    clearHitCountPolling()
+  }
+
+  onUnmounted(() => {
+    stopAll()
+  })
+
+  return {
+    cancelBusyKey,
+    syncActiveRunsFromTasks,
+    refreshActiveRuns,
+    ensureActivePolling,
+    loadListenHitCounts,
+    ensureHitCountPolling,
+    clearHitCountPolling,
+    taskActiveRuns,
+    taskActiveRun,
+    activeRunBadgeText,
+    activeRunTooltip,
+    taskHasInvalidAccount,
+    handleCancelRun,
+    afterTasksLoaded,
+    loadAccountStatusMap,
+    stopAll,
+  }
+}

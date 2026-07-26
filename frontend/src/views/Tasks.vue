@@ -1,34 +1,23 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
+import { ref, onMounted, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Play, FileText, Edit2, Trash2, Plus, Radio, Clock, Shuffle, Power, Search, Square, X, Copy, LayoutTemplate, Pause } from 'lucide-vue-next'
-import { listSignTasks, deleteSignTask, startSignTaskRun, listAccounts, toggleSignTaskEnabled, batchSignTasks, cloneSignTask, listActiveSignTaskRuns, cancelSignTaskRun, listKeywordHitGroups, fetchChatAvatar } from '../lib/api'
+import { Plus, Radio, Clock, Shuffle, Power, Search, X, LayoutTemplate, Pause, Play, Trash2 } from 'lucide-vue-next'
+import { listSignTasks, deleteSignTask, startSignTaskRun, listAccounts, toggleSignTaskEnabled, batchSignTasks, cloneSignTask } from '../lib/api'
 import { BUILT_IN_TEMPLATES } from '../lib/task-templates'
-import type { SignTask, AccountInfo, ActiveRunSummary } from '../lib/api'
+import type { SignTask, AccountInfo } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
 import { useConfirm } from '../composables/useConfirm'
 import { useAuthStore } from '../stores/auth'
+import { useTaskListRuntime } from '../composables/useTaskListRuntime'
 import type { TaskUiItem } from '../lib/types'
 import { getLocalizedErrorMessage } from '../lib/types'
 import AddTaskModal from '../components/tasks/AddTaskModal.vue'
 import EditTaskModal from '../components/tasks/EditTaskModal.vue'
 import TaskLogsModal from '../components/tasks/TaskLogsModal.vue'
 import CloneTaskModal from '../components/tasks/CloneTaskModal.vue'
+import TaskListCard from '../components/tasks/TaskListCard.vue'
 import { devLog } from '../lib/devLog'
-import { AVATAR_FETCH_CONCURRENCY, mapPool } from '../lib/async-pool'
-import { startChainPoll, type ChainPollHandle } from '../lib/chain-poll'
-import {
-  badgeTone,
-  badgeToneClass,
-  formatActiveRunLabel,
-  formatPhaseDetail,
-  groupActiveRunsByTask,
-  isRunInProgress,
-  phaseLabel,
-  pickPrimaryActiveRun,
-  remainingWaitSeconds,
-} from '../lib/run-status'
 import {
   filterTasksByModeAndQuery,
   hasActiveListFilters,
@@ -192,6 +181,23 @@ const getTaskAccountName = (task: SignTask | TaskUiItem): string => {
   return ''
 }
 
+const {
+  cancelBusyKey,
+  afterTasksLoaded,
+  taskActiveRuns,
+  taskActiveRun,
+  activeRunBadgeText,
+  activeRunTooltip,
+  taskHasInvalidAccount,
+  handleCancelRun,
+  loadAccountStatusMap,
+} = useTaskListRuntime({
+  tasks,
+  listenTaskCount,
+  accountFilter,
+  getTaskAccountName,
+})
+
 const loadTasks = async () => {
   const token = authStore.token || ''
   if (!token) return
@@ -252,201 +258,13 @@ const loadTasks = async () => {
       }
     })
 
-    syncActiveRunsFromTasks(tasks.value)
-    ensureActivePolling()
-    void loadListenHitCounts()
-    if (listenTaskCount.value > 0) ensureHitCountPolling()
-    else clearHitCountPolling()
-
-    // 限流加载聊天头像：优先 chat.source_account，否则任务账号
-    const avatarJobs = tasks.value.flatMap((task) => {
-      const firstChat = task.raw.chats?.[0]
-      if (!firstChat) return []
-      const avatarAccount = firstChat.source_account || getTaskAccountName(task.raw)
-      if (!avatarAccount) return []
-      return [{ task, avatarAccount, chatId: firstChat.chat_id as number }]
-    })
-    void mapPool(avatarJobs, AVATAR_FETCH_CONCURRENCY, async (job) => {
-      await loadChatAvatar(job.task, job.avatarAccount, job.chatId)
-    })
+    await afterTasksLoaded()
   } catch (e) {
     devLog.error('Failed to fetch tasks', e)
     toast.error(getLocalizedErrorMessage(e, t, t('tasks.loadFailed')))
     tasks.value = []
   } finally {
     pageLoading.value = false
-  }
-}
-
-/** 为监听任务填充命中计数角标（失败静默） */
-const loadListenHitCounts = async () => {
-  const token = authStore.token || ''
-  if (!token) return
-  const listenTasks = tasks.value.filter((t) => t.isListenMode)
-  if (!listenTasks.length) return
-  try {
-    // 一次按 task 分组拿全量 count，避免 N 次请求
-    const res = await listKeywordHitGroups(token, {
-      account_name: accountFilter.value || undefined,
-      group_by: 'task',
-      limit_per_group: 1,
-    })
-    const countByTask = new Map<string, number>()
-    for (const g of res.groups || []) {
-      countByTask.set(String(g.key), Number(g.count || 0))
-    }
-    for (const task of tasks.value) {
-      if (!task.isListenMode) continue
-      task.hitCount = countByTask.get(task.name) || 0
-    }
-  } catch (e) {
-    devLog.error('Failed to load hit counts', e)
-  }
-}
-
-let hitCountHandle: ChainPollHandle | null = null
-const ensureHitCountPolling = () => {
-  if (hitCountHandle?.active) return
-  hitCountHandle = startChainPoll(
-    async () => {
-      if (listenTaskCount.value > 0) await loadListenHitCounts()
-    },
-    { intervalMs: 15000, runImmediately: false },
-  )
-}
-const clearHitCountPolling = () => {
-  hitCountHandle?.stop()
-  hitCountHandle = null
-}
-
-/** task_name → 该任务下全部活跃 run（多账号） */
-const activeRunsByTask = ref<Record<string, ActiveRunSummary[]>>({})
-/** 拉取 active-runs 时的本地时间，用于冷却倒计时 */
-const activeRunsFetchedAt = ref(0)
-const nowTick = ref(Date.now())
-let activePollHandle: ChainPollHandle | null = null
-let countdownTimer: ReturnType<typeof setInterval> | null = null
-const cancelBusyKey = ref('')
-const accountStatusMap = ref<Record<string, string>>({})
-const accountNeedsRelogin = ref<Record<string, boolean>>({})
-
-const hasAnyActiveRun = computed(() => Object.keys(activeRunsByTask.value).length > 0)
-
-const syncActiveRunsFromTasks = (items: TaskUiItem[]) => {
-  const flat: ActiveRunSummary[] = []
-  for (const task of items) {
-    const ar = task.raw.active_run
-    if (ar && isRunInProgress(ar)) {
-      flat.push({ ...ar, task_name: ar.task_name || task.name })
-    }
-  }
-  activeRunsByTask.value = groupActiveRunsByTask(flat)
-  activeRunsFetchedAt.value = Date.now()
-}
-
-const refreshActiveRuns = async () => {
-  const token = authStore.token || ''
-  if (!token) return
-  try {
-    const res = await listActiveSignTaskRuns(token)
-    activeRunsByTask.value = groupActiveRunsByTask(res.runs || [])
-    activeRunsFetchedAt.value = Date.now()
-  } catch (e) {
-    devLog.error('Failed to refresh active runs', e)
-  }
-}
-
-const ensureActivePolling = () => {
-  if (hasAnyActiveRun.value) {
-    if (!activePollHandle?.active) {
-      activePollHandle = startChainPoll(refreshActiveRuns, {
-        intervalMs: 4000,
-        runImmediately: false,
-      })
-    }
-    if (!countdownTimer) {
-      countdownTimer = setInterval(() => {
-        nowTick.value = Date.now()
-      }, 1000)
-    }
-  } else {
-    activePollHandle?.stop()
-    activePollHandle = null
-    if (countdownTimer) {
-      clearInterval(countdownTimer)
-      countdownTimer = null
-    }
-  }
-}
-
-watch(hasAnyActiveRun, () => ensureActivePolling())
-
-const taskActiveRuns = (task: TaskUiItem): ActiveRunSummary[] => {
-  return activeRunsByTask.value[task.name] || (task.raw.active_run && isRunInProgress(task.raw.active_run)
-    ? [task.raw.active_run]
-    : [])
-}
-
-const taskActiveRun = (task: TaskUiItem): ActiveRunSummary | null => {
-  return pickPrimaryActiveRun(taskActiveRuns(task))
-}
-
-const activeRunBadgeText = (task: TaskUiItem): string => {
-  const ar = taskActiveRun(task)
-  if (!ar || !isRunInProgress(ar)) return ''
-  void nowTick.value
-  const rem = remainingWaitSeconds(ar.wait_seconds, activeRunsFetchedAt.value, nowTick.value)
-  return formatActiveRunLabel(ar, t, { remainingSec: rem })
-}
-
-const activeRunTooltip = (task: TaskUiItem): string => {
-  const runs = taskActiveRuns(task)
-  if (!runs.length) return ''
-  return runs
-    .map((r) => {
-      const acc = r.account_name || '-'
-      const ph = phaseLabel(r.phase, t) || formatPhaseDetail(r, t)
-      return `${acc}: ${ph}`
-    })
-    .join('\n')
-}
-
-const isAccountInvalid = (accountName: string) => {
-  if (accountNeedsRelogin.value[accountName]) return true
-  const st = accountStatusMap.value[accountName] || ''
-  return st === 'invalid' || st === 'error' || /expired|offline|disconnected/i.test(st)
-}
-
-const taskHasInvalidAccount = (task: TaskUiItem): boolean => {
-  const names = [
-    ...(task.raw.account_names || []),
-    task.raw.account_name || '',
-  ].filter((n) => n && n !== '*')
-  return names.some((n) => isAccountInvalid(n))
-}
-
-const handleCancelRun = async (task: TaskUiItem) => {
-  const ar = taskActiveRun(task)
-  if (!ar?.account_name) {
-    toast.error(t('tasks.cancelNeedAccount'))
-    return
-  }
-  const key = `${task.name}:${ar.account_name}`
-  if (cancelBusyKey.value === key) return
-  cancelBusyKey.value = key
-  const token = authStore.token || ''
-  try {
-    const res = await cancelSignTaskRun(token, task.name, ar.account_name, ar.run_id)
-    if (res.ok && res.cancelled) {
-      toast.success(t('tasks.cancelSuccess'))
-      await refreshActiveRuns()
-    } else {
-      toast.error(res.error || t('tasks.cancelFailed'))
-    }
-  } catch (e: unknown) {
-    toast.error(getLocalizedErrorMessage(e, t, t('tasks.cancelFailed')))
-  } finally {
-    cancelBusyKey.value = ''
   }
 }
 
@@ -494,22 +312,7 @@ onMounted(async () => {
   await loadTasks()
   applyLogsDeepLink()
   loadAllAccounts()
-  try {
-    const token = authStore.token || ''
-    if (token) {
-      const res = await listAccounts(token)
-      const map: Record<string, string> = {}
-      const relogin: Record<string, boolean> = {}
-      for (const a of res.accounts || []) {
-        map[a.name] = String(a.status || '')
-        relogin[a.name] = !!a.needs_relogin
-      }
-      accountStatusMap.value = map
-      accountNeedsRelogin.value = relogin
-    }
-  } catch (e) {
-    devLog.error('Failed to load account status map', e)
-  }
+  void loadAccountStatusMap()
 })
 
 watch(() => route.query.task, () => applyRouteQueryFilters())
@@ -517,71 +320,6 @@ watch(
   () => [route.query.tab, route.query.task, tasks.value.length] as const,
   () => applyLogsDeepLink(),
 )
-
-onUnmounted(() => {
-  activePollHandle?.stop()
-  activePollHandle = null
-  if (countdownTimer) {
-    clearInterval(countdownTimer)
-    countdownTimer = null
-  }
-  clearHitCountPolling()
-})
-
-const loadChatAvatar = async (task: TaskUiItem, accountName: string, chatId: number) => {
-  const token = authStore.token || ''
-  // Use chat_id as cache key - avatar is the same regardless of which account fetched it
-  const cacheKey = `chat_avatar_${chatId}`
-  const noAvatarKey = `chat_avatar_${chatId}_404`
-  
-  // Check localStorage cache first (persists across browser sessions)
-  const cached = localStorage.getItem(cacheKey)
-  if (cached && cached !== '__no_avatar__') {
-    task.chatAvatarUrl = cached
-    return
-  }
-
-  // Check if we recently confirmed no avatar (within 1 hour) to avoid spam
-  const noAvatarTime = localStorage.getItem(noAvatarKey)
-  if (noAvatarTime) {
-    const age = Date.now() - parseInt(noAvatarTime, 10)
-    if (age < 3600000) {  // 1 hour
-      return
-    }
-  }
-
-  try {
-    const blob = await fetchChatAvatar(token, accountName, chatId)
-    const url = URL.createObjectURL(blob)
-    const prev = task.chatAvatarUrl
-    task.chatAvatarUrl = url
-    if (prev && prev.startsWith('blob:')) {
-      try { URL.revokeObjectURL(prev) } catch { /* ignore */ }
-    }
-    // Clear no-avatar marker
-    localStorage.removeItem(noAvatarKey)
-    // Cache as data URL for persistence
-    try {
-      const reader = new FileReader()
-      reader.onload = () => {
-        if (reader.result) {
-          try {
-            localStorage.setItem(cacheKey, reader.result as string)
-          } catch {
-            // localStorage quota exceeded - fall back to sessionStorage
-            try { sessionStorage.setItem(cacheKey, reader.result as string) } catch {}
-          }
-        }
-      }
-      reader.readAsDataURL(blob)
-    } catch {}
-  } catch (e: unknown) {
-    // 404 标记 1 小时内不重试；其他网络错误不缓存
-    if (e && typeof e === 'object' && 'status' in e && (e as { status: number }).status === 404) {
-      try { localStorage.setItem(noAvatarKey, String(Date.now())) } catch {}
-    }
-  }
-}
 
 watch(() => route.query.account, () => {
   loadTasks()
@@ -1030,207 +768,30 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
       <p v-else class="ui-empty-desc">{{ t('common.noData') }}</p>
     </div>
 
-    <div
+    <TaskListCard
       v-for="task in filteredTasks"
       :key="task.id"
-      class="ui-card relative flex flex-col gap-3 p-4"
-      :class="{
-        'opacity-55': !task.enabled,
-        'ring-1 ring-sky-400/40 border-sky-300/50 dark:border-sky-700/40': selectedTaskIds.has(task.id),
-      }"
-    >
-      <!-- 主信息行 -->
-      <div class="flex items-start gap-3 min-w-0">
-        <label class="pt-1 shrink-0 cursor-pointer" @click.stop>
-          <input
-            type="checkbox"
-            :checked="selectedTaskIds.has(task.id)"
-            class="ui-checkbox"
-            @change="toggleSelectTask(task.id)"
-          />
-        </label>
-        <div class="w-10 h-10 shrink-0 bg-gray-100 dark:bg-gray-800/80 flex items-center justify-center text-gray-500 border border-gray-200 dark:border-gray-700/60 overflow-hidden">
-          <img v-if="task.chatAvatarUrl" :src="task.chatAvatarUrl" class="w-full h-full object-cover" alt="" />
-          <component v-else :is="task.modeIcon" class="w-5 h-5 opacity-70" />
-        </div>
-        <div class="flex-1 min-w-0 space-y-1.5">
-          <div class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate" :title="task.name">
-            {{ task.name }}
-          </div>
-          <!-- 次要信息：调度 / 目标；状态徽章另组 -->
-          <div class="flex flex-wrap items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
-            <span
-              class="ui-badge !text-[10px] font-mono bg-sky-50 text-sky-700 border-sky-100 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800/50 max-w-[min(12rem,100%)] truncate"
-              :title="task.scheduleMode"
-            >
-              {{ task.scheduleMode }}
-            </span>
-            <span
-              class="ui-badge ui-badge-neutral !text-[10px] font-mono max-w-[min(16rem,100%)] truncate"
-              :title="task.targetStr"
-            >
-              {{ task.targetStr }}
-            </span>
-            <span
-              v-if="task.targetCount > 1"
-              class="ui-badge !text-[11px] bg-violet-50 text-violet-700 border-violet-100 dark:bg-violet-950/40 dark:text-violet-300 dark:border-violet-800/50"
-              :title="task.targetStr"
-            >
-              {{ t('tasks.extraTargets', { n: task.targetCount - 1 }) }}
-            </span>
-            <button
-              v-if="task.isListenMode && (task.hitCount || 0) > 0"
-              type="button"
-              class="ui-badge !text-[11px] bg-emerald-50 text-emerald-700 border-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/50 cursor-pointer hover:opacity-90"
-              :title="t('tasks.hitsBadgeHint')"
-              @click.stop="openLogs(task, 'hits')"
-            >
-              {{ t('tasks.hitsBadge', { n: task.hitCount }) }}
-            </button>
-            <button
-              v-if="task.lastRunSuccess === false"
-              type="button"
-              class="ui-badge ui-badge-error !text-[11px] max-w-full truncate cursor-pointer hover:opacity-90"
-              :title="t('tasks.viewLogs')"
-              @click.stop="openLogs(task)"
-            >
-              {{ task.lastRunStr }}
-            </button>
-            <span
-              v-else
-              class="ui-badge !text-[11px] max-w-full truncate"
-              :title="task.lastRunStr"
-              :class="task.isListenMode && task.lastRunSuccess === null
-                ? 'bg-orange-50 text-orange-600 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:border-orange-800/50'
-                : task.lastRunSuccess === null
-                  ? 'ui-badge-neutral'
-                  : 'ui-badge-success'"
-            >
-              {{ task.lastRunStr }}
-            </span>
-            <span
-              v-if="taskActiveRun(task) && isRunInProgress(taskActiveRun(task))"
-              class="ui-badge !text-[11px] max-w-[16rem] truncate border"
-              :class="badgeToneClass(badgeTone(taskActiveRun(task)))"
-              :title="activeRunTooltip(task) || activeRunBadgeText(task)"
-            >
-              <span class="ui-pulse-dot !bg-sky-500 mr-1" />
-              {{ activeRunBadgeText(task) }}
-              <template v-if="taskActiveRuns(task).length > 1">
-                ·{{ taskActiveRuns(task).length }}
-              </template>
-            </span>
-            <span
-              v-if="taskHasInvalidAccount(task)"
-              class="ui-badge ui-badge-error !text-[11px]"
-              :title="t('tasks.accountInvalidHint')"
-            >
-              {{ t('tasks.accountInvalid') }}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <!-- 操作行：单独一行，避免与内容挤在一起 -->
-      <div class="flex flex-wrap items-center gap-1 border-t border-gray-100 dark:border-gray-800/50 pt-2.5">
-        <button
-          type="button"
-          class="ui-row-action"
-          :class="task.enabled ? 'ui-row-action--positive' : ''"
-          :title="task.enabled ? t('tasks.pause') : t('tasks.resume')"
-          :aria-pressed="task.enabled"
-          @click="handleToggleEnabled(task)"
-        >
-          <Power class="w-3.5 h-3.5" />
-          <span>{{ task.enabled ? t('tasks.pause') : t('tasks.resume') }}</span>
-        </button>
-        <button
-          v-if="taskActiveRun(task) && isRunInProgress(taskActiveRun(task))"
-          type="button"
-          class="ui-row-action ui-row-action--danger-strong"
-          :title="t('tasks.cancelRun')"
-          :disabled="cancelBusyKey === `${task.name}:${taskActiveRun(task)?.account_name || ''}`"
-          @click="handleCancelRun(task)"
-        >
-          <span
-            v-if="cancelBusyKey === `${task.name}:${taskActiveRun(task)?.account_name || ''}`"
-            class="ui-spinner !w-3.5 !h-3.5 !border-2"
-            aria-hidden="true"
-          />
-          <Square v-else class="w-3.5 h-3.5" />
-          <span>{{ t('tasks.cancelRun') }}</span>
-        </button>
-        <div class="relative" @click.stop>
-          <button
-            type="button"
-            class="ui-row-action"
-            :title="taskHasInvalidAccount(task)
-              ? t('tasks.accountInvalidHint')
-              : (task.raw.execution_mode === 'listen' ? t('tasks.executeListenHint') : t('tasks.executeNow'))"
-            :disabled="task.raw.execution_mode === 'listen' || taskHasInvalidAccount(task)"
-            @click="task.raw.execution_mode !== 'listen' && !taskHasInvalidAccount(task) && handleRun(task)"
-          >
-            <Play class="w-3.5 h-3.5" />
-            <span>{{ t('tasks.execute') }}</span>
-          </button>
-          <div
-            v-if="runMenuTask === task"
-            class="absolute top-full left-0 mt-1 z-50 min-w-[140px] ui-card shadow-[var(--sp-shadow-md)] py-1"
-          >
-            <div class="px-3 py-1.5 text-[10px] text-gray-400 font-medium uppercase tracking-wide border-b border-gray-100 dark:border-gray-800">
-              {{ t('tasks.selectAccount') }}
-            </div>
-            <button
-              v-for="acc in runMenuAccounts"
-              :key="acc"
-              type="button"
-              class="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/[0.04] transition-colors truncate"
-              @click="doRun(task, acc)"
-            >
-              {{ acc }}
-            </button>
-          </div>
-        </div>
-        <button
-          type="button"
-          class="ui-row-action"
-          :title="t('tasks.viewLogs')"
-          @click="openLogs(task)"
-        >
-          <FileText class="w-3.5 h-3.5" />
-          <span>{{ t('tasks.logs') }}</span>
-        </button>
-        <button
-          type="button"
-          class="ui-row-action"
-          :title="t('tasks.clone')"
-          :disabled="cloneBusy"
-          @click="openCloneModal(task)"
-        >
-          <span v-if="cloneBusy" class="ui-spinner !w-3.5 !h-3.5 !border-2" aria-hidden="true" />
-          <Copy v-else class="w-3.5 h-3.5" />
-          <span>{{ t('tasks.clone') }}</span>
-        </button>
-        <button
-          type="button"
-          class="ui-row-action"
-          :title="t('tasks.edit')"
-          @click="openEdit(task)"
-        >
-          <Edit2 class="w-3.5 h-3.5" />
-          <span>{{ t('tasks.edit') }}</span>
-        </button>
-        <button
-          type="button"
-          class="ui-row-action ui-row-action--danger"
-          :title="t('tasks.delete')"
-          @click="handleDelete(task)"
-        >
-          <Trash2 class="w-3.5 h-3.5" />
-          <span>{{ t('tasks.delete') }}</span>
-        </button>
-      </div>
-    </div>
+      :task="task"
+      :selected="selectedTaskIds.has(task.id)"
+      :clone-busy="cloneBusy"
+      :cancel-busy-key="cancelBusyKey"
+      :run-menu-open="runMenuTask === task"
+      :run-menu-accounts="runMenuAccounts"
+      :task-active-run="taskActiveRun(task)"
+      :task-active-runs="taskActiveRuns(task)"
+      :active-run-badge-text="activeRunBadgeText(task)"
+      :active-run-tooltip="activeRunTooltip(task)"
+      :has-invalid-account="taskHasInvalidAccount(task)"
+      @toggle-select="toggleSelectTask"
+      @toggle-enabled="handleToggleEnabled"
+      @cancel-run="handleCancelRun"
+      @run="handleRun"
+      @run-account="(task, acc) => doRun(task, acc)"
+      @open-logs="(task, tab) => openLogs(task, tab ?? null)"
+      @clone="openCloneModal"
+      @edit="openEdit"
+      @delete="handleDelete"
+    />
     </div>
     
     <div class="fixed ui-safe-fab z-40 flex flex-col items-end gap-2">
