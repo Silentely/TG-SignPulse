@@ -148,7 +148,7 @@ Vitest 的 jsdom 环境和 Node/Undici 可能分别提供 `Blob`、`File`、`Res
 
 | 依赖 | 用途 |
 | --- | --- |
-| `aiofiles` | 异步文件读写（`backend/utils/async_io.py`） |
+| `aiofiles` | 异步文件读写（历史/配置等可选非阻塞 IO） |
 | `psutil>=5.9.0` | 内存监控（`backend/utils/memory_monitor.py`） |
 
 前端新增依赖：

@@ -113,7 +113,7 @@ docker run -d -p 3000:3000 -v ./data:/data ghcr.io/<owner>/tg-signpulse:latest
 - **覆盖**: `pytest-cov` 最低 25% 门槛
 - **运行**: `pytest` (根目录)
 - **测试目录**: `tests/`，含 factories、fixtures、mocks 三层结构
-- **主要测试文件**: `test_api.py`, `test_core.py`, `test_services.py`, `test_signer_isolation.py`, `test_config.py`, `test_utils.py`, `test_cache.py`, `test_session_cache.py`, `test_async_io.py`, `test_memory_monitor.py`, `test_batch_api.py`, `test_task_runner.py`, `test_keyword_monitor.py`, `test_log_optimization.py`, `test_ai_tools.py`
+- **主要测试文件**: `test_api.py`, `test_core.py`, `test_services.py`, `test_signer_isolation.py`, `test_config.py`, `test_utils.py`, `test_cache.py`, `test_sign_task_history_index.py`, `test_memory_monitor.py`, `test_batch_api.py`, `test_task_runner.py`, `test_keyword_monitor.py`, `test_log_optimization.py`, `test_ai_tools.py`
 
 ## 编码规范
 
@@ -144,7 +144,7 @@ docker run -d -p 3000:3000 -v ./data:/data ghcr.io/<owner>/tg-signpulse:latest
 | `proxy.py` | 代理 URL 标准化 |
 | `account_locks.py` | 账号级异步锁 |
 
-> 工具层：`cache.TTLCache` 已接入签到任务列表缓存；`memory_monitor` 在 main 启动；`session_cache` / `async_io` 仍以测试与可复用组件形式保留
+> 工具层：`cache.TTLCache` 已接入签到任务列表缓存；`memory_monitor` 在 main 启动；历史列表走 `sign_task_history_index` 轻量索引
 
 ### tg_signer/config.py 配置模型（565 行）
 

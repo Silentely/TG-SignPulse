@@ -58,6 +58,15 @@ from backend.services.sign_task_history_io import (
 from backend.services.sign_task_history_io import (
     safe_history_key as safe_history_key_io,
 )
+from backend.services.sign_task_history_index import (
+    append_index_entry,
+    build_index_entry,
+    clear_index as clear_history_index,
+    ensure_index as ensure_history_index,
+    list_recent_from_index,
+    rebuild_index_from_history_files,
+    remove_index_entries_matching,
+)
 from backend.services.sign_task_message import (
     format_target_message_summary,
     message_matches_thread,
@@ -256,6 +265,23 @@ class SignTaskService:
             self._tasks_list_ttl.clear()
         except Exception as exc:
             _service_logger.debug("清除任务列表 TTL 缓存失败: %s", exc)
+
+    def _sync_tasks_list_ttl(self) -> None:
+        """将当前 _tasks_cache 写回 TTL 槽，避免只清 list 却残留 TTL 旧值。"""
+        if self._tasks_cache is None:
+            try:
+                self._tasks_list_ttl.clear()
+            except Exception as exc:
+                _service_logger.debug("同步清空任务列表 TTL 失败: %s", exc)
+            return
+        try:
+            self._tasks_list_ttl.set("all", self._tasks_cache)
+        except Exception as exc:
+            _service_logger.debug("同步任务列表 TTL 失败: %s", exc)
+
+    def _refresh_tasks_cache_after_write(self) -> None:
+        """CRUD 写盘后强制重扫一次并填充缓存（替代仅置 None）。"""
+        self.list_tasks(force_refresh=True, aggregate=False)
 
     async def _fetch_last_target_message_from_chat_history(
         self,
@@ -520,7 +546,7 @@ class SignTaskService:
                 except Exception:
                     pass
 
-        self._tasks_cache = None
+        self._refresh_tasks_cache_after_write()
 
     def _resolve_account_names_from_config(
         self,
@@ -729,8 +755,35 @@ class SignTaskService:
         return sort_history_items_desc(all_history)
 
     def get_recent_history_logs(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """最近历史：优先读轻量索引（O(尾部)），避免全任务扫盘。"""
         limit = clamp_limit(limit, minimum=1, maximum=200)
+        try:
+            ensure_history_index(self.run_history_dir)
+            indexed = list_recent_from_index(
+                self.run_history_dir,
+                limit=limit,
+                prefer_memory=True,
+            )
+            if indexed:
+                # 索引条目已是列表展示结构（无 flow_logs）；补齐兼容字段
+                return [
+                    {
+                        **item,
+                        "created_at": item.get("created_at") or item.get("time") or "",
+                        "flow_logs": item.get("flow_logs") or [],
+                        "flow_truncated": bool(item.get("flow_truncated", False)),
+                        "flow_line_count": int(item.get("flow_line_count") or 0),
+                        "last_target_message": str(
+                            item.get("last_target_message") or ""
+                        ),
+                        "bot_message": str(item.get("message") or ""),
+                    }
+                    for item in indexed
+                ]
+        except Exception as exc:
+            _service_logger.debug("历史索引读取失败，回退全量扫描: %s", exc)
 
+        # 回退：全任务扫描（索引缺失或损坏时）
         recent: List[Dict[str, Any]] = []
         seen_pairs: set[tuple[str, str]] = set()
 
@@ -764,6 +817,7 @@ class SignTaskService:
         date: Optional[str] = None,
         limit: int = 200,
     ) -> List[Dict[str, Any]]:
+        """按账号/日期筛选历史。列表场景优先索引；需要 flow_logs 时仍读详情接口。"""
         limit = clamp_limit(limit, minimum=1, maximum=1000)
 
         normalized_account = (
@@ -772,6 +826,34 @@ class SignTaskService:
             else None
         )
         normalized_date = str(date or "").strip()[:10]
+
+        try:
+            ensure_history_index(self.run_history_dir)
+            indexed = list_recent_from_index(
+                self.run_history_dir,
+                limit=limit,
+                account_name=normalized_account,
+                date_prefix=normalized_date,
+                prefer_memory=False,
+            )
+            if indexed:
+                return [
+                    {
+                        **item,
+                        "created_at": item.get("created_at") or item.get("time") or "",
+                        "flow_logs": item.get("flow_logs") or [],
+                        "flow_truncated": bool(item.get("flow_truncated", False)),
+                        "flow_line_count": int(item.get("flow_line_count") or 0),
+                        "last_target_message": str(
+                            item.get("last_target_message") or ""
+                        ),
+                        "bot_message": str(item.get("message") or ""),
+                    }
+                    for item in indexed
+                ]
+        except Exception as exc:
+            _service_logger.debug("筛选历史索引失败，回退全量: %s", exc)
+
         history_items: List[Dict[str, Any]] = []
         seen_pairs: set[tuple[str, str]] = set()
 
@@ -889,6 +971,15 @@ class SignTaskService:
             normalized_account,
             latest_entry if isinstance(latest_entry, dict) else None,
         )
+        try:
+            remove_index_entries_matching(
+                self.run_history_dir,
+                account_name=normalized_account,
+                task_name=normalized_task,
+                created_at=target_time,
+            )
+        except Exception as exc:
+            _service_logger.debug("删除历史索引条目失败: %s", exc)
         return True
 
     @staticmethod
@@ -956,6 +1047,11 @@ class SignTaskService:
                 removed_files += 1
             except Exception:
                 pass
+
+        try:
+            clear_history_index(self.run_history_dir)
+        except Exception as exc:
+            _service_logger.debug("清空历史索引失败: %s", exc)
 
         return {"removed_files": removed_files, "removed_entries": removed_entries}
 
@@ -1035,6 +1131,14 @@ class SignTaskService:
                         json.dump(plan.get("kept") or [], f, ensure_ascii=False, indent=2)
                 except Exception:
                     pass
+
+        try:
+            remove_index_entries_matching(
+                self.run_history_dir,
+                account_name=account_name,
+            )
+        except Exception as exc:
+            _service_logger.debug("按账号清理历史索引失败: %s", exc)
 
         return {"removed_files": removed_files, "removed_entries": removed_entries}
 
@@ -1158,6 +1262,30 @@ class SignTaskService:
                 account_name=account_name,
                 last_run=new_entry,
             )
+            self._sync_tasks_list_ttl()
+
+            # 轻量索引：供 SSE / 最近日志 O(1) 读取
+            try:
+                append_index_entry(
+                    self.run_history_dir,
+                    build_index_entry(
+                        time=str(new_entry.get("time") or ""),
+                        account_name=account_name,
+                        task_name=task_name,
+                        success=bool(success),
+                        message=str(new_entry.get("message") or message or ""),
+                        failure_category=str(
+                            new_entry.get("failure_category") or category.value or ""
+                        ),
+                    ),
+                )
+            except Exception as idx_exc:
+                _service_logger.debug(
+                    "追加历史索引失败 task=%s account=%s: %s",
+                    task_name,
+                    account_name,
+                    idx_exc,
+                )
 
         except (OSError, TypeError, ValueError) as e:
             _service_logger.warning(
@@ -1201,57 +1329,15 @@ class SignTaskService:
         last_target_message: Optional[str] = None,
         flow_logs: Optional[List[str]] = None,
     ) -> None:
-        try:
-            from backend.services.config import get_config_service
+        from backend.services.sign_task_notify import send_failure_notification
 
-            cfg = get_config_service().get_global_settings()
-            if not cfg.get("telegram_bot_notify_enabled"):
-                return
-            if not cfg.get("telegram_bot_task_failure_enabled", True):
-                return
-            from backend.services.push_notifications import (
-                is_in_quiet_hours,
-                send_telegram_bot_message,
-            )
-
-            if is_in_quiet_hours(cfg):
-                return
-            bot_token = (cfg.get("telegram_bot_token") or "").strip()
-            chat_id = (cfg.get("telegram_bot_chat_id") or "").strip()
-            if not bot_token or not chat_id:
-                return
-            message_thread_id = cfg.get("telegram_bot_message_thread_id")
-            try:
-                message_thread_id = (
-                    int(message_thread_id)
-                    if message_thread_id is not None and str(message_thread_id).strip()
-                    else None
-                )
-            except (TypeError, ValueError):
-                message_thread_id = None
-
-            log_tail = "\n".join((flow_logs or [])[-20:])
-            text = (
-                "TG-SignPulse 任务执行失败\n"
-                f"账号: {account_name}\n"
-                f"任务: {task_name}\n"
-                f"错误: {message or '未知错误'}"
-            )
-            if last_target_message:
-                text += f"\nLast target message: {last_target_message}"
-            if log_tail:
-                text += f"\n\n最近日志:\n{log_tail}"
-
-            await send_telegram_bot_message(
-                bot_token=bot_token,
-                chat_id=chat_id,
-                text=text,
-                message_thread_id=message_thread_id,
-            )
-        except Exception as e:
-            logging.getLogger("backend.sign_tasks").warning(
-                "Failed to send Telegram failure notification: %s", e
-            )
+        await send_failure_notification(
+            account_name=account_name,
+            task_name=task_name,
+            message=message,
+            last_target_message=last_target_message,
+            flow_logs=flow_logs,
+        )
 
     async def _send_success_notification(
         self,
@@ -1259,23 +1345,13 @@ class SignTaskService:
         task_name: str,
         message: str = "",
     ) -> None:
-        try:
-            from backend.services.config import get_config_service
-            from backend.services.push_notifications import (
-                send_task_success_notification,
-            )
+        from backend.services.sign_task_notify import send_success_notification
 
-            cfg = get_config_service().get_global_settings()
-            await send_task_success_notification(
-                cfg,
-                account_name=account_name,
-                task_name=task_name,
-                message=message or "",
-            )
-        except Exception as e:
-            logging.getLogger("backend.sign_tasks").warning(
-                "Failed to send Telegram success notification: %s", e
-            )
+        await send_success_notification(
+            account_name=account_name,
+            task_name=task_name,
+            message=message,
+        )
 
     async def _send_account_invalid_notification(
         self,
@@ -1283,45 +1359,13 @@ class SignTaskService:
         task_name: str,
         message: str,
     ) -> None:
-        try:
-            from backend.services.config import get_config_service
+        from backend.services.sign_task_notify import send_account_invalid_notification
 
-            cfg = get_config_service().get_global_settings()
-            if not cfg.get("telegram_bot_notify_enabled"):
-                return
-            bot_token = (cfg.get("telegram_bot_token") or "").strip()
-            chat_id = (cfg.get("telegram_bot_chat_id") or "").strip()
-            if not bot_token or not chat_id:
-                return
-            message_thread_id = cfg.get("telegram_bot_message_thread_id")
-            try:
-                message_thread_id = (
-                    int(message_thread_id)
-                    if message_thread_id is not None and str(message_thread_id).strip()
-                    else None
-                )
-            except (TypeError, ValueError):
-                message_thread_id = None
-
-            text = (
-                "TG-SignPulse 账号登录失效\n"
-                f"账号: {account_name}\n"
-                f"触发任务: {task_name}\n"
-                f"原因: {message or 'session 已失效，请重新登录'}\n\n"
-                "该账号下的任务已跳过。"
-            )
-            from backend.services.push_notifications import send_telegram_bot_message
-
-            await send_telegram_bot_message(
-                bot_token=bot_token,
-                chat_id=chat_id,
-                text=text,
-                message_thread_id=message_thread_id,
-            )
-        except Exception as e:
-            logging.getLogger("backend.sign_tasks").warning(
-                "Failed to send Telegram account invalid notification: %s", e
-            )
+        await send_account_invalid_notification(
+            account_name=account_name,
+            task_name=task_name,
+            message=message,
+        )
 
     async def _mark_account_invalid(
         self,
@@ -1330,24 +1374,14 @@ class SignTaskService:
         message: str,
         notify_on_failure: bool = True,
     ) -> bool:
-        current = get_account_status(account_name)
-        already_notified = bool(current.get("invalid_notified_at"))
-        notified_at = current.get("invalid_notified_at") or utc_now_iso()
-        set_account_status(
-            account_name,
-            status="invalid",
+        from backend.services.sign_task_notify import mark_account_invalid
+
+        return await mark_account_invalid(
+            account_name=account_name,
+            task_name=task_name,
             message=message,
-            code="ACCOUNT_SESSION_INVALID",
-            needs_relogin=True,
-            invalid_notified_at=notified_at,
+            notify_on_failure=notify_on_failure,
         )
-        if not already_notified and notify_on_failure:
-            await self._send_account_invalid_notification(
-                account_name=account_name,
-                task_name=task_name,
-                message=message,
-            )
-        return not already_notified
 
     async def _check_account_before_task(
         self,
@@ -1356,54 +1390,14 @@ class SignTaskService:
         no_updates: bool,
         notify_on_failure: bool = True,
     ) -> Optional[str]:
-        stored_status = get_account_status(account_name)
-        if (
-            stored_status.get("status") == "invalid"
-            and stored_status.get("needs_relogin")
-        ):
-            message = (
-                str(stored_status.get("message") or "").strip()
-                or f"账号 {account_name} 登录已失效，请重新登录"
-            )
-            await self._mark_account_invalid(
-                account_name, task_name, message, notify_on_failure=notify_on_failure
-            )
-            return message
+        from backend.services.sign_task_notify import check_account_before_task
 
-        try:
-            from backend.services.telegram import get_telegram_service
-
-            result = await get_telegram_service().check_account_status(
-                account_name,
-                timeout_seconds=10.0,
-                no_updates=no_updates,
-            )
-        except Exception as e:
-            logging.getLogger("backend.sign_tasks").warning(
-                "Account status check failed before task %s/%s: %s",
-                account_name,
-                task_name,
-                e,
-            )
-            return None
-
-        if result.get("ok"):
-            return None
-
-        needs_relogin = bool(result.get("needs_relogin"))
-        status = str(result.get("status") or "")
-        code = str(result.get("code") or "")
-        if needs_relogin or status in {"invalid", "not_found"} or code == "ACCOUNT_SESSION_INVALID":
-            message = (
-                str(result.get("message") or "").strip()
-                or f"账号 {account_name} 登录已失效，请重新登录"
-            )
-            await self._mark_account_invalid(
-                account_name, task_name, message, notify_on_failure=notify_on_failure
-            )
-            return message
-
-        return None
+        return await check_account_before_task(
+            account_name=account_name,
+            task_name=task_name,
+            no_updates=no_updates,
+            notify_on_failure=notify_on_failure,
+        )
 
     def get_task_history_logs(
         self, task_name: str, account_name: Optional[str] = None, limit: int = 20
@@ -1718,7 +1712,7 @@ class SignTaskService:
             with open(task_dir / "config.json", "w", encoding="utf-8") as f:
                 json.dump(config, f, ensure_ascii=False, indent=2)
 
-        self._tasks_cache = None
+        self._refresh_tasks_cache_after_write()
 
         try:
             from backend.scheduler import (
@@ -1951,7 +1945,7 @@ class SignTaskService:
             else:
                 remove_sign_task_job(current_account, task_name)
 
-        self._tasks_cache = None
+        self._refresh_tasks_cache_after_write()
         self._append_scheduler_log(
             "scheduler_update.log",
             f"{datetime.now()}: Updated task {task_name} for {','.join(target_accounts)}",
@@ -2054,7 +2048,12 @@ class SignTaskService:
         if last_run_value is not None:
             self._account_last_run_end[new_account_name] = last_run_value
 
-        self._tasks_cache = None
+        try:
+            rebuild_index_from_history_files(self.run_history_dir)
+        except Exception as exc:
+            _service_logger.debug("账号重命名后重建历史索引失败: %s", exc)
+
+        self._refresh_tasks_cache_after_write()
 
     def delete_task(
         self, task_name: str, account_name: Optional[str] = None
@@ -2087,7 +2086,7 @@ class SignTaskService:
             if current_account:
                 remove_sign_task_job(current_account, task_name)
 
-        self._tasks_cache = None
+        self._refresh_tasks_cache_after_write()
         return True
 
     async def get_account_chats(

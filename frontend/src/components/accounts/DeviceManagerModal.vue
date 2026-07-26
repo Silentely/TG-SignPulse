@@ -5,6 +5,7 @@ import Modal from '../Modal.vue'
 import { listAccountDevices, terminateAccountDevice, type AccountDeviceInfo } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
 import { useConfirm } from '../../composables/useConfirm'
+import { useAuthStore } from '../../stores/auth'
 
 const props = defineProps<{
   isOpen: boolean
@@ -17,6 +18,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const { confirm } = useConfirm()
+const authStore = useAuthStore()
 const devices = ref<AccountDeviceInfo[]>([])
 const loading = ref(false)
 const error = ref('')
@@ -45,7 +47,7 @@ const locationText = (device: AccountDeviceInfo) => {
 
 const loadDevices = async () => {
   if (!props.isOpen || !props.accountName) return
-  const token = localStorage.getItem('tg-signer-token') || ''
+  const token = authStore.token || ''
   if (!token) return
   loading.value = true
   error.value = ''
@@ -68,7 +70,7 @@ const terminateDevice = async (device: AccountDeviceInfo) => {
     danger: true,
   })
   if (!ok) return
-  const token = localStorage.getItem('tg-signer-token') || ''
+  const token = authStore.token || ''
   if (!token) return
   terminatingHash.value = device.hash
   error.value = ''

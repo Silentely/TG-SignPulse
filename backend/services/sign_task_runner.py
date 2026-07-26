@@ -117,9 +117,11 @@ async def execute_sign_task(
             phase_detail=f"检查账号 {account_name}",
         )
 
-        invalid_reason = await svc._check_account_before_task(
-            account_name,
-            task_name,
+        from backend.services.sign_task_notify import check_account_before_task
+
+        invalid_reason = await check_account_before_task(
+            account_name=account_name,
+            task_name=task_name,
             no_updates=signer_no_updates,
             notify_on_failure=task_notify_on_failure,
         )
@@ -329,10 +331,12 @@ async def execute_sign_task(
         if account_invalid_detected or svc._is_invalid_session_error(e):
             account_invalid_detected = True
             invalid_message = str(e) or f"账号 {account_name} 登录已失效，请重新登录"
-            await svc._mark_account_invalid(
-                account_name,
-                task_name,
-                invalid_message,
+            from backend.services.sign_task_notify import mark_account_invalid
+
+            await mark_account_invalid(
+                account_name=account_name,
+                task_name=task_name,
+                message=invalid_message,
                 notify_on_failure=task_notify_on_failure,
             )
         # 脱敏异常摘要写入任务日志流（会持久化、API 展示、通知外发）
@@ -456,18 +460,23 @@ async def execute_sign_task(
                 flow_logs=final_logs,
             )
 
+            from backend.services.sign_task_notify import (
+                send_failure_notification,
+                send_success_notification,
+            )
+
             if not success and not account_invalid_detected and task_notify_on_failure:
-                await svc._send_failure_notification(
-                    account_name,
-                    task_name,
-                    error_msg or msg,
+                await send_failure_notification(
+                    account_name=account_name,
+                    task_name=task_name,
+                    message=error_msg or msg,
                     last_target_message=last_target_message or None,
                     flow_logs=final_logs,
                 )
             elif success and task_notify_on_success:
-                await svc._send_success_notification(
-                    account_name,
-                    task_name,
+                await send_success_notification(
+                    account_name=account_name,
+                    task_name=task_name,
                     message=str(msg or last_reply or ""),
                 )
         finally:

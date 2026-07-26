@@ -12,9 +12,10 @@ import type { TargetChatDraft } from './TaskFormTargetSection.vue'
 import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
 import { useAuthStore } from '../../stores/auth'
-import type { TaskActionItem, RawTaskAction, BuiltAction } from '../../lib/types'
+import type { TaskActionItem, RawTaskAction } from '../../lib/types'
 import { getLocalizedErrorMessage } from '../../lib/types'
-import { parseActions as parseActionsUtil, nextActionId, buildActions, debounce } from '../../lib/task-form-utils'
+import { parseActions as parseActionsUtil, nextActionId, debounce } from '../../lib/task-form-utils'
+import { buildTaskFormPayload } from '../../lib/task-form-payload'
 import { devLog } from '../../lib/devLog'
 
 const { t } = useI18n()
@@ -314,98 +315,34 @@ const applyBulkPickedChats = () => {
 const addAction=()=>actions.value.push({id:nextActionId(),type:'send_text',value:'',aiPrompt:''})
 const removeAction=(i:number)=>actions.value.splice(i,1)
 const moveAction=(i:number,d:number)=>{if(i+d<0||i+d>=actions.value.length)return;const t=actions.value[i];actions.value[i]=actions.value[i+d];actions.value[i+d]=t}
-const buildPayload = () => {
-  let em: 'fixed' | 'range' | 'listen' = 'fixed'
-  let sa = '08:00', rs = '', re = ''
-  if (scheduleMode.value === 'listen') {
-    em = 'listen'
-  } else {
-    const p = timeRange.value.split('-')
-    if (p.length === 2) { em = 'range'; rs = p[0].trim(); re = p[1].trim(); sa = rs }
-    else sa = timeRange.value.trim() || '08:00'
-  }
-
-  const ba = buildActions(actions.value)
-
-  let ca = ba
-  if (scheduleMode.value === 'listen') {
-    const kw = listenerKeywords.value.split('\n').map((k: string) => k.trim()).filter(Boolean)
-    const la: BuiltAction = {
-      action: 8,
-      keywords: kw,
-      match_mode: listenerMatchMode.value,
-      push_channel: listenerPushChannel.value,
-      ignore_self: listenerIgnoreSelf.value,
-    }
-    if (listenerTimeWindowEnabled.value) {
-      // HTML time 可能是 HH:MM:SS，统一截到 HH:MM
-      const norm = (v: string) => {
-        const m = v.trim().match(/^(\d{1,2}):(\d{2})/)
-        return m ? `${m[1].padStart(2, '0')}:${m[2]}` : v.trim()
-      }
-      const start = norm(listenerActiveTimeStart.value)
-      const end = norm(listenerActiveTimeEnd.value)
-      if (start && end) {
-        la.active_time_start = start
-        la.active_time_end = end
-      }
-    }
-    if (listenerPushChannel.value === 'forward') {
-      if (listenerForwardChatId.value) la.forward_chat_id = listenerForwardChatId.value
-      if (listenerForwardThreadId.value) la.forward_message_thread_id = listenerForwardThreadId.value
-    }
-    if (listenerPushChannel.value === 'bark' && listenerBarkUrl.value) la.bark_url = listenerBarkUrl.value
-    if (listenerPushChannel.value === 'custom' && listenerCustomUrl.value) la.custom_url = listenerCustomUrl.value
-    if (listenerPushChannel.value === 'server_chan' && listenerServerChanKey.value) {
-      la.server_chan_send_key = listenerServerChanKey.value
-    }
-    if (listenerPushChannel.value === 'continue' && ba.length > 0) la.continue_actions = ba
-    ca = [la]
-  }
-
-  // chat_id 可能为负数（超级群/频道）；仅排除 0 / NaN，并按 id 去重
-  const seenChatIds = new Set<number>()
-  const chats = targetChats.value
-    .filter((c) => {
-      const id = Number(c.chatId)
-      if (!Number.isFinite(id) || id === 0) return false
-      if (seenChatIds.has(id)) return false
-      seenChatIds.add(id)
-      return true
-    })
-    .map((c) => ({
-      chat_id: c.chatId,
-      name: c.chatName,
-      actions: ca as import('../../lib/types').RawTaskAction[],
-      action_interval: 1,
-      message_thread_id: c.messageThreadId ? Number(c.messageThreadId) : undefined,
-      sender_filter: c.senderFilter.trim() || undefined,
-      source_account: c.sourceAccount || undefined,
-    }))
-
-  // 至少一个 chat 占位，避免空配置无法保存
-  const safeChats = chats.length
-    ? chats
-    : [{
-        chat_id: selectedChatId.value || 0,
-        name: selectedChatName.value || '',
-        actions: ca as import('../../lib/types').RawTaskAction[],
-        action_interval: 1,
-        message_thread_id: messageThreadId.value ? Number(messageThreadId.value) : undefined,
-        sender_filter: senderFilter.value.trim() || undefined,
-        source_account: selectedAccount.value || undefined,
-      }]
-
-  const primaryName = safeChats[0]?.name || selectedChatName.value
-  return {
-    name: taskName.value || primaryName || `task_${Date.now()}`,
-    account_name: selectedAccounts.value[0] || '',
-    account_names: allAccountsMode.value ? ['*'] : selectedAccounts.value,
-    sign_at: sa, execution_mode: em, range_start: rs, range_end: re, random_seconds: 0,
-    retry_count: retryCount.value,
-    chats: safeChats,
-  }
-}
+const buildPayload = () =>
+  buildTaskFormPayload({
+    taskName: taskName.value,
+    selectedAccounts: selectedAccounts.value,
+    allAccountsMode: allAccountsMode.value,
+    scheduleMode: scheduleMode.value,
+    timeRange: timeRange.value,
+    retryCount: retryCount.value,
+    targetChats: targetChats.value,
+    fallbackChatId: selectedChatId.value || 0,
+    fallbackChatName: selectedChatName.value || '',
+    fallbackThreadId: messageThreadId.value || '',
+    fallbackSenderFilter: senderFilter.value || '',
+    fallbackSourceAccount: selectedAccount.value || '',
+    actions: actions.value,
+    listenerKeywords: listenerKeywords.value,
+    listenerMatchMode: listenerMatchMode.value,
+    listenerPushChannel: listenerPushChannel.value,
+    listenerForwardChatId: listenerForwardChatId.value,
+    listenerForwardThreadId: listenerForwardThreadId.value,
+    listenerBarkUrl: listenerBarkUrl.value,
+    listenerCustomUrl: listenerCustomUrl.value,
+    listenerServerChanKey: listenerServerChanKey.value,
+    listenerIgnoreSelf: listenerIgnoreSelf.value,
+    listenerTimeWindowEnabled: listenerTimeWindowEnabled.value,
+    listenerActiveTimeStart: listenerActiveTimeStart.value,
+    listenerActiveTimeEnd: listenerActiveTimeEnd.value,
+  })
 const debouncedEmit = debounce(() => { emit('update:payload', buildPayload()) }, 300)
 /** 同步刷新 payload（保存前调用，确保拿到最新值） */
 const flushPayload = () => { emit('update:payload', buildPayload()) }

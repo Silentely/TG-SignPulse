@@ -212,12 +212,10 @@ uvicorn backend.main:app --host 127.0.0.1 --port 8080
 | `proxy.py` | 41 | 3 | 代理 URL 标准化（socks5:// 补全、字典解析） |
 | `account_locks.py` | 14 | 3 | 账号级异步锁（全局 `_ACCOUNT_LOCKS` 字典） |
 | `paths.py` | 14 | 1 | 启动时确保必要数据目录存在 |
-| `cache.py` | 188 | 0 | 线程安全 LRU+TTL 内存缓存 |
-| `session_cache.py` | 136 | 0 | 异步安全 LRU 会话缓存（客户端复用） |
-| `memory_monitor.py` | 267 | 0 | 进程内存监控 + RSS 告警 + 自动 GC |
-| `async_io.py` | 126 | 0 | 异步文件读写（aiofiles 封装） |
+| `cache.py` | 188 | 1+ | 线程安全 LRU+TTL 内存缓存（签到任务列表） |
+| `memory_monitor.py` | 267 | 1 | 进程内存监控 + RSS 告警 + 自动 GC |
 
-> ⚠️ `cache.py`, `session_cache.py`, `memory_monitor.py`, `async_io.py` 当前零外部引用，可能仅通过测试使用。
+> 历史最近列表：`sign_task_history_index` 维护 `history/_recent_index.jsonl`，SSE/Dashboard 优先读索引。
 
 ## 任务调度 (`backend/scheduler/`)
 

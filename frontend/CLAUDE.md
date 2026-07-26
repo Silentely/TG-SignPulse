@@ -121,12 +121,11 @@ src/components/
     └── TaskForm.vue         # 任务表单（17 个 ref 自动 buildPayload，3 个 API）
 ```
 
-### 跨组件共性问题
+### 跨组件约定（2026-07 起）
 
-1. **Token 读取不一致**：所有业务组件直接 `localStorage.getItem`，绕过 Pinia authStore
-2. **类型安全薄弱**：多处 `any`（account、task、payload）
-3. **错误展示不统一**：未使用 `useToast`，统一用内联 `error` ref
-4. **组件命名缺失**：均未显式定义 `name` 属性
+1. **Token**：业务请求统一 `useAuthStore().token`，勿直接读 localStorage
+2. **错误提示**：列表/表单主路径用 `useToast`；弹窗内局部 `error` ref 可并存
+3. **TaskForm payload**：`lib/task-form-payload.ts` 纯函数构造请求体
 
 ## Views 组件详情（补扫 2026-06-30）
 
@@ -210,9 +209,9 @@ src/components/
 
 ## 测试与质量
 
-- 前端暂无独立测试（依赖后端 API 集成测试）
-- 类型安全由 `vue-tsc` 保障
-- 构建命令含类型检查：`vue-tsc -b && vite build`
+- 单元测试：`frontend/src/test/*.spec.ts`，命令 `npm test`（vitest）
+- 类型安全由 `vue-tsc` 保障：`npm run typecheck` / `npm run build`
+- 覆盖：auth、chain-poll、task-form-payload、各 composable 等
 
 ## 常见问题 (FAQ)
 
