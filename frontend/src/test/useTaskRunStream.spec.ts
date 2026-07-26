@@ -30,12 +30,14 @@ type Handler = ((ev?: unknown) => void) | null
 
 class MockWebSocket {
   static instances: MockWebSocket[] = []
+  url: string
   onopen: Handler = null
   onmessage: Handler = null
   onerror: Handler = null
   onclose: Handler = null
   readyState = 1
-  constructor(public url: string) {
+  constructor(url: string) {
+    this.url = url
     MockWebSocket.instances.push(this)
   }
   close() {

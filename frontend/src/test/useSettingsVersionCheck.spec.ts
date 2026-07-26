@@ -10,7 +10,13 @@ const versionUtils = vi.hoisted(() => ({
   fetchGithubLatestRelease: vi.fn(),
   friendlyGithubError: vi.fn((e: unknown) => String(e)),
   isUpdateAvailable: vi.fn(),
-  loadCachedUpdateCheck: vi.fn(() => null),
+  loadCachedUpdateCheck: vi.fn(
+    (): {
+      update_available: boolean
+      latest_version: string
+      latest_url: string
+    } | null => null,
+  ),
   safeHttpUrl: vi.fn((u: string | null) => u),
   saveCachedUpdateCheck: vi.fn(),
 }))

@@ -64,7 +64,7 @@ const emit = defineEmits<{
             { label: t('taskForm.matchExact'), value: 'exact' },
             { label: t('taskForm.matchRegex'), value: 'regex' },
           ]"
-          @update:model-value="emit('update:matchMode', $event)"
+          @update:model-value="emit('update:matchMode', String($event))"
         />
       </div>
       <div class="space-y-1.5">
@@ -79,7 +79,7 @@ const emit = defineEmits<{
             { label: t('tasks.pushServerChan'), value: 'server_chan' },
             { label: t('taskForm.customWebhook'), value: 'custom' },
           ]"
-          @update:model-value="emit('update:pushChannel', $event)"
+          @update:model-value="emit('update:pushChannel', String($event))"
         />
       </div>
       <div class="md:col-span-2 flex flex-col gap-1">

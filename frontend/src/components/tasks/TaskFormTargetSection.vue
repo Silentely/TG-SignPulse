@@ -110,7 +110,7 @@ const onChatIdUpdate = (id: number) => {
         <CustomSelect
           :model-value="selectedAccount"
           :options="selectedAccounts.map((a) => ({ label: a, value: a }))"
-          @update:model-value="emit('update:selectedAccount', $event)"
+          @update:model-value="emit('update:selectedAccount', String($event))"
         />
       </div>
       <div class="space-y-1.5">

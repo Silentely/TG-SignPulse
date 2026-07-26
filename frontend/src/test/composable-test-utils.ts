@@ -1,11 +1,16 @@
 /**
  * composable 单测共用：i18n / toast / confirm / 路由 / mount 工厂。
  */
-import { defineComponent, h, ref, type Ref } from 'vue'
+import { defineComponent, h, ref } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { vi } from 'vitest'
-import type { TaskUiItem } from '../lib/types'
-import type { SignTask } from '../lib/api'
+import type { AccountUiItem, TaskUiItem } from '../lib/types'
+import type { AccountInfo, SignTask, SignTaskChat } from '../lib/api'
+
+/** 测试用 partial raw：chats 允许只写关键字段 */
+type TaskUiRawOver = Partial<Omit<SignTask, 'chats'>> & {
+  chats?: Array<Partial<SignTaskChat>>
+}
 
 export function mockI18nPassthrough() {
   return {
@@ -99,8 +104,11 @@ export async function flushPromises(rounds = 20) {
   }
 }
 
-export function makeTaskUi(over: Partial<TaskUiItem> & { raw?: Partial<SignTask> } = {}): TaskUiItem {
+export function makeTaskUi(
+  over: Omit<Partial<TaskUiItem>, 'raw'> & { raw?: TaskUiRawOver } = {},
+): TaskUiItem {
   const name = over.name || 'task-1'
+  const { chats: overChats, ...rawRest } = over.raw || {}
   const raw: SignTask = {
     name,
     account_name: 'acc1',
@@ -108,9 +116,22 @@ export function makeTaskUi(over: Partial<TaskUiItem> & { raw?: Partial<SignTask>
     sign_at: '08:00',
     execution_mode: 'fixed',
     chats: [],
+    random_seconds: 0,
+    sign_interval: 0,
     enabled: true,
-    ...(over.raw || {}),
-  } as SignTask
+    ...rawRest,
+  }
+  // 保证 chats 子项在 partial 覆盖时仍带齐必填字段
+  if (overChats) {
+    raw.chats = overChats.map((c) => ({
+      ...c,
+      chat_id: c.chat_id ?? 0,
+      name: c.name ?? '',
+      actions: c.actions ?? [],
+      action_interval: c.action_interval ?? 0,
+    }))
+  }
+  const { raw: _ignored, ...rest } = over
   return {
     id: name,
     name,
@@ -124,16 +145,23 @@ export function makeTaskUi(over: Partial<TaskUiItem> & { raw?: Partial<SignTask>
     enabled: true,
     chatAvatarUrl: '',
     chatName: '',
+    ...rest,
     raw,
-    ...over,
-    raw: { ...raw, ...(over.raw || {}) } as SignTask,
   }
 }
 
 export function makeAccountUi(
   name: string,
   over: Partial<{ status: string; message: string }> = {},
-) {
+): AccountUiItem {
+  const raw: AccountInfo = {
+    name,
+    session_file: `${name}.session`,
+    exists: true,
+    size: 1,
+    status: over.status === 'error' ? 'invalid' : 'connected',
+    needs_relogin: over.status === 'error',
+  }
   return {
     id: name,
     name,
@@ -142,11 +170,7 @@ export function makeAccountUi(
     message: over.message || '',
     avatarUrl: '',
     avatarLoaded: false,
-    raw: {
-      name,
-      status: over.status === 'error' ? 'invalid' : 'connected',
-      needs_relogin: over.status === 'error',
-    },
+    raw,
   }
 }
 

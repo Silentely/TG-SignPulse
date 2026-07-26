@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
-import { createConfirmMock, createToastSpy, mockI18nPassthrough } from './composable-test-utils'
+import { mockI18nPassthrough } from './composable-test-utils'
 
 const { toastSpy, confirmMock, notifySuccess, notifyError, api } = vi.hoisted(() => ({
   toastSpy: {
