@@ -260,10 +260,12 @@ class TestNoBarePrintInProduction:
     """
 
     # 待扫描的生产模块文件路径（相对项目根）
+    # 旧 /api/tasks 已移除，改为扫描 sign-tasks 主路由
     _TARGETS = [
         "backend/scheduler/__init__.py",
         "backend/utils/storage.py",
-        "backend/api/routes/tasks.py",
+        "backend/api/routes/sign_tasks_v2.py",
+        "backend/api/routes/events.py",
         "tg_signer/core/runtime.py",
         "tg_signer/core/monitor.py",
     ]
@@ -271,7 +273,9 @@ class TestNoBarePrintInProduction:
     @pytest.mark.parametrize("rel_path", _TARGETS)
     def test_no_bare_print_statement(self, rel_path):
         # 直接读源码文本做静态扫描，避免 import 触发预存的链式 NameError
-        src = Path(rel_path).read_text(encoding="utf-8")
+        path = Path(rel_path)
+        assert path.is_file(), f"扫描目标不存在（请更新 _TARGETS）: {rel_path}"
+        src = path.read_text(encoding="utf-8")
         offending = [
             f"{i+1}: {line.strip()}"
             for i, line in enumerate(src.splitlines())
