@@ -26,7 +26,7 @@ data/.admin_bootstrap_password
 旧 ORM 任务 API（`/api/tasks`、`/api/batch/tasks`）已**完全移除**。  
 新功能请使用 `/api/sign-tasks` 与 `/api/batch/sign-tasks`。
 
-- 盘点残留 ORM 表：`python tools/check_legacy_tasks.py --json`
+- 盘点残留 ORM 表（模型已删）：`python tools/check_legacy_tasks.py --json`
 - `/readyz` 含 `legacy_tasks_removed: true`
 - 旧 SSE `/api/events/logs` 返回 410，请改用 `/api/events/sign-history`
 

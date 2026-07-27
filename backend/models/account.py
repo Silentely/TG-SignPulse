@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from sqlalchemy import Column, DateTime, Index, Integer, String, Text
-from sqlalchemy.orm import relationship
 
 from backend.core.database import Base
 from backend.utils.time import utc_now_naive
@@ -26,4 +25,3 @@ class Account(Base):
         DateTime, default=utc_now_naive, onupdate=utc_now_naive, nullable=False
     )
 
-    tasks = relationship("Task", back_populates="account", cascade="all,delete")

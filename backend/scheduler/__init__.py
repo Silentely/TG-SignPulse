@@ -5,9 +5,6 @@ from datetime import datetime
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from sqlalchemy.orm import Session
-
-from backend.core.database import get_session_local
 
 scheduler: AsyncIOScheduler | None = None
 
@@ -155,32 +152,17 @@ async def _job_run_sign_task(account_name: str, task_name: str) -> None:
 
 
 async def _job_maintenance() -> None:
-    """每日维护任务：清理旧日志等"""
-    db: Session = get_session_local()()
+    """每日维护任务：清理签到历史与内存状态。"""
     try:
         from backend.services.sign_tasks import get_sign_task_service
 
-        # 遗留 ORM TaskLog 清理（表不存在则跳过）
-        try:
-            from backend.services.tasks import cleanup_old_logs
-
-            count = cleanup_old_logs(db, days=3)
-            logging.getLogger("backend.scheduler").info(
-                "Maintenance: 已清理 %s 条遗留 ORM 任务日志", count
-            )
-        except Exception as exc:
-            logging.getLogger("backend.scheduler").debug(
-                "Maintenance: 跳过 ORM 日志清理: %s", exc
-            )
-
-        # 清理签到任务日志
         sign_service = get_sign_task_service()
         sign_service._cleanup_old_logs()
-
-        # 清理内存中的过期状态
         sign_service._prune_stale_entries()
-    finally:
-        db.close()
+    except Exception as exc:
+        logging.getLogger("backend.scheduler").warning(
+            "Maintenance job failed: %s", exc, exc_info=True
+        )
 
 
 async def _job_device_keepalive() -> None:
