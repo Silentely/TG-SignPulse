@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from backend.utils.names import validate_storage_name
+from backend.services.sign_task_history_index import rebuild_index_from_history_files
 
 _logger = logging.getLogger("backend.sign_task_crud")
 
