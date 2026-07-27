@@ -10,6 +10,7 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends
+
 from backend.core.auth import get_current_user
 from backend.models.user import User
 from backend.scheduler import sync_jobs

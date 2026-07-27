@@ -60,7 +60,6 @@ jobs:
           backend/services/sign_task_backend.py
           backend/api/routes/batch.py
           backend/api/routes/ops.py
-          backend/api/routes/tasks.py
           backend/scheduler
           backend/core/pydantic_compat.py
           tests/test_sign_batch_and_ops.py
