@@ -1,20 +1,41 @@
 ---
-name: Feature request (中文)
-about: 为此项目建议一个想法 (Suggest an idea for this project)
-title: ''
+name: 功能请求
+about: 为 TG-SignPulse 建议新功能或改进
+title: '[Feature] '
 labels: enhancement
 assignees: ''
 
 ---
 
-**您的功能请求是否与问题有关？请描述。 (Is your feature request related to a problem? Please describe.)**
-清晰简洁地描述问题是什么。
+## 需求背景
 
-**描述您想要的解决方案 (Describe the solution you'd like)**
-清晰简洁地描述您希望发生的事情。
+您的功能请求是否与某个问题有关？请描述。
 
-**描述您考虑过的替代方案 (Describe alternatives you've considered)**
-清晰简洁地描述您考虑过的任何替代解决方案或功能。
+例如：每次签到失败后需要手动查看日志，非常不方便。
 
-**其他上下文 (Additional context)**
-在此处添加有关功能请求的任何其他上下文或截图。
+## 期望方案
+
+清晰描述您希望实现的功能。
+
+## 使用场景
+
+描述该功能的典型使用场景：
+
+1. 作为 [用户角色]，我希望 [功能描述]，以便 [达到的目的]
+2. ...
+
+## 替代方案
+
+描述您考虑过的替代解决方案或变通方式。
+
+## 影响范围
+
+- [ ] 前端面板
+- [ ] 后端 API
+- [ ] 签到引擎 (tg_signer)
+- [ ] 文档
+- [ ] 其他：___
+
+## 其他上下文
+
+添加有关功能请求的其他上下文、截图或参考链接。
