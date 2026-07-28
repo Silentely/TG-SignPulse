@@ -4,12 +4,12 @@
 
 | 触发条件 | 镜像 / 行为 | 用途 |
 |----------|--------------|------|
-| `main` 推送 | **只跑测试**，不构建 Docker | 合并门禁 |
+| `main` 推送 | 测试 + 推送 `…:main` / `…:main-<sha>` | 稳定主干滚动镜像 |
 | `dev` 推送 | 测试 + 推送 `…:dev` / `…:dev-<sha>` | 开发/预发 |
-| Git 标签 `v*` | 测试 + **一次**推送 `…:vX.Y.Z` + `…:latest` + `…:main` + `…:main-<sha>` | 正式发版（多架构） |
-| 手动 `workflow_dispatch` | 可按当前分支构建（main 上仅 `main-<sha>`） | 应急补镜像 |
+| Git 标签 `v*` | 测试 + **一次**推送 `…:vX.Y.Z` + `…:latest` | 正式发版（多架构） |
+| 手动 `workflow_dispatch` | 按当前分支走对应标签规则 | 应急补镜像 |
 
-> 发版流程：`merge → main`（过测）→ 打 `vX.Y.Z` 并 push tag（出正式镜像）。`latest` / 浮动 `main` 只随正式 tag 更新。
+> 发版流程：`merge → main`（更新 `main` / `main-<sha>`）→ 打 `vX.Y.Z` 并 push tag（更新 `vX.Y.Z` / `latest`）。
 
 ### Actions 运行记录清理
 

@@ -92,10 +92,10 @@ gpt-5-nano
 ## 测试镜像和正式镜像有什么区别
 
 - `dev` / `dev-*`：dev 分支滚动构建，适合预发
-- `vX.Y.Z` + `latest` + 浮动 `main`：仅在推送 Git 标签 `v*` 时一次生成（正式版）
-- `main` 合并：只跑 CI 测试，**不**构建 Docker；要镜像请打 tag
+- `main` / `main-<sha>`：main 分支滚动构建，稳定主干镜像
+- `vX.Y.Z` + `latest`：仅在推送 Git 标签 `v*` 时一次生成（正式版）
 
-不要长期把 `dev` 当正式版使用。`latest` 只跟随正式 tag。
+不要长期把 `dev` 当正式版使用。`latest` 只跟随正式 tag；`main` 跟随 main 分支最新提交。
 
 ## 监听任务为什么没命中
 

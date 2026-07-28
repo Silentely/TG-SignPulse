@@ -93,13 +93,16 @@ jobs:
         working-directory: frontend
         run: npm test
 
-  # main 合并：只跑上面的 test / frontend-test，不构建镜像。
-  # 正式镜像仅在推送 v* 标签时构建；dev 保留滚动预发镜像。
+  # 镜像构建：
+  # - main 分支推送：main + main-<sha>（稳定主干滚动镜像）
+  # - v* 标签：vX.Y.Z + latest（正式发版，多架构）
+  # - dev 分支：dev + dev-<sha>（预发滚动镜像）
   build-and-push:
     needs: [test, frontend-test]
     if: >
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.ref, 'refs/tags/v') ||
+      github.ref == 'refs/heads/main' ||
       github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -123,7 +126,7 @@ jobs:
           image="ghcr.io/${owner}/tg-signpulse"
           short_sha="${GITHUB_SHA::12}"
 
-          # 平台：正式 tag 双架构；dev / 手动触发仅 amd64
+          # 平台：正式 tag 双架构；main / dev / 手动触发仅 amd64
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             echo "platforms=linux/amd64,linux/arm64" >> "${GITHUB_OUTPUT}"
           else
@@ -131,15 +134,20 @@ jobs:
           fi
 
           # 镜像标签策略：
-          # - v* tag：正式发版，一次推送 vX.Y.Z + latest + main + main-<sha>
+          # - v* tag：正式发版 → vX.Y.Z + latest
+          # - main 分支：main + main-<sha>
           # - dev 分支：dev + dev-<sha>
-          # - main 分支：不构建（见 job if）
-          # - workflow_dispatch：按当前 ref 规则；若在 main 上手动触发则打 main-<sha>
+          # - workflow_dispatch：按当前 ref 走对应分支规则
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             {
               echo "tags<<EOF"
               echo "${image}:${GITHUB_REF_NAME}"
               echo "${image}:latest"
+              echo "EOF"
+            } >> "${GITHUB_OUTPUT}"
+          elif [[ "${GITHUB_REF_NAME}" == "main" ]]; then
+            {
+              echo "tags<<EOF"
               echo "${image}:main"
               echo "${image}:main-${short_sha}"
               echo "EOF"
@@ -149,13 +157,6 @@ jobs:
               echo "tags<<EOF"
               echo "${image}:dev"
               echo "${image}:dev-${short_sha}"
-              echo "EOF"
-            } >> "${GITHUB_OUTPUT}"
-          elif [[ "${GITHUB_REF_NAME}" == "main" ]]; then
-            # 仅 workflow_dispatch 会走到这里
-            {
-              echo "tags<<EOF"
-              echo "${image}:main-${short_sha}"
               echo "EOF"
             } >> "${GITHUB_OUTPUT}"
           else

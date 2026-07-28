@@ -16,7 +16,8 @@
 | 环境 | 镜像 |
 |------|------|
 | 生产 | `ghcr.io/silentely/tg-signpulse:latest` 或 `ghcr.io/silentely/tg-signpulse:v2.2.3` |
-| 测试 | `ghcr.io/silentely/tg-signpulse:test-main` |
+| 稳定主干 | `ghcr.io/silentely/tg-signpulse:main` 或 `…:main-<sha>` |
+| 预发/开发 | `ghcr.io/silentely/tg-signpulse:dev` |
 
 ## 3. 最小启动
 

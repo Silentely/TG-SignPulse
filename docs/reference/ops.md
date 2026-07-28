@@ -242,11 +242,11 @@ docker compose pull
 docker compose up -d
 ```
 
-测试标签建议使用：
+预发/主干标签建议使用：
 
-- `test-main`
-- `test-<feature-branch>`
-- `test-<short-sha>`
+- `dev` / `dev-<sha>`（dev 分支）
+- `main` / `main-<sha>`（main 分支）
+- 手动触发其它 ref 时可能出现 `test-<ref>` / `test-<short-sha>`
 
 ### 使用正式镜像
 
