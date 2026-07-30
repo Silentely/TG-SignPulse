@@ -3,7 +3,6 @@
  */
 import { ref, onMounted, onUnmounted } from 'vue'
 import {
-  listAccounts,
   listSignTasks,
   getRecentAccountLogs,
   listScheduledJobs,
@@ -18,11 +17,10 @@ import type {
   AccountStatusJob,
 } from '../lib/api'
 import type { DashboardLog } from '../lib/types'
-import { getLocalizedErrorMessage } from '../lib/types'
-import { useI18n } from './useI18n'
-import { useToast } from './useToast'
+import { notifyApiError } from '../lib/notify'
 import { useAuthStore } from '../stores/auth'
 import { useActiveRunsStore } from '../stores/activeRuns'
+import { useAccountsStore } from '../stores/accounts'
 import { devLog } from '../lib/devLog'
 import { startChainPoll, type ChainPollHandle } from '../lib/chain-poll'
 import { aggregateFailureCategories } from '../lib/run-status'
@@ -35,10 +33,9 @@ const formatTime = (isoString: string) => {
 }
 
 export function useDashboardData() {
-  const { t } = useI18n()
-  const toast = useToast()
   const authStore = useAuthStore()
   const activeRunsStore = useActiveRunsStore()
+  const accountsStore = useAccountsStore()
   const { runs: activeRuns } = storeToRefs(activeRunsStore)
 
   let refreshHandle: ChainPollHandle | null = null
@@ -121,7 +118,7 @@ export function useDashboardData() {
         try {
           const data = JSON.parse((ev as MessageEvent).data || '{}')
           prependLiveLog(data)
-        } catch (e) {
+        } catch (e: unknown) {
           devLog.error('parse sign_log event failed', e)
         }
       })
@@ -135,7 +132,7 @@ export function useDashboardData() {
         signHistorySource = null
         scheduleSseReconnect()
       }
-    } catch (e) {
+    } catch (e: unknown) {
       devLog.error('SSE connect failed', e)
       liveConnected.value = false
       scheduleSseReconnect()
@@ -154,16 +151,22 @@ export function useDashboardData() {
     let statusJobsRes: Awaited<ReturnType<typeof listAccountStatusCheckJobs>> | null = null
 
     let loadError: unknown = null
-    try { accRes = await listAccounts(token) } catch (e) { loadError = e; devLog.error('Failed to load accounts', e) }
-    try { tasksRes = await listSignTasks(token) } catch (e) { loadError = e; devLog.error('Failed to load tasks', e) }
-    try { logsRes = await getRecentAccountLogs(token, 50) } catch (e) { loadError = e; devLog.error('Failed to load logs', e) }
-    try { jobsRes = await listScheduledJobs(token) } catch (e) { devLog.error('Failed to load scheduled jobs', e) }
-    try { await activeRunsStore.refresh() } catch (e) { devLog.error('Failed to load active runs', e) }
-    try { hitsRes = await listKeywordHits(token, { limit: 8, offset: 0 }) } catch (e) { devLog.error('Failed to load keyword hits', e) }
-    try { statusJobsRes = await listAccountStatusCheckJobs(token, 5) } catch (e) { devLog.error('Failed to load status jobs', e) }
+    try {
+      await accountsStore.ensureAccounts()
+      accRes = { accounts: accountsStore.accounts, total: accountsStore.total }
+    } catch (e: unknown) {
+      loadError = e
+      devLog.error('Failed to load accounts', e)
+    }
+    try { tasksRes = await listSignTasks(token) } catch (e: unknown) { loadError = e; devLog.error('Failed to load tasks', e) }
+    try { logsRes = await getRecentAccountLogs(token, 50) } catch (e: unknown) { loadError = e; devLog.error('Failed to load logs', e) }
+    try { jobsRes = await listScheduledJobs(token) } catch (e: unknown) { devLog.error('Failed to load scheduled jobs', e) }
+    try { await activeRunsStore.refresh() } catch (e: unknown) { devLog.error('Failed to load active runs', e) }
+    try { hitsRes = await listKeywordHits(token, { limit: 8, offset: 0 }) } catch (e: unknown) { devLog.error('Failed to load keyword hits', e) }
+    try { statusJobsRes = await listAccountStatusCheckJobs(token, 5) } catch (e: unknown) { devLog.error('Failed to load status jobs', e) }
 
     if (loadError && pageLoading.value) {
-      toast.error(getLocalizedErrorMessage(loadError, t, t('logs.loadFailed')))
+      notifyApiError(loadError, 'logs.loadFailed')
     }
 
     const activeAccs = accRes.accounts

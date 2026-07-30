@@ -84,5 +84,6 @@ export const useToast = () => {
   const info = (message: string, opts?: ToastOptions) =>
     show(message, 'info', opts ?? 4000)
 
-  return { toasts, show, success, error, info, dismiss, clear }
+  // show 仅为内部基底，不对外导出：业务统一走 success/error/info 语义化入口
+  return { toasts, success, error, info, dismiss, clear }
 }

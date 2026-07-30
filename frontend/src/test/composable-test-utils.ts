@@ -26,7 +26,6 @@ export function createToastSpy() {
     success: vi.fn(),
     error: vi.fn(),
     info: vi.fn(),
-    show: vi.fn(),
     dismiss: vi.fn(),
     clear: vi.fn(),
     toasts: ref([]),

@@ -47,6 +47,8 @@ export const useTheme = () => {
           pseudoElement: '::view-transition-new(root)'
         }
       )
+    }).catch(() => {
+      // View Transition 被跳过（如页面不可见）时 ready 会 reject，此处静默降级
     })
   }
 

@@ -593,7 +593,9 @@
     "botTokenSavedHint": "已保存（留空不修改，输入新 Token 可覆盖）",
     "saveBackupSettings": "保存备份设置",
     "flowRetryHint": "仅当任务 config 未写入 retry_count 键时作为缺省；任务表单中的重试次数优先。",
-    "execTimeoutHint": "单次 run_once 超时秒数，超时后状态为 timeout。"
+    "execTimeoutHint": "单次 run_once 超时秒数，超时后状态为 timeout。",
+    "apiId": "API ID",
+    "apiHash": "API Hash"
   },
   "profile": {
     "title": "个人中心",
@@ -708,7 +710,8 @@
     "filterNoResultsHint": "试试调整搜索关键词或筛选条件",
     "clearFilters": "清除筛选",
     "clearAllFilters": "清除全部筛选",
-    "activeFilters": "当前筛选"
+    "activeFilters": "当前筛选",
+    "brandSubtitle": "Telegram 运维"
   },
   "login": {
     "subtitle": "Telegram 多账号自动化面板",
@@ -759,5 +762,9 @@
     "noActiveRuns": "当前无运行中任务",
     "failureBreakdown": "失败分类",
     "inProgress": "运行中"
+  },
+  "language": {
+    "switchToEn": "English",
+    "switchToZh": "中文"
   }
 }

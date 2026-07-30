@@ -593,7 +593,9 @@
     "botTokenSavedHint": "Saved (leave empty to keep; enter a new token to replace)",
     "saveBackupSettings": "Save backup settings",
     "flowRetryHint": "Used only when the task config has no retry_count key; task form value wins.",
-    "execTimeoutHint": "Timeout seconds for a single run_once; timed-out runs use state=timeout."
+    "execTimeoutHint": "Timeout seconds for a single run_once; timed-out runs use state=timeout.",
+    "apiId": "API ID",
+    "apiHash": "API Hash"
   },
   "profile": {
     "title": "Profile",
@@ -708,7 +710,8 @@
     "filterNoResultsHint": "Try adjusting your search or filters",
     "clearFilters": "Clear filters",
     "clearAllFilters": "Clear all filters",
-    "activeFilters": "Filters"
+    "activeFilters": "Filters",
+    "brandSubtitle": "Telegram Ops"
   },
   "login": {
     "subtitle": "Telegram multi-account automation panel",
@@ -759,5 +762,9 @@
     "noActiveRuns": "No tasks running",
     "failureBreakdown": "Failure breakdown",
     "inProgress": "Running"
+  },
+  "language": {
+    "switchToEn": "English",
+    "switchToZh": "中文"
   }
 }

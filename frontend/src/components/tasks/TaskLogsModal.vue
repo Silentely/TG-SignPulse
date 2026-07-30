@@ -7,18 +7,16 @@ import TaskLogsHistoryPanel from './TaskLogsHistoryPanel.vue'
 import { getSignTaskHistory } from '../../lib/api'
 import type { SignTaskHistoryItem, KeywordHitRecord } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
-import { useToast } from '../../composables/useToast'
 import { useAuthStore } from '../../stores/auth'
 import { useTaskHits } from '../../composables/useTaskHits'
 import { useTaskRunStream } from '../../composables/useTaskRunStream'
 import type { TaskUiItem } from '../../lib/types'
-import { getLocalizedErrorMessage } from '../../lib/types'
+import { notifyApiError } from '../../lib/notify'
 import { normalizeFlowLogLines } from '../../lib/task-log-format'
 import { devLog } from '../../lib/devLog'
 import { failureCategoryLabel } from '../../lib/run-status'
 
 const { t } = useI18n()
-const toast = useToast()
 const authStore = useAuthStore()
 
 const props = defineProps<{
@@ -75,7 +73,7 @@ const loadLogs = async () => {
     logs.value = Array.isArray(res) ? res : []
   } catch (e: unknown) {
     devLog.error('Failed to fetch logs', e)
-    toast.error(getLocalizedErrorMessage(e, t, t('logs.loadFailed')))
+    notifyApiError(e, 'logs.loadFailed')
     logs.value = []
   } finally {
     loading.value = false

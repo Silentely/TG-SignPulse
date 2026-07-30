@@ -151,7 +151,7 @@ function lineTone(text: string): string {
               <div class="px-2.5 py-1.5 space-y-0.5">
                 <div
                   v-for="(item, ii) in block.items"
-                  :key="ii"
+                  :key="`${bi}-${ii}-${item.slice(0, 64)}`"
                   class="leading-relaxed break-all pl-1.5 border-l border-gray-700/80"
                   :class="lineTone(item)"
                 >
@@ -165,7 +165,7 @@ function lineTone(text: string): string {
         <template v-else>
           <div
             v-for="(line, i) in lines || []"
-            :key="i"
+            :key="`${i}-${String(line).slice(0, 64)}`"
             class="leading-relaxed break-all whitespace-pre-wrap"
             :class="lineTone(String(line))"
           >

@@ -58,7 +58,7 @@ export function useSettingsVersionCheck() {
     try {
       appVersion.value = await getAppVersion(token)
       applyClientCache()
-    } catch (e) {
+    } catch (e: unknown) {
       devLog.error('Failed to load app version', e)
     } finally {
       versionLoading.value = false

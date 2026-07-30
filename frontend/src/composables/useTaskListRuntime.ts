@@ -11,7 +11,7 @@ import {
 } from '../lib/api'
 import type { ActiveRunSummary } from '../lib/api'
 import type { TaskUiItem } from '../lib/types'
-import { getLocalizedErrorMessage } from '../lib/types'
+import { notifyApiError } from '../lib/notify'
 import { useI18n } from './useI18n'
 import { useToast } from './useToast'
 import { useAuthStore } from '../stores/auth'
@@ -100,7 +100,7 @@ export function useTaskListRuntime(options: {
         if (!task.isListenMode) continue
         task.hitCount = countByTask.get(task.name) || 0
       }
-    } catch (e) {
+    } catch (e: unknown) {
       devLog.error('Failed to load hit counts', e)
     }
   }
@@ -183,7 +183,7 @@ export function useTaskListRuntime(options: {
         toast.error(res.error || t('tasks.cancelFailed'))
       }
     } catch (e: unknown) {
-      toast.error(getLocalizedErrorMessage(e, t, t('tasks.cancelFailed')))
+      notifyApiError(e, 'tasks.cancelFailed')
     } finally {
       cancelBusyKey.value = ''
     }
@@ -268,7 +268,7 @@ export function useTaskListRuntime(options: {
       }
       accountStatusMap.value = map
       accountNeedsRelogin.value = relogin
-    } catch (e) {
+    } catch (e: unknown) {
       devLog.error('Failed to load account status map', e)
     }
   }

@@ -2,16 +2,17 @@
 import { ref, onMounted, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Plus, Radio, Clock, Shuffle, X } from 'lucide-vue-next'
-import { listSignTasks, listAccounts } from '../lib/api'
+import { listSignTasks } from '../lib/api'
 import { BUILT_IN_TEMPLATES } from '../lib/task-templates'
-import type { SignTask, AccountInfo } from '../lib/api'
+import type { SignTask } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
 import { useAuthStore } from '../stores/auth'
+import { useAccountsStore } from '../stores/accounts'
 import { useTaskListRuntime } from '../composables/useTaskListRuntime'
 import { useTaskListActions } from '../composables/useTaskListActions'
 import type { TaskUiItem } from '../lib/types'
-import { getLocalizedErrorMessage } from '../lib/types'
+import { notifyApiError } from '../lib/notify'
 import AddTaskModal from '../components/tasks/AddTaskModal.vue'
 import EditTaskModal from '../components/tasks/EditTaskModal.vue'
 import TaskLogsModal from '../components/tasks/TaskLogsModal.vue'
@@ -35,6 +36,7 @@ const router = useRouter()
 const { t } = useI18n()
 const toast = useToast()
 const authStore = useAuthStore()
+const accountsStore = useAccountsStore()
 const tasks = ref<TaskUiItem[]>([])
 const pageLoading = ref(true)
 const showAddModal = ref(false)
@@ -102,8 +104,9 @@ const loadAllAccounts = async () => {
   const token = authStore.token || ''
   if (!token) return
   try {
-    const res = await listAccounts(token)
-    allAccounts.value = (res.accounts || []).map((a: AccountInfo) => a.name)
+    // 走共享 store：TTL 命中时与 Dashboard/Logs 复用同一缓存
+    const list = await accountsStore.ensureAccounts()
+    allAccounts.value = (list || []).map((a) => a.name)
   } catch { }
 }
 
@@ -153,9 +156,9 @@ const loadTasks = async () => {
     })
 
     await afterTasksLoaded()
-  } catch (e) {
+  } catch (e: unknown) {
     devLog.error('Failed to fetch tasks', e)
-    toast.error(getLocalizedErrorMessage(e, t, t('tasks.loadFailed')))
+    notifyApiError(e, 'tasks.loadFailed')
     tasks.value = []
   } finally {
     pageLoading.value = false

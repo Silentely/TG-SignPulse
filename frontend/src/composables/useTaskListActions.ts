@@ -12,6 +12,7 @@ import {
 import type { SignTask } from '../lib/api'
 import type { TaskUiItem } from '../lib/types'
 import { getLocalizedErrorMessage } from '../lib/types'
+import { notifyApiError } from '../lib/notify'
 import {
   resolveTaskAccountName,
   resolveTaskRealAccounts,
@@ -94,7 +95,7 @@ export function useTaskListActions(options: {
       clearSelection()
       await options.loadTasks()
     } catch (e: unknown) {
-      toast.error(getLocalizedErrorMessage(e, t, t('tasks.batchFailed')))
+      notifyApiError(e, 'tasks.batchFailed')
     } finally {
       batchBusy.value = false
     }
@@ -133,8 +134,8 @@ export function useTaskListActions(options: {
       toast.success(t('tasks.cloneSuccess'))
       closeCloneModal()
       await options.loadTasks()
-    } catch (e) {
-      toast.error(getLocalizedErrorMessage(e, t, t('tasks.cloneFailed')))
+    } catch (e: unknown) {
+      notifyApiError(e, 'tasks.cloneFailed')
     } finally {
       cloneBusy.value = false
     }

@@ -9,7 +9,7 @@ import {
   clearKeywordHits,
 } from '../lib/api'
 import type { KeywordHitRecord, KeywordHitGroup } from '../lib/api'
-import { getLocalizedErrorMessage } from '../lib/types'
+import { notifyApiError } from '../lib/notify'
 import { useI18n } from './useI18n'
 import { useToast } from './useToast'
 import { useConfirm } from './useConfirm'
@@ -105,7 +105,7 @@ export function useTaskHits(options: {
     } catch (e: unknown) {
       devLog.error('Failed to fetch keyword hits', e)
       if (!silent) {
-        toast.error(getLocalizedErrorMessage(e, t, t('taskLogs.hitsLoadFailed')))
+        notifyApiError(e, 'taskLogs.hitsLoadFailed')
         if (!append) {
           hitRecords.value = []
           hitGroups.value = []
@@ -148,7 +148,7 @@ export function useTaskHits(options: {
       URL.revokeObjectURL(objectUrl)
       toast.success(t('taskLogs.hitsExportDone'))
     } catch (e: unknown) {
-      toast.error(getLocalizedErrorMessage(e, t, t('taskLogs.hitsExportFailed')))
+      notifyApiError(e, 'taskLogs.hitsExportFailed')
     }
   }
 
@@ -170,7 +170,7 @@ export function useTaskHits(options: {
       toast.success(t('taskLogs.hitsCleared', { n: res.deleted ?? 0 }))
       await loadHits()
     } catch (e: unknown) {
-      toast.error(getLocalizedErrorMessage(e, t, t('taskLogs.hitsClearFailed')))
+      notifyApiError(e, 'taskLogs.hitsClearFailed')
     }
   }
 

@@ -16,7 +16,7 @@ import { useI18n } from './useI18n'
 import { useToast } from './useToast'
 import { useConfirm } from './useConfirm'
 import { useAuthStore } from '../stores/auth'
-import { getLocalizedErrorMessage } from '../lib/types'
+import { resolveApiErrorMessage } from '../lib/notify'
 import { devLog } from '../lib/devLog'
 import {
   applyGlobalSettingsToForm,
@@ -301,25 +301,25 @@ export function useSettingsPage() {
 
       try {
         await loadBackupStatus(token)
-      } catch (e) {
+      } catch (e: unknown) {
         devLog.error('Failed to load backup status', e)
       }
       try {
         runtimeStatus.value = await getRuntimeStatus(token)
-      } catch (e) {
+      } catch (e: unknown) {
         devLog.error('Failed to load runtime status', e)
       }
       try {
         memoryStats.value = await getMemoryStats(token)
-      } catch (e) {
+      } catch (e: unknown) {
         devLog.error('Failed to load memory stats', e)
       }
       await loadVersion(token)
       markAllClean()
       window.addEventListener('beforeunload', onBeforeUnload)
-    } catch (e) {
+    } catch (e: unknown) {
       devLog.error('Failed to load settings', e)
-      notifyError(getLocalizedErrorMessage(e, t, t('settings.loadFailed')))
+      notifyError(resolveApiErrorMessage(e, 'settings.loadFailed'))
     } finally {
       pageLoading.value = false
     }

@@ -14,6 +14,7 @@ import { useToast } from '../../composables/useToast'
 import { useAuthStore } from '../../stores/auth'
 import type { TaskActionItem, RawTaskAction } from '../../lib/types'
 import { getLocalizedErrorMessage } from '../../lib/types'
+import { notifyApiError } from '../../lib/notify'
 import { parseActions as parseActionsUtil, nextActionId, debounce } from '../../lib/task-form-utils'
 import { buildTaskFormPayload } from '../../lib/task-form-payload'
 import { devLog } from '../../lib/devLog'
@@ -202,7 +203,7 @@ const loadAccounts = async () => {
     if (selectedAccount.value) loadChats(selectedAccount.value)
   } catch (e: unknown) {
     devLog.error(getLocalizedErrorMessage(e, t))
-    toast.error(getLocalizedErrorMessage(e, t, t('taskForm.loadAccountsFailed')))
+    notifyApiError(e, 'taskForm.loadAccountsFailed')
   }
 }
 const parseActions = (raw: RawTaskAction[]) => {
@@ -232,14 +233,21 @@ const loadChats = async (n: string, forceRefresh: boolean = false) => {
     }
     availableChats.value = []
     if (forceRefresh) {
-      toast.error(getLocalizedErrorMessage(e, t, t('taskForm.loadChatsFailed')))
+      notifyApiError(e, 'taskForm.loadChatsFailed')
     }
   } finally {
     if (loadChatsAbort === controller) { loadChatsAbort = null; chatListRefreshing.value = false }
   }
 }
 const refreshChats = async () => { if (!selectedAccount.value || chatListRefreshing.value) return; await loadChats(selectedAccount.value, true) }
-watch(selectedAccounts,(v)=>{if(v.length>0&&!v.includes(selectedAccount.value))selectedAccount.value=v[0];else if(v.length===0){selectedAccount.value='';availableChats.value=[]}})
+watch(selectedAccounts, (v) => {
+  if (v.length > 0 && !v.includes(selectedAccount.value)) {
+    selectedAccount.value = v[0]
+  } else if (v.length === 0) {
+    selectedAccount.value = ''
+    availableChats.value = []
+  }
+})
 watch(selectedAccount, async (v)=>{
   availableChats.value=[]
   if(v) {
@@ -253,7 +261,25 @@ watch(selectedAccount, async (v)=>{
   }
 })
 let st: ReturnType<typeof setTimeout> | null = null
-watch(chatSearch,(v)=>{if(!v.trim()){chatSearchResults.value=[];return};if(st)clearTimeout(st);st=setTimeout(async()=>{chatSearchLoading.value=true;try{const t=authStore.token||'';const r=await searchAccountChats(t,selectedAccount.value,v.trim());chatSearchResults.value=r.items||[]}catch(e){devLog.error('chat search failed', e)}finally{chatSearchLoading.value=false}},300)})
+watch(chatSearch, (v) => {
+  if (!v.trim()) {
+    chatSearchResults.value = []
+    return
+  }
+  if (st) clearTimeout(st)
+  st = setTimeout(async () => {
+    chatSearchLoading.value = true
+    try {
+      const token = authStore.token || ''
+      const r = await searchAccountChats(token, selectedAccount.value, v.trim())
+      chatSearchResults.value = r.items || []
+    } catch (e: unknown) {
+      devLog.error('chat search failed', e)
+    } finally {
+      chatSearchLoading.value = false
+    }
+  }, 300)
+})
 const selectChat=(c: ChatInfo)=>{selectedChatId.value=c.id;selectedChatName.value=c.title||c.username||String(c.id);chatSearch.value='';chatSearchResults.value=[]}
 const addTargetChat = () => {
   targetChats.value.push({
@@ -352,7 +378,14 @@ const validateForSubmit = (): boolean => {
   return !taskNameError.value
 }
 defineExpose({ flushPayload, buildPayload, createMode, validateForSubmit })
-watch([taskName,selectedAccounts,allAccountsMode,scheduleMode,timeRange,targetChats,activeChatIndex,actions,retryCount,listenerKeywords,listenerMatchMode,listenerPushChannel,listenerForwardChatId,listenerForwardThreadId,listenerBarkUrl,listenerCustomUrl,listenerServerChanKey,listenerIgnoreSelf,listenerTimeWindowEnabled,listenerActiveTimeStart,listenerActiveTimeEnd,createMode], () => { debouncedEmit() }, {deep:true})
+/**
+ * buildPayload 读取全部表单字段，任一变化都会产出新对象：
+ * computed + 浅比较 watch 即可，无需对 23 个源逐个 deep 监听。
+ */
+const payloadSnapshot = computed(buildPayload)
+watch(payloadSnapshot, () => {
+  debouncedEmit()
+})
 onMounted(()=>{loadAccounts()})
 </script>
 <template>

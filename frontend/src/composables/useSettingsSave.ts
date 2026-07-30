@@ -12,7 +12,7 @@ import {
   testBotNotification,
 } from '../lib/api'
 import type { AiFormState, SettingsSection, TgFormState } from '../lib/settings-form'
-import { getLocalizedErrorMessage } from '../lib/types'
+import { resolveApiErrorMessage } from '../lib/notify'
 import { devLog } from '../lib/devLog'
 import { useI18n } from './useI18n'
 import { useToast } from './useToast'
@@ -62,7 +62,7 @@ export function useSettingsSave(options: {
       options.markSectionClean('general')
       notifySuccess(t('settings.saveSuccess'))
     } catch (e: unknown) {
-      notifyError(getLocalizedErrorMessage(e, t, t('settings.saveFailed')))
+      notifyError(resolveApiErrorMessage(e, 'settings.saveFailed'))
     } finally {
       loading.value = false
     }
@@ -78,7 +78,7 @@ export function useSettingsSave(options: {
         `${t('settings.keepaliveDone')}：${res.kept_alive}/${res.checked}，${t('settings.failed')} ${res.failed}`,
       )
     } catch (e: unknown) {
-      notifyError(getLocalizedErrorMessage(e, t, t('settings.keepaliveFailed')))
+      notifyError(resolveApiErrorMessage(e, 'settings.keepaliveFailed'))
     } finally {
       keepaliveLoading.value = false
     }
@@ -94,7 +94,7 @@ export function useSettingsSave(options: {
       options.markSectionClean('bot')
       notifySuccess(t('settings.saveSuccess'))
     } catch (e: unknown) {
-      notifyError(getLocalizedErrorMessage(e, t, t('settings.saveFailed')))
+      notifyError(resolveApiErrorMessage(e, 'settings.saveFailed'))
     } finally {
       botLoading.value = false
     }
@@ -115,7 +115,7 @@ export function useSettingsSave(options: {
         /* ignore */
       }
     } catch (e: unknown) {
-      notifyError(getLocalizedErrorMessage(e, t, t('settings.saveFailed')))
+      notifyError(resolveApiErrorMessage(e, 'settings.saveFailed'))
     } finally {
       advancedLoading.value = false
     }
@@ -177,7 +177,7 @@ export function useSettingsSave(options: {
         notifySuccess(t('settings.saveAllSuccess'))
       }
     } catch (e: unknown) {
-      notifyError(getLocalizedErrorMessage(e, t, t('settings.saveFailed')))
+      notifyError(resolveApiErrorMessage(e, 'settings.saveFailed'))
     } finally {
       saveAllLoading.value = false
     }
@@ -192,7 +192,7 @@ export function useSettingsSave(options: {
       if (res.success) notifySuccess(res.message)
       else notifyError(res.message)
     } catch (e: unknown) {
-      notifyError(getLocalizedErrorMessage(e, t, t('settings.testFailed')))
+      notifyError(resolveApiErrorMessage(e, 'settings.testFailed'))
     } finally {
       botTestLoading.value = false
     }
@@ -209,7 +209,7 @@ export function useSettingsSave(options: {
       options.markSectionClean('tg')
       notifySuccess(t('settings.tgConfigSaved'))
     } catch (e: unknown) {
-      notifyError(getLocalizedErrorMessage(e, t, t('settings.saveFailed')))
+      notifyError(resolveApiErrorMessage(e, 'settings.saveFailed'))
     } finally {
       tgLoading.value = false
     }
@@ -232,7 +232,7 @@ export function useSettingsSave(options: {
       options.markSectionClean('tg')
       notifySuccess(t('settings.resetSuccess'))
     } catch (e: unknown) {
-      notifyError(getLocalizedErrorMessage(e, t, t('settings.resetFailed')))
+      notifyError(resolveApiErrorMessage(e, 'settings.resetFailed'))
     } finally {
       tgLoading.value = false
     }
@@ -265,7 +265,7 @@ export function useSettingsSave(options: {
       options.markSectionClean('ai')
       notifySuccess(t('settings.aiConfigSaved'))
     } catch (e: unknown) {
-      notifyError(getLocalizedErrorMessage(e, t, t('settings.saveFailed')))
+      notifyError(resolveApiErrorMessage(e, 'settings.saveFailed'))
     } finally {
       aiLoading.value = false
     }
@@ -282,7 +282,7 @@ export function useSettingsSave(options: {
         notifyError(res.message || t('settings.testFailed'))
       }
     } catch (e: unknown) {
-      notifyError(getLocalizedErrorMessage(e, t, t('settings.testFailed')))
+      notifyError(resolveApiErrorMessage(e, 'settings.testFailed'))
     } finally {
       aiLoading.value = false
     }

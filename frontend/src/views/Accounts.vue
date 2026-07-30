@@ -3,7 +3,6 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { Play, FileText, Edit2, Trash2, Plus, QrCode, Phone, Zap, MonitorSmartphone, MessageCircle, CheckCircle2, Search, RefreshCw, XCircle, X } from 'lucide-vue-next'
 import {
-  listAccounts,
   deleteAccount,
   fetchAccountAvatar,
 } from '../lib/api'
@@ -11,9 +10,10 @@ import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
 import { useConfirm } from '../composables/useConfirm'
 import { useAuthStore } from '../stores/auth'
+import { useAccountsStore } from '../stores/accounts'
 import { useAccountBatchCheck } from '../composables/useAccountBatchCheck'
 import type { AccountUiItem } from '../lib/types'
-import { getLocalizedErrorMessage } from '../lib/types'
+import { notifyApiError } from '../lib/notify'
 import AddAccountModal from '../components/accounts/AddAccountModal.vue'
 import EditAccountModal from '../components/accounts/EditAccountModal.vue'
 import DeviceManagerModal from '../components/accounts/DeviceManagerModal.vue'
@@ -31,6 +31,7 @@ const { t } = useI18n()
 const toast = useToast()
 const { confirm } = useConfirm()
 const authStore = useAuthStore()
+const accountsStore = useAccountsStore()
 const accounts = ref<AccountUiItem[]>([])
 const pageLoading = ref(true)
 const showAddModal = ref(false)
@@ -56,24 +57,25 @@ const clearListFilters = () => {
   searchQuery.value = ''
 }
 
+/** 账号管理页为单一事实来源：每次调用都强制刷新（增删改/检测后保持一致） */
 const loadAccounts = async () => {
   const token = authStore.token || ''
   if (!token) return
 
   try {
     loadError.value = false
-    const res = await listAccounts(token)
+    const list = await accountsStore.refreshAccounts()
     const labels = {
       loginExpired: t('accounts.loginExpired'),
       checking: t('accounts.checking'),
     }
-    accounts.value = res.accounts.map((acc) => mapAccountInfoToUiItem(acc, labels))
+    accounts.value = list.map((acc) => mapAccountInfoToUiItem(acc, labels))
     // 限流加载头像，避免账号多时并发打满连接
     void loadAvatars(accounts.value)
-  } catch (e) {
+  } catch (e: unknown) {
     devLog.error('Failed to fetch accounts', e)
     loadError.value = true
-    toast.error(getLocalizedErrorMessage(e, t, t('accounts.loadFailed')))
+    notifyApiError(e, 'accounts.loadFailed')
   } finally {
     pageLoading.value = false
   }
@@ -120,8 +122,8 @@ const handleDelete = async (name: string) => {
     await deleteAccount(token, name)
     toast.success(t('accounts.deleteSuccess'))
     await loadAccounts()
-  } catch (e) {
-    toast.error(getLocalizedErrorMessage(e, t, t('accounts.deleteFailed')))
+  } catch (e: unknown) {
+    notifyApiError(e, 'accounts.deleteFailed')
   }
 }
 

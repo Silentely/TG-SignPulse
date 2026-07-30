@@ -59,6 +59,10 @@ const goToLogs = (log: DashboardLog) => {
   })
 }
 
+/** 日志行稳定 key：SSE 前插/轮询替换时避免 index 复用错位 */
+const logKey = (log: DashboardLog) =>
+  `${log.created_at || log.time}|${log.account}|${log.task}|${(log.text || '').length}`
+
 const formatJobTime = (iso?: string | null) => {
   if (!iso) return '-'
   try {
@@ -368,8 +372,8 @@ const statusJobLabel = (job: AccountStatusJob) => {
       </div>
       <div v-else class="text-xs overflow-x-auto space-y-0">
         <div
-          v-for="(log, idx) in logs"
-          :key="idx"
+          v-for="log in logs"
+          :key="logKey(log)"
           class="ui-list-row flex items-center gap-3 px-2 py-2 cursor-pointer rounded-sm"
           :title="t('dashboard.openInLogs')"
           @click="selectedLog = log"

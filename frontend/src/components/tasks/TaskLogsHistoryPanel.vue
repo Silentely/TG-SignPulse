@@ -31,6 +31,13 @@ const emit = defineEmits<{
   (e: 'toggle-expand', idx: number): void
   (e: 'set-log-container', el: HTMLElement | null): void
 }>()
+
+/** 追加式日志流的稳定 key：行号 + 内容前缀，避免整表替换时 DOM 复用错位 */
+const realtimeLineKey = (i: number, line: string) => `${i}|${line.slice(0, 64)}`
+
+/** 历史条目无后端 id，用 账号+时间+结果 组合稳定键 */
+const historyItemKey = (log: SignTaskHistoryItem) =>
+  `${log.account_name || '-'}|${log.time || log.created_at || ''}|${log.success ? 1 : 0}`
 </script>
 
 <template>
@@ -53,7 +60,7 @@ const emit = defineEmits<{
     >
       <div
         v-for="(line, i) in (displayRealtimeLines.length ? displayRealtimeLines : realtimeLogs)"
-        :key="i"
+        :key="realtimeLineKey(i, String(line))"
         class="leading-relaxed"
         :class="lineTone(String(line))"
       >
@@ -79,7 +86,7 @@ const emit = defineEmits<{
     <div class="ui-section-label mb-2">{{ t('taskLogs.history') }}</div>
     <div
       v-for="(log, idx) in logs"
-      :key="idx"
+      :key="historyItemKey(log)"
       class="ui-card p-3 text-sm"
     >
       <div class="flex items-center justify-between mb-2 gap-2">

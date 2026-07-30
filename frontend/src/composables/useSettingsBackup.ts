@@ -19,7 +19,7 @@ import { useI18n } from './useI18n'
 import { useToast } from './useToast'
 import { useConfirm } from './useConfirm'
 import { useAuthStore } from '../stores/auth'
-import { getLocalizedErrorMessage } from '../lib/types'
+import { resolveApiErrorMessage } from '../lib/notify'
 import type { SettingsFormState } from '../lib/settings-form'
 
 type Notify = (msg: string) => void
@@ -89,7 +89,7 @@ export function useSettingsBackup(options: {
       URL.revokeObjectURL(url)
       notifySuccess(t('settings.exportSuccess'))
     } catch (e: unknown) {
-      notifyError(getLocalizedErrorMessage(e, t, t('settings.exportFailed')))
+      notifyError(resolveApiErrorMessage(e, 'settings.exportFailed'))
     } finally {
       dataLoading.value = false
     }
@@ -122,7 +122,7 @@ export function useSettingsBackup(options: {
           : t('settings.webdavListEmpty'))
     } catch (e: unknown) {
       remoteWebdavFiles.value = []
-      notifyError(getLocalizedErrorMessage(e, t, t('settings.webdavListFailed')))
+      notifyError(resolveApiErrorMessage(e, 'settings.webdavListFailed'))
     } finally {
       webdavListLoading.value = false
     }
@@ -136,7 +136,7 @@ export function useSettingsBackup(options: {
       const res = await downloadWebdavBackup(token, name)
       notifySuccess(`${t('settings.webdavDownloadOk')}: ${res.filename}`)
     } catch (e: unknown) {
-      notifyError(getLocalizedErrorMessage(e, t, t('settings.webdavDownloadFailed')))
+      notifyError(resolveApiErrorMessage(e, 'settings.webdavDownloadFailed'))
     } finally {
       remoteDownloadName.value = ''
     }
@@ -166,7 +166,7 @@ export function useSettingsBackup(options: {
         /* ignore refresh errors */
       }
     } catch (e: unknown) {
-      notifyError(getLocalizedErrorMessage(e, t, t('settings.backupExportFailed')))
+      notifyError(resolveApiErrorMessage(e, 'settings.backupExportFailed'))
     } finally {
       backupLoading.value = false
     }
@@ -185,7 +185,7 @@ export function useSettingsBackup(options: {
       if (res.success) notifySuccess(res.message || t('settings.webdavTestOk'))
       else notifyError(res.message || t('settings.webdavTestFailed'))
     } catch (e: unknown) {
-      notifyError(getLocalizedErrorMessage(e, t, t('settings.webdavTestFailed')))
+      notifyError(resolveApiErrorMessage(e, 'settings.webdavTestFailed'))
     } finally {
       advancedLoading.value = false
       webdavTestLoading.value = false
@@ -232,7 +232,7 @@ export function useSettingsBackup(options: {
           notifySuccess(t('settings.importSuccess'))
         }
       } catch (err: unknown) {
-        notifyError(getLocalizedErrorMessage(err, t, t('settings.importFailed')))
+        notifyError(resolveApiErrorMessage(err, 'settings.importFailed'))
       } finally {
         dataLoading.value = false
       }
@@ -243,7 +243,7 @@ export function useSettingsBackup(options: {
   const loadBackupStatus = async (token: string) => {
     try {
       backupStatus.value = await getBackupStatus(token)
-    } catch (e) {
+    } catch (e: unknown) {
       // 调用方可选记日志
       throw e
     }

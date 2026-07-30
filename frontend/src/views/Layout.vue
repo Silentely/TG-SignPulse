@@ -128,7 +128,7 @@ const handleNavClick = () => {
               :title="t('settings.aboutTitle')"
               @click="goSettingsAbout"
             >{{ sidebarVersion }}</button>
-            <span v-else>Telegram Ops</span>
+            <span v-else>{{ t('common.brandSubtitle') }}</span>
           </div>
         </div>
         <!-- 仅移动端抽屉显示关闭；提高可点区域与层级 -->
@@ -200,7 +200,7 @@ const handleNavClick = () => {
           <button
             type="button"
             class="ui-icon-btn"
-            :title="locale === 'zh' ? 'English' : '中文'"
+            :title="locale === 'zh' ? t('language.switchToEn') : t('language.switchToZh')"
             :aria-label="t('common.changeLanguage')"
             @click="toggleLanguage"
           >

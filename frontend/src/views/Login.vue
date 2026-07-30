@@ -170,7 +170,7 @@ const openGithub = () => {
         <button
           type="button"
           class="ui-icon-btn"
-          :title="locale === 'zh' ? 'English' : '中文'"
+          :title="locale === 'zh' ? t('language.switchToEn') : t('language.switchToZh')"
           :aria-label="t('common.changeLanguage')"
           @click="toggleLanguage"
         >

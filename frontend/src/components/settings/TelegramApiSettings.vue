@@ -55,7 +55,7 @@ const onInput = (key: keyof TgFormState, e: Event) => {
     </div>
     <div class="space-y-5">
       <div class="space-y-1.5">
-        <label class="ui-label">API ID</label>
+        <label class="ui-label">{{ t('settings.apiId') }}</label>
         <div class="relative">
           <input :value="modelValue.api_id" @input="onInput('api_id', $event)" :type="reveal.tgApiId ? 'text' : 'password'" class="ui-input pr-10" autocomplete="off">
           <button type="button" class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200" :aria-label="reveal.tgApiId ? t('settings.hideSecret') : t('settings.showSecret')" @click="emit('toggle-reveal', 'tgApiId')">
@@ -64,7 +64,7 @@ const onInput = (key: keyof TgFormState, e: Event) => {
         </div>
       </div>
       <div class="space-y-1.5">
-        <label class="ui-label">API Hash</label>
+        <label class="ui-label">{{ t('settings.apiHash') }}</label>
         <div class="relative">
           <input :value="modelValue.api_hash" @input="onInput('api_hash', $event)" :type="reveal.tgApiHash ? 'text' : 'password'" class="ui-input pr-10">
           <button type="button" class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200" :aria-label="reveal.tgApiHash ? t('settings.hideSecret') : t('settings.showSecret')" @click="emit('toggle-reveal', 'tgApiHash')">

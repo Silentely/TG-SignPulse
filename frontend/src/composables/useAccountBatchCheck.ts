@@ -11,7 +11,7 @@ import {
 } from '../lib/api'
 import type { AccountStatusJob, AccountStatusItem } from '../lib/api'
 import type { AccountUiItem } from '../lib/types'
-import { getLocalizedErrorMessage } from '../lib/types'
+import { notifyApiError } from '../lib/notify'
 import { useI18n } from './useI18n'
 import { useToast } from './useToast'
 import { useAuthStore } from '../stores/auth'
@@ -150,13 +150,13 @@ export function useAccountBatchCheck(options: {
       batchJob.value = null
       batchResultMap.value = {}
       lastLiveRefreshDone = 0
-    } catch (e) {
+    } catch (e: unknown) {
       clearBatchPoll()
       batchChecking.value = false
       batchJob.value = null
       batchResultMap.value = {}
       lastLiveRefreshDone = 0
-      toast.error(getLocalizedErrorMessage(e, t, t('accounts.checkFailed')))
+      notifyApiError(e, 'accounts.checkFailed')
     }
   }
 
@@ -202,8 +202,8 @@ export function useAccountBatchCheck(options: {
           toast.error(`${name}: ${result.message || t('accounts.loginExpired')}`)
         }
       }
-    } catch (e) {
-      toast.error(getLocalizedErrorMessage(e, t, t('accounts.checkFailed')))
+    } catch (e: unknown) {
+      notifyApiError(e, 'accounts.checkFailed')
     } finally {
       checkingAccount.value = ''
     }
@@ -290,8 +290,8 @@ export function useAccountBatchCheck(options: {
           duration: 8000,
         })
       }
-    } catch (e) {
-      toast.error(getLocalizedErrorMessage(e, t, t('accounts.checkFailed')))
+    } catch (e: unknown) {
+      notifyApiError(e, 'accounts.checkFailed')
     } finally {
       if (!batchPollHandle?.active) {
         batchChecking.value = false
@@ -307,8 +307,8 @@ export function useAccountBatchCheck(options: {
       await cancelAccountStatusCheckJob(token, jobId)
       toast.success(t('accounts.batchCheckCancelRequested'))
       await pollBatchJob(jobId)
-    } catch (e) {
-      toast.error(getLocalizedErrorMessage(e, t, t('accounts.checkFailed')))
+    } catch (e: unknown) {
+      notifyApiError(e, 'accounts.checkFailed')
     }
   }
 
@@ -363,8 +363,8 @@ export function useAccountBatchCheck(options: {
           duration: 8000,
         })
       }
-    } catch (e) {
-      toast.error(getLocalizedErrorMessage(e, t, t('accounts.checkFailed')))
+    } catch (e: unknown) {
+      notifyApiError(e, 'accounts.checkFailed')
     } finally {
       if (!batchPollHandle?.active) batchChecking.value = false
     }

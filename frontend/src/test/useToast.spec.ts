@@ -14,17 +14,17 @@ describe('useToast', () => {
     vi.useRealTimers()
   })
 
-  it('show 添加一条 toast', () => {
-    const { toasts, show } = useToast()
-    show('操作成功', 'success')
+  it('success 添加一条 toast', () => {
+    const { toasts, success } = useToast()
+    success('操作成功')
     expect(toasts.value).toHaveLength(1)
     expect(toasts.value[0].message).toBe('操作成功')
     expect(toasts.value[0].type).toBe('success')
   })
 
-  it('默认类型为 info', () => {
-    const { toasts, show } = useToast()
-    show('提示信息')
+  it('info 添加 info 类型 toast', () => {
+    const { toasts, info } = useToast()
+    info('提示信息')
     expect(toasts.value[0].type).toBe('info')
   })
 
@@ -47,8 +47,8 @@ describe('useToast', () => {
   })
 
   it('默认 4000ms 后自动移除', () => {
-    const { toasts, show } = useToast()
-    show('临时消息')
+    const { toasts, info } = useToast()
+    info('临时消息')
     expect(toasts.value).toHaveLength(1)
     vi.advanceTimersByTime(4000)
     expect(toasts.value).toHaveLength(0)
@@ -64,10 +64,10 @@ describe('useToast', () => {
   })
 
   it('多条 toast 独立计时', () => {
-    const { toasts, show } = useToast()
-    show('消息1')
+    const { toasts, info } = useToast()
+    info('消息1')
     vi.advanceTimersByTime(2000)
-    show('消息2')
+    info('消息2')
     expect(toasts.value).toHaveLength(2)
     vi.advanceTimersByTime(2000)
     // 消息1 已到 4000ms，应被移除；消息2 仅 2000ms，仍在
@@ -76,41 +76,41 @@ describe('useToast', () => {
   })
 
   it('每条 toast 有唯一 id', () => {
-    const { toasts, show } = useToast()
-    show('a')
-    show('b')
-    show('c')
+    const { toasts, info } = useToast()
+    info('a')
+    info('b')
+    info('c')
     const ids = toasts.value.map(t => t.id)
     expect(new Set(ids).size).toBe(3)
   })
 
   it('dismiss 可手动关闭指定 toast', () => {
-    const { toasts, show, dismiss } = useToast()
-    show('可关闭')
+    const { toasts, info, dismiss } = useToast()
+    info('可关闭')
     const id = toasts.value[0].id
     dismiss(id)
     expect(toasts.value).toHaveLength(0)
   })
 
   it('clear 清空全部 toast', () => {
-    const { toasts, show, clear } = useToast()
-    show('a')
-    show('b')
+    const { toasts, info, clear } = useToast()
+    info('a')
+    info('b')
     clear()
     expect(toasts.value).toHaveLength(0)
   })
 
   it('空消息不会入栈', () => {
-    const { toasts, show } = useToast()
-    show('   ')
-    show('')
+    const { toasts, info } = useToast()
+    info('   ')
+    info('')
     expect(toasts.value).toHaveLength(0)
   })
 
   it('超出上限时淘汰最早条目', () => {
-    const { toasts, show } = useToast()
+    const { toasts, info } = useToast()
     for (let i = 0; i < 6; i++) {
-      show(`msg-${i}`)
+      info(`msg-${i}`)
     }
     expect(toasts.value).toHaveLength(5)
     expect(toasts.value[0].message).toBe('msg-1')
