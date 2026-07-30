@@ -3,7 +3,7 @@
  * Accounts / Tasks / Logs / Dashboard 原来各自持有本地 ref 并独立调 listAccounts，
  * 统一收敛到此 store：TTL 缓存 + 并发请求去重，避免页面切换重复拉取。
  */
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { listAccounts, type AccountInfo } from '../lib/api'
 import { useAuthStore } from './auth'
@@ -19,6 +19,19 @@ export const useAccountsStore = defineStore('accounts', () => {
   const fetchedAt = ref(0)
   /** 同刻只允许一次真实请求，后来者复用同一 Promise */
   let inFlight: Promise<AccountInfo[]> | null = null
+
+  /** 会话失效（登出/token 清空）时同步清空缓存，避免跨会话残留上一租户的列表 */
+  watch(
+    () => useAuthStore().token,
+    (token) => {
+      if (token) return
+      accounts.value = []
+      total.value = 0
+      fetchedAt.value = 0
+    },
+    // flush: 'sync' —— store 内 watch 不挂在组件树上，pre 队列时机不可靠
+    { flush: 'sync' },
+  )
 
   const fetchAccounts = async (): Promise<AccountInfo[]> => {
     const token = useAuthStore().token || ''
@@ -48,8 +61,15 @@ export const useAccountsStore = defineStore('accounts', () => {
     return inFlight
   }
 
-  /** 账号增删改成功后强制刷新 */
-  const refreshAccounts = () => ensureAccounts(true)
+  /**
+   * 账号增删改成功后强制刷新。
+   * 若有在途请求（其数据拉取于写操作完成前），先等它落地再强制拉新，
+   * 避免陈旧响应被盖戳为新缓存。
+   */
+  const refreshAccounts = async (): Promise<AccountInfo[]> => {
+    if (inFlight) await inFlight.catch(() => {})
+    return ensureAccounts(true)
+  }
 
   return { accounts, total, loading, fetchedAt, ensureAccounts, refreshAccounts }
 })

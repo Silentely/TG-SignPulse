@@ -18,3 +18,6 @@ export const resolveApiErrorMessage = (e: unknown, key: string): string =>
 export const notifyApiError = (e: unknown, key: string) => {
   useToast().error(resolveApiErrorMessage(e, key))
 }
+
+// 说明：「业务前缀 + 冒号 + 详情」的复合消息（如 useTaskListActions 的删除失败 3 处）
+// 无法用单一兜底 key 表达，允许保留 getLocalizedErrorMessage 直用。

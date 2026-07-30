@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -16,6 +17,8 @@ def _make_service_with_spy():
 
     svc = SignTaskService.__new__(SignTaskService)
     svc._cache_refresh_deferred = 0
+    svc._cache_refresh_dirty = False
+    svc._cache_refresh_lock = threading.Lock()
     calls: list[dict] = []
     svc.list_tasks = lambda **kwargs: calls.append(kwargs) or []
     return svc, calls
@@ -63,6 +66,34 @@ def test_defer_cache_refresh_flushes_on_exception():
 
     assert svc._cache_refresh_deferred == 0
     assert calls == [{"force_refresh": True, "aggregate": False}]
+
+
+def test_defer_without_suppressed_write_does_not_flush():
+    """上下文内没有任何写后刷新（如纯 RUN 批量）时，退出不做无谓重扫。"""
+    svc, calls = _make_service_with_spy()
+
+    with svc.defer_cache_refresh():
+        pass  # 纯执行类批量：无 _refresh_tasks_cache_after_write 调用
+
+    assert calls == []
+    assert svc._cache_refresh_dirty is False
+
+
+def test_defer_flush_failure_degrades_to_warning(caplog):
+    """退出补刷失败：降级 warning 且不传播异常、计数正常恢复。"""
+    svc, _calls = _make_service_with_spy()
+
+    def _boom(**_kwargs):
+        raise OSError("disk gone")
+
+    svc.list_tasks = _boom
+    with caplog.at_level("WARNING", logger="backend.sign_tasks"):
+        with svc.defer_cache_refresh():
+            svc._refresh_tasks_cache_after_write()  # 只标脏位
+
+    assert svc._cache_refresh_deferred == 0
+    assert svc._cache_refresh_dirty is False
+    assert any("补刷任务缓存失败" in r.message for r in caplog.records)
 
 
 def test_batch_route_defers_service_cache_refresh(client, db_session):

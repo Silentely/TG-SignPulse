@@ -65,13 +65,42 @@ describe('accountsStore', () => {
     const store = useAccountsStore()
     const p1 = store.ensureAccounts()
     const p2 = store.ensureAccounts()
-    const p3 = store.refreshAccounts()
     resolveReq({ accounts: [{ name: 'only' }], total: 1 })
-    const [l1, l2, l3] = await Promise.all([p1, p2, p3])
+    const [l1, l2] = await Promise.all([p1, p2])
     expect(api.listAccounts).toHaveBeenCalledTimes(1)
     expect(l1).toBe(l2)
-    expect(l2).toBe(l3)
     expect(store.accounts.map((a) => a.name)).toEqual(['only'])
+  })
+
+  it('refreshAccounts 等待在途请求落地后再强制拉新，不搭陈旧响应的车', async () => {
+    let resolveReq!: (v: { accounts: Array<{ name: string }>; total: number }) => void
+    api.listAccounts
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveReq = resolve
+        }),
+      )
+      .mockResolvedValueOnce({ accounts: [{ name: 'fresh' }], total: 1 })
+    const store = useAccountsStore()
+    // 在途请求拉取于"写操作完成之前"（数据陈旧）
+    const stale = store.ensureAccounts()
+    const fresh = store.refreshAccounts()
+    resolveReq({ accounts: [{ name: 'stale' }], total: 1 })
+    const [s, f] = await Promise.all([stale, fresh])
+    expect(api.listAccounts).toHaveBeenCalledTimes(2)
+    expect(s.map((a) => a.name)).toEqual(['stale'])
+    expect(f.map((a) => a.name)).toEqual(['fresh'])
+    expect(store.accounts.map((a) => a.name)).toEqual(['fresh'])
+  })
+
+  it('token 清空时同步清空缓存，防止跨会话残留', async () => {
+    const store = useAccountsStore()
+    await store.ensureAccounts()
+    expect(store.fetchedAt).toBeGreaterThan(0)
+    useAuthStore().clearToken()
+    expect(store.accounts).toEqual([])
+    expect(store.total).toBe(0)
+    expect(store.fetchedAt).toBe(0)
   })
 
   it('无 token 时不发起请求', async () => {

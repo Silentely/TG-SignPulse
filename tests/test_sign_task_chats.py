@@ -80,7 +80,7 @@ def test_map_pyrogram_chat():
 
 
 def test_resolve_telegram_api_credentials():
-    from backend.services.sign_task_chats import resolve_telegram_api_credentials
+    from backend.services.telegram.credentials import resolve_telegram_api_credentials
 
     api_id, api_hash = resolve_telegram_api_credentials(
         {"api_id": "123", "api_hash": " abc "},
@@ -89,6 +89,52 @@ def test_resolve_telegram_api_credentials():
     assert api_hash == "abc"
     with pytest.raises(ValueError):
         resolve_telegram_api_credentials({})
+
+
+@pytest.mark.parametrize(
+    ("tg_config", "env_id", "env_hash", "expected"),
+    [
+        # env 优先于配置
+        ({"api_id": "111", "api_hash": "cfg"}, "222", "env", (222, "env")),
+        # env 仅部分提供时，另一半回退配置
+        ({"api_id": "111", "api_hash": "cfg"}, "222", None, (222, "cfg")),
+        ({"api_id": "111", "api_hash": "cfg"}, None, "env", (111, "env")),
+        # int 型 api_id 原样可用，返回类型统一为 (int, str)
+        ({"api_id": 42, "api_hash": "h"}, None, None, (42, "h")),
+    ],
+)
+def test_resolve_telegram_api_credentials_precedence(tg_config, env_id, env_hash, expected):
+    from backend.services.telegram.credentials import resolve_telegram_api_credentials
+
+    assert (
+        resolve_telegram_api_credentials(
+            tg_config, env_api_id=env_id, env_api_hash=env_hash
+        )
+        == expected
+    )
+
+
+@pytest.mark.parametrize(
+    ("tg_config", "env_id", "env_hash"),
+    [
+        # api_id 为 0 / "0"（Telegram 合法 id 从 1 起，0 视为无效）
+        ({"api_id": 0, "api_hash": "h"}, None, None),
+        ({"api_id": "0", "api_hash": "h"}, None, None),
+        # 非数字 id
+        ({"api_id": "abc", "api_hash": "h"}, None, None),
+        # hash 缺失 / 空串 / 纯空白
+        ({"api_id": "1"}, None, None),
+        ({"api_id": "1", "api_hash": ""}, None, None),
+        ({"api_id": "1", "api_hash": "   "}, None, None),
+    ],
+)
+def test_resolve_telegram_api_credentials_rejects_invalid(tg_config, env_id, env_hash):
+    from backend.services.telegram.credentials import resolve_telegram_api_credentials
+
+    with pytest.raises(ValueError):
+        resolve_telegram_api_credentials(
+            tg_config, env_api_id=env_id, env_api_hash=env_hash
+        )
 
 
 def test_resolve_account_session_string_mode(tmp_path: Path):

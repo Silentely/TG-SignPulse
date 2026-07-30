@@ -379,8 +379,9 @@ const validateForSubmit = (): boolean => {
 }
 defineExpose({ flushPayload, buildPayload, createMode, validateForSubmit })
 /**
- * buildPayload 读取全部表单字段，任一变化都会产出新对象：
- * computed + 浅比较 watch 即可，无需对 23 个源逐个 deep 监听。
+ * buildPayload 读取全部表单字段（含 activeChat 经 writable computed 传递的字段），
+ * 任一变化都会产出新对象：computed + 浅比较 watch，替代原先对全部表单源逐个 deep 监听。
+ * createMode 不进 payload，父组件经 defineExpose 读取，无需监听。
  */
 const payloadSnapshot = computed(buildPayload)
 watch(payloadSnapshot, () => {

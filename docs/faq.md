@@ -28,7 +28,7 @@ data/.admin_bootstrap_password
 
 - 盘点残留 ORM 表（模型已删）：`python tools/check_legacy_tasks.py --json`
 - `/readyz` 含 `legacy_tasks_removed: true`
-- 旧 SSE `/api/events/logs` 返回 410，请改用 `/api/events/sign-history`
+- 旧 SSE `/api/events/logs` 已移除，请改用 `/api/events/sign-history`
 
 ## Dashboard 实时日志连不上
 

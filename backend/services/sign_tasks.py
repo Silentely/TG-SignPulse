@@ -10,6 +10,7 @@ import contextvars
 import json
 import logging
 import os
+import threading
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
@@ -123,6 +124,8 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         self._background_run_tasks: Dict[tuple[str, str], asyncio.Task] = {}
         self._tasks_cache = None  # 兼容旧引用：list 或 None
         self._cache_refresh_deferred = 0  # >0 时挂起写后全量缓存刷新（批量写优化）
+        self._cache_refresh_dirty = False  # defer 期间确有写后刷新被抑制时置 True
+        self._cache_refresh_lock = threading.Lock()  # 保护计数器与脏位，兼容线程池路由并发
         # TTL 列表缓存（与 _tasks_cache 同步），避免长时间持有过期扫描结果
         list_ttl = float(os.getenv("SIGN_TASK_LIST_CACHE_TTL", "30") or "30")
         self._tasks_list_ttl = TTLCache(maxsize=2, ttl=max(list_ttl, 1.0))
@@ -250,19 +253,41 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         """CRUD 写盘后强制重扫一次并填充缓存（替代仅置 None）。"""
         # getattr 兜底：__new__ 构造的实例（如单测）未走 __init__
         if getattr(self, "_cache_refresh_deferred", 0):
+            # defer 期间仅标记脏位，由 defer_cache_refresh 退出时统一补刷
+            self._cache_refresh_dirty = True
             return
         self.list_tasks(force_refresh=True, aggregate=False)
 
     @contextmanager
     def defer_cache_refresh(self):
-        """批量写期间挂起每次写后的全量缓存刷新，退出时统一刷一次。"""
-        self._cache_refresh_deferred = getattr(self, "_cache_refresh_deferred", 0) + 1
+        """批量写期间挂起每次写后的全量缓存刷新，退出时统一补刷一次。
+
+        - 计数与脏位经锁保护：批量路由跑在事件循环，单任务路由跑在线程池，
+          两者并发进入时自增/自减不会被拆开；
+        - 仅当上下文中确有写后刷新被抑制（脏位）才补刷，纯 RUN 批量不做无谓 IO；
+        - 补刷失败降级为 warning：写已落盘，不应让请求失败或遮蔽体内异常。
+        """
+        with self._cache_refresh_lock:
+            self._cache_refresh_deferred = getattr(self, "_cache_refresh_deferred", 0) + 1
         try:
             yield
         finally:
-            self._cache_refresh_deferred -= 1
-            if self._cache_refresh_deferred == 0:
-                self._refresh_tasks_cache_after_write()
+            should_flush = False
+            with self._cache_refresh_lock:
+                self._cache_refresh_deferred -= 1
+                if self._cache_refresh_deferred == 0 and getattr(
+                    self, "_cache_refresh_dirty", False
+                ):
+                    self._cache_refresh_dirty = False
+                    should_flush = True
+            if should_flush:
+                try:
+                    self.list_tasks(force_refresh=True, aggregate=False)
+                except Exception as exc:
+                    _service_logger.warning(
+                        "批量写退出时补刷任务缓存失败，交由下次访问惰性刷新: %s",
+                        exc,
+                    )
 
     async def _fetch_last_target_message_from_chat_history(
         self,
