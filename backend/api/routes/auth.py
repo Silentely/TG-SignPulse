@@ -8,7 +8,12 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from backend.core import auth as auth_core
-from backend.core.auth import authenticate_user, create_access_token, verify_totp
+from backend.core.auth import (
+    authenticate_user,
+    create_access_token,
+    get_user_by_username,
+    verify_totp,
+)
 from backend.core.database import get_db
 from backend.core.rate_limit import compose_rate_limit_key, get_rate_limiter
 from backend.core.security import verify_password
@@ -191,7 +196,7 @@ def reset_totp(
         detail=RESET_TOTP_RATE_LIMIT_DETAIL,
     )
 
-    user = db.query(User).filter(User.username == request.username).first()
+    user = get_user_by_username(db, request.username)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误"

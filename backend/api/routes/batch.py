@@ -79,108 +79,110 @@ async def batch_sign_task_operation(
         SignBatchAction.DELETE,
     )
 
-    for item in payload.tasks:
-        name = item.name
-        try:
-            if payload.action == SignBatchAction.RUN:
-                run_account = (
-                    payload.run_account_name
-                    or item.account_name
-                    or _resolve_sign_account(name, item.account_name)
+    # 批量写期间挂起每次写后的全量缓存重扫，循环结束统一刷一次
+    with service.defer_cache_refresh():
+        for item in payload.tasks:
+            name = item.name
+            try:
+                if payload.action == SignBatchAction.RUN:
+                    run_account = (
+                        payload.run_account_name
+                        or item.account_name
+                        or _resolve_sign_account(name, item.account_name)
+                    )
+                    if not run_account or run_account == "*":
+                        results.append(
+                            SignBatchTaskResult(
+                                name=name,
+                                account_name=item.account_name or "",
+                                success=False,
+                                message="无法确定执行账号",
+                            )
+                        )
+                        fail_count += 1
+                        continue
+                    await service.start_task_run(run_account, name)
+                    results.append(
+                        SignBatchTaskResult(
+                            name=name,
+                            account_name=run_account,
+                            success=True,
+                            message="已启动执行",
+                        )
+                    )
+                    success_count += 1
+                    continue
+
+                resolved = _resolve_sign_account(name, item.account_name)
+                existing = service.get_task(
+                    name,
+                    account_name=resolved,
+                    aggregate=resolved is None,
                 )
-                if not run_account or run_account == "*":
+                if not existing:
                     results.append(
                         SignBatchTaskResult(
                             name=name,
                             account_name=item.account_name or "",
                             success=False,
-                            message="无法确定执行账号",
+                            message="任务不存在",
                         )
                     )
                     fail_count += 1
                     continue
-                await service.start_task_run(run_account, name)
-                results.append(
-                    SignBatchTaskResult(
-                        name=name,
-                        account_name=run_account,
-                        success=True,
-                        message="已启动执行",
-                    )
-                )
-                success_count += 1
-                continue
 
-            resolved = _resolve_sign_account(name, item.account_name)
-            existing = service.get_task(
-                name,
-                account_name=resolved,
-                aggregate=resolved is None,
-            )
-            if not existing:
+                if payload.action == SignBatchAction.ENABLE:
+                    service.update_task(
+                        task_name=name,
+                        account_name=resolved,
+                        enabled=True,
+                    )
+                    results.append(
+                        SignBatchTaskResult(
+                            name=name,
+                            account_name=resolved or "",
+                            success=True,
+                            message="已启用",
+                        )
+                    )
+                    success_count += 1
+                elif payload.action == SignBatchAction.DISABLE:
+                    service.update_task(
+                        task_name=name,
+                        account_name=resolved,
+                        enabled=False,
+                    )
+                    results.append(
+                        SignBatchTaskResult(
+                            name=name,
+                            account_name=resolved or "",
+                            success=True,
+                            message="已禁用",
+                        )
+                    )
+                    success_count += 1
+                elif payload.action == SignBatchAction.DELETE:
+                    service.delete_task(name, account_name=resolved)
+                    results.append(
+                        SignBatchTaskResult(
+                            name=name,
+                            account_name=resolved or "",
+                            success=True,
+                            message="已删除",
+                        )
+                    )
+                    success_count += 1
+            except Exception as exc:
+                logger.warning("批量签到任务 %s 操作失败: %s", name, exc)
                 results.append(
                     SignBatchTaskResult(
                         name=name,
                         account_name=item.account_name or "",
                         success=False,
-                        message="任务不存在",
+                        message=str(exc) or "操作失败",
                     )
                 )
                 fail_count += 1
-                continue
-
-            if payload.action == SignBatchAction.ENABLE:
-                service.update_task(
-                    task_name=name,
-                    account_name=resolved,
-                    enabled=True,
-                )
-                results.append(
-                    SignBatchTaskResult(
-                        name=name,
-                        account_name=resolved or "",
-                        success=True,
-                        message="已启用",
-                    )
-                )
-                success_count += 1
-            elif payload.action == SignBatchAction.DISABLE:
-                service.update_task(
-                    task_name=name,
-                    account_name=resolved,
-                    enabled=False,
-                )
-                results.append(
-                    SignBatchTaskResult(
-                        name=name,
-                        account_name=resolved or "",
-                        success=True,
-                        message="已禁用",
-                    )
-                )
-                success_count += 1
-            elif payload.action == SignBatchAction.DELETE:
-                service.delete_task(name, account_name=resolved)
-                results.append(
-                    SignBatchTaskResult(
-                        name=name,
-                        account_name=resolved or "",
-                        success=True,
-                        message="已删除",
-                    )
-                )
-                success_count += 1
-        except Exception as exc:
-            logger.warning("批量签到任务 %s 操作失败: %s", name, exc)
-            results.append(
-                SignBatchTaskResult(
-                    name=name,
-                    account_name=item.account_name or "",
-                    success=False,
-                    message=str(exc) or "操作失败",
-                )
-            )
-            fail_count += 1
 
     if needs_sync:
         try:

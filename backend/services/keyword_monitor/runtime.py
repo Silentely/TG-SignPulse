@@ -1655,6 +1655,9 @@ class KeywordMonitorService:
     async def restart_from_tasks(self) -> None:
         async with self._lock:
             from backend.services.config import get_config_service
+            from backend.services.telegram.credentials import (
+                resolve_telegram_api_credentials,
+            )
             from tg_signer.core import (
                 _CLIENT_INSTANCES,
                 close_client_by_name,
@@ -1684,12 +1687,16 @@ class KeywordMonitorService:
             session_dir = settings.resolve_session_dir()
             global_settings = get_config_service().get_global_settings()
             tg_config = get_config_service().get_telegram_config()
-            api_id = os.getenv("TG_API_ID") or tg_config.get("api_id")
-            api_hash = os.getenv("TG_API_HASH") or tg_config.get("api_hash")
             try:
-                api_id = int(api_id) if api_id is not None else None
-            except (TypeError, ValueError):
+                api_id, api_hash = resolve_telegram_api_credentials(
+                    tg_config,
+                    env_api_id=os.getenv("TG_API_ID"),
+                    env_api_hash=os.getenv("TG_API_HASH"),
+                )
+            except ValueError:
+                # 监控启动不强制校验凭据，缺失时由后续客户端创建报错
                 api_id = None
+                api_hash = None
 
             accounts = sorted({rule.account_name for rule in rules})
             started_accounts: set[str] = set()

@@ -118,27 +118,20 @@ class TelegramPhoneLoginMixin:
 
         config_service = get_config_service()
         tg_config = config_service.get_telegram_config()
-        api_id = tg_config.get("api_id")
-        api_hash = tg_config.get("api_hash")
 
-        env_api_id = os.getenv("TG_API_ID") or None
-        env_api_hash = os.getenv("TG_API_HASH") or None
-        if env_api_id:
-            api_id = env_api_id
-        if env_api_hash:
-            api_hash = env_api_hash
+        from backend.services.telegram.credentials import (
+            resolve_telegram_api_credentials,
+        )
 
         try:
-            api_id = int(api_id) if api_id is not None else None
-        except (TypeError, ValueError):
-            api_id = None
-
-        if isinstance(api_hash, str):
-            api_hash = api_hash.strip()
-
-        if not api_id or not api_hash:
+            api_id, api_hash = resolve_telegram_api_credentials(
+                tg_config,
+                env_api_id=os.getenv("TG_API_ID"),
+                env_api_hash=os.getenv("TG_API_HASH"),
+            )
+        except ValueError:
             _release_account_lock()
-            raise ValueError("Telegram API ID / API Hash 未配置或无效")
+            raise ValueError("Telegram API ID / API Hash 未配置或无效") from None
 
         if not proxy:
             global_proxy = config_service.get_global_settings().get("global_proxy")

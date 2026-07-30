@@ -6,8 +6,11 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+_logger = logging.getLogger("backend.sign_task_history_io")
 
 
 def safe_history_key(name: str) -> str:
@@ -28,7 +31,9 @@ def load_history_payload_from_file(history_file: Path) -> List[Any]:
     try:
         with open(history_file, "r", encoding="utf-8") as f:
             data = json.load(f)
-    except Exception:
+    except Exception as exc:
+        # 历史文件损坏或读取失败时表现为历史凭空消失，必须留下日志线索
+        _logger.warning("读取历史文件失败，按空历史处理: %s (%s)", history_file, exc)
         return []
 
     if isinstance(data, list):

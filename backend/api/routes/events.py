@@ -6,10 +6,10 @@ import logging
 import time
 from typing import AsyncGenerator, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 
-from backend.core.auth import get_current_user, verify_token
+from backend.core.auth import verify_token
 from backend.core.database import get_session_local
 from backend.models.user import User
 
@@ -132,21 +132,6 @@ async def _sign_history_event_stream() -> AsyncGenerator[bytes, None]:
         return
     finally:
         unsubscribe(q)
-
-
-@router.get("/logs", deprecated=True)
-async def logs_events(
-    current_user=Depends(get_current_user),
-):
-    """旧版 ORM TaskLog SSE 已移除；请使用 /api/events/sign-history。"""
-    raise HTTPException(
-        status_code=status.HTTP_410_GONE,
-        detail="LEGACY_EVENTS_LOGS_REMOVED",
-        headers={
-            "Deprecation": "true",
-            "X-API-Warn": "Use /api/events/sign-history for sign-task history SSE.",
-        },
-    )
 
 
 

@@ -21,10 +21,14 @@ from backend.services.sign_task_history_format import (
 from backend.services.sign_task_history_index import (
     append_index_entry,
     build_index_entry,
-    clear_index as clear_history_index,
-    ensure_index as ensure_history_index,
     list_recent_from_index,
     remove_index_entries_matching,
+)
+from backend.services.sign_task_history_index import (
+    clear_index as clear_history_index,
+)
+from backend.services.sign_task_history_index import (
+    ensure_index as ensure_history_index,
 )
 from backend.services.sign_task_history_io import (
     count_history_entries as count_history_entries_io,
@@ -103,8 +107,10 @@ class SignTaskHistoryMixin:
                         config.pop("last_run", None)
                     with open(config_file, "w", encoding="utf-8") as f:
                         json.dump(config, f, ensure_ascii=False, indent=2)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _logger.warning(
+                        "回写任务元数据 last_run 失败: %s (%s)", config_file, exc
+                    )
 
         if self._tasks_cache is not None:
             for task in self._tasks_cache:
@@ -433,13 +439,13 @@ class SignTaskHistoryMixin:
             try:
                 with open(history_file, "r", encoding="utf-8") as f:
                     removed_entries += self._count_history_entries(json.load(f))
-            except Exception:
-                pass
+            except Exception as exc:
+                _logger.warning("读取历史文件失败: %s (%s)", history_file, exc)
             try:
                 history_file.unlink()
                 removed_files += 1
-            except Exception:
-                pass
+            except Exception as exc:
+                _logger.warning("删除历史文件失败: %s (%s)", history_file, exc)
 
         try:
             clear_history_index(self.run_history_dir)
@@ -475,13 +481,13 @@ class SignTaskHistoryMixin:
                 try:
                     with open(history_file, "r", encoding="utf-8") as f:
                         removed_entries += self._count_history_entries(json.load(f))
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _logger.warning("读取历史文件失败: %s (%s)", history_file, exc)
                 try:
                     history_file.unlink()
                     removed_files += 1
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _logger.warning("删除历史文件失败: %s (%s)", history_file, exc)
                 continue
 
             legacy_file = self.run_history_dir / f"{self._safe_history_key(task_name)}.json"

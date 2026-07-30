@@ -10,7 +10,6 @@ from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from backend.services.sign_task_history_format import build_history_list_item
 
-
 RepairFn = Callable[[str], str]
 ExtractTargetFn = Callable[[List[Any]], str]
 

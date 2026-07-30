@@ -85,6 +85,8 @@ environment:
 
 ### 获取 Telegram API 凭证
 
+> 💡 未配置时会回退到上游 tg-signer 的内置公开默认凭据（非私有密钥），其 API 限额为所有用户共享；**建议申请并配置自有凭据**，以获得更稳定的限额与可用性。未配置时启动日志会出现一次性 warning 提示。
+
 `TG_API_ID` 和 `TG_API_HASH` 是使用 Telegram API 的必要凭证，需要从 Telegram 官方申请：
 
 1. 打开 [https://my.telegram.org](https://my.telegram.org)

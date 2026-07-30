@@ -5,7 +5,14 @@ from __future__ import annotations
 import json
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Response,
+    status,
+)
 from pydantic import BaseModel, Field
 
 from backend.core.auth import get_current_user
@@ -14,6 +21,25 @@ from backend.services.config import get_config_service
 from backend.utils.storage import is_writable_dir
 
 router = APIRouter()
+
+
+async def _post_import_sync() -> None:
+    """导入签到任务后后台同步调度与关键词监控，失败仅告警不阻塞 HTTP 响应。"""
+    import logging
+
+    logger = logging.getLogger("backend.config_api")
+    try:
+        from backend.scheduler import sync_jobs
+
+        await sync_jobs()
+    except Exception as exc:
+        logger.warning("导入任务后调度同步失败: %s", exc)
+    try:
+        from backend.services.keyword_monitor import get_keyword_monitor_service
+
+        await get_keyword_monitor_service().restart_from_tasks()
+    except Exception as exc:
+        logger.warning("导入任务后重启关键词监控失败: %s", exc)
 
 
 def _clear_sign_task_cache() -> None:
@@ -120,8 +146,10 @@ def export_sign_task(
 
 
 @router.post("/import/sign", response_model=ImportTaskResponse)
-async def import_sign_task(
-    request: ImportTaskRequest, current_user: User = Depends(get_current_user)
+def import_sign_task(
+    request: ImportTaskRequest,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
 ):
     try:
         service = get_config_service()
@@ -143,16 +171,9 @@ async def import_sign_task(
         data = json.loads(request.config_json)
         final_task_name = request.task_name or data.get("task_name", "imported_task")
 
-        from backend.scheduler import sync_jobs
-
         _clear_sign_task_cache()
-        await sync_jobs()
-        try:
-            from backend.services.keyword_monitor import get_keyword_monitor_service
-
-            await get_keyword_monitor_service().restart_from_tasks()
-        except Exception:
-            pass
+        # 调度同步和监控重启放到后台执行，避免阻塞 HTTP 响应
+        background_tasks.add_task(_post_import_sync)
 
         return ImportTaskResponse(
             success=True,

@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     HTTPException,
     Query,
@@ -265,8 +266,9 @@ def list_active_sign_task_runs(
 
 
 @router.post("", response_model=SignTaskOut, status_code=status.HTTP_201_CREATED)
-async def create_sign_task(
+def create_sign_task(
     payload: SignTaskCreate,
+    background_tasks: BackgroundTasks,
     current_user=Depends(get_current_user),
 ):
     try:
@@ -288,7 +290,7 @@ async def create_sign_task(
         )
 
         # 调度同步和监控重启放到后台执行，避免阻塞 HTTP 响应
-        asyncio.ensure_future(_safe_background_sync())
+        background_tasks.add_task(_safe_background_sync)
         return task
     except HTTPException:
         raise
@@ -327,9 +329,10 @@ def get_sign_task(
 
 
 @router.put("/{task_name}", response_model=SignTaskOut)
-async def update_sign_task(
+def update_sign_task(
     task_name: str,
     payload: SignTaskUpdate,
+    background_tasks: BackgroundTasks,
     account_name: Optional[str] = None,
     current_user=Depends(get_current_user),
 ):
@@ -378,7 +381,7 @@ async def update_sign_task(
         )
 
         # 调度同步和监控重启放到后台执行，避免阻塞 HTTP 响应
-        asyncio.ensure_future(_safe_background_sync())
+        background_tasks.add_task(_safe_background_sync)
         return task
     except HTTPException:
         raise
@@ -392,8 +395,9 @@ async def update_sign_task(
 
 
 @router.delete("/{task_name}", status_code=status.HTTP_200_OK)
-async def delete_sign_task(
+def delete_sign_task(
     task_name: str,
+    background_tasks: BackgroundTasks,
     account_name: Optional[str] = None,
     current_user=Depends(get_current_user),
 ):
@@ -403,7 +407,7 @@ async def delete_sign_task(
             raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
 
         # 调度同步和监控重启放到后台执行，避免阻塞 HTTP 响应
-        asyncio.ensure_future(_safe_background_sync())
+        background_tasks.add_task(_safe_background_sync)
         return {"ok": True}
     except HTTPException:
         raise
@@ -415,8 +419,9 @@ async def delete_sign_task(
 
 
 @router.patch("/{task_name}/toggle-enabled", response_model=SignTaskOut)
-async def toggle_sign_task_enabled(
+def toggle_sign_task_enabled(
     task_name: str,
+    background_tasks: BackgroundTasks,
     account_name: Optional[str] = None,
     current_user=Depends(get_current_user),
 ):
@@ -450,7 +455,7 @@ async def toggle_sign_task_enabled(
         )
 
         # 调度同步和监控重启放到后台执行，避免阻塞 HTTP 响应
-        asyncio.ensure_future(_safe_background_sync())
+        background_tasks.add_task(_safe_background_sync)
         return task
     except HTTPException:
         raise
@@ -473,7 +478,7 @@ class CloneTaskRequest(BaseModel):
     response_model=SignTaskOut,
     status_code=status.HTTP_201_CREATED,
 )
-async def clone_sign_task(
+def clone_sign_task(
     task_name: str,
     payload: CloneTaskRequest,
     current_user=Depends(get_current_user),

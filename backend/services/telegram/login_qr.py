@@ -51,8 +51,8 @@ class TelegramQrLoginMixin:
             try:
                 await client.storage.dc_id(migrate_dc_id)
                 await client.storage.auth_key(migrate_auth_key)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("应用 QR 迁移 auth 失败 (dc_id=%s): %s", migrate_dc_id, exc)
 
 
     @staticmethod
@@ -66,8 +66,8 @@ class TelegramQrLoginMixin:
                 data["migrate_auth_key"] = auth_key
             if dc_id:
                 data["migrate_dc_id"] = dc_id
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("捕获 QR 迁移 auth 失败: %s", exc)
 
 
     async def _cleanup_qr_login(self, login_id: str, preserve_session: bool = False) -> None:
@@ -89,8 +89,8 @@ class TelegramQrLoginMixin:
         if client and handler:
             try:
                 client.remove_handler(*handler)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("QR 登录清理 remove_handler 失败 (login_id=%s): %s", login_id, exc)
         if client:
             try:
                 if getattr(client, "is_initialized", False):
@@ -189,20 +189,20 @@ class TelegramQrLoginMixin:
 
         config_service = get_config_service()
         tg_config = config_service.get_telegram_config()
-        api_id = os.getenv("TG_API_ID") or tg_config.get("api_id")
-        api_hash = os.getenv("TG_API_HASH") or tg_config.get("api_hash")
+
+        from backend.services.telegram.credentials import (
+            resolve_telegram_api_credentials,
+        )
 
         try:
-            api_id = int(api_id) if api_id is not None else None
-        except (TypeError, ValueError):
-            api_id = None
-
-        if isinstance(api_hash, str):
-            api_hash = api_hash.strip()
-
-        if not api_id or not api_hash:
+            api_id, api_hash = resolve_telegram_api_credentials(
+                tg_config,
+                env_api_id=os.getenv("TG_API_ID"),
+                env_api_hash=os.getenv("TG_API_HASH"),
+            )
+        except ValueError:
             _release_account_lock()
-            raise ValueError("Telegram API ID / API Hash 未配置或无效")
+            raise ValueError("Telegram API ID / API Hash 未配置或无效") from None
 
         if not proxy:
             global_proxy = config_service.get_global_settings().get("global_proxy")
@@ -548,19 +548,18 @@ class TelegramQrLoginMixin:
                         if not api_id or not api_hash:
                             try:
                                 from backend.services.config import get_config_service
+                                from backend.services.telegram.credentials import (
+                                    resolve_telegram_api_credentials,
+                                )
 
                                 tg_config = get_config_service().get_telegram_config()
-                                api_id = os.getenv("TG_API_ID") or tg_config.get("api_id")
-                                api_hash = os.getenv("TG_API_HASH") or tg_config.get("api_hash")
-                                try:
-                                    api_id = int(api_id) if api_id is not None else None
-                                except (TypeError, ValueError):
-                                    api_id = None
-                                if isinstance(api_hash, str):
-                                    api_hash = api_hash.strip()
-                                if api_id and api_hash:
-                                    data["api_id"] = api_id
-                                    data["api_hash"] = api_hash
+                                api_id, api_hash = resolve_telegram_api_credentials(
+                                    tg_config,
+                                    env_api_id=os.getenv("TG_API_ID"),
+                                    env_api_hash=os.getenv("TG_API_HASH"),
+                                )
+                                data["api_id"] = api_id
+                                data["api_hash"] = api_hash
                             except Exception:
                                 api_id = None
                                 api_hash = None
@@ -826,21 +825,18 @@ class TelegramQrLoginMixin:
                     if not api_id or not api_hash:
                         try:
                             from backend.services.config import get_config_service
+                            from backend.services.telegram.credentials import (
+                                resolve_telegram_api_credentials,
+                            )
 
                             tg_config = get_config_service().get_telegram_config()
-                            api_id = os.getenv("TG_API_ID") or tg_config.get("api_id")
-                            api_hash = os.getenv("TG_API_HASH") or tg_config.get(
-                                "api_hash"
+                            api_id, api_hash = resolve_telegram_api_credentials(
+                                tg_config,
+                                env_api_id=os.getenv("TG_API_ID"),
+                                env_api_hash=os.getenv("TG_API_HASH"),
                             )
-                            try:
-                                api_id = int(api_id) if api_id is not None else None
-                            except (TypeError, ValueError):
-                                api_id = None
-                            if isinstance(api_hash, str):
-                                api_hash = api_hash.strip()
-                            if api_id and api_hash:
-                                data["api_id"] = api_id
-                                data["api_hash"] = api_hash
+                            data["api_id"] = api_id
+                            data["api_hash"] = api_hash
                         except Exception:
                             api_id = None
                             api_hash = None

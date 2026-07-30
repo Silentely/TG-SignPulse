@@ -10,11 +10,10 @@ import json
 import logging
 import shutil
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from backend.utils.names import validate_storage_name
 from backend.services.sign_task_history_index import rebuild_index_from_history_files
+from backend.utils.names import validate_storage_name
 
 _logger = logging.getLogger("backend.sign_task_crud")
 
@@ -121,7 +120,7 @@ class SignTaskCrudMixin:
                 else:
                     remove_sign_task_job(current_account, task_name)
         except Exception as e:
-            _logger.debug("更新调度任务失败: %s", e)
+            _logger.warning("任务 %s 已保存但调度注册失败: %s", task_name, e)
 
         related = self._find_related_task_infos(task_name, target_accounts[0])
         return pick_task_write_response(
@@ -282,7 +281,6 @@ class SignTaskCrudMixin:
         existing_last_run_map = last_run_map_from_related(related_tasks)
         removed_accounts = removed_accounts_diff(existing_accounts, target_accounts)
 
-        import shutil
 
         from backend.scheduler import add_or_update_sign_task_job, remove_sign_task_job
 
@@ -372,7 +370,9 @@ class SignTaskCrudMixin:
         if old_account_dir.exists():
             self._move_storage_path(old_account_dir, new_account_dir)
 
-        from backend.services.sign_task_config_build import apply_account_rename_to_config
+        from backend.services.sign_task_config_build import (
+            apply_account_rename_to_config,
+        )
 
         for config_path in self.signs_dir.glob("*/*/config.json"):
             try:
@@ -441,7 +441,7 @@ class SignTaskCrudMixin:
         try:
             rebuild_index_from_history_files(self.run_history_dir)
         except Exception as exc:
-            _logger.debug("账号重命名后重建历史索引失败: %s", exc)
+            _logger.warning("账号重命名后重建历史索引失败: %s", exc)
 
         self._refresh_tasks_cache_after_write()
 
@@ -461,7 +461,6 @@ class SignTaskCrudMixin:
         if not task_dirs:
             return False
 
-        import shutil
 
         from backend.scheduler import remove_sign_task_job
 

@@ -40,9 +40,9 @@ def test_legacy_tasks_routes_gone(client, db_session):
 
 
 def test_legacy_events_logs_gone(client, db_session):
+    """旧版 SSE /api/events/logs 已物理移除。"""
     resp = client.get("/api/events/logs", headers=_auth())
-    assert resp.status_code == 410
-    assert resp.json().get("detail") == "LEGACY_EVENTS_LOGS_REMOVED"
+    assert _gone(resp.status_code)
 
 
 def test_readyz_includes_ops_fields(client, db_session):

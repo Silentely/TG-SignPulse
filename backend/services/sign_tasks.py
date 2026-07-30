@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -20,15 +21,12 @@ from backend.services.sign_task_config_inspect import (
     task_has_keyword_monitor,
     task_requires_updates,
 )
+from backend.services.sign_task_crud import SignTaskCrudMixin
 from backend.services.sign_task_failure import (
     message_indicates_strong_failure,
 )
 from backend.services.sign_task_history_format import (
     clamp_limit,
-)
-from backend.services.sign_task_history_query import (
-    collect_formatted_history_items,
-    sort_history_items_desc,
 )
 from backend.services.sign_task_history_io import (
     cleanup_old_history_files,
@@ -39,8 +37,11 @@ from backend.services.sign_task_history_io import (
 from backend.services.sign_task_history_io import (
     safe_history_key as safe_history_key_io,
 )
-from backend.services.sign_task_crud import SignTaskCrudMixin
 from backend.services.sign_task_history_ops import SignTaskHistoryMixin
+from backend.services.sign_task_history_query import (
+    collect_formatted_history_items,
+    sort_history_items_desc,
+)
 from backend.services.sign_task_message import (
     format_target_message_summary,
     message_matches_thread,
@@ -121,6 +122,7 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         self._run_status_cleanup_tasks: Dict[tuple[str, str], asyncio.Task] = {}
         self._background_run_tasks: Dict[tuple[str, str], asyncio.Task] = {}
         self._tasks_cache = None  # 兼容旧引用：list 或 None
+        self._cache_refresh_deferred = 0  # >0 时挂起写后全量缓存刷新（批量写优化）
         # TTL 列表缓存（与 _tasks_cache 同步），避免长时间持有过期扫描结果
         list_ttl = float(os.getenv("SIGN_TASK_LIST_CACHE_TTL", "30") or "30")
         self._tasks_list_ttl = TTLCache(maxsize=2, ttl=max(list_ttl, 1.0))
@@ -246,7 +248,21 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
 
     def _refresh_tasks_cache_after_write(self) -> None:
         """CRUD 写盘后强制重扫一次并填充缓存（替代仅置 None）。"""
+        # getattr 兜底：__new__ 构造的实例（如单测）未走 __init__
+        if getattr(self, "_cache_refresh_deferred", 0):
+            return
         self.list_tasks(force_refresh=True, aggregate=False)
+
+    @contextmanager
+    def defer_cache_refresh(self):
+        """批量写期间挂起每次写后的全量缓存刷新，退出时统一刷一次。"""
+        self._cache_refresh_deferred = getattr(self, "_cache_refresh_deferred", 0) + 1
+        try:
+            yield
+        finally:
+            self._cache_refresh_deferred -= 1
+            if self._cache_refresh_deferred == 0:
+                self._refresh_tasks_cache_after_write()
 
     async def _fetch_last_target_message_from_chat_history(
         self,
@@ -648,8 +664,13 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
             global_proxy = get_config_service().get_global_settings().get("global_proxy")
             if isinstance(global_proxy, str) and global_proxy.strip():
                 return global_proxy.strip()
-        except Exception:
-            pass
+        except Exception as exc:
+            # 读取全局配置失败时降级为不使用全局代理，但需留下日志便于排查
+            _service_logger.warning(
+                "读取全局代理配置失败，降级为无全局代理 (account=%s): %s",
+                account_name,
+                exc,
+            )
         return None
 
     async def _send_failure_notification(

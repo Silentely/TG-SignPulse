@@ -8,8 +8,14 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, MutableMapping, Optional
+
+# re-export：api 凭据解析为 telegram 包公共逻辑，保留旧导入路径兼容
+from backend.services.telegram.credentials import (  # noqa: F401
+    resolve_telegram_api_credentials,
+)
 
 _logger = logging.getLogger("backend.sign_task_chats")
 
@@ -162,26 +168,6 @@ def resolve_account_session_for_chats(
     }
 
 
-def resolve_telegram_api_credentials(
-    tg_config: Dict[str, Any],
-    *,
-    env_api_id: Optional[str] = None,
-    env_api_hash: Optional[str] = None,
-) -> tuple[int, str]:
-    """解析 api_id / api_hash；无效时抛 ValueError。"""
-    raw_id = env_api_id or tg_config.get("api_id")
-    raw_hash = env_api_hash or tg_config.get("api_hash")
-    try:
-        api_id = int(raw_id) if raw_id is not None else None
-    except (TypeError, ValueError):
-        api_id = None
-    if isinstance(raw_hash, str):
-        raw_hash = raw_hash.strip()
-    if not api_id or not raw_hash:
-        raise ValueError("未配置 Telegram API ID 或 API Hash")
-    return api_id, str(raw_hash)
-
-
 def map_pyrogram_chat(chat: Any) -> Optional[Dict[str, Any]]:
     """
     将 Pyrogram Chat 对象映射为缓存条目。
@@ -271,12 +257,7 @@ def client_kwargs_with_fallback_session(
 # 网络拉取：刷新 Telegram dialogs 并写缓存（原 SignTaskService.refresh_account_chats）
 # ---------------------------------------------------------------------------
 
-import os
-from typing import Awaitable, Callable, MutableMapping
-
-import logging as _logging
-
-_fetch_logger = _logging.getLogger("backend.sign_task_chats")
+_fetch_logger = logging.getLogger("backend.sign_task_chats")
 
 
 def is_invalid_session_error(err: Exception) -> bool:

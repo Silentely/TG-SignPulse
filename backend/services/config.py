@@ -23,6 +23,21 @@ from backend.utils.storage import (
     save_data_dir_override,
 )
 
+# 进程内仅告警一次：避免每次读取 telegram 配置都刷日志
+_default_tg_credentials_warned = False
+
+
+def _warn_default_tg_credentials_once() -> None:
+    """正在使用内置公开默认 TG API 凭据时发出一次性 warning。"""
+    global _default_tg_credentials_warned
+    if _default_tg_credentials_warned:
+        return
+    _default_tg_credentials_warned = True
+    logging.getLogger("backend.config").warning(
+        "正在使用上游 tg-signer 的公开默认 Telegram API 凭据；"
+        "建议通过 TG_API_ID/TG_API_HASH 环境变量或设置页配置自有凭据"
+    )
+
 
 class ConfigService:
     """配置管理服务类"""
@@ -1022,6 +1037,10 @@ class ConfigService:
     # ============ Telegram API 配置 ============
 
     # 默认的 Telegram API 凭证
+    # 说明：这是上游 tg-signer 项目内置的【公开默认凭据】，面向所有用户的兜底值，
+    # 并非本项目的私有密钥泄露；保留它是为了未配置自有凭据的用户可直接使用。
+    # 共享凭据的 API 限额为所有使用者共用，建议用户通过 TG_API_ID/TG_API_HASH
+    # 环境变量或面板设置项配置从 my.telegram.org 申请的自有凭据。
     DEFAULT_TG_API_ID = "611335"
     DEFAULT_TG_API_HASH = "d524b414d21f4d37f08684c1df41ac9c"
 
@@ -1047,12 +1066,14 @@ class ConfigService:
 
         config = self._read_json_file(config_file)
         if config is None:
+            _warn_default_tg_credentials_once()
             return default_config
         # 如果有自定义配置，标记为自定义
         if config.get("api_id") and config.get("api_hash"):
             config["is_custom"] = True
             return config
         else:
+            _warn_default_tg_credentials_once()
             return default_config
 
     def save_telegram_config(self, api_id: str, api_hash: str) -> bool:

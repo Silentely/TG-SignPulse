@@ -187,22 +187,17 @@ async def execute_sign_task(
 
                 # 配置 API 凭据
                 from backend.services.config import get_config_service
+                from backend.services.telegram.credentials import (
+                    resolve_telegram_api_credentials,
+                )
 
                 config_service = get_config_service()
                 tg_config = config_service.get_telegram_config()
-                api_id = os.getenv("TG_API_ID") or tg_config.get("api_id")
-                api_hash = os.getenv("TG_API_HASH") or tg_config.get("api_hash")
-
-                try:
-                    api_id = int(api_id) if api_id is not None else None
-                except (TypeError, ValueError):
-                    api_id = None
-
-                if isinstance(api_hash, str):
-                    api_hash = api_hash.strip()
-
-                if not api_id or not api_hash:
-                    raise ValueError("未配置 Telegram API ID 或 API Hash")
+                api_id, api_hash = resolve_telegram_api_credentials(
+                    tg_config,
+                    env_api_id=os.getenv("TG_API_ID"),
+                    env_api_hash=os.getenv("TG_API_HASH"),
+                )
 
                 session_dir = settings.resolve_session_dir()
                 session_mode = get_session_mode()
