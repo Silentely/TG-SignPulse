@@ -24,9 +24,6 @@ CRITICAL_MODULES = [
     "tg_signer.core",
     "tg_signer.core.client",
     "tg_signer.core.runtime",
-    "tg_signer.core.worker",
-    "tg_signer.core.signer",
-    "tg_signer.core.monitor",
     "tg_signer.cli.signer",
     "tg_signer.cli.monitor",
 ]
@@ -47,19 +44,17 @@ def test_accounts_extract_helper_is_bound_on_routes_module():
     assert accounts._extract_last_bot_message({"last_target_message": "ok"}) == "ok"
 
 
-def test_core_submodules_reexport_runtime_identity():
+def test_core_package_reexports_runtime_identity():
+    """core 包级 re-export 必须与 runtime 真源保持同一对象。"""
     runtime = importlib.import_module("tg_signer.core.runtime")
-    worker = importlib.import_module("tg_signer.core.worker")
-    signer = importlib.import_module("tg_signer.core.signer")
-    monitor = importlib.import_module("tg_signer.core.monitor")
+    client = importlib.import_module("tg_signer.core.client")
     core = importlib.import_module("tg_signer.core")
 
-    assert worker.BaseUserWorker is runtime.BaseUserWorker
-    assert worker.Waiter is runtime.Waiter
-    assert signer.UserSigner is runtime.UserSigner
-    assert monitor.UserMonitor is runtime.UserMonitor
+    assert core.BaseUserWorker is runtime.BaseUserWorker
+    assert core.Waiter is runtime.Waiter
     assert core.UserSigner is runtime.UserSigner
     assert core.UserMonitor is runtime.UserMonitor
+    assert core.Client is client.Client
 
 
 def test_keyword_monitor_private_helpers_injected():

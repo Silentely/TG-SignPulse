@@ -1,6 +1,8 @@
 """sign_task_config_build 纯函数测试。"""
 from __future__ import annotations
 
+import pytest
+
 from backend.services.sign_task_config_build import (
     apply_account_rename_to_config,
     build_sign_task_config,
@@ -122,7 +124,7 @@ def test_pick_task_write_response():
     )
     assert single["account_name"] == "a"
 
-    try:
+    with pytest.raises(ValueError, match="gone"):
         pick_task_write_response(
             [],
             target_accounts=["a"],
@@ -130,6 +132,3 @@ def test_pick_task_write_response():
             get_task_fn=lambda acc: None,
             not_found_message="gone",
         )
-        assert False, "expected ValueError"
-    except ValueError as e:
-        assert "gone" in str(e)

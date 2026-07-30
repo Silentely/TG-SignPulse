@@ -28,15 +28,25 @@ echo ""
 
 # ── 1. Ruff 代码检查 ──
 echo "📦 [1/3] Ruff 代码检查..."
+# ruff 解析链：PATH → 项目 venv → uvx（版本对齐 pyproject 锁定的 <0.16）
+RUFF=""
 if command -v ruff &>/dev/null; then
-    if ruff check backend/ tg_signer/; then
+    RUFF="ruff"
+elif [ -x ".venv/bin/ruff" ]; then
+    RUFF=".venv/bin/ruff"
+elif command -v uvx &>/dev/null; then
+    RUFF="uvx ruff@0.15"
+fi
+if [ -n "$RUFF" ]; then
+    if $RUFF check backend/ tg_signer/ tests/; then
         echo "   ✅ Ruff 检查通过"
     else
         echo "   ❌ Ruff 检查失败，请修复后再推送"
         FAILED=1
     fi
 else
-    echo "   ⚠️  ruff 未安装，跳过（pip install ruff）"
+    echo "   ❌ 未找到可用 ruff（PATH/.venv/uvx 均无），禁止带病推送"
+    FAILED=1
 fi
 echo ""
 
@@ -72,17 +82,27 @@ fi
 
 if [ "$BACKEND_CHANGED" -eq 0 ]; then
     echo "   ⏭️  无后端变更，跳过测试"
-elif command -v python &>/dev/null && [ -f "pyproject.toml" ]; then
-    # -n auto: 并行执行  --no-cov: 跳过覆盖率报告（pre-push 不需要）
-    # --lf: 优先跑上次失败的用例，快速失败  -x: 首个失败即停
-    if python -m pytest tests/ -n auto -x -q --tb=short --no-header --no-cov --lf 2>&1; then
-        echo "   ✅ 测试通过"
+else
+    # python 解析链：项目 venv 优先（依赖齐全），PATH 兜底
+    PYTHON=""
+    if [ -x ".venv/bin/python" ]; then
+        PYTHON=".venv/bin/python"
+    elif command -v python &>/dev/null; then
+        PYTHON="python"
+    fi
+    if [ -n "$PYTHON" ] && [ -f "pyproject.toml" ]; then
+        # -n auto: 并行执行  --no-cov: 跳过覆盖率报告（pre-push 不需要）
+        # --lf: 优先跑上次失败的用例，快速失败  -x: 首个失败即停
+        if $PYTHON -m pytest tests/ -n auto -x -q --tb=short --no-header --no-cov --lf 2>&1; then
+            echo "   ✅ 测试通过"
+        else
+            echo "   ❌ 测试失败，请修复后再推送"
+            FAILED=1
+        fi
     else
-        echo "   ❌ 测试失败，请修复后再推送"
+        echo "   ❌ 未找到可用 python（.venv/PATH 均无），禁止带病推送"
         FAILED=1
     fi
-else
-    echo "   ⚠️  python 未安装，跳过"
 fi
 echo ""
 

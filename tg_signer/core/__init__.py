@@ -2,8 +2,7 @@
 tg_signer.core 包
 
 - client: Client 生命周期与工厂（真源）
-- runtime: BaseUserWorker / UserSigner / UserMonitor
-- worker/signer/monitor: 渐进迁移阅读入口
+- runtime: BaseUserWorker / UserSigner / UserMonitor（真源）
 """
 from __future__ import annotations
 

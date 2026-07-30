@@ -237,7 +237,7 @@ uvicorn backend.main:app --host 127.0.0.1 --port 8080
 
 - **框架**: pytest + pytest-asyncio
 - **运行**: `pytest`（根目录）
-- **覆盖**: pytest-cov 最低 25%
+- **覆盖**: pytest-cov 最低 40%（当前实测 ~45%）
 - **测试目录**: `tests/`，含 factories、fixtures、mocks 三层辅助结构
 - **主要测试**: API 层、服务层、核心模块、配置、缓存、异步 IO、内存监控、批量 API、任务运行器、关键词监控、日志优化、AI 工具
 

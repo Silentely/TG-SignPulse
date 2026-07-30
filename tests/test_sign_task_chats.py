@@ -4,10 +4,9 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from backend.services.sign_task_chats import (
-    append_mapped_chat,
-    build_chat_client_kwargs,
-    client_kwargs_with_fallback_session,
     empty_chat_search_page,
     load_chats_cache_file,
     map_pyrogram_chat,
@@ -88,11 +87,8 @@ def test_resolve_telegram_api_credentials():
     )
     assert api_id == 123
     assert api_hash == "abc"
-    try:
+    with pytest.raises(ValueError):
         resolve_telegram_api_credentials({})
-        assert False, "expected ValueError"
-    except ValueError:
-        pass
 
 
 def test_resolve_account_session_string_mode(tmp_path: Path):

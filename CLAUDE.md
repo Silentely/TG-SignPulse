@@ -12,6 +12,7 @@
 | 2026-06-30 | 补扫：前端 Composables、tg_signer/config.py 配置模型；验证 5 项关键发现 |
 | 2026-06-30 | 补扫：tg_signer/core.py 前半段（Client 生命周期）、前端 13 个 Components；规划 token/any 修复方案 |
 | 2026-07-01 | 新增账号设备管理、设备保活、官方消息查看、批量状态检查功能 |
+| 2026-07-30 | 质量打磨：删除 pyotp 根 shim 与四处死代码；收敛凭据解析/JWT/前端通知/账号状态公共入口；批量写延迟缓存刷新；覆盖率门槛升至 40% |
 
 ## 项目愿景
 
@@ -110,7 +111,7 @@ docker run -d -p 3000:3000 -v ./data:/data ghcr.io/<owner>/tg-signpulse:latest
 ## 测试策略
 
 - **框架**: pytest + pytest-asyncio
-- **覆盖**: `pytest-cov` 最低 25% 门槛
+- **覆盖**: `pytest-cov` 最低 40% 门槛（当前实测 ~45%）
 - **运行**: `pytest` (根目录)
 - **测试目录**: `tests/`，含 factories、fixtures、mocks 三层结构
 - **主要测试文件**: `test_api.py`, `test_core.py`, `test_services.py`, `test_signer_isolation.py`, `test_config.py`, `test_utils.py`, `test_cache.py`, `test_sign_task_history_index.py`, `test_memory_monitor.py`, `test_batch_api.py`, `test_task_runner.py`, `test_keyword_monitor.py`, `test_log_optimization.py`, `test_ai_tools.py`

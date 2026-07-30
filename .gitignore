@@ -168,6 +168,9 @@ docs/superpowers/
 # VitePress agent markdown sources (build-generated)
 docs/public/_sources/
 
+# 本地 Agent 规划产物（不提交远程）
+docs/superpowers/
+
 # EvoMap / Evolver 本地进化与技能（不提交远程）
 .evolver/
 .evolver.lock

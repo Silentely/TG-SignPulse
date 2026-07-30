@@ -108,7 +108,6 @@ src/components/
 ├── CustomSelect.vue         # 单选下拉（支持禁用项和缩进）
 ├── MultiSelect.vue          # 多选 + "全选"模式
 ├── DatePicker.vue           # 日历网格（中英文切换）
-├── LanguageSwitch.vue       # zh-CN ↔ en-US 切换
 ├── accounts/
 │   ├── AddAccountModal.vue  # 添加账号（验证码/QR/2FA 三种登录流程，7 个 API）
 │   └── EditAccountModal.vue # 编辑账号（updateAccount）

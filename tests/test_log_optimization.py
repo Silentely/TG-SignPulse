@@ -267,7 +267,6 @@ class TestNoBarePrintInProduction:
         "backend/api/routes/sign_tasks_v2.py",
         "backend/api/routes/events.py",
         "tg_signer/core/runtime.py",
-        "tg_signer/core/monitor.py",
     ]
 
     @pytest.mark.parametrize("rel_path", _TARGETS)
