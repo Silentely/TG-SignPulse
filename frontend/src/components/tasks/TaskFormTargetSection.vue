@@ -114,8 +114,8 @@ const onChatIdUpdate = (id: number) => {
         />
       </div>
       <div class="space-y-1.5">
-        <label class="ui-label flex items-center justify-between gap-2">
-          {{ t('taskForm.selectFromList') }}
+        <div class="flex items-center justify-between gap-2">
+          <label class="ui-label mb-0">{{ t('taskForm.selectFromList') }}</label>
           <button
             type="button"
             class="flex items-center gap-1 text-[10px] text-sky-500 hover:text-sky-700 dark:hover:text-sky-300 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
@@ -125,7 +125,7 @@ const onChatIdUpdate = (id: number) => {
             <RefreshCw class="w-3 h-3" :class="chatListRefreshing ? 'animate-spin' : ''" />
             {{ t('taskForm.refreshChats') }}
           </button>
-        </label>
+        </div>
         <CustomSelect
           :model-value="selectedChatId"
           :disabled="chatListRefreshing"
