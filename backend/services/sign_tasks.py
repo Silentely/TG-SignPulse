@@ -361,7 +361,8 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
                         ):
                             fallback_text = candidate
                             fallback_timestamp = message_time
-                    except Exception:
+                    except Exception as exc:
+                        _service_logger.debug("解析目标消息候选失败，跳过: %s", exc)
                         continue
         except Exception:
             # Silently ignore errors like "Client is already terminated"
@@ -406,8 +407,8 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         names = set()
         try:
             names.update(name for name in list_account_names() if name)
-        except Exception:
-            pass
+        except Exception as exc:
+            _service_logger.debug("从数据库读取账号名失败: %s", exc)
 
         try:
             session_dir = settings.resolve_session_dir()
@@ -415,8 +416,8 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
                 for path in session_dir.glob(pattern):
                     if path.stem:
                         names.add(path.stem)
-        except Exception:
-            pass
+        except Exception as exc:
+            _service_logger.debug("扫描会话目录获取账号名失败: %s", exc)
 
         return sorted(names)
 
@@ -533,7 +534,8 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
                     stored_names = config.get("account_names", [])
                     if isinstance(stored_names, list) and "*" in stored_names:
                         seen_wildcard_tasks.append((task_dir.name, config, task_dir))
-                except Exception:
+                except Exception as exc:
+                    _service_logger.debug("读取通配任务配置失败，跳过: %s (%s)", config_file, exc)
                     continue
 
         # For each wildcard task, ensure all accounts have a directory
@@ -549,8 +551,11 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
                 try:
                     with open(target_dir / "config.json", "w", encoding="utf-8") as f:
                         json.dump(new_config, f, ensure_ascii=False, indent=2)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    # 该账号的通配任务实际未生成，影响签到调度，必须留痕
+                    _service_logger.warning(
+                        "为账号 %s 写入通配任务配置失败: %s (%s)", acc, target_dir, exc
+                    )
 
         self._refresh_tasks_cache_after_write()
 
@@ -793,8 +798,10 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
                 )
                 if monitor_entry:
                     result.append(monitor_entry)
-            except Exception:
-                pass
+            except Exception as exc:
+                _service_logger.debug(
+                    "获取监控历史条目失败 %s/%s: %s", account_name, task_name, exc
+                )
 
             result.extend(
                 collect_formatted_history_items(

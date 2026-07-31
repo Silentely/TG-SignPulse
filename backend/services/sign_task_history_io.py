@@ -123,7 +123,8 @@ def cleanup_old_history_files(run_history_dir: Path, *, max_age_days: int = 3) -
             if log_file.stat().st_mtime < limit.timestamp():
                 log_file.unlink()
                 removed += 1
-        except Exception:
+        except OSError as exc:
+            _logger.debug("清理过期历史文件失败: %s (%s)", log_file, exc)
             continue
     return removed
 

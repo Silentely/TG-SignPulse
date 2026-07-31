@@ -503,7 +503,8 @@ class SignTaskHistoryMixin:
                     data_list = data
                 else:
                     data_list = []
-            except Exception:
+            except Exception as exc:
+                _logger.warning("读取遗留历史文件失败，跳过: %s (%s)", legacy_file, exc)
                 continue
 
             if not data_list:

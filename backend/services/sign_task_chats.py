@@ -415,7 +415,8 @@ async def refresh_account_chats(
                                         local_chats,
                                         getattr(dialog, "chat", None),
                                     )
-                                except Exception:
+                                except Exception as e:
+                                    logger.debug("映射 dialog 会话失败，跳过: %s", e)
                                     continue
                         except Exception as e:
                             logger.warning(
@@ -441,9 +442,11 @@ async def refresh_account_chats(
                                                 getattr(msg, "chat", None),
                                                 seen_ids=seen_ids,
                                             )
-                                        except Exception:
+                                        except Exception as e:
+                                            logger.debug("映射 search_global 消息会话失败，跳过: %s", e)
                                             continue
-                                except Exception:
+                                except Exception as e:
+                                    logger.debug("search_global(%s) 失败，跳过: %s", term, e)
                                     continue
 
             return local_chats
