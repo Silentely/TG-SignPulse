@@ -19,6 +19,7 @@
 | 2026-07-31 | 打磨第四批：攻克 sign_task_runner 覆盖率 1%→93%——FakeSvc/FakeSigner 替身穿透成功/失败/超时/重试/冷却/强失败翻转/session 双模式/补抓超时分支，新增 24 条测试，总覆盖率 46%→48% |
 | 2026-07-31 | 文档一致性：tg_signer/core.py 单文件行号锚点重锚为 client.py/runtime.py 拆分后真实结构（README 中英文同步）；删除 pyproject 中已不存在 shim 文件的 per-file-ignores 死配置 |
 | 2026-07-31 | 打磨第五批：修正 tasks 指南中旧 `/api/tasks` "默认只读"过时表述（实际已完全移除，改链 FAQ）；sign_task_backend 覆盖率 54%→100%（TaskLogHandler 规范化/回退/溢出/容错与 task_dir 三级解析/交互禁令，新增 10 条测试）；前端 bundle 分析确认分包健康无需干预 |
+| 2026-07-31 | 打磨第六批：通知链路补测——sign_task_notify 10%→100%（门控/静默时段/话题 ID 解析/失败与成功推送容错/mark_account_invalid 幂等通知/check_account_before_task 预检全分支含 fail-open）、server_chan 12%→100%（标准与 sctp 双 URL、参数合并、非法 sendkey 报错）；新增 36 条测试 |
 
 ## 项目愿景
 
