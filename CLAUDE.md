@@ -12,14 +12,14 @@
 | 2026-06-30 | 补扫：前端 Composables、tg_signer/config.py 配置模型；验证 5 项关键发现 |
 | 2026-06-30 | 补扫：tg_signer/core.py 前半段（Client 生命周期）、前端 13 个 Components；规划 token/any 修复方案 |
 | 2026-07-01 | 新增账号设备管理、设备保活、官方消息查看、批量状态检查功能 |
-| 2026-07-30 | 质量打磨：删除 pyotp 根 shim 与四处死代码；收敛凭据解析/JWT/前端通知/账号状态公共入口；批量写延迟缓存刷新；覆盖率门槛升至 40% |
-| 2026-07-31 | 质量打磨：print_exc 收敛为结构化日志并清理注释死代码；历史清理/回复解析/空备份清理等 6 处静默异常补诊断日志；修复历史运维模块乱码 docstring；print_to_user 编码兜底改为 ascii 使回退真正生效；tg_signer/utils 覆盖率 35%→100%（新增 14 条测试） |
-| 2026-07-31 | 打磨第二轮：静默 except 收尾 11 处（通配任务配置写入失败升 warning，其余按级别补诊断日志，过期历史清理收窄为 OSError）；tg_signer/security 覆盖率 56%→100%（新增 18 条测试）；前端 typecheck/vitest 287 条/生产构建全绿 |
-| 2026-07-31 | 打磨第三批：集中补测长尾模块——telegram/sessions 23%→96%（登录会话释放与过期/超量清理）、tg_signer/pydantic_compat 57%→97%（鸭子类型命中 v2 分支与 dump_json）、backend/utils/task_logs 71%→98%（日志提取器全分支）；新增 23 条测试 |
-| 2026-07-31 | 打磨第四批：攻克 sign_task_runner 覆盖率 1%→93%——FakeSvc/FakeSigner 替身穿透成功/失败/超时/重试/冷却/强失败翻转/session 双模式/补抓超时分支，新增 24 条测试，总覆盖率 46%→48% |
+| 2026-07-30 | 删除 pyotp 根 shim 与四处死代码；收敛凭据解析/JWT/前端通知/账号状态公共入口；批量写延迟缓存刷新；覆盖率门槛升至 40% |
+| 2026-07-31 | print_exc 收敛为结构化日志并清理注释死代码；历史清理/回复解析/空备份清理等 6 处静默异常补诊断日志；修复历史运维模块乱码 docstring；print_to_user 编码兜底改为 ascii 使回退真正生效；tg_signer/utils 覆盖率 35%→100%（新增 14 条测试） |
+| 2026-07-31 | 静默 except 收尾 11 处（通配任务配置写入失败升 warning，其余按级别补诊断日志，过期历史清理收窄为 OSError）；tg_signer/security 覆盖率 56%→100%（新增 18 条测试）；前端 typecheck/vitest 287 条/生产构建全绿 |
+| 2026-07-31 | 集中补测长尾模块——telegram/sessions 23%→96%（登录会话释放与过期/超量清理）、tg_signer/pydantic_compat 57%→97%（鸭子类型命中 v2 分支与 dump_json）、backend/utils/task_logs 71%→98%（日志提取器全分支）；新增 23 条测试 |
+| 2026-07-31 | 攻克 sign_task_runner 覆盖率 1%→93%——FakeSvc/FakeSigner 替身穿透成功/失败/超时/重试/冷却/强失败翻转/session 双模式/补抓超时分支，新增 24 条测试，总覆盖率 46%→48% |
 | 2026-07-31 | 文档一致性：tg_signer/core.py 单文件行号锚点重锚为 client.py/runtime.py 拆分后真实结构（README 中英文同步）；删除 pyproject 中已不存在 shim 文件的 per-file-ignores 死配置 |
-| 2026-07-31 | 打磨第五批：修正 tasks 指南中旧 `/api/tasks` "默认只读"过时表述（实际已完全移除，改链 FAQ）；sign_task_backend 覆盖率 54%→100%（TaskLogHandler 规范化/回退/溢出/容错与 task_dir 三级解析/交互禁令，新增 10 条测试）；前端 bundle 分析确认分包健康无需干预 |
-| 2026-07-31 | 打磨第六批：通知链路补测——sign_task_notify 10%→100%（门控/静默时段/话题 ID 解析/失败与成功推送容错/mark_account_invalid 幂等通知/check_account_before_task 预检全分支含 fail-open）、server_chan 12%→100%（标准与 sctp 双 URL、参数合并、非法 sendkey 报错）；新增 36 条测试 |
+| 2026-07-31 | 修正 tasks 指南中旧 `/api/tasks` "默认只读"过时表述（实际已完全移除，改链 FAQ）；sign_task_backend 覆盖率 54%→100%（TaskLogHandler 规范化/回退/溢出/容错与 task_dir 三级解析/交互禁令，新增 10 条测试）；前端 bundle 分析确认分包健康无需干预 |
+| 2026-07-31 | 通知链路补测——sign_task_notify 10%→100%（门控/静默时段/话题 ID 解析/失败与成功推送容错/mark_account_invalid 幂等通知/check_account_before_task 预检全分支含 fail-open）、server_chan 12%→100%（标准与 sctp 双 URL、参数合并、非法 sendkey 报错）；新增 36 条测试 |
 
 ## 项目愿景
 
