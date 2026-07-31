@@ -408,8 +408,8 @@ class SignTaskHistoryMixin:
             del config["last_run"]
             with open(config_file, "w", encoding="utf-8") as f:
                 json.dump(config, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+        except Exception as exc:
+            _logger.debug("清理 last_run 元数据失败: %s (%s)", config_file, exc)
 
     def clear_all_history_logs(self) -> Dict[str, int]:
         removed_files = 0
@@ -455,7 +455,7 @@ class SignTaskHistoryMixin:
         return {"removed_files": removed_files, "removed_entries": removed_entries}
 
     def clear_account_history_logs(self, account_name: str) -> Dict[str, int]:
-        """娓呯悊鏌愯处鍙风殑鍘嗗彶鏃ュ織锛屼笉褰卞搷鍏朵粬璐﹀彿"""
+        """清理某账号的历史日志，不影响其他账号"""
         account_name = validate_storage_name(account_name, field_name="account_name")
         removed_files = 0
         removed_entries = 0
@@ -510,8 +510,8 @@ class SignTaskHistoryMixin:
                 try:
                     legacy_file.unlink()
                     removed_files += 1
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _logger.warning("删除遗留历史文件失败: %s (%s)", legacy_file, exc)
                 continue
 
             from backend.services.sign_task_history_io import plan_legacy_history_clear
@@ -522,14 +522,14 @@ class SignTaskHistoryMixin:
                 try:
                     legacy_file.unlink()
                     removed_files += 1
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _logger.warning("删除遗留历史文件失败: %s (%s)", legacy_file, exc)
             else:
                 try:
                     with open(legacy_file, "w", encoding="utf-8") as f:
                         json.dump(plan.get("kept") or [], f, ensure_ascii=False, indent=2)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _logger.warning("回写遗留历史文件失败: %s (%s)", legacy_file, exc)
 
         try:
             remove_index_entries_matching(

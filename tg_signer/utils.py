@@ -274,7 +274,9 @@ def print_to_user(*args, sep=" ", end="\n", flush=False, **kwargs):
     try:
         stream.write(text)
     except UnicodeEncodeError:
-        encoding = getattr(stream, "encoding", None) or "utf-8"
+        # 流已表明无法直接写入当前文本；编码未知时按 ascii 兜底，
+        # 保证 backslashreplace 能产出可写入的安全文本
+        encoding = getattr(stream, "encoding", None) or "ascii"
         safe_text = text.encode(encoding, errors="backslashreplace").decode(
             encoding,
             errors="ignore",
@@ -284,4 +286,5 @@ def print_to_user(*args, sep=" ", end="\n", flush=False, **kwargs):
         try:
             stream.flush()
         except Exception:
+            # flush 失败仅为输出未及时落盘，不影响调用方流程
             pass

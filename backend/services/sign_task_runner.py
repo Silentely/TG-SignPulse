@@ -379,8 +379,8 @@ async def execute_sign_task(
 
                             if len(last_reply) > 200:
                                 last_reply = last_reply[:197] + "..."
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            _service_logger.debug("解析最近回复文本失败: %s", e)
                         if last_reply:
                             break
                 if last_reply:

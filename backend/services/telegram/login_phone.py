@@ -198,10 +198,6 @@ class TelegramPhoneLoginMixin:
 
             # 保持连接，避免 session 变化导致验证码失效 (PhoneCodeExpired)
             # 断开连接会导致服务端重新分配 Session ID，从而使之前的 hash 失效
-            # try:
-            #     await client.disconnect()
-            # except Exception:
-            #     pass
 
             return {
                 "phone_code_hash": sent_code.phone_code_hash,
@@ -224,9 +220,7 @@ class TelegramPhoneLoginMixin:
             _release_account_lock()
             raise ValueError(f"请求过于频繁，请等待 {e.value} 秒后重试")
         except Exception as e:
-            import traceback
-
-            traceback.print_exc()
+            logger.exception("手机号登录发送验证码阶段异常: %s", e)
             try:
                 await client.disconnect()
             except Exception:
