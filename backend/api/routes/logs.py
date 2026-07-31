@@ -144,6 +144,7 @@ def get_task_logs(
     current_user: User = Depends(get_current_user),
 ):
     del current_user
+    # 仅校验日期格式（非法则 400）；实际过滤由服务层按原始字符串执行
     _normalize_date_filter(date)
 
     if limit < 1:

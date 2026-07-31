@@ -65,6 +65,15 @@ class DeviceKeepaliveService:
             logger.warning("保存设备保活状态失败: %s", exc)
 
     @staticmethod
+    def _parse_interval_days(value: Any, default: int = 30) -> int:
+        """容错解析保活间隔：非法值回落默认，结果限制在 1~170 天。"""
+        try:
+            days = int(value if value not in (None, "") else default)
+        except (TypeError, ValueError):
+            days = default
+        return max(1, min(days, 170))
+
+    @staticmethod
     def _parse_time(value: Any) -> datetime | None:
         if not value:
             return None
@@ -80,10 +89,12 @@ class DeviceKeepaliveService:
     async def run_due(self, force: bool = False) -> Dict[str, Any]:
         """执行设备保活检查。force=True 时忽略上次检查时间。"""
         # 防止并发执行（调度器和手动端点可能重叠）
+        config = get_config_service().get_global_settings()
+        enabled = bool(config.get("device_keepalive_enabled", True))
         if self._running_lock.locked():
             return {
                 "success": False,
-                "enabled": True,
+                "enabled": enabled,
                 "checked": 0,
                 "kept_alive": 0,
                 "skipped": 0,
@@ -99,8 +110,9 @@ class DeviceKeepaliveService:
         """实际执行设备保活检查的内部方法。"""
         config = get_config_service().get_global_settings()
         enabled = bool(config.get("device_keepalive_enabled", True))
-        interval_days = int(config.get("device_keepalive_interval_days") or 30)
-        interval_days = max(1, min(interval_days, 170))
+        interval_days = self._parse_interval_days(
+            config.get("device_keepalive_interval_days")
+        )
 
         if not enabled and not force:
             return {

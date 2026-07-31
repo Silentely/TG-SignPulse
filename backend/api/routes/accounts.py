@@ -723,7 +723,7 @@ def get_account_logs(
             AccountLogItem(
                 id=i + 1,
                 account_name=account_name,
-                task_name=item.get("task_name", "未知任务"),
+                task_name=item.get("task_name") or "未知任务",
                 message=item.get("message")
                 or ("执行成功" if item.get("success") else "执行失败"),
                 success=item.get("success", False),
@@ -734,7 +734,7 @@ def get_account_logs(
     for idx, item in enumerate(history[:limit]):
         if idx >= len(logs):
             break
-        task_name = logs[idx].task_name or "Unknown Task"
+        task_name = logs[idx].task_name
         success = bool(logs[idx].success)
         logs[idx].summary = f"Task: {task_name} {'success' if success else 'failed'}"
         logs[idx].bot_message = _extract_last_bot_message(item) or None

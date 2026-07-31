@@ -405,6 +405,7 @@ class TestClearAndAccountLogs:
                 "last_target_message": "ok",
             },
             {"success": False, "time": ""},
+            {"task_name": "", "success": True, "time": ""},
         ]
         with _patch_sign_svc(_sign_svc(get_account_history_logs=history)):
             resp = api_client.get("/api/accounts/a1/logs", headers=_auth(token))
@@ -413,10 +414,12 @@ class TestClearAndAccountLogs:
         assert body[0]["message"] == "执行成功"
         assert body[0]["summary"] == "Task: 每日签到 success"
         assert body[0]["bot_message"] == "ok"
-        # task_name 缺键时回落默认名；空 message 按成败兜底
+        # task_name 缺键或空串统一回落默认名；空 message 按成败兜底
         assert body[1]["task_name"] == "未知任务"
         assert body[1]["message"] == "执行失败"
         assert body[1]["summary"] == "Task: 未知任务 failed"
+        assert body[2]["task_name"] == "未知任务"
+        assert body[2]["summary"] == "Task: 未知任务 success"
 
     def test_clear_account_logs_not_found_404(self, api_client, db):  # noqa: F811
         token = _login(api_client)
