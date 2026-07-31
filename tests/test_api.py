@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import json
 from typing import Iterator
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -641,3 +642,128 @@ class TestRetryCountValidation:
             )
         assert resp.status_code == 201
         assert resp.json()["retry_count"] == 5
+
+
+class TestDeviceKeepaliveRunResponse:
+    """设备保活手动执行端点的响应建模守钉"""
+
+    @staticmethod
+    def _patch_service(result: dict):
+        svc = MagicMock()
+        svc.run_due = AsyncMock(return_value=result)
+        return patch(
+            "backend.services.device_keepalive.get_device_keepalive_service",
+            return_value=svc,
+        )
+
+    def test_busy_result_keeps_message(self, api_client):
+        """并发冲突时响应需保留服务层的提示信息"""
+        token = _login(api_client)
+        busy_result = {
+            "success": False,
+            "enabled": True,
+            "checked": 0,
+            "kept_alive": 0,
+            "skipped": 0,
+            "failed": 0,
+            "results": [],
+            "message": "设备保活正在运行中，请稍后重试",
+        }
+        with self._patch_service(busy_result):
+            resp = api_client.post(
+                "/api/config/settings/device-keepalive/run", headers=_auth(token)
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["success"] is False
+        assert body["message"] == "设备保活正在运行中，请稍后重试"
+
+    def test_normal_result_message_defaults_null(self, api_client):
+        """正常执行无提示信息时 message 为空，其余字段正常回传"""
+        token = _login(api_client)
+        ok_result = {
+            "success": True,
+            "enabled": True,
+            "checked": 2,
+            "kept_alive": 1,
+            "skipped": 1,
+            "failed": 0,
+            "interval_days": 7,
+            "results": [{"account_name": "acc1", "ok": True}],
+        }
+        with self._patch_service(ok_result):
+            resp = api_client.post(
+                "/api/config/settings/device-keepalive/run", headers=_auth(token)
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["success"] is True
+        assert body["message"] is None
+        assert body["kept_alive"] == 1
+        assert body["interval_days"] == 7
+
+
+class TestImportSignTaskValidation:
+    """导入签到任务的名称校验与回显守钉"""
+
+    @staticmethod
+    def _payload() -> str:
+        return json.dumps(
+            {"task_name": "orig_task", "task_type": "sign", "config": {"chats": []}}
+        )
+
+    def test_invalid_task_name_returns_400(self, api_client):
+        """非法任务名（含路径分隔符）应返回 400 而非 500"""
+        token = _login(api_client)
+        resp = api_client.post(
+            "/api/config/import/sign",
+            json={"config_json": self._payload(), "task_name": "bad/name"},
+            headers=_auth(token),
+        )
+        assert resp.status_code == 400
+        assert "task_name" in resp.json()["detail"]
+
+    def test_response_echoes_normalized_task_name(self, api_client):
+        """回显的任务名需与服务层规范化后的落盘名一致"""
+        token = _login(api_client)
+        resp = api_client.post(
+            "/api/config/import/sign",
+            json={"config_json": self._payload(), "task_name": "  padded_task  "},
+            headers=_auth(token),
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["success"] is True
+        assert body["task_name"] == "padded_task"
+
+
+class TestTelegramConfigValidation:
+    """Telegram API 凭据保存的入参校验守钉"""
+
+    @pytest.mark.parametrize("api_id", ["abc", "1.5", "0", "-5", " "])
+    def test_invalid_api_id_rejected(self, api_client, api_id):
+        """非数字、非正整数或纯空白的 api_id 应返回 400"""
+        token = _login(api_client)
+        resp = api_client.post(
+            "/api/config/telegram",
+            json={"api_id": api_id, "api_hash": "somehash"},
+            headers=_auth(token),
+        )
+        assert resp.status_code == 400
+
+    def test_valid_api_id_saved_normalized(self, api_client):
+        """合法 api_id 保存成功，且保存的是去除首尾空白后的值"""
+        token = _login(api_client)
+        resp = api_client.post(
+            "/api/config/telegram",
+            json={"api_id": " 12345 ", "api_hash": "somehash"},
+            headers=_auth(token),
+        )
+        assert resp.status_code == 200
+        assert resp.json()["success"] is True
+
+        get_resp = api_client.get("/api/config/telegram", headers=_auth(token))
+        assert get_resp.status_code == 200
+        body = get_resp.json()
+        assert body["api_id"] == "12345"
+        assert body["is_custom"] is True

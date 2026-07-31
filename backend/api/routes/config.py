@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from backend.core.auth import get_current_user
 from backend.models.user import User
 from backend.services.config import get_config_service
+from backend.utils.names import validate_storage_name
 from backend.utils.storage import is_writable_dir
 
 router = APIRouter()
@@ -169,7 +170,11 @@ def import_sign_task(
             )
 
         data = json.loads(request.config_json)
-        final_task_name = request.task_name or data.get("task_name", "imported_task")
+        # 与服务层同一入口规范化任务名，确保回显的名字与实际落盘一致
+        final_task_name = validate_storage_name(
+            request.task_name or data.get("task_name", "imported_task"),
+            field_name="task_name",
+        )
 
         _clear_sign_task_cache()
         # 调度同步和监控重启放到后台执行，避免阻塞 HTTP 响应
@@ -182,6 +187,9 @@ def import_sign_task(
         )
     except HTTPException:
         raise
+    except ValueError as e:
+        # 服务层对非法任务名/账号名抛 ValueError，属于客户端输入错误
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -668,6 +676,8 @@ class DeviceKeepaliveResponse(BaseModel):
     failed: int = 0
     interval_days: Optional[int] = None
     results: list[dict] = Field(default_factory=list)
+    # 并发冲突等场景下服务层返回的提示信息
+    message: Optional[str] = None
 
 
 @router.post("/settings/device-keepalive/run", response_model=DeviceKeepaliveResponse)
@@ -806,8 +816,23 @@ def save_telegram_config(
                 detail="api_id and api_hash are required",
             )
 
+        # api_id 必须是正整数，否则要到登录阶段 int() 解析时才失败，在保存处提前拦截
+        api_id = request.api_id.strip()
+        try:
+            api_id_value = int(api_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="api_id must be a valid number",
+            )
+        if api_id_value <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="api_id must be a positive integer",
+            )
+
         success = get_config_service().save_telegram_config(
-            api_id=request.api_id,
+            api_id=api_id,
             api_hash=request.api_hash,
         )
         if not success:
