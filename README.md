@@ -143,7 +143,7 @@ TG-SignPulse/
 │   ├── scheduler/      #   APScheduler 调度器
 │   └── utils/          #   工具函数
 ├── tg_signer/          # Telegram 自动化引擎
-│   ├── core.py         #   签到执行核心
+│   ├── core/           #   签到执行核心（client 客户端生命周期 / runtime 执行器）
 │   ├── config.py       #   任务配置模型 (V1→V2→V3)
 │   └── ai_tools.py     #   AI 工具集成
 ├── frontend/           # Vue 3 前端

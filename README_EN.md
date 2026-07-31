@@ -140,7 +140,7 @@ TG-SignPulse/
 │   ├── scheduler/      #   APScheduler
 │   └── utils/          #   Utilities
 ├── tg_signer/          # Telegram automation engine
-│   ├── core.py         #   Sign-in execution core
+│   ├── core/           #   Sign-in execution core (client lifecycle / runtime workers)
 │   ├── config.py       #   Task config models (V1→V2→V3)
 │   └── ai_tools.py     #   AI tool integration
 ├── frontend/           # Vue 3 frontend

@@ -17,6 +17,7 @@
 | 2026-07-31 | 打磨第二轮：静默 except 收尾 11 处（通配任务配置写入失败升 warning，其余按级别补诊断日志，过期历史清理收窄为 OSError）；tg_signer/security 覆盖率 56%→100%（新增 18 条测试）；前端 typecheck/vitest 287 条/生产构建全绿 |
 | 2026-07-31 | 打磨第三批：集中补测长尾模块——telegram/sessions 23%→96%（登录会话释放与过期/超量清理）、tg_signer/pydantic_compat 57%→97%（鸭子类型命中 v2 分支与 dump_json）、backend/utils/task_logs 71%→98%（日志提取器全分支）；新增 23 条测试 |
 | 2026-07-31 | 打磨第四批：攻克 sign_task_runner 覆盖率 1%→93%——FakeSvc/FakeSigner 替身穿透成功/失败/超时/重试/冷却/强失败翻转/session 双模式/补抓超时分支，新增 24 条测试，总覆盖率 46%→48% |
+| 2026-07-31 | 文档一致性：tg_signer/core.py 单文件行号锚点重锚为 client.py/runtime.py 拆分后真实结构（README 中英文同步）；删除 pyproject 中已不存在 shim 文件的 per-file-ignores 死配置 |
 
 ## 项目愿景
 
@@ -129,12 +130,14 @@ docker run -d -p 3000:3000 -v ./data:/data ghcr.io/<owner>/tg-signpulse:latest
 
 ## 关键架构洞察（补扫 2026-06-30）
 
-### tg_signer/core.py 核心类
+### tg_signer/core/ 包（已拆分：client.py 502 行 + runtime.py 3036 行 + __init__.py 76 行）
 
-| 类 | 行号范围 | 职责 |
+`__init__.py` 透传全部公共符号并承担副作用导入（触发 `_patched_invoke` 等 monkey-patch 装配），外部仍按 `from tg_signer.core import UserSigner` 使用。
+
+| 类 | 位置 | 职责 |
 |----|----------|------|
-| `UserSigner` | 1019-2982 | 自动签到执行器，继承 `BaseUserWorker[SignConfigV3]`，含 cron 调度、会话预热（5 级回退）、6 种动作类型、流程级重试 |
-| `UserMonitor` | 2984-3265 | 消息监控器，继承 `BaseUserWorker[MonitorConfig]`，规则匹配 → 外部转发（UDP/HTTP）→ AI 回复 → Server酱推送 |
+| `UserSigner` | runtime.py 600-2751 | 自动签到执行器，继承 `BaseUserWorker[SignConfigV3]`，含 cron 调度、会话预热（5 级回退）、6 种动作类型、流程级重试 |
+| `UserMonitor` | runtime.py 2752-3022 | 消息监控器，继承 `BaseUserWorker[MonitorConfig]`，规则匹配 → 外部转发（UDP/HTTP）→ AI 回复 → Server酱推送 |
 
 **AI 交互场景**（5 种）：计算题、图片 OCR、图片选按钮、计算后点击、监控回复
 
@@ -151,7 +154,7 @@ docker run -d -p 3000:3000 -v ./data:/data ghcr.io/<owner>/tg-signpulse:latest
 
 > 工具层：`cache.TTLCache` 已接入签到任务列表缓存；`memory_monitor` 在 main 启动；历史列表走 `sign_task_history_index`；SSE 走 `sign_history_events` 进程内总线（30s 索引兜底）
 
-### tg_signer/config.py 配置模型（565 行）
+### tg_signer/config.py 配置模型（563 行）
 
 **版本迁移链**：`SignConfigV1` → `SignConfigV2` → `SignConfigV3`（当前）
 
@@ -170,16 +173,16 @@ docker run -d -p 3000:3000 -v ./data:/data ghcr.io/<owner>/tg-signpulse:latest
 - Pydantic v1/v2 兼容
 - `MatchConfig` 封装消息匹配逻辑（exact/contains/regex/all）
 
-### tg_signer/core.py 前半段（1-881 行）
+### tg_signer/core/ 基座符号（拆分后重锚）
 
-| 类/函数 | 行号 | 职责 |
+| 类/函数 | 位置 | 职责 |
 |---------|------|------|
-| `Client(BaseClient)` | 264-390 | Pyrogram 客户端封装，引用计数共享访问，自动重连 |
-| `get_client()` | 425-476 | 客户端工厂，全局 `_CLIENT_INSTANCES` 缓存 |
-| `close_client_by_name()` | 477-520 | 强制关闭客户端，5s 锁超时 |
-| `BaseUserWorker(Generic[ConfigT])` | 536-966 | 任务/监控基类，含配置加载、登录、消息发送、AI 工具获取 |
-| `Waiter` | 968-995 | 异步事件集合（add/discard/sub/clear） |
-| `UserSignerWorkerContext` | 997-1018 | 签到上下文（消息缓存、回调答案、停止标志） |
+| `Client(BaseClient)` | client.py 216-343 | Pyrogram 客户端封装，引用计数共享访问，自动重连 |
+| `get_client()` | client.py 377-428 | 客户端工厂，全局 `_CLIENT_INSTANCES` 缓存 |
+| `close_client_by_name()` | client.py 429-473 | 强制关闭客户端，5s 锁超时 |
+| `BaseUserWorker(Generic[ConfigT])` | runtime.py 117-548 | 任务/监控基类，含配置加载、登录、消息发送、AI 工具获取 |
+| `Waiter` | runtime.py 549-577 | 异步事件集合（add/discard/sub/clear） |
+| `UserSignerWorkerContext` | runtime.py 578-599 | 签到上下文（消息缓存、回调答案、停止标志） |
 
 **Client 生命周期**：
 - 连接：`__aenter__` → 引用计数 +1 → 首次连接重试 5 次（SQLite 锁等待 2+attempt*3 秒）
@@ -219,7 +222,7 @@ docker run -d -p 3000:3000 -v ./data:/data ghcr.io/<owner>/tg-signpulse:latest
 ## AI 使用指引
 
 - 修改代码前必须先研读对应模块的 CLAUDE.md
-- 跨模块改动需理解 `tg_signer/core.py` 的 Client 生命周期和 `backend/services/` 的调用链
+- 跨模块改动需理解 `tg_signer/core/client.py` 的 Client 生命周期和 `backend/services/` 的调用链
 - 配置模型定义在 `tg_signer/config.py`，后端适配在 `backend/services/sign_tasks.py`
 - 前端 API 调用集中在 `frontend/src/lib/api.ts`，类型定义在 `frontend/src/lib/types.ts`
 - 登录流程改动需同时理解 `telegram.py` 的两阶段/四阶段设计和全局 session 字典
