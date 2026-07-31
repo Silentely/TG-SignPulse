@@ -313,3 +313,55 @@ class TestSessionStringExport:
 
         with pytest.raises(ValueError, match="invalid pyrogram session_string"):
             tg_session.set_account_session_string("x", "1" + "A" * 356)
+
+
+class TestExtractLastTargetMessageBranches:
+    """extract_last_target_message() 提取分支补全"""
+
+    def test_all_lines_empty_returns_empty(self):
+        from backend.utils.task_logs import extract_last_target_message
+
+        # 仅含时间戳/空白的日志，归一化后无有效行
+        logs = ["2026-01-01 12:00:00,000 - ", "   ", ""]
+        assert extract_last_target_message(logs) == ""
+
+    def test_multiline_entry_split_and_blank_skipped(self):
+        from backend.utils.task_logs import extract_last_target_message
+
+        logs = ["第一行\n\n第二行\n收到回复: 多行里的回复"]
+        assert extract_last_target_message(logs) == "多行里的回复"
+
+    def test_received_image_prefix(self):
+        from backend.utils.task_logs import extract_last_target_message
+
+        assert extract_last_target_message(["收到图片: 恭喜图片"]) == "恭喜图片"
+        assert extract_last_target_message(["收到图片：中奖截图"]) == "中奖截图"
+
+    def test_image_marker_fallback_adds_prefix(self):
+        from backend.utils.task_logs import extract_last_target_message
+
+        logs = ["发送内容 图片: cat.jpg"]
+        assert extract_last_target_message(logs) == "[图片] cat.jpg"
+
+    def test_empty_explicit_value_falls_back_to_reply(self):
+        from backend.utils.task_logs import extract_last_target_message
+
+        logs = ["收到回复: 有效回复", "任务对象最后一条消息:"]
+        assert extract_last_target_message(logs) == "有效回复"
+
+    def test_empty_reply_value_falls_back_to_text_marker(self):
+        from backend.utils.task_logs import extract_last_target_message
+
+        logs = ["step text: 文本内容", "收到回复:"]
+        assert extract_last_target_message(logs) == "文本内容"
+
+    def test_empty_text_marker_value_falls_back_to_image(self):
+        from backend.utils.task_logs import extract_last_target_message
+
+        logs = ["图片: pic.png", "prefix text:   "]
+        assert extract_last_target_message(logs) == "[图片] pic.png"
+
+    def test_nothing_matched_returns_empty(self):
+        from backend.utils.task_logs import extract_last_target_message
+
+        assert extract_last_target_message(["普通日志输出"]) == ""
