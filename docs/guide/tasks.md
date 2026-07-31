@@ -13,7 +13,7 @@
 
 一个任务可以绑定单个账号，也可以绑定多个账号作为共享任务。
 
-> 面板与 API 请使用 **sign-tasks**（`/api/sign-tasks`）。旧版 ORM `/api/tasks` 默认只读，仅作兼容。
+> 面板与 API 统一使用 **sign-tasks**（`/api/sign-tasks`）。旧版 ORM `/api/tasks` 已完全移除，详见 [FAQ](/faq)。
 
 ## 运行状态与可观测
 
