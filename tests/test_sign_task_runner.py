@@ -513,6 +513,25 @@ class TestStrongFailureFlip:
         # last_reply 提取自日志行
         assert result["error"] == ""
 
+    @pytest.mark.asyncio
+    async def test_reply_broad_keywords_no_longer_flip_success(self, runner_env):
+        """ narrowed keyword list should not flip on generic words like 错误/异常 """
+        import logging
+
+        async def behavior(run_calls: int):
+            logging.getLogger("tg-signer").info(
+                "收到来自「签到Bot」的消息: Message: text: 验证码错误，但签到成功"
+            )
+
+        FakeSigner.behavior = behavior
+        svc = FakeSvc(task_cfg={"name": "t"})
+        # strong_failure=True 会让 _message_indicates_strong_failure 返回 True，
+        # 但 runner 侧 failure_keywords 已不再含"错误"/"异常"，因此不应翻转。
+        svc.strong_failure = True
+        result = await execute_sign_task(svc, "acc", "t")
+        assert result["success"] is True
+        assert "机器人回复疑似失败" not in result.get("error", "")
+
 
 class TestFetchLastTargetTimeout:
     """补抓最后消息超时跳过"""

@@ -5,11 +5,15 @@
 """
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from backend.services.sign_task_failure import (
     FailureCategory,
     classify_failure,
     failure_category_label,
     message_indicates_strong_failure,
+    write_json_atomic,
 )
 
 # ─── classify_failure 正常流程 ───
@@ -183,6 +187,16 @@ def test_strong_failure_relaxed_chinese_patterns():
     assert message_indicates_strong_failure("检查失败") is True
 
 
+def test_strong_failure_negation_pattern_blocks_false_positive():
+    """否定式成功表述不应判为强失败。"""
+    assert message_indicates_strong_failure("签到没有失败") is False
+    assert message_indicates_strong_failure("本次签到无异常") is False
+    assert message_indicates_strong_failure("操作未失败") is False
+    assert message_indicates_strong_failure("签到并非失败") is False
+    # 否定词不匹配时仍按原逻辑
+    assert message_indicates_strong_failure("签到失败") is True
+
+
 def test_label_all_categories_have_chinese_label():
     """每个枚举值都应有中文标签。"""
     for category in FailureCategory:
@@ -206,3 +220,15 @@ def test_failure_category_is_str_enum():
     assert FailureCategory.SESSION_INVALID == "session_invalid"
     assert FailureCategory.FLOOD_WAIT == "flood_wait"
     assert isinstance(FailureCategory.NONE.value, str)
+
+
+def test_write_json_atomic_writes_valid_json(tmp_path: Path):
+    """原子写入应产生可解析的 JSON 文件。"""
+    target = tmp_path / "sub" / "history.json"
+    data = [{"time": "2026-01-01T00:00:00", "success": False}]
+    write_json_atomic(target, data)
+    assert target.exists()
+    with target.open("r", encoding="utf-8") as f:
+        loaded = json.load(f)
+    assert loaded == data
+    assert not target.with_suffix(target.suffix + ".tmp").exists()

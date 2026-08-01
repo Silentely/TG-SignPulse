@@ -385,16 +385,15 @@ async def execute_sign_task(
                             break
                 if last_reply:
                     reply_lower = last_reply.lower()
+                    # 仅对强失败关键词做二次校验，避免把正常回复里的泛用词误判为失败。
+                    # 注意：这里故意不包含"错误"/"异常"等宽泛词，交给 _message_indicates_strong_failure 的
+                    # 成功标记优先逻辑判定；若仍不足以覆盖，再逐步收紧。
                     failure_keywords = (
                         "失败",
-                        "错误",
-                        "异常",
                         "未成功",
                         "无法",
                         "failed",
                         "failure",
-                        "error",
-                        "invalid",
                         "not found",
                     )
                     if (

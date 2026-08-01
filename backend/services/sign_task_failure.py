@@ -6,9 +6,13 @@
 
 from __future__ import annotations
 
+import json
+import os
 import re
+import tempfile
 from enum import Enum
-from typing import Optional
+from pathlib import Path
+from typing import Any, Optional
 
 
 class FailureCategory(str, Enum):
@@ -26,6 +30,8 @@ class FailureCategory(str, Enum):
     STRONG_FAILURE = "strong_failure"
     UNKNOWN = "unknown"
 
+
+_NEGATION_PATTERN = re.compile(r"(没有|未|无|并非|不是).{0,3}(失败|异常|超时)")
 
 _STRONG_FAILURE_PATTERNS = (
     # 中文常以 "动词 + 其他描述 + 失败/异常/超时" 出现，允许中间最多 6 个任意字符
@@ -153,11 +159,14 @@ _CATEGORY_RULES: tuple[tuple[FailureCategory, tuple[str, ...]], ...] = (
 )
 
 def message_indicates_strong_failure(text: str) -> bool:
-    """目标消息文本是否呈现强失败语义（排除成功标记）。"""
+    """目标消息文本是否呈现强失败语义（排除成功标记与否定式成功表述）。"""
     normalized = str(text or "").strip().lower()
     if not normalized:
         return False
     if any(marker in normalized for marker in _SUCCESS_MARKERS):
+        return False
+    # 否定式成功表述（如"签到没有失败"）不应判为强失败
+    if _NEGATION_PATTERN.search(normalized):
         return False
     return any(pattern.search(normalized) for pattern in _STRONG_FAILURE_PATTERNS)
 
@@ -188,6 +197,20 @@ def classify_failure(
         return FailureCategory.STRONG_FAILURE
 
     return FailureCategory.UNKNOWN if success is False else FailureCategory.NONE
+
+
+def write_json_atomic(path: Path, data: Any) -> None:
+    """原子写入 JSON：先写 .tmp 再 fsync + rename，避免进程崩溃导致文件截断。"""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", delete=False, dir=path.parent
+    ) as tmp:
+        json.dump(data, tmp, ensure_ascii=False, indent=2)
+        tmp.flush()
+        os.fsync(tmp.fileno())
+        actual_tmp = Path(tmp.name)
+    os.replace(actual_tmp, path)
 
 
 def failure_category_label(category: FailureCategory) -> str:

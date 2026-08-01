@@ -625,8 +625,7 @@ class SignTaskHistoryMixin:
         )
 
         try:
-            with open(history_file, "w", encoding="utf-8") as f:
-                json.dump(history, f, ensure_ascii=False, indent=2)
+            write_json_atomic(history_file, history)
 
             # 同时更新任务配置中的 last_run
             from backend.services.sign_task_history_io import (
