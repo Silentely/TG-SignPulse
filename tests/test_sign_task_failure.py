@@ -135,6 +135,54 @@ def test_label_none():
     assert failure_category_label(FailureCategory.NONE) == "正常"
 
 
+def test_classify_ai_error_chinese_logs():
+    """tg_signer 中文 AI 失败日志应正确归类为 AI_ERROR。"""
+    assert classify_failure(error="任务执行出错: RuntimeError: 所有会话均执行失败（详细请看运行日志）", output="AI 调用失败 | method=calculate_problem model=gpt-4o error=RateLimitError", success=False) == FailureCategory.AI_ERROR
+    assert classify_failure(error="AI 调用失败", success=False) == FailureCategory.AI_ERROR
+    assert classify_failure(output="AI 未返回有效答案", success=False) == FailureCategory.AI_ERROR
+    assert classify_failure(error="识图失败", success=False) == FailureCategory.AI_ERROR
+
+
+def test_classify_session_invalid_chinese_variants():
+    """runner / tg_signer 常见中文失效文案。"""
+    assert classify_failure(error="登录失效", success=False) == FailureCategory.SESSION_INVALID
+    assert classify_failure(error="账号登录已失效，请重新登录", success=False) == FailureCategory.SESSION_INVALID
+
+
+def test_classify_target_not_found_chinese_variants():
+    """目标未找到中文变体。"""
+    assert classify_failure(error="消息未找到", success=False) == FailureCategory.TARGET_NOT_FOUND
+    assert classify_failure(error="会话未找到", success=False) == FailureCategory.TARGET_NOT_FOUND
+    assert classify_failure(error="聊天未找到", success=False) == FailureCategory.TARGET_NOT_FOUND
+    assert classify_failure(error="目标未找到", success=False) == FailureCategory.TARGET_NOT_FOUND
+
+
+def test_classify_button_not_found_chinese_variants():
+    """按钮未找到中文变体。"""
+    assert classify_failure(error="按钮查找失败", success=False) == FailureCategory.BUTTON_NOT_FOUND
+    assert classify_failure(error="未找到可供点击的按钮", success=False) == FailureCategory.BUTTON_NOT_FOUND
+
+
+def test_classify_network_proxy_chinese_variants():
+    """网络/代理中文变体。"""
+    assert classify_failure(error="连接失败", success=False) == FailureCategory.NETWORK_PROXY
+    assert classify_failure(error="拒绝连接", success=False) == FailureCategory.NETWORK_PROXY
+    assert classify_failure(error="网络不可达", success=False) == FailureCategory.NETWORK_PROXY
+    assert classify_failure(error="名称或服务未知", success=False) == FailureCategory.NETWORK_PROXY
+    assert classify_failure(error="名称解析失败", success=False) == FailureCategory.NETWORK_PROXY
+    assert classify_failure(error="连接超时", success=False) == FailureCategory.NETWORK_PROXY
+
+
+def test_strong_failure_relaxed_chinese_patterns():
+    """放宽后的中文强失败语义应覆盖更多 tg_signer 日志。"""
+    assert message_indicates_strong_failure("按钮点击返回异常") is True
+    assert message_indicates_strong_failure("删除消息失败") is True
+    assert message_indicates_strong_failure("历史消息回退失败") is True
+    assert message_indicates_strong_failure("签到失败") is True
+    assert message_indicates_strong_failure("处理异常") is True
+    assert message_indicates_strong_failure("检查失败") is True
+
+
 def test_label_all_categories_have_chinese_label():
     """每个枚举值都应有中文标签。"""
     for category in FailureCategory:

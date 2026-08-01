@@ -28,7 +28,8 @@ class FailureCategory(str, Enum):
 
 
 _STRONG_FAILURE_PATTERNS = (
-    re.compile(r"(签到|任务|执行|操作|请求|发送|点击)\s*(失败|异常|超时)"),
+    # 中文常以 "动词 + 其他描述 + 失败/异常/超时" 出现，允许中间最多 6 个任意字符
+    re.compile(r"(签到|任务|执行|操作|请求|发送|点击|处理|删除|回退|检查|刷新|查找|获取|更新|写入|读取|解析|转换|初始化|加载|同步|上传|下载|打包|清理).{0,6}(失败|异常|超时)"),
     re.compile(r"(未找到|找不到).*(按钮|消息|会话|聊天|目标)"),
     re.compile(r"(账号|会话|session).*(失效|无效|invalid)"),
     re.compile(
@@ -59,6 +60,8 @@ _CATEGORY_RULES: tuple[tuple[FailureCategory, tuple[str, ...]], ...] = (
             "session 失效",
             "会话失效",
             "账号失效",
+            "登录失效",
+            "登录已失效",
             "unauthorized",
             "user deactivated",
             "session_revoked",
@@ -82,31 +85,42 @@ _CATEGORY_RULES: tuple[tuple[FailureCategory, tuple[str, ...]], ...] = (
         (
             "openai",
             "ai error",
+            "ai_error",
             "vision error",
             "api key",
             "quota",
             "rate limit",
             "insufficient_quota",
             "model_not_found",
+            "ai 调用失败",
+            "ai 错误",
+            "ai 未返回",
+            "识图失败",
+            "ocr 失败",
         ),
     ),
     (
         FailureCategory.BUTTON_NOT_FOUND,
-        ("未找到按钮", "找不到按钮", "button not found", "no button", "no matching button"),
+        ("未找到按钮", "找不到按钮", "button not found", "no button", "no matching button", "按钮查找失败", "未找到可供点击的按钮"),
     ),
     (
         FailureCategory.TARGET_NOT_FOUND,
         (
             "未找到消息",
             "找不到消息",
+            "消息未找到",
             "未找到会话",
             "找不到聊天",
+            "会话未找到",
+            "聊天未找到",
             "chat not found",
             "peer id invalid",
             "peer_id_invalid",
             "username not occupied",
             "channel_invalid",
             "channel_private",
+            "target not found",
+            "目标未找到",
         ),
     ),
     (
@@ -124,6 +138,12 @@ _CATEGORY_RULES: tuple[tuple[FailureCategory, tuple[str, ...]], ...] = (
             "clientconnectorerror",
             "name or service not known",
             "temporary failure in name resolution",
+            "连接失败",
+            "拒绝连接",
+            "网络不可达",
+            "名称或服务未知",
+            "名称解析失败",
+            "连接超时",
         ),
     ),
     (
