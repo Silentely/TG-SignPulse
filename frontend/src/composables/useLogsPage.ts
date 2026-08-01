@@ -122,7 +122,8 @@ export function useLogsPage() {
     }
     if (filterCategory.value) {
       filtered = filtered.filter((l) => {
-        const cat = String(l.failure_category || 'unknown')
+        const raw = String(l.failure_category || "").trim()
+        const cat = raw || "unknown"
         return !l.success && cat === filterCategory.value
       })
     }

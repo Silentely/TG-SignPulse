@@ -77,7 +77,8 @@ export function failureCategoryLabel(
   cat: string | null | undefined,
   t: Translate,
 ): string {
-  if (!cat || cat === 'none') return ''
+  if (!cat || cat === "none") return ""
+  if (cat === "unknown") return t("dashboard.failCat.unknown")
   const key = `dashboard.failCat.${cat}`
   const label = t(key)
   return label === key ? cat : label
@@ -128,8 +129,9 @@ export function aggregateFailureCategories(
   const map = new Map<string, number>()
   for (const log of logs) {
     if (log.success) continue
-    const cat = String(log.failure_category || 'unknown').trim() || 'unknown'
-    if (cat === 'none') continue
+    const raw = String(log.failure_category || "").trim()
+    const cat = raw || "unknown"
+    if (cat === "none") continue
     map.set(cat, (map.get(cat) || 0) + 1)
   }
   return Array.from(map.entries())
