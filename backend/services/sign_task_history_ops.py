@@ -56,6 +56,10 @@ _logger = logging.getLogger("backend.sign_task_history_ops")
 class SignTaskHistoryMixin:
     """历史相关方法；由 SignTaskService 继承。"""
 
+    # 以下方法是对历史 IO/格式化模块的偏函数封装：
+    # 将 SignTaskService 实例属性（repair 函数、limits、目录）预埋为默认参数，
+    # 避免调用方每次都手动传入。并非冗余透传，而是"实例配置 → 纯函数"的适配层。
+
     def _normalize_flow_logs(
         self, flow_logs: Optional[List[str]]
     ) -> tuple[List[str], bool, int]:

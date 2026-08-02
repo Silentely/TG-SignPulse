@@ -8,23 +8,39 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Mapping, MutableMapping, Optional
 
+# 共享默认值：build_sign_task_config 与 resolve_update_field_values 统一引用，
+# 避免两处默认值漂移。
+_DEFAULT_TASK_FIELDS: Dict[str, Any] = {
+    "random_seconds": 0,
+    "sign_interval": 1,
+    "execution_mode": "fixed",
+    "range_start": "",
+    "range_end": "",
+    "notify_on_failure": True,
+    "notify_on_success": True,
+    "retry_count": 3,
+    "enabled": True,
+    "sign_at": "08:00",
+    "chats": [],
+}
+
 
 def build_sign_task_config(
     *,
     account_name: str,
     account_names: List[str],
     task_group_id: str = "",
-    sign_at: str,
-    random_seconds: int = 0,
-    sign_interval: int = 1,
-    chats: List[Dict[str, Any]],
-    execution_mode: str = "fixed",
-    range_start: str = "",
-    range_end: str = "",
-    notify_on_failure: bool = True,
-    notify_on_success: bool = True,
-    retry_count: int = 3,
-    enabled: bool = True,
+    sign_at: str = _DEFAULT_TASK_FIELDS["sign_at"],
+    random_seconds: int = _DEFAULT_TASK_FIELDS["random_seconds"],
+    sign_interval: int = _DEFAULT_TASK_FIELDS["sign_interval"],
+    chats: List[Dict[str, Any]] = _DEFAULT_TASK_FIELDS["chats"],
+    execution_mode: str = _DEFAULT_TASK_FIELDS["execution_mode"],
+    range_start: str = _DEFAULT_TASK_FIELDS["range_start"],
+    range_end: str = _DEFAULT_TASK_FIELDS["range_end"],
+    notify_on_failure: bool = _DEFAULT_TASK_FIELDS["notify_on_failure"],
+    notify_on_success: bool = _DEFAULT_TASK_FIELDS["notify_on_success"],
+    retry_count: int = _DEFAULT_TASK_FIELDS["retry_count"],
+    enabled: bool = _DEFAULT_TASK_FIELDS["enabled"],
     last_run: Any = None,
     version: int = 4,
 ) -> Dict[str, Any]:
@@ -67,45 +83,18 @@ def resolve_update_field_values(
     enabled: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """合并更新入参与既有配置，返回下一版字段值。"""
-    try:
-        prev_random = int(existing["random_seconds"])
-    except (KeyError, TypeError, ValueError):
-        prev_random = 0
-    try:
-        prev_interval = int(existing["sign_interval"])
-    except (KeyError, TypeError, ValueError):
-        prev_interval = 1
-    try:
-        prev_retry = int(existing.get("retry_count", 3))
-    except (TypeError, ValueError):
-        prev_retry = 3
-
     return {
-        "sign_at": sign_at if sign_at is not None else str(existing.get("sign_at") or "08:00"),
-        "random_seconds": random_seconds if random_seconds is not None else prev_random,
-        "sign_interval": sign_interval if sign_interval is not None else prev_interval,
-        "chats": chats if chats is not None else list(existing.get("chats") or []),
-        "execution_mode": (
-            execution_mode
-            if execution_mode is not None
-            else str(existing.get("execution_mode", "fixed"))
-        ),
-        "range_start": (
-            range_start if range_start is not None else str(existing.get("range_start", ""))
-        ),
-        "range_end": range_end if range_end is not None else str(existing.get("range_end", "")),
-        "notify_on_failure": (
-            notify_on_failure
-            if notify_on_failure is not None
-            else bool(existing.get("notify_on_failure", True))
-        ),
-        "notify_on_success": (
-            notify_on_success
-            if notify_on_success is not None
-            else bool(existing.get("notify_on_success", True))
-        ),
-        "enabled": enabled if enabled is not None else bool(existing.get("enabled", True)),
-        "retry_count": retry_count if retry_count is not None else prev_retry,
+        "sign_at": sign_at if sign_at is not None else str(existing.get("sign_at") or _DEFAULT_TASK_FIELDS["sign_at"]),
+        "random_seconds": random_seconds if random_seconds is not None else int(existing.get("random_seconds", _DEFAULT_TASK_FIELDS["random_seconds"])),
+        "sign_interval": sign_interval if sign_interval is not None else int(existing.get("sign_interval", _DEFAULT_TASK_FIELDS["sign_interval"])),
+        "chats": chats if chats is not None else list(existing.get("chats") or _DEFAULT_TASK_FIELDS["chats"]),
+        "execution_mode": execution_mode if execution_mode is not None else str(existing.get("execution_mode", _DEFAULT_TASK_FIELDS["execution_mode"])),
+        "range_start": range_start if range_start is not None else str(existing.get("range_start", _DEFAULT_TASK_FIELDS["range_start"])),
+        "range_end": range_end if range_end is not None else str(existing.get("range_end", _DEFAULT_TASK_FIELDS["range_end"])),
+        "notify_on_failure": notify_on_failure if notify_on_failure is not None else bool(existing.get("notify_on_failure", _DEFAULT_TASK_FIELDS["notify_on_failure"])),
+        "notify_on_success": notify_on_success if notify_on_success is not None else bool(existing.get("notify_on_success", _DEFAULT_TASK_FIELDS["notify_on_success"])),
+        "enabled": enabled if enabled is not None else bool(existing.get("enabled", _DEFAULT_TASK_FIELDS["enabled"])),
+        "retry_count": retry_count if retry_count is not None else int(existing.get("retry_count", _DEFAULT_TASK_FIELDS["retry_count"])),
     }
 
 

@@ -2152,6 +2152,52 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         )
         return clicked
 
+    async def _execute_ai_action(
+        self,
+        *,
+        method: str,
+        ai_call: Any,
+        model: str,
+        request_meta: dict,
+        result_meta: dict | Any,
+        action_log: str,
+        empty_result_log: str | None = None,
+        result_empty_check: Any = None,
+        success_log: str | None = None,
+    ) -> Any:
+        """统一 AI 调用样板：计时 → 请求日志 → 调用 → 响应日志 → 异常标准化。
+
+        `result_meta` 支持两种形态：
+        - dict：直接展开为 safe_ai_result_meta 关键字参数（适用于静态元数据）
+        - callable(result, elapsed_ms) -> dict：从原始结果动态派生元数据（如 selected_options）
+        """
+        self.log(action_log)
+        self.log(
+            f"AI 请求 | {safe_ai_request_meta(method=method, model=model, **request_meta)}"
+        )
+        _start = time.monotonic()
+        try:
+            result = await ai_call()
+        except Exception as exc:
+            _elapsed = (time.monotonic() - _start) * 1000
+            self.log(
+                f"AI 调用失败 | method={method} model={model} elapsed_ms={_elapsed:.0f}"
+                f" error={type(exc).__name__}: {safe_text_preview(exc, 200)}",
+                level="ERROR",
+            )
+            raise
+        _elapsed = (time.monotonic() - _start) * 1000
+        _meta = result_meta(result, _elapsed) if callable(result_meta) else dict(result_meta)
+        self.log(
+            f"AI 响应 | {safe_ai_result_meta(method=method, model=model, elapsed_ms=_elapsed, **_meta)}"
+        )
+        if empty_result_log and result_empty_check is not None and not result_empty_check:
+            self.log(empty_result_log, level="WARNING")
+            return None
+        if success_log:
+            self.log(success_log(result), level="DEBUG")
+        return result
+
     async def _reply_by_calculation_problem(
         self, action: ReplyByCalculationProblemAction, message
     ):
@@ -2163,24 +2209,32 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             if ai_prompt:
                 self.log("当前 AI 动作使用自定义提示词")
             model = self.get_ai_tools().default_model
-            self.log(f"AI 请求 | {safe_ai_request_meta(method='calculate_problem', model=model, query_chars=len(message.text), custom_prompt=bool(ai_prompt), question_preview=message.text)}")
-            _start = time.monotonic()
-            try:
-                answer = await self.get_ai_tools().calculate_problem(
+            answer = await self._execute_ai_action(
+                method="calculate_problem",
+                ai_call=lambda: self.get_ai_tools().calculate_problem(
                     message.text,
                     system_prompt=ai_prompt,
-                )
-                _elapsed = (time.monotonic() - _start) * 1000
-                answer = (answer or "").strip()
-                self.log(f"AI 响应 | {safe_ai_result_meta(method='calculate_problem', model=model, elapsed_ms=_elapsed, response_chars=len(answer), selected_options=[answer] if answer else [])}")
-            except Exception as e:
-                _elapsed = (time.monotonic() - _start) * 1000
-                self.log(f"AI 调用失败 | method=calculate_problem model={model} elapsed_ms={_elapsed:.0f} error={type(e).__name__}: {safe_text_preview(e, 200)}", level="ERROR")
-                raise
-            if not answer:
-                self.log("AI 未返回有效答案", level="WARNING")
+                ),
+                model=model,
+                request_meta=dict(
+                    query_chars=len(message.text),
+                    custom_prompt=bool(ai_prompt),
+                    question_preview=message.text,
+                ),
+                result_meta=dict(
+                    response_chars=0,
+                    selected_options=[],
+                ),
+                action_log="AI 正在分析计算题",
+                empty_result_log="AI 未返回有效答案",
+                result_empty_check=lambda r: (r or "").strip(),
+                success_log=lambda r: f"AI 计算完成 | answer_chars={len(r)} | 预览: {safe_text_preview(r, 80)}",
+            )
+            if answer is None:
                 return False
-            self.log(f"AI 计算完成 | answer_chars={len(answer)} | 预览: {safe_text_preview(answer, 80)}", level="DEBUG")
+            answer = answer.strip()
+            if not answer:
+                return False
             await self.send_message(message.chat.id, answer)
             return True
         return False
@@ -2204,24 +2258,32 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         if ai_prompt:
             self.log("当前 AI 动作使用自定义提示词")
         model = self.get_ai_tools().default_model
-        self.log(f"AI 请求 | {safe_ai_request_meta(method='extract_text_by_image', model=model, has_image=True, image_bytes=len(image_bytes), custom_prompt=bool(ai_prompt))}")
-        _start = time.monotonic()
-        try:
-            text = await self.get_ai_tools().extract_text_by_image(
+        text = await self._execute_ai_action(
+            method="extract_text_by_image",
+            ai_call=lambda: self.get_ai_tools().extract_text_by_image(
                 image_bytes,
                 system_prompt=ai_prompt,
-            )
-            _elapsed = (time.monotonic() - _start) * 1000
-            text = (text or "").strip()
-            self.log(f"AI 响应 | {safe_ai_result_meta(method='extract_text_by_image', model=model, elapsed_ms=_elapsed, response_chars=len(text), selected_options=[text] if text else [])}")
-        except Exception as e:
-            _elapsed = (time.monotonic() - _start) * 1000
-            self.log(f"AI 调用失败 | method=extract_text_by_image model={model} elapsed_ms={_elapsed:.0f} error={type(e).__name__}: {safe_text_preview(e, 200)}", level="ERROR")
-            raise
-        if not text:
-            self.log("AI 未识别到可发送文本", level="WARNING")
+            ),
+            model=model,
+            request_meta=dict(
+                has_image=True,
+                image_bytes=len(image_bytes),
+                custom_prompt=bool(ai_prompt),
+            ),
+            result_meta=dict(
+                response_chars=0,
+                selected_options=[],
+            ),
+            action_log="AI 正在分析图片中的文字",
+            empty_result_log="AI 未识别到可发送文本",
+            result_empty_check=lambda r: (r or "").strip(),
+            success_log=lambda r: f"AI OCR 完成 | text_chars={len(r)} | 预览: {safe_text_preview(r, 80)}",
+        )
+        if text is None:
             return False
-        self.log(f"AI OCR 完成 | text_chars={len(text)} | 预览: {safe_text_preview(text, 80)}", level="DEBUG")
+        text = text.strip()
+        if not text:
+            return False
         await self.send_message(message.chat.id, text)
         return True
 
@@ -2236,24 +2298,32 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         if ai_prompt:
             self.log("当前 AI 动作使用自定义提示词")
         model = self.get_ai_tools().default_model
-        self.log(f"AI 请求 | {safe_ai_request_meta(method='calculate_problem', model=model, query_chars=len(message.text), custom_prompt=bool(ai_prompt), question_preview=message.text)}")
-        _start = time.monotonic()
-        try:
-            answer = await self.get_ai_tools().calculate_problem(
+        answer = await self._execute_ai_action(
+            method="calculate_problem",
+            ai_call=lambda: self.get_ai_tools().calculate_problem(
                 message.text,
                 system_prompt=ai_prompt,
-            )
-            _elapsed = (time.monotonic() - _start) * 1000
-            answer = (answer or "").strip()
-            self.log(f"AI 响应 | {safe_ai_result_meta(method='calculate_problem', model=model, elapsed_ms=_elapsed, response_chars=len(answer), selected_options=[answer] if answer else [])}")
-        except Exception as e:
-            _elapsed = (time.monotonic() - _start) * 1000
-            self.log(f"AI 调用失败 | method=calculate_problem model={model} elapsed_ms={_elapsed:.0f} error={type(e).__name__}: {safe_text_preview(e, 200)}", level="ERROR")
-            raise
-        if not answer:
-            self.log("AI 未返回可用于点击的答案", level="WARNING")
+            ),
+            model=model,
+            request_meta=dict(
+                query_chars=len(message.text),
+                custom_prompt=bool(ai_prompt),
+                question_preview=message.text,
+            ),
+            result_meta=dict(
+                response_chars=0,
+                selected_options=[],
+            ),
+            action_log="AI 正在计算按钮答案",
+            empty_result_log="AI 未返回可用于点击的答案",
+            result_empty_check=lambda r: (r or "").strip(),
+            success_log=lambda r: f"AI 计算完成 | answer_chars={len(r)} | 预览: {safe_text_preview(r, 80)}",
+        )
+        if answer is None:
             return False
-        self.log(f"AI 计算完成 | answer_chars={len(answer)} | 预览: {safe_text_preview(answer, 80)}", level="DEBUG")
+        answer = answer.strip()
+        if not answer:
+            return False
         proxy_action = ClickKeyboardByTextAction(text=answer)
         return await self._click_keyboard_by_text(proxy_action, message)
 
@@ -2280,31 +2350,38 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             if ai_prompt:
                 self.log("当前 AI 动作使用自定义提示词")
             model = self.get_ai_tools().default_model
-            self.log(f"AI 请求 | {safe_ai_request_meta(method='choose_options_by_image', model=model, has_image=True, image_bytes=len(image_bytes), query_chars=len(question_text), options_count=len(options), custom_prompt=bool(ai_prompt), question_preview=question_text, options_preview=options)}")
-            _start = time.monotonic()
-            try:
-                result_indexes = await self.get_ai_tools().choose_options_by_image(
+            result_indexes = await self._execute_ai_action(
+                method="choose_options_by_image",
+                ai_call=lambda: self.get_ai_tools().choose_options_by_image(
                     image_bytes,
                     question_text,
                     list(enumerate(options, start=1)),
                     system_prompt=ai_prompt,
-                )
-                _elapsed = (time.monotonic() - _start) * 1000
-                # 收集选中的选项内容
-                selected_options = []
-                if result_indexes:
-                    for idx in result_indexes:
-                        if 1 <= idx <= len(options):
-                            selected_options.append(options[idx - 1])
-                        elif 0 <= idx < len(options):
-                            selected_options.append(options[idx])
-                self.log(f"AI 响应 | {safe_ai_result_meta(method='choose_options_by_image', model=model, elapsed_ms=_elapsed, result_type='list', result_count=len(result_indexes or []), selected_options=selected_options)}")
-            except Exception as e:
-                _elapsed = (time.monotonic() - _start) * 1000
-                self.log(f"AI 调用失败 | method=choose_options_by_image model={model} elapsed_ms={_elapsed:.0f} error={type(e).__name__}: {safe_text_preview(e, 200)}", level="ERROR")
-                raise
-            if not result_indexes:
-                self.log("AI 未返回可点击选项", level="WARNING")
+                ),
+                model=model,
+                request_meta=dict(
+                    has_image=True,
+                    image_bytes=len(image_bytes),
+                    query_chars=len(question_text),
+                    options_count=len(options),
+                    custom_prompt=bool(ai_prompt),
+                    question_preview=question_text,
+                    options_preview=options,
+                ),
+                result_meta=lambda result, elapsed_ms: dict(
+                    result_type="list",
+                    result_count=len(result or []),
+                    selected_options=[
+                        options[idx - 1] for idx in (result or []) if 1 <= idx <= len(options)
+                    ] + [
+                        options[idx] for idx in (result or []) if 0 <= idx < len(options)
+                    ],
+                ),
+                action_log="AI 正在分析图片并匹配可点击按钮",
+                empty_result_log="AI 未返回可点击选项",
+                result_empty_check=lambda r: bool(r),
+            )
+            if result_indexes is None:
                 return False
             clicked = 0
             for result_index in result_indexes:

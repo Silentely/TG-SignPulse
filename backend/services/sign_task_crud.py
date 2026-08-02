@@ -103,6 +103,7 @@ class SignTaskCrudMixin:
 
         self._refresh_tasks_cache_after_write()
 
+        warnings: list[str] = []
         try:
             from backend.scheduler import (
                 add_or_update_sign_task_job,
@@ -120,16 +121,21 @@ class SignTaskCrudMixin:
                 else:
                     remove_sign_task_job(current_account, task_name)
         except Exception as e:
-            _logger.warning("任务 %s 已保存但调度注册失败: %s", task_name, e)
+            warning_msg = f"任务 {task_name} 已保存但调度注册失败: {e}"
+            _logger.warning(warning_msg)
+            warnings.append(warning_msg)
 
         related = self._find_related_task_infos(task_name, target_accounts[0])
-        return pick_task_write_response(
+        result = pick_task_write_response(
             related,
             target_accounts=target_accounts,
             aggregate_fn=self._aggregate_tasks,
             get_task_fn=lambda acc: self.get_task(task_name, account_name=acc),
             not_found_message=f"任务 {task_name} 创建后无法读取",
         )
+        if warnings:
+            result = {**result, "warnings": warnings}
+        return result
 
     def clone_task(
         self,
@@ -210,6 +216,7 @@ class SignTaskCrudMixin:
         if not existing or not related_tasks:
             raise ValueError(f"任务 {task_name} 不存在")
 
+        warnings: list[str] = []
         existing_accounts = self._normalize_account_names(
             existing.get("account_names"), existing.get("account_name")
         )
@@ -324,29 +331,44 @@ class SignTaskCrudMixin:
                 shutil.rmtree(previous_dir)
 
             if should_schedule:
-                add_or_update_sign_task_job(
-                    current_account,
-                    task_name,
-                    trigger_cron,
-                    enabled=next_enabled,
-                )
+                try:
+                    add_or_update_sign_task_job(
+                        current_account,
+                        task_name,
+                        trigger_cron,
+                        enabled=next_enabled,
+                    )
+                except Exception as exc:
+                    warnings.append(
+                        f"账号 {current_account} 调度注册失败: {exc}"
+                    )
             else:
-                remove_sign_task_job(current_account, task_name)
+                try:
+                    remove_sign_task_job(current_account, task_name)
+                except Exception as exc:
+                    warnings.append(
+                        f"账号 {current_account} 调度移除失败: {exc}"
+                    )
 
         self._refresh_tasks_cache_after_write()
-        self._append_scheduler_log(
-            "scheduler_update.log",
-            f"{datetime.now()}: Updated task {task_name} for {','.join(target_accounts)}",
-        )
+        if warnings:
+            self._append_scheduler_log(
+                "scheduler_update.log",
+                f"{datetime.now()}: Updated task {task_name} warnings="
+                + "; ".join(warnings),
+            )
 
         related = self._find_related_task_infos(task_name, target_accounts[0])
-        return pick_task_write_response(
+        result = pick_task_write_response(
             related,
             target_accounts=target_accounts,
             aggregate_fn=self._aggregate_tasks,
             get_task_fn=lambda acc: self.get_task(task_name, account_name=acc),
             not_found_message=f"任务 {task_name} 更新后无法读取",
         )
+        if warnings:
+            result = {**result, "warnings": warnings}
+        return result
 
     def rename_account_references(
         self,
