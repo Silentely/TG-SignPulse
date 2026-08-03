@@ -18,6 +18,7 @@ import {
   formatPhaseDetail,
   phaseLabel,
 } from '../lib/run-status'
+import { formatShortDateTime } from '../lib/datetime'
 
 const quickLinks = [
   { name: 'accounts', icon: Users, titleKey: 'dashboard.goAccounts', descKey: 'dashboard.goAccountsDesc' },
@@ -63,15 +64,7 @@ const goToLogs = (log: DashboardLog) => {
 const logKey = (log: DashboardLog) =>
   `${log.created_at || log.time}|${log.account}|${log.task}|${(log.text || '').length}`
 
-const formatJobTime = (iso?: string | null) => {
-  if (!iso) return '-'
-  try {
-    const d = new Date(iso)
-    return d.toLocaleString(undefined, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
-  } catch {
-    return iso
-  }
-}
+const formatJobTime = (iso?: string | null) => formatShortDateTime(iso)
 const jobKindLabel = (kind: string) => {
   if (kind === 'sign') return t('dashboard.jobKindSign')
   if (kind === 'system') return t('dashboard.jobKindSystem')

@@ -6,6 +6,7 @@ import { listAccountDevices, terminateAccountDevice, type AccountDeviceInfo } fr
 import { useI18n } from '../../composables/useI18n'
 import { useConfirm } from '../../composables/useConfirm'
 import { useAuthStore } from '../../stores/auth'
+import { formatDateTime } from '../../lib/datetime'
 
 const props = defineProps<{
   isOpen: boolean
@@ -26,12 +27,7 @@ const terminatingHash = ref('')
 
 const title = computed(() => `${t('accounts.devices')} · ${props.accountName || ''}`)
 
-const formatDate = (value?: string | null) => {
-  if (!value) return '-'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString()
-}
+const formatDate = (value?: string | null) => formatDateTime(value)
 
 const deviceTitle = (device: AccountDeviceInfo) => {
   return [device.device_model, device.platform].filter(Boolean).join(' · ') || t('accounts.unknownDevice')

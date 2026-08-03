@@ -24,13 +24,10 @@ import { useAccountsStore } from '../stores/accounts'
 import { devLog } from '../lib/devLog'
 import { startChainPoll, type ChainPollHandle } from '../lib/chain-poll'
 import { aggregateFailureCategories } from '../lib/run-status'
+import { formatTimeOnly } from '../lib/datetime'
 import { storeToRefs } from 'pinia'
 
-const formatTime = (isoString: string) => {
-  if (!isoString) return ''
-  const d = new Date(isoString)
-  return d.toLocaleTimeString('en-US', { hour12: false })
-}
+const formatTime = (isoString: string) => formatTimeOnly(isoString)
 
 export function useDashboardData() {
   const authStore = useAuthStore()

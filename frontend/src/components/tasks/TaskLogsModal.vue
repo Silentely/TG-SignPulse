@@ -13,6 +13,7 @@ import { useTaskRunStream } from '../../composables/useTaskRunStream'
 import type { TaskUiItem } from '../../lib/types'
 import { notifyApiError } from '../../lib/notify'
 import { normalizeFlowLogLines } from '../../lib/task-log-format'
+import { formatShortDateTime } from '../../lib/datetime'
 import { devLog } from '../../lib/devLog'
 import { failureCategoryLabel } from '../../lib/run-status'
 
@@ -177,20 +178,7 @@ watch(panelTab, (tab) => {
   }
 })
 
-const formatDate = (dateStr: string) => {
-  if (!dateStr) return '-'
-  try {
-    const d = new Date(dateStr)
-    const mo = String(d.getMonth() + 1).padStart(2, '0')
-    const da = String(d.getDate()).padStart(2, '0')
-    const ho = String(d.getHours()).padStart(2, '0')
-    const mi = String(d.getMinutes()).padStart(2, '0')
-    const se = String(d.getSeconds()).padStart(2, '0')
-    return `${mo}/${da} ${ho}:${mi}:${se}`
-  } catch {
-    return dateStr
-  }
-}
+const formatDate = (dateStr: string) => formatShortDateTime(dateStr, true)
 
 const toggleExpand = (idx: number) => {
   expandedIdx.value = expandedIdx.value === idx ? null : idx

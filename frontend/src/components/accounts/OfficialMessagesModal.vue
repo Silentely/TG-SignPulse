@@ -5,6 +5,7 @@ import Modal from '../Modal.vue'
 import { listAccountOfficialMessages, type OfficialMessageInfo } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
 import { useAuthStore } from '../../stores/auth'
+import { formatDateTime } from '../../lib/datetime'
 
 const props = defineProps<{
   isOpen: boolean
@@ -23,14 +24,7 @@ const messages = ref<OfficialMessageInfo[]>([])
 
 const title = computed(() => `${t('accounts.officialMessages')} · ${props.accountName || '-'}`)
 
-const formatTime = (value?: string | null) => {
-  if (!value) return '-'
-  try {
-    return new Date(value).toLocaleString()
-  } catch {
-    return value
-  }
-}
+const formatTime = (value?: string | null) => formatDateTime(value)
 
 const loadMessages = async () => {
   const token = authStore.token || ''

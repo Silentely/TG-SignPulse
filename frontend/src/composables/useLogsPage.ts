@@ -20,6 +20,7 @@ import { useAccountsStore } from '../stores/accounts'
 import type { TaskLogUiItem, LoginLogUiItem } from '../lib/types'
 import { notifyApiError } from '../lib/notify'
 import { failureCategoryLabel as mapFailureCategoryLabel } from '../lib/run-status'
+import { formatDateTime } from '../lib/datetime'
 
 export function useLogsPage() {
   const { locale, t } = useI18n()
@@ -84,12 +85,8 @@ export function useLogsPage() {
     { label: t('dashboard.failCat.unknown'), value: 'unknown' },
   ])
 
-  const formatTime = (isoString: string) => {
-    if (!isoString) return ''
-    const d = new Date(isoString)
-    const loc = locale.value === 'zh' ? 'zh-CN' : 'en-US'
-    return d.toLocaleString(loc, { hour12: false })
-  }
+  const formatTime = (isoString: string) =>
+    formatDateTime(isoString, locale.value === 'zh' ? 'zh-CN' : 'en-US', '')
 
   const failureCategoryLabel = (cat?: string | null) => {
     if (!cat || cat === 'unknown') return ''
