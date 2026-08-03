@@ -13,7 +13,6 @@ import time
 import traceback
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
-from backend.services.sign_task_backend import BackendUserSigner, TaskLogHandler
 from backend.services.sign_task_failure import FailureCategory, classify_failure
 from backend.services.sign_task_run_status import (
     PHASE_CHECKING_ACCOUNT,
@@ -24,16 +23,7 @@ from backend.services.sign_task_run_status import (
     is_timeout_error_message,
     resolve_effective_retry_count,
 )
-from backend.utils.account_locks import get_account_lock
-from backend.utils.names import validate_storage_name
-from backend.utils.proxy import build_proxy_dict
 from backend.utils.task_logs import extract_last_target_message
-from backend.utils.tg_session import (
-    get_account_session_string,
-    get_global_semaphore,
-    get_session_mode,
-    load_session_string_file,
-)
 from tg_signer.async_utils import create_logged_task
 from tg_signer.log_utils import safe_exception_summary, safe_traceback_preview
 
@@ -45,11 +35,6 @@ _service_logger = logging.getLogger("backend.sign_tasks")
 
 
 # ========== Phase helpers ==========
-
-
-def _runner_logger() -> logging.Logger:
-    """返回 runner 专用 logger。"""
-    return logging.getLogger("backend.sign_tasks")
 
 
 async def _runner_load_config(state: Dict[str, Any]) -> None:
@@ -290,11 +275,12 @@ async def _runner_prepare_execution(state: Dict[str, Any]) -> None:
     )
 
     state["task_timeout"] = task_timeout
-    state["task_retry_count"] = task_retry_count
 
 
 async def _runner_execute_with_retry(state: Dict[str, Any]) -> None:
     """Phase 8: 带重试的执行循环（数据库锁冲突时退避）。"""
+    from backend.utils.tg_session import get_global_semaphore
+
     svc: SignTaskService = state["svc"]
     signer = state["signer"]
     task_timeout = state["task_timeout"]
@@ -369,7 +355,7 @@ async def _runner_parse_reply(state: Dict[str, Any]) -> None:
                 if len(last_reply) > 200:
                     last_reply = last_reply[:197] + "..."
             except Exception as e:
-                _runner_logger().debug("解析最近回复文本失败: %s", e)
+                _service_logger.debug("解析最近回复文本失败: %s", e)
             if last_reply:
                 break
 
@@ -410,7 +396,7 @@ async def _runner_fetch_target_message(state: Dict[str, Any]) -> None:
     if not signer or not task_cfg:
         return
 
-    _runner_logger().debug(
+    _service_logger.debug(
         "fetch_target | last_reply=%r | calling chat history fetch",
         state.get("last_reply"),
     )
@@ -507,19 +493,25 @@ async def _runner_schedule_cleanup(state: Dict[str, Any]) -> None:
     if old_cleanup_task and not old_cleanup_task.done():
         old_cleanup_task.cancel()
 
+    cleanup_task: Optional[asyncio.Task[Any]] = None
+
     async def cleanup() -> None:
         try:
             await asyncio.sleep(60)
             if not svc._active_tasks.get(task_key):
                 svc._active_logs.pop(task_key, None)
         finally:
-            svc._cleanup_tasks.pop(task_key, None)
+            # 仅当自身仍是注册条目时才移除，避免被取消的旧任务
+            # 在下一轮事件循环执行 finally 时误删新注册的清理任务
+            if svc._cleanup_tasks.get(task_key) is cleanup_task:
+                svc._cleanup_tasks.pop(task_key, None)
 
-    svc._cleanup_tasks[task_key] = create_logged_task(
+    cleanup_task = create_logged_task(
         cleanup(),
         logger=logging.getLogger("backend.sign_tasks"),
         description=f"active log cleanup {state['account_name']}/{state['task_name']}",
     )
+    svc._cleanup_tasks[task_key] = cleanup_task
 
 
 async def _runner_handle_error(state: Dict[str, Any], e: Exception) -> None:
@@ -550,7 +542,7 @@ async def _runner_handle_error(state: Dict[str, Any], e: Exception) -> None:
         for _line in _safe_tb.splitlines():
             svc._active_logs[state["task_key"]].append(f"  {_line}")
 
-    _runner_logger().error(
+    _service_logger.error(
         "任务执行出错%s [%s/%s]: %s",
         _run_id_tag,
         state["account_name"],
@@ -614,13 +606,6 @@ async def execute_sign_task(
     from backend.services.sign_tasks import settings
     from backend.utils.account_locks import get_account_lock
     from backend.utils.names import validate_storage_name
-    from backend.utils.proxy import build_proxy_dict
-    from backend.utils.tg_session import (
-        get_account_session_string,
-        get_global_semaphore,
-        get_session_mode,
-        load_session_string_file,
-    )
 
     account_name = validate_storage_name(account_name, field_name="account_name")
     task_name = validate_storage_name(task_name, field_name="task_name")

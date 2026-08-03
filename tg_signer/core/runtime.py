@@ -2216,15 +2216,15 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                     system_prompt=ai_prompt,
                 ),
                 model=model,
-                request_meta=dict(
-                    query_chars=len(message.text),
-                    custom_prompt=bool(ai_prompt),
-                    question_preview=message.text,
-                ),
-                result_meta=dict(
-                    response_chars=0,
-                    selected_options=[],
-                ),
+                request_meta={
+                    "query_chars": len(message.text),
+                    "custom_prompt": bool(ai_prompt),
+                    "question_preview": message.text,
+                },
+                result_meta={
+                    "response_chars": 0,
+                    "selected_options": [],
+                },
                 action_log="AI 正在分析计算题",
                 empty_result_log="AI 未返回有效答案",
                 result_empty_check=lambda r: (r or "").strip(),
@@ -2265,15 +2265,15 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 system_prompt=ai_prompt,
             ),
             model=model,
-            request_meta=dict(
-                has_image=True,
-                image_bytes=len(image_bytes),
-                custom_prompt=bool(ai_prompt),
-            ),
-            result_meta=dict(
-                response_chars=0,
-                selected_options=[],
-            ),
+            request_meta={
+                "has_image": True,
+                "image_bytes": len(image_bytes),
+                "custom_prompt": bool(ai_prompt),
+            },
+            result_meta={
+                "response_chars": 0,
+                "selected_options": [],
+            },
             action_log="AI 正在分析图片中的文字",
             empty_result_log="AI 未识别到可发送文本",
             result_empty_check=lambda r: (r or "").strip(),
@@ -2305,15 +2305,15 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 system_prompt=ai_prompt,
             ),
             model=model,
-            request_meta=dict(
-                query_chars=len(message.text),
-                custom_prompt=bool(ai_prompt),
-                question_preview=message.text,
-            ),
-            result_meta=dict(
-                response_chars=0,
-                selected_options=[],
-            ),
+            request_meta={
+                "query_chars": len(message.text),
+                "custom_prompt": bool(ai_prompt),
+                "question_preview": message.text,
+            },
+            result_meta={
+                "response_chars": 0,
+                "selected_options": [],
+            },
             action_log="AI 正在计算按钮答案",
             empty_result_log="AI 未返回可用于点击的答案",
             result_empty_check=lambda r: (r or "").strip(),
@@ -2359,24 +2359,24 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                     system_prompt=ai_prompt,
                 ),
                 model=model,
-                request_meta=dict(
-                    has_image=True,
-                    image_bytes=len(image_bytes),
-                    query_chars=len(question_text),
-                    options_count=len(options),
-                    custom_prompt=bool(ai_prompt),
-                    question_preview=question_text,
-                    options_preview=options,
-                ),
-                result_meta=lambda result, elapsed_ms: dict(
-                    result_type="list",
-                    result_count=len(result or []),
-                    selected_options=[
+                request_meta={
+                    "has_image": True,
+                    "image_bytes": len(image_bytes),
+                    "query_chars": len(question_text),
+                    "options_count": len(options),
+                    "custom_prompt": bool(ai_prompt),
+                    "question_preview": question_text,
+                    "options_preview": options,
+                },
+                result_meta=lambda result, elapsed_ms: {
+                    "result_type": "list",
+                    "result_count": len(result or []),
+                    "selected_options": [
                         options[idx - 1] for idx in (result or []) if 1 <= idx <= len(options)
                     ] + [
                         options[idx] for idx in (result or []) if 0 <= idx < len(options)
                     ],
-                ),
+                },
                 action_log="AI 正在分析图片并匹配可点击按钮",
                 empty_result_log="AI 未返回可点击选项",
                 result_empty_check=lambda r: bool(r),

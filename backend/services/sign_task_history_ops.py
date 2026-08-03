@@ -11,7 +11,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from backend.services.sign_task_failure import classify_failure
+from backend.services.sign_task_failure import classify_failure, write_json_atomic
 from backend.services.sign_task_history_format import (
     build_history_run_entry,
     clamp_limit,
@@ -109,8 +109,7 @@ class SignTaskHistoryMixin:
                         config["last_run"] = last_run
                     else:
                         config.pop("last_run", None)
-                    with open(config_file, "w", encoding="utf-8") as f:
-                        json.dump(config, f, ensure_ascii=False, indent=2)
+                    write_json_atomic(config_file, config)
                 except Exception as exc:
                     _logger.warning(
                         "回写任务元数据 last_run 失败: %s (%s)", config_file, exc
@@ -410,8 +409,7 @@ class SignTaskHistoryMixin:
             if "last_run" not in config:
                 return
             del config["last_run"]
-            with open(config_file, "w", encoding="utf-8") as f:
-                json.dump(config, f, ensure_ascii=False, indent=2)
+            write_json_atomic(config_file, config)
         except Exception as exc:
             _logger.debug("清理 last_run 元数据失败: %s (%s)", config_file, exc)
 
@@ -476,6 +474,8 @@ class SignTaskHistoryMixin:
             self._clear_task_last_run_metadata(task_name, account_name)
             if self._tasks_cache is not None:
                 for t in self._tasks_cache:
+                    if not isinstance(t, dict):
+                        continue
                     if t["name"] == task_name and t.get("account_name") == account_name:
                         t.pop("last_run", None)
                         break
@@ -648,8 +648,7 @@ class SignTaskHistoryMixin:
                         with open(config_file, "r", encoding="utf-8") as f:
                             config = json.load(f)
                         config["last_run"] = new_entry
-                        with open(config_file, "w", encoding="utf-8") as f:
-                            json.dump(config, f, ensure_ascii=False, indent=2)
+                        write_json_atomic(config_file, config)
                     except (OSError, json.JSONDecodeError, TypeError, ValueError) as e:
                         _logger.warning(
                             "更新任务配置 last_run 失败 task=%s account=%s: %s",

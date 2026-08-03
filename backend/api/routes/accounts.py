@@ -57,6 +57,9 @@ router = APIRouter()
 logger = logging.getLogger("backend.qr_login")
 rate_limiter = get_rate_limiter()
 
+# 头像本地缓存有效期：7 天（秒）
+_AVATAR_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
+
 
 def _apply_rate_limit(
     scope: str,
@@ -580,7 +583,7 @@ async def get_account_avatar(
     # 如果已标记为无头像（7天内），直接返回 404
     if no_avatar_marker.exists():
         age = time.time() - no_avatar_marker.stat().st_mtime
-        if age < 604800:
+        if age < _AVATAR_CACHE_TTL_SECONDS:
             raise HTTPException(status_code=404, detail="No avatar available")
         else:
             no_avatar_marker.unlink(missing_ok=True)
@@ -588,7 +591,7 @@ async def get_account_avatar(
     # 如果缓存存在且不超过 7 天，直接返回
     if cache_file.exists():
         age = time.time() - cache_file.stat().st_mtime
-        if age < 604800:
+        if age < _AVATAR_CACHE_TTL_SECONDS:
             return FileResponse(cache_file, media_type="image/jpeg")
 
     # 尝试下载头像
@@ -719,25 +722,21 @@ def get_account_logs(
 
     logs = []
     for i, item in enumerate(history[:limit]):
+        task_name = item.get("task_name") or "未知任务"
+        success = bool(item.get("success", False))
         logs.append(
             AccountLogItem(
                 id=i + 1,
                 account_name=account_name,
-                task_name=item.get("task_name") or "未知任务",
+                task_name=task_name,
                 message=item.get("message")
-                or ("执行成功" if item.get("success") else "执行失败"),
-                success=item.get("success", False),
+                or ("执行成功" if success else "执行失败"),
+                success=success,
                 created_at=item.get("time", ""),
+                summary=f"Task: {task_name} {'success' if success else 'failed'}",
+                bot_message=_extract_last_bot_message(item) or None,
             )
         )
-
-    for idx, item in enumerate(history[:limit]):
-        if idx >= len(logs):
-            break
-        task_name = logs[idx].task_name
-        success = bool(logs[idx].success)
-        logs[idx].summary = f"Task: {task_name} {'success' if success else 'failed'}"
-        logs[idx].bot_message = _extract_last_bot_message(item) or None
 
     return logs
 

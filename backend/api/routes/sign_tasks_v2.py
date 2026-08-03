@@ -34,6 +34,9 @@ from backend.services.sign_tasks import get_sign_task_service
 
 router = APIRouter()
 
+# 头像本地缓存有效期：7 天（秒）
+_AVATAR_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
+
 _sync_logger = logging.getLogger("backend.sign_tasks_api")
 
 
@@ -773,7 +776,7 @@ async def get_chat_avatar(
     # If no-avatar marker is recent (7 days), return 404
     if no_avatar_marker.exists():
         age = time.time() - no_avatar_marker.stat().st_mtime
-        if age < 604800:
+        if age < _AVATAR_CACHE_TTL_SECONDS:
             raise HTTPException(status_code=404, detail="No avatar available")
         else:
             no_avatar_marker.unlink(missing_ok=True)
@@ -781,13 +784,13 @@ async def get_chat_avatar(
     # If chat-level cache exists and is fresh, use it
     if cache_file.exists():
         age = time.time() - cache_file.stat().st_mtime
-        if age < 604800:
+        if age < _AVATAR_CACHE_TTL_SECONDS:
             return FileResponse(cache_file, media_type="image/jpeg")
 
     # If legacy account-specific cache exists, migrate it to chat-level
     if legacy_cache_file.exists():
         age = time.time() - legacy_cache_file.stat().st_mtime
-        if age < 604800:
+        if age < _AVATAR_CACHE_TTL_SECONDS:
             try:
                 import shutil
                 shutil.copy2(legacy_cache_file, cache_file)

@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-from typing import Any, AsyncIterator, Dict, Optional, Set
+from typing import Any, Dict, Optional, Set
 
 logger = logging.getLogger("backend.sign_history_events")
 
@@ -107,31 +107,6 @@ def publish_sign_history(entry: Dict[str, Any]) -> None:
                 _put(q)
         else:
             _put(q)
-
-
-async def iter_sign_history_events(
-    *,
-    heartbeat_seconds: float = 15.0,
-    idle_poll_seconds: float = 0.5,
-) -> AsyncIterator[Dict[str, Any]]:
-    """
-    异步迭代：产出 {"type": "event"|"heartbeat", "data": ...}。
-
-    调用方负责 subscribe 生命周期；本生成器内部 subscribe/unsubscribe。
-    """
-    q = subscribe()
-    try:
-        while True:
-            try:
-                item = await asyncio.wait_for(q.get(), timeout=heartbeat_seconds)
-                yield {"type": "event", "data": item}
-            except asyncio.TimeoutError:
-                yield {"type": "heartbeat", "data": None}
-            # 轻微让出，避免紧密循环
-            if idle_poll_seconds > 0:
-                await asyncio.sleep(0)
-    finally:
-        unsubscribe(q)
 
 
 def subscriber_count() -> int:

@@ -571,20 +571,6 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         fallback = resolved_account_name or self._infer_account_name(config, task_dir)
         return self._normalize_account_names(account_name=fallback)
 
-    @staticmethod
-    def _select_latest_last_run(
-        current: Optional[Dict[str, Any]], candidate: Optional[Dict[str, Any]]
-    ) -> Optional[Dict[str, Any]]:
-        from backend.services.sign_task_group import select_latest_last_run
-
-        return select_latest_last_run(current, candidate)
-
-    @staticmethod
-    def _task_group_key(task: Dict[str, Any]) -> str:
-        from backend.services.sign_task_group import task_group_key
-
-        return task_group_key(task)
-
     def _build_task_response(
         self,
         *,
@@ -702,84 +688,6 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
                 exc,
             )
         return None
-
-    async def _send_failure_notification(
-        self,
-        account_name: str,
-        task_name: str,
-        message: str,
-        last_target_message: Optional[str] = None,
-        flow_logs: Optional[List[str]] = None,
-    ) -> None:
-        from backend.services.sign_task_notify import send_failure_notification
-
-        await send_failure_notification(
-            account_name=account_name,
-            task_name=task_name,
-            message=message,
-            last_target_message=last_target_message,
-            flow_logs=flow_logs,
-        )
-
-    async def _send_success_notification(
-        self,
-        account_name: str,
-        task_name: str,
-        message: str = "",
-    ) -> None:
-        from backend.services.sign_task_notify import send_success_notification
-
-        await send_success_notification(
-            account_name=account_name,
-            task_name=task_name,
-            message=message,
-        )
-
-    async def _send_account_invalid_notification(
-        self,
-        account_name: str,
-        task_name: str,
-        message: str,
-    ) -> None:
-        from backend.services.sign_task_notify import send_account_invalid_notification
-
-        await send_account_invalid_notification(
-            account_name=account_name,
-            task_name=task_name,
-            message=message,
-        )
-
-    async def _mark_account_invalid(
-        self,
-        account_name: str,
-        task_name: str,
-        message: str,
-        notify_on_failure: bool = True,
-    ) -> bool:
-        from backend.services.sign_task_notify import mark_account_invalid
-
-        return await mark_account_invalid(
-            account_name=account_name,
-            task_name=task_name,
-            message=message,
-            notify_on_failure=notify_on_failure,
-        )
-
-    async def _check_account_before_task(
-        self,
-        account_name: str,
-        task_name: str,
-        no_updates: bool,
-        notify_on_failure: bool = True,
-    ) -> Optional[str]:
-        from backend.services.sign_task_notify import check_account_before_task
-
-        return await check_account_before_task(
-            account_name=account_name,
-            task_name=task_name,
-            no_updates=no_updates,
-            notify_on_failure=notify_on_failure,
-        )
 
     def get_task_history_logs(
         self, task_name: str, account_name: Optional[str] = None, limit: int = 20
@@ -1059,15 +967,6 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
 
         return is_invalid_session_error(err)
 
-    async def _cleanup_invalid_session(self, account_name: str) -> None:
-        from backend.services.sign_task_chats import (
-            cleanup_invalid_session_and_chat_cache,
-        )
-
-        await cleanup_invalid_session_and_chat_cache(
-            account_name, signs_dir=self.signs_dir
-        )
-
     async def refresh_account_chats(self, account_name: str) -> List[Dict[str, Any]]:
         """连接 Telegram 并刷新 Chat 列表。"""
         from backend.services.sign_task_chats import (
@@ -1081,13 +980,6 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
             account_locks=self._account_locks,
             validate_name=validate_storage_name,
         )
-
-
-    async def run_task(self, account_name: str, task_name: str) -> Dict[str, Any]:
-        """
-        运行签到任务 (兼容接口，内部调用 run_task_with_logs)
-        """
-        return await self.run_task_with_logs(account_name, task_name)
 
     def _task_key(self, account_name: str, task_name: str) -> tuple[str, str]:
         return make_task_key(account_name, task_name)
@@ -1221,19 +1113,25 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         if old_cleanup_task and not old_cleanup_task.done():
             old_cleanup_task.cancel()
 
+        cleanup_task: Optional[Any] = None
+
         async def cleanup() -> None:
             try:
                 await asyncio.sleep(600)
                 if not self._active_tasks.get(task_key):
                     self._run_statuses.pop(task_key, None)
             finally:
-                self._run_status_cleanup_tasks.pop(task_key, None)
+                # 仅当自身仍是注册条目时才移除，避免被取消的旧任务
+                # 在下一轮事件循环执行 finally 时误删新注册的清理任务
+                if self._run_status_cleanup_tasks.get(task_key) is cleanup_task:
+                    self._run_status_cleanup_tasks.pop(task_key, None)
 
-        self._run_status_cleanup_tasks[task_key] = create_logged_task(
+        cleanup_task = create_logged_task(
             cleanup(),
             logger=logging.getLogger("backend.sign_tasks"),
             description=f"run status cleanup {account_name}/{task_name}",
         )
+        self._run_status_cleanup_tasks[task_key] = cleanup_task
 
     async def start_task_run(self, account_name: str, task_name: str) -> Dict[str, Any]:
         account_name = validate_storage_name(account_name, field_name="account_name")

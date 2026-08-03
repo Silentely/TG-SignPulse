@@ -25,12 +25,6 @@ def is_string_session_mode() -> bool:
     return get_session_mode() == _SESSION_MODE_STRING
 
 
-def get_no_updates_flag() -> bool:
-    raw = os.getenv("TG_SESSION_NO_UPDATES") or os.getenv("TG_NO_UPDATES") or ""
-    raw = raw.strip().lower()
-    return raw in {"1", "true", "yes", "on"}
-
-
 def get_global_semaphore() -> asyncio.Semaphore:
     global _GLOBAL_SEMAPHORE
     if _GLOBAL_SEMAPHORE is None:
@@ -56,8 +50,7 @@ def _resolve_concurrency_limit() -> int:
     except Exception:
         pass
     # 默认：根据 CPU 核心数动态计算，上限为 5
-    import os as _os
-    return min(_os.cpu_count() or 4, 5)
+    return min(os.cpu_count() or 4, 5)
 
 
 def update_global_semaphore(new_limit: int) -> None:
@@ -193,14 +186,6 @@ def get_account_proxy(account_name: str) -> Optional[str]:
     proxy = profile.get("proxy")
     if isinstance(proxy, str) and proxy.strip():
         return proxy.strip()
-    return None
-
-
-def get_account_remark(account_name: str) -> Optional[str]:
-    profile = get_account_profile(account_name)
-    remark = profile.get("remark")
-    if isinstance(remark, str) and remark.strip():
-        return remark.strip()
     return None
 
 

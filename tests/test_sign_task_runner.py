@@ -635,6 +635,46 @@ class TestMiscBranches:
         assert pending.cancelled is True
 
     @pytest.mark.asyncio
+    async def test_schedule_cleanup_replacement_survives_old_cancel(self):
+        """旧清理任务被取消后，其 finally 不得误删新注册的清理任务（竞态回归）。"""
+        from backend.services.sign_task_runner import _runner_schedule_cleanup
+
+        svc = FakeSvc(task_cfg={"name": "t"})
+        state = {
+            "svc": svc,
+            "task_name": "t",
+            "account_name": "acc",
+            "task_key": svc._task_key("acc", "t"),
+        }
+
+        # 第一次调度：注册清理任务 A（真实 asyncio 任务，60s 延迟）
+        await _runner_schedule_cleanup(state)
+        first = svc._cleanup_tasks[state["task_key"]]
+        # 让 A 真正启动并悬挂在 sleep(60)，否则取消未启动的任务不会执行 finally
+        await asyncio.sleep(0)
+        assert not first.done()
+
+        # 第二次调度：取消 A 并注册 B；A 的 finally 会在下一轮事件循环执行
+        await _runner_schedule_cleanup(state)
+        second = svc._cleanup_tasks[state["task_key"]]
+        assert second is not first
+
+        # 让事件循环处理 A 的取消（CancelledError → finally → pop）
+        for _ in range(5):
+            await asyncio.sleep(0)
+
+        assert first.cancelled()
+        # 竞态 bug 下：B 的条目被 A 的 finally 误删，此处将断言失败
+        assert svc._cleanup_tasks.get(state["task_key"]) is second
+        assert not second.done()
+
+        # 收尾：取消 B，避免悬挂任务
+        second.cancel()
+        for _ in range(3):
+            await asyncio.sleep(0)
+        assert second.done()
+
+    @pytest.mark.asyncio
     async def test_cooldown_elapsed_no_wait_log(self, runner_env):
         import time as _time
 

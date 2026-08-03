@@ -359,3 +359,44 @@ def test_build_cancel_run_response_and_mismatch():
     assert resp["cancelled"] is False
     assert resp["error"] == "x"
     assert resp["status"]["state"] == "stale"
+
+
+def test_schedule_run_status_cleanup_replacement_survives_old_cancel():
+    """旧 run_status 清理任务被取消后，其 finally 不得误删新注册的清理任务（竞态回归）。"""
+    import asyncio
+
+    from backend.services.sign_tasks import SignTaskService
+
+    svc = SignTaskService.__new__(SignTaskService)
+    svc._active_tasks = {}
+    svc._run_statuses = {}
+    svc._run_status_cleanup_tasks = {}
+
+    async def scenario():
+        svc._schedule_run_status_cleanup("acc", "t")
+        first = svc._run_status_cleanup_tasks[("acc", "t")]
+        # 让 first 真正启动并悬挂在 sleep(600)，否则取消未启动任务不会执行 finally
+        await asyncio.sleep(0)
+        assert not first.done()
+
+        # 第二次调度：取消 first 并注册 second
+        svc._schedule_run_status_cleanup("acc", "t")
+        second = svc._run_status_cleanup_tasks[("acc", "t")]
+        assert second is not first
+
+        # 让事件循环处理 first 的取消（CancelledError → finally → pop）
+        for _ in range(5):
+            await asyncio.sleep(0)
+
+        assert first.cancelled()
+        # 竞态 bug 下：second 的条目被 first 的 finally 误删，此处将断言失败
+        assert svc._run_status_cleanup_tasks.get(("acc", "t")) is second
+        assert not second.done()
+
+        # 收尾：取消 second，避免悬挂任务
+        second.cancel()
+        for _ in range(3):
+            await asyncio.sleep(0)
+        assert second.done()
+
+    asyncio.run(scenario())
