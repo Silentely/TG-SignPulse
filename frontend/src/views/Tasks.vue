@@ -134,14 +134,19 @@ const {
   getTaskAccountName,
 })
 
+// 请求序号：丢弃过期响应，避免快速切换账号筛选时慢响应覆盖新结果
+let tasksSeq = 0
+
 const loadTasks = async () => {
   const token = authStore.token || ''
   if (!token) return
 
+  const seq = ++tasksSeq
   pageLoading.value = true
   try {
     const accountName = route.query.account as string | undefined
     const res = await listSignTasks(token, accountName)
+    if (seq !== tasksSeq) return // 过期响应：筛选已变化，丢弃
     const labels = {
       noTarget: t('tasks.noTarget'),
       listenMode: t('tasks.listenMode'),
@@ -159,11 +164,12 @@ const loadTasks = async () => {
 
     await afterTasksLoaded()
   } catch (e: unknown) {
+    if (seq !== tasksSeq) return
     devLog.error('Failed to fetch tasks', e)
     notifyApiError(e, 'tasks.loadFailed')
     tasks.value = []
   } finally {
-    pageLoading.value = false
+    if (seq === tasksSeq) pageLoading.value = false
   }
 }
 

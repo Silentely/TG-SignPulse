@@ -602,11 +602,13 @@ async def get_account_avatar(
             no_avatar_marker.unlink(missing_ok=True)
             return Response(content=avatar_bytes, media_type="image/jpeg")
         else:
+            # 明确判定无头像才写标记
             no_avatar_marker.write_text("")
     except Exception:
+        # 瞬时下载失败：回退缓存即可，不写"无头像"标记，下次请求重试
+        logger.warning("获取账号头像失败 account=%s", account_name, exc_info=True)
         if cache_file.exists():
             return FileResponse(cache_file, media_type="image/jpeg")
-        no_avatar_marker.write_text("")
 
     raise HTTPException(status_code=404, detail="No avatar available")
 

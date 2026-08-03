@@ -40,6 +40,8 @@ export function useDashboardData() {
   let sseReconnectTimer: ReturnType<typeof setTimeout> | null = null
   let sseReconnectAttempt = 0
   let sseIntentionalClose = false
+  // 卸载标记：在途 tick 不再触碰共享 store（避免重启无消费者的轮询）
+  let disposed = false
 
   const liveConnected = ref(false)
   const pageLoading = ref(true)
@@ -162,6 +164,9 @@ export function useDashboardData() {
     try { hitsRes = await listKeywordHits(token, { limit: 8, offset: 0 }) } catch (e: unknown) { devLog.error('Failed to load keyword hits', e) }
     try { statusJobsRes = await listAccountStatusCheckJobs(token, 5) } catch (e: unknown) { devLog.error('Failed to load status jobs', e) }
 
+    // 卸载后在途 tick：不再写入状态或触发共享轮询
+    if (disposed) return
+
     if (loadError && pageLoading.value) {
       notifyApiError(loadError, 'logs.loadFailed')
     }
@@ -240,6 +245,7 @@ export function useDashboardData() {
   })
 
   onUnmounted(() => {
+    disposed = true
     sseIntentionalClose = true
     clearSseReconnect()
     refreshHandle?.stop()

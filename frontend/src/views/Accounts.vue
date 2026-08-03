@@ -37,6 +37,8 @@ const accounts = ref<AccountUiItem[]>([])
 const pageLoading = ref(true)
 // 会话内头像 URL 缓存：避免每次刷新重复请求与重复创建 ObjectURL
 const avatarCache = new AvatarUrlCache()
+// 卸载标记：在途头像请求完成后不再创建 ObjectURL，避免 blob 泄漏
+let disposed = false
 const showAddModal = ref(false)
 const showEditModal = ref(false)
 const showAddMenu = ref(false)
@@ -96,6 +98,7 @@ const loadAvatar = async (acc: AccountUiItem) => {
     let url = avatarCache.get(acc.name)
     if (!url) {
       const blob = await fetchAccountAvatar(token, acc.name)
+      if (disposed) return // 组件已卸载：不再创建 ObjectURL，避免 blob 泄漏
       url = URL.createObjectURL(blob)
       avatarCache.set(acc.name, url)
     }
@@ -118,6 +121,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  disposed = true
   // 离开页面时统一回收会话内头像 ObjectURL，避免 blob 泄漏
   avatarCache.release()
 })

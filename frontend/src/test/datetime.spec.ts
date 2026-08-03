@@ -21,16 +21,10 @@ describe('datetime 格式化', () => {
     expect(formatDateTime('garbage')).toBe('garbage')
   })
 
-  it('formatShortDateTime 输出 MM/DD HH:MM，可选秒', () => {
-    // 显式选项不受语言区域影响，使用固定时区断言
-    const local = new Date(iso)
-    const mo = String(local.getMonth() + 1).padStart(2, '0')
-    const da = String(local.getDate()).padStart(2, '0')
-    const ho = String(local.getHours()).padStart(2, '0')
-    const mi = String(local.getMinutes()).padStart(2, '0')
-    const se = String(local.getSeconds()).padStart(2, '0')
-    expect(formatShortDateTime(iso)).toBe(`${mo}/${da} ${ho}:${mi}`)
-    expect(formatShortDateTime(iso, true)).toBe(`${mo}/${da} ${ho}:${mi}:${se}`)
+  it('formatShortDateTime 输出 MM/DD HH:MM，可选秒（统一 Asia/Hong_Kong 时区）', () => {
+    // 与 formatTimeOnly/formatDateTime 一致：按 Asia/Hong_Kong（UTC+8）展示
+    expect(formatShortDateTime(iso)).toBe('07/01 18:05')
+    expect(formatShortDateTime(iso, true)).toBe('07/01 18:05:09')
     expect(formatShortDateTime('')).toBe('-')
     expect(formatShortDateTime('bad')).toBe('bad')
   })

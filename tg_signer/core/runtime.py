@@ -2051,25 +2051,23 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
 
         click = getattr(message, "click", None)
         if callable(click):
-            for args, kwargs in (
-                ((getattr(btn, "text", None),), {}),
-                ((), {"text": getattr(btn, "text", None)}),
-            ):
-                try:
-                    await click(*args, **kwargs)
-                    self.log("点击完成")
-                    return True
-                except TypeError:
-                    continue
-                except Exception as e:
-                    if _is_callback_data_invalid(e):
-                        self.log(
-                            "Message.click 也无法确认按钮回调，继续等待机器人后续消息确认",
-                            level="WARNING",
-                        )
-                    else:
-                        self.log(f"Message.click 无法确认按钮回调: {e}", level="WARNING")
-                    break
+            # pyrogram Message.click(x=0, y=None, ...)：x 为字符串时按按钮文本点击；
+            # 不存在 text 关键字参数，历史上第二个 ((), {"text": ...}) 兜底必然 TypeError，已移除
+            try:
+                await click(getattr(btn, "text", None))
+                self.log("点击完成")
+                return True
+            except TypeError:
+                # 按钮文本不可点击（如 None/非法文本），回落等待后续消息确认
+                pass
+            except Exception as e:
+                if _is_callback_data_invalid(e):
+                    self.log(
+                        "Message.click 也无法确认按钮回调，继续等待机器人后续消息确认",
+                        level="WARNING",
+                    )
+                else:
+                    self.log(f"Message.click 无法确认按钮回调: {e}", level="WARNING")
 
         if callback_data is None:
             self.log(
@@ -2191,7 +2189,13 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         self.log(
             f"AI 响应 | {safe_ai_result_meta(method=method, model=model, elapsed_ms=_elapsed, **_meta)}"
         )
-        if empty_result_log and result_empty_check is not None and not result_empty_check:
+        # 空结果检查：result_empty_check 是接收结果的可调用对象（如 lambda r: (r or "").strip()），
+        # 返回值为空（falsy）即视为空结果，原实现误写为 not result_empty_check 导致恒不触发
+        if (
+            empty_result_log
+            and result_empty_check is not None
+            and not result_empty_check(result)
+        ):
             self.log(empty_result_log, level="WARNING")
             return None
         if success_log:
@@ -3064,11 +3068,20 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                     if not server_chan_send_key:
                         self.log("未配置Server酱的SendKey", level="WARNING")
                     else:
-                        await sc_send(
-                            server_chan_send_key,
-                            f"匹配到监控项：{match_cfg.chat_id}",
-                            f"消息内容为:\n\n{message.text}",
-                        )
+                        try:
+                            await sc_send(
+                                server_chan_send_key,
+                                f"匹配到监控项：{match_cfg.chat_id}",
+                                f"消息内容为:\n\n{message.text}",
+                            )
+                        except Exception as e:
+                            # 推送失败不中断其余监控项的匹配处理
+                            logger.warning(
+                                "Server酱推送失败 chat_id=%s: %s",
+                                match_cfg.chat_id,
+                                safe_text_preview(e, 200),
+                                exc_info=True,
+                            )
             except IndexError as e:
                 logger.exception(e)
 

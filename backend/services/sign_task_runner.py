@@ -427,6 +427,13 @@ async def _runner_fetch_target_message(state: Dict[str, Any]) -> None:
                 state["output_str"] = "\n".join(state["final_logs"])
                 last_target_message = ""
             except Exception:
+                # 补抓失败不阻断任务收尾，但需要留痕便于诊断
+                _service_logger.warning(
+                    "补抓任务对象最后消息失败 [%s/%s]",
+                    state["account_name"],
+                    state["task_name"],
+                    exc_info=True,
+                )
                 last_target_message = ""
         else:
             state["last_reply"] = last_target_message
@@ -582,8 +589,10 @@ async def _runner_finalize(state: Dict[str, Any]) -> None:
     if state.get("success"):
         await _runner_fetch_target_message(state)
 
-    await _runner_save_run_info(state)
-    await _runner_send_notifications(state)
+    # 取消的任务不落历史、不通知：调用方已单独置为 CANCELLED 状态
+    if not state.get("cancelled"):
+        await _runner_save_run_info(state)
+        await _runner_send_notifications(state)
 
     svc._active_tasks[task_key] = False
     await _runner_schedule_cleanup(state)
@@ -681,6 +690,10 @@ async def execute_sign_task(
             await _runner_refresh_keyword_monitor(state)
             await _runner_acquire_lock(state)
 
+    except asyncio.CancelledError:
+        # 用户取消：不写失败历史、不发失败通知，直接向上传播让调用方置为 CANCELLED
+        state["cancelled"] = True
+        raise
     except Exception as e:
         await _runner_handle_error(state, e)
     finally:

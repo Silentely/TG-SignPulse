@@ -32,7 +32,22 @@ export function formatShortDateTime(
   if (!value) return fallback
   const d = new Date(value)
   if (Number.isNaN(d.getTime())) return value
+  // 与其他格式化函数保持一致：统一按 Asia/Hong_Kong 展示（后端 TZ 默认值），
+  // 避免同一事件在不同面板出现两套时刻
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Hong_Kong',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: withSeconds ? '2-digit' : undefined,
+    hour12: false,
+  }).formatToParts(d)
+  const part = (type: string) => parts.find((p) => p.type === type)?.value ?? '00'
+  // 部分引擎 hour12:false 对午夜输出 24，规整回 00 保持 24 小时制语义
+  let hour = Number(part('hour'))
+  if (Number.isNaN(hour) || hour === 24) hour = 0
   const pad = (n: number) => String(n).padStart(2, '0')
-  const base = `${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-  return withSeconds ? `${base}:${pad(d.getSeconds())}` : base
+  const base = `${part('month')}/${part('day')} ${pad(hour)}:${part('minute')}`
+  return withSeconds ? `${base}:${part('second')}` : base
 }

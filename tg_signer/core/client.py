@@ -315,7 +315,9 @@ class Client(BaseClient):
                 # Remove from cache when no longer in use to prevent memory growth
                 _CLIENT_INSTANCES.pop(self.key, None)
                 _CLIENT_REFS.pop(self.key, None)
-                _CLIENT_ASYNC_LOCKS.pop(self.key, None)
+                # 锁保留在字典中：若在此处弹出，退出与下一次进入将持有不同锁对象，
+                # 并发 __aenter__ 会在 stop() 尚未完成时新建锁并 connect()，破坏互斥。
+                # 锁按账号 key 常驻，数量有界且开销极小。
 
     @property
     def session_string_file(self):

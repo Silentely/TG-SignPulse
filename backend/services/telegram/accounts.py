@@ -34,6 +34,15 @@ settings = get_settings()
 
 logger = logging.getLogger("backend.qr_login")
 
+
+def _session_file_info(session_file) -> tuple[bool, int]:
+    """单次 stat 返回 (exists, size)，避免 exists()+stat() 双重系统调用竞态。"""
+    try:
+        return True, session_file.stat().st_size
+    except OSError:
+        return False, 0
+
+
 class TelegramAccountsMixin:
 
     @staticmethod
@@ -142,10 +151,8 @@ class TelegramAccountsMixin:
                         {
                             "name": account_name,
                             "session_file": str(session_file),
-                            "exists": session_file.exists(),
-                            "size": session_file.stat().st_size
-                            if session_file.exists()
-                            else 0,
+                            "exists": _session_file_info(session_file)[0],
+                            "size": _session_file_info(session_file)[1],
                             "remark": profile.get("remark"),
                             "proxy": profile.get("proxy"),
                             **self._account_status_payload(account_name),
@@ -163,10 +170,8 @@ class TelegramAccountsMixin:
                         {
                             "name": account_name,
                             "session_file": str(session_file),
-                            "exists": session_file.exists(),
-                            "size": session_file.stat().st_size
-                            if session_file.exists()
-                            else 0,
+                            "exists": _session_file_info(session_file)[0],
+                            "size": _session_file_info(session_file)[1],
                             "remark": profile.get("remark"),
                             "proxy": profile.get("proxy"),
                             **self._account_status_payload(account_name),
@@ -184,10 +189,8 @@ class TelegramAccountsMixin:
                         {
                             "name": account_name,
                             "session_file": str(session_file),
-                            "exists": session_file.exists(),
-                            "size": session_file.stat().st_size
-                            if session_file.exists()
-                            else 0,
+                            "exists": _session_file_info(session_file)[0],
+                            "size": _session_file_info(session_file)[1],
                             "remark": profile.get("remark"),
                             "proxy": profile.get("proxy"),
                             **self._account_status_payload(account_name),
@@ -231,6 +234,8 @@ class TelegramAccountsMixin:
 
         Returns:
             头像的 JPEG 字节数据，如果没有头像则返回 None
+        Raises:
+            瞬时错误（网络/会话/限流）向上抛出，由调用方决定是否缓存判定
         """
         from tg_signer.core import get_client
 
@@ -289,8 +294,11 @@ class TelegramAccountsMixin:
                         return photo_bytes.read()
                     return None
         except Exception as e:
-            logger.debug("Failed to download avatar for %s: %s", account_name, e)
-            return None
+            # 瞬时错误（网络/限流/会话失效）不能与"无头像"混为一谈：抛出让路由层区分
+            logger.warning(
+                "下载账号头像失败 %s: %s", account_name, e, exc_info=True
+            )
+            raise
 
 
     async def download_chat_avatar(
@@ -301,6 +309,8 @@ class TelegramAccountsMixin:
 
         Returns:
             头像的 JPEG 字节数据，如果没有头像则返回 None
+        Raises:
+            瞬时错误（网络/会话/限流）向上抛出，由调用方决定是否缓存判定
         """
         from tg_signer.core import get_client
 
@@ -362,13 +372,15 @@ class TelegramAccountsMixin:
                         return photo_bytes.read()
                     return None
         except Exception as e:
-            logger.debug(
-                "Failed to download chat avatar for %s/%s: %s",
+            # 瞬时错误不能与"该 chat 无头像"混为一谈：抛出让路由层区分
+            logger.warning(
+                "下载 Chat 头像失败 %s/%s: %s",
                 account_name,
                 chat_id,
                 e,
+                exc_info=True,
             )
-            return None
+            raise
 
 
     def _build_account_client(

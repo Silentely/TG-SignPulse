@@ -64,20 +64,26 @@ const lineTone = (text: string): string => {
 
 const isListenTask = computed(() => props.task?.isListenMode || props.task?.raw?.execution_mode === 'listen')
 
+// 请求序号：弹窗关闭/切换任务时丢弃过期响应
+let logsSeq = 0
+
 const loadLogs = async () => {
   if (!props.task) return
+  const seq = ++logsSeq
   loading.value = true
   const token = authStore.token || ''
   try {
     const accountName = props.runAccount || getTaskAccountName(props.task) || undefined
     const res = await getSignTaskHistory(token, props.task.name, accountName)
+    if (seq !== logsSeq) return // 过期响应：已切换任务/关闭，丢弃
     logs.value = Array.isArray(res) ? res : []
   } catch (e: unknown) {
+    if (seq !== logsSeq) return
     devLog.error('Failed to fetch logs', e)
     notifyApiError(e, 'logs.loadFailed')
     logs.value = []
   } finally {
-    loading.value = false
+    if (seq === logsSeq) loading.value = false
   }
 }
 
@@ -142,6 +148,7 @@ watch(() => props.isOpen, (newVal) => {
     hitGroupBy.value = 'chat'
     // 深链可直接打开命中 Tab
     const wantHits = props.initialTab === 'hits' && isListenTask.value
+    const prevTab = panelTab.value
     panelTab.value = wantHits ? 'hits' : 'history'
     if (props.runAccount) {
       logs.value = []
@@ -151,10 +158,16 @@ watch(() => props.isOpen, (newVal) => {
       loadLogs()
     }
     if (isListenTask.value) {
-      void loadHits()
-      if (wantHits) ensureHitsAutoRefresh()
+      // tab 值未变化（上次会话已停在命中 Tab）时 panelTab watch 不会触发，需手动加载
+      if (panelTab.value === 'hits' && prevTab === 'hits') {
+        void loadHits()
+      }
+      // 命中 Tab 时重启自动刷新，其余 Tab 内部会自行清理
+      ensureHitsAutoRefresh()
     }
   } else {
+    // 使在途日志/命中响应失效
+    logsSeq++
     logs.value = []
     clearRealtimeLogs()
     expandedIdx.value = null

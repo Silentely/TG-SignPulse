@@ -475,6 +475,35 @@ class TestTimeout:
         assert len(runner_env.notifications) == 1
 
 
+class TestCancel:
+    """用户取消：不写失败历史、不发失败通知，但收尾（释放任务标记/清理）仍执行"""
+
+    @pytest.mark.asyncio
+    async def test_cancel_skips_history_and_notifications(self, runner_env):
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def behavior(run_calls: int):
+            started.set()
+            await release.wait()  # 悬挂，等待外层 cancel
+
+        FakeSigner.behavior = behavior
+        svc = FakeSvc(task_cfg={"name": "t"})
+        task = asyncio.create_task(execute_sign_task(svc, "acc", "t"))
+        await asyncio.wait_for(started.wait(), timeout=5)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        # 取消不落历史、不发任何通知
+        assert svc.saved == []
+        assert runner_env.notifications == []
+        assert runner_env.success_notifications == []
+        # 收尾仍执行：任务标记释放；清理任务随后回收 active_logs
+        assert svc._active_tasks.get("acc::t") is False
+        await asyncio.sleep(0)  # 让清理任务跑完
+        assert "acc::t" not in svc._active_logs
+
+
 class TestStrongFailureFlip:
     """回复含失败关键词且强失败 → 成功翻转"""
 

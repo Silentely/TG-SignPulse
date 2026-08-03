@@ -22,7 +22,8 @@ def create_logged_task(
                 on_done(completed)
         except Exception:
             task_logger.exception("Failed to finalize %s", description)
-            return
+            # 不提前返回：即使 on_done 异常，也需取出任务异常，避免
+            # "Task exception was never retrieved" 告警与异常丢失
 
         if completed.cancelled():
             return

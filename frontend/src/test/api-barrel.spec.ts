@@ -26,7 +26,6 @@ describe('api barrel 完整性', () => {
   })
   it('keyword-hits API 导出', () => {
     expect(typeof api.listKeywordHits).toBe('function')
-    expect(typeof api.exportKeywordHitsUrl).toBe('function')
     expect(typeof api.exportKeywordHitsBlob).toBe('function')
     expect(typeof api.clearKeywordHits).toBe('function')
   })

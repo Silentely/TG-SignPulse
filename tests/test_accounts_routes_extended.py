@@ -583,6 +583,11 @@ class TestAvatarCache:
         with _patch_svc(svc):
             resp = api_client.get("/api/accounts/ava_c/avatar", headers=_auth(token))
         assert resp.status_code == 404
+        # 瞬时错误不写"无头像"标记：下次请求仍会重试下载
+        from backend.core.config import get_settings
+
+        marker = get_settings().resolve_workdir() / "avatars" / "ava_c.no_avatar"
+        assert not marker.exists()
 
     def test_avatar_requires_auth(self, api_client, db):  # noqa: F811
         resp = api_client.get("/api/accounts/ava_d/avatar")
@@ -888,6 +893,66 @@ class TestAvatarStaleCache:
             resp = api_client.get("/api/accounts/ava_f/avatar", headers=_auth(token))
         assert resp.status_code == 200
         assert resp.content == b"\xff\xd8\xffnew"
+
+
+class TestChatAvatarCache:
+    """sign_tasks_v2 chat 头像：瞬时错误不写标记、明确无头像才写标记"""
+
+    def test_chat_avatar_error_does_not_write_marker(self, api_client, db):  # noqa: F811
+        token = _login(api_client)
+        svc = _svc()
+        svc.download_chat_avatar = AsyncMock(side_effect=RuntimeError("flood wait"))
+        with patch(
+            "backend.services.telegram.get_telegram_service", return_value=svc
+        ):
+            resp = api_client.get(
+                "/api/sign-tasks/chats/acc/avatar/123", headers=_auth(token)
+            )
+        assert resp.status_code == 404
+        from backend.core.config import get_settings
+
+        marker = (
+            get_settings().resolve_workdir() / "avatars" / "chats" / "chat_123.no_avatar"
+        )
+        # 瞬时错误不得污染 7 天"无头像"缓存
+        assert not marker.exists()
+
+    def test_chat_avatar_no_avatar_writes_marker(self, api_client, db):  # noqa: F811
+        token = _login(api_client)
+        svc = _svc()
+        svc.download_chat_avatar = AsyncMock(return_value=None)
+        with patch(
+            "backend.services.telegram.get_telegram_service", return_value=svc
+        ):
+            first = api_client.get(
+                "/api/sign-tasks/chats/acc/avatar/456", headers=_auth(token)
+            )
+            second = api_client.get(
+                "/api/sign-tasks/chats/acc/avatar/456", headers=_auth(token)
+            )
+        assert first.status_code == 404
+        assert second.status_code == 404
+        # 标记生效后第二次直接 404，不再调用下载
+        assert svc.download_chat_avatar.await_count == 1
+
+    def test_chat_avatar_download_then_cache_hit(self, api_client, db):  # noqa: F811
+        token = _login(api_client)
+        svc = _svc()
+        svc.download_chat_avatar = AsyncMock(return_value=b"\xff\xd8\xffchat")
+        with patch(
+            "backend.services.telegram.get_telegram_service", return_value=svc
+        ):
+            first = api_client.get(
+                "/api/sign-tasks/chats/acc/avatar/789", headers=_auth(token)
+            )
+            second = api_client.get(
+                "/api/sign-tasks/chats/acc/avatar/789", headers=_auth(token)
+            )
+        assert first.status_code == 200
+        assert first.content == b"\xff\xd8\xffchat"
+        assert second.status_code == 200
+        # 第二次命中磁盘缓存
+        assert svc.download_chat_avatar.await_count == 1
 
 
 class TestUpdateAccountRename:

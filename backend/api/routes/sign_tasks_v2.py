@@ -813,6 +813,8 @@ async def get_chat_avatar(
     except Exception:
         pass
 
+    # 至少一个账号明确返回空（而非全部瞬时异常）才判定"无头像"
+    saw_no_avatar = False
     for try_account in accounts_to_try:
         try:
             avatar_bytes = await telegram_service.download_chat_avatar(
@@ -822,14 +824,17 @@ async def get_chat_avatar(
                 cache_file.write_bytes(avatar_bytes)
                 no_avatar_marker.unlink(missing_ok=True)
                 return Response(content=avatar_bytes, media_type="image/jpeg")
+            saw_no_avatar = True
         except Exception:
+            # 瞬时错误：换账号重试，不据此判定无头像
             continue
 
-    # No account could fetch the avatar - mark as no avatar
-    try:
-        no_avatar_marker.write_text("")
-    except Exception:
-        pass
+    # 全部账号都异常时不写标记，避免瞬时故障污染 7 天缓存
+    if saw_no_avatar:
+        try:
+            no_avatar_marker.write_text("")
+        except Exception:
+            pass
 
     raise HTTPException(status_code=404, detail="No avatar available")
 

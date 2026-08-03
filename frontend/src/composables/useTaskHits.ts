@@ -39,6 +39,8 @@ export function useTaskHits(options: {
   const hitGroupBy = ref<'task' | 'account' | 'chat'>('chat')
   const hitsView = ref<'list' | 'groups'>('list')
   let hitsPollHandle: ChainPollHandle | null = null
+  // 请求序号：弹窗切换任务/关闭时丢弃过期响应，避免慢请求覆盖新数据
+  let hitSeq = 0
 
   const canLoadMoreHits = computed(
     () => hitsView.value === 'list' && hitRecords.value.length < hitTotal.value,
@@ -61,6 +63,7 @@ export function useTaskHits(options: {
     }
     const token = authStore.token || ''
     const accountName = options.accountName.value
+    const seq = ++hitSeq
     try {
       if (hitsView.value === 'groups') {
         const res = await listKeywordHitGroups(token, {
@@ -69,6 +72,7 @@ export function useTaskHits(options: {
           group_by: hitGroupBy.value,
           limit_per_group: 30,
         })
+        if (seq !== hitSeq) return // 过期响应：已切换任务/关闭，丢弃
         hitGroups.value = res.groups || []
         hitTotal.value = hitGroups.value.reduce((sum, g) => sum + (g.count || 0), 0)
         hitRecords.value = []
@@ -81,6 +85,7 @@ export function useTaskHits(options: {
           offset,
         })
         const items = res.items || []
+        if (seq !== hitSeq) return // 过期响应：已切换任务/关闭，丢弃
         if (append) {
           const seen = new Set(hitRecords.value.map((h) => h.id))
           hitRecords.value = [
@@ -103,6 +108,7 @@ export function useTaskHits(options: {
         hitGroups.value = []
       }
     } catch (e: unknown) {
+      if (seq !== hitSeq) return
       devLog.error('Failed to fetch keyword hits', e)
       if (!silent) {
         notifyApiError(e, 'taskLogs.hitsLoadFailed')
@@ -113,8 +119,10 @@ export function useTaskHits(options: {
         }
       }
     } finally {
-      hitsLoading.value = false
-      hitsLoadingMore.value = false
+      if (seq === hitSeq) {
+        hitsLoading.value = false
+        hitsLoadingMore.value = false
+      }
     }
   }
 
@@ -175,6 +183,8 @@ export function useTaskHits(options: {
   }
 
   const resetHitsState = () => {
+    // 使在途响应全部失效，避免关闭后写入已重置状态
+    hitSeq++
     hitRecords.value = []
     hitGroups.value = []
     hitTotal.value = 0

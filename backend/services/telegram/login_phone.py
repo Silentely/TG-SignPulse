@@ -1,7 +1,6 @@
 """TelegramService mixin: login_phone."""
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 import time
@@ -493,59 +492,5 @@ class TelegramPhoneLoginMixin:
             needs_relogin=False,
         )
         self._accounts_cache = None
-
-
-    def login_sync(
-        self,
-        account_name: str,
-        phone_number: str,
-        phone_code: Optional[str] = None,
-        phone_code_hash: Optional[str] = None,
-        password: Optional[str] = None,
-        proxy: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """
-        同步版本的登录方法（用于 FastAPI）
-
-        如果只提供 phone_number，则发送验证码
-        如果提供了 phone_code，则验证登录
-        """
-
-        try:
-            if phone_code is None:
-                # 发送验证码
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    result = loop.run_until_complete(
-                        self.start_login(account_name, phone_number, proxy)
-                    )
-                finally:
-                    loop.close()
-            else:
-                # 验证登录
-                if not phone_code_hash:
-                    raise ValueError("缺少 phone_code_hash")
-
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    result = loop.run_until_complete(
-                        self.verify_login(
-                            account_name,
-                            phone_number,
-                            phone_code,
-                            phone_code_hash,
-                            password,
-                            proxy,
-                        )
-                    )
-                finally:
-                    loop.close()
-
-            return result
-        except Exception as e:
-            # 重新抛出异常，保留原始错误信息
-            raise e
 
 

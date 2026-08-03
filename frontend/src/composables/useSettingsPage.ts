@@ -121,6 +121,8 @@ export function useSettingsPage() {
   const runtimeStatus = ref<RuntimeStatus | null>(null)
   const memoryStats = ref<MemoryStatsResponse | null>(null)
   const pageLoading = ref(true)
+  // 卸载标记：异步加载期间离开页面时停止后续副作用
+  let disposed = false
   const botTokenSet = ref(false)
   const afterBotTokenSaved = () => {
     if (settings.value.botToken) {
@@ -270,6 +272,8 @@ export function useSettingsPage() {
   })
 
   onMounted(async () => {
+    // 同步注册 beforeunload：避免异步加载期间卸载导致监听器永久泄漏
+    window.addEventListener('beforeunload', onBeforeUnload)
     const token = authStore.token || ''
     if (!token) {
       pageLoading.value = false
@@ -315,17 +319,18 @@ export function useSettingsPage() {
         devLog.error('Failed to load memory stats', e)
       }
       await loadVersion(token)
+      if (disposed) return // 加载期间已卸载：不再标记干净或注册监听
       markAllClean()
-      window.addEventListener('beforeunload', onBeforeUnload)
     } catch (e: unknown) {
       devLog.error('Failed to load settings', e)
       notifyError(resolveApiErrorMessage(e, 'settings.loadFailed'))
     } finally {
-      pageLoading.value = false
+      if (!disposed) pageLoading.value = false
     }
   })
 
   onUnmounted(() => {
+    disposed = true
     window.removeEventListener('beforeunload', onBeforeUnload)
   })
 
