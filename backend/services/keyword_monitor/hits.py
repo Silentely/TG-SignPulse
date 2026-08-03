@@ -112,6 +112,35 @@ def _as_optional_int(value: Any) -> Optional[int]:
         return None
 
 
+def _clip(value: Any, limit: int) -> str:
+    """字符串字段收敛：转字符串、去首尾空白并按上限截断。"""
+    return str(value or "").strip()[:limit]
+
+
+def _safe_message_text(message_text: Any) -> str:
+    """消息文本：统一换行、去首尾空白、超长截断补省略号。"""
+    text = str(message_text or "").replace("\r\n", "\n").strip()
+    if len(text) > 500:
+        text = text[:497] + "..."
+    return text
+
+
+def _safe_url(url: Any) -> str:
+    """仅保留 http(s) URL，防止 javascript: 等危险协议进入导出/展示。"""
+    raw_url = str(url or "").strip()
+    if raw_url.lower().startswith(("http://", "https://")):
+        return raw_url[:500]
+    return ""
+
+
+def _clean_keywords(keywords: Optional[List[Any]]) -> List[str]:
+    """关键词列表：转字符串、去空白截断、剔除空串，上限 20 条。"""
+    cleaned = [
+        str(k or "").strip()[:200] for k in (keywords or []) if str(k or "").strip()
+    ]
+    return cleaned[:20]
+
+
 def _normalize_hit_record(raw: Dict[str, Any]) -> Optional[HitRecord]:
     """
     将 JSONL 行归一为 HitRecord。
@@ -119,45 +148,28 @@ def _normalize_hit_record(raw: Dict[str, Any]) -> Optional[HitRecord]:
     仅要求 id 为非空字符串；其余字段做截断与类型收敛，
     避免历史脏数据在列表/导出时炸类型或注入异常结构。
     """
-    rid = str(raw.get("id") or "").strip()
+    rid = _clip(raw.get("id"), 64)
     if not rid:
         return None
-
-    keywords_raw = raw.get("keywords")
-    keywords: List[str] = []
-    if isinstance(keywords_raw, list):
-        for k in keywords_raw[:20]:
-            s = str(k or "").strip()[:200]
-            if s:
-                keywords.append(s)
 
     chat_id = raw.get("chat_id")
     if chat_id is not None and not isinstance(chat_id, (int, str)):
         chat_id = str(chat_id)
 
-    message_text = str(raw.get("message_text") or "").replace("\r\n", "\n").strip()
-    if len(message_text) > 500:
-        message_text = message_text[:497] + "..."
-
-    raw_url = str(raw.get("url") or "").strip()
-    safe_url = ""
-    if raw_url.lower().startswith(("http://", "https://")):
-        safe_url = raw_url[:500]
-
     record: HitRecord = {
-        "id": rid[:64],
-        "time": str(raw.get("time") or "")[:40],
-        "account_name": str(raw.get("account_name") or "").strip()[:120],
-        "task_name": str(raw.get("task_name") or "").strip()[:120],
+        "id": rid,
+        "time": _clip(raw.get("time"), 40),
+        "account_name": _clip(raw.get("account_name"), 120),
+        "task_name": _clip(raw.get("task_name"), 120),
         "chat_id": chat_id,  # type: ignore[typeddict-item]
-        "chat_title": str(raw.get("chat_title") or "").strip()[:200],
-        "keyword": str(raw.get("keyword") or "").strip()[:200],
-        "keywords": keywords,
+        "chat_title": _clip(raw.get("chat_title"), 200),
+        "keyword": _clip(raw.get("keyword"), 200),
+        "keywords": _clean_keywords(raw.get("keywords")),
         "message_id": _as_optional_int(raw.get("message_id")),
-        "message_text": message_text,
-        "sender": str(raw.get("sender") or "").strip()[:120],
-        "url": safe_url,
-        "push_channel": str(raw.get("push_channel") or "").strip()[:40],
+        "message_text": _safe_message_text(raw.get("message_text")),
+        "sender": _clip(raw.get("sender"), 120),
+        "url": _safe_url(raw.get("url")),
+        "push_channel": _clip(raw.get("push_channel"), 40),
         "message_thread_id": _as_optional_int(raw.get("message_thread_id")),
     }
     return record
@@ -227,30 +239,20 @@ def record_keyword_hit(
 ) -> HitRecord:
     """追加一条命中记录并落盘。"""
     _ensure_loaded()
-    text = str(message_text or "").replace("\r\n", "\n").strip()
-    if len(text) > 500:
-        text = text[:497] + "..."
-    # URL 仅保留 http(s)，避免 javascript: 等危险协议进入导出/展示
-    raw_url = str(url or "").strip()
-    safe_url = ""
-    if raw_url.lower().startswith(("http://", "https://")):
-        safe_url = raw_url[:500]
     record: HitRecord = {
         "id": uuid.uuid4().hex,
         "time": _utc_now_iso(),
-        "account_name": str(account_name or "").strip()[:120],
-        "task_name": str(task_name or "").strip()[:120],
+        "account_name": _clip(account_name, 120),
+        "task_name": _clip(task_name, 120),
         "chat_id": chat_id,
-        "chat_title": str(chat_title or "").strip()[:200],
-        "keyword": str(keyword or "").strip()[:200],
-        "keywords": [str(k).strip()[:200] for k in (keywords or []) if str(k).strip()][
-            :20
-        ],
+        "chat_title": _clip(chat_title, 200),
+        "keyword": _clip(keyword, 200),
+        "keywords": _clean_keywords(keywords),
         "message_id": message_id,
-        "message_text": text,
-        "sender": str(sender or "").strip()[:120],
-        "url": safe_url,
-        "push_channel": str(push_channel or "").strip()[:40],
+        "message_text": _safe_message_text(message_text),
+        "sender": _clip(sender, 120),
+        "url": _safe_url(url),
+        "push_channel": _clip(push_channel, 40),
         "message_thread_id": message_thread_id,
     }
     with _lock:

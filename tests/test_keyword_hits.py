@@ -180,6 +180,29 @@ def test_record_strips_javascript_url():
     assert rec2["url"].startswith("https://")
 
 
+def test_record_truncates_and_cleans_fields():
+    """新增路径与 JSONL 归一化共用同一套字段收敛规则。"""
+    rec = hits_mod.record_keyword_hit(
+        account_name="a" * 300,
+        task_name="t" * 300,
+        keyword="k",
+        keywords=["x", 1, None, "y" * 300],
+        message_text="\r\n" + "z" * 600,
+        sender="s" * 300,
+        push_channel="p" * 100,
+        url="https://t.me/" + "a" * 600,
+    )
+    assert len(rec["account_name"]) == 120
+    assert len(rec["task_name"]) == 120
+    assert len(rec["sender"]) == 120
+    assert len(rec["push_channel"]) == 40
+    # 换行统一 + 去首尾空白 + 截断补省略号
+    assert rec["message_text"] == "z" * 497 + "..."
+    assert len(rec["url"]) == 500
+    # None 不落成 "None" 字符串，单条超长截断
+    assert rec["keywords"] == ["x", "1", "y" * 200]
+
+
 def test_clear_filtered():
     hits_mod.record_keyword_hit(account_name="a1", task_name="t1", keyword="1")
     hits_mod.record_keyword_hit(account_name="a2", task_name="t1", keyword="2")
