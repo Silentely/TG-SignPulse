@@ -8,7 +8,7 @@ export function formatTimeOnly(value?: string | null, fallback = ''): string {
   if (!value) return fallback
   const d = new Date(value)
   if (Number.isNaN(d.getTime())) return value
-  return d.toLocaleTimeString('en-US', { hour12: false })
+  return d.toLocaleTimeString('en-US', { hour12: false, timeZone: 'Asia/Hong_Kong' })
 }
 
 /** 完整日期时间（24 小时制，可按语言区域展示） */
@@ -20,7 +20,7 @@ export function formatDateTime(
   if (!value) return fallback
   const d = new Date(value)
   if (Number.isNaN(d.getTime())) return value
-  return d.toLocaleString(locale, { hour12: false })
+  return d.toLocaleString(locale, { hour12: false, timeZone: 'Asia/Hong_Kong' })
 }
 
 /** 短日期时间（MM/DD HH:MM[:SS]），手工拼接避免语言区域导致的顺序/分隔符差异 */
