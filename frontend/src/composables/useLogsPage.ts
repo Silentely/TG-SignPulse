@@ -54,6 +54,11 @@ export function useLogsPage() {
   const detailLoading = ref(false)
   const loginLogs = ref<LoginLogUiItem[]>([])
 
+  // 请求序号：丢弃过期响应，避免慢请求覆盖新筛选/新选中日志
+  let taskLogsSeq = 0
+  let loginLogsSeq = 0
+  let detailSeq = 0
+
   const accountOptions = computed(() => [
     { label: t('logs.allAccounts'), value: '' },
     ...accountsList.value.map((a) => ({ label: a, value: a })),
@@ -145,14 +150,17 @@ export function useLogsPage() {
   const loadTaskLogs = async () => {
     const token = authStore.token || ''
     if (!token) return
+    const seq = ++taskLogsSeq
     try {
       const res = await getTaskHistoryLogs(token, {
         limit: 100,
         account_name: filterAccount.value || undefined,
         date: filterDate.value || undefined,
       })
+      if (seq !== taskLogsSeq) return // 过期响应：筛选已变化，丢弃
       rawTaskLogs.value = Array.isArray(res) ? res : []
     } catch (e: unknown) {
+      if (seq !== taskLogsSeq) return
       devLog.error('Failed to fetch logs', e)
       notifyApiError(e, 'logs.loadFailed')
       rawTaskLogs.value = []
@@ -162,11 +170,13 @@ export function useLogsPage() {
   const loadLoginLogs = async () => {
     const token = authStore.token || ''
     if (!token) return
+    const seq = ++loginLogsSeq
     try {
       const res = await getLoginAuditLogs(token, {
         limit: 100,
         date: filterDate.value || undefined,
       })
+      if (seq !== loginLogsSeq) return // 过期响应：筛选已变化，丢弃
       loginLogs.value = res.map((l: LoginAuditLog) => ({
         id: l.id,
         time: formatTime(l.created_at),
@@ -176,6 +186,7 @@ export function useLogsPage() {
         text: translateLoginDetail(l.detail, l.success),
       }))
     } catch (e: unknown) {
+      if (seq !== loginLogsSeq) return
       devLog.error('Failed to fetch login logs', e)
       notifyApiError(e, 'logs.loadFailed')
       loginLogs.value = []
@@ -200,6 +211,7 @@ export function useLogsPage() {
     logDetail.value = null
     const token = authStore.token || ''
     if (!token || !log.account || !log.task || !log.created_at) return
+    const seq = ++detailSeq
     detailLoading.value = true
     try {
       const detail = await getTaskHistoryLogDetail(token, {
@@ -207,12 +219,14 @@ export function useLogsPage() {
         task_name: log.task,
         created_at: log.created_at,
       })
+      if (seq !== detailSeq) return // 过期响应：已选中其他日志，丢弃
       logDetail.value = detail
     } catch (e: unknown) {
+      if (seq !== detailSeq) return
       devLog.error('Failed to fetch log detail', e)
       notifyApiError(e, 'logs.detailLoadFailed')
     } finally {
-      detailLoading.value = false
+      if (seq === detailSeq) detailLoading.value = false
     }
   }
 

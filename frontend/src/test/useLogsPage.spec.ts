@@ -67,6 +67,7 @@ vi.mock('../lib/api', () => api)
 
 import { useLogsPage } from '../composables/useLogsPage'
 import { useAuthStore } from '../stores/auth'
+import type { TaskLogUiItem } from '../lib/types'
 
 describe('useLogsPage (route + mount)', () => {
   beforeEach(() => {
@@ -194,6 +195,90 @@ describe('useLogsPage (route + mount)', () => {
     expect(api.getLoginAuditLogs).toHaveBeenCalled()
     expect(result.loginLogs.value).toHaveLength(1)
     expect(result.loginLogs.value[0].username).toBe('admin')
+    unmount()
+  })
+
+  it('discards stale task-log response when a newer load supersedes it', async () => {
+    routeMocks.state.query = {} // 避免路由筛选在挂载时额外触发加载
+    let resolveStale!: (v: unknown) => void
+    const stalePromise = new Promise((resolve) => {
+      resolveStale = resolve
+    })
+    api.getTaskHistoryLogs
+      .mockReturnValueOnce(stalePromise) // 挂载时的首次请求（挂起）
+      .mockResolvedValueOnce([
+        {
+          id: 2,
+          task_name: 'fresh',
+          account_name: 'acc-2',
+          created_at: '2026-07-02T00:00:00',
+          success: true,
+          message: 'ok',
+          failure_category: '',
+          flow_line_count: 0,
+        },
+      ])
+
+    const { result, unmount } = mountComposable(() => useLogsPage())
+    await flushPromises()
+    // 首次请求仍挂起时再触发一次加载（等价于筛选变化）
+    await result.loadLogs()
+    await flushPromises()
+    expect(result.logs.value.map((l) => l.task)).toEqual(['fresh'])
+
+    // 迟到的旧响应不得覆盖新数据
+    resolveStale([
+      {
+        id: 1,
+        task_name: 'stale',
+        account_name: 'acc-q',
+        created_at: '2026-07-01T00:00:00',
+        success: false,
+        message: 'old',
+        failure_category: 'timeout',
+        flow_line_count: 1,
+      },
+    ])
+    await flushPromises()
+    expect(result.logs.value.map((l) => l.task)).toEqual(['fresh'])
+    unmount()
+  })
+
+  it('discards stale log-detail response when another log is selected', async () => {
+    routeMocks.state.query = { account: 'acc-q' } // 去掉 task/at，避免挂载自动打开详情
+    let resolveStale!: (v: unknown) => void
+    const stalePromise = new Promise((resolve) => {
+      resolveStale = resolve
+    })
+    api.getTaskHistoryLogDetail
+      .mockReturnValueOnce(stalePromise) // 先点 A（挂起）
+      .mockResolvedValueOnce({ flow_logs: ['B'], message: 'B detail' }) // 再点 B（立即返回）
+
+    const { result, unmount } = mountComposable(() => useLogsPage())
+    await flushPromises()
+
+    const base = {
+      time: 'x',
+      account: 'acc-q',
+      status: 'error' as const,
+      text: 'a',
+      flow_line_count: 1,
+    }
+    const logA: TaskLogUiItem = { ...base, id: 1, created_at: '2026-07-01T10:00:00', task: 'task-q', failure_category: 'timeout' }
+    const logB: TaskLogUiItem = { ...base, id: 2, created_at: '2026-07-01T11:00:00', task: 'other', failure_category: undefined }
+
+    const pA = result.openLogDetail(logA)
+    const pB = result.openLogDetail(logB)
+    await pB
+    await flushPromises()
+    expect(result.logDetail.value?.message).toBe('B detail')
+
+    // 迟到的 A 详情不得覆盖当前选中的 B
+    resolveStale({ flow_logs: ['A'], message: 'A detail' })
+    await pA
+    await flushPromises()
+    expect(result.logDetail.value?.message).toBe('B detail')
+    expect(result.detailLoading.value).toBe(false)
     unmount()
   })
 })
