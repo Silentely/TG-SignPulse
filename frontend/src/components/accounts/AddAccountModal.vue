@@ -99,7 +99,9 @@ const pollStatus = async (token: string, lid: string) => {
       if (form.value.remark) {
         try {
           await updateAccount(token, form.value.account_name, { remark: form.value.remark })
-        } catch (err) {}
+        } catch (err) {
+          devLog.warn('登录成功但备注保存失败', err)
+        }
       }
       loading.value = false
       toast.success(t('addAccount.loginSuccess'))
@@ -141,7 +143,9 @@ const handleQrPasswordSubmit = async (token: string, lid: string) => {
       if (form.value.remark) {
         try {
           await updateAccount(token, form.value.account_name, { remark: form.value.remark })
-        } catch (err) {}
+        } catch (err) {
+          devLog.warn('登录成功但备注保存失败', err)
+        }
       }
       loading.value = false
       toast.success(t('addAccount.loginSuccess'))
@@ -241,7 +245,11 @@ const handleSave = async () => {
         proxy: form.value.proxy || undefined
       })
       if (form.value.remark) {
-        try { await updateAccount(token, form.value.account_name, { remark: form.value.remark }) } catch (err) {}
+        try {
+          await updateAccount(token, form.value.account_name, { remark: form.value.remark })
+        } catch (err) {
+          devLog.warn('登录成功但备注保存失败', err)
+        }
       }
       loading.value = false
       toast.success(t('addAccount.loginSuccess'))

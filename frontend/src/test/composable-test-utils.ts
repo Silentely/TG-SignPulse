@@ -168,7 +168,6 @@ export function makeAccountUi(
     status: over.status || 'active',
     message: over.message || '',
     avatarUrl: '',
-    avatarLoaded: false,
     raw,
   }
 }

@@ -99,9 +99,6 @@ export function badgeTone(status?: SignTaskRunStatusLike | null): BadgeTone {
     if (phase === 'cooldown' || phase === 'waiting_lock' || phase === 'checking_account') {
       return 'amber'
     }
-    if (phase === 'running' || phase === 'finalizing' || phase === 'starting') {
-      return 'sky'
-    }
     return 'sky'
   }
   return 'neutral'

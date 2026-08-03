@@ -29,7 +29,6 @@ export interface AccountUiItem {
   status: string;
   message: string;
   avatarUrl: string;
-  avatarLoaded: boolean;
   raw: import('./api').AccountInfo;
 }
 
@@ -154,12 +153,6 @@ export interface FastApiValidationError {
   loc: string[];
   msg: string;
   type: string;
-}
-
-// ─── 缓存条目类型 ───
-export interface CacheEntry<T> {
-  data: T;
-  timestamp: number;
 }
 
 // ─── 工具函数 ───

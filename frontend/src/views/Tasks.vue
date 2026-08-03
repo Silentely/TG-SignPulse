@@ -107,7 +107,9 @@ const loadAllAccounts = async () => {
     // 走共享 store：TTL 命中时与 Dashboard/Logs 复用同一缓存
     const list = await accountsStore.ensureAccounts()
     allAccounts.value = (list || []).map((a) => a.name)
-  } catch { }
+  } catch (e) {
+    devLog.warn('加载账号筛选列表失败', e)
+  }
 }
 
 const getTaskAccountName = (task: SignTask | TaskUiItem | { account_name?: string; account_names?: string[] }): string => {

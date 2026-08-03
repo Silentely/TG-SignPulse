@@ -41,7 +41,6 @@ export function mapAccountInfoToUiItem(
     status: uiStatus,
     message,
     avatarUrl: '',
-    avatarLoaded: false,
     raw: acc,
   }
 }

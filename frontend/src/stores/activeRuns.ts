@@ -85,9 +85,6 @@ export const useActiveRunsStore = defineStore('activeRuns', () => {
     }
   }
 
-  // 有 active 时保持轮询；全空时停
-  const onRunsChanged = () => ensurePolling()
-
   return {
     runs,
     byTask,
@@ -100,6 +97,5 @@ export const useActiveRunsStore = defineStore('activeRuns', () => {
     acquire,
     release,
     ensurePolling,
-    onRunsChanged,
   }
 })

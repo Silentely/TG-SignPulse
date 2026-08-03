@@ -288,12 +288,7 @@ export function useTaskListRuntime(options: {
 
   return {
     cancelBusyKey,
-    syncActiveRunsFromTasks,
-    refreshActiveRuns,
-    ensureActivePolling,
     loadListenHitCounts,
-    ensureHitCountPolling,
-    clearHitCountPolling,
     taskActiveRuns,
     taskActiveRun,
     activeRunBadgeText,
@@ -302,6 +297,5 @@ export function useTaskListRuntime(options: {
     handleCancelRun,
     afterTasksLoaded,
     loadAccountStatusMap,
-    stopAll,
   }
 }
