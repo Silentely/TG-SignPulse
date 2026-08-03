@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { Play, FileText, Edit2, Trash2, Plus, QrCode, Phone, Zap, MonitorSmartphone, MessageCircle, CheckCircle2, Search, RefreshCw, XCircle, X } from 'lucide-vue-next'
 import {
@@ -21,6 +21,7 @@ import OfficialMessagesModal from '../components/accounts/OfficialMessagesModal.
 import PageRetry from '../components/PageRetry.vue'
 import { devLog } from '../lib/devLog'
 import { AVATAR_FETCH_CONCURRENCY, mapPool } from '../lib/async-pool'
+import { AvatarUrlCache } from '../lib/avatar-cache'
 import {
   filterAccountsByQuery,
   mapAccountInfoToUiItem,
@@ -34,6 +35,8 @@ const authStore = useAuthStore()
 const accountsStore = useAccountsStore()
 const accounts = ref<AccountUiItem[]>([])
 const pageLoading = ref(true)
+// 会话内头像 URL 缓存：避免每次刷新重复请求与重复创建 ObjectURL
+const avatarCache = new AvatarUrlCache()
 const showAddModal = ref(false)
 const showEditModal = ref(false)
 const showAddMenu = ref(false)
@@ -69,7 +72,13 @@ const loadAccounts = async () => {
       loginExpired: t('accounts.loginExpired'),
       checking: t('accounts.checking'),
     }
-    accounts.value = list.map((acc) => mapAccountInfoToUiItem(acc, labels))
+    accounts.value = list.map((acc) => {
+      const ui = mapAccountInfoToUiItem(acc, labels)
+      // 复用已加载的头像 URL，未缓存项交由 loadAvatars 补充
+      const cached = avatarCache.get(acc.name)
+      if (cached) ui.avatarUrl = cached
+      return ui
+    })
     // 限流加载头像，避免账号多时并发打满连接
     void loadAvatars(accounts.value)
   } catch (e: unknown) {
@@ -84,17 +93,16 @@ const loadAccounts = async () => {
 const loadAvatar = async (acc: AccountUiItem) => {
   const token = authStore.token || ''
   try {
-    const blob = await fetchAccountAvatar(token, acc.name)
-    const prev = acc.avatarUrl
-    acc.avatarUrl = URL.createObjectURL(blob)
-    // 释放旧 ObjectURL，避免账号列表反复刷新泄漏 blob 引用
-    if (prev && prev.startsWith('blob:')) {
-      try { URL.revokeObjectURL(prev) } catch { /* ignore */ }
+    let url = avatarCache.get(acc.name)
+    if (!url) {
+      const blob = await fetchAccountAvatar(token, acc.name)
+      url = URL.createObjectURL(blob)
+      avatarCache.set(acc.name, url)
     }
+    acc.avatarUrl = url
   } catch {
     // No avatar available, keep fallback
   }
-  acc.avatarLoaded = true
 }
 
 const loadAvatars = async (list: AccountUiItem[]) => {
@@ -107,6 +115,11 @@ onMounted(async () => {
   await loadAccounts()
   // 刷新页面后恢复未完成的批量检测
   void resumeActiveBatchJob()
+})
+
+onUnmounted(() => {
+  // 离开页面时统一回收会话内头像 ObjectURL，避免 blob 泄漏
+  avatarCache.release()
 })
 
 const handleDelete = async (name: string) => {
