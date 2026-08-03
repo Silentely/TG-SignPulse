@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, computed } from 'vue'
+import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
 import { ChevronDown } from 'lucide-vue-next'
 import { listAccounts, getAccountChats, searchAccountChats } from '../../lib/api'
 import type { SignTask, AccountInfo, ChatInfo, CreateSignTaskRequest, UpdateSignTaskRequest } from '../../lib/api'
@@ -261,24 +261,32 @@ watch(selectedAccount, async (v)=>{
   }
 })
 let st: ReturnType<typeof setTimeout> | null = null
+let chatSearchSeq = 0
 watch(chatSearch, (v) => {
   if (!v.trim()) {
     chatSearchResults.value = []
     return
   }
   if (st) clearTimeout(st)
+  const seq = ++chatSearchSeq
   st = setTimeout(async () => {
     chatSearchLoading.value = true
     try {
       const token = authStore.token || ''
       const r = await searchAccountChats(token, selectedAccount.value, v.trim())
+      if (seq !== chatSearchSeq) return // 过期响应：输入已变化，丢弃
       chatSearchResults.value = r.items || []
     } catch (e: unknown) {
+      if (seq !== chatSearchSeq) return
       devLog.error('chat search failed', e)
     } finally {
-      chatSearchLoading.value = false
+      if (seq === chatSearchSeq) chatSearchLoading.value = false
     }
   }, 300)
+})
+onUnmounted(() => {
+  if (st) clearTimeout(st)
+  chatSearchSeq += 1 // 使在途请求的 seq 失效，不再写入已卸载组件
 })
 const selectChat=(c: ChatInfo)=>{selectedChatId.value=c.id;selectedChatName.value=c.title||c.username||String(c.id);chatSearch.value='';chatSearchResults.value=[]}
 const addTargetChat = () => {
