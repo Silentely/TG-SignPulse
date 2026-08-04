@@ -147,6 +147,18 @@ describe('useTaskListActions', () => {
     expect(toastSpy.success).toHaveBeenCalled()
   })
 
+  it('submitClone skips wildcard account name', async () => {
+    api.cloneSignTask.mockResolvedValue({})
+    const task = makeTaskUi({
+      raw: { account_name: '*', account_names: ['*', 'real'] },
+    })
+    const { actions } = setup([task])
+    actions.openCloneModal(task)
+    await actions.submitClone('cloned')
+    // 不把 '*' 当账号名传给后端，回落到具体账号
+    expect(api.cloneSignTask).toHaveBeenCalledWith('tok', 'task-1', 'cloned', 'real')
+  })
+
   it('handleDelete respects confirm cancel', async () => {
     confirmMock.confirm.mockResolvedValueOnce(false)
     const { actions } = setup()

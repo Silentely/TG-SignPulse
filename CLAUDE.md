@@ -6,6 +6,7 @@
 
 | 日期 | 变更内容 |
 |------|----------|
+| 2026-08-04 | 关键词监听重启去重：按 (账号, 会话) 持久化已处理消息水位（keyword_monitor/seen.json，30s 节流原子写盘、停机/重启加载），重连补投的旧消息不再重复命中、推送与落记录，新增 6 条测试。前端账号名解析统一收敛：resolveTaskAccountName 兼容 TaskUiItem 自动解 raw，Tasks 视图/useTaskListActions/TaskLogsModal 移除重复封装，新增 resolveTaskAccountNames 供 useTaskListRuntime 复用；修复克隆任务把 '*' 当账号名传后端的缺陷并补回归测试。后端 1186 条测试全绿，前端 304 条/typecheck/构建全绿 |
 | 2026-08-04 | 打磨：删除 config 路由死类 ExportTaskResponse 与 tg_session 内 6 处不可达防御分支（_load_account_store 已归一化 accounts 为 dict）；测试密钥统一升级至 ≥32 字节消除 PyJWT InsecureKeyLengthWarning 噪音；backend/utils/tg_session 覆盖率 54%→99%（新增 68 条用例覆盖账号存储 CRUD、并发信号量、会话串旧格式、导出兜底），backend/utils/storage 覆盖率 68%→98%（新增 18 条用例）。前端：删除死导出 AccountUiStatus 与 AsyncPoolTask。后端 1162 条测试全绿且无警告，前端 301 条/typecheck 全绿 |
 | 2026-08-04 | 后端：限流器补过期桶清扫（1h 陈旧/解封清理，防内存缓增）；任务运行状态迁移补 3 张内存映射；运行配置改单次读取（return_raw 消除双读，重试语义修正）；任务历史时间戳改 UTC；收敛账号解析与 JobLookupError 兜底、QR 注册失败可见化、头像缓存失败清理。前端：删除 16 个死 API 导出；会话头像 blob URL 追踪回收（列表替换/卸载统一 revoke）；会话搜索/复制提示/重登弹窗延时与 AbortController 卸载清理；DatePicker 与 AboutSettings 硬编码文案 i18n 化（含键一致性回归测试）；账号名解析收敛到共享 resolveTaskAccountName。后端 1094 条测试全绿，前端 301 条/typecheck/构建全绿 |
 | 2026-08-03 | 修复任务清理竞态（cancel 后 finally 误删新条目）与日志页/会话搜索过期响应竞态（各配回归测试）；修复 F821 未导入与 config.json 非原子回写；头像 blob URL 泄漏改 AvatarUrlCache 会话复用；收敛 hits 字段截断、6 处时间格式化、账号日志双循环；清理 write-only 字段与死导出并补静默异常诊断日志。后端 1076 条测试覆盖率 52.19%，前端 299 条/typecheck/构建全绿 |

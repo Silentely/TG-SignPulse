@@ -112,11 +112,6 @@ const loadAllAccounts = async () => {
   }
 }
 
-const getTaskAccountName = (task: SignTask | TaskUiItem | { account_name?: string; account_names?: string[] }): string => {
-  const raw = 'raw' in task ? (task as TaskUiItem).raw : task
-  return resolveTaskAccountName(raw as SignTask)
-}
-
 const {
   cancelBusyKey,
   afterTasksLoaded,
@@ -131,7 +126,7 @@ const {
   tasks,
   listenTaskCount,
   accountFilter,
-  getTaskAccountName,
+  getTaskAccountName: resolveTaskAccountName,
 })
 
 // 请求序号：丢弃过期响应，避免快速切换账号筛选时慢响应覆盖新结果

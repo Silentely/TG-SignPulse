@@ -45,8 +45,8 @@ const expandedIdx = ref<number | null>(null)
 const getTaskAccountName = (task: TaskUiItem): string => {
   if (!task) return ''
   if (props.runAccount) return props.runAccount
-  // 直接值优先、跳过通配符、回落 account_names——与 task-list-map 共享同一解析
-  return resolveTaskAccountName(task.raw)
+  // 与 task-list-map 共享同一解析：直接值优先、跳过通配符、回落 account_names
+  return resolveTaskAccountName(task)
 }
 
 const lineTone = (text: string): string => {

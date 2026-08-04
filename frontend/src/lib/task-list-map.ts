@@ -48,21 +48,49 @@ export function formatTaskListDate(dateStr: string): string {
   }
 }
 
-export function resolveTaskAccountName(task: SignTask | { account_name?: string; account_names?: string[] }): string {
-  const name = task.account_name || ''
+export type TaskAccountSource =
+  | SignTask
+  | TaskUiItem
+  | { account_name?: string; account_names?: string[] }
+
+function unwrapTaskSource(
+  task: TaskAccountSource,
+): SignTask | { account_name?: string; account_names?: string[] } {
+  return 'raw' in task ? task.raw : task
+}
+
+export function resolveTaskAccountName(task: TaskAccountSource): string {
+  const raw = unwrapTaskSource(task)
+  const name = raw.account_name || ''
   if (name && name !== '*') return name
-  const names = task.account_names || []
+  const names = raw.account_names || []
   for (const n of names) {
     if (n && n !== '*') return n
   }
   return ''
 }
 
+/** 任务关联的具体账号名（去重、跳过通配符，不展开）。 */
+export function resolveTaskAccountNames(task: TaskAccountSource): string[] {
+  const raw = unwrapTaskSource(task)
+  const names = raw.account_names || []
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const n of [...names, raw.account_name || '']) {
+    if (n && n !== '*' && !seen.has(n)) {
+      seen.add(n)
+      result.push(n)
+    }
+  }
+  return result
+}
+
 export function resolveTaskRealAccounts(
-  task: SignTask,
+  task: TaskAccountSource,
   allAccounts: string[],
 ): string[] {
-  const names = task.account_names || []
+  const raw = unwrapTaskSource(task)
+  const names = raw.account_names || []
   if (names.includes('*')) {
     return allAccounts.length > 0 ? allAccounts : []
   }

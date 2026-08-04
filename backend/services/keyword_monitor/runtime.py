@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import random
@@ -46,6 +47,11 @@ for _name, _val in vars(_km_rules).items():
     globals().setdefault(_name, _val)
 del _name, _val
 
+# 重启去重状态文件：按 (账号, 会话) 记录已处理的最大消息 ID，
+# 服务重启/重连后 Telegram 补投的旧消息据此跳过，避免重复命中与推送
+_SEEN_STATE_FILENAME = "seen.json"
+_SEEN_PERSIST_INTERVAL = 30.0
+
 
 class KeywordMonitorService:
     def __init__(self) -> None:
@@ -59,6 +65,9 @@ class KeywordMonitorService:
         self._ai_tools: Optional[Any] = None
         self._ai_cfg_signature: Optional[tuple[str, str, str]] = None
         self._bot_cmd_last_sent: dict[str, float] = {}
+        self._seen: dict[str, int] = {}
+        self._seen_dirty = False
+        self._last_seen_persist = 0.0
 
     async def _ensure_client_ready(self, client: Any) -> None:
         if getattr(client, "is_connected", False):
@@ -1417,12 +1426,83 @@ class KeywordMonitorService:
                 )
             self._append_rule_log(rule, "关键词命中后续动作全部执行完成")
 
+    def _seen_key(self, account_name: str, chat_id: Union[int, str]) -> str:
+        return f"{account_name}:{chat_id}"
+
+    def _load_seen_state(self) -> None:
+        """重启时加载已处理消息水位；文件缺失或损坏时从空开始。"""
+        path = settings.resolve_workdir() / "keyword_monitor" / _SEEN_STATE_FILENAME
+        loaded: dict[str, int] = {}
+        if path.exists():
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(raw, dict):
+                    for key, value in raw.items():
+                        if (
+                            isinstance(key, str)
+                            and isinstance(value, int)
+                            and not isinstance(value, bool)
+                            and value > 0
+                        ):
+                            loaded[key] = value
+            except (OSError, ValueError) as exc:
+                logger.warning("Load keyword monitor seen state failed: %s", exc)
+        self._seen = loaded
+        self._seen_dirty = False
+        self._last_seen_persist = time.monotonic()
+
+    def _persist_seen_state(self) -> None:
+        """原子写盘已处理水位（调用方确保有变更）。"""
+        path = settings.resolve_workdir() / "keyword_monitor" / _SEEN_STATE_FILENAME
+        tmp_path = path.with_suffix(".tmp")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path.write_text(
+                json.dumps(self._seen, ensure_ascii=False, sort_keys=True),
+                encoding="utf-8",
+            )
+            tmp_path.replace(path)
+            self._last_seen_persist = time.monotonic()
+            self._seen_dirty = False
+        except OSError as exc:
+            logger.warning("Persist keyword monitor seen state failed: %s", exc)
+
+    def _maybe_persist_seen_state(self, *, force: bool = False) -> None:
+        if not self._seen_dirty:
+            return
+        if not force and time.monotonic() - self._last_seen_persist < _SEEN_PERSIST_INTERVAL:
+            return
+        self._persist_seen_state()
+
+    def _is_seen_message(
+        self,
+        account_name: str,
+        chat_id: Union[int, str],
+        message_id: Optional[int],
+    ) -> bool:
+        """重启去重：同 (账号, 会话) 已见过的消息 ID 直接跳过，避免重连补投重复命中。"""
+        if message_id is None:
+            return False
+        key = self._seen_key(account_name, chat_id)
+        if message_id <= self._seen.get(key, 0):
+            return True
+        self._seen[key] = message_id
+        self._seen_dirty = True
+        self._maybe_persist_seen_state()
+        return False
+
     async def _on_message(self, account_name: str, client: Any, message: Message) -> None:
         try:
             from backend.services.config import get_config_service
 
             text = _message_text(message)
             if not text:
+                return
+            chat_id = getattr(message.chat, "id", None)
+            if chat_id is None:
+                return
+            # 重启/重连后 Telegram 会补投停机期间的旧消息，按已处理水位跳过
+            if self._is_seen_message(account_name, chat_id, getattr(message, "id", None)):
                 return
             message_thread_id = self._message_thread_id(message)
             same_chat_rules = [
@@ -1684,6 +1764,9 @@ class KeywordMonitorService:
                 self._active_key = key
                 return
 
+            # 重启后加载已处理水位，跳过补投的旧消息
+            self._load_seen_state()
+
             session_dir = settings.resolve_session_dir()
             global_settings = get_config_service().get_global_settings()
             tg_config = get_config_service().get_telegram_config()
@@ -1821,6 +1904,8 @@ class KeywordMonitorService:
         self._rules = []
         self._active_key = ""
         self._bot_cmd_last_sent.clear()
+        # 停机前落盘已处理水位，供下次启动去重
+        self._maybe_persist_seen_state(force=True)
 
 
 _keyword_monitor_service: Optional[KeywordMonitorService] = None

@@ -46,15 +46,11 @@ export function useTaskListActions(options: {
     options.selectedTaskIds.value = new Set()
   }
 
-  const getTaskAccountName = (task: SignTask | TaskUiItem): string => {
-    const raw = 'raw' in task ? task.raw : task
-    return resolveTaskAccountName(raw)
-  }
+  // 与 Tasks 视图 / 弹窗共享同一账号名解析：直接值优先、跳过通配符、回落 account_names
+  const getTaskAccountName = (task: SignTask | TaskUiItem): string => resolveTaskAccountName(task)
 
-  const getTaskRealAccounts = (task: TaskUiItem | SignTask): string[] => {
-    const raw = 'raw' in task ? task.raw : task
-    return resolveTaskRealAccounts(raw, options.allAccounts.value)
-  }
+  const getTaskRealAccounts = (task: TaskUiItem | SignTask): string[] =>
+    resolveTaskRealAccounts(task, options.allAccounts.value)
 
   const runBatch = async (action: 'enable' | 'disable' | 'delete' | 'run') => {
     if (!options.selectedCount.value || batchBusy.value) return
@@ -129,7 +125,7 @@ export function useTaskListActions(options: {
         token,
         cloneSource.value.name,
         newName,
-        cloneSource.value.raw.account_name || undefined,
+        getTaskAccountName(cloneSource.value) || undefined,
       )
       toast.success(t('tasks.cloneSuccess'))
       closeCloneModal()

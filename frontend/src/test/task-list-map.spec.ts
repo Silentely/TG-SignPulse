@@ -3,10 +3,12 @@ import {
   formatTaskListDate,
   mapSignTaskToListFields,
   resolveTaskAccountName,
+  resolveTaskAccountNames,
   resolveTaskRealAccounts,
   withModeIcon,
 } from '../lib/task-list-map'
 import type { SignTask } from '../lib/api'
+import type { TaskUiItem } from '../lib/types'
 
 const labels = {
   noTarget: '无目标',
@@ -35,6 +37,22 @@ describe('task-list-map', () => {
   it('resolves account name skipping wildcard', () => {
     expect(resolveTaskAccountName({ account_name: '*', account_names: ['*', 'a'] })).toBe('a')
     expect(resolveTaskRealAccounts(baseTask({ account_names: ['*'] }), ['x', 'y'])).toEqual(['x', 'y'])
+  })
+
+  it('unwraps TaskUiItem raw for account name resolution', () => {
+    const ui = { raw: baseTask({ account_name: '*', account_names: ['*', 'b'] }) } as unknown as TaskUiItem
+    expect(resolveTaskAccountName(ui)).toBe('b')
+    expect(resolveTaskRealAccounts(ui, ['x', 'y'])).toEqual(['x', 'y'])
+  })
+
+  it('resolveTaskAccountNames skips wildcard and dedupes', () => {
+    expect(
+      resolveTaskAccountNames(baseTask({ account_name: 'x', account_names: ['x', '*', 'y'] })),
+    ).toEqual(['x', 'y'])
+    // 全通配任务回落 account_name 具体值
+    expect(resolveTaskAccountNames(baseTask({ account_names: ['*'] }))).toEqual(['acc'])
+    expect(resolveTaskAccountNames(baseTask({ account_name: 'only', account_names: [] }))).toEqual(['only'])
+    expect(resolveTaskAccountNames(baseTask({ account_name: '*', account_names: ['*'] }))).toEqual([])
   })
 
   it('maps fixed and listen tasks', () => {

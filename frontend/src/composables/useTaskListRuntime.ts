@@ -17,6 +17,7 @@ import { useToast } from './useToast'
 import { useAuthStore } from '../stores/auth'
 import { useActiveRunsStore } from '../stores/activeRuns'
 import { devLog } from '../lib/devLog'
+import { resolveTaskAccountNames } from '../lib/task-list-map'
 import { AVATAR_FETCH_CONCURRENCY, mapPool } from '../lib/async-pool'
 import { startChainPoll, type ChainPollHandle } from '../lib/chain-poll'
 import {
@@ -184,11 +185,8 @@ export function useTaskListRuntime(options: {
   }
 
   const taskHasInvalidAccount = (task: TaskUiItem): boolean => {
-    const names = [
-      ...(task.raw.account_names || []),
-      task.raw.account_name || '',
-    ].filter((n) => n && n !== '*')
-    return names.some((n) => isAccountInvalid(n))
+    // 具体账号名收敛：去重、跳过通配符，与列表账号名解析共享同一实现
+    return resolveTaskAccountNames(task).some((n) => isAccountInvalid(n))
   }
 
   const handleCancelRun = async (task: TaskUiItem) => {
