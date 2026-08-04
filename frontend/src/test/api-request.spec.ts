@@ -231,6 +231,8 @@ describe('api.request - 401 处理', () => {
     ])
     expect(click).toHaveBeenCalledOnce()
     expect(createObjectUrl).toHaveBeenCalledOnce()
+    // revokeObjectURL 延迟到宏任务执行（避免 Firefox 下载未开始即回收对象 URL）
+    await vi.runAllTimersAsync()
     expect(revokeObjectUrl).toHaveBeenCalledWith('blob:backup')
   })
 

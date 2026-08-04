@@ -7,7 +7,6 @@ from __future__ import annotations
 import asyncio
 import json
 import random
-import time
 from collections import defaultdict
 from datetime import time as dt_time
 from typing import List, Optional
@@ -288,8 +287,7 @@ class SignerConfigMixin:
         return crontab_expr
 
     @staticmethod
-
-    def _time_to_crontab(sign_at: time) -> str:
+    def _time_to_crontab(sign_at: dt_time) -> str:
         return f"{sign_at.minute} {sign_at.hour} * * *"
 
 

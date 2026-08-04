@@ -2,7 +2,10 @@
 tg_signer.core 包
 
 - client: Client 生命周期与工厂（真源）
-- runtime: BaseUserWorker / UserSigner / UserMonitor（真源）
+- runtime: BaseUserWorker / UserSigner 组合壳（真源）
+- monitor: UserMonitor 消息监控器
+- signer_runner/actions/matchers/config: UserSigner 各关注点 Mixin
+- context: UserSignerWorkerContext 工作上下文
 """
 from __future__ import annotations
 

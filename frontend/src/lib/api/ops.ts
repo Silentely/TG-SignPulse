@@ -93,7 +93,7 @@ export async function exportBackupArchive(token: string): Promise<{
     downloadBlob(blob, filename);
     return { mode: "download", filename };
   } catch (e: unknown) {
-    normalizeNetworkError(e, abort);
+    throw normalizeNetworkError(e, abort);
   } finally {
     abort.cleanup();
   }
@@ -144,7 +144,7 @@ export async function downloadWebdavBackup(
     downloadBlob(blob, filename);
     return { filename };
   } catch (e: unknown) {
-    normalizeNetworkError(e, abort);
+    throw normalizeNetworkError(e, abort);
   } finally {
     abort.cleanup();
   }

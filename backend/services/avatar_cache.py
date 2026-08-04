@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
 from typing import Awaitable, Callable, Optional
@@ -22,11 +23,15 @@ def marker_hits_no_avatar(
     no_avatar_marker: Path, ttl: int = AVATAR_CACHE_TTL_SECONDS
 ) -> bool:
     """无头像标记在有效期内返回 True（调用方直接判定无头像）；过期标记删除后返回 False。"""
-    if not no_avatar_marker.exists():
+    try:
+        if not no_avatar_marker.exists():
+            return False
+        if time.time() - no_avatar_marker.stat().st_mtime < ttl:
+            return True
+        no_avatar_marker.unlink(missing_ok=True)
+    except OSError:
+        # 并发删除/stat 竞态：按"无标记"处理，下次请求重试
         return False
-    if time.time() - no_avatar_marker.stat().st_mtime < ttl:
-        return True
-    no_avatar_marker.unlink(missing_ok=True)
     return False
 
 
@@ -34,11 +39,11 @@ def read_cached_avatar(
     cache_file: Path, ttl: int = AVATAR_CACHE_TTL_SECONDS
 ) -> Optional[bytes]:
     """新鲜缓存命中返回字节；缺失或过期返回 None。"""
-    if not cache_file.exists():
-        return None
-    if time.time() - cache_file.stat().st_mtime >= ttl:
-        return None
     try:
+        if not cache_file.exists():
+            return None
+        if time.time() - cache_file.stat().st_mtime >= ttl:
+            return None
         return cache_file.read_bytes()
     except OSError:
         return None
@@ -70,6 +75,24 @@ async def get_avatar_bytes(
     """
     avatar_bytes = await download_fn()
     if avatar_bytes:
-        cache_file.write_bytes(avatar_bytes)
-        no_avatar_marker.unlink(missing_ok=True)
+        # 先写临时文件再 rename，避免并发读/写缓存时读到半截文件
+        import tempfile
+
+        try:
+            fd, tmp_name = tempfile.mkstemp(
+                prefix=".avatar_", suffix=".tmp", dir=str(cache_file.parent)
+            )
+            with os.fdopen(fd, "wb") as tmp:
+                tmp.write(avatar_bytes)
+            os.replace(tmp_name, cache_file)
+        except OSError:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+            raise
+        try:
+            no_avatar_marker.unlink(missing_ok=True)
+        except OSError:
+            pass
     return avatar_bytes

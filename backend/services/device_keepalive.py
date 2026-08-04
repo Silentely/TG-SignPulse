@@ -42,7 +42,7 @@ class DeviceKeepaliveService:
         """原子写入状态文件，避免崩溃导致文件损坏。"""
         try:
             write_json_atomic(self.state_file, state)
-        except OSError as exc:
+        except (OSError, TypeError, ValueError) as exc:
             logger.warning("保存设备保活状态失败: %s", exc)
 
     @staticmethod

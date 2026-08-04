@@ -11,7 +11,7 @@ import type { ApiError } from "./types";
 /**
  * 触发浏览器下载 Blob 文件。
  * 统一先挂载到 document.body 再移除，保证 Firefox 等浏览器兼容；
- * 随后立即 revokeObjectURL 释放对象 URL。
+ * revokeObjectURL 延迟到宏任务，避免部分浏览器在下载尚未开始时即回收对象 URL。
  */
 export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
@@ -21,7 +21,7 @@ export function downloadBlob(blob: Blob, filename: string): void {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 /**

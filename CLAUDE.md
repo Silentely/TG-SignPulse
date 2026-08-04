@@ -199,9 +199,8 @@ docker run -d -p 3000:3000 -v ./data:/data ghcr.io/<owner>/tg-signpulse:latest
 | `Client(BaseClient)` | client.py 216-343 | Pyrogram 客户端封装，引用计数共享访问，自动重连 |
 | `get_client()` | client.py 377-428 | 客户端工厂，全局 `_CLIENT_INSTANCES` 缓存 |
 | `close_client_by_name()` | client.py 429-473 | 强制关闭客户端，5s 锁超时 |
-| `BaseUserWorker(Generic[ConfigT])` | runtime.py 117-548 | 任务/监控基类，含配置加载、登录、消息发送、AI 工具获取 |
-| `Waiter` | runtime.py 549-577 | 异步事件集合（add/discard/sub/clear） |
-| `UserSignerWorkerContext` | runtime.py 578-599 | 签到上下文（消息缓存、回调答案、停止标志） |
+| `BaseUserWorker(Generic[ConfigT])` | runtime.py | 任务/监控基类，含配置加载、登录、消息发送、AI 工具获取 |
+| `UserSignerWorkerContext` | core/context.py | 签到上下文（消息缓存、回调答案、停止标志） |
 
 **Client 生命周期**：
 - 连接：`__aenter__` → 引用计数 +1 → 首次连接重试 5 次（SQLite 锁等待 2+attempt*3 秒）

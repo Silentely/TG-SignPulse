@@ -507,10 +507,14 @@ class ConfigExportMixin:
                         result["signs_skipped"] += 1
                         continue
 
-                if self.save_sign_config(task_name, config):
-                    result["signs_imported"] += 1
-                else:
-                    result["errors"].append(f"Failed to import sign task: {task_name}")
+                try:
+                    if self.save_sign_config(task_name, config):
+                        result["signs_imported"] += 1
+                    else:
+                        result["errors"].append(f"Failed to import sign task: {task_name}")
+                except ValueError as exc:
+                    # 非法任务/账号名（save_sign_config 内部校验）不中断整体导入
+                    result["errors"].append(f"Failed to import sign task {task_name}: {exc}")
 
             # 导入监控任务
             for task_name, config in monitors.items():
@@ -519,7 +523,16 @@ class ConfigExportMixin:
                         f"Failed to import monitor task (invalid entry): {task_name}"
                     )
                     continue
-                task_dir = self.monitors_dir / str(task_name)
+                try:
+                    safe_name = validate_storage_name(
+                        str(task_name), field_name="monitor task name"
+                    )
+                except ValueError as exc:
+                    result["errors"].append(
+                        f"Failed to import monitor task (invalid name): {task_name}: {exc}"
+                    )
+                    continue
+                task_dir = self.monitors_dir / safe_name
                 config_file = task_dir / "config.json"
 
                 if not overwrite and config_file.exists():

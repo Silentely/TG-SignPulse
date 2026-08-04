@@ -227,12 +227,7 @@ export function useSettingsBackup(options: {
   }
 
   const loadBackupStatus = async (token: string) => {
-    try {
-      backupStatus.value = await getBackupStatus(token)
-    } catch (e: unknown) {
-      // 调用方可选记日志
-      throw e
-    }
+    backupStatus.value = await getBackupStatus(token)
   }
 
   return {

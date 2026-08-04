@@ -25,16 +25,18 @@ def write_json_atomic(path, data: Any) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with _lock:
-        with tempfile.NamedTemporaryFile(
+        tmp = tempfile.NamedTemporaryFile(
             mode="w", encoding="utf-8", delete=False, dir=path.parent
-        ) as tmp:
-            json.dump(data, tmp, ensure_ascii=False, indent=2)
-            tmp.flush()
-            os.fsync(tmp.fileno())
-            actual_tmp = Path(tmp.name)
+        )
+        actual_tmp = Path(tmp.name)
         try:
+            with tmp:
+                json.dump(data, tmp, ensure_ascii=False, indent=2)
+                tmp.flush()
+                os.fsync(tmp.fileno())
             os.replace(actual_tmp, path)
-        except OSError:
+        except (OSError, TypeError, ValueError):
+            # 序列化或写入失败：清理临时文件后重抛，避免残留 .tmp 累积
             with contextlib.suppress(OSError):
                 actual_tmp.unlink()
             raise

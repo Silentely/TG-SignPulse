@@ -413,7 +413,7 @@ class KeywordMonitorService:
             write_json_atomic(path, self._seen)
             self._last_seen_persist = time.monotonic()
             self._seen_dirty = False
-        except OSError as exc:
+        except (OSError, TypeError, ValueError) as exc:
             logger.warning("Persist keyword monitor seen state failed: %s", exc)
 
     def _maybe_persist_seen_state(self, *, force: bool = False) -> None:

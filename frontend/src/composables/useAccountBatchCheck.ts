@@ -163,7 +163,9 @@ export function useAccountBatchCheck(options: {
     clearBatchPoll()
     batchPollHandle = startChainPoll(
       () => pollBatchJob(jobId),
-      { intervalMs: 1200 },
+      // 不立即首轮：由调用方显式 await pollBatchJob 承担首次查询，避免双轮询
+      // 在 job 恰好结束时重复 applyBatchJobResult（重复 toast / loadAccounts）
+      { intervalMs: 1200, runImmediately: false },
     )
   }
 

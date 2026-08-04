@@ -18,13 +18,6 @@ from typing import (
     Union,
 )
 
-from pydantic import BaseModel
-
-try:
-    from pydantic import ConfigDict
-except ImportError:  # pragma: no cover
-    ConfigDict = None
-
 from tg_signer.ai_tools import AITools, OpenAIConfigManager, ai_cfg_signature
 from tg_signer.compat import (
     _PYROGRAM_IMPORT_ERROR,
@@ -73,7 +66,6 @@ from tg_signer.utils import (
 # 与 CLI / client / 后端 TaskLogHandler 统一使用历史名 tg-signer，
 # 避免过程日志打到另一 logger 导致面板 flow_logs 只有外壳行。
 logger = logging.getLogger("tg-signer")
-_PYDANTIC_V2 = hasattr(BaseModel, "model_validate")
 
 
 ConfigT = TypeVar("ConfigT", bound=BaseJSONConfig)

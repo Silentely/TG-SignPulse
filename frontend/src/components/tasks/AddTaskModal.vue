@@ -97,13 +97,9 @@ const handleSave = async () => {
   }
   // 命令式取最新 payload（TaskForm 已去除 update:payload 双通道，保存路径直接读取）
   const built = taskFormRef.value?.buildPayload?.() as CreateSignTaskRequest | undefined
-  const body = (built || {}) as CreateSignTaskRequest
-  // defineExpose 的 ref 在父组件侧通常已被解包为原始值
-  const exposedMode = taskFormRef.value?.createMode as unknown
-  const createMode =
-    typeof exposedMode === 'string'
-      ? exposedMode
-      : (exposedMode as { value?: string } | undefined)?.value || 'shared'
+  const body = built || ({} as CreateSignTaskRequest)
+  // defineExpose 的 ref 经模板 ref 访问已被自动解包为原始值
+  const createMode = taskFormRef.value?.createMode ?? 'shared'
 
   const chats = body.chats || []
   // 去重 + 过滤无效 id（群组 chat_id 为负）
