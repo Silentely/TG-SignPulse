@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextvars
 import json
 import logging
 import os
@@ -63,22 +62,22 @@ from backend.services.sign_task_run_status import (
     summarize_active_run,
 )
 from backend.services.sign_task_text import repair_mojibake
+from backend.utils.atomic_io import write_json_atomic
 from backend.utils.cache import TTLCache
 from backend.utils.names import validate_storage_name
 from backend.utils.task_logs import extract_last_target_message
 from backend.utils.tg_session import (
-    get_account_proxy,
     list_account_names,
+    resolve_effective_proxy,
 )
 from backend.utils.time import utc_now_iso
 from tg_signer.async_utils import create_logged_task
+from tg_signer.context_vars import (
+    task_retry_count_var as _task_retry_count_var,  # noqa: F401
+)
+from tg_signer.utils import read_positive_int_env
 
 settings = get_settings()
-
-# 任务级重试次数上下文变量（替代进程级环境变量，避免并发串扰）
-_task_retry_count_var: contextvars.ContextVar[int] = contextvars.ContextVar(
-    "task_retry_count", default=1
-)
 
 _service_logger = logging.getLogger("backend.sign_tasks")
 
@@ -93,16 +92,6 @@ __all__ = [
 
 class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
     """签到任务服务类（历史见 SignTaskHistoryMixin，CRUD 见 SignTaskCrudMixin）"""
-
-    @staticmethod
-    def _read_positive_int_env(name: str, default: int, minimum: int = 1) -> int:
-        raw = os.getenv(name)
-        if raw is None:
-            return default
-        try:
-            return max(int(raw), minimum)
-        except (TypeError, ValueError):
-            return default
 
     def __init__(self):
         from backend.core.config import get_settings
@@ -132,13 +121,13 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         self._account_locks: Dict[str, asyncio.Lock] = {}  # 账号锁
         self._account_last_run_end: Dict[str, float] = {}  # 账号最后一次结束时间
         # 冷却/历史天数通过 property 读 runtime_settings（面板可覆盖 env）
-        self._history_max_entries = self._read_positive_int_env(
+        self._history_max_entries = read_positive_int_env(
             "SIGN_TASK_HISTORY_MAX_ENTRIES", 100, 10
         )
-        self._history_max_flow_lines = self._read_positive_int_env(
+        self._history_max_flow_lines = read_positive_int_env(
             "SIGN_TASK_HISTORY_MAX_FLOW_LINES", 5000, 20
         )
-        self._history_max_line_chars = self._read_positive_int_env(
+        self._history_max_line_chars = read_positive_int_env(
             "SIGN_TASK_HISTORY_MAX_LINE_CHARS", 2000, 80
         )
         self._max_account_last_run_entries = 100  # Bound account tracking
@@ -301,7 +290,7 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         if not isinstance(chats, list) or not chats:
             return ""
 
-        history_limit = self._read_positive_int_env(
+        history_limit = read_positive_int_env(
             "SIGN_TASK_LAST_TARGET_HISTORY_LIMIT",
             8,
             1,
@@ -333,6 +322,7 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
                         continue
 
                     try:
+                        # 历史按时间降序返回；逐条评估候选，跨 chat 聚合取最新非自己消息
                         async for message in signer.app.get_chat_history(
                             chat_id,
                             limit=history_limit,
@@ -344,23 +334,23 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
                             if not candidate:
                                 continue
 
-                        message_time = getattr(message, "date", None)
-                        from_user = getattr(message, "from_user", None)
-                        is_self = bool(getattr(from_user, "is_self", False))
+                            message_time = getattr(message, "date", None)
+                            from_user = getattr(message, "from_user", None)
+                            is_self = bool(getattr(from_user, "is_self", False))
 
-                        if not is_self:
-                            if best_timestamp is None or (
-                                message_time is not None and message_time > best_timestamp
+                            if not is_self:
+                                if best_timestamp is None or (
+                                    message_time is not None
+                                    and message_time > best_timestamp
+                                ):
+                                    best_text = candidate
+                                    best_timestamp = message_time
+                            elif fallback_timestamp is None or (
+                                message_time is not None
+                                and message_time > fallback_timestamp
                             ):
-                                best_text = candidate
-                                best_timestamp = message_time
-                            break
-
-                        if fallback_timestamp is None or (
-                            message_time is not None and message_time > fallback_timestamp
-                        ):
-                            fallback_text = candidate
-                            fallback_timestamp = message_time
+                                fallback_text = candidate
+                                fallback_timestamp = message_time
                     except Exception as exc:
                         _service_logger.debug("解析目标消息候选失败，跳过: %s", exc)
                         continue
@@ -549,8 +539,7 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
                 new_config = dict(base_config)
                 new_config["account_name"] = acc
                 try:
-                    with open(target_dir / "config.json", "w", encoding="utf-8") as f:
-                        json.dump(new_config, f, ensure_ascii=False, indent=2)
+                    write_json_atomic(target_dir / "config.json", new_config)
                 except Exception as exc:
                     # 该账号的通配任务实际未生成，影响签到调度，必须留痕
                     _service_logger.warning(
@@ -671,23 +660,19 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
             )
 
     def _get_effective_proxy(self, account_name: str) -> Optional[str]:
-        proxy_value = get_account_proxy(account_name)
-        if proxy_value:
-            return proxy_value
         try:
             from backend.services.config import get_config_service
 
             global_proxy = get_config_service().get_global_settings().get("global_proxy")
-            if isinstance(global_proxy, str) and global_proxy.strip():
-                return global_proxy.strip()
         except Exception as exc:
-            # 读取全局配置失败时降级为不使用全局代理，但需留下日志便于排查
+            # 读取全局配置失败时降级为无全局代理，但需留下日志便于排查
             _service_logger.warning(
                 "读取全局代理配置失败，降级为无全局代理 (account=%s): %s",
                 account_name,
                 exc,
             )
-        return None
+            global_proxy = None
+        return resolve_effective_proxy(account_name, global_proxy=global_proxy)
 
     def get_task_history_logs(
         self, task_name: str, account_name: Optional[str] = None, limit: int = 20

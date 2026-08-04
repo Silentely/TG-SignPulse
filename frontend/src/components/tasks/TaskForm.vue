@@ -2,7 +2,9 @@
 import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
 import { ChevronDown } from 'lucide-vue-next'
 import { listAccounts, getAccountChats, searchAccountChats } from '../../lib/api'
-import type { SignTask, AccountInfo, ChatInfo, CreateSignTaskRequest, UpdateSignTaskRequest } from '../../lib/api'
+import { getAuthToken } from '../../lib/api/core'
+import { useLatestResponseGuard } from '../../lib/latest-response'
+import type { SignTask, AccountInfo, ChatInfo } from '../../lib/api'
 import CustomSelect from '../CustomSelect.vue'
 import MultiSelect from '../MultiSelect.vue'
 import TaskFormTargetSection from './TaskFormTargetSection.vue'
@@ -11,17 +13,15 @@ import TaskFormActionsSection from './TaskFormActionsSection.vue'
 import type { TargetChatDraft } from './TaskFormTargetSection.vue'
 import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
-import { useAuthStore } from '../../stores/auth'
 import type { TaskActionItem, RawTaskAction } from '../../lib/types'
 import { getLocalizedErrorMessage } from '../../lib/types'
 import { notifyApiError } from '../../lib/notify'
-import { parseActions as parseActionsUtil, nextActionId, debounce } from '../../lib/task-form-utils'
+import { parseActions as parseActionsUtil, nextActionId } from '../../lib/task-form-utils'
 import { buildTaskFormPayload } from '../../lib/task-form-payload'
 import { devLog } from '../../lib/devLog'
 
 const { t } = useI18n()
 const toast = useToast()
-const authStore = useAuthStore()
 
 const props = defineProps<{
   initialTask?: SignTask
@@ -33,7 +33,6 @@ const props = defineProps<{
    */
   lockTaskName?: boolean
 }>()
-const emit = defineEmits<{ (e: 'update:payload', value: CreateSignTaskRequest | UpdateSignTaskRequest): void }>()
 const accounts = ref<AccountInfo[]>([])
 const selectedAccounts = ref<string[]>([])
 const allAccountsMode = ref(false)
@@ -135,7 +134,7 @@ const validateTaskName = () => {
 
 const loadAccounts = async () => {
   try {
-    const token = authStore.token || ''
+    const token = getAuthToken()
     const res = await listAccounts(token)
     accounts.value = res.accounts || []
     if (props.initialTask) {
@@ -218,7 +217,7 @@ const loadChats = async (n: string, forceRefresh: boolean = false) => {
   loadChatsAbort = controller
   chatListRefreshing.value = true
   chatListError.value = ''
-  const token = authStore.token||''
+  const token = getAuthToken()
   try {
     const result = await getAccountChats(token, n, forceRefresh, controller.signal)
     if (controller.signal.aborted) return
@@ -261,33 +260,33 @@ watch(selectedAccount, async (v)=>{
   }
 })
 let st: ReturnType<typeof setTimeout> | null = null
-let chatSearchSeq = 0
+const chatSearchGuard = useLatestResponseGuard()
 watch(chatSearch, (v) => {
   if (!v.trim()) {
     chatSearchResults.value = []
     return
   }
   if (st) clearTimeout(st)
-  const seq = ++chatSearchSeq
+  const seq = chatSearchGuard.next()
   st = setTimeout(async () => {
     chatSearchLoading.value = true
     try {
-      const token = authStore.token || ''
+      const token = getAuthToken()
       const r = await searchAccountChats(token, selectedAccount.value, v.trim())
-      if (seq !== chatSearchSeq) return // 过期响应：输入已变化，丢弃
+      if (!chatSearchGuard.isCurrent(seq)) return // 过期响应：输入已变化，丢弃
       chatSearchResults.value = r.items || []
     } catch (e: unknown) {
-      if (seq !== chatSearchSeq) return
+      if (!chatSearchGuard.isCurrent(seq)) return
       devLog.error('chat search failed', e)
     } finally {
-      if (seq === chatSearchSeq) chatSearchLoading.value = false
+      if (chatSearchGuard.isCurrent(seq)) chatSearchLoading.value = false
     }
   }, 300)
 })
 onUnmounted(() => {
   if (st) clearTimeout(st)
   loadChatsAbort?.abort() // 中止在途会话列表请求，避免写入已卸载组件
-  chatSearchSeq += 1 // 使在途请求的 seq 失效，不再写入已卸载组件
+  chatSearchGuard.invalidate() // 使在途请求的 seq 失效，不再写入已卸载组件
 })
 const selectChat=(c: ChatInfo)=>{selectedChatId.value=c.id;selectedChatName.value=c.title||c.username||String(c.id);chatSearch.value='';chatSearchResults.value=[]}
 const addTargetChat = () => {
@@ -350,6 +349,13 @@ const applyBulkPickedChats = () => {
 const addAction=()=>actions.value.push({id:nextActionId(),type:'send_text',value:'',aiPrompt:''})
 const removeAction=(i:number)=>actions.value.splice(i,1)
 const moveAction=(i:number,d:number)=>{if(i+d<0||i+d>=actions.value.length)return;const t=actions.value[i];actions.value[i]=actions.value[i+d];actions.value[i+d]=t}
+/**
+ * 交付单通道说明：
+ * 历史版本存在 update:payload emit + payloadSnapshot computed 双通道，
+ * 父组件（AddTaskModal/EditTaskModal）实际只走 buildPayload() 命令式通道，
+ * 已删除冗余的 emit 通道；保存前父组件直接调 buildPayload() 同步取值，无防抖延迟。
+ * createMode 不进 payload，父组件经 defineExpose 读取。
+ */
 const buildPayload = () =>
   buildTaskFormPayload({
     taskName: taskName.value,
@@ -378,24 +384,12 @@ const buildPayload = () =>
     listenerActiveTimeStart: listenerActiveTimeStart.value,
     listenerActiveTimeEnd: listenerActiveTimeEnd.value,
   })
-const debouncedEmit = debounce(() => { emit('update:payload', buildPayload()) }, 300)
-/** 同步刷新 payload（保存前调用，确保拿到最新值） */
-const flushPayload = () => { emit('update:payload', buildPayload()) }
 /** 供父组件提交前触发；返回是否通过 */
 const validateForSubmit = (): boolean => {
   validateTaskName()
   return !taskNameError.value
 }
-defineExpose({ flushPayload, buildPayload, createMode, validateForSubmit })
-/**
- * buildPayload 读取全部表单字段（含 activeChat 经 writable computed 传递的字段），
- * 任一变化都会产出新对象：computed + 浅比较 watch，替代原先对全部表单源逐个 deep 监听。
- * createMode 不进 payload，父组件经 defineExpose 读取，无需监听。
- */
-const payloadSnapshot = computed(buildPayload)
-watch(payloadSnapshot, () => {
-  debouncedEmit()
-})
+defineExpose({ buildPayload, createMode, validateForSubmit })
 onMounted(()=>{loadAccounts()})
 </script>
 <template>

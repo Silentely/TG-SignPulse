@@ -3,13 +3,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 
 from backend.core.config import get_settings
 from backend.services.config import get_config_service
 from backend.services.telegram import get_telegram_service
+from backend.utils.atomic_io import write_json_atomic
 from backend.utils.time import utc_now_iso_z
 
 logger = logging.getLogger("backend.device_keepalive")
@@ -39,28 +39,9 @@ class DeviceKeepaliveService:
         return {"accounts": {}}
 
     def _save_state(self, state: Dict[str, Any]) -> None:
-        """原子写入状态文件（先写临时文件再重命名，避免崩溃导致文件损坏）。"""
-        import tempfile
-
+        """原子写入状态文件，避免崩溃导致文件损坏。"""
         try:
-            self.state_file.parent.mkdir(parents=True, exist_ok=True)
-            # 使用临时文件写入，然后原子重命名
-            fd, tmp_path = tempfile.mkstemp(
-                dir=self.state_file.parent,
-                prefix=".device_keepalive_",
-                suffix=".tmp",
-            )
-            try:
-                with os.fdopen(fd, "w", encoding="utf-8") as f:
-                    json.dump(state, f, ensure_ascii=False, indent=2)
-                os.replace(tmp_path, self.state_file)
-            except Exception:
-                # 清理临时文件
-                try:
-                    os.unlink(tmp_path)
-                except OSError:
-                    pass
-                raise
+            write_json_atomic(self.state_file, state)
         except OSError as exc:
             logger.warning("保存设备保活状态失败: %s", exc)
 

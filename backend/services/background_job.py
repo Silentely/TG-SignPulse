@@ -14,9 +14,10 @@ import asyncio
 import json
 import logging
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set
+
+from backend.utils.time import utc_now_iso_z_seconds as utc_now_iso
 
 logger = logging.getLogger("backend.background_job")
 
@@ -24,16 +25,6 @@ ACTIVE_STATUSES: Set[str] = {"running", "canceling"}
 FINAL_STATUSES: Set[str] = {"completed", "canceled", "failed"}
 DEFAULT_MAX_LOGS = 1000
 DEFAULT_MAX_HISTORY = 50
-
-
-def utc_now_iso() -> str:
-    """UTC ISO8601（秒精度，Z 后缀）。"""
-    return (
-        datetime.now(timezone.utc)
-        .replace(microsecond=0)
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
 
 
 def public_job_view(job: Dict[str, Any]) -> Dict[str, Any]:

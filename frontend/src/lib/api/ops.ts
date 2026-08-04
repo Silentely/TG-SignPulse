@@ -8,7 +8,7 @@ import {
   MEDIUM_TIMEOUT_MS,
   request,
 } from "./core";
-import type { ApiError } from "../types";
+import { downloadBlob, normalizeNetworkError } from "../download";
 
 export interface ScheduledJob {
   id: string;
@@ -90,38 +90,10 @@ export async function exportBackupArchive(token: string): Promise<{
     const cd = res.headers.get("Content-Disposition") || "";
     const match = /filename="?([^"]+)"?/.exec(cd);
     const filename = match?.[1] || `tg-signpulse-backup-${Date.now()}.tar.gz`;
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, filename);
     return { mode: "download", filename };
   } catch (e: unknown) {
-    if (
-      e &&
-      typeof e === "object" &&
-      "code" in e &&
-      String((e as ApiError).code || "").startsWith("NETWORK_")
-    ) {
-      throw e;
-    }
-    if (
-      (e instanceof DOMException && e.name === "AbortError") ||
-      (e instanceof Error && e.name === "AbortError")
-    ) {
-      const err = new Error(
-        abort.wasAbortedByTimeout() ? "NETWORK_TIMEOUT" : "NETWORK_ABORTED",
-      ) as ApiError;
-      err.status = 0;
-      err.code = abort.wasAbortedByTimeout()
-        ? "NETWORK_TIMEOUT"
-        : "NETWORK_ABORTED";
-      throw err;
-    }
-    throw e;
+    normalizeNetworkError(e, abort);
   } finally {
     abort.cleanup();
   }
@@ -169,38 +141,10 @@ export async function downloadWebdavBackup(
     const cd = res.headers.get("Content-Disposition") || "";
     const match = /filename="?([^"]+)"?/.exec(cd);
     const filename = match?.[1] || name;
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, filename);
     return { filename };
   } catch (e: unknown) {
-    if (
-      e &&
-      typeof e === "object" &&
-      "code" in e &&
-      String((e as ApiError).code || "").startsWith("NETWORK_")
-    ) {
-      throw e;
-    }
-    if (
-      (e instanceof DOMException && e.name === "AbortError") ||
-      (e instanceof Error && e.name === "AbortError")
-    ) {
-      const err = new Error(
-        abort.wasAbortedByTimeout() ? "NETWORK_TIMEOUT" : "NETWORK_ABORTED",
-      ) as ApiError;
-      err.status = 0;
-      err.code = abort.wasAbortedByTimeout()
-        ? "NETWORK_TIMEOUT"
-        : "NETWORK_ABORTED";
-      throw err;
-    }
-    throw e;
+    normalizeNetworkError(e, abort);
   } finally {
     abort.cleanup();
   }

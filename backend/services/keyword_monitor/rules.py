@@ -2,10 +2,8 @@
 from __future__ import annotations
 
 import logging
-import os
 import random
 import re
-import unicodedata
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Union
 
@@ -14,6 +12,9 @@ from tg_signer.compat import (
     InlineKeyboardMarkup,
     Message,
     ReplyKeyboardMarkup,
+    button_text_matches,
+    clean_text_for_match,
+    collect_clickable_buttons,
 )
 
 
@@ -236,26 +237,6 @@ def _parse_forward_chat_id(value: Any) -> Optional[Union[int, str]]:
 _TEMPLATE_PATTERN = re.compile(r"(?:\$\{|\{)([a-zA-Z_][a-zA-Z0-9_]*)\}")
 
 
-def _read_positive_int_env(name: str, default: int, minimum: int = 1) -> int:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    try:
-        return max(int(raw), minimum)
-    except (TypeError, ValueError):
-        return default
-
-
-def _read_positive_float_env(name: str, default: float, minimum: float = 0.0) -> float:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    try:
-        return max(float(raw), minimum)
-    except (TypeError, ValueError):
-        return default
-
-
 def _resolve_action_delay(action: Dict[str, Any], fallback_delay: float = 0.0) -> float:
     raw_delay = action.get("delay")
     if raw_delay is None:
@@ -301,25 +282,6 @@ def _render_action_templates(action: Dict[str, Any], variables: Dict[str, str]) 
         else:
             rendered[key] = value
     return rendered
-
-
-def _clean_text_for_match(text: str) -> str:
-    if not text:
-        return ""
-    normalized = unicodedata.normalize("NFKC", str(text))
-    return "".join(
-        ch
-        for ch in normalized.lower()
-        if not unicodedata.category(ch).startswith(("P", "S", "Z", "C"))
-    )
-
-
-def _button_text_matches(target_text: str, button_text: str) -> bool:
-    if not target_text or not button_text:
-        return False
-    if target_text == button_text or target_text in button_text:
-        return True
-    return len(button_text) >= 2 and button_text in target_text
 
 
 def _message_matches_thread(message: Message, message_thread_id: Optional[int]) -> bool:
@@ -471,44 +433,14 @@ def _messages_state(messages: list[Message]) -> dict[int, tuple[Any, ...]]:
 
 
 def _message_has_button_text(message: Message, text: str) -> bool:
-    target_text = _clean_text_for_match(text)
+    target_text = clean_text_for_match(text)
     if not target_text:
         return False
 
-    reply_markup = getattr(message, "reply_markup", None)
-    if isinstance(reply_markup, InlineKeyboardMarkup):
-        rows = reply_markup.inline_keyboard
-    elif isinstance(reply_markup, ReplyKeyboardMarkup):
-        rows = reply_markup.keyboard
-    else:
-        return False
-
-    for row in rows:
-        for button in row:
-            button_text = button if isinstance(button, str) else getattr(button, "text", "")
-            if not button_text:
-                continue
-            if _button_text_matches(target_text, _clean_text_for_match(button_text)):
-                return True
+    for _, _, button_text in collect_clickable_buttons(message):
+        if button_text_matches(target_text, clean_text_for_match(button_text)):
+            return True
     return False
-
-
-def _collect_clickable_buttons(message: Message) -> list[tuple[str, Any, str]]:
-    reply_markup = getattr(message, "reply_markup", None)
-    clickable_buttons: list[tuple[str, Any, str]] = []
-    if isinstance(reply_markup, InlineKeyboardMarkup):
-        for row in reply_markup.inline_keyboard:
-            for button in row:
-                button_text = getattr(button, "text", "")
-                if button_text:
-                    clickable_buttons.append(("inline", button, button_text))
-    elif isinstance(reply_markup, ReplyKeyboardMarkup):
-        for row in reply_markup.keyboard:
-            for button in row:
-                button_text = button if isinstance(button, str) else getattr(button, "text", "")
-                if button_text:
-                    clickable_buttons.append(("reply", button, button_text))
-    return clickable_buttons
 
 
 def _message_supports_continue_action(message: Message, action: Dict[str, Any]) -> bool:
@@ -521,7 +453,7 @@ def _message_supports_continue_action(message: Message, action: Dict[str, Any]) 
     if action_id == 3:
         return _message_has_button_text(message, str(action.get("text") or ""))
     if action_id == 4:
-        return bool(message.photo and _collect_clickable_buttons(message))
+        return bool(message.photo and collect_clickable_buttons(message))
     if action_id == 5:
         return bool(message.text or message.caption)
     if action_id == 6:

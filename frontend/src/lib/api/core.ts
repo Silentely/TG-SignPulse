@@ -31,6 +31,27 @@ export const LONG_TIMEOUT_MS = 600_000;
 /** 中等耗时接口（WebDAV 探测、设备保活、会话检测等）。 */
 export const MEDIUM_TIMEOUT_MS = 120_000;
 
+/**
+ * 读取当前登录令牌；未登录返回空串。
+ * 收敛「const token = authStore.token || ''」样板（业务层无需再 import useAuthStore）。
+ */
+export function getAuthToken(): string {
+  return useAuthStore().token || "";
+}
+
+/**
+ * 绑定当前登录令牌执行请求回调：未登录直接短路返回 undefined，
+ * 已登录时以 token 为参数调用 run。
+ * 收敛「const token = authStore.token || ''; if (!token) return」样板。
+ * run 返回 Promise 时（async 回调），本函数原样返回该 Promise。
+ */
+export function withToken<T>(run: (token: string) => T): T | undefined {
+  const token = getAuthToken();
+  if (!token) return undefined;
+  return run(token);
+}
+
+
 /** 并发 401 时只跳转一次，避免头像批量拉取触发多次 location 赋值。 */
 let authRedirectScheduled = false;
 
@@ -55,7 +76,7 @@ type AbortReason = "timeout" | "external";
 /** 跨嵌套 AbortSignal 传播超时/取消原因（request 外层 → fetchWithAuth 内层） */
 const abortReasonBySignal = new WeakMap<AbortSignal, AbortReason>();
 
-function toNetworkError(
+export function toNetworkError(
   e: unknown,
   abortedByTimeout: boolean,
   abortedByExternal: boolean,

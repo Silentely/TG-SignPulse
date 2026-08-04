@@ -178,9 +178,8 @@ async def _runner_resolve_credentials(state: Dict[str, Any]) -> None:
     from backend.services.telegram.credentials import resolve_telegram_api_credentials
     from backend.utils.proxy import build_proxy_dict
     from backend.utils.tg_session import (
-        get_account_session_string,
         get_session_mode,
-        load_session_string_file,
+        load_account_session_string,
     )
 
     svc: SignTaskService = state["svc"]
@@ -195,7 +194,9 @@ async def _runner_resolve_credentials(state: Dict[str, Any]) -> None:
 
     session_dir = state["settings"].resolve_session_dir()
     session_mode = get_session_mode()
-    session_string = None
+    session_string = load_account_session_string(
+        account_name, session_dir=session_dir, session_mode=session_mode
+    )
     use_in_memory = False
     proxy_dict = None
     proxy_value = svc._get_effective_proxy(account_name)
@@ -203,16 +204,11 @@ async def _runner_resolve_credentials(state: Dict[str, Any]) -> None:
         proxy_dict = build_proxy_dict(proxy_value)
 
     if session_mode == "string":
-        session_string = (
-            get_account_session_string(account_name)
-            or load_session_string_file(session_dir, account_name)
-        )
         if not session_string:
             state["account_invalid_detected"] = True
             raise ValueError(f"账号 {account_name} 的 session_string 不存在")
         use_in_memory = True
     else:
-        session_string = load_session_string_file(session_dir, account_name)
         use_in_memory = bool(session_string)
         if os.getenv("SIGN_TASK_FORCE_IN_MEMORY") == "0":
             session_string = None

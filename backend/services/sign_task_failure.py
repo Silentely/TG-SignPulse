@@ -6,13 +6,9 @@
 
 from __future__ import annotations
 
-import json
-import os
 import re
-import tempfile
 from enum import Enum
-from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 
 class FailureCategory(str, Enum):
@@ -197,20 +193,6 @@ def classify_failure(
         return FailureCategory.STRONG_FAILURE
 
     return FailureCategory.UNKNOWN if success is False else FailureCategory.NONE
-
-
-def write_json_atomic(path: Path, data: Any) -> None:
-    """原子写入 JSON：先写 .tmp 再 fsync + rename，避免进程崩溃导致文件截断。"""
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        mode="w", encoding="utf-8", delete=False, dir=path.parent
-    ) as tmp:
-        json.dump(data, tmp, ensure_ascii=False, indent=2)
-        tmp.flush()
-        os.fsync(tmp.fileno())
-        actual_tmp = Path(tmp.name)
-    os.replace(actual_tmp, path)
 
 
 def failure_category_label(category: FailureCategory) -> str:

@@ -15,34 +15,29 @@ import {
   type BackupStatus,
   type WebDavRemoteFile,
 } from '../lib/api'
+import { getAuthToken } from '../lib/api/core'
+import { downloadBlob } from '../lib/download'
 import { useI18n } from './useI18n'
 import { useToast } from './useToast'
 import { useConfirm } from './useConfirm'
-import { useAuthStore } from '../stores/auth'
 import { resolveApiErrorMessage } from '../lib/notify'
 import type { SettingsFormState } from '../lib/settings-form'
-
-type Notify = (msg: string) => void
 
 export function useSettingsBackup(options: {
   settings: Ref<SettingsFormState>
   buildBackupPayload: () => Record<string, unknown>
   markSectionClean: (section: 'advanced') => void
-  notifySuccess?: Notify
-  notifyError?: Notify
 }) {
   const { t } = useI18n()
   const toast = useToast()
   const { confirm } = useConfirm()
-  const authStore = useAuthStore()
 
-  const notifySuccess = options.notifySuccess || ((msg: string) => toast.success(msg))
-  const notifyError = options.notifyError || ((msg: string) => toast.error(msg))
+  const notifySuccess = (msg: string) => toast.success(msg)
+  const notifyError = (msg: string) => toast.error(msg)
 
   const dataLoading = ref(false)
   const backupLoading = ref(false)
   const backupStatus = ref<BackupStatus | null>(null)
-  const advancedLoading = ref(false)
   const webdavTestLoading = ref(false)
   const webdavListLoading = ref(false)
   const remoteWebdavFiles = ref<WebDavRemoteFile[]>([])
@@ -74,19 +69,12 @@ export function useSettingsBackup(options: {
   }
 
   const handleExport = async () => {
-    const token = authStore.token || ''
+    const token = getAuthToken()
     dataLoading.value = true
     try {
       const jsonStr = await exportAllConfigs(token)
       const blob = new Blob([jsonStr], { type: 'application/json' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `tg-signpulse-export-${new Date().toISOString().split('T')[0]}.json`
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
+      downloadBlob(blob, `tg-signpulse-export-${new Date().toISOString().split('T')[0]}.json`)
       notifySuccess(t('settings.exportSuccess'))
     } catch (e: unknown) {
       notifyError(resolveApiErrorMessage(e, 'settings.exportFailed'))
@@ -96,7 +84,7 @@ export function useSettingsBackup(options: {
   }
 
   const handleListRemoteBackups = async () => {
-    const token = authStore.token || ''
+    const token = getAuthToken()
     if (!options.settings.value.webdavUrl.trim()) {
       notifyError(t('settings.webdavRequired'))
       return
@@ -129,7 +117,7 @@ export function useSettingsBackup(options: {
   }
 
   const handleDownloadRemoteBackup = async (name: string) => {
-    const token = authStore.token || ''
+    const token = getAuthToken()
     if (!name) return
     remoteDownloadName.value = name
     try {
@@ -143,7 +131,7 @@ export function useSettingsBackup(options: {
   }
 
   const handleBackupExport = async () => {
-    const token = authStore.token || ''
+    const token = getAuthToken()
     if (!validateWebdavForm()) return
     backupLoading.value = true
     try {
@@ -173,9 +161,8 @@ export function useSettingsBackup(options: {
   }
 
   const handleWebdavTest = async () => {
-    const token = authStore.token || ''
+    const token = getAuthToken()
     if (!validateWebdavForm()) return
-    advancedLoading.value = true
     webdavTestLoading.value = true
     try {
       await saveGlobalSettings(token, options.buildBackupPayload())
@@ -187,13 +174,12 @@ export function useSettingsBackup(options: {
     } catch (e: unknown) {
       notifyError(resolveApiErrorMessage(e, 'settings.webdavTestFailed'))
     } finally {
-      advancedLoading.value = false
       webdavTestLoading.value = false
     }
   }
 
   const handleImportFile = async (file: File) => {
-    const token = authStore.token || ''
+    const token = getAuthToken()
     const reader = new FileReader()
     reader.onload = async (ev) => {
       const jsonStr = ev.target?.result as string
@@ -253,7 +239,6 @@ export function useSettingsBackup(options: {
     dataLoading,
     backupLoading,
     backupStatus,
-    advancedLoading,
     webdavTestLoading,
     webdavListLoading,
     remoteWebdavFiles,

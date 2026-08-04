@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useAuthStore } from '../stores/auth'
+import { getAuthToken } from '../lib/api/core'
 import { getAppVersion } from '../lib/api'
 import {
   LayoutDashboard,
@@ -24,7 +24,6 @@ import UserProfileModal from '../components/settings/UserProfileModal.vue'
 
 const route = useRoute()
 const router = useRouter()
-const authStore = useAuthStore()
 const { isDark, toggleTheme } = useTheme()
 const { locale, toggleLanguage, t } = useI18n()
 const isMobileMenuOpen = ref(false)
@@ -32,7 +31,7 @@ const showProfileModal = ref(false)
 const sidebarVersion = ref('')
 
 const loadSidebarVersion = async () => {
-  const token = authStore.token
+  const token = getAuthToken()
   if (!token) return
   try {
     const info = await getAppVersion(token)

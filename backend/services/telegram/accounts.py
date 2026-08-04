@@ -43,6 +43,17 @@ def _session_file_info(session_file) -> tuple[bool, int]:
         return False, 0
 
 
+def mark_account_connected(account_name: str) -> None:
+    """标记账号登录成功（status=connected），供手机号/扫码登录成功路径统一调用。"""
+    set_account_status(
+        account_name,
+        status="connected",
+        message="",
+        code="OK",
+        needs_relogin=False,
+    )
+
+
 class TelegramAccountsMixin:
 
     @staticmethod

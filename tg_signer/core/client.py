@@ -89,26 +89,6 @@ _original_invoke = BaseClient.invoke
 _get_channel_diff_semaphore = asyncio.Semaphore(50)
 
 
-def _read_positive_float_env(name: str, default: float, minimum: float = 1.0) -> float:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    try:
-        return max(float(raw), minimum)
-    except (TypeError, ValueError):
-        return default
-
-
-def _read_positive_int_env(name: str, default: int, minimum: int = 1) -> int:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    try:
-        return max(int(raw), minimum)
-    except (TypeError, ValueError):
-        return default
-
-
 async def _patched_invoke(self, query, *args, **kwargs):
     if isinstance(query, (raw.functions.updates.GetChannelDifference, raw.functions.updates.GetDifference)):
         # Disable Pyrogram's internal sleep and retry mechanisms to prevent blocking the semaphore indefinitely

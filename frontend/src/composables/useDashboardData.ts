@@ -17,8 +17,8 @@ import type {
   AccountStatusJob,
 } from '../lib/api'
 import type { DashboardLog } from '../lib/types'
+import { getAuthToken } from '../lib/api/core'
 import { notifyApiError } from '../lib/notify'
-import { useAuthStore } from '../stores/auth'
 import { useActiveRunsStore } from '../stores/activeRuns'
 import { useAccountsStore } from '../stores/accounts'
 import { devLog } from '../lib/devLog'
@@ -30,7 +30,6 @@ import { storeToRefs } from 'pinia'
 const formatTime = (isoString: string) => formatTimeOnly(isoString)
 
 export function useDashboardData() {
-  const authStore = useAuthStore()
   const activeRunsStore = useActiveRunsStore()
   const accountsStore = useAccountsStore()
   const { runs: activeRuns } = storeToRefs(activeRunsStore)
@@ -103,7 +102,7 @@ export function useDashboardData() {
   }
 
   const connectSignHistorySSE = () => {
-    const token = authStore.token || ''
+    const token = getAuthToken()
     if (!token || typeof EventSource === 'undefined') return
     try {
       signHistorySource?.close()
@@ -139,7 +138,7 @@ export function useDashboardData() {
   }
 
   const loadDashboardData = async () => {
-    const token = authStore.token || ''
+    const token = getAuthToken()
     if (!token) return
 
     let accRes: { accounts: AccountInfo[]; total: number } = { accounts: [], total: 0 }

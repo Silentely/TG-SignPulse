@@ -396,3 +396,33 @@ def delete_session_string_file(session_dir: Path, account_name: str) -> None:
             path.unlink()
         except Exception:
             pass
+
+
+def load_account_session_string(
+    account_name: str,
+    *,
+    session_dir: Path,
+    session_mode: str,
+) -> Optional[str]:
+    """按会话模式加载账号 session_string；无可用值返回 None。
+
+    string 模式：优先账号存储，回退会话文件导出；
+    文件模式：仅尝试会话文件导出。
+    """
+    if session_mode == "string":
+        return get_account_session_string(account_name) or load_session_string_file(
+            session_dir, account_name
+        )
+    return load_session_string_file(session_dir, account_name)
+
+
+def resolve_effective_proxy(
+    account_name: str, global_proxy: Optional[str] = None
+) -> Optional[str]:
+    """解析账号生效代理：账号级代理优先，其次全局代理。"""
+    proxy_value = get_account_proxy(account_name)
+    if proxy_value:
+        return proxy_value
+    if isinstance(global_proxy, str) and global_proxy.strip():
+        return global_proxy.strip()
+    return None

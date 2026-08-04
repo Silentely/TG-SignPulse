@@ -9,12 +9,12 @@ import {
   fetchChatAvatar,
   listAccounts,
 } from '../lib/api'
+import { withToken, getAuthToken } from '../lib/api/core'
 import type { ActiveRunSummary } from '../lib/api'
 import type { TaskUiItem } from '../lib/types'
 import { notifyApiError } from '../lib/notify'
 import { useI18n } from './useI18n'
 import { useToast } from './useToast'
-import { useAuthStore } from '../stores/auth'
 import { useActiveRunsStore } from '../stores/activeRuns'
 import { devLog } from '../lib/devLog'
 import { resolveTaskAccountNames } from '../lib/task-list-map'
@@ -37,7 +37,6 @@ export function useTaskListRuntime(options: {
 }) {
   const { t } = useI18n()
   const toast = useToast()
-  const authStore = useAuthStore()
   const activeRunsStore = useActiveRunsStore()
   const { byTask: activeRunsByTask, fetchedAt: activeRunsFetchedAt, hasAnyActive: hasAnyActiveRun } =
     storeToRefs(activeRunsStore)
@@ -110,27 +109,27 @@ export function useTaskListRuntime(options: {
   activeRunsStore.acquire()
 
   const loadListenHitCounts = async () => {
-    const token = authStore.token || ''
-    if (!token) return
-    const listenTasks = options.tasks.value.filter((t) => t.isListenMode)
-    if (!listenTasks.length) return
-    try {
-      const res = await listKeywordHitGroups(token, {
-        account_name: options.accountFilter.value || undefined,
-        group_by: 'task',
-        limit_per_group: 1,
-      })
-      const countByTask = new Map<string, number>()
-      for (const g of res.groups || []) {
-        countByTask.set(String(g.key), Number(g.count || 0))
+    return withToken(async (token) => {
+      const listenTasks = options.tasks.value.filter((t) => t.isListenMode)
+      if (!listenTasks.length) return
+      try {
+        const res = await listKeywordHitGroups(token, {
+          account_name: options.accountFilter.value || undefined,
+          group_by: 'task',
+          limit_per_group: 1,
+        })
+        const countByTask = new Map<string, number>()
+        for (const g of res.groups || []) {
+          countByTask.set(String(g.key), Number(g.count || 0))
+        }
+        for (const task of options.tasks.value) {
+          if (!task.isListenMode) continue
+          task.hitCount = countByTask.get(task.name) || 0
+        }
+      } catch (e: unknown) {
+        devLog.error('Failed to load hit counts', e)
       }
-      for (const task of options.tasks.value) {
-        if (!task.isListenMode) continue
-        task.hitCount = countByTask.get(task.name) || 0
-      }
-    } catch (e: unknown) {
-      devLog.error('Failed to load hit counts', e)
-    }
+    })
   }
 
   const ensureHitCountPolling = () => {
@@ -198,7 +197,7 @@ export function useTaskListRuntime(options: {
     const key = `${task.name}:${ar.account_name}`
     if (cancelBusyKey.value === key) return
     cancelBusyKey.value = key
-    const token = authStore.token || ''
+    const token = getAuthToken()
     try {
       const res = await cancelSignTaskRun(token, task.name, ar.account_name, ar.run_id)
       if (res.ok && res.cancelled) {
@@ -215,7 +214,7 @@ export function useTaskListRuntime(options: {
   }
 
   const loadChatAvatar = async (task: TaskUiItem, accountName: string, chatId: number) => {
-    const token = authStore.token || ''
+    const token = getAuthToken()
     const cacheKey = `chat_avatar_${chatId}`
     const noAvatarKey = `chat_avatar_${chatId}_404`
 
@@ -280,21 +279,21 @@ export function useTaskListRuntime(options: {
   }
 
   const loadAccountStatusMap = async () => {
-    try {
-      const token = authStore.token || ''
-      if (!token) return
-      const res = await listAccounts(token)
-      const map: Record<string, string> = {}
-      const relogin: Record<string, boolean> = {}
-      for (const a of res.accounts || []) {
-        map[a.name] = String(a.status || '')
-        relogin[a.name] = !!a.needs_relogin
+    return withToken(async (token) => {
+      try {
+        const res = await listAccounts(token)
+        const map: Record<string, string> = {}
+        const relogin: Record<string, boolean> = {}
+        for (const a of res.accounts || []) {
+          map[a.name] = String(a.status || '')
+          relogin[a.name] = !!a.needs_relogin
+        }
+        accountStatusMap.value = map
+        accountNeedsRelogin.value = relogin
+      } catch (e: unknown) {
+        devLog.error('Failed to load account status map', e)
       }
-      accountStatusMap.value = map
-      accountNeedsRelogin.value = relogin
-    } catch (e: unknown) {
-      devLog.error('Failed to load account status map', e)
-    }
+    })
   }
 
   const stopAll = () => {

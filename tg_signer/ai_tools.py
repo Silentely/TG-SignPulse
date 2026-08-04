@@ -24,7 +24,17 @@ from cryptography.fernet import InvalidToken
 
 from tg_signer.log_utils import safe_text_preview
 from tg_signer.security import decrypt_secret, encrypt_secret
-from tg_signer.utils import UserInput, print_to_user
+from tg_signer.utils import UserInput, print_to_user, read_positive_int_env
+
+
+def ai_cfg_signature(cfg: Any) -> tuple[str, str, str]:
+    """AI 配置指纹：api_key/base_url/model 三元组，用于判断配置是否变化。"""
+    return (
+        str(cfg.get("api_key") or ""),
+        str(cfg.get("base_url") or ""),
+        str(cfg.get("model") or ""),
+    )
+
 
 DEFAULT_MODEL = "gpt-5-nano"
 
@@ -218,14 +228,6 @@ class AITools:
             return 15.0
         return max(3.0, timeout)
 
-    @staticmethod
-    def _read_positive_int_env(name: str, default: int, minimum: int) -> int:
-        try:
-            value = int(os.environ.get(name, str(default)))
-        except (TypeError, ValueError):
-            return default
-        return max(minimum, value)
-
     @classmethod
     def _extract_relevant_query(cls, query: str) -> str:
         if not query:
@@ -265,7 +267,7 @@ class AITools:
 
     @classmethod
     def _crop_light_border(cls, image: "Image.Image") -> "Image.Image":
-        white_threshold = cls._read_positive_int_env(
+        white_threshold = read_positive_int_env(
             "AI_VISION_WHITE_THRESHOLD", 245, 200
         )
         mask = image.convert("L").point(lambda px: 255 if px < white_threshold else 0)
@@ -293,12 +295,12 @@ class AITools:
             return image
 
         prepared = cls._crop_light_border(prepared)
-        max_edge = cls._read_positive_int_env("AI_VISION_MAX_EDGE", 640, 224)
+        max_edge = read_positive_int_env("AI_VISION_MAX_EDGE", 640, 224)
         if max(prepared.size) > max_edge:
             resampling = getattr(Image, "Resampling", Image).LANCZOS
             prepared.thumbnail((max_edge, max_edge), resampling)
 
-        quality = cls._read_positive_int_env("AI_VISION_JPEG_QUALITY", 85, 40)
+        quality = read_positive_int_env("AI_VISION_JPEG_QUALITY", 85, 40)
         output = io.BytesIO()
         prepared.save(output, format="JPEG", quality=quality, optimize=True)
         result = output.getvalue()
@@ -460,7 +462,7 @@ class AITools:
         """AI 视觉请求总尝试次数（含首次请求），默认 2。
         例如值为 3 时表示 1 次首次请求 + 2 次重试。
         """
-        return cls._read_positive_int_env("AI_VISION_RETRY_ATTEMPTS", 2, 1)
+        return read_positive_int_env("AI_VISION_RETRY_ATTEMPTS", 2, 1)
 
     @staticmethod
     def _vision_retry_delay(attempt: int) -> float:

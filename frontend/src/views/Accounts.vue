@@ -6,10 +6,10 @@ import {
   deleteAccount,
   fetchAccountAvatar,
 } from '../lib/api'
+import { getAuthToken } from '../lib/api/core'
 import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
 import { useConfirm } from '../composables/useConfirm'
-import { useAuthStore } from '../stores/auth'
 import { useAccountsStore } from '../stores/accounts'
 import { useAccountBatchCheck } from '../composables/useAccountBatchCheck'
 import type { AccountUiItem } from '../lib/types'
@@ -31,7 +31,6 @@ const router = useRouter()
 const { t } = useI18n()
 const toast = useToast()
 const { confirm } = useConfirm()
-const authStore = useAuthStore()
 const accountsStore = useAccountsStore()
 const accounts = ref<AccountUiItem[]>([])
 const pageLoading = ref(true)
@@ -66,7 +65,7 @@ const clearListFilters = () => {
 
 /** 账号管理页为单一事实来源：每次调用都强制刷新（增删改/检测后保持一致） */
 const loadAccounts = async () => {
-  const token = authStore.token || ''
+  const token = getAuthToken()
   if (!token) return
 
   try {
@@ -95,7 +94,7 @@ const loadAccounts = async () => {
 }
 
 const loadAvatar = async (acc: AccountUiItem) => {
-  const token = authStore.token || ''
+  const token = getAuthToken()
   try {
     let url = avatarCache.get(acc.name)
     if (!url) {
@@ -140,7 +139,7 @@ const handleDelete = async (name: string) => {
     danger: true,
   })
   if (!ok) return
-  const token = authStore.token || ''
+  const token = getAuthToken()
   try {
     await deleteAccount(token, name)
     toast.success(t('accounts.deleteSuccess'))

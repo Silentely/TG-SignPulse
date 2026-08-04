@@ -6,6 +6,7 @@
 
 | 日期 | 变更内容 |
 |------|----------|
+| 2026-08-04 | 全项目代码质量整改：修复补抓目标消息循环外处理缺陷（取最旧而非最新，新增 7 条测试）；原子写 JSON 收敛 backend/utils/atomic_io.py（替换 4 处实现+6 处非原子点）；env 解析/UTC 时间戳收敛到 tg_signer.utils / backend/utils/time；AI 工具链收敛（配置签名/按钮遍历/键盘匹配下沉 compat+ai_tools，重试协议 call_with_retry 统一）；会话/代理解析收敛到 tg_session.py；tg_signer/core/runtime.py 3126→495 行（拆出 signer_runner/actions/matchers/config/context/monitor 六模块）；keyword_monitor/runtime.py 1874→928 行（continue 动作族独立 + _on_message 分派化 + _execute_ai_action 样板去重）；login_qr.py 1058→934 行（token 状态机三重复制消除）；config.py 1129→101 行门面 + config_mixins.py（5 个领域 Mixin）；头像缓存/账号解析/字段钳制/账号状态写入四处路由与服务层收敛；删除 Waiter 死抽象与 response_chars 假日志；消除 engine→backend 反向依赖（contextvar 下沉 tg_signer/context_vars.py，密钥 provider 注册制）；前端样板收敛（token 63 处/seq 7 处/下载 4 处各归一到 1 处，TaskForm 双通道删除，死代码清理）。后端 1187 条测试/覆盖率 56%，前端 304 条/typecheck/构建全绿 |
 | 2026-08-04 | 关键词监听重启去重：按 (账号, 会话) 持久化已处理消息水位（keyword_monitor/seen.json，30s 节流原子写盘、停机/重启加载），重连补投的旧消息不再重复命中、推送与落记录，新增 6 条测试。前端账号名解析统一收敛：resolveTaskAccountName 兼容 TaskUiItem 自动解 raw，Tasks 视图/useTaskListActions/TaskLogsModal 移除重复封装，新增 resolveTaskAccountNames 供 useTaskListRuntime 复用；修复克隆任务把 '*' 当账号名传后端的缺陷并补回归测试。后端 1186 条测试全绿，前端 304 条/typecheck/构建全绿 |
 | 2026-08-04 | 打磨：删除 config 路由死类 ExportTaskResponse 与 tg_session 内 6 处不可达防御分支（_load_account_store 已归一化 accounts 为 dict）；测试密钥统一升级至 ≥32 字节消除 PyJWT InsecureKeyLengthWarning 噪音；backend/utils/tg_session 覆盖率 54%→99%（新增 68 条用例覆盖账号存储 CRUD、并发信号量、会话串旧格式、导出兜底），backend/utils/storage 覆盖率 68%→98%（新增 18 条用例）。前端：删除死导出 AccountUiStatus 与 AsyncPoolTask。后端 1162 条测试全绿且无警告，前端 301 条/typecheck 全绿 |
 | 2026-08-04 | 后端：限流器补过期桶清扫（1h 陈旧/解封清理，防内存缓增）；任务运行状态迁移补 3 张内存映射；运行配置改单次读取（return_raw 消除双读，重试语义修正）；任务历史时间戳改 UTC；收敛账号解析与 JobLookupError 兜底、QR 注册失败可见化、头像缓存失败清理。前端：删除 16 个死 API 导出；会话头像 blob URL 追踪回收（列表替换/卸载统一 revoke）；会话搜索/复制提示/重登弹窗延时与 AbortController 卸载清理；DatePicker 与 AboutSettings 硬编码文案 i18n 化（含键一致性回归测试）；账号名解析收敛到共享 resolveTaskAccountName。后端 1094 条测试全绿，前端 301 条/typecheck/构建全绿 |
@@ -141,14 +142,20 @@ docker run -d -p 3000:3000 -v ./data:/data ghcr.io/<owner>/tg-signpulse:latest
 
 ## 关键架构洞察（补扫 2026-06-30）
 
-### tg_signer/core/ 包（已拆分：client.py 502 行 + runtime.py 3036 行 + __init__.py 76 行）
+### tg_signer/core/ 包（已拆分：client.py ~500 行 + runtime.py ~500 行 + 6 个 Mixin/模块）
 
-`__init__.py` 透传全部公共符号并承担副作用导入（触发 `_patched_invoke` 等 monkey-patch 装配），外部仍按 `from tg_signer.core import UserSigner` 使用。
+`runtime.py` 经 2026-08-04 整改从 3126 行拆至 ~500 行：`BaseUserWorker` 基座 + `UserSigner` 薄组合壳（继承 4 个 Mixin）。`__init__.py` 透传全部公共符号并承担副作用导入（触发 `_patched_invoke` 等 monkey-patch 装配），外部仍按 `from tg_signer.core import UserSigner` 使用。
 
-| 类 | 位置 | 职责 |
+| 类/模块 | 位置 | 职责 |
 |----|----------|------|
-| `UserSigner` | runtime.py 600-2751 | 自动签到执行器，继承 `BaseUserWorker[SignConfigV3]`，含 cron 调度、会话预热（5 级回退）、6 种动作类型、流程级重试 |
-| `UserMonitor` | runtime.py 2752-3022 | 消息监控器，继承 `BaseUserWorker[MonitorConfig]`，规则匹配 → 外部转发（UDP/HTTP）→ AI 回复 → Server酱推送 |
+| `BaseUserWorker` | runtime.py | 任务/监控基类：配置加载、登录、消息发送、AI 工具获取 |
+| `UserSigner` | runtime.py | 自动签到执行器组合壳，继承 4 个 Mixin |
+| `SignerRunnerMixin` | core/signer_runner.py | 执行编排：sign_a_chat / normal_run / 定时调度 / 消息入口 |
+| `SignerActionsMixin` | core/signer_actions.py | 动作执行器：点击/发送/AI 调用 + wait_for 主循环 |
+| `SignerMatchersMixin` | core/signer_matchers.py | 判定/状态标记/等待轮询工具 |
+| `SignerConfigMixin` | core/signer_config.py | CLI 配置询问、签名记录、聊天缓存 |
+| `UserMonitor` | core/monitor.py | 消息监控器，规则匹配 → 外部转发（UDP/HTTP）→ AI 回复 → Server酱推送 |
+| `UserSignerWorkerContext` | core/context.py | 签到工作上下文 |
 
 **AI 交互场景**（5 种）：计算题、图片 OCR、图片选按钮、计算后点击、监控回复
 
@@ -156,8 +163,9 @@ docker run -d -p 3000:3000 -v ./data:/data ghcr.io/<owner>/tg-signpulse:latest
 
 | 热模块 | 职责 |
 |--------|------|
-| `time.py` | 统一 UTC 时间（9 处引用，全模块最热） |
-| `tg_session.py` | 会话持久化 + 并发信号量（352 行，最大文件） |
+| `time.py` | 统一 UTC 时间（含秒精度 Z 后缀变体） |
+| `tg_session.py` | 会话持久化 + 并发信号量 + session/代理统一解析入口 |
+| `atomic_io.py` | JSON 原子读写（进程内锁 + fsync + rename，全项目统一入口） |
 | `task_logs.py` | 流程日志解析（时间戳去除、目标消息提取） |
 | `storage.py` | 数据目录发现/覆盖/回退 |
 | `proxy.py` | 代理 URL 标准化 |

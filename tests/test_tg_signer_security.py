@@ -69,10 +69,11 @@ class TestReadAppSecretKey:
         monkeypatch.setenv("APP_SECRET_KEY", f"  {TEST_SECRET}  ")
         assert _read_app_secret_key() == TEST_SECRET
 
-    def test_backend_config_fallback(self, monkeypatch):
+    def test_provider_fallback(self, monkeypatch):
+        """注册的密钥提供者作为 env 缺失时的兜底。"""
         monkeypatch.delenv("APP_SECRET_KEY", raising=False)
         monkeypatch.setattr(
-            "backend.core.config.get_default_secret_key",
+            "tg_signer.security._secret_key_provider",
             lambda: "  fallback-secret  ",
         )
         assert _read_app_secret_key() == "fallback-secret"
@@ -80,17 +81,17 @@ class TestReadAppSecretKey:
     def test_missing_everywhere_raises(self, monkeypatch):
         monkeypatch.delenv("APP_SECRET_KEY", raising=False)
         monkeypatch.setattr(
-            "backend.core.config.get_default_secret_key", lambda: ""
+            "tg_signer.security._secret_key_provider", lambda: ""
         )
         with pytest.raises(SecretKeyError, match="APP_SECRET_KEY"):
             _read_app_secret_key()
 
-    def test_backend_config_exception_raises(self, monkeypatch):
+    def test_provider_exception_raises(self, monkeypatch):
         def _boom():
             raise RuntimeError("config broken")
 
         monkeypatch.delenv("APP_SECRET_KEY", raising=False)
-        monkeypatch.setattr("backend.core.config.get_default_secret_key", _boom)
+        monkeypatch.setattr("tg_signer.security._secret_key_provider", _boom)
         with pytest.raises(SecretKeyError, match="APP_SECRET_KEY"):
             _read_app_secret_key()
 

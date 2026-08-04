@@ -6,6 +6,7 @@
 import { ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { listAccounts, type AccountInfo } from '../lib/api'
+import { getAuthToken } from '../lib/api/core'
 import { useAuthStore } from './auth'
 
 /** TTL 内 ensureAccounts 直接复用缓存 */
@@ -34,7 +35,7 @@ export const useAccountsStore = defineStore('accounts', () => {
   )
 
   const fetchAccounts = async (): Promise<AccountInfo[]> => {
-    const token = useAuthStore().token || ''
+    const token = getAuthToken()
     if (!token) return accounts.value
     loading.value = true
     try {

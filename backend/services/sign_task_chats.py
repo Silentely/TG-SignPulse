@@ -16,6 +16,7 @@ from typing import Any, Awaitable, Callable, Dict, List, MutableMapping, Optiona
 from backend.services.telegram.credentials import (  # noqa: F401
     resolve_telegram_api_credentials,
 )
+from backend.utils.atomic_io import write_json_atomic
 
 _logger = logging.getLogger("backend.sign_task_chats")
 
@@ -112,9 +113,7 @@ def load_chats_cache_file(cache_file: Path) -> Optional[List[Dict[str, Any]]]:
 def save_chats_cache_file(cache_file: Path, chats: List[Dict[str, Any]]) -> bool:
     """写入 chats 缓存；失败返回 False。"""
     try:
-        cache_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(cache_file, "w", encoding="utf-8") as f:
-            json.dump(chats, f, ensure_ascii=False, indent=2)
+        write_json_atomic(cache_file, chats)
         return True
     except (OSError, TypeError, ValueError) as exc:
         _logger.debug("保存 chat 缓存失败 %s: %s", cache_file, exc)

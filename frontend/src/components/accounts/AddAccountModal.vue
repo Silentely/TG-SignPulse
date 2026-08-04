@@ -3,16 +3,15 @@ import { ref, watch, onUnmounted } from 'vue'
 import { Phone, QrCode } from 'lucide-vue-next'
 import Modal from '../Modal.vue'
 import { startAccountLogin, verifyAccountLogin, updateAccount, startQrLogin, getQrLoginStatus, submitQrPassword, cancelQrLogin } from '../../lib/api'
+import { getAuthToken } from '../../lib/api/core'
 import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
 import { startChainPoll, type ChainPollHandle } from '../../lib/chain-poll'
-import { useAuthStore } from '../../stores/auth'
 import { getLocalizedErrorMessage } from '../../lib/types'
 import { devLog } from '../../lib/devLog'
 
 const { t } = useI18n()
 const toast = useToast()
-const authStore = useAuthStore()
 
 const props = defineProps<{ isOpen: boolean, initialMethod?: 'code' | 'qr', initialAccountName?: string }>()
 const emit = defineEmits<{ (e: 'close'): void, (e: 'success'): void }>()
@@ -45,7 +44,7 @@ const reset = async () => {
   pollHandle = null
   if (loginId.value) {
     try {
-      const token = authStore.token || ''
+      const token = getAuthToken()
       if (token) await cancelQrLogin(token, loginId.value)
     } catch (e: unknown) {
       devLog.warn('cancelQrLogin failed:', getLocalizedErrorMessage(e, t))
@@ -88,6 +87,16 @@ const handleClose = () => {
   emit('close')
 }
 
+/** 登录成功后保存备注：失败仅告警，不阻断登录流程 */
+const saveRemarkIfPresent = async (token: string) => {
+  if (!form.value.remark) return
+  try {
+    await updateAccount(token, form.value.account_name, { remark: form.value.remark })
+  } catch (err) {
+    devLog.warn('登录成功但备注保存失败', err)
+  }
+}
+
 // ============ QR Login Logic ============
 
 const pollStatus = async (token: string, lid: string) => {
@@ -96,13 +105,7 @@ const pollStatus = async (token: string, lid: string) => {
     if (res.status === 'success') {
       pollHandle?.stop()
       pollHandle = null
-      if (form.value.remark) {
-        try {
-          await updateAccount(token, form.value.account_name, { remark: form.value.remark })
-        } catch (err) {
-          devLog.warn('登录成功但备注保存失败', err)
-        }
-      }
+      await saveRemarkIfPresent(token)
       loading.value = false
       toast.success(t('addAccount.loginSuccess'))
       emit('success')
@@ -140,13 +143,7 @@ const handleQrPasswordSubmit = async (token: string, lid: string) => {
     })
     // 如果后端直接返回 success，说明登录已完成，无需再轮询
     if (res.success) {
-      if (form.value.remark) {
-        try {
-          await updateAccount(token, form.value.account_name, { remark: form.value.remark })
-        } catch (err) {
-          devLog.warn('登录成功但备注保存失败', err)
-        }
-      }
+      await saveRemarkIfPresent(token)
       loading.value = false
       toast.success(t('addAccount.loginSuccess'))
       emit('success')
@@ -167,7 +164,7 @@ const handleGetQr = async () => {
     error.value = t('addAccount.nameRequired')
     return
   }
-  const token = authStore.token
+  const token = getAuthToken()
   if (!token) return
 
   loading.value = true
@@ -196,7 +193,7 @@ const handleSendCode = async () => {
     error.value = t('addAccount.namePhoneRequired')
     return
   }
-  const token = authStore.token
+  const token = getAuthToken()
   if (!token) return
 
   loading.value = true
@@ -218,7 +215,7 @@ const handleSendCode = async () => {
 }
 
 const handleSave = async () => {
-  const token = authStore.token
+  const token = getAuthToken()
   if (!token) return
 
   loading.value = true
@@ -244,13 +241,7 @@ const handleSave = async () => {
         password: form.value.password || undefined,
         proxy: form.value.proxy || undefined
       })
-      if (form.value.remark) {
-        try {
-          await updateAccount(token, form.value.account_name, { remark: form.value.remark })
-        } catch (err) {
-          devLog.warn('登录成功但备注保存失败', err)
-        }
-      }
+      await saveRemarkIfPresent(token)
       loading.value = false
       toast.success(t('addAccount.loginSuccess'))
       emit('success')

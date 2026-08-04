@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { mockI18nPassthrough } from './composable-test-utils'
 import type { SettingsFormState } from '../lib/settings-form'
 
-const { toastSpy, confirmMock, notifySuccess, notifyError, api } = vi.hoisted(() => ({
+const { toastSpy, confirmMock, api } = vi.hoisted(() => ({
   toastSpy: {
     success: vi.fn(),
     error: vi.fn(),
@@ -13,8 +13,6 @@ const { toastSpy, confirmMock, notifySuccess, notifyError, api } = vi.hoisted(()
   confirmMock: {
     confirm: vi.fn(async () => true),
   },
-  notifySuccess: vi.fn(),
-  notifyError: vi.fn(),
   api: {
     exportAllConfigs: vi.fn(),
     importAllConfigs: vi.fn(),
@@ -101,8 +99,6 @@ describe('useSettingsBackup', () => {
       settings,
       buildBackupPayload: () => ({ backup: true }),
       markSectionClean,
-      notifySuccess,
-      notifyError,
     })
     return { backup, settings, markSectionClean }
   }
@@ -125,7 +121,7 @@ describe('useSettingsBackup', () => {
     await backup.handleExport()
     expect(api.exportAllConfigs).toHaveBeenCalledWith('tok')
     expect(click).toHaveBeenCalled()
-    expect(notifySuccess).toHaveBeenCalled()
+    expect(toastSpy.success).toHaveBeenCalled()
     expect(backup.dataLoading.value).toBe(false)
     appendChild.mockRestore()
   })
@@ -134,7 +130,7 @@ describe('useSettingsBackup', () => {
     const { backup } = setup({ webdavUrl: '' })
     await backup.handleListRemoteBackups()
     expect(api.listWebdavBackupFiles).not.toHaveBeenCalled()
-    expect(notifyError).toHaveBeenCalled()
+    expect(toastSpy.error).toHaveBeenCalled()
   })
 
   it('handleListRemoteBackups saves settings then lists files', async () => {
@@ -165,7 +161,7 @@ describe('useSettingsBackup', () => {
     })
     const { backup } = setup()
     await backup.handleListRemoteBackups()
-    expect(notifyError).toHaveBeenCalledWith('denied')
+    expect(toastSpy.error).toHaveBeenCalledWith('denied')
     expect(backup.remoteWebdavFiles.value).toEqual([])
   })
 
@@ -174,7 +170,7 @@ describe('useSettingsBackup', () => {
     const { backup } = setup()
     await backup.handleDownloadRemoteBackup('x.zip')
     expect(api.downloadWebdavBackup).toHaveBeenCalledWith('tok', 'x.zip')
-    expect(notifySuccess).toHaveBeenCalled()
+    expect(toastSpy.success).toHaveBeenCalled()
     expect(backup.remoteDownloadName.value).toBe('')
   })
 
@@ -182,7 +178,7 @@ describe('useSettingsBackup', () => {
     const { backup } = setup({ webdavUrl: '', webdavUsername: '', webdavPassword: '' })
     await backup.handleBackupExport()
     expect(api.exportBackupArchive).not.toHaveBeenCalled()
-    expect(notifyError).toHaveBeenCalled()
+    expect(toastSpy.error).toHaveBeenCalled()
   })
 
   it('handleBackupExport webdav mode success refreshes status', async () => {
@@ -193,7 +189,7 @@ describe('useSettingsBackup', () => {
     await backup.handleBackupExport()
     expect(api.exportBackupArchive).toHaveBeenCalled()
     expect(backup.backupStatus.value).toEqual({ last_backup_at: 't' })
-    expect(notifySuccess).toHaveBeenCalled()
+    expect(toastSpy.success).toHaveBeenCalled()
   })
 
   it('handleWebdavTest reports success/failure from API', async () => {
@@ -201,11 +197,11 @@ describe('useSettingsBackup', () => {
     api.testWebdavBackup.mockResolvedValue({ success: true, message: 'pong' })
     const { backup } = setup()
     await backup.handleWebdavTest()
-    expect(notifySuccess).toHaveBeenCalledWith('pong')
+    expect(toastSpy.success).toHaveBeenCalledWith('pong')
 
     api.testWebdavBackup.mockResolvedValue({ success: false, message: 'nope' })
     await backup.handleWebdavTest()
-    expect(notifyError).toHaveBeenCalledWith('nope')
+    expect(toastSpy.error).toHaveBeenCalledWith('nope')
   })
 
   it('handleImportFile aborts on preview errors', async () => {
@@ -239,7 +235,7 @@ describe('useSettingsBackup', () => {
       expect(api.importConfigPreview).toHaveBeenCalled()
     })
     expect(api.importAllConfigs).not.toHaveBeenCalled()
-    expect(notifyError).toHaveBeenCalled()
+    expect(toastSpy.error).toHaveBeenCalled()
   })
 
   it('handleImportFile confirms then imports', async () => {
@@ -268,7 +264,7 @@ describe('useSettingsBackup', () => {
       expect(api.importAllConfigs).toHaveBeenCalledWith('tok', '{"v":1}', true)
     })
     expect(confirmMock.confirm).toHaveBeenCalled()
-    expect(notifySuccess).toHaveBeenCalled()
+    expect(toastSpy.success).toHaveBeenCalled()
     FileReader.prototype.readAsText = orig
   })
 
@@ -311,6 +307,6 @@ describe('useSettingsBackup', () => {
     // webdavPasswordSet default false
     await backup.handleWebdavTest()
     expect(api.testWebdavBackup).not.toHaveBeenCalled()
-    expect(notifyError).toHaveBeenCalled()
+    expect(toastSpy.error).toHaveBeenCalled()
   })
 })

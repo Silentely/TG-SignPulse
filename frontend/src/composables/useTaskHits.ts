@@ -8,12 +8,14 @@ import {
   exportKeywordHitsBlob,
   clearKeywordHits,
 } from '../lib/api'
+import { getAuthToken } from '../lib/api/core'
+import { downloadBlob } from '../lib/download'
+import { useLatestResponseGuard } from '../lib/latest-response'
 import type { KeywordHitRecord, KeywordHitGroup } from '../lib/api'
 import { notifyApiError } from '../lib/notify'
 import { useI18n } from './useI18n'
 import { useToast } from './useToast'
 import { useConfirm } from './useConfirm'
-import { useAuthStore } from '../stores/auth'
 import { startChainPoll, type ChainPollHandle } from '../lib/chain-poll'
 import { devLog } from '../lib/devLog'
 
@@ -29,7 +31,6 @@ export function useTaskHits(options: {
   const { t } = useI18n()
   const toast = useToast()
   const { confirm } = useConfirm()
-  const authStore = useAuthStore()
 
   const hitsLoading = ref(false)
   const hitsLoadingMore = ref(false)
@@ -39,8 +40,8 @@ export function useTaskHits(options: {
   const hitGroupBy = ref<'task' | 'account' | 'chat'>('chat')
   const hitsView = ref<'list' | 'groups'>('list')
   let hitsPollHandle: ChainPollHandle | null = null
-  // 请求序号：弹窗切换任务/关闭时丢弃过期响应，避免慢请求覆盖新数据
-  let hitSeq = 0
+  // 请求序号守卫：弹窗切换任务/关闭时丢弃过期响应，避免慢请求覆盖新数据
+  const hitSeqGuard = useLatestResponseGuard()
 
   const canLoadMoreHits = computed(
     () => hitsView.value === 'list' && hitRecords.value.length < hitTotal.value,
@@ -61,9 +62,9 @@ export function useTaskHits(options: {
     } else if (!silent) {
       hitsLoading.value = true
     }
-    const token = authStore.token || ''
+    const token = getAuthToken()
     const accountName = options.accountName.value
-    const seq = ++hitSeq
+    const seq = hitSeqGuard.next()
     try {
       if (hitsView.value === 'groups') {
         const res = await listKeywordHitGroups(token, {
@@ -72,7 +73,7 @@ export function useTaskHits(options: {
           group_by: hitGroupBy.value,
           limit_per_group: 30,
         })
-        if (seq !== hitSeq) return // 过期响应：已切换任务/关闭，丢弃
+        if (!hitSeqGuard.isCurrent(seq)) return // 过期响应：已切换任务/关闭，丢弃
         hitGroups.value = res.groups || []
         hitTotal.value = hitGroups.value.reduce((sum, g) => sum + (g.count || 0), 0)
         hitRecords.value = []
@@ -85,7 +86,7 @@ export function useTaskHits(options: {
           offset,
         })
         const items = res.items || []
-        if (seq !== hitSeq) return // 过期响应：已切换任务/关闭，丢弃
+        if (!hitSeqGuard.isCurrent(seq)) return // 过期响应：已切换任务/关闭，丢弃
         if (append) {
           const seen = new Set(hitRecords.value.map((h) => h.id))
           hitRecords.value = [
@@ -108,7 +109,7 @@ export function useTaskHits(options: {
         hitGroups.value = []
       }
     } catch (e: unknown) {
-      if (seq !== hitSeq) return
+      if (!hitSeqGuard.isCurrent(seq)) return
       devLog.error('Failed to fetch keyword hits', e)
       if (!silent) {
         notifyApiError(e, 'taskLogs.hitsLoadFailed')
@@ -119,7 +120,7 @@ export function useTaskHits(options: {
         }
       }
     } finally {
-      if (seq === hitSeq) {
+      if (hitSeqGuard.isCurrent(seq)) {
         hitsLoading.value = false
         hitsLoadingMore.value = false
       }
@@ -141,19 +142,14 @@ export function useTaskHits(options: {
 
   const exportHits = async () => {
     if (!options.taskName.value) return
-    const token = authStore.token || ''
+    const token = getAuthToken()
     try {
       const blob = await exportKeywordHitsBlob(token, {
         account_name: options.accountName.value,
         task_name: options.taskName.value,
         limit: 2000,
       })
-      const a = document.createElement('a')
-      const objectUrl = URL.createObjectURL(blob)
-      a.href = objectUrl
-      a.download = `keyword_hits_${options.taskName.value}.csv`
-      a.click()
-      URL.revokeObjectURL(objectUrl)
+      downloadBlob(blob, `keyword_hits_${options.taskName.value}.csv`)
       toast.success(t('taskLogs.hitsExportDone'))
     } catch (e: unknown) {
       notifyApiError(e, 'taskLogs.hitsExportFailed')
@@ -169,7 +165,7 @@ export function useTaskHits(options: {
       danger: true,
     })
     if (!ok) return
-    const token = authStore.token || ''
+    const token = getAuthToken()
     try {
       const res = await clearKeywordHits(token, {
         account_name: options.accountName.value,
@@ -184,7 +180,7 @@ export function useTaskHits(options: {
 
   const resetHitsState = () => {
     // 使在途响应全部失效，避免关闭后写入已重置状态
-    hitSeq++
+    hitSeqGuard.invalidate()
     hitRecords.value = []
     hitGroups.value = []
     hitTotal.value = 0

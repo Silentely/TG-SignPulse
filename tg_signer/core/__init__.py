@@ -17,8 +17,6 @@ from tg_signer.core.client import (
     _is_callback_data_invalid,
     _patched_invoke,  # noqa: F401 — 副作用导入：触发 monkey-patch 装配
     _patched_sqlite3_connect,  # noqa: F401 — 副作用导入：触发 monkey-patch 装配
-    _read_positive_float_env,
-    _read_positive_int_env,
     close_client_by_name,
     get_api_config,
     get_client,
@@ -29,12 +27,11 @@ from tg_signer.core.client import (
     readable_chat,
     readable_message,
 )
+from tg_signer.core.monitor import UserMonitor
 from tg_signer.core.runtime import (
     BaseUserWorker,
-    UserMonitor,
     UserSigner,
     UserSignerWorkerContext,
-    Waiter,
 )
 
 
@@ -51,7 +48,6 @@ def __dir__():
 __all__ = [
     "Client",
     "BaseUserWorker",
-    "Waiter",
     "UserSignerWorkerContext",
     "UserSigner",
     "UserMonitor",
@@ -64,8 +60,6 @@ __all__ = [
     "make_dirs",
     "readable_chat",
     "readable_message",
-    "_read_positive_float_env",
-    "_read_positive_int_env",
     "_CLIENT_INSTANCES",
     "_CLIENT_REFS",
     "_CLIENT_ASYNC_LOCKS",

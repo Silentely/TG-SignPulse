@@ -13,8 +13,8 @@ from backend.services.sign_task_failure import (
     classify_failure,
     failure_category_label,
     message_indicates_strong_failure,
-    write_json_atomic,
 )
+from backend.utils.atomic_io import write_json_atomic
 
 # ─── classify_failure 正常流程 ───
 

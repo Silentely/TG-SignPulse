@@ -11,7 +11,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from backend.services.sign_task_failure import classify_failure, write_json_atomic
+from backend.services.sign_task_failure import classify_failure
 from backend.services.sign_task_history_format import (
     build_history_run_entry,
     clamp_limit,
@@ -47,6 +47,7 @@ from backend.services.sign_task_history_query import (
     find_history_item_by_time,
     sort_history_items_desc,
 )
+from backend.utils.atomic_io import write_json_atomic
 from backend.utils.names import validate_storage_name
 from backend.utils.task_logs import extract_last_target_message
 
@@ -352,8 +353,7 @@ class SignTaskHistoryMixin:
             return False
 
         if kept_entries:
-            with open(history_file, "w", encoding="utf-8") as f:
-                json.dump(kept_entries, f, ensure_ascii=False, indent=2)
+            write_json_atomic(history_file, kept_entries)
         else:
             try:
                 history_file.unlink()
@@ -531,8 +531,7 @@ class SignTaskHistoryMixin:
                     _logger.warning("删除遗留历史文件失败: %s (%s)", legacy_file, exc)
             else:
                 try:
-                    with open(legacy_file, "w", encoding="utf-8") as f:
-                        json.dump(plan.get("kept") or [], f, ensure_ascii=False, indent=2)
+                    write_json_atomic(legacy_file, plan.get("kept") or [])
                 except Exception as exc:
                     _logger.warning("回写遗留历史文件失败: %s (%s)", legacy_file, exc)
 

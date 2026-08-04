@@ -13,6 +13,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from backend.services.sign_task_history_index import rebuild_index_from_history_files
+from backend.utils.atomic_io import write_json_atomic
 from backend.utils.names import validate_storage_name
 
 _logger = logging.getLogger("backend.sign_task_crud")
@@ -98,8 +99,7 @@ class SignTaskCrudMixin:
                 enabled=True,
             )
 
-            with open(task_dir / "config.json", "w", encoding="utf-8") as f:
-                json.dump(config, f, ensure_ascii=False, indent=2)
+            write_json_atomic(task_dir / "config.json", config)
 
         self._refresh_tasks_cache_after_write()
 
@@ -319,8 +319,7 @@ class SignTaskCrudMixin:
                 last_run=existing_last_run_map.get(current_account),
             )
 
-            with open(desired_dir / "config.json", "w", encoding="utf-8") as f:
-                json.dump(config, f, ensure_ascii=False, indent=2)
+            write_json_atomic(desired_dir / "config.json", config)
 
             previous_dir = existing_dirs.get(current_account)
             if (
@@ -407,10 +406,7 @@ class SignTaskCrudMixin:
             if not apply_account_rename_to_config(config, old_account_name, new_account_name):
                 continue
 
-            config_path.write_text(
-                json.dumps(config, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+            write_json_atomic(config_path, config)
 
         safe_old = self._safe_history_key(old_account_name)
         safe_new = self._safe_history_key(new_account_name)
@@ -432,19 +428,13 @@ class SignTaskCrudMixin:
                         and str(item.get("account_name") or "").strip() == old_account_name
                     ):
                         item["account_name"] = new_account_name
-                history_file.write_text(
-                    json.dumps(raw_data, ensure_ascii=False, indent=2),
-                    encoding="utf-8",
-                )
+                write_json_atomic(history_file, raw_data)
             elif (
                 isinstance(raw_data, dict)
                 and str(raw_data.get("account_name") or "").strip() == old_account_name
             ):
                 raw_data["account_name"] = new_account_name
-                history_file.write_text(
-                    json.dumps(raw_data, ensure_ascii=False, indent=2),
-                    encoding="utf-8",
-                )
+                write_json_atomic(history_file, raw_data)
 
             self._move_storage_path(history_file, target_file)
 

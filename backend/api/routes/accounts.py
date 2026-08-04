@@ -57,9 +57,6 @@ router = APIRouter()
 logger = logging.getLogger("backend.qr_login")
 rate_limiter = get_rate_limiter()
 
-# 头像本地缓存有效期：7 天（秒）
-_AVATAR_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
-
 
 def _apply_rate_limit(
     scope: str,
@@ -569,11 +566,10 @@ async def get_account_avatar(
     account_name: str, current_user: User = Depends(get_current_user)
 ):
     """获取账号 Telegram 头像（带本地缓存）"""
-    import time
-
-    from fastapi.responses import FileResponse, Response
+    from fastapi.responses import Response
 
     from backend.core.config import get_settings
+    from backend.services import avatar_cache
 
     settings = get_settings()
     avatar_cache_dir = settings.resolve_workdir() / "avatars"
@@ -582,34 +578,32 @@ async def get_account_avatar(
     no_avatar_marker = avatar_cache_dir / f"{account_name}.no_avatar"
 
     # 如果已标记为无头像（7天内），直接返回 404
-    if no_avatar_marker.exists():
-        age = time.time() - no_avatar_marker.stat().st_mtime
-        if age < _AVATAR_CACHE_TTL_SECONDS:
-            raise HTTPException(status_code=404, detail="No avatar available")
-        else:
-            no_avatar_marker.unlink(missing_ok=True)
+    if avatar_cache.marker_hits_no_avatar(no_avatar_marker):
+        raise HTTPException(status_code=404, detail="No avatar available")
 
     # 如果缓存存在且不超过 7 天，直接返回
-    if cache_file.exists():
-        age = time.time() - cache_file.stat().st_mtime
-        if age < _AVATAR_CACHE_TTL_SECONDS:
-            return FileResponse(cache_file, media_type="image/jpeg")
+    cached = avatar_cache.read_cached_avatar(cache_file)
+    if cached is not None:
+        return Response(content=cached, media_type="image/jpeg")
 
     # 尝试下载头像
     try:
-        avatar_bytes = await get_telegram_service().download_account_avatar(account_name)
+        avatar_bytes = await avatar_cache.get_avatar_bytes(
+            cache_file,
+            no_avatar_marker,
+            lambda: get_telegram_service().download_account_avatar(account_name),
+        )
         if avatar_bytes:
-            cache_file.write_bytes(avatar_bytes)
-            no_avatar_marker.unlink(missing_ok=True)
             return Response(content=avatar_bytes, media_type="image/jpeg")
         else:
             # 明确判定无头像才写标记
-            no_avatar_marker.write_text("")
+            avatar_cache.mark_no_avatar(no_avatar_marker)
     except Exception:
         # 瞬时下载失败：回退缓存即可，不写"无头像"标记，下次请求重试
         logger.warning("获取账号头像失败 account=%s", account_name, exc_info=True)
-        if cache_file.exists():
-            return FileResponse(cache_file, media_type="image/jpeg")
+        stale = avatar_cache.read_avatar_file(cache_file)
+        if stale is not None:
+            return Response(content=stale, media_type="image/jpeg")
 
     raise HTTPException(status_code=404, detail="No avatar available")
 

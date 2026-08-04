@@ -3,6 +3,7 @@ import { ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import Modal from '../Modal.vue'
 import { changePassword, changeUsername, getTOTPStatus, setupTOTP, fetchTOTPQRCode, enableTOTP, disableTOTP } from '../../lib/api'
+import { getAuthToken } from '../../lib/api/core'
 import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
 import { useAuthStore } from '../../stores/auth'
@@ -33,7 +34,7 @@ const error = ref('')
 const successMessage = ref('')
 
 const handleUsernameChange = async () => {
-  const token = authStore.token
+  const token = getAuthToken()
   if (!token) return
 
   loading.value = true
@@ -57,7 +58,7 @@ const handleUsernameChange = async () => {
 }
 
 const handlePasswordChange = async () => {
-  const token = authStore.token
+  const token = getAuthToken()
   if (!token) return
 
   loading.value = true
@@ -83,7 +84,7 @@ const totpCode = ref('')
 const totpSecret = ref('')
 
 const checkTOTP = async () => {
-  const token = authStore.token
+  const token = getAuthToken()
   if (!token) return
   try {
     const res = await getTOTPStatus(token)
@@ -115,7 +116,7 @@ watch(() => props.isOpen, (val) => {
 
 const handleEnableTOTP = async () => {
   if (!totpCode.value) return
-  const token = authStore.token
+  const token = getAuthToken()
   if (!token) return
 
   loading.value = true
@@ -135,7 +136,7 @@ const handleEnableTOTP = async () => {
 
 const handleDisableTOTP = async () => {
   if (!totpCode.value) return
-  const token = authStore.token
+  const token = getAuthToken()
   if (!token) return
 
   loading.value = true

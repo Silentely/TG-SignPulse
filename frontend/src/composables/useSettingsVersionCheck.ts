@@ -8,8 +8,8 @@ import {
   type AppVersionInfo,
   type UpdateCheckInfo,
 } from '../lib/api'
+import { withToken } from '../lib/api/core'
 import { useI18n } from './useI18n'
-import { useAuthStore } from '../stores/auth'
 import { devLog } from '../lib/devLog'
 import {
   fetchGithubLatestRelease,
@@ -28,7 +28,6 @@ export type VersionBanner = {
 
 export function useSettingsVersionCheck() {
   const { t } = useI18n()
-  const authStore = useAuthStore()
 
   const appVersion = ref<AppVersionInfo | null>(null)
   const versionLoading = ref(false)
@@ -122,69 +121,71 @@ export function useSettingsVersionCheck() {
   }
 
   const handleCheckUpdate = async (force = true) => {
-    const token = authStore.token || ''
-    if (!token || !appVersion.value) return
-    checkLoading.value = true
-    versionBanner.value = null
-    const current = appVersion.value.version
+    if (!appVersion.value) return
+    return withToken(async (token) => {
+      if (!appVersion.value) return
+      checkLoading.value = true
+      versionBanner.value = null
+      const current = appVersion.value.version
 
-    try {
-      if (appVersion.value.update_check_enabled) {
-        try {
-          const res = await checkAppVersion(token, force)
-          appVersion.value = {
-            version: res.version,
-            git_sha: res.git_sha,
-            git_branch: res.git_branch,
-            build_time: res.build_time,
-            app_name: res.app_name,
-            python: res.python,
-            update_check_enabled: res.update_check_enabled,
-          }
-          if (res.update_check.error && !res.update_check.latest_version) {
+      try {
+        if (appVersion.value.update_check_enabled) {
+          try {
+            const res = await checkAppVersion(token, force)
+            appVersion.value = {
+              version: res.version,
+              git_sha: res.git_sha,
+              git_branch: res.git_branch,
+              build_time: res.build_time,
+              app_name: res.app_name,
+              python: res.python,
+              update_check_enabled: res.update_check_enabled,
+            }
+            if (res.update_check.error && !res.update_check.latest_version) {
+              try {
+                await runBrowserFallbackCheck(res.version)
+              } catch (browserErr) {
+                const msg =
+                  res.update_check.error ||
+                  friendlyGithubError(browserErr)
+                setUpdateBanner(
+                  'error',
+                  t('settings.updateCheckFailed', { error: msg }),
+                )
+              }
+              return
+            }
+            showFromRemote(res.update_check)
+            return
+          } catch {
             try {
-              await runBrowserFallbackCheck(res.version)
+              await runBrowserFallbackCheck(current)
             } catch (browserErr) {
-              const msg =
-                res.update_check.error ||
-                friendlyGithubError(browserErr)
               setUpdateBanner(
                 'error',
-                t('settings.updateCheckFailed', { error: msg }),
+                t('settings.updateCheckFailed', {
+                  error: friendlyGithubError(browserErr),
+                }),
               )
             }
             return
           }
-          showFromRemote(res.update_check)
-          return
-        } catch {
-          try {
-            await runBrowserFallbackCheck(current)
-          } catch (browserErr) {
-            setUpdateBanner(
-              'error',
-              t('settings.updateCheckFailed', {
-                error: friendlyGithubError(browserErr),
-              }),
-            )
-          }
-          return
         }
+        setUpdateBanner('info', t('settings.updateCheckDisabled'))
+        try {
+          await runBrowserFallbackCheck(current)
+        } catch (browserErr) {
+          setUpdateBanner(
+            'error',
+            t('settings.updateCheckFailed', {
+              error: friendlyGithubError(browserErr),
+            }),
+          )
+        }
+      } finally {
+        checkLoading.value = false
       }
-      setUpdateBanner('info', t('settings.updateCheckDisabled'))
-      try {
-        await runBrowserFallbackCheck(current)
-      } catch (browserErr) {
-        setUpdateBanner(
-          'error',
-          t('settings.updateCheckFailed', {
-            error: friendlyGithubError(browserErr),
-          }),
-        )
-      }
-    } finally {
-      checkLoading.value = false
-    }
+    })
   }
 
   return {

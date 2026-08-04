@@ -23,7 +23,8 @@ from tg_signer.core.client import (
     _CLIENT_REFS,
     Client,
 )
-from tg_signer.core.runtime import UserMonitor, UserSigner
+from tg_signer.core.monitor import UserMonitor
+from tg_signer.core.runtime import UserSigner
 
 
 class TestExecuteAiAction:
@@ -106,7 +107,7 @@ class TestUserMonitorOnMessage:
         monitor.forward_to_external = fake_forward
         monitor.get_send_text = fake_get_send_text
         monitor.send_message = fake_send
-        monkeypatch.setattr("tg_signer.core.runtime.sc_send", fake_push)
+        monkeypatch.setattr("tg_signer.core.monitor.sc_send", fake_push)
 
         cfg1 = SimpleNamespace(
             match=lambda _m: True,

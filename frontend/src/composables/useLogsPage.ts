@@ -10,12 +10,13 @@ import {
   clearTaskHistoryLogs,
   clearLoginAuditLogs,
 } from '../lib/api'
+import { withToken } from '../lib/api/core'
+import { useLatestResponseGuard } from '../lib/latest-response'
 import { devLog } from '../lib/devLog'
 import type { TaskHistoryLog, LoginAuditLog, TaskHistoryLogDetail } from '../lib/api'
 import { useI18n } from './useI18n'
 import { useToast } from './useToast'
 import { useConfirm } from './useConfirm'
-import { useAuthStore } from '../stores/auth'
 import { useAccountsStore } from '../stores/accounts'
 import type { TaskLogUiItem, LoginLogUiItem } from '../lib/types'
 import { notifyApiError } from '../lib/notify'
@@ -26,7 +27,6 @@ export function useLogsPage() {
   const { locale, t } = useI18n()
   const toast = useToast()
   const { confirm } = useConfirm()
-  const authStore = useAuthStore()
   const accountsStore = useAccountsStore()
   const route = useRoute()
   const router = useRouter()
@@ -55,10 +55,10 @@ export function useLogsPage() {
   const detailLoading = ref(false)
   const loginLogs = ref<LoginLogUiItem[]>([])
 
-  // 请求序号：丢弃过期响应，避免慢请求覆盖新筛选/新选中日志
-  let taskLogsSeq = 0
-  let loginLogsSeq = 0
-  let detailSeq = 0
+  // 请求序号守卫：丢弃过期响应，避免慢请求覆盖新筛选/新选中日志
+  const taskLogsGuard = useLatestResponseGuard()
+  const loginLogsGuard = useLatestResponseGuard()
+  const detailGuard = useLatestResponseGuard()
 
   const accountOptions = computed(() => [
     { label: t('logs.allAccounts'), value: '' },
@@ -133,61 +133,61 @@ export function useLogsPage() {
   })
 
   const loadAccounts = async () => {
-    const token = authStore.token || ''
-    if (!token) return
-    try {
-      // 共享 store 缓存；失败仅记日志，不打断筛选器展示
-      const list = await accountsStore.ensureAccounts()
-      accountsList.value = list.map((a) => a.name)
-    } catch (e: unknown) {
-      devLog.error('Failed to load accounts for filter', e)
-    }
+    return withToken(async () => {
+      try {
+        // 共享 store 缓存；失败仅记日志，不打断筛选器展示
+        const list = await accountsStore.ensureAccounts()
+        accountsList.value = list.map((a) => a.name)
+      } catch (e: unknown) {
+        devLog.error('Failed to load accounts for filter', e)
+      }
+    })
   }
 
   const loadTaskLogs = async () => {
-    const token = authStore.token || ''
-    if (!token) return
-    const seq = ++taskLogsSeq
-    try {
-      const res = await getTaskHistoryLogs(token, {
-        limit: 100,
-        account_name: filterAccount.value || undefined,
-        date: filterDate.value || undefined,
-      })
-      if (seq !== taskLogsSeq) return // 过期响应：筛选已变化，丢弃
-      rawTaskLogs.value = Array.isArray(res) ? res : []
-    } catch (e: unknown) {
-      if (seq !== taskLogsSeq) return
-      devLog.error('Failed to fetch logs', e)
-      notifyApiError(e, 'logs.loadFailed')
-      rawTaskLogs.value = []
-    }
+    return withToken(async (token) => {
+      const seq = taskLogsGuard.next()
+      try {
+        const res = await getTaskHistoryLogs(token, {
+          limit: 100,
+          account_name: filterAccount.value || undefined,
+          date: filterDate.value || undefined,
+        })
+        if (!taskLogsGuard.isCurrent(seq)) return // 过期响应：筛选已变化，丢弃
+        rawTaskLogs.value = Array.isArray(res) ? res : []
+      } catch (e: unknown) {
+        if (!taskLogsGuard.isCurrent(seq)) return
+        devLog.error('Failed to fetch logs', e)
+        notifyApiError(e, 'logs.loadFailed')
+        rawTaskLogs.value = []
+      }
+    })
   }
 
   const loadLoginLogs = async () => {
-    const token = authStore.token || ''
-    if (!token) return
-    const seq = ++loginLogsSeq
-    try {
-      const res = await getLoginAuditLogs(token, {
-        limit: 100,
-        date: filterDate.value || undefined,
-      })
-      if (seq !== loginLogsSeq) return // 过期响应：筛选已变化，丢弃
-      loginLogs.value = res.map((l: LoginAuditLog) => ({
-        id: l.id,
-        time: formatTime(l.created_at),
-        username: l.username,
-        ip: l.ip_address || '-',
-        status: l.success ? 'success' : 'error',
-        text: translateLoginDetail(l.detail, l.success),
-      }))
-    } catch (e: unknown) {
-      if (seq !== loginLogsSeq) return
-      devLog.error('Failed to fetch login logs', e)
-      notifyApiError(e, 'logs.loadFailed')
-      loginLogs.value = []
-    }
+    return withToken(async (token) => {
+      const seq = loginLogsGuard.next()
+      try {
+        const res = await getLoginAuditLogs(token, {
+          limit: 100,
+          date: filterDate.value || undefined,
+        })
+        if (!loginLogsGuard.isCurrent(seq)) return // 过期响应：筛选已变化，丢弃
+        loginLogs.value = res.map((l: LoginAuditLog) => ({
+          id: l.id,
+          time: formatTime(l.created_at),
+          username: l.username,
+          ip: l.ip_address || '-',
+          status: l.success ? 'success' : 'error',
+          text: translateLoginDetail(l.detail, l.success),
+        }))
+      } catch (e: unknown) {
+        if (!loginLogsGuard.isCurrent(seq)) return
+        devLog.error('Failed to fetch login logs', e)
+        notifyApiError(e, 'logs.loadFailed')
+        loginLogs.value = []
+      }
+    })
   }
 
   const loadLogs = async () => {
@@ -206,25 +206,26 @@ export function useLogsPage() {
   const openLogDetail = async (log: TaskLogUiItem) => {
     selectedLog.value = log
     logDetail.value = null
-    const token = authStore.token || ''
-    if (!token || !log.account || !log.task || !log.created_at) return
-    const seq = ++detailSeq
-    detailLoading.value = true
-    try {
-      const detail = await getTaskHistoryLogDetail(token, {
-        account_name: log.account,
-        task_name: log.task,
-        created_at: log.created_at,
-      })
-      if (seq !== detailSeq) return // 过期响应：已选中其他日志，丢弃
-      logDetail.value = detail
-    } catch (e: unknown) {
-      if (seq !== detailSeq) return
-      devLog.error('Failed to fetch log detail', e)
-      notifyApiError(e, 'logs.detailLoadFailed')
-    } finally {
-      if (seq === detailSeq) detailLoading.value = false
-    }
+    if (!log.account || !log.task || !log.created_at) return
+    return withToken(async (token) => {
+      const seq = detailGuard.next()
+      detailLoading.value = true
+      try {
+        const detail = await getTaskHistoryLogDetail(token, {
+          account_name: log.account,
+          task_name: log.task,
+          created_at: log.created_at,
+        })
+        if (!detailGuard.isCurrent(seq)) return // 过期响应：已选中其他日志，丢弃
+        logDetail.value = detail
+      } catch (e: unknown) {
+        if (!detailGuard.isCurrent(seq)) return
+        devLog.error('Failed to fetch log detail', e)
+        notifyApiError(e, 'logs.detailLoadFailed')
+      } finally {
+        if (detailGuard.isCurrent(seq)) detailLoading.value = false
+      }
+    })
   }
 
   const handleClear = async () => {
@@ -238,25 +239,24 @@ export function useLogsPage() {
     })
     if (!ok) return
 
-    const token = authStore.token || ''
-    if (!token) return
-
-    clearing.value = true
-    try {
-      if (isTasks) {
-        const res = await clearTaskHistoryLogs(token)
-        toast.success(t('logs.clearSuccess', { count: String(res.cleared ?? 0) }))
-        rawTaskLogs.value = []
-      } else {
-        const res = await clearLoginAuditLogs(token)
-        toast.success(t('logs.clearSuccess', { count: String(res.cleared ?? 0) }))
-        loginLogs.value = []
+    return withToken(async (token) => {
+      clearing.value = true
+      try {
+        if (isTasks) {
+          const res = await clearTaskHistoryLogs(token)
+          toast.success(t('logs.clearSuccess', { count: String(res.cleared ?? 0) }))
+          rawTaskLogs.value = []
+        } else {
+          const res = await clearLoginAuditLogs(token)
+          toast.success(t('logs.clearSuccess', { count: String(res.cleared ?? 0) }))
+          loginLogs.value = []
+        }
+      } catch (e: unknown) {
+        notifyApiError(e, 'logs.clearFailed')
+      } finally {
+        clearing.value = false
       }
-    } catch (e: unknown) {
-      notifyApiError(e, 'logs.clearFailed')
-    } finally {
-      clearing.value = false
-    }
+    })
   }
 
   watch(activeTab, () => {

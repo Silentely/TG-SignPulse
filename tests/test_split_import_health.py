@@ -49,11 +49,11 @@ def test_core_package_reexports_runtime_identity():
     runtime = importlib.import_module("tg_signer.core.runtime")
     client = importlib.import_module("tg_signer.core.client")
     core = importlib.import_module("tg_signer.core")
+    monitor = importlib.import_module("tg_signer.core.monitor")
 
     assert core.BaseUserWorker is runtime.BaseUserWorker
-    assert core.Waiter is runtime.Waiter
     assert core.UserSigner is runtime.UserSigner
-    assert core.UserMonitor is runtime.UserMonitor
+    assert core.UserMonitor is monitor.UserMonitor
     assert core.Client is client.Client
 
 

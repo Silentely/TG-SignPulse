@@ -5,9 +5,10 @@ import Modal from '../Modal.vue'
 import TaskLogsHitsPanel from './TaskLogsHitsPanel.vue'
 import TaskLogsHistoryPanel from './TaskLogsHistoryPanel.vue'
 import { getSignTaskHistory } from '../../lib/api'
+import { getAuthToken } from '../../lib/api/core'
+import { useLatestResponseGuard } from '../../lib/latest-response'
 import type { SignTaskHistoryItem, KeywordHitRecord } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
-import { useAuthStore } from '../../stores/auth'
 import { useTaskHits } from '../../composables/useTaskHits'
 import { useTaskRunStream } from '../../composables/useTaskRunStream'
 import type { TaskUiItem } from '../../lib/types'
@@ -19,7 +20,6 @@ import { failureCategoryLabel } from '../../lib/run-status'
 import { resolveTaskAccountName } from '../../lib/task-list-map'
 
 const { t } = useI18n()
-const authStore = useAuthStore()
 
 const props = defineProps<{
   isOpen: boolean
@@ -59,26 +59,26 @@ const lineTone = (text: string): string => {
 
 const isListenTask = computed(() => props.task?.isListenMode || props.task?.raw?.execution_mode === 'listen')
 
-// 请求序号：弹窗关闭/切换任务时丢弃过期响应
-let logsSeq = 0
+// 请求序号守卫：弹窗关闭/切换任务时丢弃过期响应
+const logsGuard = useLatestResponseGuard()
 
 const loadLogs = async () => {
   if (!props.task) return
-  const seq = ++logsSeq
+  const seq = logsGuard.next()
   loading.value = true
-  const token = authStore.token || ''
+  const token = getAuthToken()
   try {
     const accountName = props.runAccount || getTaskAccountName(props.task) || undefined
     const res = await getSignTaskHistory(token, props.task.name, accountName)
-    if (seq !== logsSeq) return // 过期响应：已切换任务/关闭，丢弃
+    if (!logsGuard.isCurrent(seq)) return // 过期响应：已切换任务/关闭，丢弃
     logs.value = Array.isArray(res) ? res : []
   } catch (e: unknown) {
-    if (seq !== logsSeq) return
+    if (!logsGuard.isCurrent(seq)) return
     devLog.error('Failed to fetch logs', e)
     notifyApiError(e, 'logs.loadFailed')
     logs.value = []
   } finally {
-    if (seq === logsSeq) loading.value = false
+    if (logsGuard.isCurrent(seq)) loading.value = false
   }
 }
 
@@ -162,7 +162,7 @@ watch(() => props.isOpen, (newVal) => {
     }
   } else {
     // 使在途日志/命中响应失效
-    logsSeq++
+    logsGuard.invalidate()
     logs.value = []
     clearRealtimeLogs()
     expandedIdx.value = null

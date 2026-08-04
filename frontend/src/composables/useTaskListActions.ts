@@ -9,6 +9,7 @@ import {
   batchSignTasks,
   cloneSignTask,
 } from '../lib/api'
+import { getAuthToken } from '../lib/api/core'
 import type { SignTask } from '../lib/api'
 import type { TaskUiItem } from '../lib/types'
 import { getLocalizedErrorMessage } from '../lib/types'
@@ -20,7 +21,6 @@ import {
 import { useI18n } from './useI18n'
 import { useToast } from './useToast'
 import { useConfirm } from './useConfirm'
-import { useAuthStore } from '../stores/auth'
 
 export function useTaskListActions(options: {
   tasks: Ref<TaskUiItem[]>
@@ -33,7 +33,6 @@ export function useTaskListActions(options: {
   const { t } = useI18n()
   const toast = useToast()
   const { confirm } = useConfirm()
-  const authStore = useAuthStore()
 
   const batchBusy = ref(false)
   const cloneBusy = ref(false)
@@ -63,7 +62,7 @@ export function useTaskListActions(options: {
       })
       if (!ok) return
     }
-    const token = authStore.token || ''
+    const token = getAuthToken()
     const items = options.tasks.value
       .filter((task) => options.selectedTaskIds.value.has(task.id))
       .map((task) => ({
@@ -118,7 +117,7 @@ export function useTaskListActions(options: {
       toast.error(t('tasks.cloneNameInvalid'))
       return
     }
-    const token = authStore.token || ''
+    const token = getAuthToken()
     cloneBusy.value = true
     try {
       await cloneSignTask(
@@ -145,7 +144,7 @@ export function useTaskListActions(options: {
       danger: true,
     })
     if (!ok) return
-    const token = authStore.token || ''
+    const token = getAuthToken()
     try {
       const accountName = getTaskAccountName(task.raw) || undefined
       await deleteSignTask(token, task.name, accountName)
@@ -159,7 +158,7 @@ export function useTaskListActions(options: {
   }
 
   const handleToggleEnabled = async (task: TaskUiItem) => {
-    const token = authStore.token || ''
+    const token = getAuthToken()
     try {
       const accountName = getTaskAccountName(task.raw) || undefined
       await toggleSignTaskEnabled(token, task.name, accountName)
@@ -174,7 +173,7 @@ export function useTaskListActions(options: {
 
   const doRun = async (task: TaskUiItem, accountName: string) => {
     runMenuTask.value = null
-    const token = authStore.token || ''
+    const token = getAuthToken()
     try {
       await startSignTaskRun(token, task.name, accountName)
       options.openLogsAfterRun(task, accountName)

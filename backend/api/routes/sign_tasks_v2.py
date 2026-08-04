@@ -34,9 +34,6 @@ from backend.services.sign_tasks import get_sign_task_service
 
 router = APIRouter()
 
-# 头像本地缓存有效期：7 天（秒）
-_AVATAR_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
-
 _sync_logger = logging.getLogger("backend.sign_tasks_api")
 
 
@@ -63,6 +60,11 @@ async def _restart_keyword_monitors() -> None:
         await get_keyword_monitor_service().restart_from_tasks()
     except Exception as exc:
         _sync_logger.warning("重启关键词监控失败: %s", exc)
+
+
+def _resolve_effective_account(account_name: Optional[str]) -> Optional[str]:
+    """空字符串/通配符归一化为 None（聚合模式），供任务查询/日志/历史等路由使用。"""
+    return account_name if (account_name and account_name != "*") else None
 
 
 class ChatConfig(BaseModel):
@@ -341,7 +343,7 @@ def update_sign_task(
 ):
     try:
         # Normalize: treat empty string and wildcard as None for lookup
-        effective_account = account_name if (account_name and account_name != "*") else None
+        effective_account = _resolve_effective_account(account_name)
         existing = get_sign_task_service().get_task(
             task_name,
             account_name=effective_account,
@@ -430,7 +432,7 @@ def toggle_sign_task_enabled(
 ):
     """切换任务的启用/暂停状态"""
     try:
-        effective_account = account_name if (account_name and account_name != "*") else None
+        effective_account = _resolve_effective_account(account_name)
         existing = get_sign_task_service().get_task(
             task_name,
             account_name=effective_account,
@@ -628,7 +630,7 @@ def get_sign_task_logs(
     account_name: str | None = None,
     current_user=Depends(get_current_user),
 ):
-    effective_account = account_name if (account_name and account_name != "*") else None
+    effective_account = _resolve_effective_account(account_name)
     return get_sign_task_service().get_active_logs(task_name, account_name=effective_account)
 
 
@@ -641,7 +643,7 @@ def get_sign_task_history(
 ):
     try:
         # Treat empty string and wildcard as None (aggregate mode)
-        effective_account = account_name if (account_name and account_name != "*") else None
+        effective_account = _resolve_effective_account(account_name)
         task = get_sign_task_service().get_task(
             task_name,
             account_name=effective_account,
@@ -723,11 +725,13 @@ async def get_chat_avatar(
     If the requested account can't find the chat, fall back to trying
     other available accounts.
     """
+    import shutil
     import time
 
-    from fastapi.responses import FileResponse, Response
+    from fastapi.responses import Response
 
     from backend.core.config import get_settings
+    from backend.services import avatar_cache
 
     settings = get_settings()
     avatar_cache_dir = settings.resolve_workdir() / "avatars" / "chats"
@@ -741,32 +745,27 @@ async def get_chat_avatar(
     legacy_cache_file = avatar_cache_dir / f"{account_name}_{chat_id}.jpg"
 
     # If no-avatar marker is recent (7 days), return 404
-    if no_avatar_marker.exists():
-        age = time.time() - no_avatar_marker.stat().st_mtime
-        if age < _AVATAR_CACHE_TTL_SECONDS:
-            raise HTTPException(status_code=404, detail="No avatar available")
-        else:
-            no_avatar_marker.unlink(missing_ok=True)
+    if avatar_cache.marker_hits_no_avatar(no_avatar_marker):
+        raise HTTPException(status_code=404, detail="No avatar available")
 
     # If chat-level cache exists and is fresh, use it
-    if cache_file.exists():
-        age = time.time() - cache_file.stat().st_mtime
-        if age < _AVATAR_CACHE_TTL_SECONDS:
-            return FileResponse(cache_file, media_type="image/jpeg")
+    cached = avatar_cache.read_cached_avatar(cache_file)
+    if cached is not None:
+        return Response(content=cached, media_type="image/jpeg")
 
     # If legacy account-specific cache exists, migrate it to chat-level
     if legacy_cache_file.exists():
         age = time.time() - legacy_cache_file.stat().st_mtime
-        if age < _AVATAR_CACHE_TTL_SECONDS:
+        if age < avatar_cache.AVATAR_CACHE_TTL_SECONDS:
             try:
-                import shutil
-
                 shutil.copy2(legacy_cache_file, cache_file)
             except Exception:
                 # 拷贝失败（源被并发删除/无权限）时继续走下载分支，避免 500
                 cache_file.unlink(missing_ok=True)
             else:
-                return FileResponse(cache_file, media_type="image/jpeg")
+                migrated = avatar_cache.read_avatar_file(cache_file)
+                if migrated is not None:
+                    return Response(content=migrated, media_type="image/jpeg")
 
     # Try to download avatar - first with the requested account, then fall back
     from backend.services.telegram import get_telegram_service
@@ -787,12 +786,14 @@ async def get_chat_avatar(
     saw_no_avatar = False
     for try_account in accounts_to_try:
         try:
-            avatar_bytes = await telegram_service.download_chat_avatar(
-                try_account, chat_id
+            avatar_bytes = await avatar_cache.get_avatar_bytes(
+                cache_file,
+                no_avatar_marker,
+                lambda a=try_account: telegram_service.download_chat_avatar(
+                    a, chat_id
+                ),
             )
             if avatar_bytes:
-                cache_file.write_bytes(avatar_bytes)
-                no_avatar_marker.unlink(missing_ok=True)
                 return Response(content=avatar_bytes, media_type="image/jpeg")
             saw_no_avatar = True
         except Exception:
@@ -802,7 +803,7 @@ async def get_chat_avatar(
     # 全部账号都异常时不写标记，避免瞬时故障污染 7 天缓存
     if saw_no_avatar:
         try:
-            no_avatar_marker.write_text("")
+            avatar_cache.mark_no_avatar(no_avatar_marker)
         except Exception:
             pass
 
@@ -829,7 +830,7 @@ async def sign_task_logs_ws(
     await websocket.accept()
 
     # Resolve empty/wildcard account_name to None for broader matching
-    effective_account = account_name if (account_name and account_name != "*") else None
+    effective_account = _resolve_effective_account(account_name)
 
     last_idx = 0
     connected_at = asyncio.get_running_loop().time()

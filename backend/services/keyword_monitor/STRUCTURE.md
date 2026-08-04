@@ -6,7 +6,8 @@
 |------|------|
 | `rules.py` | 规则模型、关键词/深链纯函数 |
 | `sharding.py` | 多实例账号分片（ALLOWLIST / SHARD） |
-| `runtime.py` | `KeywordMonitorService` 生命周期与 handler |
+| `runtime.py` | `KeywordMonitorService` 生命周期、消息分派与 handler |
+| `continue_actions.py` | 继续动作执行族（Bot 命令 / 点击 / AI / 发送，模块级函数） |
 | `hits.py` | 命中记录 JSONL 落盘、分组与 CSV 导出 |
 | `__init__.py` | 对外导出（含私有工具函数兼容测试） |
 

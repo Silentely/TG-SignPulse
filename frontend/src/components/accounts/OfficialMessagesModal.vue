@@ -3,8 +3,8 @@ import { computed, ref, watch } from 'vue'
 import { RefreshCw, ShieldCheck } from 'lucide-vue-next'
 import Modal from '../Modal.vue'
 import { listAccountOfficialMessages, type OfficialMessageInfo } from '../../lib/api'
+import { getAuthToken } from '../../lib/api/core'
 import { useI18n } from '../../composables/useI18n'
-import { useAuthStore } from '../../stores/auth'
 import { formatDateTime } from '../../lib/datetime'
 
 const props = defineProps<{
@@ -17,7 +17,6 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
-const authStore = useAuthStore()
 const loading = ref(false)
 const error = ref('')
 const messages = ref<OfficialMessageInfo[]>([])
@@ -27,7 +26,7 @@ const title = computed(() => `${t('accounts.officialMessages')} · ${props.accou
 const formatTime = (value?: string | null) => formatDateTime(value)
 
 const loadMessages = async () => {
-  const token = authStore.token || ''
+  const token = getAuthToken()
   if (!token || !props.accountName) return
 
   loading.value = true

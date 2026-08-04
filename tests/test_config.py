@@ -41,9 +41,8 @@ from tg_signer.config import (
     SignConfigV2,
     SignConfigV3,
     SupportAction,
-    get_display_width,
-    pad_text_to_width,
 )
+from tg_signer.utils import get_display_width, pad_text_to_width
 
 # ============================================================================
 # 工具函数测试

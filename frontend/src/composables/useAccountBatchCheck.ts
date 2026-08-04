@@ -9,12 +9,12 @@ import {
   listAccountStatusCheckJobs,
   cancelAccountStatusCheckJob,
 } from '../lib/api'
+import { withToken, getAuthToken } from '../lib/api/core'
 import type { AccountStatusJob, AccountStatusItem } from '../lib/api'
 import type { AccountUiItem } from '../lib/types'
 import { notifyApiError } from '../lib/notify'
 import { useI18n } from './useI18n'
 import { useToast } from './useToast'
-import { useAuthStore } from '../stores/auth'
 import { startChainPoll, type ChainPollHandle } from '../lib/chain-poll'
 
 export function useAccountBatchCheck(options: {
@@ -25,7 +25,6 @@ export function useAccountBatchCheck(options: {
 }) {
   const { t } = useI18n()
   const toast = useToast()
-  const authStore = useAuthStore()
 
   const checkingAccount = ref('')
   const batchChecking = ref(false)
@@ -131,33 +130,33 @@ export function useAccountBatchCheck(options: {
   }
 
   const pollBatchJob = async (jobId: string) => {
-    const token = authStore.token || ''
-    if (!token) return
-    try {
-      const job = await getAccountStatusCheckJob(token, jobId)
-      batchJob.value = job
-      if (job.status === 'running' || job.status === 'canceling') {
-        const done = Number(job.progress?.done || 0)
-        if (done > lastLiveRefreshDone) {
-          lastLiveRefreshDone = done
-          applyLiveResults(job.results)
+    return withToken(async (token) => {
+      try {
+        const job = await getAccountStatusCheckJob(token, jobId)
+        batchJob.value = job
+        if (job.status === 'running' || job.status === 'canceling') {
+          const done = Number(job.progress?.done || 0)
+          if (done > lastLiveRefreshDone) {
+            lastLiveRefreshDone = done
+            applyLiveResults(job.results)
+          }
+          return
         }
-        return
+        clearBatchPoll()
+        batchChecking.value = false
+        await applyBatchJobResult(job)
+        batchJob.value = null
+        batchResultMap.value = {}
+        lastLiveRefreshDone = 0
+      } catch (e: unknown) {
+        clearBatchPoll()
+        batchChecking.value = false
+        batchJob.value = null
+        batchResultMap.value = {}
+        lastLiveRefreshDone = 0
+        notifyApiError(e, 'accounts.checkFailed')
       }
-      clearBatchPoll()
-      batchChecking.value = false
-      await applyBatchJobResult(job)
-      batchJob.value = null
-      batchResultMap.value = {}
-      lastLiveRefreshDone = 0
-    } catch (e: unknown) {
-      clearBatchPoll()
-      batchChecking.value = false
-      batchJob.value = null
-      batchResultMap.value = {}
-      lastLiveRefreshDone = 0
-      notifyApiError(e, 'accounts.checkFailed')
-    }
+    })
   }
 
   const startPollingJob = (jobId: string) => {
@@ -169,27 +168,28 @@ export function useAccountBatchCheck(options: {
   }
 
   const resumeActiveBatchJob = async () => {
-    const token = authStore.token || ''
-    if (!token || batchChecking.value) return
-    try {
-      const res = await listAccountStatusCheckJobs(token, 5)
-      const active = (res.jobs || []).find(
-        (j) => j.status === 'running' || j.status === 'canceling',
-      )
-      if (!active?.job_id) return
-      batchChecking.value = true
-      batchJob.value = active
-      lastLiveRefreshDone = Number(active.progress?.done || 0)
-      applyLiveResults(active.results)
-      startPollingJob(active.job_id)
-      await pollBatchJob(active.job_id)
-    } catch {
-      // 恢复失败不打扰用户
-    }
+    if (batchChecking.value) return
+    return withToken(async (token) => {
+      try {
+        const res = await listAccountStatusCheckJobs(token, 5)
+        const active = (res.jobs || []).find(
+          (j) => j.status === 'running' || j.status === 'canceling',
+        )
+        if (!active?.job_id) return
+        batchChecking.value = true
+        batchJob.value = active
+        lastLiveRefreshDone = Number(active.progress?.done || 0)
+        applyLiveResults(active.results)
+        startPollingJob(active.job_id)
+        await pollBatchJob(active.job_id)
+      } catch {
+        // 恢复失败不打扰用户
+      }
+    })
   }
 
   const handleCheck = async (name: string) => {
-    const token = authStore.token || ''
+    const token = getAuthToken()
     checkingAccount.value = name
     try {
       const res = await checkAccountsStatus(token, { account_names: [name] })
@@ -209,14 +209,26 @@ export function useAccountBatchCheck(options: {
     }
   }
 
-  const handleBatchCheck = async () => {
-    const token = authStore.token || ''
-    const source = options.searchQuery.value.trim()
-      ? options.filteredAccounts.value
-      : options.accounts.value
-    const names = source.map((acc) => acc.name).filter(Boolean)
+  /**
+   * 批量状态检测统一实现：2+ 账号走异步 Job 轮询，单个账号走同步接口。
+   * 批量检测与失败重检共用，仅提示文案与展示粒度不同。
+   */
+  const runStatusCheck = async (
+    names: string[],
+    opts: {
+      /** 空目标/未登录时的提示 key */
+      emptyTargetKey: string
+      /** 任务启动成功提示 key（含插值） */
+      startedKey: string
+      /** 是否带 scoped 提示（批量检测带，失败重检不带） */
+      scopedHint?: string
+      /** 同步结果失败 toast 是否带失败账号预览 */
+      withFailedPreview?: boolean
+    },
+  ) => {
+    const token = getAuthToken()
     if (!token || names.length === 0) {
-      toast.error(t('accounts.batchCheckNoTarget'))
+      toast.error(t(opts.emptyTargetKey))
       return
     }
     if (batchChecking.value) return
@@ -227,30 +239,18 @@ export function useAccountBatchCheck(options: {
     lastLiveRefreshDone = 0
     clearBatchPoll()
     try {
-      const scopedHint =
-        options.searchQuery.value.trim() && names.length < options.accounts.value.length
-          ? t('accounts.batchCheckScoped', {
-              n: names.length,
-              total: options.accounts.value.length,
-            })
-          : undefined
-
       if (names.length >= 2) {
         const job = await startAccountStatusCheckJob(token, {
           account_names: names,
           timeout_seconds: 8,
         })
         batchJob.value = job
-        toast.success(t('accounts.batchCheckStarted'), {
-          description: [
-            scopedHint,
-            t('accounts.batchCheckProgress', {
-              done: job.progress?.done ?? 0,
-              total: job.progress?.total ?? names.length,
-            }),
-          ]
-            .filter(Boolean)
-            .join('\n'),
+        const progressDesc = t('accounts.batchCheckProgress', {
+          done: job.progress?.done ?? 0,
+          total: job.progress?.total ?? names.length,
+        })
+        toast.success(t(opts.startedKey), {
+          description: [opts.scopedHint, progressDesc].filter(Boolean).join('\n'),
         })
         startPollingJob(job.job_id)
         await pollBatchJob(job.job_id)
@@ -266,22 +266,21 @@ export function useAccountBatchCheck(options: {
       const failed = res.results.length - ok
       if (failed === 0) {
         toast.success(t('accounts.batchCheckDone'), {
-          description: [
-            scopedHint,
-            `${t('accounts.checkOkCount')}: ${ok}`,
-          ]
+          description: [opts.scopedHint, `${t('accounts.checkOkCount')}: ${ok}`]
             .filter(Boolean)
             .join('\n'),
         })
       } else {
-        const failedPreview = res.results
-          .filter((item) => !item.ok)
-          .slice(0, 5)
-          .map((item) => `${item.account_name}: ${item.message || item.code || t('accounts.loginExpired')}`)
-          .join('\n')
+        const failedPreview = opts.withFailedPreview
+          ? res.results
+              .filter((item) => !item.ok)
+              .slice(0, 5)
+              .map((item) => `${item.account_name}: ${item.message || item.code || t('accounts.loginExpired')}`)
+              .join('\n')
+          : undefined
         toast.error(t('accounts.batchCheckDone'), {
           description: [
-            scopedHint,
+            opts.scopedHint,
             `${t('accounts.checkOkCount')}: ${ok} · ${t('accounts.checkFailedCount')}: ${failed}`,
             failedPreview,
           ]
@@ -299,75 +298,46 @@ export function useAccountBatchCheck(options: {
     }
   }
 
+  const handleBatchCheck = async () => {
+    const source = options.searchQuery.value.trim()
+      ? options.filteredAccounts.value
+      : options.accounts.value
+    const names = source.map((acc) => acc.name).filter(Boolean)
+    const scopedHint =
+      options.searchQuery.value.trim() && names.length < options.accounts.value.length
+        ? t('accounts.batchCheckScoped', {
+            n: names.length,
+            total: options.accounts.value.length,
+          })
+        : undefined
+    await runStatusCheck(names, {
+      emptyTargetKey: 'accounts.batchCheckNoTarget',
+      startedKey: 'accounts.batchCheckStarted',
+      scopedHint,
+      withFailedPreview: true,
+    })
+  }
+
   const handleCancelBatchCheck = async () => {
-    const token = authStore.token || ''
     const jobId = batchJob.value?.job_id
-    if (!token || !jobId) return
-    try {
-      await cancelAccountStatusCheckJob(token, jobId)
-      toast.success(t('accounts.batchCheckCancelRequested'))
-      await pollBatchJob(jobId)
-    } catch (e: unknown) {
-      notifyApiError(e, 'accounts.checkFailed')
-    }
+    if (!jobId) return
+    return withToken(async (token) => {
+      try {
+        await cancelAccountStatusCheckJob(token, jobId)
+        toast.success(t('accounts.batchCheckCancelRequested'))
+        await pollBatchJob(jobId)
+      } catch (e: unknown) {
+        notifyApiError(e, 'accounts.checkFailed')
+      }
+    })
   }
 
   const handleRecheckFailed = async () => {
-    const token = authStore.token || ''
     const names = [...lastBatchFailedNames.value]
-    if (!token || names.length === 0) {
-      toast.error(t('accounts.batchCheckNoFailed'))
-      return
-    }
-    if (batchChecking.value) return
-
-    batchChecking.value = true
-    batchJob.value = null
-    batchResultMap.value = {}
-    lastLiveRefreshDone = 0
-    clearBatchPoll()
-    try {
-      if (names.length >= 2) {
-        const job = await startAccountStatusCheckJob(token, {
-          account_names: names,
-          timeout_seconds: 8,
-        })
-        batchJob.value = job
-        toast.success(t('accounts.batchRecheckStarted'), {
-          description: t('accounts.batchCheckProgress', {
-            done: 0,
-            total: names.length,
-          }),
-        })
-        startPollingJob(job.job_id)
-        await pollBatchJob(job.job_id)
-        return
-      }
-      const res = await checkAccountsStatus(token, {
-        account_names: names,
-        timeout_seconds: 8,
-      })
-      lastBatchFailedNames.value = res.results
-        .filter((item) => !item.ok && item.account_name)
-        .map((item) => item.account_name)
-      await options.loadAccounts()
-      const ok = res.results.filter((item) => item.ok).length
-      const failed = res.results.length - ok
-      if (failed === 0) {
-        toast.success(t('accounts.batchCheckDone'), {
-          description: `${t('accounts.checkOkCount')}: ${ok}`,
-        })
-      } else {
-        toast.error(t('accounts.batchCheckDone'), {
-          description: `${t('accounts.checkOkCount')}: ${ok} · ${t('accounts.checkFailedCount')}: ${failed}`,
-          duration: 8000,
-        })
-      }
-    } catch (e: unknown) {
-      notifyApiError(e, 'accounts.checkFailed')
-    } finally {
-      if (!batchPollHandle?.active) batchChecking.value = false
-    }
+    await runStatusCheck(names, {
+      emptyTargetKey: 'accounts.batchCheckNoFailed',
+      startedKey: 'accounts.batchRecheckStarted',
+    })
   }
 
   return {

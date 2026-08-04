@@ -3,16 +3,15 @@ import { ref, watch, useTemplateRef, computed } from 'vue'
 import Modal from '../Modal.vue'
 import TaskForm from './TaskForm.vue'
 import { createSignTask } from '../../lib/api'
+import { getAuthToken } from '../../lib/api/core'
 import type { CreateSignTaskRequest, SignTask } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
-import { useAuthStore } from '../../stores/auth'
 import { getLocalizedErrorMessage } from '../../lib/types'
 import { buildSignTaskFromTemplate, getTemplateById } from '../../lib/task-templates'
 
 const { t } = useI18n()
 const toast = useToast()
-const authStore = useAuthStore()
 
 const props = defineProps<{
   isOpen: boolean
@@ -23,7 +22,6 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ (e: 'close'): void, (e: 'success'): void }>()
 
-const payload = ref<Partial<CreateSignTaskRequest>>({})
 const taskFormRef = useTemplateRef<InstanceType<typeof TaskForm>>('taskForm')
 const notifyOnFailure = ref(true)
 const notifyOnSuccess = ref(true)
@@ -43,7 +41,6 @@ const modalTitle = computed(() => {
 watch(() => props.isOpen, (val) => {
   if (val) {
     error.value = ''
-    payload.value = {}
     notifyOnFailure.value = true
     notifyOnSuccess.value = true
     if (props.templateId && getTemplateById(props.templateId)) {
@@ -91,17 +88,16 @@ const buildSplitTaskName = (baseName: string, chatId: number, used: Set<string>)
 }
 
 const handleSave = async () => {
-  const token = authStore.token
+  const token = getAuthToken()
   if (!token) return
 
   // 字段级校验（任务名非法字符等）
   if (taskFormRef.value?.validateForSubmit && !taskFormRef.value.validateForSubmit()) {
     return
   }
-  // 保存前同步刷新 payload，避免防抖延迟导致提交旧值
-  taskFormRef.value?.flushPayload?.()
+  // 命令式取最新 payload（TaskForm 已去除 update:payload 双通道，保存路径直接读取）
   const built = taskFormRef.value?.buildPayload?.() as CreateSignTaskRequest | undefined
-  const body = (built || payload.value) as CreateSignTaskRequest
+  const body = (built || {}) as CreateSignTaskRequest
   // defineExpose 的 ref 在父组件侧通常已被解包为原始值
   const exposedMode = taskFormRef.value?.createMode as unknown
   const createMode =
@@ -217,7 +213,6 @@ const handleSave = async () => {
         ref="taskForm"
         :initial-task="templateSeed"
         :prefer-account="preferAccount"
-        @update:payload="payload = $event"
       />
       <div class="flex flex-wrap gap-4 pt-1">
         <label class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 cursor-pointer">

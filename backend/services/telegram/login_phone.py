@@ -7,6 +7,7 @@ import time
 from typing import Any, Dict, Optional
 
 from backend.core.config import get_settings
+from backend.services.telegram.accounts import mark_account_connected
 from backend.services.telegram.sessions import (
     _cleanup_expired_login_sessions,
     _login_sessions,
@@ -18,7 +19,6 @@ from backend.utils.tg_session import (
     get_session_mode,
     save_session_string_file,
     set_account_session_string,
-    set_account_status,
 )
 
 settings = get_settings()
@@ -295,13 +295,7 @@ class TelegramPhoneLoginMixin:
                 raise ValueError("导出 session_string 失败")
             set_account_session_string(account_name, session_string)
             save_session_string_file(self.session_dir, account_name, session_string)
-            set_account_status(
-                account_name,
-                status="connected",
-                message="",
-                code="OK",
-                needs_relogin=False,
-            )
+            mark_account_connected(account_name)
             self._accounts_cache = None
 
         def _persist_proxy_setting() -> None:
@@ -336,13 +330,7 @@ class TelegramPhoneLoginMixin:
                     me = await client.get_me()
                     await _persist_session_string()
                     _persist_proxy_setting()
-                    set_account_status(
-                        account_name,
-                        status="connected",
-                        message="",
-                        code="OK",
-                        needs_relogin=False,
-                    )
+                    mark_account_connected(account_name)
 
                     # 断开连接并清理
                     await client.disconnect()
@@ -368,13 +356,7 @@ class TelegramPhoneLoginMixin:
                         me = await client.get_me()
                         await _persist_session_string()
                         _persist_proxy_setting()
-                        set_account_status(
-                            account_name,
-                            status="connected",
-                            message="",
-                            code="OK",
-                            needs_relogin=False,
-                        )
+                        mark_account_connected(account_name)
 
                         # 断开连接并清理
                         await client.disconnect()
@@ -449,13 +431,7 @@ class TelegramPhoneLoginMixin:
                 raise ValueError("导出 session_string 失败")
             set_account_session_string(account_name, session_string)
             save_session_string_file(self.session_dir, account_name, session_string)
-            set_account_status(
-                account_name,
-                status="connected",
-                message="",
-                code="OK",
-                needs_relogin=False,
-            )
+            mark_account_connected(account_name)
         else:
             # 即使在 file 模式，也尝试保存 session_string 作为降级方案
             try:
@@ -466,13 +442,7 @@ class TelegramPhoneLoginMixin:
                 try:
                     set_account_session_string(account_name, session_string)
                     save_session_string_file(self.session_dir, account_name, session_string)
-                    set_account_status(
-                        account_name,
-                        status="connected",
-                        message="",
-                        code="OK",
-                        needs_relogin=False,
-                    )
+                    mark_account_connected(account_name)
                 except Exception:
                     pass
         if not proxy:
@@ -484,13 +454,7 @@ class TelegramPhoneLoginMixin:
             from backend.utils.tg_session import set_account_profile
 
             set_account_profile(account_name, proxy=proxy)
-        set_account_status(
-            account_name,
-            status="connected",
-            message="",
-            code="OK",
-            needs_relogin=False,
-        )
+        mark_account_connected(account_name)
         self._accounts_cache = None
 
 

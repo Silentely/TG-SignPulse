@@ -12,11 +12,11 @@ import logging
 import threading
 import uuid
 from collections import defaultdict
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, TypedDict, Union
 
 from backend.core.config import get_settings
+from backend.utils.time import utc_now_iso_z_seconds
 
 logger = logging.getLogger("backend.keyword_monitor.hits")
 
@@ -74,15 +74,6 @@ class HitGroupResponse(TypedDict):
 
     group_by: str
     groups: List[HitGroup]
-
-
-def _utc_now_iso() -> str:
-    return (
-        datetime.now(timezone.utc)
-        .replace(microsecond=0)
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
 
 
 def _hits_path() -> Path:
@@ -241,7 +232,7 @@ def record_keyword_hit(
     _ensure_loaded()
     record: HitRecord = {
         "id": uuid.uuid4().hex,
-        "time": _utc_now_iso(),
+        "time": utc_now_iso_z_seconds(),
         "account_name": _clip(account_name, 120),
         "task_name": _clip(task_name, 120),
         "chat_id": chat_id,

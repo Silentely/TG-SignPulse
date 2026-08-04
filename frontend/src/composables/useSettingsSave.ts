@@ -11,15 +11,13 @@ import {
   runDeviceKeepalive,
   testBotNotification,
 } from '../lib/api'
+import { withToken, getAuthToken } from '../lib/api/core'
 import type { AiFormState, SettingsSection, TgFormState } from '../lib/settings-form'
 import { resolveApiErrorMessage } from '../lib/notify'
 import { devLog } from '../lib/devLog'
 import { useI18n } from './useI18n'
 import { useToast } from './useToast'
 import { useConfirm } from './useConfirm'
-import { useAuthStore } from '../stores/auth'
-
-type Notify = (msg: string) => void
 
 export function useSettingsSave(options: {
   tgConfig: Ref<TgFormState>
@@ -34,15 +32,12 @@ export function useSettingsSave(options: {
   afterBotTokenSaved: () => void
   afterWebdavSettingsSaved: () => void
   loadBackupStatus: (token: string) => Promise<void>
-  notifySuccess?: Notify
-  notifyError?: Notify
 }) {
   const { t } = useI18n()
   const toast = useToast()
   const { confirm } = useConfirm()
-  const authStore = useAuthStore()
-  const notifySuccess = options.notifySuccess || ((msg: string) => toast.success(msg))
-  const notifyError = options.notifyError || ((msg: string) => toast.error(msg))
+  const notifySuccess = (msg: string) => toast.success(msg)
+  const notifyError = (msg: string) => toast.error(msg)
 
   const loading = ref(false)
   const botLoading = ref(false)
@@ -54,152 +49,152 @@ export function useSettingsSave(options: {
   const keepaliveLoading = ref(false)
 
   const saveSettings = async () => {
-    const token = authStore.token || ''
-    if (!token) return
-    loading.value = true
-    try {
-      await saveGlobalSettings(token, options.buildGeneralPayload())
-      options.markSectionClean('general')
-      notifySuccess(t('settings.saveSuccess'))
-    } catch (e: unknown) {
-      notifyError(resolveApiErrorMessage(e, 'settings.saveFailed'))
-    } finally {
-      loading.value = false
-    }
+    return withToken(async (token) => {
+      loading.value = true
+      try {
+        await saveGlobalSettings(token, options.buildGeneralPayload())
+        options.markSectionClean('general')
+        notifySuccess(t('settings.saveSuccess'))
+      } catch (e: unknown) {
+        notifyError(resolveApiErrorMessage(e, 'settings.saveFailed'))
+      } finally {
+        loading.value = false
+      }
+    })
   }
 
   const runKeepaliveNow = async () => {
-    const token = authStore.token || ''
-    if (!token) return
-    keepaliveLoading.value = true
-    try {
-      const res = await runDeviceKeepalive(token)
-      notifySuccess(
-        `${t('settings.keepaliveDone')}：${res.kept_alive}/${res.checked}，${t('settings.failed')} ${res.failed}`,
-      )
-    } catch (e: unknown) {
-      notifyError(resolveApiErrorMessage(e, 'settings.keepaliveFailed'))
-    } finally {
-      keepaliveLoading.value = false
-    }
+    return withToken(async (token) => {
+      keepaliveLoading.value = true
+      try {
+        const res = await runDeviceKeepalive(token)
+        notifySuccess(
+          `${t('settings.keepaliveDone')}：${res.kept_alive}/${res.checked}，${t('settings.failed')} ${res.failed}`,
+        )
+      } catch (e: unknown) {
+        notifyError(resolveApiErrorMessage(e, 'settings.keepaliveFailed'))
+      } finally {
+        keepaliveLoading.value = false
+      }
+    })
   }
 
   const saveBotSettings = async () => {
-    const token = authStore.token || ''
-    if (!token) return
-    botLoading.value = true
-    try {
-      await saveGlobalSettings(token, options.buildBotPayload())
-      options.afterBotTokenSaved()
-      options.markSectionClean('bot')
-      notifySuccess(t('settings.saveSuccess'))
-    } catch (e: unknown) {
-      notifyError(resolveApiErrorMessage(e, 'settings.saveFailed'))
-    } finally {
-      botLoading.value = false
-    }
+    return withToken(async (token) => {
+      botLoading.value = true
+      try {
+        await saveGlobalSettings(token, options.buildBotPayload())
+        options.afterBotTokenSaved()
+        options.markSectionClean('bot')
+        notifySuccess(t('settings.saveSuccess'))
+      } catch (e: unknown) {
+        notifyError(resolveApiErrorMessage(e, 'settings.saveFailed'))
+      } finally {
+        botLoading.value = false
+      }
+    })
   }
 
   const saveAdvancedSettings = async () => {
-    const token = authStore.token || ''
-    if (!token) return
-    advancedLoading.value = true
-    try {
-      await saveGlobalSettings(token, options.buildBackupPayload())
-      options.afterWebdavSettingsSaved()
-      options.markSectionClean('advanced')
-      notifySuccess(t('settings.saveSuccess'))
+    return withToken(async (token) => {
+      advancedLoading.value = true
       try {
-        await options.loadBackupStatus(token)
-      } catch {
-        /* ignore */
+        await saveGlobalSettings(token, options.buildBackupPayload())
+        options.afterWebdavSettingsSaved()
+        options.markSectionClean('advanced')
+        notifySuccess(t('settings.saveSuccess'))
+        try {
+          await options.loadBackupStatus(token)
+        } catch {
+          /* ignore */
+        }
+      } catch (e: unknown) {
+        notifyError(resolveApiErrorMessage(e, 'settings.saveFailed'))
+      } finally {
+        advancedLoading.value = false
       }
-    } catch (e: unknown) {
-      notifyError(resolveApiErrorMessage(e, 'settings.saveFailed'))
-    } finally {
-      advancedLoading.value = false
-    }
+    })
   }
 
   const saveAllSettings = async () => {
-    const token = authStore.token || ''
-    if (!token) return
-    saveAllLoading.value = true
-    const partial: string[] = []
-    try {
-      await saveGlobalSettings(token, {
-        ...options.buildGeneralPayload(),
-        ...options.buildBotPayload(),
-        ...options.buildAdvancedPayload(),
-      })
-      options.afterWebdavSettingsSaved()
-      options.afterBotTokenSaved()
-      options.markSectionClean('general')
-      options.markSectionClean('bot')
-      options.markSectionClean('advanced')
-      if (options.tgConfig.value.api_id && options.tgConfig.value.api_hash) {
-        try {
-          await saveTelegramConfig(token, {
-            api_id: options.tgConfig.value.api_id,
-            api_hash: options.tgConfig.value.api_hash,
-          })
+    return withToken(async (token) => {
+      saveAllLoading.value = true
+      const partial: string[] = []
+      try {
+        await saveGlobalSettings(token, {
+          ...options.buildGeneralPayload(),
+          ...options.buildBotPayload(),
+          ...options.buildAdvancedPayload(),
+        })
+        options.afterWebdavSettingsSaved()
+        options.afterBotTokenSaved()
+        options.markSectionClean('general')
+        options.markSectionClean('bot')
+        options.markSectionClean('advanced')
+        if (options.tgConfig.value.api_id && options.tgConfig.value.api_hash) {
+          try {
+            await saveTelegramConfig(token, {
+              api_id: options.tgConfig.value.api_id,
+              api_hash: options.tgConfig.value.api_hash,
+            })
+            options.markSectionClean('tg')
+          } catch (e: unknown) {
+            partial.push(t('settings.tgApi'))
+            devLog.error('saveAll tg failed', e)
+          }
+        } else {
           options.markSectionClean('tg')
-        } catch (e: unknown) {
-          partial.push(t('settings.tgApi'))
-          devLog.error('saveAll tg failed', e)
         }
-      } else {
-        options.markSectionClean('tg')
-      }
-      if (
-        options.aiConfig.value.base_url ||
-        options.aiConfig.value.model ||
-        options.aiConfig.value.api_key
-      ) {
-        try {
-          await saveAIConfig(token, {
-            base_url: options.aiConfig.value.base_url || undefined,
-            model: options.aiConfig.value.model || undefined,
-            api_key: options.aiConfig.value.api_key || undefined,
-          })
-          options.aiConfig.value.api_key = ''
+        if (
+          options.aiConfig.value.base_url ||
+          options.aiConfig.value.model ||
+          options.aiConfig.value.api_key
+        ) {
+          try {
+            await saveAIConfig(token, {
+              base_url: options.aiConfig.value.base_url || undefined,
+              model: options.aiConfig.value.model || undefined,
+              api_key: options.aiConfig.value.api_key || undefined,
+            })
+            options.aiConfig.value.api_key = ''
+            options.markSectionClean('ai')
+          } catch (e: unknown) {
+            partial.push(t('settings.aiConfig'))
+            devLog.error('saveAll ai failed', e)
+          }
+        } else {
           options.markSectionClean('ai')
-        } catch (e: unknown) {
-          partial.push(t('settings.aiConfig'))
-          devLog.error('saveAll ai failed', e)
         }
-      } else {
-        options.markSectionClean('ai')
+        if (partial.length) {
+          notifyError(`${t('settings.saveAllPartial')}: ${partial.join(', ')}`)
+        } else {
+          notifySuccess(t('settings.saveAllSuccess'))
+        }
+      } catch (e: unknown) {
+        notifyError(resolveApiErrorMessage(e, 'settings.saveFailed'))
+      } finally {
+        saveAllLoading.value = false
       }
-      if (partial.length) {
-        notifyError(`${t('settings.saveAllPartial')}: ${partial.join(', ')}`)
-      } else {
-        notifySuccess(t('settings.saveAllSuccess'))
-      }
-    } catch (e: unknown) {
-      notifyError(resolveApiErrorMessage(e, 'settings.saveFailed'))
-    } finally {
-      saveAllLoading.value = false
-    }
+    })
   }
 
   const testBot = async () => {
-    const token = authStore.token || ''
-    if (!token) return
-    botTestLoading.value = true
-    try {
-      const res = await testBotNotification(token)
-      if (res.success) notifySuccess(res.message)
-      else notifyError(res.message)
-    } catch (e: unknown) {
-      notifyError(resolveApiErrorMessage(e, 'settings.testFailed'))
-    } finally {
-      botTestLoading.value = false
-    }
+    return withToken(async (token) => {
+      botTestLoading.value = true
+      try {
+        const res = await testBotNotification(token)
+        if (res.success) notifySuccess(res.message)
+        else notifyError(res.message)
+      } catch (e: unknown) {
+        notifyError(resolveApiErrorMessage(e, 'settings.testFailed'))
+      } finally {
+        botTestLoading.value = false
+      }
+    })
   }
 
   const saveTgConfig = async () => {
-    const token = authStore.token || ''
+    const token = getAuthToken()
     tgLoading.value = true
     try {
       await saveTelegramConfig(token, {
@@ -216,7 +211,7 @@ export function useSettingsSave(options: {
   }
 
   const resetTgConfig = async () => {
-    const token = authStore.token || ''
+    const token = getAuthToken()
     const ok = await confirm({
       title: t('settings.resetDefault'),
       message: t('settings.resetConfirm'),
@@ -239,7 +234,7 @@ export function useSettingsSave(options: {
   }
 
   const saveAiConfig = async () => {
-    const token = authStore.token || ''
+    const token = getAuthToken()
     aiLoading.value = true
     try {
       await saveGlobalSettings(token, options.buildAiRuntimePayload())
@@ -272,7 +267,7 @@ export function useSettingsSave(options: {
   }
 
   const testAi = async () => {
-    const token = authStore.token || ''
+    const token = getAuthToken()
     aiLoading.value = true
     try {
       const res = await testAIConnection(token)

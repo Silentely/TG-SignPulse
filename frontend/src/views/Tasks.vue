@@ -3,11 +3,12 @@ import { ref, onMounted, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Plus, Radio, Clock, Shuffle, X } from 'lucide-vue-next'
 import { listSignTasks } from '../lib/api'
+import { withToken } from '../lib/api/core'
+import { useLatestResponseGuard } from '../lib/latest-response'
 import { BUILT_IN_TEMPLATES } from '../lib/task-templates'
 import type { SignTask } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
-import { useAuthStore } from '../stores/auth'
 import { useAccountsStore } from '../stores/accounts'
 import { useTaskListRuntime } from '../composables/useTaskListRuntime'
 import { useTaskListActions } from '../composables/useTaskListActions'
@@ -35,7 +36,6 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const toast = useToast()
-const authStore = useAuthStore()
 const accountsStore = useAccountsStore()
 const tasks = ref<TaskUiItem[]>([])
 const pageLoading = ref(true)
@@ -93,7 +93,6 @@ const toggleSelectAll = () => {
     selectedTaskIds.value = next
   }
 }
-const clearSelection = () => { selectedTaskIds.value = new Set() }
 
 /** 是否有激活中的列表筛选（搜索 / 模式 / 账号深链） */
 const hasListFilters = computed(() =>
@@ -101,15 +100,15 @@ const hasListFilters = computed(() =>
 )
 
 const loadAllAccounts = async () => {
-  const token = authStore.token || ''
-  if (!token) return
-  try {
-    // 走共享 store：TTL 命中时与 Dashboard/Logs 复用同一缓存
-    const list = await accountsStore.ensureAccounts()
-    allAccounts.value = (list || []).map((a) => a.name)
-  } catch (e) {
-    devLog.warn('加载账号筛选列表失败', e)
-  }
+  return withToken(async () => {
+    try {
+      // 走共享 store：TTL 命中时与 Dashboard/Logs 复用同一缓存
+      const list = await accountsStore.ensureAccounts()
+      allAccounts.value = (list || []).map((a) => a.name)
+    } catch (e) {
+      devLog.warn('加载账号筛选列表失败', e)
+    }
+  })
 }
 
 const {
@@ -129,43 +128,42 @@ const {
   getTaskAccountName: resolveTaskAccountName,
 })
 
-// 请求序号：丢弃过期响应，避免快速切换账号筛选时慢响应覆盖新结果
-let tasksSeq = 0
+// 请求序号守卫：丢弃过期响应，避免快速切换账号筛选时慢响应覆盖新结果
+const tasksGuard = useLatestResponseGuard()
 
 const loadTasks = async () => {
-  const token = authStore.token || ''
-  if (!token) return
+  return withToken(async (token) => {
+    const seq = tasksGuard.next()
+    pageLoading.value = true
+    try {
+      const accountName = route.query.account as string | undefined
+      const res = await listSignTasks(token, accountName)
+      if (!tasksGuard.isCurrent(seq)) return // 过期响应：筛选已变化，丢弃
+      const labels = {
+        noTarget: t('tasks.noTarget'),
+        listenMode: t('tasks.listenMode'),
+        notExecuted: t('tasks.notExecuted'),
+        continuousRunning: t('tasks.continuousRunning'),
+        paused: t('tasks.paused'),
+        success: t('tasks.success'),
+        failed: t('tasks.failed'),
+      }
+      const iconByKind = { clock: Clock, radio: Radio, shuffle: Shuffle } as const
+      tasks.value = res.map((task: SignTask) => {
+        const fields = mapSignTaskToListFields(task, labels)
+        return withModeIcon(fields, iconByKind[fields.modeIconKind])
+      })
 
-  const seq = ++tasksSeq
-  pageLoading.value = true
-  try {
-    const accountName = route.query.account as string | undefined
-    const res = await listSignTasks(token, accountName)
-    if (seq !== tasksSeq) return // 过期响应：筛选已变化，丢弃
-    const labels = {
-      noTarget: t('tasks.noTarget'),
-      listenMode: t('tasks.listenMode'),
-      notExecuted: t('tasks.notExecuted'),
-      continuousRunning: t('tasks.continuousRunning'),
-      paused: t('tasks.paused'),
-      success: t('tasks.success'),
-      failed: t('tasks.failed'),
+      await afterTasksLoaded()
+    } catch (e: unknown) {
+      if (!tasksGuard.isCurrent(seq)) return
+      devLog.error('Failed to fetch tasks', e)
+      notifyApiError(e, 'tasks.loadFailed')
+      tasks.value = []
+    } finally {
+      if (tasksGuard.isCurrent(seq)) pageLoading.value = false
     }
-    const iconByKind = { clock: Clock, radio: Radio, shuffle: Shuffle } as const
-    tasks.value = res.map((task: SignTask) => {
-      const fields = mapSignTaskToListFields(task, labels)
-      return withModeIcon(fields, iconByKind[fields.modeIconKind])
-    })
-
-    await afterTasksLoaded()
-  } catch (e: unknown) {
-    if (seq !== tasksSeq) return
-    devLog.error('Failed to fetch tasks', e)
-    notifyApiError(e, 'tasks.loadFailed')
-    tasks.value = []
-  } finally {
-    if (seq === tasksSeq) pageLoading.value = false
-  }
+  })
 }
 
 const {
@@ -175,6 +173,7 @@ const {
   cloneSource,
   runMenuTask,
   runMenuAccounts,
+  clearSelection,
   runBatch,
   openCloneModal,
   closeCloneModal,

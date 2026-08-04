@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
 import { mockI18nPassthrough } from './composable-test-utils'
 
-const { toastSpy, confirmMock, notifySuccess, notifyError, api } = vi.hoisted(() => ({
+const { toastSpy, confirmMock, api } = vi.hoisted(() => ({
   toastSpy: {
     success: vi.fn(),
     error: vi.fn(),
@@ -12,8 +12,6 @@ const { toastSpy, confirmMock, notifySuccess, notifyError, api } = vi.hoisted(()
   confirmMock: {
     confirm: vi.fn(async () => true),
   },
-  notifySuccess: vi.fn(),
-  notifyError: vi.fn(),
   api: {
     saveGlobalSettings: vi.fn(),
     saveTelegramConfig: vi.fn(),
@@ -67,8 +65,6 @@ describe('useSettingsSave', () => {
       afterBotTokenSaved,
       afterWebdavSettingsSaved,
       loadBackupStatus,
-      notifySuccess,
-      notifyError,
     })
     return { save, markSectionClean, afterBotTokenSaved, afterWebdavSettingsSaved, loadBackupStatus }
   }
@@ -86,7 +82,7 @@ describe('useSettingsSave', () => {
     await save.saveSettings()
     expect(api.saveGlobalSettings).toHaveBeenCalledWith('tok', { general: 1 })
     expect(markSectionClean).toHaveBeenCalledWith('general')
-    expect(notifySuccess).toHaveBeenCalled()
+    expect(toastSpy.success).toHaveBeenCalled()
     expect(save.loading.value).toBe(false)
   })
 
@@ -94,7 +90,7 @@ describe('useSettingsSave', () => {
     api.saveGlobalSettings.mockRejectedValue(new Error('fail'))
     const { save } = setup()
     await save.saveSettings()
-    expect(notifyError).toHaveBeenCalled()
+    expect(toastSpy.error).toHaveBeenCalled()
   })
 
   it('saveBotSettings runs afterBotTokenSaved', async () => {
@@ -128,7 +124,7 @@ describe('useSettingsSave', () => {
     expect(markSectionClean).toHaveBeenCalledWith('general')
     expect(markSectionClean).toHaveBeenCalledWith('tg')
     expect(markSectionClean).toHaveBeenCalledWith('ai')
-    expect(notifySuccess).toHaveBeenCalled()
+    expect(toastSpy.success).toHaveBeenCalled()
   })
 
   it('saveAllSettings reports partial tg failure', async () => {
@@ -138,7 +134,7 @@ describe('useSettingsSave', () => {
       tg: { api_id: '1', api_hash: 'h' },
     })
     await save.saveAllSettings()
-    expect(notifyError).toHaveBeenCalled()
+    expect(toastSpy.error).toHaveBeenCalled()
   })
 
   it('resetTgConfig aborts when confirm false', async () => {
@@ -164,32 +160,30 @@ describe('useSettingsSave', () => {
       afterBotTokenSaved: vi.fn(),
       afterWebdavSettingsSaved: vi.fn(),
       loadBackupStatus: vi.fn(async () => {}),
-      notifySuccess,
-      notifyError,
     })
     await save.resetTgConfig()
     expect(tg.value.api_id).toBe('')
     expect(tg.value.api_hash).toBe('')
-    expect(notifySuccess).toHaveBeenCalled()
+    expect(toastSpy.success).toHaveBeenCalled()
   })
 
   it('testBot routes success/failure messages', async () => {
     api.testBotNotification.mockResolvedValue({ success: true, message: 'ok' })
     const { save } = setup()
     await save.testBot()
-    expect(notifySuccess).toHaveBeenCalledWith('ok')
+    expect(toastSpy.success).toHaveBeenCalledWith('ok')
 
     api.testBotNotification.mockResolvedValue({ success: false, message: 'bad' })
     await save.testBot()
-    expect(notifyError).toHaveBeenCalledWith('bad')
+    expect(toastSpy.error).toHaveBeenCalledWith('bad')
   })
 
   it('runKeepaliveNow formats result', async () => {
     api.runDeviceKeepalive.mockResolvedValue({ kept_alive: 2, checked: 3, failed: 1 })
     const { save } = setup()
     await save.runKeepaliveNow()
-    expect(notifySuccess).toHaveBeenCalled()
-    expect(String(notifySuccess.mock.calls[0][0])).toContain('2')
+    expect(toastSpy.success).toHaveBeenCalled()
+    expect(String(toastSpy.success.mock.calls[0][0])).toContain('2')
   })
 
   it('saveAiConfig writes runtime then model', async () => {
@@ -211,8 +205,6 @@ describe('useSettingsSave', () => {
       afterBotTokenSaved: vi.fn(),
       afterWebdavSettingsSaved: vi.fn(),
       loadBackupStatus: vi.fn(async () => {}),
-      notifySuccess,
-      notifyError,
     })
     await save.saveAiConfig()
     expect(api.saveGlobalSettings).toHaveBeenCalledWith('tok', { rt: 1 })

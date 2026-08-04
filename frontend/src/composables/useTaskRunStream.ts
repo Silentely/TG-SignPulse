@@ -6,8 +6,8 @@ import {
   getSignTaskLogs,
   getSignTaskRunStatus,
 } from '../lib/api'
+import { getAuthToken } from '../lib/api/core'
 import type { SignTaskRunStatus } from '../lib/api'
-import { useAuthStore } from '../stores/auth'
 import { startChainPoll, type ChainPollHandle } from '../lib/chain-poll'
 import {
   badgeTone,
@@ -28,7 +28,6 @@ export function useTaskRunStream(options: {
   logContainer: Ref<HTMLElement | null>
 }) {
   const { t } = useI18n()
-  const authStore = useAuthStore()
 
   const realtimeLogs = ref<string[]>([])
   const isRunning = ref(false)
@@ -85,7 +84,7 @@ export function useTaskRunStream(options: {
     pollHandle = startChainPoll(async () => {
       const name = options.taskName.value
       if (!name) return
-      const token = authStore.token || ''
+      const token = getAuthToken()
       const accountName = options.accountName.value || ''
       const [logsResult, statusResult] = await Promise.allSettled([
         getSignTaskLogs(token, name, accountName),
@@ -112,7 +111,7 @@ export function useTaskRunStream(options: {
   const connect = () => {
     const name = options.taskName.value
     if (!name) return
-    const token = authStore.token || ''
+    const token = getAuthToken()
     const taskName = encodeURIComponent(name)
     const accountName = options.accountName.value || ''
     const runAccount = options.runAccount.value

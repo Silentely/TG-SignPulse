@@ -5,9 +5,9 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { listActiveSignTaskRuns, type ActiveRunSummary } from '../lib/api'
+import { getAuthToken } from '../lib/api/core'
 import { groupActiveRunsByTask, isRunInProgress } from '../lib/run-status'
 import { startChainPoll, type ChainPollHandle } from '../lib/chain-poll'
-import { useAuthStore } from './auth'
 import { devLog } from '../lib/devLog'
 
 const POLL_MS = 4000
@@ -31,8 +31,7 @@ export const useActiveRunsStore = defineStore('activeRuns', () => {
   }
 
   const refresh = async () => {
-    const authStore = useAuthStore()
-    const token = authStore.token || ''
+    const token = getAuthToken()
     if (!token) return
     loading.value = true
     try {

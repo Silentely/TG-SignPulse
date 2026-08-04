@@ -11,11 +11,11 @@ import {
   getRuntimeStatus,
   getMemoryStats,
 } from '../lib/api'
+import { getAuthToken } from '../lib/api/core'
 import type { RuntimeStatus, MemoryStatsResponse } from '../lib/api'
 import { useI18n } from './useI18n'
 import { useToast } from './useToast'
 import { useConfirm } from './useConfirm'
-import { useAuthStore } from '../stores/auth'
 import { resolveApiErrorMessage } from '../lib/notify'
 import { devLog } from '../lib/devLog'
 import {
@@ -41,9 +41,6 @@ export function useSettingsPage() {
   const { t } = useI18n()
   const toast = useToast()
   const { confirm } = useConfirm()
-  const authStore = useAuthStore()
-  const notifySuccess = (msg: string) => toast.success(msg)
-  const notifyError = (msg: string) => toast.error(msg)
 
   const settings = ref<SettingsFormState>({
     checkInterval: '',
@@ -231,8 +228,6 @@ export function useSettingsPage() {
     settings,
     buildBackupPayload,
     markSectionClean: (section) => markSectionClean(section),
-    notifySuccess,
-    notifyError,
   })
 
   const {
@@ -267,14 +262,12 @@ export function useSettingsPage() {
     afterBotTokenSaved,
     afterWebdavSettingsSaved,
     loadBackupStatus,
-    notifySuccess,
-    notifyError,
   })
 
   onMounted(async () => {
     // 同步注册 beforeunload：避免异步加载期间卸载导致监听器永久泄漏
     window.addEventListener('beforeunload', onBeforeUnload)
-    const token = authStore.token || ''
+    const token = getAuthToken()
     if (!token) {
       pageLoading.value = false
       return
@@ -323,7 +316,7 @@ export function useSettingsPage() {
       markAllClean()
     } catch (e: unknown) {
       devLog.error('Failed to load settings', e)
-      notifyError(resolveApiErrorMessage(e, 'settings.loadFailed'))
+      toast.error(resolveApiErrorMessage(e, 'settings.loadFailed'))
     } finally {
       if (!disposed) pageLoading.value = false
     }

@@ -509,124 +509,13 @@ async def save_global_settings(
     request: GlobalSettingsRequest, current_user: User = Depends(get_current_user)
 ):
     try:
-        # 只更新前端实际发送的字段，避免默认值覆盖已有配置
-        settings = {}
+        # 只更新前端实际发送的字段，避免默认值覆盖已有配置；
+        # 数值钳制与字符串归一化统一由服务层 normalize_global_settings 处理
         fields_set = getattr(request, "model_fields_set", None) or getattr(request, "__fields_set__", set())
-
-        # 按需更新字段
-        if "sign_interval" in fields_set:
-            settings["sign_interval"] = request.sign_interval
-        if "log_retention_days" in fields_set:
-            settings["log_retention_days"] = request.log_retention_days
-        if "data_dir" in fields_set:
-            settings["data_dir"] = request.data_dir
-        if "global_proxy" in fields_set:
-            settings["global_proxy"] = request.global_proxy
-        if "tg_global_concurrency" in fields_set:
-            settings["tg_global_concurrency"] = request.tg_global_concurrency
-        if "device_keepalive_enabled" in fields_set:
-            settings["device_keepalive_enabled"] = request.device_keepalive_enabled
-        if "device_keepalive_interval_days" in fields_set and request.device_keepalive_interval_days is not None:
-            settings["device_keepalive_interval_days"] = max(
-                1, min(int(request.device_keepalive_interval_days), 170)
-            )
-        if "telegram_bot_notify_enabled" in fields_set:
-            settings["telegram_bot_notify_enabled"] = request.telegram_bot_notify_enabled
-        if "telegram_bot_login_notify_enabled" in fields_set:
-            settings["telegram_bot_login_notify_enabled"] = request.telegram_bot_login_notify_enabled
-        if "telegram_bot_task_failure_enabled" in fields_set:
-            settings["telegram_bot_task_failure_enabled"] = request.telegram_bot_task_failure_enabled
-        if "telegram_bot_task_success_enabled" in fields_set:
-            settings["telegram_bot_task_success_enabled"] = request.telegram_bot_task_success_enabled
-        if "telegram_bot_quiet_hours_enabled" in fields_set:
-            settings["telegram_bot_quiet_hours_enabled"] = request.telegram_bot_quiet_hours_enabled
-        if "telegram_bot_quiet_hours_start" in fields_set:
-            settings["telegram_bot_quiet_hours_start"] = request.telegram_bot_quiet_hours_start
-        if "telegram_bot_quiet_hours_end" in fields_set:
-            settings["telegram_bot_quiet_hours_end"] = request.telegram_bot_quiet_hours_end
-        if "telegram_bot_token" in fields_set:
-            # 空字符串表示不修改已有 Token（与 webdav_password 一致）
-            tok = request.telegram_bot_token
-            if tok is not None and str(tok).strip() != "":
-                settings["telegram_bot_token"] = str(tok).strip()
-        if "telegram_bot_chat_id" in fields_set:
-            settings["telegram_bot_chat_id"] = request.telegram_bot_chat_id
-        if "telegram_bot_message_thread_id" in fields_set:
-            settings["telegram_bot_message_thread_id"] = request.telegram_bot_message_thread_id
-        if "timezone" in fields_set:
-            settings["timezone"] = request.timezone
-        if "sign_task_execution_timeout" in fields_set:
-            v = request.sign_task_execution_timeout
-            settings["sign_task_execution_timeout"] = (
-                None if v is None else max(30, min(int(v), 3600))
-            )
-        if "sign_task_account_cooldown" in fields_set:
-            v = request.sign_task_account_cooldown
-            settings["sign_task_account_cooldown"] = (
-                None if v is None else max(0, min(int(v), 600))
-            )
-        if "sign_task_flow_retry_attempts" in fields_set:
-            v = request.sign_task_flow_retry_attempts
-            settings["sign_task_flow_retry_attempts"] = (
-                None if v is None else max(1, min(int(v), 10))
-            )
-        if "sign_task_history_max_age_days" in fields_set:
-            v = request.sign_task_history_max_age_days
-            settings["sign_task_history_max_age_days"] = (
-                None if v is None else max(1, min(int(v), 90))
-            )
-        if "ai_vision_timeout" in fields_set:
-            v = request.ai_vision_timeout
-            settings["ai_vision_timeout"] = (
-                None if v is None else max(3, min(int(v), 120))
-            )
-        if "ai_vision_retry_attempts" in fields_set:
-            v = request.ai_vision_retry_attempts
-            settings["ai_vision_retry_attempts"] = (
-                None if v is None else max(1, min(int(v), 8))
-            )
-        if "auto_backup_enabled" in fields_set:
-            settings["auto_backup_enabled"] = request.auto_backup_enabled
-        if "auto_backup_interval_hours" in fields_set:
-            v = request.auto_backup_interval_hours
-            settings["auto_backup_interval_hours"] = (
-                None if v is None else max(1, min(int(v), 168))
-            )
-        if "auto_backup_keep" in fields_set:
-            v = request.auto_backup_keep
-            settings["auto_backup_keep"] = (
-                None if v is None else max(1, min(int(v), 30))
-            )
-        if "webdav_url" in fields_set:
-            settings["webdav_url"] = (
-                (request.webdav_url or "").strip() or None
-            )
-        if "webdav_username" in fields_set:
-            settings["webdav_username"] = (
-                (request.webdav_username or "").strip() or None
-            )
-        if "webdav_password" in fields_set:
-            # 空字符串表示不修改已有密码
-            pwd = request.webdav_password
-            if pwd is not None and str(pwd).strip() != "":
-                settings["webdav_password"] = str(pwd)
-        if "webdav_remote_dir" in fields_set:
-            settings["webdav_remote_dir"] = (
-                (request.webdav_remote_dir or "").strip()
-                or "tg-signpulse-backups"
-            )
-
-        # 校验时区格式
-        if request.timezone and "timezone" in fields_set:
-            try:
-                from zoneinfo import ZoneInfo
-
-                ZoneInfo(request.timezone)
-            except Exception:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"无效的时区: {request.timezone}",
-                )
+        settings = {
+            field_name: getattr(request, field_name)
+            for field_name in fields_set
+        }
 
         if not settings:
             return AIConfigSaveResponse(success=True, message="No settings to update")
