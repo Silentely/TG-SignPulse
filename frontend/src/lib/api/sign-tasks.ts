@@ -1,7 +1,7 @@
 /**
  * 签到任务管理 API：CRUD、执行、运行状态、历史、批量操作、聊天查询。
  */
-import { LONG_TIMEOUT_MS, MEDIUM_TIMEOUT_MS, request, requestBlob } from "./core";
+import { MEDIUM_TIMEOUT_MS, request, requestBlob } from "./core";
 import type { RawTaskAction } from "../types";
 
 export interface SignTaskChat {
@@ -107,13 +107,6 @@ export async function listSignTasks(token: string, accountName?: string, forceRe
   return request<SignTask[]>(url, {}, token);
 }
 
-export const getSignTask = (token: string, name: string, accountName?: string) => {
-  const params = new URLSearchParams();
-  if (accountName) params.append("account_name", accountName);
-  const url = `/sign-tasks/${encodeURIComponent(name)}${params.toString() ? `?${params.toString()}` : ""}`;
-  return request<SignTask>(url, {}, token);
-};
-
 export const createSignTask = (token: string, data: CreateSignTaskRequest) =>
   request<SignTask>("/sign-tasks", {
     method: "POST",
@@ -135,14 +128,6 @@ export const toggleSignTaskEnabled = (token: string, name: string, accountName?:
   request<SignTask>(`/sign-tasks/${encodeURIComponent(name)}/toggle-enabled${accountName ? `?account_name=${encodeURIComponent(accountName)}` : ''}`, {
     method: "PATCH",
   }, token);
-
-export const runSignTask = (token: string, name: string, accountName: string) =>
-  request<{ success: boolean; output: string; error: string }>(
-    `/sign-tasks/${encodeURIComponent(name)}/run?account_name=${encodeURIComponent(accountName)}`,
-    { method: "POST" },
-    token,
-    LONG_TIMEOUT_MS,
-  );
 
 export interface SignTaskRunStatus {
   run_id: string;
@@ -207,10 +192,15 @@ export const cancelSignTaskRun = (
   );
 };
 
-export const getAccountChats = (token: string, accountName: string, forceRefresh?: boolean) =>
+export const getAccountChats = (
+  token: string,
+  accountName: string,
+  forceRefresh?: boolean,
+  signal?: AbortSignal,
+) =>
   request<ChatInfo[]>(
     `/sign-tasks/chats/${encodeURIComponent(accountName)}${forceRefresh ? '?force_refresh=true' : ''}`,
-    {},
+    { signal },
     token,
     MEDIUM_TIMEOUT_MS,
   );

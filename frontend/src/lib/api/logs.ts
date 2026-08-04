@@ -53,13 +53,6 @@ export const clearLoginAuditLogs = (token: string) =>
     token
   );
 
-export const deleteLoginAuditLog = (token: string, logId: number) =>
-  request<{ success: boolean; message: string }>(
-    `/logs/login/${logId}`,
-    { method: "DELETE" },
-    token
-  );
-
 export const getTaskHistoryLogs = (
   token: string,
   options?: {
@@ -97,22 +90,3 @@ export const clearTaskHistoryLogs = (token: string) =>
     { method: "POST" },
     token
   );
-
-export const deleteTaskHistoryLog = (
-  token: string,
-  options: {
-    account_name: string;
-    task_name: string;
-    created_at: string;
-  }
-) => {
-  const params = new URLSearchParams();
-  params.append("account_name", options.account_name);
-  params.append("task_name", options.task_name);
-  params.append("created_at", options.created_at);
-  return request<{ success: boolean; message: string }>(
-    `/logs/tasks/item?${params.toString()}`,
-    { method: "DELETE" },
-    token
-  );
-};

@@ -220,7 +220,7 @@ const loadChats = async (n: string, forceRefresh: boolean = false) => {
   chatListError.value = ''
   const token = authStore.token||''
   try {
-    const result = await getAccountChats(token, n, forceRefresh)
+    const result = await getAccountChats(token, n, forceRefresh, controller.signal)
     if (controller.signal.aborted) return
     availableChats.value = result || []
   } catch (e: unknown) {
@@ -286,6 +286,7 @@ watch(chatSearch, (v) => {
 })
 onUnmounted(() => {
   if (st) clearTimeout(st)
+  loadChatsAbort?.abort() // 中止在途会话列表请求，避免写入已卸载组件
   chatSearchSeq += 1 // 使在途请求的 seq 失效，不再写入已卸载组件
 })
 const selectChat=(c: ChatInfo)=>{selectedChatId.value=c.id;selectedChatName.value=c.title||c.username||String(c.id);chatSearch.value='';chatSearchResults.value=[]}

@@ -505,6 +505,10 @@
     "importWithErrors": "导入过程有错误",
     "aboutTitle": "关于 / 版本",
     "aboutDesc": "查看当前运行版本、构建信息，并可检查是否有新版本发布。",
+    "dbLabel": "数据库",
+    "dbSqlite": "SQLite",
+    "dbExternal": "外部",
+    "monitorShard": "分片 {shard}",
     "currentVersion": "当前版本",
     "gitSha": "Git SHA",
     "gitBranch": "分支",
@@ -766,5 +770,12 @@
   "language": {
     "switchToEn": "English",
     "switchToZh": "中文"
+  },
+  "datePicker": {
+    "selectDate": "选择日期",
+    "clearDate": "清除日期",
+    "prevMonth": "上个月",
+    "nextMonth": "下个月",
+    "today": "今天"
   }
 }

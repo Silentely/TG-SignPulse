@@ -7,6 +7,7 @@ import type { SignTask, UpdateSignTaskRequest } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
 import { useAuthStore } from '../../stores/auth'
 import { getLocalizedErrorMessage } from '../../lib/types'
+import { resolveTaskAccountName } from '../../lib/task-list-map'
 
 const { t } = useI18n()
 const authStore = useAuthStore()
@@ -42,13 +43,7 @@ const handleSave = async () => {
   error.value = ''
   try {
     // Resolve account_name: use direct value, skip wildcard, fallback to account_names
-    let accountName = props.task.account_name || ''
-    if (!accountName || accountName === '*') {
-      const names = props.task.account_names || []
-      for (const n of names) {
-        if (n && n !== '*') { accountName = n; break }
-      }
-    }
+    const accountName = resolveTaskAccountName(props.task)
     await updateSignTask(
       token,
       props.task.name,

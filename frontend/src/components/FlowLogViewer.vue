@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onUnmounted } from 'vue'
 import { Copy, Check } from 'lucide-vue-next'
 import { ref } from 'vue'
 import {
@@ -33,6 +33,15 @@ const props = withDefaults(
 const { t } = useI18n()
 const toast = useToast()
 const copied = ref(false)
+/** 复制成功提示延时句柄：卸载时清理，避免操作已卸载组件 */
+let copiedTimer: number | undefined
+
+onUnmounted(() => {
+  if (copiedTimer !== undefined) {
+    window.clearTimeout(copiedTimer)
+    copiedTimer = undefined
+  }
+})
 
 const viewModel = computed(() =>
   buildTaskLogViewModel(props.lines || [], props.lastTargetMessage || undefined)
@@ -68,7 +77,7 @@ const copyLogs = async () => {
     await navigator.clipboard.writeText(text)
     copied.value = true
     toast.success(t('logs.copied'))
-    setTimeout(() => {
+    copiedTimer = window.setTimeout(() => {
       copied.value = false
     }, 1500)
   } catch {

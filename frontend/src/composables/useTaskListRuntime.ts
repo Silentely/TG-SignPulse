@@ -47,6 +47,33 @@ export function useTaskListRuntime(options: {
   const cancelBusyKey = ref('')
   const accountStatusMap = ref<Record<string, string>>({})
   const accountNeedsRelogin = ref<Record<string, boolean>>({})
+  // 会话级 blob URL 注册表：列表替换/组件卸载时统一 revoke，防止累积泄漏
+  const blobUrls = new Set<string>()
+
+  const trackBlobUrl = (url: string) => {
+    if (url.startsWith('blob:')) blobUrls.add(url)
+  }
+
+  const releaseBlobUrl = (url: string) => {
+    if (!url.startsWith('blob:')) return
+    blobUrls.delete(url)
+    try {
+      URL.revokeObjectURL(url)
+    } catch { /* ignore */ }
+  }
+
+  // 列表替换（筛选/刷新）后，回收已不在列表中的 blob URL
+  watch(options.tasks, (items) => {
+    if (!blobUrls.size) return
+    const live = new Set<string>()
+    for (const t of items) {
+      const u = t.chatAvatarUrl
+      if (u && u.startsWith('blob:')) live.add(u)
+    }
+    for (const url of blobUrls) {
+      if (!live.has(url)) releaseBlobUrl(url)
+    }
+  })
 
   const syncActiveRunsFromTasks = (items: TaskUiItem[]) => {
     const flat: ActiveRunSummary[] = []
@@ -211,9 +238,8 @@ export function useTaskListRuntime(options: {
       const url = URL.createObjectURL(blob)
       const prev = task.chatAvatarUrl
       task.chatAvatarUrl = url
-      if (prev && prev.startsWith('blob:')) {
-        try { URL.revokeObjectURL(prev) } catch { /* ignore */ }
-      }
+      trackBlobUrl(url)
+      if (prev && prev.startsWith('blob:')) releaseBlobUrl(prev)
       localStorage.removeItem(noAvatarKey)
       try {
         const reader = new FileReader()
@@ -280,6 +306,9 @@ export function useTaskListRuntime(options: {
     }
     clearHitCountPolling()
     activeRunsStore.release()
+    // 卸载时回收全部 blob URL，避免页面切换后累积
+    for (const url of blobUrls) releaseBlobUrl(url)
+    blobUrls.clear()
   }
 
   onUnmounted(() => {

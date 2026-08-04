@@ -5,8 +5,6 @@ import * as core from '../lib/api/core'
 describe('api barrel 完整性', () => {
   it('认证 API 导出', () => {
     expect(typeof api.login).toBe('function')
-    expect(typeof api.getMe).toBe('function')
-    expect(typeof api.resetTOTP).toBe('function')
   })
   it('账号 API 导出', () => {
     expect(typeof api.listAccounts).toBe('function')
@@ -30,7 +28,6 @@ describe('api barrel 完整性', () => {
     expect(typeof api.clearKeywordHits).toBe('function')
   })
   it('config API 导出', () => {
-    expect(typeof api.listConfigTasks).toBe('function')
     expect(typeof api.exportAllConfigs).toBe('function')
     expect(typeof api.importConfigPreview).toBe('function')
   })
@@ -73,8 +70,8 @@ describe('api barrel 完整性', () => {
     expect(core.MEDIUM_TIMEOUT_MS).toBeLessThan(core.LONG_TIMEOUT_MS)
   })
 
-  it('barrel 导出函数数量 >= 80（防意外删减）', () => {
+  it('barrel 导出函数数量 >= 72（防意外删减）', () => {
     const fns = Object.values(api).filter(v => typeof v === 'function')
-    expect(fns.length).toBeGreaterThanOrEqual(80)
+    expect(fns.length).toBeGreaterThanOrEqual(72)
   })
 })

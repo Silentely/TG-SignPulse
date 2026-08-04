@@ -114,8 +114,8 @@ const formatMemoryRss = () => {
           </span>
         </div>
         <div class="text-gray-600 dark:text-gray-400">
-          DB: {{ runtimeStatus.database_is_sqlite ? 'SQLite' : 'External' }}
-          <span v-if="runtimeStatus.monitor_shard"> · shard {{ runtimeStatus.monitor_shard }}</span>
+          {{ t('settings.dbLabel') }}: {{ runtimeStatus.database_is_sqlite ? t('settings.dbSqlite') : t('settings.dbExternal') }}
+          <span v-if="runtimeStatus.monitor_shard"> · {{ t('settings.monitorShard', { shard: runtimeStatus.monitor_shard }) }}</span>
         </div>
         <div v-if="memoryStats?.available" class="text-gray-600 dark:text-gray-400">
           {{ t('settings.memoryRss') }}: {{ formatMemoryRss() }}

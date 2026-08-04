@@ -1,7 +1,7 @@
 /**
  * 账号管理 API：登录流程、CRUD、状态检测、设备、官方消息、账号日志。
  */
-import { LONG_TIMEOUT_MS, MEDIUM_TIMEOUT_MS, request, requestBlob } from "./core";
+import { MEDIUM_TIMEOUT_MS, request, requestBlob } from "./core";
 
 export interface LoginStartRequest {
   account_name: string;
@@ -206,9 +206,6 @@ export const deleteAccount = (token: string, accountName: string) =>
     method: "DELETE",
   }, token);
 
-export const checkAccountExists = (token: string, accountName: string) =>
-  request<{ exists: boolean; account_name: string }>(`/accounts/${accountName}/exists`, {}, token);
-
 export const listAccountDevices = (token: string, accountName: string) =>
   request<{ devices: AccountDeviceInfo[]; total: number }>(
     `/accounts/${encodeURIComponent(accountName)}/devices`,
@@ -279,42 +276,8 @@ export interface AccountLog {
   failure_category?: string | null;
 }
 
-export const getAccountLogs = (token: string, accountName: string, limit: number = 100) =>
-  request<AccountLog[]>(`/accounts/${accountName}/logs?limit=${limit}`, {}, token);
-
 export const getRecentAccountLogs = (token: string, limit: number = 50) =>
   request<AccountLog[]>(`/accounts/logs/recent?limit=${limit}`, {}, token);
-
-export const clearRecentAccountLogs = (token: string) =>
-  request<{ success: boolean; cleared: number; message: string; code?: string }>(
-    "/accounts/logs/clear",
-    { method: "POST" },
-    token
-  );
-
-export const clearAccountLogs = (token: string, accountName: string) =>
-  request<{ success: boolean; cleared: number; message: string; code?: string }>(
-    `/accounts/${accountName}/logs/clear`,
-    { method: "POST" },
-    token
-  );
-
-export const exportAccountLogs = async (token: string, accountName: string) => {
-  const blob = await requestBlob(
-    `/accounts/${encodeURIComponent(accountName)}/logs/export`,
-    {},
-    token,
-    LONG_TIMEOUT_MS,
-  );
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `logs_${accountName}.txt`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  window.URL.revokeObjectURL(url);
-};
 
 /**
  * 下载账号头像。复用 requestBlob 的鉴权与 401 跳转；失败时抛 ApiError，

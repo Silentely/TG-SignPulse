@@ -16,6 +16,7 @@ import { normalizeFlowLogLines } from '../../lib/task-log-format'
 import { formatShortDateTime } from '../../lib/datetime'
 import { devLog } from '../../lib/devLog'
 import { failureCategoryLabel } from '../../lib/run-status'
+import { resolveTaskAccountName } from '../../lib/task-list-map'
 
 const { t } = useI18n()
 const authStore = useAuthStore()
@@ -44,14 +45,8 @@ const expandedIdx = ref<number | null>(null)
 const getTaskAccountName = (task: TaskUiItem): string => {
   if (!task) return ''
   if (props.runAccount) return props.runAccount
-  const raw = task.raw
-  const name = raw.account_name || ''
-  if (name && name !== '*') return name
-  const names = raw.account_names || []
-  for (const n of names) {
-    if (n && n !== '*') return n
-  }
-  return ''
+  // 直接值优先、跳过通配符、回落 account_names——与 task-list-map 共享同一解析
+  return resolveTaskAccountName(task.raw)
 }
 
 const lineTone = (text: string): string => {

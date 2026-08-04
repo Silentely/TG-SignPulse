@@ -83,11 +83,6 @@ export const testAIConnection = (token: string) =>
     method: "POST",
   }, token);
 
-export const deleteAIConfig = (token: string) =>
-  request<{ success: boolean; message: string }>("/config/ai", {
-    method: "DELETE",
-  }, token);
-
 // ─── 全局设置 ───
 
 export interface GlobalSettings {

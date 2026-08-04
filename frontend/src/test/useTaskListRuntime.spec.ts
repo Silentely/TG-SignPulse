@@ -264,4 +264,27 @@ describe('useTaskListRuntime (poll + cancel)', () => {
     expect(tasksRef.value[0].hitCount).toBe(7)
     unmount()
   })
+
+  it('blob URL 追踪：列表替换回收离场 URL，卸载不再残留', async () => {
+    const createSpy = vi.fn(() => 'blob:mock-avatar-1')
+    const revokeSpy = vi.fn()
+    vi.stubGlobal('URL', { ...URL, createObjectURL: createSpy, revokeObjectURL: revokeSpy })
+
+    api.fetchChatAvatar.mockResolvedValue(new Blob(['x'], { type: 'image/png' }))
+    const { result, tasksRef, unmount } = setup()
+    await result.afterTasksLoaded()
+    await flushPromises()
+
+    // 头像加载成功，URL 被记录但不回收（仍在列表中）
+    expect(tasksRef.value[0].chatAvatarUrl).toBe('blob:mock-avatar-1')
+    expect(revokeSpy).not.toHaveBeenCalled()
+
+    // 列表替换：该头像 URL 离场 → 回收
+    tasksRef.value = [tasksRef.value[1]]
+    await flushPromises()
+    expect(revokeSpy).toHaveBeenCalledWith('blob:mock-avatar-1')
+
+    unmount()
+    vi.unstubAllGlobals()
+  })
 })

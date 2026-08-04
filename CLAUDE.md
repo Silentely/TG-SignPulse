@@ -6,6 +6,7 @@
 
 | 日期 | 变更内容 |
 |------|----------|
+| 2026-08-04 | 后端：限流器补过期桶清扫（1h 陈旧/解封清理，防内存缓增）；任务运行状态迁移补 3 张内存映射；运行配置改单次读取（return_raw 消除双读，重试语义修正）；任务历史时间戳改 UTC；收敛账号解析与 JobLookupError 兜底、QR 注册失败可见化、头像缓存失败清理。前端：删除 16 个死 API 导出；会话头像 blob URL 追踪回收（列表替换/卸载统一 revoke）；会话搜索/复制提示/重登弹窗延时与 AbortController 卸载清理；DatePicker 与 AboutSettings 硬编码文案 i18n 化（含键一致性回归测试）；账号名解析收敛到共享 resolveTaskAccountName。后端 1094 条测试全绿，前端 301 条/typecheck/构建全绿 |
 | 2026-08-03 | 修复任务清理竞态（cancel 后 finally 误删新条目）与日志页/会话搜索过期响应竞态（各配回归测试）；修复 F821 未导入与 config.json 非原子回写；头像 blob URL 泄漏改 AvatarUrlCache 会话复用；收敛 hits 字段截断、6 处时间格式化、账号日志双循环；清理 write-only 字段与死导出并补静默异常诊断日志。后端 1076 条测试覆盖率 52.19%，前端 299 条/typecheck/构建全绿 |
 | 2026-08-03 | 任务取消不再误写失败历史/误发通知（CancelledError 单独捕获，收尾仍执行）；头像下载瞬时错误不再写 7 天无头像标记（服务层上抛与空结果区分，accounts/chat 双路由补回归测试）；AI 空结果检查修复（原 not lambda 恒 False 恒不触发）；Server酱 推送异常隔离不再中断监控匹配循环；补抓最后消息失败补诊断日志；list_accounts 三处 exists+stat 双重系统调用收敛单次 stat；清理死方法 login_sync、click text= 死分支与 __aexit__ 锁弹出竞态；前端竞态守卫/时区统一/卸载标记/死导出清理。后端 1086 条测试覆盖率 52.97%，前端 299 条/typecheck/构建全绿 |
 | 2026-06-30 | 初始化根级 CLAUDE.md，含架构总览、模块索引、Mermaid 结构图 |

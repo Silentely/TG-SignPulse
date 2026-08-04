@@ -4,41 +4,6 @@
 import { LONG_TIMEOUT_MS, request, requestText } from "./core";
 import type { SignTask } from "./sign-tasks";
 
-export const listConfigTasks = (token: string) =>
-  request<{ sign_tasks: string[]; monitor_tasks: string[]; total: number }>("/config/tasks", {}, token);
-
-export const exportSignTask = (token: string, taskName: string, accountName?: string) => {
-  const params = new URLSearchParams();
-  if (accountName) params.append("account_name", accountName);
-  const qs = params.toString();
-  return requestText(
-    `/config/export/sign/${taskName}${qs ? `?${qs}` : ""}`,
-    {},
-    token,
-    LONG_TIMEOUT_MS,
-  );
-};
-
-export const importSignTask = (
-  token: string,
-  configJson: string,
-  taskName?: string,
-  accountName?: string
-) =>
-  request<{ success: boolean; task_name: string; message: string }>(
-    "/config/import/sign",
-    {
-      method: "POST",
-      body: JSON.stringify({
-        config_json: configJson,
-        task_name: taskName,
-        account_name: accountName,
-      }),
-    },
-    token,
-    LONG_TIMEOUT_MS,
-  );
-
 export const exportAllConfigs = (token: string) =>
   requestText("/config/export/all", {}, token, LONG_TIMEOUT_MS);
 
@@ -64,15 +29,6 @@ export const importAllConfigs = (token: string, configJson: string, overwrite = 
     token,
     LONG_TIMEOUT_MS,
   );
-
-export const deleteSignConfig = (token: string, taskName: string, accountName?: string) => {
-  const params = new URLSearchParams();
-  if (accountName) params.append("account_name", accountName);
-  const url = `/config/sign/${taskName}${params.toString() ? `?${params.toString()}` : ""}`;
-  return request<{ success: boolean; message: string }>(url, {
-    method: "DELETE",
-  }, token);
-};
 
 export interface ImportPreviewResult {
   signs_count: number;

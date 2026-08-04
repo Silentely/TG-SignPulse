@@ -39,6 +39,8 @@ const pageLoading = ref(true)
 const avatarCache = new AvatarUrlCache()
 // 卸载标记：在途头像请求完成后不再创建 ObjectURL，避免 blob 泄漏
 let disposed = false
+/** 重登弹窗延时句柄：卸载时清理，避免关闭组件后仍打开新弹窗 */
+let reloginTimer: number | undefined
 const showAddModal = ref(false)
 const showEditModal = ref(false)
 const showAddMenu = ref(false)
@@ -122,6 +124,10 @@ onMounted(async () => {
 
 onUnmounted(() => {
   disposed = true
+  if (reloginTimer !== undefined) {
+    window.clearTimeout(reloginTimer)
+    reloginTimer = undefined
+  }
   // 离开页面时统一回收会话内头像 ObjectURL，避免 blob 泄漏
   avatarCache.release()
 })
@@ -179,7 +185,7 @@ const openOfficialMessages = (name: string) => {
 
 const handleRelogin = (name: string) => {
   showEditModal.value = false
-  setTimeout(() => {
+  reloginTimer = window.setTimeout(() => {
     initialAccountName.value = name
     initialMethod.value = 'code'
     showAddModal.value = true

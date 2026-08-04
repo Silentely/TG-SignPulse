@@ -505,6 +505,10 @@
     "importWithErrors": "Import finished with errors",
     "aboutTitle": "About / Version",
     "aboutDesc": "View the running version and build metadata, and check for newer releases.",
+    "dbLabel": "Database",
+    "dbSqlite": "SQLite",
+    "dbExternal": "External",
+    "monitorShard": "shard {shard}",
     "currentVersion": "Current version",
     "gitSha": "Git SHA",
     "gitBranch": "Branch",
@@ -766,5 +770,12 @@
   "language": {
     "switchToEn": "English",
     "switchToZh": "中文"
+  },
+  "datePicker": {
+    "selectDate": "Select date",
+    "clearDate": "Clear date",
+    "prevMonth": "Previous month",
+    "nextMonth": "Next month",
+    "today": "Today"
   }
 }
