@@ -581,7 +581,7 @@ class SignTaskHistoryMixin:
         flow_logs: Optional[List[str]] = None,
     ):
         """保存任务执行历史 (保留列表)"""
-        from datetime import datetime
+        from backend.utils.time import utc_now_iso
 
         history_file = self._history_file_path(task_name, account_name)
         normalized_logs, flow_truncated, flow_line_count = self._normalize_flow_logs(
@@ -598,7 +598,9 @@ class SignTaskHistoryMixin:
             success=success,
             message=message,
             account_name=account_name,
-            timestamp=datetime.now().isoformat(),
+            # 与 background_job/SSE 等全局时间源一致（UTC 带时区），
+            # 避免 naive 本地时间被前端按浏览器时区误解析
+            timestamp=utc_now_iso(),
             normalized_logs=normalized_logs,
             flow_truncated=flow_truncated,
             flow_line_count=flow_line_count,

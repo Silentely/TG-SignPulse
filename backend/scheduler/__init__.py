@@ -376,12 +376,19 @@ async def sync_jobs() -> None:
 
         if not st.get("enabled", True):
             if job_id in existing_ids:
-                scheduler.remove_job(job_id)
+                try:
+                    scheduler.remove_job(job_id)
+                except JobLookupError:
+                    # 并发 sync 下 job 可能已被其他协程移除，静默忽略
+                    pass
             continue
 
         if st.get("execution_mode") == "listen":
             if job_id in existing_ids:
-                scheduler.remove_job(job_id)
+                try:
+                    scheduler.remove_job(job_id)
+                except JobLookupError:
+                    pass
             continue
 
         try:
@@ -410,7 +417,11 @@ async def sync_jobs() -> None:
 
     # remove obsolete jobs
     for job_id in existing_ids - desired_ids:
-        scheduler.remove_job(job_id)
+        try:
+            scheduler.remove_job(job_id)
+        except JobLookupError:
+            # 并发 sync 下 job 可能已被其他协程移除，静默忽略
+            pass
 
 
 async def init_scheduler(sync_on_startup: bool = True) -> AsyncIOScheduler:

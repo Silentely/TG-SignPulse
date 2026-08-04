@@ -12,10 +12,16 @@ BucketKey = Tuple[str, str]
 
 
 class InMemoryRateLimiter:
+    # 桶内条目超过该时长即视为过期可清理；远大于业务窗口（≤600s）与封锁（≤1800s）
+    _STALE_BUCKET_AGE = 3600.0
+    # 每 N 次 hit 触发一次全局清扫，摊薄 O(n) 成本
+    _SWEEP_INTERVAL = 256
+
     def __init__(self) -> None:
         self._lock = Lock()
         self._attempts: Dict[BucketKey, Deque[float]] = {}
         self._blocked_until: Dict[BucketKey, float] = {}
+        self._hits_since_sweep = 0
 
     def reset(self, scope: str, key: str) -> None:
         bucket = (scope, key)
@@ -27,6 +33,17 @@ class InMemoryRateLimiter:
         with self._lock:
             self._attempts.clear()
             self._blocked_until.clear()
+            self._hits_since_sweep = 0
+
+    def _sweep_expired(self, now: float) -> None:
+        """机会式清理过期桶，防止 (scope, key) 组合随请求数无限增长。"""
+        stale = now - self._STALE_BUCKET_AGE
+        for bucket, attempts in list(self._attempts.items()):
+            if not attempts or attempts[-1] <= stale:
+                self._attempts.pop(bucket, None)
+        for bucket, blocked_until in list(self._blocked_until.items()):
+            if blocked_until <= now:
+                self._blocked_until.pop(bucket, None)
 
     def hit(
         self,
@@ -42,6 +59,11 @@ class InMemoryRateLimiter:
         now = time.monotonic()
 
         with self._lock:
+            self._hits_since_sweep += 1
+            if self._hits_since_sweep >= self._SWEEP_INTERVAL:
+                self._hits_since_sweep = 0
+                self._sweep_expired(now)
+
             blocked_until = self._blocked_until.get(bucket, 0.0)
             if blocked_until > now:
                 retry_after = max(int(math.ceil(blocked_until - now)), 1)

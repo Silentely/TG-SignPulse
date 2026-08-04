@@ -241,6 +241,7 @@ class AccountLogItem(BaseModel):
     bot_message: Optional[str] = None
     success: bool
     created_at: str
+    failure_category: Optional[str] = None
 
 
 def _extract_last_bot_message(item: dict) -> str:

@@ -853,11 +853,17 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
             runs = runs[:100]
         return runs
 
-    def _load_task_config(self, task_dir: Path) -> Optional[Dict[str, Any]]:
-        """Load one task config and normalize multi-account metadata."""
+    def _load_task_config(
+        self, task_dir: Path, *, return_raw: bool = False
+    ) -> Optional[Dict[str, Any]]:
+        """Load one task config and normalize multi-account metadata.
+
+        return_raw=True 时同时返回磁盘原始 dict（保留 retry_count 键存在性等
+        归一化会丢失的信息），避免调用方二次读盘。
+        """
         config_file = task_dir / "config.json"
         if not config_file.exists():
-            return None
+            return (None, None) if return_raw else None
 
         try:
             with open(config_file, "r", encoding="utf-8") as f:
@@ -876,7 +882,7 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
                     task_dir, account_name=resolved_account_name
                 )
 
-            return self._build_task_response(
+            normalized = self._build_task_response(
                 task_name=task_dir.name,
                 primary_account_name=resolved_account_name,
                 account_names=resolved_account_names,
@@ -897,8 +903,11 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
                 ),
                 retry_count=int(config.get("retry_count", 3)),
             )
+            if return_raw:
+                return normalized, config
+            return normalized
         except Exception:
-            return None
+            return (None, None) if return_raw else None
 
     def get_task(
         self,
@@ -1295,23 +1304,6 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         from backend.services.sign_task_runner import execute_sign_task
 
         return await execute_sign_task(self, account_name, task_name, run_id=run_id)
-
-    def _load_raw_task_config_dict(
-        self, task_name: str, account_name: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """读取磁盘 config.json 原字典（用于判断 retry_count 键是否存在）。"""
-        task_dir = self._resolve_task_dir(task_name, account_name)
-        if task_dir is None:
-            return {}
-        config_file = task_dir / "config.json"
-        if not config_file.exists():
-            return {}
-        try:
-            with open(config_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            return data if isinstance(data, dict) else {}
-        except Exception:
-            return {}
 
 
 # 创建全局实例

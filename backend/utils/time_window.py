@@ -95,14 +95,3 @@ def is_within_time_window(
         return start_cmp <= current < end_cmp
     # 跨午夜
     return current >= start_cmp or current < end_cmp
-
-
-def is_within_time_window_now(
-    start: Any,
-    end: Any,
-    *,
-    tz_name: Any = None,
-) -> bool:
-    """按指定时区的当前时间判断是否在窗内。"""
-    tz = resolve_tz(tz_name)
-    return is_within_time_window(datetime.now(tz), start, end, tz_name=tz_name)

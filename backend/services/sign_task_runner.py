@@ -41,12 +41,14 @@ async def _runner_load_config(state: Dict[str, Any]) -> None:
     """Phase 1: 加载任务配置，提取运行参数。"""
     svc: SignTaskService = state["svc"]
     task_dir = svc._resolve_task_dir(state["task_name"], state["account_name"])
-    task_cfg = svc._load_task_config(task_dir) if task_dir else None
+    loaded = svc._load_task_config(task_dir, return_raw=True) if task_dir else (None, None)
+    task_cfg, raw_task_cfg = loaded if loaded is not None else (None, None)
     if not task_cfg:
         raise ValueError(f"Task {state['task_name']} does not exist or cannot be loaded")
     state.update(
         {
             "task_cfg": task_cfg,
+            "raw_task_cfg": raw_task_cfg,
             "requires_updates": svc._task_requires_updates(task_cfg),
             "has_keyword_monitor": svc._task_has_keyword_monitor(task_cfg),
             "signer_no_updates": not svc._task_requires_updates(task_cfg),
@@ -254,9 +256,7 @@ async def _runner_prepare_execution(state: Dict[str, Any]) -> None:
     from backend.services.sign_tasks import _task_retry_count_var
 
     svc: SignTaskService = state["svc"]
-    raw_task_cfg = svc._load_raw_task_config_dict(
-        state["task_name"], state["account_name"]
-    )
+    raw_task_cfg = state.get("raw_task_cfg") or {}
     task_retry_count = resolve_effective_retry_count(
         raw_task_cfg, get_flow_retry_attempts()
     )

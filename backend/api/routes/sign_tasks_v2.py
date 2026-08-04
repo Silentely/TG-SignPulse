@@ -509,23 +509,7 @@ async def run_sign_task(
     current_user=Depends(get_current_user),
 ):
     try:
-        resolved_account = account_name
-        if not resolved_account or resolved_account == "*":
-            task = get_sign_task_service().get_task(task_name, aggregate=True)
-            if not task:
-                raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
-            for name in task.get("account_names", []):
-                if name and name != "*":
-                    resolved_account = name
-                    break
-            if not resolved_account or resolved_account == "*":
-                resolved_account = task.get("account_name", "")
-            if not resolved_account or resolved_account == "*":
-                raise HTTPException(status_code=400, detail="无法确定执行账号")
-        else:
-            task = get_sign_task_service().get_task(task_name, account_name=resolved_account)
-            if not task:
-                raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
+        resolved_account = _resolve_task_account(task_name, account_name)
         return await get_sign_task_service().run_task_with_logs(resolved_account, task_name)
     except HTTPException:
         raise
@@ -543,25 +527,8 @@ async def start_sign_task_run(
     current_user=Depends(get_current_user),
 ):
     try:
-        # Resolve account_name: if not provided or wildcard, find first real account
-        resolved_account = account_name
-        if not resolved_account or resolved_account == "*":
-            task = get_sign_task_service().get_task(task_name, aggregate=True)
-            if not task:
-                raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
-            # Find first real account from account_names
-            for name in task.get("account_names", []):
-                if name and name != "*":
-                    resolved_account = name
-                    break
-            if not resolved_account or resolved_account == "*":
-                resolved_account = task.get("account_name", "")
-            if not resolved_account or resolved_account == "*":
-                raise HTTPException(status_code=400, detail="无法确定执行账号")
-        else:
-            task = get_sign_task_service().get_task(task_name, account_name=resolved_account)
-            if not task:
-                raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
+        # 统一账号解析（含通配符展开与 404/400 语义），与 run/status/cancel 一致
+        resolved_account = _resolve_task_account(task_name, account_name)
         return await get_sign_task_service().start_task_run(resolved_account, task_name)
     except HTTPException:
         raise
@@ -793,10 +760,13 @@ async def get_chat_avatar(
         if age < _AVATAR_CACHE_TTL_SECONDS:
             try:
                 import shutil
+
                 shutil.copy2(legacy_cache_file, cache_file)
             except Exception:
-                pass
-            return FileResponse(cache_file, media_type="image/jpeg")
+                # 拷贝失败（源被并发删除/无权限）时继续走下载分支，避免 500
+                cache_file.unlink(missing_ok=True)
+            else:
+                return FileResponse(cache_file, media_type="image/jpeg")
 
     # Try to download avatar - first with the requested account, then fall back
     from backend.services.telegram import get_telegram_service
@@ -949,7 +919,8 @@ async def sign_task_logs_ws(
     except WebSocketDisconnect:
         pass
     except Exception:
-        pass
+        # 读取/发送循环异常不应静默断连，记录便于排障
+        _sync_logger.debug("任务日志 WebSocket 流异常中断", exc_info=True)
     finally:
         try:
             await websocket.close()

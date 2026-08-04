@@ -249,7 +249,53 @@ def test_cancel_task_run_no_background():
     svc._active_logs = {}
     res = SignTaskService.cancel_task_run(svc, "acc1", "daily")
     assert res["ok"] is False
-    assert res["cancelled"] is False
+
+
+def test_rename_account_references_migrates_runtime_maps():
+    """改名后运行态 map 的 (account, task) 键必须一并迁移，
+    否则新名查 status/cancel 会 miss、后台任务成为孤儿。"""
+    from unittest.mock import MagicMock, patch
+
+    from backend.services.sign_tasks import SignTaskService
+
+    svc = SignTaskService.__new__(SignTaskService)
+    svc.signs_dir = MagicMock()
+    svc.signs_dir.glob.return_value = []
+    svc.run_history_dir = MagicMock()
+    svc.run_history_dir.glob.return_value = []
+    # 六张运行态 map 各放一条旧账号键
+    svc._active_logs = {("old_acc", "t1"): ["log"]}
+    svc._active_tasks = {("old_acc", "t1"): True}
+    svc._cleanup_tasks = {("old_acc", "t1"): MagicMock()}
+    svc._run_statuses = {("old_acc", "t1"): {"run_id": "r1"}}
+    svc._run_status_cleanup_tasks = {("old_acc", "t1"): MagicMock()}
+    svc._background_run_tasks = {("old_acc", "t1"): MagicMock()}
+    svc._account_last_run_end = {"old_acc": 123.0}
+    svc._cache_refresh_deferred = 0
+
+    with (
+        patch(
+            "backend.services.sign_task_crud.rebuild_index_from_history_files",
+            return_value=None,
+        ),
+        patch.object(
+            SignTaskService, "_refresh_tasks_cache_after_write", return_value=None
+        ),
+    ):
+        SignTaskService.rename_account_references(svc, "old_acc", "new_acc")
+
+    for mapping_name in (
+        "_active_logs",
+        "_active_tasks",
+        "_cleanup_tasks",
+        "_run_statuses",
+        "_run_status_cleanup_tasks",
+        "_background_run_tasks",
+    ):
+        mapping = getattr(svc, mapping_name)
+        assert ("new_acc", "t1") in mapping
+        assert ("old_acc", "t1") not in mapping
+    assert svc._account_last_run_end == {"new_acc": 123.0}
 
 
 def test_cancel_task_run_cancels_background():

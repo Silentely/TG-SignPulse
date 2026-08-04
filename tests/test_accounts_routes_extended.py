@@ -350,6 +350,7 @@ class TestRecentLogs:
                 "success": False,
                 "time": "2026-07-31T02:00:00",
                 "message": "失败详情",
+                "failure_category": "session_invalid",
             },
         ]
         with _patch_sign_svc(_sign_svc(get_recent_history_logs=history)):
@@ -363,6 +364,9 @@ class TestRecentLogs:
         assert body[1]["message"] == "失败详情"
         assert body[1]["summary"] == "Task: 签到B failed"
         assert body[1]["created_at"] == "2026-07-31T02:00:00"
+        # 失败分类字段需透传（Dashboard 依赖它渲染失败标签）；缺失时回落 None
+        assert body[0]["failure_category"] is None
+        assert body[1]["failure_category"] == "session_invalid"
 
     def test_recent_logs_limit_clamped(self, api_client, db):  # noqa: F811
         token = _login(api_client)
@@ -404,7 +408,7 @@ class TestClearAndAccountLogs:
                 "time": "2026-07-31T01:00:00",
                 "last_target_message": "ok",
             },
-            {"success": False, "time": ""},
+            {"success": False, "time": "", "failure_category": "timeout"},
             {"task_name": "", "success": True, "time": ""},
         ]
         with _patch_sign_svc(_sign_svc(get_account_history_logs=history)):
@@ -420,6 +424,10 @@ class TestClearAndAccountLogs:
         assert body[1]["summary"] == "Task: 未知任务 failed"
         assert body[2]["task_name"] == "未知任务"
         assert body[2]["summary"] == "Task: 未知任务 success"
+        # failure_category 经 AccountLogItem 透传；缺失回落 None
+        assert body[0]["failure_category"] is None
+        assert body[1]["failure_category"] == "timeout"
+        assert body[2]["failure_category"] is None
 
     def test_clear_account_logs_not_found_404(self, api_client, db):  # noqa: F811
         token = _login(api_client)

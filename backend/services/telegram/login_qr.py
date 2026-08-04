@@ -294,8 +294,9 @@ class TelegramQrLoginMixin:
                 except Exception:
                     try:
                         await client.dispatcher.start()
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        # 初始化失败不致命：后续 stop 仍会尝试完整关闭
+                        logger.debug("QR 登录客户端初始化失败: %s", exc)
 
                 async def _raw_handler(_, update, __, ___):
                     if not isinstance(update, raw.types.UpdateLoginToken):
@@ -319,8 +320,13 @@ class TelegramQrLoginMixin:
 
                 handler = client.add_handler(handlers.RawUpdateHandler(_raw_handler))
                 session_data["handler"] = handler
-            except Exception:
-                pass
+            except Exception as exc:
+                # 注册失败会导致扫码更新永远收不到，登录卡死在 waiting_scan；
+                # 必须记录错误并标记状态，避免静默失败
+                logger.error("QR 登录注册扫码监听失败: %s", exc)
+                session_data["status"] = "error"
+                session_data["error"] = "qr_handler_register_failed"
+                self._log_qr_state(login_id, "error", session_data)
 
             session_data["expire_task"] = create_logged_task(
                 self._expire_qr_login(login_id, expires_ts),

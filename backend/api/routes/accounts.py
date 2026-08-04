@@ -447,6 +447,7 @@ def get_recent_account_logs(
                 "bot_message": _extract_last_bot_message(item) or None,
                 "success": success,
                 "created_at": item.get("time", ""),
+                "failure_category": item.get("failure_category") or None,
             }
         )
     return logs
@@ -654,14 +655,19 @@ async def update_account(
         if renamed:
             from backend.scheduler import sync_jobs
 
-            await sync_jobs()
+            try:
+                await sync_jobs()
+            except Exception as exc:
+                # 调度同步失败不应阻断改名主流程；与 config.py/batch.py 的兜底策略一致
+                logger.warning("账号改名后同步调度任务失败: %s", exc)
 
         try:
             from backend.services.keyword_monitor import get_keyword_monitor_service
 
             await get_keyword_monitor_service().restart_from_tasks()
-        except Exception:
-            pass
+        except Exception as exc:
+            # 监控重启失败仅告警，避免静默保持旧账号监控
+            logger.warning("账号更新后重启关键词监控失败: %s", exc)
 
         updated = find_account_by_name(
             service.list_accounts(force_refresh=True),
@@ -737,6 +743,7 @@ def get_account_logs(
                 created_at=item.get("time", ""),
                 summary=f"Task: {task_name} {'success' if success else 'failed'}",
                 bot_message=_extract_last_bot_message(item) or None,
+                failure_category=item.get("failure_category") or None,
             )
         )
 

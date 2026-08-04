@@ -448,7 +448,16 @@ class SignTaskCrudMixin:
 
             self._move_storage_path(history_file, target_file)
 
-        for mapping_name in ("_active_logs", "_active_tasks", "_cleanup_tasks"):
+        # 运行中的状态/后台任务也以 (account, task) 为键，改名后必须一并迁移，
+        # 否则新名查 status/cancel 会 miss、后台任务成为孤儿
+        for mapping_name in (
+            "_active_logs",
+            "_active_tasks",
+            "_cleanup_tasks",
+            "_run_statuses",
+            "_run_status_cleanup_tasks",
+            "_background_run_tasks",
+        ):
             mapping = getattr(self, mapping_name)
             for key in list(mapping.keys()):
                 account_name, task_name = key

@@ -68,7 +68,9 @@ class FakeSvc:
     def _resolve_task_dir(self, task_name: str, account_name: str):
         return "/fake/dir" if self.task_cfg is not None else None
 
-    def _load_task_config(self, task_dir):
+    def _load_task_config(self, task_dir, *, return_raw: bool = False):
+        if return_raw:
+            return self.task_cfg, self.task_cfg or {}
         return self.task_cfg
 
     def _task_requires_updates(self, cfg) -> bool:
@@ -79,9 +81,6 @@ class FakeSvc:
 
     def _get_effective_proxy(self, account_name: str):
         return self.proxy
-
-    def _load_raw_task_config_dict(self, task_name: str, account_name: str):
-        return {}
 
     def _is_invalid_session_error(self, e: Exception) -> bool:
         return False
