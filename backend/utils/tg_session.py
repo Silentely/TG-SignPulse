@@ -95,10 +95,7 @@ def _save_account_store(data: dict) -> None:
 
 def list_account_names() -> list[str]:
     data = _load_account_store()
-    accounts = data.get("accounts", {})
-    if not isinstance(accounts, dict):
-        return []
-    return sorted(accounts.keys())
+    return sorted(data["accounts"].keys())
 
 
 def get_account_session_string(account_name: str) -> Optional[str]:
@@ -117,10 +114,7 @@ def get_account_session_string(account_name: str) -> Optional[str]:
 
 def set_account_session_string(account_name: str, session_string: str) -> None:
     data = _load_account_store()
-    accounts = data.get("accounts")
-    if not isinstance(accounts, dict):
-        accounts = {}
-        data["accounts"] = accounts
+    accounts = data["accounts"]
     entry = accounts.get(account_name)
     if not isinstance(entry, dict):
         entry = {}
@@ -135,8 +129,8 @@ def set_account_session_string(account_name: str, session_string: str) -> None:
 
 def delete_account_session_string(account_name: str) -> None:
     data = _load_account_store()
-    accounts = data.get("accounts")
-    if isinstance(accounts, dict) and account_name in accounts:
+    accounts = data["accounts"]
+    if account_name in accounts:
         accounts.pop(account_name, None)
         _save_account_store(data)
 
@@ -146,10 +140,7 @@ def rename_account_entry(old_account_name: str, new_account_name: str) -> None:
         return
 
     data = _load_account_store()
-    accounts = data.get("accounts")
-    if not isinstance(accounts, dict):
-        accounts = {}
-        data["accounts"] = accounts
+    accounts = data["accounts"]
 
     entry = accounts.pop(old_account_name, None)
     if entry is None:
@@ -193,10 +184,7 @@ def set_account_profile(
     account_name: str, *, remark: Optional[str] = None, proxy: Optional[str] = None
 ) -> None:
     data = _load_account_store()
-    accounts = data.get("accounts")
-    if not isinstance(accounts, dict):
-        accounts = {}
-        data["accounts"] = accounts
+    accounts = data["accounts"]
     entry = accounts.get(account_name)
     if not isinstance(entry, dict):
         entry = {}
@@ -232,10 +220,7 @@ def set_account_status(
     invalid_notified_at: Optional[str] = None,
 ) -> None:
     data = _load_account_store()
-    accounts = data.get("accounts")
-    if not isinstance(accounts, dict):
-        accounts = {}
-        data["accounts"] = accounts
+    accounts = data["accounts"]
     entry = accounts.get(account_name)
     if not isinstance(entry, dict):
         entry = {}

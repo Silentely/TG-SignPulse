@@ -20,8 +20,6 @@ export interface DashboardLog {
 }
 
 // ─── Accounts 视图模型 ───
-export type AccountUiStatus = 'active' | 'empty' | 'error';
-
 export interface AccountUiItem {
   id: string;
   name: string;

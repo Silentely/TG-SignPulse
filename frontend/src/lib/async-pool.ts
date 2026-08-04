@@ -3,8 +3,6 @@
  * 用于头像批量拉取等场景，避免 N 路同时打满连接 / 触发 401 风暴。
  */
 
-export type AsyncPoolTask<T> = () => Promise<T>
-
 /**
  * 按 concurrency 上限并行跑 tasks；结果顺序与 tasks 输入顺序一致。
  * 单个任务失败不会中断整池，对应位置为 rejected 的 Promise 结果由调用方处理。

@@ -57,12 +57,6 @@ def _clear_sign_task_cache() -> None:
         )
 
 
-class ExportTaskResponse(BaseModel):
-    task_name: str
-    task_type: str
-    config_json: str
-
-
 class ImportTaskRequest(BaseModel):
     config_json: str
     task_name: Optional[str] = None

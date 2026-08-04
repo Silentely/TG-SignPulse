@@ -25,7 +25,7 @@ from tg_signer.security import (
     mask_secret,
 )
 
-TEST_SECRET = "unit-test-secret-key"
+TEST_SECRET = "unit-test-secret-key-0123456789abcdef"
 
 
 @pytest.fixture(autouse=True)
@@ -104,7 +104,7 @@ class TestGetFernet:
         assert isinstance(f1, Fernet)
         assert f1 is f2  # 同密钥命中 lru_cache
 
-        monkeypatch.setenv("APP_SECRET_KEY", "another-secret-key")
+        monkeypatch.setenv("APP_SECRET_KEY", "another-secret-key-0123456789abcdef")
         f3 = get_fernet()
         assert isinstance(f3, Fernet)
         assert f3 is not f1  # 换密钥得到新实例
@@ -153,7 +153,7 @@ class TestDecryptSecret:
 
     def test_wrong_key_raises_invalid_token(self, monkeypatch):
         token = encrypt_secret("plain-text")
-        monkeypatch.setenv("APP_SECRET_KEY", "different-secret-key")
+        monkeypatch.setenv("APP_SECRET_KEY", "different-secret-key-0123456789abcdef")
         with pytest.raises(InvalidToken, match="wrong APP_SECRET_KEY"):
             decrypt_secret(token)
 

@@ -77,7 +77,7 @@ class TestTokenCrossKey:
 
         different_token = jwt.encode(
             {"sub": "admin", "exp": utc_now() + timedelta(hours=1)},
-            "completely-different-secret-key",
+            "completely-different-secret-key-0123456789",
             algorithm="HS256",
         )
         response = client.get(

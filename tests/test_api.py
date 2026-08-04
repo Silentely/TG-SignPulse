@@ -44,7 +44,7 @@ def api_client(tmp_path, monkeypatch) -> Iterator[TestClient]:
     # 隔离环境变量
     monkeypatch.setenv("APP_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("APP_DB_PATH", str(tmp_path / "data" / "test.sqlite"))
-    monkeypatch.setenv("APP_SECRET_KEY", "test-secret-key-for-jwt")
+    monkeypatch.setenv("APP_SECRET_KEY", "test-secret-key-for-jwt-0123456789")
     monkeypatch.setenv("TG_API_ID", "12345")
     monkeypatch.setenv("TG_API_HASH", "test-api-hash")
     monkeypatch.setenv("SIGN_TASK_FORCE_IN_MEMORY", "1")

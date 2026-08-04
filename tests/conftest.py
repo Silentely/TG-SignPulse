@@ -91,7 +91,7 @@ def isolated_env(monkeypatch: pytest.MonkeyPatch, temp_data_dir: Path) -> Iterat
     """
     monkeypatch.setenv("APP_DATA_DIR", str(temp_data_dir))
     monkeypatch.setenv("APP_DB_PATH", str(temp_data_dir / "test.sqlite"))
-    monkeypatch.setenv("APP_SECRET_KEY", "test-secret-key")
+    monkeypatch.setenv("APP_SECRET_KEY", "test-secret-key-0123456789abcdef")
     monkeypatch.setenv("TG_API_ID", "12345")
     monkeypatch.setenv("TG_API_HASH", "test-api-hash")
     yield temp_data_dir
