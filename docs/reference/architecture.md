@@ -72,6 +72,10 @@ http://127.0.0.1:3000
 - 历史记录和流程日志
 - 失败通知
 
+执行细节由 `sign_task_runner.execute_sign_task` 分阶段完成（账号锁、冷却、重试、超时、落历史）；取消（`CancelledError`）不写失败历史、不发失败通知。开发者地图见仓库 [`backend/CLAUDE.md`](../../backend/CLAUDE.md)。
+
+历史列表依赖 `history/_recent_index.jsonl` 轻量索引（供 SSE / 最近日志），详情仍读各任务 history JSON。
+
 ## 关键词监听服务
 
 `KeywordMonitorService` 负责：
@@ -81,6 +85,10 @@ http://127.0.0.1:3000
 - 匹配关键词、正则和话题
 - 触发通知、转发或继续动作
 - 在任务变化后重建监听器
+- 按 (账号, 会话) 持久化已处理消息水位（`seen.json`），避免重连补投重复命中
+- 命中后的 continue 动作（发文本/骰子/点键盘/AI/Bot 命令等）在 `continue_actions` 模块执行
+
+分片与 allowlist 见环境变量 `APP_MONITOR_SHARD`、`APP_MONITOR_ACCOUNT_ALLOWLIST`。
 
 ## 执行引擎
 

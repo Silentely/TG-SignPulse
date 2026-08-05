@@ -4,36 +4,13 @@
 
 ## 变更记录 (Changelog)
 
-| 日期 | 变更内容 |
-|------|----------|
-| 2026-08-05 | 打磨：面板全局设置重启后回灌环境变量（提取 apply_global_settings_to_env，保存与 on_startup 共用，修复 AI_VISION_TIMEOUT 等 6 项重启后静默回退默认值；删死包装函数，新增 5 条测试）；前端 Tasks 列表 last_run 收敛到统一面板时区格式化（formatTaskListDate 重复实现删除，补 UTC→HK 回归测试）；删除无消费死端点 GET /api/config/tasks 与同步 POST /api/sign-tasks/{name}/run（服务方法保留）；version_info/device_keepalive 直用 datetime.now 收敛到 utils.time；keyword_monitor 内存日志时间戳统一 UTC（updated_at 改 Z 后缀 ISO，前端可正确解析）；Login.vue 移除对本地化文案的脆弱 TOTP 判断；log_utils 删零引用死函数；文档同步 backend/CLAUDE.md 接口章节、keyword-monitor.md Server酱通道表述、根 CLAUDE.md 组件表（13→32）与 docs README 目录树。后端 1205 条测试全绿，前端 304 条/typecheck 全绿 |
-| 2026-08-04 | 关键词监听重启去重：按 (账号, 会话) 持久化已处理消息水位（keyword_monitor/seen.json，30s 节流原子写盘、停机/重启加载），重连补投的旧消息不再重复命中、推送与落记录，新增 6 条测试。前端账号名解析统一收敛：resolveTaskAccountName 兼容 TaskUiItem 自动解 raw，Tasks 视图/useTaskListActions/TaskLogsModal 移除重复封装，新增 resolveTaskAccountNames 供 useTaskListRuntime 复用；修复克隆任务把 '*' 当账号名传后端的缺陷并补回归测试。后端 1186 条测试全绿，前端 304 条/typecheck/构建全绿 |
-| 2026-08-04 | 打磨：删除 config 路由死类 ExportTaskResponse 与 tg_session 内 6 处不可达防御分支（_load_account_store 已归一化 accounts 为 dict）；测试密钥统一升级至 ≥32 字节消除 PyJWT InsecureKeyLengthWarning 噪音；backend/utils/tg_session 覆盖率 54%→99%（新增 68 条用例覆盖账号存储 CRUD、并发信号量、会话串旧格式、导出兜底），backend/utils/storage 覆盖率 68%→98%（新增 18 条用例）。前端：删除死导出 AccountUiStatus 与 AsyncPoolTask。后端 1162 条测试全绿且无警告，前端 301 条/typecheck 全绿 |
-| 2026-08-04 | 后端：限流器补过期桶清扫（1h 陈旧/解封清理，防内存缓增）；任务运行状态迁移补 3 张内存映射；运行配置改单次读取（return_raw 消除双读，重试语义修正）；任务历史时间戳改 UTC；收敛账号解析与 JobLookupError 兜底、QR 注册失败可见化、头像缓存失败清理。前端：删除 16 个死 API 导出；会话头像 blob URL 追踪回收（列表替换/卸载统一 revoke）；会话搜索/复制提示/重登弹窗延时与 AbortController 卸载清理；DatePicker 与 AboutSettings 硬编码文案 i18n 化（含键一致性回归测试）；账号名解析收敛到共享 resolveTaskAccountName。后端 1094 条测试全绿，前端 301 条/typecheck/构建全绿 |
-| 2026-08-03 | 修复任务清理竞态（cancel 后 finally 误删新条目）与日志页/会话搜索过期响应竞态（各配回归测试）；修复 F821 未导入与 config.json 非原子回写；头像 blob URL 泄漏改 AvatarUrlCache 会话复用；收敛 hits 字段截断、6 处时间格式化、账号日志双循环；清理 write-only 字段与死导出并补静默异常诊断日志。后端 1076 条测试覆盖率 52.19%，前端 299 条/typecheck/构建全绿 |
-| 2026-08-03 | 任务取消不再误写失败历史/误发通知（CancelledError 单独捕获，收尾仍执行）；头像下载瞬时错误不再写 7 天无头像标记（服务层上抛与空结果区分，accounts/chat 双路由补回归测试）；AI 空结果检查修复（原 not lambda 恒 False 恒不触发）；Server酱 推送异常隔离不再中断监控匹配循环；补抓最后消息失败补诊断日志；list_accounts 三处 exists+stat 双重系统调用收敛单次 stat；清理死方法 login_sync、click text= 死分支与 __aexit__ 锁弹出竞态；前端竞态守卫/时区统一/卸载标记/死导出清理。后端 1086 条测试覆盖率 52.97%，前端 299 条/typecheck/构建全绿 |
-| 2026-06-30 | 初始化根级 CLAUDE.md，含架构总览、模块索引、Mermaid 结构图 |
-| 2026-06-30 | 补扫：TelegramService 登录流程、4 个后端路由、3 个前端 Views、tg_signer 核心类 |
-| 2026-06-30 | 补扫：backend/utils/ 13 个工具模块、tools/ 迁移脚本、前端剩余 3 个 Views |
-| 2026-06-30 | 补扫：前端 Composables、tg_signer/config.py 配置模型；验证 5 项关键发现 |
-| 2026-06-30 | 补扫：tg_signer/core.py 前半段（Client 生命周期）、前端 13 个 Components；规划 token/any 修复方案 |
-| 2026-07-01 | 新增账号设备管理、设备保活、官方消息查看、批量状态检查功能 |
-| 2026-07-30 | 删除 pyotp 根 shim 与四处死代码；收敛凭据解析/JWT/前端通知/账号状态公共入口；批量写延迟缓存刷新；覆盖率门槛升至 40% |
-| 2026-07-31 | print_exc 收敛为结构化日志并清理注释死代码；历史清理/回复解析/空备份清理等 6 处静默异常补诊断日志；修复历史运维模块乱码 docstring；print_to_user 编码兜底改为 ascii 使回退真正生效；tg_signer/utils 覆盖率 35%→100%（新增 14 条测试） |
-| 2026-07-31 | 静默 except 收尾 11 处（通配任务配置写入失败升 warning，其余按级别补诊断日志，过期历史清理收窄为 OSError）；tg_signer/security 覆盖率 56%→100%（新增 18 条测试）；前端 typecheck/vitest 287 条/生产构建全绿 |
-| 2026-07-31 | 集中补测长尾模块——telegram/sessions 23%→96%（登录会话释放与过期/超量清理）、tg_signer/pydantic_compat 57%→97%（鸭子类型命中 v2 分支与 dump_json）、backend/utils/task_logs 71%→98%（日志提取器全分支）；新增 23 条测试 |
-| 2026-07-31 | 修复配置接口输入边界：设备保活手动执行响应补回并发提示字段；导入签到任务非法名称返回 400 且回显规范化后的落盘名称；Telegram 凭据保存时校验 api_id 为正整数；新增 10 条接口守钉测试 |
-| 2026-07-31 | 攻克 sign_task_runner 覆盖率 1%→93%——FakeSvc/FakeSigner 替身穿透成功/失败/超时/重试/冷却/强失败翻转/session 双模式/补抓超时分支，新增 24 条测试，总覆盖率 46%→48% |
-| 2026-07-31 | 文档一致性：tg_signer/core.py 单文件行号锚点重锚为 client.py/runtime.py 拆分后真实结构（README 中英文同步）；删除 pyproject 中已不存在 shim 文件的 per-file-ignores 死配置 |
-| 2026-07-31 | 修正 tasks 指南中旧 `/api/tasks` "默认只读"过时表述（实际已完全移除，改链 FAQ）；sign_task_backend 覆盖率 54%→100%（TaskLogHandler 规范化/回退/溢出/容错与 task_dir 三级解析/交互禁令，新增 10 条测试）；前端 bundle 分析确认分包健康无需干预 |
-| 2026-07-31 | 通知链路补测——sign_task_notify 10%→100%（门控/静默时段/话题 ID 解析/失败与成功推送容错/mark_account_invalid 幂等通知/check_account_before_task 预检全分支含 fail-open）、server_chan 12%→100%（标准与 sctp 双 URL、参数合并、非法 sendkey 报错）；新增 36 条测试 |
-| 2026-07-31 | 提交信息规范化：未推送历史中的过程性字眼改写为描述式表述，变更记录同步去除编号前缀 |
-| 2026-07-31 | 功能修复四处：设备保活间隔配置非数字值不再导致整轮 500（容错解析并夹取 1~170 天），运行中响应的 enabled 改为如实读取而非硬编码 True；账号日志 task_name 为空串时统一回落默认名并删除第二兜底；logs 路由校验式日期调用补意图注释。device_keepalive 覆盖 16%→84%（新增 13 条用例含间隔夹取/启停门控/忙响应/状态持久化），总测试 1047 条 |
-| 2026-07-31 | 路由层补测——routes/accounts 33%→96%（登录/QR 全流程错误映射、批量状态 Job 增删查消、最近/账号日志映射与限长夹取、导出内容断言、设备/官方消息、头像缓存三级回退、改名更新路径）、routes/events 36%→91%（SSE 字节编码/去重键/令牌校验、事件流种子去重/兜底扫描与容错/心跳）；新增 69 条测试，总覆盖 48.86%→50.48% |
+> 完整变更记录已拆分至 [`CHANGELOG.md`](./CHANGELOG.md)，避免 CLAUDE.md 过长影响上下文。
 
 ## 项目愿景
 
 TG-SignPulse 是一个基于 Node.js (Vue 3) + Python (FastAPI) 的 Telegram 自动化任务管理平台，提供 Web 面板统一管理多个 Telegram 账号的定时签到、消息交互、关键词监控和 AI 辅助回复。
+
+当前版本：`tg_signer.__version__` = **2.2.3**。
 
 ## 架构总览
 
@@ -50,47 +27,51 @@ graph TD
     D --> D3["Pyrogram/kurigram + Click CLI"];
     E --> E4["VitePress 文档站"];
     F --> F1["pytest 测试套件"];
-    G --> G2["迁移工具"];
+    G --> G2["迁移/盘点工具"];
 
     click B "./frontend/CLAUDE.md" "查看 frontend 模块文档"
     click C "./backend/CLAUDE.md" "查看 backend 模块文档"
+    click D "./tg_signer/CLAUDE.md" "查看 tg_signer 模块文档"
+    click E "./docs/CLAUDE.md" "查看 docs 模块文档"
+    click F "./tests/CLAUDE.md" "查看 tests 模块文档"
 ```
 
 ### 技术栈
 
 | 层级 | 技术选型 |
 |------|----------|
-| 前端 | Vue 3 + TypeScript + Vite + Pinia + Tailwind CSS + vue-i18n |
-| 后端 API | FastAPI + SQLAlchemy + APScheduler + Pydantic v1 |
-| Telegram 引擎 | Pyrogram / kurigram (tg_signer 子包) |
-| 数据库 | SQLite (WAL 模式) |
+| 前端 | Vue 3 + TypeScript + Vite + Pinia + Tailwind CSS 4 + vue-i18n + PWA |
+| 后端 API | FastAPI + SQLAlchemy + APScheduler + Pydantic v1（`<2` 钉死） |
+| Telegram 引擎 | Pyrogram / kurigram (`tg_signer` 子包) |
+| 数据库 | 默认 SQLite (WAL)；可选 `APP_DATABASE_URL` / `DATABASE_URL`（如 PostgreSQL） |
 | 认证 | JWT (HS256) + bcrypt + TOTP (pyotp) |
 | 部署 | Docker 多阶段构建 + GHCR + docker-compose |
-| 文档 | VitePress |
-| 测试 | pytest + pytest-asyncio + pytest-cov |
+| 文档 | VitePress 1.6 |
+| 测试 | pytest + pytest-asyncio + pytest-cov；前端 vitest |
 
 ## 模块索引
 
 | 模块 | 路径 | 语言 | 职责 |
 |------|------|------|------|
-| 前端面板 | `frontend/` | TypeScript/Vue | Web 管理界面，Dashboard/Accounts/Tasks/Logs/Settings |
-| 后端 API | `backend/` | Python | FastAPI REST 接口、任务调度、账号管理、签到执行 |
-| Telegram 引擎 | `tg_signer/` | Python | Pyrogram 封装、签到/监控 CLI、配置模型 |
-| 文档站 | `docs/` | Markdown/VitePress | 用户指南、部署文档、架构参考 |
-| 测试 | `tests/` | Python | pytest 单元/集成测试 |
-| 工具 | `tools/` | Python | 迁移脚本（session 导出、Bot 监听测试） |
+| 前端面板 | `frontend/` | TypeScript/Vue | Web 管理界面：Dashboard/Accounts/Tasks/Logs/Settings |
+| 后端 API | `backend/` | Python | FastAPI REST、任务调度、账号管理、签到执行、关键词监控 |
+| Telegram 引擎 | `tg_signer/` | Python | Pyrogram 封装、签到/监控 CLI、配置模型、AI 工具 |
+| 文档站 | `docs/` | Markdown/VitePress | 用户指南、部署、架构与运维参考 |
+| 测试 | `tests/` | Python | pytest 单元/集成（约 70 个 `test_*.py`） |
+| 工具 | `tools/` | Python | 旧表盘点、session 迁移 |
+| 脚本 | `scripts/` | Shell/JS | 备份、hooks、文档 agent 资源准备 |
 
 ## 运行与开发
 
 ### 前置要求
 
-- Python 3.10-3.13
-- Node.js 22.23.1（以 `.nvmrc` 为准；CI 与 Docker 使用同一版本）
+- Python 3.10–3.13（`requires-python = ">=3.10,<3.14"`）
+- Node.js **22.23.1**（以 `.nvmrc` 为准；CI 与 Docker 同版本；`engines`: `>=22.23.1 <23`）
 
 ### 本地开发
 
 ```bash
-# 后端 (端口 8080)
+# 后端 (开发常用 8080；Settings 默认 APP_PORT=3000)
 pip install -e ".[dev]"
 uvicorn backend.main:app --host 127.0.0.1 --port 8080
 
@@ -106,14 +87,13 @@ npm run docs:dev
 ### Docker 部署
 
 ```bash
-# 构建并运行
 docker-compose -f docker-compose.panel.yml up -d
 
 # 或使用 GHCR 镜像
 docker run -d -p 3000:3000 -v ./data:/data ghcr.io/<owner>/tg-signpulse:latest
 ```
 
-### 环境变量
+### 环境变量（常用）
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
@@ -121,126 +101,140 @@ docker run -d -p 3000:3000 -v ./data:/data ghcr.io/<owner>/tg-signpulse:latest
 | `APP_PORT` | `3000` | 后端监听端口 |
 | `APP_DATA_DIR` | 自动检测 | 数据目录路径 |
 | `APP_SECRET_KEY` | 自动生成 | JWT 签名密钥 |
+| `APP_ACCESS_TOKEN_EXPIRE_HOURS` | `12` | Token 有效期 |
+| `APP_DATABASE_URL` / `DATABASE_URL` | 空 | 非空时覆盖 SQLite 文件库 |
 | `ADMIN_PASSWORD` | 随机生成 | 初始管理员密码 |
 | `LOG_LEVEL` | `INFO` | 日志等级 |
-| `TZ` | `Asia/Hong_Kong` | 时区 |
+| `TZ` / `APP_TIMEZONE` | `Asia/Hong_Kong` | 时区 |
+| `APP_MONITOR_SHARD` | — | 监听分片 `i/n` |
+| `APP_MONITOR_ACCOUNT_ALLOWLIST` | — | 监听账号白名单 |
 
 ## 测试策略
 
-- **框架**: pytest + pytest-asyncio
-- **覆盖**: `pytest-cov` 最低 40% 门槛（当前实测 ~45%）
-- **运行**: `pytest` (根目录)
-- **测试目录**: `tests/`，含 factories、fixtures、mocks 三层结构
-- **主要测试文件**: `test_api.py`, `test_core.py`, `test_services.py`, `test_signer_isolation.py`, `test_config.py`, `test_utils.py`, `test_cache.py`, `test_sign_task_history_index.py`, `test_memory_monitor.py`, `test_batch_api.py`, `test_task_runner.py`, `test_keyword_monitor.py`, `test_log_optimization.py`, `test_ai_tools.py`
+- **后端框架**: pytest + pytest-asyncio + pytest-xdist（可选）
+- **覆盖门槛**: `pytest-cov` `fail_under = 40`；最近 `coverage.xml` 行覆盖约 **60%**（8647/14318）
+- **运行**: 仓库根目录 `pytest`
+- **测试目录**: `tests/`（factories / fixtures / mocks / utils）
+- **后端用例**: 约 70 个 `test_*.py`（API、服务、runner、keyword_monitor、tg_session、SSE、ops 等）
+- **前端**: `frontend/` 下 `npm test`（vitest，约 40 个 `*.spec.ts`）+ `npm run typecheck`
 
 ## 编码规范
 
-- **Python**: 遵循 PEP 8，使用 ruff 做静态检查 (line-length=88)
-- **TypeScript**: vue-tsc 严格模式 + Vite 构建
-- **注释**: 中文注释，描述意图与使用方式
-- **提交语言**: 中文 Commit 信息
+- **Python**: PEP 8，ruff 静态检查（`line-length=88`，规则集显式 select）
+- **TypeScript**: `vue-tsc` 严格模式 + Vite 构建
+- **注释**: 简体中文，描述意图与约束
+- **提交语言**: 中文 Commit 信息（禁止过程性/AI 署名字眼）
 
-## 关键架构洞察（补扫 2026-06-30）
+## 关键架构洞察（扫描刷新 2026-08-05）
 
-### tg_signer/core/ 包（已拆分：client.py ~500 行 + runtime.py ~500 行 + 6 个 Mixin/模块）
+### tg_signer/core/ 包
 
-`runtime.py` 经 2026-08-04 整改从 3126 行拆至 ~500 行：`BaseUserWorker` 基座 + `UserSigner` 薄组合壳（继承 4 个 Mixin）。`__init__.py` 透传全部公共符号并承担副作用导入（触发 `_patched_invoke` 等 monkey-patch 装配），外部仍按 `from tg_signer.core import UserSigner` 使用。
+`runtime.py` 约 487 行：`BaseUserWorker` 基座 + `UserSigner` 薄组合壳（继承 4 个 Mixin）。`__init__.py` 透传公共符号并触发 `_patched_invoke` 等 monkey-patch。外部仍 `from tg_signer.core import UserSigner`。
 
 | 类/模块 | 位置 | 职责 |
-|----|----------|------|
-| `BaseUserWorker` | runtime.py | 任务/监控基类：配置加载、登录、消息发送、AI 工具获取 |
-| `UserSigner` | runtime.py | 自动签到执行器组合壳，继承 4 个 Mixin |
-| `SignerRunnerMixin` | core/signer_runner.py | 执行编排：sign_a_chat / normal_run / 定时调度 / 消息入口 |
-| `SignerActionsMixin` | core/signer_actions.py | 动作执行器：点击/发送/AI 调用 + wait_for 主循环 |
-| `SignerMatchersMixin` | core/signer_matchers.py | 判定/状态标记/等待轮询工具 |
-| `SignerConfigMixin` | core/signer_config.py | CLI 配置询问、签名记录、聊天缓存 |
-| `UserMonitor` | core/monitor.py | 消息监控器，规则匹配 → 外部转发（UDP/HTTP）→ AI 回复 → Server酱推送 |
-| `UserSignerWorkerContext` | core/context.py | 签到工作上下文 |
+|---------|------|------|
+| `BaseUserWorker` | `runtime.py` | 配置加载、登录、消息发送、AI 工具获取 |
+| `UserSigner` | `runtime.py` | 签到执行器组合壳 |
+| `SignerRunnerMixin` | `signer_runner.py` | `sign_a_chat` / `normal_run` / 调度 / 消息入口 |
+| `SignerActionsMixin` | `signer_actions.py` | 点击/发送/AI + wait_for 主循环 |
+| `SignerMatchersMixin` | `signer_matchers.py` | 判定、状态标记、等待轮询 |
+| `SignerConfigMixin` | `signer_config.py` | CLI 配置、签名记录、聊天缓存 |
+| `UserMonitor` | `monitor.py` | 规则匹配 → 转发/推送 → AI 回复 |
+| `UserSignerWorkerContext` | `context.py` | 消息缓存、回调答案、停止标志 |
 
-**AI 交互场景**（5 种）：计算题、图片 OCR、图片选按钮、计算后点击、监控回复
+**AI 交互场景（5 种）**：计算题、图片 OCR、图片选按钮、计算后点击、监控回复。
 
-### backend/utils/ 工具层
+### Client 生命周期（`tg_signer/core/client.py`）
 
-| 热模块 | 职责 |
-|--------|------|
-| `time.py` | 统一 UTC 时间（含秒精度 Z 后缀变体） |
-| `tg_session.py` | 会话持久化 + 并发信号量 + session/代理统一解析入口 |
-| `atomic_io.py` | JSON 原子读写（进程内锁 + fsync + rename，全项目统一入口） |
-| `task_logs.py` | 流程日志解析（时间戳去除、目标消息提取） |
+| 符号 | 约行号 | 职责 |
+|------|--------|------|
+| `Client(BaseClient)` | 196–324 | 引用计数共享、自动重连、session string |
+| `get_client()` | 359–410 | 工厂 + 全局 `_CLIENT_INSTANCES` 缓存 |
+| `close_client_by_name()` | 411–455 | 强制关闭，含锁超时 |
+
+- 连接：`__aenter__` → ref+1 → 首次连接最多 5 次重试（SQLite 锁退避）
+- 断开：`__aexit__` → ref-1 → 归零 stop 并清理全局字典
+- 调用：`_patched_invoke` 信号量限流 + FloodWait 指数退避
+
+### backend/utils/ 工具层（13 个业务模块）
+
+| 模块 | 职责 |
+|------|------|
+| `time.py` | 统一 UTC（含秒精度 Z 后缀） |
+| `time_window.py` | HH:MM 时间窗 / 跨午夜（静默时段等） |
+| `tg_session.py` | accounts 存储 + 并发信号量 + session/代理解析 |
+| `atomic_io.py` | JSON 原子写（锁 + fsync + rename） |
+| `task_logs.py` | 流程日志解析 |
 | `storage.py` | 数据目录发现/覆盖/回退 |
 | `proxy.py` | 代理 URL 标准化 |
 | `account_locks.py` | 账号级异步锁 |
+| `cache.py` | TTLCache（签到任务列表等） |
+| `memory_monitor.py` | RSS 告警 + GC |
+| `names.py` / `paths.py` | 存储名校验 / 目录准备 |
+| `version_info.py` | 版本解析与远程更新检查 |
 
-> 工具层：`cache.TTLCache` 已接入签到任务列表缓存；`memory_monitor` 在 main 启动；历史列表走 `sign_task_history_index`；SSE 走 `sign_history_events` 进程内总线（30s 索引兜底）
+> 历史列表走 `sign_task_history_index`；SSE 走 `sign_history_events` 进程内总线（30s 索引兜底）；`memory_monitor` 在 `main` 启动循环。
 
-### tg_signer/config.py 配置模型（563 行）
+### tg_signer/config.py（约 473 行）
 
-**版本迁移链**：`SignConfigV1` → `SignConfigV2` → `SignConfigV3`（当前）
+**迁移链**：`SignConfigV1` → `SignConfigV2` → `SignConfigV3`（当前）
 
 | 模型 | 用途 |
 |------|------|
-| `SignConfigV3` | 当前签到配置（chats + sign_at + random_seconds） |
-| `SignChatV3` | 单 chat 配置（actions 列表 + message_thread_id） |
-| `SignAction` + 8 子类 | 动作多态（discriminated by `action` 字段） |
-| `MonitorConfig` | 关键词监控配置（match_cfgs 列表） |
-| `MatchConfig` | 消息匹配规则（chat + user + text + 转发/推送） |
+| `SignConfigV3` | chats + sign_at + random_seconds |
+| `SignChatV3` | actions 列表 + message_thread_id |
+| `SignAction` + 8 子类 | 由 `SupportAction` / `action` 字段区分 |
+| `MonitorConfig` / `MatchConfig` | 关键词监控与匹配（exact/contains/regex/all） |
 
-**8 种动作类型**：发送文本、发送骰子、按文本点击键盘、按图片选选项、计算题回复、图片识别回复、计算后点击按钮、关键词监听通知
+**8 种动作**：发送文本、发送骰子、按文本点键盘、按图片选选项、计算题回复、图片识别回复、计算后点按钮、关键词监听通知。
 
-**设计特点**：
-- `BaseJSONConfig.load()` 自动尝试旧版本迁移
-- Pydantic v1/v2 兼容
-- `MatchConfig` 封装消息匹配逻辑（exact/contains/regex/all）
+### 前端结构要点
 
-### tg_signer/core/ 基座符号（拆分后重锚）
+- **Components**：32 个 `.vue`（基础 UI / accounts / tasks / settings）
+- **Composables**：15 个（`useI18n`≈49 引用、`useToast`≈19、`useConfirm`、任务列表/设置/Dashboard 等页面级）
+- **Stores**：`auth`、`accounts`、`activeRuns`
+- **API**：`frontend/src/lib/api.ts` 为 barrel；实现按域拆分到 `lib/api/*`（auth/accounts/sign-tasks/config/…）
 
-| 类/函数 | 位置 | 职责 |
-|---------|------|------|
-| `Client(BaseClient)` | client.py 216-343 | Pyrogram 客户端封装，引用计数共享访问，自动重连 |
-| `get_client()` | client.py 377-428 | 客户端工厂，全局 `_CLIENT_INSTANCES` 缓存 |
-| `close_client_by_name()` | client.py 429-473 | 强制关闭客户端，5s 锁超时 |
-| `BaseUserWorker(Generic[ConfigT])` | runtime.py | 任务/监控基类，含配置加载、登录、消息发送、AI 工具获取 |
-| `UserSignerWorkerContext` | core/context.py | 签到上下文（消息缓存、回调答案、停止标志） |
+### 签到任务体系（主路径唯一）
 
-**Client 生命周期**：
-- 连接：`__aenter__` → 引用计数 +1 → 首次连接重试 5 次（SQLite 锁等待 2+attempt*3 秒）
-- 断开：`__aexit__` → 引用计数 -1 → 归零时 stop + 清理全局字典
-- 调用：`_patched_invoke` 信号量限流 50 + FloodWait 指数退避
+| 项 | 现状 |
+|----|------|
+| 路由 | `/api/sign-tasks`（`sign_tasks_v2.py`）+ `POST /api/batch/sign-tasks` |
+| 存储 | JSON 文件（`signs_dir/account/task/config.json`） |
+| 服务 | `services/sign_tasks.py` 门面 + runner/history/crud 等拆分模块 |
+| 旧版 | `/api/tasks`、ORM Task/TaskLog、`services/tasks.py` **已完全移除** |
 
-### 前端 Components（32 个）
-
-| 类别 | 组件 | 复杂度 |
-|------|------|--------|
-| 基础 UI | Modal, ConfirmDialog, CustomSelect, MultiSelect, DatePicker, GlobalToast, FlowLogViewer, PageRetry | 低-中 |
-| 账号 | AddAccountModal（3 种登录流程）, EditAccountModal, DeviceManagerModal, OfficialMessagesModal | 中-高 |
-| 任务 | AddTaskModal, EditTaskModal, CloneTaskModal, TaskForm（含 Actions/Listen/Target 三段式子组件）, TaskListCard, TaskListToolbar, TaskLogsModal（WS+HTTP 降级）, TaskLogsHistoryPanel, TaskLogsHitsPanel | 中-高 |
-| 设置 | UserProfileModal（用户名/密码/TOTP 三 Tab）, GeneralSettings, AiSettings, BotNotifySettings, TelegramApiSettings, DataManagementSettings, AboutSettings, SettingsFieldHint | 高 |
-
-### 前端 Composables
-
-| 文件 | 引用数 | 状态 |
-|------|--------|------|
-| `useI18n.ts` | 49 | 核心依赖 |
-| `useTheme.ts` | 3 | 正常 |
-| `useToast.ts` | 18 | 正常（show 方法刻意不导出，统一走 useI18n 文案） |
-
-
-### 双任务体系
-
-| 体系 | 路由 | 存储 | 服务 | 状态 |
-|------|------|------|------|------|
-| 旧版 | `tasks.py` + `POST /batch/tasks` | SQLAlchemy ORM | `services/tasks.py` | **已弃用** |
-| 新版 | `sign_tasks_v2.py` + `POST /batch/sign-tasks` | JSON 文件 | `services/sign_tasks.py` | **主路径** |
-
-失败分类：`backend/services/sign_task_failure.py`（写入历史 `failure_category`）。  
-运维：`/api/ops/scheduled-jobs`、`/backup/status`、`/backup/export`、`/memory`。  
-旧任务：`/api/tasks` 路由与 ORM Task/TaskLog 模型已移除；请使用 sign-tasks。残留表可用 `tools/check_legacy_tasks.py` 盘点。  
+失败分类：`backend/services/sign_task_failure.py`（历史 `failure_category`）。  
+运维：`/api/ops/scheduled-jobs`、`/backup/*`、`/memory`、`/runtime-status`、`/version`。  
+残留旧表盘点：`tools/check_legacy_tasks.py`。  
 监听分片：`APP_MONITOR_SHARD=i/n`、`APP_MONITOR_ACCOUNT_ALLOWLIST`。
+
+### 签到 / 监听执行摘要
+
+- **定时/手动签到**：`execute_sign_task` 分阶段流水线（配置 → 账号预检 → 账号锁+冷却 → `BackendUserSigner.run_once` → 历史+通知）；`CancelledError` 不写失败历史。细节见 [`backend/CLAUDE.md`](./backend/CLAUDE.md)。
+- **CRUD/聚合**：`SignTaskCrudMixin` + `config_build` / `group`；对话列表 `chats_cache.json`（见 backend 专章）。
+- **历史**：JSON 文件 + `_recent_index.jsonl` 轻量索引（SSE/最近列表）；详情仍读原 history。
+- **关键词监听**：`KeywordMonitorService._on_message`（seen 去重 → 规则过滤 → 匹配 → 推送/continue）；continue 支持 action 1/2/3/4/5/6/7/9。
+- **前端**：Tasks / Accounts / Logs / Dashboard / Settings 全链路见 [`frontend/CLAUDE.md`](./frontend/CLAUDE.md)。
+- **CLI**：`tg-signer` 全局选项与子命令表见 [`tg_signer/CLAUDE.md`](./tg_signer/CLAUDE.md)。
+
+### 部署与 CI
+
+| 项 | 说明 |
+|----|------|
+| 镜像 | 多阶段 `Dockerfile`：Node **22.23.1** 构建前端 → Python **3.12-slim** 装包；静态资源进 `/web`；`HEALTHCHECK` → `/healthz` |
+| 编排 | `docker-compose.panel.yml`：数据卷 `./data:/data`，`APP_SCHEDULER_LOCK=1`，探针 `/readyz` |
+| CI | `.github/workflows/docker.yml`：`test`（pytest 并行 + 核心 ruff）→ `frontend-test`（typecheck + vitest）→ 多架构 build/push GHCR（`main`/`dev`/`v*`） |
+| 文档站 | VitePress，`docs/`；开发端口 5173。模块地图见 [`docs/CLAUDE.md`](./docs/CLAUDE.md) |
+| 测试地图 | [`tests/CLAUDE.md`](./tests/CLAUDE.md) |
+
+人类可读架构说明与运维场景：`docs/reference/architecture.md`、`docs/reference/ops.md`（与上表交叉对齐，不重复粘贴实现）。
 
 ## AI 使用指引
 
-- 修改代码前必须先研读对应模块的 CLAUDE.md
-- 跨模块改动需理解 `tg_signer/core/client.py` 的 Client 生命周期和 `backend/services/` 的调用链
-- 配置模型定义在 `tg_signer/config.py`，后端适配在 `backend/services/sign_tasks.py`
-- 前端 API 调用集中在 `frontend/src/lib/api.ts`，类型定义在 `frontend/src/lib/types.ts`
-- 登录流程改动需同时理解 `telegram.py` 的两阶段/四阶段设计和全局 session 字典
+- 改代码前先读对应模块 `CLAUDE.md`（根 / backend / frontend / tg_signer / docs / tests）
+- 跨模块改动需理解 `tg_signer/core/client.py` 生命周期与 `backend/services/` 调用链
+- 配置模型：`tg_signer/config.py`；后端适配：`backend/services/sign_tasks.py` 及 `sign_task_*`
+- 签到 runner / 历史 / 关键词 continue：优先 `backend/CLAUDE.md` 流水线与监控专章
+- 前端 API：`frontend/src/lib/api.ts`（barrel）与 `lib/api/*`；类型：`lib/types.ts`；Tasks 列表见 frontend 专章
+- 登录流程：`backend/services/telegram/`（`login_phone` / `login_qr` / `accounts` / `sessions`）
