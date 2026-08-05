@@ -20,6 +20,35 @@ from backend.utils.storage import (
     save_data_dir_override,
 )
 
+# 面板全局设置键 → 环境变量名：保存时与启动时统一回灌，
+# 供 tg_signer 等仍读 env 的路径（AI_VISION_*、SIGN_TASK_*）使用
+GLOBAL_SETTINGS_ENV_SYNC = {
+    "sign_task_execution_timeout": "SIGN_TASK_EXECUTION_TIMEOUT",
+    "sign_task_account_cooldown": "SIGN_TASK_ACCOUNT_COOLDOWN",
+    "sign_task_flow_retry_attempts": "SIGN_TASK_FLOW_RETRY_ATTEMPTS",
+    "sign_task_history_max_age_days": "SIGN_TASK_HISTORY_MAX_AGE_DAYS",
+    "ai_vision_timeout": "AI_VISION_TIMEOUT",
+    "ai_vision_retry_attempts": "AI_VISION_RETRY_ATTEMPTS",
+}
+
+
+def apply_global_settings_to_env(merged: Dict[str, Any]) -> None:
+    """将面板全局设置回灌到环境变量，供 tg_signer 等仍读 env 的路径使用。
+
+    保存时与进程启动时都会调用，保证面板配置在重启后依然生效
+    （env_sync 若仅发生在保存路径，重启后会静默回退到默认值）。
+    """
+    logger = logging.getLogger("backend.config")
+    for gkey, ekey in GLOBAL_SETTINGS_ENV_SYNC.items():
+        val = merged.get(gkey)
+        if val is None or str(val).strip() == "":
+            continue
+        try:
+            os.environ[ekey] = str(int(val))
+        except (TypeError, ValueError):
+            logger.debug("跳过无效 env 同步 %s=%r", ekey, val)
+
+
 # 进程内仅告警一次：避免每次读取 telegram 配置都刷日志
 _default_tg_credentials_warned = False
 
@@ -960,24 +989,7 @@ class GlobalSettingsMixin:
                 pass
 
         # 同步高级参数到环境变量，供 tg_signer 等仍读 env 的路径使用
-        env_sync = {
-            "sign_task_execution_timeout": "SIGN_TASK_EXECUTION_TIMEOUT",
-            "sign_task_account_cooldown": "SIGN_TASK_ACCOUNT_COOLDOWN",
-            "sign_task_flow_retry_attempts": "SIGN_TASK_FLOW_RETRY_ATTEMPTS",
-            "sign_task_history_max_age_days": "SIGN_TASK_HISTORY_MAX_AGE_DAYS",
-            "ai_vision_timeout": "AI_VISION_TIMEOUT",
-            "ai_vision_retry_attempts": "AI_VISION_RETRY_ATTEMPTS",
-        }
-        for gkey, ekey in env_sync.items():
-            val = merged.get(gkey)
-            if val is None or str(val).strip() == "":
-                continue
-            try:
-                os.environ[ekey] = str(int(val))
-            except (TypeError, ValueError):
-                logging.getLogger("backend.config").debug(
-                    "跳过无效 env 同步 %s=%r", ekey, val
-                )
+        apply_global_settings_to_env(merged)
 
         return True
 

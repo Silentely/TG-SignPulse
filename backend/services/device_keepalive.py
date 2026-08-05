@@ -10,7 +10,7 @@ from backend.core.config import get_settings
 from backend.services.config import get_config_service
 from backend.services.telegram import get_telegram_service
 from backend.utils.atomic_io import write_json_atomic
-from backend.utils.time import utc_now_iso_z
+from backend.utils.time import utc_now, utc_now_iso_z
 
 logger = logging.getLogger("backend.device_keepalive")
 
@@ -108,7 +108,7 @@ class DeviceKeepaliveService:
 
         state = self._load_state()
         account_state = state.setdefault("accounts", {})
-        now = datetime.now(timezone.utc)
+        now = utc_now()
         cutoff = now - timedelta(days=interval_days)
 
         service = get_telegram_service()

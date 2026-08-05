@@ -38,9 +38,9 @@ http://127.0.0.1:3000
 - `/api/ops` — 运维：调度预览、备份状态/导出、内存统计
 - `/api/logs` — 执行日志
 - `/api/config` — 系统配置
-- `/api/events` — 事件流
+- `/api/events` — 签到历史 SSE 事件流
 - `/api/tasks` — **已移除**（请用 `/api/sign-tasks`）
-- `/api/batch/tasks` — **已弃用** 旧版 ORM 批量操作
+- `/api/batch/tasks` — **已移除**（请用 `/api/batch/sign-tasks`）
 
 后端负责：
 

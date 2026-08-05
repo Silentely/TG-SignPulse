@@ -7,7 +7,6 @@ import asyncio
 import json
 import os
 import time
-from datetime import datetime
 from typing import Any, Dict, Optional, Union
 
 # 确保 rules 中以下划线开头的符号也可通过 star import 获得
@@ -29,6 +28,7 @@ from backend.utils.tg_session import (
     load_account_session_string,
     resolve_effective_proxy,
 )
+from backend.utils.time import utc_now_iso_z_seconds, utc_now_naive
 from tg_signer.compat import (
     Message,
     MessageHandler,
@@ -133,14 +133,16 @@ class KeywordMonitorService:
         active: Optional[bool] = None,
     ) -> None:
         key = self._task_key(account_name, task_name)
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # 统一 UTC：行前缀保持前端可剥离的 "%Y-%m-%d %H:%M:%S" 形态，
+        # updated_at 用 Z 后缀 ISO，供前端 new Date() 按 UTC 正确解析
+        timestamp = utc_now_naive().strftime("%Y-%m-%d %H:%M:%S")
         logs = self._task_logs.setdefault(key, [])
         logs.append(f"{timestamp} - {line}")
         if len(logs) > 1000:
             del logs[:-1000]
 
         status = self._task_status.setdefault(key, {})
-        status["updated_at"] = datetime.now().isoformat(timespec="seconds")
+        status["updated_at"] = utc_now_iso_z_seconds()
         status["message"] = line
         if active is not None:
             status["active"] = active

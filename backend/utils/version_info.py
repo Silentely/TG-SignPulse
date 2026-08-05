@@ -22,11 +22,12 @@ import re
 import sys
 import threading
 import time
-from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
 
 import httpx
+
+from backend.utils.time import utc_now_iso
 
 logger = logging.getLogger("backend.version_info")
 
@@ -188,7 +189,7 @@ def _empty_update_payload(
         "latest_version": None,
         "latest_url": None,
         "update_available": False,
-        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "checked_at": utc_now_iso(),
         "error": error,
         "source": "github_releases",
         "cached": cached,
@@ -336,7 +337,7 @@ def _fetch_via_html_redirect(html_latest_url: str) -> Dict[str, Any]:
         "latest_version": latest,
         "latest_url": html_url,
         "update_available": is_update_available(local["version"], latest),
-        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "checked_at": utc_now_iso(),
         "error": None,
         "source": "github_releases_redirect",
         "cached": False,
@@ -357,7 +358,7 @@ def _payload_from_release_json(
         "latest_version": latest,
         "latest_url": html_url,
         "update_available": is_update_available(local["version"], latest),
-        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "checked_at": utc_now_iso(),
         "error": None,
         "source": source,
         "cached": False,

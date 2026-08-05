@@ -59,7 +59,9 @@ const handleLogin = async () => {
   } catch (e: unknown) {
     const code = getErrorCode(e) || ''
     const detail = getLocalizedErrorMessage(e, t)
-    if (code === 'TOTP_REQUIRED_OR_INVALID' || detail.includes('TOTP') || detail.includes('两步验证')) {
+    // 后端 TOTP 场景固定返回稳定错误码 TOTP_REQUIRED_OR_INVALID；
+    // 不再按本地化文案（TOTP/两步验证）判断，避免界面语言影响分支命中
+    if (code === 'TOTP_REQUIRED_OR_INVALID') {
       showTotp.value = true
       errorMsg.value = totpCode.value ? t('login.totpInvalid') : t('login.totpRequired')
       totpCode.value = ''

@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest'
 import {
-  formatTaskListDate,
   mapSignTaskToListFields,
   resolveTaskAccountName,
   resolveTaskAccountNames,
@@ -78,7 +77,17 @@ describe('task-list-map', () => {
     expect((ui as any).modeIconKind).toBeUndefined()
   })
 
-  it('formatTaskListDate returns dash for empty', () => {
-    expect(formatTaskListDate('')).toBe('-')
+  it('lastRunStr 走统一面板时区格式化（UTC → Asia/Hong_Kong）', () => {
+    const fields = mapSignTaskToListFields(
+      baseTask({
+        last_run: {
+          success: true,
+          // 2026-08-05 05:57:34 UTC = 13:57:34 Asia/Hong_Kong
+          time: '2026-08-05T05:57:34+00:00',
+        },
+      }),
+      labels,
+    )
+    expect(fields.lastRunStr).toBe('成功-08/05 13:57:34')
   })
 })

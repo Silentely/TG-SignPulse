@@ -86,29 +86,6 @@ class ImportAllResponse(BaseModel):
     message: str
 
 
-class TaskListResponse(BaseModel):
-    sign_tasks: list[str]
-    monitor_tasks: list[str]
-    total: int
-
-
-@router.get("/tasks", response_model=TaskListResponse)
-def list_all_tasks(current_user: User = Depends(get_current_user)):
-    try:
-        sign_tasks = get_config_service().list_sign_tasks()
-        monitor_tasks = get_config_service().list_monitor_tasks()
-        return TaskListResponse(
-            sign_tasks=sign_tasks,
-            monitor_tasks=monitor_tasks,
-            total=len(sign_tasks) + len(monitor_tasks),
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list tasks: {str(e)}",
-        )
-
-
 @router.get("/export/sign/{task_name}")
 def export_sign_task(
     task_name: str,

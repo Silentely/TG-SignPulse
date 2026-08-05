@@ -79,14 +79,13 @@
 - `GET` 模板 URL：URL 中可使用 `{title}`、`{body}`、`{url}`
 - `POST JSON`：如果 URL 中没有模板变量，则直接发 JSON
 
-面板监听任务的 `push_channel` 仅支持：`continue`、`telegram`、`forward`、`bark`、`custom`。  
-ServerChan / Server 酱没有独立通道枚举；请用 `custom` 接入，例如：
+### 6. `server_chan`
 
-```text
-https://sctapi.ftqq.com/<sendkey>.send?title={title}&desp={body}
-```
+把命中消息推送到 Server酱（ServerChan）。面板监听任务选择 `server_chan` 通道后需填写 sendkey；未配置 sendkey 时静默跳过。
 
-> CLI / `tg_signer` 监控配置（`MatchConfig`）另支持 `push_via_server_chan` + `server_chan_send_key`，与面板 `push_channel` 不是同一套字段。
+面板监听任务的 `push_channel` 支持：`continue`、`telegram`、`forward`、`bark`、`custom`、`server_chan`。
+
+> CLI / `tg_signer` 监控配置（`MatchConfig`）另支持 `push_via_server_chan` + `server_chan_send_key`，与面板 `push_channel` 是同一能力的两种表达。
 
 ## UDP/HTTP 外部转发
 

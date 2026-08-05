@@ -1,6 +1,7 @@
 /**
  * 签到列表：SignTask API → TaskUiItem 展示映射（纯逻辑）。
  */
+import { formatShortDateTime } from './datetime'
 import type { SignTask } from './api'
 import type { TaskUiItem } from './types'
 
@@ -31,21 +32,6 @@ export type MappedTaskListFields = {
   chatAvatarUrl: string
   chatName: string
   raw: SignTask
-}
-
-export function formatTaskListDate(dateStr: string): string {
-  if (!dateStr) return '-'
-  try {
-    const d = new Date(dateStr)
-    const mo = String(d.getMonth() + 1).padStart(2, '0')
-    const da = String(d.getDate()).padStart(2, '0')
-    const ho = String(d.getHours()).padStart(2, '0')
-    const mi = String(d.getMinutes()).padStart(2, '0')
-    const se = String(d.getSeconds()).padStart(2, '0')
-    return `${mo}/${da} ${ho}:${mi}:${se}`
-  } catch {
-    return dateStr
-  }
 }
 
 export type TaskAccountSource =
@@ -131,7 +117,8 @@ export function mapSignTaskToListFields(
   }
   if (task.last_run) {
     lastRunSuccess = task.last_run.success
-    lastRunStr = `${task.last_run.success ? labels.success : labels.failed}-${formatTaskListDate(task.last_run.time)}`
+    // 统一面板时区（Asia/Hong_Kong），与日志弹窗/仪表盘展示一致
+    lastRunStr = `${task.last_run.success ? labels.success : labels.failed}-${formatShortDateTime(task.last_run.time, true)}`
   }
 
   return {

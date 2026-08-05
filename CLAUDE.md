@@ -6,7 +6,7 @@
 
 | 日期 | 变更内容 |
 |------|----------|
-| 2026-08-04 | 全项目代码质量整改：修复补抓目标消息循环外处理缺陷（取最旧而非最新，新增 7 条测试）；原子写 JSON 收敛 backend/utils/atomic_io.py（替换 4 处实现+6 处非原子点）；env 解析/UTC 时间戳收敛到 tg_signer.utils / backend/utils/time；AI 工具链收敛（配置签名/按钮遍历/键盘匹配下沉 compat+ai_tools，重试协议 call_with_retry 统一）；会话/代理解析收敛到 tg_session.py；tg_signer/core/runtime.py 3126→495 行（拆出 signer_runner/actions/matchers/config/context/monitor 六模块）；keyword_monitor/runtime.py 1874→928 行（continue 动作族独立 + _on_message 分派化 + _execute_ai_action 样板去重）；login_qr.py 1058→934 行（token 状态机三重复制消除）；config.py 1129→101 行门面 + config_mixins.py（5 个领域 Mixin）；头像缓存/账号解析/字段钳制/账号状态写入四处路由与服务层收敛；删除 Waiter 死抽象与 response_chars 假日志；消除 engine→backend 反向依赖（contextvar 下沉 tg_signer/context_vars.py，密钥 provider 注册制）；前端样板收敛（token 63 处/seq 7 处/下载 4 处各归一到 1 处，TaskForm 双通道删除，死代码清理）。后端 1187 条测试/覆盖率 56%，前端 304 条/typecheck/构建全绿 |
+| 2026-08-05 | 打磨：面板全局设置重启后回灌环境变量（提取 apply_global_settings_to_env，保存与 on_startup 共用，修复 AI_VISION_TIMEOUT 等 6 项重启后静默回退默认值；删死包装函数，新增 5 条测试）；前端 Tasks 列表 last_run 收敛到统一面板时区格式化（formatTaskListDate 重复实现删除，补 UTC→HK 回归测试）；删除无消费死端点 GET /api/config/tasks 与同步 POST /api/sign-tasks/{name}/run（服务方法保留）；version_info/device_keepalive 直用 datetime.now 收敛到 utils.time；keyword_monitor 内存日志时间戳统一 UTC（updated_at 改 Z 后缀 ISO，前端可正确解析）；Login.vue 移除对本地化文案的脆弱 TOTP 判断；log_utils 删零引用死函数；文档同步 backend/CLAUDE.md 接口章节、keyword-monitor.md Server酱通道表述、根 CLAUDE.md 组件表（13→32）与 docs README 目录树。后端 1205 条测试全绿，前端 304 条/typecheck 全绿 |
 | 2026-08-04 | 关键词监听重启去重：按 (账号, 会话) 持久化已处理消息水位（keyword_monitor/seen.json，30s 节流原子写盘、停机/重启加载），重连补投的旧消息不再重复命中、推送与落记录，新增 6 条测试。前端账号名解析统一收敛：resolveTaskAccountName 兼容 TaskUiItem 自动解 raw，Tasks 视图/useTaskListActions/TaskLogsModal 移除重复封装，新增 resolveTaskAccountNames 供 useTaskListRuntime 复用；修复克隆任务把 '*' 当账号名传后端的缺陷并补回归测试。后端 1186 条测试全绿，前端 304 条/typecheck/构建全绿 |
 | 2026-08-04 | 打磨：删除 config 路由死类 ExportTaskResponse 与 tg_session 内 6 处不可达防御分支（_load_account_store 已归一化 accounts 为 dict）；测试密钥统一升级至 ≥32 字节消除 PyJWT InsecureKeyLengthWarning 噪音；backend/utils/tg_session 覆盖率 54%→99%（新增 68 条用例覆盖账号存储 CRUD、并发信号量、会话串旧格式、导出兜底），backend/utils/storage 覆盖率 68%→98%（新增 18 条用例）。前端：删除死导出 AccountUiStatus 与 AsyncPoolTask。后端 1162 条测试全绿且无警告，前端 301 条/typecheck 全绿 |
 | 2026-08-04 | 后端：限流器补过期桶清扫（1h 陈旧/解封清理，防内存缓增）；任务运行状态迁移补 3 张内存映射；运行配置改单次读取（return_raw 消除双读，重试语义修正）；任务历史时间戳改 UTC；收敛账号解析与 JobLookupError 兜底、QR 注册失败可见化、头像缓存失败清理。前端：删除 16 个死 API 导出；会话头像 blob URL 追踪回收（列表替换/卸载统一 revoke）；会话搜索/复制提示/重登弹窗延时与 AbortController 卸载清理；DatePicker 与 AboutSettings 硬编码文案 i18n 化（含键一致性回归测试）；账号名解析收敛到共享 resolveTaskAccountName。后端 1094 条测试全绿，前端 301 条/typecheck/构建全绿 |
@@ -207,22 +207,22 @@ docker run -d -p 3000:3000 -v ./data:/data ghcr.io/<owner>/tg-signpulse:latest
 - 断开：`__aexit__` → 引用计数 -1 → 归零时 stop + 清理全局字典
 - 调用：`_patched_invoke` 信号量限流 50 + FloodWait 指数退避
 
-### 前端 Components（13 个）
+### 前端 Components（32 个）
 
 | 类别 | 组件 | 复杂度 |
 |------|------|--------|
-| 基础 UI | Modal, CustomSelect, MultiSelect, DatePicker, GlobalToast, LanguageSwitch | 低-中 |
-| 账号 | AddAccountModal（3 种登录流程）, EditAccountModal | 中-高 |
-| 任务 | AddTaskModal, EditTaskModal, TaskForm（17 ref 自动 buildPayload）, TaskLogsModal（WS+HTTP 降级） | 中-高 |
-| 设置 | UserProfileModal（用户名/密码/TOTP 三 Tab） | 高 |
+| 基础 UI | Modal, ConfirmDialog, CustomSelect, MultiSelect, DatePicker, GlobalToast, FlowLogViewer, PageRetry | 低-中 |
+| 账号 | AddAccountModal（3 种登录流程）, EditAccountModal, DeviceManagerModal, OfficialMessagesModal | 中-高 |
+| 任务 | AddTaskModal, EditTaskModal, CloneTaskModal, TaskForm（含 Actions/Listen/Target 三段式子组件）, TaskListCard, TaskListToolbar, TaskLogsModal（WS+HTTP 降级）, TaskLogsHistoryPanel, TaskLogsHitsPanel | 中-高 |
+| 设置 | UserProfileModal（用户名/密码/TOTP 三 Tab）, GeneralSettings, AiSettings, BotNotifySettings, TelegramApiSettings, DataManagementSettings, AboutSettings, SettingsFieldHint | 高 |
 
 ### 前端 Composables
 
 | 文件 | 引用数 | 状态 |
 |------|--------|------|
-| `useI18n.ts` | 17 | 核心依赖 |
-| `useTheme.ts` | 2 | 正常 |
-| `useToast.ts` | 1 | show 方法未被调用 |
+| `useI18n.ts` | 49 | 核心依赖 |
+| `useTheme.ts` | 3 | 正常 |
+| `useToast.ts` | 18 | 正常（show 方法刻意不导出，统一走 useI18n 文案） |
 
 
 ### 双任务体系

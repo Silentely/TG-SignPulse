@@ -187,12 +187,6 @@ class ChatSearchResponse(BaseModel):
     offset: int
 
 
-class RunTaskResult(BaseModel):
-    success: bool
-    output: str
-    error: str
-
-
 class RunTaskStartResult(BaseModel):
     run_id: str
     state: str
@@ -502,24 +496,6 @@ def clone_sign_task(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"克隆任务失败: {e}",
         )
-
-
-@router.post("/{task_name}/run", response_model=RunTaskResult)
-async def run_sign_task(
-    task_name: str,
-    account_name: Optional[str] = None,
-    current_user=Depends(get_current_user),
-):
-    try:
-        resolved_account = _resolve_task_account(task_name, account_name)
-        return await get_sign_task_service().run_task_with_logs(resolved_account, task_name)
-    except HTTPException:
-        raise
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(e),
-        ) from e
 
 
 @router.post("/{task_name}/run/start", response_model=RunTaskStartResult)
