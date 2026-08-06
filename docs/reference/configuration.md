@@ -24,6 +24,8 @@
 | `BUILD_TIME` | （空） | | UTC 构建时间 ISO 字符串 |
 | `APP_UPDATE_CHECK` | `1` | | `0/false/off` 关闭服务端远程版本检查 |
 | `APP_UPDATE_CHECK_URL` | GitHub Releases latest | | 远程版本 JSON 源（必须 https） |
+| `APP_ACCESS_TOKEN_EXPIRE_HOURS` | `12` | | JWT Token 过期时间（小时） |
+| `APP_TOTP_VALID_WINDOW` | `1` | | 面板 2FA 时间窗口容差（0=仅当前30s） |
 
 ### 时区管理
 
@@ -47,7 +49,7 @@ environment:
 | 亚洲 | Shanghai、Hong Kong、Tokyo、Seoul、Singapore、Taipei、Bangkok、Dubai、Kolkata |
 | 欧洲 | London、Berlin、Paris、Moscow |
 | 美洲 | New York、Chicago、Denver、Los Angeles、Sao Paulo |
-| 大洋洲/非洲 | Sydney、Cairo |
+| 大洋洲/非洲 | Sydney、Cairo、Auckland |
 | 通用 | UTC |
 
 **生效规则：**
@@ -56,8 +58,6 @@ environment:
 - 新创建的调度任务立即使用当前时区
 - 已有任务的触发器时区需要重启服务后生效（面板会输出日志提示）
 - 时区值遵循 IANA 时区数据库标准
-| `APP_TOTP_VALID_WINDOW` | `1` | | 面板 2FA 时间窗口容差（0=仅当前30s） |
-| `APP_ACCESS_TOKEN_EXPIRE_HOURS` | `12` | | JWT Token 过期时间（小时） |
 
 ## CORS 部署拓扑
 
@@ -78,10 +78,10 @@ environment:
 | `TG_API_ID` | 内置默认 | Telegram API ID（可选，从 my.telegram.org 获取自定义值） |
 | `TG_API_HASH` | 内置默认 | Telegram API HASH（可选，同上） |
 | `TG_SESSION_MODE` | `file` | 会话模式：`file`（本地 SQLite）/ `string`（内存+JSON） |
-| `TG_SESSION_NO_UPDATES` | `0` | 是否禁止接收 updates（仅 string 模式） |
-| `TG_NO_UPDATES` | `0` | `TG_SESSION_NO_UPDATES` 的兼容别名 |
 | `TG_GLOBAL_CONCURRENCY` | 自动（CPU核心数，上限5） | 全局 Telegram 操作并发上限，可通过此变量覆盖自动值 |
 | `TG_PROXY` | 无 | CLI / 执行层的兜底代理 |
+
+> 客户端是否接收实时消息更新（updates）由系统按任务自动决定：含监听或「等待消息响应」类动作的任务会接收 updates，纯文本/骰子发送类任务以 `no_updates` 模式运行。无相关环境变量。
 
 ### 获取 Telegram API 凭证
 
@@ -121,8 +121,6 @@ environment:
 | `SIGN_TASK_HISTORY_MAX_LINE_CHARS` | `2000` | 单行日志最大字符数 |
 | `SIGN_TASK_HISTORY_MAX_AGE_DAYS` | `3` | 启动时清理超过 N 天的 history/*.json |
 | `SIGN_TASK_LIST_CACHE_TTL` | `30` | 任务列表内存缓存秒数 |
-| `SIGN_TASK_ACCOUNT_COOLDOWN` | `5` | 同账号连续执行冷却秒数 |
-| `SIGN_TASK_EXECUTION_TIMEOUT` | `300` | 单次签到执行超时（秒） |
 | `SIGN_TASK_LAST_TARGET_HISTORY_LIMIT` | `8` | 回填 last_target 时拉取聊天历史条数 |
 | `SIGN_TASK_HISTORY_LOOKBACK` | `12` | 执行中查找按钮/回退处理时拉取的最近消息条数 |
 | `SIGN_TASK_POST_SEND_TERMINAL_TIMEOUT` | `3` | 发送文本/骰子后等待 bot「已签到/签到成功」的秒数；`0` 关闭 |

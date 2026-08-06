@@ -18,7 +18,6 @@
 | `GET /api/sign-tasks/runs/active` | 内存中进行中的签到 run（phase / 账号 / 任务） |
 | `GET /api/sign-tasks/{name}/run/status` | 单任务 run 状态（含 `state` / `phase` / `failure_category`） |
 | `POST /api/sign-tasks/{name}/run/cancel` | 取消进行中的签到 run（协作式 cancel） |
-| `POST /api/ops/backup/export` | 完整备份：已配置 WebDAV 时上传远端；否则回退浏览器下载 |
 | `POST /api/ops/backup/webdav/test` | 测试全局设置中的 WebDAV 连通性 |
 | `GET /api/ops/backup/webdav/files` | 列出远端目录 `.tar.gz` 备份（PROPFIND） |
 | `GET /api/ops/backup/webdav/download?name=` | 流式下载指定远端 `.tar.gz`（安全文件名） |
@@ -316,7 +315,7 @@ watch -n 5 'curl -fsS http://127.0.0.1:8080/readyz || true'
 ### 场景 4：监听任务不触发
 
 1. 确认任务执行模式是 `listen` 且任务已启用。
-2. 检查 `TG_SESSION_MODE`、`TG_SESSION_NO_UPDATES` 和账号会话是否允许接收 updates。
+2. 确认客户端会话有效且能接收 updates：含监听 / 等待响应动作的任务会自动开启 updates（系统自动决定，无环境变量开关）。`TG_SESSION_MODE` 只影响会话存储方式，不影响 updates 接收。
 3. 修改监听规则后触发一次调度同步或重启后端，让监听器重建。
 
 ### 场景 5：通知发送失败

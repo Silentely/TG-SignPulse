@@ -181,7 +181,7 @@ TG-SignPulse/
 | `ADMIN_PASSWORD` | 管理员初始密码 | 随机生成 |
 | `APP_DATA_DIR` | 数据目录 | `/data` |
 | `APP_DATABASE_URL` | 可选；空=SQLite，可设 Postgres URL | 空 |
-| `TZ` | 时区 | `Asia/Shanghai` |
+| `TZ` | 时区 | 容器 `Asia/Shanghai`；代码默认 `Asia/Hong_Kong` |
 | `TG_SESSION_MODE` | 会话模式 `file`/`string` | `file` |
 | `TG_GLOBAL_CONCURRENCY` | 全局并发数 | `自动（CPU核心数，上限5）` |
 | `TG_PROXY` | Telegram 全局代理 | 无 |

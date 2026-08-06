@@ -271,4 +271,4 @@ SQLite 已配置 WAL 模式和 30 秒超时。如果仍然出现锁定：
 
 1. 确认没有多个容器实例挂载同一个 `/data`
 2. 检查磁盘空间是否充足
-3. 考虑增大 `TG_GLOBAL_CONCURRENCY`（默认 1）
+3. 考虑增大 `TG_GLOBAL_CONCURRENCY`（默认自动：CPU 核心数，上限 5；也可在面板「系统设置」覆盖）
