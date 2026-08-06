@@ -149,19 +149,57 @@ export function useDashboardData() {
     let statusJobsRes: Awaited<ReturnType<typeof listAccountStatusCheckJobs>> | null = null
 
     let loadError: unknown = null
-    try {
-      await accountsStore.ensureAccounts()
+    // 并行拉取相互独立的仪表盘数据，避免串行等待放大首屏延迟；
+    // 各请求独立成败，失败仅记录并上报一次，不影响其余数据展示
+    const results = await Promise.allSettled([
+      accountsStore.ensureAccounts(),
+      listSignTasks(token),
+      getRecentAccountLogs(token, 50),
+      listScheduledJobs(token),
+      activeRunsStore.refresh(),
+      listKeywordHits(token, { limit: 8, offset: 0 }),
+      listAccountStatusCheckJobs(token, 5),
+    ])
+    const [accResult, tasksResult, logsResult, jobsResult, runsResult, hitsResult, statusJobsResult] = results
+
+    if (accResult.status === 'fulfilled') {
       accRes = { accounts: accountsStore.accounts, total: accountsStore.total }
-    } catch (e: unknown) {
-      loadError = e
-      devLog.error('Failed to load accounts', e)
+    } else {
+      loadError = accResult.reason
+      devLog.error('Failed to load accounts', accResult.reason)
     }
-    try { tasksRes = await listSignTasks(token) } catch (e: unknown) { loadError = e; devLog.error('Failed to load tasks', e) }
-    try { logsRes = await getRecentAccountLogs(token, 50) } catch (e: unknown) { loadError = e; devLog.error('Failed to load logs', e) }
-    try { jobsRes = await listScheduledJobs(token) } catch (e: unknown) { devLog.error('Failed to load scheduled jobs', e) }
-    try { await activeRunsStore.refresh() } catch (e: unknown) { devLog.error('Failed to load active runs', e) }
-    try { hitsRes = await listKeywordHits(token, { limit: 8, offset: 0 }) } catch (e: unknown) { devLog.error('Failed to load keyword hits', e) }
-    try { statusJobsRes = await listAccountStatusCheckJobs(token, 5) } catch (e: unknown) { devLog.error('Failed to load status jobs', e) }
+    if (tasksResult.status === 'fulfilled') {
+      tasksRes = tasksResult.value
+    } else {
+      loadError = tasksResult.reason
+      devLog.error('Failed to load tasks', tasksResult.reason)
+    }
+    if (logsResult.status === 'fulfilled') {
+      logsRes = logsResult.value
+    } else {
+      loadError = logsResult.reason
+      devLog.error('Failed to load logs', logsResult.reason)
+    }
+    if (jobsResult.status === 'fulfilled') {
+      jobsRes = jobsResult.value
+    } else {
+      devLog.error('Failed to load scheduled jobs', jobsResult.reason)
+    }
+    if (runsResult.status === 'rejected') {
+      devLog.error('Failed to load active runs', runsResult.reason)
+    }
+    if (hitsResult.status === 'fulfilled') {
+      hitsRes = hitsResult.value
+    } else {
+      loadError = hitsResult.reason
+      devLog.error('Failed to load keyword hits', hitsResult.reason)
+    }
+    if (statusJobsResult.status === 'fulfilled') {
+      statusJobsRes = statusJobsResult.value
+    } else {
+      loadError = statusJobsResult.reason
+      devLog.error('Failed to load status jobs', statusJobsResult.reason)
+    }
 
     // 卸载后在途 tick：不再写入状态或触发共享轮询
     if (disposed) return

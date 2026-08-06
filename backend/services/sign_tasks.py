@@ -663,7 +663,7 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         try:
             from backend.services.config import get_config_service
 
-            global_proxy = get_config_service().get_global_settings().get("global_proxy")
+            global_proxy = get_config_service().get_global_proxy()
         except Exception as exc:
             # 读取全局配置失败时降级为无全局代理，但需留下日志便于排查
             _service_logger.warning(

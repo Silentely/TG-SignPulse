@@ -4,6 +4,7 @@
 
 | 日期 | 变更内容 |
 |------|----------|
+| 2026-08-06 | 打磨：全局代理读取收敛到 ConfigService.get_global_proxy() 统一入口（替换 sign_tasks/telegram 登录与账号模块 7 处散落魔法键读取）；accounts.py 4 处 string 模式 session 解析复用 load_account_session_string；Dashboard 首屏 7 个相互独立的数据请求改为 Promise.allSettled 并行拉取，缩短首屏等待且各请求独立成败。后端 1210 条测试全绿，前端 304 条/typecheck/构建全绿 |
 | 2026-08-05 | /ccg:init 二轮补扫：tg_signer CLI 全局选项与子命令参数表；frontend Accounts/Logs/Dashboard/Settings 全链路；backend CRUD/config_build/group/chats 专章；清空 init gaps |
 | 2026-08-05 | /ccg:init 补扫：sign_task_runner/历史栈、keyword_monitor continue、frontend Tasks 全链路写入模块 CLAUDE；新增 docs/tests CLAUDE；根文档补 Docker/CI 与执行摘要；architecture.md 交叉对齐；刷新 .claude/index.json |
 | 2026-08-05 | /ccg:init 全仓扫描刷新 CLAUDE.md 与 .claude/index.json |

@@ -937,6 +937,13 @@ class GlobalSettingsMixin:
                 settings.setdefault("timezone", "Asia/Hong_Kong")
         return settings
 
+    def get_global_proxy(self) -> Optional[str]:
+        """读取全局代理（global_proxy），未配置返回 None。
+
+        统一入口：各模块需要"账号代理优先、全局兜底"时先取此值，
+        避免直接散落 ``get_global_settings().get("global_proxy")`` 魔法键。
+        """
+        return self.get_global_settings().get("global_proxy")
 
     def save_global_settings(self, settings: Dict) -> bool:
         """

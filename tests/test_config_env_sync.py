@@ -74,3 +74,21 @@ class TestApplyGlobalSettingsToEnv:
         service = ConfigService()
         service.save_global_settings({"ai_vision_retry_attempts": 6})
         assert os.environ["AI_VISION_RETRY_ATTEMPTS"] == "6"
+
+
+class TestGetGlobalProxy:
+    """ConfigService.get_global_proxy() 统一入口测试。"""
+
+    def test_returns_none_when_unset(self, isolated_env: Path):
+        service = ConfigService()
+        assert service.get_global_proxy() is None
+
+    def test_returns_saved_proxy(self, isolated_env: Path):
+        service = ConfigService()
+        service.save_global_settings({"global_proxy": "socks5://127.0.0.1:1080"})
+        assert service.get_global_proxy() == "socks5://127.0.0.1:1080"
+
+    def test_matches_global_settings_value(self, isolated_env: Path):
+        service = ConfigService()
+        service.save_global_settings({"global_proxy": "http://u:p@h:8080"})
+        assert service.get_global_proxy() == service.get_global_settings()["global_proxy"]

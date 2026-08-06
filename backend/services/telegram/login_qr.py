@@ -542,7 +542,7 @@ class TelegramQrLoginMixin:
             raise ValueError("Telegram API ID / API Hash 未配置或无效") from None
 
         if not proxy:
-            global_proxy = config_service.get_global_settings().get("global_proxy")
+            global_proxy = config_service.get_global_proxy()
             if global_proxy:
                 proxy = global_proxy
 

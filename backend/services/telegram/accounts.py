@@ -23,6 +23,7 @@ from backend.utils.tg_session import (
     get_session_mode,
     is_string_session_mode,
     list_account_names,
+    load_account_session_string,
     load_session_string_file,
     rename_account_entry,
     set_account_status,
@@ -261,7 +262,7 @@ class TelegramAccountsMixin:
             proxy_value = profile.get("proxy")
             if not proxy_value:
                 from backend.services.config import get_config_service
-                proxy_value = get_config_service().get_global_settings().get("global_proxy")
+                proxy_value = get_config_service().get_global_proxy()
             if proxy_value:
                 proxy_dict = build_proxy_dict(proxy_value)
         except Exception:
@@ -271,9 +272,11 @@ class TelegramAccountsMixin:
         session_string = None
         in_memory = False
         if session_mode == "string":
-            session_string = get_account_session_string(
-                account_name
-            ) or load_session_string_file(self.session_dir, account_name)
+            session_string = load_account_session_string(
+                account_name,
+                session_dir=self.session_dir,
+                session_mode=session_mode,
+            )
             if not session_string:
                 return None
             in_memory = True
@@ -336,7 +339,7 @@ class TelegramAccountsMixin:
             proxy_value = profile.get("proxy")
             if not proxy_value:
                 from backend.services.config import get_config_service
-                proxy_value = get_config_service().get_global_settings().get("global_proxy")
+                proxy_value = get_config_service().get_global_proxy()
             if proxy_value:
                 proxy_dict = build_proxy_dict(proxy_value)
         except Exception:
@@ -346,9 +349,11 @@ class TelegramAccountsMixin:
         session_string = None
         in_memory = False
         if session_mode == "string":
-            session_string = get_account_session_string(
-                account_name
-            ) or load_session_string_file(self.session_dir, account_name)
+            session_string = load_account_session_string(
+                account_name,
+                session_dir=self.session_dir,
+                session_mode=session_mode,
+            )
             if not session_string:
                 return None
             in_memory = True
@@ -427,9 +432,11 @@ class TelegramAccountsMixin:
         session_string = None
         in_memory = False
         if session_mode == "string":
-            session_string = get_account_session_string(
-                account_name
-            ) or load_session_string_file(self.session_dir, account_name)
+            session_string = load_account_session_string(
+                account_name,
+                session_dir=self.session_dir,
+                session_mode=session_mode,
+            )
             if not session_string:
                 raise ValueError("session_string 不存在或已失效")
             in_memory = True
@@ -495,9 +502,11 @@ class TelegramAccountsMixin:
         session_string = None
         in_memory = False
         if session_mode == "string":
-            session_string = get_account_session_string(
-                account_name
-            ) or load_session_string_file(self.session_dir, account_name)
+            session_string = load_account_session_string(
+                account_name,
+                session_dir=self.session_dir,
+                session_mode=session_mode,
+            )
             if not session_string:
                 set_account_status(
                     account_name,

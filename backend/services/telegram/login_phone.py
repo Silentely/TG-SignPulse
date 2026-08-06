@@ -133,7 +133,7 @@ class TelegramPhoneLoginMixin:
             raise ValueError("Telegram API ID / API Hash 未配置或无效") from None
 
         if not proxy:
-            global_proxy = config_service.get_global_settings().get("global_proxy")
+            global_proxy = config_service.get_global_proxy()
             if global_proxy:
                 proxy = global_proxy
 
@@ -302,7 +302,7 @@ class TelegramPhoneLoginMixin:
             nonlocal proxy
             if not proxy:
                 from backend.services.config import get_config_service
-                global_proxy = get_config_service().get_global_settings().get("global_proxy")
+                global_proxy = get_config_service().get_global_proxy()
                 if global_proxy:
                     proxy = global_proxy
             if proxy:
@@ -447,7 +447,7 @@ class TelegramPhoneLoginMixin:
                     pass
         if not proxy:
             from backend.services.config import get_config_service
-            global_proxy = get_config_service().get_global_settings().get("global_proxy")
+            global_proxy = get_config_service().get_global_proxy()
             if global_proxy:
                 proxy = global_proxy
         if proxy:
