@@ -41,6 +41,7 @@ async def send_failure_notification(
         if not cfg.get("telegram_bot_task_failure_enabled", True):
             return
         from backend.services.push_notifications import (
+            build_html_notification,
             is_in_quiet_hours,
             send_telegram_bot_message,
         )
@@ -52,24 +53,27 @@ async def send_failure_notification(
         if not bot_token or not chat_id:
             return
 
-        log_tail = "\n".join((flow_logs or [])[-20:])
-        text = (
-            "TG-SignPulse 任务执行失败\n"
-            f"时间: {utc_now_iso_z_seconds()}\n"
-            f"账号: {account_name}\n"
-            f"任务: {task_name}\n"
-            f"错误: {message or '未知错误'}"
-        )
+        fields = [
+            ("时间", utc_now_iso_z_seconds()),
+            ("账号", account_name),
+            ("任务", task_name),
+            ("错误", message or "未知错误"),
+        ]
         if last_target_message:
-            text += f"\n目标消息: {last_target_message}"
-        if log_tail:
-            text += f"\n\n最近日志:\n{log_tail}"
+            fields.append(("目标消息", last_target_message))
+        log_tail = "\n".join((flow_logs or [])[-20:])
+        text = build_html_notification(
+            title="❌ TG-SignPulse 任务执行失败",
+            fields=fields,
+            footer=f"最近日志:\n{log_tail}" if log_tail else "",
+        )
 
         await send_telegram_bot_message(
             bot_token=bot_token,
             chat_id=chat_id,
             text=text,
             message_thread_id=_bot_thread_id(cfg),
+            parse_mode="HTML",
         )
     except Exception as e:
         logger.warning("Failed to send Telegram failure notification: %s", e)
@@ -115,21 +119,28 @@ async def send_account_invalid_notification(
         if not bot_token or not chat_id:
             return
 
-        text = (
-            "TG-SignPulse 账号登录失效\n"
-            f"时间: {utc_now_iso_z_seconds()}\n"
-            f"账号: {account_name}\n"
-            f"任务: {task_name}\n"
-            f"原因: {message or 'session 已失效，请重新登录'}\n\n"
-            "该账号下的任务已跳过。"
+        from backend.services.push_notifications import (
+            build_html_notification,
+            send_telegram_bot_message,
         )
-        from backend.services.push_notifications import send_telegram_bot_message
+
+        text = build_html_notification(
+            title="⚠️ TG-SignPulse 账号登录失效",
+            fields=[
+                ("时间", utc_now_iso_z_seconds()),
+                ("账号", account_name),
+                ("任务", task_name),
+                ("原因", message or "session 已失效，请重新登录"),
+            ],
+            footer="该账号下的任务已跳过。",
+        )
 
         await send_telegram_bot_message(
             bot_token=bot_token,
             chat_id=chat_id,
             text=text,
             message_thread_id=_bot_thread_id(cfg),
+            parse_mode="HTML",
         )
     except Exception as e:
         logger.warning("Failed to send Telegram account invalid notification: %s", e)

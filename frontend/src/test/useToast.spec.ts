@@ -46,6 +46,20 @@ describe('useToast', () => {
     expect(toasts.value[0].type).toBe('info')
   })
 
+  it('warning 快捷方法设置 type=warning', () => {
+    const { toasts, warning } = useToast()
+    warning('部分失败')
+    expect(toasts.value[0].type).toBe('warning')
+  })
+
+  it('warning 类型 4500ms 后自动移除', () => {
+    const { toasts, warning } = useToast()
+    warning('警告消息')
+    expect(toasts.value).toHaveLength(1)
+    vi.advanceTimersByTime(4500)
+    expect(toasts.value).toHaveLength(0)
+  })
+
   it('默认 4000ms 后自动移除', () => {
     const { toasts, info } = useToast()
     info('临时消息')

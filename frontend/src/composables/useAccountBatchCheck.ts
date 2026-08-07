@@ -122,7 +122,7 @@ export function useAccountBatchCheck(options: {
         .slice(0, 5)
         .map((item) => `${item.account_name}: ${item.message || item.code || t('accounts.loginExpired')}`)
         .join('\n')
-      toast.error(t('accounts.batchCheckDone'), {
+      toast.warning(t('accounts.batchCheckDone'), {
         description: `${t('accounts.checkOkCount')}: ${ok} · ${t('accounts.checkFailedCount')}: ${failed}\n${failedPreview}`,
         duration: 8000,
       })
@@ -280,7 +280,7 @@ export function useAccountBatchCheck(options: {
               .map((item) => `${item.account_name}: ${item.message || item.code || t('accounts.loginExpired')}`)
               .join('\n')
           : undefined
-        toast.error(t('accounts.batchCheckDone'), {
+        toast.warning(t('accounts.batchCheckDone'), {
           description: [
             opts.scopedHint,
             `${t('accounts.checkOkCount')}: ${ok} · ${t('accounts.checkFailedCount')}: ${failed}`,

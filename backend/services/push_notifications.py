@@ -11,6 +11,97 @@ from backend.utils.time import utc_now_iso_z_seconds
 
 logger = logging.getLogger("backend.push_notifications")
 
+# Telegram Bot API 单条消息上限；留余量避免 parse_mode=HTML 时超限报错
+_TG_MSG_LIMIT = 3900
+
+
+def _html_escape(value: Any) -> str:
+    """转义 HTML 特殊字符，供 parse_mode=HTML 通知文本使用。"""
+    return (
+        str(value)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
+def _safe_msg_truncate(text: str, parse_mode: Optional[str] = None) -> str:
+    """截断到 Telegram 消息上限，HTML 模式下保持标签闭合。
+
+    parse_mode=HTML 时若截断点落在标签内部或存在未闭合标签，
+    Telegram 会返回 400；这里用标签栈找到最后一个平衡位置回退，
+    保证输出不包含未闭合标签。
+    """
+    if len(text) <= _TG_MSG_LIMIT:
+        return text
+    if parse_mode != "HTML":
+        return text[:_TG_MSG_LIMIT]
+
+    head = text[:_TG_MSG_LIMIT]
+    stack: list[str] = []
+    safe_pos = 0  # 最后一次标签栈为空（或自闭合）后的位置
+    i = 0
+    while True:
+        lt = head.find("<", i)
+        if lt == -1:
+            break
+        gt = head.find(">", lt)
+        if gt == -1:
+            break  # 到头部末尾仍未见闭合，视为残缺，回退
+        tag = head[lt : gt + 1]
+        if tag.startswith("</"):
+            name = tag[2:-1].strip().split(" ")[0]
+            if stack and stack[-1] == name:
+                stack.pop()
+                if not stack:
+                    safe_pos = gt + 1
+        elif tag.endswith("/>"):
+            safe_pos = gt + 1
+        else:
+            name = tag[1:-1].strip().split(" ")[0]
+            stack.append(name)
+        i = gt + 1
+
+    if not stack:
+        return head
+    if safe_pos == 0:
+        # 没有任何平衡点（头部即为残缺标签），退回纯截断并剥离残缺标签
+        import re as _re
+
+        return _re.sub(r"<[^>]*$", "", head)
+    return head[:safe_pos]
+
+
+def build_html_notification(
+    *,
+    title: str,
+    fields: list[tuple[str, str]],
+    footer: str = "",
+) -> str:
+    """构建 Telegram HTML 格式通知文本。
+
+    - 标题加粗，字段标签加粗、值用等宽 code，整体逐行累积。
+    - 字段值先按原始文本截断再转义，避免截断点切开 HTML 实体
+      （如 &amp; 被切成 &am）导致 parse_mode=HTML 解析失败。
+    - 返回的文本配合 parse_mode="HTML" 发送，长度不超过 _TG_MSG_LIMIT。
+    """
+    lines = [f"<b>{_html_escape(title)}</b>"]
+    for label, value in fields:
+        if not value:
+            continue
+        lines.append(
+            f"<b>{_html_escape(label)}</b>: <code>{_html_escape(str(value)[:2000])}</code>"
+        )
+    if footer:
+        lines.append(_html_escape(str(footer)[:2000]))
+
+    text = ""
+    for line in lines:
+        if len(text) + len(line) + 1 > _TG_MSG_LIMIT:
+            break
+        text = f"{text}\n{line}" if text else line
+    return text
+
 
 def _as_int_or_none(value: Any) -> Optional[int]:
     try:
@@ -61,12 +152,15 @@ async def send_telegram_bot_message(
     chat_id: str,
     text: str,
     message_thread_id: Optional[int] = None,
+    parse_mode: Optional[str] = None,
 ) -> None:
     payload: Dict[str, Any] = {
         "chat_id": chat_id,
-        "text": text[:3900],
+        "text": _safe_msg_truncate(text, parse_mode),
         "disable_web_page_preview": False,
     }
+    if parse_mode:
+        payload["parse_mode"] = parse_mode
     if message_thread_id is not None:
         payload["message_thread_id"] = message_thread_id
 
@@ -83,6 +177,9 @@ async def send_keyword_push(settings: Dict[str, Any], payload: Dict[str, Any]) -
     title = str(payload.get("title") or "TG-SignPulse 关键词命中")
     body = str(payload.get("body") or "")
     url = str(payload.get("url") or "")
+    # 多通道标题统一带状态 emoji，避免各通道展示不一致
+    if not title.startswith("🔔"):
+        title = f"🔔 {title}"
 
     if channel in ("server_chan", "server酱"):
         sendkey = (
@@ -104,9 +201,17 @@ async def send_keyword_push(settings: Dict[str, Any], payload: Dict[str, Any]) -
         if not bot_token or not chat_id:
             logger.warning("Keyword monitor Telegram notification is not configured")
             return
-        text = f"{title}\n\n{body}"
+        text = build_html_notification(
+            title=title,
+            fields=[
+                ("关键词", payload.get("keyword") or ""),
+                ("账号", payload.get("account_name") or ""),
+                ("会话", payload.get("chat_title") or ""),
+            ],
+            footer=body or "",
+        )
         if url:
-            text += f"\n\n链接: {url}"
+            text += f"\n\n🔗 链接: {_html_escape(url)}"
         await send_telegram_bot_message(
             bot_token=bot_token,
             chat_id=chat_id,
@@ -114,6 +219,7 @@ async def send_keyword_push(settings: Dict[str, Any], payload: Dict[str, Any]) -
             message_thread_id=_as_int_or_none(
                 settings.get("telegram_bot_message_thread_id")
             ),
+            parse_mode="HTML",
         )
         return
 
@@ -175,17 +281,20 @@ async def send_login_notification(
         logger.warning("Telegram login notification is not configured")
         return
 
-    text = (
-        "TG-SignPulse 登录通知\n"
-        f"时间: {utc_now_iso_z_seconds()}\n"
-        f"用户: {username}\n"
-        f"IP: {ip_address or '未知'}"
+    text = build_html_notification(
+        title="🔐 TG-SignPulse 登录通知",
+        fields=[
+            ("时间", utc_now_iso_z_seconds()),
+            ("用户", username or ""),
+            ("IP", ip_address or "未知"),
+        ],
     )
     await send_telegram_bot_message(
         bot_token=bot_token,
         chat_id=chat_id,
         text=text,
         message_thread_id=_as_int_or_none(settings.get("telegram_bot_message_thread_id")),
+        parse_mode="HTML",
     )
 
 
@@ -209,19 +318,23 @@ async def send_task_success_notification(
     if not bot_token or not chat_id:
         return
 
-    text = (
-        "TG-SignPulse 任务执行成功\n"
-        f"时间: {utc_now_iso_z_seconds()}\n"
-        f"账号: {account_name}\n"
-        f"任务: {task_name}"
-    )
+    fields = [
+        ("时间", utc_now_iso_z_seconds()),
+        ("账号", account_name),
+        ("任务", task_name),
+    ]
     if message:
-        text += f"\n摘要: {str(message)[:500]}"
+        fields.append(("摘要", str(message)[:500]))
+    text = build_html_notification(
+        title="✅ TG-SignPulse 任务执行成功",
+        fields=fields,
+    )
     await send_telegram_bot_message(
         bot_token=bot_token,
         chat_id=chat_id,
         text=text,
         message_thread_id=_as_int_or_none(settings.get("telegram_bot_message_thread_id")),
+        parse_mode="HTML",
     )
 
 
@@ -246,13 +359,16 @@ async def send_auto_backup_failure_notification(
     if not bot_token or not chat_id:
         return
 
-    text = (
-        "TG-SignPulse 自动备份失败\n"
-        f"时间: {utc_now_iso_z_seconds()}\n"
-        f"原因: {str(error)[:800]}"
-    )
+    fields = [
+        ("时间", utc_now_iso_z_seconds()),
+        ("原因", str(error)[:800]),
+    ]
     if detail:
-        text += f"\n详情: {str(detail)[:500]}"
+        fields.append(("详情", str(detail)[:500]))
+    text = build_html_notification(
+        title="🗄️ TG-SignPulse 自动备份失败",
+        fields=fields,
+    )
     try:
         await send_telegram_bot_message(
             bot_token=bot_token,
@@ -261,6 +377,7 @@ async def send_auto_backup_failure_notification(
             message_thread_id=_as_int_or_none(
                 settings.get("telegram_bot_message_thread_id")
             ),
+            parse_mode="HTML",
         )
     except Exception as exc:
         logger.warning("自动备份失败通知发送失败: %s", exc)

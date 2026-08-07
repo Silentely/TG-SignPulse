@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { X, CheckCircle2, AlertCircle, Info } from 'lucide-vue-next'
+import { X, CheckCircle2, AlertCircle, AlertTriangle, Info } from 'lucide-vue-next'
 import { useToast } from '../composables/useToast'
 import { useI18n } from '../composables/useI18n'
 
@@ -28,6 +28,7 @@ const { t } = useI18n()
             'bg-white/95 dark:bg-[var(--sp-bg-elevated)]/95 border-gray-200 dark:border-[var(--sp-border)] text-gray-900 dark:text-gray-100': toast.type === 'info',
             'bg-emerald-50/95 dark:bg-emerald-950/80 border-emerald-200 dark:border-emerald-800/50 text-emerald-800 dark:text-emerald-300': toast.type === 'success',
             'bg-rose-50/95 dark:bg-rose-950/80 border-rose-200 dark:border-rose-800/50 text-rose-800 dark:text-rose-300': toast.type === 'error',
+            'bg-amber-50/95 dark:bg-amber-950/80 border-amber-200 dark:border-amber-800/50 text-amber-800 dark:text-amber-300': toast.type === 'warning',
           }"
         >
           <CheckCircle2
@@ -36,6 +37,10 @@ const { t } = useI18n()
           />
           <AlertCircle
             v-else-if="toast.type === 'error'"
+            class="w-4 h-4 shrink-0 mt-0.5 opacity-90"
+          />
+          <AlertTriangle
+            v-else-if="toast.type === 'warning'"
             class="w-4 h-4 shrink-0 mt-0.5 opacity-90"
           />
           <Info

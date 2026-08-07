@@ -83,7 +83,7 @@ export function useTaskListActions(options: {
         const detail = failedNames.length
           ? ` · ${failedNames.join(', ')}${(res.fail_count || 0) > failedNames.length ? '…' : ''}`
           : ''
-        toast.error(
+        toast.warning(
           `${t('tasks.batchPartialDetail', { ok: res.success_count, fail: res.fail_count })}${detail}`,
         )
       }

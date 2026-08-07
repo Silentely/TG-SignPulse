@@ -304,7 +304,12 @@ class AITools:
         output = io.BytesIO()
         prepared.save(output, format="JPEG", quality=quality, optimize=True)
         result = output.getvalue()
-        logger.debug(f"AI 图片预处理 | 原始: {original_size} bytes | 处理后: {len(result)} bytes | 尺寸: {prepared.size}")
+        logger.debug(
+            "AI 图片预处理 | 原始: %s bytes | 处理后: %s bytes | 尺寸: %s",
+            original_size,
+            len(result),
+            prepared.size,
+        )
         return result
 
     @staticmethod
@@ -341,7 +346,11 @@ class AITools:
                         break
 
         if isinstance(result, dict):
-            logger.error(f"AI 返回结果中未找到选项字段 | result_type={type(result).__name__} keys={list(result.keys())}")
+            logger.error(
+                "AI 返回结果中未找到选项字段 | result_type=%s keys=%s",
+                type(result).__name__,
+                list(result.keys()),
+            )
             raise ValueError(f"AI result does not contain an option: {safe_text_preview(result, 100)}")
 
         if isinstance(result, int):
@@ -361,7 +370,12 @@ class AITools:
                 if normalized_option and normalized_option in normalized_result:
                     return index
 
-        logger.error(f"AI 返回结果无法解析为选项索引 | result_type={type(result).__name__} result_chars={len(str(result))} options_count={len(options)}")
+        logger.error(
+            "AI 返回结果无法解析为选项索引 | result_type=%s result_chars=%s options_count=%s",
+            type(result).__name__,
+            len(str(result)),
+            len(options),
+        )
         raise ValueError(f"Could not parse AI option result: {safe_text_preview(result, 100)}")
 
     @classmethod
@@ -561,7 +575,12 @@ class AITools:
                 _tokens = ""
                 if _usage:
                     _tokens = f" | tokens: prompt={getattr(_usage, 'prompt_tokens', '?')} completion={getattr(_usage, 'completion_tokens', '?')}"
-                logger.debug(f"AI API 调用完成 | model={model} elapsed_ms={_elapsed:.0f}{_tokens}")
+                logger.debug(
+                    "AI API 调用完成 | model=%s elapsed_ms=%.0f%s",
+                    model,
+                    _elapsed,
+                    _tokens,
+                )
                 return result
             except Exception as exc:
                 _elapsed = (time.monotonic() - _start) * 1000

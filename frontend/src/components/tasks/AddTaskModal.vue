@@ -165,7 +165,7 @@ const handleSave = async () => {
           ...errorLines.slice(0, 5),
         ].join('\n')
         error.value = detail
-        toast.error(t('tasks.splitCreatePartial', { ok, fail }), {
+        toast.warning(t('tasks.splitCreatePartial', { ok, fail }), {
           description: errorLines.slice(0, 5).join('\n'),
           duration: 8000,
         })

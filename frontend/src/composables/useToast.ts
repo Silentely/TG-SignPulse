@@ -5,7 +5,7 @@ export interface ToastItem {
   message: string
   /** 可选多行详情 */
   description?: string
-  type: 'success' | 'error' | 'info'
+  type: 'success' | 'error' | 'warning' | 'info'
 }
 
 export interface ToastOptions {
@@ -81,9 +81,11 @@ export const useToast = () => {
     show(message, 'success', opts ?? 4000)
   const error = (message: string, opts?: ToastOptions) =>
     show(message, 'error', opts ?? { duration: 5000 })
+  const warning = (message: string, opts?: ToastOptions) =>
+    show(message, 'warning', opts ?? 4500)
   const info = (message: string, opts?: ToastOptions) =>
     show(message, 'info', opts ?? 4000)
 
-  // show 仅为内部基底，不对外导出：业务统一走 success/error/info 语义化入口
-  return { toasts, success, error, info, dismiss, clear }
+  // show 仅为内部基底，不对外导出：业务统一走 success/error/warning/info 语义化入口
+  return { toasts, success, error, warning, info, dismiss, clear }
 }

@@ -112,7 +112,11 @@ async def _patched_invoke(self, query, *args, **kwargs):
                             await asyncio.sleep(delay)
                             continue
 
-                        logger.warning(f"Drop updates for {type(query).__name__} due to error: {e}")
+                        logger.warning(
+                            "Drop updates for %s due to error: %s",
+                            type(query).__name__,
+                            e,
+                        )
 
                         if isinstance(query, raw.functions.updates.GetChannelDifference):
                             from pyrogram.raw.types.updates import (
@@ -246,7 +250,7 @@ class Client(BaseClient):
                                 self.storage.conn.execute("PRAGMA journal_mode=WAL")
                                 self.storage.conn.execute("PRAGMA busy_timeout=30000")
                             except Exception as e:
-                                logger.error(f"Failed to enable WAL mode: {e}")
+                                logger.error("Failed to enable WAL mode: %s", e)
 
                         # Success! Break loop
                         break
@@ -263,7 +267,13 @@ class Client(BaseClient):
                                 pass
 
                             wait_time = 2 + (attempt * 3)
-                            logger.warning(f"Database locked when starting client {self.name}, retrying in {wait_time}s... ({attempt + 1}/{max_retries})")
+                            logger.warning(
+                                "Database locked when starting client %s, retrying in %ss... (%s/%s)",
+                                self.name,
+                                wait_time,
+                                attempt + 1,
+                                max_retries,
+                            )
                             await asyncio.sleep(wait_time)
                             continue
 
@@ -432,7 +442,8 @@ async def close_client_by_name(name: str, workdir: Union[str, pathlib.Path] = ".
                 lock.release()
         except asyncio.TimeoutError:
             logger.warning(
-                f"Timeout waiting for lock on client {name}, proceeding with forceful cleanup"
+                "Timeout waiting for lock on client %s, proceeding with forceful cleanup",
+                name,
             )
             _CLIENT_REFS[key] = 0
 
@@ -442,7 +453,7 @@ async def close_client_by_name(name: str, workdir: Union[str, pathlib.Path] = ".
             if client.is_connected:
                 await client.stop()
         except Exception as e:
-            logger.warning(f"Error stopping client {name}: {e}")
+            logger.warning("Error stopping client %s: %s", name, e)
         finally:
             _CLIENT_INSTANCES.pop(key, None)
 
