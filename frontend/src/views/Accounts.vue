@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { Play, FileText, Edit2, Trash2, Plus, QrCode, Phone, Zap, MonitorSmartphone, MessageCircle, CheckCircle2, Search, RefreshCw, XCircle, X } from 'lucide-vue-next'
+import { Play, FileText, Edit2, Trash2, Plus, QrCode, Phone, Zap, MonitorSmartphone, MessageCircle, CheckCircle2, Search, RefreshCw, XCircle, X, Users } from 'lucide-vue-next'
 import {
   deleteAccount,
   fetchAccountAvatar,
@@ -241,7 +241,7 @@ const goTasks = (name: string) => {
     <!-- Empty State -->
     <div v-else-if="accounts.length === 0" class="ui-empty">
       <div class="ui-empty-icon">
-        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+        <Users class="w-8 h-8" />
       </div>
       <p class="ui-empty-title">{{ t('accounts.empty') }}</p>
       <p class="ui-empty-desc mb-4">{{ t('accounts.emptyHint') }}</p>

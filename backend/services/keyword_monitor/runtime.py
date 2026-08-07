@@ -708,7 +708,7 @@ class KeywordMonitorService:
         await send_keyword_push(
             push_settings,
             {
-                "title": "TG-SignPulse keyword matched",
+                "title": "TG-SignPulse 关键词命中",
                 "body": forward_text,
                 "text": text,
                 "keyword": matched,

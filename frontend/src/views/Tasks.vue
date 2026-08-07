@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Plus, Radio, Clock, Shuffle, X } from 'lucide-vue-next'
+import { Plus, Radio, Clock, Shuffle, X, Zap } from 'lucide-vue-next'
 import { listSignTasks } from '../lib/api'
 import { withToken } from '../lib/api/core'
 import { useLatestResponseGuard } from '../lib/latest-response'
@@ -346,7 +346,7 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
       </div>
       <div class="ui-empty">
         <div class="ui-empty-icon">
-          <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          <Zap class="w-8 h-8" />
         </div>
         <p class="ui-empty-title">{{ t('tasks.empty') }}</p>
         <p class="ui-empty-desc mb-4">{{ t('tasks.emptyHint') }}</p>

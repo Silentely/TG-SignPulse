@@ -15,6 +15,7 @@
   --sp-success: #10b981;
   --sp-danger: #f43f5e;
   --sp-warning: #f59e0b;
+  --sp-violet: #8b5cf6;
   --sp-shadow-sm: 0 1px 2px rgb(15 23 42 / 0.04);
   --sp-shadow-md: 0 4px 16px rgb(15 23 42 / 0.06);
   --sp-shadow-lg: 0 12px 32px rgb(15 23 42 / 0.1);
@@ -36,6 +37,7 @@
   --sp-text-muted: #a1a8b3;
   --sp-accent: #38bdf8;
   --sp-accent-soft: rgb(56 189 248 / 0.16);
+  --sp-violet: #a78bfa;
   --sp-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
   --sp-shadow-md: 0 10px 28px rgb(0 0 0 / 0.45);
   --sp-shadow-lg: 0 16px 40px rgb(0 0 0 / 0.55);
@@ -599,6 +601,49 @@ textarea.ui-input {
 }
 .ui-badge-neutral .ui-badge-dot {
   background: #9ca3af;
+}
+
+/* 彩色信息徽标配色：软色底 + 同色系文字/边框（含暗色模式），
+   供列表徽标与筛选条件等重复场景复用，避免各组件散落硬编码 tailwind 色 */
+.ui-chip-sky {
+  background: #f0f9ff;
+  color: #0369a1;
+  border-color: #e0f2fe;
+}
+.dark .ui-chip-sky {
+  background: rgb(8 47 73 / 0.4);
+  color: #7dd3fc;
+  border-color: rgb(12 74 110 / 0.5);
+}
+.ui-chip-violet {
+  background: #f5f3ff;
+  color: #6d28d9;
+  border-color: #ede9fe;
+}
+.dark .ui-chip-violet {
+  background: rgb(46 16 101 / 0.4);
+  color: #c4b5fd;
+  border-color: rgb(91 33 182 / 0.5);
+}
+.ui-chip-emerald {
+  background: #ecfdf5;
+  color: #047857;
+  border-color: #d1fae5;
+}
+.dark .ui-chip-emerald {
+  background: rgb(2 44 34 / 0.4);
+  color: #6ee7b7;
+  border-color: rgb(6 95 70 / 0.5);
+}
+.ui-chip-orange {
+  background: #fff7ed;
+  color: #c2410c;
+  border-color: #ffedd5;
+}
+.dark .ui-chip-orange {
+  background: rgb(67 20 7 / 0.4);
+  color: #fdba74;
+  border-color: rgb(154 52 18 / 0.5);
 }
 
 /* 页内加载 */

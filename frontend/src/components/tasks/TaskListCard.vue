@@ -70,7 +70,7 @@ const cancelKey = () => {
         </div>
         <div class="flex flex-wrap items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
           <span
-            class="ui-badge !text-[10px] font-mono bg-sky-50 text-sky-700 border-sky-100 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800/50 max-w-[min(12rem,100%)] truncate"
+            class="ui-badge !text-[10px] font-mono ui-chip-sky max-w-[min(12rem,100%)] truncate"
             :title="task.scheduleMode"
           >
             {{ task.scheduleMode }}
@@ -83,7 +83,7 @@ const cancelKey = () => {
           </span>
           <span
             v-if="task.targetCount > 1"
-            class="ui-badge !text-[11px] bg-violet-50 text-violet-700 border-violet-100 dark:bg-violet-950/40 dark:text-violet-300 dark:border-violet-800/50"
+            class="ui-badge !text-[11px] ui-chip-violet"
             :title="task.targetStr"
           >
             {{ t('tasks.extraTargets', { n: task.targetCount - 1 }) }}
@@ -91,7 +91,7 @@ const cancelKey = () => {
           <button
             v-if="task.isListenMode && (task.hitCount || 0) > 0"
             type="button"
-            class="ui-badge !text-[11px] bg-emerald-50 text-emerald-700 border-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/50 cursor-pointer hover:opacity-90"
+            class="ui-badge !text-[11px] ui-chip-emerald cursor-pointer hover:opacity-90"
             :title="t('tasks.hitsBadgeHint')"
             @click.stop="emit('open-logs', task, 'hits')"
           >

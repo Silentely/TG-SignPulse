@@ -161,7 +161,7 @@ const { t } = useI18n()
       <button
         v-if="searchQuery.trim()"
         type="button"
-        class="inline-flex items-center gap-1 max-w-[14rem] px-2 py-0.5 rounded-sm text-[11px] bg-sky-50 text-sky-800 border border-sky-100 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800/50"
+        class="inline-flex items-center gap-1 max-w-[14rem] px-2 py-0.5 rounded-sm text-[11px] ui-chip-sky"
         :title="t('common.clearFilters')"
         @click="emit('update:searchQuery', '')"
       >
@@ -171,7 +171,7 @@ const { t } = useI18n()
       <button
         v-if="modeFilter === 'listen'"
         type="button"
-        class="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-[11px] bg-orange-50 text-orange-800 border border-orange-100 dark:bg-orange-950/40 dark:text-orange-300 dark:border-orange-800/50"
+        class="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-[11px] ui-chip-orange"
         @click="emit('update:modeFilter', 'all')"
       >
         {{ t('tasks.filterListen') }}
@@ -180,7 +180,7 @@ const { t } = useI18n()
       <button
         v-if="modeFilter === 'scheduled'"
         type="button"
-        class="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-[11px] bg-violet-50 text-violet-800 border border-violet-100 dark:bg-violet-950/40 dark:text-violet-300 dark:border-violet-800/50"
+        class="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-[11px] ui-chip-violet"
         @click="emit('update:modeFilter', 'all')"
       >
         {{ t('tasks.filterScheduled') }}
@@ -189,7 +189,7 @@ const { t } = useI18n()
       <button
         v-if="accountFilter"
         type="button"
-        class="inline-flex items-center gap-1 max-w-[12rem] px-2 py-0.5 rounded-sm text-[11px] bg-sky-50 text-sky-800 border border-sky-100 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800/50"
+        class="inline-flex items-center gap-1 max-w-[12rem] px-2 py-0.5 rounded-sm text-[11px] ui-chip-sky"
         :title="t('tasks.clearAccountFilter')"
         @click="emit('clear-account-filter')"
       >

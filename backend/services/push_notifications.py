@@ -7,6 +7,8 @@ from urllib.parse import quote
 
 import httpx
 
+from backend.utils.time import utc_now_iso_z_seconds
+
 logger = logging.getLogger("backend.push_notifications")
 
 
@@ -175,8 +177,9 @@ async def send_login_notification(
 
     text = (
         "TG-SignPulse 登录通知\n"
+        f"时间: {utc_now_iso_z_seconds()}\n"
         f"用户: {username}\n"
-        f"IP: {ip_address or 'unknown'}"
+        f"IP: {ip_address or '未知'}"
     )
     await send_telegram_bot_message(
         bot_token=bot_token,
@@ -208,6 +211,7 @@ async def send_task_success_notification(
 
     text = (
         "TG-SignPulse 任务执行成功\n"
+        f"时间: {utc_now_iso_z_seconds()}\n"
         f"账号: {account_name}\n"
         f"任务: {task_name}"
     )
@@ -244,6 +248,7 @@ async def send_auto_backup_failure_notification(
 
     text = (
         "TG-SignPulse 自动备份失败\n"
+        f"时间: {utc_now_iso_z_seconds()}\n"
         f"原因: {str(error)[:800]}"
     )
     if detail:

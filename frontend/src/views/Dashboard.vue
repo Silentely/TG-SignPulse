@@ -152,10 +152,10 @@ const statusJobLabel = (job: AccountStatusJob) => {
         class="ui-card ui-card-hover ui-stat p-5 flex flex-col justify-between min-h-[96px] text-left"
         :style="{
           '--sp-stat-accent':
-            stat.key === 'dashboard.activeAccounts' ? '#0ea5e9'
-            : stat.key === 'dashboard.totalTasks' ? '#8b5cf6'
-            : stat.key === 'dashboard.recentSuccess' ? '#10b981'
-            : '#f43f5e'
+            stat.key === 'dashboard.activeAccounts' ? 'var(--sp-accent)'
+            : stat.key === 'dashboard.totalTasks' ? 'var(--sp-violet)'
+            : stat.key === 'dashboard.recentSuccess' ? 'var(--sp-success)'
+            : 'var(--sp-danger)'
         }"
         @click="router.push({
           name: stat.key === 'dashboard.totalTasks' ? 'tasks'

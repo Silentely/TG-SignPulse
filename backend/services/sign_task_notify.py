@@ -9,7 +9,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from backend.utils.tg_session import get_account_status, set_account_status
-from backend.utils.time import utc_now_iso
+from backend.utils.time import utc_now_iso, utc_now_iso_z_seconds
 
 logger = logging.getLogger("backend.sign_task_notify")
 
@@ -55,12 +55,13 @@ async def send_failure_notification(
         log_tail = "\n".join((flow_logs or [])[-20:])
         text = (
             "TG-SignPulse 任务执行失败\n"
+            f"时间: {utc_now_iso_z_seconds()}\n"
             f"账号: {account_name}\n"
             f"任务: {task_name}\n"
             f"错误: {message or '未知错误'}"
         )
         if last_target_message:
-            text += f"\nLast target message: {last_target_message}"
+            text += f"\n目标消息: {last_target_message}"
         if log_tail:
             text += f"\n\n最近日志:\n{log_tail}"
 
@@ -116,8 +117,9 @@ async def send_account_invalid_notification(
 
         text = (
             "TG-SignPulse 账号登录失效\n"
+            f"时间: {utc_now_iso_z_seconds()}\n"
             f"账号: {account_name}\n"
-            f"触发任务: {task_name}\n"
+            f"任务: {task_name}\n"
             f"原因: {message or 'session 已失效，请重新登录'}\n\n"
             "该账号下的任务已跳过。"
         )

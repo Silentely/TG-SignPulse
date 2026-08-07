@@ -101,7 +101,7 @@ def _configure_backend_logging():
         _handler = logging.StreamHandler()
         _handler.setLevel(level_no)
         _handler.setFormatter(logging.Formatter(
-            "[%(levelname)s] [%(name)s] %(asctime)s - %(message)s"
+            "[%(levelname)s] [%(name)s] %(asctime)s %(filename)s %(lineno)s %(message)s"
         ))
         root.addHandler(_handler)
     logging.getLogger("backend").setLevel(level_no)
@@ -125,7 +125,7 @@ def _configure_backend_logging():
         handler = logging.StreamHandler()
         handler.setLevel(logging.DEBUG)
         handler.setFormatter(logging.Formatter(
-            "[%(levelname)s] [%(name)s] %(asctime)s - %(message)s"
+            "[%(levelname)s] [%(name)s] %(asctime)s %(filename)s %(lineno)s %(message)s"
         ))
         access_logger.addHandler(handler)
 

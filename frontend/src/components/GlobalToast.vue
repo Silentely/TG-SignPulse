@@ -21,7 +21,8 @@ const { t } = useI18n()
         <div
           v-for="toast in toasts"
           :key="toast.id"
-          role="status"
+          :role="toast.type === 'error' ? 'alert' : 'status'"
+          :aria-live="toast.type === 'error' ? 'assertive' : 'polite'"
           class="pointer-events-auto flex items-start gap-2.5 px-3.5 py-2.5 text-sm shadow-[var(--sp-shadow-md)] border backdrop-blur-sm"
           :class="{
             'bg-white/95 dark:bg-[var(--sp-bg-elevated)]/95 border-gray-200 dark:border-[var(--sp-border)] text-gray-900 dark:text-gray-100': toast.type === 'info',
