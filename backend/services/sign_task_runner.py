@@ -472,12 +472,25 @@ async def _runner_send_notifications(state: Dict[str, Any]) -> None:
         and not state.get("account_invalid_detected", False)
         and state.get("task_notify_on_failure", True)
     ):
+        # 失败分类在此阶段计算（run_once 的最终分类赋值在 finalize 之后，
+        # 通知阶段先于它执行），保证通知携带可读的失败分类
+        failure_category = state.get("failure_category")
+        if not failure_category:
+            failure_category = classify_failure(
+                error=state.get("error_msg", ""),
+                output=state.get("output_str", ""),
+                success=False,
+            ).value
+            if state.get("timed_out"):
+                failure_category = FailureCategory.TIMEOUT.value
+            state["failure_category"] = failure_category
         await send_failure_notification(
             account_name=state["account_name"],
             task_name=state["task_name"],
             message=state.get("error_msg", "") or state.get("last_reply", ""),
             last_target_message=state.get("last_target_message") or None,
             flow_logs=state.get("final_logs", []),
+            failure_category=failure_category,
         )
     elif success and state.get("task_notify_on_success", True):
         await send_success_notification(

@@ -26,21 +26,9 @@ router = APIRouter()
 
 async def _post_import_sync() -> None:
     """导入签到任务后后台同步调度与关键词监控，失败仅告警不阻塞 HTTP 响应。"""
-    import logging
+    from backend.services.sync_helpers import sync_jobs_and_restart_monitors
 
-    logger = logging.getLogger("backend.config_api")
-    try:
-        from backend.scheduler import sync_jobs
-
-        await sync_jobs()
-    except Exception as exc:
-        logger.warning("导入任务后调度同步失败: %s", exc)
-    try:
-        from backend.services.keyword_monitor import get_keyword_monitor_service
-
-        await get_keyword_monitor_service().restart_from_tasks()
-    except Exception as exc:
-        logger.warning("导入任务后重启关键词监控失败: %s", exc)
+    await sync_jobs_and_restart_monitors(context="导入")
 
 
 def _clear_sign_task_cache() -> None:

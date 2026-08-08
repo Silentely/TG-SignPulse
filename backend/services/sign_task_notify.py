@@ -13,6 +13,27 @@ from backend.utils.time import utc_now_iso, utc_now_iso_z_seconds
 
 logger = logging.getLogger("backend.sign_task_notify")
 
+# 失败分类中文标签：通知面向最终用户，用可读文案而非内部枚举值
+FAILURE_CATEGORY_LABELS = {
+    "session_invalid": "会话失效",
+    "flood_wait": "频率限制",
+    "ai_timeout": "AI 超时",
+    "ai_error": "AI 错误",
+    "button_not_found": "按钮未找到",
+    "target_not_found": "目标未找到",
+    "network_proxy": "网络/代理",
+    "timeout": "超时",
+    "strong_failure": "业务失败",
+    "unknown": "未知",
+    "none": "",
+}
+
+
+def _failure_category_label(value: Optional[str]) -> str:
+    if not value:
+        return ""
+    return FAILURE_CATEGORY_LABELS.get(value, value)
+
 
 async def send_failure_notification(
     *,
@@ -21,6 +42,7 @@ async def send_failure_notification(
     message: str,
     last_target_message: Optional[str] = None,
     flow_logs: Optional[List[str]] = None,
+    failure_category: Optional[str] = None,
 ) -> None:
     try:
         from backend.services.config import get_config_service
@@ -44,11 +66,14 @@ async def send_failure_notification(
             return
 
         fields = [
-            ("时间", utc_now_iso_z_seconds()),
+            ("时间 (UTC)", utc_now_iso_z_seconds()),
             ("账号", account_name),
             ("任务", task_name),
-            ("错误", message or "未知错误"),
         ]
+        category_label = _failure_category_label(failure_category)
+        if category_label:
+            fields.append(("失败分类", category_label))
+        fields.append(("错误", message or "未知错误"))
         if last_target_message:
             fields.append(("目标消息", last_target_message))
         log_tail = "\n".join((flow_logs or [])[-20:])

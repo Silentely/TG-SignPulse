@@ -137,5 +137,67 @@ describe('useToast', () => {
     expect(toasts.value[0].message).toBe('批量完成')
     expect(toasts.value[0].description).toBe('ok: 3\nfail: 1')
   })
+
+  it('pause 暂停自动关闭倒计时', () => {
+    const { toasts, info, pause } = useToast()
+    info('长消息')
+    const id = toasts.value[0].id
+    pause(id)
+    // 超过默认 4000ms 仍保留（已暂停）
+    vi.advanceTimersByTime(10000)
+    expect(toasts.value).toHaveLength(1)
+  })
+
+  it('resume 从剩余时长继续倒计时', () => {
+    const { toasts, info, pause, resume } = useToast()
+    info('长消息')
+    const id = toasts.value[0].id
+    vi.advanceTimersByTime(3000)
+    pause(id)
+    // 暂停期间不消失
+    vi.advanceTimersByTime(5000)
+    expect(toasts.value).toHaveLength(1)
+    // 恢复后仅剩 1000ms，到达后消失
+    resume(id)
+    vi.advanceTimersByTime(999)
+    expect(toasts.value).toHaveLength(1)
+    vi.advanceTimersByTime(1)
+    expect(toasts.value).toHaveLength(0)
+  })
+
+  it('重复 pause 幂等，不叠加剩余时间', () => {
+    const { toasts, info, pause, resume } = useToast()
+    info('消息')
+    const id = toasts.value[0].id
+    vi.advanceTimersByTime(2000)
+    pause(id)
+    pause(id)
+    // 暂停两次后恢复，剩余应为 2000ms 而非 4000ms
+    resume(id)
+    vi.advanceTimersByTime(2000)
+    expect(toasts.value).toHaveLength(0)
+  })
+
+  it('dismiss 暂停中的 toast 后恢复不复活', () => {
+    const { toasts, info, pause, dismiss, resume } = useToast()
+    info('消息')
+    const id = toasts.value[0].id
+    pause(id)
+    dismiss(id)
+    expect(toasts.value).toHaveLength(0)
+    resume(id) // 不应复活
+    expect(toasts.value).toHaveLength(0)
+  })
+
+  it('clear 清理后暂停/恢复无副作用', () => {
+    const { toasts, info, pause, clear, resume } = useToast()
+    info('a')
+    const id = toasts.value[0].id
+    pause(id)
+    clear()
+    expect(toasts.value).toHaveLength(0)
+    resume(id)
+    expect(toasts.value).toHaveLength(0)
+  })
 })
 

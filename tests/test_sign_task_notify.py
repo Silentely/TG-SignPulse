@@ -139,6 +139,33 @@ class TestSendFailureNotification:
         assert "log-24" in text and "log-5" in text and "log-4" not in text
 
     @pytest.mark.asyncio()
+    async def test_failure_category_label_included(self, notify_env):
+        """失败分类以可读中文标签进入通知，时间标注 UTC。"""
+        await sign_task_notify.send_failure_notification(
+            account_name="acc1",
+            task_name="daily",
+            message="flood wait 60s",
+            failure_category="flood_wait",
+        )
+        assert len(notify_env.sent) == 1
+        text = notify_env.sent[0]["text"]
+        assert "失败分类" in text
+        assert "频率限制" in text
+        assert "时间 (UTC)" in text
+
+    @pytest.mark.asyncio()
+    async def test_unknown_category_passthrough(self, notify_env):
+        """未知分类原样透传，不崩溃。"""
+        await sign_task_notify.send_failure_notification(
+            account_name="a",
+            task_name="t",
+            message="x",
+            failure_category="some_custom_cat",
+        )
+        text = notify_env.sent[0]["text"]
+        assert "some_custom_cat" in text
+
+    @pytest.mark.asyncio()
     async def test_send_error_is_swallowed_with_warning(
         self, notify_env, monkeypatch, caplog
     ):

@@ -334,6 +334,17 @@ async def on_startup() -> None:
     )
 
     ensure_data_dirs(settings)
+    # 清理过期头像缓存（7 天 TTL），避免长期运行累积陈旧文件
+    try:
+        from backend.services import avatar_cache
+
+        avatar_root = settings.resolve_workdir() / "avatars"
+        for sub_dir in (avatar_root, avatar_root / "chats"):
+            avatar_cache.cleanup_avatar_cache(sub_dir)
+    except Exception:
+        logging.getLogger("backend.startup").debug(
+            "清理过期头像缓存失败（可忽略）", exc_info=True
+        )
     # 面板持久化的全局设置回灌环境变量：env_sync 仅在保存时执行，
     # 重启后若不回灌，tg_signer 等仍读 env 的路径会静默回退默认值
     try:

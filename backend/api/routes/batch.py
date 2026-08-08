@@ -27,12 +27,9 @@ logger = logging.getLogger("backend.batch")
 router = APIRouter()
 
 async def _restart_keyword_monitors() -> None:
-    try:
-        from backend.services.keyword_monitor import get_keyword_monitor_service
+    from backend.services.sync_helpers import restart_keyword_monitors
 
-        await get_keyword_monitor_service().restart_from_tasks()
-    except Exception as exc:
-        logger.warning("批量操作后重启关键词监控失败: %s", exc)
+    await restart_keyword_monitors(context="批量操作")
 
 
 def _resolve_sign_account(task_name: str, account_name: Optional[str]) -> Optional[str]:

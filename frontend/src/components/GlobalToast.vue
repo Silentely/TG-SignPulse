@@ -3,7 +3,7 @@ import { X, CheckCircle2, AlertCircle, AlertTriangle, Info } from 'lucide-vue-ne
 import { useToast } from '../composables/useToast'
 import { useI18n } from '../composables/useI18n'
 
-const { toasts, dismiss } = useToast()
+const { toasts, dismiss, pause, resume } = useToast()
 const { t } = useI18n()
 </script>
 
@@ -24,6 +24,10 @@ const { t } = useI18n()
           :role="toast.type === 'error' ? 'alert' : 'status'"
           :aria-live="toast.type === 'error' ? 'assertive' : 'polite'"
           class="pointer-events-auto flex items-start gap-2.5 px-3.5 py-2.5 text-sm shadow-[var(--sp-shadow-md)] border backdrop-blur-sm"
+          @mouseenter="pause(toast.id)"
+          @mouseleave="resume(toast.id)"
+          @touchstart="pause(toast.id)"
+          @touchend="resume(toast.id)"
           :class="{
             'bg-white/95 dark:bg-[var(--sp-bg-elevated)]/95 border-gray-200 dark:border-[var(--sp-border)] text-gray-900 dark:text-gray-100': toast.type === 'info',
             'bg-emerald-50/95 dark:bg-emerald-950/80 border-emerald-200 dark:border-emerald-800/50 text-emerald-800 dark:text-emerald-300': toast.type === 'success',

@@ -45,10 +45,10 @@ export function useDashboardData() {
   const liveConnected = ref(false)
   const pageLoading = ref(true)
   const stats = ref([
-    { key: 'dashboard.activeAccounts', value: '...' },
-    { key: 'dashboard.totalTasks', value: '...' },
-    { key: 'dashboard.recentSuccess', value: '...' },
-    { key: 'dashboard.recentFailure', value: '...' },
+    { key: 'dashboard.activeAccounts', hintKey: 'dashboard.activeAccountsHint', value: '...' },
+    { key: 'dashboard.totalTasks', hintKey: 'dashboard.totalTasksHint', value: '...' },
+    { key: 'dashboard.recentSuccess', hintKey: 'dashboard.recentSuccessHint', value: '...' },
+    { key: 'dashboard.recentFailure', hintKey: 'dashboard.recentFailureHint', value: '...' },
   ])
   const logs = ref<DashboardLog[]>([])
   const upcomingJobs = ref<ScheduledJob[]>([])
@@ -226,10 +226,10 @@ export function useDashboardData() {
     }
 
     stats.value = [
-      { key: 'dashboard.activeAccounts', value: `${activeAccs}/${accRes.total || 0}` },
-      { key: 'dashboard.totalTasks', value: `${Array.isArray(tasksRes) ? tasksRes.length : 0}` },
-      { key: 'dashboard.recentSuccess', value: `${todaySuccess}` },
-      { key: 'dashboard.recentFailure', value: `${todayFail}` },
+      { key: 'dashboard.activeAccounts', hintKey: 'dashboard.activeAccountsHint', value: `${activeAccs}/${accRes.total || 0}` },
+      { key: 'dashboard.totalTasks', hintKey: 'dashboard.totalTasksHint', value: `${Array.isArray(tasksRes) ? tasksRes.length : 0}` },
+      { key: 'dashboard.recentSuccess', hintKey: 'dashboard.recentSuccessHint', value: `${todaySuccess}` },
+      { key: 'dashboard.recentFailure', hintKey: 'dashboard.recentFailureHint', value: `${todayFail}` },
     ]
 
     if (Array.isArray(logsRes)) {

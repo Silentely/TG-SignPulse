@@ -309,9 +309,10 @@ def list_accounts(current_user: User = Depends(get_current_user)):
         )
 
     except Exception as e:
+        logger.error("获取账号列表失败: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"获取账号列表失败: {str(e)}",
+            detail="ACCOUNTS_LOAD_FAILED",
         )
 
 
@@ -350,9 +351,10 @@ async def check_accounts_status(
 
         return AccountStatusCheckResponse(results=results)
     except Exception as e:
+        logger.error("账号状态检测失败: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"账号状态检测失败: {str(e)}",
+            detail="ACCOUNT_CHECK_FAILED",
         )
 
 
@@ -371,11 +373,11 @@ async def start_account_status_check_job(
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
-    except Exception as e:
+    except Exception:
         logger.exception("启动账号状态检测任务失败")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"启动批量状态检测失败: {e}",
+            detail="ACCOUNT_CHECK_START_FAILED",
         )
 
 
@@ -469,15 +471,16 @@ async def delete_account(
         else:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"账号 {account_name} 不存在",
+                detail="ACCOUNT_NOT_FOUND",
             )
 
     except HTTPException:
         raise
     except Exception as e:
+        logger.error("删除账号失败: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"删除账号失败: {str(e)}",
+            detail="ACCOUNT_DELETE_FAILED",
         )
 
 
@@ -683,9 +686,10 @@ async def update_account(
             detail=str(e),
         )
     except Exception as e:
+        logger.error("更新账号信息失败: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"更新账号信息失败: {str(e)}",
+            detail="ACCOUNT_UPDATE_FAILED",
         )
 
 @router.post("/logs/clear", response_model=ClearAccountLogsResponse)

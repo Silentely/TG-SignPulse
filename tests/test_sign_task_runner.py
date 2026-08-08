@@ -712,3 +712,67 @@ class TestMiscBranches:
         result = await execute_sign_task(svc, "acc", "t")
         assert result["success"] is True
         assert "等待账号冷却" not in result["output"]
+
+
+class TestNotificationFailureCategory:
+    """失败通知携带失败分类（通知阶段计算并传参）。"""
+
+    @pytest.mark.asyncio
+    async def test_failure_category_computed_and_passed(self, runner_env, monkeypatch):
+        from backend.services.sign_task_runner import _runner_send_notifications
+
+        captured: Dict[str, Any] = {}
+        async def _fake_send_failure(**kwargs):
+            captured.update(kwargs)
+
+        monkeypatch.setattr(
+            "backend.services.sign_task_notify.send_failure_notification",
+            _fake_send_failure,
+        )
+        state = {
+            "account_name": "acc",
+            "task_name": "t",
+            "success": False,
+            "account_invalid_detected": False,
+            "task_notify_on_failure": True,
+            "error_msg": "FloodWait 60",
+            "output_str": "",
+            "last_reply": "",
+            "last_target_message": None,
+            "final_logs": [],
+            "timed_out": False,
+            "failure_category": None,
+        }
+        await _runner_send_notifications(state)
+        assert captured.get("failure_category") == "flood_wait"
+        # 计算结果回写 state，供历史/状态查询复用
+        assert state["failure_category"] == "flood_wait"
+
+    @pytest.mark.asyncio
+    async def test_existing_category_preserved(self, runner_env, monkeypatch):
+        from backend.services.sign_task_runner import _runner_send_notifications
+
+        captured: Dict[str, Any] = {}
+        async def _fake_send_failure(**kwargs):
+            captured.update(kwargs)
+
+        monkeypatch.setattr(
+            "backend.services.sign_task_notify.send_failure_notification",
+            _fake_send_failure,
+        )
+        state = {
+            "account_name": "acc",
+            "task_name": "t",
+            "success": False,
+            "account_invalid_detected": False,
+            "task_notify_on_failure": True,
+            "error_msg": "一些错误",
+            "output_str": "",
+            "last_reply": "",
+            "last_target_message": None,
+            "final_logs": [],
+            "timed_out": False,
+            "failure_category": "ai_error",
+        }
+        await _runner_send_notifications(state)
+        assert captured.get("failure_category") == "ai_error"

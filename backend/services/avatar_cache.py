@@ -96,3 +96,28 @@ async def get_avatar_bytes(
         except OSError:
             pass
     return avatar_bytes
+
+
+def cleanup_avatar_cache(cache_dir: Path, ttl: int = AVATAR_CACHE_TTL_SECONDS) -> int:
+    """清理过期头像缓存文件与无头像标记，返回清理数量。
+
+    7 天 TTL 在读路径校验，但磁盘上的过期文件不会自动消失；
+    长期运行（大量会话/删除的账号）会累积陈旧文件。
+    遍历目录删除超过 TTL 的文件；单文件失败跳过，不影响其余清理。
+    """
+    removed = 0
+    try:
+        entries = list(cache_dir.iterdir())
+    except OSError:
+        return 0
+    for entry in entries:
+        try:
+            if not entry.is_file():
+                continue
+            if time.time() - entry.stat().st_mtime >= ttl:
+                entry.unlink(missing_ok=True)
+                removed += 1
+        except OSError:
+            # 并发删除/stat 竞态或权限问题：跳过该文件，不影响其余清理
+            continue
+    return removed

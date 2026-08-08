@@ -164,7 +164,10 @@ const statusJobLabel = (job: AccountStatusJob) => {
         })"
       >
         <span class="ui-section-label">{{ t(stat.key) }}</span>
-        <span class="text-2xl sm:text-3xl font-mono font-medium text-gray-900 dark:text-gray-100 mt-3 tracking-tight">{{ stat.value }}</span>
+        <span
+          class="text-2xl sm:text-3xl font-mono font-medium text-gray-900 dark:text-gray-100 mt-3 tracking-tight"
+          :title="t(stat.hintKey)"
+        >{{ stat.value }}</span>
       </button>
     </div>
 
@@ -328,7 +331,9 @@ const statusJobLabel = (job: AccountStatusJob) => {
     <!-- Upcoming schedule -->
     <div class="ui-card p-5">
       <div class="ui-section-label mb-4">{{ t('dashboard.upcomingJobs') }}</div>
-      <div v-if="upcomingJobs.length === 0" class="text-xs text-gray-400 py-8 text-center">{{ t('dashboard.noUpcoming') }}</div>
+      <div v-if="upcomingJobs.length === 0" class="ui-empty !py-8">
+        <p class="ui-empty-desc">{{ t('dashboard.noUpcoming') }}</p>
+      </div>
       <div v-else class="space-y-0.5">
         <div
           v-for="job in upcomingJobs"
