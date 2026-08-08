@@ -25,8 +25,7 @@ def _require_token(token: Optional[str]) -> User:
             detail="Not authenticated",
         )
     session_local = get_session_local()
-    db = session_local()
-    try:
+    with session_local() as db:
         user = verify_token(str(token).strip(), db)
         if not user:
             raise HTTPException(
@@ -34,8 +33,6 @@ def _require_token(token: Optional[str]) -> User:
                 detail="Invalid token",
             )
         return user
-    finally:
-        db.close()
 
 
 def _sign_log_sse_bytes(item: dict) -> bytes:

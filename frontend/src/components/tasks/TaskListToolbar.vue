@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { Plus, Power, Pause, Play, Trash2, Search, X, LayoutTemplate } from 'lucide-vue-next'
 import { BUILT_IN_TEMPLATES } from '../../lib/task-templates'
 import type { TaskListModeFilter } from '../../lib/task-list-filter'
@@ -30,6 +31,11 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+
+// 批量操作禁用原因提示：未选中时引导先选择，处理中提示等待
+const batchDisabledTitle = computed(() =>
+  props.batchBusy ? t('common.processing') : props.selectedCount ? undefined : t('tasks.selectFirstHint'),
+)
 </script>
 
 <template>
@@ -111,19 +117,19 @@ const { t } = useI18n()
       </div>
     </div>
     <div class="flex flex-wrap items-center gap-1.5">
-      <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs inline-flex items-center gap-1" :disabled="!selectedCount || batchBusy" @click="emit('batch', 'enable')">
+      <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs inline-flex items-center gap-1" :disabled="!selectedCount || batchBusy" :title="batchDisabledTitle" :aria-disabled="!selectedCount || batchBusy" @click="emit('batch', 'enable')">
         <Power class="w-3.5 h-3.5" />
         {{ t('tasks.batchEnable') }}
       </button>
-      <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs inline-flex items-center gap-1" :disabled="!selectedCount || batchBusy" @click="emit('batch', 'disable')">
+      <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs inline-flex items-center gap-1" :disabled="!selectedCount || batchBusy" :title="batchDisabledTitle" :aria-disabled="!selectedCount || batchBusy" @click="emit('batch', 'disable')">
         <Pause class="w-3.5 h-3.5" />
         {{ t('tasks.batchDisable') }}
       </button>
-      <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs inline-flex items-center gap-1" :disabled="!selectedCount || batchBusy" @click="emit('batch', 'run')">
+      <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs inline-flex items-center gap-1" :disabled="!selectedCount || batchBusy" :title="batchDisabledTitle" :aria-disabled="!selectedCount || batchBusy" @click="emit('batch', 'run')">
         <Play class="w-3.5 h-3.5" />
         {{ t('tasks.batchRun') }}
       </button>
-      <button type="button" class="ui-btn-danger !px-2.5 !py-1.5 !text-xs inline-flex items-center gap-1" :disabled="!selectedCount || batchBusy" @click="emit('batch', 'delete')">
+      <button type="button" class="ui-btn-danger !px-2.5 !py-1.5 !text-xs inline-flex items-center gap-1" :disabled="!selectedCount || batchBusy" :title="batchDisabledTitle" :aria-disabled="!selectedCount || batchBusy" @click="emit('batch', 'delete')">
         <Trash2 class="w-3.5 h-3.5" />
         {{ t('tasks.batchDelete') }}
       </button>

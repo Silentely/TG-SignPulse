@@ -93,7 +93,13 @@
     "noRecentHits": "暂无命中记录",
     "statusJobs": "账号状态检测",
     "noStatusJobs": "暂无批量检测记录",
-    "viewTasks": "查看任务"
+    "viewTasks": "查看任务",
+    "jobStatus": {
+      "running": "检查中",
+      "canceling": "取消中",
+      "failed": "失败",
+      "done": "完成"
+    }
   },
   "accounts": {
     "noRemark": "暂无备注",
@@ -198,6 +204,7 @@
     "selectAllFiltered": "全选当前筛选",
     "selectAllFilteredHint": "仅选择当前搜索结果中的任务",
     "selectedCount": "已选",
+    "selectFirstHint": "请先选择任务",
     "batchEnable": "批量启用",
     "batchDisable": "批量暂停",
     "batchRun": "批量执行",

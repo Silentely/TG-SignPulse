@@ -137,6 +137,8 @@ class TestSendFailureNotification:
         assert "bot 回复内容" in text
         # 日志只保留最后 20 行
         assert "log-24" in text and "log-5" in text and "log-4" not in text
+        # 超出 20 行时提示截断，避免用户误以为日志不完整
+        assert "仅保留最近 20 条流程日志" in text
 
     @pytest.mark.asyncio()
     async def test_failure_category_label_included(self, notify_env):

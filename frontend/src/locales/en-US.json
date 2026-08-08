@@ -93,7 +93,13 @@
     "noRecentHits": "No hits yet",
     "statusJobs": "Account status jobs",
     "noStatusJobs": "No batch checks yet",
-    "viewTasks": "View tasks"
+    "viewTasks": "View tasks",
+    "jobStatus": {
+      "running": "Checking",
+      "canceling": "Canceling",
+      "failed": "Failed",
+      "done": "Done"
+    }
   },
   "accounts": {
     "noRemark": "No remark",
@@ -198,6 +204,7 @@
     "selectAllFiltered": "Select filtered",
     "selectAllFilteredHint": "Only select tasks in the current search results",
     "selectedCount": "Selected",
+    "selectFirstHint": "Select tasks first",
     "batchEnable": "Enable",
     "batchDisable": "Pause",
     "batchRun": "Run",

@@ -97,17 +97,44 @@ def test_snapshots_evicted_beyond_max_history():
     assert s3 in snaps
 
 
-def test_alerts_evicted_beyond_max_history():
-    """告警记录超过 max_history 应淘汰最旧。"""
+def test_repeated_above_threshold_alerts_only_once_until_reset():
+    """连续超阈值只告警首次；回落复位后再次超阈值才重新告警（防告警刷屏）。"""
+    alerts = []
+    monitor = MemoryMonitor(
+        threshold_mb=0.000001,  # 几乎必然超限
+        gc_enabled=False,
+        alert_callback=alerts.append,
+        max_history=10,
+    )
+    assert monitor.check() is not None
+    # 仍在超限区间：不再重复告警
+    assert monitor.check() is None
+    assert monitor.check() is None
+    assert len(monitor.alerts) == 1
+    assert len(alerts) == 1
+
+    # 回落到阈值以下：状态复位
+    monitor.threshold_mb = 10_000
+    assert monitor.check() is None
+    # 再次超限：重新告警
+    monitor.threshold_mb = 0.000001
+    assert monitor.check() is not None
+    assert len(monitor.alerts) == 2
+    assert len(alerts) == 2
+
+
+def test_gc_still_runs_during_alert_dedup():
+    """告警去重不应跳过 GC：持续超限期间每轮仍执行回收。"""
     monitor = MemoryMonitor(
         threshold_mb=0.000001,
-        gc_enabled=False,
-        max_history=2,
+        gc_enabled=True,
+        max_history=10,
     )
     monitor.check()
+    gc_after_first = len(monitor.gc_records)
+    assert gc_after_first >= 1
     monitor.check()
-    monitor.check()
-    assert len(monitor.alerts) == 2
+    assert len(monitor.gc_records) > gc_after_first
 
 
 def test_current_rss_mb_does_not_record_history():
@@ -126,6 +153,7 @@ def test_get_stats_counts():
     assert stats["alert_count"] == 1
     assert stats["gc_count"] >= 1
     assert stats["gc_enabled"] is True
+    assert stats["in_alert"] is True
 
 
 def test_force_gc_returns_record_even_without_alert():
