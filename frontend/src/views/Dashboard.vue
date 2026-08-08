@@ -18,7 +18,7 @@ import {
   formatPhaseDetail,
   phaseLabel,
 } from '../lib/run-status'
-import { formatShortDateTime } from '../lib/datetime'
+import { formatShortDateTime, formatDateTime } from '../lib/datetime'
 
 const quickLinks = [
   { name: 'accounts', icon: Users, titleKey: 'dashboard.goAccounts', descKey: 'dashboard.goAccountsDesc' },
@@ -386,7 +386,7 @@ const statusJobLabel = (job: AccountStatusJob) => {
           @click="selectedLog = log"
           @dblclick="goToLogs(log)"
         >
-          <span class="font-mono text-gray-500 dark:text-gray-600 shrink-0 w-[72px] text-[11px]">{{ log.time }}</span>
+          <span class="font-mono text-gray-500 dark:text-gray-600 shrink-0 w-[100px] text-[11px] truncate" :title="formatDateTime(log.created_at, 'zh-CN')">{{ log.time }}</span>
           <span class="text-gray-700 dark:text-gray-400 shrink-0 w-24 truncate font-medium">{{ log.account }}</span>
           <span class="text-gray-600 dark:text-gray-500 shrink-0 w-28 truncate">{{ log.task }}</span>
           <span

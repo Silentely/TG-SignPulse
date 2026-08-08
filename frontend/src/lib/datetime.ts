@@ -11,10 +11,45 @@ export function formatTimeOnly(value?: string | null, fallback = ''): string {
   return d.toLocaleTimeString('en-US', { hour12: false, timeZone: 'Asia/Hong_Kong' })
 }
 
-/** 完整日期时间（24 小时制，可按语言区域展示） */
+/**
+ * 日志行时间：当天仅显示时刻，跨天补「MM/DD」日期前缀。
+ * 面板日志常驻滚动，近午夜前后仅看时刻容易产生歧义（昨天 23:59 vs 今天 00:01）。
+ * 「今天」按面板统一时区（Asia/Hong_Kong）判定，避免本机时区差异导致误判。
+ */
+export function formatLogTime(value?: string | null, fallback = ''): string {
+  if (!value) return fallback
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return value
+
+  const hkDateKey = (date: Date) =>
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Hong_Kong',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    })
+      .format(date)
+      .replace(/\//g, '-')
+
+  const time = formatTimeOnly(value, fallback)
+  if (hkDateKey(d) === hkDateKey(new Date())) return time
+
+  const monthDay = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Hong_Kong',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(d)
+  return `${monthDay} ${time}`
+}
+
+/**
+ * 完整日期时间（24 小时制，可按语言区域展示）。
+ * locale 缺省时固定用 zh-CN：避免隐式依赖浏览器区域，导致同一面板
+ * 在不同机器上出现 2026/8/8 与 08/08/2026 等格式混排。
+ */
 export function formatDateTime(
   value?: string | null,
-  locale?: string,
+  locale: string = 'zh-CN',
   fallback = '-',
 ): string {
   if (!value) return fallback

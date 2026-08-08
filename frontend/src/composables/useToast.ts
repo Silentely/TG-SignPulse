@@ -6,6 +6,8 @@ export interface ToastItem {
   /** 可选多行详情 */
   description?: string
   type: 'success' | 'error' | 'warning' | 'info'
+  /** 相同文案合并计数：连续重复通知折叠展示，避免刷屏顶掉其它消息 */
+  count: number
 }
 
 export interface ToastOptions {
@@ -96,6 +98,28 @@ export const useToast = () => {
         : durationOrOpts || {}
     const duration = opts.duration ?? (type === 'error' ? 5000 : 4000)
 
+    // 相同文案合并：命中已展示的 toast 时累加计数并重置计时，
+    // 连续重复通知（如批量操作逐条失败）折叠为一条，避免刷屏
+    const merged = toasts.value.find(
+      (t) =>
+        t.type === type &&
+        t.message === text &&
+        t.description === (opts.description?.trim() || undefined),
+    )
+    if (merged) {
+      merged.count += 1
+      if (duration > 0) {
+        expiresAtMap.set(merged.id, Date.now() + duration)
+        const oldTimer = timers.get(merged.id)
+        if (oldTimer) clearTimeout(oldTimer)
+        const timer = setTimeout(() => {
+          removeToast(merged.id)
+        }, duration)
+        timers.set(merged.id, timer)
+      }
+      return
+    }
+
     while (toasts.value.length >= MAX_TOASTS) {
       const oldest = toasts.value[0]
       if (!oldest) break
@@ -108,6 +132,7 @@ export const useToast = () => {
       message: text,
       description: opts.description?.trim() || undefined,
       type,
+      count: 1,
     })
     if (duration > 0) {
       expiresAtMap.set(id, Date.now() + duration)

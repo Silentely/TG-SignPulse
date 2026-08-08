@@ -655,7 +655,7 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
             with open(log_path, 'a', encoding='utf-8') as f:
                 f.write(f'{message}\n')
         except OSError as e:
-            logging.getLogger('backend.sign_tasks').warning(
+            _service_logger.warning(
                 'Failed to write scheduler log %s: %s', filename, e
             )
 

@@ -707,22 +707,36 @@ class KeywordMonitorService:
             rule.action.get("server_chan_send_key")
             or rule.action.get("server_chan_sendkey")
         )
-        await send_keyword_push(
-            push_settings,
-            {
-                "title": "TG-SignPulse 关键词命中",
-                "body": forward_text,
-                "text": text,
-                "keyword": matched,
-                "account_name": account_name,
-                "task_name": rule.task_name,
-                "chat_id": getattr(message.chat, "id", None),
-                "chat_title": chat_title,
-                "sender": sender,
-                "message_id": message.id,
-                "url": url,
-            },
-        )
+        try:
+            await send_keyword_push(
+                push_settings,
+                {
+                    "title": "TG-SignPulse 关键词命中",
+                    "body": forward_text,
+                    "text": text,
+                    "keyword": matched,
+                    "account_name": account_name,
+                    "task_name": rule.task_name,
+                    "chat_id": getattr(message.chat, "id", None),
+                    "chat_title": chat_title,
+                    "sender": sender,
+                    "message_id": message.id,
+                    "url": url,
+                },
+            )
+        except Exception as exc:
+            # 推送失败不冒泡：命中记录已持久化，失败仅记为规则日志与告警，
+            # 避免单条推送抖动把整个监听处理误判为失败
+            logger.warning(
+                "关键词命中通知推送失败（推送方式=%s）: %s",
+                push_channel,
+                exc,
+            )
+            self._append_rule_log(
+                rule,
+                f"关键词命中通知推送失败：推送方式={push_channel}，错误={exc}",
+            )
+            return
         self._append_rule_log(
             rule,
             f"关键词命中通知已处理：推送方式={push_channel}",

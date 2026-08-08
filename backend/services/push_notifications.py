@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
@@ -185,12 +186,25 @@ async def send_telegram_bot_message(
     if message_thread_id is not None:
         payload["message_thread_id"] = message_thread_id
 
-    async with httpx.AsyncClient(timeout=10) as client:
-        response = await client.post(
-            f"https://api.telegram.org/bot{bot_token}/sendMessage",
-            json=payload,
-        )
-        response.raise_for_status()
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    # 网络层抖动（连接/DNS/超时）与 5xx 瞬时故障重试一次，提升通知到达率；
+    # 4xx 属于请求本身问题（参数/权限），重试无意义，直接抛出
+    last_exc: Optional[Exception] = None
+    for attempt in (1, 2):
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                response = await client.post(url, json=payload)
+                response.raise_for_status()
+            return
+        except (httpx.RequestError, httpx.HTTPStatusError) as exc:
+            if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code < 500:
+                raise
+            last_exc = exc
+            if attempt == 1:
+                logger.warning("Telegram 通知发送失败，准备重试: %s", exc)
+                await asyncio.sleep(1.0)
+    assert last_exc is not None
+    raise last_exc
 
 
 async def send_keyword_push(settings: Dict[str, Any], payload: Dict[str, Any]) -> None:

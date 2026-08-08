@@ -54,7 +54,9 @@ const { t } = useI18n()
             class="w-4 h-4 shrink-0 mt-0.5 opacity-70"
           />
           <div class="flex-1 min-w-0">
-            <div class="break-words leading-relaxed font-medium">{{ toast.message }}</div>
+            <div class="break-words leading-relaxed font-medium">
+              {{ toast.count > 1 ? `${toast.message} ×${toast.count}` : toast.message }}
+            </div>
             <div
               v-if="toast.description"
               class="mt-1 text-xs opacity-80 whitespace-pre-wrap break-words leading-relaxed font-normal"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import httpx
 import pytest
 
 from backend.services.push_notifications import (
@@ -130,6 +131,72 @@ class TestParseModePropagation:
             bot_token="tok", chat_id="chat", text="plain"
         )
         assert "parse_mode" not in sent
+
+    @pytest.mark.asyncio()
+    async def test_transient_network_failure_retries_once(self, monkeypatch):
+        calls = {"n": 0}
+
+        class _FakeResp:
+            def raise_for_status(self):
+                return None
+
+        class _FakeClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def post(self, url, json=None):
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    raise httpx.ConnectError("connection reset")
+                return _FakeResp()
+
+        async def _noop_sleep(_seconds):
+            return None
+
+        monkeypatch.setattr("httpx.AsyncClient", _FakeClient, raising=False)
+        # 缩短重试等待，避免测试挂 1 秒
+        monkeypatch.setattr("asyncio.sleep", _noop_sleep, raising=False)
+
+        await send_telegram_bot_message(bot_token="tok", chat_id="chat", text="hi")
+        assert calls["n"] == 2
+
+    @pytest.mark.asyncio()
+    async def test_4xx_error_not_retried(self, monkeypatch):
+        calls = {"n": 0}
+
+        class _FakeResp:
+            def __init__(self, status_code):
+                self.status_code = status_code
+
+            def raise_for_status(self):
+                raise httpx.HTTPStatusError(
+                    "400 Bad Request", request=None, response=self
+                )
+
+        class _FakeClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def post(self, url, json=None):
+                calls["n"] += 1
+                return _FakeResp(400)
+
+        monkeypatch.setattr("httpx.AsyncClient", _FakeClient, raising=False)
+        with pytest.raises(httpx.HTTPStatusError):
+            await send_telegram_bot_message(bot_token="tok", chat_id="chat", text="hi")
+        assert calls["n"] == 1
 
 
 class TestNotificationTimeLabels:

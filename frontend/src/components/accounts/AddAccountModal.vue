@@ -114,12 +114,12 @@ const pollStatus = async (token: string, lid: string) => {
       // 如果已经填了密码，自动提交
       if (form.value.password) {
         pollHandle?.stop()
-      pollHandle = null
+        pollHandle = null
         handleQrPasswordSubmit(token, lid)
       } else {
         error.value = t('addAccount.needPassword')
         pollHandle?.stop()
-      pollHandle = null
+        pollHandle = null
         loading.value = false
       }
     } else if (res.status === 'failed' || res.status === 'expired') {

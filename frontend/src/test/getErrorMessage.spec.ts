@@ -27,6 +27,26 @@ describe('getErrorMessage', () => {
     expect(getErrorMessage({ code: 42 })).toBe('{"code":42}')
   })
 
+  it('超长序列化结果截断防刷屏', () => {
+    const huge = { code: 42, extra: 'x'.repeat(1000) }
+    const result = getErrorMessage(huge)
+    expect(result.length).toBeLessThanOrEqual(201)
+    expect(result.endsWith('…')).toBe(true)
+  })
+
+  it('长 detail 字段截断防刷屏', () => {
+    const longDetail = { code: 42, detail: 'y'.repeat(1000) }
+    const result = getErrorMessage(longDetail)
+    expect(result.length).toBeLessThanOrEqual(201)
+    expect(result.endsWith('…')).toBe(true)
+  })
+
+  it('长 Error message 截断防刷屏', () => {
+    const result = getErrorMessage(new Error('z'.repeat(500)))
+    expect(result.length).toBeLessThanOrEqual(201)
+    expect(result.endsWith('…')).toBe(true)
+  })
+
   it('空 object 回退默认文案', () => {
     expect(getErrorMessage({})).toBe('Unknown error')
   })

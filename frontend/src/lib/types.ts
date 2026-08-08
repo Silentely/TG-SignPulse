@@ -211,6 +211,18 @@ export function getErrorCode(e: unknown): string | undefined {
 }
 
 /**
+ * 超长错误文案截断：未知错误对象的 message/detail/序列化结果都可能
+ * 携带长堆栈或嵌套字段，统一截断避免 toast 刷屏。
+ */
+const MAX_ERROR_MESSAGE_LENGTH = 200
+
+function truncateErrorMessage(text: string): string {
+  return text.length > MAX_ERROR_MESSAGE_LENGTH
+    ? `${text.slice(0, MAX_ERROR_MESSAGE_LENGTH)}…`
+    : text
+}
+
+/**
  * 从未知错误值中提取可读消息。
  * 空字符串 / 空白消息回退为默认文案，避免 toast 出现空白提示。
  * 已知错误码映射为可读英文；UI 可用 getErrorCode + i18n 再覆盖。
@@ -242,23 +254,26 @@ export function getErrorMessage(e: unknown, fallback = 'Unknown error'): string 
 
   if (e instanceof Error) {
     const msg = (e.message || '').trim()
-    return msg || fallback
+    return msg ? truncateErrorMessage(msg) : fallback
   }
   if (typeof e === 'string') {
     const msg = e.trim()
-    return msg || fallback
+    return msg ? truncateErrorMessage(msg) : fallback
   }
   if (e && typeof e === 'object') {
     const record = e as Record<string, unknown>
     if (typeof record.message === 'string' && record.message.trim()) {
-      return record.message.trim()
+      return truncateErrorMessage(record.message.trim())
     }
     if (typeof record.detail === 'string' && record.detail.trim()) {
-      return record.detail.trim()
+      return truncateErrorMessage(record.detail.trim())
     }
     try {
       const serialized = JSON.stringify(e)
-      return serialized && serialized !== '{}' ? serialized : fallback
+      if (serialized && serialized !== '{}') {
+        return truncateErrorMessage(serialized)
+      }
+      return fallback
     } catch {
       return fallback
     }

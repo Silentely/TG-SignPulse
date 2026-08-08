@@ -199,5 +199,38 @@ describe('useToast', () => {
     resume(id)
     expect(toasts.value).toHaveLength(0)
   })
+
+  it('相同文案合并计数并重置计时', () => {
+    const { toasts, error } = useToast()
+    error('删除失败')
+    vi.advanceTimersByTime(4000)
+    // 距过期 1000ms 时再次触发：应合并而非新增
+    error('删除失败')
+    expect(toasts.value).toHaveLength(1)
+    expect(toasts.value[0].count).toBe(2)
+    // 合并后计时已重置，再过 4000ms 才消失
+    vi.advanceTimersByTime(4000)
+    expect(toasts.value).toHaveLength(1)
+    vi.advanceTimersByTime(1000)
+    expect(toasts.value).toHaveLength(0)
+  })
+
+  it('不同文案不合并，各自独立', () => {
+    const { toasts, error } = useToast()
+    error('删除失败')
+    error('保存失败')
+    expect(toasts.value).toHaveLength(2)
+    expect(toasts.value.map((t) => t.count)).toEqual([1, 1])
+  })
+
+  it('合并后 dismiss 正常移除整条', () => {
+    const { toasts, info, dismiss } = useToast()
+    info('消息')
+    info('消息')
+    expect(toasts.value).toHaveLength(1)
+    expect(toasts.value[0].count).toBe(2)
+    dismiss(toasts.value[0].id)
+    expect(toasts.value).toHaveLength(0)
+  })
 })
 

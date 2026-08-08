@@ -24,10 +24,10 @@ import { useAccountsStore } from '../stores/accounts'
 import { devLog } from '../lib/devLog'
 import { startChainPoll, type ChainPollHandle } from '../lib/chain-poll'
 import { aggregateFailureCategories } from '../lib/run-status'
-import { formatTimeOnly } from '../lib/datetime'
+import { formatLogTime } from '../lib/datetime'
 import { storeToRefs } from 'pinia'
 
-const formatTime = (isoString: string) => formatTimeOnly(isoString)
+const formatTime = (isoString: string) => formatLogTime(isoString)
 
 export function useDashboardData() {
   const activeRunsStore = useActiveRunsStore()
