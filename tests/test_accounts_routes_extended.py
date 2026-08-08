@@ -358,11 +358,11 @@ class TestRecentLogs:
         assert resp.status_code == 200
         body = resp.json()
         assert [item["id"] for item in body] == [1, 2]
-        assert body[0]["message"] == "Task succeeded"
-        assert body[0]["summary"] == "Task: 签到A success"
+        assert body[0]["message"] == "执行成功"
+        assert body[0]["summary"] == "任务: 签到A 成功"
         assert body[0]["bot_message"] == "bot 回复"
         assert body[1]["message"] == "失败详情"
-        assert body[1]["summary"] == "Task: 签到B failed"
+        assert body[1]["summary"] == "任务: 签到B 失败"
         assert body[1]["created_at"] == "2026-07-31T02:00:00"
         # 失败分类字段需透传（Dashboard 依赖它渲染失败标签）；缺失时回落 None
         assert body[0]["failure_category"] is None
@@ -416,14 +416,14 @@ class TestClearAndAccountLogs:
         assert resp.status_code == 200
         body = resp.json()
         assert body[0]["message"] == "执行成功"
-        assert body[0]["summary"] == "Task: 每日签到 success"
+        assert body[0]["summary"] == "任务: 每日签到 成功"
         assert body[0]["bot_message"] == "ok"
         # task_name 缺键或空串统一回落默认名；空 message 按成败兜底
         assert body[1]["task_name"] == "未知任务"
         assert body[1]["message"] == "执行失败"
-        assert body[1]["summary"] == "Task: 未知任务 failed"
+        assert body[1]["summary"] == "任务: 未知任务 失败"
         assert body[2]["task_name"] == "未知任务"
-        assert body[2]["summary"] == "Task: 未知任务 success"
+        assert body[2]["summary"] == "任务: 未知任务 成功"
         # failure_category 经 AccountLogItem 透传；缺失回落 None
         assert body[0]["failure_category"] is None
         assert body[1]["failure_category"] == "timeout"
@@ -475,10 +475,10 @@ class TestClearAndAccountLogs:
         assert resp.headers["content-type"].startswith("text/plain")
         assert "attachment" in resp.headers["content-disposition"]
         text = resp.text
-        assert "Account Logs for: a1" in text
-        assert "Task: 签到A | Status: SUCCESS" in text
-        assert "Task: 签到B | Status: FAILED" in text
-        assert "Message: timeout" in text
+        assert "账号日志: a1" in text
+        assert "任务: 签到A | 状态: 成功" in text
+        assert "任务: 签到B | 状态: 失败" in text
+        assert "消息: timeout" in text
 
 
 class TestDevicesAndOfficialMessages:

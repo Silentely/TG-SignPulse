@@ -11,7 +11,7 @@ from backend.services import config as config_mod
 from backend.services import push_notifications as push_mod
 from backend.services import sign_task_notify
 from backend.services import telegram as telegram_mod
-from backend.services.sign_task_notify import _bot_thread_id
+from backend.services.push_notifications import _bot_config
 
 
 class _FakeConfigService:
@@ -59,18 +59,30 @@ def notify_env(monkeypatch):
     return SimpleNamespace(settings=settings, sent=sent, successes=successes)
 
 
-class TestBotThreadId:
-    """话题 ID 解析：非法输入一律回落 None，不抛出。"""
+class TestBotConfig:
+    """Bot 凭据统一读取：token/chat_id 去空白、话题 ID 非法输入回落 None。"""
 
     @pytest.mark.parametrize(
         ("value", "expected"),
         [("42", 42), (7, 7), (None, None), ("", None), ("abc", None), ({}, None)],
     )
-    def test_parse(self, value, expected):
-        assert _bot_thread_id({"telegram_bot_message_thread_id": value}) == expected
+    def test_thread_id_parse(self, value, expected):
+        _, _, thread_id = _bot_config({"telegram_bot_message_thread_id": value})
+        assert thread_id == expected
 
-    def test_missing_key(self):
-        assert _bot_thread_id({}) is None
+    def test_token_chat_id_stripped(self):
+        token, chat_id, _ = _bot_config(
+            {
+                "telegram_bot_token": "  tok  ",
+                "telegram_bot_chat_id": " 123 ",
+            }
+        )
+        assert token == "tok"
+        assert chat_id == "123"
+
+    def test_missing_keys_fallback_empty(self):
+        token, chat_id, thread_id = _bot_config({})
+        assert token == "" and chat_id == "" and thread_id is None
 
 
 class TestSendFailureNotification:
@@ -138,7 +150,7 @@ class TestSendFailureNotification:
             await sign_task_notify.send_failure_notification(
                 account_name="a", task_name="t", message="boom"
             )
-        assert "Failed to send Telegram failure notification" in caplog.text
+        assert "Telegram 失败通知发送失败" in caplog.text
 
 
 class TestSendSuccessNotification:
@@ -168,7 +180,7 @@ class TestSendSuccessNotification:
             await sign_task_notify.send_success_notification(
                 account_name="a", task_name="t"
             )
-        assert "Failed to send Telegram success notification" in caplog.text
+        assert "Telegram 成功通知发送失败" in caplog.text
 
 
 class TestSendAccountInvalidNotification:
@@ -214,7 +226,7 @@ class TestSendAccountInvalidNotification:
                 account_name="a", task_name="t", message="失效"
             )
         assert (
-            "Failed to send Telegram account invalid notification" in caplog.text
+            "Telegram 账号失效通知发送失败" in caplog.text
         )
 
 
@@ -352,7 +364,8 @@ class TestCheckAccountBeforeTask:
                 account_name="acc1", task_name="daily", no_updates=True
             )
         assert result is None
-        assert "Account status check failed" in caplog.text
+        # 前置账号状态检查失败应记录中文诊断日志
+        assert "前置账号状态检查失败" in caplog.text
 
     @pytest.mark.asyncio()
     async def test_ok_result_passes_and_params_forwarded(self, check_env):

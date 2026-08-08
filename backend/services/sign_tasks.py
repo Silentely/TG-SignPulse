@@ -834,7 +834,7 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
                 runs.append(summary)
         runs.sort(key=lambda r: str(r.get("started_at") or ""), reverse=True)
         if len(runs) > 100:
-            _service_logger.warning("active runs truncated: %s", len(runs))
+            _service_logger.warning("活跃运行列表被截断: %s", len(runs))
             runs = runs[:100]
         return runs
 

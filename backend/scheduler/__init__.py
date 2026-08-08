@@ -181,7 +181,7 @@ async def _job_device_keepalive() -> None:
         )
     except Exception as exc:
         # 顶层兜底：保活 Job 失败不能阻塞调度器
-        logger.error("Device keepalive job failed: %s", exc, exc_info=True)
+        logger.error("设备保活任务失败: %s", exc, exc_info=True)
 
 
 async def _job_auto_backup() -> None:
@@ -238,7 +238,7 @@ async def _job_auto_backup() -> None:
             )
     except Exception as exc:
         # 顶层兜底：自动备份 Job 失败不能阻塞调度器，但要推送告警
-        logger.error("Auto backup job failed: %s", exc, exc_info=True)
+        logger.error("自动备份任务失败: %s", exc, exc_info=True)
         try:
             from backend.services.push_notifications import (
                 send_auto_backup_failure_notification,
@@ -249,7 +249,7 @@ async def _job_auto_backup() -> None:
                     cfg, error=str(exc), detail="scheduler exception"
                 )
         except Exception:
-            logger.exception("Auto backup failure notification also failed")
+            logger.exception("自动备份失败通知也发送失败")
 
 
 def _sync_auto_backup_job() -> None:
@@ -282,7 +282,7 @@ def _sync_auto_backup_job() -> None:
                 max_instances=1,
                 coalesce=True,
             )
-            logger.info("Auto backup job registered: every %sh", hours)
+            logger.info("自动备份任务已注册：每 %s 小时", hours)
         else:
             try:
                 scheduler.remove_job(job_id)

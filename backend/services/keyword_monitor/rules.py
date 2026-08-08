@@ -173,7 +173,7 @@ def _match_all_keyword_values(action: Dict[str, Any], text: str) -> List[str]:
                         seen.add(value)
                         results.append(value)
             except re.error as exc:
-                logger.warning("Invalid keyword monitor regex %r: %s", keyword, exc)
+                logger.warning("关键词监听正则无效 %r: %s", keyword, exc)
             continue
         if needle in haystack and keyword not in seen:
             seen.add(keyword)

@@ -38,7 +38,7 @@ def tg_monitor(ctx: click.Context):
                 "Using proxy: %s"
                 % f"{proxy['scheme']}://{proxy['hostname']}:{proxy['port']}"
             )
-        logger.info("Using account: %s", ctx.obj["account"])
+        logger.info("使用账号: %s", ctx.obj["account"])
 
 
 tg_monitor: Group

@@ -320,4 +320,4 @@ class _UDPProtocol(asyncio.DatagramProtocol):
         pass  # 不需要处理接收的数据
 
     def error_received(self, exc):
-        logger.warning("UDP error received: %s", exc)
+        logger.warning("收到 UDP 错误: %s", exc)

@@ -101,7 +101,7 @@ class BackgroundJobStore:
                         encoding="utf-8",
                     )
                 except OSError:
-                    logger.warning("Failed to persist interrupted job %s", path)
+                    logger.warning("中断任务持久化失败 %s", path)
             loaded.append(value)
         loaded.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
         self.jobs = {str(item["job_id"]): item for item in loaded[: self.max_history]}

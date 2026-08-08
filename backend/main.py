@@ -399,7 +399,7 @@ def _pre_export_session_strings() -> None:
         if wildcard_dir.exists() and wildcard_dir.is_dir():
             import shutil
             shutil.rmtree(wildcard_dir)
-            logger.info("Cleaned up stray '*' task directory")
+            logger.info("已清理遗留的 '*' 任务目录")
     except OSError as exc:
         logger.warning("清理通配符目录失败: %s", exc)
 
@@ -417,7 +417,7 @@ def _pre_export_session_strings() -> None:
             exported += 1
 
     if exported:
-        logger.info("Pre-exported %s session strings for in-memory task execution", exported)
+        logger.info("为内存任务执行预导出 %s 个会话串", exported)
 
 
 async def _memory_monitor_loop() -> None:

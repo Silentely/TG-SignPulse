@@ -48,17 +48,25 @@ onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
 })
 
+// 周起点：2026-08-02（UTC）为周日，作为 getDay()=0 的稳定基准生成星期缩写
+const SUNDAY_UTC = Date.UTC(2026, 7, 2)
+
 const weekDays = computed(() => {
-  if (locale.value === 'zh') return ['日', '一', '二', '三', '四', '五', '六']
-  return ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
+  // zh 用窄格式保持单字视觉（日一二…），en 用短格式（Sun Mon…），不再硬编码数组
+  const fmt = new Intl.DateTimeFormat(locale.value === 'zh' ? 'zh-CN' : 'en-US', {
+    weekday: locale.value === 'zh' ? 'narrow' : 'short',
+    timeZone: 'UTC',
+  })
+  return Array.from({ length: 7 }, (_, i) => fmt.format(new Date(SUNDAY_UTC + i * 86_400_000)))
 })
 
 const monthLabel = computed(() => {
   const d = new Date(viewYear.value, viewMonth.value, 1)
-  if (locale.value === 'zh') {
-    return `${viewYear.value}年${viewMonth.value + 1}月`
-  }
-  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short' })
+  const isZh = locale.value === 'zh'
+  const month = isZh
+    ? viewMonth.value + 1
+    : d.toLocaleDateString('en-US', { month: 'short' })
+  return t('datePicker.monthLabel', { year: viewYear.value, month })
 })
 
 const days = computed(() => {

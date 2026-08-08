@@ -116,7 +116,7 @@ class OpenAIConfigManager:
                 try:
                     c["api_key"] = decrypt_secret(c["api_key"])
                 except InvalidToken:
-                    logger.warning("Failed to decrypt stored API key, returning None")
+                    logger.warning("存储的 API Key 解密失败，返回 None")
                     return None
                 return c
         return None

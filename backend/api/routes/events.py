@@ -83,7 +83,7 @@ async def _sign_history_event_stream() -> AsyncGenerator[bytes, None]:
         for item in seed:
             last_seen.add(_entry_dedupe_key(item))
     except Exception as exc:
-        _logger.debug("sign history SSE seed failed: %s", exc, exc_info=True)
+        _logger.debug("签到历史 SSE 种子加载失败: %s", exc, exc_info=True)
 
     yield b"event: ready\ndata: {}\n\n"
     last_heartbeat = time.monotonic()
@@ -112,7 +112,7 @@ async def _sign_history_event_stream() -> AsyncGenerator[bytes, None]:
 
                     entries = get_sign_task_service().get_recent_history_logs(limit=20)
                 except Exception as exc:
-                    _logger.debug("sign history fallback scan failed: %s", exc)
+                    _logger.debug("签到历史兜底扫描失败: %s", exc)
                     entries = []
                 for entry in reversed(entries):
                     key = _entry_dedupe_key(entry)

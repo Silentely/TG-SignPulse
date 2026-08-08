@@ -276,7 +276,7 @@ async def warm_chat(client: Any, chat_id: Union[int, str]) -> None:
     try:
         await client.get_chat(chat_id)
     except Exception as exc:
-        logger.debug("Keyword monitor warm chat failed for %r: %s", chat_id, exc)
+        logger.debug("关键词监听会话预热失败 %r: %s", chat_id, exc)
 
 
 async def request_callback_answer(
@@ -297,7 +297,7 @@ async def request_callback_answer(
         except errors.FloodWait as exc:
             wait_seconds = max(int(getattr(exc, "value", 1) or 1), 1)
             if attempt >= max_retries:
-                logger.warning("Keyword monitor callback FloodWait failed: %s", exc)
+                logger.warning("关键词监听回调触发 FloodWait 失败: %s", exc)
                 return False
             await asyncio.sleep(wait_seconds)
         except (TimeoutError, asyncio.TimeoutError, OSError, ConnectionError) as exc:
@@ -322,7 +322,7 @@ async def request_callback_answer(
                     "Keyword monitor callback returned DATA_INVALID; waiting for follow-up messages"
                 )
                 return False
-            logger.warning("Keyword monitor callback could not be confirmed: %s", exc)
+            logger.warning("关键词监听回调无法确认: %s", exc)
             return False
     return False
 

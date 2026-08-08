@@ -41,7 +41,7 @@ class TelegramQrLoginMixin:
             if last_state == state:
                 return
             data["last_state_logged"] = state
-        logger.info("qr_login state=%s login_id=%s", state, login_id)
+        logger.info("QR 登录状态 state=%s login_id=%s", state, login_id)
 
 
     async def _apply_migrate_auth(self, client, data: Dict[str, Any]) -> None:

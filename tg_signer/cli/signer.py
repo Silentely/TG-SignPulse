@@ -194,7 +194,7 @@ def tg_signer(
                 proxy["hostname"],
                 proxy["port"],
             )
-        logger.info("Using account: %s", account)
+        logger.info("使用账号: %s", account)
     ctx.obj["proxy"] = proxy
     ctx.obj["session_dir"] = session_dir
     ctx.obj["account"] = account

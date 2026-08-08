@@ -192,7 +192,7 @@ def _ensure_loaded() -> None:
                         if normalized is not None:
                             loaded.append(normalized)
             except OSError as exc:
-                logger.warning("load keyword hits failed: %s", exc)
+                logger.warning("加载关键词命中记录失败: %s", exc)
         # 文件顺序为追加；内存保持新→旧
         loaded.reverse()
         if len(loaded) > MAX_RECORDS:

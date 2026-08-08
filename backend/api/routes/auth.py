@@ -68,7 +68,7 @@ def _append_login_log(
         db.commit()
     except Exception as exc:
         db.rollback()
-        logger.warning("Failed to persist login log: %s", exc)
+        logger.warning("登录日志持久化失败: %s", exc)
 
 
 class ResetTOTPRequest(BaseModel):
@@ -157,7 +157,7 @@ def login(
             ip_address=ip_address,
         )
     except Exception as exc:
-        logger.warning("Failed to queue login notification: %s", exc)
+        logger.warning("登录通知入队失败: %s", exc)
     _append_login_log(
         db,
         username=user.username,

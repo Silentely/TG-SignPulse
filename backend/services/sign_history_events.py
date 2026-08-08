@@ -97,7 +97,7 @@ def publish_sign_history(entry: Dict[str, Any]) -> None:
                     pass
             q.put_nowait(payload)
         except Exception as exc:
-            logger.debug("publish to subscriber failed: %s", exc)
+            logger.debug("订阅者推送失败: %s", exc)
 
     for q in queues:
         if loop is not None and loop.is_running():

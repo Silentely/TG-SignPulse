@@ -247,10 +247,13 @@ const handleSave = async () => {
       emit('success')
       handleClose()
     } catch (e: unknown) {
-      // 如果错误提示包含2FA相关信息，显示密码提示
+      // 按后端稳定文案区分「首次需要 2FA 密码」与「2FA 密码错误」，
+      // 避免把密码错误也误提示为需要输入密码
       const msg = getLocalizedErrorMessage(e, t) || ''
-      if (msg.includes('两步验证') || msg.includes('2FA') || msg.includes('SESSION_PASSWORD_NEEDED')) {
+      if (msg.includes('两步验证') || msg.includes('SESSION_PASSWORD_NEEDED')) {
         error.value = t('addAccount.needPassword')
+      } else if (msg.includes('2FA 密码错误') || msg.includes('PasswordHashInvalid')) {
+        error.value = t('addAccount.passwordFailed')
       } else {
         error.value = msg || t('addAccount.verifyFailed')
       }

@@ -191,7 +191,7 @@ def start_account_status_check_job(
             try:
                 await _run_status_check(job_id, names, timeout)
             except Exception as exc:
-                logger.exception("account status job %s failed", job_id)
+                logger.exception("账号状态检测任务 %s 失败", job_id)
                 store.mark_failed(job_id, str(exc) or "status check job failed")
 
         store.start_background(job_id, _runner, name=f"account-status-{job_id[:8]}")

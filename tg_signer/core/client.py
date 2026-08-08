@@ -250,7 +250,7 @@ class Client(BaseClient):
                                 self.storage.conn.execute("PRAGMA journal_mode=WAL")
                                 self.storage.conn.execute("PRAGMA busy_timeout=30000")
                             except Exception as e:
-                                logger.error("Failed to enable WAL mode: %s", e)
+                                logger.error("启用 WAL 模式失败: %s", e)
 
                         # Success! Break loop
                         break
@@ -318,11 +318,11 @@ class Client(BaseClient):
             fp.write(await self.export_session_string())
 
     def load_session_string(self):
-        logger.info("Loading session_string from local file.")
+        logger.info("从本地文件加载 session_string。")
         if self.session_string_file.is_file():
             with open(self.session_string_file, "r") as fp:
                 self.session_string = fp.read()
-                logger.info("The session_string has been loaded.")
+                logger.info("session_string 已加载。")
         return self.session_string
 
     async def log_out(
@@ -453,7 +453,7 @@ async def close_client_by_name(name: str, workdir: Union[str, pathlib.Path] = ".
             if client.is_connected:
                 await client.stop()
         except Exception as e:
-            logger.warning("Error stopping client %s: %s", name, e)
+            logger.warning("停止客户端 %s 失败: %s", name, e)
         finally:
             _CLIENT_INSTANCES.pop(key, None)
 

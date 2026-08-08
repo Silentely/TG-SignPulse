@@ -160,7 +160,7 @@ def get_task_logs(
 
     items: list[TaskHistoryLogItem] = []
     for index, item in enumerate(history):
-        task_name = str(item.get("task_name") or "Unknown Task")
+        task_name = str(item.get("task_name") or "未知任务")
         success = bool(item.get("success", False))
         last_msg = (
             str(item.get("last_target_message") or "").strip()
@@ -169,7 +169,7 @@ def get_task_logs(
         raw_message = str(item.get("message") or "").strip()
         # 列表摘要优先展示目标返回内容，其次原始 message，最后状态兜底
         display_message = last_msg or raw_message or (
-            f"{task_name} · {'success' if success else 'failed'}"
+            f"{task_name} · {'成功' if success else '失败'}"
         )
         failure_category = str(item.get("failure_category") or "").strip() or None
         items.append(
@@ -210,11 +210,11 @@ def get_task_log_detail(
     return TaskHistoryLogDetailItem(
         id=1,
         account_name=str(detail.get("account_name") or ""),
-        task_name=str(detail.get("task_name") or "Unknown Task"),
+        task_name=str(detail.get("task_name") or "未知任务"),
         message=str(detail.get("message") or ""),
         summary=(
-            f"Task: {str(detail.get('task_name') or 'Unknown Task')} "
-            f"{'success' if bool(detail.get('success')) else 'failed'}"
+            f"任务: {str(detail.get('task_name') or '未知任务')} "
+            f"{'成功' if bool(detail.get('success')) else '失败'}"
         ),
         bot_message=str(detail.get("last_target_message") or "").strip()
         or extract_last_target_message(detail.get("flow_logs")),

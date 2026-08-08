@@ -239,4 +239,37 @@ describe('useDashboardData (mount + SSE + poll)', () => {
     expect(result.pageLoading.value).toBe(false)
     unmount()
   })
+
+  it('pauses 30s poll while tab hidden and refreshes immediately on visible', async () => {
+    const hiddenDesc = Object.getOwnPropertyDescriptor(Document.prototype, 'hidden')
+    const visibilityDesc = Object.getOwnPropertyDescriptor(
+      Document.prototype,
+      'visibilityState',
+    )
+
+    const { result, unmount } = mountComposable(() => useDashboardData())
+    await vi.waitFor(() => expect(result.pageLoading.value).toBe(false))
+    await vi.waitFor(() => expect(pollState.ticks.length).toBe(1))
+
+    // 隐藏标签页：停止轮询，不再续约
+    Object.defineProperty(document, 'hidden', { configurable: true, value: true })
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+    document.dispatchEvent(new Event('visibilitychange'))
+    expect(pollState.stops[0]).toHaveBeenCalled()
+
+    // 回到前台：立即刷新一次并重建轮询
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false })
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+    api.listSignTasks.mockResolvedValue([{ name: 't1' }, { name: 't2' }, { name: 't3' }])
+    document.dispatchEvent(new Event('visibilitychange'))
+    await flushPromises(10)
+
+    expect(startChainPoll).toHaveBeenCalledTimes(2)
+    const tasksStat = result.stats.value.find((s) => s.key === 'dashboard.totalTasks')
+    expect(tasksStat?.value).toBe('3')
+
+    if (hiddenDesc) Object.defineProperty(document, 'hidden', hiddenDesc)
+    if (visibilityDesc) Object.defineProperty(document, 'visibilityState', visibilityDesc)
+    unmount()
+  })
 })

@@ -403,7 +403,7 @@ class KeywordMonitorService:
                         ):
                             loaded[key] = value
             except (OSError, ValueError) as exc:
-                logger.warning("Load keyword monitor seen state failed: %s", exc)
+                logger.warning("加载关键词监听去重水位失败: %s", exc)
         self._seen = loaded
         self._seen_dirty = False
         self._last_seen_persist = time.monotonic()
@@ -416,7 +416,7 @@ class KeywordMonitorService:
             self._last_seen_persist = time.monotonic()
             self._seen_dirty = False
         except (OSError, TypeError, ValueError) as exc:
-            logger.warning("Persist keyword monitor seen state failed: %s", exc)
+            logger.warning("持久化关键词监听去重水位失败: %s", exc)
 
     def _maybe_persist_seen_state(self, *, force: bool = False) -> None:
         if not self._seen_dirty:
@@ -570,16 +570,18 @@ class KeywordMonitorService:
                         message_thread_id=message_thread_id,
                     )
                 except Exception as hit_exc:
-                    logger.warning("Failed to persist keyword hit record: %s", hit_exc)
+                    logger.warning("持久化关键词命中记录失败: %s", hit_exc)
                 body_lines = [
-                    f"Task: {rule.task_name}",
-                    f"Chat: {chat_title}",
-                    f"Keyword: {matched}",
+                    f"任务: {rule.task_name}",
+                    f"会话: {chat_title}",
+                    f"关键词: {matched}",
                 ]
                 if len(all_matched) > 1:
-                    body_lines.append(f"Keywords: {', '.join(all_matched[:20])}")
+                    body_lines.append(
+                        f"关键词(共{len(all_matched)}个): {', '.join(all_matched[:20])}"
+                    )
                 if sender:
-                    body_lines.append(f"Sender: {sender}")
+                    body_lines.append(f"发送者: {sender}")
                 body_lines.append("")
                 body_lines.append(text)
                 forward_text = "\n".join(body_lines)
@@ -627,7 +629,7 @@ class KeywordMonitorService:
                         global_settings=global_settings,
                     )
         except Exception as exc:
-            logger.warning("Keyword monitor handling failed: %s", exc, exc_info=True)
+            logger.warning("关键词监听处理失败: %s", exc, exc_info=True)
 
     async def _handle_forward(
         self,
@@ -651,7 +653,7 @@ class KeywordMonitorService:
                 forward_kwargs["message_thread_id"] = forward_thread_id
             forward_payload = forward_text
             if url:
-                forward_payload += f"\n\nLink: {url}"
+                forward_payload += f"\n\n链接: {url}"
             await self._call_client_with_retry(
                 client,
                 lambda _forward_chat_id=forward_chat_id, _forward_payload=forward_payload[:3900], _forward_kwargs=dict(forward_kwargs): client.send_message(
@@ -672,7 +674,7 @@ class KeywordMonitorService:
             )
         except Exception as exc:
             logger.warning(
-                "Failed to forward keyword match to %r: %s",
+                "关键词命中消息转发失败 %r: %s",
                 forward_chat_id,
                 exc,
             )

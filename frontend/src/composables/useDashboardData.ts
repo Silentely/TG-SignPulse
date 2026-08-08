@@ -269,6 +269,24 @@ export function useDashboardData() {
     statusJobs.value = (activeStatus.length ? activeStatus : allStatusJobs).slice(0, 3)
   }
 
+  // 页面隐藏时暂停 30s 轮询，回到前台立即刷新并恢复：
+  // 后台标签页继续高频拉 7 个接口意义有限，徒增资源消耗；SSE 由浏览器节流自行兜底
+  const handleVisibilityChange = () => {
+    if (disposed) return
+    if (document.hidden) {
+      refreshHandle?.stop()
+      refreshHandle = null
+    } else {
+      void loadDashboardData()
+      if (!refreshHandle?.active) {
+        refreshHandle = startChainPoll(loadDashboardData, {
+          intervalMs: 30000,
+          runImmediately: false,
+        })
+      }
+    }
+  }
+
   onMounted(async () => {
     sseIntentionalClose = false
     activeRunsStore.acquire()
@@ -278,12 +296,14 @@ export function useDashboardData() {
       intervalMs: 30000,
       runImmediately: false,
     })
+    document.addEventListener('visibilitychange', handleVisibilityChange)
     connectSignHistorySSE()
   })
 
   onUnmounted(() => {
     disposed = true
     sseIntentionalClose = true
+    document.removeEventListener('visibilitychange', handleVisibilityChange)
     clearSseReconnect()
     refreshHandle?.stop()
     refreshHandle = null

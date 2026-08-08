@@ -776,6 +776,7 @@
     "clearDate": "清除日期",
     "prevMonth": "上个月",
     "nextMonth": "下个月",
-    "today": "今天"
+    "today": "今天",
+    "monthLabel": "{year}年{month}月"
   }
 }

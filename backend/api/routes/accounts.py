@@ -267,7 +267,7 @@ async def submit_qr_login_password(
             username=result.get("username"),
         )
     except ValueError as e:
-        logger.warning("qr_password_failed login_id=%s error=%s", request.login_id, e)
+        logger.warning("QR 密码校验失败 login_id=%s error=%s", request.login_id, e)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
         raise HTTPException(
@@ -372,7 +372,7 @@ async def start_account_status_check_job(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     except Exception as e:
-        logger.exception("start account status job failed")
+        logger.exception("启动账号状态检测任务失败")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"启动批量状态检测失败: {e}",
@@ -431,7 +431,7 @@ def get_recent_account_logs(
     history = get_sign_task_service().get_recent_history_logs(limit=limit)
     logs: list[dict] = []
     for idx, item in enumerate(history):
-        task_name = item.get("task_name", "Unknown Task")
+        task_name = item.get("task_name", "未知任务")
         success = bool(item.get("success", False))
         logs.append(
             {
@@ -439,8 +439,8 @@ def get_recent_account_logs(
                 "account_name": item.get("account_name", ""),
                 "task_name": task_name,
                 "message": item.get("message")
-                or ("Task succeeded" if success else "Task failed"),
-                "summary": f"Task: {task_name} {'success' if success else 'failed'}",
+                or ("执行成功" if success else "执行失败"),
+                "summary": f"任务: {task_name} {'成功' if success else '失败'}",
                 "bot_message": _extract_last_bot_message(item) or None,
                 "success": success,
                 "created_at": item.get("time", ""),
@@ -735,7 +735,7 @@ def get_account_logs(
                 or ("执行成功" if success else "执行失败"),
                 success=success,
                 created_at=item.get("time", ""),
-                summary=f"Task: {task_name} {'success' if success else 'failed'}",
+                summary=f"任务: {task_name} {'成功' if success else '失败'}",
                 bot_message=_extract_last_bot_message(item) or None,
                 failure_category=item.get("failure_category") or None,
             )
@@ -782,15 +782,15 @@ def export_account_logs(
 
     history = get_sign_task_service().get_account_history_logs(account_name)
 
-    content = f"Account Logs for: {account_name}\n"
+    content = f"账号日志: {account_name}\n"
     content += "=" * 40 + "\n\n"
 
     for item in history:
         time_str = item.get("time", "").replace("T", " ")[:19]
-        status = "SUCCESS" if item.get("success") else "FAILED"
-        content += f"[{time_str}] Task: {item.get('task_name')} | Status: {status}\n"
+        status = "成功" if item.get("success") else "失败"
+        content += f"[{time_str}] 任务: {item.get('task_name')} | 状态: {status}\n"
         if item.get("message"):
-            content += f"Message: {item.get('message')}\n"
+            content += f"消息: {item.get('message')}\n"
         content += "-" * 20 + "\n"
 
     return Response(

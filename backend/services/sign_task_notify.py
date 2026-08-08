@@ -6,22 +6,12 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from backend.utils.tg_session import get_account_status, set_account_status
 from backend.utils.time import utc_now_iso, utc_now_iso_z_seconds
 
 logger = logging.getLogger("backend.sign_task_notify")
-
-
-def _bot_thread_id(cfg: Dict[str, Any]) -> Optional[int]:
-    message_thread_id = cfg.get("telegram_bot_message_thread_id")
-    try:
-        if message_thread_id is not None and str(message_thread_id).strip():
-            return int(message_thread_id)
-    except (TypeError, ValueError):
-        pass
-    return None
 
 
 async def send_failure_notification(
@@ -41,6 +31,7 @@ async def send_failure_notification(
         if not cfg.get("telegram_bot_task_failure_enabled", True):
             return
         from backend.services.push_notifications import (
+            _bot_config,
             build_html_notification,
             is_in_quiet_hours,
             send_telegram_bot_message,
@@ -48,8 +39,7 @@ async def send_failure_notification(
 
         if is_in_quiet_hours(cfg):
             return
-        bot_token = (cfg.get("telegram_bot_token") or "").strip()
-        chat_id = (cfg.get("telegram_bot_chat_id") or "").strip()
+        bot_token, chat_id, thread_id = _bot_config(cfg)
         if not bot_token or not chat_id:
             return
 
@@ -72,11 +62,11 @@ async def send_failure_notification(
             bot_token=bot_token,
             chat_id=chat_id,
             text=text,
-            message_thread_id=_bot_thread_id(cfg),
+            message_thread_id=thread_id,
             parse_mode="HTML",
         )
     except Exception as e:
-        logger.warning("Failed to send Telegram failure notification: %s", e)
+        logger.warning("Telegram 失败通知发送失败: %s", e)
 
 
 async def send_success_notification(
@@ -99,7 +89,7 @@ async def send_success_notification(
             message=message or "",
         )
     except Exception as e:
-        logger.warning("Failed to send Telegram success notification: %s", e)
+        logger.warning("Telegram 成功通知发送失败: %s", e)
 
 
 async def send_account_invalid_notification(
@@ -110,19 +100,18 @@ async def send_account_invalid_notification(
 ) -> None:
     try:
         from backend.services.config import get_config_service
+        from backend.services.push_notifications import (
+            _bot_config,
+            build_html_notification,
+            send_telegram_bot_message,
+        )
 
         cfg = get_config_service().get_global_settings()
         if not cfg.get("telegram_bot_notify_enabled"):
             return
-        bot_token = (cfg.get("telegram_bot_token") or "").strip()
-        chat_id = (cfg.get("telegram_bot_chat_id") or "").strip()
+        bot_token, chat_id, thread_id = _bot_config(cfg)
         if not bot_token or not chat_id:
             return
-
-        from backend.services.push_notifications import (
-            build_html_notification,
-            send_telegram_bot_message,
-        )
 
         text = build_html_notification(
             title="⚠️ TG-SignPulse 账号登录失效",
@@ -139,11 +128,11 @@ async def send_account_invalid_notification(
             bot_token=bot_token,
             chat_id=chat_id,
             text=text,
-            message_thread_id=_bot_thread_id(cfg),
+            message_thread_id=thread_id,
             parse_mode="HTML",
         )
     except Exception as e:
-        logger.warning("Failed to send Telegram account invalid notification: %s", e)
+        logger.warning("Telegram 账号失效通知发送失败: %s", e)
 
 
 async def mark_account_invalid(
@@ -206,7 +195,7 @@ async def check_account_before_task(
         )
     except Exception as e:
         logger.warning(
-            "Account status check failed before task %s/%s: %s",
+            "任务 %s/%s 前置账号状态检查失败: %s",
             account_name,
             task_name,
             e,

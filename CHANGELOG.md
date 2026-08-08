@@ -4,6 +4,8 @@
 
 | 日期 | 变更内容 |
 |------|----------|
+| 2026-08-08 | 打磨：日期选择器星期缩写/年月文案改用 Intl 按 locale 生成并 i18n 化（消除硬编码中文数组）；手机登录 2FA 分支区分「首次需密码」与「密码错误」，修复密码错误被误提示为需输入密码；后端与 tg_signer 日志消息语言统一为简体中文（含测试断言同步）；关键词命中推送/转发文案中文化（任务/会话/关键词/发送者，多关键词带共 N 个计数）；账号/日志接口兜底文案收敛（recent logs 与 account logs 统一执行成功/执行失败，summary 改「任务: xxx 成功/失败」，导出文件改中文，Unknown Task 统一为未知任务）；Dashboard 页面隐藏时暂停 30s 轮询、回到前台立即刷新；Bot 通知凭据读取收敛为共享 `_bot_config`（关键词推送/登录通知/任务成功/自动备份失败 4 处魔法键读取去重，删除重复 `_bot_thread_id`）。后端 1228 测试全绿（覆盖 56.45%），前端 307 测试/typecheck 全绿，ruff 全绿 |
+| 2026-08-07 | 打磨：Bot 通知升级为 HTML 格式化（加粗标题/状态 emoji/code 字段；字段先截断后转义、HTML 模式标签栈保持闭合避免 parse_mode 400），多通道关键词命中标题统一带 🔔；通知时间戳统一 UTC Z 后缀；Toast 增加 warning 语义（部分成功/部分失败归位琥珀色警示）；日志调用 lazy 化（%s 占位避免 DEBUG 过滤时无谓求值）；前端无障碍与 UI 细节对齐（聚焦环/aria/空态）。后端 1227 测试、前端 306 测试 + typecheck + 构建全绿，ruff 全绿 |
 | 2026-08-06 | 打磨：全局代理读取收敛到 ConfigService.get_global_proxy() 统一入口（替换 sign_tasks/telegram 登录与账号模块 7 处散落魔法键读取）；accounts.py 4 处 string 模式 session 解析复用 load_account_session_string；Dashboard 首屏 7 个相互独立的数据请求改为 Promise.allSettled 并行拉取，缩短首屏等待且各请求独立成败。后端 1210 条测试全绿，前端 304 条/typecheck/构建全绿 |
 | 2026-08-05 | /ccg:init 二轮补扫：tg_signer CLI 全局选项与子命令参数表；frontend Accounts/Logs/Dashboard/Settings 全链路；backend CRUD/config_build/group/chats 专章；清空 init gaps |
 | 2026-08-05 | /ccg:init 补扫：sign_task_runner/历史栈、keyword_monitor continue、frontend Tasks 全链路写入模块 CLAUDE；新增 docs/tests CLAUDE；根文档补 Docker/CI 与执行摘要；architecture.md 交叉对齐；刷新 .claude/index.json |

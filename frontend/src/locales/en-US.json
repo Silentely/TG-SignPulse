@@ -776,6 +776,7 @@
     "clearDate": "Clear date",
     "prevMonth": "Previous month",
     "nextMonth": "Next month",
-    "today": "Today"
+    "today": "Today",
+    "monthLabel": "{month} {year}"
   }
 }

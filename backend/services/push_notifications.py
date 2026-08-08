@@ -112,6 +112,17 @@ def _as_int_or_none(value: Any) -> Optional[int]:
         return None
 
 
+def _bot_config(settings: Dict[str, Any]) -> tuple[str, str, Optional[int]]:
+    """统一读取 Bot 通知凭据：token / chat_id 去空白，话题 ID 容错解析。
+
+    供关键词推送、登录通知、任务成败通知等共用，避免各处重复魔法键读取。
+    """
+    token = (settings.get("telegram_bot_token") or "").strip()
+    chat_id = (settings.get("telegram_bot_chat_id") or "").strip()
+    thread_id = _as_int_or_none(settings.get("telegram_bot_message_thread_id"))
+    return token, chat_id, thread_id
+
+
 def is_in_quiet_hours(
     settings: Dict[str, Any], now: Optional[datetime] = None
 ) -> bool:
@@ -196,10 +207,9 @@ async def send_keyword_push(settings: Dict[str, Any], payload: Dict[str, Any]) -
         return
 
     if channel == "telegram":
-        bot_token = (settings.get("telegram_bot_token") or "").strip()
-        chat_id = (settings.get("telegram_bot_chat_id") or "").strip()
+        bot_token, chat_id, thread_id = _bot_config(settings)
         if not bot_token or not chat_id:
-            logger.warning("Keyword monitor Telegram notification is not configured")
+            logger.warning("关键词监听 Telegram 通知未配置")
             return
         text = build_html_notification(
             title=title,
@@ -216,9 +226,7 @@ async def send_keyword_push(settings: Dict[str, Any], payload: Dict[str, Any]) -
             bot_token=bot_token,
             chat_id=chat_id,
             text=text,
-            message_thread_id=_as_int_or_none(
-                settings.get("telegram_bot_message_thread_id")
-            ),
+            message_thread_id=thread_id,
             parse_mode="HTML",
         )
         return
@@ -226,7 +234,7 @@ async def send_keyword_push(settings: Dict[str, Any], payload: Dict[str, Any]) -
     if channel == "bark":
         bark_url = (settings.get("keyword_monitor_bark_url") or "").strip()
         if not bark_url:
-            logger.warning("Keyword monitor Bark URL is not configured")
+            logger.warning("关键词监听 Bark 地址未配置")
             return
         data = {"title": title, "body": body}
         if url:
@@ -238,7 +246,7 @@ async def send_keyword_push(settings: Dict[str, Any], payload: Dict[str, Any]) -
 
     custom_url = (settings.get("keyword_monitor_custom_url") or "").strip()
     if not custom_url:
-        logger.warning("Keyword monitor custom push URL is not configured")
+        logger.warning("关键词监听自定义推送地址未配置")
         return
 
     request_payload = dict(payload)
@@ -275,10 +283,9 @@ async def send_login_notification(
     if is_in_quiet_hours(settings):
         return
 
-    bot_token = (settings.get("telegram_bot_token") or "").strip()
-    chat_id = (settings.get("telegram_bot_chat_id") or "").strip()
+    bot_token, chat_id, thread_id = _bot_config(settings)
     if not bot_token or not chat_id:
-        logger.warning("Telegram login notification is not configured")
+        logger.warning("Telegram 登录通知未配置")
         return
 
     text = build_html_notification(
@@ -293,7 +300,7 @@ async def send_login_notification(
         bot_token=bot_token,
         chat_id=chat_id,
         text=text,
-        message_thread_id=_as_int_or_none(settings.get("telegram_bot_message_thread_id")),
+        message_thread_id=thread_id,
         parse_mode="HTML",
     )
 
@@ -313,8 +320,7 @@ async def send_task_success_notification(
     if is_in_quiet_hours(settings):
         return
 
-    bot_token = (settings.get("telegram_bot_token") or "").strip()
-    chat_id = (settings.get("telegram_bot_chat_id") or "").strip()
+    bot_token, chat_id, thread_id = _bot_config(settings)
     if not bot_token or not chat_id:
         return
 
@@ -333,7 +339,7 @@ async def send_task_success_notification(
         bot_token=bot_token,
         chat_id=chat_id,
         text=text,
-        message_thread_id=_as_int_or_none(settings.get("telegram_bot_message_thread_id")),
+        message_thread_id=thread_id,
         parse_mode="HTML",
     )
 
@@ -354,8 +360,7 @@ async def send_auto_backup_failure_notification(
     if is_in_quiet_hours(settings):
         return
 
-    bot_token = (settings.get("telegram_bot_token") or "").strip()
-    chat_id = (settings.get("telegram_bot_chat_id") or "").strip()
+    bot_token, chat_id, thread_id = _bot_config(settings)
     if not bot_token or not chat_id:
         return
 
@@ -374,9 +379,7 @@ async def send_auto_backup_failure_notification(
             bot_token=bot_token,
             chat_id=chat_id,
             text=text,
-            message_thread_id=_as_int_or_none(
-                settings.get("telegram_bot_message_thread_id")
-            ),
+            message_thread_id=thread_id,
             parse_mode="HTML",
         )
     except Exception as exc:

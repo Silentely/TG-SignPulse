@@ -190,9 +190,9 @@ class TestCreateLoggedTask:
             with pytest.raises(ValueError, match="boom"):
                 await task
             await asyncio.sleep(0)  # 让 done 回调执行
-        assert "Failed to finalize test-task" in caplog.text
+        assert "收尾回调执行失败 test-task" in caplog.text
         # 即使 on_done 异常，任务自身的异常仍被取出并记录，不丢失
-        assert "test-task failed: boom" in caplog.text
+        assert "test-task 执行失败: boom" in caplog.text
 
 
 class TestClientLockLifecycle:
