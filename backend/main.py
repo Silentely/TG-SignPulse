@@ -385,6 +385,14 @@ async def on_startup() -> None:
             )
         finally:
             app.state.ready = True
+            # 启动完成汇总：一次日志携带版本/监听地址/数据目录，便于部署排障
+            logging.getLogger("backend.startup").info(
+                "面板启动完成 version=%s host=%s port=%s data_dir=%s",
+                _app_version(),
+                settings.host,
+                settings.port,
+                settings.resolve_workdir(),
+            )
 
     app.state.startup_task = create_logged_task(
         _post_startup(),

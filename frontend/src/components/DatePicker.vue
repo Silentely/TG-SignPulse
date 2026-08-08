@@ -173,6 +173,7 @@ const displayValue = computed(() => {
         v-if="isOpen"
         class="absolute z-[60] mt-1 ui-card shadow-[var(--sp-shadow-md)] p-3 w-[272px] right-0"
         role="dialog"
+        :aria-label="monthLabel"
       >
         <div class="flex items-center justify-between mb-2.5">
           <button type="button" class="ui-icon-btn !w-7 !h-7" :aria-label="t('datePicker.prevMonth')" @click="prevMonth">
@@ -194,6 +195,11 @@ const displayValue = computed(() => {
             :key="idx"
             type="button"
             :disabled="!item.day"
+            :aria-label="item.day
+              ? locale === 'zh'
+                ? `${viewYear}年${viewMonth + 1}月${item.day}日`
+                : `${monthLabel} ${item.day}`
+              : undefined"
             class="h-8 w-8 mx-auto flex items-center justify-center text-xs rounded-sm transition-colors"
             :class="[
               !item.day ? 'invisible' : '',

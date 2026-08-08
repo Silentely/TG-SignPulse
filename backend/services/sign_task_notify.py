@@ -77,10 +77,16 @@ async def send_failure_notification(
         if last_target_message:
             fields.append(("目标消息", last_target_message))
         log_tail = "\n".join((flow_logs or [])[-20:])
+        truncated = len(flow_logs or []) > 20
         text = build_html_notification(
             title="❌ TG-SignPulse 任务执行失败",
             fields=fields,
-            footer=f"最近日志:\n{log_tail}" if log_tail else "",
+            footer=(
+                f"最近日志:\n{log_tail}"
+                + ("\n（仅保留最近 20 条流程日志）" if truncated else "")
+                if log_tail
+                else ""
+            ),
         )
 
         await send_telegram_bot_message(

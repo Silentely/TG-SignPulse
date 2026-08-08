@@ -73,7 +73,17 @@ class TestEntryDedupeKey:
 class TestRequireToken:
     @pytest.fixture()
     def fake_db(self, monkeypatch):
-        db = SimpleNamespace(closed=0)
+        class _FakeDb(SimpleNamespace):
+            """支持 with 语句的会话替身：退出时关闭（与真实 Session 语义一致）。"""
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                self.close()
+                return False
+
+        db = _FakeDb(closed=0)
         db.close = lambda: setattr(db, "closed", db.closed + 1)
         monkeypatch.setattr(events, "get_session_local", lambda: (lambda: db))
         return db

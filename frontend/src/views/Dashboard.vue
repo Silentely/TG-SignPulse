@@ -121,6 +121,13 @@ const statusJobLabel = (job: AccountStatusJob) => {
   }
   return `${job.summary?.ok ?? ok}/${job.summary?.fail ?? fail}`
 }
+
+/** 状态 Job 原始状态码映射为本地化文案（running/canceling/failed/done） */
+const jobStatusLabel = (status: string) => {
+  const key = `dashboard.jobStatus.${status}`
+  const translated = t(key)
+  return translated !== key ? translated : status
+}
 </script>
 
 <template>
@@ -316,7 +323,7 @@ const statusJobLabel = (job: AccountStatusJob) => {
                 v-if="job.status === 'running' || job.status === 'canceling'"
                 class="ui-pulse-dot !bg-sky-500"
               />
-              {{ job.status }}
+              {{ jobStatusLabel(job.status) }}
             </span>
             <span class="font-mono text-gray-700 dark:text-gray-300 truncate">
               {{ statusJobLabel(job) }}

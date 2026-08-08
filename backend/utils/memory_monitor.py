@@ -108,6 +108,8 @@ class MemoryMonitor:
         default_factory=list, init=False, repr=False
     )
     _last_gc_forced: bool = field(default=False, init=False, repr=False)
+    # 连续超阈值告警去重：True 表示当前处于告警中，回落复位前不再重复告警
+    _in_alert: bool = field(default=False, init=False, repr=False)
 
     # ------------------------------------------------------------------
     # 公共 API
@@ -134,15 +136,20 @@ class MemoryMonitor:
     def check(self) -> Optional[AlertRecord]:
         """执行一次内存检查：采集快照、判断阈值、按需触发 GC
 
-        返回:
-            如果超过阈值则返回告警记录，否则返回 None
+        连续超阈值期间只告警首次：回落到阈值以下后再次超阈值才重新告警，
+        避免长期超限时每轮检查（默认 30s）都刷一条告警与回调；
+        GC 仍按轮执行（幂等，不因去重而跳过）。
         """
         snap = self.snapshot()
         if snap.rss_mb >= self.threshold_mb:
-            alert = self._trigger_alert(snap)
+            alert: Optional[AlertRecord] = None
+            if not self._in_alert:
+                self._in_alert = True
+                alert = self._trigger_alert(snap)
             if self.gc_enabled:
                 self._do_gc(snap)
             return alert
+        self._in_alert = False
         return None
 
     def force_gc(self) -> GCRecord:
@@ -178,6 +185,7 @@ class MemoryMonitor:
         self._snapshots.clear()
         self._alerts.clear()
         self._gc_records.clear()
+        self._in_alert = False
 
     def get_stats(self) -> Dict[str, Any]:
         """获取监控统计摘要
@@ -192,6 +200,7 @@ class MemoryMonitor:
             "snapshot_count": len(self._snapshots),
             "alert_count": len(self._alerts),
             "gc_count": len(self._gc_records),
+            "in_alert": self._in_alert,
         }
 
     # ------------------------------------------------------------------
