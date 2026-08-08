@@ -141,7 +141,7 @@ async def send_account_invalid_notification(
         text = build_html_notification(
             title="⚠️ TG-SignPulse 账号登录失效",
             fields=[
-                ("时间", utc_now_iso_z_seconds()),
+                ("时间 (UTC)", utc_now_iso_z_seconds()),
                 ("账号", account_name),
                 ("任务", task_name),
                 ("原因", message or "session 已失效，请重新登录"),

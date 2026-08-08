@@ -12,6 +12,7 @@ const toastSpy = vi.hoisted(() => ({
   info: vi.fn(),
   show: vi.fn(),
 }))
+const notifyApiErrorSpy = vi.hoisted(() => vi.fn())
 
 const api = vi.hoisted(() => ({
   listAccounts: vi.fn(),
@@ -29,6 +30,7 @@ const activeRunsStoreMock = vi.hoisted(() => {
     refresh: vi.fn(async () => {
       const res = await api.listActiveSignTaskRuns('tok')
       store.runs.value = res?.runs || []
+      return true
     }),
     ensurePolling: vi.fn(),
     acquire: vi.fn(),
@@ -47,6 +49,9 @@ vi.mock('../composables/useI18n', () => ({
 }))
 vi.mock('../composables/useToast', () => ({
   useToast: () => toastSpy,
+}))
+vi.mock('../lib/notify', () => ({
+  notifyApiError: notifyApiErrorSpy,
 }))
 vi.mock('../lib/api', () => api)
 vi.mock('../stores/activeRuns', () => ({
@@ -90,6 +95,7 @@ describe('useDashboardData (mount + SSE + poll)', () => {
   beforeEach(() => {
     toastSpy.success.mockClear()
     toastSpy.error.mockClear()
+    notifyApiErrorSpy.mockClear()
     pollState.ticks.length = 0
     pollState.stops.length = 0
     MockEventSource.reset()
@@ -186,6 +192,52 @@ describe('useDashboardData (mount + SSE + poll)', () => {
 
     unmount()
     expect(pollState.stops[0]).toHaveBeenCalled()
+  })
+
+  it('uses a Dashboard-specific fallback when an initial data source fails', async () => {
+    api.getRecentAccountLogs.mockRejectedValueOnce(new Error('logs unavailable'))
+    const { result, unmount } = mountComposable(() => useDashboardData())
+    try {
+      await vi.waitFor(() => expect(result.pageLoading.value).toBe(false))
+
+      expect(notifyApiErrorSpy).toHaveBeenCalledWith(
+        expect.any(Error),
+        'dashboard.loadFailed',
+      )
+    } finally {
+      unmount()
+    }
+  })
+
+  it('exposes partial load state while keeping successful dashboard data visible', async () => {
+    api.listScheduledJobs.mockRejectedValueOnce(new Error('schedule unavailable'))
+    const { result, unmount } = mountComposable(() => useDashboardData())
+    try {
+      await vi.waitFor(() => expect(result.pageLoading.value).toBe(false))
+
+      expect(result.partialLoad.value).toBe(true)
+      expect(result.stats.value.find((s) => s.key === 'dashboard.totalTasks')?.value).toBe('2')
+
+      await pollState.ticks[0]()
+      await flushPromises(10)
+
+      expect(result.partialLoad.value).toBe(false)
+    } finally {
+      unmount()
+    }
+  })
+
+  it('marks partial load when the shared active-runs refresh reports failure', async () => {
+    activeRunsStoreMock.refresh.mockResolvedValueOnce(false)
+    const { result, unmount } = mountComposable(() => useDashboardData())
+    try {
+      await vi.waitFor(() => expect(result.pageLoading.value).toBe(false))
+
+      expect(result.partialLoad.value).toBe(true)
+      expect(result.stats.value.find((s) => s.key === 'dashboard.totalTasks')?.value).toBe('2')
+    } finally {
+      unmount()
+    }
   })
 
   it('SSE ready/sign_log updates live state and prepends log', async () => {

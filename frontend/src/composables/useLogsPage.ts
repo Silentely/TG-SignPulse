@@ -59,6 +59,10 @@ export function useLogsPage() {
   const taskLogsGuard = useLatestResponseGuard()
   const loginLogsGuard = useLatestResponseGuard()
   const detailGuard = useLatestResponseGuard()
+  // 加载态序号：旧请求收尾时不能提前关闭最新请求的反馈。
+  let loadGeneration = 0
+  // 记录由分类深链强制设置的失败状态，清除深链时一并恢复默认筛选。
+  let routeForcedFailureStatus = false
 
   const accountOptions = computed(() => [
     { label: t('logs.allAccounts'), value: '' },
@@ -132,6 +136,14 @@ export function useLogsPage() {
     return filtered.map(toTaskUi)
   })
 
+  const hasActiveFilters = computed(() => Boolean(
+    filterTask.value.trim()
+    || filterAccount.value
+    || filterDate.value
+    || filterStatus.value
+    || filterCategory.value,
+  ))
+
   const loadAccounts = async () => {
     return withToken(async () => {
       try {
@@ -191,6 +203,7 @@ export function useLogsPage() {
   }
 
   const loadLogs = async () => {
+    const generation = ++loadGeneration
     pageLoading.value = true
     try {
       if (activeTab.value === 'tasks') {
@@ -199,7 +212,9 @@ export function useLogsPage() {
         await loadLoginLogs()
       }
     } finally {
-      pageLoading.value = false
+      if (generation === loadGeneration) {
+        pageLoading.value = false
+      }
     }
   }
 
@@ -294,6 +309,21 @@ export function useLogsPage() {
     }
   }
 
+  const clearFilters = async () => {
+    filterTask.value = ''
+    filterAccount.value = ''
+    filterDate.value = ''
+    filterStatus.value = ''
+    filterCategory.value = ''
+    routeForcedFailureStatus = false
+
+    const nextQuery = { ...route.query }
+    for (const key of ['account', 'task', 'category', 'at']) {
+      delete nextQuery[key]
+    }
+    await router.replace({ name: 'logs', query: nextQuery })
+  }
+
   const applyRouteQueryFilters = () => {
     const queryAccount =
       typeof route.query.account === 'string' ? route.query.account.trim() : ''
@@ -301,14 +331,19 @@ export function useLogsPage() {
     const queryCategory =
       typeof route.query.category === 'string' ? route.query.category.trim() : ''
 
-    if (queryAccount) filterAccount.value = queryAccount
-    if (queryTask) filterTask.value = queryTask
+    filterAccount.value = queryAccount
+    filterTask.value = queryTask
 
     if (queryCategory) {
       filterCategory.value = queryCategory
       filterStatus.value = 'error'
-    } else if (filterCategory.value) {
+      routeForcedFailureStatus = true
+    } else {
       filterCategory.value = ''
+      if (routeForcedFailureStatus && filterStatus.value === 'error') {
+        filterStatus.value = ''
+      }
+      routeForcedFailureStatus = false
     }
   }
 
@@ -320,9 +355,24 @@ export function useLogsPage() {
   })
 
   watch(
-    () => [route.query.category, route.query.account, route.query.task] as const,
-    () => {
+    () => [route.query.category, route.query.account, route.query.task, route.query.at] as const,
+    async (next, previous) => {
       applyRouteQueryFilters()
+
+      const taskChanged = next[2] !== previous[2]
+      const atChanged = next[3] !== previous[3]
+      if (!taskChanged && !atChanged) return
+
+      // 同一页面切换深链时先清理旧详情，避免新请求期间继续展示过期内容。
+      selectedLog.value = null
+      logDetail.value = null
+
+      const taskQ = typeof route.query.task === 'string' ? route.query.task.trim() : ''
+      const atQ = typeof route.query.at === 'string' ? route.query.at.trim() : ''
+      if (!taskQ || !atQ || activeTab.value !== 'tasks') return
+
+      await loadLogs()
+      await tryOpenFromQuery()
     },
   )
 
@@ -344,9 +394,11 @@ export function useLogsPage() {
     statusOptions,
     categoryOptions,
     failureCategoryLabel,
+    hasActiveFilters,
     loadLogs,
     openLogDetail,
     handleClear,
     clearCategoryFilter,
+    clearFilters,
   }
 }

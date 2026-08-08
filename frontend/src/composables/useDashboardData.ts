@@ -44,6 +44,7 @@ export function useDashboardData() {
 
   const liveConnected = ref(false)
   const pageLoading = ref(true)
+  const partialLoad = ref(false)
   const stats = ref([
     { key: 'dashboard.activeAccounts', hintKey: 'dashboard.activeAccountsHint', value: '...' },
     { key: 'dashboard.totalTasks', hintKey: 'dashboard.totalTasksHint', value: '...' },
@@ -149,6 +150,7 @@ export function useDashboardData() {
     let statusJobsRes: Awaited<ReturnType<typeof listAccountStatusCheckJobs>> | null = null
 
     let loadError: unknown = null
+    let hasLoadFailure = false
     // 并行拉取相互独立的仪表盘数据，避免串行等待放大首屏延迟；
     // 各请求独立成败，失败仅记录并上报一次，不影响其余数据展示
     const results = await Promise.allSettled([
@@ -165,38 +167,47 @@ export function useDashboardData() {
     if (accResult.status === 'fulfilled') {
       accRes = { accounts: accountsStore.accounts, total: accountsStore.total }
     } else {
+      hasLoadFailure = true
       loadError = accResult.reason
       devLog.error('Failed to load accounts', accResult.reason)
     }
     if (tasksResult.status === 'fulfilled') {
       tasksRes = tasksResult.value
     } else {
+      hasLoadFailure = true
       loadError = tasksResult.reason
       devLog.error('Failed to load tasks', tasksResult.reason)
     }
     if (logsResult.status === 'fulfilled') {
       logsRes = logsResult.value
     } else {
+      hasLoadFailure = true
       loadError = logsResult.reason
       devLog.error('Failed to load logs', logsResult.reason)
     }
     if (jobsResult.status === 'fulfilled') {
       jobsRes = jobsResult.value
     } else {
+      hasLoadFailure = true
       devLog.error('Failed to load scheduled jobs', jobsResult.reason)
     }
     if (runsResult.status === 'rejected') {
+      hasLoadFailure = true
       devLog.error('Failed to load active runs', runsResult.reason)
+    } else if (runsResult.value === false) {
+      hasLoadFailure = true
     }
     if (hitsResult.status === 'fulfilled') {
       hitsRes = hitsResult.value
     } else {
+      hasLoadFailure = true
       loadError = hitsResult.reason
       devLog.error('Failed to load keyword hits', hitsResult.reason)
     }
     if (statusJobsResult.status === 'fulfilled') {
       statusJobsRes = statusJobsResult.value
     } else {
+      hasLoadFailure = true
       loadError = statusJobsResult.reason
       devLog.error('Failed to load status jobs', statusJobsResult.reason)
     }
@@ -204,8 +215,10 @@ export function useDashboardData() {
     // 卸载后在途 tick：不再写入状态或触发共享轮询
     if (disposed) return
 
+    partialLoad.value = hasLoadFailure
+
     if (loadError && pageLoading.value) {
-      notifyApiError(loadError, 'logs.loadFailed')
+      notifyApiError(loadError, 'dashboard.loadFailed')
     }
 
     const activeAccs = accRes.accounts
@@ -317,6 +330,7 @@ export function useDashboardData() {
 
   return {
     pageLoading,
+    partialLoad,
     liveConnected,
     stats,
     logs,

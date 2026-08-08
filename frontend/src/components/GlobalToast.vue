@@ -23,11 +23,13 @@ const { t } = useI18n()
           :key="toast.id"
           :role="toast.type === 'error' ? 'alert' : 'status'"
           :aria-live="toast.type === 'error' ? 'assertive' : 'polite'"
+          aria-atomic="true"
           class="pointer-events-auto flex items-start gap-2.5 px-3.5 py-2.5 text-sm shadow-[var(--sp-shadow-md)] border backdrop-blur-sm"
           @mouseenter="pause(toast.id)"
           @mouseleave="resume(toast.id)"
           @touchstart="pause(toast.id)"
           @touchend="resume(toast.id)"
+          @touchcancel="resume(toast.id)"
           :class="{
             'bg-white/95 dark:bg-[var(--sp-bg-elevated)]/95 border-gray-200 dark:border-[var(--sp-border)] text-gray-900 dark:text-gray-100': toast.type === 'info',
             'bg-emerald-50/95 dark:bg-emerald-950/80 border-emerald-200 dark:border-emerald-800/50 text-emerald-800 dark:text-emerald-300': toast.type === 'success',
@@ -62,7 +64,7 @@ const { t } = useI18n()
           </div>
           <button
             type="button"
-            class="shrink-0 mt-0.5 p-0.5 rounded opacity-50 hover:opacity-100 transition-opacity"
+            class="shrink-0 mt-0.5 p-0.5 rounded opacity-50 hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-current/40 transition-opacity"
             :aria-label="t('common.close')"
             @click="dismiss(toast.id)"
           >

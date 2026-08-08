@@ -30,15 +30,18 @@ export const useActiveRunsStore = defineStore('activeRuns', () => {
     fetchedAt.value = Date.now()
   }
 
-  const refresh = async () => {
+  const refresh = async (): Promise<boolean> => {
     const token = getAuthToken()
-    if (!token) return
+    if (!token) return false
     loading.value = true
     try {
       const res = await listActiveSignTaskRuns(token)
       applyRuns(res.runs || [])
+      return true
     } catch (e) {
       devLog.error('Failed to refresh active runs', e)
+      // 保留上一轮结果，同时让上层知道本次刷新没有成功。
+      return false
     } finally {
       loading.value = false
     }
@@ -47,7 +50,10 @@ export const useActiveRunsStore = defineStore('activeRuns', () => {
   const ensurePolling = () => {
     if (hasAnyActive.value) {
       if (!pollHandle?.active) {
-        pollHandle = startChainPoll(refresh, {
+        // 轮询只关心刷新完成，不向轮询器暴露 Dashboard 使用的成功标记。
+        pollHandle = startChainPoll(async () => {
+          await refresh()
+        }, {
           intervalMs: POLL_MS,
           runImmediately: false,
         })

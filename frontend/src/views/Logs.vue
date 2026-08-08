@@ -27,10 +27,12 @@ const {
   statusOptions,
   categoryOptions,
   failureCategoryLabel,
+  hasActiveFilters,
   loadLogs,
   openLogDetail,
   handleClear,
   clearCategoryFilter,
+  clearFilters,
 } = useLogsPage()
 </script>
 
@@ -144,8 +146,17 @@ const {
       <!-- Task logs -->
       <div v-else-if="activeTab === 'tasks'" class="text-xs space-y-0">
         <div v-if="logs.length === 0" class="ui-empty py-16">
-          <p class="ui-empty-title !text-gray-500 font-normal">{{ t('logs.empty') }}</p>
-          <p class="ui-empty-desc">{{ t('logs.emptyHint') }}</p>
+          <template v-if="hasActiveFilters">
+            <p class="ui-empty-title !text-gray-500 font-normal">{{ t('common.filterNoResults') }}</p>
+            <p class="ui-empty-desc mb-3">{{ t('common.filterNoResultsHint') }}</p>
+            <button type="button" class="ui-btn-secondary !text-xs !px-3 !py-2" @click="clearFilters">
+              {{ t('common.clearAllFilters') }}
+            </button>
+          </template>
+          <template v-else>
+            <p class="ui-empty-title !text-gray-500 font-normal">{{ t('logs.empty') }}</p>
+            <p class="ui-empty-desc">{{ t('logs.emptyHint') }}</p>
+          </template>
         </div>
         <div v-else class="overflow-x-auto">
           <!-- header -->

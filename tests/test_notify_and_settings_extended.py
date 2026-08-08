@@ -131,6 +131,29 @@ class TestBotTestApi:
 
 
 class TestQuietHours:
+    @pytest.mark.parametrize(
+        ("start", "end", "current"),
+        [
+            ("24:00", "07:00", datetime(2026, 7, 18, 6, 0, tzinfo=ZoneInfo("UTC"))),
+            ("23:60", "07:00", datetime(2026, 7, 18, 6, 0, tzinfo=ZoneInfo("UTC"))),
+            ("23:00", "07:60", datetime(2026, 7, 18, 23, 30, tzinfo=ZoneInfo("UTC"))),
+            ("23:00", "24:00", datetime(2026, 7, 18, 23, 30, tzinfo=ZoneInfo("UTC"))),
+            ("-1:00", "07:00", datetime(2026, 7, 18, 6, 0, tzinfo=ZoneInfo("UTC"))),
+            ("23:00:99", "07:00", datetime(2026, 7, 18, 6, 0, tzinfo=ZoneInfo("UTC"))),
+            ("23:00:anything", "07:00", datetime(2026, 7, 18, 23, 30, tzinfo=ZoneInfo("UTC"))),
+            ("23:", "07:00", datetime(2026, 7, 18, 6, 0, tzinfo=ZoneInfo("UTC"))),
+            ("23:00", "07", datetime(2026, 7, 18, 23, 30, tzinfo=ZoneInfo("UTC"))),
+        ],
+    )
+    def test_invalid_clock_values_fall_back_to_not_quiet(self, start, end, current):
+        cfg = {
+            "telegram_bot_quiet_hours_enabled": True,
+            "telegram_bot_quiet_hours_start": start,
+            "telegram_bot_quiet_hours_end": end,
+            "timezone": "UTC",
+        }
+        assert not is_in_quiet_hours(cfg, current)
+
     def test_quiet_hours_overnight(self):
         cfg = {
             "telegram_bot_quiet_hours_enabled": True,

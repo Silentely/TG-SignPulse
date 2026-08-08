@@ -33,6 +33,7 @@ const selectedLog = ref<DashboardLog | null>(null)
 
 const {
   pageLoading,
+  partialLoad,
   liveConnected,
   stats,
   logs,
@@ -362,6 +363,14 @@ const statusJobLabel = (job: AccountStatusJob) => {
         >
           <span :class="liveConnected ? 'ui-pulse-dot' : 'ui-badge-dot'" />
           {{ liveConnected ? t('dashboard.liveOn') : t('dashboard.liveOff') }}
+        </span>
+        <span
+          v-if="partialLoad"
+          class="ui-badge ui-badge-warn"
+          :title="t('dashboard.partialLoadHint')"
+        >
+          <span class="ui-badge-dot" />
+          {{ t('dashboard.partialLoad') }}
         </span>
       </div>
       <div v-if="logs.length === 0" class="ui-empty py-16">

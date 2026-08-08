@@ -132,9 +132,19 @@ def is_in_quiet_hours(
     start_s = str(settings.get("telegram_bot_quiet_hours_start") or "23:00")
     end_s = str(settings.get("telegram_bot_quiet_hours_end") or "07:00")
     try:
-        sh, sm = [int(x) for x in start_s.split(":")[:2]]
-        eh, em = [int(x) for x in end_s.split(":")[:2]]
+        start_parts = start_s.split(":")
+        end_parts = end_s.split(":")
+        if len(start_parts) != 2 or len(end_parts) != 2:
+            return False
+        sh, sm = [int(x) for x in start_parts]
+        eh, em = [int(x) for x in end_parts]
     except (TypeError, ValueError):
+        return False
+    # 能被 int 解析不等于合法时刻，非法范围按当前降级策略不进入静默时段。
+    if not all(
+        0 <= hour <= 23 and 0 <= minute <= 59
+        for hour, minute in ((sh, sm), (eh, em))
+    ):
         return False
     tz_name = str(settings.get("timezone") or "UTC")
     try:
@@ -291,7 +301,7 @@ async def send_login_notification(
     text = build_html_notification(
         title="🔐 TG-SignPulse 登录通知",
         fields=[
-            ("时间", utc_now_iso_z_seconds()),
+            ("时间 (UTC)", utc_now_iso_z_seconds()),
             ("用户", username or ""),
             ("IP", ip_address or "未知"),
         ],
@@ -325,7 +335,7 @@ async def send_task_success_notification(
         return
 
     fields = [
-        ("时间", utc_now_iso_z_seconds()),
+        ("时间 (UTC)", utc_now_iso_z_seconds()),
         ("账号", account_name),
         ("任务", task_name),
     ]
@@ -365,7 +375,7 @@ async def send_auto_backup_failure_notification(
         return
 
     fields = [
-        ("时间", utc_now_iso_z_seconds()),
+        ("时间 (UTC)", utc_now_iso_z_seconds()),
         ("原因", str(error)[:800]),
     ]
     if detail:

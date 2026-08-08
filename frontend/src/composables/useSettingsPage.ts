@@ -296,22 +296,30 @@ export function useSettingsPage() {
         aiKeyDecryptFailed.value = false
       }
 
-      try {
-        await loadBackupStatus(token)
-      } catch (e: unknown) {
-        devLog.error('Failed to load backup status', e)
+      // 运行信息互不依赖，并行请求可以减少设置页首屏等待；单项失败仍然降级。
+      const [backupResult, runtimeResult, memoryResult, versionResult] =
+        await Promise.allSettled([
+          loadBackupStatus(token),
+          getRuntimeStatus(token),
+          getMemoryStats(token),
+          loadVersion(token),
+        ])
+      if (backupResult.status === 'rejected') {
+        devLog.error('Failed to load backup status', backupResult.reason)
       }
-      try {
-        runtimeStatus.value = await getRuntimeStatus(token)
-      } catch (e: unknown) {
-        devLog.error('Failed to load runtime status', e)
+      if (runtimeResult.status === 'fulfilled') {
+        runtimeStatus.value = runtimeResult.value
+      } else {
+        devLog.error('Failed to load runtime status', runtimeResult.reason)
       }
-      try {
-        memoryStats.value = await getMemoryStats(token)
-      } catch (e: unknown) {
-        devLog.error('Failed to load memory stats', e)
+      if (memoryResult.status === 'fulfilled') {
+        memoryStats.value = memoryResult.value
+      } else {
+        devLog.error('Failed to load memory stats', memoryResult.reason)
       }
-      await loadVersion(token)
+      if (versionResult.status === 'rejected') {
+        devLog.error('Failed to load app version', versionResult.reason)
+      }
       if (disposed) return // 加载期间已卸载：不再标记干净或注册监听
       markAllClean()
     } catch (e: unknown) {

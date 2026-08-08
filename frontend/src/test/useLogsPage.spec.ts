@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { ref } from 'vue'
 import {
   flushPromises,
   mockI18nPassthrough,
@@ -69,6 +70,16 @@ import { useLogsPage } from '../composables/useLogsPage'
 import { useAuthStore } from '../stores/auth'
 import type { TaskLogUiItem } from '../lib/types'
 
+// 让 route mock 的 query 具备 Vue 响应性，覆盖真实路由变化触发的筛选同步。
+const reactiveRouteQuery = ref(routeMocks.state.query)
+Object.defineProperty(routeMocks.state, 'query', {
+  configurable: true,
+  get: () => reactiveRouteQuery.value,
+  set: (value: Record<string, string | undefined>) => {
+    reactiveRouteQuery.value = value
+  },
+})
+
 describe('useLogsPage (route + mount)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -129,6 +140,46 @@ describe('useLogsPage (route + mount)', () => {
     unmount()
   })
 
+  it('reopens the selected detail when a same-page deep link changes', async () => {
+    const { result, unmount } = mountComposable(() => useLogsPage())
+    try {
+      await flushPromises()
+      expect(result.selectedLog.value?.task).toBe('task-q')
+
+      api.getTaskHistoryLogs.mockResolvedValue([
+        {
+          id: 2,
+          task_name: 'other',
+          account_name: 'acc-q',
+          created_at: '2026-07-01T11:00:00',
+          success: true,
+          message: 'second log',
+          failure_category: '',
+          flow_line_count: 0,
+        },
+      ])
+      api.getTaskHistoryLogDetail.mockResolvedValueOnce({
+        flow_logs: ['second'],
+        message: 'second detail',
+      })
+
+      await routeMocks.router.replace({
+        name: 'logs',
+        query: {
+          account: 'acc-q',
+          task: 'other',
+          at: '2026-07-01T11:00:00',
+        },
+      })
+      await flushPromises()
+
+      expect(result.selectedLog.value?.task).toBe('other')
+      expect(result.logDetail.value?.message).toBe('second detail')
+    } finally {
+      unmount()
+    }
+  })
+
   it('client filters by task/status/category', async () => {
     const { result, unmount } = mountComposable(() => useLogsPage())
     await flushPromises()
@@ -152,6 +203,54 @@ describe('useLogsPage (route + mount)', () => {
       expect.objectContaining({
         name: 'logs',
         query: expect.not.objectContaining({ category: 'timeout' }),
+      }),
+    )
+    unmount()
+  })
+
+  it('clears route-driven filters when the deep-link query is removed', async () => {
+    const { result, unmount } = mountComposable(() => useLogsPage())
+    await flushPromises()
+
+    await routeMocks.router.replace({ name: 'logs', query: {} })
+    await flushPromises()
+
+    expect(result.filterAccount.value).toBe('')
+    expect(result.filterTask.value).toBe('')
+    expect(result.filterCategory.value).toBe('')
+    expect(result.filterStatus.value).toBe('')
+    unmount()
+  })
+
+  it('reports active filters and clears local plus deep-link state together', async () => {
+    const { result, unmount } = mountComposable(() => useLogsPage())
+    await flushPromises()
+
+    result.filterTask.value = 'missing'
+    result.filterAccount.value = 'acc-2'
+    result.filterDate.value = '2026-07-02'
+    result.filterStatus.value = 'success'
+    result.filterCategory.value = 'timeout'
+    expect(result.hasActiveFilters.value).toBe(true)
+
+    await result.clearFilters()
+    await flushPromises()
+
+    expect(result.hasActiveFilters.value).toBe(false)
+    expect(result.filterTask.value).toBe('')
+    expect(result.filterAccount.value).toBe('')
+    expect(result.filterDate.value).toBe('')
+    expect(result.filterStatus.value).toBe('')
+    expect(result.filterCategory.value).toBe('')
+    expect(routeMocks.router.replace).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'logs',
+        query: expect.not.objectContaining({
+          account: 'acc-q',
+          task: 'task-q',
+          category: 'timeout',
+          at: '2026-07-01T10:00:00',
+        }),
       }),
     )
     unmount()
@@ -241,6 +340,36 @@ describe('useLogsPage (route + mount)', () => {
     ])
     await flushPromises()
     expect(result.logs.value.map((l) => l.task)).toEqual(['fresh'])
+    unmount()
+  })
+
+  it('keeps page loading while an older request settles before the newest one', async () => {
+    routeMocks.state.query = {}
+    let resolveOld!: (value: unknown) => void
+    let resolveNewest!: (value: unknown) => void
+    const oldPromise = new Promise((resolve) => {
+      resolveOld = resolve
+    })
+    const newestPromise = new Promise((resolve) => {
+      resolveNewest = resolve
+    })
+    api.getTaskHistoryLogs
+      .mockReturnValueOnce(oldPromise)
+      .mockReturnValueOnce(newestPromise)
+
+    const { result, unmount } = mountComposable(() => useLogsPage())
+    await flushPromises()
+    const newestLoad = result.loadLogs()
+    await flushPromises()
+
+    resolveOld([])
+    await flushPromises()
+    expect(result.pageLoading.value).toBe(true)
+
+    resolveNewest([])
+    await newestLoad
+    await flushPromises()
+    expect(result.pageLoading.value).toBe(false)
     unmount()
   })
 

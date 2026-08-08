@@ -143,6 +143,29 @@ describe('useSettingsPage (mount + dirty)', () => {
     unmount()
   })
 
+  it('starts independent runtime metadata loads without waiting for backup status', async () => {
+    let releaseBackup!: (value: unknown) => void
+    api.getBackupStatus.mockImplementationOnce(
+      () => new Promise((resolve) => {
+        releaseBackup = resolve
+      }),
+    )
+
+    const { result, unmount } = mountComposable(() => useSettingsPage())
+    try {
+      await flushPromises(10)
+      expect(api.getRuntimeStatus).toHaveBeenCalledWith('tok')
+      expect(api.getMemoryStats).toHaveBeenCalledWith('tok')
+      expect(api.getAppVersion).toHaveBeenCalledWith('tok')
+    } finally {
+      releaseBackup({ last: 'parallel' })
+      await flushPromises(10)
+      unmount()
+    }
+    expect(result.runtimeStatus.value).toEqual({ uptime: 1 })
+    expect(result.memoryStats.value).toEqual({ rss: 1 })
+  })
+
   it('isDirty tracks field edits and dirtyLabels', async () => {
     const { result, unmount } = mountComposable(() => useSettingsPage())
     await vi.waitFor(() => expect(result.pageLoading.value).toBe(false))

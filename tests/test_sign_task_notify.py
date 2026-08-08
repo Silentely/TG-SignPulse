@@ -239,6 +239,7 @@ class TestSendAccountInvalidNotification:
         text = msg["text"]
         assert "账号登录失效" in text
         assert "acc1" in text and "daily" in text and "session 失效" in text
+        assert "时间 (UTC)" in text
 
     @pytest.mark.asyncio()
     async def test_send_error_is_swallowed_with_warning(
