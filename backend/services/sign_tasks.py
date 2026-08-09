@@ -1122,7 +1122,7 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
 
         cleanup_task = create_logged_task(
             cleanup(),
-            logger=logging.getLogger("backend.sign_tasks"),
+            logger=_service_logger,
             description=f"run status cleanup {account_name}/{task_name}",
         )
         self._run_status_cleanup_tasks[task_key] = cleanup_task
@@ -1206,7 +1206,7 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
 
         background_task = create_logged_task(
             runner(),
-            logger=logging.getLogger("backend.sign_tasks"),
+            logger=_service_logger,
             description=f"sign task run {account_name}/{task_name}",
         )
         self._background_run_tasks[task_key] = background_task
