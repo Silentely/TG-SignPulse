@@ -390,7 +390,7 @@ const validateForSubmit = (): boolean => {
   return !taskNameError.value
 }
 defineExpose({ buildPayload, createMode, validateForSubmit })
-onMounted(()=>{loadAccounts()})
+onMounted(() => { loadAccounts() })
 </script>
 <template>
   <div class="space-y-6 text-left">

@@ -52,13 +52,14 @@ class SignerConfigMixin:
     @staticmethod
 
     def _resolve_action_delay(action, fallback_delay: float) -> float:
+        fallback = max(float(fallback_delay or 0), 0.0)
         raw_delay = getattr(action, "delay", None)
         if raw_delay is None:
-            return max(float(fallback_delay or 0), 0.0)
+            return fallback
 
         delay_text = str(raw_delay).strip()
         if not delay_text:
-            return max(float(fallback_delay or 0), 0.0)
+            return fallback
 
         try:
             if "-" in delay_text:
@@ -70,7 +71,7 @@ class SignerConfigMixin:
                 return max(random.uniform(start, end), 0.0)
             return max(float(delay_text), 0.0)
         except (TypeError, ValueError):
-            return max(float(fallback_delay or 0), 0.0)
+            return fallback
 
 
     def _load_chat_cache(self) -> List[dict]:
