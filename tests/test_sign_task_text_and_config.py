@@ -62,6 +62,15 @@ def test_task_has_keyword_monitor():
     )
 
 
+def test_inspect_tolerates_malformed_structure():
+    """chats 非 list / action 非 dict / 非法 action 值均应容错。"""
+    # chats 缺失或非 list：requires_updates 保守视为依赖 updates，避免漏挂监听
+    assert task_requires_updates({"chats": "oops"}) is True
+    assert task_requires_updates({"chats": [{"actions": "oops"}]}) is False
+    assert task_requires_updates({"chats": [{"actions": [{"action": "x"}]}]}) is False
+    assert task_has_keyword_monitor({"chats": [{"actions": [None]}]}) is False
+
+
 def test_format_target_message_summary_text_and_media():
     from backend.services.sign_task_message import (
         format_target_message_summary,

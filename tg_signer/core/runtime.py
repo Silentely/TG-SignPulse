@@ -362,13 +362,13 @@ class BaseUserWorker(Generic[ConfigT]):
         )
         if delete_after is not None:
             self.log(
-                f"Message「{text}」 to {chat_id} will be deleted after {delete_after} seconds."
+                f"消息「{text}」将在 {delete_after} 秒后删除 (Chat {chat_id})"
             )
-            self.log("Waiting...")
+            self.log("等待删除...")
             await asyncio.sleep(delete_after)
             try:
                 await message.delete()
-                self.log(f"Message「{text}」 to {chat_id} deleted!")
+                self.log(f"已删除消息「{text}」 (Chat {chat_id})")
             except Exception as exc:
                 self.log(f"删除消息失败: {exc}", level="WARNING")
         return message
@@ -408,13 +408,13 @@ class BaseUserWorker(Generic[ConfigT]):
         )
         if message and delete_after is not None:
             self.log(
-                f"Dice「{emoji}」 to {chat_id} will be deleted after {delete_after} seconds."
+                f"骰子「{emoji}」将在 {delete_after} 秒后删除 (Chat {chat_id})"
             )
-            self.log("Waiting...")
+            self.log("等待删除...")
             await asyncio.sleep(delete_after)
             try:
                 await message.delete()
-                self.log(f"Dice「{emoji}」 to {chat_id} deleted!")
+                self.log(f"已删除骰子「{emoji}」 (Chat {chat_id})")
             except Exception as e:
                 self.log(f"删除骰子消息失败: {e}", level="ERROR")
         return message

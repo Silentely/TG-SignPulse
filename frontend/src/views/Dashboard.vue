@@ -242,6 +242,7 @@ const jobStatusLabel = (status: string) => {
             :key="item.category"
             type="button"
             class="ui-badge ui-badge-error !text-[11px] cursor-pointer hover:opacity-90"
+            :title="t('dashboard.openFailureInLogs')"
             @click="openFailureCategory(item.category)"
           >
             {{ failureCategoryLabel(item.category) || item.category }}: {{ item.count }}

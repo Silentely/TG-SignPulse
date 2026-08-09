@@ -112,7 +112,7 @@ class SignerActionsMixin:
     ) -> tuple[bool, bool]:
         target_text = clean_text_for_match(action.text)
         if not target_text:
-            self.log("Click button action has empty target text after cleaning", level="WARNING")
+            self.log("点击按钮动作的目标文本为空（清理后无匹配内容）", level="WARNING")
             return False, False
 
         if reply_markup := message.reply_markup:

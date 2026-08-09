@@ -35,8 +35,10 @@ def tg_monitor(ctx: click.Context):
     ]:
         if proxy := ctx.obj.get("proxy"):
             logger.info(
-                "Using proxy: %s"
-                % f"{proxy['scheme']}://{proxy['hostname']}:{proxy['port']}"
+                "使用代理: %s://%s:%s",
+                proxy["scheme"],
+                proxy["hostname"],
+                proxy["port"],
             )
         logger.info("使用账号: %s", ctx.obj["account"])
 
