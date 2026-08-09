@@ -90,3 +90,18 @@ def test_request_cancel_on_terminal_returns_false(tmp_path: Path):
     job_id = store.create_job(kind="x")["job_id"]
     store.mark_failed(job_id, "done")
     assert store.request_cancel(job_id) is False
+
+
+def test_write_job_leaves_no_tmp_files_and_is_readable(tmp_path: Path):
+    """落盘走共享原子写：不残留 .tmp 半截文件，内容可被 json 读取。"""
+    root = tmp_path / "jobs"
+    store = BackgroundJobStore(root)
+    job_id = store.create_job(kind="atomic-demo")["job_id"]
+    store.append_log(job_id, "info", "持久化内容")
+
+    assert list(root.glob("*.tmp")) == []
+    path = root / f"{job_id}.json"
+    assert path.exists()
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["job_id"] == job_id
+    assert any(item["message"] == "持久化内容" for item in data["logs"])

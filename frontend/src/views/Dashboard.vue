@@ -368,6 +368,7 @@ const jobStatusLabel = (status: string) => {
         <span
           class="ui-badge"
           :class="liveConnected ? 'ui-badge-success' : 'ui-badge-neutral'"
+          :title="liveConnected ? t('dashboard.liveOnHint') : t('dashboard.liveOffHint')"
         >
           <span :class="liveConnected ? 'ui-pulse-dot' : 'ui-badge-dot'" />
           {{ liveConnected ? t('dashboard.liveOn') : t('dashboard.liveOff') }}

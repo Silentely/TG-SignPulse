@@ -54,7 +54,7 @@ from backend.models.user import User
 from backend.services.telegram import get_telegram_service
 
 router = APIRouter()
-logger = logging.getLogger("backend.qr_login")
+logger = logging.getLogger("backend.accounts_api")
 rate_limiter = get_rate_limiter()
 
 

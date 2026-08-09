@@ -33,7 +33,7 @@ from backend.utils.time import utc_now_iso_z
 settings = get_settings()
 
 
-logger = logging.getLogger("backend.qr_login")
+logger = logging.getLogger("backend.telegram.accounts")
 
 
 def _session_file_info(session_file) -> tuple[bool, int]:

@@ -24,7 +24,7 @@ from backend.utils.tg_session import (
 settings = get_settings()
 
 
-logger = logging.getLogger("backend.qr_login")
+logger = logging.getLogger("backend.telegram.login_phone")
 
 class TelegramPhoneLoginMixin:
 

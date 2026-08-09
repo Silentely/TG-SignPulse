@@ -98,6 +98,7 @@ const openGithub = () => {
             type="text"
             required
             autocomplete="username"
+            autofocus
             :placeholder="t('login.usernamePlaceholder')"
             class="ui-input"
           >
