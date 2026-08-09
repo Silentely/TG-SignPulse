@@ -1,6 +1,7 @@
 """关键词命中记录 API：列表、分组、CSV 导出、清空。"""
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -69,7 +70,9 @@ def export_hits(
     )
     # UTF-8 BOM 便于 Excel 识别中文
     payload = "\ufeff" + csv_text
-    filename = "keyword_hits.csv"
+    # 带时间戳文件名，避免连续导出下载重名覆盖
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    filename = f"keyword_hits_{stamp}.csv"
     return Response(
         content=payload.encode("utf-8"),
         media_type="text/csv; charset=utf-8",

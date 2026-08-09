@@ -184,6 +184,27 @@ describe('useTaskListActions', () => {
     expect(loadTasks).toHaveBeenCalled()
   })
 
+  it('handleToggleEnabled 防连点：请求在途时忽略重复调用', async () => {
+    let resolveToggle: ((value?: unknown) => void) | undefined
+    api.toggleSignTaskEnabled.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveToggle = resolve
+        }),
+    )
+    const task = makeTaskUi({ enabled: true })
+    const { actions, loadTasks } = setup([task])
+
+    const first = actions.handleToggleEnabled(task)
+    // 请求尚未返回：第二次调用应被短路
+    await actions.handleToggleEnabled(task)
+    expect(api.toggleSignTaskEnabled).toHaveBeenCalledTimes(1)
+
+    resolveToggle?.(undefined)
+    await first
+    expect(loadTasks).toHaveBeenCalledTimes(1)
+  })
+
   it('handleRun opens menu for multi-account wildcard', () => {
     const task = makeTaskUi({
       raw: { account_name: '*', account_names: ['*'] },

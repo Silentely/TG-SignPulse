@@ -170,13 +170,14 @@ async def batch_sign_task_operation(
                     )
                     success_count += 1
             except Exception as exc:
-                logger.warning("批量签到任务 %s 操作失败: %s", name, exc)
+                # 详情进服务端日志；对外仅给稳定文案，避免内部异常细节（路径/SQL 等）透出
+                logger.warning("批量签到任务 %s 操作失败: %s", name, exc, exc_info=True)
                 results.append(
                     SignBatchTaskResult(
                         name=name,
                         account_name=item.account_name or "",
                         success=False,
-                        message=str(exc) or "操作失败",
+                        message="操作失败",
                     )
                 )
                 fail_count += 1
