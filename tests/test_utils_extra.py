@@ -107,6 +107,19 @@ class TestGetAccountLock:
         b = get_account_lock("acc-y")
         assert a is not b
 
+    def test_lock_table_prunes_unlocked_when_full(self):
+        """容量超限后清理未持锁条目，防账号删除后 Lock 永久滞留。"""
+        from backend.utils import account_locks as al
+
+        for i in range(al._MAX_LOCKS + 10):
+            al.get_account_lock(f"prune-{i}")
+        assert len(al._ACCOUNT_LOCKS) <= al._MAX_LOCKS
+        # 清理后同名校验仍返回同一实例
+        a = al.get_account_lock("prune-0")
+        b = al.get_account_lock("prune-0")
+        assert a is b
+        al._ACCOUNT_LOCKS.clear()
+
 
 class TestSessionStringExport:
     """session_string 导出/校验（Issue #6：错误 base64 前缀导致签到失败）"""

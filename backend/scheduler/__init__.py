@@ -66,9 +66,8 @@ def create_cron_trigger(cron_str: str, timezone: str = "") -> CronTrigger:
 async def _job_run_sign_task(account_name: str, task_name: str) -> None:
     """运行签到任务的 Job 包装器"""
     import asyncio
-    import logging
     import random
-    from datetime import datetime, timedelta
+    from datetime import timedelta
 
     from backend.services.sign_tasks import get_sign_task_service
 
@@ -115,10 +114,15 @@ async def _job_run_sign_task(account_name: str, task_name: str) -> None:
                         # 生成随机延迟
                         delay_seconds = random.uniform(0, total_seconds)
                         logger.info(
-                            f"Scheduler: 任务 {task_name} 设置为随机时间段模式 ({range_start_str} - {range_end_str})"
+                            "Scheduler: 任务 %s 设置为随机时间段模式 (%s - %s)",
+                            task_name,
+                            range_start_str,
+                            range_end_str,
                         )
                         logger.info(
-                            f"Scheduler: 将随机等待 {int(delay_seconds)} 秒 ({delay_seconds / 60:.2f} 分钟) 后执行"
+                            "Scheduler: 将随机等待 %d 秒 (%.2f 分钟) 后执行",
+                            int(delay_seconds),
+                            delay_seconds / 60,
                         )
 
                         await asyncio.sleep(delay_seconds)
@@ -130,8 +134,7 @@ async def _job_run_sign_task(account_name: str, task_name: str) -> None:
                         exc_info=True,
                     )
 
-        # run_task_with_logs 是 async 的，我们使用它
-        sign_task_service = get_sign_task_service()
+        # run_task_with_logs 是 async 的，我们使用它（service 已在上方获取）
         result = await sign_task_service.run_task_with_logs(account_name, task_name)
         if result.get("success"):
             logger.info("Scheduler: 任务 %s 执行成功", task_name)
@@ -186,7 +189,6 @@ async def _job_device_keepalive() -> None:
 
 async def _job_auto_backup() -> None:
     """按全局设置执行自动备份。"""
-    import logging
     from pathlib import Path
 
     logger = logging.getLogger("backend.scheduler")
@@ -257,7 +259,6 @@ def _sync_auto_backup_job() -> None:
     global scheduler
     if scheduler is None:
         return
-    import logging
 
     from apscheduler.jobstores.base import JobLookupError
     from apscheduler.triggers.interval import IntervalTrigger
@@ -304,8 +305,6 @@ async def sync_jobs() -> None:
         return
 
     # 每次同步时检查时区是否变更，运行时无法直接修改调度器时区，仅记录日志
-    import logging
-
     from apscheduler.jobstores.base import JobLookupError
 
     from backend.scheduler.instance_lock import has_scheduler_lock
