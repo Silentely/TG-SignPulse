@@ -130,7 +130,7 @@ class DeviceKeepaliveService:
                     {
                         "account_name": account_name,
                         "status": "skipped",
-                        "message": "not due",
+                        "message": "未到期",
                         "last_ok_at": last_ok.isoformat().replace("+00:00", "Z"),
                     }
                 )
@@ -151,12 +151,12 @@ class DeviceKeepaliveService:
                         {
                             "account_name": account_name,
                             "status": "ok",
-                            "message": "keepalive ok",
+                            "message": "保活成功",
                         }
                     )
                 else:
                     message = str(
-                        status.get("message") or status.get("code") or "failed"
+                        status.get("message") or status.get("code") or "保活失败"
                     )
                     entry["last_error"] = message
                     failed += 1

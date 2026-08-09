@@ -99,6 +99,9 @@ class TestRunBehavior:
         assert second["skipped"] == 1
         assert second["checked"] == 0
         assert second["results"][0]["status"] == "skipped"
+        # 硬编码 message 中文化：未到期 / 保活成功
+        assert second["results"][0]["message"] == "未到期"
+        assert first["results"][0]["message"] == "保活成功"
 
     @pytest.mark.asyncio()
     async def test_failed_status_records_error(self, keepalive):

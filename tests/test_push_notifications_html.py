@@ -5,8 +5,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from backend.services.push_notifications import (
-    _html_escape,
+from backend.services.push_notifications import (    _html_escape,
     _safe_msg_truncate,
     build_html_notification,
     send_auto_backup_failure_notification,
@@ -291,3 +290,48 @@ class TestNotificationTimeLabels:
         assert "🔔" in sent.get("text", "")
         # body 内的 <tag> 被转义，避免破坏 HTML
         assert "&lt;tag&gt;" in sent.get("text", "")
+
+
+class TestServerChanScSend:
+    """Server酱 sc_send：HTTP 状态检查与非 JSON 响应兜底。"""
+
+    @pytest.mark.asyncio()
+    async def test_sc_send_raises_on_http_error(self, monkeypatch):
+        class _FakeResp:
+            status_code = 500
+
+            def raise_for_status(self):
+                raise httpx.HTTPStatusError(
+                    "500 Server Error", request=None, response=self
+                )
+
+        async def _fake_post(self, url, json=None):
+            return _FakeResp()
+
+        monkeypatch.setattr("httpx.AsyncClient.post", _fake_post, raising=False)
+        from tg_signer.notification.server_chan import sc_send
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await sc_send("key-123", "标题", "内容")
+
+    @pytest.mark.asyncio()
+    async def test_sc_send_non_json_response_returns_raw(self, monkeypatch):
+        class _FakeResp:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                raise ValueError("not json")
+
+            @property
+            def text(self):
+                return "<html>gateway error</html>"
+
+        async def _fake_post(self, url, json=None):
+            return _FakeResp()
+
+        monkeypatch.setattr("httpx.AsyncClient.post", _fake_post, raising=False)
+        from tg_signer.notification.server_chan import sc_send
+
+        result = await sc_send("key-123", "标题")
+        assert result.get("raw") == "<html>gateway error</html>"

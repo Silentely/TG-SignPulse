@@ -4,6 +4,7 @@
 
 | 日期 | 变更内容 |
 |------|----------|
+| 2026-08-08 | 打磨：Server酱 `sc_send` 补 HTTP 状态检查（raise_for_status）与非 JSON 响应兜底（返回原始文本供上层告警，不再抛裸 JSONDecodeError，含 2 条测试）；签到历史清理基准时间统一 UTC（原 naive 本地时间与 UTC 存储历史比较存在偏移风险）；scheduler_update 日志时间戳改 UTC Z 后缀（统一时区，删除冗余 datetime import）；任务列表模板菜单按钮补 aria-expanded/aria-haspopup（读屏可感知展开状态）；设备保活 results message 中文化（未到期/保活成功/保活失败，进 API 响应，含回归断言）。后端 1268 测试全绿（覆盖 57.04%），前端 335 测试/typecheck/构建全绿，ruff 全绿 |
 | 2026-08-08 | 打磨：scheduler 冗余函数内 import（logging/datetime）清理、随机时间段 f-string 日志 lazy 化、`get_sign_task_service` 重复获取合并为一次；account_locks 锁表加容量上限与未持锁清理（防账号删除后 Lock 永久滞留，含回归测试）；`.env.example` 删除已从代码移除的 `TG_SESSION_NO_UPDATES`（与文档记录对齐）；`_resolve_action_delay` 重复 fallback 计算提取局部变量；历史文件 JSON 读取异常捕获收窄（OSError/JSONDecodeError 等，不吞编程错误）；TaskForm 单行箭头函数格式对齐。后端 1266 测试全绿（覆盖 57.04%），前端 335 测试/typecheck/构建全绿，ruff 全量扫描全绿 |
 | 2026-08-08 | 打磨：repair_mojibake 异常捕获收窄为 UnicodeError（编码/解码类失败才回退，不吞编程错误）；TaskLogHandler 日志队列超限改批量删除（消除每行 O(n) pop(0)），补溢出回归测试；账号头像加载失败补诊断日志（保留首字母占位）；任务日志 WebSocket 连接成功补 debug 日志；任务触发运行（doRun）补防连点 busy（启动请求在途忽略重复触发，含回归测试）；useTaskRunStream 补 devLog 导入。后端 1265 测试全绿（覆盖 57.02%），前端 335 测试/typecheck/构建全绿，ruff 全绿 |
 | 2026-08-08 | 打磨：批量签到任务失败 message 收敛为稳定文案（内部异常详情只进服务端日志，不再透出到 API 响应）；关键词命中 CSV 导出文件名带 UTC 时间戳（连续导出不重名覆盖）；任务启停操作补单任务 busy 防护（请求在途禁用按钮防连点竞态翻转，含回归测试）；账号改名历史文件读取失败补诊断日志（损坏单文件跳过不影响其余）；模板下拉菜单点击外部自动关闭（capture 监听 + ref 判定）；config 路由日志收敛到模块级 logger 并 lazy 化（消除函数内 import 与 f-string 日志）；PWA includeAssets 修正（引用实际存在的 favicon.svg，原 favicon.ico 不存在）。后端 1264 测试全绿（覆盖 57.01%），前端 334 测试/typecheck/构建全绿，ruff 全绿 |

@@ -151,7 +151,7 @@ onUnmounted(() => document.removeEventListener('click', closeTemplateMenuOnOutsi
         {{ t('tasks.batchDelete') }}
       </button>
       <div class="relative ml-auto" ref="menuRef" @click.stop>
-        <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs inline-flex items-center gap-1" @click="emit('toggle-template-menu')">
+        <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs inline-flex items-center gap-1" :aria-expanded="showTemplateMenu" aria-haspopup="menu" @click="emit('toggle-template-menu')">
           <LayoutTemplate class="w-3.5 h-3.5" />
           {{ t('tasks.fromTemplate') }}
         </button>

@@ -14,6 +14,9 @@ class _FakeResponse:
     def json(self):
         return PAYLOAD
 
+    def raise_for_status(self):
+        return None
+
 
 class _FakeClient:
     """记录构造头与 POST 请求，按 AsyncClient 的 async with 协议工作。"""

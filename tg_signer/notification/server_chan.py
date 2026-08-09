@@ -20,5 +20,9 @@ async def sc_send(sendkey, title, desp="", options=None):
     headers = {"Content-Type": "application/json;charset=utf-8"}
     async with AsyncClient(headers=headers) as client:
         response = await client.post(url, json=params)
-        result = response.json()
-    return result
+        response.raise_for_status()
+        try:
+            return response.json()
+        except ValueError:
+            # 非 JSON 响应（如网关错误页）：返回原始文本，由上层告警而非裸异常
+            return {"raw": response.text}
