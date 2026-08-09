@@ -205,6 +205,27 @@ describe('useTaskListActions', () => {
     expect(loadTasks).toHaveBeenCalledTimes(1)
   })
 
+  it('doRun 防连点：启动请求在途时忽略重复调用', async () => {
+    let resolveRun: ((value?: unknown) => void) | undefined
+    api.startSignTaskRun.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveRun = resolve
+        }),
+    )
+    const task = makeTaskUi()
+    const { actions, loadTasks } = setup([task])
+
+    const first = actions.doRun(task, 'acc1')
+    await actions.doRun(task, 'acc1')
+    expect(api.startSignTaskRun).toHaveBeenCalledTimes(1)
+
+    resolveRun?.(undefined)
+    await first
+    // openLogsAfterRun 触发一次（日志弹窗）
+    expect(loadTasks).not.toHaveBeenCalled()
+  })
+
   it('handleRun opens menu for multi-account wildcard', () => {
     const task = makeTaskUi({
       raw: { account_name: '*', account_names: ['*'] },

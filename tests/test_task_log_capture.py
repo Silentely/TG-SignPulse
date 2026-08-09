@@ -83,3 +83,28 @@ def test_captured_lines_normalize_for_frontend_display():
     normalized = normalize_log_line(raw)
     assert "开始第 1/3 次脚本流程尝试" in normalized
     assert "账户「dahao」" in normalized
+
+
+def test_task_log_handler_overflow_keeps_newest_1000():
+    """超过 1000 行时批量删除头部，保留最新行（回归批量删除优化）。"""
+    log_list: list[str] = []
+    handler = TaskLogHandler(log_list)
+    handler.setLevel(logging.INFO)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+
+    tg_logger = logging.getLogger("tg-signer")
+    prev_level = tg_logger.level
+    tg_logger.addHandler(handler)
+    if tg_logger.getEffectiveLevel() > logging.INFO:
+        tg_logger.setLevel(logging.INFO)
+
+    try:
+        for i in range(1005):
+            runtime_mod.logger.info(f"line-{i}")
+    finally:
+        tg_logger.removeHandler(handler)
+        tg_logger.setLevel(prev_level)
+
+    assert len(log_list) <= 1000
+    assert "line-1004" in log_list
+    assert "line-0" not in log_list

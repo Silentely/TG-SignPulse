@@ -8,6 +8,7 @@ import {
 } from '../lib/api'
 import { getAuthToken } from '../lib/api/core'
 import type { SignTaskRunStatus } from '../lib/api'
+import { devLog } from '../lib/devLog'
 import { startChainPoll, type ChainPollHandle } from '../lib/chain-poll'
 import {
   badgeTone,
@@ -137,7 +138,7 @@ export function useTaskRunStream(options: {
     }
 
     ws.onopen = () => {
-      // Connected successfully
+      devLog.info('任务日志 WebSocket 已连接:', wsUrl)
     }
     ws.onmessage = (event) => {
       try {
