@@ -23,7 +23,7 @@ from backend.utils.tg_session import (
 from backend.utils.time import utc_from_timestamp_iso_z
 from tg_signer.async_utils import create_logged_task
 
-logger = logging.getLogger("backend.qr_login")
+logger = logging.getLogger("backend.telegram.login_qr")
 
 # _export_login_token 兜底返回的特殊标记：轮询已确认进入 2FA 状态（会话状态已置位）
 _PASSWORD_REQUIRED = object()

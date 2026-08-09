@@ -30,6 +30,26 @@ const form = ref({
 const loading = ref(false)
 const error = ref('')
 
+// 验证码重发倒计时：防止重复点击触发 Telegram 限流
+const codeCountdown = ref(0)
+let codeTimer: number | undefined
+
+const stopCodeCountdown = () => {
+  if (codeTimer !== undefined) {
+    window.clearInterval(codeTimer)
+    codeTimer = undefined
+  }
+}
+
+const startCodeCountdown = () => {
+  stopCodeCountdown()
+  codeCountdown.value = 60
+  codeTimer = window.setInterval(() => {
+    codeCountdown.value -= 1
+    if (codeCountdown.value <= 0) stopCodeCountdown()
+  }, 1000)
+}
+
 // Code login specific
 const phoneCodeHash = ref('')
 const codeSent = ref(false)
@@ -37,7 +57,14 @@ const codeSent = ref(false)
 // QR login specific
 const qrImage = ref('')
 const loginId = ref('')
+/** 二维码加载失败/已过期：清空图片后展示错误占位与重新获取入口 */
+const qrLoadFailed = ref(false)
 let pollHandle: ChainPollHandle | null = null
+
+const handleQrImageError = () => {
+  qrImage.value = ''
+  qrLoadFailed.value = true
+}
 
 const reset = async () => {
   pollHandle?.stop()
@@ -54,7 +81,10 @@ const reset = async () => {
   phoneCodeHash.value = ''
   error.value = ''
   codeSent.value = false
+  stopCodeCountdown()
+  codeCountdown.value = 0
   qrImage.value = ''
+  qrLoadFailed.value = false
   loginId.value = ''
   loading.value = false
 }
@@ -125,7 +155,9 @@ const pollStatus = async (token: string, lid: string) => {
     } else if (res.status === 'failed' || res.status === 'expired') {
       pollHandle?.stop()
       pollHandle = null
-      error.value = res.message || t('addAccount.qrFailed')
+      // 二维码已失效：清空图片避免用户继续扫描无意义的旧码
+      qrImage.value = ''
+      error.value = res.status === 'expired' ? t('addAccount.qrExpired') : (res.message || t('addAccount.qrFailed'))
       loading.value = false
     }
   } catch (e) {
@@ -176,6 +208,7 @@ const handleGetQr = async () => {
     })
     loginId.value = res.login_id
     qrImage.value = res.qr_image || ''
+    qrLoadFailed.value = false
     
     pollHandle?.stop()
     pollHandle = startChainPoll(() => pollStatus(token, res.login_id), { intervalMs: 3000 })
@@ -207,6 +240,7 @@ const handleSendCode = async () => {
     phoneCodeHash.value = res.phone_code_hash
     codeSent.value = true
     toast.info(t('addAccount.codeSent'))
+    startCodeCountdown()
   } catch (e: unknown) {
     error.value = getLocalizedErrorMessage(e, t, t('addAccount.sendCodeFailed'))
   } finally {
@@ -281,6 +315,7 @@ const handleSave = async () => {
 
 onUnmounted(() => {
   pollHandle?.stop(); pollHandle = null
+  stopCodeCountdown()
 })
 </script>
 
@@ -323,6 +358,7 @@ onUnmounted(() => {
         <input 
           v-model="form.account_name"
           type="text" 
+          autocomplete="off"
           :placeholder="t('addAccount.accountNamePlaceholder')"
           class="ui-input"
         >
@@ -344,7 +380,8 @@ onUnmounted(() => {
           <label class="ui-label">{{ t('addAccount.phone') }} <span class="text-rose-500">*</span></label>
           <input 
             v-model="form.phone_number"
-            type="text" 
+            type="tel" 
+            autocomplete="tel"
             :placeholder="t('addAccount.phonePlaceholder')"
             class="ui-input"
           >
@@ -355,15 +392,17 @@ onUnmounted(() => {
             <input 
               v-model="form.phone_code"
               type="text" 
+              inputmode="numeric"
+              autocomplete="one-time-code"
               :placeholder="t('addAccount.codePlaceholder')"
               class="ui-input flex-1"
             >
             <button 
               @click="handleSendCode"
-              :disabled="loading || !form.account_name || !form.phone_number"
+              :disabled="loading || !form.account_name || !form.phone_number || codeCountdown > 0"
               class="ui-btn-secondary !px-4 !py-2 whitespace-nowrap"
             >
-              {{ codeSent ? t('addAccount.resendCode') : t('addAccount.getCode') }}
+              {{ codeCountdown > 0 ? t('addAccount.resendIn', { s: codeCountdown }) : codeSent ? t('addAccount.resendCode') : t('addAccount.getCode') }}
             </button>
           </div>
         </div>
@@ -375,6 +414,7 @@ onUnmounted(() => {
         <input 
           v-model="form.password"
           type="password" 
+          autocomplete="new-password"
           :placeholder="t('addAccount.cloudPasswordPlaceholder')"
           class="ui-input"
         >
@@ -403,8 +443,19 @@ onUnmounted(() => {
           </button>
         </div>
         <div class="flex justify-center items-center h-48 w-full bg-white dark:bg-gray-900 rounded-md border border-gray-200 dark:border-gray-700">
-          <img v-if="qrImage" :src="qrImage" class="w-40 h-40" />
-          <span v-else class="text-sm text-gray-400">{{ t('addAccount.qrArea') }}</span>
+          <img v-if="qrImage" :src="qrImage" class="w-40 h-40" alt="" @error="handleQrImageError" />
+          <div v-else class="flex flex-col items-center gap-2">
+            <span class="text-sm text-gray-400">{{ qrLoadFailed ? t('addAccount.qrLoadFailed') : t('addAccount.qrArea') }}</span>
+            <button
+              v-if="qrLoadFailed"
+              type="button"
+              class="text-xs text-sky-600 dark:text-sky-400 hover:underline"
+              :disabled="loading"
+              @click="handleGetQr"
+            >
+              {{ t('addAccount.retry') }}
+            </button>
+          </div>
         </div>
       </div>
     </div>

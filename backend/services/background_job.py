@@ -17,6 +17,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set
 
+from backend.utils.atomic_io import write_json_atomic
 from backend.utils.time import utc_now_iso_z_seconds as utc_now_iso
 
 logger = logging.getLogger("backend.background_job")
@@ -61,14 +62,11 @@ class BackgroundJobStore:
         return self.root / f"{job_id}.json"
 
     def _write_job(self, job: Dict[str, Any]) -> None:
+        """原子落盘：复用共享 atomic_io（锁 + fsync + rename），
+        避免崩溃时留下空/半截 job 文件。"""
         payload = public_job_view(job)
         path = self._job_path(str(job["job_id"]))
-        temp = path.with_suffix(".tmp")
-        temp.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        temp.replace(path)
+        write_json_atomic(path, payload)
 
     def _load_jobs(self) -> None:
         loaded: List[Dict[str, Any]] = []
@@ -96,11 +94,8 @@ class BackgroundJobStore:
                 if len(logs) > self.max_logs:
                     del logs[: -self.max_logs]
                 try:
-                    path.write_text(
-                        json.dumps(value, ensure_ascii=False, indent=2),
-                        encoding="utf-8",
-                    )
-                except OSError:
+                    write_json_atomic(path, value)
+                except (OSError, TypeError, ValueError):
                     logger.warning("中断任务持久化失败 %s", path)
             loaded.append(value)
         loaded.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
