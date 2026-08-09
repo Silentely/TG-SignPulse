@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import logging
 import shutil
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from backend.services.sign_task_history_index import rebuild_index_from_history_files
@@ -351,9 +350,11 @@ class SignTaskCrudMixin:
 
         self._refresh_tasks_cache_after_write()
         if warnings:
+            from backend.utils.time import utc_now_iso_z_seconds
+
             self._append_scheduler_log(
                 "scheduler_update.log",
-                f"{datetime.now()}: Updated task {task_name} warnings="
+                f"{utc_now_iso_z_seconds()}: Updated task {task_name} warnings="
                 + "; ".join(warnings),
             )
 
