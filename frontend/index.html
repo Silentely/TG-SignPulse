@@ -5,8 +5,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="TG-SignPulse — Telegram 自动化签到、关键词监控与任务管理面板" />
-    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />
-    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f172a" />
+    <meta name="theme-color" content="#ffffff" />
     <title>TG-SignPulse</title>
     <script>
       // 首帧前同步应用主题与语言：避免首屏闪黑/闪白（FOUC），并让
@@ -15,8 +14,13 @@
         try {
           var savedTheme = localStorage.getItem('theme')
           var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-          if (savedTheme === 'dark' || (!savedTheme && prefersDark)) {
+          var isDark = savedTheme === 'dark' || (!savedTheme && prefersDark)
+          if (isDark) {
             document.documentElement.classList.add('dark')
+          }
+          var themeColor = document.querySelector('meta[name="theme-color"]')
+          if (themeColor) {
+            themeColor.setAttribute('content', isDark ? '#0f172a' : '#ffffff')
           }
         } catch (e) {
           /* localStorage 不可用时回退默认（浅色） */

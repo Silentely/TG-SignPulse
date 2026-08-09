@@ -30,6 +30,14 @@ const isMobileMenuOpen = ref(false)
 const showProfileModal = ref(false)
 const sidebarVersion = ref('')
 
+// lg 断点（1023px）以下视为移动端：侧栏是抽屉，关闭时应同步对读屏隐藏
+const mobileQuery = window.matchMedia('(max-width: 1023px)')
+const isMobileView = ref(mobileQuery.matches)
+const onViewportChange = () => {
+  isMobileView.value = mobileQuery.matches
+}
+const sidebarHidden = computed(() => isMobileView.value && !isMobileMenuOpen.value)
+
 const loadSidebarVersion = async () => {
   const token = getAuthToken()
   if (!token) return
@@ -67,10 +75,12 @@ watch(isMobileMenuOpen, (open) => {
 
 onMounted(() => {
   window.addEventListener('keydown', onKeydown)
+  mobileQuery.addEventListener('change', onViewportChange)
   void loadSidebarVersion()
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
+  mobileQuery.removeEventListener('change', onViewportChange)
   if (menuScrollLocked) {
     unlockBodyScroll()
     menuScrollLocked = false
@@ -90,6 +100,15 @@ const currentTitle = computed(() => {
   if (!current) return 'TG-SignPulse'
   return t(current.labelKey)
 })
+
+// 浏览器标签页标题跟随当前页面，便于多标签切换时识别
+watch(
+  currentTitle,
+  (title) => {
+    document.title = title && title !== 'TG-SignPulse' ? `${title} - TG-SignPulse` : 'TG-SignPulse'
+  },
+  { immediate: true },
+)
 
 const openGithub = () => {
   window.open('https://github.com/Silentely/TG-SignPulse', '_blank')
@@ -113,7 +132,7 @@ const handleNavClick = () => {
     <aside 
       class="ui-sidebar fixed inset-y-0 left-0 z-50 flex flex-col transition-transform duration-300 ease-in-out w-64"
       :class="isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'"
-      :aria-hidden="!isMobileMenuOpen && undefined"
+      :aria-hidden="sidebarHidden ? 'true' : undefined"
     >
       <div class="flex items-center h-14 px-4 border-b border-[var(--sp-border)] gap-2">
         <div class="ui-brand-mark w-7 h-7 text-[11px] shrink-0">TG</div>

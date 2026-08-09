@@ -429,6 +429,7 @@
     "clearSuccess": "Cleared {count} records",
     "clearFailed": "Failed to clear logs",
     "colTime": "Time",
+    "colDate": "Date",
     "colAccount": "Account",
     "colTask": "Task",
     "colStatus": "Status",
