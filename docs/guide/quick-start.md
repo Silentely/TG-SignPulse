@@ -45,6 +45,7 @@ services:
     image: ghcr.io/silentely/tg-signpulse:latest
     container_name: tg-signpulse
     restart: unless-stopped
+    # 镜像默认监听 8080（PORT 环境变量）；如需改端口，同步设置 PORT 与映射
     ports:
       - "8080:8080"
     volumes:

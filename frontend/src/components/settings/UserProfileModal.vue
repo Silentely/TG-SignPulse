@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import Modal from '../Modal.vue'
 import { changePassword, changeUsername, getTOTPStatus, setupTOTP, fetchTOTPQRCode, enableTOTP, disableTOTP } from '../../lib/api'
@@ -83,7 +83,20 @@ const qrUrl = ref('')
 const totpCode = ref('')
 const totpSecret = ref('')
 
+/** 回收二维码 blob URL：关闭/重新获取/卸载时调用，防止会话内累积泄漏 */
+const revokeQrUrl = () => {
+  if (qrUrl.value) {
+    try {
+      URL.revokeObjectURL(qrUrl.value)
+    } catch {
+      /* ignore */
+    }
+    qrUrl.value = ''
+  }
+}
+
 const checkTOTP = async () => {
+  revokeQrUrl()
   const token = getAuthToken()
   if (!token) return
   try {
@@ -105,7 +118,7 @@ watch(() => props.isOpen, (val) => {
     checkTOTP()
   } else {
     // reset state
-    qrUrl.value = ''
+    revokeQrUrl()
     totpCode.value = ''
     totpSecret.value = ''
     activeTab.value = 'username'
@@ -158,6 +171,8 @@ const handleLogout = () => {
   authStore.clearToken()
   router.push('/login')
 }
+
+onUnmounted(revokeQrUrl)
 </script>
 
 <template>
@@ -234,7 +249,7 @@ const handleLogout = () => {
           <p class="text-sm text-emerald-700 dark:text-emerald-400 font-medium">{{ t('profile.totpEnabled') }}</p>
         </div>
         <p class="text-xs text-gray-500">{{ t('profile.totpDisableHint') }}</p>
-        <input v-model="totpCode" type="text" :placeholder="t('profile.totpCodePlaceholder')" maxlength="6" class="ui-input text-center font-mono tracking-widest">
+        <input v-model="totpCode" type="text" inputmode="numeric" autocomplete="one-time-code" :placeholder="t('profile.totpCodePlaceholder')" maxlength="6" class="ui-input text-center font-mono tracking-widest">
         <button 
           @click="handleDisableTOTP"
           :disabled="loading || !totpCode"
@@ -259,7 +274,7 @@ const handleLogout = () => {
           <code class="text-xs font-mono text-gray-900 dark:text-gray-100 select-all break-all">{{ totpSecret }}</code>
         </div>
         <p class="text-xs text-gray-500">{{ t('profile.totpVerifyHint') }}</p>
-        <input v-model="totpCode" type="text" :placeholder="t('profile.totpCodePlaceholder')" maxlength="6" class="ui-input text-center font-mono tracking-widest">
+        <input v-model="totpCode" type="text" inputmode="numeric" autocomplete="one-time-code" :placeholder="t('profile.totpCodePlaceholder')" maxlength="6" class="ui-input text-center font-mono tracking-widest">
         <button 
           @click="handleEnableTOTP"
           :disabled="loading || !totpCode"

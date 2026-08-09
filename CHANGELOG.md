@@ -4,6 +4,7 @@
 
 | 日期 | 变更内容 |
 |------|----------|
+| 2026-08-08 | 打磨：修复 TOTP 设置二维码 blob URL 泄漏（关闭/重新获取/卸载时统一 revoke，消除会话内累积）；UserProfileModal 两处 TOTP 输入补 inputmode=numeric 与 autocomplete=one-time-code（与登录页一致，移动端数字键盘 + 短信验证码自动填充）；sign_tasks 后台清理/运行任务的 create_logged_task logger 统一为模块级 `_service_logger`；quick-start 部署文档补端口说明（镜像默认监听 8080，改端口需同步 PORT 与映射）。后端 1269 测试全绿（覆盖 57.01%），前端 335 测试/typecheck/构建全绿，ruff 全绿 |
 | 2026-08-08 | 打磨：CLI monitor 代理日志 lazy 化（消除 f-string+%s 双重格式化）并统一中文；send_text/send_dice 删除相关 6 处英文过程日志中文化（消息/骰子删除成功、等待删除等）；signer_actions 空目标文本英文日志中文化；sign_task_config_inspect 抽取共享 `_iter_chat_actions` 遍历（requires_updates/has_keyword 两函数重复结构收敛，保留 chats 缺失时保守 True 语义），补畸形结构边界测试；Dashboard 失败分类徽章补「点击查看」提示。后端 1269 测试全绿（覆盖 57.01%），前端 335 测试/typecheck/构建全绿，ruff 全绿 |
 | 2026-08-08 | 打磨：Server酱 `sc_send` 补 HTTP 状态检查（raise_for_status）与非 JSON 响应兜底（返回原始文本供上层告警，不再抛裸 JSONDecodeError，含 2 条测试）；签到历史清理基准时间统一 UTC（原 naive 本地时间与 UTC 存储历史比较存在偏移风险）；scheduler_update 日志时间戳改 UTC Z 后缀（统一时区，删除冗余 datetime import）；任务列表模板菜单按钮补 aria-expanded/aria-haspopup（读屏可感知展开状态）；设备保活 results message 中文化（未到期/保活成功/保活失败，进 API 响应，含回归断言）。后端 1268 测试全绿（覆盖 57.04%），前端 335 测试/typecheck/构建全绿，ruff 全绿 |
 | 2026-08-08 | 打磨：scheduler 冗余函数内 import（logging/datetime）清理、随机时间段 f-string 日志 lazy 化、`get_sign_task_service` 重复获取合并为一次；account_locks 锁表加容量上限与未持锁清理（防账号删除后 Lock 永久滞留，含回归测试）；`.env.example` 删除已从代码移除的 `TG_SESSION_NO_UPDATES`（与文档记录对齐）；`_resolve_action_delay` 重复 fallback 计算提取局部变量；历史文件 JSON 读取异常捕获收窄（OSError/JSONDecodeError 等，不吞编程错误）；TaskForm 单行箭头函数格式对齐。后端 1266 测试全绿（覆盖 57.04%），前端 335 测试/typecheck/构建全绿，ruff 全量扫描全绿 |
