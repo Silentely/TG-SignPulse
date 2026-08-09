@@ -105,7 +105,8 @@ const loadAvatar = async (acc: AccountUiItem) => {
     }
     acc.avatarUrl = url
   } catch {
-    // No avatar available, keep fallback
+    // 头像下载失败/无头像：保留首字母占位，不影响列表
+    devLog.info('头像加载失败，保留占位:', acc.name)
   }
 }
 

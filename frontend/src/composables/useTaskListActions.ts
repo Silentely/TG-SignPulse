@@ -38,6 +38,8 @@ export function useTaskListActions(options: {
   const cloneBusy = ref(false)
   /** 单任务操作 busy 键：启停请求在途时防连点竞态（无确认弹窗的轻操作） */
   const toggleBusyKey = ref('')
+  /** 触发运行 busy 键：启动请求在途时防连点重复触发 */
+  const runBusyKey = ref('')
   const showCloneModal = ref(false)
   const cloneSource = ref<TaskUiItem | null>(null)
   const runMenuTask = ref<TaskUiItem | null>(null)
@@ -178,6 +180,8 @@ export function useTaskListActions(options: {
   }
 
   const doRun = async (task: TaskUiItem, accountName: string) => {
+    if (runBusyKey.value) return
+    runBusyKey.value = `${task.name}:${accountName}`
     runMenuTask.value = null
     const token = getAuthToken()
     try {
@@ -187,6 +191,8 @@ export function useTaskListActions(options: {
       toast.error(
         `${t('tasks.triggerFailed')}: ${getLocalizedErrorMessage(e, t, t('tasks.unknownError'))}`,
       )
+    } finally {
+      runBusyKey.value = ''
     }
   }
 
@@ -208,6 +214,7 @@ export function useTaskListActions(options: {
     batchBusy,
     cloneBusy,
     toggleBusyKey,
+    runBusyKey,
     showCloneModal,
     cloneSource,
     runMenuTask,
