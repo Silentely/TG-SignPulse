@@ -347,6 +347,7 @@ const jobStatusLabel = (status: string) => {
           v-for="job in upcomingJobs"
           :key="job.id"
           class="ui-list-row flex items-center gap-3 text-xs px-2 py-2 rounded-sm"
+          :title="`${t('dashboard.nextRun')}: ${formatJobTime(job.next_run_time)} · ${jobKindLabel(job.kind)} · ${job.id}`"
         >
           <span class="font-mono text-gray-500 w-28 shrink-0">{{ formatJobTime(job.next_run_time) }}</span>
           <span

@@ -64,6 +64,7 @@ const {
           type="button"
           class="ui-icon-btn disabled:opacity-50"
           :title="t('common.refresh')"
+          :aria-label="t('common.refresh')"
           :disabled="pageLoading"
           @click="loadLogs"
         >
@@ -73,6 +74,7 @@ const {
           type="button"
           class="ui-icon-btn hover:!text-rose-600 dark:hover:!text-rose-400 hover:!bg-rose-50 dark:hover:!bg-rose-950/30 disabled:opacity-50"
           :title="t('logs.clear')"
+          :aria-label="t('logs.clear')"
           :disabled="clearing || pageLoading"
           @click="handleClear"
         >
@@ -101,9 +103,9 @@ const {
         </template>
         <DatePicker v-model="filterDate" />
       </div>
-      <!-- 激活筛选 chip：失败分类 / 任务名 可一键清 -->
+      <!-- 激活筛选 chip：失败分类 / 任务名 / 日期 可一键清 -->
       <div
-        v-if="activeTab === 'tasks' && (filterCategory || filterTask.trim() || filterStatus === 'error')"
+        v-if="activeTab === 'tasks' && (filterCategory || filterTask.trim() || filterStatus === 'error' || filterDate)"
         class="flex flex-wrap items-center gap-1.5 pt-0.5 border-t border-gray-100 dark:border-gray-800/50"
       >
         <span class="text-[10px] text-gray-400 shrink-0">{{ t('common.activeFilters') }}</span>
@@ -132,6 +134,16 @@ const {
           @click="filterTask = ''"
         >
           <span class="truncate">{{ t('logs.colTask') }}: {{ filterTask.trim() }}</span>
+          <X class="w-3 h-3 shrink-0 opacity-70" />
+        </button>
+        <button
+          v-if="filterDate"
+          type="button"
+          class="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-[11px] bg-gray-100 dark:bg-gray-800/60 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700/60"
+          :title="t('common.clearFilters')"
+          @click="filterDate = ''"
+        >
+          {{ t('logs.colDate') }}: {{ filterDate }}
           <X class="w-3 h-3 shrink-0 opacity-70" />
         </button>
       </div>

@@ -330,6 +330,7 @@ const goTasks = (name: string) => {
             type="button"
             class="ui-btn-primary !px-3 !py-2 !text-xs inline-flex items-center gap-1"
             :disabled="batchChecking"
+            :title="batchChecking ? t('accounts.batchChecking') : undefined"
             @click="handleBatchCheck"
           >
             <span v-if="batchChecking" class="ui-spinner !w-3.5 !h-3.5 !border-2" />

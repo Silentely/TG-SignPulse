@@ -429,6 +429,7 @@
     "clearSuccess": "已清空 {count} 条记录",
     "clearFailed": "清空日志失败",
     "colTime": "时间",
+    "colDate": "日期",
     "colAccount": "账号",
     "colTask": "任务",
     "colStatus": "状态",
