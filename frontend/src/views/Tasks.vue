@@ -169,6 +169,7 @@ const loadTasks = async () => {
 const {
   batchBusy,
   cloneBusy,
+  toggleBusyKey,
   showCloneModal,
   cloneSource,
   runMenuTask,
@@ -442,6 +443,7 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
       :selected="selectedTaskIds.has(task.id)"
       :clone-busy="cloneBusy"
       :cancel-busy-key="cancelBusyKey"
+      :toggle-busy-key="toggleBusyKey"
       :run-menu-open="runMenuTask === task"
       :run-menu-accounts="runMenuAccounts"
       :task-active-run="taskActiveRun(task)"

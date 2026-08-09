@@ -14,6 +14,8 @@ const props = defineProps<{
   selected: boolean
   cloneBusy?: boolean
   cancelBusyKey?: string
+  /** 单任务启停请求在途的键（匹配 task.name 时禁用按钮防连点竞态） */
+  toggleBusyKey?: string
   runMenuOpen?: boolean
   runMenuAccounts?: string[]
   taskActiveRun: ActiveRunSummary | null
@@ -148,6 +150,7 @@ const cancelKey = () => {
         :class="task.enabled ? 'ui-row-action--positive' : ''"
         :title="task.enabled ? t('tasks.pause') : t('tasks.resume')"
         :aria-pressed="task.enabled"
+        :disabled="toggleBusyKey === task.name"
         @click="emit('toggle-enabled', task)"
       >
         <Power class="w-3.5 h-3.5" />

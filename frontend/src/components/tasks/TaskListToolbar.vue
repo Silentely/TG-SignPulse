@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 import { Plus, Power, Pause, Play, Trash2, Search, X, LayoutTemplate } from 'lucide-vue-next'
 import { BUILT_IN_TEMPLATES } from '../../lib/task-templates'
 import type { TaskListModeFilter } from '../../lib/task-list-filter'
@@ -36,6 +36,23 @@ const { t } = useI18n()
 const batchDisabledTitle = computed(() =>
   props.batchBusy ? t('common.processing') : props.selectedCount ? undefined : t('tasks.selectFirstHint'),
 )
+
+// 模板下拉菜单：点击外部自动关闭（capture 阶段先于容器 @click.stop）
+const menuRef = ref<HTMLElement | null>(null)
+const closeTemplateMenuOnOutside = (e: MouseEvent) => {
+  if (!props.showTemplateMenu) return
+  const target = e.target as Node
+  if (menuRef.value?.contains(target)) return
+  emit('toggle-template-menu')
+}
+watch(
+  () => props.showTemplateMenu,
+  (open) => {
+    if (open) document.addEventListener('click', closeTemplateMenuOnOutside, true)
+    else document.removeEventListener('click', closeTemplateMenuOnOutside, true)
+  },
+)
+onUnmounted(() => document.removeEventListener('click', closeTemplateMenuOnOutside, true))
 </script>
 
 <template>
@@ -133,7 +150,7 @@ const batchDisabledTitle = computed(() =>
         <Trash2 class="w-3.5 h-3.5" />
         {{ t('tasks.batchDelete') }}
       </button>
-      <div class="relative ml-auto" @click.stop>
+      <div class="relative ml-auto" ref="menuRef" @click.stop>
         <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs inline-flex items-center gap-1" @click="emit('toggle-template-menu')">
           <LayoutTemplate class="w-3.5 h-3.5" />
           {{ t('tasks.fromTemplate') }}

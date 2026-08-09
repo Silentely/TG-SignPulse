@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Optional
 
 from fastapi import (
@@ -23,6 +24,8 @@ from backend.utils.storage import is_writable_dir
 
 router = APIRouter()
 
+logger = logging.getLogger("backend.config_api")
+
 
 async def _post_import_sync() -> None:
     """导入签到任务后后台同步调度与关键词监控，失败仅告警不阻塞 HTTP 响应。"""
@@ -38,11 +41,7 @@ def _clear_sign_task_cache() -> None:
         get_sign_task_service().invalidate_tasks_cache()
     except Exception as exc:
         # Best-effort cache invalidation; import should still succeed.
-        import logging
-
-        logging.getLogger("backend.config_api").debug(
-            "清除签到任务缓存失败: %s", exc
-        )
+        logger.debug("清除签到任务缓存失败: %s", exc)
 
 
 class ImportTaskRequest(BaseModel):
@@ -500,8 +499,7 @@ async def save_global_settings(
                 try:
                     await sync_jobs()
                 except Exception as e:
-                    import logging
-                    logging.getLogger("backend.config_api").warning(f"设置变更调度同步失败: {e}")
+                    logger.warning("设置变更调度同步失败: %s", e)
             asyncio.ensure_future(_safe_tz_sync())
         return AIConfigSaveResponse(success=True, message="Global settings saved")
     except HTTPException:

@@ -8,7 +8,7 @@ export default defineConfig({
     vue(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico'],
+      includeAssets: ['favicon.svg'],
       manifest: {
         name: 'TG-SignPulse',
         short_name: 'SignPulse',

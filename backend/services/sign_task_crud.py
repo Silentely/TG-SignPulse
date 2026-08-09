@@ -419,6 +419,8 @@ class SignTaskCrudMixin:
             try:
                 raw_data = json.loads(history_file.read_text(encoding="utf-8"))
             except Exception:
+                # 单文件损坏：记录日志后跳过该文件，其余历史文件仍可重命名
+                _logger.debug("读取历史文件失败，跳过重命名: %s", history_file)
                 raw_data = None
 
             if isinstance(raw_data, list):
