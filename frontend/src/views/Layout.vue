@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getAuthToken } from '../lib/api/core'
 import { getAppVersion } from '../lib/api'
@@ -29,6 +29,8 @@ const { locale, toggleLanguage, t } = useI18n()
 const isMobileMenuOpen = ref(false)
 const showProfileModal = ref(false)
 const sidebarVersion = ref('')
+const menuButtonRef = ref<HTMLButtonElement | null>(null)
+const drawerCloseButtonRef = ref<HTMLButtonElement | null>(null)
 
 // lg 断点（1023px）以下视为移动端：侧栏是抽屉，关闭时应同步对读屏隐藏
 const mobileQuery = window.matchMedia('(max-width: 1023px)')
@@ -61,15 +63,23 @@ const onKeydown = (e: KeyboardEvent) => {
 }
 
 let menuScrollLocked = false
-watch(isMobileMenuOpen, (open) => {
+watch(isMobileMenuOpen, async (open, prev) => {
   if (open) {
     if (!menuScrollLocked) {
       lockBodyScroll()
       menuScrollLocked = true
     }
+    // 打开抽屉后把焦点移入（关闭按钮），避免焦点停留在被 inert 隐藏的页面主体
+    await nextTick()
+    drawerCloseButtonRef.value?.focus()
   } else if (menuScrollLocked) {
     unlockBodyScroll()
     menuScrollLocked = false
+  }
+  // 抽屉关闭时把焦点归还给汉堡按钮，保证键盘用户的 Tab 起点可预期
+  if (!open && prev) {
+    await nextTick()
+    menuButtonRef.value?.focus()
   }
 })
 
@@ -133,6 +143,7 @@ const handleNavClick = () => {
       class="ui-sidebar fixed inset-y-0 left-0 z-50 flex flex-col transition-transform duration-300 ease-in-out w-64"
       :class="isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'"
       :aria-hidden="sidebarHidden ? 'true' : undefined"
+      :inert="sidebarHidden || undefined"
     >
       <div class="flex items-center h-14 px-4 border-b border-[var(--sp-border)] gap-2">
         <div class="ui-brand-mark w-7 h-7 text-[11px] shrink-0">TG</div>
@@ -151,6 +162,7 @@ const handleNavClick = () => {
         </div>
         <!-- 仅移动端抽屉显示关闭；提高可点区域与层级 -->
         <button
+          ref="drawerCloseButtonRef"
           type="button"
           class="lg:hidden shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-md text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-white/[0.06] relative z-[60]"
           :aria-label="t('common.close')"
@@ -193,6 +205,7 @@ const handleNavClick = () => {
       <header class="ui-header-glass sticky top-0 z-30 h-14 flex items-center justify-between px-4 lg:px-8 shrink-0">
         <div class="flex items-center gap-3 min-w-0">
           <button
+            ref="menuButtonRef"
             type="button"
             class="ui-icon-btn lg:hidden"
             :aria-label="t('nav.openMenu')"

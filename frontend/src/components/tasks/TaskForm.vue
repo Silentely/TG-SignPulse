@@ -417,7 +417,7 @@ onMounted(() => { loadAccounts() })
       </div>
       <div class="space-y-1.5">
         <label class="ui-label-strong">{{ t('taskForm.linkedAccounts') }}</label>
-        <MultiSelect v-model="selectedAccounts" :options="accountOptions" :placeholder="t('taskForm.linkedAccountsPlaceholder')" :allMode="allAccountsMode" @update:allMode="allAccountsMode = $event" />
+        <MultiSelect v-model="selectedAccounts" :options="accountOptions" :placeholder="t('taskForm.linkedAccountsPlaceholder')" :aria-label="t('taskForm.linkedAccounts')" :allMode="allAccountsMode" @update:allMode="allAccountsMode = $event" />
       </div>
       <div class="space-y-1.5">
         <label class="ui-label-strong">{{ t('taskForm.scheduleMode') }}</label>

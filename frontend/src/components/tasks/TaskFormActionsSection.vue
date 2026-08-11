@@ -95,14 +95,20 @@ const emit = defineEmits<{
         <div class="flex items-center gap-0.5 shrink-0">
           <button
             type="button"
-            class="p-1.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/[0.05] rounded-sm transition-colors"
+            class="p-1.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/[0.05] rounded-sm transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            :aria-label="t('taskForm.moveUp')"
+            :title="t('taskForm.moveUp')"
+            :disabled="idx === 0"
             @click="emit('move', idx, -1)"
           >
             <ArrowUp class="w-3.5 h-3.5" />
           </button>
           <button
             type="button"
-            class="p-1.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/[0.05] rounded-sm transition-colors"
+            class="p-1.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/[0.05] rounded-sm transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            :aria-label="t('taskForm.moveDown')"
+            :title="t('taskForm.moveDown')"
+            :disabled="idx === actions.length - 1"
             @click="emit('move', idx, 1)"
           >
             <ArrowDown class="w-3.5 h-3.5" />
@@ -110,6 +116,8 @@ const emit = defineEmits<{
           <button
             type="button"
             class="p-1.5 text-gray-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-sm transition-colors"
+            :aria-label="t('taskForm.removeAction')"
+            :title="t('taskForm.removeAction')"
             @click="emit('remove', idx)"
           >
             <Trash2 class="w-3.5 h-3.5" />

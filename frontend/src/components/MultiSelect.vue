@@ -12,6 +12,8 @@ const props = defineProps<{
   disabled?: boolean
   className?: string
   allMode?: boolean
+  /** 无障碍名称；缺省回退到占位文案，再回退到多选默认文案 */
+  ariaLabel?: string
 }>()
 const emit = defineEmits<{
   (e: 'update:modelValue', val: string[]): void
@@ -154,6 +156,7 @@ const selectedLabel = computed(() => {
       :class="isOpen ? 'ui-select-trigger-open' : ''"
       :disabled="disabled"
       :aria-expanded="isOpen"
+      :aria-label="ariaLabel || placeholder || t('multiSelect.placeholder')"
       aria-haspopup="listbox"
       @click="toggle"
       @keydown="onKeydown"

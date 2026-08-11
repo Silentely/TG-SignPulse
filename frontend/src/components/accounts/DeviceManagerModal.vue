@@ -59,7 +59,7 @@ const loadDevices = async () => {
 const terminateDevice = async (device: AccountDeviceInfo) => {
   if (device.current) return
   const ok = await confirm({
-    title: t('common.dangerConfirm'),
+    title: t('accounts.terminateDevice'),
     message: t('accounts.terminateDeviceConfirm'),
     confirmText: t('accounts.terminateDevice'),
     danger: true,

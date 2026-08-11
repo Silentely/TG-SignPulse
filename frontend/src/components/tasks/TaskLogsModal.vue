@@ -242,6 +242,8 @@ const hitLink = (hit: KeywordHitRecord) => safeHitUrl(hit.url)
         <button
           type="button"
           class="ui-icon-btn disabled:opacity-50"
+          :aria-label="t('common.refresh')"
+          :title="t('common.refresh')"
           :disabled="panelTab === 'history' ? loading : hitsLoading"
           @click="panelTab === 'history' ? loadLogs() : loadHits()"
         >

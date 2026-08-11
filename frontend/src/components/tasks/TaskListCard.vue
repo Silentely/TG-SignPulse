@@ -58,6 +58,7 @@ const cancelKey = () => {
         <input
           type="checkbox"
           :checked="selected"
+          :aria-label="t('tasks.selectTask', { name: task.name })"
           class="ui-checkbox"
           @change="emit('toggle-select', task.id)"
         />

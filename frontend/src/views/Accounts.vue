@@ -286,9 +286,9 @@ const goTasks = (name: string) => {
         <div class="flex items-center gap-2 shrink-0">
           <div
             v-if="batchChecking && batchJob"
-            class="hidden sm:flex flex-col items-end gap-0.5 min-w-[7rem]"
+            class="flex flex-col items-end gap-0.5 min-w-0 sm:min-w-[7rem]"
           >
-            <span class="text-[11px] font-mono text-sky-700 dark:text-sky-300">
+            <span class="text-[11px] font-mono text-sky-700 dark:text-sky-300 whitespace-nowrap">
               {{ t('accounts.batchCheckProgress', {
                 done: batchJob.progress?.done ?? 0,
                 total: batchJob.progress?.total ?? accounts.length,
@@ -300,7 +300,7 @@ const goTasks = (name: string) => {
                 }) }}
               </template>
             </span>
-            <div class="w-full h-1 rounded-full bg-sky-100 dark:bg-sky-950/50 overflow-hidden">
+            <div class="hidden sm:block w-full h-1 rounded-full bg-sky-100 dark:bg-sky-950/50 overflow-hidden">
               <div
                 class="h-full bg-sky-500 transition-all duration-300"
                 :style="{ width: `${batchProgressPct}%` }"
@@ -444,8 +444,8 @@ const goTasks = (name: string) => {
         type="button"
         class="ui-fab"
         :aria-expanded="showAddMenu"
-        :aria-label="showAddMenu ? t('common.close') : t('accounts.empty')"
-        :title="showAddMenu ? t('common.close') : t('accounts.codeLogin')"
+        :aria-label="showAddMenu ? t('common.close') : t('accounts.addAccount')"
+        :title="showAddMenu ? t('common.close') : t('accounts.addAccount')"
         @click="showAddMenu = !showAddMenu"
       >
         <Plus class="w-5 h-5 transition-transform duration-200" :class="{ 'rotate-45': showAddMenu }" />
