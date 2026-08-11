@@ -235,14 +235,23 @@ async def send_keyword_push(settings: Dict[str, Any], payload: Dict[str, Any]) -
         if not bot_token or not chat_id:
             logger.warning("关键词监听 Telegram 通知未配置")
             return
+        fields: list[tuple[str, str]] = [
+            ("时间 (UTC)", utc_now_iso_z_seconds()),
+            ("账号", payload.get("account_name") or ""),
+            ("任务", payload.get("task_name") or ""),
+            ("关键词", payload.get("keyword") or ""),
+            ("会话", payload.get("chat_title") or ""),
+        ]
+        sender = payload.get("sender")
+        if sender:
+            fields.append(("发送者", str(sender)))
+        # Telegram 用结构化字段承载 账号/任务/关键词/会话，footer 只放命中原文，
+        # 避免与 body（含 任务/会话/关键词 行的完整文本）重复展示
+        footer = str(payload.get("text") or body or "")
         text = build_html_notification(
             title=title,
-            fields=[
-                ("关键词", payload.get("keyword") or ""),
-                ("账号", payload.get("account_name") or ""),
-                ("会话", payload.get("chat_title") or ""),
-            ],
-            footer=body or "",
+            fields=fields,
+            footer=footer,
         )
         if url:
             text += f"\n\n🔗 链接: {_html_escape(url)}"
@@ -313,7 +322,7 @@ async def send_login_notification(
         return
 
     text = build_html_notification(
-        title="🔐 TG-SignPulse 登录通知",
+        title="🔐 TG-SignPulse 登录成功通知",
         fields=[
             ("时间 (UTC)", utc_now_iso_z_seconds()),
             ("用户", username or ""),

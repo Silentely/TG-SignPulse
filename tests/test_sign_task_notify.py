@@ -156,6 +156,54 @@ class TestSendFailureNotification:
         assert "时间 (UTC)" in text
 
     @pytest.mark.asyncio()
+    async def test_failure_category_advice_included(self, notify_env):
+        """已知失败分类附带可操作建议，用户收到通知后知道下一步。"""
+        await sign_task_notify.send_failure_notification(
+            account_name="acc1",
+            task_name="daily",
+            message="auth key unregistered",
+            failure_category="session_invalid",
+        )
+        text = notify_env.sent[0]["text"]
+        assert "建议: " in text
+        assert "重新登录" in text
+
+    @pytest.mark.asyncio()
+    async def test_no_advice_for_unknown_category(self, notify_env):
+        """未知分类不附建议，也不崩溃。"""
+        await sign_task_notify.send_failure_notification(
+            account_name="a",
+            task_name="t",
+            message="x",
+            failure_category="some_custom_cat",
+        )
+        text = notify_env.sent[0]["text"]
+        assert "建议: " not in text
+
+    @pytest.mark.asyncio()
+    async def test_english_error_mapped_to_chinese(self, notify_env):
+        """FloodWait 等英文异常文本映射为中文摘要，避免直接透出。"""
+        await sign_task_notify.send_failure_notification(
+            account_name="a",
+            task_name="t",
+            message="A wait of 60 seconds is required (caused by FloodWait)",
+        )
+        text = notify_env.sent[0]["text"]
+        assert "Telegram 频率限制" in text
+        assert "FloodWait" not in text
+
+    @pytest.mark.asyncio()
+    async def test_unknown_error_text_passthrough(self, notify_env):
+        """无命中模式的错误文本原样展示，不误改。"""
+        await sign_task_notify.send_failure_notification(
+            account_name="a",
+            task_name="t",
+            message="bot 回复疑似失败: 参数异常",
+        )
+        text = notify_env.sent[0]["text"]
+        assert "参数异常" in text
+
+    @pytest.mark.asyncio()
     async def test_unknown_category_passthrough(self, notify_env):
         """未知分类原样透传，不崩溃。"""
         await sign_task_notify.send_failure_notification(

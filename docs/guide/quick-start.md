@@ -15,7 +15,7 @@
 
 | 环境 | 镜像 |
 |------|------|
-| 生产 | `ghcr.io/silentely/tg-signpulse:latest` 或 `ghcr.io/silentely/tg-signpulse:v2.2.3` |
+| 生产 | `ghcr.io/silentely/tg-signpulse:latest` 或 `ghcr.io/silentely/tg-signpulse:v2.3.0` |
 | 稳定主干 | `ghcr.io/silentely/tg-signpulse:main` 或 `…:main-<sha>` |
 | 预发/开发 | `ghcr.io/silentely/tg-signpulse:dev` |
 
@@ -104,18 +104,18 @@ docker compose up -d
 
 推荐先做一个最简单的签到任务：
 
-1. 在账号任务页点击「新建任务」
+1. 在账号任务页点击「添加任务」
 2. 输入任务名称（如：`每日签到`）
 3. 选择目标聊天（搜索机器人或群组）
 4. 添加动作序列：
    - 第 1 步：`发送文本` → `/start`
    - 第 2 步：`点击按钮` → `签到`
-5. 设置执行时间（cron 表达式或 HH:MM 格式）
+5. 设置执行时间（HH:MM 或 HH:MM-HH:MM 时间段格式，如 `08:00`；cron 表达式仅作为 API 级高级用法支持）
 6. 保存任务
 
 ### 手动测试
 
-保存后点击「运行」按钮手动执行一次，观察实时日志确认是否成功。
+保存后点击「立即执行」按钮手动执行一次，观察实时日志确认是否成功。
 
 ## 7. 验证结果
 

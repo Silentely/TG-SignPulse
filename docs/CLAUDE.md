@@ -73,7 +73,7 @@ docs/
 ## 测试与质量
 
 - 文档 agent 资源：`scripts/prepare-docs-agent-assets.mjs` / `verify-docs-agent-assets.mjs`
-- 无独立 pytest；链接与版本号（如 README 中 v2.2.3）需与 `tg_signer.__version__` 人工对齐
+- 无独立 pytest；链接与版本号（如 README 中 v2.3.0）需与 `tg_signer.__version__` 人工对齐
 
 ## 相关文件清单
 
