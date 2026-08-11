@@ -62,6 +62,11 @@ class FakeSvc:
     def _task_key(self, account_name: str, task_name: str) -> str:
         return f"{account_name}::{task_name}"
 
+    MAX_ACTIVE_LOG_LINES = 2000
+
+    def _append_active_log(self, task_key, line: str) -> None:
+        self._active_logs.setdefault(task_key, []).append(line)
+
     def _update_run_phase(self, account_name: str, task_name: str, **kw: Any) -> None:
         self.phases.append(kw.get("phase"))
 

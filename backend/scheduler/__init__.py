@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime
 
@@ -209,7 +210,10 @@ async def _job_auto_backup() -> None:
         if not should_run_auto_backup(cfg):
             return
         data_dir = Path(get_settings().resolve_base_dir())
-        result = run_auto_backup(
+        # 打包 + WebDAV 上传均为同步阻塞操作，放入线程池避免冻结事件循环
+        # （数据目录大时打包可能耗时数十秒，阻塞期间 API/SSE/调度全部停摆）
+        result = await asyncio.to_thread(
+            run_auto_backup,
             data_dir,
             keep=auto_backup_keep(cfg),
             webdav_settings=cfg,
@@ -365,8 +369,11 @@ async def sync_jobs() -> None:
         account_name = str(st.get("account_name") or "").strip()
         task_name = str(st.get("name") or "").strip()
         if not account_name or not task_name:
+            # 只记录缺失的标识，不打印完整任务 dict（可能含账号等敏感配置）
             logging.getLogger("backend.scheduler").warning(
-                "Skip scheduling sign task with missing account/name: %s", st
+                "跳过缺少 账号/任务名 的签到任务调度 (account=%r name=%r)",
+                st.get("account_name"),
+                st.get("name"),
             )
             continue
 

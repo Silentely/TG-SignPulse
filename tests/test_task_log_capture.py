@@ -85,8 +85,8 @@ def test_captured_lines_normalize_for_frontend_display():
     assert "账户「dahao」" in normalized
 
 
-def test_task_log_handler_overflow_keeps_newest_1000():
-    """超过 1000 行时批量删除头部，保留最新行（回归批量删除优化）。"""
+def test_task_log_handler_overflow_keeps_newest_lines():
+    """超过默认上限时批量删除头部，保留最新行（回归批量删除优化）。"""
     log_list: list[str] = []
     handler = TaskLogHandler(log_list)
     handler.setLevel(logging.INFO)
@@ -99,12 +99,12 @@ def test_task_log_handler_overflow_keeps_newest_1000():
         tg_logger.setLevel(logging.INFO)
 
     try:
-        for i in range(1005):
+        for i in range(2005):
             runtime_mod.logger.info(f"line-{i}")
     finally:
         tg_logger.removeHandler(handler)
         tg_logger.setLevel(prev_level)
 
-    assert len(log_list) <= 1000
-    assert "line-1004" in log_list
+    assert len(log_list) <= 2000
+    assert "line-2004" in log_list
     assert "line-0" not in log_list

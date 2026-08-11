@@ -142,7 +142,9 @@ async def sign_history_events(
     浏览器 EventSource 无法设置 Authorization，请使用 `?token=`。
     事件：ready / sign_log；注释行 keep-alive。
     """
-    _require_token(token)
+    # JWT 校验含同步数据库查询，放入线程池避免阻塞事件循环
+    # （每个 SSE 连接建立时都会执行一次）
+    await asyncio.to_thread(_require_token, token)
 
     async def event_generator():
         async for chunk in _sign_history_event_stream():

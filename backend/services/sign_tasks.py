@@ -981,6 +981,18 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
     def _find_task_keys(self, task_name: str) -> List[tuple[str, str]]:
         return [key for key in self._active_logs.keys() if key[1] == task_name]
 
+    # 运行中实时日志行数上限：与 TaskLogHandler 共用，防止长时间任务
+    # 把 _active_logs 撑到无界（内存与 get_active_logs 全量拷贝都受控）
+    MAX_ACTIVE_LOG_LINES = 2000
+
+    def _append_active_log(self, task_key: tuple[str, str], line: str) -> None:
+        """向运行中日志追加一行，超上限时从头部批量裁剪（与历史截断策略一致）。"""
+        logs = self._active_logs.setdefault(task_key, [])
+        logs.append(line)
+        overflow = len(logs) - self.MAX_ACTIVE_LOG_LINES
+        if overflow > 0:
+            del logs[:overflow]
+
     def get_active_logs(
         self, task_name: str, account_name: Optional[str] = None
     ) -> List[str]:
@@ -1256,7 +1268,7 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
             )
 
         bg.cancel()
-        self._active_logs.setdefault(task_key, []).append("用户请求取消任务…")
+        self._append_active_log(task_key, "用户请求取消任务…")
         return build_cancel_run_response(
             ok=True,
             cancelled=True,

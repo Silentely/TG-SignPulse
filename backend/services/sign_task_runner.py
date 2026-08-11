@@ -27,6 +27,16 @@ from backend.utils.task_logs import extract_last_target_message
 from tg_signer.async_utils import create_logged_task
 from tg_signer.log_utils import safe_exception_summary, safe_traceback_preview
 
+# 执行参数常量（原散落魔法数字，集中命名便于调参与审查）
+# run_once 拉取的会话数量：过大拖慢任务启动，过小可能漏掉目标会话
+RUN_ONCE_DIALOGS = 20
+# 任务结束后等待 Session 文件锁释放的缓冲秒数，防同账号连续执行冲突
+POST_RUN_LOCK_BUFFER_SECONDS = 2
+# 最近回复文本展示上限；超出截断（保留 3 字符省略号空间）
+LAST_REPLY_MAX_CHARS = 200
+# Session 文件锁冲突时的最大重试次数（线性退避见执行处）
+SQLITE_LOCK_MAX_RETRIES = 5
+
 if TYPE_CHECKING:
     from backend.services.sign_tasks import SignTaskService
 
@@ -84,7 +94,7 @@ async def _runner_check_account(state: Dict[str, Any]) -> None:
         task_key = state.setdefault(
             "task_key", svc._task_key(state["account_name"], state["task_name"])
         )
-        svc._active_logs[task_key].append(state["error_msg"])
+        svc._append_active_log(task_key, state["error_msg"])
 
 
 async def _runner_refresh_keyword_monitor(state: Dict[str, Any]) -> None:
@@ -98,9 +108,7 @@ async def _runner_refresh_keyword_monitor(state: Dict[str, Any]) -> None:
     try:
         await get_keyword_monitor_service().restart_from_tasks()
     except Exception as exc:
-        svc._active_logs.setdefault(task_key, []).append(
-            f"关键词后台监听刷新失败: {exc}"
-        )
+        svc._append_active_log(task_key, f"关键词后台监听刷新失败: {exc}")
 
 
 async def _runner_acquire_lock(state: Dict[str, Any]) -> None:
@@ -136,9 +144,7 @@ async def _runner_acquire_lock(state: Dict[str, Any]) -> None:
                     phase_detail=f"等待账号冷却 {wait_i} 秒",
                     wait_seconds=float(wait_i),
                 )
-                svc._active_logs[state["task_key"]].append(
-                    f"等待账号冷却 {wait_i} 秒"
-                )
+                svc._append_active_log(state["task_key"], f"等待账号冷却 {wait_i} 秒")
                 await asyncio.sleep(wait_seconds)
 
         state["lock_acquired"] = True
@@ -155,7 +161,10 @@ async def _runner_setup_logging(state: Dict[str, Any]) -> None:
     svc: SignTaskService = state["svc"]
     task_key = state["task_key"]
     tg_logger = logging.getLogger("tg-signer")
-    log_handler = state["TaskLogHandler"](svc._active_logs[task_key])
+    log_handler = state["TaskLogHandler"](
+        svc._active_logs[task_key],
+        max_lines=svc.MAX_ACTIVE_LOG_LINES,
+    )
     log_handler.setLevel(logging.INFO)
     log_handler.setFormatter(logging.Formatter("%(asctime)s - %(message)s"))
     if tg_logger.getEffectiveLevel() > logging.INFO:
@@ -167,8 +176,9 @@ async def _runner_setup_logging(state: Dict[str, Any]) -> None:
         state["account_name"],
         state["task_name"],
     )
-    svc._active_logs[task_key].append(
-        f"开始执行任务: {state['task_name']} (账号: {state['account_name']})"
+    svc._append_active_log(
+        task_key,
+        f"开始执行任务: {state['task_name']} (账号: {state['account_name']})",
     )
 
 
@@ -283,11 +293,11 @@ async def _runner_execute_with_retry(state: Dict[str, Any]) -> None:
     task_key = state["task_key"]
 
     async with get_global_semaphore():
-        max_retries = 5
+        max_retries = SQLITE_LOCK_MAX_RETRIES
         for attempt in range(max_retries):
             try:
                 await asyncio.wait_for(
-                    signer.run_once(num_of_dialogs=20),
+                    signer.run_once(num_of_dialogs=RUN_ONCE_DIALOGS),
                     timeout=task_timeout,
                 )
                 break
@@ -299,18 +309,21 @@ async def _runner_execute_with_retry(state: Dict[str, Any]) -> None:
             except Exception as e:
                 if "database is locked" in str(e).lower():
                     if attempt < max_retries - 1:
+                        # SQLite 锁等待用线性退避（与瞬态网络错误的指数退避
+                        # compute_backoff 刻意区分）
                         delay = 3 + (attempt * 3)
-                        svc._active_logs[task_key].append(
-                            f"Session 被锁定，{delay} 秒后重试... ({attempt + 1}/{max_retries})"
+                        svc._append_active_log(
+                            task_key,
+                            f"Session 被锁定，{delay} 秒后重试... ({attempt + 1}/{max_retries})",
                         )
                         await asyncio.sleep(delay)
                         continue
                 raise
 
     state["success"] = True
-    svc._active_logs[task_key].append("任务执行完成")
+    svc._append_active_log(task_key, "任务执行完成")
     # 增加缓冲时间，防止同账号连续执行任务时 Session 文件锁尚未完全释放
-    await asyncio.sleep(2)
+    await asyncio.sleep(POST_RUN_LOCK_BUFFER_SECONDS)
 
 
 async def _runner_parse_reply(state: Dict[str, Any]) -> None:
@@ -348,8 +361,10 @@ async def _runner_parse_reply(state: Dict[str, Any]) -> None:
                 else:
                     last_reply = reply_part.replace("\n", " ").strip()
 
-                if len(last_reply) > 200:
-                    last_reply = last_reply[:197] + "..."
+                if len(last_reply) > LAST_REPLY_MAX_CHARS:
+                    last_reply = (
+                        last_reply[: LAST_REPLY_MAX_CHARS - 3] + "..."
+                    )
             except Exception as e:
                 _service_logger.debug("解析最近回复文本失败: %s", e)
             if last_reply:
@@ -372,7 +387,7 @@ async def _runner_parse_reply(state: Dict[str, Any]) -> None:
             state["success"] = False
             state["error_msg"] = f"机器人回复疑似失败: {last_reply}"
             final_logs.append(state["error_msg"])
-            svc._active_logs.setdefault(state["task_key"], []).append(state["error_msg"])
+            svc._append_active_log(state["task_key"], state["error_msg"])
             state["output_str"] = "\n".join(final_logs)
 
     state["last_reply"] = last_reply
@@ -418,7 +433,7 @@ async def _runner_fetch_target_message(state: Dict[str, Any]) -> None:
                 timeout_log = (
                     f"补抓任务对象最后消息超时 ({last_target_fetch_timeout:.1f}s)，已跳过"
                 )
-                svc._active_logs.setdefault(task_key, []).append(timeout_log)
+                svc._append_active_log(task_key, timeout_log)
                 state["final_logs"] = list(svc._active_logs.get(task_key, []))
                 state["output_str"] = "\n".join(state["final_logs"])
                 last_target_message = ""
@@ -441,7 +456,7 @@ async def _runner_fetch_target_message(state: Dict[str, Any]) -> None:
     ):
         last_message_line = f"任务对象最后一条消息: {last_target_message}"
         state["final_logs"].append(last_message_line)
-        svc._active_logs.setdefault(task_key, []).append(last_message_line)
+        svc._append_active_log(task_key, last_message_line)
         state["output_str"] = "\n".join(state["final_logs"])
         state["last_target_message"] = last_target_message
 
@@ -550,13 +565,13 @@ async def _runner_handle_error(state: Dict[str, Any], e: Exception) -> None:
 
     _run_id_tag = f" [run_id={state.get('run_id')}]" if state.get("run_id") else ""
     state["error_msg"] = f"任务执行出错{_run_id_tag}: {safe_exception_summary(e, 300)}"
-    svc._active_logs[state["task_key"]].append(state["error_msg"])
+    svc._append_active_log(state["task_key"], state["error_msg"])
 
     _tb = traceback.format_exc()
     _safe_tb = safe_traceback_preview(_tb, max_lines=6, max_line_chars=200)
     if _safe_tb:
         for _line in _safe_tb.splitlines():
-            svc._active_logs[state["task_key"]].append(f"  {_line}")
+            svc._append_active_log(state["task_key"], f"  {_line}")
 
     _service_logger.error(
         "任务执行出错%s [%s/%s]: %s",
@@ -651,7 +666,7 @@ async def execute_sign_task(
     svc._active_tasks[task_key] = True
     svc._active_logs[task_key] = []
     if run_id:
-        svc._active_logs[task_key].append(f"[run_id={run_id}]")
+        svc._append_active_log(task_key, f"[run_id={run_id}]")
 
     # 共享状态：所有 helper 读写同一字典
     state: Dict[str, Any] = {
@@ -684,13 +699,15 @@ async def execute_sign_task(
 
         if not state.get("account_invalid_detected"):
             # 记录监听状态
-            svc._active_logs[task_key].append(
-                f"消息更新监听: {'开启' if state['requires_updates'] else '关闭'}"
+            svc._append_active_log(
+                task_key,
+                f"消息更新监听: {'开启' if state['requires_updates'] else '关闭'}",
             )
             if state["has_keyword_monitor"]:
-                svc._active_logs[task_key].append(
+                svc._append_active_log(
+                    task_key,
                     "关键词监听说明: 该动作由后台常驻监听服务执行；"
-                    "本次手动运行只会刷新并展示后台监听状态，不代表监听只运行一次。"
+                    "本次手动运行只会刷新并展示后台监听状态，不代表监听只运行一次。",
                 )
 
             await _runner_check_account(state)
