@@ -10,7 +10,7 @@ import os
 
 import httpx
 
-from tg_signer.async_utils import create_logged_task
+from tg_signer.async_utils import compute_backoff, create_logged_task
 from tg_signer.compat import (
     Message,
     MessageHandler,
@@ -210,7 +210,7 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                     last_error = exc
                     if attempt >= 3:
                         break
-                    await asyncio.sleep(min(2**(attempt - 1), 4))
+                    await asyncio.sleep(compute_backoff(attempt, cap=4))
             if last_error is not None:
                 raise last_error
 
@@ -266,10 +266,41 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                         self.log("未配置Server酱的SendKey", level="WARNING")
                     else:
                         try:
+                            # 结构化推送：标题带会话名，正文含账号/会话/关键词/时间，
+                            # 避免只有 chat_id 数字无法判断来源
+                            from datetime import datetime, timezone
+
+                            chat_title = (
+                                getattr(getattr(message, "chat", None), "title", "")
+                                or str(match_cfg.chat_id)
+                            )
+                            sender = getattr(message, "sender", None)
+                            sender_name = (
+                                getattr(sender, "first_name", None)
+                                or getattr(sender, "username", None)
+                                or ""
+                            )
+                            utc_time = (
+                                datetime.now(timezone.utc)
+                                .replace(microsecond=0)
+                                .isoformat()
+                                .replace("+00:00", "Z")
+                            )
+                            body_lines = [
+                                f"账号: {self._account}",
+                                f"会话: {chat_title}",
+                            ]
+                            if match_cfg.rule_value:
+                                body_lines.append(f"关键词: {match_cfg.rule_value}")
+                            if sender_name:
+                                body_lines.append(f"发送者: {sender_name}")
+                            body_lines.append(f"时间 (UTC): {utc_time}")
+                            body_lines.append("")
+                            body_lines.append(str(message.text or ""))
                             await sc_send(
                                 server_chan_send_key,
-                                f"匹配到监控项：{match_cfg.chat_id}",
-                                f"消息内容为:\n\n{message.text}",
+                                f"🔔 关键词命中：{chat_title}",
+                                "\n".join(body_lines),
                             )
                         except Exception as e:
                             # 推送失败不中断其余监控项的匹配处理

@@ -4,7 +4,7 @@
 
 文档站：https://tg.cosr.eu.org
 源码：https://github.com/Silentely/TG-SignPulse
-版本：2.2.3
+版本：2.3.0
 
 ## 产品摘要
 
