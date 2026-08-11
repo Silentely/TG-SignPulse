@@ -17,7 +17,7 @@
 - 通知：Server酱等
 - 安全与工具：session 加密相关、异步工具、日志
 
-包版本：`__version__ = "2.2.3"`（`tg_signer/__init__.py`）。
+包版本：`__version__ = "2.3.0"`（`tg_signer/__init__.py`）。
 
 ## 入口与启动
 
