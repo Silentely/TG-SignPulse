@@ -126,6 +126,7 @@ docker run -d -p 3000:3000 -v ./data:/data ghcr.io/<owner>/tg-signpulse:latest
 - **TypeScript**: `vue-tsc` 严格模式 + Vite 构建
 - **注释**: 简体中文，描述意图与约束
 - **提交语言**: 中文 Commit 信息（禁止过程性/AI 署名字眼）
+- **文档表述**: CLAUDE 文档与 CHANGELOG 禁止出现「打磨全项目」「10 轮」「迭代」等过程性表述，变更记录只描述具体改动内容
 
 ## 关键架构洞察（扫描刷新 2026-08-05）
 
