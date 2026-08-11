@@ -4,13 +4,15 @@
 
 ## 变更记录 (Changelog)
 
-> 完整变更记录已拆分至 [`CHANGELOG.md`](./CHANGELOG.md)，避免 CLAUDE.md 过长影响上下文。
+| 日期 | 版本 |
+|------|------|
+| 2026-08-11 | v2.3.0：删除旧版 ORM 任务系统，引入 SSE 实时推送与进程内事件总线，新增账号深链、批量检测与命中记录导出，前后端大规模重构与测试补全 |
 
 ## 项目愿景
 
 TG-SignPulse 是一个基于 Node.js (Vue 3) + Python (FastAPI) 的 Telegram 自动化任务管理平台，提供 Web 面板统一管理多个 Telegram 账号的定时签到、消息交互、关键词监控和 AI 辅助回复。
 
-当前版本：`tg_signer.__version__` = **2.2.3**。
+当前版本：`tg_signer.__version__` = **2.3.0**。
 
 ## 架构总览
 
