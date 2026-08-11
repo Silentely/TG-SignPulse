@@ -13,6 +13,7 @@ from typing import Any, BinaryIO, Optional, Union
 
 from croniter import croniter
 
+from tg_signer.async_utils import compute_backoff
 from tg_signer.compat import (
     InlineKeyboardMarkup,
     Message,
@@ -782,7 +783,7 @@ class SignerActionsMixin:
                     return None
                 await asyncio.sleep(wait_seconds)
             except (TimeoutError, asyncio.TimeoutError, OSError, ConnectionError) as e:
-                backoff = min(2**attempt, 8)
+                backoff = compute_backoff(attempt, cap=8, shift=1)
                 self.log(
                     f"按钮回调暂未响应，{backoff}s 后重试确认 ({attempt}/{max_retries})",
                     level="WARNING",

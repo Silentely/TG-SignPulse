@@ -45,6 +45,7 @@ from backend.services.keyword_monitor.rules import (
     _resolve_action_delay,
 )
 from backend.utils.account_locks import get_account_lock
+from tg_signer.async_utils import compute_backoff
 from tg_signer.compat import (
     Message,
     button_text_matches,
@@ -315,7 +316,7 @@ async def request_callback_answer(
                     type(reconnect_exc).__name__,
                     reconnect_exc,
                 )
-            await asyncio.sleep(min(2**attempt, 6))
+            await asyncio.sleep(compute_backoff(attempt, cap=6, shift=1))
         except Exception as exc:
             if _is_callback_data_invalid(exc):
                 logger.warning(

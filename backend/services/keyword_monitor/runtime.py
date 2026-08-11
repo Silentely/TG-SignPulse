@@ -42,6 +42,12 @@ for _name, _val in vars(_km_rules).items():
     globals().setdefault(_name, _val)
 del _name, _val
 
+# 规则事件日志节流间隔（秒）：同一事件在间隔内只记录一次，避免高频消息刷屏
+# 话题不匹配提示的节流周期
+LOG_THROTTLE_THREAD_MISMATCH_SECONDS = 45.0
+# 关键词未命中提示的节流周期（命中路径的节流见 _should_log_rule_event 默认值）
+LOG_THROTTLE_KEYWORD_MISS_SECONDS = 60.0
+
 # 重启去重状态文件：按 (账号, 会话) 记录已处理的最大消息 ID，
 # 服务重启/重连后 Telegram 补投的旧消息据此跳过，避免重复命中与推送
 _SEEN_STATE_FILENAME = "seen.json"
@@ -481,7 +487,7 @@ class KeywordMonitorService:
                     if not self._should_log_rule_event(
                         rule,
                         "thread_mismatch",
-                        interval_seconds=45.0,
+                        interval_seconds=LOG_THROTTLE_THREAD_MISMATCH_SECONDS,
                     ):
                         continue
                     self._append_rule_log(
@@ -523,7 +529,7 @@ class KeywordMonitorService:
                     if self._should_log_rule_event(
                         rule,
                         "keyword_miss",
-                        interval_seconds=60.0,
+                        interval_seconds=LOG_THROTTLE_KEYWORD_MISS_SECONDS,
                     ):
                         text_preview = text.replace("\n", " ").strip()
                         if len(text_preview) > 120:
