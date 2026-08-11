@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import random
 from collections import defaultdict
 from datetime import time as dt_time
@@ -31,6 +32,8 @@ from tg_signer.core.client import OPENAI_USE_PROMPT, make_dirs
 from tg_signer.core.context import UserSignerWorkerContext
 from tg_signer.pydantic_compat import model_validate
 from tg_signer.utils import UserInput, print_to_user
+
+_logger = logging.getLogger("tg-signer.signer_config")
 
 
 class SignerConfigMixin:
@@ -75,14 +78,16 @@ class SignerConfigMixin:
 
 
     def _load_chat_cache(self) -> List[dict]:
+        cache_file = self.tasks_dir / self._account / "chats_cache.json"
+        if not cache_file.exists():
+            return []
         try:
-            cache_file = self.tasks_dir / self._account / "chats_cache.json"
-            if not cache_file.exists():
-                return []
             with open(cache_file, "r", encoding="utf-8") as fp:
                 data = json.load(fp)
             return data if isinstance(data, list) else []
-        except Exception:
+        except (OSError, json.JSONDecodeError) as exc:
+            # 缓存损坏不阻断执行（降级为无缓存），但留痕便于排查
+            _logger.debug("读取聊天缓存失败 %s: %s", cache_file, exc)
             return []
 
 
@@ -135,10 +140,11 @@ class SignerConfigMixin:
                             found = _search_entries(other_data)
                             if found:
                                 return found
-                    except Exception:
+                    except (OSError, json.JSONDecodeError) as exc:
+                        _logger.debug("读取其他账号聊天缓存失败 %s: %s", other_cache_file, exc)
                         continue
-        except Exception:
-            pass
+        except OSError as exc:
+            _logger.debug("遍历聊天缓存目录失败 %s: %s", self.tasks_dir, exc)
 
         return None
 

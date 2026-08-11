@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Any, Optional
 
 from backend.core.config import get_settings
-from backend.utils.time import utc_now_iso
+from backend.utils.time import utc_now, utc_now_iso
+
+_logger = logging.getLogger("backend.tg_session")
 
 _SESSION_MODE_ENV = "TG_SESSION_MODE"
 _SESSION_MODE_FILE = "file"
@@ -74,7 +77,22 @@ def _load_account_store() -> dict:
         return {"accounts": {}}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
+    except (OSError, json.JSONDecodeError) as exc:
+        # 损坏的 accounts.json 若静默返回空表，后续 _save_account_store 会用空数据
+        # 原子覆盖原文件，导致账号存储数据不可恢复地丢失。这里先把损坏文件改名
+        # 备份保留，再告警，供人工恢复或排查。
+        try:
+            # 时间戳用于文件名，不能含冒号等路径不友好字符，改用纯数字格式
+            stamp = utc_now().strftime("%Y%m%dT%H%M%S")
+            backup = path.with_name(f"accounts.json.corrupt-{stamp}")
+            path.replace(backup)
+        except OSError:
+            backup = path
+        _logger.warning(
+            "accounts.json 读取失败，已备份到 %s 并回退为空存储: %s",
+            backup,
+            exc,
+        )
         return {"accounts": {}}
     if not isinstance(data, dict):
         return {"accounts": {}}

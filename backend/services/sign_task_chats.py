@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -260,13 +261,18 @@ _fetch_logger = logging.getLogger("backend.sign_task_chats")
 
 
 def is_invalid_session_error(err: Exception) -> bool:
-    """判断是否为 session 失效类错误。"""
+    """判断是否为 session 失效类错误（全项目唯一判定入口）。
+
+    覆盖 Pyrogram 抛出的 Unauthorized 家族与账号停用/会话吊销，
+    与账号状态检测保持同一判定集合，避免同错不同判。
+    """
     msg = str(err)
     if not msg:
         return False
     upper = msg.upper()
     return (
-        "AUTH_KEY_UNREGISTERED" in upper
+        "UNAUTHORIZED" in upper
+        or "AUTH_KEY_UNREGISTERED" in upper
         or "AUTH_KEY_INVALID" in upper
         or "SESSION_REVOKED" in upper
         or "SESSION_EXPIRED" in upper
@@ -405,7 +411,8 @@ async def refresh_account_chats(
             async with account_lock:
                 async with get_global_semaphore():
                     async with active_client:
-                        await active_client.get_me()
+                        # 网络挂起时刷新会话不能无限等待，get_me 加超时保护
+                        await asyncio.wait_for(active_client.get_me(), timeout=10)
 
                         try:
                             async for dialog in active_client.get_dialogs():

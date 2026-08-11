@@ -7,6 +7,7 @@ import secrets
 from typing import Any, Dict, List, Optional
 
 from backend.core.config import get_settings
+from backend.services.sign_task_chats import is_invalid_session_error
 from backend.services.telegram.sessions import (
     _login_sessions,
     _qr_login_sessions,
@@ -610,24 +611,8 @@ class TelegramAccountsMixin:
                     "checked_at": checked_at,
                     "needs_relogin": False,
                 }
-            if "SESSION" in err_upper and "INVALID" in err_upper:
-                set_account_status(
-                    account_name,
-                    status="invalid",
-                    message=err_text,
-                    code="ACCOUNT_SESSION_INVALID",
-                    needs_relogin=True,
-                )
-                return {
-                    "account_name": account_name,
-                    "ok": False,
-                    "status": "invalid",
-                    "message": err_text,
-                    "code": "ACCOUNT_SESSION_INVALID",
-                    "checked_at": checked_at,
-                    "needs_relogin": True,
-                }
-            if "UNAUTHORIZED" in err_upper or "AUTH_KEY_UNREGISTERED" in err_upper:
+            # 会话失效判定统一走 is_invalid_session_error，与任务执行路径同集合
+            if is_invalid_session_error(e):
                 set_account_status(
                     account_name,
                     status="invalid",

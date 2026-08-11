@@ -1,6 +1,7 @@
 """TelegramService mixin: login_phone."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -327,7 +328,8 @@ class TelegramPhoneLoginMixin:
                     await client.sign_in(phone_number, phone_code_hash, phone_code)
 
                     # 登录成功，获取用户信息
-                    me = await client.get_me()
+                    # get_me 走超时保护：网络挂起时登录接口不能无限等待
+                    me = await asyncio.wait_for(client.get_me(), timeout=10)
                     await _persist_session_string()
                     _persist_proxy_setting()
                     mark_account_connected(account_name)
@@ -353,7 +355,7 @@ class TelegramPhoneLoginMixin:
                     # 使用 2FA 密码登录
                     try:
                         await client.check_password(password)
-                        me = await client.get_me()
+                        me = await asyncio.wait_for(client.get_me(), timeout=10)
                         await _persist_session_string()
                         _persist_proxy_setting()
                         mark_account_connected(account_name)
