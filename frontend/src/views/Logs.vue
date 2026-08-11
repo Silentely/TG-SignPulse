@@ -151,8 +151,14 @@ const {
 
     <!-- Logs List -->
     <div class="ui-card p-3 sm:p-5 flex-1 min-h-[500px] overflow-y-auto">
-      <div v-if="pageLoading" class="ui-page-loading">
-        <div class="ui-spinner" aria-hidden="true" />
+      <div v-if="pageLoading" class="animate-pulse space-y-1.5" role="status" aria-label="加载中">
+        <div v-for="i in 6" :key="i" class="flex items-center gap-3 px-2 py-3">
+          <span class="h-3 w-[140px] shrink-0 rounded bg-gray-200 dark:bg-gray-800" />
+          <span class="h-3 w-24 shrink-0 rounded bg-gray-200 dark:bg-gray-800" />
+          <span class="h-3 w-28 shrink-0 rounded bg-gray-200 dark:bg-gray-800" />
+          <span class="h-4 w-12 shrink-0 rounded-full bg-gray-200 dark:bg-gray-800" />
+          <span class="h-3 flex-1 min-w-0 rounded bg-gray-200 dark:bg-gray-800" />
+        </div>
       </div>
 
       <!-- Task logs -->

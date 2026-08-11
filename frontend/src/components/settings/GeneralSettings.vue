@@ -93,6 +93,7 @@ const onStringInput = (key: keyof SettingsFormState, e: Event) => {
             type="button"
             class="ui-switch"
             role="switch"
+            :aria-label="t('settings.deviceKeepalive')"
             :aria-checked="modelValue.deviceKeepaliveEnabled"
             :class="modelValue.deviceKeepaliveEnabled ? 'ui-switch-on' : ''"
             @click="update('deviceKeepaliveEnabled', !modelValue.deviceKeepaliveEnabled)"

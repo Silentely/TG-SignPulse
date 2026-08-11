@@ -247,7 +247,7 @@ export function useLogsPage() {
     const isTasks = activeTab.value === 'tasks'
     const confirmMsg = isTasks ? t('logs.clearTasksConfirm') : t('logs.clearLoginConfirm')
     const ok = await confirm({
-      title: t('common.dangerConfirm'),
+      title: t('logs.clearTitle'),
       message: confirmMsg,
       confirmText: t('common.delete'),
       danger: true,

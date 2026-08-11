@@ -159,7 +159,7 @@ export function useTaskHits(options: {
   const clearHits = async () => {
     if (!options.taskName.value) return
     const ok = await confirm({
-      title: t('common.dangerConfirm'),
+      title: t('taskLogs.hitsClearTitle'),
       message: t('taskLogs.hitsClearConfirm'),
       confirmText: t('common.delete'),
       danger: true,

@@ -93,7 +93,7 @@ onUnmounted(() => document.removeEventListener('click', closeTemplateMenuOnOutsi
           class="px-2 py-1 rounded-sm border transition-colors"
           :class="modeFilter === 'all'
             ? 'border-sky-400 text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/30'
-            : 'border-gray-200 dark:border-gray-700 text-gray-500'"
+            : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-white/[0.04]'"
           @click="emit('update:modeFilter', 'all')"
         >
           {{ t('tasks.filterAll') }}
@@ -103,7 +103,7 @@ onUnmounted(() => document.removeEventListener('click', closeTemplateMenuOnOutsi
           class="px-2 py-1 rounded-sm border transition-colors"
           :class="modeFilter === 'listen'
             ? 'border-orange-400 text-orange-700 dark:text-orange-300 bg-orange-50 dark:bg-orange-950/30'
-            : 'border-gray-200 dark:border-gray-700 text-gray-500'"
+            : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-white/[0.04]'"
           @click="emit('update:modeFilter', 'listen')"
         >
           {{ t('tasks.filterListen') }}
@@ -114,7 +114,7 @@ onUnmounted(() => document.removeEventListener('click', closeTemplateMenuOnOutsi
           class="px-2 py-1 rounded-sm border transition-colors"
           :class="modeFilter === 'scheduled'
             ? 'border-violet-400 text-violet-700 dark:text-violet-300 bg-violet-50 dark:bg-violet-950/30'
-            : 'border-gray-200 dark:border-gray-700 text-gray-500'"
+            : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-white/[0.04]'"
           @click="emit('update:modeFilter', 'scheduled')"
         >
           {{ t('tasks.filterScheduled') }}

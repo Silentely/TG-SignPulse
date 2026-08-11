@@ -217,6 +217,7 @@ const formatBytes = (n?: number | null) => {
             type="button"
             class="ui-switch"
             role="switch"
+            :aria-label="t('settings.autoBackup')"
             :aria-checked="modelValue.autoBackupEnabled"
             :class="modelValue.autoBackupEnabled ? 'ui-switch-on' : ''"
             @click="update('autoBackupEnabled', !modelValue.autoBackupEnabled)"

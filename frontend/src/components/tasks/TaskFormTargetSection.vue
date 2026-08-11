@@ -86,23 +86,29 @@ const onChatIdUpdate = (id: number) => {
       <p class="text-[10px] text-gray-500 leading-relaxed">{{ t('tasks.createModeHint') }}</p>
     </div>
     <div v-if="targetChats.length > 1" class="flex flex-wrap gap-2 mb-4">
-      <button
+      <div
         v-for="(chat, idx) in targetChats"
         :key="chat.id"
-        type="button"
-        class="px-2.5 py-1 text-[11px] border transition-colors max-w-[12rem] truncate"
+        class="flex items-center max-w-[16rem] border transition-colors"
         :class="activeChatIndex === idx
           ? 'border-sky-400 bg-sky-50 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300'
-          : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-gray-300 dark:hover:border-gray-600'"
-        @click="emit('update:activeChatIndex', idx)"
+          : 'border-gray-200 dark:border-gray-700 text-gray-500'"
       >
-        {{ chat.chatName || chat.chatId || `${t('taskForm.targetChat')} ${idx + 1}` }}
-        <span
-          v-if="targetChats.length > 1"
-          class="ml-1 text-gray-400 hover:text-rose-500"
-          @click.stop="emit('remove-target', idx)"
-        >×</span>
-      </button>
+        <button
+          type="button"
+          class="flex-1 min-w-0 px-2.5 py-1 text-[11px] truncate"
+          @click="emit('update:activeChatIndex', idx)"
+        >
+          {{ chat.chatName || chat.chatId || `${t('taskForm.targetChat')} ${idx + 1}` }}
+        </button>
+        <button
+          type="button"
+          class="shrink-0 pl-0.5 pr-1.5 py-1 text-[11px] text-gray-400 hover:text-rose-500 rounded-sm"
+          :aria-label="t('taskForm.removeTargetChat', { name: chat.chatName || chat.chatId || String(idx + 1) })"
+          :title="t('taskForm.removeTargetChat', { name: chat.chatName || chat.chatId || String(idx + 1) })"
+          @click="emit('remove-target', idx)"
+        >×</button>
+      </div>
     </div>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
       <div class="space-y-1.5">
@@ -152,15 +158,16 @@ const onChatIdUpdate = (id: number) => {
           >
             <div v-if="chatSearchLoading" class="p-3 text-xs text-gray-400">{{ t('taskForm.searching') }}</div>
             <template v-else>
-              <div
+              <button
                 v-for="chat in chatSearchResults"
                 :key="chat.id"
-                class="p-2 border-b border-gray-100 dark:border-gray-800/60 hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer text-sm"
+                type="button"
+                class="w-full text-left p-2 border-b border-gray-100 dark:border-gray-800/60 hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer text-sm"
                 @click="emit('select-chat', chat)"
               >
-                <div class="font-medium truncate">{{ chat.title || chat.username || chat.id }}</div>
-                <div class="text-[10px] text-gray-400 font-mono">{{ chat.id }}</div>
-              </div>
+                <span class="block font-medium truncate">{{ chat.title || chat.username || chat.id }}</span>
+                <span class="block text-[10px] text-gray-400 font-mono">{{ chat.id }}</span>
+              </button>
               <div v-if="!chatSearchResults.length" class="p-3 text-xs text-gray-400">{{ t('taskForm.noResults') }}</div>
             </template>
           </div>
