@@ -1,4 +1,5 @@
 import { createI18n } from 'vue-i18n'
+import { watch } from 'vue'
 import zhCN from '../locales/zh-CN.json'
 import enUS from '../locales/en-US.json'
 
@@ -14,5 +15,15 @@ const i18n = createI18n({
     'en-US': enUS,
   },
 })
+
+// 语言切换时同步 <html lang>：仅首帧初始化不够，运行时切换语言后
+// 屏读器发音与页面语言声明需与界面保持一致（含返回 zh 的默认分支）
+watch(
+  i18n.global.locale,
+  (val) => {
+    document.documentElement.lang = String(val) === 'en-US' ? 'en-US' : 'zh-CN'
+  },
+  { immediate: true },
+)
 
 export default i18n

@@ -513,7 +513,9 @@ def memory_stats(
 class RuntimeStatusResponse(BaseModel):
     ready: bool
     scheduler_lock_held: bool = False
+    scheduler_role: str = "replica"
     legacy_tasks_writable: bool = False
+    legacy_tasks_removed: bool = True
     database_is_sqlite: bool = True
     monitor_shard: str = ""
     monitor_allowlist: str = ""
@@ -527,15 +529,17 @@ def runtime_status(
     """面板/运维用运行时摘要（需登录）。"""
     import os
 
-    from backend.api.routes.tasks import _legacy_writes_allowed
     from backend.core.config import get_settings
     from backend.scheduler.instance_lock import has_scheduler_lock
 
     settings = get_settings()
+    lock_held = has_scheduler_lock()
     return RuntimeStatusResponse(
         ready=bool(getattr(request.app.state, "ready", False)),
-        scheduler_lock_held=has_scheduler_lock(),
-        legacy_tasks_writable=_legacy_writes_allowed(),
+        scheduler_lock_held=lock_held,
+        scheduler_role="primary" if lock_held else "replica",
+        legacy_tasks_writable=False,
+        legacy_tasks_removed=True,
         database_is_sqlite=settings.is_sqlite,
         monitor_shard=os.getenv("APP_MONITOR_SHARD", "") or "",
         monitor_allowlist=os.getenv("APP_MONITOR_ACCOUNT_ALLOWLIST", "") or "",

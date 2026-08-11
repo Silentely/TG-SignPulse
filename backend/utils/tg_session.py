@@ -25,12 +25,6 @@ def is_string_session_mode() -> bool:
     return get_session_mode() == _SESSION_MODE_STRING
 
 
-def get_no_updates_flag() -> bool:
-    raw = os.getenv("TG_SESSION_NO_UPDATES") or os.getenv("TG_NO_UPDATES") or ""
-    raw = raw.strip().lower()
-    return raw in {"1", "true", "yes", "on"}
-
-
 def get_global_semaphore() -> asyncio.Semaphore:
     global _GLOBAL_SEMAPHORE
     if _GLOBAL_SEMAPHORE is None:
@@ -56,8 +50,7 @@ def _resolve_concurrency_limit() -> int:
     except Exception:
         pass
     # 默认：根据 CPU 核心数动态计算，上限为 5
-    import os as _os
-    return min(_os.cpu_count() or 4, 5)
+    return min(os.cpu_count() or 4, 5)
 
 
 def update_global_semaphore(new_limit: int) -> None:
@@ -102,10 +95,7 @@ def _save_account_store(data: dict) -> None:
 
 def list_account_names() -> list[str]:
     data = _load_account_store()
-    accounts = data.get("accounts", {})
-    if not isinstance(accounts, dict):
-        return []
-    return sorted(accounts.keys())
+    return sorted(data["accounts"].keys())
 
 
 def get_account_session_string(account_name: str) -> Optional[str]:
@@ -124,10 +114,7 @@ def get_account_session_string(account_name: str) -> Optional[str]:
 
 def set_account_session_string(account_name: str, session_string: str) -> None:
     data = _load_account_store()
-    accounts = data.get("accounts")
-    if not isinstance(accounts, dict):
-        accounts = {}
-        data["accounts"] = accounts
+    accounts = data["accounts"]
     entry = accounts.get(account_name)
     if not isinstance(entry, dict):
         entry = {}
@@ -142,8 +129,8 @@ def set_account_session_string(account_name: str, session_string: str) -> None:
 
 def delete_account_session_string(account_name: str) -> None:
     data = _load_account_store()
-    accounts = data.get("accounts")
-    if isinstance(accounts, dict) and account_name in accounts:
+    accounts = data["accounts"]
+    if account_name in accounts:
         accounts.pop(account_name, None)
         _save_account_store(data)
 
@@ -153,10 +140,7 @@ def rename_account_entry(old_account_name: str, new_account_name: str) -> None:
         return
 
     data = _load_account_store()
-    accounts = data.get("accounts")
-    if not isinstance(accounts, dict):
-        accounts = {}
-        data["accounts"] = accounts
+    accounts = data["accounts"]
 
     entry = accounts.pop(old_account_name, None)
     if entry is None:
@@ -196,22 +180,11 @@ def get_account_proxy(account_name: str) -> Optional[str]:
     return None
 
 
-def get_account_remark(account_name: str) -> Optional[str]:
-    profile = get_account_profile(account_name)
-    remark = profile.get("remark")
-    if isinstance(remark, str) and remark.strip():
-        return remark.strip()
-    return None
-
-
 def set_account_profile(
     account_name: str, *, remark: Optional[str] = None, proxy: Optional[str] = None
 ) -> None:
     data = _load_account_store()
-    accounts = data.get("accounts")
-    if not isinstance(accounts, dict):
-        accounts = {}
-        data["accounts"] = accounts
+    accounts = data["accounts"]
     entry = accounts.get(account_name)
     if not isinstance(entry, dict):
         entry = {}
@@ -247,10 +220,7 @@ def set_account_status(
     invalid_notified_at: Optional[str] = None,
 ) -> None:
     data = _load_account_store()
-    accounts = data.get("accounts")
-    if not isinstance(accounts, dict):
-        accounts = {}
-        data["accounts"] = accounts
+    accounts = data["accounts"]
     entry = accounts.get(account_name)
     if not isinstance(entry, dict):
         entry = {}
@@ -426,3 +396,33 @@ def delete_session_string_file(session_dir: Path, account_name: str) -> None:
             path.unlink()
         except Exception:
             pass
+
+
+def load_account_session_string(
+    account_name: str,
+    *,
+    session_dir: Path,
+    session_mode: str,
+) -> Optional[str]:
+    """按会话模式加载账号 session_string；无可用值返回 None。
+
+    string 模式：优先账号存储，回退会话文件导出；
+    文件模式：仅尝试会话文件导出。
+    """
+    if session_mode == "string":
+        return get_account_session_string(account_name) or load_session_string_file(
+            session_dir, account_name
+        )
+    return load_session_string_file(session_dir, account_name)
+
+
+def resolve_effective_proxy(
+    account_name: str, global_proxy: Optional[str] = None
+) -> Optional[str]:
+    """解析账号生效代理：账号级代理优先，其次全局代理。"""
+    proxy_value = get_account_proxy(account_name)
+    if proxy_value:
+        return proxy_value
+    if isinstance(global_proxy, str) and global_proxy.strip():
+        return global_proxy.strip()
+    return None

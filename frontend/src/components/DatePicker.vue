@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { ChevronDown, ChevronLeft, ChevronRight, X } from 'lucide-vue-next'
 import { useI18n } from '../composables/useI18n'
 
-const { locale } = useI18n()
+const { locale, t } = useI18n()
 
 const props = defineProps<{
   modelValue: string
@@ -48,17 +48,25 @@ onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
 })
 
+// 周起点：2026-08-02（UTC）为周日，作为 getDay()=0 的稳定基准生成星期缩写
+const SUNDAY_UTC = Date.UTC(2026, 7, 2)
+
 const weekDays = computed(() => {
-  if (locale.value === 'zh') return ['日', '一', '二', '三', '四', '五', '六']
-  return ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
+  // zh 用窄格式保持单字视觉（日一二…），en 用短格式（Sun Mon…），不再硬编码数组
+  const fmt = new Intl.DateTimeFormat(locale.value === 'zh' ? 'zh-CN' : 'en-US', {
+    weekday: locale.value === 'zh' ? 'narrow' : 'short',
+    timeZone: 'UTC',
+  })
+  return Array.from({ length: 7 }, (_, i) => fmt.format(new Date(SUNDAY_UTC + i * 86_400_000)))
 })
 
 const monthLabel = computed(() => {
   const d = new Date(viewYear.value, viewMonth.value, 1)
-  if (locale.value === 'zh') {
-    return `${viewYear.value}年${viewMonth.value + 1}月`
-  }
-  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short' })
+  const isZh = locale.value === 'zh'
+  const month = isZh
+    ? viewMonth.value + 1
+    : d.toLocaleDateString('en-US', { month: 'short' })
+  return t('datePicker.monthLabel', { year: viewYear.value, month })
 })
 
 const days = computed(() => {
@@ -144,14 +152,14 @@ const displayValue = computed(() => {
       @click="toggle"
     >
       <span class="truncate" :class="!modelValue ? 'text-gray-400 dark:text-gray-500' : ''">
-        {{ displayValue || placeholder || (locale === 'zh' ? '选择日期' : 'Select date') }}
+        {{ displayValue || placeholder || t('datePicker.selectDate') }}
       </span>
       <div class="flex items-center gap-0.5 shrink-0">
         <button
           v-if="modelValue"
           type="button"
           class="p-0.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded"
-          :aria-label="locale === 'zh' ? '清除日期' : 'Clear date'"
+          :aria-label="t('datePicker.clearDate')"
           @click="clear"
         >
           <X class="w-3 h-3" />
@@ -165,13 +173,14 @@ const displayValue = computed(() => {
         v-if="isOpen"
         class="absolute z-[60] mt-1 ui-card shadow-[var(--sp-shadow-md)] p-3 w-[272px] right-0"
         role="dialog"
+        :aria-label="monthLabel"
       >
         <div class="flex items-center justify-between mb-2.5">
-          <button type="button" class="ui-icon-btn !w-7 !h-7" :aria-label="locale === 'zh' ? '上个月' : 'Previous month'" @click="prevMonth">
+          <button type="button" class="ui-icon-btn !w-7 !h-7" :aria-label="t('datePicker.prevMonth')" @click="prevMonth">
             <ChevronLeft class="w-4 h-4" />
           </button>
           <span class="text-xs font-medium text-gray-900 dark:text-gray-100 tracking-wide">{{ monthLabel }}</span>
-          <button type="button" class="ui-icon-btn !w-7 !h-7" :aria-label="locale === 'zh' ? '下个月' : 'Next month'" @click="nextMonth">
+          <button type="button" class="ui-icon-btn !w-7 !h-7" :aria-label="t('datePicker.nextMonth')" @click="nextMonth">
             <ChevronRight class="w-4 h-4" />
           </button>
         </div>
@@ -186,6 +195,11 @@ const displayValue = computed(() => {
             :key="idx"
             type="button"
             :disabled="!item.day"
+            :aria-label="item.day
+              ? locale === 'zh'
+                ? `${viewYear}年${viewMonth + 1}月${item.day}日`
+                : `${monthLabel} ${item.day}`
+              : undefined"
             class="h-8 w-8 mx-auto flex items-center justify-center text-xs rounded-sm transition-colors"
             :class="[
               !item.day ? 'invisible' : '',
@@ -205,7 +219,7 @@ const displayValue = computed(() => {
             class="text-[11px] text-sky-600 dark:text-sky-400 hover:underline font-medium"
             @click="goToday"
           >
-            {{ locale === 'zh' ? '今天' : 'Today' }}
+            {{ t('datePicker.today') }}
           </button>
         </div>
       </div>

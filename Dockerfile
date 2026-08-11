@@ -1,4 +1,5 @@
-FROM node:22-slim AS frontend-builder
+# 与 .nvmrc、package.json engines 和 GitHub Actions 保持一致。
+FROM node:22.23.1-slim AS frontend-builder
 
 WORKDIR /frontend
 
@@ -35,7 +36,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends build-essential
   rm -rf /var/lib/apt/lists/*
 
 # Install all Python dependencies in a single layer for faster builds.
-COPY pyproject.toml pyotp.py README.md /app/
+# 注意：pyotp 直接使用官方依赖（pip 安装），仓库不再提供根级 pyotp.py shim，勿在此 COPY。
+COPY pyproject.toml README.md /app/
 COPY tg_signer/__init__.py /app/tg_signer/__init__.py
 COPY backend /app/backend
 COPY tg_signer /app/tg_signer

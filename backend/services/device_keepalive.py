@@ -3,14 +3,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 
 from backend.core.config import get_settings
 from backend.services.config import get_config_service
 from backend.services.telegram import get_telegram_service
-from backend.utils.time import utc_now_iso_z
+from backend.utils.atomic_io import write_json_atomic
+from backend.utils.time import utc_now, utc_now_iso_z
 
 logger = logging.getLogger("backend.device_keepalive")
 
@@ -39,30 +39,20 @@ class DeviceKeepaliveService:
         return {"accounts": {}}
 
     def _save_state(self, state: Dict[str, Any]) -> None:
-        """原子写入状态文件（先写临时文件再重命名，避免崩溃导致文件损坏）。"""
-        import tempfile
-
+        """原子写入状态文件，避免崩溃导致文件损坏。"""
         try:
-            self.state_file.parent.mkdir(parents=True, exist_ok=True)
-            # 使用临时文件写入，然后原子重命名
-            fd, tmp_path = tempfile.mkstemp(
-                dir=self.state_file.parent,
-                prefix=".device_keepalive_",
-                suffix=".tmp",
-            )
-            try:
-                with os.fdopen(fd, "w", encoding="utf-8") as f:
-                    json.dump(state, f, ensure_ascii=False, indent=2)
-                os.replace(tmp_path, self.state_file)
-            except Exception:
-                # 清理临时文件
-                try:
-                    os.unlink(tmp_path)
-                except OSError:
-                    pass
-                raise
-        except OSError as exc:
+            write_json_atomic(self.state_file, state)
+        except (OSError, TypeError, ValueError) as exc:
             logger.warning("保存设备保活状态失败: %s", exc)
+
+    @staticmethod
+    def _parse_interval_days(value: Any, default: int = 30) -> int:
+        """容错解析保活间隔：非法值回落默认，结果限制在 1~170 天。"""
+        try:
+            days = int(value if value not in (None, "") else default)
+        except (TypeError, ValueError):
+            days = default
+        return max(1, min(days, 170))
 
     @staticmethod
     def _parse_time(value: Any) -> datetime | None:
@@ -80,10 +70,12 @@ class DeviceKeepaliveService:
     async def run_due(self, force: bool = False) -> Dict[str, Any]:
         """执行设备保活检查。force=True 时忽略上次检查时间。"""
         # 防止并发执行（调度器和手动端点可能重叠）
+        config = get_config_service().get_global_settings()
+        enabled = bool(config.get("device_keepalive_enabled", True))
         if self._running_lock.locked():
             return {
                 "success": False,
-                "enabled": True,
+                "enabled": enabled,
                 "checked": 0,
                 "kept_alive": 0,
                 "skipped": 0,
@@ -99,8 +91,9 @@ class DeviceKeepaliveService:
         """实际执行设备保活检查的内部方法。"""
         config = get_config_service().get_global_settings()
         enabled = bool(config.get("device_keepalive_enabled", True))
-        interval_days = int(config.get("device_keepalive_interval_days") or 30)
-        interval_days = max(1, min(interval_days, 170))
+        interval_days = self._parse_interval_days(
+            config.get("device_keepalive_interval_days")
+        )
 
         if not enabled and not force:
             return {
@@ -115,7 +108,7 @@ class DeviceKeepaliveService:
 
         state = self._load_state()
         account_state = state.setdefault("accounts", {})
-        now = datetime.now(timezone.utc)
+        now = utc_now()
         cutoff = now - timedelta(days=interval_days)
 
         service = get_telegram_service()
@@ -137,7 +130,7 @@ class DeviceKeepaliveService:
                     {
                         "account_name": account_name,
                         "status": "skipped",
-                        "message": "not due",
+                        "message": "未到期",
                         "last_ok_at": last_ok.isoformat().replace("+00:00", "Z"),
                     }
                 )
@@ -158,12 +151,12 @@ class DeviceKeepaliveService:
                         {
                             "account_name": account_name,
                             "status": "ok",
-                            "message": "keepalive ok",
+                            "message": "保活成功",
                         }
                     )
                 else:
                     message = str(
-                        status.get("message") or status.get("code") or "failed"
+                        status.get("message") or status.get("code") or "保活失败"
                     )
                     entry["last_error"] = message
                     failed += 1

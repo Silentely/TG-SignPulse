@@ -1,7 +1,31 @@
-"""UserMonitor（从 core 拆分）。"""
+"""UserMonitor：关键词监控 worker（从 runtime.py 拆分）。
+
+依赖 BaseUserWorker（runtime.py 真源）；runtime.py 不反向引用本模块，无循环导入。
+"""
 from __future__ import annotations
 
-from tg_signer.core.worker import *  # noqa: F403
+import asyncio
+import logging
+import os
+
+import httpx
+
+from tg_signer.async_utils import create_logged_task
+from tg_signer.compat import (
+    Message,
+    MessageHandler,
+    filters,
+    idle,
+)
+from tg_signer.config import HttpCallback, MatchConfig, MonitorConfig, UDPForward
+from tg_signer.core.client import OPENAI_USE_PROMPT
+from tg_signer.core.runtime import BaseUserWorker
+from tg_signer.log_utils import safe_text_preview
+from tg_signer.notification.server_chan import sc_send
+from tg_signer.utils import UserInput, print_to_user
+
+logger = logging.getLogger("tg_signer.runtime.monitor")
+
 
 class UserMonitor(BaseUserWorker[MonitorConfig]):
     _workdir = ".monitor"
@@ -106,7 +130,10 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                     }
                 )
 
-        return MatchConfig.parse_obj(
+        from tg_signer.pydantic_compat import model_validate
+
+        return model_validate(
+            MatchConfig,
             {
                 "chat_id": chat_id,
                 "rule": rule,
@@ -122,7 +149,7 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                 "push_via_server_chan": push_via_server_chan,
                 "server_chan_send_key": server_chan_send_key,
                 "external_forwards": external_forwards,
-            }
+            },
         )
 
     def ask_for_config(self) -> "MonitorConfig":
@@ -238,11 +265,20 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                     if not server_chan_send_key:
                         self.log("未配置Server酱的SendKey", level="WARNING")
                     else:
-                        await sc_send(
-                            server_chan_send_key,
-                            f"匹配到监控项：{match_cfg.chat_id}",
-                            f"消息内容为:\n\n{message.text}",
-                        )
+                        try:
+                            await sc_send(
+                                server_chan_send_key,
+                                f"匹配到监控项：{match_cfg.chat_id}",
+                                f"消息内容为:\n\n{message.text}",
+                            )
+                        except Exception as e:
+                            # 推送失败不中断其余监控项的匹配处理
+                            logger.warning(
+                                "Server酱推送失败 chat_id=%s: %s",
+                                match_cfg.chat_id,
+                                safe_text_preview(e, 200),
+                                exc_info=True,
+                            )
             except IndexError as e:
                 logger.exception(e)
 
@@ -284,4 +320,4 @@ class _UDPProtocol(asyncio.DatagramProtocol):
         pass  # 不需要处理接收的数据
 
     def error_received(self, exc):
-        print(f"UDP error received: {exc}")
+        logger.warning("收到 UDP 错误: %s", exc)

@@ -3,25 +3,25 @@ import { ref, watch, useTemplateRef, computed } from 'vue'
 import Modal from '../Modal.vue'
 import TaskForm from './TaskForm.vue'
 import { createSignTask } from '../../lib/api'
+import { getAuthToken } from '../../lib/api/core'
 import type { CreateSignTaskRequest, SignTask } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
-import { useAuthStore } from '../../stores/auth'
+import { useToast } from '../../composables/useToast'
 import { getLocalizedErrorMessage } from '../../lib/types'
 import { buildSignTaskFromTemplate, getTemplateById } from '../../lib/task-templates'
 
 const { t } = useI18n()
-const authStore = useAuthStore()
+const toast = useToast()
 
 const props = defineProps<{
   isOpen: boolean
   /** 从内置模板打开时传入模板 id */
   templateId?: string | null
-  /** 预填账号名（通常为当前列表第一个） */
+  /** 预填账号名（账号卡片深链或列表第一个） */
   preferAccount?: string | null
 }>()
 const emit = defineEmits<{ (e: 'close'): void, (e: 'success'): void }>()
 
-const payload = ref<Partial<CreateSignTaskRequest>>({})
 const taskFormRef = useTemplateRef<InstanceType<typeof TaskForm>>('taskForm')
 const notifyOnFailure = ref(true)
 const notifyOnSuccess = ref(true)
@@ -41,7 +41,6 @@ const modalTitle = computed(() => {
 watch(() => props.isOpen, (val) => {
   if (val) {
     error.value = ''
-    payload.value = {}
     notifyOnFailure.value = true
     notifyOnSuccess.value = true
     if (props.templateId && getTemplateById(props.templateId)) {
@@ -57,23 +56,62 @@ watch(() => props.isOpen, (val) => {
       }
     } else {
       templateSeed.value = undefined
-      formKey.value = 'blank'
+      formKey.value = `blank-${props.preferAccount || 'all'}`
     }
   } else {
     templateSeed.value = undefined
   }
 })
 
+/** 有效 chat_id：Telegram 群/频道为负数，不能用 > 0 判断 */
+const isValidChatId = (raw: unknown): boolean => {
+  const id = Number(raw)
+  return Number.isFinite(id) && id !== 0
+}
+
+/** 独立任务名：去路径分隔符、控制长度，后缀用 chatId 保证可区分 */
+const buildSplitTaskName = (baseName: string, chatId: number, used: Set<string>): string => {
+  const cleaned = baseName.replace(/[/\\]/g, '_').trim() || `task_${Date.now()}`
+  const suffix = String(chatId).replace(/^-/, 'n')
+  // 预留后缀空间，避免 slice 后撞名
+  const maxBase = Math.max(8, 80 - suffix.length - 1)
+  let name = `${cleaned.slice(0, maxBase)}_${suffix}`
+  if (!used.has(name)) {
+    used.add(name)
+    return name
+  }
+  let i = 2
+  while (used.has(`${name}_${i}`) && i < 1000) i += 1
+  name = `${name}_${i}`.slice(0, 80)
+  used.add(name)
+  return name
+}
+
 const handleSave = async () => {
-  const token = authStore.token
+  const token = getAuthToken()
   if (!token) return
 
-  // 保存前同步刷新 payload，避免防抖延迟导致提交旧值
-  taskFormRef.value?.flushPayload?.()
+  // 字段级校验（任务名非法字符等）
+  if (taskFormRef.value?.validateForSubmit && !taskFormRef.value.validateForSubmit()) {
+    return
+  }
+  // 命令式取最新 payload（TaskForm 已去除 update:payload 双通道，保存路径直接读取）
+  const built = taskFormRef.value?.buildPayload?.() as CreateSignTaskRequest | undefined
+  const body = built || ({} as CreateSignTaskRequest)
+  // defineExpose 的 ref 经模板 ref 访问已被自动解包为原始值
+  const createMode = taskFormRef.value?.createMode ?? 'shared'
 
-  const chats = payload.value.chats || []
-  const hasChat = chats.some((c) => Number(c.chat_id) > 0)
-  if (!hasChat) {
+  const chats = body.chats || []
+  // 去重 + 过滤无效 id（群组 chat_id 为负）
+  const seenIds = new Set<number>()
+  const validChats = chats.filter((c) => {
+    if (!isValidChatId(c.chat_id)) return false
+    const id = Number(c.chat_id)
+    if (seenIds.has(id)) return false
+    seenIds.add(id)
+    return true
+  })
+  if (!validChats.length) {
     error.value = t('taskModal.needChat')
     return
   }
@@ -81,13 +119,74 @@ const handleSave = async () => {
   loading.value = true
   error.value = ''
   try {
-    await createSignTask(token, {
-      ...payload.value,
+    const base = {
+      ...body,
       notify_on_failure: notifyOnFailure.value,
       notify_on_success: notifyOnSuccess.value,
-    } as CreateSignTaskRequest)
-    emit('success')
-    emit('close')
+    } as CreateSignTaskRequest
+
+    if (createMode === 'split' && validChats.length > 1) {
+      // 按会话拆成多个独立任务：同名后缀 _chatId，共享动作配置
+      const baseName = (base.name || `task_${Date.now()}`).trim()
+      const usedNames = new Set<string>()
+      let ok = 0
+      let fail = 0
+      const createdNames: string[] = []
+      const errorLines: string[] = []
+      for (const chat of validChats) {
+        const chatId = Number(chat.chat_id)
+        const taskName = buildSplitTaskName(baseName, chatId, usedNames)
+        const chatLabel = chat.name || String(chatId)
+        try {
+          await createSignTask(token, {
+            ...base,
+            name: taskName,
+            chats: [chat],
+          })
+          ok += 1
+          createdNames.push(taskName)
+        } catch (e: unknown) {
+          fail += 1
+          errorLines.push(
+            `${chatLabel}: ${getLocalizedErrorMessage(e, t)}`,
+          )
+        }
+      }
+      if (fail === 0) {
+        toast.success(t('tasks.splitCreateSuccess', { count: ok }), {
+          description: createdNames.slice(0, 5).join('\n')
+            + (createdNames.length > 5 ? `\n…(+${createdNames.length - 5})` : ''),
+        })
+        emit('success')
+        emit('close')
+      } else if (ok > 0) {
+        const detail = [
+          t('tasks.splitCreatePartial', { ok, fail }),
+          ...errorLines.slice(0, 5),
+        ].join('\n')
+        error.value = detail
+        toast.warning(t('tasks.splitCreatePartial', { ok, fail }), {
+          description: errorLines.slice(0, 5).join('\n'),
+          duration: 8000,
+        })
+        emit('success')
+        // 部分成功时保持弹窗，便于用户看到错误摘要
+      } else {
+        error.value = errorLines[0] || t('taskModal.addFailed')
+        toast.error(t('taskModal.addFailed'), {
+          description: errorLines.slice(0, 5).join('\n'),
+          duration: 8000,
+        })
+      }
+    } else {
+      await createSignTask(token, {
+        ...base,
+        chats: validChats,
+      })
+      toast.success(t('tasks.createSuccess'))
+      emit('success')
+      emit('close')
+    }
   } catch (e: unknown) {
     error.value = getLocalizedErrorMessage(e, t, t('taskModal.addFailed'))
   } finally {
@@ -98,40 +197,36 @@ const handleSave = async () => {
 
 <template>
   <Modal :isOpen="isOpen" @close="$emit('close')" :title="modalTitle" maxWidthClass="max-w-3xl">
-    <template #header-extra>
-      <div class="flex flex-wrap items-center gap-x-3 gap-y-1 ml-4">
-        <label class="flex items-center gap-1.5 cursor-pointer">
-          <input type="checkbox" v-model="notifyOnFailure" class="rounded border-gray-300 accent-sky-500 w-3.5 h-3.5">
-          <span class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('taskForm.notifyOnFailure') }}</span>
-        </label>
-        <label class="flex items-center gap-1.5 cursor-pointer">
-          <input type="checkbox" v-model="notifyOnSuccess" class="rounded border-gray-300 accent-sky-500 w-3.5 h-3.5">
-          <span class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('taskForm.notifyOnSuccess') }}</span>
-        </label>
-      </div>
-    </template>
-
-    <div class="space-y-4 px-1">
-      <div v-if="error" class="ui-alert-error">
-        {{ error }}
-      </div>
-      <p v-if="templateId && templateSeed" class="text-xs text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-500/10 border border-sky-200 dark:border-sky-800/40 px-3 py-2">
+    <div class="space-y-4">
+      <div
+        v-if="templateId"
+        class="rounded-sm border border-sky-200/80 bg-sky-50/80 dark:border-sky-800/50 dark:bg-sky-950/30 px-3 py-2 text-[11px] text-sky-900 dark:text-sky-200 leading-relaxed"
+      >
         {{ t('taskModal.templatePrefillHint') }}
-      </p>
-
-      <!-- key 固定于打开时刻：确保模板预填只应用一次 -->
+      </div>
       <TaskForm
-        v-if="isOpen"
         :key="formKey"
         ref="taskForm"
         :initial-task="templateSeed"
-        @update:payload="payload = $event"
+        :prefer-account="preferAccount"
       />
+      <div class="flex flex-wrap gap-4 pt-1">
+        <label class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 cursor-pointer">
+          <input v-model="notifyOnFailure" type="checkbox" class="ui-checkbox" />
+          {{ t('taskForm.notifyOnFailure') }}
+        </label>
+        <label class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 cursor-pointer">
+          <input v-model="notifyOnSuccess" type="checkbox" class="ui-checkbox" />
+          {{ t('taskForm.notifyOnSuccess') }}
+        </label>
+      </div>
+      <p v-if="error" class="text-xs text-rose-600 dark:text-rose-400">{{ error }}</p>
     </div>
-
     <template #footer>
-      <button @click="$emit('close')" class="ui-btn-secondary !border-transparent !bg-transparent !px-4 !py-2">{{ t('common.cancel') }}</button>
-      <button @click="handleSave" :disabled="loading" class="ui-btn-primary !px-4 !py-2">
+      <button type="button" class="ui-btn-secondary !border-transparent !bg-transparent !px-4 !py-2" @click="$emit('close')">
+        {{ t('common.cancel') }}
+      </button>
+      <button type="button" class="ui-btn-primary !px-4 !py-2" :disabled="loading" @click="handleSave">
         {{ loading ? t('taskModal.saving') : t('taskModal.confirmAdd') }}
       </button>
     </template>

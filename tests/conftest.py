@@ -20,20 +20,6 @@ from pathlib import Path
 from typing import Any, Dict
 
 import pytest
-
-
-@pytest.fixture(autouse=True)
-def _ensure_event_loop():
-    """确保测试前后都有可用的事件循环。
-    IsolatedAsyncioTestCase 会在 teardown 时关闭循环，
-    导致后续同步测试中 Pyrogram BaseClient.__init__ 获取不到循环而失败。
-    """
-    yield
-    try:
-        asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -67,6 +53,22 @@ from tests.utils.helpers import (
     create_temp_config_file,
 )
 
+
+@pytest.fixture(autouse=True)
+def _ensure_event_loop():
+    """确保测试前后都有可用的事件循环。
+
+    IsolatedAsyncioTestCase 会在 teardown 时关闭循环，导致后续同步测试中
+    Pyrogram BaseClient.__init__ 获取不到循环而失败。故放在 import 之后、
+    其余 fixture 之前注册，确保它是首个 autouse fixture。
+    """
+    yield
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
 # ============================================================================
 # 环境隔离 Fixtures
 # ============================================================================
@@ -89,7 +91,7 @@ def isolated_env(monkeypatch: pytest.MonkeyPatch, temp_data_dir: Path) -> Iterat
     """
     monkeypatch.setenv("APP_DATA_DIR", str(temp_data_dir))
     monkeypatch.setenv("APP_DB_PATH", str(temp_data_dir / "test.sqlite"))
-    monkeypatch.setenv("APP_SECRET_KEY", "test-secret-key")
+    monkeypatch.setenv("APP_SECRET_KEY", "test-secret-key-0123456789abcdef")
     monkeypatch.setenv("TG_API_ID", "12345")
     monkeypatch.setenv("TG_API_HASH", "test-api-hash")
     yield temp_data_dir
@@ -108,8 +110,6 @@ def no_external_telegram(monkeypatch: pytest.MonkeyPatch) -> None:
     # 测试中拉长内存检查间隔，避免干扰 lifespan 相关用例
     monkeypatch.setenv("MEMORY_CHECK_INTERVAL_S", "3600")
     monkeypatch.setenv("MEMORY_THRESHOLD_MB", "8192")
-    # 生产默认只读旧 /api/tasks；测试需允许写以覆盖遗留兼容路径
-    monkeypatch.setenv("APP_LEGACY_TASKS_READONLY", "0")
     os.environ.setdefault("OPENAI_API_KEY", "test-openai-key")
 
 

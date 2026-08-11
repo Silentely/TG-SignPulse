@@ -1,36 +1,63 @@
 ---
-name: Bug report (中文)
-about: 创建一个报告以帮助我们改进 (Create a report to help us improve)
-title: ''
+name: Bug 报告
+about: 报告一个 Bug 帮助我们改进 TG-SignPulse
+title: '[Bug] '
 labels: bug
 assignees: ''
 
 ---
 
-**描述 Bug (Describe the bug)**
+## 描述 Bug
+
 清晰简洁地描述 Bug 是什么。
 
-**复现步骤 (To Reproduce)**
-复现行为的步骤：
-1. 运行命令 '...'
-2. 看到错误
+## 复现步骤
 
-**预期行为 (Expected behavior)**
+复现行为的步骤：
+
+1. 进入 '...'
+2. 点击 '...'
+3. 看到错误
+
+## 预期行为
+
 清晰简洁地描述您预期的行为。
 
-**截图 (Screenshots)**
-如果适用，请添加截图以帮助解释您的问题。
+## 实际行为
 
-**环境 (Environment):**
- - 操作系统 (OS): [例如 macOS, Windows, Linux]
- - tg-signer 版本 (Version): [例如 0.1.0]
- - Python 版本 (Version): [例如 3.10]
+描述实际发生了什么。
 
-**日志 (Logs)**
-请提供相关日志。您可以在控制台输出或日志文件中找到它们。
+## 截图 / 录屏
+
+如果适用，请添加截图或录屏帮助解释问题。
+
+## 环境信息
+
+| 项目 | 值 |
+|------|-----|
+| 操作系统 | [例如 macOS 15 / Windows 11 / Ubuntu 24.04] |
+| TG-SignPulse 版本 | [例如 v2.2.2，可在设置-关于页面查看] |
+| Python 版本 | [例如 3.11] |
+| Node.js 版本 | [例如 22.x] |
+| 部署方式 | [Docker / 直接运行 / 其他] |
+| 浏览器 | [例如 Chrome 138 / Firefox 140] |
+
+## 日志
+
+请提供相关日志。可在控制台输出、Docker 日志或面板「任务日志」中获取。
+
 ```
 在此处粘贴日志
 ```
 
-**其他上下文 (Additional context)**
-在此处添加有关问题的任何其他上下文。
+## 相关配置（脱敏）
+
+如果与签到任务或监控配置相关，请脱敏后附上：
+
+```json
+在此处粘贴配置
+```
+
+## 其他上下文
+
+添加有关问题的任何其他上下文。

@@ -79,14 +79,13 @@
 - `GET` 模板 URL：URL 中可使用 `{title}`、`{body}`、`{url}`
 - `POST JSON`：如果 URL 中没有模板变量，则直接发 JSON
 
-面板监听任务的 `push_channel` 仅支持：`continue`、`telegram`、`forward`、`bark`、`custom`。  
-ServerChan / Server 酱没有独立通道枚举；请用 `custom` 接入，例如：
+### 6. `server_chan`
 
-```text
-https://sctapi.ftqq.com/<sendkey>.send?title={title}&desp={body}
-```
+把命中消息推送到 Server酱（ServerChan）。面板监听任务选择 `server_chan` 通道后需填写 sendkey；未配置 sendkey 时静默跳过。
 
-> CLI / `tg_signer` 监控配置（`MatchConfig`）另支持 `push_via_server_chan` + `server_chan_send_key`，与面板 `push_channel` 不是同一套字段。
+面板监听任务的 `push_channel` 支持：`continue`、`telegram`、`forward`、`bark`、`custom`、`server_chan`。
+
+> CLI / `tg_signer` 监控配置（`MatchConfig`）另支持 `push_via_server_chan` + `server_chan_send_key`，与面板 `push_channel` 是同一能力的两种表达。
 
 ## UDP/HTTP 外部转发
 
@@ -241,6 +240,32 @@ t.me/shrekpublicbot?start=SAKURA-30-Register_Q2NK4Yw68E
 > ⚠️ **风险提示**：`max_batch` 默认 5。调高后短时间连发 `/start` 可能触发 Telegram 风控、限流甚至账号封禁，请勿为抢注盲目加大。
 
 > **注意**：通过 API 发送给 Bot 的 `/start` 消息**不会显示在 Telegram 客户端的对话列表中**，这是 Telegram 的设计行为，不影响功能。Bot 端确实收到了消息并会正常响应。可通过任务日志中的「Bot 命令触发成功」确认发送状态。
+
+## 忽略自身与时间窗（面板）
+
+面板监听动作（`action=8`）额外支持：
+
+| 字段 | 默认 | 说明 |
+| --- | --- | --- |
+| `ignore_self` | `true` | 忽略本账号发出的消息，避免自动回复死循环 |
+| `active_time_start` / `active_time_end` | 空 | `HH:MM` 时间窗；均有效时才启用，支持跨午夜（如 `23:00`–`02:00`） |
+
+时间窗按**系统设置中的任务时区**判断，与调度器时区一致。
+
+## 命中记录
+
+命中事件除任务流程日志外，会写入结构化命中库（`data` 工作目录下 `keyword_monitor/hits.jsonl`，约保留最近 5000 条）。
+
+面板：打开**监听任务**的日志弹窗 →「命中记录」Tab，支持列表、按会话/账号/任务分组、导出 CSV、按任务清空。
+
+API（需登录）：
+
+| 端点 | 说明 |
+| --- | --- |
+| `GET /api/keyword-hits` | 列表（`account_name` / `task_name` / `limit` / `offset`） |
+| `GET /api/keyword-hits/groups` | 分组（`group_by=task\|account\|chat`） |
+| `GET /api/keyword-hits/export` | CSV 导出 |
+| `DELETE /api/keyword-hits` | 清空（可按账号/任务过滤） |
 
 ## 设计建议
 

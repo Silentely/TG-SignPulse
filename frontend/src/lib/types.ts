@@ -1,38 +1,5 @@
-/** @deprecated 旧版 ORM 账号类型；面板账号请用 api.ts 的 AccountInfo */
-export type Account = {
-  id: number;
-  account_name: string;
-  api_id: string;
-  api_hash: string;
-  proxy?: string | null;
-  status: string;
-  last_login_at?: string | null;
-  created_at: string;
-  updated_at: string;
-};
-
-/** @deprecated 旧版 ORM 任务类型；新任务请用 api.ts 的 SignTask */
-export type Task = {
-  id: number;
-  name: string;
-  cron: string;
-  enabled: boolean;
-  account_id: number;
-  last_run_at?: string | null;
-  created_at: string;
-  updated_at: string;
-};
-
-/** @deprecated 旧版 ORM 任务日志；新日志请用 TaskHistoryLog / SignTaskHistoryItem */
-export type TaskLog = {
-  id: number;
-  task_id: number;
-  status: string;
-  log_path?: string | null;
-  output?: string | null;
-  started_at: string;
-  finished_at?: string | null;
-};
+/** 旧版 ORM 账号/任务/任务日志类型已删除：面板统一使用 api.ts 的 AccountInfo / SignTask / SignTaskHistoryItem。
+ *  保留 TokenResponse 及下方视图模型类型。 */
 
 export type TokenResponse = {
   access_token: string;
@@ -53,8 +20,6 @@ export interface DashboardLog {
 }
 
 // ─── Accounts 视图模型 ───
-export type AccountUiStatus = 'active' | 'empty' | 'error';
-
 export interface AccountUiItem {
   id: string;
   name: string;
@@ -62,7 +27,6 @@ export interface AccountUiItem {
   status: string;
   message: string;
   avatarUrl: string;
-  avatarLoaded: boolean;
   raw: import('./api').AccountInfo;
 }
 
@@ -74,6 +38,10 @@ export interface TaskUiItem {
   name: string;
   scheduleMode: string;
   targetStr: string;
+  /** 目标会话总数（多 chat 时用于 +N 展示） */
+  targetCount: number;
+  /** 监听任务最近命中条数（可选，列表角标） */
+  hitCount?: number;
   lastRunStr: string;
   lastRunSuccess: boolean | null;
   modeIcon: Component;
@@ -138,6 +106,9 @@ export interface RawTaskAction {
   keywords?: string[];
   match_mode?: string;
   push_channel?: string;
+  ignore_self?: boolean;
+  active_time_start?: string;
+  active_time_end?: string;
   forward_chat_id?: string;
   forward_message_thread_id?: string;
   bark_url?: string;
@@ -158,6 +129,9 @@ export interface BuiltAction {
   keywords?: string[];
   match_mode?: string;
   push_channel?: string;
+  ignore_self?: boolean;
+  active_time_start?: string;
+  active_time_end?: string;
   forward_chat_id?: string;
   forward_message_thread_id?: string;
   bark_url?: string;
@@ -179,30 +153,30 @@ export interface FastApiValidationError {
   type: string;
 }
 
-// ─── 缓存条目类型 ───
-export interface CacheEntry<T> {
-  data: T;
-  timestamp: number;
-}
-
 // ─── 工具函数 ───
 
 /** 常见 API / 网络错误码 → 默认英文文案（无 i18n 时兜底） */
 const API_ERROR_CODE_MESSAGES: Record<string, string> = {
   NETWORK_TIMEOUT: 'Request timed out',
+  NETWORK_ABORTED: 'Request cancelled',
   NETWORK_ERROR: 'Network error',
   ACCOUNT_SESSION_INVALID: 'Account session invalid, please re-login',
   TASK_LOG_NOT_FOUND: 'Task log not found',
   LOGIN_LOG_NOT_FOUND: 'Login log not found',
   INVALID_DATE_FILTER: 'Invalid date filter',
   LEGACY_TASKS_READONLY:
-    'Legacy /api/tasks is read-only; use /api/sign-tasks',
+    'Legacy /api/tasks has been removed; use /api/sign-tasks',
   TASK_NOT_FOUND: 'Task not found',
   ACCOUNT_NOT_FOUND: 'Account not found',
   RATE_LIMITED: 'Too many requests, please try later',
   INVALID_USERNAME_OR_PASSWORD: 'Invalid username or password',
   TOTP_REQUIRED_OR_INVALID: '2FA code invalid or missing',
+  WEBDAV_NOT_CONFIGURED: 'WebDAV is not configured',
+  BACKUP_EMPTY: 'Nothing to back up',
+  AI_KEY_DECRYPT_FAILED: 'API Key decrypt failed; check APP_SECRET_KEY and re-save',
+  CONFIG_IMPORT_FAILED: 'Config import failed',
 }
+
 
 const CODE_LIKE = /^[A-Z][A-Z0-9_]{2,}$/
 
@@ -237,6 +211,18 @@ export function getErrorCode(e: unknown): string | undefined {
 }
 
 /**
+ * 超长错误文案截断：未知错误对象的 message/detail/序列化结果都可能
+ * 携带长堆栈或嵌套字段，统一截断避免 toast 刷屏。
+ */
+const MAX_ERROR_MESSAGE_LENGTH = 200
+
+function truncateErrorMessage(text: string): string {
+  return text.length > MAX_ERROR_MESSAGE_LENGTH
+    ? `${text.slice(0, MAX_ERROR_MESSAGE_LENGTH)}…`
+    : text
+}
+
+/**
  * 从未知错误值中提取可读消息。
  * 空字符串 / 空白消息回退为默认文案，避免 toast 出现空白提示。
  * 已知错误码映射为可读英文；UI 可用 getErrorCode + i18n 再覆盖。
@@ -256,30 +242,38 @@ export function getErrorMessage(e: unknown, fallback = 'Unknown error'): string 
         : typeof (e as Record<string, unknown>).detail === 'string'
           ? String((e as Record<string, unknown>).detail).trim()
           : ''
-    if (status === 410 || /legacy.*read-?only|APP_LEGACY_TASKS_READONLY/i.test(msg)) {
+    if (
+      status === 410 ||
+      /legacy.*(read-?only|removed)|APP_LEGACY_TASKS_READONLY|LEGACY_EVENTS_LOGS_REMOVED/i.test(
+        msg,
+      )
+    ) {
       return API_ERROR_CODE_MESSAGES.LEGACY_TASKS_READONLY
     }
   }
 
   if (e instanceof Error) {
     const msg = (e.message || '').trim()
-    return msg || fallback
+    return msg ? truncateErrorMessage(msg) : fallback
   }
   if (typeof e === 'string') {
     const msg = e.trim()
-    return msg || fallback
+    return msg ? truncateErrorMessage(msg) : fallback
   }
   if (e && typeof e === 'object') {
     const record = e as Record<string, unknown>
     if (typeof record.message === 'string' && record.message.trim()) {
-      return record.message.trim()
+      return truncateErrorMessage(record.message.trim())
     }
     if (typeof record.detail === 'string' && record.detail.trim()) {
-      return record.detail.trim()
+      return truncateErrorMessage(record.detail.trim())
     }
     try {
       const serialized = JSON.stringify(e)
-      return serialized && serialized !== '{}' ? serialized : fallback
+      if (serialized && serialized !== '{}') {
+        return truncateErrorMessage(serialized)
+      }
+      return fallback
     } catch {
       return fallback
     }

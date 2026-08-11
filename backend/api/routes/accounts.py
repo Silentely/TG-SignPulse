@@ -7,19 +7,54 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel
 
+from backend.api.routes.accounts_helpers import (
+    build_status_check_error_item,
+    clamp_status_check_timeout,
+    find_account_by_name,
+    normalize_unique_account_names,
+    qr_uri_to_data_url,
+    resolve_account_rename_target,
+)
+from backend.api.routes.accounts_schemas import (
+    AccountDeviceItem,
+    AccountDevicesResponse,
+    AccountInfo,
+    AccountListResponse,
+    AccountLogItem,
+    AccountStatusCheckRequest,
+    AccountStatusCheckResponse,
+    AccountStatusItem,
+    AccountStatusJobStartRequest,
+    AccountUpdateRequest,
+    AccountUpdateResponse,
+    ClearAccountLogsResponse,
+    DeleteAccountResponse,
+    LoginStartRequest,
+    LoginStartResponse,
+    LoginVerifyRequest,
+    LoginVerifyResponse,
+    OfficialMessageItem,
+    OfficialMessagesResponse,
+    QrLoginCancelRequest,
+    QrLoginCancelResponse,
+    QrLoginPasswordRequest,
+    QrLoginPasswordResponse,
+    QrLoginStartRequest,
+    QrLoginStartResponse,
+    QrLoginStatusResponse,
+    TerminateDeviceResponse,
+    _extract_last_bot_message,
+)
 from backend.core.auth import get_current_user
 from backend.core.rate_limit import compose_rate_limit_key, get_rate_limiter
 from backend.models.user import User
 from backend.services.telegram import get_telegram_service
-from backend.utils.task_logs import extract_last_target_message
 
 router = APIRouter()
-logger = logging.getLogger("backend.qr_login")
+logger = logging.getLogger("backend.accounts_api")
 rate_limiter = get_rate_limiter()
 
 
@@ -42,223 +77,6 @@ def _apply_rate_limit(
         detail=detail,
     )
     return key
-
-
-# ============ Schemas ============
-
-
-class LoginStartRequest(BaseModel):
-    """开始登录请求"""
-
-    account_name: str
-    phone_number: str
-    proxy: Optional[str] = None
-
-
-class LoginStartResponse(BaseModel):
-    """开始登录响应"""
-
-    phone_code_hash: str
-    phone_number: str
-    account_name: str
-    message: str = "验证码已发送到您的手机"
-
-
-class LoginVerifyRequest(BaseModel):
-    """验证登录请求"""
-
-    account_name: str
-    phone_number: str
-    phone_code: str
-    phone_code_hash: str
-    password: Optional[str] = None  # 2FA 密码
-    proxy: Optional[str] = None
-
-
-class LoginVerifyResponse(BaseModel):
-    """验证登录响应"""
-
-    success: bool
-    user_id: Optional[int] = None
-    first_name: Optional[str] = None
-    username: Optional[str] = None
-    message: str
-
-
-class QrLoginStartRequest(BaseModel):
-    """扫码登录请求"""
-
-    account_name: str
-    proxy: Optional[str] = None
-
-
-class QrLoginStartResponse(BaseModel):
-    """扫码登录开始响应"""
-
-    login_id: str
-    qr_uri: str
-    qr_image: Optional[str] = None
-    expires_at: str
-
-
-class AccountInfo(BaseModel):
-    """账号信息"""
-
-    name: str
-    session_file: str
-    exists: bool
-    size: int
-    remark: Optional[str] = None
-    proxy: Optional[str] = None
-    status: str = "connected"
-    status_message: Optional[str] = None
-    status_code: Optional[str] = None
-    status_checked_at: Optional[str] = None
-    needs_relogin: bool = False
-
-
-class QrLoginStatusResponse(BaseModel):
-    """扫码登录状态响应"""
-
-    status: str
-    expires_at: Optional[str] = None
-    message: Optional[str] = None
-    account: Optional[AccountInfo] = None
-    user_id: Optional[int] = None
-    first_name: Optional[str] = None
-    username: Optional[str] = None
-
-
-class QrLoginCancelRequest(BaseModel):
-    """扫码登录取消请求"""
-
-    login_id: str
-
-
-class QrLoginCancelResponse(BaseModel):
-    """扫码登录取消响应"""
-
-    success: bool
-    message: str
-
-
-class QrLoginPasswordRequest(BaseModel):
-    """扫码登录 2FA 密码请求"""
-
-    login_id: str
-    password: str
-
-
-class QrLoginPasswordResponse(BaseModel):
-    """扫码登录 2FA 密码响应"""
-
-    success: bool
-    message: str
-    account: Optional[AccountInfo] = None
-    user_id: Optional[int] = None
-    first_name: Optional[str] = None
-    username: Optional[str] = None
-
-
-class AccountListResponse(BaseModel):
-    """账号列表响应"""
-
-    accounts: list[AccountInfo]
-    total: int
-
-
-class DeleteAccountResponse(BaseModel):
-    """删除账号响应"""
-
-    success: bool
-    message: str
-
-
-class AccountUpdateRequest(BaseModel):
-    new_account_name: Optional[str] = None
-    """更新账号备注/代理"""
-
-    remark: Optional[str] = None
-    proxy: Optional[str] = None
-
-
-class AccountUpdateResponse(BaseModel):
-    """更新账号响应"""
-
-    success: bool
-    message: str
-    account: Optional[AccountInfo] = None
-
-
-class AccountStatusCheckRequest(BaseModel):
-    """批量账号状态检测请求"""
-
-    account_names: Optional[list[str]] = None
-    timeout_seconds: float = 6.0
-
-
-class AccountStatusItem(BaseModel):
-    """账号状态检测结果"""
-
-    account_name: str
-    ok: bool
-    status: str
-    message: str = ""
-    code: Optional[str] = None
-    checked_at: Optional[str] = None
-    needs_relogin: bool = False
-    user_id: Optional[int] = None
-
-
-class AccountStatusCheckResponse(BaseModel):
-    """批量账号状态检测响应"""
-
-    results: list[AccountStatusItem]
-
-
-class AccountDeviceItem(BaseModel):
-    """Telegram 已登录设备/授权会话"""
-
-    hash: str
-    current: bool = False
-    official_app: bool = False
-    password_pending: bool = False
-    device_model: str = ""
-    platform: str = ""
-    system_version: str = ""
-    app_name: str = ""
-    app_version: str = ""
-    date_created: Optional[str] = None
-    date_active: Optional[str] = None
-    ip: str = ""
-    country: str = ""
-    region: str = ""
-
-
-class AccountDevicesResponse(BaseModel):
-    devices: list[AccountDeviceItem]
-    total: int
-
-
-class TerminateDeviceResponse(BaseModel):
-    success: bool
-    message: str
-
-
-class OfficialMessageItem(BaseModel):
-    id: Optional[int] = None
-    date: Optional[str] = None
-    text: str = ""
-    outgoing: bool = False
-
-
-class OfficialMessagesResponse(BaseModel):
-    messages: list[OfficialMessageItem]
-    total: int
-
-
-# ============ API Routes ============
-
 
 @router.post("/login/start", response_model=LoginStartResponse)
 async def start_account_login(
@@ -375,29 +193,10 @@ async def start_qr_login(
         )
         rate_limiter.reset("accounts.qr.start", limit_key)
 
-        qr_image = None
-        try:
-            import base64
-            from io import BytesIO
-
-            import qrcode
-
-            qr = qrcode.QRCode(version=1, box_size=8, border=2)
-            qr.add_data(result["qr_uri"])
-            qr.make(fit=True)
-            img = qr.make_image(fill_color="black", back_color="white")
-            buf = BytesIO()
-            img.save(buf, format="PNG")
-            qr_image = "data:image/png;base64," + base64.b64encode(
-                buf.getvalue()
-            ).decode("utf-8")
-        except Exception:
-            qr_image = None
-
         return QrLoginStartResponse(
             login_id=result["login_id"],
             qr_uri=result["qr_uri"],
-            qr_image=qr_image,
+            qr_image=qr_uri_to_data_url(result.get("qr_uri") or ""),
             expires_at=result["expires_at"],
         )
     except ValueError as e:
@@ -468,7 +267,7 @@ async def submit_qr_login_password(
             username=result.get("username"),
         )
     except ValueError as e:
-        logger.warning("qr_password_failed login_id=%s error=%s", request.login_id, e)
+        logger.warning("QR 密码校验失败 login_id=%s error=%s", request.login_id, e)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
         raise HTTPException(
@@ -510,9 +309,10 @@ def list_accounts(current_user: User = Depends(get_current_user)):
         )
 
     except Exception as e:
+        logger.error("获取账号列表失败: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"获取账号列表失败: {str(e)}",
+            detail="ACCOUNTS_LOAD_FAILED",
         )
 
 
@@ -521,28 +321,22 @@ async def check_accounts_status(
     request: AccountStatusCheckRequest, current_user: User = Depends(get_current_user)
 ):
     """
-    批量检测账号状态。
+    批量检测账号状态（同步，兼容旧客户端）。
 
+    账号较多时建议改用 POST /accounts/status/check-jobs 异步 Job。
     说明：
     - 默认按当前账号列表检测；
     - 顺序检测并做轻微节流，避免刷新页面时触发请求洪峰。
+    - 超过 8 个账号时仍同步执行，但前端批量入口已切到 Job API。
     """
     service = get_telegram_service()
     try:
-        if request.account_names:
-            names = []
-            seen = set()
-            for name in request.account_names:
-                normalized = (name or "").strip()
-                if not normalized or normalized in seen:
-                    continue
-                seen.add(normalized)
-                names.append(normalized)
-        else:
-            names = [item.get("name", "") for item in service.list_accounts()]
-            names = [n for n in names if n]
-
-        timeout_seconds = max(1.0, min(float(request.timeout_seconds or 8.0), 20.0))
+        fallback = [item.get("name", "") for item in service.list_accounts()]
+        names = normalize_unique_account_names(
+            request.account_names,
+            fallback_names=fallback,
+        )
+        timeout_seconds = clamp_status_check_timeout(request.timeout_seconds)
         results: list[AccountStatusItem] = []
         for idx, name in enumerate(names):
             try:
@@ -550,25 +344,79 @@ async def check_accounts_status(
                     name, timeout_seconds=timeout_seconds
                 )
             except Exception as exc:
-                item = {
-                    "account_name": name,
-                    "ok": False,
-                    "status": "error",
-                    "message": str(exc) or "status check failed",
-                    "code": "STATUS_CHECK_FAILED",
-                    "checked_at": None,
-                    "needs_relogin": False,
-                }
+                item = build_status_check_error_item(name, exc)
             results.append(AccountStatusItem(**item))
             if idx < len(names) - 1:
                 await asyncio.sleep(0.15)
 
         return AccountStatusCheckResponse(results=results)
     except Exception as e:
+        logger.error("账号状态检测失败: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"账号状态检测失败: {str(e)}",
+            detail="ACCOUNT_CHECK_FAILED",
         )
+
+
+@router.post("/status/check-jobs", status_code=status.HTTP_201_CREATED)
+async def start_account_status_check_job(
+    request: AccountStatusJobStartRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """启动账号会话状态批量检测 Job（可取消、可查询进度）。"""
+    from backend.services.account_status_jobs import start_account_status_check_job
+
+    try:
+        return start_account_status_check_job(
+            account_names=request.account_names,
+            timeout_seconds=request.timeout_seconds,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except Exception:
+        logger.exception("启动账号状态检测任务失败")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="ACCOUNT_CHECK_START_FAILED",
+        )
+
+
+@router.get("/status/check-jobs")
+def list_account_status_check_jobs(
+    limit: int = 20,
+    current_user: User = Depends(get_current_user),
+):
+    from backend.services.account_status_jobs import list_account_status_jobs
+
+    return {"jobs": list_account_status_jobs(limit=max(1, min(limit, 50)))}
+
+
+@router.get("/status/check-jobs/{job_id}")
+def get_account_status_check_job(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    from backend.services.account_status_jobs import get_account_status_job
+
+    job = get_account_status_job(job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job 不存在")
+    return job
+
+
+@router.post("/status/check-jobs/{job_id}/cancel")
+def cancel_account_status_check_job(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    from backend.services.account_status_jobs import cancel_account_status_job
+
+    if not cancel_account_status_job(job_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="无法取消（不存在或已结束）",
+        )
+    return {"ok": True, "job_id": job_id}
 
 
 @router.get("/logs/recent", response_model=list[dict])
@@ -585,7 +433,7 @@ def get_recent_account_logs(
     history = get_sign_task_service().get_recent_history_logs(limit=limit)
     logs: list[dict] = []
     for idx, item in enumerate(history):
-        task_name = item.get("task_name", "Unknown Task")
+        task_name = item.get("task_name", "未知任务")
         success = bool(item.get("success", False))
         logs.append(
             {
@@ -593,11 +441,12 @@ def get_recent_account_logs(
                 "account_name": item.get("account_name", ""),
                 "task_name": task_name,
                 "message": item.get("message")
-                or ("Task succeeded" if success else "Task failed"),
-                "summary": f"Task: {task_name} {'success' if success else 'failed'}",
+                or ("执行成功" if success else "执行失败"),
+                "summary": f"任务: {task_name} {'成功' if success else '失败'}",
                 "bot_message": _extract_last_bot_message(item) or None,
                 "success": success,
                 "created_at": item.get("time", ""),
+                "failure_category": item.get("failure_category") or None,
             }
         )
     return logs
@@ -622,15 +471,16 @@ async def delete_account(
         else:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"账号 {account_name} 不存在",
+                detail="ACCOUNT_NOT_FOUND",
             )
 
     except HTTPException:
         raise
     except Exception as e:
+        logger.error("删除账号失败: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"删除账号失败: {str(e)}",
+            detail="ACCOUNT_DELETE_FAILED",
         )
 
 
@@ -719,11 +569,10 @@ async def get_account_avatar(
     account_name: str, current_user: User = Depends(get_current_user)
 ):
     """获取账号 Telegram 头像（带本地缓存）"""
-    import time
-
-    from fastapi.responses import FileResponse, Response
+    from fastapi.responses import Response
 
     from backend.core.config import get_settings
+    from backend.services import avatar_cache
 
     settings = get_settings()
     avatar_cache_dir = settings.resolve_workdir() / "avatars"
@@ -732,32 +581,32 @@ async def get_account_avatar(
     no_avatar_marker = avatar_cache_dir / f"{account_name}.no_avatar"
 
     # 如果已标记为无头像（7天内），直接返回 404
-    if no_avatar_marker.exists():
-        age = time.time() - no_avatar_marker.stat().st_mtime
-        if age < 604800:
-            raise HTTPException(status_code=404, detail="No avatar available")
-        else:
-            no_avatar_marker.unlink(missing_ok=True)
+    if avatar_cache.marker_hits_no_avatar(no_avatar_marker):
+        raise HTTPException(status_code=404, detail="No avatar available")
 
     # 如果缓存存在且不超过 7 天，直接返回
-    if cache_file.exists():
-        age = time.time() - cache_file.stat().st_mtime
-        if age < 604800:
-            return FileResponse(cache_file, media_type="image/jpeg")
+    cached = avatar_cache.read_cached_avatar(cache_file)
+    if cached is not None:
+        return Response(content=cached, media_type="image/jpeg")
 
     # 尝试下载头像
     try:
-        avatar_bytes = await get_telegram_service().download_account_avatar(account_name)
+        avatar_bytes = await avatar_cache.get_avatar_bytes(
+            cache_file,
+            no_avatar_marker,
+            lambda: get_telegram_service().download_account_avatar(account_name),
+        )
         if avatar_bytes:
-            cache_file.write_bytes(avatar_bytes)
-            no_avatar_marker.unlink(missing_ok=True)
             return Response(content=avatar_bytes, media_type="image/jpeg")
         else:
-            no_avatar_marker.write_text("")
+            # 明确判定无头像才写标记
+            avatar_cache.mark_no_avatar(no_avatar_marker)
     except Exception:
-        if cache_file.exists():
-            return FileResponse(cache_file, media_type="image/jpeg")
-        no_avatar_marker.write_text("")
+        # 瞬时下载失败：回退缓存即可，不写"无头像"标记，下次请求重试
+        logger.warning("获取账号头像失败 account=%s", account_name, exc_info=True)
+        stale = avatar_cache.read_avatar_file(cache_file)
+        if stale is not None:
+            return Response(content=stale, media_type="image/jpeg")
 
     raise HTTPException(status_code=404, detail="No avatar available")
 
@@ -773,14 +622,7 @@ async def update_account(
     """
     service = get_telegram_service()
     accounts = service.list_accounts(force_refresh=True)
-    current_account = next(
-        (
-            acc
-            for acc in accounts
-            if str(acc.get("name") or "").strip().lower() == account_name.strip().lower()
-        ),
-        None,
-    )
+    current_account = find_account_by_name(accounts, account_name)
     if not current_account:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -791,12 +633,10 @@ async def update_account(
         from backend.utils.tg_session import set_account_profile
 
         actual_account_name = str(current_account.get("name") or account_name).strip()
-        target_account_name = (
-            request.new_account_name.strip()
-            if isinstance(request.new_account_name, str) and request.new_account_name.strip()
-            else actual_account_name
+        target_account_name, renamed = resolve_account_rename_target(
+            actual_account_name,
+            request.new_account_name,
         )
-        renamed = target_account_name != actual_account_name
         if renamed:
             target_account_name = await service.rename_account(
                 actual_account_name,
@@ -812,22 +652,23 @@ async def update_account(
         if renamed:
             from backend.scheduler import sync_jobs
 
-            await sync_jobs()
+            try:
+                await sync_jobs()
+            except Exception as exc:
+                # 调度同步失败不应阻断改名主流程；与 config.py/batch.py 的兜底策略一致
+                logger.warning("账号改名后同步调度任务失败: %s", exc)
 
         try:
             from backend.services.keyword_monitor import get_keyword_monitor_service
 
             await get_keyword_monitor_service().restart_from_tasks()
-        except Exception:
-            pass
+        except Exception as exc:
+            # 监控重启失败仅告警，避免静默保持旧账号监控
+            logger.warning("账号更新后重启关键词监控失败: %s", exc)
 
-        updated = next(
-            (
-                acc
-                for acc in service.list_accounts(force_refresh=True)
-                if acc.get("name") == target_account_name
-            ),
-            None,
+        updated = find_account_by_name(
+            service.list_accounts(force_refresh=True),
+            target_account_name,
         )
         if not updated:
             raise ValueError("账号信息更新后未找到对应账号")
@@ -845,39 +686,11 @@ async def update_account(
             detail=str(e),
         )
     except Exception as e:
+        logger.error("更新账号信息失败: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"更新账号信息失败: {str(e)}",
+            detail="ACCOUNT_UPDATE_FAILED",
         )
-
-class AccountLogItem(BaseModel):
-    """账号日志项"""
-
-    id: int
-    account_name: str
-    task_name: str
-    message: str
-    summary: Optional[str] = None
-    bot_message: Optional[str] = None
-    success: bool
-    created_at: str
-
-
-def _extract_last_bot_message(item: dict) -> str:
-    stored = str(item.get("last_target_message") or "").strip()
-    if stored:
-        return stored
-    return extract_last_target_message(item.get("flow_logs"))
-
-
-class ClearAccountLogsResponse(BaseModel):
-    """清理账号日志响应"""
-
-    success: bool
-    cleared: int
-    message: str
-    code: Optional[str] = None
-
 
 @router.post("/logs/clear", response_model=ClearAccountLogsResponse)
 def clear_recent_account_logs(current_user: User = Depends(get_current_user)):
@@ -915,25 +728,22 @@ def get_account_logs(
 
     logs = []
     for i, item in enumerate(history[:limit]):
+        task_name = item.get("task_name") or "未知任务"
+        success = bool(item.get("success", False))
         logs.append(
             AccountLogItem(
                 id=i + 1,
                 account_name=account_name,
-                task_name=item.get("task_name", "未知任务"),
+                task_name=task_name,
                 message=item.get("message")
-                or ("执行成功" if item.get("success") else "执行失败"),
-                success=item.get("success", False),
+                or ("执行成功" if success else "执行失败"),
+                success=success,
                 created_at=item.get("time", ""),
+                summary=f"任务: {task_name} {'成功' if success else '失败'}",
+                bot_message=_extract_last_bot_message(item) or None,
+                failure_category=item.get("failure_category") or None,
             )
         )
-
-    for idx, item in enumerate(history[:limit]):
-        if idx >= len(logs):
-            break
-        task_name = logs[idx].task_name or "Unknown Task"
-        success = bool(logs[idx].success)
-        logs[idx].summary = f"Task: {task_name} {'success' if success else 'failed'}"
-        logs[idx].bot_message = _extract_last_bot_message(item) or None
 
     return logs
 
@@ -976,15 +786,15 @@ def export_account_logs(
 
     history = get_sign_task_service().get_account_history_logs(account_name)
 
-    content = f"Account Logs for: {account_name}\n"
+    content = f"账号日志: {account_name}\n"
     content += "=" * 40 + "\n\n"
 
     for item in history:
         time_str = item.get("time", "").replace("T", " ")[:19]
-        status = "SUCCESS" if item.get("success") else "FAILED"
-        content += f"[{time_str}] Task: {item.get('task_name')} | Status: {status}\n"
+        status = "成功" if item.get("success") else "失败"
+        content += f"[{time_str}] 任务: {item.get('task_name')} | 状态: {status}\n"
         if item.get("message"):
-            content += f"Message: {item.get('message')}\n"
+            content += f"消息: {item.get('message')}\n"
         content += "-" * 20 + "\n"
 
     return Response(

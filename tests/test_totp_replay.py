@@ -21,8 +21,9 @@ class TestTOTPReplayProtection:
 
     def test_different_code_succeeds(self):
         """不同的 TOTP code 应正常验证"""
-        from backend.core.auth import verify_totp
         import time
+
+        from backend.core.auth import verify_totp
 
         secret = pyotp.random_base32()
         totp = pyotp.TOTP(secret)

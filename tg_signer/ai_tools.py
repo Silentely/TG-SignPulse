@@ -24,7 +24,17 @@ from cryptography.fernet import InvalidToken
 
 from tg_signer.log_utils import safe_text_preview
 from tg_signer.security import decrypt_secret, encrypt_secret
-from tg_signer.utils import UserInput, print_to_user
+from tg_signer.utils import UserInput, print_to_user, read_positive_int_env
+
+
+def ai_cfg_signature(cfg: Any) -> tuple[str, str, str]:
+    """AI 配置指纹：api_key/base_url/model 三元组，用于判断配置是否变化。"""
+    return (
+        str(cfg.get("api_key") or ""),
+        str(cfg.get("base_url") or ""),
+        str(cfg.get("model") or ""),
+    )
+
 
 DEFAULT_MODEL = "gpt-5-nano"
 
@@ -106,7 +116,7 @@ class OpenAIConfigManager:
                 try:
                     c["api_key"] = decrypt_secret(c["api_key"])
                 except InvalidToken:
-                    logger.warning("Failed to decrypt stored API key, returning None")
+                    logger.warning("存储的 API Key 解密失败，返回 None")
                     return None
                 return c
         return None
@@ -218,14 +228,6 @@ class AITools:
             return 15.0
         return max(3.0, timeout)
 
-    @staticmethod
-    def _read_positive_int_env(name: str, default: int, minimum: int) -> int:
-        try:
-            value = int(os.environ.get(name, str(default)))
-        except (TypeError, ValueError):
-            return default
-        return max(minimum, value)
-
     @classmethod
     def _extract_relevant_query(cls, query: str) -> str:
         if not query:
@@ -265,7 +267,7 @@ class AITools:
 
     @classmethod
     def _crop_light_border(cls, image: "Image.Image") -> "Image.Image":
-        white_threshold = cls._read_positive_int_env(
+        white_threshold = read_positive_int_env(
             "AI_VISION_WHITE_THRESHOLD", 245, 200
         )
         mask = image.convert("L").point(lambda px: 255 if px < white_threshold else 0)
@@ -293,16 +295,21 @@ class AITools:
             return image
 
         prepared = cls._crop_light_border(prepared)
-        max_edge = cls._read_positive_int_env("AI_VISION_MAX_EDGE", 640, 224)
+        max_edge = read_positive_int_env("AI_VISION_MAX_EDGE", 640, 224)
         if max(prepared.size) > max_edge:
             resampling = getattr(Image, "Resampling", Image).LANCZOS
             prepared.thumbnail((max_edge, max_edge), resampling)
 
-        quality = cls._read_positive_int_env("AI_VISION_JPEG_QUALITY", 85, 40)
+        quality = read_positive_int_env("AI_VISION_JPEG_QUALITY", 85, 40)
         output = io.BytesIO()
         prepared.save(output, format="JPEG", quality=quality, optimize=True)
         result = output.getvalue()
-        logger.debug(f"AI 图片预处理 | 原始: {original_size} bytes | 处理后: {len(result)} bytes | 尺寸: {prepared.size}")
+        logger.debug(
+            "AI 图片预处理 | 原始: %s bytes | 处理后: %s bytes | 尺寸: %s",
+            original_size,
+            len(result),
+            prepared.size,
+        )
         return result
 
     @staticmethod
@@ -339,7 +346,11 @@ class AITools:
                         break
 
         if isinstance(result, dict):
-            logger.error(f"AI 返回结果中未找到选项字段 | result_type={type(result).__name__} keys={list(result.keys())}")
+            logger.error(
+                "AI 返回结果中未找到选项字段 | result_type=%s keys=%s",
+                type(result).__name__,
+                list(result.keys()),
+            )
             raise ValueError(f"AI result does not contain an option: {safe_text_preview(result, 100)}")
 
         if isinstance(result, int):
@@ -359,7 +370,12 @@ class AITools:
                 if normalized_option and normalized_option in normalized_result:
                     return index
 
-        logger.error(f"AI 返回结果无法解析为选项索引 | result_type={type(result).__name__} result_chars={len(str(result))} options_count={len(options)}")
+        logger.error(
+            "AI 返回结果无法解析为选项索引 | result_type=%s result_chars=%s options_count=%s",
+            type(result).__name__,
+            len(str(result)),
+            len(options),
+        )
         raise ValueError(f"Could not parse AI option result: {safe_text_preview(result, 100)}")
 
     @classmethod
@@ -460,7 +476,7 @@ class AITools:
         """AI 视觉请求总尝试次数（含首次请求），默认 2。
         例如值为 3 时表示 1 次首次请求 + 2 次重试。
         """
-        return cls._read_positive_int_env("AI_VISION_RETRY_ATTEMPTS", 2, 1)
+        return read_positive_int_env("AI_VISION_RETRY_ATTEMPTS", 2, 1)
 
     @staticmethod
     def _vision_retry_delay(attempt: int) -> float:
@@ -470,6 +486,59 @@ class AITools:
         except ValueError:
             base_delay = 0.6
         return max(0.0, base_delay) * attempt
+
+    async def _try_json_fallback_if_applicable(
+        self,
+        *,
+        client: "AsyncOpenAI",
+        model: str,
+        kwargs: dict,
+        original_exc: Exception,
+        attempt: int,
+        max_attempts: int,
+    ) -> tuple[Any, Optional[Exception]]:
+        """JSON mode 降级：若 provider 不支持 JSON mode，去掉 response_format 重试。
+
+        返回 `(result, None)` → 降级成功（caller 应直接 return）；
+        返回 `(None, None)` → 不适用降级（caller 应继续外层 retry）；
+        返回 `(None, fallback_exc)` → 降级失败但可重试（caller 应继续外层 retry）；
+        抛出异常 → 不可重试（caller 应直接 raise）。
+        """
+        if "response_format" not in kwargs:
+            return None, None
+        if not self._should_retry_without_json_mode(original_exc):
+            return None, None
+
+        logger.warning(
+            "AI provider 不支持 JSON mode，降级重试: %s",
+            safe_text_preview(original_exc, 200),
+        )
+        kwargs.pop("response_format", None)
+
+        _start = time.monotonic()
+        try:
+            result = await asyncio.wait_for(
+                client.chat.completions.create(**kwargs),
+                timeout=self._ai_timeout(),
+            )
+            _elapsed = (time.monotonic() - _start) * 1000
+            logger.debug(
+                f"AI API 降级完成（无 JSON 模式） | model={model} elapsed_ms={_elapsed:.0f}"
+            )
+            return result, None
+        except Exception as fallback_exc:
+            _elapsed = (time.monotonic() - _start) * 1000
+            if self._should_retry_transient_ai_error(fallback_exc) and attempt < max_attempts:
+                delay = self._vision_retry_delay(attempt)
+                logger.warning(
+                    "AI 视觉请求降级后瞬时错误，%g 秒后重试 (%d/%d): %s: %s",
+                    delay, attempt, max_attempts,
+                    type(fallback_exc).__name__,
+                    safe_text_preview(fallback_exc, 200),
+                )
+                await asyncio.sleep(delay)
+                return None, fallback_exc
+            raise
 
     async def _create_visual_completion(
         self,
@@ -506,47 +575,30 @@ class AITools:
                 _tokens = ""
                 if _usage:
                     _tokens = f" | tokens: prompt={getattr(_usage, 'prompt_tokens', '?')} completion={getattr(_usage, 'completion_tokens', '?')}"
-                logger.debug(f"AI API 调用完成 | model={model} elapsed_ms={_elapsed:.0f}{_tokens}")
+                logger.debug(
+                    "AI API 调用完成 | model=%s elapsed_ms=%.0f%s",
+                    model,
+                    _elapsed,
+                    _tokens,
+                )
                 return result
             except Exception as exc:
                 _elapsed = (time.monotonic() - _start) * 1000
                 last_error = exc
 
-                # JSON mode 降级：去掉 response_format 后在同一 attempt 内重试（不消耗重试预算）
-                if expect_json and self._should_retry_without_json_mode(exc):
-                    logger.warning(
-                        "AI provider 不支持 JSON mode，降级重试: %s",
-                        safe_text_preview(exc, 200),
-                    )
-                    kwargs.pop("response_format", None)
-                    expect_json = False
-                    # 在同一 attempt 内重试，不推进 attempt 计数
-                    _start = time.monotonic()
-                    try:
-                        result = await asyncio.wait_for(
-                            client.chat.completions.create(**kwargs),
-                            timeout=self._ai_timeout(),
-                        )
-                        _elapsed = (time.monotonic() - _start) * 1000
-                        logger.debug(f"AI API 降级完成（无 JSON 模式） | model={model} elapsed_ms={_elapsed:.0f}")
-                        return result
-                    except Exception as fallback_exc:
-                        last_error = fallback_exc
-                        # 降级也失败了，继续走瞬时重试逻辑
-                        if self._should_retry_transient_ai_error(fallback_exc) and attempt < attempts:
-                            delay = self._vision_retry_delay(attempt)
-                            logger.warning(
-                                "AI 视觉请求降级后瞬时错误，%g 秒后重试 (%d/%d): %s: %s",
-                                delay, attempt, attempts,
-                                type(fallback_exc).__name__,
-                                safe_text_preview(fallback_exc, 200),
-                            )
-                            await asyncio.sleep(delay)
-                            continue
-                        raise
+                fallback_result, fallback_exc = await self._try_json_fallback_if_applicable(
+                    client=client,
+                    model=model,
+                    kwargs=kwargs,
+                    original_exc=exc,
+                    attempt=attempt,
+                    max_attempts=attempts,
+                )
+                if fallback_result is not None:
+                    return fallback_result
 
-                # 瞬时错误重试：503/429/500/502/504/超时
-                if self._should_retry_transient_ai_error(exc) and attempt < attempts:
+                retry_exc = fallback_exc or exc
+                if self._should_retry_transient_ai_error(retry_exc) and attempt < attempts:
                     delay = self._vision_retry_delay(attempt)
                     logger.warning(
                         "AI 视觉请求瞬时错误，%g 秒后重试 (%d/%d): %s: %s",
@@ -557,7 +609,6 @@ class AITools:
                     await asyncio.sleep(delay)
                     continue
 
-                # 不可重试的错误或已达最大重试次数
                 raise
 
         raise last_error

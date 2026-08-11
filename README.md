@@ -143,7 +143,7 @@ TG-SignPulse/
 │   ├── scheduler/      #   APScheduler 调度器
 │   └── utils/          #   工具函数
 ├── tg_signer/          # Telegram 自动化引擎
-│   ├── core.py         #   签到执行核心
+│   ├── core/           #   签到执行核心（client 客户端生命周期 / runtime 执行器）
 │   ├── config.py       #   任务配置模型 (V1→V2→V3)
 │   └── ai_tools.py     #   AI 工具集成
 ├── frontend/           # Vue 3 前端
@@ -181,7 +181,7 @@ TG-SignPulse/
 | `ADMIN_PASSWORD` | 管理员初始密码 | 随机生成 |
 | `APP_DATA_DIR` | 数据目录 | `/data` |
 | `APP_DATABASE_URL` | 可选；空=SQLite，可设 Postgres URL | 空 |
-| `TZ` | 时区 | `Asia/Shanghai` |
+| `TZ` | 时区 | 容器 `Asia/Shanghai`；代码默认 `Asia/Hong_Kong` |
 | `TG_SESSION_MODE` | 会话模式 `file`/`string` | `file` |
 | `TG_GLOBAL_CONCURRENCY` | 全局并发数 | `自动（CPU核心数，上限5）` |
 | `TG_PROXY` | Telegram 全局代理 | 无 |
@@ -200,13 +200,14 @@ pip install -e ".[dev]"
 uvicorn backend.main:app --reload --port 8080
 
 # 前端
+nvm use
 cd frontend
 npm ci
 npm run dev
 ```
 
 - Python 3.10–3.13（推荐 3.12）
-- Node.js 22.12.0+
+- Node.js 22.23.1（以仓库 `.nvmrc` 为准，不支持跨主版本开发）
 - 不建议使用 Python 3.14+（Telegram 运行时依赖尚未兼容）
 
 ---

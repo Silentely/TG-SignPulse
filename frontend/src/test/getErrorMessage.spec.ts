@@ -27,6 +27,26 @@ describe('getErrorMessage', () => {
     expect(getErrorMessage({ code: 42 })).toBe('{"code":42}')
   })
 
+  it('超长序列化结果截断防刷屏', () => {
+    const huge = { code: 42, extra: 'x'.repeat(1000) }
+    const result = getErrorMessage(huge)
+    expect(result.length).toBeLessThanOrEqual(201)
+    expect(result.endsWith('…')).toBe(true)
+  })
+
+  it('长 detail 字段截断防刷屏', () => {
+    const longDetail = { code: 42, detail: 'y'.repeat(1000) }
+    const result = getErrorMessage(longDetail)
+    expect(result.length).toBeLessThanOrEqual(201)
+    expect(result.endsWith('…')).toBe(true)
+  })
+
+  it('长 Error message 截断防刷屏', () => {
+    const result = getErrorMessage(new Error('z'.repeat(500)))
+    expect(result.length).toBeLessThanOrEqual(201)
+    expect(result.endsWith('…')).toBe(true)
+  })
+
   it('空 object 回退默认文案', () => {
     expect(getErrorMessage({})).toBe('Unknown error')
   })
@@ -63,8 +83,9 @@ describe('getErrorMessage', () => {
     expect(getErrorMessage(new Error(''), 'fallback')).toBe('fallback')
   })
 
-  it('映射 NETWORK_TIMEOUT / NETWORK_ERROR', () => {
+  it('映射 NETWORK_TIMEOUT / NETWORK_ABORTED / NETWORK_ERROR', () => {
     expect(getErrorMessage(new Error('NETWORK_TIMEOUT'))).toBe('Request timed out')
+    expect(getErrorMessage(new Error('NETWORK_ABORTED'))).toBe('Request cancelled')
     expect(getErrorMessage(new Error('NETWORK_ERROR'))).toBe('Network error')
   })
 
@@ -77,7 +98,7 @@ describe('getErrorMessage', () => {
 
   it('410 旧任务只读映射', () => {
     const err = new Error(
-      'Legacy task writes disabled (APP_LEGACY_TASKS_READONLY=1). Use /api/sign-tasks',
+      'Legacy /api/tasks has been removed; use /api/sign-tasks',
     ) as ApiError
     err.status = 410
     expect(getErrorMessage(err)).toContain('sign-tasks')
@@ -89,5 +110,11 @@ describe('getErrorMessage', () => {
     const t = (key: string) =>
       key === 'apiErrors.NETWORK_TIMEOUT' ? '请求超时' : key
     expect(getLocalizedErrorMessage(err, t)).toBe('请求超时')
+  })
+
+  it('映射新增 WEBDAV / BACKUP / AI 解密错误码', () => {
+    expect(getErrorMessage(new Error('WEBDAV_NOT_CONFIGURED'))).toBe('WebDAV is not configured')
+    expect(getErrorMessage(new Error('BACKUP_EMPTY'))).toBe('Nothing to back up')
+    expect(getErrorMessage(new Error('AI_KEY_DECRYPT_FAILED'))).toContain('APP_SECRET_KEY')
   })
 })

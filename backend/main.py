@@ -90,7 +90,7 @@ def _configure_backend_logging():
 
     # 验证日志等级有效性
     if not isinstance(level_no, int):
-        logging.warning(f"Invalid LOG_LEVEL '{log_level}', falling back to INFO")
+        logging.warning("Invalid LOG_LEVEL '%s', falling back to INFO", log_level)
         level_no = logging.INFO
 
     # 配置根日志器和主要模块日志器
@@ -101,7 +101,7 @@ def _configure_backend_logging():
         _handler = logging.StreamHandler()
         _handler.setLevel(level_no)
         _handler.setFormatter(logging.Formatter(
-            "[%(levelname)s] [%(name)s] %(asctime)s - %(message)s"
+            "[%(levelname)s] [%(name)s] %(asctime)s %(filename)s %(lineno)s %(message)s"
         ))
         root.addHandler(_handler)
     logging.getLogger("backend").setLevel(level_no)
@@ -125,7 +125,7 @@ def _configure_backend_logging():
         handler = logging.StreamHandler()
         handler.setLevel(logging.DEBUG)
         handler.setFormatter(logging.Formatter(
-            "[%(levelname)s] [%(name)s] %(asctime)s - %(message)s"
+            "[%(levelname)s] [%(name)s] %(asctime)s %(filename)s %(lineno)s %(message)s"
         ))
         access_logger.addHandler(handler)
 
@@ -145,16 +145,29 @@ async def lifespan(fastapi_app: FastAPI):
 
 
 def _app_version() -> str:
+    """解析应用版本：优先 version_info，失败回退到包版本，最终回退占位符。
+
+    仅捕获导入与属性访问相关的具体异常，避免吞掉编程错误；
+    降级时记录 warning 日志便于排障。
+    """
     try:
         from backend.utils.version_info import get_local_version_info
 
         return str(get_local_version_info().get("version") or "0.0.0")
-    except Exception:
+    except (ImportError, AttributeError, ValueError, TypeError):
+        logging.getLogger("backend.startup").debug(
+            "version_info 解析失败，回退到 tg_signer.__version__",
+            exc_info=True,
+        )
         try:
             from tg_signer import __version__
 
             return str(__version__)
-        except Exception:
+        except (ImportError, AttributeError):
+            logging.getLogger("backend.startup").warning(
+                "tg_signer.__version__ 也不可用，版本回退到 0.0.0",
+                exc_info=True,
+            )
             return "0.0.0"
 
 
@@ -221,12 +234,16 @@ def ready_check(response: Response) -> dict:
 
     payload: dict = {"status": "ready"}
     try:
-        from backend.api.routes.tasks import _legacy_writes_allowed
         from backend.scheduler.instance_lock import has_scheduler_lock
 
-        payload["scheduler_lock_held"] = has_scheduler_lock()
-        payload["legacy_tasks_writable"] = _legacy_writes_allowed()
-    except Exception as exc:
+        lock_held = has_scheduler_lock()
+        payload["scheduler_lock_held"] = lock_held
+        # 旧 /api/tasks 已移除，写能力恒为 false
+        payload["legacy_tasks_writable"] = False
+        payload["legacy_tasks_removed"] = True
+        # 副本进程（未持锁）时显式提示：业务 cron 不在本实例执行
+        payload["scheduler_role"] = "primary" if lock_held else "replica"
+    except (ImportError, AttributeError) as exc:
         logging.getLogger("backend.readyz").debug("ready 附加信息失败: %s", exc)
     return payload
 
@@ -317,6 +334,28 @@ async def on_startup() -> None:
     )
 
     ensure_data_dirs(settings)
+    # 清理过期头像缓存（7 天 TTL），避免长期运行累积陈旧文件
+    try:
+        from backend.services import avatar_cache
+
+        avatar_root = settings.resolve_workdir() / "avatars"
+        for sub_dir in (avatar_root, avatar_root / "chats"):
+            avatar_cache.cleanup_avatar_cache(sub_dir)
+    except Exception:
+        logging.getLogger("backend.startup").debug(
+            "清理过期头像缓存失败（可忽略）", exc_info=True
+        )
+    # 面板持久化的全局设置回灌环境变量：env_sync 仅在保存时执行，
+    # 重启后若不回灌，tg_signer 等仍读 env 的路径会静默回退默认值
+    try:
+        from backend.services.config import get_config_service
+        from backend.services.config_mixins import apply_global_settings_to_env
+
+        apply_global_settings_to_env(get_config_service().get_global_settings())
+    except Exception:
+        logging.getLogger("backend.startup").debug(
+            "全局设置回灌环境变量失败（可忽略）", exc_info=True
+        )
     init_engine()
     Base.metadata.create_all(bind=get_engine())
     with get_session_local()() as db:
@@ -340,11 +379,20 @@ async def on_startup() -> None:
 
             await get_keyword_monitor_service().restart_from_tasks()
         except Exception as exc:
-            logging.getLogger("backend.startup").error(
-                f"Delayed scheduler sync failed: {exc}"
+            # 顶层兜底：启动阶段任何未处理异常都不能让进程崩溃
+            logging.getLogger("backend.startup").exception(
+                "Delayed scheduler sync failed: %s", exc
             )
         finally:
             app.state.ready = True
+            # 启动完成汇总：一次日志携带版本/监听地址/数据目录，便于部署排障
+            logging.getLogger("backend.startup").info(
+                "面板启动完成 version=%s host=%s port=%s data_dir=%s",
+                _app_version(),
+                settings.host,
+                settings.port,
+                settings.resolve_workdir(),
+            )
 
     app.state.startup_task = create_logged_task(
         _post_startup(),
@@ -370,9 +418,9 @@ def _pre_export_session_strings() -> None:
         if wildcard_dir.exists() and wildcard_dir.is_dir():
             import shutil
             shutil.rmtree(wildcard_dir)
-            logger.info("Cleaned up stray '*' task directory")
-    except Exception as exc:
-        logger.warning(f"Failed to clean wildcard dir: {exc}")
+            logger.info("已清理遗留的 '*' 任务目录")
+    except OSError as exc:
+        logger.warning("清理通配符目录失败: %s", exc)
 
     # Only needed in file mode - string mode already has session strings
     if get_session_mode() == "string":
@@ -388,7 +436,7 @@ def _pre_export_session_strings() -> None:
             exported += 1
 
     if exported:
-        logger.info(f"Pre-exported {exported} session strings for in-memory task execution")
+        logger.info("为内存任务执行预导出 %s 个会话串", exported)
 
 
 async def _memory_monitor_loop() -> None:
@@ -414,6 +462,7 @@ async def _memory_monitor_loop() -> None:
             try:
                 monitor.check()
             except Exception:
+                # 内存检查可能因 psutil 系统调用瞬时失败；保留宽捕获确保监控循环不退出
                 logger.exception("内存检查失败")
             await asyncio.sleep(monitor.check_interval)
     except asyncio.CancelledError:
@@ -427,6 +476,7 @@ async def _memory_monitor_loop() -> None:
 
 
 async def on_shutdown() -> None:
+    log = logging.getLogger("backend.shutdown")
     startup_task = getattr(app.state, "startup_task", None)
     if startup_task is not None and not startup_task.done():
         startup_task.cancel()
@@ -445,4 +495,13 @@ async def on_shutdown() -> None:
 
         await get_keyword_monitor_service().stop()
     except Exception:
-        logging.getLogger("backend.shutdown").exception("Keyword monitor shutdown failed")
+        # 顶层兜底：关闭阶段任何异常不能阻止进程退出
+        log.exception("Keyword monitor shutdown failed")
+
+    # 释放调度文件锁，避免异常退出后锁文件残留导致下一进程误判 replica
+    try:
+        from backend.scheduler.instance_lock import release_scheduler_lock
+
+        release_scheduler_lock()
+    except Exception:
+        log.exception("Scheduler lock release failed")

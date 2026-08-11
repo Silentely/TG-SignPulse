@@ -1,89 +1,40 @@
 """Client 生命周期与工厂（从 core 拆分）。"""
 import asyncio
-import json
 import logging
 import os
 import pathlib
 import random
 import sqlite3
-import time
-import unicodedata
-from collections import Counter, defaultdict
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from datetime import time as dt_time
 from typing import (
-    Any,
-    BinaryIO,
-    Generic,
-    List,
-    Optional,
-    Type,
-    TypeVar,
     Union,
 )
 from urllib import parse
 
-import httpx
-from croniter import CroniterBadCronError, croniter
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel
 
 try:
     from pydantic import ConfigDict
 except ImportError:  # pragma: no cover - pydantic v1 compatibility
     ConfigDict = None
 
-from tg_signer.config import (
-    ActionT,
-    BaseJSONConfig,
-    ChooseOptionByImageAction,
-    ClickButtonByCalculationProblemAction,
-    ClickKeyboardByTextAction,
-    HttpCallback,
-    KeywordNotifyAction,
-    MatchConfig,
-    MonitorConfig,
-    ReplyByCalculationProblemAction,
-    ReplyByImageRecognitionAction,
-    SendDiceAction,
-    SendTextAction,
-    SignChatV3,
-    SignConfigV3,
-    SupportAction,
-    UDPForward,
-)
 
 _PYDANTIC_V2 = hasattr(BaseModel, "model_validate")
 
-from tg_signer.ai_tools import AITools, OpenAIConfigManager  # noqa: E402
-from tg_signer.async_utils import create_logged_task  # noqa: E402
 from tg_signer.compat import (  # noqa: E402
     _PYROGRAM_IMPORT_ERROR,
     BaseClient,
     Chat,
-    ChatMembersFilter,
     ChatType,
-    EditedMessageHandler,
     InlineKeyboardMarkup,
     MemoryStorage,
     Message,
-    MessageHandler,
-    Object,
     ReplyKeyboardMarkup,
     Session,
-    User,
     _raise_pyrogram_import_error,
-    errors,
-    filters,
-    idle,
     raw,
 )
-from tg_signer.log_utils import (  # noqa: E402
-    safe_ai_request_meta,
-    safe_ai_result_meta,
-    safe_text_preview,
-)
-from tg_signer.notification.server_chan import sc_send  # noqa: E402
-from tg_signer.utils import UserInput, print_to_user  # noqa: E402
 
 # Monkeypatch sqlite3.connect to increase default timeout
 _original_sqlite3_connect = sqlite3.connect
@@ -138,26 +89,6 @@ _original_invoke = BaseClient.invoke
 _get_channel_diff_semaphore = asyncio.Semaphore(50)
 
 
-def _read_positive_float_env(name: str, default: float, minimum: float = 1.0) -> float:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    try:
-        return max(float(raw), minimum)
-    except (TypeError, ValueError):
-        return default
-
-
-def _read_positive_int_env(name: str, default: int, minimum: int = 1) -> int:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    try:
-        return max(int(raw), minimum)
-    except (TypeError, ValueError):
-        return default
-
-
 async def _patched_invoke(self, query, *args, **kwargs):
     if isinstance(query, (raw.functions.updates.GetChannelDifference, raw.functions.updates.GetDifference)):
         # Disable Pyrogram's internal sleep and retry mechanisms to prevent blocking the semaphore indefinitely
@@ -181,7 +112,11 @@ async def _patched_invoke(self, query, *args, **kwargs):
                             await asyncio.sleep(delay)
                             continue
 
-                        logger.warning(f"Drop updates for {type(query).__name__} due to error: {e}")
+                        logger.warning(
+                            "Drop updates for %s due to error: %s",
+                            type(query).__name__,
+                            e,
+                        )
 
                         if isinstance(query, raw.functions.updates.GetChannelDifference):
                             from pyrogram.raw.types.updates import (
@@ -315,7 +250,7 @@ class Client(BaseClient):
                                 self.storage.conn.execute("PRAGMA journal_mode=WAL")
                                 self.storage.conn.execute("PRAGMA busy_timeout=30000")
                             except Exception as e:
-                                logger.error(f"Failed to enable WAL mode: {e}")
+                                logger.error("启用 WAL 模式失败: %s", e)
 
                         # Success! Break loop
                         break
@@ -332,7 +267,13 @@ class Client(BaseClient):
                                 pass
 
                             wait_time = 2 + (attempt * 3)
-                            logger.warning(f"Database locked when starting client {self.name}, retrying in {wait_time}s... ({attempt + 1}/{max_retries})")
+                            logger.warning(
+                                "Database locked when starting client %s, retrying in %ss... (%s/%s)",
+                                self.name,
+                                wait_time,
+                                attempt + 1,
+                                max_retries,
+                            )
                             await asyncio.sleep(wait_time)
                             continue
 
@@ -364,7 +305,9 @@ class Client(BaseClient):
                 # Remove from cache when no longer in use to prevent memory growth
                 _CLIENT_INSTANCES.pop(self.key, None)
                 _CLIENT_REFS.pop(self.key, None)
-                _CLIENT_ASYNC_LOCKS.pop(self.key, None)
+                # 锁保留在字典中：若在此处弹出，退出与下一次进入将持有不同锁对象，
+                # 并发 __aenter__ 会在 stop() 尚未完成时新建锁并 connect()，破坏互斥。
+                # 锁按账号 key 常驻，数量有界且开销极小。
 
     @property
     def session_string_file(self):
@@ -375,11 +318,11 @@ class Client(BaseClient):
             fp.write(await self.export_session_string())
 
     def load_session_string(self):
-        logger.info("Loading session_string from local file.")
+        logger.info("从本地文件加载 session_string。")
         if self.session_string_file.is_file():
             with open(self.session_string_file, "r") as fp:
                 self.session_string = fp.read()
-                logger.info("The session_string has been loaded.")
+                logger.info("session_string 已加载。")
         return self.session_string
 
     async def log_out(
@@ -499,7 +442,8 @@ async def close_client_by_name(name: str, workdir: Union[str, pathlib.Path] = ".
                 lock.release()
         except asyncio.TimeoutError:
             logger.warning(
-                f"Timeout waiting for lock on client {name}, proceeding with forceful cleanup"
+                "Timeout waiting for lock on client %s, proceeding with forceful cleanup",
+                name,
             )
             _CLIENT_REFS[key] = 0
 
@@ -509,7 +453,7 @@ async def close_client_by_name(name: str, workdir: Union[str, pathlib.Path] = ".
             if client.is_connected:
                 await client.stop()
         except Exception as e:
-            logger.warning(f"Error stopping client {name}: {e}")
+            logger.warning("停止客户端 %s 失败: %s", name, e)
         finally:
             _CLIENT_INSTANCES.pop(key, None)
 

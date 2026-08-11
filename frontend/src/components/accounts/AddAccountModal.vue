@@ -3,15 +3,15 @@ import { ref, watch, onUnmounted } from 'vue'
 import { Phone, QrCode } from 'lucide-vue-next'
 import Modal from '../Modal.vue'
 import { startAccountLogin, verifyAccountLogin, updateAccount, startQrLogin, getQrLoginStatus, submitQrPassword, cancelQrLogin } from '../../lib/api'
+import { getAuthToken } from '../../lib/api/core'
 import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
-import { useAuthStore } from '../../stores/auth'
+import { startChainPoll, type ChainPollHandle } from '../../lib/chain-poll'
 import { getLocalizedErrorMessage } from '../../lib/types'
 import { devLog } from '../../lib/devLog'
 
 const { t } = useI18n()
 const toast = useToast()
-const authStore = useAuthStore()
 
 const props = defineProps<{ isOpen: boolean, initialMethod?: 'code' | 'qr', initialAccountName?: string }>()
 const emit = defineEmits<{ (e: 'close'): void, (e: 'success'): void }>()
@@ -30,6 +30,26 @@ const form = ref({
 const loading = ref(false)
 const error = ref('')
 
+// 验证码重发倒计时：防止重复点击触发 Telegram 限流
+const codeCountdown = ref(0)
+let codeTimer: number | undefined
+
+const stopCodeCountdown = () => {
+  if (codeTimer !== undefined) {
+    window.clearInterval(codeTimer)
+    codeTimer = undefined
+  }
+}
+
+const startCodeCountdown = () => {
+  stopCodeCountdown()
+  codeCountdown.value = 60
+  codeTimer = window.setInterval(() => {
+    codeCountdown.value -= 1
+    if (codeCountdown.value <= 0) stopCodeCountdown()
+  }, 1000)
+}
+
 // Code login specific
 const phoneCodeHash = ref('')
 const codeSent = ref(false)
@@ -37,16 +57,21 @@ const codeSent = ref(false)
 // QR login specific
 const qrImage = ref('')
 const loginId = ref('')
-let pollInterval: number | undefined = undefined
+/** 二维码加载失败/已过期：清空图片后展示错误占位与重新获取入口 */
+const qrLoadFailed = ref(false)
+let pollHandle: ChainPollHandle | null = null
+
+const handleQrImageError = () => {
+  qrImage.value = ''
+  qrLoadFailed.value = true
+}
 
 const reset = async () => {
-  if (pollInterval) {
-    clearInterval(pollInterval)
-    pollInterval = undefined
-  }
+  pollHandle?.stop()
+  pollHandle = null
   if (loginId.value) {
     try {
-      const token = authStore.token || ''
+      const token = getAuthToken()
       if (token) await cancelQrLogin(token, loginId.value)
     } catch (e: unknown) {
       devLog.warn('cancelQrLogin failed:', getLocalizedErrorMessage(e, t))
@@ -56,7 +81,10 @@ const reset = async () => {
   phoneCodeHash.value = ''
   error.value = ''
   codeSent.value = false
+  stopCodeCountdown()
+  codeCountdown.value = 0
   qrImage.value = ''
+  qrLoadFailed.value = false
   loginId.value = ''
   loading.value = false
 }
@@ -89,19 +117,25 @@ const handleClose = () => {
   emit('close')
 }
 
+/** 登录成功后保存备注：失败仅告警，不阻断登录流程 */
+const saveRemarkIfPresent = async (token: string) => {
+  if (!form.value.remark) return
+  try {
+    await updateAccount(token, form.value.account_name, { remark: form.value.remark })
+  } catch (err) {
+    devLog.warn('登录成功但备注保存失败', err)
+  }
+}
+
 // ============ QR Login Logic ============
 
 const pollStatus = async (token: string, lid: string) => {
   try {
     const res = await getQrLoginStatus(token, lid)
     if (res.status === 'success') {
-      clearInterval(pollInterval)
-      pollInterval = undefined
-      if (form.value.remark) {
-        try {
-          await updateAccount(token, form.value.account_name, { remark: form.value.remark })
-        } catch (err) {}
-      }
+      pollHandle?.stop()
+      pollHandle = null
+      await saveRemarkIfPresent(token)
       loading.value = false
       toast.success(t('addAccount.loginSuccess'))
       emit('success')
@@ -109,19 +143,21 @@ const pollStatus = async (token: string, lid: string) => {
     } else if (res.status === 'waiting_for_password' || res.status === 'password_required') {
       // 如果已经填了密码，自动提交
       if (form.value.password) {
-        clearInterval(pollInterval)
-        pollInterval = undefined
+        pollHandle?.stop()
+        pollHandle = null
         handleQrPasswordSubmit(token, lid)
       } else {
         error.value = t('addAccount.needPassword')
-        clearInterval(pollInterval)
-        pollInterval = undefined
+        pollHandle?.stop()
+        pollHandle = null
         loading.value = false
       }
     } else if (res.status === 'failed' || res.status === 'expired') {
-      clearInterval(pollInterval)
-      pollInterval = undefined
-      error.value = res.message || t('addAccount.qrFailed')
+      pollHandle?.stop()
+      pollHandle = null
+      // 二维码已失效：清空图片避免用户继续扫描无意义的旧码
+      qrImage.value = ''
+      error.value = res.status === 'expired' ? t('addAccount.qrExpired') : (res.message || t('addAccount.qrFailed'))
       loading.value = false
     }
   } catch (e) {
@@ -139,11 +175,7 @@ const handleQrPasswordSubmit = async (token: string, lid: string) => {
     })
     // 如果后端直接返回 success，说明登录已完成，无需再轮询
     if (res.success) {
-      if (form.value.remark) {
-        try {
-          await updateAccount(token, form.value.account_name, { remark: form.value.remark })
-        } catch (err) {}
-      }
+      await saveRemarkIfPresent(token)
       loading.value = false
       toast.success(t('addAccount.loginSuccess'))
       emit('success')
@@ -151,8 +183,8 @@ const handleQrPasswordSubmit = async (token: string, lid: string) => {
       return
     }
     // 否则继续轮询等待最终状态
-    if (pollInterval) clearInterval(pollInterval)
-    pollInterval = setInterval(() => pollStatus(token, lid), 3000)
+    pollHandle?.stop()
+    pollHandle = startChainPoll(() => pollStatus(token, lid), { intervalMs: 3000 })
   } catch (e: unknown) {
     error.value = getLocalizedErrorMessage(e, t, t('addAccount.passwordFailed'))
     loading.value = false
@@ -164,7 +196,7 @@ const handleGetQr = async () => {
     error.value = t('addAccount.nameRequired')
     return
   }
-  const token = authStore.token
+  const token = getAuthToken()
   if (!token) return
 
   loading.value = true
@@ -176,9 +208,10 @@ const handleGetQr = async () => {
     })
     loginId.value = res.login_id
     qrImage.value = res.qr_image || ''
+    qrLoadFailed.value = false
     
-    if (pollInterval) clearInterval(pollInterval)
-    pollInterval = setInterval(() => pollStatus(token, res.login_id), 3000)
+    pollHandle?.stop()
+    pollHandle = startChainPoll(() => pollStatus(token, res.login_id), { intervalMs: 3000 })
   } catch (e: unknown) {
     error.value = getLocalizedErrorMessage(e, t, t('addAccount.getQrFailed'))
   } finally {
@@ -193,7 +226,7 @@ const handleSendCode = async () => {
     error.value = t('addAccount.namePhoneRequired')
     return
   }
-  const token = authStore.token
+  const token = getAuthToken()
   if (!token) return
 
   loading.value = true
@@ -207,6 +240,7 @@ const handleSendCode = async () => {
     phoneCodeHash.value = res.phone_code_hash
     codeSent.value = true
     toast.info(t('addAccount.codeSent'))
+    startCodeCountdown()
   } catch (e: unknown) {
     error.value = getLocalizedErrorMessage(e, t, t('addAccount.sendCodeFailed'))
   } finally {
@@ -215,7 +249,7 @@ const handleSendCode = async () => {
 }
 
 const handleSave = async () => {
-  const token = authStore.token
+  const token = getAuthToken()
   if (!token) return
 
   loading.value = true
@@ -241,18 +275,19 @@ const handleSave = async () => {
         password: form.value.password || undefined,
         proxy: form.value.proxy || undefined
       })
-      if (form.value.remark) {
-        try { await updateAccount(token, form.value.account_name, { remark: form.value.remark }) } catch (err) {}
-      }
+      await saveRemarkIfPresent(token)
       loading.value = false
       toast.success(t('addAccount.loginSuccess'))
       emit('success')
       handleClose()
     } catch (e: unknown) {
-      // 如果错误提示包含2FA相关信息，显示密码提示
+      // 按后端稳定文案区分「首次需要 2FA 密码」与「2FA 密码错误」，
+      // 避免把密码错误也误提示为需要输入密码
       const msg = getLocalizedErrorMessage(e, t) || ''
-      if (msg.includes('两步验证') || msg.includes('2FA') || msg.includes('SESSION_PASSWORD_NEEDED')) {
+      if (msg.includes('两步验证') || msg.includes('SESSION_PASSWORD_NEEDED')) {
         error.value = t('addAccount.needPassword')
+      } else if (msg.includes('2FA 密码错误') || msg.includes('PasswordHashInvalid')) {
+        error.value = t('addAccount.passwordFailed')
       } else {
         error.value = msg || t('addAccount.verifyFailed')
       }
@@ -270,11 +305,8 @@ const handleSave = async () => {
     } else {
       // 没有密码时，检查当前轮询是否还在运行
       // 如果轮询在运行，说明还在等待后端确认，不需要用户操作
-      if (pollInterval) {
-        // 轮询中，等待自动完成
-        loading.value = false
-        return
-      }
+      pollHandle?.stop()
+      pollHandle = null
       error.value = t('addAccount.enterPasswordOrWait')
       loading.value = false
     }
@@ -282,7 +314,8 @@ const handleSave = async () => {
 }
 
 onUnmounted(() => {
-  if (pollInterval) clearInterval(pollInterval)
+  pollHandle?.stop(); pollHandle = null
+  stopCodeCountdown()
 })
 </script>
 
@@ -325,6 +358,7 @@ onUnmounted(() => {
         <input 
           v-model="form.account_name"
           type="text" 
+          autocomplete="off"
           :placeholder="t('addAccount.accountNamePlaceholder')"
           class="ui-input"
         >
@@ -346,7 +380,8 @@ onUnmounted(() => {
           <label class="ui-label">{{ t('addAccount.phone') }} <span class="text-rose-500">*</span></label>
           <input 
             v-model="form.phone_number"
-            type="text" 
+            type="tel" 
+            autocomplete="tel"
             :placeholder="t('addAccount.phonePlaceholder')"
             class="ui-input"
           >
@@ -357,15 +392,17 @@ onUnmounted(() => {
             <input 
               v-model="form.phone_code"
               type="text" 
+              inputmode="numeric"
+              autocomplete="one-time-code"
               :placeholder="t('addAccount.codePlaceholder')"
               class="ui-input flex-1"
             >
             <button 
               @click="handleSendCode"
-              :disabled="loading || !form.account_name || !form.phone_number"
+              :disabled="loading || !form.account_name || !form.phone_number || codeCountdown > 0"
               class="ui-btn-secondary !px-4 !py-2 whitespace-nowrap"
             >
-              {{ codeSent ? t('addAccount.resendCode') : t('addAccount.getCode') }}
+              {{ codeCountdown > 0 ? t('addAccount.resendIn', { s: codeCountdown }) : codeSent ? t('addAccount.resendCode') : t('addAccount.getCode') }}
             </button>
           </div>
         </div>
@@ -377,6 +414,7 @@ onUnmounted(() => {
         <input 
           v-model="form.password"
           type="password" 
+          autocomplete="new-password"
           :placeholder="t('addAccount.cloudPasswordPlaceholder')"
           class="ui-input"
         >
@@ -405,8 +443,19 @@ onUnmounted(() => {
           </button>
         </div>
         <div class="flex justify-center items-center h-48 w-full bg-white dark:bg-gray-900 rounded-md border border-gray-200 dark:border-gray-700">
-          <img v-if="qrImage" :src="qrImage" class="w-40 h-40" />
-          <span v-else class="text-sm text-gray-400">{{ t('addAccount.qrArea') }}</span>
+          <img v-if="qrImage" :src="qrImage" class="w-40 h-40" alt="" @error="handleQrImageError" />
+          <div v-else class="flex flex-col items-center gap-2">
+            <span class="text-sm text-gray-400">{{ qrLoadFailed ? t('addAccount.qrLoadFailed') : t('addAccount.qrArea') }}</span>
+            <button
+              v-if="qrLoadFailed"
+              type="button"
+              class="text-xs text-sky-600 dark:text-sky-400 hover:underline"
+              :disabled="loading"
+              @click="handleGetQr"
+            >
+              {{ t('addAccount.retry') }}
+            </button>
+          </div>
         </div>
       </div>
     </div>

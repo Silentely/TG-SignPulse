@@ -27,8 +27,11 @@ class FailureCategory(str, Enum):
     UNKNOWN = "unknown"
 
 
+_NEGATION_PATTERN = re.compile(r"(没有|未|无|并非|不是).{0,3}(失败|异常|超时)")
+
 _STRONG_FAILURE_PATTERNS = (
-    re.compile(r"(签到|任务|执行|操作|请求|发送|点击)\s*(失败|异常|超时)"),
+    # 中文常以 "动词 + 其他描述 + 失败/异常/超时" 出现，允许中间最多 6 个任意字符
+    re.compile(r"(签到|任务|执行|操作|请求|发送|点击|处理|删除|回退|检查|刷新|查找|获取|更新|写入|读取|解析|转换|初始化|加载|同步|上传|下载|打包|清理).{0,6}(失败|异常|超时)"),
     re.compile(r"(未找到|找不到).*(按钮|消息|会话|聊天|目标)"),
     re.compile(r"(账号|会话|session).*(失效|无效|invalid)"),
     re.compile(
@@ -55,12 +58,20 @@ _CATEGORY_RULES: tuple[tuple[FailureCategory, tuple[str, ...]], ...] = (
         (
             "invalid session",
             "auth key",
+            "authkeyunregistered",
             "session 失效",
             "会话失效",
             "账号失效",
+            "登录失效",
+            "登录已失效",
             "unauthorized",
             "user deactivated",
             "session_revoked",
+            "sessionrevoked",
+            "auth_key_unregistered",
+            "user_deactivated",
+            "needs_relogin",
+            "需要重新登录",
         ),
     ),
     (
@@ -73,21 +84,45 @@ _CATEGORY_RULES: tuple[tuple[FailureCategory, tuple[str, ...]], ...] = (
     ),
     (
         FailureCategory.AI_ERROR,
-        ("openai", "ai error", "vision error", "api key", "quota", "rate limit"),
+        (
+            "openai",
+            "ai error",
+            "ai_error",
+            "vision error",
+            "api key",
+            "quota",
+            "rate limit",
+            "insufficient_quota",
+            "model_not_found",
+            "ai 调用失败",
+            "ai 错误",
+            "ai 未返回",
+            "识图失败",
+            "ocr 失败",
+        ),
     ),
     (
         FailureCategory.BUTTON_NOT_FOUND,
-        ("未找到按钮", "找不到按钮", "button not found", "no button"),
+        ("未找到按钮", "找不到按钮", "button not found", "no button", "no matching button", "按钮查找失败", "未找到可供点击的按钮"),
     ),
     (
         FailureCategory.TARGET_NOT_FOUND,
         (
             "未找到消息",
             "找不到消息",
+            "消息未找到",
             "未找到会话",
             "找不到聊天",
+            "会话未找到",
+            "聊天未找到",
             "chat not found",
             "peer id invalid",
+            "peer_id_invalid",
+            "username not occupied",
+            "channel_invalid",
+            "channel_private",
+            "target not found",
+            "目标未找到",
         ),
     ),
     (
@@ -101,21 +136,33 @@ _CATEGORY_RULES: tuple[tuple[FailureCategory, tuple[str, ...]], ...] = (
             "timed out connecting",
             "socks",
             "ssl",
+            "connecterror",
+            "clientconnectorerror",
+            "name or service not known",
+            "temporary failure in name resolution",
+            "连接失败",
+            "拒绝连接",
+            "网络不可达",
+            "名称或服务未知",
+            "名称解析失败",
+            "连接超时",
         ),
     ),
     (
         FailureCategory.TIMEOUT,
-        ("timeout", "timed out", "超时"),
+        ("timeout", "timed out", "超时", "asyncio.timeouterror"),
     ),
 )
 
-
 def message_indicates_strong_failure(text: str) -> bool:
-    """目标消息文本是否呈现强失败语义（排除成功标记）。"""
+    """目标消息文本是否呈现强失败语义（排除成功标记与否定式成功表述）。"""
     normalized = str(text or "").strip().lower()
     if not normalized:
         return False
     if any(marker in normalized for marker in _SUCCESS_MARKERS):
+        return False
+    # 否定式成功表述（如"签到没有失败"）不应判为强失败
+    if _NEGATION_PATTERN.search(normalized):
         return False
     return any(pattern.search(normalized) for pattern in _STRONG_FAILURE_PATTERNS)
 

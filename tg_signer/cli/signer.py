@@ -189,10 +189,12 @@ def tg_signer(
     ]:
         if proxy:
             logger.info(
-                "Using proxy: %s"
-                % f"{proxy['scheme']}://{proxy['hostname']}:{proxy['port']}"
+                "Using proxy: %s://%s:%s",
+                proxy["scheme"],
+                proxy["hostname"],
+                proxy["port"],
             )
-        logger.info(f"Using account: {account}")
+        logger.info("使用账号: %s", account)
     ctx.obj["proxy"] = proxy
     ctx.obj["session_dir"] = session_dir
     ctx.obj["account"] = account
@@ -467,7 +469,7 @@ def list_schedule_messages(obj, chat_id):
 @click.pass_obj
 def multi_run(obj, accounts, task_name, num_of_dialogs):
     logger = logging.getLogger("tg-signer")
-    logger.info(f"开始使用一套配置({task_name})同时运行多个账号..")
+    logger.info("开始使用一套配置(%s)同时运行多个账号..", task_name)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     signer_entries = []

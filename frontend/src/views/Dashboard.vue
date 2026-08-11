@@ -1,23 +1,24 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Users, Zap, Terminal, Settings } from 'lucide-vue-next'
-import { listAccounts, listSignTasks, getRecentAccountLogs, listScheduledJobs, listActiveSignTaskRuns } from '../lib/api'
-import type { AccountInfo, AccountLog, ActiveRunSummary, ScheduledJob } from '../lib/api'
+import type {
+  ActiveRunSummary,
+  KeywordHitRecord,
+  AccountStatusJob,
+} from '../lib/api'
 import { useI18n } from '../composables/useI18n'
-import { useToast } from '../composables/useToast'
-import { useAuthStore } from '../stores/auth'
+import { useDashboardData } from '../composables/useDashboardData'
 import type { DashboardLog } from '../lib/types'
-import { getLocalizedErrorMessage } from '../lib/types'
 import Modal from '../components/Modal.vue'
-import { devLog } from '../lib/devLog'
 import {
-  aggregateFailureCategories,
   badgeTone,
   badgeToneClass,
+  failureCategoryLabel as mapFailureCategoryLabel,
   formatPhaseDetail,
   phaseLabel,
 } from '../lib/run-status'
+import { formatShortDateTime, formatDateTime } from '../lib/datetime'
 
 const quickLinks = [
   { name: 'accounts', icon: Users, titleKey: 'dashboard.goAccounts', descKey: 'dashboard.goAccountsDesc' },
@@ -27,56 +28,44 @@ const quickLinks = [
 ]
 
 const { t } = useI18n()
-const toast = useToast()
-const authStore = useAuthStore()
 const router = useRouter()
-
-let refreshTimer: ReturnType<typeof setInterval> | null = null
-let signHistorySource: EventSource | null = null
-let sseReconnectTimer: ReturnType<typeof setTimeout> | null = null
-let sseReconnectAttempt = 0
-let sseIntentionalClose = false
 const selectedLog = ref<DashboardLog | null>(null)
-const liveConnected = ref(false)
 
-/** 跳转到日志页并按账号筛选，附带任务/时间以便自动打开详情 */
+const {
+  pageLoading,
+  partialLoad,
+  liveConnected,
+  stats,
+  logs,
+  upcomingJobs,
+  activeRuns,
+  failureBreakdown,
+  recentHits,
+  statusJobs,
+  formatTime,
+} = useDashboardData()
+
+/** 跳转到日志页并按账号筛选，附带任务/时间/失败分类以便自动打开详情 */
 const goToLogs = (log: DashboardLog) => {
   router.push({
     name: 'logs',
     query: {
-      account: log.account || undefined,
-      task: log.task || undefined,
+      account: log.account && log.account !== '-' ? log.account : undefined,
+      task: log.task && log.task !== '-' ? log.task : undefined,
       at: log.created_at || undefined,
+      category:
+        log.status === 'error' && log.failure_category
+          ? log.failure_category
+          : undefined,
     },
   })
 }
 
-const stats = ref([
-  { key: 'dashboard.activeAccounts', value: '...' },
-  { key: 'dashboard.totalTasks', value: '...' },
-  { key: 'dashboard.recentSuccess', value: '...' },
-  { key: 'dashboard.recentFailure', value: '...' },
-])
+/** 日志行稳定 key：SSE 前插/轮询替换时避免 index 复用错位 */
+const logKey = (log: DashboardLog) =>
+  `${log.created_at || log.time}|${log.account}|${log.task}|${(log.text || '').length}`
 
-const logs = ref<DashboardLog[]>([])
-const upcomingJobs = ref<ScheduledJob[]>([])
-const activeRuns = ref<ActiveRunSummary[]>([])
-const failureBreakdown = ref<Array<{ category: string; count: number }>>([])
-const pageLoading = ref(true)
-const formatTime = (isoString: string) => {
-  if (!isoString) return ''
-  const d = new Date(isoString)
-  return d.toLocaleTimeString('en-US', { hour12: false })
-}
-const formatJobTime = (iso?: string | null) => {
-  if (!iso) return '-'
-  try {
-    const d = new Date(iso)
-    return d.toLocaleString(undefined, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
-  } catch {
-    return iso
-  }
-}
+const formatJobTime = (iso?: string | null) => formatShortDateTime(iso)
 const jobKindLabel = (kind: string) => {
   if (kind === 'sign') return t('dashboard.jobKindSign')
   if (kind === 'system') return t('dashboard.jobKindSystem')
@@ -84,12 +73,7 @@ const jobKindLabel = (kind: string) => {
   return kind
 }
 
-const failureCategoryLabel = (cat?: string) => {
-  if (!cat || cat === 'none') return ''
-  const key = `dashboard.failCat.${cat}`
-  const label = t(key)
-  return label === key ? cat : label
-}
+const failureCategoryLabel = (cat?: string) => mapFailureCategoryLabel(cat, t)
 
 const openActiveRun = (run: ActiveRunSummary) => {
   router.push({
@@ -112,186 +96,37 @@ const openFailureCategory = (category: string) => {
   })
 }
 
-const prependLiveLog = (payload: {
-  account_name?: string
-  task_name?: string
-  success?: boolean
-  message?: string
-  created_at?: string
-  failure_category?: string
-}) => {
-  const created = payload.created_at || new Date().toISOString()
-  const entry: DashboardLog = {
-    time: formatTime(created),
-    account: payload.account_name || '-',
-    task: payload.task_name || '-',
-    status: payload.success ? 'success' : 'error',
-    text: (payload.message || '').trim() || payload.task_name || '',
-    created_at: created,
-    failure_category: payload.failure_category || undefined,
-  }
-  logs.value = [entry, ...logs.value].slice(0, 40)
-  // 轻量刷新统计
-  if (payload.success) {
-    const s = stats.value.find((x) => x.key === 'dashboard.recentSuccess')
-    if (s && s.value !== '...') s.value = String(Number(s.value || 0) + 1)
-  } else {
-    const s = stats.value.find((x) => x.key === 'dashboard.recentFailure')
-    if (s && s.value !== '...') s.value = String(Number(s.value || 0) + 1)
-  }
+const openKeywordHit = (hit: KeywordHitRecord) => {
+  router.push({
+    name: 'tasks',
+    query: {
+      account: hit.account_name || undefined,
+      task: hit.task_name || undefined,
+      tab: 'hits',
+    },
+  })
 }
 
-const clearSseReconnect = () => {
-  if (sseReconnectTimer) {
-    clearTimeout(sseReconnectTimer)
-    sseReconnectTimer = null
-  }
+const openStatusJob = () => {
+  router.push({ name: 'accounts' })
 }
 
-const scheduleSseReconnect = () => {
-  if (sseIntentionalClose) return
-  clearSseReconnect()
-  // 指数退避 1s → 2s → … → 30s，避免代理断流后狂连
-  const delay = Math.min(30_000, 1000 * 2 ** Math.min(sseReconnectAttempt, 5))
-  sseReconnectAttempt += 1
-  sseReconnectTimer = setTimeout(() => {
-    connectSignHistorySSE()
-  }, delay)
+const statusJobLabel = (job: AccountStatusJob) => {
+  const done = job.progress?.done ?? 0
+  const total = job.progress?.total ?? 0
+  const ok = job.progress?.ok ?? job.summary?.ok ?? 0
+  const fail = job.progress?.fail ?? job.summary?.fail ?? 0
+  if (job.status === 'running' || job.status === 'canceling') {
+    return `${done}/${total} · ${ok}/${fail}`
+  }
+  return `${job.summary?.ok ?? ok}/${job.summary?.fail ?? fail}`
 }
 
-const connectSignHistorySSE = () => {
-  const token = authStore.token || ''
-  if (!token || typeof EventSource === 'undefined') return
-  try {
-    signHistorySource?.close()
-    // EventSource 无法自定义 Header，仅此路径使用 query token
-    const url = `/api/events/sign-history?token=${encodeURIComponent(token)}`
-    signHistorySource = new EventSource(url)
-    signHistorySource.addEventListener('ready', () => {
-      liveConnected.value = true
-      sseReconnectAttempt = 0
-    })
-    signHistorySource.addEventListener('sign_log', (ev) => {
-      try {
-        const data = JSON.parse((ev as MessageEvent).data || '{}')
-        prependLiveLog(data)
-      } catch (e) {
-        devLog.error('parse sign_log event failed', e)
-      }
-    })
-    signHistorySource.onerror = () => {
-      liveConnected.value = false
-      // 主动关闭后按退避重连；原生 EventSource 自动重连与手动重连二选一，避免双通道
-      try {
-        signHistorySource?.close()
-      } catch {
-        /* ignore */
-      }
-      signHistorySource = null
-      scheduleSseReconnect()
-    }
-  } catch (e) {
-    devLog.error('SSE connect failed', e)
-    liveConnected.value = false
-    scheduleSseReconnect()
-  }
-}
-
-onMounted(async () => {
-  sseIntentionalClose = false
-  await loadDashboardData()
-  pageLoading.value = false
-  refreshTimer = setInterval(loadDashboardData, 30000)
-  connectSignHistorySSE()
-})
-
-onUnmounted(() => {
-  sseIntentionalClose = true
-  clearSseReconnect()
-  if (refreshTimer) {
-    clearInterval(refreshTimer)
-    refreshTimer = null
-  }
-  if (signHistorySource) {
-    signHistorySource.close()
-    signHistorySource = null
-  }
-  liveConnected.value = false
-})
-
-const loadDashboardData = async () => {
-  const token = authStore.token || ''
-  if (!token) return
-
-    let accRes: { accounts: AccountInfo[]; total: number } = { accounts: [], total: 0 }
-    let tasksRes: Awaited<ReturnType<typeof listSignTasks>> = []
-    let logsRes: AccountLog[] = []
-    let jobsRes: Awaited<ReturnType<typeof listScheduledJobs>> | null = null
-    let activeRes: { runs: ActiveRunSummary[] } = { runs: [] }
-
-    let loadError: unknown = null
-    try { accRes = await listAccounts(token) } catch (e) { loadError = e; devLog.error('Failed to load accounts', e) }
-    try { tasksRes = await listSignTasks(token) } catch (e) { loadError = e; devLog.error('Failed to load tasks', e) }
-    try { logsRes = await getRecentAccountLogs(token, 50) } catch (e) { loadError = e; devLog.error('Failed to load logs', e) }
-    try { jobsRes = await listScheduledJobs(token) } catch (e) { devLog.error('Failed to load scheduled jobs', e) }
-    try { activeRes = await listActiveSignTaskRuns(token) } catch (e) { devLog.error('Failed to load active runs', e) }
-    // 仅首屏加载失败时提示，避免 30s 轮询刷屏
-    if (loadError && pageLoading.value) {
-      toast.error(getLocalizedErrorMessage(loadError, t, t('logs.loadFailed')))
-    }
-
-    const activeAccs = accRes.accounts ? accRes.accounts.filter((a: AccountInfo) => a.status === 'connected' || a.status === 'checking').length : 0
-    
-    const today = new Date().toISOString().split('T')[0]
-    let todaySuccess = 0
-    let todayFail = 0
-    
-    if (Array.isArray(logsRes)) {
-      logsRes.forEach((l: AccountLog) => {
-        if (l.created_at.startsWith(today)) {
-          if (l.success) todaySuccess++
-          else todayFail++
-        }
-      })
-    }
-
-    stats.value = [
-      { key: 'dashboard.activeAccounts', value: `${activeAccs}/${accRes.total || 0}` },
-      { key: 'dashboard.totalTasks', value: `${Array.isArray(tasksRes) ? tasksRes.length : 0}` },
-      { key: 'dashboard.recentSuccess', value: `${todaySuccess}` },
-      { key: 'dashboard.recentFailure', value: `${todayFail}` },
-    ]
-
-    if (Array.isArray(logsRes)) {
-      // 多取用于失败分类聚合；列表展示仍限制 20 条
-      logs.value = logsRes.slice(0, 20).map((l: AccountLog) => ({
-        time: formatTime(l.created_at),
-        account: l.account_name,
-        task: l.task_name,
-        status: l.success ? 'success' : 'error',
-        text: (l.bot_message || l.message || '').trim() || l.task_name,
-        created_at: l.created_at,
-        failure_category: l.failure_category || undefined,
-      }))
-    }
-
-    if (jobsRes?.jobs) {
-      upcomingJobs.value = jobsRes.jobs
-        .filter((j) => j.next_run_time && j.kind !== 'system')
-        .slice(0, 8)
-    } else {
-      upcomingJobs.value = []
-    }
-
-    activeRuns.value = Array.isArray(activeRes.runs) ? activeRes.runs : []
-    failureBreakdown.value = aggregateFailureCategories(
-      Array.isArray(logsRes)
-        ? logsRes.map((l) => ({
-            success: !!l.success,
-            failure_category: l.failure_category,
-          }))
-        : [],
-    )
+/** 状态 Job 原始状态码映射为本地化文案（running/canceling/failed/done） */
+const jobStatusLabel = (status: string) => {
+  const key = `dashboard.jobStatus.${status}`
+  const translated = t(key)
+  return translated !== key ? translated : status
 }
 </script>
 
@@ -325,10 +160,10 @@ const loadDashboardData = async () => {
         class="ui-card ui-card-hover ui-stat p-5 flex flex-col justify-between min-h-[96px] text-left"
         :style="{
           '--sp-stat-accent':
-            stat.key === 'dashboard.activeAccounts' ? '#0ea5e9'
-            : stat.key === 'dashboard.totalTasks' ? '#8b5cf6'
-            : stat.key === 'dashboard.recentSuccess' ? '#10b981'
-            : '#f43f5e'
+            stat.key === 'dashboard.activeAccounts' ? 'var(--sp-accent)'
+            : stat.key === 'dashboard.totalTasks' ? 'var(--sp-violet)'
+            : stat.key === 'dashboard.recentSuccess' ? 'var(--sp-success)'
+            : 'var(--sp-danger)'
         }"
         @click="router.push({
           name: stat.key === 'dashboard.totalTasks' ? 'tasks'
@@ -337,7 +172,10 @@ const loadDashboardData = async () => {
         })"
       >
         <span class="ui-section-label">{{ t(stat.key) }}</span>
-        <span class="text-2xl sm:text-3xl font-mono font-medium text-gray-900 dark:text-gray-100 mt-3 tracking-tight">{{ stat.value }}</span>
+        <span
+          class="text-2xl sm:text-3xl font-mono font-medium text-gray-900 dark:text-gray-100 mt-3 tracking-tight"
+          :title="t(stat.hintKey)"
+        >{{ stat.value }}</span>
       </button>
     </div>
 
@@ -367,8 +205,8 @@ const loadDashboardData = async () => {
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <div class="ui-card p-5">
         <div class="ui-section-label mb-4">{{ t('dashboard.activeRuns') }}</div>
-        <div v-if="activeRuns.length === 0" class="text-xs text-gray-400 py-6 text-center">
-          {{ t('dashboard.noActiveRuns') }}
+        <div v-if="activeRuns.length === 0" class="ui-empty !py-8">
+          <p class="ui-empty-desc">{{ t('dashboard.noActiveRuns') }}</p>
         </div>
         <div v-else class="space-y-1">
           <button
@@ -395,8 +233,8 @@ const loadDashboardData = async () => {
       </div>
       <div class="ui-card p-5">
         <div class="ui-section-label mb-4">{{ t('dashboard.failureBreakdown') }}</div>
-        <div v-if="failureBreakdown.length === 0" class="text-xs text-gray-400 py-6 text-center">
-          {{ t('common.noData') }}
+        <div v-if="failureBreakdown.length === 0" class="ui-empty !py-8">
+          <p class="ui-empty-desc">{{ t('dashboard.noFailureBreakdown') }}</p>
         </div>
         <div v-else class="flex flex-wrap gap-2">
           <button
@@ -404,6 +242,7 @@ const loadDashboardData = async () => {
             :key="item.category"
             type="button"
             class="ui-badge ui-badge-error !text-[11px] cursor-pointer hover:opacity-90"
+            :title="t('dashboard.openFailureInLogs')"
             @click="openFailureCategory(item.category)"
           >
             {{ failureCategoryLabel(item.category) || item.category }}: {{ item.count }}
@@ -412,15 +251,104 @@ const loadDashboardData = async () => {
       </div>
     </div>
 
+    <!-- 最近关键词命中 + 账号状态 Job -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div class="ui-card p-5">
+        <div class="ui-section-label mb-4 flex items-center justify-between gap-2">
+          <span>{{ t('dashboard.recentHits') }}</span>
+          <button
+            type="button"
+            class="text-[11px] text-sky-600 dark:text-sky-400 hover:underline"
+            @click="router.push({ name: 'tasks' })"
+          >
+            {{ t('dashboard.viewTasks') }}
+          </button>
+        </div>
+        <div v-if="recentHits.length === 0" class="ui-empty !py-8">
+          <p class="ui-empty-desc">{{ t('dashboard.noRecentHits') }}</p>
+        </div>
+        <div v-else class="space-y-1">
+          <button
+            v-for="hit in recentHits"
+            :key="hit.id"
+            type="button"
+            class="ui-list-row w-full flex items-center gap-2 text-xs px-2 py-2 rounded-sm text-left"
+            @click="openKeywordHit(hit)"
+          >
+            <span class="font-mono text-sky-700 dark:text-sky-300 shrink-0 max-w-[5.5rem] truncate" :title="hit.keyword">
+              {{ hit.keyword || '-' }}
+            </span>
+            <span class="truncate text-gray-700 dark:text-gray-300" :title="hit.task_name">
+              {{ hit.task_name || '-' }}
+            </span>
+            <span class="text-gray-500 truncate shrink-0 max-w-[5rem]" :title="hit.account_name">
+              {{ hit.account_name || '-' }}
+            </span>
+            <span class="ml-auto text-[10px] text-gray-400 font-mono shrink-0">
+              {{ formatTime(hit.time) }}
+            </span>
+          </button>
+        </div>
+      </div>
+      <div class="ui-card p-5">
+        <div class="ui-section-label mb-4 flex items-center justify-between gap-2">
+          <span>{{ t('dashboard.statusJobs') }}</span>
+          <button
+            type="button"
+            class="text-[11px] text-sky-600 dark:text-sky-400 hover:underline"
+            @click="openStatusJob"
+          >
+            {{ t('dashboard.goAccounts') }}
+          </button>
+        </div>
+        <div v-if="statusJobs.length === 0" class="ui-empty !py-8">
+          <p class="ui-empty-desc">{{ t('dashboard.noStatusJobs') }}</p>
+        </div>
+        <div v-else class="space-y-1">
+          <button
+            v-for="job in statusJobs"
+            :key="job.job_id"
+            type="button"
+            class="ui-list-row w-full flex items-center gap-2 text-xs px-2 py-2 rounded-sm text-left"
+            @click="openStatusJob"
+          >
+            <span
+              class="ui-badge shrink-0 !text-[10px]"
+              :class="job.status === 'running' || job.status === 'canceling'
+                ? 'border-sky-200 text-sky-700 dark:border-sky-800 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/40'
+                : job.status === 'failed'
+                  ? 'ui-badge-error'
+                  : 'ui-badge-neutral'"
+            >
+              <span
+                v-if="job.status === 'running' || job.status === 'canceling'"
+                class="ui-pulse-dot !bg-sky-500"
+              />
+              {{ jobStatusLabel(job.status) }}
+            </span>
+            <span class="font-mono text-gray-700 dark:text-gray-300 truncate">
+              {{ statusJobLabel(job) }}
+            </span>
+            <span class="ml-auto text-[10px] text-gray-400 font-mono shrink-0">
+              {{ formatTime(job.updated_at || job.created_at || '') }}
+            </span>
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Upcoming schedule -->
     <div class="ui-card p-5">
       <div class="ui-section-label mb-4">{{ t('dashboard.upcomingJobs') }}</div>
-      <div v-if="upcomingJobs.length === 0" class="text-xs text-gray-400 py-8 text-center">{{ t('dashboard.noUpcoming') }}</div>
+      <div v-if="upcomingJobs.length === 0" class="ui-empty !py-8">
+        <p class="ui-empty-desc">{{ t('dashboard.noUpcoming') }}</p>
+      </div>
       <div v-else class="space-y-0.5">
         <div
           v-for="job in upcomingJobs"
           :key="job.id"
           class="ui-list-row flex items-center gap-3 text-xs px-2 py-2 rounded-sm"
+          :title="`${t('dashboard.nextRun')}: ${formatJobTime(job.next_run_time)} · ${jobKindLabel(job.kind)} · ${job.id}`"
         >
           <span class="font-mono text-gray-500 w-28 shrink-0">{{ formatJobTime(job.next_run_time) }}</span>
           <span
@@ -441,9 +369,18 @@ const loadDashboardData = async () => {
         <span
           class="ui-badge"
           :class="liveConnected ? 'ui-badge-success' : 'ui-badge-neutral'"
+          :title="liveConnected ? t('dashboard.liveOnHint') : t('dashboard.liveOffHint')"
         >
           <span :class="liveConnected ? 'ui-pulse-dot' : 'ui-badge-dot'" />
           {{ liveConnected ? t('dashboard.liveOn') : t('dashboard.liveOff') }}
+        </span>
+        <span
+          v-if="partialLoad"
+          class="ui-badge ui-badge-warn"
+          :title="t('dashboard.partialLoadHint')"
+        >
+          <span class="ui-badge-dot" />
+          {{ t('dashboard.partialLoad') }}
         </span>
       </div>
       <div v-if="logs.length === 0" class="ui-empty py-16">
@@ -452,14 +389,14 @@ const loadDashboardData = async () => {
       </div>
       <div v-else class="text-xs overflow-x-auto space-y-0">
         <div
-          v-for="(log, idx) in logs"
-          :key="idx"
+          v-for="log in logs"
+          :key="logKey(log)"
           class="ui-list-row flex items-center gap-3 px-2 py-2 cursor-pointer rounded-sm"
           :title="t('dashboard.openInLogs')"
           @click="selectedLog = log"
           @dblclick="goToLogs(log)"
         >
-          <span class="font-mono text-gray-500 dark:text-gray-600 shrink-0 w-[72px] text-[11px]">{{ log.time }}</span>
+          <span class="font-mono text-gray-500 dark:text-gray-600 shrink-0 w-[100px] text-[11px] truncate" :title="formatDateTime(log.created_at, 'zh-CN')">{{ log.time }}</span>
           <span class="text-gray-700 dark:text-gray-400 shrink-0 w-24 truncate font-medium">{{ log.account }}</span>
           <span class="text-gray-600 dark:text-gray-500 shrink-0 w-28 truncate">{{ log.task }}</span>
           <span
@@ -469,12 +406,15 @@ const loadDashboardData = async () => {
             <span class="ui-badge-dot" />
             {{ log.status === 'success' ? t('logs.success') : t('logs.failed') }}
           </span>
-          <span
+          <button
             v-if="log.status === 'error' && failureCategoryLabel(log.failure_category)"
-            class="ui-badge ui-badge-warn shrink-0"
+            type="button"
+            class="ui-badge ui-badge-warn shrink-0 cursor-pointer hover:opacity-90"
+            :title="t('dashboard.openFailureInLogs')"
+            @click.stop="openFailureCategory(String(log.failure_category))"
           >
             {{ failureCategoryLabel(log.failure_category) }}
-          </span>
+          </button>
           <span
             class="truncate flex-1 min-w-0"
             :class="log.status === 'success' ? 'text-gray-700 dark:text-gray-300' : 'text-rose-600 dark:text-rose-400/90'"
@@ -513,7 +453,14 @@ const loadDashboardData = async () => {
           </div>
           <div v-if="selectedLog.status === 'error' && failureCategoryLabel(selectedLog.failure_category)" class="col-span-2 space-y-0.5">
             <div class="text-gray-500">{{ t('dashboard.failureCategory') }}</div>
-            <div class="text-amber-700 dark:text-amber-400">{{ failureCategoryLabel(selectedLog.failure_category) }}</div>
+            <button
+              type="button"
+              class="text-amber-700 dark:text-amber-400 hover:underline text-left"
+              :title="t('dashboard.openFailureInLogs')"
+              @click="openFailureCategory(String(selectedLog.failure_category)); selectedLog = null"
+            >
+              {{ failureCategoryLabel(selectedLog.failure_category) }}
+            </button>
           </div>
         </div>
         <div class="pt-2 border-t border-gray-200 dark:border-gray-800/60">

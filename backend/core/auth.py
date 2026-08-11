@@ -1,17 +1,18 @@
 from __future__ import annotations
 
+import logging
 import os
 import threading
 from datetime import timedelta
 from typing import Optional
 
 import jwt
+import pyotp
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jwt import PyJWTError
 from sqlalchemy.orm import Session
 
-import pyotp
 from backend.core.config import get_settings
 from backend.core.database import get_db
 from backend.core.security import verify_password
@@ -81,17 +82,44 @@ def verify_totp(secret: str, code: str) -> bool:
         # 清理过期条目（锁外执行，避免增加锁持有时间）
         _cleanup_used_totp_codes()
         return True
+    except (ValueError, TypeError, OSError) as exc:
+        # pyotp/hashlib/系统调用相关异常视为验证失败，不向上抛出
+        logging.getLogger("backend.auth").warning(
+            "TOTP 验证过程异常，按失败处理: %s", exc
+        )
+        return False
     except Exception:
+        # 兜底：未知异常不能让认证接口崩溃
+        logging.getLogger("backend.auth").exception(
+            "TOTP 验证发生未知异常，按失败处理"
+        )
         return False
 
 
+def get_user_by_username(db: Session, username: str) -> Optional[User]:
+    """按用户名查询用户（统一入口，避免各处内联重复查询）。"""
+    return db.query(User).filter(User.username == username).first()
+
+
 def authenticate_user(db: Session, username: str, password: str) -> Optional[User]:
-    user = db.query(User).filter(User.username == username).first()
+    user = get_user_by_username(db, username)
     if not user:
         return None
     if not verify_password(password, user.password_hash):
         return None
     return user
+
+
+def _resolve_user_from_token(token: str, db: Session) -> Optional[User]:
+    """解码 JWT 并按 sub 查询用户；解码失败或用户不存在时返回 None。"""
+    try:
+        payload = jwt.decode(token, settings.secret_key, algorithms=["HS256"])
+        username: Optional[str] = payload.get("sub")
+        if username is None:
+            return None
+    except PyJWTError:
+        return None
+    return get_user_by_username(db, username)
 
 
 def get_current_user(
@@ -102,14 +130,7 @@ def get_current_user(
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=["HS256"])
-        username: str = payload.get("sub")  # type: ignore[assignment]
-        if username is None:
-            raise credentials_exception
-    except PyJWTError:
-        raise credentials_exception
-    user = db.query(User).filter(User.username == username).first()
+    user = _resolve_user_from_token(token, db)
     if user is None:
         raise credentials_exception
     return user
@@ -133,12 +154,4 @@ def get_current_user_optional(
 
 def verify_token(token: str, db: Session) -> Optional[User]:
     """验证 Token 并返回用户对象"""
-    try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=["HS256"])
-        username: str = payload.get("sub")  # type: ignore[assignment]
-        if username is None:
-            return None
-    except PyJWTError:
-        return None
-    user = db.query(User).filter(User.username == username).first()
-    return user
+    return _resolve_user_from_token(token, db)

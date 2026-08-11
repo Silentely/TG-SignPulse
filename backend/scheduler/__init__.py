@@ -1,14 +1,10 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from sqlalchemy.orm import Session
-
-from backend.core.database import get_session_local
-from backend.models.task import Task
-from backend.services.tasks import run_task_once
 
 scheduler: AsyncIOScheduler | None = None
 
@@ -33,8 +29,10 @@ def create_cron_trigger(cron_str: str, timezone: str = "") -> CronTrigger:
             elif len(parts) == 3:
                 hour, minute, second = parts
                 cron_str = f"{int(second)} {int(minute)} {int(hour)} * * *"
-        except ValueError:
-            pass
+        except ValueError as exc:
+            logging.getLogger("backend.scheduler").debug(
+                "clock-time cron parse failed for %r: %s", cron_str, exc
+            )
 
     # 获取有效时区：优先使用传入参数，否则从全局配置回退到环境变量
     tz = timezone
@@ -44,7 +42,10 @@ def create_cron_trigger(cron_str: str, timezone: str = "") -> CronTrigger:
             from backend.services.config import get_config_service
             saved_settings = get_config_service().get_global_settings()
             tz = saved_settings.get("timezone") or get_settings().timezone
-        except Exception:
+        except (ImportError, AttributeError, ValueError, KeyError) as exc:
+            logging.getLogger("backend.scheduler").debug(
+                "读取全局时区配置失败，使用调度器默认时区: %s", exc
+            )
             tz = ""
 
     parts = cron_str.split()
@@ -61,31 +62,18 @@ def create_cron_trigger(cron_str: str, timezone: str = "") -> CronTrigger:
     return CronTrigger.from_crontab(cron_str, timezone=tz or None)
 
 
-async def _job_run_task(task_id: int) -> None:
-    db: Session = get_session_local()()
-    try:
-        # 这里的查询是同步的，对于 SQLite 且任务量不大可以接受
-        task = db.query(Task).filter(Task.id == task_id).first()
-        if not task or not task.enabled:
-            return
-        # run_task_once 将被改为 async
-        await run_task_once(db, task)
-    finally:
-        db.close()
-
 
 async def _job_run_sign_task(account_name: str, task_name: str) -> None:
     """运行签到任务的 Job 包装器"""
     import asyncio
-    import logging
     import random
-    from datetime import datetime, timedelta
+    from datetime import timedelta
 
     from backend.services.sign_tasks import get_sign_task_service
 
     logger = logging.getLogger("backend.scheduler")
     try:
-        logger.info(f"Scheduler: 正在运行签到任务 {task_name} (账号: {account_name})")
+        logger.info("Scheduler: 正在运行签到任务 %s (账号: %s)", task_name, account_name)
 
         # 获取任务配置，检查是否为随机时间段模式
         sign_task_service = get_sign_task_service()
@@ -126,53 +114,62 @@ async def _job_run_sign_task(account_name: str, task_name: str) -> None:
                         # 生成随机延迟
                         delay_seconds = random.uniform(0, total_seconds)
                         logger.info(
-                            f"Scheduler: 任务 {task_name} 设置为随机时间段模式 ({range_start_str} - {range_end_str})"
+                            "Scheduler: 任务 %s 设置为随机时间段模式 (%s - %s)",
+                            task_name,
+                            range_start_str,
+                            range_end_str,
                         )
                         logger.info(
-                            f"Scheduler: 将随机等待 {int(delay_seconds)} 秒 ({delay_seconds / 60:.2f} 分钟) 后执行"
+                            "Scheduler: 将随机等待 %d 秒 (%.2f 分钟) 后执行",
+                            int(delay_seconds),
+                            delay_seconds / 60,
                         )
 
                         await asyncio.sleep(delay_seconds)
 
-                except Exception as e:
-                    logger.error(f"Scheduler: 计算随机时间段延迟失败: {e}，将立即执行")
+                except (ValueError, KeyError, TypeError) as e:
+                    logger.error(
+                        "Scheduler: 计算随机时间段延迟失败: %s，将立即执行",
+                        e,
+                        exc_info=True,
+                    )
 
-        # run_task_with_logs 是 async 的，我们使用它
-        sign_task_service = get_sign_task_service()
+        # run_task_with_logs 是 async 的，我们使用它（service 已在上方获取）
         result = await sign_task_service.run_task_with_logs(account_name, task_name)
         if result.get("success"):
-            logger.info(f"Scheduler: 任务 {task_name} 执行成功")
+            logger.info("Scheduler: 任务 %s 执行成功", task_name)
         else:
-            logger.error(f"Scheduler: 任务 {task_name} 执行失败: {result.get('error')}")
+            logger.error(
+                "Scheduler: 任务 %s 执行失败: %s",
+                task_name,
+                result.get('error'),
+            )
     except Exception as e:
-        logger.error(f"Scheduler: 运行签到任务 {task_name} 失败: {e}", exc_info=True)
+        # 顶层兜底：Job 执行入口不能让异常逃逸到调度器导致后续任务被压制
+        logger.error(
+            "Scheduler: 运行签到任务 %s 失败: %s",
+            task_name,
+            e,
+            exc_info=True,
+        )
 
 
 async def _job_maintenance() -> None:
-    """每日维护任务：清理旧日志等"""
-    db: Session = get_session_local()()
+    """每日维护任务：清理签到历史与内存状态。"""
     try:
         from backend.services.sign_tasks import get_sign_task_service
-        from backend.services.tasks import cleanup_old_logs
 
-        # 清理数据库任务日志
-        count = cleanup_old_logs(db, days=3)
-        print(f"Maintenance: 已清理 {count} 条数据库任务日志")
-
-        # 清理签到任务日志
         sign_service = get_sign_task_service()
         sign_service._cleanup_old_logs()
-
-        # 清理内存中的过期状态
         sign_service._prune_stale_entries()
-    finally:
-        db.close()
+    except Exception as exc:
+        logging.getLogger("backend.scheduler").warning(
+            "Maintenance job failed: %s", exc, exc_info=True
+        )
 
 
 async def _job_device_keepalive() -> None:
     """定期保活 Telegram 授权设备/会话，避免长期不活跃被自动踢下线。"""
-    import logging
-
     logger = logging.getLogger("backend.scheduler")
     try:
         from backend.services.device_keepalive import get_device_keepalive_service
@@ -186,12 +183,12 @@ async def _job_device_keepalive() -> None:
             result.get("failed"),
         )
     except Exception as exc:
-        logger.error("Device keepalive job failed: %s", exc, exc_info=True)
+        # 顶层兜底：保活 Job 失败不能阻塞调度器
+        logger.error("设备保活任务失败: %s", exc, exc_info=True)
 
 
 async def _job_auto_backup() -> None:
     """按全局设置执行自动备份。"""
-    import logging
     from pathlib import Path
 
     logger = logging.getLogger("backend.scheduler")
@@ -242,7 +239,8 @@ async def _job_auto_backup() -> None:
                 detail=f"path={result.get('path') or '-'}",
             )
     except Exception as exc:
-        logger.error("Auto backup job failed: %s", exc, exc_info=True)
+        # 顶层兜底：自动备份 Job 失败不能阻塞调度器，但要推送告警
+        logger.error("自动备份任务失败: %s", exc, exc_info=True)
         try:
             from backend.services.push_notifications import (
                 send_auto_backup_failure_notification,
@@ -253,7 +251,7 @@ async def _job_auto_backup() -> None:
                     cfg, error=str(exc), detail="scheduler exception"
                 )
         except Exception:
-            pass
+            logger.exception("自动备份失败通知也发送失败")
 
 
 def _sync_auto_backup_job() -> None:
@@ -261,8 +259,8 @@ def _sync_auto_backup_job() -> None:
     global scheduler
     if scheduler is None:
         return
-    import logging
 
+    from apscheduler.jobstores.base import JobLookupError
     from apscheduler.triggers.interval import IntervalTrigger
 
     logger = logging.getLogger("backend.scheduler")
@@ -285,25 +283,29 @@ def _sync_auto_backup_job() -> None:
                 max_instances=1,
                 coalesce=True,
             )
-            logger.info("Auto backup job registered: every %sh", hours)
+            logger.info("自动备份任务已注册：每 %s 小时", hours)
         else:
             try:
                 scheduler.remove_job(job_id)
-            except Exception:
+            except JobLookupError:
+                # job 不存在时静默忽略
                 pass
-    except Exception as exc:
+    except (ImportError, AttributeError, ValueError, KeyError, RuntimeError) as exc:
         logger.warning("同步自动备份任务失败: %s", exc)
+    except Exception:
+        # 兜底：未知异常不阻塞 sync 流程，记录完整堆栈便于排障
+        logger.exception("同步自动备份任务发生未知异常")
 
 
 async def sync_jobs() -> None:
     """
-    Sync APScheduler jobs from DB tasks table and file-based sign tasks.
+    Sync APScheduler jobs from file-based sign tasks (legacy ORM tasks removed).
     """
     if scheduler is None:
         return
 
     # 每次同步时检查时区是否变更，运行时无法直接修改调度器时区，仅记录日志
-    import logging
+    from apscheduler.jobstores.base import JobLookupError
 
     from backend.scheduler.instance_lock import has_scheduler_lock
     _tz_logger = logging.getLogger("backend.scheduler")
@@ -315,7 +317,8 @@ async def sync_jobs() -> None:
                 if jid.startswith("db-") or jid.startswith("sign-"):
                     try:
                         scheduler.remove_job(jid)
-                    except Exception:
+                    except JobLookupError:
+                        # job 已被移除，静默忽略
                         pass
         _tz_logger.info("本进程未持有调度锁，已跳过业务任务同步")
         return
@@ -328,94 +331,96 @@ async def sync_jobs() -> None:
         desired_tz = saved_tz or get_settings().timezone
         scheduler_tz = str(getattr(scheduler, 'timezone', ''))
         if desired_tz and desired_tz != scheduler_tz:
-            _tz_logger.info(f"时区已变更 ({scheduler_tz} → {desired_tz})，将在下次调度器重启后生效")
+            _tz_logger.info("时区已变更 (%s → %s)，将在下次调度器重启后生效", scheduler_tz, desired_tz)
         _sync_auto_backup_job()
-    except Exception as e:
-        _tz_logger.warning(f"时区变更检测失败: {e}")
+    except (ImportError, AttributeError, ValueError, KeyError) as e:
+        _tz_logger.warning("时区变更检测失败: %s", e)
+    except Exception:
+        _tz_logger.exception("时区变更检测发生未知异常")
 
     from backend.services.sign_tasks import get_sign_task_service
 
-    db: Session = get_session_local()()
-    try:
-        # 1. 同步数据库任务
-        tasks = db.query(Task).filter(Task.enabled).all()
-        existing_ids = {
-            job.id
-            for job in scheduler.get_jobs()
-            if job.id.startswith("db-") or job.id.startswith("sign-")
-        }
-        desired_ids = set()
+    # 同步签到任务 (SignTask)；旧 ORM db-* job 不再注册
+    existing_ids = {
+        job.id
+        for job in scheduler.get_jobs()
+        if str(job.id or "").startswith("db-") or str(job.id or "").startswith("sign-")
+    }
+    desired_ids = set()
 
-        for task in tasks:
-            job_id = f"db-{task.id}"
-            desired_ids.add(job_id)
-
+    # 主动移除遗留 db-* 任务
+    for job_id in list(existing_ids):
+        if str(job_id).startswith("db-"):
             try:
-                trigger = create_cron_trigger(task.cron)
-                if job_id in existing_ids:
-                    scheduler.reschedule_job(job_id, trigger=trigger)
-                else:
-                    scheduler.add_job(
-                        _job_run_task,
-                        trigger=trigger,
-                        id=job_id,
-                        args=[task.id],
-                        replace_existing=True,
-                    )
-            except Exception as e:
-                print(f"Error scheduling DB task {task.id}: {e}")
+                scheduler.remove_job(job_id)
+            except JobLookupError:
+                pass
+            existing_ids.discard(job_id)
 
-        # 2. 同步签到任务 (SignTask)
-        # 使用缓存的任务列表，减少 I/O
-        sign_task_service = get_sign_task_service()
-        # Expand wildcard tasks for newly added accounts
-        sign_task_service._expand_wildcard_tasks()
-        sign_tasks = sign_task_service.list_tasks(force_refresh=True)
-        for st in sign_tasks:
-            account_name = str(st.get("account_name") or "").strip()
-            task_name = str(st.get("name") or "").strip()
-            if not account_name or not task_name:
-                print(f"Skip scheduling sign task with missing account/name: {st}")
-                continue
+    sign_task_service = get_sign_task_service()
+    # Expand wildcard tasks for newly added accounts
+    sign_task_service._expand_wildcard_tasks()
+    sign_tasks = sign_task_service.list_tasks(force_refresh=True)
+    for st in sign_tasks:
+        account_name = str(st.get("account_name") or "").strip()
+        task_name = str(st.get("name") or "").strip()
+        if not account_name or not task_name:
+            logging.getLogger("backend.scheduler").warning(
+                "Skip scheduling sign task with missing account/name: %s", st
+            )
+            continue
 
-            job_id = f"sign-{account_name}-{task_name}"
-            desired_ids.add(job_id)
+        job_id = f"sign-{account_name}-{task_name}"
+        desired_ids.add(job_id)
 
-            # SignTask 目前默认都是启用的，或者根据 st['enabled']
-            if not st.get("enabled", True):
-                if job_id in existing_ids:
+        if not st.get("enabled", True):
+            if job_id in existing_ids:
+                try:
                     scheduler.remove_job(job_id)
-                continue
+                except JobLookupError:
+                    # 并发 sync 下 job 可能已被其他协程移除，静默忽略
+                    pass
+            continue
 
-            if st.get("execution_mode") == "listen":
-                if job_id in existing_ids:
+        if st.get("execution_mode") == "listen":
+            if job_id in existing_ids:
+                try:
                     scheduler.remove_job(job_id)
-                continue
+                except JobLookupError:
+                    pass
+            continue
 
-            try:
-                trigger = create_cron_trigger(st["sign_at"])
-                if st.get("execution_mode") == "range" and st.get("range_start"):
-                    trigger = create_cron_trigger(st["range_start"])
+        try:
+            trigger = create_cron_trigger(st["sign_at"])
+            if st.get("execution_mode") == "range" and st.get("range_start"):
+                trigger = create_cron_trigger(st["range_start"])
 
-                if job_id in existing_ids:
-                    scheduler.reschedule_job(job_id, trigger=trigger)
-                else:
-                    # 使用新的 job wrapper
-                    scheduler.add_job(
-                        _job_run_sign_task,
-                        trigger=trigger,
-                        id=job_id,
-                        args=[account_name, task_name],
-                        replace_existing=True,
-                    )
-            except Exception as e:
-                print(f"Error scheduling sign task {task_name}: {e}")
+            if job_id in existing_ids:
+                scheduler.reschedule_job(job_id, trigger=trigger)
+            else:
+                scheduler.add_job(
+                    _job_run_sign_task,
+                    trigger=trigger,
+                    id=job_id,
+                    args=[account_name, task_name],
+                    replace_existing=True,
+                )
+        except (ValueError, KeyError, RuntimeError) as e:
+            logging.getLogger("backend.scheduler").warning(
+                "Error scheduling sign task %s: %s", task_name, e
+            )
+        except Exception:
+            logging.getLogger("backend.scheduler").exception(
+                "调度签到任务 %s 发生未知异常", task_name
+            )
 
-        # remove obsolete jobs
-        for job_id in existing_ids - desired_ids:
+    # remove obsolete jobs
+    for job_id in existing_ids - desired_ids:
+        try:
             scheduler.remove_job(job_id)
-    finally:
-        db.close()
+        except JobLookupError:
+            # 并发 sync 下 job 可能已被其他协程移除，静默忽略
+            pass
 
 
 async def init_scheduler(sync_on_startup: bool = True) -> AsyncIOScheduler:
@@ -433,8 +438,10 @@ async def init_scheduler(sync_on_startup: bool = True) -> AsyncIOScheduler:
             saved_tz = saved_settings.get("timezone")
             if saved_tz:
                 tz = saved_tz
-        except Exception:
-            pass
+        except (ImportError, AttributeError, ValueError, KeyError) as exc:
+            logging.getLogger("backend.scheduler").warning(
+                "读取全局时区设置失败，使用默认时区 %s: %s", settings.timezone, exc
+            )
 
         # 多实例场景：仅锁持有者注册业务调度
         try_acquire_scheduler_lock()
@@ -478,15 +485,24 @@ def shutdown_scheduler() -> None:
         try:
             if getattr(scheduler, "running", False):
                 scheduler.shutdown(wait=False)
+        except RuntimeError as exc:
+            # 调度器已停止或未运行时静默忽略
+            logging.getLogger("backend.scheduler").debug(
+                "调度器关闭时已停止运行: %s", exc
+            )
         except Exception:
-            pass
+            logging.getLogger("backend.scheduler").exception(
+                "调度器关闭发生未知异常"
+            )
         scheduler = None
     try:
         from backend.scheduler.instance_lock import release_scheduler_lock
 
         release_scheduler_lock()
     except Exception:
-        pass
+        logging.getLogger("backend.scheduler").exception(
+            "释放调度锁发生未知异常"
+        )
         scheduler = None
 
 
@@ -498,6 +514,7 @@ def add_or_update_sign_task_job(
     if not scheduler:
         return
 
+    logger = logging.getLogger("backend.scheduler")
     job_id = f"sign-{account_name}-{task_name}"
 
     if not enabled:
@@ -516,21 +533,28 @@ def add_or_update_sign_task_job(
             args=[account_name, task_name],
             replace_existing=True,
         )
-        print(f"Scheduler: 已添加/更新任务 {job_id} -> {cron}")
-    except Exception as e:
-        print(f"Scheduler: 添加任务 {job_id} 失败: {e}")
+        logger.info("Scheduler: 已添加/更新任务 %s -> %s", job_id, cron)
+    except (ValueError, KeyError, RuntimeError) as e:
+        logger.error("Scheduler: 添加任务 %s 失败（参数或调度器错误）: %s", job_id, e)
+    except Exception:
+        logger.exception("Scheduler: 添加任务 %s 发生未知异常", job_id)
 
 
 def remove_sign_task_job(account_name: str, task_name: str) -> None:
     """动态移除签到任务 Job"""
+    from apscheduler.jobstores.base import JobLookupError
+
     global scheduler
     if not scheduler:
         return
 
+    logger = logging.getLogger("backend.scheduler")
     job_id = f"sign-{account_name}-{task_name}"
     try:
         if scheduler.get_job(job_id):
             scheduler.remove_job(job_id)
-            print(f"Scheduler: 已移除任务 {job_id}")
-    except Exception as e:
-        print(f"Scheduler: 移除任务 {job_id} 失败: {e}")
+            logger.info("Scheduler: 已移除任务 %s", job_id)
+    except (JobLookupError, RuntimeError) as e:
+        logger.error("Scheduler: 移除任务 %s 失败（调度器状态错误）: %s", job_id, e)
+    except Exception:
+        logger.exception("Scheduler: 移除任务 %s 发生未知异常", job_id)

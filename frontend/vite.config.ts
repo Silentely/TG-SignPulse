@@ -8,12 +8,12 @@ export default defineConfig({
     vue(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico'],
+      includeAssets: ['favicon.svg'],
       manifest: {
         name: 'TG-SignPulse',
         short_name: 'SignPulse',
         description: 'Telegram Automation Panel',
-        theme_color: '#111827',
+        theme_color: '#0f172a',
         background_color: '#f9fafb',
         display: 'standalone',
         start_url: '/',
@@ -34,7 +34,14 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
         runtimeCaching: [
           {
-            urlPattern: /^https?:\/\/.*\/api\//,
+            // 仅缓存常规 GET API；排除鉴权/SSE 流/运行时状态/命中记录等
+            // 敏感或动态数据，避免令牌过期后的旧响应与流式响应被缓存
+            urlPattern: ({ url }) =>
+              url.pathname.startsWith('/api/') &&
+              !url.pathname.startsWith('/api/auth/') &&
+              !url.pathname.startsWith('/api/events/') &&
+              !url.pathname.startsWith('/api/ops/') &&
+              !url.pathname.startsWith('/api/keyword-hits/'),
             handler: 'NetworkFirst',
             options: {
               cacheName: 'api-cache',

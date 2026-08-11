@@ -15,8 +15,9 @@
 
 | 环境 | 镜像 |
 |------|------|
-| 生产 | `ghcr.io/silentely/tg-signpulse:latest` 或 `ghcr.io/silentely/tg-signpulse:v2.2.0` |
-| 测试 | `ghcr.io/silentely/tg-signpulse:test-main` |
+| 生产 | `ghcr.io/silentely/tg-signpulse:latest` 或 `ghcr.io/silentely/tg-signpulse:v2.2.3` |
+| 稳定主干 | `ghcr.io/silentely/tg-signpulse:main` 或 `…:main-<sha>` |
+| 预发/开发 | `ghcr.io/silentely/tg-signpulse:dev` |
 
 ## 3. 最小启动
 
@@ -44,6 +45,7 @@ services:
     image: ghcr.io/silentely/tg-signpulse:latest
     container_name: tg-signpulse
     restart: unless-stopped
+    # 镜像默认监听 8080（PORT 环境变量）；如需改端口，同步设置 PORT 与映射
     ports:
       - "8080:8080"
     volumes:

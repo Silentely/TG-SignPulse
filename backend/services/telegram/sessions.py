@@ -5,7 +5,7 @@ import logging
 import time
 from typing import Any
 
-logger = logging.getLogger("backend.qr_login")
+logger = logging.getLogger("backend.telegram.sessions")
 
 # 全局存储临时的登录 session
 _login_sessions: dict = {}

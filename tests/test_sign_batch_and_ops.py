@@ -236,14 +236,13 @@ class TestSignBatchApi:
         assert body["fail_count"] == 1
         assert body["results"][0]["message"] == "任务不存在"
 
-    def test_legacy_batch_deprecation_header(self, client, db_session):
+    def test_legacy_batch_route_removed(self, client, db_session):
         resp = client.post(
             "/api/batch/tasks",
             headers=_auth_headers(),
             json={"action": "enable", "task_ids": [1]},
         )
-        headers_lower = {k.lower(): v for k, v in resp.headers.items()}
-        assert headers_lower.get("deprecation") == "true"
+        assert resp.status_code in {404, 405}
 
 
 class TestOpsApi:

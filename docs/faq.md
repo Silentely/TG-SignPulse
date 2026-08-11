@@ -21,26 +21,14 @@ data/.admin_bootstrap_password
 - `/readyz` 是否正常（含 `scheduler_lock_held`）
 - 多实例时是否误配 `APP_MONITOR_SHARD` 导致监听不在本机
 
-## 旧 /api/tasks 接口为什么返回 410
+## 旧 /api/tasks 接口为什么不可用
 
-从较新版本起，旧 ORM 任务接口默认只读（`APP_LEGACY_TASKS_READONLY=1`）。  
+旧 ORM 任务 API（`/api/tasks`、`/api/batch/tasks`）已**完全移除**。  
 新功能请使用 `/api/sign-tasks` 与 `/api/batch/sign-tasks`。
 
-- 查看存量：`GET /api/tasks/legacy-status` 或 `python tools/check_legacy_tasks.py`
-- 临时兼容写：仅短期设置 `APP_LEGACY_TASKS_READONLY=0`
-
-### 下线时间表（建议）
-
-| 阶段 | 动作 |
-|------|------|
-| 当前 | 默认只读；面板仅 sign-tasks；运维盘点 ORM 存量 |
-| 迁移完成 | `orm_only_count == 0` 后保持只读，外部脚本改调 sign-tasks |
-| 后续版本 | 可移除写路径兼容开关；再下一阶段删除 `/api/tasks` 与 ORM Task 表（破坏性，需公告） |
-
-盘点字段：
-
-- `GET /api/tasks/legacy-status` → `removal_stage`、`ready_for_route_removal`
-- `python tools/check_legacy_tasks.py --json` → 同上，并列出 `orm_only_names`
+- 盘点残留 ORM 表（模型已删）：`python tools/check_legacy_tasks.py --json`
+- `/readyz` 含 `legacy_tasks_removed: true`
+- 旧 SSE `/api/events/logs` 已移除，请改用 `/api/events/sign-history`
 
 ## Dashboard 实时日志连不上
 
@@ -104,10 +92,10 @@ gpt-5-nano
 ## 测试镜像和正式镜像有什么区别
 
 - `dev` / `dev-*`：dev 分支滚动构建，适合预发
-- `vX.Y.Z` + `latest` + 浮动 `main`：仅在推送 Git 标签 `v*` 时一次生成（正式版）
-- `main` 合并：只跑 CI 测试，**不**构建 Docker；要镜像请打 tag
+- `main` / `main-<sha>`：main 分支滚动构建，稳定主干镜像
+- `vX.Y.Z` + `latest`：仅在推送 Git 标签 `v*` 时一次生成（正式版）
 
-不要长期把 `dev` 当正式版使用。`latest` 只跟随正式 tag。
+不要长期把 `dev` 当正式版使用。`latest` 只跟随正式 tag；`main` 跟随 main 分支最新提交。
 
 ## 监听任务为什么没命中
 

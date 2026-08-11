@@ -140,7 +140,7 @@ TG-SignPulse/
 │   ├── scheduler/      #   APScheduler
 │   └── utils/          #   Utilities
 ├── tg_signer/          # Telegram automation engine
-│   ├── core.py         #   Sign-in execution core
+│   ├── core/           #   Sign-in execution core (client lifecycle / runtime workers)
 │   ├── config.py       #   Task config models (V1→V2→V3)
 │   └── ai_tools.py     #   AI tool integration
 ├── frontend/           # Vue 3 frontend
@@ -194,13 +194,14 @@ pip install -e ".[dev]"
 uvicorn backend.main:app --reload --port 8080
 
 # Frontend
+nvm use
 cd frontend
 npm ci
 npm run dev
 ```
 
 - Python 3.10–3.13 (3.12 recommended)
-- Node.js 22.12.0+
+- Node.js 22.23.1 (use the repository `.nvmrc`; cross-major development is unsupported)
 - Python 3.14+ is not recommended (Telegram runtime deps not yet compatible)
 
 ---

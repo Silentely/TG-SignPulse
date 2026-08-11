@@ -54,8 +54,8 @@ def create_backup_tarball(
     if added == 0:
         try:
             dest.unlink(missing_ok=True)
-        except OSError:
-            pass
+        except OSError as exc:
+            logger.debug("清理空备份文件失败: %s (%s)", dest, exc)
         raise ValueError("没有可备份的文件")
     return dest
 
