@@ -14,16 +14,17 @@ from tg_signer.core import UserSigner
 class TaskLogHandler(logging.Handler):
     """将日志实时写入内存列表，供 WebSocket / 轮询读取。"""
 
-    def __init__(self, log_list: List[str]):
+    def __init__(self, log_list: List[str], max_lines: int = 2000):
         super().__init__()
         self.log_list = log_list
+        self.max_lines = max_lines
 
     def emit(self, record):
         try:
             msg = normalize_log_line(self.format(record)) or record.getMessage()
             self.log_list.append(msg)
             # 批量删除头部，避免每行日志 O(n) 的 pop(0)
-            overflow = len(self.log_list) - 1000
+            overflow = len(self.log_list) - self.max_lines
             if overflow > 0:
                 del self.log_list[:overflow]
         except Exception:

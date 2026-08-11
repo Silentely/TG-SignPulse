@@ -8,6 +8,7 @@ import pytest
 
 from backend.services import sign_task_backend
 from backend.services.sign_task_backend import BackendUserSigner, TaskLogHandler
+from backend.services.sign_tasks import SignTaskService
 
 
 def _make_record(msg: str) -> logging.LogRecord:
@@ -28,10 +29,17 @@ class TestTaskLogHandler:
         # 规范化后为空串时保留原始消息，避免日志凭空丢失
         assert logs == ["2026-07-31 10:00:00 - "]
 
-    def test_emit_trims_to_1000_entries(self):
-        logs: list[str] = [f"old-{i}" for i in range(1000)]
+    def test_emit_trims_to_max_lines_default(self):
+        logs: list[str] = [f"old-{i}" for i in range(2000)]
         TaskLogHandler(logs).emit(_make_record("新日志"))
-        assert len(logs) == 1000
+        assert len(logs) == 2000
+        assert logs[0] == "old-1"
+        assert logs[-1] == "新日志"
+
+    def test_emit_respects_custom_max_lines(self):
+        logs: list[str] = [f"old-{i}" for i in range(5)]
+        TaskLogHandler(logs, max_lines=5).emit(_make_record("新日志"))
+        assert len(logs) == 5
         assert logs[0] == "old-1"
         assert logs[-1] == "新日志"
 
@@ -102,3 +110,27 @@ class TestInteractiveGuards:
         signer = _bare_signer(tmp_path)
         with pytest.raises(ValueError, match="禁止交互式输入"):
             signer.ask_one()
+
+
+class TestActiveLogCap:
+    """运行中实时日志封顶：_append_active_log 超限时从头部裁剪。"""
+
+    def _svc(self) -> SignTaskService:
+        svc = object.__new__(SignTaskService)
+        svc._active_logs = {}
+        return svc
+
+    def test_appends_and_creates_key(self):
+        svc = self._svc()
+        svc._append_active_log(("a", "t"), "第一行")
+        assert svc._active_logs[("a", "t")] == ["第一行"]
+
+    def test_trims_head_over_cap(self):
+        svc = self._svc()
+        key = ("a", "t")
+        for i in range(svc.MAX_ACTIVE_LOG_LINES + 10):
+            svc._append_active_log(key, f"line-{i}")
+        logs = svc._active_logs[key]
+        assert len(logs) == svc.MAX_ACTIVE_LOG_LINES
+        assert logs[0] == "line-10"  # 最旧的 10 行被裁剪
+        assert logs[-1] == f"line-{svc.MAX_ACTIVE_LOG_LINES + 9}"
