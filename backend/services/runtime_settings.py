@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, Optional
 
+from tg_signer.utils import clamp
+
 
 def _global_settings() -> Dict[str, Any]:
     try:
@@ -99,4 +101,4 @@ def get_sign_interval_seconds() -> Optional[int]:
         value = int(raw)
     except (TypeError, ValueError):
         return None
-    return max(0, min(value, 3600))
+    return clamp(value, 0, 3600)

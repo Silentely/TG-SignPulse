@@ -291,6 +291,15 @@ def print_to_user(*args, sep=" ", end="\n", flush=False, **kwargs):
             pass
 
 
+def clamp(value, low, high) -> float:
+    """把数值钳制到 [low, high] 区间（等价 max(low, min(value, high))）。
+
+    统一后端散落的 `max(min(...))` 写法；low > high 时返回 high，
+    与 min/max 组合语义保持一致。
+    """
+    return max(low, min(value, high))
+
+
 def read_positive_int_env(name: str, default: int, minimum: int = 1) -> int:
     """读取正整数环境变量；缺失或非法时回退默认值，结果不低于 minimum。"""
     raw = os.getenv(name)

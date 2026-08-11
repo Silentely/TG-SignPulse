@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 from backend.core.config import get_settings
 from backend.services.background_job import BackgroundJobStore
 from backend.utils.names import validate_storage_name
+from tg_signer.utils import clamp
 
 logger = logging.getLogger("backend.account_status_jobs")
 
@@ -75,7 +76,7 @@ def _clamp_timeout(value: Any) -> float:
         timeout = float(value if value is not None else DEFAULT_TIMEOUT)
     except (TypeError, ValueError):
         timeout = DEFAULT_TIMEOUT
-    return max(MIN_TIMEOUT, min(timeout, MAX_TIMEOUT))
+    return clamp(timeout, MIN_TIMEOUT, MAX_TIMEOUT)
 
 
 async def _run_status_check(job_id: str, names: List[str], timeout_seconds: float) -> None:

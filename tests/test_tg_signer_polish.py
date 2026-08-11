@@ -16,7 +16,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tg_signer.async_utils import create_logged_task
+from tg_signer.async_utils import compute_backoff, create_logged_task
 from tg_signer.core.client import (
     _CLIENT_ASYNC_LOCKS,
     _CLIENT_INSTANCES,
@@ -25,6 +25,44 @@ from tg_signer.core.client import (
 )
 from tg_signer.core.monitor import UserMonitor
 from tg_signer.core.runtime import UserSigner
+from tg_signer.utils import clamp
+
+
+class TestComputeBackoff:
+    """统一指数退避：shift=0 与 shift=1 两组语义与既有实现一致。"""
+
+    def test_shift_zero_matches_1_2_4_8(self):
+        assert [compute_backoff(i, cap=8) for i in range(1, 6)] == [1, 2, 4, 8, 8]
+
+    def test_shift_one_matches_2_4_8(self):
+        assert [compute_backoff(i, cap=8, shift=1) for i in range(1, 5)] == [2, 4, 8, 8]
+
+    def test_lower_cap(self):
+        assert [compute_backoff(i, cap=4, shift=1) for i in range(1, 5)] == [2, 4, 4, 4]
+
+    def test_attempt_below_one_clamped(self):
+        assert compute_backoff(0) == 1
+        assert compute_backoff(-3) == 1
+
+
+class TestClamp:
+    """数值钳制助手：等价 max(low, min(value, high))。"""
+
+    def test_within_range_unchanged(self):
+        assert clamp(5, 1, 10) == 5
+
+    def test_low_clip(self):
+        assert clamp(-3, 1, 10) == 1
+
+    def test_high_clip(self):
+        assert clamp(42, 1, 10) == 10
+
+    def test_float_value(self):
+        assert clamp(0.5, 0.0, 1.0) == 0.5
+
+    def test_inverted_bounds_returns_low(self):
+        # max(low, min(value, high))：low>high 时 min 取 high，外层 max 取 low
+        assert clamp(7, 10, 1) == 10
 
 
 class TestExecuteAiAction:

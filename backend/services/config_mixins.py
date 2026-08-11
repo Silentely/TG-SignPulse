@@ -20,6 +20,8 @@ from backend.utils.storage import (
     save_data_dir_override,
 )
 
+_logger = logging.getLogger("backend.config")
+
 # 面板全局设置键 → 环境变量名：保存时与启动时统一回灌，
 # 供 tg_signer 等仍读 env 的路径（AI_VISION_*、SIGN_TASK_*）使用
 GLOBAL_SETTINGS_ENV_SYNC = {
@@ -38,7 +40,7 @@ def apply_global_settings_to_env(merged: Dict[str, Any]) -> None:
     保存时与进程启动时都会调用，保证面板配置在重启后依然生效
     （env_sync 若仅发生在保存路径，重启后会静默回退到默认值）。
     """
-    logger = logging.getLogger("backend.config")
+    logger = _logger
     for gkey, ekey in GLOBAL_SETTINGS_ENV_SYNC.items():
         val = merged.get(gkey)
         if val is None or str(val).strip() == "":
@@ -59,7 +61,7 @@ def _warn_default_tg_credentials_once() -> None:
     if _default_tg_credentials_warned:
         return
     _default_tg_credentials_warned = True
-    logging.getLogger("backend.config").warning(
+    _logger.warning(
         "正在使用上游 tg-signer 的公开默认 Telegram API 凭据；"
         "建议通过 TG_API_ID/TG_API_HASH 环境变量或设置页配置自有凭据"
     )
@@ -667,9 +669,7 @@ class ConfigExportMixin:
 
                 get_sign_task_service().invalidate_tasks_cache()
             except Exception as e:
-                logging.getLogger("backend.config").warning(
-                    "Failed to clear cache: %s", e
-                )
+                _logger.warning("Failed to clear cache: %s", e)
 
         except (json.JSONDecodeError, KeyError) as e:
             result["errors"].append(f"Invalid JSON format: {str(e)}")
@@ -714,7 +714,7 @@ class AIConfigMixin:
 
                 api_key = decrypt_secret(api_key) or ""
             except Exception as exc:
-                logging.getLogger("backend.config").warning(
+                _logger.warning(
                     "AI API Key 解密失败（可能 APP_SECRET_KEY 不匹配），"
                     "密钥不可用于外发；仅更新 model/base_url 时将保留磁盘密文: %s",
                     exc,
@@ -781,7 +781,7 @@ class AIConfigMixin:
 
             existing_raw["api_key"] = encrypt_secret(str(final_api_key))
         except Exception as exc:
-            logging.getLogger("backend.config").error(
+            _logger.error(
                 "AI API Key 加密失败，拒绝保存明文: %s", exc
             )
             raise ValueError("API Key 加密失败，请检查 APP_SECRET_KEY 配置") from exc

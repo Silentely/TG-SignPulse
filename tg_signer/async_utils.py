@@ -6,6 +6,20 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 
+def compute_backoff(attempt: int, *, cap: float = 8.0, shift: int = 0) -> float:
+    """瞬态错误指数退避：``2**(attempt-1+shift)`` 封顶 ``cap``，attempt 从 1 起。
+
+    - ``shift=0``：1,2,4,8…（compat / monitor 的语义）
+    - ``shift=1``：2,4,8…（signer_actions / continue_actions 的语义）
+
+    统一各模块散落的 `min(2**attempt, cap)` 写法，避免同公式多套实现；
+    不同场景通过 cap 与 shift 表达差异，行为保持与既有代码一致。
+    """
+    if attempt < 1:
+        attempt = 1
+    return min(2 ** (attempt - 1 + shift), cap)
+
+
 def create_logged_task(
     awaitable: Awaitable[Any],
     *,

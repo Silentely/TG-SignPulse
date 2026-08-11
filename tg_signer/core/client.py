@@ -266,6 +266,8 @@ class Client(BaseClient):
                             except Exception:
                                 pass
 
+                            # SQLite 锁等待用线性退避（连接启动场景，与瞬态网络
+                            # 错误的指数退避 compute_backoff 刻意区分）
                             wait_time = 2 + (attempt * 3)
                             logger.warning(
                                 "Database locked when starting client %s, retrying in %ss... (%s/%s)",

@@ -5,6 +5,8 @@ import unicodedata
 from types import SimpleNamespace
 from typing import Any, List, Tuple
 
+from tg_signer.async_utils import compute_backoff
+
 _PYROGRAM_IMPORT_ERROR: Exception | None = None
 
 
@@ -202,7 +204,7 @@ async def call_with_retry(
                 raise
             await asyncio.sleep(wait_seconds)
         except (TimeoutError, asyncio.TimeoutError, OSError, ConnectionError) as exc:
-            backoff = min(2 ** (attempt - 1), 8)
+            backoff = compute_backoff(attempt, cap=8)
             if log:
                 log(
                     "WARNING",
