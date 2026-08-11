@@ -1,7 +1,6 @@
 """全局异常处理器测试 — 覆盖 main.py 的 global_exception_handler"""
 from __future__ import annotations
 
-import pytest
 from fastapi.testclient import TestClient
 
 

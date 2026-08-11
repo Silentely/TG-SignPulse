@@ -11,6 +11,15 @@ from cryptography.fernet import Fernet, InvalidToken
 _ENCRYPTED_PREFIX = "fernet:"
 _MASKED_VALUE = "********"
 
+# 默认密钥提供者：由宿主应用（backend）启动时注册，避免引擎反向依赖宿主模块
+_secret_key_provider = None
+
+
+def register_secret_key_provider(provider) -> None:
+    """注册默认密钥提供者（宿主应用注入，用于 env 缺失时的持久化密钥）。"""
+    global _secret_key_provider
+    _secret_key_provider = provider
+
 
 class SecretKeyError(RuntimeError):
     """敏感配置加密密钥不可用。"""
@@ -35,12 +44,11 @@ def _read_app_secret_key() -> str:
     if secret:
         return secret
 
-    try:
-        from backend.core.config import get_default_secret_key
-
-        secret = get_default_secret_key()
-    except Exception:
-        secret = ""
+    if _secret_key_provider is not None:
+        try:
+            secret = _secret_key_provider()
+        except Exception:
+            secret = ""
 
     if not isinstance(secret, str) or not secret.strip():
         raise SecretKeyError("APP_SECRET_KEY is required to encrypt sensitive local configuration.")

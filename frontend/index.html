@@ -1,10 +1,38 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="TG-SignPulse — Telegram 自动化签到、关键词监控与任务管理面板" />
+    <meta name="theme-color" content="#ffffff" />
     <title>TG-SignPulse</title>
+    <script>
+      // 首帧前同步应用主题与语言：避免首屏闪黑/闪白（FOUC），并让
+      // 屏幕阅读器/搜索引擎在 JS 挂载前就拿到正确的页面语言。
+      ;(function () {
+        try {
+          var savedTheme = localStorage.getItem('theme')
+          var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+          var isDark = savedTheme === 'dark' || (!savedTheme && prefersDark)
+          if (isDark) {
+            document.documentElement.classList.add('dark')
+          }
+          var themeColor = document.querySelector('meta[name="theme-color"]')
+          if (themeColor) {
+            themeColor.setAttribute('content', isDark ? '#0f172a' : '#ffffff')
+          }
+        } catch (e) {
+          /* localStorage 不可用时回退默认（浅色） */
+        }
+        try {
+          var savedLocale = localStorage.getItem('tg-signer-locale')
+          document.documentElement.lang = savedLocale === 'en' ? 'en-US' : 'zh-CN'
+        } catch (e) {
+          /* 保持默认 zh-CN */
+        }
+      })()
+    </script>
   </head>
   <body class="text-gray-700 dark:text-gray-300 font-sans antialiased selection:bg-sky-100 selection:text-sky-900 dark:selection:bg-sky-900/40 dark:selection:text-sky-100">
     <div id="app"></div>

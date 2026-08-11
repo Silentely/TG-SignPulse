@@ -12,7 +12,7 @@ from backend.utils.time import utc_from_timestamp_iso_z
 settings = get_settings()
 
 
-logger = logging.getLogger("backend.qr_login")
+logger = logging.getLogger("backend.telegram.devices")
 
 class TelegramDevicesMixin:
 

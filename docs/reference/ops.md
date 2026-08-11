@@ -8,7 +8,7 @@
 | --- | --- |
 | `GET /api/ops/scheduled-jobs` | 查看 APScheduler 下次执行时间 |
 | `GET /api/ops/backup/status` | 数据目录备份状态与关键路径体积 |
-| `POST /api/ops/backup/export` | 下载推荐路径的 tar.gz 备份包 |
+| `POST /api/ops/backup/export` | 完整备份：已配置 WebDAV 时上传远端；否则回退浏览器下载 |
 | `GET /api/ops/memory` | 进程内存监控统计（若已启动） |
 | `GET /api/ops/version` | 本地版本、Git SHA/分支、构建时间、Python 版本 |
 | `POST /api/ops/version/check?force=false` | 远程更新检查（GitHub Releases；可关；失败 soft-fail） |
@@ -18,12 +18,19 @@
 | `GET /api/sign-tasks/runs/active` | 内存中进行中的签到 run（phase / 账号 / 任务） |
 | `GET /api/sign-tasks/{name}/run/status` | 单任务 run 状态（含 `state` / `phase` / `failure_category`） |
 | `POST /api/sign-tasks/{name}/run/cancel` | 取消进行中的签到 run（协作式 cancel） |
-| `POST /api/ops/backup/export` | 完整备份：已配置 WebDAV 时上传远端；否则回退浏览器下载 |
 | `POST /api/ops/backup/webdav/test` | 测试全局设置中的 WebDAV 连通性 |
 | `GET /api/ops/backup/webdav/files` | 列出远端目录 `.tar.gz` 备份（PROPFIND） |
 | `GET /api/ops/backup/webdav/download?name=` | 流式下载指定远端 `.tar.gz`（安全文件名） |
 | `POST /api/batch/sign-tasks` | 新版签到任务批量 enable/disable/delete/run |
 | `GET /api/events/sign-history?token=` | 签到历史 SSE（Dashboard 实时流，token 查询参数） |
+| `POST /api/accounts/status/check` | 同步批量账号会话检测（兼容；账号多时易阻塞） |
+| `POST /api/accounts/status/check-jobs` | 异步批量账号会话检测 Job（可取消、可查进度） |
+| `GET /api/accounts/status/check-jobs/{job_id}` | 查询批量检测 Job 状态 / 结果 |
+| `POST /api/accounts/status/check-jobs/{job_id}/cancel` | 取消进行中的批量检测 Job |
+| `GET /api/keyword-hits` | 关键词命中记录列表（可按账号/任务过滤） |
+| `GET /api/keyword-hits/groups` | 命中记录分组（`group_by=task\|account\|chat`） |
+| `GET /api/keyword-hits/export` | 导出命中记录 CSV（UTF-8 BOM） |
+| `DELETE /api/keyword-hits` | 清空命中记录（可按账号/任务过滤） |
 
 ### WebDAV 完整备份（摘要）
 
@@ -42,14 +49,14 @@
 | --- | --- |
 | `APP_DATABASE_URL` / `DATABASE_URL` | 可选 SQLAlchemy URL；设置后优先于本地 `db.sqlite` |
 | `APP_SCHEDULER_LOCK` | 默认 `1`：启用 `data/.scheduler.lock`；`0` 关闭 |
-| `APP_LEGACY_TASKS_READONLY` | **默认 `1`（只读）**；写操作返回 410（`detail=LEGACY_TASKS_READONLY`）。临时兼容写可设 `0`。状态见 `GET /api/tasks/legacy-status`（含 `removal_stage` / `ready_for_route_removal`）或 `python tools/check_legacy_tasks.py`。规划：存量清零且只读 → 评估删除旧路由/ORM 表 |
+| `APP_LEGACY_TASKS_READONLY` | 历史变量，已无路由消费。`/api/tasks` 已删除；盘点 ORM 残留用 `python tools/check_legacy_tasks.py` |
 | `APP_MONITOR_ACCOUNT_ALLOWLIST` | 逗号分隔账号名，仅这些账号挂关键词监听 |
 | `APP_MONITOR_SHARD` | 形如 `i/n`（如 `0/3`），按账号名哈希分片监听，多实例各跑一个分片 |
 
 ### 上线检查清单（dev → 生产）
 
 1. **数据目录**：持久化挂载 `APP_DATA_DIR`（含 `db.sqlite` / `sessions` / `.signer`），确认可写。
-2. **旧 API**：面板已用 sign-tasks；发布前执行 `python tools/check_legacy_tasks.py` 或 `GET /api/tasks/legacy-status`。
+2. **旧 API**：`/api/tasks` 已删除；发布前可执行 `python tools/check_legacy_tasks.py` 盘点 ORM 残留。
 3. **单实例**：保持 1 个后端写进程；多副本时必须配调度锁 + 监听分片，且**同一账号 session 不共享**。
 4. **Postgres（可选）**：设置 `APP_DATABASE_URL` 时安装 `psycopg2-binary`，并先迁移 schema。
 5. **反向代理**：按 [Nginx 样例](../deploy/nginx.md) 配置 SSE/WebSocket；`/api/events/*` 关闭缓冲与 access log。
@@ -82,9 +89,7 @@ curl http://127.0.0.1:8080/readyz
 
 - 本地版本真相源：`tg_signer.__version__`。镜像可通过 `APP_VERSION` 覆盖；空值或占位 `0.0.0` 不覆盖包版本。
 - 构建元数据：`GIT_SHA`、`GIT_BRANCH`、`BUILD_TIME`（Docker/CI 注入）。
-- 远程检查默认开启；内网可设 `APP_UPDATE_CHECK=0`。关闭后面板仍可用浏览器直连 GitHub 检查。
-- 自定义源：`APP_UPDATE_CHECK_URL`（**仅 https**；JSON 需含 `tag_name` + 可选 `html_url`）。
-- 服务端仅缓存**成功**结果 6 小时；失败不缓存。`force=true` 跳过缓存。前端另有 24 小时 localStorage 缓存。
+- 远程检查默认开启；内网可设 `APP_UPDATE_CHECK=0`。
 
 示例：
 
@@ -236,11 +241,11 @@ docker compose pull
 docker compose up -d
 ```
 
-测试标签建议使用：
+预发/主干标签建议使用：
 
-- `test-main`
-- `test-<feature-branch>`
-- `test-<short-sha>`
+- `dev` / `dev-<sha>`（dev 分支）
+- `main` / `main-<sha>`（main 分支）
+- 手动触发其它 ref 时可能出现 `test-<ref>` / `test-<short-sha>`
 
 ### 使用正式镜像
 
@@ -310,7 +315,7 @@ watch -n 5 'curl -fsS http://127.0.0.1:8080/readyz || true'
 ### 场景 4：监听任务不触发
 
 1. 确认任务执行模式是 `listen` 且任务已启用。
-2. 检查 `TG_SESSION_MODE`、`TG_SESSION_NO_UPDATES` 和账号会话是否允许接收 updates。
+2. 确认客户端会话有效且能接收 updates：含监听 / 等待响应动作的任务会自动开启 updates（系统自动决定，无环境变量开关）。`TG_SESSION_MODE` 只影响会话存储方式，不影响 updates 接收。
 3. 修改监听规则后触发一次调度同步或重启后端，让监听器重建。
 
 ### 场景 5：通知发送失败
@@ -318,4 +323,3 @@ watch -n 5 'curl -fsS http://127.0.0.1:8080/readyz || true'
 1. 检查 Telegram Bot token、chat_id、Bark URL、ServerChan sendkey 或自定义 Webhook。
 2. 用 `curl` 在宿主机直接访问通知端点，排除网络与 DNS 问题。
 3. 对外部 HTTP 通道增加接收端幂等，避免重试导致重复处理。
-

@@ -4,12 +4,12 @@
 
 | 触发条件 | 镜像 / 行为 | 用途 |
 |----------|--------------|------|
-| `main` 推送 | **只跑测试**，不构建 Docker | 合并门禁 |
+| `main` 推送 | 测试 + 推送 `…:main` / `…:main-<sha>` | 稳定主干滚动镜像 |
 | `dev` 推送 | 测试 + 推送 `…:dev` / `…:dev-<sha>` | 开发/预发 |
-| Git 标签 `v*` | 测试 + **一次**推送 `…:vX.Y.Z` + `…:latest` + `…:main` + `…:main-<sha>` | 正式发版（多架构） |
-| 手动 `workflow_dispatch` | 可按当前分支构建（main 上仅 `main-<sha>`） | 应急补镜像 |
+| Git 标签 `v*` | 测试 + **一次**推送 `…:vX.Y.Z` + `…:latest` | 正式发版（多架构） |
+| 手动 `workflow_dispatch` | 按当前分支走对应标签规则 | 应急补镜像 |
 
-> 发版流程：`merge → main`（过测）→ 打 `vX.Y.Z` 并 push tag（出正式镜像）。`latest` / 浮动 `main` 只随正式 tag 更新。
+> 发版流程：`merge → main`（更新 `main` / `main-<sha>`）→ 打 `vX.Y.Z` 并 push tag（更新 `vX.Y.Z` / `latest`）。
 
 ### Actions 运行记录清理
 
@@ -53,7 +53,6 @@ services:
       APP_DATA_DIR: /data
       APP_SECRET_KEY: replace-with-a-long-random-string
       ADMIN_PASSWORD: replace-with-a-strong-password
-      APP_LEGACY_TASKS_READONLY: "1"
       APP_SCHEDULER_LOCK: "1"
       # APP_DATABASE_URL: postgresql+psycopg2://...
       # APP_MONITOR_SHARD: "0/2"
@@ -86,10 +85,10 @@ docker compose up -d
 
 ```bash
 curl -sS http://127.0.0.1:8080/readyz
-# 期望: {"status":"ready","scheduler_lock_held":true,"legacy_tasks_writable":false,...}
+# 期望: {"status":"ready","scheduler_lock_held":true,"legacy_tasks_removed":true,"legacy_tasks_writable":false,...}
 
 curl -sS -H "Authorization: Bearer <token>" http://127.0.0.1:8080/api/ops/runtime-status
-curl -sS -H "Authorization: Bearer <token>" http://127.0.0.1:8080/api/tasks/legacy-status
+# 旧 /api/tasks 已移除；ORM 残留盘点: python tools/check_legacy_tasks.py --json
 ```
 
 更多边界说明见 [运维手册 - 上线检查清单](../reference/ops.md#上线检查清单dev--生产)。
@@ -272,4 +271,4 @@ SQLite 已配置 WAL 模式和 30 秒超时。如果仍然出现锁定：
 
 1. 确认没有多个容器实例挂载同一个 `/data`
 2. 检查磁盘空间是否充足
-3. 考虑增大 `TG_GLOBAL_CONCURRENCY`（默认 1）
+3. 考虑增大 `TG_GLOBAL_CONCURRENCY`（默认自动：CPU 核心数，上限 5；也可在面板「系统设置」覆盖）

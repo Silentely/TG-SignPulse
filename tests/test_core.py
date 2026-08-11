@@ -11,34 +11,24 @@ tg_signer/core.py 单元测试
 from __future__ import annotations
 
 import asyncio
-import os
 import pathlib
 import random
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from tg_signer.compat import ChatType
 from tg_signer.core import (
-    Client,
-    Waiter,
+    _CLIENT_INSTANCES,
     UserSigner,
-    get_now,
     get_api_config,
     get_client,
+    get_now,
     get_proxy,
     make_dirs,
     readable_chat,
-    _read_positive_float_env,
-    _read_positive_int_env,
-    _CLIENT_INSTANCES,
-    _CLIENT_REFS,
-    _CLIENT_ASYNC_LOCKS,
 )
-from tg_signer.config import SendTextAction, SendDiceAction
-
+from tg_signer.utils import read_positive_float_env, read_positive_int_env
 
 # ============================================================================
 # 辅助函数测试
@@ -104,7 +94,7 @@ class TestMakeDirs:
 
     def test_nested_directories(self, tmp_path):
         target = tmp_path / "a" / "b" / "c"
-        result = make_dirs(target)
+        make_dirs(target)
         assert target.is_dir()
 
 
@@ -253,37 +243,37 @@ class TestReadPositiveEnv:
 
     def test_float_default_when_unset(self, monkeypatch):
         monkeypatch.delenv("TEST_FLOAT_VAL", raising=False)
-        assert _read_positive_float_env("TEST_FLOAT_VAL", 5.0) == 5.0
+        assert read_positive_float_env("TEST_FLOAT_VAL", 5.0) == 5.0
 
     def test_float_valid_value(self, monkeypatch):
         monkeypatch.setenv("TEST_FLOAT_VAL", "10.5")
-        assert _read_positive_float_env("TEST_FLOAT_VAL", 5.0) == 10.5
+        assert read_positive_float_env("TEST_FLOAT_VAL", 5.0) == 10.5
 
     def test_float_clamps_to_minimum(self, monkeypatch):
         monkeypatch.setenv("TEST_FLOAT_VAL", "0.1")
-        result = _read_positive_float_env("TEST_FLOAT_VAL", 5.0, minimum=1.0)
+        result = read_positive_float_env("TEST_FLOAT_VAL", 5.0, minimum=1.0)
         assert result == 1.0
 
     def test_float_invalid_falls_back(self, monkeypatch):
         monkeypatch.setenv("TEST_FLOAT_VAL", "abc")
-        assert _read_positive_float_env("TEST_FLOAT_VAL", 5.0) == 5.0
+        assert read_positive_float_env("TEST_FLOAT_VAL", 5.0) == 5.0
 
     def test_int_default_when_unset(self, monkeypatch):
         monkeypatch.delenv("TEST_INT_VAL", raising=False)
-        assert _read_positive_int_env("TEST_INT_VAL", 3) == 3
+        assert read_positive_int_env("TEST_INT_VAL", 3) == 3
 
     def test_int_valid_value(self, monkeypatch):
         monkeypatch.setenv("TEST_INT_VAL", "7")
-        assert _read_positive_int_env("TEST_INT_VAL", 3) == 7
+        assert read_positive_int_env("TEST_INT_VAL", 3) == 7
 
     def test_int_clamps_to_minimum(self, monkeypatch):
         monkeypatch.setenv("TEST_INT_VAL", "0")
-        result = _read_positive_int_env("TEST_INT_VAL", 3, minimum=1)
+        result = read_positive_int_env("TEST_INT_VAL", 3, minimum=1)
         assert result == 1
 
     def test_int_invalid_falls_back(self, monkeypatch):
         monkeypatch.setenv("TEST_INT_VAL", "xyz")
-        assert _read_positive_int_env("TEST_INT_VAL", 3) == 3
+        assert read_positive_int_env("TEST_INT_VAL", 3) == 3
 
 
 # ============================================================================
@@ -317,7 +307,7 @@ class TestClientSessionString:
 
     def test_session_string_file_path(self, tmp_path):
         """session_string_file 属性返回正确的路径"""
-        from tg_signer.core import get_client, _CLIENT_INSTANCES
+        from tg_signer.core import _CLIENT_INSTANCES, get_client
         keys_before = set(_CLIENT_INSTANCES.keys())
         try:
             client = get_client(
@@ -335,7 +325,7 @@ class TestClientSessionString:
 
     def test_load_session_string_from_file(self, tmp_path):
         """load_session_string 从文件读取 session 字符串"""
-        from tg_signer.core import get_client, _CLIENT_INSTANCES
+        from tg_signer.core import _CLIENT_INSTANCES, get_client
         keys_before = set(_CLIENT_INSTANCES.keys())
         try:
             client = get_client(
@@ -356,7 +346,7 @@ class TestClientSessionString:
 
     def test_load_session_string_missing_file(self, tmp_path):
         """文件不存在时返回 None（Pyrogram BaseClient 默认值）"""
-        from tg_signer.core import get_client, _CLIENT_INSTANCES
+        from tg_signer.core import _CLIENT_INSTANCES, get_client
         keys_before = set(_CLIENT_INSTANCES.keys())
         try:
             client = get_client(
@@ -411,52 +401,7 @@ class TestGetClientCaching:
 
 
 # ============================================================================
-# Waiter 类测试
 # ============================================================================
-
-
-class TestWaiter:
-    """Waiter 数据结构：引用计数式等待集合"""
-
-    def test_add_and_bool(self):
-        w = Waiter()
-        assert not w
-        w.add(100)
-        assert w
-
-    def test_discard(self):
-        w = Waiter()
-        w.add(100)
-        w.discard(100)
-        assert not w
-
-    def test_sub_decrements(self):
-        w = Waiter()
-        w.add(100)
-        w.add(100)  # count = 2
-        w.sub(100)  # count = 1
-        assert 100 in w.waiting_ids
-        w.sub(100)  # count = 0, auto discard
-        assert 100 not in w.waiting_ids
-
-    def test_clear(self):
-        w = Waiter()
-        w.add(1)
-        w.add(2)
-        w.clear()
-        assert not w
-        assert len(w.waiting_ids) == 0
-
-    def test_discard_nonexistent_is_safe(self):
-        w = Waiter()
-        w.discard(999)  # 不应抛出异常
-
-    def test_repr(self):
-        w = Waiter()
-        w.add(42)
-        r = repr(w)
-        assert "Waiter" in r
-        assert "42" in r
 
 
 # ============================================================================
@@ -709,8 +654,6 @@ class TestUserSignerContext:
         mock_get_client.return_value = MagicMock()
         signer = UserSigner.__new__(UserSigner)
         ctx = signer.ensure_ctx()
-        assert ctx.waiter is not None
-        assert isinstance(ctx.waiter, Waiter)
         assert ctx.stop_after_current_action is False
         assert ctx.stop_reason is None
         assert ctx.last_callback_answer is None
@@ -724,8 +667,8 @@ class TestUserSignerContext:
         ctx1 = signer.ensure_ctx()
         ctx2 = signer.ensure_ctx()
         assert ctx1 is not ctx2
-        ctx1.waiter.add(1)
-        assert 1 not in ctx2.waiter.waiting_ids
+        ctx1.chat_messages[1][1] = None
+        assert 1 not in ctx2.chat_messages
 
 
 # ============================================================================

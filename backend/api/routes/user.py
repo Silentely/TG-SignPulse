@@ -6,17 +6,18 @@ from dataclasses import dataclass
 from typing import Optional
 
 import jwt
+import pyotp
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from jwt import PyJWTError as JWTError
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-import pyotp
 from backend.core.auth import (
     create_access_token,
     get_current_user,
     get_current_user_optional,
+    get_user_by_username,
     verify_totp,
 )
 from backend.core.config import get_settings
@@ -171,7 +172,7 @@ def change_username(
             detail="用户名长度最多为 50 个字符",
         )
 
-    existing_user = db.query(User).filter(User.username == new_username).first()
+    existing_user = get_user_by_username(db, new_username)
     if existing_user and existing_user.id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -223,7 +224,7 @@ def get_totp_qrcode(
             payload = jwt.decode(token, settings.secret_key, algorithms=["HS256"])
             username = payload.get("sub")
             if username:
-                current_user = db.query(User).filter(User.username == username).first()
+                current_user = get_user_by_username(db, username)
         except JWTError:
             current_user = None
 

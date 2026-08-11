@@ -1,0 +1,60 @@
+{
+  "linkset": [
+    {
+      "anchor": "https://tg.cosr.eu.org/",
+      "service-doc": [
+        {
+          "href": "https://tg.cosr.eu.org/llms.txt",
+          "type": "text/plain"
+        },
+        {
+          "href": "https://tg.cosr.eu.org/README",
+          "type": "text/html"
+        }
+      ],
+      "service-desc": [
+        {
+          "href": "https://tg.cosr.eu.org/.well-known/mcp/server-card.json",
+          "type": "application/json"
+        },
+        {
+          "href": "https://tg.cosr.eu.org/.well-known/agent-skills/index.json",
+          "type": "application/json"
+        }
+      ],
+      "status": [
+        {
+          "href": "https://tg.cosr.eu.org/"
+        }
+      ]
+    },
+    {
+      "anchor": "https://tg.cosr.eu.org/docs-api",
+      "service-doc": [
+        {
+          "href": "https://tg.cosr.eu.org/reference/ops",
+          "type": "text/html"
+        },
+        {
+          "href": "https://tg.cosr.eu.org/reference/configuration",
+          "type": "text/html"
+        },
+        {
+          "href": "https://tg.cosr.eu.org/auth.md",
+          "type": "text/markdown"
+        }
+      ],
+      "service-desc": [
+        {
+          "href": "https://tg.cosr.eu.org/.well-known/openapi-selfhosted.json",
+          "type": "application/json"
+        }
+      ],
+      "status": [
+        {
+          "href": "https://tg.cosr.eu.org/.well-known/health.json"
+        }
+      ]
+    }
+  ]
+}

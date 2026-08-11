@@ -6,10 +6,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
+import time
 from typing import Any, Dict, List, Optional
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     HTTPException,
     Query,
@@ -17,7 +20,7 @@ from fastapi import (
     WebSocketDisconnect,
     status,
 )
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 try:
     from pydantic import BaseModel, Field, field_validator
@@ -37,13 +40,10 @@ _sync_logger = logging.getLogger("backend.sign_tasks_api")
 
 
 async def _safe_background_sync() -> None:
-    """后台执行调度同步和监控重启，捕获异常避免静默丢失"""
-    try:
-        from backend.scheduler import sync_jobs
-        await sync_jobs()
-        await _restart_keyword_monitors()
-    except Exception as e:
-        _sync_logger.warning(f"后台调度同步失败: {e}")
+    """后台执行调度同步和监控重启，捕获异常避免静默丢失。"""
+    from backend.services.sync_helpers import sync_jobs_and_restart_monitors
+
+    await sync_jobs_and_restart_monitors(context="任务变更")
 
 
 def _model_dump(model: BaseModel) -> Dict[str, Any]:
@@ -52,13 +52,9 @@ def _model_dump(model: BaseModel) -> Dict[str, Any]:
     return model_dump(model)
 
 
-async def _restart_keyword_monitors() -> None:
-    try:
-        from backend.services.keyword_monitor import get_keyword_monitor_service
-
-        await get_keyword_monitor_service().restart_from_tasks()
-    except Exception as exc:
-        _sync_logger.warning("重启关键词监控失败: %s", exc)
+def _resolve_effective_account(account_name: Optional[str]) -> Optional[str]:
+    """空字符串/通配符归一化为 None（聚合模式），供任务查询/日志/历史等路由使用。"""
+    return account_name if (account_name and account_name != "*") else None
 
 
 class ChatConfig(BaseModel):
@@ -181,12 +177,6 @@ class ChatSearchResponse(BaseModel):
     offset: int
 
 
-class RunTaskResult(BaseModel):
-    success: bool
-    output: str
-    error: str
-
-
 class RunTaskStartResult(BaseModel):
     run_id: str
     state: str
@@ -265,8 +255,9 @@ def list_active_sign_task_runs(
 
 
 @router.post("", response_model=SignTaskOut, status_code=status.HTTP_201_CREATED)
-async def create_sign_task(
+def create_sign_task(
     payload: SignTaskCreate,
+    background_tasks: BackgroundTasks,
     current_user=Depends(get_current_user),
 ):
     try:
@@ -288,7 +279,7 @@ async def create_sign_task(
         )
 
         # 调度同步和监控重启放到后台执行，避免阻塞 HTTP 响应
-        asyncio.ensure_future(_safe_background_sync())
+        background_tasks.add_task(_safe_background_sync)
         return task
     except HTTPException:
         raise
@@ -298,7 +289,8 @@ async def create_sign_task(
             detail=str(e),
         ) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"创建任务失败: {str(e)}")
+        _sync_logger.error("创建任务失败: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="TASK_CREATE_FAILED")
 
 
 @router.get("/{task_name}", response_model=SignTaskOut)
@@ -315,7 +307,7 @@ def get_sign_task(
             aggregate=aggregate,
         )
         if not task:
-            raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
+            raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
         return task
     except HTTPException:
         raise
@@ -327,22 +319,23 @@ def get_sign_task(
 
 
 @router.put("/{task_name}", response_model=SignTaskOut)
-async def update_sign_task(
+def update_sign_task(
     task_name: str,
     payload: SignTaskUpdate,
+    background_tasks: BackgroundTasks,
     account_name: Optional[str] = None,
     current_user=Depends(get_current_user),
 ):
     try:
         # Normalize: treat empty string and wildcard as None for lookup
-        effective_account = account_name if (account_name and account_name != "*") else None
+        effective_account = _resolve_effective_account(account_name)
         existing = get_sign_task_service().get_task(
             task_name,
             account_name=effective_account,
             aggregate=effective_account is None,
         )
         if not existing:
-            raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
+            raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
 
         # Resolve a real account_name for update_task (skip wildcard)
         resolved_account = effective_account or ""
@@ -378,7 +371,7 @@ async def update_sign_task(
         )
 
         # 调度同步和监控重启放到后台执行，避免阻塞 HTTP 响应
-        asyncio.ensure_future(_safe_background_sync())
+        background_tasks.add_task(_safe_background_sync)
         return task
     except HTTPException:
         raise
@@ -388,22 +381,24 @@ async def update_sign_task(
             detail=str(e),
         ) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"更新任务失败: {str(e)}")
+        _sync_logger.error("更新任务失败: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="TASK_UPDATE_FAILED")
 
 
 @router.delete("/{task_name}", status_code=status.HTTP_200_OK)
-async def delete_sign_task(
+def delete_sign_task(
     task_name: str,
+    background_tasks: BackgroundTasks,
     account_name: Optional[str] = None,
     current_user=Depends(get_current_user),
 ):
     try:
         success = get_sign_task_service().delete_task(task_name, account_name=account_name)
         if not success:
-            raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
+            raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
 
         # 调度同步和监控重启放到后台执行，避免阻塞 HTTP 响应
-        asyncio.ensure_future(_safe_background_sync())
+        background_tasks.add_task(_safe_background_sync)
         return {"ok": True}
     except HTTPException:
         raise
@@ -415,21 +410,22 @@ async def delete_sign_task(
 
 
 @router.patch("/{task_name}/toggle-enabled", response_model=SignTaskOut)
-async def toggle_sign_task_enabled(
+def toggle_sign_task_enabled(
     task_name: str,
+    background_tasks: BackgroundTasks,
     account_name: Optional[str] = None,
     current_user=Depends(get_current_user),
 ):
     """切换任务的启用/暂停状态"""
     try:
-        effective_account = account_name if (account_name and account_name != "*") else None
+        effective_account = _resolve_effective_account(account_name)
         existing = get_sign_task_service().get_task(
             task_name,
             account_name=effective_account,
             aggregate=effective_account is None,
         )
         if not existing:
-            raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
+            raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
 
         resolved_account = effective_account or ""
         if not resolved_account:
@@ -450,7 +446,7 @@ async def toggle_sign_task_enabled(
         )
 
         # 调度同步和监控重启放到后台执行，避免阻塞 HTTP 响应
-        asyncio.ensure_future(_safe_background_sync())
+        background_tasks.add_task(_safe_background_sync)
         return task
     except HTTPException:
         raise
@@ -460,7 +456,8 @@ async def toggle_sign_task_enabled(
             detail=str(e),
         ) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"切换任务状态失败: {str(e)}")
+        _sync_logger.error("切换任务状态失败: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="TASK_TOGGLE_FAILED")
 
 
 class CloneTaskRequest(BaseModel):
@@ -473,7 +470,7 @@ class CloneTaskRequest(BaseModel):
     response_model=SignTaskOut,
     status_code=status.HTTP_201_CREATED,
 )
-async def clone_sign_task(
+def clone_sign_task(
     task_name: str,
     payload: CloneTaskRequest,
     current_user=Depends(get_current_user),
@@ -488,44 +485,11 @@ async def clone_sign_task(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
+        _sync_logger.error("克隆任务失败: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"克隆任务失败: {e}",
+            detail="TASK_CLONE_FAILED",
         )
-
-
-@router.post("/{task_name}/run", response_model=RunTaskResult)
-async def run_sign_task(
-    task_name: str,
-    account_name: Optional[str] = None,
-    current_user=Depends(get_current_user),
-):
-    try:
-        resolved_account = account_name
-        if not resolved_account or resolved_account == "*":
-            task = get_sign_task_service().get_task(task_name, aggregate=True)
-            if not task:
-                raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
-            for name in task.get("account_names", []):
-                if name and name != "*":
-                    resolved_account = name
-                    break
-            if not resolved_account or resolved_account == "*":
-                resolved_account = task.get("account_name", "")
-            if not resolved_account or resolved_account == "*":
-                raise HTTPException(status_code=400, detail="无法确定执行账号")
-        else:
-            task = get_sign_task_service().get_task(task_name, account_name=resolved_account)
-            if not task:
-                raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
-        return await get_sign_task_service().run_task_with_logs(resolved_account, task_name)
-    except HTTPException:
-        raise
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(e),
-        ) from e
 
 
 @router.post("/{task_name}/run/start", response_model=RunTaskStartResult)
@@ -535,25 +499,8 @@ async def start_sign_task_run(
     current_user=Depends(get_current_user),
 ):
     try:
-        # Resolve account_name: if not provided or wildcard, find first real account
-        resolved_account = account_name
-        if not resolved_account or resolved_account == "*":
-            task = get_sign_task_service().get_task(task_name, aggregate=True)
-            if not task:
-                raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
-            # Find first real account from account_names
-            for name in task.get("account_names", []):
-                if name and name != "*":
-                    resolved_account = name
-                    break
-            if not resolved_account or resolved_account == "*":
-                resolved_account = task.get("account_name", "")
-            if not resolved_account or resolved_account == "*":
-                raise HTTPException(status_code=400, detail="无法确定执行账号")
-        else:
-            task = get_sign_task_service().get_task(task_name, account_name=resolved_account)
-            if not task:
-                raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
+        # 统一账号解析（含通配符展开与 404/400 语义），与 run/status/cancel 一致
+        resolved_account = _resolve_task_account(task_name, account_name)
         return await get_sign_task_service().start_task_run(resolved_account, task_name)
     except HTTPException:
         raise
@@ -570,7 +517,7 @@ def _resolve_task_account(task_name: str, account_name: Optional[str]) -> str:
     if not resolved_account or resolved_account == "*":
         task = get_sign_task_service().get_task(task_name, aggregate=True)
         if not task:
-            raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
+            raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
         for name in task.get("account_names", []):
             if name and name != "*":
                 resolved_account = name
@@ -578,11 +525,11 @@ def _resolve_task_account(task_name: str, account_name: Optional[str]) -> str:
         if not resolved_account or resolved_account == "*":
             resolved_account = task.get("account_name", "")
         if not resolved_account or resolved_account == "*":
-            raise HTTPException(status_code=400, detail="无法确定执行账号")
+            raise HTTPException(status_code=400, detail="TASK_ACCOUNT_UNRESOLVED")
     else:
         task = get_sign_task_service().get_task(task_name, account_name=resolved_account)
         if not task:
-            raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
+            raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
     return str(resolved_account)
 
 
@@ -653,7 +600,7 @@ def get_sign_task_logs(
     account_name: str | None = None,
     current_user=Depends(get_current_user),
 ):
-    effective_account = account_name if (account_name and account_name != "*") else None
+    effective_account = _resolve_effective_account(account_name)
     return get_sign_task_service().get_active_logs(task_name, account_name=effective_account)
 
 
@@ -666,14 +613,14 @@ def get_sign_task_history(
 ):
     try:
         # Treat empty string and wildcard as None (aggregate mode)
-        effective_account = account_name if (account_name and account_name != "*") else None
+        effective_account = _resolve_effective_account(account_name)
         task = get_sign_task_service().get_task(
             task_name,
             account_name=effective_account,
             aggregate=effective_account is None,
         )
         if not task:
-            raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
+            raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
 
         return get_sign_task_service().get_task_history_logs(
             task_name=task_name,
@@ -713,7 +660,8 @@ async def get_account_chats(
             )
         raise HTTPException(status_code=404, detail=detail)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取对话列表失败: {str(e)}")
+        _sync_logger.error("获取对话列表失败: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="CHATS_LOAD_FAILED")
 
 
 @router.get("/chats/{account_name}/search", response_model=ChatSearchResponse)
@@ -732,7 +680,8 @@ def search_account_chats(
             offset=offset,
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"搜索对话列表失败: {str(e)}")
+        _sync_logger.error("搜索对话列表失败: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="CHATS_SEARCH_FAILED")
 
 
 @router.get("/chats/{account_name}/avatar/{chat_id}")
@@ -748,11 +697,8 @@ async def get_chat_avatar(
     If the requested account can't find the chat, fall back to trying
     other available accounts.
     """
-    import time
-
-    from fastapi.responses import FileResponse, Response
-
     from backend.core.config import get_settings
+    from backend.services import avatar_cache
 
     settings = get_settings()
     avatar_cache_dir = settings.resolve_workdir() / "avatars" / "chats"
@@ -766,29 +712,27 @@ async def get_chat_avatar(
     legacy_cache_file = avatar_cache_dir / f"{account_name}_{chat_id}.jpg"
 
     # If no-avatar marker is recent (7 days), return 404
-    if no_avatar_marker.exists():
-        age = time.time() - no_avatar_marker.stat().st_mtime
-        if age < 604800:
-            raise HTTPException(status_code=404, detail="No avatar available")
-        else:
-            no_avatar_marker.unlink(missing_ok=True)
+    if avatar_cache.marker_hits_no_avatar(no_avatar_marker):
+        raise HTTPException(status_code=404, detail="No avatar available")
 
     # If chat-level cache exists and is fresh, use it
-    if cache_file.exists():
-        age = time.time() - cache_file.stat().st_mtime
-        if age < 604800:
-            return FileResponse(cache_file, media_type="image/jpeg")
+    cached = avatar_cache.read_cached_avatar(cache_file)
+    if cached is not None:
+        return Response(content=cached, media_type="image/jpeg")
 
     # If legacy account-specific cache exists, migrate it to chat-level
     if legacy_cache_file.exists():
         age = time.time() - legacy_cache_file.stat().st_mtime
-        if age < 604800:
+        if age < avatar_cache.AVATAR_CACHE_TTL_SECONDS:
             try:
-                import shutil
                 shutil.copy2(legacy_cache_file, cache_file)
             except Exception:
-                pass
-            return FileResponse(cache_file, media_type="image/jpeg")
+                # 拷贝失败（源被并发删除/无权限）时继续走下载分支，避免 500
+                cache_file.unlink(missing_ok=True)
+            else:
+                migrated = avatar_cache.read_avatar_file(cache_file)
+                if migrated is not None:
+                    return Response(content=migrated, media_type="image/jpeg")
 
     # Try to download avatar - first with the requested account, then fall back
     from backend.services.telegram import get_telegram_service
@@ -805,23 +749,30 @@ async def get_chat_avatar(
     except Exception:
         pass
 
+    # 至少一个账号明确返回空（而非全部瞬时异常）才判定"无头像"
+    saw_no_avatar = False
     for try_account in accounts_to_try:
         try:
-            avatar_bytes = await telegram_service.download_chat_avatar(
-                try_account, chat_id
+            avatar_bytes = await avatar_cache.get_avatar_bytes(
+                cache_file,
+                no_avatar_marker,
+                lambda a=try_account: telegram_service.download_chat_avatar(
+                    a, chat_id
+                ),
             )
             if avatar_bytes:
-                cache_file.write_bytes(avatar_bytes)
-                no_avatar_marker.unlink(missing_ok=True)
                 return Response(content=avatar_bytes, media_type="image/jpeg")
+            saw_no_avatar = True
         except Exception:
+            # 瞬时错误：换账号重试，不据此判定无头像
             continue
 
-    # No account could fetch the avatar - mark as no avatar
-    try:
-        no_avatar_marker.write_text("")
-    except Exception:
-        pass
+    # 全部账号都异常时不写标记，避免瞬时故障污染 7 天缓存
+    if saw_no_avatar:
+        try:
+            avatar_cache.mark_no_avatar(no_avatar_marker)
+        except Exception:
+            pass
 
     raise HTTPException(status_code=404, detail="No avatar available")
 
@@ -846,7 +797,7 @@ async def sign_task_logs_ws(
     await websocket.accept()
 
     # Resolve empty/wildcard account_name to None for broader matching
-    effective_account = account_name if (account_name and account_name != "*") else None
+    effective_account = _resolve_effective_account(account_name)
 
     last_idx = 0
     connected_at = asyncio.get_running_loop().time()
@@ -936,7 +887,8 @@ async def sign_task_logs_ws(
     except WebSocketDisconnect:
         pass
     except Exception:
-        pass
+        # 读取/发送循环异常不应静默断连，记录便于排障
+        _sync_logger.debug("任务日志 WebSocket 流异常中断", exc_info=True)
     finally:
         try:
             await websocket.close()

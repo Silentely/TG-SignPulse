@@ -1,28 +1,45 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { Play, FileText, Edit2, Trash2, Plus, QrCode, Phone, Zap, MonitorSmartphone, MessageCircle, CheckCircle2, Search } from 'lucide-vue-next'
-import { listAccounts, deleteAccount, checkAccountsStatus } from '../lib/api'
+import { Play, FileText, Edit2, Trash2, Plus, QrCode, Phone, Zap, MonitorSmartphone, MessageCircle, CheckCircle2, Search, RefreshCw, XCircle, X, Users } from 'lucide-vue-next'
+import {
+  deleteAccount,
+  fetchAccountAvatar,
+} from '../lib/api'
+import { getAuthToken } from '../lib/api/core'
 import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
 import { useConfirm } from '../composables/useConfirm'
-import { useAuthStore } from '../stores/auth'
+import { useAccountsStore } from '../stores/accounts'
+import { useAccountBatchCheck } from '../composables/useAccountBatchCheck'
 import type { AccountUiItem } from '../lib/types'
-import { getLocalizedErrorMessage } from '../lib/types'
+import { notifyApiError } from '../lib/notify'
 import AddAccountModal from '../components/accounts/AddAccountModal.vue'
 import EditAccountModal from '../components/accounts/EditAccountModal.vue'
 import DeviceManagerModal from '../components/accounts/DeviceManagerModal.vue'
 import OfficialMessagesModal from '../components/accounts/OfficialMessagesModal.vue'
 import PageRetry from '../components/PageRetry.vue'
 import { devLog } from '../lib/devLog'
+import { AVATAR_FETCH_CONCURRENCY, mapPool } from '../lib/async-pool'
+import { AvatarUrlCache } from '../lib/avatar-cache'
+import {
+  filterAccountsByQuery,
+  mapAccountInfoToUiItem,
+} from '../lib/account-list-map'
 
 const router = useRouter()
 const { t } = useI18n()
 const toast = useToast()
 const { confirm } = useConfirm()
-const authStore = useAuthStore()
+const accountsStore = useAccountsStore()
 const accounts = ref<AccountUiItem[]>([])
 const pageLoading = ref(true)
+// 会话内头像 URL 缓存：避免每次刷新重复请求与重复创建 ObjectURL
+const avatarCache = new AvatarUrlCache()
+// 卸载标记：在途头像请求完成后不再创建 ObjectURL，避免 blob 泄漏
+let disposed = false
+/** 重登弹窗延时句柄：卸载时清理，避免关闭组件后仍打开新弹窗 */
+let reloginTimer: number | undefined
 const showAddModal = ref(false)
 const showEditModal = ref(false)
 const showAddMenu = ref(false)
@@ -36,84 +53,83 @@ const officialMessagesAccountName = ref('')
 const searchQuery = ref('')
 const loadError = ref(false)
 
-const filteredAccounts = computed(() => {
-  const q = searchQuery.value.trim().toLowerCase()
-  if (!q) return accounts.value
-  return accounts.value.filter(
-    (a) =>
-      a.name.toLowerCase().includes(q) ||
-      (a.remark || '').toLowerCase().includes(q) ||
-      (a.message || '').toLowerCase().includes(q)
-  )
-})
+const filteredAccounts = computed(() =>
+  filterAccountsByQuery(accounts.value, searchQuery.value),
+)
 
+const hasListFilters = computed(() => searchQuery.value.trim().length > 0)
+
+const clearListFilters = () => {
+  searchQuery.value = ''
+}
+
+/** 账号管理页为单一事实来源：每次调用都强制刷新（增删改/检测后保持一致） */
 const loadAccounts = async () => {
-  const token = authStore.token || ''
+  const token = getAuthToken()
   if (!token) return
 
   try {
     loadError.value = false
-    const res = await listAccounts(token)
-    accounts.value = res.accounts.map(acc => {
-      let uiStatus = 'active'
-      let message = ''
-
-      if (acc.needs_relogin || acc.status === 'invalid') {
-        uiStatus = 'error'
-        message = t('accounts.loginExpired')
-      } else if (acc.status === 'error') {
-        uiStatus = 'error'
-        message = acc.status_message || ''
-      } else if (acc.status === 'checking') {
-        uiStatus = 'empty'
-        message = t('accounts.checking')
-      } else if (acc.status_message?.includes('流量') || acc.status_message?.includes('额度')) {
-        uiStatus = 'empty'
-        message = acc.status_message
-      }
-
-      return {
-        id: acc.name,
-        name: acc.name,
-        remark: acc.remark,
-        status: uiStatus,
-        message: message,
-        avatarUrl: '',
-        avatarLoaded: false,
-        raw: acc
-      }
-    })
-    // Load avatars with auth token
-    for (const acc of accounts.value) {
-      loadAvatar(acc)
+    const list = await accountsStore.refreshAccounts()
+    const labels = {
+      loginExpired: t('accounts.loginExpired'),
+      checking: t('accounts.checking'),
     }
-  } catch (e) {
+    accounts.value = list.map((acc) => {
+      const ui = mapAccountInfoToUiItem(acc, labels)
+      // 复用已加载的头像 URL，未缓存项交由 loadAvatars 补充
+      const cached = avatarCache.get(acc.name)
+      if (cached) ui.avatarUrl = cached
+      return ui
+    })
+    // 限流加载头像，避免账号多时并发打满连接
+    void loadAvatars(accounts.value)
+  } catch (e: unknown) {
     devLog.error('Failed to fetch accounts', e)
     loadError.value = true
-    toast.error(getLocalizedErrorMessage(e, t, t('accounts.loadFailed')))
+    notifyApiError(e, 'accounts.loadFailed')
   } finally {
     pageLoading.value = false
   }
 }
 
 const loadAvatar = async (acc: AccountUiItem) => {
-  const token = authStore.token || ''
+  const token = getAuthToken()
   try {
-    const res = await fetch(`/api/accounts/${encodeURIComponent(acc.name)}/avatar`, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
-    if (res.ok) {
-      const blob = await res.blob()
-      acc.avatarUrl = URL.createObjectURL(blob)
+    let url = avatarCache.get(acc.name)
+    if (!url) {
+      const blob = await fetchAccountAvatar(token, acc.name)
+      if (disposed) return // 组件已卸载：不再创建 ObjectURL，避免 blob 泄漏
+      url = URL.createObjectURL(blob)
+      avatarCache.set(acc.name, url)
     }
+    acc.avatarUrl = url
   } catch {
-    // No avatar available, keep fallback
+    // 头像下载失败/无头像：保留首字母占位，不影响列表
+    devLog.info('头像加载失败，保留占位:', acc.name)
   }
-  acc.avatarLoaded = true
 }
 
-onMounted(() => {
-  loadAccounts()
+const loadAvatars = async (list: AccountUiItem[]) => {
+  await mapPool(list, AVATAR_FETCH_CONCURRENCY, async (acc) => {
+    await loadAvatar(acc)
+  })
+}
+
+onMounted(async () => {
+  await loadAccounts()
+  // 刷新页面后恢复未完成的批量检测
+  void resumeActiveBatchJob()
+})
+
+onUnmounted(() => {
+  disposed = true
+  if (reloginTimer !== undefined) {
+    window.clearTimeout(reloginTimer)
+    reloginTimer = undefined
+  }
+  // 离开页面时统一回收会话内头像 ObjectURL，避免 blob 泄漏
+  avatarCache.release()
 })
 
 const handleDelete = async (name: string) => {
@@ -124,73 +140,33 @@ const handleDelete = async (name: string) => {
     danger: true,
   })
   if (!ok) return
-  const token = authStore.token || ''
+  const token = getAuthToken()
   try {
     await deleteAccount(token, name)
     toast.success(t('accounts.deleteSuccess'))
     await loadAccounts()
-  } catch (e) {
-    toast.error(getLocalizedErrorMessage(e, t, t('accounts.deleteFailed')))
+  } catch (e: unknown) {
+    notifyApiError(e, 'accounts.deleteFailed')
   }
 }
 
-const checkingAccount = ref('')
-const batchChecking = ref(false)
-
-const handleCheck = async (name: string) => {
-  const token = authStore.token || ''
-  checkingAccount.value = name
-  try {
-    const res = await checkAccountsStatus(token, { account_names: [name] })
-    await loadAccounts()
-    // Show result
-    const result = res.results?.[0]
-    if (result) {
-      if (result.ok) {
-        toast.success(`${name}: ${t('accounts.checkOk')}`)
-      } else {
-        toast.error(`${name}: ${result.message || t('accounts.loginExpired')}`)
-      }
-    }
-  } catch (e) {
-    toast.error(getLocalizedErrorMessage(e, t, t('accounts.checkFailed')))
-  } finally {
-    checkingAccount.value = ''
-  }
-}
-
-const handleBatchCheck = async () => {
-  const token = authStore.token || ''
-  const names = accounts.value.map(acc => acc.name).filter(Boolean)
-  if (!token || names.length === 0) return
-
-  batchChecking.value = true
-  try {
-    const res = await checkAccountsStatus(token, { account_names: names, timeout_seconds: 8 })
-    await loadAccounts()
-    const ok = res.results.filter(item => item.ok).length
-    const failed = res.results.length - ok
-    if (failed === 0) {
-      toast.success(t('accounts.batchCheckDone'), {
-        description: `${t('accounts.checkOkCount')}: ${ok}`,
-      })
-    } else {
-      const failedPreview = res.results
-        .filter(item => !item.ok)
-        .slice(0, 5)
-        .map(item => `${item.account_name}: ${item.message || item.code || t('accounts.loginExpired')}`)
-        .join('\n')
-      toast.error(t('accounts.batchCheckDone'), {
-        description: `${t('accounts.checkOkCount')}: ${ok} · ${t('accounts.checkFailedCount')}: ${failed}\n${failedPreview}`,
-        duration: 8000,
-      })
-    }
-  } catch (e) {
-    toast.error(getLocalizedErrorMessage(e, t, t('accounts.checkFailed')))
-  } finally {
-    batchChecking.value = false
-  }
-}
+const {
+  checkingAccount,
+  batchChecking,
+  batchJob,
+  batchProgressPct,
+  lastFailedAccountNames,
+  handleCheck,
+  handleBatchCheck,
+  handleCancelBatchCheck,
+  handleRecheckFailed,
+  resumeActiveBatchJob,
+} = useAccountBatchCheck({
+  accounts,
+  filteredAccounts,
+  searchQuery,
+  loadAccounts,
+})
 
 const openEdit = (acc: AccountUiItem) => {
   editingAccount.value = acc
@@ -209,7 +185,7 @@ const openOfficialMessages = (name: string) => {
 
 const handleRelogin = (name: string) => {
   showEditModal.value = false
-  setTimeout(() => {
+  reloginTimer = window.setTimeout(() => {
     initialAccountName.value = name
     initialMethod.value = 'code'
     showAddModal.value = true
@@ -266,7 +242,7 @@ const goTasks = (name: string) => {
     <!-- Empty State -->
     <div v-else-if="accounts.length === 0" class="ui-empty">
       <div class="ui-empty-icon">
-        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+        <Users class="w-8 h-8" />
       </div>
       <p class="ui-empty-title">{{ t('accounts.empty') }}</p>
       <p class="ui-empty-desc mb-4">{{ t('accounts.emptyHint') }}</p>
@@ -292,23 +268,87 @@ const goTasks = (name: string) => {
             v-model="searchQuery"
             type="search"
             class="ui-input !pl-8 !h-9 !text-xs"
+            :class="searchQuery.trim() ? '!pr-8' : ''"
             :placeholder="t('common.searchPlaceholder')"
             :aria-label="t('common.search')"
           >
+          <button
+            v-if="searchQuery.trim()"
+            type="button"
+            class="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded-sm"
+            :title="t('common.clearFilters')"
+            :aria-label="t('common.clearFilters')"
+            @click="clearListFilters"
+          >
+            <X class="w-3.5 h-3.5" />
+          </button>
         </div>
-        <button
-          type="button"
-          class="ui-btn-primary !px-3 !py-2 !text-xs shrink-0"
-          :disabled="batchChecking"
-          @click="handleBatchCheck"
-        >
-          <span v-if="batchChecking" class="ui-spinner !w-3.5 !h-3.5 !border-2" />
-          <CheckCircle2 v-else class="w-3.5 h-3.5" />
-          {{ batchChecking ? t('accounts.batchChecking') : t('accounts.batchCheck') }}
-        </button>
+        <div class="flex items-center gap-2 shrink-0">
+          <div
+            v-if="batchChecking && batchJob"
+            class="hidden sm:flex flex-col items-end gap-0.5 min-w-[7rem]"
+          >
+            <span class="text-[11px] font-mono text-sky-700 dark:text-sky-300">
+              {{ t('accounts.batchCheckProgress', {
+                done: batchJob.progress?.done ?? 0,
+                total: batchJob.progress?.total ?? accounts.length,
+              }) }}
+              <template v-if="(batchJob.progress?.ok ?? 0) + (batchJob.progress?.fail ?? 0) > 0">
+                · {{ t('accounts.batchCheckOkFail', {
+                  ok: batchJob.progress?.ok ?? 0,
+                  fail: batchJob.progress?.fail ?? 0,
+                }) }}
+              </template>
+            </span>
+            <div class="w-full h-1 rounded-full bg-sky-100 dark:bg-sky-950/50 overflow-hidden">
+              <div
+                class="h-full bg-sky-500 transition-all duration-300"
+                :style="{ width: `${batchProgressPct}%` }"
+              />
+            </div>
+          </div>
+          <button
+            v-if="batchChecking && batchJob?.job_id"
+            type="button"
+            class="ui-btn-secondary !px-3 !py-2 !text-xs inline-flex items-center gap-1"
+            @click="handleCancelBatchCheck"
+          >
+            <XCircle class="w-3.5 h-3.5" />
+            {{ t('accounts.batchCheckCancel') }}
+          </button>
+          <button
+            v-if="!batchChecking && lastFailedAccountNames.length > 0"
+            type="button"
+            class="ui-btn-secondary !px-3 !py-2 !text-xs inline-flex items-center gap-1"
+            :title="t('accounts.batchRecheckFailedHint')"
+            @click="handleRecheckFailed"
+          >
+            <RefreshCw class="w-3.5 h-3.5" />
+            {{ t('accounts.batchRecheckFailed') }}
+            <span class="font-mono opacity-80">({{ lastFailedAccountNames.length }})</span>
+          </button>
+          <button
+            type="button"
+            class="ui-btn-primary !px-3 !py-2 !text-xs inline-flex items-center gap-1"
+            :disabled="batchChecking"
+            :title="batchChecking ? t('accounts.batchChecking') : undefined"
+            @click="handleBatchCheck"
+          >
+            <span v-if="batchChecking" class="ui-spinner !w-3.5 !h-3.5 !border-2" />
+            <CheckCircle2 v-else class="w-3.5 h-3.5" />
+            {{ batchChecking ? t('accounts.batchChecking') : t('accounts.batchCheck') }}
+          </button>
+        </div>
       </div>
       <div v-if="filteredAccounts.length === 0" class="ui-empty !py-12">
-        <p class="ui-empty-desc">{{ t('common.noData') }}</p>
+        <template v-if="accounts.length > 0 && hasListFilters">
+          <p class="ui-empty-title !text-gray-500 font-normal">{{ t('common.filterNoResults') }}</p>
+          <p class="ui-empty-desc mb-3">{{ t('common.filterNoResultsHint') }}</p>
+          <button type="button" class="ui-btn-secondary !text-xs !px-3 !py-2" @click="clearListFilters">
+            {{ t('common.clearFilters') }}
+          </button>
+        </template>
+        <p v-else class="ui-empty-desc">{{ t('common.noData') }}</p>
       </div>
       <div v-else class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
     <div
@@ -351,36 +391,36 @@ const goTasks = (name: string) => {
         </div>
       </div>
 
-      <!-- Actions -->
+      <!-- Actions：竖排布局保留，语义走 ui-row-action -->
       <div class="mt-auto pt-3 border-t border-gray-100 dark:border-gray-800/40 grid grid-cols-7 gap-0.5">
-        <button type="button" class="flex flex-col items-center gap-0.5 py-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/[0.04] rounded-sm transition-colors disabled:opacity-50" :disabled="checkingAccount === acc.name" :title="t('accounts.checkStatus')" @click="handleCheck(acc.name)">
+        <button type="button" class="ui-row-action ui-row-action--stack" :disabled="checkingAccount === acc.name" :title="t('accounts.checkStatus')" @click="handleCheck(acc.name)">
           <span v-if="checkingAccount === acc.name" class="ui-spinner !w-3.5 !h-3.5 !border-2" />
           <Play v-else class="w-3.5 h-3.5" />
-          <span class="text-[10px]">{{ t('accounts.check') }}</span>
+          <span>{{ t('accounts.check') }}</span>
         </button>
-        <button type="button" class="flex flex-col items-center gap-0.5 py-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/[0.04] rounded-sm transition-colors" :title="t('accounts.viewTasks')" @click="goTasks(acc.name)">
+        <button type="button" class="ui-row-action ui-row-action--stack" :title="t('accounts.viewTasks')" @click="goTasks(acc.name)">
           <Zap class="w-3.5 h-3.5" />
-          <span class="text-[10px]">{{ t('accounts.tasks') }}</span>
+          <span>{{ t('accounts.tasks') }}</span>
         </button>
-        <button type="button" class="flex flex-col items-center gap-0.5 py-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/[0.04] rounded-sm transition-colors" :title="t('accounts.viewLogs')" @click="goLogs(acc.name)">
+        <button type="button" class="ui-row-action ui-row-action--stack" :title="t('accounts.viewLogs')" @click="goLogs(acc.name)">
           <FileText class="w-3.5 h-3.5" />
-          <span class="text-[10px]">{{ t('accounts.logs') }}</span>
+          <span>{{ t('accounts.logs') }}</span>
         </button>
-        <button type="button" class="flex flex-col items-center gap-0.5 py-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/[0.04] rounded-sm transition-colors" :title="t('accounts.devices')" @click="openDevices(acc.name)">
+        <button type="button" class="ui-row-action ui-row-action--stack" :title="t('accounts.devices')" @click="openDevices(acc.name)">
           <MonitorSmartphone class="w-3.5 h-3.5" />
-          <span class="text-[10px]">{{ t('accounts.devicesShort') }}</span>
+          <span>{{ t('accounts.devicesShort') }}</span>
         </button>
-        <button type="button" class="flex flex-col items-center gap-0.5 py-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/[0.04] rounded-sm transition-colors" :title="t('accounts.officialMessages')" @click="openOfficialMessages(acc.name)">
+        <button type="button" class="ui-row-action ui-row-action--stack" :title="t('accounts.officialMessages')" @click="openOfficialMessages(acc.name)">
           <MessageCircle class="w-3.5 h-3.5" />
-          <span class="text-[10px]">{{ t('accounts.officialMessagesShort') }}</span>
+          <span>{{ t('accounts.officialMessagesShort') }}</span>
         </button>
-        <button type="button" class="flex flex-col items-center gap-0.5 py-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/[0.04] rounded-sm transition-colors" :title="t('accounts.edit')" @click="openEdit(acc)">
+        <button type="button" class="ui-row-action ui-row-action--stack" :title="t('accounts.edit')" @click="openEdit(acc)">
           <Edit2 class="w-3.5 h-3.5" />
-          <span class="text-[10px]">{{ t('accounts.editBtn') }}</span>
+          <span>{{ t('accounts.editBtn') }}</span>
         </button>
-        <button type="button" class="flex flex-col items-center gap-0.5 py-1.5 text-gray-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-sm transition-colors" :title="t('accounts.deleteBtn')" @click="handleDelete(acc.name)">
+        <button type="button" class="ui-row-action ui-row-action--stack ui-row-action--danger" :title="t('accounts.deleteBtn')" @click="handleDelete(acc.name)">
           <Trash2 class="w-3.5 h-3.5" />
-          <span class="text-[10px]">{{ t('accounts.deleteBtn') }}</span>
+          <span>{{ t('accounts.deleteBtn') }}</span>
         </button>
       </div>
     </div>

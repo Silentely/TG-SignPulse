@@ -23,6 +23,7 @@ from backend.utils.tg_session import (
     get_session_mode,
     is_string_session_mode,
     list_account_names,
+    load_account_session_string,
     load_session_string_file,
     rename_account_entry,
     set_account_status,
@@ -32,7 +33,27 @@ from backend.utils.time import utc_now_iso_z
 settings = get_settings()
 
 
-logger = logging.getLogger("backend.qr_login")
+logger = logging.getLogger("backend.telegram.accounts")
+
+
+def _session_file_info(session_file) -> tuple[bool, int]:
+    """单次 stat 返回 (exists, size)，避免 exists()+stat() 双重系统调用竞态。"""
+    try:
+        return True, session_file.stat().st_size
+    except OSError:
+        return False, 0
+
+
+def mark_account_connected(account_name: str) -> None:
+    """标记账号登录成功（status=connected），供手机号/扫码登录成功路径统一调用。"""
+    set_account_status(
+        account_name,
+        status="connected",
+        message="",
+        code="OK",
+        needs_relogin=False,
+    )
+
 
 class TelegramAccountsMixin:
 
@@ -142,10 +163,8 @@ class TelegramAccountsMixin:
                         {
                             "name": account_name,
                             "session_file": str(session_file),
-                            "exists": session_file.exists(),
-                            "size": session_file.stat().st_size
-                            if session_file.exists()
-                            else 0,
+                            "exists": _session_file_info(session_file)[0],
+                            "size": _session_file_info(session_file)[1],
                             "remark": profile.get("remark"),
                             "proxy": profile.get("proxy"),
                             **self._account_status_payload(account_name),
@@ -163,10 +182,8 @@ class TelegramAccountsMixin:
                         {
                             "name": account_name,
                             "session_file": str(session_file),
-                            "exists": session_file.exists(),
-                            "size": session_file.stat().st_size
-                            if session_file.exists()
-                            else 0,
+                            "exists": _session_file_info(session_file)[0],
+                            "size": _session_file_info(session_file)[1],
                             "remark": profile.get("remark"),
                             "proxy": profile.get("proxy"),
                             **self._account_status_payload(account_name),
@@ -184,10 +201,8 @@ class TelegramAccountsMixin:
                         {
                             "name": account_name,
                             "session_file": str(session_file),
-                            "exists": session_file.exists(),
-                            "size": session_file.stat().st_size
-                            if session_file.exists()
-                            else 0,
+                            "exists": _session_file_info(session_file)[0],
+                            "size": _session_file_info(session_file)[1],
                             "remark": profile.get("remark"),
                             "proxy": profile.get("proxy"),
                             **self._account_status_payload(account_name),
@@ -231,6 +246,8 @@ class TelegramAccountsMixin:
 
         Returns:
             头像的 JPEG 字节数据，如果没有头像则返回 None
+        Raises:
+            瞬时错误（网络/会话/限流）向上抛出，由调用方决定是否缓存判定
         """
         from tg_signer.core import get_client
 
@@ -245,7 +262,7 @@ class TelegramAccountsMixin:
             proxy_value = profile.get("proxy")
             if not proxy_value:
                 from backend.services.config import get_config_service
-                proxy_value = get_config_service().get_global_settings().get("global_proxy")
+                proxy_value = get_config_service().get_global_proxy()
             if proxy_value:
                 proxy_dict = build_proxy_dict(proxy_value)
         except Exception:
@@ -255,9 +272,11 @@ class TelegramAccountsMixin:
         session_string = None
         in_memory = False
         if session_mode == "string":
-            session_string = get_account_session_string(
-                account_name
-            ) or load_session_string_file(self.session_dir, account_name)
+            session_string = load_account_session_string(
+                account_name,
+                session_dir=self.session_dir,
+                session_mode=session_mode,
+            )
             if not session_string:
                 return None
             in_memory = True
@@ -289,8 +308,11 @@ class TelegramAccountsMixin:
                         return photo_bytes.read()
                     return None
         except Exception as e:
-            logger.debug("Failed to download avatar for %s: %s", account_name, e)
-            return None
+            # 瞬时错误（网络/限流/会话失效）不能与"无头像"混为一谈：抛出让路由层区分
+            logger.warning(
+                "下载账号头像失败 %s: %s", account_name, e, exc_info=True
+            )
+            raise
 
 
     async def download_chat_avatar(
@@ -301,6 +323,8 @@ class TelegramAccountsMixin:
 
         Returns:
             头像的 JPEG 字节数据，如果没有头像则返回 None
+        Raises:
+            瞬时错误（网络/会话/限流）向上抛出，由调用方决定是否缓存判定
         """
         from tg_signer.core import get_client
 
@@ -315,7 +339,7 @@ class TelegramAccountsMixin:
             proxy_value = profile.get("proxy")
             if not proxy_value:
                 from backend.services.config import get_config_service
-                proxy_value = get_config_service().get_global_settings().get("global_proxy")
+                proxy_value = get_config_service().get_global_proxy()
             if proxy_value:
                 proxy_dict = build_proxy_dict(proxy_value)
         except Exception:
@@ -325,9 +349,11 @@ class TelegramAccountsMixin:
         session_string = None
         in_memory = False
         if session_mode == "string":
-            session_string = get_account_session_string(
-                account_name
-            ) or load_session_string_file(self.session_dir, account_name)
+            session_string = load_account_session_string(
+                account_name,
+                session_dir=self.session_dir,
+                session_mode=session_mode,
+            )
             if not session_string:
                 return None
             in_memory = True
@@ -362,13 +388,15 @@ class TelegramAccountsMixin:
                         return photo_bytes.read()
                     return None
         except Exception as e:
-            logger.debug(
-                "Failed to download chat avatar for %s/%s: %s",
+            # 瞬时错误不能与"该 chat 无头像"混为一谈：抛出让路由层区分
+            logger.warning(
+                "下载 Chat 头像失败 %s/%s: %s",
                 account_name,
                 chat_id,
                 e,
+                exc_info=True,
             )
-            return None
+            raise
 
 
     def _build_account_client(
@@ -404,9 +432,11 @@ class TelegramAccountsMixin:
         session_string = None
         in_memory = False
         if session_mode == "string":
-            session_string = get_account_session_string(
-                account_name
-            ) or load_session_string_file(self.session_dir, account_name)
+            session_string = load_account_session_string(
+                account_name,
+                session_dir=self.session_dir,
+                session_mode=session_mode,
+            )
             if not session_string:
                 raise ValueError("session_string 不存在或已失效")
             in_memory = True
@@ -472,9 +502,11 @@ class TelegramAccountsMixin:
         session_string = None
         in_memory = False
         if session_mode == "string":
-            session_string = get_account_session_string(
-                account_name
-            ) or load_session_string_file(self.session_dir, account_name)
+            session_string = load_account_session_string(
+                account_name,
+                session_dir=self.session_dir,
+                session_mode=session_mode,
+            )
             if not session_string:
                 set_account_status(
                     account_name,
@@ -681,7 +713,7 @@ class TelegramAccountsMixin:
         try:
             await close_client_by_name(account_name, workdir=self.session_dir)
         except Exception as e:
-            logger.debug(f"关闭 Account Client 失败: {e}")
+            logger.debug("关闭 Account Client 失败: %s", e)
 
         session_file = self.session_dir / f"{account_name}.session"
         journal_file = self.session_dir / f"{account_name}.session-journal"

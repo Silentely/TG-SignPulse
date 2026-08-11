@@ -5,12 +5,12 @@
 
 export type SettingsFormState = {
   checkInterval: string
-  logDays: number
+  logDays: number | ''
   dataDir: string
   proxy: string
-  concurrency: number
+  concurrency: number | ''
   deviceKeepaliveEnabled: boolean
-  deviceKeepaliveIntervalDays: number
+  deviceKeepaliveIntervalDays: number | ''
   botEnabled: boolean
   botLoginNotify: boolean
   botTaskFailure: boolean
@@ -48,15 +48,25 @@ export function emptyToNull(v: string | number | '' | null | undefined): number 
   return Number.isFinite(n) ? n : null
 }
 
+/**
+ * 数字输入框 value → 表单值。
+ * 空串保留 ''（由 payload 归一化默认值）；非法/NaN 同样回落为 ''，避免写入 NaN。
+ */
+export function parseNumberInputValue(raw: string): number | '' {
+  if (raw === '') return ''
+  const n = Number(raw)
+  return Number.isFinite(n) ? n : ''
+}
+
 export function buildGeneralPayload(s: SettingsFormState) {
   return {
-    sign_interval: s.checkInterval ? parseInt(String(s.checkInterval), 10) : null,
-    log_retention_days: s.logDays,
+    sign_interval: emptyToNull(s.checkInterval),
+    log_retention_days: emptyToNull(s.logDays) ?? 7,
     data_dir: s.dataDir || null,
     global_proxy: s.proxy || null,
-    tg_global_concurrency: s.concurrency || 1,
+    tg_global_concurrency: emptyToNull(s.concurrency) ?? 1,
     device_keepalive_enabled: s.deviceKeepaliveEnabled,
-    device_keepalive_interval_days: s.deviceKeepaliveIntervalDays || 30,
+    device_keepalive_interval_days: emptyToNull(s.deviceKeepaliveIntervalDays) ?? 30,
     timezone: s.timezone,
   }
 }
@@ -73,13 +83,12 @@ export function buildBotPayload(s: SettingsFormState) {
     // 空 Token 表示不覆盖服务端已有值
     ...(s.botToken ? { telegram_bot_token: s.botToken } : {}),
     telegram_bot_chat_id: s.botChatId || null,
-    telegram_bot_message_thread_id: s.botThreadId
-      ? parseInt(s.botThreadId, 10)
-      : null,
+    telegram_bot_message_thread_id: emptyToNull(s.botThreadId),
   }
 }
 
-export function buildAdvancedPayload(s: SettingsFormState) {
+/** AI 区块内的运行时参数（任务超时/冷却/视觉等），由「保存 AI 配置」一并提交 */
+export function buildAiRuntimePayload(s: SettingsFormState) {
   return {
     sign_task_execution_timeout: emptyToNull(s.execTimeout),
     sign_task_account_cooldown: emptyToNull(s.accountCooldown),
@@ -87,6 +96,12 @@ export function buildAdvancedPayload(s: SettingsFormState) {
     sign_task_history_max_age_days: emptyToNull(s.historyMaxAge),
     ai_vision_timeout: emptyToNull(s.aiVisionTimeout),
     ai_vision_retry_attempts: emptyToNull(s.aiVisionRetry),
+  }
+}
+
+/** 数据管理区块：自动备份 + WebDAV，由「保存备份设置」提交 */
+export function buildBackupPayload(s: SettingsFormState) {
+  return {
     auto_backup_enabled: s.autoBackupEnabled,
     auto_backup_interval_hours: s.autoBackupInterval || 24,
     auto_backup_keep: s.autoBackupKeep || 3,
@@ -95,6 +110,14 @@ export function buildAdvancedPayload(s: SettingsFormState) {
     // 空密码表示不覆盖服务端已有值
     ...(s.webdavPassword ? { webdav_password: s.webdavPassword } : {}),
     webdav_remote_dir: s.webdavRemoteDir || 'tg-signpulse-backups',
+  }
+}
+
+/** 兼容：运行时参数 + 备份/WebDAV 全量 advanced 字段（saveAll / WebDAV 操作） */
+export function buildAdvancedPayload(s: SettingsFormState) {
+  return {
+    ...buildAiRuntimePayload(s),
+    ...buildBackupPayload(s),
   }
 }
 
@@ -131,13 +154,8 @@ export function snapSection(
         botThreadId: s.botThreadId,
       })
     case 'advanced':
+      // 仅备份/WebDAV（数据管理区）；AI 运行时参数归入 ai 段
       return JSON.stringify({
-        execTimeout: s.execTimeout,
-        accountCooldown: s.accountCooldown,
-        flowRetry: s.flowRetry,
-        historyMaxAge: s.historyMaxAge,
-        aiVisionTimeout: s.aiVisionTimeout,
-        aiVisionRetry: s.aiVisionRetry,
         autoBackupEnabled: s.autoBackupEnabled,
         autoBackupInterval: s.autoBackupInterval,
         autoBackupKeep: s.autoBackupKeep,
@@ -156,6 +174,12 @@ export function snapSection(
         base_url: ai.base_url,
         model: ai.model,
         api_key: ai.api_key ? '***set***' : '',
+        execTimeout: s.execTimeout,
+        accountCooldown: s.accountCooldown,
+        flowRetry: s.flowRetry,
+        historyMaxAge: s.historyMaxAge,
+        aiVisionTimeout: s.aiVisionTimeout,
+        aiVisionRetry: s.aiVisionRetry,
       })
   }
 }
@@ -193,4 +217,80 @@ export function dirtySectionLabels(
   return (Object.keys(current) as SettingsSection[])
     .filter((k) => baseline[k] !== current[k])
     .map((k) => labels[k])
+}
+
+/** 服务端全局设置 → 表单字段（不含密钥明文） */
+export function applyGlobalSettingsToForm(
+  s: SettingsFormState,
+  res: {
+    sign_interval?: number | null
+    log_retention_days?: number
+    data_dir?: string | null
+    global_proxy?: string | null
+    tg_global_concurrency?: number | null
+    device_keepalive_enabled?: boolean
+    device_keepalive_interval_days?: number
+    telegram_bot_notify_enabled?: boolean
+    telegram_bot_login_notify_enabled?: boolean
+    telegram_bot_task_failure_enabled?: boolean
+    telegram_bot_task_success_enabled?: boolean
+    telegram_bot_quiet_hours_enabled?: boolean
+    telegram_bot_quiet_hours_start?: string | null
+    telegram_bot_quiet_hours_end?: string | null
+    telegram_bot_token_set?: boolean
+    telegram_bot_chat_id?: string | null
+    telegram_bot_message_thread_id?: number | null
+    timezone?: string
+    sign_task_execution_timeout?: number | null
+    sign_task_account_cooldown?: number | null
+    sign_task_flow_retry_attempts?: number | null
+    sign_task_history_max_age_days?: number | null
+    ai_vision_timeout?: number | null
+    ai_vision_retry_attempts?: number | null
+    auto_backup_enabled?: boolean
+    auto_backup_interval_hours?: number | null
+    auto_backup_keep?: number | null
+    webdav_url?: string | null
+    webdav_username?: string | null
+    webdav_password_set?: boolean
+    webdav_remote_dir?: string | null
+  },
+): { botTokenSet: boolean; webdavPasswordSet: boolean } {
+  s.checkInterval = res.sign_interval ? String(res.sign_interval) : ''
+  s.logDays = res.log_retention_days || 7
+  s.dataDir = res.data_dir || ''
+  s.proxy = res.global_proxy || ''
+  s.concurrency = res.tg_global_concurrency || 1
+  s.deviceKeepaliveEnabled = res.device_keepalive_enabled !== false
+  s.deviceKeepaliveIntervalDays = res.device_keepalive_interval_days || 30
+  s.botEnabled = res.telegram_bot_notify_enabled || false
+  s.botLoginNotify = res.telegram_bot_login_notify_enabled || false
+  s.botTaskFailure = res.telegram_bot_task_failure_enabled || false
+  s.botTaskSuccess = res.telegram_bot_task_success_enabled || false
+  s.quietEnabled = res.telegram_bot_quiet_hours_enabled || false
+  s.quietStart = res.telegram_bot_quiet_hours_start || '23:00'
+  s.quietEnd = res.telegram_bot_quiet_hours_end || '07:00'
+  s.botToken = ''
+  s.botChatId = res.telegram_bot_chat_id || ''
+  s.botThreadId = res.telegram_bot_message_thread_id
+    ? String(res.telegram_bot_message_thread_id)
+    : ''
+  s.timezone = res.timezone || 'Asia/Hong_Kong'
+  s.execTimeout = res.sign_task_execution_timeout ?? ''
+  s.accountCooldown = res.sign_task_account_cooldown ?? ''
+  s.flowRetry = res.sign_task_flow_retry_attempts ?? ''
+  s.historyMaxAge = res.sign_task_history_max_age_days ?? ''
+  s.aiVisionTimeout = res.ai_vision_timeout ?? ''
+  s.aiVisionRetry = res.ai_vision_retry_attempts ?? ''
+  s.autoBackupEnabled = res.auto_backup_enabled || false
+  s.autoBackupInterval = res.auto_backup_interval_hours || 24
+  s.autoBackupKeep = res.auto_backup_keep || 3
+  s.webdavUrl = res.webdav_url || ''
+  s.webdavUsername = res.webdav_username || ''
+  s.webdavPassword = ''
+  s.webdavRemoteDir = res.webdav_remote_dir || 'tg-signpulse-backups'
+  return {
+    botTokenSet: !!res.telegram_bot_token_set,
+    webdavPasswordSet: !!res.webdav_password_set,
+  }
 }

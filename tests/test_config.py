@@ -13,31 +13,10 @@ tg_signer/config.py 单元测试
 from __future__ import annotations
 
 import json
-from typing import Any, Dict
 
 import pytest
 from pydantic import ValidationError
 
-from tg_signer.config import (
-    ActionT,
-    BaseJSONConfig,
-    ChooseOptionByImageAction,
-    ClickButtonByCalculationProblemAction,
-    ClickKeyboardByTextAction,
-    KeywordNotifyAction,
-    ReplyByCalculationProblemAction,
-    ReplyByImageRecognitionAction,
-    SendDiceAction,
-    SendTextAction,
-    SignAction,
-    SignChatV3,
-    SignConfigV1,
-    SignConfigV2,
-    SignConfigV3,
-    SupportAction,
-    get_display_width,
-    pad_text_to_width,
-)
 from tests.fixtures.tasks import (
     SIGN_CONFIG_V3_BASIC,
     SIGN_CONFIG_V3_DICE,
@@ -47,7 +26,23 @@ from tests.fixtures.tasks import (
     SIGN_CONFIG_V3_WITH_KEYWORD,
     make_sign_config_v3_dict,
 )
-
+from tg_signer.config import (
+    BaseJSONConfig,
+    ChooseOptionByImageAction,
+    ClickButtonByCalculationProblemAction,
+    ClickKeyboardByTextAction,
+    KeywordNotifyAction,
+    ReplyByCalculationProblemAction,
+    ReplyByImageRecognitionAction,
+    SendDiceAction,
+    SendTextAction,
+    SignChatV3,
+    SignConfigV1,
+    SignConfigV2,
+    SignConfigV3,
+    SupportAction,
+)
+from tg_signer.utils import get_display_width, pad_text_to_width
 
 # ============================================================================
 # 工具函数测试
@@ -327,6 +322,10 @@ class TestKeywordNotifyAction:
         assert action.match_mode == "contains"
         assert action.ignore_case is True
         assert action.push_channel == "telegram"
+        # 默认忽略自己消息，时间窗关闭
+        assert action.ignore_self is True
+        assert action.active_time_start is None
+        assert action.active_time_end is None
 
     def test_create_with_all_options(self):
         """创建全参数关键词通知动作"""

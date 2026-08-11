@@ -22,8 +22,10 @@ class TaskLogHandler(logging.Handler):
         try:
             msg = normalize_log_line(self.format(record)) or record.getMessage()
             self.log_list.append(msg)
-            if len(self.log_list) > 1000:
-                self.log_list.pop(0)
+            # 批量删除头部，避免每行日志 O(n) 的 pop(0)
+            overflow = len(self.log_list) - 1000
+            if overflow > 0:
+                del self.log_list[:overflow]
         except Exception:
             self.handleError(record)
 

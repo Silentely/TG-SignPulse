@@ -3,18 +3,17 @@ import { ref, watch, useTemplateRef } from 'vue'
 import Modal from '../Modal.vue'
 import TaskForm from './TaskForm.vue'
 import { updateSignTask } from '../../lib/api'
+import { getAuthToken } from '../../lib/api/core'
 import type { SignTask, UpdateSignTaskRequest } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
-import { useAuthStore } from '../../stores/auth'
 import { getLocalizedErrorMessage } from '../../lib/types'
+import { resolveTaskAccountName } from '../../lib/task-list-map'
 
 const { t } = useI18n()
-const authStore = useAuthStore()
 
 const props = defineProps<{ isOpen: boolean, task: SignTask }>()
 const emit = defineEmits<{ (e: 'close'): void, (e: 'success'): void }>()
 
-const payload = ref<Partial<UpdateSignTaskRequest>>({})
 const taskFormRef = useTemplateRef<InstanceType<typeof TaskForm>>('taskForm')
 const notifyOnFailure = ref(true)
 const notifyOnSuccess = ref(true)
@@ -25,35 +24,28 @@ const error = ref('')
 watch(() => props.isOpen, (val) => {
   if (val && props.task) {
     error.value = ''
-    payload.value = {}
     notifyOnFailure.value = props.task.notify_on_failure ?? true
     notifyOnSuccess.value = props.task.notify_on_success ?? true
   }
 })
 
 const handleSave = async () => {
-  const token = authStore.token
+  const token = getAuthToken()
   if (!token || !props.task) return
 
-  // 保存前同步刷新 payload，避免防抖延迟导致提交旧值
-  taskFormRef.value?.flushPayload?.()
+  // 命令式取最新 payload（TaskForm 已去除 update:payload 双通道，保存路径直接读取）
+  const body = taskFormRef.value?.buildPayload?.() as UpdateSignTaskRequest | undefined
 
   loading.value = true
   error.value = ''
   try {
     // Resolve account_name: use direct value, skip wildcard, fallback to account_names
-    let accountName = props.task.account_name || ''
-    if (!accountName || accountName === '*') {
-      const names = props.task.account_names || []
-      for (const n of names) {
-        if (n && n !== '*') { accountName = n; break }
-      }
-    }
+    const accountName = resolveTaskAccountName(props.task)
     await updateSignTask(
       token,
       props.task.name,
       {
-        ...payload.value,
+        ...body,
         notify_on_failure: notifyOnFailure.value,
         notify_on_success: notifyOnSuccess.value,
       },
@@ -89,7 +81,12 @@ const handleSave = async () => {
         {{ error }}
       </div>
       
-      <TaskForm v-if="isOpen && task" ref="taskForm" :initialTask="task" @update:payload="payload = $event" />
+      <TaskForm
+        v-if="isOpen && task"
+        ref="taskForm"
+        :initialTask="task"
+        lock-task-name
+      />
     </div>
 
     <template #footer>

@@ -33,7 +33,8 @@ def repair_mojibake(text: str) -> str:
 
     try:
         candidate = text.encode("gbk", errors="strict").decode("utf-8", errors="strict")
-    except Exception:
+    except UnicodeError:
+        # 仅编码/解码类失败才回退，避免吞掉编程错误
         return text
 
     candidate_suspicious = sum(candidate.count(token) for token in _MOJIBAKE_TOKENS)

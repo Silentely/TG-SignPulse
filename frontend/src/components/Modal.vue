@@ -61,6 +61,22 @@ const onKeydown = (e: KeyboardEvent) => {
   }
 }
 
+/**
+ * 焦点逃逸拉回：模态对话框打开期间，若焦点意外落到对话框外
+ * （如浏览器地址栏、扩展 UI、点击被遮罩遗漏的角落），立即拉回首个可聚焦元素。
+ * 焦点落在任意 [role="dialog"]（含嵌套确认框）内时放行，避免外层把内层焦点抢回。
+ * panel 本身可聚焦（tabindex=-1），纯展示型对话框也保证焦点不逃逸。
+ */
+const onFocusIn = (e: FocusEvent) => {
+  if (!props.isOpen || !panelRef.value) return
+  const target = e.target as HTMLElement | null
+  if (!target || panelRef.value.contains(target)) return
+  // 嵌套对话框：内层 dialog 内的焦点属于合法目标，放行
+  if (target.closest('[role="dialog"]')) return
+  const focusable = getFocusable()
+  ;(focusable[0] ?? panelRef.value).focus()
+}
+
 const releaseScrollLock = () => {
   if (scrollLocked) {
     unlockBodyScroll()
@@ -78,7 +94,7 @@ watch(
       }
       previousActive = document.activeElement as HTMLElement | null
       await nextTick()
-      getFocusable()[0]?.focus()
+      ;(getFocusable()[0] ?? panelRef.value)?.focus()
     } else {
       releaseScrollLock()
       if (previousActive?.focus) {
@@ -96,10 +112,12 @@ watch(
 
 onMounted(() => {
   window.addEventListener('keydown', onKeydown)
+  document.addEventListener('focusin', onFocusIn)
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
+  document.removeEventListener('focusin', onFocusIn)
   releaseScrollLock()
 })
 </script>
@@ -125,6 +143,7 @@ onUnmounted(() => {
           ref="panelRef"
           role="dialog"
           aria-modal="true"
+          tabindex="-1"
           :aria-label="title"
           :class="[
             'relative w-full ui-card shadow-[var(--sp-shadow-md)] overflow-hidden flex flex-col max-h-[90vh]',

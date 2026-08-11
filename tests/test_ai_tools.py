@@ -249,7 +249,6 @@ class VisualCompletionRetryTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_retries_on_timeout(self):
         call_count = 0
-        original_create = None
 
         async def slow_create(**kwargs):
             nonlocal call_count

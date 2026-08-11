@@ -15,7 +15,7 @@ class TestTokenExpiry:
             expires_delta=timedelta(seconds=-1),
         )
         response = client.get(
-            "/api/tasks",
+            "/api/accounts",
             headers={"Authorization": f"Bearer {expired_token}"},
         )
         assert response.status_code == 401
@@ -27,7 +27,7 @@ class TestTokenExpiry:
             expires_delta=timedelta(hours=1),
         )
         response = client.get(
-            "/api/tasks",
+            "/api/accounts",
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
@@ -39,7 +39,7 @@ class TestTokenTampering:
         token = create_access_token({"sub": "admin"})
         tampered = token[:-5] + "XXXXX"
         response = client.get(
-            "/api/tasks",
+            "/api/accounts",
             headers={"Authorization": f"Bearer {tampered}"},
         )
         assert response.status_code == 401
@@ -62,7 +62,7 @@ class TestTokenTampering:
         )
         tampered = f"{parts[0]}.{new_payload}.{parts[2]}"
         response = client.get(
-            "/api/tasks",
+            "/api/accounts",
             headers={"Authorization": f"Bearer {tampered}"},
         )
         assert response.status_code == 401
@@ -71,17 +71,17 @@ class TestTokenTampering:
 class TestTokenCrossKey:
     def test_different_secret_invalidates_token(self, client, db_session):
         """不同密钥签发的 token 应返回 401"""
-        token = create_access_token({"sub": "admin"})
+        _ = create_access_token({"sub": "admin"})  # 默认密钥签发，仅作对照基线
         # 手动构造一个用不同密钥签发的 token
         import jwt
 
         different_token = jwt.encode(
             {"sub": "admin", "exp": utc_now() + timedelta(hours=1)},
-            "completely-different-secret-key",
+            "completely-different-secret-key-0123456789",
             algorithm="HS256",
         )
         response = client.get(
-            "/api/tasks",
+            "/api/accounts",
             headers={"Authorization": f"Bearer {different_token}"},
         )
         assert response.status_code == 401
@@ -90,7 +90,7 @@ class TestTokenCrossKey:
         """缺少 sub 声明的 token 应返回 401"""
         token = create_access_token({"role": "admin"})  # 没有 sub
         response = client.get(
-            "/api/tasks",
+            "/api/accounts",
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 401
@@ -98,7 +98,7 @@ class TestTokenCrossKey:
     def test_empty_token_is_rejected(self, client, db_session):
         """空 token 应返回 401"""
         response = client.get(
-            "/api/tasks",
+            "/api/accounts",
             headers={"Authorization": "Bearer "},
         )
         assert response.status_code == 401

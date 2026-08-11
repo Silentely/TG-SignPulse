@@ -2,15 +2,14 @@
 import { ref, watch } from 'vue'
 import Modal from '../Modal.vue'
 import { updateAccount } from '../../lib/api'
+import { getAuthToken } from '../../lib/api/core'
 import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
-import { useAuthStore } from '../../stores/auth'
 import type { AccountUiItem } from '../../lib/types'
 import { getLocalizedErrorMessage } from '../../lib/types'
 
 const { t } = useI18n()
 const toast = useToast()
-const authStore = useAuthStore()
 
 const props = defineProps<{
   isOpen: boolean
@@ -39,7 +38,7 @@ watch(() => props.isOpen, (val) => {
 })
 
 const handleSave = async () => {
-  const token = authStore.token
+  const token = getAuthToken()
   if (!token || !props.account) return
 
   loading.value = true

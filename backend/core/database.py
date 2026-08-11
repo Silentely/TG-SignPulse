@@ -44,7 +44,7 @@ def init_engine() -> None:
         url,
         echo=False,
         connect_args=connect_args,
-        pool_pre_ping=not settings.is_sqlite,
+        pool_pre_ping=True,
     )
 
     if settings.is_sqlite:

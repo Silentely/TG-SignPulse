@@ -1,0 +1,109 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "TG-SignPulse Self-Hosted Panel API (Discovery Stub)",
+    "version": "2.2.0",
+    "description": "文档站发布的 OpenAPI 发现桩。完整、可交互的 OpenAPI 由你部署的面板实例在 {panel-origin}/openapi.json 提供。认证见 /auth.md。",
+    "contact": {
+      "name": "TG-SignPulse",
+      "url": "https://github.com/Silentely/TG-SignPulse"
+    },
+    "license": {
+      "name": "See repository LICENSE",
+      "url": "https://github.com/Silentely/TG-SignPulse/blob/main/LICENSE"
+    }
+  },
+  "servers": [
+    {
+      "url": "{panelOrigin}",
+      "description": "自托管面板根地址",
+      "variables": {
+        "panelOrigin": {
+          "default": "http://127.0.0.1:8080"
+        }
+      }
+    }
+  ],
+  "paths": {
+    "/healthz": {
+      "get": {
+        "operationId": "healthz",
+        "summary": "健康检查",
+        "responses": {
+          "200": {
+            "description": "服务可用"
+          }
+        }
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "operationId": "openapiJson",
+        "summary": "完整 OpenAPI 文档",
+        "responses": {
+          "200": {
+            "description": "OpenAPI 3 JSON"
+          }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "operationId": "login",
+        "summary": "使用用户名密码（及可选 TOTP）换取 JWT",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["username", "password"],
+                "properties": {
+                  "username": { "type": "string" },
+                  "password": { "type": "string" },
+                  "totp_code": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回 access_token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "access_token": { "type": "string" },
+                    "token_type": { "type": "string", "example": "bearer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sign-tasks": {
+      "get": {
+        "operationId": "listSignTasks",
+        "summary": "列出签到任务（需 Bearer JWT）",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": { "description": "任务列表" },
+          "401": { "description": "未认证" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  }
+}

@@ -1,6 +1,6 @@
 # TG-SignPulse 文档
 
-> v2.2.0 · Telegram 多账号自动化、任务编排、关键词监听和 AI 验证处理控制台。
+> v2.2.3 · Telegram 多账号自动化、任务编排、关键词监听和 AI 验证处理控制台。
 
 ## 产品简介
 
@@ -88,7 +88,7 @@ TG-SignPulse/
 │   ├── scheduler/      #   APScheduler 调度器
 │   └── utils/          #   工具函数
 ├── tg_signer/          # Telegram 自动化引擎
-│   ├── core.py         #   签到执行核心（UserSigner）
+│   ├── core/           #   签到执行核心（Client / runtime / 动作 / 匹配）
 │   ├── config.py       #   任务配置模型 (V1→V2→V3)
 │   ├── ai_tools.py     #   AI 工具集成
 │   └── async_utils.py  #   异步工具
@@ -150,9 +150,9 @@ Browser (Vue 3 SPA)
 
 | 触发条件 | 行为 | 用途 |
 |----------|------|------|
-| `main` 推送 | 只跑测试，不构建镜像 | 合并门禁 |
+| `main` 推送 | `main` / `main-<sha>` | 稳定主干滚动镜像 |
 | `dev` 推送 | `dev` / `dev-<sha>` | 开发预发 |
-| Git 标签 `v*` | `vX.Y.Z` + `latest` + `main` + `main-<sha>` | 正式发版（一次构建） |
+| Git 标签 `v*` | `vX.Y.Z` + `latest` | 正式发版（一次构建） |
 
 ## 推荐阅读顺序
 

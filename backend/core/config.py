@@ -185,3 +185,13 @@ class Settings(BaseModel):
 @lru_cache()
 def get_settings() -> Settings:
     return Settings.from_environment()
+
+
+# 向引擎注册默认密钥提供者：引擎加密模块不再反向依赖 backend
+def _register_secret_provider() -> None:
+    from tg_signer.security import register_secret_key_provider
+
+    register_secret_key_provider(get_default_secret_key)
+
+
+_register_secret_provider()

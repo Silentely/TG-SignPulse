@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 📖 文档站
+    url: https://tg-signpulse-docs.pages.dev
+    about: 查看部署指南、使用说明和架构文档
+  - name: 💬 Telegram 群组
+    url: https://t.me/TGSignPulse
+    about: 加入社区讨论，获取实时帮助

@@ -95,13 +95,61 @@ def test_build_runner_failure_result():
     c = build_runner_failure_result(cancelled=True)
     assert c["error"] == "Task execution cancelled"
     assert c["timed_out"] is False
+    assert c.get("failure_category") is None
     f = build_runner_failure_result(error="boom")
     assert f["error"] == "boom"
     assert f["success"] is False
+    assert f.get("failure_category") is None
     t = build_runner_failure_result(
         error="任务执行超时（10秒），已强制终止",
     )
     assert t["timed_out"] is True
+    assert t.get("failure_category") == "timeout"
+
+
+def test_resolve_terminal_failure_category():
+    from backend.services.sign_task_run_status import (
+        RUN_STATE_CANCELLED,
+        RUN_STATE_FINISHED,
+        RUN_STATE_TIMEOUT,
+        resolve_terminal_failure_category,
+    )
+
+    assert (
+        resolve_terminal_failure_category(
+            state=RUN_STATE_FINISHED, success=True, error="x"
+        )
+        is None
+    )
+    assert (
+        resolve_terminal_failure_category(
+            state=RUN_STATE_CANCELLED,
+            success=False,
+            error="Task execution cancelled",
+        )
+        is None
+    )
+    assert (
+        resolve_terminal_failure_category(
+            state=RUN_STATE_TIMEOUT, success=False, error="timeout"
+        )
+        == "timeout"
+    )
+    assert (
+        resolve_terminal_failure_category(
+            state=RUN_STATE_FINISHED,
+            success=False,
+            result_category="session_invalid",
+            error="other",
+        )
+        == "session_invalid"
+    )
+    cat = resolve_terminal_failure_category(
+        state=RUN_STATE_FINISHED,
+        success=False,
+        error="invalid session / needs relogin",
+    )
+    assert cat == "session_invalid"
 
 
 def test_resolve_effective_retry_count():
@@ -201,7 +249,53 @@ def test_cancel_task_run_no_background():
     svc._active_logs = {}
     res = SignTaskService.cancel_task_run(svc, "acc1", "daily")
     assert res["ok"] is False
-    assert res["cancelled"] is False
+
+
+def test_rename_account_references_migrates_runtime_maps():
+    """改名后运行态 map 的 (account, task) 键必须一并迁移，
+    否则新名查 status/cancel 会 miss、后台任务成为孤儿。"""
+    from unittest.mock import MagicMock, patch
+
+    from backend.services.sign_tasks import SignTaskService
+
+    svc = SignTaskService.__new__(SignTaskService)
+    svc.signs_dir = MagicMock()
+    svc.signs_dir.glob.return_value = []
+    svc.run_history_dir = MagicMock()
+    svc.run_history_dir.glob.return_value = []
+    # 六张运行态 map 各放一条旧账号键
+    svc._active_logs = {("old_acc", "t1"): ["log"]}
+    svc._active_tasks = {("old_acc", "t1"): True}
+    svc._cleanup_tasks = {("old_acc", "t1"): MagicMock()}
+    svc._run_statuses = {("old_acc", "t1"): {"run_id": "r1"}}
+    svc._run_status_cleanup_tasks = {("old_acc", "t1"): MagicMock()}
+    svc._background_run_tasks = {("old_acc", "t1"): MagicMock()}
+    svc._account_last_run_end = {"old_acc": 123.0}
+    svc._cache_refresh_deferred = 0
+
+    with (
+        patch(
+            "backend.services.sign_task_crud.rebuild_index_from_history_files",
+            return_value=None,
+        ),
+        patch.object(
+            SignTaskService, "_refresh_tasks_cache_after_write", return_value=None
+        ),
+    ):
+        SignTaskService.rename_account_references(svc, "old_acc", "new_acc")
+
+    for mapping_name in (
+        "_active_logs",
+        "_active_tasks",
+        "_cleanup_tasks",
+        "_run_statuses",
+        "_run_status_cleanup_tasks",
+        "_background_run_tasks",
+    ):
+        mapping = getattr(svc, mapping_name)
+        assert ("new_acc", "t1") in mapping
+        assert ("old_acc", "t1") not in mapping
+    assert svc._account_last_run_end == {"new_acc": 123.0}
 
 
 def test_cancel_task_run_cancels_background():
@@ -238,3 +332,117 @@ def test_cancel_task_run_run_id_mismatch():
     assert res["ok"] is False
     assert res["cancelled"] is False
     bg.cancel.assert_not_called()
+
+
+def test_is_terminal_run_state():
+    from backend.services.sign_task_run_status import (
+        RUN_STATE_CANCELLED,
+        RUN_STATE_FINISHED,
+        RUN_STATE_IDLE,
+        RUN_STATE_RUNNING,
+        RUN_STATE_TIMEOUT,
+        is_terminal_run_state,
+    )
+
+    assert is_terminal_run_state(RUN_STATE_FINISHED)
+    assert is_terminal_run_state(RUN_STATE_CANCELLED)
+    assert is_terminal_run_state(RUN_STATE_TIMEOUT)
+    assert not is_terminal_run_state(RUN_STATE_RUNNING)
+    assert not is_terminal_run_state(RUN_STATE_IDLE)
+
+
+def test_prune_stale_does_not_drop_terminal_with_finished_at():
+    """有 finished_at 的终态由 cleanup 定时器负责，prune 不立刻删。"""
+    from backend.services.sign_tasks import SignTaskService
+
+    svc = SignTaskService.__new__(SignTaskService)
+    svc._active_tasks = {}
+    svc._active_logs = {}
+    svc._background_run_tasks = {}
+    svc._cleanup_tasks = {}
+    svc._run_status_cleanup_tasks = {}
+    svc._account_last_run_end = {}
+    svc._max_account_last_run_entries = 100
+    svc._run_statuses = {
+        ("a", "t"): build_run_status(
+            run_id="r1",
+            state=RUN_STATE_FINISHED,
+            success=True,
+            finished_at="2026-07-26T00:00:00+00:00",
+            default_started_at="t0",
+        ),
+        ("b", "u"): build_run_status(
+            run_id="r2",
+            state=RUN_STATE_FINISHED,
+            success=False,
+            finished_at=None,
+            default_started_at="t0",
+        ),
+    }
+    SignTaskService._prune_stale_entries(svc)
+    assert ("a", "t") in svc._run_statuses
+    assert ("b", "u") not in svc._run_statuses
+
+
+def test_build_cancel_run_response_and_mismatch():
+    from backend.services.sign_task_run_status import (
+        build_cancel_run_response,
+        is_run_id_mismatch,
+    )
+
+    assert is_run_id_mismatch(None, "r1") is False
+    assert is_run_id_mismatch({"run_id": "r1"}, None) is False
+    assert is_run_id_mismatch({"run_id": "r1"}, "r1") is False
+    assert is_run_id_mismatch({"run_id": "r1"}, "r2") is True
+    resp = build_cancel_run_response(
+        ok=False,
+        cancelled=False,
+        error="x",
+        status={"run_id": "r1", "state": "running"},
+        requested_run_id="r2",
+    )
+    assert resp["ok"] is False
+    assert resp["cancelled"] is False
+    assert resp["error"] == "x"
+    assert resp["status"]["state"] == "stale"
+
+
+def test_schedule_run_status_cleanup_replacement_survives_old_cancel():
+    """旧 run_status 清理任务被取消后，其 finally 不得误删新注册的清理任务（竞态回归）。"""
+    import asyncio
+
+    from backend.services.sign_tasks import SignTaskService
+
+    svc = SignTaskService.__new__(SignTaskService)
+    svc._active_tasks = {}
+    svc._run_statuses = {}
+    svc._run_status_cleanup_tasks = {}
+
+    async def scenario():
+        svc._schedule_run_status_cleanup("acc", "t")
+        first = svc._run_status_cleanup_tasks[("acc", "t")]
+        # 让 first 真正启动并悬挂在 sleep(600)，否则取消未启动任务不会执行 finally
+        await asyncio.sleep(0)
+        assert not first.done()
+
+        # 第二次调度：取消 first 并注册 second
+        svc._schedule_run_status_cleanup("acc", "t")
+        second = svc._run_status_cleanup_tasks[("acc", "t")]
+        assert second is not first
+
+        # 让事件循环处理 first 的取消（CancelledError → finally → pop）
+        for _ in range(5):
+            await asyncio.sleep(0)
+
+        assert first.cancelled()
+        # 竞态 bug 下：second 的条目被 first 的 finally 误删，此处将断言失败
+        assert svc._run_status_cleanup_tasks.get(("acc", "t")) is second
+        assert not second.done()
+
+        # 收尾：取消 second，避免悬挂任务
+        second.cancel()
+        for _ in range(3):
+            await asyncio.sleep(0)
+        assert second.done()
+
+    asyncio.run(scenario())

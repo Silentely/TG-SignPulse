@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Optional
+from typing import Any
 
 # 敏感字段模式：匹配 API key、session string、token 等
 _SECRET_PATTERNS = [
@@ -31,16 +31,6 @@ _SECRET_PATTERNS = [
 ]
 
 
-def redact_secret(value: Any) -> str:
-    """脱敏敏感值，只保留前后 4 位，中间用 *** 替代"""
-    s = str(value) if value is not None else ""
-    if not s:
-        return ""
-    if len(s) <= 8:
-        return "***"
-    return f"{s[:4]}***{s[-4:]}"
-
-
 def safe_text_preview(text: Any, max_chars: int = 120) -> str:
     """
     安全的文本预览：去控制字符、折叠空白、截断、过滤敏感信息
@@ -60,18 +50,6 @@ def safe_text_preview(text: Any, max_chars: int = 120) -> str:
     if len(s) > max_chars:
         s = s[: max_chars - 3] + "..."
     return s
-
-
-def safe_proxy_meta(proxy: Optional[dict]) -> str:
-    """
-    安全输出代理元数据，只输出 scheme/host/port，禁止输出 username/password
-    """
-    if not proxy:
-        return "none"
-    scheme = proxy.get("scheme", proxy.get("proxy_type", "unknown"))
-    hostname = proxy.get("hostname", "?")
-    port = proxy.get("port", "?")
-    return f"{scheme}://{hostname}:{port}"
 
 
 def safe_ai_request_meta(

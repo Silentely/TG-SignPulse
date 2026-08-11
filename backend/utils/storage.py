@@ -18,18 +18,19 @@ def _probe_writable_dir(base: Path) -> bool:
         test_file.write_text("ok", encoding="utf-8")
         test_file.unlink()
         return True
-    except Exception:
+    except OSError:
+        # mkdir/write/unlink 失败均属 OSError 子类；目录不可写时直接回退
         return False
     finally:
         try:
             if test_file.exists():
                 test_file.unlink()
-        except Exception:
+        except OSError:
             pass
         try:
             if probe_dir.exists() and not any(probe_dir.iterdir()):
                 probe_dir.rmdir()
-        except Exception:
+        except OSError:
             pass
 
 
@@ -50,7 +51,8 @@ def load_data_dir_override() -> Optional[Path]:
         return None
     try:
         value = override_file.read_text(encoding="utf-8").strip()
-    except Exception:
+    except OSError:
+        # 文件读取失败（权限/不存在/IO 错误）时静默回退
         return None
     if not value:
         return None
@@ -97,7 +99,6 @@ def get_writable_base_dir() -> Path:
         f"WARNING: /data is not writable. Falling back to {fallback}; "
         "data may be non-persistent."
     )
-    print(message)
     logging.getLogger("backend.storage").warning(message)
     _BASE_DIR = fallback
     return _BASE_DIR

@@ -1,0 +1,85 @@
+# TG-SignPulse 文档站爬取规则（RFC 9309）
+# 站点：https://tg.cosr.eu.org
+# 文档欢迎检索与引用；禁止将全文用于模型训练语料。
+
+User-agent: *
+Allow: /
+Disallow: /superpowers/
+Disallow: /404
+Content-Signal: ai-train=no, search=yes, ai-input=yes
+
+# --- AI 爬虫显式规则 ---
+User-agent: GPTBot
+Allow: /
+Disallow: /superpowers/
+Content-Signal: ai-train=no, search=yes, ai-input=yes
+
+User-agent: OAI-SearchBot
+Allow: /
+Disallow: /superpowers/
+Content-Signal: ai-train=no, search=yes, ai-input=yes
+
+User-agent: ChatGPT-User
+Allow: /
+Disallow: /superpowers/
+Content-Signal: ai-train=no, search=yes, ai-input=yes
+
+User-agent: Claude-Web
+Allow: /
+Disallow: /superpowers/
+Content-Signal: ai-train=no, search=yes, ai-input=yes
+
+User-agent: anthropic-ai
+Allow: /
+Disallow: /superpowers/
+Content-Signal: ai-train=no, search=yes, ai-input=yes
+
+User-agent: ClaudeBot
+Allow: /
+Disallow: /superpowers/
+Content-Signal: ai-train=no, search=yes, ai-input=yes
+
+User-agent: Google-Extended
+Allow: /
+Disallow: /superpowers/
+Content-Signal: ai-train=no, search=yes, ai-input=yes
+
+User-agent: Googlebot
+Allow: /
+Disallow: /superpowers/
+Content-Signal: ai-train=no, search=yes, ai-input=yes
+
+User-agent: Amazonbot
+Allow: /
+Disallow: /superpowers/
+Content-Signal: ai-train=no, search=yes, ai-input=yes
+
+User-agent: Applebot-Extended
+Allow: /
+Disallow: /superpowers/
+Content-Signal: ai-train=no, search=yes, ai-input=yes
+
+User-agent: Bytespider
+Disallow: /
+Content-Signal: ai-train=no, search=no, ai-input=no
+
+User-agent: CCBot
+Disallow: /
+Content-Signal: ai-train=no, search=no, ai-input=no
+
+User-agent: cohere-ai
+Allow: /
+Disallow: /superpowers/
+Content-Signal: ai-train=no, search=yes, ai-input=yes
+
+User-agent: PerplexityBot
+Allow: /
+Disallow: /superpowers/
+Content-Signal: ai-train=no, search=yes, ai-input=yes
+
+User-agent: meta-externalagent
+Allow: /
+Disallow: /superpowers/
+Content-Signal: ai-train=no, search=yes, ai-input=yes
+
+Sitemap: https://tg.cosr.eu.org/sitemap.xml

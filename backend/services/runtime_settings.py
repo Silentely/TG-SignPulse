@@ -89,28 +89,6 @@ def get_history_max_age_days() -> int:
     )
 
 
-def get_ai_vision_timeout() -> int:
-    return resolve_int_setting(
-        _global_settings(),
-        "ai_vision_timeout",
-        "AI_VISION_TIMEOUT",
-        15,
-        min_v=3,
-        max_v=120,
-    )
-
-
-def get_ai_vision_retry_attempts() -> int:
-    return resolve_int_setting(
-        _global_settings(),
-        "ai_vision_retry_attempts",
-        "AI_VISION_RETRY_ATTEMPTS",
-        2,
-        min_v=1,
-        max_v=8,
-    )
-
-
 def get_sign_interval_seconds() -> Optional[int]:
     """返回签到账号间隔秒数；None 表示使用随机间隔。"""
     cfg = _global_settings()

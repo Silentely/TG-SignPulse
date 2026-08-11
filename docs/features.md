@@ -21,7 +21,7 @@ TG-SignPulse 是 Telegram 多账号自动化管理面板，把签到、消息交
 - 批量启用/停用/触发
 - 失败分类与历史日志
 
-> 面板与 API 请使用 **`/api/sign-tasks`**。旧版 ORM `/api/tasks` 默认只读。
+> 面板与 API 请使用 **`/api/sign-tasks`**。旧版 ORM `/api/tasks` 已移除。
 
 详见 [任务编排](/guide/tasks)。
 
@@ -62,7 +62,7 @@ TG-SignPulse 是 Telegram 多账号自动化管理面板，把签到、消息交
 - 配置导入预览（dry-run）
 - 任务克隆与内置模板（文本/按钮/时段/骰子/关键词监听；预填动作后须选会话）
 - 系统设置未保存提示与「保存全部」
-- 旧任务存量盘点：`GET /api/tasks/legacy-status`、`tools/check_legacy_tasks.py`
+- 旧任务 ORM 残留盘点：`tools/check_legacy_tasks.py`
 
 详见 [WebDAV 备份与恢复](/guide/backup-webdav)、[运维手册](/reference/ops)。
 
@@ -77,7 +77,7 @@ TG-SignPulse 是 Telegram 多账号自动化管理面板，把签到、消息交
 
 - 多副本**共享同一 Telegram session 文件**（易损坏会话）
 - 把面板直接裸奔在公网且无 HTTPS / 访问控制
-- 依赖已弃用的旧 `/api/tasks` 写接口（默认 410）
+- 依赖已移除的旧 `/api/tasks` 接口
 
 ## 下一步
 

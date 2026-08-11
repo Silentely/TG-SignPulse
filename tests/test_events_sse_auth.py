@@ -11,23 +11,23 @@ from tests.test_api import _login, api_client, db  # noqa: F401 — fixtures re-
 
 
 @pytest.fixture
-def client(api_client: TestClient) -> Iterator[TestClient]:
+def client(api_client: TestClient) -> Iterator[TestClient]:  # noqa: F811
     yield api_client
 
 
 class TestSignHistorySSEAuth:
-    def test_missing_token_returns_401(self, client: TestClient, db):
+    def test_missing_token_returns_401(self, client: TestClient, db):  # noqa: F811
         resp = client.get("/api/events/sign-history")
         assert resp.status_code == 401
 
-    def test_invalid_token_returns_401(self, client: TestClient, db):
+    def test_invalid_token_returns_401(self, client: TestClient, db):  # noqa: F811
         resp = client.get(
             "/api/events/sign-history",
             params={"token": "not-a-valid-jwt"},
         )
         assert resp.status_code == 401
 
-    def test_valid_token_does_not_crash_with_typeerror(self, client: TestClient, db):
+    def test_valid_token_does_not_crash_with_typeerror(self, client: TestClient, db):  # noqa: F811
         """
         回归 Issue #7：verify_token 缺 db 参数导致 TypeError 500。
         鉴权通过后应进入 SSE 流（至少不 500）。

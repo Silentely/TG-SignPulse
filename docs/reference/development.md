@@ -7,8 +7,9 @@
 | 组件 | 要求 |
 | --- | --- |
 | Python | `>=3.10,<3.14` |
+| Node.js | `22.23.1`（以仓库 `.nvmrc` 为准） |
 | FastAPI | `>=0.109.2` |
-| Pydantic | `pydantic>=1.10,<3`（兼容层见 `tg_signer/pydantic_compat.py`） |
+| Pydantic | `pydantic>=1.10.26,<2`（v1 钉死；兼容层见 `tg_signer/pydantic_compat.py`） |
 | SQLAlchemy | 当前使用 1.x 风格 API |
 | APScheduler | 进程内调度器，单后端实例运行 |
 
@@ -29,7 +30,7 @@
 - 先迁移测试覆盖充分的边界模型，再迁移核心任务配置模型。
 - 不在业务服务中散落版本判断。
 
-**当前状态（2026-07）**：依赖放宽为 `pydantic>=1.10,<3`。统一使用 `tg_signer.pydantic_compat`（`model_validate` / `model_dump` / `try_import_field_validator`）。业务模型与路由逐步迁入 compat；CI 默认仍以 v1 路径为主。
+**当前状态**：依赖钉死为 `pydantic>=1.10.26,<2`（v1 路径）。统一使用 `tg_signer.pydantic_compat`（`model_validate` / `model_dump` / `try_import_field_validator`）。业务模型与路由逐步迁入 compat，为后续放宽到 `<3` 预留兼容层。
 
 ## SQLAlchemy 使用规范
 
@@ -101,6 +102,7 @@ pytest --no-cov
 前端使用 Vitest 进行单元测试：
 
 ```bash
+nvm use
 cd frontend
 
 # 运行全部测试
@@ -112,12 +114,31 @@ npm run test:watch
 
 测试文件位于 `frontend/src/test/` 目录。
 
+本地、GitHub Actions 和 Docker 前端构建统一使用 `.nvmrc` 指定的 Node.js
+22.23.1。不要使用其他 Node 主版本验证后直接提交；升级 Node 时必须同步更新
+`.nvmrc`、两个 `package.json` 的 `engines`、Dockerfile，并重新运行完整前端测试与构建。
+
+#### jsdom 与 Node Web API 测试约束
+
+Vitest 的 jsdom 环境和 Node/Undici 可能分别提供 `Blob`、`File`、`Response`、
+`ReadableStream` 等 Web API。不同 realm 的对象即使名称相同，也不保证可以互相传递。
+
+- 构造真实 `Response` 测试夹具时，正文优先使用字符串或字节数组，再通过
+  `response.blob()` 验证 Blob 消费路径。
+- 不要把 jsdom 创建的 `Blob` 直接传给 Node/Undici 的 `Response`；这在部分平台会因
+  缺少兼容的 `stream()` 方法而失败。
+- 必须测试流异常时，使用 `ReadableStream` 明确触发 `controller.error()`，不要伪造可重复
+  读取的简化响应对象。
+- fake timer 与异步断言应放入同一个已等待的 `Promise.all()`，避免留下未等待的
+  `expect(...).resolves`。
+- 涉及 Node Web API 的测试在提交前至少执行 `nvm use && cd frontend && npm test`，并运行
+  `npm run typecheck` 与 `npm run build`。
+
 ### 覆盖率配置
 
 `pyproject.toml` 中配置了 pytest-cov：
 
-- `tg_signer` 包的 `fail_under` 阈值为 25%
-- `backend/` 模块暂未纳入覆盖率统计
+- `fail_under` 阈值为 **40%**，同时统计 `tg_signer` 与 `backend` 两个包（`addopts` 中 `--cov=tg_signer --cov=backend`）
 - 新增测试用例时，优先覆盖核心逻辑和边界条件
 
 ### 新增依赖
@@ -126,7 +147,7 @@ npm run test:watch
 
 | 依赖 | 用途 |
 | --- | --- |
-| `aiofiles` | 异步文件读写（`backend/utils/async_io.py`） |
+| `aiofiles` | 异步文件读写（历史/配置等可选非阻塞 IO） |
 | `psutil>=5.9.0` | 内存监控（`backend/utils/memory_monitor.py`） |
 
 前端新增依赖：
@@ -134,3 +155,21 @@ npm run test:watch
 | 依赖 | 用途 |
 | --- | --- |
 | `vue-i18n@9` | 多语言支持（中英文切换） |
+
+
+## 前端 API 请求超时
+
+统一入口：`frontend/src/lib/api/core.ts`。
+
+| 常量 | 默认 | 用途 |
+| --- | --- | --- |
+| `DEFAULT_TIMEOUT_MS` | 30s | 普通 JSON API；覆盖发起到 body 读完 |
+| `MEDIUM_TIMEOUT_MS` | 120s | WebDAV 探测/列表、设备保活、会话检测、聊天列表等 |
+| `LONG_TIMEOUT_MS` | 600s | 完整备份、WebDAV 下载、配置导入导出、同步 run |
+
+说明：
+
+- `request` / `requestBlob` / `requestText`：整段墙钟超时（headers + body）。
+- 直接 `fetchWithAuth`：仅 TTFB；长任务应外层 `createRequestAbort` 覆盖 body。
+- 超时 → `NETWORK_TIMEOUT`；调用方 `AbortSignal` 取消 → `NETWORK_ABORTED`。
+- 页面轮询优先用 `startChainPoll`，避免 `setInterval` + async 叠请求。

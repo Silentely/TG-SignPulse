@@ -1,3 +1,4 @@
+import os
 import sys
 from typing import Dict, Literal
 
@@ -274,7 +275,9 @@ def print_to_user(*args, sep=" ", end="\n", flush=False, **kwargs):
     try:
         stream.write(text)
     except UnicodeEncodeError:
-        encoding = getattr(stream, "encoding", None) or "utf-8"
+        # 流已表明无法直接写入当前文本；编码未知时按 ascii 兜底，
+        # 保证 backslashreplace 能产出可写入的安全文本
+        encoding = getattr(stream, "encoding", None) or "ascii"
         safe_text = text.encode(encoding, errors="backslashreplace").decode(
             encoding,
             errors="ignore",
@@ -284,4 +287,107 @@ def print_to_user(*args, sep=" ", end="\n", flush=False, **kwargs):
         try:
             stream.flush()
         except Exception:
+            # flush 失败仅为输出未及时落盘，不影响调用方流程
             pass
+
+
+def read_positive_int_env(name: str, default: int, minimum: int = 1) -> int:
+    """读取正整数环境变量；缺失或非法时回退默认值，结果不低于 minimum。"""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return max(int(raw), minimum)
+    except (TypeError, ValueError):
+        return default
+
+
+def read_positive_float_env(name: str, default: float, minimum: float = 0.0) -> float:
+    """读取正浮点环境变量；缺失或非法时回退默认值，结果不低于 minimum。"""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return max(float(raw), minimum)
+    except (TypeError, ValueError):
+        return default
+
+
+def get_display_width(text: str) -> int:
+    """计算文本在终端中的显示宽度（中文字符占 2 个字符位）。"""
+    width = 0
+    for char in text:
+        width += 2 if ord(char) > 127 else 1
+    return width
+
+
+def pad_text_to_width(text: str, target_width: int, align: str = "left") -> str:
+    """将文本填充到指定宽度。"""
+    padding_needed = target_width - get_display_width(text)
+    if padding_needed <= 0:
+        return text
+    if align == "right":
+        return " " * padding_needed + text
+    if align == "center":
+        left_padding = padding_needed // 2
+        return " " * left_padding + text + " " * (padding_needed - left_padding)
+    return text + " " * padding_needed
+
+
+def format_sign_chat_box(chat) -> str:
+    """渲染签到对象盒式终端展示（供 __str__ 使用，展示细节不进入配置模型）。"""
+    from tg_signer.config import (
+        ClickKeyboardByTextAction,
+        SendDiceAction,
+        SendTextAction,
+    )
+
+    content_width = 48
+    top_border = "╔" + "═" * content_width + "╗"
+    bottom_border = "╚" + "═" * content_width + "╝"
+    separator = "╟" + "─" * content_width + "╢"
+
+    title = f"║ {pad_text_to_width(f'Chat ID: {chat.chat_id}', content_width - 2)} ║"
+    name_value = chat.name or "-"
+    name_info = f"║ {pad_text_to_width(f'Name: {name_value}', content_width - 2)} ║"
+    delete_value = chat.delete_after or "-"
+    delete_info = (
+        f"║ {pad_text_to_width(f'Delete After: {delete_value}', content_width - 2)} ║"
+    )
+    actions_header = f"║ {pad_text_to_width('Actions Flow:', content_width - 2)} ║"
+
+    actions_lines = []
+    for i, action in enumerate(chat.actions, 1):
+        action_type = action.action.desc
+        details = ""
+        if isinstance(action, SendTextAction):
+            text_preview = (
+                action.text[:15] + "..." if len(action.text) > 15 else action.text
+            )
+            details = f"Text: {text_preview}"
+        elif isinstance(action, SendDiceAction):
+            details = f"Dice: {action.dice}"
+        elif isinstance(action, ClickKeyboardByTextAction):
+            text_preview = (
+                action.text[:15] + "..." if len(action.text) > 15 else action.text
+            )
+            details = f"Click: {text_preview}"
+        if details:
+            action_text = f"{i}. [{action_type}] {details}"
+        else:
+            action_text = f"{i}. [{action_type}]"
+        actions_lines.append(
+            f"║ {pad_text_to_width(action_text, content_width - 2)} ║"
+        )
+
+    result = [
+        top_border,
+        title,
+        name_info,
+        delete_info,
+        separator,
+        actions_header,
+        *actions_lines,
+        bottom_border,
+    ]
+    return "\n".join(result)

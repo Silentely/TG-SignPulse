@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   aggregateFailureCategories,
   badgeTone,
+  failureCategoryLabel,
   formatActiveRunLabel,
   formatPhaseDetail,
   groupActiveRunsByTask,
@@ -55,10 +56,21 @@ describe('run-status helpers', () => {
       { success: false, failure_category: 'timeout' },
       { success: false, failure_category: 'session_invalid' },
       { success: false, failure_category: null },
+      { success: false, failure_category: '' },
     ])
     expect(items[0]).toEqual({ category: 'timeout', count: 2 })
     expect(items.find((x) => x.category === 'session_invalid')?.count).toBe(1)
-    expect(items.find((x) => x.category === 'unknown')?.count).toBe(1)
+    expect(items.find((x) => x.category === 'unknown')?.count).toBe(2)
+  })
+
+  it('failureCategoryLabel returns chinese for unknown and raw for unknown values', () => {
+    const map = (key: string) => ({ 'dashboard.failCat.unknown': '未知失败', 'dashboard.failCat.ai_error': 'AI 错误' }[key] || key)
+    expect(failureCategoryLabel('unknown', map)).toBe('未知失败')
+    expect(failureCategoryLabel('ai_error', map)).toBe('AI 错误')
+    expect(failureCategoryLabel('none', map)).toBe('')
+    expect(failureCategoryLabel(null, map)).toBe('')
+    expect(failureCategoryLabel('', map)).toBe('')
+    expect(failureCategoryLabel('foo', map)).toBe('foo')
   })
 
   it('remainingWaitSeconds countdown', () => {

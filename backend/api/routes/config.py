@@ -3,17 +3,35 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Response,
+    status,
+)
 from pydantic import BaseModel, Field
 
 from backend.core.auth import get_current_user
 from backend.models.user import User
 from backend.services.config import get_config_service
+from backend.utils.names import validate_storage_name
 from backend.utils.storage import is_writable_dir
 
 router = APIRouter()
+
+logger = logging.getLogger("backend.config_api")
+
+
+async def _post_import_sync() -> None:
+    """导入签到任务后后台同步调度与关键词监控，失败仅告警不阻塞 HTTP 响应。"""
+    from backend.services.sync_helpers import sync_jobs_and_restart_monitors
+
+    await sync_jobs_and_restart_monitors(context="导入")
 
 
 def _clear_sign_task_cache() -> None:
@@ -23,17 +41,7 @@ def _clear_sign_task_cache() -> None:
         get_sign_task_service().invalidate_tasks_cache()
     except Exception as exc:
         # Best-effort cache invalidation; import should still succeed.
-        import logging
-
-        logging.getLogger("backend.config_api").debug(
-            "清除签到任务缓存失败: %s", exc
-        )
-
-
-class ExportTaskResponse(BaseModel):
-    task_name: str
-    task_type: str
-    config_json: str
+        logger.debug("清除签到任务缓存失败: %s", exc)
 
 
 class ImportTaskRequest(BaseModel):
@@ -63,29 +71,6 @@ class ImportAllResponse(BaseModel):
     errors: list[str]
     warnings: list[str] = []
     message: str
-
-
-class TaskListResponse(BaseModel):
-    sign_tasks: list[str]
-    monitor_tasks: list[str]
-    total: int
-
-
-@router.get("/tasks", response_model=TaskListResponse)
-def list_all_tasks(current_user: User = Depends(get_current_user)):
-    try:
-        sign_tasks = get_config_service().list_sign_tasks()
-        monitor_tasks = get_config_service().list_monitor_tasks()
-        return TaskListResponse(
-            sign_tasks=sign_tasks,
-            monitor_tasks=monitor_tasks,
-            total=len(sign_tasks) + len(monitor_tasks),
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list tasks: {str(e)}",
-        )
 
 
 @router.get("/export/sign/{task_name}")
@@ -120,8 +105,10 @@ def export_sign_task(
 
 
 @router.post("/import/sign", response_model=ImportTaskResponse)
-async def import_sign_task(
-    request: ImportTaskRequest, current_user: User = Depends(get_current_user)
+def import_sign_task(
+    request: ImportTaskRequest,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
 ):
     try:
         service = get_config_service()
@@ -141,18 +128,15 @@ async def import_sign_task(
             )
 
         data = json.loads(request.config_json)
-        final_task_name = request.task_name or data.get("task_name", "imported_task")
-
-        from backend.scheduler import sync_jobs
+        # 与服务层同一入口规范化任务名，确保回显的名字与实际落盘一致
+        final_task_name = validate_storage_name(
+            request.task_name or data.get("task_name", "imported_task"),
+            field_name="task_name",
+        )
 
         _clear_sign_task_cache()
-        await sync_jobs()
-        try:
-            from backend.services.keyword_monitor import get_keyword_monitor_service
-
-            await get_keyword_monitor_service().restart_from_tasks()
-        except Exception:
-            pass
+        # 调度同步和监控重启放到后台执行，避免阻塞 HTTP 响应
+        background_tasks.add_task(_post_import_sync)
 
         return ImportTaskResponse(
             success=True,
@@ -161,6 +145,9 @@ async def import_sign_task(
         )
     except HTTPException:
         raise
+    except ValueError as e:
+        # 服务层对非法任务名/账号名抛 ValueError，属于客户端输入错误
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -291,6 +278,8 @@ class AIConfigResponse(BaseModel):
     base_url: Optional[str] = None
     model: Optional[str] = None
     api_key_masked: Optional[str] = None
+    # 磁盘有配置但 APP_SECRET_KEY 不匹配时为 True，前端提示需重填 Key
+    api_key_decrypt_failed: bool = False
 
 
 class AIConfigSaveResponse(BaseModel):
@@ -312,6 +301,7 @@ def get_ai_config(current_user: User = Depends(get_current_user)):
             return AIConfigResponse(has_config=False)
 
         api_key = config.get("api_key", "")
+        decrypt_failed = bool(config.get("api_key_decrypt_failed"))
         if api_key:
             masked = (
                 api_key[:4] + "*" * (len(api_key) - 8) + api_key[-4:]
@@ -326,6 +316,7 @@ def get_ai_config(current_user: User = Depends(get_current_user)):
             base_url=config.get("base_url"),
             model=config.get("model"),
             api_key_masked=masked,
+            api_key_decrypt_failed=decrypt_failed,
         )
     except Exception as e:
         raise HTTPException(
@@ -482,124 +473,13 @@ async def save_global_settings(
     request: GlobalSettingsRequest, current_user: User = Depends(get_current_user)
 ):
     try:
-        # 只更新前端实际发送的字段，避免默认值覆盖已有配置
-        settings = {}
+        # 只更新前端实际发送的字段，避免默认值覆盖已有配置；
+        # 数值钳制与字符串归一化统一由服务层 normalize_global_settings 处理
         fields_set = getattr(request, "model_fields_set", None) or getattr(request, "__fields_set__", set())
-
-        # 按需更新字段
-        if "sign_interval" in fields_set:
-            settings["sign_interval"] = request.sign_interval
-        if "log_retention_days" in fields_set:
-            settings["log_retention_days"] = request.log_retention_days
-        if "data_dir" in fields_set:
-            settings["data_dir"] = request.data_dir
-        if "global_proxy" in fields_set:
-            settings["global_proxy"] = request.global_proxy
-        if "tg_global_concurrency" in fields_set:
-            settings["tg_global_concurrency"] = request.tg_global_concurrency
-        if "device_keepalive_enabled" in fields_set:
-            settings["device_keepalive_enabled"] = request.device_keepalive_enabled
-        if "device_keepalive_interval_days" in fields_set and request.device_keepalive_interval_days is not None:
-            settings["device_keepalive_interval_days"] = max(
-                1, min(int(request.device_keepalive_interval_days), 170)
-            )
-        if "telegram_bot_notify_enabled" in fields_set:
-            settings["telegram_bot_notify_enabled"] = request.telegram_bot_notify_enabled
-        if "telegram_bot_login_notify_enabled" in fields_set:
-            settings["telegram_bot_login_notify_enabled"] = request.telegram_bot_login_notify_enabled
-        if "telegram_bot_task_failure_enabled" in fields_set:
-            settings["telegram_bot_task_failure_enabled"] = request.telegram_bot_task_failure_enabled
-        if "telegram_bot_task_success_enabled" in fields_set:
-            settings["telegram_bot_task_success_enabled"] = request.telegram_bot_task_success_enabled
-        if "telegram_bot_quiet_hours_enabled" in fields_set:
-            settings["telegram_bot_quiet_hours_enabled"] = request.telegram_bot_quiet_hours_enabled
-        if "telegram_bot_quiet_hours_start" in fields_set:
-            settings["telegram_bot_quiet_hours_start"] = request.telegram_bot_quiet_hours_start
-        if "telegram_bot_quiet_hours_end" in fields_set:
-            settings["telegram_bot_quiet_hours_end"] = request.telegram_bot_quiet_hours_end
-        if "telegram_bot_token" in fields_set:
-            # 空字符串表示不修改已有 Token（与 webdav_password 一致）
-            tok = request.telegram_bot_token
-            if tok is not None and str(tok).strip() != "":
-                settings["telegram_bot_token"] = str(tok).strip()
-        if "telegram_bot_chat_id" in fields_set:
-            settings["telegram_bot_chat_id"] = request.telegram_bot_chat_id
-        if "telegram_bot_message_thread_id" in fields_set:
-            settings["telegram_bot_message_thread_id"] = request.telegram_bot_message_thread_id
-        if "timezone" in fields_set:
-            settings["timezone"] = request.timezone
-        if "sign_task_execution_timeout" in fields_set:
-            v = request.sign_task_execution_timeout
-            settings["sign_task_execution_timeout"] = (
-                None if v is None else max(30, min(int(v), 3600))
-            )
-        if "sign_task_account_cooldown" in fields_set:
-            v = request.sign_task_account_cooldown
-            settings["sign_task_account_cooldown"] = (
-                None if v is None else max(0, min(int(v), 600))
-            )
-        if "sign_task_flow_retry_attempts" in fields_set:
-            v = request.sign_task_flow_retry_attempts
-            settings["sign_task_flow_retry_attempts"] = (
-                None if v is None else max(1, min(int(v), 10))
-            )
-        if "sign_task_history_max_age_days" in fields_set:
-            v = request.sign_task_history_max_age_days
-            settings["sign_task_history_max_age_days"] = (
-                None if v is None else max(1, min(int(v), 90))
-            )
-        if "ai_vision_timeout" in fields_set:
-            v = request.ai_vision_timeout
-            settings["ai_vision_timeout"] = (
-                None if v is None else max(3, min(int(v), 120))
-            )
-        if "ai_vision_retry_attempts" in fields_set:
-            v = request.ai_vision_retry_attempts
-            settings["ai_vision_retry_attempts"] = (
-                None if v is None else max(1, min(int(v), 8))
-            )
-        if "auto_backup_enabled" in fields_set:
-            settings["auto_backup_enabled"] = request.auto_backup_enabled
-        if "auto_backup_interval_hours" in fields_set:
-            v = request.auto_backup_interval_hours
-            settings["auto_backup_interval_hours"] = (
-                None if v is None else max(1, min(int(v), 168))
-            )
-        if "auto_backup_keep" in fields_set:
-            v = request.auto_backup_keep
-            settings["auto_backup_keep"] = (
-                None if v is None else max(1, min(int(v), 30))
-            )
-        if "webdav_url" in fields_set:
-            settings["webdav_url"] = (
-                (request.webdav_url or "").strip() or None
-            )
-        if "webdav_username" in fields_set:
-            settings["webdav_username"] = (
-                (request.webdav_username or "").strip() or None
-            )
-        if "webdav_password" in fields_set:
-            # 空字符串表示不修改已有密码
-            pwd = request.webdav_password
-            if pwd is not None and str(pwd).strip() != "":
-                settings["webdav_password"] = str(pwd)
-        if "webdav_remote_dir" in fields_set:
-            settings["webdav_remote_dir"] = (
-                (request.webdav_remote_dir or "").strip()
-                or "tg-signpulse-backups"
-            )
-
-        # 校验时区格式
-        if request.timezone and "timezone" in fields_set:
-            try:
-                from zoneinfo import ZoneInfo
-
-                ZoneInfo(request.timezone)
-            except Exception:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"无效的时区: {request.timezone}",
-                )
+        settings = {
+            field_name: getattr(request, field_name)
+            for field_name in fields_set
+        }
 
         if not settings:
             return AIConfigSaveResponse(success=True, message="No settings to update")
@@ -619,8 +499,7 @@ async def save_global_settings(
                 try:
                     await sync_jobs()
                 except Exception as e:
-                    import logging
-                    logging.getLogger("backend.config_api").warning(f"设置变更调度同步失败: {e}")
+                    logger.warning("设置变更调度同步失败: %s", e)
             asyncio.ensure_future(_safe_tz_sync())
         return AIConfigSaveResponse(success=True, message="Global settings saved")
     except HTTPException:
@@ -643,6 +522,8 @@ class DeviceKeepaliveResponse(BaseModel):
     failed: int = 0
     interval_days: Optional[int] = None
     results: list[dict] = Field(default_factory=list)
+    # 并发冲突等场景下服务层返回的提示信息
+    message: Optional[str] = None
 
 
 @router.post("/settings/device-keepalive/run", response_model=DeviceKeepaliveResponse)
@@ -781,8 +662,23 @@ def save_telegram_config(
                 detail="api_id and api_hash are required",
             )
 
+        # api_id 必须是正整数，否则要到登录阶段 int() 解析时才失败，在保存处提前拦截
+        api_id = request.api_id.strip()
+        try:
+            api_id_value = int(api_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="api_id must be a valid number",
+            )
+        if api_id_value <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="api_id must be a positive integer",
+            )
+
         success = get_config_service().save_telegram_config(
-            api_id=request.api_id,
+            api_id=api_id,
             api_hash=request.api_hash,
         )
         if not success:

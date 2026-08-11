@@ -2,10 +2,8 @@
 from __future__ import annotations
 
 import logging
-import os
 import random
 import re
-import unicodedata
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Union
 
@@ -14,6 +12,9 @@ from tg_signer.compat import (
     InlineKeyboardMarkup,
     Message,
     ReplyKeyboardMarkup,
+    button_text_matches,
+    clean_text_for_match,
+    collect_clickable_buttons,
 )
 
 
@@ -172,7 +173,7 @@ def _match_all_keyword_values(action: Dict[str, Any], text: str) -> List[str]:
                         seen.add(value)
                         results.append(value)
             except re.error as exc:
-                logger.warning("Invalid keyword monitor regex %r: %s", keyword, exc)
+                logger.warning("关键词监听正则无效 %r: %s", keyword, exc)
             continue
         if needle in haystack and keyword not in seen:
             seen.add(keyword)
@@ -236,26 +237,6 @@ def _parse_forward_chat_id(value: Any) -> Optional[Union[int, str]]:
 _TEMPLATE_PATTERN = re.compile(r"(?:\$\{|\{)([a-zA-Z_][a-zA-Z0-9_]*)\}")
 
 
-def _read_positive_int_env(name: str, default: int, minimum: int = 1) -> int:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    try:
-        return max(int(raw), minimum)
-    except (TypeError, ValueError):
-        return default
-
-
-def _read_positive_float_env(name: str, default: float, minimum: float = 0.0) -> float:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    try:
-        return max(float(raw), minimum)
-    except (TypeError, ValueError):
-        return default
-
-
 def _resolve_action_delay(action: Dict[str, Any], fallback_delay: float = 0.0) -> float:
     raw_delay = action.get("delay")
     if raw_delay is None:
@@ -303,25 +284,6 @@ def _render_action_templates(action: Dict[str, Any], variables: Dict[str, str]) 
     return rendered
 
 
-def _clean_text_for_match(text: str) -> str:
-    if not text:
-        return ""
-    normalized = unicodedata.normalize("NFKC", str(text))
-    return "".join(
-        ch
-        for ch in normalized.lower()
-        if not unicodedata.category(ch).startswith(("P", "S", "Z", "C"))
-    )
-
-
-def _button_text_matches(target_text: str, button_text: str) -> bool:
-    if not target_text or not button_text:
-        return False
-    if target_text == button_text or target_text in button_text:
-        return True
-    return len(button_text) >= 2 and button_text in target_text
-
-
 def _message_matches_thread(message: Message, message_thread_id: Optional[int]) -> bool:
     if message_thread_id is None:
         return True
@@ -351,6 +313,66 @@ def _message_matches_sender(message: Message, sender_filter: Optional[List[str]]
         return False
     username = (message.from_user.username or "").lower()
     return username in sender_filter
+
+
+def _action_ignore_self(action: Dict[str, Any]) -> bool:
+    """是否忽略自己发送的消息；缺省 True。"""
+    return _as_bool(action.get("ignore_self"), default=True)
+
+
+def _message_is_self(message: Message) -> bool:
+    user = getattr(message, "from_user", None)
+    if user is None:
+        return False
+    return bool(getattr(user, "is_self", False))
+
+
+def _action_time_window(action: Dict[str, Any]) -> tuple[Optional[str], Optional[str]]:
+    """读取动作上的监听时间窗配置。"""
+    from backend.utils.time_window import normalize_time_window
+
+    return normalize_time_window(
+        action.get("active_time_start"),
+        action.get("active_time_end"),
+    )
+
+
+def _resolve_panel_timezone() -> str:
+    """读取面板任务时区（与调度器一致），失败回退空串由工具层用 UTC。"""
+    try:
+        from backend.services.config import get_config_service
+
+        settings = get_config_service().get_global_settings() or {}
+        tz = str(settings.get("timezone") or "").strip()
+        if tz:
+            return tz
+    except Exception:
+        pass
+    try:
+        return str(get_settings().timezone or "").strip()
+    except Exception:
+        return ""
+
+
+def _action_in_active_time_window(
+    action: Dict[str, Any],
+    *,
+    now: Optional[Any] = None,
+    tz_name: Optional[str] = None,
+) -> bool:
+    """判断当前时间是否在动作配置的监听时间窗内（按面板时区）。"""
+    from datetime import datetime
+
+    from backend.utils.time_window import is_within_time_window, resolve_tz
+
+    start, end = _action_time_window(action)
+    if not start or not end:
+        return True
+    panel_tz = (tz_name if tz_name is not None else _resolve_panel_timezone()) or None
+    if now is not None:
+        return is_within_time_window(now, start, end, tz_name=panel_tz)
+    tz = resolve_tz(panel_tz)
+    return is_within_time_window(datetime.now(tz), start, end, tz_name=panel_tz)
 
 
 def _message_thread_candidates(message: Message) -> list[int]:
@@ -411,44 +433,14 @@ def _messages_state(messages: list[Message]) -> dict[int, tuple[Any, ...]]:
 
 
 def _message_has_button_text(message: Message, text: str) -> bool:
-    target_text = _clean_text_for_match(text)
+    target_text = clean_text_for_match(text)
     if not target_text:
         return False
 
-    reply_markup = getattr(message, "reply_markup", None)
-    if isinstance(reply_markup, InlineKeyboardMarkup):
-        rows = reply_markup.inline_keyboard
-    elif isinstance(reply_markup, ReplyKeyboardMarkup):
-        rows = reply_markup.keyboard
-    else:
-        return False
-
-    for row in rows:
-        for button in row:
-            button_text = button if isinstance(button, str) else getattr(button, "text", "")
-            if not button_text:
-                continue
-            if _button_text_matches(target_text, _clean_text_for_match(button_text)):
-                return True
+    for _, _, button_text in collect_clickable_buttons(message):
+        if button_text_matches(target_text, clean_text_for_match(button_text)):
+            return True
     return False
-
-
-def _collect_clickable_buttons(message: Message) -> list[tuple[str, Any, str]]:
-    reply_markup = getattr(message, "reply_markup", None)
-    clickable_buttons: list[tuple[str, Any, str]] = []
-    if isinstance(reply_markup, InlineKeyboardMarkup):
-        for row in reply_markup.inline_keyboard:
-            for button in row:
-                button_text = getattr(button, "text", "")
-                if button_text:
-                    clickable_buttons.append(("inline", button, button_text))
-    elif isinstance(reply_markup, ReplyKeyboardMarkup):
-        for row in reply_markup.keyboard:
-            for button in row:
-                button_text = button if isinstance(button, str) else getattr(button, "text", "")
-                if button_text:
-                    clickable_buttons.append(("reply", button, button_text))
-    return clickable_buttons
 
 
 def _message_supports_continue_action(message: Message, action: Dict[str, Any]) -> bool:
@@ -461,7 +453,7 @@ def _message_supports_continue_action(message: Message, action: Dict[str, Any]) 
     if action_id == 3:
         return _message_has_button_text(message, str(action.get("text") or ""))
     if action_id == 4:
-        return bool(message.photo and _collect_clickable_buttons(message))
+        return bool(message.photo and collect_clickable_buttons(message))
     if action_id == 5:
         return bool(message.text or message.caption)
     if action_id == 6:

@@ -5,31 +5,48 @@
 2. 回退 tg_signer.__version__
 
 构建元数据：GIT_SHA / GIT_BRANCH / BUILD_TIME（可选）
-远程检查：GitHub Releases latest，可关，失败 soft-fail。
+远程检查：可关，失败 soft-fail。
+
+默认不走 api.github.com（未认证仅约 60 次/小时，自部署用户易踩限流）：
+1. 优先 github.com/.../releases/latest 的 302 Location 解析 tag（零配置）
+2. 仅当 HTML 失败，或自定义 URL 是非 GitHub 的 JSON 源时，再请求 JSON/API
+3. 可选 APP_GITHUB_TOKEN 仅用于仍走 API 的场景；不要求用户配置
+4. 失败时若仍有成功缓存则返回过期缓存（stale）
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import re
 import sys
 import threading
 import time
-from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
 
 import httpx
+
+from backend.utils.time import utc_now_iso
 
 logger = logging.getLogger("backend.version_info")
 
 DEFAULT_UPDATE_CHECK_URL = (
     "https://api.github.com/repos/Silentely/TG-SignPulse/releases/latest"
 )
+DEFAULT_GITHUB_HTML_LATEST = (
+    "https://github.com/Silentely/TG-SignPulse/releases/latest"
+)
 UPDATE_CACHE_TTL_SECONDS = 6 * 3600
 _HTTP_TIMEOUT_SECONDS = 8.0
 # Docker 未注入真实版本时的占位，不应覆盖包版本
 _PLACEHOLDER_VERSIONS = frozenset({"0.0.0", "0.0.0-dev"})
+# api.github.com/repos/{owner}/{repo}/releases/latest
+_GITHUB_API_RELEASES_RE = re.compile(
+    r"^https://api\.github\.com/repos/([^/]+)/([^/]+)/releases/latest/?$",
+    re.IGNORECASE,
+)
+_RATE_LIMIT_HINT = "检查更新暂时失败，请稍后再试。"
 
 _cache_lock = threading.Lock()
 _cache: Dict[str, Any] = {
@@ -172,7 +189,7 @@ def _empty_update_payload(
         "latest_version": None,
         "latest_url": None,
         "update_available": False,
-        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "checked_at": utc_now_iso(),
         "error": error,
         "source": "github_releases",
         "cached": cached,
@@ -192,19 +209,144 @@ def _safe_release_page_url(raw: Optional[str]) -> Optional[str]:
     return str(raw).strip()
 
 
-def _fetch_latest_release(url: str) -> Dict[str, Any]:
-    safe_url = validate_update_check_url(url)
+def _github_token() -> str:
+    """可选：仅当仍请求 GitHub API 时附加；自部署用户无需配置。"""
+    return _read_env("APP_GITHUB_TOKEN", "GITHUB_TOKEN", default="")
+
+
+def _request_headers(*, accept: str = "application/vnd.github+json") -> Dict[str, str]:
     headers = {
-        "Accept": "application/vnd.github+json",
+        "Accept": accept,
+        # 固定 UA，避免部分站点对空/默认 UA 拦截
         "User-Agent": "TG-SignPulse-VersionCheck/1.0",
     }
-    # 允许有限跳转（GitHub 可能 30x），超时限制外网耗时
-    with httpx.Client(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
+    token = _github_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def _is_rate_limit_error(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    if "rate limit" in text or "ratelimit" in text:
+        return True
+    if "403" in text and ("api.github.com" in text or "github" in text):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        if code in {403, 429}:
+            return True
+    return False
+
+
+def _friendly_error(exc: BaseException) -> str:
+    """将 httpx/原始异常压成对用户友好的短文案（不提 Token）。"""
+    if _is_rate_limit_error(exc):
+        return _RATE_LIMIT_HINT
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"远程版本源返回 HTTP {exc.response.status_code}，请稍后重试"
+    if isinstance(exc, httpx.TimeoutException):
+        return "连接版本源超时，请检查网络后重试"
+    if isinstance(exc, httpx.RequestError):
+        return "无法连接版本源，请检查网络后重试"
+    msg = str(exc).strip() or type(exc).__name__
+    if "for url" in msg.lower() and len(msg) > 100:
+        if "403" in msg or "rate limit" in msg.lower():
+            return _RATE_LIMIT_HINT
+        return msg[:100].rstrip() + "…"
+    return msg[:300]
+
+
+def _github_html_latest_url(api_or_custom_url: str) -> Optional[str]:
+    """从 GitHub API latest URL 推导 HTML releases/latest（不计入 API 配额）。"""
+    m = _GITHUB_API_RELEASES_RE.match((api_or_custom_url or "").strip())
+    if not m:
+        # 默认 API 源
+        if (api_or_custom_url or "").strip() in {"", DEFAULT_UPDATE_CHECK_URL}:
+            return DEFAULT_GITHUB_HTML_LATEST
+        return None
+    owner, repo = m.group(1), m.group(2)
+    return f"https://github.com/{owner}/{repo}/releases/latest"
+
+
+def _tag_from_release_location(location: str) -> Optional[str]:
+    """从 Location / 最终 URL 提取 tag（…/releases/tag/vX.Y.Z）。"""
+    raw = (location or "").strip()
+    if not raw:
+        return None
+    try:
+        path = urlparse(raw).path
+    except Exception:
+        return None
+    marker = "/releases/tag/"
+    idx = path.find(marker)
+    if idx < 0:
+        return None
+    tag = path[idx + len(marker) :].strip("/")
+    # 去掉可能的 query 残留（path 通常无 query）
+    tag = tag.split("/")[0].strip()
+    return tag or None
+
+
+def _fetch_via_html_redirect(html_latest_url: str) -> Dict[str, Any]:
+    """
+    走 github.com/…/releases/latest 的 302 Location 解析 tag。
+    默认主路径：不走 api.github.com，自部署零配置、不吃 API 配额。
+    """
+    safe_url = validate_update_check_url(html_latest_url)
+    # HTML 站不需要 Authorization，避免误带 Token
+    headers = {
+        "Accept": "text/html,application/xhtml+xml",
+        "User-Agent": "TG-SignPulse-VersionCheck/1.0",
+    }
+    # 不跟随跳转，只读 Location
+    with httpx.Client(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=False) as client:
         resp = client.get(safe_url, headers=headers)
-        resp.raise_for_status()
-        data = resp.json()
-    if not isinstance(data, dict):
-        raise ValueError("release payload is not an object")
+    # 部分环境可能直接 200 渲染；优先 Location
+    location = resp.headers.get("location") or resp.headers.get("Location") or ""
+    tag = _tag_from_release_location(location)
+    final_url = location
+    if not tag and resp.is_redirect:
+        # 相对 Location
+        try:
+            final_url = str(resp.url.join(location)) if location else ""
+        except Exception:
+            final_url = location
+        tag = _tag_from_release_location(final_url)
+    if not tag and resp.status_code == 200:
+        # 极少数 CDN 直出最终页：从最终 URL 取 tag
+        tag = _tag_from_release_location(str(resp.url))
+        final_url = str(resp.url)
+    if not tag:
+        # 再试一次跟随跳转，取最终 URL
+        with httpx.Client(
+            timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True
+        ) as client:
+            resp2 = client.get(safe_url, headers=headers)
+        tag = _tag_from_release_location(str(resp2.url))
+        final_url = str(resp2.url)
+        if not tag:
+            raise ValueError(
+                f"无法从 releases/latest 解析 tag（HTTP {resp.status_code}）"
+            )
+    html_url = _safe_release_page_url(final_url) or safe_url
+    latest = normalize_version(tag)
+    local = get_local_version_info()
+    return {
+        "enabled": True,
+        "latest_version": latest,
+        "latest_url": html_url,
+        "update_available": is_update_available(local["version"], latest),
+        "checked_at": utc_now_iso(),
+        "error": None,
+        "source": "github_releases_redirect",
+        "cached": False,
+    }
+
+
+def _payload_from_release_json(
+    data: Dict[str, Any], *, source: str = "github_releases"
+) -> Dict[str, Any]:
     tag = str(data.get("tag_name") or data.get("name") or "").strip()
     if not tag:
         raise ValueError("release missing tag_name")
@@ -216,48 +358,116 @@ def _fetch_latest_release(url: str) -> Dict[str, Any]:
         "latest_version": latest,
         "latest_url": html_url,
         "update_available": is_update_available(local["version"], latest),
-        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "checked_at": utc_now_iso(),
         "error": None,
-        "source": "github_releases",
+        "source": source,
         "cached": False,
     }
+
+
+def _fetch_json_release(url: str) -> Dict[str, Any]:
+    """请求 JSON 版本源（自定义镜像或 GitHub API 兜底）。"""
+    safe_url = validate_update_check_url(url)
+    headers = _request_headers()
+    with httpx.Client(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
+        resp = client.get(safe_url, headers=headers)
+        resp.raise_for_status()
+        data = resp.json()
+    if not isinstance(data, dict):
+        raise ValueError("release payload is not an object")
+    source = (
+        "github_releases"
+        if "api.github.com" in safe_url
+        else "custom_release_json"
+    )
+    return _payload_from_release_json(data, source=source)
+
+
+def _fetch_latest_release(url: str) -> Dict[str, Any]:
+    """
+    解析最新版本。
+
+    - 能映射到 GitHub HTML latest 时：优先重定向解析（零配置、不限流）
+    - 否则或 HTML 失败：再请求 JSON（自定义源 / API 兜底）
+    """
+    safe_url = validate_update_check_url(url)
+    html_url = _github_html_latest_url(safe_url)
+    html_error: Optional[BaseException] = None
+
+    if html_url:
+        try:
+            return _fetch_via_html_redirect(html_url)
+        except Exception as exc:
+            html_error = exc
+            logger.info("HTML 版本检查失败，尝试 JSON/API 兜底: %s", exc)
+
+    try:
+        return _fetch_json_release(safe_url)
+    except Exception as json_exc:
+        if html_error is not None:
+            logger.warning(
+                "版本检查 HTML 与 JSON 均失败: html=%s json=%s",
+                html_error,
+                json_exc,
+            )
+            # 优先抛出更晚的 JSON 错误；若 JSON 是限流则用友好路径由上层处理
+            raise json_exc from html_error
+        raise
+
+
+def _cached_success_payload(*, allow_stale: bool) -> Optional[Dict[str, Any]]:
+    """读取成功缓存；allow_stale 时忽略 TTL（限流/网络失败兜底）。"""
+    now = time.time()
+    with _cache_lock:
+        payload = _cache.get("payload")
+        expires_at = float(_cache.get("expires_at") or 0.0)
+        if (
+            payload is None
+            or payload.get("error")
+            or not payload.get("latest_version")
+        ):
+            return None
+        if not allow_stale and now >= expires_at:
+            return None
+        cached = dict(payload)
+    local = get_local_version_info()
+    cached["update_available"] = is_update_available(
+        local["version"], str(cached.get("latest_version") or "")
+    )
+    cached["cached"] = True
+    # 过期复用时附带轻量提示，方便前端区分
+    if allow_stale and now >= expires_at:
+        cached["error"] = None  # 成功数据优先展示，不报失败
+        cached["source"] = str(cached.get("source") or "github_releases") + "_stale"
+    return cached
 
 
 def check_remote_update(*, force: bool = False) -> Dict[str, Any]:
     """检查远程最新版本；关闭时不联网；失败 soft-fail。
 
     仅缓存成功结果；失败不写缓存，避免短暂网络故障被锁 6 小时。
+    force=true 时仍会在失败时复用过期成功缓存（stale），降低限流噪音。
     """
     if not is_update_check_enabled():
         return _empty_update_payload(enabled=False)
 
-    now = time.time()
     if not force:
-        with _cache_lock:
-            payload = _cache.get("payload")
-            expires_at = float(_cache.get("expires_at") or 0.0)
-            if (
-                payload is not None
-                and now < expires_at
-                and not payload.get("error")
-                and payload.get("latest_version")
-            ):
-                cached = dict(payload)
-                # 缓存命中时按当前本地版本重算是否可更新
-                local = get_local_version_info()
-                cached["update_available"] = is_update_available(
-                    local["version"], str(cached.get("latest_version") or "")
-                )
-                cached["cached"] = True
-                return cached
+        hit = _cached_success_payload(allow_stale=False)
+        if hit is not None:
+            return hit
 
     url = _read_env("APP_UPDATE_CHECK_URL", default=DEFAULT_UPDATE_CHECK_URL)
     try:
         result = _fetch_latest_release(url)
     except Exception as exc:
-        logger.warning("远程版本检查失败: %s", exc)
-        # 不缓存失败结果
-        return _empty_update_payload(enabled=True, error=str(exc)[:300])
+        friendly = _friendly_error(exc)
+        logger.warning("远程版本检查失败: %s", friendly)
+        # 有成功历史时返回过期缓存，避免面板直接 403 文案
+        stale = _cached_success_payload(allow_stale=True)
+        if stale is not None:
+            logger.info("版本检查失败，复用过期缓存 latest=%s", stale.get("latest_version"))
+            return stale
+        return _empty_update_payload(enabled=True, error=friendly)
 
     with _cache_lock:
         _cache["payload"] = dict(result)

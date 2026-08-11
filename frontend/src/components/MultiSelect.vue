@@ -22,10 +22,45 @@ const isOpen = ref(false)
 const selectRef = ref<HTMLElement | null>(null)
 const dropdownRef = ref<HTMLElement | null>(null)
 const dropdownStyle = ref<Record<string, string>>({})
+/** 键盘导航当前项（对应 options 下标；-1 表示未定位） */
+const activeIndex = ref(-1)
 
 const toggle = () => {
   if (props.disabled) return
   isOpen.value = !isOpen.value
+}
+
+const onKeydown = (e: KeyboardEvent) => {
+  if (props.disabled) return
+  if (!isOpen.value) {
+    if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      toggle()
+    }
+    return
+  }
+  if (e.key === 'Escape') {
+    e.preventDefault()
+    isOpen.value = false
+    return
+  }
+  const list = props.options
+  if (!list.length) return
+  if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    activeIndex.value = Math.min(activeIndex.value + 1, list.length - 1)
+    return
+  }
+  if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    activeIndex.value = Math.max(activeIndex.value - 1, 0)
+    return
+  }
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault()
+    const opt = list[activeIndex.value]
+    if (opt) select(opt.value)
+  }
 }
 
 const toggleAllMode = () => {
@@ -84,6 +119,7 @@ watch(isOpen, async (v) => {
     window.addEventListener('scroll', updateDropdownPosition, true)
     window.addEventListener('resize', updateDropdownPosition)
   } else {
+    activeIndex.value = -1
     window.removeEventListener('scroll', updateDropdownPosition, true)
     window.removeEventListener('resize', updateDropdownPosition)
   }
@@ -120,6 +156,7 @@ const selectedLabel = computed(() => {
       :aria-expanded="isOpen"
       aria-haspopup="listbox"
       @click="toggle"
+      @keydown="onKeydown"
     >
       <span
         class="truncate"
@@ -143,14 +180,16 @@ const selectedLabel = computed(() => {
             <Check v-if="allMode" class="w-3.5 h-3.5 shrink-0 text-sky-500" />
           </button>
           <button
-            v-for="opt in options"
+            v-for="(opt, idx) in options"
             :key="opt.value"
             type="button"
             class="ui-dropdown-item"
             :class="[
               allMode ? 'opacity-40 pointer-events-none' : '',
               !allMode && modelValue.includes(opt.value) ? 'ui-dropdown-item-active !text-sky-600 dark:!text-sky-400' : '',
+              activeIndex === idx ? 'bg-gray-100 dark:bg-white/[0.06]' : '',
             ]"
+            :aria-selected="!allMode && modelValue.includes(opt.value)"
             @click.stop="select(opt.value)"
           >
             <span class="truncate">{{ opt.label }}</span>

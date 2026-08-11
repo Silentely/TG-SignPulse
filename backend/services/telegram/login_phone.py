@@ -1,13 +1,13 @@
 """TelegramService mixin: login_phone."""
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 import time
 from typing import Any, Dict, Optional
 
 from backend.core.config import get_settings
+from backend.services.telegram.accounts import mark_account_connected
 from backend.services.telegram.sessions import (
     _cleanup_expired_login_sessions,
     _login_sessions,
@@ -19,13 +19,12 @@ from backend.utils.tg_session import (
     get_session_mode,
     save_session_string_file,
     set_account_session_string,
-    set_account_status,
 )
 
 settings = get_settings()
 
 
-logger = logging.getLogger("backend.qr_login")
+logger = logging.getLogger("backend.telegram.login_phone")
 
 class TelegramPhoneLoginMixin:
 
@@ -111,37 +110,30 @@ class TelegramPhoneLoginMixin:
         try:
             await close_client_by_name(account_name, workdir=self.session_dir)
         except Exception as e:
-            logger.debug(f"start_login 清理后台客户端失败: {e}")
+            logger.debug("start_login 清理后台客户端失败: %s", e)
 
         # 获取 API credentials
         from backend.services.config import get_config_service
 
         config_service = get_config_service()
         tg_config = config_service.get_telegram_config()
-        api_id = tg_config.get("api_id")
-        api_hash = tg_config.get("api_hash")
 
-        env_api_id = os.getenv("TG_API_ID") or None
-        env_api_hash = os.getenv("TG_API_HASH") or None
-        if env_api_id:
-            api_id = env_api_id
-        if env_api_hash:
-            api_hash = env_api_hash
+        from backend.services.telegram.credentials import (
+            resolve_telegram_api_credentials,
+        )
 
         try:
-            api_id = int(api_id) if api_id is not None else None
-        except (TypeError, ValueError):
-            api_id = None
-
-        if isinstance(api_hash, str):
-            api_hash = api_hash.strip()
-
-        if not api_id or not api_hash:
+            api_id, api_hash = resolve_telegram_api_credentials(
+                tg_config,
+                env_api_id=os.getenv("TG_API_ID"),
+                env_api_hash=os.getenv("TG_API_HASH"),
+            )
+        except ValueError:
             _release_account_lock()
-            raise ValueError("Telegram API ID / API Hash 未配置或无效")
+            raise ValueError("Telegram API ID / API Hash 未配置或无效") from None
 
         if not proxy:
-            global_proxy = config_service.get_global_settings().get("global_proxy")
+            global_proxy = config_service.get_global_proxy()
             if global_proxy:
                 proxy = global_proxy
 
@@ -161,7 +153,7 @@ class TelegramPhoneLoginMixin:
                             aux_file.unlink()
                 except OSError as e:
                     # 如果删除失败，说明真的被锁得很死，或者权限问题
-                    logger.debug(f"删除旧 Session 文件失败: {e} - 可能文件仍被占用")
+                    logger.debug("删除旧 Session 文件失败: %s - 可能文件仍被占用", e)
                     # 这里不抛出异常，尝试继续，也许 Pyrogram 能处理?
                     # 但通常 "unable to open database file" 就是因为这个。
                     pass
@@ -205,10 +197,6 @@ class TelegramPhoneLoginMixin:
 
             # 保持连接，避免 session 变化导致验证码失效 (PhoneCodeExpired)
             # 断开连接会导致服务端重新分配 Session ID，从而使之前的 hash 失效
-            # try:
-            #     await client.disconnect()
-            # except Exception:
-            #     pass
 
             return {
                 "phone_code_hash": sent_code.phone_code_hash,
@@ -231,9 +219,7 @@ class TelegramPhoneLoginMixin:
             _release_account_lock()
             raise ValueError(f"请求过于频繁，请等待 {e.value} 秒后重试")
         except Exception as e:
-            import traceback
-
-            traceback.print_exc()
+            logger.exception("手机号登录发送验证码阶段异常: %s", e)
             try:
                 await client.disconnect()
             except Exception:
@@ -309,20 +295,14 @@ class TelegramPhoneLoginMixin:
                 raise ValueError("导出 session_string 失败")
             set_account_session_string(account_name, session_string)
             save_session_string_file(self.session_dir, account_name, session_string)
-            set_account_status(
-                account_name,
-                status="connected",
-                message="",
-                code="OK",
-                needs_relogin=False,
-            )
+            mark_account_connected(account_name)
             self._accounts_cache = None
 
         def _persist_proxy_setting() -> None:
             nonlocal proxy
             if not proxy:
                 from backend.services.config import get_config_service
-                global_proxy = get_config_service().get_global_settings().get("global_proxy")
+                global_proxy = get_config_service().get_global_proxy()
                 if global_proxy:
                     proxy = global_proxy
             if proxy:
@@ -350,13 +330,7 @@ class TelegramPhoneLoginMixin:
                     me = await client.get_me()
                     await _persist_session_string()
                     _persist_proxy_setting()
-                    set_account_status(
-                        account_name,
-                        status="connected",
-                        message="",
-                        code="OK",
-                        needs_relogin=False,
-                    )
+                    mark_account_connected(account_name)
 
                     # 断开连接并清理
                     await client.disconnect()
@@ -382,13 +356,7 @@ class TelegramPhoneLoginMixin:
                         me = await client.get_me()
                         await _persist_session_string()
                         _persist_proxy_setting()
-                        set_account_status(
-                            account_name,
-                            status="connected",
-                            message="",
-                            code="OK",
-                            needs_relogin=False,
-                        )
+                        mark_account_connected(account_name)
 
                         # 断开连接并清理
                         await client.disconnect()
@@ -463,13 +431,7 @@ class TelegramPhoneLoginMixin:
                 raise ValueError("导出 session_string 失败")
             set_account_session_string(account_name, session_string)
             save_session_string_file(self.session_dir, account_name, session_string)
-            set_account_status(
-                account_name,
-                status="connected",
-                message="",
-                code="OK",
-                needs_relogin=False,
-            )
+            mark_account_connected(account_name)
         else:
             # 即使在 file 模式，也尝试保存 session_string 作为降级方案
             try:
@@ -480,85 +442,19 @@ class TelegramPhoneLoginMixin:
                 try:
                     set_account_session_string(account_name, session_string)
                     save_session_string_file(self.session_dir, account_name, session_string)
-                    set_account_status(
-                        account_name,
-                        status="connected",
-                        message="",
-                        code="OK",
-                        needs_relogin=False,
-                    )
+                    mark_account_connected(account_name)
                 except Exception:
                     pass
         if not proxy:
             from backend.services.config import get_config_service
-            global_proxy = get_config_service().get_global_settings().get("global_proxy")
+            global_proxy = get_config_service().get_global_proxy()
             if global_proxy:
                 proxy = global_proxy
         if proxy:
             from backend.utils.tg_session import set_account_profile
 
             set_account_profile(account_name, proxy=proxy)
-        set_account_status(
-            account_name,
-            status="connected",
-            message="",
-            code="OK",
-            needs_relogin=False,
-        )
+        mark_account_connected(account_name)
         self._accounts_cache = None
-
-
-    def login_sync(
-        self,
-        account_name: str,
-        phone_number: str,
-        phone_code: Optional[str] = None,
-        phone_code_hash: Optional[str] = None,
-        password: Optional[str] = None,
-        proxy: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """
-        同步版本的登录方法（用于 FastAPI）
-
-        如果只提供 phone_number，则发送验证码
-        如果提供了 phone_code，则验证登录
-        """
-
-        try:
-            if phone_code is None:
-                # 发送验证码
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    result = loop.run_until_complete(
-                        self.start_login(account_name, phone_number, proxy)
-                    )
-                finally:
-                    loop.close()
-            else:
-                # 验证登录
-                if not phone_code_hash:
-                    raise ValueError("缺少 phone_code_hash")
-
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    result = loop.run_until_complete(
-                        self.verify_login(
-                            account_name,
-                            phone_number,
-                            phone_code,
-                            phone_code_hash,
-                            password,
-                            proxy,
-                        )
-                    )
-                finally:
-                    loop.close()
-
-            return result
-        except Exception as e:
-            # 重新抛出异常，保留原始错误信息
-            raise e
 
 

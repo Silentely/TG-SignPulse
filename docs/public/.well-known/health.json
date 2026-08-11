@@ -1,0 +1,10 @@
+{
+  "status": "ok",
+  "service": "tg-signpulse-docs",
+  "version": "2.2.0",
+  "site": "https://tg.cosr.eu.org",
+  "checks": {
+    "static": "ok",
+    "agent_discovery": "ok"
+  }
+}

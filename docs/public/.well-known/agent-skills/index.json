@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schemas.agentskills.io/discovery/0.2.0/schema.json",
+  "skills": [
+    {
+      "name": "docs-navigator",
+      "type": "skill-md",
+      "description": "根据主题定位 TG-SignPulse 官方文档页面（部署、账号、任务、AI、监听、运维）。",
+      "url": "/.well-known/agent-skills/docs-navigator/SKILL.md",
+      "digest": "sha256:20f361593f72f5cd930de3120b788fee21de4b5d4b8ba57587a7257cf7bca3fd"
+    },
+    {
+      "name": "quick-start",
+      "type": "skill-md",
+      "description": "引导完成 TG-SignPulse 安装、登录、添加账号与创建第一个签到任务。",
+      "url": "/.well-known/agent-skills/quick-start/SKILL.md",
+      "digest": "sha256:32e04ec78565ce87db4a576bef366ede7eafb4366a9539cac03bb3924cac7365"
+    }
+  ]
+}

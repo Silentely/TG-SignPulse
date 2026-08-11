@@ -4,8 +4,9 @@
 测试从 action 配置读取 bot_username，使用关键词捕获值作为命令参数。
 覆盖：深链批量解析、正则多匹配、间隔等待发送。
 """
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, call, patch
 
 from backend.services.keyword_monitor import (
     KeywordMonitorService,

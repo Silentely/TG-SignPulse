@@ -174,7 +174,7 @@ def json_dumps(data: Any) -> str:
 
 TEST_API_ID = "12345"
 TEST_API_HASH = "test-api-hash-abcdef123456"
-TEST_SECRET_KEY = "test-secret-key-for-jwt"
+TEST_SECRET_KEY = "test-secret-key-for-jwt-0123456789"
 TEST_OPENAI_API_KEY = "test-openai-key"
 TEST_SESSION_STRING = "test-session-string-for-in-memory"
 TEST_CHAT_ID = -1001234567890

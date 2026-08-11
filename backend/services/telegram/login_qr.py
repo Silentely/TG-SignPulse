@@ -10,7 +10,6 @@ import secrets
 import time
 from typing import Any, Dict, Optional
 
-from backend.core.config import get_settings
 from backend.services.telegram.sessions import (
     _cleanup_expired_login_sessions,
     _qr_login_sessions,
@@ -24,10 +23,11 @@ from backend.utils.tg_session import (
 from backend.utils.time import utc_from_timestamp_iso_z
 from tg_signer.async_utils import create_logged_task
 
-settings = get_settings()
+logger = logging.getLogger("backend.telegram.login_qr")
 
+# _export_login_token 兜底返回的特殊标记：轮询已确认进入 2FA 状态（会话状态已置位）
+_PASSWORD_REQUIRED = object()
 
-logger = logging.getLogger("backend.qr_login")
 
 class TelegramQrLoginMixin:
 
@@ -41,7 +41,7 @@ class TelegramQrLoginMixin:
             if last_state == state:
                 return
             data["last_state_logged"] = state
-        logger.info("qr_login state=%s login_id=%s", state, login_id)
+        logger.info("QR 登录状态 state=%s login_id=%s", state, login_id)
 
 
     async def _apply_migrate_auth(self, client, data: Dict[str, Any]) -> None:
@@ -51,8 +51,8 @@ class TelegramQrLoginMixin:
             try:
                 await client.storage.dc_id(migrate_dc_id)
                 await client.storage.auth_key(migrate_auth_key)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("应用 QR 迁移 auth 失败 (dc_id=%s): %s", migrate_dc_id, exc)
 
 
     @staticmethod
@@ -66,8 +66,8 @@ class TelegramQrLoginMixin:
                 data["migrate_auth_key"] = auth_key
             if dc_id:
                 data["migrate_dc_id"] = dc_id
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("捕获 QR 迁移 auth 失败: %s", exc)
 
 
     async def _cleanup_qr_login(self, login_id: str, preserve_session: bool = False) -> None:
@@ -89,8 +89,8 @@ class TelegramQrLoginMixin:
         if client and handler:
             try:
                 client.remove_handler(*handler)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("QR 登录清理 remove_handler 失败 (login_id=%s): %s", login_id, exc)
         if client:
             try:
                 if getattr(client, "is_initialized", False):
@@ -150,6 +150,353 @@ class TelegramQrLoginMixin:
             return
 
 
+    def _resolve_api_credentials(
+        self, data: Optional[Dict[str, Any]] = None, *, strict: bool = False
+    ) -> tuple:
+        """解析 api_id/api_hash：会话缓存优先，配置/环境变量兜底。
+
+        - data 非空时优先复用其中缓存的 api_id/api_hash，并回写解析结果
+        - strict=True（start_qr_login）解析失败原样抛出；
+          strict=False 返回 (None, None) 由调用方决定降级
+        """
+        if data is not None:
+            api_id = data.get("api_id")
+            api_hash = data.get("api_hash")
+            if api_id and api_hash:
+                return api_id, api_hash
+
+        from backend.services.config import get_config_service
+        from backend.services.telegram.credentials import (
+            resolve_telegram_api_credentials,
+        )
+
+        try:
+            api_id, api_hash = resolve_telegram_api_credentials(
+                get_config_service().get_telegram_config(),
+                env_api_id=os.getenv("TG_API_ID"),
+                env_api_hash=os.getenv("TG_API_HASH"),
+            )
+        except Exception:
+            if strict:
+                raise
+            return None, None
+        if data is not None:
+            data["api_id"] = api_id
+            data["api_hash"] = api_hash
+        return api_id, api_hash
+
+
+    async def _import_login_token(
+        self, client, data: Dict[str, Any], token, migrate_dc_id
+    ) -> tuple:
+        """ImportLoginToken 轮询（含 dc 迁移循环，最多 2 轮）。
+
+        返回 (result, error)：
+        - result：最近一次成功调用的结果（迁移轮次的部分结果会保留）
+        - error：循环内吞掉的通用异常（SessionPasswordNeeded 直接抛出由调用方处理）
+        """
+        from pyrogram import raw
+        from pyrogram.errors import SessionPasswordNeeded
+        from pyrogram.methods.messages.inline_session import get_session
+
+        result = None
+        error = None
+        try:
+            for _ in range(2):
+                if migrate_dc_id:
+                    session = await get_session(client, migrate_dc_id)
+                    self._capture_migrate_auth(data, session)
+                    result = await session.invoke(
+                        raw.functions.auth.ImportLoginToken(token=token)
+                    )
+                else:
+                    result = await client.invoke(
+                        raw.functions.auth.ImportLoginToken(token=token)
+                    )
+
+                if isinstance(result, raw.types.auth.LoginTokenMigrateTo):
+                    migrate_dc_id = result.dc_id
+                    token = result.token
+                    data["migrate_dc_id"] = migrate_dc_id
+                    data["token"] = token
+                    continue
+                break
+        except SessionPasswordNeeded:
+            raise
+        except Exception as exc:
+            error = exc
+        return result, error
+
+
+    def _apply_login_token_update(self, data: Dict[str, Any], result: Any) -> None:
+        """将 LoginToken 轮询结果（token/过期时间）回写会话数据。"""
+        token_expires = getattr(result, "expires", None)
+        if token_expires:
+            data["expires_ts"] = self._normalize_login_token_expires(token_expires)
+            data["expires_at"] = utc_from_timestamp_iso_z(
+                data["expires_ts"]
+            )
+        if getattr(result, "token", None):
+            data["token"] = result.token
+
+
+    async def _export_login_token(self, client, data: Dict[str, Any]) -> Any:
+        """ExportLoginToken 兜底轮询（含凭据兜底解析与 dc 迁移后再导入）。
+
+        返回约定：
+        - LoginTokenSuccess：本轮已获得授权（含迁移后导入成功），调用方执行 finalize
+        - LoginToken：已刷新 token/过期时间，调用方按轮询态处理
+        - _PASSWORD_REQUIRED：已进入 2FA 状态（status/scan_seen/过期时间已置位）
+        - None：无可用结果（凭据缺失或瞬时异常已吞）
+        """
+        from pyrogram import raw
+        from pyrogram.errors import SessionPasswordNeeded
+        from pyrogram.methods.messages.inline_session import get_session
+
+        api_id, api_hash = self._resolve_api_credentials(data)
+        if not api_id or not api_hash:
+            return None
+
+        try:
+            export_result = await client.invoke(
+                raw.functions.auth.ExportLoginToken(
+                    api_id=api_id, api_hash=api_hash, except_ids=[]
+                )
+            )
+        except Exception:
+            return None
+
+        if isinstance(export_result, raw.types.auth.LoginTokenSuccess):
+            return export_result
+        if isinstance(export_result, raw.types.auth.LoginTokenMigrateTo):
+            data["migrate_dc_id"] = export_result.dc_id
+            data["token"] = export_result.token
+            try:
+                session = await get_session(client, export_result.dc_id)
+                self._capture_migrate_auth(data, session)
+                migrate_result = await session.invoke(
+                    raw.functions.auth.ImportLoginToken(token=export_result.token)
+                )
+            except SessionPasswordNeeded:
+                self._set_qr_password_required(data, None)
+                return _PASSWORD_REQUIRED
+            except Exception:
+                return None
+            if isinstance(migrate_result, raw.types.auth.LoginTokenSuccess):
+                return migrate_result
+            return None
+        if isinstance(export_result, raw.types.auth.LoginToken):
+            self._apply_login_token_update(data, export_result)
+            return export_result
+        return None
+
+
+    def _set_qr_password_required(
+        self,
+        data: Dict[str, Any],
+        login_id: Optional[str] = None,
+        *,
+        authorized: bool = False,
+        extend: bool = True,
+    ) -> None:
+        """将会话标记为需要 2FA 密码（login_id 提供时同步记录状态日志）。"""
+        data["status"] = "password_required"
+        data["scan_seen"] = True
+        if authorized:
+            data["authorized"] = True
+        if extend:
+            self._extend_qr_expires(data)
+        if login_id:
+            self._log_qr_state(login_id, "password_required", data)
+
+
+    @staticmethod
+    def _password_required_response(data: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "status": "password_required",
+            "expires_at": data.get("expires_at"),
+            "message": "需要 2FA 密码",
+        }
+
+
+    async def _store_qr_authorized_user(self, client, data: Dict[str, Any], login_result) -> Any:
+        """从 LoginTokenSuccess 解析授权用户并写入会话存储。"""
+        from pyrogram import types
+
+        user = types.User._parse(client, login_result.authorization.user)
+        await client.storage.user_id(user.id)
+        await client.storage.is_bot(False)
+        data["authorized"] = True
+        data["authorized_user"] = user
+        return user
+
+
+    async def _finalize_qr_login_success(
+        self, login_id: str, data: Dict[str, Any], user
+    ) -> Dict[str, Any]:
+        """QR 登录成功收尾：清理会话并返回成功响应（状态日志由调用方记录）。"""
+        account_name = data.get("account_name")
+        await self._cleanup_qr_login(login_id, preserve_session=True)
+
+        account = None
+        try:
+            accounts = self.list_accounts(force_refresh=True)
+            account = next(
+                (acc for acc in accounts if acc.get("name") == account_name),
+                None,
+            )
+        except Exception:
+            account = None
+
+        return {
+            "status": "success",
+            "message": "登录成功",
+            "account": account,
+            "user_id": getattr(user, "id", None),
+            "first_name": getattr(user, "first_name", None),
+            "username": getattr(user, "username", None),
+        }
+
+
+    async def _persist_qr_authorized(
+        self, client, data: Dict[str, Any], login_id: str, user
+    ) -> Any:
+        """授权后统一收尾：取 me、检测 2FA、持久化会话。
+
+        返回 _PASSWORD_REQUIRED（会话已进入 2FA 状态）或授权用户 me（登录完成）。
+        """
+        from pyrogram.errors import SessionPasswordNeeded
+
+        try:
+            try:
+                me = await client.get_me()
+            except Exception:
+                me = user
+            try:
+                password_state = await client.get_password()
+            except Exception:
+                password_state = None
+            if password_state and getattr(password_state, "has_password", False):
+                return _PASSWORD_REQUIRED
+            await self._apply_migrate_auth(client, data)
+            await self._persist_client_session(
+                client, data.get("account_name"), data.get("proxy")
+            )
+        except SessionPasswordNeeded:
+            data["status"] = "password_required"
+            data["scan_seen"] = True
+            return _PASSWORD_REQUIRED
+        return me
+
+
+    async def _finalize_qr_login(
+        self, client, data: Dict[str, Any], login_id: str, login_result
+    ) -> Dict[str, Any]:
+        """扫码确认后的授权收尾：写入会话、检查 2FA、持久化会话并返回结果。"""
+        user = await self._store_qr_authorized_user(client, data, login_result)
+        me = await self._persist_qr_authorized(client, data, login_id, user)
+        if me is _PASSWORD_REQUIRED:
+            self._set_qr_password_required(data, login_id)
+            return self._password_required_response(data)
+
+        self._log_qr_state(login_id, "success", data)
+        return await self._finalize_qr_login_success(login_id, data, me)
+
+
+    async def _finalize_qr_password_login(
+        self, client, data: Dict[str, Any], login_id: str, password: str, user_fallback=None
+    ) -> Dict[str, Any]:
+        """2FA 密码校验后的授权收尾：校验密码、写入会话、持久化会话并返回结果。"""
+        from pyrogram import raw, types
+        from pyrogram.errors import PasswordHashInvalid
+        from pyrogram.methods.messages.inline_session import get_session
+        from pyrogram.utils import compute_password_check
+
+        user_from_password = None
+        try:
+            if data.get("migrate_dc_id"):
+                session = await get_session(client, data.get("migrate_dc_id"))
+                self._capture_migrate_auth(data, session)
+                auth = await session.invoke(
+                    raw.functions.auth.CheckPassword(
+                        password=compute_password_check(
+                            await session.invoke(raw.functions.account.GetPassword()),
+                            password,
+                        )
+                    )
+                )
+                user_from_password = types.User._parse(client, auth.user)
+                await client.storage.user_id(user_from_password.id)
+                await client.storage.is_bot(False)
+                data["authorized"] = True
+                data["authorized_user"] = user_from_password
+            else:
+                user_from_password = await client.check_password(password)
+                data["authorized"] = True
+                data["authorized_user"] = user_from_password
+        except PasswordHashInvalid:
+            await self._cleanup_qr_login(login_id)
+            raise ValueError("两步验证密码错误")
+
+        try:
+            if user_from_password is not None:
+                me = user_from_password
+            else:
+                me = await client.get_me()
+        except Exception:
+            me = user_fallback
+
+        await self._apply_migrate_auth(client, data)
+        await self._persist_client_session(
+            client, data.get("account_name"), data.get("proxy")
+        )
+
+        self._log_qr_state(login_id, "success", data)
+        return await self._finalize_qr_login_success(login_id, data, me)
+
+
+    async def _ensure_qr_authorized(
+        self, client, data: Dict[str, Any], login_id: str
+    ) -> Any:
+        """确保会话已授权：ImportLoginToken/ExportLoginToken 轮询后返回授权用户或 None。"""
+        from pyrogram import raw
+        from pyrogram.errors import SessionPasswordNeeded
+
+        if data.get("authorized"):
+            return data.get("authorized_user")
+
+        result = None
+        if data.get("token"):
+            try:
+                result, error = await self._import_login_token(
+                    client, data, data.get("token"), data.get("migrate_dc_id")
+                )
+            except SessionPasswordNeeded:
+                self._set_qr_password_required(data, None, authorized=True)
+                return data.get("authorized_user")
+            if error is not None:
+                result = None
+
+        if isinstance(result, raw.types.auth.LoginTokenSuccess):
+            return await self._store_qr_authorized_user(client, data, result)
+        if isinstance(result, raw.types.auth.LoginToken):
+            self._apply_login_token_update(data, result)
+
+        try:
+            outcome = await self._export_login_token(client, data)
+        except Exception:
+            outcome = None
+        if outcome is _PASSWORD_REQUIRED:
+            data["authorized"] = True
+            return data.get("authorized_user")
+        if isinstance(outcome, raw.types.auth.LoginTokenSuccess):
+            try:
+                return await self._store_qr_authorized_user(client, data, outcome)
+            except Exception:
+                pass
+        return data.get("authorized_user")
+
+
     async def start_qr_login(
         self, account_name: str, proxy: Optional[str] = None
     ) -> Dict[str, Any]:
@@ -188,24 +535,14 @@ class TelegramQrLoginMixin:
         from backend.services.config import get_config_service
 
         config_service = get_config_service()
-        tg_config = config_service.get_telegram_config()
-        api_id = os.getenv("TG_API_ID") or tg_config.get("api_id")
-        api_hash = os.getenv("TG_API_HASH") or tg_config.get("api_hash")
-
         try:
-            api_id = int(api_id) if api_id is not None else None
-        except (TypeError, ValueError):
-            api_id = None
-
-        if isinstance(api_hash, str):
-            api_hash = api_hash.strip()
-
-        if not api_id or not api_hash:
+            api_id, api_hash = self._resolve_api_credentials(strict=True)
+        except ValueError:
             _release_account_lock()
-            raise ValueError("Telegram API ID / API Hash 未配置或无效")
+            raise ValueError("Telegram API ID / API Hash 未配置或无效") from None
 
         if not proxy:
-            global_proxy = config_service.get_global_settings().get("global_proxy")
+            global_proxy = config_service.get_global_proxy()
             if global_proxy:
                 proxy = global_proxy
 
@@ -294,8 +631,9 @@ class TelegramQrLoginMixin:
                 except Exception:
                     try:
                         await client.dispatcher.start()
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        # 初始化失败不致命：后续 stop 仍会尝试完整关闭
+                        logger.debug("QR 登录客户端初始化失败: %s", exc)
 
                 async def _raw_handler(_, update, __, ___):
                     if not isinstance(update, raw.types.UpdateLoginToken):
@@ -319,8 +657,13 @@ class TelegramQrLoginMixin:
 
                 handler = client.add_handler(handlers.RawUpdateHandler(_raw_handler))
                 session_data["handler"] = handler
-            except Exception:
-                pass
+            except Exception as exc:
+                # 注册失败会导致扫码更新永远收不到，登录卡死在 waiting_scan；
+                # 必须记录错误并标记状态，避免静默失败
+                logger.error("QR 登录注册扫码监听失败: %s", exc)
+                session_data["status"] = "error"
+                session_data["error"] = "qr_handler_register_failed"
+                self._log_qr_state(login_id, "error", session_data)
 
             session_data["expire_task"] = create_logged_task(
                 self._expire_qr_login(login_id, expires_ts),
@@ -351,9 +694,8 @@ class TelegramQrLoginMixin:
 
 
     async def get_qr_login_status(self, login_id: str) -> Dict[str, Any]:
-        from pyrogram import raw, types
-        from pyrogram.errors import FloodWait, SessionPasswordNeeded, Unauthorized
-        from pyrogram.methods.messages.inline_session import get_session
+        from pyrogram import raw
+        from pyrogram.errors import FloodWait, SessionPasswordNeeded
 
         data = _qr_login_sessions.get(login_id)
         if not data:
@@ -372,11 +714,7 @@ class TelegramQrLoginMixin:
 
         if data.get("status") == "password_required":
             self._log_qr_state(login_id, "password_required", data)
-            return {
-                "status": "password_required",
-                "expires_at": data.get("expires_at"),
-                "message": "需要 2FA 密码",
-            }
+            return self._password_required_response(data)
 
         # 扫码后状态保持，避免回退到 waiting_scan
         if data.get("status") == "scanned_wait_confirm":
@@ -392,77 +730,6 @@ class TelegramQrLoginMixin:
             }
 
         client = data.get("client")
-        token = data.get("token")
-        migrate_dc_id = data.get("migrate_dc_id")
-
-        async def _finalize_login(login_result: Any) -> Dict[str, Any]:
-            # 标记授权用户
-            user = types.User._parse(client, login_result.authorization.user)
-            await client.storage.user_id(user.id)
-            await client.storage.is_bot(False)
-            data["authorized"] = True
-            data["authorized_user"] = user
-
-            # 获取用户信息并持久化会话
-            try:
-                try:
-                    me = await client.get_me()
-                except Exception:
-                    me = user
-
-                try:
-                    password_state = await client.get_password()
-                except Exception:
-                    password_state = None
-
-                if password_state and getattr(password_state, "has_password", False):
-                    data["status"] = "password_required"
-                    data["scan_seen"] = True
-                    self._extend_qr_expires(data)
-                    self._log_qr_state(login_id, "password_required", data)
-                    return {
-                        "status": "password_required",
-                        "expires_at": data.get("expires_at"),
-                        "message": "需要 2FA 密码",
-                    }
-
-                await self._apply_migrate_auth(client, data)
-                await self._persist_client_session(
-                    client, data.get("account_name"), data.get("proxy")
-                )
-            except SessionPasswordNeeded:
-                data["status"] = "password_required"
-                data["scan_seen"] = True
-                self._extend_qr_expires(data)
-                self._log_qr_state(login_id, "password_required", data)
-                return {
-                    "status": "password_required",
-                    "expires_at": data.get("expires_at"),
-                    "message": "需要 2FA 密码",
-                }
-
-            self._log_qr_state(login_id, "success", data)
-            account_name = data.get("account_name")
-            await self._cleanup_qr_login(login_id, preserve_session=True)
-
-            account = None
-            try:
-                accounts = self.list_accounts(force_refresh=True)
-                account = next(
-                    (acc for acc in accounts if acc.get("name") == account_name),
-                    None,
-                )
-            except Exception:
-                account = None
-
-            return {
-                "status": "success",
-                "message": "登录成功",
-                "account": account,
-                "user_id": me.id,
-                "first_name": me.first_name,
-                "username": me.username,
-            }
 
         try:
             if not client.is_connected:
@@ -486,132 +753,35 @@ class TelegramQrLoginMixin:
                     }
                 data["last_import_ts"] = now
 
-                token = data.get("token")
-                migrate_dc_id = data.get("migrate_dc_id")
-                result = None
-                if token:
-                    try:
-                        for _ in range(2):
-                            if migrate_dc_id:
-                                session = await get_session(client, migrate_dc_id)
-                                self._capture_migrate_auth(data, session)
-                                result = await session.invoke(
-                                    raw.functions.auth.ImportLoginToken(token=token)
-                                )
-                            else:
-                                result = await client.invoke(
-                                    raw.functions.auth.ImportLoginToken(token=token)
-                                )
-
-                            if isinstance(result, raw.types.auth.LoginTokenMigrateTo):
-                                migrate_dc_id = result.dc_id
-                                token = result.token
-                                data["migrate_dc_id"] = migrate_dc_id
-                                data["token"] = token
-                                continue
-                            break
-                    except SessionPasswordNeeded:
-                        data["status"] = "password_required"
-                        data["scan_seen"] = True
-                        data["authorized"] = True
-                        self._extend_qr_expires(data)
-                        self._log_qr_state(login_id, "password_required", data)
-                        return {
-                            "status": "password_required",
-                            "expires_at": data.get("expires_at"),
-                            "message": "需要 2FA 密码",
-                        }
-                    except Exception:
-                        pass
+                # 先 ImportLoginToken 轮询扫码确认；SessionPasswordNeeded 交外层处理
+                if data.get("token"):
+                    result, _ = await self._import_login_token(
+                        client, data, data.get("token"), data.get("migrate_dc_id")
+                    )
 
                 if isinstance(result, raw.types.auth.LoginTokenSuccess):
-                    return await _finalize_login(result)
+                    return await self._finalize_qr_login(client, data, login_id, result)
                 if isinstance(result, raw.types.auth.LoginToken):
-                    token_expires = getattr(result, "expires", None)
-                    if token_expires:
-                        data["expires_ts"] = self._normalize_login_token_expires(
-                            token_expires
-                        )
-                        data["expires_at"] = utc_from_timestamp_iso_z(
-                            data["expires_ts"]
-                        )
-                    if result.token:
-                        data["token"] = result.token
+                    self._apply_login_token_update(data, result)
                     data["status"] = "scanned_wait_confirm"
 
                 # fallback: 再次调用 ExportLoginToken 获取最终状态（符合官方流程）
-                if result is None or isinstance(result, raw.types.auth.LoginToken):
-                    last_export_ts = data.get("last_export_ts", 0)
-                    if now - last_export_ts >= 3:
-                        api_id = data.get("api_id")
-                        api_hash = data.get("api_hash")
-                        if not api_id or not api_hash:
-                            try:
-                                from backend.services.config import get_config_service
-
-                                tg_config = get_config_service().get_telegram_config()
-                                api_id = os.getenv("TG_API_ID") or tg_config.get("api_id")
-                                api_hash = os.getenv("TG_API_HASH") or tg_config.get("api_hash")
-                                try:
-                                    api_id = int(api_id) if api_id is not None else None
-                                except (TypeError, ValueError):
-                                    api_id = None
-                                if isinstance(api_hash, str):
-                                    api_hash = api_hash.strip()
-                                if api_id and api_hash:
-                                    data["api_id"] = api_id
-                                    data["api_hash"] = api_hash
-                            except Exception:
-                                api_id = None
-                                api_hash = None
-
-                        if api_id and api_hash:
-                            data["last_export_ts"] = now
-                            try:
-                                export_result = await client.invoke(
-                                    raw.functions.auth.ExportLoginToken(
-                                        api_id=api_id, api_hash=api_hash, except_ids=[]
-                                    )
-                                )
-                                if isinstance(export_result, raw.types.auth.LoginTokenSuccess):
-                                    return await _finalize_login(export_result)
-                                if isinstance(export_result, raw.types.auth.LoginTokenMigrateTo):
-                                    data["migrate_dc_id"] = export_result.dc_id
-                                    data["token"] = export_result.token
-                                    try:
-                                        session = await get_session(client, export_result.dc_id)
-                                        self._capture_migrate_auth(data, session)
-                                        migrate_result = await session.invoke(
-                                            raw.functions.auth.ImportLoginToken(token=export_result.token)
-                                        )
-                                        if isinstance(migrate_result, raw.types.auth.LoginTokenSuccess):
-                                            return await _finalize_login(migrate_result)
-                                    except SessionPasswordNeeded:
-                                        data["status"] = "password_required"
-                                        data["scan_seen"] = True
-                                        self._extend_qr_expires(data)
-                                        self._log_qr_state(login_id, "password_required", data)
-                                        return {
-                                            "status": "password_required",
-                                            "expires_at": data.get("expires_at"),
-                                            "message": "需要 2FA 密码",
-                                        }
-                                    except Exception:
-                                        pass
-                                elif isinstance(export_result, raw.types.auth.LoginToken):
-                                    token_expires = getattr(export_result, "expires", None)
-                                    if token_expires:
-                                        data["expires_ts"] = self._normalize_login_token_expires(
-                                            token_expires
-                                        )
-                                        data["expires_at"] = utc_from_timestamp_iso_z(
-                                            data["expires_ts"]
-                                        )
-                                    if export_result.token:
-                                        data["token"] = export_result.token
-                                    data["status"] = "scanned_wait_confirm"
-                            except Exception:
-                                pass
+                last_export_ts = data.get("last_export_ts", 0)
+                if (
+                    result is None or isinstance(result, raw.types.auth.LoginToken)
+                ) and now - last_export_ts >= 3:
+                    data["last_export_ts"] = now
+                    try:
+                        outcome = await self._export_login_token(client, data)
+                        if outcome is _PASSWORD_REQUIRED:
+                            self._log_qr_state(login_id, "password_required", data)
+                            return self._password_required_response(data)
+                        if isinstance(outcome, raw.types.auth.LoginTokenSuccess):
+                            return await self._finalize_qr_login(
+                                client, data, login_id, outcome
+                            )
+                    except Exception:
+                        pass
 
             status = (
                 "scanned_wait_confirm"
@@ -634,22 +804,11 @@ class TelegramQrLoginMixin:
         except SessionPasswordNeeded:
             data = _qr_login_sessions.get(login_id)
             if data:
-                data["status"] = "password_required"
-                data["scan_seen"] = True
-                self._extend_qr_expires(data)
-                data["authorized"] = True
-                self._log_qr_state(login_id, "password_required", data)
+                self._set_qr_password_required(data, login_id, authorized=True)
             return {
                 "status": "password_required",
                 "expires_at": data.get("expires_at") if data else None,
                 "message": "需要 2FA 密码",
-            }
-        except Unauthorized:
-            self._log_qr_state(login_id, "failed", data)
-            await self._cleanup_qr_login(login_id)
-            return {
-                "status": "failed",
-                "message": "登录失败，请重试",
             }
         except Exception:
             self._log_qr_state(login_id, "failed", data)
@@ -661,15 +820,12 @@ class TelegramQrLoginMixin:
 
 
     async def submit_qr_password(self, login_id: str, password: str) -> Dict[str, Any]:
-        from pyrogram import raw, types
+        from pyrogram import raw
         from pyrogram.errors import (
             FloodWait,
-            PasswordHashInvalid,
             SessionPasswordNeeded,
             Unauthorized,
         )
-        from pyrogram.methods.messages.inline_session import get_session
-        from pyrogram.utils import compute_password_check
 
         password = (password or "").strip()
         if not password:
@@ -697,334 +853,56 @@ class TelegramQrLoginMixin:
 
         global_semaphore = get_global_semaphore()
 
-        async def _finalize_password_login(user_fallback=None) -> Dict[str, Any]:
-            user_from_password = None
-            try:
-                if data.get("migrate_dc_id"):
-                    session = await get_session(client, data.get("migrate_dc_id"))
-                    self._capture_migrate_auth(data, session)
-                    auth = await session.invoke(
-                        raw.functions.auth.CheckPassword(
-                            password=compute_password_check(
-                                await session.invoke(raw.functions.account.GetPassword()),
-                                password,
-                            )
-                        )
-                    )
-                    user_from_password = types.User._parse(client, auth.user)
-                    await client.storage.user_id(user_from_password.id)
-                    await client.storage.is_bot(False)
-                    data["authorized"] = True
-                    data["authorized_user"] = user_from_password
-                else:
-                    user_from_password = await client.check_password(password)
-                    data["authorized"] = True
-                    data["authorized_user"] = user_from_password
-            except PasswordHashInvalid:
-                await self._cleanup_qr_login(login_id)
-                raise ValueError("两步验证密码错误")
-
-            try:
-                if user_from_password is not None:
-                    me = user_from_password
-                else:
-                    me = await client.get_me()
-            except Exception:
-                me = user_fallback
-
-            await self._apply_migrate_auth(client, data)
-            await self._persist_client_session(
-                client, data.get("account_name"), data.get("proxy")
-            )
-
-            account_name = data.get("account_name")
-            self._log_qr_state(login_id, "success", data)
-            await self._cleanup_qr_login(login_id, preserve_session=True)
-
-            account = None
-            try:
-                accounts = self.list_accounts(force_refresh=True)
-                account = next(
-                    (acc for acc in accounts if acc.get("name") == account_name),
-                    None,
-                )
-            except Exception:
-                account = None
-
-            return {
-                "status": "success",
-                "message": "登录成功",
-                "account": account,
-                "user_id": getattr(me, "id", None),
-                "first_name": getattr(me, "first_name", None),
-                "username": getattr(me, "username", None),
-            }
-
         try:
             async with global_semaphore:
                 if not client.is_connected:
                     await client.connect()
 
-                async def _ensure_authorized():
-                    if data.get("authorized"):
-                        return data.get("authorized_user")
-
-                    token = data.get("token")
-                    migrate_dc_id = data.get("migrate_dc_id")
-                    result = None
-                    if token:
-                        try:
-                            for _ in range(2):
-                                if migrate_dc_id:
-                                    session = await get_session(client, migrate_dc_id)
-                                    self._capture_migrate_auth(data, session)
-                                    result = await session.invoke(
-                                        raw.functions.auth.ImportLoginToken(token=token)
-                                    )
-                                else:
-                                    result = await client.invoke(
-                                        raw.functions.auth.ImportLoginToken(token=token)
-                                    )
-
-                                if isinstance(result, raw.types.auth.LoginTokenMigrateTo):
-                                    migrate_dc_id = result.dc_id
-                                    token = result.token
-                                    data["migrate_dc_id"] = migrate_dc_id
-                                    data["token"] = token
-                                    continue
-                                break
-                        except SessionPasswordNeeded:
-                            data["status"] = "password_required"
-                            data["scan_seen"] = True
-                            data["authorized"] = True
-                            self._extend_qr_expires(data)
-                            return data.get("authorized_user")
-                        except Exception:
-                            result = None
-
-                    if isinstance(result, raw.types.auth.LoginTokenSuccess):
-                        user = types.User._parse(client, result.authorization.user)
-                        await client.storage.user_id(user.id)
-                        await client.storage.is_bot(False)
-                        data["authorized"] = True
-                        data["authorized_user"] = user
-                        return user
-                    if isinstance(result, raw.types.auth.LoginToken):
-                        token_expires = getattr(result, "expires", None)
-                        if token_expires:
-                            data["expires_ts"] = self._normalize_login_token_expires(
-                                token_expires
-                            )
-                            data["expires_at"] = utc_from_timestamp_iso_z(
-                                data["expires_ts"]
-                            )
-                        if result.token:
-                            data["token"] = result.token
-
-                    api_id = data.get("api_id")
-                    api_hash = data.get("api_hash")
-                    if not api_id or not api_hash:
-                        try:
-                            from backend.services.config import get_config_service
-
-                            tg_config = get_config_service().get_telegram_config()
-                            api_id = os.getenv("TG_API_ID") or tg_config.get("api_id")
-                            api_hash = os.getenv("TG_API_HASH") or tg_config.get(
-                                "api_hash"
-                            )
-                            try:
-                                api_id = int(api_id) if api_id is not None else None
-                            except (TypeError, ValueError):
-                                api_id = None
-                            if isinstance(api_hash, str):
-                                api_hash = api_hash.strip()
-                            if api_id and api_hash:
-                                data["api_id"] = api_id
-                                data["api_hash"] = api_hash
-                        except Exception:
-                            api_id = None
-                            api_hash = None
-
-                    if api_id and api_hash:
-                        try:
-                            export_result = await client.invoke(
-                                raw.functions.auth.ExportLoginToken(
-                                    api_id=api_id, api_hash=api_hash, except_ids=[]
-                                )
-                            )
-                            if isinstance(
-                                export_result, raw.types.auth.LoginTokenSuccess
-                            ):
-                                user = types.User._parse(
-                                    client, export_result.authorization.user
-                                )
-                                await client.storage.user_id(user.id)
-                                await client.storage.is_bot(False)
-                                data["authorized"] = True
-                                data["authorized_user"] = user
-                                return user
-                            if isinstance(
-                                export_result, raw.types.auth.LoginTokenMigrateTo
-                            ):
-                                data["migrate_dc_id"] = export_result.dc_id
-                                data["token"] = export_result.token
-                                try:
-                                    session = await get_session(
-                                        client, export_result.dc_id
-                                    )
-                                    self._capture_migrate_auth(data, session)
-                                    migrate_result = await session.invoke(
-                                        raw.functions.auth.ImportLoginToken(
-                                            token=export_result.token
-                                        )
-                                    )
-                                    if isinstance(
-                                        migrate_result,
-                                        raw.types.auth.LoginTokenSuccess,
-                                    ):
-                                        user = types.User._parse(
-                                            client, migrate_result.authorization.user
-                                        )
-                                        await client.storage.user_id(user.id)
-                                        await client.storage.is_bot(False)
-                                        data["authorized"] = True
-                                        data["authorized_user"] = user
-                                        return user
-                                except SessionPasswordNeeded:
-                                    data["status"] = "password_required"
-                                    data["scan_seen"] = True
-                                    data["authorized"] = True
-                                    self._extend_qr_expires(data)
-                                    return data.get("authorized_user")
-                                except Exception:
-                                    pass
-                            elif isinstance(export_result, raw.types.auth.LoginToken):
-                                token_expires = getattr(export_result, "expires", None)
-                                if token_expires:
-                                    data["expires_ts"] = (
-                                        self._normalize_login_token_expires(token_expires)
-                                    )
-                                    data["expires_at"] = utc_from_timestamp_iso_z(
-                                        data["expires_ts"]
-                                    )
-                                if export_result.token:
-                                    data["token"] = export_result.token
-                        except Exception:
-                            pass
-
-                    return data.get("authorized_user")
-
+                # 已进入 2FA 或已授权：直接校验密码完成登录
                 if data.get("status") == "password_required" or data.get("authorized"):
                     try:
-                        return await _finalize_password_login(
-                            data.get("authorized_user")
+                        return await self._finalize_qr_password_login(
+                            client, data, login_id, password, data.get("authorized_user")
                         )
                     except Unauthorized:
-                        user = await _ensure_authorized()
+                        user = await self._ensure_qr_authorized(client, data, login_id)
                         if not data.get("authorized"):
                             self._extend_qr_expires(data)
                             raise ValueError("请先在手机端确认登录")
-                        return await _finalize_password_login(user)
+                        return await self._finalize_qr_password_login(
+                            client, data, login_id, password, user
+                        )
 
-                token = data.get("token")
-                migrate_dc_id = data.get("migrate_dc_id")
+                # 常规路径：先 ImportLoginToken 轮询扫码确认
                 result = None
                 try:
-                    for _ in range(2):
-                        if migrate_dc_id:
-                            session = await get_session(client, migrate_dc_id)
-                            self._capture_migrate_auth(data, session)
-                            result = await session.invoke(
-                                raw.functions.auth.ImportLoginToken(token=token)
-                            )
-                        else:
-                            result = await client.invoke(
-                                raw.functions.auth.ImportLoginToken(token=token)
-                            )
-
-                        if isinstance(result, raw.types.auth.LoginTokenMigrateTo):
-                            migrate_dc_id = result.dc_id
-                            token = result.token
-                            data["migrate_dc_id"] = migrate_dc_id
-                            data["token"] = token
-                            continue
-                        break
+                    result, error = await self._import_login_token(
+                        client, data, data.get("token"), data.get("migrate_dc_id")
+                    )
+                    if error is not None:
+                        raise error
                 except SessionPasswordNeeded:
-                    data["status"] = "password_required"
-                    data["scan_seen"] = True
-                    data["authorized"] = True
-                    self._extend_qr_expires(data)
-                    return await _finalize_password_login()
+                    self._set_qr_password_required(data, None, authorized=True)
+                    return await self._finalize_qr_password_login(
+                        client, data, login_id, password
+                    )
 
                 if isinstance(result, raw.types.auth.LoginToken):
-                    token_expires = getattr(result, "expires", None)
-                    if token_expires:
-                        data["expires_ts"] = self._normalize_login_token_expires(
-                            token_expires
-                        )
-                        data["expires_at"] = utc_from_timestamp_iso_z(
-                            data["expires_ts"]
-                        )
-                    if data.get("token") != result.token:
-                        data["token"] = result.token
+                    self._apply_login_token_update(data, result)
                     raise ValueError("请先在手机端确认登录")
 
                 if isinstance(result, raw.types.auth.LoginTokenSuccess):
-                    user = types.User._parse(client, result.authorization.user)
-                    await client.storage.user_id(user.id)
-                    await client.storage.is_bot(False)
-                    data["authorized"] = True
-                    data["authorized_user"] = user
-
-                    try:
-                        try:
-                            me = await client.get_me()
-                        except Exception:
-                            me = user
-
-                        try:
-                            password_state = await client.get_password()
-                        except Exception:
-                            password_state = None
-
-                        if password_state and getattr(password_state, "has_password", False):
-                            return await _finalize_password_login(user)
-
-                        await self._apply_migrate_auth(client, data)
-                        await self._persist_client_session(
-                            client, data.get("account_name"), data.get("proxy")
+                    user = await self._store_qr_authorized_user(client, data, result)
+                    me = await self._persist_qr_authorized(client, data, login_id, user)
+                    if me is _PASSWORD_REQUIRED:
+                        return await self._finalize_qr_password_login(
+                            client, data, login_id, password, user
                         )
-                    except SessionPasswordNeeded:
-                        data["status"] = "password_required"
-                        data["scan_seen"] = True
-                        return await _finalize_password_login(user)
-
                     try:
                         await client.disconnect()
                     except Exception:
                         pass
-
-                    account_name = data.get("account_name")
-                    await self._cleanup_qr_login(login_id, preserve_session=True)
-
-                    account = None
-                    try:
-                        accounts = self.list_accounts(force_refresh=True)
-                        account = next(
-                            (acc for acc in accounts if acc.get("name") == account_name),
-                            None,
-                        )
-                    except Exception:
-                        account = None
-
-                    return {
-                        "status": "success",
-                        "message": "登录成功",
-                        "account": account,
-                        "user_id": getattr(me, "id", None),
-                        "first_name": getattr(me, "first_name", None),
-                        "username": getattr(me, "username", None),
-                    }
+                    return await self._finalize_qr_login_success(login_id, data, me)
 
                 raise ValueError("请先在手机端确认登录")
 
