@@ -369,7 +369,8 @@ class TelegramQrLoginMixin:
 
         try:
             try:
-                me = await client.get_me()
+                # 网络挂起时登录轮询不能无限等待，get_me 加超时保护
+                me = await asyncio.wait_for(client.get_me(), timeout=10)
             except Exception:
                 me = user
             try:
@@ -442,7 +443,7 @@ class TelegramQrLoginMixin:
             if user_from_password is not None:
                 me = user_from_password
             else:
-                me = await client.get_me()
+                me = await asyncio.wait_for(client.get_me(), timeout=10)
         except Exception:
             me = user_fallback
 
