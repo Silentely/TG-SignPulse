@@ -10,6 +10,8 @@ const { t } = useI18n()
 defineProps<{
   hitsLoading: boolean
   hitsLoadingMore: boolean
+  /** 清空命中请求在途（禁用清空按钮防连点） */
+  hitsClearing?: boolean
   hitsView: 'list' | 'groups'
   hitGroupBy: 'task' | 'account' | 'chat'
   hitRecords: KeywordHitRecord[]
@@ -61,15 +63,21 @@ const emit = defineEmits<{
     <span class="text-[10px] text-gray-400 hidden md:inline">{{ t('taskLogs.hitsAutoRefreshHint') }}</span>
     <button
       type="button"
-      class="ml-auto text-[11px] text-rose-600 dark:text-rose-400 hover:underline"
-      @click="emit('clear-hits')"
+      class="ml-auto text-[11px] text-rose-600 dark:text-rose-400 hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+      :disabled="hitsClearing"
+      @click="!hitsClearing && emit('clear-hits')"
     >
+      <span v-if="hitsClearing" class="ui-spinner !w-3 !h-3 !border-2 mr-1 align-middle" aria-hidden="true" />
       {{ t('taskLogs.hitsClear') }}
     </button>
   </div>
 
-  <div v-if="hitsLoading" class="ui-page-loading !py-10">
-    <div class="ui-spinner" />
+  <div v-if="hitsLoading" class="animate-pulse space-y-2 !py-4" role="status" aria-label="加载中">
+    <div v-for="i in 4" :key="i" class="flex items-center gap-3 px-2 py-2">
+      <span class="h-3 w-32 shrink-0 rounded bg-gray-200 dark:bg-gray-800" />
+      <span class="h-3 w-20 shrink-0 rounded bg-gray-200 dark:bg-gray-800" />
+      <span class="h-3 flex-1 min-w-0 rounded bg-gray-200 dark:bg-gray-800" />
+    </div>
   </div>
   <div v-else-if="hitsView === 'list' && hitRecords.length === 0" class="ui-empty !py-10">
     <p class="ui-empty-desc">{{ t('taskLogs.hitsEmpty') }}</p>

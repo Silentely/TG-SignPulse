@@ -96,6 +96,8 @@ const {
   hitGroups,
   hitGroupBy,
   hitsView,
+  hitsExporting,
+  hitsClearing,
   canLoadMoreHits,
   loadHits,
   loadMoreHits,
@@ -235,9 +237,11 @@ const hitLink = (hit: KeywordHitRecord) => safeHitUrl(hit.url)
           type="button"
           class="ui-icon-btn disabled:opacity-50"
           :title="t('taskLogs.hitsExport')"
+          :disabled="hitsExporting"
           @click="exportHits"
         >
-          <Download class="w-4 h-4" />
+          <span v-if="hitsExporting" class="ui-spinner !w-4 !h-4 !border-2" aria-hidden="true" />
+          <Download v-else class="w-4 h-4" />
         </button>
         <button
           type="button"
@@ -282,6 +286,7 @@ const hitLink = (hit: KeywordHitRecord) => safeHitUrl(hit.url)
         v-if="panelTab === 'hits' && isListenTask"
         :hits-loading="hitsLoading"
         :hits-loading-more="hitsLoadingMore"
+        :hits-clearing="hitsClearing"
         :hits-view="hitsView"
         :hit-group-by="hitGroupBy"
         :hit-records="hitRecords"
