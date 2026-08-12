@@ -17,6 +17,7 @@ import { useI18n } from './useI18n'
 import { useToast } from './useToast'
 import { useConfirm } from './useConfirm'
 import { resolveApiErrorMessage } from '../lib/notify'
+import { setPanelTimezone } from '../lib/datetime'
 import { devLog } from '../lib/devLog'
 import {
   applyGlobalSettingsToForm,
@@ -118,6 +119,8 @@ export function useSettingsPage() {
   const runtimeStatus = ref<RuntimeStatus | null>(null)
   const memoryStats = ref<MemoryStatsResponse | null>(null)
   const pageLoading = ref(true)
+  /** 全局设置加载失败标记：失败时展示错误态与重试，而非默认空表单 */
+  const loadFailed = ref(false)
   // 卸载标记：异步加载期间离开页面时停止后续副作用
   let disposed = false
   const botTokenSet = ref(false)
@@ -264,9 +267,7 @@ export function useSettingsPage() {
     loadBackupStatus,
   })
 
-  onMounted(async () => {
-    // 同步注册 beforeunload：避免异步加载期间卸载导致监听器永久泄漏
-    window.addEventListener('beforeunload', onBeforeUnload)
+  const loadAllSettings = async () => {
     const token = getAuthToken()
     if (!token) {
       pageLoading.value = false
@@ -282,6 +283,8 @@ export function useSettingsPage() {
       const flags = applyGlobalSettingsToForm(settings.value, res)
       botTokenSet.value = flags.botTokenSet
       webdavPasswordSet.value = flags.webdavPasswordSet
+      // 同步面板展示时区：Settings 加载后，Dashboard/Logs 等页的时间格式跟随
+      setPanelTimezone(res.timezone)
 
       if (tgRes && tgRes.is_custom) {
         tgConfig.value.api_id = tgRes.api_id
@@ -322,12 +325,20 @@ export function useSettingsPage() {
       }
       if (disposed) return // 加载期间已卸载：不再标记干净或注册监听
       markAllClean()
+      loadFailed.value = false
     } catch (e: unknown) {
       devLog.error('Failed to load settings', e)
+      loadFailed.value = true
       toast.error(resolveApiErrorMessage(e, 'settings.loadFailed'))
     } finally {
       if (!disposed) pageLoading.value = false
     }
+  }
+
+  onMounted(async () => {
+    // 同步注册 beforeunload：避免异步加载期间卸载导致监听器永久泄漏
+    window.addEventListener('beforeunload', onBeforeUnload)
+    await loadAllSettings()
   })
 
   onUnmounted(() => {
@@ -361,6 +372,9 @@ export function useSettingsPage() {
     advancedLoading,
     botTestLoading,
     pageLoading,
+    loadFailed,
+    /** 重新加载全局设置（失败重试入口） */
+    reload: loadAllSettings,
     revealSecrets,
     isDirty,
     dirtyLabels,

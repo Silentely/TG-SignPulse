@@ -13,6 +13,8 @@ export type TaskListMapLabels = {
   paused: string
   success: string
   failed: string
+  /** 会话名缺失时的兜底前缀（如「会话」），实际显示 `${prefix} ${chat_id}` */
+  chatFallbackPrefix: string
 }
 
 export type ModeIconKind = 'clock' | 'radio' | 'shuffle'
@@ -134,7 +136,9 @@ export function mapSignTaskToListFields(
     isListenMode: task.execution_mode === 'listen',
     enabled: task.enabled !== false,
     chatAvatarUrl: '',
-    chatName: firstChat ? firstChat.name || `Chat ${firstChat.chat_id}` : '',
+    chatName: firstChat
+      ? firstChat.name || `${labels.chatFallbackPrefix} ${firstChat.chat_id}`
+      : '',
     raw: task,
   }
 }

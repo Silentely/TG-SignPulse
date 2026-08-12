@@ -15,6 +15,7 @@ import { withToken, getAuthToken } from '../lib/api/core'
 import type { AiFormState, SettingsSection, TgFormState } from '../lib/settings-form'
 import { resolveApiErrorMessage } from '../lib/notify'
 import { devLog } from '../lib/devLog'
+import { setPanelTimezone } from '../lib/datetime'
 import { useI18n } from './useI18n'
 import { useToast } from './useToast'
 import { useConfirm } from './useConfirm'
@@ -53,6 +54,8 @@ export function useSettingsSave(options: {
       loading.value = true
       try {
         await saveGlobalSettings(token, options.buildGeneralPayload())
+        // 保存成功后立即同步面板展示时区，Dashboard/Logs 等页时间格式跟随
+        setPanelTimezone(String(options.buildGeneralPayload().timezone || ''))
         options.markSectionClean('general')
         notifySuccess(t('settings.saveSuccess'))
       } catch (e: unknown) {
@@ -126,6 +129,8 @@ export function useSettingsSave(options: {
           ...options.buildBotPayload(),
           ...options.buildAdvancedPayload(),
         })
+        // 保存成功后立即同步面板展示时区，Dashboard/Logs 等页时间格式跟随
+        setPanelTimezone(String(options.buildGeneralPayload().timezone || ''))
         options.afterWebdavSettingsSaved()
         options.afterBotTokenSaved()
         options.markSectionClean('general')
