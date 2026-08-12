@@ -577,7 +577,10 @@ class KeywordMonitorService:
                     )
                 except Exception as hit_exc:
                     logger.warning("持久化关键词命中记录失败: %s", hit_exc)
+                # Bark/Server酱 等无结构化字段的通道需要完整上下文：
+                # 多账号用户据此区分来源，时间戳便于回溯
                 body_lines = [
+                    f"账号: {account_name}",
                     f"任务: {rule.task_name}",
                     f"会话: {chat_title}",
                     f"关键词: {matched}",
@@ -588,6 +591,7 @@ class KeywordMonitorService:
                     )
                 if sender:
                     body_lines.append(f"发送者: {sender}")
+                body_lines.append(f"时间 (UTC): {utc_now_iso_z_seconds()}")
                 body_lines.append("")
                 body_lines.append(text)
                 forward_text = "\n".join(body_lines)

@@ -127,7 +127,7 @@ async def send_failure_notification(
                 + ("\n（仅保留最近 20 条流程日志）" if truncated else "")
             )
         text = build_html_notification(
-            title="❌ TG-SignPulse 任务执行失败",
+            title=f"❌ {account_name} · {task_name} 执行失败",
             fields=fields,
             footer="\n".join(footer_parts),
         )
@@ -177,18 +177,22 @@ async def send_account_invalid_notification(
         from backend.services.push_notifications import (
             _bot_config,
             build_html_notification,
+            is_in_quiet_hours,
             send_telegram_bot_message,
         )
 
         cfg = get_config_service().get_global_settings()
         if not cfg.get("telegram_bot_notify_enabled"):
             return
+        # 与失败/成功/登录通知一致：静默时段内不打扰
+        if is_in_quiet_hours(cfg):
+            return
         bot_token, chat_id, thread_id = _bot_config(cfg)
         if not bot_token or not chat_id:
             return
 
         text = build_html_notification(
-            title="⚠️ TG-SignPulse 账号登录失效",
+            title=f"⚠️ {account_name} 账号登录失效",
             fields=[
                 ("时间 (UTC)", utc_now_iso_z_seconds()),
                 ("账号", account_name),

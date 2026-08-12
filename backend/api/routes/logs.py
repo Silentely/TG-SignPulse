@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -77,11 +77,9 @@ def get_login_logs(
     current_user: User = Depends(get_current_user),
 ):
     del current_user
+    from tg_signer.utils import clamp
 
-    if limit < 1:
-        limit = 1
-    if limit > 500:
-        limit = 500
+    limit = clamp(limit, 1, 500)
 
     filter_date = _normalize_date_filter(date)
     query = db.query(LoginLog)
@@ -101,7 +99,12 @@ def get_login_logs(
             user_agent=row.user_agent,
             detail=row.detail,
             success=bool(row.success),
-            created_at=row.created_at.isoformat(),
+            # 存储为 naive UTC，序列化时补时区标记，避免前端按本地时区误解析偏差 8 小时
+            created_at=(
+                row.created_at.replace(tzinfo=timezone.utc).isoformat()
+                if row.created_at is not None
+                else None
+            ),
         )
         for row in rows
     ]
@@ -146,11 +149,9 @@ def get_task_logs(
     del current_user
     # 仅校验日期格式（非法则 400）；实际过滤由服务层按原始字符串执行
     _normalize_date_filter(date)
+    from tg_signer.utils import clamp
 
-    if limit < 1:
-        limit = 1
-    if limit > 500:
-        limit = 500
+    limit = clamp(limit, 1, 500)
 
     history = get_sign_task_service().get_filtered_history_logs(
         account_name=account_name,

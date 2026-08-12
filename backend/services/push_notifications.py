@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Dict, Optional
 from urllib.parse import quote
 
@@ -148,12 +148,9 @@ def is_in_quiet_hours(
     ):
         return False
     tz_name = str(settings.get("timezone") or "UTC")
-    try:
-        from zoneinfo import ZoneInfo
+    from backend.utils.time_window import resolve_tz
 
-        tz = ZoneInfo(tz_name)
-    except Exception:
-        tz = timezone.utc
+    tz = resolve_tz(tz_name)
     current = now or datetime.now(tz)
     if current.tzinfo is None:
         current = current.replace(tzinfo=tz)
@@ -361,11 +358,10 @@ async def send_task_success_notification(
         ("时间 (UTC)", utc_now_iso_z_seconds()),
         ("账号", account_name),
         ("任务", task_name),
+        ("摘要", str(message)[:500] or "已完成"),
     ]
-    if message:
-        fields.append(("摘要", str(message)[:500]))
     text = build_html_notification(
-        title="✅ TG-SignPulse 任务执行成功",
+        title=f"✅ {account_name} · {task_name} 执行成功",
         fields=fields,
     )
     await send_telegram_bot_message(
