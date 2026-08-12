@@ -24,7 +24,6 @@ from backend.services.sign_task_run_status import (
     resolve_effective_retry_count,
 )
 from backend.utils.task_logs import extract_last_target_message
-from tg_signer.async_utils import create_logged_task
 from tg_signer.log_utils import safe_exception_summary, safe_traceback_preview
 
 # 执行参数常量（原散落魔法数字，集中命名便于调参与审查）
@@ -519,30 +518,18 @@ async def _runner_schedule_cleanup(state: Dict[str, Any]) -> None:
     """Phase 13: 延迟清理 active_logs（60 秒无新日志时回收）。"""
     svc: SignTaskService = state["svc"]
     task_key = state["task_key"]
+    from backend.services.sign_tasks import ACTIVE_LOG_CLEANUP_DELAY_SECONDS
+    from tg_signer.async_utils import schedule_deferred_cleanup
 
-    old_cleanup_task = svc._cleanup_tasks.get(task_key)
-    if old_cleanup_task and not old_cleanup_task.done():
-        old_cleanup_task.cancel()
-
-    cleanup_task: Optional[asyncio.Task[Any]] = None
-
-    async def cleanup() -> None:
-        try:
-            await asyncio.sleep(60)
-            if not svc._active_tasks.get(task_key):
-                svc._active_logs.pop(task_key, None)
-        finally:
-            # 仅当自身仍是注册条目时才移除，避免被取消的旧任务
-            # 在下一轮事件循环执行 finally 时误删新注册的清理任务
-            if svc._cleanup_tasks.get(task_key) is cleanup_task:
-                svc._cleanup_tasks.pop(task_key, None)
-
-    cleanup_task = create_logged_task(
-        cleanup(),
+    schedule_deferred_cleanup(
+        task_key=task_key,
+        delay_seconds=ACTIVE_LOG_CLEANUP_DELAY_SECONDS,
+        registry=svc._cleanup_tasks,
+        active=svc._active_tasks,
+        target=svc._active_logs,
         logger=logging.getLogger("backend.sign_tasks"),
         description=f"active log cleanup {state['account_name']}/{state['task_name']}",
     )
-    svc._cleanup_tasks[task_key] = cleanup_task
 
 
 async def _runner_handle_error(state: Dict[str, Any], e: Exception) -> None:
