@@ -21,10 +21,10 @@ import { useAccountsStore } from '../stores/accounts'
 import type { TaskLogUiItem, LoginLogUiItem } from '../lib/types'
 import { notifyApiError } from '../lib/notify'
 import { failureCategoryLabel as mapFailureCategoryLabel } from '../lib/run-status'
-import { formatDateTime } from '../lib/datetime'
+import { formatLogTime } from '../lib/datetime'
 
 export function useLogsPage() {
-  const { locale, t } = useI18n()
+  const { t } = useI18n()
   const toast = useToast()
   const { confirm } = useConfirm()
   const accountsStore = useAccountsStore()
@@ -48,6 +48,8 @@ export function useLogsPage() {
 
   const rawTaskLogs = ref<TaskHistoryLog[]>([])
   const pageLoading = ref(true)
+  /** 日志加载失败标记：首屏失败时展示错误态而非空列表 */
+  const loadFailed = ref(false)
   const clearing = ref(false)
   const accountsList = ref<string[]>([])
   const selectedLog = ref<TaskLogUiItem | null>(null)
@@ -89,8 +91,8 @@ export function useLogsPage() {
     { label: t('dashboard.failCat.unknown'), value: 'unknown' },
   ])
 
-  const formatTime = (isoString: string) =>
-    formatDateTime(isoString, locale.value === 'zh' ? 'zh-CN' : 'en-US', '')
+  // 与 Dashboard 一致：当天仅时刻、跨天补日期，避免同一事件两页显示不同
+  const formatTime = (isoString: string) => formatLogTime(isoString, '')
 
   const failureCategoryLabel = (cat?: string | null) => {
     if (!cat || cat === 'unknown') return ''
@@ -167,10 +169,12 @@ export function useLogsPage() {
         })
         if (!taskLogsGuard.isCurrent(seq)) return // 过期响应：筛选已变化，丢弃
         rawTaskLogs.value = Array.isArray(res) ? res : []
+        loadFailed.value = false
       } catch (e: unknown) {
         if (!taskLogsGuard.isCurrent(seq)) return
         devLog.error('Failed to fetch logs', e)
         notifyApiError(e, 'logs.loadFailed')
+        loadFailed.value = true
         rawTaskLogs.value = []
       }
     })
@@ -193,10 +197,12 @@ export function useLogsPage() {
           status: l.success ? 'success' : 'error',
           text: translateLoginDetail(l.detail, l.success),
         }))
+        loadFailed.value = false
       } catch (e: unknown) {
         if (!loginLogsGuard.isCurrent(seq)) return
         devLog.error('Failed to fetch login logs', e)
         notifyApiError(e, 'logs.loadFailed')
+        loadFailed.value = true
         loginLogs.value = []
       }
     })
@@ -384,6 +390,7 @@ export function useLogsPage() {
     filterStatus,
     filterCategory,
     pageLoading,
+    loadFailed,
     clearing,
     selectedLog,
     logDetail,

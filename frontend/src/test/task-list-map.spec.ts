@@ -17,6 +17,7 @@ const labels = {
   paused: '已暂停',
   success: '成功',
   failed: '失败',
+  chatFallbackPrefix: '会话',
 }
 
 function baseTask(over: Partial<SignTask> = {}): SignTask {

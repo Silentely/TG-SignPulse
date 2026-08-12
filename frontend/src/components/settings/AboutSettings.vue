@@ -7,6 +7,7 @@ import { Info, RefreshCw, ExternalLink } from 'lucide-vue-next'
 import { useI18n } from '../../composables/useI18n'
 import type { AppVersionInfo, RuntimeStatus, MemoryStatsResponse } from '../../lib/api'
 import { formatMemoryRssFromStats } from '../../lib/memory-format'
+import { formatDateTime } from '../../lib/datetime'
 
 type VersionBannerKind = 'update' | 'latest' | 'error' | 'info'
 interface VersionBanner {
@@ -83,7 +84,7 @@ const formatMemoryRss = () => {
         </div>
         <div class="text-gray-600 dark:text-gray-400">
           <span class="text-gray-500">{{ t('settings.buildTime') }}:</span>
-          <span class="ml-1">{{ appVersion.build_time || t('settings.unknownValue') }}</span>
+          <span class="ml-1">{{ appVersion.build_time ? formatDateTime(appVersion.build_time) : t('settings.unknownValue') }}</span>
         </div>
         <div class="text-gray-600 dark:text-gray-400">
           <span class="text-gray-500">{{ t('settings.pythonRuntime') }}:</span>
