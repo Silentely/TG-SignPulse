@@ -18,7 +18,7 @@ import {
   formatPhaseDetail,
   phaseLabel,
 } from '../lib/run-status'
-import { formatShortDateTime, formatDateTime } from '../lib/datetime'
+import { formatShortDateTime } from '../lib/datetime'
 
 const quickLinks = [
   { name: 'accounts', icon: Users, titleKey: 'dashboard.goAccounts', descKey: 'dashboard.goAccountsDesc' },
@@ -43,6 +43,7 @@ const {
   recentHits,
   statusJobs,
   formatTime,
+  reload: reloadData,
 } = useDashboardData()
 
 /** 跳转到日志页并按账号筛选，附带任务/时间/失败分类以便自动打开详情 */
@@ -382,6 +383,16 @@ const jobStatusLabel = (status: string) => {
           <span class="ui-badge-dot" />
           {{ t('dashboard.partialLoad') }}
         </span>
+        <button
+          v-if="partialLoad"
+          type="button"
+          class="inline-flex items-center gap-1 text-[11px] text-sky-600 dark:text-sky-400 hover:underline shrink-0"
+          :title="t('common.retry')"
+          @click="reloadData"
+        >
+          <RefreshCw class="w-3 h-3" />
+          {{ t('common.retry') }}
+        </button>
       </div>
       <div v-if="logs.length === 0" class="ui-empty py-16">
         <p class="ui-empty-title !text-gray-500 font-normal">{{ t('logs.empty') }}</p>
@@ -396,7 +407,7 @@ const jobStatusLabel = (status: string) => {
           @click="selectedLog = log"
           @dblclick="goToLogs(log)"
         >
-          <span class="font-mono text-gray-500 dark:text-gray-600 shrink-0 w-[100px] text-[11px] truncate" :title="formatDateTime(log.created_at, 'zh-CN')">{{ log.time }}</span>
+          <span class="font-mono text-gray-500 dark:text-gray-600 shrink-0 w-[100px] text-[11px] truncate" :title="formatTime(log.created_at)">{{ log.time }}</span>
           <span class="text-gray-700 dark:text-gray-400 shrink-0 w-24 truncate font-medium">{{ log.account }}</span>
           <span class="text-gray-600 dark:text-gray-500 shrink-0 w-28 truncate">{{ log.task }}</span>
           <span

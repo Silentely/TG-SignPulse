@@ -27,7 +27,7 @@ import { aggregateFailureCategories } from '../lib/run-status'
 import { formatLogTime } from '../lib/datetime'
 import { storeToRefs } from 'pinia'
 
-const formatTime = (isoString: string) => formatLogTime(isoString)
+const formatTime = (isoString?: string | null) => formatLogTime(isoString)
 
 export function useDashboardData() {
   const activeRunsStore = useActiveRunsStore()
@@ -341,5 +341,7 @@ export function useDashboardData() {
     statusJobs,
     formatTime,
     loadDashboardData,
+    /** 手动刷新（不触发整页 loading，供局部失败重试按钮使用） */
+    reload: loadDashboardData,
   }
 }

@@ -6,6 +6,8 @@ import Modal from '../components/Modal.vue'
 import CustomSelect from '../components/CustomSelect.vue'
 import DatePicker from '../components/DatePicker.vue'
 import FlowLogViewer from '../components/FlowLogViewer.vue'
+import FilterEmptyState from '../components/FilterEmptyState.vue'
+import PageRetry from '../components/PageRetry.vue'
 
 const { t } = useI18n()
 
@@ -17,6 +19,7 @@ const {
   filterStatus,
   filterCategory,
   pageLoading,
+  loadFailed,
   clearing,
   selectedLog,
   logDetail,
@@ -151,7 +154,7 @@ const {
 
     <!-- Logs List -->
     <div class="ui-card p-3 sm:p-5 flex-1 min-h-[500px] overflow-y-auto">
-      <div v-if="pageLoading" class="animate-pulse space-y-1.5" role="status" aria-label="加载中">
+      <div v-if="pageLoading" class="animate-pulse space-y-1.5" role="status" :aria-label="t('common.loading')">
         <div v-for="i in 6" :key="i" class="flex items-center gap-3 px-2 py-3">
           <span class="h-3 w-[140px] shrink-0 rounded bg-gray-200 dark:bg-gray-800" />
           <span class="h-3 w-24 shrink-0 rounded bg-gray-200 dark:bg-gray-800" />
@@ -161,16 +164,21 @@ const {
         </div>
       </div>
 
+      <!-- 首屏加载失败：错误态而非空列表，避免误导为暂无日志 -->
+      <div v-else-if="loadFailed && logs.length === 0" class="max-w-xl mx-auto my-8">
+        <PageRetry @retry="loadLogs" />
+      </div>
+
       <!-- Task logs -->
       <div v-else-if="activeTab === 'tasks'" class="text-xs space-y-0">
         <div v-if="logs.length === 0" class="ui-empty py-16">
-          <template v-if="hasActiveFilters">
-            <p class="ui-empty-title !text-gray-500 font-normal">{{ t('common.filterNoResults') }}</p>
-            <p class="ui-empty-desc mb-3">{{ t('common.filterNoResultsHint') }}</p>
-            <button type="button" class="ui-btn-secondary !text-xs !px-3 !py-2" @click="clearFilters">
-              {{ t('common.clearAllFilters') }}
-            </button>
-          </template>
+          <FilterEmptyState
+            v-if="hasActiveFilters"
+            :title="t('common.filterNoResults')"
+            :hint="t('common.filterNoResultsHint')"
+            :action-text="t('common.clearAllFilters')"
+            @action="clearFilters"
+          />
           <template v-else>
             <p class="ui-empty-title !text-gray-500 font-normal">{{ t('logs.empty') }}</p>
             <p class="ui-empty-desc">{{ t('logs.emptyHint') }}</p>
