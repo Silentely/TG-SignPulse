@@ -20,6 +20,8 @@ import TaskLogsModal from '../components/tasks/TaskLogsModal.vue'
 import CloneTaskModal from '../components/tasks/CloneTaskModal.vue'
 import TaskListCard from '../components/tasks/TaskListCard.vue'
 import TaskListToolbar from '../components/tasks/TaskListToolbar.vue'
+import FilterEmptyState from '../components/FilterEmptyState.vue'
+import PageRetry from '../components/PageRetry.vue'
 import { devLog } from '../lib/devLog'
 import {
   filterTasksByModeAndQuery,
@@ -131,6 +133,8 @@ const {
 // 请求序号守卫：丢弃过期响应，避免快速切换账号筛选时慢响应覆盖新结果
 const tasksGuard = useLatestResponseGuard()
 
+const loadFailed = ref(false)
+
 const loadTasks = async () => {
   return withToken(async (token) => {
     const seq = tasksGuard.next()
@@ -139,6 +143,7 @@ const loadTasks = async () => {
       const accountName = route.query.account as string | undefined
       const res = await listSignTasks(token, accountName)
       if (!tasksGuard.isCurrent(seq)) return // 过期响应：筛选已变化，丢弃
+      loadFailed.value = false
       const labels = {
         noTarget: t('tasks.noTarget'),
         listenMode: t('tasks.listenMode'),
@@ -147,6 +152,7 @@ const loadTasks = async () => {
         paused: t('tasks.paused'),
         success: t('tasks.success'),
         failed: t('tasks.failed'),
+        chatFallbackPrefix: t('tasks.chatPrefix'),
       }
       const iconByKind = { clock: Clock, radio: Radio, shuffle: Shuffle } as const
       tasks.value = res.map((task: SignTask) => {
@@ -159,6 +165,7 @@ const loadTasks = async () => {
       if (!tasksGuard.isCurrent(seq)) return
       devLog.error('Failed to fetch tasks', e)
       notifyApiError(e, 'tasks.loadFailed')
+      loadFailed.value = true
       tasks.value = []
     } finally {
       if (tasksGuard.isCurrent(seq)) pageLoading.value = false
@@ -170,6 +177,8 @@ const {
   batchBusy,
   cloneBusy,
   toggleBusyKey,
+  runBusyKey,
+  deleteBusyKey,
   showCloneModal,
   cloneSource,
   runMenuTask,
@@ -326,6 +335,11 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
       </div>
     </div>
 
+    <!-- 首屏加载失败：错误态而非空列表，避免误导为暂无任务 -->
+    <div v-else-if="loadFailed && tasks.length === 0" class="max-w-xl mx-auto">
+      <PageRetry @retry="loadTasks" />
+    </div>
+
     <!-- Empty State -->
     <div v-else-if="tasks.length === 0" class="space-y-3">
       <div
@@ -380,24 +394,6 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
     </div>
 
     <div v-else class="flex flex-col gap-3 pb-24">
-    <!-- 账号深链筛选条 -->
-    <div
-      v-if="accountFilter"
-      class="ui-card flex flex-wrap items-center justify-between gap-2 px-3 py-2 border border-sky-200/70 dark:border-sky-800/50 bg-sky-50/80 dark:bg-sky-950/30"
-    >
-      <div class="text-xs text-sky-800 dark:text-sky-200 min-w-0">
-        <span class="text-sky-600/80 dark:text-sky-400/80">{{ t('tasks.accountFilter') }}：</span>
-        <span class="font-mono font-medium truncate">{{ accountFilter }}</span>
-      </div>
-      <button
-        type="button"
-        class="inline-flex items-center gap-1 text-[11px] text-sky-700 dark:text-sky-300 hover:underline shrink-0"
-        @click="clearAccountFilter"
-      >
-        <X class="w-3 h-3" />
-        {{ t('tasks.clearAccountFilter') }}
-      </button>
-    </div>
     <TaskListToolbar
       v-model:search-query="searchQuery"
       v-model:mode-filter="modeFilter"
@@ -419,20 +415,20 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
     />
 
     <div v-if="filteredTasks.length === 0" class="ui-empty !py-12">
-      <template v-if="tasks.length > 0 && hasListFilters">
-        <p class="ui-empty-title !text-gray-500 font-normal">{{ t('common.filterNoResults') }}</p>
-        <p class="ui-empty-desc mb-3">{{ t('common.filterNoResultsHint') }}</p>
-        <button type="button" class="ui-btn-secondary !text-xs !px-3 !py-2" @click="clearListFilters">
-          {{ t('common.clearAllFilters') }}
-        </button>
-      </template>
-      <template v-else-if="accountFilter && tasks.length === 0">
-        <p class="ui-empty-title !text-gray-500 font-normal">{{ t('common.filterNoResults') }}</p>
-        <p class="ui-empty-desc mb-3">{{ t('tasks.accountFilterEmpty') }}</p>
-        <button type="button" class="ui-btn-secondary !text-xs !px-3 !py-2" @click="clearAccountFilter">
-          {{ t('tasks.clearAccountFilter') }}
-        </button>
-      </template>
+      <FilterEmptyState
+        v-if="tasks.length > 0 && hasListFilters"
+        :title="t('common.filterNoResults')"
+        :hint="t('common.filterNoResultsHint')"
+        :action-text="t('common.clearAllFilters')"
+        @action="clearListFilters"
+      />
+      <FilterEmptyState
+        v-else-if="accountFilter && tasks.length === 0"
+        :title="t('common.filterNoResults')"
+        :hint="t('tasks.accountFilterEmpty')"
+        :action-text="t('tasks.clearAccountFilter')"
+        @action="clearAccountFilter"
+      />
       <p v-else class="ui-empty-desc">{{ t('common.noData') }}</p>
     </div>
 
@@ -444,6 +440,8 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
       :clone-busy="cloneBusy"
       :cancel-busy-key="cancelBusyKey"
       :toggle-busy-key="toggleBusyKey"
+      :run-busy-key="runBusyKey"
+      :delete-busy-key="deleteBusyKey"
       :run-menu-open="runMenuTask === task"
       :run-menu-accounts="runMenuAccounts"
       :task-active-run="taskActiveRun(task)"

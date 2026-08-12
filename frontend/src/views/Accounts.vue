@@ -19,6 +19,7 @@ import EditAccountModal from '../components/accounts/EditAccountModal.vue'
 import DeviceManagerModal from '../components/accounts/DeviceManagerModal.vue'
 import OfficialMessagesModal from '../components/accounts/OfficialMessagesModal.vue'
 import PageRetry from '../components/PageRetry.vue'
+import FilterEmptyState from '../components/FilterEmptyState.vue'
 import { devLog } from '../lib/devLog'
 import { AVATAR_FETCH_CONCURRENCY, mapPool } from '../lib/async-pool'
 import { AvatarUrlCache } from '../lib/avatar-cache'
@@ -341,13 +342,13 @@ const goTasks = (name: string) => {
         </div>
       </div>
       <div v-if="filteredAccounts.length === 0" class="ui-empty !py-12">
-        <template v-if="accounts.length > 0 && hasListFilters">
-          <p class="ui-empty-title !text-gray-500 font-normal">{{ t('common.filterNoResults') }}</p>
-          <p class="ui-empty-desc mb-3">{{ t('common.filterNoResultsHint') }}</p>
-          <button type="button" class="ui-btn-secondary !text-xs !px-3 !py-2" @click="clearListFilters">
-            {{ t('common.clearFilters') }}
-          </button>
-        </template>
+        <FilterEmptyState
+          v-if="accounts.length > 0 && hasListFilters"
+          :title="t('common.filterNoResults')"
+          :hint="t('common.filterNoResultsHint')"
+          :action-text="t('common.clearFilters')"
+          @action="clearListFilters"
+        />
         <p v-else class="ui-empty-desc">{{ t('common.noData') }}</p>
       </div>
       <div v-else class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">

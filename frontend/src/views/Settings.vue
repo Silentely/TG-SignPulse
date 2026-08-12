@@ -5,6 +5,7 @@ import AiSettings from '../components/settings/AiSettings.vue'
 import BotNotifySettings from '../components/settings/BotNotifySettings.vue'
 import DataManagementSettings from '../components/settings/DataManagementSettings.vue'
 import AboutSettings from '../components/settings/AboutSettings.vue'
+import PageRetry from '../components/PageRetry.vue'
 import { useSettingsPage } from '../composables/useSettingsPage'
 
 const {
@@ -25,6 +26,7 @@ const {
   advancedLoading,
   botTestLoading,
   pageLoading,
+  loadFailed,
   revealSecrets,
   isDirty,
   dirtyLabels,
@@ -60,6 +62,7 @@ const {
   handleDownloadRemoteBackup,
   handleCheckUpdate,
   toggleReveal,
+  reload: reloadData,
 } = useSettingsPage()
 </script>
 
@@ -93,6 +96,10 @@ const {
         <div class="ui-skeleton h-10 w-full" />
         <div class="ui-skeleton h-10 w-2/3" />
       </div>
+    </div>
+    <!-- 加载失败：错误态 + 重试，而非渲染默认空表单 -->
+    <div v-else-if="loadFailed" class="max-w-xl mx-auto my-12">
+      <PageRetry @retry="reloadData" />
     </div>
     <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
