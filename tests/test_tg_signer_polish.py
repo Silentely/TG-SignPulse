@@ -16,7 +16,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from tg_signer.async_utils import compute_backoff, create_logged_task
+from tg_signer.async_utils import (
+    compute_backoff,
+    create_logged_task,
+    schedule_deferred_cleanup,
+)
 from tg_signer.core.client import (
     _CLIENT_ASYNC_LOCKS,
     _CLIENT_INSTANCES,
@@ -63,6 +67,70 @@ class TestClamp:
     def test_inverted_bounds_returns_low(self):
         # max(low, min(value, high))：low>high 时 min 取 high，外层 max 取 low
         assert clamp(7, 10, 1) == 10
+
+
+class TestScheduleDeferredCleanup:
+    """延迟清理：到期且不活跃时弹出，活跃时保留，重复注册取消旧任务。"""
+
+    @pytest.mark.asyncio
+    async def test_pops_target_when_inactive_after_delay(self):
+        registry: dict = {}
+        active: dict = {"k": False}
+        target: dict = {"k": "data"}
+        schedule_deferred_cleanup(
+            task_key="k",
+            delay_seconds=0.01,
+            registry=registry,
+            active=active,
+            target=target,
+        )
+        assert "k" in registry
+        await asyncio.sleep(0.05)
+        assert "k" not in target
+        assert "k" not in registry  # 自身已注销
+
+    @pytest.mark.asyncio
+    async def test_keeps_target_when_still_active(self):
+        registry: dict = {}
+        active: dict = {"k": True}
+        target: dict = {"k": "data"}
+        schedule_deferred_cleanup(
+            task_key="k",
+            delay_seconds=0.01,
+            registry=registry,
+            active=active,
+            target=target,
+        )
+        await asyncio.sleep(0.05)
+        assert target.get("k") == "data"
+
+    @pytest.mark.asyncio
+    async def test_repeated_register_cancels_old_task(self):
+        registry: dict = {}
+        active: dict = {"k": False}
+        target: dict = {"k": "data"}
+        schedule_deferred_cleanup(
+            task_key="k",
+            delay_seconds=0.5,  # 旧任务睡眠较长
+            registry=registry,
+            active=active,
+            target=target,
+        )
+        old_task = registry["k"]
+        schedule_deferred_cleanup(
+            task_key="k",
+            delay_seconds=0.01,
+            registry=registry,
+            active=active,
+            target=target,
+        )
+        await asyncio.sleep(0)  # 让事件循环处理 cancel，进入已取消状态
+        assert old_task.cancelled()
+        # 旧任务被取消后不得误删新注册条目（身份守卫）
+        await asyncio.sleep(0.6)
+        assert registry.get("k") is None or registry["k"] is not old_task
+        await asyncio.sleep(0.05)
+        assert "k" not in registry
 
 
 class TestExecuteAiAction:

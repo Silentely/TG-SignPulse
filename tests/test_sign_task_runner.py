@@ -156,9 +156,12 @@ async def _noop_sleep(_seconds):
 
 
 def _fake_create_logged_task(coro, **kwargs):
-    # 不在后台保留 60s 清理协程，直接关闭防止悬挂告警
-    coro.close()
-    return _DummyTask()
+    # 后台协程立即执行（asyncio.sleep 已被 noop 化，不会真实等待），
+    # 让清理类协程在测试内真实跑完并回收目标条目，而不是被关闭悬挂
+    async def _run():
+        await coro
+
+    return asyncio.ensure_future(_run())
 
 
 @pytest.fixture

@@ -71,7 +71,7 @@ from backend.utils.tg_session import (
     resolve_effective_proxy,
 )
 from backend.utils.time import utc_now_iso
-from tg_signer.async_utils import create_logged_task
+from tg_signer.async_utils import create_logged_task, schedule_deferred_cleanup
 from tg_signer.context_vars import (
     task_retry_count_var as _task_retry_count_var,  # noqa: F401
 )
@@ -80,6 +80,12 @@ from tg_signer.utils import read_positive_int_env
 settings = get_settings()
 
 _service_logger = logging.getLogger("backend.sign_tasks")
+
+# 延迟清理间隔（秒）：任务结束一段时间后回收内存中的运行痕迹
+# 运行中实时日志：执行结束后 60 秒无新日志即回收
+ACTIVE_LOG_CLEANUP_DELAY_SECONDS = 60
+# 运行状态：执行结束后 600 秒（10 分钟）无新状态即回收
+RUN_STATUS_CLEANUP_DELAY_SECONDS = 600
 
 # 向后兼容：外部若 from sign_tasks import BackendUserSigner / TaskLogHandler
 __all__ = [
@@ -1115,29 +1121,15 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
 
     def _schedule_run_status_cleanup(self, account_name: str, task_name: str) -> None:
         task_key = self._task_key(account_name, task_name)
-        old_cleanup_task = self._run_status_cleanup_tasks.get(task_key)
-        if old_cleanup_task and not old_cleanup_task.done():
-            old_cleanup_task.cancel()
-
-        cleanup_task: Optional[Any] = None
-
-        async def cleanup() -> None:
-            try:
-                await asyncio.sleep(600)
-                if not self._active_tasks.get(task_key):
-                    self._run_statuses.pop(task_key, None)
-            finally:
-                # 仅当自身仍是注册条目时才移除，避免被取消的旧任务
-                # 在下一轮事件循环执行 finally 时误删新注册的清理任务
-                if self._run_status_cleanup_tasks.get(task_key) is cleanup_task:
-                    self._run_status_cleanup_tasks.pop(task_key, None)
-
-        cleanup_task = create_logged_task(
-            cleanup(),
+        schedule_deferred_cleanup(
+            task_key=task_key,
+            delay_seconds=RUN_STATUS_CLEANUP_DELAY_SECONDS,
+            registry=self._run_status_cleanup_tasks,
+            active=self._active_tasks,
+            target=self._run_statuses,
             logger=_service_logger,
             description=f"run status cleanup {account_name}/{task_name}",
         )
-        self._run_status_cleanup_tasks[task_key] = cleanup_task
 
     async def start_task_run(self, account_name: str, task_name: str) -> Dict[str, Any]:
         account_name = validate_storage_name(account_name, field_name="account_name")
