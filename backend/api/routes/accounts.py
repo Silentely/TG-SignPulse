@@ -114,9 +114,10 @@ async def start_account_login(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
+        logger.error("发送验证码失败 account=%s: %s", request.account_name, e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"发送验证码失败: {str(e)}",
+            detail="发送验证码失败，请稍后重试",
         )
 
 
@@ -165,9 +166,10 @@ async def verify_account_login(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
+        logger.error("登录验证失败 account=%s: %s", request.account_name, e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"登录验证失败: {str(e)}",
+            detail="登录验证失败，请稍后重试",
         )
 
 
@@ -202,9 +204,10 @@ async def start_qr_login(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
+        logger.error("开始扫码登录失败 account=%s: %s", request.account_name, e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"开始扫码登录失败: {str(e)}",
+            detail="开始扫码登录失败，请稍后重试",
         )
 
 
@@ -228,9 +231,10 @@ async def get_qr_login_status(
             username=result.get("username"),
         )
     except Exception as e:
+        logger.error("获取扫码状态失败 login_id=%s: %s", login_id, e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"获取扫码状态失败: {str(e)}",
+            detail="获取扫码状态失败，请稍后重试",
         )
 
 
@@ -270,9 +274,10 @@ async def submit_qr_login_password(
         logger.warning("QR 密码校验失败 login_id=%s error=%s", request.login_id, e)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
+        logger.error("提交 2FA 密码失败 login_id=%s: %s", request.login_id, e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"提交 2FA 密码失败: {str(e)}",
+            detail="提交 2FA 密码失败，请稍后重试",
         )
 
 
@@ -288,9 +293,10 @@ async def cancel_qr_login(
             message="已取消" if success else "登录已失效",
         )
     except Exception as e:
+        logger.error("取消扫码登录失败 login_id=%s: %s", request.login_id, e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"取消扫码登录失败: {str(e)}",
+            detail="取消扫码登录失败，请稍后重试",
         )
 
 
@@ -425,11 +431,9 @@ def get_recent_account_logs(
     limit: int = 50, current_user: User = Depends(get_current_user)
 ):
     from backend.services.sign_tasks import get_sign_task_service
+    from tg_signer.utils import clamp
 
-    if limit < 1:
-        limit = 1
-    if limit > 200:
-        limit = 200
+    limit = clamp(limit, 1, 200)
 
     history = get_sign_task_service().get_recent_history_logs(limit=limit)
     logs: list[dict] = []
@@ -707,6 +711,7 @@ def clear_recent_account_logs(current_user: User = Depends(get_current_user)):
             code="LOGS_CLEARED",
         )
     except Exception:
+        logger.exception("清理任务执行日志失败")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="CLEAR_LOGS_FAILED",
@@ -719,11 +724,9 @@ def get_account_logs(
 ):
     """获取账号的任务执行历史日志"""
     from backend.services.sign_tasks import get_sign_task_service
+    from tg_signer.utils import clamp
 
-    if limit < 1:
-        limit = 1
-    if limit > 200:
-        limit = 200
+    limit = clamp(limit, 1, 200)
 
     history = get_sign_task_service().get_account_history_logs(account_name)
 
@@ -770,6 +773,7 @@ def clear_account_logs(
             code="LOGS_CLEARED",
         )
     except Exception:
+        logger.exception("清理任务执行日志失败")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="CLEAR_LOGS_FAILED",
