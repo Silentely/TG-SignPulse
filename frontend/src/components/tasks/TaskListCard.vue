@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { Play, FileText, Edit2, Trash2, Power, Square, Copy } from 'lucide-vue-next'
 import type { TaskUiItem } from '../../lib/types'
 import type { ActiveRunSummary } from '../../lib/api'
@@ -16,6 +17,10 @@ const props = defineProps<{
   cancelBusyKey?: string
   /** 单任务启停请求在途的键（匹配 task.name 时禁用按钮防连点竞态） */
   toggleBusyKey?: string
+  /** 触发运行请求在途的键（格式 `${task.name}:${account}`，匹配则禁用并转圈） */
+  runBusyKey?: string
+  /** 删除请求在途的键（匹配 task.name 时禁用删除按钮防连点） */
+  deleteBusyKey?: string
   runMenuOpen?: boolean
   runMenuAccounts?: string[]
   taskActiveRun: ActiveRunSummary | null
@@ -43,6 +48,9 @@ const cancelKey = () => {
   const ar = props.taskActiveRun
   return `${props.task.name}:${ar?.account_name || ''}`
 }
+
+/** 该任务任一账号的运行请求在途（runBusyKey 形如 `${task.name}:${account}`） */
+const runTaskBusy = computed(() => Boolean(props.runBusyKey?.startsWith(`${props.task.name}:`)))
 </script>
 
 <template>
@@ -180,10 +188,15 @@ const cancelKey = () => {
           :title="hasInvalidAccount
             ? t('tasks.accountInvalidHint')
             : (task.raw.execution_mode === 'listen' ? t('tasks.executeListenHint') : t('tasks.executeNow'))"
-          :disabled="task.raw.execution_mode === 'listen' || hasInvalidAccount"
-          @click="task.raw.execution_mode !== 'listen' && !hasInvalidAccount && emit('run', task)"
+          :disabled="task.raw.execution_mode === 'listen' || hasInvalidAccount || runTaskBusy"
+          @click="task.raw.execution_mode !== 'listen' && !hasInvalidAccount && !runTaskBusy && emit('run', task)"
         >
-          <Play class="w-3.5 h-3.5" />
+          <span
+            v-if="runTaskBusy"
+            class="ui-spinner !w-3.5 !h-3.5 !border-2"
+            aria-hidden="true"
+          />
+          <Play v-else class="w-3.5 h-3.5" />
           <span>{{ t('tasks.execute') }}</span>
         </button>
         <div
@@ -197,9 +210,11 @@ const cancelKey = () => {
             v-for="acc in (runMenuAccounts || [])"
             :key="acc"
             type="button"
-            class="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/[0.04] transition-colors truncate"
-            @click="emit('run-account', task, acc)"
+            class="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/[0.04] transition-colors truncate disabled:opacity-50 disabled:cursor-not-allowed"
+            :disabled="runBusyKey === `${task.name}:${acc}`"
+            @click="runBusyKey !== `${task.name}:${acc}` && emit('run-account', task, acc)"
           >
+            <span v-if="runBusyKey === `${task.name}:${acc}`" class="ui-spinner !w-3 !h-3 !border-2 mr-1 align-middle" aria-hidden="true" />
             {{ acc }}
           </button>
         </div>
@@ -237,9 +252,15 @@ const cancelKey = () => {
         type="button"
         class="ui-row-action ui-row-action--danger"
         :title="t('tasks.delete')"
-        @click="emit('delete', task)"
+        :disabled="deleteBusyKey === task.name"
+        @click="deleteBusyKey !== task.name && emit('delete', task)"
       >
-        <Trash2 class="w-3.5 h-3.5" />
+        <span
+          v-if="deleteBusyKey === task.name"
+          class="ui-spinner !w-3.5 !h-3.5 !border-2"
+          aria-hidden="true"
+        />
+        <Trash2 v-else class="w-3.5 h-3.5" />
         <span>{{ t('tasks.delete') }}</span>
       </button>
     </div>

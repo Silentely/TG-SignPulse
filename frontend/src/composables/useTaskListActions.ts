@@ -40,6 +40,8 @@ export function useTaskListActions(options: {
   const toggleBusyKey = ref('')
   /** 触发运行 busy 键：启动请求在途时防连点重复触发 */
   const runBusyKey = ref('')
+  /** 单任务删除 busy 键：确认后的删除请求在途时禁用删除按钮 */
+  const deleteBusyKey = ref('')
   const showCloneModal = ref(false)
   const cloneSource = ref<TaskUiItem | null>(null)
   const runMenuTask = ref<TaskUiItem | null>(null)
@@ -148,6 +150,8 @@ export function useTaskListActions(options: {
       danger: true,
     })
     if (!ok) return
+    if (deleteBusyKey.value) return
+    deleteBusyKey.value = task.name
     const token = getAuthToken()
     try {
       const accountName = getTaskAccountName(task.raw) || undefined
@@ -158,6 +162,8 @@ export function useTaskListActions(options: {
       toast.error(
         `${t('tasks.deleteFailed')}: ${getLocalizedErrorMessage(e, t, t('tasks.unknownError'))}`,
       )
+    } finally {
+      deleteBusyKey.value = ''
     }
   }
 
@@ -215,6 +221,7 @@ export function useTaskListActions(options: {
     cloneBusy,
     toggleBusyKey,
     runBusyKey,
+    deleteBusyKey,
     showCloneModal,
     cloneSource,
     runMenuTask,

@@ -34,6 +34,10 @@ export function useTaskHits(options: {
 
   const hitsLoading = ref(false)
   const hitsLoadingMore = ref(false)
+  /** 命中导出请求在途（禁用导出按钮防重复触发） */
+  const hitsExporting = ref(false)
+  /** 命中清空请求在途（禁用清空按钮防连点） */
+  const hitsClearing = ref(false)
   const hitRecords = ref<KeywordHitRecord[]>([])
   const hitTotal = ref(0)
   const hitGroups = ref<KeywordHitGroup[]>([])
@@ -141,7 +145,8 @@ export function useTaskHits(options: {
   const loadMoreHits = () => loadHits({ append: true })
 
   const exportHits = async () => {
-    if (!options.taskName.value) return
+    if (!options.taskName.value || hitsExporting.value) return
+    hitsExporting.value = true
     const token = getAuthToken()
     try {
       const blob = await exportKeywordHitsBlob(token, {
@@ -153,6 +158,8 @@ export function useTaskHits(options: {
       toast.success(t('taskLogs.hitsExportDone'))
     } catch (e: unknown) {
       notifyApiError(e, 'taskLogs.hitsExportFailed')
+    } finally {
+      hitsExporting.value = false
     }
   }
 
@@ -165,6 +172,8 @@ export function useTaskHits(options: {
       danger: true,
     })
     if (!ok) return
+    if (hitsClearing.value) return
+    hitsClearing.value = true
     const token = getAuthToken()
     try {
       const res = await clearKeywordHits(token, {
@@ -175,6 +184,8 @@ export function useTaskHits(options: {
       await loadHits()
     } catch (e: unknown) {
       notifyApiError(e, 'taskLogs.hitsClearFailed')
+    } finally {
+      hitsClearing.value = false
     }
   }
 
@@ -192,6 +203,8 @@ export function useTaskHits(options: {
   return {
     hitsLoading,
     hitsLoadingMore,
+    hitsExporting,
+    hitsClearing,
     hitRecords,
     hitTotal,
     hitGroups,
