@@ -145,7 +145,7 @@ export function useTaskListActions(options: {
   const handleDelete = async (task: TaskUiItem) => {
     const ok = await confirm({
       title: t('common.dangerConfirm'),
-      message: `${t('tasks.deleteConfirm')} ${task.name} ?`,
+      message: t('tasks.deleteConfirm', { name: task.name }),
       confirmText: t('common.delete'),
       danger: true,
     })
