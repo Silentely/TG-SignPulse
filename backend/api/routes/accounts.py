@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
@@ -426,6 +427,28 @@ def cancel_account_status_check_job(
     return {"ok": True, "job_id": job_id}
 
 
+def _build_history_log_item(
+    item: dict, idx: int, account_name: Optional[str] = None
+) -> dict:
+    """历史日志条目统一构造：任务名兜底、消息/摘要/状态文案与失败分类归一。
+
+    供最近日志与账号日志两个列表端点复用，避免展示字段漂移。
+    """
+    task_name = item.get("task_name") or "未知任务"
+    success = bool(item.get("success", False))
+    return {
+        "id": idx + 1,
+        "account_name": account_name or item.get("account_name", ""),
+        "task_name": task_name,
+        "message": item.get("message") or ("执行成功" if success else "执行失败"),
+        "summary": f"任务: {task_name} {'成功' if success else '失败'}",
+        "bot_message": _extract_last_bot_message(item) or None,
+        "success": success,
+        "created_at": item.get("time", ""),
+        "failure_category": item.get("failure_category") or None,
+    }
+
+
 @router.get("/logs/recent", response_model=list[dict])
 def get_recent_account_logs(
     limit: int = 50, current_user: User = Depends(get_current_user)
@@ -436,25 +459,7 @@ def get_recent_account_logs(
     limit = clamp(limit, 1, 200)
 
     history = get_sign_task_service().get_recent_history_logs(limit=limit)
-    logs: list[dict] = []
-    for idx, item in enumerate(history):
-        task_name = item.get("task_name", "未知任务")
-        success = bool(item.get("success", False))
-        logs.append(
-            {
-                "id": idx + 1,
-                "account_name": item.get("account_name", ""),
-                "task_name": task_name,
-                "message": item.get("message")
-                or ("执行成功" if success else "执行失败"),
-                "summary": f"任务: {task_name} {'成功' if success else '失败'}",
-                "bot_message": _extract_last_bot_message(item) or None,
-                "success": success,
-                "created_at": item.get("time", ""),
-                "failure_category": item.get("failure_category") or None,
-            }
-        )
-    return logs
+    return [_build_history_log_item(item, idx) for idx, item in enumerate(history)]
 
 
 @router.delete("/{account_name}", response_model=DeleteAccountResponse)
@@ -730,26 +735,10 @@ def get_account_logs(
 
     history = get_sign_task_service().get_account_history_logs(account_name)
 
-    logs = []
-    for i, item in enumerate(history[:limit]):
-        task_name = item.get("task_name") or "未知任务"
-        success = bool(item.get("success", False))
-        logs.append(
-            AccountLogItem(
-                id=i + 1,
-                account_name=account_name,
-                task_name=task_name,
-                message=item.get("message")
-                or ("执行成功" if success else "执行失败"),
-                success=success,
-                created_at=item.get("time", ""),
-                summary=f"任务: {task_name} {'成功' if success else '失败'}",
-                bot_message=_extract_last_bot_message(item) or None,
-                failure_category=item.get("failure_category") or None,
-            )
-        )
-
-    return logs
+    return [
+        AccountLogItem(**_build_history_log_item(item, i, account_name=account_name))
+        for i, item in enumerate(history[:limit])
+    ]
 
 
 @router.post("/{account_name}/logs/clear", response_model=ClearAccountLogsResponse)
