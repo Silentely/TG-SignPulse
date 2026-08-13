@@ -86,6 +86,8 @@ _service_logger = logging.getLogger("backend.sign_tasks")
 ACTIVE_LOG_CLEANUP_DELAY_SECONDS = 60
 # 运行状态：执行结束后 600 秒（10 分钟）无新状态即回收
 RUN_STATUS_CLEANUP_DELAY_SECONDS = 600
+# 活跃运行列表返回上限：超出截断并告警，防止异常堆积撑大响应
+MAX_ACTIVE_RUNS = 100
 
 # 向后兼容：外部若 from sign_tasks import BackendUserSigner / TaskLogHandler
 __all__ = [
@@ -839,9 +841,9 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
             if summary:
                 runs.append(summary)
         runs.sort(key=lambda r: str(r.get("started_at") or ""), reverse=True)
-        if len(runs) > 100:
+        if len(runs) > MAX_ACTIVE_RUNS:
             _service_logger.warning("活跃运行列表被截断: %s", len(runs))
-            runs = runs[:100]
+            runs = runs[:MAX_ACTIVE_RUNS]
         return runs
 
     def _load_task_config(

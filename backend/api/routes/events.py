@@ -16,6 +16,20 @@ from backend.models.user import User
 router = APIRouter()
 _logger = logging.getLogger("backend.events")
 
+# SSE 推送参数（语义见各使用处）：
+# 冷启动种子：索引最近条数，仅作去重种子不重复推送历史
+SSE_SEED_LIMIT = 30
+# 低频兜底扫描：防止跨线程 publish 丢失或启动竞态，间隔与每次取数
+SSE_FALLBACK_SCAN_INTERVAL = 30.0
+SSE_FALLBACK_SCAN_LIMIT = 20
+# 事件队列等待超时（秒）：超时后进入兜底扫描/心跳分支
+SSE_QUEUE_WAIT_TIMEOUT = 5.0
+# 去重集合上限：超过后截断保留较新 key（内存受控）
+SSE_DEDUPE_MAX = 500
+SSE_DEDUPE_KEEP = 300
+# 无事件时的 keep-alive 心跳间隔（秒）
+SSE_HEARTBEAT_INTERVAL = 15
+
 
 def _require_token(token: Optional[str]) -> User:
     """校验 EventSource 查询参数中的 JWT，返回已认证用户。"""
@@ -67,18 +81,20 @@ async def _sign_history_event_stream() -> AsyncGenerator[bytes, None]:
     """
     from backend.services.sign_history_events import subscribe, unsubscribe
 
-    last_seen: set[str] = set()
+    # 去重集合用 dict 保留插入序（Python 3.7+）：截断时保留的是真正的最近 key，
+    # 用 set 的话尾部截取是无序的，长时间运行后可能漏推或重复推
+    last_seen: dict[str, bool] = {}
     last_heartbeat = time.monotonic()
     last_fallback_scan = 0.0
-    fallback_interval = 30.0  # 兜底扫索引间隔（秒）
+    fallback_interval = SSE_FALLBACK_SCAN_INTERVAL  # 兜底扫索引间隔（秒）
 
     # 冷启动：索引最近条目仅作去重种子，不重复推送历史
     try:
         from backend.services.sign_tasks import get_sign_task_service
 
-        seed = get_sign_task_service().get_recent_history_logs(limit=30)
+        seed = get_sign_task_service().get_recent_history_logs(limit=SSE_SEED_LIMIT)
         for item in seed:
-            last_seen.add(_entry_dedupe_key(item))
+            last_seen[_entry_dedupe_key(item)] = True
     except Exception as exc:
         _logger.debug("签到历史 SSE 种子加载失败: %s", exc, exc_info=True)
 
@@ -89,14 +105,14 @@ async def _sign_history_event_stream() -> AsyncGenerator[bytes, None]:
     try:
         while True:
             try:
-                item = await asyncio.wait_for(q.get(), timeout=5.0)
+                item = await asyncio.wait_for(q.get(), timeout=SSE_QUEUE_WAIT_TIMEOUT)
             except asyncio.TimeoutError:
                 item = None
 
             if item is not None and isinstance(item, dict):
                 key = _entry_dedupe_key(item)
                 if key not in last_seen:
-                    last_seen.add(key)
+                    last_seen[key] = True
                     yield _sign_log_sse_bytes(item)
                     last_heartbeat = time.monotonic()
 
@@ -107,7 +123,9 @@ async def _sign_history_event_stream() -> AsyncGenerator[bytes, None]:
                 try:
                     from backend.services.sign_tasks import get_sign_task_service
 
-                    entries = get_sign_task_service().get_recent_history_logs(limit=20)
+                    entries = get_sign_task_service().get_recent_history_logs(
+                        limit=SSE_FALLBACK_SCAN_LIMIT
+                    )
                 except Exception as exc:
                     _logger.debug("签到历史兜底扫描失败: %s", exc)
                     entries = []
@@ -115,14 +133,14 @@ async def _sign_history_event_stream() -> AsyncGenerator[bytes, None]:
                     key = _entry_dedupe_key(entry)
                     if key in last_seen:
                         continue
-                    last_seen.add(key)
+                    last_seen[key] = True
                     yield _sign_log_sse_bytes(entry)
                     last_heartbeat = time.monotonic()
-                if len(last_seen) > 500:
-                    # 保留较新的 key（无序 set 截断为任意 300）
-                    last_seen = set(list(last_seen)[-300:])
+                if len(last_seen) > SSE_DEDUPE_MAX:
+                    # 保留最近 SSE_DEDUPE_KEEP 个 key（dict 插入序即到达序）
+                    last_seen = dict(list(last_seen.items())[-SSE_DEDUPE_KEEP:])
 
-            if time.monotonic() - last_heartbeat >= 15:
+            if time.monotonic() - last_heartbeat >= SSE_HEARTBEAT_INTERVAL:
                 yield b": keep-alive\n\n"
                 last_heartbeat = time.monotonic()
     except asyncio.CancelledError:

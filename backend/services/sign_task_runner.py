@@ -35,6 +35,10 @@ POST_RUN_LOCK_BUFFER_SECONDS = 2
 LAST_REPLY_MAX_CHARS = 200
 # Session 文件锁冲突时的最大重试次数（线性退避见执行处）
 SQLITE_LOCK_MAX_RETRIES = 5
+# Session 文件锁线性退避的起始秒数与步进秒数
+# （刻意区别于瞬态网络错误的指数退避 compute_backoff）
+SQLITE_LOCK_BACKOFF_BASE_SECONDS = 3
+SQLITE_LOCK_BACKOFF_STEP_SECONDS = 3
 
 if TYPE_CHECKING:
     from backend.services.sign_tasks import SignTaskService
@@ -310,7 +314,10 @@ async def _runner_execute_with_retry(state: Dict[str, Any]) -> None:
                     if attempt < max_retries - 1:
                         # SQLite 锁等待用线性退避（与瞬态网络错误的指数退避
                         # compute_backoff 刻意区分）
-                        delay = 3 + (attempt * 3)
+                        delay = (
+                            SQLITE_LOCK_BACKOFF_BASE_SECONDS
+                            + (attempt * SQLITE_LOCK_BACKOFF_STEP_SECONDS)
+                        )
                         svc._append_active_log(
                             task_key,
                             f"Session 被锁定，{delay} 秒后重试... ({attempt + 1}/{max_retries})",
