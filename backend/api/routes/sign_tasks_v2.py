@@ -177,7 +177,9 @@ class ChatSearchResponse(BaseModel):
     offset: int
 
 
-class RunTaskStartResult(BaseModel):
+class RunTaskResultBase(BaseModel):
+    """任务运行结果公共字段：启动/状态两类响应共用，避免字段漂移。"""
+
     run_id: str
     state: str
     success: Optional[bool] = None
@@ -195,22 +197,12 @@ class RunTaskStartResult(BaseModel):
     retry_count_effective: Optional[int] = None
 
 
-class RunTaskStatusResult(BaseModel):
-    run_id: str
-    state: str
-    success: Optional[bool] = None
-    error: str = ""
-    output: str = ""
-    started_at: Optional[str] = None
-    finished_at: Optional[str] = None
-    phase: Optional[str] = None
-    phase_detail: str = ""
-    wait_seconds: Optional[float] = None
-    account_name: str = ""
-    task_name: str = ""
-    failure_category: Optional[str] = None
-    timeout_seconds: Optional[float] = None
-    retry_count_effective: Optional[int] = None
+class RunTaskStartResult(RunTaskResultBase):
+    pass
+
+
+class RunTaskStatusResult(RunTaskResultBase):
+    pass
 
 
 class CancelRunResult(BaseModel):
@@ -338,16 +330,14 @@ def update_sign_task(
             raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
 
         # Resolve a real account_name for update_task (skip wildcard)
+        from backend.services.sign_task_group import first_real_account
+
         resolved_account = effective_account or ""
         if not resolved_account:
-            for name in existing.get("account_names", []):
-                if name and name != "*":
-                    resolved_account = name
-                    break
-            if not resolved_account:
-                resolved_account = existing.get("account_name", "")
-            if resolved_account == "*":
-                resolved_account = ""
+            resolved_account = first_real_account(
+                existing.get("account_names") or [],
+                fallback=str(existing.get("account_name") or ""),
+            )
 
         chats_dict = (
             [_model_dump(chat) for chat in payload.chats]
@@ -427,16 +417,14 @@ def toggle_sign_task_enabled(
         if not existing:
             raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
 
+        from backend.services.sign_task_group import first_real_account
+
         resolved_account = effective_account or ""
         if not resolved_account:
-            for name in existing.get("account_names", []):
-                if name and name != "*":
-                    resolved_account = name
-                    break
-            if not resolved_account:
-                resolved_account = existing.get("account_name", "")
-            if resolved_account == "*":
-                resolved_account = ""
+            resolved_account = first_real_account(
+                existing.get("account_names") or [],
+                fallback=str(existing.get("account_name") or ""),
+            )
 
         current_enabled = bool(existing.get("enabled", True))
         task = get_sign_task_service().update_task(
@@ -518,13 +506,13 @@ def _resolve_task_account(task_name: str, account_name: Optional[str]) -> str:
         task = get_sign_task_service().get_task(task_name, aggregate=True)
         if not task:
             raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
-        for name in task.get("account_names", []):
-            if name and name != "*":
-                resolved_account = name
-                break
-        if not resolved_account or resolved_account == "*":
-            resolved_account = task.get("account_name", "")
-        if not resolved_account or resolved_account == "*":
+        from backend.services.sign_task_group import first_real_account
+
+        resolved_account = first_real_account(
+            task.get("account_names") or [],
+            fallback=str(task.get("account_name") or ""),
+        )
+        if not resolved_account:
             raise HTTPException(status_code=400, detail="TASK_ACCOUNT_UNRESOLVED")
     else:
         task = get_sign_task_service().get_task(task_name, account_name=resolved_account)
