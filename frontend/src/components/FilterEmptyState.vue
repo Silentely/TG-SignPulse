@@ -18,7 +18,7 @@ const emit = defineEmits<{
 
 <template>
   <div class="ui-empty">
-    <p class="ui-empty-title !text-gray-500 font-normal">{{ title }}</p>
+    <p class="ui-empty-title !text-gray-500 dark:!text-gray-400 font-normal">{{ title }}</p>
     <p v-if="hint" class="ui-empty-desc mb-3">{{ hint }}</p>
     <button
       v-if="actionText"

@@ -53,6 +53,7 @@ const emit = defineEmits<{
     <select
       v-if="hitsView === 'groups'"
       class="ui-input !h-8 !text-xs !w-auto"
+      :aria-label="t('taskLogs.groupByLabel')"
       :value="hitGroupBy"
       @change="emit('update:hitGroupBy', ($event.target as HTMLSelectElement).value as 'task' | 'account' | 'chat')"
     >
@@ -72,7 +73,7 @@ const emit = defineEmits<{
     </button>
   </div>
 
-  <div v-if="hitsLoading" class="animate-pulse space-y-2 !py-4" role="status" aria-label="加载中">
+  <div v-if="hitsLoading" class="animate-pulse space-y-2 !py-4" role="status" :aria-label="t('common.loading')">
     <div v-for="i in 4" :key="i" class="flex items-center gap-3 px-2 py-2">
       <span class="h-3 w-32 shrink-0 rounded bg-gray-200 dark:bg-gray-800" />
       <span class="h-3 w-20 shrink-0 rounded bg-gray-200 dark:bg-gray-800" />
@@ -94,7 +95,7 @@ const emit = defineEmits<{
     >
       <div class="flex items-center justify-between gap-2">
         <span class="font-mono text-sky-700 dark:text-sky-300 truncate">{{ hit.keyword || '-' }}</span>
-        <span class="text-gray-500 font-mono shrink-0">{{ formatDate(hit.time) }}</span>
+        <span class="text-gray-500 dark:text-gray-400 font-mono shrink-0">{{ formatDate(hit.time) }}</span>
       </div>
       <div class="text-gray-600 dark:text-gray-400 truncate">
         {{ hit.chat_title || hit.chat_id || '-' }}

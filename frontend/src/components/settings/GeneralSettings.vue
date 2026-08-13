@@ -63,24 +63,24 @@ const onStringInput = (key: keyof SettingsFormState, e: Event) => {
     </div>
     <div class="space-y-5">
       <div class="space-y-1.5">
-        <label class="ui-label">{{ t('settings.logRetention') }}</label>
-        <input :value="modelValue.logDays" @input="onNumberInput('logDays', $event)" type="number" :placeholder="t('settings.logRetentionPlaceholder')" class="ui-input">
+        <label class="ui-label" for="settings-log-retention">{{ t('settings.logRetention') }}</label>
+        <input id="settings-log-retention" :value="modelValue.logDays" @input="onNumberInput('logDays', $event)" type="number" :placeholder="t('settings.logRetentionPlaceholder')" class="ui-input">
       </div>
       <div class="space-y-1.5">
-        <label class="ui-label">{{ t('settings.dataDir') }}</label>
-        <input :value="modelValue.dataDir" @input="onStringInput('dataDir', $event)" type="text" placeholder="/data" class="ui-input">
+        <label class="ui-label" for="settings-data-dir">{{ t('settings.dataDir') }}</label>
+        <input id="settings-data-dir" :value="modelValue.dataDir" @input="onStringInput('dataDir', $event)" type="text" placeholder="/data" class="ui-input">
       </div>
       <div class="space-y-1.5">
-        <label class="ui-label">{{ t('settings.proxy') }}</label>
-        <input :value="modelValue.proxy" @input="onStringInput('proxy', $event)" type="text" placeholder="socks5://127.0.0.1:1080" class="ui-input">
+        <label class="ui-label" for="settings-proxy">{{ t('settings.proxy') }}</label>
+        <input id="settings-proxy" :value="modelValue.proxy" @input="onStringInput('proxy', $event)" type="text" placeholder="socks5://127.0.0.1:1080" class="ui-input">
       </div>
       <div class="space-y-1.5">
-        <label class="ui-label">{{ t('settings.concurrency') }}</label>
-        <input :value="modelValue.concurrency" @input="onNumberInput('concurrency', $event)" type="number" min="1" max="10" :placeholder="t('settings.concurrencyPlaceholder')" class="ui-input">
+        <label class="ui-label" for="settings-concurrency">{{ t('settings.concurrency') }}</label>
+        <input id="settings-concurrency" :value="modelValue.concurrency" @input="onNumberInput('concurrency', $event)" type="number" min="1" max="10" :placeholder="t('settings.concurrencyPlaceholder')" class="ui-input">
       </div>
       <div class="space-y-1.5">
-        <label class="ui-label">{{ t('settings.signInterval') }}</label>
-        <input :value="modelValue.checkInterval" @input="onStringInput('checkInterval', $event)" type="number" min="0" max="3600" :placeholder="t('settings.signIntervalPlaceholder')" class="ui-input">
+        <label class="ui-label" for="settings-sign-interval">{{ t('settings.signInterval') }}</label>
+        <input id="settings-sign-interval" :value="modelValue.checkInterval" @input="onStringInput('checkInterval', $event)" type="number" min="0" max="3600" :placeholder="t('settings.signIntervalPlaceholder')" class="ui-input">
         <p class="text-[10px] text-gray-500">{{ t('settings.signIntervalHint') }}</p>
       </div>
       <div class="p-3 bg-gray-50 dark:bg-white/[0.02] border border-gray-200 dark:border-gray-800/60 space-y-3">

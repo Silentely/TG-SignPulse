@@ -194,7 +194,7 @@ const jobStatusLabel = (status: string) => {
           @click="router.push({ name: link.name })"
         >
           <div class="flex items-center gap-2.5 mb-2">
-            <span class="ui-section-icon !w-8 !h-8 group-hover:scale-105 transition-transform">
+            <span class="ui-section-icon group-hover:scale-105 transition-transform">
               <component :is="link.icon" class="w-3.5 h-3.5" stroke-width="1.75" />
             </span>
             <span class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ t(link.titleKey) }}</span>
@@ -227,7 +227,7 @@ const jobStatusLabel = (status: string) => {
               {{ phaseLabel(run.phase, t) || formatPhaseDetail(run, t) || t('runStatus.inProgress') }}
             </span>
             <span class="font-mono truncate text-gray-800 dark:text-gray-200" :title="run.task_name">{{ run.task_name || '-' }}</span>
-            <span class="text-gray-500 truncate shrink-0 max-w-[6rem]" :title="run.account_name">{{ run.account_name || '-' }}</span>
+            <span class="text-gray-500 dark:text-gray-400 truncate shrink-0 max-w-[6rem]" :title="run.account_name">{{ run.account_name || '-' }}</span>
             <span class="ml-auto text-[10px] text-gray-400 font-mono shrink-0 truncate max-w-[40%]" :title="formatPhaseDetail(run, t)">
               {{ formatPhaseDetail(run, t) }}
             </span>
@@ -284,7 +284,7 @@ const jobStatusLabel = (status: string) => {
             <span class="truncate text-gray-700 dark:text-gray-300" :title="hit.task_name">
               {{ hit.task_name || '-' }}
             </span>
-            <span class="text-gray-500 truncate shrink-0 max-w-[5rem]" :title="hit.account_name">
+            <span class="text-gray-500 dark:text-gray-400 truncate shrink-0 max-w-[5rem]" :title="hit.account_name">
               {{ hit.account_name || '-' }}
             </span>
             <span class="ml-auto text-[10px] text-gray-400 font-mono shrink-0">
@@ -353,7 +353,7 @@ const jobStatusLabel = (status: string) => {
           class="ui-list-row flex items-center gap-3 text-xs px-2 py-2 rounded-sm"
           :title="`${t('dashboard.nextRun')}: ${formatJobTime(job.next_run_time)} · ${jobKindLabel(job.kind)} · ${job.id}`"
         >
-          <span class="font-mono text-gray-500 w-28 shrink-0">{{ formatJobTime(job.next_run_time) }}</span>
+          <span class="font-mono text-gray-500 dark:text-gray-400 w-28 shrink-0">{{ formatJobTime(job.next_run_time) }}</span>
           <span
             class="ui-badge shrink-0"
             :class="job.kind === 'sign' ? 'border-sky-200 text-sky-700 dark:border-sky-800 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/40' : 'ui-badge-neutral'"
@@ -397,7 +397,7 @@ const jobStatusLabel = (status: string) => {
         </button>
       </div>
       <div v-if="logs.length === 0" class="ui-empty py-16">
-        <p class="ui-empty-title !text-gray-500 font-normal">{{ t('logs.empty') }}</p>
+        <p class="ui-empty-title !text-gray-500 dark:!text-gray-400 font-normal">{{ t('logs.empty') }}</p>
         <p class="ui-empty-desc">{{ t('logs.emptyHint') }}</p>
       </div>
       <div v-else class="text-xs overflow-x-auto space-y-0">
@@ -409,7 +409,7 @@ const jobStatusLabel = (status: string) => {
           @click="selectedLog = log"
           @dblclick="goToLogs(log)"
         >
-          <span class="font-mono text-gray-500 dark:text-gray-400 shrink-0 w-[100px] text-[11px] truncate" :title="formatTime(log.created_at)">{{ log.time }}</span>
+          <span class="font-mono text-gray-500 dark:text-gray-400 shrink-0 w-[140px] text-[11px] truncate" :title="formatTime(log.created_at)">{{ log.time }}</span>
           <span class="text-gray-700 dark:text-gray-400 shrink-0 w-24 truncate font-medium">{{ log.account }}</span>
           <span class="text-gray-600 dark:text-gray-500 shrink-0 w-28 truncate">{{ log.task }}</span>
           <span

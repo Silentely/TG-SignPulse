@@ -151,7 +151,7 @@ const displayValue = computed(() => {
       aria-haspopup="dialog"
       @click="toggle"
     >
-      <span class="truncate" :class="!modelValue ? 'text-gray-400 dark:text-gray-500' : ''">
+      <span class="truncate" :class="!modelValue ? 'text-gray-400 dark:text-gray-400' : ''">
         {{ displayValue || placeholder || t('datePicker.selectDate') }}
       </span>
       <div class="flex items-center gap-0.5 shrink-0">
