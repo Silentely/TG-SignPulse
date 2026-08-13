@@ -73,7 +73,7 @@ const historyItemKey = (log: SignTaskHistoryItem) =>
   </div>
 
   <!-- Loading / empty -->
-  <div v-if="loading && logs.length === 0 && realtimeLogs.length === 0" class="animate-pulse space-y-2 !py-4" role="status" aria-label="加载中">
+  <div v-if="loading && logs.length === 0 && realtimeLogs.length === 0" class="animate-pulse space-y-2 !py-4" role="status" :aria-label="t('common.loading')">
     <div v-for="i in 3" :key="i" class="flex items-center gap-3 px-2 py-2">
       <span class="h-3 w-24 shrink-0 rounded bg-gray-200 dark:bg-gray-800" />
       <span class="h-3 flex-1 min-w-0 rounded bg-gray-200 dark:bg-gray-800" />
@@ -103,7 +103,7 @@ const historyItemKey = (log: SignTaskHistoryItem) =>
             {{ log.success ? t('taskLogs.success') : t('taskLogs.failed') }}
           </span>
         </span>
-        <span class="text-xs text-gray-500 font-mono shrink-0">{{ formatDate(log.time || log.created_at || '') }}</span>
+        <span class="text-xs text-gray-500 dark:text-gray-400 font-mono shrink-0">{{ formatDate(log.time || log.created_at || '') }}</span>
       </div>
 
       <div v-if="log.last_target_message || log.bot_message" class="mt-2 text-sm text-gray-700 dark:text-gray-300">

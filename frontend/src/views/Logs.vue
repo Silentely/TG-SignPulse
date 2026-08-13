@@ -180,7 +180,7 @@ const {
             @action="clearFilters"
           />
           <template v-else>
-            <p class="ui-empty-title !text-gray-500 font-normal">{{ t('logs.empty') }}</p>
+            <p class="ui-empty-title !text-gray-500 dark:!text-gray-400 font-normal">{{ t('logs.empty') }}</p>
             <p class="ui-empty-desc">{{ t('logs.emptyHint') }}</p>
           </template>
         </div>
@@ -235,7 +235,7 @@ const {
       <!-- Login audit -->
       <div v-else class="text-xs space-y-0">
         <div v-if="loginLogs.length === 0" class="ui-empty py-16">
-          <p class="ui-empty-title !text-gray-500 font-normal">{{ t('logs.emptyLogin') }}</p>
+          <p class="ui-empty-title !text-gray-500 dark:!text-gray-400 font-normal">{{ t('logs.emptyLogin') }}</p>
           <p class="ui-empty-desc">{{ t('logs.emptyLoginHint') }}</p>
         </div>
         <div v-else class="overflow-x-auto">

@@ -236,6 +236,7 @@ const hitLink = (hit: KeywordHitRecord) => safeHitUrl(hit.url)
           v-if="panelTab === 'hits'"
           type="button"
           class="ui-icon-btn disabled:opacity-50"
+          :aria-label="t('taskLogs.hitsExport')"
           :title="t('taskLogs.hitsExport')"
           :disabled="hitsExporting"
           @click="exportHits"

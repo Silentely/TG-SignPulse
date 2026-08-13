@@ -165,7 +165,7 @@ const selectedLabel = computed(() => {
         class="truncate"
         :class="allMode
           ? 'text-sky-600 dark:text-sky-400 font-medium'
-          : modelValue.length === 0 ? 'text-gray-400 dark:text-gray-500' : ''"
+          : modelValue.length === 0 ? 'text-gray-400 dark:text-gray-400' : ''"
       >{{ selectedLabel }}</span>
       <ChevronDown class="w-4 h-4 text-gray-400 transition-transform duration-200 shrink-0" :class="isOpen ? 'rotate-180' : ''" />
     </button>

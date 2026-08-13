@@ -147,7 +147,7 @@ const hasValue = computed(() => {
       @click="toggle"
       @keydown="onKeydown"
     >
-      <span class="truncate" :class="!hasValue ? 'text-gray-400 dark:text-gray-500' : ''">{{ selectedLabel }}</span>
+      <span class="truncate" :class="!hasValue ? 'text-gray-400 dark:text-gray-400' : ''">{{ selectedLabel }}</span>
       <ChevronDown class="w-4 h-4 text-gray-400 transition-transform duration-200 shrink-0" :class="isOpen ? 'rotate-180' : ''" />
     </button>
 
