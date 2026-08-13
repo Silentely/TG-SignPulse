@@ -43,16 +43,14 @@ def _resolve_sign_account(task_name: str, account_name: Optional[str]) -> Option
     )
     if not existing:
         return None
-    resolved = effective or ""
-    if not resolved:
-        for name in existing.get("account_names") or []:
-            if name and name != "*":
-                resolved = name
-                break
-        if not resolved:
-            resolved = str(existing.get("account_name") or "")
-        if resolved == "*":
-            resolved = ""
+    if effective:
+        return effective
+    from backend.services.sign_task_group import first_real_account
+
+    resolved = first_real_account(
+        existing.get("account_names") or [],
+        fallback=str(existing.get("account_name") or ""),
+    )
     return resolved or None
 
 
