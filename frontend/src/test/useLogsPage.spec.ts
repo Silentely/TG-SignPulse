@@ -276,6 +276,25 @@ describe('useLogsPage (route + mount)', () => {
     unmount()
   })
 
+  it('load failure sets loadFailed and success resets it', async () => {
+    routeMocks.state.query = {} // 避免路由筛选触发额外加载，稳定只发生一次首载
+    api.getTaskHistoryLogs.mockRejectedValueOnce(new Error('boom'))
+    const { result, unmount } = mountComposable(() => useLogsPage())
+    await flushPromises()
+
+    expect(result.loadFailed.value).toBe(true)
+    expect(result.logs.value).toEqual([])
+
+    // 恢复成功后重试，错误态复位
+    api.getTaskHistoryLogs.mockResolvedValue([
+      { id: 1, task_name: 't', account_name: 'a', created_at: 'x', success: true, message: 'ok' },
+    ])
+    await result.loadLogs()
+    expect(result.loadFailed.value).toBe(false)
+    expect(result.logs.value.length).toBeGreaterThan(0)
+    unmount()
+  })
+
   it('switching to login tab loads audit logs', async () => {
     api.getLoginAuditLogs.mockResolvedValue([
       {

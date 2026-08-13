@@ -78,6 +78,35 @@ describe('task-list-map', () => {
     expect((ui as any).modeIconKind).toBeUndefined()
   })
 
+  it('chatName falls back to localized prefix with chat id', () => {
+    const fields = mapSignTaskToListFields(
+      baseTask({ chats: [{ chat_id: 123, name: '', actions: [], action_interval: 1 }] }),
+      labels,
+    )
+    expect(fields.chatName).toBe('会话 123')
+  })
+
+  it('targetStr appends thread id suffix only when name empty', () => {
+    const withName = mapSignTaskToListFields(
+      baseTask({ chats: [{ chat_id: 7, name: '群', message_thread_id: 42, actions: [], action_interval: 1 }] }),
+      labels,
+    )
+    expect(withName.chatName).toBe('群')
+    expect(withName.targetStr).toBe('群')
+
+    const withoutName = mapSignTaskToListFields(
+      baseTask({ chats: [{ chat_id: 7, name: '', message_thread_id: 42, actions: [], action_interval: 1 }] }),
+      labels,
+    )
+    expect(withoutName.targetStr).toBe('7|42')
+  })
+
+  it('empty chats fall back to noTarget label', () => {
+    const fields = mapSignTaskToListFields(baseTask({ chats: [] }), labels)
+    expect(fields.chatName).toBe('')
+    expect(fields.targetStr).toBe('无目标')
+  })
+
   it('lastRunStr 走统一面板时区格式化（UTC → Asia/Hong_Kong）', () => {
     const fields = mapSignTaskToListFields(
       baseTask({

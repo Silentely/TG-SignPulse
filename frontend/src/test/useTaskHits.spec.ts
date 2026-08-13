@@ -31,6 +31,10 @@ vi.mock('../composables/useConfirm', () => ({
 }))
 vi.mock('../lib/api', () => api)
 
+vi.mock('../lib/download', () => ({
+  downloadBlob: vi.fn(),
+}))
+
 vi.mock('../lib/chain-poll', () => ({
   startChainPoll: vi.fn(() => ({ stop: vi.fn(), active: true })),
 }))
@@ -38,6 +42,7 @@ vi.mock('../lib/chain-poll', () => ({
 import { useTaskHits } from '../composables/useTaskHits'
 import { useAuthStore } from '../stores/auth'
 import { startChainPoll } from '../lib/chain-poll'
+import { downloadBlob } from '../lib/download'
 
 describe('useTaskHits', () => {
   beforeEach(() => {
@@ -153,5 +158,60 @@ describe('useTaskHits', () => {
     await hits.loadHits()
     expect(toastSpy.error).toHaveBeenCalled()
     expect(hits.hitRecords.value).toEqual([])
+  })
+
+  it('exportHits downloads blob with limit 2000 and resets busy', async () => {
+    api.exportKeywordHitsBlob.mockResolvedValue(new Blob(['csv']))
+    const hits = setup()
+    await hits.exportHits()
+    expect(api.exportKeywordHitsBlob).toHaveBeenCalledWith(
+      'tok',
+      expect.objectContaining({ task_name: 'listen-task', account_name: 'acc1', limit: 2000 }),
+    )
+    expect(downloadBlob).toHaveBeenCalled()
+    expect(toastSpy.success).toHaveBeenCalled()
+    expect(hits.hitsExporting.value).toBe(false)
+  })
+
+  it('exportHits no-ops without task name and surfaces errors', async () => {
+    const hits = setup({ taskName: '' })
+    await hits.exportHits()
+    expect(api.exportKeywordHitsBlob).not.toHaveBeenCalled()
+
+    api.exportKeywordHitsBlob.mockRejectedValue(new Error('boom'))
+    const hits2 = setup()
+    await hits2.exportHits()
+    expect(toastSpy.error).toHaveBeenCalled()
+    expect(hits2.hitsExporting.value).toBe(false)
+  })
+
+  it('exportHits ignores duplicate calls while in flight', async () => {
+    let resolveExport!: (v: Blob) => void
+    api.exportKeywordHitsBlob.mockReturnValueOnce(
+      new Promise<Blob>((resolve) => { resolveExport = resolve }),
+    )
+    const hits = setup()
+    const p1 = hits.exportHits()
+    const p2 = hits.exportHits() // 在途时二次调用应被短路
+    resolveExport(new Blob(['x']))
+    await Promise.all([p1, p2])
+    expect(api.exportKeywordHitsBlob).toHaveBeenCalledTimes(1)
+  })
+
+  it('clearHits ignores duplicate calls while clearing', async () => {
+    let resolveClear!: (v: { deleted: number }) => void
+    api.clearKeywordHits.mockReturnValueOnce(
+      new Promise<{ deleted: number }>((resolve) => { resolveClear = resolve }),
+    )
+    api.listKeywordHits.mockResolvedValue({ items: [], total: 0 })
+    const hits = setup()
+    const p1 = hits.clearHits()
+    const p2 = hits.clearHits() // 清空请求在途时二次调用应被短路
+    resolveClear({ deleted: 3 })
+    await Promise.all([p1, p2])
+    expect(api.clearKeywordHits).toHaveBeenCalledTimes(1)
+    // 清空成功后刷新列表计数
+    expect(api.listKeywordHits).toHaveBeenCalled()
+    expect(hits.hitsClearing.value).toBe(false)
   })
 })
