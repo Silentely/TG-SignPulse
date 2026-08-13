@@ -136,7 +136,7 @@ onUnmounted(() => {
 const handleDelete = async (name: string) => {
   const ok = await confirm({
     title: t('common.dangerConfirm'),
-    message: `${t('accounts.deleteConfirm')} ${name} ?`,
+    message: t('accounts.deleteConfirm', { name }),
     confirmText: t('common.delete'),
     danger: true,
   })

@@ -65,11 +65,11 @@ const handleSave = async () => {
   <Modal :isOpen="isOpen" @close="$emit('close')" :title="t('taskModal.editTitle')" maxWidthClass="max-w-3xl">
     <template #header-extra>
       <div class="flex flex-wrap items-center gap-x-3 gap-y-1 ml-4">
-        <label class="flex items-center gap-1.5 cursor-pointer">
+        <label class="flex items-center gap-1.5 cursor-pointer" :title="t('taskForm.notifyChannelHint')">
           <input type="checkbox" v-model="notifyOnFailure" class="rounded border-gray-300 accent-sky-500 w-3.5 h-3.5">
           <span class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('taskForm.notifyOnFailure') }}</span>
         </label>
-        <label class="flex items-center gap-1.5 cursor-pointer">
+        <label class="flex items-center gap-1.5 cursor-pointer" :title="t('taskForm.notifyChannelHint')">
           <input type="checkbox" v-model="notifyOnSuccess" class="rounded border-gray-300 accent-sky-500 w-3.5 h-3.5">
           <span class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('taskForm.notifyOnSuccess') }}</span>
         </label>
