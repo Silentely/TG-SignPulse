@@ -389,6 +389,7 @@
     "hitsTab": "Hits",
     "hitsList": "List",
     "hitsGroups": "Groups",
+    "groupByLabel": "Group hits by",
     "groupByChat": "By chat",
     "groupByAccount": "By account",
     "groupByTask": "By task",
