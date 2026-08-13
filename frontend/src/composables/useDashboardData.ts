@@ -45,6 +45,8 @@ export function useDashboardData() {
   const liveConnected = ref(false)
   const pageLoading = ref(true)
   const partialLoad = ref(false)
+  /** 非首屏刷新在途（轮询/手动）：供模板做轻量加载反馈 */
+  const refreshing = ref(false)
   const stats = ref([
     { key: 'dashboard.activeAccounts', hintKey: 'dashboard.activeAccountsHint', value: '...' },
     { key: 'dashboard.totalTasks', hintKey: 'dashboard.totalTasksHint', value: '...' },
@@ -142,6 +144,9 @@ export function useDashboardData() {
     const token = getAuthToken()
     if (!token) return
 
+    // 非首屏（轮询/手动刷新）时置刷新态，供模板做轻量加载反馈
+    if (!pageLoading.value) refreshing.value = true
+
     let accRes: { accounts: AccountInfo[]; total: number } = { accounts: [], total: 0 }
     let tasksRes: Awaited<ReturnType<typeof listSignTasks>> = []
     let logsRes: AccountLog[] = []
@@ -213,7 +218,10 @@ export function useDashboardData() {
     }
 
     // 卸载后在途 tick：不再写入状态或触发共享轮询
-    if (disposed) return
+    if (disposed) {
+      refreshing.value = false
+      return
+    }
 
     partialLoad.value = hasLoadFailure
 
@@ -280,6 +288,7 @@ export function useDashboardData() {
       (j) => j.status === 'running' || j.status === 'canceling',
     )
     statusJobs.value = (activeStatus.length ? activeStatus : allStatusJobs).slice(0, 3)
+    refreshing.value = false
   }
 
   // 页面隐藏时暂停 30s 轮询，回到前台立即刷新并恢复：
@@ -331,6 +340,7 @@ export function useDashboardData() {
   return {
     pageLoading,
     partialLoad,
+    refreshing,
     liveConnected,
     stats,
     logs,

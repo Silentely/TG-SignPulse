@@ -34,6 +34,7 @@ const selectedLog = ref<DashboardLog | null>(null)
 const {
   pageLoading,
   partialLoad,
+  refreshing,
   liveConnected,
   stats,
   logs,
@@ -66,7 +67,7 @@ const goToLogs = (log: DashboardLog) => {
 const logKey = (log: DashboardLog) =>
   `${log.created_at || log.time}|${log.account}|${log.task}|${(log.text || '').length}`
 
-const formatJobTime = (iso?: string | null) => formatShortDateTime(iso)
+const formatJobTime = (iso?: string | null) => formatShortDateTime(iso, true)
 const jobKindLabel = (kind: string) => {
   if (kind === 'sign') return t('dashboard.jobKindSign')
   if (kind === 'system') return t('dashboard.jobKindSystem')
@@ -174,7 +175,8 @@ const jobStatusLabel = (status: string) => {
       >
         <span class="ui-section-label">{{ t(stat.key) }}</span>
         <span
-          class="text-2xl sm:text-3xl font-mono font-medium text-gray-900 dark:text-gray-100 mt-3 tracking-tight"
+          class="text-2xl sm:text-3xl font-mono font-medium text-gray-900 dark:text-gray-100 mt-3 tracking-tight transition-opacity duration-300"
+          :class="refreshing ? 'opacity-50' : 'opacity-100'"
           :title="t(stat.hintKey)"
         >{{ stat.value }}</span>
       </button>
@@ -407,7 +409,7 @@ const jobStatusLabel = (status: string) => {
           @click="selectedLog = log"
           @dblclick="goToLogs(log)"
         >
-          <span class="font-mono text-gray-500 dark:text-gray-600 shrink-0 w-[100px] text-[11px] truncate" :title="formatTime(log.created_at)">{{ log.time }}</span>
+          <span class="font-mono text-gray-500 dark:text-gray-400 shrink-0 w-[100px] text-[11px] truncate" :title="formatTime(log.created_at)">{{ log.time }}</span>
           <span class="text-gray-700 dark:text-gray-400 shrink-0 w-24 truncate font-medium">{{ log.account }}</span>
           <span class="text-gray-600 dark:text-gray-500 shrink-0 w-28 truncate">{{ log.task }}</span>
           <span
