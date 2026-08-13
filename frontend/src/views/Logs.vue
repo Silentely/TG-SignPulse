@@ -199,7 +199,7 @@ const {
             class="ui-list-row flex items-center gap-3 px-2 py-2 cursor-pointer rounded-sm"
             @click="openLogDetail(log)"
           >
-            <span class="font-mono text-gray-500 dark:text-gray-600 shrink-0 w-[140px] text-[11px]">{{ log.time }}</span>
+            <span class="font-mono text-gray-500 dark:text-gray-400 shrink-0 w-[140px] text-[11px]">{{ log.time }}</span>
             <span class="text-gray-700 dark:text-gray-400 shrink-0 w-24 truncate font-medium">{{ log.account }}</span>
             <span class="text-gray-600 dark:text-gray-500 shrink-0 w-28 truncate">{{ log.task }}</span>
             <span
@@ -251,7 +251,7 @@ const {
             :key="log.id"
             class="ui-list-row flex items-center gap-3 px-2 py-2 rounded-sm"
           >
-            <span class="font-mono text-gray-500 dark:text-gray-600 shrink-0 w-[140px] text-[11px]">{{ log.time }}</span>
+            <span class="font-mono text-gray-500 dark:text-gray-400 shrink-0 w-[140px] text-[11px]">{{ log.time }}</span>
             <span class="text-gray-700 dark:text-gray-400 shrink-0 w-24 truncate font-medium">{{ log.username }}</span>
             <span class="text-gray-500 shrink-0 w-32 truncate font-mono text-[11px]">{{ log.ip }}</span>
             <span
