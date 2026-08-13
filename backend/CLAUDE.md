@@ -81,6 +81,12 @@ uvicorn backend.main:app --host 127.0.0.1 --port 8080
 > 旧版 ORM 任务体系（`tasks.py` / `/api/tasks` / `POST /batch/tasks`）已**完全移除**，
 > 统一走 `/api/sign-tasks` + `POST /api/batch/sign-tasks`。
 
+### 列表端点返回约定
+
+- **历史日志类端点一律返回裸数组**：`/accounts/logs/recent`、`/accounts/{name}/logs`、`/logs/login`、`/logs/tasks`、`/sign-tasks/{task}/history`、`/sign-tasks/{task}/logs`。
+- **带元数据（总数/偏移）的列表用 `{<复数键>: [...]}` 或 `{items, total, ...}` 包壳**：账号列表 `{accounts, total}`、关键词命中 `{items, total, offset, limit}`、调度任务 `{jobs, total}`。
+- **新端点默认包壳**；不要在历史端点上新加分页/元数据键，保持前端类型声明（`lib/api/*`）与端点一一对应。
+
 ### 认证机制
 
 - **JWT (HS256)**：有效期默认 12 小时（`APP_ACCESS_TOKEN_EXPIRE_HOURS`）
