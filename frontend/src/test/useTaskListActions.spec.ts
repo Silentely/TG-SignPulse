@@ -66,7 +66,14 @@ describe('useTaskListActions', () => {
       loadTasks,
       openLogsAfterRun,
     })
-    return { actions, tasksRef, selectedTaskIds, loadTasks, openLogsAfterRun }
+    return {
+      actions,
+      tasksRef,
+      selectedTaskIds,
+      loadTasks,
+      openLogsAfterRun,
+      deleteBusyKey: actions.deleteBusyKey,
+    }
   }
 
   it('getTaskAccountName skips wildcard', () => {
@@ -173,6 +180,30 @@ describe('useTaskListActions', () => {
     await actions.handleDelete(task)
     expect(api.deleteSignTask).toHaveBeenCalledWith('tok', 'task-1', 'acc1')
     expect(loadTasks).toHaveBeenCalled()
+  })
+
+  it('handleDelete 防连点：删除请求在途时忽略重复调用并复位 busy', async () => {
+    let resolveDelete: ((value?: unknown) => void) | undefined
+    api.deleteSignTask.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveDelete = resolve
+        }),
+    )
+    const task = makeTaskUi()
+    const { actions, loadTasks, deleteBusyKey } = setup([task])
+
+    const first = actions.handleDelete(task)
+    await Promise.resolve() // 让 confirm 微任务完成、进入请求在途
+    expect(deleteBusyKey.value).toBe('task-1')
+    // 请求尚未返回：二次调用被短路，只发一次删除请求
+    await actions.handleDelete(task)
+    expect(api.deleteSignTask).toHaveBeenCalledTimes(1)
+
+    resolveDelete?.({})
+    await first
+    expect(deleteBusyKey.value).toBe('') // finally 复位
+    expect(loadTasks).toHaveBeenCalledTimes(1)
   })
 
   it('handleToggleEnabled toggles', async () => {
