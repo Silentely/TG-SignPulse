@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import secrets
+import time
 from typing import Any, Dict, List, Optional
 
 from backend.core.config import get_settings
@@ -30,6 +31,10 @@ from backend.utils.tg_session import (
     set_account_status,
 )
 from backend.utils.time import utc_now_iso_z
+
+# 账号列表缓存 TTL（秒）：profile 变更后最多 N 秒内自动刷新，
+# 与登录/删除流程的显式置 None 失效互补
+ACCOUNTS_CACHE_TTL_SECONDS = 5.0
 
 settings = get_settings()
 
@@ -131,11 +136,16 @@ class TelegramAccountsMixin:
             - exists: session 文件是否存在
             - size: 文件大小（字节）
         """
+        # 账号列表缓存带短 TTL：防止 profile（备注/代理）变更后缓存永久过期，
+        # 又不至于让每次请求都重扫 session 目录
         if self._accounts_cache is not None and not force_refresh:
-            return [
-                {**acc, **self._account_status_payload(acc.get("name", ""))}
-                for acc in self._accounts_cache
-            ]
+            if time.monotonic() - getattr(self, "_accounts_cache_ts", 0.0) < ACCOUNTS_CACHE_TTL_SECONDS:
+                return [
+                    {**acc, **self._account_status_payload(acc.get("name", ""))}
+                    for acc in self._accounts_cache
+                ]
+            # TTL 过期：降级为强制重扫
+            self._accounts_cache = None
 
         accounts = []
 
@@ -211,6 +221,7 @@ class TelegramAccountsMixin:
                     )
 
             self._accounts_cache = sorted(accounts, key=lambda x: x["name"])
+            self._accounts_cache_ts = time.monotonic()
             return self._accounts_cache
         except Exception:
             return []

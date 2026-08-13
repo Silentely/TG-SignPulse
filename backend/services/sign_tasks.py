@@ -629,7 +629,9 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
     ) -> List[Dict[str, Any]]:
         from backend.services.sign_task_group import filter_related_task_infos
 
-        raw_tasks = self.list_tasks(force_refresh=True, aggregate=False)
+        # 吃 30s 列表缓存：写路径已有 _refresh_tasks_cache_after_write 保证缓存新鲜，
+        # 强制刷新会导致批量循环/轮询路径反复整树扫描 signs/ 目录
+        raw_tasks = self.list_tasks(force_refresh=False, aggregate=False)
         return filter_related_task_infos(
             raw_tasks,
             task_name,
@@ -1030,6 +1032,50 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
             logs = list(self._active_logs.get(key, []))
             return self._merge_active_and_monitor_logs(logs, monitor_logs)
         return list(monitor_logs)
+
+    def get_active_logs_since(
+        self,
+        task_name: str,
+        account_name: Optional[str],
+        prev_total: int,
+    ) -> tuple[List[str], int]:
+        """增量日志：总数未变时 O(1) 返回空，避免 WS 每 tick 全量拷贝。
+
+        返回 (增量日志, 当前总数)；头部裁剪导致总数回退时全量重推，
+        由调用方用返回的总数更新已推送位置。
+        """
+        monitor_logs: List[str] = []
+        try:
+            from backend.services.keyword_monitor import get_keyword_monitor_service
+
+            monitor_logs = get_keyword_monitor_service().get_task_logs(
+                task_name,
+                account_name,
+            )
+        except Exception:
+            monitor_logs = []
+
+        # active 引用取长（不拷贝 2000 行），仅在确有变化时才合并拷贝
+        active = None
+        if account_name:
+            active = self._active_logs.get(self._task_key(account_name, task_name))
+        else:
+            for key in self._find_task_keys(task_name):
+                active = self._active_logs.get(key)
+                break
+        active_len = len(active) if active else 0
+        monitor_len = len(monitor_logs)
+        total = active_len + monitor_len + (1 if active_len and monitor_len else 0)
+        if total == prev_total:
+            return [], total
+
+        merged = self._merge_active_and_monitor_logs(
+            list(active or []), monitor_logs
+        )
+        if total < prev_total:
+            # 头部裁剪或任务重启导致索引失效：全量重推
+            return merged, total
+        return merged[prev_total:], total
 
     @staticmethod
     def _merge_active_and_monitor_logs(

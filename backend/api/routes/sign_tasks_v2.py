@@ -794,9 +794,11 @@ async def sign_task_logs_ws(
     last_status_sig = None  # type: ignore[var-annotated]
     try:
         while True:
-            active_logs = get_sign_task_service().get_active_logs(
+            # 增量拉取：总数未变时 O(1) 返回空，避免每 tick 全量拷贝 2000 行
+            active_logs, log_total = get_sign_task_service().get_active_logs_since(
                 task_name,
                 account_name=effective_account,
+                prev_total=last_idx,
             )
             is_running = get_sign_task_service().is_task_running(
                 task_name,
@@ -831,17 +833,16 @@ async def sign_task_logs_ws(
                 is_running,
             )
 
-            if len(active_logs) > last_idx:
-                new_logs = active_logs[last_idx:]
+            if active_logs:
                 await websocket.send_json(
                     {
                         "type": "logs",
-                        "data": new_logs,
+                        "data": active_logs,
                         "is_running": is_running,
                         **status_payload,
                     }
                 )
-                last_idx = len(active_logs)
+                last_idx = log_total
                 last_status_sig = status_sig
             elif is_running and run_status and status_sig != last_status_sig:
                 # phase 变化时推送，避免卡在 starting 展示
@@ -856,7 +857,7 @@ async def sign_task_logs_ws(
 
             if (
                 not is_running
-                and last_idx >= len(active_logs)
+                and last_idx >= log_total
                 and (
                     seen_activity
                     or asyncio.get_running_loop().time() - connected_at >= 15
