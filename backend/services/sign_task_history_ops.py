@@ -232,12 +232,15 @@ class SignTaskHistoryMixin:
 
         try:
             ensure_history_index(self.run_history_dir)
+            # 无账号/日期过滤时优先读进程内内存索引（O(1) 取尾部），
+            # 避免每次列表请求都整文件 readlines 扫索引文件
+            prefer_memory = not normalized_account and not normalized_date
             indexed = list_recent_from_index(
                 self.run_history_dir,
                 limit=limit,
                 account_name=normalized_account,
                 date_prefix=normalized_date,
-                prefer_memory=False,
+                prefer_memory=prefer_memory,
             )
             if indexed:
                 return [
