@@ -302,10 +302,12 @@ const handleSave = async () => {
     }
     if (form.value.password) {
       await handleQrPasswordSubmit(token, loginId.value)
+    } else if (pollHandle?.active) {
+      // 没有密码但轮询仍在运行：保留轮询等待扫码完成，
+      // 停掉后扫码完成不会再被 pollStatus 检测到
+      loading.value = false
+      error.value = t('addAccount.waitScan')
     } else {
-      // 没有密码时，检查当前轮询是否还在运行
-      // 如果轮询在运行，说明还在等待后端确认，不需要用户操作
-      pollHandle?.stop()
       pollHandle = null
       error.value = t('addAccount.enterPasswordOrWait')
       loading.value = false
@@ -354,8 +356,9 @@ onUnmounted(() => {
 
       <!-- Common Fields -->
       <div class="space-y-1.5">
-        <label class="ui-label">{{ t('addAccount.accountName') }} <span class="text-rose-500">*</span></label>
+        <label class="ui-label" for="add-account-name">{{ t('addAccount.accountName') }} <span class="text-rose-500">*</span></label>
         <input 
+          id="add-account-name"
           v-model="form.account_name"
           type="text" 
           autocomplete="off"
@@ -365,8 +368,9 @@ onUnmounted(() => {
       </div>
       
       <div class="space-y-1.5">
-        <label class="ui-label">{{ t('addAccount.remark') }}</label>
+        <label class="ui-label" for="add-account-remark">{{ t('addAccount.remark') }}</label>
         <input 
+          id="add-account-remark"
           v-model="form.remark"
           type="text" 
           :placeholder="t('addAccount.remarkPlaceholder')"
@@ -377,8 +381,9 @@ onUnmounted(() => {
       <!-- Code specific fields -->
       <template v-if="loginMethod === 'code'">
         <div class="space-y-1.5">
-          <label class="ui-label">{{ t('addAccount.phone') }} <span class="text-rose-500">*</span></label>
+          <label class="ui-label" for="add-account-phone">{{ t('addAccount.phone') }} <span class="text-rose-500">*</span></label>
           <input 
+            id="add-account-phone"
             v-model="form.phone_number"
             type="tel" 
             autocomplete="tel"
@@ -387,9 +392,10 @@ onUnmounted(() => {
           >
         </div>
         <div class="space-y-1.5">
-          <label class="ui-label">{{ t('addAccount.verifyCode') }} <span class="text-rose-500">*</span></label>
+          <label class="ui-label" for="add-account-code">{{ t('addAccount.verifyCode') }} <span class="text-rose-500">*</span></label>
           <div class="flex gap-2">
             <input 
+              id="add-account-code"
               v-model="form.phone_code"
               type="text" 
               inputmode="numeric"
@@ -410,8 +416,9 @@ onUnmounted(() => {
 
       <!-- Cloud Password & Proxy for BOTH -->
       <div class="space-y-1.5">
-        <label class="ui-label">{{ t('addAccount.cloudPassword') }}</label>
+        <label class="ui-label" for="add-account-2fa">{{ t('addAccount.cloudPassword') }}</label>
         <input 
+          id="add-account-2fa"
           v-model="form.password"
           type="password" 
           autocomplete="new-password"
@@ -421,8 +428,9 @@ onUnmounted(() => {
       </div>
 
       <div class="space-y-1.5">
-        <label class="ui-label">{{ t('addAccount.proxy') }}</label>
+        <label class="ui-label" for="add-account-proxy">{{ t('addAccount.proxy') }}</label>
         <input 
+          id="add-account-proxy"
           v-model="form.proxy"
           type="text" 
           :placeholder="t('addAccount.proxyPlaceholder')"

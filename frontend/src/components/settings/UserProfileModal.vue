@@ -266,7 +266,7 @@ onUnmounted(revokeQrUrl)
         </div>
         <p class="text-xs text-gray-500">{{ t('profile.totpScanHint') }}</p>
         <div v-if="qrUrl" class="flex justify-center p-4 bg-white dark:bg-white mx-auto w-max border border-gray-200 dark:border-gray-300">
-          <img :src="qrUrl" alt="TOTP QR Code" class="w-36 h-36" />
+          <img :src="qrUrl" :alt="t('profile.totpQrAlt')" class="w-36 h-36" />
         </div>
         <p v-else class="text-xs text-gray-400 text-center py-4">{{ t('profile.loadingQr') }}</p>
         <div v-if="totpSecret" class="mt-2 p-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-center">

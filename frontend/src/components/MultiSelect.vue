@@ -42,7 +42,10 @@ const onKeydown = (e: KeyboardEvent) => {
     return
   }
   if (e.key === 'Escape') {
+    // stopPropagation：阻止事件冒泡到 Modal 的全局 Escape 监听，
+    // 避免收起下拉时把整个弹窗关掉、丢失未保存内容
     e.preventDefault()
+    e.stopPropagation()
     isOpen.value = false
     return
   }
