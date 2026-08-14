@@ -475,6 +475,13 @@ async def delete_account(
         success = await get_telegram_service().delete_account(account_name)
 
         if success:
+            # 清理签到服务内存中的账号痕迹：冷却时间戳与账号锁，
+            # 避免同名重建账号继承旧冷却、锁实例残留
+            from backend.services.sign_tasks import get_sign_task_service
+
+            sign_svc = get_sign_task_service()
+            sign_svc._account_last_run_end.pop(account_name, None)
+            sign_svc._account_locks.pop(account_name, None)
             return DeleteAccountResponse(
                 success=True, message=f"账号 {account_name} 已删除"
             )
