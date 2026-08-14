@@ -143,30 +143,31 @@ const displayValue = computed(() => {
 
 <template>
   <div class="relative" ref="pickerRef">
-    <button
-      type="button"
-      class="ui-select-trigger"
-      :class="isOpen ? 'ui-select-trigger-open' : ''"
-      :aria-expanded="isOpen"
-      aria-haspopup="dialog"
-      @click="toggle"
-    >
-      <span class="truncate" :class="!modelValue ? 'text-gray-400 dark:text-gray-400' : ''">
-        {{ displayValue || placeholder || t('datePicker.selectDate') }}
-      </span>
-      <div class="flex items-center gap-0.5 shrink-0">
-        <button
-          v-if="modelValue"
-          type="button"
-          class="p-0.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded"
-          :aria-label="t('datePicker.clearDate')"
-          @click="clear"
-        >
-          <X class="w-3 h-3" />
-        </button>
-        <ChevronDown class="w-4 h-4 text-gray-400 transition-transform duration-200" :class="isOpen ? 'rotate-180' : ''" />
-      </div>
-    </button>
+    <div class="flex items-center gap-1">
+      <button
+        type="button"
+        class="ui-select-trigger flex-1 min-w-0"
+        :class="isOpen ? 'ui-select-trigger-open' : ''"
+        :aria-expanded="isOpen"
+        aria-haspopup="dialog"
+        @click="toggle"
+      >
+        <span class="truncate" :class="!modelValue ? 'text-gray-400 dark:text-gray-400' : ''">
+          {{ displayValue || placeholder || t('datePicker.selectDate') }}
+        </span>
+        <ChevronDown class="w-4 h-4 text-gray-400 transition-transform duration-200 shrink-0" :class="isOpen ? 'rotate-180' : ''" />
+      </button>
+      <!-- 清除按钮独立于触发按钮，避免 button 嵌套的无效 HTML -->
+      <button
+        v-if="modelValue"
+        type="button"
+        class="ui-icon-btn !w-8 !h-8 shrink-0"
+        :aria-label="t('datePicker.clearDate')"
+        @click="clear"
+      >
+        <X class="w-3 h-3" />
+      </button>
+    </div>
 
     <Transition name="dropdown">
       <div

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, onUnmounted } from 'vue'
+import { RefreshCw } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
 import Modal from '../Modal.vue'
 import { changePassword, changeUsername, getTOTPStatus, setupTOTP, fetchTOTPQRCode, enableTOTP, disableTOTP } from '../../lib/api'
@@ -80,6 +81,8 @@ const handlePasswordChange = async () => {
 // TOTP logic
 const totpEnabled = ref(false)
 const qrUrl = ref('')
+/** TOTP 二维码加载失败标记：失败时展示错误态与重试，而非永久「加载中」 */
+const qrLoadFailed = ref(false)
 const totpCode = ref('')
 const totpSecret = ref('')
 
@@ -97,6 +100,7 @@ const revokeQrUrl = () => {
 
 const checkTOTP = async () => {
   revokeQrUrl()
+  qrLoadFailed.value = false
   const token = getAuthToken()
   if (!token) return
   try {
@@ -110,6 +114,7 @@ const checkTOTP = async () => {
     }
   } catch (e) {
     devLog.error('Failed to get TOTP status', e)
+    qrLoadFailed.value = true
   }
 }
 
@@ -267,6 +272,12 @@ onUnmounted(revokeQrUrl)
         <p class="text-xs text-gray-500">{{ t('profile.totpScanHint') }}</p>
         <div v-if="qrUrl" class="flex justify-center p-4 bg-white dark:bg-white mx-auto w-max border border-gray-200 dark:border-gray-300">
           <img :src="qrUrl" :alt="t('profile.totpQrAlt')" class="w-36 h-36" />
+        </div>
+        <div v-else-if="qrLoadFailed" class="flex flex-col items-center gap-2 py-4">
+          <p class="text-xs text-rose-600 dark:text-rose-400" role="alert">{{ t('profile.qrLoadFailed') }}</p>
+          <button type="button" class="ui-btn-secondary !px-3 !py-1.5 !text-xs" @click="checkTOTP">
+            <RefreshCw class="w-3 h-3" /> {{ t('common.retry') }}
+          </button>
         </div>
         <p v-else class="text-xs text-gray-400 text-center py-4">{{ t('profile.loadingQr') }}</p>
         <div v-if="totpSecret" class="mt-2 p-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-center">

@@ -57,29 +57,34 @@ const emit = defineEmits<{
           <input
             v-if="action.type === 'send_text' || action.type === 'click_text_button'"
             v-model="action.value"
+            :aria-label="t('taskForm.inputText')"
             :placeholder="t('taskForm.textPlaceholder')"
             class="ui-input !h-9 !text-xs !px-2"
           />
           <input
             v-else-if="action.type === 'delay'"
             v-model="action.value"
+            :aria-label="t('taskForm.inputDelay')"
             :placeholder="t('taskForm.delayPlaceholder')"
             class="ui-input !h-9 !text-xs !px-2"
           />
           <input
             v-else-if="action.type === 'send_dice'"
             v-model="action.value"
+            :aria-label="t('taskForm.inputDice')"
             placeholder="🎲"
             class="ui-input !h-9 !text-xs !px-2"
           />
           <template v-else-if="action.type === 'bot_cmd'">
             <input
               v-model="action.value"
+              :aria-label="t('taskForm.inputBotUsername')"
               :placeholder="t('taskForm.botUsernamePlaceholder')"
               class="ui-input !h-9 !text-xs !px-2"
             />
             <input
               v-model="action.commandPrefix"
+              :aria-label="t('taskForm.inputCommandPrefix')"
               :placeholder="t('taskForm.commandPrefixPlaceholder')"
               class="ui-input !h-9 !text-xs !px-2 mt-1"
             />
@@ -87,6 +92,7 @@ const emit = defineEmits<{
           <input
             v-else-if="['vision_send', 'vision_click', 'calc_send', 'calc_click'].includes(action.type)"
             v-model="action.aiPrompt"
+            :aria-label="t('taskForm.inputAiPrompt')"
             :placeholder="t('taskForm.aiPromptPlaceholder')"
             class="ui-input !h-9 !text-xs !px-2"
           />
