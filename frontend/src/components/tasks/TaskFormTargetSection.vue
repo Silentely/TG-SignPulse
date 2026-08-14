@@ -230,6 +230,12 @@ const onChatIdUpdate = (id: number) => {
           <span class="truncate flex-1">{{ chat.title || chat.username || chat.id }}</span>
           <span class="font-mono text-[10px] text-gray-400 shrink-0">{{ chat.id }}</span>
         </label>
+        <p
+          v-if="availableChats.length > 40"
+          class="px-1.5 py-1 text-[10px] text-gray-400"
+        >
+          {{ t('taskForm.bulkPickTruncated', { shown: 40, total: availableChats.length }) }}
+        </p>
       </div>
     </div>
   </div>
