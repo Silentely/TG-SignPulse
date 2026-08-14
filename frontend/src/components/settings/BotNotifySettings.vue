@@ -71,9 +71,10 @@ const onCheckbox = (key: keyof SettingsFormState, e: Event) => {
 
     <div class="space-y-5">
       <div class="space-y-1.5">
-        <label class="ui-label">{{ t('settings.botToken') }}</label>
+        <label class="ui-label" for="bot-token">{{ t('settings.botToken') }}</label>
         <div class="relative">
           <input
+            id="bot-token"
             :value="modelValue.botToken"
             @input="onStringInput('botToken', $event)"
             :type="reveal.botToken ? 'text' : 'password'"
@@ -86,12 +87,12 @@ const onCheckbox = (key: keyof SettingsFormState, e: Event) => {
         </div>
       </div>
       <div class="space-y-1.5">
-        <label class="ui-label">{{ t('settings.targetChatId') }}</label>
-        <input :value="modelValue.botChatId" @input="onStringInput('botChatId', $event)" type="text" placeholder="-1001234567890" class="ui-input">
+        <label class="ui-label" for="bot-chat-id">{{ t('settings.targetChatId') }}</label>
+        <input id="bot-chat-id" :value="modelValue.botChatId" @input="onStringInput('botChatId', $event)" type="text" placeholder="-1001234567890" class="ui-input">
       </div>
       <div class="space-y-1.5">
-        <label class="ui-label">{{ t('settings.threadId') }}</label>
-        <input :value="modelValue.botThreadId" @input="onStringInput('botThreadId', $event)" type="text" :placeholder="t('settings.threadIdPlaceholder')" class="ui-input">
+        <label class="ui-label" for="bot-thread-id">{{ t('settings.threadId') }}</label>
+        <input id="bot-thread-id" :value="modelValue.botThreadId" @input="onStringInput('botThreadId', $event)" type="text" :placeholder="t('settings.threadIdPlaceholder')" class="ui-input">
       </div>
       <div class="flex flex-wrap gap-x-6 gap-y-3 pt-2">
         <label class="flex items-center gap-2 cursor-pointer group">
