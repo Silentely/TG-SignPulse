@@ -103,12 +103,11 @@ def _load_account_store() -> dict:
 
 
 def _save_account_store(data: dict) -> None:
-    path = _account_store_path()
-    tmp_path = path.with_suffix(".json.tmp")
-    tmp_path.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    tmp_path.replace(path)
+    # 统一走 write_json_atomic：进程内写锁 + 唯一临时名 + fsync + rename，
+    # 避免多协程/线程并发写固定 .tmp 文件时交错覆盖导致 accounts.json 损坏
+    from backend.utils.atomic_io import write_json_atomic
+
+    write_json_atomic(_account_store_path(), data)
 
 
 def list_account_names() -> list[str]:

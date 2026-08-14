@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -26,6 +27,13 @@ _memory_lock = threading.Lock()
 _memory_recent: List[Dict[str, Any]] = []
 _memory_max = 200
 _memory_dir: Optional[str] = None
+
+# 带账号/日期过滤的索引读取结果短 TTL 缓存：
+# /logs/tasks?account_name=X 高频请求每次整读索引文件（≤2000 行），
+# 写路径（append/clear）会清空本缓存，短窗口内命中避免重复读盘
+_FILTERED_CACHE_TTL = 2.0
+_filtered_lock = threading.Lock()
+_filtered_cache: Dict[tuple, tuple[float, List[Dict[str, Any]]]] = {}
 
 
 def index_file_path(run_history_dir: Path) -> Path:
@@ -119,6 +127,35 @@ def clear_memory_cache() -> None:
     with _memory_lock:
         _memory_recent = []
         _memory_dir = None
+    _clear_filtered_cache()
+
+
+def _get_filtered_cache(
+    key: tuple,
+) -> Optional[List[Dict[str, Any]]]:
+    """按 (目录, 账号, 日期前缀, limit) 命中短 TTL 缓存；过期返回 None。"""
+    with _filtered_lock:
+        hit = _filtered_cache.get(key)
+        if hit is None:
+            return None
+        ts, entries = hit
+        if time.monotonic() - ts >= _FILTERED_CACHE_TTL:
+            _filtered_cache.pop(key, None)
+            return None
+        return entries
+
+
+def _set_filtered_cache(key: tuple, entries: List[Dict[str, Any]]) -> None:
+    with _filtered_lock:
+        if len(_filtered_cache) >= 64:
+            # 防缓存无界增长：容量上限时整体清空（低频兜底）
+            _filtered_cache.clear()
+        _filtered_cache[key] = (time.monotonic(), entries)
+
+
+def _clear_filtered_cache() -> None:
+    with _filtered_lock:
+        _filtered_cache.clear()
 
 
 def append_index_entry(
@@ -140,6 +177,7 @@ def append_index_entry(
         return
 
     _prepend_memory(run_history_dir, entry)
+    _clear_filtered_cache()  # 新条目落地后过滤缓存失效
     _maybe_trim_index_file(path, max_lines=max_lines)
     # 实时推送：有 SSE 订阅者时即时通知（无订阅则为空操作）
     try:
@@ -182,12 +220,18 @@ def read_index_entries(
     返回 newest-first 列表。
     """
     limit = max(1, int(limit or 1))
-    path = index_file_path(run_history_dir)
-    if not path.exists():
-        return []
-
     acc_filter = str(account_name or "").strip()
     prefix = str(date_prefix or "").strip()[:10]
+    path = index_file_path(run_history_dir)
+
+    # 带过滤的读取走短 TTL 缓存：无过滤路径已有 _memory_recent 内存缓存
+    if acc_filter or prefix:
+        cached = _get_filtered_cache((str(run_history_dir), acc_filter, prefix, limit))
+        if cached is not None:
+            return cached
+
+    if not path.exists():
+        return []
 
     # 读全文件再过滤：索引有行数上限，可接受
     try:
@@ -225,6 +269,8 @@ def read_index_entries(
         collected.append(entry)
         if len(collected) >= limit:
             break
+    if acc_filter or prefix:
+        _set_filtered_cache((str(run_history_dir), acc_filter, prefix, limit), collected)
     return collected
 
 
