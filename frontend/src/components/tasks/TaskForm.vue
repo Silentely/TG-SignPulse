@@ -45,6 +45,8 @@ const retryCount = ref(3)
 const showAdvanced = ref(false)
 /** 任务名字段级提示（失焦后） */
 const taskNameError = ref('')
+/** 时间范围格式提示（定时模式，失焦后） */
+const timeRangeError = ref('')
 /** 新建多目标：shared=一任务多会话；split=按会话拆成独立任务 */
 const createMode = ref<'shared' | 'split'>('shared')
 const availableChats = ref<ChatInfo[]>([])
@@ -387,7 +389,20 @@ const buildPayload = () =>
 /** 供父组件提交前触发；返回是否通过 */
 const validateForSubmit = (): boolean => {
   validateTaskName()
-  return !taskNameError.value
+  validateTimeRange()
+  return !taskNameError.value && !timeRangeError.value
+}
+
+/** 定时模式时间范围格式校验：HH:MM 或 HH:MM-HH:MM；监听模式不校验 */
+const validateTimeRange = () => {
+  if (scheduleMode.value === 'listen') {
+    timeRangeError.value = ''
+    return
+  }
+  const v = timeRange.value.trim()
+  timeRangeError.value = /^\d{2}:\d{2}(-\d{2}:\d{2})?$/.test(v)
+    ? ''
+    : t('taskForm.timeRangeInvalid')
 }
 defineExpose({ buildPayload, createMode, validateForSubmit })
 onMounted(() => { loadAccounts() })
@@ -424,8 +439,9 @@ onMounted(() => { loadAccounts() })
         <CustomSelect v-model="scheduleMode" :options="[{label: t('taskForm.scheduled'), value:'scheduled'}, {label: t('taskForm.listen'), value:'listen'}]" />
       </div>
       <div class="space-y-1.5">
-        <label class="ui-label-strong">{{ t('taskForm.timeRange') }}</label>
-        <input v-model="timeRange" :disabled="scheduleMode === 'listen'" :placeholder="scheduleMode === 'listen' ? '24H' : t('taskForm.timeRangePlaceholder')" class="ui-input disabled:opacity-50 disabled:bg-gray-50 dark:disabled:bg-gray-950" />
+        <label class="ui-label-strong" for="task-form-time-range">{{ t('taskForm.timeRange') }}</label>
+        <input id="task-form-time-range" v-model="timeRange" :disabled="scheduleMode === 'listen'" :placeholder="scheduleMode === 'listen' ? '24H' : t('taskForm.timeRangePlaceholder')" class="ui-input disabled:opacity-50 disabled:bg-gray-50 dark:disabled:bg-gray-950" :class="timeRangeError ? '!border-rose-400 dark:!border-rose-500' : ''" :aria-invalid="!!timeRangeError" @blur="validateTimeRange" />
+        <p v-if="timeRangeError" class="text-[10px] text-rose-600 dark:text-rose-400" role="alert">{{ timeRangeError }}</p>
       </div>
     </div>
     <!-- 高级选项：重试等，降低主路径认知负担 -->
@@ -434,12 +450,13 @@ onMounted(() => { loadAccounts() })
         type="button"
         class="inline-flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
         :aria-expanded="showAdvanced"
+        :aria-controls="'task-form-advanced'"
         @click="showAdvanced = !showAdvanced"
       >
         <ChevronDown class="w-3.5 h-3.5 transition-transform" :class="showAdvanced ? 'rotate-180' : ''" />
         {{ t('taskForm.advancedOptions') }}
       </button>
-      <div v-if="showAdvanced" class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-5">
+      <div v-if="showAdvanced" id="task-form-advanced" class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-5">
         <div class="space-y-1.5">
           <label class="ui-label-strong" for="task-form-retry">{{ t('taskForm.retryCount') }}</label>
           <input id="task-form-retry" v-model.number="retryCount" type="number" min="0" max="99" class="ui-input" />

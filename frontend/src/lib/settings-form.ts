@@ -58,15 +58,26 @@ export function parseNumberInputValue(raw: string): number | '' {
   return Number.isFinite(n) ? n : ''
 }
 
+/**
+ * 数字字段 clamp：越界值收敛到 [lo, hi]，空值/非法返回 null。
+ * 设置页输入框不在 <form> 内，浏览器 min/max 不生效，需在构造 payload 时归一。
+ */
+function clampNumber(v: number | string | '', lo: number, hi: number): number | null {
+  if (v === '' || v === null || v === undefined) return null
+  const n = Number(v)
+  if (!Number.isFinite(n)) return null
+  return Math.min(hi, Math.max(lo, n))
+}
+
 export function buildGeneralPayload(s: SettingsFormState) {
   return {
     sign_interval: emptyToNull(s.checkInterval),
     log_retention_days: emptyToNull(s.logDays) ?? 7,
     data_dir: s.dataDir || null,
     global_proxy: s.proxy || null,
-    tg_global_concurrency: emptyToNull(s.concurrency) ?? 1,
+    tg_global_concurrency: clampNumber(s.concurrency, 1, 10) ?? 1,
     device_keepalive_enabled: s.deviceKeepaliveEnabled,
-    device_keepalive_interval_days: emptyToNull(s.deviceKeepaliveIntervalDays) ?? 30,
+    device_keepalive_interval_days: clampNumber(s.deviceKeepaliveIntervalDays, 1, 170) ?? 30,
     timezone: s.timezone,
   }
 }
@@ -90,12 +101,12 @@ export function buildBotPayload(s: SettingsFormState) {
 /** AI 区块内的运行时参数（任务超时/冷却/视觉等），由「保存 AI 配置」一并提交 */
 export function buildAiRuntimePayload(s: SettingsFormState) {
   return {
-    sign_task_execution_timeout: emptyToNull(s.execTimeout),
-    sign_task_account_cooldown: emptyToNull(s.accountCooldown),
-    sign_task_flow_retry_attempts: emptyToNull(s.flowRetry),
-    sign_task_history_max_age_days: emptyToNull(s.historyMaxAge),
-    ai_vision_timeout: emptyToNull(s.aiVisionTimeout),
-    ai_vision_retry_attempts: emptyToNull(s.aiVisionRetry),
+    sign_task_execution_timeout: clampNumber(s.execTimeout, 30, 3600),
+    sign_task_account_cooldown: clampNumber(s.accountCooldown, 0, 600),
+    sign_task_flow_retry_attempts: clampNumber(s.flowRetry, 1, 10),
+    sign_task_history_max_age_days: clampNumber(s.historyMaxAge, 1, 90),
+    ai_vision_timeout: clampNumber(s.aiVisionTimeout, 3, 120),
+    ai_vision_retry_attempts: clampNumber(s.aiVisionRetry, 1, 8),
   }
 }
 
@@ -103,8 +114,8 @@ export function buildAiRuntimePayload(s: SettingsFormState) {
 export function buildBackupPayload(s: SettingsFormState) {
   return {
     auto_backup_enabled: s.autoBackupEnabled,
-    auto_backup_interval_hours: s.autoBackupInterval || 24,
-    auto_backup_keep: s.autoBackupKeep || 3,
+    auto_backup_interval_hours: clampNumber(s.autoBackupInterval, 1, 168) ?? 24,
+    auto_backup_keep: clampNumber(s.autoBackupKeep, 1, 30) ?? 3,
     webdav_url: s.webdavUrl || null,
     webdav_username: s.webdavUsername || null,
     // 空密码表示不覆盖服务端已有值
