@@ -64,9 +64,10 @@ const handleLogin = async () => {
     if (code === 'TOTP_REQUIRED_OR_INVALID') {
       showTotp.value = true
       errorMsg.value = totpCode.value ? t('login.totpInvalid') : t('login.totpRequired')
-      totpCode.value = ''
+      // 保留已输入的验证码（六位码用户常只错一位），全选便于覆盖重输
       await nextTick()
       totpInput.value?.focus()
+      totpInput.value?.select()
     } else {
       errorMsg.value = mapLoginError(code || detail)
     }
@@ -137,6 +138,8 @@ const openGithub = () => {
             inputmode="numeric"
             autocomplete="one-time-code"
             maxlength="6"
+            required
+            aria-required="true"
             :placeholder="t('login.totpPlaceholder')"
             class="ui-input tracking-[0.35em] text-center font-mono"
           >
@@ -152,7 +155,7 @@ const openGithub = () => {
 
         <button
           type="submit"
-          :disabled="loading || !username.trim() || !password"
+          :disabled="loading || !username.trim() || !password || (showTotp && !totpCode.trim())"
           class="ui-btn-primary w-full mt-2 py-2.5"
         >
           <span v-if="loading" class="ui-spinner !w-4 !h-4 !border-2" />
