@@ -762,6 +762,23 @@ class TelegramAccountsMixin:
             # 确保 .session_string 残留被清理
             delete_session_string_file(self.session_dir, account_name)
 
+            # 清理该账号的登录中会话：账号删除后残留的登录轮询/QR 会话
+            # 会让重建同名账号时继承旧登录状态
+            from backend.services.telegram.sessions import (
+                _login_sessions,
+                _qr_login_sessions,
+            )
+
+            for store in (_login_sessions, _qr_login_sessions):
+                stale = [
+                    key
+                    for key, value in store.items()
+                    if str((value or {}).get("account_name") or "").strip().lower()
+                    == account_name.lower()
+                ]
+                for key in stale:
+                    store.pop(key, None)
+
             # 更新缓存
             if self._accounts_cache is not None:
                 self._accounts_cache = [
