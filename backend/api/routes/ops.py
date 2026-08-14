@@ -271,7 +271,8 @@ def export_backup_archive(current_user: User = Depends(get_current_user)):
                 detail="WebDAV 密码未配置，请先填写并保存密码",
             )
 
-    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    # 备份文件名用 UTC，与自动备份/命中导出的时间口径一致
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     tmp_dir = Path(tempfile.mkdtemp(prefix="tg-signpulse-backup-"))
     archive_path = tmp_dir / f"tg-signpulse-backup-{ts}.tar.gz"
 
