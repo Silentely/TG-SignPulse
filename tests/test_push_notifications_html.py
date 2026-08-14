@@ -5,7 +5,8 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from backend.services.push_notifications import (    _html_escape,
+from backend.services.push_notifications import (
+    _html_escape,
     _safe_msg_truncate,
     build_html_notification,
     send_auto_backup_failure_notification,

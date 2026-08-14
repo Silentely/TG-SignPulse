@@ -134,3 +134,44 @@ class TestActiveLogCap:
         assert len(logs) == svc.MAX_ACTIVE_LOG_LINES
         assert logs[0] == "line-10"  # 最旧的 10 行被裁剪
         assert logs[-1] == f"line-{svc.MAX_ACTIVE_LOG_LINES + 9}"
+
+
+class TestActiveLogsSince:
+    """增量日志拉取：总数未变 O(1) 短路、新增切片、裁剪后全量重推。"""
+
+    def _svc(self) -> SignTaskService:
+        svc = object.__new__(SignTaskService)
+        svc._active_logs = {}
+        svc._append_active_log(("a", "t"), "L1")
+        svc._append_active_log(("a", "t"), "L2")
+        svc._append_active_log(("a", "t"), "L3")
+        return svc
+
+    def test_no_change_returns_empty_with_same_total(self):
+        svc = self._svc()
+        logs, total = svc.get_active_logs_since("t", "a", 3)
+        assert logs == []
+        assert total == 3
+
+    def test_new_lines_slice_increment(self):
+        svc = self._svc()
+        svc._append_active_log(("a", "t"), "L4")
+        logs, total = svc.get_active_logs_since("t", "a", 3)
+        assert logs == ["L4"]
+        assert total == 4
+
+    def test_total_shrink_retriggers_full(self):
+        """头部裁剪导致 total 回退时全量重推（last_idx 越界兜底）。"""
+        svc = self._svc()
+        # 模拟头部裁剪：直接替换为更短的列表
+        svc._active_logs[("a", "t")] = ["X1", "X2"]
+        logs, total = svc.get_active_logs_since("t", "a", 3)
+        assert total == 2
+        assert logs == ["X1", "X2"]
+
+    def test_account_none_matches_first_same_name_task(self):
+        svc = self._svc()
+        svc._append_active_log(("b", "t"), "other")
+        logs, total = svc.get_active_logs_since("t", None, 3)
+        assert logs == []
+        assert total == 3  # 命中第一个同名任务的 3 行

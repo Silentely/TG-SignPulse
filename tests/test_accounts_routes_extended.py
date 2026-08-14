@@ -10,6 +10,46 @@ from backend.api.routes import accounts as accounts_mod
 from tests.test_api import _auth, _login, api_client, db  # noqa: F401
 
 
+class TestBuildHistoryLogItem:
+    """历史日志条目统一构造：兜底文案与字段归一。"""
+
+    def test_default_messages_and_fields(self):
+        item = accounts_mod._build_history_log_item(
+            {"task_name": "t1", "success": True, "time": "2026-08-01T00:00:00Z"},
+            0,
+        )
+        assert item["id"] == 1
+        assert item["task_name"] == "t1"
+        assert item["message"] == "执行成功"
+        assert item["summary"] == "任务: t1 成功"
+        assert item["created_at"] == "2026-08-01T00:00:00Z"
+
+    def test_failure_fallback_and_category(self):
+        item = accounts_mod._build_history_log_item(
+            {
+                "account_name": "acc1",
+                "task_name": "",
+                "success": False,
+                "message": "超时",
+                "time": "t",
+                "failure_category": "timeout",
+            },
+            5,
+        )
+        assert item["id"] == 6
+        assert item["task_name"] == "未知任务"
+        assert item["message"] == "超时"
+        assert item["failure_category"] == "timeout"
+
+    def test_account_name_override_wins(self):
+        item = accounts_mod._build_history_log_item(
+            {"account_name": "stored", "task_name": "t", "success": True, "time": "t"},
+            0,
+            account_name="explicit",
+        )
+        assert item["account_name"] == "explicit"
+
+
 def _svc() -> MagicMock:
     """构造带异步方法的 TelegramService Mock；各用例再按需配置返回值。"""
     svc = MagicMock()

@@ -31,6 +31,15 @@ def test_first_real_and_last_run():
     )["time"] == "2026-01-02"
 
 
+def test_first_real_account_edge_cases():
+    """通配符解析边界：空序列、全通配符、fallback 为通配符、含 None。"""
+    assert first_real_account([]) == ""
+    assert first_real_account(["*", "*"]) == ""
+    assert first_real_account(["*"], fallback="*") == ""  # fallback 亦为通配符 → 空
+    assert first_real_account([None, "", "a"], fallback="f") == "a"
+    assert first_real_account([None, "*"], fallback="f") == "f"
+
+
 def test_task_group_key():
     assert task_group_key({"task_group_id": "g1", "name": "t"}) == "group:g1"
     assert task_group_key({"account_name": "a", "name": "t"}) == "single:a:t"
