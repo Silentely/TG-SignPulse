@@ -67,6 +67,7 @@ from backend.utils.cache import TTLCache
 from backend.utils.names import validate_storage_name
 from backend.utils.task_logs import extract_last_target_message
 from backend.utils.tg_session import (
+    is_string_session_mode,
     list_account_names,
     resolve_effective_proxy,
 )
@@ -410,7 +411,14 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
 
         try:
             session_dir = settings.resolve_session_dir()
-            for pattern in ("*.session", "*.session_string"):
+            # 只扫当前会话模式对应的后缀：string→file 模式切换后残留的
+            # .session_string 会让该账号名出现在推断候选集，但 list_accounts
+            # 在 file 模式下看不到它，产生「幽灵账号」被任务推断绑定
+            if is_string_session_mode():
+                patterns: tuple[str, ...] = ("*.session_string",)
+            else:
+                patterns = ("*.session",)
+            for pattern in patterns:
                 for path in session_dir.glob(pattern):
                     if path.stem:
                         names.add(path.stem)
@@ -838,7 +846,10 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
     def list_active_runs(self) -> List[Dict[str, Any]]:
         """返回内存中 state=running 的 run 摘要列表。"""
         runs: List[Dict[str, Any]] = []
-        for status in self._run_statuses.values():
+        # 读侧快照：本方法可能在线程池（sync 路由）执行，与事件循环内
+        # _set_run_status 的插入并发，直接迭代 values() 会抛
+        # RuntimeError: dictionary changed size during iteration
+        for status in list(self._run_statuses.values()):
             summary = summarize_active_run(status)
             if summary:
                 runs.append(summary)
@@ -989,7 +1000,8 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         return make_task_key(account_name, task_name)
 
     def _find_task_keys(self, task_name: str) -> List[tuple[str, str]]:
-        return [key for key in self._active_logs.keys() if key[1] == task_name]
+        # 快照后过滤：线程池读取与事件循环写入并发时避免迭代期间字典尺寸变化
+        return [key for key in list(self._active_logs.keys()) if key[1] == task_name]
 
     # 运行中实时日志行数上限：与 TaskLogHandler 共用，防止长时间任务
     # 把 _active_logs 撑到无界（内存与 get_active_logs 全量拷贝都受控）
