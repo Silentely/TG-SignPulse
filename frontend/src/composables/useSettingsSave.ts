@@ -136,7 +136,9 @@ export function useSettingsSave(options: {
         options.markSectionClean('general')
         options.markSectionClean('bot')
         options.markSectionClean('advanced')
-        if (options.tgConfig.value.api_id && options.tgConfig.value.api_hash) {
+        // 任一字段有值即保存（与独立保存一致）：原来用 AND 守卫，
+        // 只填一个字段时静默走 else 不保存，用户输入丢失且仍提示"全部已保存"
+        if (options.tgConfig.value.api_id || options.tgConfig.value.api_hash) {
           try {
             await saveTelegramConfig(token, {
               api_id: options.tgConfig.value.api_id,
