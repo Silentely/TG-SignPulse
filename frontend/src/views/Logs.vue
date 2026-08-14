@@ -171,7 +171,7 @@ const {
 
       <!-- Task logs -->
       <div v-else-if="activeTab === 'tasks'" class="text-xs space-y-0">
-        <div v-if="logs.length === 0" class="ui-empty py-16">
+        <div v-if="logs.length === 0" class="ui-empty !py-12">
           <FilterEmptyState
             v-if="hasActiveFilters"
             :title="t('common.filterNoResults')"
@@ -197,7 +197,12 @@ const {
             v-for="log in logs"
             :key="`${log.account}-${log.task}-${log.created_at}-${log.id}`"
             class="ui-list-row flex items-center gap-3 px-2 py-2 cursor-pointer rounded-sm"
+            role="button"
+            tabindex="0"
+            :aria-label="`${log.account} ${log.task} ${log.time}`"
             @click="openLogDetail(log)"
+            @keydown.enter="openLogDetail(log)"
+            @keydown.space.prevent="openLogDetail(log)"
           >
             <span class="font-mono text-gray-500 dark:text-gray-400 shrink-0 w-[140px] text-[11px]">{{ log.time }}</span>
             <span class="text-gray-700 dark:text-gray-400 shrink-0 w-24 truncate font-medium">{{ log.account }}</span>
@@ -234,7 +239,7 @@ const {
 
       <!-- Login audit -->
       <div v-else class="text-xs space-y-0">
-        <div v-if="loginLogs.length === 0" class="ui-empty py-16">
+        <div v-if="loginLogs.length === 0" class="ui-empty !py-12">
           <p class="ui-empty-title !text-gray-500 dark:!text-gray-400 font-normal">{{ t('logs.emptyLogin') }}</p>
           <p class="ui-empty-desc">{{ t('logs.emptyLoginHint') }}</p>
         </div>

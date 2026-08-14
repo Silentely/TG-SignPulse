@@ -208,7 +208,7 @@ const jobStatusLabel = (status: string) => {
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <div class="ui-card p-5">
         <div class="ui-section-label mb-4">{{ t('dashboard.activeRuns') }}</div>
-        <div v-if="activeRuns.length === 0" class="ui-empty !py-8">
+        <div v-if="activeRuns.length === 0" class="ui-empty !py-12">
           <p class="ui-empty-desc">{{ t('dashboard.noActiveRuns') }}</p>
         </div>
         <div v-else class="space-y-1">
@@ -236,7 +236,7 @@ const jobStatusLabel = (status: string) => {
       </div>
       <div class="ui-card p-5">
         <div class="ui-section-label mb-4">{{ t('dashboard.failureBreakdown') }}</div>
-        <div v-if="failureBreakdown.length === 0" class="ui-empty !py-8">
+        <div v-if="failureBreakdown.length === 0" class="ui-empty !py-12">
           <p class="ui-empty-desc">{{ t('dashboard.noFailureBreakdown') }}</p>
         </div>
         <div v-else class="flex flex-wrap gap-2">
@@ -267,7 +267,7 @@ const jobStatusLabel = (status: string) => {
             {{ t('dashboard.viewTasks') }}
           </button>
         </div>
-        <div v-if="recentHits.length === 0" class="ui-empty !py-8">
+        <div v-if="recentHits.length === 0" class="ui-empty !py-12">
           <p class="ui-empty-desc">{{ t('dashboard.noRecentHits') }}</p>
         </div>
         <div v-else class="space-y-1">
@@ -304,7 +304,7 @@ const jobStatusLabel = (status: string) => {
             {{ t('dashboard.goAccounts') }}
           </button>
         </div>
-        <div v-if="statusJobs.length === 0" class="ui-empty !py-8">
+        <div v-if="statusJobs.length === 0" class="ui-empty !py-12">
           <p class="ui-empty-desc">{{ t('dashboard.noStatusJobs') }}</p>
         </div>
         <div v-else class="space-y-1">
@@ -343,7 +343,7 @@ const jobStatusLabel = (status: string) => {
     <!-- Upcoming schedule -->
     <div class="ui-card p-5">
       <div class="ui-section-label mb-4">{{ t('dashboard.upcomingJobs') }}</div>
-      <div v-if="upcomingJobs.length === 0" class="ui-empty !py-8">
+      <div v-if="upcomingJobs.length === 0" class="ui-empty !py-12">
         <p class="ui-empty-desc">{{ t('dashboard.noUpcoming') }}</p>
       </div>
       <div v-else class="space-y-0.5">
@@ -396,7 +396,7 @@ const jobStatusLabel = (status: string) => {
           {{ t('common.retry') }}
         </button>
       </div>
-      <div v-if="logs.length === 0" class="ui-empty py-16">
+      <div v-if="logs.length === 0" class="ui-empty !py-12">
         <p class="ui-empty-title !text-gray-500 dark:!text-gray-400 font-normal">{{ t('logs.empty') }}</p>
         <p class="ui-empty-desc">{{ t('logs.emptyHint') }}</p>
       </div>
@@ -405,9 +405,14 @@ const jobStatusLabel = (status: string) => {
           v-for="log in logs"
           :key="logKey(log)"
           class="ui-list-row flex items-center gap-3 px-2 py-2 cursor-pointer rounded-sm"
+          role="button"
+          tabindex="0"
+          :aria-label="`${log.account} ${log.task} ${log.time}`"
           :title="t('dashboard.openInLogs')"
           @click="selectedLog = log"
           @dblclick="goToLogs(log)"
+          @keydown.enter="selectedLog = log"
+          @keydown.space.prevent="selectedLog = log"
         >
           <span class="font-mono text-gray-500 dark:text-gray-400 shrink-0 w-[140px] text-[11px] truncate" :title="formatTime(log.created_at)">{{ log.time }}</span>
           <span class="text-gray-700 dark:text-gray-400 shrink-0 w-24 truncate font-medium">{{ log.account }}</span>
