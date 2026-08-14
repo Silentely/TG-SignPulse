@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import tarfile
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Optional, Sequence, Tuple
 
@@ -90,7 +90,8 @@ def run_auto_backup(
     """执行一次自动备份；WebDAV 上传成功后删除本地副本以节省磁盘。"""
     backup_dir = data_dir / "backups"
     backup_dir.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    # 备份文件名用 UTC，与历史记录/命中导出的时间口径一致，避免跨时区部署错位
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     dest = backup_dir / f"auto-{ts}.tar.gz"
     path_tuple = tuple(paths) if paths is not None else DEFAULT_BACKUP_PATHS
     try:
