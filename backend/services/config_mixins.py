@@ -33,6 +33,15 @@ GLOBAL_SETTINGS_ENV_SYNC = {
     "ai_vision_retry_attempts": "AI_VISION_RETRY_ATTEMPTS",
 }
 
+# 字符串型全局设置键 → 环境变量名：小写透传，None/空值表示清除该 env
+# （区别于整数值的"空值保留已有 env"：思考度由面板全权管理，重置即关闭透传）
+GLOBAL_SETTINGS_ENV_SYNC_STR = {
+    "ai_vision_reasoning_effort": "AI_VISION_REASONING_EFFORT",
+}
+
+# reasoning_effort 合法取值（商汤 SenseNova 等文档：low/medium/high/none）
+_REASONING_EFFORT_VALUES = frozenset({"low", "medium", "high", "none"})
+
 
 def apply_global_settings_to_env(merged: Dict[str, Any]) -> None:
     """将面板全局设置回灌到环境变量，供 tg_signer 等仍读 env 的路径使用。
@@ -49,6 +58,18 @@ def apply_global_settings_to_env(merged: Dict[str, Any]) -> None:
             os.environ[ekey] = str(int(val))
         except (TypeError, ValueError):
             logger.debug("跳过无效 env 同步 %s=%r", ekey, val)
+
+    for gkey, ekey in GLOBAL_SETTINGS_ENV_SYNC_STR.items():
+        val = merged.get(gkey)
+        if val is None or str(val).strip() == "":
+            os.environ.pop(ekey, None)
+            continue
+        value = str(val).strip().lower()
+        if value in _REASONING_EFFORT_VALUES:
+            os.environ[ekey] = value
+        else:
+            logger.debug("跳过无效 env 同步 %s=%r", ekey, val)
+            os.environ.pop(ekey, None)
 
 
 # 进程内仅告警一次：避免每次读取 telegram 配置都刷日志
@@ -96,6 +117,19 @@ def normalize_global_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
             normalized[key] = (
                 None if value is None else max(low, min(int(value), high))
             )
+
+    # 思考度：小写归一，空值清空（None），非法值忽略保留旧值
+    if "ai_vision_reasoning_effort" in normalized:
+        raw = normalized["ai_vision_reasoning_effort"]
+        if raw is None or str(raw).strip() == "":
+            normalized["ai_vision_reasoning_effort"] = None
+        else:
+            value = str(raw).strip().lower()
+            if value in _REASONING_EFFORT_VALUES:
+                normalized["ai_vision_reasoning_effort"] = value
+            else:
+                _logger.debug("忽略非法 ai_vision_reasoning_effort=%r", raw)
+                normalized.pop("ai_vision_reasoning_effort")
 
     # Token 空串不修改；非空去空白（与原路由行为一致）
     if "telegram_bot_token" in normalized:
@@ -912,6 +946,7 @@ class GlobalSettingsMixin:
             "sign_task_history_max_age_days": None,
             "ai_vision_timeout": None,
             "ai_vision_retry_attempts": None,
+            "ai_vision_reasoning_effort": None,
             "auto_backup_enabled": False,
             "auto_backup_interval_hours": 24,
             "auto_backup_keep": 3,

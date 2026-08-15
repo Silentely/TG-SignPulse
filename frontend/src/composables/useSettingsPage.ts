@@ -68,6 +68,7 @@ export function useSettingsPage() {
     historyMaxAge: '' as string | number,
     aiVisionTimeout: '' as string | number,
     aiVisionRetry: '' as string | number,
+    aiVisionReasoningEffort: '',
     autoBackupEnabled: false,
     autoBackupInterval: 24,
     autoBackupKeep: 3,

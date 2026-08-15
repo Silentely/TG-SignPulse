@@ -14,6 +14,7 @@ from backend.services.config import ConfigService
 from backend.services.config_mixins import (
     GLOBAL_SETTINGS_ENV_SYNC,
     apply_global_settings_to_env,
+    normalize_global_settings,
 )
 
 
@@ -74,6 +75,77 @@ class TestApplyGlobalSettingsToEnv:
         service = ConfigService()
         service.save_global_settings({"ai_vision_retry_attempts": 6})
         assert os.environ["AI_VISION_RETRY_ATTEMPTS"] == "6"
+
+    def test_string_sync_sets_env_lowercased(self, isolated_env: Path, monkeypatch):
+        """字符串型设置（思考度）应小写透传到 env。"""
+        import os
+
+        monkeypatch.delenv("AI_VISION_REASONING_EFFORT", raising=False)
+        apply_global_settings_to_env({"ai_vision_reasoning_effort": "None"})
+        assert os.environ["AI_VISION_REASONING_EFFORT"] == "none"
+
+    def test_string_sync_clears_env_on_empty(self, isolated_env: Path, monkeypatch):
+        """思考度重置为默认（None/空）时，应清除 env 停止透传。"""
+        import os
+
+        monkeypatch.setenv("AI_VISION_REASONING_EFFORT", "none")
+        apply_global_settings_to_env({"ai_vision_reasoning_effort": None})
+        assert "AI_VISION_REASONING_EFFORT" not in os.environ
+
+    def test_string_sync_invalid_value_clears_env(self, isolated_env: Path, monkeypatch):
+        """apply 侧兜底：非法思考度值不应透传到 env。"""
+        import os
+
+        monkeypatch.setenv("AI_VISION_REASONING_EFFORT", "banana")
+        apply_global_settings_to_env({"ai_vision_reasoning_effort": "banana"})
+        assert "AI_VISION_REASONING_EFFORT" not in os.environ
+
+    def test_save_syncs_reasoning_effort_immediately(
+        self, isolated_env: Path, monkeypatch
+    ):
+        import os
+
+        monkeypatch.delenv("AI_VISION_REASONING_EFFORT", raising=False)
+        service = ConfigService()
+        service.save_global_settings({"ai_vision_reasoning_effort": "none"})
+        assert os.environ["AI_VISION_REASONING_EFFORT"] == "none"
+
+    def test_reasoning_effort_restart_reinjects_and_reset_clears(
+        self, isolated_env: Path, monkeypatch
+    ):
+        """保存 → 重启回灌；重置为默认后重启不应回灌。"""
+        import os
+
+        service = ConfigService()
+        service.save_global_settings({"ai_vision_reasoning_effort": "high"})
+        monkeypatch.delenv("AI_VISION_REASONING_EFFORT", raising=False)
+        apply_global_settings_to_env(service.get_global_settings())
+        assert os.environ["AI_VISION_REASONING_EFFORT"] == "high"
+
+        # 重置为默认：持久化 None，重启回灌后 env 应被清除
+        service.save_global_settings({"ai_vision_reasoning_effort": None})
+        apply_global_settings_to_env(service.get_global_settings())
+        assert "AI_VISION_REASONING_EFFORT" not in os.environ
+
+
+class TestNormalizeReasoningEffort:
+    """normalize_global_settings 对思考度字段的归一化。"""
+
+    def test_valid_value_lowercased(self):
+        normalized = normalize_global_settings({"ai_vision_reasoning_effort": "NONE"})
+        assert normalized["ai_vision_reasoning_effort"] == "none"
+
+    def test_empty_value_normalized_to_none(self):
+        normalized = normalize_global_settings({"ai_vision_reasoning_effort": ""})
+        assert normalized["ai_vision_reasoning_effort"] is None
+
+    def test_invalid_value_dropped(self):
+        normalized = normalize_global_settings({"ai_vision_reasoning_effort": "banana"})
+        assert "ai_vision_reasoning_effort" not in normalized
+
+    def test_absent_key_untouched(self):
+        normalized = normalize_global_settings({"ai_vision_timeout": 30})
+        assert "ai_vision_reasoning_effort" not in normalized
 
 
 class TestGetGlobalProxy:

@@ -407,6 +407,7 @@ class GlobalSettingsRequest(BaseModel):
     sign_task_history_max_age_days: Optional[int] = None
     ai_vision_timeout: Optional[int] = None
     ai_vision_retry_attempts: Optional[int] = None
+    ai_vision_reasoning_effort: Optional[str] = None
     auto_backup_enabled: Optional[bool] = None
     auto_backup_interval_hours: Optional[int] = None
     auto_backup_keep: Optional[int] = None
@@ -442,6 +443,7 @@ class GlobalSettingsResponse(BaseModel):
     sign_task_history_max_age_days: Optional[int] = None
     ai_vision_timeout: Optional[int] = None
     ai_vision_retry_attempts: Optional[int] = None
+    ai_vision_reasoning_effort: Optional[str] = None
     auto_backup_enabled: bool = False
     auto_backup_interval_hours: Optional[int] = 24
     auto_backup_keep: Optional[int] = 3

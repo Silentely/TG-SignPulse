@@ -66,6 +66,7 @@ function baseSettings(over: Partial<SettingsFormState> = {}): SettingsFormState 
     historyMaxAge: '',
     aiVisionTimeout: '',
     aiVisionRetry: '',
+    aiVisionReasoningEffort: '',
     autoBackupEnabled: false,
     autoBackupInterval: 24,
     autoBackupKeep: 3,

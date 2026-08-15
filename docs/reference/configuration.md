@@ -134,6 +134,8 @@ environment:
 | `AI_VISION_TIMEOUT` | `15` | AI 视觉请求超时秒数（最小 3） |
 | `AI_VISION_RETRY_ATTEMPTS` | `2` | AI 视觉请求总尝试次数（含首次请求，最小 1） |
 | `AI_VISION_RETRY_DELAY` | `0.6` | 重试基础延迟秒数（线性递增：attempt × delay） |
+| `AI_VISION_MAX_TOKENS` | `512` | AI 视觉输出 token 预算（含思考 token，最小 16）；响应被截断（finish_reason=length）时自动翻倍重试（封顶 4096） |
+| `AI_VISION_REASONING_EFFORT` | 未设置 | AI 视觉推理力度，可选 `low`/`medium`/`high`/`none`（none 关闭思考，仅部分厂商/模型支持，如商汤 SenseNova、DeepSeek；未配置或非法值不发送）。面板「AI 模型配置」可设置，选「默认（不设置）」即清除该环境变量 |
 | `AI_VISION_MAX_EDGE` | `640` | 图片预处理最大边长像素 |
 | `AI_VISION_JPEG_QUALITY` | `85` | 图片预处理 JPEG 压缩质量 |
 | `AI_VISION_WHITE_THRESHOLD` | `245` | 图片白色边框裁剪阈值 |

@@ -41,6 +41,7 @@ const baseSettings = (): SettingsFormState => ({
   historyMaxAge: '',
   aiVisionTimeout: '',
   aiVisionRetry: '',
+  aiVisionReasoningEffort: '',
   autoBackupEnabled: false,
   autoBackupInterval: 24,
   autoBackupKeep: 3,
@@ -115,12 +116,27 @@ describe('settings-form', () => {
     const s = baseSettings()
     s.execTimeout = 120
     s.aiVisionTimeout = 20
+    s.aiVisionReasoningEffort = 'none'
     s.autoBackupEnabled = true
     const p = buildAiRuntimePayload(s) as Record<string, unknown>
     expect(p.sign_task_execution_timeout).toBe(120)
     expect(p.ai_vision_timeout).toBe(20)
+    expect(p.ai_vision_reasoning_effort).toBe('none')
     expect('auto_backup_enabled' in p).toBe(false)
     expect('webdav_url' in p).toBe(false)
+  })
+
+  it('buildAiRuntimePayload nulls empty reasoning effort', () => {
+    const p = buildAiRuntimePayload(baseSettings())
+    expect(p.ai_vision_reasoning_effort).toBeNull()
+  })
+
+  it('applyGlobalSettingsToForm maps reasoning effort', () => {
+    const s = baseSettings()
+    applyGlobalSettingsToForm(s, { ai_vision_reasoning_effort: 'high' })
+    expect(s.aiVisionReasoningEffort).toBe('high')
+    applyGlobalSettingsToForm(s, { ai_vision_reasoning_effort: null })
+    expect(s.aiVisionReasoningEffort).toBe('')
   })
 
   it('buildBackupPayload only includes backup/webdav fields', () => {

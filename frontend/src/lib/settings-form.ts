@@ -28,6 +28,7 @@ export type SettingsFormState = {
   historyMaxAge: string | number
   aiVisionTimeout: string | number
   aiVisionRetry: string | number
+  aiVisionReasoningEffort: string
   autoBackupEnabled: boolean
   autoBackupInterval: number
   autoBackupKeep: number
@@ -107,6 +108,7 @@ export function buildAiRuntimePayload(s: SettingsFormState) {
     sign_task_history_max_age_days: clampNumber(s.historyMaxAge, 1, 90),
     ai_vision_timeout: clampNumber(s.aiVisionTimeout, 3, 120),
     ai_vision_retry_attempts: clampNumber(s.aiVisionRetry, 1, 8),
+    ai_vision_reasoning_effort: s.aiVisionReasoningEffort || null,
   }
 }
 
@@ -191,6 +193,7 @@ export function snapSection(
         historyMaxAge: s.historyMaxAge,
         aiVisionTimeout: s.aiVisionTimeout,
         aiVisionRetry: s.aiVisionRetry,
+        aiVisionReasoningEffort: s.aiVisionReasoningEffort,
       })
   }
 }
@@ -258,6 +261,7 @@ export function applyGlobalSettingsToForm(
     sign_task_history_max_age_days?: number | null
     ai_vision_timeout?: number | null
     ai_vision_retry_attempts?: number | null
+    ai_vision_reasoning_effort?: string | null
     auto_backup_enabled?: boolean
     auto_backup_interval_hours?: number | null
     auto_backup_keep?: number | null
@@ -293,6 +297,7 @@ export function applyGlobalSettingsToForm(
   s.historyMaxAge = res.sign_task_history_max_age_days ?? ''
   s.aiVisionTimeout = res.ai_vision_timeout ?? ''
   s.aiVisionRetry = res.ai_vision_retry_attempts ?? ''
+  s.aiVisionReasoningEffort = res.ai_vision_reasoning_effort || ''
   s.autoBackupEnabled = res.auto_backup_enabled || false
   s.autoBackupInterval = res.auto_backup_interval_hours || 24
   s.autoBackupKeep = res.auto_backup_keep || 3
