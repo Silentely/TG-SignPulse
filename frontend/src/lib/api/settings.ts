@@ -112,6 +112,7 @@ export interface GlobalSettings {
   sign_task_history_max_age_days?: number | null;
   ai_vision_timeout?: number | null;
   ai_vision_retry_attempts?: number | null;
+  ai_vision_reasoning_effort?: string | null;
   auto_backup_enabled?: boolean;
   auto_backup_interval_hours?: number | null;
   auto_backup_keep?: number | null;

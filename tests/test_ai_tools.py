@@ -381,6 +381,251 @@ class VisualCompletionRetryTest(unittest.IsolatedAsyncioTestCase):
                 os.environ["AI_VISION_RETRY_ATTEMPTS"] = old
 
 
+class AIMaxTokensTest(unittest.IsolatedAsyncioTestCase):
+    """AI 视觉 max_tokens 与 reasoning_effort 配置测试。"""
+
+    def setUp(self):
+        self._old_max_tokens = os.environ.pop("AI_VISION_MAX_TOKENS", None)
+        self._old_reasoning_effort = os.environ.pop("AI_VISION_REASONING_EFFORT", None)
+
+    def tearDown(self):
+        if self._old_max_tokens is None:
+            os.environ.pop("AI_VISION_MAX_TOKENS", None)
+        else:
+            os.environ["AI_VISION_MAX_TOKENS"] = self._old_max_tokens
+        if self._old_reasoning_effort is None:
+            os.environ.pop("AI_VISION_REASONING_EFFORT", None)
+        else:
+            os.environ["AI_VISION_REASONING_EFFORT"] = self._old_reasoning_effort
+
+    def _tools(self, responses):
+        fake_completions = _FakeCompletions(responses)
+        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=fake_completions))
+        tools = AITools({"api_key": "test", "model": "gpt-4o"})
+        tools.client = fake_client
+        return tools, fake_completions
+
+    async def test_choose_options_by_image_defaults_to_512(self):
+        tools, fake_completions = self._tools(
+            [
+                SimpleNamespace(
+                    choices=[SimpleNamespace(message=SimpleNamespace(content='{"options":[2]}'))]
+                )
+            ]
+        )
+
+        result = await tools.choose_options_by_image(
+            b"fake-image",
+            "Choose the correct option",
+            [(1, "apple"), (2, "banana")],
+        )
+
+        self.assertEqual(result, [2])
+        self.assertEqual(fake_completions.calls[0]["max_tokens"], 512)
+
+    async def test_choose_options_by_image_respects_env_override(self):
+        os.environ["AI_VISION_MAX_TOKENS"] = "768"
+        tools, fake_completions = self._tools(
+            [
+                SimpleNamespace(
+                    choices=[SimpleNamespace(message=SimpleNamespace(content='{"options":[2]}'))]
+                )
+            ]
+        )
+
+        await tools.choose_options_by_image(
+            b"fake-image",
+            "Choose the correct option",
+            [(1, "apple"), (2, "banana")],
+        )
+
+        self.assertEqual(fake_completions.calls[0]["max_tokens"], 768)
+
+    async def test_choose_option_by_image_uses_same_env(self):
+        tools, fake_completions = self._tools(
+            [
+                SimpleNamespace(
+                    choices=[SimpleNamespace(message=SimpleNamespace(content='{"option":2}'))]
+                )
+            ]
+        )
+
+        result = await tools.choose_option_by_image(
+            b"fake-image",
+            "Choose the correct option",
+            [(1, "apple"), (2, "banana")],
+        )
+
+        self.assertEqual(result, 2)
+        self.assertEqual(fake_completions.calls[0]["max_tokens"], 512)
+
+    async def test_omits_reasoning_effort_by_default(self):
+        """未配置 AI_VISION_REASONING_EFFORT 时不发送该参数。"""
+        tools, fake_completions = self._tools(
+            [
+                SimpleNamespace(
+                    choices=[SimpleNamespace(message=SimpleNamespace(content='{"options":[2]}'))]
+                )
+            ]
+        )
+
+        await tools.choose_options_by_image(
+            b"fake-image",
+            "Choose the correct option",
+            [(1, "apple"), (2, "banana")],
+        )
+
+        self.assertNotIn("reasoning_effort", fake_completions.calls[0])
+
+    async def test_sends_reasoning_effort_from_env(self):
+        """AI_VISION_REASONING_EFFORT=none 应透传到请求（大小写不敏感）。"""
+        os.environ["AI_VISION_REASONING_EFFORT"] = "None"
+        tools, fake_completions = self._tools(
+            [
+                SimpleNamespace(
+                    choices=[SimpleNamespace(message=SimpleNamespace(content='{"options":[2]}'))]
+                )
+            ]
+        )
+
+        await tools.choose_options_by_image(
+            b"fake-image",
+            "Choose the correct option",
+            [(1, "apple"), (2, "banana")],
+        )
+
+        self.assertEqual(fake_completions.calls[0]["reasoning_effort"], "none")
+
+    async def test_ignores_invalid_reasoning_effort(self):
+        """非法 reasoning_effort 值应忽略，不发送参数。"""
+        os.environ["AI_VISION_REASONING_EFFORT"] = "banana"
+        tools, fake_completions = self._tools(
+            [
+                SimpleNamespace(
+                    choices=[SimpleNamespace(message=SimpleNamespace(content='{"options":[2]}'))]
+                )
+            ]
+        )
+
+        await tools.choose_options_by_image(
+            b"fake-image",
+            "Choose the correct option",
+            [(1, "apple"), (2, "banana")],
+        )
+
+        self.assertNotIn("reasoning_effort", fake_completions.calls[0])
+
+
+class VisualTruncationRetryTest(unittest.IsolatedAsyncioTestCase):
+    """max_tokens 截断时放宽预算重试测试。"""
+
+    def setUp(self):
+        self._old_max_tokens = os.environ.pop("AI_VISION_MAX_TOKENS", None)
+        self._old_retry_attempts = os.environ.pop("AI_VISION_RETRY_ATTEMPTS", None)
+
+    def tearDown(self):
+        if self._old_max_tokens is None:
+            os.environ.pop("AI_VISION_MAX_TOKENS", None)
+        else:
+            os.environ["AI_VISION_MAX_TOKENS"] = self._old_max_tokens
+        if self._old_retry_attempts is None:
+            os.environ.pop("AI_VISION_RETRY_ATTEMPTS", None)
+        else:
+            os.environ["AI_VISION_RETRY_ATTEMPTS"] = self._old_retry_attempts
+
+    @staticmethod
+    def _truncated(content=None):
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    finish_reason="length",
+                    message=SimpleNamespace(content=content),
+                )
+            ]
+        )
+
+    @staticmethod
+    def _ok(content):
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    finish_reason="stop",
+                    message=SimpleNamespace(content=content),
+                )
+            ]
+        )
+
+    async def test_retries_with_doubled_budget_on_truncation(self):
+        """首次响应被 max_tokens 截断时，应放宽预算重试并最终成功。"""
+        fake_completions = _FakeCompletions(
+            [
+                self._truncated(content=None),
+                self._ok('{"options":[2]}'),
+            ]
+        )
+        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=fake_completions))
+        tools = AITools({"api_key": "test", "model": "gpt-4o"})
+        tools.client = fake_client
+
+        result = await tools.choose_options_by_image(
+            b"fake-image",
+            "Choose the correct option",
+            [(1, "apple"), (2, "banana")],
+        )
+
+        self.assertEqual(result, [2])
+        self.assertEqual(len(fake_completions.calls), 2)
+        self.assertEqual(fake_completions.calls[0]["max_tokens"], 512)
+        self.assertEqual(fake_completions.calls[1]["max_tokens"], 1024)
+
+    async def test_raises_when_truncated_on_last_attempt(self):
+        """全部尝试均被截断时，应抛出明确的 RuntimeError。"""
+        fake_completions = _FakeCompletions(
+            [
+                self._truncated(content=None),
+                self._truncated(content=None),
+            ]
+        )
+        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=fake_completions))
+        tools = AITools({"api_key": "test", "model": "gpt-4o"})
+        tools.client = fake_client
+
+        with self.assertRaises(RuntimeError):
+            await tools.choose_options_by_image(
+                b"fake-image",
+                "Choose the correct option",
+                [(1, "apple"), (2, "banana")],
+            )
+        self.assertEqual(len(fake_completions.calls), 2)
+
+    async def test_truncation_retry_stops_at_cap(self):
+        """max_tokens 已到封顶（4096）时不再翻倍，直接抛错避免超出厂商上限。"""
+        os.environ["AI_VISION_MAX_TOKENS"] = "4096"
+        fake_completions = _FakeCompletions(
+            [
+                self._truncated(content=None),
+            ]
+        )
+        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=fake_completions))
+        tools = AITools({"api_key": "test", "model": "gpt-4o"})
+        tools.client = fake_client
+
+        with self.assertRaises(RuntimeError):
+            await tools.choose_options_by_image(
+                b"fake-image",
+                "Choose the correct option",
+                [(1, "apple"), (2, "banana")],
+            )
+        self.assertEqual(len(fake_completions.calls), 1)
+        self.assertEqual(fake_completions.calls[0]["max_tokens"], 4096)
+
+    def test_is_truncated_completion_heuristics(self):
+        self.assertTrue(AITools._is_truncated_completion(self._truncated()))
+        self.assertFalse(AITools._is_truncated_completion(self._ok('{"options":[1]}')))
+        self.assertFalse(AITools._is_truncated_completion(SimpleNamespace(choices=[])))
+        self.assertFalse(AITools._is_truncated_completion(SimpleNamespace()))
+
+
 class AITimeoutTest(unittest.TestCase):
     """AI 视觉超时默认值测试。"""
 

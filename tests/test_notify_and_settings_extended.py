@@ -36,6 +36,7 @@ class TestAdvancedSettingsApi:
             "sign_task_history_max_age_days",
             "ai_vision_timeout",
             "ai_vision_retry_attempts",
+            "ai_vision_reasoning_effort",
             "telegram_bot_task_success_enabled",
             "telegram_bot_quiet_hours_enabled",
             "telegram_bot_quiet_hours_start",

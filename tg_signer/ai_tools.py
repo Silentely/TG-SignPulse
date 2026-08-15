@@ -78,6 +78,12 @@ DEFAULT_CALCULATE_PROBLEM_PROMPT = (
     "你是一个**答题助手**，可以根据用户的问题给出正确的回答，只需要回复答案，不要解释，不要输出任何其他内容。"
 )
 
+# 截断重试时 max_tokens 翻倍封顶，避免超出部分厂商的输出上限（如 GLM 系列 4096）
+_VISION_MAX_TOKENS_CAP = 4096
+
+# reasoning_effort 合法取值（厂商文档：商汤 SenseNova 等支持 none 关闭思考）
+_VISION_REASONING_EFFORT_VALUES = frozenset({"low", "medium", "high", "none"})
+
 
 def encode_image(image: bytes):
     return base64.b64encode(image).decode("utf-8")
@@ -540,6 +546,33 @@ class AITools:
                 return None, fallback_exc
             raise
 
+    @staticmethod
+    def _is_truncated_completion(result: Any) -> bool:
+        """判断 AI 视觉响应是否因 max_tokens 不足被截断（finish_reason=length）。"""
+        try:
+            choice = result.choices[0]
+        except (AttributeError, IndexError, TypeError):
+            return False
+        return getattr(choice, "finish_reason", None) == "length"
+
+    @staticmethod
+    def _vision_reasoning_effort() -> Optional[str]:
+        """读取 AI_VISION_REASONING_EFFORT（low/medium/high/none），未配置或非法时返回 None。
+
+        该参数仅部分厂商/模型支持（如商汤 SenseNova、DeepSeek 的推理模型），
+        默认不发送以免不兼容厂商报错；none 表示关闭思考。
+        """
+        raw = (os.environ.get("AI_VISION_REASONING_EFFORT") or "").strip().lower()
+        if not raw:
+            return None
+        if raw not in _VISION_REASONING_EFFORT_VALUES:
+            logger.warning(
+                "忽略非法 AI_VISION_REASONING_EFFORT=%r（可选: low/medium/high/none）",
+                raw,
+            )
+            return None
+        return raw
+
     async def _create_visual_completion(
         self,
         *,
@@ -560,6 +593,10 @@ class AITools:
         if expect_json:
             kwargs["response_format"] = {"type": "json_object"}
 
+        reasoning_effort = self._vision_reasoning_effort()
+        if reasoning_effort:
+            kwargs["reasoning_effort"] = reasoning_effort
+
         attempts = self._vision_retry_attempts()
         last_error: Exception | None = None
 
@@ -570,18 +607,6 @@ class AITools:
                     client.chat.completions.create(**kwargs),
                     timeout=self._ai_timeout(),
                 )
-                _elapsed = (time.monotonic() - _start) * 1000
-                _usage = getattr(result, "usage", None)
-                _tokens = ""
-                if _usage:
-                    _tokens = f" | tokens: prompt={getattr(_usage, 'prompt_tokens', '?')} completion={getattr(_usage, 'completion_tokens', '?')}"
-                logger.debug(
-                    "AI API 调用完成 | model=%s elapsed_ms=%.0f%s",
-                    model,
-                    _elapsed,
-                    _tokens,
-                )
-                return result
             except Exception as exc:
                 _elapsed = (time.monotonic() - _start) * 1000
                 last_error = exc
@@ -610,6 +635,33 @@ class AITools:
                     continue
 
                 raise
+
+            _elapsed = (time.monotonic() - _start) * 1000
+            if self._is_truncated_completion(result):
+                if attempt < attempts and kwargs["max_tokens"] < _VISION_MAX_TOKENS_CAP:
+                    kwargs["max_tokens"] = min(
+                        kwargs["max_tokens"] * 2, _VISION_MAX_TOKENS_CAP
+                    )
+                    logger.warning(
+                        "AI 视觉输出被 max_tokens 截断，放宽输出预算重试 (%d/%d) | model=%s max_tokens=%d",
+                        attempt, attempts, model, kwargs["max_tokens"],
+                    )
+                    continue
+                raise RuntimeError(
+                    f"AI 视觉输出在 max_tokens={kwargs['max_tokens']} 内被截断 | model={model}"
+                )
+
+            _usage = getattr(result, "usage", None)
+            _tokens = ""
+            if _usage:
+                _tokens = f" | tokens: prompt={getattr(_usage, 'prompt_tokens', '?')} completion={getattr(_usage, 'completion_tokens', '?')}"
+            logger.debug(
+                "AI API 调用完成 | model=%s elapsed_ms=%.0f%s",
+                model,
+                _elapsed,
+                _tokens,
+            )
+            return result
 
         raise last_error
 
@@ -652,7 +704,7 @@ class AITools:
             model=model,
             messages=messages,
             temperature=temperature,
-            max_tokens=24,
+            max_tokens=read_positive_int_env("AI_VISION_MAX_TOKENS", 512, 16),
             expect_json=True,
         )
         message = completion.choices[0].message
@@ -703,7 +755,7 @@ class AITools:
             model=model,
             messages=messages,
             temperature=temperature,
-            max_tokens=32,
+            max_tokens=read_positive_int_env("AI_VISION_MAX_TOKENS", 512, 16),
             expect_json=True,
         )
         result = json_repair.loads(completion.choices[0].message.content)
