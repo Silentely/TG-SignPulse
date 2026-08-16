@@ -124,7 +124,7 @@ def test_repeated_above_threshold_alerts_only_once_until_reset():
 
 
 def test_gc_still_runs_during_alert_dedup():
-    """告警去重不应跳过 GC：持续超限期间每轮仍执行回收。"""
+    """告警去重不应跳过 GC：超阈值时执行回收（冷却期内跳过重复 collect）。"""
     monitor = MemoryMonitor(
         threshold_mb=0.000001,
         gc_enabled=True,
@@ -133,8 +133,22 @@ def test_gc_still_runs_during_alert_dedup():
     monitor.check()
     gc_after_first = len(monitor.gc_records)
     assert gc_after_first >= 1
+    # 冷却期内（默认 300s）第二轮不再 collect，避免长时间超限反复阻塞事件循环
     monitor.check()
-    assert len(monitor.gc_records) > gc_after_first
+    assert len(monitor.gc_records) == gc_after_first
+
+
+def test_gc_cooldown_expires_after_interval():
+    """冷却期过后再次超阈值会重新 collect。"""
+    monitor = MemoryMonitor(
+        threshold_mb=0.000001,
+        gc_enabled=True,
+        max_history=10,
+        gc_cooldown_seconds=0.0,  # 冷却关闭：每轮执行
+    )
+    monitor.check()
+    monitor.check()
+    assert len(monitor.gc_records) >= 2
 
 
 def test_current_rss_mb_does_not_record_history():
