@@ -2,6 +2,7 @@
 /**
  * 任务表单：目标会话选择 / 多目标 Tab / 批量勾选。
  */
+import { ref } from 'vue'
 import { RefreshCw } from 'lucide-vue-next'
 import CustomSelect from '../CustomSelect.vue'
 import type { ChatInfo } from '../../lib/api'
@@ -17,6 +18,38 @@ export type TargetChatDraft = {
 }
 
 const { t } = useI18n()
+
+/** 会话搜索结果键盘导航：高亮项下标（-1 未定位） */
+const activeSearchIndex = ref(-1)
+
+/** 输入框键盘：方向键移动高亮、Enter 选中、Escape 收起 */
+const onSearchKeydown = (e: KeyboardEvent) => {
+  const results = props.chatSearchResults
+  if (!props.chatSearch.trim() || !results.length) {
+    if (e.key === 'Escape') {
+      activeSearchIndex.value = -1
+    }
+    return
+  }
+  if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    activeSearchIndex.value = Math.min(activeSearchIndex.value + 1, results.length - 1)
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    activeSearchIndex.value = Math.max(activeSearchIndex.value - 1, 0)
+  } else if (e.key === 'Enter' && activeSearchIndex.value >= 0) {
+    e.preventDefault()
+    emit('select-chat', results[activeSearchIndex.value])
+    activeSearchIndex.value = -1
+  } else if (e.key === 'Escape') {
+    activeSearchIndex.value = -1
+  }
+}
+
+/** 结果列表打开/关闭时复位高亮 */
+const resetSearchActive = () => {
+  activeSearchIndex.value = -1
+}
 
 const props = defineProps<{
   isEditing: boolean
@@ -150,20 +183,33 @@ const onChatIdUpdate = (id: number) => {
             :value="chatSearch"
             :placeholder="t('taskForm.searchPlaceholder')"
             class="ui-input"
-            @input="emit('update:chatSearch', ($event.target as HTMLInputElement).value)"
+            role="combobox"
+            aria-autocomplete="list"
+            :aria-expanded="chatSearch.trim() !== '' && chatSearchResults.length > 0"
+            aria-controls="task-form-chat-search-list"
+            :aria-activedescendant="activeSearchIndex >= 0 ? `task-form-chat-search-opt-${activeSearchIndex}` : undefined"
+            @input="resetSearchActive; emit('update:chatSearch', ($event.target as HTMLInputElement).value)"
+            @keydown="onSearchKeydown"
           />
           <div
             v-if="chatSearch.trim()"
+            id="task-form-chat-search-list"
+            role="listbox"
             class="absolute top-11 left-0 right-0 z-10 max-h-40 overflow-y-auto ui-dropdown shadow-[var(--sp-shadow-md)]"
           >
             <div v-if="chatSearchLoading" class="p-3 text-xs text-gray-400">{{ t('taskForm.searching') }}</div>
             <template v-else>
               <button
-                v-for="chat in chatSearchResults"
+                v-for="(chat, idx) in chatSearchResults"
                 :key="chat.id"
+                :id="`task-form-chat-search-opt-${idx}`"
                 type="button"
+                role="option"
+                :aria-selected="activeSearchIndex === idx"
                 class="w-full text-left p-2 border-b border-gray-100 dark:border-gray-800/60 hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer text-sm"
-                @click="emit('select-chat', chat)"
+                :class="activeSearchIndex === idx ? 'bg-gray-50 dark:bg-gray-800/60' : ''"
+                @mouseenter="activeSearchIndex = idx"
+                @click="activeSearchIndex = -1; emit('select-chat', chat)"
               >
                 <span class="block font-medium truncate">{{ chat.title || chat.username || chat.id }}</span>
                 <span class="block text-[10px] text-gray-400 font-mono">{{ chat.id }}</span>
