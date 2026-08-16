@@ -87,6 +87,28 @@ describe('settings-form', () => {
     expect(p.device_keepalive_interval_days).toBe(30)
   })
 
+  it('buildGeneralPayload clamps out-of-range numbers', () => {
+    const s = baseSettings()
+    s.concurrency = 99
+    s.deviceKeepaliveIntervalDays = 500
+
+    const p = buildGeneralPayload(s)
+
+    expect(p.tg_global_concurrency).toBe(10)
+    expect(p.device_keepalive_interval_days).toBe(170)
+  })
+
+  it('buildAiRuntimePayload clamps out-of-range numbers', () => {
+    const s = baseSettings()
+    s.execTimeout = 20 // 低于下限 30
+    s.aiVisionRetry = 99 // 高于上限 8
+
+    const p = buildAiRuntimePayload(s)
+
+    expect(p.sign_task_execution_timeout).toBe(30)
+    expect(p.ai_vision_retry_attempts).toBe(8)
+  })
+
   it('buildBotPayload parses thread id', () => {
     const s = baseSettings()
     s.botThreadId = '42'
