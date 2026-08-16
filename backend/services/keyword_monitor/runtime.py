@@ -7,7 +7,7 @@ import asyncio
 import json
 import os
 import time
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 # 确保 rules 中以下划线开头的符号也可通过 star import 获得
 import backend.services.keyword_monitor.rules as _km_rules
@@ -770,6 +770,31 @@ class KeywordMonitorService:
             variables=variables,
         )
 
+    def _prune_inactive_rule_state(self, rules: List[Any]) -> None:
+        """按当前规则键集合裁剪内存日志/状态：删除的账号/任务不滞留。
+
+        早退路径（规则键未变）也会调用，避免 `_task_logs`/`_task_status`/
+        `_skip_log_times`/`_seen` 随账号/任务删除无限累积。
+        """
+        active_keys = {self._task_key(r.account_name, r.task_name) for r in rules}
+        for store in (self._task_logs, self._task_status):
+            for key in list(store.keys()):
+                if key not in active_keys:
+                    store.pop(key, None)
+        for key in list(self._skip_log_times.keys()):
+            if (key[0], key[1]) not in active_keys:
+                self._skip_log_times.pop(key, None)
+        # 去重水位（seen.json 持久态）按规则账号集合裁剪，账号删除后不再累积
+        active_accounts = {str(r.account_name or "").strip() for r in rules}
+        pruned_seen = False
+        for key in list(self._seen.keys()):
+            account = key.split(":", 1)[0] if ":" in key else key
+            if account not in active_accounts:
+                self._seen.pop(key, None)
+                pruned_seen = True
+        if pruned_seen:
+            self._seen_dirty = True
+
     async def restart_from_tasks(self) -> None:
         async with self._lock:
             from backend.services.config import get_config_service
@@ -783,6 +808,8 @@ class KeywordMonitorService:
             )
 
             rules = self._load_rules()
+            # 先按目标规则集合清理滞留状态（早退与重建路径均覆盖）
+            self._prune_inactive_rule_state(rules)
             key = self._rules_key(rules)
             if key == self._active_key and self._handlers_are_active_for(rules):
                 for rule in rules:

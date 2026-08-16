@@ -87,6 +87,8 @@ class MemoryMonitor:
     alert_callback: Optional[Callable[[AlertRecord], Any]] = None
     max_history: int = 100
     check_interval: float = 30.0
+    # 自动 GC 冷却期（秒）：连续超阈值期间避免每轮 collect 阻塞事件循环
+    gc_cooldown_seconds: float = 300.0
 
     def __post_init__(self) -> None:
         """初始化 psutil 进程句柄，校验参数合法性"""
@@ -110,6 +112,8 @@ class MemoryMonitor:
     _last_gc_forced: bool = field(default=False, init=False, repr=False)
     # 连续超阈值告警去重：True 表示当前处于告警中，回落复位前不再重复告警
     _in_alert: bool = field(default=False, init=False, repr=False)
+    # 最近一次自动 GC 的时间戳（单调时钟）：冷却期内不重复 collect，防阻塞事件循环
+    _last_gc_at: float = field(default=0.0, init=False, repr=False)
 
     # ------------------------------------------------------------------
     # 公共 API
@@ -146,7 +150,11 @@ class MemoryMonitor:
             if not self._in_alert:
                 self._in_alert = True
                 alert = self._trigger_alert(snap)
-            if self.gc_enabled:
+            # GC 冷却：长时间超限时 collect 每轮执行会周期性阻塞事件循环，
+            # 距上次自动 GC 不足冷却期则跳过（幂等且避免反复全量扫描）
+            if self.gc_enabled and (
+                time.monotonic() - self._last_gc_at >= self.gc_cooldown_seconds
+            ):
                 self._do_gc(snap)
             return alert
         self._in_alert = False
@@ -240,6 +248,7 @@ class MemoryMonitor:
 
     def _do_gc(self, snap_before: MemorySnapshot) -> GCRecord:
         """执行垃圾回收并记录结果"""
+        self._last_gc_at = time.monotonic()
         rss_before_mb = snap_before.rss_mb
         collected = gc.collect()
         # GC 完成后重新采样
