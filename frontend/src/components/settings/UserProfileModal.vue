@@ -182,19 +182,28 @@ onUnmounted(revokeQrUrl)
 
 <template>
   <Modal :isOpen="isOpen" @close="$emit('close')" :title="t('profile.title')">
-    <div class="flex gap-1 mb-6 border-b border-gray-200 dark:border-gray-800/60 overflow-x-auto">
+    <div class="flex gap-1 mb-6 border-b border-gray-200 dark:border-gray-800/60 overflow-x-auto" role="tablist">
       <button 
         @click="activeTab = 'username'; error = ''; successMessage = ''"
+        type="button"
+        role="tab"
+        :aria-selected="activeTab === 'username'"
         class="text-sm font-medium transition-colors whitespace-nowrap px-2.5 pb-2.5 border-b-2 -mb-px"
         :class="activeTab === 'username' ? 'border-sky-500 text-gray-900 dark:text-gray-100' : 'border-transparent text-gray-500 hover:text-gray-800 dark:hover:text-gray-300'"
       >{{ t('profile.changeUsername') }}</button>
       <button 
         @click="activeTab = 'password'; error = ''; successMessage = ''"
+        type="button"
+        role="tab"
+        :aria-selected="activeTab === 'password'"
         class="text-sm font-medium transition-colors whitespace-nowrap px-2.5 pb-2.5 border-b-2 -mb-px"
         :class="activeTab === 'password' ? 'border-sky-500 text-gray-900 dark:text-gray-100' : 'border-transparent text-gray-500 hover:text-gray-800 dark:hover:text-gray-300'"
       >{{ t('profile.changePassword') }}</button>
       <button 
         @click="activeTab = 'totp'; error = ''; successMessage = ''"
+        type="button"
+        role="tab"
+        :aria-selected="activeTab === 'totp'"
         class="text-sm font-medium transition-colors whitespace-nowrap px-2.5 pb-2.5 border-b-2 -mb-px"
         :class="activeTab === 'totp' ? 'border-sky-500 text-gray-900 dark:text-gray-100' : 'border-transparent text-gray-500 hover:text-gray-800 dark:hover:text-gray-300'"
       >{{ t('profile.totp') }}</button>

@@ -36,6 +36,7 @@ const emit = defineEmits<{
       <button
         type="button"
         class="px-2 py-1 rounded-sm border"
+        :aria-pressed="hitsView === 'list'"
         :class="hitsView === 'list' ? 'border-sky-400 text-sky-700 dark:text-sky-300' : 'border-gray-200 dark:border-gray-700 text-gray-500'"
         @click="emit('update:hitsView', 'list')"
       >
@@ -44,6 +45,7 @@ const emit = defineEmits<{
       <button
         type="button"
         class="px-2 py-1 rounded-sm border"
+        :aria-pressed="hitsView === 'groups'"
         :class="hitsView === 'groups' ? 'border-sky-400 text-sky-700 dark:text-sky-300' : 'border-gray-200 dark:border-gray-700 text-gray-500'"
         @click="emit('update:hitsView', 'groups')"
       >
