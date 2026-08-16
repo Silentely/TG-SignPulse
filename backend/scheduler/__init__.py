@@ -19,6 +19,26 @@ def _parse_clock_time(value: str):
     raise ValueError(f"Invalid clock time: {value}")
 
 
+def _resolve_scheduler_timezone():
+    """解析调度器使用的时区（Web UI 全局设置优先，回退环境变量）；失败返回 None。"""
+    try:
+        from backend.core.config import get_settings
+        from backend.services.config import get_config_service
+
+        saved_settings = get_config_service().get_global_settings()
+        tz_name = saved_settings.get("timezone") or get_settings().timezone
+        if not tz_name:
+            return None
+        from zoneinfo import ZoneInfo
+
+        return ZoneInfo(str(tz_name))
+    except Exception as exc:
+        logging.getLogger("backend.scheduler").debug(
+            "解析调度器时区失败，使用本地时区: %s", exc
+        )
+        return None
+
+
 def create_cron_trigger(cron_str: str, timezone: str = "") -> CronTrigger:
     """自动解析格式并创建 CronTrigger，支持 5位和6位 cron 表达式以及 HH:MM 或 HH:MM:SS"""
     if ":" in cron_str:
@@ -89,8 +109,11 @@ async def _job_run_sign_task(account_name: str, task_name: str) -> None:
                     start_time = _parse_clock_time(range_start_str)
                     end_time = _parse_clock_time(range_end_str)
 
-                    # 转换为当前日期的 datetime
-                    now = datetime.now()
+                    # 用应用时区锚定当前时刻（与 cron trigger 语义一致）：
+                    # 原 naive datetime.now() 在进程 TZ 与 Web UI 时区不一致、
+                    # 或窗口跨 DST 切换时会算错窗口
+                    tz = _resolve_scheduler_timezone()
+                    now = datetime.now(tz) if tz is not None else datetime.now()
                     start_dt = now.replace(
                         hour=start_time.hour,
                         minute=start_time.minute,
@@ -112,8 +135,10 @@ async def _job_run_sign_task(account_name: str, task_name: str) -> None:
                     total_seconds = (end_dt - start_dt).total_seconds()
 
                     if total_seconds > 0:
-                        # 生成随机延迟
-                        delay_seconds = random.uniform(0, total_seconds)
+                        # 生成随机延迟；misfire/迟到触发时截断到窗口剩余时间，
+                        # 避免把执行推过 range_end
+                        remaining = max(0.0, (end_dt - now).total_seconds())
+                        delay_seconds = min(random.uniform(0, total_seconds), remaining)
                         logger.info(
                             "Scheduler: 任务 %s 设置为随机时间段模式 (%s - %s)",
                             task_name,
