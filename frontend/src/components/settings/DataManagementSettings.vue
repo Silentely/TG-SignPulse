@@ -229,10 +229,12 @@ const formatBytes = (n?: number | null) => {
           <div class="space-y-1">
             <label class="text-[10px] text-gray-500">{{ t('settings.autoBackupInterval') }}</label>
             <input :value="modelValue.autoBackupInterval" @input="onNumberInput('autoBackupInterval', $event)" type="number" min="1" max="168" class="ui-input" :disabled="!modelValue.autoBackupEnabled" />
+            <p class="text-[10px] text-gray-500">{{ t('settings.autoBackupIntervalHint') }}</p>
           </div>
           <div class="space-y-1">
             <label class="text-[10px] text-gray-500">{{ t('settings.autoBackupKeep') }}</label>
             <input :value="modelValue.autoBackupKeep" @input="onNumberInput('autoBackupKeep', $event)" type="number" min="1" max="30" class="ui-input" :disabled="!modelValue.autoBackupEnabled" />
+            <p class="text-[10px] text-gray-500">{{ t('settings.autoBackupKeepHint') }}</p>
           </div>
         </div>
         <button type="button" class="ui-btn-secondary w-full !py-2 !text-xs" :disabled="advancedLoading" @click="emit('save-advanced')">
