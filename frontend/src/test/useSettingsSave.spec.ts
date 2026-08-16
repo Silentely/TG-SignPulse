@@ -137,6 +137,31 @@ describe('useSettingsSave', () => {
     expect(toastSpy.error).toHaveBeenCalled()
   })
 
+  it('saveAllSettings saves tg when only one field is filled', async () => {
+    // 回归：原 AND 守卫导致只填一半时静默不保存、输入丢失仍提示"全部已保存"
+    api.saveGlobalSettings.mockResolvedValue({})
+    api.saveTelegramConfig.mockResolvedValue({})
+    const { save, markSectionClean } = setup({
+      tg: { api_id: '1', api_hash: '' },
+    })
+    await save.saveAllSettings()
+    expect(api.saveTelegramConfig).toHaveBeenCalledWith(
+      'tok',
+      expect.objectContaining({ api_id: '1', api_hash: '' }),
+    )
+    expect(markSectionClean).toHaveBeenCalledWith('tg')
+    expect(toastSpy.success).toHaveBeenCalled()
+  })
+
+  it('saveAllSettings skips tg save when both fields empty', async () => {
+    api.saveGlobalSettings.mockResolvedValue({})
+    const { save } = setup({
+      tg: { api_id: '', api_hash: '' },
+    })
+    await save.saveAllSettings()
+    expect(api.saveTelegramConfig).not.toHaveBeenCalled()
+  })
+
   it('resetTgConfig aborts when confirm false', async () => {
     confirmMock.confirm.mockResolvedValueOnce(false)
     const { save } = setup({ tg: { api_id: '1', api_hash: 'h' } })
