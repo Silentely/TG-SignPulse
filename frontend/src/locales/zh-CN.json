@@ -264,6 +264,7 @@
     "createSuccess": "任务已创建",
     "hitsBadge": "命中 {n}",
     "hitsBadgeHint": "查看关键词命中记录",
+    "toolbarLabel": "任务列表操作",
     "filterAll": "全部",
     "filterListen": "监听",
     "filterScheduled": "定时"
@@ -654,7 +655,14 @@
     "apiId": "API ID",
     "apiIdPlaceholder": "例如 1234567",
     "apiHash": "API Hash",
-    "apiHashPlaceholder": "32 位十六进制，可在 my.telegram.org 申请"
+    "apiHashPlaceholder": "32 位十六进制，可在 my.telegram.org 申请",
+    "accountCooldownHint": "同账号连续执行的最小间隔秒数",
+    "historyMaxAgeHint": "历史日志保留天数，超出自动清理",
+    "aiVisionTimeoutHint": "AI 识图请求超时秒数",
+    "aiVisionRetryHint": "AI 识图失败重试次数",
+    "autoBackupIntervalHint": "自动备份间隔（小时，1–168）",
+    "autoBackupKeepHint": "本地保留的备份份数（1–30）",
+    "logRetentionHint": "日志保留天数（单位：天）"
   },
   "profile": {
     "title": "个人中心",
@@ -695,6 +703,7 @@
   },
   "addAccount": {
     "codeTitle": "验证码登录",
+    "loginMethod": "登录方式",
     "qrTitle": "扫码登录",
     "accountName": "账号名称（自定义）",
     "accountNamePlaceholder": "例如：Work_Account_01",

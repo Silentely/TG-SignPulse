@@ -65,6 +65,7 @@ const onStringInput = (key: keyof SettingsFormState, e: Event) => {
       <div class="space-y-1.5">
         <label class="ui-label" for="settings-log-retention">{{ t('settings.logRetention') }}</label>
         <input id="settings-log-retention" :value="modelValue.logDays" @input="onNumberInput('logDays', $event)" type="number" :placeholder="t('settings.logRetentionPlaceholder')" class="ui-input">
+        <p class="text-[10px] text-gray-500">{{ t('settings.logRetentionHint') }}</p>
       </div>
       <div class="space-y-1.5">
         <label class="ui-label" for="settings-data-dir">{{ t('settings.dataDir') }}</label>

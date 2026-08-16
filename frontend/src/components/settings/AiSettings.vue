@@ -111,6 +111,7 @@ const onSettingsSelectChange = (key: keyof SettingsFormState, e: Event) => {
           <div class="space-y-1">
             <label class="text-[10px] text-gray-500" for="ai-accountcooldown">{{ t('settings.accountCooldown') }}</label>
             <input id="ai-accountcooldown" :value="settingsModelValue.accountCooldown" @input="onSettingsNumberInput('accountCooldown', $event)" type="number" min="0" max="600" :placeholder="t('settings.accountCooldownPlaceholder')" class="ui-input" />
+            <SettingsFieldHint :text="t('settings.accountCooldownHint')" />
           </div>
           <div class="space-y-1">
             <label class="text-[10px] text-gray-500" for="ai-flowretry">{{ t('settings.flowRetry') }}</label>
@@ -120,14 +121,17 @@ const onSettingsSelectChange = (key: keyof SettingsFormState, e: Event) => {
           <div class="space-y-1">
             <label class="text-[10px] text-gray-500" for="ai-historymaxage">{{ t('settings.historyMaxAge') }}</label>
             <input id="ai-historymaxage" :value="settingsModelValue.historyMaxAge" @input="onSettingsNumberInput('historyMaxAge', $event)" type="number" min="1" max="90" :placeholder="t('settings.historyMaxAgePlaceholder')" class="ui-input" />
+            <SettingsFieldHint :text="t('settings.historyMaxAgeHint')" />
           </div>
           <div class="space-y-1">
             <label class="text-[10px] text-gray-500" for="ai-aivisiontimeout">{{ t('settings.aiVisionTimeout') }}</label>
             <input id="ai-aivisiontimeout" :value="settingsModelValue.aiVisionTimeout" @input="onSettingsNumberInput('aiVisionTimeout', $event)" type="number" min="3" max="120" :placeholder="t('settings.aiVisionTimeoutPlaceholder')" class="ui-input" />
+            <SettingsFieldHint :text="t('settings.aiVisionTimeoutHint')" />
           </div>
           <div class="space-y-1">
             <label class="text-[10px] text-gray-500" for="ai-aivisionretry">{{ t('settings.aiVisionRetry') }}</label>
             <input id="ai-aivisionretry" :value="settingsModelValue.aiVisionRetry" @input="onSettingsNumberInput('aiVisionRetry', $event)" type="number" min="1" max="8" :placeholder="t('settings.aiVisionRetryPlaceholder')" class="ui-input" />
+            <SettingsFieldHint :text="t('settings.aiVisionRetryHint')" />
           </div>
           <div class="space-y-1">
             <label class="text-[10px] text-gray-500" for="ai-aivisionreasoning">{{ t('settings.aiVisionReasoningEffort') }}</label>

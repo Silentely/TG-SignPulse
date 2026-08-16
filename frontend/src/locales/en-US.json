@@ -264,6 +264,7 @@
     "createSuccess": "Task created",
     "hitsBadge": "Hits {n}",
     "hitsBadgeHint": "Open keyword hit records",
+    "toolbarLabel": "Task list actions",
     "filterAll": "All",
     "filterListen": "Listen",
     "filterScheduled": "Scheduled"
@@ -654,7 +655,14 @@
     "apiId": "API ID",
     "apiIdPlaceholder": "e.g. 1234567",
     "apiHash": "API Hash",
-    "apiHashPlaceholder": "32-char hex, obtainable at my.telegram.org"
+    "apiHashPlaceholder": "32-char hex, obtainable at my.telegram.org",
+    "accountCooldownHint": "Min seconds between consecutive runs for the same account",
+    "historyMaxAgeHint": "Days of history logs to keep; older entries are pruned",
+    "aiVisionTimeoutHint": "Timeout in seconds for AI vision requests",
+    "aiVisionRetryHint": "Retries for failed AI vision requests",
+    "autoBackupIntervalHint": "Auto-backup interval in hours (1-168)",
+    "autoBackupKeepHint": "Local backups to keep (1-30)",
+    "logRetentionHint": "Days of logs to keep (in days)"
   },
   "profile": {
     "title": "Profile",
@@ -695,6 +703,7 @@
   },
   "addAccount": {
     "codeTitle": "Code Login",
+    "loginMethod": "Login method",
     "qrTitle": "QR Login",
     "accountName": "Account Name (custom)",
     "accountNamePlaceholder": "e.g. Work_Account_01",
