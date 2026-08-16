@@ -325,7 +325,7 @@ onUnmounted(() => {
   <Modal :isOpen="isOpen" @close="handleClose" :title="loginMethod === 'code' ? t('addAccount.codeTitle') : t('addAccount.qrTitle')">
     <div class="space-y-4 pb-2">
       <!-- 登录方式分段切换 -->
-      <div class="ui-segment" role="tablist" :aria-label="t('addAccount.accountName')">
+      <div class="ui-segment" role="tablist" :aria-label="t('addAccount.loginMethod')">
         <button
           type="button"
           role="tab"

@@ -60,7 +60,7 @@ onUnmounted(() => document.removeEventListener('click', closeTemplateMenuOnOutsi
     class="ui-card p-3 space-y-2.5"
     :class="selectedCount ? 'ring-1 ring-sky-400/30 border-sky-300/40 dark:border-sky-700/40' : ''"
     role="toolbar"
-    :aria-label="t('tasks.selectAll')"
+    :aria-label="t('tasks.toolbarLabel')"
   >
     <div class="flex flex-col sm:flex-row sm:items-center gap-2">
       <label
@@ -91,6 +91,7 @@ onUnmounted(() => document.removeEventListener('click', closeTemplateMenuOnOutsi
         <button
           type="button"
           class="px-2 py-1 rounded-sm border transition-colors"
+          :aria-pressed="modeFilter === 'all'"
           :class="modeFilter === 'all'
             ? 'border-sky-400 text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/30'
             : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-white/[0.04]'"
@@ -101,6 +102,7 @@ onUnmounted(() => document.removeEventListener('click', closeTemplateMenuOnOutsi
         <button
           type="button"
           class="px-2 py-1 rounded-sm border transition-colors"
+          :aria-pressed="modeFilter === 'listen'"
           :class="modeFilter === 'listen'
             ? 'border-orange-400 text-orange-700 dark:text-orange-300 bg-orange-50 dark:bg-orange-950/30'
             : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-white/[0.04]'"
@@ -112,6 +114,7 @@ onUnmounted(() => document.removeEventListener('click', closeTemplateMenuOnOutsi
         <button
           type="button"
           class="px-2 py-1 rounded-sm border transition-colors"
+          :aria-pressed="modeFilter === 'scheduled'"
           :class="modeFilter === 'scheduled'
             ? 'border-violet-400 text-violet-700 dark:text-violet-300 bg-violet-50 dark:bg-violet-950/30'
             : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-white/[0.04]'"
