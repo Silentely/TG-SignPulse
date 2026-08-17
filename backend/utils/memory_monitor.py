@@ -112,8 +112,9 @@ class MemoryMonitor:
     _last_gc_forced: bool = field(default=False, init=False, repr=False)
     # 连续超阈值告警去重：True 表示当前处于告警中，回落复位前不再重复告警
     _in_alert: bool = field(default=False, init=False, repr=False)
-    # 最近一次自动 GC 的时间戳（单调时钟）：冷却期内不重复 collect，防阻塞事件循环
-    _last_gc_at: float = field(default=0.0, init=False, repr=False)
+    # 最近一次自动 GC 的时间戳（单调时钟）；None 表示从未自动执行过，
+    # 冷却期仅约束两次自动 GC 之间，首次超阈值必须执行（不依赖机器开机时长）
+    _last_gc_at: Optional[float] = field(default=None, init=False, repr=False)
 
     # ------------------------------------------------------------------
     # 公共 API
@@ -151,9 +152,11 @@ class MemoryMonitor:
                 self._in_alert = True
                 alert = self._trigger_alert(snap)
             # GC 冷却：长时间超限时 collect 每轮执行会周期性阻塞事件循环，
-            # 距上次自动 GC 不足冷却期则跳过（幂等且避免反复全量扫描）
+            # 距上次自动 GC 不足冷却期则跳过（幂等且避免反复全量扫描）；
+            # 首次超阈值（_last_gc_at 为 None）必定执行，不受冷却约束
             if self.gc_enabled and (
-                time.monotonic() - self._last_gc_at >= self.gc_cooldown_seconds
+                self._last_gc_at is None
+                or time.monotonic() - self._last_gc_at >= self.gc_cooldown_seconds
             ):
                 self._do_gc(snap)
             return alert
