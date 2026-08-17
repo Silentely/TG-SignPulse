@@ -84,6 +84,34 @@ _VISION_MAX_TOKENS_CAP = 4096
 # reasoning_effort 合法取值（厂商文档：商汤 SenseNova 等支持 none 关闭思考）
 _VISION_REASONING_EFFORT_VALUES = frozenset({"low", "medium", "high", "none"})
 
+# 参数降级无法修复的上游错误码/文本标记（上下文超长、内容策略、图片内容等），避免浪费请求
+_NON_PARAM_REJECTION_CODES = frozenset(
+    {
+        "context_length_exceeded",
+        "content_policy_violation",
+        "invalid_image",
+        "image_too_large",
+        "image_decode_error",
+        "model_not_found",
+        "model_not_available",
+    }
+)
+
+_NON_PARAM_REJECTION_MARKERS = (
+    "context length",
+    "maximum context",
+    "reduce the length of the messages",
+    "content_policy",
+    "safety system",
+    "content filter",
+    "image size",
+    "image format",
+    "invalid image",
+)
+
+# 降级阶梯实际会移除/替换的参数：错误明确指向这些参数时直接判定为参数不兼容
+_PARAM_REJECTION_PARAMS = frozenset({"reasoning_effort", "response_format", "reasoning"})
+
 
 def encode_image(image: bytes):
     return base64.b64encode(image).decode("utf-8")
@@ -403,17 +431,62 @@ class AITools:
 
         return [cls._coerce_option_index(result, options)]
 
-    @staticmethod
-    def _should_retry_without_json_mode(exc: Exception) -> bool:
+    @classmethod
+    def _extract_error_fields(cls, exc: Exception) -> dict:
+        """从异常对象提取上游返回的结构化错误字段（error.type/code/param/message）。"""
+        body = getattr(exc, "body", None)
+        if isinstance(body, dict) and isinstance(body.get("error"), dict):
+            return dict(body["error"])
+        return {}
+
+    @classmethod
+    def _is_param_rejection_error(cls, exc: Exception) -> bool:
+        """判断错误是否为“请求参数不被上游接受”，可尝试降级参数重试。
+
+        覆盖 Vercel AI Gateway 等严格网关的 400 "Invalid input"（Zod 校验），
+        以及各类中转/直连端点拒绝未知参数（reasoning_effort、
+        response_format json_object 等）的报错；认证/配额/瞬时故障不算。
+        上下文超长、内容策略、图片内容等参数降级无法修复的错误也不触发降级。
+        """
+        status = cls._get_exception_status_code(exc)
+        if status is not None and status not in {400, 403, 422}:
+            return False
+
+        fields = cls._extract_error_fields(exc)
+        code = fields.get("code")
+        if isinstance(code, str) and code.lower() in _NON_PARAM_REJECTION_CODES:
+            return False
+        param = fields.get("param")
+        if isinstance(param, str) and param.lower() in _PARAM_REJECTION_PARAMS:
+            return True
+
         text = str(exc).lower()
-        indicators = (
+        if any(marker in text for marker in _NON_PARAM_REJECTION_MARKERS):
+            return False
+        markers = (
+            "invalid input",
+            "invalid_request_error",
+            "invalid_argument",
+            "unrecognized",
+            "unknown parameter",
+            "unknown argument",
+            "unsupported",
+            "not supported",
+            "does not support",
+            "do not support",
+            "parameter",
+            "argument",
+            "reasoning_effort",
             "response_format",
             "json_object",
+            "invalid_type",
+            "invalid_value",
+            "invalid_union",
+            "expected",
             "bad_response_status_code",
             "openai_error",
-            "unsupported",
         )
-        return any(indicator in text for indicator in indicators)
+        return any(marker in text for marker in markers)
 
     @staticmethod
     def _get_exception_status_code(exc: Exception) -> int | None:
@@ -493,59 +566,6 @@ class AITools:
             base_delay = 0.6
         return max(0.0, base_delay) * attempt
 
-    async def _try_json_fallback_if_applicable(
-        self,
-        *,
-        client: "AsyncOpenAI",
-        model: str,
-        kwargs: dict,
-        original_exc: Exception,
-        attempt: int,
-        max_attempts: int,
-    ) -> tuple[Any, Optional[Exception]]:
-        """JSON mode 降级：若 provider 不支持 JSON mode，去掉 response_format 重试。
-
-        返回 `(result, None)` → 降级成功（caller 应直接 return）；
-        返回 `(None, None)` → 不适用降级（caller 应继续外层 retry）；
-        返回 `(None, fallback_exc)` → 降级失败但可重试（caller 应继续外层 retry）；
-        抛出异常 → 不可重试（caller 应直接 raise）。
-        """
-        if "response_format" not in kwargs:
-            return None, None
-        if not self._should_retry_without_json_mode(original_exc):
-            return None, None
-
-        logger.warning(
-            "AI provider 不支持 JSON mode，降级重试: %s",
-            safe_text_preview(original_exc, 200),
-        )
-        kwargs.pop("response_format", None)
-
-        _start = time.monotonic()
-        try:
-            result = await asyncio.wait_for(
-                client.chat.completions.create(**kwargs),
-                timeout=self._ai_timeout(),
-            )
-            _elapsed = (time.monotonic() - _start) * 1000
-            logger.debug(
-                f"AI API 降级完成（无 JSON 模式） | model={model} elapsed_ms={_elapsed:.0f}"
-            )
-            return result, None
-        except Exception as fallback_exc:
-            _elapsed = (time.monotonic() - _start) * 1000
-            if self._should_retry_transient_ai_error(fallback_exc) and attempt < max_attempts:
-                delay = self._vision_retry_delay(attempt)
-                logger.warning(
-                    "AI 视觉请求降级后瞬时错误，%g 秒后重试 (%d/%d): %s: %s",
-                    delay, attempt, max_attempts,
-                    type(fallback_exc).__name__,
-                    safe_text_preview(fallback_exc, 200),
-                )
-                await asyncio.sleep(delay)
-                return None, fallback_exc
-            raise
-
     @staticmethod
     def _is_truncated_completion(result: Any) -> bool:
         """判断 AI 视觉响应是否因 max_tokens 不足被截断（finish_reason=length）。"""
@@ -573,6 +593,82 @@ class AITools:
             return None
         return raw
 
+    @classmethod
+    def _build_visual_request_stages(
+        cls,
+        *,
+        messages: list[dict[str, Any]],
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        expect_json: bool,
+    ) -> list[dict[str, Any]]:
+        """构建 AI 视觉请求参数兼容降级阶梯（由严格到保守）。
+
+        不同网关/模型对 response_format json_object、reasoning_effort、
+        reasoning 对象等参数的支持不一致（如 Vercel AI Gateway 对前两者
+        直接返回 400 "Invalid input"）。逐级降级可在不配置任何模型/渠道
+        的情况下自动适配：先试完整参数，被拒绝时依次去掉 reasoning_effort、
+        改用 Vercel 官方 reasoning 对象关闭思考（仅 AI_VISION_REASONING_EFFORT
+        =none 时启用，且优先与 JSON mode 组合）、去掉 response_format、
+        最后退回裸请求。
+        """
+        base: dict[str, Any] = {
+            "messages": messages,
+            "model": model,
+            "stream": False,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        reasoning_effort = cls._vision_reasoning_effort()
+
+        def with_extras(**extras: Any) -> dict[str, Any]:
+            stage = dict(base)
+            stage.update(extras)
+            return stage
+
+        stages: list[dict[str, Any]] = []
+        if expect_json and reasoning_effort:
+            stages.extend(
+                [
+                    with_extras(
+                        response_format={"type": "json_object"},
+                        reasoning_effort=reasoning_effort,
+                    ),
+                    with_extras(reasoning_effort=reasoning_effort),
+                ]
+            )
+            if reasoning_effort == "none":
+                # 部分网关（如 Vercel）不认顶层 reasoning_effort，只认 reasoning 对象；
+                # 先与 JSON mode 组合（保留关闭思考意图与 JSON 输出），再单独尝试，
+                # 两者均被拒绝才退回纯 JSON mode。
+                stages.extend(
+                    [
+                        with_extras(
+                            response_format={"type": "json_object"},
+                            reasoning={"enabled": False},
+                        ),
+                        with_extras(reasoning={"enabled": False}),
+                    ]
+                )
+            stages.append(with_extras(response_format={"type": "json_object"}))
+        elif expect_json:
+            stages.append(with_extras(response_format={"type": "json_object"}))
+        elif reasoning_effort == "none":
+            stages.extend(
+                [
+                    with_extras(reasoning_effort=reasoning_effort),
+                    with_extras(reasoning={"enabled": False}),
+                ]
+            )
+        elif reasoning_effort:
+            stages.append(with_extras(reasoning_effort=reasoning_effort))
+
+        bare = with_extras()
+        if not stages or stages[-1] != bare:
+            stages.append(bare)
+        return stages
+
     async def _create_visual_completion(
         self,
         *,
@@ -583,85 +679,83 @@ class AITools:
         max_tokens: int,
         expect_json: bool,
     ):
-        kwargs = {
-            "messages": messages,
-            "model": model,
-            "stream": False,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        }
-        if expect_json:
-            kwargs["response_format"] = {"type": "json_object"}
-
-        reasoning_effort = self._vision_reasoning_effort()
-        if reasoning_effort:
-            kwargs["reasoning_effort"] = reasoning_effort
-
+        stages = self._build_visual_request_stages(
+            messages=messages,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            expect_json=expect_json,
+        )
         attempts = self._vision_retry_attempts()
         last_error: Exception | None = None
+        stage_index = 0
 
         for attempt in range(1, attempts + 1):
-            _start = time.monotonic()
-            try:
-                result = await asyncio.wait_for(
-                    client.chat.completions.create(**kwargs),
-                    timeout=self._ai_timeout(),
-                )
-            except Exception as exc:
+            while stage_index < len(stages):
+                kwargs = stages[stage_index]
+                _start = time.monotonic()
+                try:
+                    result = await asyncio.wait_for(
+                        client.chat.completions.create(**kwargs),
+                        timeout=self._ai_timeout(),
+                    )
+                except Exception as exc:
+                    _elapsed = (time.monotonic() - _start) * 1000
+                    last_error = exc
+
+                    if (
+                        self._is_param_rejection_error(exc)
+                        and stage_index < len(stages) - 1
+                    ):
+                        stage_index += 1
+                        logger.warning(
+                            "AI 视觉请求参数不兼容，降级重试（第 %d/%d 级）| model=%s: %s",
+                            stage_index + 1,
+                            len(stages),
+                            model,
+                            safe_text_preview(exc, 200),
+                        )
+                        continue
+
+                    if self._should_retry_transient_ai_error(exc) and attempt < attempts:
+                        delay = self._vision_retry_delay(attempt)
+                        logger.warning(
+                            "AI 视觉请求瞬时错误，%g 秒后重试 (%d/%d): %s: %s",
+                            delay, attempt, attempts,
+                            type(exc).__name__,
+                            safe_text_preview(exc, 200),
+                        )
+                        await asyncio.sleep(delay)
+                        break
+
+                    raise
+
                 _elapsed = (time.monotonic() - _start) * 1000
-                last_error = exc
+                if self._is_truncated_completion(result):
+                    if attempt < attempts and kwargs["max_tokens"] < _VISION_MAX_TOKENS_CAP:
+                        new_max = min(kwargs["max_tokens"] * 2, _VISION_MAX_TOKENS_CAP)
+                        for stage in stages:
+                            stage["max_tokens"] = new_max
+                        logger.warning(
+                            "AI 视觉输出被 max_tokens 截断，放宽输出预算重试 (%d/%d) | model=%s max_tokens=%d",
+                            attempt, attempts, model, new_max,
+                        )
+                        break
+                    raise RuntimeError(
+                        f"AI 视觉输出在 max_tokens={kwargs['max_tokens']} 内被截断 | model={model}"
+                    )
 
-                fallback_result, fallback_exc = await self._try_json_fallback_if_applicable(
-                    client=client,
-                    model=model,
-                    kwargs=kwargs,
-                    original_exc=exc,
-                    attempt=attempt,
-                    max_attempts=attempts,
+                _usage = getattr(result, "usage", None)
+                _tokens = ""
+                if _usage:
+                    _tokens = f" | tokens: prompt={getattr(_usage, 'prompt_tokens', '?')} completion={getattr(_usage, 'completion_tokens', '?')}"
+                logger.debug(
+                    "AI API 调用完成 | model=%s elapsed_ms=%.0f%s",
+                    model,
+                    _elapsed,
+                    _tokens,
                 )
-                if fallback_result is not None:
-                    return fallback_result
-
-                retry_exc = fallback_exc or exc
-                if self._should_retry_transient_ai_error(retry_exc) and attempt < attempts:
-                    delay = self._vision_retry_delay(attempt)
-                    logger.warning(
-                        "AI 视觉请求瞬时错误，%g 秒后重试 (%d/%d): %s: %s",
-                        delay, attempt, attempts,
-                        type(exc).__name__,
-                        safe_text_preview(exc, 200),
-                    )
-                    await asyncio.sleep(delay)
-                    continue
-
-                raise
-
-            _elapsed = (time.monotonic() - _start) * 1000
-            if self._is_truncated_completion(result):
-                if attempt < attempts and kwargs["max_tokens"] < _VISION_MAX_TOKENS_CAP:
-                    kwargs["max_tokens"] = min(
-                        kwargs["max_tokens"] * 2, _VISION_MAX_TOKENS_CAP
-                    )
-                    logger.warning(
-                        "AI 视觉输出被 max_tokens 截断，放宽输出预算重试 (%d/%d) | model=%s max_tokens=%d",
-                        attempt, attempts, model, kwargs["max_tokens"],
-                    )
-                    continue
-                raise RuntimeError(
-                    f"AI 视觉输出在 max_tokens={kwargs['max_tokens']} 内被截断 | model={model}"
-                )
-
-            _usage = getattr(result, "usage", None)
-            _tokens = ""
-            if _usage:
-                _tokens = f" | tokens: prompt={getattr(_usage, 'prompt_tokens', '?')} completion={getattr(_usage, 'completion_tokens', '?')}"
-            logger.debug(
-                "AI API 调用完成 | model=%s elapsed_ms=%.0f%s",
-                model,
-                _elapsed,
-                _tokens,
-            )
-            return result
+                return result
 
         raise last_error
 
