@@ -135,10 +135,13 @@ environment:
 | `AI_VISION_RETRY_ATTEMPTS` | `2` | AI 视觉请求总尝试次数（含首次请求，最小 1） |
 | `AI_VISION_RETRY_DELAY` | `0.6` | 重试基础延迟秒数（线性递增：attempt × delay） |
 | `AI_VISION_MAX_TOKENS` | `512` | AI 视觉输出 token 预算（含思考 token，最小 16）；响应被截断（finish_reason=length）时自动翻倍重试（封顶 4096） |
-| `AI_VISION_REASONING_EFFORT` | 未设置 | AI 视觉推理力度，可选 `low`/`medium`/`high`/`none`（none 关闭思考，仅部分厂商/模型支持，如商汤 SenseNova、DeepSeek；未配置或非法值不发送）。面板「AI 模型配置」可设置，选「默认（不设置）」即清除该环境变量 |
+| `AI_VISION_REASONING_EFFORT` | 未设置 | AI 视觉推理力度，可选 `low`/`medium`/`high`/`none`（none 关闭思考，仅部分厂商/模型支持，如商汤 SenseNova、DeepSeek；未配置或非法值不发送）。面板「AI 模型配置」可设置，选「默认（不设置）」即清除该环境变量。若网关拒绝该参数（如 Vercel AI Gateway 返回 400 Invalid input），请求会自动降级重试，无需按模型/渠道配置（见下方说明） |
 | `AI_VISION_MAX_EDGE` | `640` | 图片预处理最大边长像素 |
 | `AI_VISION_JPEG_QUALITY` | `85` | 图片预处理 JPEG 压缩质量 |
 | `AI_VISION_WHITE_THRESHOLD` | `245` | 图片白色边框裁剪阈值 |
+
+
+> 说明：AI 视觉请求采用「参数兼容降级阶梯」——先按完整参数（`response_format: {"type":"json_object"}` + `reasoning_effort`）发起；被网关以 400/403/422 参数校验类错误拒绝（如 Vercel AI Gateway 的 `Invalid input`）时，自动依次降级为去掉 `reasoning_effort`、改用 Vercel 官方 `reasoning: {"enabled": false}` 关闭思考（仅当设置为 `none` 时启用，且优先与 JSON mode 组合）、去掉 `response_format`、最后退回裸请求重试，确保不因参数不兼容而失败。认证（401）、配额（429）与 5xx 瞬时错误不触发降级；上下文超长、内容策略等非参数错误也不触发降级。
 
 ## 容器相关
 

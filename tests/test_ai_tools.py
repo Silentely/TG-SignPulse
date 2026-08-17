@@ -516,6 +516,237 @@ class AIMaxTokensTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("reasoning_effort", fake_completions.calls[0])
 
 
+class ParamDegradationTest(unittest.IsolatedAsyncioTestCase):
+    """AI 视觉请求参数兼容降级阶梯测试（Vercel 类严格网关场景）。"""
+
+    def setUp(self):
+        self._old_reasoning_effort = os.environ.pop("AI_VISION_REASONING_EFFORT", None)
+
+    def tearDown(self):
+        if self._old_reasoning_effort is None:
+            os.environ.pop("AI_VISION_REASONING_EFFORT", None)
+        else:
+            os.environ["AI_VISION_REASONING_EFFORT"] = self._old_reasoning_effort
+
+    @staticmethod
+    def _tools(responses):
+        fake_completions = _FakeCompletions(responses)
+        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=fake_completions))
+        tools = AITools({"api_key": "test", "model": "gpt-4o"})
+        tools.client = fake_client
+        return tools, fake_completions
+
+    @staticmethod
+    def _ok(content='{"options":[2]}'):
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    finish_reason="stop",
+                    message=SimpleNamespace(content=content),
+                )
+            ]
+        )
+
+    @staticmethod
+    def _invalid_input():
+        return RuntimeError(
+            "Error code: 400 - {'error': {'message': 'Invalid input', "
+            "'type': 'invalid_request_error'}}"
+        )
+
+    async def test_vercel_invalid_input_degrades_to_reasoning_object(self):
+        """Vercel 拒绝 reasoning_effort/json_object 时逐级降级，最终用 reasoning 对象成功。"""
+        os.environ["AI_VISION_REASONING_EFFORT"] = "none"
+        tools, fake_completions = self._tools(
+            [
+                self._invalid_input(),
+                self._invalid_input(),
+                self._invalid_input(),
+                self._ok(),
+            ]
+        )
+
+        result = await tools.choose_options_by_image(
+            b"fake-image",
+            "Choose the correct option",
+            [(1, "apple"), (2, "banana")],
+        )
+
+        self.assertEqual(result, [2])
+        self.assertEqual(len(fake_completions.calls), 4)
+        last = fake_completions.calls[-1]
+        self.assertEqual(last.get("reasoning"), {"enabled": False})
+        self.assertNotIn("response_format", last)
+        self.assertNotIn("reasoning_effort", last)
+        # 首档仍携带完整参数
+        self.assertEqual(fake_completions.calls[0].get("reasoning_effort"), "none")
+        self.assertIn("response_format", fake_completions.calls[0])
+
+    async def test_degrades_to_bare_request_when_all_stages_rejected(self):
+        """连 reasoning 对象也被拒绝时，最终退回裸请求。"""
+        os.environ["AI_VISION_REASONING_EFFORT"] = "none"
+        tools, fake_completions = self._tools(
+            [
+                self._invalid_input(),
+                self._invalid_input(),
+                self._invalid_input(),
+                self._invalid_input(),
+                self._invalid_input(),
+                self._ok(),
+            ]
+        )
+
+        result = await tools.choose_options_by_image(
+            b"fake-image",
+            "Choose the correct option",
+            [(1, "apple"), (2, "banana")],
+        )
+
+        self.assertEqual(result, [2])
+        self.assertEqual(len(fake_completions.calls), 6)
+        last = fake_completions.calls[-1]
+        self.assertNotIn("response_format", last)
+        self.assertNotIn("reasoning_effort", last)
+        self.assertNotIn("reasoning", last)
+
+    async def test_rejects_only_effort_keeps_json_and_disables_thinking(self):
+        """仅拒绝 reasoning_effort 但接受 reasoning 对象 + JSON mode 的网关：
+        降级后应同时保留 JSON mode 并关闭思考（不退回 thinking 开启的纯 JSON 档）。"""
+        os.environ["AI_VISION_REASONING_EFFORT"] = "none"
+        tools, fake_completions = self._tools(
+            [
+                RuntimeError("Error code: 400 - Invalid value for 'reasoning_effort'"),
+                RuntimeError("Error code: 400 - Invalid value for 'reasoning_effort'"),
+                self._ok(),
+            ]
+        )
+
+        result = await tools.choose_options_by_image(
+            b"fake-image",
+            "Choose the correct option",
+            [(1, "apple"), (2, "banana")],
+        )
+
+        self.assertEqual(result, [2])
+        self.assertEqual(len(fake_completions.calls), 3)
+        last = fake_completions.calls[-1]
+        self.assertIn("response_format", last)
+        self.assertEqual(last.get("reasoning"), {"enabled": False})
+        self.assertNotIn("reasoning_effort", last)
+
+    async def test_non_none_effort_never_sends_reasoning_object(self):
+        """low/medium/high 的降级不应引入 reasoning: {enabled: false}（会静默关闭思考）。"""
+        os.environ["AI_VISION_REASONING_EFFORT"] = "medium"
+        tools, fake_completions = self._tools(
+            [
+                RuntimeError("Error code: 400 - Invalid value for 'reasoning_effort'"),
+                RuntimeError("Error code: 400 - Invalid value for 'reasoning_effort'"),
+                RuntimeError("Error code: 400 - Invalid value for 'response_format'"),
+                self._ok(),
+            ]
+        )
+
+        result = await tools.choose_options_by_image(
+            b"fake-image",
+            "Choose the correct option",
+            [(1, "apple"), (2, "banana")],
+        )
+
+        self.assertEqual(result, [2])
+        self.assertEqual(len(fake_completions.calls), 4)
+        for call in fake_completions.calls:
+            self.assertNotIn("reasoning", call)
+        last = fake_completions.calls[-1]
+        self.assertNotIn("response_format", last)
+        self.assertNotIn("reasoning_effort", last)
+
+    async def test_context_length_error_not_degraded(self):
+        """上下文超长（code=context_length_exceeded）不触发参数降级，只请求一次。"""
+        os.environ["AI_VISION_REASONING_EFFORT"] = "none"
+        exc = RuntimeError("Error code: 400 - maximum context length exceeded")
+        exc.body = {
+            "error": {
+                "message": "This model's maximum context length is 128000 tokens...",
+                "type": "invalid_request_error",
+                "code": "context_length_exceeded",
+                "param": None,
+            }
+        }
+        tools, fake_completions = self._tools([exc])
+
+        with self.assertRaises(RuntimeError):
+            await tools.choose_options_by_image(
+                b"fake-image",
+                "Choose the correct option",
+                [(1, "apple"), (2, "banana")],
+            )
+        self.assertEqual(len(fake_completions.calls), 1)
+
+    def test_param_rejection_via_structured_param_field(self):
+        """错误 param 字段明确指向我们控制的参数时判定为参数不兼容。"""
+        exc = RuntimeError("invalid input")
+        exc.body = {
+            "error": {
+                "message": "bad value",
+                "type": "invalid_request_error",
+                "code": None,
+                "param": "reasoning_effort",
+            }
+        }
+        self.assertTrue(AITools._is_param_rejection_error(exc))
+
+    def test_structured_code_excludes_context_length(self):
+        """结构化 code 为 context_length_exceeded 时不判定为参数不兼容。"""
+        exc = RuntimeError("invalid input")
+        exc.body = {
+            "error": {
+                "message": "Invalid input",
+                "type": "invalid_request_error",
+                "code": "context_length_exceeded",
+                "param": None,
+            }
+        }
+        self.assertFalse(AITools._is_param_rejection_error(exc))
+
+    async def test_plain_400_not_degraded_or_retried(self):
+        """普通 400（非参数不兼容）不触发降级，也不按瞬时错误重试。"""
+        os.environ["AI_VISION_REASONING_EFFORT"] = "none"
+        tools, fake_completions = self._tools(
+            [RuntimeError("Error code: 400 - bad request")]
+        )
+
+        with self.assertRaises(RuntimeError):
+            await tools.choose_options_by_image(
+                b"fake-image",
+                "Choose the correct option",
+                [(1, "apple"), (2, "banana")],
+            )
+        self.assertEqual(len(fake_completions.calls), 1)
+
+    async def test_stage_degradation_position_survives_transient_retry(self):
+        """降级位置跨瞬时重试保留（不退回第一档）。"""
+        os.environ["AI_VISION_REASONING_EFFORT"] = "none"
+        tools, fake_completions = self._tools(
+            [
+                self._invalid_input(),
+                RuntimeError("Error code: 503 - UNAVAILABLE"),
+                self._ok(),
+            ]
+        )
+
+        result = await tools.choose_options_by_image(
+            b"fake-image",
+            "Choose the correct option",
+            [(1, "apple"), (2, "banana")],
+        )
+
+        self.assertEqual(result, [2])
+        self.assertEqual(len(fake_completions.calls), 3)
+        # 第二次重试从降级后的第二档继续，不再回退到带 json_object 的首档
+        self.assertNotIn("response_format", fake_completions.calls[1])
+        self.assertNotIn("response_format", fake_completions.calls[2])
+
+
 class VisualTruncationRetryTest(unittest.IsolatedAsyncioTestCase):
     """max_tokens 截断时放宽预算重试测试。"""
 
