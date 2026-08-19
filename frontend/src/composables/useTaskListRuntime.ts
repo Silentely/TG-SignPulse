@@ -136,6 +136,8 @@ export function useTaskListRuntime(options: {
     if (hitCountHandle?.active) return
     hitCountHandle = startChainPoll(
       async () => {
+        // 后台标签页不请求命中角标；回到前台由 visibilitychange 恢复轮询
+        if (typeof document !== 'undefined' && document.hidden) return
         if (options.listenTaskCount.value > 0) await loadListenHitCounts()
       },
       { intervalMs: 15000, runImmediately: false },
@@ -145,6 +147,20 @@ export function useTaskListRuntime(options: {
   const clearHitCountPolling = () => {
     hitCountHandle?.stop()
     hitCountHandle = null
+  }
+
+  // 与 Dashboard 策略一致：页面隐藏时暂停命中角标轮询，回到前台立即刷新并恢复
+  const handleVisibilityChange = () => {
+    if (typeof document === 'undefined') return
+    if (document.hidden) {
+      clearHitCountPolling()
+    } else if (options.listenTaskCount.value > 0) {
+      void loadListenHitCounts().finally(() => ensureHitCountPolling())
+    }
+  }
+
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', handleVisibilityChange)
   }
 
   const taskActiveRuns = (task: TaskUiItem): ActiveRunSummary[] => {
@@ -297,6 +313,9 @@ export function useTaskListRuntime(options: {
   }
 
   const stopAll = () => {
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
     if (countdownTimer) {
       clearInterval(countdownTimer)
       countdownTimer = null

@@ -265,6 +265,31 @@ describe('useTaskListRuntime (poll + cancel)', () => {
     unmount()
   })
 
+  it('页面隐藏时命中角标轮询不发起请求，恢复可见后重新拉取', async () => {
+    api.listKeywordHitGroups.mockResolvedValue({ groups: [] })
+    const { result, unmount } = setup()
+    // 首轮轮询 tick：正常请求
+    await result.afterTasksLoaded()
+    await flushPromises()
+    expect(api.listKeywordHitGroups).toHaveBeenCalled()
+
+    const before = api.listKeywordHitGroups.mock.calls.length
+    // 模拟切到后台：tick 直接跳过，不发请求
+    Object.defineProperty(document, 'hidden', { value: true, configurable: true })
+    const hitPoll = pollHandles.find((h) => h.intervalMs === 15000)
+    await hitPoll?.tick()
+    expect(api.listKeywordHitGroups.mock.calls.length).toBe(before)
+
+    // 恢复可见：visibilitychange 触发立即刷新
+    Object.defineProperty(document, 'hidden', { value: false, configurable: true })
+    document.dispatchEvent(new Event('visibilitychange'))
+    await flushPromises()
+    expect(api.listKeywordHitGroups.mock.calls.length).toBe(before + 1)
+
+    unmount()
+    Object.defineProperty(document, 'hidden', { value: false, configurable: true })
+  })
+
   it('blob URL 追踪：列表替换回收离场 URL，卸载不再残留', async () => {
     const createSpy = vi.fn(() => 'blob:mock-avatar-1')
     const revokeSpy = vi.fn()

@@ -12,6 +12,10 @@ import { devLog } from '../lib/devLog'
 
 const POLL_MS = 4000
 
+// 页面隐藏守卫：标签页切到后台时暂停轮询，避免徒耗请求；
+// 仅需注册一次（store 可能被多处消费），用模块级标志防重复监听
+let visibilityBound = false
+
 export const useActiveRunsStore = defineStore('activeRuns', () => {
   const runs = ref<ActiveRunSummary[]>([])
   const byTask = ref<Record<string, ActiveRunSummary[]>>({})
@@ -48,6 +52,8 @@ export const useActiveRunsStore = defineStore('activeRuns', () => {
   }
 
   const ensurePolling = () => {
+    // 页面隐藏时不启动轮询；可见性恢复由 visibilitychange 监听负责重启
+    if (typeof document !== 'undefined' && document.hidden) return
     if (hasAnyActive.value) {
       if (!pollHandle?.active) {
         // 轮询只关心刷新完成，不向轮询器暴露 Dashboard 使用的成功标记。
@@ -64,6 +70,27 @@ export const useActiveRunsStore = defineStore('activeRuns', () => {
     }
   }
 
+  const stopPolling = () => {
+    pollHandle?.stop()
+    pollHandle = null
+  }
+
+  // 后台标签页暂停轮询；回到前台立即刷新并恢复（与 Dashboard 30s 轮询策略一致）
+  const handleVisibilityChange = () => {
+    if (typeof document === 'undefined') return
+    if (document.hidden) {
+      stopPolling()
+    } else if (consumers > 0) {
+      void refresh().then(() => ensurePolling())
+    }
+  }
+
+  const bindVisibilityListener = () => {
+    if (visibilityBound || typeof document === 'undefined') return
+    visibilityBound = true
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+  }
+
   /** 从任务列表 raw.active_run 种子化（避免首屏空窗） */
   const seedFromTaskActiveRuns = (flat: ActiveRunSummary[]) => {
     const inProgress = flat.filter((r) => isRunInProgress(r))
@@ -75,6 +102,7 @@ export const useActiveRunsStore = defineStore('activeRuns', () => {
 
   const acquire = () => {
     consumers += 1
+    bindVisibilityListener()
     if (consumers === 1) {
       void refresh().then(() => ensurePolling())
     } else {
@@ -85,8 +113,7 @@ export const useActiveRunsStore = defineStore('activeRuns', () => {
   const release = () => {
     consumers = Math.max(0, consumers - 1)
     if (consumers === 0) {
-      pollHandle?.stop()
-      pollHandle = null
+      stopPolling()
     }
   }
 
