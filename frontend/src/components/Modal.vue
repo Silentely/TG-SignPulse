@@ -1,3 +1,9 @@
+<script lang="ts">
+// 模块级最顶层弹窗标识：跨 Modal 实例共享（script setup 内的变量每实例独立，
+// 无法实现"后打开的弹窗接管 Esc"），SFC 需用普通 script 块承载
+let topModalToken = 0
+</script>
+
 <script setup lang="ts">
 import { X } from 'lucide-vue-next'
 import { onMounted, onUnmounted, watch, nextTick, ref } from 'vue'
@@ -27,6 +33,11 @@ const panelRef = ref<HTMLElement | null>(null)
 let previousActive: HTMLElement | null = null
 let scrollLocked = false
 
+// 嵌套弹窗（如确认框叠在业务弹窗上）时，Esc 应只关闭最顶层的弹窗：
+// 各 Modal 实例在 open 时登记为"当前最顶层"，关闭时释放；keydown 只响应
+// 仍是顶层的那一个，避免一次 Esc 同时关掉两层弹窗
+let currentToken = 0
+
 const FOCUSABLE =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
@@ -40,6 +51,8 @@ const getFocusable = () =>
 const onKeydown = (e: KeyboardEvent) => {
   if (!props.isOpen) return
   if (e.key === 'Escape') {
+    // 非最顶层弹窗不响应 Esc：把关闭权留给上层（后打开的）弹窗
+    if (currentToken !== topModalToken) return
     e.stopPropagation()
     e.preventDefault()
     emit('close')
@@ -88,6 +101,8 @@ watch(
   () => props.isOpen,
   async (open) => {
     if (open) {
+      // 登记为最顶层：后打开的弹窗成为 Esc 的唯一响应者
+      currentToken = ++topModalToken
       if (!scrollLocked) {
         lockBodyScroll()
         scrollLocked = true
@@ -97,6 +112,9 @@ watch(
       ;(getFocusable()[0] ?? panelRef.value)?.focus()
     } else {
       releaseScrollLock()
+      // 关闭的是当前最顶层时释放顶层标识，恢复下层弹窗的 Esc 响应权
+      if (currentToken === topModalToken) topModalToken -= 1
+      currentToken = 0
       if (previousActive?.focus) {
         try {
           previousActive.focus()
@@ -119,6 +137,9 @@ onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
   document.removeEventListener('focusin', onFocusIn)
   releaseScrollLock()
+  // 未走关闭流程直接卸载（如父组件销毁）时释放顶层标识
+  if (currentToken === topModalToken) topModalToken -= 1
+  currentToken = 0
 })
 </script>
 
