@@ -294,6 +294,47 @@ async def test_server_chan_channel():
 
 
 @pytest.mark.asyncio
+async def test_keyword_push_respects_quiet_hours():
+    """关键词命中推送与其余通知一致：静默时段内跳过，不触发任何通道。"""
+    from backend.services.push_notifications import send_keyword_push
+
+    cfg = {
+        "keyword_monitor_push_channel": "server_chan",
+        "keyword_monitor_server_chan_send_key": "SCT_TEST",
+        "telegram_bot_quiet_hours_enabled": True,
+        "telegram_bot_quiet_hours_start": "00:00",
+        "telegram_bot_quiet_hours_end": "23:59",
+        "timezone": "UTC",
+    }
+    with patch(
+        "tg_signer.notification.server_chan.sc_send", new_callable=AsyncMock
+    ) as m:
+        await send_keyword_push(cfg, {"title": "hit", "body": "body"})
+        m.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_keyword_push_outside_quiet_hours():
+    """静默时段外关键词推送正常发送。"""
+    from backend.services.push_notifications import send_keyword_push
+
+    cfg = {
+        "keyword_monitor_push_channel": "server_chan",
+        "keyword_monitor_server_chan_send_key": "SCT_TEST",
+        "telegram_bot_quiet_hours_enabled": True,
+        "telegram_bot_quiet_hours_start": "00:00",
+        "telegram_bot_quiet_hours_end": "12:00",
+        "timezone": "UTC",
+    }
+    with patch(
+        "tg_signer.notification.server_chan.sc_send", new_callable=AsyncMock
+    ) as m:
+        m.return_value = {"code": 0}
+        await send_keyword_push(cfg, {"title": "hit", "body": "body"})
+        m.assert_awaited()
+
+
+@pytest.mark.asyncio
 async def test_success_notification_respects_quiet_hours():
     from backend.services.push_notifications import send_task_success_notification
 
