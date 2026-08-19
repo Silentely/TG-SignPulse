@@ -155,7 +155,9 @@ async def _job_run_sign_task(account_name: str, task_name: str) -> None:
 
                 except (ValueError, KeyError, TypeError) as e:
                     logger.error(
-                        "Scheduler: 计算随机时间段延迟失败: %s，将立即执行",
+                        "Scheduler: 计算随机时间段延迟失败 (账号=%s, 任务=%s): %s，将立即执行",
+                        account_name,
+                        task_name,
                         e,
                         exc_info=True,
                     )
@@ -166,15 +168,17 @@ async def _job_run_sign_task(account_name: str, task_name: str) -> None:
             logger.info("Scheduler: 任务 %s 执行成功", task_name)
         else:
             logger.error(
-                "Scheduler: 任务 %s 执行失败: %s",
+                "Scheduler: 任务 %s 执行失败 (账号=%s): %s",
                 task_name,
+                account_name,
                 result.get('error'),
             )
     except Exception as e:
         # 顶层兜底：Job 执行入口不能让异常逃逸到调度器导致后续任务被压制
         logger.error(
-            "Scheduler: 运行签到任务 %s 失败: %s",
+            "Scheduler: 运行签到任务 %s 失败 (账号=%s): %s",
             task_name,
+            account_name,
             e,
             exc_info=True,
         )
