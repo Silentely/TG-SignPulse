@@ -139,13 +139,14 @@ async def _job_run_sign_task(account_name: str, task_name: str) -> None:
                         # 避免把执行推过 range_end
                         remaining = max(0.0, (end_dt - now).total_seconds())
                         delay_seconds = min(random.uniform(0, total_seconds), remaining)
-                        logger.info(
-                            "Scheduler: 任务 %s 设置为随机时间段模式 (%s - %s)",
+                        logger.debug(
+                            "Scheduler: 任务 %s (账号=%s) 设置为随机时间段模式 (%s - %s)",
                             task_name,
+                            account_name,
                             range_start_str,
                             range_end_str,
                         )
-                        logger.info(
+                        logger.debug(
                             "Scheduler: 将随机等待 %d 秒 (%.2f 分钟) 后执行",
                             int(delay_seconds),
                             delay_seconds / 60,
