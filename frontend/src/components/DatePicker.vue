@@ -197,9 +197,11 @@ const displayValue = computed(() => {
             type="button"
             :disabled="!item.day"
             :aria-label="item.day
-              ? locale === 'zh'
-                ? `${viewYear}年${viewMonth + 1}月${item.day}日`
-                : `${monthLabel} ${item.day}`
+              ? t('datePicker.dayLabel', {
+                  year: viewYear,
+                  month: viewMonth + 1,
+                  day: item.day,
+                })
               : undefined"
             class="h-8 w-8 mx-auto flex items-center justify-center text-xs rounded-sm transition-colors"
             :class="[

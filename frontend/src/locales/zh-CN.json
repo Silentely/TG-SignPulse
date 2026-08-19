@@ -156,7 +156,6 @@
     "officialMessagesHintTitle": "只读取 Telegram 官方服务号 777000",
     "officialMessagesHint": "这里可以查看 Telegram 登录验证码和安全通知。不会发送消息，也不会修改会话。",
     "officialMessagesFailed": "加载官方消息失败",
-    "loadingOfficialMessages": "正在读取官方消息...",
     "noOfficialMessages": "暂无官方消息",
     "emptyMessage": "空消息",
     "refresh": "刷新",
@@ -241,7 +240,6 @@
     "pushServerChan": "Server酱",
     "serverChanKey": "Server酱 SendKey",
     "templateNeedAccount": "请先添加账号后再使用模板",
-    "templateHint": "已打开新建任务，请选择目标会话并填写动作后保存",
     "cloneNameRequired": "请输入新任务名",
     "cloneNameInvalid": "任务名不能包含路径分隔符",
     "cloneFrom": "克隆自：{name}",
@@ -275,7 +273,6 @@
     "taskNameInvalid": "任务名过长或包含 / \\ 等非法字符",
     "advancedOptions": "高级选项",
     "linkedAccounts": "关联账号",
-    "allAccounts": "全部账号",
     "linkedAccountsPlaceholder": "选择关联账号...",
     "scheduleMode": "调度模式",
     "scheduled": "按时执行",
@@ -505,8 +502,6 @@
     "taskFailNotify": "任务执行失败时发送通知",
     "tgApi": "Telegram API",
     "tgApiDesc": "推荐使用属于你自己的 API 凭证以防限制。",
-    "tgApiWarningTitle": "⚠️ 为什么需要自定义 API？",
-    "tgApiWarningDesc": "使用内置默认 API 可能导致账号被限制或无法登录。强烈建议前往以下地址申请你自己的凭证：",
     "apiWarning": "默认 API 可能因大量自动化操作影响权重。为账号安全，强烈建议申请自己的开发者 API：",
     "loadFailed": "加载设置失败",
     "resetDefault": "恢复官方默认",
@@ -523,7 +518,6 @@
     "saveFailed": "保存失败",
     "saveSuccess": "设置已保存",
     "saveChanges": "保存设置",
-    "unsavedChanges": "有未保存的更改",
     "resetSuccess": "已恢复默认配置",
     "resetFailed": "重置失败",
     "aiConfigSaved": "AI 配置保存成功",
@@ -538,12 +532,10 @@
     "backupWritable": "可写",
     "backupReadonly": "只读",
     "backupRestoreHint": "恢复：从 WebDAV 下载 tar.gz → 停止服务 → 解压覆盖 APP_DATA_DIR 对应路径 → 重启",
-    "importResultDetail": "导入结果",
     "runtimeStatus": "运行时状态",
     "schedulerLock": "调度锁",
     "lockHeld": "已持有（本实例调度）",
     "lockNotHeld": "未持有（本实例不调度业务任务）",
-    "legacyWritable": "旧任务 API 可写",
     "legacyApi": "旧任务 API",
     "legacyRemoved": "已移除",
     "yes": "是",
@@ -760,7 +752,6 @@
     "saveSuccess": "账号已更新"
   },
   "common": {
-    "save": "保存",
     "cancel": "取消",
     "confirm": "确认",
     "close": "关闭",
@@ -849,6 +840,7 @@
     "prevMonth": "上个月",
     "nextMonth": "下个月",
     "today": "今天",
-    "monthLabel": "{year}年{month}月"
+    "monthLabel": "{year}年{month}月",
+    "dayLabel": "{year}年{month}月{day}日"
   }
 }

@@ -156,7 +156,6 @@
     "officialMessagesHintTitle": "Only reads Telegram official service chat 777000",
     "officialMessagesHint": "Use this to view Telegram login codes and security notifications. It does not send messages or modify the session.",
     "officialMessagesFailed": "Failed to load official messages",
-    "loadingOfficialMessages": "Loading official messages...",
     "noOfficialMessages": "No official messages",
     "emptyMessage": "Empty message",
     "refresh": "Refresh",
@@ -241,7 +240,6 @@
     "pushServerChan": "ServerChan",
     "serverChanKey": "ServerChan SendKey",
     "templateNeedAccount": "Add an account before using templates",
-    "templateHint": "Opened new task form — select a chat and actions, then save",
     "cloneNameRequired": "Enter a new task name",
     "cloneNameInvalid": "Task name cannot contain path separators",
     "cloneFrom": "Clone from: {name}",
@@ -275,7 +273,6 @@
     "taskNameInvalid": "Name is too long or contains / \\ characters",
     "advancedOptions": "Advanced options",
     "linkedAccounts": "Linked Accounts",
-    "allAccounts": "All Accounts",
     "linkedAccountsPlaceholder": "Select accounts...",
     "scheduleMode": "Schedule Mode",
     "scheduled": "Scheduled",
@@ -505,8 +502,6 @@
     "taskFailNotify": "Notify on task failure",
     "tgApi": "Telegram API",
     "tgApiDesc": "Using your own API credentials is recommended to avoid rate limits.",
-    "tgApiWarningTitle": "Why use custom API credentials?",
-    "tgApiWarningDesc": "Using the built-in default API may cause account restrictions or login failures. It is strongly recommended to apply for your own credentials at:",
     "apiWarning": "The built-in API may be rate-limited or flagged under heavy automation. For account safety, apply for your own developer API:",
     "loadFailed": "Failed to load settings",
     "resetDefault": "Reset to Default",
@@ -523,7 +518,6 @@
     "saveFailed": "Save failed",
     "saveSuccess": "Settings saved",
     "saveChanges": "Save Settings",
-    "unsavedChanges": "Unsaved changes",
     "resetSuccess": "Reset to default config",
     "resetFailed": "Reset failed",
     "aiConfigSaved": "AI config saved",
@@ -538,12 +532,10 @@
     "backupWritable": "writable",
     "backupReadonly": "read-only",
     "backupRestoreHint": "Restore: download tar.gz from WebDAV → stop service → extract over APP_DATA_DIR → restart",
-    "importResultDetail": "Import result",
     "runtimeStatus": "Runtime status",
     "schedulerLock": "Scheduler lock",
     "lockHeld": "Held (this instance schedules)",
     "lockNotHeld": "Not held (no business jobs here)",
-    "legacyWritable": "Legacy tasks API writable",
     "legacyApi": "Legacy tasks API",
     "legacyRemoved": "Removed",
     "yes": "Yes",
@@ -760,7 +752,6 @@
     "saveSuccess": "Account updated"
   },
   "common": {
-    "save": "Save",
     "cancel": "Cancel",
     "confirm": "Confirm",
     "close": "Close",
@@ -849,6 +840,7 @@
     "prevMonth": "Previous month",
     "nextMonth": "Next month",
     "today": "Today",
-    "monthLabel": "{month} {year}"
+    "monthLabel": "{month} {year}",
+    "dayLabel": "{month} {day}, {year}"
   }
 }
