@@ -187,17 +187,49 @@ async def global_exception_handler(request: Request, exc: Exception):
     if isinstance(exc, FastAPIHTTPException):
         raise exc
 
+    # 记录请求上下文便于复现：方法/路径/客户端 IP/脱敏 query；
+    # token 等敏感查询参数（如 SSE 鉴权）一律打码，避免凭据入日志
+    context = _safe_request_context(request)
     logging.getLogger("backend.exception").error(
-        "Unhandled exception on %s %s: %s",
+        "Unhandled exception on %s %s (client=%s): %s%s",
         request.method,
         request.url.path,
+        context["client"],
         exc,
+        context["query"],
         exc_info=True,
     )
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"detail": "Internal Server Error"},
     )
+
+
+_SENSITIVE_QUERY_KEYS = {"token", "password", "secret", "key", "code", "auth"}
+
+
+def _safe_request_context(request: Request) -> dict[str, str]:
+    """提取异常日志用的请求上下文；敏感查询参数脱敏，不读取请求体。"""
+    client = request.client.host if request.client else "-"
+    raw_query = request.url.query
+    if not raw_query:
+        return {"client": client, "query": ""}
+    parts = []
+    for pair in raw_query.split("&"):
+        if "=" not in pair:
+            parts.append(pair)
+            continue
+        k, v = pair.split("=", 1)
+        # 精确命中敏感键，或带 token/password/secret 前缀的变体（如 x_token、api_secret）
+        # 打码；不按 "key" 子串匹配，避免误伤 keyword 等业务参数
+        k_lower = k.lower()
+        if k_lower in _SENSITIVE_QUERY_KEYS or any(
+            k_lower.endswith(s) for s in ("token", "password", "secret")
+        ):
+            parts.append(f"{k}=***")
+        else:
+            parts.append(pair)
+    return {"client": client, "query": f" ?{ '&'.join(parts) }"}
 
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
