@@ -4,15 +4,6 @@ import pathlib
 from logging.handlers import RotatingFileHandler
 
 
-class ExactLevelFilter(logging.Filter):
-    def __init__(self, level: int):
-        super().__init__()
-        self.level = level
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        return record.levelno == self.level
-
-
 class MinLevelFilter(logging.Filter):
     def __init__(self, min_level: int):
         super().__init__()
@@ -70,8 +61,9 @@ def configure_logger(
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
 
-    # 修复逻辑：当前日志等级足够低时才创建分级日志文件
-    # level_no <= logging.WARNING 表示当前等级能够记录 WARNING 及以上
+    # 分级日志文件：warn.log 收 WARNING 及以上（完整问题视图），
+    # error.log 收 ERROR 及以上（错误专看）；级别为最小值过滤，
+    # 保证 warn.log 不会漏掉 ERROR/CRITICAL 这类更严重的记录
     if level_no <= logging.WARNING:
         warn_file_handler = RotatingFileHandler(
             log_dir / "warn.log",
@@ -80,7 +72,7 @@ def configure_logger(
             encoding="utf-8",
         )
         warn_file_handler.setLevel(logging.WARNING)
-        warn_file_handler.addFilter(ExactLevelFilter(logging.WARNING))
+        warn_file_handler.addFilter(MinLevelFilter(logging.WARNING))
         warn_file_handler.setFormatter(formatter)
         logger.addHandler(warn_file_handler)
 
