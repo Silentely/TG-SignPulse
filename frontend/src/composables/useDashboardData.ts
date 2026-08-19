@@ -32,7 +32,7 @@ const formatTime = (isoString?: string | null) => formatLogTime(isoString)
 export function useDashboardData() {
   const activeRunsStore = useActiveRunsStore()
   const accountsStore = useAccountsStore()
-  const { runs: activeRuns } = storeToRefs(activeRunsStore)
+  const { runs: activeRuns, hasAnyActive: hasAnyActiveRun } = storeToRefs(activeRunsStore)
 
   let refreshHandle: ChainPollHandle | null = null
   let signHistorySource: EventSource | null = null
@@ -156,6 +156,13 @@ export function useDashboardData() {
 
     let loadError: unknown = null
     let hasLoadFailure = false
+    // active runs 刷新：仅在无活跃 run 时由 30s 轮询探测新 run 启动
+    // （store 4s 轮询只在有活跃 run 时运行，避免双频重复打同一接口）；
+    // 有活跃 run 时直接复用 store 当前数据
+    const refreshActiveRunsIfIdle = () => {
+      if (hasAnyActiveRun.value) return Promise.resolve()
+      return activeRunsStore.refresh()
+    }
     // 并行拉取相互独立的仪表盘数据，避免串行等待放大首屏延迟；
     // 各请求独立成败，失败仅记录并上报一次，不影响其余数据展示
     const results = await Promise.allSettled([
@@ -163,7 +170,7 @@ export function useDashboardData() {
       listSignTasks(token),
       getRecentAccountLogs(token, 50),
       listScheduledJobs(token),
-      activeRunsStore.refresh(),
+      refreshActiveRunsIfIdle(),
       listKeywordHits(token, { limit: 8, offset: 0 }),
       listAccountStatusCheckJobs(token, 5),
     ])
