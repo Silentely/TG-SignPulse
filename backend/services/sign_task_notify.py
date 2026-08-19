@@ -140,7 +140,12 @@ async def send_failure_notification(
             parse_mode="HTML",
         )
     except Exception as e:
-        logger.warning("Telegram 失败通知发送失败: %s", e)
+        logger.warning(
+            "Telegram 失败通知发送失败 (账号=%s, 任务=%s): %s",
+            account_name,
+            task_name,
+            e,
+        )
 
 
 async def send_success_notification(
@@ -163,7 +168,12 @@ async def send_success_notification(
             message=message or "",
         )
     except Exception as e:
-        logger.warning("Telegram 成功通知发送失败: %s", e)
+        logger.warning(
+            "Telegram 成功通知发送失败 (账号=%s, 任务=%s): %s",
+            account_name,
+            task_name,
+            e,
+        )
 
 
 async def send_account_invalid_notification(
@@ -210,7 +220,12 @@ async def send_account_invalid_notification(
             parse_mode="HTML",
         )
     except Exception as e:
-        logger.warning("Telegram 账号失效通知发送失败: %s", e)
+        logger.warning(
+            "Telegram 账号失效通知发送失败 (账号=%s, 任务=%s): %s",
+            account_name,
+            task_name,
+            e,
+        )
 
 
 async def mark_account_invalid(
