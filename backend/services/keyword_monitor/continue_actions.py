@@ -563,7 +563,7 @@ async def _run_ai_call(
     execute_continue_actions 判定为终态失败，此处绝不吞掉。
     """
     model = ai_tools.default_model
-    logger.info(
+    logger.debug(
         "关键词监听 AI 请求 | chat=%s | %s",
         target_chat_id,
         safe_ai_request_meta(method=method, model=model, **request_meta),
@@ -572,7 +572,7 @@ async def _run_ai_call(
     try:
         answer = (await ai_call() or "").strip()
         _elapsed = (time.monotonic() - _start) * 1000
-        logger.info(
+        logger.debug(
             "关键词监听 AI 响应 | chat=%s | %s",
             target_chat_id,
             safe_ai_result_meta(
@@ -699,7 +699,7 @@ async def execute_ai_action(
         )
         options = [button_text for _, _, button_text in clickable_buttons]
         model = ai_tools.default_model
-        logger.info(
+        logger.debug(
             "关键词监听 AI 请求 | chat=%s | %s",
             target_chat_id,
             safe_ai_request_meta(
@@ -730,7 +730,7 @@ async def execute_ai_action(
                         selected_options.append(options[idx - 1])
                     elif 0 <= idx < len(options):
                         selected_options.append(options[idx])
-            logger.info(
+            logger.debug(
                 "关键词监听 AI 响应 | chat=%s | %s",
                 target_chat_id,
                 safe_ai_result_meta(
