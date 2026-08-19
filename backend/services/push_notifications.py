@@ -205,6 +205,11 @@ async def send_telegram_bot_message(
 
 
 async def send_keyword_push(settings: Dict[str, Any], payload: Dict[str, Any]) -> None:
+    # 与失败/成功/账号失效/登录/备份通知一致：静默时段内跳过关键词命中推送，
+    # 避免高频命中通道在夜间打扰；跳过时留 debug 日志便于排障
+    if is_in_quiet_hours(settings):
+        logger.debug("关键词命中推送处于静默时段，跳过推送")
+        return
     channel = (settings.get("keyword_monitor_push_channel") or "telegram").strip()
     title = str(payload.get("title") or "TG-SignPulse 关键词命中")
     body = str(payload.get("body") or "")
