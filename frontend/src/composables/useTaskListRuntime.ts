@@ -29,6 +29,33 @@ import {
   remainingWaitSeconds,
 } from '../lib/run-status'
 
+// 头像本地缓存有效期（毫秒）：聊天头像变更不频繁，7 天内复用 dataURL
+const AVATAR_CACHE_TTL_MS = 7 * 24 * 3600 * 1000
+
+/** 构造头像缓存值：{v: dataURL, ts: 写入时间戳}；压缩体积不放多余字段 */
+export function buildAvatarCache(dataUrl: string): string {
+  return JSON.stringify({ v: dataUrl, ts: Date.now() })
+}
+
+/**
+ * 解析头像缓存值。返回可用的 dataURL；过期或损坏返回 null。
+ * 兼容旧版纯 dataURL 字符串（无 ts 字段，视为有效，下次刷新自然更新）。
+ */
+export function parseAvatarCache(raw: string | null): string | null {
+  if (!raw || raw === '__no_avatar__') return null
+  if (raw.startsWith('data:')) return raw
+  try {
+    const parsed = JSON.parse(raw) as { v?: unknown; ts?: unknown }
+    if (typeof parsed.v !== 'string' || !parsed.v.startsWith('data:')) return null
+    if (typeof parsed.ts === 'number' && Date.now() - parsed.ts > AVATAR_CACHE_TTL_MS) {
+      return null
+    }
+    return parsed.v
+  } catch {
+    return null
+  }
+}
+
 export function useTaskListRuntime(options: {
   tasks: Ref<TaskUiItem[]>
   listenTaskCount: ComputedRef<number>
@@ -234,9 +261,12 @@ export function useTaskListRuntime(options: {
     const cacheKey = `chat_avatar_${chatId}`
     const noAvatarKey = `chat_avatar_${chatId}_404`
 
+    // 头像缓存 TTL：头像变更不频繁，7 天内复用本地 dataURL 减少重复请求；
+    // 值格式为 {v, ts}，兼容旧版纯 dataURL（无 ts 视为有效，下次刷新自然更新）
     const cached = localStorage.getItem(cacheKey)
-    if (cached && cached !== '__no_avatar__') {
-      task.chatAvatarUrl = cached
+    const cachedValue = cached ? parseAvatarCache(cached) : null
+    if (cachedValue) {
+      task.chatAvatarUrl = cachedValue
       return
     }
 
@@ -259,9 +289,9 @@ export function useTaskListRuntime(options: {
         reader.onload = () => {
           if (reader.result) {
             try {
-              localStorage.setItem(cacheKey, reader.result as string)
+              localStorage.setItem(cacheKey, buildAvatarCache(String(reader.result)))
             } catch {
-              try { sessionStorage.setItem(cacheKey, reader.result as string) } catch { /* ignore */ }
+              try { sessionStorage.setItem(cacheKey, buildAvatarCache(String(reader.result))) } catch { /* ignore */ }
             }
           }
         }
