@@ -27,6 +27,7 @@ const api = vi.hoisted(() => ({
 const activeRunsStoreMock = vi.hoisted(() => {
   const store = {
     runs: { value: [] as unknown[] },
+    hasAnyActive: { value: false },
     refresh: vi.fn(async () => {
       const res = await api.listActiveSignTaskRuns('tok')
       store.runs.value = res?.runs || []
@@ -237,6 +238,19 @@ describe('useDashboardData (mount + SSE + poll)', () => {
       expect(result.stats.value.find((s) => s.key === 'dashboard.totalTasks')?.value).toBe('2')
     } finally {
       unmount()
+    }
+  })
+
+  it('has active runs 时不重复调 active-runs 接口（交给 store 4s 轮询）', async () => {
+    activeRunsStoreMock.hasAnyActive.value = true
+    const { result, unmount } = mountComposable(() => useDashboardData())
+    try {
+      await vi.waitFor(() => expect(result.pageLoading.value).toBe(false))
+      // 有活跃 run：30s 轮询跳过 refresh，接口只在 store 4s 轮询里打
+      expect(activeRunsStoreMock.refresh).not.toHaveBeenCalled()
+    } finally {
+      unmount()
+      activeRunsStoreMock.hasAnyActive.value = false
     }
   })
 
