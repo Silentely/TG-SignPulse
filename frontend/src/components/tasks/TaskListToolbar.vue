@@ -45,14 +45,29 @@ const closeTemplateMenuOnOutside = (e: MouseEvent) => {
   if (menuRef.value?.contains(target)) return
   emit('toggle-template-menu')
 }
+// Esc 关闭下拉（与 CustomSelect 等下拉控件语义一致，避免键盘用户卡在菜单里）
+const closeTemplateMenuOnEsc = (e: KeyboardEvent) => {
+  if (e.key !== 'Escape') return
+  if (!props.showTemplateMenu) return
+  e.stopPropagation()
+  emit('toggle-template-menu')
+}
 watch(
   () => props.showTemplateMenu,
   (open) => {
-    if (open) document.addEventListener('click', closeTemplateMenuOnOutside, true)
-    else document.removeEventListener('click', closeTemplateMenuOnOutside, true)
+    if (open) {
+      document.addEventListener('click', closeTemplateMenuOnOutside, true)
+      window.addEventListener('keydown', closeTemplateMenuOnEsc)
+    } else {
+      document.removeEventListener('click', closeTemplateMenuOnOutside, true)
+      window.removeEventListener('keydown', closeTemplateMenuOnEsc)
+    }
   },
 )
-onUnmounted(() => document.removeEventListener('click', closeTemplateMenuOnOutside, true))
+onUnmounted(() => {
+  document.removeEventListener('click', closeTemplateMenuOnOutside, true)
+  window.removeEventListener('keydown', closeTemplateMenuOnEsc)
+})
 </script>
 
 <template>
