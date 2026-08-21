@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, computed } from 'vue'
+import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Plus, Radio, Clock, Shuffle, X, Zap } from 'lucide-vue-next'
 import { listSignTasks } from '../lib/api'
@@ -62,6 +62,21 @@ const searchQuery = ref('')
 const modeFilter = ref<TaskListModeFilter>('all')
 const selectedCount = computed(() => selectedTaskIds.value.size)
 const showTemplateMenu = ref(false)
+
+// Esc 关闭空态模板菜单：焦点通常在触发按钮上，事件不经过菜单容器，
+// 需挂 window 级监听；与工具栏下拉的关闭语义一致。
+// 用 watch 统一挂载/卸载，任何置 false 的路径都会自动清理监听
+const closeTemplateMenuOnEsc = (e: KeyboardEvent) => {
+  if (e.key !== 'Escape') return
+  if (!showTemplateMenu.value) return
+  e.stopPropagation()
+  showTemplateMenu.value = false
+}
+watch(showTemplateMenu, (open) => {
+  if (open) window.addEventListener('keydown', closeTemplateMenuOnEsc)
+  else window.removeEventListener('keydown', closeTemplateMenuOnEsc)
+})
+onUnmounted(() => window.removeEventListener('keydown', closeTemplateMenuOnEsc))
 
 const toggleTemplateMenu = (e?: Event) => {
   e?.stopPropagation()
@@ -367,7 +382,7 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
         <p class="ui-empty-desc mb-4">{{ t('tasks.emptyHint') }}</p>
         <div class="flex flex-wrap items-center justify-center gap-2">
           <div class="relative" @click.stop>
-            <button type="button" class="ui-btn-secondary !text-xs !px-3 !py-2" @click="toggleTemplateMenu">
+            <button type="button" class="ui-btn-secondary !text-xs !px-3 !py-2" :aria-expanded="showTemplateMenu" aria-haspopup="menu" @click="toggleTemplateMenu">
               {{ t('tasks.fromTemplate') }}
             </button>
             <div
