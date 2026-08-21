@@ -128,12 +128,12 @@ const onCheckbox = (key: keyof SettingsFormState, e: Event) => {
         </div>
         <div class="grid grid-cols-2 gap-2" v-if="modelValue.quietEnabled">
           <div class="space-y-1">
-            <label class="text-[10px] text-gray-500">{{ t('settings.quietStart') }}</label>
-            <input :value="modelValue.quietStart" @input="onStringInput('quietStart', $event)" type="text" placeholder="23:00" class="ui-input" />
+            <label class="text-[10px] text-gray-500" for="bot-quiet-start">{{ t('settings.quietStart') }}</label>
+            <input id="bot-quiet-start" :value="modelValue.quietStart" @input="onStringInput('quietStart', $event)" type="text" placeholder="23:00" class="ui-input" />
           </div>
           <div class="space-y-1">
-            <label class="text-[10px] text-gray-500">{{ t('settings.quietEnd') }}</label>
-            <input :value="modelValue.quietEnd" @input="onStringInput('quietEnd', $event)" type="text" placeholder="07:00" class="ui-input" />
+            <label class="text-[10px] text-gray-500" for="bot-quiet-end">{{ t('settings.quietEnd') }}</label>
+            <input id="bot-quiet-end" :value="modelValue.quietEnd" @input="onStringInput('quietEnd', $event)" type="text" placeholder="07:00" class="ui-input" />
           </div>
         </div>
       </div>

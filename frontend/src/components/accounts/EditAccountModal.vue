@@ -68,8 +68,9 @@ const handleSave = async () => {
       </div>
 
       <div class="space-y-1.5">
-        <label class="ui-label">{{ t('editAccount.nameLabel') }}</label>
+        <label class="ui-label" for="edit-account-name">{{ t('editAccount.nameLabel') }}</label>
         <input 
+          id="edit-account-name"
           v-model="form.new_account_name"
           type="text" 
           :placeholder="t('editAccount.namePlaceholder')"
@@ -78,8 +79,9 @@ const handleSave = async () => {
       </div>
 
       <div class="space-y-1.5">
-        <label class="ui-label">{{ t('editAccount.remarkLabel') }}</label>
+        <label class="ui-label" for="edit-account-remark">{{ t('editAccount.remarkLabel') }}</label>
         <input 
+          id="edit-account-remark"
           v-model="form.remark"
           type="text" 
           :placeholder="t('editAccount.remarkPlaceholder')"
@@ -88,8 +90,9 @@ const handleSave = async () => {
       </div>
 
       <div class="space-y-1.5">
-        <label class="ui-label">{{ t('editAccount.proxyLabel') }}</label>
+        <label class="ui-label" for="edit-account-proxy">{{ t('editAccount.proxyLabel') }}</label>
         <input 
+          id="edit-account-proxy"
           v-model="form.proxy"
           type="text" 
           placeholder="socks5://..."

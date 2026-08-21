@@ -132,17 +132,18 @@ const formatBytes = (n?: number | null) => {
         <p class="text-xs text-gray-500 mt-1 leading-relaxed">{{ t('settings.fullBackupDesc') }}</p>
       </div>
       <div class="space-y-1.5">
-        <label class="ui-label">{{ t('settings.webdavUrl') }}</label>
-        <input :value="modelValue.webdavUrl" @input="onStringInput('webdavUrl', $event)" type="url" :placeholder="t('settings.webdavUrlPlaceholder')" class="ui-input" autocomplete="off">
+        <label class="ui-label" for="webdav-url">{{ t('settings.webdavUrl') }}</label>
+        <input id="webdav-url" :value="modelValue.webdavUrl" @input="onStringInput('webdavUrl', $event)" type="url" :placeholder="t('settings.webdavUrlPlaceholder')" class="ui-input" autocomplete="off">
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div class="space-y-1.5">
-          <label class="ui-label">{{ t('settings.webdavUsername') }}</label>
-          <input :value="modelValue.webdavUsername" @input="onStringInput('webdavUsername', $event)" type="text" class="ui-input" autocomplete="username">
+          <label class="ui-label" for="webdav-username">{{ t('settings.webdavUsername') }}</label>
+          <input id="webdav-username" :value="modelValue.webdavUsername" @input="onStringInput('webdavUsername', $event)" type="text" class="ui-input" autocomplete="username">
         </div>
         <div class="space-y-1.5">
-          <label class="ui-label">{{ t('settings.webdavPassword') }}</label>
+          <label class="ui-label" for="webdav-password">{{ t('settings.webdavPassword') }}</label>
           <input
+            id="webdav-password"
             :value="modelValue.webdavPassword"
             @input="onStringInput('webdavPassword', $event)"
             type="password"
@@ -153,8 +154,8 @@ const formatBytes = (n?: number | null) => {
         </div>
       </div>
       <div class="space-y-1.5">
-        <label class="ui-label">{{ t('settings.webdavRemoteDir') }}</label>
-        <input :value="modelValue.webdavRemoteDir" @input="onStringInput('webdavRemoteDir', $event)" type="text" placeholder="tg-signpulse-backups" class="ui-input">
+        <label class="ui-label" for="webdav-remote-dir">{{ t('settings.webdavRemoteDir') }}</label>
+        <input id="webdav-remote-dir" :value="modelValue.webdavRemoteDir" @input="onStringInput('webdavRemoteDir', $event)" type="text" placeholder="tg-signpulse-backups" class="ui-input">
       </div>
       <div class="flex flex-col sm:flex-row gap-2">
         <button
@@ -184,7 +185,7 @@ const formatBytes = (n?: number | null) => {
       </div>
       <div v-if="remoteFiles.length || remoteMessage" class="text-xs space-y-1.5">
         <p v-if="remoteMessage" class="text-gray-500">{{ remoteMessage }}</p>
-        <p class="text-[10px] text-gray-400">{{ t('settings.webdavDownloadHint') }}</p>
+        <p class="text-[10px] text-gray-500">{{ t('settings.webdavDownloadHint') }}</p>
         <ul v-if="remoteFiles.length" class="text-[11px] text-gray-600 dark:text-gray-400 space-y-1 max-h-36 overflow-y-auto">
           <li
             v-for="f in remoteFiles"
