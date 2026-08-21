@@ -46,8 +46,9 @@ const emit = defineEmits<{
     </div>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
       <div class="md:col-span-2 space-y-1.5">
-        <label class="ui-label">{{ t('taskForm.keywords') }}</label>
+        <label class="ui-label" for="task-form-keywords">{{ t('taskForm.keywords') }}</label>
         <textarea
+          id="task-form-keywords"
           :value="keywords"
           rows="3"
           :placeholder="t('taskForm.keywordsPlaceholder')"
@@ -106,8 +107,9 @@ const emit = defineEmits<{
         </label>
         <div v-if="timeWindowEnabled" class="grid grid-cols-2 gap-3 pl-6">
           <div class="space-y-1">
-            <label class="ui-label">{{ t('taskForm.timeWindowStart') }}</label>
+            <label class="ui-label" for="task-form-time-start">{{ t('taskForm.timeWindowStart') }}</label>
             <input
+              id="task-form-time-start"
               type="time"
               class="ui-input"
               :value="activeTimeStart"
@@ -115,8 +117,9 @@ const emit = defineEmits<{
             />
           </div>
           <div class="space-y-1">
-            <label class="ui-label">{{ t('taskForm.timeWindowEnd') }}</label>
+            <label class="ui-label" for="task-form-time-end">{{ t('taskForm.timeWindowEnd') }}</label>
             <input
+              id="task-form-time-end"
               type="time"
               class="ui-input"
               :value="activeTimeEnd"
@@ -128,8 +131,9 @@ const emit = defineEmits<{
       </div>
       <template v-if="pushChannel === 'forward'">
         <div class="space-y-1.5">
-          <label class="ui-label">{{ t('taskForm.forwardChatId') }}</label>
+          <label class="ui-label" for="task-form-forward-chat">{{ t('taskForm.forwardChatId') }}</label>
           <input
+            id="task-form-forward-chat"
             :value="forwardChatId"
             placeholder="-10012345678"
             class="ui-input"
@@ -137,8 +141,9 @@ const emit = defineEmits<{
           />
         </div>
         <div class="space-y-1.5">
-          <label class="ui-label">{{ t('taskForm.forwardThreadId') }}</label>
+          <label class="ui-label" for="task-form-forward-thread">{{ t('taskForm.forwardThreadId') }}</label>
           <input
+            id="task-form-forward-thread"
             :value="forwardThreadId"
             :placeholder="t('taskForm.forwardThreadIdPlaceholder')"
             class="ui-input"
@@ -147,8 +152,9 @@ const emit = defineEmits<{
         </div>
       </template>
       <div v-if="pushChannel === 'bark'" class="md:col-span-2 space-y-1.5">
-        <label class="ui-label">{{ t('taskForm.barkUrl') }}</label>
+        <label class="ui-label" for="task-form-bark-url">{{ t('taskForm.barkUrl') }}</label>
         <input
+          id="task-form-bark-url"
           :value="barkUrl"
           placeholder="https://api.day.app/xxx"
           class="ui-input"
@@ -156,8 +162,9 @@ const emit = defineEmits<{
         />
       </div>
       <div v-if="pushChannel === 'server_chan'" class="md:col-span-2 space-y-1.5">
-        <label class="ui-label">{{ t('tasks.serverChanKey') }}</label>
+        <label class="ui-label" for="task-form-server-chan">{{ t('tasks.serverChanKey') }}</label>
         <input
+          id="task-form-server-chan"
           :value="serverChanKey"
           placeholder="SCTxxxx"
           class="ui-input"
@@ -165,8 +172,9 @@ const emit = defineEmits<{
         />
       </div>
       <div v-if="pushChannel === 'custom'" class="md:col-span-2 space-y-1.5">
-        <label class="ui-label">{{ t('taskForm.webhookUrl') }}</label>
+        <label class="ui-label" for="task-form-webhook">{{ t('taskForm.webhookUrl') }}</label>
         <input
+          id="task-form-webhook"
           :value="customUrl"
           :placeholder="t('taskForm.webhookPlaceholder')"
           class="ui-input"

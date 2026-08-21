@@ -220,12 +220,12 @@ onUnmounted(revokeQrUrl)
     <!-- Username Tab -->
     <div v-if="activeTab === 'username'" class="space-y-4">
       <div class="space-y-1.5">
-        <label class="ui-label">{{ t('profile.newUsername') }}</label>
-        <input v-model="usernameForm.new_username" type="text" :placeholder="t('profile.newUsernamePlaceholder')" class="ui-input">
+        <label class="ui-label" for="profile-new-username">{{ t('profile.newUsername') }}</label>
+        <input id="profile-new-username" v-model="usernameForm.new_username" type="text" :placeholder="t('profile.newUsernamePlaceholder')" class="ui-input">
       </div>
       <div class="space-y-1.5">
-        <label class="ui-label">{{ t('profile.currentPassword') }}</label>
-        <input v-model="usernameForm.password" type="password" :placeholder="t('profile.currentPasswordPlaceholder')" class="ui-input">
+        <label class="ui-label" for="profile-username-password">{{ t('profile.currentPassword') }}</label>
+        <input id="profile-username-password" v-model="usernameForm.password" type="password" :placeholder="t('profile.currentPasswordPlaceholder')" class="ui-input">
       </div>
       <button 
         @click="handleUsernameChange"
@@ -239,12 +239,12 @@ onUnmounted(revokeQrUrl)
     <!-- Password Tab -->
     <div v-else-if="activeTab === 'password'" class="space-y-4">
       <div class="space-y-1.5">
-        <label class="ui-label">{{ t('profile.oldPassword') }}</label>
-        <input v-model="form.old_password" type="password" class="ui-input">
+        <label class="ui-label" for="profile-old-password">{{ t('profile.oldPassword') }}</label>
+        <input id="profile-old-password" v-model="form.old_password" type="password" class="ui-input">
       </div>
       <div class="space-y-1.5">
-        <label class="ui-label">{{ t('profile.newPassword') }}</label>
-        <input v-model="form.new_password" type="password" class="ui-input">
+        <label class="ui-label" for="profile-new-password">{{ t('profile.newPassword') }}</label>
+        <input id="profile-new-password" v-model="form.new_password" type="password" class="ui-input">
       </div>
       <button 
         @click="handlePasswordChange"
@@ -263,7 +263,8 @@ onUnmounted(revokeQrUrl)
           <p class="text-sm text-emerald-700 dark:text-emerald-400 font-medium">{{ t('profile.totpEnabled') }}</p>
         </div>
         <p class="text-xs text-gray-500">{{ t('profile.totpDisableHint') }}</p>
-        <input v-model="totpCode" type="text" inputmode="numeric" autocomplete="one-time-code" :placeholder="t('profile.totpCodePlaceholder')" maxlength="6" class="ui-input text-center font-mono tracking-widest">
+        <label class="ui-label" for="profile-totp-code">{{ t('profile.totpCode') }}</label>
+        <input id="profile-totp-code" v-model="totpCode" type="text" inputmode="numeric" autocomplete="one-time-code" :placeholder="t('profile.totpCodePlaceholder')" maxlength="6" class="ui-input text-center font-mono tracking-widest">
         <button 
           @click="handleDisableTOTP"
           :disabled="loading || !totpCode"
@@ -294,7 +295,8 @@ onUnmounted(revokeQrUrl)
           <code class="text-xs font-mono text-gray-900 dark:text-gray-100 select-all break-all">{{ totpSecret }}</code>
         </div>
         <p class="text-xs text-gray-500">{{ t('profile.totpVerifyHint') }}</p>
-        <input v-model="totpCode" type="text" inputmode="numeric" autocomplete="one-time-code" :placeholder="t('profile.totpCodePlaceholder')" maxlength="6" class="ui-input text-center font-mono tracking-widest">
+        <label class="ui-label" for="profile-totp-code-enable">{{ t('profile.totpCode') }}</label>
+        <input id="profile-totp-code-enable" v-model="totpCode" type="text" inputmode="numeric" autocomplete="one-time-code" :placeholder="t('profile.totpCodePlaceholder')" maxlength="6" class="ui-input text-center font-mono tracking-widest">
         <button 
           @click="handleEnableTOTP"
           :disabled="loading || !totpCode"
