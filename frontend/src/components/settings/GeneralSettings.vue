@@ -114,6 +114,7 @@ const onStringInput = (key: keyof SettingsFormState, e: Event) => {
         <label class="ui-label">{{ t('settings.timezone') }}</label>
         <CustomSelect
           :modelValue="modelValue.timezone"
+          :aria-label="t('settings.timezone')"
           @update:modelValue="update('timezone', String($event ?? ''))"
           :options="timezoneOptions"
           className="w-full"
