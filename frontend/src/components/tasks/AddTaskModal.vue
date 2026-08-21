@@ -220,7 +220,7 @@ const handleSave = async () => {
           {{ t('taskForm.notifyOnSuccess') }}
         </label>
       </div>
-      <p class="text-[10px] text-gray-400 leading-relaxed">{{ t('taskForm.notifyChannelHint') }}</p>
+      <p class="text-[10px] text-gray-500 leading-relaxed">{{ t('taskForm.notifyChannelHint') }}</p>
       <p v-if="error" class="text-xs text-rose-600 dark:text-rose-400">{{ error }}</p>
     </div>
     <template #footer>

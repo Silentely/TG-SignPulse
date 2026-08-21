@@ -363,7 +363,9 @@
     "inputDice": "骰子表情",
     "inputBotUsername": "Bot 用户名",
     "inputCommandPrefix": "命令前缀",
-    "inputAiPrompt": "AI 提示词"
+    "inputAiPrompt": "AI 提示词",
+    "timeRangeListenPlaceholder": "全天（24 小时）",
+    "taskPrefix": "任务："
   },
   "taskModal": {
     "addTitle": "添加任务",
@@ -692,7 +694,8 @@
     "totpEnableSuccess": "两步验证开启成功",
     "totpDisableSuccess": "两步验证已关闭",
     "verifyFailed": "验证失败",
-    "disableFailed": "关闭失败"
+    "disableFailed": "关闭失败",
+    "totpCode": "验证码"
   },
   "addAccount": {
     "codeTitle": "验证码登录",
