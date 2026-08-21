@@ -148,6 +148,7 @@ const displayValue = computed(() => {
         type="button"
         class="ui-select-trigger flex-1 min-w-0"
         :class="isOpen ? 'ui-select-trigger-open' : ''"
+        :aria-label="displayValue || placeholder || t('datePicker.selectDate')"
         :aria-expanded="isOpen"
         aria-haspopup="dialog"
         @click="toggle"
@@ -186,7 +187,7 @@ const displayValue = computed(() => {
           </button>
         </div>
 
-        <div class="grid grid-cols-7 gap-0 mb-1">
+        <div class="grid grid-cols-7 gap-0.5 mb-1">
           <div v-for="wd in weekDays" :key="wd" class="text-center text-[10px] text-gray-400 font-medium py-1">{{ wd }}</div>
         </div>
 
