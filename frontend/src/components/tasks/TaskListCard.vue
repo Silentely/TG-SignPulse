@@ -187,9 +187,10 @@ const runTaskBusy = computed(() => Boolean(props.runBusyKey?.startsWith(`${props
           class="ui-row-action"
           :title="hasInvalidAccount
             ? t('tasks.accountInvalidHint')
-            : (task.raw.execution_mode === 'listen' ? t('tasks.executeListenHint') : t('tasks.executeNow'))"
-          :disabled="task.raw.execution_mode === 'listen' || hasInvalidAccount || runTaskBusy"
-          @click="task.raw.execution_mode !== 'listen' && !hasInvalidAccount && !runTaskBusy && emit('run', task)"
+            : (!task.enabled ? t('tasks.pausedHint')
+              : (task.raw.execution_mode === 'listen' ? t('tasks.executeListenHint') : t('tasks.executeNow')))"
+          :disabled="!task.enabled || task.raw.execution_mode === 'listen' || hasInvalidAccount || runTaskBusy"
+          @click="task.enabled && task.raw.execution_mode !== 'listen' && !hasInvalidAccount && !runTaskBusy && emit('run', task)"
         >
           <span
             v-if="runTaskBusy"

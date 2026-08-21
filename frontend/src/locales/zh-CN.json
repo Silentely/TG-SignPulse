@@ -265,7 +265,8 @@
     "toolbarLabel": "任务列表操作",
     "filterAll": "全部",
     "filterListen": "监听",
-    "filterScheduled": "定时"
+    "filterScheduled": "定时",
+    "pausedHint": "任务已暂停，请先恢复后再执行"
   },
   "taskForm": {
     "taskName": "任务名称",

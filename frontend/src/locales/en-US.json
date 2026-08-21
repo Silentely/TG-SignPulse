@@ -265,7 +265,8 @@
     "toolbarLabel": "Task list actions",
     "filterAll": "All",
     "filterListen": "Listen",
-    "filterScheduled": "Scheduled"
+    "filterScheduled": "Scheduled",
+    "pausedHint": "Task is paused; resume it before running"
   },
   "taskForm": {
     "taskName": "Task Name",
