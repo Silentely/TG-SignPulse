@@ -204,6 +204,40 @@ async def send_telegram_bot_message(
     raise last_exc
 
 
+async def _http_post_retry_once(
+    *,
+    url: str,
+    channel: str,
+    json_body: Optional[dict] = None,
+    timeout: float = 10.0,
+    method: str = "POST",
+) -> httpx.Response:
+    """HTTP 推送统一重试封装：瞬时故障（连接/DNS/超时）与 5xx 重试一次，4xx 直抛。
+
+    与 send_telegram_bot_message 同一重试语义，供 bark / 自定义推送等
+    非 Telegram 通道复用，保证各通道抖动下的到达率一致。
+    """
+    last_exc: Optional[Exception] = None
+    for attempt in (1, 2):
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                if method == "GET":
+                    response = await client.get(url)
+                else:
+                    response = await client.post(url, json=json_body)
+                response.raise_for_status()
+            return response
+        except (httpx.RequestError, httpx.HTTPStatusError) as exc:
+            if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code < 500:
+                raise
+            last_exc = exc
+            if attempt == 1:
+                logger.warning("%s 通知发送失败，准备重试: %s", channel, exc)
+                await asyncio.sleep(1.0)
+    assert last_exc is not None
+    raise last_exc
+
+
 async def send_keyword_push(settings: Dict[str, Any], payload: Dict[str, Any]) -> None:
     # 与失败/成功/账号失效/登录/备份通知一致：静默时段内跳过关键词命中推送，
     # 避免高频命中通道在夜间打扰；跳过时留 debug 日志便于排障
@@ -274,9 +308,7 @@ async def send_keyword_push(settings: Dict[str, Any], payload: Dict[str, Any]) -
         data = {"title": title, "body": body}
         if url:
             data["url"] = url
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.post(bark_url, json=data)
-            response.raise_for_status()
+        await _http_post_retry_once(url=bark_url, channel="Bark", json_body=data)
         return
 
     custom_url = (settings.get("keyword_monitor_custom_url") or "").strip()
@@ -295,14 +327,10 @@ async def send_keyword_push(settings: Dict[str, Any], payload: Dict[str, Any]) -
             .replace("{body}", quote(body))
             .replace("{url}", quote(url))
         )
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.get(final_url)
-            response.raise_for_status()
+        await _http_post_retry_once(url=final_url, channel="自定义推送", method="GET")
         return
 
-    async with httpx.AsyncClient(timeout=10) as client:
-        response = await client.post(custom_url, json=request_payload)
-        response.raise_for_status()
+    await _http_post_retry_once(url=custom_url, channel="自定义推送", json_body=request_payload)
 
 
 async def send_login_notification(
