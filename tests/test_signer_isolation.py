@@ -42,6 +42,32 @@ class SignerIsolationTest(unittest.TestCase):
         asyncio.run(_run_signers_isolated(signers))
         self.assertEqual(calls, [10, 20])
 
+    def test_session_invalid_error_shows_chinese_hint(self):
+        calls = []
+        signers = [
+            ("task:first", _StubSigner(ConnectionError("Session invalid: unauthorized"), calls), 10),
+        ]
+
+        with self.assertRaises(click.ClickException) as ctx:
+            asyncio.run(_run_signers_isolated(signers))
+
+        message = str(ctx.exception)
+        self.assertIn("会话已失效或未登录", message)
+        self.assertIn("重新登录", message)
+        # 不再透出英文裸异常
+        self.assertNotIn("unauthorized", message)
+
+    def test_other_errors_keep_original_message(self):
+        calls = []
+        signers = [
+            ("task:first", _StubSigner(RuntimeError("磁盘满"), calls), 10),
+        ]
+
+        with self.assertRaises(click.ClickException) as ctx:
+            asyncio.run(_run_signers_isolated(signers))
+
+        self.assertIn("task:first: 磁盘满", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

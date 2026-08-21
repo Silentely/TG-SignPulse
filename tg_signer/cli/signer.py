@@ -56,6 +56,25 @@ def get_signer(
     return signer
 
 
+# 会话失效英文异常 → 中文引导：CLI 面向最终用户，避免裸透英文异常
+# 与 traceback，明确下一步操作（重新登录），与后端失败通知的映射语义一致
+_SESSION_INVALID_PATTERNS = (
+    "session invalid",
+    "auth key unregistered",
+    "auth key invalid",
+    "session revoked",
+    "unauthorized",
+    "auth restarted",
+)
+
+
+def _session_invalid_hint(exc: Exception) -> Optional[str]:
+    text = str(exc).lower()
+    if any(p in text for p in _SESSION_INVALID_PATTERNS):
+        return "会话已失效或未登录，请先运行 `tg-signer login` 重新登录后重试"
+    return None
+
+
 async def _run_signers_isolated(signer_entries: list[tuple[str, UserSigner, int]]) -> None:
     failures: list[tuple[str, Exception]] = []
 
@@ -70,7 +89,13 @@ async def _run_signers_isolated(signer_entries: list[tuple[str, UserSigner, int]
             )
 
     if failures:
-        lines = [f"{label}: {exc}" for label, exc in failures]
+        lines = []
+        for label, exc in failures:
+            hint = _session_invalid_hint(exc)
+            if hint:
+                lines.append(f"{label}: {hint}")
+            else:
+                lines.append(f"{label}: {exc}")
         raise click.ClickException(
             "部分任务执行失败, 其余任务已继续执行:\n" + "\n".join(lines)
         )
