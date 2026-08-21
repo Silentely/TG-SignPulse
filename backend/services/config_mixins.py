@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from backend.core.config import get_settings
+from backend.utils.cache import TTLCache
 from backend.utils.names import validate_storage_name
 from backend.utils.storage import (
     clear_data_dir_override,
@@ -21,6 +22,10 @@ from backend.utils.storage import (
 )
 
 _logger = logging.getLogger("backend.config")
+
+# 全局设置短 TTL 缓存：关键词命中/通知等热路径每次调用都读盘全量 JSON，
+# 2 秒窗口内复用，保存路径显式失效，兼顾响应实时性与磁盘 I/O
+GLOBAL_SETTINGS_CACHE_TTL = 2.0
 
 # 面板全局设置键 → 环境变量名：保存时与启动时统一回灌，
 # 供 tg_signer 等仍读 env 的路径（AI_VISION_*、SIGN_TASK_*）使用
@@ -907,6 +912,14 @@ class AIConfigMixin:
 class GlobalSettingsMixin:
     """全局设置读写与导入预览。"""
 
+    def _global_settings_cache(self) -> TTLCache:
+        """全局设置 TTL 缓存（惰性初始化，避免 Mixin 无 __init__ 时失效）。"""
+        cache = getattr(self, "_gs_cache", None)
+        if cache is None:
+            cache = TTLCache(maxsize=2, ttl=GLOBAL_SETTINGS_CACHE_TTL)
+            self._gs_cache = cache
+        return cache
+
     def _get_global_settings_file(self) -> Path:
         """获取全局设置文件路径"""
         return self.workdir / ".global_settings.json"
@@ -920,6 +933,9 @@ class GlobalSettingsMixin:
             设置字典
         """
         config_file = self._get_global_settings_file()
+        cached = self._global_settings_cache().get(str(config_file))
+        if cached is not None:
+            return cached
 
         override_data_dir = load_data_dir_override()
         default_settings = {
@@ -970,6 +986,7 @@ class GlobalSettingsMixin:
                 settings["timezone"] = get_settings().timezone
             except Exception:
                 settings.setdefault("timezone", "Asia/Hong_Kong")
+        self._global_settings_cache().set(str(config_file), settings)
         return settings
 
     def get_global_proxy(self) -> Optional[str]:
@@ -1020,6 +1037,9 @@ class GlobalSettingsMixin:
 
         if not self._write_json_file(config_file, merged):
             return False
+
+        # 写盘成功后失效缓存，保证后续读取拿到最新值
+        self._global_settings_cache().delete(str(config_file))
 
         # Apply concurrency change at runtime
         concurrency_val = merged.get("tg_global_concurrency")
