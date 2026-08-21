@@ -323,6 +323,43 @@ class TestAccountStoreCRUD:
 # ─── 并发信号量 ───
 
 
+class TestAccountStoreCache:
+    """accounts.json 进程内缓存：TTL 内重复读不读盘，写入后失效。"""
+
+    def test_repeated_load_hits_cache(self, tmp_path, monkeypatch):
+        path = _monkeypatch_store(tmp_path, monkeypatch)
+        path.write_text(json.dumps({"accounts": {"a": {}}}), encoding="utf-8")
+        tg_session._account_store_cache.clear()
+
+        assert tg_session.list_account_names() == ["a"]
+        # 直接改盘上文件（绕过写路径），TTL 内读取仍返回缓存旧值
+        path.write_text(json.dumps({"accounts": {"a": {}, "b": {}}}), encoding="utf-8")
+        assert tg_session.list_account_names() == ["a"]
+
+    def test_save_invalidates_cache(self, tmp_path, monkeypatch):
+        path = _monkeypatch_store(tmp_path, monkeypatch)
+        path.write_text(json.dumps({"accounts": {}}), encoding="utf-8")
+        tg_session._account_store_cache.clear()
+
+        tg_session.set_account_profile("acc1", remark="备注")
+        # 写路径已失效缓存：再次读取拿到新值
+        assert tg_session.list_account_names() == ["acc1"]
+        assert tg_session.get_account_profile("acc1")["remark"] == "备注"
+
+    def test_cache_keyed_by_path(self, tmp_path, monkeypatch):
+        a = tmp_path / "a" / "accounts.json"
+        b = tmp_path / "b" / "accounts.json"
+        a.parent.mkdir()
+        b.parent.mkdir()
+        a.write_text(json.dumps({"accounts": {"x": {}}}), encoding="utf-8")
+        b.write_text(json.dumps({"accounts": {"y": {}}}), encoding="utf-8")
+        tg_session._account_store_cache.clear()
+        monkeypatch.setattr(tg_session, "_account_store_path", lambda: a)
+        assert tg_session.list_account_names() == ["x"]
+        monkeypatch.setattr(tg_session, "_account_store_path", lambda: b)
+        assert tg_session.list_account_names() == ["y"]
+
+
 class TestGlobalSemaphore:
     def test_resolve_limit_from_env(self, monkeypatch):
         monkeypatch.setenv("TG_GLOBAL_CONCURRENCY", "7")

@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -71,8 +72,27 @@ def _account_store_path() -> Path:
     return session_dir / "accounts.json"
 
 
-def _load_account_store() -> dict:
+# accounts.json 进程内缓存：账号列表/状态/会话读取散落在登录、签到、
+# 监听与状态检查等热路径，短窗口内复用避免每次请求全量读盘；
+# 写入路径 _save_account_store 显式失效，保证读写一致
+_ACCOUNT_STORE_CACHE_TTL = 2.0
+_account_store_cache: dict[str, tuple[float, dict]] = {}
+
+
+def _cached_account_store() -> dict:
+    """带 2s TTL 的账户存储读取；TTL 与全局设置缓存策略一致。"""
     path = _account_store_path()
+    key = str(path)
+    now = time.monotonic()
+    hit = _account_store_cache.get(key)
+    if hit is not None and now - hit[0] < _ACCOUNT_STORE_CACHE_TTL:
+        return hit[1]
+    data = _read_account_store_file(path)
+    _account_store_cache[key] = (now, data)
+    return data
+
+
+def _read_account_store_file(path: Path) -> dict:
     if not path.exists():
         return {"accounts": {}}
     try:
@@ -102,12 +122,19 @@ def _load_account_store() -> dict:
     return data
 
 
+def _load_account_store() -> dict:
+    return _cached_account_store()
+
+
 def _save_account_store(data: dict) -> None:
     # 统一走 write_json_atomic：进程内写锁 + 唯一临时名 + fsync + rename，
     # 避免多协程/线程并发写固定 .tmp 文件时交错覆盖导致 accounts.json 损坏
     from backend.utils.atomic_io import write_json_atomic
 
-    write_json_atomic(_account_store_path(), data)
+    path = _account_store_path()
+    write_json_atomic(path, data)
+    # 写后失效缓存，下次读取重新落盘
+    _account_store_cache.pop(str(path), None)
 
 
 def list_account_names() -> list[str]:
