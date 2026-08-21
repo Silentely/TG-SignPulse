@@ -63,7 +63,7 @@ const emit = defineEmits<{
       <option value="account">{{ t('taskLogs.groupByAccount') }}</option>
       <option value="task">{{ t('taskLogs.groupByTask') }}</option>
     </select>
-    <span class="text-[10px] text-gray-400 hidden md:inline">{{ t('taskLogs.hitsAutoRefreshHint') }}</span>
+    <span class="text-[10px] text-gray-500 hidden md:inline">{{ t('taskLogs.hitsAutoRefreshHint') }}</span>
     <button
       type="button"
       class="ml-auto text-[11px] text-rose-600 dark:text-rose-400 hover:underline disabled:opacity-50 disabled:cursor-not-allowed"

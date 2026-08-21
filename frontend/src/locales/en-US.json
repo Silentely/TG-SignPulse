@@ -363,7 +363,9 @@
     "inputDice": "Dice emoji",
     "inputBotUsername": "Bot username",
     "inputCommandPrefix": "Command prefix",
-    "inputAiPrompt": "AI prompt"
+    "inputAiPrompt": "AI prompt",
+    "timeRangeListenPlaceholder": "All day (24 hours)",
+    "taskPrefix": "Task: "
   },
   "taskModal": {
     "addTitle": "Add Task",
@@ -692,7 +694,8 @@
     "totpEnableSuccess": "2FA enabled successfully",
     "totpDisableSuccess": "2FA disabled",
     "verifyFailed": "Verification failed",
-    "disableFailed": "Disable failed"
+    "disableFailed": "Disable failed",
+    "totpCode": "Verification code"
   },
   "addAccount": {
     "codeTitle": "Code Login",
