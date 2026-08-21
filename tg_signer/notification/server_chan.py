@@ -18,7 +18,7 @@ async def sc_send(sendkey, title, desp="", options=None):
         url = f"https://sctapi.ftqq.com/{sendkey}.send"
     params = {"title": title, "desp": desp, **options}
     headers = {"Content-Type": "application/json;charset=utf-8"}
-    async with AsyncClient(headers=headers) as client:
+    async with AsyncClient(headers=headers, timeout=10) as client:
         response = await client.post(url, json=params)
         response.raise_for_status()
         try:

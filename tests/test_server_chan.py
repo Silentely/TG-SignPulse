@@ -23,8 +23,9 @@ class _FakeClient:
 
     instances: list["_FakeClient"] = []
 
-    def __init__(self, headers=None):
+    def __init__(self, headers=None, timeout=None):
         self.headers = headers
+        self.timeout = timeout
         self.posts: list[tuple] = []
         _FakeClient.instances.append(self)
 
@@ -52,6 +53,8 @@ class TestScSend:
         result = await sc_send("SCT_TEST", "标题", "内容", {"openid": "u1"})
         client = _FakeClient.instances[0]
         assert client.headers == {"Content-Type": "application/json;charset=utf-8"}
+        # 显式超时：与其它推送通道一致，避免默认 5s 无兜底
+        assert client.timeout == 10
         url, params = client.posts[0]
         assert url == "https://sctapi.ftqq.com/SCT_TEST.send"
         assert params == {"title": "标题", "desp": "内容", "openid": "u1"}

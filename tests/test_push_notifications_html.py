@@ -336,3 +336,107 @@ class TestServerChanScSend:
 
         result = await sc_send("key-123", "标题")
         assert result.get("raw") == "<html>gateway error</html>"
+
+
+class TestHttpPostRetryOnce:
+    """HTTP 推送统一重试：瞬时故障重试一次，4xx 不重试直接抛。"""
+
+    @staticmethod
+    async def _noop_sleep(_seconds):
+        return None
+
+    @pytest.mark.asyncio()
+    async def test_transient_failure_retries_once(self, monkeypatch):
+        calls = {"n": 0}
+
+        class _FakeResp:
+            def raise_for_status(self):
+                return None
+
+        class _FakeClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return None
+
+            async def post(self, url, json=None):
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    raise httpx.ConnectError("boom", request=None)
+                return _FakeResp()
+
+        monkeypatch.setattr("httpx.AsyncClient", _FakeClient, raising=False)
+        monkeypatch.setattr("asyncio.sleep", self._noop_sleep, raising=False)
+
+        from backend.services.push_notifications import _http_post_retry_once
+
+        await _http_post_retry_once(url="https://x", channel="Bark", json_body={})
+        assert calls["n"] == 2
+
+    @pytest.mark.asyncio()
+    async def test_4xx_not_retried(self, monkeypatch):
+        calls = {"n": 0}
+
+        class _FakeResp:
+            status_code = 400
+
+            def raise_for_status(self):
+                raise httpx.HTTPStatusError(
+                    "400 Bad Request", request=None, response=self
+                )
+
+        class _FakeClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return None
+
+            async def post(self, url, json=None):
+                calls["n"] += 1
+                return _FakeResp()
+
+        monkeypatch.setattr("httpx.AsyncClient", _FakeClient, raising=False)
+        monkeypatch.setattr("asyncio.sleep", self._noop_sleep, raising=False)
+
+        from backend.services.push_notifications import _http_post_retry_once
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await _http_post_retry_once(url="https://x", channel="自定义推送", json_body={})
+        assert calls["n"] == 1
+
+    @pytest.mark.asyncio()
+    async def test_get_method_uses_get(self, monkeypatch):
+        methods = []
+
+        class _FakeResp:
+            def raise_for_status(self):
+                return None
+
+        class _FakeClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return None
+
+            async def get(self, url):
+                methods.append("GET")
+                return _FakeResp()
+
+        monkeypatch.setattr("httpx.AsyncClient", _FakeClient, raising=False)
+
+        from backend.services.push_notifications import _http_post_retry_once
+
+        await _http_post_retry_once(url="https://x", channel="自定义推送", method="GET")
+        assert methods == ["GET"]
