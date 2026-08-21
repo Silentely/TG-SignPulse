@@ -110,6 +110,7 @@ const onChatIdUpdate = (id: number) => {
       <label class="ui-label">{{ t('taskForm.targetCreateMode') }}</label>
       <CustomSelect
         :model-value="createMode"
+        :aria-label="t('taskForm.targetCreateMode')"
         :options="[
           { label: t('tasks.createModeShared'), value: 'shared' },
           { label: t('tasks.createModeSplit'), value: 'split' },
@@ -148,6 +149,7 @@ const onChatIdUpdate = (id: number) => {
         <label class="ui-label">{{ t('taskForm.chatSourceAccount') }}</label>
         <CustomSelect
           :model-value="selectedAccount"
+          :aria-label="t('taskForm.chatSourceAccount')"
           :options="selectedAccounts.map((a) => ({ label: a, value: a }))"
           @update:model-value="emit('update:selectedAccount', String($event))"
         />
@@ -167,6 +169,7 @@ const onChatIdUpdate = (id: number) => {
         </div>
         <CustomSelect
           :model-value="selectedChatId"
+          :aria-label="t('taskForm.selectFromList')"
           :disabled="chatListRefreshing"
           :options="[
             { label: chatListRefreshing ? t('taskForm.loadingChats') : t('taskForm.selectChat'), value: 0 },
@@ -177,13 +180,15 @@ const onChatIdUpdate = (id: number) => {
         <p v-if="chatListError" class="text-xs text-amber-600 dark:text-amber-400 mt-1">{{ chatListError }}</p>
       </div>
       <div class="space-y-1.5 relative">
-        <label class="ui-label">{{ t('taskForm.searchChat') }}</label>
+        <label class="ui-label" id="task-form-search-chat-label" for="task-form-search-chat">{{ t('taskForm.searchChat') }}</label>
         <div class="relative">
           <input
+            id="task-form-search-chat"
             :value="chatSearch"
             :placeholder="t('taskForm.searchPlaceholder')"
             class="ui-input"
             role="combobox"
+            aria-labelledby="task-form-search-chat-label"
             aria-autocomplete="list"
             :aria-expanded="chatSearch.trim() !== '' && chatSearchResults.length > 0"
             aria-controls="task-form-chat-search-list"

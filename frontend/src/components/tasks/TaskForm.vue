@@ -436,11 +436,11 @@ onMounted(() => { loadAccounts() })
       </div>
       <div class="space-y-1.5">
         <label class="ui-label-strong">{{ t('taskForm.scheduleMode') }}</label>
-        <CustomSelect v-model="scheduleMode" :options="[{label: t('taskForm.scheduled'), value:'scheduled'}, {label: t('taskForm.listen'), value:'listen'}]" />
+        <CustomSelect v-model="scheduleMode" :aria-label="t('taskForm.scheduleMode')" :options="[{label: t('taskForm.scheduled'), value:'scheduled'}, {label: t('taskForm.listen'), value:'listen'}]" />
       </div>
       <div class="space-y-1.5">
         <label class="ui-label-strong" for="task-form-time-range">{{ t('taskForm.timeRange') }}</label>
-        <input id="task-form-time-range" v-model="timeRange" :disabled="scheduleMode === 'listen'" :placeholder="scheduleMode === 'listen' ? '24H' : t('taskForm.timeRangePlaceholder')" class="ui-input disabled:opacity-50 disabled:bg-gray-50 dark:disabled:bg-gray-950" :class="timeRangeError ? '!border-rose-400 dark:!border-rose-500' : ''" :aria-invalid="!!timeRangeError" @blur="validateTimeRange" />
+        <input id="task-form-time-range" v-model="timeRange" :disabled="scheduleMode === 'listen'" :placeholder="scheduleMode === 'listen' ? t('taskForm.timeRangeListenPlaceholder') : t('taskForm.timeRangePlaceholder')" class="ui-input disabled:opacity-50 disabled:bg-gray-50 dark:disabled:bg-gray-950" :class="timeRangeError ? '!border-rose-400 dark:!border-rose-500' : ''" :aria-invalid="!!timeRangeError" @blur="validateTimeRange" />
         <p v-if="timeRangeError" class="text-[10px] text-rose-600 dark:text-rose-400" role="alert">{{ timeRangeError }}</p>
       </div>
     </div>

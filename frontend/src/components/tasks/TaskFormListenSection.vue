@@ -60,6 +60,7 @@ const emit = defineEmits<{
         <label class="ui-label">{{ t('taskForm.matchMode') }}</label>
         <CustomSelect
           :model-value="matchMode"
+          :aria-label="t('taskForm.matchMode')"
           :options="[
             { label: t('taskForm.matchContains'), value: 'contains' },
             { label: t('taskForm.matchExact'), value: 'exact' },
@@ -72,6 +73,7 @@ const emit = defineEmits<{
         <label class="ui-label">{{ t('taskForm.afterMatch') }}</label>
         <CustomSelect
           :model-value="pushChannel"
+          :aria-label="t('taskForm.afterMatch')"
           :options="[
             { label: t('taskForm.continueActions'), value: 'continue' },
             { label: t('taskForm.telegramNotify'), value: 'telegram' },
