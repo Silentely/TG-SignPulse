@@ -211,3 +211,25 @@ def test_clear_filtered():
     data = hits_mod.list_keyword_hits()
     assert data["total"] == 1
     assert data["items"][0]["account_name"] == "a2"
+
+
+def test_load_bad_lines_logs_warning_count(tmp_path: Path, monkeypatch, caplog):
+    """坏行（非法 JSON / 非对象）应记录跳过数量，便于排查数据损坏。"""
+    hits_mod.reset_hits_for_tests()
+
+    class _Settings:
+        def resolve_workdir(self):
+            return tmp_path
+
+    monkeypatch.setattr(hits_mod, "get_settings", lambda: _Settings())
+    path = hits_mod._hits_path()
+    path.write_text(
+        '{"id":"ok","time":"2026-01-01T00:00:00Z"}\nnot-json\n[1,2]\n',
+        encoding="utf-8",
+    )
+
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="backend.keyword_hits"):
+        hits_mod.list_keyword_hits(limit=10)
+    assert any("跳过 2 行坏数据" in r.message for r in caplog.records)
