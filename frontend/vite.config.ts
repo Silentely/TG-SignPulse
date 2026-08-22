@@ -13,8 +13,11 @@ export default defineConfig({
         name: 'TG-SignPulse',
         short_name: 'SignPulse',
         description: 'Telegram Automation Panel',
+        // 与 index.html 首帧脚本的深色主题一致：深色启动屏避免安装后闪白；
+        // 运行时标签栏颜色由 useTheme 动态同步 theme-color meta
         theme_color: '#0f172a',
-        background_color: '#f9fafb',
+        background_color: '#0f172a',
+        lang: 'zh-CN',
         display: 'standalone',
         start_url: '/',
         icons: [
