@@ -399,9 +399,19 @@ class SignTaskCrudMixin:
         for config_path in self.signs_dir.glob("*/*/config.json"):
             try:
                 config = json.loads(config_path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError, UnicodeDecodeError, TypeError, ValueError):
+            except (OSError, json.JSONDecodeError, UnicodeDecodeError, TypeError, ValueError) as exc:
+                # 任务配置损坏：该任务在新账号下会静默消失，必须留下可观测线索
+                _logger.warning(
+                    "账号重命名时读取任务配置失败，跳过（该任务不会迁移账号引用）: %s (%s)",
+                    config_path,
+                    exc,
+                )
                 continue
             if not isinstance(config, dict):
+                _logger.warning(
+                    "账号重命名时任务配置非对象，跳过迁移: %s",
+                    config_path,
+                )
                 continue
 
             if not apply_account_rename_to_config(config, old_account_name, new_account_name):
@@ -411,6 +421,7 @@ class SignTaskCrudMixin:
 
         safe_old = self._safe_history_key(old_account_name)
         safe_new = self._safe_history_key(new_account_name)
+        skipped_history = 0
         for history_file in self.run_history_dir.glob(f"{safe_old}__*.json"):
             target_file = self.run_history_dir / history_file.name.replace(
                 f"{safe_old}__",
@@ -419,9 +430,14 @@ class SignTaskCrudMixin:
             )
             try:
                 raw_data = json.loads(history_file.read_text(encoding="utf-8"))
-            except Exception:
-                # 单文件损坏：记录日志后跳过该文件，其余历史文件仍可重命名
-                _logger.debug("读取历史文件失败，跳过重命名: %s", history_file)
+            except Exception as exc:
+                # 单文件损坏：留档供排查（旧名文件保留），其余历史文件仍可重命名
+                skipped_history += 1
+                _logger.warning(
+                    "账号重命名时历史文件损坏，跳过重命名并保留旧名（供人工恢复）: %s (%s)",
+                    history_file,
+                    exc,
+                )
                 raw_data = None
 
             if isinstance(raw_data, list):
@@ -440,6 +456,14 @@ class SignTaskCrudMixin:
                 write_json_atomic(history_file, raw_data)
 
             self._move_storage_path(history_file, target_file)
+
+        if skipped_history:
+            _logger.warning(
+                "账号 %s → %s 重命名完成，%d 个损坏历史文件保留旧名未迁移",
+                old_account_name,
+                new_account_name,
+                skipped_history,
+            )
 
         # 运行中的状态/后台任务也以 (account, task) 为键，改名后必须一并迁移，
         # 否则新名查 status/cancel 会 miss、后台任务成为孤儿
