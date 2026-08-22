@@ -137,7 +137,11 @@ export function useTaskHits(options: {
       return
     }
     hitsPollHandle = startChainPoll(
-      () => loadHits({ silent: true }),
+      () => {
+        // 弹窗开着但标签页切后台时不发请求；恢复可见由 visibilitychange 重启轮询
+        if (typeof document !== 'undefined' && document.hidden) return
+        return loadHits({ silent: true })
+      },
       { intervalMs: 8000, runImmediately: false },
     )
   }

@@ -167,4 +167,25 @@ describe('useTaskRunStream', () => {
     expect(stream.liveState.value).toBeNull()
     expect(stream.realtimeLogs.value).toEqual([])
   })
+
+  it('polling skips requests while tab hidden', async () => {
+    api.getSignTaskLogs.mockResolvedValue(['hidden-line'])
+    api.getSignTaskRunStatus.mockResolvedValue({ state: 'running', phase: 'running' })
+    const stream = setup('acc-a')
+    stream.connect()
+    MockWebSocket.instances[0].onerror?.({})
+    const handle = pollHandles[0]
+
+    // 隐藏时 tick 不请求，日志不更新
+    Object.defineProperty(document, 'hidden', { value: true, configurable: true })
+    await handle.cb()
+    expect(stream.realtimeLogs.value).toEqual([])
+    expect(api.getSignTaskLogs).not.toHaveBeenCalled()
+
+    // 恢复可见后正常请求
+    Object.defineProperty(document, 'hidden', { value: false, configurable: true })
+    await handle.cb()
+    expect(stream.realtimeLogs.value).toEqual(['hidden-line'])
+    Object.defineProperty(document, 'hidden', { value: false, configurable: true })
+  })
 })
