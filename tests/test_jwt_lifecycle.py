@@ -102,3 +102,38 @@ class TestTokenCrossKey:
             headers={"Authorization": "Bearer "},
         )
         assert response.status_code == 401
+
+
+class TestTokenDecodeLogging:
+    """JWT 解码失败分类日志：行为不变（返回 None），但留可观测线索。"""
+
+    def test_expired_token_logs_decode_failure(self, db_session, caplog):
+        # 直接构造一个已过期的 token（exp 设为过去）
+        import datetime
+
+        import jwt as pyjwt
+
+        from backend.core.auth import _resolve_user_from_token
+        from backend.core.config import get_settings
+
+        settings = get_settings()
+        payload = {"sub": "admin", "exp": datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=1)}
+        expired = pyjwt.encode(payload, settings.secret_key, algorithm="HS256")
+
+        import logging
+
+        with caplog.at_level(logging.DEBUG, logger="backend.auth"):
+            result = _resolve_user_from_token(expired, db_session)
+        assert result is None
+        # 过期 token 触发任一解码失败日志（版本差异可能走 ExpiredSignatureError 或签名校验分支）
+        assert any("JWT" in r.message for r in caplog.records)
+
+    def test_tampered_token_logs_decode_failure(self, db_session, caplog):
+        import logging
+
+        from backend.core.auth import _resolve_user_from_token
+
+        with caplog.at_level(logging.DEBUG, logger="backend.auth"):
+            result = _resolve_user_from_token("not-a-jwt", db_session)
+        assert result is None
+        assert any("JWT 解码失败" in r.message for r in caplog.records)
