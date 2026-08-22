@@ -226,6 +226,20 @@ const closeRunMenu = () => {
   showTemplateMenu.value = false
 }
 
+// Esc 关闭运行账号菜单：键盘用户打开多账号运行菜单后可用 Esc 退出；
+// 挂在 runMenuTask 变化上，任何置 null 的路径都会自动清理监听
+const closeRunMenuOnEsc = (e: KeyboardEvent) => {
+  if (e.key !== 'Escape') return
+  if (!runMenuTask.value) return
+  e.stopPropagation()
+  closeRunMenu()
+}
+watch(runMenuTask, (task) => {
+  if (task) window.addEventListener('keydown', closeRunMenuOnEsc)
+  else window.removeEventListener('keydown', closeRunMenuOnEsc)
+})
+onUnmounted(() => window.removeEventListener('keydown', closeRunMenuOnEsc))
+
 const openAddBlank = () => {
   addTemplateId.value = null
   showAddModal.value = true
