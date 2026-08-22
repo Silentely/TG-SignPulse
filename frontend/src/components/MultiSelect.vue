@@ -30,6 +30,10 @@ const activeIndex = ref(-1)
 const toggle = () => {
   if (props.disabled) return
   isOpen.value = !isOpen.value
+  if (isOpen.value) {
+    // 重新打开时重置键盘位置到首项（全部账号），避免残留旧高亮
+    activeIndex.value = -1
+  }
 }
 
 const onKeydown = (e: KeyboardEvent) => {
@@ -50,22 +54,45 @@ const onKeydown = (e: KeyboardEvent) => {
     return
   }
   const list = props.options
-  if (!list.length) return
+  // 下拉首项为「全部账号」：键盘导航用 -1 表示该项（该按钮始终渲染）
   if (e.key === 'ArrowDown') {
     e.preventDefault()
+    if (!list.length) {
+      activeIndex.value = -1
+      return
+    }
     activeIndex.value = Math.min(activeIndex.value + 1, list.length - 1)
+    scrollActiveIntoView()
     return
   }
   if (e.key === 'ArrowUp') {
     e.preventDefault()
-    activeIndex.value = Math.max(activeIndex.value - 1, 0)
+    activeIndex.value = Math.max(activeIndex.value - 1, -1)
+    scrollActiveIntoView()
     return
   }
   if (e.key === 'Enter' || e.key === ' ') {
     e.preventDefault()
+    if (activeIndex.value === -1) {
+      toggleAllMode()
+      return
+    }
     const opt = list[activeIndex.value]
     if (opt) select(opt.value)
   }
+}
+
+/** 键盘导航时保持焦点项在下拉可视区内（长列表滚动场景）。 */
+const scrollActiveIntoView = () => {
+  if (!dropdownRef.value) return
+  if (activeIndex.value === -1) {
+    // 全部账号项是下拉首个按钮
+    const first = dropdownRef.value.querySelector<HTMLElement>('button')
+    first?.scrollIntoView({ block: 'nearest' })
+    return
+  }
+  const el = dropdownRef.value.querySelectorAll('button')[activeIndex.value + 1]
+  el?.scrollIntoView({ block: 'nearest' })
 }
 
 const toggleAllMode = () => {
@@ -179,7 +206,10 @@ const selectedLabel = computed(() => {
           <button
             type="button"
             class="ui-dropdown-item border-b border-gray-100 dark:border-gray-800/50 mb-0.5"
-            :class="allMode ? 'ui-dropdown-item-active !text-sky-600 dark:!text-sky-400' : ''"
+            :class="[
+              allMode ? 'ui-dropdown-item-active !text-sky-600 dark:!text-sky-400' : '',
+              activeIndex === -1 ? 'bg-gray-100 dark:bg-white/[0.06]' : '',
+            ]"
             @click.stop="toggleAllMode"
           >
             <span class="truncate font-medium">{{ t('multiSelect.allAccounts') }}</span>
