@@ -23,6 +23,8 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 settings = get_settings()
 
+logger = logging.getLogger("backend.auth")
+
 # TOTP 重放保护：记录已使用的 code（hash → 首次使用时间）
 _used_totp_codes: dict[str, float] = {}
 _totp_lock = threading.Lock()
@@ -111,13 +113,22 @@ def authenticate_user(db: Session, username: str, password: str) -> Optional[Use
 
 
 def _resolve_user_from_token(token: str, db: Session) -> Optional[User]:
-    """解码 JWT 并按 sub 查询用户；解码失败或用户不存在时返回 None。"""
+    """解码 JWT 并按 sub 查询用户；解码失败或用户不存在时返回 None。
+
+    解码失败统一返回 None（与调用方 401 语义一致），但按失败类型留
+    debug 日志便于排障区分 token 过期 / 篡改 / 格式错误。
+    """
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=["HS256"])
         username: Optional[str] = payload.get("sub")
         if username is None:
+            logger.debug("JWT 解码成功但缺少 sub，按未认证处理")
             return None
-    except PyJWTError:
+    except jwt.ExpiredSignatureError:
+        logger.debug("JWT 已过期，按未认证处理")
+        return None
+    except PyJWTError as exc:
+        logger.debug("JWT 解码失败（无效/篡改/格式错误）: %s", exc)
         return None
     return get_user_by_username(db, username)
 
