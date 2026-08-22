@@ -175,6 +175,7 @@ def _ensure_loaded() -> None:
             return
         path = _hits_path()
         loaded: List[HitRecord] = []
+        skipped_bad_lines = 0
         if path.exists():
             try:
                 with path.open("r", encoding="utf-8") as fp:
@@ -185,14 +186,23 @@ def _ensure_loaded() -> None:
                         try:
                             item = json.loads(text)
                         except json.JSONDecodeError:
+                            # 坏行：记录后跳过，避免静默丢数据无法排查
+                            skipped_bad_lines += 1
                             continue
                         if not isinstance(item, dict):
+                            skipped_bad_lines += 1
                             continue
                         normalized = _normalize_hit_record(item)
                         if normalized is not None:
                             loaded.append(normalized)
             except OSError as exc:
                 logger.warning("加载关键词命中记录失败: %s", exc)
+        if skipped_bad_lines:
+            logger.warning(
+                "加载关键词命中记录时跳过 %d 行坏数据（%s）",
+                skipped_bad_lines,
+                path,
+            )
         # 文件顺序为追加；内存保持新→旧
         loaded.reverse()
         if len(loaded) > MAX_RECORDS:
