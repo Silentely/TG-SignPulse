@@ -372,20 +372,28 @@ def download_webdav_file(
     dest_path.parent.mkdir(parents=True, exist_ok=True)
 
     with httpx.Client(timeout=req_timeout, auth=auth, follow_redirects=True) as client:
-        with client.stream("GET", file_url) as resp:
-            if resp.status_code != 200:
-                detail = ""
-                try:
-                    detail = (resp.read() or b"")[:200].decode("utf-8", errors="replace")
-                except Exception:
-                    detail = resp.reason_phrase or ""
-                raise RuntimeError(
-                    f"WebDAV 下载失败 HTTP {resp.status_code}: {detail}"
-                )
-            with dest_path.open("wb") as fh:
-                for chunk in resp.iter_bytes():
-                    if chunk:
-                        fh.write(chunk)
+        try:
+            with client.stream("GET", file_url) as resp:
+                if resp.status_code != 200:
+                    detail = ""
+                    try:
+                        detail = (resp.read() or b"")[:200].decode("utf-8", errors="replace")
+                    except Exception:
+                        detail = resp.reason_phrase or ""
+                    raise RuntimeError(
+                        f"WebDAV 下载失败 HTTP {resp.status_code}: {detail}"
+                    )
+                with dest_path.open("wb") as fh:
+                    for chunk in resp.iter_bytes():
+                        if chunk:
+                            fh.write(chunk)
+        except Exception:
+            # 流中断/写盘失败：清理半截文件，避免残留部分备份被误用
+            try:
+                dest_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
     if not dest_path.is_file() or dest_path.stat().st_size == 0:
         try:
             dest_path.unlink(missing_ok=True)

@@ -251,6 +251,38 @@ def test_download_webdav_file(tmp_path: Path):
     assert path.read_bytes() == b"abcdef"
 
 
+def test_download_interrupted_cleans_partial_file(tmp_path: Path):
+    """流中断（写盘一半抛异常）应清理半截文件，避免残留部分备份被误用。"""
+    dest = tmp_path / "partial.tar.gz"
+    dest.write_bytes(b"partial-data")  # 模拟已写入一部分
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.iter_bytes = MagicMock(side_effect=RuntimeError("connection reset"))
+    mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+    mock_resp.__exit__ = MagicMock(return_value=False)
+
+    mock_client = MagicMock()
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=False)
+    mock_client.stream.return_value = mock_resp
+
+    from backend.services.webdav_client import download_webdav_file
+
+    with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client):
+        with pytest.raises(RuntimeError, match="connection reset"):
+            download_webdav_file(
+                base_url="https://dav.example.com/files/u",
+                username="u",
+                password="p",
+                remote_dir="bk",
+                filename="auto-1.tar.gz",
+                dest_path=dest,
+            )
+    # 半截文件被清理
+    assert not dest.exists()
+
+
 def test_prune_webdav_backups_keeps_n():
     files = [
         {"name": f"auto-{i}.tar.gz", "mtime": f"Wed, 0{i} Jan 2025 12:00:00 GMT"}
