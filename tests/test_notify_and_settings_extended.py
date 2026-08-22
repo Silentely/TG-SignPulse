@@ -315,7 +315,7 @@ async def test_keyword_push_respects_quiet_hours():
 
 @pytest.mark.asyncio
 async def test_keyword_push_outside_quiet_hours():
-    """静默时段外关键词推送正常发送。"""
+    """静默时段外关键词推送正常发送；窗口内跳过（注入判定结果，避免依赖运行时刻）。"""
     from backend.services.push_notifications import send_keyword_push
 
     cfg = {
@@ -326,12 +326,26 @@ async def test_keyword_push_outside_quiet_hours():
         "telegram_bot_quiet_hours_end": "12:00",
         "timezone": "UTC",
     }
+    # 窗口外：静默判定返回 False，推送应发送
     with patch(
+        "backend.services.push_notifications.is_in_quiet_hours",
+        return_value=False,
+    ), patch(
         "tg_signer.notification.server_chan.sc_send", new_callable=AsyncMock
     ) as m:
         m.return_value = {"code": 0}
         await send_keyword_push(cfg, {"title": "hit", "body": "body"})
         m.assert_awaited()
+
+    # 窗口内：静默判定返回 True，推送应跳过
+    with patch(
+        "backend.services.push_notifications.is_in_quiet_hours",
+        return_value=True,
+    ), patch(
+        "tg_signer.notification.server_chan.sc_send", new_callable=AsyncMock
+    ) as m:
+        await send_keyword_push(cfg, {"title": "hit", "body": "body"})
+        m.assert_not_awaited()
 
 
 @pytest.mark.asyncio
