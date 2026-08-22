@@ -157,6 +157,8 @@ export function useTaskListActions(options: {
       const accountName = getTaskAccountName(task.raw) || undefined
       await deleteSignTask(token, task.name, accountName)
       toast.success(t('tasks.deleteSuccess'))
+      // 被删任务 id 从选中集清除，避免 selectedCount 计数虚高与全选状态错乱
+      clearSelection()
       await options.loadTasks()
     } catch (e: unknown) {
       toast.error(

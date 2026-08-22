@@ -176,10 +176,14 @@ describe('useTaskListActions', () => {
   it('handleDelete deletes and reloads', async () => {
     api.deleteSignTask.mockResolvedValue({})
     const task = makeTaskUi()
-    const { actions, loadTasks } = setup([task])
+    const { actions, loadTasks, selectedTaskIds } = setup([task])
+    // setup 默认选中该任务
+    expect(selectedTaskIds.value.size).toBe(1)
     await actions.handleDelete(task)
     expect(api.deleteSignTask).toHaveBeenCalledWith('tok', 'task-1', 'acc1')
     expect(loadTasks).toHaveBeenCalled()
+    // 被删任务从选中集清除，避免计数虚高
+    expect(selectedTaskIds.value.size).toBe(0)
   })
 
   it('handleDelete 防连点：删除请求在途时忽略重复调用并复位 busy', async () => {
