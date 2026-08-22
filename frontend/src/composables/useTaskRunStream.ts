@@ -83,6 +83,9 @@ export function useTaskRunStream(options: {
   const startPolling = () => {
     if (pollHandle?.active) return
     pollHandle = startChainPoll(async () => {
+      // 弹窗开着但标签页切后台时不发请求；WS 连接保留，恢复可见由
+      // 浏览器节流解除后继续（无独立心跳需求）
+      if (typeof document !== 'undefined' && document.hidden) return
       const name = options.taskName.value
       if (!name) return
       const token = getAuthToken()

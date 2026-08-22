@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { computed, ref } from 'vue'
 import { mockI18nPassthrough } from './composable-test-utils'
 
-const { toastSpy, confirmMock, api } = vi.hoisted(() => ({
+const { toastSpy, confirmMock, api, pollState } = vi.hoisted(() => ({
   toastSpy: {
     success: vi.fn(),
     error: vi.fn(),
@@ -18,6 +18,7 @@ const { toastSpy, confirmMock, api } = vi.hoisted(() => ({
     exportKeywordHitsBlob: vi.fn(),
     clearKeywordHits: vi.fn(),
   },
+  pollState: { lastCb: null as null | (() => Promise<void>) },
 }))
 
 vi.mock('../composables/useI18n', () => ({
@@ -36,7 +37,11 @@ vi.mock('../lib/download', () => ({
 }))
 
 vi.mock('../lib/chain-poll', () => ({
-  startChainPoll: vi.fn(() => ({ stop: vi.fn(), active: true })),
+  startChainPoll: vi.fn((cb: () => Promise<void>) => {
+    // 记录回调供测试直接驱动（模拟轮询 tick）
+    pollState.lastCb = cb
+    return { stop: vi.fn(), active: true }
+  }),
 }))
 
 import { useTaskHits } from '../composables/useTaskHits'
@@ -133,6 +138,24 @@ describe('useTaskHits', () => {
     expect(hits.hitRecords.value).toEqual([])
     expect(hits.hitTotal.value).toBe(0)
     expect(hits.hitsView.value).toBe('list')
+  })
+
+  it('auto-refresh tick skips requests while tab hidden', async () => {
+    api.listKeywordHits.mockResolvedValue({ items: [], total: 0, offset: 0, limit: 50 })
+    const hits = setup()
+    hits.ensureHitsAutoRefresh()
+    expect(pollState.lastCb).toBeTruthy()
+
+    // 隐藏时 tick 不请求
+    Object.defineProperty(document, 'hidden', { value: true, configurable: true })
+    await pollState.lastCb!()
+    expect(api.listKeywordHits).not.toHaveBeenCalled()
+
+    // 恢复可见后正常请求
+    Object.defineProperty(document, 'hidden', { value: false, configurable: true })
+    await pollState.lastCb!()
+    expect(api.listKeywordHits).toHaveBeenCalled()
+    Object.defineProperty(document, 'hidden', { value: false, configurable: true })
   })
 
   it('clearHits confirms then clears', async () => {
