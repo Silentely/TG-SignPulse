@@ -158,3 +158,22 @@ def test_load_save_cache_roundtrip(tmp_path: Path):
     loaded = load_chats_cache_file(path)
     assert loaded == chats
     assert load_chats_cache_file(tmp_path / "missing.json") is None
+
+
+def test_chats_cache_expired_by_mtime(tmp_path: Path):
+    from backend.services.sign_task_chats import _chats_cache_expired
+
+    path = tmp_path / "acc" / "chats_cache.json"
+    path.parent.mkdir(parents=True)
+    path.write_text("[]", encoding="utf-8")
+    now = 1_000_000.0
+    # 刚写入：未过期
+    import os
+
+    os.utime(path, (now - 10, now - 10))
+    assert _chats_cache_expired(path, now=now) is False
+    # 超过 TTL：过期
+    os.utime(path, (now - 3600, now - 3600))
+    assert _chats_cache_expired(path, now=now) is True
+    # 文件缺失：视为过期
+    assert _chats_cache_expired(tmp_path / "missing.json", now=now) is True
