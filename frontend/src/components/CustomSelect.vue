@@ -39,6 +39,13 @@ const select = (val: string | number) => {
   isOpen.value = false
 }
 
+/** 键盘导航时保持焦点项在下拉可视区内（长列表滚动场景）。 */
+const scrollActiveIntoView = () => {
+  if (!dropdownRef.value) return
+  const el = dropdownRef.value.querySelector('.ui-dropdown-item-focus')
+  el?.scrollIntoView({ block: 'nearest' })
+}
+
 const updateDropdownPosition = () => {
   if (!selectRef.value || !isOpen.value) return
   const rect = selectRef.value.getBoundingClientRect()
@@ -92,11 +99,13 @@ const onKeydown = (e: KeyboardEvent) => {
   if (e.key === 'ArrowDown') {
     e.preventDefault()
     activeIndex.value = Math.min(activeIndex.value + 1, list.length - 1)
+    scrollActiveIntoView()
     return
   }
   if (e.key === 'ArrowUp') {
     e.preventDefault()
     activeIndex.value = Math.max(activeIndex.value - 1, 0)
+    scrollActiveIntoView()
     return
   }
   if (e.key === 'Enter' || e.key === ' ') {
