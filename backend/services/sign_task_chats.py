@@ -10,16 +10,30 @@ import asyncio
 import json
 import logging
 import os
+import time
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, MutableMapping, Optional
 
-# re-export：api 凭据解析为 telegram 包公共逻辑，保留旧导入路径兼容
-from backend.services.telegram.credentials import (  # noqa: F401
-    resolve_telegram_api_credentials,
-)
+# re-export：api 凭据解析为 telegram 包公共逻辑，保留旧导入路径兼容。
+# 注意：不能在此处模块级导入 telegram.credentials —— telegram/accounts 会
+# 回头导入本模块（is_invalid_session_error），模块级环会导致部分测试/入口
+# 直接导入本模块时 ImportError；改为使用处延迟导入
 from backend.utils.atomic_io import write_json_atomic
 
 _logger = logging.getLogger("backend.sign_task_chats")
+
+# 会话列表缓存有效期（秒）：Telegram 会话可能新增，超过 TTL 强制刷新
+# 避免新会话在面板上永不出现；环境变量可覆盖
+CHATS_CACHE_TTL_SECONDS = int(os.getenv("CHATS_CACHE_TTL_SECONDS", "1800") or "1800")
+
+
+def _chats_cache_expired(cache_file: Path, now: Optional[float] = None) -> bool:
+    """按文件 mtime 判断缓存是否过期（纯本地，不触发网络）。"""
+    try:
+        mtime = cache_file.stat().st_mtime
+    except OSError:
+        return True
+    return (now if now is not None else time.time()) - mtime > CHATS_CACHE_TTL_SECONDS
 
 
 def clamp_chat_search_page(limit: int, offset: int) -> tuple[int, int]:
@@ -104,9 +118,11 @@ def load_chats_cache_file(cache_file: Path) -> Optional[List[Dict[str, Any]]]:
         with open(cache_file, "r", encoding="utf-8") as f:
             data = json.load(f)
     except (OSError, json.JSONDecodeError, UnicodeDecodeError, TypeError, ValueError) as exc:
-        _logger.debug("读取 chat 缓存失败 %s: %s", cache_file, exc)
+        # 缓存损坏：后续会触发全量 get_dialogs 拉取，属异常路径需留痕
+        _logger.warning("读取 chat 缓存失败 %s: %s", cache_file, exc)
         return None
     if not isinstance(data, list):
+        _logger.warning("读取 chat 缓存失败 %s: 内容非列表", cache_file)
         return None
     return data
 
@@ -117,7 +133,7 @@ def save_chats_cache_file(cache_file: Path, chats: List[Dict[str, Any]]) -> bool
         write_json_atomic(cache_file, chats)
         return True
     except (OSError, TypeError, ValueError) as exc:
-        _logger.debug("保存 chat 缓存失败 %s: %s", cache_file, exc)
+        _logger.warning("保存 chat 缓存失败 %s: %s", cache_file, exc)
         return False
 
 
@@ -288,12 +304,16 @@ async def get_account_chats_cached(
     refresh_fn: Callable[[str], Awaitable[List[Dict[str, Any]]]],
     validate_name: Callable[..., str],
 ) -> List[Dict[str, Any]]:
-    """读缓存或调用 refresh_fn 刷新。"""
+    """读缓存或调用 refresh_fn 刷新。
+
+    缓存超过 TTL（默认 30 分钟）视为过期，强制刷新——Telegram 会话列表
+    可能新增会话，永久复用旧缓存会导致新会话在面板上永不出现。
+    """
     account_name = validate_name(account_name, field_name="account_name")
     cache_file = signs_dir / account_name / "chats_cache.json"
     if not force_refresh:
         cached = load_chats_cache_file(cache_file)
-        if cached is not None:
+        if cached is not None and not _chats_cache_expired(cache_file):
             return cached
     return await refresh_fn(account_name)
 
@@ -377,6 +397,10 @@ async def refresh_account_chats(
 
     config_service = get_config_service()
     tg_config = config_service.get_telegram_config()
+    from backend.services.telegram.credentials import (
+        resolve_telegram_api_credentials,
+    )
+
     api_id, api_hash = resolve_telegram_api_credentials(
         tg_config,
         env_api_id=os.getenv("TG_API_ID"),
@@ -502,3 +526,18 @@ async def refresh_account_chats(
 
     except Exception as e:
         raise e
+
+
+def __getattr__(name: str):
+    """延迟 re-export 兼容：resolve_telegram_api_credentials 旧导入路径。
+
+    模块级导入 telegram.credentials 会与 telegram/accounts → 本模块
+    （is_invalid_session_error）形成导入环，故改为按需解析。
+    """
+    if name == "resolve_telegram_api_credentials":
+        from backend.services.telegram.credentials import (
+            resolve_telegram_api_credentials,
+        )
+
+        return resolve_telegram_api_credentials
+    raise AttributeError(name)
