@@ -67,6 +67,8 @@ class KeywordMonitorService:
         self._ai_cfg_signature: Optional[tuple[str, str, str]] = None
         self._bot_cmd_last_sent: dict[str, float] = {}
         self._seen: dict[str, int] = {}
+        self._seen_baseline: dict[str, int] = {}
+        self._seen_window: dict[str, set[int]] = {}
         self._seen_dirty = False
         self._last_seen_persist = 0.0
 
@@ -411,6 +413,8 @@ class KeywordMonitorService:
             except (OSError, ValueError) as exc:
                 logger.warning("加载关键词监听去重水位失败: %s", exc)
         self._seen = loaded
+        self._seen_baseline = dict(loaded)
+        self._seen_window = {k: set() for k in loaded}
         self._seen_dirty = False
         self._last_seen_persist = time.monotonic()
 
@@ -437,15 +441,33 @@ class KeywordMonitorService:
         chat_id: Union[int, str],
         message_id: Optional[int],
     ) -> bool:
-        """重启去重：同 (账号, 会话) 已见过的消息 ID 直接跳过，避免重连补投重复命中。"""
+        """重启去重与滑动窗口去重：
+        1. 若 message_id <= 重启前基准水位线，说明是重启/重连补投的历史旧消息，直接跳过；
+        2. 若 message_id 在当前运行周期的已处理集合中，说明重复到达，直接跳过；
+        3. 否则记录到最近已处理窗口并更新最大水位线。
+        """
         if message_id is None:
             return False
         key = self._seen_key(account_name, chat_id)
-        if message_id <= self._seen.get(key, 0):
+        baseline = self._seen_baseline.get(key, 0)
+        if message_id <= baseline:
             return True
-        self._seen[key] = message_id
-        self._seen_dirty = True
-        self._maybe_persist_seen_state()
+
+        seen_set = self._seen_window.setdefault(key, set())
+        if message_id in seen_set:
+            return True
+
+        seen_set.add(message_id)
+        if len(seen_set) > 300:
+            keep = sorted(seen_set, reverse=True)[:200]
+            self._seen_window[key] = set(keep)
+
+        current_max = self._seen.get(key, 0)
+        if message_id > current_max:
+            self._seen[key] = message_id
+            self._seen_dirty = True
+            self._maybe_persist_seen_state()
+
         return False
 
     async def _on_message(self, account_name: str, client: Any, message: Message) -> None:
@@ -791,6 +813,8 @@ class KeywordMonitorService:
             account = key.split(":", 1)[0] if ":" in key else key
             if account not in active_accounts:
                 self._seen.pop(key, None)
+                self._seen_baseline.pop(key, None)
+                self._seen_window.pop(key, None)
                 pruned_seen = True
         if pruned_seen:
             self._seen_dirty = True

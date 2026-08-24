@@ -60,18 +60,31 @@ def _make_rule(chat_id: int = 1001) -> KeywordMonitorRule:
 
 def test_is_seen_message_marks_and_skips():
     service = KeywordMonitorService()
-    # 首见推进水位，同 ID / 更旧 ID 跳过，更新 ID 再推进
+    # 模拟从历史记录加载的基准水位 (baseline=8)
+    service._seen_baseline["acc:1001"] = 8
+    service._seen["acc:1001"] = 8
+
+    # 历史消息（<= 8）跳过
+    assert service._is_seen_message("acc", 1001, 8) is True
+    assert service._is_seen_message("acc", 1001, 7) is True
+
+    # 新消息首次到达接收，重复到达跳过
     assert service._is_seen_message("acc", 1001, 10) is False
     assert service._is_seen_message("acc", 1001, 10) is True
+
+    # 乱序到达的新消息（9 > 8 baseline 且未在 window 中）允许正常接收
+    assert service._is_seen_message("acc", 1001, 9) is False
     assert service._is_seen_message("acc", 1001, 9) is True
+
     assert service._is_seen_message("acc", 1001, 11) is False
     assert service._is_seen_message("acc", 1001, 11) is True
+
     # 不同账号 / 会话水位互相独立
     assert service._is_seen_message("acc", 1002, 10) is False
     assert service._is_seen_message("other", 1001, 10) is False
+
     # 无消息 ID 不参与去重，也不推进水位
     assert service._is_seen_message("acc", 1001, None) is False
-    assert service._is_seen_message("acc", 1001, 9) is True
 
 
 def test_seen_state_persist_roundtrip(tmp_path: Path, monkeypatch):
@@ -101,7 +114,7 @@ def test_seen_state_corrupt_or_dirty_file(tmp_path: Path, monkeypatch):
     service._load_seen_state()
     assert service._is_seen_message("acc", 1001, 5) is False
 
-    # 非 int / 非正数条目被过滤，合法条目生效
+    # 非 int / 非正整数条目被过滤，合法条目生效
     path.write_text(
         json.dumps({"acc:1001": "oops", "acc:1002": 7, "acc:1003": -1}),
         encoding="utf-8",

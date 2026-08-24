@@ -219,77 +219,83 @@ class Client(BaseClient):
             if _CLIENT_REFS[self.key] == 1:
                 # Retry loop for database locks
                 max_retries = 5
-                for attempt in range(max_retries):
-                    try:
-                        if not self.is_connected:
-                            is_authorized = await self.connect()
-                            if not is_authorized:
-                                raise ConnectionError("Session invalid: unauthorized")
-
+                connected_ok = False
+                try:
+                    for attempt in range(max_retries):
                         try:
-                            self.me = await self.get_me()
-                        except Exception as e:
-                            # Prevent interactive login attempt
-                            raise ConnectionError(f"Session invalid: {e}")
+                            if not self.is_connected:
+                                is_authorized = await self.connect()
+                                if not is_authorized:
+                                    raise ConnectionError("Session invalid: unauthorized")
 
-                        try:
-                            await self.invoke(raw.functions.updates.GetState())
-                        except ConnectionError as e:
-                            if "already started" not in str(e).lower():
-                                raise e
-                        try:
-                            if not getattr(self, "is_initialized", False):
-                                await self.initialize()
-                        except ConnectionError as e:
-                            if "already initialized" not in str(e).lower():
-                                raise e
-
-                        # Enable WAL mode after start (redundant with patch but safe)
-                        if hasattr(self, "storage") and hasattr(self.storage, "conn"):
                             try:
-                                self.storage.conn.execute("PRAGMA journal_mode=WAL")
-                                self.storage.conn.execute("PRAGMA busy_timeout=30000")
+                                self.me = await self.get_me()
                             except Exception as e:
-                                logger.error("启用 WAL 模式失败: %s", e)
+                                # Prevent interactive login attempt
+                                raise ConnectionError(f"Session invalid: {e}")
 
-                        # Success! Break loop
-                        break
-
-                    except Exception as e:
-                        # If this is a database lock and we have retries left, wait and retry
-                        is_locked = "database is locked" in str(e).lower()
-                        if is_locked and attempt < max_retries - 1:
-                            # Cleanup before retry
                             try:
-                                if self.is_connected:
-                                    await self.stop()
-                            except Exception:
-                                pass
+                                await self.invoke(raw.functions.updates.GetState())
+                            except ConnectionError as e:
+                                if "already started" not in str(e).lower():
+                                    raise e
+                            try:
+                                if not getattr(self, "is_initialized", False):
+                                    await self.initialize()
+                            except ConnectionError as e:
+                                if "already initialized" not in str(e).lower():
+                                    raise e
 
-                            # SQLite 锁等待用线性退避（连接启动场景，与瞬态网络
-                            # 错误的指数退避 compute_backoff 刻意区分）
-                            wait_time = 2 + (attempt * 3)
-                            logger.warning(
-                                "Database locked when starting client %s, retrying in %ss... (%s/%s)",
-                                self.name,
-                                wait_time,
-                                attempt + 1,
-                                max_retries,
-                            )
-                            await asyncio.sleep(wait_time)
-                            continue
+                            # Enable WAL mode after start (redundant with patch but safe)
+                            if hasattr(self, "storage") and hasattr(self.storage, "conn"):
+                                try:
+                                    self.storage.conn.execute("PRAGMA journal_mode=WAL")
+                                    self.storage.conn.execute("PRAGMA busy_timeout=30000")
+                                except Exception as e:
+                                    logger.error("启用 WAL 模式失败: %s", e)
 
-                        # If execution reaches here, it's a fatal error or retries exhausted
-                        # Rollback the ref count
+                            # Success! Break loop
+                            connected_ok = True
+                            break
+
+                        except Exception as e:
+                            # If this is a database lock and we have retries left, wait and retry
+                            is_locked = "database is locked" in str(e).lower()
+                            if is_locked and attempt < max_retries - 1:
+                                # Cleanup before retry
+                                try:
+                                    if self.is_connected:
+                                        await self.stop()
+                                except Exception:
+                                    pass
+
+                                # SQLite 锁等待用线性退避（连接启动场景，与瞬态网络
+                                # 错误的指数退避 compute_backoff 刻意区分）
+                                wait_time = 2 + (attempt * 3)
+                                logger.warning(
+                                    "Database locked when starting client %s, retrying in %ss... (%s/%s)",
+                                    self.name,
+                                    wait_time,
+                                    attempt + 1,
+                                    max_retries,
+                                )
+                                await asyncio.sleep(wait_time)
+                                continue
+
+                            raise e
+                except BaseException as exc:
+                    # CancelledError or any other fatal error/exhausted retries: rollback ref count
+                    if not connected_ok:
                         _CLIENT_REFS[self.key] -= 1
                         if _CLIENT_REFS[self.key] <= 0:
                             _CLIENT_REFS.pop(self.key, None)
                             _CLIENT_INSTANCES.pop(self.key, None)
                             try:
-                                await self.stop()
+                                if getattr(self, "is_connected", False):
+                                    await self.stop()
                             except Exception:
                                 pass
-                        raise e
+                    raise exc
             return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -424,46 +430,44 @@ async def close_client_by_name(name: str, workdir: Union[str, pathlib.Path] = ".
     """
     Forcefully close a client instance by its name and release resources.
     """
-    key = str(pathlib.Path(workdir).joinpath(name).resolve())
+    base_key = str(pathlib.Path(workdir).joinpath(name).resolve())
+    keys_to_clean = [
+        k for k in list(_CLIENT_INSTANCES.keys())
+        if k == base_key or k.startswith(f"{base_key}::")
+    ]
+    if not keys_to_clean:
+        keys_to_clean = [base_key]
 
-    # Check if we have a lock for this client
-    lock = _CLIENT_ASYNC_LOCKS.get(key)
-    if lock:
-        # Acquire the lock to ensure we have exclusive access
-        # Note: This might block if a task is running.
-        # If we want to forceful kill, we might skip this, but that's dangerous.
-        # For deletion, waiting a moment is acceptable.
-        try:
-            # Try to acquire with timeout to avoid deadlocks if something is stuck
-            await asyncio.wait_for(lock.acquire(), timeout=5.0)
+    for key in keys_to_clean:
+        lock = _CLIENT_ASYNC_LOCKS.get(key)
+        acquired = False
+        if lock:
             try:
-                # Reset references to 0 to ensure proper cleanup
-                _CLIENT_REFS[key] = 0
-            finally:
-                # Even if we manipulated refs, release the lock we just acquired
-                lock.release()
-        except asyncio.TimeoutError:
-            logger.warning(
-                "Timeout waiting for lock on client %s, proceeding with forceful cleanup",
-                name,
-            )
-            _CLIENT_REFS[key] = 0
-
-    client = _CLIENT_INSTANCES.get(key)
-    if client:
+                # Try to acquire with timeout to serialize cleanup
+                await asyncio.wait_for(lock.acquire(), timeout=5.0)
+                acquired = True
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Timeout waiting for lock on client key %s, proceeding with forceful cleanup",
+                    key,
+                )
         try:
-            if client.is_connected:
-                await client.stop()
-        except Exception as e:
-            logger.warning("停止客户端 %s 失败: %s", name, e)
+            _CLIENT_REFS[key] = 0
+            client = _CLIENT_INSTANCES.get(key)
+            if client:
+                try:
+                    if getattr(client, "is_connected", False):
+                        await client.stop()
+                except Exception as e:
+                    logger.warning("停止客户端 %s 失败: %s", name, e)
+                finally:
+                    _CLIENT_INSTANCES.pop(key, None)
+            _CLIENT_REFS.pop(key, None)
         finally:
-            _CLIENT_INSTANCES.pop(key, None)
-
-    # Clean up locks
-    if key in _CLIENT_ASYNC_LOCKS:
-        _CLIENT_ASYNC_LOCKS.pop(key, None)
-    if key in _CLIENT_REFS:
-        _CLIENT_REFS.pop(key, None)
+            if acquired and lock:
+                lock.release()
+            if key in _CLIENT_ASYNC_LOCKS:
+                _CLIENT_ASYNC_LOCKS.pop(key, None)
 
 
 def get_task_timezone():
@@ -491,7 +495,3 @@ def make_dirs(path: pathlib.Path, exist_ok=True):
     if not path.is_dir():
         os.makedirs(path, exist_ok=exist_ok)
     return path
-
-
-
-# 兼容：worker 需要的 re-export 标记

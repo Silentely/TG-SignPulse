@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import pathlib
 from types import SimpleNamespace
 
 import pytest
@@ -26,6 +27,7 @@ from tg_signer.core.client import (
     _CLIENT_INSTANCES,
     _CLIENT_REFS,
     Client,
+    close_client_by_name,
 )
 from tg_signer.core.monitor import UserMonitor
 from tg_signer.core.runtime import UserSigner
@@ -331,3 +333,137 @@ class TestClientLockLifecycle:
         assert stopped == [True]
 
         _CLIENT_ASYNC_LOCKS.pop(key, None)
+
+
+class TestClientAenterRollback:
+    """__aenter__ 连接失败/任务取消时原子回滚引用计数（T7）"""
+
+    @staticmethod
+    def _make_stop_recorder(stopped: list):
+        async def _stop():
+            stopped.append(True)
+
+        return _stop
+
+    @pytest.mark.asyncio
+    async def test_cancelled_rolls_back_refs_without_stop(self):
+        key = "test-aenter-cancel"
+        _CLIENT_INSTANCES[key] = object()
+        _CLIENT_ASYNC_LOCKS[key] = asyncio.Lock()
+        stopped: list = []
+
+        client = Client.__new__(Client)
+        client.key = key
+        client.name = "test-client"
+        client.is_connected = False
+        client.stop = self._make_stop_recorder(stopped)
+
+        async def raise_cancelled():
+            raise asyncio.CancelledError()
+
+        client.connect = raise_cancelled
+
+        try:
+            with pytest.raises(asyncio.CancelledError):
+                await client.__aenter__()
+
+            # 引用计数与实例已回滚清理；未连接成功不触发 stop
+            assert key not in _CLIENT_REFS
+            assert key not in _CLIENT_INSTANCES
+            assert stopped == []
+        finally:
+            _CLIENT_ASYNC_LOCKS.pop(key, None)
+
+    @pytest.mark.asyncio
+    async def test_session_invalid_rolls_back_and_stops(self):
+        key = "test-aenter-session"
+        _CLIENT_INSTANCES[key] = object()
+        _CLIENT_ASYNC_LOCKS[key] = asyncio.Lock()
+        stopped: list = []
+
+        client = Client.__new__(Client)
+        client.key = key
+        client.name = "test-client"
+        client.is_connected = True  # 模拟连接已建立后校验失败
+        client.stop = self._make_stop_recorder(stopped)
+
+        async def raise_invalid():
+            raise Exception("session expired")
+
+        client.get_me = raise_invalid
+
+        try:
+            with pytest.raises(ConnectionError):
+                await client.__aenter__()
+
+            # 已连接：回滚时执行 stop 清理
+            assert key not in _CLIENT_REFS
+            assert key not in _CLIENT_INSTANCES
+            assert stopped == [True]
+        finally:
+            _CLIENT_ASYNC_LOCKS.pop(key, None)
+
+
+class TestCloseClientDualMode:
+    """close_client_by_name 同时清理文件模式与内存模式双实例（T8）"""
+
+    @staticmethod
+    def _make_stop_recorder(stopped: list):
+        async def _stop():
+            stopped.append(True)
+
+        return _stop
+
+    @pytest.mark.asyncio
+    async def test_closes_base_and_memory_keys(self, tmp_path):
+        workdir = str(tmp_path)
+        base_key = str(pathlib.Path(workdir).joinpath("acc1").resolve())
+        mem_key = f"{base_key}::memory"
+        stopped: list = []
+
+        base_client = Client.__new__(Client)
+        base_client.key = base_key
+        base_client.is_connected = True
+        base_client.stop = self._make_stop_recorder(stopped)
+
+        mem_client = Client.__new__(Client)
+        mem_client.key = mem_key
+        mem_client.is_connected = False
+        mem_client.stop = self._make_stop_recorder(stopped)
+
+        _CLIENT_INSTANCES[base_key] = base_client
+        _CLIENT_INSTANCES[mem_key] = mem_client
+        _CLIENT_REFS[base_key] = 1
+        _CLIENT_REFS[mem_key] = 1
+        _CLIENT_ASYNC_LOCKS[base_key] = asyncio.Lock()
+        _CLIENT_ASYNC_LOCKS[mem_key] = asyncio.Lock()
+
+        try:
+            await close_client_by_name("acc1", workdir=workdir)
+
+            assert base_key not in _CLIENT_INSTANCES
+            assert mem_key not in _CLIENT_INSTANCES
+            assert base_key not in _CLIENT_REFS
+            assert mem_key not in _CLIENT_REFS
+            assert base_key not in _CLIENT_ASYNC_LOCKS
+            assert mem_key not in _CLIENT_ASYNC_LOCKS
+            # 仅已连接的文件模式实例执行 stop
+            assert stopped == [True]
+        finally:
+            _CLIENT_INSTANCES.pop(base_key, None)
+            _CLIENT_INSTANCES.pop(mem_key, None)
+            _CLIENT_REFS.pop(base_key, None)
+            _CLIENT_REFS.pop(mem_key, None)
+            _CLIENT_ASYNC_LOCKS.pop(base_key, None)
+            _CLIENT_ASYNC_LOCKS.pop(mem_key, None)
+
+    @pytest.mark.asyncio
+    async def test_no_instances_is_safe(self, tmp_path):
+        workdir = str(tmp_path)
+        base_key = str(pathlib.Path(workdir).joinpath("ghost").resolve())
+
+        await close_client_by_name("ghost", workdir=workdir)
+
+        assert base_key not in _CLIENT_INSTANCES
+        assert base_key not in _CLIENT_REFS
+        assert base_key not in _CLIENT_ASYNC_LOCKS

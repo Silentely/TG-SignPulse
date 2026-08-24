@@ -10,18 +10,37 @@ export const config = {
   ],
 };
 
-const SITE = "https://tg.cosr.eu.org";
+const DEFAULT_SITE = "https://tg.cosr.eu.org";
 
-const LINK_HEADER = [
-  `<${SITE}/.well-known/api-catalog>; rel="api-catalog"; type="application/linkset+json"`,
-  `<${SITE}/.well-known/mcp/server-card.json>; rel="service-desc"; type="application/json"`,
-  `<${SITE}/.well-known/agent-skills/index.json>; rel="describedby"; type="application/json"`,
-  `<${SITE}/.well-known/agent-card.json>; rel="alternate"; type="application/json"`,
-  `<${SITE}/llms.txt>; rel="describedby"; type="text/plain"`,
-  `<${SITE}/auth.md>; rel="service-doc"; type="text/markdown"`,
-  `<${SITE}/sitemap.xml>; rel="describedby"; type="application/xml"`,
-  `<${SITE}/.well-known/oauth-protected-resource>; rel="oauth-protected-resource"; type="application/json"`,
-].join(", ");
+function getSiteOrigin(request) {
+  try {
+    const url = new URL(request.url);
+    if (url.origin && !url.origin.includes("localhost") && !url.origin.includes("127.0.0.1")) {
+      return url.origin;
+    }
+    const host = request.headers.get("x-forwarded-host") || request.headers.get("host");
+    const proto = request.headers.get("x-forwarded-proto") || "https";
+    if (host && !host.includes("localhost") && !host.includes("127.0.0.1")) {
+      return `${proto}://${host}`;
+    }
+  } catch {
+    // ignore
+  }
+  return DEFAULT_SITE;
+}
+
+function buildLinkHeader(site) {
+  return [
+    `<${site}/.well-known/api-catalog>; rel="api-catalog"; type="application/linkset+json"`,
+    `<${site}/.well-known/mcp/server-card.json>; rel="service-desc"; type="application/json"`,
+    `<${site}/.well-known/agent-skills/index.json>; rel="describedby"; type="application/json"`,
+    `<${site}/.well-known/agent-card.json>; rel="alternate"; type="application/json"`,
+    `<${site}/llms.txt>; rel="describedby"; type="text/plain"`,
+    `<${site}/auth.md>; rel="service-doc"; type="text/markdown"`,
+    `<${site}/sitemap.xml>; rel="describedby"; type="application/xml"`,
+    `<${site}/.well-known/oauth-protected-resource>; rel="oauth-protected-resource"; type="application/json"`,
+  ].join(", ");
+}
 
 /** 不参与 markdown 协商的静态/机器可读路径前缀 */
 const SKIP_MARKDOWN_PREFIXES = [
@@ -77,9 +96,9 @@ function sourcePathFor(pathname) {
   return `/_sources${p}.md`;
 }
 
-function applyLinkHeader(response) {
+function applyLinkHeader(response, linkHeader) {
   const headers = new Headers(response.headers);
-  headers.set("Link", LINK_HEADER);
+  headers.set("Link", linkHeader);
   // 允许跨源探测 Link / Content-Type
   headers.set(
     "Access-Control-Expose-Headers",
@@ -95,6 +114,8 @@ function applyLinkHeader(response) {
 export default async function middleware(request) {
   const url = new URL(request.url);
   const { pathname } = url;
+  const site = getSiteOrigin(request);
+  const linkHeader = buildLinkHeader(site);
 
   // 始终为 HTML/协商响应附加 Link（静态文件也附加，便于发现）
   if (!wantsMarkdown(request.headers.get("accept") || "")) {
@@ -107,7 +128,7 @@ export default async function middleware(request) {
       pathname.endsWith(".md") ||
       pathname.endsWith(".txt");
     if (isDocLike && res.status === 200) {
-      return applyLinkHeader(res);
+      return applyLinkHeader(res, linkHeader);
     }
     return res;
   }
@@ -116,7 +137,7 @@ export default async function middleware(request) {
   for (const prefix of SKIP_MARKDOWN_PREFIXES) {
     if (pathname === prefix || pathname.startsWith(prefix)) {
       const res = await fetch(request);
-      return applyLinkHeader(res);
+      return applyLinkHeader(res, linkHeader);
     }
   }
 
@@ -129,7 +150,7 @@ export default async function middleware(request) {
   if (!mdRes.ok) {
     // 回退到原始 HTML，仍附加 Link
     const fallback = await fetch(request);
-    return applyLinkHeader(fallback);
+    return applyLinkHeader(fallback, linkHeader);
   }
 
   const body = await mdRes.text();
@@ -138,7 +159,7 @@ export default async function middleware(request) {
     "Content-Type": "text/markdown; charset=utf-8",
     "x-markdown-tokens": String(tokens),
     "Cache-Control": "public, max-age=300, stale-while-revalidate=86400",
-    Link: LINK_HEADER,
+    Link: linkHeader,
     "Access-Control-Expose-Headers":
       "Link, Content-Type, x-markdown-tokens",
   });
