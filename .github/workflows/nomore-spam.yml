@@ -27,4 +27,5 @@ jobs:
           labels: 'bug,enhancement,question'
           analyze-file-changes: 'true'
           max-analysis-depth: 'normal'
+          language: 'zh-CN'
           blacklist: ${{ secrets.BLACKLIST }} # 可选：黑名单用户列表
