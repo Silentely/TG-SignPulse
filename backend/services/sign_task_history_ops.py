@@ -47,7 +47,7 @@ from backend.services.sign_task_history_query import (
     find_history_item_by_time,
     sort_history_items_desc,
 )
-from backend.utils.atomic_io import write_json_atomic
+from backend.utils.atomic_io import read_json_safe, write_json_atomic
 from backend.utils.names import validate_storage_name
 from backend.utils.task_logs import extract_last_target_message
 
@@ -104,13 +104,13 @@ class SignTaskHistoryMixin:
             config_file = task_dir / "config.json"
             if config_file.exists():
                 try:
-                    with open(config_file, "r", encoding="utf-8") as f:
-                        config = json.load(f)
-                    if last_run:
-                        config["last_run"] = last_run
-                    else:
-                        config.pop("last_run", None)
-                    write_json_atomic(config_file, config)
+                    config = read_json_safe(config_file, default=None)
+                    if isinstance(config, dict):
+                        if last_run:
+                            config["last_run"] = last_run
+                        else:
+                            config.pop("last_run", None)
+                        write_json_atomic(config_file, config)
                 except Exception as exc:
                     _logger.warning(
                         "回写任务元数据 last_run 失败: %s (%s)", config_file, exc
@@ -407,9 +407,8 @@ class SignTaskHistoryMixin:
             return
 
         try:
-            with open(config_file, "r", encoding="utf-8") as f:
-                config = json.load(f)
-            if "last_run" not in config:
+            config = read_json_safe(config_file, default=None)
+            if not isinstance(config, dict) or "last_run" not in config:
                 return
             del config["last_run"]
             write_json_atomic(config_file, config)
@@ -442,8 +441,8 @@ class SignTaskHistoryMixin:
 
         for history_file in self.run_history_dir.glob("*.json"):
             try:
-                with open(history_file, "r", encoding="utf-8") as f:
-                    removed_entries += self._count_history_entries(json.load(f))
+                data = read_json_safe(history_file, default=[])
+                removed_entries += self._count_history_entries(data)
             except Exception as exc:
                 _logger.warning("读取历史文件失败: %s (%s)", history_file, exc)
             try:
@@ -486,8 +485,8 @@ class SignTaskHistoryMixin:
             history_file = self._history_file_path(task_name, account_name)
             if history_file.exists():
                 try:
-                    with open(history_file, "r", encoding="utf-8") as f:
-                        removed_entries += self._count_history_entries(json.load(f))
+                    data = read_json_safe(history_file, default=[])
+                    removed_entries += self._count_history_entries(data)
                 except Exception as exc:
                     _logger.warning("读取历史文件失败: %s (%s)", history_file, exc)
                 try:
@@ -502,8 +501,7 @@ class SignTaskHistoryMixin:
                 continue
 
             try:
-                with open(legacy_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
+                data = read_json_safe(legacy_file, default=[])
                 if isinstance(data, dict):
                     data_list = [data]
                 elif isinstance(data, list):
@@ -564,13 +562,12 @@ class SignTaskHistoryMixin:
                 return None
 
         try:
-            with open(history_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if isinstance(data, list) and len(data) > 0:
-                    return data[0]  # 最近的一条
-                elif isinstance(data, dict):
-                    return data
-                return None
+            data = read_json_safe(history_file, default=None)
+            if isinstance(data, list) and len(data) > 0:
+                return data[0]  # 最近的一条
+            elif isinstance(data, dict):
+                return data
+            return None
         except Exception:
             return None
 
@@ -614,8 +611,7 @@ class SignTaskHistoryMixin:
         history_raw: Any = []
         if history_file.exists():
             try:
-                with open(history_file, "r", encoding="utf-8") as f:
-                    history_raw = json.load(f)
+                history_raw = read_json_safe(history_file, default=[])
             except (OSError, json.JSONDecodeError, UnicodeDecodeError, TypeError, ValueError) as exc:
                 _logger.warning(
                     "读取历史失败 task=%s account=%s file=%s: %s",
@@ -649,10 +645,10 @@ class SignTaskHistoryMixin:
                 config_file = task_dir / "config.json"
                 if config_file.exists():
                     try:
-                        with open(config_file, "r", encoding="utf-8") as f:
-                            config = json.load(f)
-                        config["last_run"] = new_entry
-                        write_json_atomic(config_file, config)
+                        config = read_json_safe(config_file, default=None)
+                        if isinstance(config, dict):
+                            config["last_run"] = new_entry
+                            write_json_atomic(config_file, config)
                     except (OSError, json.JSONDecodeError, TypeError, ValueError) as e:
                         _logger.warning(
                             "更新任务配置 last_run 失败 task=%s account=%s: %s",
@@ -700,4 +696,3 @@ class SignTaskHistoryMixin:
                 account_name,
                 e,
             )
-

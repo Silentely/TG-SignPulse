@@ -1031,3 +1031,101 @@ class TestUpdateAccountRename:
         assert body["account"]["name"] == "new_acc"
         svc.rename_account.assert_awaited_once_with("old_acc", "new_acc")
 
+
+
+class TestAccountNameValidation:
+    """路径参数输入校验：穿越名/路径分隔符统一 400，且不触达服务层。
+
+    说明：Starlette 路由在匹配前解码路径，%2F 编码斜杠（..%2F..）会被路由层
+    以 404 拦截、到不了 {account_name} 参数；能到达 handler 的穿越向量是
+    ``..``、反斜杠、空串与 null 字节，均由 validate_storage_name 拦为 400。
+    """
+
+    @pytest.mark.parametrize(
+        "account_name",
+        ["a%5Cb", "%2e", "%2e%2e", "%00", "%20%20"],
+    )
+    def test_exists_rejects_invalid_names(self, api_client, db, account_name):  # noqa: F811
+        token = _login(api_client)
+        svc = _svc()
+        with _patch_svc(svc):
+            resp = api_client.get(
+                f"/api/accounts/{account_name}/exists", headers=_auth(token)
+            )
+        assert resp.status_code == 400
+        svc.account_exists.assert_not_called()
+
+    @pytest.mark.parametrize("account_name", ["..%2F..", "%2Fetc%2Fpasswd"])
+    def test_encoded_slash_rejected_by_router(self, api_client, db, account_name):  # noqa: F811
+        """编码斜杠在路由匹配前解码为路径分隔符，请求不匹配任何路由（404）。"""
+        token = _login(api_client)
+        svc = _svc()
+        with _patch_svc(svc):
+            resp = api_client.get(
+                f"/api/accounts/{account_name}/exists", headers=_auth(token)
+            )
+        assert resp.status_code == 404
+        svc.account_exists.assert_not_called()
+
+    def test_all_account_endpoints_reject_traversal(self, api_client, db):  # noqa: F811
+        """全部 {account_name} 路径端点对 ``..`` 穿越名返回 400 且不调用服务。"""
+        token = _login(api_client)
+        svc = _svc()
+        sign_svc = MagicMock()
+        name = "%2e%2e"
+        with _patch_svc(svc), patch(
+            "backend.services.sign_tasks.get_sign_task_service", return_value=sign_svc
+        ):
+            # 删除账号
+            resp = api_client.delete(f"/api/accounts/{name}", headers=_auth(token))
+            assert resp.status_code == 400
+            svc.delete_account.assert_not_called()
+
+            # 存在性检查
+            resp = api_client.get(f"/api/accounts/{name}/exists", headers=_auth(token))
+            assert resp.status_code == 400
+            svc.account_exists.assert_not_called()
+
+            # 设备列表 / 踢下线
+            resp = api_client.get(f"/api/accounts/{name}/devices", headers=_auth(token))
+            assert resp.status_code == 400
+            svc.list_account_devices.assert_not_called()
+            resp = api_client.delete(
+                f"/api/accounts/{name}/devices/42", headers=_auth(token)
+            )
+            assert resp.status_code == 400
+            svc.terminate_account_device.assert_not_called()
+
+            # 官方消息
+            resp = api_client.get(
+                f"/api/accounts/{name}/official-messages", headers=_auth(token)
+            )
+            assert resp.status_code == 400
+            svc.list_official_messages.assert_not_called()
+
+            # 头像
+            resp = api_client.get(f"/api/accounts/{name}/avatar", headers=_auth(token))
+            assert resp.status_code == 400
+            svc.download_account_avatar.assert_not_called()
+
+            # 账户编辑
+            resp = api_client.patch(
+                f"/api/accounts/{name}", json={}, headers=_auth(token)
+            )
+            assert resp.status_code == 400
+            svc.list_accounts.assert_not_called()
+
+            # 日志查看 / 清空 / 导出
+            resp = api_client.get(f"/api/accounts/{name}/logs", headers=_auth(token))
+            assert resp.status_code == 400
+            sign_svc.get_account_history_logs.assert_not_called()
+            resp = api_client.post(
+                f"/api/accounts/{name}/logs/clear", headers=_auth(token)
+            )
+            assert resp.status_code == 400
+            svc.account_exists.assert_not_called()
+            resp = api_client.get(
+                f"/api/accounts/{name}/logs/export", headers=_auth(token)
+            )
+            assert resp.status_code == 400
+            sign_svc.get_account_history_logs.assert_not_called()

@@ -53,6 +53,7 @@ from backend.core.auth import get_current_user
 from backend.core.rate_limit import compose_rate_limit_key, get_rate_limiter
 from backend.models.user import User
 from backend.services.telegram import get_telegram_service
+from backend.utils.names import validate_storage_name
 
 router = APIRouter()
 logger = logging.getLogger("backend.accounts_api")
@@ -472,6 +473,7 @@ async def delete_account(
     注意：删除后无法恢复，需要重新登录
     """
     try:
+        account_name = validate_storage_name(account_name, field_name="account_name")
         success = await get_telegram_service().delete_account(account_name)
 
         if success:
@@ -493,6 +495,11 @@ async def delete_account(
 
     except HTTPException:
         raise
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
     except Exception as e:
         logger.error("删除账号失败: %s", e, exc_info=True)
         raise HTTPException(
@@ -506,6 +513,10 @@ def check_account_exists(
     account_name: str, current_user: User = Depends(get_current_user)
 ):
     """检查账号是否存在"""
+    try:
+        account_name = validate_storage_name(account_name, field_name="account_name")
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     exists = get_telegram_service().account_exists(account_name)
     return {"exists": exists, "account_name": account_name}
 
@@ -516,6 +527,7 @@ async def list_account_devices(
 ):
     """获取账号已登录设备/授权会话列表。"""
     try:
+        account_name = validate_storage_name(account_name, field_name="account_name")
         devices = await get_telegram_service().list_account_devices(account_name)
         return AccountDevicesResponse(
             devices=[AccountDeviceItem(**item) for item in devices],
@@ -539,6 +551,7 @@ async def terminate_account_device(
 ):
     """踢下线指定已登录设备。"""
     try:
+        account_name = validate_storage_name(account_name, field_name="account_name")
         success = await get_telegram_service().terminate_account_device(
             account_name, int(auth_hash)
         )
@@ -564,6 +577,7 @@ async def list_account_official_messages(
 ):
     """读取账号和 Telegram 官方服务号 777000 的最近消息。"""
     try:
+        account_name = validate_storage_name(account_name, field_name="account_name")
         messages = await get_telegram_service().list_official_messages(
             account_name, limit=limit
         )
@@ -590,6 +604,11 @@ async def get_account_avatar(
 
     from backend.core.config import get_settings
     from backend.services import avatar_cache
+
+    try:
+        account_name = validate_storage_name(account_name, field_name="account_name")
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
     settings = get_settings()
     avatar_cache_dir = settings.resolve_workdir() / "avatars"
@@ -637,6 +656,11 @@ async def update_account(
     """
     更新账号备注/代理（不影响登录状态）
     """
+    try:
+        account_name = validate_storage_name(account_name, field_name="account_name")
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
     service = get_telegram_service()
     accounts = service.list_accounts(force_refresh=True)
     current_account = find_account_by_name(accounts, account_name)
@@ -738,6 +762,11 @@ def get_account_logs(
     from backend.services.sign_tasks import get_sign_task_service
     from tg_signer.utils import clamp
 
+    try:
+        account_name = validate_storage_name(account_name, field_name="account_name")
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
     limit = clamp(limit, 1, 200)
 
     history = get_sign_task_service().get_account_history_logs(account_name)
@@ -753,6 +782,11 @@ def clear_account_logs(
     account_name: str, current_user: User = Depends(get_current_user)
 ):
     """清理账号的历史日志"""
+    try:
+        account_name = validate_storage_name(account_name, field_name="account_name")
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
     if not get_telegram_service().account_exists(account_name):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -785,6 +819,11 @@ def export_account_logs(
 
     from backend.services.sign_tasks import get_sign_task_service
 
+    try:
+        account_name = validate_storage_name(account_name, field_name="account_name")
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
     history = get_sign_task_service().get_account_history_logs(account_name)
 
     content = f"账号日志: {account_name}\n"
@@ -792,8 +831,8 @@ def export_account_logs(
 
     for item in history:
         time_str = item.get("time", "").replace("T", " ")[:19]
-        status = "成功" if item.get("success") else "失败"
-        content += f"[{time_str}] 任务: {item.get('task_name')} | 状态: {status}\n"
+        status_text = "成功" if item.get("success") else "失败"
+        content += f"[{time_str}] 任务: {item.get('task_name')} | 状态: {status_text}\n"
         if item.get("message"):
             content += f"消息: {item.get('message')}\n"
         content += "-" * 20 + "\n"
