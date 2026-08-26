@@ -1047,8 +1047,13 @@ class GlobalSettingsMixin:
             try:
                 from backend.utils.tg_session import update_global_semaphore
                 update_global_semaphore(int(concurrency_val))
-            except Exception:
-                pass
+            except Exception as exc:
+                # 已写盘成功但运行时未生效，必须可观测，避免面板显示与运行不一致
+                _logger.warning(
+                    "应用 tg_global_concurrency=%s 到运行时信号量失败: %s",
+                    concurrency_val,
+                    exc,
+                )
 
         # 同步高级参数到环境变量，供 tg_signer 等仍读 env 的路径使用
         apply_global_settings_to_env(merged)

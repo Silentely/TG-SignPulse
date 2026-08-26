@@ -375,7 +375,11 @@ def _export_session_string_from_file(session_dir: Path, account_name: str) -> Op
             row = conn.execute(
                 "SELECT dc_id, api_id, test_mode, auth_key, user_id, is_bot FROM sessions"
             ).fetchone()
-        except Exception:
+        except Exception as exc:
+            # 未登录的 .session 无 sessions 表属常态，仅 debug；表损坏也会被归入此类
+            _logger.debug(
+                "读取 sessions 表失败 account=%s: %s", account_name, exc
+            )
             conn.close()
             return None
 
@@ -422,7 +426,9 @@ def _export_session_string_from_file(session_dir: Path, account_name: str) -> Op
             pass
 
         return session_string
-    except Exception:
+    except Exception as exc:
+        # sqlite 打开失败等异常需可观测：静默返回 None 会被误报为「session_string 不存在」
+        _logger.warning("导出 session_string 失败 account=%s: %s", account_name, exc)
         return None
 
 
