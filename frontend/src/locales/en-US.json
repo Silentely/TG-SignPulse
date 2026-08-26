@@ -21,6 +21,8 @@
     "TASK_LOG_NOT_FOUND": "Task log not found",
     "LOGIN_LOG_NOT_FOUND": "Login log not found",
     "INVALID_DATE_FILTER": "Invalid date filter",
+    "SESSION_PASSWORD_NEEDED": "Two-step verification is enabled on this account; enter the 2FA password",
+    "PASSWORD_HASH_INVALID": "Incorrect 2FA password",
     "LEGACY_TASKS_READONLY": "Legacy /api/tasks has been removed; use /api/sign-tasks",
     "TASK_NOT_FOUND": "Task not found",
     "ACCOUNT_NOT_FOUND": "Account not found",
@@ -85,7 +87,7 @@
       "network_proxy": "Network/proxy",
       "timeout": "Timeout",
       "strong_failure": "Business failure",
-      "unknown": "Unknown"
+      "unknown": "Unknown failure"
     },
     "activeRuns": "Active runs",
     "noActiveRuns": "No tasks running",
@@ -252,7 +254,6 @@
     "accountInvalidHint": "Account session expired; re-login before running",
     "accountFilter": "Account filter",
     "clearAccountFilter": "Clear account filter",
-    "accountFilterEmpty": "No tasks for this account — clear the account filter to see all",
     "extraTargets": "+{n} more",
     "createModeShared": "One task, multi-chat",
     "createModeSplit": "Separate tasks per chat",
@@ -483,9 +484,8 @@
     "deviceKeepaliveDesc": "Periodically performs a lightweight account check to reduce the risk of Telegram terminating sessions after about 6 months of inactivity.",
     "deviceKeepaliveIntervalHint": "Unit: days. Recommended: 30; max: 170, below Telegram's roughly 6-month inactivity limit.",
     "keepaliveNow": "Run Now",
-    "keepaliveDone": "Keepalive done",
+    "keepaliveSummary": "Keepalive done: {kept}/{checked}, {failed} failed",
     "keepaliveFailed": "Keepalive failed",
-    "failed": "failed",
     "timezone": "Timezone",
     "aiConfig": "AI Model Config",
     "aiDesc": "Used for automation tasks requiring semantic understanding.",
@@ -829,9 +829,6 @@
       "stale": "Stale",
       "timeout": "Timed out"
     },
-    "activeRuns": "Active runs",
-    "noActiveRuns": "No tasks running",
-    "failureBreakdown": "Failure breakdown",
     "inProgress": "Running"
   },
   "language": {

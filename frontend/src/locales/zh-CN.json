@@ -21,6 +21,8 @@
     "TASK_LOG_NOT_FOUND": "任务日志不存在",
     "LOGIN_LOG_NOT_FOUND": "登录日志不存在",
     "INVALID_DATE_FILTER": "日期筛选无效",
+    "SESSION_PASSWORD_NEEDED": "此账号启用了两步验证，请输入 2FA 密码",
+    "PASSWORD_HASH_INVALID": "2FA 密码错误",
     "LEGACY_TASKS_READONLY": "旧版 /api/tasks 已移除，请使用 /api/sign-tasks",
     "TASK_NOT_FOUND": "任务不存在",
     "ACCOUNT_NOT_FOUND": "账号不存在",
@@ -85,7 +87,7 @@
       "network_proxy": "网络/代理",
       "timeout": "超时",
       "strong_failure": "业务失败",
-      "unknown": "未知"
+      "unknown": "未知失败"
     },
     "activeRuns": "活跃运行",
     "noActiveRuns": "当前无运行中任务",
@@ -252,7 +254,6 @@
     "accountInvalidHint": "账号登录已失效，请重新登录后再执行",
     "accountFilter": "当前账号",
     "clearAccountFilter": "清除账号筛选",
-    "accountFilterEmpty": "该账号下没有任务，可清除账号筛选查看全部",
     "extraTargets": "+{n} 个目标",
     "createModeShared": "一个任务多会话",
     "createModeSplit": "多个独立任务",
@@ -483,9 +484,8 @@
     "deviceKeepaliveDesc": "定期轻量唤醒账号会话，降低 6 个月不活跃后被 Telegram 自动踢下线的风险。",
     "deviceKeepaliveIntervalHint": "单位：天。建议 30 天；最大 170 天，需小于 Telegram 约 6 个月不活跃限制。",
     "keepaliveNow": "立即保活",
-    "keepaliveDone": "保活完成",
+    "keepaliveSummary": "保活完成：{kept}/{checked}，失败 {failed}",
     "keepaliveFailed": "保活失败",
-    "failed": "失败",
     "timezone": "时区",
     "aiConfig": "AI 模型配置",
     "aiDesc": "用于执行需要语义理解的自动化任务。",
@@ -829,9 +829,6 @@
       "stale": "已过期",
       "timeout": "超时"
     },
-    "activeRuns": "活跃运行",
-    "noActiveRuns": "当前无运行中任务",
-    "failureBreakdown": "失败分类",
     "inProgress": "运行中"
   },
   "language": {
