@@ -522,6 +522,14 @@ async def on_shutdown() -> None:
             await memory_task
 
     shutdown_scheduler()
+
+    # 释放推送通知的共享 HTTP 连接池
+    try:
+        from backend.services.push_notifications import close_shared_http_client
+
+        await close_shared_http_client()
+    except Exception:
+        log.exception("Push HTTP client shutdown failed")
     try:
         from backend.services.keyword_monitor import get_keyword_monitor_service
 
