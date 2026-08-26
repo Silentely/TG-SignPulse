@@ -222,31 +222,6 @@ class TestBackendLoggingConfig:
                 os.environ["LOG_LEVEL"] = original_value
 
 
-class TestRunIdFormat:
-    """测试 run_id 错误日志格式"""
-
-    def test_run_id_tag_format(self):
-        """测试 run_id 标签格式统一"""
-        # 测试后置格式（新格式）
-        run_id = "test-run-123"
-        run_id_tag = f" [run_id={run_id}]" if run_id else ""
-
-        error_msg = f"任务执行出错{run_id_tag}: 测试错误"
-
-        assert " [run_id=test-run-123]:" in error_msg
-        assert error_msg.startswith("任务执行出错")
-
-    def test_run_id_tag_empty(self):
-        """测试 run_id 为空时不添加标签"""
-        run_id = None
-        run_id_tag = f" [run_id={run_id}]" if run_id else ""
-
-        error_msg = f"任务执行出错{run_id_tag}: 测试错误"
-
-        assert "[run_id=" not in error_msg
-        assert error_msg == "任务执行出错: 测试错误"
-
-
 # 运行测试的辅助函数
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])
