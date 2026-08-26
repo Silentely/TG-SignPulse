@@ -156,6 +156,39 @@ class TestSendFailureNotification:
         assert "时间 (UTC)" in text
 
     @pytest.mark.asyncio()
+    async def test_same_message_and_target_not_duplicated(self, notify_env):
+        """错误与目标消息同源时只展示一处，避免两行内容完全重复。"""
+        await sign_task_notify.send_failure_notification(
+            account_name="a",
+            task_name="t",
+            message="timeout",
+            last_target_message="timeout",
+        )
+        text = notify_env.sent[0]["text"]
+        assert "目标消息" not in text
+
+    @pytest.mark.asyncio()
+    async def test_distinct_target_message_kept(self, notify_env):
+        """目标消息与错误不同源时仍正常展示目标消息字段。"""
+        await sign_task_notify.send_failure_notification(
+            account_name="a",
+            task_name="t",
+            message="timeout",
+            last_target_message="bot 回复内容",
+        )
+        text = notify_env.sent[0]["text"]
+        assert "目标消息" in text and "bot 回复内容" in text
+
+    @pytest.mark.asyncio()
+    async def test_empty_message_shows_fallback_hint(self, notify_env):
+        """空错误不再显示含糊的「未知错误」，指引用户查看流程日志。"""
+        await sign_task_notify.send_failure_notification(
+            account_name="a", task_name="t", message=""
+        )
+        text = notify_env.sent[0]["text"]
+        assert "未捕获到错误明细" in text
+
+    @pytest.mark.asyncio()
     async def test_failure_category_advice_included(self, notify_env):
         """已知失败分类附带可操作建议，用户收到通知后知道下一步。"""
         await sign_task_notify.send_failure_notification(

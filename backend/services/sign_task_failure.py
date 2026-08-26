@@ -195,19 +195,37 @@ def classify_failure(
     return FailureCategory.UNKNOWN if success is False else FailureCategory.NONE
 
 
+# 失败分类中文短标签：面板历史、失败通知、前端徽标共用的唯一定义，
+# 修改时同步前端 locales 的 dashboard.failCat.*
+_FAILURE_CATEGORY_LABELS = {
+    FailureCategory.NONE: "正常",
+    FailureCategory.SESSION_INVALID: "会话失效",
+    FailureCategory.FLOOD_WAIT: "频率限制",
+    FailureCategory.AI_TIMEOUT: "AI 超时",
+    FailureCategory.AI_ERROR: "AI 错误",
+    FailureCategory.BUTTON_NOT_FOUND: "按钮未找到",
+    FailureCategory.TARGET_NOT_FOUND: "目标未找到",
+    FailureCategory.NETWORK_PROXY: "网络/代理",
+    FailureCategory.TIMEOUT: "超时",
+    FailureCategory.STRONG_FAILURE: "业务失败",
+    FailureCategory.UNKNOWN: "未知失败",
+}
+
+
 def failure_category_label(category: FailureCategory) -> str:
     """中文短标签，用于面板展示。"""
-    labels = {
-        FailureCategory.NONE: "正常",
-        FailureCategory.SESSION_INVALID: "会话失效",
-        FailureCategory.FLOOD_WAIT: "频率限制",
-        FailureCategory.AI_TIMEOUT: "AI 超时",
-        FailureCategory.AI_ERROR: "AI 错误",
-        FailureCategory.BUTTON_NOT_FOUND: "按钮未找到",
-        FailureCategory.TARGET_NOT_FOUND: "目标未找到",
-        FailureCategory.NETWORK_PROXY: "网络/代理",
-        FailureCategory.TIMEOUT: "超时",
-        FailureCategory.STRONG_FAILURE: "业务失败",
-        FailureCategory.UNKNOWN: "未知失败",
-    }
-    return labels.get(category, category.value)
+    return _FAILURE_CATEGORY_LABELS.get(category, category.value)
+
+
+def failure_category_label_by_value(value: Optional[str]) -> str:
+    """按字符串分类值取中文短标签（通知等以 string 传递的场景）。
+
+    none/空值返回空串（通知中不展示该字段）；未识别的值原样返回。
+    """
+    normalized = (value or "").strip()
+    if not normalized or normalized == FailureCategory.NONE.value:
+        return ""
+    try:
+        return failure_category_label(FailureCategory(normalized))
+    except ValueError:
+        return normalized
