@@ -35,6 +35,7 @@ from tg_signer.compat import (
     call_with_retry,
     filters,
 )
+from tg_signer.log_utils import safe_exception_summary
 
 for _name, _val in vars(_km_rules).items():
     if _name.startswith("__"):
@@ -712,7 +713,7 @@ class KeywordMonitorService:
             )
             self._append_rule_log(
                 rule,
-                f"关键词命中消息转发失败：目标 Chat={forward_chat_id}，错误={exc}",
+                f"关键词命中消息转发失败：目标 Chat={forward_chat_id}，原因：{safe_exception_summary(exc, 120)}",
             )
 
     async def _handle_push(
@@ -766,7 +767,7 @@ class KeywordMonitorService:
             )
             self._append_rule_log(
                 rule,
-                f"关键词命中通知推送失败：推送方式={push_channel}，错误={exc}",
+                f"关键词命中通知推送失败：推送方式={push_channel}，原因：{safe_exception_summary(exc, 120)}",
             )
             return
         self._append_rule_log(
@@ -910,7 +911,7 @@ class KeywordMonitorService:
                         and getattr(existing, "_tg_signpulse_no_updates", None) is True
                     ):
                         logger.info(
-                            "Recreating keyword monitor client for %s with updates enabled",
+                            "关键词监听客户端需启用消息更新，正在重建: account=%s",
                             account_name,
                         )
                         await close_client_by_name(account_name, workdir=session_dir)
@@ -945,7 +946,7 @@ class KeywordMonitorService:
                         except Exception:
                             pass
                         logger.warning(
-                            "Keyword monitor failed to start for %s",
+                            "关键词监听启动失败 account=%s",
                             account_name,
                             exc_info=True,
                         )
@@ -960,7 +961,7 @@ class KeywordMonitorService:
                     self._handler_refs.append((account_name, client, handler_ref))
                     started_accounts.add(account_name)
                     logger.info(
-                        "Keyword monitor started for %s in %s", account_name, chat_ids
+                        "关键词监听已启动 account=%s chats=%s", account_name, chat_ids
                     )
                     for rule in account_rules:
                         self._append_rule_log(
