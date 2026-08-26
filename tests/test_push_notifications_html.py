@@ -86,6 +86,26 @@ class TestBuildHtmlNotification:
         assert text.count("<b>") == text.count("</b>")
         assert text.count("<code>") == text.count("</code>")
 
+    def test_over_limit_appends_truncation_marker(self):
+        """逐行丢弃时必须留下截断标记，避免残缺内容被误当完整内容。"""
+        big = "x" * 3000
+        text = build_html_notification(
+            title="T", fields=[("大字段1", big), ("大字段2", big)], footer=big
+        )
+        assert len(text) <= 3900
+        assert text.endswith("详情见面板日志）")
+        assert text.count("<code>") == text.count("</code>")
+
+    def test_single_oversized_line_falls_back_to_marker_only(self):
+        """单行即占满预算（超长标题）时退回纯标记，且不空转。"""
+        text = build_html_notification(title="T" * 5000, fields=[("k", "v")])
+        assert len(text) <= 3900
+        assert "已截断" in text
+
+    def test_within_limit_has_no_marker(self):
+        text = build_html_notification(title="T", fields=[("k", "v")], footer="f")
+        assert "已截断" not in text
+
 
 class TestParseModePropagation:
     @pytest.mark.asyncio()
@@ -150,7 +170,7 @@ class TestParseModePropagation:
             async def __aexit__(self, *exc):
                 return False
 
-            async def post(self, url, json=None):
+            async def post(self, url, json=None, **kwargs):
                 calls["n"] += 1
                 if calls["n"] == 1:
                     raise httpx.ConnectError("connection reset")
@@ -189,7 +209,7 @@ class TestParseModePropagation:
             async def __aexit__(self, *exc):
                 return False
 
-            async def post(self, url, json=None):
+            async def post(self, url, json=None, **kwargs):
                 calls["n"] += 1
                 return _FakeResp(400)
 
@@ -363,7 +383,7 @@ class TestHttpPostRetryOnce:
             async def __aexit__(self, *args):
                 return None
 
-            async def post(self, url, json=None):
+            async def post(self, url, json=None, **kwargs):
                 calls["n"] += 1
                 if calls["n"] == 1:
                     raise httpx.ConnectError("boom", request=None)
@@ -399,7 +419,7 @@ class TestHttpPostRetryOnce:
             async def __aexit__(self, *args):
                 return None
 
-            async def post(self, url, json=None):
+            async def post(self, url, json=None, **kwargs):
                 calls["n"] += 1
                 return _FakeResp()
 
@@ -430,7 +450,7 @@ class TestHttpPostRetryOnce:
             async def __aexit__(self, *args):
                 return None
 
-            async def get(self, url):
+            async def get(self, url, **kwargs):
                 methods.append("GET")
                 return _FakeResp()
 

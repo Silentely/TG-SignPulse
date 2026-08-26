@@ -15,6 +15,42 @@ logger = logging.getLogger("backend.push_notifications")
 # Telegram Bot API 单条消息上限；留余量避免 parse_mode=HTML 时超限报错
 _TG_MSG_LIMIT = 3900
 
+# 推送通道共享 HTTP 客户端：签到成败/关键词命中通知是热点路径，
+# 每条通知新建 AsyncClient 会重复 TCP+TLS 握手；进程内复用同一连接池。
+_PUSH_HTTP_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
+_PUSH_HTTP_LIMITS = httpx.Limits(max_keepalive_connections=5, max_connections=10)
+_shared_http_client: Optional[httpx.AsyncClient] = None
+_shared_http_client_loop: Optional[asyncio.AbstractEventLoop] = None
+
+
+def _get_shared_http_client() -> httpx.AsyncClient:
+    """获取共享客户端；按事件循环缓存，换 loop（如测试隔离）时自动重建。"""
+    global _shared_http_client, _shared_http_client_loop
+    loop = asyncio.get_running_loop()
+    client = _shared_http_client
+    if (
+        client is None
+        or getattr(client, "is_closed", True)
+        or _shared_http_client_loop is not loop
+    ):
+        client = httpx.AsyncClient(timeout=_PUSH_HTTP_TIMEOUT, limits=_PUSH_HTTP_LIMITS)
+        _shared_http_client = client
+        _shared_http_client_loop = loop
+    return client
+
+
+async def close_shared_http_client() -> None:
+    """进程关闭时释放共享连接池（backend.main.on_shutdown 调用）。"""
+    global _shared_http_client, _shared_http_client_loop
+    client = _shared_http_client
+    _shared_http_client = None
+    _shared_http_client_loop = None
+    if client is not None and not getattr(client, "is_closed", True):
+        try:
+            await client.aclose()
+        except Exception:
+            logger.debug("关闭推送共享 HTTP 客户端失败", exc_info=True)
+
 
 def _html_escape(value: Any) -> str:
     """转义 HTML 特殊字符，供 parse_mode=HTML 通知文本使用。"""
@@ -97,10 +133,24 @@ def build_html_notification(
         lines.append(_html_escape(str(footer)[:2000]))
 
     text = ""
+    truncated = False
     for line in lines:
         if len(text) + len(line) + 1 > _TG_MSG_LIMIT:
+            truncated = True
             break
         text = f"{text}\n{line}" if text else line
+    if truncated:
+        # 丢弃后续行时必须显式标记，否则用户会把残缺内容当作完整内容
+        # （尤其「建议」与日志尾巴被静默吃掉时，通知会失去排障价值）
+        marker = "…（内容过长已截断，详情见面板日志）"
+        while text and len(text) + len(marker) + 1 > _TG_MSG_LIMIT:
+            head, sep, _ = text.rpartition("\n")
+            if not sep:
+                # 单行即占满预算：直接退回纯标记，避免空转
+                text = ""
+                break
+            text = head
+        text = f"{text}\n{marker}" if text else marker
     return text
 
 
@@ -189,9 +239,9 @@ async def send_telegram_bot_message(
     last_exc: Optional[Exception] = None
     for attempt in (1, 2):
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                response = await client.post(url, json=payload)
-                response.raise_for_status()
+            client = _get_shared_http_client()
+            response = await client.post(url, json=payload)
+            response.raise_for_status()
             return
         except (httpx.RequestError, httpx.HTTPStatusError) as exc:
             if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code < 500:
@@ -220,12 +270,12 @@ async def _http_post_retry_once(
     last_exc: Optional[Exception] = None
     for attempt in (1, 2):
         try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                if method == "GET":
-                    response = await client.get(url)
-                else:
-                    response = await client.post(url, json=json_body)
-                response.raise_for_status()
+            client = _get_shared_http_client()
+            if method == "GET":
+                response = await client.get(url, timeout=timeout)
+            else:
+                response = await client.post(url, json=json_body, timeout=timeout)
+            response.raise_for_status()
             return response
         except (httpx.RequestError, httpx.HTTPStatusError) as exc:
             if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code < 500:
