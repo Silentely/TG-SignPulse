@@ -41,12 +41,19 @@ let currentToken = 0
 const FOCUSABLE =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
+// 首焦点优先落表单输入框：DOM 序第一个是 header 的关闭按钮，
+// 对表单型弹窗（任务/账号配置）而言落在关闭键上纯属多余一次 Tab
+const FORM_FIELD =
+  'input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([disabled]), textarea:not([disabled]), select:not([disabled])'
+
 const getFocusable = () =>
   panelRef.value
     ? Array.from(panelRef.value.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
         (el) => !el.hasAttribute('disabled') && el.tabIndex !== -1
       )
     : []
+
+const getPrimaryField = () => panelRef.value?.querySelector<HTMLElement>(FORM_FIELD) ?? null
 
 const onKeydown = (e: KeyboardEvent) => {
   if (!props.isOpen) return
@@ -87,7 +94,7 @@ const onFocusIn = (e: FocusEvent) => {
   // 嵌套对话框：内层 dialog 内的焦点属于合法目标，放行
   if (target.closest('[role="dialog"]')) return
   const focusable = getFocusable()
-  ;(focusable[0] ?? panelRef.value).focus()
+  ;(getPrimaryField() ?? focusable[0] ?? panelRef.value).focus()
 }
 
 const releaseScrollLock = () => {
@@ -109,7 +116,7 @@ watch(
       }
       previousActive = document.activeElement as HTMLElement | null
       await nextTick()
-      ;(getFocusable()[0] ?? panelRef.value)?.focus()
+      ;(getPrimaryField() ?? getFocusable()[0] ?? panelRef.value)?.focus()
     } else {
       releaseScrollLock()
       // 关闭的是当前最顶层时释放顶层标识，恢复下层弹窗的 Esc 响应权
