@@ -445,18 +445,11 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
 
     <div v-if="filteredTasks.length === 0" class="ui-empty !py-12">
       <FilterEmptyState
-        v-if="tasks.length > 0 && hasListFilters"
+        v-if="hasListFilters"
         :title="t('common.filterNoResults')"
         :hint="t('common.filterNoResultsHint')"
         :action-text="t('common.clearAllFilters')"
         @action="clearListFilters"
-      />
-      <FilterEmptyState
-        v-else-if="accountFilter && tasks.length === 0"
-        :title="t('common.filterNoResults')"
-        :hint="t('tasks.accountFilterEmpty')"
-        :action-text="t('tasks.clearAccountFilter')"
-        @action="clearAccountFilter"
       />
       <p v-else class="ui-empty-desc">{{ t('common.noData') }}</p>
     </div>
