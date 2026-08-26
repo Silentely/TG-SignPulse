@@ -7,7 +7,7 @@ import { getAuthToken } from '../../lib/api/core'
 import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
 import { startChainPoll, type ChainPollHandle } from '../../lib/chain-poll'
-import { getLocalizedErrorMessage } from '../../lib/types'
+import { getErrorCode, getLocalizedErrorMessage } from '../../lib/types'
 import { devLog } from '../../lib/devLog'
 
 const { t } = useI18n()
@@ -281,15 +281,15 @@ const handleSave = async () => {
       emit('success')
       handleClose()
     } catch (e: unknown) {
-      // 按后端稳定文案区分「首次需要 2FA 密码」与「2FA 密码错误」，
-      // 避免把密码错误也误提示为需要输入密码
-      const msg = getLocalizedErrorMessage(e, t) || ''
-      if (msg.includes('两步验证') || msg.includes('SESSION_PASSWORD_NEEDED')) {
+      // 按后端稳定错误码区分「首次需要 2FA 密码」与「2FA 密码错误」，
+      // 不按本地化文案匹配（英文界面下中文子串永不命中）
+      const code = getErrorCode(e)
+      if (code === 'SESSION_PASSWORD_NEEDED') {
         error.value = t('addAccount.needPassword')
-      } else if (msg.includes('2FA 密码错误') || msg.includes('PasswordHashInvalid')) {
+      } else if (code === 'PASSWORD_HASH_INVALID') {
         error.value = t('addAccount.passwordFailed')
       } else {
-        error.value = msg || t('addAccount.verifyFailed')
+        error.value = getLocalizedErrorMessage(e, t) || t('addAccount.verifyFailed')
       }
       loading.value = false
     }

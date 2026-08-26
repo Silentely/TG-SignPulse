@@ -71,8 +71,13 @@ export function useSettingsSave(options: {
       keepaliveLoading.value = true
       try {
         const res = await runDeviceKeepalive(token)
+        // 整句走 i18n 插值：标点与语序交给词条，避免英文界面混入中文全角标点
         notifySuccess(
-          `${t('settings.keepaliveDone')}：${res.kept_alive}/${res.checked}，${t('settings.failed')} ${res.failed}`,
+          t('settings.keepaliveSummary', {
+            kept: res.kept_alive,
+            checked: res.checked,
+            failed: res.failed,
+          }),
         )
       } catch (e: unknown) {
         notifyError(resolveApiErrorMessage(e, 'settings.keepaliveFailed'))
