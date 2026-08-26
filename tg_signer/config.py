@@ -380,6 +380,17 @@ class MatchConfig(BaseJSONConfig):
         )
 
     @cached_property
+    def _compiled_rule_regex(self) -> "re.Pattern":
+        """regex 规则的预编译 Pattern：消息热路径免逐条重编译。"""
+        flags = re.IGNORECASE if self.ignore_case else 0
+        return re.compile(self.rule_value, flags=flags)
+
+    @cached_property
+    def _compiled_send_text_regex(self) -> "re.Pattern":
+        """send_text_search_regex 的预编译 Pattern，仅在该规则启用时使用。"""
+        return re.compile(self.send_text_search_regex)
+
+    @cached_property
     def from_user_set(self):
         return {
             (
@@ -424,8 +435,7 @@ class MatchConfig(BaseJSONConfig):
                 return rule_value.lower() in text.lower()
             return rule_value in text
         elif self.rule == "regex":
-            flags = re.IGNORECASE if self.ignore_case else 0
-            return bool(re.search(rule_value, text, flags=flags))
+            return bool(self._compiled_rule_regex.search(text))
         return False
 
     def match_chat(self, chat: "Chat"):
@@ -441,7 +451,7 @@ class MatchConfig(BaseJSONConfig):
     def get_send_text(self, text: str) -> str:
         send_text = self.default_send_text
         if self.send_text_search_regex:
-            m = re.search(self.send_text_search_regex, text)
+            m = self._compiled_send_text_regex.search(text)
             if not m:
                 return send_text
             try:
