@@ -301,10 +301,21 @@ const goTasks = (name: string) => {
                 }) }}
               </template>
             </span>
-            <div class="hidden sm:block w-full h-1 rounded-full bg-sky-100 dark:bg-sky-950/50 overflow-hidden">
+            <div
+              class="hidden sm:block w-full h-1 rounded-full bg-sky-100 dark:bg-sky-950/50 overflow-hidden"
+              role="progressbar"
+              :aria-valuenow="batchProgressPct"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              :aria-label="t('accounts.batchCheckProgress', {
+                done: batchJob.progress?.done ?? 0,
+                total: batchJob.progress?.total ?? accounts.length,
+              })"
+            >
               <div
                 class="h-full bg-sky-500 transition-all duration-300"
                 :style="{ width: `${batchProgressPct}%` }"
+                aria-hidden="true"
               />
             </div>
           </div>
