@@ -8,25 +8,11 @@ from __future__ import annotations
 import logging
 from typing import List, Optional
 
+from backend.services.sign_task_failure import failure_category_label_by_value
 from backend.utils.tg_session import get_account_status, set_account_status
 from backend.utils.time import utc_now_iso, utc_now_iso_z_seconds
 
 logger = logging.getLogger("backend.sign_task_notify")
-
-# 失败分类中文标签：通知面向最终用户，用可读文案而非内部枚举值
-FAILURE_CATEGORY_LABELS = {
-    "session_invalid": "会话失效",
-    "flood_wait": "频率限制",
-    "ai_timeout": "AI 超时",
-    "ai_error": "AI 错误",
-    "button_not_found": "按钮未找到",
-    "target_not_found": "目标未找到",
-    "network_proxy": "网络/代理",
-    "timeout": "超时",
-    "strong_failure": "业务失败",
-    "unknown": "未知",
-    "none": "",
-}
 
 # 失败分类对应的可操作建议：通知附带下一步指引，而非只报错
 FAILURE_CATEGORY_ADVICE = {
@@ -43,9 +29,8 @@ FAILURE_CATEGORY_ADVICE = {
 
 
 def _failure_category_label(value: Optional[str]) -> str:
-    if not value:
-        return ""
-    return FAILURE_CATEGORY_LABELS.get(value, value)
+    """中文标签取自 sign_task_failure 的唯一定义，避免多份文案漂移。"""
+    return failure_category_label_by_value(value)
 
 
 # 常见异常英文文本 → 中文摘要：通知面向最终用户，避免直接透出
@@ -65,7 +50,7 @@ _FRIENDLY_ERROR_PATTERNS = [
 ]
 
 
-def _friendly_error_message(message: str) -> str:
+def friendly_error_message(message: str) -> str:
     """常见异常英文文本映射为中文摘要；无命中时原样返回。"""
     lower = (message or "").lower()
     for pattern, friendly in _FRIENDLY_ERROR_PATTERNS:
@@ -112,8 +97,11 @@ async def send_failure_notification(
         category_label = _failure_category_label(failure_category)
         if category_label:
             fields.append(("失败分类", category_label))
-        fields.append(("错误", _friendly_error_message(message) or "未知错误"))
-        if last_target_message:
+        # 空错误原本显示「未知错误」，换成更准确的指引文案
+        error_text = friendly_error_message(message) or "未捕获到错误明细，请展开流程日志查看"
+        fields.append(("错误", error_text))
+        # 错误与目标消息常同源（runner 会把最后回复同时填入两者），相同则只展示一处
+        if last_target_message and last_target_message.strip() != (message or "").strip():
             fields.append(("目标消息", last_target_message))
         log_tail = "\n".join((flow_logs or [])[-20:])
         truncated = len(flow_logs or []) > 20
