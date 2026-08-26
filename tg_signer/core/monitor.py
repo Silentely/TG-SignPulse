@@ -310,8 +310,14 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                                 safe_text_preview(e, 200),
                                 exc_info=True,
                             )
-            except IndexError as e:
-                logger.exception(e)
+            except IndexError:
+                # 多为正则不匹配分组缺失；必须带上下文才能定位是哪条规则
+                logger.exception(
+                    "监控项处理失败 account=%s match_cfg=%s chat_id=%s",
+                    self._account,
+                    match_cfg,
+                    getattr(message.chat, "id", None),
+                )
 
     async def get_send_text(self, match_cfg: MatchConfig, message: Message) -> str:
         send_text = match_cfg.get_send_text(message.text)

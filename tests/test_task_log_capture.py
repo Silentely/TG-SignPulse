@@ -38,7 +38,7 @@ def test_task_log_handler_captures_runtime_process_logs():
         runtime_mod.logger.info("账户「dahao」- 任务「emby-厂妹」: 开始登录...")
         runtime_mod.logger.warning(
             "账户「dahao」- 任务「emby-厂妹」: "
-            "Preheated peer with cached username: 1429576125 -> @EmbyPublicBot"
+            "已通过缓存用户名预热会话：chat_id=1429576125 -> @EmbyPublicBot"
         )
         runtime_mod.logger.info(
             "账户「dahao」- 任务「emby-厂妹」: 开始第 1/3 次脚本流程尝试"
@@ -56,7 +56,7 @@ def test_task_log_handler_captures_runtime_process_logs():
 
     joined = "\n".join(log_list)
     assert "开始登录" in joined
-    assert "Preheated peer" in joined
+    assert "预热会话" in joined
     assert "开始第 1/3 次脚本流程尝试" in joined
     assert "识图后点按钮" in joined
     assert "点击完成" in joined

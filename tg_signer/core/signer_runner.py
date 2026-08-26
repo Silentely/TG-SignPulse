@@ -57,7 +57,7 @@ class SignerRunnerMixin:
                     try:
                         await self.app.get_users(chat.chat_id)
                         self.log(
-                            f"Preheated peer with get_users: {chat.chat_id}",
+                            f"已通过 get_users 预热会话：chat_id={chat.chat_id}",
                             level="WARNING",
                         )
                         resolved_peer = True
@@ -74,7 +74,7 @@ class SignerRunnerMixin:
                             try:
                                 resolved = await self.app.get_chat(username)
                                 self.log(
-                                    f"Preheated peer with cached username: {chat.chat_id} -> @{username}",
+                                    f"已通过缓存用户名预热会话：chat_id={chat.chat_id} -> @{username}",
                                     level="WARNING",
                                 )
                                 chat.chat_id = resolved.id
@@ -90,7 +90,7 @@ class SignerRunnerMixin:
                             try:
                                 await self.app.get_chat(cached_id)
                                 self.log(
-                                    f"Preheated peer with cached chat_id: {chat.chat_id} -> {cached_id}",
+                                    f"已通过缓存记录预热会话：chat_id={chat.chat_id} -> {cached_id}",
                                     level="WARNING",
                                 )
                                 chat.chat_id = cached_id
@@ -113,7 +113,7 @@ class SignerRunnerMixin:
                         try:
                             await self.app.get_chat(candidate)
                             self.log(
-                                f"Preheated peer with fallback chat_id: {chat.chat_id} -> {candidate}",
+                                f"已通过候选 chat_id 预热会话：chat_id={chat.chat_id} -> {candidate}",
                                 level="WARNING",
                             )
                             chat.chat_id = candidate
@@ -126,11 +126,11 @@ class SignerRunnerMixin:
 
                 if not resolved_peer:
                     self.log(
-                        f"Failed to preheat chat_id={chat.chat_id}, error={type(last_error).__name__}: {last_error}",
+                        f"预热会话失败: chat_id={chat.chat_id}, error={type(last_error).__name__}: {last_error}",
                         level="ERROR",
                     )
                     raise RuntimeError(
-                        f"Failed to preheat chat_id {chat.chat_id}: {last_error}"
+                        f"预热会话失败 chat_id={chat.chat_id}: {last_error}"
                     ) from last_error
             else:
                 self.log(
@@ -138,7 +138,7 @@ class SignerRunnerMixin:
                     level="ERROR",
                 )
                 raise RuntimeError(
-                    f"Failed to preheat chat_id {chat.chat_id}: {e}"
+                    f"预热会话失败 chat_id={chat.chat_id}: {e}"
                 ) from e
         self.log(self._describe_chat_run(chat))
         total_actions = len(chat.actions)
