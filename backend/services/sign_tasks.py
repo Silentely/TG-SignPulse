@@ -912,7 +912,11 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
             if return_raw:
                 return normalized, config
             return normalized
-        except Exception:
+        except Exception as exc:
+            # 配置损坏/读盘异常不能静默按「任务不存在」处理，否则用户排障无线索
+            _service_logger.warning(
+                "读取任务配置失败，按不存在处理: %s (%s)", config_file, exc
+            )
             return (None, None) if return_raw else None
 
     def get_task(
