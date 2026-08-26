@@ -166,7 +166,22 @@ async def verify_account_login(
         )
 
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        message = str(e)
+        lowered = message.lower()
+        # 稳定错误码替代中文文案透传：前端按码分支，不随文案/语言漂移
+        if "两步验证" in message or "session_password_needed" in lowered:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="SESSION_PASSWORD_NEEDED",
+            ) from e
+        if "2fa 密码错误" in lowered or "passwordhashinvalid" in lowered:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="PASSWORD_HASH_INVALID",
+            ) from e
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=message
+        ) from e
     except Exception as e:
         logger.error("登录验证失败 account=%s: %s", request.account_name, e, exc_info=True)
         raise HTTPException(

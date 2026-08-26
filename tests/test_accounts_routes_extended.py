@@ -176,6 +176,44 @@ class TestLoginFlow:
         assert resp.status_code == 400
         assert "验证码错误" in resp.json()["detail"]
 
+    def test_verify_session_password_needed_returns_code(self, api_client, db):  # noqa: F811
+        """需要 2FA 密码时返回稳定错误码，前端按码分支而非按文案匹配。"""
+        token = _login(api_client)
+        svc = _svc()
+        svc.verify_login.side_effect = ValueError("此账号启用了两步验证，请输入 2FA 密码")
+        with _patch_svc(svc):
+            resp = api_client.post(
+                "/api/accounts/login/verify",
+                json={
+                    "account_name": "acc_verify_2fa",
+                    "phone_number": "+8613800000000",
+                    "phone_code": "12345",
+                    "phone_code_hash": "hash-1",
+                },
+                headers=_auth(token),
+            )
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == "SESSION_PASSWORD_NEEDED"
+
+    def test_verify_password_hash_invalid_returns_code(self, api_client, db):  # noqa: F811
+        """2FA 密码错误返回稳定错误码。"""
+        token = _login(api_client)
+        svc = _svc()
+        svc.verify_login.side_effect = ValueError("2FA 密码错误")
+        with _patch_svc(svc):
+            resp = api_client.post(
+                "/api/accounts/login/verify",
+                json={
+                    "account_name": "acc_verify_2fa_bad",
+                    "phone_number": "+8613800000000",
+                    "phone_code": "12345",
+                    "phone_code_hash": "hash-1",
+                },
+                headers=_auth(token),
+            )
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == "PASSWORD_HASH_INVALID"
+
 
 class TestQrLoginFlow:
     def test_qr_start_success(self, api_client, db):  # noqa: F811
