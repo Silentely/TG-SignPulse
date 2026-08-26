@@ -54,8 +54,10 @@ async def _runner_load_config(state: Dict[str, Any]) -> None:
     """Phase 1: 加载任务配置，提取运行参数。"""
     svc: SignTaskService = state["svc"]
     task_dir = svc._resolve_task_dir(state["task_name"], state["account_name"])
-    loaded = svc._load_task_config(task_dir, return_raw=True) if task_dir else (None, None)
-    task_cfg, raw_task_cfg = loaded if loaded is not None else (None, None)
+    # _load_task_config(return_raw=True) 恒返回二元组，唯一失败来源是 task_dir 为空或配置损坏
+    task_cfg, raw_task_cfg = (
+        svc._load_task_config(task_dir, return_raw=True) if task_dir else (None, None)
+    )
     if not task_cfg:
         raise ValueError(f"Task {state['task_name']} does not exist or cannot be loaded")
     state.update(
@@ -498,7 +500,7 @@ async def _runner_send_notifications(state: Dict[str, Any]) -> None:
         failure_category = state.get("failure_category")
         if not failure_category:
             failure_category = classify_failure(
-                error=state.get("error_msg", ""),
+                error=state.get("error_raw") or state.get("error_msg", ""),
                 output=state.get("output_str", ""),
                 success=False,
             ).value
@@ -558,7 +560,14 @@ async def _runner_handle_error(state: Dict[str, Any], e: Exception) -> None:
         )
 
     _run_id_tag = f" [run_id={state.get('run_id')}]" if state.get("run_id") else ""
-    state["error_msg"] = f"任务执行出错{_run_id_tag}: {safe_exception_summary(e, 300)}"
+
+    from backend.services.sign_task_notify import friendly_error_message
+
+    # 原始异常摘要用于失败分类（关键词匹配）与服务日志；
+    # 面向面板历史的 error_msg 走友好映射，内部 run_id 不混入用户可见文案
+    raw_summary = safe_exception_summary(e, 300)
+    state["error_raw"] = raw_summary
+    state["error_msg"] = f"任务执行出错: {friendly_error_message(raw_summary)}"
     svc._append_active_log(state["task_key"], state["error_msg"])
 
     _tb = traceback.format_exc()
@@ -722,10 +731,10 @@ async def execute_sign_task(
     # Periodic pruning of stale entries to prevent memory growth
     svc._prune_stale_entries()
 
-    # 失败分类
+    # 失败分类（优先用原始异常摘要，error_msg 已做用户友好映射，关键词命中率低）
     if not state["success"]:
         state["failure_category"] = classify_failure(
-            error=state["error_msg"],
+            error=state.get("error_raw") or state["error_msg"],
             output=state["output_str"],
             success=False,
         ).value
