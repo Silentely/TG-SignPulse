@@ -8,6 +8,7 @@ import logging
 import os
 import shutil
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -107,6 +108,23 @@ def _dir_size(path: Path) -> int:
     return total
 
 
+# backup/status 的 total 全量扫盘缓存：os.walk 整目录含全部会话与备份包，
+# 每次请求重扫开销大；短 TTL 足以反映备份增减
+_DIR_SIZE_CACHE_TTL_SECONDS = 60.0
+_dir_size_cache: Dict[str, tuple[float, int]] = {}
+
+
+def _dir_size_cached(path: Path) -> int:
+    key = str(path)
+    now = time.monotonic()
+    cached = _dir_size_cache.get(key)
+    if cached is not None and now - cached[0] < _DIR_SIZE_CACHE_TTL_SECONDS:
+        return cached[1]
+    size = _dir_size(path)
+    _dir_size_cache[key] = (now, size)
+    return size
+
+
 @router.get("/scheduled-jobs", response_model=ScheduledJobsResponse)
 def list_scheduled_jobs(current_user: User = Depends(get_current_user)):
     """列出 APScheduler 中的待执行任务（下次运行时间）。"""
@@ -175,7 +193,7 @@ def backup_status(current_user: User = Depends(get_current_user)):
             }
         )
     try:
-        total = max(total, _dir_size(data_dir))
+        total = max(total, _dir_size_cached(data_dir))
     except Exception as exc:
         logger.debug("计算数据目录大小失败: %s", exc)
 
@@ -186,11 +204,18 @@ def backup_status(current_user: User = Depends(get_current_user)):
     local_auto: List[Dict[str, Any]] = []
     backup_dir = data_dir / "backups"
     if backup_dir.is_dir():
-        files = sorted(
-            backup_dir.glob("auto-*.tar.gz"),
-            key=lambda p: p.stat().st_mtime,
-            reverse=True,
-        )[:5]
+        # glob 到 stat 之间文件可能被并发清理（prune/上传后删副本）：
+        # 先带容错收集 (mtime, path)，避免 FileNotFoundError 使整个接口 500
+        stat_entries: List[tuple[float, Path]] = []
+        for p in backup_dir.glob("auto-*.tar.gz"):
+            try:
+                stat_entries.append((p.stat().st_mtime, p))
+            except OSError:
+                continue
+        files = [
+            p
+            for _, p in sorted(stat_entries, key=lambda item: item[0], reverse=True)
+        ][:5]
         for f in files:
             try:
                 st = f.stat()
