@@ -27,6 +27,22 @@ settings = get_settings()
 
 logger = logging.getLogger("backend.telegram.login_phone")
 
+
+async def _discard_login_client(client, session_key: Optional[str], release_lock) -> None:
+    """登录流程的统一清理：断连（容忍已断开/失败）→ 弹出会话 → 释放账号锁。
+
+    各异常分支共用，避免断连/弹会话/放锁三环在新增分支时漏写。
+    """
+    try:
+        await client.disconnect()
+    except Exception:
+        pass
+    if session_key:
+        _login_sessions.pop(session_key, None)
+    if release_lock:
+        release_lock()
+
+
 class TelegramPhoneLoginMixin:
 
     @staticmethod
@@ -206,26 +222,14 @@ class TelegramPhoneLoginMixin:
             }
 
         except PhoneNumberInvalid:
-            try:
-                await client.disconnect()
-            except Exception:
-                pass
-            _release_account_lock()
+            await _discard_login_client(client, None, _release_account_lock)
             raise ValueError("手机号格式无效，请使用国际格式（如 +8613800138000）")
         except FloodWait as e:
-            try:
-                await client.disconnect()
-            except Exception:
-                pass
-            _release_account_lock()
+            await _discard_login_client(client, None, _release_account_lock)
             raise ValueError(f"请求过于频繁，请等待 {e.value} 秒后重试")
         except Exception as e:
             logger.exception("手机号登录发送验证码阶段异常: %s", e)
-            try:
-                await client.disconnect()
-            except Exception:
-                pass
-            _release_account_lock()
+            await _discard_login_client(client, None, _release_account_lock)
 
             error_details = str(e)
             if (
@@ -279,7 +283,6 @@ class TelegramPhoneLoginMixin:
             raise ValueError("登录会话已过期，请重新发送验证码")
 
         client = session_data["client"]
-        session_mode = get_session_mode()
         global_semaphore = get_global_semaphore()
 
         account_lock = session_data.get("lock")
@@ -287,29 +290,6 @@ class TelegramPhoneLoginMixin:
         def _release_account_lock() -> None:
             if account_lock and account_lock.locked():
                 account_lock.release()
-
-        async def _persist_session_string() -> None:
-            if session_mode != "string":
-                return
-            session_string = await client.export_session_string()
-            if not session_string:
-                raise ValueError("导出 session_string 失败")
-            set_account_session_string(account_name, session_string)
-            save_session_string_file(self.session_dir, account_name, session_string)
-            mark_account_connected(account_name)
-            self._accounts_cache = None
-
-        def _persist_proxy_setting() -> None:
-            nonlocal proxy
-            if not proxy:
-                from backend.services.config import get_config_service
-                global_proxy = get_config_service().get_global_proxy()
-                if global_proxy:
-                    proxy = global_proxy
-            if proxy:
-                from backend.utils.tg_session import set_account_profile
-
-                set_account_profile(account_name, proxy=proxy)
 
         if account_lock and not account_lock.locked():
             await account_lock.acquire()
@@ -330,14 +310,10 @@ class TelegramPhoneLoginMixin:
                     # 登录成功，获取用户信息
                     # get_me 走超时保护：网络挂起时登录接口不能无限等待
                     me = await asyncio.wait_for(client.get_me(), timeout=10)
-                    await _persist_session_string()
-                    _persist_proxy_setting()
-                    mark_account_connected(account_name)
+                    await self._persist_client_session(client, account_name, proxy)
 
-                    # 断开连接并清理
-                    await client.disconnect()
-                    _login_sessions.pop(session_key, None)
-                    _release_account_lock()
+                    # 断开连接并清理（成功路径同样容忍断连抖动，避免已登录被误报失败）
+                    await _discard_login_client(client, session_key, _release_account_lock)
 
                     return {
                         "success": True,
@@ -356,14 +332,10 @@ class TelegramPhoneLoginMixin:
                     try:
                         await client.check_password(password)
                         me = await asyncio.wait_for(client.get_me(), timeout=10)
-                        await _persist_session_string()
-                        _persist_proxy_setting()
-                        mark_account_connected(account_name)
+                        await self._persist_client_session(client, account_name, proxy)
 
                         # 断开连接并清理
-                        await client.disconnect()
-                        _login_sessions.pop(session_key, None)
-                        _release_account_lock()
+                        await _discard_login_client(client, session_key, _release_account_lock)
 
                         return {
                             "success": True,
@@ -375,41 +347,18 @@ class TelegramPhoneLoginMixin:
                         raise ValueError("2FA 密码错误")
 
         except PhoneCodeInvalid:
-            # 清理 session
-            try:
-                await client.disconnect()
-            except Exception:
-                pass
-            _login_sessions.pop(session_key, None)
-            _release_account_lock()
+            await _discard_login_client(client, session_key, _release_account_lock)
             raise ValueError("验证码错误，请检查验证码是否正确")
         except PhoneCodeExpired:
-            # 清理 session
-            try:
-                await client.disconnect()
-            except Exception:
-                pass
-            _login_sessions.pop(session_key, None)
-            _release_account_lock()
+            await _discard_login_client(client, session_key, _release_account_lock)
             raise ValueError("验证码已过期，请重新获取")
         except ValueError as e:
             # 如果是 2FA 错误，不清理 session
             if "两步验证" not in str(e):
-                try:
-                    await client.disconnect()
-                except Exception:
-                    pass
-                _login_sessions.pop(session_key, None)
-                _release_account_lock()
+                await _discard_login_client(client, session_key, _release_account_lock)
             raise e
         except Exception as e:
-            # 清理 session
-            try:
-                await client.disconnect()
-            except Exception:
-                pass
-            _login_sessions.pop(session_key, None)
-            _release_account_lock()
+            await _discard_login_client(client, session_key, _release_account_lock)
 
             # 更详细的错误信息
             error_msg = str(e)
