@@ -63,7 +63,7 @@ const handleSave = async () => {
 <template>
   <Modal :isOpen="isOpen" @close="$emit('close')" :title="t('editAccount.title')">
     <div class="space-y-4">
-      <div v-if="error" class="ui-alert-error">
+      <div v-if="error" class="ui-alert-error" role="alert">
         {{ error }}
       </div>
 

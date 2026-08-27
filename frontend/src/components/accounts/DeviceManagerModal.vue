@@ -110,7 +110,7 @@ watch(() => props.isOpen, (open) => {
         </button>
       </div>
 
-      <div v-if="error" class="ui-alert-error">
+      <div v-if="error" class="ui-alert-error" role="alert">
         {{ error }}
       </div>
 
