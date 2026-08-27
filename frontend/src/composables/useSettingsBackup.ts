@@ -181,6 +181,10 @@ export function useSettingsBackup(options: {
   const handleImportFile = async (file: File) => {
     const token = getAuthToken()
     const reader = new FileReader()
+    // 读取失败（权限/文件被删/损坏）必须给用户反馈，否则点击导入毫无反应
+    reader.onerror = () => {
+      notifyError(resolveApiErrorMessage(reader.error, 'settings.importFailed'))
+    }
     reader.onload = async (ev) => {
       const jsonStr = ev.target?.result as string
       dataLoading.value = true

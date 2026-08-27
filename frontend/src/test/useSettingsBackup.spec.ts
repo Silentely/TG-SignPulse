@@ -205,6 +205,25 @@ describe('useSettingsBackup', () => {
     expect(toastSpy.error).toHaveBeenCalledWith('nope')
   })
 
+  it('handleImportFile 读取失败时报错且不发起导入', async () => {
+    const { backup } = setup()
+    const file = new File(['{}'], 'cfg.json', { type: 'application/json' })
+    const orig = FileReader.prototype.readAsText
+    FileReader.prototype.readAsText = function (this: FileReader) {
+      Object.defineProperty(this, 'error', {
+        value: new DOMException('读取失败', 'NotReadableError'),
+      })
+      this.onerror?.({} as ProgressEvent<FileReader>)
+    }
+    backup.handleImportFile(file)
+    await vi.waitFor(() => {
+      expect(toastSpy.error).toHaveBeenCalled()
+    })
+    FileReader.prototype.readAsText = orig
+    expect(api.importConfigPreview).not.toHaveBeenCalled()
+    expect(api.importAllConfigs).not.toHaveBeenCalled()
+  })
+
   it('handleImportFile aborts on preview errors', async () => {
     api.importConfigPreview.mockResolvedValue({
       errors: ['bad json'],
