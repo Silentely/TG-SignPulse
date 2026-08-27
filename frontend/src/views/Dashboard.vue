@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Users, Zap, Terminal, Settings } from 'lucide-vue-next'
+import { Users, Zap, Terminal, Settings, RefreshCw } from 'lucide-vue-next'
 import type {
   ActiveRunSummary,
   KeywordHitRecord,
