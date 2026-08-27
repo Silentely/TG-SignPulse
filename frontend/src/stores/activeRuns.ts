@@ -104,7 +104,10 @@ export const useActiveRunsStore = defineStore('activeRuns', () => {
     consumers += 1
     bindVisibilityListener()
     if (consumers === 1) {
-      void refresh().then(() => ensurePolling())
+      // refresh 在途期间被 release 到 0 时不再启动轮询，避免无消费者的永久轮询
+      void refresh().then(() => {
+        if (consumers > 0) ensurePolling()
+      })
     } else {
       ensurePolling()
     }
