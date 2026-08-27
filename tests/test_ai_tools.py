@@ -224,6 +224,48 @@ class VisualCompletionRetryTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, [2])
         self.assertEqual(len(fake_completions.calls), 2)
 
+    async def test_get_reply_retries_transient_error(self):
+        """get_reply 统一走受保护调用：瞬时错误按重试策略恢复成功。"""
+        call_count = 0
+
+        async def flaky_create(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise TimeoutError("request timed out")
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="回复内容"))]
+            )
+
+        fake_client = SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=flaky_create))
+        )
+        tools = AITools({"api_key": "test", "model": "gpt-4o"})
+        tools.client = fake_client
+
+        result = await tools.get_reply("提示词", "问题")
+        self.assertEqual(result, "回复内容")
+        self.assertEqual(call_count, 2)
+
+    async def test_calculate_problem_passes_timeout_budget(self):
+        """calculate_problem 统一走受保护调用：max_tokens 预算下发且可正常返回。"""
+        fake_completions = _FakeCompletions(
+            [
+                SimpleNamespace(
+                    choices=[SimpleNamespace(message=SimpleNamespace(content="42"))]
+                ),
+            ]
+        )
+        fake_client = SimpleNamespace(
+            chat=SimpleNamespace(completions=fake_completions)
+        )
+        tools = AITools({"api_key": "test", "model": "gpt-4o"})
+        tools.client = fake_client
+
+        result = await tools.calculate_problem("1+1=?")
+        self.assertEqual(result, "42")
+        self.assertIn("max_tokens", fake_completions.calls[0])
+
     async def test_does_not_retry_on_quota_exhaustion(self):
         fake_completions = _FakeCompletions(
             [
@@ -1235,3 +1277,60 @@ class SuccessTextDetectionTest(unittest.TestCase):
 
         signer = object.__new__(UserSigner)
         self.assertTrue(signer._text_has_terminal_success_text("验证码错误!\n签到成功，获得积分"))
+
+
+class OpenAIConfigCacheTest(unittest.TestCase):
+    """OpenAIConfigManager 文件配置按 mtime 缓存：热路径免重复读盘与解密。"""
+
+    def setUp(self):
+        import tempfile
+
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        from tg_signer.ai_tools import _FILE_CFG_CACHE
+
+        _FILE_CFG_CACHE.clear()
+        self.addCleanup(_FILE_CFG_CACHE.clear)
+
+    def test_second_load_uses_cache_without_decrypt(self):
+        """同 mtime 复用缓存：新实例第二次加载不再触发解密与读盘。"""
+        import tg_signer.ai_tools as ai_tools
+        from tg_signer.ai_tools import OpenAIConfigManager
+
+        mgr = OpenAIConfigManager(self.tmp.name)
+        mgr.save_config("sk-test-1", "https://api.example.com", "gpt-x")
+        first = mgr.load_file_config()
+        self.assertEqual(first["api_key"], "sk-test-1")
+
+        calls = []
+        real = ai_tools.decrypt_secret
+        ai_tools.decrypt_secret = lambda v: (calls.append(v), real(v))[1]
+        try:
+            # 新实例（ensure_ai_cfg 每次新建）也应命中进程级缓存
+            second = OpenAIConfigManager(self.tmp.name).load_file_config()
+        finally:
+            ai_tools.decrypt_secret = real
+        self.assertEqual(second["api_key"], "sk-test-1")
+        self.assertEqual(calls, [])
+
+    def test_rewrite_invalidates_cache(self):
+        """写盘后再次加载返回新值。"""
+        from tg_signer.ai_tools import OpenAIConfigManager
+
+        mgr = OpenAIConfigManager(self.tmp.name)
+        mgr.save_config("sk-old")
+        self.assertEqual(mgr.load_file_config()["api_key"], "sk-old")
+        mgr.save_config("sk-new")
+        self.assertEqual(
+            OpenAIConfigManager(self.tmp.name).load_file_config()["api_key"], "sk-new"
+        )
+
+    def test_returned_config_is_copy(self):
+        """返回拷贝：调用方修改不污染缓存。"""
+        from tg_signer.ai_tools import OpenAIConfigManager
+
+        mgr = OpenAIConfigManager(self.tmp.name)
+        mgr.save_config("sk-1")
+        cfg = mgr.load_file_config()
+        cfg["api_key"] = "mutated"
+        self.assertEqual(mgr.load_file_config()["api_key"], "sk-1")

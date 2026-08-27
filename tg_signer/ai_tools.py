@@ -126,6 +126,12 @@ class OpenAIConfig(TypedDict, total=False):
     model: Optional[str]
 
 
+# 文件配置的进程级缓存（按 mtime 失效）：AI 动作每次都会走 load_config，
+# 且 ensure_ai_cfg 每次新建 Manager，实例级缓存无效；
+# 按文件路径分键，写盘后 mtime 变化自动失效
+_FILE_CFG_CACHE: dict[str, tuple[float, Optional[dict]]] = {}
+
+
 class OpenAIConfigManager:
     def __init__(self, workdir: Union[str, pathlib.Path]):
         self.workdir = pathlib.Path(workdir)
@@ -141,18 +147,37 @@ class OpenAIConfigManager:
 
     def load_file_config(self) -> Optional[dict]:
         config_file = self.get_config_file()
-        if config_file.exists():
-            with open(config_file, "r", encoding="utf-8") as fp:
-                c = json.load(fp)
-            # 简单验证必需字段
-            if "api_key" in c:
-                # 解密 API key
-                try:
-                    c["api_key"] = decrypt_secret(c["api_key"])
-                except InvalidToken:
-                    logger.warning("存储的 API Key 解密失败，返回 None")
-                    return None
-                return c
+        cache_key = str(config_file)
+        if not config_file.exists():
+            _FILE_CFG_CACHE.pop(cache_key, None)
+            return None
+        try:
+            mtime = config_file.stat().st_mtime
+        except OSError:
+            mtime = None
+        cached = _FILE_CFG_CACHE.get(cache_key)
+        if mtime is not None and cached is not None and cached[0] == mtime:
+            cached_cfg = cached[1]
+            # 返回拷贝，避免不同调用方共享同一可变 dict
+            return dict(cached_cfg) if cached_cfg is not None else None
+        cfg = self._read_and_decrypt(config_file)
+        if mtime is not None:
+            _FILE_CFG_CACHE[cache_key] = (mtime, cfg)
+        return dict(cfg) if cfg is not None else None
+
+    @staticmethod
+    def _read_and_decrypt(config_file: pathlib.Path) -> Optional[dict]:
+        with open(config_file, "r", encoding="utf-8") as fp:
+            c = json.load(fp)
+        # 简单验证必需字段
+        if "api_key" in c:
+            # 解密 API key
+            try:
+                c["api_key"] = decrypt_secret(c["api_key"])
+            except InvalidToken:
+                logger.warning("存储的 API Key 解密失败，返回 None")
+                return None
+            return c
         return None
 
     def save_config(self, api_key: str, base_url: str = None, model: str = None):
@@ -161,6 +186,8 @@ class OpenAIConfigManager:
         config = OpenAIConfig(api_key=encrypted_key, base_url=base_url, model=model)
         with open(config_file, "w", encoding="utf-8") as fp:
             json.dump(config, fp, ensure_ascii=False, indent=2)
+        # 显式失效缓存（兜底同 mtime 边缘场景；常规写盘靠 mtime 变化失效）
+        _FILE_CFG_CACHE.pop(str(config_file), None)
 
     def load_config(self) -> Optional[OpenAIConfig]:
         # 环境变量优先
@@ -867,6 +894,8 @@ class AITools:
         sys_prompt = (system_prompt or "").strip() or DEFAULT_EXTRACT_TEXT_BY_IMAGE_PROMPT
         client = client or self.client
         model = model or self.default_model
+        # 与选图路径一致：先压缩图片，降低带宽与 token 消耗
+        image = self._prepare_vision_image(image)
         text_query = query or "Extract the key text from this image."
         messages = [
             {"role": "system", "content": sys_prompt},
@@ -883,11 +912,14 @@ class AITools:
                 ],
             },
         ]
-        completion = await client.chat.completions.create(
-            messages=messages,
+        # 统一走受保护调用：超时兜底、瞬时错误重试、参数降级与截断放宽
+        completion = await self._create_visual_completion(
+            client=client,
             model=model,
-            stream=False,
+            messages=messages,
             temperature=temperature,
+            max_tokens=read_positive_int_env("AI_VISION_MAX_TOKENS", 512, 16),
+            expect_json=False,
         )
         return (completion.choices[0].message.content or "").strip()
 
@@ -904,14 +936,17 @@ class AITools:
         client = client or self.client
         text = f"问题是: {query}\n\n只需要给出答案，不要解释，不要输出任何其他内容。The answer is:"
         # noinspection PyTypeChecker
-        completion = await client.chat.completions.create(
+        # 统一走受保护调用：超时兜底、瞬时错误重试、参数降级与截断放宽
+        completion = await self._create_visual_completion(
+            client=client,
+            model=model,
             messages=[
                 {"role": "system", "content": sys_prompt},
                 {"role": "user", "content": text},
             ],
-            model=model,
-            stream=False,
             temperature=temperature,
+            max_tokens=read_positive_int_env("AI_VISION_MAX_TOKENS", 512, 16),
+            expect_json=False,
         )
         return completion.choices[0].message.content.strip()
 
@@ -932,10 +967,14 @@ class AITools:
             {"role": "user", "content": f"{query}"},
         ]
         # noinspection PyTypeChecker
-        completion = await client.chat.completions.create(
-            messages=messages,
+        # 统一走受保护调用：超时兜底、瞬时错误重试、参数降级与截断放宽
+        completion = await self._create_visual_completion(
+            client=client,
             model=model,
-            stream=False,
+            messages=messages,
+            temperature=0.1,
+            max_tokens=read_positive_int_env("AI_VISION_MAX_TOKENS", 512, 16),
+            expect_json=False,
         )
         message = completion.choices[0].message
         return message.content
