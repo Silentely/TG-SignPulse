@@ -24,6 +24,10 @@ MAX_RECORDS = 5000
 DEFAULT_LIST_LIMIT = 100
 MAX_LIST_LIMIT = 500
 
+# 满额后的批量重写阈值：内存/文件允许临时超到 MAX_RECORDS + 该值，
+# 攒够一批才整文件重写，避免稳态下每条命中都全量重写 5000 行
+_REWRITE_BATCH = 100
+
 _lock = threading.Lock()
 _records: List["HitRecord"] = []
 _loaded = False
@@ -258,8 +262,9 @@ def record_keyword_hit(
     }
     with _lock:
         _records.insert(0, record)
-        if len(_records) > MAX_RECORDS:
-            # 超限时整文件重写，去掉最旧记录
+        if len(_records) >= MAX_RECORDS + _REWRITE_BATCH:
+            # 批量整文件重写：满额稳态下每 _REWRITE_BATCH 条才重写一次，
+            # 期间以追加写落盘；重启加载时仍按 MAX_RECORDS 截断（见 _ensure_loaded）
             del _records[MAX_RECORDS:]
             _rewrite_file_locked()
         else:
