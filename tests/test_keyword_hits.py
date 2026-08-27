@@ -19,6 +19,32 @@ def _isolated_hits(tmp_path: Path, monkeypatch):
     hits_mod.reset_hits_for_tests()
 
 
+def test_full_rewrite_batched_not_per_record(monkeypatch):
+    """满额稳态下按批量阈值重写：未到阈值只追加，到阈值才整文件重写。"""
+    monkeypatch.setattr(hits_mod, "MAX_RECORDS", 50)
+    monkeypatch.setattr(hits_mod, "_REWRITE_BATCH", 10)
+
+    def file_lines() -> int:
+        path = hits_mod._hits_path()
+        return len(path.read_text(encoding="utf-8").splitlines()) if path.exists() else 0
+
+    for i in range(55):
+        hits_mod.record_keyword_hit(
+            account_name="acc1", task_name="t", keyword=f"k{i}", push_channel="telegram"
+        )
+    # 超过 MAX(50) 但未达 MAX+BATCH(60)：只追加，不重写，文件 55 行
+    assert file_lines() == 55
+
+    for i in range(55, 60):
+        hits_mod.record_keyword_hit(
+            account_name="acc1", task_name="t", keyword=f"k{i}", push_channel="telegram"
+        )
+    # 达到 60：整文件重写并截到 50 行
+    assert file_lines() == 50
+    data = hits_mod.list_keyword_hits(task_name="t", limit=1, max_limit=50)
+    assert data["total"] == 50
+
+
 def test_record_and_list_hits():
     hits_mod.record_keyword_hit(
         account_name="acc1",
