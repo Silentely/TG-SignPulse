@@ -471,7 +471,11 @@ def clone_sign_task(
         )
         return task
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        # 业务校验错误与 create/update/toggle/run 等端点统一为 422；
+        # detail 保留中文业务文案（不码化），排障价值不变
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+        )
     except Exception as e:
         _sync_logger.error("克隆任务失败: %s", e, exc_info=True)
         raise HTTPException(
