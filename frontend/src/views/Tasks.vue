@@ -131,11 +131,7 @@ const loadAllAccounts = async () => {
 const {
   cancelBusyKey,
   afterTasksLoaded,
-  taskActiveRuns,
-  taskActiveRun,
-  activeRunBadgeText,
-  activeRunTooltip,
-  taskHasInvalidAccount,
+  runCardProps,
   handleCancelRun,
   loadAccountStatusMap,
 } = useTaskListRuntime({
@@ -466,11 +462,7 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
       :delete-busy-key="deleteBusyKey"
       :run-menu-open="runMenuTask === task"
       :run-menu-accounts="runMenuAccounts"
-      :task-active-run="taskActiveRun(task)"
-      :task-active-runs="taskActiveRuns(task)"
-      :active-run-badge-text="activeRunBadgeText(task)"
-      :active-run-tooltip="activeRunTooltip(task)"
-      :has-invalid-account="taskHasInvalidAccount(task)"
+      v-bind="runCardProps(task)"
       @toggle-select="toggleSelectTask"
       @toggle-enabled="handleToggleEnabled"
       @cancel-run="handleCancelRun"

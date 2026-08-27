@@ -1,7 +1,7 @@
 /**
  * 签到列表运行时：活跃 run 轮询、命中角标、头像、账号状态与取消。
  */
-import { ref, watch, onUnmounted, type Ref, type ComputedRef } from 'vue'
+import { ref, computed, watch, onUnmounted, type Ref, type ComputedRef } from 'vue'
 import { storeToRefs } from 'pinia'
 import {
   cancelSignTaskRun,
@@ -231,6 +231,71 @@ export function useTaskListRuntime(options: {
     return resolveTaskAccountNames(task).some((n) => isAccountInvalid(n))
   }
 
+  // 账号失效标记按任务聚合：仅随账号状态/列表变化重算，
+  // 不随 nowTick 每秒重算（与运行态倒计时解耦）
+  const invalidAccountByTask = computed(() => {
+    const map = new Map<string, boolean>()
+    for (const task of options.tasks.value) {
+      map.set(task.name, taskHasInvalidAccount(task))
+    }
+    return map
+  })
+
+  interface TaskRunView {
+    activeRun: ActiveRunSummary | null
+    activeRuns: ActiveRunSummary[]
+    badgeText: string
+    tooltip: string
+  }
+
+  // 运行态视图聚合：每秒 nowTick 只重建有运行任务的条目（通常 0-2 个），
+  // 无运行任务不产出条目；模板按任务名取一次，替代 v-for 内 5 处函数调用
+  const runViewByTask = computed(() => {
+    const map = new Map<string, TaskRunView>()
+    for (const task of options.tasks.value) {
+      const runs = taskActiveRuns(task)
+      const primary = pickPrimaryActiveRun(runs)
+      if (!primary || !isRunInProgress(primary)) continue
+      const rem = remainingWaitSeconds(primary.wait_seconds, activeRunsFetchedAt.value, nowTick.value)
+      map.set(task.name, {
+        activeRun: primary,
+        activeRuns: runs,
+        badgeText: formatActiveRunLabel(primary, t, { remainingSec: rem }),
+        tooltip: runs
+          .map((r) => {
+            const acc = r.account_name || '-'
+            const ph = phaseLabel(r.phase, t) || formatPhaseDetail(r, t)
+            return `${acc}: ${ph}`
+          })
+          .join('\n'),
+      })
+    }
+    return map
+  })
+
+  /** 卡片运行态 props 打包：无运行任务返回共享常量，props 浅比较稳定 */
+  const EMPTY_RUN_VIEW = Object.freeze({
+    taskActiveRun: null as ActiveRunSummary | null,
+    taskActiveRuns: [] as ActiveRunSummary[],
+    activeRunBadgeText: '',
+    activeRunTooltip: '',
+  })
+
+  const runCardProps = (task: TaskUiItem) => {
+    const rv = runViewByTask.value.get(task.name)
+    return {
+      ...(rv
+        ? {
+            taskActiveRun: rv.activeRun,
+            taskActiveRuns: rv.activeRuns,
+            activeRunBadgeText: rv.badgeText,
+            activeRunTooltip: rv.tooltip,
+          }
+        : EMPTY_RUN_VIEW),
+      hasInvalidAccount: invalidAccountByTask.value.get(task.name) ?? false,
+    }
+  }
+
   const handleCancelRun = async (task: TaskUiItem) => {
     const ar = taskActiveRun(task)
     if (!ar?.account_name) {
@@ -369,6 +434,7 @@ export function useTaskListRuntime(options: {
     activeRunBadgeText,
     activeRunTooltip,
     taskHasInvalidAccount,
+    runCardProps,
     handleCancelRun,
     afterTasksLoaded,
     loadAccountStatusMap,
