@@ -1,6 +1,25 @@
+import asyncio
 import re
 
 from httpx import AsyncClient
+
+# Server酱推送共享客户端：关键词命中推送是热路径，
+# 每次新建 AsyncClient 会重复 TCP+TLS 握手；按事件循环缓存复用连接。
+_SC_HEADERS = {"Content-Type": "application/json;charset=utf-8"}
+_SC_TIMEOUT = 10
+_sc_client = None
+_sc_loop = None
+
+
+def _get_sc_client() -> AsyncClient:
+    global _sc_client, _sc_loop
+    loop = asyncio.get_running_loop()
+    client = _sc_client
+    if client is None or getattr(client, "is_closed", True) or _sc_loop is not loop:
+        client = AsyncClient(headers=_SC_HEADERS, timeout=_SC_TIMEOUT)
+        _sc_client = client
+        _sc_loop = loop
+    return client
 
 
 async def sc_send(sendkey, title, desp="", options=None):
@@ -17,12 +36,11 @@ async def sc_send(sendkey, title, desp="", options=None):
     else:
         url = f"https://sctapi.ftqq.com/{sendkey}.send"
     params = {"title": title, "desp": desp, **options}
-    headers = {"Content-Type": "application/json;charset=utf-8"}
-    async with AsyncClient(headers=headers, timeout=10) as client:
-        response = await client.post(url, json=params)
-        response.raise_for_status()
-        try:
-            return response.json()
-        except ValueError:
-            # 非 JSON 响应（如网关错误页）：返回原始文本，由上层告警而非裸异常
-            return {"raw": response.text}
+    client = _get_sc_client()
+    response = await client.post(url, json=params)
+    response.raise_for_status()
+    try:
+        return response.json()
+    except ValueError:
+        # 非 JSON 响应（如网关错误页）：返回原始文本，由上层告警而非裸异常
+        return {"raw": response.text}
