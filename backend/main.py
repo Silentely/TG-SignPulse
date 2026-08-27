@@ -395,7 +395,9 @@ async def on_startup() -> None:
     await init_scheduler(sync_on_startup=False)
 
     # Pre-export session strings from .session files to avoid SQLite locks during task execution
-    _pre_export_session_strings()
+    # sqlite 打开/锁等待是同步阻塞调用，挪到线程池执行：
+    # 账号多或锁竞争时不阻塞事件循环，避免 /healthz、/readyz 探针被拖垮
+    await asyncio.to_thread(_pre_export_session_strings)
 
     # 启动内存监控后台任务（阈值可通过 MEMORY_THRESHOLD_MB 覆盖）
     app.state.memory_monitor_task = create_logged_task(
