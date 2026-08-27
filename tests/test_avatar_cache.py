@@ -93,3 +93,23 @@ async def test_get_avatar_bytes_download_error_no_cache_write(tmp_path):
         await avatar_cache.get_avatar_bytes(cache, marker, boom)
     assert not cache.exists()
     assert not marker.exists()
+
+
+@pytest.mark.asyncio
+async def test_get_avatar_bytes_mkstemp_failure_raises_oserror(tmp_path, monkeypatch):
+    """mkstemp 本身失败时原样上抛 OSError，不得被清理分支的 NameError 掩盖。"""
+    import tempfile
+
+    cache = tmp_path / "d.jpg"
+    marker = tmp_path / "d.no_avatar"
+
+    async def download():
+        return b"img"
+
+    def bad_mkstemp(*args, **kwargs):
+        raise OSError("缓存目录不可写")
+
+    monkeypatch.setattr(tempfile, "mkstemp", bad_mkstemp)
+    with pytest.raises(OSError, match="缓存目录不可写"):
+        await avatar_cache.get_avatar_bytes(cache, marker, download)
+    assert not cache.exists()
