@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch, nextTick, useId } from 'vue'
 import { ChevronDown, Check } from 'lucide-vue-next'
 import { useI18n } from '../composables/useI18n'
 
@@ -26,6 +26,19 @@ const dropdownRef = ref<HTMLElement | null>(null)
 const dropdownStyle = ref<Record<string, string>>({})
 /** 键盘导航当前项（对应 options 下标；-1 表示未定位） */
 const activeIndex = ref(-1)
+
+// listbox 关联 id：方向键漫游时经 aria-activedescendant 向读屏播报当前项；
+// -1 漫游位对应「全部账号」首项
+const uid = useId()
+const listboxId = `${uid}-listbox`
+const allOptionId = `${uid}-opt-all`
+const optionId = (v: string) => `${uid}-opt-${v.replace(/[^\w-]/g, '_')}`
+const activeDescendant = computed(() => {
+  if (!isOpen.value) return undefined
+  if (activeIndex.value === -1) return allOptionId
+  const opt = props.options[activeIndex.value]
+  return opt ? optionId(opt.value) : undefined
+})
 
 const toggle = () => {
   if (props.disabled) return
@@ -188,6 +201,8 @@ const selectedLabel = computed(() => {
       :aria-expanded="isOpen"
       :aria-label="ariaLabel || placeholder || t('multiSelect.placeholder')"
       aria-haspopup="listbox"
+      :aria-controls="isOpen ? listboxId : undefined"
+      :aria-activedescendant="activeDescendant"
       @click="toggle"
       @keydown="onKeydown"
     >
@@ -202,9 +217,12 @@ const selectedLabel = computed(() => {
 
     <Teleport to="body">
       <Transition name="dropdown">
-        <div v-if="isOpen" ref="dropdownRef" :style="dropdownStyle" class="ui-dropdown" role="listbox">
+        <div v-if="isOpen" :id="listboxId" ref="dropdownRef" :style="dropdownStyle" class="ui-dropdown" role="listbox">
           <button
+            :id="allOptionId"
             type="button"
+            role="option"
+            :aria-selected="allMode"
             class="ui-dropdown-item border-b border-gray-100 dark:border-gray-800/50 mb-0.5"
             :class="[
               allMode ? 'ui-dropdown-item-active !text-sky-600 dark:!text-sky-400' : '',
@@ -217,8 +235,10 @@ const selectedLabel = computed(() => {
           </button>
           <button
             v-for="(opt, idx) in options"
+            :id="optionId(opt.value)"
             :key="opt.value"
             type="button"
+            role="option"
             class="ui-dropdown-item"
             :class="[
               allMode ? 'opacity-40 pointer-events-none' : '',

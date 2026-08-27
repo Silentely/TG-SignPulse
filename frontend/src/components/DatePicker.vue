@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, useId } from 'vue'
 import { ChevronDown, ChevronLeft, ChevronRight, X } from 'lucide-vue-next'
 import { useI18n } from '../composables/useI18n'
 
@@ -13,17 +13,68 @@ const emit = defineEmits<{ (e: 'update:modelValue', val: string): void }>()
 
 const isOpen = ref(false)
 const pickerRef = ref<HTMLElement | null>(null)
+const triggerRef = ref<HTMLElement | null>(null)
 
 const viewYear = ref(new Date().getFullYear())
 const viewMonth = ref(new Date().getMonth())
 
+const uid = useId()
+const dayCellId = (date: string) => `${uid}-day-${date}`
+/** 日历网格键盘光标：roving tabindex，仅光标所在日期可 Tab 到达，
+ * 方向键在日期间移动（±1/±7），避免逐格 Tab 穿越整月 */
+const gridCursor = ref('')
+
+const pad2 = (n: number) => String(n).padStart(2, '0')
+const dateStrOf = (y: number, m: number, d: number) => `${y}-${pad2(m + 1)}-${pad2(d)}`
+const todayDateStr = () => {
+  const t = new Date()
+  return dateStrOf(t.getFullYear(), t.getMonth(), t.getDate())
+}
+
 const toggle = () => {
   isOpen.value = !isOpen.value
-  if (isOpen.value && props.modelValue) {
-    const d = new Date(props.modelValue + 'T00:00:00')
-    viewYear.value = d.getFullYear()
-    viewMonth.value = d.getMonth()
+  if (isOpen.value) {
+    if (props.modelValue) {
+      const d = new Date(props.modelValue + 'T00:00:00')
+      viewYear.value = d.getFullYear()
+      viewMonth.value = d.getMonth()
+    }
+    // 网格光标定位：已选日期 > 今天（若在当前视图月）> 当月 1 日
+    const today = todayDateStr()
+    const inView = today.startsWith(`${viewYear.value}-${pad2(viewMonth.value + 1)}-`)
+    gridCursor.value = props.modelValue || (inView ? today : dateStrOf(viewYear.value, viewMonth.value, 1))
+    // 打开后焦点进网格，键盘用户立即可用方向键选日期
+    nextTick(() => {
+      if (isOpen.value) document.getElementById(dayCellId(gridCursor.value))?.focus()
+    })
   }
+}
+
+const moveGridCursor = (deltaDays: number) => {
+  const base = gridCursor.value
+    ? new Date(gridCursor.value + 'T00:00:00')
+    : new Date(viewYear.value, viewMonth.value, 1)
+  base.setDate(base.getDate() + deltaDays)
+  // 跨月移动时同步切换视图月份
+  viewYear.value = base.getFullYear()
+  viewMonth.value = base.getMonth()
+  gridCursor.value = dateStrOf(base.getFullYear(), base.getMonth(), base.getDate())
+  nextTick(() => {
+    document.getElementById(dayCellId(gridCursor.value))?.focus()
+  })
+}
+
+const onDayKeydown = (e: KeyboardEvent) => {
+  const moves: Record<string, number> = {
+    ArrowLeft: -1,
+    ArrowRight: 1,
+    ArrowUp: -7,
+    ArrowDown: 7,
+  }
+  const delta = moves[e.key]
+  if (delta === undefined) return
+  e.preventDefault()
+  moveGridCursor(delta)
 }
 
 const handleClickOutside = (e: MouseEvent) => {
@@ -36,6 +87,8 @@ const onKeydown = (e: KeyboardEvent) => {
   if (e.key === 'Escape' && isOpen.value) {
     e.preventDefault()
     isOpen.value = false
+    // 焦点归还触发按钮，与 Modal 的焦点归还约定一致
+    triggerRef.value?.focus()
   }
 }
 
@@ -100,6 +153,8 @@ const prevMonth = () => {
   } else {
     viewMonth.value--
   }
+  // 视图月变化后网格光标跟随到新视图，避免 roving tabindex 无宿主
+  gridCursor.value = dateStrOf(viewYear.value, viewMonth.value, 1)
 }
 
 const nextMonth = () => {
@@ -109,12 +164,15 @@ const nextMonth = () => {
   } else {
     viewMonth.value++
   }
+  gridCursor.value = dateStrOf(viewYear.value, viewMonth.value, 1)
 }
 
 const selectDate = (dateStr: string) => {
   if (!dateStr) return
   emit('update:modelValue', dateStr)
   isOpen.value = false
+  // 选定后焦点归还触发按钮，键盘操作链路闭合
+  triggerRef.value?.focus()
 }
 
 const clear = (e: Event) => {
@@ -129,6 +187,7 @@ const goToday = () => {
   viewMonth.value = today.getMonth()
   emit('update:modelValue', dateStr)
   isOpen.value = false
+  triggerRef.value?.focus()
 }
 
 const displayValue = computed(() => {
@@ -145,6 +204,7 @@ const displayValue = computed(() => {
   <div class="relative" ref="pickerRef">
     <div class="flex items-center gap-1">
       <button
+        ref="triggerRef"
         type="button"
         class="ui-select-trigger flex-1 min-w-0"
         :class="isOpen ? 'ui-select-trigger-open' : ''"
@@ -194,9 +254,13 @@ const displayValue = computed(() => {
         <div class="grid grid-cols-7 gap-0.5">
           <button
             v-for="(item, idx) in days"
+            :id="item.day ? dayCellId(item.date) : undefined"
             :key="idx"
             type="button"
             :disabled="!item.day"
+            :tabindex="item.date === gridCursor ? 0 : -1"
+            :aria-selected="item.day ? item.isSelected : undefined"
+            :aria-current="item.isToday ? 'date' : undefined"
             :aria-label="item.day
               ? t('datePicker.dayLabel', {
                   year: viewYear,
@@ -212,6 +276,7 @@ const displayValue = computed(() => {
               !item.isSelected && !item.isToday && item.day ? 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/[0.06]' : '',
             ]"
             @click="selectDate(item.date)"
+            @keydown="onDayKeydown"
           >
             {{ item.day || '' }}
           </button>
