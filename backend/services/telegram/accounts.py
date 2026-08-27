@@ -170,12 +170,14 @@ class TelegramAccountsMixin:
                     if account_name in pending_accounts:
                         continue
                     profile = get_account_profile(account_name)
+                    # 单次 stat 取两值：避免 exists/stat 双调用的开销与间隙不一致
+                    session_exists, session_size = _session_file_info(session_file)
                     accounts.append(
                         {
                             "name": account_name,
                             "session_file": str(session_file),
-                            "exists": _session_file_info(session_file)[0],
-                            "size": _session_file_info(session_file)[1],
+                            "exists": session_exists,
+                            "size": session_size,
                             "remark": profile.get("remark"),
                             "proxy": profile.get("proxy"),
                             **self._account_status_payload(account_name),
@@ -189,12 +191,13 @@ class TelegramAccountsMixin:
                         continue
                     session_file = self.session_dir / f"{account_name}.session_string"
                     profile = get_account_profile(account_name)
+                    session_exists, session_size = _session_file_info(session_file)
                     accounts.append(
                         {
                             "name": account_name,
                             "session_file": str(session_file),
-                            "exists": _session_file_info(session_file)[0],
-                            "size": _session_file_info(session_file)[1],
+                            "exists": session_exists,
+                            "size": session_size,
                             "remark": profile.get("remark"),
                             "proxy": profile.get("proxy"),
                             **self._account_status_payload(account_name),
@@ -208,12 +211,13 @@ class TelegramAccountsMixin:
                     if account_name in pending_accounts:
                         continue
 
+                    session_exists, session_size = _session_file_info(session_file)
                     accounts.append(
                         {
                             "name": account_name,
                             "session_file": str(session_file),
-                            "exists": _session_file_info(session_file)[0],
-                            "size": _session_file_info(session_file)[1],
+                            "exists": session_exists,
+                            "size": session_size,
                             "remark": profile.get("remark"),
                             "proxy": profile.get("proxy"),
                             **self._account_status_payload(account_name),
@@ -223,7 +227,10 @@ class TelegramAccountsMixin:
             self._accounts_cache = sorted(accounts, key=lambda x: x["name"])
             self._accounts_cache_ts = time.monotonic()
             return self._accounts_cache
-        except Exception:
+        except Exception as exc:
+            # 扫描失败返回空列表是降级行为，但必须留痕：
+            # 否则权限/IO/profile 损坏会表现为账号「凭空消失」且无法排查
+            logger.warning("账号列表扫描失败，按空列表返回: %s", exc, exc_info=True)
             return []
 
 
