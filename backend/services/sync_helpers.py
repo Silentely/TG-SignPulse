@@ -26,6 +26,12 @@ def _log_failure(key: str, message: str, exc: Exception) -> None:
         logger.warning("%s（连续第 %s 次）: %s", message, count + 1, exc)
 
 
+def _reset_fail_count(key: str) -> None:
+    """成功路径重置失败计数：恢复后再失败能重新拿到 ERROR+堆栈，
+    且「连续第 N 次」文案与事实相符。"""
+    _fail_counts.pop(key, None)
+
+
 async def restart_keyword_monitors(*, context: str = "操作") -> None:
     """重启关键词监控；失败仅降噪告警，不阻塞调用方。"""
     try:
@@ -34,6 +40,8 @@ async def restart_keyword_monitors(*, context: str = "操作") -> None:
         await get_keyword_monitor_service().restart_from_tasks()
     except Exception as exc:
         _log_failure("restart_monitors", f"{context}后重启关键词监控失败", exc)
+    else:
+        _reset_fail_count("restart_monitors")
 
 
 async def sync_jobs_and_restart_monitors(*, context: str = "任务变更") -> None:
@@ -44,4 +52,6 @@ async def sync_jobs_and_restart_monitors(*, context: str = "任务变更") -> No
         await sync_jobs()
     except Exception as exc:
         _log_failure("sync_jobs", f"{context}后调度同步失败", exc)
+    else:
+        _reset_fail_count("sync_jobs")
     await restart_keyword_monitors(context=context)
