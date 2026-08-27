@@ -32,7 +32,7 @@ _TOTP_CODE_REUSE_WINDOW = 120  # 2 分钟（覆盖当前 + 上一个窗口）
 
 
 def _cleanup_used_totp_codes() -> None:
-    """清理过期的已使用 code 记录"""
+    """清理过期的已使用 code 记录（必须在 _totp_lock 内调用）"""
     import time
     now = time.monotonic()
     expired = [
@@ -81,8 +81,10 @@ def verify_totp(secret: str, code: str) -> bool:
             if code_hash in _used_totp_codes:
                 return False  # 该 code 已被使用过
             _used_totp_codes[code_hash] = now
-        # 清理过期条目（锁外执行，避免增加锁持有时间）
-        _cleanup_used_totp_codes()
+            # 清理与读写同锁：锁外遍历+pop 共享字典会与其他线程的插入并发，
+            # 偶发 RuntimeError 被兜底吞掉后合法 TOTP 被误拒；
+            # 字典极小（窗口期内每用户个位数），锁内清理成本可忽略
+            _cleanup_used_totp_codes()
         return True
     except (ValueError, TypeError, OSError) as exc:
         # pyotp/hashlib/系统调用相关异常视为验证失败，不向上抛出
