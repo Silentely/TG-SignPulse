@@ -805,7 +805,8 @@ async def execute_bot_link_action(
     - 未配置 bot_username 时可从深链自动解析 Bot 名
     - 批量发送按间隔等待；调高 max_batch 有风控/封禁风险
     """
-    logger.warning(
+    # 排障明细只在 debug 输出：WARNING 级全量 dump 会淹没真警告并泄露消息内容
+    logger.debug(
         "[BOT_CMD_ENTRY] bot_username=%s | source_message=%s | variables=%s | action=%s",
         action.get("bot_username"),
         "present" if source_message else "None",
@@ -940,7 +941,8 @@ async def execute_continue_action(
     1/2/9 直接发送；3/4/5/6/7 在超时窗口内轮询目标会话寻找可用消息执行。
     """
     action_id = int(action.get("action"))
-    logger.warning(
+    # 排障明细只在 debug 输出：WARNING 级全量 dump 会淹没真警告并泄露消息内容
+    logger.debug(
         "[CONTINUE_ACTION_ENTRY] action_id=%s | action=%s | source_message=%s",
         action_id,
         action,
