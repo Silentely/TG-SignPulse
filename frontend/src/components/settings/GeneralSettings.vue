@@ -59,7 +59,7 @@ const onStringInput = (key: keyof SettingsFormState, e: Event) => {
           <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.generalDesc') }}</p>
         </div>
       </div>
-      <span v-if="loading" class="text-xs text-gray-500 shrink-0">{{ t('settings.saving') }}</span>
+      <span v-if="loading" class="text-xs text-gray-500 shrink-0">{{ t('common.saving') }}</span>
     </div>
     <div class="space-y-5">
       <div class="space-y-1.5">
@@ -105,7 +105,7 @@ const onStringInput = (key: keyof SettingsFormState, e: Event) => {
         <div class="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
           <input :value="modelValue.deviceKeepaliveIntervalDays" @input="onNumberInput('deviceKeepaliveIntervalDays', $event)" type="number" min="1" max="170" :disabled="!modelValue.deviceKeepaliveEnabled" class="ui-input disabled:opacity-50">
           <button type="button" class="ui-btn-secondary !px-3 !py-2 !text-xs" :disabled="keepaliveLoading" @click="emit('run-keepalive')">
-            {{ keepaliveLoading ? t('settings.saving') : t('settings.keepaliveNow') }}
+            {{ keepaliveLoading ? t('common.saving') : t('settings.keepaliveNow') }}
           </button>
         </div>
         <p class="text-[10px] text-gray-500">{{ t('settings.deviceKeepaliveIntervalHint') }}</p>
@@ -121,7 +121,7 @@ const onStringInput = (key: keyof SettingsFormState, e: Event) => {
         />
       </div>
       <div class="pt-2">
-        <button type="button" class="ui-btn-primary w-full py-2.5" :disabled="loading" @click="emit('save')">{{ loading ? t('settings.saving') : t('settings.saveGeneral') }}</button>
+        <button type="button" class="ui-btn-primary w-full py-2.5" :disabled="loading" @click="emit('save')">{{ loading ? t('common.saving') : t('settings.saveGeneral') }}</button>
       </div>
     </div>
   </section>

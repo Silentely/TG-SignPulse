@@ -92,7 +92,7 @@ const handleSave = async () => {
     <template #footer>
       <button @click="$emit('close')" class="ui-btn-secondary !border-transparent !bg-transparent !px-4 !py-2">{{ t('common.cancel') }}</button>
       <button @click="handleSave" :disabled="loading" class="ui-btn-primary !px-4 !py-2">
-        {{ loading ? t('taskModal.saving') : t('taskModal.saveChanges') }}
+        {{ loading ? t('common.saving') : t('taskModal.saveChanges') }}
       </button>
     </template>
   </Modal>

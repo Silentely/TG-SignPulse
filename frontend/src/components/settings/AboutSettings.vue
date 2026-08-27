@@ -91,7 +91,7 @@ const formatMemoryRss = () => {
           <span class="ml-1">{{ appVersion.python }}</span>
         </div>
       </div>
-      <p v-else-if="versionLoading" class="text-xs text-gray-500">{{ t('settings.processing') }}</p>
+      <p v-else-if="versionLoading" class="text-xs text-gray-500">{{ t('common.processing') }}</p>
 
       <!-- 运行时状态 -->
       <div v-if="runtimeStatus" class="p-3 border border-gray-200 dark:border-gray-800/60 bg-gray-50/50 dark:bg-white/[0.02] text-xs space-y-1.5">

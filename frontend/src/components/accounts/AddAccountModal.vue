@@ -474,14 +474,14 @@ onUnmounted(() => {
           @click="handleClose"
           class="ui-btn-secondary !border-transparent !bg-transparent !px-5 !py-2"
         >
-          {{ t('addAccount.cancel') }}
+          {{ t('common.cancel') }}
         </button>
         <button 
           @click="handleSave"
           :disabled="loading"
           class="ui-btn-primary !px-5 !py-2"
         >
-          {{ loading ? t('addAccount.processing') : t('addAccount.confirmSave') }}
+          {{ loading ? t('common.processing') : t('addAccount.confirmSave') }}
         </button>
       </div>
     </template>

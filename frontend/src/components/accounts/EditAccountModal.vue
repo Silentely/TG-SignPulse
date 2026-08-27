@@ -116,7 +116,7 @@ const handleSave = async () => {
         class="ui-btn-secondary !border-transparent !bg-transparent !px-4 !py-2"
         @click="$emit('close')"
       >
-        {{ t('editAccount.cancel') }}
+        {{ t('common.cancel') }}
       </button>
       <button 
         type="button"
