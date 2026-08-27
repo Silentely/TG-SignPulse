@@ -9,6 +9,7 @@ import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
 import { useAuthStore } from '../../stores/auth'
 import { getLocalizedErrorMessage } from '../../lib/types'
+import { useLatestResponseGuard } from '../../lib/latest-response'
 import { devLog } from '../../lib/devLog'
 
 const { t } = useI18n()
@@ -98,21 +99,39 @@ const revokeQrUrl = () => {
   }
 }
 
+/** TOTP 检查响应守卫：快速关开弹窗时丢弃先发的过期响应，
+ * 避免旧二维码/旧 pending secret 覆盖最新状态（扫旧码启用必失败） */
+const totpGuard = useLatestResponseGuard()
+
 const checkTOTP = async () => {
+  const seq = totpGuard.next()
   revokeQrUrl()
   qrLoadFailed.value = false
   const token = getAuthToken()
   if (!token) return
   try {
     const res = await getTOTPStatus(token)
+    if (!totpGuard.isCurrent(seq)) return
     totpEnabled.value = res.enabled
     if (!res.enabled) {
       // Must call setup first to generate a pending secret, then fetch QR
       const setupRes = await setupTOTP(token)
+      if (!totpGuard.isCurrent(seq)) return
       totpSecret.value = setupRes.secret || ''
-      qrUrl.value = await fetchTOTPQRCode(token)
+      const url = await fetchTOTPQRCode(token)
+      if (!totpGuard.isCurrent(seq)) {
+        // 过期响应的 blob URL 立即回收，防泄漏
+        try {
+          URL.revokeObjectURL(url)
+        } catch {
+          /* ignore */
+        }
+        return
+      }
+      qrUrl.value = url
     }
   } catch (e) {
+    if (!totpGuard.isCurrent(seq)) return
     devLog.error('Failed to get TOTP status', e)
     qrLoadFailed.value = true
   }
@@ -122,7 +141,8 @@ watch(() => props.isOpen, (val) => {
   if (val) {
     checkTOTP()
   } else {
-    // reset state
+    // 关闭时使在途 TOTP 响应失效，并重置状态
+    totpGuard.invalidate()
     revokeQrUrl()
     totpCode.value = ''
     totpSecret.value = ''
@@ -177,7 +197,10 @@ const handleLogout = () => {
   router.push('/login')
 }
 
-onUnmounted(revokeQrUrl)
+onUnmounted(() => {
+  totpGuard.invalidate()
+  revokeQrUrl()
+})
 </script>
 
 <template>
