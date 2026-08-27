@@ -262,6 +262,44 @@ class TestOpsApi:
         assert "recommended_paths" in body
         assert isinstance(body["entries"], list)
 
+    def test_backup_status_tolerates_ghost_backup_file(self, client, db_session, monkeypatch):
+        """glob 与 stat 之间备份文件被并发删除时接口不 500，跳过该文件。"""
+        from pathlib import Path as _Path
+
+        from backend.core.config import get_settings
+
+        backup_dir = _Path(get_settings().resolve_base_dir()) / "backups"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+
+        real_glob = _Path.glob
+
+        def fake_glob(self, pattern):
+            if pattern == "auto-*.tar.gz":
+                # 返回一个从未落盘的“幽灵”文件：stat 时必抛 FileNotFoundError
+                return iter([self / "auto-ghost.tar.gz"])
+            return real_glob(self, pattern)
+
+        monkeypatch.setattr(_Path, "glob", fake_glob)
+        resp = client.get("/api/ops/backup/status", headers=_auth_headers())
+        assert resp.status_code == 200
+        names = [f["name"] for f in resp.json().get("local_auto_backups", [])]
+        assert "auto-ghost.tar.gz" not in names
+
+    def test_dir_size_cached_reuses_within_ttl(self, tmp_path):
+        """全量目录大小统计走 TTL 缓存：TTL 内不重扫，过期后重新统计。"""
+        from backend.api.routes import ops as ops_mod
+
+        ops_mod._dir_size_cache.clear()
+        (tmp_path / "a.bin").write_bytes(b"x" * 10)
+        assert ops_mod._dir_size_cached(tmp_path) == 10
+        (tmp_path / "b.bin").write_bytes(b"y" * 5)
+        assert ops_mod._dir_size_cached(tmp_path) == 10, "TTL 内应返回缓存值"
+        key = str(tmp_path)
+        ts, _ = ops_mod._dir_size_cache[key]
+        ops_mod._dir_size_cache[key] = (ts - 9999, 10)
+        assert ops_mod._dir_size_cached(tmp_path) == 15
+        ops_mod._dir_size_cache.clear()
+
     def test_memory_stats(self, client, db_session):
         resp = client.get("/api/ops/memory", headers=_auth_headers())
         assert resp.status_code == 200
