@@ -104,7 +104,7 @@ const formatBytes = (n?: number | null) => {
           :disabled="dataLoading"
           @click="emit('export-json')"
         >
-          {{ dataLoading ? t('settings.processing') : t('settings.exportJson') }}
+          {{ dataLoading ? t('common.processing') : t('settings.exportJson') }}
         </button>
         <div class="relative flex-1">
           <input
@@ -164,7 +164,7 @@ const formatBytes = (n?: number | null) => {
           :disabled="backupLoading"
           @click="emit('backup-export')"
         >
-          {{ backupLoading ? t('settings.processing') : t('settings.exportBackupWebdav') }}
+          {{ backupLoading ? t('common.processing') : t('settings.exportBackupWebdav') }}
         </button>
         <button
           type="button"
@@ -180,7 +180,7 @@ const formatBytes = (n?: number | null) => {
           :disabled="webdavListLoading || advancedLoading"
           @click="emit('webdav-list')"
         >
-          {{ webdavListLoading ? t('settings.processing') : t('settings.webdavListRemote') }}
+          {{ webdavListLoading ? t('common.processing') : t('settings.webdavListRemote') }}
         </button>
       </div>
       <div v-if="remoteFiles.length || remoteMessage" class="text-xs space-y-1.5">
@@ -203,7 +203,7 @@ const formatBytes = (n?: number | null) => {
               :disabled="remoteDownloadName === f.name"
               @click="emit('webdav-download', f.name)"
             >
-              {{ remoteDownloadName === f.name ? t('settings.processing') : t('settings.webdavDownload') }}
+              {{ remoteDownloadName === f.name ? t('common.processing') : t('settings.webdavDownload') }}
             </button>
           </li>
         </ul>
@@ -239,7 +239,7 @@ const formatBytes = (n?: number | null) => {
           </div>
         </div>
         <button type="button" class="ui-btn-secondary w-full !py-2 !text-xs" :disabled="advancedLoading" @click="emit('save-advanced')">
-          {{ advancedLoading ? t('settings.saving') : t('settings.saveBackupSettings') }}
+          {{ advancedLoading ? t('common.saving') : t('settings.saveBackupSettings') }}
         </button>
       </div>
       <div v-if="backupStatus" class="text-xs text-gray-500 space-y-1">

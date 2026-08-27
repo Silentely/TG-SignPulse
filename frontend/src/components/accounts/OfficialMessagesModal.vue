@@ -67,7 +67,7 @@ watch(
           @click="loadMessages"
         >
           <RefreshCw class="w-3 h-3" :class="loading ? 'animate-spin' : ''" />
-          {{ t('accounts.refresh') }}
+          {{ t('common.refresh') }}
         </button>
       </div>
 

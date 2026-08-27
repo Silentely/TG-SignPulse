@@ -270,7 +270,7 @@ onUnmounted(revokeQrUrl)
           :disabled="loading || !totpCode"
           class="w-full px-4 py-2 text-sm text-rose-600 dark:text-rose-500 bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-800/50 hover:bg-rose-100 dark:hover:bg-rose-500/20 transition-colors disabled:opacity-50"
         >
-          {{ loading ? t('settings.processing') : t('profile.disableTotp') }}
+          {{ loading ? t('common.processing') : t('profile.disableTotp') }}
         </button>
       </div>
 

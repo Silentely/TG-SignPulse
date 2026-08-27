@@ -147,7 +147,7 @@ const onSettingsSelectChange = (key: keyof SettingsFormState, e: Event) => {
         </div>
       </div>
       <div class="pt-2">
-        <button type="button" class="ui-btn-primary w-full py-2.5" :disabled="aiLoading" @click="emit('save-ai')">{{ aiLoading ? t('settings.saving') : t('settings.saveAiConfig') }}</button>
+        <button type="button" class="ui-btn-primary w-full py-2.5" :disabled="aiLoading" @click="emit('save-ai')">{{ aiLoading ? t('common.saving') : t('settings.saveAiConfig') }}</button>
       </div>
     </div>
   </section>

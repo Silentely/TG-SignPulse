@@ -85,7 +85,7 @@ const {
         :disabled="saveAllLoading || loading || botLoading || advancedLoading || tgLoading || aiLoading"
         @click="saveAllSettings"
       >
-        {{ saveAllLoading ? t('settings.saving') : t('settings.saveAll') }}
+        {{ saveAllLoading ? t('common.saving') : t('settings.saveAll') }}
       </button>
     </div>
     <div v-if="pageLoading" class="grid grid-cols-1 lg:grid-cols-2 gap-6" aria-busy="true">

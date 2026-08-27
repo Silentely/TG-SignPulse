@@ -79,7 +79,7 @@ const onInput = (key: keyof TgFormState, e: Event) => {
         </p>
       </div>
       <div class="pt-2">
-        <button type="button" class="ui-btn-primary w-full py-2.5" :disabled="loading || !modelValue.api_id || !modelValue.api_hash" @click="emit('save')">{{ loading ? t('settings.saving') : t('settings.saveTgConfig') }}</button>
+        <button type="button" class="ui-btn-primary w-full py-2.5" :disabled="loading || !modelValue.api_id || !modelValue.api_hash" @click="emit('save')">{{ loading ? t('common.saving') : t('settings.saveTgConfig') }}</button>
       </div>
     </div>
   </section>
