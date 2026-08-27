@@ -212,6 +212,29 @@ describe('useTaskListRuntime (poll + cancel)', () => {
     unmount()
   })
 
+  it('runCardProps 聚合运行态：有运行任务出徽标，无运行任务共享空视图', async () => {
+    const { result, tasksRef, unmount } = setup()
+    await result.afterTasksLoaded()
+
+    const running = result.runCardProps(tasksRef.value[0])
+    expect(running.taskActiveRun?.run_id).toBe('r1')
+    expect(running.taskActiveRuns.length).toBe(1)
+    expect(running.activeRunBadgeText).not.toBe('')
+    expect(running.activeRunTooltip).toContain('acc1')
+
+    const idle = result.runCardProps(tasksRef.value[1])
+    expect(idle.taskActiveRun).toBeNull()
+    expect(idle.taskActiveRuns).toEqual([])
+    expect(idle.activeRunBadgeText).toBe('')
+    // 无运行任务共享同一空视图引用：props 浅比较稳定，子组件不随秒针重渲染
+    expect(result.runCardProps(tasksRef.value[1]).taskActiveRuns).toBe(idle.taskActiveRuns)
+
+    await result.loadAccountStatusMap()
+    expect(result.runCardProps(tasksRef.value[1]).hasInvalidAccount).toBe(true)
+    expect(result.runCardProps(tasksRef.value[0]).hasInvalidAccount).toBe(false)
+    unmount()
+  })
+
   it('handleCancelRun success refreshes runs', async () => {
     api.listActiveSignTaskRuns.mockResolvedValue({ runs: [] })
     const { result, tasksRef, unmount } = setup()
