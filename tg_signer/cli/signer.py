@@ -76,16 +76,21 @@ def _session_invalid_hint(exc: Exception) -> Optional[str]:
 
 
 async def _run_signers_isolated(signer_entries: list[tuple[str, UserSigner, int]]) -> None:
-    failures: list[tuple[str, Exception]] = []
+    # 并发执行：定时任务的 run 是常驻循环，串行 await 会让后续任务永远轮不到；
+    # return_exceptions 保持原有失败隔离语义（一个失败不影响其他任务）
+    results = await asyncio.gather(
+        *(signer.run(num_of_dialogs) for _, signer, num_of_dialogs in signer_entries),
+        return_exceptions=True,
+    )
 
-    for label, signer, num_of_dialogs in signer_entries:
-        try:
-            await signer.run(num_of_dialogs)
-        except Exception as exc:
-            failures.append((label, exc))
-            logging.getLogger("tg-signer").exception(
+    failures: list[tuple[str, Exception]] = []
+    for (label, _, _), result in zip(signer_entries, results, strict=True):
+        if isinstance(result, Exception):
+            failures.append((label, result))
+            logging.getLogger("tg-signer").error(
                 "Signer task failed: %s",
                 label,
+                exc_info=result,
             )
 
     if failures:
@@ -214,7 +219,7 @@ def tg_signer(
     ]:
         if proxy:
             logger.info(
-                "Using proxy: %s://%s:%s",
+                "使用代理: %s://%s:%s",
                 proxy["scheme"],
                 proxy["hostname"],
                 proxy["port"],
