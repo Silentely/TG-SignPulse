@@ -322,7 +322,7 @@ class SignerRunnerMixin:
         if config.requires_ai:
             self.ensure_ai_cfg()
         if not config.chats:
-            raise RuntimeError("Task config has no chats to execute")
+            raise RuntimeError("任务没有配置任何会话")
 
         sign_record = self.load_sign_record()
         chat_ids = [c.chat_id for c in config.chats]

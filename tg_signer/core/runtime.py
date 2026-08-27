@@ -391,7 +391,7 @@ class BaseUserWorker(Generic[ConfigT]):
         emoji = emoji.strip()
         if emoji not in DICE_EMOJIS:
             self.log(
-                f"Warning, emoji should be one of {', '.join(DICE_EMOJIS)}",
+                f"骰子表情不合法，应为以下之一: {', '.join(DICE_EMOJIS)}",
                 level="WARNING",
             )
         message = await self._call_with_retry(
