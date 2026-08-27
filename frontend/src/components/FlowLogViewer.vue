@@ -77,8 +77,11 @@ const copyLogs = async () => {
     await navigator.clipboard.writeText(text)
     copied.value = true
     toast.success(t('logs.copied'))
+    // 重入时先清旧定时器：否则上一次复制到点会把本次的对勾提前复位
+    if (copiedTimer !== undefined) window.clearTimeout(copiedTimer)
     copiedTimer = window.setTimeout(() => {
       copied.value = false
+      copiedTimer = undefined
     }, 1500)
   } catch {
     toast.error(t('logs.copyFailed'))
