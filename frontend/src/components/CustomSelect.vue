@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch, nextTick, useId } from 'vue'
 import { ChevronDown, Check } from 'lucide-vue-next'
 import { useI18n } from '../composables/useI18n'
 
@@ -24,6 +24,16 @@ const dropdownStyle = ref<Record<string, string>>({})
 const selectableOptions = computed(() =>
   props.options.filter((o) => !o.disabled)
 )
+
+// listbox 关联 id：触发按钮焦点不动、方向键漫游时，
+// 靠 aria-activedescendant 让读屏播报当前高亮项
+const uid = useId()
+const listboxId = `${uid}-listbox`
+const optionId = (v: string | number) => `${uid}-opt-${String(v).replace(/[^\w-]/g, '_')}`
+const activeDescendant = computed(() => {
+  const opt = selectableOptions.value[activeIndex.value]
+  return opt ? optionId(opt.value) : undefined
+})
 
 const toggle = () => {
   if (props.disabled) return
@@ -156,6 +166,8 @@ const hasValue = computed(() => {
       :aria-label="ariaLabel || placeholder || t('common.selectPlaceholder')"
       :aria-expanded="isOpen"
       aria-haspopup="listbox"
+      :aria-controls="isOpen ? listboxId : undefined"
+      :aria-activedescendant="isOpen ? activeDescendant : undefined"
       @click="toggle"
       @keydown="onKeydown"
     >
@@ -167,6 +179,7 @@ const hasValue = computed(() => {
       <Transition name="dropdown">
         <div
           v-if="isOpen"
+          :id="listboxId"
           ref="dropdownRef"
           role="listbox"
           :style="dropdownStyle"
@@ -174,6 +187,7 @@ const hasValue = computed(() => {
         >
           <button
             v-for="opt in options"
+            :id="optionId(opt.value)"
             :key="String(opt.value)"
             type="button"
             role="option"
