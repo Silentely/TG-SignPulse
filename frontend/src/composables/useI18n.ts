@@ -1,5 +1,6 @@
 import { computed } from 'vue'
 import { useI18n as vueUseI18n } from 'vue-i18n'
+import { storageSet } from '../lib/safe-storage'
 
 /**
  * 项目级 i18n 包装器，保持与 vue-i18n 的桥接兼容。
@@ -14,14 +15,14 @@ export function useI18n() {
     get: () => locale.value === 'zh-CN' ? 'zh' : 'en',
     set: (val: string) => {
       locale.value = val === 'en' ? 'en-US' : 'zh-CN'
-      localStorage.setItem('tg-signer-locale', val)
+      storageSet('tg-signer-locale', val)
     },
   })
 
   const toggleLanguage = () => {
     const newLocale = locale.value === 'zh-CN' ? 'en-US' : 'zh-CN'
     locale.value = newLocale
-    localStorage.setItem('tg-signer-locale', newLocale === 'zh-CN' ? 'zh' : 'en')
+    storageSet('tg-signer-locale', newLocale === 'zh-CN' ? 'zh' : 'en')
   }
 
   // 包装 vue-i18n 的 t 函数，支持嵌套 key 与命名插值
