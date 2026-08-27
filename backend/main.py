@@ -494,7 +494,9 @@ async def _memory_monitor_loop() -> None:
     try:
         while True:
             try:
-                monitor.check()
+                # check 内含 psutil 系统调用，超阈值还会全量 gc.collect()，
+                # 挪到线程池执行，避免 GC 长暂停波及事件循环上的请求与 SSE
+                await asyncio.to_thread(monitor.check)
             except Exception:
                 # 内存检查可能因 psutil 系统调用瞬时失败；保留宽捕获确保监控循环不退出
                 logger.exception("内存检查失败")
