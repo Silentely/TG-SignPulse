@@ -324,14 +324,14 @@ onUnmounted(() => {
 <template>
   <Modal :isOpen="isOpen" @close="handleClose" :title="loginMethod === 'code' ? t('addAccount.codeTitle') : t('addAccount.qrTitle')">
     <div class="space-y-4 pb-2">
-      <!-- 登录方式分段切换 -->
-      <div class="ui-segment" role="tablist" :aria-label="t('addAccount.loginMethod')">
+      <!-- 登录方式分段切换：普通开关按钮组（aria-pressed），
+           不用 tablist/tab 角色——tabs 语义承诺方向键漫游与 tabpanel 关联，本组件未实现 -->
+      <div class="ui-segment" role="group" :aria-label="t('addAccount.loginMethod')">
         <button
           type="button"
-          role="tab"
           class="ui-segment-btn"
           :class="loginMethod === 'code' ? 'ui-segment-btn-active' : ''"
-          :aria-selected="loginMethod === 'code'"
+          :aria-pressed="loginMethod === 'code'"
           @click="loginMethod = 'code'"
         >
           <Phone class="w-3.5 h-3.5" />
@@ -339,10 +339,9 @@ onUnmounted(() => {
         </button>
         <button
           type="button"
-          role="tab"
           class="ui-segment-btn"
           :class="loginMethod === 'qr' ? 'ui-segment-btn-active' : ''"
-          :aria-selected="loginMethod === 'qr'"
+          :aria-pressed="loginMethod === 'qr'"
           @click="loginMethod = 'qr'"
         >
           <QrCode class="w-3.5 h-3.5" />
