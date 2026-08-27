@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { storageGet, storageSet } from '../lib/safe-storage'
 
 // 主题色常量与 index.html / PWA manifest 保持一致
 const LIGHT_THEME_COLOR = '#ffffff'
@@ -10,7 +11,9 @@ const applyThemeColor = (dark: boolean) => {
   if (meta) meta.content = dark ? DARK_THEME_COLOR : LIGHT_THEME_COLOR
 }
 
-const initDark = localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)
+// 存储不可用时按「未设置」处理，回退系统偏好
+const savedTheme = storageGet('theme')
+const initDark = savedTheme === 'dark' || (savedTheme === null && window.matchMedia('(prefers-color-scheme: dark)').matches)
 const isDark = ref(initDark)
 
 if (initDark) {
@@ -66,10 +69,10 @@ export const useTheme = () => {
   const updateDOM = () => {
     if (isDark.value) {
       document.documentElement.classList.add('dark')
-      localStorage.theme = 'dark'
+      storageSet('theme', 'dark')
     } else {
       document.documentElement.classList.remove('dark')
-      localStorage.theme = 'light'
+      storageSet('theme', 'light')
     }
     applyThemeColor(isDark.value)
   }

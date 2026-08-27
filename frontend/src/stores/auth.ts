@@ -1,21 +1,22 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { storageGet, storageRemove, storageSet } from '../lib/safe-storage'
 
 const TOKEN_KEY = 'tg-signer-token'
 
 export const useAuthStore = defineStore('auth', () => {
-  const token = ref<string | null>(localStorage.getItem(TOKEN_KEY))
+  const token = ref<string | null>(storageGet(TOKEN_KEY))
 
   const isAuthenticated = computed(() => !!token.value)
 
   function setToken(newToken: string) {
     token.value = newToken
-    localStorage.setItem(TOKEN_KEY, newToken)
+    storageSet(TOKEN_KEY, newToken)
   }
 
   function clearToken() {
     token.value = null
-    localStorage.removeItem(TOKEN_KEY)
+    storageRemove(TOKEN_KEY)
   }
 
   function logout() {
