@@ -19,6 +19,9 @@ import {
 import { useI18n } from './useI18n'
 
 const POLL_INTERVAL_MS = 1500
+// WS 实时日志行上限：长时运行任务只增不减会攒数千行字符串+DOM 节点；
+// 截尾与轮询降级分支（整体替换、天然有界）的语义对齐
+const MAX_REALTIME_LOG_LINES = 1000
 
 export function useTaskRunStream(options: {
   taskName: ComputedRef<string>
@@ -149,6 +152,8 @@ export function useTaskRunStream(options: {
         applyStatusPayload(msg)
         if (msg.type === 'logs' && Array.isArray(msg.data)) {
           realtimeLogs.value.push(...msg.data)
+          const overflow = realtimeLogs.value.length - MAX_REALTIME_LOG_LINES
+          if (overflow > 0) realtimeLogs.value.splice(0, overflow)
           isRunning.value = msg.is_running !== false
           scrollLogToBottom()
         } else if (msg.type === 'status') {

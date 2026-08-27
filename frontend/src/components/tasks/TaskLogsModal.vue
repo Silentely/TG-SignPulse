@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, onUnmounted } from 'vue'
 import { Download, RefreshCw } from 'lucide-vue-next'
 import Modal from '../Modal.vue'
 import TaskLogsHitsPanel from './TaskLogsHitsPanel.vue'
@@ -186,6 +186,14 @@ watch(panelTab, (tab) => {
   } else {
     clearHitsAutoRefresh()
   }
+})
+
+// 弹窗常驻挂载（无 v-if）：开着弹窗切走路由时组件直接卸载，
+// 必须主动停 WS 与命中轮询，否则连接与定时器泄漏到页面关闭
+onUnmounted(() => {
+  logsGuard.invalidate()
+  resetHitsState()
+  disconnectWebSocket()
 })
 
 const formatDate = (dateStr: string) => formatShortDateTime(dateStr, true)

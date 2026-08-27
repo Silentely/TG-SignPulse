@@ -124,6 +124,25 @@ describe('useTaskRunStream', () => {
     expect(stream.liveState.value).toBe('finished')
   })
 
+  it('WS 日志行超出上限时截尾，保持有界', async () => {
+    const stream = setup('acc-a')
+    stream.connect()
+    const ws = MockWebSocket.instances[0]
+    // 分多帧推入 1200 行，超出 1000 上限
+    for (let i = 0; i < 6; i++) {
+      ws.emitMessage({
+        type: 'logs',
+        data: Array.from({ length: 200 }, (_, j) => `L${i * 200 + j}`),
+        is_running: true,
+      })
+    }
+    await nextTick()
+    expect(stream.realtimeLogs.value.length).toBe(1000)
+    // 保留最新尾部
+    expect(stream.realtimeLogs.value[0]).toBe('L200')
+    expect(stream.realtimeLogs.value[999]).toBe('L1199')
+  })
+
   it('disconnect closes socket and clears live phase', () => {
     const stream = setup('acc-a')
     stream.connect()
