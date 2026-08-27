@@ -78,6 +78,9 @@ async def get_avatar_bytes(
         # 先写临时文件再 rename，避免并发读/写缓存时读到半截文件
         import tempfile
 
+        # mkstemp 本身失败（如目录不存在）时 tmp_name 未赋值，
+        # 清理分支判空再删，避免 NameError 掩盖原始 OSError
+        tmp_name: str | None = None
         try:
             fd, tmp_name = tempfile.mkstemp(
                 prefix=".avatar_", suffix=".tmp", dir=str(cache_file.parent)
@@ -86,10 +89,11 @@ async def get_avatar_bytes(
                 tmp.write(avatar_bytes)
             os.replace(tmp_name, cache_file)
         except OSError:
-            try:
-                os.unlink(tmp_name)
-            except OSError:
-                pass
+            if tmp_name is not None:
+                try:
+                    os.unlink(tmp_name)
+                except OSError:
+                    pass
             raise
         try:
             no_avatar_marker.unlink(missing_ok=True)
