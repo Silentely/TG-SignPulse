@@ -3,6 +3,7 @@
  * 数据管理区块：配置 JSON 导入/导出、WebDAV 完整备份、自动备份开关、远程备份列表。
  * 父组件 Settings.vue 持有表单状态并实现 API 调用；本组件仅负责 UI 与事件转发。
  */
+import { ref } from 'vue'
 import { Database } from 'lucide-vue-next'
 import { useI18n } from '../../composables/useI18n'
 import { parseNumberInputValue, type SettingsFormState } from '../../lib/settings-form'
@@ -59,6 +60,9 @@ const onNumberInput = (key: keyof SettingsFormState, e: Event) => {
   update(key, parseNumberInputValue(v) as never)
 }
 
+/** 隐藏的文件输入：键盘/读屏用户通过下方按钮触发文件选择 */
+const importFileRef = ref<HTMLInputElement | null>(null)
+
 const onFileChange = (e: Event) => {
   const target = e.target as HTMLInputElement
   if (target.files && target.files[0]) {
@@ -107,10 +111,13 @@ const formatBytes = (n?: number | null) => {
           {{ dataLoading ? t('common.processing') : t('settings.exportJson') }}
         </button>
         <div class="relative flex-1">
+          <!-- 透明覆盖层改按钮触发：覆盖层下的 input 无焦点环，
+               键盘 Tab 会停在不可见控件上；改为按钮代理点击 -->
           <input
+            ref="importFileRef"
             type="file"
             accept="application/json,.json"
-            class="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
+            class="hidden"
             :disabled="dataLoading"
             @change="onFileChange"
           />
@@ -118,6 +125,7 @@ const formatBytes = (n?: number | null) => {
             type="button"
             class="ui-btn-secondary w-full !px-4 !py-2"
             :disabled="dataLoading"
+            @click="importFileRef?.click()"
           >
             {{ t('settings.importJson') }}
           </button>
