@@ -38,6 +38,23 @@ def test_failure_key_isolated(caplog):
     assert [r.levelno for r in records] == [logging.ERROR, logging.ERROR]
 
 
+def test_success_resets_fail_count(caplog):
+    """成功后失败计数重置：恢复后的新失败重新打 ERROR+堆栈。"""
+    sync_helpers._fail_counts.clear()
+    with caplog.at_level(logging.DEBUG, logger="backend.sync_helpers"):
+        sync_helpers._log_failure("k", "同步失败", RuntimeError("boom1"))
+        sync_helpers._log_failure("k", "同步失败", RuntimeError("boom2"))
+        sync_helpers._reset_fail_count("k")
+        sync_helpers._log_failure("k", "同步失败", RuntimeError("boom3"))
+    records = [r for r in caplog.records if r.name == "backend.sync_helpers"]
+    assert [r.levelno for r in records] == [
+        logging.ERROR,
+        logging.WARNING,
+        logging.ERROR,
+    ]
+    assert records[2].exc_info is not None, "恢复后的新失败应重新携带堆栈"
+
+
 def test_sync_jobs_failure_does_not_block_restart():
     """sync_jobs 失败后仍继续重启监控，两者相互独立。"""
     calls: list[str] = []
