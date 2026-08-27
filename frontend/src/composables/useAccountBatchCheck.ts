@@ -120,7 +120,7 @@ export function useAccountBatchCheck(options: {
       const failedPreview = (job.results || [])
         .filter((item) => !item.ok)
         .slice(0, 5)
-        .map((item) => `${item.account_name}: ${item.message || item.code || t('accounts.loginExpired')}`)
+        .map((item) => `${item.account_name}: ${item.message || item.code || t('accounts.loginExpiredAction')}`)
         .join('\n')
       toast.warning(t('accounts.batchCheckDone'), {
         description: `${t('accounts.checkOkCount')}: ${ok} · ${t('accounts.checkFailedCount')}: ${failed}\n${failedPreview}`,
@@ -201,7 +201,7 @@ export function useAccountBatchCheck(options: {
         if (result.ok) {
           toast.success(`${name}: ${t('accounts.checkOk')}`)
         } else {
-          toast.error(`${name}: ${result.message || t('accounts.loginExpired')}`)
+          toast.error(`${name}: ${result.message || t('accounts.loginExpiredAction')}`)
         }
       }
     } catch (e: unknown) {
@@ -277,7 +277,7 @@ export function useAccountBatchCheck(options: {
           ? res.results
               .filter((item) => !item.ok)
               .slice(0, 5)
-              .map((item) => `${item.account_name}: ${item.message || item.code || t('accounts.loginExpired')}`)
+              .map((item) => `${item.account_name}: ${item.message || item.code || t('accounts.loginExpiredAction')}`)
               .join('\n')
           : undefined
         toast.warning(t('accounts.batchCheckDone'), {
