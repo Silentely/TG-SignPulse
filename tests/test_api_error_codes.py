@@ -97,7 +97,7 @@ class TestSignTaskErrorCodes:
         assert "update exploded" not in str(body)
 
     def test_clone_value_error_keeps_business_detail(self, client, db_session):
-        """业务校验 ValueError 保持 400 语义（不码化，信息有排障价值）。"""
+        """业务校验 ValueError 与其他端点统一 422（不码化，信息有排障价值）。"""
         svc = MagicMock()
         svc.clone_task.side_effect = ValueError("目标任务名已存在")
         with patch(
@@ -109,7 +109,7 @@ class TestSignTaskErrorCodes:
                 json={"new_name": "dup"},
                 headers=_auth_headers(),
             )
-        assert resp.status_code == 400
+        assert resp.status_code == 422
         assert "已存在" in resp.json()["detail"]
 
 

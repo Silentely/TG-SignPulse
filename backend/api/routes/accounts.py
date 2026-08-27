@@ -424,7 +424,7 @@ def get_account_status_check_job(
 
     job = get_account_status_job(job_id)
     if not job:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job 不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="JOB_NOT_FOUND")
     return job
 
 
@@ -438,7 +438,7 @@ def cancel_account_status_check_job(
     if not cancel_account_status_job(job_id):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="无法取消（不存在或已结束）",
+            detail="JOB_NOT_CANCELABLE",
         )
     return {"ok": True, "job_id": job_id}
 

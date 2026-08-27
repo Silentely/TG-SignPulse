@@ -452,7 +452,7 @@ class TestCloneSignTask:
             json={"new_name": "dup_dst"},
             headers=_auth_headers(),
         )
-        assert resp.status_code == 400
+        assert resp.status_code == 422
         assert "已存在" in resp.json().get("detail", "")
 
     def test_clone_missing_source(self, client, db_session):
@@ -461,7 +461,7 @@ class TestCloneSignTask:
             json={"new_name": "x"},
             headers=_auth_headers(),
         )
-        assert resp.status_code == 400
+        assert resp.status_code == 422
 
     def test_notify_on_success_roundtrip(self, client, db_session, isolated_env):
         """创建时写入 notify_on_success，更新后可读回。"""
