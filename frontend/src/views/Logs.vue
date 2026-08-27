@@ -106,12 +106,21 @@ const {
         </template>
         <DatePicker v-model="filterDate" />
       </div>
-      <!-- 激活筛选 chip：失败分类 / 任务名 / 日期 可一键清 -->
+      <!-- 激活筛选 chip：失败分类 / 状态 / 账号 / 任务名 / 日期 可一键清 -->
       <div
-        v-if="activeTab === 'tasks' && (filterCategory || filterTask.trim() || filterStatus === 'error' || filterDate)"
+        v-if="activeTab === 'tasks' && (filterCategory || filterTask.trim() || filterStatus === 'error' || filterAccount || filterDate)"
         class="flex flex-wrap items-center gap-1.5 pt-0.5 border-t border-gray-100 dark:border-gray-800/50"
       >
         <span class="text-[10px] text-gray-400 shrink-0">{{ t('common.activeFilters') }}</span>
+        <button
+          v-if="filterAccount"
+          type="button"
+          class="inline-flex items-center gap-1 max-w-[12rem] px-2 py-0.5 rounded-sm text-[11px] bg-sky-50 text-sky-800 border border-sky-100 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800/50"
+          @click="filterAccount = ''"
+        >
+          <span class="truncate">{{ t('logs.colAccount') }}: {{ filterAccount }}</span>
+          <X class="w-3 h-3 shrink-0 opacity-70" />
+        </button>
         <button
           v-if="filterCategory"
           type="button"
