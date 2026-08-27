@@ -14,7 +14,7 @@ import type { TargetChatDraft } from './TaskFormTargetSection.vue'
 import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
 import type { TaskActionItem, RawTaskAction } from '../../lib/types'
-import { getLocalizedErrorMessage } from '../../lib/types'
+import { getErrorCode, getLocalizedErrorMessage } from '../../lib/types'
 import { notifyApiError } from '../../lib/notify'
 import { parseActions as parseActionsUtil, nextActionId } from '../../lib/task-form-utils'
 import { buildTaskFormPayload } from '../../lib/task-form-payload'
@@ -226,8 +226,8 @@ const loadChats = async (n: string, forceRefresh: boolean = false) => {
     availableChats.value = result || []
   } catch (e: unknown) {
     if (controller.signal.aborted) return
-    const msg = getLocalizedErrorMessage(e, t)
-    if (msg.includes('登录已失效') || msg.includes('session') || msg.includes('Session')) {
+    // 按后端稳定错误码判定会话失效，不按本地化文案匹配（英文界面中文子串永不命中）
+    if (getErrorCode(e) === 'ACCOUNT_SESSION_INVALID') {
       chatListError.value = t('taskForm.sessionInvalid')
     } else {
       chatListError.value = t('taskForm.loadFailed')

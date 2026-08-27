@@ -3,7 +3,7 @@
  * 任务表单：目标会话选择 / 多目标 Tab / 批量勾选。
  */
 import { ref } from 'vue'
-import { RefreshCw } from 'lucide-vue-next'
+import { AlertTriangle, RefreshCw } from 'lucide-vue-next'
 import CustomSelect from '../CustomSelect.vue'
 import type { ChatInfo } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
@@ -177,7 +177,10 @@ const onChatIdUpdate = (id: number) => {
           ]"
           @update:model-value="onChatIdUpdate($event as number)"
         />
-        <p v-if="chatListError" class="text-xs text-amber-600 dark:text-amber-400 mt-1">{{ chatListError }}</p>
+        <p v-if="chatListError" class="text-xs text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
+          <AlertTriangle class="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+          <span>{{ chatListError }}</span>
+        </p>
       </div>
       <div class="space-y-1.5 relative">
         <label class="ui-label" id="task-form-search-chat-label" for="task-form-search-chat">{{ t('taskForm.searchChat') }}</label>
