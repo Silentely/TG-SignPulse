@@ -631,31 +631,13 @@ class SignTaskHistoryMixin:
         try:
             write_json_atomic(history_file, history)
 
-            # 同时更新任务配置中的 last_run
+            # 同时更新任务配置中的 last_run（统一走 _set_task_last_run_metadata，
+            # 消除 read-modify-write 双份实现与每次签到多一次的 get_task 读盘）
             from backend.services.sign_task_history_io import (
                 patch_tasks_cache_last_run,
-                resolve_task_config_dir,
             )
 
-            task = self.get_task(task_name, account_name)
-            if task:
-                task_dir = resolve_task_config_dir(
-                    self.signs_dir, account_name, task_name
-                )
-                config_file = task_dir / "config.json"
-                if config_file.exists():
-                    try:
-                        config = read_json_safe(config_file, default=None)
-                        if isinstance(config, dict):
-                            config["last_run"] = new_entry
-                            write_json_atomic(config_file, config)
-                    except (OSError, json.JSONDecodeError, TypeError, ValueError) as e:
-                        _logger.warning(
-                            "更新任务配置 last_run 失败 task=%s account=%s: %s",
-                            task_name,
-                            account_name,
-                            e,
-                        )
+            self._set_task_last_run_metadata(task_name, account_name, new_entry)
 
             # 更新内存缓存（避免置空 self._tasks_cache）
             patch_tasks_cache_last_run(
