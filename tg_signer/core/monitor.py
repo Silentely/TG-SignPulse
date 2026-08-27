@@ -26,6 +26,25 @@ from tg_signer.utils import UserInput, print_to_user
 
 logger = logging.getLogger("tg_signer.runtime.monitor")
 
+# HTTP 回调共享客户端：命中消息的转发回调是热路径，
+# 每次新建 AsyncClient 会重复 TCP+TLS 握手；按事件循环缓存复用连接池。
+_monitor_http_client: httpx.AsyncClient | None = None
+_monitor_http_loop: asyncio.AbstractEventLoop | None = None
+
+
+def _get_monitor_http_client() -> httpx.AsyncClient:
+    global _monitor_http_client, _monitor_http_loop
+    loop = asyncio.get_running_loop()
+    client = _monitor_http_client
+    if client is None or client.is_closed or _monitor_http_loop is not loop:
+        client = httpx.AsyncClient(
+            timeout=httpx.Timeout(10.0, connect=5.0),
+            limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
+        )
+        _monitor_http_client = client
+        _monitor_http_loop = loop
+    return client
+
 
 class UserMonitor(BaseUserWorker[MonitorConfig]):
     _workdir = ".monitor"
@@ -193,26 +212,24 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
         headers = dict(f.headers or {})
         headers.update({"Content-Type": "application/json"})
         content = str(message).encode("utf-8")
-        timeout = httpx.Timeout(10.0, connect=5.0)
-        limits = httpx.Limits(max_keepalive_connections=5, max_connections=10)
-        async with httpx.AsyncClient(timeout=timeout, limits=limits) as client:
-            last_error: Exception | None = None
-            for attempt in range(1, 4):
-                try:
-                    response = await client.post(
-                        str(f.url),
-                        content=content,
-                        headers=headers,
-                    )
-                    response.raise_for_status()
-                    return
-                except (httpx.TimeoutException, httpx.NetworkError, httpx.HTTPStatusError) as exc:
-                    last_error = exc
-                    if attempt >= 3:
-                        break
-                    await asyncio.sleep(compute_backoff(attempt, cap=4))
-            if last_error is not None:
-                raise last_error
+        client = _get_monitor_http_client()
+        last_error: Exception | None = None
+        for attempt in range(1, 4):
+            try:
+                response = await client.post(
+                    str(f.url),
+                    content=content,
+                    headers=headers,
+                )
+                response.raise_for_status()
+                return
+            except (httpx.TimeoutException, httpx.NetworkError, httpx.HTTPStatusError) as exc:
+                last_error = exc
+                if attempt >= 3:
+                    break
+                await asyncio.sleep(compute_backoff(attempt, cap=4))
+        if last_error is not None:
+            raise last_error
 
     async def forward_to_external(self, match_cfg: MatchConfig, message: Message):
         if not match_cfg.external_forwards:
@@ -299,7 +316,8 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                             body_lines.append(str(message.text or ""))
                             await sc_send(
                                 server_chan_send_key,
-                                f"🔔 关键词命中：{chat_title}",
+                                # 与面板推送路径同一标题格式；会话名见正文「会话」行
+                                "🔔 TG-SignPulse 关键词命中",
                                 "\n".join(body_lines),
                             )
                         except Exception as e:
