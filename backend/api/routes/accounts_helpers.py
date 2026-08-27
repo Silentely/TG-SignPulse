@@ -4,7 +4,10 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+
+logger = logging.getLogger("backend.accounts_helpers")
 
 
 def normalize_unique_account_names(
@@ -113,5 +116,7 @@ def qr_uri_to_data_url(qr_uri: str) -> Optional[str]:
         return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode(
             "utf-8"
         )
-    except Exception:
+    except Exception as exc:
+        # 渲染失败前端只得 qr_image=null 且无服务端线索；留 debug 便于排查
+        logger.debug("扫码登录二维码渲染失败: %s", exc, exc_info=True)
         return None
