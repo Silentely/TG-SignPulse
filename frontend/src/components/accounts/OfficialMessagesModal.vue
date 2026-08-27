@@ -44,7 +44,13 @@ const loadMessages = async () => {
 watch(
   () => props.isOpen,
   (open) => {
-    if (open) loadMessages()
+    if (open) {
+      loadMessages()
+    } else {
+      // 关闭时清空数据：换账号重开不应闪现上一账号的消息（与 DeviceManagerModal 对齐）
+      messages.value = []
+      error.value = ''
+    }
   }
 )
 </script>
@@ -71,7 +77,7 @@ watch(
         </button>
       </div>
 
-      <div v-if="error" class="ui-alert-error">
+      <div v-if="error" class="ui-alert-error" role="alert">
         {{ error }}
       </div>
 
