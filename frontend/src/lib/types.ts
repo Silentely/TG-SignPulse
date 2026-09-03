@@ -289,6 +289,21 @@ export function getErrorMessage(e: unknown, fallback = 'Unknown error'): string 
     if (typeof record.detail === 'string' && record.detail.trim()) {
       return truncateErrorMessage(record.detail.trim())
     }
+    if (Array.isArray(record.detail) && record.detail.length > 0) {
+      const msgs = record.detail
+        .map((item) => {
+          if (!item || typeof item !== 'object') return String(item || '')
+          const rec = item as Record<string, unknown>
+          const loc = Array.isArray(rec.loc) && rec.loc.length > 0 ? String(rec.loc[rec.loc.length - 1]) : ''
+          const prefix = loc ? (loc + ': ') : ''
+          const msg = typeof rec.msg === 'string' ? rec.msg.trim() : JSON.stringify(rec)
+          return prefix + msg
+        })
+        .filter(Boolean)
+      if (msgs.length > 0) {
+        return truncateErrorMessage(msgs.join('; '))
+      }
+    }
     try {
       const serialized = JSON.stringify(e)
       if (serialized && serialized !== '{}') {

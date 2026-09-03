@@ -51,6 +51,16 @@ describe('getErrorMessage', () => {
     expect(getErrorMessage({})).toBe('Unknown error')
   })
 
+  it('FastAPI 422 数组格式 detail 提取为可读文案', () => {
+    const error422 = {
+      detail: [
+        { loc: ['body', 'username'], msg: 'field required', type: 'value_error.missing' },
+        { loc: ['body', 'password'], msg: 'ensure this value has at least 6 characters' },
+      ],
+    }
+    expect(getErrorMessage(error422)).toBe('username: field required; password: ensure this value has at least 6 characters')
+  })
+
   it('null 返回默认英文回退', () => {
     expect(getErrorMessage(null)).toBe('Unknown error')
   })

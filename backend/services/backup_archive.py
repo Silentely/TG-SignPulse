@@ -183,11 +183,15 @@ def run_auto_backup(
     }
 
 
-def should_run_auto_backup(settings: dict) -> bool:
+def should_run_auto_backup(settings: Optional[dict]) -> bool:
+    if not isinstance(settings, dict):
+        return False
     return bool(settings.get("auto_backup_enabled"))
 
 
-def auto_backup_interval_hours(settings: dict) -> int:
+def auto_backup_interval_hours(settings: Optional[dict]) -> int:
+    if not isinstance(settings, dict):
+        return 24
     raw = settings.get("auto_backup_interval_hours")
     try:
         return max(1, min(int(raw if raw is not None else 24), 168))
