@@ -19,6 +19,8 @@ _MAX_LOGIN_SESSIONS = 50  # 每种登录 session 的最大数量
 
 async def _release_login_session(value: Any) -> None:
     """断开登录 session 中的客户端连接并释放锁"""
+    if not isinstance(value, dict):
+        return
     client = value.get("client")
     if client:
         try:

@@ -67,6 +67,8 @@ class SignerMatchersMixin:
 
 
     def _describe_action(self, action: ActionT) -> str:
+        if action is None:
+            return "未知动作"
         if isinstance(action, SendTextAction):
             return f"发送文本消息：{self._normalize_log_text(action.text, 120)}"
         if isinstance(action, SendDiceAction):

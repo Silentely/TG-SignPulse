@@ -210,6 +210,9 @@ export function getErrorCode(e: unknown): string | undefined {
     if (typeof record.code === 'string' && record.code.trim()) {
       return record.code.trim()
     }
+    if (typeof record.error_code === 'string' && record.error_code.trim()) {
+      return record.error_code.trim()
+    }
   }
   if (e instanceof Error) {
     const msg = (e.message || '').trim()

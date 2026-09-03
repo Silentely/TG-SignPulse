@@ -109,7 +109,11 @@ def get_client_identifier(request: Request) -> str:
 
 
 def compose_rate_limit_key(request: Request, *parts: str) -> str:
-    normalized_parts = [part.strip().lower() for part in parts if isinstance(part, str) and part.strip()]
+    normalized_parts = [
+        str(part).strip().lower()[:128]
+        for part in parts
+        if part is not None and str(part).strip()
+    ]
     return "|".join([get_client_identifier(request), *normalized_parts])
 
 

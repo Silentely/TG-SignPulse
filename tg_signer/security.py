@@ -30,7 +30,7 @@ def is_encrypted_secret(value: object) -> bool:
 
 
 def is_masked_secret(value: object) -> bool:
-    return isinstance(value, str) and value == _MASKED_VALUE
+    return isinstance(value, str) and value.strip() == _MASKED_VALUE
 
 
 def mask_secret(value: Optional[str]) -> Optional[str]:
