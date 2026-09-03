@@ -26,6 +26,8 @@ def repair_mojibake(text: str) -> str:
     """尝试修复常见 UTF-8 被按 GBK 误读的乱码。"""
     if not isinstance(text, str) or not text:
         return "" if text is None else str(text)
+    if len(text) > 20000:
+        return text
 
     suspicious_count = sum(text.count(token) for token in _MOJIBAKE_TOKENS)
     if suspicious_count < 2 and "�" not in text:

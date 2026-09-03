@@ -22,20 +22,33 @@ def _get_sc_client() -> AsyncClient:
     return client
 
 
+async def close_sc_client() -> None:
+    global _sc_client, _sc_loop
+    client = _sc_client
+    _sc_client = None
+    _sc_loop = None
+    if client and not getattr(client, "is_closed", True):
+        await client.aclose()
+
+
 async def sc_send(sendkey, title, desp="", options=None):
-    if options is None:
-        options = {}
+    key = str(sendkey or "").strip()
+    if not key:
+        raise ValueError("sendkey cannot be empty")
+    safe_title = str(title or "").strip()[:256] or "TG-SignPulse Notification"
+    safe_options = options if isinstance(options, dict) else {}
+
     # 判断 sendkey 是否以 'sctp' 开头，并提取数字构造 URL
-    if sendkey.startswith("sctp"):
-        match = re.match(r"sctp(\d+)t", sendkey)
+    if key.startswith("sctp"):
+        match = re.match(r"sctp(\d+)t", key)
         if match:
             num = match.group(1)
-            url = f"https://{num}.push.ft07.com/send/{sendkey}.send"
+            url = f"https://{num}.push.ft07.com/send/{key}.send"
         else:
             raise ValueError("Invalid sendkey format for sctp")
     else:
-        url = f"https://sctapi.ftqq.com/{sendkey}.send"
-    params = {"title": title, "desp": desp, **options}
+        url = f"https://sctapi.ftqq.com/{key}.send"
+    params = {"title": safe_title, "desp": desp, **safe_options}
     client = _get_sc_client()
     response = await client.post(url, json=params)
     response.raise_for_status()

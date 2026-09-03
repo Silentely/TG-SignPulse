@@ -14,18 +14,19 @@ _logger = logging.getLogger("backend.sign_task_history_io")
 
 
 def safe_history_key(name: str) -> str:
-    cleaned = str(name or "").strip().replace(chr(0), "").replace("/", "_").replace("\\", "_")
+    cleaned = str(name or "").strip().replace(chr(0), "").replace("/", "_").replace("\\", "_").lstrip(".")
     return cleaned or "default"
 
 
 def history_file_path(
-    run_history_dir: Path, task_name: str, account_name: str = ""
+    run_history_dir: Path | str, task_name: str, account_name: str = ""
 ) -> Path:
+    base = Path(run_history_dir)
     if account_name:
         safe_account = safe_history_key(account_name)
         safe_task = safe_history_key(task_name)
-        return run_history_dir / f"{safe_account}__{safe_task}.json"
-    return run_history_dir / f"{safe_history_key(task_name)}.json"
+        return base / f"{safe_account}__{safe_task}.json"
+    return base / f"{safe_history_key(task_name)}.json"
 
 
 def load_history_payload_from_file(history_file: Path) -> List[Any]:

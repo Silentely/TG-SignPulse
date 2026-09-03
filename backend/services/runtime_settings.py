@@ -27,6 +27,10 @@ def resolve_int_setting(
     max_v: Optional[int] = None,
 ) -> int:
     """解析整数配置：面板 global 优先，其次环境变量，最后默认值。"""
+    if not isinstance(global_cfg, dict):
+        global_cfg = {}
+    if min_v is not None and max_v is not None and min_v > max_v:
+        min_v, max_v = max_v, min_v
     raw: Any = None
     if key in global_cfg and global_cfg[key] is not None and str(global_cfg[key]).strip() != "":
         raw = global_cfg[key]
