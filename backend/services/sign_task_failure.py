@@ -212,9 +212,16 @@ _FAILURE_CATEGORY_LABELS = {
 }
 
 
-def failure_category_label(category: FailureCategory) -> str:
+def failure_category_label(category: FailureCategory | str) -> str:
     """中文短标签，用于面板展示。"""
-    return _FAILURE_CATEGORY_LABELS.get(category, category.value)
+    if isinstance(category, FailureCategory):
+        return _FAILURE_CATEGORY_LABELS.get(category, category.value)
+    if isinstance(category, str):
+        try:
+            return _FAILURE_CATEGORY_LABELS.get(FailureCategory(category), category)
+        except ValueError:
+            return category
+    return getattr(category, "value", str(category))
 
 
 def failure_category_label_by_value(value: Optional[str]) -> str:

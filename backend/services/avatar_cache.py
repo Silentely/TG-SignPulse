@@ -7,13 +7,17 @@
 """
 from __future__ import annotations
 
+import contextlib
 import os
+import tempfile
 import time
 from pathlib import Path
 from typing import Awaitable, Callable, Optional
 
 # 头像本地缓存有效期：7 天（秒）
 AVATAR_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
+# 临时残存文件清理阈值：1 小时（秒）
+_TMP_FILE_CLEANUP_TTL_SECONDS = 3600
 
 # 下载回调：返回头像字节；返回 None 表示明确无头像；抛异常表示瞬时故障
 DownloadFn = Callable[[], Awaitable[Optional[bytes]]]
@@ -76,11 +80,8 @@ async def get_avatar_bytes(
     avatar_bytes = await download_fn()
     if avatar_bytes:
         # 先写临时文件再 rename，避免并发读/写缓存时读到半截文件
-        import tempfile
-
-        # mkstemp 本身失败（如目录不存在）时 tmp_name 未赋值，
-        # 清理分支判空再删，避免 NameError 掩盖原始 OSError
         tmp_name: str | None = None
+        replaced = False
         try:
             fd, tmp_name = tempfile.mkstemp(
                 prefix=".avatar_", suffix=".tmp", dir=str(cache_file.parent)
@@ -88,17 +89,13 @@ async def get_avatar_bytes(
             with os.fdopen(fd, "wb") as tmp:
                 tmp.write(avatar_bytes)
             os.replace(tmp_name, cache_file)
-        except OSError:
-            if tmp_name is not None:
-                try:
+            replaced = True
+        finally:
+            if not replaced and tmp_name is not None:
+                with contextlib.suppress(OSError):
                     os.unlink(tmp_name)
-                except OSError:
-                    pass
-            raise
-        try:
+        with contextlib.suppress(OSError):
             no_avatar_marker.unlink(missing_ok=True)
-        except OSError:
-            pass
     return avatar_bytes
 
 
@@ -114,11 +111,15 @@ def cleanup_avatar_cache(cache_dir: Path, ttl: int = AVATAR_CACHE_TTL_SECONDS) -
         entries = list(cache_dir.iterdir())
     except OSError:
         return 0
+    now = time.time()
     for entry in entries:
         try:
             if not entry.is_file():
                 continue
-            if time.time() - entry.stat().st_mtime >= ttl:
+            name = entry.name
+            # 针对中断遗留的 .tmp 文件使用更短的 1 小时过期阈值
+            file_ttl = _TMP_FILE_CLEANUP_TTL_SECONDS if name.startswith(".avatar_") and name.endswith(".tmp") else ttl
+            if now - entry.stat().st_mtime >= file_ttl:
                 entry.unlink(missing_ok=True)
                 removed += 1
         except OSError:

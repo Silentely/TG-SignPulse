@@ -361,17 +361,40 @@ def get_api_config():
 
 
 def get_proxy(proxy: str = None):
-    proxy = proxy or os.environ.get("TG_PROXY")
-    if proxy:
-        r = parse.urlparse(proxy)
-        return {
-            "scheme": r.scheme,
-            "hostname": r.hostname,
-            "port": r.port,
-            "username": r.username,
-            "password": r.password,
-        }
-    return None
+    raw = proxy or os.environ.get("TG_PROXY")
+    if not raw or not isinstance(raw, str):
+        return None
+    val = raw.strip()
+    if not val:
+        return None
+    if "://" not in val:
+        if "@" in val:
+            val = f"socks5://{val}"
+        else:
+            parts = val.split(":")
+            if len(parts) == 2:
+                val = f"socks5://{parts[0]}:{parts[1]}"
+            elif len(parts) == 4:
+                val = f"socks5://{parts[2]}:{parts[3]}@{parts[0]}:{parts[1]}"
+            else:
+                val = f"socks5://{val}"
+    try:
+        r = parse.urlparse(val)
+        port = r.port
+    except (ValueError, AttributeError):
+        return None
+    scheme = (r.scheme or "").lower()
+    if not (scheme in {"http", "https", "socks4", "socks5"} and r.hostname and port):
+        return None
+    if not (1 <= port <= 65535):
+        return None
+    return {
+        "scheme": scheme,
+        "hostname": r.hostname,
+        "port": port,
+        "username": r.username,
+        "password": r.password,
+    }
 
 
 def get_client(

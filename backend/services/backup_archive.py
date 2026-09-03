@@ -22,6 +22,13 @@ DEFAULT_BACKUP_PATHS: Tuple[str, ...] = (
 )
 
 
+def _safe_mtime(path: Path) -> float:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
 def create_backup_tarball(
     data_dir: Path,
     dest: Path,
@@ -67,7 +74,7 @@ def prune_backups(backup_dir: Path, keep: int) -> int:
         return 0
     files = sorted(
         backup_dir.glob("auto-*.tar.gz"),
-        key=lambda p: p.stat().st_mtime,
+        key=_safe_mtime,
         reverse=True,
     )
     removed = 0
@@ -109,7 +116,10 @@ def run_auto_backup(
             "error": str(exc),
             "webdav": None,
         }
-    size = dest.stat().st_size if dest.exists() else 0
+    try:
+        size = dest.stat().st_size if dest.exists() else 0
+    except OSError:
+        size = 0
     webdav_result = None
     remote_prune = None
     local_removed = False
@@ -179,11 +189,3 @@ def auto_backup_interval_hours(settings: dict) -> int:
         return max(1, min(int(raw if raw is not None else 24), 168))
     except (TypeError, ValueError):
         return 24
-
-
-def auto_backup_keep(settings: dict) -> int:
-    raw = settings.get("auto_backup_keep")
-    try:
-        return max(1, min(int(raw if raw is not None else 3), 30))
-    except (TypeError, ValueError):
-        return 3
