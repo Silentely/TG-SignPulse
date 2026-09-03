@@ -232,10 +232,9 @@ def _is_rate_limit_error(exc: BaseException) -> bool:
         return True
     if "403" in text and ("api.github.com" in text or "github" in text):
         return True
-    if isinstance(exc, httpx.HTTPStatusError):
-        code = exc.response.status_code
-        if code in {403, 429}:
-            return True
+    code = getattr(exc, "status", None) or getattr(getattr(exc, "response", None), "status_code", None)
+    if code in {403, 429}:
+        return True
     return False
 
 

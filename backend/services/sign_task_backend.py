@@ -38,13 +38,15 @@ class BackendUserSigner(UserSigner):
 
     @property
     def task_dir(self):
-        account_task_dir = self.tasks_dir / self._account / self.task_name
-        if (account_task_dir / "config.json").exists():
-            return account_task_dir
+        account = str(getattr(self, "_account", "") or "").strip()
+        if account:
+            account_task_dir = self.tasks_dir / account / self.task_name
+            if (account_task_dir / "config.json").exists():
+                return account_task_dir
         legacy_task_dir = self.tasks_dir / self.task_name
         if (legacy_task_dir / "config.json").exists():
             return legacy_task_dir
-        return account_task_dir
+        return self.tasks_dir / account / self.task_name if account else legacy_task_dir
 
     def ask_for_config(self):
         raise ValueError(

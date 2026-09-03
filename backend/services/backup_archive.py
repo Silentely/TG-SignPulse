@@ -45,7 +45,8 @@ def create_backup_tarball(
     with tarfile.open(dest, "w:gz") as tar:
         for rel in paths:
             # 拒绝绝对路径与父目录穿越
-            if not rel or rel.startswith("/") or ".." in Path(rel).parts:
+            rel_p = Path(rel) if rel else None
+            if not rel or not rel_p or rel_p.is_absolute() or rel.startswith(("/", chr(92))) or ":" in rel or chr(0) in rel or ".." in rel_p.parts:
                 logger.warning("跳过非法备份路径: %s", rel)
                 continue
             src = (data_dir / rel).resolve()
@@ -69,7 +70,10 @@ def create_backup_tarball(
 
 def prune_backups(backup_dir: Path, keep: int) -> int:
     """保留最近 keep 份 auto-*.tar.gz，删除更旧文件。返回删除数量。"""
-    keep = max(0, int(keep))
+    try:
+        keep = max(0, int(keep))
+    except (TypeError, ValueError):
+        keep = 3
     if not backup_dir.exists():
         return 0
     files = sorted(

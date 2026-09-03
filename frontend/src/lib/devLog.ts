@@ -2,10 +2,11 @@
  * 开发期诊断日志：生产构建默认静默，避免控制台噪声。
  * 可通过 localStorage.tg_dev_log=1 强制开启。
  */
+import { storageGet } from './safe-storage'
 
 function isDevLogEnabled(): boolean {
   try {
-    if (typeof localStorage !== 'undefined' && localStorage.getItem('tg_dev_log') === '1') {
+    if (storageGet('tg_dev_log') === '1') {
       return true
     }
   } catch {

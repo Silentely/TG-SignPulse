@@ -57,12 +57,14 @@ class SignerActionsMixin:
 
     async def _click_inline_button(self, message: Message, btn) -> bool:
         callback_data = getattr(btn, "callback_data", None)
-        if callback_data is not None:
+        chat = getattr(message, "chat", None)
+        msg_id = getattr(message, "id", None)
+        if callback_data is not None and chat is not None and msg_id is not None:
             if (
                 await self.request_callback_answer(
                     self.app,
-                    message.chat.id,
-                    message.id,
+                    chat.id,
+                    msg_id,
                     callback_data,
                 )
                 is not None
