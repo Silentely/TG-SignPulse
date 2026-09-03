@@ -101,7 +101,7 @@ class TelegramDevicesMixin:
             if not getattr(client, "is_connected", False):
                 await client.connect()
             result = await asyncio.wait_for(
-                client.invoke(raw.functions.account.ResetAuthorization(hash=auth_hash)),
+                client.invoke(raw.functions.account.ResetAuthorization(hash=int(auth_hash))),
                 timeout=timeout_seconds,
             )
         return bool(result)
@@ -134,7 +134,7 @@ class TelegramDevicesMixin:
                 messages.append(
                     {
                         "id": getattr(msg, "id", None),
-                        "date": msg.date.isoformat().replace("+00:00", "Z")
+                        "date": utc_from_timestamp_iso_z(int(msg.date.timestamp()))
                         if getattr(msg, "date", None)
                         else None,
                         "text": text,

@@ -698,6 +698,7 @@ class TelegramQrLoginMixin:
         from pyrogram import raw
         from pyrogram.errors import FloodWait, SessionPasswordNeeded
 
+        login_id = str(login_id or "").strip()
         data = _qr_login_sessions.get(login_id)
         if not data:
             return {
@@ -828,6 +829,7 @@ class TelegramQrLoginMixin:
             Unauthorized,
         )
 
+        login_id = str(login_id or "").strip()
         password = (password or "").strip()
         if not password:
             raise ValueError("2FA 密码不能为空")
@@ -927,6 +929,7 @@ class TelegramQrLoginMixin:
 
 
     async def cancel_qr_login(self, login_id: str) -> bool:
+        login_id = str(login_id or "").strip()
         data = _qr_login_sessions.get(login_id)
         if not data:
             return False
