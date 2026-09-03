@@ -29,17 +29,18 @@ def write_json_atomic(path, data: Any) -> None:
             mode="w", encoding="utf-8", delete=False, dir=path.parent
         )
         actual_tmp = Path(tmp.name)
+        replaced = False
         try:
             with tmp:
                 json.dump(data, tmp, ensure_ascii=False, indent=2)
                 tmp.flush()
                 os.fsync(tmp.fileno())
             os.replace(actual_tmp, path)
-        except (OSError, TypeError, ValueError):
-            # 序列化或写入失败：清理临时文件后重抛，避免残留 .tmp 累积
-            with contextlib.suppress(OSError):
-                actual_tmp.unlink()
-            raise
+            replaced = True
+        finally:
+            if not replaced:
+                with contextlib.suppress(OSError):
+                    actual_tmp.unlink()
 
 
 def read_json_safe(path, default: Any = None) -> Any:

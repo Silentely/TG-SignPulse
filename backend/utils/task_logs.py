@@ -57,8 +57,9 @@ def extract_last_target_message(flow_logs: Iterable[object] | None) -> str:
                 return value
 
     for line in reversed(lines):
-        if "图片:" in line:
-            value = line.split("图片:", 1)[-1].strip()
+        if "图片:" in line or "图片：" in line:
+            sep = "图片：" if "图片：" in line else "图片:"
+            value = line.split(sep, 1)[-1].strip()
             if value:
                 return f"[图片] {value}"
 

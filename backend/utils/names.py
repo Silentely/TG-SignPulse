@@ -11,8 +11,8 @@ def validate_storage_name(value: str, *, field_name: str) -> str:
     if cleaned in {".", ".."}:
         raise ValueError(f"{field_name} cannot be '.' or '..'")
     # Only forbid path separators and null bytes (filesystem safety on Linux)
-    if '/' in cleaned or '\\' in cleaned or '\x00' in cleaned:
+    if "/" in cleaned or "\\" in cleaned or "\x00" in cleaned:
         raise ValueError(
-            f"{field_name} cannot contain path separators: / \\"
+            f"{field_name} cannot contain path separators or null bytes: / \\"
         )
     return cleaned

@@ -19,7 +19,7 @@ from __future__ import annotations
 import threading
 import time
 from collections import OrderedDict
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Iterable, Mapping, TypeVar
 
 T = TypeVar("T")
 
@@ -131,26 +131,46 @@ class TTLCache(Generic[T]):
 
     _SENTINEL = object()
 
-    def get_many(self, keys: list[str]) -> dict[str, Any]:
+    def get_many(self, keys: Iterable[str]) -> dict[str, Any]:
         """批量获取，仅返回命中的键值对（支持缓存 None 值）。"""
         result: dict[str, Any] = {}
-        for key in keys:
-            val = self.get(key, default=self._SENTINEL)
-            if val is not self._SENTINEL:
-                result[key] = val
+        now = time.monotonic()
+        with self._lock:
+            for key in keys:
+                entry = self._data.get(key)
+                if entry is None:
+                    continue
+                value, expire_at = entry
+                if now >= expire_at:
+                    del self._data[key]
+                    continue
+                self._data.move_to_end(key)
+                result[key] = value
         return result
 
-    def set_many(self, items: dict[str, Any]) -> None:
+    def set_many(self, items: Mapping[str, Any] | Iterable[tuple[str, Any]]) -> None:
         """批量写入。"""
-        for key, value in items.items():
-            self.set(key, value)
+        now = time.monotonic()
+        expire_at = now + self._ttl
+        pairs = items.items() if hasattr(items, "items") else items
+        with self._lock:
+            for key, value in pairs:
+                if key in self._data:
+                    self._data[key] = (value, expire_at)
+                    self._data.move_to_end(key)
+                else:
+                    if len(self._data) >= self._maxsize:
+                        self._data.popitem(last=False)
+                    self._data[key] = (value, expire_at)
 
-    def delete_many(self, keys: list[str]) -> int:
+    def delete_many(self, keys: Iterable[str]) -> int:
         """批量删除，返回实际删除数。"""
         count = 0
-        for key in keys:
-            if self.delete(key):
-                count += 1
+        with self._lock:
+            for key in keys:
+                if key in self._data:
+                    del self._data[key]
+                    count += 1
         return count
 
     # ------------------------------------------------------------------
@@ -172,6 +192,8 @@ class TTLCache(Generic[T]):
             for key in expired_keys:
                 del self._data[key]
         return len(expired_keys)
+
+    prune_expired = purge_expired
 
     # ------------------------------------------------------------------
     # 属性
