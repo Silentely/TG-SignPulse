@@ -216,7 +216,12 @@ export async function fetchWithAuth(
             errorMessage = detail.trim();
           } else if (Array.isArray(detail)) {
             const msgs = (detail as FastApiValidationError[])
-              .map((d) => (d.msg || "").trim() || JSON.stringify(d))
+              .map((d) => {
+                const loc = Array.isArray(d.loc) && d.loc.length > 0 ? String(d.loc[d.loc.length - 1]) : "";
+                const prefix = loc ? (loc + ": ") : "";
+                const msg = (d.msg || "").trim() || JSON.stringify(d);
+                return prefix + msg;
+              })
               .filter(Boolean);
             if (msgs.length) errorMessage = msgs.join("; ");
           } else if (detail && typeof detail === "object") {

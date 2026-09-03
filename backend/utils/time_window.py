@@ -33,6 +33,7 @@ def normalize_time_window(
     规范化时间窗配置为 HH:MM。
     仅当起止都能解析时才启用；否则返回 (None, None) 表示全天。
     """
+
     start_t = parse_hhmm(start)
     end_t = parse_hhmm(end)
     if start_t is None or end_t is None:
@@ -70,6 +71,9 @@ def is_within_time_window(
     - start > end：跨午夜，例如 23:00–02:00
     - tz_name 提供时，将 now 转换到该时区再取钟点
     """
+    if not isinstance(now, datetime):
+        return True
+
     start_t = parse_hhmm(start)
     end_t = parse_hhmm(end)
     if start_t is None or end_t is None:

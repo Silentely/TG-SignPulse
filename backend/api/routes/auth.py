@@ -32,19 +32,22 @@ RESET_TOTP_RATE_LIMIT_DETAIL = (
 
 
 def _resolve_request_ip(request: Request) -> str:
+    ip = ""
     forwarded_for = request.headers.get("x-forwarded-for", "")
     if forwarded_for:
         first_hop = forwarded_for.split(",", 1)[0].strip()
         if first_hop:
-            return first_hop
+            ip = first_hop
 
-    real_ip = request.headers.get("x-real-ip", "").strip()
-    if real_ip:
-        return real_ip
+    if not ip:
+        real_ip = request.headers.get("x-real-ip", "").strip()
+        if real_ip:
+            ip = real_ip
 
-    if request.client and request.client.host:
-        return request.client.host
-    return ""
+    if not ip and request.client and request.client.host:
+        ip = request.client.host
+
+    return ip[:64]
 
 
 def _append_login_log(

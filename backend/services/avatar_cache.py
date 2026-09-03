@@ -101,6 +101,10 @@ async def get_avatar_bytes(
 
 def cleanup_avatar_cache(cache_dir: Path, ttl: int = AVATAR_CACHE_TTL_SECONDS) -> int:
     """清理过期头像缓存文件与无头像标记，返回清理数量。
+    try:
+        ttl = max(60, int(ttl or AVATAR_CACHE_TTL_SECONDS))
+    except (TypeError, ValueError):
+        ttl = AVATAR_CACHE_TTL_SECONDS
 
     7 天 TTL 在读路径校验，但磁盘上的过期文件不会自动消失；
     长期运行（大量会话/删除的账号）会累积陈旧文件。

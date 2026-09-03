@@ -272,7 +272,10 @@ async def _runner_prepare_execution(state: Dict[str, Any]) -> None:
         raw_task_cfg, get_flow_retry_attempts()
     )
     _task_retry_count_var.set(task_retry_count)
-    task_timeout = float(get_execution_timeout())
+    try:
+        task_timeout = max(5.0, float(get_execution_timeout() or 120.0))
+    except (TypeError, ValueError):
+        task_timeout = 120.0
 
     svc._update_run_phase(
         state["account_name"],
