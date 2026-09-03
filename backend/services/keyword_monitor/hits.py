@@ -90,8 +90,13 @@ def _csv_cell(value: Any) -> str:
     """将单元格转为字符串，并防止公式注入。"""
     if value is None:
         return ""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return str(value)
     text = str(value)
     if text and text[0] in _CSV_FORMULA_PREFIXES:
+        stripped = text.lstrip("+-")
+        if stripped.isdigit():
+            return text
         return "'" + text
     return text
 
@@ -288,9 +293,18 @@ def list_keyword_hits(
     max_limit 用于导出场景放宽上限（默认列表仍限制 MAX_LIST_LIMIT）。
     """
     _ensure_loaded()
-    ceiling = max(1, min(int(max_limit or MAX_LIST_LIMIT), MAX_RECORDS))
-    limit = max(1, min(int(limit or DEFAULT_LIST_LIMIT), ceiling))
-    offset = max(0, int(offset or 0))
+    try:
+        ceiling = max(1, min(int(max_limit or MAX_LIST_LIMIT), MAX_RECORDS))
+    except (TypeError, ValueError):
+        ceiling = MAX_LIST_LIMIT
+    try:
+        limit = max(1, min(int(limit or DEFAULT_LIST_LIMIT), ceiling))
+    except (TypeError, ValueError):
+        limit = DEFAULT_LIST_LIMIT
+    try:
+        offset = max(0, int(offset or 0))
+    except (TypeError, ValueError):
+        offset = 0
     account = (account_name or "").strip()
     task = (task_name or "").strip()
 
@@ -332,7 +346,10 @@ def group_keyword_hits(
         "account": "account_name",
         "chat": "chat_id",
     }[normalized_group]
-    per = max(1, min(int(limit_per_group or 20), 100))
+    try:
+        per = max(1, min(int(limit_per_group or 20), 100))
+    except (TypeError, ValueError):
+        per = 20
     account = (account_name or "").strip()
     task = (task_name or "").strip()
 
@@ -388,7 +405,7 @@ def export_keyword_hits_csv(
     data = list_keyword_hits(
         account_name=account_name,
         task_name=task_name,
-        limit=min(max(1, int(limit or 2000)), MAX_RECORDS),
+        limit=min(max(1, int(limit if limit is not None and str(limit).isdigit() else 2000)), MAX_RECORDS),
         offset=0,
         max_limit=MAX_RECORDS,
     )

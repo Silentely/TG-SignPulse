@@ -128,3 +128,9 @@ describe('getErrorMessage', () => {
     expect(getErrorMessage(new Error('AI_KEY_DECRYPT_FAILED'))).toContain('APP_SECRET_KEY')
   })
 })
+
+describe('getErrorCode', () => {
+  it('提取 record.error_code', () => {
+    expect(getErrorCode({ error_code: 'ACCOUNT_BANNED' })).toBe('ACCOUNT_BANNED')
+  })
+})
