@@ -36,15 +36,17 @@ def _chats_cache_expired(cache_file: Path, now: Optional[float] = None) -> bool:
     return (now if now is not None else time.time()) - mtime > CHATS_CACHE_TTL_SECONDS
 
 
-def clamp_chat_search_page(limit: int, offset: int) -> tuple[int, int]:
+def clamp_chat_search_page(limit: Any, offset: Any) -> tuple[int, int]:
     """规范化分页参数。"""
-    if limit < 1:
-        limit = 1
-    if limit > 200:
-        limit = 200
-    if offset < 0:
-        offset = 0
-    return limit, offset
+    try:
+        lim = int(limit)
+    except (TypeError, ValueError):
+        lim = 50
+    try:
+        off = int(offset)
+    except (TypeError, ValueError):
+        off = 0
+    return max(1, min(lim, 200)), max(0, off)
 
 
 def empty_chat_search_page(*, limit: int = 50, offset: int = 0) -> Dict[str, Any]:

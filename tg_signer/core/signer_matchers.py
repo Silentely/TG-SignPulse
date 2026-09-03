@@ -47,11 +47,12 @@ class SignerMatchersMixin:
     @staticmethod
 
     def _normalize_log_text(text: Optional[str], limit: int = 280) -> str:
+        safe_limit = max(4, int(limit or 280))
         value = " / ".join(
             line.strip() for line in str(text or "").splitlines() if line.strip()
         )
-        if len(value) > limit:
-            return value[: limit - 3] + "..."
+        if len(value) > safe_limit:
+            return value[: safe_limit - 3] + "..."
         return value
 
 
