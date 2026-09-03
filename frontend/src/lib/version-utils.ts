@@ -35,7 +35,7 @@ function parseSemver(raw: string): [number, number, number] {
   const parts: number[] = []
   for (const piece of s.split('.')) {
     const m = piece.match(/^\d+/)
-    parts.push(m ? parseInt(m[0], 10) : 0)
+    parts.push(m ? Math.min(parseInt(m[0], 10), 999999) : 0)
     if (parts.length >= 3) break
   }
   while (parts.length < 3) parts.push(0)
