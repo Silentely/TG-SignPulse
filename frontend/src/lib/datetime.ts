@@ -83,7 +83,11 @@ export function formatDateTime(
   if (!value) return fallback
   const d = new Date(value)
   if (Number.isNaN(d.getTime())) return value
-  return d.toLocaleString(locale, { hour12: false, timeZone: panelTimezone })
+  try {
+    return d.toLocaleString(locale, { hour12: false, timeZone: panelTimezone })
+  } catch {
+    return d.toLocaleString('zh-CN', { hour12: false, timeZone: panelTimezone })
+  }
 }
 
 /** 短日期时间（MM/DD HH:MM[:SS]），手工拼接避免语言区域导致的顺序/分隔符差异 */

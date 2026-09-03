@@ -6,6 +6,7 @@
  */
 export function storageGet(key: string): string | null {
   try {
+    if (typeof localStorage === 'undefined') return null
     return localStorage.getItem(key)
   } catch {
     return null
@@ -14,6 +15,7 @@ export function storageGet(key: string): string | null {
 
 export function storageSet(key: string, value: string): void {
   try {
+    if (typeof localStorage === 'undefined') return
     localStorage.setItem(key, value)
   } catch {
     /* 存储不可用时偏好不持久化，本次会话内状态仍生效 */
@@ -22,6 +24,7 @@ export function storageSet(key: string, value: string): void {
 
 export function storageRemove(key: string): void {
   try {
+    if (typeof localStorage === 'undefined') return
     localStorage.removeItem(key)
   } catch {
     /* 同上 */
@@ -48,6 +51,7 @@ export function storageSetJSON(key: string, value: unknown): void {
 
 export function sessionGet(key: string): string | null {
   try {
+    if (typeof sessionStorage === 'undefined') return null
     return sessionStorage.getItem(key)
   } catch {
     return null
@@ -56,6 +60,7 @@ export function sessionGet(key: string): string | null {
 
 export function sessionSet(key: string, value: string): void {
   try {
+    if (typeof sessionStorage === 'undefined') return
     sessionStorage.setItem(key, value)
   } catch {
     /* ignore */
@@ -64,6 +69,7 @@ export function sessionSet(key: string, value: string): void {
 
 export function sessionRemove(key: string): void {
   try {
+    if (typeof sessionStorage === 'undefined') return
     sessionStorage.removeItem(key)
   } catch {
     /* ignore */

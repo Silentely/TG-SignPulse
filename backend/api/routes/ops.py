@@ -353,6 +353,7 @@ def export_backup_archive(current_user: User = Depends(get_current_user)):
             path=str(archive_path),
             filename=archive_path.name,
             media_type="application/gzip",
+            headers={"Content-Disposition": f'attachment; filename="{archive_path.name}"'},
             background=BackgroundTask(_cleanup),
         )
     except HTTPException:

@@ -13,7 +13,8 @@ const applyThemeColor = (dark: boolean) => {
 
 // 存储不可用时按「未设置」处理，回退系统偏好
 const savedTheme = storageGet('theme')
-const initDark = savedTheme === 'dark' || (savedTheme === null && window.matchMedia('(prefers-color-scheme: dark)').matches)
+const prefersDark = typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: dark)').matches
+const initDark = savedTheme === 'dark' || (savedTheme === null && prefersDark)
 const isDark = ref(initDark)
 
 if (initDark) {
@@ -25,7 +26,8 @@ applyThemeColor(initDark)
 
 export const useTheme = () => {
   const toggleTheme = (event?: MouseEvent) => {
-    const isAppearanceTransition = typeof document.startViewTransition === 'function' && !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const prefersReducedMotion = typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const isAppearanceTransition = typeof document !== 'undefined' && typeof document.startViewTransition === 'function' && !prefersReducedMotion
 
     if (!isAppearanceTransition || !event) {
       isDark.value = !isDark.value

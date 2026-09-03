@@ -89,20 +89,21 @@ class SignTaskCreate(BaseModel):
         @field_validator("name")
         @classmethod
         def name_must_be_valid_filename(cls, v: str) -> str:
-            if not v or not v.strip():
+            text = str(v or "").strip()
+            if not text:
                 raise ValueError("任务名称不能为空")
-            if '/' in v or '\\' in v:
-                raise ValueError('任务名称不能包含路径分隔符: / \\')
-            return v.strip()
+            if "/" in text or "\\" in text or chr(0) in text:
+                raise ValueError("任务名称不能包含非法路径字符: / \\ \x00")
+            return text
     else:
         @validator("name", allow_reuse=True)
         def name_must_be_valid_filename(cls, v: str) -> str:
-            if not v or not v.strip():
+            text = str(v or "").strip()
+            if not text:
                 raise ValueError("任务名称不能为空")
-            if '/' in v or '\\' in v:
-                raise ValueError('任务名称不能包含路径分隔符: / \\')
-            return v.strip()
-
+            if "/" in text or "\\" in text or chr(0) in text:
+                raise ValueError("任务名称不能包含非法路径字符: / \\ \x00")
+            return text
 
 class SignTaskUpdate(BaseModel):
     account_names: Optional[List[str]] = Field(None, description="Associated accounts")

@@ -252,6 +252,9 @@ function truncateErrorMessage(text: string): string {
  * 已知错误码映射为可读英文；UI 可用 getErrorCode + i18n 再覆盖。
  */
 export function getErrorMessage(e: unknown, fallback = 'Unknown error'): string {
+  if (typeof e === 'string' && e.trim()) {
+    return truncateErrorMessage(e.trim())
+  }
   const code = getErrorCode(e)
   if (code && API_ERROR_CODE_MESSAGES[code]) {
     return API_ERROR_CODE_MESSAGES[code]
