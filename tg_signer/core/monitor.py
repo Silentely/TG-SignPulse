@@ -46,6 +46,18 @@ def _get_monitor_http_client() -> httpx.AsyncClient:
     return client
 
 
+async def close_monitor_http_client() -> None:
+    global _monitor_http_client, _monitor_http_loop
+    client = _monitor_http_client
+    _monitor_http_client = None
+    _monitor_http_loop = None
+    if client and not client.is_closed:
+        try:
+            await client.aclose()
+        except Exception:
+            pass
+
+
 class UserMonitor(BaseUserWorker[MonitorConfig]):
     _workdir = ".monitor"
     _tasks_dir = "monitors"
@@ -210,7 +222,7 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
     @classmethod
     async def http_api_callback(cls, f: HttpCallback, message: Message):
         headers = dict(f.headers or {})
-        headers.update({"Content-Type": "application/json"})
+        headers.setdefault("Content-Type", "application/json")
         content = str(message).encode("utf-8")
         client = _get_monitor_http_client()
         last_error: Exception | None = None

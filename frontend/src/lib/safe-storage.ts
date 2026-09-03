@@ -27,3 +27,45 @@ export function storageRemove(key: string): void {
     /* 同上 */
   }
 }
+
+export function storageGetJSON<T = unknown>(key: string, fallback: T | null = null): T | null {
+  try {
+    const raw = storageGet(key)
+    if (!raw) return fallback
+    return JSON.parse(raw) as T
+  } catch {
+    return fallback
+  }
+}
+
+export function storageSetJSON(key: string, value: unknown): void {
+  try {
+    storageSet(key, JSON.stringify(value))
+  } catch {
+    /* ignore */
+  }
+}
+
+export function sessionGet(key: string): string | null {
+  try {
+    return sessionStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+export function sessionSet(key: string, value: string): void {
+  try {
+    sessionStorage.setItem(key, value)
+  } catch {
+    /* ignore */
+  }
+}
+
+export function sessionRemove(key: string): void {
+  try {
+    sessionStorage.removeItem(key)
+  } catch {
+    /* ignore */
+  }
+}

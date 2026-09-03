@@ -14,7 +14,8 @@ _logger = logging.getLogger("backend.sign_task_history_io")
 
 
 def safe_history_key(name: str) -> str:
-    return str(name or "").replace("/", "_").replace("\\", "_")
+    cleaned = str(name or "").strip().replace(chr(0), "").replace("/", "_").replace("\\", "_")
+    return cleaned or "default"
 
 
 def history_file_path(

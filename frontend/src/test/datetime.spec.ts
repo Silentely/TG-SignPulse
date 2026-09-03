@@ -9,6 +9,7 @@ import {
   formatTimeOnly,
   getPanelTimezone,
   setPanelTimezone,
+  isValidTimezone,
 } from '../lib/datetime'
 
 describe('datetime 格式化', () => {
@@ -54,6 +55,15 @@ describe('datetime 格式化', () => {
     setPanelTimezone(null)
     setPanelTimezone(undefined)
     expect(getPanelTimezone()).toBe('UTC')
+  })
+
+  it('setPanelTimezone 忽略非法时区', () => {
+    expect(isValidTimezone('Asia/Shanghai')).toBe(true)
+    expect(isValidTimezone('Not/A/Real_Timezone')).toBe(false)
+    setPanelTimezone('Asia/Shanghai')
+    expect(getPanelTimezone()).toBe('Asia/Shanghai')
+    setPanelTimezone('Not/A/Real_Timezone')
+    expect(getPanelTimezone()).toBe('Asia/Shanghai')
   })
 
   it('formatLogTime 当天仅输出时刻', () => {

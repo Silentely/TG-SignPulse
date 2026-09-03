@@ -1,5 +1,6 @@
 /** 前端版本比较、GitHub 回退检查与本地缓存。 */
 import { devLog } from './devLog'
+import { storageGet, storageSet, storageRemove } from './safe-storage'
 
 export const DEFAULT_GITHUB_RELEASES_URL =
   'https://api.github.com/repos/Silentely/TG-SignPulse/releases/latest'
@@ -55,27 +56,19 @@ export function isUpdateAvailable(current: string, latest: string): boolean {
 }
 
 export function clearCachedUpdateCheck(): void {
-  try {
-    localStorage.removeItem(CACHE_KEY)
-  } catch {
-    /* ignore */
-  }
+  storageRemove(CACHE_KEY)
 }
 
 export function saveCachedUpdateCheck(payload: ClientUpdateCheckPayload): void {
-  try {
-    localStorage.setItem(
-      CACHE_KEY,
-      JSON.stringify({ saved_at: Date.now(), payload }),
-    )
-  } catch (e) {
-    devLog.warn('Failed to cache update check', e)
-  }
+  storageSet(
+    CACHE_KEY,
+    JSON.stringify({ saved_at: Date.now(), payload }),
+  )
 }
 
 export function loadCachedUpdateCheck(): ClientUpdateCheckPayload | null {
   try {
-    const raw = localStorage.getItem(CACHE_KEY)
+    const raw = storageGet(CACHE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as {
       saved_at?: number

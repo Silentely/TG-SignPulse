@@ -13,6 +13,7 @@ import { withToken, getAuthToken } from '../lib/api/core'
 import type { ActiveRunSummary } from '../lib/api'
 import type { TaskUiItem } from '../lib/types'
 import { notifyApiError } from '../lib/notify'
+import { storageGet, storageSet, storageRemove, sessionSet } from '../lib/safe-storage'
 import { useI18n } from './useI18n'
 import { useToast } from './useToast'
 import { useActiveRunsStore } from '../stores/activeRuns'
@@ -328,14 +329,14 @@ export function useTaskListRuntime(options: {
 
     // 头像缓存 TTL：头像变更不频繁，7 天内复用本地 dataURL 减少重复请求；
     // 值格式为 {v, ts}，兼容旧版纯 dataURL（无 ts 视为有效，下次刷新自然更新）
-    const cached = localStorage.getItem(cacheKey)
+    const cached = storageGet(cacheKey)
     const cachedValue = cached ? parseAvatarCache(cached) : null
     if (cachedValue) {
       task.chatAvatarUrl = cachedValue
       return
     }
 
-    const noAvatarTime = localStorage.getItem(noAvatarKey)
+    const noAvatarTime = storageGet(noAvatarKey)
     if (noAvatarTime) {
       const age = Date.now() - parseInt(noAvatarTime, 10)
       if (age < 3600000) return
@@ -348,23 +349,21 @@ export function useTaskListRuntime(options: {
       task.chatAvatarUrl = url
       trackBlobUrl(url)
       if (prev && prev.startsWith('blob:')) releaseBlobUrl(prev)
-      localStorage.removeItem(noAvatarKey)
+      storageRemove(noAvatarKey)
       try {
         const reader = new FileReader()
         reader.onload = () => {
           if (reader.result) {
-            try {
-              localStorage.setItem(cacheKey, buildAvatarCache(String(reader.result)))
-            } catch {
-              try { sessionStorage.setItem(cacheKey, buildAvatarCache(String(reader.result))) } catch { /* ignore */ }
-            }
+            const val = buildAvatarCache(String(reader.result))
+            storageSet(cacheKey, val)
+            sessionSet(cacheKey, val)
           }
         }
         reader.readAsDataURL(blob)
       } catch { /* ignore */ }
     } catch (e: unknown) {
       if (e && typeof e === 'object' && 'status' in e && (e as { status: number }).status === 404) {
-        try { localStorage.setItem(noAvatarKey, String(Date.now())) } catch { /* ignore */ }
+        storageSet(noAvatarKey, String(Date.now()))
       }
     }
   }

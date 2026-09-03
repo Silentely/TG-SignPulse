@@ -9,8 +9,22 @@
 /** 面板统一展示时区（模块级可变，Settings 保存后写入） */
 let panelTimezone = 'Asia/Hong_Kong'
 
+export function isValidTimezone(tz: string): boolean {
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: tz })
+    return true
+  } catch {
+    return false
+  }
+}
+
 export function setPanelTimezone(tz: string | undefined | null): void {
-  if (tz && typeof tz === 'string' && tz.trim()) panelTimezone = tz.trim()
+  if (tz && typeof tz === 'string' && tz.trim()) {
+    const trimmed = tz.trim()
+    if (isValidTimezone(trimmed)) {
+      panelTimezone = trimmed
+    }
+  }
 }
 
 export function getPanelTimezone(): string {
