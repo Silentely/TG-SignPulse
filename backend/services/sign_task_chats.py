@@ -88,9 +88,11 @@ def search_chats_in_cache(
             if not isinstance(chat, dict):
                 return False
             chat_id = chat.get("id")
-            if chat_id is None:
-                return False
-            return q in str(chat_id)
+            if chat_id is not None and q in str(chat_id):
+                return True
+            title = (chat.get("title") or "").lower()
+            username = (chat.get("username") or "").lower()
+            return q.lower() in title or q.lower() in username
 
     else:
         q_lower = q.lower()

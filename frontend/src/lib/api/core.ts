@@ -137,12 +137,16 @@ export function createRequestAbort(
       externalSignal.addEventListener("abort", onExternalAbort, { once: true });
     }
   }
+  const validTimeout =
+    typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0
+      ? Math.floor(timeoutMs)
+      : null;
   const timeoutId =
-    timeoutMs === null
+    validTimeout === null
       ? null
       : setTimeout(() => {
           markAndAbort("timeout");
-        }, timeoutMs);
+        }, validTimeout);
 
   const cleanup = () => {
     if (timeoutId !== null) clearTimeout(timeoutId);

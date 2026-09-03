@@ -74,11 +74,16 @@ class TelegramDevicesMixin:
     async def terminate_account_device(
         self,
         account_name: str,
-        auth_hash: int,
+        auth_hash: int | str,
         timeout_seconds: float = 12.0,
     ) -> bool:
         """踢下线指定 Telegram 授权会话。不能踢当前正在使用的会话。"""
         from pyrogram import raw
+
+        try:
+            parsed_hash = int(auth_hash)
+        except (TypeError, ValueError):
+            raise ValueError("无效的授权 hash")
 
         account_name = self._normalize_account_name(account_name)
         if not self.account_exists(account_name):
@@ -101,7 +106,7 @@ class TelegramDevicesMixin:
             if not getattr(client, "is_connected", False):
                 await client.connect()
             result = await asyncio.wait_for(
-                client.invoke(raw.functions.account.ResetAuthorization(hash=int(auth_hash))),
+                client.invoke(raw.functions.account.ResetAuthorization(hash=parsed_hash)),
                 timeout=timeout_seconds,
             )
         return bool(result)
