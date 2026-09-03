@@ -15,6 +15,7 @@
     "NETWORK_ERROR": "Network error",
     "WEBDAV_NOT_CONFIGURED": "WebDAV is not configured",
     "BACKUP_EMPTY": "Nothing to back up",
+    "CONFIG_JSON_EMPTY": "Import configuration cannot be empty",
     "AI_KEY_DECRYPT_FAILED": "API Key decrypt failed; check APP_SECRET_KEY and re-save",
     "CONFIG_IMPORT_FAILED": "Config import failed",
     "ACCOUNT_SESSION_INVALID": "Account session invalid, please re-login",

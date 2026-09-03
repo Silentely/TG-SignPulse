@@ -17,6 +17,8 @@ from backend.services.sign_task_history_io import (
 
 def test_safe_history_key_and_path(tmp_path: Path):
     assert safe_history_key("a/b\\c") == "a_b_c"
+    assert safe_history_key(".foo") != safe_history_key("foo")
+    assert history_file_path(tmp_path, ".foo").name != history_file_path(tmp_path, "foo").name
     p = history_file_path(tmp_path, "task1", "acc1")
     assert p.name == "acc1__task1.json"
     p2 = history_file_path(tmp_path, "task1")

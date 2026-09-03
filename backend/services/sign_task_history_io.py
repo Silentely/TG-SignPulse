@@ -14,7 +14,16 @@ _logger = logging.getLogger("backend.sign_task_history_io")
 
 
 def safe_history_key(name: str) -> str:
-    cleaned = str(name or "").strip().replace(chr(0), "").replace("/", "_").replace("\\", "_").lstrip(".")
+    cleaned = (
+        str(name or "")
+        .strip()
+        .replace(chr(0), "")
+        .replace("/", "_")
+        .replace("\\", "_")
+    )
+    # 保留普通名称的前导点，避免 .foo 与 foo 映射到同一历史文件。
+    if cleaned in {".", ".."}:
+        return "default"
     return cleaned or "default"
 
 

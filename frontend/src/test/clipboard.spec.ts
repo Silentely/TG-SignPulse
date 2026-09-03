@@ -29,4 +29,18 @@ describe('copyToClipboard', () => {
     expect(result).toBe(true)
     expect(document.execCommand).toHaveBeenCalledWith('copy')
   })
+
+  it('execCommand 抛异常时也清理降级 textarea', async () => {
+    Object.assign(navigator, {
+      clipboard: {
+        writeText: vi.fn().mockRejectedValue(new Error('permission denied')),
+      },
+    })
+    document.execCommand = vi.fn().mockImplementation(() => {
+      throw new Error('copy unavailable')
+    })
+
+    await expect(copyToClipboard('failure text')).resolves.toBe(false)
+    expect(document.querySelectorAll('textarea')).toHaveLength(0)
+  })
 })
