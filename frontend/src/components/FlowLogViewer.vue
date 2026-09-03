@@ -9,6 +9,7 @@ import {
 } from '../lib/task-log-format'
 import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
+import { copyToClipboard } from '../lib/clipboard'
 
 const props = withDefaults(
   defineProps<{
@@ -74,7 +75,8 @@ const copyLogs = async () => {
   const text = copyText.value
   if (!text) return
   try {
-    await navigator.clipboard.writeText(text)
+    const ok = await copyToClipboard(text)
+    if (!ok) throw new Error('copy failed')
     copied.value = true
     toast.success(t('logs.copied'))
     // 重入时先清旧定时器：否则上一次复制到点会把本次的对勾提前复位
