@@ -47,12 +47,19 @@ _FRIENDLY_ERROR_PATTERNS = [
     ("unauthorized", "会话已失效"),
     ("connection reset", "网络连接被重置"),
     ("connection refused", "网络连接被拒绝"),
+    ("nodename nor servname", "DNS 域名解析失败"),
+    ("server disconnected", "服务器端断开连接"),
+    ("remoteprotocolerror", "远程通信协议错误"),
+    ("gaierror", "DNS 域名解析失败"),
+    ("timed out connecting", "网络连接超时"),
 ]
 
 
 def friendly_error_message(message: str) -> str:
     """常见异常英文文本映射为中文摘要；无命中时原样返回。"""
-    lower = (message or "").lower()
+    if not isinstance(message, str):
+        return "" if message is None else str(message)
+    lower = message.lower()
     for pattern, friendly in _FRIENDLY_ERROR_PATTERNS:
         if pattern in lower:
             return friendly

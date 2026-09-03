@@ -25,9 +25,9 @@ def select_latest_last_run(
     candidate: Optional[Dict[str, Any]],
 ) -> Optional[Dict[str, Any]]:
     """按 time 字符串比较，返回较新的 last_run。"""
-    if not candidate:
-        return current
-    if not current:
+    if not isinstance(candidate, dict):
+        return current if isinstance(current, dict) else None
+    if not isinstance(current, dict):
         return candidate
     current_time = str(current.get("time") or "")
     candidate_time = str(candidate.get("time") or "")

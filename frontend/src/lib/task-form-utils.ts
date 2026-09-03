@@ -123,8 +123,8 @@ export function buildSingleAction(
       break
     case 'bot_cmd':
       result.action = 9
-      result.bot_username = action.value
-      result.command_prefix = action.commandPrefix || DEFAULT_CMD_PREFIX
+      result.bot_username = (action.value || '').trim().replace(/^@/, '')
+      result.command_prefix = (action.commandPrefix || DEFAULT_CMD_PREFIX).trim()
       break
   }
 
