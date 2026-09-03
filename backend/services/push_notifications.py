@@ -177,29 +177,21 @@ def _bot_config(settings: Dict[str, Any]) -> tuple[str, str, Optional[int]]:
 def is_in_quiet_hours(
     settings: Dict[str, Any], now: Optional[datetime] = None
 ) -> bool:
-    """判断当前是否处于通知静默时段（支持跨午夜）。"""
+    """判断当前是否处于通知静默时段（支持跨午夜，兼容 HH:MM 与 HH:MM:SS）。"""
     if not settings.get("telegram_bot_quiet_hours_enabled"):
         return False
-    start_s = str(settings.get("telegram_bot_quiet_hours_start") or "23:00")
-    end_s = str(settings.get("telegram_bot_quiet_hours_end") or "07:00")
-    try:
-        start_parts = start_s.split(":")
-        end_parts = end_s.split(":")
-        if len(start_parts) != 2 or len(end_parts) != 2:
-            return False
-        sh, sm = [int(x) for x in start_parts]
-        eh, em = [int(x) for x in end_parts]
-    except (TypeError, ValueError):
-        return False
-    # 能被 int 解析不等于合法时刻，非法范围按当前降级策略不进入静默时段。
-    if not all(
-        0 <= hour <= 23 and 0 <= minute <= 59
-        for hour, minute in ((sh, sm), (eh, em))
-    ):
-        return False
-    tz_name = str(settings.get("timezone") or "UTC")
-    from backend.utils.time_window import resolve_tz
+    from backend.utils.time_window import parse_hhmm, resolve_tz
 
+    start_t = parse_hhmm(settings.get("telegram_bot_quiet_hours_start") or "23:00")
+    end_t = parse_hhmm(settings.get("telegram_bot_quiet_hours_end") or "07:00")
+    if start_t is None or end_t is None:
+        return False
+    start_m = start_t.hour * 60 + start_t.minute
+    end_m = end_t.hour * 60 + end_t.minute
+    if start_m == end_m:
+        return False
+
+    tz_name = str(settings.get("timezone") or "UTC")
     tz = resolve_tz(tz_name)
     current = now or datetime.now(tz)
     if current.tzinfo is None:
@@ -207,9 +199,6 @@ def is_in_quiet_hours(
     else:
         current = current.astimezone(tz)
     minutes = current.hour * 60 + current.minute
-    start_m, end_m = sh * 60 + sm, eh * 60 + em
-    if start_m == end_m:
-        return False
     if start_m < end_m:
         return start_m <= minutes < end_m
     return minutes >= start_m or minutes < end_m

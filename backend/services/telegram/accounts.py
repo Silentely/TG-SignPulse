@@ -5,6 +5,7 @@ import asyncio
 import logging
 import secrets
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from backend.core.config import get_settings
@@ -45,8 +46,9 @@ logger = logging.getLogger("backend.telegram.accounts")
 def _session_file_info(session_file) -> tuple[bool, int]:
     """单次 stat 返回 (exists, size)，避免 exists()+stat() 双重系统调用竞态。"""
     try:
-        return True, session_file.stat().st_size
-    except OSError:
+        p = Path(session_file)
+        return True, p.stat().st_size
+    except (OSError, ValueError, TypeError):
         return False, 0
 
 

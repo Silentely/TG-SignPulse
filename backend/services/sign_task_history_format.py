@@ -26,6 +26,11 @@ def build_history_list_item(
     flow_logs = normalize_flow_logs(item.get("flow_logs"))
     repaired_flows = [repair(str(line)) for line in flow_logs]
     timestamp = str(item.get("time") or "")
+    raw_flc = item.get("flow_line_count")
+    try:
+        flow_line_count = int(raw_flc if raw_flc is not None else len(flow_logs))
+    except (TypeError, ValueError):
+        flow_line_count = len(flow_logs)
     return {
         "time": timestamp,
         "created_at": timestamp,
@@ -33,7 +38,7 @@ def build_history_list_item(
         "message": repair(str(item.get("message", "") or "")),
         "flow_logs": repaired_flows,
         "flow_truncated": bool(item.get("flow_truncated", False)),
-        "flow_line_count": int(item.get("flow_line_count", len(flow_logs))),
+        "flow_line_count": flow_line_count,
         "task_name": task_name,
         "account_name": account_name,
         "last_target_message": str(item.get("last_target_message") or "").strip()

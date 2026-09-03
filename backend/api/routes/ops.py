@@ -8,6 +8,7 @@ import logging
 import os
 import shutil
 import tempfile
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -85,6 +86,8 @@ class MemoryStatsResponse(BaseModel):
 
 
 def _human_size(num: int) -> str:
+    if num is None or num < 0:
+        return "0 B"
     value = float(num)
     for unit in ("B", "KB", "MB", "GB", "TB"):
         if value < 1024 or unit == "TB":
@@ -112,16 +115,19 @@ def _dir_size(path: Path) -> int:
 # 每次请求重扫开销大；短 TTL 足以反映备份增减
 _DIR_SIZE_CACHE_TTL_SECONDS = 60.0
 _dir_size_cache: Dict[str, tuple[float, int]] = {}
+_dir_size_lock = threading.Lock()
 
 
 def _dir_size_cached(path: Path) -> int:
     key = str(path)
     now = time.monotonic()
-    cached = _dir_size_cache.get(key)
-    if cached is not None and now - cached[0] < _DIR_SIZE_CACHE_TTL_SECONDS:
-        return cached[1]
+    with _dir_size_lock:
+        cached = _dir_size_cache.get(key)
+        if cached is not None and now - cached[0] < _DIR_SIZE_CACHE_TTL_SECONDS:
+            return cached[1]
     size = _dir_size(path)
-    _dir_size_cache[key] = (now, size)
+    with _dir_size_lock:
+        _dir_size_cache[key] = (now, size)
     return size
 
 

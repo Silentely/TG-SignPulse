@@ -110,7 +110,7 @@ def upload_file_to_webdav(
     if not local_path.is_file():
         raise ValueError(f"本地文件不存在: {local_path}")
 
-    name = filename or local_path.name
+    name = validate_backup_filename(filename or local_path.name)
     dir_rel = (remote_dir or "").strip().strip("/")
     auth = (user, password or "")
 

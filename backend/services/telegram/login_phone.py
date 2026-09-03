@@ -85,6 +85,9 @@ class TelegramPhoneLoginMixin:
         """
 
         account_name = self._normalize_account_name(account_name)
+        phone_number = str(phone_number or "").strip().replace(" ", "").replace("-", "")
+        if not phone_number:
+            raise ValueError("手机号不能为空")
 
         from pyrogram import Client
         from pyrogram.errors import FloodWait, PhoneNumberInvalid
@@ -267,6 +270,9 @@ class TelegramPhoneLoginMixin:
             登录结果
         """
         account_name = self._normalize_account_name(account_name)
+        phone_number = str(phone_number or "").strip().replace(" ", "").replace("-", "")
+        phone_code = str(phone_code or "").strip()
+        phone_code_hash = str(phone_code_hash or "").strip()
 
         from pyrogram.errors import (
             PasswordHashInvalid,
