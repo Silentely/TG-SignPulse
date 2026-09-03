@@ -111,18 +111,19 @@ def clamp_max_age_days(max_age_days: int, *, default: int = 3, minimum: int = 1)
     return max(minimum, value)
 
 
-def cleanup_old_history_files(run_history_dir: Path, *, max_age_days: int = 3) -> int:
+def cleanup_old_history_files(run_history_dir: Path | str, *, max_age_days: int = 3) -> int:
     """删除过期历史文件，返回删除数量。"""
     from datetime import timedelta
 
     from backend.utils.time import utc_now
 
-    if not run_history_dir.exists():
+    base_dir = Path(run_history_dir)
+    if not base_dir.exists():
         return 0
     days = clamp_max_age_days(max_age_days)
     limit = utc_now() - timedelta(days=days)
     removed = 0
-    for log_file in run_history_dir.glob("*.json"):
+    for log_file in base_dir.glob("*.json"):
         try:
             if log_file.stat().st_mtime < limit.timestamp():
                 log_file.unlink()

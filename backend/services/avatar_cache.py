@@ -63,6 +63,7 @@ def read_avatar_file(cache_file: Path) -> Optional[bytes]:
 
 def mark_no_avatar(no_avatar_marker: Path) -> None:
     """写入无头像标记；是否容错由调用方按场景决定。"""
+    no_avatar_marker.parent.mkdir(parents=True, exist_ok=True)
     no_avatar_marker.write_text("")
 
 

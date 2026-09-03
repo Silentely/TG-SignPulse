@@ -26,7 +26,7 @@ def write_json_atomic(path, data: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with _lock:
         tmp = tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", delete=False, dir=path.parent
+            mode="w", encoding="utf-8", delete=False, dir=path.parent, prefix=".atomic_tmp_"
         )
         actual_tmp = Path(tmp.name)
         replaced = False
