@@ -121,6 +121,12 @@ def import_sign_task(
                 detail="DATA_DIR_NOT_WRITABLE",
             )
 
+        if not request.config_json or not request.config_json.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="CONFIG_JSON_EMPTY",
+            )
+
         success = service.import_sign_task(
             request.config_json, request.task_name, request.account_name
         )

@@ -25,7 +25,7 @@ PHASE_RUNNING = "running"
 PHASE_FINALIZING = "finalizing"
 
 def make_task_key(account_name: str, task_name: str) -> Tuple[str, str]:
-    return str(account_name or ""), str(task_name or "")
+    return str(account_name or "").strip(), str(task_name or "").strip()
 
 
 def resolve_effective_retry_count(
