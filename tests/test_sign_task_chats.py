@@ -47,6 +47,12 @@ def test_search_by_numeric_id():
     assert res2["total"] == 1
 
 
+def test_numeric_search_tolerates_non_string_cache_fields():
+    data = [{"id": None, "title": 123, "username": None}]
+    res = search_chats_in_cache(data, "123")
+    assert res["total"] == 1
+
+
 def test_search_pagination_and_empty_query():
     data = [{"id": i, "title": f"t{i}", "username": None} for i in range(5)]
     res = search_chats_in_cache(data, "", limit=2, offset=2)

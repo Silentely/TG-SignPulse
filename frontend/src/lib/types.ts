@@ -173,6 +173,7 @@ const API_ERROR_CODE_MESSAGES: Record<string, string> = {
   TOTP_REQUIRED_OR_INVALID: '2FA code invalid or missing',
   WEBDAV_NOT_CONFIGURED: 'WebDAV is not configured',
   BACKUP_EMPTY: 'Nothing to back up',
+  CONFIG_JSON_EMPTY: 'Import configuration cannot be empty',
   AI_KEY_DECRYPT_FAILED: 'API Key decrypt failed; check APP_SECRET_KEY and re-save',
   CONFIG_IMPORT_FAILED: 'Config import failed',
   CLEAR_LOGS_FAILED: 'Failed to clear logs',
@@ -252,12 +253,13 @@ function truncateErrorMessage(text: string): string {
  * 已知错误码映射为可读英文；UI 可用 getErrorCode + i18n 再覆盖。
  */
 export function getErrorMessage(e: unknown, fallback = 'Unknown error'): string {
-  if (typeof e === 'string' && e.trim()) {
-    return truncateErrorMessage(e.trim())
-  }
   const code = getErrorCode(e)
   if (code && API_ERROR_CODE_MESSAGES[code]) {
     return API_ERROR_CODE_MESSAGES[code]
+  }
+
+  if (typeof e === 'string' && e.trim()) {
+    return truncateErrorMessage(e.trim())
   }
 
   // 410 旧接口只读：detail 常为长英文说明，压缩展示
@@ -346,5 +348,4 @@ export function getLocalizedErrorMessage(
   }
   return getErrorMessage(e, fallback)
 }
-
 

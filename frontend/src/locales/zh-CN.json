@@ -15,6 +15,7 @@
     "NETWORK_ERROR": "网络错误",
     "WEBDAV_NOT_CONFIGURED": "未配置 WebDAV",
     "BACKUP_EMPTY": "没有可备份的文件",
+    "CONFIG_JSON_EMPTY": "导入配置不能为空",
     "AI_KEY_DECRYPT_FAILED": "API Key 解密失败，请检查 APP_SECRET_KEY 后重新保存",
     "CONFIG_IMPORT_FAILED": "配置导入失败",
     "ACCOUNT_SESSION_INVALID": "账号会话失效，请重新登录",

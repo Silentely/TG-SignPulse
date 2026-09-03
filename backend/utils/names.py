@@ -15,6 +15,10 @@ def validate_storage_name(value: str, *, field_name: str) -> str:
         raise ValueError(
             f"{field_name} cannot contain path separators or null bytes: / \\"
         )
-    if len(cleaned) > 128:
-        raise ValueError(f"{field_name} length cannot exceed 128 characters")
+    try:
+        byte_length = len(cleaned.encode("utf-8"))
+    except UnicodeEncodeError as exc:
+        raise ValueError(f"{field_name} contains invalid Unicode") from exc
+    if byte_length > 128:
+        raise ValueError(f"{field_name} length cannot exceed 128 bytes")
     return cleaned

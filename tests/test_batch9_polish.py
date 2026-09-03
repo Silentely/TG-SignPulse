@@ -8,8 +8,14 @@ from backend.utils.names import validate_storage_name
 
 def test_validate_storage_name_length_limit():
     assert validate_storage_name("a" * 128, field_name="account") == "a" * 128
-    with pytest.raises(ValueError, match="length cannot exceed 128 characters"):
+    with pytest.raises(ValueError, match="length cannot exceed 128 bytes"):
         validate_storage_name("a" * 129, field_name="account")
+
+
+def test_validate_storage_name_uses_utf8_byte_limit():
+    assert validate_storage_name("中" * 42, field_name="task") == "中" * 42
+    with pytest.raises(ValueError, match="length cannot exceed 128 bytes"):
+        validate_storage_name("中" * 43, field_name="task")
 
 
 def test_atomic_io_custom_prefix(tmp_path):

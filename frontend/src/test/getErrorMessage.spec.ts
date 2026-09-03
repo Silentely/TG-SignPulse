@@ -15,6 +15,12 @@ describe('getErrorMessage', () => {
     expect(getErrorMessage('plain string error')).toBe('plain string error')
   })
 
+  it('字符串形式的已知错误码也使用默认映射', () => {
+    expect(getErrorMessage('NETWORK_TIMEOUT')).toBe('Request timed out')
+    expect(getErrorMessage('BACKUP_EMPTY')).toBe('Nothing to back up')
+    expect(getErrorMessage('CONFIG_JSON_EMPTY')).toBe('Import configuration cannot be empty')
+  })
+
   it('优先提取 object.detail', () => {
     expect(getErrorMessage({ code: 42, detail: 'bad input' })).toBe('bad input')
   })

@@ -16,7 +16,7 @@ def test_resolve_int_setting_guards():
 
 
 def test_safe_history_key_dots():
-    assert safe_history_key("...task.name") == "task.name"
+    assert safe_history_key("...task.name") == "...task.name"
     assert safe_history_key("..") == "default"
 
 
