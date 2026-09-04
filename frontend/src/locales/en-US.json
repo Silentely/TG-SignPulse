@@ -123,7 +123,9 @@
       "canceling": "Canceling",
       "failed": "Failed",
       "done": "Done"
-    }
+    },
+    "modeRange": "Random Window",
+    "modeRangeHint": "Random time window task (runs randomly between {start} and {end})"
   },
   "accounts": {
     "noRemark": "No remark",

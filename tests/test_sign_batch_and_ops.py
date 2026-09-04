@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from backend.core.auth import create_access_token
@@ -253,6 +253,49 @@ class TestOpsApi:
         body = resp.json()
         assert body["total"] == 0
         assert body["jobs"] == []
+
+    def test_scheduled_jobs_with_range_task(self, client, db_session):
+        """测试返回时间段任务配置的 execution_mode、range_start、range_end 等元数据"""
+        class MockJob:
+            id = "sign-testacc-mytask"
+            name = "mytask"
+            next_run_time = datetime(2026, 9, 5, 9, 0, 0, tzinfo=timezone.utc)
+            trigger = "cron[hour='9', minute='0']"
+            args = ["testacc", "mytask"]
+
+        class MockScheduler:
+            timezone = "Asia/Shanghai"
+            def get_jobs(self):
+                return [MockJob()]
+
+        mock_tasks = [
+            {
+                "name": "mytask",
+                "account_name": "testacc",
+                "execution_mode": "range",
+                "range_start": "09:00",
+                "range_end": "18:00",
+            }
+        ]
+
+        with patch("backend.scheduler.scheduler", MockScheduler()), \
+             patch("backend.services.sign_tasks.get_sign_task_service") as mock_get_svc:
+            mock_svc = MagicMock()
+            mock_svc.list_tasks.return_value = mock_tasks
+            mock_get_svc.return_value = mock_svc
+
+            resp = client.get("/api/ops/scheduled-jobs", headers=_auth_headers())
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body["total"] == 1
+            job = body["jobs"][0]
+            assert job["id"] == "sign-testacc-mytask"
+            assert job["kind"] == "sign"
+            assert job["execution_mode"] == "range"
+            assert job["range_start"] == "09:00"
+            assert job["range_end"] == "18:00"
+            assert job["task_name"] == "mytask"
+            assert job["account_name"] == "testacc"
 
     def test_backup_status(self, client, db_session):
         resp = client.get("/api/ops/backup/status", headers=_auth_headers())

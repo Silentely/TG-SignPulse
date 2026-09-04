@@ -123,7 +123,9 @@
       "canceling": "取消中",
       "failed": "失败",
       "done": "完成"
-    }
+    },
+    "modeRange": "随机时段",
+    "modeRangeHint": "随机时间段任务（在 {start} ~ {end} 之间随机触发）"
   },
   "accounts": {
     "noRemark": "暂无备注",

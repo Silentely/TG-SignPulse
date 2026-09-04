@@ -128,9 +128,16 @@ def login(
             detail="Invalid username or password",
         )
     if user.totp_secret:
-        if not payload.totp_code or not verify_totp(
-            user.totp_secret, payload.totp_code
-        ):
+        totp_code = (payload.totp_code or "").strip()
+        if not totp_code:
+            # 用户提交了正确密码，但前端尚未收集两步验证码（第一步挑战流程）
+            # 不记为登录失败日志，并重置本次防爆破限流计数，避免正常两步验证流程白白消耗尝试次数
+            rate_limiter.reset("auth.login", login_key)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="TOTP_REQUIRED_OR_INVALID",
+            )
+        if not verify_totp(user.totp_secret, totp_code):
             _append_login_log(
                 db,
                 username=user.username,

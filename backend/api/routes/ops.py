@@ -36,6 +36,11 @@ class ScheduledJobOut(BaseModel):
     kind: str = Field(
         "other", description="sign / legacy_db / system / other"
     )
+    execution_mode: Optional[str] = None
+    range_start: Optional[str] = None
+    range_end: Optional[str] = None
+    task_name: Optional[str] = None
+    account_name: Optional[str] = None
 
 
 class ScheduledJobsResponse(BaseModel):
@@ -139,6 +144,21 @@ def list_scheduled_jobs(current_user: User = Depends(get_current_user)):
     if scheduler is None:
         return ScheduledJobsResponse(jobs=[], total=0, timezone="")
 
+    task_map: Dict[Any, Dict[str, Any]] = {}
+    try:
+        from backend.services.sign_tasks import get_sign_task_service
+
+        for t in get_sign_task_service().list_tasks():
+            acc = str(t.get("account_name") or "")
+            nm = str(t.get("name") or "")
+            if nm:
+                if acc:
+                    task_map[(acc, nm)] = t
+                    task_map[f"sign-{acc}-{nm}"] = t
+                task_map[nm] = t
+    except Exception as exc:
+        logger.debug("预拉取签到任务配置失败: %s", exc)
+
     jobs_out: List[ScheduledJobOut] = []
     for job in scheduler.get_jobs():
         jid = str(job.id or "")
@@ -160,6 +180,31 @@ def list_scheduled_jobs(current_user: User = Depends(get_current_user)):
                     next_iso = next_run.isoformat()
             except Exception:
                 next_iso = str(next_run)
+
+        execution_mode = None
+        range_start = None
+        range_end = None
+        task_name = None
+        account_name = None
+
+        if kind == "sign":
+            if getattr(job, "args", None) and len(job.args) >= 2:
+                account_name = str(job.args[0])
+                task_name = str(job.args[1])
+            task_info = (
+                task_map.get((account_name, task_name))
+                or task_map.get(jid)
+                or (task_map.get(task_name) if task_name else None)
+            )
+            if task_info:
+                execution_mode = task_info.get("execution_mode") or "fixed"
+                range_start = task_info.get("range_start")
+                range_end = task_info.get("range_end")
+                if not task_name:
+                    task_name = task_info.get("name")
+                if not account_name:
+                    account_name = task_info.get("account_name")
+
         jobs_out.append(
             ScheduledJobOut(
                 id=jid,
@@ -167,6 +212,11 @@ def list_scheduled_jobs(current_user: User = Depends(get_current_user)):
                 next_run_time=next_iso,
                 trigger=str(job.trigger) if job.trigger is not None else "",
                 kind=kind,
+                execution_mode=execution_mode,
+                range_start=range_start,
+                range_end=range_end,
+                task_name=task_name,
+                account_name=account_name,
             )
         )
 
