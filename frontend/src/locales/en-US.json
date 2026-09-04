@@ -678,7 +678,7 @@
     "codePlaceholder": "Code received",
     "getCode": "Get Code",
     "resendCode": "Resend",
-    "resendIn": "Resend ({{s}}s)",
+    "resendIn": "Resend ({s}s)",
     "cloudPassword": "2FA (Cloud Password)",
     "cloudPasswordPlaceholder": "Leave empty if not set",
     "proxy": "SOCKS5 Proxy (optional)",
