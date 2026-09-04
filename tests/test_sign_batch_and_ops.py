@@ -297,6 +297,56 @@ class TestOpsApi:
             assert job["task_name"] == "mytask"
             assert job["account_name"] == "testacc"
 
+    def test_scheduled_jobs_does_not_guess_duplicate_task_by_name(
+        self, client, db_session
+    ):
+        """账号参数不完整且任务重名时，不应把元数据错配到任一账号。"""
+        class MockJob:
+            id = "sign--shared"
+            name = "shared"
+            next_run_time = None
+            trigger = "cron[hour='9', minute='0']"
+            args = ["", "shared"]
+
+        class MockScheduler:
+            timezone = "Asia/Shanghai"
+
+            def get_jobs(self):
+                return [MockJob()]
+
+        mock_tasks = [
+            {
+                "name": "shared",
+                "account_name": "acc1",
+                "execution_mode": "range",
+                "range_start": "09:00",
+                "range_end": "10:00",
+            },
+            {
+                "name": "shared",
+                "account_name": "acc2",
+                "execution_mode": "range",
+                "range_start": "18:00",
+                "range_end": "19:00",
+            },
+        ]
+
+        with (
+            patch("backend.scheduler.scheduler", MockScheduler()),
+            patch("backend.services.sign_tasks.get_sign_task_service") as mock_get_svc,
+        ):
+            mock_svc = MagicMock()
+            mock_svc.list_tasks.return_value = mock_tasks
+            mock_get_svc.return_value = mock_svc
+
+            resp = client.get("/api/ops/scheduled-jobs", headers=_auth_headers())
+
+        assert resp.status_code == 200
+        job = resp.json()["jobs"][0]
+        assert job["execution_mode"] is None
+        assert job["range_start"] is None
+        assert job["range_end"] is None
+
     def test_backup_status(self, client, db_session):
         resp = client.get("/api/ops/backup/status", headers=_auth_headers())
         assert resp.status_code == 200

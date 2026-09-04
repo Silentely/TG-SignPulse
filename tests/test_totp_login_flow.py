@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import pyotp
-import pytest
 from fastapi.testclient import TestClient
 
+from backend.api.routes.auth import rate_limiter
 from backend.core.auth import get_user_by_username
 from backend.models.login_log import LoginLog
-from tests.test_api import ADMIN_PASSWORD, ADMIN_USERNAME, api_client, db  # noqa: F401
+from tests.test_api import ADMIN_PASSWORD, ADMIN_USERNAME
+
+pytest_plugins = ("tests.test_api",)
 
 
 def test_totp_challenge_flow_no_false_failure_log(api_client: TestClient, db):
@@ -87,5 +89,56 @@ def test_totp_challenge_flow_no_false_failure_log(api_client: TestClient, db):
         )
         assert len(logs_step3) == 1, "正确验证码登录应记录 1 条成功日志"
     finally:
+        user.totp_secret = None
+        db.commit()
+
+
+def test_missing_totp_does_not_reset_invalid_totp_rate_limit(
+    api_client: TestClient, db
+):
+    """空验证码不能清除错误 TOTP 的登录限流计数。"""
+    user = get_user_by_username(db, ADMIN_USERNAME)
+    assert user is not None
+
+    secret = pyotp.random_base32()
+    user.totp_secret = secret
+    db.commit()
+    rate_limiter.reset_all()
+
+    try:
+        for _ in range(4):
+            invalid = api_client.post(
+                "/api/auth/login",
+                json={
+                    "username": ADMIN_USERNAME,
+                    "password": ADMIN_PASSWORD,
+                    "totp_code": "111111",
+                },
+            )
+            assert invalid.status_code == 401
+
+            challenge = api_client.post(
+                "/api/auth/login",
+                json={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD},
+            )
+            assert challenge.status_code == 401
+
+        fifth_invalid = api_client.post(
+            "/api/auth/login",
+            json={
+                "username": ADMIN_USERNAME,
+                "password": ADMIN_PASSWORD,
+                "totp_code": "111111",
+            },
+        )
+        assert fifth_invalid.status_code == 401
+
+        blocked = api_client.post(
+            "/api/auth/login",
+            json={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD},
+        )
+        assert blocked.status_code == 429
+    finally:
+        rate_limiter.reset_all()
         user.totp_secret = None
         db.commit()

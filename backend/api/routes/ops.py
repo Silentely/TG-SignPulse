@@ -155,7 +155,6 @@ def list_scheduled_jobs(current_user: User = Depends(get_current_user)):
                 if acc:
                     task_map[(acc, nm)] = t
                     task_map[f"sign-{acc}-{nm}"] = t
-                task_map[nm] = t
     except Exception as exc:
         logger.debug("预拉取签到任务配置失败: %s", exc)
 
@@ -194,7 +193,6 @@ def list_scheduled_jobs(current_user: User = Depends(get_current_user)):
             task_info = (
                 task_map.get((account_name, task_name))
                 or task_map.get(jid)
-                or (task_map.get(task_name) if task_name else None)
             )
             if task_info:
                 execution_mode = task_info.get("execution_mode") or "fixed"
