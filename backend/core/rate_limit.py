@@ -29,6 +29,17 @@ class InMemoryRateLimiter:
             self._attempts.pop(bucket, None)
             self._blocked_until.pop(bucket, None)
 
+    def discard_latest_attempt(self, scope: str, key: str) -> None:
+        """撤销当前请求的计数，但保留此前失败次数与封锁状态。"""
+        bucket = (scope, key)
+        with self._lock:
+            attempts = self._attempts.get(bucket)
+            if not attempts:
+                return
+            attempts.pop()
+            if not attempts:
+                self._attempts.pop(bucket, None)
+
     def reset_all(self) -> None:
         with self._lock:
             self._attempts.clear()

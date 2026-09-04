@@ -131,8 +131,8 @@ def login(
         totp_code = (payload.totp_code or "").strip()
         if not totp_code:
             # 用户提交了正确密码，但前端尚未收集两步验证码（第一步挑战流程）
-            # 不记为登录失败日志，并重置本次防爆破限流计数，避免正常两步验证流程白白消耗尝试次数
-            rate_limiter.reset("auth.login", login_key)
+            # 不记为登录失败日志，也不应消除此前错误验证码的防爆破计数
+            rate_limiter.discard_latest_attempt("auth.login", login_key)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="TOTP_REQUIRED_OR_INVALID",

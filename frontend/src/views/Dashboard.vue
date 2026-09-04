@@ -1,4 +1,4 @@
-<script setup lang=\"ts\">
+<script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Users, Zap, Terminal, Settings, RefreshCw } from 'lucide-vue-next'
@@ -21,7 +21,8 @@ import {
 } from '../lib/run-status'
 import { formatShortDateTime } from '../lib/datetime'
 
-const quickLinks = [\n  { name: 'accounts', icon: Users, titleKey: 'dashboard.goAccounts', descKey: 'dashboard.goAccountsDesc' },
+const quickLinks = [
+  { name: 'accounts', icon: Users, titleKey: 'dashboard.goAccounts', descKey: 'dashboard.goAccountsDesc' },
   { name: 'tasks', icon: Zap, titleKey: 'dashboard.goTasks', descKey: 'dashboard.goTasksDesc' },
   { name: 'logs', icon: Terminal, titleKey: 'dashboard.goLogs', descKey: 'dashboard.goLogsDesc' },
   { name: 'settings', icon: Settings, titleKey: 'dashboard.goSettings', descKey: 'dashboard.goSettingsDesc' },
@@ -143,115 +144,378 @@ const jobStatusLabel = (status: string) => {
 </script>
 
 <template>
-  <div class=\"space-y-6\">
+  <div class="space-y-6">
     <!-- Page Loading skeleton -->
-    <div v-if=\"pageLoading\" class=\"space-y-6\" aria-busy=\"true\" aria-live=\"polite\">
-      <div class=\"grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4\">
-        <div v-for=\"i in 4\" :key=\"i\" class=\"ui-card p-5 min-h-[96px] space-y-4\">
-          <div class=\"ui-skeleton h-3 w-16\" />
-          <div class=\"ui-skeleton h-8 w-20\" />
+    <div v-if="pageLoading" class="space-y-6" aria-busy="true" aria-live="polite">
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+        <div v-for="i in 4" :key="i" class="ui-card p-5 min-h-[96px] space-y-4">
+          <div class="ui-skeleton h-3 w-16" />
+          <div class="ui-skeleton h-8 w-20" />
         </div>
       </div>
-      <div class=\"ui-card p-5 space-y-3\">
-        <div class=\"ui-skeleton h-3 w-28\" />
-        <div v-for=\"i in 3\" :key=\"i\" class=\"ui-skeleton h-8 w-full\" />
+      <div class="ui-card p-5 space-y-3">
+        <div class="ui-skeleton h-3 w-28" />
+        <div v-for="i in 3" :key="i" class="ui-skeleton h-8 w-full" />
       </div>
-      <div class=\"ui-card p-5 space-y-3 min-h-[240px]\">
-        <div class=\"ui-skeleton h-3 w-24\" />
-        <div v-for=\"i in 6\" :key=\"i\" class=\"ui-skeleton h-7 w-full\" />
+      <div class="ui-card p-5 space-y-3 min-h-[240px]">
+        <div class="ui-skeleton h-3 w-24" />
+        <div v-for="i in 6" :key="i" class="ui-skeleton h-7 w-full" />
       </div>
     </div>
 
     <template v-else>
     <!-- Stats（可点击跳转） -->
-    <div class=\"grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4\">
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
       <button
-        v-for=\"stat in stats\"
-        :key=\"stat.key\"
-        type=\"button\"
-        class=\"ui-card ui-card-hover ui-stat p-5 flex flex-col justify-between min-h-[96px] text-left\"
-        :style=\"{
+        v-for="stat in stats"
+        :key="stat.key"
+        type="button"
+        class="ui-card ui-card-hover ui-stat p-5 flex flex-col justify-between min-h-[96px] text-left"
+        :style="{
           '--sp-stat-accent':
             stat.key === 'dashboard.activeAccounts' ? 'var(--sp-accent)'
             : stat.key === 'dashboard.totalTasks' ? 'var(--sp-violet)'
             : stat.key === 'dashboard.recentSuccess' ? 'var(--sp-success)'
             : 'var(--sp-danger)'
-        }\"
-        @click=\"router.push({
+        }"
+        @click="router.push({
           name: stat.key === 'dashboard.totalTasks' ? 'tasks'
             : stat.key === 'dashboard.activeAccounts' ? 'accounts'
             : 'logs'
-        })\"
+        })"
       >
-        <span class=\"ui-section-label\">{{ t(stat.key) }}</span>
+        <span class="ui-section-label">{{ t(stat.key) }}</span>
         <span
-          class=\"text-2xl sm:text-3xl font-mono font-medium text-gray-900 dark:text-gray-100 mt-3 tracking-tight transition-opacity duration-300\"
-          :class=\"refreshing ? 'opacity-50' : 'opacity-100'\"
-          :title=\"t(stat.hintKey)\"
+          class="text-2xl sm:text-3xl font-mono font-medium text-gray-900 dark:text-gray-100 mt-3 tracking-tight transition-opacity duration-300"
+          :class="refreshing ? 'opacity-50' : 'opacity-100'"
+          :title="t(stat.hintKey)"
         >{{ stat.value }}</span>
       </button>
     </div>
 
     <!-- 快捷入口 -->
     <div>
-      <div class=\"ui-section-label mb-3\">{{ t('dashboard.quickActions') }}</div>
-      <div class=\"grid grid-cols-2 lg:grid-cols-4 gap-3\">
+      <div class="ui-section-label mb-3">{{ t('dashboard.quickActions') }}</div>
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <button
-          v-for=\"link in quickLinks\"
-          :key=\"link.name\"
-          type=\"button\"
-          class=\"ui-card ui-card-hover text-left p-4 group\"
-          @click=\"router.push({ name: link.name })\"
+          v-for="link in quickLinks"
+          :key="link.name"
+          type="button"
+          class="ui-card ui-card-hover text-left p-4 group"
+          @click="router.push({ name: link.name })"
         >
-          <div class=\"flex items-center gap-2.5 mb-2\">
-            <span class=\"ui-section-icon group-hover:scale-105 transition-transform\">
-              <component :is=\"link.icon\" class=\"w-3.5 h-3.5\" stroke-width=\"1.75\" />
+          <div class="flex items-center gap-2.5 mb-2">
+            <span class="ui-section-icon group-hover:scale-105 transition-transform">
+              <component :is="link.icon" class="w-3.5 h-3.5" stroke-width="1.75" />
             </span>
-            <span class=\"text-sm font-medium text-gray-900 dark:text-gray-100\">{{ t(link.titleKey) }}</span>
+            <span class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ t(link.titleKey) }}</span>
           </div>
-          <p class=\"text-[11px] text-gray-500 leading-relaxed line-clamp-2\">{{ t(link.descKey) }}</p>
+          <p class="text-[11px] text-gray-500 leading-relaxed line-clamp-2">{{ t(link.descKey) }}</p>
         </button>
       </div>
     </div>
 
     <!-- 活跃运行 + 失败分类 -->
-    <div class=\"grid grid-cols-1 lg:grid-cols-2 gap-4\">
-      <div class=\"ui-card p-5\">
-        <div class=\"ui-section-label mb-4\">{{ t('dashboard.activeRuns') }}</div>
-        <div v-if=\"activeRuns.length === 0\" class=\"ui-empty !py-12\">
-          <p class=\"ui-empty-desc\">{{ t('dashboard.noActiveRuns') }}</p>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div class="ui-card p-5">
+        <div class="ui-section-label mb-4">{{ t('dashboard.activeRuns') }}</div>
+        <div v-if="activeRuns.length === 0" class="ui-empty !py-12">
+          <p class="ui-empty-desc">{{ t('dashboard.noActiveRuns') }}</p>
         </div>
-        <div v-else class=\"space-y-1\">
+        <div v-else class="space-y-1">
           <button
-            v-for=\"(run, idx) in activeRuns\"
-            :key=\"`${run.task_name}-${run.account_name}-${run.run_id}-${idx}`\"
-            type=\"button\"
-            class=\"ui-list-row w-full flex items-center gap-2 text-xs px-2 py-2 rounded-sm text-left\"
-            @click=\"openActiveRun(run)\"
+            v-for="(run, idx) in activeRuns"
+            :key="`${run.task_name}-${run.account_name}-${run.run_id}-${idx}`"
+            type="button"
+            class="ui-list-row w-full flex items-center gap-2 text-xs px-2 py-2 rounded-sm text-left"
+            @click="openActiveRun(run)"
           >
             <span
-              class=\"ui-badge shrink-0 border !text-[10px]\"
-              :class=\"badgeToneClass(badgeTone(run))\"
+              class="ui-badge shrink-0 border !text-[10px]"
+              :class="badgeToneClass(badgeTone(run))"
             >
-              <span class=\"ui-pulse-dot !bg-sky-500\" />
+              <span class="ui-pulse-dot !bg-sky-500" />
               {{ phaseLabel(run.phase, t) || formatPhaseDetail(run, t) || t('runStatus.inProgress') }}
             </span>
-            <span class=\"font-mono truncate text-gray-800 dark:text-gray-200\" :title=\"run.task_name\">{{ run.task_name || '-' }}</span>
-            <span class=\"text-gray-500 dark:text-gray-400 truncate shrink-0 max-w-[6rem]\" :title=\"run.account_name\">{{ run.account_name || '-' }}</span>
-            <span class=\"ml-auto text-[10px] text-gray-400 font-mono shrink-0 truncate max-w-[40%]\" :title=\"formatPhaseDetail(run, t)\">
+            <span class="font-mono truncate text-gray-800 dark:text-gray-200" :title="run.task_name">{{ run.task_name || '-' }}</span>
+            <span class="text-gray-500 dark:text-gray-400 truncate shrink-0 max-w-[6rem]" :title="run.account_name">{{ run.account_name || '-' }}</span>
+            <span class="ml-auto text-[10px] text-gray-400 font-mono shrink-0 truncate max-w-[40%]" :title="formatPhaseDetail(run, t)">
               {{ formatPhaseDetail(run, t) }}
             </span>
           </button>
         </div>
       </div>
-      <div class=\"ui-card p-5\">
-        <div class=\"ui-section-label mb-4\">{{ t('dashboard.failureBreakdown') }}</div>
-        <div v-if=\"failureBreakdown.length === 0\" class=\"ui-empty !py-12\">
-          <p class=\"ui-empty-desc\">{{ t('dashboard.noFailureBreakdown') }}</p>
+      <div class="ui-card p-5">
+        <div class="ui-section-label mb-4">{{ t('dashboard.failureBreakdown') }}</div>
+        <div v-if="failureBreakdown.length === 0" class="ui-empty !py-12">
+          <p class="ui-empty-desc">{{ t('dashboard.noFailureBreakdown') }}</p>
         </div>
-        <div v-else class=\"flex flex-wrap gap-2\">
+        <div v-else class="flex flex-wrap gap-2">
           <button
-            v-for=\"item in failureBreakdown\"
-            :key=\"item.category\"
-            type=\"button\"
-            class=\"ui-badge ui-badge-error !text-[11px] cursor-pointer hover:opacity-90\"\n            :title=\"t('dashboard.openFailureInLogs')\"\n            @click=\"openFailureCategory(item.category)\"\n          >\n            {{ failureCategoryLabel(item.category) || item.category }}: {{ item.count }}\n          </button>\n        </div>\n      </div>\n    </div>\n\n    <!-- 最近关键词命中 + 账号状态 Job -->\n    <div class=\"grid grid-cols-1 lg:grid-cols-2 gap-4\">\n      <div class=\"ui-card p-5\">\n        <div class=\"ui-section-label mb-4 flex items-center justify-between gap-2\">\n          <span>{{ t('dashboard.recentHits') }}</span>\n          <button\n            type=\"button\"\n            class=\"text-[11px] text-sky-600 dark:text-sky-400 hover:underline\"\n            @click=\"router.push({ name: 'tasks' })\"\n          >\n            {{ t('dashboard.viewTasks') }}\n          </button>\n        </div>\n        <div v-if=\"recentHits.length === 0\" class=\"ui-empty !py-12\">\n          <p class=\"ui-empty-desc\">{{ t('dashboard.noRecentHits') }}</p>\n        </div>\n        <div v-else class=\"space-y-1\">\n          <button\n            v-for=\"hit in recentHits\"\n            :key=\"hit.id\"\n            type=\"button\"\n            class=\"ui-list-row w-full flex items-center gap-2 text-xs px-2 py-2 rounded-sm text-left\"\n            @click=\"openKeywordHit(hit)\"\n          >\n            <span class=\"font-mono text-sky-700 dark:text-sky-300 shrink-0 max-w-[5.5rem] truncate\" :title=\"hit.keyword\">\n              {{ hit.keyword || '-' }}\n            </span>\n            <span class=\"truncate text-gray-700 dark:text-gray-300\" :title=\"hit.task_name\">\n              {{ hit.task_name || '-' }}\n            </span>\n            <span class=\"text-gray-500 dark:text-gray-400 truncate shrink-0 max-w-[5rem]\" :title=\"hit.account_name\">\n              {{ hit.account_name || '-' }}\n            </span>\n            <span class=\"ml-auto text-[10px] text-gray-400 font-mono shrink-0\">\n              {{ formatTime(hit.time) }}\n            </span>\n          </button>\n        </div>\n      </div>\n      <div class=\"ui-card p-5\">\n        <div class=\"ui-section-label mb-4 flex items-center justify-between gap-2\">\n          <span>{{ t('dashboard.statusJobs') }}</span>\n          <button\n            type=\"button\"\n            class=\"text-[11px] text-sky-600 dark:text-sky-400 hover:underline\"\n            @click=\"openStatusJob\"\n          >\n            {{ t('dashboard.goAccounts') }}\n          </button>\n        </div>\n        <div v-if=\"statusJobs.length === 0\" class=\"ui-empty !py-12\">\n          <p class=\"ui-empty-desc\">{{ t('dashboard.noStatusJobs') }}</p>\n        </div>\n        <div v-else class=\"space-y-1\">\n          <button\n            v-for=\"job in statusJobs\"\n            :key=\"job.job_id\"\n            type=\"button\"\n            class=\"ui-list-row w-full flex items-center gap-2 text-xs px-2 py-2 rounded-sm text-left\"\n            @click=\"openStatusJob\"\n          >\n            <span\n              class=\"ui-badge shrink-0 !text-[10px]\"\n              :class=\"job.status === 'running' || job.status === 'canceling'\n                ? 'border-sky-200 text-sky-700 dark:border-sky-800 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/40'\n                : job.status === 'failed'\n                  ? 'ui-badge-error'\n                  : 'ui-badge-neutral'\"\n            >\n              <span\n                v-if=\"job.status === 'running' || job.status === 'canceling'\"\n                class=\"ui-pulse-dot !bg-sky-500\"\n              />\n              {{ jobStatusLabel(job.status) }}\n            </span>\n            <span class=\"font-mono text-gray-700 dark:text-gray-300 truncate\">\n              {{ statusJobLabel(job) }}\n            </span>\n            <span class=\"ml-auto text-[10px] text-gray-400 font-mono shrink-0\">\n              {{ formatTime(job.updated_at || job.created_at || '') }}\n            </span>\n          </button>\n        </div>\n      </div>\n    </div>\n\n    <!-- Upcoming schedule -->\n    <div class=\"ui-card p-5\">\n      <div class=\"ui-section-label mb-4\">{{ t('dashboard.upcomingJobs') }}</div>\n      <div v-if=\"upcomingJobs.length === 0\" class=\"ui-empty !py-12\">\n        <p class=\"ui-empty-desc\">{{ t('dashboard.noUpcoming') }}</p>\n      </div>\n      <div v-else class=\"space-y-0.5\">\n        <div\n          v-for=\"job in upcomingJobs\"\n          :key=\"job.id\"\n          class=\"ui-list-row flex items-center gap-3 text-xs px-2 py-2 rounded-sm\"\n          :title=\"job.execution_mode === 'range' && job.range_start && job.range_end\n            ? `${t('dashboard.modeRangeHint', { start: job.range_start, end: job.range_end })} · ${job.id}`\n            : `${t('dashboard.nextRun')}: ${formatJobTime(job.next_run_time)} · ${jobKindLabel(job.kind)} · ${job.id}`\"\n        >\n          <span class=\"font-mono text-gray-500 dark:text-gray-400 w-36 shrink-0\">{{ formatJobScheduleDisplay(job) }}</span>\n          <span\n            class=\"ui-badge shrink-0\"\n            :class=\"job.kind === 'sign' ? 'border-sky-200 text-sky-700 dark:border-sky-800 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/40' : 'ui-badge-neutral'\"\n          >\n            {{ jobKindLabel(job.kind) }}\n          </span>\n          <span\n            v-if=\"job.execution_mode === 'range'\"\n            class=\"ui-badge shrink-0 border-amber-200 text-amber-700 dark:border-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 text-[10px]\"\n            :title=\"t('dashboard.modeRangeHint', { start: job.range_start || '', end: job.range_end || '' })\"\n          >\n            {{ t('dashboard.modeRange') }}\n          </span>\n          <span class=\"truncate text-gray-800 dark:text-gray-200 font-mono\" :title=\"job.id\">{{ job.id }}</span>\n        </div>\n      </div>\n    </div>\n\n    <!-- Terminal Logs -->\n    <div class=\"ui-card p-5 min-h-[400px]\">\n      <div class=\"ui-section-label mb-4 flex items-center gap-2 flex-wrap\">\n        <span>{{ t('dashboard.recentLogs') }}</span>\n        <span\n          class=\"ui-badge\"\n          :class=\"liveConnected ? 'ui-badge-success' : 'ui-badge-neutral'\"\n          :title=\"liveConnected ? t('dashboard.liveOnHint') : t('dashboard.liveOffHint')\"\n        >\n          <span :class=\"liveConnected ? 'ui-pulse-dot' : 'ui-badge-dot'\" />\n          {{ liveConnected ? t('dashboard.liveOn') : t('dashboard.liveOff') }}\n        </span>\n        <span\n          v-if=\"partialLoad\"\n          class=\"ui-badge ui-badge-warn\"\n          :title=\"t('dashboard.partialLoadHint')\"\n        >\n          <span class=\"ui-badge-dot\" />\n          {{ t('dashboard.partialLoad') }}\n        </span>\n        <button\n          v-if=\"partialLoad\"\n          type=\"button\"\n          class=\"inline-flex items-center gap-1 text-[11px] text-sky-600 dark:text-sky-400 hover:underline shrink-0\"\n          :title=\"t('common.retry')\"\n          @click=\"reloadData\"\n        >\n          <RefreshCw class=\"w-3 h-3\" />\n          {{ t('common.retry') }}\n        </button>\n      </div>\n      <div v-if=\"logs.length === 0\" class=\"ui-empty !py-12\">\n        <p class=\"ui-empty-title !text-gray-500 dark:!text-gray-400 font-normal\">{{ t('logs.empty') }}</p>\n        <p class=\"ui-empty-desc\">{{ t('logs.emptyHint') }}</p>\n      </div>\n      <div v-else class=\"text-xs overflow-x-auto space-y-0\">\n        <div\n          v-for=\"log in logs\"\n          :key=\"logKey(log)\"\n          class=\"ui-list-row flex items-center gap-3 px-2 py-2 cursor-pointer rounded-sm\"\n          role=\"button\"\n          tabindex=\"0\"\n          :aria-label=\"`${log.account} ${log.task} ${log.time}`\"\n          :title=\"t('dashboard.openInLogs')\"\n          @click=\"selectedLog = log\"\n          @dblclick=\"goToLogs(log)\"\n          @keydown.enter=\"selectedLog = log\"\n          @keydown.space.prevent=\"selectedLog = log\"\n        >\n          <span class=\"font-mono text-gray-500 dark:text-gray-400 shrink-0 w-[140px] text-[11px] truncate\" :title=\"formatTime(log.created_at)\">{{ log.time }}</span>\n          <span class=\"text-gray-700 dark:text-gray-400 shrink-0 w-24 truncate font-medium\">{{ log.account }}</span>\n          <span class=\"text-gray-600 dark:text-gray-500 shrink-0 w-28 truncate\">{{ log.task }}</span>\n          <span\n            class=\"ui-badge shrink-0\"\n            :class=\"log.status === 'success' ? 'ui-badge-success' : 'ui-badge-error'\"\n          >\n            <span class=\"ui-badge-dot\" />\n            {{ log.status === 'success' ? t('logs.success') : t('logs.failed') }}\n          </span>\n          <button\n            v-if=\"log.status === 'error' && failureCategoryLabel(log.failure_category)\"\n            type=\"button\"\n            class=\"ui-badge ui-badge-warn shrink-0 cursor-pointer hover:opacity-90\"\n            :title=\"t('dashboard.openFailureInLogs')\"\n            @click.stop=\"openFailureCategory(String(log.failure_category))\"\n          >\n            {{ failureCategoryLabel(log.failure_category) }}\n          </button>\n          <span\n            class=\"truncate flex-1 min-w-0\"\n            :class=\"log.status === 'success' ? 'text-gray-700 dark:text-gray-300' : 'text-rose-600 dark:text-rose-400/90'\"\n            :title=\"log.text\"\n          >\n            {{ log.text }}\n          </span>\n        </div>\n      </div>\n    </div>\n\n    <!-- Log Detail Modal -->\n    <Modal :isOpen=\"!!selectedLog\" @close=\"selectedLog = null\" :title=\"t('logs.detailTitle')\" maxWidthClass=\"max-w-lg\">\n      <div v-if=\"selectedLog\" class=\"space-y-3 text-sm\">\n        <div class=\"flex items-center gap-3\">\n          <span\n            class=\"ui-badge text-xs\"\n            :class=\"selectedLog.status === 'success' ? 'ui-badge-success' : 'ui-badge-error'\"\n          >\n            <span class=\"ui-badge-dot\" />\n            {{ selectedLog.status === 'success' ? t('logs.execSuccess') : t('logs.execFailed') }}\n          </span>\n        </div>\n        <div class=\"grid grid-cols-2 gap-3 text-xs\">\n          <div class=\"space-y-0.5\">\n            <div class=\"text-gray-500\">{{ t('logs.time') }}</div>\n            <div class=\"text-gray-900 dark:text-gray-200 font-mono\">{{ selectedLog.time }}</div>\n          </div>\n          <div class=\"space-y-0.5\">\n            <div class=\"text-gray-500\">{{ t('logs.account') }}</div>\n            <div class=\"text-gray-900 dark:text-gray-200\">{{ selectedLog.account }}</div>\n          </div>\n          <div class=\"col-span-2 space-y-0.5\">\n            <div class=\"text-gray-500\">{{ t('logs.task') }}</div>\n            <div class=\"text-gray-900 dark:text-gray-200\">{{ selectedLog.task }}</div>\n          </div>\n          <div v-if=\"selectedLog.status === 'error' && failureCategoryLabel(selectedLog.failure_category)\" class=\"col-span-2 space-y-0.5\">\n            <div class=\"text-gray-500\">{{ t('dashboard.failureCategory') }}</div>\n            <button\n              type=\"button\"\n              class=\"text-amber-700 dark:text-amber-400 hover:underline text-left\"\n              :title=\"t('dashboard.openFailureInLogs')\"\n              @click=\"openFailureCategory(String(selectedLog.failure_category)); selectedLog = null\"\n            >\n              {{ failureCategoryLabel(selectedLog.failure_category) }}\n            </button>\n          </div>\n        </div>\n        <div class=\"pt-2 border-t border-gray-200 dark:border-gray-800/60\">\n          <div class=\"text-xs text-gray-500 mb-1.5 font-medium\">{{ t('logs.execInfo') }}</div>\n          <div class=\"p-2.5 bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-gray-800/60 text-xs whitespace-pre-wrap break-all max-h-60 overflow-y-auto text-gray-800 dark:text-gray-300\">{{ selectedLog.text || t('logs.noDetail') }}</div>\n        </div>\n        <div class=\"pt-1 flex justify-end\">\n          <button\n            type=\"button\"\n            class=\"text-xs text-sky-600 dark:text-sky-400 hover:underline\"\n            @click=\"goToLogs(selectedLog); selectedLog = null\"\n          >\n            {{ t('dashboard.openInLogs') }}\n          </button>\n        </div>\n      </div>\n    </Modal>\n    </template>\n  </div>\n</template>\n
+            v-for="item in failureBreakdown"
+            :key="item.category"
+            type="button"
+            class="ui-badge ui-badge-error !text-[11px] cursor-pointer hover:opacity-90"
+            :title="t('dashboard.openFailureInLogs')"
+            @click="openFailureCategory(item.category)"
+          >
+            {{ failureCategoryLabel(item.category) || item.category }}: {{ item.count }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 最近关键词命中 + 账号状态 Job -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div class="ui-card p-5">
+        <div class="ui-section-label mb-4 flex items-center justify-between gap-2">
+          <span>{{ t('dashboard.recentHits') }}</span>
+          <button
+            type="button"
+            class="text-[11px] text-sky-600 dark:text-sky-400 hover:underline"
+            @click="router.push({ name: 'tasks' })"
+          >
+            {{ t('dashboard.viewTasks') }}
+          </button>
+        </div>
+        <div v-if="recentHits.length === 0" class="ui-empty !py-12">
+          <p class="ui-empty-desc">{{ t('dashboard.noRecentHits') }}</p>
+        </div>
+        <div v-else class="space-y-1">
+          <button
+            v-for="hit in recentHits"
+            :key="hit.id"
+            type="button"
+            class="ui-list-row w-full flex items-center gap-2 text-xs px-2 py-2 rounded-sm text-left"
+            @click="openKeywordHit(hit)"
+          >
+            <span class="font-mono text-sky-700 dark:text-sky-300 shrink-0 max-w-[5.5rem] truncate" :title="hit.keyword">
+              {{ hit.keyword || '-' }}
+            </span>
+            <span class="truncate text-gray-700 dark:text-gray-300" :title="hit.task_name">
+              {{ hit.task_name || '-' }}
+            </span>
+            <span class="text-gray-500 dark:text-gray-400 truncate shrink-0 max-w-[5rem]" :title="hit.account_name">
+              {{ hit.account_name || '-' }}
+            </span>
+            <span class="ml-auto text-[10px] text-gray-400 font-mono shrink-0">
+              {{ formatTime(hit.time) }}
+            </span>
+          </button>
+        </div>
+      </div>
+      <div class="ui-card p-5">
+        <div class="ui-section-label mb-4 flex items-center justify-between gap-2">
+          <span>{{ t('dashboard.statusJobs') }}</span>
+          <button
+            type="button"
+            class="text-[11px] text-sky-600 dark:text-sky-400 hover:underline"
+            @click="openStatusJob"
+          >
+            {{ t('dashboard.goAccounts') }}
+          </button>
+        </div>
+        <div v-if="statusJobs.length === 0" class="ui-empty !py-12">
+          <p class="ui-empty-desc">{{ t('dashboard.noStatusJobs') }}</p>
+        </div>
+        <div v-else class="space-y-1">
+          <button
+            v-for="job in statusJobs"
+            :key="job.job_id"
+            type="button"
+            class="ui-list-row w-full flex items-center gap-2 text-xs px-2 py-2 rounded-sm text-left"
+            @click="openStatusJob"
+          >
+            <span
+              class="ui-badge shrink-0 !text-[10px]"
+              :class="job.status === 'running' || job.status === 'canceling'
+                ? 'border-sky-200 text-sky-700 dark:border-sky-800 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/40'
+                : job.status === 'failed'
+                  ? 'ui-badge-error'
+                  : 'ui-badge-neutral'"
+            >
+              <span
+                v-if="job.status === 'running' || job.status === 'canceling'"
+                class="ui-pulse-dot !bg-sky-500"
+              />
+              {{ jobStatusLabel(job.status) }}
+            </span>
+            <span class="font-mono text-gray-700 dark:text-gray-300 truncate">
+              {{ statusJobLabel(job) }}
+            </span>
+            <span class="ml-auto text-[10px] text-gray-400 font-mono shrink-0">
+              {{ formatTime(job.updated_at || job.created_at || '') }}
+            </span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Upcoming schedule -->
+    <div class="ui-card p-5">
+      <div class="ui-section-label mb-4">{{ t('dashboard.upcomingJobs') }}</div>
+      <div v-if="upcomingJobs.length === 0" class="ui-empty !py-12">
+        <p class="ui-empty-desc">{{ t('dashboard.noUpcoming') }}</p>
+      </div>
+      <div v-else class="space-y-0.5">
+        <div
+          v-for="job in upcomingJobs"
+          :key="job.id"
+          class="ui-list-row flex items-center gap-3 text-xs px-2 py-2 rounded-sm"
+          :title="job.execution_mode === 'range' && job.range_start && job.range_end
+            ? `${t('dashboard.modeRangeHint', { start: job.range_start, end: job.range_end })} · ${job.id}`
+            : `${t('dashboard.nextRun')}: ${formatJobTime(job.next_run_time)} · ${jobKindLabel(job.kind)} · ${job.id}`"
+        >
+          <span class="font-mono text-gray-500 dark:text-gray-400 w-36 shrink-0">{{ formatJobScheduleDisplay(job) }}</span>
+          <span
+            class="ui-badge shrink-0"
+            :class="job.kind === 'sign' ? 'border-sky-200 text-sky-700 dark:border-sky-800 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/40' : 'ui-badge-neutral'"
+          >
+            {{ jobKindLabel(job.kind) }}
+          </span>
+          <span
+            v-if="job.execution_mode === 'range'"
+            class="ui-badge shrink-0 border-amber-200 text-amber-700 dark:border-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 text-[10px]"
+            :title="t('dashboard.modeRangeHint', { start: job.range_start || '', end: job.range_end || '' })"
+          >
+            {{ t('dashboard.modeRange') }}
+          </span>
+          <span class="truncate text-gray-800 dark:text-gray-200 font-mono" :title="job.id">{{ job.id }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Terminal Logs -->
+    <div class="ui-card p-5 min-h-[400px]">
+      <div class="ui-section-label mb-4 flex items-center gap-2 flex-wrap">
+        <span>{{ t('dashboard.recentLogs') }}</span>
+        <span
+          class="ui-badge"
+          :class="liveConnected ? 'ui-badge-success' : 'ui-badge-neutral'"
+          :title="liveConnected ? t('dashboard.liveOnHint') : t('dashboard.liveOffHint')"
+        >
+          <span :class="liveConnected ? 'ui-pulse-dot' : 'ui-badge-dot'" />
+          {{ liveConnected ? t('dashboard.liveOn') : t('dashboard.liveOff') }}
+        </span>
+        <span
+          v-if="partialLoad"
+          class="ui-badge ui-badge-warn"
+          :title="t('dashboard.partialLoadHint')"
+        >
+          <span class="ui-badge-dot" />
+          {{ t('dashboard.partialLoad') }}
+        </span>
+        <button
+          v-if="partialLoad"
+          type="button"
+          class="inline-flex items-center gap-1 text-[11px] text-sky-600 dark:text-sky-400 hover:underline shrink-0"
+          :title="t('common.retry')"
+          @click="reloadData"
+        >
+          <RefreshCw class="w-3 h-3" />
+          {{ t('common.retry') }}
+        </button>
+      </div>
+      <div v-if="logs.length === 0" class="ui-empty !py-12">
+        <p class="ui-empty-title !text-gray-500 dark:!text-gray-400 font-normal">{{ t('logs.empty') }}</p>
+        <p class="ui-empty-desc">{{ t('logs.emptyHint') }}</p>
+      </div>
+      <div v-else class="text-xs overflow-x-auto space-y-0">
+        <div
+          v-for="log in logs"
+          :key="logKey(log)"
+          class="ui-list-row flex items-center gap-3 px-2 py-2 cursor-pointer rounded-sm"
+          role="button"
+          tabindex="0"
+          :aria-label="`${log.account} ${log.task} ${log.time}`"
+          :title="t('dashboard.openInLogs')"
+          @click="selectedLog = log"
+          @dblclick="goToLogs(log)"
+          @keydown.enter="selectedLog = log"
+          @keydown.space.prevent="selectedLog = log"
+        >
+          <span class="font-mono text-gray-500 dark:text-gray-400 shrink-0 w-[140px] text-[11px] truncate" :title="formatTime(log.created_at)">{{ log.time }}</span>
+          <span class="text-gray-700 dark:text-gray-400 shrink-0 w-24 truncate font-medium">{{ log.account }}</span>
+          <span class="text-gray-600 dark:text-gray-500 shrink-0 w-28 truncate">{{ log.task }}</span>
+          <span
+            class="ui-badge shrink-0"
+            :class="log.status === 'success' ? 'ui-badge-success' : 'ui-badge-error'"
+          >
+            <span class="ui-badge-dot" />
+            {{ log.status === 'success' ? t('logs.success') : t('logs.failed') }}
+          </span>
+          <button
+            v-if="log.status === 'error' && failureCategoryLabel(log.failure_category)"
+            type="button"
+            class="ui-badge ui-badge-warn shrink-0 cursor-pointer hover:opacity-90"
+            :title="t('dashboard.openFailureInLogs')"
+            @click.stop="openFailureCategory(String(log.failure_category))"
+          >
+            {{ failureCategoryLabel(log.failure_category) }}
+          </button>
+          <span
+            class="truncate flex-1 min-w-0"
+            :class="log.status === 'success' ? 'text-gray-700 dark:text-gray-300' : 'text-rose-600 dark:text-rose-400/90'"
+            :title="log.text"
+          >
+            {{ log.text }}
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Log Detail Modal -->
+    <Modal :isOpen="!!selectedLog" @close="selectedLog = null" :title="t('logs.detailTitle')" maxWidthClass="max-w-lg">
+      <div v-if="selectedLog" class="space-y-3 text-sm">
+        <div class="flex items-center gap-3">
+          <span
+            class="ui-badge text-xs"
+            :class="selectedLog.status === 'success' ? 'ui-badge-success' : 'ui-badge-error'"
+          >
+            <span class="ui-badge-dot" />
+            {{ selectedLog.status === 'success' ? t('logs.execSuccess') : t('logs.execFailed') }}
+          </span>
+        </div>
+        <div class="grid grid-cols-2 gap-3 text-xs">
+          <div class="space-y-0.5">
+            <div class="text-gray-500">{{ t('logs.time') }}</div>
+            <div class="text-gray-900 dark:text-gray-200 font-mono">{{ selectedLog.time }}</div>
+          </div>
+          <div class="space-y-0.5">
+            <div class="text-gray-500">{{ t('logs.account') }}</div>
+            <div class="text-gray-900 dark:text-gray-200">{{ selectedLog.account }}</div>
+          </div>
+          <div class="col-span-2 space-y-0.5">
+            <div class="text-gray-500">{{ t('logs.task') }}</div>
+            <div class="text-gray-900 dark:text-gray-200">{{ selectedLog.task }}</div>
+          </div>
+          <div v-if="selectedLog.status === 'error' && failureCategoryLabel(selectedLog.failure_category)" class="col-span-2 space-y-0.5">
+            <div class="text-gray-500">{{ t('dashboard.failureCategory') }}</div>
+            <button
+              type="button"
+              class="text-amber-700 dark:text-amber-400 hover:underline text-left"
+              :title="t('dashboard.openFailureInLogs')"
+              @click="openFailureCategory(String(selectedLog.failure_category)); selectedLog = null"
+            >
+              {{ failureCategoryLabel(selectedLog.failure_category) }}
+            </button>
+          </div>
+        </div>
+        <div class="pt-2 border-t border-gray-200 dark:border-gray-800/60">
+          <div class="text-xs text-gray-500 mb-1.5 font-medium">{{ t('logs.execInfo') }}</div>
+          <div class="p-2.5 bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-gray-800/60 text-xs whitespace-pre-wrap break-all max-h-60 overflow-y-auto text-gray-800 dark:text-gray-300">{{ selectedLog.text || t('logs.noDetail') }}</div>
+        </div>
+        <div class="pt-1 flex justify-end">
+          <button
+            type="button"
+            class="text-xs text-sky-600 dark:text-sky-400 hover:underline"
+            @click="goToLogs(selectedLog); selectedLog = null"
+          >
+            {{ t('dashboard.openInLogs') }}
+          </button>
+        </div>
+      </div>
+    </Modal>
+    </template>
+  </div>
+</template>
