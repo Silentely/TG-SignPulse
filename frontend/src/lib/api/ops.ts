@@ -16,6 +16,11 @@ export interface ScheduledJob {
   next_run_time?: string | null;
   trigger: string;
   kind: "sign" | "legacy_db" | "system" | "other" | string;
+  execution_mode?: string | null;
+  range_start?: string | null;
+  range_end?: string | null;
+  task_name?: string | null;
+  account_name?: string | null;
 }
 
 export interface ScheduledJobsResponse {
