@@ -23,6 +23,7 @@ from tg_signer.config import (
     ReplyByCalculationProblemAction,
     ReplyByImageRecognitionAction,
     SendDiceAction,
+    PluginAction,
     SendTextAction,
     SignChatV3,
     SignConfigV3,
@@ -203,6 +204,11 @@ class SignerConfigMixin:
                 elif action == SupportAction.CLICK_BUTTON_BY_CALCULATION_PROBLEM:
                     print_to_user("AI will calculate the answer and click the matching button.")
                     actions.append(ClickButtonByCalculationProblemAction())
+                elif action == SupportAction.CUSTOM_PLUGIN:
+                    plugin_name = local_input_("输入插件名称 (如 math_solver): ").strip()
+                    mode_str = local_input_("选择插件执行模式 (1: 监听响应 reactive, 2: 主动执行 active) [默认 1]: ").strip()
+                    mode = "active" if mode_str == "2" else "reactive"
+                    actions.append(PluginAction(plugin_name=plugin_name, mode=mode))
                 else:
                     raise ValueError(f"不支持的动作: {action}")
                 if local_input_("是否继续添加动作？(y/N)：").strip().lower() != "y":

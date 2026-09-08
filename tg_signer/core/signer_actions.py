@@ -446,6 +446,44 @@ class SignerActionsMixin:
         return False
 
 
+    async def _dispatch_reactive_plugin_message(
+        self,
+        action: PluginAction,
+        chat: SignChatV3,
+        message: Message,
+        eff_timeout: float,
+        is_history: bool = False,
+    ) -> bool:
+        plugin = PluginRegistry.get(action.plugin_name)
+        if not plugin:
+            self.log(f"自定义插件「{action.plugin_name}」未注册或未成功加载", level="ERROR")
+            raise RuntimeError(f"Plugin '{action.plugin_name}' not found in PluginRegistry")
+        ctx = PluginContext(
+            app=self.app,
+            chat_id=chat.chat_id,
+            message_thread_id=chat.message_thread_id,
+            message=message,
+            params=action.params,
+            logger=self,
+        )
+        handler_call = (
+            plugin.handler(ctx)
+            if asyncio.iscoroutinefunction(plugin.handler)
+            else asyncio.to_thread(plugin.handler, ctx)
+        )
+        try:
+            res = await asyncio.wait_for(handler_call, timeout=eff_timeout)
+            return bool(res)
+        except asyncio.TimeoutError:
+            msg_kind = "单条历史消息" if is_history else "单条消息"
+            self.log(f"插件「{action.plugin_name}」处理{msg_kind}超时", level="WARNING")
+            return False
+        except Exception as e:
+            msg_kind = "历史消息" if is_history else "消息"
+            self.log(f"插件「{action.plugin_name}」处理{msg_kind}异常: {e}", level="WARNING")
+            return False
+
+
     async def wait_for(
         self,
         chat: SignChatV3,
@@ -460,7 +498,6 @@ class SignerActionsMixin:
         if chat.message_thread_id is not None:
             kwargs["message_thread_id"] = chat.message_thread_id
         history_limit = read_positive_int_env("SIGN_TASK_HISTORY_LOOKBACK", 12, 3)
-        plugin = None
         eff_timeout = timeout
         if isinstance(action, SendTextAction):
             # 必须在 send 前快照，否则 bot 若已秒回会漏检
@@ -733,33 +770,9 @@ class SignerActionsMixin:
                     elif isinstance(action, ClickButtonByCalculationProblemAction):
                         ok = await self._click_button_by_calculation_problem(action, message)
                     elif isinstance(action, PluginAction):
-                        if plugin is None:
-                            plugin = PluginRegistry.get(action.plugin_name)
-                        if not plugin:
-                            self.log(f"自定义插件「{action.plugin_name}」未注册或未成功加载", level="ERROR")
-                            raise RuntimeError(f"Plugin '{action.plugin_name}' not found in PluginRegistry")
-                        ctx = PluginContext(
-                            app=self.app,
-                            chat_id=chat.chat_id,
-                            message_thread_id=chat.message_thread_id,
-                            message=message,
-                            params=action.params,
-                            logger=self,
+                        ok = await self._dispatch_reactive_plugin_message(
+                            action, chat, message, eff_timeout, is_history=False
                         )
-                        handler_call = (
-                            plugin.handler(ctx)
-                            if asyncio.iscoroutinefunction(plugin.handler)
-                            else asyncio.to_thread(plugin.handler, ctx)
-                        )
-                        try:
-                            res = await asyncio.wait_for(handler_call, timeout=eff_timeout)
-                            ok = bool(res)
-                        except asyncio.TimeoutError:
-                            self.log(f"插件「{action.plugin_name}」处理单条消息超时", level="WARNING")
-                            ok = False
-                        except Exception as e:
-                            self.log(f"插件「{action.plugin_name}」处理消息异常: {e}", level="WARNING")
-                            ok = False
                     if ok:
                         # 将消息ID对应value置为None，保证收到消息的编辑时消息所处的顺序
                         self.context.chat_messages[chat.chat_id][message.id] = None
@@ -801,33 +814,9 @@ class SignerActionsMixin:
                                 action, message
                             )
                         elif isinstance(action, PluginAction):
-                            if plugin is None:
-                                plugin = PluginRegistry.get(action.plugin_name)
-                            if not plugin:
-                                self.log(f"自定义插件「{action.plugin_name}」未注册或未成功加载", level="ERROR")
-                                raise RuntimeError(f"Plugin '{action.plugin_name}' not found in PluginRegistry")
-                            ctx = PluginContext(
-                                app=self.app,
-                                chat_id=chat.chat_id,
-                                message_thread_id=chat.message_thread_id,
-                                message=message,
-                                params=action.params,
-                                logger=self,
+                            ok = await self._dispatch_reactive_plugin_message(
+                                action, chat, message, eff_timeout, is_history=True
                             )
-                            handler_call = (
-                                plugin.handler(ctx)
-                                if asyncio.iscoroutinefunction(plugin.handler)
-                                else asyncio.to_thread(plugin.handler, ctx)
-                            )
-                            try:
-                                res = await asyncio.wait_for(handler_call, timeout=eff_timeout)
-                                ok = bool(res)
-                            except asyncio.TimeoutError:
-                                self.log(f"插件「{action.plugin_name}」处理单条历史消息超时", level="WARNING")
-                                ok = False
-                            except Exception as e:
-                                self.log(f"插件「{action.plugin_name}」处理历史消息异常: {e}", level="WARNING")
-                                ok = False
                         if ok:
                             return None
                 except Exception as e:

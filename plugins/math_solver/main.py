@@ -7,7 +7,7 @@ from typing import Optional
 
 from tg_signer.core.plugins import PluginContext, PluginRegistry
 
-_MATH_PATTERN = re.compile(r"(\d+)\s*([\+\-\*\/\×\÷])\s*(\d+)")
+_MATH_PATTERN = re.compile(r"(?<![\d\-])(\d+)\s*([\+\-\*\/\×\÷])\s*(\d+)(?![\d\-])")
 
 
 def _evaluate_expression(text: str) -> Optional[int]:
