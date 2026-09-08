@@ -41,22 +41,25 @@ export interface PluginTestResponse {
   error?: string | null
 }
 
-export async function getPlugins(): Promise<PluginInfo[]> {
-  return request<PluginInfo[]>('/plugins')
+export async function getPlugins(token: string): Promise<PluginInfo[]> {
+  return request<PluginInfo[]>('/plugins', {}, token)
 }
 
-export async function reloadPlugins(): Promise<ReloadPluginsResponse> {
+export async function reloadPlugins(
+  token: string,
+): Promise<ReloadPluginsResponse> {
   return request<ReloadPluginsResponse>('/plugins/reload', {
     method: 'POST',
-  })
+  }, token)
 }
 
 export async function testPlugin(
   name: string,
   payload: PluginTestRequest,
+  token: string,
 ): Promise<PluginTestResponse> {
   return request<PluginTestResponse>(`/plugins/${encodeURIComponent(name)}/test`, {
     method: 'POST',
     body: JSON.stringify(payload),
-  })
+  }, token)
 }

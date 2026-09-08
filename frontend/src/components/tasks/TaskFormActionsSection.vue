@@ -8,6 +8,7 @@ import CustomSelect from '../CustomSelect.vue'
 import type { TaskActionItem } from '../../lib/types'
 import { useI18n } from '../../composables/useI18n'
 import { getPlugins, type PluginInfo } from '../../lib/api'
+import { withToken } from '../../lib/api/core'
 
 const { t } = useI18n()
 
@@ -15,7 +16,7 @@ const availablePlugins = ref<PluginInfo[]>([])
 
 onMounted(async () => {
   try {
-    availablePlugins.value = await getPlugins()
+    availablePlugins.value = await withToken((token) => getPlugins(token)) ?? []
   } catch {
     // 降级为空列表
   }
