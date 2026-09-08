@@ -20,10 +20,10 @@ from tg_signer.config import (
     ChooseOptionByImageAction,
     ClickButtonByCalculationProblemAction,
     ClickKeyboardByTextAction,
+    PluginAction,
     ReplyByCalculationProblemAction,
     ReplyByImageRecognitionAction,
     SendDiceAction,
-    PluginAction,
     SendTextAction,
     SignChatV3,
     SignConfigV3,
@@ -358,4 +358,3 @@ class SignerConfigMixin:
             "network is unreachable",
         )
         return any(marker in text for marker in transient_markers)
-

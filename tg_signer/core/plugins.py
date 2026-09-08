@@ -161,7 +161,13 @@ class PluginRegistry:
                     sys.path.insert(0, parent_str)
 
             try:
-                spec = importlib.util.spec_from_file_location(module_name, plugin_file)
+                spec_kwargs = {}
+                if plugin_file.name in ("main.py", "__init__.py"):
+                    # 目录型插件按包加载，保证 `from .helper import ...` 等相对导入可用。
+                    spec_kwargs["submodule_search_locations"] = [str(resolved_file.parent)]
+                spec = importlib.util.spec_from_file_location(
+                    module_name, plugin_file, **spec_kwargs
+                )
                 if spec is None or spec.loader is None:
                     _logger.warning("无法创建插件规范: %s", plugin_file)
                     continue
