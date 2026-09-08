@@ -49,6 +49,7 @@ describe('api barrel 完整性', () => {
   it('plugins API 导出', () => {
     expect(typeof api.getPlugins).toBe('function')
     expect(typeof api.reloadPlugins).toBe('function')
+    expect(typeof api.testPlugin).toBe('function')
   })
 
   it('core 工具函数不通过 barrel 对外暴露', () => {

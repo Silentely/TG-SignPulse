@@ -83,6 +83,7 @@ class PluginMeta:
     mode: Literal["reactive", "active"] = "reactive"
     description: str = ""
     source_path: Optional[str] = None
+    params_schema: Optional[List[Dict[str, Any]]] = None
 
 
 class PluginRegistry:
@@ -95,6 +96,7 @@ class PluginRegistry:
         name: str,
         mode: Literal["reactive", "active"] = "reactive",
         description: str = "",
+        params_schema: Optional[List[Dict[str, Any]]] = None,
     ) -> Callable:
         def decorator(fn: Callable[[PluginContext], Any]) -> Callable[[PluginContext], Any]:
             source_file = None
@@ -108,6 +110,7 @@ class PluginRegistry:
                 mode=mode,
                 description=description,
                 source_path=source_file,
+                params_schema=params_schema or [],
             )
             return fn
         return decorator
