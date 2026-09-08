@@ -101,3 +101,28 @@ def test_test_plugin_endpoint(api_client):
     assert data_no_match["success"] is True
     assert data_no_match["handled"] is False
     assert data_no_match["reply_text"] is None
+
+
+def test_test_plugin_endpoint_error_and_timeout(api_client):
+    """测试 Web 调试沙箱接口捕获异常与超时"""
+    token = _login(api_client)
+    headers = _auth(token)
+
+    @PluginRegistry.register(
+        name="test_crashing_plugin",
+        mode="reactive",
+    )
+    def crash_handler(ctx: PluginContext):
+        raise RuntimeError("模拟插件执行崩溃")
+
+    resp_crash = api_client.post(
+        "/api/plugins/test_crashing_plugin/test",
+        headers=headers,
+        json={"text": "boom"},
+    )
+    assert resp_crash.status_code == 200
+    data = resp_crash.json()
+    assert data["success"] is False
+    assert data["handled"] is False
+    assert "模拟插件执行崩溃" in data["error"]
+    assert any("模拟插件执行崩溃" in log for log in data["logs"])
