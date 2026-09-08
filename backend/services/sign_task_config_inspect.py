@@ -48,6 +48,10 @@ def task_requires_updates(task_config: Optional[Dict[str, Any]]) -> bool:
             continue
         if action_id in _RESPONSE_ACTION_IDS:
             return True
+        if action_id == 99:
+            mode = action.get("mode") if isinstance(action, dict) else getattr(action, "mode", "reactive")
+            if (mode or "reactive") == "reactive":
+                return True
     return False
 
 

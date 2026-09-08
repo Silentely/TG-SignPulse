@@ -254,6 +254,9 @@ def describe_continue_action(action: Dict[str, Any]) -> str:
         if bot:
             return f"触发 Bot 命令: @{bot} {cmd}"
         return f"触发 Bot 命令 {cmd}（可从深链解析 Bot）"
+    if action_id == 99:
+        plugin_name = action.get("plugin_name") or ""
+        return f"自定义插件: {plugin_name}"
     return f"动作 {action_id}"
 
 

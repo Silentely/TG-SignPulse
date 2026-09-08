@@ -24,6 +24,7 @@ from tg_signer.config import (
     ClickButtonByCalculationProblemAction,
     ClickKeyboardByTextAction,
     KeywordNotifyAction,
+    PluginAction,
     ReplyByCalculationProblemAction,
     ReplyByImageRecognitionAction,
     SendDiceAction,
@@ -90,6 +91,8 @@ class SignerMatchersMixin:
             if len(action.keywords) > 3:
                 keywords += ", ..."
             return f"关键词监听：{keywords or '未配置关键词'}"
+        if isinstance(action, PluginAction):
+            return f"自定义插件「{action.plugin_name}」({action.mode})"
         return str(action)
 
 

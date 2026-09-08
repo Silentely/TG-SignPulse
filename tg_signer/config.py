@@ -171,6 +171,7 @@ class SupportAction(int, Enum):
     REPLY_BY_IMAGE_RECOGNITION = 6  # AI image recognition then send text
     CLICK_BUTTON_BY_CALCULATION_PROBLEM = 7  # AI calculation then click button
     KEYWORD_NOTIFY = 8  # Listen for keywords
+    CUSTOM_PLUGIN = 99  # 自定义插件动作（10-98 预留给未来官方通用动作）
 
     @property
     def desc(self):
@@ -183,6 +184,7 @@ class SupportAction(int, Enum):
             SupportAction.REPLY_BY_IMAGE_RECOGNITION: "AI image recognition then send text",
             SupportAction.CLICK_BUTTON_BY_CALCULATION_PROBLEM: "AI calculation then click button",
             SupportAction.KEYWORD_NOTIFY: "关键词监听",
+            SupportAction.CUSTOM_PLUGIN: "自定义插件",
         }[self]
 
 
@@ -256,6 +258,14 @@ class KeywordNotifyAction(SignAction):
     continue_actions: List[Dict[str, Any]] = Field(default_factory=list)
 
 
+class PluginAction(SignAction):
+    action: Literal[SupportAction.CUSTOM_PLUGIN] = SupportAction.CUSTOM_PLUGIN
+    plugin_name: str
+    mode: Literal["reactive", "active"] = "reactive"
+    timeout: Optional[float] = None
+    params: Dict[str, Any] = Field(default_factory=dict)
+
+
 ActionT: TypeAlias = Union[
     SendTextAction,
     SendDiceAction,
@@ -265,6 +275,7 @@ ActionT: TypeAlias = Union[
     ReplyByImageRecognitionAction,
     ClickButtonByCalculationProblemAction,
     KeywordNotifyAction,
+    PluginAction,
 ]
 
 
@@ -311,7 +322,15 @@ class SignChatV3(BaseJSONConfig):
             SupportAction.CLICK_BUTTON_BY_CALCULATION_PROBLEM,
             SupportAction.KEYWORD_NOTIFY,
         }
-        return any(action.action in response_actions for action in self.actions)
+        for action in self.actions:
+            if action.action in response_actions:
+                return True
+            if (
+                action.action == SupportAction.CUSTOM_PLUGIN
+                and getattr(action, "mode", "reactive") == "reactive"
+            ):
+                return True
+        return False
 
 
 class SignConfigV3(BaseJSONConfig):
