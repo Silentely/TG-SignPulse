@@ -94,7 +94,7 @@ const emit = defineEmits<{
             v-else-if="action.type === 'custom_plugin'"
             v-model="action.value"
             :aria-label="t('taskForm.customPlugin')"
-            placeholder="插件名称 (如 math_solver)"
+            :placeholder="t('taskForm.customPluginPlaceholder')"
             class="ui-input !h-9 !text-xs !px-2"
           />
           <input

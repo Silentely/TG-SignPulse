@@ -262,6 +262,21 @@ describe('custom_plugin (action=99)', () => {
     })
   })
 
+  it('buildSingleAction 优先使用 value 回写 plugin_name（支持 UI 重命名与 trim）', () => {
+    const item: TaskActionItem = {
+      id: 1,
+      type: 'custom_plugin',
+      value: '  new_solver  ',
+      aiPrompt: '',
+      plugin_name: 'old_solver',
+      params: { precision: 2 },
+      mode: 'active',
+      timeout: 20,
+    }
+    const result = buildSingleAction(item)
+    expect(result?.plugin_name).toBe('new_solver')
+  })
+
   it('端到端往返：parseActions -> buildActions 保持插件配置一致', () => {
     const original: RawTaskAction[] = [
       {

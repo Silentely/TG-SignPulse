@@ -345,6 +345,7 @@
     "sendDice": "发送骰子",
     "botCmd": "触发 Bot 命令",
     "customPlugin": "自定义插件",
+    "customPluginPlaceholder": "插件名称 (如 math_solver)",
     "botUsernamePlaceholder": "Bot 用户名（可选；若消息含 t.me/?start= 链接可自动识别）",
     "commandPrefixPlaceholder": "命令前缀，默认 /start",
     "aiVision": "── AI 识图 ──",

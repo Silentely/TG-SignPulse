@@ -345,6 +345,7 @@
     "sendDice": "Send Dice",
     "botCmd": "Trigger Bot Command",
     "customPlugin": "Custom Plugin",
+    "customPluginPlaceholder": "Plugin name (e.g. math_solver)",
     "botUsernamePlaceholder": "Bot username (optional if message has t.me/?start= links)",
     "commandPrefixPlaceholder": "Command prefix, default /start",
     "aiVision": "── AI Vision ──",
