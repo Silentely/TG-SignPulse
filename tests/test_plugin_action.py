@@ -1,3 +1,4 @@
+import asyncio
 import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -12,6 +13,7 @@ from tg_signer.config import (
     SupportAction,
 )
 from tg_signer.core.plugins import PluginContext, PluginRegistry
+from tg_signer.core.signer_actions import SignerActionsMixin
 from tg_signer.core.signer_matchers import SignerMatchersMixin
 
 
@@ -250,3 +252,163 @@ def test_plugin_registry_idempotency_and_name_sanitization(monkeypatch, tmp_path
     monkeypatch.setenv("PLUGINS_DIR", str(tmp_path))
     total = PluginRegistry.load_all_configured_plugins()
     assert total == 2
+
+
+class DummySigner(SignerActionsMixin):
+    def __init__(self):
+        self.app = MagicMock()
+        self.app.send_message = AsyncMock()
+        self.app.get_chat_history = MagicMock()
+        self.log_entries = []
+        self.context = MagicMock()
+        self.context.chat_messages = {}
+        self.context.waiting_message = None
+        self.context.last_callback_answer = None
+
+    def log(self, msg, level="INFO"):
+        self.log_entries.append((level, msg))
+
+    def _message_matches_chat_thread(self, message, chat):
+        return True
+
+    def _message_is_actionable_target(self, message):
+        return True
+
+    def _log_received_target_message(self, message):
+        pass
+
+    def _describe_action(self, action):
+        return str(action)
+
+    def _current_action_step_label(self):
+        return "第 1 步"
+
+
+@pytest.mark.asyncio
+async def test_active_plugin_execution_success():
+    PluginRegistry.clear()
+    executed_params = None
+
+    @PluginRegistry.register("test_act", mode="active")
+    async def act_handler(ctx: PluginContext):
+        nonlocal executed_params
+        executed_params = ctx.params
+        ctx.log("插件运行正常")
+        return True
+
+    signer = DummySigner()
+    chat = SignChatV3(chat_id=123, actions=[PluginAction(plugin_name="test_act", mode="active", params={"foo": "bar"})])
+    action = chat.actions[0]
+
+    result = await signer.wait_for(chat, action, timeout=2.0)
+    assert result is True
+    assert executed_params == {"foo": "bar"}
+    assert any("插件运行正常" in entry[1] for entry in signer.log_entries)
+
+
+@pytest.mark.asyncio
+async def test_active_plugin_timeout_circuit_breaker():
+    PluginRegistry.clear()
+
+    @PluginRegistry.register("hang_plugin", mode="active")
+    async def hang_handler(ctx: PluginContext):
+        await asyncio.sleep(5.0)
+        return True
+
+    signer = DummySigner()
+    chat = SignChatV3(chat_id=123, actions=[PluginAction(plugin_name="hang_plugin", mode="active", timeout=0.1)])
+    action = chat.actions[0]
+
+    with pytest.raises(RuntimeError) as exc_info:
+        await signer.wait_for(chat, action, timeout=0.1)
+    assert "超时" in str(exc_info.value) or "timed out" in str(exc_info.value).lower()
+
+
+@pytest.mark.asyncio
+async def test_reactive_plugin_matching_and_retry():
+    PluginRegistry.clear()
+
+    @PluginRegistry.register("reply_calc", mode="reactive")
+    async def calc_handler(ctx: PluginContext):
+        if ctx.message and "answer_me" in ctx.message.text:
+            await ctx.reply("42")
+            return True
+        return False
+
+    signer = DummySigner()
+    mock_msg_wrong = MagicMock()
+    mock_msg_wrong.id = 1
+    mock_msg_wrong.text = "irrelevant message"
+
+    mock_msg_right = MagicMock()
+    mock_msg_right.id = 2
+    mock_msg_right.text = "answer_me please"
+
+    signer.context.chat_messages[123] = {
+        1: mock_msg_wrong,
+        2: mock_msg_right,
+    }
+
+    chat = SignChatV3(chat_id=123, actions=[PluginAction(plugin_name="reply_calc", mode="reactive")])
+    action = chat.actions[0]
+
+    result = await signer.wait_for(chat, action, timeout=2.0)
+    assert result is None  # wait_for 返回 None 代表响应式步骤成功完成
+    assert signer.context.chat_messages[123][2] is None
+
+
+@pytest.mark.asyncio
+async def test_plugin_not_found_raises():
+    PluginRegistry.clear()
+    signer = DummySigner()
+    chat = SignChatV3(chat_id=123, actions=[PluginAction(plugin_name="unregistered_plugin", mode="active")])
+    action = chat.actions[0]
+
+    with pytest.raises(RuntimeError) as exc_info:
+        await signer.wait_for(chat, action, timeout=1.0)
+    assert "not found in PluginRegistry" in str(exc_info.value)
+    assert any("未注册或未成功加载" in entry[1] for entry in signer.log_entries)
+
+
+@pytest.mark.asyncio
+async def test_active_plugin_sync_handler_and_failure():
+    PluginRegistry.clear()
+
+    @PluginRegistry.register("sync_fail_plugin", mode="active")
+    def sync_fail_handler(ctx: PluginContext):
+        return False
+
+    signer = DummySigner()
+    chat = SignChatV3(chat_id=123, actions=[PluginAction(plugin_name="sync_fail_plugin", mode="active")])
+    action = chat.actions[0]
+
+    result = await signer.wait_for(chat, action, timeout=1.0)
+    assert result is False
+    assert any("返回执行失败" in entry[1] for entry in signer.log_entries)
+
+
+@pytest.mark.asyncio
+async def test_reactive_plugin_history_fallback():
+    PluginRegistry.clear()
+
+    @PluginRegistry.register("hist_plugin", mode="reactive")
+    async def hist_handler(ctx: PluginContext):
+        if ctx.message and "target_hist" in ctx.message.text:
+            return True
+        return False
+
+    signer = DummySigner()
+    mock_msg = MagicMock()
+    mock_msg.id = 99
+    mock_msg.text = "target_hist here"
+
+    async def fake_history(chat_id, limit=12):
+        yield mock_msg
+
+    signer.app.get_chat_history = fake_history
+
+    chat = SignChatV3(chat_id=123, actions=[PluginAction(plugin_name="hist_plugin", mode="reactive")])
+    action = chat.actions[0]
+
+    result = await signer.wait_for(chat, action, timeout=0.1)
+    assert result is None

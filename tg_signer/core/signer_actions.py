@@ -29,6 +29,7 @@ from tg_signer.config import (
     ClickButtonByCalculationProblemAction,
     ClickKeyboardByTextAction,
     KeywordNotifyAction,
+    PluginAction,
     ReplyByCalculationProblemAction,
     ReplyByImageRecognitionAction,
     SendDiceAction,
@@ -41,6 +42,7 @@ from tg_signer.core.client import (
     _is_callback_data_invalid,
     get_now,
 )
+from tg_signer.core.plugins import PluginContext, PluginRegistry
 from tg_signer.log_utils import (
     safe_ai_request_meta,
     safe_ai_result_meta,
@@ -458,6 +460,8 @@ class SignerActionsMixin:
         if chat.message_thread_id is not None:
             kwargs["message_thread_id"] = chat.message_thread_id
         history_limit = read_positive_int_env("SIGN_TASK_HISTORY_LOOKBACK", 12, 3)
+        plugin = None
+        eff_timeout = timeout
         if isinstance(action, SendTextAction):
             # 必须在 send 前快照，否则 bot 若已秒回会漏检
             before_state = await self._chat_state_snapshot(
@@ -484,6 +488,41 @@ class SignerActionsMixin:
         elif isinstance(action, KeywordNotifyAction):
             self.log("关键词监听通知动作为后台常驻监听配置，当前运行时跳过")
             return True
+        elif isinstance(action, PluginAction):
+            plugin = PluginRegistry.get(action.plugin_name)
+            if not plugin:
+                self.log(f"自定义插件「{action.plugin_name}」未注册或未成功加载", level="ERROR")
+                raise RuntimeError(f"Plugin '{action.plugin_name}' not found in PluginRegistry")
+            eff_timeout = action.timeout if action.timeout is not None else timeout
+
+            if action.mode == "active":
+                ctx = PluginContext(
+                    app=self.app,
+                    chat_id=chat.chat_id,
+                    message_thread_id=chat.message_thread_id,
+                    message=None,
+                    params=action.params,
+                    logger=self,
+                )
+                handler_call = (
+                    plugin.handler(ctx)
+                    if asyncio.iscoroutinefunction(plugin.handler)
+                    else asyncio.to_thread(plugin.handler, ctx)
+                )
+                try:
+                    res = await asyncio.wait_for(handler_call, timeout=eff_timeout)
+                except asyncio.TimeoutError as exc:
+                    self.log(f"插件「{action.plugin_name}」执行超时（{eff_timeout}s）", level="ERROR")
+                    raise RuntimeError(f"Plugin '{action.plugin_name}' timed out after {eff_timeout}s") from exc
+                except Exception as exc:
+                    self.log(f"插件「{action.plugin_name}」执行异常: {exc}", level="ERROR")
+                    raise
+                if res is False:
+                    self.log(f"插件「{action.plugin_name}」返回执行失败", level="WARNING")
+                    return False
+                return True
+            else:
+                timeout = eff_timeout
         self.context.last_callback_answer = None
         start = time.perf_counter()
         last_message = None
@@ -693,6 +732,34 @@ class SignerActionsMixin:
                         ok = await self._reply_by_image_recognition(action, message)
                     elif isinstance(action, ClickButtonByCalculationProblemAction):
                         ok = await self._click_button_by_calculation_problem(action, message)
+                    elif isinstance(action, PluginAction):
+                        if plugin is None:
+                            plugin = PluginRegistry.get(action.plugin_name)
+                        if not plugin:
+                            self.log(f"自定义插件「{action.plugin_name}」未注册或未成功加载", level="ERROR")
+                            raise RuntimeError(f"Plugin '{action.plugin_name}' not found in PluginRegistry")
+                        ctx = PluginContext(
+                            app=self.app,
+                            chat_id=chat.chat_id,
+                            message_thread_id=chat.message_thread_id,
+                            message=message,
+                            params=action.params,
+                            logger=self,
+                        )
+                        handler_call = (
+                            plugin.handler(ctx)
+                            if asyncio.iscoroutinefunction(plugin.handler)
+                            else asyncio.to_thread(plugin.handler, ctx)
+                        )
+                        try:
+                            res = await asyncio.wait_for(handler_call, timeout=eff_timeout)
+                            ok = bool(res)
+                        except asyncio.TimeoutError:
+                            self.log(f"插件「{action.plugin_name}」处理单条消息超时", level="WARNING")
+                            ok = False
+                        except Exception as e:
+                            self.log(f"插件「{action.plugin_name}」处理消息异常: {e}", level="WARNING")
+                            ok = False
                     if ok:
                         # 将消息ID对应value置为None，保证收到消息的编辑时消息所处的顺序
                         self.context.chat_messages[chat.chat_id][message.id] = None
@@ -706,6 +773,7 @@ class SignerActionsMixin:
                     ChooseOptionByImageAction,
                     ReplyByImageRecognitionAction,
                     ClickButtonByCalculationProblemAction,
+                    PluginAction,
                 ),
             ):
                 try:
@@ -728,10 +796,38 @@ class SignerActionsMixin:
                             ok = await self._choose_option_by_image(action, message)
                         elif isinstance(action, ReplyByImageRecognitionAction):
                             ok = await self._reply_by_image_recognition(action, message)
-                        else:
+                        elif isinstance(action, ClickButtonByCalculationProblemAction):
                             ok = await self._click_button_by_calculation_problem(
                                 action, message
                             )
+                        elif isinstance(action, PluginAction):
+                            if plugin is None:
+                                plugin = PluginRegistry.get(action.plugin_name)
+                            if not plugin:
+                                self.log(f"自定义插件「{action.plugin_name}」未注册或未成功加载", level="ERROR")
+                                raise RuntimeError(f"Plugin '{action.plugin_name}' not found in PluginRegistry")
+                            ctx = PluginContext(
+                                app=self.app,
+                                chat_id=chat.chat_id,
+                                message_thread_id=chat.message_thread_id,
+                                message=message,
+                                params=action.params,
+                                logger=self,
+                            )
+                            handler_call = (
+                                plugin.handler(ctx)
+                                if asyncio.iscoroutinefunction(plugin.handler)
+                                else asyncio.to_thread(plugin.handler, ctx)
+                            )
+                            try:
+                                res = await asyncio.wait_for(handler_call, timeout=eff_timeout)
+                                ok = bool(res)
+                            except asyncio.TimeoutError:
+                                self.log(f"插件「{action.plugin_name}」处理单条历史消息超时", level="WARNING")
+                                ok = False
+                            except Exception as e:
+                                self.log(f"插件「{action.plugin_name}」处理历史消息异常: {e}", level="WARNING")
+                                ok = False
                         if ok:
                             return None
                 except Exception as e:
