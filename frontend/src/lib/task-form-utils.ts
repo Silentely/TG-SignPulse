@@ -134,13 +134,15 @@ export function buildSingleAction(
       result.bot_username = (action.value || '').trim().replace(/^@/, '')
       result.command_prefix = (action.commandPrefix || DEFAULT_CMD_PREFIX).trim()
       break
-    case 'custom_plugin':
+    case 'custom_plugin': {
       result.action = 99
-      result.plugin_name = action.plugin_name || action.value || ''
+      const rawName = action.value !== undefined && action.value !== '' ? action.value : (action.plugin_name || '')
+      result.plugin_name = rawName.trim()
       result.params = action.params ? { ...action.params } : {}
       if (action.mode) result.mode = action.mode
       if (action.timeout !== undefined) result.timeout = action.timeout
       break
+    }
   }
 
   // 从前一个 delay 动作获取延迟值
