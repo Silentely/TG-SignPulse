@@ -82,6 +82,7 @@ class PluginMeta:
     handler: Callable[[PluginContext], Any]
     mode: Literal["reactive", "active"] = "reactive"
     description: str = ""
+    source_path: Optional[str] = None
 
 
 class PluginRegistry:
@@ -96,11 +97,17 @@ class PluginRegistry:
         description: str = "",
     ) -> Callable:
         def decorator(fn: Callable[[PluginContext], Any]) -> Callable[[PluginContext], Any]:
+            source_file = None
+            try:
+                source_file = inspect.getsourcefile(fn)
+            except Exception:
+                pass
             cls._plugins[name] = PluginMeta(
                 name=name,
                 handler=fn,
                 mode=mode,
                 description=description,
+                source_path=source_file,
             )
             return fn
         return decorator
@@ -183,6 +190,12 @@ class PluginRegistry:
 
         current_keys = set(cls._plugins.keys())
         return len(current_keys - initial_keys)
+
+    @classmethod
+    def reload_all_plugins(cls) -> int:
+        """清空当前已加载插件缓存并重新扫描所有配置目录。"""
+        cls.clear()
+        return cls.load_all_configured_plugins()
 
     @classmethod
     def load_all_configured_plugins(cls) -> int:

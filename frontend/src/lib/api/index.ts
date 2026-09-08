@@ -13,3 +13,4 @@ export * from "./config";
 export * from "./settings";
 export * from "./logs";
 export * from "./ops";
+export * from "./plugins";
