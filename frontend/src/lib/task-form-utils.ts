@@ -15,6 +15,7 @@ const ACTION_TYPE_MAP: Record<number, TaskActionType> = {
   6: 'vision_send',
   7: 'calc_click',
   9: 'bot_cmd',
+  99: 'custom_plugin',
 }
 
 const DEFAULT_CMD_PREFIX = '/start'
@@ -72,6 +73,13 @@ export function parseSingleAction(raw: RawTaskAction): TaskActionItem[] {
     case 'calc_click':
       item.aiPrompt = raw.ai_prompt || ''
       break
+    case 'custom_plugin':
+      item.value = raw.plugin_name || ''
+      item.plugin_name = raw.plugin_name || ''
+      item.params = raw.params ? { ...raw.params } : {}
+      item.mode = raw.mode || 'reactive'
+      if (raw.timeout !== undefined) item.timeout = raw.timeout
+      break
   }
 
   items.push(item)
@@ -125,6 +133,13 @@ export function buildSingleAction(
       result.action = 9
       result.bot_username = (action.value || '').trim().replace(/^@/, '')
       result.command_prefix = (action.commandPrefix || DEFAULT_CMD_PREFIX).trim()
+      break
+    case 'custom_plugin':
+      result.action = 99
+      result.plugin_name = action.plugin_name || action.value || ''
+      result.params = action.params ? { ...action.params } : {}
+      if (action.mode) result.mode = action.mode
+      if (action.timeout !== undefined) result.timeout = action.timeout
       break
   }
 

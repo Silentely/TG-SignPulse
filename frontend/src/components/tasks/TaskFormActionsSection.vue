@@ -42,6 +42,7 @@ const emit = defineEmits<{
               { label: t('taskForm.clickButton'), value: 'click_text_button' },
               { label: t('taskForm.sendDice'), value: 'send_dice' },
               { label: t('taskForm.botCmd'), value: 'bot_cmd' },
+              { label: t('taskForm.customPlugin'), value: 'custom_plugin' },
               { label: t('taskForm.aiVision'), value: '_ai_vision', disabled: true },
               { label: t('taskForm.visionSend'), value: 'vision_send', indent: true },
               { label: t('taskForm.visionClick'), value: 'vision_click', indent: true },
@@ -89,6 +90,13 @@ const emit = defineEmits<{
               class="ui-input !h-9 !text-xs !px-2 mt-1"
             />
           </template>
+          <input
+            v-else-if="action.type === 'custom_plugin'"
+            v-model="action.value"
+            :aria-label="t('taskForm.customPlugin')"
+            placeholder="插件名称 (如 math_solver)"
+            class="ui-input !h-9 !text-xs !px-2"
+          />
           <input
             v-else-if="['vision_send', 'vision_click', 'calc_send', 'calc_click'].includes(action.type)"
             v-model="action.aiPrompt"
