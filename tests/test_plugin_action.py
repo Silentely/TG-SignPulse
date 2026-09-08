@@ -215,3 +215,38 @@ def test_plugin_registry_load_all_configured_plugins(monkeypatch, tmp_path):
     count = PluginRegistry.load_all_configured_plugins()
     assert count == 1
     assert PluginRegistry.get("env_plugin") is not None
+
+
+def test_plugin_registry_idempotency_and_name_sanitization(monkeypatch, tmp_path):
+    PluginRegistry.clear()
+    # 插件目录名含连字符与点号 (my-hyphen.plugin)
+    plugin_dir = tmp_path / "my-hyphen.plugin"
+    plugin_dir.mkdir()
+    (plugin_dir / "main.py").write_text(
+        "from tg_signer.core.plugins import PluginRegistry\n"
+        "@PluginRegistry.register('hyphen_plugin', mode='reactive')\n"
+        "def handler(ctx):\n    return True\n",
+        encoding="utf-8",
+    )
+    # 单文件插件名含破折号 (single-dash.py)
+    (tmp_path / "single-dash.py").write_text(
+        "from tg_signer.core.plugins import PluginRegistry\n"
+        "@PluginRegistry.register('dash_plugin', mode='active')\n"
+        "def handler(ctx):\n    return True\n",
+        encoding="utf-8",
+    )
+
+    # 第一次加载
+    loaded1 = PluginRegistry.load_plugins_from_dir(tmp_path)
+    assert loaded1 == 2
+    assert PluginRegistry.get("hyphen_plugin") is not None
+    assert PluginRegistry.get("dash_plugin") is not None
+
+    # 第二次加载（幂等性：已加载文件不重复执行，新增计数为 0）
+    loaded2 = PluginRegistry.load_plugins_from_dir(tmp_path)
+    assert loaded2 == 0
+
+    # load_all_configured_plugins 无论多次调用均返回已注册插件总数
+    monkeypatch.setenv("PLUGINS_DIR", str(tmp_path))
+    total = PluginRegistry.load_all_configured_plugins()
+    assert total == 2

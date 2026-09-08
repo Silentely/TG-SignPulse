@@ -7,6 +7,7 @@ from __future__ import annotations
 import importlib.util
 import logging
 import os
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -68,6 +69,7 @@ class PluginMeta:
 
 class PluginRegistry:
     _plugins: Dict[str, PluginMeta] = {}
+    _loaded_files: set[Path] = set()
 
     @classmethod
     def register(
@@ -97,6 +99,7 @@ class PluginRegistry:
     @classmethod
     def clear(cls) -> None:
         cls._plugins.clear()
+        cls._loaded_files.clear()
 
     @classmethod
     def load_plugins_from_dir(cls, directory: Union[str, Path]) -> int:
@@ -122,8 +125,17 @@ class PluginRegistry:
             return 0
 
         for plugin_file in candidate_files:
-            folder_name = plugin_file.parent.name if plugin_file.name in ("main.py", "__init__.py") else plugin_file.stem
-            module_name = f"tg_signer_plugin_{folder_name}"
+            resolved_file = plugin_file.resolve()
+            if resolved_file in cls._loaded_files:
+                continue
+
+            folder_name = (
+                plugin_file.parent.name
+                if plugin_file.name in ("main.py", "__init__.py")
+                else plugin_file.stem
+            )
+            sanitized_name = re.sub(r"[^a-zA-Z0-9_]", "_", folder_name)
+            module_name = f"tg_signer_plugin_{sanitized_name}"
             try:
                 spec = importlib.util.spec_from_file_location(module_name, plugin_file)
                 if spec is None or spec.loader is None:
@@ -132,6 +144,7 @@ class PluginRegistry:
                 mod = importlib.util.module_from_spec(spec)
                 sys.modules[module_name] = mod
                 spec.loader.exec_module(mod)
+                cls._loaded_files.add(resolved_file)
                 _logger.info("已成功加载插件: %s (来自 %s)", folder_name, plugin_file)
             except Exception as exc:
                 # 严密捕获单插件的语法/加载错误，绝不雪崩
@@ -143,8 +156,7 @@ class PluginRegistry:
 
     @classmethod
     def load_all_configured_plugins(cls) -> int:
-        """从环境变量与默认数据目录扫描并加载所有插件。"""
-        total = 0
+        """从环境变量与默认数据目录扫描并加载所有插件。返回已注册的插件总数。"""
         search_dirs: list[Path] = []
 
         # 1. 环境变量显式指定 (如 Docker 挂载 /app/user-plugins)
@@ -168,5 +180,5 @@ class PluginRegistry:
             if resolved in visited or not resolved.is_dir():
                 continue
             visited.add(resolved)
-            total += cls.load_plugins_from_dir(resolved)
-        return total
+            cls.load_plugins_from_dir(resolved)
+        return len(cls._plugins)
