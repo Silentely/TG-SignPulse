@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import logging
 import os
 import re
@@ -46,11 +47,27 @@ class PluginContext:
             kwargs.setdefault("reply_to_message_id", self.message.id)
         if self.message_thread_id is not None:
             kwargs.setdefault("message_thread_id", self.message_thread_id)
+        sender = getattr(self.logger, "send_message", None)
+        if sender is not None and callable(sender):
+            try:
+                res = sender(self.chat_id, text, **kwargs)
+                if inspect.isawaitable(res):
+                    return await res
+            except TypeError:
+                pass
         return await self.app.send_message(self.chat_id, text, **kwargs)
 
     async def send_message(self, text: str, **kwargs) -> Any:
         if self.message_thread_id is not None:
             kwargs.setdefault("message_thread_id", self.message_thread_id)
+        sender = getattr(self.logger, "send_message", None)
+        if sender is not None and callable(sender):
+            try:
+                res = sender(self.chat_id, text, **kwargs)
+                if inspect.isawaitable(res):
+                    return await res
+            except TypeError:
+                pass
         return await self.app.send_message(self.chat_id, text, **kwargs)
 
     async def click(self, text_or_index: Union[str, int], **kwargs) -> Any:
@@ -136,6 +153,13 @@ class PluginRegistry:
             )
             sanitized_name = re.sub(r"[^a-zA-Z0-9_]", "_", folder_name)
             module_name = f"tg_signer_plugin_{sanitized_name}"
+
+            # 若为目录型插件，将其所在目录加入 sys.path 以支持目录内的子模块/相对引用
+            if plugin_file.name in ("main.py", "__init__.py"):
+                parent_str = str(plugin_file.parent)
+                if parent_str not in sys.path:
+                    sys.path.insert(0, parent_str)
+
             try:
                 spec = importlib.util.spec_from_file_location(module_name, plugin_file)
                 if spec is None or spec.loader is None:
