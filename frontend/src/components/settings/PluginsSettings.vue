@@ -17,6 +17,7 @@ import {
 } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
+import { withToken } from '../../lib/api/core'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -36,7 +37,7 @@ const testResult = ref<PluginTestResponse | null>(null)
 const loadPluginList = async () => {
   loading.value = true
   try {
-    plugins.value = await getPlugins()
+    plugins.value = await withToken((token) => getPlugins(token)) ?? []
   } catch {
     // 允许离线或降级
   } finally {
@@ -47,7 +48,8 @@ const loadPluginList = async () => {
 const handleReload = async () => {
   reloadLoading.value = true
   try {
-    const res = await reloadPlugins()
+    const res = await withToken((token) => reloadPlugins(token))
+    if (!res) return
     plugins.value = res.plugins
     toast.success(t('settings.pluginsReloadSuccess', { count: res.count }))
   } catch (err: unknown) {
@@ -90,10 +92,13 @@ const runPluginTest = async () => {
   testResult.value = null
 
   try {
-    const res = await testPlugin(currentTestPlugin.value.name, {
-      text: testInputText.value,
-      params: testParams.value,
-    })
+    const res = await withToken((token) =>
+      testPlugin(currentTestPlugin.value!.name, {
+        text: testInputText.value,
+        params: testParams.value,
+      }, token),
+    )
+    if (!res) return
     testResult.value = res
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)

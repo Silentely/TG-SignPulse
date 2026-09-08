@@ -50,6 +50,10 @@ describe('api barrel 完整性', () => {
     expect(typeof api.getPlugins).toBe('function')
     expect(typeof api.reloadPlugins).toBe('function')
     expect(typeof api.testPlugin).toBe('function')
+    // 与 settings/ops 一致：需显式传入 auth token
+    expect(api.getPlugins.length).toBeGreaterThanOrEqual(1)
+    expect(api.reloadPlugins.length).toBeGreaterThanOrEqual(1)
+    expect(api.testPlugin.length).toBeGreaterThanOrEqual(3)
   })
 
   it('core 工具函数不通过 barrel 对外暴露', () => {
