@@ -33,6 +33,15 @@ def _evaluate_expression(text: str) -> Optional[int]:
     name="math_solver",
     mode="reactive",
     description="纯文本计算题秒答插件（对应 Issue #10 示例）",
+    params_schema=[
+        {
+            "name": "reply_prefix",
+            "label": "回复前缀",
+            "type": "string",
+            "default": "",
+            "placeholder": "例如：答案是：",
+        },
+    ],
 )
 async def solve_math_challenge(ctx: PluginContext) -> bool:
     """监听新到达的消息，提取算式并自动回复答案。"""
@@ -45,5 +54,8 @@ async def solve_math_challenge(ctx: PluginContext) -> bool:
         return False
 
     ctx.log(f"[math_solver] 成功匹配计算题：{msg.text!r}，计算答案：{ans}")
-    await ctx.reply(str(ans))
+    prefix = ""
+    if ctx.params and isinstance(ctx.params, dict):
+        prefix = str(ctx.params.get("reply_prefix") or "")
+    await ctx.reply(f"{prefix}{ans}")
     return True

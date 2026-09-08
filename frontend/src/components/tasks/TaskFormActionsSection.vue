@@ -26,6 +26,18 @@ const getPluginInfo = (name?: string) => {
   return availablePlugins.value.find(p => p.name === name) || null
 }
 
+const getParamValue = (action: TaskActionItem, key: string, fallback: unknown) => {
+  if (!action.params) return fallback
+  return action.params[key] !== undefined ? action.params[key] : fallback
+}
+
+const setParamValue = (action: TaskActionItem, key: string, val: unknown) => {
+  if (!action.params) {
+    action.params = {}
+  }
+  action.params[key] = val
+}
+
 defineProps<{
   actions: TaskActionItem[]
   /** 步骤编号展示：listen 为 04，定时为 03 */
@@ -109,7 +121,7 @@ const emit = defineEmits<{
               class="ui-input !h-9 !text-xs !px-2 mt-1"
             />
           </template>
-          <div v-else-if="action.type === 'custom_plugin'" class="flex flex-col gap-1 w-full">
+          <div v-else-if="action.type === 'custom_plugin'" class="flex flex-col gap-1.5 w-full">
             <input
               v-model="action.value"
               list="task-form-custom-plugins-list"
@@ -125,6 +137,56 @@ const emit = defineEmits<{
               <span class="shrink-0 text-[10px] px-1 py-0.5 rounded bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300 font-mono">
                 {{ getPluginInfo(action.value)?.mode }}
               </span>
+            </div>
+
+            <!-- 参数配置区域 (若插件声明了 params_schema) -->
+            <div
+              v-if="getPluginInfo(action.value)?.params_schema?.length"
+              class="mt-1 p-2 bg-white/70 dark:bg-black/20 border border-gray-200/80 dark:border-gray-800 rounded flex flex-col gap-2"
+            >
+              <div class="text-[11px] font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1">
+                <span>⚙️ {{ t('taskForm.pluginParams') }}</span>
+              </div>
+              <div
+                v-for="field in getPluginInfo(action.value)?.params_schema"
+                :key="field.name"
+                class="flex flex-col gap-0.5 text-xs"
+              >
+                <div class="flex items-center justify-between text-[10px] text-gray-500 dark:text-gray-400">
+                  <span>{{ field.label || field.name }}</span>
+                  <span class="font-mono text-gray-400">{{ field.name }}</span>
+                </div>
+                <!-- 布尔开关 -->
+                <label v-if="field.type === 'bool'" class="inline-flex items-center gap-2 cursor-pointer mt-0.5">
+                  <input
+                    type="checkbox"
+                    :checked="Boolean(getParamValue(action, field.name, field.default))"
+                    class="rounded text-sky-600 focus:ring-sky-500 h-3.5 w-3.5"
+                    @change="setParamValue(action, field.name, ($event.target as HTMLInputElement).checked)"
+                  />
+                  <span class="text-[11px] text-gray-600 dark:text-gray-300">
+                    {{ getParamValue(action, field.name, field.default) ? t('common.enabled') : t('common.disabled') }}
+                  </span>
+                </label>
+                <!-- 整数输入 -->
+                <input
+                  v-else-if="field.type === 'int'"
+                  type="number"
+                  :value="getParamValue(action, field.name, field.default)"
+                  :placeholder="field.placeholder || String(field.default ?? '')"
+                  class="ui-input !h-8 !text-xs !px-2 w-full"
+                  @input="setParamValue(action, field.name, Number(($event.target as HTMLInputElement).value))"
+                />
+                <!-- 字符串输入 -->
+                <input
+                  v-else
+                  type="text"
+                  :value="String(getParamValue(action, field.name, field.default) ?? '')"
+                  :placeholder="field.placeholder || String(field.default ?? '')"
+                  class="ui-input !h-8 !text-xs !px-2 w-full"
+                  @input="setParamValue(action, field.name, ($event.target as HTMLInputElement).value)"
+                />
+              </div>
             </div>
           </div>
           <input

@@ -547,3 +547,45 @@ def test_directory_plugin_with_relative_import(tmp_path):
     meta = PluginRegistry.get("relative_multi_file")
     assert meta is not None
     assert meta.handler(None) == 9911
+
+
+@pytest.mark.asyncio
+async def test_regex_reply_sample_plugin():
+    import importlib.util
+
+    plugin_path = Path("plugins/regex_reply/main.py").resolve()
+    assert plugin_path.exists(), "plugins/regex_reply/main.py 必须存在"
+
+    PluginRegistry.clear()
+    spec = importlib.util.spec_from_file_location("regex_reply", plugin_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    meta = PluginRegistry.get("regex_reply")
+    assert meta is not None
+    assert meta.mode == "reactive"
+    assert len(meta.params_schema) == 3
+
+    # 测试使用捕获组提取验证码
+    mock_app = MagicMock()
+    mock_app.send_message = AsyncMock()
+    mock_msg = MagicMock()
+    mock_msg.id = 88
+    mock_msg.text = "本次签到验证码为：9527，请在 1 分钟内输入"
+    mock_logger = MagicMock()
+
+    ctx = PluginContext(
+        app=mock_app,
+        chat_id=12345,
+        message=mock_msg,
+        logger=mock_logger,
+        params={"pattern": r"验证码为[：:\s]+(\d+)", "template": "{1}"},
+    )
+
+    handled = await meta.handler(ctx)
+    assert handled is True
+    mock_app.send_message.assert_awaited_once_with(
+        12345,
+        "9527",
+        reply_to_message_id=88,
+    )
