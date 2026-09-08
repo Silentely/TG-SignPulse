@@ -459,7 +459,7 @@ async def test_math_solver_sample_plugin():
     )
 
     # 测试加法、减法、符号乘法、除法及除以 0
-    eval_fn = getattr(mod, "_evaluate_expression")
+    eval_fn = mod._evaluate_expression
     assert eval_fn("15 + 27") == 42
     assert eval_fn("100 - 45") == 55
     assert eval_fn("12 × 4") == 48
@@ -525,3 +525,25 @@ def test_directory_plugin_with_sibling_import(tmp_path):
     meta = PluginRegistry.get("multi_file")
     assert meta is not None
     assert meta.handler(None) == 7788
+
+
+def test_directory_plugin_with_relative_import(tmp_path):
+    """验证目录型插件按包加载时支持相对导入。"""
+    PluginRegistry.clear()
+    plugin_dir = tmp_path / "relative_plugin"
+    plugin_dir.mkdir()
+    (plugin_dir / "helper.py").write_text("MAGIC_NUM = 9911\n", encoding="utf-8")
+    code = (
+        "from .helper import MAGIC_NUM\n"
+        "from tg_signer.core.plugins import PluginRegistry\n\n"
+        "@PluginRegistry.register('relative_multi_file', mode='active')\n"
+        "def run(ctx):\n"
+        "    return MAGIC_NUM\n"
+    )
+    (plugin_dir / "main.py").write_text(code, encoding="utf-8")
+
+    loaded = PluginRegistry.load_plugins_from_dir(tmp_path)
+    assert loaded == 1
+    meta = PluginRegistry.get("relative_multi_file")
+    assert meta is not None
+    assert meta.handler(None) == 9911

@@ -72,7 +72,7 @@ try:
 
     PluginRegistry.load_all_configured_plugins()
 except Exception:
-    pass
+    logger.warning("插件目录扫描失败，后续自定义插件动作可能不可用", exc_info=True)
 
 
 ConfigT = TypeVar("ConfigT", bound=BaseJSONConfig)

@@ -13,6 +13,8 @@ defineProps<{
   actions: TaskActionItem[]
   /** 步骤编号展示：listen 为 04，定时为 03 */
   stepNum: string
+  /** 监听后续动作目前由后端白名单执行，不支持自定义插件。 */
+  allowCustomPlugin?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -42,7 +44,7 @@ const emit = defineEmits<{
               { label: t('taskForm.clickButton'), value: 'click_text_button' },
               { label: t('taskForm.sendDice'), value: 'send_dice' },
               { label: t('taskForm.botCmd'), value: 'bot_cmd' },
-              { label: t('taskForm.customPlugin'), value: 'custom_plugin' },
+              { label: t('taskForm.customPlugin'), value: 'custom_plugin', disabled: allowCustomPlugin === false },
               { label: t('taskForm.aiVision'), value: '_ai_vision', disabled: true },
               { label: t('taskForm.visionSend'), value: 'vision_send', indent: true },
               { label: t('taskForm.visionClick'), value: 'vision_click', indent: true },
