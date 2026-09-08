@@ -440,15 +440,18 @@ async def test_math_solver_sample_plugin():
     mock_msg.id = 77
     mock_msg.text = "请在 30 秒内输入 2*31 的答案"
 
+    mock_logger = MagicMock()
     ctx = PluginContext(
         app=mock_app,
         chat_id=12345,
         message=mock_msg,
-        logger=MagicMock(),
+        logger=mock_logger,
     )
 
     handled = await meta.handler(ctx)
     assert handled is True
+    assert mock_logger.log.called
+    assert "成功匹配计算题" in mock_logger.log.call_args[0][0]
     mock_app.send_message.assert_awaited_once_with(
         12345,
         "62",
@@ -478,3 +481,22 @@ async def test_math_solver_sample_plugin():
     non_math_msg.text = "签到成功，欢迎下次光临！"
     non_math_ctx = PluginContext(app=mock_app, chat_id=12345, message=non_math_msg, logger=MagicMock())
     assert await meta.handler(non_math_ctx) is False
+
+
+def test_support_action_compatibility_with_existing_actions():
+    """验证所有原有的 1-8 动作及其描述未被篡改"""
+    expected = {
+        1: ("SEND_TEXT", "发送普通文本"),
+        2: ("SEND_DICE", "发送Dice类型的emoji"),
+        3: ("CLICK_KEYBOARD_BY_TEXT", "根据文本点击键盘"),
+        4: ("CHOOSE_OPTION_BY_IMAGE", "根据图片选择选项"),
+        5: ("REPLY_BY_CALCULATION_PROBLEM", "回复计算题"),
+        6: ("REPLY_BY_IMAGE_RECOGNITION", "AI image recognition then send text"),
+        7: ("CLICK_BUTTON_BY_CALCULATION_PROBLEM", "AI calculation then click button"),
+        8: ("KEYWORD_NOTIFY", "关键词监听"),
+        99: ("CUSTOM_PLUGIN", "自定义插件"),
+    }
+    for val, (name, desc) in expected.items():
+        act = SupportAction(val)
+        assert act.name == name
+        assert act.desc == desc
