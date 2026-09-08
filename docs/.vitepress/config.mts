@@ -151,6 +151,7 @@ export default defineConfig({
           { text: "账号管理", link: "/guide/accounts" },
           { text: "任务编排", link: "/guide/tasks" },
           { text: "AI 动作", link: "/guide/ai" },
+          { text: "自定义插件", link: "/guide/plugins" },
           { text: "关键词监听", link: "/guide/keyword-monitor" },
           { text: "WebDAV 备份与恢复", link: "/guide/backup-webdav" },
         ],
