@@ -366,6 +366,14 @@ async def on_startup() -> None:
     )
 
     ensure_data_dirs(settings)
+    try:
+        from tg_signer.core.plugins import PluginRegistry
+
+        count = PluginRegistry.load_all_configured_plugins()
+        logging.getLogger("backend.startup").info("已扫描加载 %d 个自定义扩展插件", count)
+    except Exception as exc:
+        logging.getLogger("backend.startup").warning("扫描插件目录异常: %s", exc)
+
     # 清理过期头像缓存（7 天 TTL），避免长期运行累积陈旧文件
     try:
         from backend.services import avatar_cache

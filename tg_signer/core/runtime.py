@@ -67,6 +67,13 @@ from tg_signer.utils import (
 # 避免过程日志打到另一 logger 导致面板 flow_logs 只有外壳行。
 logger = logging.getLogger("tg-signer")
 
+try:
+    from tg_signer.core.plugins import PluginRegistry
+
+    PluginRegistry.load_all_configured_plugins()
+except Exception:
+    pass
+
 
 ConfigT = TypeVar("ConfigT", bound=BaseJSONConfig)
 
