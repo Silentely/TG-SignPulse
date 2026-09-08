@@ -5,7 +5,9 @@ import asyncio
 import inspect
 import logging
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
@@ -15,6 +17,14 @@ from tg_signer.core.plugins import PluginContext, PluginRegistry
 
 router = APIRouter()
 logger = logging.getLogger("backend.plugins_api")
+
+
+def _safe_source_path(source_path: Optional[str]) -> Optional[str]:
+    """仅返回插件目录和文件名，避免泄露宿主机绝对路径。"""
+    if not source_path:
+        return None
+    path = Path(source_path)
+    return "/".join(path.parts[-2:])
 
 
 class PluginInfo(BaseModel):
@@ -55,7 +65,7 @@ async def list_plugins(_user: User = Depends(get_current_user)) -> List[PluginIn
             name=p.name,
             mode=p.mode,
             description=p.description,
-            source_path=p.source_path,
+            source_path=_safe_source_path(p.source_path),
             params_schema=p.params_schema or [],
         )
         for p in plugins.values()
@@ -72,7 +82,7 @@ async def reload_plugins(_user: User = Depends(get_current_user)) -> ReloadPlugi
             name=p.name,
             mode=p.mode,
             description=p.description,
-            source_path=p.source_path,
+            source_path=_safe_source_path(p.source_path),
             params_schema=p.params_schema or [],
         )
         for p in plugins.values()
@@ -87,7 +97,7 @@ async def test_plugin(
     req: PluginTestRequest,
     _user: User = Depends(get_current_user),
 ) -> PluginTestResponse:
-    """在 Web 调试沙箱中模拟单测指定插件。"""
+    """在宿主进程内模拟执行指定插件，仅用于测试可信插件。"""
     meta = PluginRegistry.get(name)
     if not meta:
         raise HTTPException(

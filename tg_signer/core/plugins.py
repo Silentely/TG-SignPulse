@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import inspect
 import logging
@@ -12,9 +13,13 @@ import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, Literal, Optional, Union
+from typing import Any, Callable, Dict, List, Literal, Optional, Union
 
 _logger = logging.getLogger("tg_signer.plugins")
+
+
+class PluginTimeoutError(RuntimeError):
+    """插件执行超时；该错误不可通过步骤级重试安全恢复。"""
 
 
 @dataclass
@@ -99,6 +104,9 @@ class PluginRegistry:
         params_schema: Optional[List[Dict[str, Any]]] = None,
     ) -> Callable:
         def decorator(fn: Callable[[PluginContext], Any]) -> Callable[[PluginContext], Any]:
+            existing = cls._plugins.get(name)
+            if existing is not None and existing.handler is not fn:
+                raise ValueError(f"插件名称已注册: {name}")
             source_file = None
             try:
                 source_file = inspect.getsourcefile(fn)
@@ -127,6 +135,9 @@ class PluginRegistry:
     def clear(cls) -> None:
         cls._plugins.clear()
         cls._loaded_files.clear()
+        for module_name in list(sys.modules):
+            if module_name.startswith("tg_signer_plugin_"):
+                sys.modules.pop(module_name, None)
 
     @classmethod
     def load_plugins_from_dir(cls, directory: Union[str, Path]) -> int:
@@ -162,7 +173,8 @@ class PluginRegistry:
                 else plugin_file.stem
             )
             sanitized_name = re.sub(r"[^a-zA-Z0-9_]", "_", folder_name)
-            module_name = f"tg_signer_plugin_{sanitized_name}"
+            path_hash = hashlib.sha256(str(resolved_file).encode("utf-8")).hexdigest()[:12]
+            module_name = f"tg_signer_plugin_{sanitized_name}_{path_hash}"
 
             # 若为目录型插件，将其所在目录加入 sys.path 以支持目录内的子模块/相对引用
             if plugin_file.name in ("main.py", "__init__.py"):

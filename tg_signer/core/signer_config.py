@@ -31,6 +31,7 @@ from tg_signer.config import (
 )
 from tg_signer.core.client import OPENAI_USE_PROMPT, make_dirs
 from tg_signer.core.context import UserSignerWorkerContext
+from tg_signer.core.plugins import PluginTimeoutError
 from tg_signer.pydantic_compat import model_validate
 from tg_signer.utils import UserInput, print_to_user
 
@@ -321,6 +322,8 @@ class SignerConfigMixin:
         仅用于流程内步级重试，避免因单步瞬时失败而重启整个脚本流程。
         配额耗尽、计费限制等永久错误不视为瞬时故障。
         """
+        if isinstance(exc, PluginTimeoutError):
+            return False
         if isinstance(exc, (TimeoutError, asyncio.TimeoutError)):
             return True
         text = str(exc).lower()

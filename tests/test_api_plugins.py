@@ -1,9 +1,10 @@
 """Tests for plugins API endpoints: GET /api/plugins, POST /api/plugins/reload, POST /api/plugins/{name}/test."""
 from __future__ import annotations
 
-import pytest
-from tg_signer.core.plugins import PluginRegistry, PluginContext
-from tests.test_api import api_client, _login, _auth  # noqa: F401
+from tests.test_api import _auth, _login
+from tg_signer.core.plugins import PluginContext, PluginRegistry
+
+pytest_plugins = ("tests.test_api",)
 
 
 def test_list_plugins_requires_auth(api_client):
@@ -40,6 +41,7 @@ def test_list_and_reload_plugins(api_client):
     assert target["description"] == "用于测试 API 的插件"
     assert len(target["params_schema"]) == 1
     assert target["params_schema"][0]["name"] == "foo"
+    assert target["source_path"] is None or not target["source_path"].startswith("/")
 
     # 测试 POST /api/plugins/reload
     reload_resp = api_client.post("/api/plugins/reload", headers=headers)
