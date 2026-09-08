@@ -205,6 +205,7 @@ def test_plugin_registry_isolation_on_broken_plugin():
 
 def test_plugin_registry_load_all_configured_plugins(monkeypatch, tmp_path):
     PluginRegistry.clear()
+    monkeypatch.chdir(tmp_path)
     plugins_dir = tmp_path / "custom_plugins"
     plugins_dir.mkdir()
     (plugins_dir / "test_env_plugin.py").write_text(
@@ -221,6 +222,7 @@ def test_plugin_registry_load_all_configured_plugins(monkeypatch, tmp_path):
 
 def test_plugin_registry_idempotency_and_name_sanitization(monkeypatch, tmp_path):
     PluginRegistry.clear()
+    monkeypatch.chdir(tmp_path)
     # 插件目录名含连字符与点号 (my-hyphen.plugin)
     plugin_dir = tmp_path / "my-hyphen.plugin"
     plugin_dir.mkdir()
@@ -412,3 +414,67 @@ async def test_reactive_plugin_history_fallback():
 
     result = await signer.wait_for(chat, action, timeout=0.1)
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_math_solver_sample_plugin():
+    import importlib.util
+
+    plugin_path = Path("plugins/math_solver/main.py").resolve()
+    assert plugin_path.exists(), "plugins/math_solver/main.py 必须存在"
+
+    PluginRegistry.clear()
+    spec = importlib.util.spec_from_file_location("math_solver", plugin_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    meta = PluginRegistry.get("math_solver")
+    assert meta is not None
+    assert meta.mode == "reactive"
+
+    # 测试识别并计算加减乘（符合 Issue #10 中的 2*31 场景）
+    mock_app = MagicMock()
+    mock_app.send_message = AsyncMock()
+
+    mock_msg = MagicMock()
+    mock_msg.id = 77
+    mock_msg.text = "请在 30 秒内输入 2*31 的答案"
+
+    ctx = PluginContext(
+        app=mock_app,
+        chat_id=12345,
+        message=mock_msg,
+        logger=MagicMock(),
+    )
+
+    handled = await meta.handler(ctx)
+    assert handled is True
+    mock_app.send_message.assert_awaited_once_with(
+        12345,
+        "62",
+        reply_to_message_id=77,
+    )
+
+    # 测试加法、减法、符号乘法、除法及除以 0
+    eval_fn = getattr(mod, "_evaluate_expression")
+    assert eval_fn("15 + 27") == 42
+    assert eval_fn("100 - 45") == 55
+    assert eval_fn("12 × 4") == 48
+    assert eval_fn("80 ÷ 4") == 20
+    assert eval_fn("80 / 4") == 20
+    assert eval_fn("80 / 0") is None
+    assert eval_fn("纯文本没有算式") is None
+
+    # 测试无消息或文本为空或不含算式时的防御处理
+    empty_ctx = PluginContext(app=mock_app, chat_id=12345, message=None, logger=MagicMock())
+    assert await meta.handler(empty_ctx) is False
+
+    no_text_msg = MagicMock()
+    no_text_msg.text = None
+    no_text_ctx = PluginContext(app=mock_app, chat_id=12345, message=no_text_msg, logger=MagicMock())
+    assert await meta.handler(no_text_ctx) is False
+
+    non_math_msg = MagicMock()
+    non_math_msg.text = "签到成功，欢迎下次光临！"
+    non_math_ctx = PluginContext(app=mock_app, chat_id=12345, message=non_math_msg, logger=MagicMock())
+    assert await meta.handler(non_math_ctx) is False
