@@ -589,3 +589,69 @@ async def test_regex_reply_sample_plugin():
         "9527",
         reply_to_message_id=88,
     )
+
+
+@pytest.mark.asyncio
+async def test_regex_reply_edge_cases_and_boundaries():
+    meta = PluginRegistry.get("regex_reply")
+    assert meta is not None
+
+    mock_app = MagicMock()
+    mock_app.send_message = AsyncMock()
+    mock_logger = MagicMock()
+
+    # 1. 边界情况：消息为空或无文本
+    ctx_empty = PluginContext(app=mock_app, chat_id=1, message=None, logger=mock_logger)
+    assert await meta.handler(ctx_empty) is False
+
+    # 2. 边界情况：无效正则表达式（防崩保护）
+    msg = MagicMock()
+    msg.text = "hello world"
+    ctx_bad_regex = PluginContext(
+        app=mock_app,
+        chat_id=1,
+        message=msg,
+        logger=mock_logger,
+        params={"pattern": "[invalid("},
+    )
+    assert await meta.handler(ctx_bad_regex) is False
+    assert any("无效的正则表达式" in str(c) for c in mock_logger.mock_calls)
+
+    # 3. 边界情况：无捕获组的正向匹配，{0} 和 {1} 回退为全文匹配
+    msg_num = MagicMock()
+    msg_num.id = 99
+    msg_num.text = "PIN: 1234"
+    ctx_no_groups = PluginContext(
+        app=mock_app,
+        chat_id=1,
+        message=msg_num,
+        logger=mock_logger,
+        params={"pattern": r"\b\d{4}\b", "template": "code: {1}", "reply_to": False},
+    )
+    assert await meta.handler(ctx_no_groups) is True
+    # reply_to 为 False，不应带 reply_to_message_id
+    mock_app.send_message.assert_awaited_with(1, "code: 1234")
+
+
+@pytest.mark.asyncio
+async def test_math_solver_with_reply_prefix_param():
+    PluginRegistry.load_all_configured_plugins()
+    meta = PluginRegistry.get("math_solver")
+    assert meta is not None
+
+    mock_app = MagicMock()
+    mock_app.send_message = AsyncMock()
+    mock_msg = MagicMock()
+    mock_msg.id = 10
+    mock_msg.text = "请回答: 15 + 27 = ?"
+    mock_logger = MagicMock()
+
+    ctx = PluginContext(
+        app=mock_app,
+        chat_id=2026,
+        message=mock_msg,
+        logger=mock_logger,
+        params={"reply_prefix": "答案是："},
+    )
+    assert await meta.handler(ctx) is True
+    mock_app.send_message.assert_awaited_once_with(2026, "答案是：42", reply_to_message_id=10)
