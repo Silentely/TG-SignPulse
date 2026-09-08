@@ -3,7 +3,7 @@
  * 自定义插件概览、演练调试与重载区块：
  * 1. 展示已挂载 Action 插件清单（名称、模式、描述、路径、参数 Schema）；
  * 2. 提供「测试演练」弹窗，免打卡即时输入测试文本单测插件逻辑并回显日志；
- * 3. 提供「重新加载」按钮，触发服务端无感热重载。
+ * 3. 提供「重新加载」按钮，触发服务端重新扫描插件目录。
  */
 import { ref, onMounted } from 'vue'
 import { Puzzle, RefreshCw, Folder, Info, Play, CheckCircle2, AlertCircle, Clock } from 'lucide-vue-next'

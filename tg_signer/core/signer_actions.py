@@ -42,7 +42,7 @@ from tg_signer.core.client import (
     _is_callback_data_invalid,
     get_now,
 )
-from tg_signer.core.plugins import PluginContext, PluginRegistry
+from tg_signer.core.plugins import PluginContext, PluginRegistry, PluginTimeoutError
 from tg_signer.log_utils import (
     safe_ai_request_meta,
     safe_ai_result_meta,
@@ -550,7 +550,9 @@ class SignerActionsMixin:
                     res = await asyncio.wait_for(handler_call, timeout=eff_timeout)
                 except asyncio.TimeoutError as exc:
                     self.log(f"插件「{action.plugin_name}」执行超时（{eff_timeout}s）", level="ERROR")
-                    raise RuntimeError(f"Plugin '{action.plugin_name}' timed out after {eff_timeout}s") from exc
+                    raise PluginTimeoutError(
+                        f"Plugin '{action.plugin_name}' timed out after {eff_timeout}s"
+                    ) from exc
                 except Exception as exc:
                     self.log(f"插件「{action.plugin_name}」执行异常: {exc}", level="ERROR")
                     raise
@@ -944,6 +946,5 @@ class SignerActionsMixin:
             messages = await self.app.get_scheduled_messages(chat_id)
             for message in messages:
                 print_to_user(f"{message.date}: {message.text}")
-
 
 

@@ -3,10 +3,34 @@
 支持用户自定义正则表达式从 Bot 消息中提取验证码、口令、答案等内容，
 并按模板渲染后自动回复。
 """
-import re
+import asyncio
+import json
+import sys
 from typing import Any, Dict
 
 from tg_signer.core.plugins import PluginContext, PluginRegistry
+
+_REGEX_TIMEOUT_SECONDS = 0.2
+_MAX_PATTERN_LENGTH = 512
+_MAX_MESSAGE_LENGTH = 4096
+_REGEX_WORKER = r'''
+import json
+import re
+import sys
+
+payload = json.loads(sys.stdin.read())
+try:
+    regex = re.compile(payload["pattern"])
+    match = regex.search(payload["text"])
+    result = {
+        "ok": True,
+        "match": match.group(0) if match else None,
+        "groups": list(match.groups()) if match else [],
+    }
+except re.error as exc:
+    result = {"ok": False, "error": str(exc)}
+print(json.dumps(result, ensure_ascii=False))
+'''
 
 
 @PluginRegistry.register(
@@ -47,27 +71,61 @@ async def regex_reply_handler(ctx: PluginContext) -> bool:
     template = str(params.get("template") or "{1}")
     reply_to = bool(params.get("reply_to", True))
 
-    try:
-        regex = re.compile(pattern_str)
-    except re.error as exc:
-        ctx.log(f"[regex_reply] 无效的正则表达式 {pattern_str!r}: {exc}")
+    if len(pattern_str) > _MAX_PATTERN_LENGTH:
+        ctx.log(f"[regex_reply] 正则表达式过长，最多允许 {_MAX_PATTERN_LENGTH} 个字符")
         return False
 
-    match = regex.search(msg.text)
-    if not match:
+    text = str(msg.text)
+    if len(text) > _MAX_MESSAGE_LENGTH:
+        text = text[:_MAX_MESSAGE_LENGTH]
+
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-c",
+        _REGEX_WORKER,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    try:
+        stdout, _ = await asyncio.wait_for(
+            process.communicate(
+                json.dumps({"pattern": pattern_str, "text": text}).encode("utf-8")
+            ),
+            timeout=_REGEX_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        process.kill()
+        await process.wait()
+        ctx.log(f"[regex_reply] 正则匹配超过 {_REGEX_TIMEOUT_SECONDS:g} 秒，已终止")
+        return False
+    if process.returncode != 0:
+        ctx.log("[regex_reply] 正则匹配进程异常退出")
+        return False
+
+    try:
+        result = json.loads(stdout.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        ctx.log("[regex_reply] 正则匹配结果无法解析")
+        return False
+    if not result.get("ok"):
+        ctx.log(f"[regex_reply] 无效的正则表达式 {pattern_str!r}: {result.get('error', '')}")
+        return False
+    match_text = result.get("match")
+    if match_text is None:
         return False
 
     # 替换捕获组：{0} 为全文，{1} 为第 1 组，依此类推
     reply_content = template
-    groups = match.groups()
+    groups = result.get("groups") or []
     if groups:
         for idx, group_val in enumerate(groups, start=1):
             reply_content = reply_content.replace(f"{{{idx}}}", group_val or "")
-        reply_content = reply_content.replace("{0}", match.group(0))
+        reply_content = reply_content.replace("{0}", match_text)
     else:
         # 正则无显式捕获组时，{0} 和 {1} 均回退为全文匹配
-        reply_content = reply_content.replace("{0}", match.group(0))
-        reply_content = reply_content.replace("{1}", match.group(0))
+        reply_content = reply_content.replace("{0}", match_text)
+        reply_content = reply_content.replace("{1}", match_text)
 
     ctx.log(
         f"[regex_reply] 成功匹配表达式 {pattern_str!r}，提取回复：{reply_content!r}"

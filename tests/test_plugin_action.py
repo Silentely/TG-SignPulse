@@ -12,7 +12,7 @@ from tg_signer.config import (
     SignChatV3,
     SupportAction,
 )
-from tg_signer.core.plugins import PluginContext, PluginRegistry
+from tg_signer.core.plugins import PluginContext, PluginRegistry, PluginTimeoutError
 from tg_signer.core.signer_actions import SignerActionsMixin
 from tg_signer.core.signer_matchers import SignerMatchersMixin
 
@@ -98,6 +98,22 @@ def test_plugin_registry_register_and_get():
     assert meta.description == "演示插件"
     assert meta.handler is demo_handler
     assert "demo_plugin" in PluginRegistry.list_plugins()
+
+
+def test_plugin_registry_rejects_duplicate_names():
+    PluginRegistry.clear()
+
+    @PluginRegistry.register("duplicate_plugin")
+    def first_handler(ctx: PluginContext):
+        return True
+
+    with pytest.raises(ValueError, match="插件名称已注册"):
+
+        @PluginRegistry.register("duplicate_plugin")
+        def second_handler(ctx: PluginContext):
+            return True
+
+    assert PluginRegistry.get("duplicate_plugin").handler is first_handler
 
 
 @pytest.mark.asyncio
@@ -321,7 +337,7 @@ async def test_active_plugin_timeout_circuit_breaker():
     chat = SignChatV3(chat_id=123, actions=[PluginAction(plugin_name="hang_plugin", mode="active", timeout=0.1)])
     action = chat.actions[0]
 
-    with pytest.raises(RuntimeError) as exc_info:
+    with pytest.raises(PluginTimeoutError) as exc_info:
         await signer.wait_for(chat, action, timeout=0.1)
     assert "超时" in str(exc_info.value) or "timed out" in str(exc_info.value).lower()
 
@@ -549,6 +565,36 @@ def test_directory_plugin_with_relative_import(tmp_path):
     assert meta.handler(None) == 9911
 
 
+def test_directory_plugins_with_same_name_keep_isolated_relative_imports(tmp_path):
+    """验证同名插件目录的相对依赖不会共享模块命名空间。"""
+    PluginRegistry.clear()
+    first_root = tmp_path / "first"
+    second_root = tmp_path / "second"
+    first_root.mkdir()
+    second_root.mkdir()
+
+    for root, value, name in (
+        (first_root, 1, "same_name_one"),
+        (second_root, 2, "same_name_two"),
+    ):
+        plugin_dir = root / "same_name"
+        plugin_dir.mkdir()
+        (plugin_dir / "helper.py").write_text(f"VALUE = {value}\n", encoding="utf-8")
+        (plugin_dir / "main.py").write_text(
+            "from .helper import VALUE\n"
+            "from tg_signer.core.plugins import PluginRegistry\n\n"
+            f"@PluginRegistry.register({name!r}, mode='active')\n"
+            "def run(ctx):\n"
+            "    return VALUE\n",
+            encoding="utf-8",
+        )
+
+    assert PluginRegistry.load_plugins_from_dir(first_root) == 1
+    assert PluginRegistry.load_plugins_from_dir(second_root) == 1
+    assert PluginRegistry.get("same_name_one").handler(None) == 1
+    assert PluginRegistry.get("same_name_two").handler(None) == 2
+
+
 @pytest.mark.asyncio
 async def test_regex_reply_sample_plugin():
     import importlib.util
@@ -631,6 +677,43 @@ async def test_regex_reply_edge_cases_and_boundaries():
     assert await meta.handler(ctx_no_groups) is True
     # reply_to 为 False，不应带 reply_to_message_id
     mock_app.send_message.assert_awaited_with(1, "code: 1234")
+
+
+@pytest.mark.asyncio
+async def test_regex_reply_terminates_timed_out_match(monkeypatch):
+    meta = PluginRegistry.get("regex_reply")
+    assert meta is not None
+    mock_app = MagicMock()
+    mock_app.send_message = AsyncMock()
+    msg = MagicMock()
+    msg.text = "hello"
+    ctx = PluginContext(
+        app=mock_app,
+        chat_id=1,
+        message=msg,
+        logger=MagicMock(),
+        params={"pattern": "safe"},
+    )
+
+    class HangingProcess:
+        returncode = None
+
+        async def communicate(self, _payload):
+            await asyncio.sleep(10)
+            return b"", b""
+
+        def kill(self):
+            self.returncode = -9
+
+        async def wait(self):
+            return self.returncode
+
+    async def fake_create_subprocess_exec(*_args, **_kwargs):
+        return HangingProcess()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+    assert await asyncio.wait_for(meta.handler(ctx), timeout=1.0) is False
+    mock_app.send_message.assert_not_awaited()
 
 
 @pytest.mark.asyncio
