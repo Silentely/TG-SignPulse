@@ -2,12 +2,29 @@
 /**
  * 任务表单：动作序列编辑区块。
  */
+import { ref, onMounted } from 'vue'
 import { Plus, Trash2, ArrowUp, ArrowDown } from 'lucide-vue-next'
 import CustomSelect from '../CustomSelect.vue'
 import type { TaskActionItem } from '../../lib/types'
 import { useI18n } from '../../composables/useI18n'
+import { getPlugins, type PluginInfo } from '../../lib/api'
 
 const { t } = useI18n()
+
+const availablePlugins = ref<PluginInfo[]>([])
+
+onMounted(async () => {
+  try {
+    availablePlugins.value = await getPlugins()
+  } catch {
+    // 降级为空列表
+  }
+})
+
+const getPluginInfo = (name?: string) => {
+  if (!name) return null
+  return availablePlugins.value.find(p => p.name === name) || null
+}
 
 defineProps<{
   actions: TaskActionItem[]
@@ -92,13 +109,24 @@ const emit = defineEmits<{
               class="ui-input !h-9 !text-xs !px-2 mt-1"
             />
           </template>
-          <input
-            v-else-if="action.type === 'custom_plugin'"
-            v-model="action.value"
-            :aria-label="t('taskForm.customPlugin')"
-            :placeholder="t('taskForm.customPluginPlaceholder')"
-            class="ui-input !h-9 !text-xs !px-2"
-          />
+          <div v-else-if="action.type === 'custom_plugin'" class="flex flex-col gap-1 w-full">
+            <input
+              v-model="action.value"
+              list="task-form-custom-plugins-list"
+              :aria-label="t('taskForm.customPlugin')"
+              :placeholder="t('taskForm.customPluginPlaceholder')"
+              class="ui-input !h-9 !text-xs !px-2 w-full"
+            />
+            <div
+              v-if="getPluginInfo(action.value)"
+              class="flex items-center gap-1.5 text-[11px] text-sky-600 dark:text-sky-400 px-0.5 truncate"
+            >
+              <span class="font-medium truncate">✦ {{ getPluginInfo(action.value)?.description || action.value }}</span>
+              <span class="shrink-0 text-[10px] px-1 py-0.5 rounded bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300 font-mono">
+                {{ getPluginInfo(action.value)?.mode }}
+              </span>
+            </div>
+          </div>
           <input
             v-else-if="['vision_send', 'vision_click', 'calc_send', 'calc_click'].includes(action.type)"
             v-model="action.aiPrompt"
@@ -140,6 +168,15 @@ const emit = defineEmits<{
           </button>
         </div>
       </div>
+      <datalist id="task-form-custom-plugins-list">
+        <option
+          v-for="p in availablePlugins"
+          :key="p.name"
+          :value="p.name"
+        >
+          {{ p.description ? `${p.description} (${p.mode})` : p.mode }}
+        </option>
+      </datalist>
       <button
         type="button"
         class="flex items-center gap-1.5 px-3 py-2.5 text-xs text-gray-500 hover:text-sky-600 dark:hover:text-sky-400 border border-dashed border-gray-300 dark:border-gray-700 hover:border-sky-400/60 dark:hover:border-sky-500/40 hover:bg-sky-50/50 dark:hover:bg-sky-500/5 transition-colors w-full justify-center"

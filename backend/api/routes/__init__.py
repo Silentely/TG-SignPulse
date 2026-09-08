@@ -9,6 +9,7 @@ from backend.api.routes import (
     keyword_hits,
     logs,
     ops,
+    plugins,
     sign_tasks_v2,
     user,
 )
@@ -27,3 +28,4 @@ router.include_router(ops.router, prefix="/ops", tags=["ops"])
 router.include_router(
     keyword_hits.router, prefix="/keyword-hits", tags=["keyword-hits"]
 )
+router.include_router(plugins.router, prefix="/plugins", tags=["plugins"])

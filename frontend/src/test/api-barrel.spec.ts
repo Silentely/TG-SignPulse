@@ -46,6 +46,10 @@ describe('api barrel 完整性', () => {
     expect(typeof api.getMemoryStats).toBe('function')
     expect(typeof api.getAppVersion).toBe('function')
   })
+  it('plugins API 导出', () => {
+    expect(typeof api.getPlugins).toBe('function')
+    expect(typeof api.reloadPlugins).toBe('function')
+  })
 
   it('core 工具函数不通过 barrel 对外暴露', () => {
     expect((api as Record<string, unknown>).request).toBeUndefined()

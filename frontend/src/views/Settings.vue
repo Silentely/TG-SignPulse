@@ -4,6 +4,7 @@ import TelegramApiSettings from '../components/settings/TelegramApiSettings.vue'
 import AiSettings from '../components/settings/AiSettings.vue'
 import BotNotifySettings from '../components/settings/BotNotifySettings.vue'
 import DataManagementSettings from '../components/settings/DataManagementSettings.vue'
+import PluginsSettings from '../components/settings/PluginsSettings.vue'
 import AboutSettings from '../components/settings/AboutSettings.vue'
 import PageRetry from '../components/PageRetry.vue'
 import { useSettingsPage } from '../composables/useSettingsPage'
@@ -169,6 +170,7 @@ const {
           @webdav-download="handleDownloadRemoteBackup"
           @save-advanced="saveAdvancedSettings"
         />
+        <PluginsSettings />
       </div>
 
       <!-- 关于 / 版本（右列） -->
