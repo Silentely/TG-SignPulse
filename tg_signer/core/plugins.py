@@ -156,7 +156,7 @@ class PluginRegistry:
 
             # 若为目录型插件，将其所在目录加入 sys.path 以支持目录内的子模块/相对引用
             if plugin_file.name in ("main.py", "__init__.py"):
-                parent_str = str(plugin_file.parent)
+                parent_str = str(resolved_file.parent)
                 if parent_str not in sys.path:
                     sys.path.insert(0, parent_str)
 
