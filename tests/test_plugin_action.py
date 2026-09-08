@@ -467,6 +467,9 @@ async def test_math_solver_sample_plugin():
     assert eval_fn("80 / 4") == 20
     assert eval_fn("80 / 0") is None
     assert eval_fn("纯文本没有算式") is None
+    assert eval_fn("当前时间 2026-09-08 12:00:00 签到成功") is None
+    assert eval_fn("签到日期: 2025-12-31") is None
+    assert eval_fn("2026-09-08 验证码: 7 * 8") == 56
 
     # 测试无消息或文本为空或不含算式时的防御处理
     empty_ctx = PluginContext(app=mock_app, chat_id=12345, message=None, logger=MagicMock())
@@ -500,3 +503,25 @@ def test_support_action_compatibility_with_existing_actions():
         act = SupportAction(val)
         assert act.name == name
         assert act.desc == desc
+
+
+def test_directory_plugin_with_sibling_import(tmp_path):
+    """验证目录型插件能够顺利导入同目录下的辅助模块 (sys.path 注入)"""
+    PluginRegistry.clear()
+    plugin_dir = tmp_path / "multi_file_plugin"
+    plugin_dir.mkdir()
+    (plugin_dir / "helper.py").write_text("MAGIC_NUM = 7788\n", encoding="utf-8")
+    code = (
+        "from tg_signer.core.plugins import PluginRegistry\n"
+        "import helper\n\n"
+        "@PluginRegistry.register('multi_file', mode='active')\n"
+        "def run(ctx):\n"
+        "    return helper.MAGIC_NUM\n"
+    )
+    (plugin_dir / "main.py").write_text(code, encoding="utf-8")
+
+    loaded = PluginRegistry.load_plugins_from_dir(tmp_path)
+    assert loaded == 1
+    meta = PluginRegistry.get("multi_file")
+    assert meta is not None
+    assert meta.handler(None) == 7788
