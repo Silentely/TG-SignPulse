@@ -219,3 +219,64 @@ describe('debounce', () => {
     expect(count).toBe(1)
   })
 })
+
+describe('custom_plugin (action=99)', () => {
+  beforeEach(() => resetActionIdCounter())
+
+  it('parseSingleAction 正确解析 action=99 且保留 plugin_name 与 params', () => {
+    const raw: RawTaskAction = {
+      action: 99,
+      plugin_name: 'math_solver',
+      params: { precision: 2, allow_negative: true },
+      mode: 'reactive',
+      timeout: 15,
+    }
+    const result = parseSingleAction(raw)
+    expect(result).toHaveLength(1)
+    expect(result[0].type).toBe('custom_plugin')
+    expect(result[0].value).toBe('math_solver')
+    expect(result[0].plugin_name).toBe('math_solver')
+    expect(result[0].params).toEqual({ precision: 2, allow_negative: true })
+    expect(result[0].mode).toBe('reactive')
+    expect(result[0].timeout).toBe(15)
+  })
+
+  it('buildSingleAction 完整回写 action=99 与对应字段，防止数据冲刷丢失', () => {
+    const item: TaskActionItem = {
+      id: 1,
+      type: 'custom_plugin',
+      value: 'math_solver',
+      aiPrompt: '',
+      plugin_name: 'math_solver',
+      params: { precision: 2 },
+      mode: 'active',
+      timeout: 20,
+    }
+    const result = buildSingleAction(item)
+    expect(result).toEqual({
+      action: 99,
+      plugin_name: 'math_solver',
+      params: { precision: 2 },
+      mode: 'active',
+      timeout: 20,
+    })
+  })
+
+  it('端到端往返：parseActions -> buildActions 保持插件配置一致', () => {
+    const original: RawTaskAction[] = [
+      {
+        action: 99,
+        plugin_name: 'auto_quiz',
+        params: { strict: false },
+        mode: 'reactive',
+      },
+    ]
+    const parsed = parseActions(original)
+    const built = buildActions(parsed)
+    expect(built).toHaveLength(1)
+    expect(built[0].action).toBe(99)
+    expect(built[0].plugin_name).toBe('auto_quiz')
+    expect(built[0].params).toEqual({ strict: false })
+    expect(built[0].mode).toBe('reactive')
+  })
+})

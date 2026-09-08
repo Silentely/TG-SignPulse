@@ -84,7 +84,8 @@ export type TaskActionType =
   | 'vision_send'
   | 'calc_click'
   | 'bot_cmd'
-  | 'delay';
+  | 'delay'
+  | 'custom_plugin';
 
 export interface TaskActionItem {
   id: number;
@@ -92,6 +93,10 @@ export interface TaskActionItem {
   value: string;
   aiPrompt: string;
   commandPrefix?: string;
+  plugin_name?: string;
+  params?: Record<string, any>;
+  mode?: 'reactive' | 'active';
+  timeout?: number;
 }
 
 // 后端原始 action 结构
@@ -115,6 +120,10 @@ export interface RawTaskAction {
   custom_url?: string;
   server_chan_send_key?: string;
   continue_actions?: RawTaskAction[];
+  plugin_name?: string;
+  params?: Record<string, any>;
+  mode?: 'reactive' | 'active';
+  timeout?: number;
 }
 
 // 构建 API 请求体时的中间类型
@@ -138,6 +147,10 @@ export interface BuiltAction {
   custom_url?: string;
   server_chan_send_key?: string;
   continue_actions?: BuiltAction[];
+  plugin_name?: string;
+  params?: Record<string, any>;
+  mode?: 'reactive' | 'active';
+  timeout?: number;
 }
 
 // ─── API 错误类型 ───
@@ -348,4 +361,3 @@ export function getLocalizedErrorMessage(
   }
   return getErrorMessage(e, fallback)
 }
-
