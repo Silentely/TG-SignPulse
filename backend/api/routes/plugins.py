@@ -155,7 +155,13 @@ async def test_plugin(
         logger=log_capture,
     )
 
-    test_timeout = float(os.getenv("PLUGIN_TEST_TIMEOUT", "5.0"))
+    try:
+        test_timeout = float(os.getenv("PLUGIN_TEST_TIMEOUT", "5.0"))
+        if test_timeout <= 0:
+            test_timeout = 5.0
+    except (ValueError, TypeError):
+        test_timeout = 5.0
+
     engine = os.getenv("PLUGIN_ISOLATION_ENGINE", "auto").lower()
     use_subprocess = (
         engine == "process"

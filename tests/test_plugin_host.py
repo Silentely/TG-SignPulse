@@ -62,6 +62,11 @@ def _register_worker_fixtures():
 _register_worker_fixtures()
 
 
+@pytest.fixture(autouse=True)
+def ensure_fixtures_registered():
+    _register_worker_fixtures()
+
+
 @pytest.mark.asyncio
 async def test_subprocess_host_kills_infinite_loop_and_cleans_process_group():
     PluginRegistry._plugins.pop("test_hang_with_child_process", None)
@@ -115,6 +120,7 @@ async def test_subprocess_host_tolerates_arbitrary_print_output():
 
 @pytest.mark.asyncio
 async def test_subprocess_host_bidirectional_rpc():
+    _register_worker_fixtures()
     mock_app = MagicMock()
     mock_app.send_message = AsyncMock(return_value={"id": 999, "text": "mocked"})
     mock_logger = MagicMock()
@@ -136,6 +142,7 @@ async def test_subprocess_host_bidirectional_rpc():
 
 @pytest.mark.asyncio
 async def test_subprocess_host_captures_worker_exception():
+    _register_worker_fixtures()
     mock_app = MagicMock()
     mock_logger = MagicMock()
     ctx = PluginContext(app=mock_app, chat_id=123, logger=mock_logger)

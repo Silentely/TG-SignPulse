@@ -31,7 +31,7 @@ def kill_process_tree(proc: Optional[asyncio.subprocess.Process]) -> None:
             except ProcessLookupError:
                 pass
     else:
-        # Windows 环境下通过 taskkill /T /F 强杀整棵树
+        # Windows 环境下通过 taskkill /F /T 强杀整棵树
         try:
             import subprocess
             subprocess.run(
@@ -211,6 +211,7 @@ class PluginProcessHost:
         finally:
             reader_task.cancel()
             stderr_task.cancel()
+            await asyncio.gather(reader_task, stderr_task, return_exceptions=True)
             try:
                 if self.process and self.process.stdin:
                     self.process.stdin.close()
