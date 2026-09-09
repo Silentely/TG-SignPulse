@@ -46,11 +46,24 @@ def serialize_message_for_worker(msg: Any) -> Optional[Dict[str, Any]]:
                 })
             buttons.append(row_data)
 
+    raw_date = getattr(msg, "date", None)
+    date_val = None
+    if raw_date is not None:
+        if hasattr(raw_date, "timestamp"):
+            try:
+                date_val = int(raw_date.timestamp())
+            except Exception:
+                date_val = str(raw_date)
+        elif isinstance(raw_date, (int, float)):
+            date_val = int(raw_date)
+        else:
+            date_val = str(raw_date)
+
     return {
         "id": getattr(msg, "id", None),
         "text": getattr(msg, "text", None),
         "caption": getattr(msg, "caption", None),
-        "date": getattr(msg, "date", None),
+        "date": date_val,
         "reply_to_message_id": getattr(msg, "reply_to_message_id", None),
         "chat": chat_dict,
         "from_user": user_dict,
@@ -64,6 +77,9 @@ class ProxyChat:
         self.id = data.get("id")
         self.title = data.get("title")
         self.type = data.get("type")
+
+    def __bool__(self) -> bool:
+        return bool(self.id or self.title)
 
     def __repr__(self) -> str:
         return f"ProxyChat(id={self.id}, title={self.title!r}, type={self.type!r})"
@@ -115,7 +131,7 @@ def encode_ipc_payload(payload: Dict[str, Any], max_len: int = 16384) -> str:
     """将数据编码为单行 JSON，自动截断超大内容防止管道阻塞。"""
     if "message" in payload and isinstance(payload["message"], str) and len(payload["message"]) > max_len:
         payload = {**payload, "message": payload["message"][:max_len] + " ...[truncated]"}
-    return json.dumps(payload, ensure_ascii=False) + "\n"
+    return json.dumps(payload, ensure_ascii=False, default=str) + "\n"
 
 
 def decode_ipc_payload(line: str) -> Dict[str, Any]:
