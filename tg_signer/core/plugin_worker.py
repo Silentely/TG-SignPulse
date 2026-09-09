@@ -89,12 +89,18 @@ class ProxyPluginContext:
             kwargs.setdefault("reply_to_message_id", self.message.id)
         if self.message_thread_id is not None:
             kwargs.setdefault("message_thread_id", self.message_thread_id)
-        return await self._rpc("reply", text=text, **kwargs)
+        res = await self._rpc("reply", text=text, **kwargs)
+        if isinstance(res, dict) and "id" in res and "chat" in res:
+            return ProxyMessage(res)
+        return res
 
     async def send_message(self, text: str, **kwargs) -> Any:
         if self.message_thread_id is not None:
             kwargs.setdefault("message_thread_id", self.message_thread_id)
-        return await self._rpc("send_message", text=text, **kwargs)
+        res = await self._rpc("send_message", text=text, **kwargs)
+        if isinstance(res, dict) and "id" in res and "chat" in res:
+            return ProxyMessage(res)
+        return res
 
     async def click(self, text_or_index: Union[str, int], **kwargs) -> Any:
         if not self.message:

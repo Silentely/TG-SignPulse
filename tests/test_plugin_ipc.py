@@ -61,6 +61,7 @@ def test_serialize_full_message_and_proxy_access():
     assert proxy.from_user.username == "test_bot"
     assert proxy.chat.id == 8888
     assert proxy.chat.title == "Test Group"
+    assert proxy.chat_id == 8888
     assert proxy.chat.type == "supergroup"
     assert bool(proxy.chat) is True
     assert proxy.reply_to_message_id == 1001
