@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
+import os
 import random
 import time
 from datetime import datetime, timedelta
@@ -42,6 +44,7 @@ from tg_signer.core.client import (
     _is_callback_data_invalid,
     get_now,
 )
+from tg_signer.core.plugin_host import PluginProcessHost
 from tg_signer.core.plugins import PluginContext, PluginRegistry, PluginTimeoutError
 from tg_signer.log_utils import (
     safe_ai_request_meta,
@@ -454,6 +457,10 @@ class SignerActionsMixin:
         eff_timeout: float,
         is_history: bool = False,
     ) -> bool:
+        # 快速短路：若为 reactive 且消息完全无内容
+        if not getattr(message, "text", None) and not getattr(message, "caption", None):
+            return False
+
         plugin = PluginRegistry.get(action.plugin_name)
         if not plugin:
             self.log(f"自定义插件「{action.plugin_name}」未注册或未成功加载", level="ERROR")
@@ -466,22 +473,43 @@ class SignerActionsMixin:
             params=action.params,
             logger=self,
         )
-        handler_call = (
-            plugin.handler(ctx)
-            if asyncio.iscoroutinefunction(plugin.handler)
-            else asyncio.to_thread(plugin.handler, ctx)
+
+        engine = os.getenv("PLUGIN_ISOLATION_ENGINE", "auto").lower()
+        use_subprocess = (
+            engine == "process"
+            or (engine == "auto" and not inspect.iscoroutinefunction(plugin.handler))
         )
-        try:
-            res = await asyncio.wait_for(handler_call, timeout=eff_timeout)
-            return bool(res)
-        except asyncio.TimeoutError:
-            msg_kind = "单条历史消息" if is_history else "单条消息"
-            self.log(f"插件「{action.plugin_name}」处理{msg_kind}超时", level="WARNING")
-            return False
-        except Exception as e:
-            msg_kind = "历史消息" if is_history else "消息"
-            self.log(f"插件「{action.plugin_name}」处理{msg_kind}异常: {e}", level="WARNING")
-            return False
+
+        if use_subprocess:
+            host = PluginProcessHost(plugin_name=action.plugin_name, ctx=ctx, timeout=eff_timeout)
+            try:
+                res = await host.execute()
+                return bool(res)
+            except TimeoutError:
+                msg_kind = "单条历史消息" if is_history else "单条消息"
+                self.log(f"插件「{action.plugin_name}」处理{msg_kind}超时", level="WARNING")
+                return False
+            except Exception as e:
+                msg_kind = "历史消息" if is_history else "消息"
+                self.log(f"插件「{action.plugin_name}」处理{msg_kind}异常: {e}", level="WARNING")
+                return False
+        else:
+            handler_call = (
+                plugin.handler(ctx)
+                if asyncio.iscoroutinefunction(plugin.handler)
+                else asyncio.to_thread(plugin.handler, ctx)
+            )
+            try:
+                res = await asyncio.wait_for(handler_call, timeout=eff_timeout)
+                return bool(res)
+            except asyncio.TimeoutError:
+                msg_kind = "单条历史消息" if is_history else "单条消息"
+                self.log(f"插件「{action.plugin_name}」处理{msg_kind}超时", level="WARNING")
+                return False
+            except Exception as e:
+                msg_kind = "历史消息" if is_history else "消息"
+                self.log(f"插件「{action.plugin_name}」处理{msg_kind}异常: {e}", level="WARNING")
+                return False
 
 
     async def wait_for(
@@ -541,21 +569,41 @@ class SignerActionsMixin:
                     params=action.params,
                     logger=self,
                 )
-                handler_call = (
-                    plugin.handler(ctx)
-                    if asyncio.iscoroutinefunction(plugin.handler)
-                    else asyncio.to_thread(plugin.handler, ctx)
+                engine = os.getenv("PLUGIN_ISOLATION_ENGINE", "auto").lower()
+                use_subprocess = (
+                    engine == "process"
+                    or (engine == "auto" and not inspect.iscoroutinefunction(plugin.handler))
                 )
-                try:
-                    res = await asyncio.wait_for(handler_call, timeout=eff_timeout)
-                except asyncio.TimeoutError as exc:
-                    self.log(f"插件「{action.plugin_name}」执行超时（{eff_timeout}s）", level="ERROR")
-                    raise PluginTimeoutError(
-                        f"Plugin '{action.plugin_name}' timed out after {eff_timeout}s"
-                    ) from exc
-                except Exception as exc:
-                    self.log(f"插件「{action.plugin_name}」执行异常: {exc}", level="ERROR")
-                    raise
+
+                if use_subprocess:
+                    host = PluginProcessHost(plugin_name=action.plugin_name, ctx=ctx, timeout=eff_timeout)
+                    try:
+                        res = await host.execute()
+                    except TimeoutError as exc:
+                        self.log(f"插件「{action.plugin_name}」执行超时（{eff_timeout}s）", level="ERROR")
+                        raise PluginTimeoutError(
+                            f"Plugin '{action.plugin_name}' timed out after {eff_timeout}s and was killed"
+                        ) from exc
+                    except Exception as exc:
+                        self.log(f"插件「{action.plugin_name}」执行异常: {exc}", level="ERROR")
+                        raise
+                else:
+                    handler_call = (
+                        plugin.handler(ctx)
+                        if asyncio.iscoroutinefunction(plugin.handler)
+                        else asyncio.to_thread(plugin.handler, ctx)
+                    )
+                    try:
+                        res = await asyncio.wait_for(handler_call, timeout=eff_timeout)
+                    except asyncio.TimeoutError as exc:
+                        self.log(f"插件「{action.plugin_name}」执行超时（{eff_timeout}s）", level="ERROR")
+                        raise PluginTimeoutError(
+                            f"Plugin '{action.plugin_name}' timed out after {eff_timeout}s"
+                        ) from exc
+                    except Exception as exc:
+                        self.log(f"插件「{action.plugin_name}」执行异常: {exc}", level="ERROR")
+                        raise
+
                 if res is False:
                     self.log(f"插件「{action.plugin_name}」返回执行失败", level="WARNING")
                     return False

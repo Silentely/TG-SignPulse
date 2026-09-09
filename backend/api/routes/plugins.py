@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -13,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from backend.core.auth import get_current_user
 from backend.models.user import User
+from tg_signer.core.plugin_host import PluginProcessHost
 from tg_signer.core.plugins import PluginContext, PluginRegistry
 
 router = APIRouter()
@@ -49,6 +51,8 @@ class PluginTestResponse(BaseModel):
     name: str
     success: bool
     handled: bool
+    isolation: str = "in_process"
+    killed: bool = False
     reply_text: Optional[str] = None
     sent_messages: List[str] = Field(default_factory=list)
     logs: List[str] = Field(default_factory=list)
@@ -112,10 +116,18 @@ async def test_plugin(
     def log_capture(msg: str):
         captured_logs.append(str(msg))
 
+    class MockChat:
+        id = 12345678
+        title = "MockChat"
+        type = "private"
+
     class MockMessage:
         def __init__(self, text: str):
             self.text = text
+            self.caption = None
             self.id = 999999
+            self.chat = MockChat()
+            self.chat_id = 12345678
 
         async def reply(self, reply_text: str, **_kwargs):
             reply_record.append(str(reply_text))
@@ -143,31 +155,57 @@ async def test_plugin(
         logger=log_capture,
     )
 
+    test_timeout = float(os.getenv("PLUGIN_TEST_TIMEOUT", "5.0"))
+    engine = os.getenv("PLUGIN_ISOLATION_ENGINE", "auto").lower()
+    use_subprocess = (
+        engine == "process"
+        or (engine == "auto" and not inspect.iscoroutinefunction(meta.handler))
+    )
+    isolation = "subprocess" if use_subprocess else "in_process"
+    killed = False
+
     start_t = time.perf_counter()
     success = True
     handled = False
     err_str = None
 
-    try:
-        # 支持同步或异步执行
-        if inspect.iscoroutinefunction(meta.handler):
-            res = await asyncio.wait_for(meta.handler(ctx), timeout=5.0)
-        else:
-            loop = asyncio.get_running_loop()
-            res = await asyncio.wait_for(
-                loop.run_in_executor(None, meta.handler, ctx),
-                timeout=5.0,
-            )
+    if use_subprocess:
+        host = PluginProcessHost(plugin_name=name, ctx=ctx, timeout=test_timeout)
+        try:
+            res = await host.execute()
+            handled = bool(res) if res is not None else False
+        except TimeoutError:
+            success = False
+            killed = host.process_terminated_by_kill
+            timeout_display = int(test_timeout) if test_timeout.is_integer() else test_timeout
+            err_str = f"插件执行超时（沙箱限制 {timeout_display} 秒）"
+            captured_logs.append(f"[error] {err_str}")
+        except Exception as exc:
+            success = False
+            err_str = f"插件执行异常: {exc}"
+            captured_logs.append(f"[error] {err_str}")
+    else:
+        try:
+            # 支持同步或异步执行
+            if inspect.iscoroutinefunction(meta.handler):
+                res = await asyncio.wait_for(meta.handler(ctx), timeout=test_timeout)
+            else:
+                loop = asyncio.get_running_loop()
+                res = await asyncio.wait_for(
+                    loop.run_in_executor(None, meta.handler, ctx),
+                    timeout=test_timeout,
+                )
 
-        handled = bool(res) if res is not None else False
-    except asyncio.TimeoutError:
-        success = False
-        err_str = "插件执行超时（沙箱限制 5 秒）"
-        captured_logs.append(f"[error] {err_str}")
-    except Exception as exc:
-        success = False
-        err_str = f"插件执行异常: {exc}"
-        captured_logs.append(f"[error] {err_str}")
+            handled = bool(res) if res is not None else False
+        except asyncio.TimeoutError:
+            success = False
+            timeout_display = int(test_timeout) if test_timeout.is_integer() else test_timeout
+            err_str = f"插件执行超时（沙箱限制 {timeout_display} 秒）"
+            captured_logs.append(f"[error] {err_str}")
+        except Exception as exc:
+            success = False
+            err_str = f"插件执行异常: {exc}"
+            captured_logs.append(f"[error] {err_str}")
 
     duration_ms = round((time.perf_counter() - start_t) * 1000, 2)
 
@@ -175,6 +213,8 @@ async def test_plugin(
         name=name,
         success=success,
         handled=handled,
+        isolation=isolation,
+        killed=killed,
         reply_text=(reply_record[-1] if reply_record else (sent_records[-1] if sent_records else None)),
         sent_messages=sent_records,
         logs=captured_logs,
