@@ -43,7 +43,11 @@ def import_single_plugin_source(source_path: str, plugin_name: str) -> Optional[
     if spec and spec.loader:
         module = importlib.util.module_from_spec(spec)
         sys.modules[mod_name] = module
-        spec.loader.exec_module(module)
+        try:
+            spec.loader.exec_module(module)
+        except Exception:
+            sys.modules.pop(mod_name, None)
+            raise
 
     return PluginRegistry.get(plugin_name)
 
@@ -70,8 +74,14 @@ class ProxyPluginContext:
         if self.message:
             self.message.click = self.click
 
-    def log(self, message: str, level: str = "INFO") -> None:
-        payload = {"type": "log", "level": level, "message": str(message)}
+    def log(
+        self,
+        msg: Optional[str] = None,
+        level: str = "INFO",
+        message: Optional[str] = None,
+    ) -> None:
+        text = msg if msg is not None else (message if message is not None else "")
+        payload = {"type": "log", "level": level, "message": str(text)}
         self._logger(payload)
 
     async def reply(self, text: str, **kwargs) -> Any:
@@ -153,11 +163,21 @@ async def run_worker_loop(
     source_path = init_data.get("source_path")
 
     meta = None
-    if source_path:
-        meta = import_single_plugin_source(source_path, plugin_name)
-    if not meta:
-        PluginRegistry.load_all_configured_plugins()
-        meta = PluginRegistry.get(plugin_name)
+    try:
+        if source_path:
+            meta = import_single_plugin_source(source_path, plugin_name)
+        if not meta:
+            PluginRegistry.load_all_configured_plugins()
+            meta = PluginRegistry.get(plugin_name)
+    except Exception:
+        exc_str = traceback.format_exc()
+        send_payload_sync({
+            "type": "return",
+            "success": False,
+            "error": exc_str,
+        })
+        await flush_writer()
+        return
 
     if not meta:
         send_payload_sync({
@@ -181,6 +201,10 @@ async def run_worker_loop(
         while True:
             line = await reader.readline()
             if not line:
+                for fut in list(pending_calls.values()):
+                    if not fut.done():
+                        fut.set_exception(ConnectionResetError("IPC pipe closed by host"))
+                pending_calls.clear()
                 break
             try:
                 line_text = line.decode("utf-8") if isinstance(line, bytes) else line
@@ -209,6 +233,10 @@ async def run_worker_loop(
         send_payload_sync({"type": "return", "success": False, "error": exc_str})
     finally:
         await flush_writer()
+        for fut in list(pending_calls.values()):
+            if not fut.done():
+                fut.cancel()
+        pending_calls.clear()
         listener_task.cancel()
 
 
