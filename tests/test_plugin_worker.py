@@ -45,6 +45,18 @@ def test_import_single_plugin_source_nonexistent(tmp_path):
     assert import_single_plugin_source(str(tmp_path / "nonexistent.py"), "foo") is None
 
 
+def test_import_single_plugin_source_syntax_error_and_cleanup(tmp_path):
+    pfile = tmp_path / "bad_syntax.py"
+    pfile.write_text("def invalid_syntax(:\n")
+
+    with pytest.raises(SyntaxError):
+        import_single_plugin_source(str(pfile), "bad_syntax_plugin")
+
+    # Verify sys.modules cleaned up
+    lingering = [k for k in sys.modules if k.startswith("_isolated_plugin_bad_syntax_plugin")]
+    assert len(lingering) == 0
+
+
 @pytest.mark.asyncio
 async def test_proxy_plugin_context_logging():
     logs = []
@@ -55,9 +67,17 @@ async def test_proxy_plugin_context_logging():
         rpc_requester=AsyncMock(),
         logger_sink=lambda payload: logs.append(payload),
     )
-    ctx.log("test log message", level="WARNING")
-    assert len(logs) == 1
-    assert logs[0] == {"type": "log", "level": "WARNING", "message": "test log message"}
+    # Positional
+    ctx.log("test log positional", level="WARNING")
+    # Keyword msg (isomorphism with PluginContext)
+    ctx.log(msg="test log msg kwarg", level="DEBUG")
+    # Keyword message
+    ctx.log(message="test log message kwarg", level="ERROR")
+
+    assert len(logs) == 3
+    assert logs[0] == {"type": "log", "level": "WARNING", "message": "test log positional"}
+    assert logs[1] == {"type": "log", "level": "DEBUG", "message": "test log msg kwarg"}
+    assert logs[2] == {"type": "log", "level": "ERROR", "message": "test log message kwarg"}
 
 
 @pytest.mark.asyncio
@@ -193,6 +213,41 @@ async def test_run_worker_loop_in_memory_plugin_not_found():
 
 
 @pytest.mark.asyncio
+async def test_run_worker_loop_in_memory_import_error_captured(tmp_path):
+    pfile = tmp_path / "broken_import_plugin.py"
+    pfile.write_text("import non_existent_pkg_xyz_12345\n")
+
+    init_payload = {
+        "plugin_name": "broken_import_plugin",
+        "source_path": str(pfile),
+        "chat_id": 999,
+    }
+
+    in_reader = asyncio.StreamReader()
+    in_reader.feed_data(encode_ipc_payload(init_payload).encode("utf-8"))
+    in_reader.feed_eof()
+
+    class FakeWriter:
+        def __init__(self):
+            self.lines = []
+        def write(self, data: bytes):
+            self.lines.extend(data.decode("utf-8").splitlines())
+        async def drain(self):
+            pass
+
+    out_writer = FakeWriter()
+
+    await run_worker_loop(reader=in_reader, writer=out_writer)
+
+    decoded = [json.loads(line) for line in out_writer.lines if line.strip()]
+    return_msg = [d for d in decoded if d.get("type") == "return"]
+    assert len(return_msg) == 1
+    assert return_msg[0]["success"] is False
+    assert "ModuleNotFoundError: No module named 'non_existent_pkg_xyz_12345'" in return_msg[0]["error"]
+    assert "Traceback (most recent call last)" in return_msg[0]["error"]
+
+
+@pytest.mark.asyncio
 async def test_run_worker_loop_in_memory_exception_traceback(tmp_path):
     pfile = tmp_path / "failing_worker_plugin.py"
     pfile.write_text(
@@ -235,13 +290,55 @@ async def test_run_worker_loop_in_memory_exception_traceback(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_run_worker_loop_host_eof_cancels_pending_rpc(tmp_path):
+    pfile = tmp_path / "rpc_hanging_plugin.py"
+    pfile.write_text(
+        'from tg_signer.core.plugins import PluginRegistry\n'
+        '@PluginRegistry.register(name="rpc_hanging_plugin", mode="active")\n'
+        'async def handle(ctx):\n'
+        '    await ctx.reply("will hang")\n'
+        '    return True\n'
+    )
+
+    init_payload = {
+        "plugin_name": "rpc_hanging_plugin",
+        "source_path": str(pfile),
+        "chat_id": 999,
+        "message": {"id": 1},
+    }
+
+    in_reader = asyncio.StreamReader()
+    # Feed init payload, then EOF immediately without responding to RPC
+    in_reader.feed_data(encode_ipc_payload(init_payload).encode("utf-8"))
+    in_reader.feed_eof()
+
+    class FakeWriter:
+        def __init__(self):
+            self.lines = []
+        def write(self, data: bytes):
+            self.lines.extend(data.decode("utf-8").splitlines())
+        async def drain(self):
+            pass
+
+    out_writer = FakeWriter()
+
+    await run_worker_loop(reader=in_reader, writer=out_writer)
+
+    decoded = [json.loads(line) for line in out_writer.lines if line.strip()]
+    return_msg = [d for d in decoded if d.get("type") == "return"]
+    assert len(return_msg) == 1
+    assert return_msg[0]["success"] is False
+    assert "ConnectionResetError: IPC pipe closed by host" in return_msg[0]["error"]
+
+
+@pytest.mark.asyncio
 async def test_worker_subprocess_end_to_end(tmp_path):
     pfile = tmp_path / "subprocess_plugin.py"
     pfile.write_text(
         'from tg_signer.core.plugins import PluginRegistry\n'
         '@PluginRegistry.register(name="subprocess_plugin", mode="active")\n'
         'async def handle(ctx):\n'
-        '    ctx.log("logging from child process")\n'
+        '    ctx.log(msg="logging with kwarg from child process")\n'
         '    rep = await ctx.reply("hi host")\n'
         '    return rep.get("ack") == 1\n'
     )
@@ -296,7 +393,7 @@ async def test_worker_subprocess_end_to_end(tmp_path):
 
     await proc.wait()
 
-    assert any("logging from child process" in l["message"] for l in logs_received)
+    assert any("logging with kwarg from child process" in l["message"] for l in logs_received)
     assert return_payload is not None
     assert return_payload["success"] is True
     assert return_payload["result"] is True
