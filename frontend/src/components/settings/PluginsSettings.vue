@@ -106,6 +106,8 @@ const runPluginTest = async () => {
       name: currentTestPlugin.value.name,
       success: false,
       handled: false,
+      isolation: undefined,
+      killed: false,
       logs: [`[error] 接口调用异常: ${msg}`],
       duration_ms: 0,
       error: msg,
@@ -306,8 +308,20 @@ onMounted(() => {
               <span>
                 {{ testResult.handled ? t('settings.pluginsHandledTrue') : (testResult.error ? t('settings.pluginsHandledError') : t('settings.pluginsHandledFalse')) }}
               </span>
+              <span
+                v-if="testResult.killed"
+                class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-red-100 dark:bg-red-950/80 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800/50"
+              >
+                ⛔ {{ t('settings.pluginsHardKilled') }}
+              </span>
             </div>
-            <div class="flex items-center gap-1 text-[11px] text-gray-500 font-mono">
+            <div class="flex items-center gap-1.5 text-[11px] text-gray-500 font-mono">
+              <span
+                v-if="testResult.isolation"
+                class="px-1 py-0.5 rounded text-[10px] font-mono bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400"
+              >
+                {{ t('settings.pluginsIsolation') }}: {{ testResult.isolation }}
+              </span>
               <Clock class="w-3 h-3" />
               <span>{{ testResult.duration_ms }} ms</span>
             </div>
