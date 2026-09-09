@@ -123,6 +123,10 @@ class ProxyMessage:
         for row in self._data.get("buttons") or []:
             self.buttons.append([ProxyButton(b) for b in row])
 
+    @property
+    def chat_id(self) -> Optional[int]:
+        return self.chat.id if self.chat else None
+
     def __repr__(self) -> str:
         return f"ProxyMessage(id={self.id}, text={self.text!r})"
 
