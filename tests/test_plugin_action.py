@@ -1,7 +1,7 @@
 import asyncio
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -15,6 +15,29 @@ from tg_signer.config import (
 from tg_signer.core.plugins import PluginContext, PluginRegistry, PluginTimeoutError
 from tg_signer.core.signer_actions import SignerActionsMixin
 from tg_signer.core.signer_matchers import SignerMatchersMixin
+
+
+# Module-level registrations so that worker subprocess can resolve plugins when loading this file
+def _register_action_worker_fixtures():
+    PluginRegistry._plugins.pop("sync_hang_plugin_auto", None)
+
+    @PluginRegistry.register(
+        name="sync_hang_plugin_auto",
+        mode="active",
+    )
+    def hang_handler(ctx: PluginContext):
+        import time
+        while True:
+            time.sleep(0.05)
+
+    PluginRegistry._plugins.pop("sync_fail_plugin", None)
+
+    @PluginRegistry.register("sync_fail_plugin", mode="active")
+    def sync_fail_handler(ctx: PluginContext):
+        return False
+
+
+_register_action_worker_fixtures()
 
 
 def test_custom_plugin_enum_and_desc():
@@ -390,11 +413,7 @@ async def test_plugin_not_found_raises():
 
 @pytest.mark.asyncio
 async def test_active_plugin_sync_handler_and_failure():
-    PluginRegistry.clear()
-
-    @PluginRegistry.register("sync_fail_plugin", mode="active")
-    def sync_fail_handler(ctx: PluginContext):
-        return False
+    _register_action_worker_fixtures()
 
     signer = DummySigner()
     chat = SignChatV3(chat_id=123, actions=[PluginAction(plugin_name="sync_fail_plugin", mode="active")])
@@ -738,3 +757,54 @@ async def test_math_solver_with_reply_prefix_param():
     )
     assert await meta.handler(ctx) is True
     mock_app.send_message.assert_awaited_once_with(2026, "答案是：42", reply_to_message_id=10)
+
+
+
+@pytest.mark.asyncio
+async def test_sync_hang_plugin_gets_hard_killed_in_task_runner(monkeypatch):
+    """测试同步死循环插件在任务执行时被强杀，全局任务正常抛出 PluginTimeoutError"""
+    monkeypatch.setenv("PLUGIN_ISOLATION_ENGINE", "auto")
+    _register_action_worker_fixtures()
+
+    signer = DummySigner()
+    chat = SignChatV3(
+        chat_id=123,
+        actions=[PluginAction(plugin_name="sync_hang_plugin_auto", mode="active", timeout=0.2)],
+    )
+    with pytest.raises(PluginTimeoutError) as exc_info:
+        await signer.wait_for(chat, chat.actions[0])
+    assert "timed out" in str(exc_info.value).lower()
+    assert "and was killed" in str(exc_info.value).lower()
+
+
+@pytest.mark.asyncio
+async def test_reactive_plugin_fast_circuits_on_empty_message():
+    """测试响应式插件在无文本且无caption的消息时快速短路，不调用Handler也不启动Worker"""
+    _register_action_worker_fixtures()
+    signer = DummySigner()
+    action = PluginAction(plugin_name="sync_fail_plugin", mode="reactive")
+    chat = SignChatV3(chat_id=123, actions=[action])
+
+    msg = MagicMock()
+    msg.text = None
+    msg.caption = None
+
+    ok = await signer._dispatch_reactive_plugin_message(action, chat, msg, eff_timeout=1.0)
+    assert ok is False
+
+
+@pytest.mark.asyncio
+async def test_plugin_isolation_engine_in_process_override(monkeypatch):
+    """测试 PLUGIN_ISOLATION_ENGINE=in_process 时，即使同步插件也不启动子进程"""
+    monkeypatch.setenv("PLUGIN_ISOLATION_ENGINE", "in_process")
+    _register_action_worker_fixtures()
+
+    signer = DummySigner()
+    chat = SignChatV3(
+        chat_id=123,
+        actions=[PluginAction(plugin_name="sync_fail_plugin", mode="active", timeout=1.0)],
+    )
+    with patch("tg_signer.core.signer_actions.PluginProcessHost") as mock_host:
+        result = await signer.wait_for(chat, chat.actions[0])
+        assert result is False
+        mock_host.assert_not_called()

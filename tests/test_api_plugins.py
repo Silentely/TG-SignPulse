@@ -1,10 +1,38 @@
 """Tests for plugins API endpoints: GET /api/plugins, POST /api/plugins/reload, POST /api/plugins/{name}/test."""
 from __future__ import annotations
 
+import os
 from tests.test_api import _auth, _login
 from tg_signer.core.plugins import PluginContext, PluginRegistry
 
 pytest_plugins = ("tests.test_api",)
+
+
+# Module-level registration so that worker subprocess can resolve plugins when loading this file
+def _register_sandbox_worker_fixtures():
+    PluginRegistry._plugins.pop("test_sync_hang_sandbox", None)
+
+    @PluginRegistry.register(
+        name="test_sync_hang_sandbox",
+        mode="reactive",
+        description="沙箱同步死循环挂起测试插件",
+    )
+    def hang_sandbox_handler(ctx: PluginContext):
+        import time
+        while True:
+            time.sleep(0.05)
+
+    PluginRegistry._plugins.pop("test_crashing_plugin", None)
+
+    @PluginRegistry.register(
+        name="test_crashing_plugin",
+        mode="reactive",
+    )
+    def crash_handler(ctx: PluginContext):
+        raise RuntimeError("模拟插件执行崩溃")
+
+
+_register_sandbox_worker_fixtures()
 
 
 def test_list_plugins_requires_auth(api_client):
@@ -89,6 +117,8 @@ def test_test_plugin_endpoint(api_client):
     assert data["success"] is True
     assert data["handled"] is True
     assert data["reply_text"] == "2"
+    assert data["isolation"] == "in_process"
+    assert data["killed"] is False
     assert any("计算表达式 1+1" in log for log in data["logs"])
     assert data["duration_ms"] >= 0
 
@@ -103,19 +133,15 @@ def test_test_plugin_endpoint(api_client):
     assert data_no_match["success"] is True
     assert data_no_match["handled"] is False
     assert data_no_match["reply_text"] is None
+    assert data_no_match["isolation"] == "in_process"
+    assert data_no_match["killed"] is False
 
 
 def test_test_plugin_endpoint_error_and_timeout(api_client):
     """测试 Web 调试沙箱接口捕获异常与超时"""
     token = _login(api_client)
     headers = _auth(token)
-
-    @PluginRegistry.register(
-        name="test_crashing_plugin",
-        mode="reactive",
-    )
-    def crash_handler(ctx: PluginContext):
-        raise RuntimeError("模拟插件执行崩溃")
+    _register_sandbox_worker_fixtures()
 
     resp_crash = api_client.post(
         "/api/plugins/test_crashing_plugin/test",
@@ -128,3 +154,23 @@ def test_test_plugin_endpoint_error_and_timeout(api_client):
     assert data["handled"] is False
     assert "模拟插件执行崩溃" in data["error"]
     assert any("模拟插件执行崩溃" in log for log in data["logs"])
+
+
+def test_test_plugin_endpoint_sync_hang_killed(api_client, monkeypatch):
+    """测试同步死循环插件在沙箱中被进程组硬杀，返回 isolation=subprocess 与 killed=True"""
+    _register_sandbox_worker_fixtures()
+    token = _login(api_client)
+    headers = _auth(token)
+    monkeypatch.setenv("PLUGIN_TEST_TIMEOUT", "0.2")
+
+    resp = api_client.post(
+        "/api/plugins/test_sync_hang_sandbox/test",
+        headers=headers,
+        json={"text": "ping"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is False
+    assert data["isolation"] == "subprocess"
+    assert data["killed"] is True
+    assert "超时" in data["error"]
