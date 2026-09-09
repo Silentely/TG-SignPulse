@@ -592,6 +592,8 @@
     "pluginsHandledTrue": "已成功捕获并响应",
     "pluginsHandledFalse": "未命中匹配条件 (未处理)",
     "pluginsHandledError": "执行异常报错",
+    "pluginsIsolation": "隔离引擎",
+    "pluginsHardKilled": "超时已被硬终止",
     "pluginsReplyOutput": "响应回复内容",
     "pluginsLogsLabel": "插件运行日志流",
     "aboutTitle": "关于 / 版本",

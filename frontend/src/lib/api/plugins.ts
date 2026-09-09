@@ -34,6 +34,8 @@ export interface PluginTestResponse {
   name: string
   success: boolean
   handled: boolean
+  isolation?: string
+  killed?: boolean
   reply_text?: string | null
   sent_messages?: string[]
   logs?: string[]

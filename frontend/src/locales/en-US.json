@@ -592,6 +592,8 @@
     "pluginsHandledTrue": "Handled & Responded",
     "pluginsHandledFalse": "Skipped (Not Handled)",
     "pluginsHandledError": "Execution Error",
+    "pluginsIsolation": "Isolation",
+    "pluginsHardKilled": "Timed out and hard-killed",
     "pluginsReplyOutput": "Reply Output",
     "pluginsLogsLabel": "Execution Logs",
     "aboutTitle": "About / Version",
