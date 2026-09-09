@@ -1,7 +1,7 @@
 """Tests for plugins API endpoints: GET /api/plugins, POST /api/plugins/reload, POST /api/plugins/{name}/test."""
+
 from __future__ import annotations
 
-import os
 from tests.test_api import _auth, _login
 from tg_signer.core.plugins import PluginContext, PluginRegistry
 
@@ -19,6 +19,7 @@ def _register_sandbox_worker_fixtures():
     )
     def hang_sandbox_handler(ctx: PluginContext):
         import time
+
         while True:
             time.sleep(0.05)
 

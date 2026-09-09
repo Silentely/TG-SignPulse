@@ -1,4 +1,5 @@
 """TG-SignPulse 宿主端子进程 Worker 管理器与跨平台进程组超时硬终止控制器。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -34,6 +35,7 @@ def kill_process_tree(proc: Optional[asyncio.subprocess.Process]) -> None:
         # Windows 环境下通过 taskkill /F /T 强杀整棵树
         try:
             import subprocess
+
             subprocess.run(
                 ["taskkill", "/F", "/T", "/PID", str(pid)],
                 stdout=subprocess.DEVNULL,
@@ -137,7 +139,9 @@ class PluginProcessHost:
                         else:
                             if not result_future.done():
                                 result_future.set_exception(
-                                    RuntimeError(payload.get("error", "Unknown worker error"))
+                                    RuntimeError(
+                                        payload.get("error", "Unknown worker error")
+                                    )
                                 )
                     elif msg_type == "call":
                         cid = payload.get("id")
@@ -153,10 +157,14 @@ class PluginProcessHost:
                                 call_res = await self.ctx.reply(text, **call_params)
                             elif method == "send_message":
                                 text = call_params.pop("text", "")
-                                call_res = await self.ctx.send_message(text, **call_params)
+                                call_res = await self.ctx.send_message(
+                                    text, **call_params
+                                )
                             elif method == "click":
                                 text_or_index = call_params.pop("text_or_index", None)
-                                call_res = await self.ctx.click(text_or_index, **call_params)
+                                call_res = await self.ctx.click(
+                                    text_or_index, **call_params
+                                )
                             else:
                                 raise ValueError(f"Unknown RPC method: {method}")
 
@@ -174,7 +182,9 @@ class PluginProcessHost:
                             "error": call_err,
                         }
                         try:
-                            self.process.stdin.write(encode_ipc_payload(resp).encode("utf-8"))
+                            self.process.stdin.write(
+                                encode_ipc_payload(resp).encode("utf-8")
+                            )
                             await self.process.stdin.drain()
                         except (BrokenPipeError, ConnectionResetError):
                             break
@@ -190,7 +200,9 @@ class PluginProcessHost:
                     if not result_future.done():
                         rc = self.process.returncode
                         result_future.set_exception(
-                            RuntimeError(f"Worker process exited unexpectedly with returncode {rc}")
+                            RuntimeError(
+                                f"Worker process exited unexpectedly with returncode {rc}"
+                            )
                         )
 
         reader_task = asyncio.create_task(stdout_reader())

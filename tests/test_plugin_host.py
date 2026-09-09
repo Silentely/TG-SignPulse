@@ -1,12 +1,12 @@
 import asyncio
 import os
-import signal
 import sys
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from tg_signer.core.plugins import PluginRegistry, PluginContext
+import pytest
+
 from tg_signer.core.plugin_host import PluginProcessHost, kill_process_tree
+from tg_signer.core.plugins import PluginContext, PluginRegistry
 
 
 # Module-level registrations so that worker subprocess can resolve plugins when loading this file
@@ -18,7 +18,10 @@ def _register_worker_fixtures():
         mode="active",
     )
     def hang_handler(ctx: PluginContext):
-        import time, subprocess, sys
+        import subprocess
+        import sys
+        import time
+
         subprocess.Popen([sys.executable, "-c", "import time; time.sleep(100)"])
         while True:
             time.sleep(0.05)
@@ -76,7 +79,10 @@ async def test_subprocess_host_kills_infinite_loop_and_cleans_process_group():
         mode="active",
     )
     def hang_handler(ctx: PluginContext):
-        import time, subprocess, sys
+        import subprocess
+        import sys
+        import time
+
         subprocess.Popen([sys.executable, "-c", "import time; time.sleep(100)"])
         while True:
             time.sleep(0.05)
@@ -85,7 +91,9 @@ async def test_subprocess_host_kills_infinite_loop_and_cleans_process_group():
     mock_logger = MagicMock()
     ctx = PluginContext(app=mock_app, chat_id=123, logger=mock_logger)
 
-    host = PluginProcessHost(plugin_name="test_hang_with_child_process", ctx=ctx, timeout=0.3)
+    host = PluginProcessHost(
+        plugin_name="test_hang_with_child_process", ctx=ctx, timeout=0.3
+    )
 
     with pytest.raises(TimeoutError) as exc_info:
         await host.execute()
@@ -111,7 +119,9 @@ async def test_subprocess_host_tolerates_arbitrary_print_output():
     mock_logger = MagicMock()
     ctx = PluginContext(app=mock_app, chat_id=123, logger=mock_logger)
 
-    host = PluginProcessHost(plugin_name="test_plugin_with_prints", ctx=ctx, timeout=2.0)
+    host = PluginProcessHost(
+        plugin_name="test_plugin_with_prints", ctx=ctx, timeout=2.0
+    )
     res = await host.execute()
     assert res is True
     # 验证非 JSON print 打印被优雅降级捕获，而未破坏协议
@@ -128,12 +138,17 @@ async def test_subprocess_host_bidirectional_rpc():
     class FakeMsg:
         id = 555
         chat_id = 123
+
         async def click(self, text_or_index, **kwargs):
             return f"clicked_{text_or_index}"
 
-    ctx = PluginContext(app=mock_app, chat_id=123, message=FakeMsg(), logger=mock_logger)
+    ctx = PluginContext(
+        app=mock_app, chat_id=123, message=FakeMsg(), logger=mock_logger
+    )
 
-    host = PluginProcessHost(plugin_name="test_plugin_rpc_roundtrip", ctx=ctx, timeout=3.0)
+    host = PluginProcessHost(
+        plugin_name="test_plugin_rpc_roundtrip", ctx=ctx, timeout=3.0
+    )
     res = await host.execute()
 
     assert res is True
@@ -147,7 +162,9 @@ async def test_subprocess_host_captures_worker_exception():
     mock_logger = MagicMock()
     ctx = PluginContext(app=mock_app, chat_id=123, logger=mock_logger)
 
-    host = PluginProcessHost(plugin_name="test_plugin_worker_exception", ctx=ctx, timeout=2.0)
+    host = PluginProcessHost(
+        plugin_name="test_plugin_worker_exception", ctx=ctx, timeout=2.0
+    )
 
     with pytest.raises(RuntimeError) as exc_info:
         await host.execute()
@@ -168,8 +185,10 @@ async def test_kill_process_tree_already_finished():
 @pytest.mark.asyncio
 async def test_kill_process_tree_running_process():
     proc = await asyncio.create_subprocess_exec(
-        sys.executable, "-c", "import time; time.sleep(60)",
-        start_new_session=True if os.name != "nt" else False
+        sys.executable,
+        "-c",
+        "import time; time.sleep(60)",
+        start_new_session=True if os.name != "nt" else False,
     )
     assert proc.returncode is None
     kill_process_tree(proc)

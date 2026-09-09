@@ -27,6 +27,7 @@ def _register_action_worker_fixtures():
     )
     def hang_handler(ctx: PluginContext):
         import time
+
         while True:
             time.sleep(0.05)
 
@@ -338,7 +339,12 @@ async def test_active_plugin_execution_success():
         return True
 
     signer = DummySigner()
-    chat = SignChatV3(chat_id=123, actions=[PluginAction(plugin_name="test_act", mode="active", params={"foo": "bar"})])
+    chat = SignChatV3(
+        chat_id=123,
+        actions=[
+            PluginAction(plugin_name="test_act", mode="active", params={"foo": "bar"})
+        ],
+    )
     action = chat.actions[0]
 
     result = await signer.wait_for(chat, action, timeout=2.0)
@@ -357,7 +363,10 @@ async def test_active_plugin_timeout_circuit_breaker():
         return True
 
     signer = DummySigner()
-    chat = SignChatV3(chat_id=123, actions=[PluginAction(plugin_name="hang_plugin", mode="active", timeout=0.1)])
+    chat = SignChatV3(
+        chat_id=123,
+        actions=[PluginAction(plugin_name="hang_plugin", mode="active", timeout=0.1)],
+    )
     action = chat.actions[0]
 
     with pytest.raises(PluginTimeoutError) as exc_info:
@@ -390,7 +399,9 @@ async def test_reactive_plugin_matching_and_retry():
         2: mock_msg_right,
     }
 
-    chat = SignChatV3(chat_id=123, actions=[PluginAction(plugin_name="reply_calc", mode="reactive")])
+    chat = SignChatV3(
+        chat_id=123, actions=[PluginAction(plugin_name="reply_calc", mode="reactive")]
+    )
     action = chat.actions[0]
 
     result = await signer.wait_for(chat, action, timeout=2.0)
@@ -402,7 +413,10 @@ async def test_reactive_plugin_matching_and_retry():
 async def test_plugin_not_found_raises():
     PluginRegistry.clear()
     signer = DummySigner()
-    chat = SignChatV3(chat_id=123, actions=[PluginAction(plugin_name="unregistered_plugin", mode="active")])
+    chat = SignChatV3(
+        chat_id=123,
+        actions=[PluginAction(plugin_name="unregistered_plugin", mode="active")],
+    )
     action = chat.actions[0]
 
     with pytest.raises(RuntimeError) as exc_info:
@@ -416,7 +430,10 @@ async def test_active_plugin_sync_handler_and_failure():
     _register_action_worker_fixtures()
 
     signer = DummySigner()
-    chat = SignChatV3(chat_id=123, actions=[PluginAction(plugin_name="sync_fail_plugin", mode="active")])
+    chat = SignChatV3(
+        chat_id=123,
+        actions=[PluginAction(plugin_name="sync_fail_plugin", mode="active")],
+    )
     action = chat.actions[0]
 
     result = await signer.wait_for(chat, action, timeout=1.0)
@@ -444,7 +461,9 @@ async def test_reactive_plugin_history_fallback():
 
     signer.app.get_chat_history = fake_history
 
-    chat = SignChatV3(chat_id=123, actions=[PluginAction(plugin_name="hist_plugin", mode="reactive")])
+    chat = SignChatV3(
+        chat_id=123, actions=[PluginAction(plugin_name="hist_plugin", mode="reactive")]
+    )
     action = chat.actions[0]
 
     result = await signer.wait_for(chat, action, timeout=0.1)
@@ -507,17 +526,23 @@ async def test_math_solver_sample_plugin():
     assert eval_fn("2026-09-08 验证码: 7 * 8") == 56
 
     # 测试无消息或文本为空或不含算式时的防御处理
-    empty_ctx = PluginContext(app=mock_app, chat_id=12345, message=None, logger=MagicMock())
+    empty_ctx = PluginContext(
+        app=mock_app, chat_id=12345, message=None, logger=MagicMock()
+    )
     assert await meta.handler(empty_ctx) is False
 
     no_text_msg = MagicMock()
     no_text_msg.text = None
-    no_text_ctx = PluginContext(app=mock_app, chat_id=12345, message=no_text_msg, logger=MagicMock())
+    no_text_ctx = PluginContext(
+        app=mock_app, chat_id=12345, message=no_text_msg, logger=MagicMock()
+    )
     assert await meta.handler(no_text_ctx) is False
 
     non_math_msg = MagicMock()
     non_math_msg.text = "签到成功，欢迎下次光临！"
-    non_math_ctx = PluginContext(app=mock_app, chat_id=12345, message=non_math_msg, logger=MagicMock())
+    non_math_ctx = PluginContext(
+        app=mock_app, chat_id=12345, message=non_math_msg, logger=MagicMock()
+    )
     assert await meta.handler(non_math_ctx) is False
 
 
@@ -756,8 +781,9 @@ async def test_math_solver_with_reply_prefix_param():
         params={"reply_prefix": "答案是："},
     )
     assert await meta.handler(ctx) is True
-    mock_app.send_message.assert_awaited_once_with(2026, "答案是：42", reply_to_message_id=10)
-
+    mock_app.send_message.assert_awaited_once_with(
+        2026, "答案是：42", reply_to_message_id=10
+    )
 
 
 @pytest.mark.asyncio
@@ -769,7 +795,11 @@ async def test_sync_hang_plugin_gets_hard_killed_in_task_runner(monkeypatch):
     signer = DummySigner()
     chat = SignChatV3(
         chat_id=123,
-        actions=[PluginAction(plugin_name="sync_hang_plugin_auto", mode="active", timeout=0.2)],
+        actions=[
+            PluginAction(
+                plugin_name="sync_hang_plugin_auto", mode="active", timeout=0.2
+            )
+        ],
     )
     with pytest.raises(PluginTimeoutError) as exc_info:
         await signer.wait_for(chat, chat.actions[0])
@@ -789,7 +819,9 @@ async def test_reactive_plugin_fast_circuits_on_empty_message():
     msg.text = None
     msg.caption = None
 
-    ok = await signer._dispatch_reactive_plugin_message(action, chat, msg, eff_timeout=1.0)
+    ok = await signer._dispatch_reactive_plugin_message(
+        action, chat, msg, eff_timeout=1.0
+    )
     assert ok is False
 
 
@@ -802,7 +834,9 @@ async def test_plugin_isolation_engine_in_process_override(monkeypatch):
     signer = DummySigner()
     chat = SignChatV3(
         chat_id=123,
-        actions=[PluginAction(plugin_name="sync_fail_plugin", mode="active", timeout=1.0)],
+        actions=[
+            PluginAction(plugin_name="sync_fail_plugin", mode="active", timeout=1.0)
+        ],
     )
     with patch("tg_signer.core.signer_actions.PluginProcessHost") as mock_host:
         result = await signer.wait_for(chat, chat.actions[0])

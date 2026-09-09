@@ -1,4 +1,5 @@
 """TG-SignPulse 插件子进程 IPC 通信协议与数据代理。"""
+
 from __future__ import annotations
 
 import json
@@ -40,10 +41,12 @@ def serialize_message_for_worker(msg: Any) -> Optional[Dict[str, Any]]:
                     cb_data = cb_data.decode("utf-8", "ignore")
                 elif cb_data is not None:
                     cb_data = str(cb_data)
-                row_data.append({
-                    "text": getattr(btn, "text", ""),
-                    "data": cb_data or "",
-                })
+                row_data.append(
+                    {
+                        "text": getattr(btn, "text", ""),
+                        "data": cb_data or "",
+                    }
+                )
             buttons.append(row_data)
 
     raw_date = getattr(msg, "date", None)
@@ -117,7 +120,11 @@ class ProxyMessage:
         self.date = self._data.get("date")
         self.reply_to_message_id = self._data.get("reply_to_message_id")
         self.chat = ProxyChat(self._data.get("chat"))
-        self.from_user = ProxyUser(self._data.get("from_user")) if self._data.get("from_user") else None
+        self.from_user = (
+            ProxyUser(self._data.get("from_user"))
+            if self._data.get("from_user")
+            else None
+        )
 
         self.buttons: List[List[ProxyButton]] = []
         for row in self._data.get("buttons") or []:
@@ -133,8 +140,15 @@ class ProxyMessage:
 
 def encode_ipc_payload(payload: Dict[str, Any], max_len: int = 16384) -> str:
     """将数据编码为单行 JSON，自动截断超大内容防止管道阻塞。"""
-    if "message" in payload and isinstance(payload["message"], str) and len(payload["message"]) > max_len:
-        payload = {**payload, "message": payload["message"][:max_len] + " ...[truncated]"}
+    if (
+        "message" in payload
+        and isinstance(payload["message"], str)
+        and len(payload["message"]) > max_len
+    ):
+        payload = {
+            **payload,
+            "message": payload["message"][:max_len] + " ...[truncated]",
+        }
     return json.dumps(payload, ensure_ascii=False, default=str) + "\n"
 
 

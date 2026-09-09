@@ -1,13 +1,14 @@
 import datetime
 from unittest.mock import MagicMock
+
 from tg_signer.core.plugin_ipc import (
-    serialize_message_for_worker,
-    ProxyChat,
-    ProxyUser,
     ProxyButton,
+    ProxyChat,
     ProxyMessage,
-    encode_ipc_payload,
+    ProxyUser,
     decode_ipc_payload,
+    encode_ipc_payload,
+    serialize_message_for_worker,
 )
 
 
@@ -76,20 +77,28 @@ def test_serialize_full_message_and_proxy_access():
 
 
 def test_serialize_date_variations():
-    msg1 = MagicMock(id=1, text="t", date=1710001234, chat=None, from_user=None, reply_markup=None)
+    msg1 = MagicMock(
+        id=1, text="t", date=1710001234, chat=None, from_user=None, reply_markup=None
+    )
     assert serialize_message_for_worker(msg1)["date"] == 1710001234
 
     bad_date_obj = MagicMock()
     bad_date_obj.timestamp.side_effect = OverflowError("overflow")
-    msg2 = MagicMock(id=2, text="t", date=bad_date_obj, chat=None, from_user=None, reply_markup=None)
+    msg2 = MagicMock(
+        id=2, text="t", date=bad_date_obj, chat=None, from_user=None, reply_markup=None
+    )
     assert isinstance(serialize_message_for_worker(msg2)["date"], str)
 
-    msg3 = MagicMock(id=3, text="t", date="2026-09-09", chat=None, from_user=None, reply_markup=None)
+    msg3 = MagicMock(
+        id=3, text="t", date="2026-09-09", chat=None, from_user=None, reply_markup=None
+    )
     assert serialize_message_for_worker(msg3)["date"] == "2026-09-09"
 
 
 def test_serialize_minimal_message_with_chat_id_fallback():
-    raw_msg = MagicMock(spec=["id", "text", "caption", "date", "reply_to_message_id", "chat_id"])
+    raw_msg = MagicMock(
+        spec=["id", "text", "caption", "date", "reply_to_message_id", "chat_id"]
+    )
     raw_msg.id = 123
     raw_msg.text = "hello"
     raw_msg.caption = "cap"

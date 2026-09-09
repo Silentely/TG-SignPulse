@@ -1,4 +1,5 @@
 """Plugin management API routes."""
+
 from __future__ import annotations
 
 import asyncio
@@ -77,7 +78,9 @@ async def list_plugins(_user: User = Depends(get_current_user)) -> List[PluginIn
 
 
 @router.post("/reload", response_model=ReloadPluginsResponse)
-async def reload_plugins(_user: User = Depends(get_current_user)) -> ReloadPluginsResponse:
+async def reload_plugins(
+    _user: User = Depends(get_current_user),
+) -> ReloadPluginsResponse:
     """重新扫描并加载所有配置的插件目录。"""
     PluginRegistry.reload_all_plugins()
     plugins = PluginRegistry.list_plugins()
@@ -140,7 +143,7 @@ async def test_plugin(
     class MockApp:
         async def send_message(self, _chat_id, text: str, **kwargs):
             sent_records.append(str(text))
-            if 'reply_to_message_id' in kwargs:
+            if "reply_to_message_id" in kwargs:
                 reply_record.append(str(text))
             return MockMessage(text)
 
@@ -163,9 +166,8 @@ async def test_plugin(
         test_timeout = 5.0
 
     engine = os.getenv("PLUGIN_ISOLATION_ENGINE", "auto").lower()
-    use_subprocess = (
-        engine == "process"
-        or (engine == "auto" and not inspect.iscoroutinefunction(meta.handler))
+    use_subprocess = engine == "process" or (
+        engine == "auto" and not inspect.iscoroutinefunction(meta.handler)
     )
     isolation = "subprocess" if use_subprocess else "in_process"
     killed = False
@@ -183,7 +185,9 @@ async def test_plugin(
         except TimeoutError:
             success = False
             killed = host.process_terminated_by_kill
-            timeout_display = int(test_timeout) if test_timeout.is_integer() else test_timeout
+            timeout_display = (
+                int(test_timeout) if test_timeout.is_integer() else test_timeout
+            )
             err_str = f"插件执行超时（沙箱限制 {timeout_display} 秒）"
             captured_logs.append(f"[error] {err_str}")
         except Exception as exc:
@@ -205,7 +209,9 @@ async def test_plugin(
             handled = bool(res) if res is not None else False
         except asyncio.TimeoutError:
             success = False
-            timeout_display = int(test_timeout) if test_timeout.is_integer() else test_timeout
+            timeout_display = (
+                int(test_timeout) if test_timeout.is_integer() else test_timeout
+            )
             err_str = f"插件执行超时（沙箱限制 {timeout_display} 秒）"
             captured_logs.append(f"[error] {err_str}")
         except Exception as exc:
@@ -221,7 +227,11 @@ async def test_plugin(
         handled=handled,
         isolation=isolation,
         killed=killed,
-        reply_text=(reply_record[-1] if reply_record else (sent_records[-1] if sent_records else None)),
+        reply_text=(
+            reply_record[-1]
+            if reply_record
+            else (sent_records[-1] if sent_records else None)
+        ),
         sent_messages=sent_records,
         logs=captured_logs,
         duration_ms=duration_ms,

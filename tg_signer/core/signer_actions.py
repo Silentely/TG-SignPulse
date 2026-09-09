@@ -3,6 +3,7 @@
 动作类型对应的点击/发送/AI 调用执行逻辑；判定工具见 signer_matchers.py。
 方法经 self 解析，跨 Mixin 方法（_log_received_target_message 等）运行时可用。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -59,7 +60,6 @@ from tg_signer.utils import (
 
 
 class SignerActionsMixin:
-
     async def _click_inline_button(self, message: Message, btn) -> bool:
         callback_data = getattr(btn, "callback_data", None)
         chat = getattr(message, "chat", None)
@@ -108,7 +108,6 @@ class SignerActionsMixin:
             )
         return False
 
-
     async def _click_keyboard_by_text_result(
         self,
         action: ClickKeyboardByTextAction,
@@ -132,7 +131,9 @@ class SignerActionsMixin:
                     btn_text_clean = clean_text_for_match(btn.text)
                     if button_text_matches(target_text, btn_text_clean):
                         self.context.last_callback_answer = None
-                        self.log(f"成功匹配到并点击按钮: [{btn.text}] (匹配词: {action.text})")
+                        self.log(
+                            f"成功匹配到并点击按钮: [{btn.text}] (匹配词: {action.text})"
+                        )
                         if before_click:
                             await before_click()
                         return await self._click_inline_button(message, btn), True
@@ -144,12 +145,16 @@ class SignerActionsMixin:
             elif isinstance(reply_markup, ReplyKeyboardMarkup):
                 for row in reply_markup.keyboard:
                     for btn in row:
-                        btn_text = btn if isinstance(btn, str) else getattr(btn, "text", "")
+                        btn_text = (
+                            btn if isinstance(btn, str) else getattr(btn, "text", "")
+                        )
                         if not btn_text:
                             continue
                         btn_text_clean = clean_text_for_match(btn_text)
                         if button_text_matches(target_text, btn_text_clean):
-                            self.log(f"成功匹配并发送回复键盘文本: [{btn_text}] (匹配词: {action.text})")
+                            self.log(
+                                f"成功匹配并发送回复键盘文本: [{btn_text}] (匹配词: {action.text})"
+                            )
                             kwargs = {}
                             if message_thread_id is not None:
                                 kwargs["message_thread_id"] = message_thread_id
@@ -164,7 +169,6 @@ class SignerActionsMixin:
                     )
         return False, False
 
-
     async def _click_keyboard_by_text(
         self,
         action: ClickKeyboardByTextAction,
@@ -178,7 +182,6 @@ class SignerActionsMixin:
             message_thread_id=message_thread_id,
         )
         return clicked
-
 
     async def _execute_ai_action(
         self,
@@ -215,7 +218,11 @@ class SignerActionsMixin:
             )
             raise
         _elapsed = (time.monotonic() - _start) * 1000
-        _meta = result_meta(result, _elapsed) if callable(result_meta) else dict(result_meta)
+        _meta = (
+            result_meta(result, _elapsed)
+            if callable(result_meta)
+            else dict(result_meta)
+        )
         self.log(
             f"AI 响应 | {safe_ai_result_meta(method=method, model=model, elapsed_ms=_elapsed, **_meta)}"
         )
@@ -231,7 +238,6 @@ class SignerActionsMixin:
         if success_log:
             self.log(success_log(result), level="DEBUG")
         return result
-
 
     async def _reply_by_calculation_problem(
         self, action: ReplyByCalculationProblemAction, message
@@ -263,7 +269,9 @@ class SignerActionsMixin:
                 action_log="AI 正在分析计算题",
                 empty_result_log="AI 未返回有效答案",
                 result_empty_check=lambda r: (r or "").strip(),
-                success_log=lambda r: f"AI 计算完成 | answer_chars={len(r)} | 预览: {safe_text_preview(r, 80)}",
+                success_log=lambda r: (
+                    f"AI 计算完成 | answer_chars={len(r)} | 预览: {safe_text_preview(r, 80)}"
+                ),
             )
             if answer is None:
                 return False
@@ -273,7 +281,6 @@ class SignerActionsMixin:
             await self.send_message(message.chat.id, answer)
             return True
         return False
-
 
     async def _reply_by_image_recognition(
         self, action: ReplyByImageRecognitionAction, message
@@ -313,7 +320,9 @@ class SignerActionsMixin:
             action_log="AI 正在分析图片中的文字",
             empty_result_log="AI 未识别到可发送文本",
             result_empty_check=lambda r: (r or "").strip(),
-            success_log=lambda r: f"AI OCR 完成 | text_chars={len(r)} | 预览: {safe_text_preview(r, 80)}",
+            success_log=lambda r: (
+                f"AI OCR 完成 | text_chars={len(r)} | 预览: {safe_text_preview(r, 80)}"
+            ),
         )
         if text is None:
             return False
@@ -322,7 +331,6 @@ class SignerActionsMixin:
             return False
         await self.send_message(message.chat.id, text)
         return True
-
 
     async def _click_button_by_calculation_problem(
         self, action: ClickButtonByCalculationProblemAction, message
@@ -354,7 +362,9 @@ class SignerActionsMixin:
             action_log="AI 正在计算按钮答案",
             empty_result_log="AI 未返回可用于点击的答案",
             result_empty_check=lambda r: (r or "").strip(),
-            success_log=lambda r: f"AI 计算完成 | answer_chars={len(r)} | 预览: {safe_text_preview(r, 80)}",
+            success_log=lambda r: (
+                f"AI 计算完成 | answer_chars={len(r)} | 预览: {safe_text_preview(r, 80)}"
+            ),
         )
         if answer is None:
             return False
@@ -363,7 +373,6 @@ class SignerActionsMixin:
             return False
         proxy_action = ClickKeyboardByTextAction(text=answer)
         return await self._click_keyboard_by_text(proxy_action, message)
-
 
     async def _choose_option_by_image(self, action: ChooseOptionByImageAction, message):
         if not message.photo:
@@ -410,9 +419,14 @@ class SignerActionsMixin:
                     "result_type": "list",
                     "result_count": len(result or []),
                     "selected_options": [
-                        options[idx - 1] for idx in (result or []) if 1 <= idx <= len(options)
-                    ] + [
-                        options[idx] for idx in (result or []) if 0 <= idx < len(options)
+                        options[idx - 1]
+                        for idx in (result or [])
+                        if 1 <= idx <= len(options)
+                    ]
+                    + [
+                        options[idx]
+                        for idx in (result or [])
+                        if 0 <= idx < len(options)
                     ],
                 },
                 action_log="AI 正在分析图片并匹配可点击按钮",
@@ -433,7 +447,10 @@ class SignerActionsMixin:
                     self.log(f"AI 返回了非法选项序号: {result_index}", level="WARNING")
                     return False
                 button_kind, target_btn, result = clickable_buttons[selected_idx]
-                self.log(f"AI 选择并点击选项 | index={selected_idx + 1} | preview={safe_text_preview(result, 60)}", level="DEBUG")
+                self.log(
+                    f"AI 选择并点击选项 | index={selected_idx + 1} | preview={safe_text_preview(result, 60)}",
+                    level="DEBUG",
+                )
                 if button_kind == "inline":
                     if await self._click_inline_button(message, target_btn):
                         clicked += 1
@@ -447,7 +464,6 @@ class SignerActionsMixin:
                 await asyncio.sleep(0.3)
             return clicked > 0
         return False
-
 
     async def _dispatch_reactive_plugin_message(
         self,
@@ -463,8 +479,12 @@ class SignerActionsMixin:
 
         plugin = PluginRegistry.get(action.plugin_name)
         if not plugin:
-            self.log(f"自定义插件「{action.plugin_name}」未注册或未成功加载", level="ERROR")
-            raise RuntimeError(f"Plugin '{action.plugin_name}' not found in PluginRegistry")
+            self.log(
+                f"自定义插件「{action.plugin_name}」未注册或未成功加载", level="ERROR"
+            )
+            raise RuntimeError(
+                f"Plugin '{action.plugin_name}' not found in PluginRegistry"
+            )
         ctx = PluginContext(
             app=self.app,
             chat_id=chat.chat_id,
@@ -475,23 +495,29 @@ class SignerActionsMixin:
         )
 
         engine = os.getenv("PLUGIN_ISOLATION_ENGINE", "auto").lower()
-        use_subprocess = (
-            engine == "process"
-            or (engine == "auto" and not inspect.iscoroutinefunction(plugin.handler))
+        use_subprocess = engine == "process" or (
+            engine == "auto" and not inspect.iscoroutinefunction(plugin.handler)
         )
 
         if use_subprocess:
-            host = PluginProcessHost(plugin_name=action.plugin_name, ctx=ctx, timeout=eff_timeout)
+            host = PluginProcessHost(
+                plugin_name=action.plugin_name, ctx=ctx, timeout=eff_timeout
+            )
             try:
                 res = await host.execute()
                 return bool(res)
             except TimeoutError:
                 msg_kind = "单条历史消息" if is_history else "单条消息"
-                self.log(f"插件「{action.plugin_name}」处理{msg_kind}超时", level="WARNING")
+                self.log(
+                    f"插件「{action.plugin_name}」处理{msg_kind}超时", level="WARNING"
+                )
                 return False
             except Exception as e:
                 msg_kind = "历史消息" if is_history else "消息"
-                self.log(f"插件「{action.plugin_name}」处理{msg_kind}异常: {e}", level="WARNING")
+                self.log(
+                    f"插件「{action.plugin_name}」处理{msg_kind}异常: {e}",
+                    level="WARNING",
+                )
                 return False
         else:
             handler_call = (
@@ -504,13 +530,17 @@ class SignerActionsMixin:
                 return bool(res)
             except asyncio.TimeoutError:
                 msg_kind = "单条历史消息" if is_history else "单条消息"
-                self.log(f"插件「{action.plugin_name}」处理{msg_kind}超时", level="WARNING")
+                self.log(
+                    f"插件「{action.plugin_name}」处理{msg_kind}超时", level="WARNING"
+                )
                 return False
             except Exception as e:
                 msg_kind = "历史消息" if is_history else "消息"
-                self.log(f"插件「{action.plugin_name}」处理{msg_kind}异常: {e}", level="WARNING")
+                self.log(
+                    f"插件「{action.plugin_name}」处理{msg_kind}异常: {e}",
+                    level="WARNING",
+                )
                 return False
-
 
     async def wait_for(
         self,
@@ -556,8 +586,13 @@ class SignerActionsMixin:
         elif isinstance(action, PluginAction):
             plugin = PluginRegistry.get(action.plugin_name)
             if not plugin:
-                self.log(f"自定义插件「{action.plugin_name}」未注册或未成功加载", level="ERROR")
-                raise RuntimeError(f"Plugin '{action.plugin_name}' not found in PluginRegistry")
+                self.log(
+                    f"自定义插件「{action.plugin_name}」未注册或未成功加载",
+                    level="ERROR",
+                )
+                raise RuntimeError(
+                    f"Plugin '{action.plugin_name}' not found in PluginRegistry"
+                )
             eff_timeout = action.timeout if action.timeout is not None else timeout
 
             if action.mode == "active":
@@ -570,22 +605,29 @@ class SignerActionsMixin:
                     logger=self,
                 )
                 engine = os.getenv("PLUGIN_ISOLATION_ENGINE", "auto").lower()
-                use_subprocess = (
-                    engine == "process"
-                    or (engine == "auto" and not inspect.iscoroutinefunction(plugin.handler))
+                use_subprocess = engine == "process" or (
+                    engine == "auto" and not inspect.iscoroutinefunction(plugin.handler)
                 )
 
                 if use_subprocess:
-                    host = PluginProcessHost(plugin_name=action.plugin_name, ctx=ctx, timeout=eff_timeout)
+                    host = PluginProcessHost(
+                        plugin_name=action.plugin_name, ctx=ctx, timeout=eff_timeout
+                    )
                     try:
                         res = await host.execute()
                     except TimeoutError as exc:
-                        self.log(f"插件「{action.plugin_name}」执行超时（{eff_timeout}s）", level="ERROR")
+                        self.log(
+                            f"插件「{action.plugin_name}」执行超时（{eff_timeout}s）",
+                            level="ERROR",
+                        )
                         raise PluginTimeoutError(
                             f"Plugin '{action.plugin_name}' timed out after {eff_timeout}s and was killed"
                         ) from exc
                     except Exception as exc:
-                        self.log(f"插件「{action.plugin_name}」执行异常: {exc}", level="ERROR")
+                        self.log(
+                            f"插件「{action.plugin_name}」执行异常: {exc}",
+                            level="ERROR",
+                        )
                         raise
                 else:
                     handler_call = (
@@ -596,16 +638,24 @@ class SignerActionsMixin:
                     try:
                         res = await asyncio.wait_for(handler_call, timeout=eff_timeout)
                     except asyncio.TimeoutError as exc:
-                        self.log(f"插件「{action.plugin_name}」执行超时（{eff_timeout}s）", level="ERROR")
+                        self.log(
+                            f"插件「{action.plugin_name}」执行超时（{eff_timeout}s）",
+                            level="ERROR",
+                        )
                         raise PluginTimeoutError(
                             f"Plugin '{action.plugin_name}' timed out after {eff_timeout}s"
                         ) from exc
                     except Exception as exc:
-                        self.log(f"插件「{action.plugin_name}」执行异常: {exc}", level="ERROR")
+                        self.log(
+                            f"插件「{action.plugin_name}」执行异常: {exc}",
+                            level="ERROR",
+                        )
                         raise
 
                 if res is False:
-                    self.log(f"插件「{action.plugin_name}」返回执行失败", level="WARNING")
+                    self.log(
+                        f"插件「{action.plugin_name}」返回执行失败", level="WARNING"
+                    )
                     return False
                 return True
             else:
@@ -716,9 +766,11 @@ class SignerActionsMixin:
 
                                 async def remember_before_click():
                                     nonlocal before_click_state
-                                    before_click_state = await self._chat_state_snapshot(
-                                        chat,
-                                        history_limit=history_limit,
+                                    before_click_state = (
+                                        await self._chat_state_snapshot(
+                                            chat,
+                                            history_limit=history_limit,
+                                        )
                                     )
 
                                 ok, matched = await self._click_keyboard_by_text_result(
@@ -744,13 +796,15 @@ class SignerActionsMixin:
                                     self.context.waiting_message = None
                                     follow_timeout = min(6.0, timeout)
                                     if next_action is not None:
-                                        followup_state = await self._handle_post_click_followup(
-                                            chat,
-                                            action_text=action.text,
-                                            next_action=next_action,
-                                            before_click_state=before_click_state,
-                                            history_limit=history_limit,
-                                            timeout=follow_timeout,
+                                        followup_state = (
+                                            await self._handle_post_click_followup(
+                                                chat,
+                                                action_text=action.text,
+                                                next_action=next_action,
+                                                before_click_state=before_click_state,
+                                                history_limit=history_limit,
+                                                timeout=follow_timeout,
+                                            )
                                         )
                                         if followup_state in {"success", "next"}:
                                             return True
@@ -818,7 +872,9 @@ class SignerActionsMixin:
                     elif isinstance(action, ReplyByImageRecognitionAction):
                         ok = await self._reply_by_image_recognition(action, message)
                     elif isinstance(action, ClickButtonByCalculationProblemAction):
-                        ok = await self._click_button_by_calculation_problem(action, message)
+                        ok = await self._click_button_by_calculation_problem(
+                            action, message
+                        )
                     elif isinstance(action, PluginAction):
                         ok = await self._dispatch_reactive_plugin_message(
                             action, chat, message, eff_timeout, is_history=False
@@ -840,8 +896,12 @@ class SignerActionsMixin:
                 ),
             ):
                 try:
-                    self.log("等待超时，尝试从最近消息回退处理当前步骤", level="WARNING")
-                    async for message in self.app.get_chat_history(chat.chat_id, limit=history_limit):
+                    self.log(
+                        "等待超时，尝试从最近消息回退处理当前步骤", level="WARNING"
+                    )
+                    async for message in self.app.get_chat_history(
+                        chat.chat_id, limit=history_limit
+                    ):
                         if not self._message_matches_chat_thread(message, chat):
                             continue
                         if not self._message_is_actionable_target(message):
@@ -854,7 +914,9 @@ class SignerActionsMixin:
                                 message_thread_id=chat.message_thread_id,
                             )
                         elif isinstance(action, ReplyByCalculationProblemAction):
-                            ok = await self._reply_by_calculation_problem(action, message)
+                            ok = await self._reply_by_calculation_problem(
+                                action, message
+                            )
                         elif isinstance(action, ChooseOptionByImageAction):
                             ok = await self._choose_option_by_image(action, message)
                         elif isinstance(action, ReplyByImageRecognitionAction):
@@ -883,7 +945,6 @@ class SignerActionsMixin:
             self.context.waiting_message = None
             self.context.last_callback_answer = None
 
-
     async def request_callback_answer(
         self,
         client: Client,
@@ -901,7 +962,9 @@ class SignerActionsMixin:
                 callback_message = self._normalize_log_text(
                     getattr(answer, "message", None), 220
                 )
-                callback_url = self._normalize_log_text(getattr(answer, "url", None), 220)
+                callback_url = self._normalize_log_text(
+                    getattr(answer, "url", None), 220
+                )
                 self.context.last_callback_answer = callback_message or None
                 self.log("点击完成")
                 if callback_message:
@@ -953,7 +1016,6 @@ class SignerActionsMixin:
                 return None
         return None
 
-
     async def schedule_messages(
         self,
         chat_id: Union[int, str],
@@ -986,7 +1048,6 @@ class SignerActionsMixin:
         self.log(f"已配置定时发送消息，次数{next_times}")
         return results
 
-
     async def get_schedule_messages(self, chat_id):
         if self.user is None:
             await self.login(print_chat=False)
@@ -994,5 +1055,3 @@ class SignerActionsMixin:
             messages = await self.app.get_scheduled_messages(chat_id)
             for message in messages:
                 print_to_user(f"{message.date}: {message.text}")
-
-
