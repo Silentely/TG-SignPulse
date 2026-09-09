@@ -1,10 +1,10 @@
 """TG-SignPulse 插件独立 Worker 进程入口与上下文代理。"""
+
 from __future__ import annotations
 
 import asyncio
 import importlib.util
 import inspect
-import os
 import sys
 import traceback
 from pathlib import Path
@@ -18,13 +18,19 @@ from tg_signer.core.plugin_ipc import (
 from tg_signer.core.plugins import PluginMeta, PluginRegistry
 
 
-def import_single_plugin_source(source_path: str, plugin_name: str) -> Optional[PluginMeta]:
+def import_single_plugin_source(
+    source_path: str, plugin_name: str
+) -> Optional[PluginMeta]:
     """定向加载单个插件，避免在 Worker 启动时重复扫描全量目录。"""
     p = Path(source_path)
     if not p.exists():
         return None
 
-    entry_file = p if p.is_file() else (p / "main.py" if (p / "main.py").exists() else p / "__init__.py")
+    entry_file = (
+        p
+        if p.is_file()
+        else (p / "main.py" if (p / "main.py").exists() else p / "__init__.py")
+    )
     if not entry_file.exists():
         return None
 
@@ -39,7 +45,9 @@ def import_single_plugin_source(source_path: str, plugin_name: str) -> Optional[
     if entry_file.name in ("main.py", "__init__.py"):
         spec_kwargs["submodule_search_locations"] = [str(entry_file.parent.resolve())]
 
-    spec = importlib.util.spec_from_file_location(mod_name, str(entry_file), **spec_kwargs)
+    spec = importlib.util.spec_from_file_location(
+        mod_name, str(entry_file), **spec_kwargs
+    )
     if spec and spec.loader:
         module = importlib.util.module_from_spec(spec)
         sys.modules[mod_name] = module
@@ -154,7 +162,9 @@ async def run_worker_loop(
         current_id = req_id
         fut = loop.create_future()
         pending_calls[current_id] = fut
-        send_payload_sync({"type": "call", "id": current_id, "method": method, "params": params})
+        send_payload_sync(
+            {"type": "call", "id": current_id, "method": method, "params": params}
+        )
         await flush_writer()
         return await fut
 
@@ -177,20 +187,24 @@ async def run_worker_loop(
             meta = PluginRegistry.get(plugin_name)
     except Exception:
         exc_str = traceback.format_exc()
-        send_payload_sync({
-            "type": "return",
-            "success": False,
-            "error": exc_str,
-        })
+        send_payload_sync(
+            {
+                "type": "return",
+                "success": False,
+                "error": exc_str,
+            }
+        )
         await flush_writer()
         return
 
     if not meta:
-        send_payload_sync({
-            "type": "return",
-            "success": False,
-            "error": f"Plugin '{plugin_name}' not found",
-        })
+        send_payload_sync(
+            {
+                "type": "return",
+                "success": False,
+                "error": f"Plugin '{plugin_name}' not found",
+            }
+        )
         await flush_writer()
         return
 
@@ -209,7 +223,9 @@ async def run_worker_loop(
             if not line:
                 for fut in list(pending_calls.values()):
                     if not fut.done():
-                        fut.set_exception(ConnectionResetError("IPC pipe closed by host"))
+                        fut.set_exception(
+                            ConnectionResetError("IPC pipe closed by host")
+                        )
                 pending_calls.clear()
                 break
             try:
@@ -224,7 +240,9 @@ async def run_worker_loop(
                     if msg.get("success"):
                         fut.set_result(msg.get("data"))
                     else:
-                        fut.set_exception(RuntimeError(msg.get("error", "RPC call failed")))
+                        fut.set_exception(
+                            RuntimeError(msg.get("error", "RPC call failed"))
+                        )
 
     listener_task = asyncio.create_task(host_listener())
 
