@@ -1041,3 +1041,88 @@ async def test_daily_checkin_helper_plugin(tmp_path, monkeypatch):
     assert count == 1
     last_cmd = await ctx.storage.get("last_checkin_command")
     assert last_cmd == "/custom_checkin"
+
+
+@pytest.mark.asyncio
+async def test_keyword_reactor_with_caption_and_regex():
+    PluginRegistry.load_all_configured_plugins()
+    meta = PluginRegistry.get("keyword_reactor")
+    assert meta is not None
+
+    mock_app = MagicMock()
+    mock_app.send_reaction = AsyncMock()
+    mock_msg = MagicMock()
+    mock_msg.id = 102
+    mock_msg.text = None
+    mock_msg.caption = "图片说明：任务打卡完成！"
+    mock_logger = MagicMock(spec=["log"])
+
+    # 1. Test caption matching with regex
+    ctx = PluginContext(
+        app=mock_app,
+        chat_id=2026,
+        message=mock_msg,
+        logger=mock_logger,
+        params={
+            "keyword": r"打卡[完成成功]+",
+            "emoji": "🔥",
+            "match_mode": "regex",
+        },
+    )
+    assert await meta.handler(ctx) is True
+    mock_app.send_reaction.assert_awaited_once_with(2026, message_id=102, emoji="🔥")
+
+    # 2. Test invalid regex handled gracefully
+    ctx_invalid = PluginContext(
+        app=mock_app,
+        chat_id=2026,
+        message=mock_msg,
+        logger=mock_logger,
+        params={
+            "keyword": r"[unclosed_regex",
+            "emoji": "🔥",
+            "match_mode": "regex",
+        },
+    )
+    assert await meta.handler(ctx_invalid) is False
+
+    # 3. Test oversized keyword rejected
+    ctx_oversized = PluginContext(
+        app=mock_app,
+        chat_id=2026,
+        message=mock_msg,
+        logger=mock_logger,
+        params={
+            "keyword": "a" * 600,
+            "emoji": "🔥",
+        },
+    )
+    assert await meta.handler(ctx_oversized) is False
+
+@pytest.mark.asyncio
+async def test_regex_reply_with_caption():
+    PluginRegistry.load_all_configured_plugins()
+    meta = PluginRegistry.get("regex_reply")
+    assert meta is not None
+
+    mock_app = MagicMock()
+    mock_app.send_message = AsyncMock()
+    mock_msg = MagicMock()
+    mock_msg.id = 555
+    mock_msg.text = None
+    mock_msg.caption = "验证码：ABC888，请在5分钟内输入"
+    mock_logger = MagicMock(spec=["log"])
+
+    ctx = PluginContext(
+        app=mock_app,
+        chat_id=2026,
+        message=mock_msg,
+        logger=mock_logger,
+        params={
+            "pattern": r"验证码[：:\s]+([a-zA-Z0-9]+)",
+            "template": "code is {1}",
+            "reply_to": True,
+        },
+    )
+    assert await meta.handler(ctx) is True
+    mock_app.send_message.assert_awaited_once_with(2026, "code is ABC888", reply_to_message_id=555)

@@ -228,3 +228,11 @@ def test_task_tags_lifecycle(tmp_path, monkeypatch):
 
     none_tasks = svc.list_tasks(force_refresh=False, tag="nonexistent")
     assert len(none_tasks) == 0
+
+    # Test deduplication on update
+    dedup_updated = svc.update_task(
+        task_name="tagged_task",
+        account_name="acc1",
+        tags=["repeat", "repeat", "  repeat  ", "unique"],
+    )
+    assert dedup_updated["tags"] == ["repeat", "unique"]

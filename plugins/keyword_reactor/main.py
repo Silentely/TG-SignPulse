@@ -55,14 +55,19 @@ PARAMS_SCHEMA: List[Dict[str, Any]] = [
 async def keyword_reactor_handler(ctx: PluginContext) -> bool:
     """监听接收到的消息，匹配关键词并自动执行表情表态。"""
     msg = ctx.message
-    if not msg or not getattr(msg, "text", None):
+    if not msg:
         return False
 
-    text = str(msg.text)
+    text = str(getattr(msg, "text", None) or getattr(msg, "caption", None) or "").strip()
+    if not text:
+        return False
+
     params: Dict[str, Any] = ctx.params or {}
     keyword = str(params.get("keyword") or "").strip()
-    if not keyword:
+    if not keyword or len(keyword) > 512:
         return False
+
+    text = text[:4096]
 
     emoji = str(params.get("emoji") or "👍").strip() or "👍"
     match_mode = str(params.get("match_mode") or "contains").lower()
