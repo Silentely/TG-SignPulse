@@ -75,7 +75,10 @@ describe('task-templates', () => {
       account_name: 'a',
     })
     expect(task.tags).toEqual(['plugin', 'daily'])
-    expect(task.chats[0].actions?.[0].action).toBe(99)
-    expect(task.chats[0].actions?.[0].plugin_name).toBe('daily_checkin_helper')
+    expect(task.chats[0].actions?.[0].action).toBe(1)
+    expect(task.chats[0].actions?.[0].text).toBe('/sign')
+    expect(task.chats[0].actions?.[1].action).toBe(99)
+    expect(task.chats[0].actions?.[1].plugin_name).toBe('daily_checkin_helper')
+    expect(task.chats[0].actions?.[1].mode).toBe('reactive')
   })
 })

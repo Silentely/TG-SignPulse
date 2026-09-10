@@ -96,7 +96,7 @@ def aggregate_tasks(
         )
         existing["last_run"] = latest_last_run
         existing["last_run_account_name"] = latest_last_run_account_name
-        existing["tags"] = sorted(list({str(t).strip() for t in (existing.get("tags") or []) if str(t).strip()} | {str(t).strip() for t in (task.get("tags") or []) if str(t).strip()}))
+        existing["tags"] = sorted({str(t).strip() for t in (existing.get("tags") or []) if str(t).strip()} | {str(t).strip() for t in (task.get("tags") or []) if str(t).strip()})
 
     return sorted(
         grouped.values(),
