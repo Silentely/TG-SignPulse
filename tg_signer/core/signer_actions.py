@@ -485,6 +485,9 @@ class SignerActionsMixin:
             raise RuntimeError(
                 f"Plugin '{action.plugin_name}' not found in PluginRegistry"
             )
+        if not getattr(plugin, "enabled", True) or not PluginRegistry.is_enabled(action.plugin_name):
+            self.log(f"自定义插件「{action.plugin_name}」已被停用，跳过响应", level="WARNING")
+            return False
         ctx = PluginContext(
             app=self.app,
             chat_id=chat.chat_id,
@@ -492,6 +495,7 @@ class SignerActionsMixin:
             message=message,
             params=action.params,
             logger=self,
+            plugin_name=action.plugin_name,
         )
 
         engine = os.getenv("PLUGIN_ISOLATION_ENGINE", "auto").lower()
@@ -593,6 +597,9 @@ class SignerActionsMixin:
                 raise RuntimeError(
                     f"Plugin '{action.plugin_name}' not found in PluginRegistry"
                 )
+            if not getattr(plugin, "enabled", True) or not PluginRegistry.is_enabled(action.plugin_name):
+                self.log(f"自定义插件「{action.plugin_name}」已被停用，跳过执行", level="WARNING")
+                return False
             eff_timeout = action.timeout if action.timeout is not None else timeout
 
             if action.mode == "active":
@@ -603,6 +610,7 @@ class SignerActionsMixin:
                     message=None,
                     params=action.params,
                     logger=self,
+                    plugin_name=action.plugin_name,
                 )
                 engine = os.getenv("PLUGIN_ISOLATION_ENGINE", "auto").lower()
                 use_subprocess = engine == "process" or (

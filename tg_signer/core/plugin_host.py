@@ -1,12 +1,14 @@
-"""TG-SignPulse 宿主端子进程 Worker 管理器与跨平台进程组超时硬终止控制器。"""
+"""TG-SignPulse 插件子进程宿主隔离执行器。"""
 
 from __future__ import annotations
 
 import asyncio
 import os
 import signal
+import subprocess
 import sys
-from typing import Any, Optional
+import time
+from typing import Any, Optional, Union
 
 from tg_signer.core.plugin_ipc import (
     decode_ipc_payload,
@@ -16,26 +18,34 @@ from tg_signer.core.plugin_ipc import (
 from tg_signer.core.plugins import PluginContext, PluginRegistry
 
 
-def kill_process_tree(proc: Optional[asyncio.subprocess.Process]) -> None:
-    """跨平台强杀进程及其整个进程组，彻底杜绝孤儿进程。"""
-    if proc is None or proc.returncode is not None or proc.pid is None:
+def kill_process_tree(target: Union[int, Any]) -> None:
+    """跨平台终结子进程树（含孙子进程）。支持传入 pid 整数或包含 pid 属性的进程对象。"""
+    pid = getattr(target, "pid", target)
+    if not isinstance(pid, int) or pid <= 0:
         return
-
-    pid = proc.pid
     if os.name != "nt":
         try:
             pgid = os.getpgid(pid)
             os.killpg(pgid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            try:
-                proc.kill()
-            except ProcessLookupError:
-                pass
-    else:
-        # Windows 环境下通过 taskkill /F /T 强杀整棵树
-        try:
-            import subprocess
+            return
+        except ProcessLookupError:
+            pass
+        except OSError:
+            pass
 
+        if hasattr(target, "kill") and callable(target.kill):
+            try:
+                target.kill()
+                return
+            except Exception:
+                pass
+
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+    else:
+        try:
             subprocess.run(
                 ["taskkill", "/F", "/T", "/PID", str(pid)],
                 stdout=subprocess.DEVNULL,
@@ -43,10 +53,7 @@ def kill_process_tree(proc: Optional[asyncio.subprocess.Process]) -> None:
                 check=False,
             )
         except Exception:
-            try:
-                proc.kill()
-            except ProcessLookupError:
-                pass
+            pass
 
 
 class PluginProcessHost:
@@ -56,6 +63,8 @@ class PluginProcessHost:
         self.timeout = timeout
         self.process: Optional[asyncio.subprocess.Process] = None
         self.process_terminated_by_kill = False
+        if not getattr(self.ctx, "plugin_name", None):
+            self.ctx.plugin_name = plugin_name
 
     async def execute(self) -> Any:
         meta = PluginRegistry.get(self.plugin_name)
@@ -78,44 +87,38 @@ class PluginProcessHost:
             "chat_id": self.ctx.chat_id,
             "message_thread_id": getattr(self.ctx, "message_thread_id", None),
             "message": serialize_message_for_worker(self.ctx.message),
-            "params": self.ctx.params,
+            "params": getattr(self.ctx, "params", {}),
         }
 
-        self.process.stdin.write(encode_ipc_payload(init_payload).encode("utf-8"))
+        encoded_init = encode_ipc_payload(init_payload).encode("utf-8")
+        assert self.process.stdin is not None
+        self.process.stdin.write(encoded_init)
         await self.process.stdin.drain()
 
-        result_future = asyncio.get_running_loop().create_future()
+        loop = asyncio.get_running_loop()
+        result_future: asyncio.Future[Any] = loop.create_future()
 
         async def stderr_reader():
-            """消费 stderr 输出，防止因子进程写满 stderr 管道缓冲区导致死锁。"""
-            try:
-                while True:
-                    line = await self.process.stderr.readline()
-                    if not line:
-                        break
-                    line_str = line.decode("utf-8", "replace").strip()
-                    if line_str:
-                        self.ctx.log(f"[worker stderr] {line_str}", level="WARNING")
-            except asyncio.CancelledError:
-                pass
-            except Exception:
-                pass
+            assert self.process.stderr is not None
+            while True:
+                line = await self.process.stderr.readline()
+                if not line:
+                    break
+                line_str = line.decode("utf-8", errors="replace").rstrip("\r\n")
+                if line_str:
+                    self.ctx.log(f"[worker stderr] {line_str}", level="WARNING")
 
         async def stdout_reader():
-            try:
-                while True:
-                    line = await self.process.stdout.readline()
-                    if not line:
-                        break
-                    line_str = line.decode("utf-8", "replace").strip()
-                    if not line_str:
-                        continue
+            assert self.process.stdout is not None
+            while True:
+                line = await self.process.stdout.readline()
+                if not line:
+                    break
+                line_str = line.decode("utf-8", errors="replace").rstrip("\r\n")
+                if not line_str:
+                    continue
 
-                    # 免疫普通 print 输出干扰
-                    if not line_str.startswith("{"):
-                        self.ctx.log(f"[worker stdout] {line_str}", level="DEBUG")
-                        continue
-
+                if line_str.startswith("{"):
                     try:
                         payload = decode_ipc_payload(line_str)
                     except Exception:
@@ -165,6 +168,26 @@ class PluginProcessHost:
                                 call_res = await self.ctx.click(
                                     text_or_index, **call_params
                                 )
+                            elif method == "react":
+                                emoji = call_params.pop("emoji", "👍")
+                                call_res = await self.ctx.react(
+                                    emoji, **call_params
+                                )
+                            elif method == "storage_get":
+                                key = call_params.get("key", "")
+                                default = call_params.get("default", None)
+                                call_res = await self.ctx.storage.get(key, default=default)
+                            elif method == "storage_set":
+                                key = call_params.get("key", "")
+                                value = call_params.get("value", None)
+                                ttl = call_params.get("ttl", None)
+                                await self.ctx.storage.set(key, value, ttl=ttl)
+                                call_res = True
+                            elif method == "storage_delete":
+                                key = call_params.get("key", "")
+                                call_res = await self.ctx.storage.delete(key)
+                            elif method == "storage_clear":
+                                call_res = await self.ctx.storage.clear()
                             else:
                                 raise ValueError(f"Unknown RPC method: {method}")
 
@@ -178,68 +201,70 @@ class PluginProcessHost:
                             "type": "call_result",
                             "id": cid,
                             "success": call_ok,
-                            "data": call_res,
-                            "error": call_err,
                         }
-                        try:
-                            self.process.stdin.write(
-                                encode_ipc_payload(resp).encode("utf-8")
-                            )
-                            await self.process.stdin.drain()
-                        except (BrokenPipeError, ConnectionResetError):
-                            break
-            except asyncio.CancelledError:
-                pass
-            except Exception as e:
-                if not result_future.done():
-                    result_future.set_exception(e)
-            finally:
-                if not result_future.done():
-                    # 管道 EOF 但结果未返回，检查子进程是否已非正常退出
-                    await self.process.wait()
-                    if not result_future.done():
-                        rc = self.process.returncode
-                        result_future.set_exception(
-                            RuntimeError(
-                                f"Worker process exited unexpectedly with returncode {rc}"
-                            )
-                        )
+                        if call_ok:
+                            resp["data"] = call_res
+                        else:
+                            resp["error"] = call_err
 
-        reader_task = asyncio.create_task(stdout_reader())
+                        encoded_resp = encode_ipc_payload(resp).encode("utf-8")
+                        if self.process.stdin and not self.process.stdin.is_closing():
+                            self.process.stdin.write(encoded_resp)
+                            await self.process.stdin.drain()
+                else:
+                    self.ctx.log(f"[worker stdout] {line_str}", level="DEBUG")
+
         stderr_task = asyncio.create_task(stderr_reader())
+        stdout_task = asyncio.create_task(stdout_reader())
+
+        async def wait_process():
+            return await self.process.wait()
+
+        process_wait_task = asyncio.create_task(wait_process())
 
         try:
-            return await asyncio.wait_for(result_future, timeout=self.timeout)
-        except (asyncio.TimeoutError, TimeoutError) as exc:
+            done, pending = await asyncio.wait(
+                [result_future, process_wait_task],
+                timeout=self.timeout,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+
+            if result_future in done:
+                return result_future.result()
+
+            if process_wait_task in done:
+                # 子进程提前退出，等待 stdout 排空以获取任何 return 包
+                try:
+                    await asyncio.wait_for(stdout_task, timeout=0.5)
+                except (asyncio.TimeoutError, asyncio.CancelledError):
+                    pass
+                if result_future.done():
+                    return result_future.result()
+                exit_code = process_wait_task.result()
+                raise RuntimeError(
+                    f"Worker process exited prematurely with code {exit_code}"
+                )
+
+            # 超时处理
             self.process_terminated_by_kill = True
-            kill_process_tree(self.process)
-            try:
-                await self.process.wait()
-            except (ProcessLookupError, Exception):
-                pass
+            kill_process_tree(self.process.pid)
             raise TimeoutError(
-                f"Plugin '{self.plugin_name}' timed out after {self.timeout}s and was killed"
-            ) from exc
+                f"Plugin execution timed out after {self.timeout} seconds"
+            )
+
         finally:
-            reader_task.cancel()
+            if self.process and self.process.returncode is None:
+                kill_process_tree(self.process.pid)
+                try:
+                    await asyncio.wait_for(self.process.wait(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    pass
+
             stderr_task.cancel()
-            await asyncio.gather(reader_task, stderr_task, return_exceptions=True)
-            try:
-                if self.process and self.process.stdin:
+            stdout_task.cancel()
+            process_wait_task.cancel()
+            if self.process and self.process.stdin:
+                try:
                     self.process.stdin.close()
-            except Exception:
-                pass
-            try:
-                if self.process and self.process.returncode is None:
-                    try:
-                        await asyncio.wait_for(self.process.wait(), timeout=0.2)
-                    except (asyncio.TimeoutError, TimeoutError):
-                        pass
-            except Exception:
-                pass
-            kill_process_tree(self.process)
-            try:
-                if self.process:
-                    await self.process.wait()
-            except (ProcessLookupError, Exception):
-                pass
+                except Exception:
+                    pass

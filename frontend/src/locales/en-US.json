@@ -705,7 +705,15 @@
     "aiVisionRetryHint": "Retries for failed AI vision requests",
     "autoBackupIntervalHint": "Auto-backup interval in hours (1-168)",
     "autoBackupKeepHint": "Local backups to keep (1-30)",
-    "logRetentionHint": "Days of logs to keep (in days)"
+    "logRetentionHint": "Days of logs to keep (in days)",
+    "pluginsEnabled": "Enabled",
+    "pluginsDisabled": "Disabled",
+    "pluginsDisabledTag": "Disabled",
+    "pluginEnabledSuccess": "Plugin enabled successfully",
+    "pluginDisabledSuccess": "Plugin disabled, tasks will skip this plugin",
+    "pluginToggleFailed": "Failed to toggle plugin status",
+    "pluginsReactionOutput": "Reaction Output",
+    "pluginsReplayInPlayground": "Debug & Replay in Playground"
   },
   "profile": {
     "title": "Profile",

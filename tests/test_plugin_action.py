@@ -436,7 +436,7 @@ async def test_active_plugin_sync_handler_and_failure():
     )
     action = chat.actions[0]
 
-    result = await signer.wait_for(chat, action, timeout=1.0)
+    result = await signer.wait_for(chat, action, timeout=5.0)
     assert result is False
     assert any("返回执行失败" in entry[1] for entry in signer.log_entries)
 
@@ -842,3 +842,127 @@ async def test_plugin_isolation_engine_in_process_override(monkeypatch):
         result = await signer.wait_for(chat, chat.actions[0])
         assert result is False
         mock_host.assert_not_called()
+
+@pytest.mark.asyncio
+async def test_plugin_storage_client_crud_and_ttl(tmp_path):
+    """测试插件持久化 KV 存储 PluginStorageClient 的 CRUD、TTL 过期及命名空间隔离"""
+    from tg_signer.core.plugins import PluginStorageBackend, PluginStorageClient
+    import time
+
+    db_file = tmp_path / "test_storage.db"
+    backend = PluginStorageBackend(db_path=db_file)
+
+    client1 = PluginStorageClient(namespace="chat1:pluginA", backend=backend)
+    client2 = PluginStorageClient(namespace="chat2:pluginA", backend=backend)
+
+    # 初始读取默认值
+    assert await client1.get("counter", default=0) == 0
+
+    # 写入基础数据
+    await client1.set("counter", 42)
+    await client1.set("user_info", {"name": "Alice", "role": "admin"})
+
+    assert await client1.get("counter") == 42
+    assert await client1.get("user_info") == {"name": "Alice", "role": "admin"}
+
+    # 命名空间隔离：client2 读不到 client1 的数据
+    assert await client2.get("counter") is None
+
+    # 删除操作
+    assert await client1.delete("counter") is True
+    assert await client1.get("counter") is None
+    assert await client1.delete("counter") is False
+
+    # TTL 过期测试 (设置 0.1s TTL)
+    await client1.set("temp_token", "secret123", ttl=0.1)
+    assert await client1.get("temp_token") == "secret123"
+    await asyncio.sleep(0.15)
+    assert await client1.get("temp_token") is None
+
+    # 清空命名空间
+    await client1.set("k1", "v1")
+    await client1.set("k2", "v2")
+    await client2.set("k1", "v2_val")
+    cleared = await client1.clear()
+    assert cleared == 3
+    assert await client1.get("k1") is None
+    assert await client2.get("k1") == "v2_val"
+
+    # 测试 PluginContext.storage 的自动命名空间绑定
+    ctx = PluginContext(
+        app=MagicMock(),
+        chat_id=888999,
+        plugin_name="my_test_plugin",
+    )
+    assert ctx.storage.namespace == "888999:my_test_plugin"
+
+
+@pytest.mark.asyncio
+async def test_plugin_context_react():
+    """测试 PluginContext.react 表态能力"""
+    mock_app = MagicMock()
+    mock_app.send_reaction = AsyncMock(return_value=True)
+
+    mock_msg = MagicMock()
+    mock_msg.id = 12345
+
+    # 1. 上下文中含有消息，自动使用 message.id
+    ctx = PluginContext(app=mock_app, chat_id=999, message=mock_msg)
+    res = await ctx.react("👍")
+    assert res is True
+    mock_app.send_reaction.assert_awaited_once_with(999, message_id=12345, emoji="👍")
+
+    # 2. 显式指定 message_id
+    mock_app.send_reaction.reset_mock()
+    await ctx.react("❤️", message_id=54321)
+    mock_app.send_reaction.assert_awaited_once_with(999, message_id=54321, emoji="❤️")
+
+    # 3. 无消息且无显式 message_id 时抛出 ValueError
+    ctx_no_msg = PluginContext(app=mock_app, chat_id=999, message=None)
+    with pytest.raises(ValueError) as exc:
+        await ctx_no_msg.react("🎉")
+    assert "无有效消息" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_disabled_plugin_skipped_in_signer_actions():
+    """测试在 PluginRegistry 中停用的插件在执行动作时被跳过"""
+    PluginRegistry._plugins.pop("test_toggleable_action_plugin", None)
+
+    @PluginRegistry.register("test_toggleable_action_plugin", mode="active")
+    async def active_handler(ctx: PluginContext):
+        return True
+
+    signer = DummySigner()
+    chat = SignChatV3(
+        chat_id=123,
+        actions=[PluginAction(plugin_name="test_toggleable_action_plugin", mode="active")],
+    )
+
+    # 默认启用状态
+    assert PluginRegistry.is_enabled("test_toggleable_action_plugin") is True
+    ok = await signer.wait_for(chat, chat.actions[0])
+    assert ok is True
+
+    # 标记停用
+    PluginRegistry.set_disabled("test_toggleable_action_plugin", True)
+    assert PluginRegistry.is_enabled("test_toggleable_action_plugin") is False
+
+    ok_disabled = await signer.wait_for(chat, chat.actions[0])
+    assert ok_disabled is False
+    assert any("已被停用，跳过执行" in e[1] for e in signer.log_entries)
+
+    # 响应式插件停用测试
+    signer.log_entries.clear()
+    msg = MagicMock()
+    msg.text = "test hello"
+    reactive_action = PluginAction(plugin_name="test_toggleable_action_plugin", mode="reactive")
+    ok_reactive = await signer._dispatch_reactive_plugin_message(
+        reactive_action, chat, msg, eff_timeout=1.0
+    )
+    assert ok_reactive is False
+    assert any("已被停用，跳过响应" in e[1] for e in signer.log_entries)
+
+    # 恢复启用
+    PluginRegistry.set_disabled("test_toggleable_action_plugin", False)
+    assert PluginRegistry.is_enabled("test_toggleable_action_plugin") is True

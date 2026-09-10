@@ -30,12 +30,22 @@ def _safe_source_path(source_path: Optional[str]) -> Optional[str]:
     return "/".join(path.parts[-2:])
 
 
+def _get_disabled_plugins() -> set[str]:
+    try:
+        from backend.services.config import get_config_service
+        settings = get_config_service().get_global_settings() or {}
+        return set(settings.get("disabled_plugins", []))
+    except Exception:
+        return set()
+
+
 class PluginInfo(BaseModel):
     name: str
     mode: str
     description: str = ""
     source_path: Optional[str] = None
     params_schema: List[Dict[str, Any]] = Field(default_factory=list)
+    enabled: bool = True
 
 
 class ReloadPluginsResponse(BaseModel):
@@ -56,6 +66,7 @@ class PluginTestResponse(BaseModel):
     killed: bool = False
     reply_text: Optional[str] = None
     sent_messages: List[str] = Field(default_factory=list)
+    reacted_emojis: List[str] = Field(default_factory=list)
     logs: List[str] = Field(default_factory=list)
     duration_ms: float = 0.0
     error: Optional[str] = None
@@ -65,6 +76,10 @@ class PluginTestResponse(BaseModel):
 async def list_plugins(_user: User = Depends(get_current_user)) -> List[PluginInfo]:
     """获取所有已加载的自定义插件列表。"""
     plugins = PluginRegistry.list_plugins()
+    disabled_set = _get_disabled_plugins()
+    for name in plugins:
+        PluginRegistry.set_disabled(name, disabled=name in disabled_set)
+
     return [
         PluginInfo(
             name=p.name,
@@ -72,6 +87,7 @@ async def list_plugins(_user: User = Depends(get_current_user)) -> List[PluginIn
             description=p.description,
             source_path=_safe_source_path(p.source_path),
             params_schema=p.params_schema or [],
+            enabled=p.name not in disabled_set,
         )
         for p in plugins.values()
     ]
@@ -84,6 +100,10 @@ async def reload_plugins(
     """重新扫描并加载所有配置的插件目录。"""
     PluginRegistry.reload_all_plugins()
     plugins = PluginRegistry.list_plugins()
+    disabled_set = _get_disabled_plugins()
+    for name in plugins:
+        PluginRegistry.set_disabled(name, disabled=name in disabled_set)
+
     res_list = [
         PluginInfo(
             name=p.name,
@@ -91,11 +111,60 @@ async def reload_plugins(
             description=p.description,
             source_path=_safe_source_path(p.source_path),
             params_schema=p.params_schema or [],
+            enabled=p.name not in disabled_set,
         )
         for p in plugins.values()
     ]
     logger.info("已重新加载自定义插件，当前共 %d 个可用插件", len(res_list))
     return ReloadPluginsResponse(count=len(res_list), plugins=res_list)
+
+
+@router.post("/{name}/toggle", response_model=PluginInfo)
+async def toggle_plugin(
+    name: str,
+    _user: User = Depends(get_current_user),
+) -> PluginInfo:
+    """切换插件的启用/停用软开关状态。"""
+    meta = PluginRegistry.get(name)
+    if not meta:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"插件 '{name}' 未找到或未加载",
+        )
+
+    try:
+        from backend.services.config import get_config_service
+        cfg_svc = get_config_service()
+        settings = dict(cfg_svc.get_global_settings() or {})
+        disabled_list = list(settings.get("disabled_plugins", []))
+    except Exception:
+        cfg_svc = None
+        disabled_list = []
+
+    currently_disabled = name in disabled_list
+    new_disabled = not currently_disabled
+
+    if new_disabled:
+        if name not in disabled_list:
+            disabled_list.append(name)
+    else:
+        if name in disabled_list:
+            disabled_list.remove(name)
+
+    if cfg_svc is not None:
+        settings["disabled_plugins"] = disabled_list
+        cfg_svc.save_global_settings(settings)
+
+    PluginRegistry.set_disabled(name, disabled=new_disabled)
+
+    return PluginInfo(
+        name=meta.name,
+        mode=meta.mode,
+        description=meta.description,
+        source_path=_safe_source_path(meta.source_path),
+        params_schema=meta.params_schema or [],
+        enabled=not new_disabled,
+    )
 
 
 @router.post("/{name}/test", response_model=PluginTestResponse)
@@ -115,6 +184,7 @@ async def test_plugin(
     captured_logs: List[str] = []
     reply_record: List[str] = []
     sent_records: List[str] = []
+    reacted_records: List[str] = []
 
     def log_capture(msg: str):
         captured_logs.append(str(msg))
@@ -140,12 +210,22 @@ async def test_plugin(
             captured_logs.append("[mock] 点击了消息按钮")
             return True
 
+        async def react(self, emoji: str, **_kwargs):
+            reacted_records.append(str(emoji))
+            captured_logs.append(f"[mock] 对消息表态表情: {emoji}")
+            return True
+
     class MockApp:
         async def send_message(self, _chat_id, text: str, **kwargs):
             sent_records.append(str(text))
             if "reply_to_message_id" in kwargs:
                 reply_record.append(str(text))
             return MockMessage(text)
+
+        async def send_reaction(self, _chat_id, message_id: int, emoji: str, **_kwargs):
+            reacted_records.append(str(emoji))
+            captured_logs.append(f"[mock] 对消息 {message_id} 表态表情: {emoji}")
+            return True
 
     mock_msg = MockMessage(req.text)
     mock_app = MockApp()
@@ -156,6 +236,7 @@ async def test_plugin(
         message=mock_msg,
         params=req.params,
         logger=log_capture,
+        plugin_name=name,
     )
 
     try:
@@ -233,6 +314,7 @@ async def test_plugin(
             else (sent_records[-1] if sent_records else None)
         ),
         sent_messages=sent_records,
+        reacted_emojis=reacted_records,
         logs=captured_logs,
         duration_ms=duration_ms,
         error=err_str,

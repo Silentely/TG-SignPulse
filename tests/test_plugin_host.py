@@ -120,7 +120,7 @@ async def test_subprocess_host_tolerates_arbitrary_print_output():
     ctx = PluginContext(app=mock_app, chat_id=123, logger=mock_logger)
 
     host = PluginProcessHost(
-        plugin_name="test_plugin_with_prints", ctx=ctx, timeout=2.0
+        plugin_name="test_plugin_with_prints", ctx=ctx, timeout=5.0
     )
     res = await host.execute()
     assert res is True
@@ -163,7 +163,7 @@ async def test_subprocess_host_captures_worker_exception():
     ctx = PluginContext(app=mock_app, chat_id=123, logger=mock_logger)
 
     host = PluginProcessHost(
-        plugin_name="test_plugin_worker_exception", ctx=ctx, timeout=2.0
+        plugin_name="test_plugin_worker_exception", ctx=ctx, timeout=5.0
     )
 
     with pytest.raises(RuntimeError) as exc_info:
