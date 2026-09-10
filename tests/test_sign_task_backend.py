@@ -260,3 +260,33 @@ def test_task_tags_reject_oversized_values(tmp_path, monkeypatch):
             account_name="acc1",
             tags=["x" * 51],
         )
+
+
+def test_aggregate_tasks_preserves_tag_insertion_order():
+    """聚合视图标签按首次出现顺序合并，与单任务视图一致。"""
+    from backend.services.sign_task_group import aggregate_tasks
+
+    def _normalize(names, primary):
+        return [n for n in (names or []) if n]
+
+    merged = aggregate_tasks(
+        [
+            {
+                "name": "shared",
+                "account_name": "a1",
+                "account_names": ["a1"],
+                "task_group_id": "g1",
+                "tags": ["zebra", "alpha"],
+            },
+            {
+                "name": "shared",
+                "account_name": "a2",
+                "account_names": ["a2"],
+                "task_group_id": "g1",
+                "tags": ["mid"],
+            },
+        ],
+        normalize_account_names=_normalize,
+    )
+    assert len(merged) == 1
+    assert merged[0]["tags"] == ["zebra", "alpha", "mid"]

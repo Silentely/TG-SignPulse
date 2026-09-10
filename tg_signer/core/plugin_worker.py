@@ -73,7 +73,9 @@ class ProxyStorageClient:
     async def set(self, key: str, value: Any, ttl: Optional[float] = None) -> None:
         return await self._rpc("storage_set", key=key, value=value, ttl=ttl)
 
-    async def increment(self, key: str, delta: int = 1, default: int = 0) -> int:
+    async def increment(
+        self, key: str, delta: int = 1, default: int = 0
+    ) -> Optional[int]:
         return await self._rpc(
             "storage_increment", key=key, delta=delta, default=default
         )

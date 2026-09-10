@@ -103,18 +103,30 @@ const actions = ref<TaskActionItem[]>([{ id: nextActionId(), type: 'send_text', 
 /** 仅「编辑已有任务」为 true；模板预填新建不算编辑 */
 const isEditing = computed(() => !!props.lockTaskName)
 
+const MAX_TASK_TAGS = 20
+const MAX_TASK_TAGS_TOTAL_LENGTH = 500
 const taskTags = ref<string[]>([])
 const tagsInput = ref("")
+const tagsError = ref("")
 const syncTagsFromInput = () => {
+  tagsError.value = ""
   const parts = tagsInput.value.split(/[,，\s]+/).map(s => s.trim().slice(0, 50)).filter(Boolean)
-  if (parts.length > 0) {
-    const set = new Set([...taskTags.value, ...parts])
-    taskTags.value = Array.from(set)
-    tagsInput.value = ""
+  if (parts.length === 0) return
+  const merged = Array.from(new Set([...taskTags.value, ...parts]))
+  if (merged.length > MAX_TASK_TAGS) {
+    tagsError.value = t("taskForm.tagsTooMany", { n: MAX_TASK_TAGS })
+    return
   }
+  if (merged.reduce((sum, s) => sum + s.length, 0) > MAX_TASK_TAGS_TOTAL_LENGTH) {
+    tagsError.value = t("taskForm.tagsTooLong", { n: MAX_TASK_TAGS_TOTAL_LENGTH })
+    return
+  }
+  taskTags.value = merged
+  tagsInput.value = ""
 }
 const removeTag = (idx: number) => {
   taskTags.value.splice(idx, 1)
+  tagsError.value = ""
 }
 const handleTagsKeydown = (e: KeyboardEvent) => {
   if (e.key === "Enter" || e.key === ",") {
@@ -486,6 +498,7 @@ onMounted(() => { loadAccounts() })
             {{ t("common.add") || "添加" }}
           </button>
         </div>
+        <p v-if="tagsError" class="text-[10px] text-rose-600 dark:text-rose-400" role="alert">{{ tagsError }}</p>
         <div v-if="taskTags.length > 0" class="flex flex-wrap gap-1.5 pt-1">
           <span
             v-for="(tag, idx) in taskTags"

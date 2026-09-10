@@ -395,7 +395,9 @@
     "inputAiPrompt": "AI prompt",
     "timeRangeListenPlaceholder": "All day (24 hours)",
     "tags": "Tags",
-    "tagsPlaceholder": "Enter tag and press Enter or comma (e.g. checkin, lottery, daily)"
+    "tagsPlaceholder": "Enter tag and press Enter or comma (e.g. checkin, lottery, daily)",
+    "tagsTooMany": "Up to {n} tags",
+    "tagsTooLong": "Tags total length up to {n} characters"
   },
   "taskModal": {
     "addTitle": "Add Task",
@@ -816,6 +818,9 @@
     "cancel": "Cancel",
     "confirm": "Confirm",
     "close": "Close",
+    "add": "Add",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
     "loading": "Loading...",
     "processing": "Processing...",
     "noData": "No data",

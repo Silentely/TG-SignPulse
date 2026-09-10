@@ -4,7 +4,7 @@
 并使用持久化 KV 存储（ctx.storage）自动记录签到总次数与最后签到时间。
 """
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from tg_signer.core.plugins import PluginContext, PluginRegistry
 
@@ -34,27 +34,33 @@ PARAMS_SCHEMA: List[Dict[str, Any]] = [
     params_schema=PARAMS_SCHEMA,
 )
 async def daily_checkin_helper_handler(ctx: PluginContext) -> bool:
-    """执行主动签到辅助流程。"""
+    """响应签到回复消息：匹配并点击内联签到按钮，成功后累计签到统计。"""
     params: Dict[str, Any] = ctx.params or {}
     button_kw_str = str(params.get("button_keywords") or "签到,打卡,领取,Claim,Checkin")
     track_stats = bool(params.get("track_stats", True))
     keywords = [k.strip() for k in button_kw_str.split(",") if k.strip()]
 
     # 处理前置签到指令产生的响应消息；发送指令由前置 SendText 动作完成。
+    clicked_keyword: Optional[str] = None
     if ctx.message:
         for kw in keywords:
             try:
                 await ctx.click(kw)
+                clicked_keyword = kw
                 ctx.log(f"[daily_checkin_helper] 成功匹配并点击签到按钮: {kw}")
                 break
             except Exception:
                 continue
 
-    # 3. 持久化存储打卡统计
-    if track_stats:
+    # 仅在成功点击按钮后累计统计，未命中消息不计入签到次数
+    if track_stats and clicked_keyword is not None:
         now_iso = datetime.now(timezone.utc).isoformat()
         new_count = await ctx.storage.increment("checkin_total_count", 1)
-        await ctx.storage.set("last_checkin_time", now_iso)
-        ctx.log(f"[daily_checkin_helper] 签到统计已更新，累计签到次数: {new_count}")
+        if new_count is None:
+            ctx.log("[daily_checkin_helper] 签到统计写入失败", level="WARNING")
+        else:
+            await ctx.storage.set("last_checkin_time", now_iso)
+            ctx.log(f"[daily_checkin_helper] 签到统计已更新，累计签到次数: {new_count}")
 
-    return True
+    # 未点中按钮时返回 False，交由等待循环继续接收后续消息直至超时
+    return clicked_keyword is not None
