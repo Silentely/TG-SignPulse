@@ -25,6 +25,32 @@ _DEFAULT_TASK_FIELDS: Dict[str, Any] = {
     "tags": [],
 }
 
+MAX_TASK_TAGS = 20
+MAX_TASK_TAG_LENGTH = 50
+MAX_TASK_TAGS_TOTAL_LENGTH = 500
+
+
+def normalize_task_tags(tags: Optional[List[str]]) -> List[str]:
+    """清洗并限制任务标签，统一保护 API、服务和文件写入路径。"""
+    if tags is None:
+        return []
+    if len(tags) > MAX_TASK_TAGS:
+        raise ValueError(f"任务标签最多允许 {MAX_TASK_TAGS} 个")
+    result: List[str] = []
+    total_length = 0
+    for raw in tags:
+        value = str(raw or "").strip()
+        if not value:
+            continue
+        if len(value) > MAX_TASK_TAG_LENGTH:
+            raise ValueError(f"单个任务标签最多允许 {MAX_TASK_TAG_LENGTH} 个字符")
+        if value not in result:
+            result.append(value)
+            total_length += len(value)
+    if total_length > MAX_TASK_TAGS_TOTAL_LENGTH:
+        raise ValueError(f"任务标签总长度最多允许 {MAX_TASK_TAGS_TOTAL_LENGTH} 个字符")
+    return result
+
 
 def build_sign_task_config(
     *,
@@ -63,7 +89,7 @@ def build_sign_task_config(
         "notify_on_success": notify_on_success,
         "retry_count": retry_count,
         "enabled": enabled,
-        "tags": list(dict.fromkeys(str(t).strip() for t in (tags or []) if str(t).strip())),
+        "tags": normalize_task_tags(tags),
     }
     if last_run is not None:
         config["last_run"] = last_run
@@ -99,10 +125,8 @@ def resolve_update_field_values(
         "notify_on_success": notify_on_success if notify_on_success is not None else bool(existing.get("notify_on_success", _DEFAULT_TASK_FIELDS["notify_on_success"])),
         "enabled": enabled if enabled is not None else bool(existing.get("enabled", _DEFAULT_TASK_FIELDS["enabled"])),
         "retry_count": retry_count if retry_count is not None else int(existing.get("retry_count", _DEFAULT_TASK_FIELDS["retry_count"])),
-        "tags": (
-            list(dict.fromkeys(str(t).strip() for t in tags if str(t).strip()))
-            if tags is not None
-            else list(dict.fromkeys(str(t).strip() for t in (existing.get("tags") or _DEFAULT_TASK_FIELDS["tags"]) if str(t).strip()))
+        "tags": normalize_task_tags(
+            tags if tags is not None else existing.get("tags") or _DEFAULT_TASK_FIELDS["tags"]
         ),
     }
 

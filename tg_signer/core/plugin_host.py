@@ -7,7 +7,6 @@ import os
 import signal
 import subprocess
 import sys
-import time
 from typing import Any, Optional, Union
 
 from tg_signer.core.plugin_ipc import (
@@ -183,6 +182,13 @@ class PluginProcessHost:
                                 ttl = call_params.get("ttl", None)
                                 await self.ctx.storage.set(key, value, ttl=ttl)
                                 call_res = True
+                            elif method == "storage_increment":
+                                key = call_params.get("key", "")
+                                delta = call_params.get("delta", 1)
+                                default = call_params.get("default", 0)
+                                call_res = await self.ctx.storage.increment(
+                                    key, delta=delta, default=default
+                                )
                             elif method == "storage_delete":
                                 key = call_params.get("key", "")
                                 call_res = await self.ctx.storage.delete(key)

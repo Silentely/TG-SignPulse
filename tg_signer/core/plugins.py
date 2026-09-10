@@ -41,7 +41,7 @@ class PluginStorageBackend:
             elif Path("/data").is_dir() and os.access("/data", os.W_OK):
                 self.db_path = Path("/data/plugin_storage.db")
             else:
-                self.db_path = Path.cwd() / "data" / "plugin_storage.db" 
+                self.db_path = Path.cwd() / "data" / "plugin_storage.db"
 
         try:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -116,6 +116,40 @@ class PluginStorageBackend:
         except Exception as exc:
             _logger.warning("插件写入存储失败 [%s:%s]: %s", namespace, key, exc)
 
+    def increment(self, namespace: str, key: str, delta: int = 1, default: int = 0) -> int:
+        """在事务锁内原子递增整数值，返回递增后的结果。"""
+        try:
+            with self._get_conn() as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                row = conn.execute(
+                    "SELECT value, expires_at FROM plugin_kv WHERE namespace = ? AND key = ?",
+                    (namespace, key),
+                ).fetchone()
+                current = default
+                if row and (row[1] is None or row[1] >= time.time()):
+                    try:
+                        parsed = json.loads(row[0])
+                        if isinstance(parsed, (int, float)) and not isinstance(parsed, bool):
+                            current = int(parsed)
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        pass
+                updated = current + int(delta)
+                conn.execute(
+                    """
+                    INSERT INTO plugin_kv (namespace, key, value, expires_at)
+                    VALUES (?, ?, ?, NULL)
+                    ON CONFLICT(namespace, key) DO UPDATE SET
+                        value = excluded.value,
+                        expires_at = NULL
+                    """,
+                    (namespace, key, json.dumps(updated)),
+                )
+                conn.commit()
+                return updated
+        except Exception as exc:
+            _logger.warning("插件原子递增存储失败 [%s:%s]: %s", namespace, key, exc)
+            return default
+
     def delete(self, namespace: str, key: str) -> bool:
         try:
             with self._get_conn() as conn:
@@ -163,6 +197,15 @@ class PluginStorageClient:
             await loop.run_in_executor(None, self._backend.set, self.namespace, key, value, ttl)
         except RuntimeError:
             self._backend.set(self.namespace, key, value, ttl)
+
+    async def increment(self, key: str, delta: int = 1, default: int = 0) -> int:
+        try:
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(
+                None, self._backend.increment, self.namespace, key, delta, default
+            )
+        except RuntimeError:
+            return self._backend.increment(self.namespace, key, delta, default)
 
     async def delete(self, key: str) -> bool:
         try:
@@ -413,7 +456,7 @@ class PluginRegistry:
                             p_meta.source_path == str(resolved_file)
                             and not p_meta.params_schema
                         ):
-                            p_meta.params_schema = getattr(mod, "PARAMS_SCHEMA")
+                            p_meta.params_schema = mod.PARAMS_SCHEMA
                 _logger.info("已成功加载插件: %s (来自 %s)", folder_name, plugin_file)
             except ModuleNotFoundError as exc:
                 sys.modules.pop(module_name, None)

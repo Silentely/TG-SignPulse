@@ -847,7 +847,6 @@ async def test_plugin_isolation_engine_in_process_override(monkeypatch):
 async def test_plugin_storage_client_crud_and_ttl(tmp_path):
     """测试插件持久化 KV 存储 PluginStorageClient 的 CRUD、TTL 过期及命名空间隔离"""
     from tg_signer.core.plugins import PluginStorageBackend, PluginStorageClient
-    import time
 
     db_file = tmp_path / "test_storage.db"
     backend = PluginStorageBackend(db_path=db_file)
@@ -1025,22 +1024,35 @@ async def test_daily_checkin_helper_plugin(tmp_path, monkeypatch):
     mock_app.send_message = AsyncMock()
     mock_logger = MagicMock()
 
+    mock_msg = MagicMock()
+    mock_msg.id = 88
+    mock_msg.text = "签到结果"
+    mock_msg.click = AsyncMock()
     ctx = PluginContext(
         app=mock_app,
         chat_id=888,
+        message=mock_msg,
         logger=mock_logger,
         plugin_name="daily_checkin_helper",
-        params={"command": "/custom_checkin", "track_stats": True},
+        params={"button_keywords": "签到", "track_stats": True},
     )
     ok = await meta.handler(ctx)
     assert ok is True
-    mock_app.send_message.assert_awaited_once_with(888, "/custom_checkin")
+    mock_msg.click.assert_awaited_once_with("签到")
 
     # 验证打卡统计被写入持久化 KV
     count = await ctx.storage.get("checkin_total_count")
     assert count == 1
     last_cmd = await ctx.storage.get("last_checkin_command")
-    assert last_cmd == "/custom_checkin"
+    assert last_cmd is None
+
+
+@pytest.mark.asyncio
+async def test_plugin_storage_increment_is_atomic(tmp_path, monkeypatch):
+    monkeypatch.setenv("PLUGIN_STORAGE_PATH", str(tmp_path / "storage.db"))
+    ctx = PluginContext(app=MagicMock(), chat_id=777, plugin_name="counter")
+    await asyncio.gather(*(ctx.storage.increment("total") for _ in range(20)))
+    assert await ctx.storage.get("total") == 20
 
 
 @pytest.mark.asyncio

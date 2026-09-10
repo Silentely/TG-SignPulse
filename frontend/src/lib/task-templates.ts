@@ -87,10 +87,14 @@ export const BUILT_IN_TEMPLATES: TaskTemplate[] = [
     sign_at: '09:00',
     actions: [
       {
+        action: 1,
+        text: '/sign',
+      },
+      {
         action: 99,
         plugin_name: 'daily_checkin_helper',
+        mode: 'reactive',
         params: {
-          command: '/sign',
           button_keywords: '签到,打卡,checkin,Check in',
           track_stats: true,
         },

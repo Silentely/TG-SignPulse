@@ -64,9 +64,13 @@ class SignTaskCrudMixin:
         from backend.services.sign_task_config_build import (
             build_sign_task_config,
             create_task_group_id,
+            normalize_task_tags,
             pick_task_write_response,
             resolve_schedule_plan,
         )
+
+        # 先校验标签，再创建目录，避免非法输入留下半成品任务目录。
+        tags = normalize_task_tags(tags)
 
         task_group_id = create_task_group_id(len(target_accounts))
         schedule_plan = resolve_schedule_plan(
@@ -532,4 +536,3 @@ class SignTaskCrudMixin:
 
         self._refresh_tasks_cache_after_write()
         return True
-

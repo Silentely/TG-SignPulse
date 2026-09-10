@@ -181,6 +181,7 @@ def test_task_tags_lifecycle(tmp_path, monkeypatch):
     monkeypatch.setenv("TG_SIGNER_WORKDIR", str(tmp_path))
     from backend.services.sign_tasks import SignTaskService
     svc = SignTaskService()
+    account_name = f"acc_{tmp_path.name}"
     monkeypatch.setattr("backend.scheduler.add_or_update_sign_task_job", lambda *a, **kw: None)
     monkeypatch.setattr("backend.scheduler.remove_sign_task_job", lambda *a, **kw: None)
 
@@ -188,23 +189,23 @@ def test_task_tags_lifecycle(tmp_path, monkeypatch):
         task_name="tagged_task",
         sign_at="09:00",
         chats=[],
-        account_name="acc1",
+        account_name=account_name,
         tags=["crypto", "daily", "  checkin  "],
     )
     assert created["tags"] == ["crypto", "daily", "checkin"]
 
-    loaded = svc.get_task("tagged_task", account_name="acc1")
+    loaded = svc.get_task("tagged_task", account_name=account_name)
     assert loaded is not None
     assert loaded["tags"] == ["crypto", "daily", "checkin"]
 
     updated = svc.update_task(
         task_name="tagged_task",
-        account_name="acc1",
+        account_name=account_name,
         tags=["bot", "vip"],
     )
     assert updated["tags"] == ["bot", "vip"]
 
-    reloaded = svc.get_task("tagged_task", account_name="acc1")
+    reloaded = svc.get_task("tagged_task", account_name=account_name)
     assert reloaded["tags"] == ["bot", "vip"]
 
     # Test list_tasks filtering by tag
@@ -212,27 +213,50 @@ def test_task_tags_lifecycle(tmp_path, monkeypatch):
         task_name="other_task",
         sign_at="10:00",
         chats=[],
-        account_name="acc1",
+        account_name=account_name,
         tags=["crypto"],
     )
-    all_tasks = svc.list_tasks(force_refresh=True)
+    all_tasks = svc.list_tasks(account_name=account_name, force_refresh=True)
     assert len(all_tasks) == 2
 
-    vip_tasks = svc.list_tasks(force_refresh=False, tag="vip")
+    vip_tasks = svc.list_tasks(account_name=account_name, force_refresh=False, tag="vip")
     assert len(vip_tasks) == 1
     assert vip_tasks[0]["name"] == "tagged_task"
 
-    crypto_tasks = svc.list_tasks(force_refresh=False, tag="crypto")
+    crypto_tasks = svc.list_tasks(account_name=account_name, force_refresh=False, tag="crypto")
     assert len(crypto_tasks) == 1
     assert crypto_tasks[0]["name"] == "other_task"
 
-    none_tasks = svc.list_tasks(force_refresh=False, tag="nonexistent")
+    none_tasks = svc.list_tasks(account_name=account_name, force_refresh=False, tag="nonexistent")
     assert len(none_tasks) == 0
 
     # Test deduplication on update
     dedup_updated = svc.update_task(
         task_name="tagged_task",
-        account_name="acc1",
+        account_name=account_name,
         tags=["repeat", "repeat", "  repeat  ", "unique"],
     )
     assert dedup_updated["tags"] == ["repeat", "unique"]
+
+
+def test_task_tags_reject_oversized_values(tmp_path, monkeypatch):
+    monkeypatch.setenv("TG_SIGNER_WORKDIR", str(tmp_path))
+    from backend.services.sign_tasks import SignTaskService
+
+    svc = SignTaskService()
+    with pytest.raises(ValueError, match="标签"):
+        svc.create_task(
+            task_name="too_many_tags",
+            sign_at="09:00",
+            chats=[],
+            account_name="acc1",
+            tags=[f"tag-{idx}" for idx in range(21)],
+        )
+    with pytest.raises(ValueError, match="标签"):
+        svc.create_task(
+            task_name="too_long_tag",
+            sign_at="09:00",
+            chats=[],
+            account_name="acc1",
+            tags=["x" * 51],
+        )

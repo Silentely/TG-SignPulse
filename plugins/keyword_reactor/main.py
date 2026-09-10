@@ -3,8 +3,9 @@
 当接收到的消息满足关键词匹配规则时，自动为消息添加表情表态（Reaction）或进行快捷回复。
 支持包含匹配 (contains)、精确匹配 (exact) 及正则表达式 (regex)。
 """
-from typing import Any, Dict, List
 import re
+from typing import Any, Dict, List
+
 from tg_signer.core.plugins import PluginContext, PluginRegistry
 
 PARAMS_SCHEMA: List[Dict[str, Any]] = [
