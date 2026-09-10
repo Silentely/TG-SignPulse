@@ -116,6 +116,7 @@ environment:
 | `SIGN_TASK_ACCOUNT_COOLDOWN` | `5` | 同一账号两次执行间的冷却时间（秒） |
 | `SIGN_TASK_FLOW_RETRY_ATTEMPTS` | `1` | 流程级重试缺省值（面板「高级参数」可覆盖）。**仅当任务 config 未写入 `retry_count` 键时生效**；任务表单/创建接口写入的 `retry_count` 优先 |
 | `SIGN_TASK_RETRY_BACKOFF_STEPS` | `0` | 流程重试时回退的步数（0 = 从失败步骤继续，不重发已完成的步骤） |
+| `SIGN_TASK_RETRY_DELAY` | `1.0` | 流程重试等待秒数兜底值（仅当目标聊天未配置 `action_interval` 时生效；已配置时按其指数退避加抖动） |
 | `SIGN_TASK_HISTORY_MAX_ENTRIES` | `100` | 每个任务保留的历史记录条数 |
 | `SIGN_TASK_HISTORY_MAX_FLOW_LINES` | `5000` | 历史记录中保留的最大流程日志行数 |
 | `SIGN_TASK_HISTORY_MAX_LINE_CHARS` | `2000` | 单行日志最大字符数 |

@@ -1048,6 +1048,57 @@ async def test_daily_checkin_helper_plugin(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_daily_checkin_helper_no_button_click(tmp_path, monkeypatch):
+    """未命中任何按钮时不计入签到统计，且返回 False 交由等待循环继续。"""
+    PluginRegistry.load_all_configured_plugins()
+    meta = PluginRegistry.get("daily_checkin_helper")
+    assert meta is not None
+
+    monkeypatch.setenv("PLUGIN_STORAGE_PATH", str(tmp_path / "storage.db"))
+
+    mock_msg = MagicMock()
+    mock_msg.id = 90
+    mock_msg.text = "今日已签到，明天再来"
+    mock_msg.click = AsyncMock(side_effect=Exception("按钮不存在"))
+    ctx = PluginContext(
+        app=MagicMock(),
+        chat_id=889,
+        message=mock_msg,
+        logger=MagicMock(),
+        plugin_name="daily_checkin_helper",
+        params={"button_keywords": "签到", "track_stats": True},
+    )
+    assert await meta.handler(ctx) is False
+    assert await ctx.storage.get("checkin_total_count") is None
+
+
+@pytest.mark.asyncio
+async def test_plugin_storage_increment_returns_none_on_error(tmp_path):
+    from tg_signer.core.plugins import PluginStorageBackend
+
+    backend = PluginStorageBackend(db_path=tmp_path / "storage.db")
+    with patch.object(backend, "_get_conn", side_effect=RuntimeError("db down")):
+        assert backend.increment("ns", "counter") is None
+    # 存储恢复后可正常递增，且不把失败当作 0 起始值
+    assert backend.increment("ns", "counter") == 1
+
+
+def test_plugin_storage_increment_preserves_live_ttl(tmp_path):
+    from tg_signer.core.plugins import PluginStorageBackend
+
+    backend = PluginStorageBackend(db_path=tmp_path / "storage.db")
+    backend.set("ns", "ttl_counter", 5, ttl=60)
+    assert backend.increment("ns", "ttl_counter") == 6
+    with backend._get_conn() as conn:
+        row = conn.execute(
+            "SELECT value, expires_at FROM plugin_kv WHERE namespace = ? AND key = ?",
+            ("ns", "ttl_counter"),
+        ).fetchone()
+    assert row[0] == "6"
+    assert row[1] is not None and row[1] > 0  # 有效 TTL 被保留而非清零
+
+
+@pytest.mark.asyncio
 async def test_plugin_storage_increment_is_atomic(tmp_path, monkeypatch):
     monkeypatch.setenv("PLUGIN_STORAGE_PATH", str(tmp_path / "storage.db"))
     ctx = PluginContext(app=MagicMock(), chat_id=777, plugin_name="counter")

@@ -91,7 +91,7 @@ const selectedTag = ref("")
 const allTags = computed(() => {
   const set = new Set<string>()
   for (const t of tasks.value) {
-    const rawTags = t.raw?.tags || (t as any).tags || []
+    const rawTags = t.tags || t.raw?.tags || []
     for (const tag of rawTags) {
       if (tag && String(tag).trim()) set.add(String(tag).trim())
     }

@@ -116,8 +116,14 @@ class PluginStorageBackend:
         except Exception as exc:
             _logger.warning("插件写入存储失败 [%s:%s]: %s", namespace, key, exc)
 
-    def increment(self, namespace: str, key: str, delta: int = 1, default: int = 0) -> int:
-        """在事务锁内原子递增整数值，返回递增后的结果。"""
+    def increment(
+        self, namespace: str, key: str, delta: int = 1, default: int = 0
+    ) -> Optional[int]:
+        """在事务锁内原子递增整数值，返回递增后的结果；写入失败返回 None。
+
+        若目标键带有仍有效的 TTL，递增后保留原过期时间；过期键与新建键重置为永久。
+        """
+        now = time.time()
         try:
             with self._get_conn() as conn:
                 conn.execute("BEGIN IMMEDIATE")
@@ -126,7 +132,7 @@ class PluginStorageBackend:
                     (namespace, key),
                 ).fetchone()
                 current = default
-                if row and (row[1] is None or row[1] >= time.time()):
+                if row and (row[1] is None or row[1] >= now):
                     try:
                         parsed = json.loads(row[0])
                         if isinstance(parsed, (int, float)) and not isinstance(parsed, bool):
@@ -140,15 +146,20 @@ class PluginStorageBackend:
                     VALUES (?, ?, ?, NULL)
                     ON CONFLICT(namespace, key) DO UPDATE SET
                         value = excluded.value,
-                        expires_at = NULL
+                        expires_at = CASE
+                            WHEN plugin_kv.expires_at IS NOT NULL
+                                 AND plugin_kv.expires_at >= ?
+                            THEN plugin_kv.expires_at
+                            ELSE NULL
+                        END
                     """,
-                    (namespace, key, json.dumps(updated)),
+                    (namespace, key, json.dumps(updated), now),
                 )
                 conn.commit()
                 return updated
         except Exception as exc:
             _logger.warning("插件原子递增存储失败 [%s:%s]: %s", namespace, key, exc)
-            return default
+            return None
 
     def delete(self, namespace: str, key: str) -> bool:
         try:
@@ -198,7 +209,9 @@ class PluginStorageClient:
         except RuntimeError:
             self._backend.set(self.namespace, key, value, ttl)
 
-    async def increment(self, key: str, delta: int = 1, default: int = 0) -> int:
+    async def increment(
+        self, key: str, delta: int = 1, default: int = 0
+    ) -> Optional[int]:
         try:
             loop = asyncio.get_running_loop()
             return await loop.run_in_executor(
@@ -448,15 +461,21 @@ class PluginRegistry:
                     continue
                 mod = importlib.util.module_from_spec(spec)
                 sys.modules[module_name] = mod
+                pre_keys = set(cls._plugins.keys())
                 spec.loader.exec_module(mod)
                 cls._loaded_files.add(resolved_file)
+                # 模块级 PARAMS_SCHEMA 自动挂载：仅当该文件本次恰好注册一个
+                # 未在装饰器声明 schema 的插件时回填，避免同文件多插件误挂。
                 if hasattr(mod, "PARAMS_SCHEMA"):
-                    for p_meta in cls._plugins.values():
-                        if (
-                            p_meta.source_path == str(resolved_file)
-                            and not p_meta.params_schema
-                        ):
-                            p_meta.params_schema = mod.PARAMS_SCHEMA
+                    pending = [
+                        meta
+                        for name, meta in cls._plugins.items()
+                        if name not in pre_keys
+                        and meta.source_path == str(resolved_file)
+                        and not meta.params_schema
+                    ]
+                    if len(pending) == 1:
+                        pending[0].params_schema = mod.PARAMS_SCHEMA
                 _logger.info("已成功加载插件: %s (来自 %s)", folder_name, plugin_file)
             except ModuleNotFoundError as exc:
                 sys.modules.pop(module_name, None)

@@ -96,7 +96,14 @@ def aggregate_tasks(
         )
         existing["last_run"] = latest_last_run
         existing["last_run_account_name"] = latest_last_run_account_name
-        existing["tags"] = sorted({str(t).strip() for t in (existing.get("tags") or []) if str(t).strip()} | {str(t).strip() for t in (task.get("tags") or []) if str(t).strip()})
+        # 标签按首次出现顺序去重合并，与单任务视图保持一致
+        existing_tags = [
+            str(t).strip() for t in (existing.get("tags") or []) if str(t).strip()
+        ]
+        task_tags = [
+            str(t).strip() for t in (task.get("tags") or []) if str(t).strip()
+        ]
+        existing["tags"] = list(dict.fromkeys(existing_tags + task_tags))
 
     return sorted(
         grouped.values(),

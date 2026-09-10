@@ -395,7 +395,9 @@
     "inputAiPrompt": "AI 提示词",
     "timeRangeListenPlaceholder": "全天（24 小时）",
     "tags": "分类标签",
-    "tagsPlaceholder": "输入标签后按回车或逗号添加（如：签到, 抽奖, daily）"
+    "tagsPlaceholder": "输入标签后按回车或逗号添加（如：签到, 抽奖, daily）",
+    "tagsTooMany": "标签最多 {n} 个",
+    "tagsTooLong": "标签总长度最多 {n} 个字符"
   },
   "taskModal": {
     "addTitle": "添加任务",
@@ -816,6 +818,9 @@
     "cancel": "取消",
     "confirm": "确认",
     "close": "关闭",
+    "add": "添加",
+    "enabled": "已启用",
+    "disabled": "已停用",
     "loading": "加载中...",
     "processing": "处理中...",
     "noData": "暂无数据",

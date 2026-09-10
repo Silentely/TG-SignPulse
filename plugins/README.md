@@ -35,7 +35,7 @@ TG-SignPulse 随包提供了丰富的开箱即用官方插件，用户可在前�
   - **参数**：`keyword`（匹配关键词），`emoji`（表态 emoji，如 👍/❤️/🎉），`match_mode`（`contains` / `exact` / `regex`），`reply_text`（可选回复内容）。
 
 - **[`daily_checkin_helper`](./daily_checkin_helper/main.py)**：
-  通用日常签到与打卡连签辅助插件。配合前置发送签到口令的动作，智能识别并点击键盘内联打卡按钮，并通过插件存储后端持久化追踪打卡连签天数与总次数。
-  - **参数**：`button_keywords`（打卡按钮模糊匹配词），`track_stats`（是否统计连签）。
+  通用日常签到与打卡辅助插件。配合前置发送签到口令的动作，智能识别并点击键盘内联打卡按钮，成功点击后通过插件存储后端持久化记录累计签到次数与最后签到时间。
+  - **参数**：`button_keywords`（打卡按钮模糊匹配词），`track_stats`（是否记录签到统计）。
 
 详细插件开发指南请查阅：[TG-SignPulse 官方文档 - 自定义 Action 插件扩展机制](docs/guide/plugins.md)。
