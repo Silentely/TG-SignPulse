@@ -36,6 +36,7 @@ class SignTaskCrudMixin:
         notify_on_failure: bool = True,
         notify_on_success: bool = True,
         retry_count: Optional[int] = None,
+        tags: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Create a sign task that can be shared by multiple accounts."""
         from backend.services.config import get_config_service
@@ -96,6 +97,7 @@ class SignTaskCrudMixin:
                 notify_on_success=notify_on_success,
                 retry_count=retry_count if retry_count is not None else 3,
                 enabled=True,
+                tags=tags,
             )
 
             write_json_atomic(task_dir / "config.json", config)
@@ -180,6 +182,7 @@ class SignTaskCrudMixin:
             notify_on_failure=bool(src.get("notify_on_failure", True)),
             notify_on_success=bool(src.get("notify_on_success", True)),
             retry_count=src.get("retry_count"),
+            tags=list(src.get("tags") or []),
         )
 
     def update_task(
@@ -198,6 +201,7 @@ class SignTaskCrudMixin:
         notify_on_success: Optional[bool] = None,
         retry_count: Optional[int] = None,
         enabled: Optional[bool] = None,
+        tags: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Update one task and fan out the config to all linked accounts."""
         task_name = validate_storage_name(task_name, field_name="task_name")
@@ -263,6 +267,7 @@ class SignTaskCrudMixin:
             notify_on_success=notify_on_success,
             retry_count=retry_count,
             enabled=enabled,
+            tags=tags,
         )
         next_sign_at = fields["sign_at"]
         next_random_seconds = fields["random_seconds"]
@@ -275,6 +280,7 @@ class SignTaskCrudMixin:
         next_notify_on_success = fields["notify_on_success"]
         next_enabled = fields["enabled"]
         next_retry_count = fields["retry_count"]
+        next_tags = fields["tags"]
         schedule_plan = resolve_schedule_plan(
             next_execution_mode,
             sign_at=next_sign_at,
@@ -315,6 +321,7 @@ class SignTaskCrudMixin:
                 notify_on_success=next_notify_on_success,
                 retry_count=next_retry_count,
                 enabled=next_enabled,
+                tags=next_tags,
                 last_run=existing_last_run_map.get(current_account),
             )
 

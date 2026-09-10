@@ -99,6 +99,13 @@ const runTaskBusy = computed(() => Boolean(props.runBusyKey?.startsWith(`${props
           >
             {{ t('tasks.extraTargets', { n: task.targetCount - 1 }) }}
           </span>
+          <span
+            v-for="tag in (task.tags || task.raw?.tags || [])"
+            :key="tag"
+            class="ui-badge !text-[10px] font-mono bg-teal-50 text-teal-700 dark:bg-teal-950/40 dark:text-teal-300 border border-teal-200 dark:border-teal-800/50 max-w-[8rem] truncate"
+          >
+            #{{ tag }}
+          </span>
           <button
             v-if="task.isListenMode && (task.hitCount || 0) > 0"
             type="button"

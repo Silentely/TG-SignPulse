@@ -84,6 +84,7 @@ class SignTaskCreate(BaseModel):
     notify_on_failure: bool = Field(True, description="Failure notification switch")
     notify_on_success: bool = Field(True, description="Success notification switch")
     retry_count: Optional[int] = Field(None, ge=0, le=99, description="Retry count per task, default 3")
+    tags: List[str] = Field(default_factory=list, description="Task tags")
 
     if field_validator is not None:
         @field_validator("name")
@@ -117,6 +118,7 @@ class SignTaskUpdate(BaseModel):
     notify_on_failure: Optional[bool] = Field(None, description="Failure notification switch")
     notify_on_success: Optional[bool] = Field(None, description="Success notification switch")
     retry_count: Optional[int] = Field(None, ge=0, le=99, description="Retry count per task")
+    tags: Optional[List[str]] = Field(None, description="Task tags")
 
 
 class LastRunInfo(BaseModel):
@@ -160,6 +162,7 @@ class SignTaskOut(BaseModel):
     task_group_id: str = ""
     last_run_account_name: str = ""
     retry_count: int = 3
+    tags: List[str] = Field(default_factory=list)
     active_run: Optional[ActiveRunSummary] = None
 
 
@@ -229,12 +232,14 @@ def list_sign_tasks(
     account_name: Optional[str] = None,
     aggregate: bool = Query(False),
     force_refresh: bool = Query(False),
+    tag: Optional[str] = Query(None, description="Optional tag filter"),
     current_user=Depends(get_current_user),
 ):
     return get_sign_task_service().list_tasks(
         account_name=account_name,
         aggregate=aggregate,
         force_refresh=force_refresh,
+        tag=tag,
     )
 
 
@@ -269,6 +274,7 @@ def create_sign_task(
             notify_on_failure=payload.notify_on_failure,
             notify_on_success=payload.notify_on_success,
             retry_count=payload.retry_count,
+            tags=payload.tags,
         )
 
         # 调度同步和监控重启放到后台执行，避免阻塞 HTTP 响应
@@ -359,6 +365,7 @@ def update_sign_task(
             notify_on_failure=payload.notify_on_failure,
             notify_on_success=payload.notify_on_success,
             retry_count=payload.retry_count,
+            tags=payload.tags,
         )
 
         # 调度同步和监控重启放到后台执行，避免阻塞 HTTP 响应

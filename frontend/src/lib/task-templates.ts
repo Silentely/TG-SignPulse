@@ -15,6 +15,7 @@ export type TaskTemplate = {
   range_start?: string
   range_end?: string
   actions: RawTaskAction[]
+  tags?: string[]
 }
 
 export const BUILT_IN_TEMPLATES: TaskTemplate[] = [
@@ -25,6 +26,7 @@ export const BUILT_IN_TEMPLATES: TaskTemplate[] = [
     execution_mode: 'fixed',
     sign_at: '09:00',
     actions: [{ action: 1, text: '/checkin' }],
+    tags: ['checkin', 'daily'],
   },
   {
     id: 'click_button',
@@ -36,6 +38,7 @@ export const BUILT_IN_TEMPLATES: TaskTemplate[] = [
       { action: 1, text: '/start' },
       { action: 3, text: '签到' },
     ],
+    tags: ['checkin', 'button'],
   },
   {
     id: 'morning_range',
@@ -46,6 +49,7 @@ export const BUILT_IN_TEMPLATES: TaskTemplate[] = [
     range_start: '08:00',
     range_end: '10:00',
     actions: [{ action: 1, text: '/sign' }],
+    tags: ['range', 'daily'],
   },
   {
     id: 'dice_checkin',
@@ -57,6 +61,7 @@ export const BUILT_IN_TEMPLATES: TaskTemplate[] = [
       { action: 1, text: '签到' },
       { action: 2, dice: '🎲' },
     ],
+    tags: ['dice', 'game'],
   },
   {
     id: 'listen_keyword',
@@ -72,6 +77,26 @@ export const BUILT_IN_TEMPLATES: TaskTemplate[] = [
         push_channel: 'telegram',
       },
     ],
+    tags: ['monitor', 'listen'],
+  },
+  {
+    id: 'daily_plugin',
+    nameKey: 'tasks.tpl.dailyPlugin',
+    descKey: 'tasks.tpl.dailyPluginDesc',
+    execution_mode: 'fixed',
+    sign_at: '09:00',
+    actions: [
+      {
+        action: 99,
+        plugin_name: 'daily_checkin_helper',
+        params: {
+          command: '/sign',
+          button_keywords: '签到,打卡,checkin,Check in',
+          track_stats: true,
+        },
+      },
+    ],
+    tags: ['plugin', 'daily'],
   },
 ]
 
@@ -85,6 +110,7 @@ export type TemplateDraft = {
   range_end: string
   random_seconds: number
   retry_count: number
+  tags?: string[]
   chats: Array<{
     chat_id: number
     name: string
@@ -117,6 +143,7 @@ export function buildPayloadFromTemplate(
     range_end: tpl.range_end || '',
     random_seconds: 0,
     retry_count: 3,
+    tags: tpl.tags ? [...tpl.tags] : [],
     chats: [
       {
         chat_id: chatId,
@@ -156,5 +183,6 @@ export function buildSignTaskFromTemplate(
     range_start: draft.range_start || undefined,
     range_end: draft.range_end || undefined,
     retry_count: draft.retry_count,
+    tags: draft.tags ? [...draft.tags] : [],
   }
 }

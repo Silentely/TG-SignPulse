@@ -30,16 +30,18 @@ class PluginStorageBackend:
     """基于 SQLite 的线程与多进程安全轻量级 KV 存储后端。"""
 
     def __init__(self, db_path: Optional[Union[str, Path]] = None):
-        if db_path is None:
+        if db_path is not None:
+            self.db_path = Path(db_path)
+        elif os.getenv("PLUGIN_STORAGE_PATH"):
+            self.db_path = Path(os.getenv("PLUGIN_STORAGE_PATH"))
+        else:
             base_dir = os.getenv("APP_DATA_DIR") or os.getenv("TG_SIGNER_DATA_DIR")
             if base_dir:
                 self.db_path = Path(base_dir) / "plugin_storage.db"
             elif Path("/data").is_dir() and os.access("/data", os.W_OK):
                 self.db_path = Path("/data/plugin_storage.db")
             else:
-                self.db_path = Path.cwd() / "data" / "plugin_storage.db"
-        else:
-            self.db_path = Path(db_path)
+                self.db_path = Path.cwd() / "data" / "plugin_storage.db" 
 
         try:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -405,6 +407,13 @@ class PluginRegistry:
                 sys.modules[module_name] = mod
                 spec.loader.exec_module(mod)
                 cls._loaded_files.add(resolved_file)
+                if hasattr(mod, "PARAMS_SCHEMA"):
+                    for p_meta in cls._plugins.values():
+                        if (
+                            p_meta.source_path == str(resolved_file)
+                            and not p_meta.params_schema
+                        ):
+                            p_meta.params_schema = getattr(mod, "PARAMS_SCHEMA")
                 _logger.info("已成功加载插件: %s (来自 %s)", folder_name, plugin_file)
             except ModuleNotFoundError as exc:
                 sys.modules.pop(module_name, None)

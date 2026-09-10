@@ -22,6 +22,7 @@ _DEFAULT_TASK_FIELDS: Dict[str, Any] = {
     "enabled": True,
     "sign_at": "08:00",
     "chats": [],
+    "tags": [],
 }
 
 
@@ -41,6 +42,7 @@ def build_sign_task_config(
     notify_on_success: bool = _DEFAULT_TASK_FIELDS["notify_on_success"],
     retry_count: int = _DEFAULT_TASK_FIELDS["retry_count"],
     enabled: bool = _DEFAULT_TASK_FIELDS["enabled"],
+    tags: Optional[List[str]] = None,
     last_run: Any = None,
     version: int = 4,
 ) -> Dict[str, Any]:
@@ -61,6 +63,7 @@ def build_sign_task_config(
         "notify_on_success": notify_on_success,
         "retry_count": retry_count,
         "enabled": enabled,
+        "tags": [str(t).strip() for t in (tags or []) if str(t).strip()],
     }
     if last_run is not None:
         config["last_run"] = last_run
@@ -81,6 +84,7 @@ def resolve_update_field_values(
     notify_on_success: Optional[bool] = None,
     retry_count: Optional[int] = None,
     enabled: Optional[bool] = None,
+    tags: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """合并更新入参与既有配置，返回下一版字段值。"""
     return {
@@ -95,6 +99,11 @@ def resolve_update_field_values(
         "notify_on_success": notify_on_success if notify_on_success is not None else bool(existing.get("notify_on_success", _DEFAULT_TASK_FIELDS["notify_on_success"])),
         "enabled": enabled if enabled is not None else bool(existing.get("enabled", _DEFAULT_TASK_FIELDS["enabled"])),
         "retry_count": retry_count if retry_count is not None else int(existing.get("retry_count", _DEFAULT_TASK_FIELDS["retry_count"])),
+        "tags": (
+            [str(t).strip() for t in tags if str(t).strip()]
+            if tags is not None
+            else list(existing.get("tags") or _DEFAULT_TASK_FIELDS["tags"])
+        ),
     }
 
 

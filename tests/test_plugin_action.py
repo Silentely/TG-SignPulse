@@ -966,3 +966,78 @@ async def test_disabled_plugin_skipped_in_signer_actions():
     # 恢复启用
     PluginRegistry.set_disabled("test_toggleable_action_plugin", False)
     assert PluginRegistry.is_enabled("test_toggleable_action_plugin") is True
+
+
+@pytest.mark.asyncio
+async def test_keyword_reactor_plugin():
+    PluginRegistry.load_all_configured_plugins()
+    meta = PluginRegistry.get("keyword_reactor")
+    assert meta is not None
+    assert len(meta.params_schema) >= 3
+
+    mock_app = MagicMock()
+    mock_app.send_message = AsyncMock()
+    mock_app.send_reaction = AsyncMock()
+    mock_msg = MagicMock()
+    mock_msg.id = 101
+    mock_msg.text = "恭喜你签到成功！"
+    mock_logger = MagicMock(spec=["log"])
+
+    # 1. 命中 contains 模式
+    ctx = PluginContext(
+        app=mock_app,
+        chat_id=2026,
+        message=mock_msg,
+        logger=mock_logger,
+        params={
+            "keyword": "签到成功",
+            "emoji": "🎉",
+            "match_mode": "contains",
+            "reply_text": "收到通知！",
+        },
+    )
+    assert await meta.handler(ctx) is True
+    mock_app.send_reaction.assert_awaited_once_with(2026, message_id=101, emoji="🎉")
+    mock_app.send_message.assert_awaited_once_with(2026, "收到通知！", reply_to_message_id=101)
+
+    # 2. 未命中
+    mock_msg.text = "无关消息"
+    ctx2 = PluginContext(
+        app=mock_app,
+        chat_id=2026,
+        message=mock_msg,
+        logger=mock_logger,
+        params={"keyword": "签到成功"},
+    )
+    assert await meta.handler(ctx2) is False
+
+
+@pytest.mark.asyncio
+async def test_daily_checkin_helper_plugin(tmp_path, monkeypatch):
+    PluginRegistry.load_all_configured_plugins()
+    meta = PluginRegistry.get("daily_checkin_helper")
+    assert meta is not None
+
+    db_path = tmp_path / "test_plugin_storage.db"
+    monkeypatch.setenv("PLUGIN_STORAGE_PATH", str(db_path))
+
+    mock_app = MagicMock()
+    mock_app.send_message = AsyncMock()
+    mock_logger = MagicMock()
+
+    ctx = PluginContext(
+        app=mock_app,
+        chat_id=888,
+        logger=mock_logger,
+        plugin_name="daily_checkin_helper",
+        params={"command": "/custom_checkin", "track_stats": True},
+    )
+    ok = await meta.handler(ctx)
+    assert ok is True
+    mock_app.send_message.assert_awaited_once_with(888, "/custom_checkin")
+
+    # 验证打卡统计被写入持久化 KV
+    count = await ctx.storage.get("checkin_total_count")
+    assert count == 1
+    last_cmd = await ctx.storage.get("last_checkin_command")
+    assert last_cmd == "/custom_checkin"

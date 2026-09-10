@@ -25,7 +25,7 @@ from tg_signer.config import SignChatV3
 from tg_signer.context_vars import task_retry_count_var
 from tg_signer.core.client import Client, get_now
 from tg_signer.log_utils import safe_text_preview
-from tg_signer.utils import read_positive_int_env
+from tg_signer.utils import read_positive_float_env, read_positive_int_env
 
 logger = logging.getLogger("tg_signer.runtime.runner")
 
@@ -254,7 +254,18 @@ class SignerRunnerMixin:
                     f"{backoff_info}: {exc}",
                     level="WARNING",
                 )
-                await asyncio.sleep(max(float(chat.action_interval or 0), 1.0))
+                base_interval = float(chat.action_interval or 0)
+                if base_interval > 0:
+                    exp_delay = min(base_interval * (2 ** (flow_attempt - 1)), 60.0)
+                    jitter = random.uniform(0.5, 1.5)
+                    retry_sleep = round(exp_delay + jitter, 1)
+                else:
+                    retry_sleep = read_positive_float_env("SIGN_TASK_RETRY_DELAY", 1.0, 0.01)
+                self.log(
+                    f"触发重试退避，将在 {retry_sleep:g} 秒后进行第 {flow_attempt + 1}/{max_flow_attempts} 次重试...",
+                    level="INFO",
+                )
+                await asyncio.sleep(retry_sleep)
 
         raise RuntimeError(
             f"脚本流程尝试 {max_flow_attempts} 次仍失败: {last_error}"

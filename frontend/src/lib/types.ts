@@ -49,6 +49,7 @@ export interface TaskUiItem {
   enabled: boolean;
   chatAvatarUrl: string;
   chatName: string;
+  tags?: string[];
   raw: import('./api').SignTask;
 }
 

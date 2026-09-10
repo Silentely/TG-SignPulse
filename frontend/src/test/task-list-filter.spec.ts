@@ -12,6 +12,7 @@ const sample: TaskListFilterItem[] = [
     scheduleMode: '08:00',
     lastRunStr: '成功',
     isListenMode: false,
+    tags: ['checkin', 'daily'],
   },
   {
     name: 'listen_b',
@@ -53,6 +54,21 @@ describe('filterTasksByModeAndQuery', () => {
     expect(r).toHaveLength(1)
     expect(r[0].name).toBe('other')
   })
+
+  it('filters by tag', () => {
+    const r = filterTasksByModeAndQuery(sample, 'all', '', 'checkin')
+    expect(r).toHaveLength(1)
+    expect(r[0].name).toBe('daily_a')
+
+    const empty = filterTasksByModeAndQuery(sample, 'all', '', 'nonexistent')
+    expect(empty).toHaveLength(0)
+  })
+
+  it('searches query in tags', () => {
+    const r = filterTasksByModeAndQuery(sample, 'all', 'checkin')
+    expect(r).toHaveLength(1)
+    expect(r[0].name).toBe('daily_a')
+  })
 })
 
 describe('hasActiveListFilters', () => {
@@ -61,5 +77,6 @@ describe('hasActiveListFilters', () => {
     expect(hasActiveListFilters('x', 'all', '')).toBe(true)
     expect(hasActiveListFilters('', 'listen', '')).toBe(true)
     expect(hasActiveListFilters('', 'all', 'acc1')).toBe(true)
+    expect(hasActiveListFilters('', 'all', '', 'daily')).toBe(true)
   })
 })

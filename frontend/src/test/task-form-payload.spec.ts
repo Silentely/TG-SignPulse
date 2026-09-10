@@ -123,4 +123,36 @@ describe('buildTaskFormPayload', () => {
     expect(payload.chats?.[0]?.actions?.[0]?.action).toBe(8)
     expect(payload.chats?.[0]?.actions?.[0]?.bark_url).toBe('https://bark.example/x')
   })
+
+  it('preserves tags in payload', () => {
+    const payload = buildTaskFormPayload({
+      taskName: 'tagged_task',
+      selectedAccounts: ['acc1'],
+      allAccountsMode: false,
+      scheduleMode: 'scheduled',
+      timeRange: '08:00',
+      retryCount: 3,
+      tags: ['crypto', 'airdrop'],
+      targetChats: [],
+      fallbackChatId: 1,
+      fallbackChatName: 'chat1',
+      fallbackThreadId: '',
+      fallbackSenderFilter: '',
+      fallbackSourceAccount: 'acc1',
+      actions: [],
+      listenerKeywords: '',
+      listenerMatchMode: 'contains',
+      listenerPushChannel: 'continue',
+      listenerForwardChatId: '',
+      listenerForwardThreadId: '',
+      listenerBarkUrl: '',
+      listenerCustomUrl: '',
+      listenerServerChanKey: '',
+      listenerIgnoreSelf: true,
+      listenerTimeWindowEnabled: false,
+      listenerActiveTimeStart: '09:00',
+      listenerActiveTimeEnd: '22:00',
+    })
+    expect(payload.tags).toEqual(['crypto', 'airdrop'])
+  })
 })

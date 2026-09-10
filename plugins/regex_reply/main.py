@@ -32,33 +32,35 @@ except re.error as exc:
 print(json.dumps(result, ensure_ascii=False))
 '''
 
+PARAMS_SCHEMA = [
+    {
+        "name": "pattern",
+        "label": "匹配正则表达式",
+        "type": "string",
+        "default": r"验证码[：:\s]+([a-zA-Z0-9]+)",
+        "placeholder": r"例如：验证码[：:\s]+([a-zA-Z0-9]+) 或 \b\d{4,6}\b",
+    },
+    {
+        "name": "template",
+        "label": "回复文本模板",
+        "type": "string",
+        "default": "{1}",
+        "placeholder": "例如：{1}（第一捕获组）或 答案：{1}",
+    },
+    {
+        "name": "reply_to",
+        "label": "引用原消息回复",
+        "type": "bool",
+        "default": True,
+    },
+]
+
 
 @PluginRegistry.register(
     name="regex_reply",
     mode="reactive",
     description="通用正则匹配提取与回复插件（支持自定义模式与捕获组模板）",
-    params_schema=[
-        {
-            "name": "pattern",
-            "label": "匹配正则表达式",
-            "type": "string",
-            "default": r"验证码[：:\s]+([a-zA-Z0-9]+)",
-            "placeholder": r"例如：验证码[：:\s]+([a-zA-Z0-9]+) 或 \b\d{4,6}\b",
-        },
-        {
-            "name": "template",
-            "label": "回复文本模板",
-            "type": "string",
-            "default": "{1}",
-            "placeholder": "例如：{1}（第一捕获组）或 答案：{1}",
-        },
-        {
-            "name": "reply_to",
-            "label": "引用原消息回复",
-            "type": "bool",
-            "default": True,
-        },
-    ],
+    params_schema=PARAMS_SCHEMA,
 )
 async def regex_reply_handler(ctx: PluginContext) -> bool:
     """根据配置的正则表达式匹配到达的消息，并提取内容回复。"""

@@ -259,7 +259,9 @@
       "diceCheckin": "Dice check-in",
       "diceCheckinDesc": "Send text then roll a dice",
       "listenKeyword": "Keyword listen",
-      "listenKeywordDesc": "Listen for check-in keywords and notify"
+      "listenKeywordDesc": "Listen for check-in keywords and notify",
+      "dailyPlugin": "Smart Check-in Plugin",
+      "dailyPluginDesc": "Use built-in check-in helper to auto-send command and click check-in button"
     },
     "pushServerChan": "ServerChan",
     "serverChanKey": "ServerChan SendKey",
@@ -289,7 +291,8 @@
     "filterAll": "All",
     "filterListen": "Listen",
     "filterScheduled": "Scheduled",
-    "pausedHint": "Task is paused; resume it before running"
+    "pausedHint": "Task is paused; resume it before running",
+    "tagsLabel": "Tags"
   },
   "taskForm": {
     "taskName": "Task Name",
@@ -390,7 +393,9 @@
     "inputBotUsername": "Bot username",
     "inputCommandPrefix": "Command prefix",
     "inputAiPrompt": "AI prompt",
-    "timeRangeListenPlaceholder": "All day (24 hours)"
+    "timeRangeListenPlaceholder": "All day (24 hours)",
+    "tags": "Tags",
+    "tagsPlaceholder": "Enter tag and press Enter or comma (e.g. checkin, lottery, daily)"
   },
   "taskModal": {
     "addTitle": "Add Task",

@@ -18,9 +18,24 @@
 - **单文件插件**：
   `plugins/<plugin_name>.py`
 
-## 内置官方范例
+## 内置官方精选插件库
 
-- [`math_solver/main.py`](./math_solver/main.py)：
-  纯文本数学算式（如 `2*31`）本地秒答插件。用于处理不需要大语言模型介入的确定性验证码场景，避免产生 AI 费用与调用延迟。
+TG-SignPulse 随包提供了丰富的开箱即用官方插件，用户可在前端表单动作中选择「自定义插件」并直接填写插件名与参数：
 
-详细开发文档请查阅：[TG-SignPulse 官方文档 - 自定义 Action 插件扩展机制](file:///Users/adair/Projects/TG-SignPulse/docs/guide/plugins.md)。
+- **[`math_solver`](./math_solver/main.py)**：
+  纯文本数学算式（如 `2*31`、`15+28`）本地秒答插件。用于处理不需要大语言模型介入的确定性验证码场景，避免产生 AI 费用与调用延迟。
+  - **参数**：`reply_prefix`（可选，回复前缀如“答案是：”）。
+
+- **[`regex_reply`](./regex_reply/main.py)**：
+  通用正则表达式匹配提取与模板回复插件。支持通过正则捕获组提取验证码、动态口令，并配合模板安全秒回。
+  - **参数**：`pattern`（匹配正则），`template`（回复模板，如 `code:{1}`），`timeout`（匹配等待超时）。
+
+- **[`keyword_reactor`](./keyword_reactor/main.py)**：
+  关键词监听、自动表态反应（Reaction）与快捷回复插件。当 Bot 发送包含特定关键词（如“已签到”、“任务完成”）的消息时，自动为其点赞/点爱心并可选回复。
+  - **参数**：`keyword`（匹配关键词），`emoji`（表态 emoji，如 👍/❤️/🎉），`match_mode`（`contains` / `exact` / `regex`），`reply_text`（可选回复内容）。
+
+- **[`daily_checkin_helper`](./daily_checkin_helper/main.py)**：
+  通用日常签到与打卡连签辅助插件。自动发送签到口令，智能识别并点击键盘内联打卡按钮，并通过插件存储后端持久化追踪打卡连签天数与总次数。
+  - **参数**：`command`（打卡命令如 `/sign`），`button_keywords`（打卡按钮模糊匹配词），`track_stats`（是否统计连签）。
+
+详细插件开发指南请查阅：[TG-SignPulse 官方文档 - 自定义 Action 插件扩展机制](docs/guide/plugins.md)。
