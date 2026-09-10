@@ -69,4 +69,13 @@ describe('task-templates', () => {
     expect(act?.action).toBe(8)
     expect(Array.isArray(act?.keywords)).toBe(true)
   })
+
+  it('templates include tags and pre-fill them', () => {
+    const task = buildSignTaskFromTemplate('daily_plugin', {
+      account_name: 'a',
+    })
+    expect(task.tags).toEqual(['plugin', 'daily'])
+    expect(task.chats[0].actions?.[0].action).toBe(99)
+    expect(task.chats[0].actions?.[0].plugin_name).toBe('daily_checkin_helper')
+  })
 })

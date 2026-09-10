@@ -175,3 +175,56 @@ class TestActiveLogsSince:
         logs, total = svc.get_active_logs_since("t", None, 3)
         assert logs == []
         assert total == 3  # 命中第一个同名任务的 3 行
+
+
+def test_task_tags_lifecycle(tmp_path, monkeypatch):
+    monkeypatch.setenv("TG_SIGNER_WORKDIR", str(tmp_path))
+    from backend.services.sign_tasks import SignTaskService
+    svc = SignTaskService()
+    monkeypatch.setattr("backend.scheduler.add_or_update_sign_task_job", lambda *a, **kw: None)
+    monkeypatch.setattr("backend.scheduler.remove_sign_task_job", lambda *a, **kw: None)
+
+    created = svc.create_task(
+        task_name="tagged_task",
+        sign_at="09:00",
+        chats=[],
+        account_name="acc1",
+        tags=["crypto", "daily", "  checkin  "],
+    )
+    assert created["tags"] == ["crypto", "daily", "checkin"]
+
+    loaded = svc.get_task("tagged_task", account_name="acc1")
+    assert loaded is not None
+    assert loaded["tags"] == ["crypto", "daily", "checkin"]
+
+    updated = svc.update_task(
+        task_name="tagged_task",
+        account_name="acc1",
+        tags=["bot", "vip"],
+    )
+    assert updated["tags"] == ["bot", "vip"]
+
+    reloaded = svc.get_task("tagged_task", account_name="acc1")
+    assert reloaded["tags"] == ["bot", "vip"]
+
+    # Test list_tasks filtering by tag
+    svc.create_task(
+        task_name="other_task",
+        sign_at="10:00",
+        chats=[],
+        account_name="acc1",
+        tags=["crypto"],
+    )
+    all_tasks = svc.list_tasks(force_refresh=True)
+    assert len(all_tasks) == 2
+
+    vip_tasks = svc.list_tasks(force_refresh=False, tag="vip")
+    assert len(vip_tasks) == 1
+    assert vip_tasks[0]["name"] == "tagged_task"
+
+    crypto_tasks = svc.list_tasks(force_refresh=False, tag="crypto")
+    assert len(crypto_tasks) == 1
+    assert crypto_tasks[0]["name"] == "other_task"
+
+    none_tasks = svc.list_tasks(force_refresh=False, tag="nonexistent")
+    assert len(none_tasks) == 0

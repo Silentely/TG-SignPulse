@@ -15,11 +15,14 @@ const props = defineProps<{
   hasListFilters: boolean
   accountFilter: string
   showTemplateMenu: boolean
+  allTags?: string[]
+  selectedTag?: string
 }>()
 
 const emit = defineEmits<{
   (e: 'update:searchQuery', v: string): void
   (e: 'update:modeFilter', v: TaskListModeFilter): void
+  (e: 'update:selectedTag', v: string): void
   (e: 'toggle-select-all'): void
   (e: 'clear-selection'): void
   (e: 'batch', action: 'enable' | 'disable' | 'run' | 'delete'): void
@@ -195,6 +198,32 @@ onUnmounted(() => {
       <span v-if="batchBusy" class="ui-spinner !w-3.5 !h-3.5 !border-2" aria-hidden="true" />
     </div>
     <div
+      v-if="allTags && allTags.length > 0"
+      class="flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-gray-100 dark:border-gray-800/40 text-[11px]"
+    >
+      <span class="text-[10px] text-gray-400 shrink-0">{{ t('tasks.tagsLabel') || '标签' }}:</span>
+      <button
+        v-for="tag in allTags"
+        :key="tag"
+        type="button"
+        class="px-2 py-0.5 rounded text-[10px] font-mono transition-colors"
+        :class="selectedTag === tag
+          ? 'bg-teal-600 text-white dark:bg-teal-500 font-medium'
+          : 'bg-teal-50 text-teal-700 dark:bg-teal-950/40 dark:text-teal-300 border border-teal-200 dark:border-teal-800/50 hover:bg-teal-100 dark:hover:bg-teal-900/40'"
+        @click="emit('update:selectedTag', selectedTag === tag ? '' : tag)"
+      >
+        #{{ tag }}
+      </button>
+      <button
+        v-if="selectedTag"
+        type="button"
+        class="text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 underline ml-1"
+        @click="emit('update:selectedTag', '')"
+      >
+        {{ t('common.clear') }}
+      </button>
+    </div>
+    <div
       v-if="hasListFilters"
       class="flex flex-wrap items-center gap-1.5 pt-0.5 border-t border-gray-100 dark:border-gray-800/50"
     >
@@ -225,6 +254,15 @@ onUnmounted(() => {
         @click="emit('update:modeFilter', 'all')"
       >
         {{ t('tasks.filterScheduled') }}
+        <X class="w-3 h-3 shrink-0 opacity-70" />
+      </button>
+      <button
+        v-if="selectedTag"
+        type="button"
+        class="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-[11px] bg-teal-50 text-teal-700 dark:bg-teal-950/40 dark:text-teal-300 border border-teal-200 dark:border-teal-800/50"
+        @click="emit('update:selectedTag', '')"
+      >
+        <span>#{{ selectedTag }}</span>
         <X class="w-3 h-3 shrink-0 opacity-70" />
       </button>
       <button

@@ -96,6 +96,7 @@ def aggregate_tasks(
         )
         existing["last_run"] = latest_last_run
         existing["last_run_account_name"] = latest_last_run_account_name
+        existing["tags"] = sorted(list(set(existing.get("tags", [])) | set(task.get("tags", []))))
 
     return sorted(
         grouped.values(),

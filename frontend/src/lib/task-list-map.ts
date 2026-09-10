@@ -33,6 +33,7 @@ export type MappedTaskListFields = {
   enabled: boolean
   chatAvatarUrl: string
   chatName: string
+  tags: string[]
   raw: SignTask
 }
 
@@ -139,6 +140,7 @@ export function mapSignTaskToListFields(
     chatName: firstChat
       ? firstChat.name || `${labels.chatFallbackPrefix} ${firstChat.chat_id}`
       : '',
+    tags: task.tags || [],
     raw: task,
   }
 }

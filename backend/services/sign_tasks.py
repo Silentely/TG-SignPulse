@@ -596,6 +596,7 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         task_group_id: str = "",
         last_run_account_name: str = "",
         retry_count: int = 3,
+        tags: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         normalized_accounts = self._normalize_account_names(
             account_names, primary_account_name
@@ -620,6 +621,7 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
             "task_group_id": task_group_id,
             "last_run_account_name": last_run_account_name,
             "retry_count": retry_count,
+            "tags": [str(t).strip() for t in (tags or []) if str(t).strip()],
         }
 
     def _aggregate_tasks(self, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -749,6 +751,7 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         account_name: Optional[str] = None,
         force_refresh: bool = False,
         aggregate: bool = False,
+        tag: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Return sign tasks, optionally grouped by shared task set."""
         tasks: List[Dict[str, Any]]
@@ -805,6 +808,14 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
 
         if aggregate:
             tasks = self._aggregate_tasks(tasks)
+
+        if tag and tag.strip():
+            t = tag.strip().lower()
+            tasks = [
+                task
+                for task in tasks
+                if any(str(item).lower() == t for item in (task.get("tags") or []))
+            ]
         return self._attach_active_runs(tasks)
 
     def _attach_active_runs(self, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -908,6 +919,7 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
                     (last_run or {}).get("account_name") or resolved_account_name
                 ),
                 retry_count=int(config.get("retry_count", 3)),
+                tags=config.get("tags", []),
             )
             if return_raw:
                 return normalized, config

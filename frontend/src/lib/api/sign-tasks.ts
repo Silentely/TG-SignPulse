@@ -50,6 +50,7 @@ export interface SignTask {
   task_group_id?: string;
   last_run_account_name?: string;
   retry_count?: number;
+  tags?: string[];
   active_run?: ActiveRunSummary | null;
 }
 
@@ -67,6 +68,7 @@ export interface CreateSignTaskRequest {
   notify_on_failure?: boolean;
   notify_on_success?: boolean;
   retry_count?: number;
+  tags?: string[];
 }
 
 export interface UpdateSignTaskRequest {
@@ -81,6 +83,7 @@ export interface UpdateSignTaskRequest {
   notify_on_failure?: boolean;
   notify_on_success?: boolean;
   retry_count?: number;
+  tags?: string[];
 }
 
 export interface ChatInfo {
@@ -98,11 +101,17 @@ export interface ChatSearchResponse {
   offset: number;
 }
 
-export async function listSignTasks(token: string, accountName?: string, forceRefresh?: boolean): Promise<SignTask[]> {
+export async function listSignTasks(
+  token: string,
+  accountName?: string,
+  forceRefresh?: boolean,
+  tag?: string,
+): Promise<SignTask[]> {
   const params = new URLSearchParams();
   if (accountName) params.append('account_name', accountName);
   if (forceRefresh) params.append('force_refresh', 'true');
   if (!accountName) params.append('aggregate', 'true');
+  if (tag) params.append('tag', tag);
   const url = `/sign-tasks${params.toString() ? `?${params.toString()}` : ''}`;
   return request<SignTask[]>(url, {}, token);
 }

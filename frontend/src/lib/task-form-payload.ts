@@ -41,6 +41,7 @@ export type TaskFormPayloadInput = {
   listenerTimeWindowEnabled: boolean
   listenerActiveTimeStart: string
   listenerActiveTimeEnd: string
+  tags?: string[]
 }
 
 function normalizeTimeHm(v: string): string {
@@ -180,6 +181,7 @@ export function buildTaskFormPayload(
     range_end: re,
     random_seconds: 0,
     retry_count: input.retryCount,
+    tags: input.tags || [],
     chats: safeChats,
   }
 }

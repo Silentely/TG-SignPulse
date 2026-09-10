@@ -87,8 +87,20 @@ const pickTemplate = (templateId: string) => {
   showTemplateMenu.value = false
   handleCreateFromTemplate(templateId)
 }
+const selectedTag = ref("")
+const allTags = computed(() => {
+  const set = new Set<string>()
+  for (const t of tasks.value) {
+    const rawTags = t.raw?.tags || (t as any).tags || []
+    for (const tag of rawTags) {
+      if (tag && String(tag).trim()) set.add(String(tag).trim())
+    }
+  }
+  return Array.from(set).sort()
+})
+
 const filteredTasks = computed(() =>
-  filterTasksByModeAndQuery(tasks.value, modeFilter.value, searchQuery.value),
+  filterTasksByModeAndQuery(tasks.value, modeFilter.value, searchQuery.value, selectedTag.value),
 )
 const listenTaskCount = computed(() => tasks.value.filter((t) => t.isListenMode).length)
 const allSelected = computed(() => filteredTasks.value.length > 0 && filteredTasks.value.every((t) => selectedTaskIds.value.has(t.id)))
@@ -113,7 +125,7 @@ const toggleSelectAll = () => {
 
 /** 是否有激活中的列表筛选（搜索 / 模式 / 账号深链） */
 const hasListFilters = computed(() =>
-  hasActiveListFilters(searchQuery.value, modeFilter.value, accountFilter.value),
+  hasActiveListFilters(searchQuery.value, modeFilter.value, accountFilter.value, selectedTag.value),
 )
 
 const loadAllAccounts = async () => {
@@ -256,6 +268,7 @@ const clearAccountFilter = () => {
 const clearListFilters = () => {
   searchQuery.value = ''
   modeFilter.value = 'all'
+  selectedTag.value = ''
   if (accountFilter.value) clearAccountFilter()
 }
 
@@ -422,6 +435,8 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
     <TaskListToolbar
       v-model:search-query="searchQuery"
       v-model:mode-filter="modeFilter"
+      v-model:selected-tag="selectedTag"
+      :all-tags="allTags"
       :all-selected="allSelected"
       :selected-count="selectedCount"
       :batch-busy="batchBusy"

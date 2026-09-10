@@ -103,6 +103,26 @@ const actions = ref<TaskActionItem[]>([{ id: nextActionId(), type: 'send_text', 
 /** 仅「编辑已有任务」为 true；模板预填新建不算编辑 */
 const isEditing = computed(() => !!props.lockTaskName)
 
+const taskTags = ref<string[]>([])
+const tagsInput = ref("")
+const syncTagsFromInput = () => {
+  const parts = tagsInput.value.split(/[,，\s]+/).map(s => s.trim()).filter(Boolean)
+  if (parts.length > 0) {
+    const set = new Set([...taskTags.value, ...parts])
+    taskTags.value = Array.from(set)
+    tagsInput.value = ""
+  }
+}
+const removeTag = (idx: number) => {
+  taskTags.value.splice(idx, 1)
+}
+const handleTagsKeydown = (e: KeyboardEvent) => {
+  if (e.key === "Enter" || e.key === ",") {
+    e.preventDefault()
+    syncTagsFromInput()
+  }
+}
+
 /** 编辑时若已有非默认高级字段，自动展开 */
 const shouldAutoExpandAdvanced = () => {
   if (!props.initialTask) return false
@@ -142,6 +162,7 @@ const loadAccounts = async () => {
     if (props.initialTask) {
       createMode.value = 'shared'
       taskName.value = props.initialTask.name || ''
+      taskTags.value = Array.isArray(props.initialTask.tags) ? [...props.initialTask.tags] : []
       retryCount.value = props.initialTask.retry_count ?? 3
       showAdvanced.value = shouldAutoExpandAdvanced()
       scheduleMode.value = props.initialTask.execution_mode === 'listen' ? 'listen' : 'scheduled'
@@ -385,6 +406,7 @@ const buildPayload = () =>
     listenerTimeWindowEnabled: listenerTimeWindowEnabled.value,
     listenerActiveTimeStart: listenerActiveTimeStart.value,
     listenerActiveTimeEnd: listenerActiveTimeEnd.value,
+    tags: taskTags.value,
   })
 /** 供父组件提交前触发；返回是否通过 */
 const validateForSubmit = (): boolean => {
@@ -442,6 +464,36 @@ onMounted(() => { loadAccounts() })
         <label class="ui-label-strong" for="task-form-time-range">{{ t('taskForm.timeRange') }}</label>
         <input id="task-form-time-range" v-model="timeRange" :disabled="scheduleMode === 'listen'" :placeholder="scheduleMode === 'listen' ? t('taskForm.timeRangeListenPlaceholder') : t('taskForm.timeRangePlaceholder')" class="ui-input disabled:opacity-50 disabled:bg-gray-50 dark:disabled:bg-gray-950" :class="timeRangeError ? '!border-rose-400 dark:!border-rose-500' : ''" :aria-invalid="!!timeRangeError" @blur="validateTimeRange" />
         <p v-if="timeRangeError" class="text-[10px] text-rose-600 dark:text-rose-400" role="alert">{{ timeRangeError }}</p>
+      </div>
+      <div class="space-y-1.5 md:col-span-2">
+        <label class="ui-label-strong" for="task-form-tags">{{ t("taskForm.tags") || "分类标签" }}</label>
+        <div class="flex items-center gap-2">
+          <input
+            id="task-form-tags"
+            v-model="tagsInput"
+            :placeholder="t('taskForm.tagsPlaceholder') || '输入标签后按回车或逗号添加（如：签到, 抽奖, daily）'"
+            class="ui-input !h-9 !text-xs"
+            @keydown="handleTagsKeydown"
+            @blur="syncTagsFromInput"
+          />
+          <button
+            type="button"
+            class="ui-btn-secondary !h-9 !px-3 !text-xs shrink-0"
+            @click="syncTagsFromInput"
+          >
+            {{ t("common.add") || "添加" }}
+          </button>
+        </div>
+        <div v-if="taskTags.length > 0" class="flex flex-wrap gap-1.5 pt-1">
+          <span
+            v-for="(tag, idx) in taskTags"
+            :key="tag"
+            class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-teal-50 text-teal-700 dark:bg-teal-950/50 dark:text-teal-300 border border-teal-200 dark:border-teal-800"
+          >
+            #{{ tag }}
+            <button type="button" class="hover:text-rose-600 font-bold ml-0.5 cursor-pointer" @click="removeTag(idx)">&times;</button>
+          </span>
+        </div>
       </div>
     </div>
     <!-- 高级选项：重试等，降低主路径认知负担 -->
