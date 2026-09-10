@@ -202,7 +202,7 @@ async def solve_math_challenge(ctx: PluginContext) -> bool:
 
 ### 官方预置实用插件
 
-TG-SignPulse 官方开箱预置了两个经过严格单测的生产级标准插件（位于 `plugins/` 目录）：
+TG-SignPulse 官方开箱预置了 4 个经过严格单测的生产级标准插件（位于 `plugins/` 目录）：
 
 1. **`math_solver`**（纯文本计算题秒答插件）：
    - **运行模式**：`reactive`
@@ -217,6 +217,22 @@ TG-SignPulse 官方开箱预置了两个经过严格单测的生产级标准插�
      - `template`：回复模板（默认为 `{1}` 对应第 1 捕获组，无捕获组时为全文）；
      - `reply_to`：是否引用原消息回复（布尔值，默认 `true`）。
 
+3. **`keyword_reactor`**（关键词表情表态与快捷回复插件）：
+   - **运行模式**：`reactive`
+   - **适用场景**：监听新接收到的消息，满足关键词匹配时自动为消息添加表情表态（Reaction 如 👍/🎉）并可同时发送附加回复。
+   - **参数配置**：
+     - `keyword`：匹配关键词或正则；
+     - `emoji`：表情符号（默认 `👍`）；
+     - `match_mode`：匹配模式（`contains` / `exact` / `regex`）；
+     - `reply_text`：可选附加回复文本。
+
+4. **`daily_checkin_helper`**（日常签到辅助与打卡统计插件）：
+   - **运行模式**：`active`
+   - **适用场景**：自动发送签到指令，智能匹配并点击内联键盘上的签到/领取按钮，并通过持久化存储累计签到次数。
+   - **参数配置**：
+     - `command`：签到指令（默认 `/checkin`）；
+     - `button_keywords`：内联按钮模糊匹配词（逗号分隔）；
+     - `track_stats`：是否记录签到统计（默认 `true`）。
 ---
 
 ### 在 Web 任务编排与系统设置中配置使用

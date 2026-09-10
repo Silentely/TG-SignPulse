@@ -621,7 +621,7 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
             "task_group_id": task_group_id,
             "last_run_account_name": last_run_account_name,
             "retry_count": retry_count,
-            "tags": [str(t).strip() for t in (tags or []) if str(t).strip()],
+            "tags": list(dict.fromkeys(str(t).strip() for t in (tags or []) if str(t).strip())),
         }
 
     def _aggregate_tasks(self, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

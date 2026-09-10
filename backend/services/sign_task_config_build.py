@@ -63,7 +63,7 @@ def build_sign_task_config(
         "notify_on_success": notify_on_success,
         "retry_count": retry_count,
         "enabled": enabled,
-        "tags": [str(t).strip() for t in (tags or []) if str(t).strip()],
+        "tags": list(dict.fromkeys(str(t).strip() for t in (tags or []) if str(t).strip())),
     }
     if last_run is not None:
         config["last_run"] = last_run
@@ -100,9 +100,9 @@ def resolve_update_field_values(
         "enabled": enabled if enabled is not None else bool(existing.get("enabled", _DEFAULT_TASK_FIELDS["enabled"])),
         "retry_count": retry_count if retry_count is not None else int(existing.get("retry_count", _DEFAULT_TASK_FIELDS["retry_count"])),
         "tags": (
-            [str(t).strip() for t in tags if str(t).strip()]
+            list(dict.fromkeys(str(t).strip() for t in tags if str(t).strip()))
             if tags is not None
-            else list(existing.get("tags") or _DEFAULT_TASK_FIELDS["tags"])
+            else list(dict.fromkeys(str(t).strip() for t in (existing.get("tags") or _DEFAULT_TASK_FIELDS["tags"]) if str(t).strip()))
         ),
     }
 

@@ -106,7 +106,7 @@ const isEditing = computed(() => !!props.lockTaskName)
 const taskTags = ref<string[]>([])
 const tagsInput = ref("")
 const syncTagsFromInput = () => {
-  const parts = tagsInput.value.split(/[,，\s]+/).map(s => s.trim()).filter(Boolean)
+  const parts = tagsInput.value.split(/[,，\s]+/).map(s => s.trim().slice(0, 50)).filter(Boolean)
   if (parts.length > 0) {
     const set = new Set([...taskTags.value, ...parts])
     taskTags.value = Array.from(set)
@@ -379,8 +379,9 @@ const moveAction=(i:number,d:number)=>{if(i+d<0||i+d>=actions.value.length)retur
  * 已删除冗余的 emit 通道；保存前父组件直接调 buildPayload() 同步取值，无防抖延迟。
  * createMode 不进 payload，父组件经 defineExpose 读取。
  */
-const buildPayload = () =>
-  buildTaskFormPayload({
+const buildPayload = () => {
+  syncTagsFromInput()
+  return buildTaskFormPayload({
     taskName: taskName.value,
     selectedAccounts: selectedAccounts.value,
     allAccountsMode: allAccountsMode.value,
@@ -408,6 +409,7 @@ const buildPayload = () =>
     listenerActiveTimeEnd: listenerActiveTimeEnd.value,
     tags: taskTags.value,
   })
+}
 /** 供父组件提交前触发；返回是否通过 */
 const validateForSubmit = (): boolean => {
   validateTaskName()

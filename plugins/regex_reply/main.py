@@ -65,7 +65,11 @@ PARAMS_SCHEMA = [
 async def regex_reply_handler(ctx: PluginContext) -> bool:
     """根据配置的正则表达式匹配到达的消息，并提取内容回复。"""
     msg = ctx.message
-    if not msg or not getattr(msg, "text", None):
+    if not msg:
+        return False
+
+    raw_text = getattr(msg, "text", None) or getattr(msg, "caption", None)
+    if not raw_text:
         return False
 
     params: Dict[str, Any] = ctx.params or {}
@@ -77,7 +81,7 @@ async def regex_reply_handler(ctx: PluginContext) -> bool:
         ctx.log(f"[regex_reply] 正则表达式过长，最多允许 {_MAX_PATTERN_LENGTH} 个字符")
         return False
 
-    text = str(msg.text)
+    text = str(raw_text)
     if len(text) > _MAX_MESSAGE_LENGTH:
         text = text[:_MAX_MESSAGE_LENGTH]
 
