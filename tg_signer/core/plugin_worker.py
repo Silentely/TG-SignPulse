@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import inspect
+import os
 import sys
 import traceback
 from pathlib import Path
@@ -60,6 +61,25 @@ def import_single_plugin_source(
     return PluginRegistry.get(plugin_name)
 
 
+class ProxyStorageClient:
+    """在 Worker 进程中通过 JSON-RPC 代理对宿主持久化存储的访问。"""
+
+    def __init__(self, rpc_requester: Callable[..., Any]):
+        self._rpc = rpc_requester
+
+    async def get(self, key: str, default: Any = None) -> Any:
+        return await self._rpc("storage_get", key=key, default=default)
+
+    async def set(self, key: str, value: Any, ttl: Optional[float] = None) -> None:
+        return await self._rpc("storage_set", key=key, value=value, ttl=ttl)
+
+    async def delete(self, key: str) -> bool:
+        return await self._rpc("storage_delete", key=key)
+
+    async def clear(self) -> int:
+        return await self._rpc("storage_clear")
+
+
 class ProxyPluginContext:
     """在 Worker 进程中提供与 PluginContext 100% 同构的执行上下文。"""
 
@@ -71,13 +91,16 @@ class ProxyPluginContext:
         rpc_requester: Callable[..., Any],
         logger_sink: Callable[[Dict[str, Any]], Any],
         message_thread_id: Optional[int] = None,
+        plugin_name: str = "",
     ):
         self.chat_id = chat_id
         self.message_thread_id = message_thread_id
         self.message = ProxyMessage(message) if message else None
         self.params = params or {}
+        self.plugin_name = plugin_name
         self._rpc = rpc_requester
         self._logger = logger_sink
+        self.storage = ProxyStorageClient(self._rpc)
 
         if self.message:
             self.message.click = self.click
@@ -115,11 +138,34 @@ class ProxyPluginContext:
             raise RuntimeError("当前上下文中无有效消息，无法执行点击按钮")
         return await self._rpc("click", text_or_index=text_or_index, **kwargs)
 
+    async def react(self, emoji: str, message_id: Optional[int] = None, **kwargs) -> Any:
+        msg_id = message_id
+        if msg_id is None and self.message is not None and getattr(self.message, "id", None) is not None:
+            msg_id = self.message.id
+        if msg_id is None:
+            raise ValueError("当前上下文中无有效消息 ID，无法执行表情表态")
+        call_params = {"emoji": emoji, "message_id": msg_id}
+        call_params.update(kwargs)
+        return await self._rpc("react", **call_params)
+
 
 async def run_worker_loop(
     reader: Optional[asyncio.StreamReader] = None,
     writer: Optional[Any] = None,
 ) -> None:
+    # 限制子进程最大虚拟内存配额（仅 POSIX 生效，防 OOM 内存泄露）
+    if sys.platform != "win32":
+        try:
+            import resource
+            max_mb = int(os.environ.get("PLUGIN_MAX_MEMORY_MB", "256"))
+            if max_mb > 0:
+                max_bytes = max_mb * 1024 * 1024
+                soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+                hard_limit = hard if hard > 0 else max_bytes
+                resource.setrlimit(resource.RLIMIT_AS, (min(max_bytes, hard_limit), hard_limit))
+        except Exception:
+            pass
+
     loop = asyncio.get_running_loop()
 
     if reader is None or writer is None:
@@ -129,9 +175,8 @@ async def run_worker_loop(
         w_transport, w_protocol = await loop.connect_write_pipe(
             asyncio.streams.FlowControlMixin, sys.stdout
         )
-        w = asyncio.StreamWriter(w_transport, w_protocol, r, loop)
+        writer = asyncio.StreamWriter(w_transport, w_protocol, None, loop)
         reader = r
-        writer = w
 
     req_id = 0
     pending_calls: Dict[int, asyncio.Future] = {}
@@ -185,6 +230,19 @@ async def run_worker_loop(
         if not meta:
             PluginRegistry.load_all_configured_plugins()
             meta = PluginRegistry.get(plugin_name)
+    except ModuleNotFoundError as e:
+        missing = getattr(e, "name", None) or str(e)
+        hint = f"缺少依赖模块 '{missing}'，可在环境中执行 pip install {missing} 进行安装"
+        exc_str = traceback.format_exc()
+        send_payload_sync(
+            {
+                "type": "return",
+                "success": False,
+                "error": f"{hint}\n\n{exc_str}",
+            }
+        )
+        await flush_writer()
+        return
     except Exception:
         exc_str = traceback.format_exc()
         send_payload_sync(
@@ -215,6 +273,7 @@ async def run_worker_loop(
         rpc_requester=rpc_request,
         logger_sink=send_payload_sync,
         message_thread_id=init_data.get("message_thread_id"),
+        plugin_name=plugin_name,
     )
 
     async def host_listener():
@@ -252,6 +311,11 @@ async def run_worker_loop(
         else:
             res = await asyncio.to_thread(meta.handler, ctx)
         send_payload_sync({"type": "return", "success": True, "result": bool(res)})
+    except ModuleNotFoundError as e:
+        missing = getattr(e, "name", None) or str(e)
+        hint = f"缺少依赖模块 '{missing}'，可在环境中执行 pip install {missing} 进行安装"
+        exc_str = traceback.format_exc()
+        send_payload_sync({"type": "return", "success": False, "error": f"{hint}\n\n{exc_str}"})
     except Exception:
         exc_str = traceback.format_exc()
         send_payload_sync({"type": "return", "success": False, "error": exc_str})
@@ -264,5 +328,12 @@ async def run_worker_loop(
         listener_task.cancel()
 
 
+def main() -> None:
+    try:
+        asyncio.run(run_worker_loop())
+    except KeyboardInterrupt:
+        pass
+
+
 if __name__ == "__main__":
-    asyncio.run(run_worker_loop())
+    main()

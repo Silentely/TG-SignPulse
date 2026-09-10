@@ -2,7 +2,7 @@
 /**
  * 签到日志弹窗：实时流 + 历史执行记录。
  */
-import { Loader2 } from 'lucide-vue-next'
+import { Loader2, Play } from 'lucide-vue-next'
 import FlowLogViewer from '../FlowLogViewer.vue'
 import type { SignTaskHistoryItem } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
@@ -38,6 +38,22 @@ const realtimeLineKey = (i: number, line: string) => `${i}|${line.slice(0, 64)}`
 /** 历史条目无后端 id，用 账号+时间+结果 组合稳定键 */
 const historyItemKey = (log: SignTaskHistoryItem) =>
   `${log.account_name || '-'}|${log.time || log.created_at || ''}|${log.success ? 1 : 0}`
+
+/** 从失败日志或响应中尝试提取插件名称及输入文本，便于一键跳转回放 */
+const extractPluginFromLog = (log: SignTaskHistoryItem): { pluginName?: string; input?: string } => {
+  const content = [
+    log.last_target_message,
+    log.bot_message,
+    log.message,
+    log.summary,
+    ...(log.flow_logs || []),
+  ].filter(Boolean).join('\n')
+
+  const match = content.match(/插件[「"']?([a-zA-Z0-9_-]+)[」"']?|Plugin\s+['"]?([a-zA-Z0-9_-]+)['"]?/i)
+  const pluginName = match ? (match[1] || match[2]) : undefined
+  const input = log.last_target_message || log.bot_message || undefined
+  return { pluginName, input }
+}
 </script>
 
 <template>
@@ -113,16 +129,37 @@ const historyItemKey = (log: SignTaskHistoryItem) =>
         </div>
       </div>
 
-      <div v-if="(log.flow_logs && log.flow_logs.length > 0) || log.message || log.summary" class="mt-3">
+      <div class="mt-3 flex items-center justify-between gap-2 flex-wrap">
         <button
+          v-if="(log.flow_logs && log.flow_logs.length > 0) || log.message || log.summary"
           type="button"
-          class="text-xs text-sky-600 dark:text-sky-400 hover:underline mb-2"
+          class="text-xs text-sky-600 dark:text-sky-400 hover:underline"
           @click="emit('toggle-expand', idx)"
         >
           {{ expandedIdx === idx ? t('taskLogs.collapseDetail') : t('taskLogs.expandDetail') }}
         </button>
+        <span v-else />
+
+        <!-- 失败一键回放至演练场 -->
+        <router-link
+          v-if="!log.success && (log.last_target_message || log.bot_message || extractPluginFromLog(log).pluginName)"
+          :to="{
+            path: '/settings',
+            query: {
+              tab: 'plugins',
+              ...(extractPluginFromLog(log).pluginName ? { testPlugin: extractPluginFromLog(log).pluginName } : {}),
+              ...(extractPluginFromLog(log).input ? { testInput: extractPluginFromLog(log).input } : {}),
+            },
+          }"
+          class="inline-flex items-center gap-1 text-xs text-sky-600 dark:text-sky-400 hover:text-sky-700 dark:hover:text-sky-300 font-medium transition-colors"
+        >
+          <Play class="w-3 h-3 fill-current" />
+          {{ t('settings.pluginsReplayInPlayground') }}
+        </router-link>
+      </div>
+
+      <div v-if="expandedIdx === idx" class="mt-2">
         <FlowLogViewer
-          v-if="expandedIdx === idx"
           :lines="log.flow_logs || (log.message || log.summary ? [String(log.message || log.summary)] : [])"
           :last-target-message="log.last_target_message || log.bot_message"
           :truncated="!!log.flow_truncated"

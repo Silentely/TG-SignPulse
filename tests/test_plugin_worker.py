@@ -428,3 +428,47 @@ async def test_worker_subprocess_end_to_end(tmp_path):
     assert return_payload is not None
     assert return_payload["success"] is True
     assert return_payload["result"] is True
+
+@pytest.mark.asyncio
+async def test_proxy_plugin_context_storage_and_react():
+    rpc_mock = AsyncMock(return_value="stored_val")
+    logs = []
+    msg_data = {
+        "id": 555,
+        "text": "original message",
+        "chat": {"id": 123, "title": "Group", "type": "supergroup"},
+    }
+    ctx = ProxyPluginContext(
+        chat_id=123,
+        message=msg_data,
+        params={},
+        rpc_requester=rpc_mock,
+        logger_sink=lambda payload: logs.append(payload),
+        plugin_name="test_worker_plugin",
+    )
+
+    # 1. ctx.react
+    rpc_mock.return_value = True
+    ok = await ctx.react("👍")
+    assert ok is True
+    rpc_mock.assert_called_with("react", emoji="👍", message_id=555)
+
+    # 2. ctx.storage.get
+    rpc_mock.reset_mock()
+    rpc_mock.return_value = "hello_val"
+    val = await ctx.storage.get("my_key", default="def")
+    assert val == "hello_val"
+    rpc_mock.assert_called_with("storage_get", key="my_key", default="def")
+
+    # 3. ctx.storage.set
+    rpc_mock.reset_mock()
+    rpc_mock.return_value = True
+    await ctx.storage.set("my_key", "new_val", ttl=60.0)
+    rpc_mock.assert_called_with("storage_set", key="my_key", value="new_val", ttl=60.0)
+
+    # 4. ctx.storage.delete
+    rpc_mock.reset_mock()
+    rpc_mock.return_value = True
+    del_ok = await ctx.storage.delete("my_key")
+    assert del_ok is True
+    rpc_mock.assert_called_with("storage_delete", key="my_key")

@@ -175,3 +175,68 @@ def test_test_plugin_endpoint_sync_hang_killed(api_client, monkeypatch):
     assert data["isolation"] == "subprocess"
     assert data["killed"] is True
     assert "超时" in data["error"]
+
+def test_toggle_plugin_endpoint(api_client):
+    """测试插件启用/停用软开关切换接口"""
+    token = _login(api_client)
+    headers = _auth(token)
+
+    @PluginRegistry.register(
+        name="test_toggle_candidate",
+        mode="reactive",
+        description="测试软开关切换",
+    )
+    def toggle_handler(ctx: PluginContext):
+        return True
+
+    # 初始状态应为启用
+    resp_init = api_client.get("/api/plugins", headers=headers)
+    assert resp_init.status_code == 200
+    item = next(p for p in resp_init.json() if p["name"] == "test_toggle_candidate")
+    assert item["enabled"] is True
+
+    # 第一次 toggle: 变为停用
+    resp_toggle1 = api_client.post("/api/plugins/test_toggle_candidate/toggle", headers=headers)
+    assert resp_toggle1.status_code == 200
+    data1 = resp_toggle1.json()
+    assert data1["name"] == "test_toggle_candidate"
+    assert data1["enabled"] is False
+
+    # 再次查询列表验证
+    resp_list1 = api_client.get("/api/plugins", headers=headers)
+    item1 = next(p for p in resp_list1.json() if p["name"] == "test_toggle_candidate")
+    assert item1["enabled"] is False
+
+    # 第二次 toggle: 恢复启用
+    resp_toggle2 = api_client.post("/api/plugins/test_toggle_candidate/toggle", headers=headers)
+    assert resp_toggle2.status_code == 200
+    assert resp_toggle2.json()["enabled"] is True
+
+    # 测试对不存在的插件 toggle 返回 404
+    resp_404 = api_client.post("/api/plugins/non_existent_xyz/toggle", headers=headers)
+    assert resp_404.status_code == 404
+
+
+def test_test_plugin_reaction(api_client):
+    """测试在沙箱演练场中使用 ctx.react 并返回 reacted_emojis"""
+    token = _login(api_client)
+    headers = _auth(token)
+
+    @PluginRegistry.register(
+        name="test_reaction_plugin",
+        mode="reactive",
+    )
+    async def reaction_handler(ctx: PluginContext):
+        await ctx.react("🎉")
+        return True
+
+    resp = api_client.post(
+        "/api/plugins/test_reaction_plugin/test",
+        headers=headers,
+        json={"text": "congrats"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is True
+    assert data["handled"] is True
+    assert "🎉" in data["reacted_emojis"]

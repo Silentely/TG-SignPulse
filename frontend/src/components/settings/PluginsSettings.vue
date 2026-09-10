@@ -1,16 +1,30 @@
 <script setup lang="ts">
 /**
  * 自定义插件概览、演练调试与重载区块：
- * 1. 展示已挂载 Action 插件清单（名称、模式、描述、路径、参数 Schema）；
- * 2. 提供「测试演练」弹窗，免打卡即时输入测试文本单测插件逻辑并回显日志；
- * 3. 提供「重新加载」按钮，触发服务端重新扫描插件目录。
+ * 1. 展示已挂载 Action 插件清单（名称、模式、描述、路径、参数 Schema、启用/停用状态）；
+ * 2. 提供插件软开关（动态启用/停用），无需修改或移动文件；
+ * 3. 提供「测试演练」弹窗，免打卡即时输入测试文本单测插件逻辑，支持回显表情表态 (Reactions) 与运行日志；
+ * 4. 支持 URL 查询参数 (?testPlugin=xxx&testInput=yyy) 快捷唤起演练场；
+ * 5. 提供「重新加载」按钮，触发服务端重新扫描插件目录。
  */
 import { ref, onMounted } from 'vue'
-import { Puzzle, RefreshCw, Folder, Info, Play, CheckCircle2, AlertCircle, Clock } from 'lucide-vue-next'
+import { useRoute } from 'vue-router'
+import {
+  Puzzle,
+  RefreshCw,
+  Folder,
+  Info,
+  Play,
+  CheckCircle2,
+  AlertCircle,
+  Clock,
+  Power,
+} from 'lucide-vue-next'
 import Modal from '../Modal.vue'
 import {
   getPlugins,
   reloadPlugins,
+  togglePlugin,
   testPlugin,
   type PluginInfo,
   type PluginTestResponse,
@@ -21,10 +35,12 @@ import { withToken } from '../../lib/api/core'
 
 const { t } = useI18n()
 const toast = useToast()
+const route = useRoute()
 
 const plugins = ref<PluginInfo[]>([])
 const loading = ref(false)
 const reloadLoading = ref(false)
+const togglingPluginName = ref<string | null>(null)
 
 // 测试演练弹窗状态
 const isTestModalOpen = ref(false)
@@ -34,10 +50,24 @@ const testParams = ref<Record<string, unknown>>({})
 const testRunning = ref(false)
 const testResult = ref<PluginTestResponse | null>(null)
 
+const checkRouteForTestPlugin = () => {
+  const targetName = route.query.testPlugin as string | undefined
+  if (!targetName) return
+  const found = plugins.value.find((p) => p.name === targetName)
+  if (found) {
+    openTestModal(found)
+    const customInput = route.query.testInput as string | undefined
+    if (customInput) {
+      testInputText.value = customInput
+    }
+  }
+}
+
 const loadPluginList = async () => {
   loading.value = true
   try {
     plugins.value = await withToken((token) => getPlugins(token)) ?? []
+    checkRouteForTestPlugin()
   } catch {
     // 允许离线或降级
   } finally {
@@ -57,6 +87,25 @@ const handleReload = async () => {
     toast.error(`${t('settings.pluginsReloadFailed')}: ${msg}`)
   } finally {
     reloadLoading.value = false
+  }
+}
+
+const handleToggle = async (plugin: PluginInfo) => {
+  togglingPluginName.value = plugin.name
+  try {
+    const res = await withToken((token) => togglePlugin(plugin.name, token))
+    if (!res) return
+    plugin.enabled = res.enabled
+    toast.success(
+      res.enabled
+        ? t('settings.pluginEnabledSuccess')
+        : t('settings.pluginDisabledSuccess'),
+    )
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    toast.error(`${t('settings.pluginToggleFailed')}: ${msg}`)
+  } finally {
+    togglingPluginName.value = null
   }
 }
 
@@ -93,10 +142,14 @@ const runPluginTest = async () => {
 
   try {
     const res = await withToken((token) =>
-      testPlugin(currentTestPlugin.value!.name, {
-        text: testInputText.value,
-        params: testParams.value,
-      }, token),
+      testPlugin(
+        currentTestPlugin.value!.name,
+        {
+          text: testInputText.value,
+          params: testParams.value,
+        },
+        token,
+      ),
     )
     if (!res) return
     testResult.value = res
@@ -169,12 +222,21 @@ onMounted(() => {
       <div
         v-for="plugin in plugins"
         :key="plugin.name"
-        class="p-3 border border-gray-100 dark:border-gray-800/60 bg-gray-50/60 dark:bg-white/[0.02] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs transition-colors hover:border-gray-300 dark:hover:border-gray-700"
+        class="p-3 border rounded flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs transition-colors"
+        :class="plugin.enabled !== false
+          ? 'border-gray-100 dark:border-gray-800/60 bg-gray-50/60 dark:bg-white/[0.02] hover:border-gray-300 dark:hover:border-gray-700'
+          : 'border-dashed border-gray-300 dark:border-gray-700/60 bg-gray-100/40 dark:bg-white/[0.01] opacity-75'"
       >
         <div class="min-w-0 space-y-1">
           <div class="flex items-center gap-2 flex-wrap">
             <span class="font-mono font-semibold text-gray-900 dark:text-gray-100 text-xs">
               {{ plugin.name }}
+            </span>
+            <span
+              v-if="plugin.enabled === false"
+              class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/50"
+            >
+              {{ t('settings.pluginsDisabledTag') }}
             </span>
             <span
               v-if="plugin.mode === 'reactive'"
@@ -204,6 +266,20 @@ onMounted(() => {
         </div>
 
         <div class="shrink-0 flex items-center gap-2">
+          <!-- 启用/停用软开关 -->
+          <button
+            type="button"
+            class="ui-btn-secondary !py-1 !px-2.5 !text-xs inline-flex items-center gap-1 transition-colors"
+            :class="plugin.enabled !== false ? 'text-emerald-600 dark:text-emerald-400 hover:text-emerald-700' : 'text-gray-400 dark:text-gray-500 hover:text-gray-600'"
+            :disabled="togglingPluginName === plugin.name"
+            @click="handleToggle(plugin)"
+          >
+            <RefreshCw v-if="togglingPluginName === plugin.name" class="w-3 h-3 animate-spin" />
+            <Power v-else class="w-3 h-3" />
+            {{ plugin.enabled !== false ? t('settings.pluginsEnabled') : t('settings.pluginsDisabled') }}
+          </button>
+
+          <!-- 演练调试 -->
           <button
             type="button"
             class="ui-btn-secondary !py-1 !px-2.5 !text-xs inline-flex items-center gap-1 text-sky-600 dark:text-sky-400 hover:text-sky-700"
@@ -327,6 +403,7 @@ onMounted(() => {
             </div>
           </div>
 
+          <!-- 回复文本 -->
           <div v-if="testResult.reply_text !== undefined && testResult.reply_text !== null" class="p-2 bg-white/80 dark:bg-black/30 rounded border border-gray-200 dark:border-gray-800">
             <span class="text-[10px] text-gray-400 block mb-0.5">{{ t('settings.pluginsReplyOutput') }}</span>
             <div class="font-mono text-xs text-sky-600 dark:text-sky-300 font-semibold select-all">
@@ -334,6 +411,21 @@ onMounted(() => {
             </div>
           </div>
 
+          <!-- 表情表态 (Reactions) -->
+          <div v-if="testResult.reacted_emojis && testResult.reacted_emojis.length" class="p-2 bg-white/80 dark:bg-black/30 rounded border border-gray-200 dark:border-gray-800">
+            <span class="text-[10px] text-gray-400 block mb-1">{{ t('settings.pluginsReactionOutput') }}</span>
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <span
+                v-for="(emoji, idx) in testResult.reacted_emojis"
+                :key="idx"
+                class="px-2 py-0.5 rounded-full text-base bg-sky-50 dark:bg-sky-950/60 border border-sky-200 dark:border-sky-800/60"
+              >
+                {{ emoji }}
+              </span>
+            </div>
+          </div>
+
+          <!-- 日志输出 -->
           <div v-if="testResult.logs && testResult.logs.length" class="space-y-1">
             <span class="text-[10px] text-gray-400 block">{{ t('settings.pluginsLogsLabel') }}</span>
             <div class="p-2 bg-gray-900 text-gray-200 rounded font-mono text-[11px] max-h-36 overflow-y-auto space-y-0.5 select-all">

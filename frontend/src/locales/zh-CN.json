@@ -705,7 +705,15 @@
     "aiVisionRetryHint": "AI 识图失败重试次数",
     "autoBackupIntervalHint": "自动备份间隔（小时，1–168）",
     "autoBackupKeepHint": "本地保留的备份份数（1–30）",
-    "logRetentionHint": "日志保留天数（单位：天）"
+    "logRetentionHint": "日志保留天数（单位：天）",
+    "pluginsEnabled": "已启用",
+    "pluginsDisabled": "已停用",
+    "pluginsDisabledTag": "已停用",
+    "pluginEnabledSuccess": "插件已成功启用",
+    "pluginDisabledSuccess": "插件已停用，后续打卡任务将跳过该插件",
+    "pluginToggleFailed": "切换插件状态失败",
+    "pluginsReactionOutput": "表情表态输出 (Reactions)",
+    "pluginsReplayInPlayground": "在演练场中调试回放"
   },
   "profile": {
     "title": "个人中心",

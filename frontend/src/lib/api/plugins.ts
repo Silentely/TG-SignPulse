@@ -1,5 +1,5 @@
 /**
- * 插件管理 API：获取已加载插件列表、测试运行与重新加载插件。
+ * 插件管理 API：获取已加载插件列表、测试运行、重新加载与启用/停用软开关。
  */
 import { request } from './core'
 
@@ -18,6 +18,7 @@ export interface PluginInfo {
   description: string
   source_path?: string | null
   params_schema?: PluginParamSchema[]
+  enabled?: boolean
 }
 
 export interface ReloadPluginsResponse {
@@ -38,6 +39,7 @@ export interface PluginTestResponse {
   killed?: boolean
   reply_text?: string | null
   sent_messages?: string[]
+  reacted_emojis?: string[]
   logs?: string[]
   duration_ms: number
   error?: string | null
@@ -51,6 +53,15 @@ export async function reloadPlugins(
   token: string,
 ): Promise<ReloadPluginsResponse> {
   return request<ReloadPluginsResponse>('/plugins/reload', {
+    method: 'POST',
+  }, token)
+}
+
+export async function togglePlugin(
+  name: string,
+  token: string,
+): Promise<PluginInfo> {
+  return request<PluginInfo>(`/plugins/${encodeURIComponent(name)}/toggle`, {
     method: 'POST',
   }, token)
 }
