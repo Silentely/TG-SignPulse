@@ -1,6 +1,7 @@
 """TG-SignPulse 官方范例插件：纯文本计算题秒答 (math_solver)。
 
-对应 GitHub Issue #10 场景：“某些签到 Bot 会发送纯文本数学验证码，例如‘请在 30 秒内输入 2*31 的答案’”。
+针对某些签到 Bot 会发送纯文本数学验证码，例如“请在 30 秒内输入 2*31 的答案”。
+本插件在 Bot 触发回复后秒级识别算式并直接给出答案回复。
 """
 import re
 from typing import Optional
@@ -43,7 +44,7 @@ PARAMS_SCHEMA = [
 @PluginRegistry.register(
     name="math_solver",
     mode="reactive",
-    description="纯文本计算题秒答插件（对应 Issue #10 示例）",
+    description="纯文本计算题秒答插件",
     params_schema=PARAMS_SCHEMA,
 )
 async def solve_math_challenge(ctx: PluginContext) -> bool:
