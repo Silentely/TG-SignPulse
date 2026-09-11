@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
 import inspect
 import logging
 import os
 import shutil
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
@@ -79,6 +79,22 @@ class CreatePluginRequest(BaseModel):
     version: str = Field(default="1.0.0", pattern=r"^\d+\.\d+\.\d+$")
 
 
+class PluginLoadErrorItem(BaseModel):
+    file_path: str
+    plugin_name: str
+    error_type: str
+    error_message: str
+    missing_module: Optional[str] = None
+    suggested_command: Optional[str] = None
+    timestamp: str = ""
+
+
+class PluginDiagnosticsResponse(BaseModel):
+    total_loaded: int
+    total_errors: int
+    load_errors: List[PluginLoadErrorItem]
+
+
 class ReloadPluginsResponse(BaseModel):
     count: int
     plugins: List[PluginInfo]
@@ -87,10 +103,12 @@ class ReloadPluginsResponse(BaseModel):
 class PluginTestRequest(BaseModel):
     text: str = Field(default="", description="模拟接收到的 Telegram 消息文本")
     params: Dict[str, Any] = Field(default_factory=dict, description="插件自定义参数")
+    reset_storage: bool = Field(default=False, description="测试前是否重置测试命名空间内的持久化存储")
 
 
 class PluginTestResponse(BaseModel):
     name: str
+    mode: str = "reactive"
     success: bool
     handled: bool
     isolation: str = "in_process"
@@ -101,6 +119,29 @@ class PluginTestResponse(BaseModel):
     logs: List[str] = Field(default_factory=list)
     duration_ms: float = 0.0
     error: Optional[str] = None
+
+
+@router.get("/diagnostics", response_model=PluginDiagnosticsResponse)
+async def get_plugin_diagnostics(_user: User = Depends(get_current_user)) -> PluginDiagnosticsResponse:
+    """获取插件加载诊断与加载失败项。"""
+    errs = PluginRegistry.get_load_errors()
+    items = [
+        PluginLoadErrorItem(
+            file_path=_safe_source_path(e.file_path) or e.file_path,
+            plugin_name=e.plugin_name,
+            error_type=e.error_type,
+            error_message=e.error_message,
+            missing_module=e.missing_module,
+            suggested_command=e.suggested_command,
+            timestamp=e.timestamp,
+        )
+        for e in errs
+    ]
+    return PluginDiagnosticsResponse(
+        total_loaded=len(PluginRegistry.list_plugins()),
+        total_errors=len(items),
+        load_errors=items,
+    )
 
 
 @router.get("", response_model=List[PluginInfo])
@@ -266,7 +307,15 @@ async def test_plugin(
             captured_logs.append(f"[mock] 对消息 {message_id} 表态表情: {emoji}")
             return True
 
-    mock_msg = MockMessage(req.text)
+    if req.reset_storage:
+        try:
+            from tg_signer.core.plugins import PluginStorageBackend
+            PluginStorageBackend().clear(namespace=f"12345678:{name}")
+            captured_logs.append("[mock] 已清空该插件测试命名空间持久化存储")
+        except Exception as exc:
+            captured_logs.append(f"[mock] 清空存储提示: {exc}")
+
+    mock_msg = MockMessage(req.text) if (req.text or meta.mode != "active") else None
     mock_app = MockApp()
 
     ctx = PluginContext(
@@ -343,6 +392,7 @@ async def test_plugin(
 
     return PluginTestResponse(
         name=name,
+        mode=meta.mode,
         success=success,
         handled=handled,
         isolation=isolation,

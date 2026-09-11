@@ -29,6 +29,9 @@ import {
   Copy,
   Check,
   Search,
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-vue-next'
 import Modal from '../Modal.vue'
 import {
@@ -39,9 +42,11 @@ import {
   getPluginSource,
   deletePlugin,
   createPlugin,
+  getPluginDiagnostics,
   type PluginInfo,
   type PluginTestResponse,
   type CreatePluginRequest,
+  type PluginLoadErrorItem,
 } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
@@ -73,6 +78,25 @@ const testInputText = ref('')
 const testParams = ref<Record<string, unknown>>({})
 const testRunning = ref(false)
 const testResult = ref<PluginTestResponse | null>(null)
+const resetStorage = ref(false)
+
+// 诊断状态
+const loadErrors = ref<PluginLoadErrorItem[]>([])
+const isDiagOpen = ref(false)
+const copiedDiagIndex = ref<number | null>(null)
+
+const copyInstallCommand = async (cmd: string, idx: number) => {
+  try {
+    await navigator.clipboard.writeText(cmd)
+    copiedDiagIndex.value = idx
+    toast.success(t('settings.pluginsDiagCopied'))
+    setTimeout(() => {
+      if (copiedDiagIndex.value === idx) copiedDiagIndex.value = null
+    }, 2000)
+  } catch {
+    toast.error(cmd)
+  }
+}
 
 // 新建插件弹窗状态
 const isCreateModalOpen = ref(false)
@@ -136,6 +160,14 @@ const loadPluginList = async () => {
   try {
     plugins.value = await withToken((token) => getPlugins(token)) ?? []
     checkRouteForTestPlugin()
+    try {
+      const diag = await withToken((token) => getPluginDiagnostics(token))
+      if (diag) {
+        loadErrors.value = diag.load_errors || []
+      }
+    } catch {
+      // 诊断非核心阻断
+    }
   } catch {
     // 允许离线或降级
   } finally {
@@ -149,6 +181,14 @@ const handleReload = async () => {
     const res = await withToken((token) => reloadPlugins(token))
     if (!res) return
     plugins.value = res.plugins
+    try {
+      const diag = await withToken((token) => getPluginDiagnostics(token))
+      if (diag) {
+        loadErrors.value = diag.load_errors || []
+      }
+    } catch {
+      // 诊断非核心阻断
+    }
     toast.success(t('settings.pluginsReloadSuccess', { count: res.count }))
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
@@ -293,6 +333,7 @@ const submitCreatePlugin = async () => {
 const openTestModal = (plugin: PluginInfo) => {
   currentTestPlugin.value = plugin
   testResult.value = null
+  resetStorage.value = false
 
   if (plugin.name === 'math_solver') {
     testInputText.value = '请在 30 秒内输入 2*31 的答案'
@@ -326,6 +367,7 @@ const runPluginTest = async () => {
         {
           text: testInputText.value,
           params: testParams.value,
+          reset_storage: resetStorage.value,
         },
         token,
       ),
@@ -390,6 +432,67 @@ onMounted(() => {
           <RefreshCw class="w-3.5 h-3.5" :class="reloadLoading ? 'animate-spin' : ''" />
           {{ reloadLoading ? t('settings.pluginsReloading') : t('settings.pluginsReload') }}
         </button>
+      </div>
+    </div>
+
+    <!-- 插件健康与依赖诊断警示面板 -->
+    <div
+      v-if="loadErrors.length > 0"
+      class="mb-4 rounded-lg border border-amber-300 dark:border-amber-700/70 bg-amber-50/80 dark:bg-amber-950/30 p-3.5 text-xs transition-all"
+    >
+      <div class="flex items-center justify-between gap-2 flex-wrap">
+        <div class="flex items-center gap-2 font-medium text-amber-800 dark:text-amber-300">
+          <AlertTriangle class="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+          <span>{{ t('settings.pluginsDiagTitle', { count: loadErrors.length }) }}</span>
+        </div>
+        <button
+          type="button"
+          class="ui-btn-secondary !py-0.5 !px-2 !text-[11px] inline-flex items-center gap-1 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700/80"
+          @click="isDiagOpen = !isDiagOpen"
+        >
+          <span>{{ isDiagOpen ? t('settings.pluginsDiagHide') : t('settings.pluginsDiagShow') }}</span>
+          <ChevronUp v-if="isDiagOpen" class="w-3 h-3" />
+          <ChevronDown v-else class="w-3 h-3" />
+        </button>
+      </div>
+
+      <div v-if="isDiagOpen" class="mt-3 pt-3 border-t border-amber-200 dark:border-amber-800/60 space-y-2.5">
+        <div
+          v-for="(err, idx) in loadErrors"
+          :key="idx"
+          class="p-2.5 rounded bg-white/70 dark:bg-black/30 border border-amber-200/80 dark:border-amber-900/50 flex flex-col sm:flex-row sm:items-center justify-between gap-2 font-mono text-[11px]"
+        >
+          <div class="min-w-0 space-y-1">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="font-bold text-amber-900 dark:text-amber-200 font-sans">{{ err.plugin_name }}</span>
+              <span
+                class="px-1.5 py-0.2 rounded text-[10px]"
+                :class="err.error_type === 'missing_dependency' ? 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300' : 'bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300'"
+              >
+                {{ err.error_type === 'missing_dependency' ? t('settings.pluginsDiagMissingDep') : (err.error_type === 'syntax_error' ? t('settings.pluginsDiagSyntaxErr') : t('settings.pluginsDiagLoadErr')) }}
+              </span>
+              <span class="text-[10px] text-gray-400 truncate max-w-xs">{{ err.file_path }}</span>
+            </div>
+            <div class="text-gray-600 dark:text-gray-400 font-sans text-xs">
+              {{ err.error_message }}
+            </div>
+          </div>
+
+          <div v-if="err.suggested_command" class="flex items-center gap-2 shrink-0">
+            <code class="px-2 py-1 rounded bg-gray-900 text-amber-300 text-[11px]">
+              {{ err.suggested_command }}
+            </code>
+            <button
+              type="button"
+              class="ui-btn-secondary !py-1 !px-2 !text-[11px] inline-flex items-center gap-1 shrink-0"
+              @click="copyInstallCommand(err.suggested_command, idx)"
+            >
+              <Check v-if="copiedDiagIndex === idx" class="w-3 h-3 text-emerald-500" />
+              <Copy v-else class="w-3 h-3" />
+              <span>{{ copiedDiagIndex === idx ? t('settings.pluginsDiagCopied') : t('settings.pluginsDiagCopyCmd') }}</span>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -677,15 +780,26 @@ onMounted(() => {
           {{ currentTestPlugin.description }}
         </p>
 
-        <!-- 模拟消息输入 -->
+        <!-- 模式提示与特性说明 -->
+        <div
+          class="p-2.5 rounded border text-[11px] leading-relaxed"
+          :class="currentTestPlugin.mode === 'active' ? 'border-emerald-200/70 bg-emerald-50/40 dark:border-emerald-900/50 dark:bg-emerald-950/20 text-emerald-800 dark:text-emerald-300' : 'border-sky-200/70 bg-sky-50/40 dark:border-sky-900/50 dark:bg-sky-950/20 text-sky-800 dark:text-sky-300'"
+        >
+          {{ currentTestPlugin.mode === 'active' ? t('settings.pluginsPlaygroundModeActiveTip') : t('settings.pluginsPlaygroundModeReactiveTip') }}
+        </div>
+
+        <!-- 模拟消息输入 (仅 reactive 模式为主要必填，active 模式作为可选扩展) -->
         <div class="space-y-1">
-          <label class="font-medium text-gray-700 dark:text-gray-300">
-            {{ t('settings.pluginsTestInputLabel') }}
-          </label>
+          <div class="flex items-center justify-between text-gray-700 dark:text-gray-300">
+            <label class="font-medium">
+              {{ t('settings.pluginsTestInputLabel') }}
+              <span v-if="currentTestPlugin.mode === 'active'" class="text-gray-400 font-normal text-[10px]">({{ t('common.optional') }})</span>
+            </label>
+          </div>
           <textarea
             v-model="testInputText"
-            rows="3"
-            class="ui-input !h-auto !py-2 !px-2.5 !text-xs w-full font-mono"
+            rows="2"
+            class="ui-input !h-auto !py-1.5 !px-2.5 !text-xs w-full font-mono"
             :placeholder="t('settings.pluginsTestInputPlaceholder')"
           />
         </div>
@@ -734,8 +848,17 @@ onMounted(() => {
           </div>
         </div>
 
-        <!-- 执行按钮 -->
-        <div class="flex justify-end">
+        <!-- 执行与存储重置控制 -->
+        <div class="flex items-center justify-between gap-2 pt-1">
+          <label class="inline-flex items-center gap-1.5 cursor-pointer text-[11px] text-gray-600 dark:text-gray-400" :title="t('settings.pluginsPlaygroundResetStorageTip')">
+            <input
+              v-model="resetStorage"
+              type="checkbox"
+              class="rounded text-sky-600 focus:ring-sky-500 h-3.5 w-3.5"
+            />
+            <span>{{ t('settings.pluginsPlaygroundResetStorage') }}</span>
+          </label>
+
           <button
             type="button"
             class="ui-btn-primary !px-4 !py-1.5 !text-xs inline-flex items-center gap-1.5"

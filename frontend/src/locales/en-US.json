@@ -418,7 +418,9 @@
     "skipIfMatchedDesc": "Automatically skip this step if previous output or message matches",
     "macroHelper": "Dynamic Macro Variables",
     "advancedActionOptions": "Pipeline & Fault-Tolerance",
-    "collapseOptions": "Collapse Options"
+    "collapseOptions": "Collapse Options",
+    "debugPlugin": "Debug Plugin",
+    "debugPluginTip": "Debug this plugin online with current parameters"
   },
   "taskModal": {
     "addTitle": "Add Task",
@@ -783,7 +785,20 @@
     "pluginsFilterBuiltin": "Built-in",
     "pluginsFilterCustom": "Custom",
     "pluginsSourceOpenTest": "Open Debugger",
-    "pluginsEmptyFilter": "No matching plugins found"
+    "pluginsEmptyFilter": "No matching plugins found",
+    "pluginsDiagTitle": "{count} plugin(s) failed to load (missing dependencies or syntax errors)",
+    "pluginsDiagShow": "View details",
+    "pluginsDiagHide": "Collapse",
+    "pluginsDiagMissingDep": "Missing Dependency",
+    "pluginsDiagSyntaxErr": "Syntax Error",
+    "pluginsDiagLoadErr": "Load Error",
+    "pluginsDiagCopyCmd": "Copy Install Command",
+    "pluginsDiagCopied": "Copied",
+    "pluginsPlaygroundModeActiveTip": "⚡ Active Mode: Runs directly as a standalone action without incoming messages.",
+    "pluginsPlaygroundModeReactiveTip": "💬 Reactive Mode: Simulates incoming bot message to trigger responses.",
+    "pluginsPlaygroundResetStorage": "Reset storage before debug",
+    "pluginsPlaygroundResetStorageTip": "Clear isolated persistent key-value storage for this plugin in test env",
+    "pluginsPlaygroundDuration": "Duration"
   },
   "profile": {
     "title": "Profile",
@@ -908,7 +923,9 @@
     "clearFilters": "Clear filters",
     "clearAllFilters": "Clear all filters",
     "activeFilters": "Filters",
-    "brandSubtitle": "Telegram Ops"
+    "brandSubtitle": "Telegram Ops",
+    "save": "Save",
+    "apply": "Apply"
   },
   "login": {
     "subtitle": "Telegram multi-account automation panel",

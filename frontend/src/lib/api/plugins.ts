@@ -47,6 +47,22 @@ export interface CreatePluginRequest {
   version?: string
 }
 
+export interface PluginLoadErrorItem {
+  file_path: string
+  plugin_name: string
+  error_type: "missing_dependency" | "syntax_error" | "load_error" | string
+  error_message: string
+  missing_module?: string | null
+  suggested_command?: string | null
+  timestamp?: string
+}
+
+export interface PluginDiagnosticsResponse {
+  total_loaded: number
+  total_errors: number
+  load_errors: PluginLoadErrorItem[]
+}
+
 export interface ReloadPluginsResponse {
   count: number
   plugins: PluginInfo[]
@@ -55,10 +71,12 @@ export interface ReloadPluginsResponse {
 export interface PluginTestRequest {
   text?: string
   params?: Record<string, unknown>
+  reset_storage?: boolean
 }
 
 export interface PluginTestResponse {
   name: string
+  mode?: "reactive" | "active" | string
   success: boolean
   handled: boolean
   isolation?: string
@@ -139,3 +157,8 @@ export async function createPlugin(
     body: JSON.stringify(payload),
   }, token)
 }
+
+export async function getPluginDiagnostics(token: string): Promise<PluginDiagnosticsResponse> {
+  return request<PluginDiagnosticsResponse>('/plugins/diagnostics', {}, token)
+}
+
