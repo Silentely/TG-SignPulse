@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from tests.test_api import _auth, _login
-from tg_signer.core.plugins import PluginContext, PluginRegistry
+from tg_signer.core.plugins import PluginContext, PluginRegistry, is_builtin_plugin_path
 
 pytest_plugins = ("tests.test_api",)
 
@@ -176,6 +177,7 @@ def test_test_plugin_endpoint_sync_hang_killed(api_client, monkeypatch):
     assert data["killed"] is True
     assert "超时" in data["error"]
 
+
 def test_toggle_plugin_endpoint(api_client):
     """测试插件启用/停用软开关切换接口"""
     token = _login(api_client)
@@ -240,3 +242,143 @@ def test_test_plugin_reaction(api_client):
     assert data["success"] is True
     assert data["handled"] is True
     assert "🎉" in data["reacted_emojis"]
+
+
+def test_is_builtin_plugin_path_edge_cases(monkeypatch, tmp_path):
+    """测试 is_builtin_plugin_path 的路径层级与防误判逻辑。"""
+    # 1. 空值或 None
+    assert is_builtin_plugin_path(None) is False
+    assert is_builtin_plugin_path("") is False
+
+    builtin_root = tmp_path / "sys_plugins"
+    builtin_root.mkdir()
+    monkeypatch.setenv("BUILTIN_PLUGINS_DIR", str(builtin_root))
+
+    # 2. 真实内置目录下的单文件与目录型插件文件
+    single_file = builtin_root / "builtin_single.py"
+    single_file.write_text("# dummy", encoding="utf-8")
+    assert is_builtin_plugin_path(single_file) is True
+
+    dir_plugin = builtin_root / "my_dir_plugin" / "main.py"
+    dir_plugin.parent.mkdir(parents=True)
+    dir_plugin.write_text("# dummy", encoding="utf-8")
+    assert is_builtin_plugin_path(dir_plugin) is True
+
+    # 3. 相似前缀误判防护：如 sys_plugins-copy 或 sys_plugins_custom
+    similar_prefix_dir = tmp_path / "sys_plugins-copy"
+    similar_prefix_dir.mkdir()
+    similar_file = similar_prefix_dir / "evil.py"
+    similar_file.write_text("# dummy", encoding="utf-8")
+    assert is_builtin_plugin_path(similar_file) is False
+
+    # 4. 自定义外部目录
+    custom_dir = tmp_path / "user_custom_plugins"
+    custom_dir.mkdir()
+    custom_file = custom_dir / "user.py"
+    custom_file.write_text("# dummy", encoding="utf-8")
+    assert is_builtin_plugin_path(custom_file) is False
+
+
+def test_repo_builtin_plugins_marked_builtin():
+    """测试官方仓库中的 plugins/ 目录插件被正确识别为 builtin=True。"""
+    repo_plugins = Path(__file__).resolve().parent.parent / "plugins"
+    if not repo_plugins.is_dir():
+        return
+    for sub in repo_plugins.iterdir():
+        if sub.is_dir() and (sub / "main.py").is_file():
+            assert is_builtin_plugin_path(sub / "main.py") is True
+
+
+def test_builtin_plugins_real_directory_load_and_api(api_client, monkeypatch, tmp_path):
+    """测试通过真实目录加载插件并验证 PluginMeta.builtin 及 API 序列化输出。"""
+    token = _login(api_client)
+    headers = _auth(token)
+
+    PluginRegistry.clear()
+
+    # 创建真实内置插件目录
+    builtin_dir = tmp_path / "builtin_plugins"
+    builtin_dir.mkdir()
+    math_dir = builtin_dir / "test_builtin_math"
+    math_dir.mkdir()
+    math_code = (
+        "from tg_signer.core.plugins import PluginRegistry\n"
+        "@PluginRegistry.register('test_real_builtin_pkg', mode='reactive')\n"
+        "def pkg_handler(ctx):\n"
+        "    return True\n"
+    )
+    (math_dir / "main.py").write_text(math_code, encoding="utf-8")
+
+    single_code = (
+        "from tg_signer.core.plugins import PluginRegistry\n"
+        "@PluginRegistry.register('test_real_builtin_single', mode='active')\n"
+        "def single_handler(ctx):\n"
+        "    return True\n"
+    )
+    (builtin_dir / "test_builtin_single.py").write_text(single_code, encoding="utf-8")
+
+    # 创建真实自定义外部插件目录
+    custom_dir = tmp_path / "custom_plugins"
+    custom_dir.mkdir()
+    custom_pkg = custom_dir / "test_custom_pkg"
+    custom_pkg.mkdir()
+    custom_pkg_code = (
+        "from tg_signer.core.plugins import PluginRegistry\n"
+        "@PluginRegistry.register('test_real_custom_pkg', mode='reactive')\n"
+        "def custom_pkg_handler(ctx):\n"
+        "    return True\n"
+    )
+    (custom_pkg / "main.py").write_text(custom_pkg_code, encoding="utf-8")
+
+    custom_single_code = (
+        "from tg_signer.core.plugins import PluginRegistry\n"
+        "@PluginRegistry.register('test_real_custom_single', mode='active')\n"
+        "def custom_single_handler(ctx):\n"
+        "    return True\n"
+    )
+    (custom_dir / "test_custom_single.py").write_text(custom_single_code, encoding="utf-8")
+
+    # 设置环境变量
+    monkeypatch.setenv("BUILTIN_PLUGINS_DIR", str(builtin_dir))
+    monkeypatch.setenv("PLUGINS_DIR", str(custom_dir))
+
+    # 1. 验证真实从目录扫描加载后的 PluginMeta 核心属性
+    loaded_builtin = PluginRegistry.load_plugins_from_dir(builtin_dir)
+    assert loaded_builtin == 2
+    meta_builtin_pkg = PluginRegistry.get("test_real_builtin_pkg")
+    assert meta_builtin_pkg is not None
+    assert meta_builtin_pkg.builtin is True
+
+    meta_builtin_single = PluginRegistry.get("test_real_builtin_single")
+    assert meta_builtin_single is not None
+    assert meta_builtin_single.builtin is True
+
+    loaded_custom = PluginRegistry.load_plugins_from_dir(custom_dir)
+    assert loaded_custom == 2
+    meta_custom_pkg = PluginRegistry.get("test_real_custom_pkg")
+    assert meta_custom_pkg is not None
+    assert meta_custom_pkg.builtin is False
+
+    meta_custom_single = PluginRegistry.get("test_real_custom_single")
+    assert meta_custom_single is not None
+    assert meta_custom_single.builtin is False
+
+    # 2. 验证 GET /api/plugins 返回的 JSON 序列化结果
+    resp = api_client.get("/api/plugins", headers=headers)
+    assert resp.status_code == 200
+    plugins = {p["name"]: p for p in resp.json()}
+    assert plugins["test_real_builtin_pkg"]["builtin"] is True
+    assert plugins["test_real_builtin_single"]["builtin"] is True
+    assert plugins["test_real_custom_pkg"]["builtin"] is False
+    assert plugins["test_real_custom_single"]["builtin"] is False
+
+    # 3. 验证 POST /api/plugins/reload 后重新扫描的 builtin 字段与计数
+    resp_reload = api_client.post("/api/plugins/reload", headers=headers)
+    assert resp_reload.status_code == 200
+    reload_data = resp_reload.json()
+    assert reload_data["count"] >= 4
+    reloaded_plugins = {p["name"]: p for p in reload_data["plugins"]}
+    assert reloaded_plugins["test_real_builtin_pkg"]["builtin"] is True
+    assert reloaded_plugins["test_real_builtin_single"]["builtin"] is True
+    assert reloaded_plugins["test_real_custom_pkg"]["builtin"] is False
+    assert reloaded_plugins["test_real_custom_single"]["builtin"] is False

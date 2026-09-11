@@ -233,6 +233,14 @@ onMounted(() => {
               {{ plugin.name }}
             </span>
             <span
+              class="px-1.5 py-0.5 rounded text-[10px] font-mono border"
+              :class="plugin.builtin
+                ? 'bg-purple-100 dark:bg-purple-950/80 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800/50'
+                : 'bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/50'"
+            >
+              {{ plugin.builtin ? t('settings.pluginsBuiltin') : t('settings.pluginsCustom') }}
+            </span>
+            <span
               v-if="plugin.enabled === false"
               class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/50"
             >

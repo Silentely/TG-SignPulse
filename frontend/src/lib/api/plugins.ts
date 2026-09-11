@@ -5,11 +5,13 @@ import { request } from './core'
 
 export interface PluginParamSchema {
   name: string
-  label: string
-  type: 'string' | 'int' | 'bool' | 'select'
-  default?: string | number | boolean
+  label?: string
+  type?: 'string' | 'number' | 'boolean' | 'select' | 'bool' | 'int'
+  default?: unknown
   placeholder?: string
-  options?: Array<{ label: string; value: string | number }>
+  options?: Array<{ label: string; value: unknown }>
+  description?: string
+  required?: boolean
 }
 
 export interface PluginInfo {
@@ -19,6 +21,7 @@ export interface PluginInfo {
   source_path?: string | null
   params_schema?: PluginParamSchema[]
   enabled?: boolean
+  builtin?: boolean
 }
 
 export interface ReloadPluginsResponse {

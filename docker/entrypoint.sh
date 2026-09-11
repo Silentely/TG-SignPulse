@@ -33,11 +33,11 @@ if [ "$(id -u)" -eq 0 ]; then
   if [ "${AUTO_FIX_PERMS}" != "0" ] && [ -d /data ]; then
     echo "INFO: fixing /data permissions for ${TARGET_UID}:${TARGET_GID} ..."
     # Ensure core paths exist first.
-    mkdir -p /data/.signer /data/sessions /data/logs || true
+    mkdir -p /data/.signer /data/sessions /data/logs /data/plugins || true
 
     # Repair ownership and write bits for existing historical files.
     # This avoids readonly sqlite and permission denied after image upgrades.
-    for p in /data /data/.signer /data/sessions /data/logs /data/db.sqlite /data/.tg_signpulse_data_dir; do
+    for p in /data /data/.signer /data/sessions /data/logs /data/plugins /data/db.sqlite /data/.tg_signpulse_data_dir; do
       if [ -e "${p}" ]; then
         chown -R "${TARGET_UID}:${TARGET_GID}" "${p}" 2>/dev/null || true
         chmod -R u+rwX "${p}" 2>/dev/null || true

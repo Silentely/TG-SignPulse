@@ -84,17 +84,18 @@ const onKeydown = (e: KeyboardEvent) => {
 /**
  * 焦点逃逸拉回：模态对话框打开期间，若焦点意外落到对话框外
  * （如浏览器地址栏、扩展 UI、点击被遮罩遗漏的角落），立即拉回首个可聚焦元素。
- * 焦点落在任意 [role="dialog"]（含嵌套确认框）内时放行，避免外层把内层焦点抢回。
+ * 焦点落在任意 [role="dialog"]（含嵌套确认框）或 Teleport 到 body 的下拉菜单（[role="listbox"], .ui-dropdown）内时放行。
  * panel 本身可聚焦（tabindex=-1），纯展示型对话框也保证焦点不逃逸。
  */
 const onFocusIn = (e: FocusEvent) => {
   if (!props.isOpen || !panelRef.value) return
   const target = e.target as HTMLElement | null
   if (!target || panelRef.value.contains(target)) return
-  // 嵌套对话框：内层 dialog 内的焦点属于合法目标，放行
-  if (target.closest('[role="dialog"]')) return
+  // 嵌套对话框与 Teleport 弹层（如 CustomSelect / MultiSelect 下拉菜单）：内层焦点属于合法目标，放行
+  if (target.closest('[role="dialog"], [role="listbox"], .ui-dropdown')) return
   const focusable = getFocusable()
-  ;(getPrimaryField() ?? focusable[0] ?? panelRef.value).focus()
+  const targetToFocus = getPrimaryField() ?? focusable[0] ?? panelRef.value
+  targetToFocus?.focus({ preventScroll: true })
 }
 
 const releaseScrollLock = () => {
@@ -116,7 +117,7 @@ watch(
       }
       previousActive = document.activeElement as HTMLElement | null
       await nextTick()
-      ;(getPrimaryField() ?? getFocusable()[0] ?? panelRef.value)?.focus()
+      ;(getPrimaryField() ?? getFocusable()[0] ?? panelRef.value)?.focus({ preventScroll: true })
     } else {
       releaseScrollLock()
       // 关闭的是当前最顶层时释放顶层标识，恢复下层弹窗的 Esc 响应权

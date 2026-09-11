@@ -582,7 +582,7 @@
     "pluginsReloading": "加载中...",
     "pluginsMountTipTitle": "插件存放与重新加载规范",
     "pluginsMountTip": "Docker 容器已挂载 /data/plugins 目录，也可放入代码根目录 plugins/。将插件文件夹或单文件放入后，可点击上方「重新加载」重新扫描；正在运行的任务可能仍使用旧处理函数，必要时请重启服务。",
-    "pluginsEmpty": "当前未检测到任何自定义插件。可将插件放入挂载目录后点击重新加载。",
+    "pluginsEmpty": "当前未检测到任何可用插件。可将插件放入挂载目录后点击重新加载。",
     "pluginsReactive": "reactive (响应监听)",
     "pluginsActive": "active (主动执行)",
     "pluginsReloadSuccess": "已成功重新加载插件，当前共有 {count} 个可用插件",
@@ -720,7 +720,9 @@
     "pluginDisabledSuccess": "插件已停用，后续打卡任务将跳过该插件",
     "pluginToggleFailed": "切换插件状态失败",
     "pluginsReactionOutput": "表情表态输出 (Reactions)",
-    "pluginsReplayInPlayground": "在演练场中调试回放"
+    "pluginsReplayInPlayground": "在演练场中调试回放",
+    "pluginsBuiltin": "官方内置",
+    "pluginsCustom": "自定义"
   },
   "profile": {
     "title": "个人中心",
