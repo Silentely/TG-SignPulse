@@ -907,7 +907,13 @@
     "pluginsCopyTestResult": "Copy Result",
     "pluginsCopyTestResultSuccess": "Test result copied to clipboard",
     "pluginsCopyPipCommand": "Copy pip command",
-    "pluginsCopyPipCommandSuccess": "pip install command copied to clipboard"
+    "pluginsCopyPipCommandSuccess": "pip install command copied to clipboard",
+    "pluginsDiffToggle": "Diff",
+    "pluginsDiffExit": "Back to Editor",
+    "pluginsDiffNoChanges": "No changes compared to saved version",
+    "pluginsUnsavedChangesTitle": "Unsaved Changes",
+    "pluginsUnsavedChangesMsg": "You have unsaved changes in plugin source. Closing will discard your edits. Do you want to exit?",
+    "pluginsDiscardAndClose": "Discard and Close"
   },
   "profile": {
     "title": "Profile",

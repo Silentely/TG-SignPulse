@@ -907,7 +907,13 @@
     "pluginsCopyTestResult": "复制结果",
     "pluginsCopyTestResultSuccess": "调试执行结果已复制到剪贴板",
     "pluginsCopyPipCommand": "复制安装命令",
-    "pluginsCopyPipCommandSuccess": "pip 安装命令已复制到剪贴板"
+    "pluginsCopyPipCommandSuccess": "pip 安装命令已复制到剪贴板",
+    "pluginsDiffToggle": "改动对比",
+    "pluginsDiffExit": "返回编辑",
+    "pluginsDiffNoChanges": "代码与原版一致，暂无改动",
+    "pluginsUnsavedChangesTitle": "未保存的代码改动",
+    "pluginsUnsavedChangesMsg": "当前插件源码已发生修改且尚未保存，直接关闭将丢失编辑内容。确定放弃修改并关闭吗？",
+    "pluginsDiscardAndClose": "放弃修改并关闭"
   },
   "profile": {
     "title": "个人中心",
