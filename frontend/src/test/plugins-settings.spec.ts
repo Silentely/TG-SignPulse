@@ -736,4 +736,72 @@ describe('PluginsSettings.vue 插件管理组件', () => {
 
     expect(checkSyntaxSpy).toHaveBeenCalledWith('print("hello")', 'mock-token')
   })
+
+  it('调用历史弹窗中支持点击清空调用历史', async () => {
+    const mockPlugin = {
+      name: 'history_clear_p',
+      mode: 'reactive' as const,
+      description: '历史测试插件',
+      builtin: true,
+      enabled: true,
+      metrics: {
+        run_count: 3,
+        success_count: 3,
+        failure_count: 0,
+        success_rate: 100,
+        avg_duration_ms: 10,
+        last_duration_ms: 10,
+        last_run_at: null,
+        last_error: null,
+      },
+    }
+
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValue([mockPlugin])
+    vi.spyOn(pluginsApi, 'getPluginHistory').mockResolvedValue({
+      name: 'history_clear_p',
+      history: [
+        {
+          timestamp: '2026-03-31 10:00:00',
+          duration_ms: 12.0,
+          success: true,
+          trigger_type: 'manual_test',
+          error: null,
+          log_summary: 'ok',
+        },
+      ],
+    })
+    const clearSpy = vi.spyOn(pluginsApi, 'clearPluginHistory').mockResolvedValue({
+      status: 'ok',
+      name: 'history_clear_p',
+      cleared_count: 1,
+    })
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('history_clear_p')
+    })
+
+    // 打开历史弹窗
+    const histBtn = wrapper.findAll('button').find((b) => b.attributes('title')?.includes('调用历史'))
+    expect(histBtn).toBeDefined()
+    await histBtn!.trigger('click')
+
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain('2026-03-31 10:00:00')
+    })
+
+    // 点击清空历史按钮
+    const clearBtn = Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.includes('清空历史'))
+    expect(clearBtn).toBeDefined()
+    clearBtn!.click()
+    const { accept } = await import('../composables/useConfirm').then(m => m.useConfirm())
+    accept()
+
+    await vi.waitFor(() => {
+      expect(clearSpy).toHaveBeenCalledWith('history_clear_p', 'mock-token')
+    })
+  })
 })

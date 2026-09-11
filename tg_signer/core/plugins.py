@@ -489,6 +489,15 @@ class PluginRegistry:
         return list(hist)[:limit]
 
     @classmethod
+    def clear_execution_history(cls, name: Optional[str] = None) -> int:
+        if name:
+            hist = cls._execution_history.pop(name, None)
+            return len(hist) if hist else 0
+        total = sum(len(h) for h in cls._execution_history.values())
+        cls._execution_history.clear()
+        return total
+
+    @classmethod
     def reset_metrics(cls, name: Optional[str] = None) -> None:
         if name:
             cls._metrics.pop(name, None)

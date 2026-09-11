@@ -880,7 +880,13 @@
     "pluginsFilterTabIssue": "异常/告警",
     "pluginsSyntaxCheck": "语法检查",
     "pluginsSyntaxValid": "Python 语法检查通过，未发现语法错误",
-    "pluginsSyntaxInvalid": "语法错误 (第 {line} 行): {error}"
+    "pluginsSyntaxInvalid": "语法错误 (第 {line} 行): {error}",
+    "pluginsHistoryClear": "清空历史",
+    "pluginsHistoryClearSuccess": "已清空该插件的调用历史记录",
+    "pluginsHistoryClearConfirm": "确定要清空该插件的全部调用历史记录吗？",
+    "pluginsHistoryExport": "复制历史日志",
+    "pluginsHistoryExportSuccess": "已复制全部历史日志到剪贴板",
+    "pluginsPlaygroundRecentSnapshots": "最近调试用例"
   },
   "profile": {
     "title": "个人中心",

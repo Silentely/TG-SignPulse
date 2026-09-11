@@ -20,6 +20,7 @@ import {
   exportAllPlugins,
   importPluginsBundle,
   checkPluginSyntax,
+  clearPluginHistory,
 } from '../lib/api/plugins'
 
 describe('plugins api 扩展接口', () => {
@@ -317,6 +318,21 @@ describe('plugins api 扩展接口', () => {
       {
         method: 'POST',
         body: JSON.stringify({ source: 'import os' }),
+      },
+      'test-token',
+    )
+    expect(result).toEqual(mockResp)
+  })
+
+  it('clearPluginHistory 发起 POST /plugins/{name}/clear-history', async () => {
+    const mockResp = { status: 'ok', name: 'demo_p', cleared_count: 5 }
+    const requestSpy = vi.spyOn(coreApi, 'request').mockResolvedValueOnce(mockResp)
+
+    const result = await clearPluginHistory('demo_p', 'test-token')
+    expect(requestSpy).toHaveBeenCalledWith(
+      '/plugins/demo_p/clear-history',
+      {
+        method: 'POST',
       },
       'test-token',
     )

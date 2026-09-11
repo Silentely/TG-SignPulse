@@ -390,3 +390,16 @@ export async function checkPluginSyntax(
     token,
   )
 }
+
+export async function clearPluginHistory(
+  name: string,
+  token: string,
+): Promise<{ status: string; name: string; cleared_count: number }> {
+  return request<{ status: string; name: string; cleared_count: number }>(
+    `/plugins/${encodeURIComponent(name)}/clear-history`,
+    {
+      method: 'POST',
+    },
+    token,
+  )
+}
