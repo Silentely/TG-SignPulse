@@ -811,7 +811,17 @@
     "pluginsMetricsLastRun": "Last run: {time}",
     "pluginsAdvancedMock": "Advanced Mock Session",
     "pluginsMockChatId": "Mock Chat ID",
-    "pluginsMockSender": "Mock Sender"
+    "pluginsMockSender": "Mock Sender",
+    "pluginsEditSource": "Edit Code",
+    "pluginsViewSource": "View Code",
+    "pluginsSaveSource": "Save & Reload",
+    "pluginsSaveSourceSuccess": "Source saved and reloaded",
+    "pluginsSaveSourceFailed": "Failed to save source",
+    "pluginsMetricsReset": "Reset Metrics",
+    "pluginsMetricsResetSuccess": "Metrics reset successfully",
+    "pluginsMetricsResetFailed": "Failed to reset metrics",
+    "pluginsPermissions": "Permissions",
+    "pluginsPermissionsDefault": "Default Sandbox"
   },
   "profile": {
     "title": "Profile",

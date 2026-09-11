@@ -231,3 +231,76 @@ def test_api_test_plugin_with_advanced_context():
     assert resp.status_code == 200
     data = resp.json()
     assert data["success"] is True
+
+
+def test_api_update_plugin_source_for_custom_plugin():
+    client.delete("/api/plugins/editable_plug")
+    create_resp = client.post(
+        "/api/plugins/create",
+        json={"name": "editable_plug", "mode": "reactive", "template": "basic_reactive", "description": "Original"},
+    )
+    assert create_resp.status_code == 200
+
+    new_source = '''"""Edited description"""
+from tg_signer.core.plugins import PluginContext, PluginRegistry
+
+@PluginRegistry.register(name="editable_plug", description="Updated description")
+async def editable_plug_handler(ctx: PluginContext) -> bool:
+    ctx.reply_text = "edited_hello"
+    return True
+'''
+    put_resp = client.put(
+        "/api/plugins/editable_plug/source",
+        json={"source": new_source},
+    )
+    assert put_resp.status_code == 200
+    assert put_resp.json()["description"] == "Updated description"
+
+    src_resp = client.get("/api/plugins/editable_plug/source")
+    assert src_resp.status_code == 200
+    assert "edited_hello" in src_resp.json()["source"]
+
+    del_resp = client.delete("/api/plugins/editable_plug")
+    assert del_resp.status_code == 200
+
+
+def test_api_update_plugin_source_builtin_rejected():
+    resp = client.put(
+        "/api/plugins/math_solver/source",
+        json={"source": "print('fail')"},
+    )
+    assert resp.status_code == 403
+    assert "内置" in resp.json()["detail"]
+
+
+def test_api_update_plugin_source_syntax_error():
+    client.delete("/api/plugins/syntax_err_plug")
+    create_resp = client.post(
+        "/api/plugins/create",
+        json={"name": "syntax_err_plug", "mode": "reactive", "template": "basic_reactive"},
+    )
+    assert create_resp.status_code == 200
+
+    resp = client.put(
+        "/api/plugins/syntax_err_plug/source",
+        json={"source": "def syntax_err(: pass"},
+    )
+    assert resp.status_code == 400
+    assert "Python 语法错误" in resp.json()["detail"]
+
+    client.delete("/api/plugins/syntax_err_plug")
+
+
+def test_api_reset_plugin_metrics():
+    from tg_signer.core.plugins import PluginRegistry
+
+    PluginRegistry.record_execution("math_solver", success=True, duration_ms=10.0)
+    metrics = PluginRegistry.get_metrics("math_solver")
+    assert metrics.run_count >= 1
+
+    resp = client.post("/api/plugins/math_solver/reset-metrics")
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
+
+    reset_metrics = PluginRegistry.get_metrics("math_solver")
+    assert reset_metrics is None

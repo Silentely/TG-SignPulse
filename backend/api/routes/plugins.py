@@ -123,6 +123,10 @@ class PluginSourceResponse(BaseModel):
     source: str
 
 
+class UpdatePluginSourceRequest(BaseModel):
+    source: str = Field(..., description="更新后的 Python 插件源码")
+
+
 class CreatePluginRequest(BaseModel):
     name: str = Field(..., pattern=r"^[a-zA-Z0-9_]{3,32}$", description="插件英文标识（3-32位字母数字下划线）")
     mode: Literal["reactive", "active"] = "reactive"
@@ -658,6 +662,72 @@ async def get_plugin_source(
     )
 
 
+@router.put("/{name}/source", response_model=PluginInfo)
+async def update_plugin_source(
+    name: str,
+    payload: UpdatePluginSourceRequest,
+    _user: User = Depends(get_current_user),
+) -> PluginInfo:
+    """在线更新自定义插件源码并热重载。"""
+    meta = PluginRegistry.get(name)
+    if not meta:
+        raise HTTPException(status_code=404, detail="插件未找到")
+
+    if not meta.source_path:
+        raise HTTPException(status_code=404, detail="插件无物理源码文件，无法编辑")
+
+    source_path = Path(meta.source_path).resolve()
+    if not source_path.is_file():
+        raise HTTPException(status_code=404, detail="插件源码文件在磁盘上不存在")
+
+    is_builtin = getattr(meta, "builtin", False) or is_builtin_plugin_path(source_path)
+    if is_builtin:
+        raise HTTPException(status_code=403, detail="官方内置插件受保护，禁止修改源码")
+
+    custom_dirs = [d.resolve() for d in PluginRegistry.get_search_directories() if not is_builtin_plugin_path(d)]
+    custom_dirs.append(_get_custom_plugins_dir().resolve())
+    is_in_custom_dir = any(d in source_path.parents or d == source_path.parent for d in custom_dirs)
+    if not is_in_custom_dir:
+        raise HTTPException(status_code=403, detail="插件所在目录不是自定义插件目录，禁止修改")
+
+    if len(payload.source.encode("utf-8")) > 1024 * 1024:
+        raise HTTPException(status_code=400, detail="插件源码大小超过 1MB 限制")
+
+    try:
+        ast.parse(payload.source, filename=source_path.name)
+    except SyntaxError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Python 语法错误: {exc.msg} (第 {exc.lineno} 行)",
+        )
+
+    try:
+        source_path.write_text(payload.source, encoding="utf-8")
+    except Exception as exc:
+        logger.error("保存插件源码失败 %s: %s", source_path, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"保存插件源码失败: {exc}")
+
+    try:
+        PluginRegistry.reload_all_plugins()
+    except Exception as exc:
+        logger.warning("插件重载异常: %s", exc)
+
+    updated_meta = PluginRegistry.get(name)
+    if not updated_meta:
+        for p in PluginRegistry.list_all():
+            if p.source_path and Path(p.source_path).resolve() == source_path:
+                updated_meta = p
+                break
+
+    if not updated_meta:
+        raise HTTPException(
+            status_code=400,
+            detail="插件代码已保存，但在重载时未注册有效插件，请检查 @PluginRegistry.register 装饰器",
+        )
+
+    return _meta_to_info(updated_meta)
+
+
 @router.delete("/{name}")
 async def delete_plugin(
     name: str,
@@ -941,3 +1011,15 @@ async def upload_plugin(
         raise HTTPException(status_code=400, detail="未在上传的文件中检测到有效插件注册（请检查 @PluginRegistry.register 装饰器）")
 
     return _meta_to_info(matched)
+
+@router.post("/{name}/reset-metrics")
+async def reset_plugin_metrics(
+    name: str,
+    _user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """重置指定插件的运行统计指标。"""
+    meta = PluginRegistry.get(name)
+    if not meta:
+        raise HTTPException(status_code=404, detail="插件未找到")
+    PluginRegistry.reset_metrics(name)
+    return {"success": True, "name": name, "message": "指标已重置"}
