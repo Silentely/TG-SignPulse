@@ -35,6 +35,10 @@ import {
   Upload,
   Download,
   Activity,
+  RotateCcw,
+  Edit2,
+  Save,
+  Eye,
 } from 'lucide-vue-next'
 import Modal from '../Modal.vue'
 import {
@@ -48,6 +52,8 @@ import {
   getPluginDiagnostics,
   exportPlugin,
   uploadPlugin,
+  updatePluginSource,
+  resetPluginMetrics,
   type PluginInfo,
   type PluginTestResponse,
   type CreatePluginRequest,
@@ -75,6 +81,10 @@ const currentSourcePlugin = ref<PluginInfo | null>(null)
 const sourceCode = ref('')
 const sourceLoading = ref(false)
 const sourceCopied = ref(false)
+const isEditingSource = ref(false)
+const editedSourceCode = ref('')
+const savingSource = ref(false)
+const resettingMetricsPlugin = ref<string | null>(null)
 
 // 导入/导出状态
 const fileInputRef = ref<HTMLInputElement | null>(null)
@@ -235,6 +245,8 @@ const openSourceModal = async (plugin: PluginInfo) => {
   currentSourcePlugin.value = plugin
   sourceCode.value = ''
   sourceCopied.value = false
+  isEditingSource.value = false
+  editedSourceCode.value = ''
   isSourceModalOpen.value = true
   sourceLoading.value = true
 
@@ -248,6 +260,46 @@ const openSourceModal = async (plugin: PluginInfo) => {
     toast.error(`${t('settings.pluginsSourceLoading')}: ${msg}`)
   } finally {
     sourceLoading.value = false
+  }
+}
+
+const toggleEditSource = () => {
+  isEditingSource.value = !isEditingSource.value
+  if (isEditingSource.value) {
+    editedSourceCode.value = sourceCode.value
+  }
+}
+
+const saveSourceCode = async () => {
+  if (!currentSourcePlugin.value) return
+  savingSource.value = true
+  try {
+    const res = await withToken((token) => updatePluginSource(currentSourcePlugin.value!.name, editedSourceCode.value, token))
+    if (res) {
+      sourceCode.value = editedSourceCode.value
+      isEditingSource.value = false
+      toast.success(t('settings.pluginsSaveSourceSuccess'))
+      await loadPluginList()
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    toast.error(`${t('settings.pluginsSaveSourceFailed')}: ${msg}`)
+  } finally {
+    savingSource.value = false
+  }
+}
+
+const handleResetMetrics = async (plugin: PluginInfo) => {
+  resettingMetricsPlugin.value = plugin.name
+  try {
+    await withToken((token) => resetPluginMetrics(plugin.name, token))
+    toast.success(t('settings.pluginsMetricsResetSuccess'))
+    await loadPluginList()
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    toast.error(`${t('settings.pluginsMetricsResetFailed')}: ${msg}`)
+  } finally {
+    resettingMetricsPlugin.value = null
   }
 }
 
@@ -739,6 +791,13 @@ onMounted(() => {
             >
               {{ plugin.author }}
             </span>
+            <span
+              v-if="plugin.permissions && plugin.permissions.length"
+              class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-purple-50 dark:bg-purple-950/80 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/50"
+              :title="plugin.permissions.join(', ')"
+            >
+              {{ t('settings.pluginsPermissions') }}: {{ plugin.permissions.join(', ') }}
+            </span>
           </div>
           <p class="text-gray-600 dark:text-gray-300 text-[11px] leading-relaxed">
             {{ plugin.description || t('settings.pluginsNoDesc') }}
@@ -771,6 +830,15 @@ onMounted(() => {
             <span v-if="plugin.metrics.last_run_at" class="text-[10px] text-gray-400 dark:text-gray-500 font-mono">
               {{ t('settings.pluginsMetricsLastRun', { time: plugin.metrics.last_run_at.slice(11, 19) }) }}
             </span>
+            <button
+              type="button"
+              class="ml-auto text-gray-400 hover:text-rose-500 transition-colors p-0.5"
+              :title="t('settings.pluginsMetricsReset')"
+              :disabled="resettingMetricsPlugin === plugin.name"
+              @click.stop="handleResetMetrics(plugin)"
+            >
+              <RotateCcw class="w-3 h-3" :class="{ 'animate-spin': resettingMetricsPlugin === plugin.name }" />
+            </button>
           </div>
         </div>
 
@@ -853,6 +921,17 @@ onMounted(() => {
       <template #header-extra>
         <div class="flex items-center gap-1.5 ml-2">
           <button
+            v-if="!currentSourcePlugin?.builtin"
+            type="button"
+            class="ui-btn-secondary !py-1 !px-2.5 !text-xs inline-flex items-center gap-1.5"
+            :class="isEditingSource ? 'text-amber-600 dark:text-amber-400 border-amber-300 dark:border-amber-700' : ''"
+            @click="toggleEditSource"
+          >
+            <Eye v-if="isEditingSource" class="w-3.5 h-3.5" />
+            <Edit2 v-else class="w-3.5 h-3.5" />
+            <span>{{ isEditingSource ? t('settings.pluginsViewSource') : t('settings.pluginsEditSource') }}</span>
+          </button>
+          <button
             type="button"
             class="ui-btn-secondary !py-1 !px-2.5 !text-xs inline-flex items-center gap-1.5 text-sky-600 dark:text-sky-400"
             @click="openTestFromSource"
@@ -886,6 +965,34 @@ onMounted(() => {
         <div v-if="sourceLoading" class="p-8 text-center text-gray-400">
           <RefreshCw class="w-5 h-5 mx-auto animate-spin mb-2" />
           <p>{{ t('settings.pluginsSourceLoading') }}</p>
+        </div>
+        <div v-else-if="isEditingSource" class="space-y-3">
+          <textarea
+            v-model="editedSourceCode"
+            rows="18"
+            class="w-full bg-gray-950 text-gray-100 font-mono text-[11px] leading-relaxed p-4 rounded-lg border border-gray-800 focus:outline-none focus:ring-1 focus:ring-amber-500 resize-y"
+            spellcheck="false"
+          ></textarea>
+          <div class="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              class="ui-btn-secondary !py-1.5 !px-3 !text-xs"
+              :disabled="savingSource"
+              @click="isEditingSource = false"
+            >
+              {{ t('common.cancel') }}
+            </button>
+            <button
+              type="button"
+              class="ui-btn-primary !py-1.5 !px-4 !text-xs inline-flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white"
+              :disabled="savingSource"
+              @click="saveSourceCode"
+            >
+              <RefreshCw v-if="savingSource" class="w-3.5 h-3.5 animate-spin" />
+              <Save v-else class="w-3.5 h-3.5" />
+              <span>{{ t('settings.pluginsSaveSource') }}</span>
+            </button>
+          </div>
         </div>
         <div v-else class="relative bg-gray-950 text-gray-100 rounded-lg p-4 font-mono text-[11px] leading-relaxed max-h-[60vh] overflow-y-auto border border-gray-800 select-all custom-scrollbar">
           <pre class="whitespace-pre overflow-x-auto">{{ sourceCode }}</pre>

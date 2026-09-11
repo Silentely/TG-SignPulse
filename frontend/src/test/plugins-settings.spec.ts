@@ -321,4 +321,101 @@ describe('PluginsSettings.vue 插件管理组件', () => {
   })
 
 
+
+  it('展示插件权限标签和运行指标重置按钮并支持重置', async () => {
+    const mockPlugins = [
+      {
+        name: 'perm_plugin',
+        mode: 'reactive' as const,
+        description: '有权限的插件',
+        permissions: ['send_message', 'network'],
+        enabled: true,
+        metrics: {
+          run_count: 10,
+          success_count: 9,
+          failure_count: 1,
+          success_rate: 90.0,
+          avg_duration_ms: 15.2,
+          last_run_at: '2026-09-11T12:00:00Z',
+        },
+      },
+    ]
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValue(mockPlugins)
+    const resetSpy = vi.spyOn(pluginsApi, 'resetPluginMetrics').mockResolvedValueOnce({
+      success: true,
+      name: 'perm_plugin',
+      message: 'ok',
+    })
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('perm_plugin')
+      expect(wrapper.text()).toContain('权限: send_message, network')
+    })
+
+    const resetBtn = wrapper.find('button[title="重置指标"]')
+    expect(resetBtn.exists()).toBe(true)
+    await resetBtn.trigger('click')
+    expect(resetSpy).toHaveBeenCalledWith('perm_plugin', 'mock-token')
+  })
+
+  it('自定义插件源码弹窗支持切换编辑模式并保存更新', async () => {
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValue([
+      {
+        name: 'custom_edit_plug',
+        mode: 'reactive' as const,
+        description: '可编辑插件',
+        builtin: false,
+        enabled: true,
+      },
+    ])
+    vi.spyOn(pluginsApi, 'getPluginSource').mockResolvedValueOnce({
+      name: 'custom_edit_plug',
+      version: '1.0.0',
+      source: 'print("original")',
+    })
+    const updateSpy = vi.spyOn(pluginsApi, 'updatePluginSource').mockResolvedValueOnce({
+      name: 'custom_edit_plug',
+      mode: 'reactive' as const,
+      description: '可编辑插件',
+    })
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('custom_edit_plug')
+    })
+
+    const sourceBtn = wrapper.findAll('button').find((btn) => btn.text().includes('查看源码'))
+    await sourceBtn!.trigger('click')
+
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain('print("original")')
+    })
+
+    // 点击“编辑源码”
+    const editBtn = Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.includes('编辑源码'))
+    expect(editBtn).toBeDefined()
+    editBtn!.click()
+
+    await vi.waitFor(() => {
+      expect(document.querySelector('textarea')).not.toBeNull()
+    })
+
+    // 输入新内容并点击“保存并热重载”
+    const textarea = document.querySelector('textarea')!
+    textarea.value = 'print("modified")'
+    textarea.dispatchEvent(new Event('input'))
+
+    const saveBtn = Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.includes('保存并热重载'))
+    expect(saveBtn).toBeDefined()
+    saveBtn!.click()
+
+    expect(updateSpy).toHaveBeenCalledWith('custom_edit_plug', 'print("modified")', 'mock-token')
+  })
 })

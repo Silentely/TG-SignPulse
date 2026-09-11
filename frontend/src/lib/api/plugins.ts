@@ -205,3 +205,23 @@ export async function uploadPlugin(file: File, token: string): Promise<PluginInf
   }
   return res.json()
 }
+
+export async function updatePluginSource(
+  name: string,
+  source: string,
+  token: string,
+): Promise<PluginInfo> {
+  return request<PluginInfo>(`/plugins/${encodeURIComponent(name)}/source`, {
+    method: 'PUT',
+    body: JSON.stringify({ source }),
+  }, token)
+}
+
+export async function resetPluginMetrics(
+  name: string,
+  token: string,
+): Promise<{ success: boolean; name: string; message: string }> {
+  return request<{ success: boolean; name: string; message: string }>(`/plugins/${encodeURIComponent(name)}/reset-metrics`, {
+    method: 'POST',
+  }, token)
+}

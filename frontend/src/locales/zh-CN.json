@@ -811,7 +811,17 @@
     "pluginsMetricsLastRun": "最近调用: {time}",
     "pluginsAdvancedMock": "高级会话模拟",
     "pluginsMockChatId": "模拟会话 ID",
-    "pluginsMockSender": "模拟发送者"
+    "pluginsMockSender": "模拟发送者",
+    "pluginsEditSource": "编辑源码",
+    "pluginsViewSource": "查看源码",
+    "pluginsSaveSource": "保存并热重载",
+    "pluginsSaveSourceSuccess": "源码已保存并完成热重载",
+    "pluginsSaveSourceFailed": "保存源码失败",
+    "pluginsMetricsReset": "重置指标",
+    "pluginsMetricsResetSuccess": "运行指标已重置",
+    "pluginsMetricsResetFailed": "重置指标失败",
+    "pluginsPermissions": "权限",
+    "pluginsPermissionsDefault": "默认安全沙箱"
   },
   "profile": {
     "title": "个人中心",

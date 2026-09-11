@@ -7,6 +7,8 @@ import {
   getPluginDiagnostics,
   exportPlugin,
   uploadPlugin,
+  updatePluginSource,
+  resetPluginMetrics,
 } from '../lib/api/plugins'
 
 describe('plugins api 扩展接口', () => {
@@ -124,5 +126,34 @@ describe('plugins api 扩展接口', () => {
       headers: { Authorization: 'Bearer test-token' },
     }))
     expect(result).toEqual(mockInfo)
+  })
+
+  it('updatePluginSource 发起 PUT /plugins/:name/source 传递源码', async () => {
+    const mockInfo = { name: 'custom_calc', mode: 'reactive' as const, description: 'updated' }
+    const requestSpy = vi.spyOn(coreApi, 'request').mockResolvedValueOnce(mockInfo)
+
+    const result = await updatePluginSource('custom_calc', 'print("new")', 'test-token')
+    expect(requestSpy).toHaveBeenCalledWith(
+      '/plugins/custom_calc/source',
+      {
+        method: 'PUT',
+        body: JSON.stringify({ source: 'print("new")' }),
+      },
+      'test-token',
+    )
+    expect(result).toEqual(mockInfo)
+  })
+
+  it('resetPluginMetrics 发起 POST /plugins/:name/reset-metrics', async () => {
+    const mockResp = { success: true, name: 'math_solver', message: '已重置' }
+    const requestSpy = vi.spyOn(coreApi, 'request').mockResolvedValueOnce(mockResp)
+
+    const result = await resetPluginMetrics('math_solver', 'test-token')
+    expect(requestSpy).toHaveBeenCalledWith(
+      '/plugins/math_solver/reset-metrics',
+      { method: 'POST' },
+      'test-token',
+    )
+    expect(result).toEqual(mockResp)
   })
 })
