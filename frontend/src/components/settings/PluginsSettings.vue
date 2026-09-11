@@ -32,6 +32,9 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronUp,
+  Upload,
+  Download,
+  Activity,
 } from 'lucide-vue-next'
 import Modal from '../Modal.vue'
 import {
@@ -43,6 +46,8 @@ import {
   deletePlugin,
   createPlugin,
   getPluginDiagnostics,
+  exportPlugin,
+  uploadPlugin,
   type PluginInfo,
   type PluginTestResponse,
   type CreatePluginRequest,
@@ -71,6 +76,11 @@ const sourceCode = ref('')
 const sourceLoading = ref(false)
 const sourceCopied = ref(false)
 
+// 导入/导出状态
+const fileInputRef = ref<HTMLInputElement | null>(null)
+const uploadingPlugin = ref(false)
+const exportingPluginName = ref<string | null>(null)
+
 // 调试弹窗状态
 const isTestModalOpen = ref(false)
 const currentTestPlugin = ref<PluginInfo | null>(null)
@@ -79,6 +89,9 @@ const testParams = ref<Record<string, unknown>>({})
 const testRunning = ref(false)
 const testResult = ref<PluginTestResponse | null>(null)
 const resetStorage = ref(false)
+const showAdvancedMock = ref(false)
+const mockChatId = ref('')
+const mockSenderName = ref('')
 
 // 诊断状态
 const loadErrors = ref<PluginLoadErrorItem[]>([])
@@ -330,10 +343,64 @@ const submitCreatePlugin = async () => {
 }
 
 // 调试弹窗
+const triggerUploadPlugin = () => {
+  fileInputRef.value?.click()
+}
+
+const handleFileUpload = async (event: Event) => {
+  const target = event.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (!file) return
+
+  if (!file.name.endsWith('.py')) {
+    toast.error(t('settings.pluginsUploadFailed') + ': 仅支持 .py 文件')
+    target.value = ''
+    return
+  }
+
+  uploadingPlugin.value = true
+  try {
+    await withToken((token) => uploadPlugin(file, token))
+    toast.success(t('settings.pluginsUploadSuccess'))
+    await loadPluginList()
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    toast.error(`${t('settings.pluginsUploadFailed')}: ${msg}`)
+  } finally {
+    uploadingPlugin.value = false
+    target.value = ''
+  }
+}
+
+const handleExportPlugin = async (plugin: PluginInfo) => {
+  exportingPluginName.value = plugin.name
+  try {
+    const blob = await withToken((token) => exportPlugin(plugin.name, token))
+    if (!blob) return
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${plugin.name}.py`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    toast.success(t('settings.pluginsExportSuccess'))
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    toast.error(`${t('settings.pluginsExportFailed')}: ${msg}`)
+  } finally {
+    exportingPluginName.value = null
+  }
+}
+
 const openTestModal = (plugin: PluginInfo) => {
   currentTestPlugin.value = plugin
   testResult.value = null
   resetStorage.value = false
+  showAdvancedMock.value = false
+  mockChatId.value = ''
+  mockSenderName.value = ''
 
   if (plugin.name === 'math_solver') {
     testInputText.value = '请在 30 秒内输入 2*31 的答案'
@@ -368,6 +435,8 @@ const runPluginTest = async () => {
           text: testInputText.value,
           params: testParams.value,
           reset_storage: resetStorage.value,
+          chat_id: mockChatId.value ? mockChatId.value : undefined,
+          sender_name: mockSenderName.value.trim() || undefined,
         },
         token,
       ),
@@ -407,6 +476,23 @@ onMounted(() => {
         </div>
       </div>
       <div class="flex items-center gap-2 flex-wrap shrink-0">
+        <button
+          type="button"
+          class="ui-btn-secondary shrink-0 !px-3 !py-1 !text-xs inline-flex items-center gap-1.5 text-blue-600 dark:text-blue-400 hover:text-blue-700"
+          :disabled="uploadingPlugin"
+          @click="triggerUploadPlugin"
+        >
+          <RefreshCw v-if="uploadingPlugin" class="w-3.5 h-3.5 animate-spin" />
+          <Upload v-else class="w-3.5 h-3.5" />
+          {{ uploadingPlugin ? t('settings.pluginsReloading') : t('settings.pluginsUpload') }}
+        </button>
+        <input
+          ref="fileInputRef"
+          type="file"
+          accept=".py"
+          class="hidden"
+          @change="handleFileUpload"
+        />
         <button
           type="button"
           class="ui-btn-primary shrink-0 !px-3 !py-1 !text-xs inline-flex items-center gap-1.5"
@@ -660,6 +746,32 @@ onMounted(() => {
           <div v-if="plugin.source_path" class="text-[10px] text-gray-400 dark:text-gray-500 font-mono truncate max-w-lg">
             {{ plugin.source_path }}
           </div>
+
+          <!-- 运行统计指标 -->
+          <div
+            v-if="plugin.metrics && plugin.metrics.run_count > 0"
+            class="mt-2 pt-1.5 border-t border-gray-200/50 dark:border-gray-800/50 flex items-center flex-wrap gap-2 text-[11px]"
+          >
+            <span class="inline-flex items-center gap-1 font-mono text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">
+              <Activity class="w-3 h-3 text-blue-500" />
+              {{ t('settings.pluginsMetricsRuns', { n: plugin.metrics.run_count }) }}
+            </span>
+            <span
+              class="inline-flex items-center gap-1 font-mono px-1.5 py-0.5 rounded font-medium"
+              :class="plugin.metrics.success_rate >= 95
+                ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/40'
+                : 'bg-rose-50 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400 border border-rose-200 dark:border-rose-800/40'"
+            >
+              {{ t('settings.pluginsMetricsSuccess', { rate: plugin.metrics.success_rate }) }}
+            </span>
+            <span class="inline-flex items-center gap-1 font-mono text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">
+              <Clock class="w-3 h-3 text-amber-500" />
+              {{ t('settings.pluginsMetricsAvg', { ms: plugin.metrics.avg_duration_ms }) }}
+            </span>
+            <span v-if="plugin.metrics.last_run_at" class="text-[10px] text-gray-400 dark:text-gray-500 font-mono">
+              {{ t('settings.pluginsMetricsLastRun', { time: plugin.metrics.last_run_at.slice(11, 19) }) }}
+            </span>
+          </div>
         </div>
 
         <div class="shrink-0 flex items-center gap-2 flex-wrap">
@@ -674,6 +786,19 @@ onMounted(() => {
             <RefreshCw v-if="togglingPluginName === plugin.name" class="w-3 h-3 animate-spin" />
             <Power v-else class="w-3 h-3" />
             {{ plugin.enabled !== false ? t('settings.pluginsEnabled') : t('settings.pluginsDisabled') }}
+          </button>
+
+          <!-- 导出源码 -->
+          <button
+            type="button"
+            class="ui-btn-secondary !py-1 !px-2.5 !text-xs inline-flex items-center gap-1 text-slate-600 dark:text-slate-400 hover:text-slate-700"
+            :disabled="exportingPluginName === plugin.name"
+            :title="t('settings.pluginsExport')"
+            @click="handleExportPlugin(plugin)"
+          >
+            <RefreshCw v-if="exportingPluginName === plugin.name" class="w-3 h-3 animate-spin" />
+            <Download v-else class="w-3 h-3" />
+            {{ t('settings.pluginsExport') }}
           </button>
 
           <!-- 查看源码 -->
@@ -845,6 +970,41 @@ onMounted(() => {
               class="ui-input !h-8 !text-xs !px-2 w-full"
               @input="testParams[field.name] = ($event.target as HTMLInputElement).value"
             />
+          </div>
+        </div>
+
+        <!-- 高级会话模拟 -->
+        <div class="border border-gray-200 dark:border-gray-800 rounded p-2.5 bg-gray-50/50 dark:bg-gray-900/30">
+          <button
+            type="button"
+            class="w-full flex items-center justify-between text-xs font-medium text-gray-700 dark:text-gray-300"
+            @click="showAdvancedMock = !showAdvancedMock"
+          >
+            <span class="inline-flex items-center gap-1.5">
+              <span>⚙️ {{ t('settings.pluginsAdvancedMock') }}</span>
+            </span>
+            <ChevronDown v-if="!showAdvancedMock" class="w-3.5 h-3.5 text-gray-400" />
+            <ChevronUp v-else class="w-3.5 h-3.5 text-gray-400" />
+          </button>
+          <div v-if="showAdvancedMock" class="mt-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+            <div>
+              <label class="block text-[11px] text-gray-500 dark:text-gray-400 mb-1">{{ t('settings.pluginsMockChatId') }}</label>
+              <input
+                v-model="mockChatId"
+                type="text"
+                placeholder="-1001234567890"
+                class="ui-input !py-1 !text-xs w-full font-mono"
+              />
+            </div>
+            <div>
+              <label class="block text-[11px] text-gray-500 dark:text-gray-400 mb-1">{{ t('settings.pluginsMockSender') }}</label>
+              <input
+                v-model="mockSenderName"
+                type="text"
+                placeholder="Tester"
+                class="ui-input !py-1 !text-xs w-full"
+              />
+            </div>
           </div>
         </div>
 

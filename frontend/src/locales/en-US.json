@@ -798,7 +798,20 @@
     "pluginsPlaygroundModeReactiveTip": "💬 Reactive Mode: Simulates incoming bot message to trigger responses.",
     "pluginsPlaygroundResetStorage": "Reset storage before debug",
     "pluginsPlaygroundResetStorageTip": "Clear isolated persistent key-value storage for this plugin in test env",
-    "pluginsPlaygroundDuration": "Duration"
+    "pluginsPlaygroundDuration": "Duration",
+    "pluginsExport": "Export Source",
+    "pluginsExportSuccess": "Plugin source exported",
+    "pluginsExportFailed": "Failed to export plugin",
+    "pluginsUpload": "Upload Plugin",
+    "pluginsUploadSuccess": "Plugin uploaded and loaded successfully",
+    "pluginsUploadFailed": "Failed to upload plugin",
+    "pluginsMetricsRuns": "{n} runs",
+    "pluginsMetricsSuccess": "{rate}% success",
+    "pluginsMetricsAvg": "{ms}ms avg",
+    "pluginsMetricsLastRun": "Last run: {time}",
+    "pluginsAdvancedMock": "Advanced Mock Session",
+    "pluginsMockChatId": "Mock Chat ID",
+    "pluginsMockSender": "Mock Sender"
   },
   "profile": {
     "title": "Profile",

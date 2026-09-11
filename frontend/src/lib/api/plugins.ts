@@ -14,6 +14,17 @@ export interface PluginParamSchema {
   required?: boolean
 }
 
+export interface PluginMetrics {
+  run_count: number
+  success_count: number
+  failure_count: number
+  last_run_at: string | null
+  last_duration_ms: number
+  avg_duration_ms: number
+  success_rate: number
+  last_error: string | null
+}
+
 export interface PluginInfo {
   name: string
   mode: 'reactive' | 'active'
@@ -26,6 +37,7 @@ export interface PluginInfo {
   enabled?: boolean
   builtin?: boolean
   permissions?: string[]
+  metrics?: PluginMetrics | null
 }
 
 export interface PluginSourceResponse {
@@ -72,6 +84,8 @@ export interface PluginTestRequest {
   text?: string
   params?: Record<string, unknown>
   reset_storage?: boolean
+  chat_id?: number | string
+  sender_name?: string
 }
 
 export interface PluginTestResponse {
@@ -162,3 +176,32 @@ export async function getPluginDiagnostics(token: string): Promise<PluginDiagnos
   return request<PluginDiagnosticsResponse>('/plugins/diagnostics', {}, token)
 }
 
+export async function exportPlugin(name: string, token: string): Promise<Blob> {
+  const url = `/api/plugins/${encodeURIComponent(name)}/export`
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+  if (!res.ok) {
+    throw new Error(`Failed to export plugin: ${res.statusText}`)
+  }
+  return res.blob()
+}
+
+export async function uploadPlugin(file: File, token: string): Promise<PluginInfo> {
+  const formData = new FormData()
+  formData.append('file', file)
+  const res = await fetch('/api/plugins/upload', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: formData,
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || 'Upload failed')
+  }
+  return res.json()
+}

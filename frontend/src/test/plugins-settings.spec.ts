@@ -270,4 +270,55 @@ describe('PluginsSettings.vue 插件管理组件', () => {
       expect(wrapper.text()).toContain('缺少依赖')
     })
   })
+
+  it('当插件包含运行指标 metrics 时展示调用次数与成功率', async () => {
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValueOnce([
+      {
+        name: 'math_solver',
+        mode: 'reactive',
+        description: '数学计算',
+        enabled: true,
+        metrics: {
+          run_count: 42,
+          success_count: 40,
+          failure_count: 2,
+          last_run_at: '2026-09-11 12:00:00',
+          last_duration_ms: 15.2,
+          avg_duration_ms: 18.5,
+          success_rate: 95.2,
+          last_error: null,
+        },
+      },
+    ])
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('math_solver')
+      expect(wrapper.text()).toContain('42')
+      expect(wrapper.text()).toContain('95.2%')
+      expect(wrapper.text()).toContain('18.5ms')
+    })
+  })
+
+  it('卡片中存在导出源码按钮，且顶部工具栏包含上传插件按钮', async () => {
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValueOnce([
+      {
+        name: 'math_solver',
+        mode: 'reactive',
+        description: '数学计算',
+        enabled: true,
+      },
+    ])
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('math_solver')
+    })
+    expect(wrapper.text()).toContain('导出源码')
+    expect(wrapper.text()).toContain('上传插件')
+  })
+
+
 })

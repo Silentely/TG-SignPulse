@@ -2,17 +2,27 @@
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import inspect
 import logging
 import os
+import re
 import shutil
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Response,
+    UploadFile,
+    status,
+)
 from pydantic import BaseModel, Field
 
 from backend.core.auth import get_current_user
@@ -46,6 +56,27 @@ def _get_disabled_plugins() -> set[str]:
         return set()
 
 
+def _get_custom_plugins_dir() -> Path:
+    custom_dirs = [
+        d for d in PluginRegistry.get_search_directories()
+        if not is_builtin_plugin_path(d)
+    ]
+    target_dir = custom_dirs[0] if custom_dirs else Path.cwd() / "data" / "plugins"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    return target_dir
+
+
+class PluginMetricsModel(BaseModel):
+    run_count: int = 0
+    success_count: int = 0
+    failure_count: int = 0
+    last_run_at: Optional[str] = None
+    last_duration_ms: float = 0.0
+    avg_duration_ms: float = 0.0
+    success_rate: float = 100.0
+    last_error: Optional[str] = None
+
+
 class PluginInfo(BaseModel):
     name: str
     mode: str
@@ -58,6 +89,28 @@ class PluginInfo(BaseModel):
     enabled: bool = True
     builtin: bool = False
     permissions: List[str] = Field(default_factory=list)
+    metrics: Optional[PluginMetricsModel] = None
+
+
+def _meta_to_info(p: PluginMeta, disabled_set: Optional[set[str]] = None) -> PluginInfo:
+    if disabled_set is None:
+        disabled_set = _get_disabled_plugins()
+    metrics_data = PluginRegistry.get_metrics(p.name)
+    metrics_model = PluginMetricsModel(**metrics_data.to_dict()) if metrics_data else None
+    return PluginInfo(
+        name=p.name,
+        mode=p.mode,
+        description=p.description,
+        version=getattr(p, "version", "1.0.0") or "1.0.0",
+        updated_at=getattr(p, "updated_at", "") or "",
+        author=getattr(p, "author", "") or "",
+        source_path=_safe_source_path(p.source_path),
+        params_schema=p.params_schema or [],
+        enabled=p.name not in disabled_set,
+        builtin=getattr(p, "builtin", False),
+        permissions=getattr(p, "permissions", []),
+        metrics=metrics_model,
+    )
 
 
 class PluginSourceResponse(BaseModel):
@@ -104,6 +157,12 @@ class PluginTestRequest(BaseModel):
     text: str = Field(default="", description="模拟接收到的 Telegram 消息文本")
     params: Dict[str, Any] = Field(default_factory=dict, description="插件自定义参数")
     reset_storage: bool = Field(default=False, description="测试前是否重置测试命名空间内的持久化存储")
+    chat_id: Optional[Union[int, str]] = Field(default=None, description="模拟会话 ID")
+    sender_name: Optional[str] = Field(default=None, description="模拟发送者名称")
+
+
+PluginInfo.update_forward_refs()
+PluginTestRequest.update_forward_refs()
 
 
 class PluginTestResponse(BaseModel):
@@ -152,22 +211,7 @@ async def list_plugins(_user: User = Depends(get_current_user)) -> List[PluginIn
     for name in plugins:
         PluginRegistry.set_disabled(name, disabled=name in disabled_set)
 
-    return [
-        PluginInfo(
-            name=p.name,
-            mode=p.mode,
-            description=p.description,
-            version=getattr(p, "version", "1.0.0") or "1.0.0",
-            updated_at=getattr(p, "updated_at", "") or "",
-            author=getattr(p, "author", "") or "",
-            source_path=_safe_source_path(p.source_path),
-            params_schema=p.params_schema or [],
-            enabled=p.name not in disabled_set,
-            builtin=getattr(p, "builtin", False),
-            permissions=getattr(p, "permissions", []),
-        )
-        for p in plugins.values()
-    ]
+    return [_meta_to_info(p, disabled_set) for p in plugins.values()]
 
 
 @router.post("/reload", response_model=ReloadPluginsResponse)
@@ -181,19 +225,7 @@ async def reload_plugins(
     for name in plugins:
         PluginRegistry.set_disabled(name, disabled=name in disabled_set)
 
-    res_list = [
-        PluginInfo(
-            name=p.name,
-            mode=p.mode,
-            description=p.description,
-            source_path=_safe_source_path(p.source_path),
-            params_schema=p.params_schema or [],
-            enabled=p.name not in disabled_set,
-            builtin=getattr(p, "builtin", False),
-            permissions=getattr(p, "permissions", []),
-        )
-        for p in plugins.values()
-    ]
+    res_list = [_meta_to_info(p, disabled_set) for p in plugins.values()]
     logger.info("已重新加载自定义插件，当前共 %d 个可用插件", len(res_list))
     return ReloadPluginsResponse(count=len(res_list), plugins=res_list)
 
@@ -236,15 +268,7 @@ async def toggle_plugin(
 
     PluginRegistry.set_disabled(name, disabled=new_disabled)
 
-    return PluginInfo(
-        name=meta.name,
-        mode=meta.mode,
-        description=meta.description,
-        source_path=_safe_source_path(meta.source_path),
-        params_schema=meta.params_schema or [],
-        enabled=not new_disabled,
-        builtin=getattr(meta, "builtin", False),
-    )
+    return _meta_to_info(meta, set(disabled_list))
 
 
 @router.post("/{name}/test", response_model=PluginTestResponse)
@@ -269,10 +293,18 @@ async def test_plugin(
     def log_capture(msg: str):
         captured_logs.append(str(msg))
 
+    eff_chat_id = req.chat_id if req.chat_id is not None else 12345678
+    eff_sender_name = req.sender_name or "Tester"
+
+    class MockUser:
+        id = 888888
+        first_name = eff_sender_name
+        is_bot = False
+
     class MockChat:
-        id = 12345678
+        id = eff_chat_id
         title = "MockChat"
-        type = "private"
+        type = "supergroup" if str(eff_chat_id).startswith("-100") else "private"
 
     class MockMessage:
         def __init__(self, text: str):
@@ -280,7 +312,8 @@ async def test_plugin(
             self.caption = None
             self.id = 999999
             self.chat = MockChat()
-            self.chat_id = 12345678
+            self.from_user = MockUser()
+            self.chat_id = eff_chat_id
 
         async def reply(self, reply_text: str, **_kwargs):
             reply_record.append(str(reply_text))
@@ -320,7 +353,7 @@ async def test_plugin(
 
     ctx = PluginContext(
         app=mock_app,
-        chat_id=12345678,
+        chat_id=eff_chat_id,
         message=mock_msg,
         params=req.params,
         logger=log_capture,
@@ -389,6 +422,12 @@ async def test_plugin(
             captured_logs.append(f"[error] {err_str}")
 
     duration_ms = round((time.perf_counter() - start_t) * 1000, 2)
+    PluginRegistry.record_execution(
+        name,
+        duration_ms=duration_ms,
+        success=bool(success and not err_str),
+        error=err_str,
+    )
 
     return PluginTestResponse(
         name=name,
@@ -822,3 +861,83 @@ async def {req.name}_handler(ctx: PluginContext) -> bool:
         builtin=False,
         permissions=getattr(matched, "permissions", []),
     )
+
+
+@router.get("/{name}/export")
+async def export_plugin(
+    name: str,
+    _user: User = Depends(get_current_user),
+) -> Response:
+    """导出并下载指定插件的 .py 源码文件。"""
+    meta = PluginRegistry.get(name)
+    if not meta or not meta.source_path:
+        raise HTTPException(status_code=404, detail=f"插件 '{name}' 不存在或无源码文件")
+
+    path = Path(meta.source_path).resolve()
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail=f"插件 '{name}' 源码文件丢失")
+
+    try:
+        content = path.read_text(encoding="utf-8")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"读取插件源码失败: {exc}")
+
+    filename = f"{name}.py"
+    return Response(
+        content=content,
+        media_type="text/x-python; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/upload", response_model=PluginInfo)
+async def upload_plugin(
+    file: UploadFile = File(...),
+    _user: User = Depends(get_current_user),
+) -> PluginInfo:
+    """上传本地 .py 插件文件至自定义插件目录并热重载。"""
+    if not file.filename or not file.filename.endswith(".py"):
+        raise HTTPException(status_code=400, detail="仅支持上传 .py 格式的 Python 插件文件")
+
+    raw_filename = Path(file.filename).name
+    plugin_stem = raw_filename[:-3]
+    if not re.match(r"^[a-zA-Z0-9_]{3,32}$", plugin_stem):
+        raise HTTPException(
+            status_code=400,
+            detail="插件文件名必须由 3-32 位字母、数字或下划线组成（如 custom_plugin.py）",
+        )
+
+    try:
+        content_bytes = await file.read()
+        content = content_bytes.decode("utf-8")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"读取上传文件失败: {exc}")
+
+    if len(content_bytes) > 2 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="插件文件大小超过 2MB 限制")
+
+    try:
+        ast.parse(content, filename=raw_filename)
+    except SyntaxError as exc:
+        raise HTTPException(status_code=400, detail=f"Python 语法错误 [第 {exc.lineno} 行]: {exc.msg}")
+
+    target_dir = _get_custom_plugins_dir()
+    dest_path = target_dir / raw_filename
+    try:
+        dest_path.write_text(content, encoding="utf-8")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"写入插件文件失败: {exc}")
+
+    PluginRegistry.reload_all_plugins()
+    matched = PluginRegistry.get(plugin_stem)
+    if not matched:
+        for p in PluginRegistry.list_plugins().values():
+            if p.source_path and Path(p.source_path).name == raw_filename:
+                matched = p
+                break
+
+    if not matched:
+        dest_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail="未在上传的文件中检测到有效插件注册（请检查 @PluginRegistry.register 装饰器）")
+
+    return _meta_to_info(matched)
