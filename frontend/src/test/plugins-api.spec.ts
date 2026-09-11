@@ -24,6 +24,7 @@ import {
   auditPluginSource,
   testPlugin,
   getPluginsManifest,
+  formatPluginSource,
 } from '../lib/api/plugins'
 
 describe('plugins api 扩展接口', () => {
@@ -386,5 +387,21 @@ describe('plugins api 扩展接口', () => {
     const result = await getPluginsManifest('test-token')
     expect(requestSpy).toHaveBeenCalledWith('/plugins/manifest', {}, 'test-token')
     expect(result).toEqual(mockManifest)
+  })
+
+  it('formatPluginSource 发起 POST /plugins/format-source', async () => {
+    const mockResp = { formatted: 'def foo():\n    pass\n', changed: true }
+    const requestSpy = vi.spyOn(coreApi, 'request').mockResolvedValueOnce(mockResp)
+
+    const result = await formatPluginSource('def foo(): pass', 'test-token')
+    expect(requestSpy).toHaveBeenCalledWith(
+      '/plugins/format-source',
+      {
+        method: 'POST',
+        body: JSON.stringify({ source: 'def foo(): pass' }),
+      },
+      'test-token',
+    )
+    expect(result).toEqual(mockResp)
   })
 })

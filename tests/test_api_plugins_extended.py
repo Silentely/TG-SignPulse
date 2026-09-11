@@ -773,3 +773,24 @@ def test_api_plugin_recent_results():
     # 最近一次是 False，倒数第二次是 True
     assert math_p["recent_results"][-1] is False
     assert math_p["recent_results"][-2] is True
+
+
+def test_api_format_source():
+    # 混乱排版的 Python 代码
+    messy_code = """
+def   calc(  a,b  ):
+    return a+b
+"""
+    resp = client.post("/api/plugins/format-source", json={"source": messy_code})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "formatted" in data
+    formatted = data["formatted"]
+    # 格式化后应该规范
+    assert "def calc(a, b):" in formatted
+    assert "return a + b" in formatted
+
+    # 包含语法错误的代码进行格式化
+    bad_code = "def calc(:"
+    resp_bad = client.post("/api/plugins/format-source", json={"source": bad_code})
+    assert resp_bad.status_code == 400
