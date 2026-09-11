@@ -19,6 +19,7 @@ import {
   resetPluginConfig,
   exportAllPlugins,
   importPluginsBundle,
+  checkPluginSyntax,
 } from '../lib/api/plugins'
 
 describe('plugins api 扩展接口', () => {
@@ -304,5 +305,21 @@ describe('plugins api 扩展接口', () => {
       }),
     )
     expect(result).toEqual(mockResult)
+  })
+
+  it('checkPluginSyntax 发起 POST /plugins/check-syntax 传递 source', async () => {
+    const mockResp = { valid: true }
+    const requestSpy = vi.spyOn(coreApi, 'request').mockResolvedValueOnce(mockResp)
+
+    const result = await checkPluginSyntax('import os', 'test-token')
+    expect(requestSpy).toHaveBeenCalledWith(
+      '/plugins/check-syntax',
+      {
+        method: 'POST',
+        body: JSON.stringify({ source: 'import os' }),
+      },
+      'test-token',
+    )
+    expect(result).toEqual(mockResp)
   })
 })

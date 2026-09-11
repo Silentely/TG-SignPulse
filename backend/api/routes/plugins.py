@@ -152,6 +152,17 @@ class UpdatePluginConfigRequest(BaseModel):
     params: Dict[str, Any] = Field(default_factory=dict)
 
 
+class CheckSyntaxRequest(BaseModel):
+    source: str
+
+
+class CheckSyntaxResponse(BaseModel):
+    valid: bool
+    line: Optional[int] = None
+    column: Optional[int] = None
+    error: Optional[str] = None
+
+
 class ImportBundleResponse(BaseModel):
     imported_count: int = 0
     files: List[str] = Field(default_factory=list)
@@ -1533,6 +1544,29 @@ async def export_all_plugins(
             "Access-Control-Expose-Headers": "Content-Disposition",
         },
     )
+
+
+@router.post("/check-syntax", response_model=CheckSyntaxResponse)
+async def check_plugin_syntax(
+    req: CheckSyntaxRequest,
+    _user: User = Depends(get_current_user),
+) -> CheckSyntaxResponse:
+    """静态检查 Python 源码是否存在语法错误。"""
+    try:
+        ast.parse(req.source, filename="<plugin_editor>")
+        return CheckSyntaxResponse(valid=True)
+    except SyntaxError as exc:
+        return CheckSyntaxResponse(
+            valid=False,
+            line=exc.lineno,
+            column=exc.offset,
+            error=f"SyntaxError: {exc.msg} (line {exc.lineno})",
+        )
+    except Exception as exc:
+        return CheckSyntaxResponse(
+            valid=False,
+            error=f"解析失败: {exc}",
+        )
 
 
 @router.post("/import-bundle", response_model=ImportBundleResponse)

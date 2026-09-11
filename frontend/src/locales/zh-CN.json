@@ -420,7 +420,9 @@
     "advancedActionOptions": "高级管道选项",
     "collapseOptions": "收起高级选项",
     "debugPlugin": "在线调试",
-    "debugPluginTip": "使用当前配置参数在线调试此插件"
+    "debugPluginTip": "使用当前配置参数在线调试此插件",
+    "pluginTimeout": "超时限制(秒)",
+    "pluginTimeoutPlaceholder": "默认 25"
   },
   "taskModal": {
     "addTitle": "添加任务",
@@ -875,7 +877,10 @@
     "pluginsFilterTabReactive": "监听响应",
     "pluginsFilterTabCustom": "自定义",
     "pluginsFilterTabBuiltin": "官方内置",
-    "pluginsFilterTabIssue": "异常/告警"
+    "pluginsFilterTabIssue": "异常/告警",
+    "pluginsSyntaxCheck": "语法检查",
+    "pluginsSyntaxValid": "Python 语法检查通过，未发现语法错误",
+    "pluginsSyntaxInvalid": "语法错误 (第 {line} 行): {error}"
   },
   "profile": {
     "title": "个人中心",

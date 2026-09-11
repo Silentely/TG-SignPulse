@@ -64,6 +64,7 @@ import {
   getPluginDependencies,
   exportAllPlugins,
   importPluginsBundle,
+  checkPluginSyntax,
   type PluginDependency,
   type PluginExecutionRecord,
   type PluginInfo,
@@ -447,10 +448,38 @@ const openSourceModal = async (plugin: PluginInfo) => {
   }
 }
 
+const syntaxChecking = ref(false)
+const syntaxResult = ref<{ valid: boolean; message: string } | null>(null)
+
 const toggleEditSource = () => {
   isEditingSource.value = !isEditingSource.value
+  syntaxResult.value = null
   if (isEditingSource.value) {
     editedSourceCode.value = sourceCode.value
+  }
+}
+
+const handleCheckSyntax = async () => {
+  if (!editedSourceCode.value) return
+  syntaxChecking.value = true
+  syntaxResult.value = null
+  try {
+    const res = await withToken((token) => checkPluginSyntax(editedSourceCode.value, token))
+    if (!res) return
+    if (res.valid) {
+      syntaxResult.value = { valid: true, message: t('settings.pluginsSyntaxValid') }
+      toast.success(t('settings.pluginsSyntaxValid'))
+    } else {
+      const msg = res.error || '语法错误'
+      syntaxResult.value = { valid: false, message: msg }
+      toast.error(msg)
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    syntaxResult.value = { valid: false, message: msg }
+    toast.error(msg)
+  } finally {
+    syntaxChecking.value = false
   }
 }
 
@@ -1096,6 +1125,17 @@ onMounted(() => {
               <RotateCcw class="w-3 h-3" :class="{ 'animate-spin': resettingMetricsPlugin === plugin.name }" />
             </button>
             </div>
+            <!-- 运行健康度双色进度条 -->
+            <div
+              v-if="plugin.metrics.run_count > 0"
+              class="w-full bg-rose-200 dark:bg-rose-950/80 rounded-full h-1 overflow-hidden flex"
+              :title="`成功: ${plugin.metrics.success_count} / 失败: ${plugin.metrics.failure_count}`"
+            >
+              <div
+                class="bg-emerald-500 h-full transition-all duration-300"
+                :style="{ width: `${plugin.metrics.success_rate}%` }"
+              />
+            </div>
             <div
               v-if="plugin.metrics.last_error"
               class="text-[10px] text-rose-600 dark:text-rose-400 bg-rose-50/80 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 rounded px-2 py-0.5 flex items-start gap-1 font-mono break-all"
@@ -1295,6 +1335,19 @@ onMounted(() => {
             spellcheck="false"
           ></textarea>
           <div class="flex items-center justify-end gap-2">
+            <div v-if="syntaxResult" class="mr-auto text-[11px] font-mono flex items-center gap-1 px-2 py-1 rounded" :class="syntaxResult.valid ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' : 'bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-300 border border-rose-200 dark:border-rose-800'">
+              <span>{{ syntaxResult.message }}</span>
+            </div>
+            <button
+              type="button"
+              class="ui-btn-secondary !py-1.5 !px-3 !text-xs inline-flex items-center gap-1.5 text-blue-600 dark:text-blue-400"
+              :disabled="syntaxChecking || savingSource"
+              @click="handleCheckSyntax"
+            >
+              <RefreshCw v-if="syntaxChecking" class="w-3.5 h-3.5 animate-spin" />
+              <Check v-else class="w-3.5 h-3.5" />
+              <span>{{ syntaxChecking ? t('common.loading') : t('settings.pluginsSyntaxCheck') }}</span>
+            </button>
             <button
               type="button"
               class="ui-btn-secondary !py-1.5 !px-3 !text-xs"

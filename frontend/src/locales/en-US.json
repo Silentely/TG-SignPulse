@@ -420,7 +420,9 @@
     "advancedActionOptions": "Pipeline & Fault-Tolerance",
     "collapseOptions": "Collapse Options",
     "debugPlugin": "Debug Plugin",
-    "debugPluginTip": "Debug this plugin online with current parameters"
+    "debugPluginTip": "Debug this plugin online with current parameters",
+    "pluginTimeout": "Timeout (s)",
+    "pluginTimeoutPlaceholder": "Default 25"
   },
   "taskModal": {
     "addTitle": "Add Task",
@@ -875,7 +877,10 @@
     "pluginsFilterTabReactive": "Reactive",
     "pluginsFilterTabCustom": "Custom",
     "pluginsFilterTabBuiltin": "Built-in",
-    "pluginsFilterTabIssue": "Issues"
+    "pluginsFilterTabIssue": "Issues",
+    "pluginsSyntaxCheck": "Check Syntax",
+    "pluginsSyntaxValid": "Python syntax check passed, no errors found",
+    "pluginsSyntaxInvalid": "Syntax error (line {line}): {error}"
   },
   "profile": {
     "title": "Profile",

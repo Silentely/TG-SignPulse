@@ -57,6 +57,7 @@ describe('TaskFormActionsSection.vue 动作区插件调试集成', () => {
     await vi.waitFor(() => {
       expect(wrapper.text()).toContain('在线调试')
       expect(wrapper.text()).toContain('v1.0.0')
+      expect(wrapper.text()).toContain('超时限制(秒)')
     })
 
     const debugBtn = wrapper.findAll('button').find((btn) => btn.text().includes('在线调试'))
