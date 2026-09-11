@@ -1189,3 +1189,26 @@ async def test_regex_reply_with_caption():
     )
     assert await meta.handler(ctx) is True
     mock_app.send_message.assert_awaited_once_with(2026, "code is ABC888", reply_to_message_id=555)
+
+
+@pytest.mark.asyncio
+async def test_active_plugin_auto_mode_from_registry():
+    """测试当动作中 mode 缺省为 reactive 时，若插件本身注册为 active，则自动以 active 模式调度执行"""
+    PluginRegistry._plugins.pop("auto_active_sample", None)
+
+    called = False
+
+    @PluginRegistry.register("auto_active_sample", mode="active")
+    async def sample_handler(ctx: PluginContext):
+        nonlocal called
+        called = True
+        return True
+
+    signer = DummySigner()
+    # 动作未显式指定 mode（即默认为 reactive）
+    action = PluginAction(plugin_name="auto_active_sample")
+    chat = SignChatV3(chat_id=888, actions=[action])
+
+    ok = await signer.wait_for(chat, action)
+    assert ok is True
+    assert called is True

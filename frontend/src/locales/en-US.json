@@ -775,7 +775,15 @@
     "pluginsDevGuideTitle": "Plugin Development Reference",
     "pluginsVersionLabel": "Version",
     "pluginsUpdatedLabel": "Updated",
-    "pluginsAuthorLabel": "Author"
+    "pluginsAuthorLabel": "Author",
+    "pluginsSearchPlaceholder": "Search plugin name, description or author...",
+    "pluginsFilterAll": "All",
+    "pluginsFilterReactive": "Reactive",
+    "pluginsFilterActive": "Active",
+    "pluginsFilterBuiltin": "Built-in",
+    "pluginsFilterCustom": "Custom",
+    "pluginsSourceOpenTest": "Open Debugger",
+    "pluginsEmptyFilter": "No matching plugins found"
   },
   "profile": {
     "title": "Profile",

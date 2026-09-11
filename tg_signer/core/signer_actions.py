@@ -602,7 +602,11 @@ class SignerActionsMixin:
                 return False
             eff_timeout = action.timeout if action.timeout is not None else timeout
 
-            if action.mode == "active":
+            effective_mode = action.mode
+            if getattr(plugin, "mode", None) == "active":
+                effective_mode = "active"
+
+            if effective_mode == "active":
                 ctx = PluginContext(
                     app=self.app,
                     chat_id=chat.chat_id,

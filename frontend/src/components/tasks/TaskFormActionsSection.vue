@@ -149,6 +149,10 @@ const onPluginSelect = (action: TaskActionItem, val: string | number) => {
     manualPluginMode.value[action.id] = true
   } else {
     action.value = str
+    const info = getPluginInfo(str)
+    if (info?.mode) {
+      action.mode = info.mode
+    }
   }
 }
 
@@ -330,6 +334,12 @@ const emit = defineEmits<{
                 <span class="font-medium truncate">✧ {{ getPluginInfo(action.value)?.description || action.value }}</span>
                 <span class="shrink-0 text-[10px] px-1 py-0.5 rounded bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300 font-mono">
                   {{ getPluginInfo(action.value)?.mode }}
+                </span>
+                <span
+                  v-if="getPluginInfo(action.value)?.version"
+                  class="shrink-0 text-[10px] px-1 py-0.5 rounded bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 font-mono"
+                >
+                  v{{ getPluginInfo(action.value)?.version }}
                 </span>
               </div>
 
