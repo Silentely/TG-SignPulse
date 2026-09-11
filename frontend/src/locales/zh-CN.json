@@ -850,7 +850,22 @@
     "pluginsSortRuns": "按调用次数",
     "pluginsSortSuccessRate": "按成功率",
     "pluginsSortDuration": "按平均耗时",
-    "pluginsSortName": "按插件名称"
+    "pluginsSortName": "按插件名称",
+    "pluginsDependenciesTitle": "三方依赖检测",
+    "pluginsDependenciesNone": "无三方外部库依赖（仅依赖 Python 标准库或主程序内置模块）",
+    "pluginsDependencyInstalled": "已安装",
+    "pluginsDependencyMissing": "未安装",
+    "pluginsDependencyCopied": "已复制安装命令: {cmd}",
+    "pluginsConfigBtn": "默认配置",
+    "pluginsConfigTitle": "插件全局配置: {name}",
+    "pluginsConfigReset": "恢复默认参数",
+    "pluginsConfigSaved": "插件全局配置已保存",
+    "pluginsConfigResetSuccess": "已重置为插件默认参数",
+    "pluginsQuickPresets": "快捷填入",
+    "pluginsPresetMath": "数学算式",
+    "pluginsPresetCode": "验证码文本",
+    "pluginsPresetGreeting": "问候口令",
+    "pluginsDependencyCopyInstall": "点击复制安装命令"
   },
   "profile": {
     "title": "个人中心",

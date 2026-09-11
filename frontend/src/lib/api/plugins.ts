@@ -50,6 +50,24 @@ export interface PluginSourceResponse {
   source: string
 }
 
+export interface PluginDependency {
+  module: string
+  installed: boolean
+  version?: string | null
+  install_command?: string | null
+}
+
+export interface PluginDependenciesResponse {
+  name: string
+  dependencies: PluginDependency[]
+}
+
+export interface PluginConfigResponse {
+  name: string
+  params: Record<string, any>
+  is_customized: boolean
+}
+
 export interface PluginExecutionRecord {
   timestamp: string
   duration_ms: number
@@ -279,5 +297,38 @@ export async function clonePlugin(
   return request<PluginInfo>(`/plugins/${encodeURIComponent(name)}/clone`, {
     method: 'POST',
     body: JSON.stringify(data),
+  }, token)
+}
+export async function getPluginDependencies(
+  name: string,
+  token: string,
+): Promise<PluginDependenciesResponse> {
+  return request<PluginDependenciesResponse>(`/plugins/${encodeURIComponent(name)}/dependencies`, {}, token)
+}
+
+export async function getPluginConfig(
+  name: string,
+  token: string,
+): Promise<PluginConfigResponse> {
+  return request<PluginConfigResponse>(`/plugins/${encodeURIComponent(name)}/config`, {}, token)
+}
+
+export async function updatePluginConfig(
+  name: string,
+  params: Record<string, any>,
+  token: string,
+): Promise<PluginConfigResponse> {
+  return request<PluginConfigResponse>(`/plugins/${encodeURIComponent(name)}/config`, {
+    method: 'PUT',
+    body: JSON.stringify({ params }),
+  }, token)
+}
+
+export async function resetPluginConfig(
+  name: string,
+  token: string,
+): Promise<PluginConfigResponse> {
+  return request<PluginConfigResponse>(`/plugins/${encodeURIComponent(name)}/reset-config`, {
+    method: 'POST',
   }, token)
 }

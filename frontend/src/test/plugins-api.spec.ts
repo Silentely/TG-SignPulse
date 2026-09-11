@@ -13,6 +13,10 @@ import {
   resetAllPluginMetrics,
   getPluginHistory,
   clonePlugin,
+  getPluginDependencies,
+  getPluginConfig,
+  updatePluginConfig,
+  resetPluginConfig,
 } from '../lib/api/plugins'
 
 describe('plugins api 扩展接口', () => {
@@ -214,6 +218,50 @@ describe('plugins api 扩展接口', () => {
         method: 'POST',
         body: JSON.stringify({ new_name: 'new_p', description: '克隆' }),
       },
+      'test-token',
+    )
+    expect(result).toEqual(mockResp)
+  })
+
+  it('getPluginDependencies 发起 GET /plugins/:name/dependencies', async () => {
+    const mockResp = { name: 'dep_p', dependencies: [{ module: 'requests', installed: true }] }
+    const requestSpy = vi.spyOn(coreApi, 'request').mockResolvedValueOnce(mockResp)
+
+    const result = await getPluginDependencies('dep_p', 'test-token')
+    expect(requestSpy).toHaveBeenCalledWith('/plugins/dep_p/dependencies', {}, 'test-token')
+    expect(result).toEqual(mockResp)
+  })
+
+  it('getPluginConfig 发起 GET /plugins/:name/config', async () => {
+    const mockResp = { name: 'cfg_p', params: { a: 1 }, is_customized: false }
+    const requestSpy = vi.spyOn(coreApi, 'request').mockResolvedValueOnce(mockResp)
+
+    const result = await getPluginConfig('cfg_p', 'test-token')
+    expect(requestSpy).toHaveBeenCalledWith('/plugins/cfg_p/config', {}, 'test-token')
+    expect(result).toEqual(mockResp)
+  })
+
+  it('updatePluginConfig 发起 PUT /plugins/:name/config', async () => {
+    const mockResp = { name: 'cfg_p', params: { a: 2 }, is_customized: true }
+    const requestSpy = vi.spyOn(coreApi, 'request').mockResolvedValueOnce(mockResp)
+
+    const result = await updatePluginConfig('cfg_p', { a: 2 }, 'test-token')
+    expect(requestSpy).toHaveBeenCalledWith(
+      '/plugins/cfg_p/config',
+      { method: 'PUT', body: JSON.stringify({ params: { a: 2 } }) },
+      'test-token',
+    )
+    expect(result).toEqual(mockResp)
+  })
+
+  it('resetPluginConfig 发起 POST /plugins/:name/reset-config', async () => {
+    const mockResp = { name: 'cfg_p', params: { a: 1 }, is_customized: false }
+    const requestSpy = vi.spyOn(coreApi, 'request').mockResolvedValueOnce(mockResp)
+
+    const result = await resetPluginConfig('cfg_p', 'test-token')
+    expect(requestSpy).toHaveBeenCalledWith(
+      '/plugins/cfg_p/reset-config',
+      { method: 'POST' },
       'test-token',
     )
     expect(result).toEqual(mockResp)

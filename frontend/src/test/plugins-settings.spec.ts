@@ -549,4 +549,71 @@ describe('PluginsSettings.vue 插件管理组件', () => {
       'mock-token',
     )
   })
+
+  it('源码弹窗展示三方依赖检测且调试台支持快捷填入预设与参数重置默认', async () => {
+    const mockPlugin = {
+      name: 'smart_assistant',
+      mode: 'reactive' as const,
+      description: '智能助手',
+      builtin: true,
+      enabled: true,
+      params_schema: [
+        { name: 'threshold', label: '阈值', type: 'number' as const, default: 10 },
+      ],
+    }
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValue([mockPlugin])
+    vi.spyOn(pluginsApi, 'getPluginSource').mockResolvedValue({
+      name: 'smart_assistant',
+      source: 'import requests\ndef smart_assistant_handler(): pass',
+    })
+    vi.spyOn(pluginsApi, 'getPluginDependencies').mockResolvedValue({
+      name: 'smart_assistant',
+      dependencies: [
+        { module: 'requests', installed: true, version: '2.31.0' },
+        { module: 'bs4', installed: false, install_command: 'pip install bs4' },
+      ],
+    })
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('smart_assistant')
+    })
+
+    // 1. 打开查看源码弹窗，验证依赖展示
+    const sourceBtn = wrapper.findAll('button').find((b) => b.text().includes('查看源码'))
+    expect(sourceBtn).toBeDefined()
+    await sourceBtn!.trigger('click')
+
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain('requests@2.31.0')
+      expect(document.body.textContent).toContain('bs4')
+      expect(document.body.textContent).toContain('未安装')
+    })
+
+    // 2. 打开调试弹窗，验证快捷填入与重置默认参数
+    const testBtn = wrapper.findAll('button').find((b) => b.text().includes('调试'))
+    expect(testBtn).toBeDefined()
+    await testBtn!.trigger('click')
+
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain('快捷填入')
+    })
+
+    const allButtons = Array.from(document.body.querySelectorAll('button'))
+    const mathPreset = allButtons.find((b) => b.textContent?.includes('数学算式'))
+    expect(mathPreset).toBeDefined()
+    mathPreset!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+
+    await vi.waitFor(() => {
+      const textarea = document.body.querySelector('textarea') as HTMLTextAreaElement
+      expect(textarea.value).toBe('12 + 34 = ?')
+    })
+
+    const resetParamsBtn = allButtons.find((b) => b.textContent?.includes('恢复默认参数'))
+    expect(resetParamsBtn).toBeDefined()
+    resetParamsBtn!.click()
+  })
 })

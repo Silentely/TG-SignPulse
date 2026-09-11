@@ -142,6 +142,16 @@ class CreatePluginRequest(BaseModel):
     version: str = Field(default="1.0.0", pattern=r"^\d+\.\d+\.\d+$")
 
 
+class PluginConfigResponse(BaseModel):
+    name: str
+    params: Dict[str, Any] = Field(default_factory=dict)
+    is_customized: bool = False
+
+
+class UpdatePluginConfigRequest(BaseModel):
+    params: Dict[str, Any] = Field(default_factory=dict)
+
+
 class ClonePluginRequest(BaseModel):
     new_name: str = Field(..., pattern=r"^[a-zA-Z0-9_]{3,32}$", description="新插件标识")
     description: Optional[str] = Field(default=None, max_length=200)
@@ -1300,3 +1310,196 @@ async def clone_plugin(
         )
 
     return _meta_to_info(new_meta)
+
+def _inspect_plugin_dependencies(source_code: str) -> List[Dict[str, Any]]:
+    """利用 AST 静态分析插件源码中的三方外部依赖模块与安装就绪情况。"""
+    import ast
+    import importlib.util
+    import sys
+    from importlib.metadata import version as get_pkg_version
+
+    stdlib_modules = set(getattr(sys, "stdlib_module_names", set()))
+    ignore_modules = stdlib_modules | {
+        "tg_signer", "backend", "tests", "typing", "collections", "dataclasses",
+        "pathlib", "os", "sys", "json", "re", "time", "datetime", "asyncio",
+        "logging", "traceback", "urllib", "inspect", "enum", "math", "random",
+    }
+
+    try:
+        tree = ast.parse(source_code)
+    except Exception:
+        return []
+
+    imported_modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                root_name = alias.name.split(".")[0]
+                imported_modules.add(root_name)
+        elif isinstance(node, ast.ImportFrom):
+            if node.module and node.level == 0:
+                root_name = node.module.split(".")[0]
+                imported_modules.add(root_name)
+
+    third_party = [m for m in sorted(imported_modules) if m not in ignore_modules]
+
+    results = []
+    for mod in third_party:
+        spec = importlib.util.find_spec(mod)
+        installed = spec is not None
+        pkg_ver = None
+        if installed:
+            try:
+                pkg_ver = get_pkg_version(mod)
+            except Exception:
+                pass
+        results.append({
+            "module": mod,
+            "installed": installed,
+            "version": pkg_ver,
+            "install_command": f"pip install {mod}" if not installed else None,
+        })
+    return results
+
+
+def _get_all_plugin_configs() -> Dict[str, Dict[str, Any]]:
+    try:
+        from backend.services.config import get_config_service
+        settings = get_config_service().get_global_settings() or {}
+        return dict(settings.get("plugin_configs", {}))
+    except Exception:
+        return {}
+
+
+def _save_all_plugin_configs(configs: Dict[str, Dict[str, Any]]) -> None:
+    from backend.services.config import get_config_service
+    cfg_svc = get_config_service()
+    settings = cfg_svc.get_global_settings() or {}
+    settings["plugin_configs"] = configs
+    cfg_svc.save_global_settings(settings)
+
+
+def _get_default_params_from_schema(params_schema: Optional[List[Dict[str, Any]]]) -> Dict[str, Any]:
+    defaults = {}
+    if not params_schema:
+        return defaults
+    for item in params_schema:
+        if isinstance(item, dict) and "name" in item and "default" in item:
+            defaults[item["name"]] = item["default"]
+    return defaults
+
+
+@router.get("/{name}/dependencies")
+async def get_plugin_dependencies(
+    name: str,
+    _user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """静态解析指定插件的三方依赖库，并检测当前运行环境中是否已安装。"""
+    meta = PluginRegistry.get(name)
+    source_code: Optional[str] = None
+
+    if meta and meta.source_path and Path(meta.source_path).is_file():
+        try:
+            source_code = Path(meta.source_path).read_text(encoding="utf-8")
+        except Exception:
+            pass
+
+    if not source_code:
+        # 尝试从自定义目录中寻找对应文件（包括因缺少依赖而加载失败的插件）
+        target_dir = _get_custom_plugins_dir()
+        candidate = target_dir / f"{name}.py"
+        if candidate.is_file():
+            try:
+                source_code = candidate.read_text(encoding="utf-8")
+            except Exception:
+                pass
+        elif (target_dir / name / "__init__.py").is_file():
+            try:
+                source_code = (target_dir / name / "__init__.py").read_text(encoding="utf-8")
+            except Exception:
+                pass
+
+    if not source_code and meta and meta.handler:
+        try:
+            import inspect
+            source_code = inspect.getsource(meta.handler)
+        except Exception:
+            pass
+
+    if not source_code:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"未能定位插件 '{name}' 的源代码",
+        )
+
+    deps = _inspect_plugin_dependencies(source_code)
+    return {
+        "name": name,
+        "dependencies": deps,
+    }
+
+
+@router.get("/{name}/config", response_model=PluginConfigResponse)
+async def get_plugin_config(
+    name: str,
+    _user: User = Depends(get_current_user),
+) -> PluginConfigResponse:
+    """获取插件全局配置参数。若尚未自定义保存，则返回 params_schema 中声明的默认值。"""
+    meta = PluginRegistry.get(name)
+    if not meta:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"插件 '{name}' 不存在",
+        )
+
+    all_configs = _get_all_plugin_configs()
+    defaults = _get_default_params_from_schema(meta.params_schema)
+    if name in all_configs:
+        merged = {**defaults, **all_configs[name]}
+        return PluginConfigResponse(name=name, params=merged, is_customized=True)
+    return PluginConfigResponse(name=name, params=defaults, is_customized=False)
+
+
+@router.put("/{name}/config", response_model=PluginConfigResponse)
+async def update_plugin_config(
+    name: str,
+    req: UpdatePluginConfigRequest,
+    _user: User = Depends(get_current_user),
+) -> PluginConfigResponse:
+    """保存插件全局参数配置。"""
+    meta = PluginRegistry.get(name)
+    if not meta:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"插件 '{name}' 不存在",
+        )
+
+    all_configs = _get_all_plugin_configs()
+    all_configs[name] = req.params
+    _save_all_plugin_configs(all_configs)
+
+    defaults = _get_default_params_from_schema(meta.params_schema)
+    merged = {**defaults, **req.params}
+    return PluginConfigResponse(name=name, params=merged, is_customized=True)
+
+
+@router.post("/{name}/reset-config", response_model=PluginConfigResponse)
+async def reset_plugin_config(
+    name: str,
+    _user: User = Depends(get_current_user),
+) -> PluginConfigResponse:
+    """清空插件自定义配置，恢复为 params_schema 中的默认值。"""
+    meta = PluginRegistry.get(name)
+    if not meta:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"插件 '{name}' 不存在",
+        )
+
+    all_configs = _get_all_plugin_configs()
+    if name in all_configs:
+        all_configs.pop(name, None)
+        _save_all_plugin_configs(all_configs)
+
+    defaults = _get_default_params_from_schema(meta.params_schema)
+    return PluginConfigResponse(name=name, params=defaults, is_customized=False)
