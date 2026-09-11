@@ -36,6 +36,7 @@ import {
   Download,
   Activity,
   History,
+  Package,
   RotateCcw,
   Edit2,
   Save,
@@ -59,6 +60,8 @@ import {
   resetAllPluginMetrics,
   getPluginHistory,
   clonePlugin,
+  getPluginDependencies,
+  type PluginDependency,
   type PluginExecutionRecord,
   type PluginInfo,
   type PluginTestResponse,
@@ -355,6 +358,32 @@ const handleToggle = async (plugin: PluginInfo) => {
 }
 
 // 查看源码
+// 依赖体检状态
+const pluginDeps = ref<PluginDependency[]>([])
+const loadingDeps = ref(false)
+
+const copyDepInstall = async (cmd: string) => {
+  try {
+    await navigator.clipboard.writeText(cmd)
+    toast.success(t('settings.pluginsDependencyCopied', { cmd }))
+  } catch {
+    toast.error(cmd)
+  }
+}
+
+// 调试参数恢复默认
+const resetTestParamsToDefault = () => {
+  if (!currentTestPlugin.value?.params_schema) return
+  const defaults: Record<string, any> = {}
+  for (const field of currentTestPlugin.value.params_schema) {
+    if (field.name && field.default !== undefined) {
+      defaults[field.name] = field.default
+    }
+  }
+  testParams.value = defaults
+  toast.success(t('settings.pluginsConfigResetSuccess'))
+}
+
 const openSourceModal = async (plugin: PluginInfo) => {
   currentSourcePlugin.value = plugin
   sourceCode.value = ''
@@ -363,6 +392,20 @@ const openSourceModal = async (plugin: PluginInfo) => {
   editedSourceCode.value = ''
   isSourceModalOpen.value = true
   sourceLoading.value = true
+  pluginDeps.value = []
+  loadingDeps.value = true
+  void (async () => {
+    try {
+      const res = await withToken((token) => getPluginDependencies(plugin.name, token))
+      if (res && res.dependencies) {
+        pluginDeps.value = res.dependencies
+      }
+    } catch {
+      pluginDeps.value = []
+    } finally {
+      loadingDeps.value = false
+    }
+  })()
 
   try {
     const res = await withToken((token) => getPluginSource(plugin.name, token))
@@ -1140,6 +1183,40 @@ onMounted(() => {
       </template>
 
       <div class="space-y-3 text-xs">
+        <!-- 依赖体检栏 -->
+        <div class="p-2 rounded bg-gray-50 dark:bg-gray-900 border border-gray-200/60 dark:border-gray-800 text-[11px] flex flex-col gap-1.5">
+          <div class="flex items-center justify-between text-gray-500 dark:text-gray-400 font-medium">
+            <span class="inline-flex items-center gap-1">
+              <Package class="w-3.5 h-3.5 text-indigo-500" />
+              {{ t('settings.pluginsDependenciesTitle') }}
+            </span>
+            <span v-if="loadingDeps" class="inline-flex items-center gap-1 text-[10px] text-gray-400">
+              <RefreshCw class="w-3 h-3 animate-spin" />
+              {{ t('common.loading') }}
+            </span>
+          </div>
+          <div v-if="!loadingDeps && !pluginDeps.length" class="text-[10px] text-gray-400 dark:text-gray-500">
+            {{ t('settings.pluginsDependenciesNone') }}
+          </div>
+          <div v-else-if="pluginDeps.length" class="flex items-center gap-1.5 flex-wrap">
+            <span
+              v-for="dep in pluginDeps"
+              :key="dep.module"
+              class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono cursor-pointer border transition-colors"
+              :class="dep.installed
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/50'
+                : 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800/50 hover:border-rose-400'"
+              :title="dep.installed ? t('settings.pluginsDependencyInstalled') : t('settings.pluginsDependencyCopyInstall')"
+              @click="dep.install_command && copyDepInstall(dep.install_command)"
+            >
+              <span>{{ dep.module }}{{ dep.version ? `@${dep.version}` : '' }}</span>
+              <span class="text-[9px] px-1 rounded" :class="dep.installed ? 'bg-emerald-100 dark:bg-emerald-900/60' : 'bg-rose-100 dark:bg-rose-900/60'">
+                {{ dep.installed ? t('settings.pluginsDependencyInstalled') : t('settings.pluginsDependencyMissing') }}
+              </span>
+            </span>
+          </div>
+        </div>
+
         <div class="flex items-center gap-3 text-gray-500 dark:text-gray-400 text-[11px] font-mono flex-wrap">
           <span v-if="currentSourcePlugin?.version">v{{ currentSourcePlugin.version }}</span>
           <span v-if="currentSourcePlugin?.author">By {{ currentSourcePlugin.author }}</span>
@@ -1214,6 +1291,30 @@ onMounted(() => {
               {{ t('settings.pluginsTestInputLabel') }}
               <span v-if="currentTestPlugin.mode === 'active'" class="text-gray-400 font-normal text-[10px]">({{ t('common.optional') }})</span>
             </label>
+            <div class="flex items-center gap-1.5">
+              <span class="text-[10px] text-gray-400">{{ t('settings.pluginsQuickPresets') }}:</span>
+              <button
+                type="button"
+                class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                @click="testInputText = '12 + 34 = ?'"
+              >
+                {{ t('settings.pluginsPresetMath') }}
+              </button>
+              <button
+                type="button"
+                class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                @click="testInputText = '【Telegram】您的验证码是 982143，请勿泄露'"
+              >
+                {{ t('settings.pluginsPresetCode') }}
+              </button>
+              <button
+                type="button"
+                class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                @click="testInputText = '/hello'"
+              >
+                {{ t('settings.pluginsPresetGreeting') }}
+              </button>
+            </div>
           </div>
           <textarea
             v-model="testInputText"
@@ -1225,8 +1326,16 @@ onMounted(() => {
 
         <!-- 参数配置表单 (若存在 schema) -->
         <div v-if="currentTestPlugin.params_schema && currentTestPlugin.params_schema.length" class="p-3 bg-gray-50/80 dark:bg-white/[0.02] border border-gray-200 dark:border-gray-800/80 rounded space-y-2">
-          <div class="font-medium text-[11px] text-gray-700 dark:text-gray-300">
-            {{ t('settings.pluginsTestParamsLabel') }}
+          <div class="flex items-center justify-between font-medium text-[11px] text-gray-700 dark:text-gray-300">
+            <span>{{ t('settings.pluginsTestParamsLabel') }}</span>
+            <button
+              type="button"
+              class="text-[10px] text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center gap-1 font-normal"
+              @click="resetTestParamsToDefault"
+            >
+              <RotateCcw class="w-2.5 h-2.5" />
+              {{ t('settings.pluginsConfigReset') }}
+            </button>
           </div>
           <div
             v-for="field in currentTestPlugin.params_schema"

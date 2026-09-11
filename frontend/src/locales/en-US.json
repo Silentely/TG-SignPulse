@@ -850,7 +850,22 @@
     "pluginsSortRuns": "By Run Count",
     "pluginsSortSuccessRate": "By Success Rate",
     "pluginsSortDuration": "By Avg Duration",
-    "pluginsSortName": "By Name"
+    "pluginsSortName": "By Name",
+    "pluginsDependenciesTitle": "External Dependencies",
+    "pluginsDependenciesNone": "No third-party dependencies (only standard libraries or built-in modules)",
+    "pluginsDependencyInstalled": "Installed",
+    "pluginsDependencyMissing": "Missing",
+    "pluginsDependencyCopied": "Copied install command: {cmd}",
+    "pluginsConfigBtn": "Global Config",
+    "pluginsConfigTitle": "Plugin Global Config: {name}",
+    "pluginsConfigReset": "Reset Defaults",
+    "pluginsConfigSaved": "Plugin configuration saved",
+    "pluginsConfigResetSuccess": "Reset to default parameters successfully",
+    "pluginsQuickPresets": "Quick Presets",
+    "pluginsPresetMath": "Math Expression",
+    "pluginsPresetCode": "Verification Code",
+    "pluginsPresetGreeting": "Greeting",
+    "pluginsDependencyCopyInstall": "Click to copy install command"
   },
   "profile": {
     "title": "Profile",

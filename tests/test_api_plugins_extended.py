@@ -474,3 +474,90 @@ def test_api_clone_plugin():
     # cleanup
     client.delete("/api/plugins/plug_orig")
     client.delete("/api/plugins/plug_copied")
+
+
+def test_api_plugin_dependencies_inspector():
+    from pathlib import Path
+    from tg_signer.core.plugins import PluginRegistry
+
+    client.delete("/api/plugins/plug_deps_test")
+
+    source_code = '''"""依赖体检插件"""
+import json
+import sys
+import pytest
+from imaginary_missing_lib import some_func
+from tg_signer.core.plugins import PluginContext, PluginRegistry
+
+@PluginRegistry.register(name="plug_deps_test", mode="reactive")
+async def plug_deps_test_handler(ctx: PluginContext) -> bool:
+    return True
+'''
+    custom_dir = Path.cwd() / "data" / "plugins"
+    custom_dir.mkdir(parents=True, exist_ok=True)
+    file_path = custom_dir / "plug_deps_test.py"
+    file_path.write_text(source_code, encoding="utf-8")
+
+    PluginRegistry.reload_all_plugins()
+
+    resp = client.get("/api/plugins/plug_deps_test/dependencies")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["name"] == "plug_deps_test"
+    deps = {d["module"]: d for d in data["dependencies"]}
+
+    # 标准库与本地库被过滤
+    assert "json" not in deps
+    assert "sys" not in deps
+    assert "tg_signer" not in deps
+
+    # 已安装第三方库检测
+    assert "pytest" in deps
+    assert deps["pytest"]["installed"] is True
+
+    # 未安装缺失依赖检测
+    assert "imaginary_missing_lib" in deps
+    assert deps["imaginary_missing_lib"]["installed"] is False
+    assert "pip install imaginary_missing_lib" in deps["imaginary_missing_lib"]["install_command"]
+
+    # cleanup
+    client.delete("/api/plugins/plug_deps_test")
+
+
+def test_api_plugin_config_and_reset():
+    client.delete("/api/plugins/plug_cfg_test")
+    client.post(
+        "/api/plugins/create",
+        json={
+            "name": "plug_cfg_test",
+            "mode": "reactive",
+            "template": "basic_reactive",
+            "description": "配置重置测试",
+        },
+    )
+
+    # 1. 获取默认配置
+    get_resp = client.get("/api/plugins/plug_cfg_test/config")
+    assert get_resp.status_code == 200
+    cfg = get_resp.json()
+    assert cfg["params"].get("reply_prefix") == "[自动应答]"
+    assert cfg["is_customized"] is False
+
+    # 2. 保存自定义配置
+    save_resp = client.put(
+        "/api/plugins/plug_cfg_test/config",
+        json={"params": {"reply_prefix": "[VIP回复]"}},
+    )
+    assert save_resp.status_code == 200
+    assert save_resp.json()["params"]["reply_prefix"] == "[VIP回复]"
+    assert save_resp.json()["is_customized"] is True
+
+    # 3. 重置配置为默认值
+    reset_resp = client.post("/api/plugins/plug_cfg_test/reset-config")
+    assert reset_resp.status_code == 200
+    reset_cfg = reset_resp.json()
+    assert reset_cfg["params"].get("reply_prefix") == "[自动应答]"
+    assert reset_cfg["is_customized"] is False
+
+    # cleanup
+    client.delete("/api/plugins/plug_cfg_test")
