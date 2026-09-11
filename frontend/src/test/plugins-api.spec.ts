@@ -1,0 +1,75 @@
+import { describe, expect, it, vi, beforeEach } from 'vitest'
+import * as coreApi from '../lib/api/core'
+import {
+  getPlugins,
+  getPluginSource,
+  deletePlugin,
+  createPlugin,
+} from '../lib/api/plugins'
+
+describe('plugins api 扩展接口', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('getPluginSource 发起 GET 请求并携带 token', async () => {
+    const mockResp = {
+      name: 'math_solver',
+      version: '1.0.0',
+      updated_at: '2026-09-11',
+      author: 'TG-SignPulse Team',
+      builtin: true,
+      source: 'print("hello")',
+    }
+    const requestSpy = vi.spyOn(coreApi, 'request').mockResolvedValueOnce(mockResp)
+
+    const result = await getPluginSource('math_solver', 'test-token')
+    expect(requestSpy).toHaveBeenCalledWith('/plugins/math_solver/source', {}, 'test-token')
+    expect(result).toEqual(mockResp)
+  })
+
+  it('deletePlugin 发起 DELETE 请求并携带 token', async () => {
+    const mockResp = { success: true, name: 'custom_calc', message: '已删除' }
+    const requestSpy = vi.spyOn(coreApi, 'request').mockResolvedValueOnce(mockResp)
+
+    const result = await deletePlugin('custom_calc', 'test-token')
+    expect(requestSpy).toHaveBeenCalledWith(
+      '/plugins/custom_calc',
+      { method: 'DELETE' },
+      'test-token'
+    )
+    expect(result).toEqual(mockResp)
+  })
+
+  it('createPlugin 发起 POST /plugins/create 并传递 JSON 负载', async () => {
+    const payload = {
+      name: 'my_plugin',
+      mode: 'reactive' as const,
+      template: 'basic_reactive' as const,
+      description: '描述',
+      author: 'Tester',
+      version: '1.0.0',
+    }
+    const mockResp = {
+      name: 'my_plugin',
+      mode: 'reactive' as const,
+      description: '描述',
+      version: '1.0.0',
+      updated_at: '2026-09-11',
+      author: 'Tester',
+      builtin: false,
+    }
+    const requestSpy = vi.spyOn(coreApi, 'request').mockResolvedValueOnce(mockResp)
+
+    const result = await createPlugin(payload, 'test-token')
+    expect(requestSpy).toHaveBeenCalledWith(
+      '/plugins/create',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+      'test-token'
+    )
+    expect(result).toEqual(mockResp)
+  })
+})
