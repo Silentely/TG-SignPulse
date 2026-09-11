@@ -892,7 +892,9 @@
     "pluginsAuditWarnings": "{n} potential security risk(s) detected",
     "pluginsDocTitle": "Documentation: {name}",
     "pluginsDocEmpty": "No additional documentation available for this plugin",
-    "pluginsViewDoc": "Docs"
+    "pluginsViewDoc": "Docs",
+    "pluginsPlaygroundTimeout": "Debug Timeout (sec)",
+    "pluginsPlaygroundTimeoutPlaceholder": "Default 10s"
   },
   "profile": {
     "title": "Profile",

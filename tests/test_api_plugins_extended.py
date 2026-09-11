@@ -718,3 +718,26 @@ def test_api_plugins_include_doc():
     assert math_p is not None
     # math_solver 应该有模块或函数级 docstring，字段存在
     assert "doc" in math_p
+
+
+def test_api_test_plugin_timeout():
+    import time
+    from tg_signer.core.plugins import PluginRegistry
+
+    # 注册一个需要耗时 0.2s 的慢插件
+    @PluginRegistry.register(name="slow_sleep_test_p")
+    def slow_plugin(ctx):
+        time.sleep(0.15)
+        return True
+
+    resp = client.post(
+        "/api/plugins/slow_sleep_test_p/test",
+        json={
+            "text": "hi",
+            "timeout": 0.05,  # 0.05s < 0.15s，必定超时
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is False
+    assert "超时" in (data.get("error") or "")

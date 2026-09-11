@@ -22,6 +22,7 @@ import {
   checkPluginSyntax,
   clearPluginHistory,
   auditPluginSource,
+  testPlugin,
 } from '../lib/api/plugins'
 
 describe('plugins api 扩展接口', () => {
@@ -353,6 +354,22 @@ describe('plugins api 扩展接口', () => {
       {
         method: 'POST',
         body: JSON.stringify({ source: 'eval("1")' }),
+      },
+      'test-token',
+    )
+    expect(result).toEqual(mockResp)
+  })
+
+  it('testPlugin 支持传递 timeout 超时参数', async () => {
+    const mockResp = { name: 'timeout_p', success: true, handled: true, logs: [] }
+    const requestSpy = vi.spyOn(coreApi, 'request').mockResolvedValueOnce(mockResp)
+
+    const result = await testPlugin('timeout_p', { text: 'ping', timeout: 3.5 }, 'test-token')
+    expect(requestSpy).toHaveBeenCalledWith(
+      '/plugins/timeout_p/test',
+      {
+        method: 'POST',
+        body: JSON.stringify({ text: 'ping', timeout: 3.5 }),
       },
       'test-token',
     )

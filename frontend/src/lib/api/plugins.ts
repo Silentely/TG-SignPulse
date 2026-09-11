@@ -150,6 +150,7 @@ export interface PluginTestRequest {
   reset_storage?: boolean
   chat_id?: number | string
   sender_name?: string
+  timeout?: number
 }
 
 export interface PluginTestResponse {
