@@ -384,6 +384,11 @@ const applyBulkPickedChats = () => {
 const addAction=()=>actions.value.push({id:nextActionId(),type:'send_text',value:'',aiPrompt:''})
 const removeAction=(i:number)=>actions.value.splice(i,1)
 const moveAction=(i:number,d:number)=>{if(i+d<0||i+d>=actions.value.length)return;const t=actions.value[i];actions.value[i]=actions.value[i+d];actions.value[i+d]=t}
+const reorderAction = (from: number, to: number) => {
+  if (from < 0 || from >= actions.value.length || to < 0 || to >= actions.value.length) return
+  const item = actions.value.splice(from, 1)[0]
+  actions.value.splice(to, 0, item)
+}
 /**
  * 交付单通道说明：
  * 历史版本存在 update:payload emit + payloadSnapshot computed 双通道，
@@ -603,6 +608,7 @@ onMounted(() => { loadAccounts() })
       @add="addAction"
       @remove="removeAction"
       @move="moveAction"
+      @reorder="reorderAction"
     />
   </div>
 </template>

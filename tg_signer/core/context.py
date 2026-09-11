@@ -34,3 +34,6 @@ class UserSignerWorkerContext(BaseModel):
     current_action_total: Optional[int] = None
     current_action_description: str = ""
     logged_action_message_markers: set = Field(default_factory=set)
+    step_outputs: dict = Field(default_factory=dict)
+    last_output: Optional[str] = None
+    last_received_text: Optional[str] = None

@@ -212,3 +212,25 @@ export const checkAppVersion = (token: string, force = false) =>
     { method: "POST" },
     token,
   );
+
+export interface DailyTrendItem {
+  date: string;
+  total: number;
+  success: number;
+  failed: number;
+  success_rate: number;
+}
+
+export interface TrendsResponse {
+  days: number;
+  total_runs: number;
+  total_success: number;
+  total_failed: number;
+  overall_success_rate: number;
+  trends: DailyTrendItem[];
+  categories: Record<string, number>;
+}
+
+export const getHistoryTrends = (token: string, days = 7) =>
+  request<TrendsResponse>(`/ops/trends?days=${days}`, {}, token);
+

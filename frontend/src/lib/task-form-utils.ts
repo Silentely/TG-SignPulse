@@ -82,6 +82,12 @@ export function parseSingleAction(raw: RawTaskAction): TaskActionItem[] {
       break
   }
 
+  if (raw.continue_on_error !== undefined) {
+    item.continue_on_error = Boolean(raw.continue_on_error)
+  }
+  if (raw.skip_if_matched) {
+    item.skip_if_matched = String(raw.skip_if_matched)
+  }
   items.push(item)
   return items
 }
@@ -150,6 +156,12 @@ export function buildSingleAction(
     result.delay = prevAction.value
   }
 
+  if (action.continue_on_error) {
+    result.continue_on_error = true
+  }
+  if (action.skip_if_matched && action.skip_if_matched.trim()) {
+    result.skip_if_matched = action.skip_if_matched.trim()
+  }
   return result
 }
 

@@ -420,6 +420,8 @@ async def on_startup() -> None:
             from backend.services.keyword_monitor import get_keyword_monitor_service
 
             await get_keyword_monitor_service().restart_from_tasks()
+            from backend.services.chatops_bot import get_chatops_worker
+            get_chatops_worker().start()
         except Exception as exc:
             # 顶层兜底：启动阶段任何未处理异常都不能让进程崩溃
             logging.getLogger("backend.startup").exception(
@@ -546,6 +548,8 @@ async def on_shutdown() -> None:
         from backend.services.keyword_monitor import get_keyword_monitor_service
 
         await get_keyword_monitor_service().stop()
+        from backend.services.chatops_bot import get_chatops_worker
+        get_chatops_worker().stop()
     except Exception:
         # 顶层兜底：关闭阶段任何异常不能阻止进程退出
         log.exception("Keyword monitor shutdown failed")

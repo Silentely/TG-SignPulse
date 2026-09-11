@@ -12,6 +12,7 @@ import { useI18n } from '../composables/useI18n'
 import { useDashboardData } from '../composables/useDashboardData'
 import type { DashboardLog } from '../lib/types'
 import Modal from '../components/Modal.vue'
+import DashboardTrendsChart from '../components/dashboard/DashboardTrendsChart.vue'
 import {
   badgeTone,
   badgeToneClass,
@@ -192,6 +193,9 @@ const jobStatusLabel = (status: string) => {
         >{{ stat.value }}</span>
       </button>
     </div>
+
+    <!-- 签到历史趋势分析 -->
+    <DashboardTrendsChart />
 
     <!-- 快捷入口 -->
     <div>

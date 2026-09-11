@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 import json
 import logging
 from pathlib import Path
@@ -678,3 +679,68 @@ class SignTaskHistoryMixin:
                 account_name,
                 e,
             )
+
+    def get_history_trends(self, days: int = 7) -> Dict[str, Any]:
+        """按天聚合最近 N 天的签到历史趋势与成功率指标。"""
+        days = max(1, min(int(days), 90))
+        cutoff_date = datetime.now() - timedelta(days=days - 1)
+        start_date_str = cutoff_date.strftime("%Y-%m-%d")
+
+        daily_buckets: Dict[str, Dict[str, Any]] = {}
+        for i in range(days):
+            d_str = (cutoff_date + timedelta(days=i)).strftime("%Y-%m-%d")
+            daily_buckets[d_str] = {
+                "date": d_str,
+                "total": 0,
+                "success": 0,
+                "failed": 0,
+                "success_rate": 1.0,
+            }
+
+        try:
+            ensure_history_index(self.run_history_dir)
+            from backend.services.sign_task_history_index import read_index_entries
+            entries = read_index_entries(self.run_history_dir, limit=5000)
+        except Exception as e:
+            _logger.debug("读取历史索引趋势失败: %s", e)
+            entries = []
+
+        total_runs = 0
+        total_success = 0
+        categories: Dict[str, int] = {}
+
+        for entry in entries:
+            ts_str = str(entry.get("time") or entry.get("created_at") or "")
+            date_key = ts_str[:10] if len(ts_str) >= 10 else ""
+            if not date_key or date_key < start_date_str:
+                continue
+
+            if date_key in daily_buckets:
+                daily_buckets[date_key]["total"] += 1
+                total_runs += 1
+                if entry.get("success"):
+                    daily_buckets[date_key]["success"] += 1
+                    total_success += 1
+                else:
+                    daily_buckets[date_key]["failed"] += 1
+                    cat = str(entry.get("failure_category") or "unknown")
+                    if cat:
+                        categories[cat] = categories.get(cat, 0) + 1
+
+        trends_list = []
+        for d_str in sorted(daily_buckets.keys()):
+            item = daily_buckets[d_str]
+            item["success_rate"] = round(item["success"] / item["total"], 2) if item["total"] > 0 else 1.0
+            trends_list.append(item)
+
+        overall_success_rate = round(total_success / total_runs, 2) if total_runs > 0 else 1.0
+
+        return {
+            "days": days,
+            "total_runs": total_runs,
+            "total_success": total_success,
+            "total_failed": total_runs - total_success,
+            "overall_success_rate": overall_success_rate,
+            "trends": trends_list,
+            "categories": categories,
+        }

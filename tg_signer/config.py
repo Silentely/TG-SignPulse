@@ -191,6 +191,8 @@ class SupportAction(int, Enum):
 class SignAction(BaseModel):
     action: SupportAction
     delay: Optional[str] = None
+    continue_on_error: bool = False
+    skip_if_matched: Optional[str] = None
 
 
 class SendTextAction(SignAction):

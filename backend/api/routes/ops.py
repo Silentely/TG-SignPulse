@@ -680,3 +680,33 @@ def check_version(
         **local,
         update_check=UpdateCheckInfo(**remote),
     )
+
+
+class DailyTrendItem(BaseModel):
+    date: str
+    total: int
+    success: int
+    failed: int
+    success_rate: float
+
+
+class TrendsResponse(BaseModel):
+    days: int
+    total_runs: int
+    total_success: int
+    total_failed: int
+    overall_success_rate: float
+    trends: List[DailyTrendItem]
+    categories: Dict[str, int]
+
+
+@router.get("/trends", response_model=TrendsResponse)
+def get_trends(
+    days: int = 7,
+    current_user: User = Depends(get_current_user),
+):
+    """获取最近 N 天的签到历史趋势与成功率指标。"""
+    from backend.services.sign_tasks import SignTaskService
+
+    service = SignTaskService()
+    return service.get_history_trends(days=days)

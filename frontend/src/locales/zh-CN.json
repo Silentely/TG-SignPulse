@@ -410,7 +410,15 @@
     "visionSendHint": "AI 自动识别图片中的验证码文字，作为文本回复（通常留空即可）",
     "visionClickHint": "AI 自动识别图片并点击对应答案的选项按钮（通常留空即可）",
     "calcSendHint": "AI 自动计算文本数学题，并将答案作为文本回复（通常留空即可）",
-    "calcClickHint": "AI 自动计算文本数学题，并点击匹配答案的选项按钮（通常留空即可）"
+    "calcClickHint": "AI 自动计算文本数学题，并点击匹配答案的选项按钮（通常留空即可）",
+    "continueOnError": "容错继续执行 (失败不中断)",
+    "continueOnErrorDesc": "当此步骤发生异常或错误时，记录日志并继续执行下一步",
+    "skipIfMatched": "条件跳过关键字/正则",
+    "skipIfMatchedPlaceholder": "如：SIGNED_IN 或 已签到",
+    "skipIfMatchedDesc": "当上一动作输出或当前消息匹配时，自动跳过本步骤",
+    "macroHelper": "动态宏变量",
+    "advancedActionOptions": "高级管道选项",
+    "collapseOptions": "收起高级选项"
   },
   "taskModal": {
     "addTitle": "添加任务",

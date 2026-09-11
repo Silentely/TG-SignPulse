@@ -339,6 +339,7 @@ class PluginMeta:
     params_schema: Optional[List[Dict[str, Any]]] = None
     enabled: bool = True
     builtin: bool = False
+    permissions: List[str] = field(default_factory=list)
 
 
 def is_builtin_plugin_path(path: Union[str, Path, None]) -> bool:
@@ -392,6 +393,7 @@ class PluginRegistry:
         mode: Literal["reactive", "active"] = "reactive",
         description: str = "",
         params_schema: Optional[List[Dict[str, Any]]] = None,
+        permissions: Optional[List[str]] = None,
     ) -> Callable:
         def decorator(fn: Callable[[PluginContext], Any]) -> Callable[[PluginContext], Any]:
             existing = cls._plugins.get(name)
@@ -411,6 +413,7 @@ class PluginRegistry:
                 params_schema=params_schema or [],
                 enabled=cls.is_enabled(name),
                 builtin=is_builtin_plugin_path(source_file),
+                permissions=list(permissions or []),
             )
             return fn
         return decorator

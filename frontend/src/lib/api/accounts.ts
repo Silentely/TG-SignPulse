@@ -86,6 +86,7 @@ export interface AccountInfo {
   status_code?: string | null;
   status_checked_at?: string | null;
   needs_relogin?: boolean;
+  tags?: string[];
 }
 
 export interface AccountStatusCheckRequest {
@@ -234,6 +235,7 @@ export const updateAccount = (
     new_account_name?: string | null;
     remark?: string | null;
     proxy?: string | null;
+    tags?: string[];
   }
 ) =>
   request<{ success: boolean; message: string; account?: AccountInfo | null }>(`/accounts/${accountName}`, {

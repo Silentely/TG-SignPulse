@@ -21,13 +21,26 @@ from tg_signer.compat import (
     errors,
     filters,
 )
-from tg_signer.config import SignChatV3
+from tg_signer.config import (
+    ClickKeyboardByTextAction,
+    PluginAction,
+    SendTextAction,
+    SignChatV3,
+)
+from tg_signer.core.template import render_template, render_template_recursive
 from tg_signer.context_vars import task_retry_count_var
 from tg_signer.core.client import Client, get_now
 from tg_signer.log_utils import safe_text_preview
 from tg_signer.utils import read_positive_float_env, read_positive_int_env
 
 logger = logging.getLogger("tg_signer.runtime.runner")
+def _copy_action_with(action, **kwargs):
+    if hasattr(action, "model_copy"):
+        return action.model_copy(update=kwargs)
+    elif hasattr(action, "copy"):
+        return action.copy(update=kwargs)
+    return action
+
 
 
 class SignerRunnerMixin:
@@ -169,19 +182,83 @@ class SignerRunnerMixin:
                     self.log(f"开始第 {flow_attempt}/{max_flow_attempts} 次脚本流程尝试")
             try:
                 if start_index == 1:
-                    self.context.chat_messages[chat.chat_id].clear()
+                    if chat.chat_id in self.context.chat_messages:
+                        self.context.chat_messages[chat.chat_id].clear()
+                    else:
+                        self.context.chat_messages[chat.chat_id] = {}
+                    self.context.step_outputs = {}
+                    self.context.last_output = ""
+                    self.context.last_received_text = ""
                 self.context.stop_after_current_action = False
                 self.context.stop_reason = None
                 self.context.last_callback_answer = None
                 for index in range(start_index, total_actions + 1):
                     action = chat.actions[index - 1]
+
+                    # 1. 检查 skip_if_matched 条件跳过
+                    if getattr(action, "skip_if_matched", None):
+                        skip_pat = str(action.skip_if_matched).strip()
+                        match_src = str(
+                            getattr(self.context, "last_output", "")
+                            or getattr(self.context, "last_received_text", "")
+                            or ""
+                        )
+                        matched = False
+                        if skip_pat and match_src:
+                            if skip_pat in match_src:
+                                matched = True
+                            else:
+                                try:
+                                    if re.search(skip_pat, match_src, re.IGNORECASE):
+                                        matched = True
+                                except re.error:
+                                    pass
+                        if matched:
+                            self.log(
+                                f"{self._current_action_step_label()}满足跳过条件（skip_if_matched='{skip_pat}'），跳过此步骤"
+                            )
+                            last_successful_index = index
+                            continue
+
+                    # 2. 构建模板上下文并渲染动态宏变量
+                    me_user = getattr(self, "me", None)
+                    tmpl_ctx = {
+                        "account": {
+                            "name": str(getattr(self, "_account", "") or ""),
+                            "phone": getattr(me_user, "phone_number", ""),
+                            "username": getattr(me_user, "username", ""),
+                            "first_name": getattr(me_user, "first_name", ""),
+                        },
+                        "chat": {
+                            "id": chat.chat_id,
+                            "name": getattr(chat, "name", ""),
+                        },
+                        "step": getattr(self.context, "step_outputs", {}),
+                        "prev_output": getattr(self.context, "last_output", "") or "",
+                        "prev": {"output": getattr(self.context, "last_output", "") or ""},
+                        "last_message": getattr(self.context, "last_received_text", "") or "",
+                    }
+
+                    exec_action = action
+                    if isinstance(action, SendTextAction):
+                        rendered_text = render_template(action.text, tmpl_ctx)
+                        if rendered_text != action.text:
+                            exec_action = _copy_action_with(action, text=rendered_text)
+                    elif isinstance(action, ClickKeyboardByTextAction):
+                        rendered_text = render_template(action.text, tmpl_ctx)
+                        if rendered_text != action.text:
+                            exec_action = _copy_action_with(action, text=rendered_text)
+                    elif isinstance(action, PluginAction):
+                        rendered_params = render_template_recursive(action.params, tmpl_ctx)
+                        exec_action = _copy_action_with(action, params=rendered_params)
+
                     action_description = self._set_current_action_context(
                         index,
                         total_actions,
-                        action,
+                        exec_action,
                     )
                     action_delay = self._resolve_action_delay(
-                        action,
+                        exec_action,
                         float(chat.action_interval or 0) if index > 1 else 0.0,
                     )
                     try:
@@ -197,15 +274,14 @@ class SignerRunnerMixin:
                         next_action = (
                             chat.actions[index] if index < total_actions else None
                         )
-                        # 步级重试：对瞬时错误（AI 超时、网络抖动等）在当前步骤内重试一次，
-                        # 避免升级为流程级重试导致已完成的步骤（如 /checkin）被重复执行。
-                        # 总尝试 2 次（1 次首次 + 1 次重试），与 AI 工具层内部重试不叠加过度。
                         _step_max_retries = 2
+                        result = None
+                        step_failed = False
                         for _step_attempt in range(1, _step_max_retries + 1):
                             try:
                                 result = await self.wait_for(
                                     chat,
-                                    action,
+                                    exec_action,
                                     next_action=next_action,
                                 )
                                 break
@@ -219,15 +295,48 @@ class SignerRunnerMixin:
                                     )
                                     await asyncio.sleep(1.0)
                                     continue
+                                if getattr(action, "continue_on_error", False):
+                                    self.log(
+                                        f"{self._current_action_step_label()}出现错误，已配置容错继续（continue_on_error）: {step_exc}",
+                                        level="WARNING",
+                                    )
+                                    step_failed = True
+                                    result = None
+                                    break
                                 raise
-                        if result is False:
-                            raise RuntimeError(
-                                f"{self._current_action_step_label()}执行失败：{action_description}"
+
+                        if result is False and not step_failed:
+                            if getattr(action, "continue_on_error", False):
+                                self.log(
+                                    f"{self._current_action_step_label()}执行返回失败，已配置容错继续（continue_on_error）",
+                                    level="WARNING",
+                                )
+                                step_failed = True
+                            else:
+                                raise RuntimeError(
+                                    f"{self._current_action_step_label()}执行失败：{action_description}"
+                                )
+
+                        if not step_failed:
+                            self.log(
+                                f"{self._current_action_step_label()}执行完成：{action_description}"
                             )
-                        self.log(
-                            f"{self._current_action_step_label()}执行完成：{action_description}"
-                        )
                         last_successful_index = index
+
+                        # 记录动作执行产出至上下文供管道引用
+                        out_val = ""
+                        if isinstance(exec_action, (SendTextAction, ClickKeyboardByTextAction)):
+                            out_val = getattr(exec_action, "text", "")
+                        elif isinstance(result, str):
+                            out_val = result
+                        elif result is not None and result is not True and result is not False:
+                            out_val = str(result)
+
+                        if not hasattr(self.context, "step_outputs") or not isinstance(self.context.step_outputs, dict):
+                            self.context.step_outputs = {}
+                        self.context.step_outputs[index] = {"output": out_val}
+                        self.context.step_outputs[str(index)] = {"output": out_val}
+                        self.context.last_output = out_val
                         if self.context.stop_after_current_action:
                             stop_reason = (self.context.stop_reason or "").strip()
                             self.log(

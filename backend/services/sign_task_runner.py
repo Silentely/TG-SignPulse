@@ -85,6 +85,22 @@ async def _runner_check_account(state: Dict[str, Any]) -> None:
         phase=PHASE_CHECKING_ACCOUNT,
         phase_detail=f"检查账号 {state['account_name']}",
     )
+    from backend.services.flood_backoff import get_flood_backoff_manager
+    manager = get_flood_backoff_manager()
+    is_cooling, remaining = manager.is_cooling_down(state["account_name"])
+    if is_cooling:
+        state["account_invalid_detected"] = True
+        state["failure_category"] = FailureCategory.FLOOD_WAIT
+        state["error_msg"] = (
+            f"账号 {state['account_name']} 处于 Telegram FloodWait 限频冷却中，"
+            f"剩余 {remaining} 秒，跳过本次执行以保护账号"
+        )
+        task_key = state.setdefault(
+            "task_key", svc._task_key(state["account_name"], state["task_name"])
+        )
+        svc._append_active_log(task_key, state["error_msg"])
+        return
+
     invalid_reason = await check_account_before_task(
         account_name=state["account_name"],
         task_name=state["task_name"],
@@ -315,6 +331,19 @@ async def _runner_execute_with_retry(state: Dict[str, Any]) -> None:
                     f"任务执行超时（{int(task_timeout)}秒），已强制终止"
                 )
             except Exception as e:
+                err_str = str(e)
+                if any(kw in err_str.lower() for kw in ("floodwait", "flood_wait", "flood wait")):
+                    import re
+                    match = re.search(r"(\d+)\s*(?:seconds|s|秒)?", err_str, re.IGNORECASE)
+                    wait_sec = int(match.group(1)) if match else 60
+                    if hasattr(e, "value") and isinstance(getattr(e, "value"), int):
+                        wait_sec = getattr(e, "value")
+                    from backend.services.flood_backoff import get_flood_backoff_manager
+                    get_flood_backoff_manager().record_flood_wait(
+                        state["account_name"],
+                        wait_seconds=wait_sec,
+                        reason=f"Telegram API FloodWait: {err_str[:100]}",
+                    )
                 if "database is locked" in str(e).lower():
                     if attempt < max_retries - 1:
                         # SQLite 锁等待用线性退避（与瞬态网络错误的指数退避
