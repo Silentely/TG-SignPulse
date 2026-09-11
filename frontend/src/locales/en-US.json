@@ -821,7 +821,17 @@
     "pluginsMetricsResetSuccess": "Metrics reset successfully",
     "pluginsMetricsResetFailed": "Failed to reset metrics",
     "pluginsPermissions": "Permissions",
-    "pluginsPermissionsDefault": "Default Sandbox"
+    "pluginsPermissionsDefault": "Default Sandbox",
+    "pluginsTplRegexExtractor": "Regex Extractor & Reply",
+    "pluginsTplRegexExtractorDesc": "Extract verification code or pattern from messages and reply automatically",
+    "pluginsTplWebhookAlert": "Webhook Notification Template",
+    "pluginsTplWebhookAlertDesc": "Dispatch HTTP POST webhook request to external service on message (network permission)",
+    "pluginsBatchEnable": "Enable All Custom",
+    "pluginsBatchDisable": "Disable All Custom",
+    "pluginsBatchSuccess": "Updated {count} custom plugins status",
+    "pluginsResetAllMetrics": "Reset All Metrics",
+    "pluginsResetAllMetricsSuccess": "All plugin metrics have been reset",
+    "pluginsMetricsLastError": "Last Run Error"
   },
   "profile": {
     "title": "Profile",

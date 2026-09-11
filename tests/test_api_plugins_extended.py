@@ -304,3 +304,94 @@ def test_api_reset_plugin_metrics():
 
     reset_metrics = PluginRegistry.get_metrics("math_solver")
     assert reset_metrics is None
+
+
+def test_api_create_plugin_with_new_templates():
+    client.delete("/api/plugins/plug_regex")
+    client.delete("/api/plugins/plug_webhook")
+
+    # 1. regex_extractor template
+    resp1 = client.post(
+        "/api/plugins/create",
+        json={
+            "name": "plug_regex",
+            "mode": "reactive",
+            "template": "regex_extractor",
+            "description": "正则提取测试",
+        },
+    )
+    assert resp1.status_code == 200
+    src1 = client.get("/api/plugins/plug_regex/source").json()
+    assert "re.search" in src1["source"]
+    assert "pattern" in src1["source"]
+
+    # 2. webhook_alert template
+    resp2 = client.post(
+        "/api/plugins/create",
+        json={
+            "name": "plug_webhook",
+            "mode": "reactive",
+            "template": "webhook_alert",
+            "description": "Webhook推送测试",
+        },
+    )
+    assert resp2.status_code == 200
+    src2 = client.get("/api/plugins/plug_webhook/source").json()
+    assert "urllib.request" in src2["source"]
+    assert "network" in src2["source"]
+
+    # cleanup
+    client.delete("/api/plugins/plug_regex")
+    client.delete("/api/plugins/plug_webhook")
+
+
+def test_api_batch_toggle_custom_plugins():
+    client.delete("/api/plugins/batch_p1")
+    client.delete("/api/plugins/batch_p2")
+
+    client.post(
+        "/api/plugins/create",
+        json={"name": "batch_p1", "mode": "reactive", "template": "basic_reactive"},
+    )
+    client.post(
+        "/api/plugins/create",
+        json={"name": "batch_p2", "mode": "reactive", "template": "basic_reactive"},
+    )
+
+    # 1. Disable all
+    resp_disable = client.post("/api/plugins/batch-toggle", json={"enabled": False})
+    assert resp_disable.status_code == 200
+    assert resp_disable.json()["enabled"] is False
+
+    list_resp = client.get("/api/plugins").json()
+    p1 = next((p for p in list_resp if p["name"] == "batch_p1"), None)
+    p2 = next((p for p in list_resp if p["name"] == "batch_p2"), None)
+    assert p1 is not None and p1["enabled"] is False
+    assert p2 is not None and p2["enabled"] is False
+
+    # 2. Enable all
+    resp_enable = client.post("/api/plugins/batch-toggle", json={"enabled": True})
+    assert resp_enable.status_code == 200
+    assert resp_enable.json()["enabled"] is True
+
+    list_resp2 = client.get("/api/plugins").json()
+    p1_active = next((p for p in list_resp2 if p["name"] == "batch_p1"), None)
+    p2_active = next((p for p in list_resp2 if p["name"] == "batch_p2"), None)
+    assert p1_active is not None and p1_active["enabled"] is True
+    assert p2_active is not None and p2_active["enabled"] is True
+
+    client.delete("/api/plugins/batch_p1")
+    client.delete("/api/plugins/batch_p2")
+
+
+def test_api_reset_all_metrics():
+    from tg_signer.core.plugins import PluginRegistry
+
+    PluginRegistry.record_execution("math_solver", success=True, duration_ms=5.0)
+    assert PluginRegistry.get_metrics("math_solver") is not None
+
+    resp = client.post("/api/plugins/reset-all-metrics")
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
+
+    assert PluginRegistry.get_metrics("math_solver") is None

@@ -821,7 +821,17 @@
     "pluginsMetricsResetSuccess": "运行指标已重置",
     "pluginsMetricsResetFailed": "重置指标失败",
     "pluginsPermissions": "权限",
-    "pluginsPermissionsDefault": "默认安全沙箱"
+    "pluginsPermissionsDefault": "默认安全沙箱",
+    "pluginsTplRegexExtractor": "正则提取自动答复模版",
+    "pluginsTplRegexExtractorDesc": "使用正则表达式智能捕获消息文本中的验证码或特定口令并自动答复",
+    "pluginsTplWebhookAlert": "Webhook 外部通知模版",
+    "pluginsTplWebhookAlertDesc": "在捕获消息时异步发起 HTTP 请求将内容转发至外部服务（声明 network 权限）",
+    "pluginsBatchEnable": "全部启用自定义",
+    "pluginsBatchDisable": "全部停用自定义",
+    "pluginsBatchSuccess": "已更新 {count} 个自定义插件状态",
+    "pluginsResetAllMetrics": "清空全部指标",
+    "pluginsResetAllMetricsSuccess": "已重置所有插件的统计指标",
+    "pluginsMetricsLastError": "最近执行异常"
   },
   "profile": {
     "title": "个人中心",

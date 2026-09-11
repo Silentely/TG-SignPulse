@@ -336,7 +336,9 @@ describe('PluginsSettings.vue 插件管理组件', () => {
           failure_count: 1,
           success_rate: 90.0,
           avg_duration_ms: 15.2,
+          last_duration_ms: 12.0,
           last_run_at: '2026-09-11T12:00:00Z',
+          last_error: 'TimeoutError: plugin timed out',
         },
       },
     ]
@@ -417,5 +419,56 @@ describe('PluginsSettings.vue 插件管理组件', () => {
     saveBtn!.click()
 
     expect(updateSpy).toHaveBeenCalledWith('custom_edit_plug', 'print("modified")', 'mock-token')
+  })
+
+  it('支持批量启用自定义插件与清空全部运行指标，并展示最近执行异常', async () => {
+    const mockPlugins = [
+      {
+        name: 'custom_err_plug',
+        mode: 'reactive' as const,
+        description: '异常插件',
+        builtin: false,
+        enabled: false,
+        metrics: {
+          run_count: 5,
+          success_count: 4,
+          failure_count: 1,
+          success_rate: 80.0,
+          avg_duration_ms: 22.0,
+          last_duration_ms: 15.0,
+          last_run_at: '2026-09-11T12:00:00Z',
+          last_error: 'ConnectionRefusedError: 无法连接目标主机',
+        },
+      },
+    ]
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValue(mockPlugins)
+    const batchSpy = vi.spyOn(pluginsApi, 'batchTogglePlugins').mockResolvedValueOnce({
+      success: true,
+      count: 1,
+      enabled: true,
+    })
+    const resetAllSpy = vi.spyOn(pluginsApi, 'resetAllPluginMetrics').mockResolvedValueOnce({
+      success: true,
+      message: 'ok',
+    })
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('custom_err_plug')
+      expect(wrapper.text()).toContain('最近执行异常: ConnectionRefusedError: 无法连接目标主机')
+    })
+
+    const batchEnableBtn = wrapper.findAll('button').find((b) => b.text().includes('全部启用自定义'))
+    expect(batchEnableBtn).toBeDefined()
+    await batchEnableBtn!.trigger('click')
+    expect(batchSpy).toHaveBeenCalledWith(true, 'mock-token')
+
+    const resetAllBtn = wrapper.find('button[title="清空全部指标"]')
+    expect(resetAllBtn.exists()).toBe(true)
+    await resetAllBtn.trigger('click')
+    expect(resetAllSpy).toHaveBeenCalledWith('mock-token')
   })
 })

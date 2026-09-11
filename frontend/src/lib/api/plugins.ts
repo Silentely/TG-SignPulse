@@ -53,7 +53,7 @@ export interface PluginSourceResponse {
 export interface CreatePluginRequest {
   name: string
   mode?: 'reactive' | 'active'
-  template?: 'basic_reactive' | 'basic_active' | 'storage_counter'
+  template?: 'basic_reactive' | 'basic_active' | 'storage_counter' | 'regex_extractor' | 'webhook_alert'
   description?: string
   author?: string
   version?: string
@@ -222,6 +222,24 @@ export async function resetPluginMetrics(
   token: string,
 ): Promise<{ success: boolean; name: string; message: string }> {
   return request<{ success: boolean; name: string; message: string }>(`/plugins/${encodeURIComponent(name)}/reset-metrics`, {
+    method: 'POST',
+  }, token)
+}
+
+export async function batchTogglePlugins(
+  enabled: boolean,
+  token: string,
+): Promise<{ success: boolean; count: number; enabled: boolean }> {
+  return request<{ success: boolean; count: number; enabled: boolean }>('/plugins/batch-toggle', {
+    method: 'POST',
+    body: JSON.stringify({ enabled }),
+  }, token)
+}
+
+export async function resetAllPluginMetrics(
+  token: string,
+): Promise<{ success: boolean; message: string }> {
+  return request<{ success: boolean; message: string }>('/plugins/reset-all-metrics', {
     method: 'POST',
   }, token)
 }
