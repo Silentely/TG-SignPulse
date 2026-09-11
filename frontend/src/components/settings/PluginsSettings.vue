@@ -256,6 +256,15 @@ const handleBatchToggle = async (enabled: boolean) => {
 }
 
 const handleResetAllMetrics = async () => {
+  const confirmed = await confirm({
+    title: t('settings.pluginsResetAllMetrics'),
+    message: t('settings.pluginsResetAllMetricsConfirm'),
+    confirmText: t('common.confirm'),
+    cancelText: t('common.cancel'),
+    danger: true,
+  })
+  if (!confirmed) return
+
   resettingAllMetrics.value = true
   try {
     await withToken((token) => resetAllPluginMetrics(token))
@@ -622,6 +631,33 @@ const handleResetPlaygroundInputs = () => {
   mockTimeout.value = ''
   testResult.value = null
   toast.info(t('settings.pluginsPlaygroundResetInputSuccess'))
+}
+
+const handleCopyTestResult = async () => {
+  if (!testResult.value) return
+  const r = testResult.value
+  const lines = [
+    `=== 插件调试执行结果: ${r.name} ===`,
+    `状态: ${r.success ? '成功' : '失败'} | 命中响应: ${r.handled ? '是' : '否'} | 耗时: ${r.duration_ms}ms`,
+  ]
+  if (r.reply_text) lines.push(`回复文本: ${r.reply_text}`)
+  if (r.error) lines.push(`错误信息: ${r.error}`)
+  if (r.sent_messages?.length) lines.push(`发送消息数: ${r.sent_messages.length}`)
+  if (r.reacted_emojis?.length) lines.push(`响应表情: ${r.reacted_emojis.join(', ')}`)
+  if (r.logs?.length) {
+    lines.push('\n--- 执行日志 ---')
+    lines.push(...r.logs)
+  }
+  await navigator.clipboard.writeText(lines.join('\n'))
+  toast.success(t('settings.pluginsCopyTestResultSuccess'))
+}
+
+const handleCopyMissingDeps = async () => {
+  const missing = pluginDeps.value.filter((d) => !d.installed).map((d) => d.module)
+  if (!missing.length) return
+  const cmd = `pip install ${missing.join(' ')}`
+  await navigator.clipboard.writeText(cmd)
+  toast.success(t('settings.pluginsCopyPipCommandSuccess'))
 }
 
 const handleCheckSyntax = async () => {
@@ -1504,6 +1540,16 @@ onMounted(() => {
             {{ t('settings.pluginsDependenciesNone') }}
           </div>
           <div v-else-if="pluginDeps.length" class="flex items-center gap-1.5 flex-wrap">
+            <button
+              v-if="pluginDeps.some((d) => !d.installed)"
+              type="button"
+              class="ui-btn-secondary !py-0.5 !px-1.5 !text-[10px] inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 font-mono mr-1"
+              :title="t('settings.pluginsCopyPipCommand')"
+              @click="handleCopyMissingDeps"
+            >
+              <Copy class="w-2.5 h-2.5" />
+              <span>{{ t('settings.pluginsCopyPipCommand') }}</span>
+            </button>
             <span
               v-for="dep in pluginDeps"
               :key="dep.module"
@@ -1843,6 +1889,15 @@ onMounted(() => {
               </span>
               <Clock class="w-3 h-3" />
               <span>{{ testResult.duration_ms }} ms</span>
+              <button
+                type="button"
+                class="ui-btn-secondary !py-0.5 !px-1.5 !text-[10px] inline-flex items-center gap-1 text-gray-600 dark:text-gray-300 ml-1"
+                :title="t('settings.pluginsCopyTestResult')"
+                @click="handleCopyTestResult"
+              >
+                <Copy class="w-2.5 h-2.5" />
+                <span>{{ t('settings.pluginsCopyTestResult') }}</span>
+              </button>
             </div>
           </div>
 

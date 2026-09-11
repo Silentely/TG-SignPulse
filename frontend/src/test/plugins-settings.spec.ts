@@ -1,4 +1,5 @@
 import { mount } from '@vue/test-utils'
+import { useConfirm } from '../composables/useConfirm'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import i18n from '../i18n'
 import PluginsSettings from '../components/settings/PluginsSettings.vue'
@@ -468,8 +469,12 @@ describe('PluginsSettings.vue 插件管理组件', () => {
 
     const resetAllBtn = wrapper.find('button[title="清空全部指标"]')
     expect(resetAllBtn.exists()).toBe(true)
-    await resetAllBtn.trigger('click')
-    expect(resetAllSpy).toHaveBeenCalledWith('mock-token')
+    const { accept } = useConfirm()
+    void resetAllBtn.trigger('click')
+    accept()
+    await vi.waitFor(() => {
+      expect(resetAllSpy).toHaveBeenCalledWith('mock-token')
+    })
   })
 
   it('支持查看插件调用历史与克隆插件', async () => {
@@ -561,7 +566,7 @@ describe('PluginsSettings.vue 插件管理组件', () => {
         { name: 'threshold', label: '阈值', type: 'number' as const, default: 10 },
       ],
     }
-    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValue([mockPlugin])
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValue([mockPlugin as unknown as pluginsApi.PluginInfo])
     vi.spyOn(pluginsApi, 'getPluginSource').mockResolvedValue({
       name: 'smart_assistant',
       source: 'import requests\ndef smart_assistant_handler(): pass',
@@ -833,6 +838,37 @@ describe('PluginsSettings.vue 插件管理组件', () => {
     await vi.waitFor(() => {
       expect(document.body.textContent).toContain('配置指南')
       expect(document.body.textContent).toContain('这是详细的插件文档说明。')
+    })
+  })
+
+  it('点击批量重置指标时展示确认对话框并在确认后调用 resetAllPluginMetrics', async () => {
+    const mockPlugin: any = {
+      name: 'metrics_p',
+      mode: 'reactive' as const,
+      description: '演示插件',
+      enabled: true,
+      metrics: { run_count: 5, success_count: 5, failure_count: 0, success_rate: 100 },
+    }
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValue([mockPlugin])
+    const resetSpy = vi.spyOn(pluginsApi, 'resetAllPluginMetrics').mockResolvedValue({ success: true, message: 'ok' })
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('metrics_p')
+    })
+
+    const resetAllBtn = wrapper.find('button[title*="清空全部指标"]')
+    expect(resetAllBtn).toBeDefined()
+
+    const { accept } = useConfirm()
+    void resetAllBtn.trigger('click')
+    accept()
+
+    await vi.waitFor(() => {
+      expect(resetSpy).toHaveBeenCalled()
     })
   })
 })
