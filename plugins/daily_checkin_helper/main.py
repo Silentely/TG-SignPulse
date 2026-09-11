@@ -8,6 +8,10 @@ from typing import Any, Dict, List, Optional
 
 from tg_signer.core.plugins import PluginContext, PluginRegistry
 
+VERSION = "1.0.0"
+UPDATED_AT = "2026-09-11"
+AUTHOR = "TG-SignPulse Team"
+
 PARAMS_SCHEMA: List[Dict[str, Any]] = [
     {
         "name": "button_keywords",
@@ -29,6 +33,9 @@ PARAMS_SCHEMA: List[Dict[str, Any]] = [
 
 @PluginRegistry.register(
     name="daily_checkin_helper",
+    version=VERSION,
+    updated_at=UPDATED_AT,
+    author=AUTHOR,
     mode="reactive",
     description="日常签到助手：智能点击签到回复中的内联按钮，并自动累计签到统计",
     params_schema=PARAMS_SCHEMA,

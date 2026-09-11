@@ -10,6 +10,10 @@ from typing import Any, Dict
 
 from tg_signer.core.plugins import PluginContext, PluginRegistry
 
+VERSION = "1.0.0"
+UPDATED_AT = "2026-09-11"
+AUTHOR = "TG-SignPulse Team"
+
 _REGEX_TIMEOUT_SECONDS = 0.2
 _MAX_PATTERN_LENGTH = 512
 _MAX_MESSAGE_LENGTH = 4096
@@ -58,6 +62,9 @@ PARAMS_SCHEMA = [
 
 @PluginRegistry.register(
     name="regex_reply",
+    version=VERSION,
+    updated_at=UPDATED_AT,
+    author=AUTHOR,
     mode="reactive",
     description="通用正则匹配提取与回复插件（支持自定义模式与捕获组模板）",
     params_schema=PARAMS_SCHEMA,

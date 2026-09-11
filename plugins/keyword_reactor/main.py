@@ -8,6 +8,10 @@ from typing import Any, Dict, List
 
 from tg_signer.core.plugins import PluginContext, PluginRegistry
 
+VERSION = "1.0.0"
+UPDATED_AT = "2026-09-11"
+AUTHOR = "TG-SignPulse Team"
+
 PARAMS_SCHEMA: List[Dict[str, Any]] = [
     {
         "name": "keyword",
@@ -49,6 +53,9 @@ PARAMS_SCHEMA: List[Dict[str, Any]] = [
 
 @PluginRegistry.register(
     name="keyword_reactor",
+    version=VERSION,
+    updated_at=UPDATED_AT,
+    author=AUTHOR,
     mode="reactive",
     description="监听消息关键词，自动添加 Emoji 表情表态并支持快捷回复",
     params_schema=PARAMS_SCHEMA,
