@@ -120,6 +120,34 @@ async def test_action_skip_if_matched():
 
 
 @pytest.mark.asyncio
+async def test_action_skip_if_matched_supports_regex_fallback():
+    signer = DummySigner()
+    chat = SignChatV3(
+        chat_id=12345,
+        name="test_group",
+        actions=[
+            SendTextAction(action=SupportAction.SEND_TEXT, text="Result: CODE_123"),
+            SendTextAction(
+                action=SupportAction.SEND_TEXT,
+                text="Should be skipped",
+                skip_if_matched=r"CODE_\d+",
+            ),
+        ],
+    )
+
+    executed_actions = []
+
+    async def mock_wait_for(c, a, next_action=None):
+        executed_actions.append(a)
+        return True
+
+    signer.wait_for = mock_wait_for
+    await signer.sign_a_chat(chat)
+
+    assert [action.text for action in executed_actions] == ["Result: CODE_123"]
+
+
+@pytest.mark.asyncio
 async def test_action_continue_on_error():
     signer = DummySigner()
     # 第一步失败，但 continue_on_error=True

@@ -86,7 +86,6 @@ async def send_failure_notification(
         from backend.services.push_notifications import (
             _bot_config,
             build_html_notification,
-            dispatch_matrix_notification,
             is_in_quiet_hours,
             send_telegram_bot_message,
         )

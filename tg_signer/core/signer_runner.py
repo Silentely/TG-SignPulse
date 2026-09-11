@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import random
+import re
 from datetime import datetime, timedelta
 from typing import Optional, Union
 
@@ -27,9 +28,9 @@ from tg_signer.config import (
     SendTextAction,
     SignChatV3,
 )
-from tg_signer.core.template import render_template, render_template_recursive
 from tg_signer.context_vars import task_retry_count_var
 from tg_signer.core.client import Client, get_now
+from tg_signer.core.template import render_template, render_template_recursive
 from tg_signer.log_utils import safe_text_preview
 from tg_signer.utils import read_positive_float_env, read_positive_int_env
 
@@ -598,6 +599,5 @@ class SignerRunnerMixin:
 
     async def on_edited_message(self, client, message: Message):
         await self._on_message(client, message)
-
 
 

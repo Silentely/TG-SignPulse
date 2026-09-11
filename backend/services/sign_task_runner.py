@@ -336,8 +336,8 @@ async def _runner_execute_with_retry(state: Dict[str, Any]) -> None:
                     import re
                     match = re.search(r"(\d+)\s*(?:seconds|s|秒)?", err_str, re.IGNORECASE)
                     wait_sec = int(match.group(1)) if match else 60
-                    if hasattr(e, "value") and isinstance(getattr(e, "value"), int):
-                        wait_sec = getattr(e, "value")
+                    if hasattr(e, "value") and isinstance(e.value, int):
+                        wait_sec = e.value
                     from backend.services.flood_backoff import get_flood_backoff_manager
                     get_flood_backoff_manager().record_flood_wait(
                         state["account_name"],

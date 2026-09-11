@@ -54,7 +54,7 @@ class S3BackupClient:
         parsed = urlparse(self.endpoint_url)
         host = parsed.netloc
         path_prefix = parsed.path.rstrip("/")
-        
+
         # 默认使用通用 Path-Style: {endpoint}/{bucket}/{key}
         clean_key = object_key.lstrip("/")
         canonical_uri = f"{path_prefix}/{self.bucket}/{clean_key}" if path_prefix else f"/{self.bucket}/{clean_key}"
