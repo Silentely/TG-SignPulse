@@ -831,7 +831,26 @@
     "pluginsBatchSuccess": "已更新 {count} 个自定义插件状态",
     "pluginsResetAllMetrics": "清空全部指标",
     "pluginsResetAllMetricsSuccess": "已重置所有插件的统计指标",
-    "pluginsMetricsLastError": "最近执行异常"
+    "pluginsMetricsLastError": "最近执行异常",
+    "pluginsCloneBtn": "克隆",
+    "pluginsCloneTitle": "克隆插件",
+    "pluginsCloneNewName": "新插件英文标识",
+    "pluginsCloneDesc": "插件描述（可选）",
+    "pluginsCloneSuccess": "插件克隆成功",
+    "pluginsHistoryBtn": "调用历史",
+    "pluginsHistoryTitle": "插件调用历史: {name}",
+    "pluginsHistoryEmpty": "暂无调用历史记录（调试或任务触发后将自动记录）",
+    "pluginsHistoryTriggerManual": "模拟调试",
+    "pluginsHistoryTriggerReactive": "消息监听",
+    "pluginsHistoryTriggerActive": "主动定时",
+    "pluginsHistoryDuration": "耗时",
+    "pluginsHistoryStatus": "状态",
+    "pluginsHistoryLogs": "摘要日志",
+    "pluginsSortDefault": "默认排序",
+    "pluginsSortRuns": "按调用次数",
+    "pluginsSortSuccessRate": "按成功率",
+    "pluginsSortDuration": "按平均耗时",
+    "pluginsSortName": "按插件名称"
   },
   "profile": {
     "title": "个人中心",
@@ -958,7 +977,9 @@
     "activeFilters": "当前筛选",
     "brandSubtitle": "Telegram 运维",
     "save": "保存",
-    "apply": "应用"
+    "apply": "应用",
+    "success": "成功",
+    "failed": "失败"
   },
   "login": {
     "subtitle": "Telegram 多账号自动化面板",

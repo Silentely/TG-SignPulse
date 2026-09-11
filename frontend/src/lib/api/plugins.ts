@@ -50,6 +50,25 @@ export interface PluginSourceResponse {
   source: string
 }
 
+export interface PluginExecutionRecord {
+  timestamp: string
+  duration_ms: number
+  success: boolean
+  trigger_type: string
+  error?: string | null
+  log_summary?: string | null
+}
+
+export interface PluginHistoryResponse {
+  name: string
+  history: PluginExecutionRecord[]
+}
+
+export interface ClonePluginRequest {
+  new_name: string
+  description?: string
+}
+
 export interface CreatePluginRequest {
   name: string
   mode?: 'reactive' | 'active'
@@ -241,5 +260,24 @@ export async function resetAllPluginMetrics(
 ): Promise<{ success: boolean; message: string }> {
   return request<{ success: boolean; message: string }>('/plugins/reset-all-metrics', {
     method: 'POST',
+  }, token)
+}
+
+export async function getPluginHistory(
+  name: string,
+  token: string,
+  limit = 20,
+): Promise<PluginHistoryResponse> {
+  return request<PluginHistoryResponse>(`/plugins/${encodeURIComponent(name)}/history?limit=${limit}`, {}, token)
+}
+
+export async function clonePlugin(
+  name: string,
+  data: ClonePluginRequest,
+  token: string,
+): Promise<PluginInfo> {
+  return request<PluginInfo>(`/plugins/${encodeURIComponent(name)}/clone`, {
+    method: 'POST',
+    body: JSON.stringify(data),
   }, token)
 }

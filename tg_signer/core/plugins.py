@@ -387,6 +387,25 @@ class PluginMetrics:
             "last_error": self.last_error,
         }
 
+@dataclass
+class PluginExecutionRecord:
+    timestamp: str
+    duration_ms: float
+    success: bool
+    trigger_type: str = "manual_test"
+    error: Optional[str] = None
+    log_summary: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "timestamp": self.timestamp,
+            "duration_ms": self.duration_ms,
+            "success": self.success,
+            "trigger_type": self.trigger_type,
+            "error": self.error,
+            "log_summary": self.log_summary,
+        }
+
 
 def is_builtin_plugin_path(path: Union[str, Path, None]) -> bool:
     """判断给定文件或目录路径是否属于官方内置插件目录。
@@ -419,6 +438,7 @@ class PluginRegistry:
     _disabled_plugins: set[str] = set()
     _load_errors: Dict[str, PluginLoadError] = {}
     _metrics: Dict[str, PluginMetrics] = {}
+    _execution_history: Dict[str, Any] = {}
 
     @classmethod
     def record_execution(
@@ -427,28 +447,55 @@ class PluginRegistry:
         duration_ms: float,
         success: bool,
         error: Optional[str] = None,
+        trigger_type: str = "manual_test",
+        log_summary: Optional[str] = None,
     ) -> None:
+        from collections import deque
+
         metrics = cls._metrics.setdefault(name, PluginMetrics())
         metrics.run_count += 1
         metrics.total_duration_ms += max(0.0, float(duration_ms))
         metrics.last_duration_ms = round(float(duration_ms), 1)
-        metrics.last_run_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        metrics.last_run_at = now_str
         if success:
             metrics.success_count += 1
         else:
             metrics.failure_count += 1
             metrics.last_error = str(error) if error else "Unknown error"
 
+        hist = cls._execution_history.setdefault(name, deque(maxlen=30))
+        record = PluginExecutionRecord(
+            timestamp=now_str,
+            duration_ms=round(float(duration_ms), 1),
+            success=success,
+            trigger_type=trigger_type,
+            error=str(error) if error else None,
+            log_summary=log_summary,
+        )
+        hist.appendleft(record)
+
     @classmethod
     def get_metrics(cls, name: str) -> Optional[PluginMetrics]:
         return cls._metrics.get(name)
 
     @classmethod
+    def get_execution_history(
+        cls, name: str, limit: int = 20
+    ) -> List[PluginExecutionRecord]:
+        hist = cls._execution_history.get(name)
+        if not hist:
+            return []
+        return list(hist)[:limit]
+
+    @classmethod
     def reset_metrics(cls, name: Optional[str] = None) -> None:
         if name:
             cls._metrics.pop(name, None)
+            cls._execution_history.pop(name, None)
         else:
             cls._metrics.clear()
+            cls._execution_history.clear()
 
     @classmethod
     def get_load_errors(cls) -> List[PluginLoadError]:

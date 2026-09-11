@@ -35,6 +35,7 @@ import {
   Upload,
   Download,
   Activity,
+  History,
   RotateCcw,
   Edit2,
   Save,
@@ -56,6 +57,9 @@ import {
   resetPluginMetrics,
   batchTogglePlugins,
   resetAllPluginMetrics,
+  getPluginHistory,
+  clonePlugin,
+  type PluginExecutionRecord,
   type PluginInfo,
   type PluginTestResponse,
   type CreatePluginRequest,
@@ -89,6 +93,71 @@ const savingSource = ref(false)
 const resettingMetricsPlugin = ref<string | null>(null)
 const batchToggling = ref(false)
 const resettingAllMetrics = ref(false)
+
+// 克隆插件
+const isCloneModalOpen = ref(false)
+const cloningPlugin = ref<PluginInfo | null>(null)
+const cloneForm = ref({ new_name: '', description: '' })
+const submittingClone = ref(false)
+
+const openCloneModal = (plugin: PluginInfo) => {
+  cloningPlugin.value = plugin
+  cloneForm.value = {
+    new_name: `${plugin.name}_copy`,
+    description: plugin.description || '',
+  }
+  isCloneModalOpen.value = true
+}
+
+const submitClonePlugin = async () => {
+  if (!cloningPlugin.value) return
+  const newName = cloneForm.value.new_name.trim()
+  if (!newName || !/^[a-zA-Z0-9_]{3,32}$/.test(newName)) {
+    toast.error(t('settings.pluginsCreateNamePlaceholder'))
+    return
+  }
+  submittingClone.value = true
+  try {
+    const res = await withToken((token) => clonePlugin(cloningPlugin.value!.name, {
+      new_name: newName,
+      description: cloneForm.value.description.trim() || undefined,
+    }, token))
+    if (res) {
+      toast.success(t('settings.pluginsCloneSuccess'))
+      isCloneModalOpen.value = false
+      await loadPluginList()
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    toast.error(msg)
+  } finally {
+    submittingClone.value = false
+  }
+}
+
+// 调用历史
+const isHistoryModalOpen = ref(false)
+const historyPluginName = ref<string>('')
+const executionHistory = ref<PluginExecutionRecord[]>([])
+const loadingHistory = ref(false)
+
+const openHistoryModal = async (plugin: PluginInfo) => {
+  historyPluginName.value = plugin.name
+  isHistoryModalOpen.value = true
+  loadingHistory.value = true
+  executionHistory.value = []
+  try {
+    const res = await withToken((token) => getPluginHistory(plugin.name, token))
+    if (res) {
+      executionHistory.value = res.history || []
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    toast.error(msg)
+  } finally {
+    loadingHistory.value = false
+  }
+}
 
 const handleBatchToggle = async (enabled: boolean) => {
   batchToggling.value = true
@@ -186,9 +255,10 @@ const checkRouteForTestPlugin = () => {
 const searchQuery = ref('')
 const filterMode = ref<'all' | 'reactive' | 'active'>('all')
 const filterType = ref<'all' | 'builtin' | 'custom'>('all')
+const sortBy = ref<'default' | 'runs' | 'success_rate' | 'duration' | 'name'>('default')
 
 const filteredPlugins = computed(() => {
-  return plugins.value.filter((p) => {
+  const list = plugins.value.filter((p) => {
     if (searchQuery.value.trim()) {
       const q = searchQuery.value.trim().toLowerCase()
       const matchName = p.name.toLowerCase().includes(q)
@@ -203,6 +273,16 @@ const filteredPlugins = computed(() => {
     if (filterType.value === 'custom' && p.builtin) return false
     return true
   })
+  if (sortBy.value === 'runs') {
+    return [...list].sort((a, b) => (b.metrics?.run_count || 0) - (a.metrics?.run_count || 0))
+  } else if (sortBy.value === 'success_rate') {
+    return [...list].sort((a, b) => (b.metrics?.success_rate || 0) - (a.metrics?.success_rate || 0))
+  } else if (sortBy.value === 'duration') {
+    return [...list].sort((a, b) => (b.metrics?.avg_duration_ms || 0) - (a.metrics?.avg_duration_ms || 0))
+  } else if (sortBy.value === 'name') {
+    return [...list].sort((a, b) => a.name.localeCompare(b.name))
+  }
+  return list
 })
 
 const openTestFromSource = () => {
@@ -776,6 +856,18 @@ onMounted(() => {
             <RotateCcw class="w-3 h-3" :class="{ 'animate-spin': resettingAllMetrics }" />
           </button>
         </div>
+
+        <!-- 排序选择 -->
+        <select
+          v-model="sortBy"
+          class="ui-input !h-7 !text-[11px] !px-2 !py-0 w-auto bg-gray-50/50 dark:bg-gray-900/50 border-gray-200 dark:border-gray-800"
+        >
+          <option value="default">{{ t('settings.pluginsSortDefault') }}</option>
+          <option value="runs">{{ t('settings.pluginsSortRuns') }}</option>
+          <option value="success_rate">{{ t('settings.pluginsSortSuccessRate') }}</option>
+          <option value="duration">{{ t('settings.pluginsSortDuration') }}</option>
+          <option value="name">{{ t('settings.pluginsSortName') }}</option>
+        </select>
       </div>
     </div>
 
@@ -950,6 +1042,28 @@ onMounted(() => {
           >
             <Code class="w-3 h-3" />
             {{ t('settings.pluginsSourceBtn') }}
+          </button>
+
+          <!-- 调用历史 -->
+          <button
+            type="button"
+            class="ui-btn-secondary !py-1 !px-2.5 !text-xs inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400 hover:text-indigo-700"
+            :title="t('settings.pluginsHistoryBtn')"
+            @click="openHistoryModal(plugin)"
+          >
+            <History class="w-3 h-3" />
+            {{ t('settings.pluginsHistoryBtn') }}
+          </button>
+
+          <!-- 克隆 -->
+          <button
+            type="button"
+            class="ui-btn-secondary !py-1 !px-2.5 !text-xs inline-flex items-center gap-1 text-purple-600 dark:text-purple-400 hover:text-purple-700"
+            :title="t('settings.pluginsCloneBtn')"
+            @click="openCloneModal(plugin)"
+          >
+            <Copy class="w-3 h-3" />
+            {{ t('settings.pluginsCloneBtn') }}
           </button>
 
           <!-- 调试 -->
@@ -1473,6 +1587,100 @@ AUTHOR = "YourName"
     author=AUTHOR,
     params_schema=[...],
 )</pre>
+        </div>
+      </div>
+    </Modal>
+    <!-- 克隆插件弹窗 -->
+    <Modal
+      :is-open="isCloneModalOpen"
+      :title="t('settings.pluginsCloneTitle')"
+      @close="isCloneModalOpen = false"
+    >
+      <form class="space-y-4 text-xs" @submit.prevent="submitClonePlugin">
+        <div class="space-y-1">
+          <label class="font-medium text-gray-700 dark:text-gray-300">
+            {{ t('settings.pluginsCloneNewName') }}
+          </label>
+          <input
+            v-model="cloneForm.new_name"
+            type="text"
+            class="ui-input !h-8 !text-xs !px-2.5 w-full font-mono"
+            placeholder="my_custom_plugin"
+            required
+          />
+        </div>
+        <div class="space-y-1">
+          <label class="font-medium text-gray-700 dark:text-gray-300">
+            {{ t('settings.pluginsCloneDesc') }}
+          </label>
+          <input
+            v-model="cloneForm.description"
+            type="text"
+            class="ui-input !h-8 !text-xs !px-2.5 w-full"
+          />
+        </div>
+        <div class="flex items-center justify-end gap-2 pt-2">
+          <button
+            type="button"
+            class="ui-btn-secondary !py-1 !px-3 !text-xs"
+            @click="isCloneModalOpen = false"
+          >
+            {{ t('common.cancel') }}
+          </button>
+          <button
+            type="submit"
+            class="ui-btn-primary !py-1 !px-3 !text-xs inline-flex items-center gap-1.5"
+            :disabled="submittingClone"
+          >
+            <RefreshCw v-if="submittingClone" class="w-3 h-3 animate-spin" />
+            <span>{{ t('common.confirm') }}</span>
+          </button>
+        </div>
+      </form>
+    </Modal>
+
+    <!-- 调用历史弹窗 -->
+    <Modal
+      :is-open="isHistoryModalOpen"
+      :title="t('settings.pluginsHistoryTitle', { name: historyPluginName })"
+      @close="isHistoryModalOpen = false"
+    >
+      <div class="space-y-3 text-xs max-h-[60vh] overflow-y-auto pr-1">
+        <div v-if="loadingHistory" class="py-8 text-center text-gray-400 flex items-center justify-center gap-2">
+          <RefreshCw class="w-4 h-4 animate-spin text-indigo-500" />
+          <span>{{ t('common.loading') }}</span>
+        </div>
+        <div v-else-if="!executionHistory.length" class="py-8 text-center text-gray-400">
+          {{ t('settings.pluginsHistoryEmpty') }}
+        </div>
+        <div v-else class="space-y-2">
+          <div
+            v-for="(rec, idx) in executionHistory"
+            :key="idx"
+            class="p-2.5 rounded border border-gray-200/80 dark:border-gray-800/80 bg-white/70 dark:bg-black/20 space-y-1.5"
+          >
+            <div class="flex items-center justify-between gap-2 flex-wrap text-[11px] font-mono">
+              <div class="flex items-center gap-2">
+                <span
+                  class="px-1.5 py-0.2 rounded text-[10px] font-medium"
+                  :class="rec.success ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400' : 'bg-rose-50 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400'"
+                >
+                  {{ rec.success ? t('common.success') : t('common.failed') }}
+                </span>
+                <span class="text-gray-500">{{ rec.timestamp }}</span>
+                <span class="text-gray-400">({{ rec.duration_ms }} ms)</span>
+              </div>
+              <span class="text-gray-400 text-[10px]">
+                {{ rec.trigger_type === 'manual_test' ? t('settings.pluginsHistoryTriggerManual') : rec.trigger_type }}
+              </span>
+            </div>
+            <div v-if="rec.error" class="text-rose-600 dark:text-rose-400 text-[10px] font-mono break-all bg-rose-50/50 dark:bg-rose-950/30 p-1.5 rounded">
+              {{ rec.error }}
+            </div>
+            <div v-if="rec.log_summary" class="text-gray-600 dark:text-gray-300 text-[10px] font-mono break-all line-clamp-2">
+              {{ rec.log_summary }}
+            </div>
+          </div>
         </div>
       </div>
     </Modal>

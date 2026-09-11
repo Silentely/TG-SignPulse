@@ -11,6 +11,8 @@ import {
   resetPluginMetrics,
   batchTogglePlugins,
   resetAllPluginMetrics,
+  getPluginHistory,
+  clonePlugin,
 } from '../lib/api/plugins'
 
 describe('plugins api 扩展接口', () => {
@@ -183,6 +185,35 @@ describe('plugins api 扩展接口', () => {
     expect(requestSpy).toHaveBeenCalledWith(
       '/plugins/reset-all-metrics',
       { method: 'POST' },
+      'test-token',
+    )
+    expect(result).toEqual(mockResp)
+  })
+
+  it('getPluginHistory 发起 GET /plugins/:name/history', async () => {
+    const mockResp = { name: 'test_p', history: [] }
+    const requestSpy = vi.spyOn(coreApi, 'request').mockResolvedValueOnce(mockResp)
+
+    const result = await getPluginHistory('test_p', 'test-token', 10)
+    expect(requestSpy).toHaveBeenCalledWith(
+      '/plugins/test_p/history?limit=10',
+      {},
+      'test-token',
+    )
+    expect(result).toEqual(mockResp)
+  })
+
+  it('clonePlugin 发起 POST /plugins/:name/clone', async () => {
+    const mockResp = { name: 'new_p', mode: 'reactive', enabled: true, builtin: false }
+    const requestSpy = vi.spyOn(coreApi, 'request').mockResolvedValueOnce(mockResp)
+
+    const result = await clonePlugin('old_p', { new_name: 'new_p', description: '克隆' }, 'test-token')
+    expect(requestSpy).toHaveBeenCalledWith(
+      '/plugins/old_p/clone',
+      {
+        method: 'POST',
+        body: JSON.stringify({ new_name: 'new_p', description: '克隆' }),
+      },
       'test-token',
     )
     expect(result).toEqual(mockResp)
