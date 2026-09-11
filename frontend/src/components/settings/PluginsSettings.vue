@@ -54,6 +54,8 @@ import {
   uploadPlugin,
   updatePluginSource,
   resetPluginMetrics,
+  batchTogglePlugins,
+  resetAllPluginMetrics,
   type PluginInfo,
   type PluginTestResponse,
   type CreatePluginRequest,
@@ -85,6 +87,38 @@ const isEditingSource = ref(false)
 const editedSourceCode = ref('')
 const savingSource = ref(false)
 const resettingMetricsPlugin = ref<string | null>(null)
+const batchToggling = ref(false)
+const resettingAllMetrics = ref(false)
+
+const handleBatchToggle = async (enabled: boolean) => {
+  batchToggling.value = true
+  try {
+    const res = await withToken((token) => batchTogglePlugins(enabled, token))
+    if (res) {
+      toast.success(t('settings.pluginsBatchSuccess', { count: res.count }))
+      await loadPluginList()
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    toast.error(msg)
+  } finally {
+    batchToggling.value = false
+  }
+}
+
+const handleResetAllMetrics = async () => {
+  resettingAllMetrics.value = true
+  try {
+    await withToken((token) => resetAllPluginMetrics(token))
+    toast.success(t('settings.pluginsResetAllMetricsSuccess'))
+    await loadPluginList()
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    toast.error(msg)
+  } finally {
+    resettingAllMetrics.value = false
+  }
+}
 
 // 导入/导出状态
 const fileInputRef = ref<HTMLInputElement | null>(null)
@@ -713,6 +747,35 @@ onMounted(() => {
             {{ t('settings.pluginsFilterCustom') }}
           </button>
         </div>
+
+        <!-- 批量管理与指标复位 -->
+        <div class="inline-flex items-center rounded-lg border border-gray-200 dark:border-gray-800 p-0.5 bg-gray-50/50 dark:bg-gray-900/50">
+          <button
+            type="button"
+            class="px-2 py-1 rounded text-[11px] font-medium text-emerald-600 dark:text-emerald-400 hover:bg-white dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
+            :disabled="batchToggling"
+            @click="handleBatchToggle(true)"
+          >
+            {{ t('settings.pluginsBatchEnable') }}
+          </button>
+          <button
+            type="button"
+            class="px-2 py-1 rounded text-[11px] font-medium text-gray-500 hover:text-gray-900 dark:hover:text-gray-300 hover:bg-white dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
+            :disabled="batchToggling"
+            @click="handleBatchToggle(false)"
+          >
+            {{ t('settings.pluginsBatchDisable') }}
+          </button>
+          <button
+            type="button"
+            class="px-2 py-1 rounded text-[11px] font-medium text-amber-600 dark:text-amber-400 hover:bg-white dark:hover:bg-gray-800 transition-colors disabled:opacity-50 inline-flex items-center"
+            :title="t('settings.pluginsResetAllMetrics')"
+            :disabled="resettingAllMetrics"
+            @click="handleResetAllMetrics"
+          >
+            <RotateCcw class="w-3 h-3" :class="{ 'animate-spin': resettingAllMetrics }" />
+          </button>
+        </div>
       </div>
     </div>
 
@@ -808,9 +871,10 @@ onMounted(() => {
 
           <!-- 运行统计指标 -->
           <div
-            v-if="plugin.metrics && plugin.metrics.run_count > 0"
-            class="mt-2 pt-1.5 border-t border-gray-200/50 dark:border-gray-800/50 flex items-center flex-wrap gap-2 text-[11px]"
+            v-if="plugin.metrics && (plugin.metrics.run_count > 0 || plugin.metrics.last_error)"
+            class="mt-2 pt-1.5 border-t border-gray-200/50 dark:border-gray-800/50 flex flex-col gap-1.5"
           >
+            <div class="flex items-center flex-wrap gap-2 text-[11px]">
             <span class="inline-flex items-center gap-1 font-mono text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">
               <Activity class="w-3 h-3 text-blue-500" />
               {{ t('settings.pluginsMetricsRuns', { n: plugin.metrics.run_count }) }}
@@ -839,6 +903,15 @@ onMounted(() => {
             >
               <RotateCcw class="w-3 h-3" :class="{ 'animate-spin': resettingMetricsPlugin === plugin.name }" />
             </button>
+            </div>
+            <div
+              v-if="plugin.metrics.last_error"
+              class="text-[10px] text-rose-600 dark:text-rose-400 bg-rose-50/80 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 rounded px-2 py-0.5 flex items-start gap-1 font-mono break-all"
+              :title="plugin.metrics.last_error"
+            >
+              <AlertCircle class="w-3 h-3 shrink-0 mt-0.5" />
+              <span class="truncate max-w-xl">{{ t('settings.pluginsMetricsLastError') }}: {{ plugin.metrics.last_error }}</span>
+            </div>
           </div>
         </div>
 
@@ -1235,6 +1308,8 @@ onMounted(() => {
               <option value="basic_reactive">{{ t('settings.pluginsTemplateReactive') }}</option>
               <option value="basic_active">{{ t('settings.pluginsTemplateActive') }}</option>
               <option value="storage_counter">{{ t('settings.pluginsTemplateStorage') }}</option>
+              <option value="regex_extractor">{{ t('settings.pluginsTplRegexExtractor') }}</option>
+              <option value="webhook_alert">{{ t('settings.pluginsTplWebhookAlert') }}</option>
             </select>
           </div>
 

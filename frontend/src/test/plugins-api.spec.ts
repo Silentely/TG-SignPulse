@@ -9,6 +9,8 @@ import {
   uploadPlugin,
   updatePluginSource,
   resetPluginMetrics,
+  batchTogglePlugins,
+  resetAllPluginMetrics,
 } from '../lib/api/plugins'
 
 describe('plugins api 扩展接口', () => {
@@ -151,6 +153,35 @@ describe('plugins api 扩展接口', () => {
     const result = await resetPluginMetrics('math_solver', 'test-token')
     expect(requestSpy).toHaveBeenCalledWith(
       '/plugins/math_solver/reset-metrics',
+      { method: 'POST' },
+      'test-token',
+    )
+    expect(result).toEqual(mockResp)
+  })
+
+  it('batchTogglePlugins 发起 POST /plugins/batch-toggle 传递 enabled', async () => {
+    const mockResp = { success: true, count: 2, enabled: true }
+    const requestSpy = vi.spyOn(coreApi, 'request').mockResolvedValueOnce(mockResp)
+
+    const result = await batchTogglePlugins(true, 'test-token')
+    expect(requestSpy).toHaveBeenCalledWith(
+      '/plugins/batch-toggle',
+      {
+        method: 'POST',
+        body: JSON.stringify({ enabled: true }),
+      },
+      'test-token',
+    )
+    expect(result).toEqual(mockResp)
+  })
+
+  it('resetAllPluginMetrics 发起 POST /plugins/reset-all-metrics', async () => {
+    const mockResp = { success: true, message: '已重置' }
+    const requestSpy = vi.spyOn(coreApi, 'request').mockResolvedValueOnce(mockResp)
+
+    const result = await resetAllPluginMetrics('test-token')
+    expect(requestSpy).toHaveBeenCalledWith(
+      '/plugins/reset-all-metrics',
       { method: 'POST' },
       'test-token',
     )

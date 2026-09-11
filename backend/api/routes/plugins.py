@@ -130,10 +130,20 @@ class UpdatePluginSourceRequest(BaseModel):
 class CreatePluginRequest(BaseModel):
     name: str = Field(..., pattern=r"^[a-zA-Z0-9_]{3,32}$", description="插件英文标识（3-32位字母数字下划线）")
     mode: Literal["reactive", "active"] = "reactive"
-    template: Literal["basic_reactive", "basic_active", "storage_counter"] = "basic_reactive"
+    template: Literal[
+        "basic_reactive",
+        "basic_active",
+        "storage_counter",
+        "regex_extractor",
+        "webhook_alert",
+    ] = "basic_reactive"
     description: str = Field(default="", max_length=200)
     author: str = Field(default="", max_length=50)
     version: str = Field(default="1.0.0", pattern=r"^\d+\.\d+\.\d+$")
+
+
+class BatchTogglePluginsRequest(BaseModel):
+    enabled: bool = Field(..., description="是否批量启用自定义插件")
 
 
 class PluginLoadErrorItem(BaseModel):
@@ -714,7 +724,7 @@ async def update_plugin_source(
 
     updated_meta = PluginRegistry.get(name)
     if not updated_meta:
-        for p in PluginRegistry.list_all():
+        for p in PluginRegistry.list_plugins().values():
             if p.source_path and Path(p.source_path).resolve() == source_path:
                 updated_meta = p
                 break
@@ -864,6 +874,117 @@ async def {req.name}_handler(ctx: PluginContext) -> bool:
     ctx.log(f"插件 {req.name} 已累计触发 {{count}} 次")
     if ctx.message:
         await ctx.reply(f"这是您第 {{count}} 次触发此插件")
+    return True
+'''
+    elif req.template == "regex_extractor":
+        code_text = f'''"""自定义正则提取插件: {req.name}"""
+import re
+from tg_signer.core.plugins import PluginContext, PluginRegistry
+
+VERSION = "{version}"
+UPDATED_AT = "{today}"
+AUTHOR = "{author}"
+
+PARAMS_SCHEMA = [
+    {{
+        "name": "pattern",
+        "label": "提取正则表达式",
+        "type": "string",
+        "default": r"(?:验证码|code)[:：\\s]*([a-zA-Z0-9]{{4,8}})",
+        "description": "用于从消息文本中捕获特定信息的正则表达式",
+    }},
+    {{
+        "name": "reply_format",
+        "label": "回复模版",
+        "type": "string",
+        "default": "已捕获结果: {{match}}",
+        "description": "回复文本模版，支持使用 {{match}} 占位符",
+    }},
+]
+
+@PluginRegistry.register(
+    name="{req.name}",
+    mode="reactive",
+    description="{description}",
+    params_schema=PARAMS_SCHEMA,
+    version=VERSION,
+    updated_at=UPDATED_AT,
+    author=AUTHOR,
+)
+async def {req.name}_handler(ctx: PluginContext) -> bool:
+    msg = ctx.message
+    if not msg or not getattr(msg, "text", None):
+        return False
+
+    params = ctx.params or {{}}
+    pattern = params.get("pattern", r"(?:验证码|code)[:：\\s]*([a-zA-Z0-9]{{4,8}})")
+    reply_format = params.get("reply_format", "已捕获结果: {{match}}")
+
+    match = re.search(pattern, msg.text, re.IGNORECASE)
+    if not match:
+        return False
+
+    extracted = match.group(1) if match.groups() else match.group(0)
+    ctx.log(f"正则匹配成功: {{extracted}}")
+    reply_msg = reply_format.replace("{{match}}", extracted)
+    await ctx.reply(reply_msg)
+    return True
+'''
+    elif req.template == "webhook_alert":
+        code_text = f'''"""自定义 Webhook 推送插件: {req.name}"""
+import json
+import urllib.request
+from tg_signer.core.plugins import PluginContext, PluginRegistry
+
+VERSION = "{version}"
+UPDATED_AT = "{today}"
+AUTHOR = "{author}"
+PERMISSIONS = ["network"]
+
+PARAMS_SCHEMA = [
+    {{
+        "name": "webhook_url",
+        "label": "Webhook 地址",
+        "type": "string",
+        "default": "",
+        "description": "推送通知的目标 HTTP(S) URL",
+    }},
+]
+
+@PluginRegistry.register(
+    name="{req.name}",
+    mode="reactive",
+    description="{description}",
+    params_schema=PARAMS_SCHEMA,
+    permissions=PERMISSIONS,
+    version=VERSION,
+    updated_at=UPDATED_AT,
+    author=AUTHOR,
+)
+async def {req.name}_handler(ctx: PluginContext) -> bool:
+    msg = ctx.message
+    if not msg or not getattr(msg, "text", None):
+        return False
+
+    webhook_url = (ctx.params or {{}}).get("webhook_url")
+    if not webhook_url:
+        ctx.log("未配置 webhook_url，跳过推送")
+        return False
+
+    payload = {{
+        "plugin": "{req.name}",
+        "chat_id": ctx.chat_id,
+        "text": msg.text,
+    }}
+    req = urllib.request.Request(
+        webhook_url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={{"Content-Type": "application/json"}},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        ctx.log(f"Webhook 推送完成，HTTP 状态码: {{resp.status}}")
+
     return True
 '''
     else:  # basic_reactive
@@ -1023,3 +1144,56 @@ async def reset_plugin_metrics(
         raise HTTPException(status_code=404, detail="插件未找到")
     PluginRegistry.reset_metrics(name)
     return {"success": True, "name": name, "message": "指标已重置"}
+
+@router.post("/batch-toggle")
+async def batch_toggle_plugins(
+    payload: BatchTogglePluginsRequest,
+    _user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """批量启用或停用所有自定义插件。"""
+    try:
+        from backend.services.config import get_config_service
+
+        cfg_svc = get_config_service()
+        settings = dict(cfg_svc.get_global_settings() or {})
+        disabled_list = list(settings.get("disabled_plugins", []))
+    except Exception:
+        cfg_svc = None
+        settings = {}
+        disabled_list = []
+
+    disabled_set = set(disabled_list)
+
+    custom_plugins = [
+        p
+        for p in PluginRegistry.list_plugins().values()
+        if not (getattr(p, "builtin", False) or is_builtin_plugin_path(p.source_path))
+    ]
+
+    for p in custom_plugins:
+        if payload.enabled:
+            disabled_set.discard(p.name)
+            PluginRegistry.set_disabled(p.name, disabled=False)
+        else:
+            disabled_set.add(p.name)
+            PluginRegistry.set_disabled(p.name, disabled=True)
+
+    if cfg_svc is not None:
+        settings["disabled_plugins"] = list(disabled_set)
+        cfg_svc.save_global_settings(settings)
+
+    return {
+        "success": True,
+        "count": len(custom_plugins),
+        "enabled": payload.enabled,
+    }
+
+
+@router.post("/reset-all-metrics")
+async def reset_all_plugin_metrics(
+    _user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """批量重置所有插件的运行统计指标。"""
+    for p in PluginRegistry.list_plugins().values():
+        PluginRegistry.reset_metrics(p.name)
+    return {"success": True, "message": "已重置所有插件运行指标"}
