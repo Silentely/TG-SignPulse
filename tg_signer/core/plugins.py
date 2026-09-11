@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 import hashlib
 import importlib.util
 import inspect
@@ -335,6 +336,9 @@ class PluginMeta:
     handler: Callable[[PluginContext], Any]
     mode: Literal["reactive", "active"] = "reactive"
     description: str = ""
+    version: str = "1.0.0"
+    updated_at: str = ""
+    author: str = ""
     source_path: Optional[str] = None
     params_schema: Optional[List[Dict[str, Any]]] = None
     enabled: bool = True
@@ -394,6 +398,9 @@ class PluginRegistry:
         description: str = "",
         params_schema: Optional[List[Dict[str, Any]]] = None,
         permissions: Optional[List[str]] = None,
+        version: str = "1.0.0",
+        updated_at: Optional[str] = None,
+        author: str = "",
     ) -> Callable:
         def decorator(fn: Callable[[PluginContext], Any]) -> Callable[[PluginContext], Any]:
             existing = cls._plugins.get(name)
@@ -404,11 +411,15 @@ class PluginRegistry:
                 source_file = inspect.getsourcefile(fn)
             except Exception:
                 pass
+
             cls._plugins[name] = PluginMeta(
                 name=name,
                 handler=fn,
                 mode=mode,
                 description=description,
+                version=version or "1.0.0",
+                updated_at=updated_at or "",
+                author=author or "",
                 source_path=source_file,
                 params_schema=params_schema or [],
                 enabled=cls.is_enabled(name),
@@ -494,21 +505,47 @@ class PluginRegistry:
                 pre_keys = set(cls._plugins.keys())
                 spec.loader.exec_module(mod)
                 cls._loaded_files.add(resolved_file)
-                # 模块级 PARAMS_SCHEMA 自动挂载：仅当该文件本次恰好注册一个
-                # 未在装饰器声明 schema 的插件时回填，避免同文件多插件误挂。
                 for m_name, meta in cls._plugins.items():
                     if meta.source_path and is_builtin_plugin_path(meta.source_path):
                         meta.builtin = True
+
+                new_registered = [
+                    meta
+                    for name, meta in cls._plugins.items()
+                    if name not in pre_keys and (meta.source_path == str(resolved_file) or not meta.source_path)
+                ]
+
+                # 模块级 PARAMS_SCHEMA 自动挂载
                 if hasattr(mod, "PARAMS_SCHEMA"):
-                    pending = [
-                        meta
-                        for name, meta in cls._plugins.items()
-                        if name not in pre_keys
-                        and meta.source_path == str(resolved_file)
-                        and not meta.params_schema
-                    ]
+                    pending = [m for m in new_registered if not m.params_schema]
                     if len(pending) == 1:
                         pending[0].params_schema = mod.PARAMS_SCHEMA
+
+                # 模块级全局变量元数据提取（VERSION / UPDATED_AT / AUTHOR）与 mtime 回退
+                mod_version = getattr(mod, "VERSION", getattr(mod, "__version__", None))
+                mod_updated_at = getattr(mod, "UPDATED_AT", getattr(mod, "__updated_at__", None))
+                mod_author = getattr(mod, "AUTHOR", getattr(mod, "__author__", None))
+
+                for meta in new_registered:
+                    if not meta.source_path:
+                        meta.source_path = str(resolved_file)
+                        meta.builtin = is_builtin_plugin_path(resolved_file)
+
+                    if (not meta.version or meta.version == "1.0.0") and mod_version and isinstance(mod_version, str):
+                        meta.version = mod_version.strip()
+                    if (not meta.updated_at) and mod_updated_at and isinstance(mod_updated_at, str):
+                        meta.updated_at = mod_updated_at.strip()
+                    if (not meta.author) and mod_author and isinstance(mod_author, str):
+                        meta.author = mod_author.strip()
+
+                    # 若 updated_at 仍为空，则回退为文件 mtime
+                    if not meta.updated_at and meta.source_path and os.path.isfile(meta.source_path):
+                        try:
+                            meta.updated_at = datetime.fromtimestamp(os.path.getmtime(meta.source_path)).strftime("%Y-%m-%d")
+                        except Exception:
+                            meta.updated_at = datetime.now().strftime("%Y-%m-%d")
+                    elif not meta.updated_at:
+                        meta.updated_at = datetime.now().strftime("%Y-%m-%d")
                 _logger.info("已成功加载插件: %s (来自 %s)", folder_name, plugin_file)
             except ModuleNotFoundError as exc:
                 sys.modules.pop(module_name, None)
