@@ -902,7 +902,12 @@
     "pluginsFormatSuccess": "Code formatted successfully",
     "pluginsFormatUnchanged": "Code already nicely formatted",
     "pluginsPlaygroundResetInput": "Reset Inputs",
-    "pluginsPlaygroundResetInputSuccess": "Test inputs have been reset"
+    "pluginsPlaygroundResetInputSuccess": "Test inputs have been reset",
+    "pluginsResetAllMetricsConfirm": "Are you sure you want to reset execution metrics for all plugins? This cannot be undone.",
+    "pluginsCopyTestResult": "Copy Result",
+    "pluginsCopyTestResultSuccess": "Test result copied to clipboard",
+    "pluginsCopyPipCommand": "Copy pip command",
+    "pluginsCopyPipCommandSuccess": "pip install command copied to clipboard"
   },
   "profile": {
     "title": "Profile",

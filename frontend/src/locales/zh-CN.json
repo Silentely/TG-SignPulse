@@ -902,7 +902,12 @@
     "pluginsFormatSuccess": "代码排版格式化完成",
     "pluginsFormatUnchanged": "代码格式规范，无需调整",
     "pluginsPlaygroundResetInput": "重置输入",
-    "pluginsPlaygroundResetInputSuccess": "已清空测试用例输入"
+    "pluginsPlaygroundResetInputSuccess": "已清空测试用例输入",
+    "pluginsResetAllMetricsConfirm": "确定要重置并清空所有插件的运行统计指标吗？此操作不可撤销。",
+    "pluginsCopyTestResult": "复制结果",
+    "pluginsCopyTestResultSuccess": "调试执行结果已复制到剪贴板",
+    "pluginsCopyPipCommand": "复制安装命令",
+    "pluginsCopyPipCommandSuccess": "pip 安装命令已复制到剪贴板"
   },
   "profile": {
     "title": "个人中心",
