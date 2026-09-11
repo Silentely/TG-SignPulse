@@ -141,7 +141,7 @@ describe('PluginsSettings.vue 插件管理组件', () => {
         enabled: true,
       },
     ])
-    const deleteSpy = vi.spyOn(pluginsApi, 'deletePlugin').mockResolvedValueOnce({
+    vi.spyOn(pluginsApi, 'deletePlugin').mockResolvedValueOnce({
       success: true,
       name: 'custom_plugin',
       message: '已删除',
@@ -157,5 +157,73 @@ describe('PluginsSettings.vue 插件管理组件', () => {
 
     const deleteBtn = wrapper.findAll('button').find((btn) => btn.text().includes('删除'))
     expect(deleteBtn).toBeDefined()
+  })
+
+  it('支持通过搜索框过滤插件列表', async () => {
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValueOnce([
+      {
+        name: 'math_solver',
+        mode: 'reactive',
+        description: '数学计算',
+        builtin: true,
+        enabled: true,
+      },
+      {
+        name: 'webhook_pusher',
+        mode: 'active',
+        description: 'Webhook推送',
+        builtin: true,
+        enabled: true,
+      },
+    ])
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('math_solver')
+      expect(wrapper.text()).toContain('webhook_pusher')
+    })
+
+    const searchInput = wrapper.find('input[type="text"]')
+    expect(searchInput.exists()).toBe(true)
+    await searchInput.setValue('webhook')
+
+    expect(wrapper.text()).toContain('webhook_pusher')
+    expect(wrapper.text()).not.toContain('math_solver')
+  })
+
+  it('在源码弹窗中提供前往调试按钮并能切换至调试弹窗', async () => {
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValueOnce([
+      {
+        name: 'math_solver',
+        mode: 'reactive',
+        description: '数学计算',
+        builtin: true,
+        enabled: true,
+      },
+    ])
+    vi.spyOn(pluginsApi, 'getPluginSource').mockResolvedValueOnce({
+      name: 'math_solver',
+      version: '1.0.0',
+      source: 'def math_solver_handler(): pass',
+    })
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('math_solver')
+    })
+
+    const sourceBtn = wrapper.findAll('button').find((btn) => btn.text().includes('查看源码'))
+    await sourceBtn!.trigger('click')
+
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain('def math_solver_handler(): pass')
+      expect(document.body.textContent).toContain('前往调试')
+    })
   })
 })

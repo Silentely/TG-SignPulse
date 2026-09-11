@@ -775,7 +775,15 @@
     "pluginsDevGuideTitle": "自定义插件开发参考",
     "pluginsVersionLabel": "版本",
     "pluginsUpdatedLabel": "更新日期",
-    "pluginsAuthorLabel": "作者"
+    "pluginsAuthorLabel": "作者",
+    "pluginsSearchPlaceholder": "搜索插件名称、描述或作者...",
+    "pluginsFilterAll": "全部",
+    "pluginsFilterReactive": "监听响应",
+    "pluginsFilterActive": "主动执行",
+    "pluginsFilterBuiltin": "官方内置",
+    "pluginsFilterCustom": "自定义",
+    "pluginsSourceOpenTest": "前往调试",
+    "pluginsEmptyFilter": "没有找到符合条件的插件"
   },
   "profile": {
     "title": "个人中心",

@@ -10,7 +10,7 @@
  * 7. 提供面向开发者的「开发参考」指导指南；
  * 8. 支持 URL 查询参数 (?testPlugin=xxx&testInput=yyy) 快捷唤起调试台。
  */
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import {
   Puzzle,
@@ -28,6 +28,7 @@ import {
   BookOpen,
   Copy,
   Check,
+  Search,
 } from 'lucide-vue-next'
 import Modal from '../Modal.vue'
 import {
@@ -99,6 +100,35 @@ const checkRouteForTestPlugin = () => {
       testInputText.value = customInput
     }
   }
+}
+
+const searchQuery = ref('')
+const filterMode = ref<'all' | 'reactive' | 'active'>('all')
+const filterType = ref<'all' | 'builtin' | 'custom'>('all')
+
+const filteredPlugins = computed(() => {
+  return plugins.value.filter((p) => {
+    if (searchQuery.value.trim()) {
+      const q = searchQuery.value.trim().toLowerCase()
+      const matchName = p.name.toLowerCase().includes(q)
+      const matchDesc = (p.description || '').toLowerCase().includes(q)
+      const matchAuthor = (p.author || '').toLowerCase().includes(q)
+      if (!matchName && !matchDesc && !matchAuthor) return false
+    }
+    if (filterMode.value !== 'all' && p.mode !== filterMode.value) {
+      return false
+    }
+    if (filterType.value === 'builtin' && !p.builtin) return false
+    if (filterType.value === 'custom' && p.builtin) return false
+    return true
+  })
+})
+
+const openTestFromSource = () => {
+  if (!currentSourcePlugin.value) return
+  const p = currentSourcePlugin.value
+  isSourceModalOpen.value = false
+  openTestModal(p)
 }
 
 const loadPluginList = async () => {
@@ -374,6 +404,77 @@ onMounted(() => {
       </p>
     </div>
 
+    <!-- 搜索与筛选工具条 -->
+    <div class="mb-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+      <div class="relative flex-1 max-w-sm">
+        <Search class="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+        <input
+          v-model="searchQuery"
+          type="text"
+          :placeholder="t('settings.pluginsSearchPlaceholder')"
+          class="ui-input !pl-8 !py-1.5 !text-xs w-full"
+        />
+      </div>
+
+      <div class="flex items-center gap-2 flex-wrap text-xs">
+        <!-- 模式筛选 -->
+        <div class="inline-flex rounded-lg border border-gray-200 dark:border-gray-800 p-0.5 bg-gray-50/50 dark:bg-gray-900/50">
+          <button
+            type="button"
+            class="px-2 py-1 rounded text-[11px] font-medium transition-colors"
+            :class="filterMode === 'all' ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300'"
+            @click="filterMode = 'all'"
+          >
+            {{ t('settings.pluginsFilterAll') }}
+          </button>
+          <button
+            type="button"
+            class="px-2 py-1 rounded text-[11px] font-medium transition-colors"
+            :class="filterMode === 'reactive' ? 'bg-white dark:bg-gray-800 text-sky-600 dark:text-sky-400 shadow-sm' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300'"
+            @click="filterMode = 'reactive'"
+          >
+            {{ t('settings.pluginsFilterReactive') }}
+          </button>
+          <button
+            type="button"
+            class="px-2 py-1 rounded text-[11px] font-medium transition-colors"
+            :class="filterMode === 'active' ? 'bg-white dark:bg-gray-800 text-emerald-600 dark:text-emerald-400 shadow-sm' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300'"
+            @click="filterMode = 'active'"
+          >
+            {{ t('settings.pluginsFilterActive') }}
+          </button>
+        </div>
+
+        <!-- 来源筛选 -->
+        <div class="inline-flex rounded-lg border border-gray-200 dark:border-gray-800 p-0.5 bg-gray-50/50 dark:bg-gray-900/50">
+          <button
+            type="button"
+            class="px-2 py-1 rounded text-[11px] font-medium transition-colors"
+            :class="filterType === 'all' ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300'"
+            @click="filterType = 'all'"
+          >
+            {{ t('settings.pluginsFilterAll') }}
+          </button>
+          <button
+            type="button"
+            class="px-2 py-1 rounded text-[11px] font-medium transition-colors"
+            :class="filterType === 'builtin' ? 'bg-white dark:bg-gray-800 text-purple-600 dark:text-purple-400 shadow-sm' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300'"
+            @click="filterType = 'builtin'"
+          >
+            {{ t('settings.pluginsFilterBuiltin') }}
+          </button>
+          <button
+            type="button"
+            class="px-2 py-1 rounded text-[11px] font-medium transition-colors"
+            :class="filterType === 'custom' ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300'"
+            @click="filterType = 'custom'"
+          >
+            {{ t('settings.pluginsFilterCustom') }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- 插件清单 -->
     <div v-if="loading && !plugins.length" class="space-y-3">
       <div class="ui-skeleton h-12 w-full" />
@@ -387,7 +488,7 @@ onMounted(() => {
 
     <div v-else class="space-y-2.5">
       <div
-        v-for="plugin in plugins"
+        v-for="plugin in filteredPlugins"
         :key="plugin.name"
         class="p-3 border rounded flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs transition-colors"
         :class="plugin.enabled !== false
@@ -507,6 +608,13 @@ onMounted(() => {
       </div>
     </div>
 
+    <div
+      v-if="!loading && plugins.length > 0 && filteredPlugins.length === 0"
+      class="p-8 text-center text-xs text-gray-400 border border-dashed border-gray-200 dark:border-gray-800 rounded-lg"
+    >
+      {{ t('settings.pluginsEmptyFilter') }}
+    </div>
+
     <!-- 源码查看弹窗 -->
     <Modal
       :title="`${t('settings.pluginsSourceTitle')}: ${currentSourcePlugin?.name ?? ''}`"
@@ -515,16 +623,26 @@ onMounted(() => {
       @close="isSourceModalOpen = false"
     >
       <template #header-extra>
-        <button
-          type="button"
-          class="ui-btn-secondary !py-1 !px-2.5 !text-xs inline-flex items-center gap-1.5 ml-2"
-          :disabled="!sourceCode || sourceLoading"
-          @click="copySourceCode"
-        >
-          <Check v-if="sourceCopied" class="w-3.5 h-3.5 text-emerald-500" />
-          <Copy v-else class="w-3.5 h-3.5" />
-          <span>{{ sourceCopied ? t('settings.pluginsSourceCopied') : t('settings.pluginsSourceCopy') }}</span>
-        </button>
+        <div class="flex items-center gap-1.5 ml-2">
+          <button
+            type="button"
+            class="ui-btn-secondary !py-1 !px-2.5 !text-xs inline-flex items-center gap-1.5 text-sky-600 dark:text-sky-400"
+            @click="openTestFromSource"
+          >
+            <Play class="w-3.5 h-3.5" />
+            <span>{{ t('settings.pluginsSourceOpenTest') }}</span>
+          </button>
+          <button
+            type="button"
+            class="ui-btn-secondary !py-1 !px-2.5 !text-xs inline-flex items-center gap-1.5"
+            :disabled="!sourceCode || sourceLoading"
+            @click="copySourceCode"
+          >
+            <Check v-if="sourceCopied" class="w-3.5 h-3.5 text-emerald-500" />
+            <Copy v-else class="w-3.5 h-3.5" />
+            <span>{{ sourceCopied ? t('settings.pluginsSourceCopied') : t('settings.pluginsSourceCopy') }}</span>
+          </button>
+        </div>
       </template>
 
       <div class="space-y-3 text-xs">

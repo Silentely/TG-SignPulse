@@ -18,6 +18,7 @@ from tg_signer.compat import (
     clean_text_for_match,
     collect_clickable_buttons,
 )
+from tg_signer.core.plugins import PluginRegistry
 from tg_signer.config import (
     ActionT,
     ChooseOptionByImageAction,
@@ -92,7 +93,11 @@ class SignerMatchersMixin:
                 keywords += ", ..."
             return f"关键词监听：{keywords or '未配置关键词'}"
         if isinstance(action, PluginAction):
-            return f"自定义插件「{action.plugin_name}」({action.mode})"
+            mode = action.mode
+            plugin = PluginRegistry.get(action.plugin_name)
+            if plugin and getattr(plugin, "mode", None) == "active":
+                mode = "active"
+            return f"自定义插件「{action.plugin_name}」({mode})"
         return str(action)
 
 
