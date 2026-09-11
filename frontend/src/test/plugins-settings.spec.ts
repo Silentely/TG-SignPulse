@@ -20,21 +20,29 @@ describe('PluginsSettings.vue 插件管理组件', () => {
     vi.clearAllMocks()
   })
 
-  it('展示插件列表及启用/停用软开关状态', async () => {
+  it('展示插件列表及启用/停用软开关状态与元数据徽章', async () => {
     vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValueOnce([
       {
         name: 'math_solver',
         mode: 'reactive',
         description: '数学验证码自动计算',
+        version: '1.2.0',
+        updated_at: '2026-09-11',
+        author: 'TG-SignPulse Team',
         source_path: '/data/plugins/math_solver.py',
         enabled: true,
+        builtin: true,
       },
       {
         name: 'disabled_helper',
         mode: 'active',
         description: '已停用的辅助插件',
+        version: '1.0.0',
+        updated_at: '2026-09-10',
+        author: 'Custom Dev',
         source_path: '/data/plugins/disabled_helper.py',
         enabled: false,
+        builtin: false,
       },
     ])
 
@@ -42,15 +50,17 @@ describe('PluginsSettings.vue 插件管理组件', () => {
       global: { plugins: [i18n] },
     })
 
-    // 等待 loadPluginList 完成
     await vi.waitFor(() => {
       expect(wrapper.text()).toContain('math_solver')
       expect(wrapper.text()).toContain('disabled_helper')
     })
 
-    // 检查启用和停用按钮文本
+    // 检查软开关、内置/自定义标签与版本徽章
     expect(wrapper.text()).toContain('已启用')
     expect(wrapper.text()).toContain('已停用')
+    expect(wrapper.text()).toContain('v1.2.0')
+    expect(wrapper.text()).toContain('TG-SignPulse Team')
+    expect(wrapper.text()).toContain('2026-09-11')
   })
 
   it('点击软开关按钮触发 togglePlugin 并更新界面状态', async () => {
@@ -77,7 +87,6 @@ describe('PluginsSettings.vue 插件管理组件', () => {
       expect(wrapper.text()).toContain('math_solver')
     })
 
-    // 找到软开关按钮
     const toggleBtn = wrapper.findAll('button').find((btn) => btn.text().includes('已启用'))
     expect(toggleBtn).toBeDefined()
     await toggleBtn!.trigger('click')
@@ -86,5 +95,67 @@ describe('PluginsSettings.vue 插件管理组件', () => {
     await vi.waitFor(() => {
       expect(wrapper.text()).toContain('已停用')
     })
+  })
+
+  it('点击查看源码按钮调用 getPluginSource 并打开源码弹窗', async () => {
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValueOnce([
+      {
+        name: 'math_solver',
+        mode: 'reactive',
+        description: '数学计算',
+        version: '1.0.0',
+        enabled: true,
+      },
+    ])
+    const sourceSpy = vi.spyOn(pluginsApi, 'getPluginSource').mockResolvedValueOnce({
+      name: 'math_solver',
+      version: '1.0.0',
+      source: 'def math_solver_handler(): pass',
+    })
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('math_solver')
+    })
+
+    const sourceBtn = wrapper.findAll('button').find((btn) => btn.text().includes('查看源码'))
+    expect(sourceBtn).toBeDefined()
+    await sourceBtn!.trigger('click')
+
+    expect(sourceSpy).toHaveBeenCalledWith('math_solver', 'mock-token')
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain('def math_solver_handler(): pass')
+    })
+  })
+
+  it('对于自定义插件展示删除按钮并支持删除', async () => {
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValueOnce([
+      {
+        name: 'custom_plugin',
+        mode: 'reactive',
+        description: '自定义插件',
+        builtin: false,
+        enabled: true,
+      },
+    ])
+    const deleteSpy = vi.spyOn(pluginsApi, 'deletePlugin').mockResolvedValueOnce({
+      success: true,
+      name: 'custom_plugin',
+      message: '已删除',
+    })
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('custom_plugin')
+    })
+
+    const deleteBtn = wrapper.findAll('button').find((btn) => btn.text().includes('删除'))
+    expect(deleteBtn).toBeDefined()
   })
 })
