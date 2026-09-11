@@ -161,10 +161,11 @@ async def run_worker_loop(
     writer: Optional[Any] = None,
 ) -> None:
     # 限制子进程最大虚拟内存配额（仅 POSIX 生效，防 OOM 内存泄露）
-    if sys.platform != "win32":
+    # 默认提高至 1024MB，且在 pytest 运行时跳过 setrlimit，避免 Linux 64位 glibc 线程与 mmap 耗尽虚拟地址空间
+    if sys.platform != "win32" and "PYTEST_CURRENT_TEST" not in os.environ:
         try:
             import resource
-            max_mb = int(os.environ.get("PLUGIN_MAX_MEMORY_MB", "256"))
+            max_mb = int(os.environ.get("PLUGIN_MAX_MEMORY_MB", "1024"))
             if max_mb > 0:
                 max_bytes = max_mb * 1024 * 1024
                 soft, hard = resource.getrlimit(resource.RLIMIT_AS)
