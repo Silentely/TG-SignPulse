@@ -38,6 +38,7 @@ import {
   History,
   Package,
   Archive,
+  ShieldCheck,
   RotateCcw,
   Edit2,
   Save,
@@ -66,6 +67,8 @@ import {
   importPluginsBundle,
   checkPluginSyntax,
   clearPluginHistory,
+  auditPluginSource,
+  type AuditPluginWarning,
   type PluginDependency,
   type PluginExecutionRecord,
   type PluginInfo,
@@ -522,6 +525,42 @@ const toggleEditSource = () => {
   syntaxResult.value = null
   if (isEditingSource.value) {
     editedSourceCode.value = sourceCode.value
+  }
+}
+
+// 文档弹窗
+const isDocModalOpen = ref(false)
+const docPluginName = ref('')
+const docPluginContent = ref('')
+
+const openDocModal = (plugin: PluginInfo) => {
+  docPluginName.value = plugin.name
+  docPluginContent.value = plugin.doc || ''
+  isDocModalOpen.value = true
+}
+
+// 静态安全审计
+const auditingSource = ref(false)
+const auditWarnings = ref<AuditPluginWarning[]>([])
+
+const handleAuditSource = async () => {
+  if (!editedSourceCode.value) return
+  auditingSource.value = true
+  auditWarnings.value = []
+  try {
+    const res = await withToken((token) => auditPluginSource(editedSourceCode.value, token))
+    if (!res) return
+    auditWarnings.value = res.warnings || []
+    if (res.passed) {
+      toast.success(t('settings.pluginsAuditSafe'))
+    } else {
+      toast.warning(t('settings.pluginsAuditWarnings', { n: res.warnings.length }))
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    toast.error(msg)
+  } finally {
+    auditingSource.value = false
   }
 }
 
@@ -1243,6 +1282,18 @@ onMounted(() => {
             {{ t('settings.pluginsExport') }}
           </button>
 
+          <!-- 说明文档 -->
+          <button
+            v-if="plugin.doc"
+            type="button"
+            class="ui-btn-secondary !py-1 !px-2.5 !text-xs inline-flex items-center gap-1 text-teal-600 dark:text-teal-400 hover:text-teal-700"
+            :title="t('settings.pluginsViewDoc')"
+            @click="openDocModal(plugin)"
+          >
+            <BookOpen class="w-3 h-3" />
+            {{ t('settings.pluginsViewDoc') }}
+          </button>
+
           <!-- 查看源码 -->
           <button
             type="button"
@@ -1403,6 +1454,17 @@ onMounted(() => {
             class="w-full bg-gray-950 text-gray-100 font-mono text-[11px] leading-relaxed p-4 rounded-lg border border-gray-800 focus:outline-none focus:ring-1 focus:ring-amber-500 resize-y"
             spellcheck="false"
           ></textarea>
+          <!-- 安全审计风险提醒 -->
+          <div v-if="auditWarnings.length > 0" class="p-2.5 rounded bg-amber-50/80 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/80 text-[11px] font-mono space-y-1">
+            <div class="flex items-center gap-1 text-amber-700 dark:text-amber-300 font-semibold">
+              <AlertTriangle class="w-3.5 h-3.5" />
+              <span>{{ t('settings.pluginsAuditWarnings', { n: auditWarnings.length }) }}</span>
+            </div>
+            <div v-for="(warn, wIdx) in auditWarnings" :key="wIdx" class="text-amber-800 dark:text-amber-200">
+              L{{ warn.line }}: {{ warn.message }}
+            </div>
+          </div>
+
           <div class="flex items-center justify-end gap-2">
             <div v-if="syntaxResult" class="mr-auto text-[11px] font-mono flex items-center gap-1 px-2 py-1 rounded" :class="syntaxResult.valid ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' : 'bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-300 border border-rose-200 dark:border-rose-800'">
               <span>{{ syntaxResult.message }}</span>
@@ -1416,6 +1478,16 @@ onMounted(() => {
               <RefreshCw v-if="syntaxChecking" class="w-3.5 h-3.5 animate-spin" />
               <Check v-else class="w-3.5 h-3.5" />
               <span>{{ syntaxChecking ? t('common.loading') : t('settings.pluginsSyntaxCheck') }}</span>
+            </button>
+            <button
+              type="button"
+              class="ui-btn-secondary !py-1.5 !px-3 !text-xs inline-flex items-center gap-1.5 text-amber-600 dark:text-amber-400"
+              :disabled="auditingSource || savingSource"
+              @click="handleAuditSource"
+            >
+              <RefreshCw v-if="auditingSource" class="w-3.5 h-3.5 animate-spin" />
+              <ShieldCheck v-else class="w-3.5 h-3.5" />
+              <span>{{ auditingSource ? t('common.loading') : t('settings.pluginsAudit') }}</span>
             </button>
             <button
               type="button"
@@ -1938,6 +2010,19 @@ AUTHOR = "YourName"
           </button>
         </div>
       </form>
+    </Modal>
+
+    <!-- 使用文档弹窗 -->
+    <Modal
+      :is-open="isDocModalOpen"
+      :title="t('settings.pluginsDocTitle', { name: docPluginName })"
+      @close="isDocModalOpen = false"
+    >
+      <div class="space-y-3 text-xs max-h-[60vh] overflow-y-auto pr-1">
+        <div class="p-3.5 rounded-lg bg-gray-50 dark:bg-gray-900/60 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 font-mono text-[11px] leading-relaxed whitespace-pre-wrap select-text">
+          {{ docPluginContent || t('settings.pluginsDocEmpty') }}
+        </div>
+      </div>
     </Modal>
 
     <!-- 调用历史弹窗 -->

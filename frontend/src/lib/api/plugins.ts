@@ -37,6 +37,7 @@ export interface PluginInfo {
   enabled?: boolean
   builtin?: boolean
   permissions?: string[]
+  doc?: string | null
   metrics?: PluginMetrics | null
 }
 
@@ -60,6 +61,19 @@ export interface PluginDependency {
 export interface PluginDependenciesResponse {
   name: string
   dependencies: PluginDependency[]
+}
+
+export interface AuditPluginWarning {
+  line: number
+  column: number
+  severity: string
+  rule: string
+  message: string
+}
+
+export interface AuditPluginResponse {
+  passed: boolean
+  warnings: AuditPluginWarning[]
 }
 
 export interface CheckSyntaxResponse {
@@ -399,6 +413,20 @@ export async function clearPluginHistory(
     `/plugins/${encodeURIComponent(name)}/clear-history`,
     {
       method: 'POST',
+    },
+    token,
+  )
+}
+
+export async function auditPluginSource(
+  source: string,
+  token: string,
+): Promise<AuditPluginResponse> {
+  return request<AuditPluginResponse>(
+    '/plugins/audit-source',
+    {
+      method: 'POST',
+      body: JSON.stringify({ source }),
     },
     token,
   )

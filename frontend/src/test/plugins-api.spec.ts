@@ -21,6 +21,7 @@ import {
   importPluginsBundle,
   checkPluginSyntax,
   clearPluginHistory,
+  auditPluginSource,
 } from '../lib/api/plugins'
 
 describe('plugins api 扩展接口', () => {
@@ -333,6 +334,25 @@ describe('plugins api 扩展接口', () => {
       '/plugins/demo_p/clear-history',
       {
         method: 'POST',
+      },
+      'test-token',
+    )
+    expect(result).toEqual(mockResp)
+  })
+
+  it('auditPluginSource 发起 POST /plugins/audit-source', async () => {
+    const mockResp = {
+      passed: false,
+      warnings: [{ line: 10, column: 4, severity: 'high', rule: 'disallowed-call:eval', message: 'dangerous' }],
+    }
+    const requestSpy = vi.spyOn(coreApi, 'request').mockResolvedValueOnce(mockResp)
+
+    const result = await auditPluginSource('eval("1")', 'test-token')
+    expect(requestSpy).toHaveBeenCalledWith(
+      '/plugins/audit-source',
+      {
+        method: 'POST',
+        body: JSON.stringify({ source: 'eval("1")' }),
       },
       'test-token',
     )

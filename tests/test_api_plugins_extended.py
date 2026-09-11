@@ -675,3 +675,46 @@ def test_api_clear_execution_history():
     # 4. 确认历史已空
     hist_after = PluginRegistry.get_execution_history("math_solver")
     assert len(hist_after) == 0
+
+
+def test_api_audit_source():
+    # 1. 含有危险函数 eval / os.system 的代码
+    risky_code = """
+import os
+
+def check():
+    os.system("rm -rf /")
+    eval("1 + 1")
+    exec("pass")
+"""
+    resp = client.post("/api/plugins/audit-source", json={"source": risky_code})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["passed"] is False
+    assert len(data["warnings"]) >= 2
+    rules = [w["rule"] for w in data["warnings"]]
+    assert any("eval" in r or "eval" in w["message"] for r, w in zip(rules, data["warnings"]))
+    assert any("os.system" in r or "os.system" in w["message"] for r, w in zip(rules, data["warnings"]))
+
+    # 2. 安全的代码
+    safe_code = """
+def add(a, b):
+    return a + b
+"""
+    resp_safe = client.post("/api/plugins/audit-source", json={"source": safe_code})
+    assert resp_safe.status_code == 200
+    data_safe = resp_safe.json()
+    assert data_safe["passed"] is True
+    assert len(data_safe["warnings"]) == 0
+
+
+def test_api_plugins_include_doc():
+    resp = client.get("/api/plugins")
+    assert resp.status_code == 200
+    plugins = resp.json()
+    assert isinstance(plugins, list)
+    assert len(plugins) > 0
+    math_p = next((p for p in plugins if p["name"] == "math_solver"), None)
+    assert math_p is not None
+    # math_solver 应该有模块或函数级 docstring，字段存在
+    assert "doc" in math_p
