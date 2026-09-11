@@ -798,7 +798,20 @@
     "pluginsPlaygroundModeReactiveTip": "💬 监听响应模式：模拟机器人收到的消息，命中后触发响应。",
     "pluginsPlaygroundResetStorage": "调试前重置插件存储",
     "pluginsPlaygroundResetStorageTip": "清空该插件在测试运行环境下的临时持久化键值缓存",
-    "pluginsPlaygroundDuration": "耗时"
+    "pluginsPlaygroundDuration": "耗时",
+    "pluginsExport": "导出源码",
+    "pluginsExportSuccess": "插件源码已导出",
+    "pluginsExportFailed": "导出插件失败",
+    "pluginsUpload": "上传插件",
+    "pluginsUploadSuccess": "插件上传成功并已加载",
+    "pluginsUploadFailed": "上传插件失败",
+    "pluginsMetricsRuns": "调用 {n} 次",
+    "pluginsMetricsSuccess": "成功率 {rate}%",
+    "pluginsMetricsAvg": "均耗 {ms}ms",
+    "pluginsMetricsLastRun": "最近调用: {time}",
+    "pluginsAdvancedMock": "高级会话模拟",
+    "pluginsMockChatId": "模拟会话 ID",
+    "pluginsMockSender": "模拟发送者"
   },
   "profile": {
     "title": "个人中心",

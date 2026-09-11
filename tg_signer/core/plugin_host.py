@@ -7,6 +7,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 from typing import Any, Optional, Union
 
 from tg_signer.core.plugin_ipc import (
@@ -67,6 +68,15 @@ class PluginProcessHost:
             self.ctx.plugin_name = plugin_name
 
     async def execute(self) -> Any:
+        start_time = time.perf_counter()
+        try:
+            return await self._execute_inner(start_time)
+        except Exception as e:
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            PluginRegistry.record_execution(self.plugin_name, duration_ms, success=False, error=str(e))
+            raise
+
+    async def _execute_inner(self, start_time: float) -> Any:
         meta = PluginRegistry.get(self.plugin_name)
         source_path = meta.source_path if meta else None
 
@@ -237,6 +247,8 @@ class PluginProcessHost:
             )
 
             if result_future in done:
+                duration_ms = (time.perf_counter() - start_time) * 1000
+                PluginRegistry.record_execution(self.plugin_name, duration_ms, success=True)
                 return result_future.result()
 
             if process_wait_task in done:
@@ -246,6 +258,8 @@ class PluginProcessHost:
                 except (asyncio.TimeoutError, asyncio.CancelledError):
                     pass
                 if result_future.done():
+                    duration_ms = (time.perf_counter() - start_time) * 1000
+                    PluginRegistry.record_execution(self.plugin_name, duration_ms, success=True)
                     return result_future.result()
                 exit_code = process_wait_task.result()
                 raise RuntimeError(

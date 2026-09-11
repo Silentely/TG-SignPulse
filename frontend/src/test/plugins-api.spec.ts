@@ -5,6 +5,8 @@ import {
   deletePlugin,
   createPlugin,
   getPluginDiagnostics,
+  exportPlugin,
+  uploadPlugin,
 } from '../lib/api/plugins'
 
 describe('plugins api 扩展接口', () => {
@@ -93,5 +95,34 @@ describe('plugins api 扩展接口', () => {
     const result = await getPluginDiagnostics('test-token')
     expect(requestSpy).toHaveBeenCalledWith('/plugins/diagnostics', {}, 'test-token')
     expect(result).toEqual(mockDiag)
+  })
+  it('exportPlugin 发起 GET /api/plugins/:name/export 并返回 Blob', async () => {
+    const mockBlob = new Blob(['code'], { type: 'text/x-python' })
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      blob: async () => mockBlob,
+    } as Response)
+
+    const blob = await exportPlugin('math_solver', 'test-token')
+    expect(fetchSpy).toHaveBeenCalledWith('/api/plugins/math_solver/export', {
+      headers: { Authorization: 'Bearer test-token' },
+    })
+    expect(blob).toBe(mockBlob)
+  })
+
+  it('uploadPlugin 发起 POST /api/plugins/upload 携带 FormData', async () => {
+    const mockFile = new File(['content'], 'custom.py', { type: 'text/x-python' })
+    const mockInfo = { name: 'custom', mode: 'reactive' as const, description: '' }
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockInfo,
+    } as Response)
+
+    const result = await uploadPlugin(mockFile, 'test-token')
+    expect(fetchSpy).toHaveBeenCalledWith('/api/plugins/upload', expect.objectContaining({
+      method: 'POST',
+      headers: { Authorization: 'Bearer test-token' },
+    }))
+    expect(result).toEqual(mockInfo)
   })
 })

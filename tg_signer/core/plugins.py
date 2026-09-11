@@ -357,6 +357,37 @@ class PluginMeta:
     permissions: List[str] = field(default_factory=list)
 
 
+@dataclass
+class PluginMetrics:
+    run_count: int = 0
+    success_count: int = 0
+    failure_count: int = 0
+    last_run_at: Optional[str] = None
+    last_duration_ms: float = 0.0
+    total_duration_ms: float = 0.0
+    last_error: Optional[str] = None
+
+    @property
+    def avg_duration_ms(self) -> float:
+        return round(self.total_duration_ms / self.run_count, 1) if self.run_count > 0 else 0.0
+
+    @property
+    def success_rate(self) -> float:
+        return round((self.success_count / self.run_count) * 100, 1) if self.run_count > 0 else 100.0
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "run_count": self.run_count,
+            "success_count": self.success_count,
+            "failure_count": self.failure_count,
+            "last_run_at": self.last_run_at,
+            "last_duration_ms": self.last_duration_ms,
+            "avg_duration_ms": self.avg_duration_ms,
+            "success_rate": self.success_rate,
+            "last_error": self.last_error,
+        }
+
+
 def is_builtin_plugin_path(path: Union[str, Path, None]) -> bool:
     """判断给定文件或目录路径是否属于官方内置插件目录。
 
@@ -387,6 +418,37 @@ class PluginRegistry:
     _loaded_files: set[Path] = set()
     _disabled_plugins: set[str] = set()
     _load_errors: Dict[str, PluginLoadError] = {}
+    _metrics: Dict[str, PluginMetrics] = {}
+
+    @classmethod
+    def record_execution(
+        cls,
+        name: str,
+        duration_ms: float,
+        success: bool,
+        error: Optional[str] = None,
+    ) -> None:
+        metrics = cls._metrics.setdefault(name, PluginMetrics())
+        metrics.run_count += 1
+        metrics.total_duration_ms += max(0.0, float(duration_ms))
+        metrics.last_duration_ms = round(float(duration_ms), 1)
+        metrics.last_run_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if success:
+            metrics.success_count += 1
+        else:
+            metrics.failure_count += 1
+            metrics.last_error = str(error) if error else "Unknown error"
+
+    @classmethod
+    def get_metrics(cls, name: str) -> Optional[PluginMetrics]:
+        return cls._metrics.get(name)
+
+    @classmethod
+    def reset_metrics(cls, name: Optional[str] = None) -> None:
+        if name:
+            cls._metrics.pop(name, None)
+        else:
+            cls._metrics.clear()
 
     @classmethod
     def get_load_errors(cls) -> List[PluginLoadError]:
@@ -462,6 +524,7 @@ class PluginRegistry:
         cls._loaded_files.clear()
         cls._disabled_plugins.clear()
         cls._load_errors.clear()
+        cls._metrics.clear()
         for module_name in list(sys.modules):
             if module_name.startswith("tg_signer_plugin_"):
                 sys.modules.pop(module_name, None)
