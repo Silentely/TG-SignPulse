@@ -62,6 +62,13 @@ export interface PluginDependenciesResponse {
   dependencies: PluginDependency[]
 }
 
+export interface CheckSyntaxResponse {
+  valid: boolean
+  line?: number | null
+  column?: number | null
+  error?: string | null
+}
+
 export interface ImportBundleResponse {
   imported_count: number
   files: string[]
@@ -368,4 +375,18 @@ export async function importPluginsBundle(
     throw new Error(err.detail || 'Failed to import bundle')
   }
   return res.json()
+}
+
+export async function checkPluginSyntax(
+  source: string,
+  token: string,
+): Promise<CheckSyntaxResponse> {
+  return request<CheckSyntaxResponse>(
+    '/plugins/check-syntax',
+    {
+      method: 'POST',
+      body: JSON.stringify({ source }),
+    },
+    token,
+  )
 }

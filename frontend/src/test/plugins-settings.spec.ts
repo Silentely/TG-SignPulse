@@ -683,4 +683,57 @@ describe('PluginsSettings.vue 插件管理组件', () => {
       expect(wrapper.text()).not.toContain('healthy_plugin')
     })
   })
+
+  it('自定义插件编辑模式下支持点击语法检查并展示通过状态', async () => {
+    const mockPlugin = {
+      name: 'syntax_test_p',
+      mode: 'reactive' as const,
+      description: '语法测试插件',
+      builtin: false,
+      enabled: true,
+    }
+
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValue([mockPlugin])
+    vi.spyOn(pluginsApi, 'getPluginSource').mockResolvedValue({
+      name: 'syntax_test_p',
+      source: 'print("hello")',
+    })
+    const checkSyntaxSpy = vi.spyOn(pluginsApi, 'checkPluginSyntax').mockResolvedValue({
+      valid: true,
+      error: null,
+    })
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('syntax_test_p')
+    })
+
+    // 打开源码弹窗
+    const sourceBtn = wrapper.findAll('button').find((btn) => btn.text().includes('查看源码'))
+    expect(sourceBtn).toBeDefined()
+    await sourceBtn!.trigger('click')
+
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain('print("hello")')
+    })
+
+    // 进入编辑模式
+    const editBtn = Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.includes('编辑源码'))
+    expect(editBtn).toBeDefined()
+    editBtn!.click()
+
+    await vi.waitFor(() => {
+      const syntaxBtn = Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.includes('语法检查'))
+      expect(syntaxBtn).toBeDefined()
+    })
+
+    // 点击语法检查
+    const syntaxBtn = Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.includes('语法检查'))
+    syntaxBtn!.click()
+
+    expect(checkSyntaxSpy).toHaveBeenCalledWith('print("hello")', 'mock-token')
+  })
 })

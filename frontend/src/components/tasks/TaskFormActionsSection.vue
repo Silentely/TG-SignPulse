@@ -473,6 +473,20 @@ const emit = defineEmits<{
                   />
                 </div>
               </div>
+
+              <!-- 插件超时设置 -->
+              <div v-if="getPluginInfo(action.value)" class="flex items-center gap-2 text-xs pt-1">
+                <span class="text-[11px] text-gray-500 dark:text-gray-400 whitespace-nowrap">{{ t('taskForm.pluginTimeout') }}:</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="300"
+                  :value="action.timeout ?? ''"
+                  :placeholder="t('taskForm.pluginTimeoutPlaceholder')"
+                  class="ui-input !h-7 !w-28 !text-xs !px-2"
+                  @input="action.timeout = ($event.target as HTMLInputElement).value ? Number(($event.target as HTMLInputElement).value) : undefined"
+                />
+              </div>
             </div>
 
             <!-- 7. AI 识图 / AI 计算 动作 -->

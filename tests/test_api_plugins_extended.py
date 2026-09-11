@@ -626,3 +626,29 @@ async def bundle_imported_handler(ctx: PluginContext) -> bool:
     client.delete("/api/plugins/bundle_p1")
     client.delete("/api/plugins/bundle_p2")
     client.delete("/api/plugins/bundle_imported")
+
+
+def test_api_check_syntax():
+    # 1. 语法正确的代码
+    valid_code = """
+import os
+def hello():
+    return "world"
+"""
+    resp1 = client.post("/api/plugins/check-syntax", json={"source": valid_code})
+    assert resp1.status_code == 200
+    res1 = resp1.json()
+    assert res1["valid"] is True
+    assert res1["error"] is None
+
+    # 2. 语法错误的代码（缺少冒号）
+    invalid_code = """
+def broken_func()
+    return 123
+"""
+    resp2 = client.post("/api/plugins/check-syntax", json={"source": invalid_code})
+    assert resp2.status_code == 200
+    res2 = resp2.json()
+    assert res2["valid"] is False
+    assert res2["line"] == 2
+    assert "syntax" in res2["error"].lower() or "invalid" in res2["error"].lower()
