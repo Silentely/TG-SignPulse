@@ -871,4 +871,51 @@ describe('PluginsSettings.vue 插件管理组件', () => {
       expect(resetSpy).toHaveBeenCalled()
     })
   })
+
+  it('自定义插件编辑源码时支持切换Diff差异对比视图', async () => {
+    const mockPlugin: any = {
+      name: 'custom_diff_plug',
+      mode: 'reactive' as const,
+      description: 'Diff测试插件',
+      enabled: true,
+      builtin: false,
+    }
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValue([mockPlugin])
+    vi.spyOn(pluginsApi, 'getPluginSource').mockResolvedValue({
+      name: 'custom_diff_plug',
+      source: 'def run():\n    return 1',
+    })
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('custom_diff_plug')
+    })
+
+    const sourceBtn = wrapper.findAll('button').find((btn) => btn.text().includes('查看源码'))
+    expect(sourceBtn).toBeDefined()
+    await sourceBtn!.trigger('click')
+
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain('def run():')
+    })
+
+    const editBtn = Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.includes('编辑源码'))
+    expect(editBtn).toBeDefined()
+    editBtn!.click()
+
+    await vi.waitFor(() => {
+      expect(document.querySelector('textarea')).not.toBeNull()
+    })
+
+    const diffBtn = Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.includes('改动对比') || b.textContent?.includes('Diff'))
+    expect(diffBtn).toBeDefined()
+    diffBtn!.click()
+
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain('返回编辑')
+    })
+  })
 })

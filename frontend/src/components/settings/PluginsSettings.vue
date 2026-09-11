@@ -41,6 +41,7 @@ import {
   ShieldCheck,
   Sparkles,
   FileText,
+  GitCompare,
   RotateCcw,
   Edit2,
   Save,
@@ -84,6 +85,7 @@ import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
 import { useConfirm } from '../../composables/useConfirm'
 import { withToken } from '../../lib/api/core'
+import { computeLineDiff, type DiffLine } from '../../lib/diff'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -682,6 +684,47 @@ const handleCheckSyntax = async () => {
   } finally {
     syntaxChecking.value = false
   }
+}
+
+const showDiffView = ref(false)
+const sourceDiffLines = computed<DiffLine[]>(() => {
+  if (!showDiffView.value) return []
+  return computeLineDiff(sourceCode.value, editedSourceCode.value)
+})
+
+const toggleDiffView = () => {
+  showDiffView.value = !showDiffView.value
+}
+
+const handleCancelEditSource = async () => {
+  if (editedSourceCode.value !== sourceCode.value) {
+    const confirmed = await confirm({
+      title: t('settings.pluginsUnsavedChangesTitle'),
+      message: t('settings.pluginsUnsavedChangesMsg'),
+      confirmText: t('settings.pluginsDiscardAndClose'),
+      cancelText: t('common.cancel'),
+      danger: true,
+    })
+    if (!confirmed) return
+  }
+  isEditingSource.value = false
+  showDiffView.value = false
+}
+
+const handleCloseSourceModal = async () => {
+  if (isEditingSource.value && editedSourceCode.value !== sourceCode.value) {
+    const confirmed = await confirm({
+      title: t('settings.pluginsUnsavedChangesTitle'),
+      message: t('settings.pluginsUnsavedChangesMsg'),
+      confirmText: t('settings.pluginsDiscardAndClose'),
+      cancelText: t('common.cancel'),
+      danger: true,
+    })
+    if (!confirmed) return
+  }
+  isSourceModalOpen.value = false
+  isEditingSource.value = false
+  showDiffView.value = false
 }
 
 const saveSourceCode = async () => {
@@ -1487,7 +1530,7 @@ onMounted(() => {
       :title="`${t('settings.pluginsSourceTitle')}: ${currentSourcePlugin?.name ?? ''}`"
       :is-open="isSourceModalOpen"
       max-width-class="max-w-3xl"
-      @close="isSourceModalOpen = false"
+      @close="handleCloseSourceModal"
     >
       <template #header-extra>
         <div class="flex items-center gap-1.5 ml-2">
@@ -1582,7 +1625,44 @@ onMounted(() => {
           <p>{{ t('settings.pluginsSourceLoading') }}</p>
         </div>
         <div v-else-if="isEditingSource" class="space-y-3">
+          <!-- 改动差异对比视图 -->
+          <div
+            v-if="showDiffView"
+            class="w-full h-96 overflow-auto font-mono text-[11px] bg-gray-950 text-gray-200 rounded-lg border border-gray-800 p-2 space-y-0.5 select-text"
+          >
+            <div v-if="!sourceDiffLines.some((l) => l.type !== 'same')" class="p-8 text-center text-gray-500">
+              {{ t('settings.pluginsDiffNoChanges') }}
+            </div>
+            <div
+              v-for="(diffLine, dIdx) in sourceDiffLines"
+              :key="dIdx"
+              class="flex items-start px-2 py-0.5 rounded leading-relaxed font-mono"
+              :class="{
+                'bg-emerald-950/60 text-emerald-300': diffLine.type === 'add',
+                'bg-rose-950/60 text-rose-300': diffLine.type === 'del',
+                'text-gray-400': diffLine.type === 'same'
+              }"
+            >
+              <span class="w-10 shrink-0 select-none text-[10px] text-gray-600 text-right pr-2">
+                <template v-if="diffLine.type === 'del'">-{{ diffLine.oldLine }}</template>
+                <template v-else-if="diffLine.type === 'add'">+{{ diffLine.newLine }}</template>
+                <template v-else>{{ diffLine.newLine }}</template>
+              </span>
+              <span
+                class="w-4 shrink-0 select-none font-bold text-center"
+                :class="{
+                  'text-emerald-400': diffLine.type === 'add',
+                  'text-rose-400': diffLine.type === 'del',
+                  'text-transparent': diffLine.type === 'same'
+                }"
+              >
+                {{ diffLine.type === 'add' ? '+' : (diffLine.type === 'del' ? '-' : ' ') }}
+              </span>
+              <span class="whitespace-pre-wrap break-all flex-1">{{ diffLine.text || ' ' }}</span>
+            </div>
+          </div>
           <textarea
+            v-else
             v-model="editedSourceCode"
             rows="18"
             class="w-full bg-gray-950 text-gray-100 font-mono text-[11px] leading-relaxed p-4 rounded-lg border border-gray-800 focus:outline-none focus:ring-1 focus:ring-amber-500 resize-y"
@@ -1635,9 +1715,18 @@ onMounted(() => {
             </button>
             <button
               type="button"
+              class="ui-btn-secondary !py-1.5 !px-3 !text-xs inline-flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400"
+              :disabled="savingSource"
+              @click="toggleDiffView"
+            >
+              <GitCompare class="w-3.5 h-3.5" />
+              <span>{{ showDiffView ? t('settings.pluginsDiffExit') : t('settings.pluginsDiffToggle') }}</span>
+            </button>
+            <button
+              type="button"
               class="ui-btn-secondary !py-1.5 !px-3 !text-xs"
               :disabled="savingSource"
-              @click="isEditingSource = false"
+              @click="handleCancelEditSource"
             >
               {{ t('common.cancel') }}
             </button>
