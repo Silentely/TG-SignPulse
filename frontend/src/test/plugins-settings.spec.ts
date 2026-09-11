@@ -471,4 +471,82 @@ describe('PluginsSettings.vue 插件管理组件', () => {
     await resetAllBtn.trigger('click')
     expect(resetAllSpy).toHaveBeenCalledWith('mock-token')
   })
+
+  it('支持查看插件调用历史与克隆插件', async () => {
+    const mockPlugins = [
+      {
+        name: 'plug_alpha',
+        mode: 'reactive' as const,
+        description: 'Alpha插件',
+        builtin: false,
+        enabled: true,
+        metrics: {
+          run_count: 10,
+          success_count: 9,
+          failure_count: 1,
+          success_rate: 90.0,
+          avg_duration_ms: 15.0,
+          last_duration_ms: 12.0,
+          last_run_at: '2026-09-11T12:00:00Z',
+          last_error: null,
+        },
+      },
+    ]
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValue(mockPlugins)
+    const historySpy = vi.spyOn(pluginsApi, 'getPluginHistory').mockResolvedValueOnce({
+      name: 'plug_alpha',
+      history: [
+        {
+          timestamp: '2026-09-11 12:00:00',
+          duration_ms: 12.0,
+          success: true,
+          trigger_type: 'manual_test',
+          log_summary: '执行成功',
+        },
+      ],
+    })
+    const cloneSpy = vi.spyOn(pluginsApi, 'clonePlugin').mockResolvedValueOnce({
+      name: 'plug_alpha_copy',
+      mode: 'reactive',
+      description: 'Alpha插件',
+      builtin: false,
+      enabled: true,
+    })
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('plug_alpha')
+    })
+
+    // 1. 打开历史
+    const historyBtn = wrapper.findAll('button').find((b) => b.attributes('title') === '调用历史')
+    expect(historyBtn).toBeDefined()
+    await historyBtn!.trigger('click')
+    expect(historySpy).toHaveBeenCalledWith('plug_alpha', 'mock-token')
+
+    // 2. 打开克隆
+    const cloneBtn = wrapper.findAll('button').find((b) => b.attributes('title') === '克隆')
+    expect(cloneBtn).toBeDefined()
+    await cloneBtn!.trigger('click')
+
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain('克隆插件')
+    })
+
+    const allButtons = Array.from(document.body.querySelectorAll('button'))
+    const cloneSubmitBtn = allButtons.find((b) => b.textContent?.includes('确认'))
+    expect(cloneSubmitBtn).toBeDefined()
+    cloneSubmitBtn!.click()
+    expect(cloneSpy).toHaveBeenCalledWith(
+      'plug_alpha',
+      {
+        new_name: 'plug_alpha_copy',
+        description: 'Alpha插件',
+      },
+      'mock-token',
+    )
+  })
 })

@@ -395,3 +395,82 @@ def test_api_reset_all_metrics():
     assert resp.json()["success"] is True
 
     assert PluginRegistry.get_metrics("math_solver") is None
+
+
+def test_plugin_registry_execution_history():
+    from tg_signer.core.plugins import PluginRegistry
+
+    PluginRegistry.reset_metrics("math_solver")
+    PluginRegistry.record_execution(
+        "math_solver",
+        duration_ms=15.5,
+        success=True,
+        trigger_type="manual_test",
+        log_summary="运行正常",
+    )
+    PluginRegistry.record_execution(
+        "math_solver",
+        duration_ms=30.0,
+        success=False,
+        error="模拟异常",
+        trigger_type="manual_test",
+        log_summary="报错中断",
+    )
+
+    history = PluginRegistry.get_execution_history("math_solver")
+    assert len(history) == 2
+    # latest first
+    assert history[0].success is False
+    assert history[0].error == "模拟异常"
+    assert history[0].log_summary == "报错中断"
+    assert history[1].success is True
+    assert history[1].duration_ms == 15.5
+
+    # API test
+    resp = client.get("/api/plugins/math_solver/history")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["name"] == "math_solver"
+    assert len(data["history"]) == 2
+
+    # Reset
+    PluginRegistry.reset_metrics("math_solver")
+    assert len(PluginRegistry.get_execution_history("math_solver")) == 0
+
+
+def test_api_clone_plugin():
+    client.delete("/api/plugins/plug_orig")
+    client.delete("/api/plugins/plug_copied")
+
+    # 1. Create source plugin
+    resp_create = client.post(
+        "/api/plugins/create",
+        json={"name": "plug_orig", "mode": "reactive", "template": "basic_reactive", "description": "源插件"},
+    )
+    assert resp_create.status_code == 200
+
+    # 2. Clone to new plugin
+    resp_clone = client.post(
+        "/api/plugins/plug_orig/clone",
+        json={"new_name": "plug_copied", "description": "克隆出来的副插件"},
+    )
+    assert resp_clone.status_code == 200
+    copied_info = resp_clone.json()
+    assert copied_info["name"] == "plug_copied"
+    assert copied_info["description"] == "克隆出来的副插件"
+    assert copied_info["builtin"] is False
+
+    # Check source code of cloned plugin
+    src_resp = client.get("/api/plugins/plug_copied/source").json()
+    assert "plug_copied" in src_resp["source"]
+
+    # 3. Conflict check (cloning again to the same name)
+    resp_conflict = client.post(
+        "/api/plugins/plug_orig/clone",
+        json={"new_name": "plug_copied"},
+    )
+    assert resp_conflict.status_code == 409
+
+    # cleanup
+    client.delete("/api/plugins/plug_orig")
+    client.delete("/api/plugins/plug_copied")

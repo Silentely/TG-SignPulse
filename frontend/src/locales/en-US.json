@@ -831,7 +831,26 @@
     "pluginsBatchSuccess": "Updated {count} custom plugins status",
     "pluginsResetAllMetrics": "Reset All Metrics",
     "pluginsResetAllMetricsSuccess": "All plugin metrics have been reset",
-    "pluginsMetricsLastError": "Last Run Error"
+    "pluginsMetricsLastError": "Last Run Error",
+    "pluginsCloneBtn": "Clone",
+    "pluginsCloneTitle": "Clone Plugin",
+    "pluginsCloneNewName": "New Plugin Identifier",
+    "pluginsCloneDesc": "Plugin Description (Optional)",
+    "pluginsCloneSuccess": "Plugin cloned successfully",
+    "pluginsHistoryBtn": "History",
+    "pluginsHistoryTitle": "Execution History: {name}",
+    "pluginsHistoryEmpty": "No execution records yet (records will appear after debug or task triggers)",
+    "pluginsHistoryTriggerManual": "Manual Debug",
+    "pluginsHistoryTriggerReactive": "Reactive Event",
+    "pluginsHistoryTriggerActive": "Scheduled Task",
+    "pluginsHistoryDuration": "Duration",
+    "pluginsHistoryStatus": "Status",
+    "pluginsHistoryLogs": "Log Summary",
+    "pluginsSortDefault": "Default Sort",
+    "pluginsSortRuns": "By Run Count",
+    "pluginsSortSuccessRate": "By Success Rate",
+    "pluginsSortDuration": "By Avg Duration",
+    "pluginsSortName": "By Name"
   },
   "profile": {
     "title": "Profile",
@@ -958,7 +977,9 @@
     "activeFilters": "Filters",
     "brandSubtitle": "Telegram Ops",
     "save": "Save",
-    "apply": "Apply"
+    "apply": "Apply",
+    "success": "Success",
+    "failed": "Failed"
   },
   "login": {
     "subtitle": "Telegram multi-account automation panel",

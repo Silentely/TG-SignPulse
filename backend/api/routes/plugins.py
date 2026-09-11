@@ -142,6 +142,11 @@ class CreatePluginRequest(BaseModel):
     version: str = Field(default="1.0.0", pattern=r"^\d+\.\d+\.\d+$")
 
 
+class ClonePluginRequest(BaseModel):
+    new_name: str = Field(..., pattern=r"^[a-zA-Z0-9_]{3,32}$", description="新插件标识")
+    description: Optional[str] = Field(default=None, max_length=200)
+
+
 class BatchTogglePluginsRequest(BaseModel):
     enabled: bool = Field(..., description="是否批量启用自定义插件")
 
@@ -436,11 +441,14 @@ async def test_plugin(
             captured_logs.append(f"[error] {err_str}")
 
     duration_ms = round((time.perf_counter() - start_t) * 1000, 2)
+    summary = " | ".join(captured_logs[-2:]) if captured_logs else None
     PluginRegistry.record_execution(
         name,
         duration_ms=duration_ms,
         success=bool(success and not err_str),
         error=err_str,
+        trigger_type="manual_test",
+        log_summary=summary,
     )
 
     return PluginTestResponse(
@@ -1197,3 +1205,98 @@ async def reset_all_plugin_metrics(
     for p in PluginRegistry.list_plugins().values():
         PluginRegistry.reset_metrics(p.name)
     return {"success": True, "message": "已重置所有插件运行指标"}
+
+@router.get("/{name}/history")
+async def get_plugin_history(
+    name: str,
+    limit: int = 20,
+    _user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """获取指定插件最近的执行调用历史记录。"""
+    meta = PluginRegistry.get(name)
+    if not meta:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"插件 '{name}' 未找到或未加载",
+        )
+    records = PluginRegistry.get_execution_history(name, limit=limit)
+    return {
+        "name": name,
+        "history": [r.to_dict() for r in records],
+    }
+
+
+@router.post("/{name}/clone", response_model=PluginInfo)
+async def clone_plugin(
+    name: str,
+    req: ClonePluginRequest,
+    _user: User = Depends(get_current_user),
+) -> PluginInfo:
+    """基于现有插件克隆生成一个新的自定义插件。"""
+    meta = PluginRegistry.get(name)
+    if not meta:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"源插件 '{name}' 不存在",
+        )
+
+    all_plugins = PluginRegistry.list_plugins()
+    if req.new_name in all_plugins:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"插件标识 '{req.new_name}' 已存在，请使用其他名称",
+        )
+
+    # 读取源插件代码
+    source_code: Optional[str] = None
+    if meta.source_path and Path(meta.source_path).is_file():
+        try:
+            source_code = Path(meta.source_path).read_text(encoding="utf-8")
+        except Exception as e:
+            logger.warning(f"读取源插件源码失败: {e}")
+
+    if not source_code and meta.handler:
+        try:
+            import inspect
+            source_code = inspect.getsource(meta.handler)
+        except Exception:
+            pass
+
+    if not source_code:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"无法获取源插件 '{name}' 的源代码进行克隆",
+        )
+
+    # 替换插件名称与函数名称
+    new_code = source_code
+    new_code = re.sub(rf'name\s*=\s*["\']{name}["\']', f'name="{req.new_name}"', new_code)
+    new_code = re.sub(rf'def\s+{name}_handler', f'def {req.new_name}_handler', new_code)
+    if req.description:
+        new_code = re.sub(r'description\s*=\s*["\'][^"\']*["\']', f'description="{req.description}"', new_code, count=1)
+
+    target_dir = _get_custom_plugins_dir()
+    target_file = target_dir / f"{req.new_name}.py"
+    if target_file.exists():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"文件 '{target_file.name}' 已存在",
+        )
+
+    try:
+        target_file.write_text(new_code, encoding="utf-8")
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"保存克隆插件文件失败: {exc}",
+        )
+
+    PluginRegistry.reload_all_plugins()
+    new_meta = PluginRegistry.get(req.new_name)
+    if not new_meta:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="克隆插件创建成功，但加载失败",
+        )
+
+    return _meta_to_info(new_meta)
