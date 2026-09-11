@@ -20,6 +20,7 @@ TG-SignPulse 提供了轻量、低侵入、零破坏兼容的自定义 Action �
 3. **主服务防雪崩与进程树隔离**：每个插件独立捕获加载异常，单个插件发生语法错误或缺少三方包不会导致主服务或定时调度器崩溃。同步插件默认调度至独立 Worker 进程树执行，与主服务完全物理隔离。
 4. **防死锁与进程组 SIGKILL 硬终止熔断**：插件执行具备默认与显式配置的超时熔断（`timeout`）。当插件执行超时（如进入同步死循环），宿主会立即向子进程所在进程组广播 `SIGKILL` 强杀整棵进程树，彻底回收孤儿进程并避免主事件循环与线程池卡死。
 5. **容器热挂载（零构建）**：预设目录扫描映射至 `/data/plugins`，与官方 Docker Compose `./data:/data` 挂载点原生契合。
+6. **元数据管理与智能回退**：原生支持插件版本（`version`）、更新日期（`updated_at`）与作者（`author`）信息展示，未显式声明时版本默认 `1.0.0`，更新日期自动回退为文件的最后物理修改时间（`mtime`）。
 
 ---
 
@@ -75,12 +76,12 @@ TG-SignPulse 提供了轻量、低侵入、零破坏兼容的自定义 Action �
 | **`process`** | **全原子进程隔离** | 无论插件定义为同步（`def`）还是异步（`async def`），一律在独立子进程 Worker 中执行。主进程与插件完全隔离。 | 对插件脚本可信度要求极高，或多租户/需要绝对安全屏障的环境。 |
 | **`in_process`** | **宿主内嵌执行** | 所有插件均在宿主进程内执行。同步插件通过 `asyncio.to_thread` 在宿主线程池中运行。 | 内存资源极其受限的微型设备；或所有插件已严格通过人工静态审计，确认不存在死循环风险。 |
 
-#### 调试演练场超时配置 (`PLUGIN_TEST_TIMEOUT`)
+#### 调试台超时配置 (`PLUGIN_TEST_TIMEOUT`)
 
-在 Web 管理面板的「系统设置」->「插件演练场 (Playground)」中进行在线单次测试时：
+在 Web 管理面板的「系统设置」->「扩展插件」中进行在线单次「调试」时：
 - 默认沙箱测试超时时间为 **`5.0`** 秒；
-- 可通过设置环境变量 `PLUGIN_TEST_TIMEOUT`（如 `PLUGIN_TEST_TIMEOUT=10.0`）自定义演练场超时阈值；
-- 若测试超时，演练场将安全触发硬终止，并在测试结果弹窗中展示 `killed: true` 标识与 `[error] 插件执行超时（沙箱限制 X 秒）` 警告，同时标识当前使用的隔离引擎类型（`subprocess` 或 `in_process`）。
+- 可通过设置环境变量 `PLUGIN_TEST_TIMEOUT`（如 `PLUGIN_TEST_TIMEOUT=10.0`）自定义测试超时阈值；
+- 若测试超时，系统将安全触发硬终止，并在测试结果弹窗中展示 `killed: true` 标识与 `[error] 插件执行超时（沙箱限制 X 秒）` 警告，同时标识当前使用的隔离引擎类型（`subprocess` 或 `in_process`）。
 
 ---
 
@@ -105,26 +106,34 @@ plugins/
 ```
 
 > **Docker 挂载提示**：
-> 在 `docker-compose.yml` 默认挂载 `./data:/data` 的情况下，只需在宿主机项目根目录创建 `./data/plugins/你的插件/main.py`，重启容器即可自动识别，**无需构建任何新镜像**！
+> 在 `docker-compose.yml` 默认挂载 `./data:/data` 的情况下，只需在宿主机项目根目录创建 `./data/plugins/你的插件/main.py`，重启容器即可自动识别，**无需构建任何新镜像**！也可在 Web 界面直接点击「新建插件」自动生成模板代码。
 
 ---
 
 ## 插件开发指南
 
-### 1. 注册装饰器与执行模式
+### 1. 注册装饰器与元数据声明
 
 使用 `@PluginRegistry.register` 装饰器注册插件处理函数：
 
 ```python
 from tg_signer.core.plugins import PluginContext, PluginRegistry
 
+VERSION = "1.0.0"
+UPDATED_AT = "2026-09-11"
+AUTHOR = "Developer"
+
 @PluginRegistry.register(
     name="my_plugin",         # 插件唯一标识名（与任务配置中的 plugin_name 一致）
     mode="reactive",          # 执行模式："reactive"（监听响应）或 "active"（主动执行）
     description="我的自定义插件说明",
+    version=VERSION,          # 版本号（默认 1.0.0）
+    updated_at=UPDATED_AT,    # 更新日期（未填自动读取文件修改日期 mtime）
+    author=AUTHOR,            # 开发者署名
+    params_schema=[...],      # 可选：前端动态参数表单 Schema
 )
 async def my_handler(ctx: PluginContext) -> bool:
-    # 返回 True 表示处理成功并结束当前动作；返回 False 表示未命中，继续监听后续消息
+    # reactive 模式返回 True 表示处理成功并结束当前动作；返回 False 表示未命中，继续监听
     ...
 ```
 
@@ -132,82 +141,35 @@ async def my_handler(ctx: PluginContext) -> bool:
 
 | 模式 | 适用场景 | 触发时机 | 返回值约定 |
 | :--- | :--- | :--- | :--- |
-| **`reactive`（监听响应）** | 验证码秒答、Bot 挑战问题应答 | 收到目标会话推送的新消息时触发；若未及时收到，超时前会自动从最近历史消息中回退重试 | 返回 `True` 表示命中并应答完毕，流程推进到下一步；返回 `False` 表示非目标消息，继续等待下条消息 |
-| **`active`（主动执行）** | 主动发起请求、调用外部 API、本地预处理 | 任务执行到该动作时立即调用一次 | 返回 `True` / 非 False 表示执行成功；返回 `False` 表示执行失败 |
+| **`reactive`（监听响应）** | 验证码秒答、Bot 挑战问题应答、表情表态 | 收到目标会话推送的新消息时触发；若未及时收到，超时前会自动从最近历史消息中回退重试 | 返回 `True` 表示命中并应答完毕，流程推进到下一步；返回 `False` 表示非目标消息，继续等待下条消息 |
+| **`active`（主动执行）** | 主动发起请求、调用外部 API / Webhook、本地状态统计 | 任务流水线调度到该动作时立即调用一次 | 返回 `True` / 非 False 表示执行成功；返回 `False` 表示执行失败 |
 
 ### 3. `PluginContext` 运行时 API
 
-插件函数的唯一入参为 `ctx: PluginContext`，提供以下能力：
+插件函数的唯一入参为 `ctx: PluginContext`，提供以下完整上下文能力：
 
-- `ctx.message`：当前收到的 Telegram 消息对象（`pyrogram.types.Message`）。包含 `text`、`photo`、`id` 等。
-- `ctx.chat_id`：当前会话 ID（`int`）。
-- `ctx.params`：任务配置中透传的自定义参数字典（`dict`）。
-- `await ctx.reply(text: str, **kwargs)`：快捷引用当前消息进行回复，自动继承会话重试与 FloodWait 退避。
-- `await ctx.send_message(text: str, **kwargs)`：向当前会话发送消息。
-- `await ctx.click(text_or_index: str | int, **kwargs)`：点击当前消息上的内联按钮。
-- `ctx.log(msg: str, level="INFO")`：记录日志，自动打通至账户运行日志与前端 Web 面板 SSE 实时流。
+| 属性 / 方法 | 说明 |
+| :--- | :--- |
+| `ctx.message` | 当前收到的 Telegram 消息对象（`pyrogram.types.Message`）。包含 `text`、`photo`、`id` 等。 |
+| `ctx.chat_id` | 当前会话 ID（`int`）。 |
+| `ctx.params` | 任务配置中透传的自定义参数字典（`dict`）。 |
+| `await ctx.reply(text: str, **kwargs)` | 快捷引用当前消息进行回复，自动继承会话重试与 FloodWait 退避。 |
+| `await ctx.send_message(text: str, **kwargs)` | 向当前会话主动发送新文本消息。 |
+| `await ctx.click(text_or_index: str \| int, **kwargs)` | 点击当前消息上的内联按钮。 |
+| `await ctx.react(emoji: str)` | 为当前消息打上 Telegram Emoji 表态（如 👍/🎉）。 |
+| `ctx.storage` | 针对当前插件隔离的键值存储引擎（`get` / `set` / `increment`）。 |
+| `ctx.log(msg: str, level="INFO")` | 记录日志，自动打通至账户运行日志、Web 调试窗口及前端 SSE 实时流。 |
 
 ---
 
-## 官方范例：纯文本算式秒答插件 (`math_solver`)
+## 官方开箱预置插件库
 
-针对 Issue #10 提到的场景（`请在 30 秒内输入 2*31 的答案`），TG-SignPulse 内置提供了官方标准范例 `plugins/math_solver/main.py`：
-
-```python
-"""TG-SignPulse 官方范例插件：纯文本计算题秒答 (math_solver)。"""
-import re
-from typing import Optional
-from tg_signer.core.plugins import PluginContext, PluginRegistry
-
-# 匹配算式，前后通过 (?<![\d\-]) 与 (?![\d\-]) 隔离，避免误匹配 2026-09-08 这类 ISO 日期串
-_MATH_PATTERN = re.compile(r"(?<![\d\-])(\d+)\s*([\+\-\*\/\×\÷])\s*(\d+)(?![\d\-])")
-
-def _evaluate_expression(text: str) -> Optional[int]:
-    match = _MATH_PATTERN.search(text)
-    if not match:
-        return None
-    left = int(match.group(1))
-    op = match.group(2)
-    right = int(match.group(3))
-
-    if op == "+":
-        return left + right
-    elif op == "-":
-        return left - right
-    elif op in ("*", "×"):
-        return left * right
-    elif op in ("/", "÷"):
-        return left // right if right != 0 else None
-    return None
-
-@PluginRegistry.register(
-    name="math_solver",
-    mode="reactive",
-    description="纯文本计算题秒答插件（免 AI 本地秒答）",
-)
-async def solve_math_challenge(ctx: PluginContext) -> bool:
-    """监听新到达的消息，提取算式并自动回复答案。"""
-    msg = ctx.message
-    if not msg or not getattr(msg, "text", None):
-        return False
-
-    ans = _evaluate_expression(msg.text)
-    if ans is None:
-        return False
-
-    ctx.log(f"[math_solver] 成功匹配计算题：{msg.text!r}，计算答案：{ans}")
-    await ctx.reply(str(ans))
-    return True
-```
-
-### 官方预置实用插件
-
-TG-SignPulse 官方开箱预置了 4 个经过严格单测的生产级标准插件（位于 `plugins/` 目录）：
+TG-SignPulse 官方预置了 5 个经过严格单测与实战验证的生产级标准插件（位于 `plugins/` 目录）：
 
 1. **`math_solver`**（纯文本计算题秒答插件）：
    - **运行模式**：`reactive`
    - **适用场景**：识别消息中的四则运算算式（加减乘除，如 `2*31`、`15+27` 等），自动计算并回复答案。
-   - **参数配置**：支持 `reply_prefix`（自定义回复前缀）。
+   - **参数配置**：`reply_prefix`（可选，回复前缀如“答案是：”）。
 
 2. **`regex_reply`**（通用正则匹配提取与回复插件）：
    - **运行模式**：`reactive`
@@ -232,26 +194,43 @@ TG-SignPulse 官方开箱预置了 4 个经过严格单测的生产级标准插�
    - **参数配置**：
      - `button_keywords`：内联按钮模糊匹配词（逗号分隔）；
      - `track_stats`：是否记录签到统计（默认 `true`，仅在成功点击按钮时累计）。
+
+5. **`webhook_pusher`**（主动型 HTTP Webhook 通知推送插件）：
+   - **运行模式**：`active`
+   - **适用场景**：任务调度执行时，主动将打卡事件、会话信息与时间戳通过 JSON 格式 POST 到外部 Webhook（支持自建 API、Discord、企业微信、飞书等）。
+   - **参数配置**：
+     - `webhook_url`：目标 Webhook 地址（必填，HTTP/HTTPS）；
+     - `auth_token`：可选，HTTP Bearer 鉴权 Token；
+     - `custom_message`：可选，附加自定义推送说明文本。
+
 ---
 
-### 在 Web 任务编排与系统设置中配置使用
+## Web 界面全生命周期管理
 
-1. **动态候选与可视化参数配置**：
-   - 打开 Web 管理面板，进入 **任务管理** -> **编辑任务** 或 **新建任务**；
-   - 在动作下拉菜单中选择 **自定义插件 (99)**；
-   - 在右侧插件标识输入框中，系统会自动联想下拉候选（列出已加载的插件名及其运行模式）；
-   - **Schema 动态表单**：选中支持参数配置的插件后，系统会自动展开对应的参数输入项（如正则 pattern、前缀 prefix、开关等），直接在界面上调整即可随任务一并安全持久化！
+进入 Web 管理面板 **「系统设置」** -> **「扩展插件」**，即可体验完整的插件开发与维护中心：
 
-2. **系统设置中的插件概览、重新加载与调试演练场 (Playground)**：
-   - 进入 **系统设置** 页面，在左侧找到 **扩展插件** 卡片；
-   - 卡片中列出当前所有已挂载插件的名称、运行模式、描述及插件相对路径；
-   - **调试演练场 (Playground)**：点击插件右侧的 **「演练」** 按钮，可弹出测试窗口。直接输入一段模拟的 Bot 消息文本（如 `请在 30 秒内输入 2*31 的答案` 或 `验证码为：9527`），点击 **「执行测试」** 即可实时看到插件的匹配结果、提取回复内容、详细日志流与执行耗时（毫秒级），无需等待实际打卡或触发账号签到。演练场执行与正式任务一致受隔离引擎调度保护；在 `auto` 或 `process` 模式下遇到同步死循环超时会自动触发子进程树 `SIGKILL` 强杀回收，前端界面会高亮提示硬终止状态；
-   - **重新加载**：放入新的插件文件或修改现有代码后，可点击右上角 **「重新加载」** 按钮重新扫描配置目录。已运行的任务可能仍持有旧处理函数，依赖模块的缓存也可能需要重启服务才能完全刷新。
+1. **元数据与状态可视化**：
+   - 直观展示每个插件的运行模式（`reactive` / `active`）、版本徽章（`v1.0.0`）、更新日期、开发者署名及启停状态。
+2. **在线「新建插件」**：
+   - 点击右上角 **「新建插件」**，选择基础模板（响应式监听、主动执行型、状态计数型），一键在 `/data/plugins` 生成插件脚手架代码。
+3. **安全「查看源码」**：
+   - 点击任意插件卡片上的 **「查看源码」**，即可以高亮只读模式查看当前代码，并支持一键复制到剪贴板。
+4. **安全「删除」**：
+   - 自定义插件卡片提供 **「删除」** 按钮，二次确认后安全物理删除对应目录或文件；官方内置插件受内核保护，禁止删除。
+5. **免打卡「调试」**：
+   - 点击插件右侧的 **「调试」** 按钮，免打卡即时输入模拟文本，观察匹配结果、回复内容、Reaction 表态以及运行日志，秒级验证业务逻辑。
+6. **开发者指南**：
+   - 点击右上角 **「开发参考」**，随时调阅 `PluginContext` API 与核心规范。
 
-### 插件管理 API
+---
+
+## 插件管理 API
 
 | 接口 | 方法 | 说明 |
 | :--- | :--- | :--- |
-| `/api/plugins` | `GET` | 获取当前所有已加载插件的元数据列表（名称、模式、描述、源码路径、参数 Schema）。 |
+| `/api/plugins` | `GET` | 获取当前所有已加载插件的元数据列表（含名称、模式、描述、版本、更新时间、作者、源码路径、参数 Schema）。 |
 | `/api/plugins/reload` | `POST` | 清空当前加载缓存并重新全量扫描加载所有配置目录下的插件，返回最新状态。 |
+| `/api/plugins/{name}/source` | `GET` | 安全只读获取指定插件的 Python 源代码（含路径遍历防范与 2MB 限制）。 |
+| `/api/plugins/create` | `POST` | 根据选定脚手架模板（reactive / active / storage）在线创建新插件并自动热加载。 |
+| `/api/plugins/{name}` | `DELETE` | 安全删除指定自定义插件文件/目录并热重载（官方内置插件禁止删除，返回 403）。 |
 | `/api/plugins/{name}/test` | `POST` | Web 调试接口：模拟传入消息文本和参数，在沙箱隔离环境中执行测试，返回匹配结果、回复内容、日志、耗时以及子进程硬终止状态（killed）。 |
