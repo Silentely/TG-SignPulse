@@ -897,7 +897,12 @@
     "pluginsPlaygroundTimeoutPlaceholder": "Default 10s",
     "pluginsExportManifest": "Export Manifest (JSON)",
     "pluginsExportManifestSuccess": "Plugin manifest exported successfully",
-    "pluginsRecentRunsPulse": "Recent execution status pulse sequence (left to right)"
+    "pluginsRecentRunsPulse": "Recent execution status pulse sequence (left to right)",
+    "pluginsFormatSource": "Format",
+    "pluginsFormatSuccess": "Code formatted successfully",
+    "pluginsFormatUnchanged": "Code already nicely formatted",
+    "pluginsPlaygroundResetInput": "Reset Inputs",
+    "pluginsPlaygroundResetInputSuccess": "Test inputs have been reset"
   },
   "profile": {
     "title": "Profile",

@@ -39,6 +39,7 @@ import {
   Package,
   Archive,
   ShieldCheck,
+  Sparkles,
   FileText,
   RotateCcw,
   Edit2,
@@ -70,6 +71,7 @@ import {
   checkPluginSyntax,
   clearPluginHistory,
   auditPluginSource,
+  formatPluginSource,
   type AuditPluginWarning,
   type PluginDependency,
   type PluginExecutionRecord,
@@ -589,6 +591,37 @@ const handleAuditSource = async () => {
   } finally {
     auditingSource.value = false
   }
+}
+
+const formattingSource = ref(false)
+const handleFormatSource = async () => {
+  if (!editedSourceCode.value) return
+  formattingSource.value = true
+  try {
+    const res = await withToken((token) => formatPluginSource(editedSourceCode.value, token))
+    if (!res) return
+    editedSourceCode.value = res.formatted
+    if (res.changed) {
+      toast.success(t('settings.pluginsFormatSuccess'))
+    } else {
+      toast.info(t('settings.pluginsFormatUnchanged'))
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    toast.error(msg)
+  } finally {
+    formattingSource.value = false
+  }
+}
+
+const handleResetPlaygroundInputs = () => {
+  testInputText.value = ''
+  testParams.value = {}
+  mockChatId.value = ''
+  mockSenderName.value = ''
+  mockTimeout.value = ''
+  testResult.value = null
+  toast.info(t('settings.pluginsPlaygroundResetInputSuccess'))
 }
 
 const handleCheckSyntax = async () => {
@@ -1546,6 +1579,16 @@ onMounted(() => {
             </button>
             <button
               type="button"
+              class="ui-btn-secondary !py-1.5 !px-3 !text-xs inline-flex items-center gap-1.5 text-purple-600 dark:text-purple-400"
+              :disabled="formattingSource || savingSource"
+              @click="handleFormatSource"
+            >
+              <RefreshCw v-if="formattingSource" class="w-3.5 h-3.5 animate-spin" />
+              <Sparkles v-else class="w-3.5 h-3.5" />
+              <span>{{ formattingSource ? t('common.loading') : t('settings.pluginsFormatSource') }}</span>
+            </button>
+            <button
+              type="button"
               class="ui-btn-secondary !py-1.5 !px-3 !text-xs"
               :disabled="savingSource"
               @click="isEditingSource = false"
@@ -1752,16 +1795,27 @@ onMounted(() => {
             <span>{{ t('settings.pluginsPlaygroundResetStorage') }}</span>
           </label>
 
-          <button
-            type="button"
-            class="ui-btn-primary !px-4 !py-1.5 !text-xs inline-flex items-center gap-1.5"
-            :disabled="testRunning"
-            @click="runPluginTest"
-          >
-            <RefreshCw v-if="testRunning" class="w-3.5 h-3.5 animate-spin" />
-            <Play v-else class="w-3.5 h-3.5 fill-current" />
-            {{ testRunning ? t('settings.pluginsTestRunning') : t('settings.pluginsRunTest') }}
-          </button>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs inline-flex items-center gap-1 text-gray-500 hover:text-gray-700"
+              :disabled="testRunning"
+              @click="handleResetPlaygroundInputs"
+            >
+              <RotateCcw class="w-3 h-3" />
+              <span>{{ t('settings.pluginsPlaygroundResetInput') }}</span>
+            </button>
+            <button
+              type="button"
+              class="ui-btn-primary !px-4 !py-1.5 !text-xs inline-flex items-center gap-1.5"
+              :disabled="testRunning"
+              @click="runPluginTest"
+            >
+              <RefreshCw v-if="testRunning" class="w-3.5 h-3.5 animate-spin" />
+              <Play v-else class="w-3.5 h-3.5 fill-current" />
+              {{ testRunning ? t('settings.pluginsTestRunning') : t('settings.pluginsRunTest') }}
+            </button>
+          </div>
         </div>
 
         <!-- 测试结果回显 -->

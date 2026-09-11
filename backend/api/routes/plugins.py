@@ -186,6 +186,15 @@ class AuditPluginResponse(BaseModel):
     warnings: List[AuditPluginWarning] = Field(default_factory=list)
 
 
+class FormatPluginSourceRequest(BaseModel):
+    source: str
+
+
+class FormatPluginSourceResponse(BaseModel):
+    formatted: str
+    changed: bool
+
+
 class ImportBundleResponse(BaseModel):
     imported_count: int = 0
     files: List[str] = Field(default_factory=list)
@@ -1676,6 +1685,45 @@ async def audit_plugin_source_route(
     ]
     passed = len(warnings) == 0
     return AuditPluginResponse(passed=passed, warnings=warnings)
+
+
+@router.post("/format-source", response_model=FormatPluginSourceResponse)
+async def format_plugin_source_route(
+    req: FormatPluginSourceRequest,
+    _user: User = Depends(get_current_user),
+) -> FormatPluginSourceResponse:
+    """自动排版与格式化 Python 源码。"""
+    try:
+        tree = ast.parse(req.source, filename="<plugin_formatter>")
+    except SyntaxError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"代码存在语法错误，无法格式化: {exc.msg} (第 {exc.lineno} 行)",
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"代码解析异常: {exc}",
+        )
+
+    formatted_code = ""
+    try:
+        import black
+        formatted_code = black.format_str(req.source, mode=black.FileMode())
+    except Exception:
+        try:
+            formatted_code = ast.unparse(tree)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"格式化处理失败: {exc}",
+            )
+
+    res_str = formatted_code.strip() + "\n"
+    return FormatPluginSourceResponse(
+        formatted=res_str,
+        changed=res_str.strip() != req.source.strip(),
+    )
 
 
 @router.post("/import-bundle", response_model=ImportBundleResponse)

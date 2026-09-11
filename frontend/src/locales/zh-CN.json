@@ -897,7 +897,12 @@
     "pluginsPlaygroundTimeoutPlaceholder": "默认 10 秒",
     "pluginsExportManifest": "导出清单 (JSON)",
     "pluginsExportManifestSuccess": "已成功导出插件配置清单",
-    "pluginsRecentRunsPulse": "近期执行状态脉冲序列 (从左至右由旧到新)"
+    "pluginsRecentRunsPulse": "近期执行状态脉冲序列 (从左至右由旧到新)",
+    "pluginsFormatSource": "格式化",
+    "pluginsFormatSuccess": "代码排版格式化完成",
+    "pluginsFormatUnchanged": "代码格式规范，无需调整",
+    "pluginsPlaygroundResetInput": "重置输入",
+    "pluginsPlaygroundResetInputSuccess": "已清空测试用例输入"
   },
   "profile": {
     "title": "个人中心",

@@ -91,6 +91,11 @@ export interface AuditPluginResponse {
   warnings: AuditPluginWarning[]
 }
 
+export interface FormatPluginSourceResponse {
+  formatted: string
+  changed: boolean
+}
+
 export interface CheckSyntaxResponse {
   valid: boolean
   line?: number | null
@@ -450,4 +455,18 @@ export async function auditPluginSource(
 
 export async function getPluginsManifest(token: string): Promise<PluginManifestItem[]> {
   return request<PluginManifestItem[]>('/plugins/manifest', {}, token)
+}
+
+export async function formatPluginSource(
+  source: string,
+  token: string,
+): Promise<FormatPluginSourceResponse> {
+  return request<FormatPluginSourceResponse>(
+    '/plugins/format-source',
+    {
+      method: 'POST',
+      body: JSON.stringify({ source }),
+    },
+    token,
+  )
 }
