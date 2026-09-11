@@ -418,7 +418,9 @@
     "skipIfMatchedDesc": "当上一动作输出或当前消息匹配时，自动跳过本步骤",
     "macroHelper": "动态宏变量",
     "advancedActionOptions": "高级管道选项",
-    "collapseOptions": "收起高级选项"
+    "collapseOptions": "收起高级选项",
+    "debugPlugin": "在线调试",
+    "debugPluginTip": "使用当前配置参数在线调试此插件"
   },
   "taskModal": {
     "addTitle": "添加任务",
@@ -783,7 +785,20 @@
     "pluginsFilterBuiltin": "官方内置",
     "pluginsFilterCustom": "自定义",
     "pluginsSourceOpenTest": "前往调试",
-    "pluginsEmptyFilter": "没有找到符合条件的插件"
+    "pluginsEmptyFilter": "没有找到符合条件的插件",
+    "pluginsDiagTitle": "检测到 {count} 个插件加载异常（缺少依赖或语法错误）",
+    "pluginsDiagShow": "查看详情",
+    "pluginsDiagHide": "收起详情",
+    "pluginsDiagMissingDep": "缺少依赖",
+    "pluginsDiagSyntaxErr": "语法错误",
+    "pluginsDiagLoadErr": "加载异常",
+    "pluginsDiagCopyCmd": "复制安装命令",
+    "pluginsDiagCopied": "已复制",
+    "pluginsPlaygroundModeActiveTip": "⚡ 主动执行模式：作为独立动作直接运行，不依赖触发消息。",
+    "pluginsPlaygroundModeReactiveTip": "💬 监听响应模式：模拟机器人收到的消息，命中后触发响应。",
+    "pluginsPlaygroundResetStorage": "调试前重置插件存储",
+    "pluginsPlaygroundResetStorageTip": "清空该插件在测试运行环境下的临时持久化键值缓存",
+    "pluginsPlaygroundDuration": "耗时"
   },
   "profile": {
     "title": "个人中心",
@@ -908,7 +923,9 @@
     "clearFilters": "清除筛选",
     "clearAllFilters": "清除全部筛选",
     "activeFilters": "当前筛选",
-    "brandSubtitle": "Telegram 运维"
+    "brandSubtitle": "Telegram 运维",
+    "save": "保存",
+    "apply": "应用"
   },
   "login": {
     "subtitle": "Telegram 多账号自动化面板",

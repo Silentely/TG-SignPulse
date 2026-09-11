@@ -1,10 +1,10 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import * as coreApi from '../lib/api/core'
 import {
-  getPlugins,
   getPluginSource,
   deletePlugin,
   createPlugin,
+  getPluginDiagnostics,
 } from '../lib/api/plugins'
 
 describe('plugins api 扩展接口', () => {
@@ -71,5 +71,27 @@ describe('plugins api 扩展接口', () => {
       'test-token'
     )
     expect(result).toEqual(mockResp)
+  })
+
+  it('getPluginDiagnostics 发起 GET /plugins/diagnostics 请求并携带 token', async () => {
+    const mockDiag = {
+      total_loaded: 5,
+      total_errors: 1,
+      load_errors: [
+        {
+          file_path: 'broken.py',
+          plugin_name: 'broken',
+          error_type: 'missing_dependency',
+          error_message: '缺少依赖 requests',
+          missing_module: 'requests',
+          suggested_command: 'pip install requests',
+        },
+      ],
+    }
+    const requestSpy = vi.spyOn(coreApi, 'request').mockResolvedValueOnce(mockDiag)
+
+    const result = await getPluginDiagnostics('test-token')
+    expect(requestSpy).toHaveBeenCalledWith('/plugins/diagnostics', {}, 'test-token')
+    expect(result).toEqual(mockDiag)
   })
 })

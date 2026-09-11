@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
 import hashlib
 import importlib.util
 import inspect
@@ -17,6 +16,7 @@ import sqlite3
 import sys
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Literal, Optional, Union
 
@@ -331,6 +331,17 @@ class PluginContext:
 
 
 @dataclass
+class PluginLoadError:
+    file_path: str
+    plugin_name: str
+    error_type: Literal["missing_dependency", "syntax_error", "load_error"]
+    error_message: str
+    missing_module: Optional[str] = None
+    suggested_command: Optional[str] = None
+    timestamp: str = ""
+
+
+@dataclass
 class PluginMeta:
     name: str
     handler: Callable[[PluginContext], Any]
@@ -375,6 +386,11 @@ class PluginRegistry:
     _plugins: Dict[str, PluginMeta] = {}
     _loaded_files: set[Path] = set()
     _disabled_plugins: set[str] = set()
+    _load_errors: Dict[str, PluginLoadError] = {}
+
+    @classmethod
+    def get_load_errors(cls) -> List[PluginLoadError]:
+        return list(cls._load_errors.values())
 
     @classmethod
     def set_disabled(cls, name: str, disabled: bool = True) -> None:
@@ -445,6 +461,7 @@ class PluginRegistry:
         cls._plugins.clear()
         cls._loaded_files.clear()
         cls._disabled_plugins.clear()
+        cls._load_errors.clear()
         for module_name in list(sys.modules):
             if module_name.startswith("tg_signer_plugin_"):
                 sys.modules.pop(module_name, None)
@@ -508,7 +525,8 @@ class PluginRegistry:
                 pre_keys = set(cls._plugins.keys())
                 spec.loader.exec_module(mod)
                 cls._loaded_files.add(resolved_file)
-                for m_name, meta in cls._plugins.items():
+                cls._load_errors.pop(str(resolved_file), None)
+                for meta in cls._plugins.values():
                     if meta.source_path and is_builtin_plugin_path(meta.source_path):
                         meta.builtin = True
 
@@ -557,10 +575,40 @@ class PluginRegistry:
                     "加载插件 %s 失败：缺少依赖模块 '%s'，可在环境中执行 pip install %s 进行安装",
                     plugin_file, missing, missing
                 )
+                cls._load_errors[str(resolved_file)] = PluginLoadError(
+                    file_path=str(resolved_file),
+                    plugin_name=folder_name,
+                    error_type="missing_dependency",
+                    error_message=f"缺少依赖模块 '{missing}'",
+                    missing_module=missing,
+                    suggested_command=f"pip install {missing}",
+                    timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                )
+            except SyntaxError as exc:
+                sys.modules.pop(module_name, None)
+                _logger.error("加载插件 %s 语法错误: %s", plugin_file, exc)
+                cls._load_errors[str(resolved_file)] = PluginLoadError(
+                    file_path=str(resolved_file),
+                    plugin_name=folder_name,
+                    error_type="syntax_error",
+                    error_message=f"语法错误 (line {exc.lineno}): {exc.msg}",
+                    missing_module=None,
+                    suggested_command=None,
+                    timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                )
             except Exception as exc:
                 # 严密捕获单插件的语法/加载错误，绝不雪崩
                 sys.modules.pop(module_name, None)
                 _logger.error("加载插件 %s 失败: %s", plugin_file, exc, exc_info=True)
+                cls._load_errors[str(resolved_file)] = PluginLoadError(
+                    file_path=str(resolved_file),
+                    plugin_name=folder_name,
+                    error_type="load_error",
+                    error_message=str(exc),
+                    missing_module=None,
+                    suggested_command=None,
+                    timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                )
 
         loaded_count = len(cls._plugins) - len(initial_keys)
         return max(0, loaded_count)

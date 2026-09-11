@@ -226,4 +226,48 @@ describe('PluginsSettings.vue 插件管理组件', () => {
       expect(document.body.textContent).toContain('前往调试')
     })
   })
+
+  it('当存在加载错误时展示诊断告警条并支持展开查看详情', async () => {
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValueOnce([
+      {
+        name: 'math_solver',
+        mode: 'reactive',
+        description: '数学计算',
+        builtin: true,
+        enabled: true,
+      },
+    ])
+    vi.spyOn(pluginsApi, 'getPluginDiagnostics').mockResolvedValueOnce({
+      total_loaded: 1,
+      total_errors: 1,
+      load_errors: [
+        {
+          file_path: 'plugins/broken.py',
+          plugin_name: 'broken',
+          error_type: 'missing_dependency',
+          error_message: '缺少依赖模块 requests',
+          missing_module: 'requests',
+          suggested_command: 'pip install requests',
+        },
+      ],
+    })
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('缺少依赖或语法错误')
+    })
+
+    // 点击展开详情
+    const toggleDiagBtn = wrapper.findAll('button').find((btn) => btn.text().includes('查看详情'))
+    expect(toggleDiagBtn).toBeDefined()
+    await toggleDiagBtn!.trigger('click')
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('pip install requests')
+      expect(wrapper.text()).toContain('缺少依赖')
+    })
+  })
 })

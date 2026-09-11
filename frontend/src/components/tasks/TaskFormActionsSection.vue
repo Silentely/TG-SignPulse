@@ -3,14 +3,84 @@
  * 任务表单：动作序列编辑区块（支持拖拽排序、高级管道容错与宏变量注入）。
  */
 import { ref, computed, onMounted } from 'vue'
-import { Plus, Trash2, ArrowUp, ArrowDown, GripVertical, SlidersHorizontal, Sparkles } from 'lucide-vue-next'
+import {
+  Plus,
+  Trash2,
+  ArrowUp,
+  ArrowDown,
+  GripVertical,
+  SlidersHorizontal,
+  Sparkles,
+  Play,
+  CheckCircle2,
+  AlertCircle,
+  RefreshCw,
+  Clock,
+} from 'lucide-vue-next'
+import Modal from '../Modal.vue'
 import CustomSelect from '../CustomSelect.vue'
 import type { TaskActionItem } from '../../lib/types'
 import { useI18n } from '../../composables/useI18n'
-import { getPlugins, type PluginInfo } from '../../lib/api'
+import { getPlugins, testPlugin, type PluginInfo, type PluginTestResponse } from '../../lib/api'
 import { withToken } from '../../lib/api/core'
 
 const { t } = useI18n()
+
+// 动作插件在线调试状态
+const isActionDebugModalOpen = ref(false)
+const debugAction = ref<TaskActionItem | null>(null)
+const debugPluginInfo = ref<PluginInfo | null>(null)
+const debugInputText = ref('')
+const debugParams = ref<Record<string, unknown>>({})
+const debugRunning = ref(false)
+const debugResult = ref<PluginTestResponse | null>(null)
+
+const openDebugModalForAction = (action: TaskActionItem) => {
+  debugAction.value = action
+  debugPluginInfo.value = getPluginInfo(action.value) || null
+  debugResult.value = null
+  debugInputText.value = ''
+  debugParams.value = JSON.parse(JSON.stringify(action.params || {}))
+  isActionDebugModalOpen.value = true
+}
+
+const applyDebugParamsToAction = () => {
+  if (debugAction.value) {
+    debugAction.value.params = JSON.parse(JSON.stringify(debugParams.value))
+    isActionDebugModalOpen.value = false
+  }
+}
+
+const runActionPluginTest = async () => {
+  if (!debugAction.value?.value) return
+  debugRunning.value = true
+  debugResult.value = null
+  try {
+    const res = await withToken((token) =>
+      testPlugin(
+        String(debugAction.value!.value),
+        {
+          text: debugInputText.value,
+          params: debugParams.value,
+        },
+        token,
+      ),
+    )
+    if (res) debugResult.value = res
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    debugResult.value = {
+      name: String(debugAction.value!.value),
+      success: false,
+      handled: false,
+      error: msg,
+      logs: [`[error] ${msg}`],
+      duration_ms: 0,
+    }
+  } finally {
+    debugRunning.value = false
+  }
+}
 
 const availablePlugins = ref<PluginInfo[]>([])
 const manualPluginMode = ref<Record<number, boolean>>({})
@@ -326,21 +396,32 @@ const emit = defineEmits<{
                 </button>
               </div>
 
-              <!-- 插件基本信息提示 -->
+              <!-- 插件基本信息提示与在线调试快捷按钮 -->
               <div
                 v-if="getPluginInfo(action.value)"
-                class="flex items-center gap-1.5 text-[11px] text-sky-600 dark:text-sky-400 px-0.5 truncate"
+                class="flex items-center justify-between gap-1.5 text-[11px] text-sky-600 dark:text-sky-400 px-0.5"
               >
-                <span class="font-medium truncate">✧ {{ getPluginInfo(action.value)?.description || action.value }}</span>
-                <span class="shrink-0 text-[10px] px-1 py-0.5 rounded bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300 font-mono">
-                  {{ getPluginInfo(action.value)?.mode }}
-                </span>
-                <span
-                  v-if="getPluginInfo(action.value)?.version"
-                  class="shrink-0 text-[10px] px-1 py-0.5 rounded bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 font-mono"
+                <div class="flex items-center gap-1.5 truncate">
+                  <span class="font-medium truncate">✧ {{ getPluginInfo(action.value)?.description || action.value }}</span>
+                  <span class="shrink-0 text-[10px] px-1 py-0.5 rounded bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300 font-mono">
+                    {{ getPluginInfo(action.value)?.mode }}
+                  </span>
+                  <span
+                    v-if="getPluginInfo(action.value)?.version"
+                    class="shrink-0 text-[10px] px-1 py-0.5 rounded bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 font-mono"
+                  >
+                    v{{ getPluginInfo(action.value)?.version }}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  class="shrink-0 text-[11px] text-sky-600 dark:text-sky-400 hover:text-sky-700 dark:hover:text-sky-300 inline-flex items-center gap-1 font-medium px-2 py-0.5 rounded bg-sky-50 dark:bg-sky-950/80 hover:bg-sky-100 dark:hover:bg-sky-900/60 border border-sky-200 dark:border-sky-800/60 transition-colors"
+                  :title="t('taskForm.debugPluginTip')"
+                  @click="openDebugModalForAction(action)"
                 >
-                  v{{ getPluginInfo(action.value)?.version }}
-                </span>
+                  <Play class="w-2.5 h-2.5 fill-current" />
+                  <span>{{ t('taskForm.debugPlugin') }}</span>
+                </button>
               </div>
 
               <!-- 参数配置区域 (若插件声明了 params_schema) -->
@@ -522,4 +603,133 @@ const emit = defineEmits<{
       </button>
     </div>
   </div>
+
+  <!-- 动作内联插件调试弹窗 -->
+  <Modal
+    :title="`${t('taskForm.debugPlugin')}: ${debugAction?.value ?? ''}`"
+    :is-open="isActionDebugModalOpen"
+    max-width-class="max-w-xl"
+    z-index-class="z-[110]"
+    @close="isActionDebugModalOpen = false"
+  >
+    <div v-if="debugAction" class="space-y-4 text-xs">
+      <div class="flex items-center justify-between gap-2 text-gray-500 dark:text-gray-400 text-[11px]">
+        <span class="truncate">{{ debugPluginInfo?.description || debugAction.value }}</span>
+        <span class="shrink-0 font-mono px-1.5 py-0.5 rounded text-[10px] bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300">
+          {{ debugPluginInfo?.mode || 'reactive' }}
+        </span>
+      </div>
+
+      <!-- 模式提示 -->
+      <div
+        class="p-2.5 rounded border text-[11px] leading-relaxed"
+        :class="debugPluginInfo?.mode === 'active' ? 'border-emerald-200/70 bg-emerald-50/40 dark:border-emerald-900/50 dark:bg-emerald-950/20 text-emerald-800 dark:text-emerald-300' : 'border-sky-200/70 bg-sky-50/40 dark:border-sky-900/50 dark:bg-sky-950/20 text-sky-800 dark:text-sky-300'"
+      >
+        {{ debugPluginInfo?.mode === 'active' ? t('settings.pluginsPlaygroundModeActiveTip') : t('settings.pluginsPlaygroundModeReactiveTip') }}
+      </div>
+
+      <!-- 模拟触发消息 (仅 reactive 或提供时输入) -->
+      <div v-if="debugPluginInfo?.mode !== 'active'" class="space-y-1">
+        <label class="font-medium text-gray-700 dark:text-gray-300">
+          {{ t('settings.pluginsTestInputLabel') }}
+        </label>
+        <textarea
+          v-model="debugInputText"
+          rows="2"
+          class="ui-input !h-auto !py-1.5 !px-2.5 !text-xs w-full font-mono"
+          :placeholder="t('settings.pluginsTestInputPlaceholder')"
+        />
+      </div>
+
+      <!-- 参数调试配置 -->
+      <div v-if="debugPluginInfo?.params_schema && debugPluginInfo.params_schema.length" class="p-3 bg-gray-50/80 dark:bg-white/[0.02] border border-gray-200 dark:border-gray-800 rounded space-y-2">
+        <div class="font-medium text-[11px] text-gray-700 dark:text-gray-300">
+          {{ t('settings.pluginsTestParamsLabel') }}
+        </div>
+        <div
+          v-for="field in debugPluginInfo.params_schema"
+          :key="field.name"
+          class="flex flex-col gap-1"
+        >
+          <div class="flex justify-between text-[10px] text-gray-500">
+            <span>{{ field.label || field.name }}</span>
+            <span class="font-mono text-gray-400">{{ field.name }}</span>
+          </div>
+          <label v-if="field.type === 'bool'" class="inline-flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"              :checked="Boolean(debugParams[field.name])"              class="rounded text-sky-600 focus:ring-sky-500 h-3.5 w-3.5"              @change="debugParams[field.name] = ($event.target as HTMLInputElement).checked"            />
+            <span class="text-[11px] text-gray-600 dark:text-gray-300">
+              {{ debugParams[field.name] ? t('common.enabled') : t('common.disabled') }}
+            </span>
+          </label>
+          <input
+            v-else-if="field.type === 'int'"
+            type="number"
+            :value="debugParams[field.name]"
+            :placeholder="field.placeholder || String(field.default ?? '')"
+            class="ui-input !h-8 !text-xs !px-2 w-full"
+            @input="debugParams[field.name] = Number(($event.target as HTMLInputElement).value)"
+          />
+          <input
+            v-else
+            type="text"
+            :value="String(debugParams[field.name] ?? '')"
+            :placeholder="field.placeholder || String(field.default ?? '')"
+            class="ui-input !h-8 !text-xs !px-2 w-full"
+            @input="debugParams[field.name] = ($event.target as HTMLInputElement).value"
+          />
+        </div>
+      </div>
+
+      <div class="flex items-center justify-between gap-2 pt-1">
+        <button
+          type="button"
+          class="ui-btn-secondary !py-1 !px-2.5 !text-xs"
+          @click="applyDebugParamsToAction"
+        >
+          {{ t('common.save') }}
+        </button>
+
+        <button
+          type="button"
+          class="ui-btn-primary !px-4 !py-1.5 !text-xs inline-flex items-center gap-1.5"
+          :disabled="debugRunning"
+          @click="runActionPluginTest"
+        >
+          <RefreshCw v-if="debugRunning" class="w-3.5 h-3.5 animate-spin" />
+          <Play v-else class="w-3.5 h-3.5 fill-current" />
+          {{ debugRunning ? t('settings.pluginsTestRunning') : t('settings.pluginsRunTest') }}
+        </button>
+      </div>
+
+      <!-- 调试结果回显 -->
+      <div v-if="debugResult" class="p-3 border rounded space-y-2 transition-all" :class="debugResult.success && debugResult.handled ? 'border-emerald-500/50 bg-emerald-50/20 dark:bg-emerald-950/20' : (debugResult.error ? 'border-red-500/50 bg-red-50/20 dark:bg-red-950/20' : 'border-amber-500/50 bg-amber-50/20 dark:bg-amber-950/20')">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-1.5 font-medium">
+            <CheckCircle2 v-if="debugResult.success && debugResult.handled" class="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+            <AlertCircle v-else class="w-4 h-4 text-amber-600 dark:text-amber-400" />
+            <span>{{ debugResult.handled ? t('settings.pluginsHandledTrue') : (debugResult.error ? t('settings.pluginsHandledError') : t('settings.pluginsHandledFalse')) }}</span>
+          </div>
+          <div class="flex items-center gap-1 text-[11px] text-gray-500 font-mono">
+            <Clock class="w-3 h-3" />
+            <span>{{ debugResult.duration_ms }} ms</span>
+          </div>
+        </div>
+
+        <div v-if="debugResult.reply_text" class="p-2 bg-white/80 dark:bg-black/30 rounded border border-gray-200 dark:border-gray-800">
+          <span class="text-[10px] text-gray-400 block mb-0.5">{{ t('settings.pluginsReplyOutput') }}</span>
+          <div class="font-mono text-xs text-sky-600 dark:text-sky-300 font-semibold select-all">
+            {{ debugResult.reply_text }}
+          </div>
+        </div>
+
+        <div v-if="debugResult.logs && debugResult.logs.length" class="space-y-1">
+          <span class="text-[10px] text-gray-400 block">{{ t('settings.pluginsLogsLabel') }}</span>
+          <div class="p-2 bg-gray-900 text-gray-200 rounded font-mono text-[11px] max-h-28 overflow-y-auto space-y-0.5 select-all">
+            <div v-for="(log, idx) in debugResult.logs" :key="idx">{{ log }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </Modal>
 </template>

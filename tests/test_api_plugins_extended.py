@@ -1,12 +1,8 @@
-from datetime import datetime
-import os
-from pathlib import Path
-import tempfile
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.main import app
 from backend.core.auth import get_current_user
+from backend.main import app
 from backend.models.user import User
 from tg_signer.core.plugins import PluginRegistry
 
@@ -94,3 +90,53 @@ def test_api_create_and_delete_custom_plugin():
     # 5. Verify it is removed from list
     list_resp2 = client.get("/api/plugins")
     assert not any(p["name"] == "test_created_plugin" for p in list_resp2.json())
+
+
+def test_api_get_plugin_diagnostics():
+    from tg_signer.core.plugins import PluginLoadError
+    # Clear and test clean state
+    resp = client.get("/api/plugins/diagnostics")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "total_loaded" in data
+    assert "total_errors" in data
+    assert "load_errors" in data
+    assert isinstance(data["load_errors"], list)
+
+    # Simulate an error in PluginRegistry
+    PluginRegistry._load_errors["/tmp/fake_plugin.py"] = PluginLoadError(
+        file_path="/tmp/fake_plugin.py",
+        plugin_name="fake_plugin",
+        error_type="missing_dependency",
+        error_message="缺少依赖模块 'bs4'",
+        missing_module="bs4",
+        suggested_command="pip install bs4",
+        timestamp="2026-09-11 19:30:00",
+    )
+    resp2 = client.get("/api/plugins/diagnostics")
+    assert resp2.status_code == 200
+    data2 = resp2.json()
+    assert data2["total_errors"] >= 1
+    fake_err = next((e for e in data2["load_errors"] if e["plugin_name"] == "fake_plugin"), None)
+    assert fake_err is not None
+    assert fake_err["missing_module"] == "bs4"
+    assert fake_err["suggested_command"] == "pip install bs4"
+
+    # Clean up
+    PluginRegistry._load_errors.pop("/tmp/fake_plugin.py", None)
+
+
+def test_api_test_plugin_with_reset_storage():
+    resp = client.post(
+        "/api/plugins/math_solver/test",
+        json={
+            "text": "计算 5+5 等于多少",
+            "params": {},
+            "reset_storage": True,
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["name"] == "math_solver"
+    assert data["mode"] == "reactive"
+    assert any("已清空该插件测试命名空间持久化存储" in log for log in data["logs"])
