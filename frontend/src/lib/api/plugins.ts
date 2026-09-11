@@ -62,6 +62,12 @@ export interface PluginDependenciesResponse {
   dependencies: PluginDependency[]
 }
 
+export interface ImportBundleResponse {
+  imported_count: number
+  files: string[]
+  errors: string[]
+}
+
 export interface PluginConfigResponse {
   name: string
   params: Record<string, any>
@@ -331,4 +337,35 @@ export async function resetPluginConfig(
   return request<PluginConfigResponse>(`/plugins/${encodeURIComponent(name)}/reset-config`, {
     method: 'POST',
   }, token)
+}
+
+export async function exportAllPlugins(token: string): Promise<Blob> {
+  const headers: Record<string, string> = {}
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  const res = await fetch('/api/plugins/export-all', { headers })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Failed to export all plugins')
+  }
+  return res.blob()
+}
+
+export async function importPluginsBundle(
+  file: File,
+  token: string,
+): Promise<ImportBundleResponse> {
+  const formData = new FormData()
+  formData.append('file', file)
+  const headers: Record<string, string> = {}
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  const res = await fetch('/api/plugins/import-bundle', {
+    method: 'POST',
+    headers,
+    body: formData,
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Failed to import bundle')
+  }
+  return res.json()
 }

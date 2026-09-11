@@ -152,6 +152,12 @@ class UpdatePluginConfigRequest(BaseModel):
     params: Dict[str, Any] = Field(default_factory=dict)
 
 
+class ImportBundleResponse(BaseModel):
+    imported_count: int = 0
+    files: List[str] = Field(default_factory=list)
+    errors: List[str] = Field(default_factory=list)
+
+
 class ClonePluginRequest(BaseModel):
     new_name: str = Field(..., pattern=r"^[a-zA-Z0-9_]{3,32}$", description="新插件标识")
     description: Optional[str] = Field(default=None, max_length=200)
@@ -1481,6 +1487,111 @@ async def update_plugin_config(
     defaults = _get_default_params_from_schema(meta.params_schema)
     merged = {**defaults, **req.params}
     return PluginConfigResponse(name=name, params=merged, is_customized=True)
+
+
+@router.get("/export-all")
+async def export_all_plugins(
+    _user: User = Depends(get_current_user),
+):
+    """将所有用户自定义插件打包为 ZIP 归档文件并下载。"""
+    import io
+    import zipfile
+    from datetime import datetime
+
+    target_dir = _get_custom_plugins_dir()
+    if not target_dir.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="自定义插件目录不存在",
+        )
+
+    py_files = [
+        f for f in target_dir.rglob("*.py")
+        if not f.name.startswith(".") and not f.name.startswith("__pycache__")
+    ]
+    if not py_files:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="当前没有可导出的自定义插件",
+        )
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for py_path in py_files:
+            rel_path = py_path.relative_to(target_dir)
+            zf.write(py_path, arcname=str(rel_path))
+
+    zip_bytes = zip_buffer.getvalue()
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"tg_signer_plugins_{timestamp}.zip"
+
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Access-Control-Expose-Headers": "Content-Disposition",
+        },
+    )
+
+
+@router.post("/import-bundle", response_model=ImportBundleResponse)
+async def import_plugins_bundle(
+    file: UploadFile = File(...),
+    _user: User = Depends(get_current_user),
+) -> ImportBundleResponse:
+    """上传 ZIP 压缩包，批量安全解压并热重载自定义插件。"""
+    import io
+    import zipfile
+
+    if not file.filename or not file.filename.lower().endswith(".zip"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="请上传 .zip 格式的插件压缩包",
+        )
+
+    content = await file.read()
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(content))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"解压 ZIP 失败: {exc}",
+        )
+
+    target_dir = _get_custom_plugins_dir()
+    imported_files: List[str] = []
+    errors: List[str] = []
+
+    with zf:
+        for member in zf.infolist():
+            if member.is_dir():
+                continue
+            if not member.filename.endswith(".py"):
+                continue
+
+            norm = Path(member.filename)
+            if ".." in norm.parts or norm.is_absolute():
+                errors.append(f"跳过不安全路径: {member.filename}")
+                continue
+
+            dest_path = target_dir / norm
+            try:
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
+                with zf.open(member) as src, open(dest_path, "wb") as dst:
+                    dst.write(src.read())
+                plugin_stem = norm.stem if norm.name != "__init__.py" else norm.parent.name
+                imported_files.append(plugin_stem)
+            except Exception as e:
+                errors.append(f"解压 {member.filename} 失败: {e}")
+
+    PluginRegistry.reload_all_plugins()
+
+    return ImportBundleResponse(
+        imported_count=len(imported_files),
+        files=imported_files,
+        errors=errors,
+    )
 
 
 @router.post("/{name}/reset-config", response_model=PluginConfigResponse)

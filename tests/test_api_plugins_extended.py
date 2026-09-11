@@ -561,3 +561,68 @@ def test_api_plugin_config_and_reset():
 
     # cleanup
     client.delete("/api/plugins/plug_cfg_test")
+
+
+def test_api_export_all_and_import_bundle_zip():
+    import io
+    import zipfile
+
+    # 清理可能残留的测试插件
+    client.delete("/api/plugins/bundle_p1")
+    client.delete("/api/plugins/bundle_p2")
+    client.delete("/api/plugins/bundle_imported")
+
+    # 1. 创建两个自定义插件
+    r1 = client.post(
+        "/api/plugins/create",
+        json={"name": "bundle_p1", "mode": "reactive", "template": "basic_reactive", "description": "插件1"},
+    )
+    assert r1.status_code == 200
+    r2 = client.post(
+        "/api/plugins/create",
+        json={"name": "bundle_p2", "mode": "active", "template": "basic_active", "description": "插件2"},
+    )
+    assert r2.status_code == 200
+
+    # 2. 调用全量导出 ZIP
+    export_resp = client.get("/api/plugins/export-all")
+    assert export_resp.status_code == 200
+    assert export_resp.headers["content-type"] == "application/zip"
+    assert "filename=" in export_resp.headers.get("content-disposition", "")
+
+    # 检查 ZIP 内容
+    zip_bytes = export_resp.content
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        namelist = zf.namelist()
+        assert any("bundle_p1" in name for name in namelist)
+        assert any("bundle_p2" in name for name in namelist)
+
+    # 3. 构造一个新的 ZIP 包进行批量上传导入测试
+    import_buf = io.BytesIO()
+    with zipfile.ZipFile(import_buf, "w") as zf:
+        code_imported = """\"\"\"从压缩包导入的插件\"\"\"
+from tg_signer.core.plugins import PluginContext, PluginRegistry
+
+@PluginRegistry.register(name="bundle_imported", mode="reactive")
+async def bundle_imported_handler(ctx: PluginContext) -> bool:
+    return True
+"""
+        zf.writestr("bundle_imported.py", code_imported)
+
+    import_buf.seek(0)
+    files = {"file": ("bundle_test.zip", import_buf.getvalue(), "application/zip")}
+    import_resp = client.post("/api/plugins/import-bundle", files=files)
+    assert import_resp.status_code == 200
+    result = import_resp.json()
+    assert result["imported_count"] >= 1
+    assert "bundle_imported" in result["files"]
+
+    # 确认系统已加载 bundle_imported
+    check_resp = client.get("/api/plugins/bundle_imported/source")
+    assert check_resp.status_code == 200
+    assert check_resp.json()["name"] == "bundle_imported"
+
+    # cleanup
+    client.delete("/api/plugins/bundle_p1")
+    client.delete("/api/plugins/bundle_p2")
+    client.delete("/api/plugins/bundle_imported")
