@@ -65,6 +65,7 @@ import {
   exportAllPlugins,
   importPluginsBundle,
   checkPluginSyntax,
+  clearPluginHistory,
   type PluginDependency,
   type PluginExecutionRecord,
   type PluginInfo,
@@ -147,6 +148,7 @@ const isHistoryModalOpen = ref(false)
 const historyPluginName = ref<string>('')
 const executionHistory = ref<PluginExecutionRecord[]>([])
 const loadingHistory = ref(false)
+const clearingHistory = ref(false)
 
 const openHistoryModal = async (plugin: PluginInfo) => {
   historyPluginName.value = plugin.name
@@ -164,6 +166,70 @@ const openHistoryModal = async (plugin: PluginInfo) => {
   } finally {
     loadingHistory.value = false
   }
+}
+
+const handleClearHistory = async () => {
+  if (!historyPluginName.value) return
+  const confirmed = await confirm({
+    title: t('settings.pluginsHistoryClear'),
+    message: t('settings.pluginsHistoryClearConfirm'),
+    confirmText: t('common.delete'),
+    cancelText: t('common.cancel'),
+    danger: true,
+  })
+  if (!confirmed) return
+
+  clearingHistory.value = true
+  try {
+    await withToken((token) => clearPluginHistory(historyPluginName.value, token))
+    executionHistory.value = []
+    toast.success(t('settings.pluginsHistoryClearSuccess'))
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    toast.error(msg)
+  } finally {
+    clearingHistory.value = false
+  }
+}
+
+const handleCopyHistoryLogs = async () => {
+  if (!executionHistory.value.length) return
+  try {
+    const delimiter = "\n---------------------\n\n"
+    const content = executionHistory.value.map((rec, i) => {
+      const status = rec.success ? '[SUCCESS]' : '[FAILED]'
+      const errPart = rec.error ? `Error: ${rec.error}\n` : ''
+      const logPart = rec.log_summary ? `Logs:\n${rec.log_summary}\n` : ''
+      return `#${i + 1} [${rec.timestamp}] ${status} (${rec.duration_ms}ms, ${rec.trigger_type})\n` + errPart + logPart
+    }).join(delimiter)
+    await navigator.clipboard.writeText(content)
+    toast.success(t('settings.pluginsHistoryExportSuccess'))
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    toast.error(msg)
+  }
+}
+interface TestSnapshot {
+  text: string
+  params: Record<string, unknown>
+}
+
+const testSnapshots = ref<Record<string, TestSnapshot[]>>({})
+
+const saveTestSnapshot = (pluginName: string, text: string, params: Record<string, unknown>) => {
+  if (!text.trim() && Object.keys(params).length === 0) return
+  const list = testSnapshots.value[pluginName] || []
+  const exists = list.some(item => item.text === text && JSON.stringify(item.params) === JSON.stringify(params))
+  if (!exists) {
+    list.unshift({ text, params: { ...params } })
+    if (list.length > 3) list.pop()
+    testSnapshots.value[pluginName] = list
+  }
+}
+
+const applyTestSnapshot = (item: TestSnapshot) => {
+  testInputText.value = item.text
+  testParams.value = { ...item.params }
 }
 
 const handleBatchToggle = async (enabled: boolean) => {
@@ -720,6 +786,9 @@ const runPluginTest = async () => {
     )
     if (!res) return
     testResult.value = res
+    if (currentTestPlugin.value) {
+      saveTestSnapshot(currentTestPlugin.value.name, testInputText.value, testParams.value)
+    }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
     testResult.value = {
@@ -1401,6 +1470,19 @@ onMounted(() => {
               {{ t('settings.pluginsTestInputLabel') }}
               <span v-if="currentTestPlugin.mode === 'active'" class="text-gray-400 font-normal text-[10px]">({{ t('common.optional') }})</span>
             </label>
+            <!-- 最近调试用例快照 -->
+            <div v-if="currentTestPlugin && testSnapshots[currentTestPlugin.name]?.length" class="flex items-center gap-1.5 mr-2">
+              <span class="text-[10px] text-purple-600 dark:text-purple-400 font-medium">⚡ {{ t('settings.pluginsPlaygroundRecentSnapshots') }}:</span>
+              <button
+                v-for="(snap, sIdx) in testSnapshots[currentTestPlugin.name]"
+                :key="sIdx"
+                type="button"
+                class="px-1.5 py-0.5 rounded text-[10px] bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/60 text-purple-700 dark:text-purple-300 font-mono transition-colors truncate max-w-[8rem]"
+                @click="applyTestSnapshot(snap)"
+              >
+                {{ snap.text ? (snap.text.length > 10 ? snap.text.slice(0, 10) + '...' : snap.text) : '{params}' }}
+              </button>
+            </div>
             <div class="flex items-center gap-1.5">
               <span class="text-[10px] text-gray-400">{{ t('settings.pluginsQuickPresets') }}:</span>
               <button
@@ -1865,6 +1947,29 @@ AUTHOR = "YourName"
       @close="isHistoryModalOpen = false"
     >
       <div class="space-y-3 text-xs max-h-[60vh] overflow-y-auto pr-1">
+        <!-- 历史操作工具栏 -->
+        <div v-if="executionHistory.length" class="flex items-center justify-between gap-2 pb-2 border-b border-gray-200/60 dark:border-gray-800/60">
+          <span class="text-[11px] text-gray-500 font-mono">{{ executionHistory.length }} 条记录</span>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              class="ui-btn-secondary !py-1 !px-2.5 !text-[11px] inline-flex items-center gap-1 text-sky-600 dark:text-sky-400"
+              @click="handleCopyHistoryLogs"
+            >
+              <Copy class="w-3 h-3" />
+              <span>{{ t('settings.pluginsHistoryExport') }}</span>
+            </button>
+            <button
+              type="button"
+              class="ui-btn-secondary !py-1 !px-2.5 !text-[11px] inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 hover:text-rose-700"
+              :disabled="clearingHistory"
+              @click="handleClearHistory"
+            >
+              <Trash2 class="w-3 h-3" />
+              <span>{{ clearingHistory ? t('common.loading') : t('settings.pluginsHistoryClear') }}</span>
+            </button>
+          </div>
+        </div>
         <div v-if="loadingHistory" class="py-8 text-center text-gray-400 flex items-center justify-center gap-2">
           <RefreshCw class="w-4 h-4 animate-spin text-indigo-500" />
           <span>{{ t('common.loading') }}</span>

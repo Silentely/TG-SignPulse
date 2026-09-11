@@ -652,3 +652,26 @@ def broken_func()
     assert res2["valid"] is False
     assert res2["line"] == 2
     assert "syntax" in res2["error"].lower() or "invalid" in res2["error"].lower()
+
+
+def test_api_clear_execution_history():
+    from tg_signer.core.plugins import PluginRegistry
+
+    # 1. 模拟记录 2 条历史
+    PluginRegistry.record_execution("math_solver", duration_ms=12.5, success=True, log_summary="log1")
+    PluginRegistry.record_execution("math_solver", duration_ms=30.0, success=False, error="Fail", log_summary="log2")
+
+    # 2. 检查历史存在
+    hist = PluginRegistry.get_execution_history("math_solver")
+    assert len(hist) >= 2
+
+    # 3. 调用清空历史接口
+    resp = client.post("/api/plugins/math_solver/clear-history")
+    assert resp.status_code == 200
+    res = resp.json()
+    assert res["status"] == "ok"
+    assert res["cleared_count"] >= 2
+
+    # 4. 确认历史已空
+    hist_after = PluginRegistry.get_execution_history("math_solver")
+    assert len(hist_after) == 0

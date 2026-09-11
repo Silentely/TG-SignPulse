@@ -1253,6 +1253,26 @@ async def get_plugin_history(
     }
 
 
+@router.post("/{name}/clear-history")
+async def clear_plugin_history(
+    name: str,
+    _user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """清空指定插件的调用历史记录。"""
+    meta = PluginRegistry.get(name)
+    if not meta:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"插件 '{name}' 未找到或未加载",
+        )
+    cleared = PluginRegistry.clear_execution_history(name)
+    return {
+        "status": "ok",
+        "name": name,
+        "cleared_count": cleared,
+    }
+
+
 @router.post("/{name}/clone", response_model=PluginInfo)
 async def clone_plugin(
     name: str,
