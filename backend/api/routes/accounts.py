@@ -703,6 +703,7 @@ async def update_account(
             target_account_name,
             remark=request.remark,
             proxy=request.proxy,
+            tags=request.tags,
         )
 
         if renamed:

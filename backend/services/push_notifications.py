@@ -405,6 +405,11 @@ async def send_login_notification(
         message_thread_id=thread_id,
         parse_mode="HTML",
     )
+    await dispatch_matrix_notification(
+        settings,
+        title=f"✅ {account_name} · {task_name} 执行成功",
+        fields=fields,
+    )
 
 
 async def send_task_success_notification(
@@ -485,3 +490,116 @@ async def send_auto_backup_failure_notification(
         )
     except Exception as exc:
         logger.warning("自动备份失败通知发送失败: %s", exc)
+
+
+async def send_wecom_message(webhook_url: str, title: str, text: str) -> None:
+    """发送企业微信群机器人 Webhook 通知。"""
+    if not webhook_url or not webhook_url.strip():
+        return
+    content = f"### {title}\n{text}"
+    payload = {
+        "msgtype": "markdown",
+        "markdown": {"content": content[:4000]}
+    }
+    await _http_post_retry_once(url=webhook_url.strip(), channel="WeCom", json_body=payload)
+
+
+async def send_feishu_message(webhook_url: str, title: str, text: str) -> None:
+    """发送飞书自定义机器人 Webhook 通知（支持富文本卡片）。"""
+    if not webhook_url or not webhook_url.strip():
+        return
+    payload = {
+        "msg_type": "interactive",
+        "card": {
+            "header": {
+                "title": {"tag": "plain_text", "content": title[:100]}
+            },
+            "elements": [
+                {
+                    "tag": "div",
+                    "text": {"tag": "lark_md", "content": text[:3000]}
+                }
+            ]
+        }
+    }
+    await _http_post_retry_once(url=webhook_url.strip(), channel="Feishu", json_body=payload)
+
+
+async def send_dingtalk_message(webhook_url: str, title: str, text: str) -> None:
+    """发送钉钉群机器人 Webhook 通知。"""
+    if not webhook_url or not webhook_url.strip():
+        return
+    content = f"### {title}\n\n{text}"
+    payload = {
+        "msgtype": "markdown",
+        "markdown": {
+            "title": title[:100],
+            "text": content[:4000],
+        }
+    }
+    await _http_post_retry_once(url=webhook_url.strip(), channel="DingTalk", json_body=payload)
+
+
+async def send_discord_message(webhook_url: str, title: str, text: str) -> None:
+    """发送 Discord Webhook 通知。"""
+    if not webhook_url or not webhook_url.strip():
+        return
+    payload = {
+        "username": "TG-SignPulse",
+        "embeds": [
+            {
+                "title": title[:256],
+                "description": text[:4000],
+                "color": 3447003,
+            }
+        ]
+    }
+    await _http_post_retry_once(url=webhook_url.strip(), channel="Discord", json_body=payload)
+
+
+async def dispatch_matrix_notification(
+    settings: Dict[str, Any],
+    *,
+    title: str,
+    fields: list[tuple[str, str]],
+    footer: str = "",
+) -> None:
+    """统一向外部 Webhook 矩阵（企业微信、飞书、钉钉、Discord）分发通知。"""
+    if is_in_quiet_hours(settings):
+        return
+
+    md_lines = []
+    for label, val in fields:
+        if val:
+            md_lines.append(f"**{label}**: `{val}`")
+    if footer:
+        md_lines.append(f"\n{footer}")
+    body_text = "\n".join(md_lines)
+
+    wecom_url = (settings.get("wecom_webhook_url") or "").strip()
+    if wecom_url:
+        try:
+            await send_wecom_message(wecom_url, title, body_text)
+        except Exception as exc:
+            logger.warning("企业微信通知发送失败: %s", exc)
+
+    feishu_url = (settings.get("feishu_webhook_url") or "").strip()
+    if feishu_url:
+        try:
+            await send_feishu_message(feishu_url, title, body_text)
+        except Exception as exc:
+            logger.warning("飞书通知发送失败: %s", exc)
+
+    dingtalk_url = (settings.get("dingtalk_webhook_url") or "").strip()
+    if dingtalk_url:
+        try:
+            await send_dingtalk_message(dingtalk_url, title, body_text)
+        except Exception as exc:
+            logger.warning("钉钉通知发送失败: %s", exc)
+
+    discord_url = (settings.get("discord_webhook_url") or "").strip()
+    if discord_url:
+        try:
+            await send_discord_message(discord_url, title, body_text)
+        except Exception as exc:
+            logger.warning("Discord 通知发送失败: %s", exc)

@@ -182,6 +182,7 @@ class TelegramAccountsMixin:
                             "size": session_size,
                             "remark": profile.get("remark"),
                             "proxy": profile.get("proxy"),
+                            "tags": profile.get("tags") or [],
                             **self._account_status_payload(account_name),
                         }
                     )
@@ -202,6 +203,7 @@ class TelegramAccountsMixin:
                             "size": session_size,
                             "remark": profile.get("remark"),
                             "proxy": profile.get("proxy"),
+                            "tags": profile.get("tags") or [],
                             **self._account_status_payload(account_name),
                         }
                     )
@@ -222,6 +224,7 @@ class TelegramAccountsMixin:
                             "size": session_size,
                             "remark": profile.get("remark"),
                             "proxy": profile.get("proxy"),
+                            "tags": profile.get("tags") or [],
                             **self._account_status_payload(account_name),
                         }
                     )

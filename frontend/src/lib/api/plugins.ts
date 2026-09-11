@@ -22,6 +22,7 @@ export interface PluginInfo {
   params_schema?: PluginParamSchema[]
   enabled?: boolean
   builtin?: boolean
+  permissions?: string[]
 }
 
 export interface ReloadPluginsResponse {
@@ -77,5 +78,16 @@ export async function testPlugin(
   return request<PluginTestResponse>(`/plugins/${encodeURIComponent(name)}/test`, {
     method: 'POST',
     body: JSON.stringify(payload),
+  }, token)
+}
+
+export async function installRemotePlugin(
+  url: string,
+  filename: string | undefined,
+  token: string,
+): Promise<PluginInfo> {
+  return request<PluginInfo>('/plugins/install-remote', {
+    method: 'POST',
+    body: JSON.stringify({ url, filename }),
   }, token)
 }

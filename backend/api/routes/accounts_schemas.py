@@ -76,6 +76,7 @@ class AccountInfo(BaseModel):
     status_code: Optional[str] = None
     status_checked_at: Optional[str] = None
     needs_relogin: bool = False
+    tags: list[str] = []
 
 
 class QrLoginStatusResponse(BaseModel):
@@ -137,10 +138,11 @@ class DeleteAccountResponse(BaseModel):
 
 class AccountUpdateRequest(BaseModel):
     new_account_name: Optional[str] = None
-    """更新账号备注/代理"""
+    """更新账号备注/代理/标签"""
 
     remark: Optional[str] = None
     proxy: Optional[str] = None
+    tags: Optional[list[str]] = None
 
 
 class AccountUpdateResponse(BaseModel):

@@ -98,6 +98,8 @@ export interface TaskActionItem {
   params?: Record<string, any>;
   mode?: 'reactive' | 'active';
   timeout?: number;
+  continue_on_error?: boolean;
+  skip_if_matched?: string;
 }
 
 // 后端原始 action 结构
@@ -125,6 +127,8 @@ export interface RawTaskAction {
   params?: Record<string, any>;
   mode?: 'reactive' | 'active';
   timeout?: number;
+  continue_on_error?: boolean;
+  skip_if_matched?: string;
 }
 
 // 构建 API 请求体时的中间类型
@@ -152,6 +156,8 @@ export interface BuiltAction {
   params?: Record<string, any>;
   mode?: 'reactive' | 'active';
   timeout?: number;
+  continue_on_error?: boolean;
+  skip_if_matched?: string;
 }
 
 // ─── API 错误类型 ───

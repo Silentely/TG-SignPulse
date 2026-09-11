@@ -1,0 +1,74 @@
+from __future__ import annotations
+
+import datetime
+import pytest
+
+from tg_signer.core.template import (
+    render_template,
+    render_template_recursive,
+    _SafeEvaluator,
+)
+
+
+def test_render_template_plain_text():
+    assert render_template("Hello world") == "Hello world"
+    assert render_template("") == ""
+    assert render_template(None) is None
+
+
+def test_render_template_builtins():
+    now_date = datetime.datetime.now().strftime("%Y-%m-%d")
+    res = render_template("Today is {{ date }}")
+    assert res == f"Today is {now_date}"
+
+    res = render_template("Time format: {{ now.strftime('%Y') }}")
+    assert res == f"Time format: {datetime.datetime.now().year}"
+
+    res = render_template("Random: {{ random_int(10, 10) }}")
+    assert res == "Random: 10"
+
+    res = render_template("Choice: {{ random_choice('single') }}")
+    assert res == "Choice: single"
+
+    res = render_template("UUID: {{ uuid(short=True) }}")
+    assert len(res.replace("UUID: ", "")) == 8
+
+
+def test_render_template_custom_context():
+    ctx = {
+        "account": {"name": "Alice", "phone": "+12345678"},
+        "prev_output": "code_9876",
+        "step": {1: {"output": "result_1"}},
+    }
+    assert (
+        render_template("Hello {{ account.name }}, prev is {{ prev_output }}", ctx)
+        == "Hello Alice, prev is code_9876"
+    )
+    assert (
+        render_template("Step 1 output: {{ step[1].output }}", ctx)
+        == "Step 1 output: result_1"
+    )
+
+
+def test_render_template_security_sandbox():
+    # 禁止访问私有属性
+    assert render_template("{{ ().__class__ }}") == "{{ ().__class__ }}"
+    # 禁止调用 eval 或 os
+    assert render_template("{{ __import__('os').system('ls') }}") == "{{ __import__('os').system('ls') }}"
+    # 未定义变量保留原文本
+    assert render_template("Unknown: {{ nonexistent_var }}") == "Unknown: {{ nonexistent_var }}"
+
+
+def test_render_template_recursive():
+    payload = {
+        "text": "Date: {{ date }}",
+        "nested": {
+            "count": "{{ random_int(5, 5) }}",
+            "items": ["prefix_{{ account.name }}"],
+        },
+        "number": 42,
+    }
+    rendered = render_template_recursive(payload, {"account": {"name": "Bob"}})
+    assert rendered["nested"]["count"] == "5"
+    assert rendered["nested"]["items"] == ["prefix_Bob"]
+    assert rendered["number"] == 42
