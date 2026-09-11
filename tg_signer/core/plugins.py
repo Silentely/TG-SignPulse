@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import ast
 import asyncio
 import hashlib
 import importlib.util
@@ -355,6 +356,7 @@ class PluginMeta:
     enabled: bool = True
     builtin: bool = False
     permissions: List[str] = field(default_factory=list)
+    doc: Optional[str] = None
 
 
 @dataclass
@@ -549,6 +551,17 @@ class PluginRegistry:
             except Exception:
                 pass
 
+            doc_str = getattr(fn, "__doc__", None)
+            if not doc_str:
+                try:
+                    mod = inspect.getmodule(fn)
+                    if mod and mod.__doc__:
+                        doc_str = mod.__doc__.strip()
+                except Exception:
+                    pass
+            if doc_str:
+                doc_str = doc_str.strip()
+
             cls._plugins[name] = PluginMeta(
                 name=name,
                 handler=fn,
@@ -562,6 +575,7 @@ class PluginRegistry:
                 enabled=cls.is_enabled(name),
                 builtin=is_builtin_plugin_path(source_file),
                 permissions=list(permissions or []),
+                doc=doc_str or None,
             )
             return fn
         return decorator
@@ -808,3 +822,69 @@ class PluginRegistry:
     def reload_all_plugins(cls) -> int:
         cls.clear()
         return cls.load_all_configured_plugins()
+
+class _SecurityVisitor(ast.NodeVisitor):
+    def __init__(self) -> None:
+        self.warnings: List[Dict[str, Any]] = []
+
+    def visit_Call(self, node: ast.Call) -> None:
+        func_name = ""
+        if isinstance(node.func, ast.Name):
+            func_name = node.func.id
+        elif isinstance(node.func, ast.Attribute):
+            val = node.func.value
+            if isinstance(val, ast.Name):
+                func_name = f"{val.id}.{node.func.attr}"
+            else:
+                func_name = node.func.attr
+
+        if func_name in ("eval", "exec", "compile", "__import__"):
+            self.warnings.append({
+                "line": node.lineno,
+                "column": node.col_offset,
+                "severity": "high",
+                "rule": f"disallowed-call:{func_name}",
+                "message": f"检测到使用动态执行函数 '{func_name}'",
+            })
+        elif func_name in ("os.system", "os.popen", "os.kill", "shutil.rmtree"):
+            self.warnings.append({
+                "line": node.lineno,
+                "column": node.col_offset,
+                "severity": "high",
+                "rule": f"dangerous-system-call:{func_name}",
+                "message": f"检测到调用高危系统操作 '{func_name}'",
+            })
+        elif func_name in ("subprocess.Popen", "subprocess.run", "subprocess.call"):
+            self.warnings.append({
+                "line": node.lineno,
+                "column": node.col_offset,
+                "severity": "medium",
+                "rule": f"process-execution:{func_name}",
+                "message": f"检测到调用外部进程执行 '{func_name}'",
+            })
+
+        self.generic_visit(node)
+
+
+def audit_plugin_source(source: str) -> List[Dict[str, Any]]:
+    try:
+        tree = ast.parse(source, filename="<plugin_security_audit>")
+        visitor = _SecurityVisitor()
+        visitor.visit(tree)
+        return visitor.warnings
+    except SyntaxError as e:
+        return [{
+            "line": e.lineno,
+            "column": e.offset,
+            "severity": "high",
+            "rule": "syntax-error",
+            "message": f"代码存在语法错误，无法完成安全审计: {e.msg}",
+        }]
+    except Exception as e:
+        return [{
+            "line": 1,
+            "column": 0,
+            "severity": "medium",
+            "rule": "audit-error",
+            "message": f"审计解析异常: {e}",
+        }]

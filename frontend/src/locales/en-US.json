@@ -886,7 +886,13 @@
     "pluginsHistoryClearConfirm": "Are you sure you want to clear the execution history for this plugin?",
     "pluginsHistoryExport": "Copy History Logs",
     "pluginsHistoryExportSuccess": "All execution logs copied to clipboard",
-    "pluginsPlaygroundRecentSnapshots": "Recent Runs"
+    "pluginsPlaygroundRecentSnapshots": "Recent Runs",
+    "pluginsAudit": "Security Audit",
+    "pluginsAuditSafe": "Code security audit passed, no dangerous calls detected",
+    "pluginsAuditWarnings": "{n} potential security risk(s) detected",
+    "pluginsDocTitle": "Documentation: {name}",
+    "pluginsDocEmpty": "No additional documentation available for this plugin",
+    "pluginsViewDoc": "Docs"
   },
   "profile": {
     "title": "Profile",

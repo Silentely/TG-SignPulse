@@ -886,7 +886,13 @@
     "pluginsHistoryClearConfirm": "确定要清空该插件的全部调用历史记录吗？",
     "pluginsHistoryExport": "复制历史日志",
     "pluginsHistoryExportSuccess": "已复制全部历史日志到剪贴板",
-    "pluginsPlaygroundRecentSnapshots": "最近调试用例"
+    "pluginsPlaygroundRecentSnapshots": "最近调试用例",
+    "pluginsAudit": "安全审计",
+    "pluginsAuditSafe": "代码安全审计通过，未检测到高危调用",
+    "pluginsAuditWarnings": "检测到 {n} 项潜在风险或敏感调用",
+    "pluginsDocTitle": "使用文档: {name}",
+    "pluginsDocEmpty": "该插件暂无额外使用文档",
+    "pluginsViewDoc": "文档"
   },
   "profile": {
     "title": "个人中心",

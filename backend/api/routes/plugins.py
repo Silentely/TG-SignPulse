@@ -89,6 +89,7 @@ class PluginInfo(BaseModel):
     enabled: bool = True
     builtin: bool = False
     permissions: List[str] = Field(default_factory=list)
+    doc: Optional[str] = None
     metrics: Optional[PluginMetricsModel] = None
 
 
@@ -109,6 +110,7 @@ def _meta_to_info(p: PluginMeta, disabled_set: Optional[set[str]] = None) -> Plu
         enabled=p.name not in disabled_set,
         builtin=getattr(p, "builtin", False),
         permissions=getattr(p, "permissions", []),
+        doc=getattr(p, "doc", None),
         metrics=metrics_model,
     )
 
@@ -161,6 +163,23 @@ class CheckSyntaxResponse(BaseModel):
     line: Optional[int] = None
     column: Optional[int] = None
     error: Optional[str] = None
+
+
+class AuditPluginRequest(BaseModel):
+    source: str
+
+
+class AuditPluginWarning(BaseModel):
+    line: int
+    column: int
+    severity: str
+    rule: str
+    message: str
+
+
+class AuditPluginResponse(BaseModel):
+    passed: bool
+    warnings: List[AuditPluginWarning] = Field(default_factory=list)
 
 
 class ImportBundleResponse(BaseModel):
@@ -1587,6 +1606,28 @@ async def check_plugin_syntax(
             valid=False,
             error=f"解析失败: {exc}",
         )
+
+
+@router.post("/audit-source", response_model=AuditPluginResponse)
+async def audit_plugin_source_route(
+    req: AuditPluginRequest,
+    _user: User = Depends(get_current_user),
+) -> AuditPluginResponse:
+    """静态审计插件源码中的高危调用与潜在安全隐患。"""
+    from tg_signer.core.plugins import audit_plugin_source
+    warnings_raw = audit_plugin_source(req.source)
+    warnings = [
+        AuditPluginWarning(
+            line=w["line"],
+            column=w["column"],
+            severity=w["severity"],
+            rule=w["rule"],
+            message=w["message"],
+        )
+        for w in warnings_raw
+    ]
+    passed = len(warnings) == 0
+    return AuditPluginResponse(passed=passed, warnings=warnings)
 
 
 @router.post("/import-bundle", response_model=ImportBundleResponse)

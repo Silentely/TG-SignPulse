@@ -804,4 +804,35 @@ describe('PluginsSettings.vue 插件管理组件', () => {
       expect(clearSpy).toHaveBeenCalledWith('history_clear_p', 'mock-token')
     })
   })
+
+  it('当插件存在 doc 时展示文档按钮并能打开说明文档弹窗', async () => {
+    const mockPlugin = {
+      name: 'doc_demo_plugin',
+      mode: 'reactive' as const,
+      description: '带文档的演示插件',
+      doc: '## 配置指南\n这是详细的插件文档说明。',
+      builtin: true,
+      enabled: true,
+    }
+
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValue([mockPlugin])
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('doc_demo_plugin')
+    })
+
+    // 找到文档按钮
+    const docBtn = wrapper.findAll('button').find((b) => b.attributes('title')?.includes('文档') || b.text().includes('文档'))
+    expect(docBtn).toBeDefined()
+    await docBtn!.trigger('click')
+
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain('配置指南')
+      expect(document.body.textContent).toContain('这是详细的插件文档说明。')
+    })
+  })
 })
