@@ -22,7 +22,13 @@ def _register_worker_fixtures():
         import sys
         import time
 
-        subprocess.Popen([sys.executable, "-c", "import time; time.sleep(100)"])
+        subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(100)"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+        )
         while True:
             time.sleep(0.05)
 
@@ -83,7 +89,13 @@ async def test_subprocess_host_kills_infinite_loop_and_cleans_process_group():
         import sys
         import time
 
-        subprocess.Popen([sys.executable, "-c", "import time; time.sleep(100)"])
+        subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(100)"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+        )
         while True:
             time.sleep(0.05)
 
@@ -217,5 +229,14 @@ def test_kill_process_tree_posix_fallback_on_getpgid_error():
     mock_proc.pid = 88888
 
     with patch("os.name", "posix"), patch("os.getpgid", side_effect=ProcessLookupError):
+        kill_process_tree(mock_proc)
+        mock_proc.kill.assert_called_once()
+
+def test_kill_process_tree_posix_same_pgid_fallback():
+    mock_proc = MagicMock()
+    mock_proc.returncode = None
+    mock_proc.pid = 77777
+
+    with patch("os.name", "posix"), patch("os.getpgid", return_value=1234), patch("os.getpgrp", return_value=1234):
         kill_process_tree(mock_proc)
         mock_proc.kill.assert_called_once()

@@ -25,8 +25,9 @@ def kill_process_tree(target: Union[int, Any]) -> None:
     if os.name != "nt":
         try:
             pgid = os.getpgid(pid)
-            os.killpg(pgid, signal.SIGKILL)
-            return
+            if pgid != os.getpgrp():
+                os.killpg(pgid, signal.SIGKILL)
+                return
         except ProcessLookupError:
             pass
         except OSError:
