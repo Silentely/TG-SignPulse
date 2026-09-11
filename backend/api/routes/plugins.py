@@ -16,7 +16,12 @@ from pydantic import BaseModel, Field
 from backend.core.auth import get_current_user
 from backend.models.user import User
 from tg_signer.core.plugin_host import PluginProcessHost
-from tg_signer.core.plugins import PluginContext, PluginRegistry, is_builtin_plugin_path
+from tg_signer.core.plugins import (
+    PluginContext,
+    PluginMeta,
+    PluginRegistry,
+    is_builtin_plugin_path,
+)
 
 router = APIRouter()
 logger = logging.getLogger("backend.plugins_api")
@@ -340,12 +345,12 @@ async def install_remote_plugin(
 ) -> PluginInfo:
     """从远程 URL 下载并安装自定义插件。"""
     import ast
-    import httpx
-    import re
-
     import ipaddress
+    import re
     import socket
     from urllib.parse import urlparse
+
+    import httpx
 
     raw_url = req.url.strip()
     if not (raw_url.startswith("http://") or raw_url.startswith("https://")):
@@ -356,41 +361,74 @@ async def install_remote_plugin(
     if not hostname:
         raise HTTPException(status_code=400, detail="无效的主机名")
 
-    # SSRF 防护：严格禁止回环与局域网内网探测
+    # SSRF 防护：白名单式校验，仅放行全局可路由地址
     def _is_forbidden_target(ip_obj: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
-        if ip_obj.is_loopback or ip_obj.is_link_local:
+        embedded: list[ipaddress.IPv4Address] = []
+        if ip_obj.version == 6:
+            # IPv4-mapped/6to4/Teredo 内嵌的 IPv4 地址需一并判定，防止 ::ffff:10.0.0.1 之类字面量绕过
+            if ip_obj.ipv4_mapped:
+                embedded.append(ip_obj.ipv4_mapped)
+            if ip_obj.sixtofour:
+                embedded.append(ip_obj.sixtofour)
+            if ip_obj.teredo:
+                embedded.extend([ip_obj.teredo.server, ip_obj.teredo.client])
+        if not ip_obj.is_global:
             return True
-        for net in (
-            ipaddress.ip_network("10.0.0.0/8"),
-            ipaddress.ip_network("172.16.0.0/12"),
-            ipaddress.ip_network("192.168.0.0/16"),
-            ipaddress.ip_network("169.254.0.0/16"),
-        ):
-            if ip_obj.version == net.version and ip_obj in net:
-                return True
-        return False
+        return any(not addr.is_global for addr in embedded)
 
+    # 解析候选地址并逐一校验，返回钉扎用的 IP，避免后续请求重新解析造成 DNS rebinding
     try:
-        ip = ipaddress.ip_address(hostname)
-        if _is_forbidden_target(ip):
-            raise HTTPException(status_code=400, detail="安全限制：禁止请求私有或内网地址")
+        candidates = [ipaddress.ip_address(hostname)]
     except ValueError:
         try:
             addr_info = socket.getaddrinfo(hostname, None)
-            for addr in addr_info:
-                ip_str = addr[4][0]
-                ip = ipaddress.ip_address(ip_str)
-                if _is_forbidden_target(ip):
-                    raise HTTPException(status_code=400, detail="安全限制：禁止请求私有或内网地址")
-        except socket.gaierror:
-            pass
+        except (socket.gaierror, UnicodeError):
+            raise HTTPException(status_code=400, detail=f"无法解析主机: {hostname}")
+        candidates = []
+        for addr in addr_info:
+            try:
+                candidates.append(ipaddress.ip_address(addr[4][0]))
+            except ValueError:
+                continue
+    if not candidates:
+        raise HTTPException(status_code=400, detail=f"无法解析主机: {hostname}")
+    for ip_obj in candidates:
+        if _is_forbidden_target(ip_obj):
+            raise HTTPException(status_code=400, detail="安全限制：禁止请求私有或内网地址")
+    pinned_ip_obj = candidates[0]
+    if pinned_ip_obj.version == 6 and pinned_ip_obj.ipv4_mapped:
+        pinned_ip_obj = pinned_ip_obj.ipv4_mapped
+    pinned_ip = str(pinned_ip_obj)
+
+    default_port = {"http": 80, "https": 443}.get(parsed_url.scheme)
+
+    def _build_pinned_url() -> str:
+        host_for_url = f"[{pinned_ip}]" if ":" in pinned_ip else pinned_ip
+        netloc = host_for_url if parsed_url.port is None else f"{host_for_url}:{parsed_url.port}"
+        if parsed_url.username:
+            credential = parsed_url.username
+            if parsed_url.password:
+                credential = f"{credential}:{parsed_url.password}"
+            netloc = f"{credential}@{netloc}"
+        return parsed_url._replace(netloc=netloc).geturl()
 
     try:
-        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-            resp = await client.get(raw_url)
-            if resp.status_code != 200:
-                raise HTTPException(status_code=400, detail=f"下载失败: HTTP {resp.status_code}")
-            code_text = resp.text
+        request_url = _build_pinned_url()
+        host_header = hostname if parsed_url.port in (None, default_port) else f"{hostname}:{parsed_url.port}"
+        request_headers = {"Host": host_header}
+        # trust_env=False：禁用环境/系统代理，代理会以未受校验的解析建立连接，且其隧道
+        # 路径不支持 sni_hostname 扩展；直连钉扎 IP 才能保证校验与实际连接目标一致
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=False, trust_env=False) as client:
+            if parsed_url.scheme == "https":
+                # 钉扎 IP 后仍按原主机名完成 SNI 与证书校验
+                resp = await client.get(request_url, headers=request_headers, extensions={"sni_hostname": hostname})
+            else:
+                resp = await client.get(request_url, headers=request_headers)
+        if 300 <= resp.status_code < 400:
+            raise HTTPException(status_code=400, detail="远程插件 URL 不允许重定向")
+        if resp.status_code != 200:
+            raise HTTPException(status_code=400, detail=f"下载失败: HTTP {resp.status_code}")
+        code_text = resp.text
     except HTTPException:
         raise
     except Exception as exc:
@@ -438,10 +476,8 @@ async def install_remote_plugin(
             break
 
     if not matched:
-        # 兜底返回最新加载的一个
-        matched = list(plugins.values())[-1] if plugins else None
-
-    if not matched:
+        # 加载失败时清理已写入的文件，避免残留无效插件
+        dest_path.unlink(missing_ok=True)
         raise HTTPException(status_code=500, detail="插件文件已写入但未能成功加载")
 
     return PluginInfo(

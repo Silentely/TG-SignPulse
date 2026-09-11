@@ -9,7 +9,6 @@ import {
   request,
 } from "./core";
 import { downloadBlob, normalizeNetworkError } from "../download";
-
 export interface ScheduledJob {
   id: string;
   name: string;
@@ -233,4 +232,3 @@ export interface TrendsResponse {
 
 export const getHistoryTrends = (token: string, days = 7) =>
   request<TrendsResponse>(`/ops/trends?days=${days}`, {}, token);
-

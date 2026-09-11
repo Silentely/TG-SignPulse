@@ -405,11 +405,6 @@ async def send_login_notification(
         message_thread_id=thread_id,
         parse_mode="HTML",
     )
-    await dispatch_matrix_notification(
-        settings,
-        title=f"✅ {account_name} · {task_name} 执行成功",
-        fields=fields,
-    )
 
 
 async def send_task_success_notification(
