@@ -613,6 +613,8 @@ class PluginRegistry:
             dirs.append(Path(data_base).expanduser() / "plugins")
         elif Path("/data/plugins").is_dir():
             dirs.append(Path("/data/plugins"))
+        else:
+            dirs.append(Path.cwd() / "data" / "plugins")
 
         # 保持顺序并以解析路径去重
         deduped: list[Path] = []

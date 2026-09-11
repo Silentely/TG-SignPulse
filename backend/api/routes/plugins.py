@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 import inspect
 import logging
 import os
+import shutil
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -48,11 +50,33 @@ class PluginInfo(BaseModel):
     name: str
     mode: str
     description: str = ""
+    version: str = "1.0.0"
+    updated_at: str = ""
+    author: str = ""
     source_path: Optional[str] = None
     params_schema: List[Dict[str, Any]] = Field(default_factory=list)
     enabled: bool = True
     builtin: bool = False
     permissions: List[str] = Field(default_factory=list)
+
+
+class PluginSourceResponse(BaseModel):
+    name: str
+    version: str = "1.0.0"
+    updated_at: str = ""
+    author: str = ""
+    builtin: bool = False
+    source_path: Optional[str] = None
+    source: str
+
+
+class CreatePluginRequest(BaseModel):
+    name: str = Field(..., pattern=r"^[a-zA-Z0-9_]{3,32}$", description="插件英文标识（3-32位字母数字下划线）")
+    mode: Literal["reactive", "active"] = "reactive"
+    template: Literal["basic_reactive", "basic_active", "storage_counter"] = "basic_reactive"
+    description: str = Field(default="", max_length=200)
+    author: str = Field(default="", max_length=50)
+    version: str = Field(default="1.0.0", pattern=r"^\d+\.\d+\.\d+$")
 
 
 class ReloadPluginsResponse(BaseModel):
@@ -92,6 +116,9 @@ async def list_plugins(_user: User = Depends(get_current_user)) -> List[PluginIn
             name=p.name,
             mode=p.mode,
             description=p.description,
+            version=getattr(p, "version", "1.0.0") or "1.0.0",
+            updated_at=getattr(p, "updated_at", "") or "",
+            author=getattr(p, "author", "") or "",
             source_path=_safe_source_path(p.source_path),
             params_schema=p.params_schema or [],
             enabled=p.name not in disabled_set,
@@ -484,6 +511,261 @@ async def install_remote_plugin(
         name=matched.name,
         mode=matched.mode,
         description=matched.description,
+        version=getattr(matched, "version", "1.0.0") or "1.0.0",
+        updated_at=getattr(matched, "updated_at", "") or "",
+        author=getattr(matched, "author", "") or "",
+        source_path=_safe_source_path(matched.source_path),
+        params_schema=matched.params_schema or [],
+        enabled=True,
+        builtin=False,
+        permissions=getattr(matched, "permissions", []),
+    )
+
+
+@router.get("/{name}/source", response_model=PluginSourceResponse)
+async def get_plugin_source(
+    name: str,
+    _user: User = Depends(get_current_user),
+) -> PluginSourceResponse:
+    """获取指定插件的只读源代码内容。"""
+    meta = PluginRegistry.get(name)
+    if not meta:
+        raise HTTPException(status_code=404, detail="插件未找到")
+
+    if not meta.source_path:
+        raise HTTPException(status_code=404, detail="插件无源码文件")
+
+    source_path = Path(meta.source_path).resolve()
+    if not source_path.is_file():
+        raise HTTPException(status_code=404, detail="插件源码文件在磁盘上不存在")
+
+    # 路径防穿越安全校验：文件必须存在于合法搜索目录或内置插件目录中
+    allowed_dirs = [d.resolve() for d in PluginRegistry.get_search_directories()]
+    allowed_dirs.extend([d.resolve() for d in PluginRegistry.get_builtin_directories()])
+    is_allowed = any(d in source_path.parents or d == source_path.parent for d in allowed_dirs)
+    if not is_allowed:
+        raise HTTPException(status_code=403, detail="非法插件源码路径访问")
+
+    # 单文件读取上限 2MB
+    try:
+        file_size = source_path.stat().st_size
+        if file_size > 2 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="插件源码文件超过 2MB 限制")
+        source_code = source_path.read_text(encoding="utf-8")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("读取插件源码失败 %s: %s", source_path, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"读取插件源码失败: {exc}")
+
+    return PluginSourceResponse(
+        name=meta.name,
+        version=getattr(meta, "version", "1.0.0") or "1.0.0",
+        updated_at=getattr(meta, "updated_at", "") or "",
+        author=getattr(meta, "author", "") or "",
+        builtin=getattr(meta, "builtin", False) or is_builtin_plugin_path(source_path),
+        source_path=_safe_source_path(str(source_path)),
+        source=source_code,
+    )
+
+
+@router.delete("/{name}")
+async def delete_plugin(
+    name: str,
+    _user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """删除指定的自定义插件（官方内置插件禁止删除）。"""
+    meta = PluginRegistry.get(name)
+    if not meta:
+        raise HTTPException(status_code=404, detail="插件未找到")
+
+    if getattr(meta, "builtin", False) or is_builtin_plugin_path(meta.source_path):
+        raise HTTPException(status_code=403, detail="官方内置插件禁止删除")
+
+    if not meta.source_path:
+        raise HTTPException(status_code=400, detail="插件无物理源文件路径，无法物理删除")
+
+    source_path = Path(meta.source_path).resolve()
+    if not source_path.exists():
+        raise HTTPException(status_code=404, detail="插件文件在磁盘上不存在")
+
+    # 安全检查：源文件必须位于自定义插件目录中
+    custom_dirs = [d.resolve() for d in PluginRegistry.get_search_directories() if not is_builtin_plugin_path(d)]
+    is_in_custom_dir = any(d in source_path.parents or d == source_path.parent for d in custom_dirs)
+    if not is_in_custom_dir:
+        raise HTTPException(status_code=403, detail="插件所在目录不是自定义插件目录，禁止删除")
+
+    try:
+        # 如果是目录型插件（例如 /path/to/custom_plugins/my_plug/main.py），且父目录在 custom_dir 内部
+        if source_path.name in ("main.py", "__init__.py") and source_path.parent not in custom_dirs:
+            shutil.rmtree(source_path.parent)
+        else:
+            source_path.unlink()
+    except Exception as exc:
+        logger.error("删除插件文件失败 %s: %s", source_path, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"删除插件文件失败: {exc}")
+
+    # 若有停用配置，同步从全局 disabled_plugins 中移除
+    try:
+        from backend.services.config import get_config_service
+        cfg_service = get_config_service()
+        settings = cfg_service.get_global_settings() or {}
+        disabled = list(settings.get("disabled_plugins", []))
+        if name in disabled:
+            disabled.remove(name)
+            settings["disabled_plugins"] = disabled
+            cfg_service.save_global_settings(settings)
+    except Exception as exc:
+        logger.warning("清理 disabled_plugins 失败: %s", exc)
+
+    PluginRegistry.reload_all_plugins()
+    return {"success": True, "name": name, "message": f"插件 {name} 已成功删除"}
+
+
+@router.post("/create", response_model=PluginInfo)
+async def create_plugin_from_template(
+    req: CreatePluginRequest,
+    _user: User = Depends(get_current_user),
+) -> PluginInfo:
+    """根据模板脚手架在线创建自定义插件。"""
+    # 1. 检查名称是否重复
+    existing = PluginRegistry.get(req.name)
+    if existing:
+        raise HTTPException(status_code=400, detail=f"插件名称 '{req.name}' 已存在")
+
+    # 2. 确定自定义插件保存目录
+    custom_dirs = [d for d in PluginRegistry.get_search_directories() if not is_builtin_plugin_path(d)]
+    target_dir = custom_dirs[0] if custom_dirs else Path.cwd() / "data" / "plugins"
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    plugin_dir = target_dir / req.name
+    if plugin_dir.exists():
+        raise HTTPException(status_code=400, detail=f"目录 '{req.name}' 已存在于插件目录中")
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    version = req.version or "1.0.0"
+    author = req.author or ""
+    description = req.description or f"自定义插件 {req.name}"
+
+    if req.template == "basic_active":
+        code_text = f'''"""自定义主动执行式插件: {req.name}"""
+from tg_signer.core.plugins import PluginContext, PluginRegistry
+
+VERSION = "{version}"
+UPDATED_AT = "{today}"
+AUTHOR = "{author}"
+
+PARAMS_SCHEMA = [
+    {{
+        "name": "notify_text",
+        "label": "通知文案",
+        "type": "string",
+        "default": "主动任务执行完毕",
+        "description": "需要主动推送的内容",
+    }}
+]
+
+@PluginRegistry.register(
+    name="{req.name}",
+    mode="active",
+    description="{description}",
+    params_schema=PARAMS_SCHEMA,
+    version=VERSION,
+    updated_at=UPDATED_AT,
+    author=AUTHOR,
+)
+async def {req.name}_handler(ctx: PluginContext) -> bool:
+    params = ctx.params or {{}}
+    text = params.get("notify_text", "主动任务执行完毕")
+    ctx.log(f"正在执行主动插件 {req.name}，目标 chat_id: {{ctx.chat_id}}")
+    await ctx.send_message(f"[{req.name}] {{text}}")
+    return True
+'''
+    elif req.template == "storage_counter":
+        code_text = f'''"""自定义带状态持久化插件: {req.name}"""
+from tg_signer.core.plugins import PluginContext, PluginRegistry
+
+VERSION = "{version}"
+UPDATED_AT = "{today}"
+AUTHOR = "{author}"
+
+PARAMS_SCHEMA = []
+
+@PluginRegistry.register(
+    name="{req.name}",
+    mode="reactive",
+    description="{description}",
+    params_schema=PARAMS_SCHEMA,
+    version=VERSION,
+    updated_at=UPDATED_AT,
+    author=AUTHOR,
+)
+async def {req.name}_handler(ctx: PluginContext) -> bool:
+    count = await ctx.storage.increment("total_trigger_count", 1)
+    ctx.log(f"插件 {req.name} 已累计触发 {{count}} 次")
+    if ctx.message:
+        await ctx.reply(f"这是您第 {{count}} 次触发此插件")
+    return True
+'''
+    else:  # basic_reactive
+        code_text = f'''"""自定义监听响应式插件: {req.name}"""
+from tg_signer.core.plugins import PluginContext, PluginRegistry
+
+VERSION = "{version}"
+UPDATED_AT = "{today}"
+AUTHOR = "{author}"
+
+PARAMS_SCHEMA = [
+    {{
+        "name": "reply_prefix",
+        "label": "回复前缀",
+        "type": "string",
+        "default": "[自动应答]",
+        "description": "发送回复文本时附带的前缀",
+    }}
+]
+
+@PluginRegistry.register(
+    name="{req.name}",
+    mode="reactive",
+    description="{description}",
+    params_schema=PARAMS_SCHEMA,
+    version=VERSION,
+    updated_at=UPDATED_AT,
+    author=AUTHOR,
+)
+async def {req.name}_handler(ctx: PluginContext) -> bool:
+    msg = ctx.message
+    if not msg or not getattr(msg, "text", None):
+        return False
+
+    prefix = (ctx.params or {{}}).get("reply_prefix", "[自动应答]")
+    await ctx.reply(f"{{prefix}} 已收到消息: {{msg.text[:50]}}")
+    return True
+'''
+
+    try:
+        plugin_dir.mkdir(parents=True, exist_ok=True)
+        dest_file = plugin_dir / "main.py"
+        dest_file.write_text(code_text, encoding="utf-8")
+    except Exception as exc:
+        shutil.rmtree(plugin_dir, ignore_errors=True)
+        raise HTTPException(status_code=500, detail=f"写入插件文件失败: {exc}")
+
+    # 重新加载插件
+    PluginRegistry.reload_all_plugins()
+    matched = PluginRegistry.get(req.name)
+    if not matched:
+        shutil.rmtree(plugin_dir, ignore_errors=True)
+        raise HTTPException(status_code=500, detail="插件模板文件已写入但未能成功加载")
+
+    return PluginInfo(
+        name=matched.name,
+        mode=matched.mode,
+        description=matched.description,
+        version=getattr(matched, "version", "1.0.0") or "1.0.0",
+        updated_at=getattr(matched, "updated_at", "") or "",
+        author=getattr(matched, "author", "") or "",
         source_path=_safe_source_path(matched.source_path),
         params_schema=matched.params_schema or [],
         enabled=True,
