@@ -38,6 +38,7 @@ export interface PluginInfo {
   builtin?: boolean
   permissions?: string[]
   doc?: string | null
+  recent_results?: boolean[]
   metrics?: PluginMetrics | null
 }
 
@@ -61,6 +62,20 @@ export interface PluginDependency {
 export interface PluginDependenciesResponse {
   name: string
   dependencies: PluginDependency[]
+}
+
+export interface PluginManifestItem {
+  name: string
+  mode: string
+  description: string
+  version: string
+  updated_at: string
+  author: string
+  enabled: boolean
+  builtin: boolean
+  permissions: string[]
+  params_schema: Array<Record<string, unknown>>
+  doc?: string | null
 }
 
 export interface AuditPluginWarning {
@@ -431,4 +446,8 @@ export async function auditPluginSource(
     },
     token,
   )
+}
+
+export async function getPluginsManifest(token: string): Promise<PluginManifestItem[]> {
+  return request<PluginManifestItem[]>('/plugins/manifest', {}, token)
 }

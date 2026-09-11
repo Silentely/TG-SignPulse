@@ -894,7 +894,10 @@
     "pluginsDocEmpty": "No additional documentation available for this plugin",
     "pluginsViewDoc": "Docs",
     "pluginsPlaygroundTimeout": "Debug Timeout (sec)",
-    "pluginsPlaygroundTimeoutPlaceholder": "Default 10s"
+    "pluginsPlaygroundTimeoutPlaceholder": "Default 10s",
+    "pluginsExportManifest": "Export Manifest (JSON)",
+    "pluginsExportManifestSuccess": "Plugin manifest exported successfully",
+    "pluginsRecentRunsPulse": "Recent execution status pulse sequence (left to right)"
   },
   "profile": {
     "title": "Profile",

@@ -90,6 +90,7 @@ class PluginInfo(BaseModel):
     builtin: bool = False
     permissions: List[str] = Field(default_factory=list)
     doc: Optional[str] = None
+    recent_results: List[bool] = Field(default_factory=list)
     metrics: Optional[PluginMetricsModel] = None
 
 
@@ -98,6 +99,8 @@ def _meta_to_info(p: PluginMeta, disabled_set: Optional[set[str]] = None) -> Plu
         disabled_set = _get_disabled_plugins()
     metrics_data = PluginRegistry.get_metrics(p.name)
     metrics_model = PluginMetricsModel(**metrics_data.to_dict()) if metrics_data else None
+    hist = PluginRegistry.get_execution_history(p.name, limit=10)
+    recent_bools = [r.success for r in reversed(hist)]
     return PluginInfo(
         name=p.name,
         mode=p.mode,
@@ -111,6 +114,7 @@ def _meta_to_info(p: PluginMeta, disabled_set: Optional[set[str]] = None) -> Plu
         builtin=getattr(p, "builtin", False),
         permissions=getattr(p, "permissions", []),
         doc=getattr(p, "doc", None),
+        recent_results=recent_bools,
         metrics=metrics_model,
     )
 
@@ -1541,6 +1545,46 @@ async def update_plugin_config(
     defaults = _get_default_params_from_schema(meta.params_schema)
     merged = {**defaults, **req.params}
     return PluginConfigResponse(name=name, params=merged, is_customized=True)
+
+
+class PluginManifestItem(BaseModel):
+    name: str
+    mode: str
+    description: str
+    version: str = "1.0.0"
+    updated_at: str = ""
+    author: str = ""
+    enabled: bool = True
+    builtin: bool = False
+    permissions: List[str] = Field(default_factory=list)
+    params_schema: List[Dict[str, Any]] = Field(default_factory=list)
+    doc: Optional[str] = None
+
+
+@router.get("/manifest", response_model=List[PluginManifestItem])
+async def get_plugins_manifest(
+    _user: User = Depends(get_current_user),
+) -> List[PluginManifestItem]:
+    """导出当前所有插件的元数据清单列表。"""
+    disabled_set = _get_disabled_plugins()
+    result: List[PluginManifestItem] = []
+    for p in PluginRegistry.list_plugins().values():
+        result.append(
+            PluginManifestItem(
+                name=p.name,
+                mode=p.mode,
+                description=p.description,
+                version=getattr(p, "version", "1.0.0") or "1.0.0",
+                updated_at=getattr(p, "updated_at", "") or "",
+                author=getattr(p, "author", "") or "",
+                enabled=p.name not in disabled_set,
+                builtin=getattr(p, "builtin", False),
+                permissions=getattr(p, "permissions", []),
+                params_schema=p.params_schema or [],
+                doc=getattr(p, "doc", None),
+            )
+        )
+    return result
 
 
 @router.get("/export-all")

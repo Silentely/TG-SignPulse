@@ -894,7 +894,10 @@
     "pluginsDocEmpty": "该插件暂无额外使用文档",
     "pluginsViewDoc": "文档",
     "pluginsPlaygroundTimeout": "调试超时上限 (秒)",
-    "pluginsPlaygroundTimeoutPlaceholder": "默认 10 秒"
+    "pluginsPlaygroundTimeoutPlaceholder": "默认 10 秒",
+    "pluginsExportManifest": "导出清单 (JSON)",
+    "pluginsExportManifestSuccess": "已成功导出插件配置清单",
+    "pluginsRecentRunsPulse": "近期执行状态脉冲序列 (从左至右由旧到新)"
   },
   "profile": {
     "title": "个人中心",

@@ -23,6 +23,7 @@ import {
   clearPluginHistory,
   auditPluginSource,
   testPlugin,
+  getPluginsManifest,
 } from '../lib/api/plugins'
 
 describe('plugins api 扩展接口', () => {
@@ -374,5 +375,16 @@ describe('plugins api 扩展接口', () => {
       'test-token',
     )
     expect(result).toEqual(mockResp)
+  })
+
+  it('getPluginsManifest 发起 GET /plugins/manifest 并返回清单', async () => {
+    const mockManifest = [
+      { name: 'p1', mode: 'reactive', description: 'desc', version: '1.0.0', author: 'a', enabled: true, builtin: true, permissions: [], params_schema: [] },
+    ]
+    const requestSpy = vi.spyOn(coreApi, 'request').mockResolvedValueOnce(mockManifest)
+
+    const result = await getPluginsManifest('test-token')
+    expect(requestSpy).toHaveBeenCalledWith('/plugins/manifest', {}, 'test-token')
+    expect(result).toEqual(mockManifest)
   })
 })
