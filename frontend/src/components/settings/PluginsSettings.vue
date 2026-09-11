@@ -281,6 +281,7 @@ const resetStorage = ref(false)
 const showAdvancedMock = ref(false)
 const mockChatId = ref('')
 const mockSenderName = ref('')
+const mockTimeout = ref('')
 
 // 诊断状态
 const loadErrors = ref<PluginLoadErrorItem[]>([])
@@ -783,6 +784,7 @@ const openTestModal = (plugin: PluginInfo) => {
   showAdvancedMock.value = false
   mockChatId.value = ''
   mockSenderName.value = ''
+  mockTimeout.value = ''
 
   if (plugin.name === 'math_solver') {
     testInputText.value = '请在 30 秒内输入 2*31 的答案'
@@ -819,6 +821,7 @@ const runPluginTest = async () => {
           reset_storage: resetStorage.value,
           chat_id: mockChatId.value ? mockChatId.value : undefined,
           sender_name: mockSenderName.value.trim() || undefined,
+          timeout: mockTimeout.value ? Number(mockTimeout.value) : undefined,
         },
         token,
       ),
@@ -1653,7 +1656,7 @@ onMounted(() => {
             <ChevronDown v-if="!showAdvancedMock" class="w-3.5 h-3.5 text-gray-400" />
             <ChevronUp v-else class="w-3.5 h-3.5 text-gray-400" />
           </button>
-          <div v-if="showAdvancedMock" class="mt-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+          <div v-if="showAdvancedMock" class="mt-2.5 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
             <div>
               <label class="block text-[11px] text-gray-500 dark:text-gray-400 mb-1">{{ t('settings.pluginsMockChatId') }}</label>
               <input
@@ -1670,6 +1673,17 @@ onMounted(() => {
                 type="text"
                 placeholder="Tester"
                 class="ui-input !py-1 !text-xs w-full"
+              />
+            </div>
+            <div>
+              <label class="block text-[11px] text-gray-500 dark:text-gray-400 mb-1">{{ t('settings.pluginsPlaygroundTimeout') }}</label>
+              <input
+                v-model="mockTimeout"
+                type="number"
+                min="0.1"
+                step="0.5"
+                :placeholder="t('settings.pluginsPlaygroundTimeoutPlaceholder')"
+                class="ui-input !py-1 !text-xs w-full font-mono"
               />
             </div>
           </div>

@@ -892,7 +892,9 @@
     "pluginsAuditWarnings": "检测到 {n} 项潜在风险或敏感调用",
     "pluginsDocTitle": "使用文档: {name}",
     "pluginsDocEmpty": "该插件暂无额外使用文档",
-    "pluginsViewDoc": "文档"
+    "pluginsViewDoc": "文档",
+    "pluginsPlaygroundTimeout": "调试超时上限 (秒)",
+    "pluginsPlaygroundTimeoutPlaceholder": "默认 10 秒"
   },
   "profile": {
     "title": "个人中心",

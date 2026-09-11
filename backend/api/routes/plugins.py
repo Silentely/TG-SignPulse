@@ -224,6 +224,7 @@ class PluginTestRequest(BaseModel):
     reset_storage: bool = Field(default=False, description="测试前是否重置测试命名空间内的持久化存储")
     chat_id: Optional[Union[int, str]] = Field(default=None, description="模拟会话 ID")
     sender_name: Optional[str] = Field(default=None, description="模拟发送者名称")
+    timeout: Optional[float] = Field(default=None, description="单次测试最大超时时间(秒)")
 
 
 PluginInfo.update_forward_refs()
@@ -425,12 +426,15 @@ async def test_plugin(
         plugin_name=name,
     )
 
-    try:
-        test_timeout = float(os.getenv("PLUGIN_TEST_TIMEOUT", "5.0"))
-        if test_timeout <= 0:
+    if req.timeout is not None and req.timeout > 0:
+        test_timeout = float(req.timeout)
+    else:
+        try:
+            test_timeout = float(os.getenv("PLUGIN_TEST_TIMEOUT", "5.0"))
+            if test_timeout <= 0:
+                test_timeout = 5.0
+        except (ValueError, TypeError):
             test_timeout = 5.0
-    except (ValueError, TypeError):
-        test_timeout = 5.0
 
     engine = os.getenv("PLUGIN_ISOLATION_ENGINE", "auto").lower()
     use_subprocess = engine == "process" or (
