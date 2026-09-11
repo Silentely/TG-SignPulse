@@ -31,7 +31,7 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -48,7 +48,7 @@ jobs:
           python -m pip install -e ".[dev]" pytest-xdist
 
       - name: Run pytest (parallel)
-        run: pytest tests/ -n auto --dist loadgroup -x -q --tb=short --no-header --ignore=tools
+        run: pytest tests/ -n auto --dist loadgroup -x -q --tb=short --no-header --ignore=tools -o addopts=
 
       - name: Ruff check (核心新模块硬门槛)
         run: >
