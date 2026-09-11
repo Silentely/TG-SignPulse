@@ -741,3 +741,35 @@ def test_api_test_plugin_timeout():
     data = resp.json()
     assert data["success"] is False
     assert "超时" in (data.get("error") or "")
+
+
+def test_api_plugins_manifest():
+    resp = client.get("/api/plugins/manifest")
+    assert resp.status_code == 200
+    manifest = resp.json()
+    assert isinstance(manifest, list)
+    assert len(manifest) > 0
+    math_item = next((p for p in manifest if p["name"] == "math_solver"), None)
+    assert math_item is not None
+    assert "mode" in math_item
+    assert "version" in math_item
+    assert "enabled" in math_item
+
+
+def test_api_plugin_recent_results():
+    from tg_signer.core.plugins import PluginRegistry
+
+    PluginRegistry.record_execution("math_solver", duration_ms=10.0, success=True)
+    PluginRegistry.record_execution("math_solver", duration_ms=20.0, success=False, error="test-fail")
+
+    resp = client.get("/api/plugins")
+    assert resp.status_code == 200
+    plugins = resp.json()
+    math_p = next((p for p in plugins if p["name"] == "math_solver"), None)
+    assert math_p is not None
+    assert "recent_results" in math_p
+    assert isinstance(math_p["recent_results"], list)
+    assert len(math_p["recent_results"]) >= 2
+    # 最近一次是 False，倒数第二次是 True
+    assert math_p["recent_results"][-1] is False
+    assert math_p["recent_results"][-2] is True

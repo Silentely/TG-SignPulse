@@ -39,6 +39,7 @@ import {
   Package,
   Archive,
   ShieldCheck,
+  FileText,
   RotateCcw,
   Edit2,
   Save,
@@ -65,6 +66,7 @@ import {
   getPluginDependencies,
   exportAllPlugins,
   importPluginsBundle,
+  getPluginsManifest,
   checkPluginSyntax,
   clearPluginHistory,
   auditPluginSource,
@@ -334,6 +336,30 @@ const filterMode = ref<'all' | 'reactive' | 'active'>('all')
 const filterType = ref<'all' | 'builtin' | 'custom' | 'issue'>('all')
 const sortBy = ref<'default' | 'runs' | 'success_rate' | 'duration' | 'name'>('default')
 const exportingAll = ref(false)
+
+const exportingManifest = ref(false)
+const handleExportManifest = async () => {
+  exportingManifest.value = true
+  try {
+    const list = await withToken((token) => getPluginsManifest(token))
+    if (!list) return
+    const blob = new Blob([JSON.stringify(list, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `plugins-manifest-${new Date().toISOString().slice(0, 10)}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    toast.success(t('settings.pluginsExportManifestSuccess'))
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    toast.error(msg)
+  } finally {
+    exportingManifest.value = false
+  }
+}
 
 const handleExportAll = async () => {
   exportingAll.value = true
@@ -866,6 +892,17 @@ onMounted(() => {
       <div class="flex items-center gap-2 flex-wrap shrink-0">
         <button
           type="button"
+          class="ui-btn-secondary shrink-0 !px-3 !py-1 !text-xs inline-flex items-center gap-1.5 text-slate-700 dark:text-slate-300 hover:text-slate-900"
+          :disabled="exportingManifest"
+          :title="t('settings.pluginsExportManifest')"
+          @click="handleExportManifest"
+        >
+          <RefreshCw v-if="exportingManifest" class="w-3.5 h-3.5 animate-spin" />
+          <FileText v-else class="w-3.5 h-3.5" />
+          {{ exportingManifest ? t('common.loading') : t('settings.pluginsExportManifest') }}
+        </button>
+        <button
+          type="button"
           class="ui-btn-secondary shrink-0 !px-3 !py-1 !text-xs inline-flex items-center gap-1.5 text-amber-600 dark:text-amber-400 hover:text-amber-700"
           :disabled="exportingAll"
           @click="handleExportAll"
@@ -1247,6 +1284,21 @@ onMounted(() => {
                 :style="{ width: `${plugin.metrics.success_rate}%` }"
               />
             </div>
+            <!-- 近期调用脉冲 -->
+            <div
+              v-if="plugin.recent_results && plugin.recent_results.length > 0"
+              class="flex items-center gap-1 py-0.5"
+              :title="t('settings.pluginsRecentRunsPulse')"
+            >
+              <span class="text-[10px] text-gray-400 font-mono mr-1">脉冲:</span>
+              <span
+                v-for="(res, rIdx) in plugin.recent_results"
+                :key="rIdx"
+                class="w-2 h-2 rounded-full inline-block transition-transform hover:scale-125"
+                :class="res ? 'bg-emerald-500 shadow-sm shadow-emerald-500/30' : 'bg-rose-500 shadow-sm shadow-rose-500/30'"
+              />
+            </div>
+
             <div
               v-if="plugin.metrics.last_error"
               class="text-[10px] text-rose-600 dark:text-rose-400 bg-rose-50/80 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 rounded px-2 py-0.5 flex items-start gap-1 font-mono break-all"
