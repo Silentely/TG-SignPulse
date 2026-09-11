@@ -865,7 +865,17 @@
     "pluginsPresetMath": "数学算式",
     "pluginsPresetCode": "验证码文本",
     "pluginsPresetGreeting": "问候口令",
-    "pluginsDependencyCopyInstall": "点击复制安装命令"
+    "pluginsDependencyCopyInstall": "点击复制安装命令",
+    "pluginsExportAll": "导出全部 (ZIP)",
+    "pluginsExportAllSuccess": "全量自定义插件归档包导出成功",
+    "pluginsExportAllFailed": "导出全量插件失败",
+    "pluginsImportBundleSuccess": "成功批量导入 {count} 个插件",
+    "pluginsFilterTabAll": "全部",
+    "pluginsFilterTabActive": "主动任务",
+    "pluginsFilterTabReactive": "监听响应",
+    "pluginsFilterTabCustom": "自定义",
+    "pluginsFilterTabBuiltin": "官方内置",
+    "pluginsFilterTabIssue": "异常/告警"
   },
   "profile": {
     "title": "个人中心",

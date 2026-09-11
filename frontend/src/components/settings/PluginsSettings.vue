@@ -37,6 +37,7 @@ import {
   Activity,
   History,
   Package,
+  Archive,
   RotateCcw,
   Edit2,
   Save,
@@ -61,6 +62,8 @@ import {
   getPluginHistory,
   clonePlugin,
   getPluginDependencies,
+  exportAllPlugins,
+  importPluginsBundle,
   type PluginDependency,
   type PluginExecutionRecord,
   type PluginInfo,
@@ -257,8 +260,31 @@ const checkRouteForTestPlugin = () => {
 
 const searchQuery = ref('')
 const filterMode = ref<'all' | 'reactive' | 'active'>('all')
-const filterType = ref<'all' | 'builtin' | 'custom'>('all')
+const filterType = ref<'all' | 'builtin' | 'custom' | 'issue'>('all')
 const sortBy = ref<'default' | 'runs' | 'success_rate' | 'duration' | 'name'>('default')
+const exportingAll = ref(false)
+
+const handleExportAll = async () => {
+  exportingAll.value = true
+  try {
+    const blob = await withToken((token) => exportAllPlugins(token))
+    if (!blob) return
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `tg_signer_plugins_${new Date().toISOString().slice(0, 10)}.zip`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    toast.success(t('settings.pluginsExportAllSuccess'))
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    toast.error(`${t('settings.pluginsExportAllFailed')}: ${msg}`)
+  } finally {
+    exportingAll.value = false
+  }
+}
 
 const filteredPlugins = computed(() => {
   const list = plugins.value.filter((p) => {
@@ -274,6 +300,7 @@ const filteredPlugins = computed(() => {
     }
     if (filterType.value === 'builtin' && !p.builtin) return false
     if (filterType.value === 'custom' && p.builtin) return false
+    if (filterType.value === 'issue' && !(p.metrics?.last_error || (p.metrics?.failure_count ?? 0) > 0)) return false
     return true
   })
   if (sortBy.value === 'runs') {
@@ -561,17 +588,29 @@ const handleFileUpload = async (event: Event) => {
   const file = target.files?.[0]
   if (!file) return
 
-  if (!file.name.endsWith('.py')) {
-    toast.error(t('settings.pluginsUploadFailed') + ': 仅支持 .py 文件')
+  const lowerName = file.name.toLowerCase()
+  if (!lowerName.endsWith('.py') && !lowerName.endsWith('.zip')) {
+    toast.error(t('settings.pluginsUploadFailed') + ': 仅支持 .py 或 .zip 文件')
     target.value = ''
     return
   }
 
   uploadingPlugin.value = true
   try {
-    await withToken((token) => uploadPlugin(file, token))
-    toast.success(t('settings.pluginsUploadSuccess'))
-    await loadPluginList()
+    if (lowerName.endsWith('.zip')) {
+      const res = await withToken((token) => importPluginsBundle(file, token))
+      if (res) {
+        toast.success(t('settings.pluginsImportBundleSuccess', { count: res.imported_count }))
+        if (res.errors && res.errors.length) {
+          toast.error(res.errors.join('; '))
+        }
+        await loadPluginList()
+      }
+    } else {
+      await withToken((token) => uploadPlugin(file, token))
+      toast.success(t('settings.pluginsUploadSuccess'))
+      await loadPluginList()
+    }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
     toast.error(`${t('settings.pluginsUploadFailed')}: ${msg}`)
@@ -687,6 +726,16 @@ onMounted(() => {
       <div class="flex items-center gap-2 flex-wrap shrink-0">
         <button
           type="button"
+          class="ui-btn-secondary shrink-0 !px-3 !py-1 !text-xs inline-flex items-center gap-1.5 text-amber-600 dark:text-amber-400 hover:text-amber-700"
+          :disabled="exportingAll"
+          @click="handleExportAll"
+        >
+          <RefreshCw v-if="exportingAll" class="w-3.5 h-3.5 animate-spin" />
+          <Archive v-else class="w-3.5 h-3.5" />
+          {{ exportingAll ? t('common.loading') : t('settings.pluginsExportAll') }}
+        </button>
+        <button
+          type="button"
           class="ui-btn-secondary shrink-0 !px-3 !py-1 !text-xs inline-flex items-center gap-1.5 text-blue-600 dark:text-blue-400 hover:text-blue-700"
           :disabled="uploadingPlugin"
           @click="triggerUploadPlugin"
@@ -698,7 +747,7 @@ onMounted(() => {
         <input
           ref="fileInputRef"
           type="file"
-          accept=".py"
+          accept=".py,.zip"
           class="hidden"
           @change="handleFileUpload"
         />
@@ -868,6 +917,14 @@ onMounted(() => {
             @click="filterType = 'custom'"
           >
             {{ t('settings.pluginsFilterCustom') }}
+          </button>
+          <button
+            type="button"
+            class="px-2 py-1 rounded text-[11px] font-medium transition-colors"
+            :class="filterType === 'issue' ? 'bg-white dark:bg-gray-800 text-rose-600 dark:text-rose-400 shadow-sm' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300'"
+            @click="filterType = 'issue'"
+          >
+            {{ t('settings.pluginsFilterTabIssue') }}
           </button>
         </div>
 

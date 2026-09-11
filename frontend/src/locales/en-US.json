@@ -865,7 +865,17 @@
     "pluginsPresetMath": "Math Expression",
     "pluginsPresetCode": "Verification Code",
     "pluginsPresetGreeting": "Greeting",
-    "pluginsDependencyCopyInstall": "Click to copy install command"
+    "pluginsDependencyCopyInstall": "Click to copy install command",
+    "pluginsExportAll": "Export All (ZIP)",
+    "pluginsExportAllSuccess": "Plugins bundle exported successfully",
+    "pluginsExportAllFailed": "Failed to export plugins bundle",
+    "pluginsImportBundleSuccess": "Successfully imported {count} plugins",
+    "pluginsFilterTabAll": "All",
+    "pluginsFilterTabActive": "Active",
+    "pluginsFilterTabReactive": "Reactive",
+    "pluginsFilterTabCustom": "Custom",
+    "pluginsFilterTabBuiltin": "Built-in",
+    "pluginsFilterTabIssue": "Issues"
   },
   "profile": {
     "title": "Profile",

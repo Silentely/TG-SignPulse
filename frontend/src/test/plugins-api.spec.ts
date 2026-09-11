@@ -17,6 +17,8 @@ import {
   getPluginConfig,
   updatePluginConfig,
   resetPluginConfig,
+  exportAllPlugins,
+  importPluginsBundle,
 } from '../lib/api/plugins'
 
 describe('plugins api 扩展接口', () => {
@@ -265,5 +267,42 @@ describe('plugins api 扩展接口', () => {
       'test-token',
     )
     expect(result).toEqual(mockResp)
+  })
+
+  it('exportAllPlugins 发起 GET /plugins/export-all 并返回 Blob', async () => {
+    const mockBlob = new Blob(['zip content'], { type: 'application/zip' })
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      blob: async () => mockBlob,
+    } as Response)
+
+    const blob = await exportAllPlugins('test-token')
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.stringContaining('/plugins/export-all'),
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer test-token' }),
+      }),
+    )
+    expect(blob).toBe(mockBlob)
+  })
+
+  it('importPluginsBundle 发起 POST /plugins/import-bundle 上传 FormData', async () => {
+    const mockResult = { imported_count: 2, files: ['p1', 'p2'], errors: [] }
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockResult,
+    } as Response)
+
+    const mockFile = new File(['mock zip'], 'plugins.zip', { type: 'application/zip' })
+    const result = await importPluginsBundle(mockFile, 'test-token')
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.stringContaining('/plugins/import-bundle'),
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({ Authorization: 'Bearer test-token' }),
+        body: expect.any(FormData),
+      }),
+    )
+    expect(result).toEqual(mockResult)
   })
 })

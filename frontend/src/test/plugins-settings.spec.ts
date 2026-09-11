@@ -616,4 +616,71 @@ describe('PluginsSettings.vue 插件管理组件', () => {
     expect(resetParamsBtn).toBeDefined()
     resetParamsBtn!.click()
   })
+
+  it('支持一键导出全部插件ZIP归档以及按异常筛选插件', async () => {
+    const normalPlugin = {
+      name: 'healthy_plugin',
+      mode: 'reactive' as const,
+      description: '健康插件',
+      builtin: false,
+      enabled: true,
+      metrics: {
+        run_count: 5,
+        success_count: 5,
+        failure_count: 0,
+        last_run_at: '2026-09-11T20:00:00Z',
+        last_duration_ms: 10,
+        avg_duration_ms: 10,
+        success_rate: 1.0,
+        last_error: null,
+      },
+    }
+    const issuePlugin = {
+      name: 'broken_plugin',
+      mode: 'reactive' as const,
+      description: '异常插件',
+      builtin: false,
+      enabled: true,
+      metrics: {
+        run_count: 3,
+        success_count: 1,
+        failure_count: 2,
+        last_run_at: '2026-09-11T20:00:00Z',
+        last_duration_ms: 10,
+        avg_duration_ms: 10,
+        success_rate: 0.33,
+        last_error: 'TimeoutError',
+      },
+    }
+
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValue([normalPlugin, issuePlugin])
+    const exportSpy = vi.spyOn(pluginsApi, 'exportAllPlugins').mockResolvedValue(
+      new Blob(['fake zip'], { type: 'application/zip' }),
+    )
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('healthy_plugin')
+      expect(wrapper.text()).toContain('broken_plugin')
+    })
+
+    // 1. 点击导出全部 (ZIP)
+    const exportAllBtn = wrapper.findAll('button').find((b) => b.text().includes('导出全部'))
+    expect(exportAllBtn).toBeDefined()
+    await exportAllBtn!.trigger('click')
+    expect(exportSpy).toHaveBeenCalled()
+
+    // 2. 点击筛选「异常/告警」
+    const issueFilterBtn = wrapper.findAll('button').find((b) => b.text().includes('异常/告警'))
+    expect(issueFilterBtn).toBeDefined()
+    await issueFilterBtn!.trigger('click')
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('broken_plugin')
+      expect(wrapper.text()).not.toContain('healthy_plugin')
+    })
+  })
 })
