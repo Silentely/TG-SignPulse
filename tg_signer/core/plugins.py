@@ -405,7 +405,10 @@ class PluginRegistry:
         def decorator(fn: Callable[[PluginContext], Any]) -> Callable[[PluginContext], Any]:
             existing = cls._plugins.get(name)
             if existing is not None and existing.handler is not fn:
-                raise ValueError(f"插件名称已注册: {name}")
+                existing_qualname = getattr(existing.handler, "__qualname__", "")
+                new_qualname = getattr(fn, "__qualname__", "")
+                if not (existing_qualname and existing_qualname == new_qualname):
+                    raise ValueError(f"插件名称已注册: {name}")
             source_file = None
             try:
                 source_file = inspect.getsourcefile(fn)

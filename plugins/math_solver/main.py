@@ -8,6 +8,10 @@ from typing import Optional
 
 from tg_signer.core.plugins import PluginContext, PluginRegistry
 
+VERSION = "1.0.0"
+UPDATED_AT = "2026-09-11"
+AUTHOR = "TG-SignPulse Team"
+
 _MATH_PATTERN = re.compile(r"(?<![\d\-])(\d+)\s*([\+\-\*\/\×\÷])\s*(\d+)(?![\d\-])")
 
 
@@ -43,6 +47,9 @@ PARAMS_SCHEMA = [
 
 @PluginRegistry.register(
     name="math_solver",
+    version=VERSION,
+    updated_at=UPDATED_AT,
+    author=AUTHOR,
     mode="reactive",
     description="纯文本计算题秒答插件",
     params_schema=PARAMS_SCHEMA,
