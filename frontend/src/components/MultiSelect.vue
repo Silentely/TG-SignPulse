@@ -64,6 +64,7 @@ const onKeydown = (e: KeyboardEvent) => {
     e.preventDefault()
     e.stopPropagation()
     isOpen.value = false
+    selectRef.value?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true })
     return
   }
   const list = props.options
@@ -117,6 +118,7 @@ const toggleAllMode = () => {
     emit('update:modelValue', props.options.map(o => o.value))
   }
   isOpen.value = false
+  selectRef.value?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true })
 }
 
 const select = (val: string) => {
@@ -228,6 +230,7 @@ const selectedLabel = computed(() => {
               allMode ? 'ui-dropdown-item-active !text-sky-600 dark:!text-sky-400' : '',
               activeIndex === -1 ? 'bg-gray-100 dark:bg-white/[0.06]' : '',
             ]"
+            @mousedown.prevent
             @click.stop="toggleAllMode"
           >
             <span class="truncate font-medium">{{ t('multiSelect.allAccounts') }}</span>
@@ -246,6 +249,7 @@ const selectedLabel = computed(() => {
               activeIndex === idx ? 'bg-gray-100 dark:bg-white/[0.06]' : '',
             ]"
             :aria-selected="!allMode && modelValue.includes(opt.value)"
+            @mousedown.prevent
             @click.stop="select(opt.value)"
           >
             <span class="truncate">{{ opt.label }}</span>

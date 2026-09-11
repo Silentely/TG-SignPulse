@@ -102,79 +102,78 @@ const {
     <div v-else-if="loadFailed" class="max-w-xl mx-auto my-12">
       <PageRetry @retry="reloadData" />
     </div>
-    <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div v-else class="space-y-6">
 
-      <!-- 通用设置 + Telegram API（左列） -->
-      <div class="flex flex-col gap-6">
-        <GeneralSettings
-          v-model="settings"
-          :timezone-options="timezoneOptions"
-          :loading="loading"
-          :keepalive-loading="keepaliveLoading"
-          @save="saveSettings"
-          @run-keepalive="runKeepaliveNow"
-        />
-        <TelegramApiSettings
-          v-model="tgConfig"
-          :reveal="{ tgApiId: revealSecrets.tgApiId, tgApiHash: revealSecrets.tgApiHash }"
-          :loading="tgLoading"
-          @save="saveTgConfig"
-          @reset="resetTgConfig"
-          @toggle-reveal="toggleReveal"
-        />
+      <!-- 配置卡片双列平衡布局 -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+        <!-- 左列配置卡片：通用设置 + Telegram API + 数据管理 -->
+        <div class="flex flex-col gap-6">
+          <GeneralSettings
+            v-model="settings"
+            :timezone-options="timezoneOptions"
+            :loading="loading"
+            :keepalive-loading="keepaliveLoading"
+            @save="saveSettings"
+            @run-keepalive="runKeepaliveNow"
+          />
+          <TelegramApiSettings
+            v-model="tgConfig"
+            :reveal="{ tgApiId: revealSecrets.tgApiId, tgApiHash: revealSecrets.tgApiHash }"
+            :loading="tgLoading"
+            @save="saveTgConfig"
+            @reset="resetTgConfig"
+            @toggle-reveal="toggleReveal"
+          />
+          <DataManagementSettings
+            v-model="settings"
+            :webdav-password-set="webdavPasswordSet"
+            :backup-status="backupStatus"
+            :remote-files="remoteWebdavFiles"
+            :remote-message="remoteWebdavMessage"
+            :remote-download-name="remoteDownloadName"
+            :data-loading="dataLoading"
+            :backup-loading="backupLoading"
+            :webdav-test-loading="webdavTestLoading"
+            :webdav-list-loading="webdavListLoading"
+            :advanced-loading="advancedLoading"
+            @export-json="handleExport"
+            @import-json="handleImportFile"
+            @backup-export="handleBackupExport"
+            @webdav-test="handleWebdavTest"
+            @webdav-list="handleListRemoteBackups"
+            @webdav-download="handleDownloadRemoteBackup"
+            @save-advanced="saveAdvancedSettings"
+          />
+        </div>
+
+        <!-- 右列配置卡片：AI 配置 + Bot 通知 + 扩展插件 -->
+        <div class="flex flex-col gap-6">
+          <AiSettings
+            v-model:ai-model-value="aiConfig"
+            v-model:settings-model-value="settings"
+            :reveal="{ aiKey: revealSecrets.aiKey }"
+            :ai-loading="aiLoading"
+            :key-decrypt-failed="aiKeyDecryptFailed"
+            @save-ai="saveAiConfig"
+            @test-ai="testAi"
+            @toggle-reveal="toggleReveal"
+          />
+          <BotNotifySettings
+            v-model="settings"
+            :bot-token-set="botTokenSet"
+            :reveal="{ botToken: revealSecrets.botToken }"
+            :bot-loading="botLoading"
+            :bot-test-loading="botTestLoading"
+            @save="saveBotSettings"
+            @test="testBot"
+            @toggle-reveal="toggleReveal"
+          />
+          <PluginsSettings />
+        </div>
       </div>
 
-      <!-- AI 配置 + Bot 通知（右列） -->
-      <div class="flex flex-col gap-6">
-        <AiSettings
-          v-model:ai-model-value="aiConfig"
-          v-model:settings-model-value="settings"
-          :reveal="{ aiKey: revealSecrets.aiKey }"
-          :ai-loading="aiLoading"
-          :key-decrypt-failed="aiKeyDecryptFailed"
-          @save-ai="saveAiConfig"
-          @test-ai="testAi"
-          @toggle-reveal="toggleReveal"
-        />
-        <BotNotifySettings
-          v-model="settings"
-          :bot-token-set="botTokenSet"
-          :reveal="{ botToken: revealSecrets.botToken }"
-          :bot-loading="botLoading"
-          :bot-test-loading="botTestLoading"
-          @save="saveBotSettings"
-          @test="testBot"
-          @toggle-reveal="toggleReveal"
-        />
-      </div>
-
-      <!-- 数据管理（左列） -->
-      <div class="flex flex-col gap-6">
-        <DataManagementSettings
-          v-model="settings"
-          :webdav-password-set="webdavPasswordSet"
-          :backup-status="backupStatus"
-          :remote-files="remoteWebdavFiles"
-          :remote-message="remoteWebdavMessage"
-          :remote-download-name="remoteDownloadName"
-          :data-loading="dataLoading"
-          :backup-loading="backupLoading"
-          :webdav-test-loading="webdavTestLoading"
-          :webdav-list-loading="webdavListLoading"
-          :advanced-loading="advancedLoading"
-          @export-json="handleExport"
-          @import-json="handleImportFile"
-          @backup-export="handleBackupExport"
-          @webdav-test="handleWebdavTest"
-          @webdav-list="handleListRemoteBackups"
-          @webdav-download="handleDownloadRemoteBackup"
-          @save-advanced="saveAdvancedSettings"
-        />
-        <PluginsSettings />
-      </div>
-
-      <!-- 关于 / 版本（右列） -->
-      <div class="flex flex-col gap-6">
+      <!-- 关于 / 版本：始终固定在所有配置卡片的最底部 -->
+      <div>
         <AboutSettings
           :app-version="appVersion"
           :runtime-status="runtimeStatus"

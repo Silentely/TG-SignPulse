@@ -74,14 +74,14 @@ const emit = defineEmits<{
               { label: t('taskForm.clickButton'), value: 'click_text_button' },
               { label: t('taskForm.sendDice'), value: 'send_dice' },
               { label: t('taskForm.botCmd'), value: 'bot_cmd' },
-              { label: t('taskForm.customPlugin'), value: 'custom_plugin', disabled: allowCustomPlugin === false },
+              { label: t('taskForm.delay'), value: 'delay' },
               { label: t('taskForm.aiVision'), value: '_ai_vision', disabled: true },
               { label: t('taskForm.visionSend'), value: 'vision_send', indent: true },
               { label: t('taskForm.visionClick'), value: 'vision_click', indent: true },
               { label: t('taskForm.aiCalc'), value: '_ai_calc', disabled: true },
               { label: t('taskForm.calcSend'), value: 'calc_send', indent: true },
               { label: t('taskForm.calcClick'), value: 'calc_click', indent: true },
-              { label: t('taskForm.delay'), value: 'delay' },
+              { label: t('taskForm.customPlugin'), value: 'custom_plugin', disabled: allowCustomPlugin === false },
             ]"
             className="w-full"
           />

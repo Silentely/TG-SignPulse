@@ -1,33 +1,29 @@
+# Build frontend in the first stage.
 # 与 .nvmrc、package.json engines 和 GitHub Actions 保持一致。
 FROM node:22.23.1-slim AS frontend-builder
-
 WORKDIR /frontend
-
-# Copy dependency manifests first for better layer caching.
 COPY frontend/package*.json ./
-RUN npm install --prefer-offline
-
+RUN npm ci
 COPY frontend/ ./
-# Skip vue-tsc type check (already done in CI), only run vite build
-RUN npx vite build
+RUN npm run build
 
+# Python runtime.
+# Python 3.11 for Telethon + dependencies.
+FROM python:3.11-slim AS production
 
-FROM python:3.12-slim AS app
+# Version and build time metadata injected via build args (e.g. CI / Docker build).
+ARG APP_VERSION=dev
+ARG GIT_SHA=unknown
+ARG GIT_BRANCH=unknown
+ARG BUILD_TIME=unknown
 
-ARG GIT_SHA=dev
-ARG GIT_BRANCH=dev
-# 空表示使用包内 __version__；CI 构建会注入真实版本
-ARG APP_VERSION=
-ARG BUILD_TIME=
-ENV PYTHONUNBUFFERED=1 \
-  PYTHONDONTWRITEBYTECODE=1 \
-  PIP_DISABLE_PIP_VERSION_CHECK=1 \
-  PIP_NO_CACHE_DIR=1 \
-  PORT=8080 \
+ENV PYTHONDONTWRITEBYTECODE=1 \
+  PYTHONUNBUFFERED=1 \
   TZ=Asia/Shanghai \
+  TG_SIGNER_DATA_DIR=/data \
+  APP_VERSION=${APP_VERSION} \
   GIT_SHA=${GIT_SHA} \
   GIT_BRANCH=${GIT_BRANCH} \
-  APP_VERSION=${APP_VERSION} \
   BUILD_TIME=${BUILD_TIME}
 
 WORKDIR /app
@@ -41,6 +37,7 @@ COPY pyproject.toml README.md /app/
 COPY tg_signer/__init__.py /app/tg_signer/__init__.py
 COPY backend /app/backend
 COPY tg_signer /app/tg_signer
+COPY plugins /app/plugins
 
 ARG TARGETPLATFORM
 RUN pip install --no-cache-dir . \

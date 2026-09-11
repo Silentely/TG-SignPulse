@@ -46,6 +46,7 @@ class PluginInfo(BaseModel):
     source_path: Optional[str] = None
     params_schema: List[Dict[str, Any]] = Field(default_factory=list)
     enabled: bool = True
+    builtin: bool = False
 
 
 class ReloadPluginsResponse(BaseModel):
@@ -88,6 +89,7 @@ async def list_plugins(_user: User = Depends(get_current_user)) -> List[PluginIn
             source_path=_safe_source_path(p.source_path),
             params_schema=p.params_schema or [],
             enabled=p.name not in disabled_set,
+            builtin=getattr(p, "builtin", False),
         )
         for p in plugins.values()
     ]
@@ -112,6 +114,7 @@ async def reload_plugins(
             source_path=_safe_source_path(p.source_path),
             params_schema=p.params_schema or [],
             enabled=p.name not in disabled_set,
+            builtin=getattr(p, "builtin", False),
         )
         for p in plugins.values()
     ]
@@ -164,6 +167,7 @@ async def toggle_plugin(
         source_path=_safe_source_path(meta.source_path),
         params_schema=meta.params_schema or [],
         enabled=not new_disabled,
+        builtin=getattr(meta, "builtin", False),
     )
 
 

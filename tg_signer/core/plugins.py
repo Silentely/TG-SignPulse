@@ -338,6 +338,32 @@ class PluginMeta:
     source_path: Optional[str] = None
     params_schema: Optional[List[Dict[str, Any]]] = None
     enabled: bool = True
+    builtin: bool = False
+
+
+def is_builtin_plugin_path(path: Union[str, Path, None]) -> bool:
+    """判断给定文件或目录路径是否属于官方内置插件目录。
+
+    说明：
+     标识用于向前端展示与接口序列化时清晰区分插件来源：
+    - True: 来源于系统镜像或官方仓库随附的内置插件目录（如 /app/plugins、BUILTIN_PLUGINS_DIR 或 cwd 下的 plugins/）；
+    - False: 来源于用户自定义挂载目录（如 /data/plugins 或 PLUGINS_DIR）。
+    判定基于严格的 pathlib 目录层级包含关系（p == b 或 b in p.parents），不代表第三方代码签名认证。
+    """
+    if not path:
+        return False
+    try:
+        p = Path(path).resolve()
+        for b in PluginRegistry.get_builtin_directories():
+            try:
+                b_res = b.resolve()
+                if b_res.is_dir() and (p == b_res or b_res in p.parents):
+                    return True
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return False
 
 
 class PluginRegistry:
@@ -384,6 +410,7 @@ class PluginRegistry:
                 source_path=source_file,
                 params_schema=params_schema or [],
                 enabled=cls.is_enabled(name),
+                builtin=is_builtin_plugin_path(source_file),
             )
             return fn
         return decorator
@@ -466,6 +493,9 @@ class PluginRegistry:
                 cls._loaded_files.add(resolved_file)
                 # 模块级 PARAMS_SCHEMA 自动挂载：仅当该文件本次恰好注册一个
                 # 未在装饰器声明 schema 的插件时回填，避免同文件多插件误挂。
+                for m_name, meta in cls._plugins.items():
+                    if meta.source_path and is_builtin_plugin_path(meta.source_path):
+                        meta.builtin = True
                 if hasattr(mod, "PARAMS_SCHEMA"):
                     pending = [
                         meta
@@ -493,8 +523,44 @@ class PluginRegistry:
         return max(0, loaded_count)
 
     @classmethod
+    def get_builtin_directories(cls) -> list[Path]:
+        """获取官方内置插件所在的候选目录列表。"""
+        candidates: list[Path] = []
+        env_builtin = os.getenv("BUILTIN_PLUGINS_DIR")
+        if env_builtin:
+            candidates.append(Path(env_builtin).expanduser())
+
+        # 容器标准内置目录
+        app_plugins = Path("/app/plugins")
+        if app_plugins.is_dir():
+            candidates.append(app_plugins)
+
+        # 当前工作目录下的 plugins 目录（本地运行根目录或 Docker WORKDIR /app）
+        cwd_plugins = Path.cwd() / "plugins"
+        if cwd_plugins.is_dir():
+            candidates.append(cwd_plugins)
+
+
+
+        # 保持顺序并以解析路径去重
+        deduped: list[Path] = []
+        seen_resolved: set[Path] = set()
+        for c in candidates:
+            try:
+                res = c.resolve()
+                if res.is_dir() and res not in seen_resolved:
+                    seen_resolved.add(res)
+                    deduped.append(c)
+            except Exception:
+                pass
+        return deduped
+
+    @classmethod
     def get_search_directories(cls) -> list[Path]:
         dirs: list[Path] = []
+        for b in cls.get_builtin_directories():
+            dirs.append(b)
+
         env_dir = os.getenv("PLUGINS_DIR")
         if env_dir:
             dirs.append(Path(env_dir).expanduser())
@@ -505,14 +571,18 @@ class PluginRegistry:
         elif Path("/data/plugins").is_dir():
             dirs.append(Path("/data/plugins"))
 
-        cwd_plugins = Path.cwd() / "plugins"
-        dirs.append(cwd_plugins)
-
-        # 保持顺序并去重
+        # 保持顺序并以解析路径去重
         deduped: list[Path] = []
+        seen_resolved: set[Path] = set()
         for d in dirs:
-            if d not in deduped:
-                deduped.append(d)
+            try:
+                res = d.resolve()
+                if res not in seen_resolved:
+                    seen_resolved.add(res)
+                    deduped.append(d)
+            except Exception:
+                if d not in deduped:
+                    deduped.append(d)
         return deduped
 
     @classmethod

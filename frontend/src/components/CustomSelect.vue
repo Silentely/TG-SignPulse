@@ -47,6 +47,7 @@ const toggle = () => {
 const select = (val: string | number) => {
   emit('update:modelValue', val)
   isOpen.value = false
+  selectRef.value?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true })
 }
 
 /** 键盘导航时保持焦点项在下拉可视区内（长列表滚动场景）。 */
@@ -104,6 +105,7 @@ const onKeydown = (e: KeyboardEvent) => {
     e.preventDefault()
     e.stopPropagation()
     isOpen.value = false
+    selectRef.value?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true })
     return
   }
   if (e.key === 'ArrowDown') {
@@ -152,17 +154,20 @@ const selectedLabel = computed(() => {
 })
 
 const hasValue = computed(() => {
-  const opt = props.options.find(o => o.value === props.modelValue)
-  return !!opt
+  return props.options.some(o => o.value === props.modelValue)
 })
 </script>
+
 <template>
   <div class="relative" ref="selectRef" :class="className || 'w-full'">
     <button
       type="button"
       :disabled="disabled"
       class="ui-select-trigger"
-      :class="isOpen ? 'ui-select-trigger-open' : ''"
+      :class="[
+        disabled ? 'ui-select-trigger-disabled' : '',
+        isOpen ? 'ui-select-trigger-open' : '',
+      ]"
       :aria-label="ariaLabel || placeholder || t('common.selectPlaceholder')"
       :aria-expanded="isOpen"
       aria-haspopup="listbox"
@@ -200,6 +205,7 @@ const hasValue = computed(() => {
               !opt.disabled && selectableOptions[activeIndex]?.value === opt.value ? 'ui-dropdown-item-focus' : '',
               opt.indent ? '!pl-6' : '',
             ]"
+            @mousedown.prevent
             @click="!opt.disabled && select(opt.value)"
           >
             <span class="truncate">{{ opt.label }}</span>
