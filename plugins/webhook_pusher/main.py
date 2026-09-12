@@ -5,8 +5,8 @@
 发送给外部 Webhook（例如企业微信、飞书、钉钉、Bark 或自建监控 API）。
 """
 from datetime import datetime, timezone
-import json
 from typing import Any, Dict, List
+
 import httpx
 
 from tg_signer.core.plugins import PluginContext, PluginRegistry

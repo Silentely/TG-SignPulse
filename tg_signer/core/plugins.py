@@ -457,7 +457,10 @@ class PluginRegistry:
         metrics = cls._metrics.setdefault(name, PluginMetrics())
         metrics.run_count += 1
         metrics.total_duration_ms += max(0.0, float(duration_ms))
-        metrics.last_duration_ms = round(float(duration_ms), 1)
+        raw_duration_ms = max(0.0, float(duration_ms))
+        metrics.last_duration_ms = (
+            max(0.1, round(raw_duration_ms, 1)) if raw_duration_ms > 0 else 0.0
+        )
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         metrics.last_run_at = now_str
         if success:
@@ -595,6 +598,7 @@ class PluginRegistry:
         cls._disabled_plugins.clear()
         cls._load_errors.clear()
         cls._metrics.clear()
+        cls._execution_history.clear()
         for module_name in list(sys.modules):
             if module_name.startswith("tg_signer_plugin_"):
                 sys.modules.pop(module_name, None)

@@ -422,7 +422,7 @@ async def test_plugin(
     if req.reset_storage:
         try:
             from tg_signer.core.plugins import PluginStorageBackend
-            PluginStorageBackend().clear(namespace=f"12345678:{name}")
+            PluginStorageBackend().clear(namespace=f"{eff_chat_id}:{name}")
             captured_logs.append("[mock] 已清空该插件测试命名空间持久化存储")
         except Exception as exc:
             captured_logs.append(f"[mock] 清空存储提示: {exc}")
@@ -505,14 +505,16 @@ async def test_plugin(
 
     duration_ms = round((time.perf_counter() - start_t) * 1000, 2)
     summary = " | ".join(captured_logs[-2:]) if captured_logs else None
-    PluginRegistry.record_execution(
-        name,
-        duration_ms=duration_ms,
-        success=bool(success and not err_str),
-        error=err_str,
-        trigger_type="manual_test",
-        log_summary=summary,
-    )
+    # 子进程宿主已经记录了完整执行结果，路由只负责记录进程内执行，避免一次调试计数两次。
+    if not use_subprocess:
+        PluginRegistry.record_execution(
+            name,
+            duration_ms=duration_ms,
+            success=bool(success and not err_str),
+            error=err_str,
+            trigger_type="manual_test",
+            log_summary=summary,
+        )
 
     return PluginTestResponse(
         name=name,
@@ -1741,7 +1743,16 @@ async def import_plugins_bundle(
             detail="请上传 .zip 格式的插件压缩包",
         )
 
-    content = await file.read()
+    max_archive_size = 10 * 1024 * 1024
+    max_member_size = 2 * 1024 * 1024
+    max_total_size = 10 * 1024 * 1024
+    max_members = 100
+    content = await file.read(max_archive_size + 1)
+    if len(content) > max_archive_size:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="插件压缩包超过 10MB 限制",
+        )
     try:
         zf = zipfile.ZipFile(io.BytesIO(content))
     except Exception as exc:
@@ -1753,13 +1764,26 @@ async def import_plugins_bundle(
     target_dir = _get_custom_plugins_dir()
     imported_files: List[str] = []
     errors: List[str] = []
+    total_size = 0
 
     with zf:
-        for member in zf.infolist():
+        members = zf.infolist()
+        if len(members) > max_members:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="插件压缩包文件数量超过 100 个限制",
+            )
+        for member in members:
             if member.is_dir():
                 continue
             if not member.filename.endswith(".py"):
                 continue
+            if member.file_size > max_member_size:
+                errors.append(f"跳过过大的插件文件: {member.filename}")
+                continue
+            if total_size + member.file_size > max_total_size:
+                errors.append("跳过超出插件解压总大小限制的文件")
+                break
 
             norm = Path(member.filename)
             if ".." in norm.parts or norm.is_absolute():
@@ -1770,7 +1794,16 @@ async def import_plugins_bundle(
             try:
                 dest_path.parent.mkdir(parents=True, exist_ok=True)
                 with zf.open(member) as src, open(dest_path, "wb") as dst:
-                    dst.write(src.read())
+                    remaining = member.file_size
+                    while remaining:
+                        chunk = src.read(min(64 * 1024, remaining))
+                        if not chunk:
+                            break
+                        dst.write(chunk)
+                        remaining -= len(chunk)
+                    if remaining:
+                        raise ValueError("压缩包成员实际大小与声明不一致")
+                total_size += member.file_size
                 plugin_stem = norm.stem if norm.name != "__init__.py" else norm.parent.name
                 imported_files.append(plugin_stem)
             except Exception as e:
