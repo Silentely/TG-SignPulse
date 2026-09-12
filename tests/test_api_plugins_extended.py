@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -170,6 +172,32 @@ def test_api_plugin_metrics_recording():
     assert math_info["metrics"]["run_count"] >= 1
 
 
+def test_api_plugin_metrics_keep_positive_sub_millisecond_duration():
+    PluginRegistry.reset_metrics("math_solver")
+    PluginRegistry.record_execution("math_solver", duration_ms=0.03, success=True)
+    metrics = PluginRegistry.get_metrics("math_solver")
+    assert metrics is not None
+    assert metrics.last_duration_ms > 0
+
+
+def test_api_plugin_subprocess_test_records_metrics_once():
+    PluginRegistry.reset_metrics("webhook_pusher")
+
+    async def fake_execute(self):
+        PluginRegistry.record_execution(
+            self.plugin_name, duration_ms=1.0, success=True, trigger_type="manual_test"
+        )
+        return True
+
+    with patch("backend.api.routes.plugins.PluginProcessHost.execute", new=fake_execute):
+        resp = client.post("/api/plugins/webhook_pusher/test", json={"text": ""})
+
+    assert resp.status_code == 200
+    metrics = PluginRegistry.get_metrics("webhook_pusher")
+    assert metrics is not None
+    assert metrics.run_count == 1
+
+
 def test_api_plugin_export():
     resp = client.get("/api/plugins/math_solver/export")
     assert resp.status_code == 200
@@ -231,6 +259,19 @@ def test_api_test_plugin_with_advanced_context():
     assert resp.status_code == 200
     data = resp.json()
     assert data["success"] is True
+
+
+def test_api_test_plugin_reset_storage_uses_custom_chat_id():
+    from tg_signer.core.plugins import PluginStorageBackend
+
+    with patch.object(PluginStorageBackend, "clear", return_value=0) as clear:
+        resp = client.post(
+            "/api/plugins/math_solver/test",
+            json={"text": "计算 1+1", "chat_id": -1001234567890, "reset_storage": True},
+        )
+
+    assert resp.status_code == 200
+    clear.assert_called_once_with(namespace="-1001234567890:math_solver")
 
 
 def test_api_update_plugin_source_for_custom_plugin():
@@ -478,6 +519,7 @@ def test_api_clone_plugin():
 
 def test_api_plugin_dependencies_inspector():
     from pathlib import Path
+
     from tg_signer.core.plugins import PluginRegistry
 
     client.delete("/api/plugins/plug_deps_test")
@@ -571,7 +613,6 @@ def test_api_export_all_and_import_bundle_zip():
     client.delete("/api/plugins/bundle_p1")
     client.delete("/api/plugins/bundle_p2")
     client.delete("/api/plugins/bundle_imported")
-
     # 1. 创建两个自定义插件
     r1 = client.post(
         "/api/plugins/create",
@@ -626,6 +667,25 @@ async def bundle_imported_handler(ctx: PluginContext) -> bool:
     client.delete("/api/plugins/bundle_p1")
     client.delete("/api/plugins/bundle_p2")
     client.delete("/api/plugins/bundle_imported")
+
+
+def test_api_import_bundle_rejects_oversized_member():
+    import io
+    import zipfile
+
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("oversized_plugin.py", b"x" * (2 * 1024 * 1024 + 1))
+
+    response = client.post(
+        "/api/plugins/import-bundle",
+        files={"file": ("oversized.zip", archive.getvalue(), "application/zip")},
+    )
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["imported_count"] == 0
+    assert any("过大的插件文件" in error for error in result["errors"])
 
 
 def test_api_check_syntax():
@@ -693,8 +753,8 @@ def check():
     assert data["passed"] is False
     assert len(data["warnings"]) >= 2
     rules = [w["rule"] for w in data["warnings"]]
-    assert any("eval" in r or "eval" in w["message"] for r, w in zip(rules, data["warnings"]))
-    assert any("os.system" in r or "os.system" in w["message"] for r, w in zip(rules, data["warnings"]))
+    assert any("eval" in r or "eval" in w["message"] for r, w in zip(rules, data["warnings"], strict=True))
+    assert any("os.system" in r or "os.system" in w["message"] for r, w in zip(rules, data["warnings"], strict=True))
 
     # 2. 安全的代码
     safe_code = """
@@ -722,6 +782,7 @@ def test_api_plugins_include_doc():
 
 def test_api_test_plugin_timeout():
     import time
+
     from tg_signer.core.plugins import PluginRegistry
 
     # 注册一个需要耗时 0.2s 的慢插件
