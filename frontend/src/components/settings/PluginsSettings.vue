@@ -10,8 +10,8 @@
  * 7. 提供面向开发者的「开发参考」指导指南；
  * 8. 支持 URL 查询参数 (?testPlugin=xxx&testInput=yyy) 快捷唤起调试台。
  */
-import { ref, computed, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import {
   Puzzle,
   RefreshCw,
@@ -90,6 +90,7 @@ import { computeLineDiff, type DiffLine } from '../../lib/diff'
 const { t } = useI18n()
 const toast = useToast()
 const route = useRoute()
+const router = useRouter()
 const { confirm } = useConfirm()
 
 const plugins = ref<PluginInfo[]>([])
@@ -159,21 +160,26 @@ const executionHistory = ref<PluginExecutionRecord[]>([])
 const loadingHistory = ref(false)
 const clearingHistory = ref(false)
 
+let historyRequestSeq = 0
+
 const openHistoryModal = async (plugin: PluginInfo) => {
+  const seq = ++historyRequestSeq
   historyPluginName.value = plugin.name
   isHistoryModalOpen.value = true
   loadingHistory.value = true
   executionHistory.value = []
   try {
     const res = await withToken((token) => getPluginHistory(plugin.name, token))
+    if (seq !== historyRequestSeq) return
     if (res) {
       executionHistory.value = res.history || []
     }
   } catch (err: unknown) {
+    if (seq !== historyRequestSeq) return
     const msg = err instanceof Error ? err.message : String(err)
     toast.error(msg)
   } finally {
-    loadingHistory.value = false
+    if (seq === historyRequestSeq) loadingHistory.value = false
   }
 }
 
@@ -201,6 +207,14 @@ const handleClearHistory = async () => {
   }
 }
 
+// 触发类型展示标签：映射调试与任务执行两类来源
+const triggerTypeLabel = (triggerType: string) => {
+  if (triggerType === 'manual_test') return t('settings.pluginsHistoryTriggerManual')
+  if (triggerType === 'reactive') return t('settings.pluginsHistoryTriggerReactive')
+  if (triggerType === 'active') return t('settings.pluginsHistoryTriggerActive')
+  return triggerType
+}
+
 const handleCopyHistoryLogs = async () => {
   if (!executionHistory.value.length) return
   try {
@@ -209,7 +223,7 @@ const handleCopyHistoryLogs = async () => {
       const status = rec.success ? '[SUCCESS]' : '[FAILED]'
       const errPart = rec.error ? `Error: ${rec.error}\n` : ''
       const logPart = rec.log_summary ? `Logs:\n${rec.log_summary}\n` : ''
-      return `#${i + 1} [${rec.timestamp}] ${status} (${rec.duration_ms}ms, ${rec.trigger_type})\n` + errPart + logPart
+      return `#${i + 1} [${rec.timestamp}] ${status} (${rec.duration_ms}ms, ${triggerTypeLabel(rec.trigger_type)})\n` + errPart + logPart
     }).join(delimiter)
     await navigator.clipboard.writeText(content)
     toast.success(t('settings.pluginsHistoryExportSuccess'))
@@ -303,12 +317,26 @@ const loadErrors = ref<PluginLoadErrorItem[]>([])
 const isDiagOpen = ref(false)
 const copiedDiagIndex = ref<number | null>(null)
 
+// 组件卸载时清理复制状态的延时回调，避免悬挂定时器
+const copyTimers = new Set<ReturnType<typeof setTimeout>>()
+const registerCopyTimer = (fn: () => void, delay: number) => {
+  const id = setTimeout(() => {
+    copyTimers.delete(id)
+    fn()
+  }, delay)
+  copyTimers.add(id)
+}
+onBeforeUnmount(() => {
+  for (const id of copyTimers) clearTimeout(id)
+  copyTimers.clear()
+})
+
 const copyInstallCommand = async (cmd: string, idx: number) => {
   try {
     await navigator.clipboard.writeText(cmd)
     copiedDiagIndex.value = idx
     toast.success(t('settings.pluginsDiagCopied'))
-    setTimeout(() => {
+    registerCopyTimer(() => {
       if (copiedDiagIndex.value === idx) copiedDiagIndex.value = null
     }, 2000)
   } catch {
@@ -342,6 +370,8 @@ const checkRouteForTestPlugin = () => {
       testInputText.value = customInput
     }
   }
+  // 命中后立即清除 URL 参数，避免后续 loadPluginList 反复自动弹出调试台
+  void router.replace({ query: { ...route.query, testPlugin: undefined, testInput: undefined } })
 }
 
 const searchQuery = ref('')
@@ -425,10 +455,23 @@ const filteredPlugins = computed(() => {
   return list
 })
 
-const openTestFromSource = () => {
+const openTestFromSource = async () => {
   if (!currentSourcePlugin.value) return
+  // 与关闭弹窗相同的未保存守卫：编辑态有改动时先确认，防止静默丢弃
+  if (isEditingSource.value && editedSourceCode.value !== sourceCode.value) {
+    const confirmed = await confirm({
+      title: t('settings.pluginsUnsavedChangesTitle'),
+      message: t('settings.pluginsUnsavedChangesMsg'),
+      confirmText: t('settings.pluginsDiscardAndClose'),
+      cancelText: t('common.cancel'),
+      danger: true,
+    })
+    if (!confirmed) return
+  }
   const p = currentSourcePlugin.value
   isSourceModalOpen.value = false
+  isEditingSource.value = false
+  showDiffView.value = false
   openTestModal(p)
 }
 
@@ -521,12 +564,20 @@ const resetTestParamsToDefault = () => {
   toast.success(t('settings.pluginsConfigResetSuccess'))
 }
 
+// 源码弹窗请求时序计数：快速切换插件时，晚到的过期响应不得覆盖当前插件
+let sourceRequestSeq = 0
+
 const openSourceModal = async (plugin: PluginInfo) => {
+  const seq = ++sourceRequestSeq
   currentSourcePlugin.value = plugin
   sourceCode.value = ''
   sourceCopied.value = false
   isEditingSource.value = false
   editedSourceCode.value = ''
+  // 一并清理编辑派生状态，避免上一插件的审计告警/Diff/语法结果泄漏到新插件
+  auditWarnings.value = []
+  showDiffView.value = false
+  syntaxResult.value = null
   isSourceModalOpen.value = true
   sourceLoading.value = true
   pluginDeps.value = []
@@ -534,37 +585,54 @@ const openSourceModal = async (plugin: PluginInfo) => {
   void (async () => {
     try {
       const res = await withToken((token) => getPluginDependencies(plugin.name, token))
+      if (seq !== sourceRequestSeq) return
       if (res && res.dependencies) {
         pluginDeps.value = res.dependencies
       }
     } catch {
+      if (seq !== sourceRequestSeq) return
       pluginDeps.value = []
     } finally {
-      loadingDeps.value = false
+      if (seq === sourceRequestSeq) loadingDeps.value = false
     }
   })()
 
   try {
     const res = await withToken((token) => getPluginSource(plugin.name, token))
+    if (seq !== sourceRequestSeq) return
     if (res) {
       sourceCode.value = res.source
     }
   } catch (err: unknown) {
+    if (seq !== sourceRequestSeq) return
     const msg = err instanceof Error ? err.message : String(err)
     toast.error(`${t('settings.pluginsSourceLoading')}: ${msg}`)
   } finally {
-    sourceLoading.value = false
+    if (seq === sourceRequestSeq) sourceLoading.value = false
   }
 }
 
 const syntaxChecking = ref(false)
 const syntaxResult = ref<{ valid: boolean; message: string } | null>(null)
 
-const toggleEditSource = () => {
+const toggleEditSource = async () => {
+  // 编辑 → 查看方向存在未保存改动时先确认，防止静默丢弃编辑内容
+  if (isEditingSource.value && editedSourceCode.value !== sourceCode.value) {
+    const confirmed = await confirm({
+      title: t('settings.pluginsUnsavedChangesTitle'),
+      message: t('settings.pluginsUnsavedChangesMsg'),
+      confirmText: t('settings.pluginsDiscardAndClose'),
+      cancelText: t('common.cancel'),
+      danger: true,
+    })
+    if (!confirmed) return
+  }
   isEditingSource.value = !isEditingSource.value
   syntaxResult.value = null
   if (isEditingSource.value) {
     editedSourceCode.value = sourceCode.value
+  } else {
+    showDiffView.value = false
   }
 }
 
@@ -612,7 +680,10 @@ const handleFormatSource = async () => {
     const res = await withToken((token) => formatPluginSource(editedSourceCode.value, token))
     if (!res) return
     editedSourceCode.value = res.formatted
-    if (res.changed) {
+    if (res.lossy) {
+      // 后端 black 缺失降级为 ast.unparse，注释已丢失，明确提示用户
+      toast.warning(t('settings.pluginsFormatLossyWarning'))
+    } else if (res.changed) {
       toast.success(t('settings.pluginsFormatSuccess'))
     } else {
       toast.info(t('settings.pluginsFormatUnchanged'))
@@ -639,27 +710,37 @@ const handleCopyTestResult = async () => {
   if (!testResult.value) return
   const r = testResult.value
   const lines = [
-    `=== 插件调试执行结果: ${r.name} ===`,
-    `状态: ${r.success ? '成功' : '失败'} | 命中响应: ${r.handled ? '是' : '否'} | 耗时: ${r.duration_ms}ms`,
+    `=== ${t('settings.pluginsCopyTestResultTitle', { name: r.name })} ===`,
+    `${t('settings.pluginsCopyTestResultStatus')}: ${r.success ? t('common.success') : t('common.failed')} | ${t('settings.pluginsCopyTestResultHandled')}: ${r.handled ? t('common.yes') : t('common.no')} | ${t('settings.pluginsCopyTestResultDuration')}: ${r.duration_ms}ms`,
   ]
-  if (r.reply_text) lines.push(`回复文本: ${r.reply_text}`)
-  if (r.error) lines.push(`错误信息: ${r.error}`)
-  if (r.sent_messages?.length) lines.push(`发送消息数: ${r.sent_messages.length}`)
-  if (r.reacted_emojis?.length) lines.push(`响应表情: ${r.reacted_emojis.join(', ')}`)
+  if (r.reply_text) lines.push(`${t('settings.pluginsCopyTestResultReply')}: ${r.reply_text}`)
+  if (r.error) lines.push(`${t('settings.pluginsCopyTestResultError')}: ${r.error}`)
+  if (r.sent_messages?.length) lines.push(`${t('settings.pluginsCopyTestResultSent')}: ${r.sent_messages.length}`)
+  if (r.reacted_emojis?.length) lines.push(`${t('settings.pluginsCopyTestResultReactions')}: ${r.reacted_emojis.join(', ')}`)
   if (r.logs?.length) {
-    lines.push('\n--- 执行日志 ---')
+    lines.push(`\n--- ${t('settings.pluginsCopyTestResultLogs')} ---`)
     lines.push(...r.logs)
   }
-  await navigator.clipboard.writeText(lines.join('\n'))
-  toast.success(t('settings.pluginsCopyTestResultSuccess'))
+  try {
+    await navigator.clipboard.writeText(lines.join('\n'))
+    toast.success(t('settings.pluginsCopyTestResultSuccess'))
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    toast.error(msg)
+  }
 }
 
 const handleCopyMissingDeps = async () => {
   const missing = pluginDeps.value.filter((d) => !d.installed).map((d) => d.module)
   if (!missing.length) return
   const cmd = `pip install ${missing.join(' ')}`
-  await navigator.clipboard.writeText(cmd)
-  toast.success(t('settings.pluginsCopyPipCommandSuccess'))
+  try {
+    await navigator.clipboard.writeText(cmd)
+    toast.success(t('settings.pluginsCopyPipCommandSuccess'))
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    toast.error(msg)
+  }
 }
 
 const handleCheckSyntax = async () => {
@@ -747,6 +828,14 @@ const saveSourceCode = async () => {
 }
 
 const handleResetMetrics = async (plugin: PluginInfo) => {
+  const confirmed = await confirm({
+    title: t('settings.pluginsMetricsReset'),
+    message: t('settings.pluginsMetricsResetConfirm', { name: plugin.name }),
+    confirmText: t('settings.pluginsMetricsReset'),
+    cancelText: t('common.cancel'),
+    danger: true,
+  })
+  if (!confirmed) return
   resettingMetricsPlugin.value = plugin.name
   try {
     await withToken((token) => resetPluginMetrics(plugin.name, token))
@@ -766,7 +855,7 @@ const copySourceCode = async () => {
     await navigator.clipboard.writeText(sourceCode.value)
     sourceCopied.value = true
     toast.success(t('settings.pluginsSourceCopied'))
-    setTimeout(() => {
+    registerCopyTimer(() => {
       sourceCopied.value = false
     }, 2000)
   } catch {
@@ -863,7 +952,7 @@ const handleFileUpload = async (event: Event) => {
 
   const lowerName = file.name.toLowerCase()
   if (!lowerName.endsWith('.py') && !lowerName.endsWith('.zip')) {
-    toast.error(t('settings.pluginsUploadFailed') + ': 仅支持 .py 或 .zip 文件')
+    toast.error(`${t('settings.pluginsUploadFailed')}: ${t('settings.pluginsUploadTypeInvalid')}`)
     target.value = ''
     return
   }
@@ -948,36 +1037,38 @@ const runPluginTest = async () => {
   if (!currentTestPlugin.value) return
   testRunning.value = true
   testResult.value = null
+  const testName = currentTestPlugin.value.name
 
   try {
     const res = await withToken((token) =>
       testPlugin(
-        currentTestPlugin.value!.name,
+        testName,
         {
           text: testInputText.value,
           params: testParams.value,
           reset_storage: resetStorage.value,
           chat_id: mockChatId.value ? mockChatId.value : undefined,
           sender_name: mockSenderName.value.trim() || undefined,
-          timeout: mockTimeout.value ? Number(mockTimeout.value) : undefined,
+          // 输入钳制到后端契约上限，避免绕过 UI 约束
+          timeout: mockTimeout.value ? Math.min(Number(mockTimeout.value), 300) : undefined,
         },
         token,
       ),
     )
     if (!res) return
     testResult.value = res
-    if (currentTestPlugin.value) {
-      saveTestSnapshot(currentTestPlugin.value.name, testInputText.value, testParams.value)
-    }
+    saveTestSnapshot(testName, testInputText.value, testParams.value)
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
+    // 仅当弹窗仍停留在发起请求的插件时才回填错误结果，防止过期覆盖
+    if (currentTestPlugin.value?.name !== testName || !isTestModalOpen.value) return
     testResult.value = {
-      name: currentTestPlugin.value.name,
+      name: testName,
       success: false,
       handled: false,
       isolation: undefined,
       killed: false,
-      logs: [`[error] 接口调用异常: ${msg}`],
+      logs: [`[error] ${t('settings.pluginsTestApiError')}: ${msg}`],
       duration_ms: 0,
       error: msg,
     }
@@ -1402,7 +1493,7 @@ onMounted(() => {
               class="flex items-center gap-1 py-0.5"
               :title="t('settings.pluginsRecentRunsPulse')"
             >
-              <span class="text-[10px] text-gray-400 font-mono mr-1">脉冲:</span>
+              <span class="text-[10px] text-gray-400 font-mono mr-1">{{ t('settings.pluginsRecentRunsPulseLabel') }}:</span>
               <span
                 v-for="(res, rIdx) in plugin.recent_results"
                 :key="rIdx"
@@ -1860,7 +1951,7 @@ onMounted(() => {
               :value="testParams[field.name]"
               :placeholder="field.placeholder || String(field.default ?? '')"
               class="ui-input !h-8 !text-xs !px-2 w-full"
-              @input="testParams[field.name] = Number(($event.target as HTMLInputElement).value)"
+              @input="testParams[field.name] = ($event.target as HTMLInputElement).value === '' ? undefined : Number(($event.target as HTMLInputElement).value)"
             />
             <input
               v-else
@@ -2132,29 +2223,29 @@ onMounted(() => {
         <!-- 1. 架构定位 -->
         <div class="p-3 bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-200/60 dark:border-indigo-800/40 rounded space-y-1.5">
           <h4 class="font-semibold text-indigo-900 dark:text-indigo-200 text-[13px]">
-            🌟 什么是 TG-SignPulse Action 插件？
+            {{ t('settings.pluginsGuideIntroTitle') }}
           </h4>
           <p class="text-[11px] text-gray-600 dark:text-gray-300">
-            Action 插件是系统针对 Telegram 群组/频道交互逻辑的异步可编程扩展机制。支持监听入站消息并应答（reactive），也支持在任务流水线中被显式调度执行（active）。
+            {{ t('settings.pluginsGuideIntroDesc') }}
           </p>
         </div>
 
         <!-- 2. 执行模式 -->
         <div class="space-y-2">
           <h4 class="font-semibold text-gray-900 dark:text-gray-100 text-[12px]">
-            1. 执行模式对比 (Execution Mode)
+            {{ t('settings.pluginsGuideModeTitle') }}
           </h4>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             <div class="p-2.5 border border-sky-200/80 dark:border-sky-800/50 rounded bg-sky-50/30 dark:bg-sky-950/10 space-y-1">
-              <span class="font-mono font-bold text-sky-700 dark:text-sky-300 text-[11px]">reactive (监听响应式)</span>
+              <span class="font-mono font-bold text-sky-700 dark:text-sky-300 text-[11px]">{{ t('settings.pluginsGuideModeReactiveName') }}</span>
               <p class="text-[11px] text-gray-600 dark:text-gray-400">
-                每当账号收到 Telegram 文本消息时被流水线触发。handler 需返回 <code class="font-mono bg-white dark:bg-black/30 px-1 py-0.5 rounded">True</code> 告知系统“消息已被成功捕获并消费”。
+                {{ t('settings.pluginsGuideModeReactiveDesc') }}
               </p>
             </div>
             <div class="p-2.5 border border-emerald-200/80 dark:border-emerald-800/50 rounded bg-emerald-50/30 dark:bg-emerald-950/10 space-y-1">
-              <span class="font-mono font-bold text-emerald-700 dark:text-emerald-300 text-[11px]">active (主动调度式)</span>
+              <span class="font-mono font-bold text-emerald-700 dark:text-emerald-300 text-[11px]">{{ t('settings.pluginsGuideModeActiveName') }}</span>
               <p class="text-[11px] text-gray-600 dark:text-gray-400">
-                可被签到任务或外部动作显式调用。无进站消息事件触发，直接利用上下文发起出站推送或 HTTP Webhook 回调。
+                {{ t('settings.pluginsGuideModeActiveDesc') }}
               </p>
             </div>
           </div>
@@ -2163,40 +2254,40 @@ onMounted(() => {
         <!-- 3. PluginContext 核心能力 -->
         <div class="space-y-2">
           <h4 class="font-semibold text-gray-900 dark:text-gray-100 text-[12px]">
-            2. PluginContext 核心对象与上下文能力
+            {{ t('settings.pluginsGuideContextTitle') }}
           </h4>
           <div class="border border-gray-200 dark:border-gray-800 rounded overflow-hidden">
             <table class="w-full text-left text-[11px]">
               <thead class="bg-gray-50 dark:bg-gray-800/60 text-gray-500 font-mono">
                 <tr>
-                  <th class="p-2 border-b border-gray-200 dark:border-gray-800">方法 / 属性</th>
-                  <th class="p-2 border-b border-gray-200 dark:border-gray-800">说明</th>
+                  <th class="p-2 border-b border-gray-200 dark:border-gray-800">{{ t('settings.pluginsGuideContextMethod') }}</th>
+                  <th class="p-2 border-b border-gray-200 dark:border-gray-800">{{ t('settings.pluginsGuideContextDesc') }}</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-100 dark:divide-gray-800/60 font-mono">
                 <tr>
                   <td class="p-2 text-sky-600 dark:text-sky-400 font-semibold">ctx.message</td>
-                  <td class="p-2 text-gray-600 dark:text-gray-300 font-sans">Telegram 进站消息对象（含 text, id, date, chat 等）</td>
+                  <td class="p-2 text-gray-600 dark:text-gray-300 font-sans">{{ t('settings.pluginsGuideCtxMessage') }}</td>
                 </tr>
                 <tr>
                   <td class="p-2 text-sky-600 dark:text-sky-400 font-semibold">await ctx.reply(text)</td>
-                  <td class="p-2 text-gray-600 dark:text-gray-300 font-sans">快捷回复当前进站消息</td>
+                  <td class="p-2 text-gray-600 dark:text-gray-300 font-sans">{{ t('settings.pluginsGuideCtxReply') }}</td>
                 </tr>
                 <tr>
                   <td class="p-2 text-sky-600 dark:text-sky-400 font-semibold">await ctx.send_message(text)</td>
-                  <td class="p-2 text-gray-600 dark:text-gray-300 font-sans">向当前会话主动发送新文本消息</td>
+                  <td class="p-2 text-gray-600 dark:text-gray-300 font-sans">{{ t('settings.pluginsGuideCtxSend') }}</td>
                 </tr>
                 <tr>
                   <td class="p-2 text-sky-600 dark:text-sky-400 font-semibold">await ctx.react(emoji)</td>
-                  <td class="p-2 text-gray-600 dark:text-gray-300 font-sans">对当前消息打上 Telegram Emoji 表态</td>
+                  <td class="p-2 text-gray-600 dark:text-gray-300 font-sans">{{ t('settings.pluginsGuideCtxReact') }}</td>
                 </tr>
                 <tr>
                   <td class="p-2 text-sky-600 dark:text-sky-400 font-semibold">ctx.storage</td>
-                  <td class="p-2 text-gray-600 dark:text-gray-300 font-sans">按插件名隔离的状态持久化引擎 (get / set / increment)</td>
+                  <td class="p-2 text-gray-600 dark:text-gray-300 font-sans">{{ t('settings.pluginsGuideCtxStorage') }}</td>
                 </tr>
                 <tr>
                   <td class="p-2 text-sky-600 dark:text-sky-400 font-semibold">ctx.log(message)</td>
-                  <td class="p-2 text-gray-600 dark:text-gray-300 font-sans">安全输出日志流（会在调试弹窗和面板日志流中实时展示）</td>
+                  <td class="p-2 text-gray-600 dark:text-gray-300 font-sans">{{ t('settings.pluginsGuideCtxLog') }}</td>
                 </tr>
               </tbody>
             </table>
@@ -2206,10 +2297,10 @@ onMounted(() => {
         <!-- 4. 元数据规范 -->
         <div class="space-y-1.5">
           <h4 class="font-semibold text-gray-900 dark:text-gray-100 text-[12px]">
-            3. 版本与元数据声明规范
+            {{ t('settings.pluginsGuideMetaTitle') }}
           </h4>
           <p class="text-[11px] text-gray-600 dark:text-gray-400">
-            推荐在插件 Python 脚本顶部声明模块级全局变量，或直接在 <code class="font-mono bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">@PluginRegistry.register</code> 中传入：
+            {{ t('settings.pluginsGuideMetaDesc') }}
           </p>
           <pre class="p-3 bg-gray-950 text-gray-200 rounded font-mono text-[11px] leading-relaxed overflow-x-auto">VERSION = "1.0.0"
 UPDATED_AT = "2026-09-11"
@@ -2298,7 +2389,7 @@ AUTHOR = "YourName"
       <div class="space-y-3 text-xs max-h-[60vh] overflow-y-auto pr-1">
         <!-- 历史操作工具栏 -->
         <div v-if="executionHistory.length" class="flex items-center justify-between gap-2 pb-2 border-b border-gray-200/60 dark:border-gray-800/60">
-          <span class="text-[11px] text-gray-500 font-mono">{{ executionHistory.length }} 条记录</span>
+          <span class="text-[11px] text-gray-500 font-mono">{{ t('settings.pluginsHistoryCount', { n: executionHistory.length }) }}</span>
           <div class="flex items-center gap-2">
             <button
               type="button"
@@ -2344,7 +2435,7 @@ AUTHOR = "YourName"
                 <span class="text-gray-400">({{ rec.duration_ms }} ms)</span>
               </div>
               <span class="text-gray-400 text-[10px]">
-                {{ rec.trigger_type === 'manual_test' ? t('settings.pluginsHistoryTriggerManual') : rec.trigger_type }}
+                {{ triggerTypeLabel(rec.trigger_type) }}
               </span>
             </div>
             <div v-if="rec.error" class="text-rose-600 dark:text-rose-400 text-[10px] font-mono break-all bg-rose-50/50 dark:bg-rose-950/30 p-1.5 rounded">

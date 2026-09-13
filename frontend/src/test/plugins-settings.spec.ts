@@ -14,6 +14,10 @@ vi.mock('vue-router', () => ({
   useRoute: () => ({
     query: {},
   }),
+  useRouter: () => ({
+    replace: vi.fn(),
+    push: vi.fn(),
+  }),
 }))
 
 describe('PluginsSettings.vue 插件管理组件', () => {
@@ -158,6 +162,228 @@ describe('PluginsSettings.vue 插件管理组件', () => {
 
     const deleteBtn = wrapper.findAll('button').find((btn) => btn.text().includes('删除'))
     expect(deleteBtn).toBeDefined()
+
+    // 点击删除后经过确认对话框，最终调用 deletePlugin
+    const deleteSpy = vi.mocked(pluginsApi.deletePlugin)
+    const { accept } = useConfirm()
+    void deleteBtn!.trigger('click')
+    accept()
+    await vi.waitFor(() => {
+      expect(deleteSpy).toHaveBeenCalledWith('custom_plugin', 'mock-token')
+    })
+  })
+
+  it('编辑源码存在未保存改动时关闭弹窗需确认，取消则弹窗保持打开', async () => {
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValue([
+      {
+        name: 'guard_plug',
+        mode: 'reactive' as const,
+        description: '守卫插件',
+        builtin: false,
+        enabled: true,
+      },
+    ])
+    vi.spyOn(pluginsApi, 'getPluginSource').mockResolvedValue({
+      name: 'guard_plug',
+      version: '1.0.0',
+      source: 'print("v1")',
+    })
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('guard_plug')
+    })
+
+    // 打开源码弹窗并进入编辑态
+    const sourceBtn = wrapper.findAll('button').find((btn) => btn.text().includes('查看源码'))
+    await sourceBtn!.trigger('click')
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain('print("v1")')
+    })
+
+    const editBtn = Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.includes('编辑源码'))
+    expect(editBtn).toBeDefined()
+    editBtn!.click()
+    await vi.waitFor(() => {
+      expect(document.querySelector('textarea')).not.toBeNull()
+    })
+
+    // 修改编辑内容，制造未保存改动
+    const textarea = document.querySelector('textarea')!
+    textarea.value = 'print("modified")'
+    textarea.dispatchEvent(new Event('input'))
+
+    // 尝试关闭弹窗：应弹出确认对话框，取消后弹窗保持打开（编辑内容仍在）
+    const confirmCtl = useConfirm()
+    const closeBtn = Array.from(document.querySelectorAll('button')).find((b) => b.getAttribute('aria-label') === '关闭')
+    expect(closeBtn).toBeDefined()
+    void closeBtn!.click()
+    confirmCtl.cancel()
+    await new Promise((r) => setTimeout(r, 10))
+    expect(document.querySelector('textarea')).not.toBeNull()
+    expect((document.querySelector('textarea') as HTMLTextAreaElement).value).toBe('print("modified")')
+
+    // 确认放弃后弹窗关闭（编辑入口随弹窗卸载消失）
+    void closeBtn!.click()
+    confirmCtl.accept()
+    await vi.waitFor(() => {
+      expect(Array.from(document.querySelectorAll('button')).some((b) => b.textContent?.includes('编辑源码'))).toBe(false)
+    })
+  })
+
+  it('编辑态点击前往调试存在未保存改动时需先确认', async () => {
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValue([
+      {
+        name: 'guard_plug2',
+        mode: 'reactive' as const,
+        description: '守卫插件二',
+        builtin: false,
+        enabled: true,
+      },
+    ])
+    vi.spyOn(pluginsApi, 'getPluginSource').mockResolvedValue({
+      name: 'guard_plug2',
+      version: '1.0.0',
+      source: 'print("v1")',
+    })
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('guard_plug2')
+    })
+
+    await wrapper.findAll('button').find((btn) => btn.text().includes('查看源码'))!.trigger('click')
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain('print("v1")')
+    })
+    Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.includes('编辑源码'))!.click()
+    await vi.waitFor(() => {
+      expect(document.querySelector('textarea')).not.toBeNull()
+    })
+    const textarea = document.querySelector('textarea')!
+    textarea.value = 'print("dirty")'
+    textarea.dispatchEvent(new Event('input'))
+
+    // 未保存改动时点击“前往调试”：确认被取消 → 弹窗保持打开（仍处于编辑态，内容保留）
+    const confirmCtl = useConfirm()
+    const openTestBtn = Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.includes('前往调试'))
+    expect(openTestBtn).toBeDefined()
+    void openTestBtn!.click()
+    confirmCtl.cancel()
+    await new Promise((r) => setTimeout(r, 10))
+    const textareaAfterCancel = document.querySelector('textarea') as HTMLTextAreaElement | null
+    expect(textareaAfterCancel).not.toBeNull()
+    expect(textareaAfterCancel!.value).toBe('print("dirty")')
+
+    // 确认放弃后切换到调试台（源码弹窗关闭，编辑内容被丢弃）
+    void openTestBtn!.click()
+    confirmCtl.accept()
+    await vi.waitFor(() => {
+      expect(Array.from(document.querySelectorAll('button')).some((b) => b.textContent?.includes('编辑源码'))).toBe(false)
+    })
+  })
+
+  it('源码弹窗的慢响应不得覆盖当前插件内容（时序保护）', async () => {
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValue([
+      {
+        name: 'slow_plug',
+        mode: 'reactive' as const,
+        description: '慢插件',
+        builtin: false,
+        enabled: true,
+      },
+      {
+        name: 'fast_plug',
+        mode: 'reactive' as const,
+        description: '快插件',
+        builtin: false,
+        enabled: true,
+      },
+    ])
+    let resolveSlow: (v: { name: string; version: string; source: string }) => void = () => {}
+    vi.spyOn(pluginsApi, 'getPluginSource').mockImplementation(((name: string) => {
+      if (name === 'slow_plug') {
+        return new Promise((resolve) => {
+          resolveSlow = resolve
+        })
+      }
+      return Promise.resolve({ name: 'fast_plug', version: '1.0.0', source: 'print("fast")' })
+    }) as any)
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('fast_plug')
+    })
+
+    // 两个插件的“查看源码”按钮按列表顺序排列：0 → slow_plug，1 → fast_plug
+    const sourceBtns = wrapper.findAll('button').filter((btn) => btn.text().includes('查看源码'))
+    expect(sourceBtns.length).toBe(2)
+    await sourceBtns[0]!.trigger('click')
+    await sourceBtns[1]!.trigger('click')
+
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain('print("fast")')
+    })
+
+    // 慢插件的过期响应此时才到达：不得覆盖 fast_plug 的内容
+    resolveSlow({ name: 'slow_plug', version: '1.0.0', source: 'print("SLOW-STALE")' })
+    await new Promise((r) => setTimeout(r, 20))
+    expect(document.body.textContent).toContain('print("fast")')
+    expect(document.body.textContent).not.toContain('SLOW-STALE')
+  })
+
+  it('格式化接口报告有损降级时结果仍回填并可见', async () => {
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValue([
+      {
+        name: 'fmt_plug',
+        mode: 'reactive' as const,
+        description: '格式化插件',
+        builtin: false,
+        enabled: true,
+      },
+    ])
+    vi.spyOn(pluginsApi, 'getPluginSource').mockResolvedValue({
+      name: 'fmt_plug',
+      version: '1.0.0',
+      source: 'x=1  # 注释\n',
+    })
+    const formatSpy = vi.spyOn(pluginsApi, 'formatPluginSource').mockResolvedValueOnce({
+      formatted: 'x = 1\n',
+      changed: true,
+      formatter: 'ast',
+      lossy: true,
+    })
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('fmt_plug')
+    })
+
+    await wrapper.findAll('button').find((btn) => btn.text().includes('查看源码'))!.trigger('click')
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain('x=1  # 注释')
+    })
+    Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.includes('编辑源码'))!.click()
+    await vi.waitFor(() => {
+      expect((document.querySelector('textarea') as HTMLTextAreaElement).value).toContain('x=1')
+    })
+
+    const formatBtn = Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.includes('格式化'))
+    expect(formatBtn).toBeDefined()
+    formatBtn!.click()
+
+    await vi.waitFor(() => {
+      expect(formatSpy).toHaveBeenCalled()
+      expect((document.querySelector('textarea') as HTMLTextAreaElement).value).toBe('x = 1\n')
+    })
   })
 
   it('支持通过搜索框过滤插件列表', async () => {
@@ -361,8 +587,13 @@ describe('PluginsSettings.vue 插件管理组件', () => {
 
     const resetBtn = wrapper.find('button[title="重置指标"]')
     expect(resetBtn.exists()).toBe(true)
-    await resetBtn.trigger('click')
-    expect(resetSpy).toHaveBeenCalledWith('perm_plugin', 'mock-token')
+    // 单插件重置指标与全量重置一致，需通过确认对话框
+    const { accept } = useConfirm()
+    void resetBtn.trigger('click')
+    accept()
+    await vi.waitFor(() => {
+      expect(resetSpy).toHaveBeenCalledWith('perm_plugin', 'mock-token')
+    })
   })
 
   it('自定义插件源码弹窗支持切换编辑模式并保存更新', async () => {

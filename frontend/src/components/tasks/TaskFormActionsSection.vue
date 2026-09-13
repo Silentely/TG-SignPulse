@@ -62,6 +62,8 @@ const runActionPluginTest = async () => {
         {
           text: debugInputText.value,
           params: debugParams.value,
+          // 与任务正式执行一致：带上动作配置的超时
+          timeout: debugAction.value.timeout ?? undefined,
         },
         token,
       ),
@@ -460,7 +462,7 @@ const emit = defineEmits<{
                     :value="getParamValue(action, field.name, field.default)"
                     :placeholder="field.placeholder || String(field.default ?? '')"
                     class="ui-input !h-8 !text-xs !px-2 w-full"
-                    @input="setParamValue(action, field.name, Number(($event.target as HTMLInputElement).value))"
+                    @input="setParamValue(action, field.name, ($event.target as HTMLInputElement).value === '' ? undefined : Number(($event.target as HTMLInputElement).value))"
                   />
                   <!-- 字符串输入 -->
                   <input
@@ -484,7 +486,7 @@ const emit = defineEmits<{
                   :value="action.timeout ?? ''"
                   :placeholder="t('taskForm.pluginTimeoutPlaceholder')"
                   class="ui-input !h-7 !w-28 !text-xs !px-2"
-                  @input="action.timeout = ($event.target as HTMLInputElement).value ? Number(($event.target as HTMLInputElement).value) : undefined"
+                  @input="action.timeout = ($event.target as HTMLInputElement).value ? Math.min(Number(($event.target as HTMLInputElement).value), 300) : undefined"
                 />
               </div>
             </div>
@@ -682,7 +684,7 @@ const emit = defineEmits<{
             :value="debugParams[field.name]"
             :placeholder="field.placeholder || String(field.default ?? '')"
             class="ui-input !h-8 !text-xs !px-2 w-full"
-            @input="debugParams[field.name] = Number(($event.target as HTMLInputElement).value)"
+            @input="debugParams[field.name] = ($event.target as HTMLInputElement).value === '' ? undefined : Number(($event.target as HTMLInputElement).value)"
           />
           <input
             v-else
