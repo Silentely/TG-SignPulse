@@ -111,19 +111,32 @@ class TestGlobalExceptionHandler:
         assert "Traceback" not in body
         assert "File \"" not in body  # 不应包含文件路径
 
-    def test_docs_endpoint_accessible(self, client: TestClient):
-        """/docs 端点应可访问（不被 catch-all 拦截）"""
-        response = client.get("/docs", follow_redirects=False)
-        # 应返回 200（Swagger UI）或 307（重定向），而非 404
-        assert response.status_code in (200, 307)
+    def test_fastapi_docs_endpoints_disabled_by_default(self, client: TestClient):
+        """安全加固：生产环境下默认禁用 /docs, /redoc, /openapi.json，防止接口结构外泄"""
+        from backend.main import app
+        assert app.docs_url is None
+        assert app.redoc_url is None
+        assert app.openapi_url is None
 
-    def test_redoc_endpoint_accessible(self, client: TestClient):
-        """/redoc 端点应可访问"""
-        response = client.get("/redoc", follow_redirects=False)
-        assert response.status_code in (200, 307)
+        # 请求 /openapi.json 绝不应返回 OpenAPI 架构 JSON
+        res_openapi = client.get("/openapi.json")
+        if res_openapi.status_code == 200:
+            assert "application/json" not in res_openapi.headers.get("content-type", "")
+        else:
+            assert res_openapi.status_code in (404, 405)
 
-    def test_openapi_endpoint_accessible(self, client: TestClient):
-        """/openapi.json 端点应可访问"""
-        response = client.get("/openapi.json")
-        assert response.status_code == 200
-        assert "openapi" in response.json()
+    def test_docs_url_helper_respects_env(self, monkeypatch):
+        """ENABLE_API_DOCS 环境变量控制文档端点启用状态"""
+        from backend.main import _docs_urls
+
+        monkeypatch.delenv("ENABLE_API_DOCS", raising=False)
+        assert _docs_urls() == (None, None, None)
+
+        monkeypatch.setenv("ENABLE_API_DOCS", "true")
+        assert _docs_urls() == ("/docs", "/redoc", "/openapi.json")
+
+        monkeypatch.setenv("ENABLE_API_DOCS", "1")
+        assert _docs_urls() == ("/docs", "/redoc", "/openapi.json")
+
+        monkeypatch.setenv("ENABLE_API_DOCS", "false")
+        assert _docs_urls() == (None, None, None)

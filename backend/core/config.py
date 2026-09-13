@@ -114,6 +114,7 @@ class Settings(BaseModel):
     session_dir: Optional[Path] = None
     logs_dir: Optional[Path] = None
     log_level: str = "INFO"
+    enable_api_docs: bool = False
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -143,6 +144,8 @@ class Settings(BaseModel):
             session_dir=_read_path_env(env, "APP_SESSION_DIR"),
             logs_dir=_read_path_env(env, "APP_LOGS_DIR"),
             log_level=_read_env(env, "LOG_LEVEL", "APP_LOG_LEVEL", default="INFO"),
+            enable_api_docs=_read_env(env, "ENABLE_API_DOCS", default="").lower()
+            in ("1", "true", "yes", "on"),
         )
 
     @property
