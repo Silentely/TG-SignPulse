@@ -1330,6 +1330,7 @@ onMounted(() => {
             type="button"
             class="px-2 py-1 rounded text-[11px] font-medium text-amber-600 dark:text-amber-400 hover:bg-white dark:hover:bg-gray-800 transition-colors disabled:opacity-50 inline-flex items-center"
             :title="t('settings.pluginsResetAllMetrics')"
+            :aria-label="t('settings.pluginsResetAllMetrics')"
             :disabled="resettingAllMetrics"
             @click="handleResetAllMetrics"
           >
@@ -1366,12 +1367,12 @@ onMounted(() => {
       <div
         v-for="plugin in filteredPlugins"
         :key="plugin.name"
-        class="p-3 border rounded flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs transition-colors"
+        class="p-3 border rounded flex flex-col xl:flex-row xl:items-center justify-between gap-3 text-xs transition-colors"
         :class="plugin.enabled !== false
           ? 'border-gray-100 dark:border-gray-800/60 bg-gray-50/60 dark:bg-white/[0.02] hover:border-gray-300 dark:hover:border-gray-700'
           : 'border-dashed border-gray-300 dark:border-gray-700/60 bg-gray-100/40 dark:bg-white/[0.01] opacity-75'"
       >
-        <div class="min-w-0 space-y-1">
+        <div class="min-w-0 flex-1 space-y-1">
           <div class="flex items-center gap-2 flex-wrap">
             <span class="font-mono font-semibold text-gray-900 dark:text-gray-100 text-xs">
               {{ plugin.name }}
@@ -1518,7 +1519,7 @@ onMounted(() => {
           <button
             type="button"
             class="ui-btn-secondary !py-1 !px-2.5 !text-xs inline-flex items-center gap-1 transition-colors"
-            :class="plugin.enabled !== false ? 'text-emerald-600 dark:text-emerald-400 hover:text-emerald-700' : 'text-gray-400 dark:text-gray-500 hover:text-gray-600'"
+            :class="plugin.enabled !== false ? 'text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 bg-emerald-50/40 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800/50' : 'text-gray-400 dark:text-gray-500 hover:text-gray-600'"
             :disabled="togglingPluginName === plugin.name"
             @click="handleToggle(plugin)"
           >
@@ -1527,29 +1528,14 @@ onMounted(() => {
             {{ plugin.enabled !== false ? t('settings.pluginsEnabled') : t('settings.pluginsDisabled') }}
           </button>
 
-          <!-- 导出源码 -->
+          <!-- 调试 -->
           <button
             type="button"
-            class="ui-btn-secondary !py-1 !px-2.5 !text-xs inline-flex items-center gap-1 text-slate-600 dark:text-slate-400 hover:text-slate-700"
-            :disabled="exportingPluginName === plugin.name"
-            :title="t('settings.pluginsExport')"
-            @click="handleExportPlugin(plugin)"
+            class="ui-btn-secondary !py-1 !px-2.5 !text-xs inline-flex items-center gap-1 text-sky-600 dark:text-sky-400 hover:text-sky-700 bg-sky-50/50 dark:bg-sky-950/30 border-sky-200 dark:border-sky-800/60 hover:bg-sky-100 dark:hover:bg-sky-900/40 font-medium"
+            @click="openTestModal(plugin)"
           >
-            <RefreshCw v-if="exportingPluginName === plugin.name" class="w-3 h-3 animate-spin" />
-            <Download v-else class="w-3 h-3" />
-            {{ t('settings.pluginsExport') }}
-          </button>
-
-          <!-- 说明文档 -->
-          <button
-            v-if="plugin.doc"
-            type="button"
-            class="ui-btn-secondary !py-1 !px-2.5 !text-xs inline-flex items-center gap-1 text-teal-600 dark:text-teal-400 hover:text-teal-700"
-            :title="t('settings.pluginsViewDoc')"
-            @click="openDocModal(plugin)"
-          >
-            <BookOpen class="w-3 h-3" />
-            {{ t('settings.pluginsViewDoc') }}
+            <Play class="w-3 h-3 fill-current" />
+            {{ t('settings.pluginsPlaygroundBtn') }}
           </button>
 
           <!-- 查看源码 -->
@@ -1573,6 +1559,31 @@ onMounted(() => {
             {{ t('settings.pluginsHistoryBtn') }}
           </button>
 
+          <!-- 说明文档 -->
+          <button
+            v-if="plugin.doc"
+            type="button"
+            class="ui-btn-secondary !py-1 !px-2.5 !text-xs inline-flex items-center gap-1 text-teal-600 dark:text-teal-400 hover:text-teal-700"
+            :title="t('settings.pluginsViewDoc')"
+            @click="openDocModal(plugin)"
+          >
+            <BookOpen class="w-3 h-3" />
+            {{ t('settings.pluginsViewDoc') }}
+          </button>
+
+          <!-- 导出源码 -->
+          <button
+            type="button"
+            class="ui-btn-secondary !py-1 !px-2.5 !text-xs inline-flex items-center gap-1 text-slate-600 dark:text-slate-400 hover:text-slate-700"
+            :disabled="exportingPluginName === plugin.name"
+            :title="t('settings.pluginsExport')"
+            @click="handleExportPlugin(plugin)"
+          >
+            <RefreshCw v-if="exportingPluginName === plugin.name" class="w-3 h-3 animate-spin" />
+            <Download v-else class="w-3 h-3" />
+            {{ t('settings.pluginsExport') }}
+          </button>
+
           <!-- 克隆 -->
           <button
             type="button"
@@ -1584,26 +1595,17 @@ onMounted(() => {
             {{ t('settings.pluginsCloneBtn') }}
           </button>
 
-          <!-- 调试 -->
-          <button
-            type="button"
-            class="ui-btn-secondary !py-1 !px-2.5 !text-xs inline-flex items-center gap-1 text-sky-600 dark:text-sky-400 hover:text-sky-700"
-            @click="openTestModal(plugin)"
-          >
-            <Play class="w-3 h-3 fill-current" />
-            {{ t('settings.pluginsPlaygroundBtn') }}
-          </button>
-
           <!-- 删除 (仅自定义插件) -->
           <button
             v-if="!plugin.builtin"
             type="button"
-            class="ui-btn-secondary !py-1 !px-2.5 !text-xs inline-flex items-center gap-1 text-red-600 dark:text-red-400 hover:text-red-700"
+            class="ui-btn-secondary !py-1 !px-2.5 !text-xs inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/30"
             :disabled="deletingPluginName === plugin.name"
             @click="handleDelete(plugin)"
           >
-            <Trash2 class="w-3 h-3" />
-            {{ t('settings.pluginsDeleteBtn') }}
+            <RefreshCw v-if="deletingPluginName === plugin.name" class="w-3 h-3 animate-spin" />
+            <Trash2 v-else class="w-3 h-3" />
+            {{ t('common.delete') }}
           </button>
         </div>
       </div>
@@ -1931,10 +1933,10 @@ onMounted(() => {
             class="flex flex-col gap-1"
           >
             <div class="flex justify-between text-[10px] text-gray-500">
-              <span>{{ field.label || field.name }}</span>
-              <span class="font-mono text-gray-400">{{ field.name }}</span>
+              <span class="font-medium text-gray-700 dark:text-gray-300">{{ field.label || field.name }}</span>
+              <span class="font-mono text-gray-400" :title="field.name">{{ field.name }}</span>
             </div>
-            <label v-if="field.type === 'bool'" class="inline-flex items-center gap-2 cursor-pointer">
+            <label v-if="field.type === 'bool' || field.type === 'boolean'" class="inline-flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
                 :checked="Boolean(testParams[field.name])"
@@ -1945,8 +1947,22 @@ onMounted(() => {
                 {{ testParams[field.name] ? t('common.enabled') : t('common.disabled') }}
               </span>
             </label>
+            <select
+              v-else-if="(field.type === 'select' || (field.options && field.options.length > 0)) && field.options"
+              :value="testParams[field.name]"
+              class="ui-input !h-8 !text-xs !px-2 w-full bg-white dark:bg-gray-900"
+              @change="testParams[field.name] = ($event.target as HTMLSelectElement).value"
+            >
+              <option
+                v-for="opt in field.options"
+                :key="String(opt.value)"
+                :value="opt.value"
+              >
+                {{ opt.label }}
+              </option>
+            </select>
             <input
-              v-else-if="field.type === 'int'"
+              v-else-if="field.type === 'int' || field.type === 'number'"
               type="number"
               :value="testParams[field.name]"
               :placeholder="field.placeholder || String(field.default ?? '')"

@@ -146,7 +146,7 @@ const {
           />
         </div>
 
-        <!-- 右列配置卡片：AI 配置 + Bot 通知 + 扩展插件 -->
+        <!-- 右列配置卡片：AI 配置 + Bot 通知 -->
         <div class="flex flex-col gap-6">
           <AiSettings
             v-model:ai-model-value="aiConfig"
@@ -168,8 +168,12 @@ const {
             @test="testBot"
             @toggle-reveal="toggleReveal"
           />
-          <PluginsSettings />
         </div>
+      </div>
+
+      <!-- 扩展插件：独立全宽管理卡片 -->
+      <div>
+        <PluginsSettings />
       </div>
 
       <!-- 关于 / 版本：始终固定在所有配置卡片的最底部 -->
