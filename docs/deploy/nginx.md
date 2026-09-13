@@ -75,6 +75,11 @@ server {
         proxy_pass http://tg_signpulse;
         access_log off;
     }
+
+    # 生产安全加固：屏蔽文档与规范端点探测（纵深防御，可选）
+    # location ~ ^/(docs|redoc|openapi\.json) {
+    #     return 404;
+    # }
 }
 ```
 

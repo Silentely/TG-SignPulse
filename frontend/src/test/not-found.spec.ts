@@ -6,9 +6,11 @@ import { useAuthStore } from '../stores/auth'
 import { mockI18nPassthrough } from './composable-test-utils'
 
 const pushMock = vi.fn()
+const backMock = vi.fn()
 vi.mock('vue-router', () => ({
   useRouter: () => ({
     push: pushMock,
+    back: backMock,
   }),
 }))
 
@@ -21,6 +23,7 @@ describe('NotFound.vue 404 页面', () => {
     localStorage.clear()
     setActivePinia(createPinia())
     pushMock.mockClear()
+    backMock.mockClear()
   })
 
   it('未登录状态下展示前往登录文案并导航至 /login', async () => {
@@ -66,5 +69,19 @@ describe('NotFound.vue 404 页面', () => {
   it('组件挂载时同步更新网页标题 document.title', () => {
     mount(NotFound)
     expect(document.title).toBe('404 notFound.title - TG-SignPulse')
+  })
+
+  it('当存在浏览历史时支持点击返回上一页', async () => {
+    Object.defineProperty(window.history, 'length', {
+      value: 3,
+      configurable: true,
+    })
+    const wrapper = mount(NotFound)
+    const backBtn = wrapper.find('button.ui-btn-secondary')
+    expect(backBtn.exists()).toBe(true)
+    expect(backBtn.text()).toContain('notFound.goBack')
+
+    await backBtn.trigger('click')
+    expect(backMock).toHaveBeenCalled()
   })
 })

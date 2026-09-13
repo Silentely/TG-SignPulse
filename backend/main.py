@@ -326,9 +326,17 @@ def _resolve_web_file(full_path: str) -> Path | None:
     return None
 
 
+# 若未启用 API 文档，对 /openapi.json 直接返回标准 404 JSON，避免探测脚本或 API 客户端获得 SPA HTML 页面
+if _openapi_url is None:
+
+    @app.get("/openapi.json", include_in_schema=False)
+    async def _openapi_disabled():
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
+
+
 # Catch-all 路由：处理所有前端路由，返回 index.html
-# 注意：若启用了 API 文档，FastAPI 的 /docs、/redoc、/openapi.json 在此路由之前已自动注册；
-# 默认未启用时，这些路径由 SPA 兜底并交由前端 404 页面友好展示。
+# 注意：若启用了 API 文档，FastAPI 的 /docs、/redoc 在此路由之前已自动注册；
+# 默认未启用时，这些前端路径由 SPA 兜底并交由前端 404 页面友好展示。
 
 
 @app.get("/{full_path:path}")
