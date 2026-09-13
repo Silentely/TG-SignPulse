@@ -44,19 +44,39 @@
   color-scheme: dark;
 }
 
-/* 页面底色：极轻网格，强化控制台质感 */
+/* 基础平滑滚动与文字抗锯齿 */
+html {
+  scroll-behavior: smooth;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 页面底色：极轻网格，使用硬件加速独立层避免滚动重绘卡顿 */
 body {
   background-color: var(--sp-bg);
+  color: var(--sp-text);
+  min-height: 100vh;
+  position: relative;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
   background-image:
     radial-gradient(ellipse 80% 50% at 50% -20%, var(--sp-accent-soft), transparent 55%),
     linear-gradient(var(--sp-border) 1px, transparent 1px),
     linear-gradient(90deg, var(--sp-border) 1px, transparent 1px);
   background-size: auto, 48px 48px, 48px 48px;
   background-position: center top, 0 0, 0 0;
-  background-attachment: fixed;
+  transform: translateZ(0);
+  will-change: transform;
 }
 
-.dark body {
+.dark body::before {
   background-image:
     radial-gradient(ellipse 70% 40% at 50% -10%, rgb(56 189 248 / 0.07), transparent 50%),
     linear-gradient(rgb(255 255 255 / 0.015) 1px, transparent 1px),
@@ -118,7 +138,9 @@ select option {
   background: var(--sp-bg-elevated);
   border: 1px solid var(--sp-border);
   box-shadow: var(--sp-shadow-sm);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease, background-color 0.15s ease;
+  transition: border-color 0.15s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.15s cubic-bezier(0.4, 0, 0.2, 1), transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.15s ease;
+  backface-visibility: hidden;
+  transform: translateZ(0);
 }
 
 /* 侧栏暗色表面与主内容对齐 */
@@ -134,7 +156,7 @@ select option {
 .ui-card-hover:hover {
   border-color: var(--sp-border-strong);
   box-shadow: var(--sp-shadow-md);
-  transform: translateY(-1px);
+  transform: translateY(-1px) translateZ(0);
 }
 @media (prefers-reduced-motion: reduce) {
   .ui-card-hover:hover {
@@ -194,7 +216,7 @@ select option {
   border: 1px solid var(--sp-border);
   padding: 0.5rem 1rem;
   font-size: 0.875rem;
-  transition: background-color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease, transform 0.1s ease;
 }
 .ui-btn-secondary:hover:not(:disabled) {
   background: var(--sp-bg-elevated);
@@ -203,6 +225,9 @@ select option {
 .ui-btn-secondary:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+.ui-btn-secondary:active:not(:disabled) {
+  transform: scale(0.98);
 }
 
 /* 危险按钮 */
@@ -253,7 +278,10 @@ select option {
   background: transparent;
   border: none;
   cursor: pointer;
-  transition: color 0.15s ease, background-color 0.15s ease, opacity 0.15s ease;
+  transition: color 0.15s ease, background-color 0.15s ease, opacity 0.15s ease, transform 0.1s ease;
+}
+.ui-row-action:active:not(:disabled) {
+  transform: scale(0.97);
 }
 .dark .ui-row-action {
   color: rgb(209 213 219);
@@ -467,7 +495,10 @@ textarea.ui-input {
   height: 2rem;
   color: #6b7280;
   border-radius: var(--sp-radius);
-  transition: color 0.15s ease, background-color 0.15s ease;
+  transition: color 0.15s ease, background-color 0.15s ease, transform 0.1s ease;
+}
+.ui-icon-btn:active:not(:disabled) {
+  transform: scale(0.94);
 }
 .ui-icon-btn:hover {
   color: #111827;
@@ -1033,4 +1064,18 @@ textarea.ui-input {
   .ui-skeleton {
     animation: none;
   }
+}
+
+/* 长列表渲染性能隔离（按需排版与重绘） */
+.ui-contain-task {
+  content-visibility: auto;
+  contain-intrinsic-size: 0 112px;
+}
+.ui-contain-account {
+  content-visibility: auto;
+  contain-intrinsic-size: 0 168px;
+}
+.ui-contain-log {
+  content-visibility: auto;
+  contain-intrinsic-size: 0 36px;
 }

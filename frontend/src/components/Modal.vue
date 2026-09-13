@@ -214,13 +214,19 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.modal-enter-active,
-.modal-leave-active {
-  transition: opacity 0.2s ease;
+.modal-enter-active {
+  transition: opacity 0.16s ease-out;
 }
-.modal-enter-active > div:last-child,
+.modal-leave-active {
+  transition: opacity 0.12s ease-in;
+}
+.modal-enter-active > div:last-child {
+  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.18s ease-out;
+  will-change: transform, opacity;
+}
 .modal-leave-active > div:last-child {
-  transition: transform 0.2s ease, opacity 0.2s ease;
+  transition: transform 0.12s ease-in, opacity 0.12s ease-in;
+  will-change: transform, opacity;
 }
 .modal-enter-from,
 .modal-leave-to {
@@ -229,6 +235,19 @@ onUnmounted(() => {
 .modal-enter-from > div:last-child,
 .modal-leave-to > div:last-child {
   opacity: 0;
-  transform: translateY(8px) scale(0.98);
+  transform: translateY(6px) scale(0.98);
+}
+@media (prefers-reduced-motion: reduce) {
+  .modal-enter-active,
+  .modal-leave-active,
+  .modal-enter-active > div:last-child,
+  .modal-leave-active > div:last-child {
+    transition: opacity 0.01ms;
+    will-change: auto;
+  }
+  .modal-enter-from > div:last-child,
+  .modal-leave-to > div:last-child {
+    transform: none;
+  }
 }
 </style>

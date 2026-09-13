@@ -55,7 +55,7 @@ const runTaskBusy = computed(() => Boolean(props.runBusyKey?.startsWith(`${props
 
 <template>
   <div
-    class="ui-card relative flex flex-col gap-3 p-4"
+    class="ui-card ui-contain-task relative flex flex-col gap-3 p-4"
     :class="{
       'opacity-55': !task.enabled,
       'ring-1 ring-sky-400/40 border-sky-300/50 dark:border-sky-700/40': selected,
@@ -72,7 +72,7 @@ const runTaskBusy = computed(() => Boolean(props.runBusyKey?.startsWith(`${props
         />
       </label>
       <div class="w-10 h-10 shrink-0 bg-gray-100 dark:bg-gray-800/80 flex items-center justify-center text-gray-500 border border-gray-200 dark:border-gray-700/60 overflow-hidden">
-        <img v-if="task.chatAvatarUrl" :src="task.chatAvatarUrl" class="w-full h-full object-cover" alt="" />
+        <img v-if="task.chatAvatarUrl" :src="task.chatAvatarUrl" class="w-full h-full object-cover" alt="" loading="lazy" decoding="async" />
         <component v-else :is="task.modeIcon" class="w-5 h-5 opacity-70" />
       </div>
       <div class="flex-1 min-w-0 space-y-1.5">
