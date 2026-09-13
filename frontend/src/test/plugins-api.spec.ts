@@ -14,9 +14,6 @@ import {
   getPluginHistory,
   clonePlugin,
   getPluginDependencies,
-  getPluginConfig,
-  updatePluginConfig,
-  resetPluginConfig,
   exportAllPlugins,
   importPluginsBundle,
   checkPluginSyntax,
@@ -240,40 +237,7 @@ describe('plugins api 扩展接口', () => {
     expect(result).toEqual(mockResp)
   })
 
-  it('getPluginConfig 发起 GET /plugins/:name/config', async () => {
-    const mockResp = { name: 'cfg_p', params: { a: 1 }, is_customized: false }
-    const requestSpy = vi.spyOn(coreApi, 'request').mockResolvedValueOnce(mockResp)
-
-    const result = await getPluginConfig('cfg_p', 'test-token')
-    expect(requestSpy).toHaveBeenCalledWith('/plugins/cfg_p/config', {}, 'test-token')
-    expect(result).toEqual(mockResp)
-  })
-
-  it('updatePluginConfig 发起 PUT /plugins/:name/config', async () => {
-    const mockResp = { name: 'cfg_p', params: { a: 2 }, is_customized: true }
-    const requestSpy = vi.spyOn(coreApi, 'request').mockResolvedValueOnce(mockResp)
-
-    const result = await updatePluginConfig('cfg_p', { a: 2 }, 'test-token')
-    expect(requestSpy).toHaveBeenCalledWith(
-      '/plugins/cfg_p/config',
-      { method: 'PUT', body: JSON.stringify({ params: { a: 2 } }) },
-      'test-token',
-    )
-    expect(result).toEqual(mockResp)
-  })
-
-  it('resetPluginConfig 发起 POST /plugins/:name/reset-config', async () => {
-    const mockResp = { name: 'cfg_p', params: { a: 1 }, is_customized: false }
-    const requestSpy = vi.spyOn(coreApi, 'request').mockResolvedValueOnce(mockResp)
-
-    const result = await resetPluginConfig('cfg_p', 'test-token')
-    expect(requestSpy).toHaveBeenCalledWith(
-      '/plugins/cfg_p/reset-config',
-      { method: 'POST' },
-      'test-token',
-    )
-    expect(result).toEqual(mockResp)
-  })
+  // 配置管理 API 函数（getPluginConfig/updatePluginConfig/resetPluginConfig）已随死代码清理移除
 
   it('exportAllPlugins 发起 GET /plugins/export-all 并返回 Blob', async () => {
     const mockBlob = new Blob(['zip content'], { type: 'application/zip' })

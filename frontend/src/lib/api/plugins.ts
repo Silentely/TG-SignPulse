@@ -1,7 +1,7 @@
 /**
  * 插件管理 API：获取已加载插件列表、测试运行、重新加载、源码只读查看、模板创建与安全删除。
  */
-import { request } from './core'
+import { API_BASE, request } from './core'
 
 export interface PluginParamSchema {
   name: string
@@ -94,6 +94,10 @@ export interface AuditPluginResponse {
 export interface FormatPluginSourceResponse {
   formatted: string
   changed: boolean
+  /** 实际使用的格式化器：black（无损）或 ast（有损，丢失注释） */
+  formatter: string
+  /** 降级为 ast.unparse 时为 true，格式化结果会丢失全部注释 */
+  lossy: boolean
 }
 
 export interface CheckSyntaxResponse {
@@ -107,12 +111,6 @@ export interface ImportBundleResponse {
   imported_count: number
   files: string[]
   errors: string[]
-}
-
-export interface PluginConfigResponse {
-  name: string
-  params: Record<string, any>
-  is_customized: boolean
 }
 
 export interface PluginExecutionRecord {
@@ -262,14 +260,13 @@ export async function getPluginDiagnostics(token: string): Promise<PluginDiagnos
 }
 
 export async function exportPlugin(name: string, token: string): Promise<Blob> {
-  const url = `/api/plugins/${encodeURIComponent(name)}/export`
-  const res = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  })
+  const url = `${API_BASE}/plugins/${encodeURIComponent(name)}/export`
+  const headers: Record<string, string> = {}
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  const res = await fetch(url, { headers })
   if (!res.ok) {
-    throw new Error(`Failed to export plugin: ${res.statusText}`)
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || `Failed to export plugin: ${res.statusText}`)
   }
   return res.blob()
 }
@@ -277,11 +274,11 @@ export async function exportPlugin(name: string, token: string): Promise<Blob> {
 export async function uploadPlugin(file: File, token: string): Promise<PluginInfo> {
   const formData = new FormData()
   formData.append('file', file)
-  const res = await fetch('/api/plugins/upload', {
+  const headers: Record<string, string> = {}
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  const res = await fetch(`${API_BASE}/plugins/upload`, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+    headers,
     body: formData,
   })
   if (!res.ok) {
@@ -354,37 +351,10 @@ export async function getPluginDependencies(
   return request<PluginDependenciesResponse>(`/plugins/${encodeURIComponent(name)}/dependencies`, {}, token)
 }
 
-export async function getPluginConfig(
-  name: string,
-  token: string,
-): Promise<PluginConfigResponse> {
-  return request<PluginConfigResponse>(`/plugins/${encodeURIComponent(name)}/config`, {}, token)
-}
-
-export async function updatePluginConfig(
-  name: string,
-  params: Record<string, any>,
-  token: string,
-): Promise<PluginConfigResponse> {
-  return request<PluginConfigResponse>(`/plugins/${encodeURIComponent(name)}/config`, {
-    method: 'PUT',
-    body: JSON.stringify({ params }),
-  }, token)
-}
-
-export async function resetPluginConfig(
-  name: string,
-  token: string,
-): Promise<PluginConfigResponse> {
-  return request<PluginConfigResponse>(`/plugins/${encodeURIComponent(name)}/reset-config`, {
-    method: 'POST',
-  }, token)
-}
-
 export async function exportAllPlugins(token: string): Promise<Blob> {
   const headers: Record<string, string> = {}
   if (token) headers['Authorization'] = `Bearer ${token}`
-  const res = await fetch('/api/plugins/export-all', { headers })
+  const res = await fetch(`${API_BASE}/plugins/export-all`, { headers })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
     throw new Error(err.detail || 'Failed to export all plugins')
@@ -400,7 +370,7 @@ export async function importPluginsBundle(
   formData.append('file', file)
   const headers: Record<string, string> = {}
   if (token) headers['Authorization'] = `Bearer ${token}`
-  const res = await fetch('/api/plugins/import-bundle', {
+  const res = await fetch(`${API_BASE}/plugins/import-bundle`, {
     method: 'POST',
     headers,
     body: formData,
