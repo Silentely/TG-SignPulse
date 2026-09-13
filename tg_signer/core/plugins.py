@@ -16,6 +16,7 @@ import re
 import sqlite3
 import sys
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -375,7 +376,8 @@ class PluginMetrics:
 
     @property
     def success_rate(self) -> float:
-        return round((self.success_count / self.run_count) * 100, 1) if self.run_count > 0 else 100.0
+        # 从未执行时无成功率可言，返回 0.0 而非 100.0，避免误导
+        return round((self.success_count / self.run_count) * 100, 1) if self.run_count > 0 else 0.0
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -440,7 +442,19 @@ class PluginRegistry:
     _disabled_plugins: set[str] = set()
     _load_errors: Dict[str, PluginLoadError] = {}
     _metrics: Dict[str, PluginMetrics] = {}
-    _execution_history: Dict[str, Any] = {}
+    _execution_history: Dict[str, deque[PluginExecutionRecord]] = {}
+
+    @staticmethod
+    def _is_same_registration(a: Callable[[PluginContext], Any], b: Callable[[PluginContext], Any]) -> bool:
+        """判断两个函数是否来自同一源文件的同一处定义（即同一插件的重复加载）。"""
+        try:
+            file_a = inspect.getsourcefile(a)
+            file_b = inspect.getsourcefile(b)
+            line_a = a.__code__.co_firstlineno
+            line_b = b.__code__.co_firstlineno
+        except Exception:
+            return False
+        return bool(file_a and file_a == file_b and line_a == line_b)
 
     @classmethod
     def record_execution(
@@ -452,15 +466,12 @@ class PluginRegistry:
         trigger_type: str = "manual_test",
         log_summary: Optional[str] = None,
     ) -> None:
-        from collections import deque
-
         metrics = cls._metrics.setdefault(name, PluginMetrics())
+        # 时长统一取整一次（保留两位，兼顾亚毫秒执行的可见性），保证 last/total/avg 口径一致
+        rounded_ms = round(max(0.0, float(duration_ms)), 2)
         metrics.run_count += 1
-        metrics.total_duration_ms += max(0.0, float(duration_ms))
-        raw_duration_ms = max(0.0, float(duration_ms))
-        metrics.last_duration_ms = (
-            max(0.1, round(raw_duration_ms, 1)) if raw_duration_ms > 0 else 0.0
-        )
+        metrics.total_duration_ms += rounded_ms
+        metrics.last_duration_ms = rounded_ms
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         metrics.last_run_at = now_str
         if success:
@@ -544,9 +555,9 @@ class PluginRegistry:
         def decorator(fn: Callable[[PluginContext], Any]) -> Callable[[PluginContext], Any]:
             existing = cls._plugins.get(name)
             if existing is not None and existing.handler is not fn:
-                existing_qualname = getattr(existing.handler, "__qualname__", "")
-                new_qualname = getattr(fn, "__qualname__", "")
-                if not (existing_qualname and existing_qualname == new_qualname):
+                # 仅放行"同一源文件同一行号"的重复注册（模块被再次执行的重载场景）；
+                # 跨文件同名注册一律拒绝，防止后加载者静默覆盖先加载者
+                if not cls._is_same_registration(existing.handler, fn):
                     raise ValueError(f"插件名称已注册: {name}")
             source_file = None
             try:
@@ -832,15 +843,16 @@ class _SecurityVisitor(ast.NodeVisitor):
         self.warnings: List[Dict[str, Any]] = []
 
     def visit_Call(self, node: ast.Call) -> None:
+        # 仅对可直接定位的调用目标告警：深属性链（如 a.b.eval()）无法可靠判定，
+        # 静态审计本质是启发式提示而非安全边界
         func_name = ""
         if isinstance(node.func, ast.Name):
             func_name = node.func.id
-        elif isinstance(node.func, ast.Attribute):
-            val = node.func.value
-            if isinstance(val, ast.Name):
-                func_name = f"{val.id}.{node.func.attr}"
-            else:
-                func_name = node.func.attr
+        elif isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
+            func_name = f"{node.func.value.id}.{node.func.attr}"
+        else:
+            self.generic_visit(node)
+            return
 
         if func_name in ("eval", "exec", "compile", "__import__"):
             self.warnings.append({
@@ -871,6 +883,11 @@ class _SecurityVisitor(ast.NodeVisitor):
 
 
 def audit_plugin_source(source: str) -> List[Dict[str, Any]]:
+    """启发式静态审计插件源码中的高危调用。
+
+    仅基于 AST 识别常见危险调用模式，可被别名、getattr 等间接手段绕过，
+    定位为辅助提示能力而非安全边界。
+    """
     try:
         tree = ast.parse(source, filename="<plugin_security_audit>")
         visitor = _SecurityVisitor()

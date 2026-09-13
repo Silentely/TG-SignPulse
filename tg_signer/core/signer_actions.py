@@ -465,6 +465,26 @@ class SignerActionsMixin:
             return clicked > 0
         return False
 
+    def _record_plugin_task_execution(
+        self,
+        plugin_name: str,
+        start_ts: float,
+        success: bool,
+        error: Optional[str] = None,
+        trigger_type: str = "active",
+    ) -> None:
+        """记录正式任务执行路径的插件指标（仅进程内执行需要本层记录）。"""
+        try:
+            PluginRegistry.record_execution(
+                plugin_name,
+                duration_ms=(time.perf_counter() - start_ts) * 1000,
+                success=success,
+                error=error,
+                trigger_type=trigger_type,
+            )
+        except Exception as exc:  # 指标记录失败不应影响任务执行
+            self.log(f"记录插件「{plugin_name}」执行指标失败: {exc}", level="DEBUG")
+
     async def _dispatch_reactive_plugin_message(
         self,
         action: PluginAction,
@@ -505,7 +525,10 @@ class SignerActionsMixin:
 
         if use_subprocess:
             host = PluginProcessHost(
-                plugin_name=action.plugin_name, ctx=ctx, timeout=eff_timeout
+                plugin_name=action.plugin_name,
+                ctx=ctx,
+                timeout=eff_timeout,
+                trigger_type="reactive",
             )
             try:
                 res = await host.execute()
@@ -529,16 +552,36 @@ class SignerActionsMixin:
                 if asyncio.iscoroutinefunction(plugin.handler)
                 else asyncio.to_thread(plugin.handler, ctx)
             )
+            start_ts = time.perf_counter()
             try:
                 res = await asyncio.wait_for(handler_call, timeout=eff_timeout)
+                # 进程内路径由本层记录指标（reactive 模式返回 False 仅表示未命中，
+                # 仍属正常执行完成）；子进程路径由 PluginProcessHost 记录
+                self._record_plugin_task_execution(
+                    action.plugin_name, start_ts, success=True, trigger_type="reactive"
+                )
                 return bool(res)
             except asyncio.TimeoutError:
+                self._record_plugin_task_execution(
+                    action.plugin_name,
+                    start_ts,
+                    success=False,
+                    error=f"执行超时（{eff_timeout}s）",
+                    trigger_type="reactive",
+                )
                 msg_kind = "单条历史消息" if is_history else "单条消息"
                 self.log(
                     f"插件「{action.plugin_name}」处理{msg_kind}超时", level="WARNING"
                 )
                 return False
             except Exception as e:
+                self._record_plugin_task_execution(
+                    action.plugin_name,
+                    start_ts,
+                    success=False,
+                    error=str(e),
+                    trigger_type="reactive",
+                )
                 msg_kind = "历史消息" if is_history else "消息"
                 self.log(
                     f"插件「{action.plugin_name}」处理{msg_kind}异常: {e}",
@@ -623,7 +666,10 @@ class SignerActionsMixin:
 
                 if use_subprocess:
                     host = PluginProcessHost(
-                        plugin_name=action.plugin_name, ctx=ctx, timeout=eff_timeout
+                        plugin_name=action.plugin_name,
+                        ctx=ctx,
+                        timeout=eff_timeout,
+                        trigger_type="active",
                     )
                     try:
                         res = await host.execute()
@@ -647,9 +693,17 @@ class SignerActionsMixin:
                         if asyncio.iscoroutinefunction(plugin.handler)
                         else asyncio.to_thread(plugin.handler, ctx)
                     )
+                    start_ts = time.perf_counter()
                     try:
                         res = await asyncio.wait_for(handler_call, timeout=eff_timeout)
                     except asyncio.TimeoutError as exc:
+                        self._record_plugin_task_execution(
+                            action.plugin_name,
+                            start_ts,
+                            success=False,
+                            error=f"执行超时（{eff_timeout}s）",
+                            trigger_type="active",
+                        )
                         self.log(
                             f"插件「{action.plugin_name}」执行超时（{eff_timeout}s）",
                             level="ERROR",
@@ -658,11 +712,26 @@ class SignerActionsMixin:
                             f"Plugin '{action.plugin_name}' timed out after {eff_timeout}s"
                         ) from exc
                     except Exception as exc:
+                        self._record_plugin_task_execution(
+                            action.plugin_name,
+                            start_ts,
+                            success=False,
+                            error=str(exc),
+                            trigger_type="active",
+                        )
                         self.log(
                             f"插件「{action.plugin_name}」执行异常: {exc}",
                             level="ERROR",
                         )
                         raise
+                    # active 模式下返回 False 即业务语义的执行失败
+                    self._record_plugin_task_execution(
+                        action.plugin_name,
+                        start_ts,
+                        success=res is not False,
+                        error="插件返回执行失败" if res is False else None,
+                        trigger_type="active",
+                    )
 
                 if res is False:
                     self.log(
