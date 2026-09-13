@@ -84,7 +84,6 @@ body::before {
   background-size: auto, 48px 48px, 48px 48px;
   background-position: center top, 0 0, 0 0;
   transform: translateZ(0);
-  will-change: transform;
 }
 
 .dark body::before {
@@ -158,8 +157,6 @@ select option {
   border: 1px solid var(--sp-border);
   box-shadow: var(--sp-shadow-sm);
   transition: border-color 0.15s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.15s cubic-bezier(0.4, 0, 0.2, 1), transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.15s ease;
-  backface-visibility: hidden;
-  transform: translateZ(0);
 }
 
 /* 侧栏暗色表面与主内容对齐 */
@@ -1112,16 +1109,18 @@ textarea.ui-input {
   }
 }
 
-/* 长列表渲染性能隔离（按需排版与重绘） */
+/* 长列表渲染性能隔离（按需排版与重绘）
+   contain-intrinsic-size 使用 auto 前缀：元素渲染过一次后记住真实尺寸，
+   仅首次跳过时使用回退值，减少滚动条跳动 */
 .ui-contain-task {
   content-visibility: auto;
-  contain-intrinsic-size: 0 112px;
+  contain-intrinsic-size: auto 140px;
 }
 .ui-contain-account {
   content-visibility: auto;
-  contain-intrinsic-size: 0 168px;
+  contain-intrinsic-size: auto 160px;
 }
 .ui-contain-log {
   content-visibility: auto;
-  contain-intrinsic-size: 0 36px;
+  contain-intrinsic-size: auto 36px;
 }
