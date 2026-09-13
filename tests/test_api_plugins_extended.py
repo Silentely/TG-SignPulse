@@ -271,7 +271,8 @@ def test_api_test_plugin_reset_storage_uses_custom_chat_id():
         )
 
     assert resp.status_code == 200
-    clear.assert_called_once_with(namespace="-1001234567890:math_solver")
+    # 调试台重置必须落在带保留前缀的测试命名空间，与生产数据（{chat_id}:{name}）隔离
+    clear.assert_called_once_with(namespace="__test__:-1001234567890:math_solver")
 
 
 def test_api_update_plugin_source_for_custom_plugin():

@@ -19,6 +19,7 @@ from fastapi import (
     Depends,
     File,
     HTTPException,
+    Query,
     Response,
     UploadFile,
     status,
@@ -32,8 +33,10 @@ from tg_signer.core.plugins import (
     PluginContext,
     PluginMeta,
     PluginRegistry,
+    PluginStorageClient,
     is_builtin_plugin_path,
 )
+from tg_signer.utils import validate_public_http_url
 
 router = APIRouter()
 logger = logging.getLogger("backend.plugins_api")
@@ -64,6 +67,11 @@ def _get_custom_plugins_dir() -> Path:
     target_dir = custom_dirs[0] if custom_dirs else Path.cwd() / "data" / "plugins"
     target_dir.mkdir(parents=True, exist_ok=True)
     return target_dir
+
+
+def _plugin_test_namespace(chat_id: Union[int, str], plugin_name: str) -> str:
+    """调试台专用持久化命名空间，带保留前缀与生产命名空间（{chat_id}:{name}）隔离。"""
+    return f"__test__:{chat_id}:{plugin_name}"
 
 
 class PluginMetricsModel(BaseModel):
@@ -193,6 +201,8 @@ class FormatPluginSourceRequest(BaseModel):
 class FormatPluginSourceResponse(BaseModel):
     formatted: str
     changed: bool
+    formatter: str = "black"
+    lossy: bool = False
 
 
 class ImportBundleResponse(BaseModel):
@@ -237,7 +247,12 @@ class PluginTestRequest(BaseModel):
     reset_storage: bool = Field(default=False, description="测试前是否重置测试命名空间内的持久化存储")
     chat_id: Optional[Union[int, str]] = Field(default=None, description="模拟会话 ID")
     sender_name: Optional[str] = Field(default=None, description="模拟发送者名称")
-    timeout: Optional[float] = Field(default=None, description="单次测试最大超时时间(秒)")
+    timeout: Optional[float] = Field(
+        default=None,
+        gt=0,
+        le=300,
+        description="单次测试最大超时时间(秒)，范围 (0, 300]",
+    )
 
 
 PluginInfo.update_forward_refs()
@@ -422,7 +437,7 @@ async def test_plugin(
     if req.reset_storage:
         try:
             from tg_signer.core.plugins import PluginStorageBackend
-            PluginStorageBackend().clear(namespace=f"{eff_chat_id}:{name}")
+            PluginStorageBackend().clear(namespace=_plugin_test_namespace(eff_chat_id, name))
             captured_logs.append("[mock] 已清空该插件测试命名空间持久化存储")
         except Exception as exc:
             captured_logs.append(f"[mock] 清空存储提示: {exc}")
@@ -438,9 +453,12 @@ async def test_plugin(
         logger=log_capture,
         plugin_name=name,
     )
+    # 调试执行与重置共用独立的测试命名空间，与生产持久化数据（{chat_id}:{name}）完全隔离
+    ctx.storage = PluginStorageClient(namespace=_plugin_test_namespace(eff_chat_id, name))
 
     if req.timeout is not None and req.timeout > 0:
-        test_timeout = float(req.timeout)
+        # 双重钳制：即便模型校验被绕过也限制在 300s 内
+        test_timeout = min(float(req.timeout), 300.0)
     else:
         try:
             test_timeout = float(os.getenv("PLUGIN_TEST_TIMEOUT", "5.0"))
@@ -547,61 +565,19 @@ async def install_remote_plugin(
     _user: User = Depends(get_current_user),
 ) -> PluginInfo:
     """从远程 URL 下载并安装自定义插件。"""
-    import ast
-    import ipaddress
-    import re
-    import socket
     from urllib.parse import urlparse
 
     import httpx
 
     raw_url = req.url.strip()
-    if not (raw_url.startswith("http://") or raw_url.startswith("https://")):
-        raise HTTPException(status_code=400, detail="URL 必须以 http:// 或 https:// 开头")
+
+    # SSRF 防护：白名单式校验仅放行全局可路由地址，返回钉扎 IP 避免 DNS rebinding
+    try:
+        pinned_ip, hostname = validate_public_http_url(raw_url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
     parsed_url = urlparse(raw_url)
-    hostname = parsed_url.hostname or ""
-    if not hostname:
-        raise HTTPException(status_code=400, detail="无效的主机名")
-
-    # SSRF 防护：白名单式校验，仅放行全局可路由地址
-    def _is_forbidden_target(ip_obj: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
-        embedded: list[ipaddress.IPv4Address] = []
-        if ip_obj.version == 6:
-            # IPv4-mapped/6to4/Teredo 内嵌的 IPv4 地址需一并判定，防止 ::ffff:10.0.0.1 之类字面量绕过
-            if ip_obj.ipv4_mapped:
-                embedded.append(ip_obj.ipv4_mapped)
-            if ip_obj.sixtofour:
-                embedded.append(ip_obj.sixtofour)
-            if ip_obj.teredo:
-                embedded.extend([ip_obj.teredo.server, ip_obj.teredo.client])
-        if not ip_obj.is_global:
-            return True
-        return any(not addr.is_global for addr in embedded)
-
-    # 解析候选地址并逐一校验，返回钉扎用的 IP，避免后续请求重新解析造成 DNS rebinding
-    try:
-        candidates = [ipaddress.ip_address(hostname)]
-    except ValueError:
-        try:
-            addr_info = socket.getaddrinfo(hostname, None)
-        except (socket.gaierror, UnicodeError):
-            raise HTTPException(status_code=400, detail=f"无法解析主机: {hostname}")
-        candidates = []
-        for addr in addr_info:
-            try:
-                candidates.append(ipaddress.ip_address(addr[4][0]))
-            except ValueError:
-                continue
-    if not candidates:
-        raise HTTPException(status_code=400, detail=f"无法解析主机: {hostname}")
-    for ip_obj in candidates:
-        if _is_forbidden_target(ip_obj):
-            raise HTTPException(status_code=400, detail="安全限制：禁止请求私有或内网地址")
-    pinned_ip_obj = candidates[0]
-    if pinned_ip_obj.version == 6 and pinned_ip_obj.ipv4_mapped:
-        pinned_ip_obj = pinned_ip_obj.ipv4_mapped
-    pinned_ip = str(pinned_ip_obj)
 
     default_port = {"http": 80, "https": 443}.get(parsed_url.scheme)
 
@@ -784,8 +760,20 @@ async def update_plugin_source(
             detail=f"Python 语法错误: {exc.msg} (第 {exc.lineno} 行)",
         )
 
+    # 先备份旧源码，写入或重载失败时回滚，避免一次坏编辑永久丢失可用插件
     try:
-        source_path.write_text(payload.source, encoding="utf-8")
+        old_source = source_path.read_text(encoding="utf-8")
+    except Exception:
+        old_source = None
+
+    def _atomic_write(text: str) -> None:
+        # 先写临时文件再原子替换，避免热重载/并发读到半截文件
+        tmp_path = source_path.with_name(source_path.name + ".tmp")
+        tmp_path.write_text(text, encoding="utf-8")
+        os.replace(tmp_path, source_path)
+
+    try:
+        _atomic_write(payload.source)
     except Exception as exc:
         logger.error("保存插件源码失败 %s: %s", source_path, exc, exc_info=True)
         raise HTTPException(status_code=500, detail=f"保存插件源码失败: {exc}")
@@ -803,9 +791,15 @@ async def update_plugin_source(
                 break
 
     if not updated_meta:
+        if old_source is not None:
+            try:
+                _atomic_write(old_source)
+                PluginRegistry.reload_all_plugins()
+            except Exception as exc:
+                logger.error("回滚插件源码失败 %s: %s", source_path, exc, exc_info=True)
         raise HTTPException(
             status_code=400,
-            detail="插件代码已保存，但在重载时未注册有效插件，请检查 @PluginRegistry.register 装饰器",
+            detail="插件代码已保存，但重载时未注册有效插件，已回滚至旧版本，请检查 @PluginRegistry.register 装饰器",
         )
 
     return _meta_to_info(updated_meta)
@@ -847,18 +841,27 @@ async def delete_plugin(
         logger.error("删除插件文件失败 %s: %s", source_path, exc, exc_info=True)
         raise HTTPException(status_code=500, detail=f"删除插件文件失败: {exc}")
 
-    # 若有停用配置，同步从全局 disabled_plugins 中移除
+    # 同步清理全局配置：disabled_plugins 开关与 plugin_configs 中的孤儿参数，
+    # 避免重装同名插件时静默继承旧配置
     try:
         from backend.services.config import get_config_service
         cfg_service = get_config_service()
         settings = cfg_service.get_global_settings() or {}
+        dirty = False
         disabled = list(settings.get("disabled_plugins", []))
         if name in disabled:
             disabled.remove(name)
             settings["disabled_plugins"] = disabled
+            dirty = True
+        configs = dict(settings.get("plugin_configs", {}))
+        if name in configs:
+            configs.pop(name, None)
+            settings["plugin_configs"] = configs
+            dirty = True
+        if dirty:
             cfg_service.save_global_settings(settings)
     except Exception as exc:
-        logger.warning("清理 disabled_plugins 失败: %s", exc)
+        logger.warning("清理插件全局配置失败: %s", exc)
 
     PluginRegistry.reload_all_plugins()
     return {"success": True, "name": name, "message": f"插件 {name} 已成功删除"}
@@ -873,7 +876,7 @@ async def create_plugin_from_template(
     # 1. 检查名称是否重复
     existing = PluginRegistry.get(req.name)
     if existing:
-        raise HTTPException(status_code=400, detail=f"插件名称 '{req.name}' 已存在")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"插件名称 '{req.name}' 已存在")
 
     # 2. 确定自定义插件保存目录
     custom_dirs = [d for d in PluginRegistry.get_search_directories() if not is_builtin_plugin_path(d)]
@@ -882,7 +885,7 @@ async def create_plugin_from_template(
 
     plugin_dir = target_dir / req.name
     if plugin_dir.exists():
-        raise HTTPException(status_code=400, detail=f"目录 '{req.name}' 已存在于插件目录中")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"目录 '{req.name}' 已存在于插件目录中")
 
     today = datetime.now().strftime("%Y-%m-%d")
     version = req.version or "1.0.0"
@@ -895,7 +898,7 @@ from tg_signer.core.plugins import PluginContext, PluginRegistry
 
 VERSION = "{version}"
 UPDATED_AT = "{today}"
-AUTHOR = "{author}"
+AUTHOR = {author!r}
 
 PARAMS_SCHEMA = [
     {{
@@ -910,7 +913,7 @@ PARAMS_SCHEMA = [
 @PluginRegistry.register(
     name="{req.name}",
     mode="active",
-    description="{description}",
+    description={description!r},
     params_schema=PARAMS_SCHEMA,
     version=VERSION,
     updated_at=UPDATED_AT,
@@ -929,14 +932,14 @@ from tg_signer.core.plugins import PluginContext, PluginRegistry
 
 VERSION = "{version}"
 UPDATED_AT = "{today}"
-AUTHOR = "{author}"
+AUTHOR = {author!r}
 
 PARAMS_SCHEMA = []
 
 @PluginRegistry.register(
     name="{req.name}",
     mode="reactive",
-    description="{description}",
+    description={description!r},
     params_schema=PARAMS_SCHEMA,
     version=VERSION,
     updated_at=UPDATED_AT,
@@ -956,7 +959,7 @@ from tg_signer.core.plugins import PluginContext, PluginRegistry
 
 VERSION = "{version}"
 UPDATED_AT = "{today}"
-AUTHOR = "{author}"
+AUTHOR = {author!r}
 
 PARAMS_SCHEMA = [
     {{
@@ -978,7 +981,7 @@ PARAMS_SCHEMA = [
 @PluginRegistry.register(
     name="{req.name}",
     mode="reactive",
-    description="{description}",
+    description={description!r},
     params_schema=PARAMS_SCHEMA,
     version=VERSION,
     updated_at=UPDATED_AT,
@@ -1011,7 +1014,7 @@ from tg_signer.core.plugins import PluginContext, PluginRegistry
 
 VERSION = "{version}"
 UPDATED_AT = "{today}"
-AUTHOR = "{author}"
+AUTHOR = {author!r}
 PERMISSIONS = ["network"]
 
 PARAMS_SCHEMA = [
@@ -1027,7 +1030,7 @@ PARAMS_SCHEMA = [
 @PluginRegistry.register(
     name="{req.name}",
     mode="reactive",
-    description="{description}",
+    description={description!r},
     params_schema=PARAMS_SCHEMA,
     permissions=PERMISSIONS,
     version=VERSION,
@@ -1066,7 +1069,7 @@ from tg_signer.core.plugins import PluginContext, PluginRegistry
 
 VERSION = "{version}"
 UPDATED_AT = "{today}"
-AUTHOR = "{author}"
+AUTHOR = {author!r}
 
 PARAMS_SCHEMA = [
     {{
@@ -1081,7 +1084,7 @@ PARAMS_SCHEMA = [
 @PluginRegistry.register(
     name="{req.name}",
     mode="reactive",
-    description="{description}",
+    description={description!r},
     params_schema=PARAMS_SCHEMA,
     version=VERSION,
     updated_at=UPDATED_AT,
@@ -1096,6 +1099,16 @@ async def {req.name}_handler(ctx: PluginContext) -> bool:
     await ctx.reply(f"{{prefix}} 已收到消息: {{msg.text[:50]}}")
     return True
 '''
+
+    # 注入防御自检：author/description 等用户输入已经 repr 转义，此处再验证
+    # 生成代码确为合法 Python 且可解析，杜绝任何模板改动引入的代码注入
+    try:
+        ast.parse(code_text)
+    except SyntaxError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"模板生成的插件代码语法非法: {exc.msg} (第 {exc.lineno} 行)",
+        )
 
     try:
         plugin_dir.mkdir(parents=True, exist_ok=True)
@@ -1171,14 +1184,20 @@ async def upload_plugin(
             detail="插件文件名必须由 3-32 位字母、数字或下划线组成（如 custom_plugin.py）",
         )
 
+    # 有界读取：最多多读 1 字节用于超限判定，避免超大上传先占满内存
+    max_upload_size = 2 * 1024 * 1024
     try:
-        content_bytes = await file.read()
-        content = content_bytes.decode("utf-8")
+        content_bytes = await file.read(max_upload_size + 1)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"读取上传文件失败: {exc}")
 
-    if len(content_bytes) > 2 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="插件文件大小超过 2MB 限制")
+    if len(content_bytes) > max_upload_size:
+        raise HTTPException(status_code=413, detail="插件文件大小超过 2MB 限制")
+
+    try:
+        content = content_bytes.decode("utf-8")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"上传文件不是有效的 UTF-8 文本: {exc}")
 
     try:
         ast.parse(content, filename=raw_filename)
@@ -1274,7 +1293,7 @@ async def reset_all_plugin_metrics(
 @router.get("/{name}/history")
 async def get_plugin_history(
     name: str,
-    limit: int = 20,
+    limit: int = Query(20, ge=1, le=30, description="返回条数，上限 30（与内存环形缓冲一致）"),
     _user: User = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """获取指定插件最近的执行调用历史记录。"""
@@ -1353,12 +1372,36 @@ async def clone_plugin(
             detail=f"无法获取源插件 '{name}' 的源代码进行克隆",
         )
 
-    # 替换插件名称与函数名称
+    # 替换插件名称与函数名称；使用 lambda 字面替换避免 re.sub 对替换串做
+    # 反斜杠/分组引用展开，名称统一 re.escape 防止元字符注入正则
     new_code = source_code
-    new_code = re.sub(rf'name\s*=\s*["\']{name}["\']', f'name="{req.new_name}"', new_code)
-    new_code = re.sub(rf'def\s+{name}_handler', f'def {req.new_name}_handler', new_code)
+    new_code = re.sub(
+        rf'name\s*=\s*["\']{re.escape(name)}["\']',
+        lambda _m: f'name="{req.new_name}"',
+        new_code,
+    )
+    new_code = re.sub(
+        rf'def\s+{re.escape(name)}_handler',
+        lambda _m: f'def {req.new_name}_handler',
+        new_code,
+    )
     if req.description:
-        new_code = re.sub(r'description\s*=\s*["\'][^"\']*["\']', f'description="{req.description}"', new_code, count=1)
+        # description 经 repr 生成合法 Python 字面量，引号/换行/反斜杠均被转义
+        new_code = re.sub(
+            r'description\s*=\s*["\'][^"\']*["\']',
+            lambda _m: f'description={req.description!r}',
+            new_code,
+            count=1,
+        )
+
+    # AST 自检：替换后的代码必须是合法 Python，防止拼接破坏源码结构
+    try:
+        ast.parse(new_code, filename=f"{req.new_name}.py")
+    except SyntaxError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"克隆生成的插件代码语法非法: {exc.msg} (第 {exc.lineno} 行)",
+        )
 
     target_dir = _get_custom_plugins_dir()
     target_file = target_dir / f"{req.new_name}.py"
@@ -1379,9 +1422,11 @@ async def clone_plugin(
     PluginRegistry.reload_all_plugins()
     new_meta = PluginRegistry.get(req.new_name)
     if not new_meta:
+        # 加载失败时清理已写入的孤儿文件，避免后续同名克隆永久 409
+        target_file.unlink(missing_ok=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="克隆插件创建成功，但加载失败",
+            detail="克隆插件创建成功，但加载失败，已清理残留文件",
         )
 
     return _meta_to_info(new_meta)
@@ -1709,12 +1754,17 @@ async def format_plugin_source_route(
         )
 
     formatted_code = ""
+    formatter_name = "black"
+    lossy = False
     try:
         import black
         formatted_code = black.format_str(req.source, mode=black.FileMode())
     except Exception:
+        # black 缺失时降级 ast.unparse：会丢失全部注释，必须向前端显式标注
         try:
             formatted_code = ast.unparse(tree)
+            formatter_name = "ast"
+            lossy = True
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1725,6 +1775,8 @@ async def format_plugin_source_route(
     return FormatPluginSourceResponse(
         formatted=res_str,
         changed=res_str.strip() != req.source.strip(),
+        formatter=formatter_name,
+        lossy=lossy,
     )
 
 
@@ -1764,6 +1816,7 @@ async def import_plugins_bundle(
     target_dir = _get_custom_plugins_dir()
     imported_files: List[str] = []
     errors: List[str] = []
+    written_paths: List[Path] = []
     total_size = 0
 
     with zf:
@@ -1786,8 +1839,14 @@ async def import_plugins_bundle(
                 break
 
             norm = Path(member.filename)
-            if ".." in norm.parts or norm.is_absolute():
+            if "\\" in member.filename or ".." in norm.parts or norm.is_absolute():
                 errors.append(f"跳过不安全路径: {member.filename}")
+                continue
+
+            # 仅接受加载器可识别的布局：顶层单文件插件，或单层目录型插件（main.py/__init__.py）
+            parts = [p for p in norm.parts if p != "."]
+            if not (len(parts) == 1 or (len(parts) == 2 and parts[1] in ("main.py", "__init__.py"))):
+                errors.append(f"跳过不支持的插件布局: {member.filename}")
                 continue
 
             dest_path = target_dir / norm
@@ -1804,12 +1863,24 @@ async def import_plugins_bundle(
                     if remaining:
                         raise ValueError("压缩包成员实际大小与声明不一致")
                 total_size += member.file_size
-                plugin_stem = norm.stem if norm.name != "__init__.py" else norm.parent.name
-                imported_files.append(plugin_stem)
+                written_paths.append(dest_path)
             except Exception as e:
                 errors.append(f"解压 {member.filename} 失败: {e}")
 
     PluginRegistry.reload_all_plugins()
+
+    # 以注册表实际加载结果回填导入清单，保证响应与真实加载状态一致
+    registered_by_path = {
+        Path(p.source_path).resolve(): p.name
+        for p in PluginRegistry.list_plugins().values()
+        if p.source_path
+    }
+    for dest in written_paths:
+        plugin_name = registered_by_path.get(dest.resolve())
+        if plugin_name:
+            imported_files.append(plugin_name)
+        else:
+            errors.append(f"文件未成功加载为插件: {dest.name}")
 
     return ImportBundleResponse(
         imported_count=len(imported_files),
