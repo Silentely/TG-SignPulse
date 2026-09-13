@@ -171,10 +171,29 @@ def _app_version() -> str:
             return "0.0.0"
 
 
+def _docs_urls() -> tuple[str | None, str | None, str | None]:
+    """返回 (docs_url, redoc_url, openapi_url)。
+
+    安全加固：生产环境默认禁用 Swagger UI、ReDoc 与 OpenAPI 规范端点，
+    防止公网部署时接口结构与参数模型被探测泄露；仅当显式设置环境变量
+    ENABLE_API_DOCS=true/1 时启用。
+    """
+    flag = os.environ.get("ENABLE_API_DOCS", "").strip().lower()
+    enabled = flag in ("1", "true", "yes", "on") or getattr(settings, "enable_api_docs", False)
+    if enabled:
+        return ("/docs", "/redoc", "/openapi.json")
+    return (None, None, None)
+
+
+_docs_url, _redoc_url, _openapi_url = _docs_urls()
+
 app = FastAPI(
     title=settings.app_name,
     version=_app_version(),
     lifespan=lifespan,
+    docs_url=_docs_url,
+    redoc_url=_redoc_url,
+    openapi_url=_openapi_url,
 )
 app.state.ready = False
 
@@ -308,8 +327,8 @@ def _resolve_web_file(full_path: str) -> Path | None:
 
 
 # Catch-all 路由：处理所有前端路由，返回 index.html
-# 注意：FastAPI 的 /docs、/redoc、/openapi.json 在此路由之前已自动注册，
-# 因此不会被此 catch-all 拦截。无需额外排除。
+# 注意：若启用了 API 文档，FastAPI 的 /docs、/redoc、/openapi.json 在此路由之前已自动注册；
+# 默认未启用时，这些路径由 SPA 兜底并交由前端 404 页面友好展示。
 
 
 @app.get("/{full_path:path}")

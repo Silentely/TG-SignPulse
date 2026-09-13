@@ -53,4 +53,14 @@ describe('路由守卫逻辑 (resolveAuthRedirect)', () => {
     const store = useAuthStore()
     expect(resolveAuthRedirect(null, store)).toEqual({ name: 'login' })
   })
+
+  it('访问 not-found 页面不被拦截，过期 token 自动清除', () => {
+    const store = useAuthStore()
+    expect(resolveAuthRedirect('not-found', store)).toBeUndefined()
+
+    const payload = btoa(JSON.stringify({ exp: 1577836800 }))
+    store.setToken(`header.${payload}.signature`)
+    expect(resolveAuthRedirect('not-found', store)).toBeUndefined()
+    expect(store.token).toBeNull()
+  })
 })

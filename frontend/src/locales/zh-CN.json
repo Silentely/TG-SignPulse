@@ -1122,5 +1122,11 @@
   },
   "pluginsPlaygroundBtn": "调试",
   "pluginsPlaygroundTitle": "插件调试",
-  "pluginsReplayInPlayground": "在调试台中回放"
+  "pluginsReplayInPlayground": "在调试台中回放",
+  "notFound": {
+    "title": "页面未找到",
+    "desc": "抱歉，您访问的页面不存在或已被移除。",
+    "backHome": "返回控制台",
+    "goToLogin": "前往登录"
+  }
 }

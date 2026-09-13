@@ -11,14 +11,23 @@ export type GuardResult = { name: 'login' | 'dashboard' } | undefined
 
 /**
  * 根据目标路由与 auth 状态返回重定向目标。
+ * - 404 兜底页 (not-found) → 放行 (undefined)
  * - 未登录 / token 过期 → login
  * - 已登录访问 login → dashboard
- * - 其余 → 放行 (undefined)
+ * - 其余受保护页面 → 放行 (undefined)
  */
 export function resolveAuthRedirect(
   toName: string | null | undefined,
   auth: AuthLike,
 ): GuardResult {
+  // 404 页面放行：访客与登录用户均可访问 404 提示，若 token 已过期则清理
+  if (toName === 'not-found') {
+    if (auth.token && auth.isTokenExpired()) {
+      auth.clearToken()
+    }
+    return undefined
+  }
+
   const isLogin = toName === 'login'
 
   // 受保护路由：无 token 或已过期

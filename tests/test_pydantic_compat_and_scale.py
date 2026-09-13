@@ -97,6 +97,15 @@ class TestDatabaseUrl:
         assert s.database_url.startswith("postgresql")
         config_module.get_settings.cache_clear()
 
+    def test_enable_api_docs_setting(self, monkeypatch):
+        monkeypatch.delenv("ENABLE_API_DOCS", raising=False)
+        s1 = Settings.from_environment()
+        assert s1.enable_api_docs is False
+
+        monkeypatch.setenv("ENABLE_API_DOCS", "true")
+        s2 = Settings.from_environment()
+        assert s2.enable_api_docs is True
+
 
 class TestSchedulerLock:
     def test_acquire_release(self, tmp_path, monkeypatch):

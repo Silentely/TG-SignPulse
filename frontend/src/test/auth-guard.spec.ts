@@ -34,4 +34,17 @@ describe('resolveAuthRedirect 纯函数', () => {
     })
     expect(resolveAuthRedirect('login', auth)).toEqual({ name: 'dashboard' })
   })
+
+  it('访问 not-found 放行（不论是否已登录）', () => {
+    expect(resolveAuthRedirect('not-found', makeAuth())).toBeUndefined()
+
+    const clearToken = vi.fn()
+    const expiredAuth = makeAuth({
+      token: 'expired.jwt',
+      isTokenExpired: () => true,
+      clearToken,
+    })
+    expect(resolveAuthRedirect('not-found', expiredAuth)).toBeUndefined()
+    expect(clearToken).toHaveBeenCalled()
+  })
 })
