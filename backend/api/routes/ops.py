@@ -22,6 +22,7 @@ from starlette.background import BackgroundTask
 from backend.core.auth import get_current_user
 from backend.core.config import get_settings
 from backend.models.user import User
+from backend.scheduler.instance_lock import has_scheduler_lock
 
 logger = logging.getLogger("backend.ops")
 
@@ -609,13 +610,6 @@ def runtime_status(
     current_user: User = Depends(get_current_user),
 ):
     """面板/运维用运行时摘要（需登录）。"""
-    import os
-
-    from backend.core.config import get_settings
-    from backend.scheduler.instance_lock import has_scheduler_lock
-
-    import time
-
     settings = get_settings()
     lock_held = has_scheduler_lock()
     start_time = getattr(request.app.state, "start_time", None)
