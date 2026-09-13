@@ -378,6 +378,10 @@ const searchQuery = ref('')
 const filterMode = ref<'all' | 'reactive' | 'active'>('all')
 const filterType = ref<'all' | 'builtin' | 'custom' | 'issue'>('all')
 const sortBy = ref<'default' | 'runs' | 'success_rate' | 'duration' | 'name'>('default')
+
+const issuePluginsCount = computed(() =>
+  plugins.value.filter((p) => p.metrics?.last_error || (p.metrics?.failure_count ?? 0) > 0).length,
+)
 const exportingAll = ref(false)
 
 const exportingManifest = ref(false)
@@ -1315,15 +1319,22 @@ onMounted(() => {
             >
               {{ t('settings.pluginsFilterCustom') }}
             </button>
-            <button
-              type="button"
-              class="px-2 py-1 rounded text-[11px] font-medium transition-colors"
-              :class="filterType === 'issue' ? 'bg-white dark:bg-gray-800 text-rose-600 dark:text-rose-400 shadow-sm' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300'"
-              @click="filterType = 'issue'"
-            >
-              {{ t('settings.pluginsFilterTabIssue') }}
-            </button>
           </div>
+
+          <!-- 仅在存在异常/告警插件时动态出现的快速过滤胶囊 -->
+          <button
+            v-if="issuePluginsCount > 0"
+            type="button"
+            class="px-2 py-1 rounded-lg text-[11px] font-medium transition-colors border inline-flex items-center gap-1.5"
+            :class="filterType === 'issue' ? 'bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border-rose-300 dark:border-rose-800 shadow-sm' : 'text-rose-600 dark:text-rose-400 bg-rose-50/40 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/60 hover:bg-rose-100 dark:hover:bg-rose-900/40'"
+            @click="filterType = filterType === 'issue' ? 'all' : 'issue'"
+          >
+            <span>⚠️</span>
+            <span>{{ t('settings.pluginsFilterTabIssue') }}</span>
+            <span class="px-1 py-0.2 rounded-full text-[10px] bg-rose-200/80 dark:bg-rose-900 text-rose-700 dark:text-rose-200 font-bold leading-tight">
+              {{ issuePluginsCount }}
+            </span>
+          </button>
         </div>
 
         <!-- 批量管理与指标复位 -->

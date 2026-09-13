@@ -600,6 +600,7 @@ class RuntimeStatusResponse(BaseModel):
     database_is_sqlite: bool = True
     monitor_shard: str = ""
     monitor_allowlist: str = ""
+    uptime_seconds: int = 0
 
 
 @router.get("/runtime-status", response_model=RuntimeStatusResponse)
@@ -613,8 +614,13 @@ def runtime_status(
     from backend.core.config import get_settings
     from backend.scheduler.instance_lock import has_scheduler_lock
 
+    import time
+
     settings = get_settings()
     lock_held = has_scheduler_lock()
+    start_time = getattr(request.app.state, "start_time", None)
+    uptime_seconds = int(time.time() - start_time) if start_time else 0
+
     return RuntimeStatusResponse(
         ready=bool(getattr(request.app.state, "ready", False)),
         scheduler_lock_held=lock_held,
@@ -624,6 +630,7 @@ def runtime_status(
         database_is_sqlite=settings.is_sqlite,
         monitor_shard=os.getenv("APP_MONITOR_SHARD", "") or "",
         monitor_allowlist=os.getenv("APP_MONITOR_ACCOUNT_ALLOWLIST", "") or "",
+        uptime_seconds=uptime_seconds,
     )
 
 
@@ -633,6 +640,7 @@ class VersionInfoResponse(BaseModel):
     git_branch: str = ""
     build_time: str = ""
     app_name: str = ""
+    os_platform: str = ""
     python: str = ""
     update_check_enabled: bool = True
 
