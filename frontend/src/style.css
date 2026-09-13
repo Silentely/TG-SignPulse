@@ -1096,6 +1096,9 @@ textarea.ui-input {
 
 /* 减少动效偏好 */
 @media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
   *,
   *::before,
   *::after {
