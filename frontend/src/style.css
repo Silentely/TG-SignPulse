@@ -44,12 +44,23 @@
   color-scheme: dark;
 }
 
-/* 基础平滑滚动与文字抗锯齿 */
+/* 基础平滑滚动、顶栏避让与文字抗锯齿 */
 html {
   scroll-behavior: smooth;
+  scroll-padding-top: 4.5rem;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* 交互元素点击响应优化（消除移动端 300ms 点击延迟） */
+button,
+a,
+input,
+select,
+textarea,
+[role="button"] {
+  touch-action: manipulation;
 }
 
 /* 页面底色：极轻网格，使用硬件加速独立层避免滚动重绘卡顿 */
@@ -84,6 +95,14 @@ body::before {
 }
 
 /* ── 滚动条 ─────────────────────────────────────────────────────────── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #d1d5db transparent;
+}
+.dark * {
+  scrollbar-color: rgba(75, 85, 99, 0.55) transparent;
+}
+
 ::-webkit-scrollbar {
   width: 5px;
   height: 5px;
@@ -750,6 +769,7 @@ textarea.ui-input {
   backdrop-filter: blur(12px) saturate(1.2);
   -webkit-backdrop-filter: blur(12px) saturate(1.2);
   border-bottom: 1px solid var(--sp-border);
+  transform: translateZ(0);
 }
 .dark .ui-header-glass {
   background: rgb(9 9 11 / 0.78);
@@ -790,22 +810,33 @@ textarea.ui-input {
 
 /* 实时指示脉动 */
 .ui-pulse-dot {
+  position: relative;
   width: 0.375rem;
   height: 0.375rem;
   border-radius: 999px;
   background: #10b981;
-  box-shadow: 0 0 0 0 rgb(16 185 129 / 0.5);
-  animation: ui-pulse 2s ease-out infinite;
+}
+.ui-pulse-dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: #10b981;
+  animation: ui-pulse 2s cubic-bezier(0.24, 0, 0.38, 1) infinite;
+  will-change: transform, opacity;
 }
 @keyframes ui-pulse {
   0% {
-    box-shadow: 0 0 0 0 rgb(16 185 129 / 0.45);
+    transform: scale(1);
+    opacity: 0.75;
   }
   70% {
-    box-shadow: 0 0 0 6px rgb(16 185 129 / 0);
+    transform: scale(2.4);
+    opacity: 0;
   }
   100% {
-    box-shadow: 0 0 0 0 rgb(16 185 129 / 0);
+    transform: scale(2.4);
+    opacity: 0;
   }
 }
 
@@ -999,28 +1030,40 @@ textarea.ui-input {
 
 /* 骨架屏 */
 .ui-skeleton {
-  background: linear-gradient(
-    90deg,
-    rgb(0 0 0 / 0.04) 25%,
-    rgb(0 0 0 / 0.08) 50%,
-    rgb(0 0 0 / 0.04) 75%
-  );
-  background-size: 200% 100%;
-  animation: ui-shimmer 1.4s ease-in-out infinite;
+  position: relative;
+  overflow: hidden;
+  background: rgb(0 0 0 / 0.04);
   border-radius: 2px;
 }
 .dark .ui-skeleton {
+  background: rgb(255 255 255 / 0.04);
+}
+.ui-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
   background: linear-gradient(
     90deg,
-    rgb(255 255 255 / 0.04) 25%,
-    rgb(255 255 255 / 0.08) 50%,
-    rgb(255 255 255 / 0.04) 75%
+    transparent 0%,
+    rgb(0 0 0 / 0.04) 50%,
+    transparent 100%
   );
-  background-size: 200% 100%;
+  animation: ui-shimmer 1.4s ease-in-out infinite;
+  will-change: transform;
+}
+.dark .ui-skeleton::after {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgb(255 255 255 / 0.05) 50%,
+    transparent 100%
+  );
 }
 @keyframes ui-shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+  100% {
+    transform: translateX(100%);
+  }
 }
 
 /* 日志终端 */
@@ -1060,8 +1103,8 @@ textarea.ui-input {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
-  .ui-pulse-dot,
-  .ui-skeleton {
+  .ui-pulse-dot::after,
+  .ui-skeleton::after {
     animation: none;
   }
 }
