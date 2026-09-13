@@ -697,9 +697,12 @@ const emit = defineEmits<{
           :key="field.name"
           class="flex flex-col gap-1"
         >
-          <div class="flex justify-between text-[10px] text-gray-500">
-            <span class="font-medium text-gray-700 dark:text-gray-300">{{ field.label || field.name }}</span>
-            <span class="font-mono text-gray-400" :title="field.name">{{ field.name }}</span>
+          <div class="flex items-baseline gap-1.5 flex-wrap text-[10px] text-gray-500">
+            <span class="font-medium text-gray-700 dark:text-gray-300" :title="field.name">{{ field.label || field.name }}</span>
+            <span v-if="field.required" class="text-rose-500 text-xs font-bold leading-none" title="必填">*</span>
+            <span v-if="field.description" class="text-[10px] text-gray-400 dark:text-gray-500 truncate" :title="field.description">
+              - {{ field.description }}
+            </span>
           </div>
           <label v-if="field.type === 'bool' || field.type === 'boolean'" class="inline-flex items-center gap-2 cursor-pointer">
             <input
@@ -767,7 +770,7 @@ const emit = defineEmits<{
 
       <!-- 调试结果回显 -->
       <div v-if="debugResult" class="p-3 border rounded space-y-2 transition-all" :class="debugResult.success && debugResult.handled ? 'border-emerald-500/50 bg-emerald-50/20 dark:bg-emerald-950/20' : (debugResult.error ? 'border-red-500/50 bg-red-50/20 dark:bg-red-950/20' : 'border-amber-500/50 bg-amber-50/20 dark:bg-amber-950/20')">
-        <div class="flex items-center justify-between">
+        <div class="flex items-center justify-between gap-2 flex-wrap">
           <div class="flex items-center gap-1.5 font-medium">
             <CheckCircle2 v-if="debugResult.success && debugResult.handled" class="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
             <AlertCircle v-else class="w-4 h-4 text-amber-600 dark:text-amber-400" />

@@ -66,7 +66,7 @@ describe('TaskFormActionsSection.vue 动作区插件调试集成', () => {
 
     await vi.waitFor(() => {
       expect(document.body.textContent).toContain('主动执行模式')
-      expect(document.body.textContent).toContain('webhook_url')
+      expect(document.body.textContent).toContain('推送地址')
     })
   })
 })

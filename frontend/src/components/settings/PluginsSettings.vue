@@ -1232,80 +1232,98 @@ onMounted(() => {
     </div>
 
     <!-- 搜索与筛选工具条 -->
-    <div class="mb-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
-      <div class="relative flex-1 max-w-sm">
-        <Search class="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-        <input
-          v-model="searchQuery"
-          type="text"
-          :placeholder="t('settings.pluginsSearchPlaceholder')"
-          class="ui-input !pl-8 !py-1.5 !text-xs w-full"
-        />
-      </div>
-
-      <div class="flex items-center gap-2 flex-wrap text-xs">
-        <!-- 模式筛选 -->
-        <div class="inline-flex rounded-lg border border-gray-200 dark:border-gray-800 p-0.5 bg-gray-50/50 dark:bg-gray-900/50">
-          <button
-            type="button"
-            class="px-2 py-1 rounded text-[11px] font-medium transition-colors"
-            :class="filterMode === 'all' ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300'"
-            @click="filterMode = 'all'"
-          >
-            {{ t('settings.pluginsFilterAll') }}
-          </button>
-          <button
-            type="button"
-            class="px-2 py-1 rounded text-[11px] font-medium transition-colors"
-            :class="filterMode === 'reactive' ? 'bg-white dark:bg-gray-800 text-sky-600 dark:text-sky-400 shadow-sm' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300'"
-            @click="filterMode = 'reactive'"
-          >
-            {{ t('settings.pluginsFilterReactive') }}
-          </button>
-          <button
-            type="button"
-            class="px-2 py-1 rounded text-[11px] font-medium transition-colors"
-            :class="filterMode === 'active' ? 'bg-white dark:bg-gray-800 text-emerald-600 dark:text-emerald-400 shadow-sm' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300'"
-            @click="filterMode = 'active'"
-          >
-            {{ t('settings.pluginsFilterActive') }}
-          </button>
+    <div class="mb-4 space-y-2.5">
+      <!-- 第一行：搜索框与右侧排序选择，水平等高严格对齐 -->
+      <div class="flex items-center justify-between gap-3">
+        <div class="relative flex-1 max-w-sm">
+          <Search class="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+          <input
+            v-model="searchQuery"
+            type="text"
+            :placeholder="t('settings.pluginsSearchPlaceholder')"
+            class="ui-input !pl-8 !h-8 !text-xs w-full"
+          />
         </div>
 
-        <!-- 来源筛选 -->
-        <div class="inline-flex rounded-lg border border-gray-200 dark:border-gray-800 p-0.5 bg-gray-50/50 dark:bg-gray-900/50">
-          <button
-            type="button"
-            class="px-2 py-1 rounded text-[11px] font-medium transition-colors"
-            :class="filterType === 'all' ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300'"
-            @click="filterType = 'all'"
-          >
-            {{ t('settings.pluginsFilterAll') }}
-          </button>
-          <button
-            type="button"
-            class="px-2 py-1 rounded text-[11px] font-medium transition-colors"
-            :class="filterType === 'builtin' ? 'bg-white dark:bg-gray-800 text-purple-600 dark:text-purple-400 shadow-sm' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300'"
-            @click="filterType = 'builtin'"
-          >
-            {{ t('settings.pluginsFilterBuiltin') }}
-          </button>
-          <button
-            type="button"
-            class="px-2 py-1 rounded text-[11px] font-medium transition-colors"
-            :class="filterType === 'custom' ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300'"
-            @click="filterType = 'custom'"
-          >
-            {{ t('settings.pluginsFilterCustom') }}
-          </button>
-          <button
-            type="button"
-            class="px-2 py-1 rounded text-[11px] font-medium transition-colors"
-            :class="filterType === 'issue' ? 'bg-white dark:bg-gray-800 text-rose-600 dark:text-rose-400 shadow-sm' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300'"
-            @click="filterType = 'issue'"
-          >
-            {{ t('settings.pluginsFilterTabIssue') }}
-          </button>
+        <select
+          v-model="sortBy"
+          aria-label="排序方式"
+          class="ui-input !h-8 !text-xs !px-2.5 !py-0 !w-36 shrink-0 bg-gray-50/50 dark:bg-gray-900/50 border-gray-200 dark:border-gray-800"
+        >
+          <option value="default">{{ t('settings.pluginsSortDefault') }}</option>
+          <option value="runs">{{ t('settings.pluginsSortRuns') }}</option>
+          <option value="success_rate">{{ t('settings.pluginsSortSuccessRate') }}</option>
+          <option value="duration">{{ t('settings.pluginsSortDuration') }}</option>
+          <option value="name">{{ t('settings.pluginsSortName') }}</option>
+        </select>
+      </div>
+
+      <!-- 第二行：维度过滤与批量操作工具组 -->
+      <div class="flex items-center justify-between gap-2 flex-wrap text-xs">
+        <div class="flex items-center gap-2 flex-wrap">
+          <!-- 模式筛选 -->
+          <div class="inline-flex rounded-lg border border-gray-200 dark:border-gray-800 p-0.5 bg-gray-50/50 dark:bg-gray-900/50">
+            <button
+              type="button"
+              class="px-2 py-1 rounded text-[11px] font-medium transition-colors"
+              :class="filterMode === 'all' ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300'"
+              @click="filterMode = 'all'"
+            >
+              {{ t('settings.pluginsFilterAll') }}
+            </button>
+            <button
+              type="button"
+              class="px-2 py-1 rounded text-[11px] font-medium transition-colors"
+              :class="filterMode === 'reactive' ? 'bg-white dark:bg-gray-800 text-sky-600 dark:text-sky-400 shadow-sm' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300'"
+              @click="filterMode = 'reactive'"
+            >
+              {{ t('settings.pluginsFilterReactive') }}
+            </button>
+            <button
+              type="button"
+              class="px-2 py-1 rounded text-[11px] font-medium transition-colors"
+              :class="filterMode === 'active' ? 'bg-white dark:bg-gray-800 text-emerald-600 dark:text-emerald-400 shadow-sm' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300'"
+              @click="filterMode = 'active'"
+            >
+              {{ t('settings.pluginsFilterActive') }}
+            </button>
+          </div>
+
+          <!-- 来源筛选 -->
+          <div class="inline-flex rounded-lg border border-gray-200 dark:border-gray-800 p-0.5 bg-gray-50/50 dark:bg-gray-900/50">
+            <button
+              type="button"
+              class="px-2 py-1 rounded text-[11px] font-medium transition-colors"
+              :class="filterType === 'all' ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300'"
+              @click="filterType = 'all'"
+            >
+              {{ t('settings.pluginsFilterAll') }}
+            </button>
+            <button
+              type="button"
+              class="px-2 py-1 rounded text-[11px] font-medium transition-colors"
+              :class="filterType === 'builtin' ? 'bg-white dark:bg-gray-800 text-purple-600 dark:text-purple-400 shadow-sm' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300'"
+              @click="filterType = 'builtin'"
+            >
+              {{ t('settings.pluginsFilterBuiltin') }}
+            </button>
+            <button
+              type="button"
+              class="px-2 py-1 rounded text-[11px] font-medium transition-colors"
+              :class="filterType === 'custom' ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300'"
+              @click="filterType = 'custom'"
+            >
+              {{ t('settings.pluginsFilterCustom') }}
+            </button>
+            <button
+              type="button"
+              class="px-2 py-1 rounded text-[11px] font-medium transition-colors"
+              :class="filterType === 'issue' ? 'bg-white dark:bg-gray-800 text-rose-600 dark:text-rose-400 shadow-sm' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300'"
+              @click="filterType = 'issue'"
+            >
+              {{ t('settings.pluginsFilterTabIssue') }}
+            </button>
+          </div>
         </div>
 
         <!-- 批量管理与指标复位 -->
@@ -1337,18 +1355,6 @@ onMounted(() => {
             <RotateCcw class="w-3 h-3" :class="{ 'animate-spin': resettingAllMetrics }" />
           </button>
         </div>
-
-        <!-- 排序选择 -->
-        <select
-          v-model="sortBy"
-          class="ui-input !h-7 !text-[11px] !px-2 !py-0 w-auto bg-gray-50/50 dark:bg-gray-900/50 border-gray-200 dark:border-gray-800"
-        >
-          <option value="default">{{ t('settings.pluginsSortDefault') }}</option>
-          <option value="runs">{{ t('settings.pluginsSortRuns') }}</option>
-          <option value="success_rate">{{ t('settings.pluginsSortSuccessRate') }}</option>
-          <option value="duration">{{ t('settings.pluginsSortDuration') }}</option>
-          <option value="name">{{ t('settings.pluginsSortName') }}</option>
-        </select>
       </div>
     </div>
 
@@ -1863,25 +1869,26 @@ onMounted(() => {
 
         <!-- 模拟消息输入 (仅 reactive 模式为主要必填，active 模式作为可选扩展) -->
         <div class="space-y-1">
-          <div class="flex items-center justify-between text-gray-700 dark:text-gray-300">
+          <div class="flex flex-wrap items-center justify-between gap-2 text-gray-700 dark:text-gray-300">
             <label class="font-medium">
               {{ t('settings.pluginsTestInputLabel') }}
               <span v-if="currentTestPlugin.mode === 'active'" class="text-gray-400 font-normal text-[10px]">({{ t('common.optional') }})</span>
             </label>
-            <!-- 最近调试用例快照 -->
-            <div v-if="currentTestPlugin && testSnapshots[currentTestPlugin.name]?.length" class="flex items-center gap-1.5 mr-2">
-              <span class="text-[10px] text-purple-600 dark:text-purple-400 font-medium">⚡ {{ t('settings.pluginsPlaygroundRecentSnapshots') }}:</span>
-              <button
-                v-for="(snap, sIdx) in testSnapshots[currentTestPlugin.name]"
-                :key="sIdx"
-                type="button"
-                class="px-1.5 py-0.5 rounded text-[10px] bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/60 text-purple-700 dark:text-purple-300 font-mono transition-colors truncate max-w-[8rem]"
-                @click="applyTestSnapshot(snap)"
-              >
-                {{ snap.text ? (snap.text.length > 10 ? snap.text.slice(0, 10) + '...' : snap.text) : '{params}' }}
-              </button>
-            </div>
-            <div class="flex items-center gap-1.5">
+            <div class="flex items-center gap-2 flex-wrap">
+              <!-- 最近调试用例快照 -->
+              <div v-if="currentTestPlugin && testSnapshots[currentTestPlugin.name]?.length" class="flex items-center gap-1.5">
+                <span class="text-[10px] text-purple-600 dark:text-purple-400 font-medium">⚡ {{ t('settings.pluginsPlaygroundRecentSnapshots') }}:</span>
+                <button
+                  v-for="(snap, sIdx) in testSnapshots[currentTestPlugin.name]"
+                  :key="sIdx"
+                  type="button"
+                  class="px-1.5 py-0.5 rounded text-[10px] bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/60 text-purple-700 dark:text-purple-300 font-mono transition-colors truncate max-w-[8rem]"
+                  @click="applyTestSnapshot(snap)"
+                >
+                  {{ snap.text ? (snap.text.length > 10 ? snap.text.slice(0, 10) + '...' : snap.text) : '{params}' }}
+                </button>
+              </div>
+              <div class="flex items-center gap-1.5">
               <span class="text-[10px] text-gray-400">{{ t('settings.pluginsQuickPresets') }}:</span>
               <button
                 type="button"
@@ -1904,6 +1911,7 @@ onMounted(() => {
               >
                 {{ t('settings.pluginsPresetGreeting') }}
               </button>
+              </div>
             </div>
           </div>
           <textarea
@@ -1932,9 +1940,12 @@ onMounted(() => {
             :key="field.name"
             class="flex flex-col gap-1"
           >
-            <div class="flex justify-between text-[10px] text-gray-500">
-              <span class="font-medium text-gray-700 dark:text-gray-300">{{ field.label || field.name }}</span>
-              <span class="font-mono text-gray-400" :title="field.name">{{ field.name }}</span>
+            <div class="flex items-baseline gap-1.5 flex-wrap text-[10px] text-gray-500">
+              <span class="font-medium text-gray-700 dark:text-gray-300" :title="field.name">{{ field.label || field.name }}</span>
+              <span v-if="field.required" class="text-rose-500 text-xs font-bold leading-none" title="必填">*</span>
+              <span v-if="field.description" class="text-[10px] text-gray-400 dark:text-gray-500 truncate" :title="field.description">
+                - {{ field.description }}
+              </span>
             </div>
             <label v-if="field.type === 'bool' || field.type === 'boolean'" class="inline-flex items-center gap-2 cursor-pointer">
               <input
@@ -2000,7 +2011,7 @@ onMounted(() => {
                 v-model="mockChatId"
                 type="text"
                 placeholder="-1001234567890"
-                class="ui-input !py-1 !text-xs w-full font-mono"
+                class="ui-input !h-8 !text-xs !px-2 w-full font-mono"
               />
             </div>
             <div>
@@ -2009,7 +2020,7 @@ onMounted(() => {
                 v-model="mockSenderName"
                 type="text"
                 placeholder="Tester"
-                class="ui-input !py-1 !text-xs w-full"
+                class="ui-input !h-8 !text-xs !px-2 w-full"
               />
             </div>
             <div>
@@ -2020,7 +2031,7 @@ onMounted(() => {
                 min="0.1"
                 step="0.5"
                 :placeholder="t('settings.pluginsPlaygroundTimeoutPlaceholder')"
-                class="ui-input !py-1 !text-xs w-full font-mono"
+                class="ui-input !h-8 !text-xs !px-2 w-full font-mono"
               />
             </div>
           </div>
@@ -2062,7 +2073,7 @@ onMounted(() => {
 
         <!-- 测试结果回显 -->
         <div v-if="testResult" class="p-3 border rounded space-y-2.5 transition-all" :class="testResult.success && testResult.handled ? 'border-emerald-500/50 bg-emerald-50/20 dark:bg-emerald-950/20' : (testResult.error ? 'border-red-500/50 bg-red-50/20 dark:bg-red-950/20' : 'border-amber-500/50 bg-amber-50/20 dark:bg-amber-950/20')">
-          <div class="flex items-center justify-between">
+          <div class="flex items-center justify-between gap-2 flex-wrap">
             <div class="flex items-center gap-1.5 font-medium">
               <CheckCircle2 v-if="testResult.success && testResult.handled" class="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
               <AlertCircle v-else class="w-4 h-4 text-amber-600 dark:text-amber-400" />

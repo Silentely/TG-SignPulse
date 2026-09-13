@@ -926,7 +926,7 @@
     "pluginsGuideCtxStorage": "按插件名隔离的状态持久化引擎 (get / set / increment)",
     "pluginsGuideCtxLog": "安全输出日志流（会在调试弹窗和面板日志流中实时展示）",
     "pluginsGuideMetaTitle": "3. 版本与元数据声明规范",
-    "pluginsGuideMetaDesc": "推荐在插件 Python 脚本顶部声明模块级全局变量，或直接在 @PluginRegistry.register 中传入："
+    "pluginsGuideMetaDesc": "推荐在插件 Python 脚本顶部声明模块级全局变量，或直接在 {'@'}PluginRegistry.register 中传入："
   },
   "profile": {
     "title": "个人中心",
