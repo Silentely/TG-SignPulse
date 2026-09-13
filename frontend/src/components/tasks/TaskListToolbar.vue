@@ -35,6 +35,15 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
+const localSearchQuery = ref(props.searchQuery)
+
+watch(
+  () => props.searchQuery,
+  (value) => {
+    localSearchQuery.value = value
+  },
+)
+
 // 批量操作禁用原因提示：未选中时引导先选择，处理中提示等待
 const batchDisabledTitle = computed(() =>
   props.batchBusy ? t('common.processing') : props.selectedCount ? undefined : t('tasks.selectFirstHint'),
@@ -67,22 +76,18 @@ watch(
     }
   },
 )
-let searchDebounceTimer: ReturnType<typeof setTimeout> | undefined
-
 const handleSearchInput = (e: Event) => {
   const val = (e.target as HTMLInputElement).value
-  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
-  if (!val) {
-    emit('update:searchQuery', '')
-    return
-  }
-  searchDebounceTimer = setTimeout(() => {
-    emit('update:searchQuery', val)
-  }, 75)
+  localSearchQuery.value = val
+  emit('update:searchQuery', val)
+}
+
+const clearSearch = () => {
+  localSearchQuery.value = ''
+  emit('update:searchQuery', '')
 }
 
 onUnmounted(() => {
-  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
   document.removeEventListener('click', closeTemplateMenuOnOutside, true)
   window.removeEventListener('keydown', closeTemplateMenuOnEsc)
 })
@@ -112,7 +117,7 @@ onUnmounted(() => {
       <div class="relative flex-1 min-w-0">
         <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
         <input
-          :value="searchQuery"
+          :value="localSearchQuery"
           type="search"
           class="ui-input !pl-8 !h-9 !text-xs"
           :placeholder="t('common.searchPlaceholder')"
@@ -248,7 +253,7 @@ onUnmounted(() => {
         type="button"
         class="inline-flex items-center gap-1 max-w-[14rem] px-2 py-0.5 rounded-sm text-[11px] ui-chip-sky"
         :title="t('common.clearFilters')"
-        @click="emit('update:searchQuery', '')"
+        @click="clearSearch"
       >
         <span class="truncate">{{ t('common.search') }}: {{ searchQuery.trim() }}</span>
         <X class="w-3 h-3 shrink-0 opacity-70" />

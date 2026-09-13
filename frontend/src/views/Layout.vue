@@ -21,6 +21,8 @@ import { useTheme } from '../composables/useTheme'
 import { useI18n } from '../composables/useI18n'
 import { lockBodyScroll, unlockBodyScroll } from '../lib/body-scroll-lock'
 import UserProfileModal from '../components/settings/UserProfileModal.vue'
+import { devLog } from '../lib/devLog'
+import { createViewPrefetcher } from '../lib/view-prefetch'
 
 const route = useRoute()
 const router = useRouter()
@@ -87,18 +89,6 @@ onMounted(() => {
   window.addEventListener('keydown', onKeydown)
   mobileQuery.addEventListener('change', onViewportChange)
   void loadSidebarVersion()
-  // 浏览空闲时自动预载其它主页面组件 chunk，消除首次点击切换白屏与停顿
-  if (typeof window !== 'undefined') {
-    if ('requestIdleCallback' in window) {
-      ;(window as Window & { requestIdleCallback: (cb: () => void) => void }).requestIdleCallback(() => {
-        navigation.forEach(nav => prefetchView(nav.name))
-      })
-    } else {
-      setTimeout(() => {
-        navigation.forEach(nav => prefetchView(nav.name))
-      }, 1500)
-    }
-  }
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
@@ -117,12 +107,13 @@ const viewLoaders: Record<string, () => Promise<unknown>> = {
   settings: () => import('../views/Settings.vue'),
 }
 
+const { prefetch: prefetchLoadedView } = createViewPrefetcher(viewLoaders, {
+  warn: (name, error) => devLog.warn('页面预加载失败', { name, error }),
+})
+
 const prefetchView = (name: string) => {
-  try {
-    viewLoaders[name]?.()
-  } catch {
-    /* 忽略预载异常 */
-  }
+  if (route.name === name) return
+  prefetchLoadedView(name)
 }
 
 const navigation = [
@@ -212,6 +203,8 @@ const handleNavClick = () => {
           :aria-current="route.name === nav.name ? 'page' : undefined"
           @click="handleNavClick"
           @mouseenter="prefetchView(nav.name)"
+          @focus="prefetchView(nav.name)"
+          @pointerdown="prefetchView(nav.name)"
         >
           <component :is="nav.icon" class="w-[18px] h-[18px] shrink-0 opacity-80" stroke-width="1.5" />
           <span class="ml-3 text-sm font-medium">{{ t(nav.labelKey) }}</span>
