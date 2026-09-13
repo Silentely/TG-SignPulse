@@ -64,8 +64,8 @@ TG-SignPulse 提供 Web 面板统一管理多个 Telegram 账号，支持定时�
 
 文档站本身是静态 VitePress 站点。完整 REST API（OpenAPI）由你自己部署的面板实例提供：
 
-- OpenAPI JSON: `{panel-origin}/openapi.json`
-- Swagger UI: `{panel-origin}/docs`
+- OpenAPI JSON: `{panel-origin}/openapi.json`（需设置 `ENABLE_API_DOCS=true` 开启）
+- Swagger UI: `{panel-origin}/docs`（需设置 `ENABLE_API_DOCS=true` 开启）
 - 健康检查: `{panel-origin}/healthz`
 - 登录: `POST {panel-origin}/api/auth/login`（OAuth2 password + JWT Bearer）
 

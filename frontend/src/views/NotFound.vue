@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watchEffect } from 'vue'
 import { useRouter } from 'vue-router'
 import { FileQuestion, ArrowLeft, Github, Globe, Moon, Sun } from 'lucide-vue-next'
 import { useAuthStore } from '../stores/auth'
@@ -10,6 +10,10 @@ const router = useRouter()
 const authStore = useAuthStore()
 const { locale, toggleLanguage, t } = useI18n()
 const { isDark, toggleTheme } = useTheme()
+
+watchEffect(() => {
+  document.title = `404 ${t('notFound.title')} - TG-SignPulse`
+})
 
 const isAuthed = computed(() => {
   return !!authStore.token && !authStore.isTokenExpired()
@@ -29,7 +33,7 @@ const openGithub = () => {
 </script>
 
 <template>
-  <div class="min-h-screen flex flex-col items-center justify-center font-sans px-4 py-10">
+  <main class="min-h-screen flex flex-col items-center justify-center font-sans px-4 py-10" role="main">
     <div class="w-full max-w-sm ui-card shadow-[var(--sp-shadow-md)] px-8 py-10 text-center">
       <div class="w-14 h-14 bg-gray-100 dark:bg-gray-800/80 mx-auto flex items-center justify-center text-gray-700 dark:text-gray-200 mb-6 rounded-full">
         <FileQuestion class="w-7 h-7 stroke-[1.5]" />
@@ -80,5 +84,5 @@ const openGithub = () => {
         </button>
       </div>
     </div>
-  </div>
+  </main>
 </template>

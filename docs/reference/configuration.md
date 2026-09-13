@@ -26,6 +26,7 @@
 | `APP_UPDATE_CHECK_URL` | GitHub Releases latest | | 远程版本 JSON 源（必须 https） |
 | `APP_ACCESS_TOKEN_EXPIRE_HOURS` | `12` | | JWT Token 过期时间（小时） |
 | `APP_TOTP_VALID_WINDOW` | `1` | | 面板 2FA 时间窗口容差（0=仅当前30s） |
+| `ENABLE_API_DOCS` | `false` | | 启用 Swagger UI 与 OpenAPI 规范端点（`/docs`、`/redoc`、`/openapi.json`）；默认关闭以加固生产安全 |
 
 ### 时区管理
 
