@@ -167,12 +167,14 @@ def get_local_version_info() -> Dict[str, Any]:
     except Exception:
         app_name = _read_env("APP_APP_NAME", "APP_NAME", default="tg-signer-panel")
 
+    import platform
     return {
         "version": version,
         "git_sha": git_sha,
         "git_branch": git_branch,
         "build_time": build_time,
         "app_name": app_name,
+        "os_platform": f"{platform.system()} {platform.machine()}",
         "python": sys.version.split()[0],
         "update_check_enabled": is_update_check_enabled(),
     }

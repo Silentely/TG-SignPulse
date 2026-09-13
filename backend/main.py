@@ -5,6 +5,7 @@ import contextlib
 import logging
 import os
 import sqlite3
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
@@ -196,6 +197,7 @@ app = FastAPI(
     openapi_url=_openapi_url,
 )
 app.state.ready = False
+app.state.start_time = time.time()
 
 
 @app.exception_handler(Exception)

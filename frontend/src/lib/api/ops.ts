@@ -172,6 +172,7 @@ export interface RuntimeStatus {
   monitor_shard: string;
   monitor_allowlist: string;
   scheduler_role?: string;
+  uptime_seconds?: number;
 }
 
 export const getRuntimeStatus = (token: string) =>
@@ -183,6 +184,7 @@ export interface AppVersionInfo {
   git_branch: string;
   build_time: string;
   app_name: string;
+  os_platform?: string;
   python: string;
   update_check_enabled: boolean;
 }
