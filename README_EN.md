@@ -179,6 +179,7 @@ Full docs: **[https://tg.cosr.eu.org](https://tg.cosr.eu.org/)**
 | `TG_SESSION_MODE` | Session mode `file`/`string` | `file` |
 | `TG_GLOBAL_CONCURRENCY` | Global concurrency limit | `1` |
 | `TG_PROXY` | Global Telegram proxy | None |
+| `ENABLE_API_DOCS` | Enable Swagger UI & OpenAPI schema docs (disabled by default for security) | `false` |
 
 See [Configuration Reference](https://tg.cosr.eu.org/reference/configuration) for the full list.
 

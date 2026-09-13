@@ -186,6 +186,7 @@ TG-SignPulse/
 | `TG_SESSION_MODE` | 会话模式 `file`/`string` | `file` |
 | `TG_GLOBAL_CONCURRENCY` | 全局并发数 | `自动（CPU核心数，上限5）` |
 | `TG_PROXY` | Telegram 全局代理 | 无 |
+| `ENABLE_API_DOCS` | 启用 Swagger UI 与 OpenAPI 规范文档（默认关闭以加固安全） | `false` |
 
 更多配置请查看 [配置参考](https://tg.cosr.eu.org/reference/configuration)。
 

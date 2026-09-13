@@ -17,6 +17,7 @@ services:
       - APP_SCHEDULER_LOCK=1
       # - APP_SECRET_KEY=replace-me
       # - ADMIN_PASSWORD=replace-me
+      # - ENABLE_API_DOCS=false
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/readyz', timeout=3)"]
       interval: 30s

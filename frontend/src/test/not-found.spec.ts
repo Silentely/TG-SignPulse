@@ -62,4 +62,9 @@ describe('NotFound.vue 404 页面', () => {
     expect(openSpy).toHaveBeenCalledWith('https://github.com/Silentely/TG-SignPulse', '_blank')
     openSpy.mockRestore()
   })
+
+  it('组件挂载时同步更新网页标题 document.title', () => {
+    mount(NotFound)
+    expect(document.title).toBe('404 notFound.title - TG-SignPulse')
+  })
 })
