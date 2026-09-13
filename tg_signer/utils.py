@@ -400,3 +400,64 @@ def format_sign_chat_box(chat) -> str:
         bottom_border,
     ]
     return "\n".join(result)
+
+
+def validate_public_http_url(url: str) -> "tuple[str, str]":
+    """校验 HTTP(S) URL 仅指向全局可路由的公网地址，用于 SSRF 防护。
+
+    白名单式校验：scheme 限定 http/https，解析出的所有候选地址（含 IPv4-mapped、
+    6to4、Teredo 内嵌 IPv4）必须全部为 is_global 的公网地址。解析结果以钉扎 IP
+    形式返回，调用方应以钉扎 IP 建立连接，避免二次 DNS 解析造成 rebinding 绕过。
+
+    返回 (pinned_ip, hostname)；URL 不合法、主机不可解析或指向内网时抛出 ValueError。
+    """
+    import ipaddress
+    import socket
+    from urllib.parse import urlparse
+
+    if not (url.startswith("http://") or url.startswith("https://")):
+        raise ValueError("URL 必须以 http:// 或 https:// 开头")
+
+    parsed_url = urlparse(url)
+    hostname = parsed_url.hostname or ""
+    if not hostname:
+        raise ValueError("无效的主机名")
+
+    def _is_forbidden_target(ip_obj: "ipaddress.IPv4Address | ipaddress.IPv6Address") -> bool:
+        embedded: list[ipaddress.IPv4Address] = []
+        if ip_obj.version == 6:
+            # IPv4-mapped/6to4/Teredo 内嵌的 IPv4 地址需一并判定，防止 ::ffff:10.0.0.1 之类字面量绕过
+            if ip_obj.ipv4_mapped:
+                embedded.append(ip_obj.ipv4_mapped)
+            if ip_obj.sixtofour:
+                embedded.append(ip_obj.sixtofour)
+            if ip_obj.teredo:
+                embedded.extend([ip_obj.teredo.server, ip_obj.teredo.client])
+        if not ip_obj.is_global:
+            return True
+        return any(not addr.is_global for addr in embedded)
+
+    # 解析候选地址并逐一校验；字面量 IP 直接采用，主机名则走 DNS 解析
+    try:
+        candidates = [ipaddress.ip_address(hostname)]
+    except ValueError:
+        try:
+            addr_info = socket.getaddrinfo(hostname, None)
+        except (socket.gaierror, UnicodeError):
+            raise ValueError(f"无法解析主机: {hostname}")
+        candidates = []
+        for addr in addr_info:
+            try:
+                candidates.append(ipaddress.ip_address(addr[4][0]))
+            except ValueError:
+                continue
+    if not candidates:
+        raise ValueError(f"无法解析主机: {hostname}")
+    for ip_obj in candidates:
+        if _is_forbidden_target(ip_obj):
+            raise ValueError("安全限制：禁止请求私有或内网地址")
+
+    pinned_ip_obj = candidates[0]
+    if pinned_ip_obj.version == 6 and pinned_ip_obj.ipv4_mapped:
+        pinned_ip_obj = pinned_ip_obj.ipv4_mapped
+    return str(pinned_ip_obj), hostname

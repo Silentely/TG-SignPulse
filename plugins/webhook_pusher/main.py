@@ -6,10 +6,12 @@
 """
 from datetime import datetime, timezone
 from typing import Any, Dict, List
+from urllib.parse import urlparse
 
 import httpx
 
 from tg_signer.core.plugins import PluginContext, PluginRegistry
+from tg_signer.utils import validate_public_http_url
 
 VERSION = "1.0.0"
 UPDATED_AT = "2026-09-11"
@@ -54,6 +56,20 @@ PARAMS_SCHEMA: List[Dict[str, Any]] = [
 )
 async def webhook_pusher_handler(ctx: PluginContext) -> bool:
     """主动向配置的 Webhook URL 发送 POST 通知。"""
+
+    def _safe_display_url(raw: str) -> str:
+        """去除 URL 中的 userinfo（如 https://user:pass@host），避免凭据进入日志。"""
+        try:
+            parsed = urlparse(raw)
+            if parsed.username or parsed.password:
+                netloc = parsed.hostname or ""
+                if parsed.port:
+                    netloc = f"{netloc}:{parsed.port}"
+                return parsed._replace(netloc=netloc).geturl()
+        except Exception:
+            pass
+        return raw
+
     params: Dict[str, Any] = ctx.params or {}
     url = str(params.get("webhook_url") or "").strip()
     if not url:
@@ -61,7 +77,17 @@ async def webhook_pusher_handler(ctx: PluginContext) -> bool:
         return False
 
     if not (url.startswith("http://") or url.startswith("https://")):
-        ctx.log(f"Webhook 推送失败：URL 格式无效，必须以 http:// 或 https:// 开头: {url}", level="ERROR")
+        ctx.log(
+            f"Webhook 推送失败：URL 格式无效，必须以 http:// 或 https:// 开头: {_safe_display_url(url)}",
+            level="ERROR",
+        )
+        return False
+
+    # SSRF 防护：仅允许公网可路由地址，并取钉扎 IP 建立连接，防止 DNS rebinding
+    try:
+        pinned_ip, hostname = validate_public_http_url(url)
+    except ValueError as exc:
+        ctx.log(f"Webhook 推送失败：{_safe_display_url(url)} ({exc})", level="ERROR")
         return False
 
     secret_token = str(params.get("secret_token") or "").strip()
@@ -77,13 +103,35 @@ async def webhook_pusher_handler(ctx: PluginContext) -> bool:
     headers = {
         "Content-Type": "application/json",
         "User-Agent": "TG-SignPulse-Plugin/webhook_pusher",
+        # 钉扎 IP 后保留原 Host 头，兼容基于域名的服务端路由
+        "Host": hostname,
     }
     if secret_token:
         headers["Authorization"] = f"Bearer {secret_token}"
 
+    parsed_url = urlparse(url)
+    port = parsed_url.port
+    host_for_url = f"[{pinned_ip}]" if ":" in pinned_ip else pinned_ip
+    netloc = host_for_url if port is None else f"{host_for_url}:{port}"
+    if parsed_url.username:
+        credential = parsed_url.username
+        if parsed_url.password:
+            credential = f"{credential}:{parsed_url.password}"
+        netloc = f"{credential}@{netloc}"
+    request_url = parsed_url._replace(netloc=netloc).geturl()
+
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(url, json=payload, headers=headers)
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            # https 钉扎 IP 时按原主机名完成 SNI 与证书校验
+            request_extensions = (
+                {"sni_hostname": hostname} if parsed_url.scheme == "https" else {}
+            )
+            resp = await client.post(
+                request_url,
+                json=payload,
+                headers=headers,
+                extensions=request_extensions,
+            )
             if 200 <= resp.status_code < 300:
                 ctx.log(f"Webhook 推送成功: HTTP {resp.status_code}")
                 return True
