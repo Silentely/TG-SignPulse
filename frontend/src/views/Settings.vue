@@ -71,7 +71,7 @@ const {
   <div class="max-w-7xl pb-10">
     <div
       v-if="isDirty && !pageLoading"
-      class="sticky top-0 z-20 mb-4 flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs border border-amber-200 dark:border-amber-800/50 bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-200 shadow-sm"
+      class="sticky top-[3.75rem] z-20 mb-4 flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs border border-amber-200 dark:border-amber-800/50 bg-amber-50/95 dark:bg-amber-950/90 backdrop-blur-xs text-amber-800 dark:text-amber-200 shadow-sm"
       role="status"
     >
       <div class="min-w-0">

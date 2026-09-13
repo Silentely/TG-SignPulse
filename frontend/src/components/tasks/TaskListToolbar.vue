@@ -67,7 +67,22 @@ watch(
     }
   },
 )
+let searchDebounceTimer: ReturnType<typeof setTimeout> | undefined
+
+const handleSearchInput = (e: Event) => {
+  const val = (e.target as HTMLInputElement).value
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+  if (!val) {
+    emit('update:searchQuery', '')
+    return
+  }
+  searchDebounceTimer = setTimeout(() => {
+    emit('update:searchQuery', val)
+  }, 75)
+}
+
 onUnmounted(() => {
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
   document.removeEventListener('click', closeTemplateMenuOnOutside, true)
   window.removeEventListener('keydown', closeTemplateMenuOnEsc)
 })
@@ -102,7 +117,7 @@ onUnmounted(() => {
           class="ui-input !pl-8 !h-9 !text-xs"
           :placeholder="t('common.searchPlaceholder')"
           :aria-label="t('common.search')"
-          @input="emit('update:searchQuery', ($event.target as HTMLInputElement).value)"
+          @input="handleSearchInput"
         >
       </div>
       <div class="flex items-center gap-1 shrink-0 text-[11px]">
