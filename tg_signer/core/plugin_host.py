@@ -58,14 +58,32 @@ def kill_process_tree(target: Union[int, Any]) -> None:
 
 
 class PluginProcessHost:
-    def __init__(self, plugin_name: str, ctx: PluginContext, timeout: float = 25.0):
+    def __init__(
+        self,
+        plugin_name: str,
+        ctx: PluginContext,
+        timeout: float = 25.0,
+        trigger_type: str = "manual_test",
+    ):
         self.plugin_name = plugin_name
         self.ctx = ctx
         self.timeout = timeout
+        # 指标口径：manual_test=调试台模拟执行；active/reactive=正式任务执行
+        self.trigger_type = trigger_type
         self.process: Optional[asyncio.subprocess.Process] = None
         self.process_terminated_by_kill = False
         if not getattr(self.ctx, "plugin_name", None):
             self.ctx.plugin_name = plugin_name
+
+    def _metric_success(self, res: Any) -> bool:
+        """按插件模式判定指标成功口径：active 模式返回 False 即执行失败；
+        reactive 模式返回 False 仅表示消息未命中处理，仍属正常执行完成。"""
+        if res is None:
+            return True
+        meta = PluginRegistry.get(self.plugin_name)
+        if getattr(meta, "mode", "reactive") == "active":
+            return bool(res)
+        return True
 
     async def execute(self) -> Any:
         start_time = time.perf_counter()
@@ -73,7 +91,13 @@ class PluginProcessHost:
             return await self._execute_inner(start_time)
         except Exception as e:
             duration_ms = (time.perf_counter() - start_time) * 1000
-            PluginRegistry.record_execution(self.plugin_name, duration_ms, success=False, error=str(e))
+            PluginRegistry.record_execution(
+                self.plugin_name,
+                duration_ms,
+                success=False,
+                error=str(e),
+                trigger_type=self.trigger_type,
+            )
             raise
 
     async def _execute_inner(self, start_time: float) -> Any:
@@ -248,8 +272,16 @@ class PluginProcessHost:
 
             if result_future in done:
                 duration_ms = (time.perf_counter() - start_time) * 1000
-                PluginRegistry.record_execution(self.plugin_name, duration_ms, success=True)
-                return result_future.result()
+                # 先取结果再记账：future 携带异常时在此抛出，由 execute() 统一记为
+                # 失败，避免"一条成功 + 一条失败"的双重计数与伪成功记录
+                res = result_future.result()
+                PluginRegistry.record_execution(
+                    self.plugin_name,
+                    duration_ms,
+                    success=self._metric_success(res),
+                    trigger_type=self.trigger_type,
+                )
+                return res
 
             if process_wait_task in done:
                 # 子进程提前退出，等待 stdout 排空以获取任何 return 包
@@ -259,8 +291,15 @@ class PluginProcessHost:
                     pass
                 if result_future.done():
                     duration_ms = (time.perf_counter() - start_time) * 1000
-                    PluginRegistry.record_execution(self.plugin_name, duration_ms, success=True)
-                    return result_future.result()
+                    # 同上：先取结果再记账，异常交由 execute() 统一记录
+                    res = result_future.result()
+                    PluginRegistry.record_execution(
+                        self.plugin_name,
+                        duration_ms,
+                        success=self._metric_success(res),
+                        trigger_type=self.trigger_type,
+                    )
+                    return res
                 exit_code = process_wait_task.result()
                 raise RuntimeError(
                     f"Worker process exited prematurely with code {exit_code}"
