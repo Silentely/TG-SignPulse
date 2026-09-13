@@ -118,12 +118,11 @@ class TestGlobalExceptionHandler:
         assert app.redoc_url is None
         assert app.openapi_url is None
 
-        # 请求 /openapi.json 绝不应返回 OpenAPI 架构 JSON
+        # 请求 /openapi.json 绝不应返回 OpenAPI 架构 JSON，默认应返回标准 404 JSON
         res_openapi = client.get("/openapi.json")
-        if res_openapi.status_code == 200:
-            assert "application/json" not in res_openapi.headers.get("content-type", "")
-        else:
-            assert res_openapi.status_code in (404, 405)
+        assert res_openapi.status_code == 404
+        assert res_openapi.headers.get("content-type", "").startswith("application/json")
+        assert res_openapi.json() == {"detail": "Not Found"}
 
     def test_docs_url_helper_respects_env(self, monkeypatch):
         """ENABLE_API_DOCS 环境变量控制文档端点启用状态"""
