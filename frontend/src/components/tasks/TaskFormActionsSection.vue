@@ -429,22 +429,34 @@ const emit = defineEmits<{
               <!-- 参数配置区域 (若插件声明了 params_schema) -->
               <div
                 v-if="getPluginInfo(action.value)?.params_schema?.length"
-                class="mt-1 p-2 bg-white/70 dark:bg-black/20 border border-gray-200/80 dark:border-gray-800 rounded flex flex-col gap-2"
+                class="mt-1.5 p-2.5 bg-gray-50/70 dark:bg-white/[0.02] border border-gray-200/80 dark:border-gray-800/80 rounded-md flex flex-col gap-2.5"
               >
-                <div class="text-[11px] font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1">
-                  <span>⚙️ {{ t('taskForm.pluginParams') }}</span>
+                <div class="text-[11px] font-medium text-gray-700 dark:text-gray-300 flex items-center justify-between">
+                  <span class="flex items-center gap-1.5 font-semibold text-gray-800 dark:text-gray-200">
+                    <SlidersHorizontal class="w-3.5 h-3.5 text-sky-500" />
+                    <span>{{ t('taskForm.pluginParams') }}</span>
+                  </span>
                 </div>
                 <div
                   v-for="field in getPluginInfo(action.value)?.params_schema"
                   :key="field.name"
-                  class="flex flex-col gap-0.5 text-xs"
+                  class="flex flex-col gap-1 text-xs"
                 >
-                  <div class="flex items-center justify-between text-[10px] text-gray-500 dark:text-gray-400">
-                    <span>{{ field.label || field.name }}</span>
-                    <span class="font-mono text-gray-400">{{ field.name }}</span>
+                  <div class="flex items-baseline gap-1.5 flex-wrap">
+                    <label
+                      class="text-[11px] text-gray-700 dark:text-gray-300 font-medium cursor-help"
+                      :title="field.name"
+                    >
+                      {{ field.label || field.name }}
+                    </label>
+                    <span v-if="field.required" class="text-rose-500 text-xs font-bold leading-none" title="必填">*</span>
+                    <span v-if="field.description" class="text-[10px] text-gray-400 dark:text-gray-500 truncate" :title="field.description">
+                      - {{ field.description }}
+                    </span>
                   </div>
-                  <!-- 布尔开关 -->
-                  <label v-if="field.type === 'bool'" class="inline-flex items-center gap-2 cursor-pointer mt-0.5">
+
+                  <!-- 布尔开关 (兼容 bool / boolean) -->
+                  <label v-if="field.type === 'bool' || field.type === 'boolean'" class="inline-flex items-center gap-2 cursor-pointer mt-0.5">
                     <input
                       type="checkbox"
                       :checked="Boolean(getParamValue(action, field.name, field.default))"
@@ -455,16 +467,34 @@ const emit = defineEmits<{
                       {{ getParamValue(action, field.name, field.default) ? t('common.enabled') : t('common.disabled') }}
                     </span>
                   </label>
-                  <!-- 整数输入 -->
+
+                  <!-- 下拉选择 (当类型为 select 或提供 options 时) -->
+                  <select
+                    v-else-if="(field.type === 'select' || (field.options && field.options.length > 0)) && field.options"
+                    :value="getParamValue(action, field.name, field.default)"
+                    class="ui-input !h-8 !text-xs !px-2 w-full bg-white dark:bg-gray-900"
+                    @change="setParamValue(action, field.name, ($event.target as HTMLSelectElement).value)"
+                  >
+                    <option
+                      v-for="opt in field.options"
+                      :key="String(opt.value)"
+                      :value="opt.value"
+                    >
+                      {{ opt.label }}
+                    </option>
+                  </select>
+
+                  <!-- 数值输入 (兼容 int / number) -->
                   <input
-                    v-else-if="field.type === 'int'"
+                    v-else-if="field.type === 'int' || field.type === 'number'"
                     type="number"
                     :value="getParamValue(action, field.name, field.default)"
                     :placeholder="field.placeholder || String(field.default ?? '')"
                     class="ui-input !h-8 !text-xs !px-2 w-full"
                     @input="setParamValue(action, field.name, ($event.target as HTMLInputElement).value === '' ? undefined : Number(($event.target as HTMLInputElement).value))"
                   />
-                  <!-- 字符串输入 -->
+
+                  <!-- 字符串/文本输入 -->
                   <input
                     v-else
                     type="text"
@@ -668,18 +698,36 @@ const emit = defineEmits<{
           class="flex flex-col gap-1"
         >
           <div class="flex justify-between text-[10px] text-gray-500">
-            <span>{{ field.label || field.name }}</span>
-            <span class="font-mono text-gray-400">{{ field.name }}</span>
+            <span class="font-medium text-gray-700 dark:text-gray-300">{{ field.label || field.name }}</span>
+            <span class="font-mono text-gray-400" :title="field.name">{{ field.name }}</span>
           </div>
-          <label v-if="field.type === 'bool'" class="inline-flex items-center gap-2 cursor-pointer">
+          <label v-if="field.type === 'bool' || field.type === 'boolean'" class="inline-flex items-center gap-2 cursor-pointer">
             <input
-              type="checkbox"              :checked="Boolean(debugParams[field.name])"              class="rounded text-sky-600 focus:ring-sky-500 h-3.5 w-3.5"              @change="debugParams[field.name] = ($event.target as HTMLInputElement).checked"            />
+              type="checkbox"
+              :checked="Boolean(debugParams[field.name])"
+              class="rounded text-sky-600 focus:ring-sky-500 h-3.5 w-3.5"
+              @change="debugParams[field.name] = ($event.target as HTMLInputElement).checked"
+            />
             <span class="text-[11px] text-gray-600 dark:text-gray-300">
               {{ debugParams[field.name] ? t('common.enabled') : t('common.disabled') }}
             </span>
           </label>
+          <select
+            v-else-if="(field.type === 'select' || (field.options && field.options.length > 0)) && field.options"
+            :value="debugParams[field.name]"
+            class="ui-input !h-8 !text-xs !px-2 w-full bg-white dark:bg-gray-900"
+            @change="debugParams[field.name] = ($event.target as HTMLSelectElement).value"
+          >
+            <option
+              v-for="opt in field.options"
+              :key="String(opt.value)"
+              :value="opt.value"
+            >
+              {{ opt.label }}
+            </option>
+          </select>
           <input
-            v-else-if="field.type === 'int'"
+            v-else-if="field.type === 'int' || field.type === 'number'"
             type="number"
             :value="debugParams[field.name]"
             :placeholder="field.placeholder || String(field.default ?? '')"
@@ -696,7 +744,6 @@ const emit = defineEmits<{
           />
         </div>
       </div>
-
       <div class="flex items-center justify-between gap-2 pt-1">
         <button
           type="button"
