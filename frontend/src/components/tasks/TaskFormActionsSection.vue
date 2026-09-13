@@ -63,7 +63,7 @@ const runActionPluginTest = async () => {
           text: debugInputText.value,
           params: debugParams.value,
           // 与任务正式执行一致：带上动作配置的超时
-          timeout: debugAction.value.timeout ?? undefined,
+          timeout: debugAction.value!.timeout ?? undefined,
         },
         token,
       ),
