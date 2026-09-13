@@ -365,7 +365,7 @@ const goTasks = (name: string) => {
       <div v-else class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
     <div
       v-for="acc in filteredAccounts" :key="acc.id"
-      class="ui-card ui-card-hover group relative flex flex-col p-5"
+      class="ui-card ui-card-hover ui-contain-account group relative flex flex-col p-5"
     >
       <div class="flex justify-between items-start mb-4">
         <div class="flex items-center gap-3 truncate max-w-[70%]">
@@ -375,6 +375,8 @@ const goTasks = (name: string) => {
               :src="acc.avatarUrl" 
               :alt="acc.name"
               class="w-full h-full object-cover"
+              loading="lazy"
+              decoding="async"
             />
             <span v-else>{{ acc.name.substring(0, 2) }}</span>
           </div>

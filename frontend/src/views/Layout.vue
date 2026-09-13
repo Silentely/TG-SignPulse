@@ -87,6 +87,18 @@ onMounted(() => {
   window.addEventListener('keydown', onKeydown)
   mobileQuery.addEventListener('change', onViewportChange)
   void loadSidebarVersion()
+  // 浏览空闲时自动预载其它主页面组件 chunk，消除首次点击切换白屏与停顿
+  if (typeof window !== 'undefined') {
+    if ('requestIdleCallback' in window) {
+      ;(window as Window & { requestIdleCallback: (cb: () => void) => void }).requestIdleCallback(() => {
+        navigation.forEach(nav => prefetchView(nav.name))
+      })
+    } else {
+      setTimeout(() => {
+        navigation.forEach(nav => prefetchView(nav.name))
+      }, 1500)
+    }
+  }
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
@@ -96,6 +108,22 @@ onUnmounted(() => {
     menuScrollLocked = false
   }
 })
+
+const viewLoaders: Record<string, () => Promise<unknown>> = {
+  dashboard: () => import('../views/Dashboard.vue'),
+  accounts: () => import('../views/Accounts.vue'),
+  tasks: () => import('../views/Tasks.vue'),
+  logs: () => import('../views/Logs.vue'),
+  settings: () => import('../views/Settings.vue'),
+}
+
+const prefetchView = (name: string) => {
+  try {
+    viewLoaders[name]?.()
+  } catch {
+    /* 忽略预载异常 */
+  }
+}
 
 const navigation = [
   { id: 'dashboard', name: 'dashboard', icon: LayoutDashboard, labelKey: 'nav.dashboard' },
@@ -183,6 +211,7 @@ const handleNavClick = () => {
             : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/[0.03]'"
           :aria-current="route.name === nav.name ? 'page' : undefined"
           @click="handleNavClick"
+          @mouseenter="prefetchView(nav.name)"
         >
           <component :is="nav.icon" class="w-[18px] h-[18px] shrink-0 opacity-80" stroke-width="1.5" />
           <span class="ml-3 text-sm font-medium">{{ t(nav.labelKey) }}</span>
@@ -272,22 +301,27 @@ const handleNavClick = () => {
 }
 </style>
 <style scoped>
-.fade-enter-active,
+.fade-enter-active {
+  transition: opacity 0.12s ease-out, transform 0.12s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform;
+}
 .fade-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: opacity 0.08s ease-in, transform 0.08s ease-in;
+  will-change: opacity, transform;
 }
 .fade-enter-from {
   opacity: 0;
-  transform: translateY(6px);
+  transform: translateY(4px);
 }
 .fade-leave-to {
   opacity: 0;
-  transform: translateY(-4px);
+  transform: translateY(-2px);
 }
 @media (prefers-reduced-motion: reduce) {
   .fade-enter-active,
   .fade-leave-active {
     transition: opacity 0.01ms;
+    will-change: auto;
   }
   .fade-enter-from,
   .fade-leave-to {

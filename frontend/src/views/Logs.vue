@@ -205,7 +205,7 @@ const {
           <div
             v-for="log in logs"
             :key="`${log.account}-${log.task}-${log.created_at}-${log.id}`"
-            class="ui-list-row flex items-center gap-3 px-2 py-2 cursor-pointer rounded-sm"
+            class="ui-list-row ui-contain-log flex items-center gap-3 px-2 py-2 cursor-pointer rounded-sm"
             role="button"
             tabindex="0"
             :aria-label="`${log.account} ${log.task} ${log.time}`"
