@@ -133,7 +133,7 @@ const onSettingsSelectChange = (key: keyof SettingsFormState, e: Event) => {
             <input id="ai-aivisionretry" :value="settingsModelValue.aiVisionRetry" @input="onSettingsNumberInput('aiVisionRetry', $event)" type="number" min="1" max="8" :placeholder="t('settings.aiVisionRetryPlaceholder')" class="ui-input" />
             <SettingsFieldHint :text="t('settings.aiVisionRetryHint')" />
           </div>
-          <div class="space-y-1">
+          <div class="space-y-1 sm:col-span-2">
             <label class="text-[10px] text-gray-500" for="ai-aivisionreasoning">{{ t('settings.aiVisionReasoningEffort') }}</label>
             <select id="ai-aivisionreasoning" class="ui-input" :value="settingsModelValue.aiVisionReasoningEffort" @change="onSettingsSelectChange('aiVisionReasoningEffort', $event)">
               <option value="">{{ t('settings.aiVisionReasoningEffortDefault') }}</option>

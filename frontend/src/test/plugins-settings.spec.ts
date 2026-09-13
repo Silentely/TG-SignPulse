@@ -1149,4 +1149,39 @@ describe('PluginsSettings.vue 插件管理组件', () => {
       expect(document.body.textContent).toContain('返回编辑')
     })
   })
+  it('点击开发参考能成功打开开发者指南弹窗且正常渲染包含@注册器文案', async () => {
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValue([])
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+
+    const guideBtn = wrapper.findAll('button').find((b) => b.text().includes('开发参考'))
+    expect(guideBtn).toBeDefined()
+    await guideBtn!.trigger('click')
+
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain('开发参考')
+      expect(document.body.textContent).toContain('PluginRegistry.register')
+    })
+  })
+
+  it('工具条搜索框与排序选择器位于同一行容器中且对齐', async () => {
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValue([])
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+
+    const searchInput = wrapper.find('input[placeholder*="搜索插件名称"]')
+    expect(searchInput.exists()).toBe(true)
+
+    const sortSelect = wrapper.find('select[aria-label="排序方式"]')
+    expect(sortSelect.exists()).toBe(true)
+
+    // 搜索框和排序选择器同属于上层同一行 flex 容器
+    const rowContainer = searchInput.element.closest('.flex.items-center.justify-between')
+    expect(rowContainer).not.toBeNull()
+    expect(rowContainer?.contains(sortSelect.element)).toBe(true)
+  })
 })
