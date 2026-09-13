@@ -89,6 +89,7 @@ onMounted(() => {
   window.addEventListener('keydown', onKeydown)
   mobileQuery.addEventListener('change', onViewportChange)
   void loadSidebarVersion()
+  scheduleViewWarmup()
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
@@ -107,13 +108,26 @@ const viewLoaders: Record<string, () => Promise<unknown>> = {
   settings: () => import('../views/Settings.vue'),
 }
 
-const { prefetch: prefetchLoadedView } = createViewPrefetcher(viewLoaders, {
+const { prefetch: prefetchLoadedView, warmup: warmupAllViews } = createViewPrefetcher(viewLoaders, {
   warn: (name, error) => devLog.warn('页面预加载失败', { name, error }),
 })
 
 const prefetchView = (name: string) => {
   if (route.name === name) return
   prefetchLoadedView(name)
+}
+
+// 首屏渲染完成后在空闲期预热全部视图 chunk：
+// 触屏与键盘用户不会触发 hover/focus 预载，这里兜底保证首次跳转无需等待 chunk 下载
+let viewWarmupDone = false
+const scheduleViewWarmup = () => {
+  if (viewWarmupDone) return
+  viewWarmupDone = true
+  if (typeof window.requestIdleCallback === 'function') {
+    window.requestIdleCallback(() => warmupAllViews(), { timeout: 3000 })
+  } else {
+    window.setTimeout(warmupAllViews, 1500)
+  }
 }
 
 const navigation = [

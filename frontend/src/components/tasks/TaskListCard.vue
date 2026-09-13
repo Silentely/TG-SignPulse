@@ -55,8 +55,10 @@ const runTaskBusy = computed(() => Boolean(props.runBusyKey?.startsWith(`${props
 
 <template>
   <div
-    class="ui-card ui-contain-task relative flex flex-col gap-3 p-4"
+    class="ui-card relative flex flex-col gap-3 p-4"
     :class="{
+      // content-visibility 的 paint containment 会裁剪溢出卡片底边的账号菜单，菜单打开期间须解除
+      'ui-contain-task': !runMenuOpen,
       'opacity-55': !task.enabled,
       'ring-1 ring-sky-400/40 border-sky-300/50 dark:border-sky-700/40': selected,
     }"
