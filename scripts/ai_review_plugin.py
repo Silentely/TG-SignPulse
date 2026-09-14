@@ -91,19 +91,40 @@ def _call_openai_compatible_api(
 
 def _call_llm(prompt: str) -> Tuple[Optional[Dict[str, Any]], str]:
     """Route LLM call to appropriate backend based on available environment variables."""
-    gemini_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-    openai_key = os.environ.get("OPENAI_API_KEY")
+    gemini_key = (
+        os.environ.get("PLUGIN_REVIEW_GEMINI_KEY")
+        or os.environ.get("GEMINI_API_KEY")
+        or os.environ.get("GOOGLE_API_KEY")
+    )
+    openai_key = (
+        os.environ.get("PLUGIN_REVIEW_API_KEY")
+        or os.environ.get("OPENAI_API_KEY")
+    )
 
     raw_text = ""
     backend_used = "none"
 
     if gemini_key:
-        model = os.environ.get("GEMINI_MODEL", "gemini-1.5-flash")
+        model = (
+            os.environ.get("PLUGIN_REVIEW_GEMINI_MODEL")
+            or os.environ.get("GEMINI_MODEL")
+            or "gemini-1.5-flash"
+        )
         backend_used = f"gemini ({model})"
         raw_text = _call_gemini_api(prompt, gemini_key, model)
     elif openai_key:
-        base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
-        model = os.environ.get("AI_MODEL", os.environ.get("OPENAI_MODEL", "gpt-4o-mini"))
+        base_url = (
+            os.environ.get("PLUGIN_REVIEW_BASE_URL")
+            or os.environ.get("OPENAI_BASE_URL")
+            or "https://api.openai.com/v1"
+        )
+        # Dedicated variable PLUGIN_REVIEW_MODEL avoids conflict with other workflows (e.g. nomore-spam AI_MODEL)
+        model = (
+            os.environ.get("PLUGIN_REVIEW_MODEL")
+            or os.environ.get("PLUGIN_REVIEW_AI_MODEL")
+            or os.environ.get("OPENAI_MODEL")
+            or "gpt-4o-mini"
+        )
         backend_used = f"openai-compatible ({model} @ {base_url})"
         raw_text = _call_openai_compatible_api(prompt, openai_key, base_url, model)
     else:
@@ -325,11 +346,11 @@ def main():
         print(f"Error: Directory not found: {plugin_dir}", file=sys.stderr)
         sys.exit(1)
 
-    has_key = bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("OPENAI_API_KEY"))
+    has_key = bool(os.environ.get("PLUGIN_REVIEW_GEMINI_KEY") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("PLUGIN_REVIEW_API_KEY") or os.environ.get("OPENAI_API_KEY"))
     mock_mode = args.mock or not has_key
 
     if not has_key and not args.mock:
-        print("[INFO] No AI API key detected (GEMINI_API_KEY / OPENAI_API_KEY). Running in mock/dry-run mode.", file=sys.stderr)
+        print("[INFO] No AI API key detected (PLUGIN_REVIEW_API_KEY / GEMINI_API_KEY / OPENAI_API_KEY). Running in mock/dry-run mode.", file=sys.stderr)
 
     success, review_result, backend = review_plugin_directory(plugin_dir, mock_mode=mock_mode)
 

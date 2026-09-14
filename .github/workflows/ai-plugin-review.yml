@@ -47,11 +47,11 @@ jobs:
       - name: Run AI Review & Diagnostics
         id: run-review
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: ${{ vars.GEMINI_MODEL || secrets.GEMINI_MODEL || 'gemini-1.5-flash' }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL || secrets.OPENAI_BASE_URL || 'https://api.openai.com/v1' }}
-          AI_MODEL: ${{ vars.AI_MODEL || secrets.AI_MODEL || 'gpt-4o-mini' }}
+          GEMINI_API_KEY: ${{ secrets.PLUGIN_REVIEW_GEMINI_KEY || secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.PLUGIN_REVIEW_GEMINI_MODEL || secrets.PLUGIN_REVIEW_GEMINI_MODEL || vars.GEMINI_MODEL || 'gemini-1.5-flash' }}
+          OPENAI_API_KEY: ${{ secrets.PLUGIN_REVIEW_API_KEY || secrets.OPENAI_API_KEY }}
+          OPENAI_BASE_URL: ${{ vars.PLUGIN_REVIEW_BASE_URL || secrets.PLUGIN_REVIEW_BASE_URL || vars.OPENAI_BASE_URL || 'https://api.openai.com/v1' }}
+          PLUGIN_REVIEW_MODEL: ${{ vars.PLUGIN_REVIEW_MODEL || secrets.PLUGIN_REVIEW_MODEL || 'gpt-4o-mini' }}
           PLUGIN_LIST: ${{ steps.get-changed-plugins.outputs.plugins }}
         run: |
           mkdir -p .ai_reviews
