@@ -46,6 +46,9 @@ import {
   Edit2,
   Save,
   Eye,
+  Store,
+  Globe,
+  ExternalLink,
 } from 'lucide-vue-next'
 import Modal from '../Modal.vue'
 import {
@@ -80,6 +83,15 @@ import {
   type PluginTestResponse,
   type CreatePluginRequest,
   type PluginLoadErrorItem,
+  getMarketCatalog,
+  getMarketSource,
+  updateMarketSource,
+  getMarketPluginReadme,
+  installMarketPlugin,
+  updateMarketPlugin,
+  uninstallMarketPlugin,
+  type MarketPluginItem,
+  type MarketSourceConfig,
 } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
@@ -1081,6 +1093,187 @@ const runPluginTest = async () => {
   }
 }
 
+
+// ==================== 插件市场 (Marketplace) 状态与逻辑 ====================
+const activeTab = ref<'installed' | 'market'>('installed')
+const marketCatalog = ref<MarketPluginItem[]>([])
+const marketLoading = ref(false)
+const marketSourceConfig = ref<MarketSourceConfig | null>(null)
+const marketSourceType = ref<'github' | 'jsdelivr' | 'ghproxy' | 'local' | 'custom'>('github')
+const marketCustomUrl = ref('')
+const isSavingSource = ref(false)
+const marketSearchQuery = ref('')
+const marketSelectedCategory = ref('all')
+const marketSelectedStatus = ref<'all' | 'not_installed' | 'installed' | 'upgradable'>('all')
+const installingPluginId = ref<string | null>(null)
+const uninstallingPluginId = ref<string | null>(null)
+
+// 市场插件文档弹窗
+const isMarketReadmeOpen = ref(false)
+const marketReadmeTitle = ref('')
+const marketReadmeContent = ref('')
+const marketReadmePlugin = ref<MarketPluginItem | null>(null)
+const loadingMarketReadme = ref(false)
+
+async function fetchMarketCatalog(refresh = false) {
+  marketLoading.value = true
+  try {
+    await withToken(async (token) => {
+      const res = await getMarketCatalog(token, refresh)
+      marketCatalog.value = res.plugins
+      if (!marketSourceConfig.value) {
+        marketSourceConfig.value = {
+          source_type: res.source_type as any,
+          custom_url: '',
+          active_url: res.source_url,
+        }
+        marketSourceType.value = res.source_type as any
+      }
+    })
+  } catch (err: any) {
+    toast.error(err.message || '获取插件市场清单失败')
+  } finally {
+    marketLoading.value = false
+  }
+}
+
+async function fetchMarketSource() {
+  try {
+    await withToken(async (token) => {
+      const res = await getMarketSource(token)
+      marketSourceConfig.value = res
+      marketSourceType.value = res.source_type
+      marketCustomUrl.value = res.custom_url || ''
+    })
+  } catch {
+    // ignore
+  }
+}
+
+async function handleSourceChange() {
+  isSavingSource.value = true
+  try {
+    await withToken(async (token) => {
+      const res = await updateMarketSource(
+        marketSourceType.value,
+        marketSourceType.value === 'custom' ? marketCustomUrl.value : undefined,
+        token,
+      )
+      marketSourceConfig.value = res
+      toast.success(t('settings.marketSourceSaveSuccess'))
+      await fetchMarketCatalog(true)
+    })
+  } catch (err: any) {
+    toast.error(err.message || '切换市场源失败')
+  } finally {
+    isSavingSource.value = false
+  }
+}
+
+async function handleInstallMarketPlugin(item: MarketPluginItem) {
+  installingPluginId.value = item.id
+  try {
+    await withToken(async (token) => {
+      await installMarketPlugin(item.id, token)
+      toast.success(t('settings.marketInstallSuccess', { name: item.name }))
+      await Promise.all([loadPluginList(), fetchMarketCatalog(true)])
+    })
+  } catch (err: any) {
+    toast.error(err.message || '安装插件失败')
+  } finally {
+    installingPluginId.value = null
+  }
+}
+
+async function handleUpdateMarketPlugin(item: MarketPluginItem) {
+  installingPluginId.value = item.id
+  try {
+    await withToken(async (token) => {
+      await updateMarketPlugin(item.id, token)
+      toast.success(t('settings.marketUpdateSuccess', { name: item.name }))
+      await Promise.all([loadPluginList(), fetchMarketCatalog(true)])
+    })
+  } catch (err: any) {
+    toast.error(err.message || '更新插件失败')
+  } finally {
+    installingPluginId.value = null
+  }
+}
+
+async function handleUninstallMarketPlugin(item: MarketPluginItem) {
+  const ok = await confirm({
+    title: `${t('settings.marketUninstall')} ${item.name}`,
+    message: `确定要卸载插件「${item.name}」吗？卸载后本地插件代码将被清除。`,
+    confirmText: t('settings.marketUninstall'),
+    cancelText: t('common.cancel'),
+    danger: true,
+  })
+  if (!ok) return
+
+  uninstallingPluginId.value = item.id
+  try {
+    await withToken(async (token) => {
+      await uninstallMarketPlugin(item.id, token)
+      toast.success(t('settings.marketUninstallSuccess', { name: item.name }))
+      await Promise.all([loadPluginList(), fetchMarketCatalog(true)])
+    })
+  } catch (err: any) {
+    toast.error(err.message || '卸载插件失败')
+  } finally {
+    uninstallingPluginId.value = null
+  }
+}
+
+async function openMarketReadme(item: MarketPluginItem) {
+  marketReadmePlugin.value = item
+  marketReadmeTitle.value = item.name
+  marketReadmeContent.value = item.readme || ''
+  isMarketReadmeOpen.value = true
+  if (!item.readme) {
+    loadingMarketReadme.value = true
+    try {
+      await withToken(async (token) => {
+        const res = await getMarketPluginReadme(item.id, token)
+        marketReadmeContent.value = res.readme
+      })
+    } catch {
+      marketReadmeContent.value = `# ${item.name}\n\n${item.description}`
+    } finally {
+      loadingMarketReadme.value = false
+    }
+  }
+}
+
+function switchTab(tab: 'installed' | 'market') {
+  activeTab.value = tab
+  if (tab === 'market' && marketCatalog.value.length === 0) {
+    fetchMarketCatalog()
+    fetchMarketSource()
+  }
+}
+
+const filteredMarketPlugins = computed(() => {
+  return marketCatalog.value.filter((p) => {
+    if (marketSearchQuery.value.trim()) {
+      const q = marketSearchQuery.value.toLowerCase().trim()
+      const match =
+        p.name.toLowerCase().includes(q) ||
+        p.id.toLowerCase().includes(q) ||
+        (p.description && p.description.toLowerCase().includes(q)) ||
+        (p.author && p.author.toLowerCase().includes(q)) ||
+        (p.tags && p.tags.some((t) => t.toLowerCase().includes(q)))
+      if (!match) return false
+    }
+    if (marketSelectedCategory.value !== 'all') {
+      if (p.category !== marketSelectedCategory.value) return false
+    }
+    if (marketSelectedStatus.value !== 'all') {
+      if (p.status !== marketSelectedStatus.value) return false
+    }
+    return true
+  })
+})
+
 onMounted(() => {
   void loadPluginList()
 })
@@ -1162,6 +1355,44 @@ onMounted(() => {
         </button>
       </div>
     </div>
+
+    <!-- 顶部主标签页切换：已安装插件 / 插件市场 -->
+    <div class="flex items-center gap-2 border-b border-gray-200 dark:border-gray-800/80 mb-5">
+      <button
+        type="button"
+        class="pb-2.5 px-3 text-xs font-medium border-b-2 flex items-center gap-2 transition-colors"
+        :class="activeTab === 'installed'
+          ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400 font-semibold'
+          : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'"
+        @click="activeTab = 'installed'"
+      >
+        <Puzzle class="w-3.5 h-3.5" />
+        {{ t('settings.pluginsTabInstalled') }}
+        <span class="ml-1 px-1.5 py-0.2 text-[10px] rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 font-mono">
+          {{ plugins.length }}
+        </span>
+      </button>
+      <button
+        type="button"
+        class="pb-2.5 px-3 text-xs font-medium border-b-2 flex items-center gap-2 transition-colors"
+        :class="activeTab === 'market'
+          ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400 font-semibold'
+          : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'"
+        @click="switchTab('market')"
+      >
+        <Store class="w-3.5 h-3.5" />
+        {{ t('settings.pluginsTabMarket') }}
+        <span
+          v-if="marketCatalog.length > 0"
+          class="ml-1 px-1.5 py-0.2 text-[10px] rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-medium font-mono"
+        >
+          {{ marketCatalog.length }}
+        </span>
+      </button>
+    </div>
+
+    <!-- 标签内容区：已安装插件 -->
+    <div v-if="activeTab === 'installed'">
 
     <!-- 插件健康与依赖诊断警示面板 -->
     <div
@@ -1633,6 +1864,264 @@ onMounted(() => {
       class="p-8 text-center text-xs text-gray-400 border border-dashed border-gray-200 dark:border-gray-800 rounded-lg"
     >
       {{ t('settings.pluginsEmptyFilter') }}
+    </div>    </div>
+
+    <!-- 标签内容区：插件市场 -->
+    <div v-else-if="activeTab === 'market'" class="space-y-4">
+      <!-- 市场源切换与贡献入口工具条 -->
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 p-3 bg-slate-50/80 dark:bg-slate-900/40 rounded-lg border border-slate-200/70 dark:border-slate-800/60">
+        <div class="flex items-center gap-2 flex-wrap text-xs">
+          <Globe class="w-4 h-4 text-indigo-500 shrink-0" />
+          <span class="font-medium text-slate-700 dark:text-slate-300">{{ t('settings.marketSourceLabel') }}:</span>
+          <select
+            v-model="marketSourceType"
+            class="ui-input !py-1 !px-2 !text-xs !w-auto bg-white dark:bg-slate-800"
+            @change="handleSourceChange"
+          >
+            <option value="github">{{ t('settings.marketSourceGithub') }}</option>
+            <option value="jsdelivr">{{ t('settings.marketSourceJsdelivr') }}</option>
+            <option value="ghproxy">{{ t('settings.marketSourceGhproxy') }}</option>
+            <option value="local">{{ t('settings.marketSourceLocal') }}</option>
+            <option value="custom">{{ t('settings.marketSourceCustom') }}</option>
+          </select>
+          <div v-if="marketSourceType === 'custom'" class="flex items-center gap-1">
+            <input
+              v-model="marketCustomUrl"
+              type="text"
+              placeholder="https://.../marketplace.json"
+              class="ui-input !py-1 !px-2 !text-xs !w-56"
+            />
+            <button
+              type="button"
+              class="ui-btn-primary !px-2 !py-1 !text-xs"
+              :disabled="isSavingSource"
+              @click="handleSourceChange"
+            >
+              <Save class="w-3 h-3" />
+            </button>
+          </div>
+          <span v-if="marketSourceConfig?.active_url" class="text-[10px] text-slate-400 truncate max-w-xs hidden sm:inline" :title="marketSourceConfig.active_url">
+            ({{ marketSourceConfig.active_url }})
+          </span>
+        </div>
+
+        <div class="flex items-center gap-2 shrink-0">
+          <a
+            href="https://github.com/Silentely/TG-SignPulse/tree/dev/community_plugins"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="ui-btn-secondary !px-2.5 !py-1 !text-xs inline-flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400 hover:text-indigo-700"
+          >
+            <ExternalLink class="w-3.5 h-3.5" />
+            {{ t('settings.marketContributeBtn') }}
+          </a>
+          <button
+            type="button"
+            class="ui-btn-secondary !px-2.5 !py-1 !text-xs inline-flex items-center gap-1.5"
+            :disabled="marketLoading"
+            @click="fetchMarketCatalog(true)"
+          >
+            <RefreshCw class="w-3.5 h-3.5" :class="marketLoading ? 'animate-spin' : ''" />
+            {{ t('settings.pluginsReload') }}
+          </button>
+        </div>
+      </div>
+
+      <!-- 搜索与筛选控制栏 -->
+      <div class="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+        <!-- 搜索框 -->
+        <div class="relative w-full sm:w-72">
+          <Search class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            v-model="marketSearchQuery"
+            type="text"
+            class="ui-input !pl-8 !py-1.5 !text-xs w-full"
+            :placeholder="t('settings.marketSearchPlaceholder')"
+          />
+        </div>
+
+        <!-- 状态过滤器 -->
+        <div class="flex items-center gap-1 flex-wrap text-xs">
+          <button
+            v-for="st in [
+              { key: 'all', label: t('settings.marketStatusAll') },
+              { key: 'not_installed', label: t('settings.marketStatusNotInstalled') },
+              { key: 'installed', label: t('settings.marketStatusInstalled') },
+              { key: 'upgradable', label: t('settings.marketStatusUpgradable') },
+            ]"
+            :key="st.key"
+            type="button"
+            class="px-2.5 py-1 rounded-full text-xs transition-colors"
+            :class="marketSelectedStatus === st.key
+              ? 'bg-indigo-600 text-white font-medium'
+              : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'"
+            @click="marketSelectedStatus = st.key as any"
+          >
+            {{ st.label }}
+          </button>
+        </div>
+      </div>
+
+      <!-- 分类标签过滤器 -->
+      <div class="flex items-center gap-1.5 flex-wrap text-xs pb-1">
+        <button
+          v-for="cat in [
+            { key: 'all', label: t('settings.marketCategoryAll') },
+            { key: 'utility', label: t('settings.marketCategoryUtility') },
+            { key: 'notification', label: t('settings.marketCategoryNotification') },
+            { key: 'message', label: t('settings.marketCategoryMessage') },
+            { key: 'captcha', label: t('settings.marketCategoryCaptcha') },
+            { key: 'helper', label: t('settings.marketCategoryHelper') },
+            { key: 'entertainment', label: t('settings.marketCategoryEntertainment') },
+          ]"
+          :key="cat.key"
+          type="button"
+          class="px-2 py-0.5 rounded text-[11px] transition-colors"
+          :class="marketSelectedCategory === cat.key
+            ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900 font-medium'
+            : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'"
+          @click="marketSelectedCategory = cat.key"
+        >
+          {{ cat.label }}
+        </button>
+      </div>
+
+      <!-- 加载状态 -->
+      <div v-if="marketLoading" class="py-12 flex flex-col items-center justify-center gap-2 text-slate-400">
+        <RefreshCw class="w-6 h-6 animate-spin text-indigo-500" />
+        <span class="text-xs">{{ t('settings.pluginsReloading') }}</span>
+      </div>
+
+      <!-- 市场插件卡片网格 -->
+      <div v-else-if="filteredMarketPlugins.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div
+          v-for="p in filteredMarketPlugins"
+          :key="p.id"
+          class="flex flex-col justify-between p-4 rounded-lg border border-gray-200/80 dark:border-gray-800/70 bg-white/50 dark:bg-gray-900/40 hover:border-indigo-300 dark:hover:border-indigo-700/60 transition-all hover:shadow-sm"
+        >
+          <!-- 卡片上部 -->
+          <div class="space-y-2.5">
+            <div class="flex items-start justify-between gap-2">
+              <div class="flex items-center gap-2 min-w-0">
+                <div class="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0 font-bold text-xs">
+                  <Puzzle class="w-4 h-4" />
+                </div>
+                <div class="min-w-0">
+                  <h3 class="font-medium text-xs text-gray-900 dark:text-gray-100 truncate" :title="p.name">
+                    {{ p.name }}
+                  </h3>
+                  <div class="flex items-center gap-1.5 text-[10px] text-gray-400">
+                    <span class="font-mono">v{{ p.version }}</span>
+                    <span>·</span>
+                    <span>{{ p.author }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 状态徽章 -->
+              <span
+                v-if="p.status === 'upgradable'"
+                class="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 flex items-center gap-1 animate-pulse"
+              >
+                {{ t('settings.marketStatusUpgradable') }}
+              </span>
+              <span
+                v-else-if="p.status === 'installed'"
+                class="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400 flex items-center gap-1"
+              >
+                <Check class="w-3 h-3" />
+                {{ t('settings.marketStatusInstalled') }}
+              </span>
+              <span
+                v-else
+                class="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+              >
+                {{ t('settings.marketStatusNotInstalled') }}
+              </span>
+            </div>
+
+            <!-- 描述 -->
+            <p class="text-xs text-gray-600 dark:text-gray-400 line-clamp-2 min-h-[2.5rem]">
+              {{ p.description || t('settings.pluginsNoDesc') }}
+            </p>
+
+            <!-- 模式与标签 -->
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <span class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-sky-50 dark:bg-sky-950/50 text-sky-700 dark:text-sky-300 border border-sky-200/50 dark:border-sky-800/40">
+                {{ p.mode }}
+              </span>
+              <span
+                v-for="tag in (p.tags || []).slice(0, 3)"
+                :key="tag"
+                class="px-1.5 py-0.5 rounded text-[10px] bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400"
+              >
+                #{{ tag }}
+              </span>
+            </div>
+          </div>
+
+          <!-- 卡片下部操作栏 -->
+          <div class="pt-3 mt-3 border-t border-gray-100 dark:border-gray-800/60 flex items-center justify-between gap-2">
+            <button
+              type="button"
+              class="text-xs text-slate-600 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400 inline-flex items-center gap-1 transition-colors"
+              @click="openMarketReadme(p)"
+            >
+              <Eye class="w-3.5 h-3.5" />
+              {{ t('settings.marketDoc') }}
+            </button>
+
+            <div class="flex items-center gap-1.5">
+              <!-- 未安装：安装按钮 -->
+              <button
+                v-if="p.status === 'not_installed'"
+                type="button"
+                class="ui-btn-primary !px-2.5 !py-1 !text-xs inline-flex items-center gap-1"
+                :disabled="installingPluginId === p.id"
+                @click="handleInstallMarketPlugin(p)"
+              >
+                <RefreshCw v-if="installingPluginId === p.id" class="w-3 h-3 animate-spin" />
+                <Download v-else class="w-3 h-3" />
+                {{ installingPluginId === p.id ? t('settings.marketInstalling') : t('settings.marketInstall') }}
+              </button>
+
+              <!-- 可更新：更新按钮 -->
+              <button
+                v-else-if="p.status === 'upgradable'"
+                type="button"
+                class="ui-btn-primary !px-2.5 !py-1 !text-xs !bg-amber-600 hover:!bg-amber-700 inline-flex items-center gap-1"
+                :disabled="installingPluginId === p.id"
+                @click="handleUpdateMarketPlugin(p)"
+              >
+                <RefreshCw v-if="installingPluginId === p.id" class="w-3 h-3 animate-spin" />
+                <Sparkles class="w-3 h-3" />
+                {{ installingPluginId === p.id ? t('settings.marketUpdating') : `${t('settings.marketUpdate')} v${p.version}` }}
+              </button>
+
+              <!-- 已安装：卸载按钮（非系统内置） -->
+              <button
+                v-if="p.installed && !p.installed_is_builtin"
+                type="button"
+                class="text-xs text-rose-500 hover:text-rose-700 dark:hover:text-rose-400 px-2 py-1 transition-colors inline-flex items-center gap-1"
+                :disabled="uninstallingPluginId === p.id"
+                @click="handleUninstallMarketPlugin(p)"
+              >
+                <RefreshCw v-if="uninstallingPluginId === p.id" class="w-3 h-3 animate-spin" />
+                <Trash2 v-else class="w-3 h-3" />
+                {{ uninstallingPluginId === p.id ? t('settings.marketUninstalling') : t('settings.marketUninstall') }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 空结果状态 -->
+      <div
+        v-else
+        class="p-8 text-center text-xs text-gray-400 border border-dashed border-gray-200 dark:border-gray-800 rounded-lg"
+      >
+        {{ t('settings.marketEmpty') }}
+      </div>
     </div>
 
     <!-- 源码查看弹窗 -->
@@ -2485,6 +2974,112 @@ AUTHOR = "YourName"
           </div>
         </div>
       </div>
+    </Modal>
+
+    <!-- 市场插件详情与文档弹窗 -->
+    <Modal
+      :title="marketReadmeTitle ? `${t('settings.marketDocTitle')}: ${marketReadmeTitle}` : t('settings.marketDocTitle')"
+      :is-open="isMarketReadmeOpen"
+      max-width-class="max-w-3xl"
+      @close="isMarketReadmeOpen = false"
+    >
+      <div v-if="loadingMarketReadme" class="py-12 flex flex-col items-center justify-center gap-2 text-slate-400">
+        <RefreshCw class="w-6 h-6 animate-spin text-indigo-500" />
+        <span class="text-xs">{{ t('settings.pluginsReloading') }}</span>
+      </div>
+      <div v-else class="space-y-4 text-xs text-gray-700 dark:text-gray-300 leading-relaxed max-h-[70vh] overflow-y-auto pr-2 custom-scrollbar">
+        <!-- 插件基础元信息卡片 -->
+        <div v-if="marketReadmePlugin" class="p-3 bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-200/60 dark:border-indigo-800/40 rounded space-y-2">
+          <div class="flex items-center justify-between">
+            <h4 class="font-semibold text-indigo-900 dark:text-indigo-200 text-sm">
+              {{ marketReadmePlugin.name }} ({{ marketReadmePlugin.id }})
+            </h4>
+            <span class="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400">
+              v{{ marketReadmePlugin.version }}
+            </span>
+          </div>
+          <p class="text-xs text-gray-600 dark:text-gray-400">
+            {{ marketReadmePlugin.description }}
+          </p>
+          <div class="flex items-center gap-3 text-[11px] text-gray-500 flex-wrap">
+            <span>{{ t('common.author') || '作者' }}: {{ marketReadmePlugin.author }}</span>
+            <span v-if="marketReadmePlugin.min_app_version">{{ t('settings.marketMinAppVersion', { v: marketReadmePlugin.min_app_version }) }}</span>
+            <span v-if="marketReadmePlugin.updated_at">{{ t('settings.marketUpdatedAt', { d: marketReadmePlugin.updated_at }) }}</span>
+            <a
+              v-if="marketReadmePlugin.homepage"
+              :href="marketReadmePlugin.homepage"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="text-indigo-600 dark:text-indigo-400 inline-flex items-center gap-1 hover:underline"
+            >
+              <ExternalLink class="w-3 h-3" />
+              {{ t('settings.marketHomepage') }}
+            </a>
+          </div>
+        </div>
+
+        <!-- README Markdown 内容 -->
+        <div class="p-4 bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-lg whitespace-pre-wrap font-sans text-xs leading-relaxed select-text">
+          {{ marketReadmeContent }}
+        </div>
+
+        <!-- 参数配置规范提示 -->
+        <div v-if="marketReadmePlugin?.params_schema && marketReadmePlugin.params_schema.length > 0" class="space-y-1.5">
+          <h5 class="font-medium text-slate-800 dark:text-slate-200 text-xs">{{ t('settings.marketParamsSchemaTitle') }}</h5>
+          <div class="border border-slate-200 dark:border-slate-800 rounded overflow-hidden">
+            <table class="w-full text-[11px]">
+              <thead class="bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400">
+                <tr>
+                  <th class="p-2 text-left font-medium">{{ t('settings.marketParamName') }}</th>
+                  <th class="p-2 text-left font-medium">{{ t('settings.marketParamType') }}</th>
+                  <th class="p-2 text-left font-medium">{{ t('settings.marketParamDesc') }}</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
+                <tr v-for="param in marketReadmePlugin.params_schema" :key="param.name">
+                  <td class="p-2 font-mono text-indigo-600 dark:text-indigo-400">{{ param.name }}</td>
+                  <td class="p-2 font-mono text-slate-500">{{ param.type || 'string' }}</td>
+                  <td class="p-2 text-slate-600 dark:text-slate-300">{{ param.description || param.label || '-' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="flex items-center justify-between w-full">
+          <button
+            type="button"
+            class="ui-btn-secondary !text-xs !py-1 !px-3"
+            @click="isMarketReadmeOpen = false"
+          >
+            {{ t('settings.marketDocClose') }}
+          </button>
+          <div v-if="marketReadmePlugin" class="flex items-center gap-2">
+            <button
+              v-if="marketReadmePlugin.status === 'not_installed'"
+              type="button"
+              class="ui-btn-primary !text-xs !py-1 !px-3 inline-flex items-center gap-1"
+              :disabled="installingPluginId === marketReadmePlugin.id"
+              @click="handleInstallMarketPlugin(marketReadmePlugin); isMarketReadmeOpen = false"
+            >
+              <Download class="w-3.5 h-3.5" />
+              {{ t('settings.marketInstall') }}
+            </button>
+            <button
+              v-else-if="marketReadmePlugin.status === 'upgradable'"
+              type="button"
+              class="ui-btn-primary !text-xs !py-1 !px-3 !bg-amber-600 hover:!bg-amber-700 inline-flex items-center gap-1"
+              :disabled="installingPluginId === marketReadmePlugin.id"
+              @click="handleUpdateMarketPlugin(marketReadmePlugin); isMarketReadmeOpen = false"
+            >
+              <Sparkles class="w-3.5 h-3.5" />
+              {{ t('settings.marketUpdate') }}
+            </button>
+          </div>
+        </div>
+      </template>
     </Modal>
   </section>
 </template>

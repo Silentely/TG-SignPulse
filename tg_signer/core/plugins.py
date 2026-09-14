@@ -626,12 +626,14 @@ class PluginRegistry:
 
         try:
             for p in sorted(dir_path.iterdir()):
+                if p.name.startswith((".", "_")):
+                    continue
                 if p.is_dir():
                     if (p / "main.py").is_file():
                         candidate_files.append(p / "main.py")
                     elif (p / "__init__.py").is_file():
                         candidate_files.append(p / "__init__.py")
-                elif p.is_file() and p.suffix == ".py" and not p.name.startswith("__"):
+                elif p.is_file() and p.suffix == ".py":
                     candidate_files.append(p)
         except OSError as exc:
             _logger.warning("遍历插件目录异常 %s: %s", dir_path, exc)

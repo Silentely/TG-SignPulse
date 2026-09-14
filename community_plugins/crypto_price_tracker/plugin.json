@@ -1,0 +1,32 @@
+{
+  "id": "crypto_price_tracker",
+  "name": "加密货币行情解析助手",
+  "version": "1.0.0",
+  "mode": "reactive",
+  "category": "notification",
+  "description": "监听机器人或频道推送中的代币报价，自动提取 BTC/ETH/USDT 等核心指标并持久化记录到插件存储",
+  "author": "BlockExplorer",
+  "homepage": "https://github.com/Silentely/TG-SignPulse",
+  "icon": "trending-up",
+  "tags": ["crypto", "btc", "eth", "price", "tracking"],
+  "min_app_version": "1.8.0",
+  "permissions": ["storage", "telegram_read"],
+  "params_schema": [
+    {
+      "name": "target_symbol",
+      "label": "监控币种符号",
+      "type": "string",
+      "default": "BTC",
+      "required": true,
+      "description": "监控的数字货币符号（如 BTC, ETH, SOL, TON）"
+    },
+    {
+      "name": "track_history",
+      "label": "记录最近行情到插件存储",
+      "type": "boolean",
+      "default": true,
+      "required": false,
+      "description": "是否记录提取到的价格与更新时间戳"
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+name: Validate Community Plugins
+
+on:
+  pull_request:
+    paths:
+      - 'community_plugins/**'
+      - 'scripts/build_marketplace.py'
+      - '.github/workflows/validate-community-plugins.yml'
+  push:
+    branches:
+      - main
+      - dev
+    paths:
+      - 'community_plugins/**'
+      - 'scripts/build_marketplace.py'
+
+jobs:
+  validate:
+    name: Validate Plugins & Build Market Catalog
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff jsonschema
+
+      - name: Lint Community Plugins with Ruff
+        run: |
+          ruff check community_plugins/
+
+      - name: Run Marketplace Validation Check
+        run: |
+          python scripts/build_marketplace.py --check
+
+      - name: Build Marketplace Artifacts
+        run: |
+          python scripts/build_marketplace.py --output-dir dist/marketplace
+
+      - name: Upload Marketplace Catalog Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: marketplace-assets
+          path: dist/marketplace/
+          retention-days: 7

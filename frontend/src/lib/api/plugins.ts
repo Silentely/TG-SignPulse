@@ -113,6 +113,45 @@ export interface ImportBundleResponse {
   errors: string[]
 }
 
+export interface MarketPluginItem {
+  id: string
+  name: string
+  version: string
+  mode: "reactive" | "active"
+  category: "utility" | "notification" | "message" | "captcha" | "helper" | "entertainment" | string
+  description: string
+  author: string
+  homepage?: string | null
+  icon?: string | null
+  tags?: string[]
+  min_app_version?: string | null
+  permissions?: string[]
+  params_schema?: PluginParamSchema[]
+  download_url: string
+  sha256?: string | null
+  size?: number
+  readme?: string | null
+  updated_at?: string | null
+  installed: boolean
+  installed_version?: string | null
+  installed_is_builtin: boolean
+  status: "not_installed" | "installed" | "upgradable"
+}
+
+export interface MarketSourceConfig {
+  source_type: "github" | "jsdelivr" | "ghproxy" | "local" | "custom"
+  custom_url?: string | null
+  active_url: string
+}
+
+export interface MarketCatalogResponse {
+  total: number
+  source_type: string
+  source_url: string
+  plugins: MarketPluginItem[]
+  cached: boolean
+}
+
 export interface PluginExecutionRecord {
   timestamp: string
   duration_ms: number
@@ -439,4 +478,61 @@ export async function formatPluginSource(
     },
     token,
   )
+}
+
+
+export async function getMarketCatalog(
+  token: string,
+  refresh = false,
+): Promise<MarketCatalogResponse> {
+  return request<MarketCatalogResponse>(`/plugins/market?refresh=${refresh}`, {}, token)
+}
+
+export async function getMarketSource(token: string): Promise<MarketSourceConfig> {
+  return request<MarketSourceConfig>('/plugins/market/source', {}, token)
+}
+
+export async function updateMarketSource(
+  source_type: "github" | "jsdelivr" | "ghproxy" | "local" | "custom",
+  custom_url: string | undefined,
+  token: string,
+): Promise<MarketSourceConfig> {
+  return request<MarketSourceConfig>('/plugins/market/source', {
+    method: 'PUT',
+    body: JSON.stringify({ source_type, custom_url }),
+  }, token)
+}
+
+export async function getMarketPluginReadme(
+  pluginId: string,
+  token: string,
+): Promise<{ id: string; readme: string }> {
+  return request<{ id: string; readme: string }>(`/plugins/market/${encodeURIComponent(pluginId)}/readme`, {}, token)
+}
+
+export async function installMarketPlugin(
+  pluginId: string,
+  token: string,
+): Promise<PluginInfo> {
+  return request<PluginInfo>(`/plugins/market/${encodeURIComponent(pluginId)}/install`, {
+    method: 'POST',
+  }, token)
+}
+
+export async function updateMarketPlugin(
+  pluginId: string,
+  token: string,
+): Promise<PluginInfo> {
+  return request<PluginInfo>(`/plugins/market/${encodeURIComponent(pluginId)}/update`, {
+    method: 'POST',
+  }, token)
+}
+
+export async function uninstallMarketPlugin(
+  pluginId: string,
+  token: string,
+): Promise<{ success: boolean; message: string }> {
+  return request<{ success: boolean; message: string }>(`/plugins/market/${encodeURIComponent(pluginId)}/uninstall`, {
+    method: 'DELETE',
+  }, token)
 }

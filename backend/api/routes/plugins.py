@@ -4,15 +4,19 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import hashlib
 import inspect
+import io
+import json
 import logging
 import os
 import re
 import shutil
 import time
+import zipfile
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 from fastapi import (
     APIRouter,
@@ -34,6 +38,7 @@ from tg_signer.core.plugins import (
     PluginMeta,
     PluginRegistry,
     PluginStorageClient,
+    _SecurityVisitor,
     is_builtin_plugin_path,
 )
 from tg_signer.utils import validate_public_http_url
@@ -273,6 +278,49 @@ class PluginTestResponse(BaseModel):
     duration_ms: float = 0.0
     error: Optional[str] = None
 
+class MarketPluginItem(BaseModel):
+    id: str
+    name: str
+    version: str
+    mode: str = "reactive"
+    category: str = "utility"
+    description: str = ""
+    author: str = ""
+    homepage: Optional[str] = None
+    icon: Optional[str] = "puzzle"
+    tags: List[str] = Field(default_factory=list)
+    min_app_version: Optional[str] = "1.8.0"
+    permissions: List[str] = Field(default_factory=list)
+    params_schema: List[Dict[str, Any]] = Field(default_factory=list)
+    download_url: str
+    sha256: Optional[str] = None
+    size: int = 0
+    readme: Optional[str] = None
+    updated_at: Optional[str] = None
+    installed: bool = False
+    installed_version: Optional[str] = None
+    installed_is_builtin: bool = False
+    status: Literal["not_installed", "installed", "upgradable"] = "not_installed"
+
+
+class MarketSourceConfig(BaseModel):
+    source_type: Literal["github", "jsdelivr", "ghproxy", "local", "custom"]
+    custom_url: Optional[str] = None
+    active_url: str
+
+
+class UpdateMarketSourceRequest(BaseModel):
+    source_type: Literal["github", "jsdelivr", "ghproxy", "local", "custom"]
+    custom_url: Optional[str] = None
+
+
+class MarketCatalogResponse(BaseModel):
+    total: int
+    source_type: str
+    source_url: str
+    plugins: List[MarketPluginItem]
+    cached: bool = False
+
 
 @router.get("/diagnostics", response_model=PluginDiagnosticsResponse)
 async def get_plugin_diagnostics(_user: User = Depends(get_current_user)) -> PluginDiagnosticsResponse:
@@ -322,6 +370,595 @@ async def reload_plugins(
     res_list = [_meta_to_info(p, disabled_set) for p in plugins.values()]
     logger.info("已重新加载自定义插件，当前共 %d 个可用插件", len(res_list))
     return ReloadPluginsResponse(count=len(res_list), plugins=res_list)
+
+
+# ==================== Marketplace APIs ====================
+
+MARKET_SOURCE_PRESETS: Dict[str, str] = {
+    "github": "https://raw.githubusercontent.com/Silentely/TG-SignPulse/dev/dist/marketplace/marketplace.json",
+    "jsdelivr": "https://cdn.jsdelivr.net/gh/Silentely/TG-SignPulse@dev/dist/marketplace/marketplace.json",
+    "ghproxy": "https://ghproxy.net/https://raw.githubusercontent.com/Silentely/TG-SignPulse/dev/dist/marketplace/marketplace.json",
+    "local": "local://marketplace.json",
+}
+
+_market_cache: Optional[Dict[str, Any]] = None
+_market_cache_time: float = 0.0
+_market_cache_source: str = ""
+_market_cache_url: str = ""
+PLUGIN_ID_REGEX = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
+
+
+def _parse_semver(v: str) -> tuple[int, ...]:
+    clean = re.sub(r"[^0-9.]", "", str(v or "0.0.0")).strip(".")
+    parts = []
+    for x in clean.split("."):
+        if x.isdigit():
+            parts.append(int(x))
+    while len(parts) < 3:
+        parts.append(0)
+    return tuple(parts[:3])
+
+
+def _get_local_marketplace_catalog() -> Dict[str, Any]:
+    """优先读取本地构建的 marketplace.json，不存在则动态扫描 community_plugins 目录。"""
+    candidates = [
+        Path.cwd() / "dist" / "marketplace" / "marketplace.json",
+        Path("/app/dist/marketplace/marketplace.json"),
+    ]
+    for c in candidates:
+        if c.is_file():
+            try:
+                return json.loads(c.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+
+    community_dirs = [
+        Path.cwd() / "community_plugins",
+        Path("/app/community_plugins"),
+    ]
+    plugins_list: List[Dict[str, Any]] = []
+    for cdir in community_dirs:
+        if cdir.is_dir():
+            for pdir in sorted(cdir.iterdir()):
+                if pdir.is_dir() and not pdir.name.startswith(("_", ".")):
+                    pjson = pdir / "plugin.json"
+                    if pjson.is_file():
+                        try:
+                            manifest = json.loads(pjson.read_text(encoding="utf-8"))
+                            readme_file = pdir / "README.md"
+                            readme_text = readme_file.read_text(encoding="utf-8") if readme_file.is_file() else ""
+                            manifest.setdefault("download_url", f"local://{pdir.name}")
+                            manifest.setdefault("sha256", "")
+                            manifest.setdefault("size", 0)
+                            manifest.setdefault("readme", readme_text)
+                            manifest.setdefault("updated_at", datetime.utcnow().strftime("%Y-%m-%d"))
+                            plugins_list.append(manifest)
+                        except Exception:
+                            pass
+            if plugins_list:
+                break
+
+    return {
+        "version": "1.0",
+        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "total_plugins": len(plugins_list),
+        "plugins": plugins_list,
+    }
+
+
+async def _fetch_market_catalog(refresh: bool = False) -> Tuple[Dict[str, Any], str, str, bool]:
+    global _market_cache, _market_cache_time, _market_cache_source, _market_cache_url
+    from urllib.parse import urlparse
+
+    import httpx
+
+    from backend.services.config import get_config_service
+
+    settings = get_config_service().get_global_settings() or {}
+    source_type = str(settings.get("marketplace_source", "github"))
+    custom_url = str(settings.get("marketplace_custom_url", ""))
+
+    active_url = (
+        custom_url.strip()
+        if source_type == "custom" and custom_url
+        else MARKET_SOURCE_PRESETS.get(source_type, MARKET_SOURCE_PRESETS["github"])
+    )
+
+    now = time.time()
+    if (
+        not refresh
+        and _market_cache is not None
+        and (now - _market_cache_time < 60.0)
+        and (_market_cache_source == source_type)
+        and (_market_cache_url == active_url)
+    ):
+        return _market_cache, source_type, active_url, True
+
+    catalog_data: Optional[Dict[str, Any]] = None
+
+    if source_type == "local":
+        catalog_data = _get_local_marketplace_catalog()
+    else:
+        try:
+            pinned_ip, hostname = validate_public_http_url(active_url)
+            parsed_url = urlparse(active_url)
+            default_port = {"http": 80, "https": 443}.get(parsed_url.scheme)
+            host_for_url = f"[{pinned_ip}]" if ":" in pinned_ip else pinned_ip
+            netloc = host_for_url if parsed_url.port is None else f"{host_for_url}:{parsed_url.port}"
+            if parsed_url.username:
+                cred = parsed_url.username
+                if parsed_url.password:
+                    cred = f"{cred}:{parsed_url.password}"
+                netloc = f"{cred}@{netloc}"
+            request_url = parsed_url._replace(netloc=netloc).geturl()
+            host_header = hostname if parsed_url.port in (None, default_port) else f"{hostname}:{parsed_url.port}"
+
+            async with httpx.AsyncClient(timeout=10.0, follow_redirects=False, trust_env=False) as client:
+                if parsed_url.scheme == "https":
+                    resp = await client.get(request_url, headers={"Host": host_header}, extensions={"sni_hostname": hostname})
+                else:
+                    resp = await client.get(request_url, headers={"Host": host_header})
+                if resp.status_code == 200:
+                    catalog_data = resp.json()
+        except Exception as exc:
+            logger.warning("拉取远程插件市场目录失败 (%s): %s，降级为本地市场缓存", active_url, exc)
+
+        if not catalog_data or "plugins" not in catalog_data:
+            catalog_data = _get_local_marketplace_catalog()
+
+    _market_cache = catalog_data
+    _market_cache_time = now
+    _market_cache_source = source_type
+    _market_cache_url = active_url
+    return catalog_data, source_type, active_url, False
+
+
+@router.get("/market", response_model=MarketCatalogResponse)
+async def list_market_plugins(
+    refresh: bool = Query(default=False, description="是否强制刷新市场目录缓存"),
+    _user: User = Depends(get_current_user),
+) -> MarketCatalogResponse:
+    """获取插件市场所有可用的插件清单，并附带当前环境的本地安装/可更新状态。"""
+    catalog_data, source_type, active_url, is_cached = await _fetch_market_catalog(refresh=refresh)
+    installed_plugins = PluginRegistry.list_plugins()
+
+    plugin_items: List[MarketPluginItem] = []
+    for item in catalog_data.get("plugins", []):
+        pid = item.get("id")
+        if not pid:
+            continue
+
+        installed_meta = installed_plugins.get(pid)
+        is_installed = installed_meta is not None
+        installed_version = installed_meta.version if installed_meta else None
+        installed_is_builtin = (
+            is_builtin_plugin_path(installed_meta.source_path)
+            if (installed_meta and installed_meta.source_path)
+            else False
+        )
+
+        status_val: Literal["not_installed", "installed", "upgradable"] = "not_installed"
+        if is_installed:
+            if installed_version:
+                market_semver = _parse_semver(str(item.get("version", "0.0.0")))
+                local_semver = _parse_semver(str(installed_version))
+                if market_semver > local_semver:
+                    status_val = "upgradable"
+                else:
+                    status_val = "installed"
+            else:
+                status_val = "installed"
+
+        plugin_items.append(
+            MarketPluginItem(
+                id=pid,
+                name=item.get("name", pid),
+                version=item.get("version", "1.0.0"),
+                mode=item.get("mode", "reactive"),
+                category=item.get("category", "utility"),
+                description=item.get("description", ""),
+                author=item.get("author", "Community"),
+                homepage=item.get("homepage"),
+                icon=item.get("icon", "puzzle"),
+                tags=item.get("tags", []),
+                min_app_version=item.get("min_app_version", "1.8.0"),
+                permissions=item.get("permissions", []),
+                params_schema=item.get("params_schema", []),
+                download_url=item.get("download_url", ""),
+                sha256=item.get("sha256"),
+                size=item.get("size", 0),
+                readme=item.get("readme"),
+                updated_at=item.get("updated_at"),
+                installed=is_installed,
+                installed_version=installed_version,
+                installed_is_builtin=installed_is_builtin,
+                status=status_val,
+            )
+        )
+
+    return MarketCatalogResponse(
+        total=len(plugin_items),
+        source_type=source_type,
+        source_url=active_url,
+        plugins=plugin_items,
+        cached=is_cached,
+    )
+
+
+@router.get("/market/source", response_model=MarketSourceConfig)
+async def get_market_source(
+    _user: User = Depends(get_current_user),
+) -> MarketSourceConfig:
+    """获取当前配置的插件市场源信息。"""
+    from backend.services.config import get_config_service
+    settings = get_config_service().get_global_settings() or {}
+    source_type = str(settings.get("marketplace_source", "github"))
+    custom_url = str(settings.get("marketplace_custom_url", ""))
+    active_url = (
+        custom_url.strip()
+        if source_type == "custom" and custom_url
+        else MARKET_SOURCE_PRESETS.get(source_type, MARKET_SOURCE_PRESETS["github"])
+    )
+    return MarketSourceConfig(
+        source_type=source_type,  # type: ignore
+        custom_url=custom_url,
+        active_url=active_url,
+    )
+
+
+@router.put("/market/source", response_model=MarketSourceConfig)
+async def update_market_source(
+    req: UpdateMarketSourceRequest,
+    _user: User = Depends(get_current_user),
+) -> MarketSourceConfig:
+    """切换或设置插件市场镜像源（如 GitHub 官方源、jsDelivr CDN、国内代理或本地离线源）。"""
+    global _market_cache, _market_cache_time
+    from backend.services.config import get_config_service
+    config_service = get_config_service()
+
+    source_type = req.source_type
+    custom_url = (req.custom_url or "").strip()
+    if source_type == "custom":
+        if not custom_url:
+            raise HTTPException(status_code=400, detail="自定义源必须提供有效的 URL")
+        try:
+            validate_public_http_url(custom_url)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"自定义源地址不安全: {exc}")
+
+    current_settings = dict(config_service.get_global_settings() or {})
+    current_settings["marketplace_source"] = source_type
+    current_settings["marketplace_custom_url"] = custom_url
+    config_service.save_global_settings(current_settings)
+    _market_cache = None
+    _market_cache_time = 0.0
+
+    active_url = (
+        custom_url
+        if source_type == "custom"
+        else MARKET_SOURCE_PRESETS.get(source_type, MARKET_SOURCE_PRESETS["github"])
+    )
+    return MarketSourceConfig(
+        source_type=source_type,
+        custom_url=custom_url,
+        active_url=active_url,
+    )
+
+
+@router.get("/market/{plugin_id}/readme")
+async def get_market_plugin_readme(
+    plugin_id: str,
+    _user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """获取指定市场插件的 Markdown 说明文档。"""
+    if not PLUGIN_ID_REGEX.match(plugin_id):
+        raise HTTPException(status_code=400, detail="无效的插件标识符")
+    catalog_data, _, _, _ = await _fetch_market_catalog(refresh=False)
+    matched_item = next((p for p in catalog_data.get("plugins", []) if p.get("id") == plugin_id), None)
+
+    readme_text = ""
+    if matched_item and matched_item.get("readme"):
+        readme_text = matched_item["readme"]
+    else:
+        for base in [Path.cwd() / "community_plugins", Path("/app/community_plugins")]:
+            rf = base / plugin_id / "README.md"
+            if rf.is_file():
+                try:
+                    readme_text = rf.read_text(encoding="utf-8")
+                    break
+                except Exception:
+                    pass
+
+    if not readme_text:
+        readme_text = f"# {plugin_id}\n\n该插件暂未提供详细说明文档。"
+    return {"id": plugin_id, "readme": readme_text}
+
+
+async def _do_install_market_plugin(plugin_id: str, is_update: bool = False) -> PluginInfo:
+    if not PLUGIN_ID_REGEX.match(plugin_id):
+        raise HTTPException(status_code=400, detail="无效的插件标识符")
+
+    catalog_data, source_type, _, _ = await _fetch_market_catalog(refresh=False)
+    matched_item = next((p for p in catalog_data.get("plugins", []) if p.get("id") == plugin_id), None)
+    if not matched_item:
+        raise HTTPException(status_code=404, detail=f"未在插件市场中找到标识为 '{plugin_id}' 的插件")
+
+    installed_plugins = PluginRegistry.list_plugins()
+    if plugin_id in installed_plugins:
+        existing = installed_plugins[plugin_id]
+        if is_builtin_plugin_path(existing.source_path):
+            raise HTTPException(status_code=403, detail="该插件为系统内置插件，禁止覆盖或修改")
+
+    download_url = str(matched_item.get("download_url", ""))
+    archive_bytes: Optional[bytes] = None
+
+    is_local_download = (
+        download_url.startswith("local://")
+        or source_type == "local"
+        or not download_url.startswith(("http://", "https://"))
+    )
+
+    if is_local_download:
+        ver = matched_item.get("version", "1.0.0")
+        for base in [Path.cwd() / "dist" / "marketplace" / "plugins", Path("/app/dist/marketplace/plugins")]:
+            zip_file = base / f"{plugin_id}-{ver}.zip"
+            if zip_file.is_file():
+                try:
+                    archive_bytes = zip_file.read_bytes()
+                    break
+                except Exception:
+                    pass
+
+        if archive_bytes is None:
+            for base in [Path.cwd() / "community_plugins", Path("/app/community_plugins")]:
+                pdir = base / plugin_id
+                if pdir.is_dir() and (pdir / "main.py").is_file():
+                    bio = io.BytesIO()
+                    with zipfile.ZipFile(bio, "w", zipfile.ZIP_DEFLATED) as zf:
+                        for f in pdir.iterdir():
+                            if f.is_file() and not f.name.startswith("."):
+                                zf.write(f, arcname=f.name)
+                    bio.seek(0)
+                    archive_bytes = bio.read()
+                    break
+
+        if archive_bytes is None:
+            raise HTTPException(status_code=404, detail="本地市场未找到该插件的安装归档包")
+    else:
+        try:
+            pinned_ip, hostname = validate_public_http_url(download_url)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"下载地址不安全: {exc}")
+
+        from urllib.parse import urlparse
+
+        import httpx
+
+        parsed_url = urlparse(download_url)
+        default_port = {"http": 80, "https": 443}.get(parsed_url.scheme)
+
+        host_for_url = f"[{pinned_ip}]" if ":" in pinned_ip else pinned_ip
+        netloc = host_for_url if parsed_url.port is None else f"{host_for_url}:{parsed_url.port}"
+        if parsed_url.username:
+            credential = parsed_url.username
+            if parsed_url.password:
+                credential = f"{credential}:{parsed_url.password}"
+            netloc = f"{credential}@{netloc}"
+        request_url = parsed_url._replace(netloc=netloc).geturl()
+        host_header = hostname if parsed_url.port in (None, default_port) else f"{hostname}:{parsed_url.port}"
+
+        try:
+            async with httpx.AsyncClient(timeout=25.0, follow_redirects=False, trust_env=False) as client:
+                if parsed_url.scheme == "https":
+                    resp = await client.get(request_url, headers={"Host": host_header}, extensions={"sni_hostname": hostname})
+                else:
+                    resp = await client.get(request_url, headers={"Host": host_header})
+            if resp.status_code != 200:
+                raise HTTPException(status_code=400, detail=f"下载插件包失败: HTTP {resp.status_code}")
+            if len(resp.content) > 10 * 1024 * 1024:
+                raise HTTPException(status_code=413, detail="插件安装包大小超过 10MB 限制")
+            archive_bytes = resp.content
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"拉取远程插件包异常: {exc}")
+
+    if not PLUGIN_ID_REGEX.match(plugin_id):
+        raise HTTPException(status_code=400, detail="无效的插件标识符")
+
+    expected_sha = matched_item.get("sha256")
+    if expected_sha and archive_bytes:
+        computed_sha = hashlib.sha256(archive_bytes).hexdigest()
+        if computed_sha.lower() != str(expected_sha).lower():
+            raise HTTPException(status_code=400, detail="插件安装包完整性校验失败 (SHA-256 不匹配)")
+
+    import tempfile
+    import uuid
+
+    custom_dir = _get_custom_plugins_dir()
+    custom_dir.mkdir(parents=True, exist_ok=True)
+    custom_dir_resolved = custom_dir.resolve()
+
+    target_plugin_dir = (custom_dir / plugin_id).resolve()
+    try:
+        target_plugin_dir.relative_to(custom_dir_resolved)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="非法的插件目录路径")
+
+    # 使用系统临时目录进行解压与 AST 审计，彻底避免在插件扫描目录下留下临时文件
+    with tempfile.TemporaryDirectory(prefix=f"market_{plugin_id}_") as stage_tmp:
+        temp_dir = Path(stage_tmp)
+        temp_resolved = temp_dir.resolve()
+        extracted_files: List[Path] = []
+
+        total_uncompressed = 0
+        member_count = 0
+        try:
+            with zipfile.ZipFile(io.BytesIO(archive_bytes)) as zf:
+                for member in zf.infolist():
+                    member_count += 1
+                    if member_count > 100:
+                        raise HTTPException(status_code=400, detail="压缩包内文件数量超过 100 个限制")
+                    total_uncompressed += member.file_size
+                    if total_uncompressed > 20 * 1024 * 1024:
+                        raise HTTPException(status_code=400, detail="压缩包解压总大小超过 20MB 限制")
+
+                    norm_name = os.path.normpath(member.filename)
+                    if (
+                        norm_name.startswith(("/", "\\"))
+                        or norm_name.startswith("..")
+                        or "/../" in norm_name
+                        or "\\..\\" in norm_name
+                    ):
+                        raise HTTPException(status_code=400, detail="检测到不安全的压缩包文件路径 (Zip Slip)")
+                    dest_file = (temp_dir / norm_name).resolve()
+                    try:
+                        dest_file.relative_to(temp_resolved)
+                    except ValueError:
+                        raise HTTPException(status_code=400, detail="检测到不安全的压缩包文件路径 (Zip Slip)")
+                    if member.is_dir():
+                        dest_file.mkdir(parents=True, exist_ok=True)
+                        continue
+                    dest_file.parent.mkdir(parents=True, exist_ok=True)
+                    with zf.open(member) as src, open(dest_file, "wb") as dst:
+                        shutil.copyfileobj(src, dst)
+                    extracted_files.append(dest_file)
+        except zipfile.BadZipFile:
+            raise HTTPException(status_code=400, detail="插件安装包不是有效的 ZIP 格式")
+
+        for ef in extracted_files:
+            if ef.suffix == ".py":
+                try:
+                    code_text = ef.read_text(encoding="utf-8")
+                except UnicodeDecodeError:
+                    raise HTTPException(status_code=400, detail=f"插件代码不是合法的 UTF-8 编码 ({ef.name})")
+                try:
+                    tree = ast.parse(code_text, filename=ef.name)
+                except SyntaxError as exc:
+                    raise HTTPException(status_code=400, detail=f"插件代码语法错误 ({ef.name}): {exc}")
+
+                visitor = _SecurityVisitor()
+                visitor.visit(tree)
+                forbidden = [
+                    w for w in visitor.warnings
+                    if w.get("severity") in ("high", "critical")
+                    or "subprocess" in str(w.get("message", "")).lower()
+                    or "os.system" in str(w.get("message", "")).lower()
+                ]
+                if forbidden:
+                    raise HTTPException(status_code=400, detail=f"插件安全审计未通过: {forbidden[0]['message']}")
+
+        if not ((temp_dir / "main.py").is_file() or (temp_dir / "__init__.py").is_file()):
+            raise HTTPException(status_code=400, detail="插件包缺少入口文件 (main.py 或 __init__.py)")
+
+        backup_dir = None
+        if target_plugin_dir.exists():
+            backup_dir = custom_dir / f".bak_{plugin_id}_{uuid.uuid4().hex[:8]}"
+            target_plugin_dir.rename(backup_dir)
+
+        try:
+            shutil.copytree(temp_dir, target_plugin_dir)
+            if backup_dir and backup_dir.exists():
+                shutil.rmtree(backup_dir, ignore_errors=True)
+        except Exception as exc:
+            if backup_dir and backup_dir.exists():
+                backup_dir.rename(target_plugin_dir)
+            raise HTTPException(status_code=500, detail=f"写入插件目录失败: {exc}")
+
+    PluginRegistry.reload_all_plugins()
+    new_meta = PluginRegistry.get(plugin_id)
+    if not new_meta:
+        shutil.rmtree(target_plugin_dir, ignore_errors=True)
+        raise HTTPException(
+            status_code=400,
+            detail="插件解压成功，但未能成功注册至 PluginRegistry，请检查 @PluginRegistry.register 命名",
+        )
+
+    logger.info("成功%s市场插件: %s (v%s)", "更新" if is_update else "安装", plugin_id, new_meta.version)
+    return _meta_to_info(new_meta)
+
+
+@router.post("/market/{plugin_id}/install", response_model=PluginInfo)
+async def install_market_plugin(
+    plugin_id: str,
+    _user: User = Depends(get_current_user),
+) -> PluginInfo:
+    """从插件市场安装指定插件。"""
+    return await _do_install_market_plugin(plugin_id, is_update=False)
+
+
+@router.post("/market/{plugin_id}/update", response_model=PluginInfo)
+async def update_market_plugin(
+    plugin_id: str,
+    _user: User = Depends(get_current_user),
+) -> PluginInfo:
+    """更新已安装的市场插件至最新版本。"""
+    return await _do_install_market_plugin(plugin_id, is_update=True)
+
+
+@router.delete("/market/{plugin_id}/uninstall")
+async def uninstall_market_plugin(
+    plugin_id: str,
+    _user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """卸载已安装的社区/市场插件。"""
+    if not PLUGIN_ID_REGEX.match(plugin_id):
+        raise HTTPException(status_code=400, detail="无效的插件标识符")
+
+    meta = PluginRegistry.get(plugin_id)
+    if meta and (getattr(meta, "builtin", False) or is_builtin_plugin_path(meta.source_path)):
+        raise HTTPException(status_code=403, detail="官方内置插件禁止卸载")
+
+    custom_dir = _get_custom_plugins_dir()
+    custom_dir_resolved = custom_dir.resolve()
+    target_dir = (custom_dir / plugin_id).resolve()
+    target_file = (custom_dir / f"{plugin_id}.py").resolve()
+
+    try:
+        target_dir.relative_to(custom_dir_resolved)
+        target_file.relative_to(custom_dir_resolved)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="非法的插件路径")
+
+    if target_dir == custom_dir_resolved or target_file == custom_dir_resolved:
+        raise HTTPException(status_code=400, detail="禁止操作插件根目录")
+
+    deleted = False
+    if target_dir.is_dir():
+        shutil.rmtree(target_dir, ignore_errors=True)
+        deleted = True
+    elif target_file.is_file():
+        target_file.unlink(missing_ok=True)
+        deleted = True
+
+    if not deleted and not meta:
+        raise HTTPException(status_code=404, detail=f"未找到插件 '{plugin_id}'，无法卸载")
+
+    if deleted:
+        try:
+            from backend.services.config import get_config_service
+            settings = get_config_service().get_global_settings() or {}
+            disabled = set(settings.get("disabled_plugins", []))
+            configs = dict(settings.get("plugin_configs", {}))
+            changed = False
+            if plugin_id in disabled:
+                disabled.remove(plugin_id)
+                changed = True
+            if plugin_id in configs:
+                del configs[plugin_id]
+                changed = True
+            if changed:
+                get_config_service().save_global_settings({
+                    "disabled_plugins": sorted(disabled),
+                    "plugin_configs": configs,
+                })
+        except Exception as cfg_err:
+            logger.warning("清理卸载插件配置失败 (%s): %s", plugin_id, cfg_err)
+
+    PluginRegistry.reload_all_plugins()
+    logger.info("已成功卸载插件: %s", plugin_id)
+    return {"success": True, "message": f"插件 '{plugin_id}' 已成功卸载"}
+
 
 
 @router.post("/{name}/toggle", response_model=PluginInfo)

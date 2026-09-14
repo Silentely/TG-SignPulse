@@ -1,0 +1,24 @@
+{
+  "id": "my_plugin_id",
+  "name": "自定义扩展插件",
+  "version": "1.0.0",
+  "mode": "reactive",
+  "category": "utility",
+  "description": "简要描述此插件的功能与特性",
+  "author": "Contributor",
+  "homepage": "https://github.com/Silentely/TG-SignPulse",
+  "icon": "puzzle",
+  "tags": ["custom", "starter"],
+  "min_app_version": "1.8.0",
+  "permissions": ["storage"],
+  "params_schema": [
+    {
+      "name": "example_param",
+      "label": "示例参数",
+      "type": "string",
+      "default": "default_value",
+      "required": false,
+      "description": "参数功能说明"
+    }
+  ]
+}
