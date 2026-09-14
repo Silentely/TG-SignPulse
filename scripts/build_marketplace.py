@@ -248,7 +248,7 @@ def main() -> int:
                             from scripts.ai_review_plugin import review_plugin_directory
                         except ImportError:
                             from ai_review_plugin import review_plugin_directory
-                        has_key = bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("OPENAI_API_KEY"))
+                        has_key = bool(os.environ.get("PLUGIN_REVIEW_GEMINI_KEY") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("PLUGIN_REVIEW_API_KEY") or os.environ.get("OPENAI_API_KEY"))
                         ok, review_meta, _ = review_plugin_directory(pdir, mock_mode=not has_key)
                         if ok and "enriched_metadata" in review_meta:
                             ai_meta = review_meta["enriched_metadata"]
