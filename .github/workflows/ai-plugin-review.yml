@@ -1,0 +1,121 @@
+name: AI Community Plugin Review
+
+on:
+  pull_request:
+    paths:
+      - 'community_plugins/**'
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  ai-review:
+    name: AI Security & Quality Gatekeeper
+    runs-on: ubuntu-latest
+    if: github.repository == 'Silentely/TG-SignPulse'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Detect Changed Community Plugins
+        id: get-changed-plugins
+        run: |
+          # Get list of changed files in PR against base branch
+          git fetch origin ${{ github.base_ref }}
+          CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          echo "Changed files in PR:"
+          echo "$CHANGED_FILES"
+
+          # Extract unique plugin directory names under community_plugins/ (excluding _template)
+          PLUGIN_DIRS=$(echo "$CHANGED_FILES" | grep '^community_plugins/' | awk -F/ '{print $2}' | grep -E '^[a-zA-Z0-9_-]{1,64}$' | grep -v '^_template' | sort -u || true)
+
+          echo "Detected plugin directories to review:"
+          echo "$PLUGIN_DIRS"
+          
+          # Join space-separated for bash loop
+          echo "plugins=$PLUGIN_DIRS" >> $GITHUB_OUTPUT
+
+      - name: Run AI Review & Diagnostics
+        id: run-review
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL || secrets.GEMINI_MODEL || 'gemini-1.5-flash' }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL || secrets.OPENAI_BASE_URL || 'https://api.openai.com/v1' }}
+          AI_MODEL: ${{ vars.AI_MODEL || secrets.AI_MODEL || 'gpt-4o-mini' }}
+          PLUGIN_LIST: ${{ steps.get-changed-plugins.outputs.plugins }}
+        run: |
+          mkdir -p .ai_reviews
+          for plugin in $PLUGIN_LIST; do
+            if [[ "$plugin" =~ ^[a-zA-Z0-9_-]{1,64}$ ]] && [ -d "community_plugins/$plugin" ]; then
+              echo ">>> Reviewing community plugin: $plugin"
+              python scripts/ai_review_plugin.py "community_plugins/$plugin" \
+                --format markdown \
+                --output ".ai_reviews/${plugin}.md" || true
+            fi
+          done
+
+      - name: Post AI Review Comment on PR
+        uses: actions/github-script@v7
+        if: always()
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const reviewDir = '.ai_reviews';
+
+            if (!fs.existsSync(reviewDir)) {
+              console.log('No AI reviews were generated.');
+              return;
+            }
+
+            const files = fs.readdirSync(reviewDir).filter(f => f.endsWith('.md'));
+            if (files.length === 0) {
+              console.log('No review markdown files found.');
+              return;
+            }
+
+            let combinedComment = '## 🤖 TG-SignPulse 社区插件 AI 智能审查\n\n> 本报告由自动化 AI 审查机器人生成，针对代码语义安全、异步性能与元数据规范进行诊断。\n\n';
+
+            for (const file of files) {
+              const content = fs.readFileSync(path.join(reviewDir, file), 'utf8');
+              combinedComment += content + '\n\n---\n\n';
+            }
+
+            // Find existing bot comment to avoid spam
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+            });
+
+            const botComment = comments.data.find(c => 
+              c.user.type === 'Bot' && c.body.includes('TG-SignPulse 社区插件 AI 智能审查')
+            );
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: combinedComment,
+              });
+              console.log('Updated existing AI review comment.');
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                body: combinedComment,
+              });
+              console.log('Created new AI review comment.');
+            }

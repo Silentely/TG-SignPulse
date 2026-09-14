@@ -1,0 +1,32 @@
+{
+  "id": "bing_daily_quote",
+  "name": "必应每日一图与名言",
+  "version": "1.0.0",
+  "mode": "active",
+  "category": "utility",
+  "description": "主动执行插件：获取必应每日一图的背景故事与格言，并向目标群组发送优雅的晨安图文消息",
+  "author": "TG-Community",
+  "homepage": "https://github.com/Silentely/TG-SignPulse",
+  "icon": "quote",
+  "tags": ["daily", "bing", "quote", "morning"],
+  "min_app_version": "1.8.0",
+  "permissions": ["network", "telegram_send"],
+  "params_schema": [
+    {
+      "name": "greeting_prefix",
+      "label": "晨安问候前缀",
+      "type": "string",
+      "default": "☀️ 每日晨安名言：",
+      "required": false,
+      "description": "附加在名言前面的自定义问候文本"
+    },
+    {
+      "name": "include_copyright",
+      "label": "包含图片版权说明",
+      "type": "boolean",
+      "default": true,
+      "required": false,
+      "description": "是否附加必应壁纸版权与地理位置说明"
+    }
+  ]
+}

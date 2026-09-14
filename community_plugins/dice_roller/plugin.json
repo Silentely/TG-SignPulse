@@ -1,0 +1,32 @@
+{
+  "id": "dice_roller",
+  "name": "趣味掷骰子与抽签",
+  "version": "1.0.0",
+  "mode": "reactive",
+  "category": "entertainment",
+  "description": "响应群组或对话中的掷骰子/抽签口令（如 /roll, /dice, 摇号），自动随机计算点数或选项并趣味回显",
+  "author": "GameMaster",
+  "homepage": "https://github.com/Silentely/TG-SignPulse",
+  "icon": "dice",
+  "tags": ["game", "dice", "random", "entertainment"],
+  "min_app_version": "1.8.0",
+  "permissions": ["telegram_send"],
+  "params_schema": [
+    {
+      "name": "max_sides",
+      "label": "骰子面数上限",
+      "type": "number",
+      "default": 100,
+      "required": false,
+      "description": "掷骰子的最大点数，默认为 100 (1~100)"
+    },
+    {
+      "name": "reply_prefix",
+      "label": "回复引导词",
+      "type": "string",
+      "default": "🎲 骰子掷出了：",
+      "required": false,
+      "description": "应答点数时的文字前缀"
+    }
+  ]
+}

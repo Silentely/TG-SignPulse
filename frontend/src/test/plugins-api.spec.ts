@@ -22,6 +22,13 @@ import {
   testPlugin,
   getPluginsManifest,
   formatPluginSource,
+  getMarketCatalog,
+  getMarketSource,
+  updateMarketSource,
+  getMarketPluginReadme,
+  installMarketPlugin,
+  updateMarketPlugin,
+  uninstallMarketPlugin,
 } from '../lib/api/plugins'
 
 describe('plugins api 扩展接口', () => {
@@ -367,5 +374,84 @@ describe('plugins api 扩展接口', () => {
       'test-token',
     )
     expect(result).toEqual(mockResp)
+  })
+
+  it('getMarketCatalog 发起 GET /plugins/market 请求', async () => {
+    const mockResp = {
+      total: 1,
+      source_type: 'github',
+      source_url: 'https://...',
+      cached: false,
+      plugins: [],
+    }
+    const requestSpy = vi.spyOn(coreApi, 'request').mockResolvedValueOnce(mockResp)
+    const res = await getMarketCatalog('test-token', true)
+    expect(requestSpy).toHaveBeenCalledWith('/plugins/market?refresh=true', {}, 'test-token')
+    expect(res).toEqual(mockResp)
+  })
+
+  it('getMarketSource 发起 GET /plugins/market/source 请求', async () => {
+    const mockResp = {
+      source_type: 'jsdelivr',
+      custom_url: '',
+      active_url: 'https://cdn.jsdelivr.net/...',
+    }
+    const requestSpy = vi.spyOn(coreApi, 'request').mockResolvedValueOnce(mockResp)
+    const res = await getMarketSource('test-token')
+    expect(requestSpy).toHaveBeenCalledWith('/plugins/market/source', {}, 'test-token')
+    expect(res).toEqual(mockResp)
+  })
+
+  it('updateMarketSource 发起 PUT /plugins/market/source 请求', async () => {
+    const mockResp = {
+      source_type: 'local',
+      custom_url: '',
+      active_url: 'local://...',
+    }
+    const requestSpy = vi.spyOn(coreApi, 'request').mockResolvedValueOnce(mockResp)
+    const res = await updateMarketSource('local', undefined, 'test-token')
+    expect(requestSpy).toHaveBeenCalledWith('/plugins/market/source', {
+      method: 'PUT',
+      body: JSON.stringify({ source_type: 'local' }),
+    }, 'test-token')
+    expect(res).toEqual(mockResp)
+  })
+
+  it('installMarketPlugin 发起 POST /plugins/market/:id/install 请求', async () => {
+    const mockResp = { name: 'dice_roller', mode: 'reactive' }
+    const requestSpy = vi.spyOn(coreApi, 'request').mockResolvedValueOnce(mockResp)
+    const res = await installMarketPlugin('dice_roller', 'test-token')
+    expect(requestSpy).toHaveBeenCalledWith('/plugins/market/dice_roller/install', {
+      method: 'POST',
+    }, 'test-token')
+    expect(res).toEqual(mockResp)
+  })
+
+  it('updateMarketPlugin 发起 POST /plugins/market/:id/update 请求', async () => {
+    const mockResp = { name: 'dice_roller', mode: 'reactive' }
+    const requestSpy = vi.spyOn(coreApi, 'request').mockResolvedValueOnce(mockResp)
+    const res = await updateMarketPlugin('dice_roller', 'test-token')
+    expect(requestSpy).toHaveBeenCalledWith('/plugins/market/dice_roller/update', {
+      method: 'POST',
+    }, 'test-token')
+    expect(res).toEqual(mockResp)
+  })
+
+  it('uninstallMarketPlugin 发起 DELETE /plugins/market/:id/uninstall 请求', async () => {
+    const mockResp = { success: true, message: '已卸载' }
+    const requestSpy = vi.spyOn(coreApi, 'request').mockResolvedValueOnce(mockResp)
+    const res = await uninstallMarketPlugin('dice_roller', 'test-token')
+    expect(requestSpy).toHaveBeenCalledWith('/plugins/market/dice_roller/uninstall', {
+      method: 'DELETE',
+    }, 'test-token')
+    expect(res).toEqual(mockResp)
+  })
+
+  it('getMarketPluginReadme 发起 GET /plugins/market/:id/readme 请求', async () => {
+    const mockResp = { id: 'dice_roller', readme: '# Doc' }
+    const requestSpy = vi.spyOn(coreApi, 'request').mockResolvedValueOnce(mockResp)
+    const res = await getMarketPluginReadme('dice_roller', 'test-token')
+    expect(requestSpy).toHaveBeenCalledWith('/plugins/market/dice_roller/readme', {}, 'test-token')
+    expect(res).toEqual(mockResp)
   })
 })

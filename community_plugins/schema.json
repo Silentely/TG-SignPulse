@@ -1,0 +1,167 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TG-SignPulse Community Plugin Manifest",
+  "type": "object",
+  "required": [
+    "id",
+    "name",
+    "version",
+    "mode",
+    "category",
+    "description",
+    "author"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]{3,32}$",
+      "description": "Unique plugin identifier (lowercase letters, numbers, underscores, 3-32 chars)"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 50,
+      "description": "Human-readable plugin name"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Semantic versioning (e.g., 1.0.0)"
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "reactive",
+        "active"
+      ],
+      "description": "Execution mode: reactive (listen & respond) or active (proactive action)"
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "utility",
+        "notification",
+        "message",
+        "captcha",
+        "helper",
+        "entertainment"
+      ],
+      "description": "Plugin category for marketplace classification"
+    },
+    "description": {
+      "type": "string",
+      "minLength": 5,
+      "maxLength": 300,
+      "description": "Detailed description of plugin functionality"
+    },
+    "author": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 50,
+      "description": "Author name or GitHub username"
+    },
+    "homepage": {
+      "type": "string",
+      "format": "uri",
+      "description": "Homepage or GitHub repository URL"
+    },
+    "icon": {
+      "type": "string",
+      "description": "Lucide icon name (e.g. quote, bell, trending-up, dice, sparkle)"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Search tags"
+    },
+    "min_app_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Minimum TG-SignPulse version required"
+    },
+    "permissions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "network",
+          "storage",
+          "telegram_read",
+          "telegram_send",
+          "cron"
+        ]
+      },
+      "description": "Permissions requested by this plugin"
+    },
+    "params_schema": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "string",
+              "number",
+              "boolean",
+              "select",
+              "bool",
+              "int"
+            ]
+          },
+          "default": {},
+          "placeholder": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "label",
+                "value"
+              ],
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "value": {}
+              }
+            }
+          }
+        }
+      },
+      "description": "Dynamic parameter form schema for Web UI"
+    },
+    "description_en": {
+      "type": "string",
+      "maxLength": 300,
+      "description": "English description of plugin functionality"
+    },
+    "features": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Key highlight features of the plugin"
+    }
+  },
+  "additionalProperties": false
+}

@@ -38,6 +38,7 @@ COPY tg_signer/__init__.py /app/tg_signer/__init__.py
 COPY backend /app/backend
 COPY tg_signer /app/tg_signer
 COPY plugins /app/plugins
+COPY community_plugins /app/community_plugins
 
 ARG TARGETPLATFORM
 RUN pip install --no-cache-dir . \
