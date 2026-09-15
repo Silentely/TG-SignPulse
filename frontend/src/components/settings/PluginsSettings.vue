@@ -96,7 +96,6 @@ import {
   getPluginStorage,
   clearPluginStorage,
   type PluginStorageResponse,
-  type PluginStorageNamespaceData,
   type PluginStorageRecord,
 } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
@@ -1883,11 +1882,11 @@ onMounted(() => {
             </span>
             <a
               v-if="isValidHttpUrl(plugin.homepage)"
-              :href="plugin.homepage"
+              :href="plugin.homepage || undefined"
               target="_blank"
               rel="noopener noreferrer"
               class="text-[10px] text-indigo-600 dark:text-indigo-400 inline-flex items-center gap-0.5 hover:underline"
-              :title="plugin.homepage"
+              :title="plugin.homepage || undefined"
             >
               <Globe class="w-3 h-3" />
               <span>{{ t('settings.pluginsHomepage') }}</span>

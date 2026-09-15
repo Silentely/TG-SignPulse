@@ -1261,8 +1261,9 @@ describe('PluginsSettings.vue 插件管理组件', () => {
     const getStorageSpy = vi.spyOn(pluginsApi, 'getPluginStorage').mockResolvedValue(storageResp)
     const clearStorageSpy = vi.spyOn(pluginsApi, 'clearPluginStorage').mockResolvedValue({
       success: true,
+      plugin_name: 'store_demo_plugin',
       message: 'deleted',
-      deleted_keys: 1,
+      deleted_count: 1,
     })
 
     const wrapper = mount(PluginsSettings, {
