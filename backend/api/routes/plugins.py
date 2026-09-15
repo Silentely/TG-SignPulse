@@ -14,7 +14,7 @@ import re
 import shutil
 import time
 import zipfile
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
@@ -86,7 +86,7 @@ class PluginMetricsModel(BaseModel):
     last_run_at: Optional[str] = None
     last_duration_ms: float = 0.0
     avg_duration_ms: float = 0.0
-    success_rate: float = 100.0
+    success_rate: float = 0.0
     last_error: Optional[str] = None
 
 
@@ -103,8 +103,39 @@ class PluginInfo(BaseModel):
     builtin: bool = False
     permissions: List[str] = Field(default_factory=list)
     doc: Optional[str] = None
+    category: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
+    icon: Optional[str] = None
+    homepage: Optional[str] = None
     recent_results: List[bool] = Field(default_factory=list)
     metrics: Optional[PluginMetricsModel] = None
+
+
+class PluginStorageRecord(BaseModel):
+    key: str
+    value: Any
+    expires_at: Optional[float] = None
+    ttl_remaining: Optional[float] = None
+
+
+class PluginStorageNamespaceData(BaseModel):
+    namespace: str
+    is_test: bool = False
+    chat_id: Optional[str] = None
+    records: List[PluginStorageRecord] = Field(default_factory=list)
+
+
+class PluginStorageResponse(BaseModel):
+    plugin_name: str
+    total_records: int
+    namespaces: List[PluginStorageNamespaceData] = Field(default_factory=list)
+
+
+class ClearPluginStorageResponse(BaseModel):
+    success: bool
+    plugin_name: str
+    deleted_count: int
+    message: str
 
 
 def _meta_to_info(p: PluginMeta, disabled_set: Optional[set[str]] = None) -> PluginInfo:
@@ -127,6 +158,10 @@ def _meta_to_info(p: PluginMeta, disabled_set: Optional[set[str]] = None) -> Plu
         builtin=getattr(p, "builtin", False),
         permissions=getattr(p, "permissions", []),
         doc=getattr(p, "doc", None),
+        category=getattr(p, "category", None),
+        tags=list(getattr(p, "tags", []) or []),
+        icon=getattr(p, "icon", None),
+        homepage=getattr(p, "homepage", None),
         recent_results=recent_bools,
         metrics=metrics_model,
     )
@@ -346,14 +381,35 @@ async def get_plugin_diagnostics(_user: User = Depends(get_current_user)) -> Plu
 
 
 @router.get("", response_model=List[PluginInfo])
-async def list_plugins(_user: User = Depends(get_current_user)) -> List[PluginInfo]:
-    """获取所有已加载的自定义插件列表。"""
+async def list_plugins(
+    mode: Optional[Literal["reactive", "active"]] = Query(default=None, description="按模式过滤 (reactive/active)"),
+    category: Optional[str] = Query(default=None, description="按插件分类过滤"),
+    enabled: Optional[bool] = Query(default=None, description="按启用状态过滤"),
+    search: Optional[str] = Query(default=None, description="按名称、描述或标签搜索"),
+    _user: User = Depends(get_current_user),
+) -> List[PluginInfo]:
+    """获取所有已加载的自定义插件列表（支持按模式、分类、状态及关键词筛选）。"""
     plugins = PluginRegistry.list_plugins()
     disabled_set = _get_disabled_plugins()
     for name in plugins:
         PluginRegistry.set_disabled(name, disabled=name in disabled_set)
 
-    return [_meta_to_info(p, disabled_set) for p in plugins.values()]
+    infos = [_meta_to_info(p, disabled_set) for p in plugins.values()]
+    if mode:
+        infos = [p for p in infos if p.mode == mode]
+    if category:
+        infos = [p for p in infos if p.category and p.category.lower() == category.lower()]
+    if enabled is not None:
+        infos = [p for p in infos if p.enabled == enabled]
+    if search:
+        s_low = search.lower().strip()
+        infos = [
+            p for p in infos
+            if s_low in p.name.lower()
+            or (p.description and s_low in p.description.lower())
+            or any(s_low in t.lower() for t in (p.tags or []))
+        ]
+    return infos
 
 
 @router.post("/reload", response_model=ReloadPluginsResponse)
@@ -431,7 +487,7 @@ def _get_local_marketplace_catalog() -> Dict[str, Any]:
                             manifest.setdefault("sha256", "")
                             manifest.setdefault("size", 0)
                             manifest.setdefault("readme", readme_text)
-                            manifest.setdefault("updated_at", datetime.utcnow().strftime("%Y-%m-%d"))
+                            manifest.setdefault("updated_at", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
                             plugins_list.append(manifest)
                         except Exception:
                             pass
@@ -440,7 +496,7 @@ def _get_local_marketplace_catalog() -> Dict[str, Any]:
 
     return {
         "version": "1.0",
-        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "total_plugins": len(plugins_list),
         "plugins": plugins_list,
     }
@@ -1516,9 +1572,7 @@ async def create_plugin_from_template(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"插件名称 '{req.name}' 已存在")
 
     # 2. 确定自定义插件保存目录
-    custom_dirs = [d for d in PluginRegistry.get_search_directories() if not is_builtin_plugin_path(d)]
-    target_dir = custom_dirs[0] if custom_dirs else Path.cwd() / "data" / "plugins"
-    target_dir.mkdir(parents=True, exist_ok=True)
+    target_dir = _get_custom_plugins_dir()
 
     plugin_dir = target_dir / req.name
     if plugin_dir.exists():
@@ -2068,7 +2122,7 @@ async def clone_plugin(
 
     return _meta_to_info(new_meta)
 
-def _inspect_plugin_dependencies(source_code: str) -> List[Dict[str, Any]]:
+def _inspect_plugin_dependencies(source_code: str, plugin_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
     """利用 AST 静态分析插件源码中的三方外部依赖模块与安装就绪情况。"""
     import ast
     import importlib.util
@@ -2081,6 +2135,17 @@ def _inspect_plugin_dependencies(source_code: str) -> List[Dict[str, Any]]:
         "pathlib", "os", "sys", "json", "re", "time", "datetime", "asyncio",
         "logging", "traceback", "urllib", "inspect", "enum", "math", "random",
     }
+
+    local_modules: set[str] = set()
+    if plugin_dir and plugin_dir.is_dir():
+        try:
+            for child in plugin_dir.iterdir():
+                if child.is_file() and child.suffix == ".py":
+                    local_modules.add(child.stem)
+                elif child.is_dir() and (child / "__init__.py").is_file():
+                    local_modules.add(child.name)
+        except Exception:
+            pass
 
     try:
         tree = ast.parse(source_code)
@@ -2098,7 +2163,26 @@ def _inspect_plugin_dependencies(source_code: str) -> List[Dict[str, Any]]:
                 root_name = node.module.split(".")[0]
                 imported_modules.add(root_name)
 
-    third_party = [m for m in sorted(imported_modules) if m not in ignore_modules]
+    PIP_MODULE_MAP = {
+        "yaml": "pyyaml",
+        "bs4": "beautifulsoup4",
+        "PIL": "pillow",
+        "dotenv": "python-dotenv",
+        "dateutil": "python-dateutil",
+        "jwt": "pyjwt",
+        "crypto": "pycryptodome",
+        "cv2": "opencv-python",
+        "sklearn": "scikit-learn",
+        "serial": "pyserial",
+        "fitz": "pymupdf",
+        "socks": "PySocks",
+        "magic": "python-magic",
+    }
+
+    third_party = [
+        m for m in sorted(imported_modules)
+        if m not in ignore_modules and m not in local_modules
+    ]
 
     results = []
     for mod in third_party:
@@ -2110,11 +2194,12 @@ def _inspect_plugin_dependencies(source_code: str) -> List[Dict[str, Any]]:
                 pkg_ver = get_pkg_version(mod)
             except Exception:
                 pass
+        pip_pkg = PIP_MODULE_MAP.get(mod, mod)
         results.append({
             "module": mod,
             "installed": installed,
             "version": pkg_ver,
-            "install_command": f"pip install {mod}" if not installed else None,
+            "install_command": f"pip install {pip_pkg}" if not installed else None,
         })
     return results
 
@@ -2154,27 +2239,37 @@ async def get_plugin_dependencies(
     """静态解析指定插件的三方依赖库，并检测当前运行环境中是否已安装。"""
     meta = PluginRegistry.get(name)
     source_code: Optional[str] = None
+    plugin_dir: Optional[Path] = None
 
     if meta and meta.source_path and Path(meta.source_path).is_file():
         try:
-            source_code = Path(meta.source_path).read_text(encoding="utf-8")
+            sp = Path(meta.source_path)
+            source_code = sp.read_text(encoding="utf-8")
+            plugin_dir = sp.parent
         except Exception:
             pass
 
     if not source_code:
-        # 尝试从自定义目录中寻找对应文件（包括因缺少依赖而加载失败的插件）
-        target_dir = _get_custom_plugins_dir()
-        candidate = target_dir / f"{name}.py"
-        if candidate.is_file():
-            try:
-                source_code = candidate.read_text(encoding="utf-8")
-            except Exception:
-                pass
-        elif (target_dir / name / "__init__.py").is_file():
-            try:
-                source_code = (target_dir / name / "__init__.py").read_text(encoding="utf-8")
-            except Exception:
-                pass
+        # 尝试从配置的所有搜索目录中寻找对应文件（含自定义目录与内置目录，支持 main.py / __init__.py / name.py）
+        for sdir in PluginRegistry.get_search_directories():
+            if not sdir.is_dir():
+                continue
+            candidates = [
+                sdir / f"{name}.py",
+                sdir / name / "main.py",
+                sdir / name / "__init__.py",
+            ]
+            for cand in candidates:
+                if cand.is_file():
+                    try:
+                        source_code = cand.read_text(encoding="utf-8")
+                        if cand.name in ("main.py", "__init__.py"):
+                            plugin_dir = cand.parent
+                        break
+                    except Exception:
+                        pass
+            if source_code:
+                break
 
     if not source_code and meta and meta.handler:
         try:
@@ -2189,11 +2284,95 @@ async def get_plugin_dependencies(
             detail=f"未能定位插件 '{name}' 的源代码",
         )
 
-    deps = _inspect_plugin_dependencies(source_code)
+    deps = _inspect_plugin_dependencies(source_code, plugin_dir=plugin_dir)
     return {
         "name": name,
         "dependencies": deps,
     }
+
+
+@router.get("/{name}/storage", response_model=PluginStorageResponse)
+async def get_plugin_storage(
+    name: str,
+    _user: User = Depends(get_current_user),
+) -> PluginStorageResponse:
+    """获取指定插件当前持久化存储的所有命名空间与结构化数据记录。"""
+    from tg_signer.core.plugins import PluginStorageBackend
+
+    storage = PluginStorageBackend()
+    namespaces = storage.list_namespaces(plugin_name=name)
+
+    ns_data_list: List[PluginStorageNamespaceData] = []
+    total = 0
+    for ns in namespaces:
+        records_raw = storage.get_all_records(ns)
+        records = [PluginStorageRecord(**r) for r in records_raw]
+        total += len(records)
+        is_test = ns.startswith("__test__:")
+        clean_ns = ns[len("__test__:") :] if is_test else ns
+        parts = clean_ns.split(":")
+        chat_id_val = parts[0] if len(parts) > 1 else None
+
+        ns_data_list.append(
+            PluginStorageNamespaceData(
+                namespace=ns,
+                is_test=is_test,
+                chat_id=chat_id_val,
+                records=records,
+            )
+        )
+
+    return PluginStorageResponse(
+        plugin_name=name,
+        total_records=total,
+        namespaces=ns_data_list,
+    )
+
+
+@router.delete("/{name}/storage", response_model=ClearPluginStorageResponse)
+async def clear_plugin_storage(
+    name: str,
+    namespace: Optional[str] = Query(default=None, description="指定清理的命名空间；不传则清理该插件所有命名空间"),
+    key: Optional[str] = Query(default=None, description="指定清理的单个键名；需同时提供 namespace"),
+    _user: User = Depends(get_current_user),
+) -> ClearPluginStorageResponse:
+    """清理指定插件的持久化存储数据（支持全量清空、指定命名空间清空或删除指定键）。"""
+    from tg_signer.core.plugins import PluginStorageBackend
+
+    if key and not namespace:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="删除指定键名时必须同时提供 namespace 参数",
+        )
+
+    if namespace:
+        valid_suffix = f":{name}"
+        if not (namespace == name or namespace.endswith(valid_suffix)):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"命名空间 '{namespace}' 不属于插件 '{name}'",
+            )
+
+    storage = PluginStorageBackend()
+    deleted_count = 0
+
+    if namespace:
+        if key:
+            ok = storage.delete(namespace, key)
+            deleted_count = 1 if ok else 0
+        else:
+            deleted_count = storage.clear(namespace)
+    else:
+        namespaces = storage.list_namespaces(plugin_name=name)
+        for ns in namespaces:
+            deleted_count += storage.clear(ns)
+
+    return ClearPluginStorageResponse(
+        success=True,
+        plugin_name=name,
+        deleted_count=deleted_count,
+        message=f"已成功清理插件 '{name}' 的持久化数据 (共 {deleted_count} 项)",
+    )
 
 
 @router.get("/{name}/config", response_model=PluginConfigResponse)
