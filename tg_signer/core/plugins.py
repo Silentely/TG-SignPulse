@@ -32,6 +32,10 @@ class PluginTimeoutError(RuntimeError):
 class PluginStorageBackend:
     """基于 SQLite 的线程与多进程安全轻量级 KV 存储后端。"""
 
+    @staticmethod
+    def _escape_like(text: str) -> str:
+        return text.replace('/', '//').replace('%', '/%').replace('_', '/_')
+
     def __init__(self, db_path: Optional[Union[str, Path]] = None):
         if db_path is not None:
             self.db_path = Path(db_path)
@@ -68,6 +72,13 @@ class PluginStorageBackend:
                     expires_at REAL,
                     PRIMARY KEY (namespace, key)
                 );
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_plugin_kv_expires
+                ON plugin_kv (expires_at)
+                WHERE expires_at IS NOT NULL;
                 """
             )
             conn.commit()
@@ -190,6 +201,169 @@ class PluginStorageBackend:
             _logger.warning("插件清空存储失败: %s", exc)
             return 0
 
+    def purge_expired(self, namespace: Optional[str] = None) -> int:
+        """主动清理已过期的所有记录，返回被清理的记录数。"""
+        now = time.time()
+        try:
+            with self._get_conn() as conn:
+                if namespace:
+                    cur = conn.execute(
+                        "DELETE FROM plugin_kv WHERE namespace = ? AND expires_at IS NOT NULL AND expires_at < ?",
+                        (namespace, now),
+                    )
+                else:
+                    cur = conn.execute(
+                        "DELETE FROM plugin_kv WHERE expires_at IS NOT NULL AND expires_at < ?",
+                        (now,),
+                    )
+                conn.commit()
+                return cur.rowcount
+        except Exception as exc:
+            _logger.warning("插件清理过期存储失败: %s", exc)
+            return 0
+
+    def keys(self, namespace: str, prefix: str = "") -> List[str]:
+        """列出指定命名空间下未过期的键名（支持前缀匹配），自动淘汰已过期记录。"""
+        now = time.time()
+        try:
+            with self._get_conn() as conn:
+                if prefix:
+                    escaped_prefix = self._escape_like(prefix)
+                    cur = conn.execute(
+                        "SELECT key, expires_at FROM plugin_kv WHERE namespace = ? AND key LIKE ? ESCAPE '/'",
+                        (namespace, f"{escaped_prefix}%"),
+                    )
+                else:
+                    cur = conn.execute(
+                        "SELECT key, expires_at FROM plugin_kv WHERE namespace = ?",
+                        (namespace,),
+                    )
+                rows = cur.fetchall()
+                valid_keys: List[str] = []
+                expired_keys: List[str] = []
+                for k, exp in rows:
+                    if exp is not None and exp < now:
+                        expired_keys.append(k)
+                    else:
+                        valid_keys.append(k)
+                if expired_keys:
+                    try:
+                        conn.executemany(
+                            "DELETE FROM plugin_kv WHERE namespace = ? AND key = ?",
+                            [(namespace, ek) for ek in expired_keys],
+                        )
+                        conn.commit()
+                    except Exception as clean_exc:
+                        _logger.debug("延迟清理过期记录异常: %s", clean_exc)
+                return sorted(valid_keys)
+        except Exception as exc:
+            _logger.warning("插件读取存储键列表失败 [%s]: %s", namespace, exc)
+            return []
+
+    def get_all(self, namespace: str, prefix: str = "") -> Dict[str, Any]:
+        """批量读取指定命名空间下所有未过期的键值对（支持前缀过滤），自动淘汰已过期记录。"""
+        now = time.time()
+        try:
+            with self._get_conn() as conn:
+                if prefix:
+                    escaped_prefix = self._escape_like(prefix)
+                    cur = conn.execute(
+                        "SELECT key, value, expires_at FROM plugin_kv WHERE namespace = ? AND key LIKE ? ESCAPE '/'",
+                        (namespace, f"{escaped_prefix}%"),
+                    )
+                else:
+                    cur = conn.execute(
+                        "SELECT key, value, expires_at FROM plugin_kv WHERE namespace = ?",
+                        (namespace,),
+                    )
+                rows = cur.fetchall()
+                res: Dict[str, Any] = {}
+                expired_keys: List[str] = []
+                for k, val_str, exp in rows:
+                    if exp is not None and exp < now:
+                        expired_keys.append(k)
+                        continue
+                    try:
+                        res[k] = json.loads(val_str)
+                    except Exception:
+                        res[k] = val_str
+                if expired_keys:
+                    try:
+                        conn.executemany(
+                            "DELETE FROM plugin_kv WHERE namespace = ? AND key = ?",
+                            [(namespace, ek) for ek in expired_keys],
+                        )
+                        conn.commit()
+                    except Exception as clean_exc:
+                        _logger.debug("延迟清理过期记录异常: %s", clean_exc)
+                return res
+        except Exception as exc:
+            _logger.warning("插件批量读取存储失败 [%s]: %s", namespace, exc)
+            return {}
+
+    def list_namespaces(self, plugin_name: Optional[str] = None) -> List[str]:
+        """列出当前数据库中存在的所有命名空间，可根据插件名称进行关联匹配。"""
+        try:
+            with self._get_conn() as conn:
+                if plugin_name:
+                    escaped_name = self._escape_like(plugin_name)
+                    cur = conn.execute(
+                        """
+                        SELECT DISTINCT namespace FROM plugin_kv
+                        WHERE namespace = ?
+                           OR namespace LIKE ? ESCAPE '/'
+                           OR namespace LIKE ? ESCAPE '/'
+                        """,
+                        (plugin_name, f"%:{escaped_name}", f"__test__:%:{escaped_name}"),
+                    )
+                else:
+                    cur = conn.execute("SELECT DISTINCT namespace FROM plugin_kv")
+                rows = cur.fetchall()
+                return sorted([r[0] for r in rows if r[0]])
+        except Exception as exc:
+            _logger.warning("查询插件存储命名空间失败: %s", exc)
+            return []
+
+    def get_all_records(self, namespace: str) -> List[Dict[str, Any]]:
+        """获取指定命名空间下的完整结构化记录（含过期时间与剩余 TTL）。"""
+        now = time.time()
+        try:
+            with self._get_conn() as conn:
+                cur = conn.execute(
+                    "SELECT key, value, expires_at FROM plugin_kv WHERE namespace = ?",
+                    (namespace,),
+                )
+                rows = cur.fetchall()
+                records: List[Dict[str, Any]] = []
+                expired_keys: List[str] = []
+                for k, val_str, exp in rows:
+                    if exp is not None and exp < now:
+                        expired_keys.append(k)
+                        continue
+                    try:
+                        parsed_val = json.loads(val_str)
+                    except Exception:
+                        parsed_val = val_str
+                    records.append({
+                        "key": k,
+                        "value": parsed_val,
+                        "expires_at": exp,
+                        "ttl_remaining": round(exp - now, 1) if exp is not None else None,
+                    })
+                if expired_keys:
+                    try:
+                        conn.executemany(
+                            "DELETE FROM plugin_kv WHERE namespace = ? AND key = ?",
+                            [(namespace, ek) for ek in expired_keys],
+                        )
+                        conn.commit()
+                    except Exception as clean_exc:
+                        _logger.debug("延迟清理过期记录异常: %s", clean_exc)
+                return sorted(records, key=lambda x: x["key"])
+        except Exception as exc:
+            _logger.warning("插件读取存储记录失败 [%s]: %s", namespace, exc)
+            return []
+
 
 class PluginStorageClient:
     """供插件开发者使用的异步键值存储接口。"""
@@ -236,6 +410,20 @@ class PluginStorageClient:
             return await loop.run_in_executor(None, self._backend.clear, self.namespace)
         except RuntimeError:
             return self._backend.clear(self.namespace)
+
+    async def keys(self, prefix: str = "") -> List[str]:
+        try:
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(None, self._backend.keys, self.namespace, prefix)
+        except RuntimeError:
+            return self._backend.keys(self.namespace, prefix)
+
+    async def get_all(self, prefix: str = "") -> Dict[str, Any]:
+        try:
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(None, self._backend.get_all, self.namespace, prefix)
+        except RuntimeError:
+            return self._backend.get_all(self.namespace, prefix)
 
 
 @dataclass
@@ -358,6 +546,10 @@ class PluginMeta:
     builtin: bool = False
     permissions: List[str] = field(default_factory=list)
     doc: Optional[str] = None
+    category: Optional[str] = None
+    tags: List[str] = field(default_factory=list)
+    icon: Optional[str] = None
+    homepage: Optional[str] = None
 
 
 @dataclass
@@ -551,6 +743,10 @@ class PluginRegistry:
         version: str = "1.0.0",
         updated_at: Optional[str] = None,
         author: str = "",
+        category: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        icon: Optional[str] = None,
+        homepage: Optional[str] = None,
     ) -> Callable:
         def decorator(fn: Callable[[PluginContext], Any]) -> Callable[[PluginContext], Any]:
             existing = cls._plugins.get(name)
@@ -590,6 +786,10 @@ class PluginRegistry:
                 builtin=is_builtin_plugin_path(source_file),
                 permissions=list(permissions or []),
                 doc=doc_str or None,
+                category=category,
+                tags=list(tags or []),
+                icon=icon,
+                homepage=homepage,
             )
             return fn
         return decorator
@@ -692,22 +892,69 @@ class PluginRegistry:
                     if len(pending) == 1:
                         pending[0].params_schema = mod.PARAMS_SCHEMA
 
-                # 模块级全局变量元数据提取（VERSION / UPDATED_AT / AUTHOR）与 mtime 回退
+                # 检查目录型插件是否附带 plugin.json 描述文件
+                pjson_data: Dict[str, Any] = {}
+                if plugin_file.name in ("main.py", "__init__.py"):
+                    pjson_file = resolved_file.parent / "plugin.json"
+                    if pjson_file.is_file():
+                        try:
+                            pjson_data = json.loads(pjson_file.read_text(encoding="utf-8"))
+                        except Exception:
+                            pass
+
+                # 模块级全局变量元数据提取（VERSION / UPDATED_AT / AUTHOR / CATEGORY / TAGS / ICON / HOMEPAGE）与 mtime 回退
                 mod_version = getattr(mod, "VERSION", getattr(mod, "__version__", None))
                 mod_updated_at = getattr(mod, "UPDATED_AT", getattr(mod, "__updated_at__", None))
                 mod_author = getattr(mod, "AUTHOR", getattr(mod, "__author__", None))
+                mod_category = getattr(mod, "CATEGORY", getattr(mod, "__category__", None))
+                mod_tags = getattr(mod, "TAGS", getattr(mod, "__tags__", None))
+                mod_icon = getattr(mod, "ICON", getattr(mod, "__icon__", None))
+                mod_homepage = getattr(mod, "HOMEPAGE", getattr(mod, "__homepage__", None))
 
                 for meta in new_registered:
                     if not meta.source_path:
                         meta.source_path = str(resolved_file)
                         meta.builtin = is_builtin_plugin_path(resolved_file)
 
-                    if (not meta.version or meta.version == "1.0.0") and mod_version and isinstance(mod_version, str):
-                        meta.version = mod_version.strip()
-                    if (not meta.updated_at) and mod_updated_at and isinstance(mod_updated_at, str):
-                        meta.updated_at = mod_updated_at.strip()
-                    if (not meta.author) and mod_author and isinstance(mod_author, str):
-                        meta.author = mod_author.strip()
+                    if (not meta.version or meta.version == "1.0.0"):
+                        if mod_version and isinstance(mod_version, str):
+                            meta.version = mod_version.strip()
+                        elif pjson_data.get("version"):
+                            meta.version = str(pjson_data["version"]).strip()
+
+                    if not meta.updated_at:
+                        if mod_updated_at and isinstance(mod_updated_at, str):
+                            meta.updated_at = mod_updated_at.strip()
+                        elif pjson_data.get("updated_at"):
+                            meta.updated_at = str(pjson_data["updated_at"]).strip()
+
+                    if not meta.author:
+                        if mod_author and isinstance(mod_author, str):
+                            meta.author = mod_author.strip()
+                        elif pjson_data.get("author"):
+                            meta.author = str(pjson_data["author"]).strip()
+
+                    if not meta.category:
+                        meta.category = mod_category or pjson_data.get("category") or None
+
+                    if not meta.tags:
+                        raw_tags = mod_tags if mod_tags is not None else pjson_data.get("tags")
+                        if isinstance(raw_tags, (list, tuple)):
+                            meta.tags = [str(t).strip() for t in raw_tags if str(t).strip()]
+                        elif isinstance(raw_tags, str) and raw_tags.strip():
+                            meta.tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
+
+                    if not meta.icon:
+                        meta.icon = mod_icon or pjson_data.get("icon") or None
+
+                    if not meta.homepage:
+                        meta.homepage = mod_homepage or pjson_data.get("homepage") or None
+
+                    if (not meta.description or meta.description == f"自定义插件 {meta.name}") and pjson_data.get("description"):
+                        meta.description = str(pjson_data["description"]).strip()
+
+                    if not meta.permissions and pjson_data.get("permissions") and isinstance(pjson_data["permissions"], list):
+                        meta.permissions = list(pjson_data["permissions"])
 
                     # 若 updated_at 仍为空，则回退为文件 mtime
                     if not meta.updated_at and meta.source_path and os.path.isfile(meta.source_path):
@@ -856,29 +1103,43 @@ class _SecurityVisitor(ast.NodeVisitor):
             self.generic_visit(node)
             return
 
-        if func_name in ("eval", "exec", "compile", "__import__"):
+        if func_name in (
+            "eval", "exec", "compile", "__import__",
+            "builtins.eval", "builtins.exec", "builtins.compile",
+            "builtins.__import__", "importlib.import_module",
+            "pickle.loads", "pickle.load", "_pickle.loads", "_pickle.load",
+            "marshal.loads", "marshal.load", "shelve.open",
+        ):
             self.warnings.append({
                 "line": node.lineno,
                 "column": node.col_offset,
                 "severity": "high",
                 "rule": f"disallowed-call:{func_name}",
-                "message": f"检测到使用动态执行函数 '{func_name}'",
+                "message": f"检测到使用动态执行、隐式导入或危险反序列化函数 '{func_name}'",
             })
-        elif func_name in ("os.system", "os.popen", "os.kill", "shutil.rmtree"):
+        elif func_name in (
+            "os.system", "os.popen", "os.kill", "os.killpg", "shutil.rmtree",
+            "shutil.move", "os.unlink", "os.remove", "os.rmdir", "pty.spawn",
+            "os.execv", "os.execve", "os.execvp", "os.spawnl", "os.spawnlp",
+            "os.spawnv", "os.spawnvp", "os.fork",
+        ):
             self.warnings.append({
                 "line": node.lineno,
                 "column": node.col_offset,
                 "severity": "high",
                 "rule": f"dangerous-system-call:{func_name}",
-                "message": f"检测到调用高危系统操作 '{func_name}'",
+                "message": f"检测到调用高危系统或破坏性文件操作 '{func_name}'",
             })
-        elif func_name in ("subprocess.Popen", "subprocess.run", "subprocess.call"):
+        elif func_name in (
+            "subprocess.Popen", "subprocess.run", "subprocess.call",
+            "subprocess.check_output", "subprocess.check_call",
+        ):
             self.warnings.append({
                 "line": node.lineno,
                 "column": node.col_offset,
                 "severity": "medium",
                 "rule": f"process-execution:{func_name}",
-                "message": f"检测到调用外部进程执行 '{func_name}'",
+                "message": f"检测到调用外部进程或跨路径移动 '{func_name}'",
             })
 
         self.generic_visit(node)

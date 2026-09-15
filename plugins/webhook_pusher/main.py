@@ -16,6 +16,9 @@ from tg_signer.utils import validate_public_http_url
 VERSION = "1.0.0"
 UPDATED_AT = "2026-09-11"
 AUTHOR = "TG-SignPulse Team"
+CATEGORY = "notification"
+TAGS = ["webhook", "http", "alert"]
+ICON = "send"
 
 PARAMS_SCHEMA: List[Dict[str, Any]] = [
     {

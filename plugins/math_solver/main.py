@@ -11,6 +11,9 @@ from tg_signer.core.plugins import PluginContext, PluginRegistry
 VERSION = "1.0.0"
 UPDATED_AT = "2026-09-11"
 AUTHOR = "TG-SignPulse Team"
+CATEGORY = "utility"
+TAGS = ["math", "captcha", "calculator"]
+ICON = "calculator"
 
 _MATH_PATTERN = re.compile(r"(?<![\d\-])(\d+)\s*([\+\-\*\/\×\÷])\s*(\d+)(?![\d\-])")
 

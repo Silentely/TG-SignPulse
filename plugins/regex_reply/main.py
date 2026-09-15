@@ -13,6 +13,9 @@ from tg_signer.core.plugins import PluginContext, PluginRegistry
 VERSION = "1.0.0"
 UPDATED_AT = "2026-09-11"
 AUTHOR = "TG-SignPulse Team"
+CATEGORY = "message"
+TAGS = ["regex", "auto-reply", "matcher"]
+ICON = "code"
 
 _REGEX_TIMEOUT_SECONDS = 0.2
 _MAX_PATTERN_LENGTH = 512

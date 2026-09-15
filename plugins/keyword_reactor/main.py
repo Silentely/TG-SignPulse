@@ -11,6 +11,9 @@ from tg_signer.core.plugins import PluginContext, PluginRegistry
 VERSION = "1.0.0"
 UPDATED_AT = "2026-09-11"
 AUTHOR = "TG-SignPulse Team"
+CATEGORY = "message"
+TAGS = ["reaction", "emoji", "keyword"]
+ICON = "smile"
 
 PARAMS_SCHEMA: List[Dict[str, Any]] = [
     {

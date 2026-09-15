@@ -229,6 +229,12 @@ class PluginProcessHost:
                                 call_res = await self.ctx.storage.delete(key)
                             elif method == "storage_clear":
                                 call_res = await self.ctx.storage.clear()
+                            elif method == "storage_keys":
+                                prefix = call_params.get("prefix", "")
+                                call_res = await self.ctx.storage.keys(prefix=prefix)
+                            elif method == "storage_get_all":
+                                prefix = call_params.get("prefix", "")
+                                call_res = await self.ctx.storage.get_all(prefix=prefix)
                             else:
                                 raise ValueError(f"Unknown RPC method: {method}")
 
