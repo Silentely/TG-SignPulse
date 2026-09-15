@@ -11,6 +11,9 @@ from tg_signer.core.plugins import PluginContext, PluginRegistry
 VERSION = "1.0.0"
 UPDATED_AT = "2026-09-11"
 AUTHOR = "TG-SignPulse Team"
+CATEGORY = "helper"
+TAGS = ["checkin", "stats", "button-click"]
+ICON = "check-circle"
 
 PARAMS_SCHEMA: List[Dict[str, Any]] = [
     {

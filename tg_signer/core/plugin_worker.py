@@ -9,7 +9,7 @@ import os
 import sys
 import traceback
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 from tg_signer.core.plugin_ipc import (
     ProxyMessage,
@@ -85,6 +85,14 @@ class ProxyStorageClient:
 
     async def clear(self) -> int:
         return await self._rpc("storage_clear")
+
+    async def keys(self, prefix: str = "") -> List[str]:
+        res = await self._rpc("storage_keys", prefix=prefix)
+        return list(res or [])
+
+    async def get_all(self, prefix: str = "") -> Dict[str, Any]:
+        res = await self._rpc("storage_get_all", prefix=prefix)
+        return dict(res or {})
 
 
 class ProxyPluginContext:
