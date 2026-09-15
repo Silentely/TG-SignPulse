@@ -16,7 +16,7 @@ import os
 import re
 import sys
 import zipfile
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -25,9 +25,8 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 try:
-    from tg_signer.core.plugins import _SecurityVisitor
+    from tg_signer.core.plugins import audit_plugin_source
 except ImportError:
-    # Fallback minimal visitor if invoked outside project root
     class _SecurityVisitor(ast.NodeVisitor):  # type: ignore
         def __init__(self) -> None:
             self.warnings: List[Dict[str, Any]] = []
@@ -47,6 +46,12 @@ except ImportError:
                     "message": f"禁止调用动态执行函数: {func_name}()",
                 })
             self.generic_visit(node)
+
+    def audit_plugin_source(source: str) -> List[Dict[str, Any]]:
+        tree = ast.parse(source)
+        v = _SecurityVisitor()
+        v.visit(tree)
+        return v.warnings
 
 
 PLUGIN_ID_REGEX = re.compile(r"^[a-z0-9_]{3,32}$")
@@ -111,18 +116,16 @@ def validate_plugin(plugin_dir: Path) -> Tuple[bool, List[str], Dict[str, Any]]:
         rel_name = py_file.relative_to(plugin_dir).as_posix()
         try:
             code_text = py_file.read_text(encoding="utf-8")
-            tree = ast.parse(code_text, filename=str(py_file))
-            visitor = _SecurityVisitor()
-            visitor.visit(tree)
+            warnings = audit_plugin_source(code_text)
             forbidden = [
-                w for w in visitor.warnings
+                w for w in warnings
                 if w.get("severity") in ("high", "critical")
                 or "subprocess" in str(w.get("message", "")).lower()
                 or "os.system" in str(w.get("message", "")).lower()
             ]
             if forbidden:
                 for w in forbidden:
-                    errors.append(f"{rel_name} 触发安全审计规则 (第 {w['line']} 行): {w['message']}")
+                    errors.append(f"{rel_name} 触发安全审计规则 (第 {w.get('line', 1)} 行): {w.get('message', '')}")
         except UnicodeDecodeError:
             errors.append(f"{rel_name} 编码错误，必须使用 UTF-8 编码")
         except SyntaxError as exc:
@@ -281,7 +284,7 @@ def main() -> int:
                     "sha256": checksum,
                     "size": size,
                     "readme": readme_text,
-                    "updated_at": datetime.utcnow().strftime("%Y-%m-%d"),
+                    "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
                 }
                 catalog_items.append(item)
 
@@ -296,7 +299,7 @@ def main() -> int:
     # Write marketplace.json
     catalog: Dict[str, Any] = {
         "version": "1.0",
-        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "total_plugins": len(catalog_items),
         "plugins": catalog_items,
     }
