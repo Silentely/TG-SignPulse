@@ -38,8 +38,39 @@ export interface PluginInfo {
   builtin?: boolean
   permissions?: string[]
   doc?: string | null
+  category?: string | null
+  tags?: string[]
+  icon?: string | null
+  homepage?: string | null
   recent_results?: boolean[]
   metrics?: PluginMetrics | null
+}
+
+export interface PluginStorageRecord {
+  key: string
+  value: unknown
+  expires_at?: number | null
+  ttl_remaining?: number | null
+}
+
+export interface PluginStorageNamespaceData {
+  namespace: string
+  is_test: boolean
+  chat_id?: string | null
+  records: PluginStorageRecord[]
+}
+
+export interface PluginStorageResponse {
+  plugin_name: string
+  total_records: number
+  namespaces: PluginStorageNamespaceData[]
+}
+
+export interface ClearPluginStorageResponse {
+  success: boolean
+  plugin_name: string
+  deleted_count: number
+  message: string
 }
 
 export interface PluginSourceResponse {
@@ -225,8 +256,21 @@ export interface PluginTestResponse {
   error?: string | null
 }
 
-export async function getPlugins(token: string): Promise<PluginInfo[]> {
-  return request<PluginInfo[]>('/plugins', {}, token)
+export interface PluginFilterParams {
+  mode?: 'reactive' | 'active'
+  category?: string
+  enabled?: boolean
+  search?: string
+}
+
+export async function getPlugins(token: string, filters?: PluginFilterParams): Promise<PluginInfo[]> {
+  const query = new URLSearchParams()
+  if (filters?.mode) query.set('mode', filters.mode)
+  if (filters?.category) query.set('category', filters.category)
+  if (filters?.enabled !== undefined) query.set('enabled', String(filters.enabled))
+  if (filters?.search) query.set('search', filters.search)
+  const qs = query.toString()
+  return request<PluginInfo[]>(qs ? `/plugins?${qs}` : '/plugins', {}, token)
 }
 
 export async function reloadPlugins(
@@ -535,4 +579,33 @@ export async function uninstallMarketPlugin(
   return request<{ success: boolean; message: string }>(`/plugins/market/${encodeURIComponent(pluginId)}/uninstall`, {
     method: 'DELETE',
   }, token)
+}
+
+export async function getPluginStorage(
+  name: string,
+  token: string,
+): Promise<PluginStorageResponse> {
+  return request<PluginStorageResponse>(
+    `/plugins/${encodeURIComponent(name)}/storage`,
+    {},
+    token,
+  )
+}
+
+export async function clearPluginStorage(
+  name: string,
+  token: string,
+  options?: { namespace?: string; key?: string },
+): Promise<ClearPluginStorageResponse> {
+  const params = new URLSearchParams()
+  if (options?.namespace) params.set("namespace", options.namespace)
+  if (options?.key) params.set("key", options.key)
+  const qs = params.toString() ? `?${params.toString()}` : ""
+  return request<ClearPluginStorageResponse>(
+    `/plugins/${encodeURIComponent(name)}/storage${qs}`,
+    {
+      method: "DELETE",
+    },
+    token,
+  )
 }

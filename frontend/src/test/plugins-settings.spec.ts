@@ -1184,4 +1184,119 @@ describe('PluginsSettings.vue 插件管理组件', () => {
     expect(rowContainer).not.toBeNull()
     expect(rowContainer?.contains(sortSelect.element)).toBe(true)
   })
+
+  it('展示插件分类与标签，并支持按分类过滤', async () => {
+    const mockPlugins = [
+      {
+        name: 'math_calc',
+        mode: 'reactive' as const,
+        description: '数学工具',
+        category: 'utility',
+        tags: ['math', 'calculator'],
+        homepage: 'https://example.com/math',
+        enabled: true,
+      },
+      {
+        name: 'telegram_notify',
+        mode: 'active' as const,
+        description: '推送通知',
+        category: 'notification',
+        tags: ['alert', 'webhook'],
+        enabled: true,
+      },
+    ]
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValue(mockPlugins as any)
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('math_calc')
+      expect(wrapper.text()).toContain('telegram_notify')
+      expect(wrapper.text()).toContain('#math')
+      expect(wrapper.text()).toContain('#alert')
+      expect(wrapper.text()).toContain('主页链接')
+    })
+
+    // 点击通知推送分类按钮
+    const notifyTab = wrapper.findAll('button').find((b) => b.text().includes('通知推送'))
+    expect(notifyTab).toBeDefined()
+    await notifyTab!.trigger('click')
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).not.toContain('math_calc')
+      expect(wrapper.text()).toContain('telegram_notify')
+    })
+  })
+
+  it('点击数据存储按钮打开持久化存储管理弹窗并支持删除单键', async () => {
+    const mockPlugins = [
+      {
+        name: 'store_demo_plugin',
+        mode: 'reactive' as const,
+        description: '持久化插件',
+        enabled: true,
+      },
+    ]
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValue(mockPlugins as any)
+    const storageResp = {
+      plugin_name: 'store_demo_plugin',
+      total_records: 1,
+      namespaces: [
+        {
+          namespace: '12345:store_demo_plugin',
+          is_test: false,
+          records: [
+            {
+              key: 'user_count',
+              value: 42,
+              expires_at: null,
+              ttl_remaining: null,
+            },
+          ],
+        },
+      ],
+    }
+    const getStorageSpy = vi.spyOn(pluginsApi, 'getPluginStorage').mockResolvedValue(storageResp)
+    const clearStorageSpy = vi.spyOn(pluginsApi, 'clearPluginStorage').mockResolvedValue({
+      success: true,
+      message: 'deleted',
+      deleted_keys: 1,
+    })
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('store_demo_plugin')
+    })
+
+    const storeBtn = wrapper.findAll('button').find((b) => b.attributes('title')?.includes('数据存储') || b.text().includes('数据存储'))
+    expect(storeBtn).toBeDefined()
+    await storeBtn!.trigger('click')
+
+    await vi.waitFor(() => {
+      expect(getStorageSpy).toHaveBeenCalledWith('store_demo_plugin', 'mock-token')
+      expect(document.body.textContent).toContain('user_count')
+      expect(document.body.textContent).toContain('42')
+      expect(document.body.textContent).toContain('永久有效')
+    })
+
+    // 点击删除该键
+    const delKeyBtn = Array.from(document.body.querySelectorAll('button')).find((b) => b.getAttribute('title')?.includes('删除该键'))
+    expect(delKeyBtn).toBeDefined()
+    delKeyBtn!.click()
+
+    const { accept } = useConfirm()
+    accept()
+
+    await vi.waitFor(() => {
+      expect(clearStorageSpy).toHaveBeenCalledWith('store_demo_plugin', 'mock-token', {
+        namespace: '12345:store_demo_plugin',
+        key: 'user_count',
+      })
+    })
+  })
 })

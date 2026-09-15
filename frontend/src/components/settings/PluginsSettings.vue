@@ -49,6 +49,7 @@ import {
   Store,
   Globe,
   ExternalLink,
+  Database,
 } from 'lucide-vue-next'
 import Modal from '../Modal.vue'
 import {
@@ -92,6 +93,11 @@ import {
   uninstallMarketPlugin,
   type MarketPluginItem,
   type MarketSourceConfig,
+  getPluginStorage,
+  clearPluginStorage,
+  type PluginStorageResponse,
+  type PluginStorageNamespaceData,
+  type PluginStorageRecord,
 } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
@@ -173,6 +179,155 @@ const loadingHistory = ref(false)
 const clearingHistory = ref(false)
 
 let historyRequestSeq = 0
+
+// 分类筛选
+const filterCategory = ref<string>('all')
+
+const availableCategories = computed(() => {
+  const counts: Record<string, number> = {
+    all: plugins.value.length,
+    utility: 0,
+    message: 0,
+    notification: 0,
+    helper: 0,
+    entertainment: 0,
+    other: 0,
+  }
+  for (const p of plugins.value) {
+    const cat = (p.category || 'utility').toLowerCase()
+    if (cat in counts) {
+      counts[cat]++
+    } else {
+      counts.other++
+    }
+  }
+  return [
+    { key: 'all', label: t('settings.pluginsCategoryAll'), count: counts.all },
+    { key: 'utility', label: t('settings.pluginsCategoryUtility'), count: counts.utility },
+    { key: 'message', label: t('settings.pluginsCategoryMessage'), count: counts.message },
+    { key: 'notification', label: t('settings.pluginsCategoryNotification'), count: counts.notification },
+    { key: 'helper', label: t('settings.pluginsCategoryHelper'), count: counts.helper },
+    { key: 'entertainment', label: t('settings.pluginsCategoryEntertainment'), count: counts.entertainment },
+    { key: 'other', label: t('settings.pluginsCategoryOther'), count: counts.other },
+  ]
+})
+
+// 持久化存储状态与操作
+const isStorageModalOpen = ref(false)
+const currentStoragePlugin = ref<PluginInfo | null>(null)
+const storageLoading = ref(false)
+const storageClearing = ref(false)
+const storageData = ref<PluginStorageResponse | null>(null)
+const selectedStorageNamespace = ref<string>('all')
+
+const openStorageModal = async (plugin: PluginInfo) => {
+  currentStoragePlugin.value = plugin
+  selectedStorageNamespace.value = 'all'
+  storageData.value = null
+  isStorageModalOpen.value = true
+  await refreshPluginStorage()
+}
+
+const refreshPluginStorage = async () => {
+  if (!currentStoragePlugin.value) return
+  storageLoading.value = true
+  try {
+    const res = await withToken((token) => getPluginStorage(currentStoragePlugin.value!.name, token))
+    if (res) {
+      storageData.value = res
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    toast.error(msg)
+  } finally {
+    storageLoading.value = false
+  }
+}
+
+const handleDeleteStorageKey = async (ns: string, key: string) => {
+  if (!currentStoragePlugin.value) return
+  const confirmed = await confirm({
+    title: t('settings.pluginsStorageDeleteKey'),
+    message: t('settings.pluginsStorageDeleteKeyConfirm', { key }),
+    confirmText: t('common.delete'),
+    cancelText: t('common.cancel'),
+    danger: true,
+  })
+  if (!confirmed) return
+
+  try {
+    await withToken((token) => clearPluginStorage(currentStoragePlugin.value!.name, token, { namespace: ns, key }))
+    toast.success(t('settings.pluginsStorageDeleteKeySuccess'))
+    await refreshPluginStorage()
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    toast.error(msg)
+  }
+}
+
+const handleClearAllStorage = async () => {
+  if (!currentStoragePlugin.value) return
+  const confirmed = await confirm({
+    title: t('settings.pluginsStorageClearAll'),
+    message: t('settings.pluginsStorageClearConfirm', { name: currentStoragePlugin.value.name }),
+    confirmText: t('common.delete'),
+    cancelText: t('common.cancel'),
+    danger: true,
+  })
+  if (!confirmed) return
+
+  storageClearing.value = true
+  try {
+    const res = await withToken((token) => clearPluginStorage(currentStoragePlugin.value!.name, token))
+    if (res?.success) {
+      toast.success(t('settings.pluginsStorageClearSuccess'))
+      await refreshPluginStorage()
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    toast.error(msg)
+  } finally {
+    storageClearing.value = false
+  }
+}
+
+const visibleStorageRecords = computed(() => {
+  if (!storageData.value) return []
+  const results: Array<{ namespace: string; is_test: boolean; record: PluginStorageRecord }> = []
+  for (const ns of storageData.value.namespaces) {
+    if (selectedStorageNamespace.value !== 'all' && ns.namespace !== selectedStorageNamespace.value) {
+      continue
+    }
+    for (const r of ns.records) {
+      results.push({
+        namespace: ns.namespace,
+        is_test: ns.is_test,
+        record: r,
+      })
+    }
+  }
+  return results
+})
+
+const isValidHttpUrl = (url?: string | null): boolean => {
+  if (!url) return false
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+const copyStorageValue = async (val: unknown) => {
+  try {
+    const valText = typeof val === 'object' ? JSON.stringify(val, null, 2) : String(val)
+    await navigator.clipboard.writeText(valText)
+    toast.success(t('common.copied'))
+  } catch {
+    toast.error(t('common.copyFailed'))
+  }
+}
 
 const openHistoryModal = async (plugin: PluginInfo) => {
   const seq = ++historyRequestSeq
@@ -449,10 +604,22 @@ const filteredPlugins = computed(() => {
       const matchName = p.name.toLowerCase().includes(q)
       const matchDesc = (p.description || '').toLowerCase().includes(q)
       const matchAuthor = (p.author || '').toLowerCase().includes(q)
-      if (!matchName && !matchDesc && !matchAuthor) return false
+      const matchCategory = (p.category || '').toLowerCase().includes(q)
+      const matchTags = (p.tags || []).some((tag) => tag.toLowerCase().includes(q))
+      if (!matchName && !matchDesc && !matchAuthor && !matchCategory && !matchTags) return false
     }
     if (filterMode.value !== 'all' && p.mode !== filterMode.value) {
       return false
+    }
+    if (filterCategory.value !== 'all') {
+      const cat = (p.category || 'utility').toLowerCase()
+      if (filterCategory.value === 'other') {
+        if (['utility', 'message', 'notification', 'helper', 'entertainment'].includes(cat)) {
+          return false
+        }
+      } else if (cat !== filterCategory.value) {
+        return false
+      }
     }
     if (filterType.value === 'builtin' && !p.builtin) return false
     if (filterType.value === 'custom' && p.builtin) return false
@@ -1598,6 +1765,25 @@ onMounted(() => {
           </button>
         </div>
       </div>
+
+      <!-- 第三行：分类筛选 -->
+      <div class="flex items-center gap-1.5 flex-wrap pt-1">
+        <button
+          v-for="cat in availableCategories"
+          :key="cat.key"
+          type="button"
+          class="px-2.5 py-0.5 rounded-full text-[11px] font-medium transition-all"
+          :class="filterCategory === cat.key
+            ? 'bg-indigo-600 text-white shadow-xs font-semibold'
+            : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'"
+          @click="filterCategory = cat.key"
+        >
+          <span>{{ cat.label }}</span>
+          <span v-if="cat.count !== undefined" class="ml-1 opacity-80 font-mono text-[10px]">
+            {{ cat.count }}
+          </span>
+        </button>
+      </div>
     </div>
 
     <!-- 插件清单 -->
@@ -1682,6 +1868,30 @@ onMounted(() => {
             >
               {{ t('settings.pluginsPermissions') }}: {{ plugin.permissions.join(', ') }}
             </span>
+            <span
+              v-if="plugin.category"
+              class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/50"
+            >
+              {{ plugin.category }}
+            </span>
+            <span
+              v-for="tag in (plugin.tags || [])"
+              :key="tag"
+              class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400"
+            >
+              #{{ tag }}
+            </span>
+            <a
+              v-if="isValidHttpUrl(plugin.homepage)"
+              :href="plugin.homepage"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="text-[10px] text-indigo-600 dark:text-indigo-400 inline-flex items-center gap-0.5 hover:underline"
+              :title="plugin.homepage"
+            >
+              <Globe class="w-3 h-3" />
+              <span>{{ t('settings.pluginsHomepage') }}</span>
+            </a>
           </div>
           <p class="text-gray-600 dark:text-gray-300 text-[11px] leading-relaxed">
             {{ plugin.description || t('settings.pluginsNoDesc') }}
@@ -1784,6 +1994,17 @@ onMounted(() => {
           >
             <Play class="w-3 h-3 fill-current" />
             {{ t('settings.pluginsPlaygroundBtn') }}
+          </button>
+
+          <!-- 数据存储 -->
+          <button
+            type="button"
+            class="ui-btn-secondary !py-1 !px-2.5 !text-xs inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 bg-emerald-50/50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 font-medium"
+            :title="t('settings.pluginsStorageBtn')"
+            @click="openStorageModal(plugin)"
+          >
+            <Database class="w-3 h-3" />
+            {{ t('settings.pluginsStorageBtn') }}
           </button>
 
           <!-- 查看源码 -->
@@ -3081,5 +3302,145 @@ AUTHOR = "YourName"
         </div>
       </template>
     </Modal>
+      <!-- 插件持久化存储管理弹窗 -->
+    <Modal
+      :is-open="isStorageModalOpen"
+      :title="t('settings.pluginsStorageTitle', { name: currentStoragePlugin?.name || '' })"
+      max-width-class="max-w-3xl"
+      @close="isStorageModalOpen = false"
+    >
+      <div class="space-y-3.5 text-xs max-h-[70vh] overflow-y-auto pr-1">
+        <!-- 头部统计与操作 -->
+        <div class="flex items-center justify-between gap-2 pb-2.5 border-b border-gray-200/60 dark:border-gray-800/60 flex-wrap">
+          <div class="flex items-center gap-2 text-[11px] font-mono">
+            <span class="px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+              {{ t('settings.pluginsStorageTotalRecords', { count: storageData?.total_records ?? 0 }) }}
+            </span>
+            <span class="px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+              {{ t('settings.pluginsStorageTotalNamespaces', { count: storageData?.namespaces?.length ?? 0 }) }}
+            </span>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              class="ui-btn-secondary !py-1 !px-2.5 !text-[11px] inline-flex items-center gap-1"
+              :disabled="storageLoading"
+              @click="refreshPluginStorage"
+            >
+              <RefreshCw class="w-3 h-3" :class="{ 'animate-spin': storageLoading }" />
+              <span>{{ t('settings.pluginsReload') }}</span>
+            </button>
+            <button
+              type="button"
+              class="ui-btn-secondary !py-1 !px-2.5 !text-[11px] inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 hover:text-rose-700 border-rose-200 dark:border-rose-900/60"
+              :disabled="storageClearing || !(storageData?.total_records)"
+              @click="handleClearAllStorage"
+            >
+              <Trash2 class="w-3 h-3" />
+              <span>{{ storageClearing ? t('common.loading') : t('settings.pluginsStorageClearAll') }}</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 命名空间标签筛选 -->
+        <div v-if="(storageData?.namespaces?.length ?? 0) > 1" class="flex items-center gap-1.5 flex-wrap">
+          <button
+            type="button"
+            class="px-2 py-0.5 rounded text-[11px] font-mono transition-colors"
+            :class="selectedStorageNamespace === 'all'
+              ? 'bg-indigo-600 text-white font-semibold'
+              : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200'"
+            @click="selectedStorageNamespace = 'all'"
+          >
+            {{ t('settings.pluginsStorageFilterAll') }}
+          </button>
+          <button
+            v-for="ns in storageData?.namespaces"
+            :key="ns.namespace"
+            type="button"
+            class="px-2 py-0.5 rounded text-[11px] font-mono transition-colors inline-flex items-center gap-1"
+            :class="selectedStorageNamespace === ns.namespace
+              ? 'bg-indigo-600 text-white font-semibold'
+              : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200'"
+            @click="selectedStorageNamespace = ns.namespace"
+          >
+            <span class="truncate max-w-[160px]">{{ ns.namespace }}</span>
+            <span
+              class="text-[9px] px-1 py-0.2 rounded"
+              :class="ns.is_test ? 'bg-amber-200 dark:bg-amber-900 text-amber-800 dark:text-amber-200' : 'bg-emerald-200 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200'"
+            >
+              {{ ns.is_test ? t('settings.pluginsStorageIsTest') : t('settings.pluginsStorageIsProd') }}
+            </span>
+            <span class="opacity-75 text-[10px]">({{ ns.records.length }})</span>
+          </button>
+        </div>
+
+        <!-- 加载中 -->
+        <div v-if="storageLoading && !storageData" class="py-8 text-center text-gray-400 flex items-center justify-center gap-2">
+          <RefreshCw class="w-4 h-4 animate-spin text-indigo-500" />
+          <span>{{ t('common.loading') }}</span>
+        </div>
+
+        <!-- 空状态 -->
+        <div v-else-if="!visibleStorageRecords.length" class="py-10 text-center text-gray-400 space-y-2">
+          <Database class="w-8 h-8 mx-auto text-gray-300 dark:text-gray-600" />
+          <p>{{ t('settings.pluginsStorageEmpty') }}</p>
+        </div>
+
+        <!-- 记录列表 -->
+        <div v-else class="space-y-2">
+          <div
+            v-for="(item, idx) in visibleStorageRecords"
+            :key="idx"
+            class="p-2.5 rounded border border-gray-200/80 dark:border-gray-800/80 bg-white/70 dark:bg-black/20 space-y-1.5"
+          >
+            <div class="flex items-center justify-between gap-2 flex-wrap text-[11px]">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="font-mono font-bold text-gray-900 dark:text-gray-100">{{ item.record.key }}</span>
+                <span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-gray-100 dark:bg-gray-800 text-gray-500">
+                  {{ item.namespace }}
+                </span>
+                <span
+                  v-if="item.is_test"
+                  class="text-[9px] px-1 py-0.2 rounded bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 font-medium"
+                >
+                  {{ t('settings.pluginsStorageIsTest') }}
+                </span>
+              </div>
+
+              <div class="flex items-center gap-2">
+                <span
+                  class="text-[10px] font-mono px-1.5 py-0.2 rounded"
+                  :class="item.record.expires_at ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/40' : 'bg-gray-50 dark:bg-gray-800/50 text-gray-400'"
+                >
+                  {{ item.record.expires_at ? `TTL: ${Math.round(item.record.ttl_remaining ?? 0)}s` : t('settings.pluginsStoragePermanent') }}
+                </span>
+                <button
+                  type="button"
+                  class="text-gray-400 hover:text-sky-500 transition-colors p-0.5"
+                  :title="t('common.copy')"
+                  @click="copyStorageValue(item.record.value)"
+                >
+                  <Copy class="w-3 h-3" />
+                </button>
+                <button
+                  type="button"
+                  class="text-gray-400 hover:text-rose-500 transition-colors p-0.5"
+                  :title="t('settings.pluginsStorageDeleteKey')"
+                  @click="handleDeleteStorageKey(item.namespace, item.record.key)"
+                >
+                  <Trash2 class="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+
+            <!-- 值渲染 -->
+            <pre class="p-2 rounded bg-gray-950 text-gray-200 font-mono text-[11px] overflow-x-auto max-h-32 custom-scrollbar select-text">{{ typeof item.record.value === 'object' ? JSON.stringify(item.record.value, null, 2) : item.record.value }}</pre>
+          </div>
+        </div>
+      </div>
+    </Modal>
+
   </section>
 </template>
