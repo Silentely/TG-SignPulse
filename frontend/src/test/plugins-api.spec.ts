@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import * as coreApi from '../lib/api/core'
 import {
+  getPlugins,
   getPluginSource,
   deletePlugin,
   createPlugin,
@@ -29,7 +30,9 @@ import {
   installMarketPlugin,
   updateMarketPlugin,
   uninstallMarketPlugin,
-} from '../lib/api/plugins'
+  getPluginStorage,
+  clearPluginStorage,
+} from '../lib/api/plugins' 
 
 describe('plugins api 扩展接口', () => {
   beforeEach(() => {
@@ -453,5 +456,52 @@ describe('plugins api 扩展接口', () => {
     const res = await getMarketPluginReadme('dice_roller', 'test-token')
     expect(requestSpy).toHaveBeenCalledWith('/plugins/market/dice_roller/readme', {}, 'test-token')
     expect(res).toEqual(mockResp)
+  })
+
+  it('getPluginStorage 发起 GET /plugins/:name/storage 请求', async () => {
+    const mockResp = {
+      plugin_name: 'test_store',
+      total_records: 2,
+      namespaces: [
+        {
+          namespace: 'chat1:test_store',
+          is_test: false,
+          records: [
+            { key: 'count', value: 10, expires_at: null, ttl_remaining: null },
+          ],
+        },
+      ],
+    }
+    const requestSpy = vi.spyOn(coreApi, 'request').mockResolvedValueOnce(mockResp)
+    const res = await getPluginStorage('test_store', 'test-token')
+    expect(requestSpy).toHaveBeenCalledWith('/plugins/test_store/storage', {}, 'test-token')
+    expect(res).toEqual(mockResp)
+  })
+
+  it('clearPluginStorage 发起 DELETE /plugins/:name/storage 请求并支持 namespace 和 key 查询参数', async () => {
+    const mockResp = { success: true, message: 'cleared', deleted_keys: 1 }
+    const requestSpy = vi.spyOn(coreApi, 'request').mockResolvedValueOnce(mockResp)
+    const res = await clearPluginStorage('test_store', 'test-token', { namespace: 'ns1', key: 'k1' })
+    expect(requestSpy).toHaveBeenCalledWith(
+      '/plugins/test_store/storage?namespace=ns1&key=k1',
+      { method: 'DELETE' },
+      'test-token',
+    )
+    expect(res).toEqual(mockResp)
+  })
+
+  it('getPlugins 支持无筛选参数与携带筛选参数发起 GET 请求', async () => {
+    const mockPlugins = [{ name: 'math_solver', mode: 'reactive' }]
+    const requestSpy = vi.spyOn(coreApi, 'request').mockResolvedValue(mockPlugins)
+
+    // Without filters
+    const res1 = await getPlugins('test-token')
+    expect(requestSpy).toHaveBeenCalledWith('/plugins', {}, 'test-token')
+    expect(res1).toEqual(mockPlugins)
+
+    // With filters
+    const res2 = await getPlugins('test-token', { mode: 'reactive', category: 'utility', enabled: true, search: 'calc' })
+    expect(requestSpy).toHaveBeenCalledWith('/plugins?mode=reactive&category=utility&enabled=true&search=calc', {}, 'test-token')
+    expect(res2).toEqual(mockPlugins)
   })
 })
