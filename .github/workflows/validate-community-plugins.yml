@@ -19,6 +19,12 @@ jobs:
     name: Validate Plugins & Build Market Catalog
     runs-on: ubuntu-latest
     steps:
+      - name: Enforce dev Base Branch for PRs
+        if: github.event_name == 'pull_request' && github.base_ref == 'main'
+        run: |
+          echo "::error::社区插件 PR 必须提交至 dev 分支，禁止直接合并至 main 分支！请将目标分支修改为 dev。"
+          exit 1
+
       - name: Checkout Repository
         uses: actions/checkout@v4
 
