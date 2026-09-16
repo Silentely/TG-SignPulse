@@ -856,3 +856,294 @@ def   calc(  a,b  ):
     bad_code = "def calc(:"
     resp_bad = client.post("/api/plugins/format-source", json={"source": bad_code})
     assert resp_bad.status_code == 400
+
+
+def test_create_plugin_with_new_templates():
+    templates_to_test = [
+        ("plug_http", "active", "http_api_fetcher"),
+        ("plug_cmd", "reactive", "command_router"),
+        ("plug_kw", "reactive", "keyword_reply"),
+    ]
+
+    for name, mode, tpl in templates_to_test:
+        payload = {
+            "name": name,
+            "mode": mode,
+            "template": tpl,
+            "description": f"Test {tpl}",
+            "author": "Tester",
+            "version": "1.0.0",
+        }
+        resp = client.post("/api/plugins/create", json=payload)
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["name"] == name
+        assert data["mode"] == mode
+
+        # Check source code generated
+        src_resp = client.get(f"/api/plugins/{name}/source")
+        assert src_resp.status_code == 200
+        src = src_resp.json()["source"]
+        assert f"{name}_handler" in src
+
+        # Clean up
+        del_resp = client.delete(f"/api/plugins/{name}")
+        assert del_resp.status_code == 200
+
+
+def test_plugin_context_advanced_features():
+    from tg_signer.core.plugins import PluginContext, PluginStorageClient
+
+    class FakeApp:
+        async def edit_message_text(self, chat_id, message_id, text, **kwargs):
+            return {"chat_id": chat_id, "message_id": message_id, "text": text}
+
+        async def delete_messages(self, chat_id, message_ids, **kwargs):
+            return True
+
+    class FakeMessage:
+        id = 12345
+
+    ctx = PluginContext(
+        app=FakeApp(),
+        chat_id=999,
+        message=FakeMessage(),
+        params={"limit": "50", "flag": "true", "ratio": "3.14"},
+        plugin_name="adv_demo",
+    )
+
+    # 1. get_param with typing
+    assert ctx.get_param("limit", 10, int) == 50
+    assert ctx.get_param("flag", False, bool) is True
+    assert ctx.get_param("ratio", 1.0, float) == 3.14
+    assert ctx.get_param("nonexistent", "fallback") == "fallback"
+
+    # 2. global_storage
+    assert ctx.global_storage.namespace == "global:adv_demo"
+
+    # 3. edit & delete message
+    import asyncio
+    res_edit = asyncio.run(ctx.edit_message("updated info"))
+    assert res_edit["text"] == "updated info"
+    assert asyncio.run(ctx.delete_message()) is True
+
+
+def test_test_plugin_param_validation_and_traceback():
+    # 1. Create a plugin with PARAMS_SCHEMA and intentional failure
+    from tg_signer.core.plugins import PluginRegistry, PluginContext
+
+    @PluginRegistry.register(
+        name="schema_tb_plug",
+        params_schema=[
+            {"name": "api_key", "label": "API Key", "required": True},
+            {"name": "max_retries", "label": "重试次数", "type": "integer", "default": 3},
+        ],
+    )
+    async def handler(ctx: PluginContext):
+        val = ctx.params.get("trigger_fail")
+        if val:
+            raise ZeroDivisionError("意料之中的除零异常")
+        return True
+
+    # 2. Test missing required param
+    resp = client.post(
+        "/api/plugins/schema_tb_plug/test",
+        json={"params": {"trigger_fail": False}},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is True
+    assert any("必填参数" in w for w in data.get("param_warnings", []))
+
+    # 3. Test exception traceback & error_line
+    resp_err = client.post(
+        "/api/plugins/schema_tb_plug/test",
+        json={"params": {"api_key": "secret", "trigger_fail": True}},
+    )
+    assert resp_err.status_code == 200
+    err_data = resp_err.json()
+    assert err_data["success"] is False
+    assert "ZeroDivisionError" in (err_data.get("traceback") or "")
+    assert err_data.get("error_line") is not None
+
+
+def test_detect_plugin_capabilities_and_audit():
+    source_code = """
+import urllib.request
+from tg_signer.core.plugins import PluginContext
+
+PERMISSIONS = ["network", "storage"]
+
+async def sample_handler(ctx: PluginContext):
+    await ctx.reply("hello")
+    await ctx.global_storage.set("token", "123")
+    await ctx.react("🔥")
+"""
+    resp = client.post("/api/plugins/audit-source", json={"source": source_code})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["passed"] is True
+    assert data["score"] == 100
+    assert data["risk_level"] == "safe"
+    assert data["can_save_safely"] is True
+    assert "network" in data.get("declared_permissions", [])
+    caps = data.get("detected_capabilities", [])
+    assert "network" in caps
+    assert "storage" in caps
+    assert "message_write" in caps
+    assert "reactions" in caps
+
+    # Test dangerous code audit rejection & pre-save gating
+    bad_source = """
+import os
+import ctypes
+def run():
+    os.system('whoami')
+    sub = ().__class__.__bases__[0].__subclasses__()
+"""
+    bad_resp = client.post("/api/plugins/audit-source", json={"source": bad_source})
+    assert bad_resp.status_code == 200
+    bad_data = bad_resp.json()
+    assert bad_data["passed"] is False
+    assert bad_data["can_save_safely"] is False
+    assert bad_data["risk_level"] == "critical"
+    assert any("os.system" in w["message"] for w in bad_data["warnings"])
+    assert any("sandbox-escape" in w["rule"] for w in bad_data["warnings"])
+
+
+def test_update_plugin_source_security_gate():
+    # 1. Create a dummy plugin
+    resp = client.post(
+        "/api/plugins/create",
+        json={
+            "name": "sec_gate_plug",
+            "mode": "reactive",
+            "template": "basic_reactive",
+            "description": "Security gate test",
+        },
+    )
+    assert resp.status_code == 200
+
+    # 2. Try to update with dangerous source (os.system) without force
+    dangerous_source = '''"""Dangerous plugin"""
+import os
+from tg_signer.core.plugins import PluginContext, PluginRegistry
+
+@PluginRegistry.register(name="sec_gate_plug")
+async def sec_gate_plug_handler(ctx: PluginContext) -> bool:
+    os.system("rm -rf /tmp/test")
+    return True
+'''
+    err_resp = client.put(
+        "/api/plugins/sec_gate_plug/source",
+        json={"source": dangerous_source, "force": False},
+    )
+    assert err_resp.status_code == 400
+    assert "安全审查未通过" in err_resp.json()["detail"]
+
+    # 3. Update with force=True
+    ok_resp = client.put(
+        "/api/plugins/sec_gate_plug/source",
+        json={"source": dangerous_source, "force": True},
+    )
+    assert ok_resp.status_code == 200
+
+    # Clean up
+    client.delete("/api/plugins/sec_gate_plug")
+
+
+def test_subprocess_alias_and_traceback_sanitization():
+    import os
+    from tg_signer.core.plugins import compute_plugin_security_report, PluginContext
+    from backend.api.routes.plugins import _sanitize_traceback
+
+    # 1. Alias and subprocess gating
+    code_sp = """
+import subprocess as sp
+sp.run(["ls"])
+"""
+    rep_sp = compute_plugin_security_report(code_sp)
+    assert rep_sp["can_save_safely"] is False
+    assert rep_sp["risk_level"] == "critical"
+
+    code_alias_os = """
+from os import system
+system("echo 1")
+"""
+    rep_os = compute_plugin_security_report(code_alias_os)
+    assert rep_os["can_save_safely"] is False
+    assert rep_os["risk_level"] == "critical"
+
+    # 2. Traceback sanitization
+    raw_tb = f"""Traceback (most recent call last):
+  File "{os.getcwd()}/data/plugins/my_plug.py", line 12, in handler
+    bot_token = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz1234567"
+ValueError: secret='my-very-secret-token'
+"""
+    sanitized = _sanitize_traceback(raw_tb)
+    assert os.getcwd() not in sanitized
+    assert "<project>" in sanitized
+    assert "123456789:ABCdefGHIjklMNOpqrsTUVwxyz1234567" not in sanitized
+    assert "<TOKEN_REDACTED>" in sanitized
+
+    # 3. get_param bool safety
+    ctx = PluginContext(app=None, chat_id=123, plugin_name="test_p", params={"enabled": "maybe", "active": "yes", "flag": "false"})
+    assert ctx.get_param("enabled", default=True, param_type=bool) is True
+    assert ctx.get_param("active", default=False, param_type=bool) is True
+    assert ctx.get_param("flag", default=True, param_type=bool) is False
+
+
+def test_star_import_security_and_bundle_gate():
+    import io
+    import zipfile
+    from tg_signer.core.plugins import compute_plugin_security_report, PluginRegistry
+    from backend.services.config import get_config_service
+
+    # 1. Star import detection
+    code_star = """
+from subprocess import *
+run(["whoami"])
+"""
+    rep_star = compute_plugin_security_report(code_star)
+    assert rep_star["can_save_safely"] is False
+    assert any("star-import" in w.get("rule", "") or "dangerous-bare-call" in w.get("rule", "") for w in rep_star["warnings"])
+
+    # 2. Dynamic reflection and dangerous assignment alias
+    code_reflect = """
+import os
+getattr(os, "system")("id")
+"""
+    rep_reflect = compute_plugin_security_report(code_reflect)
+    assert any("reflection-call" in w.get("rule", "") for w in rep_reflect["warnings"])
+
+    code_alias_assign = """
+import subprocess
+f = subprocess.run
+f(["ls"])
+"""
+    rep_alias_assign = compute_plugin_security_report(code_alias_assign)
+    assert any("dangerous-alias" in w.get("rule", "") for w in rep_alias_assign["warnings"])
+
+    # 3. Bundle import security gate skips unsafe plugin files
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("safe_plug_bundle.py", """from tg_signer.core.plugins import PluginRegistry, PluginContext
+@PluginRegistry.register(name="safe_plug_bundle")
+async def safe_plug_bundle_handler(ctx: PluginContext) -> bool:
+    return True
+""")
+        zf.writestr("evil_plug_bundle.py", """import os
+os.system("rm -rf /tmp/danger")
+""")
+
+    resp = client.post(
+        "/api/plugins/import-bundle",
+        files={"file": ("bundle_sec.zip", archive.getvalue(), "application/zip")},
+    )
+    assert resp.status_code == 200
+    res_data = resp.json()
+    assert "safe_plug_bundle" in res_data["files"]
+    assert any("未通过安全审查" in err for err in res_data["errors"])
+
+    # Clean up safe_plug_bundle
+    client.delete("/api/plugins/safe_plug_bundle")

@@ -13,6 +13,7 @@ import os
 import re
 import shutil
 import time
+import traceback
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -179,6 +180,7 @@ class PluginSourceResponse(BaseModel):
 
 class UpdatePluginSourceRequest(BaseModel):
     source: str = Field(..., description="更新后的 Python 插件源码")
+    force: bool = Field(default=False, description="是否强制保存存在高危审计警告的源码")
 
 
 class CreatePluginRequest(BaseModel):
@@ -190,6 +192,9 @@ class CreatePluginRequest(BaseModel):
         "storage_counter",
         "regex_extractor",
         "webhook_alert",
+        "http_api_fetcher",
+        "command_router",
+        "keyword_reply",
     ] = "basic_reactive"
     description: str = Field(default="", max_length=200)
     author: str = Field(default="", max_length=50)
@@ -231,7 +236,13 @@ class AuditPluginWarning(BaseModel):
 
 class AuditPluginResponse(BaseModel):
     passed: bool
+    score: int = 100
+    risk_level: str = "safe"
     warnings: List[AuditPluginWarning] = Field(default_factory=list)
+    detected_capabilities: List[str] = Field(default_factory=list)
+    declared_permissions: List[str] = Field(default_factory=list)
+    undeclared_capabilities: List[str] = Field(default_factory=list)
+    can_save_safely: bool = True
 
 
 class FormatPluginSourceRequest(BaseModel):
@@ -312,6 +323,9 @@ class PluginTestResponse(BaseModel):
     logs: List[str] = Field(default_factory=list)
     duration_ms: float = 0.0
     error: Optional[str] = None
+    traceback: Optional[str] = None
+    error_line: Optional[int] = None
+    param_warnings: List[str] = Field(default_factory=list)
 
 class MarketPluginItem(BaseModel):
     id: str
@@ -412,16 +426,55 @@ async def list_plugins(
     return infos
 
 
+
+def _reload_plugins_preserving_state() -> None:
+    """重新扫描加载插件并完整保留持久化的禁用状态。"""
+    disabled_set = _get_disabled_plugins()
+    PluginRegistry.reload_all_plugins()
+    for name in PluginRegistry.list_plugins():
+        PluginRegistry.set_disabled(name, disabled=name in disabled_set)
+
+
+def _enforce_plugin_security_check(source_code: str, file_label: str = "插件") -> None:
+    """统一插件安全审查拦截门禁。"""
+    from tg_signer.core.plugins import compute_plugin_security_report
+    try:
+        ast.parse(source_code)
+    except SyntaxError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{file_label} Python 语法错误: {exc.msg} (第 {exc.lineno} 行)",
+        )
+    sec_report = compute_plugin_security_report(source_code)
+    if not sec_report["can_save_safely"]:
+        critical_msgs = [w["message"] for w in sec_report["warnings"] if w.get("severity") in ("critical", "high")]
+        detail_msg = f"{file_label} 未通过安全审查（评分: {sec_report['score']}分，风险: {sec_report['risk_level']}）: {'; '.join(critical_msgs[:2])}"
+        raise HTTPException(
+            status_code=400,
+            detail=detail_msg,
+        )
+
+
+def _sanitize_traceback(tb_str: str) -> str:
+    """脱敏 traceback 中的物理工作区路径与敏感凭据。"""
+    if not tb_str:
+        return ""
+    base_dir = str(Path.cwd())
+    sanitized = tb_str.replace(base_dir, "<project>")
+    sanitized = re.sub(r"\b\d{8,10}:[A-Za-z0-9_-]{30,40}\b", "<TOKEN_REDACTED>", sanitized)
+    sanitized = re.sub(r"""(?i)(token|secret|password|api_key)=['"][^'"]+['"]""", r"\1='<REDACTED>'", sanitized)
+    if len(sanitized) > 4000:
+        sanitized = sanitized[:4000] + "\n... [Traceback truncated]"
+    return sanitized
+
 @router.post("/reload", response_model=ReloadPluginsResponse)
 async def reload_plugins(
     _user: User = Depends(get_current_user),
 ) -> ReloadPluginsResponse:
     """重新扫描并加载所有配置的插件目录。"""
-    PluginRegistry.reload_all_plugins()
+    _reload_plugins_preserving_state()
     plugins = PluginRegistry.list_plugins()
     disabled_set = _get_disabled_plugins()
-    for name in plugins:
-        PluginRegistry.set_disabled(name, disabled=name in disabled_set)
 
     res_list = [_meta_to_info(p, disabled_set) for p in plugins.values()]
     logger.info("已重新加载自定义插件，当前共 %d 个可用插件", len(res_list))
@@ -431,9 +484,9 @@ async def reload_plugins(
 # ==================== Marketplace APIs ====================
 
 MARKET_SOURCE_PRESETS: Dict[str, str] = {
-    "github": "https://raw.githubusercontent.com/Silentely/TG-SignPulse/dev/dist/marketplace/marketplace.json",
-    "jsdelivr": "https://cdn.jsdelivr.net/gh/Silentely/TG-SignPulse@dev/dist/marketplace/marketplace.json",
-    "ghproxy": "https://ghproxy.net/https://raw.githubusercontent.com/Silentely/TG-SignPulse/dev/dist/marketplace/marketplace.json",
+    "github": "https://raw.githubusercontent.com/Silentely/TG-SignPulse/main/dist/marketplace/marketplace.json",
+    "jsdelivr": "https://cdn.jsdelivr.net/gh/Silentely/TG-SignPulse@main/dist/marketplace/marketplace.json",
+    "ghproxy": "https://ghproxy.net/https://raw.githubusercontent.com/Silentely/TG-SignPulse/main/dist/marketplace/marketplace.json",
     "local": "local://marketplace.json",
 }
 
@@ -921,7 +974,7 @@ async def _do_install_market_plugin(plugin_id: str, is_update: bool = False) -> 
                 backup_dir.rename(target_plugin_dir)
             raise HTTPException(status_code=500, detail=f"写入插件目录失败: {exc}")
 
-    PluginRegistry.reload_all_plugins()
+    _reload_plugins_preserving_state()
     new_meta = PluginRegistry.get(plugin_id)
     if not new_meta:
         shutil.rmtree(target_plugin_dir, ignore_errors=True)
@@ -1011,7 +1064,7 @@ async def uninstall_market_plugin(
         except Exception as cfg_err:
             logger.warning("清理卸载插件配置失败 (%s): %s", plugin_id, cfg_err)
 
-    PluginRegistry.reload_all_plugins()
+    _reload_plugins_preserving_state()
     logger.info("已成功卸载插件: %s", plugin_id)
     return {"success": True, "message": f"插件 '{plugin_id}' 已成功卸载"}
 
@@ -1080,6 +1133,11 @@ async def test_plugin(
     def log_capture(msg: str):
         captured_logs.append(str(msg))
 
+    from tg_signer.core.plugins import validate_plugin_params
+    validated_params, param_warnings = validate_plugin_params(meta.params_schema, req.params)
+    for pw in param_warnings:
+        captured_logs.append(f"[param-warning] {pw}")
+
     eff_chat_id = req.chat_id if req.chat_id is not None else 12345678
     eff_sender_name = req.sender_name or "Tester"
 
@@ -1115,6 +1173,16 @@ async def test_plugin(
             captured_logs.append(f"[mock] 对消息表态表情: {emoji}")
             return True
 
+        async def edit(self, new_text: str, **_kwargs):
+            self.text = new_text
+            reply_record.append(str(new_text))
+            captured_logs.append(f"[mock] 编辑了触发消息: {new_text}")
+            return self
+
+        async def delete(self, **_kwargs):
+            captured_logs.append(f"[mock] 删除了触发消息 (ID {self.id})")
+            return True
+
     class MockApp:
         async def send_message(self, _chat_id, text: str, **kwargs):
             sent_records.append(str(text))
@@ -1125,6 +1193,15 @@ async def test_plugin(
         async def send_reaction(self, _chat_id, message_id: int, emoji: str, **_kwargs):
             reacted_records.append(str(emoji))
             captured_logs.append(f"[mock] 对消息 {message_id} 表态表情: {emoji}")
+            return True
+
+        async def edit_message_text(self, _chat_id, message_id: int, text: str, **_kwargs):
+            reply_record.append(str(text))
+            captured_logs.append(f"[mock] 编辑了消息 {message_id}: {text}")
+            return MockMessage(text)
+
+        async def delete_messages(self, _chat_id, message_ids: List[int], **_kwargs):
+            captured_logs.append(f"[mock] 删除了消息列表: {message_ids}")
             return True
 
     if req.reset_storage:
@@ -1142,12 +1219,13 @@ async def test_plugin(
         app=mock_app,
         chat_id=eff_chat_id,
         message=mock_msg,
-        params=req.params,
+        params=validated_params,
         logger=log_capture,
         plugin_name=name,
     )
     # 调试执行与重置共用独立的测试命名空间，与生产持久化数据（{chat_id}:{name}）完全隔离
     ctx.storage = PluginStorageClient(namespace=_plugin_test_namespace(eff_chat_id, name))
+    ctx.global_storage = PluginStorageClient(namespace=f"global_test:{name}")
 
     if req.timeout is not None and req.timeout > 0:
         # 双重钳制：即便模型校验被绕过也限制在 300s 内
@@ -1171,6 +1249,8 @@ async def test_plugin(
     success = True
     handled = False
     err_str = None
+    tb_str = None
+    error_line = None
 
     if use_subprocess:
         host = PluginProcessHost(plugin_name=name, ctx=ctx, timeout=test_timeout)
@@ -1188,7 +1268,23 @@ async def test_plugin(
         except Exception as exc:
             success = False
             err_str = f"插件执行异常: {exc}"
+            tb_str = _sanitize_traceback(traceback.format_exc())
             captured_logs.append(f"[error] {err_str}")
+            frames = traceback.extract_tb(exc.__traceback__)
+            plugin_src_str = str(meta.source_path) if meta.source_path else ""
+            plugin_dir_prefix = str(Path(meta.source_path).parent) if meta.source_path else ""
+            for f in reversed(frames):
+                if plugin_src_str and f.filename == plugin_src_str:
+                    error_line = f.lineno
+                    break
+                if plugin_dir_prefix and f.filename.startswith(plugin_dir_prefix):
+                    error_line = f.lineno
+                    break
+                if f.name == f"{meta.name}_handler" or (f.name == "handler" and "routes/plugins.py" not in f.filename):
+                    error_line = f.lineno
+                    break
+            if error_line is None and frames and "routes/plugins.py" not in frames[-1].filename:
+                error_line = frames[-1].lineno
     else:
         try:
             # 支持同步或异步执行
@@ -1212,7 +1308,23 @@ async def test_plugin(
         except Exception as exc:
             success = False
             err_str = f"插件执行异常: {exc}"
+            tb_str = _sanitize_traceback(traceback.format_exc())
             captured_logs.append(f"[error] {err_str}")
+            frames = traceback.extract_tb(exc.__traceback__)
+            plugin_src_str = str(meta.source_path) if meta.source_path else ""
+            plugin_dir_prefix = str(Path(meta.source_path).parent) if meta.source_path else ""
+            for f in reversed(frames):
+                if plugin_src_str and f.filename == plugin_src_str:
+                    error_line = f.lineno
+                    break
+                if plugin_dir_prefix and f.filename.startswith(plugin_dir_prefix):
+                    error_line = f.lineno
+                    break
+                if f.name == f"{meta.name}_handler" or (f.name == "handler" and "routes/plugins.py" not in f.filename):
+                    error_line = f.lineno
+                    break
+            if error_line is None and frames and "routes/plugins.py" not in frames[-1].filename:
+                error_line = frames[-1].lineno
 
     duration_ms = round((time.perf_counter() - start_t) * 1000, 2)
     summary = " | ".join(captured_logs[-2:]) if captured_logs else None
@@ -1244,6 +1356,9 @@ async def test_plugin(
         logs=captured_logs,
         duration_ms=duration_ms,
         error=err_str,
+        traceback=tb_str,
+        error_line=error_line,
+        param_warnings=param_warnings,
     )
 
 
@@ -1309,10 +1424,7 @@ async def install_remote_plugin(
     if len(code_text.encode("utf-8")) > 1024 * 1024:
         raise HTTPException(status_code=400, detail="插件文件大小超过 1MB 限制")
 
-    try:
-        ast.parse(code_text)
-    except SyntaxError as exc:
-        raise HTTPException(status_code=400, detail=f"插件代码语法错误: {exc}")
+    _enforce_plugin_security_check(code_text, "远端插件")
 
     # 确定保存目录
     custom_dirs = [d for d in PluginRegistry.get_search_directories() if not is_builtin_plugin_path(d)]
@@ -1337,7 +1449,7 @@ async def install_remote_plugin(
     dest_path.write_text(code_text, encoding="utf-8")
 
     # 重新加载插件
-    PluginRegistry.reload_all_plugins()
+    _reload_plugins_preserving_state()
     plugins = PluginRegistry.list_plugins()
 
     # 寻找匹配该文件的插件
@@ -1453,6 +1565,15 @@ async def update_plugin_source(
             detail=f"Python 语法错误: {exc.msg} (第 {exc.lineno} 行)",
         )
 
+    from tg_signer.core.plugins import compute_plugin_security_report
+    sec_report = compute_plugin_security_report(payload.source)
+    if not sec_report["can_save_safely"] and not payload.force:
+        critical_msgs = [w["message"] for w in sec_report["warnings"] if w.get("severity") in ("critical", "high")]
+        raise HTTPException(
+            status_code=400,
+            detail=f"安全审查未通过（评分: {sec_report['score']}分，风险: {sec_report['risk_level']}）。检测到高危调用: {'; '.join(critical_msgs[:2])}。如确认代码安全无害，请确认是否强制保存。",
+        )
+
     # 先备份旧源码，写入或重载失败时回滚，避免一次坏编辑永久丢失可用插件
     try:
         old_source = source_path.read_text(encoding="utf-8")
@@ -1472,7 +1593,7 @@ async def update_plugin_source(
         raise HTTPException(status_code=500, detail=f"保存插件源码失败: {exc}")
 
     try:
-        PluginRegistry.reload_all_plugins()
+        _reload_plugins_preserving_state()
     except Exception as exc:
         logger.warning("插件重载异常: %s", exc)
 
@@ -1487,7 +1608,7 @@ async def update_plugin_source(
         if old_source is not None:
             try:
                 _atomic_write(old_source)
-                PluginRegistry.reload_all_plugins()
+                _reload_plugins_preserving_state()
             except Exception as exc:
                 logger.error("回滚插件源码失败 %s: %s", source_path, exc, exc_info=True)
         raise HTTPException(
@@ -1556,7 +1677,7 @@ async def delete_plugin(
     except Exception as exc:
         logger.warning("清理插件全局配置失败: %s", exc)
 
-    PluginRegistry.reload_all_plugins()
+    _reload_plugins_preserving_state()
     return {"success": True, "name": name, "message": f"插件 {name} 已成功删除"}
 
 
@@ -1754,6 +1875,171 @@ async def {req.name}_handler(ctx: PluginContext) -> bool:
 
     return True
 '''
+    elif req.template == "http_api_fetcher":
+        code_text = f'''"""自定义 HTTP API 聚合查询插件: {req.name}"""
+import json
+import urllib.request
+from tg_signer.core.plugins import PluginContext, PluginRegistry
+
+VERSION = "{version}"
+UPDATED_AT = "{today}"
+AUTHOR = {author!r}
+PERMISSIONS = ["network"]
+
+PARAMS_SCHEMA = [
+    {{
+        "name": "api_endpoint",
+        "label": "API 接口地址",
+        "type": "string",
+        "default": "https://api.github.com/zen",
+        "description": "待请求的第三方 HTTP GET 接口 URL",
+    }},
+    {{
+        "name": "timeout_seconds",
+        "label": "请求超时(秒)",
+        "type": "number",
+        "default": 10,
+        "description": "网络请求超时时长",
+    }},
+]
+
+@PluginRegistry.register(
+    name="{req.name}",
+    mode="active",
+    description={description!r},
+    params_schema=PARAMS_SCHEMA,
+    permissions=PERMISSIONS,
+    version=VERSION,
+    updated_at=UPDATED_AT,
+    author=AUTHOR,
+)
+async def {req.name}_handler(ctx: PluginContext) -> bool:
+    endpoint = (ctx.params or {{}}).get("api_endpoint", "https://api.github.com/zen")
+    timeout = float((ctx.params or {{}}).get("timeout_seconds", 10))
+
+    ctx.log(f"正在请求外部 API: {{endpoint}}")
+    try:
+        req = urllib.request.Request(
+            endpoint,
+            headers={{"User-Agent": "TG-SignPulse-Plugin/1.0"}},
+            method="GET",
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            content = resp.read().decode("utf-8")
+            ctx.log(f"API 请求成功 [HTTP {{resp.status}}]: {{content[:120]}}")
+            await ctx.storage.set("last_response", content[:500])
+            return True
+    except Exception as exc:
+        ctx.log(f"API 请求失败: {{exc}}")
+        return False
+'''
+    elif req.template == "command_router":
+        code_text = f'''"""自定义 Telegram 斜杠命令路由插件: {req.name}"""
+from tg_signer.core.plugins import PluginContext, PluginRegistry
+
+VERSION = "{version}"
+UPDATED_AT = "{today}"
+AUTHOR = {author!r}
+
+PARAMS_SCHEMA = [
+    {{
+        "name": "command_prefix",
+        "label": "命令前缀",
+        "type": "string",
+        "default": "/",
+        "description": "指令识别前缀，默认 /",
+    }},
+]
+
+@PluginRegistry.register(
+    name="{req.name}",
+    mode="reactive",
+    description={description!r},
+    params_schema=PARAMS_SCHEMA,
+    version=VERSION,
+    updated_at=UPDATED_AT,
+    author=AUTHOR,
+)
+async def {req.name}_handler(ctx: PluginContext) -> bool:
+    msg = ctx.message
+    if not msg or not getattr(msg, "text", None):
+        return False
+
+    text = msg.text.strip()
+    prefix = (ctx.params or {{}}).get("command_prefix", "/")
+    if not text.startswith(prefix):
+        return False
+
+    parts = text[len(prefix):].split()
+    cmd = parts[0].lower() if parts else ""
+
+    if cmd == "ping":
+        await ctx.reply("pong! 🏓 插件运行正常。")
+        return True
+    elif cmd == "help":
+        await ctx.reply("💡 支持命令列表：\\n/ping - 连通性测试\\n/status - 查看运行状态\\n/help - 查看帮助说明")
+        return True
+    elif cmd == "status":
+        run_count = await ctx.storage.get("cmd_count", 0) + 1
+        await ctx.storage.set("cmd_count", run_count)
+        await ctx.reply(f"📊 插件状态：正常运行中，累计响应命令 {{run_count}} 次。")
+        return True
+
+    return False
+'''
+    elif req.template == "keyword_reply":
+        code_text = f'''"""自定义关键词智能匹配回复插件: {req.name}"""
+from tg_signer.core.plugins import PluginContext, PluginRegistry
+
+VERSION = "{version}"
+UPDATED_AT = "{today}"
+AUTHOR = {author!r}
+
+PARAMS_SCHEMA = [
+    {{
+        "name": "match_keywords",
+        "label": "匹配关键词列表",
+        "type": "string",
+        "default": "签到,打卡,sign",
+        "description": "英文或中文逗号分隔的触发关键词",
+    }},
+    {{
+        "name": "reply_text",
+        "label": "应答回复内容",
+        "type": "string",
+        "default": "🎉 收到您的打卡指令，已为您记录！",
+        "description": "匹配到关键词后自动回复的文本",
+    }},
+]
+
+@PluginRegistry.register(
+    name="{req.name}",
+    mode="reactive",
+    description={description!r},
+    params_schema=PARAMS_SCHEMA,
+    version=VERSION,
+    updated_at=UPDATED_AT,
+    author=AUTHOR,
+)
+async def {req.name}_handler(ctx: PluginContext) -> bool:
+    msg = ctx.message
+    if not msg or not getattr(msg, "text", None):
+        return False
+
+    params = ctx.params or {{}}
+    raw_kw = params.get("match_keywords", "签到,打卡,sign")
+    reply_text = params.get("reply_text", "🎉 收到您的打卡指令，已为您记录！")
+
+    keywords = [k.strip().lower() for k in raw_kw.replace("，", ",").split(",") if k.strip()]
+    text = msg.text.lower()
+
+    if any(k in text for k in keywords):
+        ctx.log("命中关键词回复，触发回复消息")
+        await ctx.reply(reply_text)
+        return True
+
+    return False
+'''
     else:  # basic_reactive
         code_text = f'''"""自定义监听响应式插件: {req.name}"""
 from tg_signer.core.plugins import PluginContext, PluginRegistry
@@ -1791,15 +2077,8 @@ async def {req.name}_handler(ctx: PluginContext) -> bool:
     return True
 '''
 
-    # 注入防御自检：author/description 等用户输入已经 repr 转义，此处再验证
-    # 生成代码确为合法 Python 且可解析，杜绝任何模板改动引入的代码注入
-    try:
-        ast.parse(code_text)
-    except SyntaxError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=f"模板生成的插件代码语法非法: {exc.msg} (第 {exc.lineno} 行)",
-        )
+    # 统一安全门禁审查与语法自检
+    _enforce_plugin_security_check(code_text, "模板插件")
 
     try:
         plugin_dir.mkdir(parents=True, exist_ok=True)
@@ -1810,7 +2089,7 @@ async def {req.name}_handler(ctx: PluginContext) -> bool:
         raise HTTPException(status_code=500, detail=f"写入插件文件失败: {exc}")
 
     # 重新加载插件
-    PluginRegistry.reload_all_plugins()
+    _reload_plugins_preserving_state()
     matched = PluginRegistry.get(req.name)
     if not matched:
         shutil.rmtree(plugin_dir, ignore_errors=True)
@@ -1895,6 +2174,15 @@ async def upload_plugin(
     except SyntaxError as exc:
         raise HTTPException(status_code=400, detail=f"Python 语法错误 [第 {exc.lineno} 行]: {exc.msg}")
 
+    from tg_signer.core.plugins import compute_plugin_security_report
+    sec_report = compute_plugin_security_report(content)
+    if not sec_report["can_save_safely"]:
+        critical_msgs = [w["message"] for w in sec_report["warnings"] if w.get("severity") in ("critical", "high")]
+        raise HTTPException(
+            status_code=400,
+            detail=f"上传插件未通过安全审查: {'; '.join(critical_msgs[:2])}，禁止直接上传高危插件",
+        )
+
     target_dir = _get_custom_plugins_dir()
     dest_path = target_dir / raw_filename
     try:
@@ -1902,7 +2190,7 @@ async def upload_plugin(
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"写入插件文件失败: {exc}")
 
-    PluginRegistry.reload_all_plugins()
+    _reload_plugins_preserving_state()
     matched = PluginRegistry.get(plugin_stem)
     if not matched:
         for p in PluginRegistry.list_plugins().values():
@@ -2110,7 +2398,7 @@ async def clone_plugin(
             detail=f"保存克隆插件文件失败: {exc}",
         )
 
-    PluginRegistry.reload_all_plugins()
+    _reload_plugins_preserving_state()
     new_meta = PluginRegistry.get(req.new_name)
     if not new_meta:
         # 加载失败时清理已写入的孤儿文件，避免后续同名克隆永久 409
@@ -2533,21 +2821,29 @@ async def audit_plugin_source_route(
     req: AuditPluginRequest,
     _user: User = Depends(get_current_user),
 ) -> AuditPluginResponse:
-    """静态审计插件源码中的高危调用与潜在安全隐患。"""
-    from tg_signer.core.plugins import audit_plugin_source
-    warnings_raw = audit_plugin_source(req.source)
+    """静态审计插件源码中的高危调用与潜在安全隐患，并生成全方位安全评级报告。"""
+    from tg_signer.core.plugins import compute_plugin_security_report
+    report = compute_plugin_security_report(req.source)
     warnings = [
         AuditPluginWarning(
             line=w["line"],
-            column=w["column"],
+            column=w.get("column", 0),
             severity=w["severity"],
             rule=w["rule"],
             message=w["message"],
         )
-        for w in warnings_raw
+        for w in report["warnings"]
     ]
-    passed = len(warnings) == 0
-    return AuditPluginResponse(passed=passed, warnings=warnings)
+    return AuditPluginResponse(
+        passed=report["passed"],
+        score=report["score"],
+        risk_level=report["risk_level"],
+        warnings=warnings,
+        detected_capabilities=report["detected_capabilities"],
+        declared_permissions=report["declared_permissions"],
+        undeclared_capabilities=report["undeclared_capabilities"],
+        can_save_safely=report["can_save_safely"],
+    )
 
 
 @router.post("/format-source", response_model=FormatPluginSourceResponse)
@@ -2665,25 +2961,47 @@ async def import_plugins_bundle(
                 errors.append(f"跳过不支持的插件布局: {member.filename}")
                 continue
 
+            # 安全门禁审查（针对 Python 源码）
+            if norm.suffix == ".py":
+                try:
+                    code_bytes = zf.read(member)
+                    code_text = code_bytes.decode("utf-8")
+                except UnicodeDecodeError:
+                    errors.append(f"跳过非 UTF-8 编码文件: {member.filename}")
+                    continue
+                except Exception as read_err:
+                    errors.append(f"读取文件 {member.filename} 失败: {read_err}")
+                    continue
+
+                try:
+                    _enforce_plugin_security_check(code_text, member.filename)
+                except HTTPException as gate_err:
+                    errors.append(f"跳过未通过安全审查的文件 {member.filename}: {gate_err.detail}")
+                    continue
+
             dest_path = target_dir / norm
             try:
                 dest_path.parent.mkdir(parents=True, exist_ok=True)
-                with zf.open(member) as src, open(dest_path, "wb") as dst:
-                    remaining = member.file_size
-                    while remaining:
-                        chunk = src.read(min(64 * 1024, remaining))
-                        if not chunk:
-                            break
-                        dst.write(chunk)
-                        remaining -= len(chunk)
-                    if remaining:
-                        raise ValueError("压缩包成员实际大小与声明不一致")
+                if norm.suffix == ".py":
+                    with open(dest_path, "w", encoding="utf-8") as dst:
+                        dst.write(code_text)
+                else:
+                    with zf.open(member) as src, open(dest_path, "wb") as dst:
+                        remaining = member.file_size
+                        while remaining:
+                            chunk = src.read(min(64 * 1024, remaining))
+                            if not chunk:
+                                break
+                            dst.write(chunk)
+                            remaining -= len(chunk)
+                        if remaining:
+                            raise ValueError("压缩包成员实际大小与声明不一致")
                 total_size += member.file_size
                 written_paths.append(dest_path)
             except Exception as e:
                 errors.append(f"解压 {member.filename} 失败: {e}")
 
-    PluginRegistry.reload_all_plugins()
+    _reload_plugins_preserving_state()
 
     # 以注册表实际加载结果回填导入清单，保证响应与真实加载状态一致
     registered_by_path = {

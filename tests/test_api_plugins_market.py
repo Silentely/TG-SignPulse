@@ -247,3 +247,15 @@ def test_install_market_plugin_subprocess_forbidden(api_client, monkeypatch):
     resp = api_client.post("/api/plugins/market/subp_plugin/install", headers=headers)
     assert resp.status_code == 400
     assert "安全审计未通过" in resp.json()["detail"]
+
+
+def test_market_source_presets_point_to_main():
+    """Verify that official marketplace presets point to main branch, not dev."""
+    from backend.api.routes.plugins import MARKET_SOURCE_PRESETS
+
+    assert "main" in MARKET_SOURCE_PRESETS["github"]
+    assert "dev" not in MARKET_SOURCE_PRESETS["github"]
+    assert "@main" in MARKET_SOURCE_PRESETS["jsdelivr"]
+    assert "@dev" not in MARKET_SOURCE_PRESETS["jsdelivr"]
+    assert "main" in MARKET_SOURCE_PRESETS["ghproxy"]
+    assert "dev" not in MARKET_SOURCE_PRESETS["ghproxy"]

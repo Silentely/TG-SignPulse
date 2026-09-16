@@ -119,7 +119,13 @@ export interface AuditPluginWarning {
 
 export interface AuditPluginResponse {
   passed: boolean
+  score?: number
+  risk_level?: string
   warnings: AuditPluginWarning[]
+  detected_capabilities?: string[]
+  declared_permissions?: string[]
+  undeclared_capabilities?: string[]
+  can_save_safely?: boolean
 }
 
 export interface FormatPluginSourceResponse {
@@ -205,7 +211,7 @@ export interface ClonePluginRequest {
 export interface CreatePluginRequest {
   name: string
   mode?: 'reactive' | 'active'
-  template?: 'basic_reactive' | 'basic_active' | 'storage_counter' | 'regex_extractor' | 'webhook_alert'
+  template?: 'basic_reactive' | 'basic_active' | 'storage_counter' | 'regex_extractor' | 'webhook_alert' | 'http_api_fetcher' | 'command_router' | 'keyword_reply'
   description?: string
   author?: string
   version?: string
@@ -254,6 +260,9 @@ export interface PluginTestResponse {
   logs?: string[]
   duration_ms: number
   error?: string | null
+  traceback?: string | null
+  error_line?: number | null
+  param_warnings?: string[]
 }
 
 export interface PluginFilterParams {
@@ -375,10 +384,11 @@ export async function updatePluginSource(
   name: string,
   source: string,
   token: string,
+  force = false,
 ): Promise<PluginInfo> {
   return request<PluginInfo>(`/plugins/${encodeURIComponent(name)}/source`, {
     method: 'PUT',
-    body: JSON.stringify({ source }),
+    body: JSON.stringify({ source, force }),
   }, token)
 }
 
