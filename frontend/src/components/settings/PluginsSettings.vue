@@ -50,6 +50,11 @@ import {
   Globe,
   ExternalLink,
   Database,
+  Zap,
+  MoreHorizontal,
+  Maximize2,
+  Minimize2,
+  Bookmark,
 } from 'lucide-vue-next'
 import Modal from '../Modal.vue'
 import {
@@ -510,6 +515,127 @@ const copyInstallCommand = async (cmd: string, idx: number) => {
   }
 }
 
+// 卡片轻量化、编辑器与试验场打磨状态
+const activeMoreDropdownPlugin = ref<string | null>(null)
+const isEditorFullscreen = ref(false)
+const showSnippetDropdown = ref(false)
+
+function toggleMoreDropdown(pluginName: string) {
+  activeMoreDropdownPlugin.value = activeMoreDropdownPlugin.value === pluginName ? null : pluginName
+}
+
+function handleDocumentClick(e: MouseEvent) {
+  const target = e.target as HTMLElement
+  if (!target.closest('.plugin-more-dropdown-container')) {
+    activeMoreDropdownPlugin.value = null
+  }
+  if (!target.closest('.plugin-snippet-dropdown-container')) {
+    showSnippetDropdown.value = false
+  }
+}
+
+const SDK_SNIPPETS = [
+  {
+    labelKey: 'settings.pluginsSnippetParam',
+    code: 'target_param = ctx.get_param("param_key", default="default_value")',
+  },
+  {
+    labelKey: 'settings.pluginsSnippetStorageGet',
+    code: 'val = await ctx.storage.get("key", default=None)',
+  },
+  {
+    labelKey: 'settings.pluginsSnippetStorageSet',
+    code: 'await ctx.storage.set("key", "stored_value")',
+  },
+  {
+    labelKey: 'settings.pluginsSnippetGlobalStorage',
+    code: 'await ctx.global_storage.set("global_cache_key", "cached_value")',
+  },
+  {
+    labelKey: 'settings.pluginsSnippetSendMsg',
+    code: 'await ctx.send_message("主动推送消息内容")',
+  },
+  {
+    labelKey: 'settings.pluginsSnippetReply',
+    code: 'await ctx.reply("已接收并处理您的指令")',
+  },
+  {
+    labelKey: 'settings.pluginsSnippetEditMsg',
+    code: 'await ctx.edit_message("已更新处理状态")',
+  },
+  {
+    labelKey: 'settings.pluginsSnippetDeleteMsg',
+    code: 'await ctx.delete_message()',
+  },
+  {
+    labelKey: 'settings.pluginsSnippetLog',
+    code: 'ctx.log("[自定义日志] 处理完毕")',
+  },
+]
+
+function insertSnippet(code: string) {
+  showSnippetDropdown.value = false
+  if (!editedSourceCode.value) {
+    editedSourceCode.value = code
+  } else {
+    editedSourceCode.value = editedSourceCode.value + '\n\n' + code
+  }
+  toast.success(t('settings.pluginsSnippetInserted'))
+}
+
+function savePlaygroundPreset() {
+  if (!currentTestPlugin.value) return
+  const key = `tg_signer_test_preset_${currentTestPlugin.value.name}`
+  const payload = {
+    testInput: testInputText.value,
+    testParams: testParams.value,
+    mockChatId: mockChatId.value,
+    mockSenderName: mockSenderName.value,
+    mockTimeout: mockTimeout.value,
+    resetStorage: resetStorage.value,
+  }
+  localStorage.setItem(key, JSON.stringify(payload))
+  toast.success(t('settings.pluginsPlaygroundPresetSaved'))
+}
+
+function loadPlaygroundPreset() {
+  if (!currentTestPlugin.value) return
+  const key = `tg_signer_test_preset_${currentTestPlugin.value.name}`
+  const saved = localStorage.getItem(key)
+  if (!saved) {
+    toast.info(t('settings.pluginsPlaygroundNoPreset'))
+    return
+  }
+  try {
+    const data = JSON.parse(saved)
+    if (data.testInput !== undefined) testInputText.value = data.testInput
+    if (data.testParams) testParams.value = { ...testParams.value, ...data.testParams }
+    if (data.mockChatId !== undefined) mockChatId.value = data.mockChatId
+    if (data.mockSenderName !== undefined) mockSenderName.value = data.mockSenderName
+    if (data.mockTimeout !== undefined) mockTimeout.value = data.mockTimeout
+    if (data.resetStorage !== undefined) resetStorage.value = data.resetStorage
+    toast.success(t('settings.pluginsPlaygroundPresetLoaded'))
+  } catch {
+    toast.error(t('settings.pluginsPlaygroundNoPreset'))
+  }
+}
+
+const canFormatReplyJson = computed(() => {
+  if (!testResult.value?.reply_text) return false
+  const text = testResult.value.reply_text.trim()
+  return (text.startsWith('{') && text.endsWith('}')) || (text.startsWith('[') && text.endsWith(']'))
+})
+
+function formatReplyJson() {
+  if (!testResult.value?.reply_text) return
+  try {
+    const parsed = JSON.parse(testResult.value.reply_text)
+    testResult.value.reply_text = JSON.stringify(parsed, null, 2)
+  } catch {
+    // ignore
+  }
+}
+
 // 新建插件弹窗状态
 const isCreateModalOpen = ref(false)
 const createLoading = ref(false)
@@ -758,6 +884,12 @@ const openSourceModal = async (plugin: PluginInfo) => {
   editedSourceCode.value = ''
   // 一并清理编辑派生状态，避免上一插件的审计告警/Diff/语法结果泄漏到新插件
   auditWarnings.value = []
+  auditCapabilities.value = []
+  auditScore.value = null
+  auditRiskLevel.value = 'safe'
+  auditDeclared.value = []
+  auditUndeclared.value = []
+  auditCanSaveSafely.value = true
   showDiffView.value = false
   syntaxResult.value = null
   isSourceModalOpen.value = true
@@ -832,15 +964,49 @@ const openDocModal = (plugin: PluginInfo) => {
 // 静态安全审计
 const auditingSource = ref(false)
 const auditWarnings = ref<AuditPluginWarning[]>([])
+const auditCapabilities = ref<string[]>([])
+const auditScore = ref<number | null>(null)
+const auditRiskLevel = ref<string>('safe')
+const auditDeclared = ref<string[]>([])
+const auditUndeclared = ref<string[]>([])
+const auditCanSaveSafely = ref<boolean>(true)
+const sourceEditorTextarea = ref<HTMLTextAreaElement | null>(null)
+
+const jumpToSourceLine = (lineNo: number) => {
+  if (!sourceEditorTextarea.value) return
+  const lines = editedSourceCode.value.split('\n')
+  const validLine = Math.max(1, Math.min(Math.floor(Number(lineNo) || 1), lines.length || 1))
+  let pos = 0
+  for (let i = 0; i < validLine - 1; i++) {
+    pos += lines[i].length + 1
+  }
+  sourceEditorTextarea.value.focus()
+  sourceEditorTextarea.value.setSelectionRange(pos, pos + (lines[validLine - 1]?.length || 0))
+  const lineHeight = 18
+  sourceEditorTextarea.value.scrollTop = Math.max(0, (validLine - 4) * lineHeight)
+}
 
 const handleAuditSource = async () => {
   if (!editedSourceCode.value) return
   auditingSource.value = true
   auditWarnings.value = []
+  auditCapabilities.value = []
+  auditScore.value = null
+  auditRiskLevel.value = 'safe'
+  auditDeclared.value = []
+  auditUndeclared.value = []
+  auditCanSaveSafely.value = true
   try {
     const res = await withToken((token) => auditPluginSource(editedSourceCode.value, token))
     if (!res) return
     auditWarnings.value = res.warnings || []
+    auditCapabilities.value = res.detected_capabilities || []
+    auditDeclared.value = res.declared_permissions || []
+    auditUndeclared.value = res.undeclared_capabilities || []
+    auditScore.value = res.score ?? (res.passed ? 100 : 70)
+    auditRiskLevel.value = res.risk_level ?? (res.passed ? 'safe' : 'warning')
+    auditCanSaveSafely.value = res.can_save_safely !== false
+
     if (res.passed) {
       toast.success(t('settings.pluginsAuditSafe'))
     } else {
@@ -851,6 +1017,16 @@ const handleAuditSource = async () => {
     toast.error(msg)
   } finally {
     auditingSource.value = false
+  }
+}
+
+async function copyTraceback(tb?: string | null) {
+  if (!tb) return
+  try {
+    await navigator.clipboard.writeText(tb)
+    toast.success(t('settings.pluginsPlaygroundCopiedTraceback'))
+  } catch {
+    toast.error(t('settings.pluginsCopyFailed'))
   }
 }
 
@@ -990,11 +1166,11 @@ const handleCloseSourceModal = async () => {
   showDiffView.value = false
 }
 
-const saveSourceCode = async () => {
+const saveSourceCode = async (forceSave = false) => {
   if (!currentSourcePlugin.value) return
   savingSource.value = true
   try {
-    const res = await withToken((token) => updatePluginSource(currentSourcePlugin.value!.name, editedSourceCode.value, token))
+    const res = await withToken((token) => updatePluginSource(currentSourcePlugin.value!.name, editedSourceCode.value, token, forceSave))
     if (res) {
       sourceCode.value = editedSourceCode.value
       isEditingSource.value = false
@@ -1002,7 +1178,23 @@ const saveSourceCode = async () => {
       await loadPluginList()
     }
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
+    const errorObj = err as any
+    const code = errorObj?.code || errorObj?.detail?.code || ''
+    const msg = errorObj?.message || (typeof errorObj?.detail === 'string' ? errorObj.detail : errorObj?.detail?.message) || String(err)
+    if (!forceSave && (code === 'PLUGIN_AUDIT_BLOCKED' || msg.includes('安全审查未通过') || msg.includes('高危') || msg.includes('critical'))) {
+      const confirmed = await confirm({
+        title: t('settings.pluginsAuditRiskAlertTitle'),
+        message: `${msg}\n\n${t('settings.pluginsAuditRiskAlertConfirm')}`,
+        confirmText: t('settings.pluginsAuditForceSave'),
+        cancelText: t('common.cancel'),
+        danger: true,
+      })
+      if (confirmed) {
+        savingSource.value = false
+        await saveSourceCode(true)
+        return
+      }
+    }
     toast.error(`${t('settings.pluginsSaveSourceFailed')}: ${msg}`)
   } finally {
     savingSource.value = false
@@ -1084,7 +1276,7 @@ const openCreateModal = () => {
 }
 
 const handleTemplateChange = () => {
-  if (createForm.value.template === 'basic_active') {
+  if (createForm.value.template === 'basic_active' || createForm.value.template === 'http_api_fetcher') {
     createForm.value.mode = 'active'
   } else {
     createForm.value.mode = 'reactive'
@@ -1264,6 +1456,7 @@ const runPluginTest = async () => {
 const activeTab = ref<'installed' | 'market'>('installed')
 const marketCatalog = ref<MarketPluginItem[]>([])
 const marketLoading = ref(false)
+const marketCatalogError = ref<string | null>(null)
 const marketSourceConfig = ref<MarketSourceConfig | null>(null)
 const marketSourceType = ref<'github' | 'jsdelivr' | 'ghproxy' | 'local' | 'custom'>('github')
 const marketCustomUrl = ref('')
@@ -1271,8 +1464,11 @@ const isSavingSource = ref(false)
 const marketSearchQuery = ref('')
 const marketSelectedCategory = ref('all')
 const marketSelectedStatus = ref<'all' | 'not_installed' | 'installed' | 'upgradable'>('all')
+const marketSortBy = ref<'default' | 'updated' | 'name' | 'status'>('default')
 const installingPluginId = ref<string | null>(null)
 const uninstallingPluginId = ref<string | null>(null)
+const isUpdatingAll = ref(false)
+const updateAllProgress = ref({ current: 0, total: 0, currentName: '' })
 
 // 市场插件文档弹窗
 const isMarketReadmeOpen = ref(false)
@@ -1283,6 +1479,7 @@ const loadingMarketReadme = ref(false)
 
 async function fetchMarketCatalog(refresh = false) {
   marketLoading.value = true
+  marketCatalogError.value = null
   try {
     await withToken(async (token) => {
       const res = await getMarketCatalog(token, refresh)
@@ -1297,9 +1494,59 @@ async function fetchMarketCatalog(refresh = false) {
       }
     })
   } catch (err: any) {
-    toast.error(err.message || '获取插件市场清单失败')
+    const msg = err.message || t('settings.marketFetchFailed')
+    marketCatalogError.value = msg
+    toast.error(msg)
   } finally {
     marketLoading.value = false
+  }
+}
+
+async function quickSwitchSource(newType: 'github' | 'jsdelivr' | 'ghproxy') {
+  marketSourceType.value = newType
+  await handleSourceChange()
+}
+
+const upgradableMarketPlugins = computed(() => {
+  return marketCatalog.value.filter((p) => p.status === 'upgradable')
+})
+
+async function handleBatchUpdateAll() {
+  const targets = upgradableMarketPlugins.value
+  if (targets.length === 0 || isUpdatingAll.value) return
+
+  const ok = await confirm({
+    title: t('settings.marketUpdateAllConfirmTitle'),
+    message: t('settings.marketUpdateAllConfirmMsg', { count: targets.length }),
+    confirmText: t('settings.marketUpdateAllBtn', { count: targets.length }),
+    cancelText: t('common.cancel'),
+  })
+  if (!ok) return
+
+  isUpdatingAll.value = true
+  updateAllProgress.value = { current: 0, total: targets.length, currentName: '' }
+  let successCount = 0
+
+  try {
+    for (let i = 0; i < targets.length; i++) {
+      const p = targets[i]
+      updateAllProgress.value = { current: i + 1, total: targets.length, currentName: p.name }
+      try {
+        await withToken(async (token) => {
+          await updateMarketPlugin(p.id, token)
+        })
+        successCount++
+      } catch (err: any) {
+        toast.error(`${p.name}: ${err.message || '更新失败'}`)
+      }
+    }
+    if (successCount > 0) {
+      toast.success(t('settings.marketUpdateAllSuccess', { count: successCount }))
+      await Promise.all([loadPluginList(), fetchMarketCatalog(true)])
+    }
+  } finally {
+    isUpdatingAll.value = false
+    updateAllProgress.value = { current: 0, total: 0, currentName: '' }
   }
 }
 
@@ -1419,7 +1666,7 @@ function switchTab(tab: 'installed' | 'market') {
 }
 
 const filteredMarketPlugins = computed(() => {
-  return marketCatalog.value.filter((p) => {
+  const list = marketCatalog.value.filter((p) => {
     if (marketSearchQuery.value.trim()) {
       const q = marketSearchQuery.value.toLowerCase().trim()
       const match =
@@ -1438,10 +1685,25 @@ const filteredMarketPlugins = computed(() => {
     }
     return true
   })
+
+  if (marketSortBy.value === 'updated') {
+    return [...list].sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''))
+  } else if (marketSortBy.value === 'name') {
+    return [...list].sort((a, b) => a.name.localeCompare(b.name))
+  } else if (marketSortBy.value === 'status') {
+    const statusOrder: Record<string, number> = { upgradable: 0, not_installed: 1, installed: 2 }
+    return [...list].sort((a, b) => (statusOrder[a.status] ?? 3) - (statusOrder[b.status] ?? 3))
+  }
+  return list
 })
 
 onMounted(() => {
+  document.addEventListener('click', handleDocumentClick)
   void loadPluginList()
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', handleDocumentClick)
 })
 </script>
 
@@ -1805,7 +2067,8 @@ onMounted(() => {
           ? 'border-gray-100 dark:border-gray-800/60 bg-gray-50/60 dark:bg-white/[0.02] hover:border-gray-300 dark:hover:border-gray-700'
           : 'border-dashed border-gray-300 dark:border-gray-700/60 bg-gray-100/40 dark:bg-white/[0.01] opacity-75'"
       >
-        <div class="min-w-0 flex-1 space-y-1">
+        <div class="min-w-0 flex-1 space-y-1.5">
+          <!-- 第一排：统一固定显示「插件名称 + 官方内置/自定义 + 版本号 + 停用状态」 -->
           <div class="flex items-center gap-2 flex-wrap">
             <span class="font-mono font-semibold text-gray-900 dark:text-gray-100 text-xs">
               {{ plugin.name }}
@@ -1830,6 +2093,10 @@ onMounted(() => {
             >
               {{ t('settings.pluginsDisabledTag') }}
             </span>
+          </div>
+
+          <!-- 第二排：统一以「执行模式标签（reactive/active）」开头，后接参数配置、更新日期等元数据 -->
+          <div class="flex items-center gap-2 flex-wrap text-gray-500">
             <span
               v-if="plugin.mode === 'reactive'"
               class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-sky-100 dark:bg-sky-950/80 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800/50"
@@ -1971,7 +2238,7 @@ onMounted(() => {
           </div>
         </div>
 
-        <div class="shrink-0 flex items-center gap-2 flex-wrap">
+        <div class="shrink-0 flex items-center gap-1.5 flex-wrap">
           <!-- 启用/停用软开关 -->
           <button
             type="button"
@@ -1995,6 +2262,16 @@ onMounted(() => {
             {{ t('settings.pluginsPlaygroundBtn') }}
           </button>
 
+          <!-- 查看源码 -->
+          <button
+            type="button"
+            class="ui-btn-secondary !py-1 !px-2.5 !text-xs inline-flex items-center gap-1 text-slate-600 dark:text-slate-400 hover:text-slate-700"
+            @click="openSourceModal(plugin)"
+          >
+            <Code class="w-3 h-3" />
+            {{ t('settings.pluginsSourceBtn') }}
+          </button>
+
           <!-- 数据存储 -->
           <button
             type="button"
@@ -2006,75 +2283,84 @@ onMounted(() => {
             {{ t('settings.pluginsStorageBtn') }}
           </button>
 
-          <!-- 查看源码 -->
-          <button
-            type="button"
-            class="ui-btn-secondary !py-1 !px-2.5 !text-xs inline-flex items-center gap-1 text-slate-600 dark:text-slate-400 hover:text-slate-700"
-            @click="openSourceModal(plugin)"
-          >
-            <Code class="w-3 h-3" />
-            {{ t('settings.pluginsSourceBtn') }}
-          </button>
+          <!-- 更多操作下拉菜单 -->
+          <div class="relative plugin-more-dropdown-container">
+            <button
+              type="button"
+              class="ui-btn-secondary !py-1 !px-2 !text-xs inline-flex items-center gap-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              :title="t('settings.pluginsCardMoreActions')"
+              @click.stop="toggleMoreDropdown(plugin.name)"
+            >
+              <MoreHorizontal class="w-3.5 h-3.5" />
+            </button>
 
-          <!-- 调用历史 -->
-          <button
-            type="button"
-            class="ui-btn-secondary !py-1 !px-2.5 !text-xs inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400 hover:text-indigo-700"
-            :title="t('settings.pluginsHistoryBtn')"
-            @click="openHistoryModal(plugin)"
-          >
-            <History class="w-3 h-3" />
-            {{ t('settings.pluginsHistoryBtn') }}
-          </button>
+            <div
+              v-show="activeMoreDropdownPlugin === plugin.name"
+              class="absolute right-0 top-full mt-1 w-36 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg py-1 z-30 text-xs flex flex-col"
+            >
+              <!-- 调用历史 -->
+              <button
+                type="button"
+                class="w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700/60 flex items-center gap-2 text-indigo-600 dark:text-indigo-400"
+                :title="t('settings.pluginsHistoryBtn')"
+                @click="openHistoryModal(plugin); activeMoreDropdownPlugin = null"
+              >
+                <History class="w-3.5 h-3.5" />
+                <span>{{ t('settings.pluginsHistoryBtn') }}</span>
+              </button>
 
-          <!-- 说明文档 -->
-          <button
-            v-if="plugin.doc"
-            type="button"
-            class="ui-btn-secondary !py-1 !px-2.5 !text-xs inline-flex items-center gap-1 text-teal-600 dark:text-teal-400 hover:text-teal-700"
-            :title="t('settings.pluginsViewDoc')"
-            @click="openDocModal(plugin)"
-          >
-            <BookOpen class="w-3 h-3" />
-            {{ t('settings.pluginsViewDoc') }}
-          </button>
+              <!-- 说明文档 -->
+              <button
+                v-if="plugin.doc"
+                type="button"
+                class="w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700/60 flex items-center gap-2 text-teal-600 dark:text-teal-400"
+                :title="t('settings.pluginsViewDoc')"
+                @click="openDocModal(plugin); activeMoreDropdownPlugin = null"
+              >
+                <BookOpen class="w-3.5 h-3.5" />
+                <span>{{ t('settings.pluginsViewDoc') }}</span>
+              </button>
 
-          <!-- 导出源码 -->
-          <button
-            type="button"
-            class="ui-btn-secondary !py-1 !px-2.5 !text-xs inline-flex items-center gap-1 text-slate-600 dark:text-slate-400 hover:text-slate-700"
-            :disabled="exportingPluginName === plugin.name"
-            :title="t('settings.pluginsExport')"
-            @click="handleExportPlugin(plugin)"
-          >
-            <RefreshCw v-if="exportingPluginName === plugin.name" class="w-3 h-3 animate-spin" />
-            <Download v-else class="w-3 h-3" />
-            {{ t('settings.pluginsExport') }}
-          </button>
+              <!-- 克隆 -->
+              <button
+                type="button"
+                class="w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700/60 flex items-center gap-2 text-purple-600 dark:text-purple-400"
+                :title="t('settings.pluginsCloneBtn')"
+                @click="openCloneModal(plugin); activeMoreDropdownPlugin = null"
+              >
+                <Copy class="w-3.5 h-3.5" />
+                <span>{{ t('settings.pluginsCloneBtn') }}</span>
+              </button>
 
-          <!-- 克隆 -->
-          <button
-            type="button"
-            class="ui-btn-secondary !py-1 !px-2.5 !text-xs inline-flex items-center gap-1 text-purple-600 dark:text-purple-400 hover:text-purple-700"
-            :title="t('settings.pluginsCloneBtn')"
-            @click="openCloneModal(plugin)"
-          >
-            <Copy class="w-3 h-3" />
-            {{ t('settings.pluginsCloneBtn') }}
-          </button>
+              <!-- 导出源码 -->
+              <button
+                type="button"
+                class="w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700/60 flex items-center gap-2 text-slate-600 dark:text-slate-400"
+                :disabled="exportingPluginName === plugin.name"
+                :title="t('settings.pluginsExport')"
+                @click="handleExportPlugin(plugin); activeMoreDropdownPlugin = null"
+              >
+                <RefreshCw v-if="exportingPluginName === plugin.name" class="w-3.5 h-3.5 animate-spin" />
+                <Download v-else class="w-3.5 h-3.5" />
+                <span>{{ t('settings.pluginsExport') }}</span>
+              </button>
 
-          <!-- 删除 (仅自定义插件) -->
-          <button
-            v-if="!plugin.builtin"
-            type="button"
-            class="ui-btn-secondary !py-1 !px-2.5 !text-xs inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/30"
-            :disabled="deletingPluginName === plugin.name"
-            @click="handleDelete(plugin)"
-          >
-            <RefreshCw v-if="deletingPluginName === plugin.name" class="w-3 h-3 animate-spin" />
-            <Trash2 v-else class="w-3 h-3" />
-            {{ t('common.delete') }}
-          </button>
+              <!-- 删除（仅自定义插件） -->
+              <div v-if="!plugin.builtin" class="border-t border-gray-100 dark:border-gray-700 my-0.5"></div>
+              <button
+                v-if="!plugin.builtin"
+                type="button"
+                class="w-full text-left px-3 py-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/40 flex items-center gap-2 text-rose-600 dark:text-rose-400"
+                :disabled="deletingPluginName === plugin.name"
+                :title="t('common.delete')"
+                @click="handleDelete(plugin); activeMoreDropdownPlugin = null"
+              >
+                <RefreshCw v-if="deletingPluginName === plugin.name" class="w-3.5 h-3.5 animate-spin" />
+                <Trash2 v-else class="w-3.5 h-3.5" />
+                <span>{{ t('common.delete') }}</span>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -2126,11 +2412,27 @@ onMounted(() => {
         </div>
 
         <div class="flex items-center gap-2 shrink-0">
+          <button
+            v-if="upgradableMarketPlugins.length > 0"
+            type="button"
+            class="ui-btn-primary !px-2.5 !py-1 !text-xs !bg-amber-600 hover:!bg-amber-700 inline-flex items-center gap-1.5 shadow-xs"
+            :disabled="isUpdatingAll || marketLoading"
+            @click="handleBatchUpdateAll"
+          >
+            <RefreshCw v-if="isUpdatingAll" class="w-3.5 h-3.5 animate-spin" />
+            <Sparkles v-else class="w-3.5 h-3.5" />
+            <span>
+              {{ isUpdatingAll
+                ? `${t('settings.marketUpdating')} (${updateAllProgress.current}/${updateAllProgress.total})`
+                : t('settings.marketUpdateAllBtn', { count: upgradableMarketPlugins.length }) }}
+            </span>
+          </button>
           <a
             href="https://github.com/Silentely/TG-SignPulse/tree/dev/community_plugins"
             target="_blank"
             rel="noopener noreferrer"
             class="ui-btn-secondary !px-2.5 !py-1 !text-xs inline-flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400 hover:text-indigo-700"
+            :title="t('settings.marketContributeTooltip')"
           >
             <ExternalLink class="w-3.5 h-3.5" />
             {{ t('settings.marketContributeBtn') }}
@@ -2148,7 +2450,7 @@ onMounted(() => {
       </div>
 
       <!-- 搜索与筛选控制栏 -->
-      <div class="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+      <div class="flex flex-col lg:flex-row gap-3 items-start lg:items-center justify-between">
         <!-- 搜索框 -->
         <div class="relative w-full sm:w-72">
           <Search class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -2160,25 +2462,41 @@ onMounted(() => {
           />
         </div>
 
-        <!-- 状态过滤器 -->
-        <div class="flex items-center gap-1 flex-wrap text-xs">
-          <button
-            v-for="st in [
-              { key: 'all', label: t('settings.marketStatusAll') },
-              { key: 'not_installed', label: t('settings.marketStatusNotInstalled') },
-              { key: 'installed', label: t('settings.marketStatusInstalled') },
-              { key: 'upgradable', label: t('settings.marketStatusUpgradable') },
-            ]"
-            :key="st.key"
-            type="button"
-            class="px-2.5 py-1 rounded-full text-xs transition-colors"
-            :class="marketSelectedStatus === st.key
-              ? 'bg-indigo-600 text-white font-medium'
-              : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'"
-            @click="marketSelectedStatus = st.key as any"
-          >
-            {{ st.label }}
-          </button>
+        <div class="flex items-center gap-3 flex-wrap w-full lg:w-auto justify-between lg:justify-end">
+          <!-- 排序选择 -->
+          <div class="flex items-center gap-1.5 text-xs text-gray-500">
+            <span class="text-[11px] shrink-0">{{ t('settings.marketSortLabel') }}:</span>
+            <select
+              v-model="marketSortBy"
+              class="ui-input !py-1 !px-2 !text-xs !w-auto"
+            >
+              <option value="default">{{ t('settings.marketSortDefault') }}</option>
+              <option value="updated">{{ t('settings.marketSortUpdated') }}</option>
+              <option value="name">{{ t('settings.marketSortName') }}</option>
+              <option value="status">{{ t('settings.marketSortStatus') }}</option>
+            </select>
+          </div>
+
+          <!-- 状态过滤器 -->
+          <div class="flex items-center gap-1 flex-wrap text-xs">
+            <button
+              v-for="st in [
+                { key: 'all', label: t('settings.marketStatusAll') },
+                { key: 'not_installed', label: t('settings.marketStatusNotInstalled') },
+                { key: 'installed', label: t('settings.marketStatusInstalled') },
+                { key: 'upgradable', label: upgradableMarketPlugins.length ? `${t('settings.marketStatusUpgradable')} (${upgradableMarketPlugins.length})` : t('settings.marketStatusUpgradable') },
+              ]"
+              :key="st.key"
+              type="button"
+              class="px-2.5 py-1 rounded-full text-xs transition-colors"
+              :class="marketSelectedStatus === st.key
+                ? 'bg-indigo-600 text-white font-medium'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'"
+              @click="marketSelectedStatus = st.key as any"
+            >
+              {{ st.label }}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -2206,6 +2524,55 @@ onMounted(() => {
         </button>
       </div>
 
+      <!-- 镜像源网络拉取异常提示与快速切换 -->
+      <div v-if="marketCatalogError && marketCatalog.length === 0" class="p-4 rounded-lg border border-rose-200 dark:border-rose-900/50 bg-rose-50/60 dark:bg-rose-950/20 text-xs space-y-2.5">
+        <div class="flex items-start gap-2.5">
+          <AlertCircle class="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+          <div class="space-y-1">
+            <div class="font-medium text-rose-900 dark:text-rose-200">
+              {{ t('settings.marketLoadFailedTitle') }}
+            </div>
+            <p class="text-[11px] text-rose-700 dark:text-rose-300/80">
+              {{ marketCatalogError }}
+            </p>
+            <p class="text-[11px] text-rose-800 dark:text-rose-200 pt-0.5 font-medium">
+              {{ t('settings.marketLoadFailedHint') }}
+            </p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 flex-wrap pl-6">
+          <button
+            v-if="marketSourceType !== 'jsdelivr'"
+            type="button"
+            class="ui-btn-secondary !text-xs !py-1 !px-2.5 inline-flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400 hover:text-indigo-700"
+            :disabled="isSavingSource"
+            @click="quickSwitchSource('jsdelivr')"
+          >
+            <Zap class="w-3.5 h-3.5" />
+            <span>{{ t('settings.marketSwitchToJsdelivr') }}</span>
+          </button>
+          <button
+            v-if="marketSourceType !== 'ghproxy'"
+            type="button"
+            class="ui-btn-secondary !text-xs !py-1 !px-2.5 inline-flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400 hover:text-indigo-700"
+            :disabled="isSavingSource"
+            @click="quickSwitchSource('ghproxy')"
+          >
+            <Zap class="w-3.5 h-3.5" />
+            <span>{{ t('settings.marketSwitchToGhproxy') }}</span>
+          </button>
+          <button
+            type="button"
+            class="ui-btn-secondary !text-xs !py-1 !px-2.5 inline-flex items-center gap-1.5"
+            :disabled="marketLoading"
+            @click="fetchMarketCatalog(true)"
+          >
+            <RefreshCw class="w-3.5 h-3.5" :class="marketLoading ? 'animate-spin' : ''" />
+            <span>{{ t('settings.pluginsReload') }}</span>
+          </button>
+        </div>
+      </div>
+
       <!-- 加载状态 -->
       <div v-if="marketLoading" class="py-12 flex flex-col items-center justify-center gap-2 text-slate-400">
         <RefreshCw class="w-6 h-6 animate-spin text-indigo-500" />
@@ -2231,9 +2598,16 @@ onMounted(() => {
                     {{ p.name }}
                   </h3>
                   <div class="flex items-center gap-1.5 text-[10px] text-gray-400">
-                    <span class="font-mono">v{{ p.version }}</span>
+                    <span
+                      v-if="p.status === 'upgradable'"
+                      class="font-mono text-amber-600 dark:text-amber-400 font-semibold"
+                      :title="`v${p.installed_version} → v${p.version}`"
+                    >
+                      v{{ p.installed_version }} → v{{ p.version }}
+                    </span>
+                    <span v-else class="font-mono">v{{ p.version }}</span>
                     <span>·</span>
-                    <span>{{ p.author }}</span>
+                    <span class="truncate max-w-[8rem]">{{ p.author }}</span>
                   </div>
                 </div>
               </div>
@@ -2242,8 +2616,10 @@ onMounted(() => {
               <span
                 v-if="p.status === 'upgradable'"
                 class="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 flex items-center gap-1 animate-pulse"
+                :title="`可升级至 v${p.version}`"
               >
-                {{ t('settings.marketStatusUpgradable') }}
+                <Sparkles class="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                {{ t('settings.marketStatusUpgradable') }} (v{{ p.version }})
               </span>
               <span
                 v-else-if="p.status === 'installed'"
@@ -2310,11 +2686,11 @@ onMounted(() => {
                 v-else-if="p.status === 'upgradable'"
                 type="button"
                 class="ui-btn-primary !px-2.5 !py-1 !text-xs !bg-amber-600 hover:!bg-amber-700 inline-flex items-center gap-1"
-                :disabled="installingPluginId === p.id"
+                :disabled="installingPluginId === p.id || isUpdatingAll"
                 @click="handleUpdateMarketPlugin(p)"
               >
                 <RefreshCw v-if="installingPluginId === p.id" class="w-3 h-3 animate-spin" />
-                <Sparkles class="w-3 h-3" />
+                <Sparkles v-else class="w-3 h-3" />
                 {{ installingPluginId === p.id ? t('settings.marketUpdating') : `${t('settings.marketUpdate')} v${p.version}` }}
               </button>
 
@@ -2348,11 +2724,20 @@ onMounted(() => {
     <Modal
       :title="`${t('settings.pluginsSourceTitle')}: ${currentSourcePlugin?.name ?? ''}`"
       :is-open="isSourceModalOpen"
-      max-width-class="max-w-3xl"
+      :max-width-class="isEditorFullscreen ? '!max-w-none !w-[98vw] !h-[94vh] !max-h-[94vh] !flex !flex-col' : 'max-w-3xl'"
       @close="handleCloseSourceModal"
     >
       <template #header-extra>
         <div class="flex items-center gap-1.5 ml-2">
+          <button
+            type="button"
+            class="ui-btn-secondary !py-1 !px-2 !text-xs inline-flex items-center gap-1"
+            :title="isEditorFullscreen ? t('settings.pluginsEditorExitFullscreen') : t('settings.pluginsEditorFullscreen')"
+            @click="isEditorFullscreen = !isEditorFullscreen"
+          >
+            <Minimize2 v-if="isEditorFullscreen" class="w-3.5 h-3.5" />
+            <Maximize2 v-else class="w-3.5 h-3.5" />
+          </button>
           <button
             v-if="!currentSourcePlugin?.builtin"
             type="button"
@@ -2482,26 +2867,151 @@ onMounted(() => {
           </div>
           <textarea
             v-else
+            ref="sourceEditorTextarea"
             v-model="editedSourceCode"
-            rows="18"
+            :rows="isEditorFullscreen ? 30 : 18"
             class="w-full bg-gray-950 text-gray-100 font-mono text-[11px] leading-relaxed p-4 rounded-lg border border-gray-800 focus:outline-none focus:ring-1 focus:ring-amber-500 resize-y"
             spellcheck="false"
           ></textarea>
-          <!-- 安全审计风险提醒 -->
-          <div v-if="auditWarnings.length > 0" class="p-2.5 rounded bg-amber-50/80 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/80 text-[11px] font-mono space-y-1">
-            <div class="flex items-center gap-1 text-amber-700 dark:text-amber-300 font-semibold">
-              <AlertTriangle class="w-3.5 h-3.5" />
-              <span>{{ t('settings.pluginsAuditWarnings', { n: auditWarnings.length }) }}</span>
+
+          <!-- 安全审计与全方位体检面板 -->
+          <div
+            v-if="auditWarnings.length > 0 || auditScore !== null"
+            class="p-3 rounded-lg border text-[11px] font-mono space-y-2 transition-all"
+            :class="{
+              'bg-emerald-50/80 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/60': auditRiskLevel === 'safe' && auditWarnings.length === 0,
+              'bg-blue-50/80 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800/60': auditRiskLevel === 'notice',
+              'bg-amber-50/80 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800/80': auditRiskLevel === 'warning',
+              'bg-rose-50/80 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800/80': auditRiskLevel === 'critical'
+            }"
+          >
+            <!-- 头部：评分与风险等级徽章 -->
+            <div class="flex items-center justify-between flex-wrap gap-2">
+              <div
+                class="flex items-center gap-1.5 font-semibold"
+                :class="{
+                  'text-emerald-700 dark:text-emerald-300': auditRiskLevel === 'safe' && auditWarnings.length === 0,
+                  'text-blue-700 dark:text-blue-300': auditRiskLevel === 'notice',
+                  'text-amber-700 dark:text-amber-300': auditRiskLevel === 'warning',
+                  'text-rose-700 dark:text-rose-300': auditRiskLevel === 'critical'
+                }"
+              >
+                <ShieldCheck v-if="auditRiskLevel === 'safe' && auditWarnings.length === 0" class="w-4 h-4 text-emerald-500" />
+                <AlertTriangle v-else class="w-4 h-4" />
+                <span>{{ t('settings.pluginsAuditTitle') }}</span>
+                <span
+                  v-if="auditScore !== null"
+                  class="px-1.5 py-0.5 rounded text-[10px] font-bold"
+                  :class="{
+                    'bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200': auditScore >= 90,
+                    'bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200': auditScore < 90 && auditScore >= 60,
+                    'bg-rose-100 dark:bg-rose-900/60 text-rose-800 dark:text-rose-200': auditScore < 60
+                  }"
+                >
+                  {{ auditScore }} {{ t('settings.pluginsAuditScoreUnit') }}
+                </span>
+                <span
+                  class="px-1.5 py-0.5 rounded text-[10px] uppercase font-bold"
+                  :class="{
+                    'bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200': auditRiskLevel === 'safe',
+                    'bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-200': auditRiskLevel === 'notice',
+                    'bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200': auditRiskLevel === 'warning',
+                    'bg-rose-100 dark:bg-rose-900/60 text-rose-800 dark:text-rose-200': auditRiskLevel === 'critical'
+                  }"
+                >
+                  {{ t(`settings.pluginsAuditRisk_${auditRiskLevel}`) }}
+                </span>
+              </div>
+              <span v-if="auditWarnings.length > 0" class="text-xs text-gray-500 dark:text-gray-400">
+                {{ t('settings.pluginsAuditWarnings', { n: auditWarnings.length }) }}
+              </span>
+              <span v-else class="text-xs text-emerald-600 dark:text-emerald-400">
+                {{ t('settings.pluginsAuditSafe') }}
+              </span>
             </div>
-            <div v-for="(warn, wIdx) in auditWarnings" :key="wIdx" class="text-amber-800 dark:text-amber-200">
-              L{{ warn.line }}: {{ warn.message }}
+
+            <!-- 权限越界提示 -->
+            <div
+              v-if="auditUndeclared.length > 0"
+              class="p-2 rounded bg-amber-100/60 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700/60 text-amber-900 dark:text-amber-200 text-xs flex items-start gap-1.5"
+            >
+              <AlertCircle class="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+              <div>
+                <span class="font-semibold">{{ t('settings.pluginsAuditUndeclaredAlert') }}: </span>
+                <span>{{ auditUndeclared.join(', ') }}（{{ t('settings.pluginsAuditUndeclaredHint') }}）</span>
+              </div>
             </div>
+
+            <!-- 告警条目清单（点击跳转行） -->
+            <div v-if="auditWarnings.length > 0" class="space-y-1 max-h-36 overflow-y-auto pr-1">
+              <div
+                v-for="(warn, wIdx) in auditWarnings"
+                :key="wIdx"
+                class="flex items-start justify-between gap-2 p-1.5 rounded hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer group transition-colors"
+                @click="jumpToSourceLine(warn.line)"
+                :title="t('settings.pluginsAuditClickJump')"
+              >
+                <div class="flex items-start gap-1.5 min-w-0 flex-1">
+                  <span
+                    class="px-1 py-0.2 rounded text-[9.5px] font-bold uppercase shrink-0"
+                    :class="warn.severity === 'high' || warn.severity === 'critical' ? 'bg-rose-200 dark:bg-rose-900 text-rose-800 dark:text-rose-100' : 'bg-amber-200 dark:bg-amber-900 text-amber-800 dark:text-amber-100'"
+                  >
+                    {{ warn.severity }}
+                  </span>
+                  <span class="font-bold text-gray-700 dark:text-gray-300 shrink-0">L{{ warn.line }}:</span>
+                  <span class="text-gray-800 dark:text-gray-200 break-words">{{ warn.message }}</span>
+                </div>
+                <span class="text-[10px] text-sky-600 dark:text-sky-400 opacity-0 group-hover:opacity-100 shrink-0 underline">
+                  {{ t('settings.pluginsAuditJumpLine') }}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 静态识别能力标签 -->
+          <div v-if="auditCapabilities.length > 0" class="flex items-center gap-1.5 flex-wrap text-[11px] px-1">
+            <span class="text-gray-400 font-medium">{{ t('settings.pluginsCapabilitiesDetected') }}:</span>
+            <span
+              v-for="cap in auditCapabilities"
+              :key="cap"
+              class="px-2 py-0.5 rounded bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800 text-[10.5px] font-mono font-medium"
+            >
+              {{ cap }}
+            </span>
           </div>
 
           <div class="flex items-center justify-end gap-2">
             <div v-if="syntaxResult" class="mr-auto text-[11px] font-mono flex items-center gap-1 px-2 py-1 rounded" :class="syntaxResult.valid ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' : 'bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-300 border border-rose-200 dark:border-rose-800'">
               <span>{{ syntaxResult.message }}</span>
             </div>
+            <!-- 快捷代码片段下拉 -->
+            <div class="relative plugin-snippet-dropdown-container mr-auto">
+              <button
+                type="button"
+                class="ui-btn-secondary !py-1.5 !px-2.5 !text-xs inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"
+                @click.stop="showSnippetDropdown = !showSnippetDropdown"
+              >
+                <Code class="w-3.5 h-3.5" />
+                <span>{{ t('settings.pluginsSnippetsTitle') }}</span>
+                <ChevronDown class="w-3 h-3 text-gray-400" />
+              </button>
+
+              <div
+                v-if="showSnippetDropdown"
+                class="absolute left-0 bottom-full mb-1 w-60 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl py-1 z-30 text-xs flex flex-col"
+              >
+                <button
+                  v-for="s in SDK_SNIPPETS"
+                  :key="s.labelKey"
+                  type="button"
+                  class="w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700/60 font-mono text-[11px] truncate"
+                  @click="insertSnippet(s.code)"
+                >
+                  {{ t(s.labelKey) }}
+                </button>
+              </div>
+            </div>
+
             <button
               type="button"
               class="ui-btn-secondary !py-1.5 !px-3 !text-xs inline-flex items-center gap-1.5 text-blue-600 dark:text-blue-400"
@@ -2553,7 +3063,7 @@ onMounted(() => {
               type="button"
               class="ui-btn-primary !py-1.5 !px-4 !text-xs inline-flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white"
               :disabled="savingSource"
-              @click="saveSourceCode"
+              @click="() => saveSourceCode(false)"
             >
               <RefreshCw v-if="savingSource" class="w-3.5 h-3.5 animate-spin" />
               <Save v-else class="w-3.5 h-3.5" />
@@ -2768,10 +3278,28 @@ onMounted(() => {
             <span>{{ t('settings.pluginsPlaygroundResetStorage') }}</span>
           </label>
 
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-1.5">
             <button
               type="button"
-              class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs inline-flex items-center gap-1 text-gray-500 hover:text-gray-700"
+              class="ui-btn-secondary !px-2 !py-1.5 !text-xs inline-flex items-center gap-1 text-gray-600 dark:text-gray-300"
+              :title="t('settings.pluginsPlaygroundLoadPreset')"
+              @click="loadPlaygroundPreset"
+            >
+              <Bookmark class="w-3 h-3 text-indigo-500" />
+              <span>{{ t('settings.pluginsPlaygroundLoadPreset') }}</span>
+            </button>
+            <button
+              type="button"
+              class="ui-btn-secondary !px-2 !py-1.5 !text-xs inline-flex items-center gap-1 text-gray-600 dark:text-gray-300"
+              :title="t('settings.pluginsPlaygroundSavePreset')"
+              @click="savePlaygroundPreset"
+            >
+              <Save class="w-3 h-3 text-amber-500" />
+              <span>{{ t('settings.pluginsPlaygroundSavePreset') }}</span>
+            </button>
+            <button
+              type="button"
+              class="ui-btn-secondary !px-2 !py-1.5 !text-xs inline-flex items-center gap-1 text-gray-500 hover:text-gray-700"
               :disabled="testRunning"
               @click="handleResetPlaygroundInputs"
             >
@@ -2828,10 +3356,59 @@ onMounted(() => {
             </div>
           </div>
 
+          <!-- 参数 Schema 校验警告 -->
+          <div v-if="testResult.param_warnings && testResult.param_warnings.length" class="p-2 bg-amber-500/10 border border-amber-500/30 rounded text-amber-700 dark:text-amber-300 text-xs space-y-1">
+            <div class="flex items-center gap-1.5 font-medium">
+              <AlertTriangle class="w-3.5 h-3.5 shrink-0" />
+              <span>{{ t('settings.pluginsPlaygroundParamWarnings') }}</span>
+            </div>
+            <ul class="list-disc list-inside space-y-0.5 text-[11px] font-mono">
+              <li v-for="(pw, idx) in testResult.param_warnings" :key="idx">{{ pw }}</li>
+            </ul>
+          </div>
+
+          <!-- 错误信息与精确 Traceback -->
+          <div v-if="testResult.error || testResult.traceback" class="p-2.5 bg-red-500/10 border border-red-500/30 rounded space-y-2 text-xs text-red-700 dark:text-red-300">
+            <div class="flex items-center justify-between gap-2 flex-wrap">
+              <div class="flex items-center gap-1.5 font-semibold">
+                <AlertCircle class="w-3.5 h-3.5 shrink-0" />
+                <span>{{ testResult.error || '执行异常' }}</span>
+              </div>
+              <div class="flex items-center gap-2 text-[10px]">
+                <span v-if="testResult.error_line" class="px-1.5 py-0.5 rounded bg-red-200/60 dark:bg-red-900/60 font-mono font-bold">
+                  {{ t('settings.pluginsPlaygroundErrorLine', { line: testResult.error_line }) }}
+                </span>
+                <button
+                  v-if="testResult.traceback"
+                  type="button"
+                  class="hover:underline text-red-600 dark:text-red-400 font-medium inline-flex items-center gap-1"
+                  @click="copyTraceback(testResult.traceback)"
+                >
+                  <Copy class="w-2.5 h-2.5" />
+                  <span>{{ t('settings.pluginsPlaygroundCopyTraceback') }}</span>
+                </button>
+              </div>
+            </div>
+            <div v-if="testResult.traceback" class="p-2 bg-black/80 dark:bg-black/90 text-red-300 rounded font-mono text-[10.5px] max-h-44 overflow-y-auto whitespace-pre-wrap select-all leading-relaxed">
+              {{ testResult.traceback }}
+            </div>
+          </div>
+
           <!-- 回复文本 -->
           <div v-if="testResult.reply_text !== undefined && testResult.reply_text !== null" class="p-2 bg-white/80 dark:bg-black/30 rounded border border-gray-200 dark:border-gray-800">
-            <span class="text-[10px] text-gray-400 block mb-0.5">{{ t('settings.pluginsReplyOutput') }}</span>
-            <div class="font-mono text-xs text-sky-600 dark:text-sky-300 font-semibold select-all">
+            <div class="flex items-center justify-between mb-0.5">
+              <span class="text-[10px] text-gray-400">{{ t('settings.pluginsReplyOutput') }}</span>
+              <button
+                v-if="canFormatReplyJson"
+                type="button"
+                class="text-[10px] text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center gap-1"
+                @click="formatReplyJson"
+              >
+                <Sparkles class="w-2.5 h-2.5" />
+                <span>{{ t('settings.pluginsFormatJson') }}</span>
+              </button>
+            </div>
+            <div class="font-mono text-xs text-sky-600 dark:text-sky-300 font-semibold select-all whitespace-pre-wrap">
               {{ testResult.reply_text }}
             </div>
           </div>
@@ -2899,6 +3476,9 @@ onMounted(() => {
               <option value="storage_counter">{{ t('settings.pluginsTemplateStorage') }}</option>
               <option value="regex_extractor">{{ t('settings.pluginsTplRegexExtractor') }}</option>
               <option value="webhook_alert">{{ t('settings.pluginsTplWebhookAlert') }}</option>
+              <option value="http_api_fetcher">{{ t('settings.pluginsTemplateHttpApi') }}</option>
+              <option value="command_router">{{ t('settings.pluginsTemplateCommandRouter') }}</option>
+              <option value="keyword_reply">{{ t('settings.pluginsTemplateKeywordReply') }}</option>
             </select>
           </div>
 

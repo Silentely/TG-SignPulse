@@ -183,7 +183,7 @@ def main() -> int:
     parser.add_argument(
         "--base-url",
         type=str,
-        default="https://raw.githubusercontent.com/Silentely/TG-SignPulse/dev/dist/marketplace/plugins/",
+        default="https://raw.githubusercontent.com/Silentely/TG-SignPulse/main/dist/marketplace/plugins/",
         help="Base URL prefix for plugin downloads",
     )
     parser.add_argument(

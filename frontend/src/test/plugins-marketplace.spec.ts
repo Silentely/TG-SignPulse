@@ -3,6 +3,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import i18n from '../i18n'
 import PluginsSettings from '../components/settings/PluginsSettings.vue'
 import * as pluginsApi from '../lib/api/plugins'
+import { useConfirm } from '../composables/useConfirm'
 
 vi.mock('../lib/api/core', () => ({
   withToken: vi.fn((cb) => cb('mock-token')),
@@ -296,5 +297,94 @@ describe('PluginsSettings.vue 插件市场功能', () => {
     await vi.waitFor(() => {
       expect(document.body.textContent).toContain('使用方法：发送 /roll 即可掷骰子。')
     })
+  })
+  it('支持展示升级版本对比与一键全部更新可升级插件', async () => {
+    const { accept } = useConfirm()
+    const mockPlugins: pluginsApi.MarketPluginItem[] = [
+      {
+        id: 'crypto_price_tracker',
+        name: '加密货币行情',
+        version: '1.2.0',
+        mode: 'reactive',
+        category: 'message',
+        description: '行情插件',
+        author: 'TG-SignPulse Team',
+        download_url: 'https://...',
+        installed: true,
+        installed_version: '1.0.0',
+        installed_is_builtin: false,
+        status: 'upgradable',
+      },
+    ]
+
+    vi.spyOn(pluginsApi, 'getMarketCatalog').mockResolvedValue({
+      total: 1,
+      source_type: 'github',
+      source_url: 'https://...',
+      plugins: mockPlugins,
+      cached: false,
+    })
+    vi.spyOn(pluginsApi, 'getMarketSource').mockResolvedValue({
+      source_type: 'github',
+      custom_url: '',
+      active_url: 'https://...',
+    })
+    const updateSpy = vi.spyOn(pluginsApi, 'updateMarketPlugin').mockResolvedValue({
+      name: 'crypto_price_tracker',
+      mode: 'reactive',
+      description: '行情插件',
+    })
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+
+    const marketTab = wrapper.findAll('button').find((btn) => btn.text().includes('插件市场'))
+    await marketTab!.trigger('click')
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('v1.0.0 → v1.2.0')
+    })
+
+    const updateAllBtn = wrapper.findAll('button').find((btn) => btn.text().includes('一键更新全部'))
+    expect(updateAllBtn).toBeDefined()
+    await updateAllBtn!.trigger('click')
+    accept()
+
+    await vi.waitFor(() => {
+      expect(updateSpy).toHaveBeenCalledWith('crypto_price_tracker', 'mock-token')
+    })
+  })
+
+  it('市场加载失败时展示网络异常提示并支持快速切换镜像源', async () => {
+    vi.spyOn(pluginsApi, 'getMarketCatalog').mockRejectedValueOnce(new Error('Network connection timeout'))
+    vi.spyOn(pluginsApi, 'getMarketSource').mockResolvedValue({
+      source_type: 'github',
+      custom_url: '',
+      active_url: 'https://raw.githubusercontent.com/...',
+    })
+    const updateSourceSpy = vi.spyOn(pluginsApi, 'updateMarketSource').mockResolvedValue({
+      source_type: 'jsdelivr',
+      custom_url: null,
+      active_url: 'https://cdn.jsdelivr.net/...',
+    })
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+
+    const marketTab = wrapper.findAll('button').find((btn) => btn.text().includes('插件市场'))
+    await marketTab!.trigger('click')
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('插件市场清单加载失败')
+      expect(wrapper.text()).toContain('Network connection timeout')
+    })
+
+    const switchBtn = wrapper.findAll('button').find((btn) => btn.text().includes('切换至 jsDelivr CDN 镜像'))
+    expect(switchBtn).toBeDefined()
+    await switchBtn!.trigger('click')
+
+    expect(updateSourceSpy).toHaveBeenCalledWith('jsdelivr', undefined, 'mock-token')
   })
 })

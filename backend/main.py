@@ -397,9 +397,15 @@ async def on_startup() -> None:
     ensure_data_dirs(settings)
     try:
         from tg_signer.core.plugins import PluginRegistry
+        from backend.api.routes.plugins import _get_disabled_plugins
 
         count = PluginRegistry.load_all_configured_plugins()
-        logging.getLogger("backend.startup").info("已扫描加载 %d 个自定义扩展插件", count)
+        disabled_set = _get_disabled_plugins()
+        for name in PluginRegistry.list_plugins():
+            PluginRegistry.set_disabled(name, disabled=name in disabled_set)
+        logging.getLogger("backend.startup").info(
+            "已扫描加载 %d 个自定义扩展插件 (已持久化禁用 %d 个)", count, len(disabled_set)
+        )
     except Exception as exc:
         logging.getLogger("backend.startup").warning("扫描插件目录异常: %s", exc)
 

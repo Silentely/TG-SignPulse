@@ -650,7 +650,7 @@ describe('PluginsSettings.vue 插件管理组件', () => {
     expect(saveBtn).toBeDefined()
     saveBtn!.click()
 
-    expect(updateSpy).toHaveBeenCalledWith('custom_edit_plug', 'print("modified")', 'mock-token')
+    expect(updateSpy).toHaveBeenCalledWith('custom_edit_plug', 'print("modified")', 'mock-token', false)
   })
 
   it('支持批量启用自定义插件与清空全部运行指标，并展示最近执行异常', async () => {
@@ -1298,6 +1298,220 @@ describe('PluginsSettings.vue 插件管理组件', () => {
         namespace: '12345:store_demo_plugin',
         key: 'user_count',
       })
+    })
+  })
+
+  it('自定义插件卡片更多操作下拉支持展开交互', async () => {
+    const mockPlugin: any = {
+      name: 'opt_demo_plugin',
+      mode: 'reactive' as const,
+      description: '优化演示插件',
+      enabled: true,
+      builtin: false,
+    }
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValue([mockPlugin])
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('opt_demo_plugin')
+    })
+
+    const moreBtn = wrapper.find('button[title*="更多操作"]')
+    expect(moreBtn.exists()).toBe(true)
+    await moreBtn.trigger('click')
+
+    // 下拉菜单应可见并包含克隆、导出源码、调用历史
+    expect(wrapper.text()).toContain('克隆')
+    expect(wrapper.text()).toContain('导出源码')
+    expect(wrapper.text()).toContain('调用历史')
+  })
+
+  it('源码编辑器支持SDK快捷代码片段插入与全屏切换，新建插件模版库扩展', async () => {
+    const mockPlugin: any = {
+      name: 'sdk_snippet_plug',
+      mode: 'reactive' as const,
+      description: '代码片段插件',
+      enabled: true,
+      builtin: false,
+    }
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValue([mockPlugin])
+    vi.spyOn(pluginsApi, 'getPluginSource').mockResolvedValue({
+      name: 'sdk_snippet_plug',
+      source: 'async def handler(ctx): pass',
+      source_path: '/path/plug.py',
+    })
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('sdk_snippet_plug')
+    })
+
+    // 1. 打开源码弹窗并进入编辑模式
+    const srcBtn = wrapper.findAll('button').find((b) => b.text().includes('查看源码'))
+    await srcBtn!.trigger('click')
+
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain('async def handler(ctx): pass')
+    })
+
+    const editBtn = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.includes('编辑源码'))
+    expect(editBtn).toBeDefined()
+    editBtn!.click()
+
+    await vi.waitFor(() => {
+      expect(document.body.querySelector('textarea')).not.toBeNull()
+    })
+
+    // 2. 全屏模式切换
+    const fullscreenBtn = Array.from(document.body.querySelectorAll('button')).find((b) => b.getAttribute('title')?.includes('全屏'))
+    expect(fullscreenBtn).toBeDefined()
+    fullscreenBtn!.click()
+
+    // 3. 点击插入 SDK 代码片段下拉
+    const snippetBtn = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.includes('插入 SDK 代码片段'))
+    expect(snippetBtn).toBeDefined()
+    snippetBtn!.click()
+
+    await vi.waitFor(() => {
+      const getParamBtn = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.includes('ctx.get_param'))
+      expect(getParamBtn).toBeDefined()
+      getParamBtn!.click()
+    })
+
+    const textarea = document.body.querySelector('textarea') as HTMLTextAreaElement
+    expect(textarea.value).toContain('target_param = ctx.get_param("param_key"')
+
+    // 4. 新建模版下拉包含新模版
+    const createBtn = wrapper.findAll('button').find((b) => b.text().includes('新建插件'))
+    expect(createBtn).toBeDefined()
+    await createBtn!.trigger('click')
+
+    await vi.waitFor(() => {
+      const select = document.body.querySelector('select')
+      expect(select).not.toBeNull()
+      const optionsText = Array.from(select!.querySelectorAll('option')).map((o) => o.textContent)
+      expect(optionsText.some((t) => t?.includes('HTTP API'))).toBe(true)
+      expect(optionsText.some((t) => t?.includes('斜杠命令路由'))).toBe(true)
+      expect(optionsText.some((t) => t?.includes('关键词智能匹配'))).toBe(true)
+    })
+  })
+
+  it('试验场回显支持参数警告展示与异常调用栈精准定位', async () => {
+    const mockPlugin: any = {
+      name: 'tb_demo_plugin',
+      mode: 'reactive' as const,
+      description: 'Traceback演示插件',
+      enabled: true,
+      builtin: false,
+    }
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValue([mockPlugin])
+    vi.spyOn(pluginsApi, 'testPlugin').mockResolvedValue({
+      name: 'tb_demo_plugin',
+      mode: 'reactive',
+      success: false,
+      handled: false,
+      duration_ms: 12.5,
+      error: 'ZeroDivisionError: division by zero',
+      traceback: 'Traceback (most recent call last):\n  File "demo.py", line 42, in handler\n    1/0',
+      error_line: 42,
+      param_warnings: ['必填参数 密钥 (api_key) 未配置'],
+      logs: ['[error] 插件执行异常'],
+    })
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('tb_demo_plugin')
+    })
+
+    const playBtn = wrapper.findAll('button').find((b) => b.text().includes('调试'))
+    expect(playBtn).toBeDefined()
+    await playBtn!.trigger('click')
+
+    await vi.waitFor(() => {
+      const runBtn = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.includes('执行测试'))
+      expect(runBtn).toBeDefined()
+      runBtn!.click()
+    })
+
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain('必填参数 密钥 (api_key) 未配置')
+      expect(document.body.textContent).toContain('第 42 行')
+      expect(document.body.textContent).toContain('ZeroDivisionError: division by zero')
+      expect(document.body.textContent).toContain('File "demo.py", line 42')
+    })
+  })
+
+  it('源码编辑器安全体检展示安全评分、风险等级与权限越界提示', async () => {
+    const mockPlugin: any = {
+      name: 'audit_test_plug',
+      mode: 'reactive' as const,
+      description: '审计测试插件',
+      enabled: true,
+      builtin: false,
+    }
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValue([mockPlugin])
+    vi.spyOn(pluginsApi, 'getPluginSource').mockResolvedValue({
+      name: 'audit_test_plug',
+      source: 'import os\ndef run(): os.system("id")',
+    })
+    vi.spyOn(pluginsApi, 'auditPluginSource').mockResolvedValue({
+      passed: false,
+      score: 40,
+      risk_level: 'critical',
+      warnings: [
+        {
+          line: 2,
+          column: 15,
+          severity: 'critical',
+          rule: 'dangerous-system-call:os.system',
+          message: '检测到调用高危系统命令 os.system',
+        },
+      ],
+      detected_capabilities: ['network'],
+      declared_permissions: [],
+      undeclared_capabilities: ['network'],
+      can_save_safely: false,
+    })
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('audit_test_plug')
+    })
+
+    const viewBtn = wrapper.findAll('button').find((b) => b.text().includes('查看源码'))
+    expect(viewBtn).toBeDefined()
+    await viewBtn!.trigger('click')
+
+    await vi.waitFor(() => {
+      const editBtn = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.includes('编辑源码'))
+      expect(editBtn).toBeDefined()
+      editBtn!.click()
+    })
+
+    await vi.waitFor(() => {
+      const auditBtn = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.includes('安全审计'))
+      expect(auditBtn).toBeDefined()
+      auditBtn!.click()
+    })
+
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain('40 分')
+      expect(document.body.textContent).toContain('高危')
+      expect(document.body.textContent).toContain('权限越界告警')
+      expect(document.body.textContent).toContain('network')
+      expect(document.body.textContent).toContain('检测到调用高危系统命令 os.system')
     })
   })
 })

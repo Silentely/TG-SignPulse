@@ -160,7 +160,7 @@ describe('plugins api 扩展接口', () => {
       '/plugins/custom_calc/source',
       {
         method: 'PUT',
-        body: JSON.stringify({ source: 'print("new")' }),
+        body: JSON.stringify({ source: 'print("new")', force: false }),
       },
       'test-token',
     )
