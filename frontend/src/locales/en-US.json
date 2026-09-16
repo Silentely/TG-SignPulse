@@ -1069,7 +1069,8 @@
     "pluginsAuditRiskAlertConfirm": "Detected high-risk or critical calls. Force saving and loading may introduce security hazards. Are you sure you want to force save?",
     "pluginsAuditForceSave": "Force Save",
     "pluginsCopyFailed": "Failed to copy",
-    "pluginsSnippetInserted": "Code snippet inserted"
+    "pluginsSnippetInserted": "Code snippet inserted",
+    "pluginsPlaygroundPresetCorrupted": "Preset configuration is corrupted and cannot be parsed"
   },
   "profile": {
     "title": "Profile",

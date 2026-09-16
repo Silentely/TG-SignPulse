@@ -616,7 +616,7 @@ function loadPlaygroundPreset() {
     if (data.resetStorage !== undefined) resetStorage.value = data.resetStorage
     toast.success(t('settings.pluginsPlaygroundPresetLoaded'))
   } catch {
-    toast.error(t('settings.pluginsPlaygroundNoPreset'))
+    toast.error(t('settings.pluginsPlaygroundPresetCorrupted'))
   }
 }
 
@@ -982,8 +982,10 @@ const jumpToSourceLine = (lineNo: number) => {
   }
   sourceEditorTextarea.value.focus()
   sourceEditorTextarea.value.setSelectionRange(pos, pos + (lines[validLine - 1]?.length || 0))
-  const lineHeight = 18
-  sourceEditorTextarea.value.scrollTop = Math.max(0, (validLine - 4) * lineHeight)
+  const computedLineHeight = sourceEditorTextarea.value
+    ? parseFloat(window.getComputedStyle(sourceEditorTextarea.value).lineHeight) || 18
+    : 18
+  sourceEditorTextarea.value.scrollTop = Math.max(0, (validLine - 4) * computedLineHeight)
 }
 
 const handleAuditSource = async () => {
