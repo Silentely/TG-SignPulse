@@ -1069,7 +1069,8 @@
     "pluginsAuditRiskAlertConfirm": "检测到严重或高危调用，强制保存并加载可能对系统造成安全隐患，是否仍要强制保存？",
     "pluginsAuditForceSave": "强制保存",
     "pluginsCopyFailed": "复制失败",
-    "pluginsSnippetInserted": "代码片段已插入"
+    "pluginsSnippetInserted": "代码片段已插入",
+    "pluginsPlaygroundPresetCorrupted": "预设配置已损坏，无法解析"
   },
   "profile": {
     "title": "个人中心",

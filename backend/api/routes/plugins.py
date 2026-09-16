@@ -448,7 +448,7 @@ def _enforce_plugin_security_check(source_code: str, file_label: str = "插件")
     sec_report = compute_plugin_security_report(source_code)
     if not sec_report["can_save_safely"]:
         critical_msgs = [w["message"] for w in sec_report["warnings"] if w.get("severity") in ("critical", "high")]
-        detail_msg = f"{file_label} 未通过安全审查（评分: {sec_report['score']}分，风险: {sec_report['risk_level']}）: {'; '.join(critical_msgs[:2])}"
+        detail_msg = f"{file_label} 插件安全审计未通过（安全审查未通过，评分: {sec_report['score']}分，风险: {sec_report['risk_level']}）: {'; '.join(critical_msgs[:2])}"
         raise HTTPException(
             status_code=400,
             detail=detail_msg,
@@ -941,21 +941,7 @@ async def _do_install_market_plugin(plugin_id: str, is_update: bool = False) -> 
                     code_text = ef.read_text(encoding="utf-8")
                 except UnicodeDecodeError:
                     raise HTTPException(status_code=400, detail=f"插件代码不是合法的 UTF-8 编码 ({ef.name})")
-                try:
-                    tree = ast.parse(code_text, filename=ef.name)
-                except SyntaxError as exc:
-                    raise HTTPException(status_code=400, detail=f"插件代码语法错误 ({ef.name}): {exc}")
-
-                visitor = _SecurityVisitor()
-                visitor.visit(tree)
-                forbidden = [
-                    w for w in visitor.warnings
-                    if w.get("severity") in ("high", "critical")
-                    or "subprocess" in str(w.get("message", "")).lower()
-                    or "os.system" in str(w.get("message", "")).lower()
-                ]
-                if forbidden:
-                    raise HTTPException(status_code=400, detail=f"插件安全审计未通过: {forbidden[0]['message']}")
+                _enforce_plugin_security_check(code_text, ef.name)
 
         if not ((temp_dir / "main.py").is_file() or (temp_dir / "__init__.py").is_file()):
             raise HTTPException(status_code=400, detail="插件包缺少入口文件 (main.py 或 __init__.py)")
