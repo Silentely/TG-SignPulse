@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
@@ -15,7 +16,11 @@ from backend.core.auth import (
     verify_totp,
 )
 from backend.core.database import get_db
-from backend.core.rate_limit import compose_rate_limit_key, get_rate_limiter
+from backend.core.rate_limit import (
+    compose_rate_limit_key,
+    get_client_identifier,
+    get_rate_limiter,
+)
 from backend.core.security import verify_password
 from backend.models.login_log import LoginLog
 from backend.models.user import User
@@ -32,22 +37,7 @@ RESET_TOTP_RATE_LIMIT_DETAIL = (
 
 
 def _resolve_request_ip(request: Request) -> str:
-    ip = ""
-    forwarded_for = request.headers.get("x-forwarded-for", "")
-    if forwarded_for:
-        first_hop = forwarded_for.split(",", 1)[0].strip()
-        if first_hop:
-            ip = first_hop
-
-    if not ip:
-        real_ip = request.headers.get("x-real-ip", "").strip()
-        if real_ip:
-            ip = real_ip
-
-    if not ip and request.client and request.client.host:
-        ip = request.client.host
-
-    return ip[:64]
+    return get_client_identifier(request)[:64]
 
 
 def _append_login_log(
@@ -190,10 +180,8 @@ def reset_totp(
     db: Session = Depends(get_db),
 ):
     """
-    强制重置 TOTP（不需要 TOTP 验证码，只需要密码）
-
-    用于解决用户启用了 TOTP 但无法登录的问题。
-    需要提供正确的用户名和密码。
+    强制重置 TOTP（用于解决用户启用了 TOTP 但无法登录的问题）。
+    需要提供正确的用户名和密码。出于安全考虑，若已启用 TOTP，默认需环境配置 ALLOW_PASSWORD_ONLY_TOTP_RESET=true 授权。
     """
     # 验证用户名和密码
     reset_key = compose_rate_limit_key(http_request, request.username)
@@ -215,6 +203,24 @@ def reset_totp(
     if not verify_password(request.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误"
+        )
+
+    allow_reset = os.getenv("ALLOW_PASSWORD_ONLY_TOTP_RESET", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    if user.totp_secret and not allow_reset:
+        logger.warning(
+            "安全拦截：用户 %s 尝试仅通过密码重置两步验证，但系统未配置 ALLOW_PASSWORD_ONLY_TOTP_RESET=true",
+            user.username,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "出于安全考虑，已禁止仅凭密码重置两步验证。"
+                "若您遗失两步验证器，请使用命令行工具或在环境中设置 ALLOW_PASSWORD_ONLY_TOTP_RESET=true 进行应急重置。"
+            ),
         )
 
     had_totp_enabled = bool(user.totp_secret)
