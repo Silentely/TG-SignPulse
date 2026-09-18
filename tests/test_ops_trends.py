@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
@@ -14,11 +15,13 @@ from backend.models.user import User
 def test_get_history_trends(tmp_path: Path):
     service = SignTaskService()
     service.run_history_dir = tmp_path
+    # 窗口起点为 now-(days-1)，日期必须动态生成，硬编码日期会随日历推进跌出 7 天窗口
+    entry_day = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
     # 添加几条 index 条目
     append_index_entry(
         service.run_history_dir,
         build_index_entry(
-            time="2026-09-11 10:00:00",
+            time=f"{entry_day} 10:00:00",
             account_name="test_acc",
             task_name="task_1",
             success=True,
@@ -29,7 +32,7 @@ def test_get_history_trends(tmp_path: Path):
     append_index_entry(
         service.run_history_dir,
         build_index_entry(
-            time="2026-09-11 11:00:00",
+            time=f"{entry_day} 11:00:00",
             account_name="test_acc",
             task_name="task_2",
             success=False,
