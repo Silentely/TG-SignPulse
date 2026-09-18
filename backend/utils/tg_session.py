@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -429,6 +430,8 @@ def _export_session_string_from_file(session_dir: Path, account_name: str) -> Op
         try:
             cache_path = session_string_file_path(session_dir, account_name)
             cache_path.write_text(session_string, encoding="utf-8")
+            with contextlib.suppress(OSError):
+                os.chmod(cache_path, 0o600)
         except Exception:
             pass
 
@@ -444,6 +447,8 @@ def save_session_string_file(
 ) -> None:
     path = session_string_file_path(session_dir, account_name)
     path.write_text(session_string.strip(), encoding="utf-8")
+    with contextlib.suppress(OSError):
+        os.chmod(path, 0o600)
 
 
 def delete_session_string_file(session_dir: Path, account_name: str) -> None:

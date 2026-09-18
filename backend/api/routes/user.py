@@ -5,22 +5,18 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
-import jwt
 import pyotp
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
-from jwt import PyJWTError as JWTError
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from backend.core.auth import (
     create_access_token,
     get_current_user,
-    get_current_user_optional,
     get_user_by_username,
     verify_totp,
 )
-from backend.core.config import get_settings
 from backend.core.database import get_db
 from backend.core.security import hash_password, verify_password
 from backend.models.user import User
@@ -213,26 +209,8 @@ def setup_totp(current_user: User = Depends(get_current_user)):
 
 @router.get("/totp/qrcode")
 def get_totp_qrcode(
-    token: Optional[str] = None,
-    current_user: Optional[User] = Depends(get_current_user_optional),
-    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    settings = get_settings()
-
-    if current_user is None and token:
-        try:
-            payload = jwt.decode(token, settings.secret_key, algorithms=["HS256"])
-            username = payload.get("sub")
-            if username:
-                current_user = get_user_by_username(db, username)
-        except JWTError:
-            current_user = None
-
-    if current_user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="认证失败",
-        )
 
     secret = get_pending_totp_secret(current_user.id) or current_user.totp_secret
     if not secret:
@@ -320,6 +298,11 @@ def reset_totp(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    if current_user.totp_secret:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="已启用两步验证的用户无法直接重置，请调用 /totp/disable 进行验证关闭",
+        )
     current_user.totp_secret = None
     db.commit()
     clear_pending_totp_secret(current_user.id)

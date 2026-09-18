@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import secrets
@@ -26,12 +27,24 @@ def _get_or_create_bootstrap_password() -> tuple[str, Path]:
     try:
         existing = password_file.read_text(encoding="utf-8").strip()
         if existing:
+            with contextlib.suppress(OSError):
+                os.chmod(password_file, 0o600)
             return existing, password_file
     except OSError:
         pass
 
     password = secrets.token_urlsafe(12)
-    password_file.write_text(password, encoding="utf-8")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    try:
+        fd = os.open(str(password_file), flags, 0o600)
+        with open(fd, "w", encoding="utf-8") as f:
+            f.write(password)
+        with contextlib.suppress(OSError):
+            os.chmod(password_file, 0o600)
+    except OSError:
+        password_file.write_text(password, encoding="utf-8")
+        with contextlib.suppress(OSError):
+            os.chmod(password_file, 0o600)
     return password, password_file
 
 
@@ -45,21 +58,29 @@ def ensure_admin(db: Session, username: str = "admin", password: str = None):
     if first_user:
         return first_user
 
+    auto_password = False
+    bootstrap_file: Path | None = None
     if not password:
         env_pwd = os.getenv("ADMIN_PASSWORD")
         if env_pwd:
             password = env_pwd
         else:
-            password, password_file = _get_or_create_bootstrap_password()
-            logger.warning(
-                "SECURITY WARNING: Admin account created with a generated bootstrap password. "
-                "Read it from %s and change it immediately, or set ADMIN_PASSWORD before startup.",
-                password_file,
-            )
+            password, bootstrap_file = _get_or_create_bootstrap_password()
+            auto_password = True
 
-    # 如果没有任何用户，则创建默认管理员
-    new_user = User(username=username, password_hash=hash_password(password))
-    db.add(new_user)
+    admin = User(
+        username=username,
+        password_hash=hash_password(password),
+    )
+    db.add(admin)
     db.commit()
-    db.refresh(new_user)
-    return new_user
+    db.refresh(admin)
+
+    if auto_password and bootstrap_file:
+        logger.warning(
+            "SECURITY WARNING: Admin account created with a generated bootstrap password. "
+            "Read it from %s and change it immediately, or set ADMIN_PASSWORD before startup.",
+            bootstrap_file,
+        )
+
+    return admin

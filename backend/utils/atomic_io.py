@@ -1,8 +1,3 @@
-"""JSON 原子读写工具
-
-全项目配置文件/状态文件统一走本模块：进程内锁串行化同进程并发写、
-临时文件 + fsync + rename 保证崩溃不留下半截文件。
-"""
 from __future__ import annotations
 
 import contextlib
@@ -14,33 +9,40 @@ import threading
 from pathlib import Path
 from typing import Any
 
-_logger = logging.getLogger("backend.utils.atomic_io")
+_logger = logging.getLogger("backend.atomic_io")
 
-# 进程内写锁：同进程并发读写同一文件时串行化，避免交错
+# 跨线程互斥，避免同进程并发写入同一文件写坏内容
 _lock = threading.RLock()
 
 
 def write_json_atomic(path, data: Any) -> None:
-    """原子写入 JSON：临时文件 + fsync + rename，崩溃不留下半截文件。"""
+    """原子写入 JSON：临时文件 + 权限收敛(0600) + fsync + rename，崩溃不留下半截文件。"""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with _lock:
-        tmp = tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", delete=False, dir=path.parent, prefix=".atomic_tmp_"
-        )
-        actual_tmp = Path(tmp.name)
+        actual_tmp = None
         replaced = False
         try:
-            with tmp:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                dir=str(path.parent),
+                prefix=f".{path.name}.tmp-",
+                delete=False,
+                encoding="utf-8",
+            ) as tmp:
+                actual_tmp = Path(tmp.name)
                 json.dump(data, tmp, ensure_ascii=False, indent=2)
                 tmp.flush()
                 os.fsync(tmp.fileno())
+            with contextlib.suppress(OSError):
+                actual_tmp.chmod(0o600)
             os.replace(actual_tmp, path)
             replaced = True
         finally:
             if not replaced:
                 with contextlib.suppress(OSError):
-                    actual_tmp.unlink()
+                    if actual_tmp is not None and actual_tmp.exists():
+                        actual_tmp.unlink()
 
 
 def read_json_safe(path, default: Any = None) -> Any:
@@ -52,6 +54,6 @@ def read_json_safe(path, default: Any = None) -> Any:
         with _lock:
             with open(path, "r", encoding="utf-8") as f:
                 return json.load(f)
-    except (json.JSONDecodeError, OSError, UnicodeDecodeError, TypeError, ValueError):
-        _logger.debug("读取 JSON 失败，使用默认值: %s", path)
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError, TypeError, ValueError) as exc:
+        _logger.warning("读取 %s 失败，回退为默认值: %s", path, exc)
         return default

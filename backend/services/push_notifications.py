@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
+import os
 from datetime import datetime
 from typing import Any, Dict, Optional
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import httpx
 
@@ -243,6 +245,41 @@ async def send_telegram_bot_message(
     raise last_exc
 
 
+
+def _validate_push_target_url(url: str) -> None:
+    """校验外部 Webhook 推送地址安全性，防止云元数据泄露与恶意内网探测。"""
+    if not url or not (url.startswith("http://") or url.startswith("https://")):
+        raise ValueError("URL 格式无效，必须以 http:// 或 https:// 开头")
+
+    parsed = urlparse(url)
+    hostname = (parsed.hostname or "").lower().strip()
+    if not hostname:
+        raise ValueError("URL 缺少有效主机名")
+
+    # 严禁向云服务元数据端点发送请求
+    FORBIDDEN_HOSTS = {
+        "169.254.169.254",
+        "metadata.google.internal",
+        "100.100.100.200",
+        "fd00:ec2::254",
+    }
+    if hostname in FORBIDDEN_HOSTS:
+        raise ValueError(f"安全拦截：禁止向敏感云元数据地址发送推送 ({hostname})")
+
+    try:
+        ip = ipaddress.ip_address(hostname)
+    except ValueError:
+        ip = None
+
+    if ip is not None and ip.is_link_local:
+        raise ValueError("安全拦截：禁止向链路本地地址 (169.254.0.0/16) 发送推送")
+
+    if os.getenv("ENFORCE_PUBLIC_PUSH_URLS", "").lower() in ("1", "true", "yes"):
+        from tg_signer.utils import validate_public_http_url
+
+        validate_public_http_url(url)
+
+
 async def _http_post_retry_once(
     *,
     url: str,
@@ -256,6 +293,7 @@ async def _http_post_retry_once(
     与 send_telegram_bot_message 同一重试语义，供 bark / 自定义推送等
     非 Telegram 通道复用，保证各通道抖动下的到达率一致。
     """
+    _validate_push_target_url(url)
     last_exc: Optional[Exception] = None
     for attempt in (1, 2):
         try:

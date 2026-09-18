@@ -1269,7 +1269,7 @@ class _SecurityVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
-        if node.attr in ("__subclasses__", "__globals__", "__builtins__", "__code__"):
+        if node.attr in ("__subclasses__", "__globals__", "__builtins__", "__code__", "__bases__", "__base__", "__mro__"):
             self.warnings.append({
                 "line": node.lineno,
                 "column": node.col_offset,
@@ -1296,7 +1296,7 @@ class _SecurityVisitor(ast.NodeVisitor):
                 target_arg = node.args[-1] if raw_id == "getattr" and len(node.args) >= 2 else (node.args[0] if node.args else None)
                 if isinstance(target_arg, ast.Constant) and isinstance(target_arg.value, str):
                     val = target_arg.value
-                    if val in self._STAR_DANGEROUS_BARE_NAMES or val in ("system", "popen", "run", "Popen", "exec", "eval", "__builtins__"):
+                    if val in self._STAR_DANGEROUS_BARE_NAMES or val in ("system", "popen", "run", "Popen", "exec", "eval", "__builtins__", "__subclasses__", "__globals__", "__code__", "__bases__", "__base__", "__mro__"):
                         self.warnings.append({
                             "line": node.lineno,
                             "column": node.col_offset,
@@ -1534,7 +1534,7 @@ def extract_plugin_declared_permissions(source: str) -> List[str]:
                         if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
                             perms.add(elt.value)
 
-    return sorted(list(perms))
+    return sorted(perms)
 
 
 def audit_plugin_source(source: str) -> List[Dict[str, Any]]:

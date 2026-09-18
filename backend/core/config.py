@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import os
 import secrets
 from functools import lru_cache
@@ -39,15 +40,11 @@ def _merged_env() -> dict[str, str]:
     return {**_load_env_file(Path(".env")), **os.environ}
 
 
-def _read_env(
-    env: Mapping[str, str],
-    *names: str,
-    default: Optional[str] = None,
-) -> Optional[str]:
+def _read_env(env: Mapping[str, str], *names: str, default: Optional[str] = None) -> Optional[str]:
     for name in names:
-        value = str(env.get(name, "")).strip()
-        if value:
-            return value
+        val = env.get(name)
+        if val is not None and str(val).strip():
+            return str(val).strip()
     return default
 
 
@@ -91,6 +88,8 @@ def get_default_secret_key(env: Optional[Mapping[str, str]] = None) -> str:
     generated = secrets.token_urlsafe(48)
     try:
         secret_file.write_text(generated, encoding="utf-8")
+        with contextlib.suppress(OSError):
+            os.chmod(secret_file, 0o600)
     except OSError:
         pass
     return generated
@@ -103,6 +102,7 @@ class Settings(BaseModel):
     cors_allow_origins_raw: str = (
         "http://127.0.0.1:3000,http://localhost:3000"
     )
+    trusted_proxies_raw: str = "127.0.0.1,::1"
     secret_key: str = Field(default_factory=get_default_secret_key)
     access_token_expire_hours: int = 12
     timezone: str = "Asia/Hong_Kong"
@@ -127,6 +127,12 @@ class Settings(BaseModel):
                 env,
                 "APP_CORS_ALLOW_ORIGINS",
                 default="http://127.0.0.1:3000,http://localhost:3000",
+            ),
+            trusted_proxies_raw=_read_env(
+                env,
+                "APP_TRUSTED_PROXIES",
+                "TRUSTED_PROXIES",
+                default="127.0.0.1,::1",
             ),
             secret_key=get_default_secret_key(env),
             access_token_expire_hours=_read_int_env(
@@ -183,6 +189,14 @@ class Settings(BaseModel):
             if item.strip()
         ]
         return origins or ["http://127.0.0.1:3000", "http://localhost:3000"]
+
+    @property
+    def trusted_proxies(self) -> list[str]:
+        return [
+            item.strip()
+            for item in str(self.trusted_proxies_raw or "").split(",")
+            if item.strip()
+        ]
 
 
 @lru_cache()

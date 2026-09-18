@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import ipaddress
 import math
 import time
 from collections import deque
 from threading import Lock
-from typing import Deque, Dict, Tuple
+from typing import Deque, Dict, Iterable, Tuple
 
 from fastapi import HTTPException, Request, status
 
@@ -103,19 +104,81 @@ class InMemoryRateLimiter:
             )
 
 
+def is_trusted_proxy(client_host: str, trusted_list: Iterable[str]) -> bool:
+    """判断 client_host 是否属于受信任的反向代理 IP 或网段。"""
+    if not client_host or not isinstance(client_host, str):
+        return False
+    try:
+        client_ip = ipaddress.ip_address(client_host.strip())
+        # 归一化 IPv4-mapped IPv6 地址 (例如 ::ffff:127.0.0.1 -> 127.0.0.1)
+        if isinstance(client_ip, ipaddress.IPv6Address) and client_ip.ipv4_mapped:
+            client_ip = client_ip.ipv4_mapped
+    except ValueError:
+        return False
+
+    for trusted in trusted_list:
+        trusted = str(trusted).strip()
+        if not trusted:
+            continue
+        if trusted in ("*", "all"):
+            return True
+        try:
+            if "/" in trusted:
+                net = ipaddress.ip_network(trusted, strict=False)
+                if client_ip in net:
+                    return True
+            else:
+                target_ip = ipaddress.ip_address(trusted)
+                if isinstance(target_ip, ipaddress.IPv6Address) and target_ip.ipv4_mapped:
+                    target_ip = target_ip.ipv4_mapped
+                if client_ip == target_ip:
+                    return True
+        except ValueError:
+            continue
+    return False
+
+
 def get_client_identifier(request: Request) -> str:
-    forwarded_for = request.headers.get("x-forwarded-for", "")
-    if forwarded_for:
-        first_hop = forwarded_for.split(",", 1)[0].strip()
-        if first_hop:
-            return first_hop
+    """
+    提取安全的客户端标识 IP。
+    仅当直连对端处于受信任代理列表时，才解析转发标头；
+    采用从右向左逐级回溯跳过可信代理的策略，防止攻击者通过伪造 X-Forwarded-For 最左端 IP 绕过限流。
+    """
+    raw_host = getattr(getattr(request, "client", None), "host", None)
+    client_host = raw_host.strip() if isinstance(raw_host, str) else ""
 
-    real_ip = request.headers.get("x-real-ip", "").strip()
-    if real_ip:
-        return real_ip
+    trusted: list[str] = ["127.0.0.1", "::1"]
+    try:
+        from backend.core.config import get_settings
 
-    if request.client and request.client.host:
-        return request.client.host
+        trusted = get_settings().trusted_proxies
+    except Exception:
+        pass
+
+    # 若对端为空（如单元测试未伪造 client）或直连对端为可信反向代理，才解析转发头
+    if not client_host or is_trusted_proxy(client_host, trusted):
+        headers = getattr(request, "headers", {})
+        forwarded_for = headers.get("x-forwarded-for", "") if hasattr(headers, "get") else ""
+        if isinstance(forwarded_for, str) and forwarded_for.strip():
+            hops = [h.strip() for h in forwarded_for.split(",") if h.strip()]
+            if not client_host:
+                # 针对缺少直连客户端信息的测试 Mock 请求，取首跳并截断
+                return hops[0][:64]
+
+            # 真实代理场景：从右至左跳过所有受信任的反向代理，取首个不可信的外部客户端 IP
+            for hop in reversed(hops):
+                if not is_trusted_proxy(hop, trusted):
+                    return hop[:64]
+            # 若所有跳数都在受信任网段内，回退取最左跳
+            if hops:
+                return hops[0][:64]
+
+        real_ip = headers.get("x-real-ip", "") if hasattr(headers, "get") else ""
+        if isinstance(real_ip, str) and real_ip.strip():
+            return real_ip.strip()[:64]
+
+    if client_host:
+        return client_host[:64]
     return "unknown"
 
 
