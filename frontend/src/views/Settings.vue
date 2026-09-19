@@ -4,7 +4,6 @@ import TelegramApiSettings from '../components/settings/TelegramApiSettings.vue'
 import AiSettings from '../components/settings/AiSettings.vue'
 import BotNotifySettings from '../components/settings/BotNotifySettings.vue'
 import DataManagementSettings from '../components/settings/DataManagementSettings.vue'
-import PluginsSettings from '../components/settings/PluginsSettings.vue'
 import AboutSettings from '../components/settings/AboutSettings.vue'
 import PageRetry from '../components/PageRetry.vue'
 import { useSettingsPage } from '../composables/useSettingsPage'
@@ -169,11 +168,6 @@ const {
             @toggle-reveal="toggleReveal"
           />
         </div>
-      </div>
-
-      <!-- 扩展插件：独立全宽管理卡片 -->
-      <div>
-        <PluginsSettings />
       </div>
 
       <!-- 关于 / 版本：始终固定在所有配置卡片的最底部 -->

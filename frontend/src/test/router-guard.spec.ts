@@ -12,6 +12,7 @@ describe('路由守卫逻辑 (resolveAuthRedirect)', () => {
   it('无 token 访问受保护页面 → 跳转 login', () => {
     const store = useAuthStore()
     expect(resolveAuthRedirect('dashboard', store)).toEqual({ name: 'login' })
+    expect(resolveAuthRedirect('plugins', store)).toEqual({ name: 'login' })
   })
 
   it('无 token 访问 login → 不拦截', () => {
@@ -39,6 +40,7 @@ describe('路由守卫逻辑 (resolveAuthRedirect)', () => {
     const payload = btoa(JSON.stringify({ exp: 4956508800 }))
     store.setToken(`header.${payload}.signature`)
     expect(resolveAuthRedirect('settings', store)).toBeUndefined()
+    expect(resolveAuthRedirect('plugins', store)).toBeUndefined()
   })
 
   it('有过期 token 访问受保护页面 → 清除并跳转 login', () => {

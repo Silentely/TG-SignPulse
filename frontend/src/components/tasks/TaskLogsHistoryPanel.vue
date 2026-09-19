@@ -144,9 +144,8 @@ const extractPluginFromLog = (log: SignTaskHistoryItem): { pluginName?: string; 
         <router-link
           v-if="!log.success && (log.last_target_message || log.bot_message || extractPluginFromLog(log).pluginName)"
           :to="{
-            path: '/settings',
+            name: 'plugins',
             query: {
-              tab: 'plugins',
               ...(extractPluginFromLog(log).pluginName ? { testPlugin: extractPluginFromLog(log).pluginName } : {}),
               ...(extractPluginFromLog(log).input ? { testInput: extractPluginFromLog(log).input } : {}),
             },
