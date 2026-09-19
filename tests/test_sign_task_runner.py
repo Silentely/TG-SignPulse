@@ -241,6 +241,13 @@ def runner_env(monkeypatch, tmp_path):
     monkeypatch.setattr(
         "backend.services.sign_tasks.settings", _FakeSettings(tmp_path)
     )
+    async def fake_verify_proxy(self, acc, p):
+        return None
+
+    monkeypatch.setattr(
+        "backend.services.telegram.accounts.TelegramAccountsMixin.verify_account_proxy",
+        fake_verify_proxy,
+    )
     monkeypatch.setattr(
         "backend.utils.tg_session.get_session_mode", lambda: env.session_mode
     )

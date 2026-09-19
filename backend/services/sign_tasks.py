@@ -585,6 +585,7 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         sign_at: str,
         chats: List[Dict[str, Any]],
         random_seconds: int,
+        jitter_seconds: int = 0,
         sign_interval: int,
         enabled: bool = True,
         last_run: Optional[Dict[str, Any]] = None,
@@ -597,6 +598,9 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         last_run_account_name: str = "",
         retry_count: int = 3,
         tags: Optional[List[str]] = None,
+        adaptive_schedule_enabled: bool = False,
+        adaptive_schedule_patterns: Optional[List[str]] = None,
+        adaptive_schedule_padding_seconds: int = 30,
     ) -> Dict[str, Any]:
         normalized_accounts = self._normalize_account_names(
             account_names, primary_account_name
@@ -609,6 +613,7 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
             "account_names": normalized_accounts,
             "sign_at": sign_at,
             "random_seconds": random_seconds,
+            "jitter_seconds": jitter_seconds,
             "sign_interval": sign_interval,
             "chats": chats,
             "enabled": enabled,
@@ -622,6 +627,9 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
             "last_run_account_name": last_run_account_name,
             "retry_count": retry_count,
             "tags": list(dict.fromkeys(str(t).strip() for t in (tags or []) if str(t).strip())),
+            "adaptive_schedule_enabled": bool(adaptive_schedule_enabled),
+            "adaptive_schedule_patterns": list(adaptive_schedule_patterns or []),
+            "adaptive_schedule_padding_seconds": int(adaptive_schedule_padding_seconds),
         }
 
     def _aggregate_tasks(self, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -906,6 +914,7 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
                 sign_at=config.get("sign_at", ""),
                 chats=config.get("chats", []),
                 random_seconds=config.get("random_seconds", 0),
+                jitter_seconds=int(config.get("jitter_seconds", 0) or 0),
                 sign_interval=config.get("sign_interval", 1),
                 enabled=config.get("enabled", True),
                 last_run=last_run,
@@ -920,6 +929,9 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
                 ),
                 retry_count=int(config.get("retry_count", 3)),
                 tags=config.get("tags", []),
+                adaptive_schedule_enabled=bool(config.get("adaptive_schedule_enabled", False)),
+                adaptive_schedule_patterns=list(config.get("adaptive_schedule_patterns") or []),
+                adaptive_schedule_padding_seconds=int(config.get("adaptive_schedule_padding_seconds", 30) or 30),
             )
             if return_raw:
                 return normalized, config

@@ -234,6 +234,9 @@ defineProps<{
   stepNum: string
   /** 监听后续动作目前由后端白名单执行，不支持自定义插件。 */
   allowCustomPlugin?: boolean
+  adaptiveScheduleEnabled?: boolean
+  adaptiveSchedulePaddingSeconds?: number
+  adaptiveSchedulePatterns?: string[]
 }>()
 
 const emit = defineEmits<{
@@ -241,6 +244,9 @@ const emit = defineEmits<{
   (e: 'remove', idx: number): void
   (e: 'move', idx: number, delta: number): void
   (e: 'reorder', from: number, to: number): void
+  (e: 'update:adaptiveScheduleEnabled', val: boolean): void
+  (e: 'update:adaptiveSchedulePaddingSeconds', val: number): void
+  (e: 'update:adaptiveSchedulePatterns', val: string[]): void
 }>()
 </script>
 
@@ -647,6 +653,62 @@ const emit = defineEmits<{
       >
         <Plus class="w-3.5 h-3.5" /> {{ t('taskForm.addAction') }}
       </button>
+    </div>
+
+    <!-- 自适应动态冷却调度 (Adaptive Cooldown Rescheduling) -->
+    <div class="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800/80 space-y-3">
+      <div class="flex items-center justify-between">
+        <div class="flex flex-col">
+          <span class="text-xs font-semibold text-gray-700 dark:text-gray-200">
+            {{ t('taskForm.adaptiveSchedule') }}
+          </span>
+          <span class="text-[11px] text-gray-500 dark:text-gray-400">
+            {{ t('taskForm.adaptiveScheduleDesc') }}
+          </span>
+        </div>
+        <input
+          type="checkbox"
+          :checked="adaptiveScheduleEnabled"
+          class="rounded text-sky-600 focus:ring-sky-500 h-4 w-4 cursor-pointer"
+          @change="emit('update:adaptiveScheduleEnabled', ($event.target as HTMLInputElement).checked)"
+        />
+      </div>
+
+      <div v-if="adaptiveScheduleEnabled" class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+        <div class="flex flex-col gap-1">
+          <span class="text-[11px] font-medium text-gray-700 dark:text-gray-300">
+            {{ t('taskForm.paddingSeconds') }}
+          </span>
+          <input
+            type="number"
+            min="0"
+            max="86400"
+            :value="adaptiveSchedulePaddingSeconds ?? 30"
+            :placeholder="t('taskForm.paddingSecondsPlaceholder')"
+            class="ui-input !h-8 !text-xs !px-2 w-full"
+            @input="emit('update:adaptiveSchedulePaddingSeconds', Number(($event.target as HTMLInputElement).value) || 0)"
+          />
+          <span class="text-[10px] text-gray-400">
+            {{ t('taskForm.paddingSecondsHint') }}
+          </span>
+        </div>
+
+        <div class="flex flex-col gap-1">
+          <span class="text-[11px] font-medium text-gray-700 dark:text-gray-300">
+            {{ t('taskForm.customPatterns') }}
+          </span>
+          <input
+            type="text"
+            :value="(adaptiveSchedulePatterns || []).join(', ')"
+            :placeholder="t('taskForm.customPatternsPlaceholder')"
+            class="ui-input !h-8 !text-xs !px-2 w-full"
+            @input="emit('update:adaptiveSchedulePatterns', ($event.target as HTMLInputElement).value.split(',').map(s => s.trim()).filter(Boolean))"
+          />
+          <span class="text-[10px] text-gray-400">
+            {{ t('taskForm.customPatternsHint') }}
+          </span>
+        </div>
+      </div>
     </div>
   </div>
 

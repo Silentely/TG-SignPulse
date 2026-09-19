@@ -21,13 +21,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import JSONResponse, Response
-
-try:
-    from pydantic import BaseModel, Field, field_validator
-    validator = None
-except ImportError:  # pragma: no cover - pydantic v1 compatibility
-    from pydantic import BaseModel, Field, validator
-    field_validator = None
+from pydantic import BaseModel, Field, validator
 from sqlalchemy.orm import Session
 
 from backend.core.auth import get_current_user, verify_token
@@ -77,6 +71,7 @@ class SignTaskCreate(BaseModel):
     sign_at: str = Field(..., description="Schedule cron")
     chats: List[ChatConfig] = Field(..., description="Chat configs")
     random_seconds: int = Field(0, description="Random delay seconds")
+    jitter_seconds: Optional[int] = Field(0, ge=0, le=3600, description="Jitter random delay seconds, max 3600")
     sign_interval: Optional[int] = Field(None, description="Action interval seconds")
     execution_mode: Optional[str] = Field("fixed", description="fixed/range")
     range_start: Optional[str] = Field(None, description="Range start")
@@ -85,32 +80,25 @@ class SignTaskCreate(BaseModel):
     notify_on_success: bool = Field(True, description="Success notification switch")
     retry_count: Optional[int] = Field(None, ge=0, le=99, description="Retry count per task, default 3")
     tags: List[str] = Field(default_factory=list, description="Task tags")
+    adaptive_schedule_enabled: bool = Field(False, description="Adaptive cooldown reschedule switch")
+    adaptive_schedule_patterns: List[str] = Field(default_factory=list, description="Custom regex patterns for adaptive cooldown")
+    adaptive_schedule_padding_seconds: int = Field(30, ge=0, le=86400, description="Padding seconds after cooldown")
 
-    if field_validator is not None:
-        @field_validator("name")
-        @classmethod
-        def name_must_be_valid_filename(cls, v: str) -> str:
-            text = str(v or "").strip()
-            if not text:
-                raise ValueError("任务名称不能为空")
-            if "/" in text or "\\" in text or chr(0) in text:
-                raise ValueError("任务名称不能包含非法路径字符: / \\ \x00")
-            return text
-    else:
-        @validator("name", allow_reuse=True)
-        def name_must_be_valid_filename(cls, v: str) -> str:
-            text = str(v or "").strip()
-            if not text:
-                raise ValueError("任务名称不能为空")
-            if "/" in text or "\\" in text or chr(0) in text:
-                raise ValueError("任务名称不能包含非法路径字符: / \\ \x00")
-            return text
+    @validator("name", allow_reuse=True)
+    def name_must_be_valid_filename(cls, v: str) -> str:
+        text = str(v or "").strip()
+        if not text:
+            raise ValueError("任务名称不能为空")
+        if "/" in text or "\\" in text or any(ord(c) == 0 for c in text):
+            raise ValueError("任务名称不能包含非法路径字符")
+        return text
 
 class SignTaskUpdate(BaseModel):
     account_names: Optional[List[str]] = Field(None, description="Associated accounts")
     sign_at: Optional[str] = Field(None, description="Schedule cron")
     chats: Optional[List[ChatConfig]] = Field(None, description="Chat configs")
     random_seconds: Optional[int] = Field(None, description="Random delay seconds")
+    jitter_seconds: Optional[int] = Field(None, ge=0, le=3600, description="Jitter random delay seconds, max 3600")
     sign_interval: Optional[int] = Field(None, description="Action interval seconds")
     execution_mode: Optional[str] = Field(None, description="fixed/range")
     range_start: Optional[str] = Field(None, description="Range start")
@@ -119,6 +107,9 @@ class SignTaskUpdate(BaseModel):
     notify_on_success: Optional[bool] = Field(None, description="Success notification switch")
     retry_count: Optional[int] = Field(None, ge=0, le=99, description="Retry count per task")
     tags: Optional[List[str]] = Field(None, description="Task tags")
+    adaptive_schedule_enabled: Optional[bool] = Field(None, description="Adaptive cooldown reschedule switch")
+    adaptive_schedule_patterns: Optional[List[str]] = Field(None, description="Custom regex patterns for adaptive cooldown")
+    adaptive_schedule_padding_seconds: Optional[int] = Field(None, ge=0, le=86400, description="Padding seconds after cooldown")
 
 
 class LastRunInfo(BaseModel):
@@ -151,6 +142,7 @@ class SignTaskOut(BaseModel):
     sign_at: str
     chats: List[Dict[str, Any]]
     random_seconds: int
+    jitter_seconds: int = 0
     sign_interval: int
     enabled: bool
     last_run: Optional[LastRunInfo] = None
@@ -163,6 +155,9 @@ class SignTaskOut(BaseModel):
     last_run_account_name: str = ""
     retry_count: int = 3
     tags: List[str] = Field(default_factory=list)
+    adaptive_schedule_enabled: bool = False
+    adaptive_schedule_patterns: List[str] = Field(default_factory=list)
+    adaptive_schedule_padding_seconds: int = 30
     active_run: Optional[ActiveRunSummary] = None
 
 
@@ -267,6 +262,7 @@ def create_sign_task(
             sign_at=payload.sign_at,
             chats=chats_dict,
             random_seconds=payload.random_seconds,
+            jitter_seconds=payload.jitter_seconds or 0,
             sign_interval=payload.sign_interval,
             execution_mode=payload.execution_mode or "fixed",
             range_start=payload.range_start or "",
@@ -275,6 +271,9 @@ def create_sign_task(
             notify_on_success=payload.notify_on_success,
             retry_count=payload.retry_count,
             tags=payload.tags,
+            adaptive_schedule_enabled=payload.adaptive_schedule_enabled,
+            adaptive_schedule_patterns=payload.adaptive_schedule_patterns,
+            adaptive_schedule_padding_seconds=payload.adaptive_schedule_padding_seconds,
         )
 
         # 调度同步和监控重启放到后台执行，避免阻塞 HTTP 响应
@@ -358,6 +357,7 @@ def update_sign_task(
             sign_at=payload.sign_at,
             chats=chats_dict,
             random_seconds=payload.random_seconds,
+            jitter_seconds=payload.jitter_seconds,
             sign_interval=payload.sign_interval,
             execution_mode=payload.execution_mode,
             range_start=payload.range_start,
@@ -366,6 +366,9 @@ def update_sign_task(
             notify_on_success=payload.notify_on_success,
             retry_count=payload.retry_count,
             tags=payload.tags,
+            adaptive_schedule_enabled=payload.adaptive_schedule_enabled,
+            adaptive_schedule_patterns=payload.adaptive_schedule_patterns,
+            adaptive_schedule_padding_seconds=payload.adaptive_schedule_padding_seconds,
         )
 
         # 调度同步和监控重启放到后台执行，避免阻塞 HTTP 响应

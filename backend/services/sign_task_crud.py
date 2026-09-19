@@ -27,6 +27,7 @@ class SignTaskCrudMixin:
         sign_at: str,
         chats: List[Dict[str, Any]],
         random_seconds: int = 0,
+        jitter_seconds: int = 0,
         sign_interval: Optional[int] = None,
         account_name: str = "",
         account_names: Optional[List[str]] = None,
@@ -37,6 +38,9 @@ class SignTaskCrudMixin:
         notify_on_success: bool = True,
         retry_count: Optional[int] = None,
         tags: Optional[List[str]] = None,
+        adaptive_schedule_enabled: bool = False,
+        adaptive_schedule_patterns: Optional[List[str]] = None,
+        adaptive_schedule_padding_seconds: int = 30,
     ) -> Dict[str, Any]:
         """Create a sign task that can be shared by multiple accounts."""
         from backend.services.config import get_config_service
@@ -92,6 +96,7 @@ class SignTaskCrudMixin:
                 task_group_id=task_group_id,
                 sign_at=sign_at,
                 random_seconds=random_seconds,
+                jitter_seconds=jitter_seconds,
                 sign_interval=int(sign_interval),
                 chats=chats,
                 execution_mode=execution_mode,
@@ -102,6 +107,9 @@ class SignTaskCrudMixin:
                 retry_count=retry_count if retry_count is not None else 3,
                 enabled=True,
                 tags=tags,
+                adaptive_schedule_enabled=adaptive_schedule_enabled,
+                adaptive_schedule_patterns=adaptive_schedule_patterns,
+                adaptive_schedule_padding_seconds=adaptive_schedule_padding_seconds,
             )
 
             write_json_atomic(task_dir / "config.json", config)
@@ -122,6 +130,7 @@ class SignTaskCrudMixin:
                         task_name,
                         trigger_cron,
                         enabled=True,
+                        jitter=jitter_seconds,
                     )
                 else:
                     remove_sign_task_job(current_account, task_name)
@@ -177,6 +186,7 @@ class SignTaskCrudMixin:
             sign_at=str(src.get("sign_at") or "08:00"),
             chats=[dict(c) for c in chats if isinstance(c, dict)],
             random_seconds=random_seconds,
+            jitter_seconds=int(src.get("jitter_seconds", 0) or 0),
             sign_interval=src.get("sign_interval"),
             account_name=str(primary or ""),
             account_names=list(account_names) if account_names else [str(primary)],
@@ -187,6 +197,9 @@ class SignTaskCrudMixin:
             notify_on_success=bool(src.get("notify_on_success", True)),
             retry_count=src.get("retry_count"),
             tags=list(src.get("tags") or []),
+            adaptive_schedule_enabled=bool(src.get("adaptive_schedule_enabled", False)),
+            adaptive_schedule_patterns=list(src.get("adaptive_schedule_patterns") or []),
+            adaptive_schedule_padding_seconds=int(src.get("adaptive_schedule_padding_seconds", 30) or 30),
         )
 
     def update_task(
@@ -195,6 +208,7 @@ class SignTaskCrudMixin:
         sign_at: Optional[str] = None,
         chats: Optional[List[Dict[str, Any]]] = None,
         random_seconds: Optional[int] = None,
+        jitter_seconds: Optional[int] = None,
         sign_interval: Optional[int] = None,
         account_name: Optional[str] = None,
         account_names: Optional[List[str]] = None,
@@ -206,6 +220,9 @@ class SignTaskCrudMixin:
         retry_count: Optional[int] = None,
         enabled: Optional[bool] = None,
         tags: Optional[List[str]] = None,
+        adaptive_schedule_enabled: Optional[bool] = None,
+        adaptive_schedule_patterns: Optional[List[str]] = None,
+        adaptive_schedule_padding_seconds: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Update one task and fan out the config to all linked accounts."""
         task_name = validate_storage_name(task_name, field_name="task_name")
@@ -263,6 +280,7 @@ class SignTaskCrudMixin:
             sign_at=sign_at,
             chats=chats,
             random_seconds=random_seconds,
+            jitter_seconds=jitter_seconds,
             sign_interval=sign_interval,
             execution_mode=execution_mode,
             range_start=range_start,
@@ -272,9 +290,13 @@ class SignTaskCrudMixin:
             retry_count=retry_count,
             enabled=enabled,
             tags=tags,
+            adaptive_schedule_enabled=adaptive_schedule_enabled,
+            adaptive_schedule_patterns=adaptive_schedule_patterns,
+            adaptive_schedule_padding_seconds=adaptive_schedule_padding_seconds,
         )
         next_sign_at = fields["sign_at"]
         next_random_seconds = fields["random_seconds"]
+        next_jitter_seconds = fields["jitter_seconds"]
         next_sign_interval = fields["sign_interval"]
         next_chats = fields["chats"]
         next_execution_mode = fields["execution_mode"]
@@ -285,6 +307,9 @@ class SignTaskCrudMixin:
         next_enabled = fields["enabled"]
         next_retry_count = fields["retry_count"]
         next_tags = fields["tags"]
+        next_adaptive_schedule_enabled = fields["adaptive_schedule_enabled"]
+        next_adaptive_schedule_patterns = fields["adaptive_schedule_patterns"]
+        next_adaptive_schedule_padding_seconds = fields["adaptive_schedule_padding_seconds"]
         schedule_plan = resolve_schedule_plan(
             next_execution_mode,
             sign_at=next_sign_at,
@@ -316,6 +341,7 @@ class SignTaskCrudMixin:
                 task_group_id=next_group_id,
                 sign_at=next_sign_at,
                 random_seconds=next_random_seconds,
+                jitter_seconds=next_jitter_seconds,
                 sign_interval=next_sign_interval,
                 chats=next_chats,
                 execution_mode=next_execution_mode,
@@ -326,6 +352,9 @@ class SignTaskCrudMixin:
                 retry_count=next_retry_count,
                 enabled=next_enabled,
                 tags=next_tags,
+                adaptive_schedule_enabled=next_adaptive_schedule_enabled,
+                adaptive_schedule_patterns=next_adaptive_schedule_patterns,
+                adaptive_schedule_padding_seconds=next_adaptive_schedule_padding_seconds,
                 last_run=existing_last_run_map.get(current_account),
             )
 
@@ -346,6 +375,7 @@ class SignTaskCrudMixin:
                         task_name,
                         trigger_cron,
                         enabled=next_enabled,
+                        jitter=next_jitter_seconds,
                     )
                 except Exception as exc:
                     warnings.append(
@@ -496,6 +526,10 @@ class SignTaskCrudMixin:
         last_run_value = self._account_last_run_end.pop(old_account_name, None)
         if last_run_value is not None:
             self._account_last_run_end[new_account_name] = last_run_value
+
+        old_svc_lock = getattr(self, "_account_locks", {}).pop(old_account_name, None)
+        if old_svc_lock is not None:
+            self._account_locks[new_account_name] = old_svc_lock
 
         try:
             rebuild_index_from_history_files(self.run_history_dir)
