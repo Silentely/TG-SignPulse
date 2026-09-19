@@ -548,6 +548,19 @@ class TelegramQrLoginMixin:
                 proxy = global_proxy
 
         proxy_dict = build_proxy_dict(proxy) if proxy else None
+        if proxy and not proxy_dict:
+            _release_account_lock()
+            raise ValueError("PROXY_INVALID_BLOCKED: Configured proxy string is invalid")
+        if config_service.require_proxy_for_telegram() and not proxy_dict:
+            _release_account_lock()
+            raise ValueError("PROXY_REQUIRED_BLOCKED: Global policy requires a proxy for Telegram connections")
+
+        if proxy_dict:
+            try:
+                await self.verify_account_proxy(account_name, proxy_dict)
+            except Exception:
+                _release_account_lock()
+                raise
 
         # 清理旧 session 文件（与手机号登录保持一致）
         if session_mode == "file":

@@ -231,8 +231,20 @@ async def _runner_resolve_credentials(state: Dict[str, Any]) -> None:
     use_in_memory = False
     proxy_dict = None
     proxy_value = svc._get_effective_proxy(account_name)
-    if proxy_value:
-        proxy_dict = build_proxy_dict(proxy_value)
+    if proxy_value and str(proxy_value).strip():
+        proxy_dict = build_proxy_dict(str(proxy_value).strip())
+        if not proxy_dict:
+            raise ValueError(f"PROXY_INVALID_BLOCKED: 账号 {account_name} 配置的代理格式非法")
+
+    req_proxy_fn = getattr(config_service, "require_proxy_for_telegram", None)
+    if callable(req_proxy_fn) and req_proxy_fn() and not proxy_dict:
+        raise ValueError(f"PROXY_REQUIRED_BLOCKED: 全局策略强制 Telegram 使用代理，但账号 {account_name} 未配置有效代理")
+
+    if proxy_dict:
+        from backend.services.telegram.accounts import get_telegram_account_service
+
+        account_svc = get_telegram_account_service()
+        await account_svc.verify_account_proxy(account_name, proxy_dict)
 
     if session_mode == "string":
         if not session_string:

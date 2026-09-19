@@ -423,6 +423,7 @@ class GlobalSettingsRequest(BaseModel):
     webdav_username: Optional[str] = None
     webdav_password: Optional[str] = None
     webdav_remote_dir: Optional[str] = None
+    require_proxy_for_telegram: Optional[bool] = None
 
 
 class GlobalSettingsResponse(BaseModel):
@@ -461,6 +462,7 @@ class GlobalSettingsResponse(BaseModel):
     webdav_password: Optional[str] = None
     webdav_password_set: bool = False
     webdav_remote_dir: Optional[str] = "tg-signpulse-backups"
+    require_proxy_for_telegram: bool = False
 
 
 @router.get("/settings", response_model=GlobalSettingsResponse)

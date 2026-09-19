@@ -215,6 +215,7 @@ def get_account_profile(account_name: str) -> dict[str, Any]:
         "needs_relogin": bool(entry.get("needs_relogin", False)),
         "invalid_notified_at": entry.get("invalid_notified_at"),
         "tags": list(entry.get("tags") or []),
+        "proxy_probe_policy": entry.get("proxy_probe_policy", "strict"),
     }
 
 
@@ -231,6 +232,7 @@ def set_account_profile(
     *,
     remark: Optional[str] = None,
     proxy: Optional[str] = None,
+    proxy_probe_policy: Optional[str] = None,
     tags: Optional[list[str]] = None,
 ) -> None:
     data = _load_account_store()
@@ -244,6 +246,8 @@ def set_account_profile(
         entry["proxy"] = proxy.strip() if isinstance(proxy, str) else proxy
     if tags is not None:
         entry["tags"] = [str(t).strip() for t in tags if str(t).strip()]
+    if proxy_probe_policy is not None:
+        entry["proxy_probe_policy"] = str(proxy_probe_policy).strip().lower()
     entry["updated_at"] = utc_now_iso()
     accounts[account_name] = entry
     _save_account_store(data)

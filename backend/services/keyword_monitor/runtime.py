@@ -881,6 +881,39 @@ class KeywordMonitorService:
                     global_proxy=global_settings.get("global_proxy"),
                 )
                 proxy = build_proxy_dict(proxy_value) if proxy_value else None
+                if proxy_value and not proxy:
+                    for rule in account_rules:
+                        self._append_rule_log(
+                            rule,
+                            "关键词后台监听启动失败：代理配置格式无效",
+                            active=False,
+                        )
+                    continue
+                if bool(global_settings.get("require_proxy_for_telegram")) and not proxy:
+                    for rule in account_rules:
+                        self._append_rule_log(
+                            rule,
+                            "关键词后台监听启动失败：全局策略要求代理连接 Telegram",
+                            active=False,
+                        )
+                    continue
+                if proxy:
+                    from backend.services.telegram.accounts import (
+                        get_telegram_account_service,
+                    )
+
+                    try:
+                        await get_telegram_account_service().verify_account_proxy(
+                            account_name, proxy
+                        )
+                    except Exception as exc:
+                        for rule in account_rules:
+                            self._append_rule_log(
+                                rule,
+                                f"关键词后台监听启动失败：代理探测拦截 ({exc})",
+                                active=False,
+                            )
+                        continue
 
                 session_mode = get_session_mode()
                 session_string = load_account_session_string(

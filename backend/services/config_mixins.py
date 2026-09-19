@@ -163,6 +163,10 @@ def normalize_global_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
         stripped = (normalized["webdav_remote_dir"] or "").strip()
         normalized["webdav_remote_dir"] = stripped or "tg-signpulse-backups"
 
+    if "require_proxy_for_telegram" in normalized:
+        val = normalized["require_proxy_for_telegram"]
+        normalized["require_proxy_for_telegram"] = bool(val) if val is not None else False
+
     return normalized
 
 
@@ -970,6 +974,7 @@ class GlobalSettingsMixin:
             "webdav_username": None,
             "webdav_password": None,
             "webdav_remote_dir": "tg-signpulse-backups",
+            "require_proxy_for_telegram": False,
         }
 
         settings = self._read_json_file(config_file)
@@ -996,6 +1001,10 @@ class GlobalSettingsMixin:
         避免直接散落 ``get_global_settings().get("global_proxy")`` 魔法键。
         """
         return self.get_global_settings().get("global_proxy")
+
+    def require_proxy_for_telegram(self) -> bool:
+        """是否要求 Telegram 连接必须使用代理（全局硬熔断）。"""
+        return bool(self.get_global_settings().get("require_proxy_for_telegram", False))
 
     def save_global_settings(self, settings: Dict) -> bool:
         """
