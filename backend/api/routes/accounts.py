@@ -34,6 +34,7 @@ from backend.api.routes.accounts_schemas import (
     AccountUpdateResponse,
     ClearAccountLogsResponse,
     DeleteAccountResponse,
+    FolderItem,
     ImportSessionRequest,
     ImportSessionResponse,
     LoginStartRequest,
@@ -53,6 +54,7 @@ from backend.api.routes.accounts_schemas import (
     StandaloneSessionExportRequest,
     StandaloneSessionExportResponse,
     TerminateDeviceResponse,
+    TopicItem,
     _extract_last_bot_message,
 )
 from backend.core.auth import get_current_user
@@ -1199,3 +1201,81 @@ def export_account_logs(
     )
 
 
+@router.get("/{account_name}/folders", response_model=list[FolderItem])
+async def list_account_folders(
+    account_name: str,
+    timeout_seconds: float = 12.0,
+    current_user: User = Depends(get_current_user),
+):
+    """获取指定账号的 Telegram 对话文件夹（Dialog Filters）列表。"""
+    try:
+        account_name = validate_storage_name(account_name, field_name="account_name")
+        if not get_telegram_service().account_exists(account_name):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="账号不存在",
+            )
+        folders = await get_telegram_service().list_account_folders(
+            account_name, timeout_seconds=timeout_seconds
+        )
+        return [FolderItem(**item) for item in folders]
+    except HTTPException:
+        raise
+    except AccountLockTimeout:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="ACCOUNT_BUSY",
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error("获取文件夹列表失败: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="获取文件夹列表失败，请稍后重试",
+        )
+
+
+@router.get("/{account_name}/chats/{chat_id}/topics", response_model=list[TopicItem])
+async def list_account_forum_topics(
+    account_name: str,
+    chat_id: str,
+    limit: int = 100,
+    timeout_seconds: float = 12.0,
+    current_user: User = Depends(get_current_user),
+):
+    """获取指定群组的论坛话题（Forum Topics）列表。"""
+    try:
+        account_name = validate_storage_name(account_name, field_name="account_name")
+        if not get_telegram_service().account_exists(account_name):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="账号不存在",
+            )
+        try:
+            target_chat_id: int | str = int(chat_id)
+        except ValueError:
+            target_chat_id = chat_id
+
+        topics = await get_telegram_service().list_forum_topics(
+            account_name,
+            chat_id=target_chat_id,
+            limit=limit,
+            timeout_seconds=timeout_seconds,
+        )
+        return [TopicItem(**item) for item in topics]
+    except HTTPException:
+        raise
+    except AccountLockTimeout:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="ACCOUNT_BUSY",
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error("获取论坛话题列表失败: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="获取论坛话题列表失败，请稍后重试",
+        )
