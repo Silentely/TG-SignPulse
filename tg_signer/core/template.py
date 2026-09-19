@@ -5,10 +5,32 @@ import datetime
 import random
 import re
 import uuid
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional
 
 # 匹配 {{ expression }}
 _TEMPLATE_PATTERN = re.compile(r"\{\{\s*(.*?)\s*\}\}")
+
+# 匹配 {dict:name} 或 {dict:name:round_robin}
+_DICT_MACRO_PATTERN = re.compile(r"\{dict:([a-zA-Z0-9_-]+)(?::(random|round_robin))?\}")
+
+
+def _render_dict_macros(template_str: str) -> str:
+    """解析并替换字符串中的 {dict:name} 与 {dict:name:round_robin} 动态词条宏。"""
+    if not isinstance(template_str, str) or "{dict:" not in template_str:
+        return template_str
+
+    def _replace_dict_macro(match: re.Match) -> str:
+        name = match.group(1)
+        mode = match.group(2) or "random"
+        try:
+            from backend.services.data_dict import get_data_dict_service
+
+            svc = get_data_dict_service()
+            return svc.get_entry(name, mode=mode)
+        except Exception:
+            return match.group(0)
+
+    return _DICT_MACRO_PATTERN.sub(_replace_dict_macro, template_str)
 
 
 class _SafeEvaluator(ast.NodeVisitor):
@@ -64,8 +86,28 @@ class _SafeEvaluator(ast.NodeVisitor):
         raise NameError(f"未定义的模板变量: '{node.id}'")
 
     def visit_Attribute(self, node: ast.Attribute) -> Any:
-        if node.attr.startswith("__"):
-            raise ValueError(f"安全限制：禁止访问私有属性 {node.attr}")
+        attr_lower = node.attr.lower()
+        if (
+            node.attr.startswith("__")
+            or attr_lower in (
+                "format",
+                "format_map",
+                "__globals__",
+                "__code__",
+                "__closure__",
+                "__func__",
+                "__self__",
+                "__subclasses__",
+                "__bases__",
+                "__mro__",
+                "gi_frame",
+                "cr_frame",
+                "f_locals",
+                "f_globals",
+                "f_builtins",
+            )
+        ):
+            raise ValueError(f"安全限制：禁止访问受保护属性或格式化方法 {node.attr}")
         obj = self.visit(node.value)
         if obj is None:
             return ""
@@ -139,7 +181,7 @@ class _SafeEvaluator(ast.NodeVisitor):
     def visit_Dict(self, node: ast.Dict) -> Any:
         return {
             self.visit(k): self.visit(v)
-            for k, v in zip(node.keys, node.values)
+            for k, v in zip(node.keys, node.values, strict=True)
             if k is not None
         }
 
@@ -147,7 +189,7 @@ class _SafeEvaluator(ast.NodeVisitor):
 def _build_default_template_context(
     extra_context: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """构建安全的默认上下文函数与变量。"""
+    """构建默认的安全上下文函数与变量。"""
     now = datetime.datetime.now()
     utcnow = datetime.datetime.now(datetime.timezone.utc)
 
@@ -165,6 +207,15 @@ def _build_default_template_context(
         uid = str(uuid.uuid4())
         return uid.replace("-", "")[:8] if short else uid
 
+    def _dict_entry(name: str, mode: str = "random") -> str:
+        try:
+            from backend.services.data_dict import get_data_dict_service
+
+            svc = get_data_dict_service()
+            return svc.get_entry(name, mode=mode)
+        except Exception:
+            return ""
+
     ctx: Dict[str, Any] = {
         "now": now,
         "utcnow": utcnow,
@@ -174,6 +225,7 @@ def _build_default_template_context(
         "random_int": _random_int,
         "random_choice": _random_choice,
         "uuid": _gen_uuid,
+        "dict_entry": _dict_entry,
         "str": str,
         "int": int,
         "len": len,
@@ -189,23 +241,31 @@ def render_template(
     template_str: str,
     context: Optional[Dict[str, Any]] = None,
 ) -> str:
-    """对字符串中的 {{ expression }} 进行安全渲染。若解析失败，保留原表达式或优雅回退。"""
-    if not isinstance(template_str, str) or "{{" not in template_str:
+    """对字符串中的 {{ expression }} 以及 {dict:...} 宏进行安全渲染。
+
+    先计算 {{ expression }} 表达式，再替换 {dict:...} 词条宏，
+    杜绝词条内容中包含的 {{ ... }} 发生二次求值注入。
+    """
+    if not isinstance(template_str, str):
         return template_str
 
-    full_context = _build_default_template_context(context)
-    evaluator = _SafeEvaluator(full_context)
+    result_str = template_str
+    if "{{" in result_str:
+        full_context = _build_default_template_context(context)
+        evaluator = _SafeEvaluator(full_context)
 
-    def _replace_match(match: re.Match) -> str:
-        raw_expr = match.group(1).strip()
-        try:
-            val = evaluator.evaluate(raw_expr)
-            return "" if val is None else str(val)
-        except Exception:
-            # 渲染异常时不破坏原字符串，避免关键内容被静默吃掉
-            return match.group(0)
+        def _replace_match(match: re.Match) -> str:
+            raw_expr = match.group(1).strip()
+            try:
+                val = evaluator.evaluate(raw_expr)
+                return "" if val is None else str(val)
+            except Exception:
+                return match.group(0)
 
-    return _TEMPLATE_PATTERN.sub(_replace_match, template_str)
+        result_str = _TEMPLATE_PATTERN.sub(_replace_match, result_str)
+
+    result_str = _render_dict_macros(result_str)
+    return result_str
 
 
 def render_template_recursive(

@@ -4,6 +4,7 @@ import TelegramApiSettings from '../components/settings/TelegramApiSettings.vue'
 import AiSettings from '../components/settings/AiSettings.vue'
 import BotNotifySettings from '../components/settings/BotNotifySettings.vue'
 import DataManagementSettings from '../components/settings/DataManagementSettings.vue'
+import DataDictSettings from '../components/settings/DataDictSettings.vue'
 import AboutSettings from '../components/settings/AboutSettings.vue'
 import PageRetry from '../components/PageRetry.vue'
 import { useSettingsPage } from '../composables/useSettingsPage'
@@ -145,7 +146,7 @@ const {
           />
         </div>
 
-        <!-- 右列配置卡片：AI 配置 + Bot 通知 -->
+        <!-- 右列配置卡片：AI 配置 + Bot 通知 + 素材数据字典 -->
         <div class="flex flex-col gap-6">
           <AiSettings
             v-model:ai-model-value="aiConfig"
@@ -167,6 +168,7 @@ const {
             @test="testBot"
             @toggle-reveal="toggleReveal"
           />
+          <DataDictSettings />
         </div>
       </div>
 
