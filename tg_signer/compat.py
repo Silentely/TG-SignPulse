@@ -24,7 +24,6 @@ try:
     from pyrogram.handlers import EditedMessageHandler, MessageHandler
     from pyrogram.methods.utilities.idle import idle
     from pyrogram.session import Session
-    from pyrogram.storage import MemoryStorage
     from pyrogram.types import (
         Chat,
         InlineKeyboardMarkup,
@@ -160,6 +159,16 @@ else:
 
     def _raise_pyrogram_import_error() -> None:
         return None
+
+
+# kurigram 2.2.10+ 移除了 pyrogram.storage.MemoryStorage。单独导入该类，
+# 避免它的缺失连带让上面整块导入失败、把真实类型静默替换为占位实现
+# （表现为各种「X() takes no arguments」的误导性报错）。
+if _PYROGRAM_IMPORT_ERROR is None:
+    try:
+        from pyrogram.storage import MemoryStorage
+    except Exception:  # pragma: no cover - 仅影响 string 会话模式
+        MemoryStorage = None
 
 
 def clean_text_for_match(text: str) -> str:
