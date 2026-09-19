@@ -18,20 +18,34 @@
 - 不能踢下线当前正在使用的会话
 - 操作前需要确认
 
-### 3. 设备保活
+### 3. 清退其他设备
+
+- 一键调用 `account.ResetAuthorizations`，清退除当前面板会话外的**所有**已授权设备
+- 会同时使此前通过「派生独立 Session」导出的会话失效
+- 新登录会话处于 Telegram 初始保护期时会返回 `FRESH_RESET_AUTHORISATION_FORBIDDEN`，需数小时后再试
+- 账号被其他任务占用时返回 `ACCOUNT_BUSY`（HTTP 409）
+
+### 4. 派生独立 Session 导出
+
+- 通过官方 `auth.ExportLoginToken` / `AcceptLoginToken` 协议派生独立 AuthKey 的 SessionString
+- 可用于其他工具或脚本，不会与面板发生互踢
+- 账号启用 2FA 时返回 `2FA_NOT_SUPPORTED`
+- 派生失败自动回收临时授权，不残留设备
+
+### 5. 设备保活
 
 - 定期轻量唤醒账号会话
 - 防止 6 个月不活跃被 Telegram 自动踢下线
 - 可配置保活间隔（建议 30 天）
 - 每天凌晨 3:30 自动执行
 
-### 4. 官方消息查看
+### 6. 官方消息查看
 
 - 读取 Telegram 官方服务号 777000 的消息
 - 查看登录验证码和安全通知
 - 只读操作，不会发送消息
 
-### 5. 批量状态检查
+### 7. 批量状态检查
 
 - 一键批量检测所有账号状态
 - 显示正常/异常数量
@@ -42,9 +56,14 @@
 ### 设备管理
 
 ```
-GET /api/accounts/{account_name}/devices
+GET    /api/accounts/{account_name}/devices
 DELETE /api/accounts/{account_name}/devices/{auth_hash}
+POST   /api/accounts/{account_name}/devices/reset-others
+POST   /api/accounts/{account_name}/session-exports
 ```
+
+`reset-others` 与 `session-exports` 的语义见上文「清退其他设备」「派生独立 Session 导出」；
+账号不存在返回 404，账号忙返回 409 `ACCOUNT_BUSY`。
 
 ### 官方消息
 

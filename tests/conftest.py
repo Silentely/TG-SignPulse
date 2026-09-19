@@ -69,6 +69,7 @@ def _ensure_event_loop():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
+
 # ============================================================================
 # 环境隔离 Fixtures
 # ============================================================================
@@ -83,7 +84,9 @@ def temp_data_dir(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def isolated_env(monkeypatch: pytest.MonkeyPatch, temp_data_dir: Path) -> Iterator[Path]:
+def isolated_env(
+    monkeypatch: pytest.MonkeyPatch, temp_data_dir: Path
+) -> Iterator[Path]:
     """
     隔离的环境变量
 
@@ -111,6 +114,7 @@ def no_external_telegram(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MEMORY_CHECK_INTERVAL_S", "3600")
     monkeypatch.setenv("MEMORY_THRESHOLD_MB", "8192")
     os.environ.setdefault("OPENAI_API_KEY", "test-openai-key")
+    os.environ.setdefault("APP_SECRET_KEY", "test-secret-key-0123456789abcdef")
 
 
 @pytest.fixture(autouse=True)
@@ -245,10 +249,12 @@ def mock_telegram_client() -> MockTelegramClient:
     预配置默认对话和消息历史，适用于签到和监控相关测试。
     """
     client = MockTelegramClient()
-    client.configure_dialogs([
-        MockDialog(MockChat(chat_id=-1001234567890, title="测试签到群")),
-        MockDialog(MockChat(chat_id=-1009876543210, title="测试群2")),
-    ])
+    client.configure_dialogs(
+        [
+            MockDialog(MockChat(chat_id=-1001234567890, title="测试签到群")),
+            MockDialog(MockChat(chat_id=-1009876543210, title="测试群2")),
+        ]
+    )
     return client
 
 
@@ -350,7 +356,9 @@ def sample_sign_config_with_ai() -> Dict[str, Any]:
 
 
 @pytest.fixture
-def temp_sign_config_file(tmp_path: Path, sample_sign_config_v3: Dict[str, Any]) -> Path:
+def temp_sign_config_file(
+    tmp_path: Path, sample_sign_config_v3: Dict[str, Any]
+) -> Path:
     """创建临时签到配置文件"""
     config_dir = tmp_path / "signs" / "test_account" / "test_task"
     config_dir.mkdir(parents=True, exist_ok=True)

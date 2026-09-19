@@ -1,9 +1,11 @@
 import socket
-import pytest
 from pathlib import Path
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 from fastapi import HTTPException
-from tg_signer.core.plugins import PluginRegistry, PluginMeta
+
+from tg_signer.core.plugins import PluginRegistry
 
 
 def _fake_addr(ip: str):
@@ -28,7 +30,10 @@ def test_plugin_meta_permissions():
 
 @pytest.mark.asyncio
 async def test_install_remote_plugin(tmp_path: Path):
-    from backend.api.routes.plugins import install_remote_plugin, InstallRemotePluginRequest
+    from backend.api.routes.plugins import (
+        InstallRemotePluginRequest,
+        install_remote_plugin,
+    )
     from backend.models.user import User
 
     fake_user = User(username="admin")
@@ -59,9 +64,13 @@ def handler(ctx):
 
 @pytest.mark.asyncio
 async def test_install_remote_plugin_ssrf_blocked():
-    from backend.api.routes.plugins import install_remote_plugin, InstallRemotePluginRequest
-    from backend.models.user import User
     from fastapi import HTTPException
+
+    from backend.api.routes.plugins import (
+        InstallRemotePluginRequest,
+        install_remote_plugin,
+    )
+    from backend.models.user import User
 
     fake_user = User(username="admin")
     req = InstallRemotePluginRequest(url="http://127.0.0.1:8000/evil.py")
@@ -73,7 +82,10 @@ async def test_install_remote_plugin_ssrf_blocked():
 
 @pytest.mark.asyncio
 async def test_install_remote_plugin_rejects_redirects():
-    from backend.api.routes.plugins import install_remote_plugin, InstallRemotePluginRequest
+    from backend.api.routes.plugins import (
+        InstallRemotePluginRequest,
+        install_remote_plugin,
+    )
     from backend.models.user import User
 
     fake_user = User(username="admin")
@@ -96,7 +108,10 @@ async def test_install_remote_plugin_rejects_redirects():
 
 @pytest.mark.asyncio
 async def test_install_remote_plugin_blocks_ipv4_mapped_ipv6():
-    from backend.api.routes.plugins import install_remote_plugin, InstallRemotePluginRequest
+    from backend.api.routes.plugins import (
+        InstallRemotePluginRequest,
+        install_remote_plugin,
+    )
     from backend.models.user import User
 
     fake_user = User(username="admin")
@@ -110,7 +125,10 @@ async def test_install_remote_plugin_blocks_ipv4_mapped_ipv6():
 
 @pytest.mark.asyncio
 async def test_install_remote_plugin_blocks_ipv6_unique_local():
-    from backend.api.routes.plugins import install_remote_plugin, InstallRemotePluginRequest
+    from backend.api.routes.plugins import (
+        InstallRemotePluginRequest,
+        install_remote_plugin,
+    )
     from backend.models.user import User
 
     fake_user = User(username="admin")
@@ -124,7 +142,10 @@ async def test_install_remote_plugin_blocks_ipv6_unique_local():
 
 @pytest.mark.asyncio
 async def test_install_remote_plugin_blocks_multihomed_private_record():
-    from backend.api.routes.plugins import install_remote_plugin, InstallRemotePluginRequest
+    from backend.api.routes.plugins import (
+        InstallRemotePluginRequest,
+        install_remote_plugin,
+    )
     from backend.models.user import User
 
     fake_user = User(username="admin")
@@ -139,7 +160,10 @@ async def test_install_remote_plugin_blocks_multihomed_private_record():
 
 @pytest.mark.asyncio
 async def test_install_remote_plugin_rejects_unresolvable_host():
-    from backend.api.routes.plugins import install_remote_plugin, InstallRemotePluginRequest
+    from backend.api.routes.plugins import (
+        InstallRemotePluginRequest,
+        install_remote_plugin,
+    )
     from backend.models.user import User
 
     fake_user = User(username="admin")

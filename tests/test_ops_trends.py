@@ -2,14 +2,17 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from pathlib import Path
-import pytest
+
 from fastapi.testclient import TestClient
 
-from backend.main import app
-from backend.services.sign_tasks import SignTaskService
-from backend.services.sign_task_history_index import append_index_entry, build_index_entry
 from backend.core.auth import get_current_user
+from backend.main import app
 from backend.models.user import User
+from backend.services.sign_task_history_index import (
+    append_index_entry,
+    build_index_entry,
+)
+from backend.services.sign_tasks import SignTaskService
 
 
 def test_get_history_trends(tmp_path: Path):

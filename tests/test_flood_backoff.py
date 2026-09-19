@@ -1,6 +1,8 @@
 import time
-import pytest
-from backend.services.flood_backoff import FloodBackoffManager, get_flood_backoff_manager
+
+from backend.services.flood_backoff import (
+    FloodBackoffManager,
+)
 
 
 def test_flood_backoff_manager_basic():
