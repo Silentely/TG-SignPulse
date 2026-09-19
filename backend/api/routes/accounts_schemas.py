@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 
 from backend.utils.task_logs import extract_last_target_message
 
@@ -77,6 +77,8 @@ class AccountInfo(BaseModel):
     status_checked_at: Optional[str] = None
     needs_relogin: bool = False
     tags: list[str] = []
+    device_family: Optional[str] = None
+    device_profile: Optional[Dict[str, Any]] = None
 
 
 class QrLoginStatusResponse(BaseModel):
@@ -143,6 +145,12 @@ class AccountUpdateRequest(BaseModel):
     remark: Optional[str] = None
     proxy: Optional[str] = None
     tags: Optional[list[str]] = None
+    device_family: Optional[str] = None
+    device_profile: Optional[Dict[str, Any]] = None
+
+    @validator("device_family")
+    def validate_family(cls, v):
+                raise ValueError(f"device_family must be one of {allowed}")
 
 
 class AccountUpdateResponse(BaseModel):

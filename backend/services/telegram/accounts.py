@@ -232,6 +232,8 @@ class TelegramAccountsMixin:
                             "remark": profile.get("remark"),
                             "proxy": profile.get("proxy"),
                             "tags": profile.get("tags") or [],
+                            "device_family": profile.get("device_family"),
+                            "device_profile": profile.get("device_profile"),
                             **self._account_status_payload(account_name),
                         }
                     )
@@ -253,6 +255,8 @@ class TelegramAccountsMixin:
                             "remark": profile.get("remark"),
                             "proxy": profile.get("proxy"),
                             "tags": profile.get("tags") or [],
+                            "device_family": profile.get("device_family"),
+                            "device_profile": profile.get("device_profile"),
                             **self._account_status_payload(account_name),
                         }
                     )
@@ -274,6 +278,8 @@ class TelegramAccountsMixin:
                             "remark": profile.get("remark"),
                             "proxy": profile.get("proxy"),
                             "tags": profile.get("tags") or [],
+                            "device_family": profile.get("device_family"),
+                            "device_profile": profile.get("device_profile"),
                             **self._account_status_payload(account_name),
                         }
                     )
