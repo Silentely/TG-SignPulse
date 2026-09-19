@@ -5,6 +5,7 @@ from backend.api.routes import (
     auth,
     batch,
     config,
+    data_dict,
     events,
     keyword_hits,
     logs,
@@ -29,3 +30,4 @@ router.include_router(
     keyword_hits.router, prefix="/keyword-hits", tags=["keyword-hits"]
 )
 router.include_router(plugins.router, prefix="/plugins", tags=["plugins"])
+router.include_router(data_dict.router, prefix="/data-dict", tags=["data-dict"])
