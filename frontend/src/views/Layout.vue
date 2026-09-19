@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   Users,
   Zap,
+  Puzzle,
   Terminal,
   Settings,
   UserCircle,
@@ -104,6 +105,7 @@ const viewLoaders: Record<string, () => Promise<unknown>> = {
   dashboard: () => import('../views/Dashboard.vue'),
   accounts: () => import('../views/Accounts.vue'),
   tasks: () => import('../views/Tasks.vue'),
+  plugins: () => import('../views/Plugins.vue'),
   logs: () => import('../views/Logs.vue'),
   settings: () => import('../views/Settings.vue'),
 }
@@ -134,6 +136,7 @@ const navigation = [
   { id: 'dashboard', name: 'dashboard', icon: LayoutDashboard, labelKey: 'nav.dashboard' },
   { id: 'accounts', name: 'accounts', icon: Users, labelKey: 'nav.accounts' },
   { id: 'tasks', name: 'tasks', icon: Zap, labelKey: 'nav.tasks' },
+  { id: 'plugins', name: 'plugins', icon: Puzzle, labelKey: 'nav.plugins' },
   { id: 'logs', name: 'logs', icon: Terminal, labelKey: 'nav.logs' },
   { id: 'settings', name: 'settings', icon: Settings, labelKey: 'nav.settings' },
 ]
@@ -286,7 +289,7 @@ const handleNavClick = () => {
         </div>
       </header>
 
-      <!-- 避免 overflow-x-hidden 破坏子元素 sticky；用 clip 裁切即可 -->
+      <!-- 避免 overflow-x-hidden 破坏子元素 sticky；用 clip 裁剪即可 -->
       <div class="flex-1 px-4 lg:px-8 py-6 pb-12 overflow-x-clip">
         <router-view v-slot="{ Component }">
           <transition name="fade" mode="out-in">
