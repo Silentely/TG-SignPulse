@@ -18,7 +18,6 @@ from tg_signer.compat import (
     clean_text_for_match,
     collect_clickable_buttons,
 )
-from tg_signer.core.plugins import PluginRegistry
 from tg_signer.config import (
     ActionT,
     ChooseOptionByImageAction,
@@ -32,6 +31,7 @@ from tg_signer.config import (
     SendTextAction,
     SignChatV3,
 )
+from tg_signer.core.plugins import PluginRegistry
 
 
 class SignerMatchersMixin:

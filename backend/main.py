@@ -396,8 +396,8 @@ async def on_startup() -> None:
 
     ensure_data_dirs(settings)
     try:
-        from tg_signer.core.plugins import PluginRegistry
         from backend.api.routes.plugins import _get_disabled_plugins
+        from tg_signer.core.plugins import PluginRegistry
 
         count = PluginRegistry.load_all_configured_plugins()
         disabled_set = _get_disabled_plugins()

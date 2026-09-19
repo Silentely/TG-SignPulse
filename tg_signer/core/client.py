@@ -33,8 +33,11 @@ from tg_signer.compat import (  # noqa: E402
     ReplyKeyboardMarkup,
     Session,
     _raise_pyrogram_import_error,
+    patch_kurigram_compat,
     raw,
 )
+
+patch_kurigram_compat()
 
 # Monkeypatch sqlite3.connect to increase default timeout
 _original_sqlite3_connect = sqlite3.connect
@@ -195,6 +198,35 @@ _CLIENT_INSTANCES: dict[str, "Client"] = {}
 # so multiple coroutines in the same process can safely share one Client.
 _CLIENT_REFS: defaultdict[str, int] = defaultdict(int)
 _CLIENT_ASYNC_LOCKS: dict[str, asyncio.Lock] = {}
+
+
+def is_account_client_active(name: str, workdir: Union[str, pathlib.Path] = None) -> bool:
+    """检查指定账号是否有活跃的 Client 实例在运行中 (_CLIENT_REFS > 0)。"""
+    # 直接支持按 account_name 检索（单测 mock 或以名字为键）
+    if _CLIENT_REFS.get(name, 0) > 0:
+        return True
+
+    expected_base = None
+    if workdir is not None:
+        try:
+            expected_base = str(pathlib.Path(workdir).joinpath(name).resolve())
+        except Exception:
+            expected_base = None
+
+    for key, count in list(_CLIENT_REFS.items()):
+        if count <= 0:
+            continue
+        if key == name or key.startswith(f"{name}::"):
+            return True
+        if expected_base and (key == expected_base or key.startswith(f"{expected_base}::")):
+            return True
+        try:
+            p = pathlib.Path(key.split("::")[0])
+            if p.stem == name or p.name == name:
+                return True
+        except Exception:
+            pass
+    return False
 
 
 class Client(BaseClient):
@@ -405,6 +437,11 @@ def get_client(
     in_memory: bool = False,
     api_id: int = None,
     api_hash: str = None,
+    device_model: str = None,
+    system_version: str = None,
+    app_version: str = None,
+    lang_code: str = None,
+    system_lang_code: str = None,
     **kwargs,
 ) -> Client:
     proxy = proxy or get_proxy()
@@ -419,21 +456,44 @@ def get_client(
     base_key = str(pathlib.Path(workdir).joinpath(name).resolve())
     key = f"{base_key}::memory" if (in_memory and session_string) else base_key
 
+    extra_device_kwargs = {}
+    if device_model is not None:
+        extra_device_kwargs["device_model"] = device_model
+    if system_version is not None:
+        extra_device_kwargs["system_version"] = system_version
+    if app_version is not None:
+        extra_device_kwargs["app_version"] = app_version
+    if lang_code is not None:
+        extra_device_kwargs["lang_code"] = lang_code
+    if system_lang_code is not None:
+        extra_device_kwargs["system_lang_code"] = system_lang_code
+
     if key in _CLIENT_INSTANCES:
         existing = _CLIENT_INSTANCES[key]
         requested_no_updates = kwargs.get("no_updates")
         existing_no_updates = getattr(existing, "_tg_signpulse_no_updates", None)
         refs = _CLIENT_REFS.get(key, 0)
+
+        device_changed = any(
+            getattr(existing, k, None) != v for k, v in extra_device_kwargs.items()
+        )
+
         if (
-            requested_no_updates is not None
-            and existing_no_updates is not None
-            and requested_no_updates != existing_no_updates
+            (
+                (
+                    requested_no_updates is not None
+                    and existing_no_updates is not None
+                    and requested_no_updates != existing_no_updates
+                )
+                or device_changed
+            )
             and refs <= 0
             and not getattr(existing, "is_connected", False)
         ):
             _CLIENT_INSTANCES.pop(key, None)
         else:
             return existing
+
     client = Client(
         name,
         api_id=api_id,
@@ -443,6 +503,7 @@ def get_client(
         session_string=session_string,
         in_memory=in_memory,
         key=key,
+        **extra_device_kwargs,
         **kwargs,
     )
     _CLIENT_INSTANCES[key] = client

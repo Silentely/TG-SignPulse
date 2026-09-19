@@ -39,7 +39,6 @@ from tg_signer.core.plugins import (
     PluginMeta,
     PluginRegistry,
     PluginStorageClient,
-    _SecurityVisitor,
     is_builtin_plugin_path,
 )
 from tg_signer.utils import validate_public_http_url

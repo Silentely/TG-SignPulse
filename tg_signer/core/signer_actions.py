@@ -8,11 +8,12 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
 import os
 import random
 import time
 from datetime import datetime, timedelta
-from typing import Any, BinaryIO, Optional, Union
+from typing import Any, Optional, Union
 
 from croniter import croniter
 
@@ -59,7 +60,25 @@ from tg_signer.utils import (
 )
 
 
+def _get_message_text(message: Any) -> str:
+    """提取消息的题干文本，优先 text，回退 caption，缺失返回空字符串"""
+    if not message:
+        return ""
+    text = getattr(message, "text", None) or getattr(message, "caption", None) or ""
+    return str(text).strip()
+
+
+def _normalize_button_text(text: Any) -> str:
+    """归一化按钮与选项文本，消除空白字符并小写化，实现高容错匹配"""
+    if not text:
+        return ""
+    return "".join(str(text).split()).lower()
+
+
 class SignerActionsMixin:
+    _get_message_text = staticmethod(_get_message_text)
+    _normalize_button_text = staticmethod(_normalize_button_text)
+
     async def _click_inline_button(self, message: Message, btn) -> bool:
         callback_data = getattr(btn, "callback_data", None)
         chat = getattr(message, "chat", None)
@@ -242,10 +261,11 @@ class SignerActionsMixin:
     async def _reply_by_calculation_problem(
         self, action: ReplyByCalculationProblemAction, message
     ):
-        if message.text:
+        question_text = _get_message_text(message)
+        if question_text:
             self._log_received_target_message(message)
             self.log("AI 正在分析计算题")
-            self.log(f"题目内容：{self._normalize_log_text(message.text, 220)}")
+            self.log(f"题目内容：{self._normalize_log_text(question_text, 220)}")
             ai_prompt = action.ai_prompt if (action.ai_prompt or "").strip() else None
             if ai_prompt:
                 self.log("当前 AI 动作使用自定义提示词")
@@ -253,14 +273,14 @@ class SignerActionsMixin:
             answer = await self._execute_ai_action(
                 method="calculate_problem",
                 ai_call=lambda: self.get_ai_tools().calculate_problem(
-                    message.text,
+                    question_text,
                     system_prompt=ai_prompt,
                 ),
                 model=model,
                 request_meta={
-                    "query_chars": len(message.text),
+                    "query_chars": len(question_text),
                     "custom_prompt": bool(ai_prompt),
-                    "question_preview": message.text,
+                    "question_preview": question_text,
                 },
                 result_meta=lambda result, _elapsed_ms: {
                     "response_chars": len(result or ""),
@@ -292,11 +312,18 @@ class SignerActionsMixin:
             return False
         self._log_received_target_message(message)
         self.log("AI 正在分析图片中的文字")
-        image_buffer: BinaryIO = await self.app.download_media(
+        image_buffer = await self.app.download_media(
             message.photo.file_id, in_memory=True
         )
-        image_buffer.seek(0)
-        image_bytes = image_buffer.read()
+        if not image_buffer:
+            self.log("下载图片数据为空", level="WARNING")
+            return False
+        if hasattr(image_buffer, "seek"):
+            image_buffer.seek(0)
+        image_bytes = image_buffer.read() if hasattr(image_buffer, "read") else (bytes(image_buffer) if isinstance(image_buffer, (bytes, bytearray)) else b"")
+        if not image_bytes:
+            self.log("图片数据读取为空", level="WARNING")
+            return False
         ai_prompt = action.ai_prompt if (action.ai_prompt or "").strip() else None
         if ai_prompt:
             self.log("当前 AI 动作使用自定义提示词")
@@ -335,8 +362,20 @@ class SignerActionsMixin:
     async def _click_button_by_calculation_problem(
         self, action: ClickButtonByCalculationProblemAction, message
     ):
-        if not message.text:
+        question_text = _get_message_text(message)
+        if not question_text:
             return False
+        clickable_buttons = collect_clickable_buttons(message)
+        options = [btn_text for _, _, btn_text in clickable_buttons]
+        if options:
+            query_text = (
+                f"{question_text}\n\n"
+                f"可选答案：{json.dumps(options, ensure_ascii=False)}\n"
+                f"请只从可选答案中选择最匹配的一项，并原样回复该选项文本。"
+            )
+        else:
+            query_text = question_text
+
         self._log_received_target_message(message)
         self.log("AI 正在计算按钮答案")
         ai_prompt = action.ai_prompt if (action.ai_prompt or "").strip() else None
@@ -346,14 +385,14 @@ class SignerActionsMixin:
         answer = await self._execute_ai_action(
             method="calculate_problem",
             ai_call=lambda: self.get_ai_tools().calculate_problem(
-                message.text,
+                query_text,
                 system_prompt=ai_prompt,
             ),
             model=model,
             request_meta={
-                "query_chars": len(message.text),
+                "query_chars": len(query_text),
                 "custom_prompt": bool(ai_prompt),
-                "question_preview": message.text,
+                "question_preview": question_text,
             },
             result_meta=lambda result, _elapsed_ms: {
                 "response_chars": len(result or ""),
@@ -371,99 +410,283 @@ class SignerActionsMixin:
         answer = answer.strip()
         if not answer:
             return False
-        proxy_action = ClickKeyboardByTextAction(text=answer)
-        return await self._click_keyboard_by_text(proxy_action, message)
 
-    async def _choose_option_by_image(self, action: ChooseOptionByImageAction, message):
-        if not message.photo:
-            return False
-        clickable_buttons = collect_clickable_buttons(message)
-        if clickable_buttons:
-            self._log_received_target_message(message)
-            self.log("AI 正在分析图片并匹配可点击按钮")
-            image_buffer: BinaryIO = await self.app.download_media(
-                message.photo.file_id, in_memory=True
-            )
-            image_buffer.seek(0)
-            image_bytes = image_buffer.read()
-            options = [button_text for _, _, button_text in clickable_buttons]
-            if not options:
-                self.log("未找到可供点击的按钮", level="WARNING")
-                return False
-            question_text = (message.caption or message.text or "").strip()
-            if not question_text:
-                question_text = "选择正确的选项"
-            ai_prompt = action.ai_prompt if (action.ai_prompt or "").strip() else None
-            if ai_prompt:
-                self.log("当前 AI 动作使用自定义提示词")
-            model = self.get_ai_tools().default_model
-            result_indexes = await self._execute_ai_action(
-                method="choose_options_by_image",
-                ai_call=lambda: self.get_ai_tools().choose_options_by_image(
-                    image_bytes,
-                    question_text,
-                    list(enumerate(options, start=1)),
-                    system_prompt=ai_prompt,
-                ),
-                model=model,
-                request_meta={
-                    "has_image": True,
-                    "image_bytes": len(image_bytes),
-                    "query_chars": len(question_text),
-                    "options_count": len(options),
-                    "custom_prompt": bool(ai_prompt),
-                    "question_preview": question_text,
-                    "options_preview": options,
-                },
-                result_meta=lambda result, elapsed_ms: {
-                    "result_type": "list",
-                    "result_count": len(result or []),
-                    "selected_options": [
-                        options[idx - 1]
-                        for idx in (result or [])
-                        if 1 <= idx <= len(options)
-                    ]
-                    + [
-                        options[idx]
-                        for idx in (result or [])
-                        if 0 <= idx < len(options)
-                    ],
-                },
-                action_log="AI 正在分析图片并匹配可点击按钮",
-                empty_result_log="AI 未返回可点击选项",
-                result_empty_check=lambda r: bool(r),
-            )
-            if result_indexes is None:
-                return False
-            clicked = 0
-            for result_index in result_indexes:
-                if result_index == 0:
-                    selected_idx = 0
-                elif 1 <= result_index <= len(options):
-                    selected_idx = result_index - 1
-                elif 0 <= result_index < len(options):
-                    selected_idx = result_index
-                else:
-                    self.log(f"AI 返回了非法选项序号: {result_index}", level="WARNING")
-                    return False
-                button_kind, target_btn, result = clickable_buttons[selected_idx]
-                self.log(
-                    f"AI 选择并点击选项 | index={selected_idx + 1} | preview={safe_text_preview(result, 60)}",
-                    level="DEBUG",
-                )
-                if button_kind == "inline":
-                    if await self._click_inline_button(message, target_btn):
-                        clicked += 1
+        proxy_action = ClickKeyboardByTextAction(text=answer)
+        if await self._click_keyboard_by_text(proxy_action, message):
+            return True
+
+        norm_answer = _normalize_button_text(answer)
+        if norm_answer:
+            matched_btn_info = None
+            # 第一轮：归一化后精确匹配（消除按钮文案中的空白/大小写差异）
+            for btn_kind, btn, btn_text in clickable_buttons:
+                if _normalize_button_text(btn_text) == norm_answer:
+                    matched_btn_info = (btn_kind, btn, btn_text)
+                    break
+            # 第二轮：宽松子串匹配兜底；双方均为纯数字时要求整串相等，
+            # 避免答案 "1" 误命中编号按钮 "10"
+            if not matched_btn_info:
+                for btn_kind, btn, btn_text in clickable_buttons:
+                    norm_btn = _normalize_button_text(btn_text)
+                    if norm_answer.isdigit() and norm_btn.isdigit():
+                        continue
+                    if (len(norm_answer) >= 2 and norm_answer in norm_btn) or (
+                        len(norm_btn) >= 2 and norm_btn in norm_answer
+                    ):
+                        matched_btn_info = (btn_kind, btn, btn_text)
+                        break
+
+            if matched_btn_info:
+                btn_kind, btn, btn_text = matched_btn_info
+                self.log(f"宽松匹配到按钮: [{btn_text}] (AI答案: {answer})")
+                if btn_kind == "inline":
+                    return await self._click_inline_button(message, btn)
                 else:
                     kwargs = {}
-                    message_thread_id = self._resolve_message_thread_id(message)
+                    message_thread_id = (
+                        self._resolve_message_thread_id(message)
+                        if hasattr(self, "_resolve_message_thread_id")
+                        else None
+                    )
                     if message_thread_id is not None:
                         kwargs["message_thread_id"] = message_thread_id
-                    await self.send_message(message.chat.id, result, **kwargs)
-                    clicked += 1
-                await asyncio.sleep(0.3)
-            return clicked > 0
+                    await self.send_message(message.chat.id, btn_text, **kwargs)
+                    return True
+
         return False
+
+    def _find_previous_photo_message(
+        self,
+        messages: Optional[list[Any]],
+        message: Any,
+        *,
+        max_backtrack: int = 20,
+        max_age_seconds: float = 120.0,
+    ) -> Any | None:
+        """从历史消息快照中逆序回溯查找当前按钮消息之前最近的一条包含 photo 的有效消息。
+
+        - 过滤掉非相同发送者的消息（防群聊其他成员插播干扰）
+        - 限制查找跨度不超过 max_backtrack 条有效消息
+        - 限制候选消息与当前消息时间差不超过 max_age_seconds
+        - 忽略已被置为 None 的已消费缓存项
+        """
+        if messages is None:
+            chat_id = getattr(getattr(message, "chat", None), "id", None)
+            if hasattr(self, "context") and hasattr(self.context, "chat_messages") and chat_id is not None:
+                messages_snapshot = list((self.context.chat_messages.get(chat_id) or {}).values())
+            else:
+                messages_snapshot = []
+        else:
+            messages_snapshot = list(messages)
+
+        target_idx = None
+        for idx, m in enumerate(messages_snapshot):
+            if m is message:
+                target_idx = idx
+                break
+            if m is not None and getattr(message, "id", None) is not None:
+                if getattr(m, "id", None) == message.id:
+                    target_idx = idx
+                    break
+
+        if target_idx is not None:
+            candidate_slice = messages_snapshot[:target_idx]
+        else:
+            msg_id = getattr(message, "id", None)
+            if isinstance(msg_id, int):
+                candidate_slice = [
+                    m for m in messages_snapshot
+                    if m is not None and (getattr(m, "id", None) is None or m.id < msg_id)
+                ]
+            else:
+                candidate_slice = [m for m in messages_snapshot if m is not message]
+
+        def _get_sender_identity(msg: Any) -> tuple[str, Any] | None:
+            if msg is None:
+                return None
+            from_user = getattr(msg, "from_user", None)
+            if from_user is not None and getattr(from_user, "id", None) is not None:
+                return ("user", from_user.id)
+            sender_chat = getattr(msg, "sender_chat", None)
+            if sender_chat is not None and getattr(sender_chat, "id", None) is not None:
+                return ("chat", sender_chat.id)
+            return None
+
+        curr_sender = _get_sender_identity(message)
+        curr_date = getattr(message, "date", None)
+
+        backtrack_count = 0
+        for cand in reversed(candidate_slice):
+            if cand is None:
+                continue
+
+            backtrack_count += 1
+            if backtrack_count > max_backtrack:
+                break
+
+            if not getattr(cand, "photo", None):
+                continue
+
+            # 时效检查：message.date - prev.date <= max_age_seconds
+            cand_date = getattr(cand, "date", None)
+            if curr_date is not None and cand_date is not None:
+                age: Optional[float] = None
+                if isinstance(curr_date, datetime) and isinstance(cand_date, datetime):
+                    age = (curr_date - cand_date).total_seconds()
+                elif isinstance(curr_date, (int, float)) and isinstance(cand_date, (int, float)):
+                    age = float(curr_date) - float(cand_date)
+                else:
+                    try:
+                        c_ts = curr_date.timestamp() if isinstance(curr_date, datetime) else float(curr_date)
+                        p_ts = cand_date.timestamp() if isinstance(cand_date, datetime) else float(cand_date)
+                        age = c_ts - p_ts
+                    except Exception:
+                        age = None
+                if age is not None and age > max_age_seconds:
+                    continue
+
+            # 发送者一致性检查
+            cand_sender = _get_sender_identity(cand)
+            if curr_sender is not None and cand_sender is not None:
+                if curr_sender != cand_sender:
+                    continue
+            elif curr_sender is None and cand_sender is None:
+                self.log(
+                    "分离式验证码：图片消息与按钮消息均无明确发送者标识（匿名场景），允许回溯匹配",
+                    level="WARNING",
+                )
+            else:
+                continue
+
+            return cand
+
+        return None
+
+    async def _choose_option_by_image(self, action: ChooseOptionByImageAction, message):
+        clickable_buttons = collect_clickable_buttons(message)
+        if not clickable_buttons:
+            return False
+
+        target_photo_msg = message if getattr(message, "photo", None) else None
+        if target_photo_msg is None:
+            chat_id = getattr(getattr(message, "chat", None), "id", None)
+            messages_snapshot: list[Any] = []
+            if hasattr(self, "context") and hasattr(self.context, "chat_messages") and chat_id is not None:
+                messages_snapshot = list((self.context.chat_messages.get(chat_id) or {}).values())
+            target_photo_msg = self._find_previous_photo_message(messages_snapshot, message)
+            if not target_photo_msg or not getattr(target_photo_msg, "photo", None):
+                self.log("分离式验证码：未找到可供匹配的前序图片消息", level="WARNING")
+                return False
+            self.log(
+                f"分离式验证码：成功回溯到前序图片消息 (id={getattr(target_photo_msg, 'id', None)})，将使用该图片匹配当前按钮",
+                level="INFO",
+            )
+
+        self._log_received_target_message(message)
+        self.log("AI 正在分析图片并匹配可点击按钮")
+        options = [button_text for _, _, button_text in clickable_buttons]
+        if not options:
+            self.log("未找到可供点击的按钮", level="WARNING")
+            return False
+
+        photo_obj = getattr(target_photo_msg, "photo", None)
+        file_id = getattr(photo_obj, "file_id", None) if photo_obj else None
+        if not file_id:
+            self.log("图片消息中未找到有效的 photo.file_id", level="WARNING")
+            return False
+
+        image_buffer = await self.app.download_media(
+            file_id, in_memory=True
+        )
+        if not image_buffer:
+            self.log("下载图片数据为空", level="WARNING")
+            return False
+        if hasattr(image_buffer, "seek"):
+            image_buffer.seek(0)
+        image_bytes = image_buffer.read() if hasattr(image_buffer, "read") else (bytes(image_buffer) if isinstance(image_buffer, (bytes, bytearray)) else b"")
+        if not image_bytes:
+            self.log("图片数据读取为空", level="WARNING")
+            return False
+        question_text = (
+            getattr(message, "caption", None)
+            or getattr(message, "text", None)
+            or getattr(target_photo_msg, "caption", None)
+            or getattr(target_photo_msg, "text", None)
+            or ""
+        ).strip()
+        if not question_text:
+            question_text = "选择正确的选项"
+        ai_prompt = action.ai_prompt if (action.ai_prompt or "").strip() else None
+        if ai_prompt:
+            self.log("当前 AI 动作使用自定义提示词")
+        model = self.get_ai_tools().default_model
+        result_indexes = await self._execute_ai_action(
+            method="choose_options_by_image",
+            ai_call=lambda: self.get_ai_tools().choose_options_by_image(
+                image_bytes,
+                question_text,
+                list(enumerate(options, start=1)),
+                system_prompt=ai_prompt,
+            ),
+            model=model,
+            request_meta={
+                "has_image": True,
+                "image_bytes": len(image_bytes),
+                "query_chars": len(question_text),
+                "options_count": len(options),
+                "custom_prompt": bool(ai_prompt),
+                "question_preview": question_text,
+                "options_preview": options,
+            },
+            result_meta=lambda result, elapsed_ms: {
+                "result_type": "list",
+                "result_count": len(result or []),
+                "selected_options": [
+                    options[idx - 1]
+                    for idx in (result or [])
+                    if 1 <= idx <= len(options)
+                ]
+                + [
+                    options[idx]
+                    for idx in (result or [])
+                    if 0 <= idx < len(options)
+                ],
+            },
+            action_log="AI 正在分析图片并匹配可点击按钮",
+            empty_result_log="AI 未返回可点击选项",
+            result_empty_check=lambda r: bool(r),
+        )
+        if result_indexes is None:
+            return False
+        clicked = 0
+        for result_index in result_indexes:
+            if result_index == 0:
+                selected_idx = 0
+            elif 1 <= result_index <= len(options):
+                selected_idx = result_index - 1
+            elif 0 <= result_index < len(options):
+                selected_idx = result_index
+            else:
+                self.log(f"AI 返回了非法选项序号: {result_index}", level="WARNING")
+                return False
+            button_kind, target_btn, result = clickable_buttons[selected_idx]
+            self.log(
+                f"AI 选择并点击选项 | index={selected_idx + 1} | preview={safe_text_preview(result, 60)}",
+                level="DEBUG",
+            )
+            if button_kind == "inline":
+                if await self._click_inline_button(message, target_btn):
+                    clicked += 1
+            else:
+                kwargs = {}
+                message_thread_id = self._resolve_message_thread_id(message)
+                if message_thread_id is not None:
+                    kwargs["message_thread_id"] = message_thread_id
+                await self.send_message(message.chat.id, result, **kwargs)
+                clicked += 1
+            await asyncio.sleep(0.3)
+        return clicked > 0
+
 
     def _record_plugin_task_execution(
         self,
@@ -1136,3 +1359,5 @@ class SignerActionsMixin:
             messages = await self.app.get_scheduled_messages(chat_id)
             for message in messages:
                 print_to_user(f"{message.date}: {message.text}")
+
+UserSignerActionsMixin = SignerActionsMixin
