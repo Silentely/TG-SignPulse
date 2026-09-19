@@ -239,6 +239,11 @@ class Client(BaseClient):
         self.key = key or str(pathlib.Path(self.workdir).joinpath(self.name).resolve())
         if self.in_memory and not self.session_string:
             self.load_session_string()
+            if MemoryStorage is None:
+                raise RuntimeError(
+                    "当前 kurigram 版本不提供 pyrogram.storage.MemoryStorage，"
+                    "string 会话模式不可用；请安装 kurigram>=2.2.7,<2.2.10"
+                )
             self.storage = MemoryStorage(self.name, self.session_string)
 
     async def __aenter__(self):

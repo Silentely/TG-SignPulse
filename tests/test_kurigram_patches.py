@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import subprocess
+import sys
+import textwrap
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -7,10 +11,73 @@ from pyrogram import raw, types
 from pyrogram.errors import BadRequest, ChatNotModified, TopicIdInvalid
 
 from tg_signer.compat import (
+    _PYROGRAM_IMPORT_ERROR,
     patch_animated_chat_photo_parser,
     patch_kurigram_compat,
     safe_get_forum_topics,
 )
+
+
+def test_kurigram_runtime_contract_is_satisfied():
+    """kurigram 运行时契约守卫。
+
+    kurigram 2.2.10 起移除了 pyrogram.storage.MemoryStorage，而 string 会话模式依赖它。
+    若依赖解析到该版本，tg_signer.compat 会整体导入失败并静默降级为占位实现，
+    表现为大量误导性的「X() takes no arguments」报错。此用例把该契约显式固化：
+    缺失时直接失败并指出应使用的版本区间，而不是让下游用例报出难以定位的错误。
+    """
+    from tg_signer.compat import MemoryStorage
+
+    assert _PYROGRAM_IMPORT_ERROR is None, (
+        f"Telegram 运行时依赖导入失败: {_PYROGRAM_IMPORT_ERROR!r}"
+    )
+    assert MemoryStorage is not None, (
+        "当前 kurigram 版本不提供 pyrogram.storage.MemoryStorage（2.2.10 起已移除），"
+        "请安装 kurigram>=2.2.7,<2.2.10"
+    )
+
+
+def test_missing_memory_storage_does_not_stub_whole_runtime():
+    """MemoryStorage 缺失只应影响该类本身，不得把整套运行时替换为占位实现。
+
+    否则真实类型（如 InlineKeyboardMarkup）会被替换成不接受参数的占位类，
+    在离故障点很远的用例里报出「X() takes no arguments」，难以定位。
+    """
+    code = textwrap.dedent(
+        """
+        import builtins
+
+        # 先让 pyrogram 正常加载，避免干扰其内部对 pyrogram.storage 的合法使用
+        import pyrogram.types as real_types
+
+        real_import = builtins.__import__
+
+        def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+            # 仅模拟「2.2.10+ 已移除 MemoryStorage」这一件事
+            if name == "pyrogram.storage" and fromlist and "MemoryStorage" in fromlist:
+                raise ImportError("simulated: MemoryStorage removed")
+            return real_import(name, globals, locals, fromlist, level)
+
+        builtins.__import__ = fake_import
+
+        import tg_signer.compat as compat
+
+        assert compat._PYROGRAM_IMPORT_ERROR is None, "不应整体降级为占位实现"
+        assert compat.MemoryStorage is None, "MemoryStorage 应为 None"
+        assert compat.InlineKeyboardMarkup is real_types.InlineKeyboardMarkup, (
+            "真实类型必须保留"
+        )
+        print("OK")
+        """
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=str(Path(__file__).resolve().parent.parent),
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "OK" in proc.stdout
 
 
 @pytest.mark.asyncio
