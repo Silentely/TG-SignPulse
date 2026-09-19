@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 from typing import Optional
 
@@ -33,6 +34,8 @@ from backend.api.routes.accounts_schemas import (
     AccountUpdateResponse,
     ClearAccountLogsResponse,
     DeleteAccountResponse,
+    ImportSessionRequest,
+    ImportSessionResponse,
     LoginStartRequest,
     LoginStartResponse,
     LoginVerifyRequest,
@@ -46,6 +49,9 @@ from backend.api.routes.accounts_schemas import (
     QrLoginStartRequest,
     QrLoginStartResponse,
     QrLoginStatusResponse,
+    ResetAuthorizationsResponse,
+    StandaloneSessionExportRequest,
+    StandaloneSessionExportResponse,
     TerminateDeviceResponse,
     _extract_last_bot_message,
 )
@@ -53,6 +59,7 @@ from backend.core.auth import get_current_user
 from backend.core.rate_limit import compose_rate_limit_key, get_rate_limiter
 from backend.models.user import User
 from backend.services.telegram import get_telegram_service
+from backend.utils.account_locks import AccountLockTimeout
 from backend.utils.names import validate_storage_name
 
 router = APIRouter()
@@ -79,6 +86,7 @@ def _apply_rate_limit(
         detail=detail,
     )
     return key
+
 
 @router.post("/login/start", response_model=LoginStartResponse)
 async def start_account_login(
@@ -116,7 +124,9 @@ async def start_account_login(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
-        logger.error("发送验证码失败 account=%s: %s", request.account_name, e, exc_info=True)
+        logger.error(
+            "发送验证码失败 account=%s: %s", request.account_name, e, exc_info=True
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="发送验证码失败，请稍后重试",
@@ -183,7 +193,9 @@ async def verify_account_login(
             status_code=status.HTTP_400_BAD_REQUEST, detail=message
         ) from e
     except Exception as e:
-        logger.error("登录验证失败 account=%s: %s", request.account_name, e, exc_info=True)
+        logger.error(
+            "登录验证失败 account=%s: %s", request.account_name, e, exc_info=True
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="登录验证失败，请稍后重试",
@@ -221,7 +233,9 @@ async def start_qr_login(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
-        logger.error("开始扫码登录失败 account=%s: %s", request.account_name, e, exc_info=True)
+        logger.error(
+            "开始扫码登录失败 account=%s: %s", request.account_name, e, exc_info=True
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="开始扫码登录失败，请稍后重试",
@@ -291,7 +305,9 @@ async def submit_qr_login_password(
         logger.warning("QR 密码校验失败 login_id=%s error=%s", request.login_id, e)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
-        logger.error("提交 2FA 密码失败 login_id=%s: %s", request.login_id, e, exc_info=True)
+        logger.error(
+            "提交 2FA 密码失败 login_id=%s: %s", request.login_id, e, exc_info=True
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="提交 2FA 密码失败，请稍后重试",
@@ -310,10 +326,193 @@ async def cancel_qr_login(
             message="已取消" if success else "登录已失效",
         )
     except Exception as e:
-        logger.error("取消扫码登录失败 login_id=%s: %s", request.login_id, e, exc_info=True)
+        logger.error(
+            "取消扫码登录失败 login_id=%s: %s", request.login_id, e, exc_info=True
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="取消扫码登录失败，请稍后重试",
+        )
+
+
+
+
+def _is_zip_payload(payload: bytes | str) -> bool:
+    """Check whether session payload is a ZIP archive (e.g. Telegram Desktop TData)."""
+    if isinstance(payload, bytes):
+        return payload.startswith(b"PK") or payload.startswith(b"PK") or payload.startswith(b"PK")
+    if isinstance(payload, str):
+        cleaned = payload.strip()
+        try:
+            raw = base64.b64decode(cleaned)
+            return raw.startswith(b"PK") or raw.startswith(b"PK") or raw.startswith(b"PK")
+        except Exception:
+            return False
+    return False
+
+@router.post("/import-session", response_model=ImportSessionResponse)
+async def import_session(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    """导入外部 Telegram 会话（Telethon SQLite, Pyrogram SQLite, Pyrogram StringSession, 或 TData zip）。"""
+    content_type = request.headers.get("content-type", "")
+
+    account_name = ""
+    session_type = "auto"
+    session_content: Optional[str] = None
+    force = False
+    proxy: Optional[str] = None
+    tdata_password: Optional[str] = None
+    payload: bytes | str = ""
+
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        account_name = str(form.get("account_name") or "").strip()
+        session_type = str(form.get("session_type") or "auto").strip()
+        force_raw = form.get("force")
+        force = str(force_raw).lower() in ("true", "1") if force_raw is not None else False
+        proxy_raw = form.get("proxy")
+        proxy = str(proxy_raw).strip() if proxy_raw else None
+        tdata_pwd_raw = form.get("tdata_password")
+        tdata_password = str(tdata_pwd_raw).strip() if tdata_pwd_raw else None
+
+        file = form.get("file")
+        if file and hasattr(file, "read"):
+            payload = await file.read()
+        else:
+            session_content = form.get("session_content")
+            if session_content:
+                payload = str(session_content).strip()
+    else:
+        try:
+            body = await request.json()
+            req = ImportSessionRequest(**body)
+            account_name = req.account_name.strip()
+            session_type = req.session_type
+            session_content = req.session_content
+            force = req.force
+            proxy = req.proxy
+            tdata_password = req.tdata_password.strip() if req.tdata_password else None
+            if not session_content:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="session_content is required",
+                )
+            payload = session_content.strip()
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid JSON request: {exc}",
+            ) from exc
+
+    if not account_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="account_name is required",
+        )
+
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No session payload provided (file or session_content is required)",
+        )
+
+    MAX_SESSION_UPLOAD_SIZE = 50 * 1024 * 1024
+    if (isinstance(payload, bytes) and len(payload) > MAX_SESSION_UPLOAD_SIZE) or (
+        isinstance(payload, str) and len(payload) > MAX_SESSION_UPLOAD_SIZE * 4 // 3
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Session payload exceeds 50MB limit",
+        )
+
+    try:
+        account_name = validate_storage_name(account_name, field_name="account_name")
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+    svc = get_telegram_service()
+    try:
+        if _is_zip_payload(payload):
+            zip_bytes = payload if isinstance(payload, bytes) else base64.b64decode(payload.strip())
+            res = await svc.import_tdata_session(
+                account_name=account_name,
+                zip_payload=zip_bytes,
+                password=tdata_password,
+                force=force,
+                proxy=proxy,
+            )
+        else:
+            res = await svc.import_session(
+                account_name=account_name,
+                payload=payload,
+                session_type=session_type,
+                force=force,
+                proxy=proxy,
+            )
+        return ImportSessionResponse(
+            success=True,
+            account_name=account_name,
+            user_id=res.get("user_id"),
+            first_name=res.get("first_name"),
+            username=res.get("username"),
+            message="会话导入成功",
+        )
+    except AccountLockTimeout:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="ACCOUNT_BUSY",
+        )
+    except RuntimeError as e:
+        err_msg = str(e)
+        if "TDATA_CONVERTER_UNAVAILABLE" in err_msg:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="TDATA_CONVERTER_UNAVAILABLE",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=err_msg,
+        )
+    except ValueError as e:
+        err_msg = str(e)
+        if "TDATA_PASSWORD_REQUIRED" in err_msg:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="TDATA_PASSWORD_REQUIRED",
+            )
+        if "TDATA_PASSWORD_INVALID" in err_msg:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="TDATA_PASSWORD_INVALID",
+            )
+        if "already exists" in err_msg:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=err_msg,
+            )
+        if "IMPORTED_SESSION_UNAUTHORIZED" in err_msg:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="IMPORTED_SESSION_UNAUTHORIZED",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=err_msg,
+        )
+    except Exception as e:
+        logger.error(
+            "Import session failed for %s: %s", account_name, e, exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Import session failed: {e}",
         )
 
 
@@ -424,7 +623,9 @@ def get_account_status_check_job(
 
     job = get_account_status_job(job_id)
     if not job:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="JOB_NOT_FOUND")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="JOB_NOT_FOUND"
+        )
     return job
 
 
@@ -558,7 +759,9 @@ async def list_account_devices(
         )
 
 
-@router.delete("/{account_name}/devices/{auth_hash}", response_model=TerminateDeviceResponse)
+@router.delete(
+    "/{account_name}/devices/{auth_hash}", response_model=TerminateDeviceResponse
+)
 async def terminate_account_device(
     account_name: str,
     auth_hash: str,
@@ -584,7 +787,110 @@ async def terminate_account_device(
         )
 
 
-@router.get("/{account_name}/official-messages", response_model=OfficialMessagesResponse)
+
+@router.post(
+    "/{account_name}/session-exports",
+    response_model=StandaloneSessionExportResponse,
+)
+async def export_standalone_session(
+    account_name: str,
+    request: Optional[StandaloneSessionExportRequest] = None,
+    current_user: User = Depends(get_current_user),
+):
+    """派生独立 SessionString 导出（基于 Telegram 官方扫码授权协议）。"""
+    try:
+        account_name = validate_storage_name(account_name, field_name="account_name")
+        if not get_telegram_service().account_exists(account_name):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="账号不存在",
+            )
+        device_model = (
+            request.device_model if request and request.device_model else "TG-SignPulse Exported Session"
+        )
+        timeout_seconds = (
+            request.timeout_seconds if request and request.timeout_seconds else 60.0
+        )
+
+        result = await get_telegram_service().export_standalone_session(
+            account_name,
+            device_model=device_model,
+            timeout_seconds=timeout_seconds,
+        )
+        if not result.success:
+            if result.error == "ACCOUNT_BUSY":
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="ACCOUNT_BUSY",
+                )
+            if result.error == "ACCOUNT_NOT_FOUND":
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="账号不存在",
+                )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result.error or "派生独立 Session 失败",
+            )
+        return StandaloneSessionExportResponse(
+            success=True,
+            session_string=result.session_string,
+            dc_id=result.dc_id,
+            user_id=result.user_id,
+            message="派生独立 Session 成功",
+        )
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error("派生独立 Session 失败 %s: %s", account_name, e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"派生独立 Session 失败: {e}",
+        )
+
+
+@router.post(
+    "/{account_name}/devices/reset-others", response_model=ResetAuthorizationsResponse
+)
+async def reset_account_authorizations(
+    account_name: str,
+    current_user: User = Depends(get_current_user),
+):
+    """一键清退账号除当前会话外的所有已授权设备。"""
+    try:
+        account_name = validate_storage_name(account_name, field_name="account_name")
+        if not get_telegram_service().account_exists(account_name):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="账号不存在",
+            )
+        await get_telegram_service().reset_account_authorizations(account_name)
+        return ResetAuthorizationsResponse(
+            success=True,
+            message="已成功清退其他设备",
+        )
+    except HTTPException:
+        raise
+    except AccountLockTimeout:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="ACCOUNT_BUSY",
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error("清退其他设备失败: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="清退其他设备失败，请稍后重试",
+        )
+
+
+@router.get(
+    "/{account_name}/official-messages", response_model=OfficialMessagesResponse
+)
 async def list_account_official_messages(
     account_name: str,
     limit: int = 20,

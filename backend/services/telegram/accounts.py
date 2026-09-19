@@ -923,37 +923,138 @@ class TelegramAccountsMixin:
         return True
 
 
-    async def rename_account(
+    async def rename_account(self, old_name: str, new_name: str) -> str:
+        """
+        重命名账号（迁移 session 文件、profiles、签到任务引用、以及活跃 Client）。
+        """
+        old_name = self._normalize_account_name(old_name)
+        new_name = self._normalize_account_name(new_name)
+
+        if old_name == new_name:
+            return new_name
+
+        if not self.account_exists(old_name):
+            raise ValueError(f"Account {old_name} not found")
+
+        if self.account_exists(new_name):
+            raise ValueError(f"Account {new_name} already exists")
+
+        from backend.utils.account_locks import acquire_multi_account_locks
+        from tg_signer.core import close_client_by_name
+
+        async with acquire_multi_account_locks([old_name, new_name]):
+            # 重命名前先关闭并释放活跃 Client 句柄
+            try:
+                await close_client_by_name(old_name, workdir=self.session_dir)
+            except Exception as e:
+                logger.warning("关闭旧账号 Client 句柄失败: %s", e)
+
+            self._rename_pending_login_records(old_name, new_name)
+
+            # 迁移 accounts.json 中的 profile 数据
+            rename_account_entry(old_name, new_name)
+
+            # 迁移文件
+            for ext in (
+                ".session",
+                ".session-journal",
+                ".session-shm",
+                ".session-wal",
+                ".session_string",
+            ):
+                src = self.session_dir / f"{old_name}{ext}"
+                dst = self.session_dir / f"{new_name}{ext}"
+                self._move_path(src, dst)
+
+            # 联动迁移签到任务引用
+            try:
+                from backend.services.sign_tasks import get_sign_task_service
+
+                get_sign_task_service().rename_account_references(old_name, new_name)
+            except Exception as e:
+                logger.warning("迁移账号签到任务引用失败: %s", e)
+
+            # 刷新缓存
+            self._accounts_cache = None
+
+            # 改名后触发调度器同步与监听重启
+            try:
+                from backend.scheduler import get_scheduler
+
+                await get_scheduler().sync_jobs()
+            except Exception as e:
+                logger.warning("改名后触发调度器同步失败: %s", e)
+
+        return new_name
+
+    async def import_session(
         self,
         account_name: str,
-        new_account_name: str,
-    ) -> str:
-        account_name = self._normalize_account_name(account_name)
-        new_account_name = self._normalize_account_name(new_account_name)
-        if account_name == new_account_name:
-            return account_name
-
-        accounts = self.list_accounts(force_refresh=True)
-        existing_by_lower = {
-            str(item.get("name") or "").strip().lower(): str(item.get("name") or "").strip()
-            for item in accounts
-            if str(item.get("name") or "").strip()
-        }
-
-        actual_account_name = existing_by_lower.get(account_name.lower())
-        if not actual_account_name:
-            raise ValueError(f"账号 {account_name} 不存在")
-
-        conflict_name = existing_by_lower.get(new_account_name.lower())
-        if conflict_name and conflict_name.lower() != actual_account_name.lower():
-            raise ValueError(f"账号 {new_account_name} 已存在")
-
-        ordered_names = sorted(
-            {actual_account_name, new_account_name},
-            key=lambda value: value.lower(),
+        payload: bytes | str,
+        *,
+        session_type: str = "auto",
+        force: bool = False,
+        proxy: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """导入外部 Telegram 会话（Telethon SQLite, Pyrogram SQLite, Pyrogram StringSession）"""
+        from backend.services.telegram.session_importer import (
+            import_session as do_import_session,
         )
 
-        from tg_signer.core import close_client_by_name
+        res = await do_import_session(
+            account_name=account_name,
+            payload=payload,
+            session_type=session_type,
+            force=force,
+            proxy=proxy,
+            target_dir=self.session_dir,
+        )
+        self._accounts_cache = None
+        return res
+
+    async def import_tdata_session(
+        self,
+        account_name: str,
+        zip_payload: bytes | Path,
+        *,
+        password: Optional[str] = None,
+        force: bool = False,
+        proxy: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """导入 Telegram Desktop (TData) 归档包。"""
+        from backend.services.telegram.tdata_importer import (
+            import_tdata_session as do_import_tdata_session,
+        )
+
+        res = await do_import_tdata_session(
+            account_name=account_name,
+            zip_payload=zip_payload,
+            password=password,
+            force=force,
+            proxy=proxy,
+            target_dir=self.session_dir,
+        )
+        self._accounts_cache = None
+        return res
+
+    async def export_standalone_session(
+        self,
+        account_name: str,
+        *,
+        device_model: str = "TG-SignPulse Exported Session",
+        timeout_seconds: float = 60.0,
+    ):
+        """派生独立 Session 导出（基于 auth.AcceptLoginToken 握手）。"""
+        from backend.services.telegram.session_exporter import (
+            create_standalone_session_export,
+        )
+
+        return await create_standalone_session_export(
+            account_name=account_name,
+            device_model=device_model,
+            timeout_seconds=timeout_seconds,
+            service=self,
+        )
 
 
 def get_telegram_account_service():

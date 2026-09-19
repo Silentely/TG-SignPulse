@@ -1,7 +1,7 @@
 /**
  * 账号管理 API：登录流程、CRUD、状态检测、设备、官方消息、账号日志。
  */
-import { MEDIUM_TIMEOUT_MS, request, requestBlob } from "./core";
+import { LONG_TIMEOUT_MS, MEDIUM_TIMEOUT_MS, request, requestBlob, requestFormData } from "./core";
 
 export interface LoginStartRequest {
   account_name: string;
@@ -230,6 +230,45 @@ export const terminateAccountDevice = (token: string, accountName: string, authH
     method: "DELETE",
   }, token);
 
+export const resetOtherDevices = (token: string, accountName: string) =>
+  request<{ success: boolean; message: string }>(
+    `/accounts/${encodeURIComponent(accountName)}/devices/reset-others`,
+    {
+      method: "POST",
+    },
+    token,
+    MEDIUM_TIMEOUT_MS,
+  );
+
+
+export interface StandaloneSessionExportRequest {
+  device_model?: string;
+  timeout_seconds?: number;
+}
+
+export interface StandaloneSessionExportResponse {
+  success: boolean;
+  session_string?: string | null;
+  dc_id?: number | null;
+  user_id?: number | null;
+  message: string;
+}
+
+export const exportStandaloneSession = (
+  token: string,
+  accountName: string,
+  data?: StandaloneSessionExportRequest,
+) =>
+  request<StandaloneSessionExportResponse>(
+    `/accounts/${encodeURIComponent(accountName)}/session-exports`,
+    {
+      method: "POST",
+      body: JSON.stringify(data || {}),
+    },
+    token,
+    LONG_TIMEOUT_MS,
+  );
+
 export const listAccountOfficialMessages = (token: string, accountName: string, limit = 20) =>
   request<{ messages: OfficialMessageInfo[]; total: number }>(
     `/accounts/${encodeURIComponent(accountName)}/official-messages?limit=${encodeURIComponent(String(limit))}`,
@@ -299,3 +338,54 @@ export const getRecentAccountLogs = (token: string, limit: number = 50) =>
  */
 export const fetchAccountAvatar = (token: string, accountName: string) =>
   requestBlob(`/accounts/${encodeURIComponent(accountName)}/avatar`, {}, token);
+
+// ─── 会话导入 ───
+
+export interface ImportSessionRequest {
+  account_name: string;
+  session_type?: "auto" | "string" | "file";
+  session_content?: string;
+  force?: boolean;
+  proxy?: string;
+  tdata_password?: string;
+}
+
+export interface ImportSessionResponse {
+  success: boolean;
+  account_name: string;
+  user_id?: number | null;
+  first_name?: string | null;
+  username?: string | null;
+  message: string;
+}
+
+export const importAccountSession = (token: string, data: ImportSessionRequest) =>
+  request<ImportSessionResponse>("/accounts/import-session", {
+    method: "POST",
+    body: JSON.stringify(data),
+  }, token);
+
+export const importAccountSessionFile = async (
+  token: string,
+  accountName: string,
+  file: File | Blob,
+  force = false,
+  proxy?: string,
+  tdataPassword?: string,
+): Promise<ImportSessionResponse> => {
+  const formData = new FormData();
+  formData.append("account_name", accountName);
+  formData.append("session_type", "file");
+  formData.append("force", String(force));
+  if (proxy) formData.append("proxy", proxy);
+  if (tdataPassword) formData.append("tdata_password", tdataPassword);
+  formData.append("file", file);
+
+  return requestFormData<ImportSessionResponse>(
+    "/accounts/import-session",
+    formData,
+    token,
+    LONG_TIMEOUT_MS,
+  );
+};
+
