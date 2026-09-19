@@ -164,11 +164,48 @@ else:
 # kurigram 2.2.10+ 移除了 pyrogram.storage.MemoryStorage。单独导入该类，
 # 避免它的缺失连带让上面整块导入失败、把真实类型静默替换为占位实现
 # （表现为各种「X() takes no arguments」的误导性报错）。
+_MEMORY_STORAGE_IMPORT_ERROR: Exception | None = None
+
 if _PYROGRAM_IMPORT_ERROR is None:
     try:
         from pyrogram.storage import MemoryStorage
-    except Exception:  # pragma: no cover - 仅影响 string 会话模式
-        MemoryStorage = None
+    except (ImportError, AttributeError):
+        # kurigram >= 2.2.10 移除了 pyrogram.storage.MemoryStorage。
+        # 优先使用原生 MemoryStorage；缺失时若 SQLiteStorage 具备 in_memory 能力则自动适配。
+        import inspect
+        from pathlib import Path
+
+        try:
+            from pyrogram.storage.sqlite_storage import SQLiteStorage
+
+            sig = inspect.signature(SQLiteStorage.__init__)
+            if "in_memory" not in sig.parameters:
+                # Fail-closed: SQLiteStorage 不具备 2.2.10+ in_memory 能力，无法作为内存存储使用
+                raise NotImplementedError(
+                    "SQLiteStorage 不支持 in_memory 参数，无法创建有效的 MemoryStorage 适配器"
+                )
+
+            class MemoryStorage(SQLiteStorage):  # type: ignore[no-redef]
+                """兼容 kurigram >= 2.2.10 的内存存储适配器。"""
+
+                def __init__(
+                    self,
+                    name: str,
+                    session_string: str | None = None,
+                    workdir: Path | str | None = None,
+                    **kwargs,
+                ):
+                    super().__init__(
+                        name=name,
+                        workdir=Path(workdir) if workdir else Path("."),
+                        session_string=session_string,
+                        in_memory=True,
+                    )
+        except Exception as inner_exc:
+            _MEMORY_STORAGE_IMPORT_ERROR = inner_exc
+            MemoryStorage = None
+else:
+    _MEMORY_STORAGE_IMPORT_ERROR = _PYROGRAM_IMPORT_ERROR
 
 
 def clean_text_for_match(text: str) -> str:

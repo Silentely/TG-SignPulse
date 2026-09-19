@@ -1,5 +1,7 @@
 """Client 生命周期与工厂（从 core 拆分）。"""
+
 import asyncio
+import inspect
 import logging
 import os
 import pathlib
@@ -23,6 +25,7 @@ except ImportError:  # pragma: no cover - pydantic v1 compatibility
 _PYDANTIC_V2 = hasattr(BaseModel, "model_validate")
 
 from tg_signer.compat import (  # noqa: E402
+    _MEMORY_STORAGE_IMPORT_ERROR,
     _PYROGRAM_IMPORT_ERROR,
     BaseClient,
     Chat,
@@ -66,7 +69,9 @@ try:
         path = self.database
         file_exists = path.is_file()
 
-        self.conn = _original_sqlite3_connect(str(path), timeout=30, check_same_thread=False)
+        self.conn = _original_sqlite3_connect(
+            str(path), timeout=30, check_same_thread=False
+        )
 
         # Enable WAL mode and busy_timeout BEFORE any writes
         try:
@@ -93,7 +98,13 @@ _get_channel_diff_semaphore = asyncio.Semaphore(50)
 
 
 async def _patched_invoke(self, query, *args, **kwargs):
-    if isinstance(query, (raw.functions.updates.GetChannelDifference, raw.functions.updates.GetDifference)):
+    if isinstance(
+        query,
+        (
+            raw.functions.updates.GetChannelDifference,
+            raw.functions.updates.GetDifference,
+        ),
+    ):
         # Disable Pyrogram's internal sleep and retry mechanisms to prevent blocking the semaphore indefinitely
         kwargs.setdefault("sleep_threshold", 0)
         kwargs["retries"] = 0
@@ -107,11 +118,19 @@ async def _patched_invoke(self, query, *args, **kwargs):
                     return await _original_invoke(self, query, *args, **kwargs)
                 except Exception as e:
                     err_str = str(e).lower()
-                    if isinstance(e, asyncio.TimeoutError) or "timeout" in err_str or "connection" in err_str or "flood" in err_str or "network" in err_str:
+                    if (
+                        isinstance(e, asyncio.TimeoutError)
+                        or "timeout" in err_str
+                        or "connection" in err_str
+                        or "flood" in err_str
+                        or "network" in err_str
+                    ):
                         if attempt < max_retries:
-                            delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
+                            delay = base_delay * (2**attempt) + random.uniform(0, 1)
                             if "flood" in err_str and hasattr(e, "value"):
-                                delay = min(e.value, 3.0)  # Wait for a shorter time, max 3 seconds
+                                delay = min(
+                                    e.value, 3.0
+                                )  # Wait for a shorter time, max 3 seconds
                             await asyncio.sleep(delay)
                             continue
 
@@ -121,16 +140,23 @@ async def _patched_invoke(self, query, *args, **kwargs):
                             e,
                         )
 
-                        if isinstance(query, raw.functions.updates.GetChannelDifference):
+                        if isinstance(
+                            query, raw.functions.updates.GetChannelDifference
+                        ):
                             from pyrogram.raw.types.updates import (
                                 ChannelDifferenceEmpty,
                             )
-                            return ChannelDifferenceEmpty(pts=query.pts, timeout=0, final=True)
+
+                            return ChannelDifferenceEmpty(
+                                pts=query.pts, timeout=0, final=True
+                            )
                         elif isinstance(query, raw.functions.updates.GetDifference):
                             from pyrogram.raw.types.updates import DifferenceEmpty
+
                             return DifferenceEmpty(date=query.date, seq=query.pts)
                     raise
     return await _original_invoke(self, query, *args, **kwargs)
+
 
 BaseClient.invoke = _patched_invoke
 
@@ -200,7 +226,9 @@ _CLIENT_REFS: defaultdict[str, int] = defaultdict(int)
 _CLIENT_ASYNC_LOCKS: dict[str, asyncio.Lock] = {}
 
 
-def is_account_client_active(name: str, workdir: Union[str, pathlib.Path] = None) -> bool:
+def is_account_client_active(
+    name: str, workdir: Union[str, pathlib.Path] = None
+) -> bool:
     """检查指定账号是否有活跃的 Client 实例在运行中 (_CLIENT_REFS > 0)。"""
     # 直接支持按 account_name 检索（单测 mock 或以名字为键）
     if _CLIENT_REFS.get(name, 0) > 0:
@@ -218,7 +246,9 @@ def is_account_client_active(name: str, workdir: Union[str, pathlib.Path] = None
             continue
         if key == name or key.startswith(f"{name}::"):
             return True
-        if expected_base and (key == expected_base or key.startswith(f"{expected_base}::")):
+        if expected_base and (
+            key == expected_base or key.startswith(f"{expected_base}::")
+        ):
             return True
         try:
             p = pathlib.Path(key.split("::")[0])
@@ -240,11 +270,29 @@ class Client(BaseClient):
         if self.in_memory and not self.session_string:
             self.load_session_string()
             if MemoryStorage is None:
-                raise RuntimeError(
-                    "当前 kurigram 版本不提供 pyrogram.storage.MemoryStorage，"
-                    "string 会话模式不可用；请安装 kurigram>=2.2.7,<2.2.10"
+                err_msg = "Telegram 运行时存储引擎不可用，string 会话模式无法加载"
+                if _MEMORY_STORAGE_IMPORT_ERROR is not None:
+                    raise RuntimeError(
+                        f"{err_msg}: {_MEMORY_STORAGE_IMPORT_ERROR}"
+                    ) from _MEMORY_STORAGE_IMPORT_ERROR
+                raise RuntimeError(err_msg)
+
+            # 根据构造函数签名显式分派参数，避免宽泛捕获 TypeError 掩盖真实构造异常
+            try:
+                sig = inspect.signature(MemoryStorage.__init__)
+                has_workdir = "workdir" in sig.parameters or any(
+                    p.kind == inspect.Parameter.VAR_KEYWORD
+                    for p in sig.parameters.values()
                 )
-            self.storage = MemoryStorage(self.name, self.session_string)
+            except (ValueError, TypeError):
+                has_workdir = False
+
+            if has_workdir:
+                self.storage = MemoryStorage(
+                    self.name, self.session_string, workdir=self.workdir
+                )
+            else:
+                self.storage = MemoryStorage(self.name, self.session_string)
 
     async def __aenter__(self):
         lock = _CLIENT_ASYNC_LOCKS.get(self.key)
@@ -263,7 +311,9 @@ class Client(BaseClient):
                             if not self.is_connected:
                                 is_authorized = await self.connect()
                                 if not is_authorized:
-                                    raise ConnectionError("Session invalid: unauthorized")
+                                    raise ConnectionError(
+                                        "Session invalid: unauthorized"
+                                    )
 
                             try:
                                 self.me = await self.get_me()
@@ -284,10 +334,14 @@ class Client(BaseClient):
                                     raise e
 
                             # Enable WAL mode after start (redundant with patch but safe)
-                            if hasattr(self, "storage") and hasattr(self.storage, "conn"):
+                            if hasattr(self, "storage") and hasattr(
+                                self.storage, "conn"
+                            ):
                                 try:
                                     self.storage.conn.execute("PRAGMA journal_mode=WAL")
-                                    self.storage.conn.execute("PRAGMA busy_timeout=30000")
+                                    self.storage.conn.execute(
+                                        "PRAGMA busy_timeout=30000"
+                                    )
                                 except Exception as e:
                                     logger.error("启用 WAL 模式失败: %s", e)
 
@@ -521,7 +575,8 @@ async def close_client_by_name(name: str, workdir: Union[str, pathlib.Path] = ".
     """
     base_key = str(pathlib.Path(workdir).joinpath(name).resolve())
     keys_to_clean = [
-        k for k in list(_CLIENT_INSTANCES.keys())
+        k
+        for k in list(_CLIENT_INSTANCES.keys())
         if k == base_key or k.startswith(f"{base_key}::")
     ]
     if not keys_to_clean:
@@ -562,10 +617,8 @@ async def close_client_by_name(name: str, workdir: Union[str, pathlib.Path] = ".
 def get_task_timezone():
     """任务时区：TZ / APP_TIMEZONE，默认 Asia/Hong_Kong（与 UTC+8 一致）。"""
     tz_name = (
-        (os.environ.get("TZ") or os.environ.get("APP_TIMEZONE") or "Asia/Hong_Kong")
-        .strip()
-        or "Asia/Hong_Kong"
-    )
+        os.environ.get("TZ") or os.environ.get("APP_TIMEZONE") or "Asia/Hong_Kong"
+    ).strip() or "Asia/Hong_Kong"
     try:
         from zoneinfo import ZoneInfo
 
