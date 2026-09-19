@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
 from tg_signer.config import (
-    ClickKeyboardByTextAction,
     SendTextAction,
     SignChatV3,
     SupportAction,

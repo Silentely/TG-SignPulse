@@ -19,7 +19,7 @@ def _raise_pyrogram_import_error() -> None:
 
 try:
     from pyrogram import Client as BaseClient
-    from pyrogram import errors, filters, raw
+    from pyrogram import errors, filters, raw, types
     from pyrogram.enums import ChatMembersFilter, ChatType
     from pyrogram.handlers import EditedMessageHandler, MessageHandler
     from pyrogram.methods.utilities.idle import idle
@@ -62,16 +62,6 @@ except Exception as exc:  # pragma: no cover - fallback for unsupported runtimes
         text=_FilterExpr(),
         caption=_FilterExpr(),
         chat=lambda *args, **kwargs: _FilterExpr(),
-    )
-
-    raw = SimpleNamespace(
-        functions=SimpleNamespace(
-            updates=SimpleNamespace(
-                GetChannelDifference=type("GetChannelDifference", (), {}),
-                GetDifference=type("GetDifference", (), {}),
-                GetState=type("GetState", (), {}),
-            )
-        )
     )
 
     class ChatMembersFilter:
@@ -129,7 +119,45 @@ except Exception as exc:  # pragma: no cover - fallback for unsupported runtimes
 
     class User:
         pass
+
+    types = SimpleNamespace(
+        Animation=type(
+            "Animation", (), {"_parse_chat_animation": lambda *a, **k: None}
+        ),
+        ChatPhoto=type("ChatPhoto", (), {"_parse": lambda *a, **k: None}),
+        Chat=Chat,
+        InlineKeyboardMarkup=InlineKeyboardMarkup,
+        Message=Message,
+        Object=Object,
+        ReplyKeyboardMarkup=ReplyKeyboardMarkup,
+        User=User,
+    )
+
+    raw = SimpleNamespace(
+        functions=SimpleNamespace(
+            updates=SimpleNamespace(
+                GetChannelDifference=type("GetChannelDifference", (), {}),
+                GetDifference=type("GetDifference", (), {}),
+                GetState=type("GetState", (), {}),
+            ),
+            channels=SimpleNamespace(
+                GetForumTopics=type("GetForumTopics", (), {}),
+            ),
+        ),
+        types=SimpleNamespace(
+            ForumTopic=type("ForumTopic", (), {}),
+            ForumTopicDeleted=type("ForumTopicDeleted", (), {}),
+            VideoSizeEmojiMarkup=type("VideoSizeEmojiMarkup", (), {}),
+            VideoSizeStickerMarkup=type("VideoSizeStickerMarkup", (), {}),
+            Photo=type("Photo", (), {}),
+            messages=SimpleNamespace(
+                ForumTopics=type("ForumTopics", (), {}),
+                ForumTopicsSlice=type("ForumTopicsSlice", (), {}),
+            ),
+        ),
+    )
 else:
+
     def _raise_pyrogram_import_error() -> None:
         return None
 
@@ -150,8 +178,12 @@ def button_text_matches(target_text: str, button_text: str) -> bool:
     """判定按钮文本是否命中目标文本（相等或互为子串）。"""
     if not target_text or not button_text:
         return False
-    if target_text == button_text or target_text in button_text:
+    if target_text == button_text:
         return True
+    if target_text.isdigit() and button_text.isdigit():
+        return False
+    if target_text in button_text:
+        return len(target_text) >= 2 or not target_text.isdigit()
     return len(button_text) >= 2 and button_text in target_text
 
 
@@ -188,7 +220,7 @@ async def call_with_retry(
 
     - log: 可选日志回调 ``log(level: str, message: str)``
     - reconnect: 可选重连协程回调（瞬态失败且未达上限时调用）
-    达上限时原样抛出最后一次异常。
+    达到上限时原样抛出最后一次异常。
     """
     for attempt in range(1, max_retries + 1):
         try:
@@ -222,3 +254,173 @@ async def call_with_retry(
                             f"{operation} 重连失败: {type(reconnect_exc).__name__}: {reconnect_exc}",
                         )
             await asyncio.sleep(backoff)
+
+
+_ANIMATED_PHOTO_PATCHED = False
+
+
+def patch_animated_chat_photo_parser() -> bool:
+    """运行时 monkey-patch Pyrogram/Kurigram 的 ChatPhoto/Animation 解析器。
+
+    若当前安装的库版本不存在该缺陷，保证为安全 no-op。
+    在解析 video_sizes 时，防御性处理缺少 w/h 的 EmojiMarkup 与 StickerMarkup 实例，设置默认尺寸 0 或跳过。
+    """
+    global _ANIMATED_PHOTO_PATCHED
+    if _ANIMATED_PHOTO_PATCHED:
+        return True
+
+    raw_types = getattr(raw, "types", None)
+    if raw_types is not None:
+        for markup_name in ("VideoSizeEmojiMarkup", "VideoSizeStickerMarkup"):
+            cls = getattr(raw_types, markup_name, None)
+            if cls is not None:
+                if not hasattr(cls, "w"):
+                    try:
+                        cls.w = 0
+                    except Exception:
+                        pass
+                if not hasattr(cls, "h"):
+                    try:
+                        cls.h = 0
+                    except Exception:
+                        pass
+
+    # 针对 Animation._parse_chat_animation 防御缺少 w/h 与仅有 Markup 时的越界/异常崩溃
+    anim_cls = getattr(types, "Animation", None)
+    if anim_cls is not None and hasattr(anim_cls, "_parse_chat_animation"):
+        _orig_parse_chat_anim = anim_cls._parse_chat_animation
+
+        @staticmethod
+        def _safe_parse_chat_animation(client, video, file_name):
+            if video is None or not isinstance(video, getattr(raw_types, "Photo", ())):
+                return None
+            video_sizes = getattr(video, "video_sizes", None)
+            if not video_sizes:
+                return None
+
+            valid_sizes = []
+            for v in video_sizes:
+                if type(v).__name__ in (
+                    "VideoSizeEmojiMarkup",
+                    "VideoSizeStickerMarkup",
+                ):
+                    continue
+                if getattr(v, "w", 0) > 0 and getattr(v, "h", 0) > 0:
+                    valid_sizes.append(v)
+
+            if not valid_sizes:
+                return None
+
+            try:
+                return _orig_parse_chat_anim(client, video, file_name)
+            except (IndexError, ValueError, AttributeError):
+                return None
+
+        anim_cls._parse_chat_animation = _safe_parse_chat_animation
+
+    # 针对 ChatPhoto._parse 进行兜底防御
+    chat_photo_cls = getattr(types, "ChatPhoto", None)
+    if chat_photo_cls is not None and hasattr(chat_photo_cls, "_parse"):
+        _orig_chat_photo_parse = chat_photo_cls._parse
+
+        @staticmethod
+        def _safe_chat_photo_parse(client, chat_photo, peer_id, peer_access_hash=0):
+            if chat_photo is None:
+                return None
+            try:
+                return _orig_chat_photo_parse(
+                    client, chat_photo, peer_id, peer_access_hash
+                )
+            except (AttributeError, ValueError, IndexError):
+                return None
+
+        chat_photo_cls._parse = _safe_chat_photo_parse
+
+    _ANIMATED_PHOTO_PATCHED = True
+    return True
+
+
+def patch_kurigram_compat() -> bool:
+    """Kurigram 兼容补丁统一入口（幂等）。"""
+    return patch_animated_chat_photo_parser()
+
+
+async def safe_get_forum_topics(
+    client: Any, chat_id: int | str, limit: int = 100
+) -> list[Any]:
+    """安全获取超级群组的论坛话题 (Forum Topics)。
+
+    1. 优先调用 raw.functions.channels.GetForumTopics(channel=peer, offset_date=0, offset_id=0, offset_topic=0, limit=limit)；
+    2. 防御 ForumTopicDeleted 变体，只保留 ForumTopic 实例；
+    3. 兼容 messages.ForumTopics 与 messages.ForumTopicsSlice 双容器；
+    4. 若目标群组非 forum（返回 ChatNotModified / TopicIdInvalid 等或非 Forum 异常），安全降级返回空列表 []；
+    5. 若 client 尚未连接或缺少 raw API，优雅返回 []。
+    """
+    if client is None:
+        return []
+    if hasattr(client, "is_connected") and not client.is_connected:
+        return []
+    if not hasattr(client, "invoke") or not hasattr(client, "resolve_peer"):
+        return []
+
+    channels_fn = getattr(getattr(raw, "functions", None), "channels", None)
+    if channels_fn is None or not hasattr(channels_fn, "GetForumTopics"):
+        return []
+
+    if hasattr(client, "get_chat"):
+        try:
+            chat = await client.get_chat(chat_id)
+            if chat is not None and hasattr(chat, "is_forum") and not chat.is_forum:
+                return []
+        except Exception:
+            pass
+
+    try:
+        peer = await client.resolve_peer(chat_id)
+        req = channels_fn.GetForumTopics(
+            channel=peer,
+            offset_date=0,
+            offset_id=0,
+            offset_topic=0,
+            limit=limit,
+        )
+        res = await client.invoke(req)
+    except Exception as exc:
+        err_type = type(exc).__name__
+        err_msg = str(exc).lower()
+        if (
+            "topic" in err_msg
+            or "forum" in err_msg
+            or "chatnotmodified" in err_type.lower()
+            or "topicidinvalid" in err_type.lower()
+            or "badrequest" in err_type.lower()
+            or "channelinvalid" in err_type.lower()
+        ):
+            return []
+        return []
+
+    raw_topics = getattr(res, "topics", []) or []
+    deleted_type = getattr(getattr(raw, "types", None), "ForumTopicDeleted", None)
+
+    valid_topics = []
+    for topic in raw_topics:
+        if deleted_type is not None and isinstance(topic, deleted_type):
+            continue
+        if getattr(topic, "__class__", None).__name__ == "ForumTopicDeleted":
+            continue
+        # 防御缺少 top_message 属性引发的崩溃
+        if hasattr(topic, "__dict__") and "top_message" not in topic.__dict__:
+            try:
+                topic.top_message = getattr(topic, "top_message", 0)
+            except Exception:
+                pass
+        valid_topics.append(topic)
+
+    return valid_topics
+
+
+# 模块导入时自动应用协议与解析补丁
+try:
+    patch_animated_chat_photo_parser()
+except Exception:  # pragma: no cover
+    pass

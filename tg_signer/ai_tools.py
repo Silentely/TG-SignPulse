@@ -60,6 +60,17 @@ DEFAULT_CHOOSE_OPTIONS_BY_IMAGE_PROMPT = (
     "unavailable, return only the chosen option index or option text."
 )
 
+DEFAULT_CHOOSE_OPTIONS_BY_TEXT_PROMPT = (
+    "You solve Telegram bot text challenges and button menus. "
+    "Read the question and the button list carefully. "
+    "Unless the question explicitly asks for multiple choices, return exactly one option. "
+    "Ignore retry warnings, time-limit reminders, and unrelated footer text. "
+    'Return JSON only: {"options":[1]}. '
+    "The options field must be a list of option indexes starting at 1. "
+    "If only one click is needed, return a one-item list. If JSON mode is "
+    "unavailable, return only the chosen option index or option text."
+)
+
 DEFAULT_SINGLE_OBJECT_CHOICE_PROMPT = (
     "You are a fast image classifier for a Telegram sign-in button challenge. "
     "The image usually contains one main object on a clean background. Pick "
@@ -74,9 +85,7 @@ DEFAULT_EXTRACT_TEXT_BY_IMAGE_PROMPT = (
     "Return plain text only, no markdown, no explanation."
 )
 
-DEFAULT_CALCULATE_PROBLEM_PROMPT = (
-    "你是一个**答题助手**，可以根据用户的问题给出正确的回答，只需要回复答案，不要解释，不要输出任何其他内容。"
-)
+DEFAULT_CALCULATE_PROBLEM_PROMPT = "你是一个**答题助手**，可以根据用户的问题给出正确的回答，只需要回复答案，不要解释，不要输出任何其他内容。"
 
 # 截断重试时 max_tokens 翻倍封顶，避免超出部分厂商的输出上限（如 GLM 系列 4096）
 _VISION_MAX_TOKENS_CAP = 4096
@@ -110,11 +119,77 @@ _NON_PARAM_REJECTION_MARKERS = (
 )
 
 # 降级阶梯实际会移除/替换的参数：错误明确指向这些参数时直接判定为参数不兼容
-_PARAM_REJECTION_PARAMS = frozenset({"reasoning_effort", "response_format", "reasoning"})
+_PARAM_REJECTION_PARAMS = frozenset(
+    {"reasoning_effort", "response_format", "reasoning"}
+)
 
 
 def encode_image(image: bytes):
     return base64.b64encode(image).decode("utf-8")
+
+
+def robust_json_loads(content: Any, fallback: Any = None) -> Any:
+    """健壮的 JSON 解析器：
+    1. 若已是 dict/list/int/float，直接返回；
+    2. 清洗 ```json ... ``` 等 markdown 标记；
+    3. 优先使用 json.loads 解析；
+    4. 失败时使用 json_repair.loads 修复语法缺失/未闭合引号/括号；
+    5. 若修复结果仍无法解析，返回 fallback。
+    """
+    if isinstance(content, (dict, list, int, float)):
+        return content
+    if content is None:
+        return fallback
+    if isinstance(content, bytes):
+        try:
+            content = content.decode("utf-8")
+        except Exception:
+            return fallback
+    if not isinstance(content, str):
+        return fallback
+
+    cleaned = content.strip()
+    if not cleaned:
+        return fallback
+
+    # 提取或清理 markdown 代码块标记 (```json ... ``` 或 ``` ... ```)
+    code_block_match = re.search(
+        r"```(?:json)?\s*([\s\S]*?)\s*```", cleaned, re.IGNORECASE
+    )
+    if code_block_match:
+        candidate = code_block_match.group(1).strip()
+    elif cleaned.startswith("```"):
+        candidate = (
+            re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
+            .rstrip("`")
+            .strip()
+        )
+    else:
+        candidate = cleaned
+
+    candidates = [candidate]
+    if candidate != cleaned and cleaned:
+        candidates.append(cleaned)
+
+    # 优先使用标准 json.loads
+    for text in candidates:
+        try:
+            return json.loads(text)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+
+    # 降级使用 json_repair 修复语法缺失/未闭合引号/括号
+    for text in candidates:
+        try:
+            repaired = json_repair.loads(text)
+            if repaired == "" and text not in ('""', "''"):
+                continue
+            if repaired is not None:
+                return repaired
+        except Exception:
+            pass
+
+    return fallback
 
 
 logger = logging.getLogger("tg-signer")
@@ -250,6 +325,8 @@ def get_openai_client(
 
 
 class AITools:
+    robust_json_loads = staticmethod(robust_json_loads)
+
     _QUESTION_LINE_HINTS = (
         "点击",
         "选择",
@@ -303,7 +380,9 @@ class AITools:
 
         for line in lines:
             lowered = line.lower()
-            if any(hint in line or hint in lowered for hint in cls._QUESTION_LINE_HINTS):
+            if any(
+                hint in line or hint in lowered for hint in cls._QUESTION_LINE_HINTS
+            ):
                 return line[:160]
         return lines[0][:160]
 
@@ -328,9 +407,7 @@ class AITools:
 
     @classmethod
     def _crop_light_border(cls, image: "Image.Image") -> "Image.Image":
-        white_threshold = read_positive_int_env(
-            "AI_VISION_WHITE_THRESHOLD", 245, 200
-        )
+        white_threshold = read_positive_int_env("AI_VISION_WHITE_THRESHOLD", 245, 200)
         mask = image.convert("L").point(lambda px: 255 if px < white_threshold else 0)
         bbox = mask.getbbox()
         if not bbox or bbox == (0, 0, image.width, image.height):
@@ -393,6 +470,23 @@ class AITools:
         return f"data:image/jpeg;base64,{encoded_image}"
 
     @classmethod
+    def _is_valid_option_index(cls, idx: int, options: list[tuple[int, str]]) -> bool:
+        if not isinstance(idx, int) or isinstance(idx, bool):
+            return False
+        if not options:
+            return False
+        option_keys = {
+            opt[0] for opt in options if isinstance(opt, (list, tuple)) and len(opt) > 0
+        }
+        if idx in option_keys:
+            return True
+        if 0 <= idx < len(options):
+            return True
+        if 1 <= idx <= len(options):
+            return True
+        return False
+
+    @classmethod
     def _coerce_option_index(cls, result: Any, options: list[tuple[int, str]]) -> int:
         if isinstance(result, list):
             result = next((item for item in result if item is not None), None)
@@ -401,9 +495,28 @@ class AITools:
             if isinstance(result.get("options"), list) and result["options"]:
                 result = result["options"][0]
             else:
-                for key in ("option", "index", "choice", "answer", "button", "text"):
+                for key in (
+                    "options",
+                    "option",
+                    "result",
+                    "results",
+                    "indexes",
+                    "index",
+                    "choice",
+                    "choices",
+                    "answer",
+                    "answers",
+                    "buttons",
+                    "button",
+                    "text",
+                    "data",
+                ):
                     if key in result:
-                        result = result[key]
+                        val = result[key]
+                        if isinstance(val, list) and val:
+                            result = val[0]
+                        else:
+                            result = val
                         break
 
         if isinstance(result, dict):
@@ -412,15 +525,36 @@ class AITools:
                 type(result).__name__,
                 list(result.keys()),
             )
-            raise ValueError(f"AI result does not contain an option: {safe_text_preview(result, 100)}")
+            raise ValueError(
+                f"AI result does not contain an option: {safe_text_preview(result, 100)}"
+            )
 
-        if isinstance(result, int):
-            return result
+        if isinstance(result, int) and not isinstance(result, bool):
+            if cls._is_valid_option_index(result, options):
+                return result
+            logger.error(
+                "AI 返回的选项索引越界 | index=%s options_count=%s",
+                result,
+                len(options),
+            )
+            raise ValueError(
+                f"AI option index {result} is out of bounds for {len(options)} options"
+            )
 
         if isinstance(result, str):
             stripped = result.strip()
             if stripped.lstrip("+-").isdigit():
-                return int(stripped)
+                parsed_int = int(stripped)
+                if cls._is_valid_option_index(parsed_int, options):
+                    return parsed_int
+                logger.error(
+                    "AI 返回的数字选项越界 | index=%s options_count=%s",
+                    parsed_int,
+                    len(options),
+                )
+                raise ValueError(
+                    f"AI option index {parsed_int} is out of bounds for {len(options)} options"
+                )
             normalized_result = cls._normalize_option_text(stripped)
             for index, option_text in options:
                 normalized_option = cls._normalize_option_text(option_text)
@@ -437,26 +571,73 @@ class AITools:
             len(str(result)),
             len(options),
         )
-        raise ValueError(f"Could not parse AI option result: {safe_text_preview(result, 100)}")
+        raise ValueError(
+            f"Could not parse AI option result: {safe_text_preview(result, 100)}"
+        )
 
     @classmethod
-    def _coerce_option_indexes(cls, result: Any, options: list[tuple[int, str]]) -> list[int]:
+    def _coerce_option_indexes(
+        cls, result: Any, options: list[tuple[int, str]]
+    ) -> list[int]:
         if isinstance(result, list):
             if len(result) == 1 and isinstance(result[0], dict):
                 result = result[0]
             else:
-                return [cls._coerce_option_index(item, options) for item in result]
+                collected = []
+                for item in result:
+                    try:
+                        idx = cls._coerce_option_index(item, options)
+                        if cls._is_valid_option_index(idx, options):
+                            collected.append(idx)
+                    except (ValueError, TypeError, KeyError):
+                        continue
+                return collected
 
         if isinstance(result, dict):
-            raw_options = result.get("options")
-            if raw_options is None:
-                raw_options = result.get("option")
+            raw_options = None
+            for key in (
+                "options",
+                "option",
+                "result",
+                "results",
+                "indexes",
+                "index",
+                "choice",
+                "choices",
+                "answer",
+                "answers",
+                "buttons",
+                "button",
+                "text",
+                "data",
+            ):
+                if key in result:
+                    raw_options = result[key]
+                    break
             if raw_options is not None:
+                if isinstance(raw_options, str):
+                    parsed_inner = robust_json_loads(raw_options, fallback=None)
+                    if isinstance(parsed_inner, (list, dict)):
+                        raw_options = parsed_inner
                 if not isinstance(raw_options, list):
                     raw_options = [raw_options]
-                return [cls._coerce_option_index(item, options) for item in raw_options]
+                collected = []
+                for item in raw_options:
+                    try:
+                        idx = cls._coerce_option_index(item, options)
+                        if cls._is_valid_option_index(idx, options):
+                            collected.append(idx)
+                    except (ValueError, TypeError, KeyError):
+                        continue
+                return collected
 
-        return [cls._coerce_option_index(result, options)]
+        try:
+            idx = cls._coerce_option_index(result, options)
+            if cls._is_valid_option_index(idx, options):
+                return [idx]
+        except (ValueError, TypeError, KeyError):
+            pass
+        return []
 
     @classmethod
     def _extract_error_fields(cls, exc: Exception) -> dict:
@@ -744,11 +925,16 @@ class AITools:
                         )
                         continue
 
-                    if self._should_retry_transient_ai_error(exc) and attempt < attempts:
+                    if (
+                        self._should_retry_transient_ai_error(exc)
+                        and attempt < attempts
+                    ):
                         delay = self._vision_retry_delay(attempt)
                         logger.warning(
                             "AI 视觉请求瞬时错误，%g 秒后重试 (%d/%d): %s: %s",
-                            delay, attempt, attempts,
+                            delay,
+                            attempt,
+                            attempts,
                             type(exc).__name__,
                             safe_text_preview(exc, 200),
                         )
@@ -759,13 +945,19 @@ class AITools:
 
                 _elapsed = (time.monotonic() - _start) * 1000
                 if self._is_truncated_completion(result):
-                    if attempt < attempts and kwargs["max_tokens"] < _VISION_MAX_TOKENS_CAP:
+                    if (
+                        attempt < attempts
+                        and kwargs["max_tokens"] < _VISION_MAX_TOKENS_CAP
+                    ):
                         new_max = min(kwargs["max_tokens"] * 2, _VISION_MAX_TOKENS_CAP)
                         for stage in stages:
                             stage["max_tokens"] = new_max
                         logger.warning(
                             "AI 视觉输出被 max_tokens 截断，放宽输出预算重试 (%d/%d) | model=%s max_tokens=%d",
-                            attempt, attempts, model, new_max,
+                            attempt,
+                            attempts,
+                            model,
+                            new_max,
                         )
                         break
                     raise RuntimeError(
@@ -796,14 +988,15 @@ class AITools:
         system_prompt: str | None = None,
         temperature=0.1,
     ) -> int:
-        sys_prompt = (system_prompt or "").strip() or DEFAULT_CHOOSE_OPTION_BY_IMAGE_PROMPT
+        sys_prompt = (
+            system_prompt or ""
+        ).strip() or DEFAULT_CHOOSE_OPTION_BY_IMAGE_PROMPT
         client = client or self.client
         model = model or self.default_model
         image = self._prepare_vision_image(image)
         query = self._extract_relevant_query(query) or "选择最符合图片的选项"
         text_query = (
-            f"Question:\n{query}\n\n"
-            f"Options:\n{self._format_option_lines(options)}"
+            f"Question:\n{query}\n\nOptions:\n{self._format_option_lines(options)}"
         )
         messages = [
             {"role": "system", "content": sys_prompt},
@@ -813,9 +1006,7 @@ class AITools:
                     {"type": "text", "text": text_query},
                     {
                         "type": "image_url",
-                        "image_url": {
-                            "url": self._format_image_url(image)
-                        },
+                        "image_url": {"url": self._format_image_url(image)},
                     },
                 ],
             },
@@ -829,7 +1020,7 @@ class AITools:
             expect_json=True,
         )
         message = completion.choices[0].message
-        result = json_repair.loads(message.content)
+        result = robust_json_loads(message.content, fallback={})
         return self._coerce_option_index(result, options)
 
     async def choose_options_by_image(
@@ -864,9 +1055,7 @@ class AITools:
                     {"type": "text", "text": text_query},
                     {
                         "type": "image_url",
-                        "image_url": {
-                            "url": self._format_image_url(image)
-                        },
+                        "image_url": {"url": self._format_image_url(image)},
                     },
                 ],
             },
@@ -879,8 +1068,68 @@ class AITools:
             max_tokens=read_positive_int_env("AI_VISION_MAX_TOKENS", 512, 16),
             expect_json=True,
         )
-        result = json_repair.loads(completion.choices[0].message.content)
+        result = robust_json_loads(completion.choices[0].message.content, fallback={})
         return self._coerce_option_indexes(result, options)
+
+    async def choose_options_by_text(
+        self,
+        query: str,
+        options: list[tuple[int, str]],
+        client: "AsyncOpenAI" = None,
+        model: str = None,
+        system_prompt: str | None = None,
+        temperature=0.1,
+    ) -> list[int]:
+        if (system_prompt or "").strip():
+            sys_prompt = system_prompt.strip()
+        else:
+            sys_prompt = DEFAULT_CHOOSE_OPTIONS_BY_TEXT_PROMPT
+        client = client or self.client
+        model = model or self.default_model
+        cleaned_query = (
+            self._extract_relevant_query(query) or "Choose the correct option"
+        )
+        text_query = (
+            f"Question:\n{cleaned_query}\n\n"
+            f"Button options in row order:\n{self._format_option_lines(options)}"
+        )
+        messages = [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": text_query},
+        ]
+        completion = await self._create_visual_completion(
+            client=client,
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=read_positive_int_env("AI_VISION_MAX_TOKENS", 512, 16),
+            expect_json=True,
+        )
+        result = robust_json_loads(completion.choices[0].message.content, fallback={})
+        return self._coerce_option_indexes(result, options)
+
+    async def choose_option_by_text(
+        self,
+        query: str,
+        options: list[tuple[int, str]],
+        client: "AsyncOpenAI" = None,
+        model: str = None,
+        system_prompt: str | None = None,
+        temperature=0.1,
+    ) -> int:
+        indexes = await self.choose_options_by_text(
+            query=query,
+            options=options,
+            client=client,
+            model=model,
+            system_prompt=system_prompt,
+            temperature=temperature,
+        )
+        if indexes:
+            return indexes[0]
+        raise ValueError(
+            f"Could not parse option by text for query: {safe_text_preview(query, 100)}"
+        )
 
     async def extract_text_by_image(
         self,
@@ -891,7 +1140,9 @@ class AITools:
         system_prompt: str | None = None,
         temperature=0.1,
     ) -> str:
-        sys_prompt = (system_prompt or "").strip() or DEFAULT_EXTRACT_TEXT_BY_IMAGE_PROMPT
+        sys_prompt = (
+            system_prompt or ""
+        ).strip() or DEFAULT_EXTRACT_TEXT_BY_IMAGE_PROMPT
         client = client or self.client
         model = model or self.default_model
         # 与选图路径一致：先压缩图片，降低带宽与 token 消耗
@@ -905,9 +1156,7 @@ class AITools:
                     {"type": "text", "text": text_query},
                     {
                         "type": "image_url",
-                        "image_url": {
-                            "url": self._format_image_url(image)
-                        },
+                        "image_url": {"url": self._format_image_url(image)},
                     },
                 ],
             },
