@@ -6,9 +6,11 @@ TG-SignPulse 是 Telegram 多账号自动化管理面板，把签到、消息交
 
 ### 账号管理
 
-- 验证码登录 / 扫码登录
-- 代理与会话模式（file / string）
+- 验证码登录 / 扫码登录 / 会话导入（Telethon·Pyrogram `.session`、Pyrogram StringSession、TData `.zip`）
+- 代理与会话模式（file / string）；可强制 Telegram 走代理并校验代理出口 IP 是否泄漏宿主机 IP
 - 设备管理、设备保活、官方消息查看
+- 一键清退其他设备、派生独立 SessionString 导出
+- 设备指纹画像（desktop / android / macos / ios 预设）
 - 批量状态检查
 
 详见 [账号管理](/guide/accounts)。
@@ -16,8 +18,11 @@ TG-SignPulse 是 Telegram 多账号自动化管理面板，把签到、消息交
 ### 任务编排（sign-tasks）
 
 - 固定 Cron 或时间段执行
+- Jitter 错峰（`jitter_seconds`，0–3600）
+- 自适应动态冷却调度：解析机器人回复中的冷却倒计时，自动调整下次运行时间
 - 多账号共享同一套动作流程
 - 发送文本、骰子、点按钮、AI 识图/计算、关键词监听等动作
+- 目标会话支持按 Telegram 对话文件夹筛选、论坛话题（Forum Topics）选择
 - 批量启用/停用/触发
 - 失败分类与历史日志
 

@@ -1,6 +1,6 @@
-import pytest
 from pathlib import Path
-from backend.utils.tg_session import set_account_profile, get_account_profile
+
+from backend.utils.tg_session import get_account_profile, set_account_profile
 
 
 def test_account_tags_storage(tmp_path: Path, monkeypatch):

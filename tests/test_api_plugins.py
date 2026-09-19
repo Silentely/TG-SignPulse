@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+
 from tests.test_api import _auth, _login
 from tg_signer.core.plugins import PluginContext, PluginRegistry, is_builtin_plugin_path
 

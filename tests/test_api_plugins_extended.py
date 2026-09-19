@@ -892,7 +892,7 @@ def test_create_plugin_with_new_templates():
 
 
 def test_plugin_context_advanced_features():
-    from tg_signer.core.plugins import PluginContext, PluginStorageClient
+    from tg_signer.core.plugins import PluginContext
 
     class FakeApp:
         async def edit_message_text(self, chat_id, message_id, text, **kwargs):
@@ -930,7 +930,7 @@ def test_plugin_context_advanced_features():
 
 def test_test_plugin_param_validation_and_traceback():
     # 1. Create a plugin with PARAMS_SCHEMA and intentional failure
-    from tg_signer.core.plugins import PluginRegistry, PluginContext
+    from tg_signer.core.plugins import PluginContext, PluginRegistry
 
     @PluginRegistry.register(
         name="schema_tb_plug",
@@ -1054,8 +1054,9 @@ async def sec_gate_plug_handler(ctx: PluginContext) -> bool:
 
 def test_subprocess_alias_and_traceback_sanitization():
     import os
-    from tg_signer.core.plugins import compute_plugin_security_report, PluginContext
+
     from backend.api.routes.plugins import _sanitize_traceback
+    from tg_signer.core.plugins import PluginContext, compute_plugin_security_report
 
     # 1. Alias and subprocess gating
     code_sp = """
@@ -1096,8 +1097,8 @@ ValueError: secret='my-very-secret-token'
 def test_star_import_security_and_bundle_gate():
     import io
     import zipfile
-    from tg_signer.core.plugins import compute_plugin_security_report, PluginRegistry
-    from backend.services.config import get_config_service
+
+    from tg_signer.core.plugins import compute_plugin_security_report
 
     # 1. Star import detection
     code_star = """

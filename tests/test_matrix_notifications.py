@@ -1,11 +1,13 @@
-import pytest
 from unittest.mock import AsyncMock, patch
+
+import pytest
+
 from backend.services.push_notifications import (
-    send_wecom_message,
-    send_feishu_message,
+    dispatch_matrix_notification,
     send_dingtalk_message,
     send_discord_message,
-    dispatch_matrix_notification,
+    send_feishu_message,
+    send_wecom_message,
 )
 
 

@@ -117,6 +117,6 @@ class TestSchedulerLock:
         release_scheduler_lock()
         assert try_acquire_scheduler_lock() is True
         assert has_scheduler_lock() is True
-        assert (Path(tmp_path) / ".scheduler.lock").exists() or True
+        assert (Path(tmp_path) / ".scheduler.lock").exists()
         release_scheduler_lock()
         config_module.get_settings.cache_clear()

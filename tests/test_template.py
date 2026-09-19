@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import datetime
-import pytest
 
 from tg_signer.core.template import (
     render_template,
     render_template_recursive,
-    _SafeEvaluator,
 )
 
 
