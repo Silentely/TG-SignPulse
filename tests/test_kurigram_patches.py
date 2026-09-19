@@ -18,42 +18,48 @@ from tg_signer.compat import (
 )
 
 
-def test_kurigram_runtime_contract_is_satisfied():
-    """kurigram 运行时契约守卫。
+@pytest.mark.asyncio
+async def test_kurigram_runtime_contract_is_satisfied():
+    """kurigram 运行时契约守卫与 Storage 生命周期验证。
 
-    kurigram 2.2.10 起移除了 pyrogram.storage.MemoryStorage，而 string 会话模式依赖它。
-    若依赖解析到该版本，tg_signer.compat 会整体导入失败并静默降级为占位实现，
-    表现为大量误导性的「X() takes no arguments」报错。此用例把该契约显式固化：
-    缺失时直接失败并指出应使用的版本区间，而不是让下游用例报出难以定位的错误。
+    验证在当前运行环境下 MemoryStorage 可用，并且具备完整的 open/save/close 生命周期。
     """
-    from tg_signer.compat import MemoryStorage
+    from tg_signer.compat import _MEMORY_STORAGE_IMPORT_ERROR, MemoryStorage
 
     assert _PYROGRAM_IMPORT_ERROR is None, (
         f"Telegram 运行时依赖导入失败: {_PYROGRAM_IMPORT_ERROR!r}"
     )
     assert MemoryStorage is not None, (
-        "当前 kurigram 版本不提供 pyrogram.storage.MemoryStorage（2.2.10 起已移除），"
-        "请安装 kurigram>=2.2.7,<2.2.10"
+        f"MemoryStorage 不可用: {_MEMORY_STORAGE_IMPORT_ERROR!r}"
     )
+    storage = MemoryStorage("test_contract_lifecycle")
+    assert getattr(storage, "in_memory", None) is True or hasattr(storage, "conn")
+
+    # 验证真实存储生命周期
+    await storage.open()
+    assert storage.conn is not None
+    await storage.save()
+    await storage.close()
 
 
 def test_missing_memory_storage_does_not_stub_whole_runtime():
     """MemoryStorage 缺失只应影响该类本身，不得把整套运行时替换为占位实现。
 
-    否则真实类型（如 InlineKeyboardMarkup）会被替换成不接受参数的占位类，
-    在离故障点很远的用例里报出「X() takes no arguments」，难以定位。
+    同时验证 Fail-Closed 策略：当 SQLiteStorage 也不具备 in_memory 能力时，
+    应明确将 MemoryStorage 置为 None 并记录原因，杜绝半成品对象。
     """
     code = textwrap.dedent(
         """
         import builtins
 
         # 先让 pyrogram 正常加载，避免干扰其内部对 pyrogram.storage 的合法使用
+        import pyrogram.client
         import pyrogram.types as real_types
 
         real_import = builtins.__import__
 
         def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
-            # 仅模拟「2.2.10+ 已移除 MemoryStorage」这一件事
+            # 模拟原生 MemoryStorage 缺失
             if name == "pyrogram.storage" and fromlist and "MemoryStorage" in fromlist:
                 raise ImportError("simulated: MemoryStorage removed")
             return real_import(name, globals, locals, fromlist, level)
@@ -63,7 +69,9 @@ def test_missing_memory_storage_does_not_stub_whole_runtime():
         import tg_signer.compat as compat
 
         assert compat._PYROGRAM_IMPORT_ERROR is None, "不应整体降级为占位实现"
-        assert compat.MemoryStorage is None, "MemoryStorage 应为 None"
+        # 在当前 <=2.2.9 环境下，SQLiteStorage 无 in_memory，应 fail-closed 保持为 None
+        assert compat.MemoryStorage is None, "无 in_memory 能力时不应伪装支持"
+        assert isinstance(compat._MEMORY_STORAGE_IMPORT_ERROR, NotImplementedError)
         assert compat.InlineKeyboardMarkup is real_types.InlineKeyboardMarkup, (
             "真实类型必须保留"
         )
@@ -80,11 +88,128 @@ def test_missing_memory_storage_does_not_stub_whole_runtime():
     assert "OK" in proc.stdout
 
 
+def test_memory_storage_adapter_for_kurigram_2_2_10_contract():
+    """模拟 kurigram >= 2.2.10 环境下 MemoryStorage 适配器的行为与生命周期。"""
+    code = textwrap.dedent(
+        """
+        import builtins
+        import sys
+        from pathlib import Path
+        import pyrogram.client
+        import pyrogram.types as real_types
+
+        # 构造符合 kurigram 2.2.10+ 签名的 FakeSQLiteStorage
+        class Fake2210SQLiteStorage:
+            def __init__(self, name: str, workdir: Path, session_string: str = None, in_memory: bool = False):
+                self.name = name
+                self.workdir = workdir
+                self.session_string = session_string
+                self.in_memory = in_memory
+                self.conn = None
+                self.opened = False
+
+            async def open(self):
+                self.opened = True
+                self.conn = "fake_connection"
+
+            async def save(self):
+                pass
+
+            async def close(self):
+                self.opened = False
+
+        import pyrogram.storage.sqlite_storage as pyrogram_sqlite
+        pyrogram_sqlite.SQLiteStorage = Fake2210SQLiteStorage
+
+        real_import = builtins.__import__
+
+        def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == "pyrogram.storage" and fromlist and "MemoryStorage" in fromlist:
+                raise ImportError("simulated kurigram 2.2.10+: MemoryStorage removed")
+            return real_import(name, globals, locals, fromlist, level)
+
+        builtins.__import__ = fake_import
+
+        import tg_signer.compat as compat
+        assert compat._PYROGRAM_IMPORT_ERROR is None
+        assert compat.MemoryStorage is not None
+        assert compat._MEMORY_STORAGE_IMPORT_ERROR is None
+
+        # 实例化并验证参数正确转发
+        storage = compat.MemoryStorage("my_session", session_string="test_str", workdir=Path("/custom"))
+        assert storage.in_memory is True
+        assert storage.name == "my_session"
+        assert storage.session_string == "test_str"
+        assert storage.workdir == Path("/custom")
+
+        # 验证生命周期代理
+        import asyncio
+        async def run_lifecycle():
+            await storage.open()
+            assert storage.opened is True
+            assert storage.conn == "fake_connection"
+            await storage.save()
+            await storage.close()
+            assert storage.opened is False
+
+        asyncio.run(run_lifecycle())
+        print("OK")
+        """
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=str(Path(__file__).resolve().parent.parent),
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "OK" in proc.stdout
+
+
+def test_memory_storage_compat_initialization():
+    """测试 MemoryStorage 兼容不同版本的构造参数与模式。"""
+    from tg_signer.compat import MemoryStorage
+
+    s1 = MemoryStorage("session1")
+    assert s1 is not None
+
+    s2 = MemoryStorage("session2", session_string="dummy_session_string")
+    assert s2 is not None
+
+    try:
+        s3 = MemoryStorage("session3", session_string=None, workdir=Path("."))
+        assert s3 is not None
+    except TypeError:
+        # 原生 MemoryStorage (<=2.2.9) 不接收 workdir
+        s3 = MemoryStorage("session3", session_string=None)
+        assert s3 is not None
+
+
+def test_client_storage_error_chaining():
+    """测试当 MemoryStorage 不可用时，Client 初始化保留底层异常链路。"""
+    from unittest.mock import patch
+
+    import tg_signer.core.client as client_mod
+
+    with patch.object(client_mod, "MemoryStorage", None):
+        with patch.object(
+            client_mod,
+            "_MEMORY_STORAGE_IMPORT_ERROR",
+            NotImplementedError("mocked root cause"),
+        ):
+            with pytest.raises(RuntimeError) as exc_info:
+                client_mod.Client("test_dummy", session_string=None, in_memory=True)
+            assert "mocked root cause" in str(exc_info.value)
+            assert isinstance(exc_info.value.__cause__, NotImplementedError)
+
+
 @pytest.mark.asyncio
 async def test_safe_get_forum_topics_filters_deleted_topics():
     client = MagicMock()
     client.is_connected = True
-    client.resolve_peer = AsyncMock(return_value=raw.types.InputPeerChannel(channel_id=123, access_hash=456))
+    client.resolve_peer = AsyncMock(
+        return_value=raw.types.InputPeerChannel(channel_id=123, access_hash=456)
+    )
 
     topic1 = raw.types.ForumTopic(
         id=1,
@@ -136,7 +261,9 @@ async def test_safe_get_forum_topics_filters_deleted_topics():
 async def test_safe_get_forum_topics_handles_non_forum_group_gracefully():
     client = MagicMock()
     client.is_connected = True
-    client.resolve_peer = AsyncMock(return_value=raw.types.InputPeerChannel(channel_id=123, access_hash=456))
+    client.resolve_peer = AsyncMock(
+        return_value=raw.types.InputPeerChannel(channel_id=123, access_hash=456)
+    )
 
     # Test 1: invoke raises TopicIdInvalid
     client.invoke = AsyncMock(side_effect=TopicIdInvalid(value="TOPIC_ID_INVALID"))
@@ -226,7 +353,9 @@ def test_patch_kurigram_compat_noop_on_old_version(monkeypatch):
 async def test_safe_get_forum_topics_handles_missing_top_message():
     client = MagicMock()
     client.is_connected = True
-    client.resolve_peer = AsyncMock(return_value=raw.types.InputPeerChannel(channel_id=123, access_hash=456))
+    client.resolve_peer = AsyncMock(
+        return_value=raw.types.InputPeerChannel(channel_id=123, access_hash=456)
+    )
 
     # Topic with top_message missing or None
     topic_no_top_msg = MagicMock()
@@ -254,7 +383,9 @@ async def test_safe_get_forum_topics_handles_missing_top_message():
 async def test_safe_get_forum_topics_skips_deleted_topics_and_returns_empty_for_non_forum():
     client = MagicMock()
     client.is_connected = True
-    client.resolve_peer = AsyncMock(return_value=raw.types.InputPeerChannel(channel_id=123, access_hash=456))
+    client.resolve_peer = AsyncMock(
+        return_value=raw.types.InputPeerChannel(channel_id=123, access_hash=456)
+    )
 
     # Only deleted topics
     deleted_topic = raw.types.ForumTopicDeleted(id=10)
