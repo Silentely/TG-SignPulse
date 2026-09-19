@@ -215,6 +215,8 @@ def get_account_profile(account_name: str) -> dict[str, Any]:
         "needs_relogin": bool(entry.get("needs_relogin", False)),
         "invalid_notified_at": entry.get("invalid_notified_at"),
         "tags": list(entry.get("tags") or []),
+        "device_family": entry.get("device_family"),
+        "device_profile": entry.get("device_profile"),
         "proxy_probe_policy": entry.get("proxy_probe_policy", "strict"),
     }
 
@@ -234,6 +236,8 @@ def set_account_profile(
     proxy: Optional[str] = None,
     proxy_probe_policy: Optional[str] = None,
     tags: Optional[list[str]] = None,
+    device_family: Optional[str] = None,
+    device_profile: Optional[dict] = None,
 ) -> None:
     data = _load_account_store()
     accounts = data["accounts"]
@@ -246,6 +250,10 @@ def set_account_profile(
         entry["proxy"] = proxy.strip() if isinstance(proxy, str) else proxy
     if tags is not None:
         entry["tags"] = [str(t).strip() for t in tags if str(t).strip()]
+    if device_family is not None:
+        entry["device_family"] = str(device_family).strip() if isinstance(device_family, str) else device_family
+    if device_profile is not None:
+        entry["device_profile"] = device_profile
     if proxy_probe_policy is not None:
         entry["proxy_probe_policy"] = str(proxy_probe_policy).strip().lower()
     entry["updated_at"] = utc_now_iso()

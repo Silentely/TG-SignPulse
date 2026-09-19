@@ -669,7 +669,7 @@ async def update_account(
     current_user: User = Depends(get_current_user),
 ):
     """
-    更新账号备注/代理（不影响登录状态）
+    更新账号备注/代理/标签/设备画像（不影响登录状态）
     """
     try:
         account_name = validate_storage_name(account_name, field_name="account_name")
@@ -689,6 +689,36 @@ async def update_account(
         from backend.utils.tg_session import set_account_profile
 
         actual_account_name = str(current_account.get("name") or account_name).strip()
+
+        device_profile_to_save = None
+        device_family_to_save = None
+        if request.device_family is not None or request.device_profile is not None:
+            from backend.services.telegram.device_profiles import (
+                get_random_profile,
+                validate_device_profile,
+            )
+            from tg_signer.core import is_account_client_active
+
+            if is_account_client_active(
+                actual_account_name, getattr(service, "session_dir", None)
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="ACCOUNT_BUSY",
+                )
+
+            if request.device_profile is not None:
+                profile_dict = dict(request.device_profile)
+                if request.device_family is not None:
+                    profile_dict["device_family"] = request.device_family
+                device_profile_to_save = validate_device_profile(profile_dict)
+                device_family_to_save = (
+                    device_profile_to_save.get("device_family") or request.device_family
+                )
+            elif request.device_family is not None:
+                device_family_to_save = request.device_family
+                device_profile_to_save = get_random_profile(request.device_family)
+
         target_account_name, renamed = resolve_account_rename_target(
             actual_account_name,
             request.new_account_name,
@@ -704,6 +734,8 @@ async def update_account(
             remark=request.remark,
             proxy=request.proxy,
             tags=request.tags,
+            device_family=device_family_to_save,
+            device_profile=device_profile_to_save,
         )
 
         if renamed:
@@ -748,6 +780,7 @@ async def update_account(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="ACCOUNT_UPDATE_FAILED",
         )
+
 
 @router.post("/logs/clear", response_model=ClearAccountLogsResponse)
 def clear_recent_account_logs(current_user: User = Depends(get_current_user)):
@@ -856,7 +889,7 @@ def export_account_logs(
     return Response(
         content=content,
         media_type="text/plain; charset=utf-8",
-        headers={
-            "Content-Disposition": 'attachment; filename="account_logs.txt"'
-        },
+        headers={"Content-Disposition": 'attachment; filename="account_logs.txt"'},
     )
+
+

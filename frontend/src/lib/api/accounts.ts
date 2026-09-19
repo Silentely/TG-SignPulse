@@ -74,6 +74,14 @@ export interface QrLoginPasswordResponse {
   username?: string;
 }
 
+export interface DeviceProfile {
+  device_model?: string;
+  system_version?: string;
+  app_version?: string;
+  lang_code?: string;
+  system_lang_code?: string;
+}
+
 export interface AccountInfo {
   name: string;
   session_file: string;
@@ -87,6 +95,8 @@ export interface AccountInfo {
   status_checked_at?: string | null;
   needs_relogin?: boolean;
   tags?: string[];
+  device_family?: string | null;
+  device_profile?: DeviceProfile | null;
 }
 
 export interface AccountStatusCheckRequest {
@@ -236,6 +246,8 @@ export const updateAccount = (
     remark?: string | null;
     proxy?: string | null;
     tags?: string[];
+    device_family?: string | null;
+    device_profile?: DeviceProfile | null;
   }
 ) =>
   request<{ success: boolean; message: string; account?: AccountInfo | null }>(`/accounts/${accountName}`, {
