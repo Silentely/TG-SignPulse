@@ -14,7 +14,10 @@ from backend.services.telegram.sessions import (
     _login_sessions,
     _qr_login_sessions,
 )
-from backend.utils.account_locks import get_account_lock
+from backend.utils.account_locks import (
+    AccountLockTimeout,
+    acquire_account_lock_with_timeout,
+)
 from backend.utils.names import validate_storage_name
 from backend.utils.proxy import build_proxy_dict
 from backend.utils.tg_session import (
@@ -50,6 +53,52 @@ def _session_file_info(session_file) -> tuple[bool, int]:
         return True, p.stat().st_size
     except (OSError, ValueError, TypeError):
         return False, 0
+
+
+# 与设备画像池约定的画像字段，注入 Pyrogram Client 时逐项透传
+_DEVICE_PROFILE_KEYS = (
+    "device_model",
+    "system_version",
+    "app_version",
+    "lang_code",
+    "system_lang_code",
+)
+
+
+def _resolve_proxy_and_device_kwargs(
+    account_name: str,
+) -> tuple[Optional[dict], Dict[str, Any]]:
+    """解析账号生效代理与设备画像参数。
+
+    代理字符串非法时抛出 ValueError("PROXY_INVALID_BLOCKED")，而不是静默降级为
+    直连——静默降级等价于绕过全局代理策略与出口 IP 校验。
+    """
+    from backend.services.config import get_config_service
+
+    try:
+        profile = get_account_profile(account_name) or {}
+    except Exception as e:
+        logger.debug("读取账号 profile 失败 %s: %s", account_name, e)
+        profile = {}
+
+    proxy_value = profile.get("proxy")
+    if not proxy_value:
+        proxy_value = get_config_service().get_global_proxy()
+
+    proxy_dict = None
+    if proxy_value and str(proxy_value).strip():
+        proxy_dict = build_proxy_dict(str(proxy_value).strip())
+        if not proxy_dict:
+            raise ValueError("PROXY_INVALID_BLOCKED")
+
+    device_kwargs: Dict[str, Any] = {}
+    device_profile = profile.get("device_profile")
+    if isinstance(device_profile, dict):
+        for key in _DEVICE_PROFILE_KEYS:
+            if device_profile.get(key):
+                device_kwargs[key] = device_profile[key]
+
+    return proxy_dict, device_kwargs
 
 
 def mark_account_connected(account_name: str) -> None:
@@ -280,17 +329,7 @@ class TelegramAccountsMixin:
         if not self.account_exists(account_name):
             return None
 
-        proxy_dict = None
-        try:
-            profile = get_account_profile(account_name) or {}
-            proxy_value = profile.get("proxy")
-            if not proxy_value:
-                from backend.services.config import get_config_service
-                proxy_value = get_config_service().get_global_proxy()
-            if proxy_value:
-                proxy_dict = build_proxy_dict(proxy_value)
-        except Exception:
-            proxy_dict = None
+        proxy_dict, device_kwargs = _resolve_proxy_and_device_kwargs(account_name)
 
         session_mode = get_session_mode()
         session_string = None
@@ -305,6 +344,8 @@ class TelegramAccountsMixin:
                 return None
             in_memory = True
 
+        await self.verify_account_proxy(account_name, proxy_dict)
+
         try:
             client = get_client(
                 account_name,
@@ -313,10 +354,10 @@ class TelegramAccountsMixin:
                 session_string=session_string,
                 in_memory=in_memory,
                 no_updates=True,
+                **device_kwargs,
             )
 
-            lock = get_account_lock(account_name)
-            async with lock:
+            async with acquire_account_lock_with_timeout(account_name, timeout=15.0):
                 async with client:
                     me = await asyncio.wait_for(client.get_me(), timeout=10)
                     if not me or not getattr(me, "photo", None):
@@ -357,17 +398,7 @@ class TelegramAccountsMixin:
         if not self.account_exists(account_name):
             return None
 
-        proxy_dict = None
-        try:
-            profile = get_account_profile(account_name) or {}
-            proxy_value = profile.get("proxy")
-            if not proxy_value:
-                from backend.services.config import get_config_service
-                proxy_value = get_config_service().get_global_proxy()
-            if proxy_value:
-                proxy_dict = build_proxy_dict(proxy_value)
-        except Exception:
-            proxy_dict = None
+        proxy_dict, device_kwargs = _resolve_proxy_and_device_kwargs(account_name)
 
         session_mode = get_session_mode()
         session_string = None
@@ -382,6 +413,8 @@ class TelegramAccountsMixin:
                 return None
             in_memory = True
 
+        await self.verify_account_proxy(account_name, proxy_dict)
+
         try:
             client = get_client(
                 account_name,
@@ -390,10 +423,10 @@ class TelegramAccountsMixin:
                 session_string=session_string,
                 in_memory=in_memory,
                 no_updates=True,
+                **device_kwargs,
             )
 
-            lock = get_account_lock(account_name)
-            async with lock:
+            async with acquire_account_lock_with_timeout(account_name, timeout=15.0):
                 async with client:
                     chat = await asyncio.wait_for(
                         client.get_chat(chat_id), timeout=10
@@ -437,20 +470,7 @@ class TelegramAccountsMixin:
 
         account_name = self._normalize_account_name(account_name)
 
-        proxy_dict = None
-        try:
-            profile = get_account_profile(account_name) or {}
-            proxy_value = profile.get("proxy")
-            if not proxy_value:
-                from backend.services.config import get_config_service
-
-                proxy_value = get_config_service().get_global_settings().get(
-                    "global_proxy"
-                )
-            if proxy_value:
-                proxy_dict = build_proxy_dict(proxy_value)
-        except Exception:
-            proxy_dict = None
+        proxy_dict, device_kwargs = _resolve_proxy_and_device_kwargs(account_name)
 
         session_mode = get_session_mode()
         session_string = None
@@ -465,6 +485,13 @@ class TelegramAccountsMixin:
                 raise ValueError("session_string 不存在或已失效")
             in_memory = True
 
+        # 全局硬熔断检查：若开启但无任何代理，立即阻断
+        from backend.services.config import get_config_service
+        cfg_svc = get_config_service()
+        global_settings = cfg_svc.get_global_settings() if hasattr(cfg_svc, "get_global_settings") else {}
+        if bool(global_settings.get("require_proxy_for_telegram", False)) and not proxy_dict:
+            raise RuntimeError("PROXY_REQUIRED_BLOCKED: Global policy requires proxy")
+
         client = get_client(
             account_name,
             proxy=proxy_dict,
@@ -472,9 +499,78 @@ class TelegramAccountsMixin:
             session_string=session_string,
             in_memory=in_memory,
             no_updates=no_updates,
+            **device_kwargs,
         )
 
         return client, proxy_dict
+
+    async def verify_account_proxy(
+        self,
+        account_name: str,
+        proxy_dict: Optional[dict] = None,
+    ) -> None:
+        """
+        连接前置门禁（在取账号锁前执行）：
+        1. 若全局 require_proxy_for_telegram 为 True 且无代理，抛出 PROXY_REQUIRED_BLOCKED；
+        2. 若配置了代理，调用 probe_proxy_exit 探测出口 IP：
+           - FAILED -> 抛出 RuntimeError("PROXY_PROBE_FAILED: Proxy leaks host IP")
+           - UNAVAILABLE -> 若账号策略为 "warn"，记录警告并放行；若为 "strict"（默认），抛出 RuntimeError("PROXY_PROBE_UNAVAILABLE: Proxy endpoint unreachable")
+           - OK -> 放行
+        """
+        from backend.utils.proxy import (
+            ProxyProbeStatus,
+            build_proxy_dict,
+            probe_proxy_exit,
+        )
+
+        account_name = self._normalize_account_name(account_name)
+        profile = get_account_profile(account_name) or {}
+
+        if proxy_dict is None:
+            proxy_value = profile.get("proxy")
+            if not proxy_value:
+                from backend.services.config import get_config_service
+                proxy_value = get_config_service().get_global_proxy()
+            if proxy_value and str(proxy_value).strip():
+                proxy_dict = build_proxy_dict(str(proxy_value).strip())
+                if not proxy_dict:
+                    raise ValueError("PROXY_INVALID_BLOCKED: Configured proxy string is invalid")
+
+        from backend.services.config import get_config_service
+        cfg_svc = get_config_service()
+        global_settings = cfg_svc.get_global_settings() if hasattr(cfg_svc, "get_global_settings") else {}
+        if bool(global_settings.get("require_proxy_for_telegram", False)) and not proxy_dict:
+            raise RuntimeError("PROXY_REQUIRED_BLOCKED: Global policy requires proxy")
+
+        if not proxy_dict:
+            return
+
+        status, detail = await probe_proxy_exit(proxy_dict)
+        if status == ProxyProbeStatus.FAILED:
+            logger.error(
+                "代理探测硬熔断：账号 %s 代理出口 IP 泄漏宿主机 IP: %s",
+                account_name,
+                detail,
+            )
+            raise RuntimeError("PROXY_PROBE_FAILED: Proxy leaks host IP")
+        elif status == ProxyProbeStatus.UNAVAILABLE:
+            policy = (profile.get("proxy_probe_policy") or "strict").strip().lower()
+            if policy == "warn":
+                logger.warning(
+                    "代理探测不可达（warn 策略放行 MTProto 连接）：账号 %s, 详情: %s",
+                    account_name,
+                    detail,
+                )
+            else:
+                logger.error(
+                    "代理探测失败阻断（strict 策略）：账号 %s, 详情: %s",
+                    account_name,
+                    detail,
+                )
+                raise RuntimeError(
+                    f"PROXY_PROBE_UNAVAILABLE: Proxy endpoint unreachable ({detail})"
+                )
+
 
 
     async def check_account_status(
@@ -507,21 +603,6 @@ class TelegramAccountsMixin:
                 "needs_relogin": True,
             }
 
-        proxy_dict = None
-        try:
-            profile = get_account_profile(account_name) or {}
-            proxy_value = profile.get("proxy")
-            if not proxy_value:
-                from backend.services.config import get_config_service
-
-                proxy_value = get_config_service().get_global_settings().get(
-                    "global_proxy"
-                )
-            if proxy_value:
-                proxy_dict = build_proxy_dict(proxy_value)
-        except Exception:
-            proxy_dict = None
-
         session_mode = get_session_mode()
         session_string = None
         in_memory = False
@@ -550,6 +631,39 @@ class TelegramAccountsMixin:
                 }
             in_memory = True
 
+        proxy_dict: Optional[dict] = None
+        device_kwargs: Dict[str, Any] = {}
+        try:
+            proxy_dict, device_kwargs = _resolve_proxy_and_device_kwargs(account_name)
+            await self.verify_account_proxy(account_name, proxy_dict)
+        except (RuntimeError, ValueError) as e:
+            err_msg = str(e)
+            code = "PROXY_BLOCKED"
+            if "PROXY_INVALID_BLOCKED" in err_msg:
+                code = "PROXY_INVALID_BLOCKED"
+            elif "PROXY_REQUIRED_BLOCKED" in err_msg:
+                code = "PROXY_REQUIRED_BLOCKED"
+            elif "PROXY_PROBE_FAILED" in err_msg:
+                code = "PROXY_PROBE_FAILED"
+            elif "PROXY_PROBE_UNAVAILABLE" in err_msg:
+                code = "PROXY_PROBE_UNAVAILABLE"
+            set_account_status(
+                account_name,
+                status="blocked",
+                message=err_msg,
+                code=code,
+                needs_relogin=False,
+            )
+            return {
+                "account_name": account_name,
+                "ok": False,
+                "status": "blocked",
+                "message": err_msg,
+                "code": code,
+                "checked_at": checked_at,
+                "needs_relogin": False,
+            }
+
         timeout_seconds = max(1.0, min(float(timeout_seconds or 8.0), 20.0))
 
         try:
@@ -560,6 +674,7 @@ class TelegramAccountsMixin:
                 session_string=session_string,
                 in_memory=in_memory,
                 no_updates=no_updates,
+                **device_kwargs,
             )
         except Exception as e:
             return {
@@ -574,8 +689,9 @@ class TelegramAccountsMixin:
 
         try:
             # Reuse shared clients and avoid context-manager disconnect on each refresh.
-            lock = get_account_lock(account_name)
-            async with lock:
+            async with acquire_account_lock_with_timeout(
+                account_name, timeout=timeout_seconds
+            ):
                 if not getattr(client, "is_connected", False):
                     await client.connect()
                 me = await asyncio.wait_for(client.get_me(), timeout=timeout_seconds)
@@ -595,6 +711,17 @@ class TelegramAccountsMixin:
                 "checked_at": checked_at,
                 "needs_relogin": False,
                 "user_id": getattr(me, "id", None),
+            }
+        except AccountLockTimeout as e:
+            logger.warning("检查账号状态获取锁超时 %s: %s", account_name, e)
+            return {
+                "account_name": account_name,
+                "ok": False,
+                "status": "busy",
+                "message": "ACCOUNT_BUSY",
+                "code": "ACCOUNT_BUSY",
+                "checked_at": checked_at,
+                "needs_relogin": False,
             }
         except asyncio.TimeoutError:
             return {
@@ -735,6 +862,8 @@ class TelegramAccountsMixin:
             or shm_file.exists()
             or wal_file.exists()
         )
+        # session_string 判定必须与当前会话模式解耦：模式切换后遗留的
+        # .session_string 文件与 accounts.json 条目同样需要可被清理
         has_session_string = bool(
             get_account_session_string(account_name)
             or load_session_string_file(self.session_dir, account_name)
@@ -750,56 +879,42 @@ class TelegramAccountsMixin:
         ):
             return False
 
-        try:
-            if session_file.exists():
-                session_file.unlink()
+        # 删除 sqlite 相关的 session 文件
+        for f in (session_file, journal_file, shm_file, wal_file):
+            try:
+                if f.exists():
+                    f.unlink()
+            except Exception as e:
+                logger.warning("删除 session 文件 %s 失败: %s", f, e)
 
-            # 同时删除可能存在的 .session-journal 文件
-            if journal_file.exists():
-                journal_file.unlink()
-
-            # 删除 shm 和 wal 文件 (sqlite3)
-            if shm_file.exists():
-                shm_file.unlink()
-
-            if wal_file.exists():
-                wal_file.unlink()
-
-            if session_string_file.exists():
-                session_string_file.unlink()
-
-            if has_session_string or account_in_store:
+        # 删除 session_string 相关存储（含仅存在于账号库中的条目，
+        # 否则备注/代理/标签/设备画像会永久残留）
+        if has_session_string or account_in_store or has_session_string_file:
+            try:
                 delete_account_session_string(account_name)
-
-            # 确保 .session_string 残留被清理
+            except Exception as e:
+                logger.warning("从 accounts.json 删除 %s 失败: %s", account_name, e)
+        try:
             delete_session_string_file(self.session_dir, account_name)
+        except Exception as e:
+            logger.warning("删除 session_string 文件 %s 失败: %s", account_name, e)
 
-            # 清理该账号的登录中会话：账号删除后残留的登录轮询/QR 会话
-            # 会让重建同名账号时继承旧登录状态
-            from backend.services.telegram.sessions import (
-                _login_sessions,
-                _qr_login_sessions,
-            )
+        # 清理该账号的登录中会话：账号删除后残留的登录轮询/QR 会话
+        # 会让该账号继续出现在账号列表中，并在重建同名账号时继承旧登录状态
+        for store in (_login_sessions, _qr_login_sessions):
+            stale = [
+                key
+                for key, value in store.items()
+                if str((value or {}).get("account_name") or "").strip().lower()
+                == account_name.lower()
+            ]
+            for key in stale:
+                store.pop(key, None)
 
-            for store in (_login_sessions, _qr_login_sessions):
-                stale = [
-                    key
-                    for key, value in store.items()
-                    if str((value or {}).get("account_name") or "").strip().lower()
-                    == account_name.lower()
-                ]
-                for key in stale:
-                    store.pop(key, None)
+        # 使缓存失效
+        self._accounts_cache = None
 
-            # 更新缓存
-            if self._accounts_cache is not None:
-                self._accounts_cache = [
-                    acc for acc in self._accounts_cache if acc["name"] != account_name
-                ]
-
-            return True
-        except OSError:
-            return False
+        return True
 
 
     async def rename_account(
@@ -831,65 +946,10 @@ class TelegramAccountsMixin:
             {actual_account_name, new_account_name},
             key=lambda value: value.lower(),
         )
-        first_lock = get_account_lock(ordered_names[0])
-        second_lock = get_account_lock(ordered_names[-1])
 
         from tg_signer.core import close_client_by_name
 
-        async def _perform_rename() -> None:
-            await close_client_by_name(
-                actual_account_name,
-                workdir=self.session_dir,
-            )
-            if new_account_name.lower() != actual_account_name.lower():
-                await close_client_by_name(
-                    new_account_name,
-                    workdir=self.session_dir,
-                )
 
-            session_paths = [
-                (
-                    self.session_dir / f"{actual_account_name}.session",
-                    self.session_dir / f"{new_account_name}.session",
-                ),
-                (
-                    self.session_dir / f"{actual_account_name}.session-journal",
-                    self.session_dir / f"{new_account_name}.session-journal",
-                ),
-                (
-                    self.session_dir / f"{actual_account_name}.session-shm",
-                    self.session_dir / f"{new_account_name}.session-shm",
-                ),
-                (
-                    self.session_dir / f"{actual_account_name}.session-wal",
-                    self.session_dir / f"{new_account_name}.session-wal",
-                ),
-                (
-                    self.session_dir / f"{actual_account_name}.session_string",
-                    self.session_dir / f"{new_account_name}.session_string",
-                ),
-            ]
-
-            for source, target in session_paths:
-                self._move_path(source, target)
-
-            rename_account_entry(actual_account_name, new_account_name)
-            self._rename_pending_login_records(actual_account_name, new_account_name)
-
-            from backend.services.sign_tasks import get_sign_task_service
-
-            get_sign_task_service().rename_account_references(
-                actual_account_name,
-                new_account_name,
-            )
-
-            self._accounts_cache = None
-
-        async with first_lock:
-            if second_lock is first_lock:
-                await _perform_rename()
-            else:
-                async with second_lock:
-                    await _perform_rename()
-
-        return new_account_name
+def get_telegram_account_service():
+    from backend.services.telegram.runtime import get_telegram_service
+    return get_telegram_service()

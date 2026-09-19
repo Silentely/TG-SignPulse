@@ -415,6 +415,15 @@ async def refresh_account_chats(
     proxy_value = get_effective_proxy(account_name)
     if proxy_value:
         proxy_dict = build_proxy_dict(proxy_value)
+        if not proxy_dict:
+            raise ValueError("PROXY_INVALID_BLOCKED: Configured proxy string is invalid")
+    elif config_service.require_proxy_for_telegram():
+        raise ValueError("PROXY_REQUIRED_BLOCKED: Global policy requires a proxy for Telegram connections")
+
+    if proxy_dict:
+        from backend.services.telegram.accounts import get_telegram_account_service
+
+        await get_telegram_account_service().verify_account_proxy(account_name, proxy_dict)
     client_kwargs = build_chat_client_kwargs(
         account_name=account_name,
         workdir=session_dir,

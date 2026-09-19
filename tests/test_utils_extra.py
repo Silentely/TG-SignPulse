@@ -108,13 +108,16 @@ class TestGetAccountLock:
         assert a is not b
 
     def test_lock_table_prunes_unlocked_when_full(self):
-        """容量超限后清理未持锁条目，防账号删除后 Lock 永久滞留。"""
+        """无强引用时由 WeakValueDictionary 自动回收，防账号删除后 Lock 永久滞留。"""
+        import gc
+
         from backend.utils import account_locks as al
 
-        for i in range(al._MAX_LOCKS + 10):
+        for i in range(100):
             al.get_account_lock(f"prune-{i}")
-        assert len(al._ACCOUNT_LOCKS) <= al._MAX_LOCKS
-        # 清理后同名校验仍返回同一实例
+        gc.collect()
+        assert len(al._ACCOUNT_LOCKS) == 0
+        # 同名校验仍返回同一实例
         a = al.get_account_lock("prune-0")
         b = al.get_account_lock("prune-0")
         assert a is b

@@ -3,10 +3,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from backend.core.config import get_settings
-from backend.utils.account_locks import get_account_lock
+from backend.utils.account_locks import (
+    AccountLockTimeout,
+    acquire_account_lock_with_timeout,
+)
 from backend.utils.time import utc_from_timestamp_iso_z
 
 settings = get_settings()
@@ -15,6 +18,11 @@ settings = get_settings()
 logger = logging.getLogger("backend.telegram.devices")
 
 class TelegramDevicesMixin:
+    async def verify_account_proxy(
+        self, account_name: str, proxy_dict: Optional[dict] = None
+    ) -> None:
+        """存根方法，实际逻辑由 TelegramAccountsMixin 或子类实现。"""
+        pass
 
     async def list_account_devices(
         self,
@@ -28,17 +36,23 @@ class TelegramDevicesMixin:
         if not self.account_exists(account_name):
             raise ValueError("账号不存在")
 
-        client, _ = self._build_account_client(account_name, no_updates=True)
+        client, proxy_dict = self._build_account_client(account_name, no_updates=True)
+        await self.verify_account_proxy(account_name, proxy_dict)
 
         timeout_seconds = max(1.0, min(float(timeout_seconds or 12.0), 30.0))
-        lock = get_account_lock(account_name)
-        async with lock:
-            if not getattr(client, "is_connected", False):
-                await client.connect()
-            result = await asyncio.wait_for(
-                client.invoke(raw.functions.account.GetAuthorizations()),
-                timeout=timeout_seconds,
-            )
+        try:
+            async with acquire_account_lock_with_timeout(
+                account_name, timeout=timeout_seconds
+            ):
+                if not getattr(client, "is_connected", False):
+                    await client.connect()
+                result = await asyncio.wait_for(
+                    client.invoke(raw.functions.account.GetAuthorizations()),
+                    timeout=timeout_seconds,
+                )
+        except AccountLockTimeout as e:
+            logger.warning("获取设备列表获取锁超时 %s: %s", account_name, e)
+            raise AccountLockTimeout("ACCOUNT_BUSY") from e
 
         devices = []
         for item in getattr(result, "authorizations", []) or []:
@@ -70,7 +84,6 @@ class TelegramDevicesMixin:
             )
         return devices
 
-
     async def terminate_account_device(
         self,
         account_name: str,
@@ -92,24 +105,34 @@ class TelegramDevicesMixin:
         devices = await self.list_account_devices(
             account_name, timeout_seconds=timeout_seconds
         )
-        target = next((d for d in devices if str(d.get("hash")) == str(auth_hash)), None)
+        target = next(
+            (d for d in devices if str(d.get("hash")) == str(auth_hash)), None
+        )
         if not target:
             raise ValueError("设备不存在或已下线")
         if target.get("current"):
             raise ValueError("不能踢下线当前正在使用的会话")
 
-        client, _ = self._build_account_client(account_name, no_updates=True)
+        client, proxy_dict = self._build_account_client(account_name, no_updates=True)
+        await self.verify_account_proxy(account_name, proxy_dict)
 
         timeout_seconds = max(1.0, min(float(timeout_seconds or 12.0), 30.0))
-        lock = get_account_lock(account_name)
-        async with lock:
-            if not getattr(client, "is_connected", False):
-                await client.connect()
-            result = await asyncio.wait_for(
-                client.invoke(raw.functions.account.ResetAuthorization(hash=parsed_hash)),
-                timeout=timeout_seconds,
-            )
-        return bool(result)
+        try:
+            async with acquire_account_lock_with_timeout(
+                account_name, timeout=timeout_seconds
+            ):
+                if not getattr(client, "is_connected", False):
+                    await client.connect()
+                result = await asyncio.wait_for(
+                    client.invoke(
+                        raw.functions.account.ResetAuthorization(hash=parsed_hash)
+                    ),
+                    timeout=timeout_seconds,
+                )
+            return bool(result)
+        except AccountLockTimeout as e:
+            logger.warning("踢下线设备获取锁超时 %s: %s", account_name, e)
+            raise AccountLockTimeout("ACCOUNT_BUSY") from e
 
 
     async def list_official_messages(
@@ -123,11 +146,11 @@ class TelegramDevicesMixin:
         if not self.account_exists(account_name):
             raise ValueError("账号不存在")
 
-        client, _ = self._build_account_client(account_name, no_updates=True)
+        client, proxy_dict = self._build_account_client(account_name, no_updates=True)
+        await self.verify_account_proxy(account_name, proxy_dict)
 
         limit = max(1, min(int(limit or 20), 50))
         timeout_seconds = max(1.0, min(float(timeout_seconds or 12.0), 30.0))
-        lock = get_account_lock(account_name)
 
         async def _read_messages() -> List[Dict[str, Any]]:
             if not getattr(client, "is_connected", False):
@@ -148,5 +171,11 @@ class TelegramDevicesMixin:
                 )
             return messages
 
-        async with lock:
-            return await asyncio.wait_for(_read_messages(), timeout=timeout_seconds)
+        try:
+            async with acquire_account_lock_with_timeout(
+                account_name, timeout=timeout_seconds
+            ):
+                return await asyncio.wait_for(_read_messages(), timeout=timeout_seconds)
+        except AccountLockTimeout as e:
+            logger.warning("读取官方消息获取锁超时 %s: %s", account_name, e)
+            raise AccountLockTimeout("ACCOUNT_BUSY") from e
