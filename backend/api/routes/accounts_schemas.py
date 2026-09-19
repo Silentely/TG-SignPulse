@@ -320,3 +320,39 @@ class StandaloneSessionExportResponse(BaseModel):
     message: str = ""
 
 
+class FolderItem(BaseModel):
+    """Telegram 对话文件夹（Dialog Filter）"""
+
+    id: Any
+    title: str
+    emoticon: Optional[str] = None
+    pinned_peers: list[Any] = []
+    include_peers: list[Any] = []
+    exclude_peers: list[Any] = []
+    contacts: Optional[bool] = None
+    non_contacts: Optional[bool] = None
+    groups: Optional[bool] = None
+    broadcasts: Optional[bool] = None
+    bots: Optional[bool] = None
+    exclude_muted: Optional[bool] = None
+    exclude_read: Optional[bool] = None
+    exclude_archived: Optional[bool] = None
+
+    class Config:
+        extra = "ignore"
+
+
+class TopicItem(BaseModel):
+    """超级群组论坛话题（Forum Topic）"""
+
+    id: int
+    title: str
+    icon_color: Optional[int] = None
+    icon_emoji_id: Optional[Union[int, str]] = None
+    top_message: Optional[int] = None
+    closed: Optional[bool] = False
+    pinned: Optional[bool] = False
+    hidden: Optional[bool] = False
+
+    class Config:
+        extra = "ignore"

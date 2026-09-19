@@ -389,3 +389,53 @@ export const importAccountSessionFile = async (
   );
 };
 
+// ─── 对话文件夹与论坛话题 ───
+
+export interface FolderItem {
+  id: number | string;
+  title: string;
+  emoticon?: string | null;
+  pinned_peers?: (number | string)[];
+  include_peers?: (number | string)[];
+  exclude_peers?: (number | string)[];
+  contacts?: boolean;
+  non_contacts?: boolean;
+  groups?: boolean;
+  broadcasts?: boolean;
+  bots?: boolean;
+  exclude_muted?: boolean;
+  exclude_read?: boolean;
+  exclude_archived?: boolean;
+}
+
+export interface TopicItem {
+  id: number;
+  title: string;
+  icon_color?: number | null;
+  icon_emoji_id?: number | string | null;
+  top_message?: number | null;
+  closed?: boolean;
+  pinned?: boolean;
+  hidden?: boolean;
+}
+
+export const listAccountFolders = (token: string, accountName: string) =>
+  request<FolderItem[]>(
+    `/accounts/${encodeURIComponent(accountName)}/folders`,
+    {},
+    token,
+    MEDIUM_TIMEOUT_MS,
+  );
+
+export const listForumTopics = (
+  token: string,
+  accountName: string,
+  chatId: number | string,
+  limit: number = 100,
+) =>
+  request<TopicItem[]>(
+    `/accounts/${encodeURIComponent(accountName)}/chats/${encodeURIComponent(String(chatId))}/topics?limit=${limit}`,
+    {},
+    token,
+    MEDIUM_TIMEOUT_MS,
+  );

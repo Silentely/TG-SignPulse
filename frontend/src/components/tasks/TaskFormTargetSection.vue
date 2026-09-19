@@ -1,11 +1,13 @@
 <script setup lang="ts">
 /**
- * 任务表单：目标会话选择 / 多目标 Tab / 批量勾选。
+ * 任务表单：目标会话选择 / 多目标 Tab / 批量勾选 / Chat Folders 筛选 / Forum Topics 发现。
  */
-import { ref } from 'vue'
-import { AlertTriangle, RefreshCw } from 'lucide-vue-next'
+import { computed, ref, watch } from 'vue'
+import { AlertTriangle, Folder, MessageSquare, RefreshCw } from 'lucide-vue-next'
 import CustomSelect from '../CustomSelect.vue'
-import type { ChatInfo } from '../../lib/api'
+import type { ChatInfo, FolderItem, TopicItem } from '../../lib/api'
+import { listAccountFolders, listForumTopics } from '../../lib/api'
+import { getAuthToken } from '../../lib/api/core'
 import { useI18n } from '../../composables/useI18n'
 
 export type TargetChatDraft = {
@@ -93,6 +95,135 @@ const onChatIdUpdate = (id: number) => {
   const found = props.availableChats.find((c) => c.id === id)
   emit('update:selectedChatName', found?.title || found?.username || String(id))
 }
+
+// ─── Chat Folders ───
+const folders = ref<FolderItem[]>([])
+const foldersLoading = ref(false)
+const selectedFolderId = ref<string | number>('all')
+
+const loadFolders = async (accountName: string) => {
+  if (!accountName) {
+    folders.value = []
+    selectedFolderId.value = 'all'
+    return
+  }
+  const token = getAuthToken()
+  if (!token) return
+  foldersLoading.value = true
+  try {
+    const res = await listAccountFolders(token, accountName)
+    folders.value = res || []
+  } catch {
+    folders.value = []
+  } finally {
+    foldersLoading.value = false
+  }
+}
+
+watch(
+  () => props.selectedAccount,
+  (newAcc) => {
+    loadFolders(newAcc)
+  },
+  { immediate: true },
+)
+
+const filteredAvailableChats = computed(() => {
+  if (selectedFolderId.value === 'all' || !selectedFolderId.value) {
+    return props.availableChats
+  }
+  const folder = folders.value.find((f) => String(f.id) === String(selectedFolderId.value))
+  if (!folder) return props.availableChats
+
+  const allowed = new Set(
+    [...(folder.include_peers || []), ...(folder.pinned_peers || [])].map(String),
+  )
+  const excluded = new Set((folder.exclude_peers || []).map(String))
+
+  if (allowed.size > 0) {
+    return props.availableChats.filter(
+      (c) => allowed.has(String(c.id)) && !excluded.has(String(c.id)),
+    )
+  }
+  return props.availableChats.filter((c) => !excluded.has(String(c.id)))
+})
+
+const selectOptions = computed(() => {
+  const list = [...filteredAvailableChats.value]
+  if (props.selectedChatId && !list.some((c) => c.id === props.selectedChatId)) {
+    const selected = props.availableChats.find((c) => c.id === props.selectedChatId)
+    if (selected) list.unshift(selected)
+  }
+  return [
+    {
+      label: props.chatListRefreshing ? t('taskForm.loadingChats') : t('taskForm.selectChat'),
+      value: 0,
+    },
+    ...list.map((c) => ({ label: c.title || c.username || String(c.id), value: c.id })),
+  ]
+})
+
+// ─── Forum Topics ───
+const topics = ref<TopicItem[]>([])
+const topicsLoading = ref(false)
+const isCustomTopic = ref(false)
+
+const loadTopics = async (accountName: string, chatId: number) => {
+  if (!accountName || !chatId) {
+    topics.value = []
+    return
+  }
+  const token = getAuthToken()
+  if (!token) return
+  topicsLoading.value = true
+  try {
+    const res = await listForumTopics(token, accountName, chatId)
+    topics.value = res || []
+  } catch {
+    topics.value = []
+  } finally {
+    topicsLoading.value = false
+  }
+}
+
+watch(
+  [() => props.selectedAccount, () => props.selectedChatId],
+  ([accountName, chatId]) => {
+    isCustomTopic.value = false
+    loadTopics(accountName, chatId)
+  },
+  { immediate: true },
+)
+
+const activeTopicValue = computed(() => {
+  if (isCustomTopic.value) return '__custom__'
+  if (!props.messageThreadId || props.messageThreadId === '0') return '0'
+  const match = topics.value.find((top) => String(top.id) === String(props.messageThreadId))
+  if (match) return String(match.id)
+  return '__custom__'
+})
+
+const topicOptions = computed(() => [
+  { label: t('taskForm.mainTimeline'), value: '0' },
+  ...topics.value.map((top) => ({
+    label: `${top.title}${top.closed ? ` (${t('taskForm.topicClosed')})` : ''}`,
+    value: String(top.id),
+  })),
+  { label: t('taskForm.customTopicId'), value: '__custom__' },
+])
+
+const onTopicChange = (val: string | number) => {
+  const strVal = String(val)
+  if (strVal === '__custom__') {
+    isCustomTopic.value = true
+  } else if (strVal === '0') {
+    isCustomTopic.value = false
+    emit('update:messageThreadId', '')
+  } else {
+    isCustomTopic.value = false
+    emit('update:messageThreadId', strVal)
+  }
+}
 </script>
 
 <template>
@@ -144,6 +275,28 @@ const onChatIdUpdate = (id: number) => {
         >×</button>
       </div>
     </div>
+
+    <!-- Chat Folders 快速筛选 -->
+    <div v-if="folders.length > 1" class="mb-3 flex items-center gap-1.5 flex-wrap">
+      <span class="text-[11px] text-gray-500 dark:text-gray-400 font-medium shrink-0 flex items-center gap-1">
+        <Folder class="w-3.5 h-3.5 text-sky-500" />
+        {{ t('taskForm.filterByFolder') }}:
+      </span>
+      <button
+        type="button"
+        v-for="folder in folders"
+        :key="folder.id"
+        class="px-2 py-0.5 rounded text-[11px] font-medium transition-colors shrink-0 cursor-pointer"
+        :class="String(selectedFolderId) === String(folder.id)
+          ? 'bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300 border border-sky-300 dark:border-sky-700'
+          : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 border border-transparent'"
+        @click="selectedFolderId = folder.id"
+      >
+        <span v-if="folder.emoticon" class="mr-1">{{ folder.emoticon }}</span>
+        <span>{{ folder.title }}</span>
+      </button>
+    </div>
+
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
       <div class="space-y-1.5">
         <label class="ui-label">{{ t('taskForm.chatSourceAccount') }}</label>
@@ -171,10 +324,7 @@ const onChatIdUpdate = (id: number) => {
           :model-value="selectedChatId"
           :aria-label="t('taskForm.selectFromList')"
           :disabled="chatListRefreshing"
-          :options="[
-            { label: chatListRefreshing ? t('taskForm.loadingChats') : t('taskForm.selectChat'), value: 0 },
-            ...availableChats.map((c) => ({ label: c.title || c.username || String(c.id), value: c.id })),
-          ]"
+          :options="selectOptions"
           @update:model-value="onChatIdUpdate($event as number)"
         />
         <p v-if="chatListError" class="text-xs text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
@@ -228,8 +378,30 @@ const onChatIdUpdate = (id: number) => {
         </div>
       </div>
     </div>
+
+    <!-- Forum Topics 发现与快捷选择（当识别出论坛话题时呈现） -->
+    <div v-if="topicsLoading || topics.length > 0" class="mt-3 space-y-1.5 p-3 rounded bg-sky-50/50 dark:bg-sky-950/20 border border-sky-200 dark:border-sky-800/50">
+      <div class="flex items-center justify-between gap-2">
+        <label class="ui-label mb-0 flex items-center gap-1 text-sky-700 dark:text-sky-300 font-medium">
+          <MessageSquare class="w-3.5 h-3.5" />
+          {{ t('taskForm.forumTopic') }}
+          <span class="text-[10px] text-gray-500 dark:text-gray-400 font-normal">({{ t('taskForm.forumGroupDetected') }})</span>
+        </label>
+        <span v-if="topicsLoading" class="text-[10px] text-sky-500 animate-pulse">
+          {{ t('taskForm.loadingTopics') }}
+        </span>
+      </div>
+      <CustomSelect
+        :model-value="activeTopicValue"
+        :aria-label="t('taskForm.forumTopic')"
+        :disabled="topicsLoading"
+        :options="topicOptions"
+        @update:model-value="onTopicChange($event)"
+      />
+    </div>
+
     <div
-      v-if="showAdvanced"
+      v-if="showAdvanced || isCustomTopic || activeTopicValue === '__custom__'"
       class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4 pt-3 border-t border-dashed border-gray-200 dark:border-gray-700/60"
     >
       <div class="space-y-1.5">
@@ -253,7 +425,7 @@ const onChatIdUpdate = (id: number) => {
         />
       </div>
     </div>
-    <div v-if="availableChats.length" class="mt-4 border border-dashed border-gray-200 dark:border-gray-700/60 p-3 space-y-2">
+    <div v-if="filteredAvailableChats.length" class="mt-4 border border-dashed border-gray-200 dark:border-gray-700/60 p-3 space-y-2">
       <div class="flex items-center justify-between gap-2">
         <div>
           <div class="text-[11px] font-medium text-gray-700 dark:text-gray-300">{{ t('taskForm.pickFromChatList') }}</div>
@@ -271,7 +443,7 @@ const onChatIdUpdate = (id: number) => {
       </div>
       <div class="max-h-36 overflow-y-auto space-y-1">
         <label
-          v-for="chat in availableChats.slice(0, 40)"
+          v-for="chat in filteredAvailableChats.slice(0, 40)"
           :key="chat.id"
           class="flex items-center gap-2 px-1.5 py-1 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/[0.03] cursor-pointer rounded-sm"
         >
@@ -285,10 +457,10 @@ const onChatIdUpdate = (id: number) => {
           <span class="font-mono text-[10px] text-gray-400 shrink-0">{{ chat.id }}</span>
         </label>
         <p
-          v-if="availableChats.length > 40"
+          v-if="filteredAvailableChats.length > 40"
           class="px-1.5 py-1 text-[10px] text-gray-400"
         >
-          {{ t('taskForm.bulkPickTruncated', { shown: 40, total: availableChats.length }) }}
+          {{ t('taskForm.bulkPickTruncated', { shown: 40, total: filteredAvailableChats.length }) }}
         </p>
       </div>
     </div>
