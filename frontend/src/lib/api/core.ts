@@ -379,3 +379,30 @@ export async function requestText(
     (res) => res.text(),
   );
 }
+
+/**
+ * 提交 FormData 表单/文件上传（如 Session 导入、大附件等）。
+ * 不主动设置 Content-Type，交由浏览器自动计算 multipart boundary。
+ */
+export async function requestFormData<T>(
+  path: string,
+  formData: FormData,
+  token?: string | null,
+  timeoutMs: number | null = LONG_TIMEOUT_MS,
+  options: Omit<RequestInit, "body"> = {},
+): Promise<T> {
+  return requestWithTotalTimeout(
+    path,
+    {
+      ...options,
+      method: options.method || "POST",
+      body: formData,
+    },
+    token,
+    timeoutMs,
+    async (res) => {
+      if (res.status === 204) return {} as T;
+      return res.json() as Promise<T>;
+    },
+  );
+}

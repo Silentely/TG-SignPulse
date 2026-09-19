@@ -1,4 +1,5 @@
 """TelegramService mixin: devices."""
+
 from __future__ import annotations
 
 import asyncio
@@ -16,6 +17,7 @@ settings = get_settings()
 
 
 logger = logging.getLogger("backend.telegram.devices")
+
 
 class TelegramDevicesMixin:
     async def verify_account_proxy(
@@ -134,6 +136,58 @@ class TelegramDevicesMixin:
             logger.warning("踢下线设备获取锁超时 %s: %s", account_name, e)
             raise AccountLockTimeout("ACCOUNT_BUSY") from e
 
+    async def reset_account_authorizations(
+        self,
+        account_name: str,
+        timeout_seconds: float = 12.0,
+    ) -> bool:
+        """
+        一键清退账号除当前面板外的所有已授权设备与会话。
+        在同一次 acquire_account_lock_with_timeout 获取内完成。
+        调用 raw.functions.account.ResetAuthorizations() / raw.functions.auth.ResetAuthorizations()。
+        """
+        from pyrogram import raw
+
+        account_name = self._normalize_account_name(account_name)
+        if not self.account_exists(account_name):
+            raise ValueError("账号不存在")
+
+        client, proxy_dict = self._build_account_client(account_name, no_updates=True)
+        await self.verify_account_proxy(account_name, proxy_dict)
+
+        timeout_seconds = max(1.0, min(float(timeout_seconds or 12.0), 30.0))
+        reset_rpc_cls = (
+            getattr(raw.functions.account, "ResetAuthorizations", None)
+            or getattr(raw.functions.auth, "ResetAuthorizations", None)
+        )
+        if not reset_rpc_cls:
+            raise RuntimeError("ResetAuthorizations RPC function not found in Pyrogram raw definitions")
+
+        try:
+            async with acquire_account_lock_with_timeout(
+                account_name, timeout=timeout_seconds
+            ):
+                if not getattr(client, "is_connected", False):
+                    await client.connect()
+                result = await asyncio.wait_for(
+                    client.invoke(reset_rpc_cls()),
+                    timeout=timeout_seconds,
+                )
+            return bool(result)
+        except AccountLockTimeout as e:
+            logger.warning("清退其他设备获取锁超时 %s: %s", account_name, e)
+            raise AccountLockTimeout("ACCOUNT_BUSY") from e
+        except Exception as e:
+            err_str = str(e).upper()
+            if (
+                "FRESH_RESET_AUTHORISATION_FORBIDDEN" in err_str
+                or getattr(e, "CODE", None) == 406
+                or getattr(e, "code", None) == 406
+            ):
+                raise ValueError(
+                    "FRESH_RESET_AUTHORISATION_FORBIDDEN: 新登录会话在初始保护期内无法重置其他设备，请在几小时后再试"
+                ) from e
+            raise
 
     async def list_official_messages(
         self,

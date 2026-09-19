@@ -1,8 +1,18 @@
 <script setup lang="ts">
 import { ref, watch, onUnmounted } from 'vue'
-import { Phone, QrCode } from 'lucide-vue-next'
+import { Phone, QrCode, FileDown } from 'lucide-vue-next'
 import Modal from '../Modal.vue'
-import { startAccountLogin, verifyAccountLogin, updateAccount, startQrLogin, getQrLoginStatus, submitQrPassword, cancelQrLogin } from '../../lib/api'
+import {
+  startAccountLogin,
+  verifyAccountLogin,
+  updateAccount,
+  startQrLogin,
+  getQrLoginStatus,
+  submitQrPassword,
+  cancelQrLogin,
+  importAccountSession,
+  importAccountSessionFile,
+} from '../../lib/api'
 import { getAuthToken } from '../../lib/api/core'
 import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
@@ -13,10 +23,10 @@ import { devLog } from '../../lib/devLog'
 const { t } = useI18n()
 const toast = useToast()
 
-const props = defineProps<{ isOpen: boolean, initialMethod?: 'code' | 'qr', initialAccountName?: string }>()
+const props = defineProps<{ isOpen: boolean, initialMethod?: 'code' | 'qr' | 'import', initialAccountName?: string }>()
 const emit = defineEmits<{ (e: 'close'): void, (e: 'success'): void }>()
 
-const loginMethod = ref<'code' | 'qr'>('code')
+const loginMethod = ref<'code' | 'qr' | 'import'>('code')
 
 const form = ref({
   account_name: '',
@@ -24,11 +34,36 @@ const form = ref({
   phone_number: '',
   phone_code: '',
   password: '',
-  proxy: ''
+  proxy: '',
+  session_content: '',
+  tdata_password: '',
 })
 
 const loading = ref(false)
 const error = ref('')
+
+// Import session specific
+const importSubtype = ref<'file' | 'string'>('file')
+const selectedFile = ref<File | null>(null)
+const selectedFileName = ref('')
+const forceOverwrite = ref(false)
+const highlightTdataPassword = ref(false)
+const tdataPasswordInputRef = ref<HTMLInputElement | null>(null)
+
+const handleFileChange = (e: Event) => {
+  const input = e.target as HTMLInputElement
+  if (input.files && input.files[0]) {
+    selectedFile.value = input.files[0]
+    selectedFileName.value = input.files[0].name
+    highlightTdataPassword.value = false
+    if (!form.value.account_name) {
+      const baseName = input.files[0].name.replace(/\.(session|zip)$/i, '').trim()
+      if (baseName) {
+        form.value.account_name = baseName
+      }
+    }
+  }
+}
 
 // 验证码重发倒计时：防止重复点击触发 Telegram 限流
 const codeCountdown = ref(0)
@@ -77,7 +112,17 @@ const reset = async () => {
       devLog.warn('cancelQrLogin failed:', getLocalizedErrorMessage(e, t))
     }
   }
-  form.value = { account_name: props.initialAccountName || '', remark: '', phone_number: '', phone_code: '', password: '', proxy: '' }
+  form.value = {
+    account_name: props.initialAccountName || '',
+    remark: '',
+    phone_number: '',
+    phone_code: '',
+    password: '',
+    proxy: '',
+    session_content: '',
+    tdata_password: '',
+  }
+  highlightTdataPassword.value = false
   phoneCodeHash.value = ''
   error.value = ''
   codeSent.value = false
@@ -86,6 +131,10 @@ const reset = async () => {
   qrImage.value = ''
   qrLoadFailed.value = false
   loginId.value = ''
+  selectedFile.value = null
+  selectedFileName.value = ''
+  forceOverwrite.value = false
+  importSubtype.value = 'file'
   loading.value = false
 }
 
@@ -105,11 +154,13 @@ watch(loginMethod, () => {
   const remark = form.value.remark
   const password = form.value.password
   const proxy = form.value.proxy
+  const tdataPassword = form.value.tdata_password
   reset()
   form.value.account_name = accountName
   form.value.remark = remark
   form.value.password = password
   form.value.proxy = proxy
+  form.value.tdata_password = tdataPassword
 })
 
 const handleClose = () => {
@@ -255,6 +306,69 @@ const handleSave = async () => {
   loading.value = true
   error.value = ''
 
+  if (loginMethod.value === 'import') {
+    if (!form.value.account_name) {
+      error.value = t('addAccount.nameRequired')
+      loading.value = false
+      return
+    }
+    highlightTdataPassword.value = false
+    try {
+      if (importSubtype.value === 'file') {
+        if (!selectedFile.value) {
+          error.value = t('addAccount.fileRequired')
+          loading.value = false
+          return
+        }
+        await importAccountSessionFile(
+          token,
+          form.value.account_name,
+          selectedFile.value,
+          forceOverwrite.value,
+          form.value.proxy || undefined,
+          form.value.tdata_password || undefined,
+        )
+      } else {
+        if (!form.value.session_content.trim()) {
+          error.value = t('addAccount.stringRequired')
+          loading.value = false
+          return
+        }
+        await importAccountSession(token, {
+          account_name: form.value.account_name,
+          session_type: 'string',
+          session_content: form.value.session_content.trim(),
+          force: forceOverwrite.value,
+          proxy: form.value.proxy || undefined,
+          tdata_password: form.value.tdata_password || undefined,
+        })
+      }
+      await saveRemarkIfPresent(token)
+      loading.value = false
+      toast.success(t('addAccount.importSuccess'))
+      emit('success')
+      handleClose()
+    } catch (e: unknown) {
+      const code = getErrorCode(e)
+      const msg = e instanceof Error ? e.message : String(e)
+      if (code === 'TDATA_CONVERTER_UNAVAILABLE' || msg.includes('TDATA_CONVERTER_UNAVAILABLE')) {
+        error.value = t('addAccount.tdataConverterUnavailable')
+      } else if (code === 'TDATA_PASSWORD_REQUIRED' || msg.includes('TDATA_PASSWORD_REQUIRED')) {
+        error.value = t('addAccount.tdataPasswordRequired')
+        highlightTdataPassword.value = true
+        tdataPasswordInputRef.value?.focus()
+      } else if (code === 'TDATA_PASSWORD_INVALID' || msg.includes('TDATA_PASSWORD_INVALID')) {
+        error.value = t('addAccount.tdataPasswordInvalid')
+        highlightTdataPassword.value = true
+        tdataPasswordInputRef.value?.focus()
+      } else {
+        error.value = getLocalizedErrorMessage(e, t) || t('addAccount.importFailed')
+      }
+      loading.value = false
+    }
+    return
+  }
+
   if (loginMethod.value === 'code') {
     if (!phoneCodeHash.value) {
       error.value = t('addAccount.getCodeFirst')
@@ -281,8 +395,6 @@ const handleSave = async () => {
       emit('success')
       handleClose()
     } catch (e: unknown) {
-      // 按后端稳定错误码区分「首次需要 2FA 密码」与「2FA 密码错误」，
-      // 不按本地化文案匹配（英文界面下中文子串永不命中）
       const code = getErrorCode(e)
       if (code === 'SESSION_PASSWORD_NEEDED') {
         error.value = t('addAccount.needPassword')
@@ -322,7 +434,11 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <Modal :isOpen="isOpen" @close="handleClose" :title="loginMethod === 'code' ? t('addAccount.codeTitle') : t('addAccount.qrTitle')">
+  <Modal
+    :isOpen="isOpen"
+    @close="handleClose"
+    :title="loginMethod === 'code' ? t('addAccount.codeTitle') : loginMethod === 'qr' ? t('addAccount.qrTitle') : t('addAccount.importTitle')"
+  >
     <div class="space-y-4 pb-2">
       <!-- 登录方式分段切换：普通开关按钮组（aria-pressed），
            不用 tablist/tab 角色——tabs 语义承诺方向键漫游与 tabpanel 关联，本组件未实现 -->
@@ -346,6 +462,16 @@ onUnmounted(() => {
         >
           <QrCode class="w-3.5 h-3.5" />
           {{ t('accounts.qrLogin') }}
+        </button>
+        <button
+          type="button"
+          class="ui-segment-btn"
+          :class="loginMethod === 'import' ? 'ui-segment-btn-active' : ''"
+          :aria-pressed="loginMethod === 'import'"
+          @click="loginMethod = 'import'"
+        >
+          <FileDown class="w-3.5 h-3.5" />
+          {{ t('accounts.importSession') }}
         </button>
       </div>
 
@@ -413,8 +539,85 @@ onUnmounted(() => {
         </div>
       </template>
 
-      <!-- Cloud Password & Proxy for BOTH -->
-      <div class="space-y-1.5">
+      <!-- Import specific fields -->
+      <template v-if="loginMethod === 'import'">
+        <div class="space-y-3">
+          <!-- Import Subtype Radio -->
+          <div class="flex gap-4 items-center">
+            <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ t('addAccount.importType') }}:</span>
+            <label class="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400 cursor-pointer">
+              <input type="radio" value="file" v-model="importSubtype" class="text-sky-600 focus:ring-sky-500" />
+              {{ t('addAccount.importFile') }}
+            </label>
+            <label class="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400 cursor-pointer">
+              <input type="radio" value="string" v-model="importSubtype" class="text-sky-600 focus:ring-sky-500" />
+              {{ t('addAccount.importString') }}
+            </label>
+          </div>
+
+          <!-- File Upload -->
+          <div v-if="importSubtype === 'file'" class="space-y-1.5">
+            <label class="ui-label" for="add-account-file-btn">{{ t('addAccount.sessionFile') }} <span class="text-rose-500">*</span></label>
+            <div class="flex items-center gap-3">
+              <label id="add-account-file-btn" class="ui-btn-secondary !px-4 !py-2 cursor-pointer whitespace-nowrap">
+                {{ t('addAccount.selectFile') }}
+                <input
+                  type="file"
+                  accept=".session,.zip"
+                  class="hidden"
+                  @change="handleFileChange"
+                />
+              </label>
+              <span class="text-xs text-gray-500 truncate max-w-xs">{{ selectedFileName || t('addAccount.sessionFileHint') }}</span>
+            </div>
+          </div>
+
+          <!-- TData Password (shown when importSubtype === 'file') -->
+          <div v-if="importSubtype === 'file'" class="space-y-1.5">
+            <label class="ui-label" for="add-account-tdata-password">
+              {{ t('addAccount.tdataPassword') }}
+            </label>
+            <input
+              id="add-account-tdata-password"
+              ref="tdataPasswordInputRef"
+              v-model="form.tdata_password"
+              type="password"
+              :placeholder="t('addAccount.tdataPasswordPlaceholder')"
+              class="ui-input transition-colors duration-150"
+              :class="{ '!border-rose-500 !ring-1 !ring-rose-500': highlightTdataPassword }"
+            />
+          </div>
+
+          <!-- StringSession Input -->
+          <div v-else class="space-y-1.5">
+            <label class="ui-label" for="add-account-session-string">{{ t('addAccount.sessionString') }} <span class="text-rose-500">*</span></label>
+            <textarea
+              id="add-account-session-string"
+              v-model="form.session_content"
+              rows="3"
+              :placeholder="t('addAccount.sessionStringPlaceholder')"
+              class="ui-input font-mono text-xs"
+            ></textarea>
+          </div>
+
+          <!-- Force Overwrite Option -->
+          <div class="flex items-center gap-2 pt-1">
+            <input
+              id="add-account-force"
+              type="checkbox"
+              v-model="forceOverwrite"
+              class="h-4 w-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500"
+            />
+            <label for="add-account-force" class="text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
+              {{ t('addAccount.forceOverwrite') }}
+              <span class="text-gray-400 text-[11px] ml-1">({{ t('addAccount.forceOverwriteHint') }})</span>
+            </label>
+          </div>
+        </div>
+      </template>
+
+      <!-- Cloud Password (only for Code & QR) -->
+      <div v-if="loginMethod !== 'import'" class="space-y-1.5">
         <label class="ui-label" for="add-account-2fa">{{ t('addAccount.cloudPassword') }}</label>
         <input 
           id="add-account-2fa"
@@ -426,6 +629,7 @@ onUnmounted(() => {
         >
       </div>
 
+      <!-- Proxy for ALL -->
       <div class="space-y-1.5">
         <label class="ui-label" for="add-account-proxy">{{ t('addAccount.proxy') }}</label>
         <input 

@@ -17,7 +17,7 @@ classifiers = [
     "Programming Language :: Python :: 3 :: Only"
 ]
 dependencies = [
-    "kurigram<=2.2.7",
+    "kurigram>=2.2.7,<2.3.0",
     "click",
     # 生产钉死 v1，避免无 lockfile 时 pip 拉到 v2 导致运行差异
     # 业务已具备 pydantic_compat，后续升级可再放宽到 <3
@@ -56,6 +56,9 @@ dev = [
 ]
 speedup = [
     "tgcrypto"
+]
+tdata = [
+    "opentele>=1.15.1"
 ]
 
 [project.urls]

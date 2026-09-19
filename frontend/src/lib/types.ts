@@ -217,6 +217,9 @@ const API_ERROR_CODE_MESSAGES: Record<string, string> = {
   API_CREDENTIALS_REQUIRED: 'api_id and api_hash are required',
   API_ID_INVALID: 'api_id must be a positive integer',
   DATA_DIR_NOT_WRITABLE: 'Data directory is not writable',
+  TDATA_CONVERTER_UNAVAILABLE: 'TData converter is not available on server (opentele is required)',
+  TDATA_PASSWORD_REQUIRED: 'This TData requires a local passcode',
+  TDATA_PASSWORD_INVALID: 'Incorrect TData passcode',
 }
 
 

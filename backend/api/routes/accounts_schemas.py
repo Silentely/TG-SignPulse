@@ -1,7 +1,8 @@
 """账号 API 请求/响应模型。"""
+
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Dict, Optional, Union
 
 from pydantic import BaseModel, validator
 
@@ -139,9 +140,9 @@ class DeleteAccountResponse(BaseModel):
 
 
 class AccountUpdateRequest(BaseModel):
-    new_account_name: Optional[str] = None
-    """更新账号备注/代理/标签"""
+    """更新账号备注/代理/标签/设备画像"""
 
+    new_account_name: Optional[str] = None
     remark: Optional[str] = None
     proxy: Optional[str] = None
     tags: Optional[list[str]] = None
@@ -150,7 +151,13 @@ class AccountUpdateRequest(BaseModel):
 
     @validator("device_family")
     def validate_family(cls, v):
+        if v is not None:
+            val = str(v).strip().lower()
+            allowed = ("desktop", "android", "macos", "ios")
+            if val not in allowed:
                 raise ValueError(f"device_family must be one of {allowed}")
+            return val
+        return v
 
 
 class AccountUpdateResponse(BaseModel):
@@ -216,6 +223,13 @@ class TerminateDeviceResponse(BaseModel):
     message: str
 
 
+class ResetAuthorizationsResponse(BaseModel):
+    """清退其他设备授权响应"""
+
+    success: bool
+    message: str
+
+
 class OfficialMessageItem(BaseModel):
     id: Optional[int] = None
     date: Optional[str] = None
@@ -231,13 +245,11 @@ class OfficialMessagesResponse(BaseModel):
 # ============ API Routes ============
 
 
-
 class AccountStatusJobStartRequest(BaseModel):
     """异步批量状态检测 Job 请求"""
 
     account_names: Optional[list[str]] = None
     timeout_seconds: float = 8.0
-
 
 
 class AccountLogItem(BaseModel):
@@ -261,7 +273,6 @@ def _extract_last_bot_message(item: dict) -> str:
     return extract_last_target_message(item.get("flow_logs"))
 
 
-
 class ClearAccountLogsResponse(BaseModel):
     """清理账号日志响应"""
 
@@ -269,5 +280,43 @@ class ClearAccountLogsResponse(BaseModel):
     cleared: int
     message: str
     code: Optional[str] = None
+
+
+class ImportSessionRequest(BaseModel):
+    """会话导入请求（支持 StringSession 或 base64/文件，支持 TData zip）"""
+
+    account_name: str
+    session_type: str = "auto"  # auto | string | file
+    session_content: Optional[str] = None  # base64 或 raw string
+    force: bool = False
+    proxy: Optional[str] = None
+    tdata_password: Optional[str] = None
+
+
+class ImportSessionResponse(BaseModel):
+    """会话导入响应"""
+
+    success: bool
+    account_name: str
+    user_id: Optional[int] = None
+    first_name: Optional[str] = None
+    username: Optional[str] = None
+    message: str = "会话导入成功"
+
+class StandaloneSessionExportRequest(BaseModel):
+    """派生独立 Session 导出请求"""
+
+    device_model: Optional[str] = "TG-SignPulse Exported Session"
+    timeout_seconds: Optional[float] = 60.0
+
+
+class StandaloneSessionExportResponse(BaseModel):
+    """派生独立 Session 导出响应"""
+
+    success: bool
+    session_string: Optional[str] = None
+    dc_id: Optional[int] = None
+    user_id: Optional[int] = None
+    message: str = ""
 
 
