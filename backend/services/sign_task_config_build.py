@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Mapping, MutableMapping, Optional
 # 避免两处默认值漂移。
 _DEFAULT_TASK_FIELDS: Dict[str, Any] = {
     "random_seconds": 0,
+    "jitter_seconds": 0,
     "sign_interval": 1,
     "execution_mode": "fixed",
     "range_start": "",
@@ -23,6 +24,9 @@ _DEFAULT_TASK_FIELDS: Dict[str, Any] = {
     "sign_at": "08:00",
     "chats": [],
     "tags": [],
+    "adaptive_schedule_enabled": False,
+    "adaptive_schedule_patterns": [],
+    "adaptive_schedule_padding_seconds": 30,
 }
 
 MAX_TASK_TAGS = 20
@@ -59,6 +63,7 @@ def build_sign_task_config(
     task_group_id: str = "",
     sign_at: str = _DEFAULT_TASK_FIELDS["sign_at"],
     random_seconds: int = _DEFAULT_TASK_FIELDS["random_seconds"],
+    jitter_seconds: int = _DEFAULT_TASK_FIELDS["jitter_seconds"],
     sign_interval: int = _DEFAULT_TASK_FIELDS["sign_interval"],
     chats: List[Dict[str, Any]] = _DEFAULT_TASK_FIELDS["chats"],
     execution_mode: str = _DEFAULT_TASK_FIELDS["execution_mode"],
@@ -69,6 +74,9 @@ def build_sign_task_config(
     retry_count: int = _DEFAULT_TASK_FIELDS["retry_count"],
     enabled: bool = _DEFAULT_TASK_FIELDS["enabled"],
     tags: Optional[List[str]] = None,
+    adaptive_schedule_enabled: bool = _DEFAULT_TASK_FIELDS["adaptive_schedule_enabled"],
+    adaptive_schedule_patterns: Optional[List[str]] = None,
+    adaptive_schedule_padding_seconds: int = _DEFAULT_TASK_FIELDS["adaptive_schedule_padding_seconds"],
     last_run: Any = None,
     version: int = 4,
 ) -> Dict[str, Any]:
@@ -80,6 +88,7 @@ def build_sign_task_config(
         "account_names": list(account_names),
         "sign_at": sign_at,
         "random_seconds": random_seconds,
+        "jitter_seconds": jitter_seconds,
         "sign_interval": sign_interval,
         "chats": chats,
         "execution_mode": execution_mode,
@@ -90,6 +99,9 @@ def build_sign_task_config(
         "retry_count": retry_count,
         "enabled": enabled,
         "tags": normalize_task_tags(tags),
+        "adaptive_schedule_enabled": bool(adaptive_schedule_enabled),
+        "adaptive_schedule_patterns": list(adaptive_schedule_patterns or []),
+        "adaptive_schedule_padding_seconds": int(adaptive_schedule_padding_seconds),
     }
     if last_run is not None:
         config["last_run"] = last_run
@@ -102,6 +114,7 @@ def resolve_update_field_values(
     sign_at: Optional[str] = None,
     chats: Optional[List[Dict[str, Any]]] = None,
     random_seconds: Optional[int] = None,
+    jitter_seconds: Optional[int] = None,
     sign_interval: Optional[int] = None,
     execution_mode: Optional[str] = None,
     range_start: Optional[str] = None,
@@ -111,11 +124,15 @@ def resolve_update_field_values(
     retry_count: Optional[int] = None,
     enabled: Optional[bool] = None,
     tags: Optional[List[str]] = None,
+    adaptive_schedule_enabled: Optional[bool] = None,
+    adaptive_schedule_patterns: Optional[List[str]] = None,
+    adaptive_schedule_padding_seconds: Optional[int] = None,
 ) -> Dict[str, Any]:
     """合并更新入参与既有配置，返回下一版字段值。"""
     return {
         "sign_at": sign_at if sign_at is not None else str(existing.get("sign_at") or _DEFAULT_TASK_FIELDS["sign_at"]),
         "random_seconds": random_seconds if random_seconds is not None else int(existing.get("random_seconds", _DEFAULT_TASK_FIELDS["random_seconds"])),
+        "jitter_seconds": int(jitter_seconds) if jitter_seconds is not None else int(existing.get("jitter_seconds", _DEFAULT_TASK_FIELDS["jitter_seconds"]) or 0),
         "sign_interval": sign_interval if sign_interval is not None else int(existing.get("sign_interval", _DEFAULT_TASK_FIELDS["sign_interval"])),
         "chats": chats if chats is not None else list(existing.get("chats") or _DEFAULT_TASK_FIELDS["chats"]),
         "execution_mode": execution_mode if execution_mode is not None else str(existing.get("execution_mode", _DEFAULT_TASK_FIELDS["execution_mode"])),
@@ -128,6 +145,9 @@ def resolve_update_field_values(
         "tags": normalize_task_tags(
             tags if tags is not None else existing.get("tags") or _DEFAULT_TASK_FIELDS["tags"]
         ),
+        "adaptive_schedule_enabled": bool(existing.get("adaptive_schedule_enabled", _DEFAULT_TASK_FIELDS["adaptive_schedule_enabled"])) if adaptive_schedule_enabled is None else bool(adaptive_schedule_enabled),
+        "adaptive_schedule_patterns": list(existing.get("adaptive_schedule_patterns", _DEFAULT_TASK_FIELDS["adaptive_schedule_patterns"]) or []) if adaptive_schedule_patterns is None else list(adaptive_schedule_patterns),
+        "adaptive_schedule_padding_seconds": int(existing.get("adaptive_schedule_padding_seconds", _DEFAULT_TASK_FIELDS["adaptive_schedule_padding_seconds"])) if adaptive_schedule_padding_seconds is None else int(adaptive_schedule_padding_seconds),
     }
 
 
@@ -214,7 +234,6 @@ def last_run_map_from_related(
         acc = str(task.get("account_name") or "")
         out[acc] = task.get("last_run")
     return out
-
 
 def create_task_group_id(account_count: int) -> str:
     """新建任务：多账号生成 group id，单账号为空。"""

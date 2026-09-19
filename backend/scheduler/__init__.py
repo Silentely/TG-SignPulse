@@ -8,6 +8,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 scheduler: AsyncIOScheduler | None = None
+_ADAPTIVE_NEXT_RUNS: dict[str, datetime] = {}
 
 
 def _parse_clock_time(value: str):
@@ -39,8 +40,8 @@ def _resolve_scheduler_timezone():
         return None
 
 
-def create_cron_trigger(cron_str: str, timezone: str = "") -> CronTrigger:
-    """自动解析格式并创建 CronTrigger，支持 5位和6位 cron 表达式以及 HH:MM 或 HH:MM:SS"""
+def create_cron_trigger(cron_str: str, timezone: str = "", jitter: int = 0) -> CronTrigger:
+    """自动解析格式并创建 CronTrigger，支持 5位和6位 cron 表达式以及 HH:MM 或 HH:MM:SS。"""
     if ":" in cron_str:
         parts = cron_str.split(":")
         try:
@@ -71,7 +72,7 @@ def create_cron_trigger(cron_str: str, timezone: str = "") -> CronTrigger:
 
     parts = cron_str.split()
     if len(parts) == 6:
-        return CronTrigger(
+        trigger = CronTrigger(
             second=parts[0],
             minute=parts[1],
             hour=parts[2],
@@ -79,9 +80,13 @@ def create_cron_trigger(cron_str: str, timezone: str = "") -> CronTrigger:
             month=parts[4],
             day_of_week=parts[5],
             timezone=tz or None,
+            jitter=jitter if jitter > 0 else None,
         )
-    return CronTrigger.from_crontab(cron_str, timezone=tz or None)
-
+        return trigger
+    trigger = CronTrigger.from_crontab(cron_str, timezone=tz or None)
+    if jitter > 0:
+        trigger.jitter = jitter
+    return trigger
 
 
 async def _job_run_sign_task(account_name: str, task_name: str) -> None:
@@ -162,6 +167,10 @@ async def _job_run_sign_task(account_name: str, task_name: str) -> None:
                         e,
                         exc_info=True,
                     )
+        elif task_config:
+            _ADAPTIVE_NEXT_RUNS.pop(f"sign-{account_name}-{task_name}", None)
+            # 错峰延迟由 CronTrigger 的 jitter 承担（见 create_cron_trigger），
+            # 此处不再重复 sleep，避免实际延迟达到配置上限的两倍
 
         # run_task_with_logs 是 async 的，我们使用它（service 已在上方获取）
         result = await sign_task_service.run_task_with_logs(account_name, task_name)
@@ -428,7 +437,8 @@ async def sync_jobs() -> None:
             continue
 
         try:
-            trigger = create_cron_trigger(st["sign_at"])
+            jitter = int(st.get("jitter_seconds") or 0)
+            trigger = create_cron_trigger(st["sign_at"], jitter=jitter)
             if st.get("execution_mode") == "range" and st.get("range_start"):
                 trigger = create_cron_trigger(st["range_start"])
 
@@ -442,6 +452,16 @@ async def sync_jobs() -> None:
                     args=[account_name, task_name],
                     replace_existing=True,
                 )
+
+            if job_id in _ADAPTIVE_NEXT_RUNS:
+                target_dt = _ADAPTIVE_NEXT_RUNS[job_id]
+                now_dt = datetime.now(target_dt.tzinfo) if target_dt.tzinfo else datetime.now()
+                if target_dt > now_dt:
+                    job = scheduler.get_job(job_id)
+                    if job:
+                        job.modify(next_run_time=target_dt)
+                else:
+                    _ADAPTIVE_NEXT_RUNS.pop(job_id, None)
         except (ValueError, KeyError, RuntimeError) as e:
             logging.getLogger("backend.scheduler").warning(
                 "Error scheduling sign task %s: %s", task_name, e
@@ -468,35 +488,35 @@ async def init_scheduler(sync_on_startup: bool = True) -> AsyncIOScheduler:
         from backend.services.config import get_config_service
 
         settings = get_settings()
-        # 优先使用 Web UI 保存的时区，否则使用环境变量
-        tz = settings.timezone
+        job_defaults = {
+            "misfire_grace_time": 3600,
+            "coalesce": True,
+            "max_instances": 10,
+        }
         try:
             saved_settings = get_config_service().get_global_settings()
             saved_tz = saved_settings.get("timezone")
-            if saved_tz:
-                tz = saved_tz
-        except (ImportError, AttributeError, ValueError, KeyError) as exc:
+            tz = saved_tz or settings.timezone
+        except Exception:
+            tz = settings.timezone
+
+        # 尝试抢占调度锁（单实例运行）
+        has_lock = try_acquire_scheduler_lock()
+        if not has_lock:
             logging.getLogger("backend.scheduler").warning(
-                "读取全局时区设置失败，使用默认时区 %s: %s", settings.timezone, exc
+                "当前实例未获取到调度锁，将以只读/备用模式运行调度器（不执行实际调度）"
             )
+            scheduler = AsyncIOScheduler(timezone=tz, job_defaults=job_defaults)
+            scheduler.start()
+            return scheduler
 
-        # 多实例场景：仅锁持有者注册业务调度
-        try_acquire_scheduler_lock()
-
-        scheduler = AsyncIOScheduler(
-            timezone=tz,
-            job_defaults={
-                "misfire_grace_time": 3600,  # 允许任务延迟 1 小时执行
-                "coalesce": True,  # 合并积压的执行
-                "max_instances": 10,  # 增加并发实例数，避免多账号任务相互阻塞
-            },
-        )
+        scheduler = AsyncIOScheduler(timezone=tz, job_defaults=job_defaults)
         scheduler.start()
 
-        # 添加每日凌晨 3 点执行的维护任务
+        # 添加每日维护任务（清理签到历史等）
         scheduler.add_job(
             _job_maintenance,
-            trigger=CronTrigger.from_crontab("0 3 * * *"),
+            trigger=CronTrigger.from_crontab("0 4 * * *"),
             id="system-maintenance",
             replace_existing=True,
         )
@@ -544,11 +564,17 @@ def shutdown_scheduler() -> None:
 
 
 def add_or_update_sign_task_job(
-    account_name: str, task_name: str, cron_expression: str, enabled: bool = True
+    account_name: str,
+    task_name: str,
+    cron_expression: str,
+    enabled: bool = True,
+    jitter: int = 0,
 ) -> None:
     """动态添加或更新签到任务 Job"""
+    from backend.scheduler.instance_lock import has_scheduler_lock
+
     global scheduler
-    if not scheduler:
+    if not scheduler or not has_scheduler_lock():
         return
 
     logger = logging.getLogger("backend.scheduler")
@@ -560,7 +586,7 @@ def add_or_update_sign_task_job(
 
     try:
         cron = cron_expression
-        trigger = create_cron_trigger(cron)
+        trigger = create_cron_trigger(cron, jitter=jitter)
 
         # 总是使用 replace_existing=True 来覆盖旧的
         scheduler.add_job(
@@ -570,7 +596,7 @@ def add_or_update_sign_task_job(
             args=[account_name, task_name],
             replace_existing=True,
         )
-        logger.info("Scheduler: 已添加/更新任务 %s -> %s", job_id, cron)
+        logger.info("Scheduler: 已添加/更新任务 %s -> %s (jitter=%s)", job_id, cron, jitter)
     except (ValueError, KeyError, RuntimeError) as e:
         logger.error("Scheduler: 添加任务 %s 失败（参数或调度器错误）: %s", job_id, e)
     except Exception:
@@ -581,8 +607,10 @@ def remove_sign_task_job(account_name: str, task_name: str) -> None:
     """动态移除签到任务 Job"""
     from apscheduler.jobstores.base import JobLookupError
 
+    from backend.scheduler.instance_lock import has_scheduler_lock
+
     global scheduler
-    if not scheduler:
+    if not scheduler or not has_scheduler_lock():
         return
 
     logger = logging.getLogger("backend.scheduler")
@@ -595,3 +623,33 @@ def remove_sign_task_job(account_name: str, task_name: str) -> None:
         logger.error("Scheduler: 移除任务 %s 失败（调度器状态错误）: %s", job_id, e)
     except Exception:
         logger.exception("Scheduler: 移除任务 %s 发生未知异常", job_id)
+
+
+def reschedule_sign_task_once(
+    account_name: str,
+    task_name: str,
+    run_at: datetime,
+) -> bool:
+    """动态修改指定签到任务的下一次触发时间（单次调整，不影响 cron 原定义）。
+
+    Returns:
+        bool: True 表示成功调整，False 表示未找到任务或调度器未就绪。
+    """
+    global scheduler
+    if not scheduler:
+        return False
+
+    logger = logging.getLogger("backend.scheduler")
+    job_id = f"sign-{account_name}-{task_name}"
+    try:
+        _ADAPTIVE_NEXT_RUNS[job_id] = run_at
+        job = scheduler.get_job(job_id)
+        if job:
+            job.modify(next_run_time=run_at)
+            logger.info("Scheduler: 动态调整任务 %s 下次运行时间为: %s", job_id, run_at)
+            return True
+        logger.debug("Scheduler: 未找到任务 %s，无法动态调整运行时间", job_id)
+        return False
+    except Exception as e:
+        logger.warning("Scheduler: 动态调整任务 %s 运行时间失败: %s", job_id, e)
+        return False

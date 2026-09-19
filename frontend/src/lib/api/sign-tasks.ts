@@ -39,6 +39,7 @@ export interface SignTask {
   sign_at: string;
   chats: SignTaskChat[];
   random_seconds: number;
+  jitter_seconds?: number;
   sign_interval: number;
   enabled: boolean;
   last_run?: LastRunInfo | null;
@@ -51,6 +52,9 @@ export interface SignTask {
   last_run_account_name?: string;
   retry_count?: number;
   tags?: string[];
+  adaptive_schedule_enabled?: boolean;
+  adaptive_schedule_patterns?: string[];
+  adaptive_schedule_padding_seconds?: number;
   active_run?: ActiveRunSummary | null;
 }
 
@@ -61,6 +65,7 @@ export interface CreateSignTaskRequest {
   sign_at: string;
   chats: SignTaskChat[];
   random_seconds?: number;
+  jitter_seconds?: number;
   sign_interval?: number;
   execution_mode?: "fixed" | "range" | "listen";
   range_start?: string;
@@ -69,6 +74,9 @@ export interface CreateSignTaskRequest {
   notify_on_success?: boolean;
   retry_count?: number;
   tags?: string[];
+  adaptive_schedule_enabled?: boolean;
+  adaptive_schedule_patterns?: string[];
+  adaptive_schedule_padding_seconds?: number;
 }
 
 export interface UpdateSignTaskRequest {
@@ -76,6 +84,7 @@ export interface UpdateSignTaskRequest {
   sign_at?: string;
   chats?: SignTaskChat[];
   random_seconds?: number;
+  jitter_seconds?: number;
   sign_interval?: number;
   execution_mode?: "fixed" | "range" | "listen";
   range_start?: string;
@@ -84,6 +93,9 @@ export interface UpdateSignTaskRequest {
   notify_on_success?: boolean;
   retry_count?: number;
   tags?: string[];
+  adaptive_schedule_enabled?: boolean;
+  adaptive_schedule_patterns?: string[];
+  adaptive_schedule_padding_seconds?: number;
 }
 
 export interface ChatInfo {
@@ -273,6 +285,9 @@ export type SignBatchAction = "enable" | "disable" | "delete" | "run";
 export interface SignBatchTaskItem {
   name: string;
   account_name?: string | null;
+  adaptive_schedule_enabled?: boolean;
+  adaptive_schedule_patterns?: string[];
+  adaptive_schedule_padding_seconds?: number;
 }
 
 export interface SignBatchTaskResult {

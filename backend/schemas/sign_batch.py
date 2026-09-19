@@ -26,6 +26,15 @@ class SignBatchTaskItem(BaseModel):
     account_name: Optional[str] = Field(
         None, description="账号名；共享任务可省略，服务端按聚合规则解析"
     )
+    adaptive_schedule_enabled: Optional[bool] = Field(
+        None, description="自适应动态冷却调度开关"
+    )
+    adaptive_schedule_patterns: Optional[List[str]] = Field(
+        None, description="自适应冷却自定义正则表达式列表"
+    )
+    adaptive_schedule_padding_seconds: Optional[int] = Field(
+        None, description="自适应冷却调度缓冲秒数（默认 30 秒）"
+    )
 
 
 class SignBatchTaskRequest(BaseModel):
@@ -39,6 +48,15 @@ class SignBatchTaskRequest(BaseModel):
     # run 时可指定统一账号；优先于 item.account_name
     run_account_name: Optional[str] = Field(
         None, description="批量执行时统一使用的账号（可选）"
+    )
+    adaptive_schedule_enabled: Optional[bool] = Field(
+        None, description="自适应动态冷却调度开关"
+    )
+    adaptive_schedule_patterns: Optional[List[str]] = Field(
+        None, description="自适应冷却自定义正则表达式列表"
+    )
+    adaptive_schedule_padding_seconds: Optional[int] = Field(
+        None, description="自适应冷却调度缓冲秒数（默认 30 秒）"
     )
 
     @validator("tasks")
@@ -58,7 +76,13 @@ class SignBatchTaskRequest(BaseModel):
                 continue
             seen.add(key)
             deduped.append(
-                SignBatchTaskItem(name=key[0], account_name=key[1] or None)
+                SignBatchTaskItem(
+                    name=key[0],
+                    account_name=key[1] or None,
+                    adaptive_schedule_enabled=item.adaptive_schedule_enabled,
+                    adaptive_schedule_patterns=item.adaptive_schedule_patterns,
+                    adaptive_schedule_padding_seconds=item.adaptive_schedule_padding_seconds,
+                )
             )
         return deduped
 

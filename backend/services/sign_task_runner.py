@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import time
@@ -513,6 +514,70 @@ async def _runner_fetch_target_message(state: Dict[str, Any]) -> None:
         state["last_target_message"] = last_target_message
 
 
+
+
+async def _runner_adaptive_reschedule(state: Dict[str, Any]) -> None:
+    """若任务开启自适应冷却调度，解析回复中的冷却时间并动态调整下次运行时间。"""
+    task_cfg = state.get("task_cfg") or {}
+    if not task_cfg.get("adaptive_schedule_enabled"):
+        return
+
+    # 优先使用 last_reply，其次 last_target_message，再其次从日志尝试提取
+    reply_text = state.get("last_reply") or state.get("last_target_message") or ""
+    if not reply_text:
+        final_logs = state.get("final_logs") or []
+        reply_text = extract_last_target_message(final_logs)
+
+    if not reply_text:
+        return
+
+    from backend.scheduler import reschedule_sign_task_once
+    from tg_signer.core.adaptive_schedule import parse_cooldown_timedelta
+
+    patterns = task_cfg.get("adaptive_schedule_patterns") or []
+    cd_delta = parse_cooldown_timedelta(reply_text, custom_patterns=patterns)
+    if not cd_delta:
+        return
+
+    try:
+        padding_sec = int(task_cfg.get("adaptive_schedule_padding_seconds", 30))
+    except (ValueError, TypeError):
+        padding_sec = 30
+
+    from datetime import datetime, timedelta, timezone
+
+    from backend.scheduler import _resolve_scheduler_timezone
+
+    sched_tz = _resolve_scheduler_timezone() or timezone.utc
+    now = datetime.now(sched_tz)
+    next_run = now + cd_delta + timedelta(seconds=padding_sec)
+
+    account_name = state["account_name"]
+    task_name = state["task_name"]
+    task_key = state["task_key"]
+    svc: SignTaskService = state["svc"]
+
+    success = reschedule_sign_task_once(account_name, task_name, next_run)
+    reschedule_log = (
+        f"[自适应冷却] 检测到冷却时间 {cd_delta}，已动态将下次运行时间调整为 "
+        f"{next_run.strftime('%Y-%m-%d %H:%M:%S%z')}"
+    )
+    if not success:
+        reschedule_log += "（调度器未就绪或任务未注册）"
+
+    state.setdefault("final_logs", []).append(reschedule_log)
+    svc._append_active_log(task_key, reschedule_log)
+    state["output_str"] = "\n".join(state["final_logs"])
+    _service_logger.info(
+        "Adaptive reschedule [%s/%s]: cd=%s next_run=%s (success=%s)",
+        account_name,
+        task_name,
+        cd_delta,
+        next_run,
+        success,
+    )
+
+
 async def _runner_save_run_info(state: Dict[str, Any]) -> None:
     """Phase 11: 保存执行记录（无论成功失败）。"""
     svc: SignTaskService = state["svc"]
@@ -654,19 +719,24 @@ async def _runner_finalize(state: Dict[str, Any]) -> None:
     state["final_logs"] = final_logs
     state["output_str"] = "\n".join(final_logs)
 
-    if state.get("success") and not state.get("last_reply"):
-        await _runner_parse_reply(state)
+    try:
+        if state.get("success") and not state.get("last_reply"):
+            await _runner_parse_reply(state)
 
-    if state.get("success"):
-        await _runner_fetch_target_message(state)
+        if state.get("success"):
+            await _runner_fetch_target_message(state)
 
-    # 取消的任务不落历史、不通知：调用方已单独置为 CANCELLED 状态
-    if not state.get("cancelled"):
-        await _runner_save_run_info(state)
-        await _runner_send_notifications(state)
+        if not state.get("cancelled"):
+            with contextlib.suppress(Exception):
+                await _runner_adaptive_reschedule(state)
 
-    svc._active_tasks[task_key] = False
-    await _runner_schedule_cleanup(state)
+        # 取消的任务不落历史、不通知：调用方已单独置为 CANCELLED 状态
+        if not state.get("cancelled"):
+            await _runner_save_run_info(state)
+            await _runner_send_notifications(state)
+    finally:
+        svc._active_tasks[task_key] = False
+        await _runner_schedule_cleanup(state)
 
 
 # ========== Main orchestrator ==========

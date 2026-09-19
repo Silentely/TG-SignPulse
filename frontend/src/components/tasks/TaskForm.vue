@@ -88,6 +88,9 @@ const selectedAccount = computed({
 const listenerKeywords = ref('')
 const listenerMatchMode = ref('contains')
 const listenerPushChannel = ref('continue')
+const adaptiveScheduleEnabled = ref(false)
+const adaptiveSchedulePaddingSeconds = ref(30)
+const adaptiveSchedulePatterns = ref<string[]>([])
 const listenerForwardChatId = ref('')
 const listenerForwardThreadId = ref('')
 const listenerBarkUrl = ref('')
@@ -176,6 +179,11 @@ const loadAccounts = async () => {
       taskName.value = props.initialTask.name || ''
       taskTags.value = Array.isArray(props.initialTask.tags) ? [...props.initialTask.tags] : []
       retryCount.value = props.initialTask.retry_count ?? 3
+      adaptiveScheduleEnabled.value = Boolean(props.initialTask.adaptive_schedule_enabled)
+      adaptiveSchedulePaddingSeconds.value = props.initialTask.adaptive_schedule_padding_seconds ?? 30
+      adaptiveSchedulePatterns.value = Array.isArray(props.initialTask.adaptive_schedule_patterns)
+        ? [...props.initialTask.adaptive_schedule_patterns]
+        : []
       showAdvanced.value = shouldAutoExpandAdvanced()
       scheduleMode.value = props.initialTask.execution_mode === 'listen' ? 'listen' : 'scheduled'
       if (props.initialTask.execution_mode === 'range') timeRange.value = props.initialTask.range_start + '-' + props.initialTask.range_end
@@ -425,6 +433,9 @@ const buildPayload = () => {
     listenerActiveTimeStart: listenerActiveTimeStart.value,
     listenerActiveTimeEnd: listenerActiveTimeEnd.value,
     tags: taskTags.value,
+    adaptiveScheduleEnabled: adaptiveScheduleEnabled.value,
+    adaptiveSchedulePaddingSeconds: adaptiveSchedulePaddingSeconds.value,
+    adaptiveSchedulePatterns: adaptiveSchedulePatterns.value,
   })
 }
 /** 供父组件提交前触发；返回是否通过 */
@@ -605,6 +616,12 @@ onMounted(() => { loadAccounts() })
       :actions="actions"
       :step-num="scheduleMode === 'listen' ? '04' : '03'"
       :allow-custom-plugin="scheduleMode !== 'listen'"
+      :adaptive-schedule-enabled="adaptiveScheduleEnabled"
+      :adaptive-schedule-padding-seconds="adaptiveSchedulePaddingSeconds"
+      :adaptive-schedule-patterns="adaptiveSchedulePatterns"
+      @update:adaptive-schedule-enabled="adaptiveScheduleEnabled = $event"
+      @update:adaptive-schedule-padding-seconds="adaptiveSchedulePaddingSeconds = $event"
+      @update:adaptive-schedule-patterns="adaptiveSchedulePatterns = $event"
       @add="addAction"
       @remove="removeAction"
       @move="moveAction"
