@@ -84,16 +84,27 @@ class SignerActionsMixin:
         chat = getattr(message, "chat", None)
         msg_id = getattr(message, "id", None)
         if callback_data is not None and chat is not None and msg_id is not None:
-            if (
-                await self.request_callback_answer(
-                    self.app,
-                    chat.id,
-                    msg_id,
-                    callback_data,
-                )
-                is not None
-            ):
+            ans = await self.request_callback_answer(
+                self.app,
+                chat.id,
+                msg_id,
+                callback_data,
+            )
+            if ans is not None:
                 return True
+            strict_confirm = (
+                read_positive_int_env("TG_SIGNER_STRICT_CALLBACK_CONFIRMATION", 0, 0)
+                == 1
+            )
+            if not strict_confirm and getattr(
+                getattr(self, "context", None), "last_callback_unconfirmed", False
+            ):
+                self.log(
+                    "按钮点击已发送至 Telegram，未收到 API 显式回调（Bot 通常以发送新消息或编辑方式响应），继续推进流程",
+                    level="INFO",
+                )
+                return True
+            return False
 
         click = getattr(message, "click", None)
         if callable(click):
@@ -642,14 +653,17 @@ class SignerActionsMixin:
                 "result_type": "list",
                 "result_count": len(result or []),
                 "selected_options": [
-                    options[idx - 1]
+                    options[0]
+                    if idx == 0
+                    else (
+                        options[idx - 1]
+                        if 1 <= idx <= len(options)
+                        else options[idx]
+                    )
                     for idx in (result or [])
-                    if 1 <= idx <= len(options)
-                ]
-                + [
-                    options[idx]
-                    for idx in (result or [])
-                    if 0 <= idx < len(options)
+                    if idx == 0
+                    or (1 <= idx <= len(options))
+                    or (0 <= idx < len(options))
                 ],
             },
             action_log="AI 正在分析图片并匹配可点击按钮",
@@ -1257,11 +1271,22 @@ class SignerActionsMixin:
         callback_data: Union[str, bytes],
         **kwargs,
     ):
-        max_retries = 5
+        timeout = kwargs.pop(
+            "timeout",
+            read_positive_float_env("TG_SIGNER_CALLBACK_TIMEOUT", 5.0, 1.0),
+        )
+        max_retries = read_positive_int_env("TG_SIGNER_CALLBACK_MAX_RETRIES", 2, 1)
+        if hasattr(self, "context"):
+            self.context.last_callback_unconfirmed = False
+
         for attempt in range(1, max_retries + 1):
             try:
                 answer = await client.request_callback_answer(
-                    chat_id, message_id, callback_data=callback_data, **kwargs
+                    chat_id,
+                    message_id,
+                    callback_data=callback_data,
+                    timeout=int(timeout),
+                    **kwargs,
                 )
                 callback_message = self._normalize_log_text(
                     getattr(answer, "message", None), 220
@@ -1269,7 +1294,9 @@ class SignerActionsMixin:
                 callback_url = self._normalize_log_text(
                     getattr(answer, "url", None), 220
                 )
-                self.context.last_callback_answer = callback_message or None
+                if hasattr(self, "context"):
+                    self.context.last_callback_answer = callback_message or None
+                    self.context.last_callback_unconfirmed = False
                 self.log("点击完成")
                 if callback_message:
                     self.log(f"收到回复（按钮提示）：{callback_message}")
@@ -1286,10 +1313,25 @@ class SignerActionsMixin:
                     self.log(e, level="ERROR")
                     return None
                 await asyncio.sleep(wait_seconds)
-            except (TimeoutError, asyncio.TimeoutError, OSError, ConnectionError) as e:
-                backoff = compute_backoff(attempt, cap=8, shift=1)
+            except (TimeoutError, asyncio.TimeoutError) as e:
+                # MTProto 请求已成功由底层 socket 发出，但 Bot 未调用 answerCallbackQuery
+                if attempt < max_retries:
+                    self.log(
+                        f"按钮回调暂未响应，1s 后重试确认 ({attempt}/{max_retries})",
+                        level="WARNING",
+                    )
+                    await asyncio.sleep(1.0)
+                else:
+                    self.log(
+                        "按钮回调在预期时间内未收到 API 显式应答（Bot 通常以发送新消息或编辑方式响应），点击请求已发出",
+                        level="INFO",
+                    )
+                    if hasattr(self, "context"):
+                        self.context.last_callback_unconfirmed = True
+                    return None
+            except (ConnectionError, OSError) as e:
                 self.log(
-                    f"按钮回调暂未响应，{backoff}s 后重试确认 ({attempt}/{max_retries})",
+                    f"网络连接异常，尝试重连 ({attempt}/{max_retries}): {e}",
                     level="WARNING",
                 )
                 if attempt >= max_retries:
@@ -1302,21 +1344,28 @@ class SignerActionsMixin:
                         f"按钮回调重连失败: {type(reconnect_exc).__name__}: {reconnect_exc}",
                         level="WARNING",
                     )
-                await asyncio.sleep(backoff)
+                await asyncio.sleep(1.0)
             except errors.BadRequest as e:
                 if _is_callback_data_invalid(e):
                     self.log(
                         "Telegram 返回 DATA_INVALID，按钮点击结果无法由 callback API 确认，将改用后续消息判断",
                         level="WARNING",
                     )
+                    if hasattr(self, "context"):
+                        self.context.last_callback_unconfirmed = True
                     return None
                 if _is_callback_confirmation_unavailable(e):
                     self.log(
                         f"Telegram 无法确认按钮回调({type(e).__name__})，将改用后续消息判断",
                         level="WARNING",
                     )
+                    if hasattr(self, "context"):
+                        self.context.last_callback_unconfirmed = True
                     return None
                 self.log(e, level="ERROR")
+                return None
+            except Exception as e:
+                self.log(f"按钮回调发生未知异常: {e}", level="ERROR")
                 return None
         return None
 

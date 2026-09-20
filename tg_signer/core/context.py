@@ -30,6 +30,7 @@ class UserSignerWorkerContext(BaseModel):
     stop_after_current_action: bool = False
     stop_reason: Optional[str] = None
     last_callback_answer: Optional[str] = None
+    last_callback_unconfirmed: bool = False
     current_action_index: Optional[int] = None
     current_action_total: Optional[int] = None
     current_action_description: str = ""
