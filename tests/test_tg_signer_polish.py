@@ -277,6 +277,105 @@ class TestClickInlineButton:
         assert clicked == [(("开始",), {})]
         assert any("点击完成" in msg for _, msg in logs)
 
+    @pytest.mark.asyncio
+    async def test_click_inline_button_unconfirmed_tolerated(self):
+        logs = []
+        signer = UserSigner.__new__(UserSigner)
+        signer.log = lambda msg, level="INFO", **kw: logs.append((level, msg))
+        signer.app = SimpleNamespace()
+        signer.context = SimpleNamespace(last_callback_unconfirmed=True)
+
+        async def fake_request_callback_answer(*args, **kwargs):
+            return None
+
+        signer.request_callback_answer = fake_request_callback_answer
+
+        class Btn:
+            callback_data = b"cb_data"
+            text = "打印机"
+
+        class Msg:
+            chat = SimpleNamespace(id=1)
+            id = 2
+
+            async def click(self, *args, **kwargs):
+                raise AssertionError("Message.click should not be called when callback_data exists")
+
+        ok = await signer._click_inline_button(Msg(), Btn())
+        assert ok is True
+        assert any("未收到 API 显式回调" in msg for _, msg in logs)
+
+    @pytest.mark.asyncio
+    async def test_click_inline_button_strict_mode_rejects(self, monkeypatch):
+        monkeypatch.setenv("TG_SIGNER_STRICT_CALLBACK_CONFIRMATION", "1")
+        logs = []
+        signer = UserSigner.__new__(UserSigner)
+        signer.log = lambda msg, level="INFO", **kw: logs.append((level, msg))
+        signer.app = SimpleNamespace()
+        signer.context = SimpleNamespace(last_callback_unconfirmed=True)
+
+        async def fake_request_callback_answer(*args, **kwargs):
+            return None
+
+        signer.request_callback_answer = fake_request_callback_answer
+
+        class Btn:
+            callback_data = b"cb_data"
+            text = "打印机"
+
+        class Msg:
+            chat = SimpleNamespace(id=1)
+            id = 2
+
+        ok = await signer._click_inline_button(Msg(), Btn())
+        assert ok is False
+
+    @pytest.mark.asyncio
+    async def test_request_callback_answer_timeout_marks_unconfirmed(self, monkeypatch):
+        monkeypatch.setenv("TG_SIGNER_CALLBACK_MAX_RETRIES", "1")
+        monkeypatch.setenv("TG_SIGNER_CALLBACK_TIMEOUT", "1.0")
+        logs = []
+        signer = UserSigner.__new__(UserSigner)
+        signer.log = lambda msg, level="INFO", **kw: logs.append((level, msg))
+        signer.context = SimpleNamespace(last_callback_unconfirmed=False, last_callback_answer=None)
+
+        call_count = 0
+
+        class FakeClient:
+            async def request_callback_answer(self, chat_id, message_id, callback_data, timeout):
+                nonlocal call_count
+                call_count += 1
+                raise TimeoutError('Failed to invoke "messages.GetBotCallbackAnswer" after 0 retries')
+
+        res = await signer.request_callback_answer(
+            FakeClient(),
+            chat_id=123,
+            message_id=456,
+            callback_data=b"test",
+        )
+        assert res is None
+        assert call_count == 1
+        assert signer.context.last_callback_unconfirmed is True
+        assert any("未收到 API 显式应答" in msg for _, msg in logs)
+
+    def test_selected_options_no_duplicate_when_single_choice(self):
+        options = ["打印机", "口罩", "丝袜", "美女"]
+        result = [1]
+        selected_options = [
+            options[0]
+            if idx == 0
+            else (
+                options[idx - 1]
+                if 1 <= idx <= len(options)
+                else options[idx]
+            )
+            for idx in (result or [])
+            if idx == 0
+            or (1 <= idx <= len(options))
+            or (0 <= idx < len(options))
+        ]
+        assert selected_options == ["打印机"]
+
 
 class TestCreateLoggedTask:
     """后台任务 done 回调：on_done 异常时仍取出任务异常（T4）"""
