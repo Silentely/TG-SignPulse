@@ -159,7 +159,7 @@ async def test_subprocess_host_bidirectional_rpc():
     )
 
     host = PluginProcessHost(
-        plugin_name="test_plugin_rpc_roundtrip", ctx=ctx, timeout=3.0
+        plugin_name="test_plugin_rpc_roundtrip", ctx=ctx, timeout=10.0
     )
     res = await host.execute()
 

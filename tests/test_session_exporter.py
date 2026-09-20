@@ -310,3 +310,17 @@ def test_export_standalone_session_route_not_found_404(api_client, db):  # noqa:
 
     assert resp.status_code == 404
     assert "账号不存在" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_migrate_candidate_dc_fails_closed_on_unknown_dc():
+    from backend.services.telegram.session_exporter import _migrate_candidate_dc
+
+    mock_client = MagicMock()
+    mock_client.storage.dc_id = AsyncMock()
+    mock_client.storage.test_mode = AsyncMock(return_value=0)
+    mock_client.session = MagicMock()
+    mock_client.session.stop = AsyncMock()
+
+    with pytest.raises(ValueError, match="无法确定目标 DC 999 的连接端点"):
+        await _migrate_candidate_dc(mock_client, target_dc=999)

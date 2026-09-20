@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import unicodedata
 from types import SimpleNamespace
 from typing import Any, List, Tuple
 
 from tg_signer.async_utils import compute_backoff
+
+logger = logging.getLogger(__name__)
 
 _PYROGRAM_IMPORT_ERROR: Exception | None = None
 
@@ -396,11 +399,12 @@ async def safe_get_forum_topics(
 ) -> list[Any]:
     """安全获取超级群组的论坛话题 (Forum Topics)。
 
-    1. 优先调用 raw.functions.channels.GetForumTopics(channel=peer, offset_date=0, offset_id=0, offset_topic=0, limit=limit)；
-    2. 防御 ForumTopicDeleted 变体，只保留 ForumTopic 实例；
-    3. 兼容 messages.ForumTopics 与 messages.ForumTopicsSlice 双容器；
-    4. 若目标群组非 forum（返回 ChatNotModified / TopicIdInvalid 等或非 Forum 异常），安全降级返回空列表 []；
-    5. 若 client 尚未连接或缺少 raw API，优雅返回 []。
+    1. 优先适配 kurigram 2.2.26 的 raw.functions.messages.GetForumTopics(peer=peer, ...)；
+    2. 兼容回退旧版 raw.functions.channels.GetForumTopics(channel=peer, ...)；
+    3. 防御 ForumTopicDeleted 变体，只保留 ForumTopic 实例；
+    4. 兼容 messages.ForumTopics 与 messages.ForumTopicsSlice 双容器；
+    5. 若目标群组非 forum（返回 ChatNotModified / TopicIdInvalid / ChannelForumMissing / ForumClosed 等），安全降级返回空列表 []；
+    6. 若 client 尚未连接或缺少 raw API，优雅返回 []。
     """
     if client is None:
         return []
@@ -409,8 +413,13 @@ async def safe_get_forum_topics(
     if not hasattr(client, "invoke") or not hasattr(client, "resolve_peer"):
         return []
 
+    messages_fn = getattr(getattr(raw, "functions", None), "messages", None)
     channels_fn = getattr(getattr(raw, "functions", None), "channels", None)
-    if channels_fn is None or not hasattr(channels_fn, "GetForumTopics"):
+
+    has_messages_rpc = messages_fn is not None and hasattr(messages_fn, "GetForumTopics")
+    has_channels_rpc = channels_fn is not None and hasattr(channels_fn, "GetForumTopics")
+
+    if not has_messages_rpc and not has_channels_rpc:
         return []
 
     if hasattr(client, "get_chat"):
@@ -423,26 +432,45 @@ async def safe_get_forum_topics(
 
     try:
         peer = await client.resolve_peer(chat_id)
-        req = channels_fn.GetForumTopics(
-            channel=peer,
-            offset_date=0,
-            offset_id=0,
-            offset_topic=0,
-            limit=limit,
-        )
+        if has_messages_rpc:
+            req = messages_fn.GetForumTopics(
+                peer=peer,
+                offset_date=0,
+                offset_id=0,
+                offset_topic=0,
+                limit=limit,
+            )
+        else:
+            req = channels_fn.GetForumTopics(
+                channel=peer,
+                offset_date=0,
+                offset_id=0,
+                offset_topic=0,
+                limit=limit,
+            )
         res = await client.invoke(req)
     except Exception as exc:
-        err_type = type(exc).__name__
+        err_type = type(exc).__name__.lower()
         err_msg = str(exc).lower()
-        if (
-            "topic" in err_msg
-            or "forum" in err_msg
-            or "chatnotmodified" in err_type.lower()
-            or "topicidinvalid" in err_type.lower()
-            or "badrequest" in err_type.lower()
-            or "channelinvalid" in err_type.lower()
+        expected_forum_errors = (
+            "chatnotmodified",
+            "topicidinvalid",
+            "channelinvalid",
+            "channelforummissing",
+            "forumclosed",
+        )
+        if any(term in err_type for term in expected_forum_errors) or (
+            "forum" in err_msg and any(w in err_msg for w in ("not", "closed", "missing", "disabled"))
         ):
+            logger.debug("Chat %s is not a forum or topics unavailable: %s", chat_id, exc)
             return []
+        logger.warning(
+            "Unexpected error fetching forum topics for chat %s (%s: %s)",
+            chat_id,
+            type(exc).__name__,
+            exc,
+            exc_info=True,
+        )
         return []
 
     raw_topics = getattr(res, "topics", []) or []
@@ -463,6 +491,49 @@ async def safe_get_forum_topics(
         valid_topics.append(topic)
 
     return valid_topics
+
+
+
+
+async def get_dc_session(
+    client: Any,
+    dc_id: int,
+    export_authorization: bool = False,
+    **kwargs: Any,
+) -> Any:
+    """获取指定 DC 的会话连接（兼容 kurigram 2.2.26 官方 Client.get_session 与老版本 inline_session）。
+
+    注意：默认 export_authorization=False，避免在未授权阶段（如 QR 跨 DC 迁移未授权 candidate 阶段）
+    错误调用 export_authorization 导致 AuthBytesInvalid / Unauthorized 异常。
+    """
+    if hasattr(client, "get_session") and callable(client.get_session):
+        import inspect
+
+        call_kwargs = dict(kwargs)
+        try:
+            sig = inspect.signature(client.get_session)
+            has_var_keyword = any(
+                p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+            )
+            if "export_authorization" in sig.parameters or has_var_keyword:
+                call_kwargs.setdefault("export_authorization", export_authorization)
+        except (ValueError, TypeError):
+            call_kwargs.setdefault("export_authorization", export_authorization)
+        return await client.get_session(dc_id, **call_kwargs)
+    try:
+        from pyrogram.methods.messages.inline_session import (
+            get_session as _inline_get_session,
+        )
+        return await _inline_get_session(client, dc_id)
+    except (ImportError, ModuleNotFoundError, AttributeError):
+        pass
+    sessions = getattr(client, "sessions", {}) or {}
+    if dc_id in sessions:
+        return sessions[dc_id]
+    media_sessions = getattr(client, "media_sessions", {}) or {}
+    if dc_id in media_sessions:
+        return media_sessions[dc_id]
+    raise RuntimeError(f"Cannot get session for DC {dc_id} on client")
 
 
 # 模块导入时自动应用协议与解析补丁

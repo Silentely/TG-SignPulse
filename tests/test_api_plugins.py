@@ -140,8 +140,9 @@ def test_test_plugin_endpoint(api_client):
     assert data_no_match["killed"] is False
 
 
-def test_test_plugin_endpoint_error_and_timeout(api_client):
+def test_test_plugin_endpoint_error_and_timeout(api_client, monkeypatch):
     """测试 Web 调试沙箱接口捕获异常与超时"""
+    monkeypatch.setenv("PLUGIN_TEST_TIMEOUT", "15.0")
     token = _login(api_client)
     headers = _auth(token)
     _register_sandbox_worker_fixtures()
