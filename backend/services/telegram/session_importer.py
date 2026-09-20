@@ -14,6 +14,24 @@ from pyrogram import Client
 from pyrogram.storage.sqlite_storage import SCHEMA, SQLiteStorage
 from pyrogram.storage.storage import Storage
 
+try:
+    from pyrogram.storage.sqlite_storage import PROD as _PROD_DCS
+    from pyrogram.storage.sqlite_storage import TEST as _TEST_DCS
+except ImportError:
+    _PROD_DCS = {
+        1: "149.154.175.53",
+        2: "149.154.167.51",
+        3: "149.154.175.100",
+        4: "149.154.167.91",
+        5: "91.108.56.130",
+        203: "91.105.192.100",
+    }
+    _TEST_DCS = {
+        1: "149.154.175.10",
+        2: "149.154.167.40",
+        3: "149.154.175.117",
+    }
+
 from backend.core.config import get_settings
 from backend.services.telegram.accounts import mark_account_connected
 from backend.utils.account_locks import acquire_account_lock_with_timeout
@@ -30,6 +48,62 @@ from backend.utils.tg_session import (
 # version table: version (integer)
 # sessions table: dc_id, server_address, port, auth_key (bytes)
 # entities table: id, hash, username, phone, name
+
+
+def get_default_dc_endpoint(dc_id: int, test_mode: bool = False) -> tuple[str, int]:
+    """根据 DC ID 获取官方默认服务器 IP 与端口。"""
+    dcs = _TEST_DCS if test_mode else _PROD_DCS
+    if dc_id not in dcs:
+        raise ValueError(f"未知的 Telegram 数据中心 DC {dc_id} (test_mode={test_mode})")
+    addr = dcs[dc_id]
+    port = 80 if test_mode else 443
+    return addr, port
+
+
+def insert_session_record(
+    cursor: sqlite3.Cursor,
+    dc_id: int,
+    auth_key: bytes,
+    date: int,
+    user_id: int,
+    is_bot: int = 0,
+    api_id: int = 0,
+    test_mode: int = 0,
+    server_address: str | None = None,
+    port: int | None = None,
+) -> None:
+    """统一向 sessions 表插入记录，自适应 V7 (9列) 与旧版 (7列)。"""
+    if not isinstance(auth_key, (bytes, bytearray)) or len(auth_key) != 256:
+        raise ValueError(
+            f"Invalid auth_key length: {len(auth_key) if hasattr(auth_key, '__len__') else type(auth_key)} bytes (expected exactly 256 bytes)"
+        )
+    columns = [row[1] for row in cursor.execute("PRAGMA table_info(sessions)").fetchall()]
+    if "server_address" in columns and "port" in columns:
+        if not server_address or not port:
+            addr, p = get_default_dc_endpoint(dc_id, bool(test_mode))
+            server_address = server_address or addr
+            port = port or p
+        cursor.execute(
+            """INSERT INTO sessions (dc_id, server_address, port, api_id, test_mode, auth_key, date, user_id, is_bot)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                int(dc_id),
+                server_address,
+                int(port),
+                int(api_id),
+                int(test_mode),
+                auth_key,
+                int(date),
+                int(user_id),
+                int(is_bot),
+            ),
+        )
+    else:
+        cursor.execute(
+            """INSERT INTO sessions (dc_id, api_id, test_mode, auth_key, date, user_id, is_bot)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (int(dc_id), int(api_id), int(test_mode), auth_key, int(date), int(user_id), int(is_bot)),
+        )
 
 
 def detect_session_payload(payload: bytes | str) -> str:
@@ -124,24 +198,46 @@ def _classify_sqlite_conn(conn: sqlite3.Connection) -> str:
             "SELECT name FROM sqlite_master WHERE type='table'"
         ).fetchall()
     }
-    if "sessions" in tables:
-        cols = {
-            row[1]
-            for row in conn.execute("PRAGMA table_info(sessions)").fetchall()
-        }
-        if "server_address" in cols or "port" in cols:
-            return "telethon_sqlite"
-        if "test_mode" in cols or "is_bot" in cols:
-            return "pyrogram_sqlite"
-        if "peers" in tables or "version" in tables:
-            return "pyrogram_sqlite"
-        if "entities" in tables:
-            return "telethon_sqlite"
+    if "sessions" not in tables:
+        return "unknown"
+
+    cols = {
+        row[1]
+        for row in conn.execute("PRAGMA table_info(sessions)").fetchall()
+    }
+
+    # 1. 优先判定 Pyrogram 专属特征（Telethon 绝不包含 peers / usernames 表，而 Pyrogram 无论 V6 还是 V7 必含 peers）
+    # 注：Kurigram 原生 SCHEMA 自身包含 update_state 表，绝不可将 update_state 视作 Telethon 独有特征！
+    if "peers" in tables or "usernames" in tables:
+        return "pyrogram_sqlite"
+    if "test_mode" in cols or "is_bot" in cols or "api_id" in cols:
+        return "pyrogram_sqlite"
+    pyrogram_v7_cols = {
+        "dc_id", "server_address", "port", "api_id",
+        "test_mode", "auth_key", "date", "user_id", "is_bot"
+    }
+    if pyrogram_v7_cols.issubset(cols):
+        return "pyrogram_sqlite"
+
+    # 2. 判定 Telethon 独有特征（排除共有表 update_state）
+    # Telethon 专属标志为 takeout_id 列，或 entities / sent_files 表
+    if (
+        "takeout_id" in cols
+        or "entities" in tables
+        or "sent_files" in tables
+    ):
+        return "telethon_sqlite"
+
+    # 3. 兼容没有额外实体表的极简 Telethon sessions 表 (dc_id, server_address, port, auth_key)
+    if "server_address" in cols and "port" in cols and "auth_key" in cols:
+        return "telethon_sqlite"
+
     return "unknown"
 
 
-def _cleanup_file_and_aux(base_file: Path) -> None:
+def _cleanup_file_and_aux(base_file: Path | str) -> None:
     """Helper to remove session file and auxiliary sqlite journal/wal/shm files."""
+    base_file = Path(base_file)
     for path in (
         base_file,
         base_file.with_suffix(base_file.suffix + "-journal"),
@@ -192,9 +288,15 @@ def convert_telethon_to_pyrogram_sqlite(
         dst_cursor = dst_conn.cursor()
         dst_cursor.executescript(SCHEMA)
         dst_cursor.execute("INSERT INTO version VALUES (?)", (SQLiteStorage.VERSION,))
-        dst_cursor.execute(
-            """INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (int(dc_id), 0, 0, auth_key, int(time.time()), user_id, is_bot),
+        insert_session_record(
+            dst_cursor,
+            dc_id=int(dc_id),
+            auth_key=auth_key,
+            date=int(time.time()),
+            user_id=user_id,
+            is_bot=is_bot,
+            server_address=server_address,
+            port=int(port) if port else None,
         )
         dst_conn.commit()
     finally:
@@ -252,8 +354,8 @@ def import_pyrogram_sqlite_session(
         cursor = conn.cursor()
         cursor.execute("SELECT dc_id, auth_key FROM sessions")
         row = cursor.fetchone()
-        if not row or not row[1]:
-            raise ValueError("Invalid Pyrogram SQLite session: missing auth_key.")
+        if not row or not row[1] or len(row[1]) != 256:
+            raise ValueError("Invalid Pyrogram SQLite session: missing or invalid auth_key (must be 256 bytes).")
     finally:
         conn.close()
 
@@ -267,33 +369,29 @@ def import_pyrogram_string_session(
     session_string = session_string.strip()
     raw = base64.urlsafe_b64decode(session_string + "=" * (-len(session_string) % 4))
 
-    # Parse Pyrogram session string format
-    # Version 1/2 unpacking:
-    # Struct string size check
-    dc_id = 0
-    test_mode = 0
-    auth_key = b""
-    user_id = 0
-    is_bot = 0
-
-    if len(raw) in (Storage.SESSION_STRING_SIZE, Storage.SESSION_STRING_SIZE_64):
-        # Pyrogram v2 string
-        dc_id, test_mode, auth_key, user_id, is_bot = struct.unpack(
-            Storage.SESSION_STRING_FORMAT_64
-            if len(raw) == Storage.SESSION_STRING_SIZE_64
-            else Storage.SESSION_STRING_FORMAT,
-            raw,
+    # 严格按照原始解码字节长度精确分支解包：
+    # 1. 新版 6 字段格式 (Kurigram 2.2.26+): >BI?256sQ? (271 bytes, base64 长度通常为 362)
+    new_v2_len = struct.calcsize(Storage.SESSION_STRING_FORMAT)
+    if len(raw) == new_v2_len:
+        dc_id, api_id, test_mode, auth_key, user_id, is_bot = struct.unpack(
+            Storage.SESSION_STRING_FORMAT, raw
         )
+    # 2. 旧版 64 位 user_id 5 字段格式 (Pyrogram v2 / Kurigram <2.2.26): >B?256sQ? (267 bytes, 字符长度 356)
+    elif len(raw) == 267:
+        dc_id, test_mode, auth_key, user_id, is_bot = struct.unpack(
+            ">B?256sQ?", raw
+        )
+        api_id = 0
+    # 3. 旧版 32 位 user_id 5 字段格式 (Pyrogram v1): >B?256sI? (263 bytes, 字符长度 351)
+    elif len(raw) == 263:
+        dc_id, test_mode, auth_key, user_id, is_bot = struct.unpack(
+            ">B?256sI?", raw
+        )
+        api_id = 0
     else:
-        # Fallback Pyrogram v1 format unpack
-        try:
-            dc_id, test_mode, auth_key, user_id, is_bot = struct.unpack(
-                ">B?256sI?", raw[:263]
-            )
-        except Exception as e:
-            raise ValueError(
-                f"Cannot unpack Pyrogram session string: {e!s}"
-            ) from e
+        raise ValueError(
+            f"Cannot unpack Pyrogram session string: unexpected raw length {len(raw)} bytes"
+        )
 
     temp_dest = target_dir / f"{account_name}.pyrogram.tmp.session"
     _cleanup_file_and_aux(temp_dest)
@@ -303,17 +401,15 @@ def import_pyrogram_string_session(
         cursor = conn.cursor()
         cursor.executescript(SCHEMA)
         cursor.execute("INSERT INTO version VALUES (?)", (SQLiteStorage.VERSION,))
-        cursor.execute(
-            """INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (
-                int(dc_id),
-                0,
-                int(test_mode),
-                auth_key,
-                int(time.time()),
-                int(user_id),
-                int(is_bot),
-            ),
+        insert_session_record(
+            cursor,
+            dc_id=dc_id,
+            auth_key=auth_key,
+            date=int(time.time()),
+            user_id=user_id,
+            is_bot=int(is_bot),
+            api_id=api_id,
+            test_mode=int(test_mode),
         )
         conn.commit()
     finally:
@@ -408,10 +504,11 @@ async def verify_imported_session(
 
     user_id = int(me.id)
 
-    # Update user_id in temp session SQLite
+    # Update user_id and is_bot in temp session SQLite
+    is_bot = 1 if getattr(me, "is_bot", False) else 0
     conn = sqlite3.connect(str(temp_session_path))
     try:
-        conn.execute("UPDATE sessions SET user_id = ?", (user_id,))
+        conn.execute("UPDATE sessions SET user_id = ?, is_bot = ?", (user_id, is_bot))
         conn.commit()
     finally:
         conn.close()
@@ -469,15 +566,33 @@ async def import_session(
     if payload_type == "unknown":
         raise ValueError("Unknown or unsupported session payload format.")
 
+    # 统一提取 raw_bytes / str_payload，兼容直接传入本地文件路径 Path 或路径字符串
+    if isinstance(payload, Path):
+        file_bytes = payload.read_bytes()
+        raw_bytes = file_bytes
+        str_payload = file_bytes.decode("utf-8", errors="ignore")
+    elif isinstance(payload, str):
+        path_cand = Path(payload.strip())
+        if path_cand.is_file():
+            file_bytes = path_cand.read_bytes()
+            raw_bytes = file_bytes
+            str_payload = file_bytes.decode("utf-8", errors="ignore")
+        else:
+            try:
+                raw_bytes = base64.b64decode(payload)
+            except Exception:
+                raw_bytes = payload.encode("utf-8")
+            str_payload = payload
+    else:
+        raw_bytes = payload
+        str_payload = payload.decode("utf-8", errors="ignore")
+
     async with acquire_account_lock_with_timeout(account_name, timeout=15.0):
         if payload_type == "telethon_sqlite":
-            raw_bytes = payload if isinstance(payload, bytes) else base64.b64decode(payload)
             temp_path = import_telethon_sqlite_session(account_name, raw_bytes, target_dir)
         elif payload_type == "pyrogram_sqlite":
-            raw_bytes = payload if isinstance(payload, bytes) else base64.b64decode(payload)
             temp_path = import_pyrogram_sqlite_session(account_name, raw_bytes, target_dir)
         elif payload_type == "pyrogram_string":
-            str_payload = payload.decode("utf-8") if isinstance(payload, bytes) else payload
             temp_path = import_pyrogram_string_session(account_name, str_payload, target_dir)
         else:
             raise ValueError(f"Unsupported session payload type: {payload_type}")

@@ -865,7 +865,17 @@ def test_create_plugin_with_new_templates():
         ("plug_kw", "reactive", "keyword_reply"),
     ]
 
+    import shutil
+    from pathlib import Path
     for name, mode, tpl in templates_to_test:
+        for base in (Path("data/plugins"), Path("plugins")):
+            p_dir = base / name
+            if p_dir.exists():
+                shutil.rmtree(p_dir, ignore_errors=True)
+            p_file = base / f"{name}.py"
+            if p_file.exists():
+                p_file.unlink(missing_ok=True)
+        client.delete(f"/api/plugins/{name}")
         payload = {
             "name": name,
             "mode": mode,

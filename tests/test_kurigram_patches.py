@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import subprocess
 import sys
 import textwrap
@@ -16,6 +17,31 @@ from tg_signer.compat import (
     patch_kurigram_compat,
     safe_get_forum_topics,
 )
+
+
+def _make_mock_forum_topic(**kwargs):
+    sig = inspect.signature(raw.types.ForumTopic.__init__)
+    defaults = {
+        "id": 1,
+        "date": 1700000000,
+        "title": "General",
+        "icon_color": 0,
+        "top_message": 10,
+        "read_inbox_max_id": 10,
+        "read_outbox_max_id": 10,
+        "unread_count": 0,
+        "unread_mentions_count": 0,
+        "unread_reactions_count": 0,
+        "from_id": raw.types.PeerUser(user_id=1001),
+        "notify_settings": raw.types.PeerNotifySettings(),
+    }
+    if "peer" in sig.parameters:
+        defaults["peer"] = raw.types.PeerChannel(channel_id=123)
+    if "unread_poll_votes_count" in sig.parameters:
+        defaults["unread_poll_votes_count"] = 0
+    defaults.update(kwargs)
+    filtered = {k: v for k, v in defaults.items() if k in sig.parameters}
+    return raw.types.ForumTopic(**filtered)
 
 
 @pytest.mark.asyncio
@@ -45,14 +71,14 @@ async def test_kurigram_runtime_contract_is_satisfied():
 def test_missing_memory_storage_does_not_stub_whole_runtime():
     """MemoryStorage 缺失只应影响该类本身，不得把整套运行时替换为占位实现。
 
+    在 kurigram >= 2.2.10 (包括 2.2.26) 环境下，SQLiteStorage 原生具备 in_memory 支持，
+    应无缝启用 MemoryStorage 适配器；
     同时验证 Fail-Closed 策略：当 SQLiteStorage 也不具备 in_memory 能力时，
     应明确将 MemoryStorage 置为 None 并记录原因，杜绝半成品对象。
     """
     code = textwrap.dedent(
         """
         import builtins
-
-        # 先让 pyrogram 正常加载，避免干扰其内部对 pyrogram.storage 的合法使用
         import pyrogram.client
         import pyrogram.types as real_types
 
@@ -69,9 +95,8 @@ def test_missing_memory_storage_does_not_stub_whole_runtime():
         import tg_signer.compat as compat
 
         assert compat._PYROGRAM_IMPORT_ERROR is None, "不应整体降级为占位实现"
-        # 在当前 <=2.2.9 环境下，SQLiteStorage 无 in_memory，应 fail-closed 保持为 None
-        assert compat.MemoryStorage is None, "无 in_memory 能力时不应伪装支持"
-        assert isinstance(compat._MEMORY_STORAGE_IMPORT_ERROR, NotImplementedError)
+        # 在 kurigram 2.2.26 环境下，SQLiteStorage 具备 in_memory，应成功创建适配器
+        assert compat.MemoryStorage is not None, "具备 in_memory 能力时应成功启用适配器"
         assert compat.InlineKeyboardMarkup is real_types.InlineKeyboardMarkup, (
             "真实类型必须保留"
         )
@@ -211,7 +236,7 @@ async def test_safe_get_forum_topics_filters_deleted_topics():
         return_value=raw.types.InputPeerChannel(channel_id=123, access_hash=456)
     )
 
-    topic1 = raw.types.ForumTopic(
+    topic1 = _make_mock_forum_topic(
         id=1,
         date=1700000000,
         title="General",
@@ -226,7 +251,7 @@ async def test_safe_get_forum_topics_filters_deleted_topics():
         notify_settings=raw.types.PeerNotifySettings(),
     )
     deleted_topic = raw.types.ForumTopicDeleted(id=2)
-    topic2 = raw.types.ForumTopic(
+    topic2 = _make_mock_forum_topic(
         id=3,
         date=1700000100,
         title="Announcements",
@@ -460,3 +485,90 @@ def test_animated_photo_patch_covers_emoji_and_sticker_markups():
     anim = types.Animation._parse_chat_animation(None, raw_photo, "chat_anim.mp4")
     assert anim is not None
     assert isinstance(anim, types.Animation)
+
+
+@pytest.mark.asyncio
+async def test_get_dc_session_delegates_to_client_or_fallback():
+    from tg_signer.compat import get_dc_session
+
+    # Case 1: client has get_session, defaults to export_authorization=False
+    mock_client = MagicMock()
+    mock_client.get_session = AsyncMock(return_value="session_dc_4")
+    res = await get_dc_session(mock_client, 4)
+    assert res == "session_dc_4"
+    mock_client.get_session.assert_awaited_once_with(4, export_authorization=False)
+
+    # Case 2: client has get_session with explicit export_authorization=True
+    mock_client.get_session.reset_mock()
+    res_exp = await get_dc_session(mock_client, 4, export_authorization=True)
+    assert res_exp == "session_dc_4"
+    mock_client.get_session.assert_awaited_once_with(4, export_authorization=True)
+
+    # Case 3: client lacks get_session, fall back to sessions dict
+    client_legacy = MagicMock(spec=[])
+    client_legacy.sessions = {5: "legacy_session_5"}
+    res2 = await get_dc_session(client_legacy, 5)
+    assert res2 == "legacy_session_5"
+
+
+@pytest.mark.asyncio
+async def test_safe_get_forum_topics_unexpected_exception_logs_warning(caplog):
+    import logging
+
+    from tg_signer.compat import safe_get_forum_topics
+
+    mock_client = MagicMock()
+    mock_client.invoke = AsyncMock(side_effect=RuntimeError("Simulated network crash"))
+    mock_client.resolve_peer = AsyncMock(return_value="fake_peer")
+
+    with caplog.at_level(logging.WARNING):
+        topics = await safe_get_forum_topics(mock_client, -1001234567)
+    assert topics == []
+    assert any("Unexpected error fetching forum topics" in record.message for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_safe_get_forum_topics_channel_private_logs_warning(caplog):
+    import logging
+
+    from pyrogram.errors import ChannelPrivate
+
+    from tg_signer.compat import safe_get_forum_topics
+
+    mock_client = MagicMock()
+    mock_client.invoke = AsyncMock(side_effect=ChannelPrivate(value="CHANNEL_PRIVATE"))
+    mock_client.resolve_peer = AsyncMock(return_value="fake_peer")
+
+    with caplog.at_level(logging.WARNING):
+        topics = await safe_get_forum_topics(mock_client, -1001234567)
+    assert topics == []
+    # 确认 ChannelPrivate 作为真实权限异常记录了 warning，而没有被静默降级为非论坛
+    assert any("Unexpected error fetching forum topics" in record.message for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_apply_migrate_auth_writes_matched_dc_endpoint():
+    from backend.services.telegram.login_qr import TelegramQrLoginMixin
+
+    mgr = TelegramQrLoginMixin()
+    mock_client = MagicMock()
+    mock_client.storage = MagicMock()
+    mock_client.storage.dc_id = AsyncMock()
+    mock_client.storage.server_address = AsyncMock()
+    mock_client.storage.port = AsyncMock()
+    mock_client.storage.auth_key = AsyncMock()
+    mock_client.storage.test_mode = MagicMock(return_value=0)
+
+    # 模拟捕获到迁移至 DC4
+    migrate_data = {
+        "migrate_dc_id": 4,
+        "migrate_auth_key": b"K" * 256,
+        "migrate_server_address": "149.154.167.91",
+        "migrate_port": 443,
+    }
+    await mgr._apply_migrate_auth(mock_client, migrate_data)
+
+    mock_client.storage.dc_id.assert_awaited_once_with(4)
+    mock_client.storage.server_address.assert_awaited_once_with("149.154.167.91")
+    mock_client.storage.port.assert_awaited_once_with(443)
+    mock_client.storage.auth_key.assert_awaited_once_with(b"K" * 256)

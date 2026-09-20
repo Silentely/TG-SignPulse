@@ -16,6 +16,8 @@ from typing import Any, Dict, Optional
 
 from pyrogram.storage.sqlite_storage import SCHEMA, SQLiteStorage
 
+from backend.services.telegram.session_importer import insert_session_record
+
 logger = logging.getLogger(__name__)
 
 HEX_FOLDER_PATTERN = re.compile(r"^[0-9A-Fa-f]{16}$")
@@ -204,9 +206,12 @@ def convert_tdata_to_session(
                 try:
                     conn.executescript(SCHEMA)
                     conn.execute("INSERT INTO version VALUES (?)", (SQLiteStorage.VERSION,))
-                    conn.execute(
-                        "INSERT INTO sessions VALUES (?, 0, 0, ?, ?, ?, 0)",
-                        (int(dc_id), key, int(time.time()), int(user_id)),
+                    insert_session_record(
+                        conn.cursor(),
+                        dc_id=int(dc_id),
+                        auth_key=key,
+                        date=int(time.time()),
+                        user_id=int(user_id),
                     )
                     conn.commit()
                 finally:

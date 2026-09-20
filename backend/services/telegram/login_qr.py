@@ -45,11 +45,36 @@ class TelegramQrLoginMixin:
 
 
     async def _apply_migrate_auth(self, client, data: Dict[str, Any]) -> None:
+        import inspect
         migrate_dc_id = data.get("migrate_dc_id")
         migrate_auth_key = data.get("migrate_auth_key")
+        migrate_server_address = data.get("migrate_server_address")
+        migrate_port = data.get("migrate_port")
         if migrate_dc_id and migrate_auth_key:
             try:
+                if not migrate_server_address or not migrate_port:
+                    from backend.services.telegram.session_importer import (
+                        get_default_dc_endpoint,
+                    )
+                    test_mode = False
+                    if hasattr(client.storage, "test_mode"):
+                        tm_val = client.storage.test_mode()
+                        if inspect.isawaitable(tm_val):
+                            test_mode = bool(await tm_val)
+                        else:
+                            test_mode = bool(tm_val)
+                    try:
+                        addr, p = get_default_dc_endpoint(int(migrate_dc_id), test_mode)
+                        migrate_server_address = migrate_server_address or addr
+                        migrate_port = migrate_port or p
+                    except Exception as ep_exc:
+                        logger.debug("无法根据 DC %s 推导默认端点: %s", migrate_dc_id, ep_exc)
+
                 await client.storage.dc_id(migrate_dc_id)
+                if migrate_server_address and hasattr(client.storage, "server_address") and callable(client.storage.server_address):
+                    await client.storage.server_address(migrate_server_address)
+                if migrate_port and hasattr(client.storage, "port") and callable(client.storage.port):
+                    await client.storage.port(int(migrate_port))
                 await client.storage.auth_key(migrate_auth_key)
             except Exception as exc:
                 logger.warning("应用 QR 迁移 auth 失败 (dc_id=%s): %s", migrate_dc_id, exc)
@@ -62,10 +87,16 @@ class TelegramQrLoginMixin:
         try:
             auth_key = getattr(session, "auth_key", None)
             dc_id = getattr(session, "dc_id", None)
+            server_address = getattr(session, "server_address", None)
+            port = getattr(session, "port", None)
             if auth_key:
                 data["migrate_auth_key"] = auth_key
             if dc_id:
                 data["migrate_dc_id"] = dc_id
+            if server_address:
+                data["migrate_server_address"] = server_address
+            if port:
+                data["migrate_port"] = port
         except Exception as exc:
             logger.warning("捕获 QR 迁移 auth 失败: %s", exc)
 
@@ -197,7 +228,8 @@ class TelegramQrLoginMixin:
         """
         from pyrogram import raw
         from pyrogram.errors import SessionPasswordNeeded
-        from pyrogram.methods.messages.inline_session import get_session
+
+        from tg_signer.compat import get_dc_session as get_session
 
         result = None
         error = None
@@ -216,6 +248,7 @@ class TelegramQrLoginMixin:
 
                 if isinstance(result, raw.types.auth.LoginTokenMigrateTo):
                     migrate_dc_id = result.dc_id
+                    logger.info("QR login target DC %s differs from candidate DC, delegating export", migrate_dc_id)
                     token = result.token
                     data["migrate_dc_id"] = migrate_dc_id
                     data["token"] = token
@@ -251,7 +284,8 @@ class TelegramQrLoginMixin:
         """
         from pyrogram import raw
         from pyrogram.errors import SessionPasswordNeeded
-        from pyrogram.methods.messages.inline_session import get_session
+
+        from tg_signer.compat import get_dc_session as get_session
 
         api_id, api_hash = self._resolve_api_credentials(data)
         if not api_id or not api_hash:
@@ -270,9 +304,10 @@ class TelegramQrLoginMixin:
             return export_result
         if isinstance(export_result, raw.types.auth.LoginTokenMigrateTo):
             data["migrate_dc_id"] = export_result.dc_id
+            logger.info("QR login target DC %s differs from candidate DC, delegating export", export_result.dc_id)
             data["token"] = export_result.token
             try:
-                session = await get_session(client, export_result.dc_id)
+                session = await get_session(client, export_result.dc_id, export_authorization=False)
                 self._capture_migrate_auth(data, session)
                 migrate_result = await session.invoke(
                     raw.functions.auth.ImportLoginToken(token=export_result.token)
@@ -410,13 +445,14 @@ class TelegramQrLoginMixin:
         """2FA 密码校验后的授权收尾：校验密码、写入会话、持久化会话并返回结果。"""
         from pyrogram import raw, types
         from pyrogram.errors import PasswordHashInvalid
-        from pyrogram.methods.messages.inline_session import get_session
         from pyrogram.utils import compute_password_check
+
+        from tg_signer.compat import get_dc_session as get_session
 
         user_from_password = None
         try:
             if data.get("migrate_dc_id"):
-                session = await get_session(client, data.get("migrate_dc_id"))
+                session = await get_session(client, data.get("migrate_dc_id"), export_authorization=False)
                 self._capture_migrate_auth(data, session)
                 auth = await session.invoke(
                     raw.functions.auth.CheckPassword(

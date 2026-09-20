@@ -45,6 +45,17 @@ class SessionExportResult:
 
 async def _migrate_candidate_dc(client: Client, target_dc: int) -> None:
     """Migrate candidate client session to target data center."""
+    server_address = None
+    port = None
+    if hasattr(client, "get_dc_option") and callable(client.get_dc_option):
+        try:
+            dc_opt = await client.get_dc_option(target_dc)
+            if dc_opt:
+                server_address = getattr(dc_opt, "ip_address", None)
+                port = getattr(dc_opt, "port", None)
+        except Exception as exc:
+            logger.debug("Failed getting dc option before stop: %s", exc)
+
     if getattr(client, "session", None) and hasattr(client.session, "stop"):
         try:
             await client.session.stop()
@@ -53,9 +64,32 @@ async def _migrate_candidate_dc(client: Client, target_dc: int) -> None:
 
     await client.storage.dc_id(target_dc)
     test_mode = await client.storage.test_mode()
-    auth_key = await Auth(client, target_dc, test_mode).create()
+
+    if not server_address or not port:
+        from backend.services.telegram.session_importer import (
+            get_default_dc_endpoint,
+        )
+        try:
+            default_addr, default_port = get_default_dc_endpoint(target_dc, bool(test_mode))
+            server_address = server_address or default_addr
+            port = port or default_port
+        except Exception as exc:
+            raise ValueError(f"无法确定目标 DC {target_dc} 的连接端点，迁移中止: {exc}") from exc
+
+    import inspect
+    auth_sig = inspect.signature(Auth.__init__)
+    if "server_address" in auth_sig.parameters:
+        auth_obj = Auth(client, target_dc, server_address, port, test_mode)
+    else:
+        auth_obj = Auth(client, target_dc, test_mode)
+    auth_key = await auth_obj.create()
     await client.storage.auth_key(auth_key)
-    client.session = Session(client, target_dc, auth_key, test_mode)
+
+    session_sig = inspect.signature(Session.__init__)
+    if "server_address" in session_sig.parameters:
+        client.session = Session(client, target_dc, server_address, port, auth_key, test_mode)
+    else:
+        client.session = Session(client, target_dc, auth_key, test_mode)
     await client.session.start()
     client.is_connected = True
 

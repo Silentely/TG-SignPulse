@@ -1,6 +1,7 @@
 """Chat Folders 与 Forum Topics 发现测试套件。"""
 from __future__ import annotations
 
+import inspect
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -12,6 +13,31 @@ from backend.services.telegram.dialog_discovery import (
 )
 from backend.utils.account_locks import AccountLockTimeout
 from tests.test_api import _auth, _login, api_client, db  # noqa: F401
+
+
+def _make_mock_forum_topic(**kwargs):
+    sig = inspect.signature(raw.types.ForumTopic.__init__)
+    defaults = {
+        "id": 42,
+        "date": 1700000000,
+        "title": "签到专用话题",
+        "icon_color": 0xFFFFFF,
+        "top_message": 999,
+        "read_inbox_max_id": 999,
+        "read_outbox_max_id": 999,
+        "unread_count": 0,
+        "unread_mentions_count": 0,
+        "unread_reactions_count": 0,
+        "from_id": raw.types.PeerUser(user_id=1001),
+        "notify_settings": raw.types.PeerNotifySettings(),
+    }
+    if "peer" in sig.parameters:
+        defaults["peer"] = raw.types.PeerChannel(channel_id=123)
+    if "unread_poll_votes_count" in sig.parameters:
+        defaults["unread_poll_votes_count"] = 0
+    defaults.update(kwargs)
+    filtered = {k: v for k, v in defaults.items() if k in sig.parameters}
+    return raw.types.ForumTopic(**filtered)
 
 
 class DummyDiscoveryService(TelegramDialogDiscoveryMixin):
@@ -188,7 +214,7 @@ async def test_list_forum_topics_returns_empty_for_non_forum():
             "backend.services.telegram.dialog_discovery.safe_get_forum_topics",
             new_callable=AsyncMock,
         ) as mock_safe_topics:
-            mock_topic = raw.types.ForumTopic(
+            mock_topic = _make_mock_forum_topic(
                 id=42,
                 date=1700000000,
                 title="签到专用话题",

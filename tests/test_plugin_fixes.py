@@ -154,6 +154,8 @@ def test_api_update_source_oversized_rejected():
 
 
 def test_api_plugin_history_limit_bounds():
+    if "math_solver" not in PluginRegistry._plugins:
+        PluginRegistry.reload_all_plugins()
     resp_low = client.get("/api/plugins/math_solver/history", params={"limit": 0})
     assert resp_low.status_code == 422
     resp_high = client.get("/api/plugins/math_solver/history", params={"limit": 999})

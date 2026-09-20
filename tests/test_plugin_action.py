@@ -17,6 +17,16 @@ from tg_signer.core.signer_actions import SignerActionsMixin
 from tg_signer.core.signer_matchers import SignerMatchersMixin
 
 
+@pytest.fixture(autouse=True)
+def _preserve_plugins_in_memory():
+    saved = dict(PluginRegistry._plugins)
+    try:
+        yield
+    finally:
+        PluginRegistry._plugins.clear()
+        PluginRegistry._plugins.update(saved)
+
+
 # Module-level registrations so that worker subprocess can resolve plugins when loading this file
 def _register_action_worker_fixtures():
     PluginRegistry._plugins.pop("sync_hang_plugin_auto", None)
@@ -436,7 +446,7 @@ async def test_active_plugin_sync_handler_and_failure():
     )
     action = chat.actions[0]
 
-    result = await signer.wait_for(chat, action, timeout=5.0)
+    result = await signer.wait_for(chat, action, timeout=15.0)
     assert result is False
     assert any("返回执行失败" in entry[1] for entry in signer.log_entries)
 

@@ -17,10 +17,8 @@ classifiers = [
     "Programming Language :: Python :: 3 :: Only"
 ]
 dependencies = [
-    # 上限必须 <2.2.10：kurigram 2.2.10 起移除了 pyrogram.storage.MemoryStorage，
-    # 而 string 会话模式（in_memory client）依赖该类；放开到 2.2.26 会导致
-    # tg_signer.compat 整体导入失败并静默降级为占位实现
-    "kurigram>=2.2.7,<2.2.10",
+    # kurigram 2.2.26 原生支持 in_memory SQLiteStorage 与新版 MTProto RPC
+    "kurigram==2.2.26",
     "click",
     # 生产钉死 v1，避免无 lockfile 时 pip 拉到 v2 导致运行差异
     # 业务已具备 pydantic_compat，后续升级可再放宽到 <3
