@@ -258,6 +258,44 @@ def collect_clickable_buttons(message) -> List[Tuple[str, Any, str]]:
     return clickable_buttons
 
 
+# 会话/授权失效的错误码标记。与账号状态检测共用同一集合，避免同错不同判。
+_SESSION_INVALID_MARKERS = (
+    "UNAUTHORIZED",
+    "AUTH_KEY_UNREGISTERED",
+    "AUTH_KEY_INVALID",
+    "SESSION_REVOKED",
+    "SESSION_EXPIRED",
+    "USER_DEACTIVATED",
+)
+
+
+def is_session_invalid_error(err: BaseException | None) -> bool:
+    """判定异常是否表示会话/授权失效（全项目唯一判定入口）。
+
+    仅按文本判定，不依赖 pyrogram 异常类，因此在依赖导入降级为占位实现的运行环境
+    同样可用。Telegram 错误码以大写形式内嵌在异常文本中（如
+    ``[401 AUTH_KEY_UNREGISTERED]``），故统一转大写后匹配。
+    """
+    if err is None:
+        return False
+    text = str(err)
+    if not text:
+        return False
+    upper = text.upper()
+    return any(marker in upper for marker in _SESSION_INVALID_MARKERS)
+
+
+def session_check_failure(err: BaseException) -> ConnectionError:
+    """把 ``get_me()`` 校验失败区分为「会话失效」与「瞬态/解析故障」。
+
+    只有授权类失败才标记为 ``Session invalid``；网络、超时、库版本不兼容等失败
+    必须保持可区分，否则调用方会误判为需要重新登录。
+    """
+    if is_session_invalid_error(err):
+        return ConnectionError(f"Session invalid: {err}")
+    return ConnectionError(f"Session check failed ({type(err).__name__}): {err}")
+
+
 async def call_with_retry(
     callback,
     *,

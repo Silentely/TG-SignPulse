@@ -27,6 +27,7 @@ from tg_signer.compat import (
     _raise_pyrogram_import_error,
     call_with_retry,
     raw,
+    session_check_failure,
 )
 from tg_signer.config import (
     BaseJSONConfig,
@@ -150,7 +151,8 @@ class BaseUserWorker(Generic[ConfigT]):
         try:
             self.me = await self.app.get_me()
         except Exception as exc:
-            raise ConnectionError(f"Session invalid: {exc}") from exc
+            # 区分会话失效与瞬态/解析故障，避免后者被误判为需要重新登录
+            raise session_check_failure(exc) from exc
 
         try:
             await self.app.invoke(raw.functions.updates.GetState())

@@ -34,6 +34,7 @@ from tg_signer.compat import (
     MessageHandler,
     call_with_retry,
     filters,
+    session_check_failure,
 )
 from tg_signer.log_utils import safe_exception_summary
 
@@ -90,7 +91,8 @@ class KeywordMonitorService:
         try:
             await client.get_me()
         except Exception as exc:
-            raise ConnectionError(f"Session invalid: {exc}") from exc
+            # 区分会话失效与瞬态/解析故障，避免后者被误判为需要重新登录
+            raise session_check_failure(exc) from exc
 
         if not getattr(client, "is_initialized", False):
             try:

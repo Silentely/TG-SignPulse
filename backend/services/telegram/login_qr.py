@@ -358,7 +358,7 @@ class TelegramQrLoginMixin:
         """从 LoginTokenSuccess 解析授权用户并写入会话存储。"""
         from pyrogram import types
 
-        user = types.User._parse(client, login_result.authorization.user)
+        user = await types.User._parse(client, login_result.authorization.user)
         await client.storage.user_id(user.id)
         await client.storage.is_bot(False)
         data["authorized"] = True
@@ -462,7 +462,7 @@ class TelegramQrLoginMixin:
                         )
                     )
                 )
-                user_from_password = types.User._parse(client, auth.user)
+                user_from_password = await types.User._parse(client, auth.user)
                 await client.storage.user_id(user_from_password.id)
                 await client.storage.is_bot(False)
                 data["authorized"] = True

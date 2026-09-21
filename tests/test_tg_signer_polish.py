@@ -16,12 +16,14 @@ import pathlib
 from types import SimpleNamespace
 
 import pytest
+from pyrogram import errors as pyrogram_errors
 
 from tg_signer.async_utils import (
     compute_backoff,
     create_logged_task,
     schedule_deferred_cleanup,
 )
+from tg_signer.compat import is_session_invalid_error
 from tg_signer.core.client import (
     _CLIENT_ASYNC_LOCKS,
     _CLIENT_INSTANCES,
@@ -487,15 +489,71 @@ class TestClientAenterRollback:
         client.stop = self._make_stop_recorder(stopped)
 
         async def raise_invalid():
-            raise Exception("session expired")
+            raise pyrogram_errors.AuthKeyUnregistered()
 
         client.get_me = raise_invalid
 
         try:
-            with pytest.raises(ConnectionError):
+            with pytest.raises(ConnectionError) as excinfo:
                 await client.__aenter__()
 
+            assert is_session_invalid_error(excinfo.value)
+
             # 已连接：回滚时执行 stop 清理
+            assert key not in _CLIENT_REFS
+            assert key not in _CLIENT_INSTANCES
+            assert stopped == [True]
+        finally:
+            _CLIENT_ASYNC_LOCKS.pop(key, None)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("exc_factory", "expected_type"),
+        [
+            (
+                lambda: TypeError(
+                    "object NoneType can't be used in 'await' expression"
+                ),
+                "TypeError",
+            ),
+            (lambda: asyncio.TimeoutError("request timed out"), "TimeoutError"),
+        ],
+        ids=["库解析故障", "网络超时"],
+    )
+    async def test_get_me_failure_is_not_reported_as_session_invalid(
+        self, exc_factory, expected_type
+    ):
+        """回归：get_me() 的非授权失败（库版本不兼容/网络等）不得标记为会话失效。
+
+        修复前统一包装成 ``ConnectionError("Session invalid: ...")``，使解析/网络故障
+        被上层误判为需要重新登录。
+        """
+        key = "test-aenter-parse-failure"
+        _CLIENT_INSTANCES[key] = object()
+        _CLIENT_ASYNC_LOCKS[key] = asyncio.Lock()
+        stopped: list = []
+
+        client = Client.__new__(Client)
+        client.key = key
+        client.name = "test-client"
+        client.is_connected = True
+        client.stop = self._make_stop_recorder(stopped)
+
+        async def raise_failure():
+            raise exc_factory()
+
+        client.get_me = raise_failure
+
+        try:
+            with pytest.raises(ConnectionError) as excinfo:
+                await client.__aenter__()
+
+            err = excinfo.value
+            assert not is_session_invalid_error(err)
+            assert "Session invalid" not in str(err)
+            assert f"Session check failed ({expected_type})" in str(err)
+            assert isinstance(err.__cause__, type(exc_factory()))
+
             assert key not in _CLIENT_REFS
             assert key not in _CLIENT_INSTANCES
             assert stopped == [True]
