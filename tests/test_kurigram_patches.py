@@ -11,6 +11,7 @@ import pytest
 from pyrogram import raw, types
 from pyrogram.errors import BadRequest, ChatNotModified, TopicIdInvalid
 
+from tg_signer import compat as compat_module
 from tg_signer.compat import (
     _PYROGRAM_IMPORT_ERROR,
     patch_animated_chat_photo_parser,
@@ -485,6 +486,118 @@ def test_animated_photo_patch_covers_emoji_and_sticker_markups():
     anim = types.Animation._parse_chat_animation(None, raw_photo, "chat_anim.mp4")
     assert anim is not None
     assert isinstance(anim, types.Animation)
+
+
+@pytest.mark.asyncio
+async def test_chat_photo_parse_patch_keeps_await_contract():
+    """回归：ChatPhoto._parse 在 kurigram 2.2.10+ 是协程函数，包装后必须仍可 await。
+
+    同步桩在空照片分支返回裸 None，会被 User._parse_full 的 ``await`` 拒收，抛出
+    ``TypeError: object NoneType can't be used in 'await' expression``，
+    并在 Client.__aenter__ 中被误报为 ``Session invalid``。
+    """
+    patch_animated_chat_photo_parser()
+    assert inspect.iscoroutinefunction(types.ChatPhoto._parse)
+
+    # 与 User._parse_full 中 personal_photo / fallback_photo 缺省时的调用形态一致
+    assert await types.ChatPhoto._parse(None, None, 111, 0) is None
+
+
+@pytest.mark.asyncio
+async def test_chat_photo_parse_patch_delegates_real_photo():
+    patch_animated_chat_photo_parser()
+
+    photo = await types.ChatPhoto._parse(
+        None, raw.types.UserProfilePhoto(photo_id=111, dc_id=2), 111, 0
+    )
+    assert isinstance(photo, types.ChatPhoto)
+
+
+@pytest.mark.asyncio
+async def test_chat_photo_parse_patch_guards_photo_without_sizes():
+    """兜底分支同样保持协程契约：上游对 sizes 为空的 Photo 会抛 IndexError。"""
+    patch_animated_chat_photo_parser()
+
+    empty_photo = raw.types.Photo(
+        id=1,
+        access_hash=2,
+        file_reference=b"x",
+        date=1700000000,
+        sizes=[],
+        dc_id=2,
+    )
+    assert await types.ChatPhoto._parse(None, empty_photo, 111, 0) is None
+
+
+def test_patch_matches_sync_original_contract(monkeypatch):
+    """原函数为同步实现时，包装器必须保持同步（不得把返回值变成协程）。"""
+
+    def sync_chat_photo_parse(client, chat_photo, peer_id, peer_access_hash=0):
+        return "sync-photo"
+
+    def sync_chat_animation_parse(client, video, file_name):
+        return "sync-anim"
+
+    monkeypatch.setattr(types.ChatPhoto, "_parse", sync_chat_photo_parse)
+    monkeypatch.setattr(
+        types.Animation, "_parse_chat_animation", sync_chat_animation_parse
+    )
+    monkeypatch.setattr(compat_module, "_ANIMATED_PHOTO_PATCHED", False)
+
+    assert patch_animated_chat_photo_parser() is True
+    assert not inspect.iscoroutinefunction(types.ChatPhoto._parse)
+    assert not inspect.iscoroutinefunction(types.Animation._parse_chat_animation)
+    assert types.ChatPhoto._parse(None, None, 111, 0) is None
+    assert types.Animation._parse_chat_animation(None, None, "x.mp4") is None
+
+
+@pytest.mark.asyncio
+async def test_get_me_parses_self_user_with_missing_personal_photo():
+    """回归：get_me() 解析自身用户时必须容忍缺省的 personal_photo / fallback_photo。
+
+    修复前该路径抛 ``TypeError: object NoneType can't be used in 'await' expression``，
+    并被 ``Client.__aenter__`` 包装成 ``ConnectionError: Session invalid``，
+    表现为任务启动即报「会话失效」。
+    """
+    import tempfile
+    from unittest.mock import AsyncMock
+
+    from tg_signer.core.client import Client
+
+    self_user = raw.types.User(
+        id=111,
+        is_self=True,
+        first_name="Tester",
+        username="tester",
+        access_hash=999,
+        status=raw.types.UserStatusEmpty(),
+    )
+    full_user = raw.types.UserFull(
+        id=111,
+        settings=raw.types.PeerSettings(),
+        notify_settings=raw.types.PeerNotifySettings(),
+        common_chats_count=0,
+        profile_photo=raw.types.UserProfilePhoto(photo_id=111, dc_id=2),
+    )
+    response = raw.types.users.UserFull(
+        full_user=full_user, users=[self_user], chats=[]
+    )
+
+    with tempfile.TemporaryDirectory() as workdir:
+        client = Client(
+            "regression_probe",
+            api_id=611335,
+            api_hash="d524b414d21f4d37f08684c1df41ac9c",
+            workdir=Path(workdir),
+            in_memory=True,
+            session_string="regression_probe",
+        )
+        client.invoke = AsyncMock(return_value=response)
+
+        me = await client.get_me()
+
+    assert me.id == 111
+    assert isinstance(me.photo, types.ChatPhoto)
 
 
 @pytest.mark.asyncio
