@@ -1,6 +1,7 @@
 """sign_task_chats 纯函数测试。"""
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -183,3 +184,45 @@ def test_chats_cache_expired_by_mtime(tmp_path: Path):
     assert _chats_cache_expired(path, now=now) is True
     # 文件缺失：视为过期
     assert _chats_cache_expired(tmp_path / "missing.json", now=now) is True
+
+
+def test_is_invalid_session_error_matches_authorization_failures():
+    """会话失效判定：授权族错误码必须命中（真实 pyrogram 异常与裸文本两种形态）。"""
+    from pyrogram import errors as pyro_errors
+
+    from backend.services.sign_task_chats import is_invalid_session_error
+
+    real_errors = [
+        pyro_errors.Unauthorized(value="session revoked"),
+        pyro_errors.AuthKeyUnregistered(),
+        pyro_errors.AuthKeyInvalid(),
+        pyro_errors.SessionRevoked(),
+        pyro_errors.SessionExpired(),
+        pyro_errors.UserDeactivated(),
+    ]
+    for err in real_errors:
+        assert is_invalid_session_error(err), f"should match: {err!r}"
+
+    plain_text_errors = [
+        Exception("UNAUTHORIZED"),
+        Exception("Telegram says: [401 AUTH_KEY_UNREGISTERED] - ..."),
+        Exception("[401 SESSION_REVOKED] the authorization has been invalidated"),
+    ]
+    for err in plain_text_errors:
+        assert is_invalid_session_error(err), f"should match: {err!r}"
+
+
+def test_session_invalid_rejects_transient_and_parse_failures():
+    from backend.services.sign_task_chats import is_invalid_session_error
+
+    non_invalid = [
+        TypeError("object NoneType can't be used in 'await' expression"),
+        asyncio.TimeoutError("request timed out"),
+        ConnectionError("database is locked"),
+        Exception("FLOOD_WAIT 5 seconds"),
+        # 判定依据是 Telegram 错误码（下划线形式）；自由文本不参与判定
+        Exception("session expired"),
+        None,
+    ]
+    for err in non_invalid:
+        assert not is_invalid_session_error(err), f"不该误判: {err!r}"

@@ -1,6 +1,7 @@
 """Client 生命周期与工厂（从 core 拆分）。"""
 
 import asyncio
+import importlib
 import inspect
 import logging
 import os
@@ -38,6 +39,7 @@ from tg_signer.compat import (  # noqa: E402
     _raise_pyrogram_import_error,
     patch_kurigram_compat,
     raw,
+    session_check_failure,
 )
 
 patch_kurigram_compat()
@@ -58,39 +60,75 @@ def _patched_sqlite3_connect(*args, **kwargs):
 
 sqlite3.connect = _patched_sqlite3_connect
 
-# Monkeypatch pyrogram FileStorage.open to skip VACUUM (causes exclusive locks)
-# and enable WAL mode + busy_timeout immediately on open
-try:
-    from pyrogram.storage.file_storage import FileStorage as _PyrogramFileStorage
+# 会话存储的 open() 补丁：kurigram 的文件会话仍会在每次 open 时执行
+# PRAGMA journal_mode=DELETE + VACUUM（VACUUM 需要独占锁，会阻塞同账号其他客户端），
+# 且连接超时仅 1 秒。这里统一改为 WAL + busy_timeout 并跳过 VACUUM。
+#
+# 存储类在 kurigram 2.2.10 起由 pyrogram.storage.file_storage.FileStorage 迁移为
+# pyrogram.storage.sqlite_storage.SQLiteStorage，且 create()/update() 由同步改为协程；
+# 因此按实际可用模块解析类，并保持原同步/异步契约调用生命周期方法。
+# 若全部候选都不可用，必须显式告警而不是静默降级，避免补丁失效无人察觉。
+_STORAGE_CLASS_CANDIDATES = (
+    ("pyrogram.storage.sqlite_storage", "SQLiteStorage"),
+    ("pyrogram.storage.file_storage", "FileStorage"),
+)
 
-    _original_file_storage_open = _PyrogramFileStorage.open
 
-    async def _patched_file_storage_open(self):
+def _patch_storage_open(storage_cls) -> None:
+    original_open = storage_cls.open
+
+    async def _patched_open(self):
+        # 内存存储无文件、无跨进程锁竞争，保持上游实现
+        if getattr(self, "in_memory", False):
+            return await original_open(self)
+
         path = self.database
-        file_exists = path.is_file()
+        file_exists = hasattr(path, "is_file") and path.is_file()
 
         self.conn = _original_sqlite3_connect(
             str(path), timeout=30, check_same_thread=False
         )
 
-        # Enable WAL mode and busy_timeout BEFORE any writes
+        # 任何写入前先启用 WAL 与 busy_timeout
         try:
             self.conn.execute("PRAGMA journal_mode=WAL")
             self.conn.execute("PRAGMA busy_timeout=30000")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("会话存储启用 WAL 失败: %s", exc)
 
-        if not file_exists:
-            self.create()
-        else:
-            self.update()
+        # create()/update() 在 kurigram 2.2.10+ 为协程，旧版本为同步方法
+        result = self.create() if not file_exists else self.update()
+        if inspect.isawaitable(result):
+            await result
 
-        # Skip VACUUM - it requires exclusive lock and blocks other connections.
-        # WAL mode handles fragmentation well enough for session files.
+        # 跳过 VACUUM：需要独占锁，会阻塞同账号其他客户端的会话库访问；
+        # WAL 模式足以应对碎片问题
 
-    _PyrogramFileStorage.open = _patched_file_storage_open
-except Exception:
-    pass
+    storage_cls.open = _patched_open
+
+
+def _install_storage_open_patch() -> bool:
+    patched = False
+    for module_path, class_name in _STORAGE_CLASS_CANDIDATES:
+        try:
+            module = importlib.import_module(module_path)
+        except ImportError:
+            continue
+        storage_cls = getattr(module, class_name, None)
+        if storage_cls is None or not hasattr(storage_cls, "open"):
+            continue
+        _patch_storage_open(storage_cls)
+        patched = True
+    if not patched:
+        logging.getLogger("tg-signer").warning(
+            "未能定位会话存储类，WAL/busy_timeout 与跳过 VACUUM 的优化未生效"
+            "（候选: %s）",
+            ", ".join(f"{m}.{c}" for m, c in _STORAGE_CLASS_CANDIDATES),
+        )
+    return patched
+
+
+_install_storage_open_patch()
 
 # Monkeypatch pyrogram.Client.invoke to add backpressure and retry logic for updates
 _original_invoke = BaseClient.invoke
@@ -318,8 +356,9 @@ class Client(BaseClient):
                             try:
                                 self.me = await self.get_me()
                             except Exception as e:
-                                # Prevent interactive login attempt
-                                raise ConnectionError(f"Session invalid: {e}")
+                                # 阻止交互式登录，并把会话失效与瞬态/解析故障区分开：
+                                # 后者若标记为 Session invalid，上层会误判为需要重新登录
+                                raise session_check_failure(e) from e
 
                             try:
                                 await self.invoke(raw.functions.updates.GetState())

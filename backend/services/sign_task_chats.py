@@ -20,6 +20,9 @@ from typing import Any, Awaitable, Callable, Dict, List, MutableMapping, Optiona
 # 直接导入本模块时 ImportError；改为使用处延迟导入
 from backend.utils.atomic_io import write_json_atomic
 
+# 判定实现收敛到 tg_signer（唯一实现），本模块仅保留后端公共入口名
+from tg_signer.compat import is_session_invalid_error as _is_session_invalid_error
+
 _logger = logging.getLogger("backend.sign_task_chats")
 
 # 会话列表缓存有效期（秒）：Telegram 会话可能新增，超过 TTL 强制刷新
@@ -283,21 +286,11 @@ _fetch_logger = logging.getLogger("backend.sign_task_chats")
 def is_invalid_session_error(err: Exception) -> bool:
     """判断是否为 session 失效类错误（全项目唯一判定入口）。
 
-    覆盖 Pyrogram 抛出的 Unauthorized 家族与账号停用/会话吊销，
-    与账号状态检测保持同一判定集合，避免同错不同判。
+    判定集合与实现见 ``tg_signer.compat.is_session_invalid_error``：覆盖 Pyrogram
+    抛出的 Unauthorized 家族与账号停用/会话吊销，与账号状态检测保持同一判定集合，
+    避免同错不同判。
     """
-    msg = str(err)
-    if not msg:
-        return False
-    upper = msg.upper()
-    return (
-        "UNAUTHORIZED" in upper
-        or "AUTH_KEY_UNREGISTERED" in upper
-        or "AUTH_KEY_INVALID" in upper
-        or "SESSION_REVOKED" in upper
-        or "SESSION_EXPIRED" in upper
-        or "USER_DEACTIVATED" in upper
-    )
+    return _is_session_invalid_error(err)
 
 
 async def get_account_chats_cached(
