@@ -107,6 +107,9 @@ def _configure_backend_logging():
         root.addHandler(_handler)
     logging.getLogger("backend").setLevel(level_no)
     logging.getLogger("uvicorn").setLevel(level_no)
+    # 无论 LOG_LEVEL 为何，限制 httpx / httpcore 产生海量 Telegram 长轮询 trace 日志
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
     # 暴力删除 uvicorn.access 的所有 handler，从根源禁用
     access_logger = logging.getLogger("uvicorn.access")

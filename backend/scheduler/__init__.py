@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
+import random
+from datetime import datetime, timedelta
+from typing import Any
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 scheduler: AsyncIOScheduler | None = None
 _ADAPTIVE_NEXT_RUNS: dict[str, datetime] = {}
+_RANGE_COMPENSATION_RUNS: dict[str, datetime] = {}
 
 
 def _parse_clock_time(value: str):
@@ -89,15 +93,132 @@ def create_cron_trigger(cron_str: str, timezone: str = "", jitter: int = 0) -> C
     return trigger
 
 
+def _get_range_window(
+    range_start_str: str,
+    range_end_str: str,
+    now: datetime,
+) -> tuple[datetime, datetime] | None:
+    """计算当前时刻对应的 range 时间窗口 [start_dt, end_dt)"""
+    try:
+        start_time = _parse_clock_time(range_start_str)
+        end_time = _parse_clock_time(range_end_str)
+    except Exception:
+        return None
+
+    start_dt = now.replace(
+        hour=start_time.hour,
+        minute=start_time.minute,
+        second=start_time.second,
+        microsecond=0,
+    )
+    end_dt = now.replace(
+        hour=end_time.hour,
+        minute=end_time.minute,
+        second=end_time.second,
+        microsecond=0,
+    )
+
+    if end_dt <= start_dt:
+        # 跨天窗口（例如 22:00 到 06:00）
+        if now < end_dt:
+            # 凌晨时段，窗口始于前一天
+            start_dt -= timedelta(days=1)
+        else:
+            # 夜间时段，窗口延续到次日
+            end_dt += timedelta(days=1)
+
+    return start_dt, end_dt
+
+
+def _compute_range_task_compensation(
+    task_config: dict[str, Any],
+    tz: ZoneInfo | None = None,
+    now: datetime | None = None,
+) -> datetime | None:
+    """检查 range 模式任务在当前时间窗口内是否需要补偿执行。
+
+    如果当前处于窗口内，且本周期内尚未成功执行，则在剩余时间窗口内随机生成一个执行时间。
+    若无需补偿或已执行过，则返回 None。
+    """
+    if not isinstance(task_config, dict):
+        return None
+    if task_config.get("execution_mode") != "range":
+        return None
+
+    range_start_str = task_config.get("range_start")
+    range_end_str = task_config.get("range_end")
+    if not range_start_str or not range_end_str:
+        return None
+
+    if now is None:
+        now = datetime.now(tz) if tz is not None else datetime.now()
+
+    window = _get_range_window(range_start_str, range_end_str, now)
+    if not window:
+        return None
+    start_dt, end_dt = window
+
+    # 当前不在时间窗口内，无需补偿（由常规 CronTrigger 在窗口起点触发）
+    if not (start_dt <= now < end_dt):
+        return None
+
+    # 检查是否已在当前窗口内成功执行过
+    last_run = task_config.get("last_run")
+    if not isinstance(last_run, dict):
+        try:
+            from backend.services.sign_tasks import get_sign_task_service
+
+            svc = get_sign_task_service()
+            task_name = str(task_config.get("name") or "")
+            account_name = str(task_config.get("account_name") or "")
+            task_dir = svc._resolve_task_dir(task_name, account_name or None)
+            last_run = svc._get_last_run_info(task_dir, account_name)
+        except Exception:
+            last_run = None
+
+    if isinstance(last_run, dict) and last_run.get("time"):
+        try:
+            last_run_str = str(last_run["time"]).strip()
+            if last_run_str.endswith("Z"):
+                last_run_str = last_run_str[:-1] + "+00:00"
+            last_run_dt = datetime.fromisoformat(last_run_str)
+            if last_run_dt.tzinfo is not None and tz is not None:
+                last_run_dt = last_run_dt.astimezone(tz)
+            elif last_run_dt.tzinfo is None and tz is not None:
+                last_run_dt = last_run_dt.replace(tzinfo=tz)
+
+            # 如果本周期内已经有成功执行记录，则不补偿
+            if last_run_dt >= start_dt and last_run.get("success") is True:
+                return None
+        except Exception:
+            pass
+
+    # 计算窗口剩余秒数并在剩余时间内生成随机延迟
+    remaining_seconds = max(0.0, (end_dt - now).total_seconds())
+    if remaining_seconds <= 15.0:
+        delay_seconds = min(2.0, remaining_seconds)
+    else:
+        max_delay = max(5.0, remaining_seconds - 5.0)
+        delay_seconds = random.uniform(5.0, max_delay)
+
+    return now + timedelta(seconds=delay_seconds)
+
+
 async def _job_run_sign_task(account_name: str, task_name: str) -> None:
     """运行签到任务的 Job 包装器"""
-    import asyncio
-    import random
-    from datetime import timedelta
-
     from backend.services.sign_tasks import get_sign_task_service
 
     logger = logging.getLogger("backend.scheduler")
+    job_id = f"sign-{account_name}-{task_name}"
+    is_compensation = job_id in _RANGE_COMPENSATION_RUNS
+    if is_compensation:
+        _RANGE_COMPENSATION_RUNS.pop(job_id, None)
+        logger.info(
+            "Scheduler: 任务 %s (账号=%s) 处于补偿执行时间点，跳过时间段延迟直接执行",
+            task_name,
+            account_name,
+        )
+
     try:
         logger.info("Scheduler: 正在运行签到任务 %s (账号: %s)", task_name, account_name)
 
@@ -105,70 +226,70 @@ async def _job_run_sign_task(account_name: str, task_name: str) -> None:
         sign_task_service = get_sign_task_service()
         task_config = sign_task_service.get_task(task_name, account_name)
         if task_config and task_config.get("execution_mode") == "range":
-            range_start_str = task_config.get("range_start")
-            range_end_str = task_config.get("range_end")
+            if not is_compensation:
+                range_start_str = task_config.get("range_start")
+                range_end_str = task_config.get("range_end")
+                if range_start_str and range_end_str:
+                    try:
+                        # 解析时间
+                        start_time = _parse_clock_time(range_start_str)
+                        end_time = _parse_clock_time(range_end_str)
 
-            if range_start_str and range_end_str:
-                try:
-                    # 解析时间
-                    start_time = _parse_clock_time(range_start_str)
-                    end_time = _parse_clock_time(range_end_str)
+                        # 用应用时区锚定当前时刻（与 cron trigger 语义一致）：
+                        # 原 naive datetime.now() 在进程 TZ 与 Web UI 时区不一致、
+                        # 或窗口跨 DST 切换时会算错窗口
+                        tz = _resolve_scheduler_timezone()
+                        now = datetime.now(tz) if tz is not None else datetime.now()
+                        start_dt = now.replace(
+                            hour=start_time.hour,
+                            minute=start_time.minute,
+                            second=start_time.second,
+                            microsecond=0,
+                        )
+                        end_dt = now.replace(
+                            hour=end_time.hour,
+                            minute=end_time.minute,
+                            second=end_time.second,
+                            microsecond=0,
+                        )
 
-                    # 用应用时区锚定当前时刻（与 cron trigger 语义一致）：
-                    # 原 naive datetime.now() 在进程 TZ 与 Web UI 时区不一致、
-                    # 或窗口跨 DST 切换时会算错窗口
-                    tz = _resolve_scheduler_timezone()
-                    now = datetime.now(tz) if tz is not None else datetime.now()
-                    start_dt = now.replace(
-                        hour=start_time.hour,
-                        minute=start_time.minute,
-                        second=start_time.second,
-                        microsecond=0,
-                    )
-                    end_dt = now.replace(
-                        hour=end_time.hour,
-                        minute=end_time.minute,
-                        second=end_time.second,
-                        microsecond=0,
-                    )
+                        # 如果结束时间小于开始时间，假设是第二天（虽然CRON触发通常在开始时间，这里做个防御）
+                        if end_dt < start_dt:
+                            end_dt += timedelta(days=1)
 
-                    # 如果结束时间小于开始时间，假设是第二天（虽然CRON触发通常在开始时间，这里做个防御）
-                    if end_dt < start_dt:
-                        end_dt += timedelta(days=1)
+                        # 计算总秒数
+                        total_seconds = (end_dt - start_dt).total_seconds()
 
-                    # 计算总秒数
-                    total_seconds = (end_dt - start_dt).total_seconds()
+                        if total_seconds > 0:
+                            # 生成随机延迟；misfire/迟到触发时截断到窗口剩余时间，
+                            # 避免把执行推过 range_end
+                            remaining = max(0.0, (end_dt - now).total_seconds())
+                            delay_seconds = min(random.uniform(0, total_seconds), remaining)
+                            logger.debug(
+                                "Scheduler: 任务 %s (账号=%s) 设置为随机时间段模式 (%s - %s)",
+                                task_name,
+                                account_name,
+                                range_start_str,
+                                range_end_str,
+                            )
+                            logger.debug(
+                                "Scheduler: 将随机等待 %d 秒 (%.2f 分钟) 后执行",
+                                int(delay_seconds),
+                                delay_seconds / 60,
+                            )
 
-                    if total_seconds > 0:
-                        # 生成随机延迟；misfire/迟到触发时截断到窗口剩余时间，
-                        # 避免把执行推过 range_end
-                        remaining = max(0.0, (end_dt - now).total_seconds())
-                        delay_seconds = min(random.uniform(0, total_seconds), remaining)
-                        logger.debug(
-                            "Scheduler: 任务 %s (账号=%s) 设置为随机时间段模式 (%s - %s)",
-                            task_name,
+                            await asyncio.sleep(delay_seconds)
+
+                    except (ValueError, KeyError, TypeError) as e:
+                        logger.error(
+                            "Scheduler: 计算随机时间段延迟失败 (账号=%s, 任务=%s): %s，将立即执行",
                             account_name,
-                            range_start_str,
-                            range_end_str,
+                            task_name,
+                            e,
+                            exc_info=True,
                         )
-                        logger.debug(
-                            "Scheduler: 将随机等待 %d 秒 (%.2f 分钟) 后执行",
-                            int(delay_seconds),
-                            delay_seconds / 60,
-                        )
-
-                        await asyncio.sleep(delay_seconds)
-
-                except (ValueError, KeyError, TypeError) as e:
-                    logger.error(
-                        "Scheduler: 计算随机时间段延迟失败 (账号=%s, 任务=%s): %s，将立即执行",
-                        account_name,
-                        task_name,
-                        e,
-                        exc_info=True,
-                    )
         elif task_config:
-            _ADAPTIVE_NEXT_RUNS.pop(f"sign-{account_name}-{task_name}", None)
+            _ADAPTIVE_NEXT_RUNS.pop(job_id, None)
             # 错峰延迟由 CronTrigger 的 jitter 承担（见 create_cron_trigger），
             # 此处不再重复 sleep，避免实际延迟达到配置上限的两倍
 
@@ -462,6 +583,30 @@ async def sync_jobs() -> None:
                         job.modify(next_run_time=target_dt)
                 else:
                     _ADAPTIVE_NEXT_RUNS.pop(job_id, None)
+            elif st.get("execution_mode") == "range":
+                tz = getattr(scheduler, "timezone", None) or _resolve_scheduler_timezone()
+                if job_id in _RANGE_COMPENSATION_RUNS:
+                    target_dt = _RANGE_COMPENSATION_RUNS[job_id]
+                    now_dt = datetime.now(target_dt.tzinfo) if target_dt.tzinfo else datetime.now()
+                    if target_dt > now_dt:
+                        job = scheduler.get_job(job_id)
+                        if job:
+                            job.modify(next_run_time=target_dt)
+                    else:
+                        _RANGE_COMPENSATION_RUNS.pop(job_id, None)
+                else:
+                    comp_dt = _compute_range_task_compensation(st, tz=tz)
+                    if comp_dt:
+                        _RANGE_COMPENSATION_RUNS[job_id] = comp_dt
+                        job = scheduler.get_job(job_id)
+                        if job:
+                            job.modify(next_run_time=comp_dt)
+                            logging.getLogger("backend.scheduler").info(
+                                "Scheduler: 任务 %s (账号=%s) 处于时间段窗口内且今日未成功执行，已安排补偿执行: %s",
+                                task_name,
+                                account_name,
+                                comp_dt,
+                            )
         except (ValueError, KeyError, RuntimeError) as e:
             logging.getLogger("backend.scheduler").warning(
                 "Error scheduling sign task %s: %s", task_name, e
@@ -597,6 +742,28 @@ def add_or_update_sign_task_job(
             replace_existing=True,
         )
         logger.info("Scheduler: 已添加/更新任务 %s -> %s (jitter=%s)", job_id, cron, jitter)
+
+        # 检查是否为 range 模式任务且需补偿调度
+        try:
+            from backend.services.sign_tasks import get_sign_task_service
+
+            task_cfg = get_sign_task_service().get_task(task_name, account_name)
+            if task_cfg and task_cfg.get("execution_mode") == "range":
+                tz = getattr(scheduler, "timezone", None) or _resolve_scheduler_timezone()
+                comp_dt = _compute_range_task_compensation(task_cfg, tz=tz)
+                if comp_dt:
+                    _RANGE_COMPENSATION_RUNS[job_id] = comp_dt
+                    job = scheduler.get_job(job_id)
+                    if job:
+                        job.modify(next_run_time=comp_dt)
+                        logger.info(
+                            "Scheduler: 动态更新任务 %s (账号=%s) 处于时间段窗口内且未成功执行，已安排补偿执行: %s",
+                            task_name,
+                            account_name,
+                            comp_dt,
+                        )
+        except Exception as exc:
+            logger.debug("Scheduler: 检查任务 %s 补偿异常: %s", job_id, exc)
     except (ValueError, KeyError, RuntimeError) as e:
         logger.error("Scheduler: 添加任务 %s 失败（参数或调度器错误）: %s", job_id, e)
     except Exception:
@@ -615,6 +782,8 @@ def remove_sign_task_job(account_name: str, task_name: str) -> None:
 
     logger = logging.getLogger("backend.scheduler")
     job_id = f"sign-{account_name}-{task_name}"
+    _ADAPTIVE_NEXT_RUNS.pop(job_id, None)
+    _RANGE_COMPENSATION_RUNS.pop(job_id, None)
     try:
         if scheduler.get_job(job_id):
             scheduler.remove_job(job_id)
