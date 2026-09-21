@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import unicodedata
 from types import SimpleNamespace
@@ -334,20 +335,23 @@ def patch_animated_chat_photo_parser() -> bool:
                     except Exception:
                         pass
 
-    # 针对 Animation._parse_chat_animation 防御缺少 w/h 与仅有 Markup 时的越界/异常崩溃
+    # 针对 Animation._parse_chat_animation 防御缺少 w/h 与仅有 Markup 时的越界/异常崩溃。
+    # 包装必须与原函数保持同一同步/异步契约：kurigram >= 2.2.10 起部分解析器改为协程函数，
+    # 用同步函数顶替会让短路分支返回的裸 None 被调用方 await 拒收，抛出
+    # TypeError: object NoneType can't be used in 'await' expression。
     anim_cls = getattr(types, "Animation", None)
     if anim_cls is not None and hasattr(anim_cls, "_parse_chat_animation"):
         _orig_parse_chat_anim = anim_cls._parse_chat_animation
+        _parse_chat_anim_is_async = inspect.iscoroutinefunction(_orig_parse_chat_anim)
 
-        @staticmethod
-        def _safe_parse_chat_animation(client, video, file_name):
+        def _guard_chat_animation(video):
+            """仅当存在带合法 w/h 的真实 VideoSize 时才允许委托原实现。"""
             if video is None or not isinstance(video, getattr(raw_types, "Photo", ())):
-                return None
+                return False
             video_sizes = getattr(video, "video_sizes", None)
             if not video_sizes:
-                return None
+                return False
 
-            valid_sizes = []
             for v in video_sizes:
                 if type(v).__name__ in (
                     "VideoSizeEmojiMarkup",
@@ -355,33 +359,66 @@ def patch_animated_chat_photo_parser() -> bool:
                 ):
                     continue
                 if getattr(v, "w", 0) > 0 and getattr(v, "h", 0) > 0:
-                    valid_sizes.append(v)
+                    return True
+            return False
 
-            if not valid_sizes:
-                return None
+        if _parse_chat_anim_is_async:
 
-            try:
-                return _orig_parse_chat_anim(client, video, file_name)
-            except (IndexError, ValueError, AttributeError):
-                return None
+            @staticmethod
+            async def _safe_parse_chat_animation(client, video, file_name):
+                if not _guard_chat_animation(video):
+                    return None
+                try:
+                    return await _orig_parse_chat_anim(client, video, file_name)
+                except (IndexError, ValueError, AttributeError):
+                    return None
+
+        else:
+
+            @staticmethod
+            def _safe_parse_chat_animation(client, video, file_name):
+                if not _guard_chat_animation(video):
+                    return None
+                try:
+                    return _orig_parse_chat_anim(client, video, file_name)
+                except (IndexError, ValueError, AttributeError):
+                    return None
 
         anim_cls._parse_chat_animation = _safe_parse_chat_animation
 
-    # 针对 ChatPhoto._parse 进行兜底防御
+    # 针对 ChatPhoto._parse 进行兜底防御（上游对空 sizes 的 Photo 会 IndexError）
     chat_photo_cls = getattr(types, "ChatPhoto", None)
     if chat_photo_cls is not None and hasattr(chat_photo_cls, "_parse"):
         _orig_chat_photo_parse = chat_photo_cls._parse
+        _chat_photo_parse_is_async = inspect.iscoroutinefunction(_orig_chat_photo_parse)
 
-        @staticmethod
-        def _safe_chat_photo_parse(client, chat_photo, peer_id, peer_access_hash=0):
-            if chat_photo is None:
-                return None
-            try:
-                return _orig_chat_photo_parse(
-                    client, chat_photo, peer_id, peer_access_hash
-                )
-            except (AttributeError, ValueError, IndexError):
-                return None
+        if _chat_photo_parse_is_async:
+
+            @staticmethod
+            async def _safe_chat_photo_parse(
+                client, chat_photo, peer_id, peer_access_hash=0
+            ):
+                if chat_photo is None:
+                    return None
+                try:
+                    return await _orig_chat_photo_parse(
+                        client, chat_photo, peer_id, peer_access_hash
+                    )
+                except (AttributeError, ValueError, IndexError):
+                    return None
+
+        else:
+
+            @staticmethod
+            def _safe_chat_photo_parse(client, chat_photo, peer_id, peer_access_hash=0):
+                if chat_photo is None:
+                    return None
+                try:
+                    return _orig_chat_photo_parse(
+                        client, chat_photo, peer_id, peer_access_hash
+                    )
+                except (AttributeError, ValueError, IndexError):
+                    return None
 
         chat_photo_cls._parse = _safe_chat_photo_parse
 
