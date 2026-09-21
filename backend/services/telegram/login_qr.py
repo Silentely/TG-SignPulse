@@ -408,12 +408,11 @@ class TelegramQrLoginMixin:
                 me = await asyncio.wait_for(client.get_me(), timeout=10)
             except Exception:
                 me = user
-            try:
-                password_state = await client.get_password()
-            except Exception:
-                password_state = None
-            if password_state and getattr(password_state, "has_password", False):
-                return _PASSWORD_REQUIRED
+            # 2FA 判定只认 ImportLoginToken/后续 RPC 抛出的 SessionPasswordNeeded
+            # （见下方 except 与轮询路径）。此处不做密码状态预检：走到这里时
+            # LoginTokenSuccess 已导入授权（user_id 已写入存储），仅凭「账号设有 2FA
+            # 密码」判定会把已授权会话误报为需要密码，进而对已授权会话调用
+            # check_password 导致登录失败。
             await self._apply_migrate_auth(client, data)
             await self._persist_client_session(
                 client, data.get("account_name"), data.get("proxy")
