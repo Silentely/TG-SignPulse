@@ -11,8 +11,10 @@ tg_signer/core.py 单元测试
 from __future__ import annotations
 
 import asyncio
+import base64
 import pathlib
 import random
+import struct
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -29,6 +31,11 @@ from tg_signer.core import (
     readable_chat,
 )
 from tg_signer.utils import read_positive_float_env, read_positive_int_env
+
+# 可通过 is_valid_session_string 校验的新版 session_string（含 api_id）
+_VALID_SESSION_STRING = base64.urlsafe_b64encode(
+    struct.pack(">BI?256sQ?", 2, 123456, False, bytes(range(256)), 777000, False)
+).decode("ascii").rstrip("=")
 
 # ============================================================================
 # 辅助函数测试
@@ -324,7 +331,7 @@ class TestClientSessionString:
                     _CLIENT_INSTANCES.pop(k, None)
 
     def test_load_session_string_from_file(self, tmp_path):
-        """load_session_string 从文件读取 session 字符串"""
+        """load_session_string 从文件读取合法 session 字符串"""
         from tg_signer.core import _CLIENT_INSTANCES, get_client
         keys_before = set(_CLIENT_INSTANCES.keys())
         try:
@@ -335,10 +342,10 @@ class TestClientSessionString:
                 api_hash="testhash",
             )
             session_file = tmp_path / "load_test.session_string"
-            session_file.write_text("test-session-data")
+            session_file.write_text(_VALID_SESSION_STRING)
             result = client.load_session_string()
-            assert result == "test-session-data"
-            assert client.session_string == "test-session-data"
+            assert result == _VALID_SESSION_STRING
+            assert client.session_string == _VALID_SESSION_STRING
         finally:
             for k in list(_CLIENT_INSTANCES.keys()):
                 if k not in keys_before:
@@ -358,6 +365,29 @@ class TestClientSessionString:
             result = client.load_session_string()
             # Pyrogram BaseClient 的 session_string 默认为 None
             assert result is None
+        finally:
+            for k in list(_CLIENT_INSTANCES.keys()):
+                if k not in keys_before:
+                    _CLIENT_INSTANCES.pop(k, None)
+
+    def test_load_session_string_rejects_corrupted_cache(self, tmp_path):
+        """损坏的 session_string 缓存必须判坏、删除并按缺失处理（自愈路径）"""
+        from tg_signer.core import _CLIENT_INSTANCES, get_client
+        keys_before = set(_CLIENT_INSTANCES.keys())
+        try:
+            client = get_client(
+                name="corrupt_cache",
+                workdir=str(tmp_path),
+                api_id=12345,
+                api_hash="testhash",
+            )
+            session_file = tmp_path / "corrupt_cache.session_string"
+            # 历史错误导出曾把超长坏串落盘成缓存
+            session_file.write_text("A" * 357)
+            result = client.load_session_string()
+            assert result is None
+            assert client.session_string is None
+            assert not session_file.exists()
         finally:
             for k in list(_CLIENT_INSTANCES.keys()):
                 if k not in keys_before:

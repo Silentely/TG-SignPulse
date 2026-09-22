@@ -446,6 +446,23 @@ class TestClientAenterRollback:
 
         return _stop
 
+    @staticmethod
+    def _make_client(key: str, *, is_connected: bool, stopped: list):
+        """构造绕过 __init__ 的 Client 替身。
+
+        必须显式声明 __aenter__ 会读取的会话属性：这些用例模拟的是**文件会话**客户端，
+        故 in_memory=False，不会命中内存模式缺参的 fail-closed 分支（该分支由
+        test_kurigram_patches 覆盖）。
+        """
+        client = Client.__new__(Client)
+        client.key = key
+        client.name = "test-client"
+        client.is_connected = is_connected
+        client.in_memory = False
+        client.session_string = ""
+        client.stop = TestClientAenterRollback._make_stop_recorder(stopped)
+        return client
+
     @pytest.mark.asyncio
     async def test_cancelled_rolls_back_refs_without_stop(self):
         key = "test-aenter-cancel"
@@ -453,11 +470,7 @@ class TestClientAenterRollback:
         _CLIENT_ASYNC_LOCKS[key] = asyncio.Lock()
         stopped: list = []
 
-        client = Client.__new__(Client)
-        client.key = key
-        client.name = "test-client"
-        client.is_connected = False
-        client.stop = self._make_stop_recorder(stopped)
+        client = self._make_client(key, is_connected=False, stopped=stopped)
 
         async def raise_cancelled():
             raise asyncio.CancelledError()
@@ -473,7 +486,11 @@ class TestClientAenterRollback:
             assert key not in _CLIENT_INSTANCES
             assert stopped == []
         finally:
+            # 无论断言是否通过都清空全局登记表：残留的引用计数会让同 key 的
+            # 后续用例跳过 refs==1 分支，把真实失败掩盖成「未按预期抛出」
             _CLIENT_ASYNC_LOCKS.pop(key, None)
+            _CLIENT_REFS.pop(key, None)
+            _CLIENT_INSTANCES.pop(key, None)
 
     @pytest.mark.asyncio
     async def test_session_invalid_rolls_back_and_stops(self):
@@ -482,11 +499,9 @@ class TestClientAenterRollback:
         _CLIENT_ASYNC_LOCKS[key] = asyncio.Lock()
         stopped: list = []
 
-        client = Client.__new__(Client)
-        client.key = key
-        client.name = "test-client"
-        client.is_connected = True  # 模拟连接已建立后校验失败
-        client.stop = self._make_stop_recorder(stopped)
+        client = self._make_client(
+            key, is_connected=True, stopped=stopped
+        )  # 模拟连接已建立后校验失败
 
         async def raise_invalid():
             raise pyrogram_errors.AuthKeyUnregistered()
@@ -504,7 +519,11 @@ class TestClientAenterRollback:
             assert key not in _CLIENT_INSTANCES
             assert stopped == [True]
         finally:
+            # 无论断言是否通过都清空全局登记表：残留的引用计数会让同 key 的
+            # 后续用例跳过 refs==1 分支，把真实失败掩盖成「未按预期抛出」
             _CLIENT_ASYNC_LOCKS.pop(key, None)
+            _CLIENT_REFS.pop(key, None)
+            _CLIENT_INSTANCES.pop(key, None)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -533,11 +552,7 @@ class TestClientAenterRollback:
         _CLIENT_ASYNC_LOCKS[key] = asyncio.Lock()
         stopped: list = []
 
-        client = Client.__new__(Client)
-        client.key = key
-        client.name = "test-client"
-        client.is_connected = True
-        client.stop = self._make_stop_recorder(stopped)
+        client = self._make_client(key, is_connected=True, stopped=stopped)
 
         async def raise_failure():
             raise exc_factory()
@@ -558,7 +573,11 @@ class TestClientAenterRollback:
             assert key not in _CLIENT_INSTANCES
             assert stopped == [True]
         finally:
+            # 无论断言是否通过都清空全局登记表：残留的引用计数会让同 key 的
+            # 后续用例跳过 refs==1 分支，把真实失败掩盖成「未按预期抛出」
             _CLIENT_ASYNC_LOCKS.pop(key, None)
+            _CLIENT_REFS.pop(key, None)
+            _CLIENT_INSTANCES.pop(key, None)
 
 
 class TestCloseClientDualMode:

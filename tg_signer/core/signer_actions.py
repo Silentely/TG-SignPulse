@@ -17,7 +17,6 @@ from typing import Any, Optional, Union
 
 from croniter import croniter
 
-from tg_signer.async_utils import compute_backoff
 from tg_signer.compat import (
     InlineKeyboardMarkup,
     Message,
@@ -1313,7 +1312,7 @@ class SignerActionsMixin:
                     self.log(e, level="ERROR")
                     return None
                 await asyncio.sleep(wait_seconds)
-            except (TimeoutError, asyncio.TimeoutError) as e:
+            except (TimeoutError, asyncio.TimeoutError):
                 # MTProto 请求已成功由底层 socket 发出，但 Bot 未调用 answerCallbackQuery
                 if attempt < max_retries:
                     self.log(

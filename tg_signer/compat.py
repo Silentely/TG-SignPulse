@@ -91,11 +91,6 @@ except Exception as exc:  # pragma: no cover - fallback for unsupported runtimes
     class Session:
         START_TIMEOUT = 5
 
-    class MemoryStorage:
-        def __init__(self, *args, **kwargs):
-            self.args = args
-            self.kwargs = kwargs
-
     class BaseClient:
         def __init__(self, *args, **kwargs):
             _raise_pyrogram_import_error()
@@ -165,51 +160,64 @@ else:
         return None
 
 
-# kurigram 2.2.10+ 移除了 pyrogram.storage.MemoryStorage。单独导入该类，
-# 避免它的缺失连带让上面整块导入失败、把真实类型静默替换为占位实现
-# （表现为各种「X() takes no arguments」的误导性报错）。
-_MEMORY_STORAGE_IMPORT_ERROR: Exception | None = None
+# kurigram 2.2.10+ 原生 SQLiteStorage 支持 in_memory + session_string，并由
+# Client.__init__ 自动装配（见 pyrogram/client.py：有 session_string 即建内存存储）。
+# 项目钉死 kurigram==2.2.26，因此不再需要自研 MemoryStorage 适配层；
+# 自研适配反而会偏离上游行为、放大后续升级的补丁面。
 
-if _PYROGRAM_IMPORT_ERROR is None:
+# session_string 二进制布局常量：优先取 kurigram Storage 定义，导入降级时用字面量兜底，
+# 保证依赖缺失环境下校验逻辑仍可用（与 pyrogram/storage/storage.py 保持一致）。
+try:
+    from pyrogram.storage.storage import Storage as _StorageBase
+except Exception:  # pragma: no cover - 依赖导入降级
+    _StorageBase = None
+
+_SESSION_STRING_FORMAT = getattr(_StorageBase, "SESSION_STRING_FORMAT", ">BI?256sQ?")
+_OLD_SESSION_STRING_FORMAT = getattr(
+    _StorageBase, "OLD_SESSION_STRING_FORMAT", ">B?256sI?"
+)
+_OLD_SESSION_STRING_FORMAT_64 = getattr(
+    _StorageBase, "OLD_SESSION_STRING_FORMAT_64", ">B?256sQ?"
+)
+_SESSION_STRING_SIZE = getattr(_StorageBase, "SESSION_STRING_SIZE", 351)
+_SESSION_STRING_SIZE_64 = getattr(_StorageBase, "SESSION_STRING_SIZE_64", 356)
+
+
+def is_valid_session_string(session_string: str | None) -> bool:
+    """校验是否为 Pyrogram/kurigram 可解码的 session_string（全项目唯一判定入口）。
+
+    拒绝 Telethon 风格前缀（如 ``1`` + base64）及损坏/截断数据（含历史错误导出产生的
+    超长串），避免上游存储层在 base64 解码或 struct.unpack 阶段抛 binascii.Error /
+    struct.error。CLI 与面板两条加载路径都必须先过此判定，坏串按缓存失效处理。
+    """
+    if not isinstance(session_string, str):
+        return False
+    s = session_string.strip()
+    if not s:
+        return False
+
+    import base64
+    import struct
+
     try:
-        from pyrogram.storage import MemoryStorage
-    except (ImportError, AttributeError):
-        # kurigram >= 2.2.10 移除了 pyrogram.storage.MemoryStorage。
-        # 优先使用原生 MemoryStorage；缺失时若 SQLiteStorage 具备 in_memory 能力则自动适配。
-        import inspect
-        from pathlib import Path
+        # 与 pyrogram Storage.open 相同的 padding 规则
+        decoded = base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+    except Exception:
+        return False
 
-        try:
-            from pyrogram.storage.sqlite_storage import SQLiteStorage
-
-            sig = inspect.signature(SQLiteStorage.__init__)
-            if "in_memory" not in sig.parameters:
-                # Fail-closed: SQLiteStorage 不具备 2.2.10+ in_memory 能力，无法作为内存存储使用
-                raise NotImplementedError(
-                    "SQLiteStorage 不支持 in_memory 参数，无法创建有效的 MemoryStorage 适配器"
-                )
-
-            class MemoryStorage(SQLiteStorage):  # type: ignore[no-redef]
-                """兼容 kurigram >= 2.2.10 的内存存储适配器。"""
-
-                def __init__(
-                    self,
-                    name: str,
-                    session_string: str | None = None,
-                    workdir: Path | str | None = None,
-                    **kwargs,
-                ):
-                    super().__init__(
-                        name=name,
-                        workdir=Path(workdir) if workdir else Path("."),
-                        session_string=session_string,
-                        in_memory=True,
-                    )
-        except Exception as inner_exc:
-            _MEMORY_STORAGE_IMPORT_ERROR = inner_exc
-            MemoryStorage = None
-else:
-    _MEMORY_STORAGE_IMPORT_ERROR = _PYROGRAM_IMPORT_ERROR
+    try:
+        if len(s) in (_SESSION_STRING_SIZE, _SESSION_STRING_SIZE_64):
+            fmt = (
+                _OLD_SESSION_STRING_FORMAT
+                if len(s) == _SESSION_STRING_SIZE
+                else _OLD_SESSION_STRING_FORMAT_64
+            )
+            struct.unpack(fmt, decoded)
+            return True
+        struct.unpack(_SESSION_STRING_FORMAT, decoded)
+        return True
+    except Exception:
+        return False
 
 
 def clean_text_for_match(text: str) -> str:
@@ -568,8 +576,6 @@ async def safe_get_forum_topics(
     return valid_topics
 
 
-
-
 async def get_dc_session(
     client: Any,
     dc_id: int,
@@ -582,8 +588,6 @@ async def get_dc_session(
     错误调用 export_authorization 导致 AuthBytesInvalid / Unauthorized 异常。
     """
     if hasattr(client, "get_session") and callable(client.get_session):
-        import inspect
-
         call_kwargs = dict(kwargs)
         try:
             sig = inspect.signature(client.get_session)

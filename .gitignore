@@ -83,7 +83,9 @@ venv/
 ENV/
 
 # uv
-uv.lock
+# uv.lock 纳入版本控制：Docker 与 CI 均从该锁解析依赖，
+# 避免「代码未变但构建变了」的传递依赖漂移（kurigram 已精确钉死，
+# 其余包靠此锁保证可复现）。
 
 # Spyder project settings
 .spyderproject
