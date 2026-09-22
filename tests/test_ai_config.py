@@ -198,6 +198,112 @@ class TestTestAiConnection:
         assert captured.get("api_key") == "sk-live-plaintext-key"
         assert not str(captured.get("api_key", "")).startswith("fernet:")
 
+    @pytest.mark.asyncio
+    async def test_prefers_max_completion_tokens_for_gpt5(self, isolated_env: Path):
+        """配置为 gpt-5 模型时，测试连接应直接使用 max_completion_tokens 参数"""
+        service = ConfigService()
+        service.save_ai_config(
+            api_key="sk-test-key",
+            model="gpt-5-nano",
+        )
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "test ok"
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+
+        with patch("openai.AsyncOpenAI", return_value=mock_client):
+            result = await service.test_ai_connection()
+
+        assert result["success"] is True
+        mock_client.chat.completions.create.assert_awaited_once()
+        kwargs = mock_client.chat.completions.create.call_args.kwargs
+        assert "max_completion_tokens" in kwargs
+        assert kwargs["max_completion_tokens"] == 64
+        assert "max_tokens" not in kwargs
+
+    @pytest.mark.asyncio
+    async def test_fallback_to_max_completion_tokens_on_unsupported_param(self, isolated_env: Path):
+        """当模型返回 max_tokens 不支持时，自动切换为 max_completion_tokens 重试并成功"""
+        service = ConfigService()
+        service.save_ai_config(
+            api_key="sk-test-key",
+            model="custom-gpt-model",
+        )
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "test ok"
+
+        unsupported_err = Exception(
+            "Error code: 400 - {\"error\": {\"message\": \"Unsupported parameter: max_tokens is not supported with this model. Use max_completion_tokens instead.\", \"param\": \"max_tokens\"}}"
+        )
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(side_effect=[unsupported_err, mock_response])
+
+        with patch("openai.AsyncOpenAI", return_value=mock_client):
+            result = await service.test_ai_connection()
+
+        assert result["success"] is True
+        assert mock_client.chat.completions.create.await_count == 2
+        first_kwargs = mock_client.chat.completions.create.call_args_list[0].kwargs
+        second_kwargs = mock_client.chat.completions.create.call_args_list[1].kwargs
+        assert "max_tokens" in first_kwargs
+        assert "max_completion_tokens" in second_kwargs
+
+    @pytest.mark.asyncio
+    async def test_fallback_to_max_tokens_when_max_completion_tokens_rejected(self, isolated_env: Path):
+        """当配置为 gpt-5 模型但网关报错要求使用 max_tokens 时，自动反向 fallback 到 max_tokens 重试"""
+        service = ConfigService()
+        service.save_ai_config(
+            api_key="sk-test-key",
+            model="gpt-5-nano",
+        )
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "test ok"
+
+        unsupported_err = Exception(
+            "Error code: 400 - {\"error\": {\"message\": \"Unsupported parameter: max_completion_tokens is not supported with this model. Use max_tokens instead.\", \"param\": \"max_completion_tokens\"}}"
+        )
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(side_effect=[unsupported_err, mock_response])
+
+        with patch("openai.AsyncOpenAI", return_value=mock_client):
+            result = await service.test_ai_connection()
+
+        assert result["success"] is True
+        assert mock_client.chat.completions.create.await_count == 2
+        first_kwargs = mock_client.chat.completions.create.call_args_list[0].kwargs
+        second_kwargs = mock_client.chat.completions.create.call_args_list[1].kwargs
+        assert "max_completion_tokens" in first_kwargs
+        assert "max_tokens" in second_kwargs
+
+    @pytest.mark.asyncio
+    async def test_unrelated_auth_error_not_retried(self, isolated_env: Path):
+        """401 认证等无关错误直接返回失败，不触发 fallback 重发"""
+        service = ConfigService()
+        service.save_ai_config(
+            api_key="sk-test-key",
+            model="gpt-5-nano",
+        )
+
+        auth_err = Exception("Error code: 401 - Incorrect API key provided")
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(side_effect=auth_err)
+
+        with patch("openai.AsyncOpenAI", return_value=mock_client):
+            result = await service.test_ai_connection()
+
+        assert result["success"] is False
+        assert "401" in result["message"]
+        assert mock_client.chat.completions.create.await_count == 1
+
 
 class TestExportAllConfigs:
     """export_all_configs 应脱敏 AI 配置"""
