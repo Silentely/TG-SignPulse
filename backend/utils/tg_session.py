@@ -12,6 +12,11 @@ from typing import Any, Optional
 from backend.core.config import get_settings
 from backend.utils.time import utc_now, utc_now_iso
 
+# session_string 校验与格式常量统一收敛到 tg_signer.compat（全项目唯一判定入口），
+# 面板与 CLI 两条加载路径共享同一判定，避免同串不同判。
+# 常量见 pyrogram/storage/storage.py：旧格式无 api_id，新格式含 api_id，均无版本前缀。
+from tg_signer.compat import _SESSION_STRING_FORMAT, is_valid_session_string
+
 _logger = logging.getLogger("backend.tg_session")
 
 _SESSION_MODE_ENV = "TG_SESSION_MODE"
@@ -302,53 +307,12 @@ def set_account_status(
     _save_account_store(data)
 
 
-# 与 kurigram/pyrogram Storage 保持一致的 session_string 格式
-# 见 pyrogram/storage/storage.py：旧格式无 api_id，新格式含 api_id，均无版本前缀
-_OLD_SESSION_STRING_FORMAT = ">B?256sI?"
-_OLD_SESSION_STRING_FORMAT_64 = ">B?256sQ?"
-_SESSION_STRING_FORMAT = ">BI?256sQ?"
-_SESSION_STRING_SIZE = 351
-_SESSION_STRING_SIZE_64 = 356
-
-
 def session_string_file_path(session_dir: Path, account_name: str) -> Path:
     return session_dir / f"{account_name}.session_string"
 
 
-def is_valid_session_string(session_string: Optional[str]) -> bool:
-    """校验是否为 Pyrogram/kurigram 可解码的 session_string。
-
-    拒绝 Telethon 风格前缀（如 ``1`` + base64）及损坏/截断数据，
-    避免 MemoryStorage.open 在 base64 解码阶段抛 binascii.Error。
-    """
-    if not isinstance(session_string, str):
-        return False
-    s = session_string.strip()
-    if not s:
-        return False
-
-    import base64
-    import struct
-
-    try:
-        # 与 pyrogram MemoryStorage.open 相同的 padding 规则
-        decoded = base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
-    except Exception:
-        return False
-
-    try:
-        if len(s) in (_SESSION_STRING_SIZE, _SESSION_STRING_SIZE_64):
-            fmt = (
-                _OLD_SESSION_STRING_FORMAT
-                if len(s) == _SESSION_STRING_SIZE
-                else _OLD_SESSION_STRING_FORMAT_64
-            )
-            struct.unpack(fmt, decoded)
-            return True
-        struct.unpack(_SESSION_STRING_FORMAT, decoded)
-        return True
-    except Exception:
-        return False
+# is_valid_session_string 由 tg_signer.compat 提供（见文件头部导入），
+# 此处不再重复实现，保证 CLI 与面板判定完全一致
 
 
 def load_session_string_file(session_dir: Path, account_name: str) -> Optional[str]:

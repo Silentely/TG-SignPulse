@@ -227,7 +227,8 @@ docker run -d -p 3000:3000 -v ./data:/data ghcr.io/<owner>/tg-signpulse:latest
 
 | 项 | 说明 |
 |----|------|
-| 镜像 | 多阶段 `Dockerfile`：Node **22.23.1** 构建前端 → Python **3.12-slim** 装包；静态资源进 `/web`；`HEALTHCHECK` → `/healthz` |
+| 镜像 | 多阶段 `Dockerfile`：Node **22.23.1** 构建前端 → Python **3.11-slim** 装包；静态资源进 `/web`；`HEALTHCHECK` → `/healthz` |
+| 依赖解析 | `uv.lock` 纳入版本控制，为依赖的唯一真相来源：`Dockerfile` 与 CI 均 `uv export --format requirements-txt` 后 `pip install -r`，改 `pyproject.toml` 须同步 `uv lock` |
 | 编排 | `docker-compose.panel.yml`：数据卷 `./data:/data`，`APP_SCHEDULER_LOCK=1`，探针 `/readyz` |
 | CI | `.github/workflows/docker.yml`：`test`（pytest 并行 + 核心 ruff）→ `frontend-test`（typecheck + vitest）→ 多架构 build/push GHCR（`main`/`dev`/`v*`） |
 | 文档站 | VitePress，`docs/`；开发端口 5173。模块地图见 [`docs/CLAUDE.md`](./docs/CLAUDE.md) |

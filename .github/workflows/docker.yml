@@ -42,10 +42,19 @@ jobs:
           python-version: "3.11"
           cache: "pip"
 
+      # 从 uv.lock 导出固定版本安装，与 Docker 生产镜像共用同一份依赖解析结果，
+      # 避免「CI 绿、镜像里同一组合挂掉」的漂移（曾因 fastapi 0.109.2 + httpx 0.28
+      # 在 starlette TestClient 处崩溃，而 CI 用新 fastapi 完全测不到）。
+      # 只装 base + dev：tdata/speedup extra 不装，保持既有测试假设
+      # （tests/test_tdata_importer.py 的降级用例依赖 opentele 缺失）。
       - name: Install test dependencies
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]" pytest-xdist pytest-timeout
+          python -m pip install --upgrade pip uv
+          uv export --format requirements-txt --no-hashes --extra dev --no-emit-project \
+            -o /tmp/requirements.txt
+          python -m pip install -r /tmp/requirements.txt
+          python -m pip install --no-deps -e .
+          rm -f /tmp/requirements.txt
 
       - name: Run pytest (parallel)
         run: pytest tests/ -n auto --dist loadgroup -x -q --tb=short --no-header --ignore=tools --timeout=60 -o addopts=

@@ -13,7 +13,6 @@ from pyrogram.errors import BadRequest, ChatNotModified, TopicIdInvalid
 
 from tg_signer import compat as compat_module
 from tg_signer.compat import (
-    _PYROGRAM_IMPORT_ERROR,
     patch_animated_chat_photo_parser,
     patch_kurigram_compat,
     safe_get_forum_topics,
@@ -45,62 +44,76 @@ def _make_mock_forum_topic(**kwargs):
     return raw.types.ForumTopic(**filtered)
 
 
+def _make_valid_session_string(dc_id: int = 2, api_id: int = 123456, user_id: int = 777000) -> str:
+    """构造可通过 is_valid_session_string 校验的新版 session_string。"""
+    import base64
+    import struct
+
+    packed = struct.pack(
+        ">BI?256sQ?", dc_id, api_id, False, bytes(range(256)), user_id, False
+    )
+    return base64.urlsafe_b64encode(packed).decode("ascii").rstrip("=")
+
+
 @pytest.mark.asyncio
 async def test_kurigram_runtime_contract_is_satisfied():
-    """kurigram 运行时契约守卫与 Storage 生命周期验证。
+    """kurigram 运行时契约守卫与内存存储生命周期验证。
 
-    验证在当前运行环境下 MemoryStorage 可用，并且具备完整的 open/save/close 生命周期。
+    项目钉死 kurigram==2.2.26：SQLiteStorage 原生支持 in_memory + session_string，
+    Client.__init__ 会自动装配内存存储，不再需要自研 MemoryStorage 适配层。
     """
-    from tg_signer.compat import _MEMORY_STORAGE_IMPORT_ERROR, MemoryStorage
+    from pyrogram.storage.sqlite_storage import SQLiteStorage
 
-    assert _PYROGRAM_IMPORT_ERROR is None, (
-        f"Telegram 运行时依赖导入失败: {_PYROGRAM_IMPORT_ERROR!r}"
+    assert compat_module._PYROGRAM_IMPORT_ERROR is None, (
+        f"Telegram 运行时依赖导入失败: {compat_module._PYROGRAM_IMPORT_ERROR!r}"
     )
-    assert MemoryStorage is not None, (
-        f"MemoryStorage 不可用: {_MEMORY_STORAGE_IMPORT_ERROR!r}"
+    # 内存存储生命周期（string 会话模式的承载）
+    storage = SQLiteStorage(
+        "test_contract_lifecycle",
+        workdir=Path("."),
+        session_string=_make_valid_session_string(),
+        in_memory=True,
     )
-    storage = MemoryStorage("test_contract_lifecycle")
-    assert getattr(storage, "in_memory", None) is True or hasattr(storage, "conn")
+    assert storage.in_memory is True
+    assert storage.session_string
 
-    # 验证真实存储生命周期
     await storage.open()
-    assert storage.conn is not None
-    await storage.save()
-    await storage.close()
+    try:
+        assert storage.conn is not None
+        assert await storage.user_id() == 777000
+        assert await storage.dc_id() == 2
+        assert compat_module.is_valid_session_string(storage.session_string)
+    finally:
+        await storage.close()
 
 
-def test_missing_memory_storage_does_not_stub_whole_runtime():
-    """MemoryStorage 缺失只应影响该类本身，不得把整套运行时替换为占位实现。
+def test_missing_pyrogram_does_not_stub_whole_runtime():
+    """pyrogram 导入失败只应降级占位符号，不得污染正常环境的真实类型。
 
-    在 kurigram >= 2.2.10 (包括 2.2.26) 环境下，SQLiteStorage 原生具备 in_memory 支持，
-    应无缝启用 MemoryStorage 适配器；
-    同时验证 Fail-Closed 策略：当 SQLiteStorage 也不具备 in_memory 能力时，
-    应明确将 MemoryStorage 置为 None 并记录原因，杜绝半成品对象。
+    同时守护 session_string 校验在依赖降级时依然可用（字面量常量兜底）。
     """
     code = textwrap.dedent(
         """
         import builtins
-        import pyrogram.client
         import pyrogram.types as real_types
 
         real_import = builtins.__import__
 
         def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
-            # 模拟原生 MemoryStorage 缺失
-            if name == "pyrogram.storage" and fromlist and "MemoryStorage" in fromlist:
-                raise ImportError("simulated: MemoryStorage removed")
+            if name == "pyrogram":
+                raise ImportError("simulated: pyrogram unavailable")
             return real_import(name, globals, locals, fromlist, level)
 
         builtins.__import__ = fake_import
 
         import tg_signer.compat as compat
 
-        assert compat._PYROGRAM_IMPORT_ERROR is None, "不应整体降级为占位实现"
-        # 在 kurigram 2.2.26 环境下，SQLiteStorage 具备 in_memory，应成功创建适配器
-        assert compat.MemoryStorage is not None, "具备 in_memory 能力时应成功启用适配器"
-        assert compat.InlineKeyboardMarkup is real_types.InlineKeyboardMarkup, (
-            "真实类型必须保留"
+        assert compat._PYROGRAM_IMPORT_ERROR is not None, "应记录导入失败原因"
+        assert compat.InlineKeyboardMarkup is not real_types.InlineKeyboardMarkup, (
+            "降级环境必须是占位实现"
         )
+        # 校验逻辑不依赖 pyrogram 真实类，字面量兜底保证可用
+        assert compat.is_valid_session_string("garbage") is False
         print("OK")
         """
     )
@@ -114,119 +127,124 @@ def test_missing_memory_storage_does_not_stub_whole_runtime():
     assert "OK" in proc.stdout
 
 
-def test_memory_storage_adapter_for_kurigram_2_2_10_contract():
-    """模拟 kurigram >= 2.2.10 环境下 MemoryStorage 适配器的行为与生命周期。"""
-    code = textwrap.dedent(
-        """
-        import builtins
-        import sys
-        from pathlib import Path
-        import pyrogram.client
-        import pyrogram.types as real_types
+def test_native_sqlite_storage_in_memory_session_string_contract():
+    """kurigram 2.2.26 原生 SQLiteStorage 必须完整转发 in_memory + session_string。"""
+    from pyrogram.storage.sqlite_storage import SQLiteStorage
 
-        # 构造符合 kurigram 2.2.10+ 签名的 FakeSQLiteStorage
-        class Fake2210SQLiteStorage:
-            def __init__(self, name: str, workdir: Path, session_string: str = None, in_memory: bool = False):
-                self.name = name
-                self.workdir = workdir
-                self.session_string = session_string
-                self.in_memory = in_memory
-                self.conn = None
-                self.opened = False
-
-            async def open(self):
-                self.opened = True
-                self.conn = "fake_connection"
-
-            async def save(self):
-                pass
-
-            async def close(self):
-                self.opened = False
-
-        import pyrogram.storage.sqlite_storage as pyrogram_sqlite
-        pyrogram_sqlite.SQLiteStorage = Fake2210SQLiteStorage
-
-        real_import = builtins.__import__
-
-        def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
-            if name == "pyrogram.storage" and fromlist and "MemoryStorage" in fromlist:
-                raise ImportError("simulated kurigram 2.2.10+: MemoryStorage removed")
-            return real_import(name, globals, locals, fromlist, level)
-
-        builtins.__import__ = fake_import
-
-        import tg_signer.compat as compat
-        assert compat._PYROGRAM_IMPORT_ERROR is None
-        assert compat.MemoryStorage is not None
-        assert compat._MEMORY_STORAGE_IMPORT_ERROR is None
-
-        # 实例化并验证参数正确转发
-        storage = compat.MemoryStorage("my_session", session_string="test_str", workdir=Path("/custom"))
-        assert storage.in_memory is True
-        assert storage.name == "my_session"
-        assert storage.session_string == "test_str"
-        assert storage.workdir == Path("/custom")
-
-        # 验证生命周期代理
-        import asyncio
-        async def run_lifecycle():
-            await storage.open()
-            assert storage.opened is True
-            assert storage.conn == "fake_connection"
-            await storage.save()
-            await storage.close()
-            assert storage.opened is False
-
-        asyncio.run(run_lifecycle())
-        print("OK")
-        """
+    session_string = _make_valid_session_string()
+    storage = SQLiteStorage(
+        "my_session",
+        workdir=Path("/custom"),
+        session_string=session_string,
+        in_memory=True,
     )
-    proc = subprocess.run(
-        [sys.executable, "-c", code],
-        cwd=str(Path(__file__).resolve().parent.parent),
-        capture_output=True,
-        text=True,
-    )
-    assert proc.returncode == 0, proc.stderr
-    assert "OK" in proc.stdout
+    assert storage.in_memory is True
+    assert storage.name == "my_session"
+    assert storage.session_string == session_string
+    # in_memory 模式下 database 直接解析为 ":memory:"，与文件路径无关
+    assert storage.database == ":memory:"
 
 
-def test_memory_storage_compat_initialization():
-    """测试 MemoryStorage 兼容不同版本的构造参数与模式。"""
-    from tg_signer.compat import MemoryStorage
+def test_is_valid_session_string_accepts_and_rejects():
+    """session_string 校验：接受 pyrogram 新旧格式，拒绝 Telethon 前缀与损坏数据。"""
+    from tg_signer.compat import is_valid_session_string
 
-    s1 = MemoryStorage("session1")
-    assert s1 is not None
+    # 新版格式（含 api_id）
+    assert is_valid_session_string(_make_valid_session_string()) is True
 
-    s2 = MemoryStorage("session2", session_string="dummy_session_string")
-    assert s2 is not None
+    # 旧格式（无 api_id）：351/356 两种 user_id 宽度
+    import base64
+    import struct
 
-    try:
-        s3 = MemoryStorage("session3", session_string=None, workdir=Path("."))
-        assert s3 is not None
-    except TypeError:
-        # 原生 MemoryStorage (<=2.2.9) 不接收 workdir
-        s3 = MemoryStorage("session3", session_string=None)
-        assert s3 is not None
+    old_32 = base64.urlsafe_b64encode(
+        struct.pack(">B?256sI?", 2, False, bytes(range(256)), 777000, False)
+    ).decode("ascii").rstrip("=")
+    old_64 = base64.urlsafe_b64encode(
+        struct.pack(">B?256sQ?", 2, False, bytes(range(256)), 777000, False)
+    ).decode("ascii").rstrip("=")
+    assert len(old_32) == 351 and is_valid_session_string(old_32) is True
+    assert len(old_64) == 356 and is_valid_session_string(old_64) is True
+
+    # 历史错误导出产生的超长串（357）必须判坏，避免上游解码阶段抛错
+    assert is_valid_session_string(old_64 + "A") is False
+    # Telethon 风格前缀与各类损坏输入
+    assert is_valid_session_string("1" + old_64) is False
+    assert is_valid_session_string("not-base64!!!") is False
+    assert is_valid_session_string("") is False
+    assert is_valid_session_string(None) is False
+    assert is_valid_session_string(12345) is False
 
 
-def test_client_storage_error_chaining():
-    """测试当 MemoryStorage 不可用时，Client 初始化保留底层异常链路。"""
-    from unittest.mock import patch
+@pytest.mark.asyncio
+async def test_in_memory_client_without_session_string_fails_closed():
+    """in_memory 模式无可用 session_string 时必须明确报错，且不得伪装成「会话失效」。
 
+    空内存库 connect() 同样返回 False；消息刻意不含 "Session invalid"，
+    避免上层把配置缺失误判为账号需重新登录。引用计数必须回滚，不残留半初始化客户端。
+    """
     import tg_signer.core.client as client_mod
 
-    with patch.object(client_mod, "MemoryStorage", None):
-        with patch.object(
-            client_mod,
-            "_MEMORY_STORAGE_IMPORT_ERROR",
-            NotImplementedError("mocked root cause"),
-        ):
-            with pytest.raises(RuntimeError) as exc_info:
-                client_mod.Client("test_dummy", session_string=None, in_memory=True)
-            assert "mocked root cause" in str(exc_info.value)
-            assert isinstance(exc_info.value.__cause__, NotImplementedError)
+    client = client_mod.Client("test_dummy", session_string=None, in_memory=True)
+    with pytest.raises(ConnectionError) as exc_info:
+        async with client:
+            pass
+    message = str(exc_info.value)
+    assert "session_string" in message
+    assert "Session invalid" not in message
+    assert client_mod._CLIENT_REFS.get(client.key, 0) == 0
+    assert client.key not in client_mod._CLIENT_INSTANCES
+
+
+@pytest.mark.asyncio
+async def test_in_memory_client_preloads_valid_session_string(tmp_path: Path):
+    """in_memory 且未显式传串时，必须从会话目录预加载合法 session_string 并原生装配。"""
+    import tg_signer.core.client as client_mod
+    from tg_signer.core import _CLIENT_INSTANCES
+
+    keys_before = set(_CLIENT_INSTANCES.keys())
+    try:
+        session_string = _make_valid_session_string()
+        (tmp_path / "preload_test.session_string").write_text(
+            session_string, encoding="utf-8"
+        )
+        client = client_mod.Client(
+            "preload_test", in_memory=True, workdir=tmp_path, api_id=1, api_hash="h"
+        )
+        assert client.session_string == session_string
+        # 父类原生装配：内存存储 + 携带 session_string
+        assert client.storage.in_memory is True
+        assert client.storage.session_string == session_string
+    finally:
+        for k in list(_CLIENT_INSTANCES.keys()):
+            if k not in keys_before:
+                _CLIENT_INSTANCES.pop(k, None)
+
+
+@pytest.mark.asyncio
+async def test_in_memory_client_discards_corrupted_session_string(tmp_path: Path):
+    """损坏的 session_string 缓存必须被删除并按缺失处理（自愈，而非启动即崩）。"""
+    import tg_signer.core.client as client_mod
+    from tg_signer.core import _CLIENT_INSTANCES
+
+    keys_before = set(_CLIENT_INSTANCES.keys())
+    try:
+        cache = tmp_path / "corrupt_test.session_string"
+        # 历史错误导出产生的 357 长度坏串
+        cache.write_text("A" * 357, encoding="utf-8")
+        client = client_mod.Client(
+            "corrupt_test", in_memory=True, workdir=tmp_path, api_id=1, api_hash="h"
+        )
+        assert client.session_string is None
+        assert not cache.exists(), "坏缓存必须被删除以便下次从 .session 重导"
+
+        with pytest.raises(ConnectionError) as exc_info:
+            async with client:
+                pass
+        assert "Session invalid" not in str(exc_info.value)
+    finally:
+        for k in list(_CLIENT_INSTANCES.keys()):
+            if k not in keys_before:
+                _CLIENT_INSTANCES.pop(k, None)
 
 
 @pytest.mark.asyncio

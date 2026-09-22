@@ -26,17 +26,16 @@ except ImportError:  # pragma: no cover - pydantic v1 compatibility
 _PYDANTIC_V2 = hasattr(BaseModel, "model_validate")
 
 from tg_signer.compat import (  # noqa: E402
-    _MEMORY_STORAGE_IMPORT_ERROR,
     _PYROGRAM_IMPORT_ERROR,
     BaseClient,
     Chat,
     ChatType,
     InlineKeyboardMarkup,
-    MemoryStorage,
     Message,
     ReplyKeyboardMarkup,
     Session,
     _raise_pyrogram_import_error,
+    is_valid_session_string,
     patch_kurigram_compat,
     raw,
     session_check_failure,
@@ -67,10 +66,12 @@ sqlite3.connect = _patched_sqlite3_connect
 # 存储类在 kurigram 2.2.10 起由 pyrogram.storage.file_storage.FileStorage 迁移为
 # pyrogram.storage.sqlite_storage.SQLiteStorage，且 create()/update() 由同步改为协程；
 # 因此按实际可用模块解析类，并保持原同步/异步契约调用生命周期方法。
-# 若全部候选都不可用，必须显式告警而不是静默降级，避免补丁失效无人察觉。
+# 项目钉死 kurigram==2.2.26（file_storage 模块已不存在），仅保留 SQLiteStorage 候选；
+# 2.2.26 虽新增了构造参数 use_wal，但 Client 不会传入、且上游 open() 仍会执行 VACUUM，
+# 因此本补丁（WAL + busy_timeout + 跳过 VACUUM）依然必要，不能以原生 use_wal 取代。
+# 若候选类不可用，必须显式告警而不是静默降级，避免补丁失效无人察觉。
 _STORAGE_CLASS_CANDIDATES = (
     ("pyrogram.storage.sqlite_storage", "SQLiteStorage"),
-    ("pyrogram.storage.file_storage", "FileStorage"),
 )
 
 
@@ -202,7 +203,9 @@ logger = logging.getLogger("tg-signer")
 
 DICE_EMOJIS = ("🎲", "🎯", "🏀", "⚽", "🎳", "🎰")
 
-Session.START_TIMEOUT = 5  # 原始超时时间为2秒，但一些代理访问会超时，所以这里调大一点
+# 会话握手超时：与 kurigram 2.2.26 上游默认值一致，显式保留以防上游调小后
+# 慢速代理环境出现启动超时（原值为 2s，代理场景偏紧）
+Session.START_TIMEOUT = 5
 
 OPENAI_USE_PROMPT = "当前任务需要配置大模型，请确保运行前正确设置`OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`等环境变量，或通过`tg-signer llm-config`持久化配置。"
 
@@ -303,34 +306,52 @@ class Client(BaseClient):
             _raise_pyrogram_import_error()
         key = kwargs.pop("key", None)
         self._tg_signpulse_no_updates = kwargs.get("no_updates")
+        # in_memory 模式且未显式提供 session_string 时，先从会话目录预加载并校验，
+        # 再由父类原生装配 SQLiteStorage(in_memory=True, session_string=...)
+        # （kurigram >= 2.2.10 原生能力，见 pyrogram/client.py 存储装配段）。
+        # 必须在 super().__init__() 之前注入：父类据 session_string 决定存储类型。
+        if kwargs.get("in_memory") and not kwargs.get("session_string"):
+            loaded = self._read_validated_session_string_file(
+                name, kwargs.get("workdir") or "."
+            )
+            if loaded:
+                kwargs["session_string"] = loaded
         super().__init__(name, *args, **kwargs)
         self.key = key or str(pathlib.Path(self.workdir).joinpath(self.name).resolve())
-        if self.in_memory and not self.session_string:
-            self.load_session_string()
-            if MemoryStorage is None:
-                err_msg = "Telegram 运行时存储引擎不可用，string 会话模式无法加载"
-                if _MEMORY_STORAGE_IMPORT_ERROR is not None:
-                    raise RuntimeError(
-                        f"{err_msg}: {_MEMORY_STORAGE_IMPORT_ERROR}"
-                    ) from _MEMORY_STORAGE_IMPORT_ERROR
-                raise RuntimeError(err_msg)
 
-            # 根据构造函数签名显式分派参数，避免宽泛捕获 TypeError 掩盖真实构造异常
+    @staticmethod
+    def _read_validated_session_string_file(
+        name: str, workdir: Union[str, pathlib.Path]
+    ) -> Union[str, None]:
+        """读取并校验 `<workdir>/<name>.session_string` 缓存文件。
+
+        校验逻辑与面板侧保持一致（tg_signer.compat.is_valid_session_string）：
+        历史错误导出曾把超长坏串落盘成缓存，直接注入内存存储会在上游解码阶段抛
+        binascii.Error / struct.error 使任务无自愈地全失败。坏串按缓存失效处理：
+        删除文件、告警、返回 None 让调用方走明确的缺参报错路径。
+        """
+        path = pathlib.Path(workdir) / f"{name}.session_string"
+        if not path.is_file():
+            return None
+        try:
+            content = path.read_text(encoding="utf-8").strip()
+        except OSError as exc:
+            logger.warning("读取 session_string 缓存失败 %s: %s", path, exc)
+            return None
+        if not content:
+            return None
+        if not is_valid_session_string(content):
+            logger.warning(
+                "session_string 缓存损坏或为不受支持的格式，已删除并按缺失处理: %s",
+                path,
+            )
             try:
-                sig = inspect.signature(MemoryStorage.__init__)
-                has_workdir = "workdir" in sig.parameters or any(
-                    p.kind == inspect.Parameter.VAR_KEYWORD
-                    for p in sig.parameters.values()
-                )
-            except (ValueError, TypeError):
-                has_workdir = False
-
-            if has_workdir:
-                self.storage = MemoryStorage(
-                    self.name, self.session_string, workdir=self.workdir
-                )
-            else:
-                self.storage = MemoryStorage(self.name, self.session_string)
+                path.unlink()
+            except OSError:
+                pass
+            return None
+        logger.info("从本地文件加载 session_string。")
+        return content
 
     async def __aenter__(self):
         lock = _CLIENT_ASYNC_LOCKS.get(self.key)
@@ -340,6 +361,18 @@ class Client(BaseClient):
         async with lock:
             _CLIENT_REFS[self.key] += 1
             if _CLIENT_REFS[self.key] == 1:
+                # 内存模式没有任何可用 session_string 时，空库 connect() 同样返回 False。
+                # 必须与真正的「会话失效」区分：否则上层会把配置缺失误判为账号需重新登录。
+                # 消息刻意不含 "Session invalid" 字样，避免被失效判定链路误捕获。
+                if self.in_memory and not self.session_string:
+                    _CLIENT_REFS[self.key] -= 1
+                    if _CLIENT_REFS[self.key] <= 0:
+                        _CLIENT_REFS.pop(self.key, None)
+                        _CLIENT_INSTANCES.pop(self.key, None)
+                    raise ConnectionError(
+                        "No session_string available for in-memory mode: expected "
+                        f"{self.session_string_file} or an explicit session_string"
+                    )
                 # Retry loop for database locks
                 max_retries = 5
                 connected_ok = False
@@ -456,11 +489,14 @@ class Client(BaseClient):
             fp.write(await self.export_session_string())
 
     def load_session_string(self):
-        logger.info("从本地文件加载 session_string。")
-        if self.session_string_file.is_file():
-            with open(self.session_string_file, "r") as fp:
-                self.session_string = fp.read()
-                logger.info("session_string 已加载。")
+        """从会话目录加载 session_string（带格式校验，坏串按缓存失效处理）。
+
+        与 __init__ 的预加载共用同一判定：仅当文件内容可被上游存储解码时才赋值，
+        否则删除坏缓存并保持 session_string 为 None。
+        """
+        loaded = self._read_validated_session_string_file(self.name, self.workdir)
+        if loaded:
+            self.session_string = loaded
         return self.session_string
 
     async def log_out(
