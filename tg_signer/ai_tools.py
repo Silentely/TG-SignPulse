@@ -38,6 +38,26 @@ def ai_cfg_signature(cfg: Any) -> tuple[str, str, str]:
 
 DEFAULT_MODEL = "gpt-5-nano"
 
+
+def prefers_max_completion_tokens(model: Any) -> bool:
+    """判断模型是否优先/要求使用 max_completion_tokens 而非 max_tokens。
+
+    OpenAI o 系列（o1/o3/o4...）以及 GPT-5 系列（gpt-5*）等新架构模型已废弃 max_tokens，
+    必须使用 max_completion_tokens。
+    """
+    if not model or not isinstance(model, str):
+        return False
+    name = model.strip().lower()
+    if "/" in name:
+        name = name.split("/")[-1]
+    return any(
+        name == p
+        or name.startswith(f"{p}-")
+        or name.startswith(f"{p}.")
+        or name.startswith(f"{p}_")
+        for p in ("gpt-5", "o1", "o3", "o4")
+    )
+
 DEFAULT_CHOOSE_OPTION_BY_IMAGE_PROMPT = (
     "You are a low-latency visual matcher for Telegram sign-in challenges. "
     "Choose exactly one option whose text best matches the main object or "
@@ -643,8 +663,10 @@ class AITools:
     def _extract_error_fields(cls, exc: Exception) -> dict:
         """从异常对象提取上游返回的结构化错误字段（error.type/code/param/message）。"""
         body = getattr(exc, "body", None)
-        if isinstance(body, dict) and isinstance(body.get("error"), dict):
-            return dict(body["error"])
+        if isinstance(body, dict):
+            if isinstance(body.get("error"), dict):
+                return dict(body["error"])
+            return dict(body)
         return {}
 
     @classmethod
@@ -695,6 +717,133 @@ class AITools:
             "openai_error",
         )
         return any(marker in text for marker in markers)
+
+    @classmethod
+    def is_token_param_rejection_error(cls, exc: Exception) -> Optional[str]:
+        """判断错误是否为 max_tokens 与 max_completion_tokens 的参数互斥/不支持错误。
+
+        返回被拒绝的参数名 ('max_tokens' 或 'max_completion_tokens')，若不是则返回 None。
+        """
+        status = cls._get_exception_status_code(exc)
+        if status is not None and status not in {400, 422}:
+            return None
+
+        fields = cls._extract_error_fields(exc)
+        code = str(fields.get("code") or "").lower()
+        msg = (fields.get("message") or str(exc)).lower()
+
+        # 排除明确属于参数数值超限、类型不合法等非参数名称不支持的错误
+        invalid_value_markers = (
+            "invalid_value",
+            "out_of_range",
+            "greater than",
+            "less than",
+            "must be",
+            "too large",
+            "too small",
+            "expected integer",
+        )
+        if any(m in code or m in msg for m in invalid_value_markers):
+            return None
+
+        unsupported_markers = (
+            "unsupported",
+            "not supported",
+            "unknown",
+            "unrecognized",
+            "invalid_parameter",
+            "use 'max_tokens' instead",
+            "use max_tokens instead",
+            "use 'max_completion_tokens' instead",
+            "use max_completion_tokens instead",
+        )
+
+        param = fields.get("param")
+        if isinstance(param, str):
+            param_lower = param.strip().lower()
+            if param_lower in {"max_tokens", "max_completion_tokens"}:
+                # param 命中时必须同时伴随 unsupported 等明确语义，防止数值/类型错误误判
+                if any(m in code or m in msg for m in unsupported_markers):
+                    return param_lower
+
+        # 优先匹配明确拒绝 max_completion_tokens 的语句（兼容 OpenAI、Azure 及各类中转网关）
+        if (
+            "unsupported parameter: 'max_completion_tokens'" in msg
+            or "unsupported parameter: max_completion_tokens" in msg
+            or "'max_completion_tokens' is not supported" in msg
+            or "max_completion_tokens is not supported" in msg
+            or "unknown parameter: 'max_completion_tokens'" in msg
+            or "unknown parameter: max_completion_tokens" in msg
+            or "unknown parameter 'max_completion_tokens'" in msg
+            or "unrecognized request argument: 'max_completion_tokens'" in msg
+            or "unrecognized request argument: max_completion_tokens" in msg
+            or "unrecognized request argument supplied: 'max_completion_tokens'" in msg
+            or "unrecognized request argument supplied: max_completion_tokens" in msg
+            or "unrecognized request argument supplied 'max_completion_tokens'" in msg
+            or "use 'max_tokens' instead" in msg
+            or "use max_tokens instead" in msg
+        ):
+            return "max_completion_tokens"
+
+        # 优先匹配明确拒绝 max_tokens 的语句（兼容 OpenAI、Azure 及各类中转网关）
+        if (
+            "unsupported parameter: 'max_tokens'" in msg
+            or "unsupported parameter: max_tokens" in msg
+            or "'max_tokens' is not supported" in msg
+            or "max_tokens is not supported" in msg
+            or "unknown parameter: 'max_tokens'" in msg
+            or "unknown parameter: max_tokens" in msg
+            or "unknown parameter 'max_tokens'" in msg
+            or "unrecognized request argument: 'max_tokens'" in msg
+            or "unrecognized request argument: max_tokens" in msg
+            or "unrecognized request argument supplied: 'max_tokens'" in msg
+            or "unrecognized request argument supplied: max_tokens" in msg
+            or "unrecognized request argument supplied 'max_tokens'" in msg
+            or "use 'max_completion_tokens' instead" in msg
+            or "use max_completion_tokens instead" in msg
+        ):
+            return "max_tokens"
+
+        return None
+
+    @classmethod
+    def _is_temperature_rejection_error(cls, exc: Exception) -> bool:
+        """判断错误是否为模型不支持 temperature 参数或非默认温度值（如 GPT-5 / o 系列推理模型）。"""
+        status = cls._get_exception_status_code(exc)
+        if status is not None and status not in {400, 422}:
+            return False
+
+        fields = cls._extract_error_fields(exc)
+        param = str(fields.get("param") or "").strip().lower()
+        code = str(fields.get("code") or "").strip().lower()
+        msg = (fields.get("message") or str(exc)).lower()
+
+        if param == "temperature":
+            if any(
+                m in code or m in msg
+                for m in (
+                    "unsupported",
+                    "not supported",
+                    "does not support",
+                    "invalid",
+                    "unknown",
+                )
+            ):
+                return True
+
+        if "temperature" in msg and (
+            "does not support" in msg
+            or "not support" in msg
+            or "unsupported" in msg
+            or "only the default" in msg
+            or "unknown parameter" in msg
+            or "unrecognized request argument" in msg
+        ):
+            return True
+
+        return False
+
+    _is_token_param_rejection_error = is_token_param_rejection_error
 
     @staticmethod
     def _get_exception_status_code(exc: Exception) -> int | None:
@@ -821,13 +970,20 @@ class AITools:
         =none 时启用，且优先与 JSON mode 组合）、去掉 response_format、
         最后退回裸请求。
         """
+        token_key = (
+            "max_completion_tokens"
+            if prefers_max_completion_tokens(model)
+            else "max_tokens"
+        )
         base: dict[str, Any] = {
             "messages": messages,
             "model": model,
             "stream": False,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
+            token_key: max_tokens,
         }
+        # OpenAI 推理模型（GPT-5 / o1 / o3 / o4 等）不接受非默认 temperature（传 0.1 会报 400 Unsupported value）
+        if not prefers_max_completion_tokens(model) and temperature is not None:
+            base["temperature"] = temperature
         reasoning_effort = cls._vision_reasoning_effort()
 
         def with_extras(**extras: Any) -> dict[str, Any]:
@@ -897,6 +1053,7 @@ class AITools:
         attempts = self._vision_retry_attempts()
         last_error: Exception | None = None
         stage_index = 0
+        token_switch_count = 0
 
         for attempt in range(1, attempts + 1):
             while stage_index < len(stages):
@@ -910,6 +1067,52 @@ class AITools:
                 except Exception as exc:
                     _elapsed = (time.monotonic() - _start) * 1000
                     last_error = exc
+
+                    token_reject = self._is_token_param_rejection_error(exc)
+                    if token_reject:
+                        if token_switch_count >= 1:
+                            logger.warning(
+                                "AI 模型 %s 再次拒绝 token 参数 %s，已达互换上限，终止互换以防死循环: %s",
+                                model,
+                                token_reject,
+                                safe_text_preview(exc, 200),
+                            )
+                        else:
+                            alt_key = (
+                                "max_completion_tokens"
+                                if token_reject == "max_tokens"
+                                else "max_tokens"
+                            )
+                            swapped = False
+                            for stage in stages:
+                                if token_reject in stage:
+                                    val = stage.pop(token_reject)
+                                    stage[alt_key] = val
+                                    swapped = True
+                            if swapped:
+                                token_switch_count += 1
+                                logger.warning(
+                                    "AI 模型 %s 不支持 %s 参数，自动切换为 %s 重试: %s",
+                                    model,
+                                    token_reject,
+                                    alt_key,
+                                    safe_text_preview(exc, 200),
+                                )
+                                continue
+
+                    if self._is_temperature_rejection_error(exc):
+                        temp_removed = False
+                        for stage in stages:
+                            if "temperature" in stage:
+                                stage.pop("temperature", None)
+                                temp_removed = True
+                        if temp_removed:
+                            logger.warning(
+                                "AI 模型 %s 不支持 temperature 参数，自动移除 temperature 重试: %s",
+                                model,
+                                safe_text_preview(exc, 200),
+                            )
+                            continue
 
                     if (
                         self._is_param_rejection_error(exc)
@@ -945,23 +1148,32 @@ class AITools:
 
                 _elapsed = (time.monotonic() - _start) * 1000
                 if self._is_truncated_completion(result):
+                    current_tokens = (
+                        kwargs.get("max_tokens")
+                        or kwargs.get("max_completion_tokens")
+                        or 0
+                    )
                     if (
                         attempt < attempts
-                        and kwargs["max_tokens"] < _VISION_MAX_TOKENS_CAP
+                        and current_tokens < _VISION_MAX_TOKENS_CAP
                     ):
-                        new_max = min(kwargs["max_tokens"] * 2, _VISION_MAX_TOKENS_CAP)
+                        new_max = min(current_tokens * 2, _VISION_MAX_TOKENS_CAP)
                         for stage in stages:
-                            stage["max_tokens"] = new_max
+                            if "max_tokens" in stage:
+                                stage["max_tokens"] = new_max
+                            elif "max_completion_tokens" in stage:
+                                stage["max_completion_tokens"] = new_max
                         logger.warning(
-                            "AI 视觉输出被 max_tokens 截断，放宽输出预算重试 (%d/%d) | model=%s max_tokens=%d",
+                            "AI 视觉输出被 token 预算截断，放宽输出预算重试 (%d/%d) | model=%s budget=%d",
                             attempt,
                             attempts,
                             model,
                             new_max,
                         )
                         break
+                    token_key = "max_tokens" if "max_tokens" in kwargs else "max_completion_tokens"
                     raise RuntimeError(
-                        f"AI 视觉输出在 max_tokens={kwargs['max_tokens']} 内被截断 | model={model}"
+                        f"AI 视觉输出在 {token_key}={current_tokens} 内被截断 | model={model}"
                     )
 
                 _usage = getattr(result, "usage", None)
@@ -1227,3 +1439,6 @@ class AITools:
         )
         message = completion.choices[0].message
         return message.content
+
+
+is_token_param_rejection_error = AITools.is_token_param_rejection_error

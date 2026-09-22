@@ -1334,3 +1334,278 @@ class OpenAIConfigCacheTest(unittest.TestCase):
         cfg = mgr.load_file_config()
         cfg["api_key"] = "mutated"
         self.assertEqual(mgr.load_file_config()["api_key"], "sk-1")
+
+
+class TokenBudgetCompatibilityTest(unittest.IsolatedAsyncioTestCase):
+    """max_tokens 与 max_completion_tokens 兼容性与自适应测试。"""
+
+    def test_prefers_max_completion_tokens(self):
+        from tg_signer.ai_tools import prefers_max_completion_tokens
+
+        # GPT-5 系列
+        self.assertTrue(prefers_max_completion_tokens("gpt-5"))
+        self.assertTrue(prefers_max_completion_tokens("gpt-5-nano"))
+        self.assertTrue(prefers_max_completion_tokens("gpt-5.4-mini"))
+        self.assertTrue(prefers_max_completion_tokens("openai/gpt-5-mini"))
+
+        # o 系列
+        self.assertTrue(prefers_max_completion_tokens("o1"))
+        self.assertTrue(prefers_max_completion_tokens("o1-mini"))
+        self.assertTrue(prefers_max_completion_tokens("o1-preview"))
+        self.assertTrue(prefers_max_completion_tokens("o3-mini"))
+        self.assertTrue(prefers_max_completion_tokens("o4-mini"))
+
+        # 传统与第三方模型
+        self.assertFalse(prefers_max_completion_tokens("gpt-4o"))
+        self.assertFalse(prefers_max_completion_tokens("gpt-4o-mini"))
+        self.assertFalse(prefers_max_completion_tokens("claude-3-5-sonnet"))
+        self.assertFalse(prefers_max_completion_tokens("deepseek-chat"))
+        self.assertFalse(prefers_max_completion_tokens(""))
+        self.assertFalse(prefers_max_completion_tokens(None))
+
+    def test_is_token_param_rejection_error_detection(self):
+        # 结构化错误 (param="max_tokens")
+        exc_structured = SimpleNamespace(
+            body={"error": {"param": "max_tokens", "code": "unsupported_parameter"}},
+            status_code=400,
+        )
+        self.assertEqual(
+            AITools._is_token_param_rejection_error(exc_structured), "max_tokens"
+        )
+
+        # 文本型错误 (Issue #11 真实报错格式)
+        exc_text = Exception(
+            "Error code: 400 - {'error': {'message': \"Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.\", 'type': 'invalid_request_error', 'param': 'max_tokens', 'code': 'unsupported_parameter'}}"
+        )
+        self.assertEqual(
+            AITools._is_token_param_rejection_error(exc_text), "max_tokens"
+        )
+
+        # 反向不支持 (max_completion_tokens)
+        exc_reverse = Exception(
+            "Error code: 400 - {'error': {'message': \"Unsupported parameter: 'max_completion_tokens' is not supported with this model. Use 'max_tokens' instead.\", 'param': 'max_completion_tokens'}}"
+        )
+        self.assertEqual(
+            AITools._is_token_param_rejection_error(exc_reverse), "max_completion_tokens"
+        )
+
+        # 无关错误 (如 401 认证失败或无关 400)
+        exc_auth = SimpleNamespace(status_code=401, body={"error": {"code": "invalid_api_key"}})
+        self.assertIsNone(AITools._is_token_param_rejection_error(exc_auth))
+
+    def test_build_visual_request_stages_token_param(self):
+        # gpt-5 初始 stage 包含 max_completion_tokens
+        stages_gpt5 = AITools._build_visual_request_stages(
+            messages=[],
+            model="gpt-5-nano",
+            temperature=0.0,
+            max_tokens=512,
+            expect_json=True,
+        )
+        self.assertIn("max_completion_tokens", stages_gpt5[0])
+        self.assertNotIn("max_tokens", stages_gpt5[0])
+        self.assertEqual(stages_gpt5[0]["max_completion_tokens"], 512)
+
+        # gpt-4o 初始 stage 包含 max_tokens
+        stages_gpt4 = AITools._build_visual_request_stages(
+            messages=[],
+            model="gpt-4o",
+            temperature=0.0,
+            max_tokens=512,
+            expect_json=True,
+        )
+        self.assertIn("max_tokens", stages_gpt4[0])
+        self.assertNotIn("max_completion_tokens", stages_gpt4[0])
+        self.assertEqual(stages_gpt4[0]["max_tokens"], 512)
+
+    async def test_runtime_auto_switch_on_token_param_rejection(self):
+        """当遇到 max_tokens 被拒时，自动无缝切换为 max_completion_tokens 重试并成功。"""
+        fake_completions = _FakeCompletions(
+            [
+                Exception(
+                    "Error code: 400 - {'error': {'message': \"Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.\", 'param': 'max_tokens', 'code': 'unsupported_parameter'}}"
+                ),
+                SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"options":[1]}'), finish_reason="stop")]),
+            ]
+        )
+        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=fake_completions))
+        tools = AITools({"api_key": "test", "model": "custom-unrecognized-gpt"})
+        tools.client = fake_client
+
+        res = await tools.choose_options_by_image(
+            b"fake-image",
+            "Choose",
+            [(1, "apple"), (2, "banana")],
+        )
+        self.assertEqual(res, [1])
+        self.assertEqual(len(fake_completions.calls), 2)
+        # 第一次请求带有 max_tokens
+        self.assertIn("max_tokens", fake_completions.calls[0])
+        # 重试时自动切换为 max_completion_tokens
+        self.assertIn("max_completion_tokens", fake_completions.calls[1])
+        self.assertNotIn("max_tokens", fake_completions.calls[1])
+        self.assertEqual(fake_completions.calls[1]["max_completion_tokens"], 512)
+
+    async def test_truncation_retry_with_max_completion_tokens(self):
+        """GPT-5 截断时 max_completion_tokens 正常翻倍重试。"""
+        fake_completions = _FakeCompletions(
+            [
+                SimpleNamespace(
+                    choices=[SimpleNamespace(finish_reason="length", message=SimpleNamespace(content="trunc"))]
+                ),
+                SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"options":[2]}'), finish_reason="stop")]),
+            ]
+        )
+        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=fake_completions))
+        tools = AITools({"api_key": "test", "model": "gpt-5-nano"})
+        tools.client = fake_client
+
+        res = await tools.choose_options_by_image(
+            b"fake-image",
+            "Choose",
+            [(1, "apple"), (2, "banana")],
+        )
+        self.assertEqual(res, [2])
+        self.assertEqual(len(fake_completions.calls), 2)
+        self.assertEqual(fake_completions.calls[0]["max_completion_tokens"], 512)
+        self.assertEqual(fake_completions.calls[1]["max_completion_tokens"], 1024)
+
+    def test_invalid_value_or_quota_error_not_misidentified(self):
+        """参数数值不合法（invalid_value）等非参数名不支持的错误，不应误判为 token 参数不支持。"""
+        from tg_signer.ai_tools import is_token_param_rejection_error
+
+        exc_invalid_val = SimpleNamespace(
+            status_code=400,
+            body={"error": {"param": "max_tokens", "code": "invalid_value", "message": "max_tokens must be <= 4096"}},
+        )
+        self.assertIsNone(is_token_param_rejection_error(exc_invalid_val))
+
+        exc_too_large = Exception("Error code: 400 - max_tokens is too large, must be at most 2048")
+        self.assertIsNone(is_token_param_rejection_error(exc_too_large))
+
+    def test_unrelated_status_code_not_misidentified(self):
+        """非 400/422 状态码（如 401 认证失败）即使文本中提到参数名，也不应判定为 token 参数被拒。"""
+        from tg_signer.ai_tools import is_token_param_rejection_error
+
+        exc_401 = SimpleNamespace(
+            status_code=401,
+            body={"error": {"message": "Invalid API key for max_completion_tokens"}},
+        )
+        self.assertIsNone(is_token_param_rejection_error(exc_401))
+
+    async def test_runtime_oscillation_guard_prevents_infinite_loop(self):
+        """当上游交替拒绝 max_tokens 与 max_completion_tokens 时，至多互换一次，防止死循环。"""
+        err1 = Exception(
+            'Error code: 400 - {"error": {"message": "Unsupported parameter: \'max_tokens\'. Use \'max_completion_tokens\' instead.", "param": "max_tokens", "code": "unsupported_parameter"}}'
+        )
+        err2 = Exception(
+            'Error code: 400 - {"error": {"message": "Unsupported parameter: \'max_completion_tokens\'. Use \'max_tokens\' instead.", "param": "max_completion_tokens", "code": "unsupported_parameter"}}'
+        )
+        fake_completions = _FakeCompletions([err1, err2, err2, err2])
+        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=fake_completions))
+        tools = AITools({"api_key": "test", "model": "oscillation-test-model"})
+        tools.client = fake_client
+
+        with self.assertRaises(Exception) as ctx:
+            await tools.choose_options_by_image(
+                b"fake-image",
+                "Choose",
+                [(1, "apple"), (2, "banana")],
+            )
+        # 验证在尝试完 1 次互换与正常 stage 降级后立即终止抛出异常，绝不发生无限死循环
+        self.assertLessEqual(len(fake_completions.calls), 3)
+        self.assertIn("max_completion_tokens", str(ctx.exception))
+
+    async def test_truncation_exception_message_matches_active_key(self):
+        """当模型输出截断且超过重试预算时，抛出的 RuntimeError 错误信息中准确显示对应的 token 键名。"""
+        fake_completions = _FakeCompletions(
+            [
+                SimpleNamespace(
+                    choices=[SimpleNamespace(finish_reason="length", message=SimpleNamespace(content="trunc"))]
+                ),
+            ] * 5
+        )
+        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=fake_completions))
+        tools = AITools({"api_key": "test", "model": "gpt-5-nano"})
+        tools.client = fake_client
+
+        with self.assertRaises(RuntimeError) as ctx:
+            await tools.choose_options_by_image(
+                b"fake-image",
+                "Choose",
+                [(1, "apple")],
+            )
+        # 验证提示信息中动态包含正确的键名 max_completion_tokens= 而非写死的 max_tokens=
+        self.assertIn("max_completion_tokens=1024", str(ctx.exception))
+
+    def test_azure_unrecognized_argument_supplied_format_recognized(self):
+        """Azure OpenAI 旧版 api-version 报错 Unrecognized request argument supplied 能被精准识别。"""
+        from tg_signer.ai_tools import is_token_param_rejection_error
+
+        azure_err = SimpleNamespace(
+            status_code=400,
+            body={
+                "error": {
+                    "message": "Unrecognized request argument supplied: max_completion_tokens",
+                    "type": "invalid_request_error",
+                    "param": None,
+                    "code": None,
+                }
+            },
+        )
+        self.assertEqual(is_token_param_rejection_error(azure_err), "max_completion_tokens")
+
+        azure_err_old_tokens = Exception(
+            "Error code: 400 - {'error': {'message': 'Unrecognized request argument supplied: max_tokens'}}"
+        )
+        self.assertEqual(is_token_param_rejection_error(azure_err_old_tokens), "max_tokens")
+
+    def test_flat_body_error_fields_extraction(self):
+        """第三方代理返回顶层扁平结构（无 error 包装）时也能正确提取错误字段。"""
+        tools = AITools({"api_key": "test", "model": "test-model"})
+        flat_exc = SimpleNamespace(
+            status_code=400,
+            body={"message": "Unrecognized request argument: max_completion_tokens", "param": "max_completion_tokens"},
+        )
+        fields = tools._extract_error_fields(flat_exc)
+        self.assertEqual(fields.get("param"), "max_completion_tokens")
+        self.assertEqual(tools._is_token_param_rejection_error(flat_exc), "max_completion_tokens")
+
+    def test_gpt5_stages_built_without_temperature(self):
+        """GPT-5 / o 系列推理模型构建视觉请求 stages 时默认不带 temperature 参数。"""
+        tools = AITools({"api_key": "test", "model": "gpt-5-nano"})
+        stages = tools._build_visual_request_stages(
+            messages=[{"role": "user", "content": "hi"}],
+            model="gpt-5-nano",
+            temperature=0.1,
+            max_tokens=512,
+            expect_json=True,
+        )
+        for stage in stages:
+            self.assertNotIn("temperature", stage)
+            self.assertIn("max_completion_tokens", stage)
+
+    async def test_temperature_auto_removed_when_rejected(self):
+        """对于未预判的自定义模型，若上游报错不支持 temperature，自动移除 temperature 并重试成功。"""
+        temp_err = Exception(
+            'Error code: 400 - {"error": {"message": "Unsupported value: \'temperature\' does not support 0.1 with this model. Only the default (1) value is supported.", "param": "temperature", "code": "unsupported_value"}}'
+        )
+        success_resp = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content='{"options":[1]}'), finish_reason="stop")]
+        )
+        fake_completions = _FakeCompletions([temp_err, success_resp])
+        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=fake_completions))
+        tools = AITools({"api_key": "test", "model": "custom-reasoning-model"})
+        tools.client = fake_client
+
+        res = await tools.choose_options_by_image(
+            b"fake-image",
+            "Choose",
+            [(1, "apple")],
+        )
+        self.assertEqual(res, [1])
+        self.assertEqual(len(fake_completions.calls), 2)
+        # 第一次请求带有 temperature
+        self.assertIn("temperature", fake_completions.calls[0])
+        # 重试时自动移除了 temperature
+        self.assertNotIn("temperature", fake_completions.calls[1])

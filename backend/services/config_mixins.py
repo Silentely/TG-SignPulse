@@ -868,7 +868,11 @@ class AIConfigMixin:
 
         api_key = (config.get("api_key") or "").strip()
         base_url = config.get("base_url")
-        from tg_signer.ai_tools import DEFAULT_MODEL
+        from tg_signer.ai_tools import (
+            DEFAULT_MODEL,
+            is_token_param_rejection_error,
+            prefers_max_completion_tokens,
+        )
 
         model = config.get("model") or DEFAULT_MODEL
 
@@ -889,12 +893,37 @@ class AIConfigMixin:
 
             client = AsyncOpenAI(api_key=api_key, base_url=base_url)
 
-            # 发送一个简单的测试请求
-            response = await client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": "Say 'test ok' in 2 words"}],
-                max_tokens=10,
+            # 发送测试请求，自适应兼容新模型（如 gpt-5 / o 系列废弃 max_tokens 改用 max_completion_tokens）
+            token_key = (
+                "max_completion_tokens"
+                if prefers_max_completion_tokens(model)
+                else "max_tokens"
             )
+            # 推理模型的 max_completion_tokens 包含 reasoning tokens，给 64 以免被思考过程耗尽产生空响应
+            test_tokens = 64 if token_key == "max_completion_tokens" else 10
+            request_kwargs = {
+                "model": model,
+                "messages": [{"role": "user", "content": "Say 'test ok' in 2 words"}],
+                token_key: test_tokens,
+            }
+
+            try:
+                response = await client.chat.completions.create(**request_kwargs)
+            except Exception as e:
+                token_reject = is_token_param_rejection_error(e)
+                if token_reject:
+                    alt_token_key = (
+                        "max_completion_tokens"
+                        if token_reject == "max_tokens"
+                        else "max_tokens"
+                    )
+                    request_kwargs.pop(token_reject, None)
+                    request_kwargs[alt_token_key] = (
+                        64 if alt_token_key == "max_completion_tokens" else 10
+                    )
+                    response = await client.chat.completions.create(**request_kwargs)
+                else:
+                    raise
 
             return {
                 "success": True,

@@ -144,6 +144,8 @@ environment:
 
 
 > 说明：AI 视觉请求采用「参数兼容降级阶梯」——先按完整参数（`response_format: {"type":"json_object"}` + `reasoning_effort`）发起；被网关以 400/403/422 参数校验类错误拒绝（如 Vercel AI Gateway 的 `Invalid input`）时，自动依次降级为去掉 `reasoning_effort`、改用 Vercel 官方 `reasoning: {"enabled": false}` 关闭思考（仅当设置为 `none` 时启用，且优先与 JSON mode 组合）、去掉 `response_format`、最后退回裸请求重试，确保不因参数不兼容而失败。认证（401）、配额（429）与 5xx 瞬时错误不触发降级；上下文超长、内容策略等非参数错误也不触发降级。
+>
+> 针对 OpenAI GPT-5 与 o 系列（o1/o3/o4）等新架构模型：系统自动适配 `max_completion_tokens` 代替废弃的 `max_tokens`，并自动省略不支持的 `temperature` 参数；当遭遇不同网关/代理对 token 参数或 `temperature` 的互斥报错时，系统会自动进行双向参数名互换及 `temperature` 剔除重试，并包含单次请求防振荡死循环熔断保护。
 
 ## 容器相关
 
