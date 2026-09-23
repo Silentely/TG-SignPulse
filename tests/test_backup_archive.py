@@ -6,6 +6,7 @@ import pytest
 from backend.services.backup_archive import (
     DEFAULT_BACKUP_PATHS,
     auto_backup_interval_hours,
+    auto_backup_keep,
     create_backup_tarball,
     prune_backups,
     should_run_auto_backup,
@@ -66,3 +67,11 @@ def test_auto_backup_helpers():
     assert auto_backup_interval_hours({"auto_backup_interval_hours": 0}) == 1  # clamped
     assert auto_backup_interval_hours({"auto_backup_interval_hours": 200}) == 168  # clamped
     assert auto_backup_interval_hours(None) == 24
+
+    # 调度器依赖该函数读取保留份数，范围须与设置层钳制一致（1–30）
+    assert auto_backup_keep({"auto_backup_keep": 7}) == 7
+    assert auto_backup_keep({"auto_backup_keep": 0}) == 1
+    assert auto_backup_keep({"auto_backup_keep": 99}) == 30
+    assert auto_backup_keep({}) == 3
+    assert auto_backup_keep(None) == 3
+    assert auto_backup_keep({"auto_backup_keep": "bad"}) == 3

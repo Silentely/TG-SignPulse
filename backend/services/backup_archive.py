@@ -101,8 +101,12 @@ def run_auto_backup(
     keep: int = 3,
     paths: Optional[Iterable[str]] = None,
     webdav_settings: Optional[dict] = None,
+    s3_settings: Optional[dict] = None,
 ) -> dict:
-    """执行一次自动备份；WebDAV 上传成功后删除本地副本以节省磁盘。"""
+    """执行一次自动备份；远端（WebDAV / 对象存储）上传成功后删除本地副本以节省磁盘。
+
+    WebDAV 优先：二者都配置时走 WebDAV，对象存储仅在未配置 WebDAV 时生效。
+    """
     backup_dir = data_dir / "backups"
     backup_dir.mkdir(parents=True, exist_ok=True)
     # 备份文件名用 UTC，与历史记录/命中导出的时间口径一致，避免跨时区部署错位
@@ -123,16 +127,20 @@ def run_auto_backup(
             "local_removed": False,
             "error": str(exc),
             "webdav": None,
+            "s3": None,
         }
     try:
         size = dest.stat().st_size if dest.exists() else 0
     except OSError:
         size = 0
     webdav_result = None
+    s3_result = None
     remote_prune = None
     local_removed = False
     path_out = str(dest)
     wd = webdav_settings or {}
+    s3 = s3_settings or {}
+    use_s3 = not (wd.get("webdav_url") or "").strip() and _s3_ready(s3)
     if (wd.get("webdav_url") or "").strip():
         wd_proxy = str(wd.get("webdav_proxy") or wd.get("proxy") or "").strip() or None
         try:
@@ -176,6 +184,30 @@ def run_auto_backup(
             except Exception as exc:
                 logger.warning("远端备份清理失败: %s", exc)
                 remote_prune = {"success": False, "removed": 0, "error": str(exc)}
+    elif use_s3:
+        try:
+            s3_result = _run_coro_blocking(_upload_backup_to_s3(s3, dest))
+        except Exception as exc:
+            logger.warning("自动备份对象存储上传失败: %s", exc)
+            s3_result = {"success": False, "error": str(exc)}
+
+        # 远端已有副本则删本地，失败则保留便于补传
+        if s3_result and s3_result.get("success"):
+            try:
+                dest.unlink(missing_ok=True)
+                local_removed = True
+                path_out = str(s3_result.get("url") or "")
+            except OSError as exc:
+                logger.warning("删除本地自动备份失败 %s: %s", dest, exc)
+
+            # 远端按 keep 轮转清理旧包
+            try:
+                from backend.services.s3_backup import prune_s3_backups
+
+                remote_prune = _run_coro_blocking(prune_s3_backups(s3, keep=keep))
+            except Exception as exc:
+                logger.warning("对象存储远端备份清理失败: %s", exc)
+                remote_prune = {"success": False, "removed": 0, "error": str(exc)}
 
     removed = prune_backups(backup_dir, keep)
     return {
@@ -187,7 +219,53 @@ def run_auto_backup(
         "remote_prune": remote_prune,
         "local_removed": local_removed,
         "webdav": webdav_result,
+        "s3": s3_result,
     }
+
+
+def _s3_ready(s3: dict) -> bool:
+    """对象存储是否已配置且启用（必填项齐全）。"""
+    if not s3.get("s3_enabled"):
+        return False
+    try:
+        from backend.services.s3_backup import validate_s3_settings
+
+        validate_s3_settings(
+            endpoint_url=str(s3.get("s3_endpoint_url") or ""),
+            bucket=str(s3.get("s3_bucket") or ""),
+            access_key=str(s3.get("s3_access_key") or ""),
+            secret_key=str(s3.get("s3_secret_key") or ""),
+        )
+    except ValueError:
+        return False
+    return True
+
+
+def _run_coro_blocking(coro):
+    """在同步函数内执行异步协程。
+
+    run_auto_backup 由调度器经 asyncio.to_thread 放进工作线程执行（打包耗时不能
+    冻结事件循环），而对象存储客户端是异步的。工作线程内没有运行中的事件循环，
+    因此这里新建一个专用 loop 跑完即关，避免影响主循环。
+    """
+    import asyncio
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
+    # 已被事件循环调用：此时阻塞等待会冻结主循环，直接报错让调用方改为 await
+    raise RuntimeError("run_auto_backup 不能在运行中的事件循环内直接调用")
+
+
+async def _upload_backup_to_s3(s3: dict, dest: Path) -> dict:
+    from backend.services.s3_backup import upload_backup_to_s3
+
+    return await upload_backup_to_s3(s3, dest)
 
 
 def should_run_auto_backup(settings: Optional[dict]) -> bool:
@@ -204,3 +282,17 @@ def auto_backup_interval_hours(settings: Optional[dict]) -> int:
         return max(1, min(int(raw if raw is not None else 24), 168))
     except (TypeError, ValueError):
         return 24
+
+
+def auto_backup_keep(settings: Optional[dict]) -> int:
+    """自动备份保留份数，范围与设置层钳制口径一致（1–30，默认 3）。
+
+    本地与远端（WebDAV / 对象存储）共用该值做轮转，避免两侧保留策略不一致。
+    """
+    if not isinstance(settings, dict):
+        return 3
+    raw = settings.get("auto_backup_keep")
+    try:
+        return max(1, min(int(raw if raw is not None else 3), 30))
+    except (TypeError, ValueError):
+        return 3

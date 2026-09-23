@@ -32,6 +32,7 @@ export function useSettingsSave(options: {
   markSectionClean: (section: SettingsSection) => void
   afterBotTokenSaved: () => void
   afterWebdavSettingsSaved: () => void
+  afterS3SettingsSaved: () => void
   loadBackupStatus: (token: string) => Promise<void>
 }) {
   const { t } = useI18n()
@@ -109,6 +110,7 @@ export function useSettingsSave(options: {
       try {
         await saveGlobalSettings(token, options.buildBackupPayload())
         options.afterWebdavSettingsSaved()
+        options.afterS3SettingsSaved()
         options.markSectionClean('advanced')
         notifySuccess(t('settings.saveSuccess'))
         try {
@@ -137,6 +139,7 @@ export function useSettingsSave(options: {
         // 保存成功后立即同步面板展示时区，Dashboard/Logs 等页时间格式跟随
         setPanelTimezone(String(options.buildGeneralPayload().timezone || ''))
         options.afterWebdavSettingsSaved()
+        options.afterS3SettingsSaved()
         options.afterBotTokenSaved()
         options.markSectionClean('general')
         options.markSectionClean('bot')

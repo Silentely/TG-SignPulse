@@ -49,6 +49,14 @@ const baseSettings = (): SettingsFormState => ({
   webdavUsername: '',
   webdavPassword: '',
   webdavRemoteDir: 'tg-signpulse-backups',
+  s3Enabled: false,
+  s3EndpointUrl: '',
+  s3Bucket: '',
+  s3AccessKey: '',
+  s3SecretKey: '',
+  s3Region: '',
+  s3Prefix: '',
+  s3Proxy: '',
 })
 
 describe('settings-form', () => {
@@ -173,6 +181,29 @@ describe('settings-form', () => {
     expect('ai_vision_timeout' in p).toBe(false)
   })
 
+  it('buildBackupPayload 发送对象存储字段与默认值', () => {
+    const s = baseSettings()
+    s.s3Enabled = true
+    s.s3EndpointUrl = 'https://s3.example.com'
+    s.s3Bucket = 'bk'
+    s.s3AccessKey = 'AK'
+    s.s3SecretKey = 'sk'
+    const p = buildBackupPayload(s) as Record<string, unknown>
+    expect(p.s3_enabled).toBe(true)
+    expect(p.s3_endpoint_url).toBe('https://s3.example.com')
+    expect(p.s3_bucket).toBe('bk')
+    expect(p.s3_access_key).toBe('AK')
+    expect(p.s3_secret_key).toBe('sk')
+    expect(p.s3_region).toBe('auto')
+    expect(p.s3_prefix).toBe('tg-signpulse-backups')
+    expect(p.s3_proxy).toBe(null)
+  })
+
+  it('buildBackupPayload 空密钥不下发 s3_secret_key', () => {
+    const p = buildBackupPayload(baseSettings()) as Record<string, unknown>
+    expect('s3_secret_key' in p).toBe(false)
+  })
+
   it('section dirty is independent', () => {
     const s = baseSettings()
     const tg: TgFormState = { api_id: '', api_hash: '' }
@@ -252,5 +283,24 @@ describe('applyGlobalSettingsToForm', () => {
     expect(s.timezone).toBe('UTC')
     expect(flags.botTokenSet).toBe(true)
     expect(flags.webdavPasswordSet).toBe(true)
+  })
+
+  it('maps s3 secret masking flag into form', () => {
+    const s = baseSettings()
+    const flags = applyGlobalSettingsToForm(s, {
+      s3_enabled: true,
+      s3_endpoint_url: 'https://minio.local:9000',
+      s3_bucket: 'bk',
+      s3_region: 'us-west-2',
+      s3_prefix: 'nested/prefix',
+      s3_secret_key_set: true,
+    })
+    expect(s.s3Enabled).toBe(true)
+    expect(s.s3EndpointUrl).toBe('https://minio.local:9000')
+    expect(s.s3Bucket).toBe('bk')
+    expect(s.s3Region).toBe('us-west-2')
+    expect(s.s3Prefix).toBe('nested/prefix')
+    expect(s.s3SecretKey).toBe('')
+    expect(flags.s3SecretKeySet).toBe(true)
   })
 })

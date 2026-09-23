@@ -45,6 +45,12 @@ const {
   webdavPasswordSet,
   botTokenSet,
   remoteDownloadName,
+  s3TestLoading,
+  s3ListLoading,
+  remoteS3Files,
+  remoteS3Message,
+  s3SecretKeySet,
+  remoteS3DownloadName,
   saveSettings,
   runKeepaliveNow,
   saveBotSettings,
@@ -61,6 +67,9 @@ const {
   handleWebdavTest,
   handleListRemoteBackups,
   handleDownloadRemoteBackup,
+  handleListS3RemoteBackups,
+  handleDownloadS3RemoteBackup,
+  handleS3Test,
   handleCheckUpdate,
   toggleReveal,
   reload: reloadData,
@@ -127,14 +136,20 @@ const {
           <DataManagementSettings
             v-model="settings"
             :webdav-password-set="webdavPasswordSet"
+            :s3-secret-key-set="s3SecretKeySet"
             :backup-status="backupStatus"
             :remote-files="remoteWebdavFiles"
             :remote-message="remoteWebdavMessage"
             :remote-download-name="remoteDownloadName"
+            :remote-s3-files="remoteS3Files"
+            :remote-s3-message="remoteS3Message"
+            :remote-s3-download-name="remoteS3DownloadName"
             :data-loading="dataLoading"
             :backup-loading="backupLoading"
             :webdav-test-loading="webdavTestLoading"
             :webdav-list-loading="webdavListLoading"
+            :s3-test-loading="s3TestLoading"
+            :s3-list-loading="s3ListLoading"
             :advanced-loading="advancedLoading"
             @export-json="handleExport"
             @import-json="handleImportFile"
@@ -142,6 +157,9 @@ const {
             @webdav-test="handleWebdavTest"
             @webdav-list="handleListRemoteBackups"
             @webdav-download="handleDownloadRemoteBackup"
+            @s3-test="handleS3Test"
+            @s3-list="handleListS3RemoteBackups"
+            @s3-download="handleDownloadS3RemoteBackup"
             @save-advanced="saveAdvancedSettings"
           />
         </div>

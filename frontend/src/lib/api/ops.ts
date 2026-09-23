@@ -1,5 +1,5 @@
 /**
- * 运维 Ops API：调度预览、备份导出、WebDAV 备份、内存统计、版本检查、运行时状态。
+ * 运维 Ops API：调度预览、备份导出、WebDAV / 对象存储备份、内存统计、版本检查、运行时状态。
  */
 import {
   createRequestAbort,
@@ -46,6 +46,8 @@ export interface BackupStatus {
   notes?: string[];
   restore_hint?: string;
   webdav_configured?: boolean;
+  /** 对象存储（S3/R2/MinIO）是否已配置且启用 */
+  s3_configured?: boolean;
   auto_backup_enabled?: boolean;
   local_auto_backups?: Array<{
     name: string;
@@ -58,9 +60,9 @@ export interface BackupStatus {
 export const getBackupStatus = (token: string) =>
   request<BackupStatus>("/ops/backup/status", {}, token);
 
-/** 完整备份：优先上传 WebDAV；未配置时服务端可能回退为下载流 */
+/** 完整备份：优先上传 WebDAV，其次对象存储；均未配置时服务端回退为下载流 */
 export async function exportBackupArchive(token: string): Promise<{
-  mode: "webdav" | "download";
+  mode: "webdav" | "s3" | "download";
   message?: string;
   remote_url?: string;
   filename?: string;
@@ -80,11 +82,14 @@ export async function exportBackupArchive(token: string): Promise<{
       const data = await res.json();
       if (data && data.success === false) {
         throw new Error(
-          String(data.message || data.detail || "WebDAV backup upload failed"),
+          String(data.message || data.detail || "Backup upload failed"),
         );
       }
+      // mode 由服务端按「WebDAV → 对象存储」优先级返回，前端据此提示
+      const mode: "webdav" | "s3" =
+        data.mode === "s3" ? "s3" : "webdav";
       return {
-        mode: "webdav",
+        mode,
         message: data.message,
         remote_url: data.remote_url,
         filename: data.filename,
@@ -111,7 +116,8 @@ export const testWebdavBackup = (token: string) =>
     MEDIUM_TIMEOUT_MS,
   );
 
-export interface WebDavRemoteFile {
+/** 远端备份包条目：WebDAV 与对象存储列表返回同构字段 */
+export interface RemoteBackupFile {
   name: string;
   href?: string;
   size_bytes?: number | null;
@@ -121,7 +127,7 @@ export interface WebDavRemoteFile {
 export const listWebdavBackupFiles = (token: string) =>
   request<{
     success: boolean;
-    files: WebDavRemoteFile[];
+    files: RemoteBackupFile[];
     message?: string;
     status_code?: number;
   }>("/ops/backup/webdav/files", {}, token, MEDIUM_TIMEOUT_MS);
@@ -136,6 +142,50 @@ export async function downloadWebdavBackup(
   try {
     const res = await fetchWithAuth(
       `/ops/backup/webdav/download?${qs.toString()}`,
+      {},
+      { signal: abort.signal },
+      token,
+      null,
+    );
+    const blob = await res.blob();
+    const cd = res.headers.get("Content-Disposition") || "";
+    const match = /filename="?([^"]+)"?/.exec(cd);
+    const filename = match?.[1] || name;
+    downloadBlob(blob, filename);
+    return { filename };
+  } catch (e: unknown) {
+    throw normalizeNetworkError(e, abort);
+  } finally {
+    abort.cleanup();
+  }
+}
+
+export const testS3Backup = (token: string) =>
+  request<{ success: boolean; message: string; status_code?: number }>(
+    "/ops/backup/s3/test",
+    { method: "POST" },
+    token,
+    MEDIUM_TIMEOUT_MS,
+  );
+
+export const listS3BackupFiles = (token: string) =>
+  request<{
+    success: boolean;
+    files: RemoteBackupFile[];
+    message?: string;
+    status_code?: number;
+  }>("/ops/backup/s3/files", {}, token, MEDIUM_TIMEOUT_MS);
+
+/** 从对象存储下载指定备份包到浏览器 */
+export async function downloadS3Backup(
+  token: string,
+  name: string,
+): Promise<{ filename: string }> {
+  const qs = new URLSearchParams({ name });
+  const abort = createRequestAbort(LONG_TIMEOUT_MS, null);
+  try {
+    const res = await fetchWithAuth(
+      `/ops/backup/s3/download?${qs.toString()}`,
       {},
       { signal: abort.signal },
       token,

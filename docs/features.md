@@ -69,7 +69,7 @@ TG-SignPulse 是 Telegram 多账号自动化管理面板，把签到、消息交
 - 系统设置未保存提示与「保存全部」
 - 旧任务 ORM 残留盘点：`tools/check_legacy_tasks.py`
 
-详见 [WebDAV 备份与恢复](/guide/backup-webdav)、[运维手册](/reference/ops)。
+详见 [备份与恢复](/guide/backup-webdav)、[运维手册](/reference/ops)。
 
 ## 适合场景
 
@@ -87,6 +87,6 @@ TG-SignPulse 是 Telegram 多账号自动化管理面板，把签到、消息交
 ## 下一步
 
 - [快速开始](/guide/quick-start)
-- [WebDAV 备份与恢复](/guide/backup-webdav)
+- [备份与恢复（WebDAV / 对象存储）](/guide/backup-webdav)
 - [Docker 部署](/deploy/docker)
 - [配置参考](/reference/configuration)

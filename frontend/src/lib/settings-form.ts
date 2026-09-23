@@ -36,6 +36,14 @@ export type SettingsFormState = {
   webdavUsername: string
   webdavPassword: string
   webdavRemoteDir: string
+  s3Enabled: boolean
+  s3EndpointUrl: string
+  s3Bucket: string
+  s3AccessKey: string
+  s3SecretKey: string
+  s3Region: string
+  s3Prefix: string
+  s3Proxy: string
 }
 
 export type TgFormState = { api_id: string; api_hash: string }
@@ -112,7 +120,7 @@ export function buildAiRuntimePayload(s: SettingsFormState) {
   }
 }
 
-/** 数据管理区块：自动备份 + WebDAV，由「保存备份设置」提交 */
+/** 数据管理区块：自动备份 + WebDAV + 对象存储，由「保存备份设置」提交 */
 export function buildBackupPayload(s: SettingsFormState) {
   return {
     auto_backup_enabled: s.autoBackupEnabled,
@@ -123,6 +131,15 @@ export function buildBackupPayload(s: SettingsFormState) {
     // 空密码表示不覆盖服务端已有值
     ...(s.webdavPassword ? { webdav_password: s.webdavPassword } : {}),
     webdav_remote_dir: s.webdavRemoteDir || 'tg-signpulse-backups',
+    s3_enabled: s.s3Enabled,
+    s3_endpoint_url: s.s3EndpointUrl || null,
+    s3_bucket: s.s3Bucket || null,
+    s3_access_key: s.s3AccessKey || null,
+    // 空密钥表示不覆盖服务端已有值（与 WebDAV 密码同口径）
+    ...(s.s3SecretKey ? { s3_secret_key: s.s3SecretKey } : {}),
+    s3_region: s.s3Region || 'auto',
+    s3_prefix: s.s3Prefix || 'tg-signpulse-backups',
+    s3_proxy: s.s3Proxy || null,
   }
 }
 
@@ -167,7 +184,7 @@ export function snapSection(
         botThreadId: s.botThreadId,
       })
     case 'advanced':
-      // 仅备份/WebDAV（数据管理区）；AI 运行时参数归入 ai 段
+      // 仅备份/WebDAV/对象存储（数据管理区）；AI 运行时参数归入 ai 段
       return JSON.stringify({
         autoBackupEnabled: s.autoBackupEnabled,
         autoBackupInterval: s.autoBackupInterval,
@@ -176,6 +193,14 @@ export function snapSection(
         webdavUsername: s.webdavUsername,
         webdavPassword: s.webdavPassword ? '***set***' : '',
         webdavRemoteDir: s.webdavRemoteDir,
+        s3Enabled: s.s3Enabled,
+        s3EndpointUrl: s.s3EndpointUrl,
+        s3Bucket: s.s3Bucket,
+        s3AccessKey: s.s3AccessKey,
+        s3SecretKey: s.s3SecretKey ? '***set***' : '',
+        s3Region: s.s3Region,
+        s3Prefix: s.s3Prefix,
+        s3Proxy: s.s3Proxy,
       })
     case 'tg':
       return JSON.stringify({
@@ -269,8 +294,16 @@ export function applyGlobalSettingsToForm(
     webdav_username?: string | null
     webdav_password_set?: boolean
     webdav_remote_dir?: string | null
+    s3_enabled?: boolean
+    s3_endpoint_url?: string | null
+    s3_bucket?: string | null
+    s3_access_key?: string | null
+    s3_secret_key_set?: boolean
+    s3_region?: string | null
+    s3_prefix?: string | null
+    s3_proxy?: string | null
   },
-): { botTokenSet: boolean; webdavPasswordSet: boolean } {
+): { botTokenSet: boolean; webdavPasswordSet: boolean; s3SecretKeySet: boolean } {
   s.checkInterval = res.sign_interval ? String(res.sign_interval) : ''
   s.logDays = res.log_retention_days || 7
   s.dataDir = res.data_dir || ''
@@ -305,8 +338,17 @@ export function applyGlobalSettingsToForm(
   s.webdavUsername = res.webdav_username || ''
   s.webdavPassword = ''
   s.webdavRemoteDir = res.webdav_remote_dir || 'tg-signpulse-backups'
+  s.s3Enabled = res.s3_enabled || false
+  s.s3EndpointUrl = res.s3_endpoint_url || ''
+  s.s3Bucket = res.s3_bucket || ''
+  s.s3AccessKey = res.s3_access_key || ''
+  s.s3SecretKey = ''
+  s.s3Region = res.s3_region || 'auto'
+  s.s3Prefix = res.s3_prefix || 'tg-signpulse-backups'
+  s.s3Proxy = res.s3_proxy || ''
   return {
     botTokenSet: !!res.telegram_bot_token_set,
     webdavPasswordSet: !!res.webdav_password_set,
+    s3SecretKeySet: !!res.s3_secret_key_set,
   }
 }

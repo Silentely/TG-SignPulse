@@ -897,6 +897,291 @@ class TestWebdavBackupChain:
         assert prune_m.call_args.kwargs["keep"] == 3
 
 
+class TestS3BackupApi:
+    """对象存储（S3/R2/MinIO）设置项与 ops 路由，口径与 WebDAV 对齐。"""
+
+    S3_CFG = {
+        "s3_enabled": True,
+        "s3_endpoint_url": "https://s3.example.com",
+        "s3_bucket": "bk",
+        "s3_access_key": "AK",
+        "s3_secret_key": "SK",
+        "s3_prefix": "tg-signpulse-backups",
+    }
+
+    def test_get_settings_includes_s3_keys(self, client, db_session):
+        resp = client.get("/api/config/settings", headers=_auth_headers())
+        assert resp.status_code == 200
+        body = resp.json()
+        for key in (
+            "s3_enabled",
+            "s3_endpoint_url",
+            "s3_bucket",
+            "s3_access_key",
+            "s3_secret_key",
+            "s3_secret_key_set",
+            "s3_region",
+            "s3_prefix",
+            "s3_proxy",
+        ):
+            assert key in body, f"missing key {key}"
+
+    def test_s3_secret_masked_on_get_and_empty_keeps(self, client, db_session):
+        from backend.services.config import get_config_service
+
+        client.post(
+            "/api/config/settings",
+            json={"s3_secret_key": "s3-secret-value"},
+            headers=_auth_headers(),
+        )
+        got = client.get("/api/config/settings", headers=_auth_headers()).json()
+        assert got.get("s3_secret_key") in (None, "")
+        assert got.get("s3_secret_key_set") is True
+        # 不传密钥 → 保留原值
+        client.post(
+            "/api/config/settings",
+            json={"s3_bucket": "bk2"},
+            headers=_auth_headers(),
+        )
+        stored = get_config_service().get_global_settings()
+        assert stored["s3_secret_key"] == "s3-secret-value"
+        assert stored["s3_bucket"] == "bk2"
+
+    def test_s3_blank_fields_normalized(self, client, db_session):
+        from backend.services.config import get_config_service
+
+        client.post(
+            "/api/config/settings",
+            json={
+                "s3_enabled": True,
+                "s3_endpoint_url": "https://s3.example.com",
+                "s3_bucket": "bk",
+                "s3_access_key": "AK",
+                "s3_secret_key": "SK",
+                "s3_region": "",
+                "s3_prefix": "",
+            },
+            headers=_auth_headers(),
+        )
+        stored = get_config_service().get_global_settings()
+        # 空区域/前缀回落默认值，便于直接构造客户端
+        assert stored["s3_region"] == "auto"
+        assert stored["s3_prefix"] == "tg-signpulse-backups"
+
+    def test_export_masks_s3_secret(self, client, db_session):
+        client.post(
+            "/api/config/settings",
+            json={"s3_secret_key": "S3SUPERSECRET"},
+            headers=_auth_headers(),
+        )
+        resp = client.get("/api/config/export/all", headers=_auth_headers())
+        assert resp.status_code == 200
+        data = json.loads(resp.content.decode("utf-8"))
+        g = data.get("settings", {}).get("global", {})
+        assert g.get("s3_secret_key") == "***MASKED***"
+        assert data.get("_meta", {}).get("s3_secret_key_masked") is True
+        assert "S3SUPERSECRET" not in json.dumps(data)
+
+    def test_backup_status_includes_s3_flag(self, client, db_session):
+        client.post("/api/config/settings", json=self.S3_CFG, headers=_auth_headers())
+        resp = client.get("/api/ops/backup/status", headers=_auth_headers())
+        assert resp.status_code == 200
+        assert resp.json()["s3_configured"] is True
+
+    def test_s3_test_endpoint_requires_config(self, client, db_session):
+        resp = client.post("/api/ops/backup/s3/test", headers=_auth_headers())
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["success"] is False
+        assert "对象存储" in body["message"]
+
+    def test_s3_test_endpoint_uses_saved_config(self, client, db_session):
+        client.post("/api/config/settings", json=self.S3_CFG, headers=_auth_headers())
+        with patch(
+            "backend.services.s3_backup.S3BackupClient.list_objects",
+            new_callable=AsyncMock,
+            return_value=[],
+        ) as m:
+            resp = client.post("/api/ops/backup/s3/test", headers=_auth_headers())
+        assert resp.status_code == 200
+        assert resp.json()["success"] is True
+        m.assert_called_once()
+
+    def test_s3_files_endpoint(self, client, db_session):
+        client.post("/api/config/settings", json=self.S3_CFG, headers=_auth_headers())
+        with patch(
+            "backend.services.s3_backup.list_s3_files",
+            new_callable=AsyncMock,
+            return_value={
+                "success": True,
+                "files": [
+                    {
+                        "name": "auto-x.tar.gz",
+                        "key": "tg-signpulse-backups/auto-x.tar.gz",
+                        "size_bytes": 9,
+                        "mtime": "2026-01-01T00:00:00.000Z",
+                    }
+                ],
+                "message": "",
+            },
+        ) as m:
+            resp = client.get("/api/ops/backup/s3/files", headers=_auth_headers())
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["success"] is True
+        assert body["files"][0]["name"] == "auto-x.tar.gz"
+        m.assert_called_once()
+
+    def test_s3_files_endpoint_not_configured(self, client, db_session):
+        resp = client.get("/api/ops/backup/s3/files", headers=_auth_headers())
+        assert resp.status_code == 200
+        assert resp.json()["success"] is False
+
+    def test_s3_download_rejects_bad_name(self, client, db_session):
+        resp = client.get(
+            "/api/ops/backup/s3/download",
+            params={"name": "../evil.tar.gz"},
+            headers=_auth_headers(),
+        )
+        assert resp.status_code == 400
+
+    def test_s3_download_endpoint_streams(self, client, db_session):
+        client.post("/api/config/settings", json=self.S3_CFG, headers=_auth_headers())
+        with patch(
+            "backend.services.s3_backup.download_s3_file",
+            new_callable=AsyncMock,
+            return_value=b"gzip-bytes",
+        ):
+            resp = client.get(
+                "/api/ops/backup/s3/download",
+                params={"name": "auto-1.tar.gz"},
+                headers=_auth_headers(),
+            )
+        assert resp.status_code == 200
+        assert resp.content == b"gzip-bytes"
+
+    def test_backup_export_uploads_to_s3(self, client, db_session, isolated_env):
+        client.post("/api/config/settings", json=self.S3_CFG, headers=_auth_headers())
+
+        def _fake_tarball(data_dir, dest, paths):
+            Path(dest).write_bytes(b"fake-tar-gz")
+            return Path(dest)
+
+        with patch(
+            "backend.services.backup_archive.create_backup_tarball",
+            side_effect=_fake_tarball,
+        ), patch(
+            "backend.services.s3_backup.upload_backup_to_s3",
+            new_callable=AsyncMock,
+            return_value={
+                "success": True,
+                "bucket": "bk",
+                "key": "tg-signpulse-backups/auto-9.tar.gz",
+                "size": 11,
+                "url": "https://s3.example.com/bk/tg-signpulse-backups/auto-9.tar.gz",
+            },
+        ) as m:
+            resp = client.post("/api/ops/backup/export", headers=_auth_headers())
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["mode"] == "s3"
+        assert body["filename"] == "auto-9.tar.gz"
+        assert body["size_bytes"] == 11
+        m.assert_called_once()
+
+    def test_auto_backup_uploads_to_s3(self, isolated_env: Path):
+        """未配置 WebDAV 时走对象存储，上传成功后删本地并按 keep 轮转远端。"""
+        from backend.services.backup_archive import run_auto_backup
+
+        data = isolated_env
+        (data / ".global_settings.json").write_text("{}", encoding="utf-8")
+        with patch(
+            "backend.services.s3_backup.upload_backup_to_s3",
+            new_callable=AsyncMock,
+            return_value={
+                "success": True,
+                "key": "tg-signpulse-backups/auto-9.tar.gz",
+                "size": 3,
+                "url": "https://s3.example.com/bk/tg-signpulse-backups/auto-9.tar.gz",
+            },
+        ), patch(
+            "backend.services.s3_backup.prune_s3_backups",
+            new_callable=AsyncMock,
+            return_value={"success": True, "removed": 1, "kept": 2},
+        ) as prune_m:
+            result = run_auto_backup(
+                data,
+                keep=2,
+                s3_settings=dict(self.S3_CFG),
+            )
+        assert result["success"] is True
+        assert result["s3"]["success"] is True
+        assert result.get("local_removed") is True
+        assert not list((data / "backups").glob("auto-*.tar.gz"))
+        assert result["path"].endswith("auto-9.tar.gz")
+        assert result.get("remote_pruned") == 1
+        prune_m.assert_called_once()
+        assert prune_m.call_args.kwargs["keep"] == 2
+
+    def test_auto_backup_keeps_local_when_s3_fails(self, isolated_env: Path):
+        from backend.services.backup_archive import run_auto_backup
+
+        data = isolated_env
+        (data / ".global_settings.json").write_text("{}", encoding="utf-8")
+        with patch(
+            "backend.services.s3_backup.upload_backup_to_s3",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("HTTP 502"),
+        ), patch(
+            "backend.services.s3_backup.prune_s3_backups",
+            new_callable=AsyncMock,
+        ) as prune_m:
+            result = run_auto_backup(
+                data,
+                keep=2,
+                s3_settings=dict(self.S3_CFG),
+            )
+        assert result["success"] is True
+        assert result["s3"]["success"] is False
+        assert result.get("local_removed") is False
+        # 上传失败：本地副本保留，远端不清理
+        assert list((data / "backups").glob("auto-*.tar.gz"))
+        prune_m.assert_not_called()
+
+    def test_auto_backup_prefers_webdav_over_s3(self, isolated_env: Path):
+        """两者都配置时 WebDAV 优先，对象存储不参与。"""
+        from backend.services.backup_archive import run_auto_backup
+
+        data = isolated_env
+        (data / ".global_settings.json").write_text("{}", encoding="utf-8")
+        with patch(
+            "backend.services.webdav_client.upload_file_to_webdav",
+            return_value={
+                "success": True,
+                "remote_url": "https://dav/x/a.tar.gz",
+                "filename": "a.tar.gz",
+                "size_bytes": 3,
+            },
+        ), patch(
+            "backend.services.s3_backup.upload_backup_to_s3",
+            new_callable=AsyncMock,
+        ) as s3_m:
+            result = run_auto_backup(
+                data,
+                keep=2,
+                webdav_settings={
+                    "webdav_url": "https://dav.example.com/dav",
+                    "webdav_username": "u",
+                    "webdav_password": "p",
+                    "webdav_remote_dir": "bk",
+                },
+                s3_settings=dict(self.S3_CFG),
+            )
+        assert result["webdav"]["success"] is True
+        assert result["s3"] is None
+        s3_m.assert_not_called()
+
+
 @pytest.mark.asyncio
 async def test_auto_backup_failure_notification_sends():
     from backend.services.push_notifications import (

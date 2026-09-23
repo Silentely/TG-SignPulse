@@ -153,7 +153,7 @@ export default defineConfig({
           { text: "AI 动作", link: "/guide/ai" },
           { text: "自定义插件", link: "/guide/plugins" },
           { text: "关键词监听", link: "/guide/keyword-monitor" },
-          { text: "WebDAV 备份与恢复", link: "/guide/backup-webdav" },
+          { text: "备份与恢复（WebDAV / 对象存储）", link: "/guide/backup-webdav" },
         ],
       },
       {

@@ -370,18 +370,20 @@ async def _job_auto_backup() -> None:
         if not should_run_auto_backup(cfg):
             return
         data_dir = Path(get_settings().resolve_base_dir())
-        # 打包 + WebDAV 上传均为同步阻塞操作，放入线程池避免冻结事件循环
+        # 打包 + 远端上传均为同步阻塞操作，放入线程池避免冻结事件循环
         # （数据目录大时打包可能耗时数十秒，阻塞期间 API/SSE/调度全部停摆）
         result = await asyncio.to_thread(
             run_auto_backup,
             data_dir,
             keep=auto_backup_keep(cfg),
             webdav_settings=cfg,
+            s3_settings=cfg,
         )
         wd = result.get("webdav") or {}
+        s3 = result.get("s3") or {}
         logger.info(
             "Auto backup finished: path=%s size=%s pruned=%s remote_pruned=%s "
-            "local_removed=%s webdav=%s webdav_error=%s",
+            "local_removed=%s webdav=%s webdav_error=%s s3=%s s3_error=%s",
             result.get("path"),
             result.get("size_bytes"),
             result.get("pruned"),
@@ -389,13 +391,17 @@ async def _job_auto_backup() -> None:
             result.get("local_removed"),
             wd.get("success"),
             wd.get("error"),
+            s3.get("success"),
+            s3.get("error"),
         )
-        # 打包失败，或配置了 WebDAV 但上传失败 → 通知
+        # 打包失败，或配置了远端但上传失败 → 通知（WebDAV 优先，与上传顺序一致）
         fail_reason = ""
         if not result.get("success"):
             fail_reason = str(result.get("error") or "备份打包失败")
         elif (cfg.get("webdav_url") or "").strip() and wd.get("success") is False:
             fail_reason = str(wd.get("error") or "WebDAV 上传失败")
+        elif not (cfg.get("webdav_url") or "").strip() and s3 and s3.get("success") is False:
+            fail_reason = str(s3.get("error") or "对象存储上传失败")
         if fail_reason:
             await send_auto_backup_failure_notification(
                 cfg,

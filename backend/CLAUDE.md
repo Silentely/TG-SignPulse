@@ -71,7 +71,7 @@ uvicorn backend.main:app --host 127.0.0.1 --port 8080
 | `/api/user` | `user.py` | 9 | 密码/用户名/TOTP 等用户设置 |
 | `/api/accounts` | `accounts.py` | 24 | 账号 CRUD、登录、状态 Job、设备、官方消息、头像、日志 |
 | `/api/sign-tasks` | `sign_tasks_v2.py` | 16 + 1 WS | 签到任务主路径（CRUD/执行/日志/对话） |
-| `/api/ops` | `ops.py` | 10 | 调度预览、备份/WebDAV、内存、运行时、版本 |
+| `/api/ops` | `ops.py` | 13 | 调度预览、备份/WebDAV/对象存储、内存、运行时、版本 |
 | `/api/logs` | `logs.py` | 7 | 登录审计、任务历史日志 |
 | `/api/config` | `config.py` | 17 | 全局设置、AI、Telegram API、导入导出 |
 | `/api/events` | `events.py` | 2 | SSE 签到历史事件流 + 流接入票据签发 |
@@ -119,11 +119,11 @@ uvicorn backend.main:app --host 127.0.0.1 --port 8080
 
 全局设置 / 设备保活手动执行 / Bot 测试；Telegram API 读写重置；AI 读写测试删除；单任务与全量导入导出及预览。
 
-#### `ops.py` — 10 端点
+#### `ops.py` — 13 端点
 
-`/scheduled-jobs`、`/backup/status|export`、WebDAV test/list/download、`/memory`、`/runtime-status`、`/version`、`/version/check`。
+`/scheduled-jobs`、`/backup/status|export`、WebDAV test/list/download、对象存储 test/list/download、`/memory`、`/runtime-status`、`/version`、`/version/check`。
 
-### SSE
+备份落点按「WebDAV → 对象存储（S3/R2/MinIO）」优先级决定：两者都配置时走 WebDAV，对象存储仅在未配置 WebDAV 时生效；均未配置则回退为浏览器下载流。对象存储三个端点均以 `s3_enabled(cfg)` 为门禁，未配置或必填项不完整时返回「对象存储未配置或必填项不完整」。
 
 ### SSE 与流接入票据
 
@@ -211,8 +211,20 @@ fastapi、uvicorn、sqlalchemy、apscheduler、pyjwt、bcrypt/passlib、pyotp、
 | `runtime_settings.py` | 面板设置优先、环境变量兜底 |
 | `sign_history_events.py` | SSE 总线 |
 | `stream_tickets.py` | SSE / WS 短期一次性接入票据（签发、兑换、按用途与资源隔离） |
-| `backup_archive.py` / `webdav_client.py` | 备份打包与 WebDAV |
+| `backup_archive.py` / `webdav_client.py` / `s3_backup.py` | 备份打包、WebDAV、对象存储（S3/R2/MinIO） |
 | `account_status_jobs.py` / `background_job.py` / `avatar_cache.py` / `users.py` | 状态 Job、通用后台、头像缓存、管理员初始化 |
+
+### 备份链路（`backup_archive.py` + `webdav_client.py` + `s3_backup.py`）
+
+`run_auto_backup` 由调度器经 `asyncio.to_thread` 放进工作线程执行（打包耗时不能冻结事件循环），因此保持同步签名；对象存储客户端是异步的，通过 `_run_coro_blocking` 新建专用 loop 跑完即关（在运行中的事件循环内调用会抛 `RuntimeError`）。
+
+| 环节 | 行为 |
+|------|------|
+| 本地打包 | `create_backup_tarball` 仅添加 `DEFAULT_BACKUP_PATHS` 中真实存在且未越出 `data_dir` 的路径，无可打包内容时抛 `ValueError` |
+| 远端上传 | WebDAV 优先；未配置 WebDAV 且对象存储已启用时走 `upload_backup_to_s3`；上传成功后删本地副本并记 `local_removed` |
+| 远端轮转 | 上传成功后按 `auto_backup_keep(settings)` 清理远端旧包（WebDAV / 对象存储各自实现），本地 `prune_backups` 同步生效 |
+| 失败语义 | 远端失败保留本地副本便于补传；调度器 `_job_auto_backup` 据此判定是否发失败通知 |
+| 保留份数 | `auto_backup_keep` 钳制 1–30（默认 3）；`auto_backup_interval_hours` 钳制 1–168（默认 24） |
 
 ### 签到执行流水线（`sign_task_runner.py`）
 
