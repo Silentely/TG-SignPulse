@@ -1,6 +1,4 @@
 """关键词监控服务（规则见 rules.py，继续动作执行见 continue_actions.py）。"""
-# 规则工具通过 rules.__all__ + star import 注入；动态名称对静态检查不可见
-# ruff: noqa: F401, F403, F405, F821
 from __future__ import annotations
 
 import asyncio
@@ -9,8 +7,6 @@ import os
 import time
 from typing import Any, Dict, List, Optional, Union
 
-# 确保 rules 中以下划线开头的符号也可通过 star import 获得
-import backend.services.keyword_monitor.rules as _km_rules
 from backend.services.keyword_monitor.continue_actions import (
     continue_actions,
     describe_continue_action,
@@ -18,7 +14,28 @@ from backend.services.keyword_monitor.continue_actions import (
     execute_continue_actions,
     message_supports_action,
 )
-from backend.services.keyword_monitor.rules import *  # noqa: F403
+
+# 规则符号显式导入（含下划线私有名）：star import + globals 注入会让静态检查、
+# IDE 跳转与重构全部失效，且 rules 新增符号会静默改变本模块命名空间
+from backend.services.keyword_monitor.rules import (
+    KeywordMonitorRule,
+    _action_ignore_self,
+    _action_in_active_time_window,
+    _as_int_or_none,
+    _keyword_split_commas,
+    _match_all_keyword_values,
+    _message_is_self,
+    _message_matches_sender,
+    _message_matches_thread,
+    _message_text,
+    _message_thread_candidates,
+    _message_url,
+    _parse_forward_chat_id,
+    _parse_keywords,
+    _parse_sender_filter,
+    logger,
+    settings,
+)
 from backend.services.push_notifications import send_keyword_push
 from backend.utils.account_locks import get_account_lock
 from backend.utils.atomic_io import write_json_atomic
@@ -37,12 +54,6 @@ from tg_signer.compat import (
     session_check_failure,
 )
 from tg_signer.log_utils import safe_exception_summary
-
-for _name, _val in vars(_km_rules).items():
-    if _name.startswith("__"):
-        continue
-    globals().setdefault(_name, _val)
-del _name, _val
 
 # 规则事件日志节流间隔（秒）：同一事件在间隔内只记录一次，避免高频消息刷屏
 # 话题不匹配提示的节流周期
@@ -305,11 +316,6 @@ class KeywordMonitorService:
                         )
                     )
         return rules
-
-    def _match_keyword(self, action: Dict[str, Any], text: str) -> Optional[str]:
-        """兼容单值命中：返回首个捕获值。"""
-        matches = _match_all_keyword_values(action, text)
-        return matches[0] if matches else None
 
     def _message_thread_id(self, message: Message) -> Optional[int]:
         candidates = _message_thread_candidates(message)

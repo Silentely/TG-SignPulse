@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import secrets
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -20,6 +19,7 @@ from backend.utils.account_locks import (
 )
 from backend.utils.names import validate_storage_name
 from backend.utils.proxy import build_proxy_dict
+from backend.utils.storage import move_storage_path
 from backend.utils.tg_session import (
     delete_account_session_string,
     delete_session_string_file,
@@ -133,26 +133,8 @@ class TelegramAccountsMixin:
 
     @staticmethod
     def _move_path(source, target) -> None:
-        if not source.exists():
-            return
-
-        source_resolved = str(source.resolve()).lower()
-        target_resolved = str(target.resolve()).lower()
-        if source_resolved == target_resolved:
-            if str(source) == str(target):
-                return
-            temp_target = source.with_name(
-                f"{source.name}.__rename_tmp__{secrets.token_hex(6)}"
-            )
-            source.replace(temp_target)
-            temp_target.replace(target)
-            return
-
-        if target.exists():
-            raise ValueError(f"目标路径已存在: {target}")
-
-        target.parent.mkdir(parents=True, exist_ok=True)
-        source.replace(target)
+        # 实现上提至 backend.utils.storage，与签到任务目录改名共用同一份语义
+        move_storage_path(source, target)
 
 
     @staticmethod
@@ -175,6 +157,27 @@ class TelegramAccountsMixin:
                 store.pop(old_key, None)
                 store[next_key] = next_value
 
+
+    @staticmethod
+    def _account_entry(
+        account_name: str,
+        session_file: Path,
+        session_exists: bool,
+        session_size: int,
+        profile: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """构造账号列表条目：session 文件、profile 元数据与运行状态合并为单一 dict。"""
+        return {
+            "name": account_name,
+            "session_file": str(session_file),
+            "exists": session_exists,
+            "size": session_size,
+            "remark": profile.get("remark"),
+            "proxy": profile.get("proxy"),
+            "tags": profile.get("tags") or [],
+            "device_family": profile.get("device_family"),
+            "device_profile": profile.get("device_profile"),
+        }
 
     def list_accounts(self, force_refresh: bool = False) -> List[Dict[str, Any]]:
         """
@@ -225,15 +228,13 @@ class TelegramAccountsMixin:
                     session_exists, session_size = _session_file_info(session_file)
                     accounts.append(
                         {
-                            "name": account_name,
-                            "session_file": str(session_file),
-                            "exists": session_exists,
-                            "size": session_size,
-                            "remark": profile.get("remark"),
-                            "proxy": profile.get("proxy"),
-                            "tags": profile.get("tags") or [],
-                            "device_family": profile.get("device_family"),
-                            "device_profile": profile.get("device_profile"),
+                            **self._account_entry(
+                                account_name,
+                                session_file,
+                                session_exists,
+                                session_size,
+                                profile,
+                            ),
                             **self._account_status_payload(account_name),
                         }
                     )
@@ -248,15 +249,13 @@ class TelegramAccountsMixin:
                     session_exists, session_size = _session_file_info(session_file)
                     accounts.append(
                         {
-                            "name": account_name,
-                            "session_file": str(session_file),
-                            "exists": session_exists,
-                            "size": session_size,
-                            "remark": profile.get("remark"),
-                            "proxy": profile.get("proxy"),
-                            "tags": profile.get("tags") or [],
-                            "device_family": profile.get("device_family"),
-                            "device_profile": profile.get("device_profile"),
+                            **self._account_entry(
+                                account_name,
+                                session_file,
+                                session_exists,
+                                session_size,
+                                profile,
+                            ),
                             **self._account_status_payload(account_name),
                         }
                     )
@@ -271,15 +270,13 @@ class TelegramAccountsMixin:
                     session_exists, session_size = _session_file_info(session_file)
                     accounts.append(
                         {
-                            "name": account_name,
-                            "session_file": str(session_file),
-                            "exists": session_exists,
-                            "size": session_size,
-                            "remark": profile.get("remark"),
-                            "proxy": profile.get("proxy"),
-                            "tags": profile.get("tags") or [],
-                            "device_family": profile.get("device_family"),
-                            "device_profile": profile.get("device_profile"),
+                            **self._account_entry(
+                                account_name,
+                                session_file,
+                                session_exists,
+                                session_size,
+                                profile,
+                            ),
                             **self._account_status_payload(account_name),
                         }
                     )

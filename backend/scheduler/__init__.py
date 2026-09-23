@@ -24,19 +24,30 @@ def _parse_clock_time(value: str):
     raise ValueError(f"Invalid clock time: {value}")
 
 
-def _resolve_scheduler_timezone():
-    """解析调度器使用的时区（Web UI 全局设置优先，回退环境变量）；失败返回 None。"""
+def _read_configured_timezone_name() -> str:
+    """读取配置的时区名称（Web UI 全局设置优先，回退环境变量）；未配置返回空串。"""
     try:
         from backend.core.config import get_settings
         from backend.services.config import get_config_service
 
         saved_settings = get_config_service().get_global_settings()
-        tz_name = saved_settings.get("timezone") or get_settings().timezone
-        if not tz_name:
-            return None
+        return str(saved_settings.get("timezone") or get_settings().timezone or "")
+    except Exception as exc:
+        logging.getLogger("backend.scheduler").debug(
+            "读取全局时区配置失败，使用调度器默认时区: %s", exc
+        )
+        return ""
+
+
+def _resolve_scheduler_timezone():
+    """解析调度器使用的时区（Web UI 全局设置优先，回退环境变量）；失败返回 None。"""
+    tz_name = _read_configured_timezone_name()
+    if not tz_name:
+        return None
+    try:
         from zoneinfo import ZoneInfo
 
-        return ZoneInfo(str(tz_name))
+        return ZoneInfo(tz_name)
     except Exception as exc:
         logging.getLogger("backend.scheduler").debug(
             "解析调度器时区失败，使用本地时区: %s", exc
@@ -61,18 +72,7 @@ def create_cron_trigger(cron_str: str, timezone: str = "", jitter: int = 0) -> C
             )
 
     # 获取有效时区：优先使用传入参数，否则从全局配置回退到环境变量
-    tz = timezone
-    if not tz:
-        try:
-            from backend.core.config import get_settings
-            from backend.services.config import get_config_service
-            saved_settings = get_config_service().get_global_settings()
-            tz = saved_settings.get("timezone") or get_settings().timezone
-        except (ImportError, AttributeError, ValueError, KeyError) as exc:
-            logging.getLogger("backend.scheduler").debug(
-                "读取全局时区配置失败，使用调度器默认时区: %s", exc
-            )
-            tz = ""
+    tz = timezone or _read_configured_timezone_name()
 
     parts = cron_str.split()
     if len(parts) == 6:
@@ -231,31 +231,20 @@ async def _job_run_sign_task(account_name: str, task_name: str) -> None:
                 range_end_str = task_config.get("range_end")
                 if range_start_str and range_end_str:
                     try:
-                        # 解析时间
-                        start_time = _parse_clock_time(range_start_str)
-                        end_time = _parse_clock_time(range_end_str)
-
                         # 用应用时区锚定当前时刻（与 cron trigger 语义一致）：
                         # 原 naive datetime.now() 在进程 TZ 与 Web UI 时区不一致、
                         # 或窗口跨 DST 切换时会算错窗口
                         tz = _resolve_scheduler_timezone()
                         now = datetime.now(tz) if tz is not None else datetime.now()
-                        start_dt = now.replace(
-                            hour=start_time.hour,
-                            minute=start_time.minute,
-                            second=start_time.second,
-                            microsecond=0,
-                        )
-                        end_dt = now.replace(
-                            hour=end_time.hour,
-                            minute=end_time.minute,
-                            second=end_time.second,
-                            microsecond=0,
-                        )
-
-                        # 如果结束时间小于开始时间，假设是第二天（虽然CRON触发通常在开始时间，这里做个防御）
-                        if end_dt < start_dt:
-                            end_dt += timedelta(days=1)
+                        # 窗口计算统一走 _get_range_window：跨天窗口（22:00→06:00）
+                        # 在凌晨迟到触发时必须回退 start_dt 一天，否则窗口会被算成
+                        # 32 小时，随机延迟可能把执行推到数小时后、远超 range_end
+                        window = _get_range_window(range_start_str, range_end_str, now)
+                        if window is None:
+                            raise ValueError(
+                                f"无法解析时间段 {range_start_str}-{range_end_str}"
+                            )
+                        start_dt, end_dt = window
 
                         # 计算总秒数
                         total_seconds = (end_dt - start_dt).total_seconds()
@@ -469,7 +458,7 @@ def _sync_auto_backup_job() -> None:
 
 async def sync_jobs() -> None:
     """
-    Sync APScheduler jobs from file-based sign tasks (legacy ORM tasks removed).
+    Sync APScheduler jobs from file-based sign tasks.
     """
     if scheduler is None:
         return
@@ -484,7 +473,7 @@ async def sync_jobs() -> None:
         if getattr(scheduler, "running", False):
             for job in list(scheduler.get_jobs()):
                 jid = str(job.id or "")
-                if jid.startswith("db-") or jid.startswith("sign-"):
+                if jid.startswith("sign-"):
                     try:
                         scheduler.remove_job(jid)
                     except JobLookupError:
@@ -510,22 +499,13 @@ async def sync_jobs() -> None:
 
     from backend.services.sign_tasks import get_sign_task_service
 
-    # 同步签到任务 (SignTask)；旧 ORM db-* job 不再注册
+    # 同步签到任务 (SignTask)
     existing_ids = {
         job.id
         for job in scheduler.get_jobs()
-        if str(job.id or "").startswith("db-") or str(job.id or "").startswith("sign-")
+        if str(job.id or "").startswith("sign-")
     }
     desired_ids = set()
-
-    # 主动移除遗留 db-* 任务
-    for job_id in list(existing_ids):
-        if str(job_id).startswith("db-"):
-            try:
-                scheduler.remove_job(job_id)
-            except JobLookupError:
-                pass
-            existing_ids.discard(job_id)
 
     sign_task_service = get_sign_task_service()
     # Expand wildcard tasks for newly added accounts

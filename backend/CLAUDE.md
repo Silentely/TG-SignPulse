@@ -202,10 +202,15 @@ fastapi、uvicorn、sqlalchemy、apscheduler、pyjwt、bcrypt/passlib、pyotp、
 | `sign_task_chats.py` | 对话列表缓存 `chats_cache.json`、搜索、刷新 |
 | `sign_task_config_inspect.py` | `task_requires_updates` / `task_has_keyword_monitor` |
 | `sign_task_failure.py` / `notify.py` / `run_status.py` | 失败分类、通知、运行状态 |
+| `sign_task_message.py` / `sign_task_text.py` | 目标消息摘要提取、文本乱码修复（纯函数，供历史/日志复用） |
 | `sign_task_backend.py` | `BackendUserSigner` + `TaskLogHandler` |
 | `keyword_monitor/` | `runtime` + `rules` + `continue_actions` + `hits` + `sharding` |
 | `telegram/` | `accounts` / `login_phone` / `login_qr` / `sessions` / `devices` / `credentials` / `runtime` |
 | `push_notifications.py` | 多通道推送 |
+| `chatops_bot.py` | Telegram Bot 双向 ChatOps：`/status` `/tasks` `/run` `/cooldown` |
+| `data_dict.py` | 数据字典服务（`/api/data-dict`） |
+| `flood_backoff.py` | FloodWait 冷却登记与查询；runner 落库、ChatOps 展示 |
+| `sync_helpers.py` | 调度同步 + 关键词监控重启 + 失败降噪日志（路由变更后统一调用） |
 | `config.py` + `config_mixins.py` | 配置门面与领域 Mixin |
 | `device_keepalive.py` | 会话保活 |
 | `runtime_settings.py` | 面板设置优先、环境变量兜底 |
