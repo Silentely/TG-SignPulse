@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 import os
 import sqlite3
 import struct
@@ -42,6 +43,8 @@ from backend.utils.tg_session import (
     list_account_names,
     set_account_profile,
 )
+
+logger = logging.getLogger("backend.telegram.session_importer")
 
 # Pyrogram session string magic prefix length
 # Telethon SQLite schemas:
@@ -514,6 +517,12 @@ async def verify_imported_session(
         conn.close()
 
     target_file = target_dir / f"{account_name}.session"
+    from tg_signer.core import close_client_by_name
+
+    try:
+        await close_client_by_name(account_name, workdir=target_dir)
+    except Exception as exc:
+        logger.debug("关闭已有客户端失败 %s: %s", account_name, exc)
     _cleanup_file_and_aux(target_file)
     temp_session_path.replace(target_file)
 
@@ -572,8 +581,16 @@ async def import_session(
         raw_bytes = file_bytes
         str_payload = file_bytes.decode("utf-8", errors="ignore")
     elif isinstance(payload, str):
-        path_cand = Path(payload.strip())
-        if path_cand.is_file():
+        payload_stripped = payload.strip()
+        is_file = False
+        if len(payload_stripped) < 1024 and "\n" not in payload_stripped and "\x00" not in payload_stripped:
+            try:
+                path_cand = Path(payload_stripped)
+                is_file = path_cand.is_file()
+            except (OSError, ValueError):
+                is_file = False
+
+        if is_file:
             file_bytes = path_cand.read_bytes()
             raw_bytes = file_bytes
             str_payload = file_bytes.decode("utf-8", errors="ignore")

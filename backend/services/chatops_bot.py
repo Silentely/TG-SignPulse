@@ -141,20 +141,36 @@ class TelegramChatOpsWorker:
             return
 
     async def _poll_loop(self) -> None:
-        """非阻塞轮询 Telegram Updates，复用长连接池。"""
-        async with httpx.AsyncClient(timeout=35.0) as client:
+        """非阻塞轮询 Telegram Updates，复用长连接池（支持动态代理与热切换）。"""
+        current_proxy: Optional[str] = None
+        client: Optional[httpx.AsyncClient] = None
+        try:
             while self._running:
                 try:
                     from backend.services.config import get_config_service
-                    settings = get_config_service().get_global_settings()
+                    from backend.utils.proxy import format_proxy_url
+
+                    cfg_svc = get_config_service()
+                    settings = cfg_svc.get_global_settings()
 
                     bot_token = (settings.get("telegram_bot_token") or "").strip()
                     allowed_chat_id = str(settings.get("telegram_bot_chat_id") or "").strip()
                     chatops_enabled = settings.get("telegram_bot_chatops_enabled", True)
 
                     if not bot_token or not allowed_chat_id or not chatops_enabled:
+                        if client is not None and not getattr(client, "is_closed", True):
+                            await client.aclose()
+                            client = None
+                            current_proxy = None
                         await asyncio.sleep(10.0)
                         continue
+
+                    needed_proxy = format_proxy_url(cfg_svc.get_global_proxy())
+                    if client is None or getattr(client, "is_closed", True) or current_proxy != needed_proxy:
+                        if client is not None and not getattr(client, "is_closed", True):
+                            await client.aclose()
+                        client = httpx.AsyncClient(proxy=needed_proxy, timeout=35.0)
+                        current_proxy = needed_proxy
 
                     url = f"https://api.telegram.org/bot{bot_token}/getUpdates"
                     params = {
@@ -191,6 +207,12 @@ class TelegramChatOpsWorker:
                 except Exception as e:
                     logger.debug("ChatOps 轮询异常: %s", e)
                     await asyncio.sleep(5.0)
+        finally:
+            if client is not None and not getattr(client, "is_closed", True):
+                try:
+                    await client.aclose()
+                except Exception:
+                    pass
 
     def start(self) -> None:
         if self._running:

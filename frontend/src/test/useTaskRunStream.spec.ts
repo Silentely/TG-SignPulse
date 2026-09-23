@@ -151,6 +151,31 @@ describe('useTaskRunStream', () => {
     expect(stream.livePhase.value).toBeNull()
   })
 
+  it('reconnecting closes previous socket and cleans up handlers', () => {
+    const stream = setup('acc-a')
+    stream.connect()
+    expect(MockWebSocket.instances).toHaveLength(1)
+    const firstSocket = MockWebSocket.instances[0]
+    expect(firstSocket.readyState).toBe(1)
+
+    // Second connect should close first socket and clean its handlers
+    stream.connect()
+    expect(MockWebSocket.instances).toHaveLength(2)
+    expect(firstSocket.readyState).toBe(3)
+    expect(firstSocket.onclose).toBeNull()
+    expect(firstSocket.onmessage).toBeNull()
+  })
+
+  it('disconnect clears socket handlers before closing to prevent ghost polling', () => {
+    const stream = setup('acc-a')
+    stream.connect()
+    const ws = MockWebSocket.instances[0]
+    stream.disconnect()
+    expect(ws.readyState).toBe(3)
+    expect(ws.onclose).toBeNull()
+    expect(pollHandles).toHaveLength(0)
+  })
+
   it('falls back to polling on error when runAccount set', async () => {
     api.getSignTaskLogs.mockResolvedValue(['poll-line'])
     api.getSignTaskRunStatus.mockResolvedValue({ state: 'running', phase: 'running' })

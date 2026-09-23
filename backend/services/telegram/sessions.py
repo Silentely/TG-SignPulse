@@ -24,7 +24,9 @@ async def _release_login_session(value: Any) -> None:
     client = value.get("client")
     if client:
         try:
-            if getattr(client, "is_connected", False):
+            if getattr(client, "is_initialized", False):
+                await client.stop()
+            elif getattr(client, "is_connected", False):
                 await client.disconnect()
         except Exception:
             pass

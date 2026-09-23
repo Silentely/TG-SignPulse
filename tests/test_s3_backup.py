@@ -47,3 +47,40 @@ async def test_s3_upload_file(tmp_path: Path):
         assert "AWS4-HMAC-SHA256" in headers["Authorization"]
         assert "x-amz-date" in headers
         assert "x-amz-content-sha256" in headers
+
+
+@pytest.mark.asyncio
+async def test_s3_upload_file_with_proxy(tmp_path: Path):
+    test_file = tmp_path / "backup-proxy.tar.gz"
+    test_file.write_bytes(b"content")
+
+    client = S3BackupClient(
+        endpoint_url="https://s3.us-east-1.amazonaws.com",
+        bucket="my-bucket",
+        access_key="AKIAEXAMPLE",
+        secret_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+        proxy="http://127.0.0.1:8080",
+    )
+
+    created_proxies = []
+
+    class MockAsyncClient:
+        def __init__(self, proxy=None, timeout=None):
+            created_proxies.append(proxy)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            pass
+
+        async def put(self, url, content=None, headers=None):
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.text = "OK"
+            return resp
+
+    with patch("httpx.AsyncClient", side_effect=MockAsyncClient):
+        result = await client.upload_file(test_file)
+        assert result["success"] is True
+        assert created_proxies == ["http://127.0.0.1:8080"]

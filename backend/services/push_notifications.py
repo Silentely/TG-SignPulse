@@ -24,6 +24,10 @@ _PUSH_HTTP_LIMITS = httpx.Limits(max_keepalive_connections=5, max_connections=10
 _shared_http_client: Optional[httpx.AsyncClient] = None
 _shared_http_client_loop: Optional[asyncio.AbstractEventLoop] = None
 
+_shared_tg_client: Optional[httpx.AsyncClient] = None
+_shared_tg_client_proxy: Optional[str] = None
+_shared_tg_client_loop: Optional[asyncio.AbstractEventLoop] = None
+
 
 def _get_shared_http_client() -> httpx.AsyncClient:
     """获取共享客户端；按事件循环缓存，换 loop（如测试隔离）时自动重建。"""
@@ -41,17 +45,49 @@ def _get_shared_http_client() -> httpx.AsyncClient:
     return client
 
 
+def _get_shared_telegram_client(proxy_url: Optional[str] = None) -> httpx.AsyncClient:
+    """获取专用于 Telegram Bot API 的共享客户端；当代理设置变动或 loop 切换时自动重建。"""
+    global _shared_tg_client, _shared_tg_client_proxy, _shared_tg_client_loop
+    loop = asyncio.get_running_loop()
+    client = _shared_tg_client
+    if (
+        client is None
+        or getattr(client, "is_closed", True)
+        or _shared_tg_client_loop is not loop
+        or _shared_tg_client_proxy != proxy_url
+    ):
+        if client is not None and not getattr(client, "is_closed", True):
+            try:
+                loop.create_task(client.aclose())
+            except Exception:
+                pass
+        client = httpx.AsyncClient(
+            proxy=proxy_url,
+            timeout=_PUSH_HTTP_TIMEOUT,
+            limits=_PUSH_HTTP_LIMITS,
+        )
+        _shared_tg_client = client
+        _shared_tg_client_proxy = proxy_url
+        _shared_tg_client_loop = loop
+    return client
+
+
 async def close_shared_http_client() -> None:
     """进程关闭时释放共享连接池（backend.main.on_shutdown 调用）。"""
     global _shared_http_client, _shared_http_client_loop
-    client = _shared_http_client
+    global _shared_tg_client, _shared_tg_client_proxy, _shared_tg_client_loop
+
+    for c in (_shared_http_client, _shared_tg_client):
+        if c is not None and not getattr(c, "is_closed", True):
+            try:
+                await c.aclose()
+            except Exception:
+                logger.debug("关闭推送共享 HTTP 客户端失败", exc_info=True)
     _shared_http_client = None
     _shared_http_client_loop = None
-    if client is not None and not getattr(client, "is_closed", True):
-        try:
-            await client.aclose()
-        except Exception:
-            logger.debug("关闭推送共享 HTTP 客户端失败", exc_info=True)
+    _shared_tg_client = None
+    _shared_tg_client_proxy = None
+    _shared_tg_client_loop = None
 
 
 def _html_escape(value: Any) -> str:
@@ -213,6 +249,7 @@ async def send_telegram_bot_message(
     text: str,
     message_thread_id: Optional[int] = None,
     parse_mode: Optional[str] = None,
+    proxy: Optional[str] = None,
 ) -> None:
     payload: Dict[str, Any] = {
         "chat_id": chat_id,
@@ -224,13 +261,28 @@ async def send_telegram_bot_message(
     if message_thread_id is not None:
         payload["message_thread_id"] = message_thread_id
 
+    effective_proxy = proxy
+    if effective_proxy is None:
+        try:
+            from backend.services.config import get_config_service
+
+            effective_proxy = get_config_service().get_global_proxy()
+        except Exception:
+            effective_proxy = None
+
+    proxy_url: Optional[str] = None
+    if effective_proxy:
+        from backend.utils.proxy import format_proxy_url
+
+        proxy_url = format_proxy_url(effective_proxy)
+
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     # 网络层抖动（连接/DNS/超时）与 5xx 瞬时故障重试一次，提升通知到达率；
     # 4xx 属于请求本身问题（参数/权限），重试无意义，直接抛出
     last_exc: Optional[Exception] = None
     for attempt in (1, 2):
         try:
-            client = _get_shared_http_client()
+            client = _get_shared_telegram_client(proxy_url=proxy_url)
             response = await client.post(url, json=payload)
             response.raise_for_status()
             return

@@ -17,10 +17,11 @@ import sqlite3
 import sys
 import time
 from collections import deque
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Generator, List, Literal, Optional, Tuple, Union
 
 _logger = logging.getLogger("tg_signer.plugins")
 
@@ -61,8 +62,17 @@ class PluginStorageBackend:
         conn.execute("PRAGMA journal_mode=WAL;")
         return conn
 
+    @contextmanager
+    def _conn(self) -> Generator[sqlite3.Connection, None, None]:
+        conn = self._get_conn()
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
+
     def _init_db(self) -> None:
-        with self._get_conn() as conn:
+        with self._conn() as conn:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS plugin_kv (
@@ -86,7 +96,7 @@ class PluginStorageBackend:
     def get(self, namespace: str, key: str, default: Any = None) -> Any:
         now = time.time()
         try:
-            with self._get_conn() as conn:
+            with self._conn() as conn:
                 cur = conn.execute(
                     "SELECT value, expires_at FROM plugin_kv WHERE namespace = ? AND key = ?",
                     (namespace, key),
@@ -115,7 +125,7 @@ class PluginStorageBackend:
         expires_at = (now + ttl) if (ttl is not None and ttl > 0) else None
         val_str = json.dumps(value, ensure_ascii=False)
         try:
-            with self._get_conn() as conn:
+            with self._conn() as conn:
                 conn.execute(
                     """
                     INSERT INTO plugin_kv (namespace, key, value, expires_at)
@@ -139,7 +149,7 @@ class PluginStorageBackend:
         """
         now = time.time()
         try:
-            with self._get_conn() as conn:
+            with self._conn() as conn:
                 conn.execute("BEGIN IMMEDIATE")
                 row = conn.execute(
                     "SELECT value, expires_at FROM plugin_kv WHERE namespace = ? AND key = ?",
@@ -177,7 +187,7 @@ class PluginStorageBackend:
 
     def delete(self, namespace: str, key: str) -> bool:
         try:
-            with self._get_conn() as conn:
+            with self._conn() as conn:
                 cur = conn.execute(
                     "DELETE FROM plugin_kv WHERE namespace = ? AND key = ?",
                     (namespace, key),
@@ -190,7 +200,7 @@ class PluginStorageBackend:
 
     def clear(self, namespace: Optional[str] = None) -> int:
         try:
-            with self._get_conn() as conn:
+            with self._conn() as conn:
                 if namespace:
                     cur = conn.execute("DELETE FROM plugin_kv WHERE namespace = ?", (namespace,))
                 else:
@@ -205,7 +215,7 @@ class PluginStorageBackend:
         """主动清理已过期的所有记录，返回被清理的记录数。"""
         now = time.time()
         try:
-            with self._get_conn() as conn:
+            with self._conn() as conn:
                 if namespace:
                     cur = conn.execute(
                         "DELETE FROM plugin_kv WHERE namespace = ? AND expires_at IS NOT NULL AND expires_at < ?",
@@ -226,7 +236,7 @@ class PluginStorageBackend:
         """列出指定命名空间下未过期的键名（支持前缀匹配），自动淘汰已过期记录。"""
         now = time.time()
         try:
-            with self._get_conn() as conn:
+            with self._conn() as conn:
                 if prefix:
                     escaped_prefix = self._escape_like(prefix)
                     cur = conn.execute(
@@ -264,7 +274,7 @@ class PluginStorageBackend:
         """批量读取指定命名空间下所有未过期的键值对（支持前缀过滤），自动淘汰已过期记录。"""
         now = time.time()
         try:
-            with self._get_conn() as conn:
+            with self._conn() as conn:
                 if prefix:
                     escaped_prefix = self._escape_like(prefix)
                     cur = conn.execute(
@@ -304,7 +314,7 @@ class PluginStorageBackend:
     def list_namespaces(self, plugin_name: Optional[str] = None) -> List[str]:
         """列出当前数据库中存在的所有命名空间，可根据插件名称进行关联匹配。"""
         try:
-            with self._get_conn() as conn:
+            with self._conn() as conn:
                 if plugin_name:
                     escaped_name = self._escape_like(plugin_name)
                     cur = conn.execute(
@@ -328,7 +338,7 @@ class PluginStorageBackend:
         """获取指定命名空间下的完整结构化记录（含过期时间与剩余 TTL）。"""
         now = time.time()
         try:
-            with self._get_conn() as conn:
+            with self._conn() as conn:
                 cur = conn.execute(
                     "SELECT key, value, expires_at FROM plugin_kv WHERE namespace = ?",
                     (namespace,),
@@ -941,10 +951,12 @@ class PluginRegistry:
             module_name = f"tg_signer_plugin_{sanitized_name}_{path_hash}"
 
             # 若为目录型插件，将其所在目录加入 sys.path 以支持目录内的子模块/相对引用
+            inserted_syspath = False
+            parent_str = str(resolved_file.parent)
             if plugin_file.name in ("main.py", "__init__.py"):
-                parent_str = str(resolved_file.parent)
                 if parent_str not in sys.path:
                     sys.path.insert(0, parent_str)
+                    inserted_syspath = True
 
             try:
                 spec_kwargs = {}
@@ -1093,6 +1105,12 @@ class PluginRegistry:
                     suggested_command=None,
                     timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 )
+            finally:
+                if inserted_syspath and parent_str in sys.path:
+                    try:
+                        sys.path.remove(parent_str)
+                    except ValueError:
+                        pass
 
         loaded_count = len(cls._plugins) - len(initial_keys)
         return max(0, loaded_count)

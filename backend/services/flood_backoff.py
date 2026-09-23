@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from typing import Dict, Tuple
+from typing import Any, Dict, Tuple
 
 logger = logging.getLogger("backend.flood_backoff")
 
@@ -77,10 +77,10 @@ class FloodBackoffManager:
         """手动清除指定账号的冷却状态。"""
         self._cooldowns.pop(account_name, None)
 
-    def get_all_cooling_accounts(self) -> Dict[str, Dict[str, any]]:
+    def get_all_cooling_accounts(self) -> Dict[str, Dict[str, Any]]:
         """获取所有当前正在冷却中的账号及其状态。"""
         now = time.time()
-        active: Dict[str, Dict[str, any]] = {}
+        active: Dict[str, Dict[str, Any]] = {}
         expired_keys = []
         for name, info in self._cooldowns.items():
             rem = int(info.cooldown_until - now)

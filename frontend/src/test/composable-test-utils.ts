@@ -1,7 +1,7 @@
 /**
  * composable 单测共用：i18n / toast / confirm / 路由 / mount 工厂。
  */
-import { defineComponent, h, ref } from 'vue'
+import { defineComponent, h, ref, markRaw } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { vi } from 'vitest'
 import type { AccountUiItem, TaskUiItem } from '../lib/types'
@@ -139,7 +139,7 @@ export function makeTaskUi(
     targetCount: 1,
     lastRunStr: '-',
     lastRunSuccess: null,
-    modeIcon: {} as TaskUiItem['modeIcon'],
+    modeIcon: markRaw(defineComponent({ render: () => null })) as TaskUiItem['modeIcon'],
     isListenMode: false,
     enabled: true,
     chatAvatarUrl: '',

@@ -19,6 +19,8 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from tg_signer.compat import ChatType
 from tg_signer.core import (
     _CLIENT_INSTANCES,
@@ -431,10 +433,6 @@ class TestGetClientCaching:
 
 
 # ============================================================================
-# ============================================================================
-
-
-# ============================================================================
 # UserSigner._resolve_action_delay 测试
 # ============================================================================
 
@@ -735,3 +733,76 @@ class TestGetClientFunction:
         )
         assert client.api_id == 22222
         assert client.api_hash == "explicit-hash"
+
+
+# ============================================================================
+# _patched_invoke 针对更新差量长轮询的测试
+# ============================================================================
+
+
+class TestPatchedInvoke:
+    """_patched_invoke 针对更新长轮询请求的参数与降级测试"""
+
+    @pytest.mark.asyncio
+    async def test_invoke_retries_is_at_least_one(self):
+        from tg_signer.compat import raw
+        from tg_signer.core.client import _patched_invoke
+
+        mock_self = MagicMock()
+        captured_kwargs = {}
+
+        async def fake_original_invoke(self_obj, query, *args, **kwargs):
+            captured_kwargs.update(kwargs)
+            return "ok"
+
+        query = raw.functions.updates.GetChannelDifference(
+            channel=MagicMock(), filter=MagicMock(), pts=1, limit=10, force=False
+        )
+        with patch("tg_signer.core.client._original_invoke", side_effect=fake_original_invoke):
+            res = await _patched_invoke(mock_self, query)
+            assert res == "ok"
+            assert captured_kwargs.get("retries") >= 1
+            assert captured_kwargs.get("timeout") >= 2.0
+
+    @pytest.mark.asyncio
+    async def test_invoke_updates_respects_custom_env(self, monkeypatch):
+        from tg_signer.compat import raw
+        from tg_signer.core.client import _patched_invoke
+
+        monkeypatch.setenv("TG_UPDATES_INVOKE_RETRIES", "3")
+        monkeypatch.setenv("TG_UPDATES_TIMEOUT", "15.0")
+
+        mock_self = MagicMock()
+        captured_kwargs = {}
+
+        async def fake_original_invoke(self_obj, query, *args, **kwargs):
+            captured_kwargs.update(kwargs)
+            return "ok"
+
+        query = raw.functions.updates.GetDifference(
+            pts=1, date=1000, qts=1
+        )
+        with patch("tg_signer.core.client._original_invoke", side_effect=fake_original_invoke):
+            res = await _patched_invoke(mock_self, query)
+            assert res == "ok"
+            assert captured_kwargs.get("retries") == 3
+            assert captured_kwargs.get("timeout") == 15.0
+
+    @pytest.mark.asyncio
+    async def test_invoke_drops_and_falls_back_on_timeout(self, monkeypatch):
+        from tg_signer.compat import raw
+        from tg_signer.core.client import _patched_invoke
+
+        monkeypatch.setenv("TG_UPDATES_MAX_RETRIES", "0")
+        mock_self = MagicMock()
+
+        async def fake_original_invoke(self_obj, query, *args, **kwargs):
+            raise asyncio.TimeoutError("request timed out")
+
+        query = raw.functions.updates.GetChannelDifference(
+            channel=MagicMock(), filter=MagicMock(), pts=123, limit=10, force=False
+        )
+        with patch("tg_signer.core.client._original_invoke", side_effect=fake_original_invoke):
+            res = await _patched_invoke(mock_self, query)
+            assert isinstance(res, raw.types.updates.ChannelDifferenceEmpty)
+            assert res.pts == 123

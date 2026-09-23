@@ -980,6 +980,10 @@ class KeywordMonitorService:
                             client.remove_handler(*handler_ref)
                         except Exception:
                             pass
+                        try:
+                            await close_client_by_name(account_name, workdir=session_dir)
+                        except Exception:
+                            pass
                         logger.warning(
                             "关键词监听启动失败 account=%s",
                             account_name,

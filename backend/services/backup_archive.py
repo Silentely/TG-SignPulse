@@ -14,6 +14,10 @@ DEFAULT_BACKUP_PATHS: Tuple[str, ...] = (
     "db.sqlite",
     "db.sqlite-wal",
     "db.sqlite-shm",
+    "plugin_storage.db",
+    "plugin_storage.db-wal",
+    "plugin_storage.db-shm",
+    "plugins",
     "sessions",
     ".signer",
     ".global_settings.json",
@@ -130,6 +134,7 @@ def run_auto_backup(
     path_out = str(dest)
     wd = webdav_settings or {}
     if (wd.get("webdav_url") or "").strip():
+        wd_proxy = str(wd.get("webdav_proxy") or wd.get("proxy") or "").strip() or None
         try:
             from backend.services.webdav_client import upload_file_to_webdav
 
@@ -139,6 +144,7 @@ def run_auto_backup(
                 password=str(wd.get("webdav_password") or ""),
                 remote_dir=str(wd.get("webdav_remote_dir") or "tg-signpulse-backups"),
                 local_path=dest,
+                proxy=wd_proxy,
             )
         except Exception as exc:
             logger.warning("自动备份 WebDAV 上传失败: %s", exc)
@@ -165,6 +171,7 @@ def run_auto_backup(
                         wd.get("webdav_remote_dir") or "tg-signpulse-backups"
                     ),
                     keep=keep,
+                    proxy=wd_proxy,
                 )
             except Exception as exc:
                 logger.warning("远端备份清理失败: %s", exc)

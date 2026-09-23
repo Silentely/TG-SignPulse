@@ -28,6 +28,7 @@ vi.mock('../composables/useToast', () => ({
 vi.mock('../composables/useTaskRunStream', () => ({
   useTaskRunStream: () => ({
     realtimeLogs: ref([]),
+    isRunning: ref(false),
     livePhase: ref(''),
     livePhaseDetail: ref(''),
     liveFailureCategory: ref(''),

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
+import { ref, onMounted, onUnmounted, watch, computed, markRaw } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Plus, Radio, Clock, Shuffle, X, Zap } from 'lucide-vue-next'
 import { listSignTasks } from '../lib/api'
@@ -177,7 +177,7 @@ const loadTasks = async () => {
         failed: t('tasks.failed'),
         chatFallbackPrefix: t('tasks.chatPrefix'),
       }
-      const iconByKind = { clock: Clock, radio: Radio, shuffle: Shuffle } as const
+      const iconByKind = { clock: markRaw(Clock), radio: markRaw(Radio), shuffle: markRaw(Shuffle) } as const
       tasks.value = res.map((task: SignTask) => {
         const fields = mapSignTaskToListFields(task, labels)
         return withModeIcon(fields, iconByKind[fields.modeIconKind])

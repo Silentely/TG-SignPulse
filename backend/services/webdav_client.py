@@ -13,6 +13,8 @@ from urllib.parse import quote, unquote, urljoin, urlparse
 
 import httpx
 
+from backend.utils.proxy import format_proxy_url
+
 logger = logging.getLogger("backend.webdav")
 
 # 备份包可能较大：连接短超时，读写长超时
@@ -87,6 +89,12 @@ def _ensure_remote_dirs(client: httpx.Client, base: str, dir_rel: str) -> None:
             )
 
 
+
+
+def _format_client_proxy(proxy: Optional[str]) -> Optional[str]:
+    if not proxy or not str(proxy).strip():
+        return None
+    return format_proxy_url(str(proxy).strip())
 def upload_file_to_webdav(
     *,
     base_url: str,
@@ -96,6 +104,7 @@ def upload_file_to_webdav(
     local_path: Path,
     filename: Optional[str] = None,
     timeout: Optional[Union[float, httpx.Timeout]] = None,
+    proxy: Optional[str] = None,
 ) -> dict:
     """
     将本地文件 PUT 到 WebDAV。
@@ -117,7 +126,10 @@ def upload_file_to_webdav(
     file_url = _join_url(base, dir_rel, name) if dir_rel else _join_url(base, name)
     req_timeout = timeout if timeout is not None else _DEFAULT_UPLOAD_TIMEOUT
 
-    with httpx.Client(timeout=req_timeout, auth=auth, follow_redirects=True) as client:
+    proxy_url = _format_client_proxy(proxy)
+    with httpx.Client(
+        timeout=req_timeout, auth=auth, follow_redirects=True, proxy=proxy_url
+    ) as client:
         # 多级目录逐段创建（已存在时多数服务返回 405/409/301）
         if dir_rel:
             _ensure_remote_dirs(client, base, dir_rel)
@@ -218,6 +230,7 @@ def list_webdav_files(
     name_suffix: str = ".tar.gz",
     limit: int = 20,
     timeout: float = 30.0,
+    proxy: Optional[str] = None,
 ) -> dict:
     """
     PROPFIND Depth:1 列出远端目录中的备份文件。
@@ -233,7 +246,10 @@ def list_webdav_files(
     auth = (user, password or "")
     limit = max(1, min(int(limit), 100))
 
-    with httpx.Client(timeout=timeout, auth=auth, follow_redirects=True) as client:
+    proxy_url = _format_client_proxy(proxy)
+    with httpx.Client(
+        timeout=timeout, auth=auth, follow_redirects=True, proxy=proxy_url
+    ) as client:
         resp = client.request(
             "PROPFIND",
             target,
@@ -319,6 +335,7 @@ def delete_webdav_file(
     remote_dir: str,
     filename: str,
     timeout: float = 30.0,
+    proxy: Optional[str] = None,
 ) -> dict:
     """删除远端备份文件（按目录 + 安全文件名构造 URL）。"""
     base = validate_webdav_url(base_url)
@@ -330,7 +347,10 @@ def delete_webdav_file(
     file_url = _join_url(base, dir_rel, name) if dir_rel else _join_url(base, name)
     auth = (user, password or "")
 
-    with httpx.Client(timeout=timeout, auth=auth, follow_redirects=True) as client:
+    proxy_url = _format_client_proxy(proxy)
+    with httpx.Client(
+        timeout=timeout, auth=auth, follow_redirects=True, proxy=proxy_url
+    ) as client:
         resp = client.delete(file_url)
         if resp.status_code not in _DELETE_OK:
             detail = (resp.text or "")[:200]
@@ -360,6 +380,7 @@ def download_webdav_file(
     filename: str,
     dest_path: Path,
     timeout: Optional[Union[float, httpx.Timeout]] = None,
+    proxy: Optional[str] = None,
 ) -> Path:
     """从 WebDAV 流式下载备份到本地 dest_path。"""
     user = (username or "").strip()
@@ -371,7 +392,10 @@ def download_webdav_file(
     dest_path = Path(dest_path)
     dest_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with httpx.Client(timeout=req_timeout, auth=auth, follow_redirects=True) as client:
+    proxy_url = _format_client_proxy(proxy)
+    with httpx.Client(
+        timeout=req_timeout, auth=auth, follow_redirects=True, proxy=proxy_url
+    ) as client:
         try:
             with client.stream("GET", file_url) as resp:
                 if resp.status_code != 200:
@@ -412,6 +436,7 @@ def iter_webdav_file(
     filename: str,
     timeout: Optional[Union[float, httpx.Timeout]] = None,
     chunk_size: int = 64 * 1024,
+    proxy: Optional[str] = None,
 ) -> Iterator[bytes]:
     """
     流式读取远端备份内容（不落本地临时整包）。
@@ -425,7 +450,10 @@ def iter_webdav_file(
     auth = (user, password or "")
     req_timeout = timeout if timeout is not None else _DEFAULT_UPLOAD_TIMEOUT
 
-    client = httpx.Client(timeout=req_timeout, auth=auth, follow_redirects=True)
+    proxy_url = _format_client_proxy(proxy)
+    client = httpx.Client(
+        timeout=req_timeout, auth=auth, follow_redirects=True, proxy=proxy_url
+    )
     try:
         with client.stream("GET", file_url) as resp:
             if resp.status_code != 200:
@@ -459,6 +487,7 @@ def prune_webdav_backups(
     keep: int = 3,
     name_suffix: str = ".tar.gz",
     timeout: float = 60.0,
+    proxy: Optional[str] = None,
 ) -> dict:
     """保留远端最近 keep 份备份，删除更旧的 .tar.gz。"""
     keep = max(0, int(keep))
@@ -470,6 +499,7 @@ def prune_webdav_backups(
         name_suffix=name_suffix,
         limit=100,
         timeout=timeout,
+        proxy=proxy,
     )
     if not listed.get("success"):
         return {
@@ -494,6 +524,7 @@ def prune_webdav_backups(
                 remote_dir=remote_dir,
                 filename=name,
                 timeout=timeout,
+                proxy=proxy,
             )
             removed += 1
         except Exception as exc:
@@ -593,6 +624,7 @@ def check_webdav_connection(
     password: str,
     remote_dir: str = "",
     timeout: float = 15.0,
+    proxy: Optional[str] = None,
 ) -> dict:
     """
     用 PROPFIND/HEAD 探测 WebDAV 是否可访问。
@@ -612,7 +644,10 @@ def check_webdav_connection(
     target = _join_url(base, dir_rel) if dir_rel else base
     auth = (user, password or "")
 
-    with httpx.Client(timeout=timeout, auth=auth, follow_redirects=True) as client:
+    proxy_url = _format_client_proxy(proxy)
+    with httpx.Client(
+        timeout=timeout, auth=auth, follow_redirects=True, proxy=proxy_url
+    ) as client:
         resp = _propfind(client, target, depth="0")
 
         if resp.status_code in (207, 200):

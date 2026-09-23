@@ -1,4 +1,5 @@
 import json
+import sqlite3
 import time
 from pathlib import Path
 from unittest.mock import patch
@@ -381,3 +382,38 @@ def test_security_audit_visitor_shutil_move_high_severity():
     move_warns = [w for w in warnings if "shutil.move" in w.get("rule", "")]
     assert len(move_warns) >= 1
     assert move_warns[0]["severity"] == "high"
+
+
+def test_storage_backend_closes_connection(tmp_path: Path):
+    db_file = tmp_path / "conn_close_test.db"
+    backend = PluginStorageBackend(db_path=db_file)
+
+    real_get_conn = backend._get_conn
+    created_conns = []
+
+    def spy_get_conn():
+        c = real_get_conn()
+        created_conns.append(c)
+        return c
+
+    with patch.object(backend, "_get_conn", side_effect=spy_get_conn):
+        backend.set("ns", "key", "val")
+        backend.get("ns", "key")
+        backend.delete("ns", "key")
+
+    assert len(created_conns) == 3
+    for c in created_conns:
+        with pytest.raises(sqlite3.ProgrammingError):
+            c.execute("SELECT 1")
+
+
+def test_load_plugins_from_dir_restores_syspath(tmp_path: Path):
+    import sys
+    plugin_dir = tmp_path / "my_isolated_plugin"
+    plugin_dir.mkdir()
+    code = 'from tg_signer.core.plugins import PluginRegistry\n@PluginRegistry.register(name="isolated_p", mode="active")\nasync def h(ctx): return True\n'
+    (plugin_dir / "main.py").write_text(code, encoding="utf-8")
+    parent_str = str(plugin_dir)
+    assert parent_str not in sys.path
+    PluginRegistry.load_plugins_from_dir(tmp_path)
+    assert parent_str not in sys.path

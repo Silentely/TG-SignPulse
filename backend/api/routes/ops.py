@@ -65,6 +65,10 @@ class BackupStatusResponse(BaseModel):
 
 
 # 完整备份包含的路径（不含初始密码文件，降低误传风险）
+def _extract_webdav_proxy(cfg: Dict[str, Any]) -> Optional[str]:
+    """从配置字典中提取 WebDAV 代理设置（优先 webdav_proxy，回退全局 proxy）。"""
+    return str(cfg.get("webdav_proxy") or cfg.get("proxy") or "").strip() or None
+
 BACKUP_ARCHIVE_PATHS = (
     "db.sqlite",
     "db.sqlite-wal",
@@ -366,12 +370,14 @@ def export_backup_archive(current_user: User = Depends(get_current_user)):
 
         if webdav_url:
             try:
+                wd_proxy = _extract_webdav_proxy(cfg)
                 result = upload_file_to_webdav(
                     base_url=webdav_url,
                     username=webdav_user,
                     password=webdav_password,
                     remote_dir=webdav_remote,
                     local_path=archive_path,
+                    proxy=wd_proxy,
                 )
             except ValueError as exc:
                 raise HTTPException(
@@ -437,11 +443,13 @@ def test_webdav_backup(current_user: User = Depends(get_current_user)):
 
     cfg = get_config_service().get_global_settings()
     try:
+        wd_proxy = _extract_webdav_proxy(cfg)
         result = check_webdav_connection(
             base_url=str(cfg.get("webdav_url") or ""),
             username=str(cfg.get("webdav_username") or ""),
             password=str(cfg.get("webdav_password") or ""),
             remote_dir=str(cfg.get("webdav_remote_dir") or "tg-signpulse-backups"),
+            proxy=wd_proxy,
         )
         return WebDavTestResponse(**result)
     except ValueError as exc:
@@ -479,6 +487,7 @@ def list_webdav_backup_files(current_user: User = Depends(get_current_user)):
             message="未配置 WebDAV URL",
         )
     try:
+        wd_proxy = _extract_webdav_proxy(cfg)
         result = list_webdav_files(
             base_url=url,
             username=str(cfg.get("webdav_username") or ""),
@@ -486,6 +495,7 @@ def list_webdav_backup_files(current_user: User = Depends(get_current_user)):
             remote_dir=str(cfg.get("webdav_remote_dir") or "tg-signpulse-backups"),
             name_suffix=".tar.gz",
             limit=20,
+            proxy=wd_proxy,
         )
         files = [WebDavFileEntry(**f) for f in (result.get("files") or [])]
         return WebDavListResponse(
@@ -538,12 +548,14 @@ def download_webdav_backup_file(
 
     try:
         # 先拉取首块以尽早失败；再拼接剩余流
+        wd_proxy = _extract_webdav_proxy(cfg)
         stream = iter_webdav_file(
             base_url=url,
             username=str(cfg.get("webdav_username") or ""),
             password=str(cfg.get("webdav_password") or ""),
             remote_dir=str(cfg.get("webdav_remote_dir") or "tg-signpulse-backups"),
             filename=safe_name,
+            proxy=wd_proxy,
         )
         first = next(stream)
 
