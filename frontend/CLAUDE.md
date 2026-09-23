@@ -88,7 +88,7 @@ Node：`engines` 要求 `>=22.23.1 <23`（与根 `.nvmrc` 一致）。
 ### API 层
 
 - 入口：`src/lib/api.ts` → re-export `lib/api/index.ts`
-- 域文件：`auth` / `accounts` / `sign-tasks` / `keyword-hits` / `config` / `settings` / `logs` / `ops`
+- 域文件：`auth` / `accounts` / `sign-tasks` / `keyword-hits` / `config` / `settings` / `logs` / `ops` / `stream-tickets`
 - 核心：`lib/api/core.ts`（`request`、Bearer、401 跳转；**不**从 barrel 对外暴露工具函数）
 - 类型：`lib/types.ts`（`SignTask` 为主；ORM 风格 `Task`/`TaskLog` 已 deprecated）
 
@@ -224,7 +224,7 @@ Tasks.vue
 |------|------|
 | 统计 | 活跃账号、任务总数、近成功/失败（多 API **隔离失败**，单项失败不拖垮整页） |
 | 数据源 | `listSignTasks`、`getRecentAccountLogs`、`listScheduledJobs`、`listKeywordHits`、状态 Job |
-| 实时 | 签到历史 **SSE**（`EventSource`）；断线指数退避重连（上限 30s）；`disposed` 停写 store |
+| 实时 | 签到历史 **SSE**（`EventSource`）；先用 Bearer JWT 调 `issueStreamTicket` 换一次性票据再建流（URL 不放长效 JWT）；断线指数退避重连（上限 30s）；`disposed` 停写 store |
 | 活跃 run | 共享 `useActiveRunsStore` |
 | 导航 | 日志条目 → Logs 页 query（账号/任务/时间/失败分类） |
 

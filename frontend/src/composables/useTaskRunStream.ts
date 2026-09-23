@@ -5,6 +5,8 @@ import { ref, nextTick, computed, type Ref, type ComputedRef } from 'vue'
 import {
   getSignTaskLogs,
   getSignTaskRunStatus,
+  issueStreamTicket,
+  STREAM_TICKET_PURPOSE,
 } from '../lib/api'
 import { getAuthToken } from '../lib/api/core'
 import type { SignTaskRunStatus } from '../lib/api'
@@ -115,7 +117,7 @@ export function useTaskRunStream(options: {
     }, { intervalMs: POLL_INTERVAL_MS })
   }
 
-  const connect = () => {
+  const connect = async () => {
     const name = options.taskName.value
     if (!name) return
     if (ws) {
@@ -129,13 +131,27 @@ export function useTaskRunStream(options: {
     }
     stopPolling()
 
-    const token = getAuthToken()
     const taskName = encodeURIComponent(name)
     const accountName = options.accountName.value || ''
     const runAccount = options.runAccount.value
+    // WebSocket 无法带 Authorization 头：先用 Bearer JWT 换一次性票据，
+    // 避免长效 JWT 出现在 URL 里（会被访问日志 / 反代日志 / 浏览器历史记录）。
+    // 换票失败时退化为纯轮询，与建连抛异常的分支保持一致。
+    let ticket: string
+    try {
+      const res = await issueStreamTicket(STREAM_TICKET_PURPOSE.taskRunWs, name)
+      ticket = res.ticket
+    } catch (e: unknown) {
+      devLog.error('issue WS ticket failed', e)
+      if (runAccount) {
+        isRunning.value = false
+        startPolling()
+      }
+      return
+    }
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const wsHost = window.location.host
-    const wsUrl = `${wsProtocol}//${wsHost}/api/sign-tasks/ws/${taskName}?token=${encodeURIComponent(token)}&account_name=${encodeURIComponent(accountName)}`
+    const wsUrl = `${wsProtocol}//${wsHost}/api/sign-tasks/ws/${taskName}?ticket=${encodeURIComponent(ticket)}&account_name=${encodeURIComponent(accountName)}`
 
     realtimeLogs.value = []
     isRunning.value = !!runAccount

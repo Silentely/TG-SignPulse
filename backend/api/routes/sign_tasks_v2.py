@@ -22,11 +22,13 @@ from fastapi import (
 )
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field, validator
-from sqlalchemy.orm import Session
 
-from backend.core.auth import get_current_user, verify_token
-from backend.core.database import get_db
+from backend.core.auth import get_current_user
 from backend.services.sign_tasks import get_sign_task_service
+from backend.services.stream_tickets import (
+    PURPOSE_TASK_RUN_WS,
+    get_stream_ticket_store,
+)
 
 router = APIRouter()
 
@@ -785,15 +787,12 @@ async def sign_task_logs_ws(
     websocket: WebSocket,
     task_name: str,
     account_name: str | None = Query(None),
-    token: str = Query(...),
-    db: Session = Depends(get_db),
+    ticket: str = Query(..., description="一次性流接入票据，由 POST /api/events/ticket 签发"),
 ):
-    try:
-        user = verify_token(token, db)
-        if not user:
-            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-            return
-    except Exception:
+    # 浏览器 WebSocket 同样无法设置 Authorization，改为一次性票据接入：
+    # 票据绑定用途与 task_name，兑换后立即作废，URL 重放会直接握手失败
+    principal = get_stream_ticket_store().consume(ticket, PURPOSE_TASK_RUN_WS, task_name)
+    if principal is None:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 

@@ -8,6 +8,8 @@ import {
   listScheduledJobs,
   listKeywordHits,
   listAccountStatusCheckJobs,
+  issueStreamTicket,
+  STREAM_TICKET_PURPOSE,
 } from '../lib/api'
 import type {
   AccountInfo,
@@ -100,16 +102,28 @@ export function useDashboardData() {
     const delay = Math.min(30_000, 1000 * 2 ** Math.min(sseReconnectAttempt, 5))
     sseReconnectAttempt += 1
     sseReconnectTimer = setTimeout(() => {
-      connectSignHistorySSE()
+      // 换票是异步的：失败时 connect 内部已记录日志并直接返回，
+      // 由 onerror → scheduleSseReconnect 继续退避重试
+      void connectSignHistorySSE()
     }, delay)
   }
 
-  const connectSignHistorySSE = () => {
+  const connectSignHistorySSE = async () => {
     const token = getAuthToken()
     if (!token || typeof EventSource === 'undefined') return
+    // EventSource 无法带 Authorization 头：先用 Bearer JWT 换一次性票据，
+    // 避免长效 JWT 出现在 URL 里（会被访问日志 / 反代日志 / 浏览器历史记录）
+    let ticket: string
+    try {
+      const res = await issueStreamTicket(STREAM_TICKET_PURPOSE.signHistorySse)
+      ticket = res.ticket
+    } catch (e: unknown) {
+      devLog.error('issue SSE ticket failed', e)
+      return
+    }
     try {
       signHistorySource?.close()
-      const url = `/api/events/sign-history?token=${encodeURIComponent(token)}`
+      const url = `/api/events/sign-history?ticket=${encodeURIComponent(ticket)}`
       signHistorySource = new EventSource(url)
       signHistorySource.addEventListener('ready', () => {
         liveConnected.value = true
@@ -326,7 +340,7 @@ export function useDashboardData() {
       runImmediately: false,
     })
     document.addEventListener('visibilitychange', handleVisibilityChange)
-    connectSignHistorySSE()
+    void connectSignHistorySSE()
   })
 
   onUnmounted(() => {

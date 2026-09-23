@@ -97,6 +97,23 @@ class TTLCache(Generic[T]):
                 return True
             return False
 
+    def pop(self, key: str, default: T | None = None) -> Any:
+        """原子地取出并删除条目，返回其值；不存在或已过期返回 default。
+
+        读取与删除在同一把锁内完成，用于一次性消费场景（如流接入票据）：
+        先 get 再 delete 会让两个并发请求都读到同一值，失去「仅可兑换一次」的保证。
+        """
+        with self._lock:
+            entry = self._data.get(key)
+            if entry is None:
+                return default
+
+            value, expire_at = entry
+            del self._data[key]
+            if time.monotonic() >= expire_at:
+                return default
+            return value
+
     def clear(self) -> int:
         """清空所有缓存，返回删除的条目数。"""
         with self._lock:
