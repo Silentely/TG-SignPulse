@@ -70,48 +70,59 @@ class TestEntryDedupeKey:
         assert events._entry_dedupe_key(item) == "a|t|x|False"
 
 
-class TestRequireToken:
-    @pytest.fixture()
-    def fake_db(self, monkeypatch):
-        class _FakeDb(SimpleNamespace):
-            """支持 with 语句的会话替身：退出时关闭（与真实 Session 语义一致）。"""
+class TestConsumeStreamTicket:
 
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *exc):
-                self.close()
-                return False
-
-        db = _FakeDb(closed=0)
-        db.close = lambda: setattr(db, "closed", db.closed + 1)
-        monkeypatch.setattr(events, "get_session_local", lambda: (lambda: db))
-        return db
-
-    def test_none_token_401(self, fake_db):
+    def test_none_ticket_401(self, monkeypatch):
+        monkeypatch.setattr(
+            events.get_stream_ticket_store(), "consume", lambda *a, **k: None
+        )
         with pytest.raises(HTTPException) as exc:
-            events._require_token(None)
+            events._consume_stream_ticket(None)
         assert exc.value.status_code == 401
         assert exc.value.detail == "Not authenticated"
 
-    def test_blank_token_401(self, fake_db):
+    def test_blank_ticket_401(self, monkeypatch):
+        monkeypatch.setattr(
+            events.get_stream_ticket_store(), "consume", lambda *a, **k: None
+        )
         with pytest.raises(HTTPException) as exc:
-            events._require_token("   ")
+            events._consume_stream_ticket("   ")
         assert exc.value.status_code == 401
+        assert exc.value.detail == "Not authenticated"
 
-    def test_invalid_token_401_and_db_closed(self, fake_db, monkeypatch):
-        monkeypatch.setattr(events, "verify_token", lambda token, db: None)
+    def test_invalid_ticket_401(self, monkeypatch):
+        monkeypatch.setattr(
+            events.get_stream_ticket_store(), "consume", lambda *a, **k: None
+        )
         with pytest.raises(HTTPException) as exc:
-            events._require_token("bad-token")
+            events._consume_stream_ticket("bad-ticket")
         assert exc.value.status_code == 401
-        assert exc.value.detail == "Invalid token"
-        assert fake_db.closed == 1
+        assert exc.value.detail == "Invalid ticket"
 
-    def test_valid_token_returns_user(self, fake_db, monkeypatch):
-        user = SimpleNamespace(username="admin")
-        monkeypatch.setattr(events, "verify_token", lambda token, db: user)
-        assert events._require_token("good-token") is user
-        assert fake_db.closed == 1
+    def test_valid_ticket_maps_principal_to_user(self, monkeypatch):
+        principal = SimpleNamespace(user_id=7, username="admin")
+        monkeypatch.setattr(
+            events.get_stream_ticket_store(), "consume", lambda *a, **k: principal
+        )
+        user = events._consume_stream_ticket("good-ticket")
+        assert user.id == 7
+        assert user.username == "admin"
+
+    def test_ticket_consumed_with_sse_purpose(self, monkeypatch):
+        """兑换时必须以 SSE 用途校验，避免 WS 票据被挪用到 SSE 流上。"""
+        seen: dict = {}
+        principal = SimpleNamespace(user_id=1, username="u")
+
+        def _consume(ticket, purpose, resource=""):
+            seen["ticket"] = ticket
+            seen["purpose"] = purpose
+            seen["resource"] = resource
+            return principal
+
+        monkeypatch.setattr(events.get_stream_ticket_store(), "consume", _consume)
+        events._consume_stream_ticket("  spaced-ticket  ")
+        assert seen["ticket"] == "spaced-ticket"
+        assert seen["purpose"] == events.PURPOSE_SIGN_HISTORY_SSE
 
 
 class _FakeBus:

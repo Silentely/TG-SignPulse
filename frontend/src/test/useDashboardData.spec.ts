@@ -22,6 +22,7 @@ const api = vi.hoisted(() => ({
   listActiveSignTaskRuns: vi.fn(),
   listKeywordHits: vi.fn(),
   listAccountStatusCheckJobs: vi.fn(),
+  issueStreamTicket: vi.fn(),
 }))
 
 const activeRunsStoreMock = vi.hoisted(() => {
@@ -54,7 +55,10 @@ vi.mock('../composables/useToast', () => ({
 vi.mock('../lib/notify', () => ({
   notifyApiError: notifyApiErrorSpy,
 }))
-vi.mock('../lib/api', () => api)
+vi.mock('../lib/api', () => ({
+  ...api,
+  STREAM_TICKET_PURPOSE: { signHistorySse: 'sign_history_sse', taskRunWs: 'task_run_ws' },
+}))
 vi.mock('../stores/activeRuns', () => ({
   useActiveRunsStore: () => activeRunsStoreMock,
 }))
@@ -105,6 +109,12 @@ describe('useDashboardData (mount + SSE + poll)', () => {
     for (const fn of Object.values(api)) {
       fn.mockReset()
     }
+    // 票据默认值须在 mockReset 之后设置，否则会被清掉
+    api.issueStreamTicket.mockResolvedValue({
+      ticket: 'tk-1',
+      purpose: 'sign_history_sse',
+      expires_in: 60,
+    })
     activeRunsStoreMock.runs.value = []
     activeRunsStoreMock.refresh.mockClear()
     activeRunsStoreMock.ensurePolling.mockClear()
@@ -189,7 +199,9 @@ describe('useDashboardData (mount + SSE + poll)', () => {
 
     expect(startChainPoll).toHaveBeenCalled()
     expect(MockEventSource.instances.length).toBeGreaterThanOrEqual(1)
-    expect(MockEventSource.instances[0].url).toContain('/api/events/sign-history?token=tok')
+    expect(MockEventSource.instances[0].url).toContain('/api/events/sign-history?ticket=tk-1')
+    // 长效 JWT 不得再出现在 URL 里
+    expect(MockEventSource.instances[0].url).not.toContain('token=tok')
 
     unmount()
     expect(pollState.stops[0]).toHaveBeenCalled()

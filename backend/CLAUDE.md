@@ -74,7 +74,7 @@ uvicorn backend.main:app --host 127.0.0.1 --port 8080
 | `/api/ops` | `ops.py` | 10 | 调度预览、备份/WebDAV、内存、运行时、版本 |
 | `/api/logs` | `logs.py` | 7 | 登录审计、任务历史日志 |
 | `/api/config` | `config.py` | 17 | 全局设置、AI、Telegram API、导入导出 |
-| `/api/events` | `events.py` | 1 | SSE 签到历史事件流 |
+| `/api/events` | `events.py` | 2 | SSE 签到历史事件流 + 流接入票据签发 |
 | `/api/batch` | `batch.py` | 1 | `POST /sign-tasks` 批量 enable/disable/delete/run |
 | `/api/keyword-hits` | `keyword_hits.py` | 4 | 关键词命中记录查询 |
 
@@ -125,7 +125,25 @@ uvicorn backend.main:app --host 127.0.0.1 --port 8080
 
 ### SSE
 
-- `GET /api/events/sign-history` — 签到历史变更（进程内总线 + 30s 索引兜底），`token` 查询参数鉴权
+### SSE 与流接入票据
+
+浏览器 `EventSource` / `WebSocket` 都无法设置 `Authorization` 头。长效 JWT 若放进查询串，
+会随 URL 落入访问日志、反代日志、浏览器历史与 `Referer`（默认 12 小时有效，泄露即长期可用凭证）。
+因此改为两段式：
+
+| 端点 | 鉴权方式 | 说明 |
+|------|----------|------|
+| `POST /api/events/ticket` | `Authorization: Bearer` JWT | 签发短期一次性票据；body 为 `{purpose, resource}` |
+| `GET /api/events/sign-history?ticket=` | 一次性票据 | 签到历史变更（进程内总线 + 30s 索引兜底） |
+| `WS /api/sign-tasks/ws/{task_name}?ticket=` | 一次性票据 | 任务运行日志实时流 |
+
+票据语义（`services/stream_tickets.py`）：`secrets.token_urlsafe(32)` 随机串、不可解码、
+60 秒有效、兑换后立即作废（重复使用返回 401 / 握手失败）、按 `purpose` 与 `resource`
+（如 `task_name`）隔离——一张票无法被挪用到另一条流上。存储为进程内 `TTLCache`，
+与 SSE 总线一致：多 worker 部署下票据不跨进程共享。
+
+一次性兑换依赖 `TTLCache.pop()`（读+删在同一把锁内完成），并发建流时不会出现
+「两个连接用同一张票都通过」的情况。
 
 ## 关键依赖与配置
 
@@ -192,6 +210,7 @@ fastapi、uvicorn、sqlalchemy、apscheduler、pyjwt、bcrypt/passlib、pyotp、
 | `device_keepalive.py` | 会话保活 |
 | `runtime_settings.py` | 面板设置优先、环境变量兜底 |
 | `sign_history_events.py` | SSE 总线 |
+| `stream_tickets.py` | SSE / WS 短期一次性接入票据（签发、兑换、按用途与资源隔离） |
 | `backup_archive.py` / `webdav_client.py` | 备份打包与 WebDAV |
 | `account_status_jobs.py` / `background_job.py` / `avatar_cache.py` / `users.py` | 状态 Job、通用后台、头像缓存、管理员初始化 |
 

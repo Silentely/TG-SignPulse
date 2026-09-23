@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 
 import pytest
@@ -43,6 +44,57 @@ class TestTTLCache:
         assert cache.delete("missing") is False
         assert cache.clear() == 1
         assert len(cache) == 0
+
+    def test_pop_returns_and_removes(self):
+        cache = TTLCache(maxsize=10, ttl=60.0)
+        cache.set("k", "v")
+        assert cache.pop("k") == "v"
+        # 取出后条目已删除：get 与 pop 都不再命中
+        assert cache.get("k") is None
+        assert cache.pop("k") is None
+        assert len(cache) == 0
+
+    def test_pop_missing_returns_default(self):
+        cache = TTLCache(maxsize=10, ttl=60.0)
+        assert cache.pop("missing") is None
+        assert cache.pop("missing", "fallback") == "fallback"
+
+    def test_pop_expired_returns_default(self):
+        cache = TTLCache(maxsize=10, ttl=0.05)
+        cache.set("k", 1)
+        time.sleep(0.08)
+        assert cache.pop("k") is None
+
+    def test_pop_expired_entry_is_removed(self):
+        """过期条目兑换时必须被真正删除，否则会残留在缓存里。"""
+        cache = TTLCache(maxsize=10, ttl=0.05)
+        cache.set("k", 1)
+        time.sleep(0.08)
+        assert cache.pop("k") is None
+        assert len(cache) == 0
+
+    def test_pop_is_atomic_under_threads(self):
+        """一次性消费：并发 pop 同一 key 只应有一次成功。"""
+        cache = TTLCache(maxsize=10, ttl=60.0)
+        cache.set("once", "v")
+        results: list[object] = []
+        lock = threading.Lock()
+        barrier = threading.Barrier(8)
+
+        def _pop():
+            barrier.wait()
+            value = cache.pop("once")
+            with lock:
+                results.append(value)
+
+        threads = [threading.Thread(target=_pop) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert results.count("v") == 1
+        assert results.count(None) == 7
 
     def test_contains_and_len(self):
         cache = TTLCache(maxsize=10, ttl=60.0)

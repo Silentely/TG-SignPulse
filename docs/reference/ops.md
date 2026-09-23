@@ -22,7 +22,7 @@
 | `GET /api/ops/backup/webdav/files` | 列出远端目录 `.tar.gz` 备份（PROPFIND） |
 | `GET /api/ops/backup/webdav/download?name=` | 流式下载指定远端 `.tar.gz`（安全文件名） |
 | `POST /api/batch/sign-tasks` | 新版签到任务批量 enable/disable/delete/run |
-| `GET /api/events/sign-history?token=` | 签到历史 SSE（Dashboard 实时流，token 查询参数） |
+| `POST /api/events/ticket` + `GET /api/events/sign-history?ticket=` | 签到历史 SSE：先用 Bearer JWT 换 60 秒一次性票据，再用票据建流（URL 不放长效 JWT） |
 | `POST /api/accounts/status/check` | 同步批量账号会话检测（兼容；账号多时易阻塞） |
 | `POST /api/accounts/status/check-jobs` | 异步批量账号会话检测 Job（可取消、可查进度） |
 | `GET /api/accounts/status/check-jobs/{job_id}` | 查询批量检测 Job 状态 / 结果 |

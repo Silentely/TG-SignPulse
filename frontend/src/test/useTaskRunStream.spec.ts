@@ -12,6 +12,7 @@ const { api, pollHandles, startChainPollMock } = vi.hoisted(() => {
     api: {
       getSignTaskLogs: vi.fn(),
       getSignTaskRunStatus: vi.fn(),
+      issueStreamTicket: vi.fn(),
     },
     pollHandles,
     startChainPollMock: vi.fn((cb: () => Promise<void>) => {
@@ -21,7 +22,10 @@ const { api, pollHandles, startChainPollMock } = vi.hoisted(() => {
     }),
   }
 })
-vi.mock('../lib/api', () => api)
+vi.mock('../lib/api', () => ({
+  ...api,
+  STREAM_TICKET_PURPOSE: { signHistorySse: 'sign_history_sse', taskRunWs: 'task_run_ws' },
+}))
 vi.mock('../lib/chain-poll', () => ({
   startChainPoll: startChainPollMock,
 }))
@@ -73,6 +77,7 @@ describe('useTaskRunStream', () => {
       vi.stubGlobal('localStorage', memoryStorage)
     }
     globalThis.WebSocket = MockWebSocket as unknown as typeof WebSocket
+    api.issueStreamTicket.mockResolvedValue({ ticket: 'tk-1', purpose: 'task_run_ws', expires_in: 60 })
     useAuthStore().setToken('tok')
   })
 
@@ -91,21 +96,24 @@ describe('useTaskRunStream', () => {
     return stream
   }
 
-  it('connect opens websocket with token and account', () => {
+  it('connect 用一次性票据建连，URL 里不出现长效 JWT', async () => {
     const stream = setup('acc-a')
-    stream.connect()
+    await stream.connect()
     expect(MockWebSocket.instances).toHaveLength(1)
     const url = MockWebSocket.instances[0].url
     expect(url).toContain('/api/sign-tasks/ws/task-a')
-    expect(url).toContain('token=tok')
+    expect(url).toContain('ticket=tk-1')
     expect(url).toContain('account_name=acc-a')
+    expect(url).not.toContain('token=')
+    // 票据绑定用途与任务名
+    expect(api.issueStreamTicket).toHaveBeenCalledWith('task_run_ws', 'task-a')
     expect(stream.isRunning.value).toBe(true)
     expect(stream.livePhase.value).toBe('starting')
   })
 
   it('handles logs and done frames', async () => {
     const stream = setup('acc-a')
-    stream.connect()
+    await stream.connect()
     const ws = MockWebSocket.instances[0]
     ws.emitMessage({
       type: 'logs',
@@ -126,7 +134,7 @@ describe('useTaskRunStream', () => {
 
   it('WS 日志行超出上限时截尾，保持有界', async () => {
     const stream = setup('acc-a')
-    stream.connect()
+    await stream.connect()
     const ws = MockWebSocket.instances[0]
     // 分多帧推入 1200 行，超出 1000 上限
     for (let i = 0; i < 6; i++) {
@@ -143,32 +151,32 @@ describe('useTaskRunStream', () => {
     expect(stream.realtimeLogs.value[999]).toBe('L1199')
   })
 
-  it('disconnect closes socket and clears live phase', () => {
+  it('disconnect closes socket and clears live phase', async () => {
     const stream = setup('acc-a')
-    stream.connect()
+    await stream.connect()
     stream.disconnect()
     expect(stream.isRunning.value).toBe(false)
     expect(stream.livePhase.value).toBeNull()
   })
 
-  it('reconnecting closes previous socket and cleans up handlers', () => {
+  it('reconnecting closes previous socket and cleans up handlers', async () => {
     const stream = setup('acc-a')
-    stream.connect()
+    await stream.connect()
     expect(MockWebSocket.instances).toHaveLength(1)
     const firstSocket = MockWebSocket.instances[0]
     expect(firstSocket.readyState).toBe(1)
 
     // Second connect should close first socket and clean its handlers
-    stream.connect()
+    await stream.connect()
     expect(MockWebSocket.instances).toHaveLength(2)
     expect(firstSocket.readyState).toBe(3)
     expect(firstSocket.onclose).toBeNull()
     expect(firstSocket.onmessage).toBeNull()
   })
 
-  it('disconnect clears socket handlers before closing to prevent ghost polling', () => {
+  it('disconnect clears socket handlers before closing to prevent ghost polling', async () => {
     const stream = setup('acc-a')
-    stream.connect()
+    await stream.connect()
     const ws = MockWebSocket.instances[0]
     stream.disconnect()
     expect(ws.readyState).toBe(3)
@@ -180,7 +188,7 @@ describe('useTaskRunStream', () => {
     api.getSignTaskLogs.mockResolvedValue(['poll-line'])
     api.getSignTaskRunStatus.mockResolvedValue({ state: 'running', phase: 'running' })
     const stream = setup('acc-a')
-    stream.connect()
+    await stream.connect()
     MockWebSocket.instances[0].onerror?.({})
     expect(pollHandles.length).toBeGreaterThan(0)
     await pollHandles[0].cb()
@@ -191,7 +199,7 @@ describe('useTaskRunStream', () => {
     api.getSignTaskLogs.mockResolvedValue([])
     api.getSignTaskRunStatus.mockResolvedValue({ state: 'finished' })
     const stream = setup('acc-a')
-    stream.connect()
+    await stream.connect()
     MockWebSocket.instances[0].onerror?.({})
     const handle = pollHandles[0]
     await handle.cb()
@@ -212,11 +220,24 @@ describe('useTaskRunStream', () => {
     expect(stream.realtimeLogs.value).toEqual([])
   })
 
+  it('换票失败时退化为轮询，不建 WebSocket', async () => {
+    api.issueStreamTicket.mockRejectedValueOnce(new Error('401'))
+    api.getSignTaskLogs.mockResolvedValue(['poll-line'])
+    api.getSignTaskRunStatus.mockResolvedValue({ state: 'running', phase: 'running' })
+    const stream = setup('acc-a')
+    await stream.connect()
+    expect(MockWebSocket.instances).toHaveLength(0)
+    expect(stream.isRunning.value).toBe(false)
+    expect(pollHandles).toHaveLength(1)
+    await pollHandles[0].cb()
+    expect(stream.realtimeLogs.value).toEqual(['poll-line'])
+  })
+
   it('polling skips requests while tab hidden', async () => {
     api.getSignTaskLogs.mockResolvedValue(['hidden-line'])
     api.getSignTaskRunStatus.mockResolvedValue({ state: 'running', phase: 'running' })
     const stream = setup('acc-a')
-    stream.connect()
+    await stream.connect()
     MockWebSocket.instances[0].onerror?.({})
     const handle = pollHandles[0]
 

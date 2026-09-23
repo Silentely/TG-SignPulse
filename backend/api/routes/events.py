@@ -6,12 +6,17 @@ import logging
 import time
 from typing import AsyncGenerator, Optional
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 
-from backend.core.auth import verify_token
-from backend.core.database import get_session_local
+from backend.core.auth import get_current_user
 from backend.models.user import User
+from backend.services.stream_tickets import (
+    PURPOSE_SIGN_HISTORY_SSE,
+    PURPOSE_TASK_RUN_WS,
+    TICKET_TTL_SECONDS,
+    get_stream_ticket_store,
+)
 
 router = APIRouter()
 _logger = logging.getLogger("backend.events")
@@ -31,22 +36,54 @@ SSE_DEDUPE_KEEP = 300
 SSE_HEARTBEAT_INTERVAL = 15
 
 
-def _require_token(token: Optional[str]) -> User:
-    """校验 EventSource 查询参数中的 JWT，返回已认证用户。"""
-    if not token or not str(token).strip():
+def _consume_stream_ticket(ticket: Optional[str]) -> User:
+    """兑换 SSE 接入票据，返回对应已认证用户。
+
+    票据一次性：兑换后立即作废，重复使用同一 URL 会得到 401。
+    """
+    if not ticket or not str(ticket).strip():
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
         )
-    session_local = get_session_local()
-    with session_local() as db:
-        user = verify_token(str(token).strip(), db)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token",
-            )
-        return user
+    principal = get_stream_ticket_store().consume(
+        str(ticket).strip(), PURPOSE_SIGN_HISTORY_SSE
+    )
+    if principal is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid ticket",
+        )
+    # 票据已确认归属，此处构造轻量 User 占位供后续逻辑引用
+    user = User()
+    user.id = principal.user_id
+    user.username = principal.username
+    return user
+
+
+@router.post("/ticket")
+async def issue_stream_ticket(
+    purpose: str = Body(..., embed=True),
+    resource: str = Body("", embed=True),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """签发流接入票据（换取后用于 SSE / WebSocket 连接）。
+
+    长效 JWT 只走 Authorization 头；查询串里放的是一张 60 秒有效、一次性、
+    绑定用途与资源的随机票据，避免 URL 落入日志后长期可用。
+    """
+    if purpose not in (PURPOSE_SIGN_HISTORY_SSE, PURPOSE_TASK_RUN_WS):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported ticket purpose",
+        )
+    ticket = get_stream_ticket_store().issue(
+        user_id=int(current_user.id),
+        username=str(current_user.username),
+        purpose=purpose,
+        resource=resource,
+    )
+    return {"ticket": ticket, "purpose": purpose, "expires_in": int(TICKET_TTL_SECONDS)}
 
 
 def _sign_log_sse_bytes(item: dict) -> bytes:
@@ -152,17 +189,18 @@ async def _sign_history_event_stream() -> AsyncGenerator[bytes, None]:
 
 @router.get("/sign-history")
 async def sign_history_events(
-    token: Optional[str] = Query(None, description="JWT，供 EventSource 使用"),
+    ticket: Optional[str] = Query(None, description="一次性流接入票据，由 POST /api/events/ticket 签发"),
 ):
     """
     签到任务历史 SSE 流。
 
-    浏览器 EventSource 无法设置 Authorization，请使用 `?token=`。
+    浏览器 EventSource 无法设置 Authorization，先用 Bearer JWT 调
+    `POST /api/events/ticket` 换一次性票据，再以 `?ticket=` 建流。
+    票据 60 秒有效且仅可兑换一次，URL 重复使用会返回 401。
     事件：ready / sign_log；注释行 keep-alive。
     """
-    # JWT 校验含同步数据库查询，放入线程池避免阻塞事件循环
-    # （每个 SSE 连接建立时都会执行一次）
-    await asyncio.to_thread(_require_token, token)
+    # 票据兑换只碰内存字典，无需线程池；保留 _consume_stream_ticket 的同步签名
+    _consume_stream_ticket(ticket)
 
     async def event_generator():
         async for chunk in _sign_history_event_stream():
