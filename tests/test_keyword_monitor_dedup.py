@@ -31,6 +31,9 @@ class _FakeConfig:
     def get_global_settings(self) -> dict:
         return {}
 
+    def get_telegram_config(self) -> dict:
+        return {}
+
 
 def _make_message(*, text: str, id: int, chat_id: int):
     message = MagicMock()
@@ -202,3 +205,34 @@ async def test_on_message_skips_without_side_effects(tmp_path: Path, monkeypatch
     no_text = _make_message(text="", id=200, chat_id=1001)
     await service._on_message("acc", client, no_text)
     assert push.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_sync_cleans_up_client_on_aenter_failure(tmp_path: Path, monkeypatch):
+    """当 client.__aenter__ 抛出异常时，必须调用 close_client_by_name 清理残留客户端实例。"""
+    fake_settings = _FakeSettings(tmp_path)
+    fake_settings.resolve_session_dir = lambda: tmp_path / "sessions"
+    monkeypatch.setattr(runtime_mod, "settings", fake_settings)
+    monkeypatch.setattr(
+        "backend.services.config.get_config_service", lambda: _FakeConfig()
+    )
+
+    closed_accounts = []
+
+    async def _fake_close(name, workdir=None):
+        closed_accounts.append(name)
+
+    monkeypatch.setattr("tg_signer.core.close_client_by_name", _fake_close)
+
+    mock_client = MagicMock()
+    mock_client.__aenter__ = AsyncMock(side_effect=RuntimeError("connection dropped"))
+    mock_client.add_handler = MagicMock(return_value=("handler_obj", 0))
+    mock_client.remove_handler = MagicMock()
+
+    service = KeywordMonitorService()
+    monkeypatch.setattr(service, "_load_rules", lambda: [_make_rule()])
+    monkeypatch.setattr("tg_signer.core.get_client", lambda *args, **kwargs: mock_client)
+
+    await service.restart_from_tasks()
+    assert "acc" in closed_accounts
+    mock_client.remove_handler.assert_called_once_with("handler_obj", 0)

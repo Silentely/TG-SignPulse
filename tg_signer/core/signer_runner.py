@@ -458,8 +458,13 @@ class SignerRunnerMixin:
                 raise RuntimeError("所有会话均执行失败（详细请看运行日志）")
 
             sign_record[str(now.date())] = now.isoformat()
-            with open(self.sign_record_file, "w", encoding="utf-8") as fp:
-                json.dump(sign_record, fp)
+            try:
+                from backend.utils.atomic_io import write_json_atomic
+
+                write_json_atomic(self.sign_record_file, sign_record)
+            except Exception:
+                with open(self.sign_record_file, "w", encoding="utf-8") as fp:
+                    json.dump(sign_record, fp)
 
 
         def need_sign(last_date_str):

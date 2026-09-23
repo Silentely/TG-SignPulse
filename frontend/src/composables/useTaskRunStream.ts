@@ -118,6 +118,17 @@ export function useTaskRunStream(options: {
   const connect = () => {
     const name = options.taskName.value
     if (!name) return
+    if (ws) {
+      const socket = ws
+      ws = null
+      socket.onopen = null
+      socket.onmessage = null
+      socket.onerror = null
+      socket.onclose = null
+      socket.close()
+    }
+    stopPolling()
+
     const token = getAuthToken()
     const taskName = encodeURIComponent(name)
     const accountName = options.accountName.value || ''
@@ -184,8 +195,13 @@ export function useTaskRunStream(options: {
 
   const disconnect = () => {
     if (ws) {
-      ws.close()
+      const socket = ws
       ws = null
+      socket.onopen = null
+      socket.onmessage = null
+      socket.onerror = null
+      socket.onclose = null
+      socket.close()
     }
     stopPolling()
     isRunning.value = false

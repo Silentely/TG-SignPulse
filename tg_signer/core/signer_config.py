@@ -308,11 +308,29 @@ class SignerConfigMixin:
     def load_sign_record(self):
         sign_record = {}
         if not self.sign_record_file.is_file():
-            with open(self.sign_record_file, "w", encoding="utf-8") as fp:
-                json.dump(sign_record, fp)
-        else:
+            try:
+                from backend.utils.atomic_io import write_json_atomic
+
+                write_json_atomic(self.sign_record_file, sign_record)
+            except Exception:
+                with open(self.sign_record_file, "w", encoding="utf-8") as fp:
+                    json.dump(sign_record, fp)
+            return sign_record
+
+        try:
             with open(self.sign_record_file, "r", encoding="utf-8") as fp:
                 sign_record = json.load(fp)
+            if not isinstance(sign_record, dict):
+                sign_record = {}
+        except Exception as exc:
+            _logger.warning("签到记录文件损坏或不可读，重置为空字典: %s (%s)", self.sign_record_file, exc)
+            sign_record = {}
+            try:
+                from backend.utils.atomic_io import write_json_atomic
+
+                write_json_atomic(self.sign_record_file, sign_record)
+            except Exception:
+                pass
         return sign_record
 
     @staticmethod

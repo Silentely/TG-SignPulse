@@ -66,3 +66,22 @@ def test_cleanup_unreadable_file_does_not_abort(tmp_path: Path, monkeypatch):
 
     assert _os.path.exists(cache_dir / "expired.jpg")
     assert _os.path.exists(cache_dir / "fresh.jpg")
+
+
+def test_cleanup_sanitizes_invalid_or_zero_ttl(tmp_path: Path):
+    cache_dir = tmp_path / "avatars"
+    cache_dir.mkdir()
+    # File that is 100 seconds old
+    _touch(cache_dir / "old.jpg", 100)
+
+    # Passing ttl=30 should be clamped to max(60, ...) -> 60s, so 100s old file is removed
+    removed = avatar_cache.cleanup_avatar_cache(cache_dir, ttl=30)
+    assert removed == 1
+    assert not (cache_dir / "old.jpg").exists()
+
+    # Re-touch file 100s old
+    _touch(cache_dir / "old2.jpg", 100)
+    # Passing invalid non-int ttl falls back to AVATAR_CACHE_TTL_SECONDS (7 days), so 100s old is NOT removed
+    removed = avatar_cache.cleanup_avatar_cache(cache_dir, ttl="invalid")  # type: ignore
+    assert removed == 0
+    assert (cache_dir / "old2.jpg").exists()

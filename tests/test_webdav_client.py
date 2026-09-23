@@ -471,3 +471,34 @@ def test_webdav_connection_base_only_403_is_auth_fail():
         )
     assert r["success"] is False
     assert "认证失败" in r["message"]
+
+
+def test_webdav_operations_support_proxy(tmp_path: Path):
+    f = tmp_path / "proxy_test.tar.gz"
+    f.write_bytes(b"data")
+    mock_client = MagicMock()
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=False)
+    mock_client.request.return_value = MagicMock(status_code=201, text="")
+    mock_client.put.return_value = MagicMock(status_code=201, text="", reason_phrase="Created")
+
+    with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client) as mock_cls:
+        upload_file_to_webdav(
+            base_url="https://dav.example.com/files/u",
+            username="u",
+            password="p",
+            remote_dir="bk",
+            local_path=f,
+            proxy="http://127.0.0.1:7890",
+        )
+        assert mock_cls.call_args.kwargs.get("proxy") == "http://127.0.0.1:7890"
+
+    with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client) as mock_cls:
+        check_webdav_connection(
+            base_url="https://dav.example.com/files/u",
+            username="u",
+            password="p",
+            remote_dir="bk",
+            proxy="socks5://127.0.0.1:1080",
+        )
+        assert mock_cls.call_args.kwargs.get("proxy") == "socks5://127.0.0.1:1080"

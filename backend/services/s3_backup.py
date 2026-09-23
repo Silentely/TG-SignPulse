@@ -39,6 +39,7 @@ class S3BackupClient:
         secret_key: str,
         region: str = "auto",
         prefix: str = "tg-signpulse-backups/",
+        proxy: Optional[str] = None,
     ) -> None:
         self.endpoint_url = endpoint_url.rstrip("/")
         self.bucket = bucket.strip()
@@ -48,6 +49,7 @@ class S3BackupClient:
         self.prefix = prefix.strip().strip("/")
         if self.prefix:
             self.prefix += "/"
+        self.proxy = proxy
 
     def _build_url_and_host(self, object_key: str) -> tuple[str, str, str]:
         """构建目标 URL、host 头与路径。支持路径风格 (Path-Style) 与虚拟主机风格。"""
@@ -118,7 +120,13 @@ class S3BackupClient:
             "Content-Length": str(len(data)),
         }
 
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        proxy_url = None
+        if self.proxy:
+            from backend.utils.proxy import format_proxy_url
+
+            proxy_url = format_proxy_url(self.proxy)
+
+        async with httpx.AsyncClient(proxy=proxy_url, timeout=60.0) as client:
             resp = await client.put(target_url, content=data, headers=headers)
             if resp.status_code not in (200, 201, 204):
                 raise RuntimeError(

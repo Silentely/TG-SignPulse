@@ -92,6 +92,30 @@ def build_proxy_dict(raw: str) -> Optional[dict]:
     return proxy
 
 
+def format_proxy_url(raw: str | dict | None) -> Optional[str]:
+    """将代理字符串或字典格式化为标准 URL（如 socks5://127.0.0.1:1080 或 http://user:pass@host:port）。"""
+    if not raw:
+        return None
+    if isinstance(raw, str):
+        proxy_dict = build_proxy_dict(raw)
+    elif isinstance(raw, dict):
+        proxy_dict = raw
+    else:
+        return None
+    if not proxy_dict or not proxy_dict.get("hostname") or not proxy_dict.get("port"):
+        return None
+    scheme = str(proxy_dict.get("scheme", "http")).lower()
+    user = proxy_dict.get("username")
+    pwd = proxy_dict.get("password") or ""
+    if user:
+        quoted_user = urllib.parse.quote(str(user), safe="")
+        quoted_pwd = urllib.parse.quote(str(pwd), safe="")
+        auth = f"{quoted_user}:{quoted_pwd}@"
+    else:
+        auth = ""
+    return f"{scheme}://{auth}{proxy_dict['hostname']}:{proxy_dict['port']}"
+
+
 def _make_proxy_cache_key(proxy_dict: dict) -> str:
     scheme = str(proxy_dict.get("scheme", "")).lower()
     host = str(proxy_dict.get("hostname", "")).lower()

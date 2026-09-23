@@ -349,6 +349,35 @@ class TestSessionImporterConversionAndVerification:
         # Content should remain unchanged
         assert existing_file.read_bytes() == b"existing-session-data"
 
+    @pytest.mark.asyncio
+    async def test_import_with_force_closes_existing_client(self, tmp_path: Path):
+        existing_file = tmp_path / "acc_force.session"
+        existing_file.write_bytes(b"existing-session-data")
+
+        pyrogram_str = _make_pyrogram_string_session()
+        mock_client = MagicMock()
+        mock_client.connect = AsyncMock()
+        mock_client.disconnect = AsyncMock()
+        mock_me = MagicMock()
+        mock_me.id = 999888
+        mock_me.first_name = "User"
+        mock_me.username = "user"
+        mock_client.get_me = AsyncMock(return_value=mock_me)
+        mock_client.is_connected = True
+
+        with patch("tg_signer.core.close_client_by_name", new_callable=AsyncMock) as mock_close, \
+             patch("backend.services.telegram.session_importer.Client", return_value=mock_client), \
+             patch("backend.services.telegram.session_importer.set_account_profile"), \
+             patch("backend.services.telegram.session_importer.mark_account_connected"):
+            res = await import_session(
+                account_name="acc_force",
+                payload=pyrogram_str,
+                force=True,
+                target_dir=tmp_path,
+            )
+            assert res["user_id"] == 999888
+            mock_close.assert_called()
+
 
 class TestSessionImporterRoute:
     def test_import_session_route_success(self, api_client, db):  # noqa: F811

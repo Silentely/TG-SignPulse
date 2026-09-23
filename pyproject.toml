@@ -27,7 +27,7 @@ dependencies = [
     "croniter",
     "json_repair",
     "typing-extensions",
-    "httpx",
+    "httpx[socks]",
     "fastapi>=0.109.2",
     "uvicorn[standard]",
     "sqlalchemy",
@@ -101,6 +101,8 @@ ignore = [
 ]
 
 [tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = [".*", "data", "frontend", "dist", "build", "node_modules"]
 asyncio_default_fixture_loop_scope = "function"
 addopts = "--cov=tg_signer --cov=backend --cov-report=term-missing --cov-report=html:htmlcov --cov-report=xml:coverage.xml"
 
