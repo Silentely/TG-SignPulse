@@ -236,11 +236,22 @@ Tasks.vue
 |--------|------|
 | `useSettingsPage` | 表单状态、脏检查、分节 snap、加载全局/TG/AI/运行时/内存 |
 | `useSettingsSave` | 分节/全部保存、Bot 测试、保活手动执行 |
-| `useSettingsBackup` | 导出/导入、WebDAV 测连/列表/下载 |
+| `useSettingsBackup` | 导出/导入、WebDAV 与对象存储测连/列表/下载、完整备份 |
 | `useSettingsVersionCheck` | 关于页版本与检查更新 |
 | 子组件 | General / TelegramApi / Ai / BotNotify / DataManagement / About |
 
 脏状态：sticky 未保存横幅 + `dirtySectionLabels`；`onBeforeRouteLeave` 可拦截离开。
+
+### 备份落点（WebDAV / 对象存储）
+
+`DataManagementSettings` 内 WebDAV 与对象存储两个子区块共用一套结构：连接信息 + 启用开关 + 测试/列表 + 远端逐条下载，差异仅在字段与文案。
+
+| 约定 | 说明 |
+|-------|------|
+| 密钥不回显 | `webdavPasswordSet` / `s3SecretKeySet` 由 `applyGlobalSettingsToForm` 从 `*_set` 标记填充；输入框留空表示沿用已保存值，保存后由 `afterXxxSettingsSaved` 清空并置位 |
+| 保存前置 | 测连 / 列表 / 完整备份前都先 `saveGlobalSettings(token, buildBackupPayload())`，保证服务端读到本次填写的连接信息 |
+| 落点判定 | `exportBackupArchive` 返回的 `mode` 由服务端按「WebDAV → 对象存储」优先级决定，前端据此选择提示文案（`backupWebdavSuccess` / `backupS3Success` / `backupExportSuccess`） |
+| 默认值 | `s3_region` 空值下发 `auto`、`s3_prefix` 空值下发 `tg-signpulse-backups`，与后端 `_client_from_cfg` 的兜底一致 |
 
 ## 测试与质量
 

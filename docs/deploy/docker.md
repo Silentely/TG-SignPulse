@@ -216,7 +216,7 @@ git pull
 docker compose up -d --build
 ```
 
-> 💡 升级前建议备份 `data/` 目录。面板 WebDAV 完整备份见 [WebDAV 备份与恢复](/guide/backup-webdav)。
+> 💡 升级前建议备份 `data/` 目录。面板完整备份（WebDAV / 对象存储）见 [备份与恢复](/guide/backup-webdav)。
 
 ## 安全加固
 

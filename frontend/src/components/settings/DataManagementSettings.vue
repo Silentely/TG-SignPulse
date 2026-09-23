@@ -1,13 +1,13 @@
 <script setup lang="ts">
 /**
- * 数据管理区块：配置 JSON 导入/导出、WebDAV 完整备份、自动备份开关、远程备份列表。
+ * 数据管理区块：配置 JSON 导入/导出、WebDAV / 对象存储完整备份、自动备份开关、远程备份列表。
  * 父组件 Settings.vue 持有表单状态并实现 API 调用；本组件仅负责 UI 与事件转发。
  */
 import { ref } from 'vue'
 import { Database } from 'lucide-vue-next'
 import { useI18n } from '../../composables/useI18n'
 import { parseNumberInputValue, type SettingsFormState } from '../../lib/settings-form'
-import type { BackupStatus, WebDavRemoteFile } from '../../lib/api'
+import type { BackupStatus, RemoteBackupFile } from '../../lib/api'
 
 const props = defineProps<{
   /** 全局表单状态（v-model） */
@@ -17,11 +17,19 @@ const props = defineProps<{
   /** 备份状态 */
   backupStatus: BackupStatus | null
   /** 远程 WebDAV 文件列表 */
-  remoteFiles: WebDavRemoteFile[]
+  remoteFiles: RemoteBackupFile[]
   /** 远程列表提示消息 */
   remoteMessage: string
   /** 当前下载的远程文件名 */
   remoteDownloadName: string
+  /** 服务端是否已保存对象存储 Secret Key */
+  s3SecretKeySet?: boolean
+  /** 远程对象存储文件列表 */
+  remoteS3Files: RemoteBackupFile[]
+  /** 对象存储远程列表提示消息 */
+  remoteS3Message: string
+  /** 当前下载的对象存储文件名 */
+  remoteS3DownloadName: string
   /** 数据加载中（导入/导出 JSON） */
   dataLoading?: boolean
   /** 完整备份导出中 */
@@ -30,6 +38,10 @@ const props = defineProps<{
   webdavTestLoading?: boolean
   /** WebDAV 列表中 */
   webdavListLoading?: boolean
+  /** 对象存储测试中 */
+  s3TestLoading?: boolean
+  /** 对象存储列表中 */
+  s3ListLoading?: boolean
   /** 高级设置保存中（影响多个按钮禁用态） */
   advancedLoading?: boolean
 }>()
@@ -42,6 +54,9 @@ const emit = defineEmits<{
   (e: 'webdav-test'): void
   (e: 'webdav-list'): void
   (e: 'webdav-download', name: string): void
+  (e: 's3-test'): void
+  (e: 's3-list'): void
+  (e: 's3-download', name: string): void
   (e: 'save-advanced'): void
 }>()
 
@@ -216,6 +231,111 @@ const formatBytes = (n?: number | null) => {
           </li>
         </ul>
       </div>
+
+      <!-- 备份到对象存储（S3 / Cloudflare R2 / MinIO），未配置 WebDAV 时生效 -->
+      <div class="pt-5 border-t border-gray-200 dark:border-gray-800/60 space-y-3">
+        <div>
+          <h3 class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ t('settings.s3Title') }}</h3>
+          <p class="text-xs text-gray-500 mt-1 leading-relaxed">{{ t('settings.s3Desc') }}</p>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div class="space-y-1.5">
+            <label class="ui-label" for="s3-endpoint-url">{{ t('settings.s3Endpoint') }}</label>
+            <input id="s3-endpoint-url" :value="modelValue.s3EndpointUrl" @input="onStringInput('s3EndpointUrl', $event)" type="url" :placeholder="t('settings.s3EndpointPlaceholder')" class="ui-input" autocomplete="off">
+          </div>
+          <div class="space-y-1.5">
+            <label class="ui-label" for="s3-bucket">{{ t('settings.s3Bucket') }}</label>
+            <input id="s3-bucket" :value="modelValue.s3Bucket" @input="onStringInput('s3Bucket', $event)" type="text" class="ui-input" autocomplete="off">
+          </div>
+          <div class="space-y-1.5">
+            <label class="ui-label" for="s3-access-key">{{ t('settings.s3AccessKey') }}</label>
+            <input id="s3-access-key" :value="modelValue.s3AccessKey" @input="onStringInput('s3AccessKey', $event)" type="text" class="ui-input" autocomplete="off">
+          </div>
+          <div class="space-y-1.5">
+            <label class="ui-label" for="s3-secret-key">{{ t('settings.s3SecretKey') }}</label>
+            <input
+              id="s3-secret-key"
+              :value="modelValue.s3SecretKey"
+              @input="onStringInput('s3SecretKey', $event)"
+              type="password"
+              class="ui-input"
+              autocomplete="new-password"
+              :placeholder="s3SecretKeySet ? t('settings.s3SecretKeySavedHint') : t('settings.s3SecretKeyHint')"
+            >
+          </div>
+          <div class="space-y-1.5">
+            <label class="ui-label" for="s3-region">{{ t('settings.s3Region') }}</label>
+            <input id="s3-region" :value="modelValue.s3Region" @input="onStringInput('s3Region', $event)" type="text" placeholder="auto" class="ui-input">
+          </div>
+          <div class="space-y-1.5">
+            <label class="ui-label" for="s3-prefix">{{ t('settings.s3Prefix') }}</label>
+            <input id="s3-prefix" :value="modelValue.s3Prefix" @input="onStringInput('s3Prefix', $event)" type="text" placeholder="tg-signpulse-backups" class="ui-input">
+          </div>
+          <div class="space-y-1.5">
+            <label class="ui-label" for="s3-proxy">{{ t('settings.s3Proxy') }}</label>
+            <input id="s3-proxy" :value="modelValue.s3Proxy" @input="onStringInput('s3Proxy', $event)" type="text" :placeholder="t('settings.s3ProxyPlaceholder')" class="ui-input">
+          </div>
+          <div class="space-y-1.5">
+            <label class="ui-label">{{ t('settings.s3Enabled') }}</label>
+            <button
+              type="button"
+              class="ui-switch"
+              role="switch"
+              :aria-label="t('settings.s3Enabled')"
+              :aria-checked="modelValue.s3Enabled"
+              :class="modelValue.s3Enabled ? 'ui-switch-on' : ''"
+              @click="update('s3Enabled', !modelValue.s3Enabled)"
+            >
+              <span class="ui-switch-knob" />
+            </button>
+            <p class="text-[10px] text-gray-500">{{ t('settings.s3EnabledHint') }}</p>
+          </div>
+        </div>
+        <div class="flex flex-col sm:flex-row gap-2">
+          <button
+            type="button"
+            class="ui-btn-secondary flex-1 !px-4 !py-2"
+            :disabled="s3TestLoading || advancedLoading"
+            @click="emit('s3-test')"
+          >
+            {{ s3TestLoading ? t('settings.testing') : t('settings.s3Test') }}
+          </button>
+          <button
+            type="button"
+            class="ui-btn-secondary flex-1 !px-4 !py-2"
+            :disabled="s3ListLoading || advancedLoading"
+            @click="emit('s3-list')"
+          >
+            {{ s3ListLoading ? t('common.processing') : t('settings.s3ListRemote') }}
+          </button>
+        </div>
+        <p class="text-[10px] text-gray-500">{{ t('settings.s3PriorityHint') }}</p>
+        <div v-if="remoteS3Files.length || remoteS3Message" class="text-xs space-y-1.5">
+          <p v-if="remoteS3Message" class="text-gray-500">{{ remoteS3Message }}</p>
+          <p class="text-[10px] text-gray-500">{{ t('settings.s3DownloadHint') }}</p>
+          <ul v-if="remoteS3Files.length" class="text-[11px] text-gray-600 dark:text-gray-400 space-y-1 max-h-36 overflow-y-auto">
+            <li
+              v-for="f in remoteS3Files"
+              :key="f.name + (f.mtime || '')"
+              class="flex items-center justify-between gap-2 font-mono"
+            >
+              <span class="min-w-0 truncate">
+                {{ f.name }}
+                <span v-if="f.size_bytes != null" class="text-gray-400">· {{ formatBytes(f.size_bytes) }}</span>
+                <span v-if="f.mtime" class="text-gray-400">· {{ f.mtime }}</span>
+              </span>
+              <button
+                type="button"
+                class="ui-btn-secondary shrink-0 !px-2 !py-0.5 !text-[10px]"
+                :disabled="remoteS3DownloadName === f.name"
+                @click="emit('s3-download', f.name)"
+              >
+                {{ remoteS3DownloadName === f.name ? t('common.processing') : t('settings.s3Download') }}
+              </button>
+            </li>
+          </ul>
+        </div>
+      </div>
       <div class="p-3 bg-gray-50 dark:bg-white/[0.02] border border-gray-200 dark:border-gray-800/60 space-y-3">
         <div class="flex items-center justify-between gap-3">
           <div>
@@ -258,6 +378,8 @@ const formatBytes = (n?: number | null) => {
         <p>
           WebDAV:
           {{ backupStatus.webdav_configured ? t('settings.webdavConfiguredYes') : t('settings.webdavConfiguredNo') }}
+          · {{ t('settings.s3Configured') }}:
+          {{ backupStatus.s3_configured ? t('settings.webdavConfiguredYes') : t('settings.webdavConfiguredNo') }}
           · {{ t('settings.autoBackup') }}:
           {{ backupStatus.auto_backup_enabled ? t('settings.backupOn') : t('settings.backupOff') }}
         </p>

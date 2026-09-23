@@ -9,6 +9,12 @@
 | `GET /api/ops/scheduled-jobs` | 查看 APScheduler 下次执行时间 |
 | `GET /api/ops/backup/status` | 数据目录备份状态与关键路径体积 |
 | `POST /api/ops/backup/export` | 完整备份：已配置 WebDAV 时上传远端；否则回退浏览器下载 |
+| `POST /api/ops/backup/webdav/test` | 测试全局设置中的 WebDAV 连通性 |
+| `GET /api/ops/backup/webdav/files` | 列出远端目录 `.tar.gz` 备份（PROPFIND） |
+| `GET /api/ops/backup/webdav/download?name=` | 流式下载指定远端 `.tar.gz`（安全文件名） |
+| `POST /api/ops/backup/s3/test` | 测试全局设置中的对象存储连通性（S3 / Cloudflare R2 / MinIO） |
+| `GET /api/ops/backup/s3/files` | 列出对象存储前缀下 `.tar.gz` 备份（ListObjectsV2） |
+| `GET /api/ops/backup/s3/download?name=` | 流式下载指定对象存储 `.tar.gz`（安全文件名） |
 | `GET /api/ops/memory` | 进程内存监控统计（若已启动） |
 | `GET /api/ops/version` | 本地版本、Git SHA/分支、构建时间、Python 版本 |
 | `POST /api/ops/version/check?force=false` | 远程更新检查（GitHub Releases；可关；失败 soft-fail） |
@@ -18,9 +24,6 @@
 | `GET /api/sign-tasks/runs/active` | 内存中进行中的签到 run（phase / 账号 / 任务） |
 | `GET /api/sign-tasks/{name}/run/status` | 单任务 run 状态（含 `state` / `phase` / `failure_category`） |
 | `POST /api/sign-tasks/{name}/run/cancel` | 取消进行中的签到 run（协作式 cancel） |
-| `POST /api/ops/backup/webdav/test` | 测试全局设置中的 WebDAV 连通性 |
-| `GET /api/ops/backup/webdav/files` | 列出远端目录 `.tar.gz` 备份（PROPFIND） |
-| `GET /api/ops/backup/webdav/download?name=` | 流式下载指定远端 `.tar.gz`（安全文件名） |
 | `POST /api/batch/sign-tasks` | 新版签到任务批量 enable/disable/delete/run |
 | `POST /api/events/ticket` + `GET /api/events/sign-history?ticket=` | 签到历史 SSE：先用 Bearer JWT 换 60 秒一次性票据，再用票据建流（URL 不放长效 JWT） |
 | `POST /api/accounts/status/check` | 同步批量账号会话检测（兼容；账号多时易阻塞） |
@@ -32,16 +35,18 @@
 | `GET /api/keyword-hits/export` | 导出命中记录 CSV（UTF-8 BOM） |
 | `DELETE /api/keyword-hits` | 清空命中记录（可按账号/任务过滤） |
 
-### WebDAV 完整备份（摘要）
+### 完整备份落点：WebDAV / 对象存储
 
-用户操作步骤见 **[WebDAV 备份与恢复](/guide/backup-webdav)**。实现要点：
+用户操作步骤见 **[备份与恢复](/guide/backup-webdav)**。实现要点：
 
-1. 上传/测试/列表前前端会先落盘 WebDAV 配置；服务端只读已保存设置。  
-2. `GET /api/config/settings` 不回传 WebDAV 密码与 Bot Token 明文，仅 `*_set`。  
-3. 配置 JSON 导出脱敏上述密钥；导入占位不覆盖已有值。  
-4. 自动备份：WebDAV 成功则删本地并按 `auto_backup_keep` 清理远端；失败保留本地并 Bot 通知（仅总开关）。  
-5. 下载为流式响应；恢复须停服后解压覆盖 `APP_DATA_DIR`。  
-6. `GET /api/ops/backup/status` 含 `webdav_configured`、`auto_backup_enabled`、最近本地自动备份列表。
+1. 上传/测试/列表前前端会先落盘备份连接配置；服务端只读已保存设置。
+2. `GET /api/config/settings` 不回传 WebDAV 密码、Bot Token 与对象存储 Secret Key 明文，仅 `*_set`。
+3. 配置 JSON 导出脱敏上述密钥；导入占位不覆盖已有值。
+4. **落点优先级**：已配置 WebDAV 时上传 WebDAV；未配置 WebDAV 但对象存储已启用时上传对象存储；两者都未配置则回退为浏览器下载流。
+5. 自动备份：远端成功则删本地并按 `auto_backup_keep` 清理远端旧包；失败保留本地并 Bot 通知（仅总开关）。
+6. 下载为流式响应；恢复须停服后解压覆盖 `APP_DATA_DIR`。
+7. `GET /api/ops/backup/status` 含 `webdav_configured`、`s3_configured`、`auto_backup_enabled`、最近本地自动备份列表。
+8. 对象存储三个端点均以「已启用 + 必填项齐全」为门禁，否则返回「对象存储未配置或必填项不完整」。
 
 ### 多实例与数据库
 
@@ -151,7 +156,7 @@ docker logs -f tg-signpulse
 
 ### 完整备份（面板或命令行）
 
-面板 **WebDAV 完整备份** 的逐步说明见 [WebDAV 备份与恢复](/guide/backup-webdav)。
+面板 **完整备份**（WebDAV / 对象存储）的逐步说明见 [备份与恢复](/guide/backup-webdav)。
 
 面板上传/导出备份包会打包推荐路径（**不含** `.admin_bootstrap_password`）。
 

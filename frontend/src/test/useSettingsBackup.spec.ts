@@ -22,6 +22,9 @@ const { toastSpy, confirmMock, api } = vi.hoisted(() => ({
     testWebdavBackup: vi.fn(),
     listWebdavBackupFiles: vi.fn(),
     downloadWebdavBackup: vi.fn(),
+    testS3Backup: vi.fn(),
+    listS3BackupFiles: vi.fn(),
+    downloadS3Backup: vi.fn(),
     saveGlobalSettings: vi.fn(),
   },
 }))
@@ -74,6 +77,14 @@ function baseSettings(over: Partial<SettingsFormState> = {}): SettingsFormState 
     webdavUsername: 'user',
     webdavPassword: 'pass',
     webdavRemoteDir: 'tg-signpulse-backups',
+  s3Enabled: false,
+    s3EndpointUrl: '',
+    s3Bucket: '',
+    s3AccessKey: '',
+    s3SecretKey: '',
+    s3Region: '',
+    s3Prefix: '',
+    s3Proxy: '',
     ...over,
   }
 }
@@ -328,5 +339,115 @@ describe('useSettingsBackup', () => {
     await backup.handleWebdavTest()
     expect(api.testWebdavBackup).not.toHaveBeenCalled()
     expect(toastSpy.error).toHaveBeenCalled()
+  })
+
+  it('validate path: s3 必填项缺失时不发请求', async () => {
+    const { backup } = setup({ s3EndpointUrl: '', s3Bucket: '', s3AccessKey: '' })
+    await backup.handleS3Test()
+    expect(api.testS3Backup).not.toHaveBeenCalled()
+    expect(toastSpy.error).toHaveBeenCalled()
+  })
+
+  it('validate path: s3 密钥已保存时可不再填', async () => {
+    api.saveGlobalSettings.mockResolvedValue({})
+    api.testS3Backup.mockResolvedValue({ success: true, message: 'ok' })
+    const { backup } = setup({
+      s3EndpointUrl: 'https://s3.example.com',
+      s3Bucket: 'bk',
+      s3AccessKey: 'AK',
+      s3SecretKey: '',
+    })
+    await backup.handleS3Test()
+    expect(api.testS3Backup).not.toHaveBeenCalled()
+
+    backup.s3SecretKeySet.value = true
+    await backup.handleS3Test()
+    expect(api.testS3Backup).toHaveBeenCalled()
+  })
+
+  it('afterS3SettingsSaved 标记已保存并清空输入', () => {
+    const { backup, settings } = setup({ s3SecretKey: 'sk' })
+    backup.afterS3SettingsSaved()
+    expect(backup.s3SecretKeySet.value).toBe(true)
+    expect(settings.value.s3SecretKey).toBe('')
+  })
+
+  it('handleS3Test reports success/failure from API', async () => {
+    api.saveGlobalSettings.mockResolvedValue({})
+    api.testS3Backup.mockResolvedValue({ success: true, message: 'pong' })
+    const { backup } = setup({
+      s3EndpointUrl: 'https://s3.example.com',
+      s3Bucket: 'bk',
+      s3AccessKey: 'AK',
+      s3SecretKey: 'sk',
+    })
+    await backup.handleS3Test()
+    expect(toastSpy.success).toHaveBeenCalledWith('pong')
+
+    api.testS3Backup.mockResolvedValue({ success: false, message: 'nope' })
+    await backup.handleS3Test()
+    expect(toastSpy.error).toHaveBeenCalledWith('nope')
+  })
+
+  it('handleListS3RemoteBackups saves settings then lists files', async () => {
+    api.saveGlobalSettings.mockResolvedValue({})
+    api.listS3BackupFiles.mockResolvedValue({
+      success: true,
+      files: [{ name: 'auto-1.tar.gz', size_bytes: 10, mtime: 't' }],
+    })
+    const { backup, markSectionClean } = setup({
+      s3EndpointUrl: 'https://s3.example.com',
+      s3Bucket: 'bk',
+      s3AccessKey: 'AK',
+      s3SecretKey: 'sk',
+    })
+    await backup.handleListS3RemoteBackups()
+    expect(api.listS3BackupFiles).toHaveBeenCalled()
+    expect(backup.remoteS3Files.value).toHaveLength(1)
+    expect(markSectionClean).toHaveBeenCalledWith('advanced')
+  })
+
+  it('handleListS3RemoteBackups surfaces API failure message', async () => {
+    api.saveGlobalSettings.mockResolvedValue({})
+    api.listS3BackupFiles.mockResolvedValue({ success: false, message: 'denied' })
+    const { backup } = setup({
+      s3EndpointUrl: 'https://s3.example.com',
+      s3Bucket: 'bk',
+      s3AccessKey: 'AK',
+      s3SecretKey: 'sk',
+    })
+    await backup.handleListS3RemoteBackups()
+    expect(backup.remoteS3Files.value).toEqual([])
+    expect(backup.remoteS3Message.value).toBe('denied')
+    expect(toastSpy.error).toHaveBeenCalledWith('denied')
+  })
+
+  it('handleDownloadS3RemoteBackup notifies filename', async () => {
+    api.downloadS3Backup.mockResolvedValue({ filename: 'auto-1.tar.gz' })
+    const { backup } = setup()
+    await backup.handleDownloadS3RemoteBackup('auto-1.tar.gz')
+    expect(api.downloadS3Backup).toHaveBeenCalledWith('tok', 'auto-1.tar.gz')
+    expect(toastSpy.success).toHaveBeenCalled()
+  })
+
+  it('handleBackupExport s3 mode 提示对象存储落点', async () => {
+    api.saveGlobalSettings.mockResolvedValue({})
+    api.exportBackupArchive.mockResolvedValue({ mode: 's3', filename: 'auto-2.tar.gz' })
+    api.getBackupStatus.mockResolvedValue({ s3_configured: true })
+    const { backup } = setup()
+    await backup.handleBackupExport()
+    expect(backup.backupStatus.value).toEqual({ s3_configured: true })
+    const msg = String(toastSpy.success.mock.calls.at(-1)?.[0])
+    expect(msg).toContain('auto-2.tar.gz')
+  })
+
+  it('handleBackupExport download 模式走本地下载提示', async () => {
+    api.saveGlobalSettings.mockResolvedValue({})
+    api.exportBackupArchive.mockResolvedValue({ mode: 'download', filename: 'b.tar.gz' })
+    api.getBackupStatus.mockResolvedValue({ s3_configured: false })
+    const { backup } = setup()
+    await backup.handleBackupExport()
+    expect(toastSpy.success).toHaveBeenCalledWith('settings.backupExportSuccess')
+    expect(backup.backupStatus.value).toEqual({ s3_configured: false })
   })
 })

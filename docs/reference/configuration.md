@@ -303,7 +303,8 @@ environment:
 | `ai_vision_timeout` / `ai_vision_retry_attempts` | AI 视觉超时与重试 |
 | `telegram_bot_task_success_enabled` | 任务成功通知 |
 | `telegram_bot_quiet_hours_*` | 静默时段 |
-| `auto_backup_enabled` / `interval_hours` / `keep` | 自动备份（可选上传 WebDAV） |
-| `webdav_url` / `webdav_username` / `webdav_password` / `webdav_remote_dir` | 完整备份 WebDAV 目标（面板「完整备份」；用法见 [WebDAV 备份与恢复](/guide/backup-webdav)） |
+| `auto_backup_enabled` / `interval_hours` / `keep` | 自动备份（可选上传 WebDAV 或对象存储） |
+| `webdav_url` / `webdav_username` / `webdav_password` / `webdav_remote_dir` | 完整备份 WebDAV 目标（面板「完整备份」；用法见 [备份与恢复](/guide/backup-webdav)） |
+| `s3_enabled` / `s3_endpoint_url` / `s3_bucket` / `s3_access_key` / `s3_secret_key` / `s3_region` / `s3_prefix` / `s3_proxy` | 完整备份对象存储目标（S3 / R2 / MinIO）。未配置 WebDAV 时生效；`s3_region` 默认 `auto`、`s3_prefix` 默认 `tg-signpulse-backups` |
 | `require_proxy_for_telegram` | 强制 Telegram 连接使用代理；开启后无有效代理的连接一律阻断（`PROXY_REQUIRED_BLOCKED`），含登录、状态检测、设备/会话操作、签到执行与关键词监听 |
 

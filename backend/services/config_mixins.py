@@ -111,8 +111,9 @@ def normalize_global_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
     """钳制/归一化全局设置字段（路由层 fields_set 过滤后透传，服务层统一钳制）。
 
     - 数值字段按既定范围钳制，None 允许的字段保持 None
-    - telegram_bot_token/webdav_password 空串表示不修改（移除键保留旧值）
+    - telegram_bot_token/webdav_password/s3_secret_key 空串表示不修改（移除键保留旧值）
     - webdav_url/webdav_username/webdav_remote_dir 去首尾空白并兜底默认值
+    - s3_* 非密钥字段去空白并兜底默认值；s3_enabled 归一为布尔
     """
     normalized = dict(settings)
 
@@ -162,6 +163,28 @@ def normalize_global_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
     if "webdav_remote_dir" in normalized:
         stripped = (normalized["webdav_remote_dir"] or "").strip()
         normalized["webdav_remote_dir"] = stripped or "tg-signpulse-backups"
+
+    # S3 Secret Key：与 WebDAV 密码同口径，空串不修改
+    if "s3_secret_key" in normalized:
+        secret = normalized["s3_secret_key"]
+        if secret is None or str(secret).strip() == "":
+            normalized.pop("s3_secret_key")
+        else:
+            normalized["s3_secret_key"] = str(secret)
+
+    # S3 非密钥字段：去空白，空值归一为 None（前缀/区域回落默认值）
+    for key in ("s3_endpoint_url", "s3_bucket", "s3_access_key", "s3_region", "s3_prefix", "s3_proxy"):
+        if key in normalized:
+            stripped = (normalized[key] or "").strip()
+            normalized[key] = stripped or None
+    if "s3_region" in normalized:
+        normalized["s3_region"] = normalized["s3_region"] or "auto"
+    if "s3_prefix" in normalized:
+        normalized["s3_prefix"] = normalized["s3_prefix"] or "tg-signpulse-backups"
+
+    if "s3_enabled" in normalized:
+        val = normalized["s3_enabled"]
+        normalized["s3_enabled"] = bool(val) if val is not None else False
 
     if "require_proxy_for_telegram" in normalized:
         val = normalized["require_proxy_for_telegram"]
@@ -425,7 +448,7 @@ class ConfigExportMixin:
         导出业务配置（任务 / 监控 / 设置）。
 
         不含 sessions、数据库、执行历史。
-        AI api_key / WebDAV 密码 / Bot Token 默认脱敏。
+        AI api_key / WebDAV 密码 / Bot Token / S3 Secret Key 默认脱敏。
         """
         all_configs: Dict[str, Any] = {
             "_meta": {
@@ -440,7 +463,7 @@ class ConfigExportMixin:
                 ],
                 "notes": [
                     "配置迁移用：可导入；不含 Telegram 登录会话。",
-                    "AI api_key / WebDAV 密码 / Bot Token 已脱敏；导入时不会用占位符覆盖现有密钥。",
+                    "AI api_key / WebDAV 密码 / Bot Token / S3 Secret Key 已脱敏；导入时不会用占位符覆盖现有密钥。",
                     "整机恢复请用面板「完整数据备份」tar.gz + 手动解压覆盖 data/。",
                 ],
             },
@@ -513,6 +536,9 @@ class ConfigExportMixin:
         if global_settings.get("telegram_bot_token"):
             global_settings["telegram_bot_token"] = self.AI_KEY_MASK
             all_configs["_meta"]["telegram_bot_token_masked"] = True
+        if global_settings.get("s3_secret_key"):
+            global_settings["s3_secret_key"] = self.AI_KEY_MASK
+            all_configs["_meta"]["s3_secret_key_masked"] = True
 
         all_configs["settings"] = {
             "global": global_settings,
@@ -627,7 +653,7 @@ class ConfigExportMixin:
             if "global" in settings_data:
                 try:
                     gs = dict(settings_data["global"] or {})
-                    # 脱敏占位不得覆盖已有 WebDAV 密码 / Bot Token
+                    # 脱敏占位不得覆盖已有 WebDAV 密码 / Bot Token / S3 Secret Key
                     for secret_key, warn in (
                         (
                             "webdav_password",
@@ -636,6 +662,10 @@ class ConfigExportMixin:
                         (
                             "telegram_bot_token",
                             "telegram_bot_token is masked in export; kept existing",
+                        ),
+                        (
+                            "s3_secret_key",
+                            "s3_secret_key is masked in export; kept existing",
                         ),
                     ):
                         raw = str(gs.get(secret_key) or "").strip()
