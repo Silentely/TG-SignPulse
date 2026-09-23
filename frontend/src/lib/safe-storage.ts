@@ -31,24 +31,6 @@ export function storageRemove(key: string): void {
   }
 }
 
-export function storageGetJSON<T = unknown>(key: string, fallback: T | null = null): T | null {
-  try {
-    const raw = storageGet(key)
-    if (!raw) return fallback
-    return JSON.parse(raw) as T
-  } catch {
-    return fallback
-  }
-}
-
-export function storageSetJSON(key: string, value: unknown): void {
-  try {
-    storageSet(key, JSON.stringify(value))
-  } catch {
-    /* ignore */
-  }
-}
-
 export function sessionGet(key: string): string | null {
   try {
     if (typeof sessionStorage === 'undefined') return null
@@ -62,15 +44,6 @@ export function sessionSet(key: string, value: string): void {
   try {
     if (typeof sessionStorage === 'undefined') return
     sessionStorage.setItem(key, value)
-  } catch {
-    /* ignore */
-  }
-}
-
-export function sessionRemove(key: string): void {
-  try {
-    if (typeof sessionStorage === 'undefined') return
-    sessionStorage.removeItem(key)
   } catch {
     /* ignore */
   }

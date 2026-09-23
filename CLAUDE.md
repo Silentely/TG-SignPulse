@@ -195,8 +195,8 @@ docker run -d -p 3000:3000 -v ./data:/data ghcr.io/<owner>/tg-signpulse:latest
 
 ### 前端结构要点
 
-- **Components**：32 个 `.vue`（基础 UI / accounts / tasks / settings）
-- **Composables**：15 个（`useI18n`≈49 引用、`useToast`≈19、`useConfirm`、任务列表/设置/Dashboard 等页面级）
+- **Components**：34 个 `.vue`（基础 UI / accounts / tasks / settings）
+- **Composables**：16 个（`useI18n`≈49 引用、`useToast`≈19、`useConfirm`、任务列表/设置/Dashboard 等页面级）
 - **Stores**：`auth`、`accounts`、`activeRuns`
 - **API**：`frontend/src/lib/api.ts` 为 barrel；实现按域拆分到 `lib/api/*`（auth/accounts/sign-tasks/config/…）
 

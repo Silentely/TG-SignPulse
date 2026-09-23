@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { Check, Copy, Download, LogOut, RefreshCw, ShieldCheck, Trash2 } from 'lucide-vue-next'
 import Modal from '../Modal.vue'
 import {
@@ -15,6 +15,9 @@ import { getAuthToken } from '../../lib/api/core'
 import { useI18n } from '../../composables/useI18n'
 import { useConfirm } from '../../composables/useConfirm'
 import { formatDateTime } from '../../lib/datetime'
+import { copyToClipboard } from '../../lib/clipboard'
+import { getLocalizedErrorMessage } from '../../lib/types'
+import { useLatestResponseGuard } from '../../lib/latest-response'
 
 const props = defineProps<{
   isOpen: boolean
@@ -28,6 +31,11 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const { confirm } = useConfirm()
+// 关闭弹窗或切换账号后，仍在途的响应不得回写列表
+const devicesGuard = useLatestResponseGuard()
+const officialGuard = useLatestResponseGuard()
+// 「已复制」恢复定时器句柄：卸载时必须清理，避免回调写已销毁组件
+let copyResetTimer: ReturnType<typeof setTimeout> | null = null
 const devices = ref<AccountDeviceInfo[]>([])
 const officialMessages = ref<OfficialMessageInfo[]>([])
 const loading = ref(false)
@@ -65,7 +73,7 @@ const handleExportSession = async () => {
     exportedUserId.value = res.user_id ?? null
     exportedModalOpen.value = true
   } catch (e: unknown) {
-    error.value = e instanceof Error ? e.message : t("accounts.exportStandaloneSessionFailed")
+    error.value = getLocalizedErrorMessage(e, t, t("accounts.exportStandaloneSessionFailed"))
   } finally {
     exportingSession.value = false
   }
@@ -73,14 +81,13 @@ const handleExportSession = async () => {
 
 const copySessionString = async () => {
   if (!exportedSessionString.value) return
-  try {
-    await navigator.clipboard.writeText(exportedSessionString.value)
-    copied.value = true
-    setTimeout(() => {
+  if (copyResetTimer !== null) clearTimeout(copyResetTimer)
+  copied.value = await copyToClipboard(exportedSessionString.value)
+  if (copied.value) {
+    copyResetTimer = setTimeout(() => {
       copied.value = false
+      copyResetTimer = null
     }, 2000)
-  } catch {
-    // fallback
   }
 }
 
@@ -129,15 +136,18 @@ const loadDevices = async () => {
   const token = getAuthToken()
   if (!token || !props.accountName) return
 
+  const seq = devicesGuard.next()
   loading.value = true
   error.value = ''
   try {
     const res = await listAccountDevices(token, props.accountName)
+    if (!devicesGuard.isCurrent(seq)) return // 过期响应：账号已切换或弹窗已关闭
     devices.value = res.devices || []
   } catch (e: unknown) {
-    error.value = e instanceof Error ? e.message : t('accounts.loadDevicesFailed')
+    if (!devicesGuard.isCurrent(seq)) return
+    error.value = getLocalizedErrorMessage(e, t, t('accounts.loadDevicesFailed'))
   } finally {
-    loading.value = false
+    if (devicesGuard.isCurrent(seq)) loading.value = false
   }
 }
 
@@ -145,15 +155,18 @@ const loadOfficialMessages = async () => {
   const token = getAuthToken()
   if (!token || !props.accountName) return
 
+  const seq = officialGuard.next()
   officialLoading.value = true
   try {
     const res = await listAccountOfficialMessages(token, props.accountName, 10)
+    if (!officialGuard.isCurrent(seq)) return // 过期响应：账号已切换或弹窗已关闭
     officialMessages.value = res.messages || []
   } catch {
     // 官方消息加载失败作为次要功能降级展示空，不遮断设备列表
+    if (!officialGuard.isCurrent(seq)) return
     officialMessages.value = []
   } finally {
-    officialLoading.value = false
+    if (officialGuard.isCurrent(seq)) officialLoading.value = false
   }
 }
 
@@ -182,7 +195,7 @@ const handleTerminate = async (device: AccountDeviceInfo) => {
     successMessage.value = res.message || t('accounts.terminateDeviceSuccess')
     devices.value = devices.value.filter((d) => d.hash !== device.hash)
   } catch (e: unknown) {
-    error.value = e instanceof Error ? e.message : t('accounts.terminateDeviceFailed')
+    error.value = getLocalizedErrorMessage(e, t, t('accounts.terminateDeviceFailed'))
   } finally {
     terminatingHash.value = ''
   }
@@ -209,7 +222,7 @@ const handleResetOthers = async () => {
     await refreshAll()
     emit('reset-others')
   } catch (e: unknown) {
-    error.value = e instanceof Error ? e.message : t('accounts.resetOtherDevicesFailed')
+    error.value = getLocalizedErrorMessage(e, t, t('accounts.resetOtherDevicesFailed'))
   } finally {
     resettingOthers.value = false
   }
@@ -221,6 +234,8 @@ watch(
     if (open && name) {
       refreshAll()
     } else if (!open) {
+      devicesGuard.invalidate()
+      officialGuard.invalidate()
       devices.value = []
       officialMessages.value = []
       error.value = ''
@@ -233,6 +248,15 @@ watch(
   },
   { immediate: true },
 )
+
+onUnmounted(() => {
+  devicesGuard.invalidate()
+  officialGuard.invalidate()
+  if (copyResetTimer !== null) {
+    clearTimeout(copyResetTimer)
+    copyResetTimer = null
+  }
+})
 </script>
 
 <template>

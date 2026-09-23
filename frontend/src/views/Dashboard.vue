@@ -14,12 +14,11 @@ import type { DashboardLog } from '../lib/types'
 import Modal from '../components/Modal.vue'
 import DashboardTrendsChart from '../components/dashboard/DashboardTrendsChart.vue'
 import {
-  badgeTone,
-  badgeToneClass,
   failureCategoryLabel as mapFailureCategoryLabel,
   formatPhaseDetail,
   phaseLabel,
 } from '../lib/run-status'
+import ToneBadge from '../components/ToneBadge.vue'
 import { formatShortDateTime } from '../lib/datetime'
 
 const quickLinks = [
@@ -234,13 +233,9 @@ const jobStatusLabel = (status: string) => {
             class="ui-list-row w-full flex items-center gap-2 text-xs px-2 py-2 rounded-sm text-left"
             @click="openActiveRun(run)"
           >
-            <span
-              class="ui-badge shrink-0 border !text-[10px]"
-              :class="badgeToneClass(badgeTone(run))"
-            >
-              <span class="ui-pulse-dot !bg-sky-500" />
+            <ToneBadge :status="run" extra-class="!text-[10px]" pulse>
               {{ phaseLabel(run.phase, t) || formatPhaseDetail(run, t) || t('runStatus.inProgress') }}
-            </span>
+            </ToneBadge>
             <span class="font-mono truncate text-gray-800 dark:text-gray-200" :title="run.task_name">{{ run.task_name || '-' }}</span>
             <span class="text-gray-500 dark:text-gray-400 truncate shrink-0 max-w-[6rem]" :title="run.account_name">{{ run.account_name || '-' }}</span>
             <span class="ml-auto text-[10px] text-gray-400 font-mono shrink-0 truncate max-w-[40%]" :title="formatPhaseDetail(run, t)">

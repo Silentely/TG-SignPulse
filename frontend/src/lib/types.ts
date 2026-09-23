@@ -349,6 +349,15 @@ export function getErrorMessage(e: unknown, fallback = 'Unknown error'): string 
 }
 
 /**
+ * 提取错误的原始文本：不做错误码映射、不截断、不套兜底文案。
+ * 供需要按错误码子串匹配原始 message 的调用方使用（如 TDATA_* 分支判定）；
+ * 面向用户展示的错误文案应改用 getLocalizedErrorMessage。
+ */
+export function getRawErrorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e)
+}
+
+/**
  * 结合 i18n 翻译函数解析错误文案。
  * `t` 应能解析 `apiErrors.<CODE>`；未命中时回退 getErrorMessage。
  */

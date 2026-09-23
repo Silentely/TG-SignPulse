@@ -149,7 +149,8 @@ watch(() => props.isOpen, (newVal) => {
     panelTab.value = wantHits ? 'hits' : 'history'
     if (props.runAccount) {
       logs.value = []
-      connectWebSocket()
+      // 换票是异步的：失败时 connect 内部会退化为轮询
+      void connectWebSocket()
     } else {
       clearLiveStatus()
       loadLogs()

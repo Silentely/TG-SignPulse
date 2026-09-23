@@ -3,6 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 import DeviceManagerModal from '../components/accounts/DeviceManagerModal.vue'
 import * as api from '../lib/api'
 import * as coreApi from '../lib/api/core'
+import type { AccountDeviceInfo } from '../lib/api'
 
 const mockConfirm = vi.fn()
 
@@ -158,6 +159,122 @@ describe('DeviceManagerModal', () => {
 
     expect(api.resetOtherDevices).not.toHaveBeenCalled()
     expect(wrapper.emitted('reset-others')).toBeFalsy()
+
+    wrapper.unmount()
+  })
+
+  it('账号切换后丢弃过期响应，旧账号设备不覆盖新列表', async () => {
+    let resolveStale: (value: unknown) => void = () => {}
+    const staleResponse = new Promise((resolve) => {
+      resolveStale = resolve
+    })
+
+    const deviceSpy = vi.spyOn(api, 'listAccountDevices')
+    deviceSpy.mockImplementationOnce(() => staleResponse as Promise<{ devices: AccountDeviceInfo[]; total: number }>)
+    deviceSpy.mockResolvedValue({
+      devices: [
+        {
+          hash: 'new-account-device',
+          current: true,
+          official_app: true,
+          password_pending: false,
+          device_model: 'New Account Phone',
+          platform: 'iOS',
+          system_version: '18.0',
+          app_name: 'Telegram iOS',
+          app_version: '11.0',
+          ip: '3.3.3.3',
+          country: 'JP',
+          region: 'JP',
+        },
+      ],
+      total: 1,
+    })
+
+    const wrapper = mount(DeviceManagerModal, {
+      props: { isOpen: true, accountName: 'account-a' },
+      attachTo: document.body,
+    })
+
+    // 第一个请求（account-a）仍在途时切换到 account-b
+    await wrapper.setProps({ accountName: 'account-b' })
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('New Account Phone')
+
+    // 旧请求此时才返回：必须被守卫丢弃
+    resolveStale({
+      devices: [
+        {
+          hash: 'stale-account-device',
+          current: true,
+          official_app: true,
+          password_pending: false,
+          device_model: 'Stale Account Laptop',
+          platform: 'Windows',
+          system_version: '11',
+          app_name: 'Telegram Desktop',
+          app_version: '5.0',
+          ip: '4.4.4.4',
+          country: 'DE',
+          region: 'DE',
+        },
+      ],
+      total: 1,
+    })
+    await flushPromises()
+
+    expect(document.body.textContent).not.toContain('Stale Account Laptop')
+    expect(document.body.textContent).toContain('New Account Phone')
+
+    wrapper.unmount()
+  })
+
+  it('关闭弹窗后丢弃在途响应，重新打开拉取新账号数据', async () => {
+    let resolveStale: (value: unknown) => void = () => {}
+    const staleResponse = new Promise((resolve) => {
+      resolveStale = resolve
+    })
+
+    const deviceSpy = vi.spyOn(api, 'listAccountDevices')
+    deviceSpy.mockImplementationOnce(() => staleResponse as Promise<{ devices: AccountDeviceInfo[]; total: number }>)
+
+    const wrapper = mount(DeviceManagerModal, {
+      props: { isOpen: true, accountName: 'account-a' },
+      attachTo: document.body,
+    })
+
+    await wrapper.setProps({ isOpen: false })
+    await flushPromises()
+
+    // 重新打开拉新账号数据，旧请求此时才返回：必须被丢弃
+    await wrapper.setProps({ isOpen: true, accountName: 'account-b' })
+    await flushPromises()
+    expect(document.body.textContent).toContain('MacBook Pro')
+
+    resolveStale({
+      devices: [
+        {
+          hash: 'stale-account-device',
+          current: true,
+          official_app: true,
+          password_pending: false,
+          device_model: 'Stale Account Laptop',
+          platform: 'Windows',
+          system_version: '11',
+          app_name: 'Telegram Desktop',
+          app_version: '5.0',
+          ip: '4.4.4.4',
+          country: 'DE',
+          region: 'DE',
+        },
+      ],
+      total: 1,
+    })
+    await flushPromises()
+
+    expect(document.body.textContent).not.toContain('Stale Account Laptop')
+    expect(document.body.textContent).toContain('MacBook Pro')
 
     wrapper.unmount()
   })

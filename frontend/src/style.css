@@ -692,6 +692,46 @@ textarea.ui-input {
   color: #fdba74;
   border-color: rgb(154 52 18 / 0.5);
 }
+.ui-chip-amber {
+  background: #fffbeb;
+  color: #b45309;
+  border-color: #fef3c7;
+}
+.dark .ui-chip-amber {
+  background: rgb(69 26 3 / 0.4);
+  color: #fcd34d;
+  border-color: rgb(120 53 15 / 0.5);
+}
+.ui-chip-rose {
+  background: #fff1f2;
+  color: #be123c;
+  border-color: #ffe4e6;
+}
+.dark .ui-chip-rose {
+  background: rgb(76 5 25 / 0.4);
+  color: #fda4af;
+  border-color: rgb(136 19 55 / 0.5);
+}
+.ui-chip-teal {
+  background: #f0fdfa;
+  color: #0f766e;
+  border-color: #ccfbf1;
+}
+.dark .ui-chip-teal {
+  background: rgb(4 47 46 / 0.4);
+  color: #5eead4;
+  border-color: rgb(19 78 74 / 0.5);
+}
+.ui-chip-gray {
+  background: #f9fafb;
+  color: #4b5563;
+  border-color: #e5e7eb;
+}
+.dark .ui-chip-gray {
+  background: rgb(31 41 55 / 0.4);
+  color: #d1d5db;
+  border-color: rgb(55 65 81 / 0.5);
+}
 
 /* 页内加载 */
 .ui-page-loading {

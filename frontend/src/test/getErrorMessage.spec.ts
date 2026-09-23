@@ -3,6 +3,7 @@ import {
   getErrorCode,
   getErrorMessage,
   getLocalizedErrorMessage,
+  getRawErrorMessage,
   type ApiError,
 } from '../lib/types'
 
@@ -132,6 +133,23 @@ describe('getErrorMessage', () => {
     expect(getErrorMessage(new Error('WEBDAV_NOT_CONFIGURED'))).toBe('WebDAV is not configured')
     expect(getErrorMessage(new Error('BACKUP_EMPTY'))).toBe('Nothing to back up')
     expect(getErrorMessage(new Error('AI_KEY_DECRYPT_FAILED'))).toContain('APP_SECRET_KEY')
+  })
+})
+
+describe('getRawErrorMessage', () => {
+  it('Error 返回原始 message，不做错误码映射与截断', () => {
+    // 与 getErrorMessage 的关键差异：TDATA_* 等业务码需保留原文供子串匹配
+    expect(getRawErrorMessage(new Error('TDATA_PASSWORD_REQUIRED'))).toBe('TDATA_PASSWORD_REQUIRED')
+  })
+
+  it('非 Error 值走 String 转换，不做兜底替换', () => {
+    expect(getRawErrorMessage('plain')).toBe('plain')
+    expect(getRawErrorMessage('')).toBe('')
+    expect(getRawErrorMessage({ detail: 'boom' })).toBe('[object Object]')
+  })
+
+  it('空 message 的 Error 返回空串而非兜底文案', () => {
+    expect(getRawErrorMessage(new Error(''))).toBe('')
   })
 })
 

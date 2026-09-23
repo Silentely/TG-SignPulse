@@ -12,31 +12,29 @@ describe('body-scroll-lock', () => {
   })
 
   it('嵌套 lock 后仅最外层 unlock 才恢复滚动', async () => {
-    const { lockBodyScroll, unlockBodyScroll, getBodyScrollLockCount } =
-      await import('../lib/body-scroll-lock')
+    const { lockBodyScroll, unlockBodyScroll } = await import('../lib/body-scroll-lock')
 
     lockBodyScroll()
     expect(document.body.style.overflow).toBe('hidden')
-    expect(getBodyScrollLockCount()).toBe(1)
 
     lockBodyScroll()
-    expect(getBodyScrollLockCount()).toBe(2)
     expect(document.body.style.overflow).toBe('hidden')
 
     unlockBodyScroll()
-    expect(getBodyScrollLockCount()).toBe(1)
     expect(document.body.style.overflow).toBe('hidden')
 
     unlockBodyScroll()
-    expect(getBodyScrollLockCount()).toBe(0)
     expect(document.body.style.overflow).toBe('')
   })
 
   it('unlock 不会减到负数', async () => {
-    const { unlockBodyScroll, getBodyScrollLockCount } =
-      await import('../lib/body-scroll-lock')
+    const { lockBodyScroll, unlockBodyScroll } = await import('../lib/body-scroll-lock')
+    // 若计数被减到负数，后续 lock 时计数仍 <=0，不会重新隐藏
+    lockBodyScroll()
     unlockBodyScroll()
     unlockBodyScroll()
-    expect(getBodyScrollLockCount()).toBe(0)
+    expect(document.body.style.overflow).toBe('')
+    lockBodyScroll()
+    expect(document.body.style.overflow).toBe('hidden')
   })
 })

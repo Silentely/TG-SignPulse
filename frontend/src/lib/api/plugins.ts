@@ -310,17 +310,6 @@ export async function testPlugin(
   }, token)
 }
 
-export async function installRemotePlugin(
-  url: string,
-  filename: string | undefined,
-  token: string,
-): Promise<PluginInfo> {
-  return request<PluginInfo>('/plugins/install-remote', {
-    method: 'POST',
-    body: JSON.stringify({ url, filename }),
-  }, token)
-}
-
 export async function getPluginSource(
   name: string,
   token: string,

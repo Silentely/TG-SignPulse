@@ -4,11 +4,8 @@ import { Play, FileText, Edit2, Trash2, Power, Square, Copy } from 'lucide-vue-n
 import type { TaskUiItem } from '../../lib/types'
 import type { ActiveRunSummary } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
-import {
-  badgeTone,
-  badgeToneClass,
-  isRunInProgress,
-} from '../../lib/run-status'
+import { isRunInProgress } from '../../lib/run-status'
+import ToneBadge from '../ToneBadge.vue'
 
 const props = defineProps<{
   task: TaskUiItem
@@ -138,18 +135,18 @@ const runTaskBusy = computed(() => Boolean(props.runBusyKey?.startsWith(`${props
           >
             {{ task.lastRunStr }}
           </span>
-          <span
+          <ToneBadge
             v-if="taskActiveRun && isRunInProgress(taskActiveRun)"
-            class="ui-badge !text-[11px] max-w-[16rem] truncate border"
-            :class="badgeToneClass(badgeTone(taskActiveRun))"
+            :status="taskActiveRun"
+            extra-class="!text-[11px] max-w-[16rem] truncate"
+            pulse
             :title="activeRunTooltip || activeRunBadgeText"
           >
-            <span class="ui-pulse-dot !bg-sky-500 mr-1" />
             {{ activeRunBadgeText }}
             <template v-if="taskActiveRuns.length > 1">
               ·{{ taskActiveRuns.length }}
             </template>
-          </span>
+          </ToneBadge>
           <span
             v-if="hasInvalidAccount"
             class="ui-badge ui-badge-error !text-[11px]"

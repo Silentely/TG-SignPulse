@@ -39,8 +39,8 @@ const pageLoading = ref(true)
 const avatarCache = new AvatarUrlCache()
 // 卸载标记：在途头像请求完成后不再创建 ObjectURL，避免 blob 泄漏
 let disposed = false
-/** 重登弹窗延时句柄：卸载时清理，避免关闭组件后仍打开新弹窗 */
-let reloginTimer: number | undefined
+/** 待重登账号：编辑弹窗离场动画结束后据此打开添加弹窗 */
+const pendingReloginName = ref('')
 const showAddModal = ref(false)
 const showEditModal = ref(false)
 const showAddMenu = ref(false)
@@ -125,10 +125,6 @@ onMounted(async () => {
 
 onUnmounted(() => {
   disposed = true
-  if (reloginTimer !== undefined) {
-    window.clearTimeout(reloginTimer)
-    reloginTimer = undefined
-  }
   // 离开页面时统一回收会话内头像 ObjectURL，避免 blob 泄漏
   avatarCache.release()
 })
@@ -186,11 +182,17 @@ const openOfficialMessages = (name: string) => {
 
 const handleRelogin = (name: string) => {
   showEditModal.value = false
-  reloginTimer = window.setTimeout(() => {
-    initialAccountName.value = name
-    initialMethod.value = 'code'
-    showAddModal.value = true
-  }, 300)
+  // 不立刻打开添加弹窗：等编辑弹窗离场动画结束再由 onEditModalClosed 接续，
+  // 避免两层弹窗短暂重叠、焦点恢复与自动聚焦互相抢占
+  pendingReloginName.value = name
+}
+
+const onEditModalClosed = () => {
+  if (!pendingReloginName.value) return
+  initialAccountName.value = pendingReloginName.value
+  initialMethod.value = 'code'
+  pendingReloginName.value = ''
+  showAddModal.value = true
 }
 
 const openAddModal = (method: 'code' | 'qr') => {
@@ -468,7 +470,7 @@ const goTasks = (name: string) => {
 
     <!-- Modals -->
     <AddAccountModal :isOpen="showAddModal" :initialMethod="initialMethod" :initialAccountName="initialAccountName" @close="showAddModal = false" @success="loadAccounts" />
-    <EditAccountModal v-if="editingAccount" :isOpen="showEditModal" :account="editingAccount" @close="showEditModal = false" @success="loadAccounts" @relogin="handleRelogin" />
+    <EditAccountModal v-if="editingAccount" :isOpen="showEditModal" :account="editingAccount" @close="showEditModal = false" @closed="onEditModalClosed" @success="loadAccounts" @relogin="handleRelogin" />
     <DeviceManagerModal :isOpen="showDeviceModal" :accountName="deviceAccountName" @close="showDeviceModal = false" />
     <OfficialMessagesModal :isOpen="showOfficialMessagesModal" :accountName="officialMessagesAccountName" @close="showOfficialMessagesModal = false" />
   </div>

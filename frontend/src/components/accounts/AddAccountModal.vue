@@ -17,7 +17,7 @@ import { getAuthToken } from '../../lib/api/core'
 import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
 import { startChainPoll, type ChainPollHandle } from '../../lib/chain-poll'
-import { getErrorCode, getLocalizedErrorMessage } from '../../lib/types'
+import { getErrorCode, getLocalizedErrorMessage, getRawErrorMessage } from '../../lib/types'
 import { devLog } from '../../lib/devLog'
 
 const { t } = useI18n()
@@ -299,6 +299,19 @@ const handleSendCode = async () => {
   }
 }
 
+/**
+ * 保存动作统一收尾：校验早退、成功关窗、抛错三条路径都经 finally 复位 loading，
+ * 避免新增分支漏写导致提交按钮永久禁用。
+ * 注意：会自行接管 loading 的子流程（如二维码 2FA 提交后继续轮询）不要包进来。
+ */
+const runSaveStep = async (step: () => Promise<void>) => {
+  try {
+    await step()
+  } finally {
+    loading.value = false
+  }
+}
+
 const handleSave = async () => {
   const token = getAuthToken()
   if (!token) return
@@ -313,11 +326,10 @@ const handleSave = async () => {
       return
     }
     highlightTdataPassword.value = false
-    try {
+    await runSaveStep(async () => {
       if (importSubtype.value === 'file') {
         if (!selectedFile.value) {
           error.value = t('addAccount.fileRequired')
-          loading.value = false
           return
         }
         await importAccountSessionFile(
@@ -331,7 +343,6 @@ const handleSave = async () => {
       } else {
         if (!form.value.session_content.trim()) {
           error.value = t('addAccount.stringRequired')
-          loading.value = false
           return
         }
         await importAccountSession(token, {
@@ -344,13 +355,13 @@ const handleSave = async () => {
         })
       }
       await saveRemarkIfPresent(token)
-      loading.value = false
       toast.success(t('addAccount.importSuccess'))
       emit('success')
       handleClose()
-    } catch (e: unknown) {
+    }).catch((e: unknown) => {
       const code = getErrorCode(e)
-      const msg = e instanceof Error ? e.message : String(e)
+      // 保留原始 message：下面按 TDATA_* 错误码子串匹配，不能用已本地化的文案
+      const msg = getRawErrorMessage(e)
       if (code === 'TDATA_CONVERTER_UNAVAILABLE' || msg.includes('TDATA_CONVERTER_UNAVAILABLE')) {
         error.value = t('addAccount.tdataConverterUnavailable')
       } else if (code === 'TDATA_PASSWORD_REQUIRED' || msg.includes('TDATA_PASSWORD_REQUIRED')) {
@@ -364,8 +375,7 @@ const handleSave = async () => {
       } else {
         error.value = getLocalizedErrorMessage(e, t) || t('addAccount.importFailed')
       }
-      loading.value = false
-    }
+    })
     return
   }
 
@@ -380,7 +390,7 @@ const handleSave = async () => {
       loading.value = false
       return
     }
-    try {
+    await runSaveStep(async () => {
       await verifyAccountLogin(token, {
         account_name: form.value.account_name,
         phone_number: form.value.phone_number,
@@ -390,11 +400,10 @@ const handleSave = async () => {
         proxy: form.value.proxy || undefined
       })
       await saveRemarkIfPresent(token)
-      loading.value = false
       toast.success(t('addAccount.loginSuccess'))
       emit('success')
       handleClose()
-    } catch (e: unknown) {
+    }).catch((e: unknown) => {
       const code = getErrorCode(e)
       if (code === 'SESSION_PASSWORD_NEEDED') {
         error.value = t('addAccount.needPassword')
@@ -403,27 +412,28 @@ const handleSave = async () => {
       } else {
         error.value = getLocalizedErrorMessage(e, t) || t('addAccount.verifyFailed')
       }
-      loading.value = false
-    }
+    })
+    return
+  }
+
+  // QR Login Save (submit password if waiting)
+  if (!loginId.value) {
+    error.value = t('addAccount.scanFirst')
+    loading.value = false
+    return
+  }
+  if (form.value.password) {
+    // handleQrPasswordSubmit 自行管理 loading：提交失败需复位，重启轮询则保持禁用
+    await handleQrPasswordSubmit(token, loginId.value)
+  } else if (pollHandle?.active) {
+    // 没有密码但轮询仍在运行：保留轮询等待扫码完成，
+    // 停掉后扫码完成不会再被 pollStatus 检测到
+    loading.value = false
+    error.value = t('addAccount.waitScan')
   } else {
-    // QR Login Save (submit password if waiting)
-    if (!loginId.value) {
-      error.value = t('addAccount.scanFirst')
-      loading.value = false
-      return
-    }
-    if (form.value.password) {
-      await handleQrPasswordSubmit(token, loginId.value)
-    } else if (pollHandle?.active) {
-      // 没有密码但轮询仍在运行：保留轮询等待扫码完成，
-      // 停掉后扫码完成不会再被 pollStatus 检测到
-      loading.value = false
-      error.value = t('addAccount.waitScan')
-    } else {
-      pollHandle = null
-      error.value = t('addAccount.enterPasswordOrWait')
-      loading.value = false
-    }
+    pollHandle = null
+    error.value = t('addAccount.enterPasswordOrWait')
+    loading.value = false
   }
 }
 

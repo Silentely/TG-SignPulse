@@ -108,6 +108,8 @@ import { useToast } from '../../composables/useToast'
 import { useConfirm } from '../../composables/useConfirm'
 import { withToken } from '../../lib/api/core'
 import { computeLineDiff, type DiffLine } from '../../lib/diff'
+import { copyToClipboard } from '../../lib/clipboard'
+import { getLocalizedErrorMessage } from '../../lib/types'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -168,7 +170,7 @@ const submitClonePlugin = async () => {
       await loadPluginList()
     }
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
+    const msg = getLocalizedErrorMessage(err, t)
     toast.error(msg)
   } finally {
     submittingClone.value = false
@@ -241,7 +243,7 @@ const refreshPluginStorage = async () => {
       storageData.value = res
     }
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
+    const msg = getLocalizedErrorMessage(err, t)
     toast.error(msg)
   } finally {
     storageLoading.value = false
@@ -264,7 +266,7 @@ const handleDeleteStorageKey = async (ns: string, key: string) => {
     toast.success(t('settings.pluginsStorageDeleteKeySuccess'))
     await refreshPluginStorage()
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
+    const msg = getLocalizedErrorMessage(err, t)
     toast.error(msg)
   }
 }
@@ -288,7 +290,7 @@ const handleClearAllStorage = async () => {
       await refreshPluginStorage()
     }
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
+    const msg = getLocalizedErrorMessage(err, t)
     toast.error(msg)
   } finally {
     storageClearing.value = false
@@ -324,11 +326,10 @@ const isValidHttpUrl = (url?: string | null): boolean => {
 }
 
 const copyStorageValue = async (val: unknown) => {
-  try {
-    const valText = typeof val === 'object' ? JSON.stringify(val, null, 2) : String(val)
-    await navigator.clipboard.writeText(valText)
+  const valText = typeof val === 'object' ? JSON.stringify(val, null, 2) : String(val)
+  if (await copyToClipboard(valText)) {
     toast.success(t('common.copied'))
-  } catch {
+  } else {
     toast.error(t('common.copyFailed'))
   }
 }
@@ -347,7 +348,7 @@ const openHistoryModal = async (plugin: PluginInfo) => {
     }
   } catch (err: unknown) {
     if (seq !== historyRequestSeq) return
-    const msg = err instanceof Error ? err.message : String(err)
+    const msg = getLocalizedErrorMessage(err, t)
     toast.error(msg)
   } finally {
     if (seq === historyRequestSeq) loadingHistory.value = false
@@ -371,7 +372,7 @@ const handleClearHistory = async () => {
     executionHistory.value = []
     toast.success(t('settings.pluginsHistoryClearSuccess'))
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
+    const msg = getLocalizedErrorMessage(err, t)
     toast.error(msg)
   } finally {
     clearingHistory.value = false
@@ -388,19 +389,17 @@ const triggerTypeLabel = (triggerType: string) => {
 
 const handleCopyHistoryLogs = async () => {
   if (!executionHistory.value.length) return
-  try {
-    const delimiter = "\n---------------------\n\n"
-    const content = executionHistory.value.map((rec, i) => {
-      const status = rec.success ? '[SUCCESS]' : '[FAILED]'
-      const errPart = rec.error ? `Error: ${rec.error}\n` : ''
-      const logPart = rec.log_summary ? `Logs:\n${rec.log_summary}\n` : ''
-      return `#${i + 1} [${rec.timestamp}] ${status} (${rec.duration_ms}ms, ${triggerTypeLabel(rec.trigger_type)})\n` + errPart + logPart
-    }).join(delimiter)
-    await navigator.clipboard.writeText(content)
+  const delimiter = "\n---------------------\n\n"
+  const content = executionHistory.value.map((rec, i) => {
+    const status = rec.success ? '[SUCCESS]' : '[FAILED]'
+    const errPart = rec.error ? `Error: ${rec.error}\n` : ''
+    const logPart = rec.log_summary ? `Logs:\n${rec.log_summary}\n` : ''
+    return `#${i + 1} [${rec.timestamp}] ${status} (${rec.duration_ms}ms, ${triggerTypeLabel(rec.trigger_type)})\n` + errPart + logPart
+  }).join(delimiter)
+  if (await copyToClipboard(content)) {
     toast.success(t('settings.pluginsHistoryExportSuccess'))
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
-    toast.error(msg)
+  } else {
+    toast.error(t('common.copyFailed'))
   }
 }
 interface TestSnapshot {
@@ -435,7 +434,7 @@ const handleBatchToggle = async (enabled: boolean) => {
       await loadPluginList()
     }
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
+    const msg = getLocalizedErrorMessage(err, t)
     toast.error(msg)
   } finally {
     batchToggling.value = false
@@ -458,7 +457,7 @@ const handleResetAllMetrics = async () => {
     toast.success(t('settings.pluginsResetAllMetricsSuccess'))
     await loadPluginList()
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
+    const msg = getLocalizedErrorMessage(err, t)
     toast.error(msg)
   } finally {
     resettingAllMetrics.value = false
@@ -503,16 +502,15 @@ onBeforeUnmount(() => {
 })
 
 const copyInstallCommand = async (cmd: string, idx: number) => {
-  try {
-    await navigator.clipboard.writeText(cmd)
-    copiedDiagIndex.value = idx
-    toast.success(t('settings.pluginsDiagCopied'))
-    registerCopyTimer(() => {
-      if (copiedDiagIndex.value === idx) copiedDiagIndex.value = null
-    }, 2000)
-  } catch {
+  if (!(await copyToClipboard(cmd))) {
     toast.error(cmd)
+    return
   }
+  copiedDiagIndex.value = idx
+  toast.success(t('settings.pluginsDiagCopied'))
+  registerCopyTimer(() => {
+    if (copiedDiagIndex.value === idx) copiedDiagIndex.value = null
+  }, 2000)
 }
 
 // 卡片轻量化、编辑器与试验场打磨状态
@@ -693,7 +691,7 @@ const handleExportManifest = async () => {
     URL.revokeObjectURL(url)
     toast.success(t('settings.pluginsExportManifestSuccess'))
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
+    const msg = getLocalizedErrorMessage(err, t)
     toast.error(msg)
   } finally {
     exportingManifest.value = false
@@ -715,7 +713,7 @@ const handleExportAll = async () => {
     URL.revokeObjectURL(url)
     toast.success(t('settings.pluginsExportAllSuccess'))
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
+    const msg = getLocalizedErrorMessage(err, t)
     toast.error(`${t('settings.pluginsExportAllFailed')}: ${msg}`)
   } finally {
     exportingAll.value = false
@@ -819,7 +817,7 @@ const handleReload = async () => {
     }
     toast.success(t('settings.pluginsReloadSuccess', { count: res.count }))
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
+    const msg = getLocalizedErrorMessage(err, t)
     toast.error(`${t('settings.pluginsReloadFailed')}: ${msg}`)
   } finally {
     reloadLoading.value = false
@@ -838,7 +836,7 @@ const handleToggle = async (plugin: PluginInfo) => {
         : t('settings.pluginDisabledSuccess'),
     )
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
+    const msg = getLocalizedErrorMessage(err, t)
     toast.error(`${t('settings.pluginToggleFailed')}: ${msg}`)
   } finally {
     togglingPluginName.value = null
@@ -851,10 +849,9 @@ const pluginDeps = ref<PluginDependency[]>([])
 const loadingDeps = ref(false)
 
 const copyDepInstall = async (cmd: string) => {
-  try {
-    await navigator.clipboard.writeText(cmd)
+  if (await copyToClipboard(cmd)) {
     toast.success(t('settings.pluginsDependencyCopied', { cmd }))
-  } catch {
+  } else {
     toast.error(cmd)
   }
 }
@@ -919,7 +916,7 @@ const openSourceModal = async (plugin: PluginInfo) => {
     }
   } catch (err: unknown) {
     if (seq !== sourceRequestSeq) return
-    const msg = err instanceof Error ? err.message : String(err)
+    const msg = getLocalizedErrorMessage(err, t)
     toast.error(`${t('settings.pluginsSourceLoading')}: ${msg}`)
   } finally {
     if (seq === sourceRequestSeq) sourceLoading.value = false
@@ -1015,7 +1012,7 @@ const handleAuditSource = async () => {
       toast.warning(t('settings.pluginsAuditWarnings', { n: res.warnings.length }))
     }
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
+    const msg = getLocalizedErrorMessage(err, t)
     toast.error(msg)
   } finally {
     auditingSource.value = false
@@ -1024,10 +1021,9 @@ const handleAuditSource = async () => {
 
 async function copyTraceback(tb?: string | null) {
   if (!tb) return
-  try {
-    await navigator.clipboard.writeText(tb)
+  if (await copyToClipboard(tb)) {
     toast.success(t('settings.pluginsPlaygroundCopiedTraceback'))
-  } catch {
+  } else {
     toast.error(t('settings.pluginsCopyFailed'))
   }
 }
@@ -1049,7 +1045,7 @@ const handleFormatSource = async () => {
       toast.info(t('settings.pluginsFormatUnchanged'))
     }
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
+    const msg = getLocalizedErrorMessage(err, t)
     toast.error(msg)
   } finally {
     formattingSource.value = false
@@ -1081,12 +1077,10 @@ const handleCopyTestResult = async () => {
     lines.push(`\n--- ${t('settings.pluginsCopyTestResultLogs')} ---`)
     lines.push(...r.logs)
   }
-  try {
-    await navigator.clipboard.writeText(lines.join('\n'))
+  if (await copyToClipboard(lines.join('\n'))) {
     toast.success(t('settings.pluginsCopyTestResultSuccess'))
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
-    toast.error(msg)
+  } else {
+    toast.error(t('common.copyFailed'))
   }
 }
 
@@ -1094,12 +1088,10 @@ const handleCopyMissingDeps = async () => {
   const missing = pluginDeps.value.filter((d) => !d.installed).map((d) => d.module)
   if (!missing.length) return
   const cmd = `pip install ${missing.join(' ')}`
-  try {
-    await navigator.clipboard.writeText(cmd)
+  if (await copyToClipboard(cmd)) {
     toast.success(t('settings.pluginsCopyPipCommandSuccess'))
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
-    toast.error(msg)
+  } else {
+    toast.error(t('common.copyFailed'))
   }
 }
 
@@ -1119,7 +1111,7 @@ const handleCheckSyntax = async () => {
       toast.error(msg)
     }
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
+    const msg = getLocalizedErrorMessage(err, t)
     syntaxResult.value = { valid: false, message: msg }
     toast.error(msg)
   } finally {
@@ -1218,7 +1210,7 @@ const handleResetMetrics = async (plugin: PluginInfo) => {
     toast.success(t('settings.pluginsMetricsResetSuccess'))
     await loadPluginList()
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
+    const msg = getLocalizedErrorMessage(err, t)
     toast.error(`${t('settings.pluginsMetricsResetFailed')}: ${msg}`)
   } finally {
     resettingMetricsPlugin.value = null
@@ -1227,16 +1219,15 @@ const handleResetMetrics = async (plugin: PluginInfo) => {
 
 const copySourceCode = async () => {
   if (!sourceCode.value) return
-  try {
-    await navigator.clipboard.writeText(sourceCode.value)
-    sourceCopied.value = true
-    toast.success(t('settings.pluginsSourceCopied'))
-    registerCopyTimer(() => {
-      sourceCopied.value = false
-    }, 2000)
-  } catch {
+  if (!(await copyToClipboard(sourceCode.value))) {
     toast.error(t('settings.pluginsSourceCopyFailed'))
+    return
   }
+  sourceCopied.value = true
+  toast.success(t('settings.pluginsSourceCopied'))
+  registerCopyTimer(() => {
+    sourceCopied.value = false
+  }, 2000)
 }
 
 // 删除自定义插件
@@ -1257,7 +1248,7 @@ const handleDelete = async (plugin: PluginInfo) => {
       await loadPluginList()
     }
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
+    const msg = getLocalizedErrorMessage(err, t)
     toast.error(`${t('settings.pluginsDeleteFailed')}: ${msg}`)
   } finally {
     deletingPluginName.value = null
@@ -1309,7 +1300,7 @@ const submitCreatePlugin = async () => {
       await loadPluginList()
     }
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
+    const msg = getLocalizedErrorMessage(err, t)
     toast.error(`${t('settings.pluginsCreateFailed')}: ${msg}`)
   } finally {
     createLoading.value = false
@@ -1350,7 +1341,7 @@ const handleFileUpload = async (event: Event) => {
       await loadPluginList()
     }
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
+    const msg = getLocalizedErrorMessage(err, t)
     toast.error(`${t('settings.pluginsUploadFailed')}: ${msg}`)
   } finally {
     uploadingPlugin.value = false
@@ -1373,7 +1364,7 @@ const handleExportPlugin = async (plugin: PluginInfo) => {
     URL.revokeObjectURL(url)
     toast.success(t('settings.pluginsExportSuccess'))
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
+    const msg = getLocalizedErrorMessage(err, t)
     toast.error(`${t('settings.pluginsExportFailed')}: ${msg}`)
   } finally {
     exportingPluginName.value = null
@@ -1435,7 +1426,7 @@ const runPluginTest = async () => {
     testResult.value = res
     saveTestSnapshot(testName, testInputText.value, testParams.value)
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
+    const msg = getLocalizedErrorMessage(err, t)
     // 仅当弹窗仍停留在发起请求的插件时才回填错误结果，防止过期覆盖
     if (currentTestPlugin.value?.name !== testName || !isTestModalOpen.value) return
     testResult.value = {

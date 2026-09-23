@@ -2,30 +2,40 @@
 /**
  * 仪表盘：签到运行历史趋势与成功率统计图表（SVG 纯前端渲染，零第三方图表库依赖）。
  */
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { TrendingUp, Calendar } from 'lucide-vue-next'
 import { getHistoryTrends, type TrendsResponse } from '../../lib/api'
 import { withToken } from '../../lib/api/core'
+import { useLatestResponseGuard } from '../../lib/latest-response'
 
 const selectedDays = ref<number>(7)
 const loading = ref<boolean>(true)
 const trendsData = ref<TrendsResponse | null>(null)
 const hoveredIndex = ref<number | null>(null)
+// 7/30 天快速切换会并发多个请求，慢的那个先返回会覆盖新数据
+const trendsGuard = useLatestResponseGuard()
 
 const loadTrends = async () => {
+  const seq = trendsGuard.next()
   loading.value = true
   try {
     const res = await withToken((token) => getHistoryTrends(token, selectedDays.value))
+    if (!trendsGuard.isCurrent(seq)) return // 过期响应：已切换到其他天数
     trendsData.value = res ?? null
   } catch {
+    if (!trendsGuard.isCurrent(seq)) return
     trendsData.value = null
   } finally {
-    loading.value = false
+    if (trendsGuard.isCurrent(seq)) loading.value = false
   }
 }
 
 onMounted(() => {
   loadTrends()
+})
+
+onUnmounted(() => {
+  trendsGuard.invalidate()
 })
 
 watch(selectedDays, () => {
