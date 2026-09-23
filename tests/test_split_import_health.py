@@ -57,15 +57,39 @@ def test_core_package_reexports_runtime_identity():
     assert core.Client is client.Client
 
 
-def test_keyword_monitor_private_helpers_injected():
-    """rules 私有函数经 injection 后须可在 runtime 命名空间访问。"""
+def test_keyword_monitor_private_helpers_imported():
+    """rules 私有函数必须显式导入到 runtime，且与 rules 保持同一对象。
+
+    历史上 runtime 用 star import + globals 注入私有名，静态检查与重构均失效；
+    本测试锁定显式导入清单，防止新增引用时漏导入导致运行期 NameError。
+    """
     runtime = importlib.import_module("backend.services.keyword_monitor.runtime")
     rules = importlib.import_module("backend.services.keyword_monitor.rules")
 
-    assert hasattr(runtime, "_extract_tg_start_links")
-    assert runtime._extract_tg_start_links is rules._extract_tg_start_links
-    assert hasattr(runtime, "_parse_keywords")
-    assert hasattr(runtime, "_message_text")
+    required = [
+        "KeywordMonitorRule",
+        "logger",
+        "settings",
+        "_action_ignore_self",
+        "_action_in_active_time_window",
+        "_as_int_or_none",
+        "_keyword_split_commas",
+        "_match_all_keyword_values",
+        "_message_is_self",
+        "_message_matches_sender",
+        "_message_matches_thread",
+        "_message_text",
+        "_message_thread_candidates",
+        "_message_url",
+        "_parse_forward_chat_id",
+        "_parse_keywords",
+        "_parse_sender_filter",
+    ]
+    for name in required:
+        assert hasattr(runtime, name), f"runtime 缺少显式导入: {name}"
+        assert getattr(runtime, name) is getattr(rules, name), (
+            f"runtime.{name} 与 rules.{name} 不是同一对象"
+        )
 
 
 def test_backend_and_tg_signer_package_walk_imports():

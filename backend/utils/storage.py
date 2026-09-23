@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import secrets
 import tempfile
 from pathlib import Path
 from typing import Optional
@@ -102,3 +103,35 @@ def get_writable_base_dir() -> Path:
     logging.getLogger("backend.storage").warning(message)
     _BASE_DIR = fallback
     return _BASE_DIR
+
+
+def move_storage_path(source: Path, target: Path) -> None:
+    """移动/重命名存储路径，供账号目录与签到任务目录改名共用。
+
+    - source 不存在时静默返回（调用方视为无需迁移）
+    - 与目标仅大小写差异时（大小写不敏感文件系统）先经临时文件中转，
+      否则 replace 会被系统判定为同路径而静默失败
+    - 目标已存在时抛错，避免覆盖丢失数据
+    """
+    source = Path(source)
+    target = Path(target)
+    if not source.exists():
+        return
+
+    source_resolved = str(source.resolve()).lower()
+    target_resolved = str(target.resolve()).lower()
+    if source_resolved == target_resolved:
+        if str(source) == str(target):
+            return
+        temp_target = source.with_name(
+            f"{source.name}.__rename_tmp__{secrets.token_hex(6)}"
+        )
+        source.replace(temp_target)
+        temp_target.replace(target)
+        return
+
+    if target.exists():
+        raise ValueError(f"目标路径已存在: {target}")
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    source.replace(target)

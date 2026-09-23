@@ -196,26 +196,6 @@ def normalize_global_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
 class SignTaskConfigMixin:
     """签到/监控任务配置文件 CRUD 与导入导出。"""
 
-    def list_sign_tasks(self) -> List[str]:
-        """获取所有签到任务名称列表"""
-        tasks = []
-
-        if self.signs_dir.exists():
-            # 扫描顶层目录 (兼容旧版)
-            for path in self.signs_dir.iterdir():
-                if path.is_dir():
-                    # Check if it's a task directory (has config.json)
-                    if (path / "config.json").exists():
-                        tasks.append(path.name)
-                    else:
-                        # Check if it's an account directory containing tasks
-                        for task_dir in path.iterdir():
-                            if task_dir.is_dir() and (task_dir / "config.json").exists():
-                                tasks.append(task_dir.name)
-
-        return sorted(set(tasks))  # 去重并排序
-
-
     def list_monitor_tasks(self) -> List[str]:
         """获取所有监控任务名称列表"""
         tasks = []

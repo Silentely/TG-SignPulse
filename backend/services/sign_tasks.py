@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import threading
@@ -16,7 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 from backend.core.config import get_settings
-from backend.services.sign_task_backend import BackendUserSigner, TaskLogHandler
+from backend.services.sign_task_backend import BackendUserSigner
 from backend.services.sign_task_config_inspect import (
     task_has_keyword_monitor,
     task_requires_updates,
@@ -62,9 +61,10 @@ from backend.services.sign_task_run_status import (
     summarize_active_run,
 )
 from backend.services.sign_task_text import repair_mojibake
-from backend.utils.atomic_io import write_json_atomic
+from backend.utils.atomic_io import read_json_safe, write_json_atomic
 from backend.utils.cache import TTLCache
 from backend.utils.names import validate_storage_name
+from backend.utils.storage import move_storage_path
 from backend.utils.task_logs import extract_last_target_message
 from backend.utils.tg_session import (
     is_string_session_mode,
@@ -90,10 +90,7 @@ RUN_STATUS_CLEANUP_DELAY_SECONDS = 600
 # 活跃运行列表返回上限：超出截断并告警，防止异常堆积撑大响应
 MAX_ACTIVE_RUNS = 100
 
-# 向后兼容：外部若 from sign_tasks import BackendUserSigner / TaskLogHandler
 __all__ = [
-    "BackendUserSigner",
-    "TaskLogHandler",
     "SignTaskService",
     "get_sign_task_service",
 ]
@@ -383,24 +380,8 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
 
     @staticmethod
     def _move_storage_path(source: Path, target: Path) -> None:
-        if not source.exists():
-            return
-
-        source_resolved = str(source.resolve()).lower()
-        target_resolved = str(target.resolve()).lower()
-        if source_resolved == target_resolved:
-            if str(source) == str(target):
-                return
-            temp_target = source.with_name(f"{source.name}.__rename_tmp__{uuid.uuid4().hex}")
-            source.replace(temp_target)
-            temp_target.replace(target)
-            return
-
-        if target.exists():
-            raise ValueError(f"目标路径已存在: {target}")
-
-        target.parent.mkdir(parents=True, exist_ok=True)
-        source.replace(target)
+        # 实现上提至 backend.utils.storage，与账号目录改名共用同一份语义
+        move_storage_path(source, target)
 
     def _known_account_names(self) -> List[str]:
         names = set()
@@ -458,10 +439,8 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
             config_file = legacy_task_dir / "config.json"
             if not config_file.exists():
                 return None
-            try:
-                with open(config_file, "r", encoding="utf-8") as f:
-                    config = json.load(f)
-            except Exception:
+            config = read_json_safe(config_file, default=None)
+            if not isinstance(config, dict):
                 return None
             if self._infer_account_name(config, legacy_task_dir) == account_name:
                 return legacy_task_dir
@@ -534,15 +513,13 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
                 config_file = task_dir / "config.json"
                 if not config_file.exists():
                     continue
-                try:
-                    with open(config_file, "r", encoding="utf-8") as f:
-                        config = json.load(f)
-                    stored_names = config.get("account_names", [])
-                    if isinstance(stored_names, list) and "*" in stored_names:
-                        seen_wildcard_tasks.append((task_dir.name, config, task_dir))
-                except Exception as exc:
-                    _service_logger.debug("读取通配任务配置失败，跳过: %s (%s)", config_file, exc)
+                config = read_json_safe(config_file, default=None)
+                if not isinstance(config, dict):
+                    _service_logger.debug("读取通配任务配置失败，跳过: %s", config_file)
                     continue
+                stored_names = config.get("account_names", [])
+                if isinstance(stored_names, list) and "*" in stored_names:
+                    seen_wildcard_tasks.append((task_dir.name, config, task_dir))
 
         # For each wildcard task, ensure all accounts have a directory
         for task_name, base_config, _ in seen_wildcard_tasks:
@@ -890,10 +867,13 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         if not config_file.exists():
             return (None, None) if return_raw else None
 
-        try:
-            with open(config_file, "r", encoding="utf-8") as f:
-                config = json.load(f)
+        # 读取与归一化分离：读盘失败由 read_json_safe 告警并回退 None，
+        # 归一化异常仍走下方 warning，避免用户排障无线索
+        config = read_json_safe(config_file, default=None)
+        if not isinstance(config, dict):
+            return (None, None) if return_raw else None
 
+        try:
             resolved_account_name = self._infer_account_name(config, task_dir)
             resolved_account_names = self._resolve_account_names_from_config(
                 config,

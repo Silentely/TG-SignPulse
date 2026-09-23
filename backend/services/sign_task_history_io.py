@@ -5,10 +5,11 @@
 """
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from backend.utils.atomic_io import read_json_safe
 
 _logger = logging.getLogger("backend.sign_task_history_io")
 
@@ -39,14 +40,8 @@ def history_file_path(
 
 
 def load_history_payload_from_file(history_file: Path) -> List[Any]:
-    try:
-        with open(history_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError, TypeError, ValueError) as exc:
-        # 历史文件损坏或读取失败时表现为历史凭空消失，必须留下日志线索
-        _logger.warning("读取历史文件失败，按空历史处理: %s (%s)", history_file, exc)
-        return []
-
+    # 历史文件损坏或读取失败时表现为历史凭空消失，read_json_safe 会留下告警线索
+    data = read_json_safe(history_file, default=None)
     if isinstance(data, list):
         return data
     if isinstance(data, dict):

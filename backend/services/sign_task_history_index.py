@@ -17,6 +17,8 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from backend.utils.atomic_io import read_json_safe
+
 logger = logging.getLogger("backend.sign_task_history_index")
 
 INDEX_FILENAME = "_recent_index.jsonl"
@@ -386,11 +388,7 @@ def rebuild_index_from_history_files(
         if load_file_entries is not None:
             raw = load_file_entries(history_file)
         else:
-            try:
-                with open(history_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-            except (OSError, json.JSONDecodeError, TypeError, ValueError):
-                continue
+            data = read_json_safe(history_file, default=None)
             if isinstance(data, list):
                 raw = data
             elif isinstance(data, dict):

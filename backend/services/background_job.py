@@ -11,13 +11,12 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import uuid
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set
 
-from backend.utils.atomic_io import write_json_atomic
+from backend.utils.atomic_io import read_json_safe, write_json_atomic
 from backend.utils.time import utc_now_iso_z_seconds as utc_now_iso
 
 logger = logging.getLogger("backend.background_job")
@@ -71,10 +70,7 @@ class BackgroundJobStore:
     def _load_jobs(self) -> None:
         loaded: List[Dict[str, Any]] = []
         for path in self.root.glob("*.json"):
-            try:
-                value = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                continue
+            value = read_json_safe(path, default=None)
             if not isinstance(value, dict) or not value.get("job_id"):
                 continue
             if value.get("status") in ACTIVE_STATUSES:

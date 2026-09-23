@@ -129,6 +129,40 @@ def test_compute_range_task_compensation_tight_remaining_window():
 
 
 @pytest.mark.asyncio
+async def test_job_run_sign_task_cross_midnight_delay_stays_in_window():
+    """跨天窗口在凌晨迟到触发时，随机延迟必须落在窗口内，不得推出 range_end。"""
+    _RANGE_COMPENSATION_RUNS.clear()
+    tz = ZoneInfo("Asia/Shanghai")
+    # 窗口 22:00→06:00，进程在凌晨 03:30 才迟到触发（misfire/重启）
+    late_now = datetime(2026, 9, 22, 3, 30, 0, tzinfo=tz)
+
+    mock_service = MagicMock()
+    mock_service.get_task.return_value = {
+        "name": "night_task",
+        "account_name": "acc1",
+        "execution_mode": "range",
+        "range_start": "22:00",
+        "range_end": "06:00",
+    }
+    mock_service.run_task_with_logs = AsyncMock(return_value={"success": True})
+
+    with patch("backend.services.sign_tasks.get_sign_task_service", return_value=mock_service):
+        with patch("backend.scheduler._resolve_scheduler_timezone", return_value=tz):
+            with patch("backend.scheduler.datetime") as mock_dt:
+                mock_dt.now.side_effect = lambda t=None: late_now
+                mock_dt.strptime = datetime.strptime
+                mock_dt.fromisoformat = datetime.fromisoformat
+                with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+                    await _job_run_sign_task("acc1", "night_task")
+
+    mock_sleep.assert_awaited_once()
+    delay_seconds = mock_sleep.await_args.args[0]
+    # 剩余窗口只有 2.5 小时（03:30 → 06:00），延迟不得越过它
+    assert 0 <= delay_seconds <= (6 * 3600) - (3.5 * 3600) + 1
+    mock_service.run_task_with_logs.assert_awaited_once_with("acc1", "night_task")
+
+
+@pytest.mark.asyncio
 async def test_job_run_sign_task_bypasses_sleep_on_compensation():
     _RANGE_COMPENSATION_RUNS.clear()
     job_id = "sign-acc1-task1"
