@@ -27,7 +27,3 @@ export function resetBodyScrollLock(): void {
     document.body.style.overflow = ''
   }
 }
-
-export function getBodyScrollLockCount(): number {
-  return lockCount
-}

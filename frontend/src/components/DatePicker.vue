@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, nextTick, useId } from 'vue'
 import { ChevronDown, ChevronLeft, ChevronRight, X } from 'lucide-vue-next'
 import { useI18n } from '../composables/useI18n'
+import { useEscClose } from '../composables/useEscClose'
 
 const { locale, t } = useI18n()
 
@@ -83,23 +84,14 @@ const handleClickOutside = (e: MouseEvent) => {
   }
 }
 
-const onKeydown = (e: KeyboardEvent) => {
-  if (e.key === 'Escape' && isOpen.value) {
-    e.preventDefault()
-    isOpen.value = false
-    // 焦点归还触发按钮，与 Modal 的焦点归还约定一致
-    triggerRef.value?.focus()
-  }
-}
+// Esc 收起面板并归还焦点给触发按钮，与 Modal 的焦点归还约定一致
+useEscClose(isOpen, () => {
+  isOpen.value = false
+  triggerRef.value?.focus()
+})
 
-onMounted(() => {
-  document.addEventListener('click', handleClickOutside)
-  window.addEventListener('keydown', onKeydown)
-})
-onUnmounted(() => {
-  document.removeEventListener('click', handleClickOutside)
-  window.removeEventListener('keydown', onKeydown)
-})
+onMounted(() => document.addEventListener('click', handleClickOutside))
+onUnmounted(() => document.removeEventListener('click', handleClickOutside))
 
 // 周起点：2026-08-02（UTC）为周日，作为 getDay()=0 的稳定基准生成星期缩写
 const SUNDAY_UTC = Date.UTC(2026, 7, 2)

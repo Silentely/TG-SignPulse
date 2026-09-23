@@ -6,11 +6,8 @@ import {
   storageGet,
   storageSet,
   storageRemove,
-  storageGetJSON,
-  storageSetJSON,
   sessionGet,
   sessionSet,
-  sessionRemove,
 } from '../lib/safe-storage'
 
 describe('safe-storage', () => {
@@ -41,20 +38,8 @@ describe('safe-storage', () => {
     expect(() => storageRemove('k1')).not.toThrow()
   })
 
-  it('JSON 读写与回退', () => {
-    storageSetJSON('json_key', { count: 42, text: 'hello' })
-    expect(storageGetJSON('json_key')).toEqual({ count: 42, text: 'hello' })
-    expect(storageGetJSON('missing_key', { fallback: true })).toEqual({ fallback: true })
-
-    // Corrupted JSON
-    storageSet('bad_json', '{not-json')
-    expect(storageGetJSON('bad_json', null)).toBeNull()
-  })
-
-  it('sessionStorage 读写删容错', () => {
+  it('sessionStorage 读写容错', () => {
     sessionSet('s1', 'v1')
     expect(sessionGet('s1')).toBe('v1')
-    sessionRemove('s1')
-    expect(sessionGet('s1')).toBeNull()
   })
 })

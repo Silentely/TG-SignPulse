@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted } from 'vue'
-import { Plus, Power, Pause, Play, Trash2, Search, X, LayoutTemplate } from 'lucide-vue-next'
+import { Plus, Power, Pause, Play, Trash2, Search, LayoutTemplate } from 'lucide-vue-next'
+import FilterChip from '../FilterChip.vue'
 import { BUILT_IN_TEMPLATES } from '../../lib/task-templates'
 import type { TaskListModeFilter } from '../../lib/task-list-filter'
 import { useI18n } from '../../composables/useI18n'
+import { useEscClose } from '../../composables/useEscClose'
 
 const props = defineProps<{
   searchQuery: string
@@ -58,21 +60,17 @@ const closeTemplateMenuOnOutside = (e: MouseEvent) => {
   emit('toggle-template-menu')
 }
 // Esc 关闭下拉（与 CustomSelect 等下拉控件语义一致，避免键盘用户卡在菜单里）
-const closeTemplateMenuOnEsc = (e: KeyboardEvent) => {
-  if (e.key !== 'Escape') return
-  if (!props.showTemplateMenu) return
-  e.stopPropagation()
-  emit('toggle-template-menu')
-}
+useEscClose(
+  () => props.showTemplateMenu,
+  () => emit('toggle-template-menu'),
+)
 watch(
   () => props.showTemplateMenu,
   (open) => {
     if (open) {
       document.addEventListener('click', closeTemplateMenuOnOutside, true)
-      window.addEventListener('keydown', closeTemplateMenuOnEsc)
     } else {
       document.removeEventListener('click', closeTemplateMenuOnOutside, true)
-      window.removeEventListener('keydown', closeTemplateMenuOnEsc)
     }
   },
 )
@@ -87,10 +85,7 @@ const clearSearch = () => {
   emit('update:searchQuery', '')
 }
 
-onUnmounted(() => {
-  document.removeEventListener('click', closeTemplateMenuOnOutside, true)
-  window.removeEventListener('keydown', closeTemplateMenuOnEsc)
-})
+onUnmounted(() => document.removeEventListener('click', closeTemplateMenuOnOutside, true))
 </script>
 
 <template>
@@ -248,53 +243,45 @@ onUnmounted(() => {
       class="flex flex-wrap items-center gap-1.5 pt-0.5 border-t border-gray-100 dark:border-gray-800/50"
     >
       <span class="text-[10px] text-gray-400 shrink-0">{{ t('common.activeFilters') }}</span>
-      <button
+      <FilterChip
         v-if="searchQuery.trim()"
-        type="button"
-        class="inline-flex items-center gap-1 max-w-[14rem] px-2 py-0.5 rounded-sm text-[11px] ui-chip-sky"
+        tone="sky"
+        truncate
         :title="t('common.clearFilters')"
-        @click="clearSearch"
+        @clear="clearSearch"
       >
-        <span class="truncate">{{ t('common.search') }}: {{ searchQuery.trim() }}</span>
-        <X class="w-3 h-3 shrink-0 opacity-70" />
-      </button>
-      <button
+        {{ t('common.search') }}: {{ searchQuery.trim() }}
+      </FilterChip>
+      <FilterChip
         v-if="modeFilter === 'listen'"
-        type="button"
-        class="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-[11px] ui-chip-orange"
-        @click="emit('update:modeFilter', 'all')"
+        tone="orange"
+        @clear="emit('update:modeFilter', 'all')"
       >
         {{ t('tasks.filterListen') }}
-        <X class="w-3 h-3 shrink-0 opacity-70" />
-      </button>
-      <button
+      </FilterChip>
+      <FilterChip
         v-if="modeFilter === 'scheduled'"
-        type="button"
-        class="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-[11px] ui-chip-violet"
-        @click="emit('update:modeFilter', 'all')"
+        tone="violet"
+        @clear="emit('update:modeFilter', 'all')"
       >
         {{ t('tasks.filterScheduled') }}
-        <X class="w-3 h-3 shrink-0 opacity-70" />
-      </button>
-      <button
+      </FilterChip>
+      <FilterChip
         v-if="selectedTag"
-        type="button"
-        class="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-[11px] bg-teal-50 text-teal-700 dark:bg-teal-950/40 dark:text-teal-300 border border-teal-200 dark:border-teal-800/50"
-        @click="emit('update:selectedTag', '')"
+        tone="teal"
+        @clear="emit('update:selectedTag', '')"
       >
-        <span>#{{ selectedTag }}</span>
-        <X class="w-3 h-3 shrink-0 opacity-70" />
-      </button>
-      <button
+        #{{ selectedTag }}
+      </FilterChip>
+      <FilterChip
         v-if="accountFilter"
-        type="button"
-        class="inline-flex items-center gap-1 max-w-[12rem] px-2 py-0.5 rounded-sm text-[11px] ui-chip-sky"
+        tone="sky"
+        truncate
         :title="t('tasks.clearAccountFilter')"
-        @click="emit('clear-account-filter')"
+        @clear="emit('clear-account-filter')"
       >
-        <span class="truncate">{{ t('tasks.accountFilter') }}: {{ accountFilter }}</span>
-        <X class="w-3 h-3 shrink-0 opacity-70" />
-      </button>
+        {{ t('tasks.accountFilter') }}: {{ accountFilter }}
+      </FilterChip>
       <button
         type="button"
         class="text-[11px] text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 underline-offset-2 hover:underline ml-auto shrink-0"

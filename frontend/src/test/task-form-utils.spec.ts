@@ -6,7 +6,6 @@ import {
   buildActions,
   nextActionId,
   resetActionIdCounter,
-  debounce,
 } from '../lib/task-form-utils'
 import type { RawTaskAction, TaskActionItem } from '../lib/types'
 
@@ -204,19 +203,6 @@ describe('buildActions', () => {
 
   it('空数组返回空', () => {
     expect(buildActions([])).toHaveLength(0)
-  })
-})
-
-describe('debounce', () => {
-  it('延迟执行函数', async () => {
-    let count = 0
-    const fn = debounce(() => { count++ }, 100)
-    fn()
-    fn()
-    fn()
-    expect(count).toBe(0)
-    await new Promise(r => setTimeout(r, 150))
-    expect(count).toBe(1)
   })
 })
 

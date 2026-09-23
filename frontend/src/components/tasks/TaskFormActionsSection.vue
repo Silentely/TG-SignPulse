@@ -23,6 +23,7 @@ import type { TaskActionItem } from '../../lib/types'
 import { useI18n } from '../../composables/useI18n'
 import { getPlugins, testPlugin, type PluginInfo, type PluginTestResponse } from '../../lib/api'
 import { withToken } from '../../lib/api/core'
+import { getLocalizedErrorMessage } from '../../lib/types'
 
 const { t } = useI18n()
 
@@ -70,7 +71,7 @@ const runActionPluginTest = async () => {
     )
     if (res) debugResult.value = res
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
+    const msg = getLocalizedErrorMessage(err, t)
     debugResult.value = {
       name: String(debugAction.value!.value),
       success: false,
@@ -143,9 +144,17 @@ onMounted(async () => {
   }
 })
 
+// 插件名 → PluginInfo 索引：模板每行会多次按名查询，find 是 O(n)，
+// 动作多 + 插件多时单次渲染开销随 n×m 线性放大
+const pluginInfoByName = computed(() => {
+  const map = new Map<string, PluginInfo>()
+  for (const p of availablePlugins.value) map.set(p.name, p)
+  return map
+})
+
 const getPluginInfo = (name?: string) => {
   if (!name) return null
-  return availablePlugins.value.find(p => p.name === name) || null
+  return pluginInfoByName.value.get(name) || null
 }
 
 const getParamValue = (action: TaskActionItem, key: string, fallback: unknown) => {

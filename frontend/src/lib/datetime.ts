@@ -27,10 +27,6 @@ export function setPanelTimezone(tz: string | undefined | null): void {
   }
 }
 
-export function getPanelTimezone(): string {
-  return panelTimezone
-}
-
 /** 仅时间（HH:MM:SS，24 小时制） */
 export function formatTimeOnly(value?: string | null, fallback = ''): string {
   if (!value) return fallback

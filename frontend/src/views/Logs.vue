@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { Trash2, RefreshCw, X } from 'lucide-vue-next'
+import { Trash2, RefreshCw } from 'lucide-vue-next'
 import { useI18n } from '../composables/useI18n'
 import { useLogsPage } from '../composables/useLogsPage'
 import Modal from '../components/Modal.vue'
 import CustomSelect from '../components/CustomSelect.vue'
 import DatePicker from '../components/DatePicker.vue'
 import FlowLogViewer from '../components/FlowLogViewer.vue'
+import FilterChip from '../components/FilterChip.vue'
 import FilterEmptyState from '../components/FilterEmptyState.vue'
 import PageRetry from '../components/PageRetry.vue'
 
@@ -112,52 +113,46 @@ const {
         class="flex flex-wrap items-center gap-1.5 pt-0.5 border-t border-gray-100 dark:border-gray-800/50"
       >
         <span class="text-[10px] text-gray-400 shrink-0">{{ t('common.activeFilters') }}</span>
-        <button
+        <FilterChip
           v-if="filterAccount"
-          type="button"
-          class="inline-flex items-center gap-1 max-w-[12rem] px-2 py-0.5 rounded-sm text-[11px] bg-sky-50 text-sky-800 border border-sky-100 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800/50"
-          @click="filterAccount = ''"
+          tone="sky"
+          truncate
+          :title="t('common.clearFilters')"
+          @clear="filterAccount = ''"
         >
-          <span class="truncate">{{ t('logs.colAccount') }}: {{ filterAccount }}</span>
-          <X class="w-3 h-3 shrink-0 opacity-70" />
-        </button>
-        <button
+          {{ t('logs.colAccount') }}: {{ filterAccount }}
+        </FilterChip>
+        <FilterChip
           v-if="filterCategory"
-          type="button"
-          class="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-[11px] bg-amber-50 text-amber-900 border border-amber-100 dark:bg-amber-950/40 dark:text-amber-200 dark:border-amber-800/50"
-          @click="clearCategoryFilter"
+          tone="amber"
+          @clear="clearCategoryFilter"
         >
           {{ failureCategoryLabel(filterCategory) || filterCategory }}
-          <X class="w-3 h-3 shrink-0 opacity-70" />
-        </button>
-        <button
+        </FilterChip>
+        <FilterChip
           v-if="filterStatus === 'error'"
-          type="button"
-          class="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-[11px] bg-rose-50 text-rose-800 border border-rose-100 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800/50"
-          @click="filterStatus = ''"
+          tone="rose"
+          @clear="filterStatus = ''"
         >
           {{ t('logs.failed') }}
-          <X class="w-3 h-3 shrink-0 opacity-70" />
-        </button>
-        <button
+        </FilterChip>
+        <FilterChip
           v-if="filterTask.trim()"
-          type="button"
-          class="inline-flex items-center gap-1 max-w-[12rem] px-2 py-0.5 rounded-sm text-[11px] bg-sky-50 text-sky-800 border border-sky-100 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800/50"
-          @click="filterTask = ''"
-        >
-          <span class="truncate">{{ t('logs.colTask') }}: {{ filterTask.trim() }}</span>
-          <X class="w-3 h-3 shrink-0 opacity-70" />
-        </button>
-        <button
-          v-if="filterDate"
-          type="button"
-          class="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-[11px] bg-gray-100 dark:bg-gray-800/60 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700/60"
+          tone="sky"
+          truncate
           :title="t('common.clearFilters')"
-          @click="filterDate = ''"
+          @clear="filterTask = ''"
+        >
+          {{ t('logs.colTask') }}: {{ filterTask.trim() }}
+        </FilterChip>
+        <FilterChip
+          v-if="filterDate"
+          tone="gray"
+          :title="t('common.clearFilters')"
+          @clear="filterDate = ''"
         >
           {{ t('logs.colDate') }}: {{ filterDate }}
-          <X class="w-3 h-3 shrink-0 opacity-70" />
-        </button>
+        </FilterChip>
       </div>
     </div>
 

@@ -8,6 +8,7 @@ let topModalToken = 0
 import { X } from 'lucide-vue-next'
 import { onMounted, onUnmounted, watch, nextTick, ref } from 'vue'
 import { useI18n } from '../composables/useI18n'
+import { useEscClose } from '../composables/useEscClose'
 import { lockBodyScroll, unlockBodyScroll } from '../lib/body-scroll-lock'
 
 const props = withDefaults(
@@ -26,6 +27,8 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   (e: 'close'): void
+  /** 离场动画播完后触发，供调用方串行打开下一个弹窗（避免两层重叠抢焦点） */
+  (e: 'closed'): void
 }>()
 
 const { t } = useI18n()
@@ -55,16 +58,15 @@ const getFocusable = () =>
 
 const getPrimaryField = () => panelRef.value?.querySelector<HTMLElement>(FORM_FIELD) ?? null
 
+// Esc 关闭：非最顶层弹窗不响应，把关闭权留给上层（后打开的）弹窗
+useEscClose(
+  () => props.isOpen,
+  () => emit('close'),
+  { canClose: () => currentToken === topModalToken },
+)
+
 const onKeydown = (e: KeyboardEvent) => {
   if (!props.isOpen) return
-  if (e.key === 'Escape') {
-    // 非最顶层弹窗不响应 Esc：把关闭权留给上层（后打开的）弹窗
-    if (currentToken !== topModalToken) return
-    e.stopPropagation()
-    e.preventDefault()
-    emit('close')
-    return
-  }
   // 简易焦点陷阱：Tab 在对话框内循环
   if (e.key === 'Tab' && panelRef.value) {
     const focusable = getFocusable()
@@ -153,7 +155,7 @@ onUnmounted(() => {
 
 <template>
   <Teleport to="body">
-    <Transition name="modal">
+    <Transition name="modal" @after-leave="emit('closed')">
       <div
         v-if="isOpen"
         class="fixed inset-0 flex items-center justify-center p-4"

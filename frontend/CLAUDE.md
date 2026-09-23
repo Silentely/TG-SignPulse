@@ -106,13 +106,16 @@ Node：`engines` 要求 `>=22.23.1 <23`（与根 `.nvmrc` 一致）。
 | `useLogsPage.ts` | 日志页 |
 | `useSettingsPage.ts` / `Save` / `Backup` / `VersionCheck` | 设置页拆分 |
 | `useAccountBatchCheck.ts` | 账号批量状态检查 |
+| `useEscClose.ts` | Esc 关闭的窗口监听生命周期：active 判定 + canClose 守卫 |
 
-## 组件结构（32 个）
+## 组件结构（34 个）
 
 ```
 src/components/
 ├── 基础：Modal, ConfirmDialog, CustomSelect, MultiSelect, DatePicker,
-│         GlobalToast, FlowLogViewer, PageRetry
+│         GlobalToast, FlowLogViewer, PageRetry,
+│         FilterChip（可清除筛选 chip，走 ui-chip-* 色板）,
+│         ToneBadge（运行状态徽章，tone 由 lib/run-status 推导）
 ├── accounts/：AddAccountModal, EditAccountModal, DeviceManagerModal, OfficialMessagesModal
 ├── tasks/：Add/Edit/CloneTaskModal, TaskForm(+Actions/Listen/Target),
 │          TaskListCard, TaskListToolbar, TaskLogsModal(+History/Hits)

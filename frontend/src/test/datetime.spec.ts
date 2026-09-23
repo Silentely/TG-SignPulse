@@ -7,7 +7,6 @@ import {
   formatLogTime,
   formatShortDateTime,
   formatTimeOnly,
-  getPanelTimezone,
   setPanelTimezone,
   isValidTimezone,
 } from '../lib/datetime'
@@ -44,7 +43,6 @@ describe('datetime 格式化', () => {
 
   it('setPanelTimezone 切换后全部格式化函数跟随新时区', () => {
     setPanelTimezone('UTC')
-    expect(getPanelTimezone()).toBe('UTC')
     expect(formatTimeOnly(iso)).toBe('10:05:09') // UTC 原值
     expect(formatShortDateTime(iso)).toBe('07/01 10:05')
   })
@@ -54,16 +52,16 @@ describe('datetime 格式化', () => {
     setPanelTimezone('')
     setPanelTimezone(null)
     setPanelTimezone(undefined)
-    expect(getPanelTimezone()).toBe('UTC')
+    expect(formatTimeOnly(iso)).toBe('10:05:09')
   })
 
   it('setPanelTimezone 忽略非法时区', () => {
     expect(isValidTimezone('Asia/Shanghai')).toBe(true)
     expect(isValidTimezone('Not/A/Real_Timezone')).toBe(false)
     setPanelTimezone('Asia/Shanghai')
-    expect(getPanelTimezone()).toBe('Asia/Shanghai')
+    expect(formatTimeOnly(iso)).toBe('18:05:09') // UTC+8
     setPanelTimezone('Not/A/Real_Timezone')
-    expect(getPanelTimezone()).toBe('Asia/Shanghai')
+    expect(formatTimeOnly(iso)).toBe('18:05:09')
   })
 
   it('formatLogTime 当天仅输出时刻', () => {

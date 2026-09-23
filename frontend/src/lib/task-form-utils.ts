@@ -174,12 +174,3 @@ export function buildActions(actions: TaskActionItem[]): BuiltAction[] {
   }
   return result
 }
-
-/** 简单防抖函数 */
-export function debounce<T extends (...args: unknown[]) => void>(fn: T, ms: number): T {
-  let timer: ReturnType<typeof setTimeout>
-  return ((...args: unknown[]) => {
-    clearTimeout(timer)
-    timer = setTimeout(() => fn(...args), ms)
-  }) as T
-}

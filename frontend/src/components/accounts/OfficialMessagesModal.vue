@@ -6,6 +6,7 @@ import { listAccountOfficialMessages, type OfficialMessageInfo } from '../../lib
 import { getAuthToken } from '../../lib/api/core'
 import { useI18n } from '../../composables/useI18n'
 import { formatDateTime } from '../../lib/datetime'
+import { getLocalizedErrorMessage } from '../../lib/types'
 
 const props = defineProps<{
   isOpen: boolean
@@ -35,7 +36,7 @@ const loadMessages = async () => {
     const res = await listAccountOfficialMessages(token, props.accountName, 20)
     messages.value = res.messages || []
   } catch (e: unknown) {
-    error.value = e instanceof Error ? e.message : t('accounts.officialMessagesFailed')
+    error.value = getLocalizedErrorMessage(e, t, t('accounts.officialMessagesFailed'))
   } finally {
     loading.value = false
   }
