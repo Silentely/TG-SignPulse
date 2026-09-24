@@ -12,7 +12,7 @@ import hmac
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, AsyncIterator, Dict, List, Optional
 from urllib.parse import quote, urlparse
 from xml.etree import ElementTree
 
@@ -255,6 +255,28 @@ class S3BackupClient:
             raise RuntimeError(f"S3 下载失败 (HTTP {resp.status_code}): {resp.text[:300]}")
         return resp.content
 
+    async def iter_object(
+        self, object_name: str, *, timeout: float = 60.0
+    ) -> AsyncIterator[bytes]:
+        """以分块方式下载对象，避免将整个备份包读入进程内存。"""
+        key = self.object_key(object_name)
+        target_url, host, canonical_uri = self._build_url_and_host(key)
+        headers = self._sign_request(
+            method="GET",
+            canonical_uri=canonical_uri,
+            canonical_query="",
+            host=host,
+            payload_hash=EMPTY_SHA256,
+        )
+        async with httpx.AsyncClient(proxy=self._proxy_url(), timeout=timeout) as client:
+            async with client.stream("GET", target_url, headers=headers) as resp:
+                if resp.status_code != 200:
+                    detail = (await resp.aread()).decode("utf-8", errors="replace")[:300]
+                    raise RuntimeError(f"S3 下载失败 (HTTP {resp.status_code}): {detail}")
+                async for chunk in resp.aiter_bytes():
+                    if chunk:
+                        yield chunk
+
     async def delete_object(
         self, object_name: str, *, timeout: float = 60.0
     ) -> None:
@@ -386,6 +408,15 @@ async def download_s3_file(cfg: Dict[str, Any], filename: str) -> bytes:
     safe_name = validate_backup_filename(filename)
     client = _client_from_cfg(cfg)
     return await client.get_object(safe_name)
+
+
+async def stream_s3_file(cfg: Dict[str, Any], filename: str) -> AsyncIterator[bytes]:
+    """校验文件名后返回对象存储的分块下载迭代器。"""
+    from backend.services.webdav_client import validate_backup_filename
+
+    safe_name = validate_backup_filename(filename)
+    client = _client_from_cfg(cfg)
+    return client.iter_object(safe_name)
 
 
 async def prune_s3_backups(

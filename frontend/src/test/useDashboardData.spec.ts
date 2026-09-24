@@ -303,6 +303,25 @@ describe('useDashboardData (mount + SSE + poll)', () => {
     unmount()
   })
 
+  it('does not create an SSE connection after unmount while ticket issuance is pending', async () => {
+    let resolveTicket!: (value: { ticket: string; purpose: string; expires_in: number }) => void
+    api.issueStreamTicket.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveTicket = resolve
+        }),
+    )
+    const { result, unmount } = mountComposable(() => useDashboardData())
+    await vi.waitFor(() => expect(result.pageLoading.value).toBe(false))
+    await vi.waitFor(() => expect(api.issueStreamTicket).toHaveBeenCalled())
+
+    unmount()
+    resolveTicket({ ticket: 'late-ticket', purpose: 'sign_history_sse', expires_in: 60 })
+    await flushPromises(10)
+
+    expect(MockEventSource.instances).toHaveLength(0)
+  })
+
   it('refresh poll tick reloads data without flipping pageLoading', async () => {
     const { result, unmount } = mountComposable(() => useDashboardData())
     await vi.waitFor(() => expect(result.pageLoading.value).toBe(false))

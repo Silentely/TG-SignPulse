@@ -324,6 +324,42 @@ class TestClientRequests:
                 await client.get_object("missing.tar.gz")
 
     @pytest.mark.asyncio
+    async def test_iter_object_yields_response_chunks(self):
+        client = _client()
+
+        class _Resp:
+            status_code = 200
+            text = ""
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def aiter_bytes(self):
+                yield b"first"
+                yield b"second"
+
+        class _MockAsyncClient:
+            def __init__(self, proxy=None, timeout=None):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            def stream(self, method, url, headers=None):
+                return _Resp()
+
+        with patch("httpx.AsyncClient", side_effect=_MockAsyncClient):
+            chunks = [chunk async for chunk in client.iter_object("auto-1.tar.gz")]
+
+        assert chunks == [b"first", b"second"]
+
+    @pytest.mark.asyncio
     async def test_delete_object_accepts_204(self):
         client = _client()
         captured = {}

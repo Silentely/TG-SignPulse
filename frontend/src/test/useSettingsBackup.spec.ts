@@ -186,11 +186,35 @@ describe('useSettingsBackup', () => {
     expect(backup.remoteDownloadName.value).toBe('')
   })
 
-  it('handleBackupExport validates webdav form', async () => {
+  it('handleBackupExport allows local download when no remote is configured', async () => {
+    api.saveGlobalSettings.mockResolvedValue({})
+    api.exportBackupArchive.mockResolvedValue({ mode: 'download', filename: 'backup.tar.gz' })
+    api.getBackupStatus.mockResolvedValue({ s3_configured: false })
     const { backup } = setup({ webdavUrl: '', webdavUsername: '', webdavPassword: '' })
     await backup.handleBackupExport()
-    expect(api.exportBackupArchive).not.toHaveBeenCalled()
-    expect(toastSpy.error).toHaveBeenCalled()
+    expect(api.exportBackupArchive).toHaveBeenCalledWith('tok')
+    expect(toastSpy.error).not.toHaveBeenCalled()
+  })
+
+  it('handleBackupExport allows S3-only configuration without WebDAV', async () => {
+    api.saveGlobalSettings.mockResolvedValue({})
+    api.exportBackupArchive.mockResolvedValue({ mode: 's3', filename: 'backup.tar.gz' })
+    api.getBackupStatus.mockResolvedValue({ s3_configured: true })
+    const { backup } = setup({
+      webdavUrl: '',
+      webdavUsername: '',
+      webdavPassword: '',
+      s3Enabled: true,
+      s3EndpointUrl: 'https://s3.example.com',
+      s3Bucket: 'backups',
+      s3AccessKey: 'access',
+      s3SecretKey: 'secret',
+    })
+
+    await backup.handleBackupExport()
+
+    expect(api.exportBackupArchive).toHaveBeenCalledWith('tok')
+    expect(backup.backupStatus.value).toEqual({ s3_configured: true })
   })
 
   it('handleBackupExport webdav mode success refreshes status', async () => {
