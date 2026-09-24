@@ -89,12 +89,13 @@ def _ensure_remote_dirs(client: httpx.Client, base: str, dir_rel: str) -> None:
             )
 
 
-
-
 def _format_client_proxy(proxy: Optional[str]) -> Optional[str]:
+    """把设置里的代理字符串归一为标准 URL；未配置返回 None。"""
     if not proxy or not str(proxy).strip():
         return None
     return format_proxy_url(str(proxy).strip())
+
+
 def upload_file_to_webdav(
     *,
     base_url: str,

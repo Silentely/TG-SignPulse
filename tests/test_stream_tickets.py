@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 from backend.services.stream_tickets import (
     PURPOSE_SIGN_HISTORY_SSE,
@@ -28,6 +30,29 @@ class TestStreamTicketStore:
         assert store.consume(ticket, PURPOSE_SIGN_HISTORY_SSE) is not None
         # 第二次兑换同一票据必须失败：URL 重放失去意义
         assert store.consume(ticket, PURPOSE_SIGN_HISTORY_SSE) is None
+
+    def test_concurrent_consume_yields_exactly_one_winner(self):
+        """并发兑换同一张票只能有一个成功。
+
+        读取与删除若不在同一把锁内完成，多个线程会同时读到同一张票，
+        「仅可兑换一次」的保证失效，同一票据可开出多条流。
+        """
+        store = StreamTicketStore()
+        ticket = store.issue(user_id=7, username="u", purpose=PURPOSE_SIGN_HISTORY_SSE)
+
+        workers = 16
+        barrier = threading.Barrier(workers)
+
+        def consume_once(_index: int) -> object:
+            barrier.wait()
+            return store.consume(ticket, PURPOSE_SIGN_HISTORY_SSE)
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            results = list(pool.map(consume_once, range(workers)))
+
+        winners = [r for r in results if r is not None]
+        assert len(winners) == 1
+        assert winners[0].user_id == 7
 
     def test_purpose_mismatch_rejected(self):
         store = StreamTicketStore()
