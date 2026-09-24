@@ -99,6 +99,12 @@ export function useSettingsBackup(options: {
     return true
   }
 
+  const validateBackupExport = (): boolean => {
+    if (options.settings.value.webdavUrl.trim()) return validateWebdavForm()
+    if (options.settings.value.s3Enabled) return validateS3Form()
+    return true
+  }
+
   const afterS3SettingsSaved = () => {
     if (options.settings.value.s3SecretKey) {
       s3SecretKeySet.value = true
@@ -214,11 +220,12 @@ export function useSettingsBackup(options: {
 
   const handleBackupExport = async () => {
     const token = getAuthToken()
-    if (!validateWebdavForm()) return
+    if (!validateBackupExport()) return
     backupLoading.value = true
     try {
       await saveGlobalSettings(token, options.buildBackupPayload())
       afterWebdavSettingsSaved()
+      afterS3SettingsSaved()
       options.markSectionClean('advanced')
       const res = await exportBackupArchive(token)
       if (res.mode === 'download') {

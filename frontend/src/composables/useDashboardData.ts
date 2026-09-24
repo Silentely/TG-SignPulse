@@ -121,6 +121,7 @@ export function useDashboardData() {
       devLog.error('issue SSE ticket failed', e)
       return
     }
+    if (disposed || sseIntentionalClose) return
     try {
       signHistorySource?.close()
       const url = `/api/events/sign-history?ticket=${encodeURIComponent(ticket)}`

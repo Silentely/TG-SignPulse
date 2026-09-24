@@ -688,7 +688,7 @@ async def download_s3_backup_file(
     from fastapi.responses import StreamingResponse
 
     from backend.services.config import get_config_service
-    from backend.services.s3_backup import download_s3_file, s3_enabled
+    from backend.services.s3_backup import s3_enabled, stream_s3_file
     from backend.services.webdav_client import validate_backup_filename
 
     try:
@@ -706,7 +706,7 @@ async def download_s3_backup_file(
             detail="对象存储未配置或必填项不完整",
         )
     try:
-        data = await download_s3_file(cfg, safe_name)
+        stream = await stream_s3_file(cfg, safe_name)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -718,14 +718,25 @@ async def download_s3_backup_file(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"对象存储下载失败: {exc}",
         ) from exc
-    if not data:
+
+    try:
+        first_chunk = await anext(stream)
+    except StopAsyncIteration as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="对象存储下载结果为空",
-        )
+        ) from exc
+    except Exception as exc:
+        logger.exception("对象存储读取失败")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"对象存储读取失败: {exc}",
+        ) from exc
 
-    def _body():
-        yield data
+    async def _body():
+        yield first_chunk
+        async for chunk in stream:
+            yield chunk
 
     return StreamingResponse(
         _body(),

@@ -1047,10 +1047,15 @@ class TestS3BackupApi:
 
     def test_s3_download_endpoint_streams(self, client, db_session):
         client.post("/api/config/settings", json=self.S3_CFG, headers=_auth_headers())
+
+        async def _chunks():
+            yield b"gzip"
+            yield b"-bytes"
+
         with patch(
-            "backend.services.s3_backup.download_s3_file",
+            "backend.services.s3_backup.stream_s3_file",
             new_callable=AsyncMock,
-            return_value=b"gzip-bytes",
+            return_value=_chunks(),
         ):
             resp = client.get(
                 "/api/ops/backup/s3/download",
