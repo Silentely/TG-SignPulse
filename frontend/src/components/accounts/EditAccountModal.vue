@@ -16,7 +16,13 @@ const props = defineProps<{
   account: AccountUiItem
 }>()
 
-const emit = defineEmits<{ (e: 'close'): void, (e: 'success'): void, (e: 'relogin', name: string): void }>()
+const emit = defineEmits<{
+  (e: 'close'): void
+  (e: 'success'): void
+  (e: 'relogin', name: string): void
+  /** 离场动画播完：显式转发，供父组件串行打开下一个弹窗 */
+  (e: 'closed'): void
+}>()
 
 const form = ref({
   new_account_name: '',
@@ -61,7 +67,7 @@ const handleSave = async () => {
 </script>
 
 <template>
-  <Modal :isOpen="isOpen" @close="$emit('close')" :title="t('editAccount.title')">
+  <Modal :isOpen="isOpen" @close="$emit('close')" @closed="$emit('closed')" :title="t('editAccount.title')">
     <div class="space-y-4">
       <div v-if="error" class="ui-alert-error" role="alert">
         {{ error }}

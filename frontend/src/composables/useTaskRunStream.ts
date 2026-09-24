@@ -45,6 +45,11 @@ export function useTaskRunStream(options: {
   let ws: WebSocket | null = null
   let pollHandle: ChainPollHandle | null = null
 
+  // 连接世代：connect 在换票 await 期间可被更新的 connect / disconnect 取代。
+  // 换票返回后必须核对世代，旧一代直接放弃建连，避免关闭或切换任务后
+  // 仍开出孤儿 WebSocket，令日志重复、isRunning 被错误复活。
+  let connectGeneration = 0
+
   const applyStatusPayload = (msg: Record<string, unknown> | SignTaskRunStatus) => {
     if (msg.phase !== undefined) livePhase.value = (msg.phase as string) || null
     if (msg.phase_detail !== undefined) livePhaseDetail.value = String(msg.phase_detail || '')
@@ -120,6 +125,7 @@ export function useTaskRunStream(options: {
   const connect = async () => {
     const name = options.taskName.value
     if (!name) return
+    const gen = ++connectGeneration
     if (ws) {
       const socket = ws
       ws = null
@@ -140,10 +146,13 @@ export function useTaskRunStream(options: {
     let ticket: string
     try {
       const res = await issueStreamTicket(STREAM_TICKET_PURPOSE.taskRunWs, name)
+      // 换票期间可能已被 disconnect 或更新的 connect 取代，弃票返回
+      if (gen !== connectGeneration) return
       ticket = res.ticket
     } catch (e: unknown) {
       devLog.error('issue WS ticket failed', e)
-      if (runAccount) {
+      // 仅当本次仍是最新一次调用时才退化为轮询，避免旧调用接管当前状态
+      if (gen === connectGeneration && runAccount) {
         isRunning.value = false
         startPolling()
       }
@@ -210,6 +219,8 @@ export function useTaskRunStream(options: {
   }
 
   const disconnect = () => {
+    // 失效在途 connect：换票返回后不会再建连
+    connectGeneration += 1
     if (ws) {
       const socket = ws
       ws = null

@@ -42,8 +42,6 @@ from tg_signer.compat import (  # noqa: E402
 )
 from tg_signer.utils import read_positive_float_env, read_positive_int_env  # noqa: E402
 
-read_positive_int_env = read_positive_int_env
-
 patch_kurigram_compat()
 
 # Monkeypatch sqlite3.connect to increase default timeout

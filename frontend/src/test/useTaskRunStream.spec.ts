@@ -184,6 +184,67 @@ describe('useTaskRunStream', () => {
     expect(pollHandles).toHaveLength(0)
   })
 
+  it('换票等待期间 disconnect：不得再建连（无孤儿套接字）', async () => {
+    let resolveTicket!: (value: unknown) => void
+    api.issueStreamTicket.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveTicket = resolve
+      }),
+    )
+    const stream = setup('acc-a')
+    const pending = stream.connect()
+    // 用户在换票返回前关闭弹窗/离开页面
+    stream.disconnect()
+    resolveTicket({ ticket: 'tk-late', purpose: 'task_run_ws', expires_in: 60 })
+    await pending
+
+    expect(MockWebSocket.instances).toHaveLength(0)
+    // 关闭后状态不得被在途 connect 复活
+    expect(stream.isRunning.value).toBe(false)
+    expect(pollHandles).toHaveLength(0)
+  })
+
+  it('连续两次 connect：仅最新一次建连，旧调用弃票', async () => {
+    const resolvers: Array<(value: unknown) => void> = []
+    api.issueStreamTicket.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvers.push(resolve)
+        }),
+    )
+    const stream = setup('acc-a')
+    const first = stream.connect()
+    const second = stream.connect()
+    expect(resolvers).toHaveLength(2)
+
+    // 后发起者先返回，先发起者后返回：后者必须放弃建连
+    resolvers[1]({ ticket: 'tk-2', purpose: 'task_run_ws', expires_in: 60 })
+    await second
+    resolvers[0]({ ticket: 'tk-1', purpose: 'task_run_ws', expires_in: 60 })
+    await first
+
+    expect(MockWebSocket.instances).toHaveLength(1)
+    expect(MockWebSocket.instances[0].url).toContain('ticket=tk-2')
+    expect(MockWebSocket.instances[0].readyState).toBe(1)
+  })
+
+  it('换票失败时若已被取代，不接管轮询状态', async () => {
+    let rejectTicket!: (reason: unknown) => void
+    api.issueStreamTicket.mockReturnValueOnce(
+      new Promise((_resolve, reject) => {
+        rejectTicket = reject
+      }),
+    )
+    const stream = setup('acc-a')
+    const pending = stream.connect()
+    stream.disconnect()
+    rejectTicket(new Error('401'))
+    await pending
+
+    // 旧调用失败不得开启轮询
+    expect(pollHandles).toHaveLength(0)
+  })
+
   it('falls back to polling on error when runAccount set', async () => {
     api.getSignTaskLogs.mockResolvedValue(['poll-line'])
     api.getSignTaskRunStatus.mockResolvedValue({ state: 'running', phase: 'running' })
