@@ -48,8 +48,9 @@ async def _cleanup_expired_login_sessions() -> None:
         expired_keys = [
             key
             for key, value in list(store.items())
-            if value.get("_created_at") is not None
-            and (now - value["_created_at"]) > max_age
+            if isinstance(value, dict)
+            and isinstance(value.get("_created_at"), (int, float))
+            and (now - float(value["_created_at"])) > max_age
         ]
         for key in expired_keys:
             value = store.pop(key, None)
@@ -61,10 +62,19 @@ async def _cleanup_expired_login_sessions() -> None:
             keys_snapshot = list(store.keys())
             if not keys_snapshot:
                 break
-            oldest_key = min(
-                keys_snapshot,
-                key=lambda k: store.get(k, {}).get("_created_at", float("inf")),
-            )
+            def _get_sort_key(k: str, s: dict = store) -> float:
+                entry = s.get(k)
+                if not isinstance(entry, dict):
+                    return float("-inf")
+                c_at = entry.get("_created_at")
+                if c_at is None:
+                    return float("inf")
+                try:
+                    return float(c_at)
+                except (ValueError, TypeError):
+                    return float("-inf")
+
+            oldest_key = min(keys_snapshot, key=_get_sort_key)
             value = store.pop(oldest_key, None)
             if value:
                 await _release_login_session(value)

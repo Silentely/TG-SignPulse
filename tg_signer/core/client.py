@@ -491,8 +491,27 @@ class Client(BaseClient):
         return self.workdir / (self.name + ".session_string")
 
     async def save_session_string(self):
-        with open(self.session_string_file, "w") as fp:
-            fp.write(await self.export_session_string())
+        """将导出的 session_string 以原子方式写入磁盘并限制 0o600 安全权限。"""
+        exported = await self.export_session_string()
+        if not exported:
+            return
+        target = self.session_string_file
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_suffix(f".tmp.{os.getpid()}.{random.randint(1000, 9999)}")
+        try:
+            fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with open(fd, "w", encoding="utf-8") as fp:
+                fp.write(exported)
+                fp.flush()
+                os.fsync(fd)
+            os.replace(tmp, target)
+        except Exception:
+            if tmp.exists():
+                try:
+                    tmp.unlink()
+                except OSError:
+                    pass
+            raise
 
     def load_session_string(self):
         """从会话目录加载 session_string（带格式校验，坏串按缓存失效处理）。
