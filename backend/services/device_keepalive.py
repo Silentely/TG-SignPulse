@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
+import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 
 from backend.core.config import get_settings
 from backend.services.config import get_config_service
 from backend.services.telegram import get_telegram_service
-from backend.utils.atomic_io import write_json_atomic
+from backend.utils.atomic_io import read_json_safe, write_json_atomic
 from backend.utils.time import utc_now, utc_now_iso_z
 
 logger = logging.getLogger("backend.device_keepalive")
@@ -25,17 +25,11 @@ class DeviceKeepaliveService:
         self._running_lock = asyncio.Lock()
 
     def _load_state(self) -> Dict[str, Any]:
-        if not self.state_file.exists():
-            return {"accounts": {}}
-        try:
-            data = json.loads(self.state_file.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                accounts = data.get("accounts")
-                if not isinstance(accounts, dict):
-                    data["accounts"] = {}
-                return data
-        except (json.JSONDecodeError, OSError):
-            pass
+        data = read_json_safe(self.state_file, default={"accounts": {}})
+        if isinstance(data, dict):
+            if not isinstance(data.get("accounts"), dict):
+                data["accounts"] = {}
+            return data
         return {"accounts": {}}
 
     def _save_state(self, state: Dict[str, Any]) -> None:
@@ -196,11 +190,14 @@ class DeviceKeepaliveService:
 
 
 _device_keepalive_service: DeviceKeepaliveService | None = None
+_service_lock = threading.Lock()
 
 
 def get_device_keepalive_service() -> DeviceKeepaliveService:
-    """获取设备保活服务单例。"""
+    """获取设备保活服务单例（双重检查锁保证多线程安全）。"""
     global _device_keepalive_service
     if _device_keepalive_service is None:
-        _device_keepalive_service = DeviceKeepaliveService()
+        with _service_lock:
+            if _device_keepalive_service is None:
+                _device_keepalive_service = DeviceKeepaliveService()
     return _device_keepalive_service
