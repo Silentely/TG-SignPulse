@@ -15,15 +15,17 @@
 from __future__ import annotations
 
 import secrets
+import threading
 from dataclasses import dataclass
 from typing import Optional
 
 from backend.utils.cache import TTLCache
+from tg_signer.utils import read_positive_float_env, read_positive_int_env
 
 # 票据有效期（秒）：只需覆盖「换票 → 建流」这一步，取稍宽的值容忍慢网络与重试
-TICKET_TTL_SECONDS = 60.0
+TICKET_TTL_SECONDS = read_positive_float_env("STREAM_TICKET_TTL_SECONDS", 60.0, 60.0)
 # 同时在途票据上限：正常一次页面加载只需 1~2 张，上限用于兜底防异常堆积
-TICKET_MAX_ENTRIES = 256
+TICKET_MAX_ENTRIES = read_positive_int_env("STREAM_TICKET_MAX_ENTRIES", 256, 256)
 
 # 票据用途：换票时声明，兑换时校验，避免一张票被拿去连别的流
 PURPOSE_SIGN_HISTORY_SSE = "sign_history_sse"
@@ -79,11 +81,14 @@ class StreamTicketStore:
 
 
 _store: Optional[StreamTicketStore] = None
+_store_lock = threading.Lock()
 
 
 def get_stream_ticket_store() -> StreamTicketStore:
-    """获取进程内票据存储单例。"""
+    """获取进程内票据存储单例（双重检查锁定保证线程安全）。"""
     global _store
     if _store is None:
-        _store = StreamTicketStore()
+        with _store_lock:
+            if _store is None:
+                _store = StreamTicketStore()
     return _store
