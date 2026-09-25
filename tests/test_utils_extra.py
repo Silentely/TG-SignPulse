@@ -94,6 +94,14 @@ class TestExtractLastTargetMessage:
 
         logs = ["收到回复：签到成功"]
         assert extract_last_target_message(logs) == "签到成功"
+        assert extract_last_target_message(["任务对象最后一条消息：全角冒号测试"]) == "全角冒号测试"
+        assert extract_last_target_message(["Bot回复: 签到已完成"]) == "签到已完成"
+        assert extract_last_target_message(["机器人回复：获得 100 积分"]) == "获得 100 积分"
+
+    def test_normalize_log_line_cleans_null_bytes(self):
+        from backend.utils.task_logs import normalize_log_line
+
+        assert normalize_log_line("2026-01-01 12:00:00 - hello\x00world") == "helloworld"
 
     def test_fallback_to_text_marker(self):
         from backend.utils.task_logs import extract_last_target_message

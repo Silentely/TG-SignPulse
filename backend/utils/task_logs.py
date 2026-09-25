@@ -7,7 +7,7 @@ _TIMESTAMP_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}.*? -\s*")
 
 
 def normalize_log_line(value: object) -> str:
-    text = str(value or "").strip()
+    text = str(value or "").replace("\x00", "").strip()
     if not text:
         return ""
     return _TIMESTAMP_PREFIX.sub("", text).strip()
@@ -31,14 +31,20 @@ def extract_last_target_message(flow_logs: Iterable[object] | None) -> str:
         return ""
 
     for line in reversed(lines):
-        if line.startswith("任务对象最后一条消息:"):
-            value = line.split(":", 1)[-1].strip()
+        if line.startswith("任务对象最后一条消息:") or line.startswith("任务对象最后一条消息："):
+            sep = "：" if "：" in line else ":"
+            value = line.split(sep, 1)[-1].strip()
             if value:
                 return value
 
     for line in reversed(lines):
-        if line.startswith("收到回复"):
-            value = line.split("：", 1)[-1].strip() if "：" in line else line.split(":", 1)[-1].strip()
+        if (
+            line.startswith("收到回复")
+            or line.startswith("Bot回复")
+            or line.startswith("机器人回复")
+        ):
+            sep = "：" if "：" in line else ":"
+            value = line.split(sep, 1)[-1].strip()
             if value:
                 return value
 
