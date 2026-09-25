@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import logging
 import os
 import secrets
@@ -161,6 +162,7 @@ async def create_standalone_session_export(
         device_model=device_model,
         no_updates=True,
     )
+    main_client: Optional[Client] = None
 
     try:
         await candidate_client.connect()
@@ -195,7 +197,6 @@ async def create_standalone_session_export(
 
         # Step 5: Main account accepts login token under account lock
         candidate_auth_hash = None
-        main_client = None
         try:
             async with acquire_account_lock_with_timeout(account_name, timeout=15.0):
                 main_client, _ = service._build_account_client(
@@ -293,8 +294,15 @@ async def create_standalone_session_export(
         logger.error("Unexpected error during session export for %s: %s", account_name, exc, exc_info=True)
         return SessionExportResult(success=False, error=str(exc))
     finally:
-        try:
-            if getattr(candidate_client, "is_connected", False):
-                await candidate_client.disconnect()
-        except Exception as exc:
-            logger.debug("Error disconnecting candidate client: %s", exc)
+        if main_client is not None:
+            with contextlib.suppress(Exception):
+                if getattr(main_client, "is_connected", False):
+                    disconn = main_client.disconnect()
+                    if inspect.isawaitable(disconn):
+                        await disconn
+        if candidate_client is not None:
+            with contextlib.suppress(Exception):
+                if getattr(candidate_client, "is_connected", False):
+                    disconn = candidate_client.disconnect()
+                    if inspect.isawaitable(disconn):
+                        await disconn
