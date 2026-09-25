@@ -429,4 +429,71 @@ describe('useLogsPage (route + mount)', () => {
     expect(result.detailLoading.value).toBe(false)
     unmount()
   })
+
+  it("handleClear resets selectedLog and logDetail after confirm", async () => {
+    const { result, unmount } = mountComposable(() => useLogsPage())
+    await flushPromises()
+
+    // 模拟打开并选中了日志详情
+    const base = {
+      time: "x",
+      account: "acc-q",
+      status: "success" as const,
+      text: "a",
+      flow_line_count: 1,
+    }
+    await result.openLogDetail({
+      ...base,
+      id: 1,
+      created_at: "2026-07-01T10:00:00",
+      task: "task-q",
+    })
+    await flushPromises()
+    expect(result.selectedLog.value).not.toBeNull()
+
+    // 执行清空
+    await result.handleClear()
+    await flushPromises()
+
+    expect(result.selectedLog.value).toBeNull()
+    expect(result.logDetail.value).toBeNull()
+    unmount()
+  })
+
+  it("tryOpenFromQuery matches both account and task when account is specified in route", async () => {
+    routeMocks.state.query = {
+      account: "acc-2",
+      task: "common-task",
+      at: "2026-07-01T12:00:00",
+    }
+    api.getTaskHistoryLogs.mockResolvedValue([
+      {
+        id: 1,
+        task_name: "common-task",
+        account_name: "acc-1",
+        created_at: "2026-07-01T12:00:00",
+        success: true,
+        message: "acc-1",
+        failure_category: "",
+        flow_line_count: 0,
+      },
+      {
+        id: 2,
+        task_name: "common-task",
+        account_name: "acc-2",
+        created_at: "2026-07-01T12:00:00",
+        success: true,
+        message: "acc-2",
+        failure_category: "",
+        flow_line_count: 0,
+      },
+    ])
+
+    const { result, unmount } = mountComposable(() => useLogsPage())
+    await flushPromises()
+
+    expect(result.selectedLog.value).not.toBeNull()
+    expect(result.selectedLog.value?.account).toBe("acc-2")
+    unmount()
+  })
 })
