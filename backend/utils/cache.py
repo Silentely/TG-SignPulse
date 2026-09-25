@@ -139,6 +139,33 @@ class TTLCache(Generic[T]):
         with self._lock:
             return len(self._data)
 
+    def keys(self) -> list[str]:
+        """返回当前所有未过期的键列表（快照，保持 LRU 顺序）。"""
+        now = time.monotonic()
+        with self._lock:
+            return [
+                key for key, (_, expire_at) in self._data.items()
+                if now < expire_at
+            ]
+
+    def values(self) -> list[Any]:
+        """返回当前所有未过期的值列表（快照，保持 LRU 顺序）。"""
+        now = time.monotonic()
+        with self._lock:
+            return [
+                value for _, (value, expire_at) in self._data.items()
+                if now < expire_at
+            ]
+
+    def items(self) -> list[tuple[str, Any]]:
+        """返回当前所有未过期的 (键, 值) 对列表（快照，保持 LRU 顺序）。"""
+        now = time.monotonic()
+        with self._lock:
+            return [
+                (key, value) for key, (value, expire_at) in self._data.items()
+                if now < expire_at
+            ]
+
     def __repr__(self) -> str:
         return f"TTLCache(maxsize={self._maxsize}, ttl={self._ttl}, size={len(self)})"
 
