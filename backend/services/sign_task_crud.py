@@ -518,6 +518,8 @@ class SignTaskCrudMixin:
         ):
             mapping = getattr(self, mapping_name)
             for key in list(mapping.keys()):
+                if not (isinstance(key, tuple) and len(key) == 2):
+                    continue
                 account_name, task_name = key
                 if account_name != old_account_name:
                     continue
@@ -567,6 +569,8 @@ class SignTaskCrudMixin:
             removed_paths.add(resolved)
             if current_account:
                 remove_sign_task_job(current_account, task_name)
+                self._run_statuses.pop((current_account, task_name), None)
+                self._active_logs.pop((current_account, task_name), None)
 
         self._refresh_tasks_cache_after_write()
         return True

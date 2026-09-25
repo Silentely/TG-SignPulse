@@ -290,3 +290,37 @@ def test_aggregate_tasks_preserves_tag_insertion_order():
     )
     assert len(merged) == 1
     assert merged[0]["tags"] == ["zebra", "alpha", "mid"]
+
+def test_delete_task_cleans_up_runtime_states(tmp_path, monkeypatch):
+    monkeypatch.setenv("TG_SIGNER_WORKDIR", str(tmp_path))
+    from backend.services.sign_tasks import SignTaskService
+
+    svc = SignTaskService()
+    svc.create_task(
+        task_name="runtime_del_task",
+        sign_at="08:00",
+        chats=[],
+        account_name="acc_del",
+    )
+    svc._run_statuses[("acc_del", "runtime_del_task")] = {"running": True}
+    svc._active_logs[("acc_del", "runtime_del_task")] = ["some log"]
+
+    ok = svc.delete_task("runtime_del_task", account_name="acc_del")
+    assert ok is True
+    assert ("acc_del", "runtime_del_task") not in svc._run_statuses
+    assert ("acc_del", "runtime_del_task") not in svc._active_logs
+
+
+def test_rename_account_handles_non_tuple_keys(tmp_path, monkeypatch):
+    monkeypatch.setenv("TG_SIGNER_WORKDIR", str(tmp_path))
+    from backend.services.sign_tasks import SignTaskService
+
+    svc = SignTaskService()
+    # Inject a corrupt / non-tuple key into _active_logs
+    svc._active_logs["invalid_key_string"] = ["log"]
+    svc._active_logs[("old_acc", "task1")] = ["log_old"]
+
+    svc.rename_account_references("old_acc", "new_acc")
+    assert ("new_acc", "task1") in svc._active_logs
+    assert "invalid_key_string" in svc._active_logs
+
