@@ -64,9 +64,15 @@ def import_single_plugin_source(
 class ProxyStorageClient:
     """在 Worker 进程中通过 JSON-RPC 代理对宿主持久化存储的访问。"""
 
-    def __init__(self, rpc_requester: Callable[..., Any], is_global: bool = False):
+    def __init__(
+        self,
+        rpc_requester: Callable[..., Any],
+        is_global: bool = False,
+        namespace: str = "",
+    ):
         self._rpc = rpc_requester
         self._is_global = is_global
+        self.namespace = namespace
 
     def _scope_kwargs(self, **kwargs: Any) -> Dict[str, Any]:
         if self._is_global:
@@ -124,8 +130,14 @@ class ProxyPluginContext:
         self.plugin_name = plugin_name
         self._rpc = rpc_requester
         self._logger = logger_sink
-        self.storage = ProxyStorageClient(self._rpc, is_global=False)
-        self.global_storage = ProxyStorageClient(self._rpc, is_global=True)
+        storage_ns = f"{chat_id}:{plugin_name}" if plugin_name else str(chat_id)
+        global_ns = f"global:{plugin_name}" if plugin_name else "global"
+        self.storage = ProxyStorageClient(
+            self._rpc, is_global=False, namespace=storage_ns
+        )
+        self.global_storage = ProxyStorageClient(
+            self._rpc, is_global=True, namespace=global_ns
+        )
 
         if self.message:
             self.message.click = self.click
