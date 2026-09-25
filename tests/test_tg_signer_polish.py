@@ -673,25 +673,45 @@ def test_get_proxy_unquotes_credentials():
 
 
 @pytest.mark.asyncio
-async def test_client_log_out_removes_session_string_file_safely(tmp_path):
+async def test_client_log_out_surfaces_local_session_cleanup_failure(tmp_path, monkeypatch):
     class DummyClient(Client):
         def __init__(self, name, workdir):
             self.name = name
             self.workdir = pathlib.Path(workdir)
 
-        async def log_out(self):
-            # simulate super().log_out() by calling Client.log_out without pyrogram network call
-            try:
-                self.session_string_file.unlink(missing_ok=True)
-            except OSError:
-                pass
+    async def _remote_log_out(self):
+        return None
 
+    monkeypatch.setattr("tg_signer.core.client.BaseClient.log_out", _remote_log_out)
     dummy = DummyClient("acc_logout", tmp_path)
     s_file = dummy.session_string_file
     s_file.write_text("dummy", encoding="utf-8")
-    assert s_file.is_file()
-    await dummy.log_out()
-    assert not s_file.exists()
-    # Calling again should not raise error
+
+    def _fail_unlink(*args, **kwargs):
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(pathlib.Path, "unlink", _fail_unlink)
+
+    with pytest.raises(OSError, match="permission denied"):
+        await dummy.log_out()
+
+
+@pytest.mark.asyncio
+async def test_client_log_out_removes_session_string_file(tmp_path, monkeypatch):
+    class DummyClient(Client):
+        def __init__(self, name, workdir):
+            self.name = name
+            self.workdir = pathlib.Path(workdir)
+
+    async def _remote_log_out(self):
+        return None
+
+    monkeypatch.setattr("tg_signer.core.client.BaseClient.log_out", _remote_log_out)
+    dummy = DummyClient("acc_logout", tmp_path)
+    s_file = dummy.session_string_file
+    s_file.write_text("dummy", encoding="utf-8")
+
     await dummy.log_out()
 
+    assert not s_file.exists()
+    await dummy.log_out()

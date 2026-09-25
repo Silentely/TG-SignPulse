@@ -73,8 +73,7 @@ def save_data_dir_override(path: Path | str) -> Path:
 def clear_data_dir_override() -> None:
     override_file = get_data_dir_override_file()
     if override_file.exists():
-        with contextlib.suppress(OSError):
-            override_file.unlink()
+        override_file.unlink()
 
 
 def get_initial_data_dir() -> Path:
