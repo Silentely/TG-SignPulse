@@ -25,7 +25,22 @@ describe('copyToClipboard', () => {
     })
     document.execCommand = vi.fn().mockReturnValue(true)
 
-    const result = await copyToClipboard('fallback text')
+    let capturedReadonly = false
+    const origCreate = document.createElement.bind(document)
+    vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+      const el = origCreate(tag)
+      if (tag === "textarea") {
+        const origSetAttr = el.setAttribute.bind(el)
+        el.setAttribute = (name: string, val: string) => {
+          if (name === "readonly") capturedReadonly = true
+          origSetAttr(name, val)
+        }
+      }
+      return el
+    })
+
+    const result = await copyToClipboard("fallback text")
+    expect(capturedReadonly).toBe(true)
     expect(result).toBe(true)
     expect(document.execCommand).toHaveBeenCalledWith('copy')
   })
