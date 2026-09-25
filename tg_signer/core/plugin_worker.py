@@ -64,34 +64,43 @@ def import_single_plugin_source(
 class ProxyStorageClient:
     """在 Worker 进程中通过 JSON-RPC 代理对宿主持久化存储的访问。"""
 
-    def __init__(self, rpc_requester: Callable[..., Any]):
+    def __init__(self, rpc_requester: Callable[..., Any], is_global: bool = False):
         self._rpc = rpc_requester
+        self._is_global = is_global
+
+    def _scope_kwargs(self, **kwargs: Any) -> Dict[str, Any]:
+        if self._is_global:
+            kwargs["is_global"] = True
+        return kwargs
 
     async def get(self, key: str, default: Any = None) -> Any:
-        return await self._rpc("storage_get", key=key, default=default)
+        return await self._rpc("storage_get", **self._scope_kwargs(key=key, default=default))
 
     async def set(self, key: str, value: Any, ttl: Optional[float] = None) -> None:
-        return await self._rpc("storage_set", key=key, value=value, ttl=ttl)
+        return await self._rpc(
+            "storage_set", **self._scope_kwargs(key=key, value=value, ttl=ttl)
+        )
 
     async def increment(
         self, key: str, delta: int = 1, default: int = 0
     ) -> Optional[int]:
         return await self._rpc(
-            "storage_increment", key=key, delta=delta, default=default
+            "storage_increment",
+            **self._scope_kwargs(key=key, delta=delta, default=default),
         )
 
     async def delete(self, key: str) -> bool:
-        return await self._rpc("storage_delete", key=key)
+        return await self._rpc("storage_delete", **self._scope_kwargs(key=key))
 
     async def clear(self) -> int:
-        return await self._rpc("storage_clear")
+        return await self._rpc("storage_clear", **self._scope_kwargs())
 
     async def keys(self, prefix: str = "") -> List[str]:
-        res = await self._rpc("storage_keys", prefix=prefix)
+        res = await self._rpc("storage_keys", **self._scope_kwargs(prefix=prefix))
         return list(res or [])
 
     async def get_all(self, prefix: str = "") -> Dict[str, Any]:
-        res = await self._rpc("storage_get_all", prefix=prefix)
+        res = await self._rpc("storage_get_all", **self._scope_kwargs(prefix=prefix))
         return dict(res or {})
 
 
@@ -115,10 +124,39 @@ class ProxyPluginContext:
         self.plugin_name = plugin_name
         self._rpc = rpc_requester
         self._logger = logger_sink
-        self.storage = ProxyStorageClient(self._rpc)
+        self.storage = ProxyStorageClient(self._rpc, is_global=False)
+        self.global_storage = ProxyStorageClient(self._rpc, is_global=True)
 
         if self.message:
             self.message.click = self.click
+
+    def get_param(
+        self,
+        key: str,
+        default: Any = None,
+        param_type: Optional[type] = None,
+    ) -> Any:
+        """安全读取插件配置参数，支持缺省回退与自动类型转换。"""
+        raw = (self.params or {}).get(key)
+        if raw is None:
+            return default
+        if param_type is None:
+            return raw
+        try:
+            if param_type is bool:
+                if isinstance(raw, bool):
+                    return raw
+                if isinstance(raw, str):
+                    val = raw.strip().lower()
+                    if val in ("true", "1", "yes", "on"):
+                        return True
+                    if val in ("false", "0", "no", "off"):
+                        return False
+                    return default
+                return bool(raw)
+            return param_type(raw)
+        except (ValueError, TypeError):
+            return default
 
     def log(
         self,

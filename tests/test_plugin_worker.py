@@ -472,3 +472,41 @@ async def test_proxy_plugin_context_storage_and_react():
     del_ok = await ctx.storage.delete("my_key")
     assert del_ok is True
     rpc_mock.assert_called_with("storage_delete", key="my_key")
+
+@pytest.mark.asyncio
+async def test_proxy_plugin_context_get_param():
+    ctx = ProxyPluginContext(
+        chat_id=123,
+        message=None,
+        params={"count": "10", "enabled": "yes", "ratio": "3.14", "text": "hello"},
+        rpc_requester=AsyncMock(),
+        logger_sink=lambda payload: None,
+    )
+    assert ctx.get_param("text") == "hello"
+    assert ctx.get_param("missing", default="def") == "def"
+    assert ctx.get_param("count", param_type=int) == 10
+    assert ctx.get_param("enabled", param_type=bool) is True
+    assert ctx.get_param("ratio", param_type=float) == 3.14
+    assert ctx.get_param("invalid", default=99, param_type=int) == 99
+
+
+@pytest.mark.asyncio
+async def test_proxy_plugin_context_global_storage():
+    rpc_mock = AsyncMock(return_value="stored_val")
+    ctx = ProxyPluginContext(
+        chat_id=123,
+        message=None,
+        params={},
+        rpc_requester=rpc_mock,
+        logger_sink=lambda payload: None,
+    )
+
+    # Scoped storage
+    await ctx.storage.get("my_key", default="fallback")
+    rpc_mock.assert_called_with("storage_get", key="my_key", default="fallback")
+
+    # Global storage
+    rpc_mock.reset_mock()
+    await ctx.global_storage.set("global_key", 123, ttl=60.0)
+    rpc_mock.assert_called_with("storage_set", key="global_key", value=123, ttl=60.0, is_global=True)
+

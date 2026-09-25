@@ -207,34 +207,43 @@ class PluginProcessHost:
                                 call_res = await self.ctx.react(
                                     emoji, **call_params
                                 )
-                            elif method == "storage_get":
-                                key = call_params.get("key", "")
-                                default = call_params.get("default", None)
-                                call_res = await self.ctx.storage.get(key, default=default)
-                            elif method == "storage_set":
-                                key = call_params.get("key", "")
-                                value = call_params.get("value", None)
-                                ttl = call_params.get("ttl", None)
-                                await self.ctx.storage.set(key, value, ttl=ttl)
-                                call_res = True
-                            elif method == "storage_increment":
-                                key = call_params.get("key", "")
-                                delta = call_params.get("delta", 1)
-                                default = call_params.get("default", 0)
-                                call_res = await self.ctx.storage.increment(
-                                    key, delta=delta, default=default
+                            elif method.startswith("storage_"):
+                                is_global = bool(call_params.pop("is_global", False))
+                                target_storage = (
+                                    getattr(self.ctx, "global_storage", self.ctx.storage)
+                                    if is_global
+                                    else self.ctx.storage
                                 )
-                            elif method == "storage_delete":
-                                key = call_params.get("key", "")
-                                call_res = await self.ctx.storage.delete(key)
-                            elif method == "storage_clear":
-                                call_res = await self.ctx.storage.clear()
-                            elif method == "storage_keys":
-                                prefix = call_params.get("prefix", "")
-                                call_res = await self.ctx.storage.keys(prefix=prefix)
-                            elif method == "storage_get_all":
-                                prefix = call_params.get("prefix", "")
-                                call_res = await self.ctx.storage.get_all(prefix=prefix)
+                                if method == "storage_get":
+                                    key = call_params.get("key", "")
+                                    default = call_params.get("default", None)
+                                    call_res = await target_storage.get(key, default=default)
+                                elif method == "storage_set":
+                                    key = call_params.get("key", "")
+                                    value = call_params.get("value", None)
+                                    ttl = call_params.get("ttl", None)
+                                    await target_storage.set(key, value, ttl=ttl)
+                                    call_res = True
+                                elif method == "storage_increment":
+                                    key = call_params.get("key", "")
+                                    delta = call_params.get("delta", 1)
+                                    default = call_params.get("default", 0)
+                                    call_res = await target_storage.increment(
+                                        key, delta=delta, default=default
+                                    )
+                                elif method == "storage_delete":
+                                    key = call_params.get("key", "")
+                                    call_res = await target_storage.delete(key)
+                                elif method == "storage_clear":
+                                    call_res = await target_storage.clear()
+                                elif method == "storage_keys":
+                                    prefix = call_params.get("prefix", "")
+                                    call_res = await target_storage.keys(prefix=prefix)
+                                elif method == "storage_get_all":
+                                    prefix = call_params.get("prefix", "")
+                                    call_res = await target_storage.get_all(prefix=prefix)
+                                else:
+                                    raise ValueError(f"Unknown storage RPC method: {method}")
                             else:
                                 raise ValueError(f"Unknown RPC method: {method}")
 
