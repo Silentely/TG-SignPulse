@@ -501,6 +501,20 @@ async def test_proxy_plugin_context_global_storage():
         logger_sink=lambda payload: None,
     )
 
+    assert ctx.storage.namespace == "123"
+    assert ctx.global_storage.namespace == "global"
+
+    ctx_with_plugin = ProxyPluginContext(
+        chat_id=123,
+        message=None,
+        params={},
+        rpc_requester=rpc_mock,
+        logger_sink=lambda payload: None,
+        plugin_name="cool_plugin",
+    )
+    assert ctx_with_plugin.storage.namespace == "123:cool_plugin"
+    assert ctx_with_plugin.global_storage.namespace == "global:cool_plugin"
+
     # Scoped storage
     await ctx.storage.get("my_key", default="fallback")
     rpc_mock.assert_called_with("storage_get", key="my_key", default="fallback")

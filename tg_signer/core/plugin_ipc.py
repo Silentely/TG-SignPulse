@@ -62,12 +62,46 @@ def serialize_message_for_worker(msg: Any) -> Optional[Dict[str, Any]]:
         else:
             date_val = str(raw_date)
 
+    reply_to_dict = None
+    reply_to_msg = getattr(msg, "reply_to_message", None)
+    if reply_to_msg is not None:
+        raw_rt_date = getattr(reply_to_msg, "date", None)
+        rt_date_val = None
+        if raw_rt_date is not None:
+            if hasattr(raw_rt_date, "timestamp"):
+                try:
+                    rt_date_val = int(raw_rt_date.timestamp())
+                except Exception:
+                    rt_date_val = str(raw_rt_date)
+            elif isinstance(raw_rt_date, (int, float)):
+                rt_date_val = int(raw_rt_date)
+            else:
+                rt_date_val = str(raw_rt_date)
+
+        rt_user_dict = None
+        if getattr(reply_to_msg, "from_user", None) is not None:
+            rt_user_dict = {
+                "id": getattr(reply_to_msg.from_user, "id", None),
+                "username": getattr(reply_to_msg.from_user, "username", None),
+                "first_name": getattr(reply_to_msg.from_user, "first_name", None),
+                "last_name": getattr(reply_to_msg.from_user, "last_name", None),
+            }
+
+        reply_to_dict = {
+            "id": getattr(reply_to_msg, "id", None),
+            "text": getattr(reply_to_msg, "text", None),
+            "caption": getattr(reply_to_msg, "caption", None),
+            "date": rt_date_val,
+            "from_user": rt_user_dict,
+        }
+
     return {
         "id": getattr(msg, "id", None),
         "text": getattr(msg, "text", None),
         "caption": getattr(msg, "caption", None),
         "date": date_val,
         "reply_to_message_id": getattr(msg, "reply_to_message_id", None),
+        "reply_to_message": reply_to_dict,
         "chat": chat_dict,
         "from_user": user_dict,
         "buttons": buttons,
@@ -130,9 +164,19 @@ class ProxyMessage:
         for row in self._data.get("buttons") or []:
             self.buttons.append([ProxyButton(b) for b in row])
 
+        self.reply_to_message = (
+            ProxyMessage(self._data.get("reply_to_message"))
+            if self._data.get("reply_to_message")
+            else None
+        )
+
     @property
     def chat_id(self) -> Optional[int]:
         return self.chat.id if self.chat else None
+
+    @property
+    def raw_text(self) -> str:
+        return self._data.get("raw_text") or self.text or self.caption or ""
 
     def __repr__(self) -> str:
         return f"ProxyMessage(id={self.id}, text={self.text!r})"
