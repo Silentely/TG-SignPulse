@@ -158,7 +158,8 @@ export function useTaskHits(options: {
         task_name: options.taskName.value,
         limit: 2000,
       })
-      downloadBlob(blob, `keyword_hits_${options.taskName.value}.csv`)
+      const safeName = (options.taskName.value || "export").replace(/[/\\?%*:|"<>]/g, "_")
+      downloadBlob(blob, `keyword_hits_${safeName}.csv`)
       toast.success(t('taskLogs.hitsExportDone'))
     } catch (e: unknown) {
       notifyApiError(e, 'taskLogs.hitsExportFailed')

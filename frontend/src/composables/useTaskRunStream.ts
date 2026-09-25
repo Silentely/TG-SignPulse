@@ -158,8 +158,9 @@ export function useTaskRunStream(options: {
       }
       return
     }
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsHost = window.location.host
+    const wsProtocol =
+      typeof window !== 'undefined' && window.location?.protocol === 'https:' ? 'wss:' : 'ws:'
+    const wsHost = typeof window !== 'undefined' && window.location?.host ? window.location.host : ''
     const wsUrl = `${wsProtocol}//${wsHost}/api/sign-tasks/ws/${taskName}?ticket=${encodeURIComponent(ticket)}&account_name=${encodeURIComponent(accountName)}`
 
     realtimeLogs.value = []
@@ -183,6 +184,7 @@ export function useTaskRunStream(options: {
       devLog.info('任务日志 WebSocket 已连接:', wsUrl)
     }
     ws.onmessage = (event) => {
+      if (gen !== connectGeneration) return
       try {
         const msg = JSON.parse(event.data)
         applyStatusPayload(msg)
@@ -205,12 +207,14 @@ export function useTaskRunStream(options: {
       }
     }
     ws.onerror = () => {
+      if (gen !== connectGeneration) return
       if (options.runAccount.value) {
         isRunning.value = true
         startPolling()
       }
     }
     ws.onclose = () => {
+      if (gen !== connectGeneration) return
       if (isRunning.value && options.runAccount.value) {
         startPolling()
       }
