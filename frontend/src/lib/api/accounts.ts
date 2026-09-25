@@ -339,6 +339,12 @@ export const getRecentAccountLogs = (token: string, limit: number = 50) =>
 export const fetchAccountAvatar = (token: string, accountName: string) =>
   requestBlob(`/accounts/${encodeURIComponent(accountName)}/avatar`, {}, token);
 
+/**
+ * 导出指定账号的历史运行日志（TXT 格式 Blob）。
+ */
+export const exportAccountLogs = (token: string, accountName: string) =>
+  requestBlob(`/accounts/${encodeURIComponent(accountName)}/logs/export`, {}, token);
+
 // ─── 会话导入 ───
 
 export interface ImportSessionRequest {
