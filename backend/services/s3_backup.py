@@ -24,6 +24,7 @@ logger = logging.getLogger("backend.s3_backup")
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 DEFAULT_REGION = "auto"
 DEFAULT_PREFIX = "tg-signpulse-backups"
+_S3_DELETE_OK = frozenset({200, 204, 404})  # 404 视为已被删除（幂等）
 
 
 def _sign(key: bytes, msg: str) -> bytes:
@@ -295,7 +296,7 @@ class S3BackupClient:
         )
         async with httpx.AsyncClient(proxy=self._proxy_url(), timeout=timeout) as client:
             resp = await client.delete(target_url, headers=headers)
-        if resp.status_code not in (200, 204):
+        if resp.status_code not in _S3_DELETE_OK:
             raise RuntimeError(f"S3 删除失败 (HTTP {resp.status_code}): {resp.text[:300]}")
 
     async def check_connection(self, *, timeout: float = 15.0) -> Dict[str, Any]:

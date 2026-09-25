@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
+import secrets
 import tarfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -45,31 +47,36 @@ def create_backup_tarball(
     """
     data_dir = data_dir.resolve()
     dest.parent.mkdir(parents=True, exist_ok=True)
+    temp_dest = dest.with_name(f"{dest.name}.tmp.{secrets.token_hex(4)}")
     added = 0
-    with tarfile.open(dest, "w:gz") as tar:
-        for rel in paths:
-            # 拒绝绝对路径与父目录穿越
-            rel_p = Path(rel) if rel else None
-            if not rel or not rel_p or rel_p.is_absolute() or rel.startswith(("/", chr(92))) or ":" in rel or chr(0) in rel or ".." in rel_p.parts:
-                logger.warning("跳过非法备份路径: %s", rel)
-                continue
-            src = (data_dir / rel).resolve()
-            try:
-                src.relative_to(data_dir)
-            except ValueError:
-                logger.warning("跳过 data_dir 外路径: %s", rel)
-                continue
-            if not src.exists():
-                continue
-            tar.add(src, arcname=rel)
-            added += 1
-    if added == 0:
-        try:
-            dest.unlink(missing_ok=True)
-        except OSError as exc:
-            logger.debug("清理空备份文件失败: %s (%s)", dest, exc)
-        raise ValueError("没有可备份的文件")
-    return dest
+    try:
+        with tarfile.open(temp_dest, "w:gz") as tar:
+            for rel in paths:
+                # 拒绝绝对路径与父目录穿越
+                rel_p = Path(rel) if rel else None
+                if not rel or not rel_p or rel_p.is_absolute() or rel.startswith(("/", chr(92))) or ":" in rel or chr(0) in rel or ".." in rel_p.parts:
+                    logger.warning("跳过非法备份路径: %s", rel)
+                    continue
+                src = (data_dir / rel).resolve()
+                try:
+                    src.relative_to(data_dir)
+                except ValueError:
+                    logger.warning("跳过 data_dir 外路径: %s", rel)
+                    continue
+                if not src.exists():
+                    continue
+                tar.add(src, arcname=rel)
+                added += 1
+        if added == 0:
+            with contextlib.suppress(OSError):
+                temp_dest.unlink(missing_ok=True)
+            raise ValueError("没有可备份的文件")
+        temp_dest.replace(dest)
+        return dest
+    except Exception:
+        with contextlib.suppress(OSError):
+            temp_dest.unlink(missing_ok=True)
+        raise
 
 
 def prune_backups(backup_dir: Path, keep: int) -> int:
