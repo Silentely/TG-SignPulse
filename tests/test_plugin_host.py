@@ -43,6 +43,17 @@ def _register_worker_fixtures():
         ctx.log("formal log")
         return True
 
+    PluginRegistry._plugins.pop("test_plugin_edit_delete_rpc", None)
+
+    @PluginRegistry.register(
+        name="test_plugin_edit_delete_rpc",
+        mode="active",
+    )
+    async def edit_delete_handler(ctx: PluginContext):
+        edited = await ctx.edit_message("new text", message_id=888)
+        deleted = await ctx.delete_message(message_id=888)
+        return bool(edited) and bool(deleted)
+
     PluginRegistry._plugins.pop("test_plugin_rpc_roundtrip", None)
 
     @PluginRegistry.register(
@@ -165,6 +176,32 @@ async def test_subprocess_host_bidirectional_rpc():
 
     assert res is True
     assert mock_app.send_message.call_count >= 2
+
+
+@pytest.mark.asyncio
+async def test_subprocess_host_edit_and_delete_message():
+    _register_worker_fixtures()
+    mock_app = MagicMock()
+    mock_app.edit_message_text = AsyncMock(return_value={"id": 888, "text": "new text"})
+    mock_app.delete_messages = AsyncMock(return_value=True)
+    mock_logger = MagicMock(spec=["log"])
+
+    class FakeMsg:
+        id = 888
+        chat_id = 123
+
+    ctx = PluginContext(
+        app=mock_app, chat_id=123, message=FakeMsg(), logger=mock_logger
+    )
+
+    host = PluginProcessHost(
+        plugin_name="test_plugin_edit_delete_rpc", ctx=ctx, timeout=10.0
+    )
+    res = await host.execute()
+
+    assert res is True
+    mock_app.edit_message_text.assert_awaited_once()
+    mock_app.delete_messages.assert_awaited_once()
 
 
 @pytest.mark.asyncio
