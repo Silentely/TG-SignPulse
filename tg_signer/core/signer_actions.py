@@ -1304,6 +1304,12 @@ class SignerActionsMixin:
                 return answer
             except errors.FloodWait as e:
                 wait_seconds = max(int(getattr(e, "value", 1) or 1), 1)
+                if wait_seconds > 120:
+                    self.log(
+                        f"触发长时 FloodWait ({wait_seconds}s > 120s)，放弃重试以避免阻塞调度",
+                        level="WARNING",
+                    )
+                    return None
                 self.log(
                     f"触发 FloodWait，{wait_seconds}s 后重试 ({attempt}/{max_retries})",
                     level="WARNING",

@@ -703,3 +703,27 @@ async def test_apply_migrate_auth_writes_matched_dc_endpoint():
     mock_client.storage.server_address.assert_awaited_once_with("149.154.167.91")
     mock_client.storage.port.assert_awaited_once_with(443)
     mock_client.storage.auth_key.assert_awaited_once_with(b"K" * 256)
+
+
+@pytest.mark.asyncio
+async def test_call_with_retry_flood_wait_exceeds_threshold():
+    from tg_signer.compat import call_with_retry, errors
+
+    mock_cb = AsyncMock()
+    # Mock FloodWait with 600s
+    fw_err = errors.FloodWait("Flood wait")
+    fw_err.value = 600
+    mock_cb.side_effect = fw_err
+
+    logs = []
+    with pytest.raises(errors.FloodWait):
+        await call_with_retry(
+            mock_cb,
+            operation="test_op",
+            max_retries=2,
+            max_flood_wait=120,
+            log=lambda lvl, msg: logs.append((lvl, msg)),
+        )
+
+    assert mock_cb.await_count == 1
+    assert any("长时 FloodWait" in msg for lvl, msg in logs)
