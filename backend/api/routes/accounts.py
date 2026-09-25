@@ -1194,10 +1194,15 @@ def export_account_logs(
             content += f"消息: {item.get('message')}\n"
         content += "-" * 20 + "\n"
 
+    from datetime import datetime, timezone
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    safe_acc = "".join(c for c in account_name if c.isalnum() or c in ("-", "_")) or "account"
+    filename = f"{safe_acc}_logs_{stamp}.txt"
     return Response(
         content=content,
         media_type="text/plain; charset=utf-8",
-        headers={"Content-Disposition": 'attachment; filename="account_logs.txt"'},
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

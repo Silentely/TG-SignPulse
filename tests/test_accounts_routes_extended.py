@@ -552,6 +552,7 @@ class TestClearAndAccountLogs:
         assert resp.status_code == 200
         assert resp.headers["content-type"].startswith("text/plain")
         assert "attachment" in resp.headers["content-disposition"]
+        assert "a1_logs_" in resp.headers["content-disposition"]
         text = resp.text
         assert "账号日志: a1" in text
         assert "任务: 签到A | 状态: 成功" in text
