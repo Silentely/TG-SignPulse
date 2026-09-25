@@ -54,7 +54,19 @@ _TOKEN_PATTERN = re.compile(
 )
 
 # Connectors between components in a single composite duration (e.g. "2h 30m", "1 day and 2 hours")
-_CONNECTOR_PATTERN = re.compile(r"^[\s,，及和又and]*$", re.IGNORECASE)
+_CONNECTOR_PATTERN = re.compile(r"^[\s,，及和又零and]*$", re.IGNORECASE)
+
+
+def _preprocess_duration_text(text: str) -> str:
+    """Preprocess natural language duration phrases (e.g. 半小时, 1小时零5分, 1个半小时)."""
+    text = re.sub(r"(?:一|1)\s*个半\s*小时", "1.5小时", text)
+    text = re.sub(r"(?<!\d)(\d+)\s*小时半", r"\1.5小时", text)
+    text = re.sub(r"(?<!\d)半\s*天", "0.5天", text)
+    text = re.sub(r"(?<!\d)半\s*小时", "0.5小时", text)
+    text = re.sub(r"(?<!\d)半\s*分钟", "0.5分钟", text)
+    text = re.sub(r"(?<!\d)一个\s*小时", "1小时", text)
+    text = re.sub(r"(?<!\d)一\s*天", "1天", text)
+    return text
 
 
 class _TimeToken:
@@ -145,6 +157,7 @@ def _dict_to_timedelta(d: dict) -> Optional[timedelta]:
 def _extract_first_duration(text: Optional[str]) -> Optional[timedelta]:
     if not text or not isinstance(text, str):
         return None
+    text = _preprocess_duration_text(text)
     tokens = _extract_tokens(text)
     clusters = _cluster_tokens(tokens, text)
     if not clusters:
