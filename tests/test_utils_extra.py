@@ -103,6 +103,22 @@ class TestExtractLastTargetMessage:
 
         assert normalize_log_line("2026-01-01 12:00:00 - hello\x00world") == "helloworld"
 
+    def test_mixed_colons_do_not_truncate_message(self):
+        """半角标签分隔符后接全角冒号的正文不得被二次切分。"""
+        from backend.utils.task_logs import extract_last_target_message
+
+        assert extract_last_target_message(["任务对象最后一条消息: 提示：明天再来"]) == "提示：明天再来"
+        assert extract_last_target_message(["收到回复: a: b"]) == "a: b"
+        assert extract_last_target_message(["Bot回复: 结果：成功"]) == "结果：成功"
+        assert extract_last_target_message(["任务对象最后一条消息：提示: not yet"]) == "提示: not yet"
+
+    def test_value_without_separator_returns_whole_line(self):
+        """标签后没有冒号时原样返回，避免把正文吞掉。"""
+        from backend.utils.task_logs import extract_last_target_message
+
+        assert extract_last_target_message(["任务对象最后一条消息: 无冒号正文"]) == "无冒号正文"
+        assert extract_last_target_message(["任务对象最后一条消息:   "]) == ""
+
     def test_fallback_to_text_marker(self):
         from backend.utils.task_logs import extract_last_target_message
 

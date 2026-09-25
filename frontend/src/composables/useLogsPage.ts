@@ -227,12 +227,21 @@ export function useLogsPage() {
     }
   }
 
+  /** 作废在途详情请求并复位详情区（不含选中项）：切换选中日志或清空列表时调用。 */
+  const invalidateLogDetail = () => {
+    detailGuard.invalidate()
+    logDetail.value = null
+    detailLoading.value = false
+  }
+
   const openLogDetail = async (log: TaskLogUiItem) => {
+    // 切换选中项先作废上一条在途请求，旧响应回来时无法覆盖新选中的日志
+    const seq = detailGuard.next()
     selectedLog.value = log
     logDetail.value = null
+    detailLoading.value = false
     if (!log.account || !log.task || !log.created_at) return
     return withToken(async (token) => {
-      const seq = detailGuard.next()
       detailLoading.value = true
       try {
         const detail = await getTaskHistoryLogDetail(token, {
@@ -271,7 +280,7 @@ export function useLogsPage() {
           toast.success(t('logs.clearSuccess', { count: String(res.cleared ?? 0) }))
           rawTaskLogs.value = []
           selectedLog.value = null
-          logDetail.value = null
+          invalidateLogDetail()
         } else {
           const res = await clearLoginAuditLogs(token)
           toast.success(t('logs.clearSuccess', { count: String(res.cleared ?? 0) }))
@@ -400,9 +409,9 @@ export function useLogsPage() {
       const atChanged = next[3] !== previous[3]
       if (!accountChanged && !taskChanged && !atChanged) return
 
-      // 同一页面切换深链时先清理旧详情，避免新请求期间继续展示过期内容。
+      // 同一页面切换深链时先作废旧详情，避免新请求期间继续展示过期内容。
       selectedLog.value = null
-      logDetail.value = null
+      invalidateLogDetail()
 
       const taskQ = typeof route.query.task === 'string' ? route.query.task.trim() : ''
       const atQ = typeof route.query.at === 'string' ? route.query.at.trim() : ''

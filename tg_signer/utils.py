@@ -1,8 +1,17 @@
 import os
+import re
 import sys
-from typing import Dict, Literal
+from typing import Dict, Literal, Optional
 
 from typing_extensions import TypeAlias
+
+# FloodWait 文本形态引导词：flood[_wait] 后允许夹一段非数字说明（错误码、前缀文案），
+# 或直接是 "wait N"；单位可省略（"FloodWait: 420"），但引导词必须紧邻秒数，
+# 避免把 "timeout after 300 seconds of waiting" 这类瞬时报错误判为限流冷却。
+_FLOOD_WAIT_TEXT_RE = re.compile(
+    r"(?:\bflood\w*[^\d]{0,24}|\bwait\b)\s*(\d+)\s*(?:seconds?|secs?|s|秒)?",
+    re.IGNORECASE,
+)
 
 NumberingLangT: TypeAlias = Literal[
     "arabic",
@@ -320,6 +329,33 @@ def read_positive_float_env(name: str, default: float, minimum: float = 0.0) -> 
         return max(float(raw), minimum)
     except (TypeError, ValueError):
         return default
+
+
+def extract_flood_wait_seconds(exc: BaseException) -> Optional[int]:
+    """从异常中解析 FloodWait 等待秒数；无法判定时返回 None。
+
+    必须先做类型判定再回退文本匹配：`str(FloodWait(300))` 是
+    "Telegram says: [420 FLOOD_WAIT_X] - Please wait 300 seconds ..."，
+    仅靠关键词匹配既可能漏判实例，也可能把 "timeout after 300 seconds of waiting"
+    这类瞬时报错误判成限流冷却，故文本分支要求出现 flood/wait 引导词。
+
+    秒数为 0 是有效等待（立即重试），因此用 None 而非 0 表示"非限流错误"。
+    """
+    value = getattr(exc, "value", None)
+    if isinstance(value, int) and not isinstance(value, bool):
+        return max(value, 0)
+
+    # 类名判定覆盖 Kurigram/Pyrogram 的 FloodWait 及其子类，避免模块级引入重依赖
+    if any(klass.__name__ == "FloodWait" for klass in type(exc).__mro__):
+        seconds = getattr(exc, "value", None)
+        if isinstance(seconds, int) and not isinstance(seconds, bool):
+            return max(seconds, 0)
+        return None
+
+    match = _FLOOD_WAIT_TEXT_RE.search(str(exc))
+    if match:
+        return int(match.group(1))
+    return None
 
 
 def get_display_width(text: str) -> int:

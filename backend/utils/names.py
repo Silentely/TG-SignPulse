@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-_ZERO_WIDTH_CHARS = {
-    "\u200b",  # zero-width space
-    "\u200c",  # zero-width non-joiner
-    "\u200d",  # zero-width joiner
-    "\ufeff",  # zero-width no-break space / byte order mark
-}
+import unicodedata
+
+# 拒绝的 Unicode 常规类别：
+# Cc 控制字符、Cf 格式字符（零宽/BOM/软连字符等）、Cs 代理区、Co 私用区、Cn 未分配码位。
+# 这些字符在文件系统与终端上不可见或语义不定，出现在账号/任务名中会让目录难以定位和清理。
+_REJECTED_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Co", "Cn"})
 
 
 def validate_storage_name(value: str, *, field_name: str) -> str:
@@ -22,10 +22,11 @@ def validate_storage_name(value: str, *, field_name: str) -> str:
         raise ValueError(
             f"{field_name} cannot contain path separators or null bytes: / \\"
         )
-    if any(ord(c) < 32 or ord(c) == 127 or c in _ZERO_WIDTH_CHARS for c in cleaned):
-        raise ValueError(
-            f"{field_name} cannot contain control or invisible characters"
-        )
+    for char in cleaned:
+        if unicodedata.category(char) in _REJECTED_CATEGORIES:
+            raise ValueError(
+                f"{field_name} cannot contain control or invisible characters"
+            )
     try:
         byte_length = len(cleaned.encode("utf-8"))
     except UnicodeEncodeError as exc:

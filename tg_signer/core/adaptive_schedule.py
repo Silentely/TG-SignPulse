@@ -56,6 +56,17 @@ _TOKEN_PATTERN = re.compile(
 # Connectors between components in a single composite duration (e.g. "2h 30m", "1 day and 2 hours")
 _CONNECTOR_PATTERN = re.compile(r"^[\s,，及和又零and]*$", re.IGNORECASE)
 
+# 数值区间（"0-3h"、"10-20 分钟"、"2~4小时"、"1个半小时-2小时"）：区间只说明可能范围，
+# 把后半段当成确定冷却时长会把上界误判为真实等待时间（如 "0-3h" → 3 小时），
+# 因此整段屏蔽，交由调用方走自身兜底策略。
+# 端点后允许带单位：自然语言归一后 "1个半小时" 变成 "1.5小时"，单位夹在数字与分隔符之间，
+# 不放开单位会漏掉这类区间（"1.5小时-2小时" 会被当成 1.5 小时）。
+_UNIT_TAIL = rf"(?:{_D_RE}|{_H_RE}|{_M_RE}|{_S_RE})?"
+_NUMERIC_RANGE_PATTERN = re.compile(
+    rf"\d+(?:\.\d+)?\s*(?:个)?{_UNIT_TAIL}"
+    rf"\s*[-–—~至]\s*\d+(?:\.\d+)?\s*(?:个)?{_UNIT_TAIL}"
+)
+
 
 def _preprocess_duration_text(text: str) -> str:
     """Preprocess natural language duration phrases (e.g. 半小时, 1小时零5分, 1个半小时)."""
@@ -64,9 +75,13 @@ def _preprocess_duration_text(text: str) -> str:
     text = re.sub(r"(?<!\d)半\s*天", "0.5天", text)
     text = re.sub(r"(?<!\d)半\s*小时", "0.5小时", text)
     text = re.sub(r"(?<!\d)半\s*分钟", "0.5分钟", text)
+    # "半个(小时)" 与 "半小时" 等价；先补单位再屏蔽区间，"半个-1小时" 才能被识别为区间
+    text = re.sub(r"(?<!\d)半\s*个\s*小时", "0.5小时", text)
+    text = re.sub(r"(?<!\d)半\s*个(?=[\s\-–—~至,，。!！?？]|$)", "0.5小时", text)
     text = re.sub(r"(?<!\d)一个\s*小时", "1小时", text)
     text = re.sub(r"(?<!\d)一\s*天", "1天", text)
-    return text
+    # 区间屏蔽须在自然语言归一之后：避免 "半个-1小时" 之类的串被区间规则误吞
+    return _NUMERIC_RANGE_PATTERN.sub(" ", text)
 
 
 class _TimeToken:

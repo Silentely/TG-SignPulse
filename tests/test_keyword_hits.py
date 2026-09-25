@@ -229,6 +229,49 @@ def test_record_truncates_and_cleans_fields():
     assert rec["keywords"] == ["x", "1", "y" * 200]
 
 
+def test_record_strips_nul_bytes():
+    """NUL 会污染 JSONL 与 CSV 导出，所有文本字段都必须剔除。"""
+    rec = hits_mod.record_keyword_hit(
+        account_name="ac\x00c1",
+        task_name="t\x00t",
+        keyword="k\x00k",
+        keywords=["a\x00b", "c\x00", None],
+        message_text="hel\x00lo\r\nwor\x00ld",
+        sender="s\x00ender",
+        push_channel="p\x00ush",
+        url="https://t.me/c/\x001/2",
+        chat_title="ti\x00tle",
+    )
+    assert "\x00" not in rec["account_name"]
+    assert "\x00" not in rec["task_name"]
+    assert "\x00" not in rec["keyword"]
+    assert "\x00" not in rec["message_text"]
+    assert "\x00" not in rec["sender"]
+    assert "\x00" not in rec["push_channel"]
+    assert "\x00" not in rec["url"]
+    assert rec["account_name"] == "acc1"
+    assert rec["task_name"] == "tt"
+    assert rec["keyword"] == "kk"
+    assert rec["keywords"] == ["ab", "c"]
+    assert rec["message_text"] == "hello\nworld"
+    assert rec["url"] == "https://t.me/c/1/2"
+
+
+def test_load_normalizes_nul_in_dirty_jsonl(tmp_path: Path, monkeypatch):
+    """历史文件里已存在的 NUL 在读取时同样被剔除。"""
+    path = hits_mod._hits_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        '{"id":"nul1","account_name":"ac\\u0000c","task_name":"t","keyword":"k",'
+        '"message_text":"he\\u0000llo","sender":"","chat_title":"",'
+        '"push_channel":"telegram","url":"","keywords":[],"created_at":1}\n',
+        encoding="utf-8",
+    )
+    items = hits_mod.list_keyword_hits(limit=10)["items"]
+    assert items[0]["account_name"] == "acc"
+    assert items[0]["message_text"] == "hello"
+
+
 def test_clear_filtered():
     hits_mod.record_keyword_hit(account_name="a1", task_name="t1", keyword="1")
     hits_mod.record_keyword_hit(account_name="a2", task_name="t1", keyword="2")

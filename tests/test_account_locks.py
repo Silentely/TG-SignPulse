@@ -8,6 +8,7 @@ import pytest
 
 from backend.utils.account_locks import (
     _ACCOUNT_LOCKS,
+    AccountLockLease,
     AccountLockTimeout,
     acquire_account_lock_with_timeout,
     acquire_multi_account_locks,
@@ -236,3 +237,64 @@ async def test_devices_timeout_raises_busy():
 
     hold_evt.set()
     await blocker_task
+
+
+class TestAccountLockLease:
+    """AccountLockLease 所有权语义。"""
+
+    @pytest.mark.asyncio
+    async def test_release_only_when_owned(self):
+        """未标记 owned 时 release 不得放锁，标记后才真正释放。"""
+        lock = asyncio.Lock()
+        lease = AccountLockLease(lock)
+
+        await lock.acquire()
+        assert lease.release() is False
+        assert lock.locked() is True
+
+        lease.mark_owned()
+        assert lease.release() is True
+        assert lock.locked() is False
+
+    @pytest.mark.asyncio
+    async def test_double_release_is_noop(self):
+        """同一租约重复释放只生效一次，避免把后续持有者的锁放掉。"""
+        lock = asyncio.Lock()
+        lease = AccountLockLease(lock)
+        await lock.acquire()
+        lease.mark_owned()
+
+        assert lease.release() is True
+        assert lease.release() is False
+
+        # 其他协程重新获取后，旧租约再释放也不得生效
+        await lock.acquire()
+        lease.mark_owned()
+        assert lease.release() is True
+        assert lease.release() is False
+        assert lock.locked() is False
+
+    @pytest.mark.asyncio
+    async def test_force_release_ignores_ownership(self):
+        """接管残留会话时可无视所有权强制放锁。"""
+        lock = asyncio.Lock()
+        lease = AccountLockLease(lock)
+        await lock.acquire()
+
+        assert lease.force_release() is True
+        assert lock.locked() is False
+        # 作废后 release 不得再次生效
+        assert lease.release() is False
+
+    def test_force_release_on_unlocked_lock(self):
+        """锁未被持有时强制释放返回 False 且不抛错。"""
+        lease = AccountLockLease(asyncio.Lock())
+        assert lease.force_release() is False
+
+    @pytest.mark.asyncio
+    async def test_release_tolerates_unacquired_lock(self):
+        """owned 但锁已被他人放掉时不得抛 RuntimeError。"""
+        lock = asyncio.Lock()
+        lease = AccountLockLease(lock)
+        lease.mark_owned()
+        assert lease.release() is True

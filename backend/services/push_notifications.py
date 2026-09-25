@@ -39,12 +39,9 @@ def _get_shared_http_client() -> httpx.AsyncClient:
         or getattr(client, "is_closed", True)
         or _shared_http_client_loop is not loop
     ):
-        if client is not None and not getattr(client, "is_closed", True):
-            try:
-                if _shared_http_client_loop is loop and loop.is_running():
-                    loop.create_task(client.aclose())
-            except Exception:
-                pass
+        # 旧客户端归属其它事件循环：在当前 loop 上 schedule aclose() 会操作
+        # 跨 loop 的 transport，属于未定义行为。这里直接丢弃引用交给 GC，
+        # 有序释放统一走 close_shared_http_client()。
         client = httpx.AsyncClient(timeout=_PUSH_HTTP_TIMEOUT, limits=_PUSH_HTTP_LIMITS)
         _shared_http_client = client
         _shared_http_client_loop = loop

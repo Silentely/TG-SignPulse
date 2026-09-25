@@ -31,6 +31,11 @@ async def _release_login_session(value: Any) -> None:
                 await client.disconnect()
         except Exception:
             pass
+    # 有租约走所有权校验，避免释放他人持有的锁；无租约的旧结构按 locked() 兜底
+    lease = value.get("lock_lease")
+    if lease is not None:
+        lease.release()
+        return
     lock = value.get("lock")
     if lock and lock.locked():
         with contextlib.suppress(RuntimeError):

@@ -11,6 +11,50 @@ from backend.services.sign_task_runner import (
     _runner_check_account,
     _runner_send_notifications,
 )
+from tg_signer.utils import extract_flood_wait_seconds
+
+
+def test_extract_flood_wait_seconds_prefers_instance_value():
+    """类型优先：FloodWait 实例的 .value 是唯一可靠来源（str() 不含类名）。"""
+    from pyrogram.errors import FloodWait
+
+    assert extract_flood_wait_seconds(FloodWait(300)) == 300
+    assert extract_flood_wait_seconds(FloodWait(0)) == 0
+
+    class _FakeFloodWait(Exception):
+        def __init__(self, value: int):
+            super().__init__(f"custom flood error {value}")
+            self.value = value
+
+    assert extract_flood_wait_seconds(_FakeFloodWait(42)) == 42
+
+
+def test_extract_flood_wait_seconds_text_fallback_and_guards():
+    """文本分支要求 flood/wait 引导词紧邻秒数，避免误判普通超时。"""
+    assert extract_flood_wait_seconds(ValueError("FLOOD_WAIT: 30 seconds")) == 30
+    assert extract_flood_wait_seconds(ValueError("Please wait 300 seconds")) == 300
+    assert extract_flood_wait_seconds(ValueError("flood wait 420")) == 420
+    # 无引导词的秒数不得当成限流冷却
+    assert extract_flood_wait_seconds(ValueError("timeout after 300 seconds of waiting")) is None
+    assert extract_flood_wait_seconds(ValueError("database is locked")) is None
+    assert extract_flood_wait_seconds(RuntimeError("boom")) is None
+
+
+def test_long_flood_wait_is_not_transient_step_error():
+    """长 FloodWait 超出单步可承受范围：不重试，交由上层登记冷却。"""
+    from pyrogram.errors import FloodWait
+
+    from tg_signer.core.signer_config import (
+        FLOOD_WAIT_RETRY_MAX_SECONDS,
+        SignerConfigMixin,
+    )
+
+    is_transient = SignerConfigMixin._is_transient_step_error
+    assert is_transient(FloodWait(FLOOD_WAIT_RETRY_MAX_SECONDS + 1)) is False
+    assert is_transient(FloodWait(FLOOD_WAIT_RETRY_MAX_SECONDS)) is True
+    # 文本形态同样参与判定
+    assert is_transient(ValueError("FLOOD_WAIT: 30 seconds")) is True
+    assert is_transient(ValueError("FLOOD_WAIT: 600 seconds")) is False
 
 
 def test_flood_backoff_manager_basic():

@@ -325,3 +325,85 @@ describe('api.request - 401 处理', () => {
     })
   })
 })
+
+  it('响应体读取期间的总超时仍然生效并归一化为 NETWORK_TIMEOUT', async () => {
+    vi.useFakeTimers()
+    // headers 立即到达，但 body 一直不结束：超时必须在 body 读取阶段继续约束
+    mockFetch.mockImplementationOnce((_url, options: RequestInit) =>
+      Promise.resolve(
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('{"accounts":[]'))
+              // 仅当 abort 仍与请求信号相连时才会中断 body 读取
+              options.signal?.addEventListener(
+                'abort',
+                () => controller.error(new DOMException('Aborted', 'AbortError')),
+                { once: true },
+              )
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      ),
+    )
+
+    const api = await importApi()
+    let caught: unknown
+    const pending = api.listAccounts('valid-token').then(
+      () => {
+        throw new Error('expected NETWORK_TIMEOUT')
+      },
+      (e: unknown) => {
+        caught = e
+      },
+    )
+    await Promise.all([pending, vi.advanceTimersByTimeAsync(30_000)])
+    expect(caught).toMatchObject({
+      message: 'NETWORK_TIMEOUT',
+      code: 'NETWORK_TIMEOUT',
+    })
+  })
+
+  it('响应体读取期间的外部取消归一化为 NETWORK_ABORTED', async () => {
+    const controller = new AbortController()
+    mockFetch.mockImplementationOnce((_url, options: RequestInit) =>
+      Promise.resolve(
+        new Response(
+          new ReadableStream({
+            start(c) {
+              c.enqueue(new TextEncoder().encode('{"accounts":[]'))
+              options.signal?.addEventListener(
+                'abort',
+                () => c.error(new DOMException('Aborted', 'AbortError')),
+                { once: true },
+              )
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      ),
+    )
+
+    const core = await import('../lib/api/core')
+    let caught: unknown
+    const pending = core
+      .request('/accounts', { signal: controller.signal }, 'valid-token')
+      .then(
+        () => {
+          throw new Error('expected NETWORK_ABORTED')
+        },
+        (e: unknown) => {
+          caught = e
+        },
+      )
+    await Promise.resolve()
+    await Promise.resolve()
+    controller.abort()
+    await pending
+
+    expect(caught).toMatchObject({
+      message: 'NETWORK_ABORTED',
+      code: 'NETWORK_ABORTED',
+    })
+  })

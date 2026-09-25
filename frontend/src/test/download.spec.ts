@@ -13,6 +13,34 @@ describe('sanitizeDownloadFilename', () => {
     expect(sanitizeDownloadFilename(undefined)).toBe('download')
     expect(sanitizeDownloadFilename('   ', 'backup')).toBe('backup')
   })
+
+  it('剥离控制字符（含 NUL）', () => {
+    expect(sanitizeDownloadFilename('back\u0000up.tar.gz')).toBe('backup.tar.gz')
+    expect(sanitizeDownloadFilename('we\u001bbird.txt')).toBe('webird.txt')
+    expect(sanitizeDownloadFilename('a\u007fb.csv')).toBe('ab.csv')
+    // 剥离后为空时回退 fallback
+    expect(sanitizeDownloadFilename('\u0000\u001f\u007f')).toBe('download')
+  })
+
+  it('剥离首尾点与空格', () => {
+    expect(sanitizeDownloadFilename('  spaced.txt  ')).toBe('spaced.txt')
+    expect(sanitizeDownloadFilename('...dotted...')).toBe('dotted')
+    expect(sanitizeDownloadFilename('. .')).toBe('download')
+  })
+
+  it('Windows 保留名加下划线前缀', () => {
+    expect(sanitizeDownloadFilename('CON')).toBe('_CON')
+    expect(sanitizeDownloadFilename('con.txt')).toBe('_con.txt')
+    expect(sanitizeDownloadFilename('PRN.tar.gz')).toBe('_PRN.tar.gz')
+    expect(sanitizeDownloadFilename('com3')).toBe('_com3')
+    expect(sanitizeDownloadFilename('lpt9.log')).toBe('_lpt9.log')
+    expect(sanitizeDownloadFilename('aux')).toBe('_aux')
+    expect(sanitizeDownloadFilename('nul.csv')).toBe('_nul.csv')
+    // 普通同名文件不受影响
+    expect(sanitizeDownloadFilename('console.txt')).toBe('console.txt')
+    expect(sanitizeDownloadFilename('com')).toBe('com')
+    expect(sanitizeDownloadFilename('lpt')).toBe('lpt')
+  })
 })
 
 describe('downloadBlob', () => {

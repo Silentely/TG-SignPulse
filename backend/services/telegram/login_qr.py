@@ -14,7 +14,7 @@ from backend.services.telegram.sessions import (
     _cleanup_expired_login_sessions,
     _qr_login_sessions,
 )
-from backend.utils.account_locks import get_account_lock
+from backend.utils.account_locks import AccountLockLease, get_account_lock
 from backend.utils.proxy import build_proxy_dict
 from backend.utils.tg_session import (
     get_global_semaphore,
@@ -149,10 +149,14 @@ class TelegramQrLoginMixin:
                                     aux_file.unlink()
                         except Exception:
                             pass
-        lock = data.get("lock")
-        if lock and lock.locked():
-            with contextlib.suppress(RuntimeError):
-                lock.release()
+        lease = data.get("lock_lease")
+        if lease is not None:
+            lease.release()
+        else:
+            lock = data.get("lock")
+            if lock and lock.locked():
+                with contextlib.suppress(RuntimeError):
+                    lock.release()
 
 
     def _extend_qr_expires(self, data: Dict[str, Any], min_seconds: int = 300) -> None:
@@ -548,6 +552,9 @@ class TelegramQrLoginMixin:
         await _cleanup_expired_login_sessions()
 
         account_lock = get_account_lock(account_name)
+        # 本次扫码登录流程的锁租约：后续轮询请求接力操作同一把锁，
+        # 只有本流程获取的锁才允许释放
+        lock_lease = AccountLockLease(account_lock)
         session_mode = get_session_mode()
         global_semaphore = get_global_semaphore()
 
@@ -560,10 +567,10 @@ class TelegramQrLoginMixin:
             await asyncio.wait_for(account_lock.acquire(), timeout=15.0)
         except asyncio.TimeoutError:
             raise ValueError(f"账号 {account_name} 正在被后台任务占用，请稍后再试")
+        lock_lease.mark_owned()
 
         def _release_account_lock() -> None:
-            if account_lock.locked():
-                account_lock.release()
+            lock_lease.release()
 
         # 清理后台客户端
         try:
@@ -666,6 +673,7 @@ class TelegramQrLoginMixin:
                 "status": "waiting_scan",
                 "scan_seen": False,
                 "lock": account_lock,
+                "lock_lease": lock_lease,
                 "migrate_dc_id": getattr(result, "dc_id", None),
                 "api_id": api_id,
                 "api_hash": api_hash,
@@ -903,8 +911,29 @@ class TelegramQrLoginMixin:
             raise ValueError("登录会话已失效")
 
         account_lock = data.get("lock")
-        if account_lock and not account_lock.locked():
-            await account_lock.acquire()
+        lock_lease = data.get("lock_lease")
+        if lock_lease is None and account_lock is not None:
+            # 兼容无租约的会话结构：所有权按本次请求的实际获取结果记录
+            lock_lease = AccountLockLease(account_lock)
+            data["lock_lease"] = lock_lease
+
+        # 同一扫码流程的续接请求：锁由 start_qr_login 持有，按租约所有权决定补锁/跳过，
+        # 绝不能释放他人持有的锁
+        if lock_lease is not None and account_lock is not None:
+            if lock_lease.owned:
+                # 租约仍归本流程，但锁可能已被过期清理强制释放，补锁保证临界区完整
+                if not account_lock.locked():
+                    await account_lock.acquire()
+            elif not account_lock.locked():
+                # 锁空闲：本次请求自行获取并取得所有权
+                await account_lock.acquire()
+                lock_lease.mark_owned()
+            else:
+                # 锁被他人持有：会话已被接管，告警后跳过释放
+                logger.warning(
+                    "扫码登录会话 %s 的账号锁已被其他协程持有，本次请求将以无锁方式继续",
+                    login_id,
+                )
 
         global_semaphore = get_global_semaphore()
 

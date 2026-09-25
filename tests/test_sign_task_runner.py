@@ -32,6 +32,7 @@ from backend.services.sign_task_run_status import (
     PHASE_WAITING_LOCK,
 )
 from backend.services.sign_task_runner import execute_sign_task
+from tg_signer.core import client as client_mod
 
 
 class FakeSvc:
@@ -759,6 +760,100 @@ class TestMiscBranches:
         signer = FakeSigner.instances[-1]
         assert signer.app.stopped is True
         assert signer.app.is_connected is False
+
+    @pytest.mark.asyncio
+    async def test_shared_client_with_refs_not_stopped_on_finalize(self, runner_env):
+        """引用计数 >0 说明其它协程（如关键词监听）仍在使用同一客户端，收尾不得断开。"""
+
+        async def behavior(run_calls: int):
+            signer = FakeSigner.instances[-1]
+            signer.app.is_connected = True
+            signer.app.key = "/shared/session"
+            client_mod._CLIENT_REFS["/shared/session"] = 1
+
+        FakeSigner.behavior = behavior
+        svc = FakeSvc(task_cfg={"name": "t"})
+        result = await execute_sign_task(svc, "acc", "t")
+        assert result["success"] is True
+        signer = FakeSigner.instances[-1]
+        assert signer.app.stopped is False
+        assert signer.app.is_connected is True
+
+    @pytest.mark.asyncio
+    async def test_unreferenced_client_still_stopped_on_finalize(self, runner_env):
+        """无引用的私有客户端仍按原语义断开，避免连接泄漏。"""
+
+        async def behavior(run_calls: int):
+            signer = FakeSigner.instances[-1]
+            signer.app.is_connected = True
+            signer.app.key = "/private/session"
+
+        FakeSigner.behavior = behavior
+        svc = FakeSvc(task_cfg={"name": "t"})
+        result = await execute_sign_task(svc, "acc", "t")
+        assert result["success"] is True
+        signer = FakeSigner.instances[-1]
+        assert signer.app.stopped is True
+        assert signer.app.is_connected is False
+
+    @pytest.mark.asyncio
+    async def test_cleanup_scheduled_before_client_stop(self, runner_env):
+        """清理与运行标记复位必须先于 stop()：stop() 抛 CancelledError 时日志仍能回收。"""
+        observed: list = []
+
+        async def behavior(run_calls: int):
+            signer = FakeSigner.instances[-1]
+            signer.app.is_connected = True
+
+            async def stop():
+                observed.append(
+                    {
+                        "cleanup_registered": task_key in svc_ref[0]._cleanup_tasks,
+                        "active_flag": svc_ref[0]._active_tasks.get(task_key),
+                    }
+                )
+
+            signer.app.stop = stop  # type: ignore[method-assign]
+
+        svc_ref: list = []
+        FakeSigner.behavior = behavior
+        svc = FakeSvc(task_cfg={"name": "t"})
+        svc_ref.append(svc)
+        task_key = svc._task_key("acc", "t")
+        result = await execute_sign_task(svc, "acc", "t")
+        assert result["success"] is True
+        # 乱序（先 stop 再清理）时 cleanup_registered 为 False，断言失败
+        assert observed == [
+            {"cleanup_registered": True, "active_flag": False}
+        ]
+
+    @pytest.mark.asyncio
+    async def test_flood_wait_instance_registers_cooldown(
+        self, runner_env, monkeypatch
+    ):
+        """run_once 抛 FloodWait 实例时必须登记冷却。
+
+        `str(FloodWait(400))` 不含类名，仅靠关键词匹配会漏判实例，
+        账号因此拿不到限频冷却保护，会被连续重试打满。
+        """
+        from unittest.mock import MagicMock
+
+        from pyrogram.errors import FloodWait
+
+        async def behavior(run_calls: int):
+            raise FloodWait(400)
+
+        FakeSigner.behavior = behavior
+        mgr = MagicMock()
+        mgr.is_cooling_down = MagicMock(return_value=(False, 0))
+        monkeypatch.setattr(
+            "backend.services.flood_backoff.get_flood_backoff_manager", lambda: mgr
+        )
+        svc = FakeSvc(task_cfg={"name": "t"})
+        result = await execute_sign_task(svc, "acc", "t")
+        assert result["success"] is False
+        mgr.record_flood_wait.assert_called_once()
+        assert mgr.record_flood_wait.call_args.kwargs["wait_seconds"] == 400
 
     @pytest.mark.asyncio
     async def test_cooldown_elapsed_no_wait_log(self, runner_env):

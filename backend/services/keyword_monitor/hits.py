@@ -88,18 +88,23 @@ def _hits_path() -> Path:
 
 
 def _csv_cell(value: Any) -> str:
-    """将单元格转为字符串，并防止公式注入。"""
+    """将单元格转为字符串，剔除 NUL，并防止公式注入。"""
     if value is None:
         return ""
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return str(value)
-    text = str(value)
+    text = str(value).replace("\x00", "")
     if text and text[0] in _CSV_FORMULA_PREFIXES:
         stripped = text.lstrip("+-")
         if stripped.isdigit():
             return text
         return "'" + text
     return text
+
+
+def _strip_nul(value: Any) -> str:
+    """剔除 NUL 字符：Telegram 消息可能含 \x00，直接落盘/导出会污染 JSONL 与 CSV。"""
+    return str(value or "").replace("\x00", "").strip()
 
 
 def _as_optional_int(value: Any) -> Optional[int]:
@@ -114,18 +119,18 @@ def _as_optional_int(value: Any) -> Optional[int]:
 
 
 def _clip(value: Any, limit: int) -> str:
-    """字符串字段收敛：转字符串、去首尾空白并按上限截断。"""
-    return str(value or "").strip()[:limit]
+    """字符串字段收敛：转字符串、剔除 NUL、去首尾空白并按上限截断。"""
+    return _strip_nul(value)[:limit]
 
 
 def _normalize_account(value: Any) -> str:
     """账号名归一化：去首尾空白并剥离 .session 后缀，兼容纯账号名与会话文件名两种写法。"""
-    return str(value or "").strip().removesuffix(".session")
+    return _strip_nul(value).removesuffix(".session")
 
 
 def _safe_message_text(message_text: Any) -> str:
-    """消息文本：统一换行、去首尾空白、超长截断补省略号。"""
-    text = str(message_text or "").replace("\r\n", "\n").strip()
+    """消息文本：剔除 NUL、统一换行、去首尾空白、超长截断补省略号。"""
+    text = _strip_nul(message_text).replace("\r\n", "\n")
     if len(text) > 500:
         text = text[:497] + "..."
     return text
@@ -133,16 +138,16 @@ def _safe_message_text(message_text: Any) -> str:
 
 def _safe_url(url: Any) -> str:
     """仅保留 http(s) URL，防止 javascript: 等危险协议进入导出/展示。"""
-    raw_url = str(url or "").strip()
+    raw_url = _strip_nul(url)
     if raw_url.lower().startswith(("http://", "https://")):
         return raw_url[:500]
     return ""
 
 
 def _clean_keywords(keywords: Optional[List[Any]]) -> List[str]:
-    """关键词列表：转字符串、去空白截断、剔除空串，上限 20 条。"""
+    """关键词列表：剔除 NUL、去空白截断、剔除空串，上限 20 条。"""
     cleaned = [
-        str(k or "").strip()[:200] for k in (keywords or []) if str(k or "").strip()
+        _clip(k, 200) for k in (keywords or []) if _strip_nul(k)
     ]
     return cleaned[:20]
 

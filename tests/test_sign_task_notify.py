@@ -525,3 +525,87 @@ class TestCheckAccountBeforeTask:
         )
         assert result is None
         assert check_env.marked == []
+
+
+@pytest.mark.asyncio
+async def test_shared_http_client_reused_within_same_loop():
+    """同事件循环内复用同一客户端：连接池才不会每条通知重建一次。"""
+    from backend.services.push_notifications import (
+        _get_shared_http_client,
+        close_shared_http_client,
+    )
+
+    try:
+        first = _get_shared_http_client()
+        assert _get_shared_http_client() is first
+    finally:
+        await close_shared_http_client()
+
+
+@pytest.mark.asyncio
+async def test_shared_http_client_rebuilt_after_loop_switch():
+    """事件循环切换后必须重建客户端：跨 loop 关闭 transport 是未定义行为。"""
+    import asyncio
+    import threading
+
+    from backend.services.push_notifications import (
+        _get_shared_http_client,
+        close_shared_http_client,
+    )
+
+    holder = {}
+
+    def _run_in_fresh_loop():
+        async def _run():
+            return _get_shared_http_client()
+
+        holder["client"] = asyncio.run(_run())
+
+    try:
+        main_loop_client = _get_shared_http_client()
+        worker = threading.Thread(target=_run_in_fresh_loop)
+        worker.start()
+        worker.join()
+
+        assert holder["client"] is not main_loop_client
+        # 回到原 loop 后缓存项已归属其它 loop，同样必须重建而不是复用
+        assert _get_shared_http_client() is not main_loop_client
+    finally:
+        await close_shared_http_client()
+
+
+@pytest.mark.asyncio
+async def test_shared_telegram_client_rebuilt_on_proxy_change():
+    """代理配置变化后重建专用客户端，避免请求仍走旧代理。"""
+    from backend.services.push_notifications import (
+        _get_shared_telegram_client,
+        close_shared_http_client,
+    )
+
+    try:
+        plain = _get_shared_telegram_client(None)
+        assert _get_shared_telegram_client(None) is plain
+
+        proxied = _get_shared_telegram_client("http://127.0.0.1:1080")
+        assert proxied is not plain
+        assert _get_shared_telegram_client("http://127.0.0.1:1080") is proxied
+    finally:
+        await close_shared_http_client()
+
+
+@pytest.mark.asyncio
+async def test_close_shared_http_client_resets_cache():
+    """关闭后清空缓存，下次取用必须是全新实例（不得复用已关闭客户端）。"""
+    from backend.services.push_notifications import (
+        _get_shared_http_client,
+        close_shared_http_client,
+    )
+
+    first = _get_shared_http_client()
+    await close_shared_http_client()
+    assert first.is_closed is True
+
+    second = _get_shared_http_client()
+    assert second is not first
+    assert second.is_closed is False
+    await close_shared_http_client()

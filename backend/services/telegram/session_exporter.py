@@ -162,7 +162,6 @@ async def create_standalone_session_export(
         device_model=device_model,
         no_updates=True,
     )
-    main_client: Optional[Client] = None
 
     try:
         await candidate_client.connect()
@@ -202,14 +201,15 @@ async def create_standalone_session_export(
                 main_client, _ = service._build_account_client(
                     account_name, no_updates=True
                 )
-                if not getattr(main_client, "is_connected", False):
-                    await main_client.connect()
-                accept_res = await main_client.invoke(
-                    raw.functions.auth.AcceptLoginToken(token=token_bytes)
-                )
-                candidate_auth_hash = getattr(accept_res, "hash", None) or getattr(
-                    getattr(accept_res, "authorization", None), "hash", None
-                )
+                # 主客户端由引用计数共享，连接必须锁内进出上下文：出栈即断开，
+                # 避免锁释放后仍持有连接（异常路径会泄漏，也可能被误停）
+                async with main_client:
+                    accept_res = await main_client.invoke(
+                        raw.functions.auth.AcceptLoginToken(token=token_bytes)
+                    )
+                    candidate_auth_hash = getattr(accept_res, "hash", None) or getattr(
+                        getattr(accept_res, "authorization", None), "hash", None
+                    )
         except AccountLockTimeout as exc:
             logger.warning("Account lock timeout while exporting session for %s: %s", account_name, exc)
             return SessionExportResult(success=False, error="ACCOUNT_BUSY")
@@ -226,11 +226,21 @@ async def create_standalone_session_export(
             )
 
         async def _rollback_candidate_auth() -> None:
-            if main_client and candidate_auth_hash:
-                with contextlib.suppress(Exception):
-                    reset_auth_cls = getattr(raw.functions.account, "ResetAuthorization", None)
-                    if reset_auth_cls:
-                        await main_client.invoke(reset_auth_cls(hash=candidate_auth_hash))
+            """撤销候选授权：ResetAuthorization 需在账号锁内操作主账号客户端。"""
+            reset_auth_cls = getattr(raw.functions.account, "ResetAuthorization", None)
+            if not reset_auth_cls or not candidate_auth_hash:
+                return
+            try:
+                async with acquire_account_lock_with_timeout(account_name, timeout=15.0):
+                    rollback_client, _ = service._build_account_client(
+                        account_name, no_updates=True
+                    )
+                    async with rollback_client:
+                        await rollback_client.invoke(
+                            reset_auth_cls(hash=candidate_auth_hash)
+                        )
+            except Exception as exc:
+                logger.warning("撤销候选授权失败: %s", exc)
 
         # Step 6: Candidate client polls for LoginTokenSuccess
         poll_start = time.monotonic()
@@ -294,12 +304,6 @@ async def create_standalone_session_export(
         logger.error("Unexpected error during session export for %s: %s", account_name, exc, exc_info=True)
         return SessionExportResult(success=False, error=str(exc))
     finally:
-        if main_client is not None:
-            with contextlib.suppress(Exception):
-                if getattr(main_client, "is_connected", False):
-                    disconn = main_client.disconnect()
-                    if inspect.isawaitable(disconn):
-                        await disconn
         if candidate_client is not None:
             with contextlib.suppress(Exception):
                 if getattr(candidate_client, "is_connected", False):
