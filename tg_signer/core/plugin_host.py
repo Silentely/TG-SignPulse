@@ -265,8 +265,11 @@ class PluginProcessHost:
 
                         encoded_resp = encode_ipc_payload(resp).encode("utf-8")
                         if self.process.stdin and not self.process.stdin.is_closing():
-                            self.process.stdin.write(encoded_resp)
-                            await self.process.stdin.drain()
+                            try:
+                                self.process.stdin.write(encoded_resp)
+                                await self.process.stdin.drain()
+                            except (BrokenPipeError, ConnectionResetError, OSError):
+                                pass
                 else:
                     self.ctx.log(f"[worker stdout] {line_str}", level="DEBUG")
 
@@ -328,13 +331,6 @@ class PluginProcessHost:
             )
 
         finally:
-            if self.process and self.process.returncode is None:
-                kill_process_tree(self.process.pid)
-                try:
-                    await asyncio.wait_for(self.process.wait(), timeout=1.0)
-                except asyncio.TimeoutError:
-                    pass
-
             stderr_task.cancel()
             stdout_task.cancel()
             process_wait_task.cancel()
@@ -342,4 +338,13 @@ class PluginProcessHost:
                 try:
                     self.process.stdin.close()
                 except Exception:
+                    pass
+
+            if self.process and self.process.returncode is None:
+                kill_process_tree(self.process.pid)
+                try:
+                    await asyncio.shield(
+                        asyncio.wait_for(self.process.wait(), timeout=1.0)
+                    )
+                except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
                     pass
