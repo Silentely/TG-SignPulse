@@ -55,6 +55,7 @@ class _SafeEvaluator(ast.NodeVisitor):
         ast.List,
         ast.Tuple,
         ast.Dict,
+        ast.Starred,
     )
 
     def __init__(self, context: Dict[str, Any]):
@@ -141,12 +142,31 @@ class _SafeEvaluator(ast.NodeVisitor):
                 return obj[str(key)]
             return ""
 
+    def visit_Starred(self, node: ast.Starred) -> Any:
+        return self.visit(node.value)
+
     def visit_Call(self, node: ast.Call) -> Any:
         func = self.visit(node.func)
         if not callable(func):
-            raise TypeError(f"'{func}' 不是可调用对象")
-        args = [self.visit(arg) for arg in node.args]
-        kwargs = {kw.arg: self.visit(kw.value) for kw in node.keywords if kw.arg}
+            raise TypeError(f"\x27{func}\x27 不是可调用对象")
+        args = []
+        for arg in node.args:
+            if isinstance(arg, ast.Starred):
+                unpacked = self.visit(arg.value)
+                if isinstance(unpacked, (list, tuple, set)):
+                    args.extend(unpacked)
+                else:
+                    args.append(unpacked)
+            else:
+                args.append(self.visit(arg))
+        kwargs = {}
+        for kw in node.keywords:
+            if kw.arg is None:
+                unpacked = self.visit(kw.value)
+                if isinstance(unpacked, dict):
+                    kwargs.update(unpacked)
+            else:
+                kwargs[kw.arg] = self.visit(kw.value)
         return func(*args, **kwargs)
 
     def visit_BinOp(self, node: ast.BinOp) -> Any:
@@ -173,17 +193,41 @@ class _SafeEvaluator(ast.NodeVisitor):
         raise ValueError(f"不支持的一元运算符 {type(node.op).__name__}")
 
     def visit_List(self, node: ast.List) -> Any:
-        return [self.visit(elt) for elt in node.elts]
+        res = []
+        for elt in node.elts:
+            if isinstance(elt, ast.Starred):
+                unpacked = self.visit(elt.value)
+                if isinstance(unpacked, (list, tuple, set)):
+                    res.extend(unpacked)
+                else:
+                    res.append(unpacked)
+            else:
+                res.append(self.visit(elt))
+        return res
 
     def visit_Tuple(self, node: ast.Tuple) -> Any:
-        return tuple(self.visit(elt) for elt in node.elts)
+        res = []
+        for elt in node.elts:
+            if isinstance(elt, ast.Starred):
+                unpacked = self.visit(elt.value)
+                if isinstance(unpacked, (list, tuple, set)):
+                    res.extend(unpacked)
+                else:
+                    res.append(unpacked)
+            else:
+                res.append(self.visit(elt))
+        return tuple(res)
 
     def visit_Dict(self, node: ast.Dict) -> Any:
-        return {
-            self.visit(k): self.visit(v)
-            for k, v in zip(node.keys, node.values, strict=True)
-            if k is not None
-        }
+        res = {}
+        for k, v in zip(node.keys, node.values, strict=True):
+            if k is None:
+                unpacked = self.visit(v)
+                if isinstance(unpacked, dict):
+                    res.update(unpacked)
+            else:
+                res[self.visit(k)] = self.visit(v)
+        return res
 
 
 def _build_default_template_context(
@@ -228,9 +272,15 @@ def _build_default_template_context(
         "dict_entry": _dict_entry,
         "str": str,
         "int": int,
+        "float": float,
+        "bool": bool,
+        "list": list,
+        "dict": dict,
         "len": len,
         "min": min,
         "max": max,
+        "abs": abs,
+        "round": round,
     }
     if extra_context:
         ctx.update(extra_context)
@@ -282,4 +332,6 @@ def render_template_recursive(
         }
     elif isinstance(data, list):
         return [render_template_recursive(item, context) for item in data]
+    elif isinstance(data, tuple):
+        return tuple(render_template_recursive(item, context) for item in data)
     return data

@@ -70,3 +70,23 @@ def test_render_template_recursive():
     assert rendered["nested"]["count"] == "5"
     assert rendered["nested"]["items"] == ["prefix_Bob"]
     assert rendered["number"] == 42
+
+
+def test_render_template_unpacking_and_starred():
+    # 字典解包 **kwargs / **dict
+    res = render_template("{{ dict({'a': 1}, **extra)['b'] }}", {"extra": {"b": 99}})
+    assert res == "99"
+
+    # 函数调用 *args 解包
+    res = render_template("{{ min(*nums) }}", {"nums": [10, 3, 25]})
+    assert res == "3"
+
+    # 列表与元组解包
+    res = render_template("{{ [1, *(2, 3), 4] }}")
+    assert res == "[1, 2, 3, 4]"
+
+
+def test_render_template_recursive_tuple():
+    payload = ("Hello {{ name }}", 123, ["nested {{ name }}"])
+    res = render_template_recursive(payload, {"name": "World"})
+    assert res == ("Hello World", 123, ["nested World"])
