@@ -202,3 +202,23 @@ def test_data_dict_api_routes(api_client: TestClient, tmp_path: Path, monkeypatc
     # Get deleted dictionary -> 404
     resp = api_client.get("/api/data-dict/quotes", headers=headers)
     assert resp.status_code == 404
+
+def test_data_dict_null_byte_filtering_and_negative_cursor(tmp_path: Path):
+    service = DataDictService(base_dir=tmp_path)
+    # 含有 null 字节与空白
+    entries = ["hello\x00world", "  \x00  ", "safe"]
+    service.save_dict("cleantest", entries)
+    d = service.get_dict("cleantest")
+    assert d["entries"] == ["helloworld", "safe"]
+
+    # 模拟人为或异常写入负数游标
+    file_path = tmp_path / "data_dicts" / "cleantest.json"
+    from backend.utils.atomic_io import read_json_safe, write_json_atomic
+    data = read_json_safe(file_path)
+    data["cursor"] = -5
+    write_json_atomic(file_path, data)
+
+    # 抽取时不崩溃且安全返回
+    entry = service.get_entry("cleantest", mode="round_robin")
+    assert entry in ("helloworld", "safe")
+

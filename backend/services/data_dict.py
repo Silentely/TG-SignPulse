@@ -91,7 +91,9 @@ class DataDictService:
             raise ValueError("DATA_DICT_EMPTY")
 
         clean_entries: List[str] = [
-            str(e).strip() for e in entries if isinstance(e, (str, int, float)) and str(e).strip()
+            str(e).replace("\x00", "").strip()
+            for e in entries
+            if isinstance(e, (str, int, float)) and str(e).replace("\x00", "").strip()
         ]
         if not clean_entries:
             raise ValueError("DATA_DICT_EMPTY")
@@ -101,7 +103,7 @@ class DataDictService:
             if file_path.exists():
                 existing = read_json_safe(file_path)
                 if isinstance(existing, dict) and isinstance(existing.get("cursor"), int):
-                    cursor = existing["cursor"] % len(clean_entries)
+                    cursor = max(0, int(existing["cursor"])) % len(clean_entries)
 
             now_iso = datetime.now(timezone.utc).isoformat()
             dict_data = {
@@ -148,7 +150,7 @@ class DataDictService:
                 raise ValueError("DATA_DICT_EMPTY")
 
             if mode == "round_robin":
-                cursor = int(data.get("cursor", 0)) % len(entries)
+                cursor = max(0, int(data.get("cursor", 0))) % len(entries)
                 selected = entries[cursor]
                 data["cursor"] = (cursor + 1) % len(entries)
                 write_json_atomic(file_path, data)
