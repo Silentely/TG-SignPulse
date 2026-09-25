@@ -80,7 +80,10 @@ class SignerConfigMixin:
 
 
     def _load_chat_cache(self) -> List[dict]:
-        cache_file = self.tasks_dir / self._account / "chats_cache.json"
+        account_name = getattr(self, "_account", None)
+        if not account_name:
+            return []
+        cache_file = self.tasks_dir / str(account_name) / "chats_cache.json"
         if not cache_file.exists():
             return []
         try:

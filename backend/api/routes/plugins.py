@@ -33,6 +33,7 @@ from pydantic import BaseModel, Field
 
 from backend.core.auth import get_current_user
 from backend.models.user import User
+from backend.utils.atomic_io import write_text_atomic
 from tg_signer.core.plugin_host import PluginProcessHost
 from tg_signer.core.plugins import (
     PluginContext,
@@ -1565,14 +1566,8 @@ async def update_plugin_source(
     except Exception:
         old_source = None
 
-    def _atomic_write(text: str) -> None:
-        # 先写临时文件再原子替换，避免热重载/并发读到半截文件
-        tmp_path = source_path.with_name(source_path.name + ".tmp")
-        tmp_path.write_text(text, encoding="utf-8")
-        os.replace(tmp_path, source_path)
-
     try:
-        _atomic_write(payload.source)
+        write_text_atomic(source_path, payload.source)
     except Exception as exc:
         logger.error("保存插件源码失败 %s: %s", source_path, exc, exc_info=True)
         raise HTTPException(status_code=500, detail=f"保存插件源码失败: {exc}")
@@ -1592,7 +1587,7 @@ async def update_plugin_source(
     if not updated_meta:
         if old_source is not None:
             try:
-                _atomic_write(old_source)
+                write_text_atomic(source_path, old_source)
                 _reload_plugins_preserving_state()
             except Exception as exc:
                 logger.error("回滚插件源码失败 %s: %s", source_path, exc, exc_info=True)

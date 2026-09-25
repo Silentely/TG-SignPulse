@@ -252,6 +252,10 @@ class SignerRunnerMixin:
                     elif isinstance(action, PluginAction):
                         rendered_params = render_template_recursive(action.params, tmpl_ctx)
                         exec_action = _copy_action_with(action, params=rendered_params)
+                    elif hasattr(action, "ai_prompt") and action.ai_prompt:
+                        rendered_prompt = render_template(action.ai_prompt, tmpl_ctx)
+                        if rendered_prompt != action.ai_prompt:
+                            exec_action = _copy_action_with(action, ai_prompt=rendered_prompt)
 
                     action_description = self._set_current_action_context(
                         index,
@@ -525,7 +529,8 @@ class SignerRunnerMixin:
                     seconds=random.randint(0, int(config.random_seconds))
                 )
                 self.log(f"下次运行时间: {next_run}")
-                await asyncio.sleep((next_run - now).total_seconds())
+                sleep_secs = max(0.0, (next_run - now).total_seconds())
+                await asyncio.sleep(sleep_secs)
         finally:
             # Always clean up handlers, even on exception
             if message_handler_ref:

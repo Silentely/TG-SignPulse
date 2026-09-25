@@ -108,6 +108,9 @@ def test_resolve_telegram_api_credentials():
         ({"api_id": "111", "api_hash": "cfg"}, None, "env", (111, "env")),
         # int 型 api_id 原样可用，返回类型统一为 (int, str)
         ({"api_id": 42, "api_hash": "h"}, None, None, (42, "h")),
+        # env 为纯空白字符串时，应平滑回退到配置
+        ({"api_id": "111", "api_hash": "cfg"}, "   ", "   ", (111, "cfg")),
+        ({"api_id": "111", "api_hash": "cfg"}, "   ", "env", (111, "env")),
     ],
 )
 def test_resolve_telegram_api_credentials_precedence(tg_config, env_id, env_hash, expected):
