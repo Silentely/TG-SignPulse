@@ -137,3 +137,64 @@ class TestWritableBaseDir:
 
         assert base == Path(tempfile.gettempdir()) / "tg-signpulse"
         assert base.exists()
+
+
+class TestMoveStoragePath:
+    def test_missing_source_noop(self, tmp_path):
+        source = tmp_path / "missing"
+        target = tmp_path / "target"
+        storage.move_storage_path(source, target)
+        assert not target.exists()
+
+    def test_same_path_noop(self, tmp_path):
+        source = tmp_path / "same.txt"
+        source.write_text("hello", encoding="utf-8")
+        storage.move_storage_path(source, source)
+        assert source.read_text(encoding="utf-8") == "hello"
+
+    def test_standard_move_creates_parent(self, tmp_path):
+        source = tmp_path / "source.txt"
+        source.write_text("data", encoding="utf-8")
+        target = tmp_path / "nested" / "dir" / "target.txt"
+        storage.move_storage_path(source, target)
+        assert not source.exists()
+        assert target.read_text(encoding="utf-8") == "data"
+
+    def test_target_already_exists_raises(self, tmp_path):
+        import pytest
+
+        source = tmp_path / "src.txt"
+        source.write_text("1", encoding="utf-8")
+        target = tmp_path / "dest.txt"
+        target.write_text("2", encoding="utf-8")
+        with pytest.raises(ValueError, match="目标路径已存在"):
+            storage.move_storage_path(source, target)
+        assert source.exists()
+        assert target.read_text(encoding="utf-8") == "2"
+
+    def test_case_insensitive_rename_rollback_on_failure(self, tmp_path, monkeypatch):
+        import pytest
+
+        source = tmp_path / "CaseFile.txt"
+        source.write_text("content", encoding="utf-8")
+        target = tmp_path / "casefile.txt"
+
+        original_replace = Path.replace
+
+        # 让第二次 replace 失败，触发回滚
+        call_count = {"count": 0}
+
+        def flaky_replace(self, dst):
+            call_count["count"] += 1
+            if call_count["count"] == 2:
+                raise OSError("simulated failure")
+            return original_replace(self, dst)
+
+        monkeypatch.setattr(Path, "replace", flaky_replace)
+
+        with pytest.raises(OSError, match="simulated failure"):
+            storage.move_storage_path(source, target)
+
+        # 检查是否已回滚回原文件名
+        assert source.exists()
+        assert source.read_text(encoding="utf-8") == "content"

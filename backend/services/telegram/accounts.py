@@ -220,6 +220,8 @@ class TelegramAccountsMixin:
                 seen = set()
                 for session_file in self.session_dir.glob("*.session_string"):
                     account_name = session_file.stem
+                    if not account_name:
+                        continue
                     seen.add(account_name)
                     if account_name in pending_accounts:
                         continue
@@ -262,6 +264,8 @@ class TelegramAccountsMixin:
             else:
                 for session_file in self.session_dir.glob("*.session"):
                     account_name = session_file.stem  # 文件名（不含扩展名）
+                    if not account_name:
+                        continue
                     profile = get_account_profile(account_name)
 
                     if account_name in pending_accounts:
