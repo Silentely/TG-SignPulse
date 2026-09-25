@@ -8,10 +8,14 @@ describe('formatMemoryRssFromStats', () => {
     ).toBe('128.5 MB')
   })
 
-  it('兼容 rss_mb / rss_bytes 别名', () => {
+  it('兼容 rss_mb / rss_bytes 别名与数值字符串', () => {
     expect(formatMemoryRssFromStats({ rss_mb: 64 }, '未知')).toBe('64.0 MB')
+    expect(formatMemoryRssFromStats({ current_rss_mb: '128.5' }, '未知')).toBe('128.5 MB')
     expect(
       formatMemoryRssFromStats({ rss_bytes: 32 * 1024 * 1024 }, '未知'),
+    ).toBe('32.0 MB')
+    expect(
+      formatMemoryRssFromStats({ rss_bytes: String(32 * 1024 * 1024) }, '未知'),
     ).toBe('32.0 MB')
   })
 
