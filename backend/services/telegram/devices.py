@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -42,12 +43,14 @@ class TelegramDevicesMixin:
         await self.verify_account_proxy(account_name, proxy_dict)
 
         timeout_seconds = max(1.0, min(float(timeout_seconds or 12.0), 30.0))
+        need_disconnect = False
         try:
             async with acquire_account_lock_with_timeout(
                 account_name, timeout=timeout_seconds
             ):
                 if not getattr(client, "is_connected", False):
                     await client.connect()
+                    need_disconnect = True
                 result = await asyncio.wait_for(
                     client.invoke(raw.functions.account.GetAuthorizations()),
                     timeout=timeout_seconds,
@@ -55,6 +58,10 @@ class TelegramDevicesMixin:
         except AccountLockTimeout as e:
             logger.warning("获取设备列表获取锁超时 %s: %s", account_name, e)
             raise AccountLockTimeout("ACCOUNT_BUSY") from e
+        finally:
+            if need_disconnect:
+                with contextlib.suppress(Exception):
+                    await client.disconnect()
 
         devices = []
         for item in getattr(result, "authorizations", []) or []:
@@ -119,12 +126,14 @@ class TelegramDevicesMixin:
         await self.verify_account_proxy(account_name, proxy_dict)
 
         timeout_seconds = max(1.0, min(float(timeout_seconds or 12.0), 30.0))
+        need_disconnect = False
         try:
             async with acquire_account_lock_with_timeout(
                 account_name, timeout=timeout_seconds
             ):
                 if not getattr(client, "is_connected", False):
                     await client.connect()
+                    need_disconnect = True
                 result = await asyncio.wait_for(
                     client.invoke(
                         raw.functions.account.ResetAuthorization(hash=parsed_hash)
@@ -135,6 +144,10 @@ class TelegramDevicesMixin:
         except AccountLockTimeout as e:
             logger.warning("踢下线设备获取锁超时 %s: %s", account_name, e)
             raise AccountLockTimeout("ACCOUNT_BUSY") from e
+        finally:
+            if need_disconnect:
+                with contextlib.suppress(Exception):
+                    await client.disconnect()
 
     async def reset_account_authorizations(
         self,
@@ -163,12 +176,14 @@ class TelegramDevicesMixin:
         if not reset_rpc_cls:
             raise RuntimeError("ResetAuthorizations RPC function not found in Pyrogram raw definitions")
 
+        need_disconnect = False
         try:
             async with acquire_account_lock_with_timeout(
                 account_name, timeout=timeout_seconds
             ):
                 if not getattr(client, "is_connected", False):
                     await client.connect()
+                    need_disconnect = True
                 result = await asyncio.wait_for(
                     client.invoke(reset_rpc_cls()),
                     timeout=timeout_seconds,
@@ -188,6 +203,10 @@ class TelegramDevicesMixin:
                     "FRESH_RESET_AUTHORISATION_FORBIDDEN: 新登录会话在初始保护期内无法重置其他设备，请在几小时后再试"
                 ) from e
             raise
+        finally:
+            if need_disconnect:
+                with contextlib.suppress(Exception):
+                    await client.disconnect()
 
     async def list_official_messages(
         self,
@@ -206,9 +225,13 @@ class TelegramDevicesMixin:
         limit = max(1, min(int(limit or 20), 50))
         timeout_seconds = max(1.0, min(float(timeout_seconds or 12.0), 30.0))
 
+        need_disconnect = False
+
         async def _read_messages() -> List[Dict[str, Any]]:
+            nonlocal need_disconnect
             if not getattr(client, "is_connected", False):
                 await client.connect()
+                need_disconnect = True
 
             messages: List[Dict[str, Any]] = []
             async for msg in client.get_chat_history(777000, limit=limit):
@@ -233,3 +256,7 @@ class TelegramDevicesMixin:
         except AccountLockTimeout as e:
             logger.warning("读取官方消息获取锁超时 %s: %s", account_name, e)
             raise AccountLockTimeout("ACCOUNT_BUSY") from e
+        finally:
+            if need_disconnect:
+                with contextlib.suppress(Exception):
+                    await client.disconnect()
