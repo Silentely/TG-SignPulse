@@ -10,9 +10,10 @@ import logging
 import os
 import threading
 import uuid
+import weakref
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, MutableMapping, Optional
 
 from backend.core.config import get_settings
 from backend.services.sign_task_backend import BackendUserSigner
@@ -124,7 +125,7 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         # TTL 列表缓存（与 _tasks_cache 同步），避免长时间持有过期扫描结果
         list_ttl = float(os.getenv("SIGN_TASK_LIST_CACHE_TTL", "30") or "30")
         self._tasks_list_ttl = TTLCache(maxsize=2, ttl=max(list_ttl, 1.0))
-        self._account_locks: Dict[str, asyncio.Lock] = {}  # 账号锁
+        self._account_locks: MutableMapping[str, asyncio.Lock] = weakref.WeakValueDictionary()  # 账号锁（弱引用管理）
         self._account_last_run_end: Dict[str, float] = {}  # 账号最后一次结束时间
         # 冷却/历史天数通过 property 读 runtime_settings（面板可覆盖 env）
         self._history_max_entries = read_positive_int_env(

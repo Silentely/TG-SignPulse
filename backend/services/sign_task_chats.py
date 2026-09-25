@@ -431,10 +431,9 @@ async def refresh_account_chats(
     chats: List[Dict[str, Any]] = []
     logger = _fetch_logger
     try:
-        if account_name not in account_locks:
-            account_locks[account_name] = get_account_lock(account_name)
-
-        account_lock = account_locks[account_name]
+        account_lock = get_account_lock(account_name)
+        if account_locks is not None:
+            account_locks[account_name] = account_lock
 
         async def _fetch_chats(active_client) -> List[Dict[str, Any]]:
             local_chats: List[Dict[str, Any]] = []
