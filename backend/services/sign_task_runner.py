@@ -90,7 +90,7 @@ async def _runner_check_account(state: Dict[str, Any]) -> None:
     manager = get_flood_backoff_manager()
     is_cooling, remaining = manager.is_cooling_down(state["account_name"])
     if is_cooling:
-        state["account_invalid_detected"] = True
+        state["flood_wait_cooling"] = True
         state["failure_category"] = FailureCategory.FLOOD_WAIT
         state["error_msg"] = (
             f"账号 {state['account_name']} 处于 Telegram FloodWait 限频冷却中，"
@@ -819,6 +819,7 @@ async def execute_sign_task(
         "error_msg": "",
         "output_str": "",
         "account_invalid_detected": False,
+        "flood_wait_cooling": False,
         "timed_out": False,
         "task_notify_on_failure": True,
         "task_notify_on_success": True,
@@ -848,7 +849,7 @@ async def execute_sign_task(
 
             await _runner_check_account(state)
 
-        if not state.get("account_invalid_detected"):
+        if not state.get("account_invalid_detected") and not state.get("flood_wait_cooling"):
             await _runner_refresh_keyword_monitor(state)
             await _runner_acquire_lock(state)
 
