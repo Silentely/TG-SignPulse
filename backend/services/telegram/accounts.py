@@ -283,7 +283,10 @@ class TelegramAccountsMixin:
 
             self._accounts_cache = sorted(accounts, key=lambda x: x["name"])
             self._accounts_cache_ts = time.monotonic()
-            return self._accounts_cache
+            return [
+                {**acc, **self._account_status_payload(acc.get("name", ""))}
+                for acc in self._accounts_cache
+            ]
         except Exception as exc:
             # 扫描失败返回空列表是降级行为，但必须留痕：
             # 否则权限/IO/profile 损坏会表现为账号「凭空消失」且无法排查
@@ -325,41 +328,21 @@ class TelegramAccountsMixin:
         Raises:
             瞬时错误（网络/会话/限流）向上抛出，由调用方决定是否缓存判定
         """
-        from tg_signer.core import get_client
 
         account_name = self._normalize_account_name(account_name)
 
         if not self.account_exists(account_name):
             return None
 
-        proxy_dict, device_kwargs = _resolve_proxy_and_device_kwargs(account_name)
-
-        session_mode = get_session_mode()
-        session_string = None
-        in_memory = False
-        if session_mode == "string":
-            session_string = load_account_session_string(
-                account_name,
-                session_dir=self.session_dir,
-                session_mode=session_mode,
+        try:
+            client, proxy_dict = self._build_account_client(
+                account_name, no_updates=True
             )
-            if not session_string:
-                return None
-            in_memory = True
-
-        await self.verify_account_proxy(account_name, proxy_dict)
+            await self.verify_account_proxy(account_name, proxy_dict)
+        except ValueError:
+            return None
 
         try:
-            client = get_client(
-                account_name,
-                proxy=proxy_dict,
-                workdir=self.session_dir,
-                session_string=session_string,
-                in_memory=in_memory,
-                no_updates=True,
-                **device_kwargs,
-            )
-
             async with acquire_account_lock_with_timeout(account_name, timeout=15.0):
                 async with client:
                     me = await asyncio.wait_for(client.get_me(), timeout=10)
@@ -394,41 +377,21 @@ class TelegramAccountsMixin:
         Raises:
             瞬时错误（网络/会话/限流）向上抛出，由调用方决定是否缓存判定
         """
-        from tg_signer.core import get_client
 
         account_name = self._normalize_account_name(account_name)
 
         if not self.account_exists(account_name):
             return None
 
-        proxy_dict, device_kwargs = _resolve_proxy_and_device_kwargs(account_name)
-
-        session_mode = get_session_mode()
-        session_string = None
-        in_memory = False
-        if session_mode == "string":
-            session_string = load_account_session_string(
-                account_name,
-                session_dir=self.session_dir,
-                session_mode=session_mode,
+        try:
+            client, proxy_dict = self._build_account_client(
+                account_name, no_updates=True
             )
-            if not session_string:
-                return None
-            in_memory = True
-
-        await self.verify_account_proxy(account_name, proxy_dict)
+            await self.verify_account_proxy(account_name, proxy_dict)
+        except ValueError:
+            return None
 
         try:
-            client = get_client(
-                account_name,
-                proxy=proxy_dict,
-                workdir=self.session_dir,
-                session_string=session_string,
-                in_memory=in_memory,
-                no_updates=True,
-                **device_kwargs,
-            )
-
             async with acquire_account_lock_with_timeout(account_name, timeout=15.0):
                 async with client:
                     chat = await asyncio.wait_for(

@@ -327,6 +327,8 @@ class TestClientRequests:
     async def test_iter_object_yields_response_chunks(self):
         client = _client()
 
+        received_chunk_size = []
+
         class _Resp:
             status_code = 200
             text = ""
@@ -337,7 +339,8 @@ class TestClientRequests:
             async def __aexit__(self, *a):
                 return False
 
-            async def aiter_bytes(self):
+            async def aiter_bytes(self, chunk_size=None):
+                received_chunk_size.append(chunk_size)
                 yield b"first"
                 yield b"second"
 
@@ -358,6 +361,7 @@ class TestClientRequests:
             chunks = [chunk async for chunk in client.iter_object("auto-1.tar.gz")]
 
         assert chunks == [b"first", b"second"]
+        assert received_chunk_size == [64 * 1024]
 
     @pytest.mark.asyncio
     async def test_delete_object_accepts_204(self):

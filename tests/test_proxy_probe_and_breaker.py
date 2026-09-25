@@ -58,6 +58,12 @@ async def test_global_require_proxy_blocks_unproxied_account(tmp_path, monkeypat
         with pytest.raises(RuntimeError, match="PROXY_REQUIRED_BLOCKED"):
             await tg_svc.verify_account_proxy("unproxied_acc")
 
+        with pytest.raises(RuntimeError, match="PROXY_REQUIRED_BLOCKED"):
+            await tg_svc.download_account_avatar("unproxied_acc")
+
+        with pytest.raises(RuntimeError, match="PROXY_REQUIRED_BLOCKED"):
+            await tg_svc.download_chat_avatar("unproxied_acc", 12345)
+
 
 @pytest.mark.asyncio
 async def test_probe_proxy_failed_when_exit_matches_host_ip(tmp_path, monkeypatch):
