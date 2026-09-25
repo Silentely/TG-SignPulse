@@ -39,6 +39,12 @@ def _get_shared_http_client() -> httpx.AsyncClient:
         or getattr(client, "is_closed", True)
         or _shared_http_client_loop is not loop
     ):
+        if client is not None and not getattr(client, "is_closed", True):
+            try:
+                if _shared_http_client_loop is loop and loop.is_running():
+                    loop.create_task(client.aclose())
+            except Exception:
+                pass
         client = httpx.AsyncClient(timeout=_PUSH_HTTP_TIMEOUT, limits=_PUSH_HTTP_LIMITS)
         _shared_http_client = client
         _shared_http_client_loop = loop
@@ -285,6 +291,14 @@ async def send_telegram_bot_message(
             client = _get_shared_telegram_client(proxy_url=proxy_url)
             response = await client.post(url, json=payload)
             response.raise_for_status()
+            if hasattr(response, "json") and callable(response.json):
+                try:
+                    data = response.json()
+                    if isinstance(data, dict) and not data.get("ok", True):
+                        desc = data.get("description", "Telegram API returned ok=false")
+                        raise RuntimeError(f"Telegram Bot API error: {desc}")
+                except (ValueError, TypeError):
+                    pass
             return
         except (httpx.RequestError, httpx.HTTPStatusError) as exc:
             if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code < 500:
