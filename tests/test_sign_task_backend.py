@@ -324,3 +324,48 @@ def test_rename_account_handles_non_tuple_keys(tmp_path, monkeypatch):
     assert ("new_acc", "task1") in svc._active_logs
     assert "invalid_key_string" in svc._active_logs
 
+
+
+def test_delete_and_update_task_cleans_and_cancels_runtime(tmp_path, monkeypatch):
+    class DummyTask:
+        def __init__(self):
+            self.cancelled = False
+        def done(self):
+            return False
+        def cancel(self):
+            self.cancelled = True
+
+    monkeypatch.setenv("TG_SIGNER_WORKDIR", str(tmp_path))
+    from backend.services.sign_tasks import SignTaskService
+
+    svc = SignTaskService()
+    svc.create_task(
+        task_name="t_bg",
+        sign_at="08:00",
+        chats=[],
+        account_name="acc1",
+        account_names=["acc1", "acc2"],
+    )
+    dummy_bg = DummyTask()
+    dummy_clean = DummyTask()
+    svc._background_run_tasks[("acc2", "t_bg")] = dummy_bg
+    svc._cleanup_tasks[("acc2", "t_bg")] = dummy_clean
+    svc._run_statuses[("acc2", "t_bg")] = {"running": True}
+
+    # Update task to remove acc2
+    svc.update_task(
+        task_name="t_bg",
+        account_name="acc1",
+        account_names=["acc1"],
+    )
+    assert dummy_bg.cancelled is True
+    assert dummy_clean.cancelled is True
+    assert ("acc2", "t_bg") not in svc._run_statuses
+    assert ("acc2", "t_bg") not in svc._background_run_tasks
+
+    # Now test delete cancels acc1
+    dummy_bg1 = DummyTask()
+    svc._background_run_tasks[("acc1", "t_bg")] = dummy_bg1
+    svc.delete_task("t_bg", account_name="acc1")
+    assert dummy_bg1.cancelled is True
+    assert ("acc1", "t_bg") not in svc._background_run_tasks
