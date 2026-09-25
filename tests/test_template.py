@@ -90,3 +90,17 @@ def test_render_template_recursive_tuple():
     payload = ("Hello {{ name }}", 123, ["nested {{ name }}"])
     res = render_template_recursive(payload, {"name": "World"})
     assert res == ("Hello World", 123, ["nested World"])
+
+def test_render_template_convenience_aliases():
+    now = datetime.datetime.now()
+    res = render_template("Year: {{ year }}, Month: {{ month }}, Day: {{ day }}, Weekday: {{ weekday }}")
+    assert f"Year: {now.year}" in res
+    assert f"Month: {now.month:02d}" in res
+    assert f"Day: {now.day:02d}" in res
+    assert f"Weekday: {now.isoweekday()}" in res
+
+    # randint 与 choice 别名
+    assert render_template("{{ randint(7, 7) }}") == "7"
+    assert render_template("{{ choice('single') }}") == "single"
+    assert render_template("{{ sum([1, 2, 3, 4]) }}") == "10"
+
