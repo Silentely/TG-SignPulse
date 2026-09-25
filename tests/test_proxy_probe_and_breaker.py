@@ -222,3 +222,20 @@ async def test_check_account_status_reports_invalid_proxy_as_blocked(tmp_path, m
     assert result["ok"] is False
     assert result["status"] == "blocked"
     assert result["code"] == "PROXY_INVALID_BLOCKED"
+
+def test_format_proxy_url_ipv6_and_user():
+    from backend.utils.proxy import format_proxy_url
+
+    # IPv6 host 自动包裹方括号
+    p1 = {"scheme": "socks5", "hostname": "::1", "port": 1080}
+    assert format_proxy_url(p1) == "socks5://[::1]:1080"
+
+    p2 = {"scheme": "http", "hostname": "2001:db8::1", "port": 8080, "username": "alice"}
+    assert format_proxy_url(p2) == "http://alice@[2001:db8::1]:8080"
+
+    p3 = {"scheme": "http", "hostname": "2001:db8::1", "port": 8080, "username": "alice", "password": "pwd"}
+    assert format_proxy_url(p3) == "http://alice:pwd@[2001:db8::1]:8080"
+
+    # 已经带有中括号的保持原样
+    p4 = {"scheme": "socks5", "hostname": "[::1]", "port": 1080}
+    assert format_proxy_url(p4) == "socks5://[::1]:1080"
