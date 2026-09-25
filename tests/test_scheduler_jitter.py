@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -162,3 +163,28 @@ def test_sign_task_schema_jitter_validation():
 
     with pytest.raises(ValidationError):
         SignTaskUpdate(jitter_seconds=-5)
+
+
+def test_create_cron_trigger_with_invalid_jitter_and_tz():
+    # Negative jitter falls back to 0
+    t1 = create_cron_trigger("*/5 * * * *", jitter=-10)
+    assert not t1.jitter
+
+    # String jitter coerced to int
+    t2 = create_cron_trigger("0 0 8 * * *", jitter="25")  # type: ignore[arg-type]
+    assert t2.jitter == 25
+
+    # Invalid timezone string falls back safely without raising
+    t3 = create_cron_trigger("08:00", timezone="Invalid/NonExistent_TZ")
+    assert t3 is not None
+
+
+@pytest.mark.asyncio
+async def test_job_run_sign_task_cancelled_error():
+    mock_service = MagicMock()
+    mock_service.get_task.return_value = {"name": "t1", "execution_mode": "fixed"}
+    mock_service.run_task_with_logs = AsyncMock(side_effect=asyncio.CancelledError())
+
+    with patch("backend.services.sign_tasks.get_sign_task_service", return_value=mock_service):
+        with pytest.raises(asyncio.CancelledError):
+            await _job_run_sign_task("acc1", "t1")

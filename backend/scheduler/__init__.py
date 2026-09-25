@@ -71,8 +71,19 @@ def create_cron_trigger(cron_str: str, timezone: str = "", jitter: int = 0) -> C
                 "clock-time cron parse failed for %r: %s", cron_str, exc
             )
 
+    # 规范化 jitter 数值，防御非法类型与负值
+    try:
+        jitter_val = max(0, int(jitter or 0))
+    except (ValueError, TypeError):
+        jitter_val = 0
+
     # 获取有效时区：优先使用传入参数，否则从全局配置回退到环境变量
     tz = timezone or _read_configured_timezone_name()
+    if tz:
+        try:
+            ZoneInfo(tz)
+        except Exception:
+            tz = ""
 
     parts = cron_str.split()
     if len(parts) == 6:
@@ -84,12 +95,12 @@ def create_cron_trigger(cron_str: str, timezone: str = "", jitter: int = 0) -> C
             month=parts[4],
             day_of_week=parts[5],
             timezone=tz or None,
-            jitter=jitter if jitter > 0 else None,
+            jitter=jitter_val if jitter_val > 0 else None,
         )
         return trigger
     trigger = CronTrigger.from_crontab(cron_str, timezone=tz or None)
-    if jitter > 0:
-        trigger.jitter = jitter
+    if jitter_val > 0:
+        trigger.jitter = jitter_val
     return trigger
 
 
@@ -293,6 +304,13 @@ async def _job_run_sign_task(account_name: str, task_name: str) -> None:
                 account_name,
                 result.get('error'),
             )
+    except asyncio.CancelledError:
+        logger.info(
+            "Scheduler: 签到任务 %s (账号=%s) 调度执行已被取消",
+            task_name,
+            account_name,
+        )
+        raise
     except Exception as e:
         # 顶层兜底：Job 执行入口不能让异常逃逸到调度器导致后续任务被压制
         logger.error(
