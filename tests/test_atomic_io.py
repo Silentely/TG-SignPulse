@@ -7,7 +7,12 @@ from __future__ import annotations
 
 import json
 
-from backend.utils.atomic_io import read_json_safe, write_json_atomic, write_text_atomic
+from backend.utils.atomic_io import (
+    read_json_safe,
+    write_bytes_atomic,
+    write_json_atomic,
+    write_text_atomic,
+)
 
 
 def test_write_atomic_and_read_back(tmp_path):
@@ -47,3 +52,28 @@ def test_read_safe_returns_default_on_corrupt(tmp_path):
 
 def test_read_safe_returns_default_on_missing(tmp_path):
     assert read_json_safe(tmp_path / "missing.json", default=[]) == []
+
+def test_write_bytes_atomic_and_read_back(tmp_path):
+    target = tmp_path / "sub" / "avatar.jpg"
+    data = b"\xff\xd8\xff\xe0\x00\x10JFIF"
+    write_bytes_atomic(target, data)
+    assert target.exists()
+    assert target.read_bytes() == data
+
+def test_write_bytes_atomic_no_tmp_leak_on_error(tmp_path, monkeypatch):
+    import os
+    target = tmp_path / "sub" / "file.bin"
+
+    def bad_fsync(fd):
+        raise OSError("磁盘空间不足")
+
+    monkeypatch.setattr(os, "fsync", bad_fsync)
+    try:
+        write_bytes_atomic(target, b"some-data")
+    except OSError:
+        pass
+    else:
+        raise AssertionError("expected OSError")
+    assert not target.exists()
+    leftovers = list((tmp_path / "sub").glob("*.tmp-*"))
+    assert leftovers == []
