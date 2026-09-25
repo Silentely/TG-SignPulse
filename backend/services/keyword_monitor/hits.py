@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import contextlib
 import csv
 import io
 import json
@@ -226,10 +227,15 @@ def _rewrite_file_locked() -> None:
     temp = path.with_suffix(".tmp")
     # 内存新→旧，写盘旧→新便于 append
     ordered = list(reversed(_records))
-    with temp.open("w", encoding="utf-8") as fp:
-        for item in ordered:
-            fp.write(json.dumps(item, ensure_ascii=False) + "\n")
-    temp.replace(path)
+    try:
+        with temp.open("w", encoding="utf-8") as fp:
+            for item in ordered:
+                fp.write(json.dumps(item, ensure_ascii=False) + "\n")
+        temp.replace(path)
+    finally:
+        if temp.exists():
+            with contextlib.suppress(OSError):
+                temp.unlink()
 
 
 def record_keyword_hit(
@@ -305,14 +311,14 @@ def list_keyword_hits(
         offset = max(0, int(offset or 0))
     except (TypeError, ValueError):
         offset = 0
-    account = (account_name or "").strip()
+    account = (account_name or "").strip().removesuffix(".session")
     task = (task_name or "").strip()
 
     with _lock:
         filtered = [
             item
             for item in _records
-            if (not account or item.get("account_name") == account)
+            if (not account or (item.get("account_name") or "").removesuffix(".session") == account)
             and (not task or item.get("task_name") == task)
         ]
         total = len(filtered)
@@ -350,7 +356,7 @@ def group_keyword_hits(
         per = max(1, min(int(limit_per_group or 20), 100))
     except (TypeError, ValueError):
         per = 20
-    account = (account_name or "").strip()
+    account = (account_name or "").strip().removesuffix(".session")
     task = (task_name or "").strip()
 
     # 内存 key：chat 用 (id, title) 元组，避免 title 含分隔符时解析错误
@@ -359,7 +365,7 @@ def group_keyword_hits(
 
     with _lock:
         for item in _records:
-            if account and item.get("account_name") != account:
+            if account and (item.get("account_name") or "").removesuffix(".session") != account:
                 continue
             if task and item.get("task_name") != task:
                 continue
@@ -456,7 +462,7 @@ def clear_keyword_hits(
 ) -> int:
     """清空命中记录（可按账号/任务过滤），返回删除条数。"""
     _ensure_loaded()
-    account = (account_name or "").strip()
+    account = (account_name or "").strip().removesuffix(".session")
     task = (task_name or "").strip()
     with _lock:
         before = len(_records)
@@ -467,7 +473,7 @@ def clear_keyword_hits(
                 item
                 for item in _records
                 if not (
-                    (not account or item.get("account_name") == account)
+                    (not account or (item.get("account_name") or "").removesuffix(".session") == account)
                     and (not task or item.get("task_name") == task)
                 )
             ]

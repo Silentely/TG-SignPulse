@@ -259,3 +259,28 @@ def test_load_bad_lines_logs_warning_count(tmp_path: Path, monkeypatch, caplog):
     with caplog.at_level(logging.WARNING, logger="backend.keyword_hits"):
         hits_mod.list_keyword_hits(limit=10)
     assert any("跳过 2 行坏数据" in r.message for r in caplog.records)
+
+
+def test_account_session_suffix_normalized_in_queries_and_clear():
+    """无论入参或数据是否包含 .session 后缀，过滤与清空均能统一匹配。"""
+    hits_mod.record_keyword_hit(account_name="my_bot", task_name="t1", keyword="k1")
+    hits_mod.record_keyword_hit(account_name="other_bot.session", task_name="t1", keyword="k2")
+
+    # 查询带 .session 匹配存量不带 .session
+    res1 = hits_mod.list_keyword_hits(account_name="my_bot.session")
+    assert res1["total"] == 1
+    assert res1["items"][0]["account_name"] == "my_bot"
+
+    # 查询不带 .session 匹配存量带 .session
+    res2 = hits_mod.list_keyword_hits(account_name="other_bot")
+    assert res2["total"] == 1
+    assert res2["items"][0]["keyword"] == "k2"
+
+    # group_by 过滤带 .session
+    grp = hits_mod.group_keyword_hits(account_name="my_bot.session")
+    assert len(grp["groups"]) == 1
+
+    # 清空带 .session
+    deleted = hits_mod.clear_keyword_hits(account_name="my_bot.session")
+    assert deleted == 1
+    assert hits_mod.list_keyword_hits()["total"] == 1

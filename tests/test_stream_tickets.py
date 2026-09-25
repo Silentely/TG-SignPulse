@@ -112,3 +112,10 @@ class TestStreamTicketStore:
             store.issue(user_id=i, username="u", purpose=PURPOSE_SIGN_HISTORY_SSE)
         assert store.clear() == 3
         assert store.clear() == 0
+
+    def test_get_stream_ticket_store_singleton_concurrent(self):
+        from backend.services.stream_tickets import get_stream_ticket_store
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            stores = list(pool.map(lambda _: get_stream_ticket_store(), range(16)))
+        assert all(s is stores[0] for s in stores)
