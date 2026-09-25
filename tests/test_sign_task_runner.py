@@ -113,6 +113,16 @@ class FakeSvc:
         return None
 
 
+class FakeApp:
+    def __init__(self):
+        self.is_connected = False
+        self.stopped = False
+
+    async def stop(self):
+        self.is_connected = False
+        self.stopped = True
+
+
 class FakeSigner:
     """BackendUserSigner 替身：run_once 行为由类属性 behavior 编程"""
 
@@ -122,6 +132,7 @@ class FakeSigner:
     def __init__(self, **kwargs):
         self.kwargs = kwargs
         self.run_calls = 0
+        self.app = FakeApp()
         FakeSigner.instances.append(self)
 
     async def run_once(self, num_of_dialogs: int = 20):
@@ -733,6 +744,21 @@ class TestMiscBranches:
         for _ in range(3):
             await asyncio.sleep(0)
         assert second.done()
+
+
+    @pytest.mark.asyncio
+    async def test_signer_app_stopped_on_finalize(self, runner_env):
+        async def behavior(run_calls: int):
+            # 模拟执行过程中连接处于打开状态
+            FakeSigner.instances[-1].app.is_connected = True
+
+        FakeSigner.behavior = behavior
+        svc = FakeSvc(task_cfg={"name": "t"})
+        result = await execute_sign_task(svc, "acc", "t")
+        assert result["success"] is True
+        signer = FakeSigner.instances[-1]
+        assert signer.app.stopped is True
+        assert signer.app.is_connected is False
 
     @pytest.mark.asyncio
     async def test_cooldown_elapsed_no_wait_log(self, runner_env):

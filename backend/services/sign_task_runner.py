@@ -739,6 +739,14 @@ async def _runner_finalize(state: Dict[str, Any]) -> None:
             await _runner_save_run_info(state)
             await _runner_send_notifications(state)
     finally:
+        signer = state.get("signer")
+        if signer is not None:
+            app = getattr(signer, "app", None)
+            if app is not None and getattr(app, "is_connected", False):
+                try:
+                    await app.stop()
+                except Exception:
+                    pass
         svc._active_tasks[task_key] = False
         await _runner_schedule_cleanup(state)
 

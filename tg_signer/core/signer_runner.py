@@ -513,8 +513,8 @@ class SignerRunnerMixin:
                             try:
                                 if getattr(self.app, "is_connected", False):
                                     await self.app.stop()
-                            except ConnectionError:
-                                # Already terminated - ignore
+                            except Exception:
+                                # Already terminated or stopped - ignore
                                 pass
 
                 except (OSError, errors.Unauthorized) as e:
@@ -535,12 +535,18 @@ class SignerRunnerMixin:
             # Always clean up handlers, even on exception
             if message_handler_ref:
                 try:
-                    self.app.remove_handler(*message_handler_ref)
+                    if isinstance(message_handler_ref, tuple):
+                        self.app.remove_handler(*message_handler_ref)
+                    else:
+                        self.app.remove_handler(message_handler_ref)
                 except Exception:
                     pass
             if edited_handler_ref:
                 try:
-                    self.app.remove_handler(*edited_handler_ref)
+                    if isinstance(edited_handler_ref, tuple):
+                        self.app.remove_handler(*edited_handler_ref)
+                    else:
+                        self.app.remove_handler(edited_handler_ref)
                 except Exception:
                     pass
             # Clear context to release message references
