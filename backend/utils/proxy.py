@@ -92,6 +92,13 @@ def build_proxy_dict(raw: str) -> Optional[dict]:
     return proxy
 
 
+
+def _format_host_for_url(hostname: str) -> str:
+    """若 hostname 为未加括号的 IPv6 地址，包裹为 [ipv6]，以兼容标准 URL 解析。"""
+    if ":" in hostname and not (hostname.startswith("[") and hostname.endswith("]")):
+        return f"[{hostname}]"
+    return hostname
+
 def format_proxy_url(raw: str | dict | None) -> Optional[str]:
     """将代理字符串或字典格式化为标准 URL（如 socks5://127.0.0.1:1080 或 http://user:pass@host:port）。"""
     if not raw:
@@ -105,15 +112,19 @@ def format_proxy_url(raw: str | dict | None) -> Optional[str]:
     if not proxy_dict or not proxy_dict.get("hostname") or not proxy_dict.get("port"):
         return None
     scheme = str(proxy_dict.get("scheme", "http")).lower()
+    host = _format_host_for_url(str(proxy_dict["hostname"]))
     user = proxy_dict.get("username")
-    pwd = proxy_dict.get("password") or ""
+    pwd = proxy_dict.get("password")
     if user:
         quoted_user = urllib.parse.quote(str(user), safe="")
-        quoted_pwd = urllib.parse.quote(str(pwd), safe="")
-        auth = f"{quoted_user}:{quoted_pwd}@"
+        if pwd:
+            quoted_pwd = urllib.parse.quote(str(pwd), safe="")
+            auth = f"{quoted_user}:{quoted_pwd}@"
+        else:
+            auth = f"{quoted_user}@"
     else:
         auth = ""
-    return f"{scheme}://{auth}{proxy_dict['hostname']}:{proxy_dict['port']}"
+    return f"{scheme}://{auth}{host}:{proxy_dict['port']}"
 
 
 def _make_proxy_cache_key(proxy_dict: dict) -> str:
@@ -179,14 +190,18 @@ async def _fetch_ip_via_proxy(
     scheme = str(proxy_dict.get("scheme", "http")).lower()
     if scheme in ("http", "https"):
         user = proxy_dict.get("username")
-        pwd = proxy_dict.get("password") or ""
+        pwd = proxy_dict.get("password")
         if user:
             quoted_user = urllib.parse.quote(str(user), safe="")
-            quoted_pwd = urllib.parse.quote(str(pwd), safe="")
-            auth = f"{quoted_user}:{quoted_pwd}@"
+            if pwd:
+                quoted_pwd = urllib.parse.quote(str(pwd), safe="")
+                auth = f"{quoted_user}:{quoted_pwd}@"
+            else:
+                auth = f"{quoted_user}@"
         else:
             auth = ""
-        proxy_url = f"{scheme}://{auth}{proxy_dict['hostname']}:{proxy_dict['port']}"
+        host = _format_host_for_url(str(proxy_dict["hostname"]))
+        proxy_url = f"{scheme}://{auth}{host}:{proxy_dict['port']}"
         try:
             async with httpx.AsyncClient(proxy=proxy_url, trust_env=False, timeout=timeout) as client:
                 resp = await client.get(endpoint, headers={"User-Agent": "TG-SignPulse-Probe/1.0"})
