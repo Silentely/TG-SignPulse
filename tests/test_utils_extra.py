@@ -36,6 +36,18 @@ class TestValidateStorageName:
         with pytest.raises(ValueError, match="path separators"):
             validate_storage_name("a/b", field_name="name")
 
+    def test_control_and_invisible_chars_raise(self):
+        from backend.utils.names import validate_storage_name
+
+        with pytest.raises(ValueError, match="control or invisible characters"):
+            validate_storage_name("task\nname", field_name="task")
+
+        with pytest.raises(ValueError, match="control or invisible characters"):
+            validate_storage_name("task\tname", field_name="task")
+
+        with pytest.raises(ValueError, match="control or invisible characters"):
+            validate_storage_name("task\u200bname", field_name="task")
+
     def test_non_string_raises(self):
         from backend.utils.names import validate_storage_name
 
