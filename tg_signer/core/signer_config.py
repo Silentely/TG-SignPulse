@@ -55,9 +55,16 @@ class SignerConfigMixin:
         )
 
     @staticmethod
-
     def _resolve_action_delay(action, fallback_delay: float) -> float:
-        fallback = max(float(fallback_delay or 0), 0.0)
+        import math
+
+        try:
+            fallback = float(fallback_delay or 0)
+            if math.isnan(fallback) or math.isinf(fallback) or fallback < 0:
+                fallback = 0.0
+        except (TypeError, ValueError):
+            fallback = 0.0
+
         raw_delay = getattr(action, "delay", None)
         if raw_delay is None:
             return fallback
@@ -71,10 +78,23 @@ class SignerConfigMixin:
                 start_text, end_text = delay_text.split("-", 1)
                 start = float(start_text)
                 end = float(end_text)
+                if (
+                    math.isnan(start)
+                    or math.isnan(end)
+                    or math.isinf(start)
+                    or math.isinf(end)
+                ):
+                    return fallback
                 if end < start:
                     start, end = end, start
-                return max(random.uniform(start, end), 0.0)
-            return max(float(delay_text), 0.0)
+                res = random.uniform(start, end)
+                if math.isnan(res) or math.isinf(res) or res < 0:
+                    return fallback
+                return res
+            val = float(delay_text)
+            if math.isnan(val) or math.isinf(val) or val < 0:
+                return fallback
+            return val
         except (TypeError, ValueError):
             return fallback
 
@@ -288,18 +308,21 @@ class SignerConfigMixin:
         return config
 
     @classmethod
-
     def _validate_sign_at(cls, sign_at_str: str) -> Optional[str]:
+        if not sign_at_str or not isinstance(sign_at_str, str):
+            return None
         sign_at_str = sign_at_str.replace("：", ":").strip()
+        if not sign_at_str:
+            return None
 
         try:
             sign_at = dt_time.fromisoformat(sign_at_str)
             crontab_expr = cls._time_to_crontab(sign_at)
-        except ValueError:
+        except (ValueError, TypeError):
             try:
                 croniter(sign_at_str)
                 crontab_expr = sign_at_str
-            except CroniterBadCronError:
+            except (CroniterBadCronError, ValueError, Exception):
                 return None
         return crontab_expr
 

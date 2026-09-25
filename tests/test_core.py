@@ -474,6 +474,14 @@ class TestResolveActionDelay:
         result = UserSigner._resolve_action_delay(action, fallback_delay=4.0)
         assert result == 4.0
 
+    def test_nan_and_inf_return_fallback(self):
+        act = SimpleNamespace(delay="nan")
+        assert UserSigner._resolve_action_delay(act, 2.5) == 2.5
+        act_inf = SimpleNamespace(delay="inf")
+        assert UserSigner._resolve_action_delay(act_inf, 3.0) == 3.0
+        act_range_nan = SimpleNamespace(delay="1-nan")
+        assert UserSigner._resolve_action_delay(act_range_nan, 1.0) == 1.0
+
     def test_fixed_numeric_delay(self):
         """固定数值字符串解析为浮点数"""
         action = SimpleNamespace(delay="5")
@@ -576,6 +584,13 @@ class TestValidateSignAt:
     def test_midnight_time(self):
         result = UserSigner._validate_sign_at("00:00:00")
         assert result == "0 0 * * *"
+
+    def test_none_or_empty_or_bad_columns(self):
+        assert UserSigner._validate_sign_at(None) is None
+        assert UserSigner._validate_sign_at("") is None
+        assert UserSigner._validate_sign_at("   ") is None
+        assert UserSigner._validate_sign_at("* * * * * * * * *") is None
+
 
 
 # ============================================================================
