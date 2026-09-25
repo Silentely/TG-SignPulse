@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import secrets
 import tempfile
 from pathlib import Path
 from typing import Optional
+
+from backend.utils.atomic_io import write_text_atomic
 
 _BASE_DIR: Optional[Path] = None
 _DATA_DIR_OVERRIDE_FILE_ENV = "APP_DATA_DIR_OVERRIDE_FILE"
@@ -63,15 +66,15 @@ def load_data_dir_override() -> Optional[Path]:
 def save_data_dir_override(path: Path | str) -> Path:
     target = Path(path).expanduser()
     override_file = get_data_dir_override_file()
-    override_file.parent.mkdir(parents=True, exist_ok=True)
-    override_file.write_text(str(target), encoding="utf-8")
+    write_text_atomic(override_file, str(target))
     return target
 
 
 def clear_data_dir_override() -> None:
     override_file = get_data_dir_override_file()
     if override_file.exists():
-        override_file.unlink()
+        with contextlib.suppress(OSError):
+            override_file.unlink()
 
 
 def get_initial_data_dir() -> Path:
@@ -126,8 +129,14 @@ def move_storage_path(source: Path, target: Path) -> None:
         temp_target = source.with_name(
             f"{source.name}.__rename_tmp__{secrets.token_hex(6)}"
         )
-        source.replace(temp_target)
-        temp_target.replace(target)
+        try:
+            source.replace(temp_target)
+            temp_target.replace(target)
+        except Exception:
+            if temp_target.exists() and not source.exists():
+                with contextlib.suppress(OSError):
+                    temp_target.replace(source)
+            raise
         return
 
     if target.exists():
