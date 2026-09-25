@@ -40,6 +40,8 @@ def test_format_proxy_url():
     assert formatted.startswith("http://")
     assert "user%40domain" in formatted
     assert "proxy.example.com:8080" in formatted
+    from backend.utils.proxy import build_proxy_dict
+    assert build_proxy_dict(formatted) == p_dict
 
 
 @pytest.mark.asyncio

@@ -528,8 +528,10 @@ class Client(BaseClient):
         self,
     ):
         await super().log_out()
-        if self.session_string_file.is_file():
-            os.remove(self.session_string_file)
+        try:
+            self.session_string_file.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def get_api_config():
@@ -583,8 +585,8 @@ def get_proxy(proxy: str = None):
         "scheme": scheme,
         "hostname": r.hostname,
         "port": port,
-        "username": r.username,
-        "password": r.password,
+        "username": parse.unquote(r.username) if r.username is not None else None,
+        "password": parse.unquote(r.password) if r.password is not None else None,
     }
 
 
