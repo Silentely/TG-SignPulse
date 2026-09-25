@@ -1,8 +1,13 @@
-import time
+from __future__ import annotations
 
-from backend.services.flood_backoff import (
-    FloodBackoffManager,
-)
+import time
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from backend.services.flood_backoff import FloodBackoffManager
+from backend.services.sign_task_failure import FailureCategory
+from backend.services.sign_task_runner import _runner_check_account
 
 
 def test_flood_backoff_manager_basic():
@@ -39,3 +44,32 @@ def test_flood_backoff_expiration():
     assert cooling is False
     assert rem == 0
     assert acc not in mgr._cooldowns
+
+
+@pytest.mark.asyncio
+async def test_runner_check_account_flood_wait_not_marking_account_invalid():
+    mock_svc = MagicMock()
+    mock_svc._task_key = lambda acc, t: f"{acc}:{t}"
+    mock_svc._append_active_log = MagicMock()
+    mock_svc._update_run_phase = MagicMock()
+
+    mgr = FloodBackoffManager()
+    mgr.record_flood_wait("acc_flood", wait_seconds=60)
+
+    state = {
+        "svc": mock_svc,
+        "account_name": "acc_flood",
+        "task_name": "task1",
+        "signer_no_updates": True,
+        "task_notify_on_failure": True,
+        "account_invalid_detected": False,
+        "flood_wait_cooling": False,
+    }
+
+    with patch("backend.services.flood_backoff.get_flood_backoff_manager", return_value=mgr):
+        await _runner_check_account(state)
+
+    assert state["flood_wait_cooling"] is True
+    assert state["account_invalid_detected"] is False
+    assert state["failure_category"] == FailureCategory.FLOOD_WAIT
+    assert "Telegram FloodWait" in state["error_msg"]
