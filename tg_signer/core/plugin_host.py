@@ -207,6 +207,11 @@ class PluginProcessHost:
                                 call_res = await self.ctx.react(
                                     emoji, **call_params
                                 )
+                            elif method == "edit_message":
+                                text = call_params.pop("text", "")
+                                call_res = await self.ctx.edit_message(text, **call_params)
+                            elif method == "delete_message":
+                                call_res = await self.ctx.delete_message(**call_params)
                             elif method.startswith("storage_"):
                                 is_global = bool(call_params.pop("is_global", False))
                                 target_storage = (

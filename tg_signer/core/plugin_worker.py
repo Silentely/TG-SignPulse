@@ -208,10 +208,35 @@ class ProxyPluginContext:
         if msg_id is None and self.message is not None and getattr(self.message, "id", None) is not None:
             msg_id = self.message.id
         if msg_id is None:
-            raise ValueError("当前上下文中无有效消息 ID，无法执行表情表态")
+            raise ValueError("当前上下文中没有有效消息 ID，无法执行表情表态")
         call_params = {"emoji": emoji, "message_id": msg_id}
         call_params.update(kwargs)
         return await self._rpc("react", **call_params)
+
+    async def edit_message(self, text: str, message_id: Optional[int] = None, **kwargs) -> Any:
+        msg_id = message_id
+        if msg_id is None and self.message is not None and getattr(self.message, "id", None) is not None:
+            msg_id = self.message.id
+        if msg_id is None:
+            raise ValueError("当前上下文中没有有效消息 ID，无法执行编辑")
+        call_params = {"text": text, "message_id": msg_id}
+        if self.message_thread_id is not None:
+            call_params.setdefault("message_thread_id", self.message_thread_id)
+        call_params.update(kwargs)
+        res = await self._rpc("edit_message", **call_params)
+        if isinstance(res, dict) and "id" in res and "chat" in res:
+            return ProxyMessage(res)
+        return res
+
+    async def delete_message(self, message_id: Optional[int] = None, **kwargs) -> Any:
+        msg_id = message_id
+        if msg_id is None and self.message is not None and getattr(self.message, "id", None) is not None:
+            msg_id = self.message.id
+        if msg_id is None:
+            raise ValueError("当前上下文中没有有效消息 ID，无法执行删除")
+        call_params = {"message_id": msg_id}
+        call_params.update(kwargs)
+        return await self._rpc("delete_message", **call_params)
 
 
 async def run_worker_loop(
