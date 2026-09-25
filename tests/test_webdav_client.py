@@ -249,6 +249,9 @@ def test_download_webdav_file(tmp_path: Path):
             dest_path=dest,
         )
     assert path.read_bytes() == b"abcdef"
+    import stat
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert list(tmp_path.glob("*.tmp-*")) == []
 
 
 def test_download_interrupted_cleans_partial_file(tmp_path: Path):

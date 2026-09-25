@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
+import os
 import re
+import tempfile
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -397,6 +400,8 @@ def download_webdav_file(
     with httpx.Client(
         timeout=req_timeout, auth=auth, follow_redirects=True, proxy=proxy_url
     ) as client:
+        actual_tmp: Optional[Path] = None
+        replaced = False
         try:
             with client.stream("GET", file_url) as resp:
                 if resp.status_code != 200:
@@ -408,17 +413,32 @@ def download_webdav_file(
                     raise RuntimeError(
                         f"WebDAV 下载失败 HTTP {resp.status_code}: {detail}"
                     )
-                with dest_path.open("wb") as fh:
+                with tempfile.NamedTemporaryFile(
+                    mode="wb",
+                    dir=str(dest_path.parent),
+                    prefix=f".{dest_path.name}.tmp-",
+                    delete=False,
+                ) as tmp:
+                    actual_tmp = Path(tmp.name)
                     for chunk in resp.iter_bytes():
                         if chunk:
-                            fh.write(chunk)
+                            tmp.write(chunk)
+                    tmp.flush()
+                    os.fsync(tmp.fileno())
+                with contextlib.suppress(OSError):
+                    actual_tmp.chmod(0o600)
+                os.replace(actual_tmp, dest_path)
+                replaced = True
         except Exception:
             # 流中断/写盘失败：清理半截文件，避免残留部分备份被误用
-            try:
+            with contextlib.suppress(OSError):
                 dest_path.unlink(missing_ok=True)
-            except OSError:
-                pass
             raise
+        finally:
+            if not replaced and actual_tmp is not None:
+                with contextlib.suppress(OSError):
+                    if actual_tmp.exists():
+                        actual_tmp.unlink()
     if not dest_path.is_file() or dest_path.stat().st_size == 0:
         try:
             dest_path.unlink(missing_ok=True)
