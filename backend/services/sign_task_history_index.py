@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from backend.utils.atomic_io import read_json_safe
+from backend.utils.atomic_io import read_json_safe, write_text_atomic
 
 logger = logging.getLogger("backend.sign_task_history_index")
 
@@ -203,8 +203,7 @@ def _maybe_trim_index_file(path: Path, *, max_lines: int) -> None:
         if len(lines) <= max_lines:
             return
         kept = lines[-max_lines:]
-        with open(path, "w", encoding="utf-8") as f:
-            f.writelines(kept)
+        write_text_atomic(path, "".join(kept))
     except OSError as exc:
         logger.debug("截断历史索引失败: %s", exc)
 
@@ -335,8 +334,7 @@ def remove_index_entries_matching(
         return 0
     try:
         if kept:
-            with open(path, "w", encoding="utf-8") as f:
-                f.writelines(kept)
+            write_text_atomic(path, "".join(kept))
         else:
             path.unlink(missing_ok=True)
     except OSError as exc:
@@ -350,8 +348,7 @@ def remove_index_entries_matching(
 def clear_index(run_history_dir: Path) -> None:
     path = index_file_path(run_history_dir)
     try:
-        if path.exists():
-            path.unlink()
+        path.unlink(missing_ok=True)
     except OSError as exc:
         logger.warning("删除历史索引失败: %s", exc)
     clear_memory_cache()
@@ -410,9 +407,8 @@ def rebuild_index_from_history_files(
 
     path = index_file_path(run_history_dir)
     try:
-        with open(path, "w", encoding="utf-8") as f:
-            for e in entries:
-                f.write(json.dumps(e, ensure_ascii=False) + "\n")
+        content = "".join(json.dumps(e, ensure_ascii=False) + "\n" for e in entries)
+        write_text_atomic(path, content)
     except OSError as exc:
         logger.warning("重建历史索引失败: %s", exc)
         return 0
