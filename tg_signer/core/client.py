@@ -306,6 +306,16 @@ def is_account_client_active(
     return False
 
 
+def get_client_refcount(key: str) -> int:
+    """查询某个客户端缓存键的当前引用计数。
+
+    供不持有 Client 实例的上层（如 backend 签到 runner 收尾）判断连接是否
+    仍被他人引用：计数 > 0 说明该连接由 `async with get_client(...)` 持有，
+    任何 `stop()` 都会中断正在使用它的协程。
+    """
+    return _CLIENT_REFS.get(key, 0)
+
+
 class Client(BaseClient):
     def __init__(self, name: str, *args, **kwargs):
         if _PYROGRAM_IMPORT_ERROR is not None:

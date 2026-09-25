@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import logging
 import os
@@ -10,6 +9,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from backend.core.config import get_settings
+from backend.utils.atomic_io import write_text_atomic
 from backend.utils.time import utc_now, utc_now_iso
 
 # session_string 校验与格式常量统一收敛到 tg_signer.compat（全项目唯一判定入口），
@@ -403,11 +403,10 @@ def _export_session_string_from_file(session_dir: Path, account_name: str) -> Op
             return None
 
         # Cache it to .session_string file for future use
+        # 原子写：会话字符串是登录态凭据，半截文件会让下次加载直接判定会话失效
         try:
             cache_path = session_string_file_path(session_dir, account_name)
-            cache_path.write_text(session_string, encoding="utf-8")
-            with contextlib.suppress(OSError):
-                os.chmod(cache_path, 0o600)
+            write_text_atomic(cache_path, session_string)
         except Exception:
             pass
 
@@ -421,10 +420,9 @@ def _export_session_string_from_file(session_dir: Path, account_name: str) -> Op
 def save_session_string_file(
     session_dir: Path, account_name: str, session_string: str
 ) -> None:
+    """原子写入会话字符串缓存（临时文件 + 权限收敛 0600 + fsync + rename）。"""
     path = session_string_file_path(session_dir, account_name)
-    path.write_text(session_string.strip(), encoding="utf-8")
-    with contextlib.suppress(OSError):
-        os.chmod(path, 0o600)
+    write_text_atomic(path, session_string.strip())
 
 
 def delete_session_string_file(session_dir: Path, account_name: str) -> None:

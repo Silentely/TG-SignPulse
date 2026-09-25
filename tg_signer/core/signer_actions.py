@@ -47,6 +47,7 @@ from tg_signer.core.client import (
 )
 from tg_signer.core.plugin_host import PluginProcessHost
 from tg_signer.core.plugins import PluginContext, PluginRegistry, PluginTimeoutError
+from tg_signer.core.signer_config import FLOOD_WAIT_RETRY_MAX_SECONDS
 from tg_signer.log_utils import (
     safe_ai_request_meta,
     safe_ai_result_meta,
@@ -1304,12 +1305,14 @@ class SignerActionsMixin:
                 return answer
             except errors.FloodWait as e:
                 wait_seconds = max(int(getattr(e, "value", 1) or 1), 1)
-                if wait_seconds > 120:
+                if wait_seconds > FLOOD_WAIT_RETRY_MAX_SECONDS:
                     self.log(
-                        f"触发长时 FloodWait ({wait_seconds}s > 120s)，放弃重试以避免阻塞调度",
+                        f"触发长时 FloodWait ({wait_seconds}s > {FLOOD_WAIT_RETRY_MAX_SECONDS}s)，放弃重试以避免阻塞调度",
                         level="WARNING",
                     )
-                    return None
+                    # 上抛而非返回 None：让 runner 走失败历史与 FloodWait 冷却登记，
+                    # 否则本次运行会被记为成功而实际上并未点击成功。
+                    raise
                 self.log(
                     f"触发 FloodWait，{wait_seconds}s 后重试 ({attempt}/{max_retries})",
                     level="WARNING",

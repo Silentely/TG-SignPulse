@@ -34,9 +34,13 @@ from tg_signer.core.client import OPENAI_USE_PROMPT, make_dirs
 from tg_signer.core.context import UserSignerWorkerContext
 from tg_signer.core.plugins import PluginTimeoutError
 from tg_signer.pydantic_compat import model_validate
-from tg_signer.utils import UserInput, print_to_user
+from tg_signer.utils import UserInput, extract_flood_wait_seconds, print_to_user
 
 _logger = logging.getLogger("tg-signer.signer_config")
+
+# 长 FloodWait 阈值：等待秒数超过该值的限流不纳入步级重试。
+# 与 compat.call_with_retry 的 max_flood_wait 默认值对齐（该处超限即上抛）。
+FLOOD_WAIT_RETRY_MAX_SECONDS = 120
 
 
 class SignerConfigMixin:
@@ -364,12 +368,17 @@ class SignerConfigMixin:
     def _is_transient_step_error(exc: Exception) -> bool:
         """判断步骤级错误是否为瞬时故障（值得在当前步骤重试）。
         仅用于流程内步级重试，避免因单步瞬时失败而重启整个脚本流程。
-        配额耗尽、计费限制等永久错误不视为瞬时故障。
+        配额耗尽、计费限制等永久错误不视为瞬时故障；
+        长 FloodWait（超过 FLOOD_WAIT_RETRY_MAX_SECONDS）同样不重试：
+        等待时间已超出单步可承受范围，应由上层登记冷却并结束本次运行。
         """
         if isinstance(exc, PluginTimeoutError):
             return False
         if isinstance(exc, (TimeoutError, asyncio.TimeoutError)):
             return True
+        flood_seconds = extract_flood_wait_seconds(exc)
+        if flood_seconds is not None and flood_seconds > FLOOD_WAIT_RETRY_MAX_SECONDS:
+            return False
         text = str(exc).lower()
         # 永久错误优先排除，避免 "429 Too Many Requests: insufficient_quota" 被误判
         permanent_markers = (

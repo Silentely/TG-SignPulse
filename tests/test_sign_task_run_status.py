@@ -1,6 +1,10 @@
 """运行状态纯函数测试。"""
 from __future__ import annotations
 
+import asyncio
+
+import pytest
+
 from backend.services.sign_task_run_status import (
     PHASE_COOLDOWN,
     PHASE_STARTING,
@@ -334,7 +338,89 @@ def test_cancel_task_run_run_id_mismatch():
     bg.cancel.assert_not_called()
 
 
-def test_is_terminal_run_state():
+def _make_handle_registry_svc():
+    """构造仅含运行态容器的 SignTaskService 替身（绕过 __init__ 的文件系统依赖）。"""
+    from backend.services.sign_tasks import SignTaskService
+
+    svc = SignTaskService.__new__(SignTaskService)
+    svc._background_run_tasks = {}
+    svc._active_tasks = {}
+    svc._active_logs = {}
+    svc._cleanup_tasks = {}
+    svc._run_statuses = {}
+    svc._run_status_cleanup_tasks = {}
+    svc._account_last_run_end = {}
+    return svc
+
+
+@pytest.mark.asyncio
+async def test_run_task_with_logs_registers_and_unregisters_handle():
+    """调度器/ChatOps 直接调用 run_task_with_logs：必须登记句柄，取消接口才找得到。"""
+    from unittest.mock import patch
+
+    svc = _make_handle_registry_svc()
+    seen = {}
+
+    async def fake_execute(s, acc, task, run_id=None):
+        seen["handle"] = s._background_run_tasks.get(s._task_key(acc, task))
+        return {"success": True, "output": ""}
+
+    with patch("backend.services.sign_task_runner.execute_sign_task", fake_execute):
+        out = await svc.run_task_with_logs("acc1", "daily")
+
+    assert out["success"] is True
+    # 执行期间句柄即当前协程，cancel_task_run 据此可协作式取消
+    assert seen["handle"] is asyncio.current_task()
+    # 正常结束后摘除，避免残留指向已完成协程的句柄
+    assert svc._background_run_tasks == {}
+
+
+@pytest.mark.asyncio
+async def test_run_task_with_logs_unregisters_handle_on_error():
+    """执行抛错时 finally 同样摘除句柄，否则取消接口会命中已结束的运行。"""
+    from unittest.mock import patch
+
+    svc = _make_handle_registry_svc()
+
+    async def boom(s, acc, task, run_id=None):
+        raise RuntimeError("execute boom")
+
+    with patch("backend.services.sign_task_runner.execute_sign_task", boom):
+        with pytest.raises(RuntimeError, match="execute boom"):
+            await svc.run_task_with_logs("acc1", "daily")
+
+    assert svc._background_run_tasks == {}
+
+
+@pytest.mark.asyncio
+async def test_scheduler_triggered_run_cancelled_via_cancel_task_run():
+    """调度触发的运行可被取消：句柄命中并 cancel，finally 回收句柄。"""
+    from unittest.mock import patch
+
+    svc = _make_handle_registry_svc()
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def fake_execute(s, acc, task, run_id=None):
+        started.set()
+        await release.wait()
+        return {"success": True, "output": ""}
+
+    with patch("backend.services.sign_task_runner.execute_sign_task", fake_execute):
+        runner = asyncio.ensure_future(svc.run_task_with_logs("acc1", "daily"))
+        await started.wait()
+        assert svc._background_run_tasks == {("acc1", "daily"): runner}
+
+        res = svc.cancel_task_run("acc1", "daily")
+        assert res["ok"] is True
+        assert res["cancelled"] is True
+
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await runner
+
+    assert svc._background_run_tasks == {}
+
     from backend.services.sign_task_run_status import (
         RUN_STATE_CANCELLED,
         RUN_STATE_FINISHED,

@@ -165,3 +165,21 @@ def test_adaptive_schedule_schema_and_config():
     assert updated["adaptive_schedule_enabled"] is False
     assert updated["adaptive_schedule_patterns"] == [r"\d+s"]
     assert updated["adaptive_schedule_padding_seconds"] == 45
+
+
+def test_parse_cooldown_rejects_unitless_numeric_ranges():
+    """区间只说明可能范围，把上界当成确定冷却时长会把范围误判为真实等待。"""
+    assert parse_cooldown_timedelta("冷却 0-3 小时") is None
+    assert parse_cooldown_timedelta("冷却 0-3h") is None
+    assert parse_cooldown_timedelta("等待 10-20 分钟") is None
+    assert parse_cooldown_timedelta("等待 2~4小时") is None
+    assert parse_cooldown_timedelta("冷却 1-2 天") is None
+    # 单值时长不受区间屏蔽影响
+    assert parse_cooldown_timedelta("冷却 3 小时") == timedelta(hours=3)
+    assert parse_cooldown_timedelta("冷却 1天2小时") == timedelta(days=1, hours=2)
+
+
+def test_parse_cooldown_range_shield_survives_natural_language_normalization():
+    """区间屏蔽在自然语言归一之后执行，复合串不能被区间规则误吞。"""
+    assert parse_cooldown_timedelta("请等待 1个半小时-2小时") is None
+    assert parse_cooldown_timedelta("半个-1小时") is None

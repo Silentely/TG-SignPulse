@@ -576,3 +576,92 @@ describe('useLogsPage (route + mount)', () => {
     unmount()
   })
 })
+
+describe('useLogsPage (detail guard)', () => {
+  const logA: TaskLogUiItem = {
+    id: 1,
+    time: '10:00',
+    created_at: '2026-07-01T10:00:00',
+    account: 'acc-q',
+    task: 'task-a',
+    status: 'success',
+    text: 'first',
+    flow_line_count: 0,
+  }
+  const logB: TaskLogUiItem = {
+    id: 2,
+    time: '11:00',
+    created_at: '2026-07-01T11:00:00',
+    account: 'acc-q',
+    task: 'task-b',
+    status: 'success',
+    text: 'second',
+    flow_line_count: 0,
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    confirmMock.confirm.mockResolvedValue(true)
+    useAuthStore().setToken('tok')
+    routeMocks.state.query = {}
+    api.listAccounts.mockResolvedValue({ accounts: [{ name: 'acc-q' }] })
+    api.getTaskHistoryLogs.mockResolvedValue([])
+    api.getLoginAuditLogs.mockResolvedValue([])
+    api.clearTaskHistoryLogs.mockResolvedValue({ cleared: 0 })
+  })
+
+  it('切换选中日志后丢弃上一条在途详情响应', async () => {
+    let releaseStale: (value: unknown) => void = () => {}
+    const stalePending = new Promise((resolve) => {
+      releaseStale = resolve
+    })
+    api.getTaskHistoryLogDetail
+      .mockImplementationOnce(() => stalePending)
+      .mockResolvedValueOnce({ flow_logs: ['fresh'], message: 'fresh detail' })
+
+    const { result, unmount } = mountComposable(() => useLogsPage())
+    try {
+      await flushPromises()
+
+      void result.openLogDetail(logA)
+      await flushPromises()
+      void result.openLogDetail(logB)
+      await flushPromises()
+
+      releaseStale({ flow_logs: ['stale'], message: 'stale detail' })
+      await flushPromises()
+
+      expect(result.selectedLog.value?.task).toBe('task-b')
+      expect(result.logDetail.value?.message).toBe('fresh detail')
+      expect(result.detailLoading.value).toBe(false)
+    } finally {
+      unmount()
+    }
+  })
+
+  it('清空任务日志后作废在途详情请求并复位详情区', async () => {
+    let releasePending: (value: unknown) => void = () => {}
+    const pending = new Promise((resolve) => {
+      releasePending = resolve
+    })
+    api.getTaskHistoryLogDetail.mockImplementationOnce(() => pending)
+
+    const { result, unmount } = mountComposable(() => useLogsPage())
+    try {
+      await flushPromises()
+      void result.openLogDetail(logA)
+      await flushPromises()
+
+      await result.handleClear()
+      expect(result.selectedLog.value).toBeNull()
+
+      releasePending({ flow_logs: ['late'], message: 'late detail' })
+      await flushPromises()
+
+      expect(result.logDetail.value).toBeNull()
+      expect(result.detailLoading.value).toBe(false)
+    } finally {
+      unmount()
+    }
+  })
+})

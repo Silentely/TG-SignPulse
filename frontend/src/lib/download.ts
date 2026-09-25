@@ -9,11 +9,27 @@ import { toNetworkError } from "./api/core";
 import type { ApiError } from "./types";
 
 /**
- * 清洗下载文件名中的非法字符，防止跨平台路径解析或浏览器存储异常。
+ * Windows 保留设备名（忽略大小写与扩展名）。
+ * 这些名字作为文件名会被系统重定向到设备，写入必然失败。
+ */
+const WINDOWS_RESERVED_NAMES = /^(?:con|prn|aux|nul|com[0-9]|lpt[0-9])$/i;
+
+/**
+ * 清洗下载文件名，防止跨平台路径解析、浏览器存储或文件系统写入异常。
+ * 依次处理：控制字符（含 \x00）→ 路径与通配字符 → 首尾点与空格 → Windows 保留名。
  */
 export function sanitizeDownloadFilename(filename?: string | null, fallback = "download"): string {
   if (!filename || typeof filename !== "string") return fallback;
-  const cleaned = filename.replace(/[/\\?%*:|"<>]/g, "_").trim();
+  let cleaned = filename
+    // 控制字符会让部分浏览器与文件系统解析失败，直接剥离
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .replace(/[/\\?%*:|"<>]/g, "_")
+    // 首尾的点与空格在 Windows 上会被静默丢弃，导致文件名与预期不符
+    .replace(/^[.\s]+|[.\s]+$/g, "");
+  const stem = cleaned.split(".")[0] || "";
+  if (WINDOWS_RESERVED_NAMES.test(stem)) {
+    cleaned = `_${cleaned}`;
+  }
   return cleaned || fallback;
 }
 

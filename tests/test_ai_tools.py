@@ -1290,6 +1290,41 @@ class SuccessTextDetectionTest(unittest.TestCase):
         signer = object.__new__(UserSigner)
         self.assertTrue(signer._text_has_terminal_success_text("验证码错误!\n签到成功，获得积分"))
 
+    def test_negated_time_markers_are_failure(self):
+        """否定类时间/状态标记不得判成成功（Bot 告知当前不可签到）。"""
+        from tg_signer.core import UserSigner
+
+        signer = object.__new__(UserSigner)
+        # 同一行内否定标记 + 强成功标记属于矛盾行：不能把未生效的签到判成成功
+        self.assertFalse(
+            signer._text_has_terminal_success_text("还未到签到时间，签到成功后可得积分")
+        )
+        self.assertFalse(
+            signer._text_has_terminal_success_text("签到尚未开始，签到成功后会到账")
+        )
+        self.assertFalse(
+            signer._text_has_terminal_success_text("现在不是签到时间，签到成功请重试")
+        )
+        # 无强成功标记时，通用成功词同样受否定标记约束
+        self.assertFalse(signer._text_has_terminal_success_text("今日签到未开始，完成后通知"))
+        self.assertFalse(signer._text_has_terminal_success_text("活动还未开始，无法签到"))
+
+    def test_negated_time_marker_with_generic_success_word_is_failure(self):
+        """无强成功标记时，通用成功词 + 否定标记组合仍判失败。"""
+        from tg_signer.core import UserSigner
+
+        signer = object.__new__(UserSigner)
+        self.assertFalse(signer._text_has_terminal_success_text("签到功能尚未开放完成"))
+
+    def test_strong_success_marker_survives_negated_time_marker(self):
+        """强成功标记（明天再来）表示今日已签到，优先级高于否定类时间标记。"""
+        from tg_signer.core import UserSigner
+
+        signer = object.__new__(UserSigner)
+        self.assertTrue(
+            signer._text_has_terminal_success_text("今日已完成签到，明天再来")
+        )
+
 
 class OpenAIConfigCacheTest(unittest.TestCase):
     """OpenAIConfigManager 文件配置按 mtime 缓存：热路径免重复读盘与解密。"""

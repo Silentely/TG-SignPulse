@@ -14,13 +14,21 @@
    当操作涉及多个账号（例如账号重命名、跨账号资产或任务迁移）时，
    必须严格按照 `sorted(account_names)` 字典序（以账号名排序）依次获取锁，
    在退出时逆序或自动释放，杜绝死锁 (Deadlock)。
+5. 锁所有权 (AccountLockLease)：
+   登录等跨请求流程会把客户端与锁一起暂存在会话字典里，多个请求接力操作同一把锁。
+   此时"锁是否被占用"无法区分"本流程持有"与"他人持有"，直接 release() 会误放他人的锁。
+   这类流程必须用 AccountLockLease 记录所有权，只释放自己获取的锁。
 """
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import weakref
+from dataclasses import dataclass
 from typing import AsyncIterator, Iterable
+
+logger = logging.getLogger("backend.account_locks")
 
 _ACCOUNT_LOCKS: weakref.WeakValueDictionary[str, asyncio.Lock] = (
     weakref.WeakValueDictionary()
@@ -31,6 +39,48 @@ class AccountLockTimeout(RuntimeError):
     """Raised when an account lock cannot be acquired within the timeout window."""
 
     pass
+
+
+@dataclass
+class AccountLockLease:
+    """账号锁租约：记录本次流程是否真正持有某把账号锁。
+
+    跨请求的登录流程复用同一把锁（客户端与锁一起存放在登录会话字典中），
+    后一个请求无法从 `lock.locked()` 判断锁究竟属于本流程还是他人。
+    租约用 `owned` 标记所有权：`release()` 仅在 owned 为真时释放，
+    未持有时告警跳过，避免把他人正在使用的锁提前放开导致并发写 session。
+    """
+
+    lock: asyncio.Lock
+    owned: bool = False
+
+    def mark_owned(self) -> None:
+        """标记本次流程已持有该锁，此后 release() 才会真正释放。"""
+        self.owned = True
+
+    def release(self) -> bool:
+        """释放锁并返回是否真的释放；未持有时告警跳过，绝不放他人的锁。"""
+        if not self.owned:
+            if self.lock.locked():
+                logger.warning("跳过释放非本流程持有的账号锁，该锁可能正被其他协程使用")
+            return False
+        self.owned = False
+        with contextlib.suppress(RuntimeError):
+            self.lock.release()
+        return True
+
+    def force_release(self) -> bool:
+        """无视所有权强制释放锁并作废租约。
+
+        仅用于接管残留登录会话：会话已被丢弃，其持有方即使还活着也不再受保护，
+        不释放会让账号锁永久滞留，后续所有请求都拿不到这把锁。
+        """
+        self.owned = False
+        if not self.lock.locked():
+            return False
+        with contextlib.suppress(RuntimeError):
+            self.lock.release()
+        return True
 
 
 def get_account_lock(account_name: str) -> asyncio.Lock:

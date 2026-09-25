@@ -687,3 +687,41 @@ class TestSessionStringFileFallback:
 
         monkeypatch.setattr(path.__class__, "unlink", _boom_unlink)
         tg_session.delete_session_string_file(tmp_path, "locked")  # 不抛异常
+
+    def test_save_session_string_file_is_atomic_and_private(self, tmp_path):
+        """会话字符串是登录态凭据：必须原子写入且权限收敛到 0600。"""
+        import os
+        import stat
+
+        path = tg_session.session_string_file_path(tmp_path, "atomic")
+        tg_session.save_session_string_file(tmp_path, "atomic", "secret-session")
+
+        assert path.read_text(encoding="utf-8") == "secret-session"
+        mode = stat.S_IMODE(os.stat(path).st_mode)
+        assert mode == 0o600
+        # 原子写通过 rename 落地：目录里不允许残留临时文件
+        leftovers = [p.name for p in tmp_path.iterdir() if p.name != path.name]
+        assert leftovers == []
+
+    def test_save_session_string_file_overwrites_atomically(self, tmp_path):
+        """覆盖写同样走 rename：不会出现目标文件被清空又写失败的中间态。"""
+        path = tg_session.session_string_file_path(tmp_path, "rewrite")
+        tg_session.save_session_string_file(tmp_path, "rewrite", "first")
+        tg_session.save_session_string_file(tmp_path, "rewrite", "second")
+        assert path.read_text(encoding="utf-8") == "second"
+
+    def test_save_session_string_file_failure_keeps_previous(self, tmp_path, monkeypatch):
+        """写入失败时旧内容必须保留，避免会话缓存被清空后误判为未登录。"""
+        import os
+
+        path = tg_session.session_string_file_path(tmp_path, "keep")
+        tg_session.save_session_string_file(tmp_path, "keep", "previous")
+
+        def _boom_replace(src, dst):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(os, "replace", _boom_replace)
+        with pytest.raises(OSError):
+            tg_session.save_session_string_file(tmp_path, "keep", "next")
+
+        assert path.read_text(encoding="utf-8") == "previous"

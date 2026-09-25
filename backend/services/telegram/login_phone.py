@@ -14,7 +14,7 @@ from backend.services.telegram.sessions import (
     _cleanup_expired_login_sessions,
     _login_sessions,
 )
-from backend.utils.account_locks import get_account_lock
+from backend.utils.account_locks import AccountLockLease, get_account_lock
 from backend.utils.proxy import build_proxy_dict
 from backend.utils.tg_session import (
     get_global_semaphore,
@@ -98,6 +98,8 @@ class TelegramPhoneLoginMixin:
         await _cleanup_expired_login_sessions()
 
         account_lock = get_account_lock(account_name)
+        # 本次登录流程的锁租约：后续请求接力操作同一把锁，只有本流程获取的锁才允许释放
+        lock_lease = AccountLockLease(account_lock)
         session_mode = get_session_mode()
         global_semaphore = get_global_semaphore()
 
@@ -108,7 +110,12 @@ class TelegramPhoneLoginMixin:
             if key.startswith(f"{account_name}_"):
                 old_client = value.get("client")
                 old_lock = value.get("lock")
-                if old_lock and old_lock.locked():
+                # 残留会话已被本请求接管，作废旧租约后强制放锁：
+                # 不释放会让账号锁永久滞留，后续登录与签到都拿不到这把锁
+                old_lease = value.get("lock_lease")
+                if old_lease is not None:
+                    old_lease.force_release()
+                elif old_lock and old_lock.locked():
                     with contextlib.suppress(RuntimeError):
                         old_lock.release()
                 if old_client:
@@ -126,10 +133,10 @@ class TelegramPhoneLoginMixin:
             await asyncio.wait_for(account_lock.acquire(), timeout=15.0)
         except asyncio.TimeoutError:
             raise ValueError(f"账号 {account_name} 正在被后台任务占用，请稍后再试")
+        lock_lease.mark_owned()
 
         def _release_account_lock() -> None:
-            if account_lock.locked():
-                account_lock.release()
+            lock_lease.release()
 
         # 2. 确保没有后台任务占用
         try:
@@ -229,6 +236,7 @@ class TelegramPhoneLoginMixin:
                 "phone_code_hash": sent_code.phone_code_hash,
                 "phone_number": phone_number,
                 "lock": account_lock,
+                "lock_lease": lock_lease,
                 "account_name": account_name,
                 "_created_at": time.monotonic(),
             }
@@ -310,13 +318,36 @@ class TelegramPhoneLoginMixin:
         global_semaphore = get_global_semaphore()
 
         account_lock = session_data.get("lock")
+        lock_lease = session_data.get("lock_lease")
+        if lock_lease is None and account_lock is not None:
+            # 兼容无租约的会话结构：所有权按本次请求的实际获取结果记录
+            lock_lease = AccountLockLease(account_lock)
+            session_data["lock_lease"] = lock_lease
 
         def _release_account_lock() -> None:
-            if account_lock and account_lock.locked():
-                account_lock.release()
+            if lock_lease is not None:
+                lock_lease.release()
+            elif account_lock and account_lock.locked():
+                with contextlib.suppress(RuntimeError):
+                    account_lock.release()
 
-        if account_lock and not account_lock.locked():
-            await account_lock.acquire()
+        # 同一登录流程的续接请求：锁由 start_login 持有，按租约所有权决定补锁/跳过，
+        # 绝不能释放他人持有的锁
+        if lock_lease is not None and account_lock is not None:
+            if lock_lease.owned:
+                # 租约仍归本流程，但锁可能已被过期清理强制释放，补锁保证临界区完整
+                if not account_lock.locked():
+                    await account_lock.acquire()
+            elif not account_lock.locked():
+                # 锁空闲：本次请求自行获取并取得所有权
+                await account_lock.acquire()
+                lock_lease.mark_owned()
+            else:
+                # 锁被他人持有：会话已被接管，告警后跳过释放
+                logger.warning(
+                    "登录会话 %s 的账号锁已被其他协程持有，本次请求将以无锁方式继续",
+                    session_key,
+                )
 
         try:
             async with global_semaphore:

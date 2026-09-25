@@ -38,6 +38,28 @@ def test_validate_storage_name_null_byte():
         validate_storage_name("my\x00account", field_name="account")
 
 
+def test_validate_storage_name_rejects_invisible_unicode():
+    """控制/格式/代理/私用/未分配字符一律拒绝，避免目录不可见或语义不定。"""
+    for bad in [
+        "acc\x01ount",  # Cc 控制字符
+        "acc​ount",  # Cf 零宽空格
+        "acc﻿ount",  # Cf BOM
+        "acc­ount",  # Cf 软连字符
+        "account",  # Co 私用区
+        "acc\ud800ount",  # Cs 代理区
+        "acc͸ount",  # Cn 未分配码位
+    ]:
+        with pytest.raises(ValueError, match="control or invisible characters"):
+            validate_storage_name(bad, field_name="account")
+
+
+def test_validate_storage_name_accepts_visible_unicode():
+    """中文等可见字母数字名不受影响。"""
+    assert validate_storage_name("账号一", field_name="account") == "账号一"
+    assert validate_storage_name("  spaced_name  ", field_name="account") == "spaced_name"
+    assert validate_storage_name("日本語_2026", field_name="task") == "日本語_2026"
+
+
 def test_extract_last_target_message_fullwidth_colon():
     logs = [
         "2026-03-29 10:00:00 - 图片：test_image.png",

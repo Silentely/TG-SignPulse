@@ -164,11 +164,48 @@ export function createRequestAbort(
 }
 
 /**
+ * 把响应体接入同一套 abort 生命周期，返回可读取的等价 Response。
+ *
+ * cleanup 原先在 headers 到达时立即执行，会使超时定时器与外层 abort 监听在
+ * body 读取前全部失效：读取期间既取消不了请求，逃逸出的 AbortError 也不再
+ * 经过调用方的 normalizeNetworkError 归一化，整段墙钟超时因此形同虚设。
+ * 这里把 cleanup 推迟到响应体读完（或被取消/出错），覆盖 headers + body 全程。
+ */
+function trackBodyAbortCleanup(res: Response, cleanup: () => void): Response {
+  const body = res.body;
+  // 无响应体（204 / HEAD 等）没有读取阶段，立即收尾
+  if (!body) {
+    cleanup();
+    return res;
+  }
+  let finished = false;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    cleanup();
+  };
+  // 用 TransformStream 透传以保留流式背压；flush 标记 body 正常读完。
+  // 手动 pipeTo 而非 pipeThrough：后者不暴露 promise，源流出错时无法收尾
+  // （部分运行时的 ReadableStream 也没有 closed 可供监听）。
+  // pipeTo 的 promise 在正常结束、源流出错、下游取消时都会 settle，因此
+  // 无论哪条路径 cleanup 都只执行一次。
+  const transform = new TransformStream({
+    flush: () => finish(),
+  });
+  void body.pipeTo(transform.writable).then(finish, finish);
+  return new Response(transform.readable, {
+    status: res.status,
+    statusText: res.statusText,
+    headers: res.headers,
+  });
+}
+
+/**
  * 内部请求基元：鉴权 header、可选超时、abort 传播、!res.ok 错误解析与 401 跳转。
  * 成功时返回原始 Response，由调用方决定 JSON/Blob 解析方式。
  *
- * timeoutMs 语义（本函数内）：仅约束到 headers 到达；若需覆盖 body，
- * 请用 request/requestBlob/requestText，或自行 createRequestAbort + timeoutMs=null。
+ * timeoutMs 语义（本函数内）：仅约束到 headers 到达；body 读取期间的取消由
+ * 外层 abort 信号继续约束（见 trackBodyAbortCleanup），错误归一化由调用方负责。
  */
 export async function fetchWithAuth(
   path: string,
@@ -199,8 +236,9 @@ export async function fetchWithAuth(
       abort.wasAbortedByExternal(),
     );
   }
-  // headers 已到达：TTFB 超时结束（body 由 request* 的外层超时继续管，或调用方自管）
-  abort.cleanup();
+  // headers 已到达：TTFB 阶段结束，cleanup 推迟到 body 读完再执行。
+  // 原 body 已被管道锁定，后续一律读取包装后的等价 Response。
+  res = trackBodyAbortCleanup(res, abort.cleanup);
 
   if (!res.ok) {
     let errorMessage = `Request failed (${res.status})`;

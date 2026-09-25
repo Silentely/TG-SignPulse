@@ -1200,6 +1200,28 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
             description=f"run status cleanup {account_name}/{task_name}",
         )
 
+    def _register_background_run(
+        self, task_key: tuple[str, str], task: Optional[asyncio.Task]
+    ) -> None:
+        """登记可取消的执行句柄，供 cancel_task_run 协作式取消。
+
+        调度器与 ChatOps 触发的执行此前未登记，取消接口只能回
+        「无可取消的后台句柄」；统一在此登记后两种入口行为一致。
+        """
+        if task is None:
+            return
+        self._background_run_tasks[task_key] = task
+
+    def _unregister_background_run(
+        self, task_key: tuple[str, str], task: Optional[asyncio.Task]
+    ) -> None:
+        """摘除执行句柄；仅当登记项仍是本次 task 时移除。
+
+        身份比较避免误删同一 key 上后续运行刚登记的句柄。
+        """
+        if task is not None and self._background_run_tasks.get(task_key) is task:
+            self._background_run_tasks.pop(task_key, None)
+
     async def start_task_run(self, account_name: str, task_name: str) -> Dict[str, Any]:
         account_name = validate_storage_name(account_name, field_name="account_name")
         task_name = validate_storage_name(task_name, field_name="task_name")
@@ -1275,14 +1297,13 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
                     failure_category=category,
                 )
                 self._schedule_run_status_cleanup(account_name, task_name)
-            self._background_run_tasks.pop(task_key, None)
+            self._unregister_background_run(task_key, asyncio.current_task())
 
-        background_task = create_logged_task(
+        create_logged_task(
             runner(),
             logger=_service_logger,
             description=f"sign task run {account_name}/{task_name}",
         )
-        self._background_run_tasks[task_key] = background_task
         return status
 
     def cancel_task_run(
@@ -1361,7 +1382,18 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         """运行任务并实时捕获日志 (In-Process)。实现见 sign_task_runner。"""
         from backend.services.sign_task_runner import execute_sign_task
 
-        return await execute_sign_task(self, account_name, task_name, run_id=run_id)
+        # 登记当前协程为可取消句柄：调度器/ChatOps 直接调用本方法（不经 start_task_run），
+        # 不登记则 cancel_task_run 找不到句柄。HTTP 路径下 current_task 即 start_task_run
+        # 创建的 runner() 任务，重复登记同一对象无副作用。
+        # 此处只算 key 不做名校验：execute_sign_task 会校验并在失败时抛错，
+        # finally 中的摘除保证不会留下残留句柄。
+        task_key = self._task_key(account_name, task_name)
+        current_task = asyncio.current_task()
+        self._register_background_run(task_key, current_task)
+        try:
+            return await execute_sign_task(self, account_name, task_name, run_id=run_id)
+        finally:
+            self._unregister_background_run(task_key, current_task)
 
 
 # 创建全局实例

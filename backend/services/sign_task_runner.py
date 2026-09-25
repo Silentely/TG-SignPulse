@@ -25,7 +25,9 @@ from backend.services.sign_task_run_status import (
     resolve_effective_retry_count,
 )
 from backend.utils.task_logs import extract_last_target_message
+from tg_signer.core import get_client_refcount
 from tg_signer.log_utils import safe_exception_summary, safe_traceback_preview
+from tg_signer.utils import extract_flood_wait_seconds
 
 # 执行参数常量（原散落魔法数字，集中命名便于调参与审查）
 # run_once 拉取的会话数量：过大拖慢任务启动，过小可能漏掉目标会话
@@ -344,18 +346,15 @@ async def _runner_execute_with_retry(state: Dict[str, Any]) -> None:
                     f"任务执行超时（{int(task_timeout)}秒），已强制终止"
                 )
             except Exception as e:
-                err_str = str(e)
-                if any(kw in err_str.lower() for kw in ("floodwait", "flood_wait", "flood wait")):
-                    import re
-                    match = re.search(r"(\d+)\s*(?:seconds|s|秒)?", err_str, re.IGNORECASE)
-                    wait_sec = int(match.group(1)) if match else 60
-                    if hasattr(e, "value") and isinstance(e.value, int):
-                        wait_sec = e.value
+                # FloodWait 判定走类型优先的共享解析：str(FloodWait) 不含类名，
+                # 仅靠关键词匹配会漏判实例，进而漏登记 FloodWait 冷却。
+                wait_sec = extract_flood_wait_seconds(e)
+                if wait_sec is not None:
                     from backend.services.flood_backoff import get_flood_backoff_manager
                     get_flood_backoff_manager().record_flood_wait(
                         state["account_name"],
                         wait_seconds=wait_sec,
-                        reason=f"Telegram API FloodWait: {err_str[:100]}",
+                        reason=f"Telegram API FloodWait: {str(e)[:100]}",
                     )
                 if "database is locked" in str(e).lower():
                     if attempt < max_retries - 1:
@@ -740,16 +739,23 @@ async def _runner_finalize(state: Dict[str, Any]) -> None:
             await _runner_save_run_info(state)
             await _runner_send_notifications(state)
     finally:
-        # 先复位运行标记：随后的 await 若抛出 CancelledError（BaseException，不被
+        # 先调度清理再停止客户端：清理注册是同步的，若放在 stop() 之后，
+        # stop() 抛出 CancelledError（BaseException）时本次运行的日志将永不回收。
+        await _runner_schedule_cleanup(state)
+        # 再复位运行标记：随后的 await 若抛出 CancelledError（BaseException，不被
         # except Exception 捕获），仍能保证任务不被永久标记为“运行中”
         svc._active_tasks[task_key] = False
         signer = state.get("signer")
         if signer is not None:
             app = getattr(signer, "app", None)
             if app is not None and getattr(app, "is_connected", False):
-                with contextlib.suppress(Exception):
-                    await app.stop()
-        await _runner_schedule_cleanup(state)
+                # 客户端由引用计数共享（关键词监听与签到可持有同一连接）：
+                # 仅当无人引用时才真正断开，否则会中断正在使用该连接的其它协程。
+                # 取不到 key（非 Client 实例的测试替身）时按 0 处理，保持原有清理语义。
+                app_key = getattr(app, "key", None) or ""
+                if get_client_refcount(app_key) <= 0:
+                    with contextlib.suppress(Exception):
+                        await app.stop()
 
 
 # ========== Main orchestrator ==========
