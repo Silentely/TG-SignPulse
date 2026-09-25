@@ -12,6 +12,7 @@ from backend.services.sign_task_chats import is_invalid_session_error
 from backend.services.telegram.sessions import (
     _login_sessions,
     _qr_login_sessions,
+    _release_login_session,
 )
 from backend.utils.account_locks import (
     AccountLockTimeout,
@@ -874,12 +875,17 @@ class TelegramAccountsMixin:
         for store in (_login_sessions, _qr_login_sessions):
             stale = [
                 key
-                for key, value in store.items()
+                for key, value in list(store.items())
                 if str((value or {}).get("account_name") or "").strip().lower()
                 == account_name.lower()
             ]
             for key in stale:
-                store.pop(key, None)
+                val = store.pop(key, None)
+                if val:
+                    try:
+                        await _release_login_session(val)
+                    except Exception as e:
+                        logger.debug("释放待清理登录会话失败: %s", e)
 
         # 使缓存失效
         self._accounts_cache = None

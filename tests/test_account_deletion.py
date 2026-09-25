@@ -77,7 +77,18 @@ async def test_delete_account_removes_store_only_account(service):
 async def test_delete_account_purges_pending_login_records(service):
     """删除账号时必须清理登录中会话，否则账号会继续出现在账号列表中。"""
     (service.session_dir / "acc_pending.session").write_bytes(b"sqlite")
-    _login_sessions["acc_pending_+8613800000000"] = {"account_name": "acc_pending"}
+    class _MockLoginClient:
+        def __init__(self):
+            self.is_initialized = True
+            self.stopped = False
+        async def stop(self):
+            self.stopped = True
+
+    mock_c = _MockLoginClient()
+    _login_sessions["acc_pending_+8613800000000"] = {
+        "account_name": "acc_pending",
+        "client": mock_c,
+    }
     _qr_login_sessions["qr-login-1"] = {
         "account_name": "acc_pending",
         "status": "waiting",
@@ -88,6 +99,7 @@ async def test_delete_account_purges_pending_login_records(service):
 
     assert _login_sessions == {}
     assert _qr_login_sessions == {}
+    assert mock_c.stopped is True
 
 
 @pytest.mark.asyncio
