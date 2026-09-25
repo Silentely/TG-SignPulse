@@ -1236,6 +1236,18 @@ class SuccessTextDetectionTest(unittest.TestCase):
         text = "验证码错误!\n🎉 签到成功，获得了 20积分\n💰总积分：1563"
         self.assertTrue(signer._text_has_terminal_success_text(text))
 
+    def test_additional_chinese_checkin_success_markers(self):
+        """测试打卡成功、今日已完成签到、明天再来等中文签到终止标记。"""
+        from tg_signer.core import UserSigner
+
+        signer = object.__new__(UserSigner)
+        self.assertTrue(signer._text_has_terminal_success_text("今日已完成签到，请明天再来"))
+        self.assertTrue(signer._text_has_terminal_success_text("打卡成功，获得 5 积分"))
+        self.assertTrue(signer._text_has_terminal_success_text("今日已打卡"))
+        self.assertTrue(signer._text_has_terminal_success_text("明天再来吧"))
+        self.assertTrue(signer._callback_text_has_terminal_success_text("今日已打卡"))
+        self.assertTrue(signer._callback_text_has_terminal_success_text("今日已完成签到"))
+
     def test_sign_opportunity_exhausted_is_success(self):
         """签到机会已用完表示今日已签到。"""
         from tg_signer.core import UserSigner
