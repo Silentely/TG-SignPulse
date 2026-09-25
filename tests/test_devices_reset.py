@@ -46,6 +46,7 @@ async def test_reset_account_authorizations_invokes_raw_rpc_under_lock():
         or getattr(raw.functions.auth, "ResetAuthorizations", None)
     )
     assert isinstance(call_arg, expected_rpc_cls)
+    svc.client.disconnect.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -98,3 +99,12 @@ def test_reset_authorizations_route_handles_busy_lock(api_client, db):  # noqa: 
 
     assert resp.status_code == 409
     assert resp.json()["detail"] == "ACCOUNT_BUSY"
+
+
+@pytest.mark.asyncio
+async def test_list_account_devices_disconnects_client():
+    svc = DummyDeviceService(exists=True)
+    svc.client.invoke.return_value = MagicMock(authorizations=[])
+    await svc.list_account_devices("test_acc_reset")
+    svc.client.connect.assert_awaited_once()
+    svc.client.disconnect.assert_awaited_once()
