@@ -169,7 +169,10 @@ class S3BackupClient:
         return format_proxy_url(self.proxy)
 
     def object_key(self, object_name: str) -> str:
-        return f"{self.prefix}{object_name}"
+        name = str(object_name or "").strip().lstrip("/")
+        if not name or ".." in Path(name).parts or chr(0) in name or chr(92) in name:
+            raise ValueError(f"非法的 S3 对象名称: {object_name!r}")
+        return f"{self.prefix}{name}"
 
     async def upload_file(self, file_path: Path, object_name: Optional[str] = None) -> Dict[str, Any]:
         """上传本地文件到 S3 存储桶。"""

@@ -604,3 +604,18 @@ class TestModuleHelpers:
 
         with pytest.raises(ValueError):
             await download_s3_file({"s3_enabled": True}, "../../etc/passwd")
+
+
+def test_s3_object_key_validation():
+    client = _client()
+    assert client.object_key("auto-123.tar.gz") == "tg-signpulse-backups/auto-123.tar.gz"
+    assert client.object_key("/auto-123.tar.gz") == "tg-signpulse-backups/auto-123.tar.gz"
+
+    with pytest.raises(ValueError, match="非法的 S3 对象名称"):
+        client.object_key("")
+    with pytest.raises(ValueError, match="非法的 S3 对象名称"):
+        client.object_key("../secret.txt")
+    with pytest.raises(ValueError, match="非法的 S3 对象名称"):
+        client.object_key("folder/../../etc/passwd")
+    with pytest.raises(ValueError, match="非法的 S3 对象名称"):
+        client.object_key(r"bad\file.tar.gz")
