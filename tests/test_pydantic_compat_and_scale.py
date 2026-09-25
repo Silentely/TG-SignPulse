@@ -120,3 +120,23 @@ class TestSchedulerLock:
         assert (Path(tmp_path) / ".scheduler.lock").exists()
         release_scheduler_lock()
         config_module.get_settings.cache_clear()
+
+
+
+class TestCorsAndProxySettings:
+    def test_cors_allow_origins_strips_trailing_slash_and_quotes(self):
+        s = Settings(
+            cors_allow_origins_raw=r'"https://example.com/", "http://localhost:3000/", https://example.com'
+        )
+        assert s.cors_allow_origins == [
+            "https://example.com",
+            "http://localhost:3000",
+        ]
+
+    def test_cors_allow_origins_wildcard_preserved(self):
+        s = Settings(cors_allow_origins_raw="*")
+        assert s.cors_allow_origins == ["*"]
+
+    def test_trusted_proxies_strips_quotes_and_dedup(self):
+        s = Settings(trusted_proxies_raw=r'"127.0.0.1", "10.0.0.1", 127.0.0.1')
+        assert s.trusted_proxies == ["127.0.0.1", "10.0.0.1"]
