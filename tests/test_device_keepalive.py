@@ -131,3 +131,18 @@ class TestRunBehavior:
         assert forced["kept_alive"] == 1
         assert forced["skipped"] == 0
         assert keepalive.tg.check_account_status.await_count == 2
+
+    @pytest.mark.asyncio()
+    async def test_corrupted_state_file_tolerated(self, keepalive):
+        # 写入非法 JSON
+        keepalive.svc.state_file.parent.mkdir(parents=True, exist_ok=True)
+        keepalive.svc.state_file.write_text("not-a-json-{{", encoding="utf-8")
+        loaded = keepalive.svc._load_state()
+        assert loaded == {"accounts": {}}
+
+    def test_singleton_get_service(self):
+        from backend.services.device_keepalive import get_device_keepalive_service
+        s1 = get_device_keepalive_service()
+        s2 = get_device_keepalive_service()
+        assert s1 is s2
+
