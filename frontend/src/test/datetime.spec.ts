@@ -1,7 +1,7 @@
 /**
  * datetime 格式化：24 小时制、空值兜底、解析失败回退原值、时区可切换。
  */
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import {
   formatDateTime,
   formatLogTime,
@@ -17,6 +17,21 @@ describe('datetime 格式化', () => {
   afterEach(() => {
     // 恢复默认时区，避免用例间互相污染
     setPanelTimezone('Asia/Hong_Kong')
+  })
+
+  it("支持秒级与毫秒级时间戳（数字与数字字符串）及 Date 实例", () => {
+    // 2026-07-01T10:05:09Z 的秒级时间戳为 1782900309
+    const tsSec = 1782900309
+    const tsMs = tsSec * 1000
+    expect(formatTimeOnly(tsSec)).toBe("18:05:09")
+    expect(formatTimeOnly(String(tsSec))).toBe("18:05:09")
+    expect(formatTimeOnly(tsMs)).toBe("18:05:09")
+    expect(formatTimeOnly(String(tsMs))).toBe("18:05:09")
+    expect(formatTimeOnly(new Date(tsMs))).toBe("18:05:09")
+
+    expect(formatShortDateTime(tsSec)).toBe("07/01 18:05")
+    expect(formatShortDateTime(String(tsSec))).toBe("07/01 18:05")
+    expect(formatDateTime(tsSec)).toContain("2026")
   })
 
   it('formatTimeOnly 仅输出时间且为 24 小时制', () => {

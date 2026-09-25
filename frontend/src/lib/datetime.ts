@@ -1,6 +1,6 @@
 /**
  * 时间展示格式化：面板内统一 24 小时制与无效输入兜底。
- * 空值返回 fallback，解析失败返回原始字符串。
+ * 空值返回 fallback，解析失败返回原始字符串或 fallback。
  *
  * 展示时区：默认 Asia/Hong_Kong（与后端 TZ 默认一致）；
  * Settings 页保存时区后通过 setPanelTimezone 生效，全面板展示跟随。
@@ -8,6 +8,8 @@
 
 /** 面板统一展示时区（模块级可变，Settings 保存后写入） */
 let panelTimezone = 'Asia/Hong_Kong'
+
+export type DateInput = string | number | Date | null | undefined
 
 export function isValidTimezone(tz: string): boolean {
   try {
@@ -27,11 +29,47 @@ export function setPanelTimezone(tz: string | undefined | null): void {
   }
 }
 
+/**
+ * 将任意 DateInput（字符串、时间戳数字、时间戳字符串、Date 对象）解析为合法 Date。
+ * 兼容秒级与毫秒级时间戳。
+ */
+export function parseDateInput(value: DateInput): Date | null {
+  if (value === null || value === undefined || value === '') return null
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value
+  }
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return null
+    const ms = value < 10_000_000_000 ? value * 1000 : value
+    const d = new Date(ms)
+    return Number.isNaN(d.getTime()) ? null : d
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) return null
+    if (/^\d+(\.\d+)?$/.test(trimmed)) {
+      const num = Number(trimmed)
+      if (Number.isFinite(num)) {
+        const ms = num < 10_000_000_000 ? num * 1000 : num
+        const d = new Date(ms)
+        if (!Number.isNaN(d.getTime())) return d
+      }
+    }
+    const d = new Date(trimmed)
+    return Number.isNaN(d.getTime()) ? null : d
+  }
+  return null
+}
+
+function resolveInvalidFallback(value: DateInput, fallback: string): string {
+  return typeof value === 'string' ? value : fallback
+}
+
 /** 仅时间（HH:MM:SS，24 小时制） */
-export function formatTimeOnly(value?: string | null, fallback = ''): string {
-  if (!value) return fallback
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return value
+export function formatTimeOnly(value?: DateInput, fallback = ''): string {
+  if (value === null || value === undefined || value === '') return fallback
+  const d = parseDateInput(value)
+  if (!d) return resolveInvalidFallback(value, fallback)
   return d.toLocaleTimeString('en-US', { hour12: false, timeZone: panelTimezone })
 }
 
@@ -40,10 +78,10 @@ export function formatTimeOnly(value?: string | null, fallback = ''): string {
  * 面板日志常驻滚动，近午夜前后仅看时刻容易产生歧义（昨天 23:59 vs 今天 00:01）。
  * 「今天」按面板统一展示时区判定，避免本机时区差异导致误判。
  */
-export function formatLogTime(value?: string | null, fallback = ''): string {
-  if (!value) return fallback
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return value
+export function formatLogTime(value?: DateInput, fallback = ''): string {
+  if (value === null || value === undefined || value === '') return fallback
+  const d = parseDateInput(value)
+  if (!d) return resolveInvalidFallback(value, fallback)
 
   const hkDateKey = (date: Date) =>
     new Intl.DateTimeFormat('en-US', {
@@ -55,7 +93,7 @@ export function formatLogTime(value?: string | null, fallback = ''): string {
       .format(date)
       .replace(/\//g, '-')
 
-  const time = formatTimeOnly(value, fallback)
+  const time = formatTimeOnly(d, fallback)
   if (hkDateKey(d) === hkDateKey(new Date())) return time
 
   const monthDay = new Intl.DateTimeFormat('en-US', {
@@ -72,13 +110,13 @@ export function formatLogTime(value?: string | null, fallback = ''): string {
  * 在不同机器上出现 2026/8/8 与 08/08/2026 等格式混排。
  */
 export function formatDateTime(
-  value?: string | null,
+  value?: DateInput,
   locale: string = 'zh-CN',
   fallback = '-',
 ): string {
-  if (!value) return fallback
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return value
+  if (value === null || value === undefined || value === '') return fallback
+  const d = parseDateInput(value)
+  if (!d) return resolveInvalidFallback(value, fallback)
   try {
     return d.toLocaleString(locale, { hour12: false, timeZone: panelTimezone })
   } catch {
@@ -86,15 +124,15 @@ export function formatDateTime(
   }
 }
 
-/** 短日期时间（MM/DD HH:MM[:SS]），手工拼接避免语言区域导致的顺序/分隔符差异 */
+/** 短日期时间（MM/DD HH:MM[:SS]），手工拼接避免语言区域导致阶顺序/分隔符差异 */
 export function formatShortDateTime(
-  value?: string | null,
+  value?: DateInput,
   withSeconds = false,
   fallback = '-',
 ): string {
-  if (!value) return fallback
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return value
+  if (value === null || value === undefined || value === '') return fallback
+  const d = parseDateInput(value)
+  if (!d) return resolveInvalidFallback(value, fallback)
   // 与其他格式化函数保持一致：统一按面板展示时区输出，
   // 避免同一事件在不同面板出现两套时刻
   const parts = new Intl.DateTimeFormat('en-US', {
