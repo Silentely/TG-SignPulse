@@ -330,6 +330,7 @@ class SignTaskCrudMixin:
             if removed_dir and removed_dir.exists():
                 shutil.rmtree(removed_dir)
             remove_sign_task_job(removed_account, task_name)
+            self._cancel_and_clean_runtime_state(removed_account, task_name)
 
         for current_account in target_accounts:
             desired_dir = self.signs_dir / current_account / task_name
@@ -540,6 +541,29 @@ class SignTaskCrudMixin:
 
         self._refresh_tasks_cache_after_write()
 
+    def _cancel_and_clean_runtime_state(
+        self, account_name: str, task_name: str
+    ) -> None:
+        key = (account_name, task_name)
+        if hasattr(self, "_run_statuses"):
+            self._run_statuses.pop(key, None)
+        if hasattr(self, "_active_logs"):
+            self._active_logs.pop(key, None)
+        if hasattr(self, "_active_tasks"):
+            self._active_tasks.pop(key, None)
+        if hasattr(self, "_background_run_tasks"):
+            bg_task = self._background_run_tasks.pop(key, None)
+            if bg_task and not bg_task.done():
+                bg_task.cancel()
+        if hasattr(self, "_cleanup_tasks"):
+            clean_task = self._cleanup_tasks.pop(key, None)
+            if clean_task and not clean_task.done():
+                clean_task.cancel()
+        if hasattr(self, "_run_status_cleanup_tasks"):
+            status_clean = self._run_status_cleanup_tasks.pop(key, None)
+            if status_clean and not status_clean.done():
+                status_clean.cancel()
+
     def delete_task(
         self, task_name: str, account_name: Optional[str] = None
     ) -> bool:
@@ -569,8 +593,7 @@ class SignTaskCrudMixin:
             removed_paths.add(resolved)
             if current_account:
                 remove_sign_task_job(current_account, task_name)
-                self._run_statuses.pop((current_account, task_name), None)
-                self._active_logs.pop((current_account, task_name), None)
+                self._cancel_and_clean_runtime_state(current_account, task_name)
 
         self._refresh_tasks_cache_after_write()
         return True
