@@ -643,3 +643,24 @@ class TestCloseClientDualMode:
         assert base_key not in _CLIENT_INSTANCES
         assert base_key not in _CLIENT_REFS
         assert base_key not in _CLIENT_ASYNC_LOCKS
+
+@pytest.mark.asyncio
+async def test_save_session_string_atomic_permissions(tmp_path):
+    class DummyClient(Client):
+        def __init__(self, name, workdir):
+            self.name = name
+            self.workdir = pathlib.Path(workdir)
+
+        async def export_session_string(self):
+            return "1BVtsdummy_session_string_12345"
+
+    dummy = DummyClient("acc_test", tmp_path)
+    await dummy.save_session_string()
+    target = tmp_path / "acc_test.session_string"
+    assert target.is_file()
+    assert target.read_text(encoding="utf-8") == "1BVtsdummy_session_string_12345"
+    import os
+    if hasattr(os, "stat"):
+        mode = target.stat().st_mode & 0o777
+        assert mode == 0o600
+

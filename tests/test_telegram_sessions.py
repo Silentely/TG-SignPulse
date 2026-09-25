@@ -150,3 +150,11 @@ class TestCleanupExpiredLoginSessions:
         await sessions_mod._cleanup_expired_login_sessions()
         assert set(sessions_mod._login_sessions) == {"timeless"}
         assert old_client.disconnect_calls == 1
+    @pytest.mark.asyncio
+    async def test_corrupted_session_handled_gracefully(self, monkeypatch):
+        monkeypatch.setattr(sessions_mod, "_MAX_LOGIN_SESSIONS", 1)
+        sessions_mod._login_sessions["corrupt1"] = "not_a_dict"
+        sessions_mod._login_sessions["corrupt2"] = {"_created_at": "invalid_string"}
+        await sessions_mod._cleanup_expired_login_sessions()
+        assert len(sessions_mod._login_sessions) <= 1
+
