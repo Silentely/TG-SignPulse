@@ -305,7 +305,7 @@ def backup_status(current_user: User = Depends(get_current_user)):
             "完整备份含数据库、会话与 .signer（任务配置与历史），敏感请妥善保管。",
             "JSON 配置导出不含会话；二者用途不同，勿混用。",
             "不含 .admin_bootstrap_password（避免初始密码随备份传播）。",
-            "自动备份在 WebDAV 上传成功后会删除本地副本；失败时保留本地文件。",
+            "自动备份在 WebDAV / 对象存储上传成功后会删除本地副本；失败时保留本地文件。",
             "已启用对象存储（S3/R2/MinIO）且未配置 WebDAV 时，完整备份改为上传对象存储。",
         ],
         restore_hint=(

@@ -431,6 +431,16 @@ class TestGetClientCaching:
         # 两者缓存键不同
         assert c1.key != c2.key
 
+    def test_in_memory_without_session_string_gets_separate_cache_key(self):
+        """in_memory=True 未传 session_string 时也必须使用独立的 ::memory 缓存键"""
+        c1 = get_client(name="mem_test_ns", workdir="/tmp/mem_test_ns", api_id=1, api_hash="h")
+        c2 = get_client(
+            name="mem_test_ns", workdir="/tmp/mem_test_ns", api_id=1, api_hash="h",
+            in_memory=True,
+        )
+        assert c1.key != c2.key
+        assert c2.key.endswith("::memory")
+
 
 # ============================================================================
 # UserSigner._resolve_action_delay 测试

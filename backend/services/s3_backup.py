@@ -256,7 +256,11 @@ class S3BackupClient:
         return resp.content
 
     async def iter_object(
-        self, object_name: str, *, timeout: float = 60.0
+        self,
+        object_name: str,
+        *,
+        chunk_size: int = 64 * 1024,
+        timeout: float = 60.0,
     ) -> AsyncIterator[bytes]:
         """以分块方式下载对象，避免将整个备份包读入进程内存。"""
         key = self.object_key(object_name)
@@ -273,7 +277,7 @@ class S3BackupClient:
                 if resp.status_code != 200:
                     detail = (await resp.aread()).decode("utf-8", errors="replace")[:300]
                     raise RuntimeError(f"S3 下载失败 (HTTP {resp.status_code}): {detail}")
-                async for chunk in resp.aiter_bytes():
+                async for chunk in resp.aiter_bytes(chunk_size=chunk_size):
                     if chunk:
                         yield chunk
 
@@ -410,13 +414,18 @@ async def download_s3_file(cfg: Dict[str, Any], filename: str) -> bytes:
     return await client.get_object(safe_name)
 
 
-async def stream_s3_file(cfg: Dict[str, Any], filename: str) -> AsyncIterator[bytes]:
+async def stream_s3_file(
+    cfg: Dict[str, Any],
+    filename: str,
+    *,
+    chunk_size: int = 64 * 1024,
+) -> AsyncIterator[bytes]:
     """校验文件名后返回对象存储的分块下载迭代器。"""
     from backend.services.webdav_client import validate_backup_filename
 
     safe_name = validate_backup_filename(filename)
     client = _client_from_cfg(cfg)
-    return client.iter_object(safe_name)
+    return client.iter_object(safe_name, chunk_size=chunk_size)
 
 
 async def prune_s3_backups(

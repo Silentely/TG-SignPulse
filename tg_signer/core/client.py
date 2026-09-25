@@ -594,7 +594,7 @@ def get_client(
     # database lock conflicts when keyword monitor (file mode) and manual
     # task execution (in-memory mode) run on the same account
     base_key = str(pathlib.Path(workdir).joinpath(name).resolve())
-    key = f"{base_key}::memory" if (in_memory and session_string) else base_key
+    key = f"{base_key}::memory" if in_memory else base_key
 
     extra_device_kwargs = {}
     if device_model is not None:
