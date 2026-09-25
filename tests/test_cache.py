@@ -196,3 +196,16 @@ class TestTTLCache:
         cache.set("x", 1)
         repr_str = repr(cache)
         assert "size=1" in repr_str
+
+    def test_keys_values_items_filter_expired(self):
+        """keys/values/items 方法应仅返回存活的条目快照并保持顺序。"""
+        cache = TTLCache(maxsize=10, ttl=0.05)
+        cache.set("a", 100)
+        time.sleep(0.08)
+        cache.set("b", 200)
+        cache.set("c", 300)
+
+        assert cache.keys() == ["b", "c"]
+        assert cache.values() == [200, 300]
+        assert cache.items() == [("b", 200), ("c", 300)]
+
