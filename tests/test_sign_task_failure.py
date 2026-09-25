@@ -61,11 +61,15 @@ def test_classify_network_proxy():
         classify_failure(error="ClientConnectorError: name or service not known", success=False)
         == FailureCategory.NETWORK_PROXY
     )
+    assert classify_failure(error="socks5 handshake error", success=False) == FailureCategory.NETWORK_PROXY
+    assert classify_failure(error="connection aborted", success=False) == FailureCategory.NETWORK_PROXY
 
 
 def test_classify_timeout_keyword():
     assert classify_failure(error="请求超时", success=False) == FailureCategory.TIMEOUT
     assert classify_failure(error="asyncio.TimeoutError", success=False) == FailureCategory.TIMEOUT
+    assert classify_failure(error="ReadTimeout", success=False) == FailureCategory.TIMEOUT
+    assert classify_failure(error="operation timed out", success=False) == FailureCategory.TIMEOUT
 
 
 def test_classify_output_text_also_scanned():
