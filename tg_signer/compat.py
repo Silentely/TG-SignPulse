@@ -311,11 +311,13 @@ async def call_with_retry(
     max_retries: int = 4,
     log=None,
     reconnect=None,
+    max_flood_wait: int = 300,
 ):
     """统一重试协议：FloodWait 等待 + 瞬态错误指数退避 + 可选重连。
 
     - log: 可选日志回调 ``log(level: str, message: str)``
     - reconnect: 可选重连协程回调（瞬态失败且未达上限时调用）
+    - max_flood_wait: 单次 FloodWait 允许等待的最大秒数，超出则直接抛出避免无谓长阻塞
     达到上限时原样抛出最后一次异常。
     """
     for attempt in range(1, max_retries + 1):
@@ -323,6 +325,13 @@ async def call_with_retry(
             return await callback()
         except errors.FloodWait as exc:
             wait_seconds = max(int(getattr(exc, "value", 1) or 1), 1)
+            if wait_seconds > max_flood_wait:
+                if log:
+                    log(
+                        "ERROR",
+                        f"{operation} 触发长时 FloodWait ({wait_seconds}s > {max_flood_wait}s)，中止重试避免阻塞调度",
+                    )
+                raise
             if log:
                 log(
                     "WARNING",
