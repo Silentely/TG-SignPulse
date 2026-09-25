@@ -72,6 +72,8 @@ class ProxyStorageClient:
     ):
         self._rpc = rpc_requester
         self._is_global = is_global
+        # 与宿主侧 PluginStorageClient 保持同构：命名空间仅作标识供插件读取，
+        # 实际的存储域划分由宿主的 storage/global_storage 决定
         self.namespace = namespace
 
     def _scope_kwargs(self, **kwargs: Any) -> Dict[str, Any]:

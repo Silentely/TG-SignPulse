@@ -7,12 +7,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import random
 from collections import defaultdict
 from datetime import time as dt_time
 from typing import List, Optional
 
-from croniter import CroniterBadCronError, croniter
+from croniter import croniter
 from pydantic import ValidationError
 
 from tg_signer.config import (
@@ -56,8 +57,6 @@ class SignerConfigMixin:
 
     @staticmethod
     def _resolve_action_delay(action, fallback_delay: float) -> float:
-        import math
-
         try:
             fallback = float(fallback_delay or 0)
             if math.isnan(fallback) or math.isinf(fallback) or fallback < 0:
@@ -322,7 +321,8 @@ class SignerConfigMixin:
             try:
                 croniter(sign_at_str)
                 crontab_expr = sign_at_str
-            except (CroniterBadCronError, ValueError, Exception):
+            except (ValueError, TypeError):
+                # CroniterBadCronError 继承自 ValueError，非法 cron 统一在此判定为无效
                 return None
         return crontab_expr
 

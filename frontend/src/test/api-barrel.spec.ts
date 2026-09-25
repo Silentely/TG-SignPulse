@@ -13,7 +13,7 @@ describe('api barrel 完整性', () => {
     expect(typeof api.updateAccount).toBe('function')
     expect(typeof api.startQrLogin).toBe('function')
     expect(typeof api.fetchAccountAvatar).toBe('function')
-    expect(typeof api.exportAccountLogs).toBe('function')
+    expect(typeof api.downloadAccountLogs).toBe('function')
   })
   it('sign-tasks API 导出', () => {
     expect(typeof api.listSignTasks).toBe('function')

@@ -7,7 +7,10 @@ import pytest
 
 from backend.services.flood_backoff import FloodBackoffManager
 from backend.services.sign_task_failure import FailureCategory
-from backend.services.sign_task_runner import _runner_check_account
+from backend.services.sign_task_runner import (
+    _runner_check_account,
+    _runner_send_notifications,
+)
 
 
 def test_flood_backoff_manager_basic():
@@ -73,3 +76,57 @@ async def test_runner_check_account_flood_wait_not_marking_account_invalid():
     assert state["account_invalid_detected"] is False
     assert state["failure_category"] == FailureCategory.FLOOD_WAIT
     assert "Telegram FloodWait" in state["error_msg"]
+
+
+@pytest.mark.asyncio
+async def test_runner_send_notifications_suppressed_during_flood_cooldown():
+    """FloodWait 冷却期的失败不触发失败通知（与账号失效同级的通知抑制）。"""
+    state = {
+        "account_name": "acc_flood",
+        "task_name": "task1",
+        "success": False,
+        "account_invalid_detected": False,
+        "flood_wait_cooling": True,
+        "task_notify_on_failure": True,
+        "failure_category": FailureCategory.FLOOD_WAIT.value,
+        "error_msg": "Telegram FloodWait: A wait of 60 seconds is required",
+        "final_logs": [],
+        "last_reply": "",
+        "last_target_message": None,
+    }
+    with patch(
+        "backend.services.sign_task_notify.send_failure_notification"
+    ) as send_failure, patch(
+        "backend.services.sign_task_notify.send_success_notification"
+    ) as send_success:
+        await _runner_send_notifications(state)
+
+    send_failure.assert_not_called()
+    send_success.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_runner_send_notifications_failure_sent_when_not_cooldown():
+    """非冷却期的一般失败仍正常发送失败通知。"""
+    state = {
+        "account_name": "acc_normal",
+        "task_name": "task1",
+        "success": False,
+        "account_invalid_detected": False,
+        "flood_wait_cooling": False,
+        "task_notify_on_failure": True,
+        "failure_category": FailureCategory.TIMEOUT.value,
+        "error_msg": "request timeout",
+        "final_logs": [],
+        "last_reply": "",
+        "last_target_message": None,
+    }
+    with patch(
+        "backend.services.sign_task_notify.send_failure_notification"
+    ) as send_failure, patch(
+        "backend.services.sign_task_notify.send_success_notification"
+    ) as send_success:
+        await _runner_send_notifications(state)
+
+    send_failure.assert_called_once()
+    send_success.assert_not_called()

@@ -118,6 +118,11 @@ def _clip(value: Any, limit: int) -> str:
     return str(value or "").strip()[:limit]
 
 
+def _normalize_account(value: Any) -> str:
+    """账号名归一化：去首尾空白并剥离 .session 后缀，兼容纯账号名与会话文件名两种写法。"""
+    return str(value or "").strip().removesuffix(".session")
+
+
 def _safe_message_text(message_text: Any) -> str:
     """消息文本：统一换行、去首尾空白、超长截断补省略号。"""
     text = str(message_text or "").replace("\r\n", "\n").strip()
@@ -311,14 +316,14 @@ def list_keyword_hits(
         offset = max(0, int(offset or 0))
     except (TypeError, ValueError):
         offset = 0
-    account = (account_name or "").strip().removesuffix(".session")
+    account = _normalize_account(account_name)
     task = (task_name or "").strip()
 
     with _lock:
         filtered = [
             item
             for item in _records
-            if (not account or (item.get("account_name") or "").removesuffix(".session") == account)
+            if (not account or _normalize_account(item.get("account_name")) == account)
             and (not task or item.get("task_name") == task)
         ]
         total = len(filtered)
@@ -356,7 +361,7 @@ def group_keyword_hits(
         per = max(1, min(int(limit_per_group or 20), 100))
     except (TypeError, ValueError):
         per = 20
-    account = (account_name or "").strip().removesuffix(".session")
+    account = _normalize_account(account_name)
     task = (task_name or "").strip()
 
     # 内存 key：chat 用 (id, title) 元组，避免 title 含分隔符时解析错误
@@ -365,7 +370,7 @@ def group_keyword_hits(
 
     with _lock:
         for item in _records:
-            if account and (item.get("account_name") or "").removesuffix(".session") != account:
+            if account and _normalize_account(item.get("account_name")) != account:
                 continue
             if task and item.get("task_name") != task:
                 continue
@@ -462,7 +467,7 @@ def clear_keyword_hits(
 ) -> int:
     """清空命中记录（可按账号/任务过滤），返回删除条数。"""
     _ensure_loaded()
-    account = (account_name or "").strip().removesuffix(".session")
+    account = _normalize_account(account_name)
     task = (task_name or "").strip()
     with _lock:
         before = len(_records)
@@ -473,7 +478,7 @@ def clear_keyword_hits(
                 item
                 for item in _records
                 if not (
-                    (not account or (item.get("account_name") or "").removesuffix(".session") == account)
+                    (not account or _normalize_account(item.get("account_name")) == account)
                     and (not task or item.get("task_name") == task)
                 )
             ]

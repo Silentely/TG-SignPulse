@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Trash2, RefreshCw } from 'lucide-vue-next'
+import { Trash2, RefreshCw, Download } from 'lucide-vue-next'
 import { useI18n } from '../composables/useI18n'
 import { useLogsPage } from '../composables/useLogsPage'
 import Modal from '../components/Modal.vue'
@@ -35,6 +35,8 @@ const {
   loadLogs,
   openLogDetail,
   handleClear,
+  exportingAccountLogs,
+  handleExportAccountLogs,
   clearCategoryFilter,
   clearFilters,
 } = useLogsPage()
@@ -73,6 +75,17 @@ const {
           @click="loadLogs"
         >
           <RefreshCw class="w-4 h-4" :class="{ 'animate-spin': pageLoading }" />
+        </button>
+        <button
+          v-if="activeTab === 'tasks'"
+          type="button"
+          class="ui-icon-btn disabled:opacity-50"
+          :title="t('logs.exportAccountLogs')"
+          :aria-label="t('logs.exportAccountLogs')"
+          :disabled="!filterAccount || exportingAccountLogs || pageLoading"
+          @click="handleExportAccountLogs"
+        >
+          <Download class="w-4 h-4" :class="{ 'animate-pulse': exportingAccountLogs }" />
         </button>
         <button
           type="button"

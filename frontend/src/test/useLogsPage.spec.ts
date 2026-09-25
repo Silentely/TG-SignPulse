@@ -49,6 +49,7 @@ const api = vi.hoisted(() => ({
   listAccounts: vi.fn(),
   clearTaskHistoryLogs: vi.fn(),
   clearLoginAuditLogs: vi.fn(),
+  downloadAccountLogs: vi.fn(),
 }))
 
 vi.mock('../composables/useI18n', () => ({
@@ -313,6 +314,44 @@ describe('useLogsPage (route + mount)', () => {
     await flushPromises()
     await result.handleClear()
     expect(api.clearTaskHistoryLogs).not.toHaveBeenCalled()
+    unmount()
+  })
+
+  it('handleExportAccountLogs downloads logs for the filtered account', async () => {
+    api.downloadAccountLogs.mockResolvedValue({ filename: 'acc-q_logs.txt' })
+    const { result, unmount } = mountComposable(() => useLogsPage())
+    await flushPromises()
+
+    result.filterAccount.value = 'acc-q'
+    await result.handleExportAccountLogs()
+
+    expect(api.downloadAccountLogs).toHaveBeenCalledWith('tok', 'acc-q')
+    expect(toastSpy.success).toHaveBeenCalled()
+    expect(result.exportingAccountLogs.value).toBe(false)
+    unmount()
+  })
+
+  it('handleExportAccountLogs does nothing without an account filter', async () => {
+    const { result, unmount } = mountComposable(() => useLogsPage())
+    await flushPromises()
+
+    result.filterAccount.value = ''
+    await result.handleExportAccountLogs()
+
+    expect(api.downloadAccountLogs).not.toHaveBeenCalled()
+    unmount()
+  })
+
+  it('handleExportAccountLogs resets exporting flag on failure', async () => {
+    api.downloadAccountLogs.mockRejectedValueOnce(new Error('export boom'))
+    const { result, unmount } = mountComposable(() => useLogsPage())
+    await flushPromises()
+
+    result.filterAccount.value = 'acc-q'
+    await result.handleExportAccountLogs()
+
+    expect(result.exportingAccountLogs.value).toBe(false)
+    expect(toastSpy.success).not.toHaveBeenCalled()
     unmount()
   })
 

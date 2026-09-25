@@ -351,5 +351,9 @@ class PluginProcessHost:
                     await asyncio.shield(
                         asyncio.wait_for(self.process.wait(), timeout=1.0)
                     )
-                except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+                except asyncio.CancelledError:
+                    # 收尾期间被取消：保持尽力而为，原始取消信号仍由上层继续传播
+                    pass
+                except asyncio.TimeoutError:
+                    # 子进程未能及时退出：已发起 kill_process_tree，直接结束收尾
                     pass

@@ -425,26 +425,18 @@ def download_webdav_file(
                             tmp.write(chunk)
                     tmp.flush()
                     os.fsync(tmp.fileno())
+                # 空响应不覆盖既有文件：先校验再原子替换
+                if actual_tmp.stat().st_size == 0:
+                    raise RuntimeError("WebDAV 下载结果为空")
                 with contextlib.suppress(OSError):
                     actual_tmp.chmod(0o600)
                 os.replace(actual_tmp, dest_path)
                 replaced = True
-        except Exception:
-            # 流中断/写盘失败：清理半截文件，避免残留部分备份被误用
-            with contextlib.suppress(OSError):
-                dest_path.unlink(missing_ok=True)
-            raise
         finally:
+            # 失败或结果为空：仅清理临时文件，既有目标文件保持不变
             if not replaced and actual_tmp is not None:
                 with contextlib.suppress(OSError):
-                    if actual_tmp.exists():
-                        actual_tmp.unlink()
-    if not dest_path.is_file() or dest_path.stat().st_size == 0:
-        try:
-            dest_path.unlink(missing_ok=True)
-        except OSError:
-            pass
-        raise RuntimeError("WebDAV 下载结果为空")
+                    actual_tmp.unlink(missing_ok=True)
     return dest_path
 
 

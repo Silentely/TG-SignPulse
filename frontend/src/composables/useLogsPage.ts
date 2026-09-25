@@ -9,6 +9,7 @@ import {
   getLoginAuditLogs,
   clearTaskHistoryLogs,
   clearLoginAuditLogs,
+  downloadAccountLogs,
 } from '../lib/api'
 import { withToken } from '../lib/api/core'
 import { useLatestResponseGuard } from '../lib/latest-response'
@@ -51,6 +52,7 @@ export function useLogsPage() {
   /** 日志加载失败标记：首屏失败时展示错误态而非空列表 */
   const loadFailed = ref(false)
   const clearing = ref(false)
+  const exportingAccountLogs = ref(false)
   const accountsList = ref<string[]>([])
   const selectedLog = ref<TaskLogUiItem | null>(null)
   const logDetail = ref<TaskHistoryLogDetail | null>(null)
@@ -85,6 +87,7 @@ export function useLogsPage() {
     { label: t('dashboard.failCat.ai_timeout'), value: 'ai_timeout' },
     { label: t('dashboard.failCat.ai_error'), value: 'ai_error' },
     { label: t('dashboard.failCat.button_not_found'), value: 'button_not_found' },
+    { label: t('dashboard.failCat.message_not_modified'), value: 'message_not_modified' },
     { label: t('dashboard.failCat.target_not_found'), value: 'target_not_found' },
     { label: t('dashboard.failCat.network_proxy'), value: 'network_proxy' },
     { label: t('dashboard.failCat.strong_failure'), value: 'strong_failure' },
@@ -282,6 +285,23 @@ export function useLogsPage() {
     })
   }
 
+  const handleExportAccountLogs = async () => {
+    const account = filterAccount.value.trim()
+    if (!account) return
+
+    return withToken(async (token) => {
+      exportingAccountLogs.value = true
+      try {
+        await downloadAccountLogs(token, account)
+        toast.success(t('logs.exportAccountLogsDone'))
+      } catch (e: unknown) {
+        notifyApiError(e, 'logs.exportAccountLogsFailed')
+      } finally {
+        exportingAccountLogs.value = false
+      }
+    })
+  }
+
   watch(activeTab, () => {
     loadLogs()
   })
@@ -416,6 +436,8 @@ export function useLogsPage() {
     loadLogs,
     openLogDetail,
     handleClear,
+    exportingAccountLogs,
+    handleExportAccountLogs,
     clearCategoryFilter,
     clearFilters,
     rawTaskLogs,

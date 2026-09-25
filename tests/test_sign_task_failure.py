@@ -53,6 +53,19 @@ def test_classify_button_not_found():
     assert classify_failure(error="未找到按钮", success=False) == FailureCategory.BUTTON_NOT_FOUND
 
 
+def test_classify_message_not_modified():
+    """message_not_modified 属良性空操作，单独归类而非误判为按钮缺失。"""
+    assert classify_failure(error="message_not_modified", success=False) == (
+        FailureCategory.MESSAGE_NOT_MODIFIED
+    )
+    # pyrogram 的真实错误描述
+    assert classify_failure(
+        error="The message was not modified because you tried to edit it using the same content.",
+        success=False,
+    ) == FailureCategory.MESSAGE_NOT_MODIFIED
+    assert classify_failure(error="未找到按钮", success=False) != FailureCategory.MESSAGE_NOT_MODIFIED
+
+
 def test_classify_target_not_found():
     assert classify_failure(error="peer id invalid", success=False) == FailureCategory.TARGET_NOT_FOUND
     assert classify_failure(error="user_banned_in_channel", success=False) == FailureCategory.TARGET_NOT_FOUND

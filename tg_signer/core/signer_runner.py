@@ -253,6 +253,9 @@ class SignerRunnerMixin:
                         rendered_params = render_template_recursive(action.params, tmpl_ctx)
                         exec_action = _copy_action_with(action, params=rendered_params)
                     elif hasattr(action, "ai_prompt") and action.ai_prompt:
+                        # 渲染仅对携带 ai_prompt 字段的动作生效；当前承载该字段的均为
+                        # pydantic 模型（_copy_action_with 走 model_copy），非 pydantic
+                        # 对象会因既无 model_copy 也无 copy 而静默保持原值
                         rendered_prompt = render_template(action.ai_prompt, tmpl_ctx)
                         if rendered_prompt != action.ai_prompt:
                             exec_action = _copy_action_with(action, ai_prompt=rendered_prompt)

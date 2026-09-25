@@ -1,7 +1,16 @@
 /**
  * 账号管理 API：登录流程、CRUD、状态检测、设备、官方消息、账号日志。
  */
-import { LONG_TIMEOUT_MS, MEDIUM_TIMEOUT_MS, request, requestBlob, requestFormData } from "./core";
+import {
+  LONG_TIMEOUT_MS,
+  MEDIUM_TIMEOUT_MS,
+  createRequestAbort,
+  fetchWithAuth,
+  request,
+  requestBlob,
+  requestFormData,
+} from "./core";
+import { downloadBlob, normalizeNetworkError } from "../download";
 
 export interface LoginStartRequest {
   account_name: string;
@@ -340,10 +349,34 @@ export const fetchAccountAvatar = (token: string, accountName: string) =>
   requestBlob(`/accounts/${encodeURIComponent(accountName)}/avatar`, {}, token);
 
 /**
- * 导出指定账号的历史运行日志（TXT 格式 Blob）。
+ * 导出指定账号的历史运行日志（TXT）。
+ * 服务端在 Content-Disposition 中给出已清洗的文件名，优先采用该名称，缺失时回退到账号名。
  */
-export const exportAccountLogs = (token: string, accountName: string) =>
-  requestBlob(`/accounts/${encodeURIComponent(accountName)}/logs/export`, {}, token);
+export async function downloadAccountLogs(
+  token: string,
+  accountName: string,
+): Promise<{ filename: string }> {
+  const abort = createRequestAbort(LONG_TIMEOUT_MS, null);
+  try {
+    const res = await fetchWithAuth(
+      `/accounts/${encodeURIComponent(accountName)}/logs/export`,
+      {},
+      { signal: abort.signal },
+      token,
+      null,
+    );
+    const blob = await res.blob();
+    const cd = res.headers.get("Content-Disposition") || "";
+    const match = /filename="?([^"]+)"?/.exec(cd);
+    const filename = match?.[1] || `${accountName}_logs.txt`;
+    downloadBlob(blob, filename);
+    return { filename };
+  } catch (e: unknown) {
+    throw normalizeNetworkError(e, abort);
+  } finally {
+    abort.cleanup();
+  }
+}
 
 // ─── 会话导入 ───
 

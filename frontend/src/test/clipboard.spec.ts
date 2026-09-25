@@ -1,7 +1,12 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { copyToClipboard } from '../lib/clipboard'
 
 describe('copyToClipboard', () => {
+  // createElement 等被 spy 的方法必须还原，否则后续用例二次 spy 会得到失效的实现
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   it('空文本返回 false', async () => {
     expect(await copyToClipboard('')).toBe(false)
   })
@@ -56,6 +61,39 @@ describe('copyToClipboard', () => {
     })
 
     await expect(copyToClipboard('failure text')).resolves.toBe(false)
+    expect(document.querySelectorAll('textarea')).toHaveLength(0)
+  })
+
+  it('readonly 复制失败后回退到可写 textarea 重试（iOS 场景）', async () => {
+    Object.assign(navigator, {
+      clipboard: {
+        writeText: vi.fn().mockRejectedValue(new Error('permission denied')),
+      },
+    })
+    document.execCommand = vi
+      .fn()
+      .mockReturnValueOnce(false) // 第一次 readonly 失败
+      .mockReturnValueOnce(true) // 第二次可写重试成功
+
+    const readonlySeen: string[] = []
+    const origCreate = document.createElement.bind(document)
+    vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+      const el = origCreate(tag)
+      if (tag === 'textarea') {
+        const origSetAttr = el.setAttribute.bind(el)
+        el.setAttribute = (name: string, val: string) => {
+          if (name === 'readonly') readonlySeen.push(val)
+          origSetAttr(name, val)
+        }
+      }
+      return el
+    })
+
+    const result = await copyToClipboard('ios fallback text')
+    expect(result).toBe(true)
+    expect(document.execCommand).toHaveBeenCalledTimes(2)
+    // 仅第一次尝试使用 readonly，重试时不再设置 readonly
+    expect(readonlySeen).toEqual([''])
     expect(document.querySelectorAll('textarea')).toHaveLength(0)
   })
 })

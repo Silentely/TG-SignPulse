@@ -254,10 +254,10 @@ def test_download_webdav_file(tmp_path: Path):
     assert list(tmp_path.glob("*.tmp-*")) == []
 
 
-def test_download_interrupted_cleans_partial_file(tmp_path: Path):
-    """流中断（写盘一半抛异常）应清理半截文件，避免残留部分备份被误用。"""
+def test_download_interrupted_preserves_existing_file(tmp_path: Path):
+    """流中断（写盘一半抛异常）应清理临时文件，并保留既有目标文件不被误删。"""
     dest = tmp_path / "partial.tar.gz"
-    dest.write_bytes(b"partial-data")  # 模拟已写入一部分
+    dest.write_bytes(b"previous-good-backup")  # 模拟上一份完好备份
 
     mock_resp = MagicMock()
     mock_resp.status_code = 200
@@ -282,8 +282,41 @@ def test_download_interrupted_cleans_partial_file(tmp_path: Path):
                 filename="auto-1.tar.gz",
                 dest_path=dest,
             )
-    # 半截文件被清理
-    assert not dest.exists()
+    # 既有备份内容原样保留，半截临时文件被清理
+    assert dest.read_bytes() == b"previous-good-backup"
+    assert list(tmp_path.glob("*.tmp-*")) == []
+
+
+def test_download_empty_result_preserves_existing_file(tmp_path: Path):
+    """服务端返回空内容时不覆盖既有备份，且不残留临时文件。"""
+    dest = tmp_path / "empty.tar.gz"
+    dest.write_bytes(b"previous-good-backup")
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.iter_bytes = MagicMock(return_value=[])
+    mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+    mock_resp.__exit__ = MagicMock(return_value=False)
+
+    mock_client = MagicMock()
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=False)
+    mock_client.stream.return_value = mock_resp
+
+    from backend.services.webdav_client import download_webdav_file
+
+    with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client):
+        with pytest.raises(RuntimeError, match="下载结果为空"):
+            download_webdav_file(
+                base_url="https://dav.example.com/files/u",
+                username="u",
+                password="p",
+                remote_dir="bk",
+                filename="auto-1.tar.gz",
+                dest_path=dest,
+            )
+    assert dest.read_bytes() == b"previous-good-backup"
+    assert list(tmp_path.glob("*.tmp-*")) == []
 
 
 def test_prune_webdav_backups_keeps_n():
