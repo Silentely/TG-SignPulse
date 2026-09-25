@@ -191,6 +191,9 @@ def start_account_status_check_job(
         async def _runner() -> None:
             try:
                 await _run_status_check(job_id, names, timeout)
+            except asyncio.CancelledError:
+                logger.info("账号状态检测任务 %s 协程已取消", job_id)
+                raise
             except Exception as exc:
                 logger.exception("账号状态检测任务 %s 失败", job_id)
                 store.mark_failed(job_id, str(exc) or "status check job failed")
@@ -213,4 +216,4 @@ def cancel_account_status_job(job_id: str) -> bool:
     job = store.get_job(job_id)
     if not job or job.get("kind") != KIND:
         return False
-    return store.request_cancel(job_id)
+    return store.request_cancel(job_id, cancel_running_task=True)
