@@ -364,6 +364,30 @@ class TestClientRequests:
         assert received_chunk_size == [64 * 1024]
 
     @pytest.mark.asyncio
+    async def test_delete_object_accepts_404_idempotent(self):
+        client = _client()
+
+        class _Resp:
+            status_code = 404
+            text = "NoSuchKey"
+
+        class _MockAsyncClient:
+            def __init__(self, proxy=None, timeout=None):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def delete(self, url, headers=None):
+                return _Resp()
+
+        with patch("httpx.AsyncClient", side_effect=_MockAsyncClient):
+            await client.delete_object("already-deleted.tar.gz")  # 不抛出异常
+
+    @pytest.mark.asyncio
     async def test_delete_object_accepts_204(self):
         client = _client()
         captured = {}

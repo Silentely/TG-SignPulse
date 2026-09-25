@@ -75,3 +75,23 @@ def test_auto_backup_helpers():
     assert auto_backup_keep({}) == 3
     assert auto_backup_keep(None) == 3
     assert auto_backup_keep({"auto_backup_keep": "bad"}) == 3
+
+
+def test_create_backup_tarball_cleans_temp_on_failure(tmp_path: Path, monkeypatch):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "db.sqlite").write_text("sqlite-data")
+
+    dest = tmp_path / "backups" / "backup.tar.gz"
+
+    def flaky_add(*args, **kwargs):
+        raise OSError("disk full simulated")
+
+    monkeypatch.setattr(tarfile.TarFile, "add", flaky_add)
+
+    with pytest.raises(OSError, match="disk full simulated"):
+        create_backup_tarball(data_dir, dest)
+
+    assert not dest.exists()
+    # 确认没有遗留 .tmp 临时文件
+    assert list((tmp_path / "backups").glob("*.tmp*")) == []
