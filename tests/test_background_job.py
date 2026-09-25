@@ -1,6 +1,8 @@
-"""BackgroundJobStore 状态机与重启恢复测试。"""
+import asyncio
 import json
 from pathlib import Path
+
+import pytest
 
 from backend.services.background_job import (
     ACTIVE_STATUSES,
@@ -105,3 +107,44 @@ def test_write_job_leaves_no_tmp_files_and_is_readable(tmp_path: Path):
     data = json.loads(path.read_text(encoding="utf-8"))
     assert data["job_id"] == job_id
     assert any(item["message"] == "持久化内容" for item in data["logs"])
+
+@pytest.mark.asyncio
+async def test_request_cancel_with_cancel_running_task_marks_canceled(tmp_path: Path):
+    store = BackgroundJobStore(tmp_path / "jobs")
+    job_id = store.create_job(kind="async-cancel")["job_id"]
+
+    async def _long_worker():
+        await asyncio.sleep(10)
+
+    task = store.start_background(job_id, _long_worker)
+    assert not task.done()
+
+    # Request cancel with task cancellation
+    assert store.request_cancel(job_id, cancel_running_task=True) is True
+
+    # Allow done callback to execute
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    job = store.get_job(job_id)
+    assert job["status"] == "canceled"
+
+
+@pytest.mark.asyncio
+async def test_task_canceled_without_cancel_request_marks_failed(tmp_path: Path):
+    store = BackgroundJobStore(tmp_path / "jobs")
+    job_id = store.create_job(kind="async-fail")["job_id"]
+
+    async def _long_worker():
+        await asyncio.sleep(10)
+
+    task = store.start_background(job_id, _long_worker)
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    job = store.get_job(job_id)
+    assert job["status"] == "failed"
+    assert "任务被取消" in job["error"]
+

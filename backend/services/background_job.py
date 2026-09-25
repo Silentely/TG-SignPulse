@@ -210,17 +210,27 @@ class BackgroundJobStore:
         if persist:
             self._write_job(job)
 
-    def request_cancel(self, job_id: str) -> bool:
-        """请求取消；若已终态返回 False。"""
+    def request_cancel(
+        self, job_id: str, *, cancel_running_task: bool = False
+    ) -> bool:
+        """请求取消；若已终态返回 False。可选择同时直接取消挂载的后台协程。"""
         job = self.jobs.get(str(job_id or ""))
         if not job or job.get("status") not in ACTIVE_STATUSES:
             return False
         if job.get("status") == "canceling":
+            if cancel_running_task:
+                task = self._tasks.get(str(job_id))
+                if task and not task.done():
+                    task.cancel()
             return True
         job["status"] = "canceling"
         job["updated_at"] = utc_now_iso()
         self.append_log(job_id, "info", "收到取消请求", persist=False)
         self._write_job(job)
+        if cancel_running_task:
+            task = self._tasks.get(str(job_id))
+            if task and not task.done():
+                task.cancel()
         return True
 
     def is_cancel_requested(self, job_id: str) -> bool:
@@ -277,9 +287,15 @@ class BackgroundJobStore:
             if not job or job.get("status") not in ACTIVE_STATUSES:
                 return
             if done.cancelled():
-                self.mark_failed(job_id, "任务被取消")
+                if job.get("status") == "canceling":
+                    self.mark_completed(job_id)
+                else:
+                    self.mark_failed(job_id, "任务被取消")
                 return
-            exc = done.exception()
+            try:
+                exc = done.exception()
+            except asyncio.CancelledError:
+                exc = None
             if exc is not None:
                 self.mark_failed(job_id, str(exc))
 
