@@ -86,9 +86,9 @@ def build_proxy_dict(raw: str) -> Optional[dict]:
         "port": port,
     }
     if parsed.username:
-        proxy["username"] = parsed.username
+        proxy["username"] = urllib.parse.unquote(parsed.username)
     if parsed.password:
-        proxy["password"] = parsed.password
+        proxy["password"] = urllib.parse.unquote(parsed.password)
     return proxy
 
 

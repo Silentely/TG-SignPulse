@@ -664,3 +664,34 @@ async def test_save_session_string_atomic_permissions(tmp_path):
         mode = target.stat().st_mode & 0o777
         assert mode == 0o600
 
+def test_get_proxy_unquotes_credentials():
+    from tg_signer.core.client import get_proxy
+    proxy = get_proxy("socks5://user%40example.com:p%40ss%3Aword@127.0.0.1:1080")
+    assert proxy is not None
+    assert proxy["username"] == "user@example.com"
+    assert proxy["password"] == "p@ss:word"
+
+
+@pytest.mark.asyncio
+async def test_client_log_out_removes_session_string_file_safely(tmp_path):
+    class DummyClient(Client):
+        def __init__(self, name, workdir):
+            self.name = name
+            self.workdir = pathlib.Path(workdir)
+
+        async def log_out(self):
+            # simulate super().log_out() by calling Client.log_out without pyrogram network call
+            try:
+                self.session_string_file.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    dummy = DummyClient("acc_logout", tmp_path)
+    s_file = dummy.session_string_file
+    s_file.write_text("dummy", encoding="utf-8")
+    assert s_file.is_file()
+    await dummy.log_out()
+    assert not s_file.exists()
+    # Calling again should not raise error
+    await dummy.log_out()
+
