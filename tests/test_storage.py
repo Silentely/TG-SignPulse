@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import pytest
+
 from backend.utils import storage
 
 
@@ -95,6 +97,19 @@ class TestDataDirOverride:
         path = tmp_path / "nope.txt"
         monkeypatch.setattr(storage, "get_data_dir_override_file", lambda: path)
         storage.clear_data_dir_override()  # 不抛异常
+
+    def test_clear_override_surfaces_unlink_failure(self, monkeypatch, tmp_path):
+        path = tmp_path / "override.txt"
+        path.write_text("/tmp/old-data", encoding="utf-8")
+        monkeypatch.setattr(storage, "get_data_dir_override_file", lambda: path)
+
+        def _fail_unlink(*args, **kwargs):
+            raise OSError("permission denied")
+
+        monkeypatch.setattr(Path, "unlink", _fail_unlink)
+
+        with pytest.raises(OSError, match="permission denied"):
+            storage.clear_data_dir_override()
 
 
 class TestInitialDataDir:

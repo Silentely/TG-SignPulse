@@ -180,6 +180,46 @@ describe('useLogsPage (route + mount)', () => {
     }
   })
 
+  it('reopens the selected detail when only the deep-link account changes', async () => {
+    const { result, unmount } = mountComposable(() => useLogsPage())
+    try {
+      await flushPromises()
+      expect(result.selectedLog.value?.account).toBe('acc-q')
+
+      api.getTaskHistoryLogs.mockResolvedValue([
+        {
+          id: 3,
+          task_name: 'task-q',
+          account_name: 'acc-2',
+          created_at: '2026-07-01T10:00:00',
+          success: true,
+          message: 'account two',
+          failure_category: '',
+          flow_line_count: 1,
+        },
+      ])
+      api.getTaskHistoryLogDetail.mockResolvedValueOnce({
+        flow_logs: ['account two'],
+        message: 'account two detail',
+      })
+
+      await routeMocks.router.replace({
+        name: 'logs',
+        query: {
+          account: 'acc-2',
+          task: 'task-q',
+          at: '2026-07-01T10:00:00',
+        },
+      })
+      await flushPromises()
+
+      expect(result.selectedLog.value?.account).toBe('acc-2')
+      expect(result.logDetail.value?.message).toBe('account two detail')
+    } finally {
+      unmount()
+    }
+  })
+
   it('client filters by task/status/category', async () => {
     const { result, unmount } = mountComposable(() => useLogsPage())
     await flushPromises()

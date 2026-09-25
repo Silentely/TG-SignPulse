@@ -375,9 +375,10 @@ export function useLogsPage() {
     async (next, previous) => {
       applyRouteQueryFilters()
 
+      const accountChanged = next[1] !== previous[1]
       const taskChanged = next[2] !== previous[2]
       const atChanged = next[3] !== previous[3]
-      if (!taskChanged && !atChanged) return
+      if (!accountChanged && !taskChanged && !atChanged) return
 
       // 同一页面切换深链时先清理旧详情，避免新请求期间继续展示过期内容。
       selectedLog.value = null

@@ -528,10 +528,7 @@ class Client(BaseClient):
         self,
     ):
         await super().log_out()
-        try:
-            self.session_string_file.unlink(missing_ok=True)
-        except OSError:
-            pass
+        self.session_string_file.unlink(missing_ok=True)
 
 
 def get_api_config():
