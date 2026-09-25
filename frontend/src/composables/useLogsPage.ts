@@ -267,6 +267,8 @@ export function useLogsPage() {
           const res = await clearTaskHistoryLogs(token)
           toast.success(t('logs.clearSuccess', { count: String(res.cleared ?? 0) }))
           rawTaskLogs.value = []
+          selectedLog.value = null
+          logDetail.value = null
         } else {
           const res = await clearLoginAuditLogs(token)
           toast.success(t('logs.clearSuccess', { count: String(res.cleared ?? 0) }))
@@ -291,17 +293,25 @@ export function useLogsPage() {
   const tryOpenFromQuery = async () => {
     const taskQ = (route.query.task as string | undefined)?.trim()
     const atQ = (route.query.at as string | undefined)?.trim()
+    const accountQ = (route.query.account as string | undefined)?.trim()
     if (!taskQ || !atQ || activeTab.value !== 'tasks') return
 
     const match =
       rawTaskLogs.value.find(
         (l) =>
+          (!accountQ || l.account_name === accountQ) &&
           l.task_name === taskQ &&
           (l.created_at === atQ || l.created_at.startsWith(atQ.slice(0, 19))),
-      ) || rawTaskLogs.value.find((l) => l.task_name === taskQ)
+      ) ||
+      rawTaskLogs.value.find(
+        (l) => (!accountQ || l.account_name === accountQ) && l.task_name === taskQ,
+      )
 
     if (match) {
       filterTask.value = taskQ
+      if (accountQ) {
+        filterAccount.value = accountQ
+      }
       await openLogDetail(toTaskUi(match))
     }
   }
@@ -407,5 +417,7 @@ export function useLogsPage() {
     handleClear,
     clearCategoryFilter,
     clearFilters,
+    rawTaskLogs,
+    tryOpenFromQuery,
   }
 }
