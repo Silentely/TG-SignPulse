@@ -70,6 +70,18 @@ class TestReleaseLoginSession:
         assert lock.locked() is False
 
     @pytest.mark.asyncio
+    async def test_tolerates_lock_release_runtime_error(self):
+        class _FailingLock:
+            def locked(self):
+                return True
+            def release(self):
+                raise RuntimeError("cannot release unacquired lock")
+
+        client = _FakeClient()
+        await sessions_mod._release_login_session({"client": client, "lock": _FailingLock()})
+        assert client.disconnect_calls == 1
+
+    @pytest.mark.asyncio
     async def test_empty_value_is_noop(self):
         await sessions_mod._release_login_session({})
         await sessions_mod._release_login_session({"client": None, "lock": None})

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import time
@@ -103,12 +104,13 @@ class TelegramPhoneLoginMixin:
         # 1. 清理全局 _login_sessions 中可能存在的残留连接
         # _login_sessions key 格式: f"{account_name}_{phone_number}"
         keys_to_remove = []
-        for key, value in _login_sessions.items():
+        for key, value in list(_login_sessions.items()):
             if key.startswith(f"{account_name}_"):
                 old_client = value.get("client")
                 old_lock = value.get("lock")
                 if old_lock and old_lock.locked():
-                    old_lock.release()
+                    with contextlib.suppress(RuntimeError):
+                        old_lock.release()
                 if old_client:
                     try:
                         await old_client.disconnect()
