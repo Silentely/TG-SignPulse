@@ -7,13 +7,19 @@ export function formatMemoryRssFromStats(
   unknownLabel: string,
 ): string {
   const s = stats || {}
-  const rssMb = s.current_rss_mb ?? s.rss_mb ?? s.rssMb
-  if (typeof rssMb === 'number' && Number.isFinite(rssMb)) {
-    return `${rssMb.toFixed(1)} MB`
+  const rawRssMb = s.current_rss_mb ?? s.rss_mb ?? s.rssMb
+  if (rawRssMb !== null && rawRssMb !== undefined && rawRssMb !== '') {
+    const num = Number(rawRssMb)
+    if (!Number.isNaN(num) && Number.isFinite(num)) {
+      return `${num.toFixed(1)} MB`
+    }
   }
-  const rss = s.rss_bytes ?? s.rss
-  if (typeof rss === 'number' && Number.isFinite(rss)) {
-    return `${(rss / (1024 * 1024)).toFixed(1)} MB`
+  const rawRssBytes = s.rss_bytes ?? s.rss
+  if (rawRssBytes !== null && rawRssBytes !== undefined && rawRssBytes !== '') {
+    const num = Number(rawRssBytes)
+    if (!Number.isNaN(num) && Number.isFinite(num)) {
+      return `${(num / (1024 * 1024)).toFixed(1)} MB`
+    }
   }
   return unknownLabel
 }
