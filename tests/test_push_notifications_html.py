@@ -218,6 +218,27 @@ class TestParseModePropagation:
             await send_telegram_bot_message(bot_token="tok", chat_id="chat", text="hi")
         assert calls["n"] == 1
 
+    @pytest.mark.asyncio()
+    async def test_ok_false_response_raises_runtime_error(self, monkeypatch):
+        class _FakeResp:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"ok": False, "description": "Forbidden: bot was blocked by the user"}
+
+        class _FakeClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def post(self, url, json=None, **kwargs):
+                return _FakeResp()
+
+        monkeypatch.setattr("httpx.AsyncClient", _FakeClient, raising=False)
+        with pytest.raises(RuntimeError, match="Forbidden: bot was blocked"):
+            await send_telegram_bot_message(bot_token="tok", chat_id="chat", text="hi")
+
+
 
 class TestNotificationTimeLabels:
     @staticmethod
