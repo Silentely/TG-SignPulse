@@ -27,6 +27,8 @@ def test_classify_success_true_returns_none():
 def test_classify_session_invalid_by_english():
     assert classify_failure(error="invalid session", success=False) == FailureCategory.SESSION_INVALID
     assert classify_failure(error="auth_key_unregistered", success=False) == FailureCategory.SESSION_INVALID
+    assert classify_failure(error="auth_key_duplicated", success=False) == FailureCategory.SESSION_INVALID
+    assert classify_failure(error="session_expired", success=False) == FailureCategory.SESSION_INVALID
     assert classify_failure(error="needs_relogin", success=False) == FailureCategory.SESSION_INVALID
 
 
@@ -53,6 +55,8 @@ def test_classify_button_not_found():
 
 def test_classify_target_not_found():
     assert classify_failure(error="peer id invalid", success=False) == FailureCategory.TARGET_NOT_FOUND
+    assert classify_failure(error="user_banned_in_channel", success=False) == FailureCategory.TARGET_NOT_FOUND
+    assert classify_failure(error="chat_admin_required", success=False) == FailureCategory.TARGET_NOT_FOUND
 
 
 def test_classify_network_proxy():
