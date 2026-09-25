@@ -1,6 +1,7 @@
 """登录会话临时存储与清理。"""
 from __future__ import annotations
 
+import contextlib
 import logging
 import time
 from typing import Any
@@ -32,7 +33,8 @@ async def _release_login_session(value: Any) -> None:
             pass
     lock = value.get("lock")
     if lock and lock.locked():
-        lock.release()
+        with contextlib.suppress(RuntimeError):
+            lock.release()
 
 
 async def _cleanup_expired_login_sessions() -> None:
@@ -56,9 +58,12 @@ async def _cleanup_expired_login_sessions() -> None:
 
     for store in (_login_sessions, _qr_login_sessions):
         while len(store) > _MAX_LOGIN_SESSIONS:
+            keys_snapshot = list(store.keys())
+            if not keys_snapshot:
+                break
             oldest_key = min(
-                store.keys(),
-                key=lambda k: store[k].get("_created_at", float("inf")),
+                keys_snapshot,
+                key=lambda k: store.get(k, {}).get("_created_at", float("inf")),
             )
             value = store.pop(oldest_key, None)
             if value:

@@ -151,7 +151,8 @@ class TelegramQrLoginMixin:
                             pass
         lock = data.get("lock")
         if lock and lock.locked():
-            lock.release()
+            with contextlib.suppress(RuntimeError):
+                lock.release()
 
 
     def _extend_qr_expires(self, data: Dict[str, Any], min_seconds: int = 300) -> None:
