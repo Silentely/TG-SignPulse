@@ -120,7 +120,10 @@ class TelegramPhoneLoginMixin:
             _login_sessions.pop(key, None)
 
         # 获取账号锁，避免与任务并发写 session
-        await account_lock.acquire()
+        try:
+            await asyncio.wait_for(account_lock.acquire(), timeout=15.0)
+        except asyncio.TimeoutError:
+            raise RuntimeError(f"账号 {account_name} 正在被后台任务占用，请稍后再试")
 
         def _release_account_lock() -> None:
             if account_lock.locked():

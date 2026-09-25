@@ -37,7 +37,11 @@ def parse_account_allowlist(raw: Optional[str] = None) -> Optional[set[str]]:
     ).strip()
     if not value:
         return None
-    items = {part.strip() for part in value.split(",") if part.strip()}
+    items = {
+        part.strip().removesuffix(".session")
+        for part in value.split(",")
+        if part.strip()
+    }
     return items or None
 
 
@@ -48,7 +52,7 @@ def account_in_monitor_scope(
     shard: Optional[tuple[int, int]] = None,
 ) -> bool:
     """判断账号是否应由当前实例监听。"""
-    name = str(account_name or "").strip()
+    name = str(account_name or "").strip().removesuffix(".session")
     if not name or name == "*":
         return False
 

@@ -259,6 +259,10 @@ def _run_coro_blocking(coro):
         finally:
             loop.close()
     # 已被事件循环调用：此时阻塞等待会冻结主循环，直接报错让调用方改为 await
+    try:
+        coro.close()
+    except Exception:
+        pass
     raise RuntimeError("run_auto_backup 不能在运行中的事件循环内直接调用")
 
 

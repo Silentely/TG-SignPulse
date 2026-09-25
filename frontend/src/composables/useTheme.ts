@@ -38,8 +38,8 @@ export const useTheme = () => {
     const x = event.clientX
     const y = event.clientY
     const endRadius = Math.hypot(
-      Math.max(x, innerWidth - x),
-      Math.max(y, innerHeight - y)
+      Math.max(x, window.innerWidth - x),
+      Math.max(y, window.innerHeight - y)
     )
 
     const transition = document.startViewTransition(() => {

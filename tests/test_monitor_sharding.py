@@ -20,8 +20,9 @@ def test_parse_shard_invalid():
 
 
 def test_allowlist():
-    assert parse_account_allowlist("a, b ,c") == {"a", "b", "c"}
+    assert parse_account_allowlist("a, b.session ,c") == {"a", "b", "c"}
     assert account_in_monitor_scope("a", allowlist={"a", "b"}) is True
+    assert account_in_monitor_scope("a.session", allowlist={"a", "b"}) is True
     assert account_in_monitor_scope("c", allowlist={"a", "b"}) is False
 
 

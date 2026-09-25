@@ -769,10 +769,10 @@ async def execute_sign_task(
             "failure_category": None,
         }
 
-    # 初始化账号锁（跨服务共享）
-    if account_name not in svc._account_locks:
-        svc._account_locks[account_name] = get_account_lock(account_name)
-    account_lock = svc._account_locks[account_name]
+    # 初始化账号锁（跨服务共享，弱引用自动生命周期）
+    account_lock = get_account_lock(account_name)
+    if hasattr(svc, "_account_locks") and svc._account_locks is not None:
+        svc._account_locks[account_name] = account_lock
 
     # 定时任务同时触发时排队等待账号锁
     _service_logger.debug("等待获取账号锁 %s...", account_name)
