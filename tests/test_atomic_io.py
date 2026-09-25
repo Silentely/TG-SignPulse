@@ -1,13 +1,13 @@
 """backend/utils/atomic_io.py 单元测试。
 
 覆盖：原子写回读、不可序列化数据失败时不残留 .tmp 文件、
-损坏 JSON 读取回退默认值。
+损坏 JSON 读取回退默认值、纯文本原子写入。
 """
 from __future__ import annotations
 
 import json
 
-from backend.utils.atomic_io import read_json_safe, write_json_atomic
+from backend.utils.atomic_io import read_json_safe, write_json_atomic, write_text_atomic
 
 
 def test_write_atomic_and_read_back(tmp_path):
@@ -17,8 +17,16 @@ def test_write_atomic_and_read_back(tmp_path):
     assert json.loads(target.read_text(encoding="utf-8")) == {"a": 1, "b": [1, 2]}
 
 
+def test_write_text_atomic_and_read_back(tmp_path):
+    target = tmp_path / "sub" / "script.py"
+    content = "print('hello world')\n"
+    write_text_atomic(target, content)
+    assert target.exists()
+    assert target.read_text(encoding="utf-8") == content
+
+
 def test_write_atomic_no_tmp_leak_on_serialize_error(tmp_path):
-    """不可序列化数据抛异常时不得残留 .tmp 文件。"""
+    """不可序列化数据抛异常时不残留 .tmp 文件。"""
     target = tmp_path / "bad.json"
     try:
         write_json_atomic(target, {"bad": object()})  # object() 不可 JSON 序列化

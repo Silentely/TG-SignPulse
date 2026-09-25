@@ -49,3 +49,12 @@ def test_load_sign_record_handles_non_dict_json(tmp_path: Path):
     signer = DummySigner(rec_path)
     res = signer.load_sign_record()
     assert res == {}
+
+
+def test_load_chat_cache_safe_when_account_missing(tmp_path: Path):
+    signer = DummySigner(tmp_path / "record.json")
+    signer.tasks_dir = tmp_path
+    signer._account = None
+    assert signer._load_chat_cache() == []
+    signer._account = ""
+    assert signer._load_chat_cache() == []

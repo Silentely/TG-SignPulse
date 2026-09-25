@@ -15,8 +15,18 @@ def resolve_telegram_api_credentials(
     env_api_hash: Optional[str] = None,
 ) -> tuple[int, str]:
     """解析 api_id / api_hash；无效时抛 ValueError。"""
-    raw_id = env_api_id or tg_config.get("api_id")
-    raw_hash = env_api_hash or tg_config.get("api_hash")
+    clean_env_id = (
+        env_api_id.strip()
+        if isinstance(env_api_id, str) and env_api_id.strip()
+        else None
+    )
+    clean_env_hash = (
+        env_api_hash.strip()
+        if isinstance(env_api_hash, str) and env_api_hash.strip()
+        else None
+    )
+    raw_id = clean_env_id if clean_env_id is not None else tg_config.get("api_id")
+    raw_hash = clean_env_hash if clean_env_hash is not None else tg_config.get("api_hash")
     try:
         api_id = int(raw_id) if raw_id is not None else None
     except (TypeError, ValueError):

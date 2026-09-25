@@ -45,6 +45,36 @@ def write_json_atomic(path, data: Any) -> None:
                         actual_tmp.unlink()
 
 
+def write_text_atomic(path, text: str, encoding: str = "utf-8") -> None:
+    """原子写入纯文本：临时文件 + 权限收敛(0600) + fsync + rename，崩溃不留下半截文件。"""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _lock:
+        actual_tmp = None
+        replaced = False
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                dir=str(path.parent),
+                prefix=f".{path.name}.tmp-",
+                delete=False,
+                encoding=encoding,
+            ) as tmp:
+                actual_tmp = Path(tmp.name)
+                tmp.write(text)
+                tmp.flush()
+                os.fsync(tmp.fileno())
+            with contextlib.suppress(OSError):
+                actual_tmp.chmod(0o600)
+            os.replace(actual_tmp, path)
+            replaced = True
+        finally:
+            if not replaced:
+                with contextlib.suppress(OSError):
+                    if actual_tmp is not None and actual_tmp.exists():
+                        actual_tmp.unlink()
+
+
 def read_json_safe(path, default: Any = None) -> Any:
     """读取 JSON 文件；文件缺失或内容损坏时返回 default。"""
     path = Path(path)
