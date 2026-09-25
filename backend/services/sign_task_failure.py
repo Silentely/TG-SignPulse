@@ -20,6 +20,7 @@ class FailureCategory(str, Enum):
     AI_TIMEOUT = "ai_timeout"
     AI_ERROR = "ai_error"
     BUTTON_NOT_FOUND = "button_not_found"
+    MESSAGE_NOT_MODIFIED = "message_not_modified"
     TARGET_NOT_FOUND = "target_not_found"
     NETWORK_PROXY = "network_proxy"
     TIMEOUT = "timeout"
@@ -115,8 +116,16 @@ _CATEGORY_RULES: tuple[tuple[FailureCategory, tuple[str, ...]], ...] = (
             "no matching button",
             "按钮查找失败",
             "未找到可供点击的按钮",
+        ),
+    ),
+    (
+        FailureCategory.MESSAGE_NOT_MODIFIED,
+        (
+            # Telegram 对「以相同内容编辑消息」返回的良性状态，而非按钮缺失。
+            # 同时覆盖 RPC 错误 ID（下划线）与 pyrogram 的英文描述（"was not modified"）。
             "message_not_modified",
-            "message not modified",
+            "not modified",
+            "未修改",
         ),
     ),
     (
@@ -156,8 +165,6 @@ _CATEGORY_RULES: tuple[tuple[FailureCategory, tuple[str, ...]], ...] = (
             "host unreachable",
             "timed out connecting",
             "socks",
-            "socks5",
-            "socks4",
             "ssl",
             "connecterror",
             "clientconnectorerror",
@@ -242,6 +249,7 @@ _FAILURE_CATEGORY_LABELS = {
     FailureCategory.AI_TIMEOUT: "AI 超时",
     FailureCategory.AI_ERROR: "AI 错误",
     FailureCategory.BUTTON_NOT_FOUND: "按钮未找到",
+    FailureCategory.MESSAGE_NOT_MODIFIED: "消息内容未变化",
     FailureCategory.TARGET_NOT_FOUND: "目标未找到",
     FailureCategory.NETWORK_PROXY: "网络/代理",
     FailureCategory.TIMEOUT: "超时",
