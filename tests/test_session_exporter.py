@@ -27,6 +27,7 @@ async def test_export_standalone_session_success_flow():
     mock_main_client = MagicMock()
     mock_main_client.is_connected = True
     mock_main_client.invoke = AsyncMock()
+    mock_main_client.disconnect = AsyncMock()
     mock_service._build_account_client.return_value = (mock_main_client, None)
 
     # Candidate client
@@ -74,6 +75,7 @@ async def test_export_standalone_session_success_flow():
 
     mock_candidate_client.connect.assert_awaited_once()
     mock_candidate_client.disconnect.assert_awaited_once()
+    mock_main_client.disconnect.assert_awaited_once()
     # Main client should have invoked AcceptLoginToken with the token bytes
     assert mock_main_client.invoke.await_count == 1
     call_arg = mock_main_client.invoke.call_args[0][0]
