@@ -266,8 +266,14 @@ def _build_default_template_context(
         "date": now.strftime("%Y-%m-%d"),
         "time": now.strftime("%H:%M:%S"),
         "timestamp": int(now.timestamp()),
+        "year": now.year,
+        "month": f"{now.month:02d}",
+        "day": f"{now.day:02d}",
+        "weekday": now.isoweekday(),
         "random_int": _random_int,
+        "randint": _random_int,
         "random_choice": _random_choice,
+        "choice": _random_choice,
         "uuid": _gen_uuid,
         "dict_entry": _dict_entry,
         "str": str,
@@ -281,6 +287,7 @@ def _build_default_template_context(
         "max": max,
         "abs": abs,
         "round": round,
+        "sum": sum,
     }
     if extra_context:
         ctx.update(extra_context)
