@@ -183,20 +183,26 @@ class Settings(BaseModel):
 
     @property
     def cors_allow_origins(self) -> list[str]:
-        origins = [
-            item.strip()
+        raw_items = [
+            item.strip().strip("'").strip('"')
             for item in str(self.cors_allow_origins_raw or "").split(",")
             if item.strip()
         ]
+        origins: list[str] = []
+        for item in raw_items:
+            cleaned = item.rstrip("/") if item != "*" and "://" in item else item
+            if cleaned and cleaned not in origins:
+                origins.append(cleaned)
         return origins or ["http://127.0.0.1:3000", "http://localhost:3000"]
 
     @property
     def trusted_proxies(self) -> list[str]:
-        return [
-            item.strip()
-            for item in str(self.trusted_proxies_raw or "").split(",")
-            if item.strip()
-        ]
+        proxies: list[str] = []
+        for item in str(self.trusted_proxies_raw or "").split(","):
+            cleaned = item.strip().strip("'").strip('"')
+            if cleaned and cleaned not in proxies:
+                proxies.append(cleaned)
+        return proxies
 
 
 @lru_cache()
