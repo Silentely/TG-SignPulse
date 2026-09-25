@@ -540,7 +540,7 @@ async def _runner_adaptive_reschedule(state: Dict[str, Any]) -> None:
         return
 
     try:
-        padding_sec = int(task_cfg.get("adaptive_schedule_padding_seconds", 30))
+        padding_sec = max(0, int(task_cfg.get("adaptive_schedule_padding_seconds", 30)))
     except (ValueError, TypeError):
         padding_sec = 30
 

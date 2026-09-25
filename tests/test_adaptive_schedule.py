@@ -15,6 +15,11 @@ def test_parse_cooldown_chinese_formats():
     assert parse_cooldown_timedelta("请在2小时后再试") == timedelta(hours=2)
     assert parse_cooldown_timedelta("冷却时间剩余 1天3小时20分10秒") == timedelta(days=1, hours=3, minutes=20, seconds=10)
     assert parse_cooldown_timedelta("请在 3小时15分钟 后再试") == timedelta(hours=3, minutes=15)
+    assert parse_cooldown_timedelta("请等待半小时后再试") == timedelta(minutes=30)
+    assert parse_cooldown_timedelta("距离下次签到还有一个半小时") == timedelta(hours=1, minutes=30)
+    assert parse_cooldown_timedelta("冷却时间：1小时零5分钟") == timedelta(hours=1, minutes=5)
+    assert parse_cooldown_timedelta("请在2小时半后再试") == timedelta(hours=2, minutes=30)
+    assert parse_cooldown_timedelta("请等待半天后再试") == timedelta(hours=12)
 
 
 def test_parse_cooldown_english_formats():
