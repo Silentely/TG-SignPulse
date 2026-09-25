@@ -396,7 +396,11 @@ async def _runner_parse_reply(state: Dict[str, Any]) -> None:
                     reply_part = reply_part[len("Message:"):].strip()
 
                 if "text: " in reply_part:
-                    text_content = reply_part.split("text: ", 1)[-1].split("\n")[0].strip()
+                    raw_text = reply_part.split("text: ", 1)[-1]
+                    for delimiter in ("\n  InlineKeyboard:", "\nInlineKeyboard:", "\n  ReplyKeyboard:", "\nReplyKeyboard:", "\n  图片:", "\n图片:"):
+                        if delimiter in raw_text:
+                            raw_text = raw_text.split(delimiter, 1)[0]
+                    text_content = " ".join(raw_text.split()).strip()
                     if text_content:
                         last_reply = text_content
                     elif "图片: " in reply_part:

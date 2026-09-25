@@ -575,6 +575,23 @@ class TestStrongFailureFlip:
         assert result["success"] is True
         assert "机器人回复疑似失败" not in result.get("error", "")
 
+    @pytest.mark.asyncio
+    async def test_multiline_reply_preserves_error_flip(self, runner_env):
+        import logging
+
+        async def behavior(run_calls: int):
+            logging.getLogger("tg-signer").info(
+                "收到来自「签到Bot」的消息: Message: \n  text: 签到状态汇总\n签到失败：用户未实名认证\n  InlineKeyboard: 重试 | "
+            )
+
+        FakeSigner.behavior = behavior
+        svc = FakeSvc(task_cfg={"name": "t"})
+        svc.strong_failure = True
+        result = await execute_sign_task(svc, "acc", "t")
+        assert result["success"] is False
+        assert "机器人回复疑似失败" in result.get("error", "")
+        assert "签到失败：用户未实名认证" in result.get("error", "")
+
 
 class TestFetchLastTargetTimeout:
     """补抓最后消息超时跳过"""
