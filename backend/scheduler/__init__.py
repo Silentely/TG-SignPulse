@@ -406,9 +406,9 @@ async def _job_auto_backup() -> None:
         fail_reasons = []
         if not result.get("success"):
             fail_reasons.append(str(result.get("error") or "备份打包失败"))
-        if wd.get("attempted") and wd.get("success") is False:
+        if wd and wd.get("success") is False:
             fail_reasons.append(f"WebDAV 上传失败: {wd.get('error')}")
-        if s3.get("attempted") and s3.get("success") is False:
+        if s3 and s3.get("success") is False:
             fail_reasons.append(f"对象存储上传失败: {s3.get('error')}")
         fail_reason = "；".join(fail_reasons)
         if fail_reason:
