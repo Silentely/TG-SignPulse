@@ -57,6 +57,7 @@ const baseSettings = (): SettingsFormState => ({
   s3Region: '',
   s3Prefix: '',
   s3Proxy: '',
+  backupTarget: 'auto',
 })
 
 describe('settings-form', () => {
@@ -197,6 +198,22 @@ describe('settings-form', () => {
     expect(p.s3_region).toBe('auto')
     expect(p.s3_prefix).toBe('tg-signpulse-backups')
     expect(p.s3_proxy).toBe(null)
+    expect(p.backup_target).toBe('auto')
+  })
+
+  it('buildBackupPayload 与 applyGlobalSettingsToForm 正确处理 backup_target 及其类型守卫', () => {
+    const s = baseSettings()
+    s.backupTarget = 'both'
+    const p = buildBackupPayload(s) as Record<string, unknown>
+    expect(p.backup_target).toBe('both')
+
+    // 测试类型守卫：合法值保留，非法值归一化为 auto
+    const s2 = baseSettings()
+    applyGlobalSettingsToForm(s2, { backup_target: 's3' })
+    expect(s2.backupTarget).toBe('s3')
+
+    applyGlobalSettingsToForm(s2, { backup_target: 'invalid-target' as any })
+    expect(s2.backupTarget).toBe('auto')
   })
 
   it('buildBackupPayload 空密钥不下发 s3_secret_key', () => {

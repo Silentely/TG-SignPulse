@@ -48,6 +48,7 @@ export interface BackupStatus {
   webdav_configured?: boolean;
   /** 对象存储（S3/R2/MinIO）是否已配置且启用 */
   s3_configured?: boolean;
+  backup_target?: 'auto' | 'webdav' | 's3' | 'both';
   auto_backup_enabled?: boolean;
   local_auto_backups?: Array<{
     name: string;
@@ -62,10 +63,12 @@ export const getBackupStatus = (token: string) =>
 
 /** 完整备份：优先上传 WebDAV，其次对象存储；均未配置时服务端回退为下载流 */
 export async function exportBackupArchive(token: string): Promise<{
-  mode: "webdav" | "s3" | "download";
+  mode: "webdav" | "s3" | "both" | "download";
   message?: string;
   remote_url?: string;
   filename?: string;
+  webdav_url?: string;
+  s3_url?: string;
 }> {
   // 整段墙钟超时：打包 + 上传/下载 body 均受 LONG_TIMEOUT 约束
   const abort = createRequestAbort(LONG_TIMEOUT_MS, null);
@@ -85,14 +88,18 @@ export async function exportBackupArchive(token: string): Promise<{
           String(data.message || data.detail || "Backup upload failed"),
         );
       }
-      // mode 由服务端按「WebDAV → 对象存储」优先级返回，前端据此提示
-      const mode: "webdav" | "s3" =
-        data.mode === "s3" ? "s3" : "webdav";
+      // mode 由服务端按 backup_target 策略返回，前端据此提示
+      let mode: "webdav" | "s3" | "both" = "webdav";
+      if (data.mode === "s3" || data.mode === "both") {
+        mode = data.mode;
+      }
       return {
         mode,
         message: data.message,
         remote_url: data.remote_url,
         filename: data.filename,
+        webdav_url: data.webdav_url,
+        s3_url: data.s3_url,
       };
     }
     const blob = await res.blob();

@@ -85,6 +85,7 @@ function baseSettings(over: Partial<SettingsFormState> = {}): SettingsFormState 
     s3Region: '',
     s3Prefix: '',
     s3Proxy: '',
+    backupTarget: 'auto',
     ...over,
   }
 }
@@ -363,6 +364,43 @@ describe('useSettingsBackup', () => {
     await backup.handleWebdavTest()
     expect(api.testWebdavBackup).not.toHaveBeenCalled()
     expect(toastSpy.error).toHaveBeenCalled()
+  })
+
+  it('handleBackupExport 在 backupTarget === "both" 时进行双端校验并在成功时显示双备份 Toast', async () => {
+    // 1. WebDAV 缺失时拦截
+    const { backup: b1 } = setup({
+      backupTarget: 'both',
+      webdavUrl: '',
+      s3EndpointUrl: 'https://s3.test',
+      s3Bucket: 'b',
+      s3AccessKey: 'ak',
+      s3SecretKey: 'sk',
+    })
+    await b1.handleBackupExport()
+    expect(api.exportBackupArchive).not.toHaveBeenCalled()
+    expect(toastSpy.error).toHaveBeenCalled()
+
+    // 2. 双端齐备时请求成功并弹出 both 成功 Toast
+    api.exportBackupArchive.mockResolvedValue({
+      mode: 'both',
+      filename: 'both-backup.tar.gz',
+      webdav_url: 'https://dav.test/b.tar.gz',
+      s3_url: 'https://s3.test/b.tar.gz',
+      size_bytes: 1024,
+    })
+    const { backup: b2 } = setup({
+      backupTarget: 'both',
+      webdavUrl: 'https://dav.test',
+      webdavUsername: 'u',
+      webdavPassword: 'p',
+      s3EndpointUrl: 'https://s3.test',
+      s3Bucket: 'b',
+      s3AccessKey: 'ak',
+      s3SecretKey: 'sk',
+    })
+    await b2.handleBackupExport()
+    expect(api.exportBackupArchive).toHaveBeenCalled()
+    expect(toastSpy.success).toHaveBeenCalledWith(expect.stringContaining('both-backup.tar.gz'))
   })
 
   it('validate path: s3 必填项缺失时不发请求', async () => {
