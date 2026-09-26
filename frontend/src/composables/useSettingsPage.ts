@@ -84,6 +84,7 @@ export function useSettingsPage() {
     s3Region: 'auto',
     s3Prefix: 'tg-signpulse-backups',
     s3Proxy: '',
+    backupTarget: 'auto',
   })
 
   // 时区选项列表

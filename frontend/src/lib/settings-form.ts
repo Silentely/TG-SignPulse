@@ -44,6 +44,7 @@ export type SettingsFormState = {
   s3Region: string
   s3Prefix: string
   s3Proxy: string
+  backupTarget: 'auto' | 'webdav' | 's3' | 'both'
 }
 
 export type TgFormState = { api_id: string; api_hash: string }
@@ -140,6 +141,7 @@ export function buildBackupPayload(s: SettingsFormState) {
     s3_region: s.s3Region || 'auto',
     s3_prefix: s.s3Prefix || 'tg-signpulse-backups',
     s3_proxy: s.s3Proxy || null,
+    backup_target: s.backupTarget || 'auto',
   }
 }
 
@@ -201,6 +203,7 @@ export function snapSection(
         s3Region: s.s3Region,
         s3Prefix: s.s3Prefix,
         s3Proxy: s.s3Proxy,
+        backupTarget: s.backupTarget || 'auto',
       })
     case 'tg':
       return JSON.stringify({
@@ -302,6 +305,7 @@ export function applyGlobalSettingsToForm(
     s3_region?: string | null
     s3_prefix?: string | null
     s3_proxy?: string | null
+    backup_target?: string | null
   },
 ): { botTokenSet: boolean; webdavPasswordSet: boolean; s3SecretKeySet: boolean } {
   s.checkInterval = res.sign_interval ? String(res.sign_interval) : ''
@@ -346,6 +350,8 @@ export function applyGlobalSettingsToForm(
   s.s3Region = res.s3_region || 'auto'
   s.s3Prefix = res.s3_prefix || 'tg-signpulse-backups'
   s.s3Proxy = res.s3_proxy || ''
+  const bt = res.backup_target
+  s.backupTarget = bt === 'webdav' || bt === 's3' || bt === 'both' ? bt : 'auto'
   return {
     botTokenSet: !!res.telegram_bot_token_set,
     webdavPasswordSet: !!res.webdav_password_set,

@@ -190,6 +190,13 @@ def normalize_global_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
         val = normalized["require_proxy_for_telegram"]
         normalized["require_proxy_for_telegram"] = bool(val) if val is not None else False
 
+    if "backup_target" in normalized:
+        target_val = str(normalized["backup_target"] or "").strip().lower()
+        if target_val in {"auto", "webdav", "s3", "both"}:
+            normalized["backup_target"] = target_val
+        else:
+            normalized["backup_target"] = "auto"
+
     return normalized
 
 
@@ -1014,6 +1021,7 @@ class GlobalSettingsMixin:
             "webdav_password": None,
             "webdav_remote_dir": "tg-signpulse-backups",
             "require_proxy_for_telegram": False,
+            "backup_target": "auto",
         }
 
         settings = self._read_json_file(config_file)

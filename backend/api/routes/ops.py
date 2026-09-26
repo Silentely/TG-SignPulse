@@ -62,6 +62,7 @@ class BackupStatusResponse(BaseModel):
     restore_hint: str = ""
     webdav_configured: bool = False
     s3_configured: bool = False
+    backup_target: str = "auto"
     auto_backup_enabled: bool = False
     local_auto_backups: List[Dict[str, Any]] = Field(default_factory=list)
 
@@ -306,13 +307,14 @@ def backup_status(current_user: User = Depends(get_current_user)):
             "JSON 配置导出不含会话；二者用途不同，勿混用。",
             "不含 .admin_bootstrap_password（避免初始密码随备份传播）。",
             "自动备份在 WebDAV / 对象存储上传成功后会删除本地副本；失败时保留本地文件。",
-            "已启用对象存储（S3/R2/MinIO）且未配置 WebDAV 时，完整备份改为上传对象存储。",
+            "备份落点策略支持智能选择、仅 WebDAV、仅对象存储以及双端同时备份（both）。",
         ],
         restore_hint=(
             "恢复：停止服务 → 解压 tar.gz 到 APP_DATA_DIR 覆盖对应路径 → 重启。"
             "详见文档运维手册。"
         ),
         webdav_configured=webdav_configured,
+        backup_target=str(cfg.get("backup_target") or "auto"),
         s3_configured=s3_configured,
         auto_backup_enabled=auto_backup_enabled,
         local_auto_backups=local_auto,
@@ -342,16 +344,54 @@ async def export_backup_archive(current_user: User = Depends(get_current_user)):
         )
 
     cfg = get_config_service().get_global_settings()
+    backup_target = str(cfg.get("backup_target") or "auto").strip().lower()
+    if backup_target not in {"auto", "webdav", "s3", "both"}:
+        backup_target = "auto"
+
     webdav_url = (cfg.get("webdav_url") or "").strip()
-    use_s3 = not webdav_url and s3_enabled(cfg)
+    s3_ready = s3_enabled(cfg)
     webdav_user = str(cfg.get("webdav_username") or "").strip()
     webdav_password = str(cfg.get("webdav_password") or "")
     webdav_remote = str(
         cfg.get("webdav_remote_dir") or "tg-signpulse-backups"
     ).strip() or "tg-signpulse-backups"
 
-    # 已声明 WebDAV 时先校验凭据，避免空打包后再失败
-    if webdav_url:
+    # 显式策略强校验，避免静默降级
+    if backup_target == "both":
+        if not webdav_url:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="备份目标为双端备份（both），但 WebDAV 服务地址未配置",
+            )
+        if not s3_ready:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="备份目标为双端备份（both），但对象存储未启用或凭据未配置完整",
+            )
+        do_webdav = True
+        do_s3 = True
+    elif backup_target == "s3":
+        if not s3_ready:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="备份目标为仅对象存储（s3），但对象存储未启用或凭据未配置完整",
+            )
+        do_webdav = False
+        do_s3 = True
+    elif backup_target == "webdav":
+        if not webdav_url:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="备份目标为仅 WebDAV，但 WebDAV 服务地址未配置",
+            )
+        do_webdav = True
+        do_s3 = False
+    else:  # auto
+        do_webdav = bool(webdav_url)
+        do_s3 = bool(not do_webdav and s3_ready)
+
+    # 校验 WebDAV 凭据
+    if do_webdav:
         if not webdav_user:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -375,8 +415,45 @@ async def export_backup_archive(current_user: User = Depends(get_current_user)):
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="没有可备份的文件",
             )
+        archive_size = archive_path.stat().st_size
 
-        if webdav_url:
+        if do_webdav and do_s3:
+            wd_proxy = _extract_webdav_proxy(cfg)
+            try:
+                wd_res = upload_file_to_webdav(
+                    base_url=webdav_url,
+                    username=webdav_user,
+                    password=webdav_password,
+                    remote_dir=webdav_remote,
+                    local_path=archive_path,
+                    proxy=wd_proxy,
+                )
+                s3_res = await upload_backup_to_s3(cfg, archive_path)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=str(exc),
+                ) from exc
+            except Exception as exc:
+                logger.exception("多落点备份上传失败")
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"多落点备份上传失败: {exc}",
+                ) from exc
+            finally:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+
+            return {
+                "success": True,
+                "mode": "both",
+                "message": "备份已成功上传至 WebDAV 及对象存储",
+                "filename": archive_path.name,
+                "webdav_url": wd_res.get("remote_url"),
+                "s3_url": s3_res.get("url"),
+                "size_bytes": wd_res.get("size_bytes") or s3_res.get("size") or archive_size,
+            }
+
+        if do_webdav:
             try:
                 wd_proxy = _extract_webdav_proxy(cfg)
                 result = upload_file_to_webdav(
@@ -409,7 +486,7 @@ async def export_backup_archive(current_user: User = Depends(get_current_user)):
                 "size_bytes": result.get("size_bytes"),
             }
 
-        if use_s3:
+        if do_s3:
             try:
                 result = await upload_backup_to_s3(cfg, archive_path)
             except ValueError as exc:

@@ -47,6 +47,7 @@ const settingsState = (): SettingsFormState => ({
   s3Region: '',
   s3Prefix: '',
   s3Proxy: '',
+  backupTarget: 'auto',
 })
 
 describe('设置页拆分组件契约', () => {
@@ -149,5 +150,75 @@ describe('设置页拆分组件契约', () => {
     expect(wrapper.text()).toContain('auto-1.tar.gz')
     await wrapper.find('li button').trigger('click')
     expect(wrapper.emitted('s3-download')?.[0]).toEqual(['auto-1.tar.gz'])
+  })
+
+  it('DataManagementSettings 支持配置 backupTarget 与查看恢复指引', async () => {
+    const wrapper = mount(DataManagementSettings, {
+      props: {
+        modelValue: settingsState(),
+        backupStatus: {
+          data_dir: '/opt/tg-data',
+          writable: true,
+          size_bytes: 1024,
+          size_human: '1 KB',
+          entries: [],
+          recommended_paths: [],
+        },
+        remoteFiles: [],
+        remoteMessage: '',
+        remoteDownloadName: '',
+        remoteS3Files: [],
+        remoteS3Message: '',
+        remoteS3DownloadName: '',
+      },
+      global: { plugins: [i18n] },
+    })
+
+    // 测试 backupTarget 变更
+    const select = wrapper.find('#backup-target')
+    expect(select.exists()).toBe(true)
+    await select.setValue('both')
+    const emitted = wrapper.emitted('update:modelValue')
+    expect((emitted?.at(-1)?.[0] as SettingsFormState).backupTarget).toBe('both')
+
+    // 测试恢复指引弹窗
+    const guideBtn = wrapper.findAll('button').find((b) => b.text().includes('恢复指引'))
+    expect(guideBtn).toBeTruthy()
+    await guideBtn?.trigger('click')
+    expect(document.body.textContent).toContain('docker stop tg-signpulse')
+    expect(document.body.textContent).toContain('tar -xzf tg-signpulse-backup-*.tar.gz -C "<宿主机挂载目录，如 ./data>"')
+
+    // 切换到宿主机 Tab
+    const hostTab = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.includes('宿主机'))
+    expect(hostTab).toBeTruthy()
+    hostTab?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await wrapper.vm.$nextTick()
+    expect(document.body.textContent).toContain('pkill -f "backend.main"')
+    expect(document.body.textContent).toContain('tar -xzf tg-signpulse-backup-*.tar.gz -C "/opt/tg-data"')
+  })
+
+  it('DataManagementSettings 支持点击 S3 快捷预设填充模版', async () => {
+    const wrapper = mount(DataManagementSettings, {
+      props: {
+        modelValue: settingsState(),
+        backupStatus: null,
+        remoteFiles: [],
+        remoteMessage: '',
+        remoteDownloadName: '',
+        remoteS3Files: [],
+        remoteS3Message: '',
+        remoteS3DownloadName: '',
+      },
+      global: { plugins: [i18n] },
+    })
+
+    const r2Btn = wrapper.findAll('button').find((b) => b.text().includes('Cloudflare R2'))
+    expect(r2Btn).toBeTruthy()
+    await r2Btn?.trigger('click')
+    const emitted = wrapper.emitted('update:modelValue')
+    const last = emitted?.at(-1)?.[0] as SettingsFormState
+    expect(last.s3EndpointUrl).toContain('r2.cloudflarestorage.com')
+    expect(last.s3Region).toBe('auto')
+    expect(last.s3Enabled).toBe(true)
   })
 })

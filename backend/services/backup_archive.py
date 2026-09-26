@@ -109,10 +109,11 @@ def run_auto_backup(
     paths: Optional[Iterable[str]] = None,
     webdav_settings: Optional[dict] = None,
     s3_settings: Optional[dict] = None,
+    backup_target: str = "auto",
 ) -> dict:
     """执行一次自动备份；远端（WebDAV / 对象存储）上传成功后删除本地副本以节省磁盘。
 
-    WebDAV 优先：二者都配置时走 WebDAV，对象存储仅在未配置 WebDAV 时生效。
+    支持 backup_target 显式指定：auto（WebDAV优先）、webdav、s3、both（双备份）。
     """
     backup_dir = data_dir / "backups"
     backup_dir.mkdir(parents=True, exist_ok=True)
@@ -147,8 +148,32 @@ def run_auto_backup(
     path_out = str(dest)
     wd = webdav_settings or {}
     s3 = s3_settings or {}
-    use_s3 = not (wd.get("webdav_url") or "").strip() and _s3_ready(s3)
-    if (wd.get("webdav_url") or "").strip():
+    wd_ready = bool((wd.get("webdav_url") or "").strip())
+    s3_is_ready = _s3_ready(s3)
+
+    target_mode = (backup_target or "auto").strip().lower()
+    if target_mode not in {"auto", "webdav", "s3", "both"}:
+        target_mode = "auto"
+
+    do_webdav = False
+    do_s3 = False
+    if target_mode == "both":
+        do_webdav = wd_ready
+        do_s3 = s3_is_ready
+    elif target_mode == "webdav":
+        do_webdav = wd_ready
+    elif target_mode == "s3":
+        do_s3 = s3_is_ready
+    else:  # auto
+        if wd_ready:
+            do_webdav = True
+        elif s3_is_ready:
+            do_s3 = True
+
+    # 显式策略下若目标未就绪，记录 attempted 失败避免调度器静默漏报
+    if target_mode in {"both", "webdav"} and not wd_ready:
+        webdav_result = {"success": False, "attempted": True, "error": "WebDAV 服务地址未配置"}
+    elif do_webdav:
         wd_proxy = str(wd.get("webdav_proxy") or wd.get("proxy") or "").strip() or None
         try:
             from backend.services.webdav_client import upload_file_to_webdav
@@ -161,20 +186,12 @@ def run_auto_backup(
                 local_path=dest,
                 proxy=wd_proxy,
             )
+            webdav_result["attempted"] = True
         except Exception as exc:
             logger.warning("自动备份 WebDAV 上传失败: %s", exc)
-            webdav_result = {"success": False, "error": str(exc)}
+            webdav_result = {"success": False, "attempted": True, "error": str(exc)}
 
-        # 远端已有副本则删本地，失败则保留便于补传
-        if webdav_result and webdav_result.get("success"):
-            try:
-                dest.unlink(missing_ok=True)
-                local_removed = True
-                path_out = str(webdav_result.get("remote_url") or "")
-            except OSError as exc:
-                logger.warning("删除本地自动备份失败 %s: %s", dest, exc)
-
-            # 远端按 keep 轮转清理旧包
+        if webdav_result.get("success"):
             try:
                 from backend.services.webdav_client import prune_webdav_backups
 
@@ -189,32 +206,65 @@ def run_auto_backup(
                     proxy=wd_proxy,
                 )
             except Exception as exc:
-                logger.warning("远端备份清理失败: %s", exc)
+                logger.warning("WebDAV 远端备份清理失败: %s", exc)
                 remote_prune = {"success": False, "removed": 0, "error": str(exc)}
-    elif use_s3:
+
+    if target_mode in {"both", "s3"} and not s3_is_ready:
+        s3_result = {"success": False, "attempted": True, "error": "对象存储未启用或凭据未配置完整"}
+    elif do_s3:
         try:
             s3_result = _run_coro_blocking(_upload_backup_to_s3(s3, dest))
+            if s3_result is None:
+                s3_result = {"success": True}
+            s3_result["attempted"] = True
         except Exception as exc:
             logger.warning("自动备份对象存储上传失败: %s", exc)
-            s3_result = {"success": False, "error": str(exc)}
+            s3_result = {"success": False, "attempted": True, "error": str(exc)}
 
-        # 远端已有副本则删本地，失败则保留便于补传
-        if s3_result and s3_result.get("success"):
-            try:
-                dest.unlink(missing_ok=True)
-                local_removed = True
-                path_out = str(s3_result.get("url") or "")
-            except OSError as exc:
-                logger.warning("删除本地自动备份失败 %s: %s", dest, exc)
-
-            # 远端按 keep 轮转清理旧包
+        if s3_result.get("success"):
             try:
                 from backend.services.s3_backup import prune_s3_backups
 
-                remote_prune = _run_coro_blocking(prune_s3_backups(s3, keep=keep))
+                s3_prune = _run_coro_blocking(prune_s3_backups(s3, keep=keep))
+                if remote_prune is None:
+                    remote_prune = s3_prune
             except Exception as exc:
                 logger.warning("对象存储远端备份清理失败: %s", exc)
-                remote_prune = {"success": False, "removed": 0, "error": str(exc)}
+                if remote_prune is None:
+                    remote_prune = {"success": False, "removed": 0, "error": str(exc)}
+
+    # 远端上传成功判定：
+    # 若目标为 both 且同时尝试了 WebDAV 与 S3，要求两端均成功才清理本地，任一端失败则保留本地副本容灾
+    upload_succeeded = False
+    if target_mode == "both":
+        if do_webdav and do_s3:
+            upload_succeeded = bool(
+                webdav_result and webdav_result.get("success")
+                and s3_result and s3_result.get("success")
+            )
+        elif do_webdav:
+            upload_succeeded = bool(webdav_result and webdav_result.get("success"))
+        elif do_s3:
+            upload_succeeded = bool(s3_result and s3_result.get("success"))
+    else:
+        if do_webdav and webdav_result and webdav_result.get("success"):
+            upload_succeeded = True
+        elif do_s3 and s3_result and s3_result.get("success"):
+            upload_succeeded = True
+
+    if webdav_result and webdav_result.get("success"):
+        path_out = str(webdav_result.get("remote_url") or path_out)
+    if s3_result and s3_result.get("success"):
+        path_out = str(s3_result.get("url") or path_out)
+
+    if upload_succeeded:
+        try:
+            dest.unlink(missing_ok=True)
+            local_removed = True
+        except OSError as exc:
+            logger.warning("删除本地自动备份失败 %s: %s", dest, exc)
+    elif target_mode == "both" and (do_webdav or do_s3):
+        logger.info("备份模式为 both 且远端未全量完成，保留本地副本作为容灾兜底: %s", dest)
 
     removed = prune_backups(backup_dir, keep)
     return {

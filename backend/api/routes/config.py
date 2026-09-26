@@ -431,6 +431,7 @@ class GlobalSettingsRequest(BaseModel):
     s3_region: Optional[str] = None
     s3_prefix: Optional[str] = None
     s3_proxy: Optional[str] = None
+    backup_target: Optional[str] = None
     require_proxy_for_telegram: Optional[bool] = None
 
 
@@ -480,6 +481,7 @@ class GlobalSettingsResponse(BaseModel):
     s3_region: Optional[str] = "auto"
     s3_prefix: Optional[str] = "tg-signpulse-backups"
     s3_proxy: Optional[str] = None
+    backup_target: str = "auto"
     require_proxy_for_telegram: bool = False
 
 

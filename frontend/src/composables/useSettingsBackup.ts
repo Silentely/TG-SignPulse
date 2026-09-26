@@ -100,6 +100,15 @@ export function useSettingsBackup(options: {
   }
 
   const validateBackupExport = (): boolean => {
+    const target = options.settings.value.backupTarget || 'auto'
+    if (target === 'both') {
+      const vWd = validateWebdavForm()
+      const vS3 = validateS3Form()
+      return vWd && vS3
+    }
+    if (target === 'webdav') return validateWebdavForm()
+    if (target === 's3') return validateS3Form()
+    // auto 模式保持兼容：优先 WebDAV，其次 S3
     if (options.settings.value.webdavUrl.trim()) return validateWebdavForm()
     if (options.settings.value.s3Enabled) return validateS3Form()
     return true
@@ -231,11 +240,13 @@ export function useSettingsBackup(options: {
       if (res.mode === 'download') {
         notifySuccess(t('settings.backupExportSuccess'))
       } else {
-        // 服务端按「WebDAV → 对象存储」优先级返回 mode，据此提示落点
-        const label =
-          res.mode === 's3'
-            ? t('settings.backupS3Success')
-            : t('settings.backupWebdavSuccess')
+        // 服务端按 backup_target 策略返回 mode，据此提示落点
+        let label = t('settings.backupWebdavSuccess')
+        if (res.mode === 'both') {
+          label = t('settings.backupBothSuccess')
+        } else if (res.mode === 's3') {
+          label = t('settings.backupS3Success')
+        }
         notifySuccess(res.filename ? `${label}: ${res.filename}` : label)
       }
       try {
@@ -250,6 +261,10 @@ export function useSettingsBackup(options: {
     }
   }
 
+  const loadBackupStatus = async (token: string) => {
+    backupStatus.value = await getBackupStatus(token)
+  }
+
   const handleWebdavTest = async () => {
     const token = getAuthToken()
     if (!validateWebdavForm()) return
@@ -259,8 +274,16 @@ export function useSettingsBackup(options: {
       afterWebdavSettingsSaved()
       options.markSectionClean('advanced')
       const res = await testWebdavBackup(token)
-      if (res.success) notifySuccess(res.message || t('settings.webdavTestOk'))
-      else notifyError(res.message || t('settings.webdavTestFailed'))
+      if (res.success) {
+        notifySuccess(res.message || t('settings.webdavTestOk'))
+        try {
+          await loadBackupStatus(token)
+        } catch {
+          // non-blocking
+        }
+      } else {
+        notifyError(res.message || t('settings.webdavTestFailed'))
+      }
     } catch (e: unknown) {
       notifyError(resolveApiErrorMessage(e, 'settings.webdavTestFailed'))
     } finally {
@@ -277,8 +300,16 @@ export function useSettingsBackup(options: {
       afterS3SettingsSaved()
       options.markSectionClean('advanced')
       const res = await testS3Backup(token)
-      if (res.success) notifySuccess(res.message || t('settings.s3TestOk'))
-      else notifyError(res.message || t('settings.s3TestFailed'))
+      if (res.success) {
+        notifySuccess(res.message || t('settings.s3TestOk'))
+        try {
+          await loadBackupStatus(token)
+        } catch {
+          // non-blocking
+        }
+      } else {
+        notifyError(res.message || t('settings.s3TestFailed'))
+      }
     } catch (e: unknown) {
       notifyError(resolveApiErrorMessage(e, 'settings.s3TestFailed'))
     } finally {
@@ -338,9 +369,7 @@ export function useSettingsBackup(options: {
     reader.readAsText(file)
   }
 
-  const loadBackupStatus = async (token: string) => {
-    backupStatus.value = await getBackupStatus(token)
-  }
+
 
   return {
     dataLoading,
