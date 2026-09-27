@@ -62,8 +62,7 @@ server {
         proxy_cache off;
         chunked_transfer_encoding off;
         proxy_read_timeout 3600s;
-        # 避免 access log 记录 ?token=（可选）
-        # access_log off;
+        # SSE 使用 60s 一次性 ticket 票据接入，长效 JWT 不会在 URL 中暴露
     }
 
     location = /readyz {
@@ -85,6 +84,6 @@ server {
 
 ## 注意
 
-- Dashboard 实时流使用 `EventSource`，JWT 在 **query** `token` 中；生产建议关闭该 path 的 access log，或改用仅内网可达的面板。
+- Dashboard 实时流使用 `EventSource`，前端先通过 Bearer JWT 请求 `POST /api/events/ticket` 换取 60 秒有效的一次性接入票据，再通过 `?ticket=` 建立 SSE 流。长效 JWT 不会落在 URL 或 access log 中。
 - `proxy_buffering off` 对 SSE 必需，否则浏览器长时间收不到事件。
 - 与 Docker 联用时，将 `upstream` 指到 compose 服务名或宿主机映射端口。

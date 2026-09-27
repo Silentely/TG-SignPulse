@@ -21,9 +21,27 @@
 
 | 字段 | 说明 |
 |------|------|
-| `state` | 粗粒度：`running` / `finished` / `timeout` / `cancelled` 等 |
-| `phase` | 细粒度：`starting` → `checking_account` → `waiting_lock` → `cooldown` → `running` → `finalizing` |
-| `failure_category` | 失败分类（会话失效、超时、Flood 等） |
+| `state` | 粗粒度运行状态：`running` / `finished` / `timeout` / `cancelled` 等 |
+| `phase` | 细粒度生命周期阶段：`starting` → `checking_account` → `waiting_lock` → `cooldown` → `running` → `finalizing` |
+| `failure_category` | 失败原因分类标签（见下表） |
+
+### 失败分类一览 (`failure_category`)
+
+系统根据错误特征与消息上下文自动归纳失败原因，并在面板历史与 Telegram Bot 通知中展示标准中文短标签：
+
+| 内部标识 | 中文短标签 | 判定场景与说明 |
+|----------|------------|----------------|
+| `session_invalid` | 会话失效 | 账号授权被撤销、Session 过期或需要重新登录 |
+| `flood_wait` | 频率限制 | 触发 Telegram 官方 FloodWait 限制或慢速模式 |
+| `ai_timeout` | AI 超时 | AI 视觉模型调用超时或图片处理超时 |
+| `ai_error` | AI 错误 | AI API Key 失效、余额不足或模型端报错 |
+| `button_not_found` | 按钮未找到 | 在消息内未定位到与指定规则匹配的内联按钮 |
+| `message_not_modified` | 消息内容未变化 | Telegram 编辑消息时内容与原文本一致（良性状态） |
+| `target_not_found` | 目标未找到 | 目标群组/频道/机器人不存在、无访问权限或已被封禁 |
+| `network_proxy` | 网络/代理 | 代理不可达、网络连接中断或 DNS 解析失败 |
+| `timeout` | 超时 | 任务整体执行超时或协程等待超时 |
+| `strong_failure` | 业务失败 | 消息文本明确包含签到失败、操作异常等业务错误语义 |
+| `unknown` | 未知失败 | 未命中上述规则的其他异常 |
 
 相关 API：
 
@@ -44,7 +62,7 @@
 - 多个号执行完全相同的打卡流程
 - 需要统一修改步骤，不想复制 N 份任务
 
-你只需要维护一份任务配置，然后通过 `account_names` 绑定多个账号即可。
+维护一份任务配置，通过 `account_names` 绑定多个账号即可。
 
 ## 执行模式
 

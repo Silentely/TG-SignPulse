@@ -127,6 +127,7 @@ Docker 内置健康检查已配置，间隔 30s，超时 10s。
 ├── .telegram_api.json           # Telegram API 配置
 ├── logs/                        # 执行日志
 ├── sessions/                    # Telegram 会话
+├── plugins/                     # 自定义 Action 插件
 └── .signer/                     # 签到引擎数据
 ```
 
@@ -198,77 +199,3 @@ panel.example.com {
 
 1. 每次主分支构建推送 `test-<short-sha>`。
 2. 预发环境显式部署该 sha 标签并验证。
-3. 验证通过后再移动或发布 `staging` 标签，避免预发环境隐式漂移。
-
-## 升级
-
-### GHCR 镜像升级
-
-```bash
-docker compose pull
-docker compose up -d
-```
-
-### 本地构建升级
-
-```bash
-git pull
-docker compose up -d --build
-```
-
-> 💡 升级前建议备份 `data/` 目录。面板完整备份（WebDAV / 对象存储）见 [备份与恢复](/guide/backup-webdav)。
-
-## 安全加固
-
-当前 `docker-compose.yml` 已包含以下安全措施：
-
-| 措施 | 说明 |
-|------|------|
-| `read_only: true` | 容器文件系统只读 |
-| `cap_drop: ALL` | 移除所有 Linux capabilities |
-| `no-new-privileges` | 禁止提权 |
-| `init: true` | 正确处理僵尸进程 |
-| `tmpfs` | 临时文件写入内存 |
-
-额外建议：
-
-- 生产环境固定 `APP_SECRET_KEY`
-- 明确设置 `ADMIN_PASSWORD`
-- 启用 HTTPS（通过反向代理）
-- 收紧 `APP_CORS_ALLOW_ORIGINS`
-- 不要在公网长期运行 `test-*` 镜像
-
-## 多平台支持
-
-Docker 镜像支持：
-
-- `linux/amd64`
-- `linux/arm64`（跳过 tgcrypto 编译）
-
-arm64 平台建议使用 `TG_SESSION_MODE=string` 以获得更好的兼容性。
-
-## 常见问题
-
-### 容器启动后无法写入数据
-
-```bash
-# 进入容器检查
-docker exec -it tg-signpulse sh
-id
-ls -ld /data
-touch /data/.probe && rm /data/.probe
-```
-
-如果权限不对，可以在宿主机上修复：
-
-```bash
-sudo chown -R 10001:10001 ./data
-```
-
-### 数据库锁定
-
-SQLite 已配置 WAL 模式和 30 秒超时。如果仍然出现锁定：
-
-1. 确认没有多个容器实例挂载同一个 `/data`
-2. 检查磁盘空间是否充足
-3. 考虑增大 `TG_GLOBAL_CONCURRENCY`（默认自动：CPU 核心数，上限 5；也可在面板「系统设置」覆盖）
