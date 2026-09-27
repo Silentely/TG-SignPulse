@@ -15,6 +15,7 @@ import os
 import re
 import sqlite3
 import sys
+import threading
 import time
 from collections import deque
 from contextlib import contextmanager
@@ -70,6 +71,9 @@ class PluginStorageBackend:
                 yield conn
         finally:
             conn.close()
+
+    def close(self) -> None:
+        pass
 
     def _init_db(self) -> None:
         with self._conn() as conn:
@@ -270,6 +274,83 @@ class PluginStorageBackend:
             _logger.warning("插件读取存储键列表失败 [%s]: %s", namespace, exc)
             return []
 
+    def mget(self, namespace: str, keys: List[str]) -> Dict[str, Any]:
+        """批量根据指定键列表读取键值对（自动分片规避 SQLite 变量上限，自动过滤与清理过期记录）。"""
+        if not keys:
+            return {}
+        now = time.time()
+        res: Dict[str, Any] = {}
+        expired_keys: List[str] = []
+        CHUNK_SIZE = 500
+        key_list = list(keys)
+        try:
+            with self._conn() as conn:
+                for i in range(0, len(key_list), CHUNK_SIZE):
+                    chunk = key_list[i : i + CHUNK_SIZE]
+                    placeholders = ",".join("?" for _ in chunk)
+                    params = [namespace] + chunk
+                    cur = conn.execute(
+                        f"SELECT key, value, expires_at FROM plugin_kv WHERE namespace = ? AND key IN ({placeholders})",
+                        params,
+                    )
+                    rows = cur.fetchall()
+                    for k, val_str, exp in rows:
+                        if exp is not None and exp < now:
+                            expired_keys.append(k)
+                            continue
+                        try:
+                            res[k] = json.loads(val_str)
+                        except Exception:
+                            res[k] = val_str
+
+                if expired_keys:
+                    for i in range(0, len(expired_keys), CHUNK_SIZE):
+                        exp_chunk = expired_keys[i : i + CHUNK_SIZE]
+                        del_placeholders = ",".join("?" for _ in exp_chunk)
+                        try:
+                            conn.execute(
+                                f"DELETE FROM plugin_kv WHERE namespace = ? AND key IN ({del_placeholders})",
+                                [namespace] + exp_chunk,
+                            )
+                        except Exception as clean_exc:
+                            _logger.debug("延迟清理过期记录异常: %s", clean_exc)
+                    conn.commit()
+                return res
+        except Exception as exc:
+            _logger.warning("插件批量按键读取存储失败 [%s]: %s", namespace, exc)
+            return {}
+
+    def mset(
+        self,
+        namespace: str,
+        mapping: Dict[str, Any],
+        ttl: Optional[float] = None,
+    ) -> None:
+        """批量写入键值对，支持统一指定过期时间。"""
+        if not mapping:
+            return
+        now = time.time()
+        expires_at = (now + ttl) if (ttl is not None and ttl > 0) else None
+        try:
+            rows = []
+            for k, val in mapping.items():
+                val_str = json.dumps(val, ensure_ascii=False)
+                rows.append((namespace, k, val_str, expires_at))
+            with self._conn() as conn:
+                conn.executemany(
+                    """
+                    INSERT INTO plugin_kv (namespace, key, value, expires_at)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(namespace, key) DO UPDATE SET
+                        value = excluded.value,
+                        expires_at = excluded.expires_at
+                    """,
+                    rows,
+                )
+                conn.commit()
+        except Exception as exc:
+            _logger.warning("插件批量写入存储失败 [%s]: %s", namespace, exc)
+
     def get_all(self, namespace: str, prefix: str = "") -> Dict[str, Any]:
         """批量读取指定命名空间下所有未过期的键值对（支持前缀过滤），自动淘汰已过期记录。"""
         now = time.time()
@@ -427,6 +508,20 @@ class PluginStorageClient:
             return await loop.run_in_executor(None, self._backend.keys, self.namespace, prefix)
         except RuntimeError:
             return self._backend.keys(self.namespace, prefix)
+
+    async def mget(self, keys: List[str]) -> Dict[str, Any]:
+        try:
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(None, self._backend.mget, self.namespace, keys)
+        except RuntimeError:
+            return self._backend.mget(self.namespace, keys)
+
+    async def mset(self, mapping: Dict[str, Any], ttl: Optional[float] = None) -> None:
+        try:
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, self._backend.mset, self.namespace, mapping, ttl)
+        except RuntimeError:
+            self._backend.mset(self.namespace, mapping, ttl)
 
     async def get_all(self, prefix: str = "") -> Dict[str, Any]:
         try:
@@ -617,6 +712,136 @@ class PluginContext:
         raise RuntimeError("Telegram Client 不支持 delete_messages 方法")
 
 
+    async def send_photo(
+        self, photo: Union[str, bytes], caption: Optional[str] = None, **kwargs: Any
+    ) -> Any:
+        """发送图片到当前会话。"""
+        if self.message_thread_id is not None:
+            kwargs.setdefault("message_thread_id", self.message_thread_id)
+        if caption is not None:
+            kwargs["caption"] = caption
+        sender = getattr(self.logger, "send_photo", None)
+        if sender is not None and callable(sender):
+            try:
+                res = sender(self.chat_id, photo, **kwargs)
+                if inspect.isawaitable(res):
+                    return await res
+                return res
+            except TypeError:
+                pass
+        if hasattr(self.app, "send_photo") and callable(self.app.send_photo):
+            return await self.app.send_photo(self.chat_id, photo, **kwargs)
+        raise RuntimeError("Telegram Client 不支持 send_photo 方法")
+
+    async def send_document(
+        self, document: Union[str, bytes], caption: Optional[str] = None, **kwargs: Any
+    ) -> Any:
+        """发送文档/文件到当前会话。"""
+        if self.message_thread_id is not None:
+            kwargs.setdefault("message_thread_id", self.message_thread_id)
+        if caption is not None:
+            kwargs["caption"] = caption
+        sender = getattr(self.logger, "send_document", None)
+        if sender is not None and callable(sender):
+            try:
+                res = sender(self.chat_id, document, **kwargs)
+                if inspect.isawaitable(res):
+                    return await res
+                return res
+            except TypeError:
+                pass
+        if hasattr(self.app, "send_document") and callable(self.app.send_document):
+            return await self.app.send_document(self.chat_id, document, **kwargs)
+        raise RuntimeError("Telegram Client 不支持 send_document 方法")
+
+    async def pin_message(
+        self, message_id: Optional[int] = None, **kwargs: Any
+    ) -> Any:
+        """置顶当前或指定消息。"""
+        msg_id = message_id
+        if msg_id is None and self.message is not None and hasattr(self.message, "id"):
+            msg_id = self.message.id
+        if msg_id is None:
+            raise ValueError("当前上下文中没有有效消息 ID，无法执行置顶")
+        pinner = getattr(self.logger, "pin_chat_message", None)
+        if pinner is not None and callable(pinner):
+            try:
+                res = pinner(self.chat_id, message_id=msg_id, **kwargs)
+                if inspect.isawaitable(res):
+                    return await res
+                return res
+            except TypeError:
+                pass
+        if hasattr(self.app, "pin_chat_message") and callable(self.app.pin_chat_message):
+            return await self.app.pin_chat_message(self.chat_id, message_id=msg_id, **kwargs)
+        raise RuntimeError("Telegram Client 不支持 pin_chat_message 方法")
+
+    async def unpin_message(
+        self, message_id: Optional[int] = None, **kwargs: Any
+    ) -> Any:
+        """取消置顶当前或指定消息（若未指定 message_id 则取消所有置顶）。"""
+        msg_id = message_id
+        if msg_id is None and self.message is not None and hasattr(self.message, "id"):
+            msg_id = self.message.id
+        unpinner = getattr(self.logger, "unpin_chat_message", None)
+        if unpinner is not None and callable(unpinner):
+            try:
+                res = unpinner(self.chat_id, message_id=msg_id, **kwargs)
+                if inspect.isawaitable(res):
+                    return await res
+                return res
+            except TypeError:
+                pass
+        if msg_id is not None and hasattr(self.app, "unpin_chat_message") and callable(self.app.unpin_chat_message):
+            return await self.app.unpin_chat_message(self.chat_id, message_id=msg_id, **kwargs)
+        if hasattr(self.app, "unpin_all_chat_messages") and callable(self.app.unpin_all_chat_messages):
+            return await self.app.unpin_all_chat_messages(self.chat_id, **kwargs)
+        raise RuntimeError("Telegram Client 不支持取消置顶方法")
+
+    async def get_messages(
+        self, message_ids: Union[int, List[int]], **kwargs: Any
+    ) -> Any:
+        """根据消息 ID 获取消息对象。"""
+        getter = getattr(self.logger, "get_messages", None)
+        if getter is not None and callable(getter):
+            try:
+                res = getter(self.chat_id, message_ids=message_ids, **kwargs)
+                if inspect.isawaitable(res):
+                    return await res
+                return res
+            except TypeError:
+                pass
+        if hasattr(self.app, "get_messages") and callable(self.app.get_messages):
+            return await self.app.get_messages(self.chat_id, message_ids=message_ids, **kwargs)
+        raise RuntimeError("Telegram Client 不支持 get_messages 方法")
+
+    async def forward_messages(
+        self,
+        chat_id: Union[int, str],
+        from_chat_id: Optional[Union[int, str]] = None,
+        message_ids: Optional[Union[int, List[int]]] = None,
+        **kwargs: Any,
+    ) -> Any:
+        """转发消息到目标会话。"""
+        src_chat = from_chat_id or self.chat_id
+        mids = message_ids
+        if mids is None and self.message is not None and hasattr(self.message, "id"):
+            mids = self.message.id
+        if mids is None:
+            raise ValueError("当前上下文中没有有效消息 ID，无法执行转发")
+        forwarder = getattr(self.logger, "forward_messages", None)
+        if forwarder is not None and callable(forwarder):
+            try:
+                res = forwarder(chat_id, from_chat_id=src_chat, message_ids=mids, **kwargs)
+                if inspect.isawaitable(res):
+                    return await res
+                return res
+            except TypeError:
+                pass
+        if hasattr(self.app, "forward_messages") and callable(self.app.forward_messages):
+            return await self.app.forward_messages(chat_id, from_chat_id=src_chat, message_ids=mids, **kwargs)
+        raise RuntimeError("Telegram Client 不支持 forward_messages 方法")
+
 @dataclass
 class PluginLoadError:
     file_path: str
@@ -647,6 +872,7 @@ class PluginMeta:
     tags: List[str] = field(default_factory=list)
     icon: Optional[str] = None
     homepage: Optional[str] = None
+    isolation_mode: Literal["subprocess", "in_process"] = "subprocess"
 
 
 @dataclass
@@ -844,6 +1070,7 @@ class PluginRegistry:
         tags: Optional[List[str]] = None,
         icon: Optional[str] = None,
         homepage: Optional[str] = None,
+        isolation_mode: Literal["subprocess", "in_process"] = "subprocess",
     ) -> Callable:
         def decorator(fn: Callable[[PluginContext], Any]) -> Callable[[PluginContext], Any]:
             existing = cls._plugins.get(name)
@@ -887,6 +1114,7 @@ class PluginRegistry:
                 tags=list(tags or []),
                 icon=icon,
                 homepage=homepage,
+                isolation_mode=isolation_mode,
             )
             return fn
         return decorator

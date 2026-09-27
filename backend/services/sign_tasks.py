@@ -579,6 +579,8 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         adaptive_schedule_enabled: bool = False,
         adaptive_schedule_patterns: Optional[List[str]] = None,
         adaptive_schedule_padding_seconds: int = 30,
+        next_task_on_success: str = "",
+        next_task_delay_seconds: float = 2.0,
     ) -> Dict[str, Any]:
         normalized_accounts = self._normalize_account_names(
             account_names, primary_account_name
@@ -608,6 +610,8 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
             "adaptive_schedule_enabled": bool(adaptive_schedule_enabled),
             "adaptive_schedule_patterns": list(adaptive_schedule_patterns or []),
             "adaptive_schedule_padding_seconds": int(adaptive_schedule_padding_seconds),
+            "next_task_on_success": str(next_task_on_success or "").strip(),
+            "next_task_delay_seconds": float(next_task_delay_seconds if next_task_delay_seconds is not None else 2.0),
         }
 
     def _aggregate_tasks(self, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -913,6 +917,8 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
                 adaptive_schedule_enabled=bool(config.get("adaptive_schedule_enabled", False)),
                 adaptive_schedule_patterns=list(config.get("adaptive_schedule_patterns") or []),
                 adaptive_schedule_padding_seconds=int(config.get("adaptive_schedule_padding_seconds", 30) or 30),
+                next_task_on_success=str(config.get("next_task_on_success") or "").strip(),
+                next_task_delay_seconds=float(config.get("next_task_delay_seconds", 2.0) if config.get("next_task_delay_seconds") is not None else 2.0),
             )
             if return_raw:
                 return normalized, config
@@ -1222,7 +1228,12 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         if task is not None and self._background_run_tasks.get(task_key) is task:
             self._background_run_tasks.pop(task_key, None)
 
-    async def start_task_run(self, account_name: str, task_name: str) -> Dict[str, Any]:
+    async def start_task_run(
+        self,
+        account_name: str,
+        task_name: str,
+        visited_chain: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
         account_name = validate_storage_name(account_name, field_name="account_name")
         task_name = validate_storage_name(task_name, field_name="task_name")
 
@@ -1258,7 +1269,7 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
             result: Dict[str, Any]
             state = RUN_STATE_FINISHED
             try:
-                result = await self.run_task_with_logs(account_name, task_name, run_id=run_id)
+                result = await self.run_task_with_logs(account_name, task_name, run_id=run_id, visited_chain=visited_chain)
                 if result.get("timed_out") or is_timeout_error_message(
                     str(result.get("error") or "")
                 ):
@@ -1377,7 +1388,11 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         return any(key[1] == task_name for key, running in self._active_tasks.items() if running)
 
     async def run_task_with_logs(
-        self, account_name: str, task_name: str, run_id: Optional[str] = None
+        self,
+        account_name: str,
+        task_name: str,
+        run_id: Optional[str] = None,
+        visited_chain: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """运行任务并实时捕获日志 (In-Process)。实现见 sign_task_runner。"""
         from backend.services.sign_task_runner import execute_sign_task
@@ -1391,6 +1406,10 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         current_task = asyncio.current_task()
         self._register_background_run(task_key, current_task)
         try:
+            import inspect
+            sig = inspect.signature(execute_sign_task)
+            if 'visited_chain' in sig.parameters:
+                return await execute_sign_task(self, account_name, task_name, run_id=run_id, visited_chain=visited_chain)
             return await execute_sign_task(self, account_name, task_name, run_id=run_id)
         finally:
             self._unregister_background_run(task_key, current_task)

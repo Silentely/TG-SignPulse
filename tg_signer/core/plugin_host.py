@@ -8,7 +8,7 @@ import signal
 import subprocess
 import sys
 import time
-from typing import Any, Optional, Union
+from typing import Any, Dict, Optional, Union
 
 from tg_signer.core.plugin_ipc import (
     decode_ipc_payload,
@@ -55,6 +55,127 @@ def kill_process_tree(target: Union[int, Any]) -> None:
             )
         except Exception:
             pass
+
+
+def build_sanitized_worker_env(
+    base_env: Optional[Dict[str, str]] = None,
+) -> Dict[str, str]:
+    """净化插件 Worker 子进程环境变量以阻断敏感凭据泄露。
+
+    保留操作系统运行必需的基础环境变量，剥离应用 Secret、数据库密码、API Key、Admin 凭据等。
+    """
+    source = os.environ if base_env is None else base_env
+    sanitized: Dict[str, str] = {}
+
+    denylist_keywords = (
+        "SECRET",
+        "PASSWORD",
+        "PASSWD",
+        "DATABASE_URL",
+        "DB_URL",
+        "API_HASH",
+        "API_ID",
+        "API_KEY",
+        "APIKEY",
+        "ACCESS_KEY",
+        "SECRET_KEY",
+        "CLIENT_SECRET",
+        "TOKEN",
+        "CREDENTIAL",
+        "PRIVATE",
+        "ADMIN_",
+        "S3_",
+        "WEBDAV_",
+        "OPENAI_",
+        "DEEPSEEK_",
+        "GEMINI_",
+        "ANTHROPIC_",
+        "COHERE_",
+        "MISTRAL_",
+        "GROQ_",
+        "PERPLEXITY_",
+        "XAI_",
+        "CLAUDE_",
+        "AWS_",
+        "ALIYUN_",
+        "TENCENT_",
+        "QWEN_",
+    )
+
+    denylist_suffixes = (
+        "_KEY",
+        "_SECRET",
+        "_TOKEN",
+        "_PWD",
+        "_CREDENTIAL",
+        "_PASSWORD",
+    )
+
+    safe_keys_with_keywords = {
+        "PATHEXT",
+        "PYTHONKEYMAP",
+    }
+
+    allowed_prefixes = (
+        "PLUGIN_",
+        "LC_",
+    )
+
+    allowed_exact_keys = {
+        "PATH",
+        "PYTHONPATH",
+        "PYTHONHOME",
+        "PYTHONIOENCODING",
+        "PYTHONUNBUFFERED",
+        "VIRTUAL_ENV",
+        "LANG",
+        "TZ",
+        "TMPDIR",
+        "TEMP",
+        "TMP",
+        "HOME",
+        "USER",
+        "LOGNAME",
+        "SYSTEMROOT",
+        "COMSPEC",
+        "WINDIR",
+        "PATHEXT",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "PROGRAMDATA",
+        "TERM",
+        "PYTEST_CURRENT_TEST",
+        # 插件系统与工作区数据目录
+        "APP_DATA_DIR",
+        "TG_SIGNER_DATA_DIR",
+        "PLUGINS_DIR",
+        "BUILTIN_PLUGINS_DIR",
+        "PLUGIN_STORAGE_PATH",
+        "PLUGIN_ISOLATION_ENGINE",
+        "PLUGIN_MAX_MEMORY_MB",
+    }
+
+    for key, val in source.items():
+        key_upper = key.upper()
+        if key in safe_keys_with_keywords or key_upper in safe_keys_with_keywords:
+            sanitized[key] = val
+            continue
+
+        # PLUGIN_* 与 LC_* 属于插件配置与区域变量，优先放行
+        if any(key.startswith(pfx) or key_upper.startswith(pfx) for pfx in allowed_prefixes):
+            sanitized[key] = val
+            continue
+
+        if any(bad in key_upper for bad in denylist_keywords):
+            continue
+
+        if any(key_upper.endswith(sfx) for sfx in denylist_suffixes):
+            continue
+
+        if key in allowed_exact_keys or key_upper in allowed_exact_keys:
+            sanitized[key] = val
+
+    return sanitized
 
 
 class PluginProcessHost:
@@ -106,6 +227,7 @@ class PluginProcessHost:
 
         cmd = [sys.executable, "-u", "-m", "tg_signer.core.plugin_worker"]
         kwargs = {"start_new_session": True} if os.name != "nt" else {}
+        kwargs["env"] = build_sanitized_worker_env()
 
         self.process = await asyncio.create_subprocess_exec(
             *cmd,
@@ -197,6 +319,14 @@ class PluginProcessHost:
                                 call_res = await self.ctx.send_message(
                                     text, **call_params
                                 )
+                            elif method == "send_photo":
+                                photo = call_params.pop("photo", "")
+                                caption = call_params.pop("caption", None)
+                                call_res = await self.ctx.send_photo(photo, caption=caption, **call_params)
+                            elif method == "send_document":
+                                doc = call_params.pop("document", "")
+                                caption = call_params.pop("caption", None)
+                                call_res = await self.ctx.send_document(doc, caption=caption, **call_params)
                             elif method == "click":
                                 text_or_index = call_params.pop("text_or_index", None)
                                 call_res = await self.ctx.click(
@@ -212,6 +342,18 @@ class PluginProcessHost:
                                 call_res = await self.ctx.edit_message(text, **call_params)
                             elif method == "delete_message":
                                 call_res = await self.ctx.delete_message(**call_params)
+                            elif method == "pin_message":
+                                mid = call_params.pop("message_id", None)
+                                call_res = await self.ctx.pin_message(message_id=mid, **call_params)
+                            elif method == "unpin_message":
+                                mid = call_params.pop("message_id", None)
+                                call_res = await self.ctx.unpin_message(message_id=mid, **call_params)
+                            elif method == "get_messages":
+                                mids = call_params.pop("message_ids", None)
+                                call_res = await self.ctx.get_messages(message_ids=mids, **call_params)
+                            elif method == "forward_messages":
+                                target_cid = call_params.pop("chat_id")
+                                call_res = await self.ctx.forward_messages(target_cid, **call_params)
                             elif method.startswith("storage_"):
                                 is_global = bool(call_params.pop("is_global", False))
                                 target_storage = (
@@ -247,12 +389,27 @@ class PluginProcessHost:
                                 elif method == "storage_get_all":
                                     prefix = call_params.get("prefix", "")
                                     call_res = await target_storage.get_all(prefix=prefix)
+                                elif method == "storage_mget":
+                                    keys = call_params.get("keys", [])
+                                    call_res = await target_storage.mget(keys)
+                                elif method == "storage_mset":
+                                    mapping = call_params.get("mapping", {})
+                                    ttl = call_params.get("ttl", None)
+                                    await target_storage.mset(mapping, ttl=ttl)
+                                    call_res = True
                                 else:
                                     raise ValueError(f"Unknown storage RPC method: {method}")
                             else:
                                 raise ValueError(f"Unknown RPC method: {method}")
 
-                            if hasattr(call_res, "id") and hasattr(call_res, "chat"):
+                            if isinstance(call_res, list):
+                                call_res = [
+                                    serialize_message_for_worker(m)
+                                    if hasattr(m, "id") and hasattr(m, "chat")
+                                    else m
+                                    for m in call_res
+                                ]
+                            elif hasattr(call_res, "id") and hasattr(call_res, "chat"):
                                 call_res = serialize_message_for_worker(call_res)
                         except Exception as e:
                             call_ok = False

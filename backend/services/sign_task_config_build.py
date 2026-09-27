@@ -27,6 +27,8 @@ _DEFAULT_TASK_FIELDS: Dict[str, Any] = {
     "adaptive_schedule_enabled": False,
     "adaptive_schedule_patterns": [],
     "adaptive_schedule_padding_seconds": 30,
+    "next_task_on_success": "",
+    "next_task_delay_seconds": 2,
 }
 
 MAX_TASK_TAGS = 20
@@ -77,6 +79,8 @@ def build_sign_task_config(
     adaptive_schedule_enabled: bool = _DEFAULT_TASK_FIELDS["adaptive_schedule_enabled"],
     adaptive_schedule_patterns: Optional[List[str]] = None,
     adaptive_schedule_padding_seconds: int = _DEFAULT_TASK_FIELDS["adaptive_schedule_padding_seconds"],
+    next_task_on_success: Optional[str] = None,
+    next_task_delay_seconds: Optional[float] = None,
     last_run: Any = None,
     version: int = 4,
 ) -> Dict[str, Any]:
@@ -102,6 +106,8 @@ def build_sign_task_config(
         "adaptive_schedule_enabled": bool(adaptive_schedule_enabled),
         "adaptive_schedule_patterns": list(adaptive_schedule_patterns or []),
         "adaptive_schedule_padding_seconds": int(adaptive_schedule_padding_seconds),
+        "next_task_on_success": str(next_task_on_success or "").strip(),
+        "next_task_delay_seconds": float(next_task_delay_seconds) if next_task_delay_seconds is not None else 2.0,
     }
     if last_run is not None:
         config["last_run"] = last_run
@@ -127,6 +133,8 @@ def resolve_update_field_values(
     adaptive_schedule_enabled: Optional[bool] = None,
     adaptive_schedule_patterns: Optional[List[str]] = None,
     adaptive_schedule_padding_seconds: Optional[int] = None,
+    next_task_on_success: Optional[str] = None,
+    next_task_delay_seconds: Optional[float] = None,
 ) -> Dict[str, Any]:
     """合并更新入参与既有配置，返回下一版字段值。"""
     return {
@@ -148,6 +156,8 @@ def resolve_update_field_values(
         "adaptive_schedule_enabled": bool(existing.get("adaptive_schedule_enabled", _DEFAULT_TASK_FIELDS["adaptive_schedule_enabled"])) if adaptive_schedule_enabled is None else bool(adaptive_schedule_enabled),
         "adaptive_schedule_patterns": list(existing.get("adaptive_schedule_patterns", _DEFAULT_TASK_FIELDS["adaptive_schedule_patterns"]) or []) if adaptive_schedule_patterns is None else list(adaptive_schedule_patterns),
         "adaptive_schedule_padding_seconds": int(existing.get("adaptive_schedule_padding_seconds", _DEFAULT_TASK_FIELDS["adaptive_schedule_padding_seconds"])) if adaptive_schedule_padding_seconds is None else int(adaptive_schedule_padding_seconds),
+        "next_task_on_success": str(next_task_on_success if next_task_on_success is not None else existing.get("next_task_on_success", "")).strip(),
+        "next_task_delay_seconds": float(next_task_delay_seconds if next_task_delay_seconds is not None else existing.get("next_task_delay_seconds", 2.0)),
     }
 
 

@@ -457,7 +457,11 @@
     "customPatterns": "自定义正则模式",
     "customPatternsPlaceholder": "例如 (\\d+)分钟后再次签到，逗号分隔",
     "customPatternsHint": "优先匹配的正则表达式，留空则使用系统预置的多语言解析器",
-    "loadingTopics": "正在加载话题..."
+    "loadingTopics": "正在加载话题...",
+    "nextTaskOnSuccess": "成功后触发任务",
+    "nextTaskOnSuccessHint": "当前任务执行成功后，将自动流水线触发同账号下的指定后续任务",
+    "nextTaskDelaySeconds": "后续任务延迟（秒）",
+    "nextTaskDelaySecondsHint": "触发下一个任务前等待的间隔秒数（默认 2 秒）"
   },
   "taskModal": {
     "addTitle": "添加任务",

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Union
 
 
 def serialize_message_for_worker(msg: Any) -> Optional[Dict[str, Any]]:
@@ -146,8 +146,9 @@ class ProxyButton:
 class ProxyMessage:
     """在 Worker 进程中模拟 pyrogram.types.Message 的轻量代理对象。"""
 
-    def __init__(self, data: Optional[Dict[str, Any]]):
+    def __init__(self, data: Optional[Dict[str, Any]], rpc: Optional[Callable[..., Any]] = None):
         self._data = data or {}
+        self._rpc = rpc
         self.id = self._data.get("id")
         self.text = self._data.get("text")
         self.caption = self._data.get("caption")
@@ -165,7 +166,7 @@ class ProxyMessage:
             self.buttons.append([ProxyButton(b) for b in row])
 
         self.reply_to_message = (
-            ProxyMessage(self._data.get("reply_to_message"))
+            ProxyMessage(self._data.get("reply_to_message"), rpc=rpc)
             if self._data.get("reply_to_message")
             else None
         )
@@ -180,6 +181,81 @@ class ProxyMessage:
 
     def __repr__(self) -> str:
         return f"ProxyMessage(id={self.id}, text={self.text!r})"
+
+    async def reply(self, text: str, **kwargs: Any) -> Any:
+        if not self._rpc:
+            raise RuntimeError("RPC client not attached to ProxyMessage")
+        params = {"text": text, "reply_to_message_id": self.id}
+        params.update(kwargs)
+        res = await self._rpc("reply", **params)
+        if isinstance(res, dict) and "id" in res and "chat" in res:
+            return ProxyMessage(res, rpc=self._rpc)
+        return res
+
+    async def reply_photo(self, photo: str, caption: Optional[str] = None, **kwargs: Any) -> Any:
+        if not self._rpc:
+            raise RuntimeError("RPC client not attached to ProxyMessage")
+        params = {"photo": photo, "caption": caption, "reply_to_message_id": self.id}
+        params.update(kwargs)
+        res = await self._rpc("send_photo", **params)
+        if isinstance(res, dict) and "id" in res and "chat" in res:
+            return ProxyMessage(res, rpc=self._rpc)
+        return res
+
+    async def reply_document(self, document: str, caption: Optional[str] = None, **kwargs: Any) -> Any:
+        if not self._rpc:
+            raise RuntimeError("RPC client not attached to ProxyMessage")
+        params = {"document": document, "caption": caption, "reply_to_message_id": self.id}
+        params.update(kwargs)
+        res = await self._rpc("send_document", **params)
+        if isinstance(res, dict) and "id" in res and "chat" in res:
+            return ProxyMessage(res, rpc=self._rpc)
+        return res
+
+    async def click(self, text_or_index: Union[str, int], **kwargs: Any) -> Any:
+        if not self._rpc:
+            raise RuntimeError("RPC client not attached to ProxyMessage")
+        return await self._rpc("click", text_or_index=text_or_index, **kwargs)
+
+    async def react(self, emoji: str, **kwargs: Any) -> Any:
+        if not self._rpc:
+            raise RuntimeError("RPC client not attached to ProxyMessage")
+        return await self._rpc("react", emoji=emoji, message_id=self.id, **kwargs)
+
+    async def edit(self, text: str, **kwargs: Any) -> Any:
+        if not self._rpc:
+            raise RuntimeError("RPC client not attached to ProxyMessage")
+        params = {"text": text, "message_id": self.id}
+        params.update(kwargs)
+        res = await self._rpc("edit_message", **params)
+        if isinstance(res, dict) and "id" in res and "chat" in res:
+            return ProxyMessage(res, rpc=self._rpc)
+        return res
+
+    async def delete(self, **kwargs: Any) -> Any:
+        if not self._rpc:
+            raise RuntimeError("RPC client not attached to ProxyMessage")
+        return await self._rpc("delete_message", message_id=self.id, **kwargs)
+
+    async def pin(self, **kwargs: Any) -> Any:
+        if not self._rpc:
+            raise RuntimeError("RPC client not attached to ProxyMessage")
+        return await self._rpc("pin_message", message_id=self.id, **kwargs)
+
+    async def unpin(self, **kwargs: Any) -> Any:
+        if not self._rpc:
+            raise RuntimeError("RPC client not attached to ProxyMessage")
+        return await self._rpc("unpin_message", message_id=self.id, **kwargs)
+
+    async def forward(self, chat_id: Union[int, str], **kwargs: Any) -> Any:
+        if not self._rpc:
+            raise RuntimeError("RPC client not attached to ProxyMessage")
+        res = await self._rpc("forward_messages", chat_id=chat_id, message_ids=[self.id], **kwargs)
+        if isinstance(res, list):
+            return [ProxyMessage(m, rpc=self._rpc) if isinstance(m, dict) and "id" in m else m for m in res]
+        if isinstance(res, dict) and "id" in res and "chat" in res:
+            return ProxyMessage(res, rpc=self._rpc)
+        return res
 
 
 def encode_ipc_payload(payload: Dict[str, Any], max_len: int = 16384) -> str:

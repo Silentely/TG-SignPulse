@@ -111,6 +111,17 @@ class ProxyStorageClient:
         res = await self._rpc("storage_get_all", **self._scope_kwargs(prefix=prefix))
         return dict(res or {})
 
+    async def mget(self, keys: List[str]) -> Dict[str, Any]:
+        res = await self._rpc("storage_mget", **self._scope_kwargs(keys=keys))
+        return dict(res or {})
+
+    async def mset(
+        self, mapping: Dict[str, Any], ttl: Optional[float] = None
+    ) -> None:
+        await self._rpc(
+            "storage_mset", **self._scope_kwargs(mapping=mapping, ttl=ttl)
+        )
+
 
 class ProxyPluginContext:
     """在 Worker 进程中提供与 PluginContext 100% 同构的执行上下文。"""
@@ -127,11 +138,11 @@ class ProxyPluginContext:
     ):
         self.chat_id = chat_id
         self.message_thread_id = message_thread_id
-        self.message = ProxyMessage(message) if message else None
-        self.params = params or {}
-        self.plugin_name = plugin_name
         self._rpc = rpc_requester
         self._logger = logger_sink
+        self.message = ProxyMessage(message, rpc=self._rpc) if message else None
+        self.params = params or {}
+        self.plugin_name = plugin_name
         storage_ns = f"{chat_id}:{plugin_name}" if plugin_name else str(chat_id)
         global_ns = f"global:{plugin_name}" if plugin_name else "global"
         self.storage = ProxyStorageClient(
@@ -189,7 +200,7 @@ class ProxyPluginContext:
             kwargs.setdefault("message_thread_id", self.message_thread_id)
         res = await self._rpc("reply", text=text, **kwargs)
         if isinstance(res, dict) and "id" in res and "chat" in res:
-            return ProxyMessage(res)
+            return ProxyMessage(res, rpc=self._rpc)
         return res
 
     async def send_message(self, text: str, **kwargs) -> Any:
@@ -197,7 +208,27 @@ class ProxyPluginContext:
             kwargs.setdefault("message_thread_id", self.message_thread_id)
         res = await self._rpc("send_message", text=text, **kwargs)
         if isinstance(res, dict) and "id" in res and "chat" in res:
-            return ProxyMessage(res)
+            return ProxyMessage(res, rpc=self._rpc)
+        return res
+
+    async def send_photo(
+        self, photo: str, caption: Optional[str] = None, **kwargs
+    ) -> Any:
+        if self.message_thread_id is not None:
+            kwargs.setdefault("message_thread_id", self.message_thread_id)
+        res = await self._rpc("send_photo", photo=photo, caption=caption, **kwargs)
+        if isinstance(res, dict) and "id" in res and "chat" in res:
+            return ProxyMessage(res, rpc=self._rpc)
+        return res
+
+    async def send_document(
+        self, document: str, caption: Optional[str] = None, **kwargs
+    ) -> Any:
+        if self.message_thread_id is not None:
+            kwargs.setdefault("message_thread_id", self.message_thread_id)
+        res = await self._rpc("send_document", document=document, caption=caption, **kwargs)
+        if isinstance(res, dict) and "id" in res and "chat" in res:
+            return ProxyMessage(res, rpc=self._rpc)
         return res
 
     async def click(self, text_or_index: Union[str, int], **kwargs) -> Any:
@@ -227,7 +258,7 @@ class ProxyPluginContext:
         call_params.update(kwargs)
         res = await self._rpc("edit_message", **call_params)
         if isinstance(res, dict) and "id" in res and "chat" in res:
-            return ProxyMessage(res)
+            return ProxyMessage(res, rpc=self._rpc)
         return res
 
     async def delete_message(self, message_id: Optional[int] = None, **kwargs) -> Any:
@@ -239,6 +270,61 @@ class ProxyPluginContext:
         call_params = {"message_id": msg_id}
         call_params.update(kwargs)
         return await self._rpc("delete_message", **call_params)
+
+    async def pin_message(self, message_id: Optional[int] = None, **kwargs) -> Any:
+        msg_id = message_id
+        if msg_id is None and self.message is not None and getattr(self.message, "id", None) is not None:
+            msg_id = self.message.id
+        if msg_id is None:
+            raise ValueError("当前上下文中没有有效消息 ID，无法执行置顶")
+        call_params = {"message_id": msg_id}
+        call_params.update(kwargs)
+        return await self._rpc("pin_message", **call_params)
+
+    async def unpin_message(self, message_id: Optional[int] = None, **kwargs) -> Any:
+        msg_id = message_id
+        if msg_id is None and self.message is not None and getattr(self.message, "id", None) is not None:
+            msg_id = self.message.id
+        call_params = {"message_id": msg_id}
+        call_params.update(kwargs)
+        return await self._rpc("unpin_message", **call_params)
+
+    async def get_messages(
+        self, message_ids: Union[int, List[int]], **kwargs
+    ) -> Any:
+        call_params = {"message_ids": message_ids}
+        call_params.update(kwargs)
+        res = await self._rpc("get_messages", **call_params)
+        if isinstance(res, list):
+            return [ProxyMessage(m, rpc=self._rpc) if isinstance(m, dict) and "id" in m else m for m in res]
+        if isinstance(res, dict) and "id" in res and "chat" in res:
+            return ProxyMessage(res, rpc=self._rpc)
+        return res
+
+    async def forward_messages(
+        self,
+        chat_id: Union[int, str],
+        from_chat_id: Optional[Union[int, str]] = None,
+        message_ids: Optional[Union[int, List[int]]] = None,
+        **kwargs,
+    ) -> Any:
+        mids = message_ids
+        if mids is None and self.message is not None and getattr(self.message, "id", None) is not None:
+            mids = self.message.id
+        if mids is None:
+            raise ValueError("当前上下文中没有有效消息 ID，无法执行转发")
+        call_params = {
+            "chat_id": chat_id,
+            "from_chat_id": from_chat_id,
+            "message_ids": mids,
+        }
+        call_params.update(kwargs)
+        res = await self._rpc("forward_messages", **call_params)
+        if isinstance(res, list):
+            return [ProxyMessage(m, rpc=self._rpc) if isinstance(m, dict) and "id" in m else m for m in res]
+        if isinstance(res, dict) and "id" in res and "chat" in res:
+            return ProxyMessage(res, rpc=self._rpc)
+        return res
 
 
 async def run_worker_loop(
@@ -256,6 +342,10 @@ async def run_worker_loop(
                 soft, hard = resource.getrlimit(resource.RLIMIT_AS)
                 hard_limit = hard if hard > 0 else max_bytes
                 resource.setrlimit(resource.RLIMIT_AS, (min(max_bytes, hard_limit), hard_limit))
+            cur_soft, cur_hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+            safe_nofile = min(cur_soft, 1024)
+            if safe_nofile > 0:
+                resource.setrlimit(resource.RLIMIT_NOFILE, (safe_nofile, cur_hard))
         except Exception:
             pass
 
@@ -278,23 +368,27 @@ async def run_worker_loop(
         encoded = encode_ipc_payload(payload).encode("utf-8")
         try:
             current_loop = asyncio.get_running_loop()
+            if current_loop is loop and writer:
+                writer.write(encoded)
+                return
         except RuntimeError:
-            current_loop = None
-
-        if current_loop is loop:
-            writer.write(encoded)
-        else:
+            pass
+        if loop.is_running() and writer:
             loop.call_soon_threadsafe(writer.write, encoded)
 
     async def flush_writer() -> None:
-        try:
-            res = writer.drain()
-            if inspect.isawaitable(res):
-                await res
-        except Exception:
-            pass
+        if writer:
+            is_closing_fn = getattr(writer, "is_closing", None)
+            if is_closing_fn and callable(is_closing_fn) and is_closing_fn():
+                return
+            try:
+                res = writer.drain()
+                if inspect.isawaitable(res):
+                    await res
+            except Exception:
+                pass
 
-    async def rpc_request(method: str, **params) -> Any:
+    async def rpc_request(method: str, **params: Any) -> Any:
         nonlocal req_id
         req_id += 1
         current_id = req_id

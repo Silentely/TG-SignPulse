@@ -289,6 +289,8 @@ class SignChatV3(BaseJSONConfig):
     actions: List[ActionT]
     action_interval: float = 1  # actions的间隔时间，单位秒
     message_thread_id: Optional[int] = None
+    next_task_on_success: Optional[str] = None
+    next_task_delay_seconds: Optional[float] = None
 
     def __repr__(self) -> str:
         return (

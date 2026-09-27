@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.date import DateTrigger
 
 scheduler: AsyncIOScheduler | None = None
 _ADAPTIVE_NEXT_RUNS: dict[str, datetime] = {}
@@ -173,6 +174,15 @@ def _compute_range_task_compensation(
     if not (start_dt <= now < end_dt):
         return None
 
+    # 如果已有等待执行的 oneshot job，无需再计算补偿避免重复
+    task_name = str(task_config.get("name") or "").strip()
+    account_name = str(task_config.get("account_name") or "").strip()
+    if scheduler and scheduler.running and task_name and account_name:
+        oneshot_prefix = f"range-oneshot-{account_name}-{task_name}-"
+        for j in scheduler.get_jobs():
+            if str(j.id or "").startswith(oneshot_prefix):
+                return None
+
     # 检查是否已在当前窗口内成功执行过
     last_run = task_config.get("last_run")
     if not isinstance(last_run, dict):
@@ -215,29 +225,43 @@ def _compute_range_task_compensation(
     return now + timedelta(seconds=delay_seconds)
 
 
-async def _job_run_sign_task(account_name: str, task_name: str) -> None:
+async def _job_run_sign_task(
+    account_name: str, task_name: str, is_direct: bool = False
+) -> None:
     """运行签到任务的 Job 包装器"""
     from backend.services.sign_tasks import get_sign_task_service
 
     logger = logging.getLogger("backend.scheduler")
     job_id = f"sign-{account_name}-{task_name}"
     is_compensation = job_id in _RANGE_COMPENSATION_RUNS
-    if is_compensation:
-        _RANGE_COMPENSATION_RUNS.pop(job_id, None)
-        logger.info(
-            "Scheduler: 任务 %s (账号=%s) 处于补偿执行时间点，跳过时间段延迟直接执行",
-            task_name,
-            account_name,
-        )
 
     try:
-        logger.info("Scheduler: 正在运行签到任务 %s (账号: %s)", task_name, account_name)
-
-        # 获取任务配置，检查是否为随机时间段模式
+        # 获取任务配置，检查任务有效性与是否启用
         sign_task_service = get_sign_task_service()
         task_config = sign_task_service.get_task(task_name, account_name)
+        if not task_config or not task_config.get("enabled", True):
+            _RANGE_COMPENSATION_RUNS.pop(job_id, None)
+            logger.info(
+                "Scheduler: 任务 %s (账号=%s) 不存在或已被禁用，放弃执行",
+                task_name,
+                account_name,
+            )
+            return
+
+        if is_compensation or is_direct:
+            if is_compensation:
+                _RANGE_COMPENSATION_RUNS.pop(job_id, None)
+            log_reason = "补偿" if is_compensation else "精准延迟/一次性时间点"
+            logger.info(
+                "Scheduler: 任务 %s (账号=%s) 处于%s触发，直接执行",
+                task_name,
+                account_name,
+                log_reason,
+            )
+
+        logger.info("Scheduler: 正在运行签到任务 %s (账号: %s)", task_name, account_name)
         if task_config and task_config.get("execution_mode") == "range":
-            if not is_compensation:
+            if not is_compensation and not is_direct:
                 range_start_str = task_config.get("range_start")
                 range_end_str = task_config.get("range_end")
                 if range_start_str and range_end_str:
@@ -278,7 +302,36 @@ async def _job_run_sign_task(account_name: str, task_name: str) -> None:
                                 delay_seconds / 60,
                             )
 
-                            await asyncio.sleep(delay_seconds)
+                            if delay_seconds > 45.0 and scheduler and scheduler.running:
+                                from apscheduler.jobstores.base import JobLookupError
+                                oneshot_prefix = f"range-oneshot-{account_name}-{task_name}-"
+                                for existing_j in scheduler.get_jobs():
+                                    if str(existing_j.id or "").startswith(oneshot_prefix):
+                                        try:
+                                            scheduler.remove_job(existing_j.id)
+                                        except JobLookupError:
+                                            pass
+                                one_shot_run_time = now + timedelta(seconds=delay_seconds)
+                                one_shot_id = f"range-oneshot-{account_name}-{task_name}-{int(one_shot_run_time.timestamp())}"
+                                logger.info(
+                                    "Scheduler: 任务 %s (账号=%s) 随机时间段延迟较大 (%.1f 秒)，转为 APScheduler 单次触发任务 %s (计划执行: %s)",
+                                    task_name,
+                                    account_name,
+                                    delay_seconds,
+                                    one_shot_id,
+                                    one_shot_run_time.strftime("%Y-%m-%d %H:%M:%S"),
+                                )
+                                scheduler.add_job(
+                                    _job_run_sign_task,
+                                    trigger=DateTrigger(run_date=one_shot_run_time, timezone=tz),
+                                    id=one_shot_id,
+                                    args=[account_name, task_name, True],
+                                    replace_existing=True,
+                                    misfire_grace_time=3600,
+                                )
+                                return
+                            elif delay_seconds > 0:
+                                await asyncio.sleep(delay_seconds)
 
                     except (ValueError, KeyError, TypeError) as e:
                         logger.error(
@@ -591,7 +644,14 @@ async def sync_jobs() -> None:
                     _ADAPTIVE_NEXT_RUNS.pop(job_id, None)
             elif st.get("execution_mode") == "range":
                 tz = getattr(scheduler, "timezone", None) or _resolve_scheduler_timezone()
-                if job_id in _RANGE_COMPENSATION_RUNS:
+                oneshot_prefix = f"range-oneshot-{account_name}-{task_name}-"
+                has_pending_oneshot = any(
+                    str(j.id or "").startswith(oneshot_prefix)
+                    for j in scheduler.get_jobs()
+                )
+                if has_pending_oneshot:
+                    pass
+                elif job_id in _RANGE_COMPENSATION_RUNS:
                     target_dt = _RANGE_COMPENSATION_RUNS[job_id]
                     now_dt = datetime.now(target_dt.tzinfo) if target_dt.tzinfo else datetime.now()
                     if target_dt > now_dt:
@@ -629,6 +689,21 @@ async def sync_jobs() -> None:
         except JobLookupError:
             # 并发 sync 下 job 可能已被其他协程移除，静默忽略
             pass
+
+    # 清理已禁用或非 Range 模式任务遗留的一次回调 job
+    active_range_prefixes = {
+        f"range-oneshot-{st.get('account_name')}-{st.get('name')}-"
+        for st in sign_tasks
+        if st.get("enabled", True) and st.get("execution_mode") == "range"
+    }
+    for j in scheduler.get_jobs():
+        jid = str(j.id or "")
+        if jid.startswith("range-oneshot-"):
+            if not any(jid.startswith(p) for p in active_range_prefixes):
+                try:
+                    scheduler.remove_job(jid)
+                except JobLookupError:
+                    pass
 
 
 async def init_scheduler(sync_on_startup: bool = True) -> AsyncIOScheduler:
@@ -794,6 +869,14 @@ def remove_sign_task_job(account_name: str, task_name: str) -> None:
         if scheduler.get_job(job_id):
             scheduler.remove_job(job_id)
             logger.info("Scheduler: 已移除任务 %s", job_id)
+        oneshot_prefix = f"range-oneshot-{account_name}-{task_name}-"
+        for j in scheduler.get_jobs():
+            if str(j.id or "").startswith(oneshot_prefix):
+                try:
+                    scheduler.remove_job(j.id)
+                    logger.info("Scheduler: 已移除一次性任务 %s", j.id)
+                except JobLookupError:
+                    pass
     except (JobLookupError, RuntimeError) as e:
         logger.error("Scheduler: 移除任务 %s 失败（调度器状态错误）: %s", job_id, e)
     except Exception:
