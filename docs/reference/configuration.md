@@ -43,7 +43,7 @@ environment:
 
 **方式二：Web 面板（运行时）**
 
-进入 **Settings → 通用设置 → 时区**，选择目标时区后保存。支持 22 个常用时区：
+进入 **设置** → **通用设置** → **时区**，选择目标时区后保存。支持 22 个常用时区：
 
 | 区域 | 可选时区 |
 |------|----------|
@@ -303,8 +303,8 @@ environment:
 | `ai_vision_timeout` / `ai_vision_retry_attempts` | AI 视觉超时与重试 |
 | `telegram_bot_task_success_enabled` | 任务成功通知 |
 | `telegram_bot_quiet_hours_*` | 静默时段 |
-| `auto_backup_enabled` / `interval_hours` / `keep` | 自动备份（可选上传 WebDAV 或对象存储） |
+| `auto_backup_enabled` / `interval_hours` / `keep` | 自动备份（开启状态、执行间隔小时数与保留快照份数） |
+| `backup_target` | 备份目标策略，可选 `auto`（智能选择，WebDAV 优先）、`webdav`（仅 WebDAV）、`s3`（仅对象存储）、`both`（双端同时备份）。默认 `auto` |
 | `webdav_url` / `webdav_username` / `webdav_password` / `webdav_remote_dir` | 完整备份 WebDAV 目标（面板「完整备份」；用法见 [备份与恢复](/guide/backup-webdav)） |
-| `s3_enabled` / `s3_endpoint_url` / `s3_bucket` / `s3_access_key` / `s3_secret_key` / `s3_region` / `s3_prefix` / `s3_proxy` | 完整备份对象存储目标（S3 / R2 / MinIO）。未配置 WebDAV 时生效；`s3_region` 默认 `auto`、`s3_prefix` 默认 `tg-signpulse-backups` |
+| `s3_enabled` / `s3_endpoint_url` / `s3_bucket` / `s3_access_key` / `s3_secret_key` / `s3_region` / `s3_prefix` / `s3_proxy` | 完整备份对象存储目标（S3 / R2 / MinIO / OSS）。按 `backup_target` 策略生效；`s3_region` 默认 `auto`、`s3_prefix` 默认 `tg-signpulse-backups` |
 | `require_proxy_for_telegram` | 强制 Telegram 连接使用代理；开启后无有效代理的连接一律阻断（`PROXY_REQUIRED_BLOCKED`），含登录、状态检测、设备/会话操作、签到执行与关键词监听 |
-

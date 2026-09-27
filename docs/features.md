@@ -11,6 +11,7 @@ TG-SignPulse 是 Telegram 多账号自动化管理面板，把签到、消息交
 - 设备管理、设备保活、官方消息查看
 - 一键清退其他设备、派生独立 SessionString 导出
 - 设备指纹画像（desktop / android / macos / ios 预设）
+- 账号历史运行日志一键导出（`GET /api/accounts/{account_name}/logs/export`）
 - 批量状态检查
 
 详见 [账号管理](/guide/accounts)。
@@ -24,7 +25,7 @@ TG-SignPulse 是 Telegram 多账号自动化管理面板，把签到、消息交
 - 发送文本、骰子、点按钮、AI 识图/计算、关键词监听等动作
 - 目标会话支持按 Telegram 对话文件夹筛选、论坛话题（Forum Topics）选择
 - 批量启用/停用/触发
-- 失败分类与历史日志
+- 11 类细粒度失败分类体系（包含会话失效、频率限制、AI 超时、按钮未找到、消息内容未变化等）
 
 > 面板与 API 请使用 **`/api/sign-tasks`**。旧版 ORM `/api/tasks` 已移除。
 
@@ -62,8 +63,8 @@ TG-SignPulse 是 Telegram 多账号自动化管理面板，把签到、消息交
 - 任务运行状态：`GET /api/sign-tasks/runs/active`、`/run/status`、`/run/cancel`（`state` + `phase` + `failure_category`）
 - Dashboard 活跃运行摘要与失败分类聚合（可点筛选日志 / 会话失效跳转账号）
 - 任务列表：冷却倒计时、多账号 phase、停止运行、账号失效提示
-- 配置/数据备份导出；可选定时自动备份（本地 / WebDAV）
-- WebDAV：测试连接、列出远端、流式下载、自动备份失败 Bot 通知
+- 备份目标策略（`backup_target`）：支持智能选择（auto）、仅 WebDAV、仅对象存储（s3）、双端同时备份（both）；双端模式强制两端均成功后清理本地
+- WebDAV 与 S3 兼容对象存储：支持测试连接、列出远端、流式下载、灾难恢复命令指引弹窗、自动备份失败 Bot 告警
 - 配置导入预览（dry-run）
 - 任务克隆与内置模板（文本/按钮/时段/骰子/关键词监听；预填动作后须选会话）
 - 系统设置未保存提示与「保存全部」
@@ -80,7 +81,7 @@ TG-SignPulse 是 Telegram 多账号自动化管理面板，把签到、消息交
 
 ## 不适合 / 注意
 
-- 多副本**共享同一 Telegram session 文件**（易损坏会话）
+- 多副本**共享同一个 Telegram session 文件**（易损坏会话）
 - 把面板直接裸奔在公网且无 HTTPS / 访问控制
 - 依赖已移除的旧 `/api/tasks` 接口
 

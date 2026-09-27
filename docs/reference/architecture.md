@@ -38,7 +38,9 @@ http://127.0.0.1:3000
 - `/api/ops` — 运维：调度预览、备份状态/导出、内存统计
 - `/api/logs` — 执行日志
 - `/api/config` — 系统配置
-- `/api/events` — 签到历史 SSE 事件流
+- `/api/events` — 签到历史 SSE 事件流与单次票据签发
+- `/api/plugins` — 自定义 Action 插件管理、诊断、测试与市场
+- `/api/keyword-hits` — 关键词命中记录查询与导出
 - `/api/tasks` — **已移除**（请用 `/api/sign-tasks`）
 - `/api/batch/tasks` — **已移除**（请用 `/api/batch/sign-tasks`）
 
@@ -99,6 +101,7 @@ http://127.0.0.1:3000
 - 点击按钮
 - 等待消息变化
 - 调用 AI 识图 / OCR / 计算
+- 自定义 Action 插件执行（动作类型 `99`）：独立 Worker 子进程沙箱与双向 JSON-RPC IPC 通信
 - 处理 FloodWait、重试和部分异常恢复
 
 ## 数据流
@@ -125,10 +128,11 @@ Telegram Update
 
 ## 存储层
 
-主要存储分为三部分：
+主要存储分为四部分：
 
 - `db.sqlite`：面板数据库
 - `sessions/`：Telegram 会话
+- `plugins/`：自定义 Action 插件源码与配置
 - `.signer/`：任务配置与运行相关数据
 
 AI、全局设置和 Telegram API 配置则单独保存在数据目录根部的 JSON 文件中。
@@ -152,4 +156,3 @@ AI、全局设置和 Telegram API 配置则单独保存在数据目录根部的 
 - **任务队列**：完整队列化（Celery/RQ 等）尚未内置；当前以进程内 APScheduler + 文件锁 + 监听分片为过渡方案。
 - 数据库锁定的排查步骤见 [运维手册 - 场景 2：数据库锁定](ops.md#场景-2数据库锁定)。
 - 反向代理可以扩展入口流量，但不等同于后端多副本扩展。
-

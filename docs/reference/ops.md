@@ -7,8 +7,8 @@
 | 端点 | 说明 |
 | --- | --- |
 | `GET /api/ops/scheduled-jobs` | 查看 APScheduler 下次执行时间 |
-| `GET /api/ops/backup/status` | 数据目录备份状态与关键路径体积 |
-| `POST /api/ops/backup/export` | 完整备份：已配置 WebDAV 时上传远端；否则回退浏览器下载 |
+| `GET /api/ops/backup/status` | 数据目录备份状态与关键路径体积（含 `backup_target`、WebDAV / S3 就绪状态） |
+| `POST /api/ops/backup/export` | 完整备份：根据设置的备份目标策略（`backup_target`：`auto` / `webdav` / `s3` / `both`）上传远端；均未配置时回退浏览器下载流 |
 | `POST /api/ops/backup/webdav/test` | 测试全局设置中的 WebDAV 连通性 |
 | `GET /api/ops/backup/webdav/files` | 列出远端目录 `.tar.gz` 备份（PROPFIND） |
 | `GET /api/ops/backup/webdav/download?name=` | 流式下载指定远端 `.tar.gz`（安全文件名） |
@@ -26,6 +26,7 @@
 | `POST /api/sign-tasks/{name}/run/cancel` | 取消进行中的签到 run（协作式 cancel） |
 | `POST /api/batch/sign-tasks` | 新版签到任务批量 enable/disable/delete/run |
 | `POST /api/events/ticket` + `GET /api/events/sign-history?ticket=` | 签到历史 SSE：先用 Bearer JWT 换 60 秒一次性票据，再用票据建流（URL 不放长效 JWT） |
+| `GET /api/accounts/{account_name}/logs/export` | 导出指定账号的纯文本历史执行日志（`.log`） |
 | `POST /api/accounts/status/check` | 同步批量账号会话检测（兼容；账号多时易阻塞） |
 | `POST /api/accounts/status/check-jobs` | 异步批量账号会话检测 Job（可取消、可查进度） |
 | `GET /api/accounts/status/check-jobs/{job_id}` | 查询批量检测 Job 状态 / 结果 |
@@ -42,10 +43,14 @@
 1. 上传/测试/列表前前端会先落盘备份连接配置；服务端只读已保存设置。
 2. `GET /api/config/settings` 不回传 WebDAV 密码、Bot Token 与对象存储 Secret Key 明文，仅 `*_set`。
 3. 配置 JSON 导出脱敏上述密钥；导入占位不覆盖已有值。
-4. **落点优先级**：已配置 WebDAV 时上传 WebDAV；未配置 WebDAV 但对象存储已启用时上传对象存储；两者都未配置则回退为浏览器下载流。
-5. 自动备份：远端成功则删本地并按 `auto_backup_keep` 清理远端旧包；失败保留本地并 Bot 通知（仅总开关）。
-6. 下载为流式响应；恢复须停服后解压覆盖 `APP_DATA_DIR`。
-7. `GET /api/ops/backup/status` 含 `webdav_configured`、`s3_configured`、`auto_backup_enabled`、最近本地自动备份列表。
+4. **落点策略（`backup_target`）**：
+   - `auto`（默认）：已配置 WebDAV 时上传 WebDAV；未配置 WebDAV 但对象存储已启用时上传对象存储；两者均未配置则回退为浏览器下载流。
+   - `webdav`：仅上传至 WebDAV，未配置时报错阻止。
+   - `s3`：仅上传至对象存储，未启用或必填项不全时报错阻止。
+   - `both`：同时上传至 WebDAV 与对象存储，要求两端均配置完整；任一端未配置则报错阻止。
+5. **自动备份**：单端上传成功清理本地副本并按 `auto_backup_keep` 轮转远端旧包；双端模式（`both`）强制 WebDAV 与 S3 均上传成功后才清理本地副本；任一端失败保留本地副本并发送 Bot 告警通知。
+6. 下载为流式响应；恢复须停服后解压覆盖 `APP_DATA_DIR`（面板「灾难恢复指引」提供宿主机与 Docker 环境下的标准恢复命令）。
+7. `GET /api/ops/backup/status` 含 `webdav_configured`、`s3_configured`、`backup_target`、`auto_backup_enabled`、最近本地自动备份列表。
 8. 对象存储三个端点均以「已启用 + 必填项齐全」为门禁，否则返回「对象存储未配置或必填项不完整」。
 
 ### 多实例与数据库
@@ -65,7 +70,7 @@
 3. **单实例**：保持 1 个后端写进程；多副本时必须配调度锁 + 监听分片，且**同一账号 session 不共享**。
 4. **Postgres（可选）**：设置 `APP_DATABASE_URL` 时安装 `psycopg2-binary`，并先迁移 schema。
 5. **反向代理**：按 [Nginx 样例](../deploy/nginx.md) 配置 SSE/WebSocket；`/api/events/*` 关闭缓冲与 access log。
-6. **健康检查**：`/healthz`、`/readyz`（含锁与只读状态）；登录后可看 `/api/ops/runtime-status`。
+6. **健康检查**：`/healthz`、`/readyz`（含锁与只读状态）；登录后看 `/api/ops/runtime-status`。
 7. **边界冒烟**（可选）：`python scripts/prod_boundary_check.py`
 
 同一 `data/` 上多副本时：只有获得调度锁的实例会注册签到/旧任务 job。Telegram 监听仍建议单实例。
@@ -198,7 +203,7 @@ systemctl start tg-signpulse
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 解析项目根目录的绝对路径，确保从任意工作目录执行都能正确定位
+# 解析项目根目录的绝对路径，确保从任意工作目录执行都能确定定位
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DATA_DIR="${APP_DATA_DIR:-$PROJECT_ROOT/data}"
@@ -267,7 +272,7 @@ docker compose up -d
 - `data/` 是否仍可写
 - 最近任务失败率是否异常升高
 - 账号状态是否出现 `needs_relogin`
-- 监听任务是否仍在接收更新
+- 监听任务是否仍在此接收更新
 - 代理是否失效
 - AI 接口是否还能返回结果
 
@@ -318,15 +323,3 @@ watch -n 5 'curl -fsS http://127.0.0.1:8080/readyz || true'
 1. 在面板查看账号状态是否为 `needs_relogin`。
 2. 重新完成 Telegram 登录流程。
 3. 如果多个账号同时失效，优先检查代理和 Telegram API 配置。
-
-### 场景 4：监听任务不触发
-
-1. 确认任务执行模式是 `listen` 且任务已启用。
-2. 确认客户端会话有效且能接收 updates：含监听 / 等待响应动作的任务会自动开启 updates（系统自动决定，无环境变量开关）。`TG_SESSION_MODE` 只影响会话存储方式，不影响 updates 接收。
-3. 修改监听规则后触发一次调度同步或重启后端，让监听器重建。
-
-### 场景 5：通知发送失败
-
-1. 检查 Telegram Bot token、chat_id、Bark URL、ServerChan sendkey 或自定义 Webhook。
-2. 用 `curl` 在宿主机直接访问通知端点，排除网络与 DNS 问题。
-3. 对外部 HTTP 通道增加接收端幂等，避免重试导致重复处理。

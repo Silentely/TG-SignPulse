@@ -57,6 +57,7 @@ TG-SignPulse 用来集中管理多个 Telegram 账号，并把「发送消息、
 |------|------|
 | [账号管理](guide/accounts.md) | 短信登录、二维码登录、2FA、代理、会话模式 |
 | [任务编排](guide/tasks.md) | 任务模型、动作类型、执行模式、多账号共享 |
+| [自定义插件](guide/plugins.md) | 本地 Action 插件扩展、沙箱隔离与测试 |
 | [AI 动作](guide/ai.md) | OpenAI 配置、默认模型、自定义提示词 |
 | [关键词监听](guide/keyword-monitor.md) | 监听模式、推送通道、后续动作、模板变量 |
 | [备份与恢复](guide/backup-webdav.md) | 完整备份、自动备份、远端下载、换机恢复 |
@@ -84,6 +85,7 @@ TG-SignPulse/
 │   ├── api/            #   API 路由层
 │   ├── core/           #   配置、认证、数据库
 │   ├── models/         #   SQLAlchemy 数据模型
+│   ├── plugins/        #   自定义 Action 插件管理与沙箱 IPC
 │   ├── services/       #   业务逻辑层（签到、监听、Telegram）
 │   ├── scheduler/      #   APScheduler 调度器
 │   └── utils/          #   工具函数
@@ -121,6 +123,7 @@ TG-SignPulse/
 ├── sessions/                    # Telegram 会话文件
 │   ├── accounts.json            # 账号元数据
 │   └── *.session                # Session 文件
+├── plugins/                     # 自定义 Action 插件
 └── .signer/                     # 签到引擎工作目录
     ├── signs/                   # 任务配置
     │   └── <account>/
@@ -137,6 +140,7 @@ Browser (Vue 3 SPA)
         ├── AuthService (JWT + TOTP)
         ├── TelegramService (账号管理)
         ├── SignTaskService (任务 CRUD + 执行)
+        ├── PluginService (自定义插件沙箱 IPC)
         ├── KeywordMonitorService (后台监听)
         ├── APScheduler (定时触发)
         ├── SQLite (WAL mode)
