@@ -19,6 +19,35 @@ _logger = logging.getLogger("backend.sign_task_crud")
 
 
 class SignTaskCrudMixin:
+    def _validate_task_chain(
+        self,
+        account_names: List[str],
+        task_name: str,
+        next_task_name: Optional[str],
+    ) -> None:
+        if not next_task_name or not str(next_task_name).strip():
+            return
+        next_task = str(next_task_name).strip()
+        if next_task == task_name:
+            raise ValueError(f"任务链不能直接自调用: {task_name} -> {next_task}")
+
+        for acc in account_names:
+            if not acc or acc == "*":
+                continue
+            visited = [task_name]
+            curr = next_task
+            depth = 0
+            while curr and depth < 20:
+                if curr in visited:
+                    chain_str = " -> ".join(visited + [curr])
+                    raise ValueError(f"账号 {acc} 下任务链存在循环引用: {chain_str}")
+                visited.append(curr)
+                cfg = self.get_task(curr, account_name=acc)
+                if not cfg:
+                    break
+                curr = str(cfg.get("next_task_on_success") or "").strip()
+                depth += 1
+
     """依赖 SignTaskService 实例属性：signs_dir, run_history_dir 及各类 helper。"""
 
     def create_task(
@@ -41,6 +70,8 @@ class SignTaskCrudMixin:
         adaptive_schedule_enabled: bool = False,
         adaptive_schedule_patterns: Optional[List[str]] = None,
         adaptive_schedule_padding_seconds: int = 30,
+        next_task_on_success: Optional[str] = None,
+        next_task_delay_seconds: Optional[float] = None,
     ) -> Dict[str, Any]:
         """Create a sign task that can be shared by multiple accounts."""
         from backend.services.config import get_config_service
@@ -50,6 +81,7 @@ class SignTaskCrudMixin:
         if not target_accounts:
             raise ValueError("必须指定至少一个账号名称")
 
+        self._validate_task_chain(target_accounts, task_name, next_task_on_success)
         # Preserve the original list (may contain "*") for config storage
         stored_account_names = list(target_accounts)
         # Expand wildcard for actual directory creation and scheduling
@@ -110,6 +142,8 @@ class SignTaskCrudMixin:
                 adaptive_schedule_enabled=adaptive_schedule_enabled,
                 adaptive_schedule_patterns=adaptive_schedule_patterns,
                 adaptive_schedule_padding_seconds=adaptive_schedule_padding_seconds,
+                next_task_on_success=next_task_on_success,
+                next_task_delay_seconds=next_task_delay_seconds,
             )
 
             write_json_atomic(task_dir / "config.json", config)
@@ -200,6 +234,8 @@ class SignTaskCrudMixin:
             adaptive_schedule_enabled=bool(src.get("adaptive_schedule_enabled", False)),
             adaptive_schedule_patterns=list(src.get("adaptive_schedule_patterns") or []),
             adaptive_schedule_padding_seconds=int(src.get("adaptive_schedule_padding_seconds", 30) or 30),
+            next_task_on_success=str(src.get("next_task_on_success") or "").strip(),
+            next_task_delay_seconds=float(src.get("next_task_delay_seconds", 2.0) if src.get("next_task_delay_seconds") is not None else 2.0),
         )
 
     def update_task(
@@ -223,6 +259,8 @@ class SignTaskCrudMixin:
         adaptive_schedule_enabled: Optional[bool] = None,
         adaptive_schedule_patterns: Optional[List[str]] = None,
         adaptive_schedule_padding_seconds: Optional[int] = None,
+        next_task_on_success: Optional[str] = None,
+        next_task_delay_seconds: Optional[float] = None,
     ) -> Dict[str, Any]:
         """Update one task and fan out the config to all linked accounts."""
         task_name = validate_storage_name(task_name, field_name="task_name")
@@ -260,6 +298,8 @@ class SignTaskCrudMixin:
             raise ValueError("没有可用的账号")
         # Also expand existing_accounts for proper diff calculation
         existing_accounts = self._expand_account_names(existing_accounts)
+        effective_next_task = next_task_on_success if next_task_on_success is not None else existing.get("next_task_on_success")
+        self._validate_task_chain(target_accounts, task_name, effective_next_task)
 
         from backend.services.sign_task_config_build import (
             build_sign_task_config,
@@ -293,6 +333,8 @@ class SignTaskCrudMixin:
             adaptive_schedule_enabled=adaptive_schedule_enabled,
             adaptive_schedule_patterns=adaptive_schedule_patterns,
             adaptive_schedule_padding_seconds=adaptive_schedule_padding_seconds,
+            next_task_on_success=next_task_on_success,
+            next_task_delay_seconds=next_task_delay_seconds,
         )
         next_sign_at = fields["sign_at"]
         next_random_seconds = fields["random_seconds"]
@@ -310,6 +352,8 @@ class SignTaskCrudMixin:
         next_adaptive_schedule_enabled = fields["adaptive_schedule_enabled"]
         next_adaptive_schedule_patterns = fields["adaptive_schedule_patterns"]
         next_adaptive_schedule_padding_seconds = fields["adaptive_schedule_padding_seconds"]
+        next_next_task_on_success = fields.get("next_task_on_success", "")
+        next_next_task_delay_seconds = fields.get("next_task_delay_seconds", 2.0)
         schedule_plan = resolve_schedule_plan(
             next_execution_mode,
             sign_at=next_sign_at,
@@ -356,6 +400,8 @@ class SignTaskCrudMixin:
                 adaptive_schedule_enabled=next_adaptive_schedule_enabled,
                 adaptive_schedule_patterns=next_adaptive_schedule_patterns,
                 adaptive_schedule_padding_seconds=next_adaptive_schedule_padding_seconds,
+                next_task_on_success=next_next_task_on_success,
+                next_task_delay_seconds=next_next_task_delay_seconds,
                 last_run=existing_last_run_map.get(current_account),
             )
 

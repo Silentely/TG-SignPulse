@@ -55,6 +55,8 @@ export interface SignTask {
   adaptive_schedule_enabled?: boolean;
   adaptive_schedule_patterns?: string[];
   adaptive_schedule_padding_seconds?: number;
+  next_task_on_success?: string;
+  next_task_delay_seconds?: number;
   active_run?: ActiveRunSummary | null;
 }
 
@@ -77,6 +79,8 @@ export interface CreateSignTaskRequest {
   adaptive_schedule_enabled?: boolean;
   adaptive_schedule_patterns?: string[];
   adaptive_schedule_padding_seconds?: number;
+  next_task_on_success?: string;
+  next_task_delay_seconds?: number;
 }
 
 export interface UpdateSignTaskRequest {
@@ -96,6 +100,8 @@ export interface UpdateSignTaskRequest {
   adaptive_schedule_enabled?: boolean;
   adaptive_schedule_patterns?: string[];
   adaptive_schedule_padding_seconds?: number;
+  next_task_on_success?: string;
+  next_task_delay_seconds?: number;
 }
 
 export interface ChatInfo {

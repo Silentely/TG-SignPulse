@@ -85,6 +85,8 @@ class SignTaskCreate(BaseModel):
     adaptive_schedule_enabled: bool = Field(False, description="Adaptive cooldown reschedule switch")
     adaptive_schedule_patterns: List[str] = Field(default_factory=list, description="Custom regex patterns for adaptive cooldown")
     adaptive_schedule_padding_seconds: int = Field(30, ge=0, le=86400, description="Padding seconds after cooldown")
+    next_task_on_success: Optional[str] = Field(None, description="Next task name to trigger on success within same account")
+    next_task_delay_seconds: Optional[float] = Field(2.0, ge=0.01, le=3600, description="Delay in seconds before triggering next task")
 
     @validator("name", allow_reuse=True)
     def name_must_be_valid_filename(cls, v: str) -> str:
@@ -112,6 +114,8 @@ class SignTaskUpdate(BaseModel):
     adaptive_schedule_enabled: Optional[bool] = Field(None, description="Adaptive cooldown reschedule switch")
     adaptive_schedule_patterns: Optional[List[str]] = Field(None, description="Custom regex patterns for adaptive cooldown")
     adaptive_schedule_padding_seconds: Optional[int] = Field(None, ge=0, le=86400, description="Padding seconds after cooldown")
+    next_task_on_success: Optional[str] = Field(None, description="Next task name to trigger on success within same account")
+    next_task_delay_seconds: Optional[float] = Field(None, ge=0.01, le=3600, description="Delay in seconds before triggering next task")
 
 
 class LastRunInfo(BaseModel):
@@ -160,6 +164,8 @@ class SignTaskOut(BaseModel):
     adaptive_schedule_enabled: bool = False
     adaptive_schedule_patterns: List[str] = Field(default_factory=list)
     adaptive_schedule_padding_seconds: int = 30
+    next_task_on_success: Optional[str] = ""
+    next_task_delay_seconds: Optional[float] = 2.0
     active_run: Optional[ActiveRunSummary] = None
 
 
@@ -276,6 +282,8 @@ def create_sign_task(
             adaptive_schedule_enabled=payload.adaptive_schedule_enabled,
             adaptive_schedule_patterns=payload.adaptive_schedule_patterns,
             adaptive_schedule_padding_seconds=payload.adaptive_schedule_padding_seconds,
+            next_task_on_success=payload.next_task_on_success,
+            next_task_delay_seconds=payload.next_task_delay_seconds,
         )
 
         # 调度同步和监控重启放到后台执行，避免阻塞 HTTP 响应
@@ -371,6 +379,8 @@ def update_sign_task(
             adaptive_schedule_enabled=payload.adaptive_schedule_enabled,
             adaptive_schedule_patterns=payload.adaptive_schedule_patterns,
             adaptive_schedule_padding_seconds=payload.adaptive_schedule_padding_seconds,
+            next_task_on_success=payload.next_task_on_success,
+            next_task_delay_seconds=payload.next_task_delay_seconds,
         )
 
         # 调度同步和监控重启放到后台执行，避免阻塞 HTTP 响应

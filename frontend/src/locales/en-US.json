@@ -457,7 +457,11 @@
     "customPatterns": "Custom Regex Patterns",
     "customPatternsPlaceholder": "e.g. (\\d+) minutes remaining, comma separated",
     "customPatternsHint": "High-priority regex patterns; leave empty to use built-in multi-language parser",
-    "loadingTopics": "Loading topics..."
+    "loadingTopics": "Loading topics...",
+    "nextTaskOnSuccess": "Next Task On Success",
+    "nextTaskOnSuccessHint": "Automatically trigger another task under the same account after this task succeeds",
+    "nextTaskDelaySeconds": "Chained Task Delay (seconds)",
+    "nextTaskDelaySecondsHint": "Delay in seconds before triggering the next task (default: 2s)"
   },
   "taskModal": {
     "addTitle": "Add Task",

@@ -108,6 +108,7 @@ class PluginInfo(BaseModel):
     tags: List[str] = Field(default_factory=list)
     icon: Optional[str] = None
     homepage: Optional[str] = None
+    isolation_mode: str = "subprocess"
     recent_results: List[bool] = Field(default_factory=list)
     metrics: Optional[PluginMetricsModel] = None
 
@@ -163,6 +164,7 @@ def _meta_to_info(p: PluginMeta, disabled_set: Optional[set[str]] = None) -> Plu
         tags=list(getattr(p, "tags", []) or []),
         icon=getattr(p, "icon", None),
         homepage=getattr(p, "homepage", None),
+        isolation_mode=getattr(p, "isolation_mode", "subprocess") or "subprocess",
         recent_results=recent_bools,
         metrics=metrics_model,
     )

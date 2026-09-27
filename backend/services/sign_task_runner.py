@@ -699,6 +699,103 @@ async def _runner_handle_error(state: Dict[str, Any], e: Exception) -> None:
     )
 
 
+async def _runner_trigger_chained_task(state: Dict[str, Any]) -> None:
+    """若任务成功且配置了同一账号下的级联任务（next_task_on_success），发起联动执行。
+    内置环路循环检测与最大执行深度保护。"""
+    task_cfg = state.get("task_cfg") or {}
+    raw_task_cfg = state.get("raw_task_cfg") or {}
+    next_task_name = (
+        task_cfg.get("next_task_on_success")
+        or raw_task_cfg.get("next_task_on_success")
+    )
+    if not next_task_name or not isinstance(next_task_name, str):
+        return
+
+    next_task_name = next_task_name.strip()
+    current_task = str(state.get("task_name") or "").strip()
+    if not next_task_name or next_task_name == current_task:
+        return
+
+    # 环状死循环检测与深度保护
+    visited_chain = list(state.get("visited_chain") or [])
+    if current_task and current_task not in visited_chain:
+        visited_chain.append(current_task)
+
+    if next_task_name in visited_chain:
+        _service_logger.warning(
+            "Task chain cycle detected: %s -> %s (path: %s); aborting chain trigger",
+            current_task,
+            next_task_name,
+            " -> ".join(visited_chain + [next_task_name]),
+        )
+        return
+
+    MAX_CHAIN_DEPTH = 10
+    if len(visited_chain) >= MAX_CHAIN_DEPTH:
+        _service_logger.warning(
+            "Task chain maximum depth (%d) reached at task '%s'; aborting chain trigger",
+            MAX_CHAIN_DEPTH,
+            current_task,
+        )
+        return
+
+    account_name = state.get("account_name")
+    svc: SignTaskService = state["svc"]
+
+    target_cfg = svc.get_task(next_task_name, account_name=account_name)
+    if not target_cfg or not target_cfg.get("enabled", True):
+        _service_logger.warning(
+            "Task chain: target task '%s' not found or disabled for account '%s'",
+            next_task_name,
+            account_name,
+        )
+        return
+
+    delay_val = (
+        task_cfg.get("next_task_delay_seconds")
+        or raw_task_cfg.get("next_task_delay_seconds")
+        or 2.0
+    )
+    try:
+        delay_sec = max(0.01, float(delay_val))
+    except (ValueError, TypeError):
+        delay_sec = 2.0
+
+    _service_logger.info(
+        "Task chain: task '%s' succeeded; triggering next task '%s' for account '%s' in %.1fs (depth=%d)",
+        current_task,
+        next_task_name,
+        account_name,
+        delay_sec,
+        len(visited_chain),
+    )
+
+    next_visited = list(visited_chain)
+
+    async def _run_chained():
+        try:
+            await asyncio.sleep(delay_sec)
+            await svc.start_task_run(account_name, next_task_name, visited_chain=next_visited)
+        except Exception as exc:
+            _service_logger.error(
+                "Task chain: failed to start chained task '%s' for account '%s': %s",
+                next_task_name,
+                account_name,
+                exc,
+            )
+
+    chain_key = svc._task_key(account_name, f"chain-{current_task}-{next_task_name}")
+
+    async def _run_chained_wrapper():
+        try:
+            await _run_chained()
+        finally:
+            svc._unregister_background_run(chain_key)
+
+    chained_coro = asyncio.create_task(_run_chained_wrapper())
+    svc._register_background_run(chain_key, chained_coro)
+
+
 async def _runner_finalize(state: Dict[str, Any]) -> None:
     """统一收尾：更新时间、解析回复、补抓消息、持久化、通知、清理。"""
     svc: SignTaskService = state["svc"]
@@ -736,8 +833,20 @@ async def _runner_finalize(state: Dict[str, Any]) -> None:
 
         # 取消的任务不落历史、不通知：调用方已单独置为 CANCELLED 状态
         if not state.get("cancelled"):
-            await _runner_save_run_info(state)
-            await _runner_send_notifications(state)
+            with contextlib.suppress(Exception):
+                await _runner_save_run_info(state)
+            with contextlib.suppress(Exception):
+                await _runner_send_notifications(state)
+            if state.get("success"):
+                try:
+                    await _runner_trigger_chained_task(state)
+                except Exception as chain_err:
+                    _service_logger.error(
+                        "Task chain trigger failed for '%s': %s",
+                        state.get("task_name"),
+                        chain_err,
+                        exc_info=True,
+                    )
     finally:
         # 先调度清理再停止客户端：清理注册是同步的，若放在 stop() 之后，
         # stop() 抛出 CancelledError（BaseException）时本次运行的日志将永不回收。
@@ -766,6 +875,7 @@ async def execute_sign_task(
     account_name: str,
     task_name: str,
     run_id: Optional[str] = None,
+    visited_chain: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """运行任务并实时捕获日志（In-Process）。
 
@@ -836,6 +946,7 @@ async def execute_sign_task(
         "last_reply": "",
         "last_target_message": "",
         "failure_category": None,
+        "visited_chain": list(visited_chain or []),
     }
 
     try:

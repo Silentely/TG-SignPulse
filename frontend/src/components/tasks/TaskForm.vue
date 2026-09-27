@@ -91,6 +91,8 @@ const listenerPushChannel = ref('continue')
 const adaptiveScheduleEnabled = ref(false)
 const adaptiveSchedulePaddingSeconds = ref(30)
 const adaptiveSchedulePatterns = ref<string[]>([])
+const nextTaskOnSuccess = ref('')
+const nextTaskDelaySeconds = ref<number | undefined>(2)
 const listenerForwardChatId = ref('')
 const listenerForwardThreadId = ref('')
 const listenerBarkUrl = ref('')
@@ -141,6 +143,7 @@ const handleTagsKeydown = (e: KeyboardEvent) => {
 /** 编辑时若已有非默认高级字段，自动展开 */
 const shouldAutoExpandAdvanced = () => {
   if (!props.initialTask) return false
+  if (props.initialTask.next_task_on_success) return true
   const retry = props.initialTask.retry_count
   if (retry != null && retry !== 3) return true
   for (const chat of props.initialTask.chats || []) {
@@ -184,6 +187,8 @@ const loadAccounts = async () => {
       adaptiveSchedulePatterns.value = Array.isArray(props.initialTask.adaptive_schedule_patterns)
         ? [...props.initialTask.adaptive_schedule_patterns]
         : []
+      nextTaskOnSuccess.value = props.initialTask.next_task_on_success || ''
+      nextTaskDelaySeconds.value = props.initialTask.next_task_delay_seconds ?? 2
       showAdvanced.value = shouldAutoExpandAdvanced()
       scheduleMode.value = props.initialTask.execution_mode === 'listen' ? 'listen' : 'scheduled'
       if (props.initialTask.execution_mode === 'range') timeRange.value = props.initialTask.range_start + '-' + props.initialTask.range_end
@@ -436,6 +441,8 @@ const buildPayload = () => {
     adaptiveScheduleEnabled: adaptiveScheduleEnabled.value,
     adaptiveSchedulePaddingSeconds: adaptiveSchedulePaddingSeconds.value,
     adaptiveSchedulePatterns: adaptiveSchedulePatterns.value,
+    nextTaskOnSuccess: nextTaskOnSuccess.value,
+    nextTaskDelaySeconds: nextTaskDelaySeconds.value,
   })
 }
 /** 供父组件提交前触发；返回是否通过 */
@@ -544,6 +551,31 @@ onMounted(() => { loadAccounts() })
           <label class="ui-label-strong" for="task-form-retry">{{ t('taskForm.retryCount') }}</label>
           <input id="task-form-retry" v-model.number="retryCount" type="number" min="0" max="99" class="ui-input" />
           <p class="text-[10px] text-gray-500 mt-1 leading-relaxed">{{ t('taskForm.retryCountHint') }}</p>
+        </div>
+        <div class="space-y-1.5">
+          <label class="ui-label-strong" for="task-form-next-task">{{ t('taskForm.nextTaskOnSuccess') }}</label>
+          <input
+            id="task-form-next-task"
+            v-model="nextTaskOnSuccess"
+            type="text"
+            class="ui-input"
+            placeholder="任务名称（同账号下）"
+          />
+          <p class="text-[10px] text-gray-500 mt-1 leading-relaxed">{{ t('taskForm.nextTaskOnSuccessHint') }}</p>
+        </div>
+        <div class="space-y-1.5">
+          <label class="ui-label-strong" for="task-form-next-task-delay">{{ t('taskForm.nextTaskDelaySeconds') }}</label>
+          <input
+            id="task-form-next-task-delay"
+            v-model.number="nextTaskDelaySeconds"
+            type="number"
+            min="0"
+            max="3600"
+            step="1"
+            class="ui-input"
+            placeholder="2"
+          />
+          <p class="text-[10px] text-gray-500 mt-1 leading-relaxed">{{ t('taskForm.nextTaskDelaySecondsHint') }}</p>
         </div>
       </div>
     </div>

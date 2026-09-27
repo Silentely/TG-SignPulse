@@ -10,6 +10,8 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
+import os
 import logging
 import time
 from typing import Any, Dict, List, Optional, Union
@@ -180,12 +182,12 @@ def collect_bot_cmd_jobs(
 
 
 def continue_actions(action: Dict[str, Any]) -> list[Dict[str, Any]]:
-    """过滤出受支持的继续动作列表（action_id ∈ 1/2/3/4/5/6/7/9）。"""
+    """过滤出受支持的继续动作列表（action_id ∈ 1/2/3/4/5/6/7/9/99）。"""
     actions = action.get("continue_actions")
     if not isinstance(actions, list):
         return []
 
-    supported = {1, 2, 3, 4, 5, 6, 7, 9}
+    supported = {1, 2, 3, 4, 5, 6, 7, 9, 99}
     result: list[Dict[str, Any]] = []
     for item in actions:
         if not isinstance(item, dict):
@@ -924,6 +926,102 @@ async def execute_bot_link_action(
     return success_count > 0
 
 
+async def execute_custom_plugin_continue_action(
+    service: Any,
+    client: Any,
+    target_chat_id: Union[int, str],
+    target_thread_id: Optional[int],
+    action: Dict[str, Any],
+    source_message: Optional[Message] = None,
+    timeout: Optional[float] = None,
+) -> bool:
+    """执行自定义插件后续动作（action_id = 99）。"""
+    plugin_name = str(action.get("plugin_name") or "").strip()
+    if not plugin_name:
+        logger.warning("Keyword monitor plugin action missing 'plugin_name'")
+        return False
+
+    from tg_signer.core.plugins import PluginContext, PluginRegistry
+    from tg_signer.core.plugin_host import PluginProcessHost
+
+    meta = PluginRegistry.get(plugin_name)
+    if not meta:
+        PluginRegistry.load_all_configured_plugins()
+        meta = PluginRegistry.get(plugin_name)
+    if not meta:
+        logger.warning(
+            "Keyword monitor plugin '%s' not registered or found", plugin_name
+        )
+        return False
+
+    if not getattr(meta, "enabled", True) or not PluginRegistry.is_enabled(plugin_name):
+        logger.warning("Keyword monitor plugin '%s' is disabled, skip", plugin_name)
+        return False
+
+    params = dict(action.get("params") or {})
+
+    ctx = PluginContext(
+        app=client,
+        chat_id=target_chat_id,
+        message=source_message,
+        params=params,
+        logger=service,
+        message_thread_id=target_thread_id,
+        plugin_name=plugin_name,
+    )
+
+    action_timeout = timeout or read_positive_float_env(
+        "KEYWORD_MONITOR_CONTINUE_ACTION_TIMEOUT", DEFAULT_CONTINUE_TIMEOUT, 1.0
+    )
+
+    engine = os.getenv("PLUGIN_ISOLATION_ENGINE", "auto").lower()
+    isolation_mode = getattr(meta, "isolation_mode", "subprocess")
+    if engine in ("process", "subprocess"):
+        use_subprocess = True
+    elif engine in ("in_process", "thread"):
+        use_subprocess = False
+    else:  # auto
+        if isolation_mode == "in_process":
+            use_subprocess = False
+        else:
+            use_subprocess = not inspect.iscoroutinefunction(meta.handler)
+
+    if not use_subprocess:
+        try:
+            handler = meta.handler
+            if inspect.iscoroutinefunction(handler):
+                res = await asyncio.wait_for(handler(ctx), timeout=action_timeout)
+            else:
+                res = await asyncio.wait_for(
+                    asyncio.to_thread(handler, ctx), timeout=action_timeout
+                )
+            return bool(res) if res is not None else True
+        except Exception as exc:
+            logger.error(
+                "Keyword monitor in-process plugin '%s' execution failed: %s",
+                plugin_name,
+                exc,
+            )
+            return False
+    else:
+        try:
+            host = PluginProcessHost(
+                plugin_name=plugin_name,
+                ctx=ctx,
+                timeout=action_timeout,
+                trigger_type="reactive",
+            )
+            res = await host.execute()
+            return bool(res) if res is not None else True
+        except Exception as exc:
+            logger.error(
+                "Keyword monitor subprocess plugin '%s' execution failed: %s",
+                plugin_name,
+                exc,
+            )
+            return False
+
+
 async def execute_continue_action(
     service: Any,
     client: Any,
@@ -987,6 +1085,17 @@ async def execute_continue_action(
             account_name=account_name,
             task_name=task_name,
             match_action=match_action,
+        )
+
+    if action_id == 99:
+        return await execute_custom_plugin_continue_action(
+            service,
+            client,
+            target_chat_id,
+            target_thread_id,
+            action,
+            source_message=source_message,
+            timeout=timeout,
         )
 
     action_timeout = timeout or read_positive_float_env(

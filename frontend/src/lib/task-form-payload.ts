@@ -46,6 +46,8 @@ export type TaskFormPayloadInput = {
   adaptiveScheduleEnabled?: boolean
   adaptiveSchedulePaddingSeconds?: number
   adaptiveSchedulePatterns?: string[]
+  nextTaskOnSuccess?: string
+  nextTaskDelaySeconds?: number
 }
 
 function normalizeTimeHm(v: string): string {
@@ -190,6 +192,8 @@ export function buildTaskFormPayload(
     adaptive_schedule_enabled: Boolean(input.adaptiveScheduleEnabled),
     adaptive_schedule_padding_seconds: input.adaptiveSchedulePaddingSeconds !== undefined ? Number(input.adaptiveSchedulePaddingSeconds) : 30,
     adaptive_schedule_patterns: input.adaptiveSchedulePatterns || [],
+    next_task_on_success: input.nextTaskOnSuccess?.trim() ? input.nextTaskOnSuccess.trim() : undefined,
+    next_task_delay_seconds: input.nextTaskDelaySeconds !== undefined && String(input.nextTaskDelaySeconds).trim() !== '' ? Number(input.nextTaskDelaySeconds) : undefined,
     chats: safeChats,
   }
 }
