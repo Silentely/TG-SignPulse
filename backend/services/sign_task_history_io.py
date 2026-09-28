@@ -15,6 +15,13 @@ _logger = logging.getLogger("backend.sign_task_history_io")
 
 
 def safe_history_key(name: str) -> str:
+    """把账号/任务名编码为文件系统安全且**可逆**的键。
+
+    `_` 是 history 文件名里 account 与 task 的分隔符，若直接把名称中的 `_`
+    也留在键中，`(a__b, c)` 与 `(a, b__c)` 会撞到同一个文件名，导致清账号
+    `a` 的历史时误删 `a__b` 的数据。故对 `_` 与 `%` 做百分号编码：
+    `%` → `%25`，`_` → `%5F`，保证编码结果不含裸 `_`/`%`，可无损还原。
+    """
     cleaned = (
         str(name or "")
         .strip()
@@ -22,7 +29,47 @@ def safe_history_key(name: str) -> str:
         .replace("/", "_")
         .replace("\\", "_")
     )
-    # 保留普通名称的前导点，避免 .foo 与 foo 映射到同一历史文件。
+    if cleaned in {".", ".."}:
+        return "default"
+    # 先编码 % 再编码 _，避免二次编码把 %25 的 % 又变成 %2525
+    encoded = cleaned.replace("%", "%25").replace("_", "%5F")
+    return encoded or "default"
+
+
+def unsafe_history_key(name: str) -> str:
+    """safe_history_key 的逆运算：把编码键还原为原始名称。
+
+    仅供按文件名反查账号/任务名时使用；普通业务路径应直接持有原始名称。
+    """
+    text = str(name or "")
+    out: List[str] = []
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if ch == "%" and i + 3 <= len(text):
+            code = text[i + 1 : i + 3]
+            if code == "25":
+                out.append("%")
+                i += 3
+                continue
+            if code == "5F":
+                out.append("_")
+                i += 3
+                continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _legacy_history_key(name: str) -> str:
+    """旧版编码：不做 _ / % 转义（保留用于读取升级前落盘的历史文件）。"""
+    cleaned = (
+        str(name or "")
+        .strip()
+        .replace(chr(0), "")
+        .replace("/", "_")
+        .replace("\\", "_")
+    )
     if cleaned in {".", ".."}:
         return "default"
     return cleaned or "default"
@@ -39,6 +86,30 @@ def history_file_path(
     return base / f"{safe_history_key(task_name)}.json"
 
 
+def legacy_history_file_path(
+    run_history_dir: Path | str, task_name: str, account_name: str = ""
+) -> Path:
+    """升级前（未对 _ / % 转义）落盘的历史文件路径，仅用于兼容读取。"""
+    base = Path(run_history_dir)
+    if account_name:
+        return base / f"{_legacy_history_key(account_name)}__{_legacy_history_key(task_name)}.json"
+    return base / f"{_legacy_history_key(task_name)}.json"
+
+
+def history_file_owner(history_file: Path) -> Optional[str]:
+    """从历史文件名反查其账号宿主。
+
+    文件名为 `{account}__{task}.json`（account/task 均经 safe_history_key 编码），
+    因此可逆；旧版单账号布局 `{task}.json` 无账号段，返回 None。
+    """
+    stem = Path(history_file).stem
+    if "__" not in stem:
+        return None
+    account_part = stem.split("__", 1)[0]
+    decoded = unsafe_history_key(account_part)
+    return decoded or None
+
+
 def load_history_payload_from_file(history_file: Path) -> List[Any]:
     # 历史文件损坏或读取失败时表现为历史凭空消失，read_json_safe 会留下告警线索
     data = read_json_safe(history_file, default=None)
@@ -53,9 +124,14 @@ def resolve_existing_history_file(
     run_history_dir: Path, task_name: str, account_name: str = ""
 ) -> Optional[Path]:
     history_file = history_file_path(run_history_dir, task_name, account_name)
-    legacy_file = run_history_dir / f"{safe_history_key(task_name)}.json"
     if history_file.exists():
         return history_file
+    # 兼容升级前落盘的文件：旧编码（不转义 _ / %）路径仍可读，
+    # 避免换编码后既有历史凭空消失
+    legacy_encoded = legacy_history_file_path(run_history_dir, task_name, account_name)
+    if legacy_encoded != history_file and legacy_encoded.exists():
+        return legacy_encoded
+    legacy_file = run_history_dir / f"{safe_history_key(task_name)}.json"
     if legacy_file.exists():
         return legacy_file
     return None

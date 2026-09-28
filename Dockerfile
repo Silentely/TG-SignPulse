@@ -76,6 +76,10 @@ RUN mkdir -p /data && \
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
+# 降权为非 root：后续所有层（包括 ENTRYPOINT 起点）都不再具备 root 能力。
+# 放在 chown / COPY entrypoint 之后，确保属主修正与入口落盘仍可用 root 完成。
+USER app
+
 EXPOSE 8080
 
 # Healthcheck uses the PORT env var.

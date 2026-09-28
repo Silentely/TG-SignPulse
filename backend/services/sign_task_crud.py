@@ -13,7 +13,11 @@ from typing import Any, Dict, List, Optional
 
 from backend.services.keyword_monitor.rules import validate_action_regex_safety
 from backend.services.sign_task_history_index import rebuild_index_from_history_files
-from backend.utils.atomic_io import write_json_atomic
+from backend.utils.atomic_io import (
+    path_write_lock,
+    read_json_safe,
+    write_json_atomic,
+)
 from backend.utils.names import validate_storage_name
 
 _logger = logging.getLogger("backend.sign_task_crud")
@@ -163,7 +167,11 @@ class SignTaskCrudMixin:
                 next_task_delay_seconds=next_task_delay_seconds,
             )
 
-            write_json_atomic(task_dir / "config.json", config)
+            # 同一任务配置的创建/更新/删除必须串行，否则并发写会互相覆盖字段
+            with path_write_lock(task_dir / "config.json"):
+                write_json_atomic(task_dir / "config.json", config)
+                # 重新创建即视为用户显式恢复该账号副本，清除此前的删除记录
+                self.clear_wildcard_removed(current_account, task_name)
 
         self._refresh_tasks_cache_after_write()
 
@@ -425,7 +433,11 @@ class SignTaskCrudMixin:
                 last_run=existing_last_run_map.get(current_account),
             )
 
-            write_json_atomic(desired_dir / "config.json", config)
+            # 读-改-写全程持路径锁，避免与其他写路径交叉造成丢失更新
+            with path_write_lock(desired_dir / "config.json"):
+                write_json_atomic(desired_dir / "config.json", config)
+                # 更新覆盖了删除语义：该账号副本被显式重写，允许后续通配扩展
+                self.clear_wildcard_removed(current_account, task_name)
 
             previous_dir = existing_dirs.get(current_account)
             if (
@@ -633,7 +645,13 @@ class SignTaskCrudMixin:
     def delete_task(
         self, task_name: str, account_name: Optional[str] = None
     ) -> bool:
-        """Delete one task or one shared multi-account task set."""
+        """Delete one task or one shared multi-account task set.
+
+        通配（account_names 含 "*"）任务的删除必须同时做两件事，否则删除会被撤销：
+        1. 删除前先剥离/删除全部存活兄弟配置里的 "*" 标记，否则残留的 * 会让
+           _expand_wildcard_tasks 在下一次列表刷新时把已删账号重新铺开；
+        2. 登记 (account, task) 删除记录，抑制本轮之后的通配重扩展。
+        """
         task_name = validate_storage_name(task_name, field_name="task_name")
         related_tasks = self._find_related_task_infos(task_name, account_name)
         if not related_tasks:
@@ -646,6 +664,9 @@ class SignTaskCrudMixin:
         if not task_dirs:
             return False
 
+        target_accounts = {
+            str(current_account or "") for current_account, _ in task_dirs
+        }
 
         from backend.scheduler import remove_sign_task_job
 
@@ -654,12 +675,92 @@ class SignTaskCrudMixin:
             resolved = str(task_dir.resolve())
             if resolved in removed_paths:
                 continue
-            if task_dir.exists():
-                shutil.rmtree(task_dir)
-            removed_paths.add(resolved)
+            with path_write_lock(task_dir / "config.json"):
+                if task_dir.exists():
+                    shutil.rmtree(task_dir)
+                removed_paths.add(resolved)
             if current_account:
                 remove_sign_task_job(current_account, task_name)
                 self._cancel_and_clean_runtime_state(current_account, task_name)
+                # 记住该账号副本已删，抑制通配重扩展
+                self.record_wildcard_removed(current_account, task_name)
+
+        # 剥离存活兄弟配置里的通配标记：没有 "*" 就不会再触发整体重扩展
+        self._strip_wildcard_marker(task_name, keep_accounts=target_accounts)
+
+        # 后置条件复验：配置与调度任务都必须已消失，否则删除未真正生效
+        if not self._wildcard_delete_verified(task_name, target_accounts):
+            return False
 
         self._refresh_tasks_cache_after_write()
+        return True
+
+    def _strip_wildcard_marker(self, task_name: str, *, keep_accounts: set[str]) -> None:
+        """把存活兄弟任务配置中的 "*" 从 account_names 中剥离。
+
+        仅处理本次删除未覆盖到的账号；若剥离后账号集为空则直接删除该副本，
+        避免留下一个既无通配标记又无账号的孤儿配置。
+        """
+        if not self.signs_dir.exists():
+            return
+        for account_dir in self.signs_dir.iterdir():
+            if not account_dir.is_dir():
+                continue
+            account_name = account_dir.name
+            if not account_name or account_name in keep_accounts:
+                continue
+            config_file = account_dir / task_name / "config.json"
+            if not config_file.exists():
+                continue
+            config = read_json_safe(config_file, default=None)
+            if not isinstance(config, dict):
+                continue
+            stored = config.get("account_names")
+            if not isinstance(stored, list) or "*" not in stored:
+                continue
+            remaining = [str(a).strip() for a in stored if str(a).strip() != "*"]
+            with path_write_lock(config_file):
+                if remaining:
+                    config["account_names"] = remaining
+                    try:
+                        write_json_atomic(config_file, config)
+                    except Exception as exc:
+                        _logger.warning(
+                            "剥离任务 %s 账号 %s 的通配标记失败: %s",
+                            task_name,
+                            account_name,
+                            exc,
+                        )
+                else:
+                    # 剥离后无真实账号：该副本已失去存在意义，直接删除
+                    try:
+                        shutil.rmtree(account_dir / task_name)
+                    except OSError as exc:
+                        _logger.warning(
+                            "删除无账号通配副本失败 %s/%s: %s",
+                            account_name,
+                            task_name,
+                            exc,
+                        )
+
+    def _wildcard_delete_verified(
+        self, task_name: str, target_accounts: set[str]
+    ) -> bool:
+        """删除后置条件：目标账号下无配置、无残留调度任务。"""
+        from backend.scheduler import has_sign_task_job
+
+        for account_name in target_accounts:
+            if not account_name:
+                continue
+            task_dir = self.signs_dir / account_name / task_name
+            if (task_dir / "config.json").exists():
+                _logger.error(
+                    "删除后置条件失败：任务配置仍存在 %s/%s", account_name, task_name
+                )
+                return False
+            if has_sign_task_job(account_name, task_name):
+                _logger.error(
+                    "删除后置条件失败：调度任务仍存在 %s/%s", account_name, task_name
+                )
+                return False
         return True

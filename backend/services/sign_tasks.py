@@ -62,7 +62,11 @@ from backend.services.sign_task_run_status import (
     summarize_active_run,
 )
 from backend.services.sign_task_text import repair_mojibake
-from backend.utils.atomic_io import read_json_safe, write_json_atomic
+from backend.utils.atomic_io import (
+    path_write_lock,
+    read_json_safe,
+    write_json_atomic,
+)
 from backend.utils.cache import TTLCache
 from backend.utils.names import validate_storage_name
 from backend.utils.storage import move_storage_path
@@ -119,6 +123,10 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         self._run_status_cleanup_tasks: Dict[tuple[str, str], asyncio.Task] = {}
         self._background_run_tasks: Dict[tuple[str, str], asyncio.Task] = {}
         self._tasks_cache = None  # 兼容旧引用：list 或 None
+        # 通配任务删除记录：{(account, task_name): True}。
+        # 删除通配铺开的某账号副本后，必须记住该账号已删，
+        # 否则 _expand_wildcard_tasks 会因残留的 * 标记重新铺开，把删除撤销。
+        self._wildcard_removed: Dict[tuple[str, str], bool] = {}
         self._cache_refresh_deferred = 0  # >0 时挂起写后全量缓存刷新（批量写优化）
         self._cache_refresh_dirty = False  # defer 期间确有写后刷新被抑制时置 True
         self._cache_refresh_lock = threading.Lock()  # 保护计数器与脏位，兼容线程池路由并发
@@ -496,6 +504,8 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         """
         For tasks with account_names: ["*"], create task directories
         for any accounts that don't have them yet.
+
+        已被显式删除的 (account, task) 组合不再重建，否则删除会被通配扩展撤销。
         """
         if not self.signs_dir.exists():
             return
@@ -525,22 +535,40 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         # For each wildcard task, ensure all accounts have a directory
         for task_name, base_config, _ in seen_wildcard_tasks:
             for acc in all_accounts:
-                target_dir = self.signs_dir / acc / task_name
-                if target_dir.exists():
+                if self._wildcard_removed.get((acc, task_name)):
                     continue
                 # Create task for this account
+                target_dir = self.signs_dir / acc / task_name
                 target_dir.mkdir(parents=True, exist_ok=True)
                 new_config = dict(base_config)
                 new_config["account_name"] = acc
-                try:
-                    write_json_atomic(target_dir / "config.json", new_config)
-                except Exception as exc:
-                    # 该账号的通配任务实际未生成，影响签到调度，必须留痕
-                    _service_logger.warning(
-                        "为账号 %s 写入通配任务配置失败: %s (%s)", acc, target_dir, exc
-                    )
+                config_path = target_dir / "config.json"
+                # 与 create/update/delete 共用同一把路径锁，避免并发铺开时互相覆盖
+                with path_write_lock(config_path):
+                    if config_path.exists():
+                        continue
+                    try:
+                        write_json_atomic(config_path, new_config)
+                    except Exception as exc:
+                        # 该账号的通配任务实际未生成，影响签到调度，必须留痕
+                        _service_logger.warning(
+                            "为账号 %s 写入通配任务配置失败: %s (%s)",
+                            acc,
+                            target_dir,
+                            exc,
+                        )
 
         self._refresh_tasks_cache_after_write()
+
+    def record_wildcard_removed(self, account_name: str, task_name: str) -> None:
+        """记录某账号的通配任务副本已被显式删除，抑制后续通配重扩展。"""
+        if not account_name or not task_name:
+            return
+        self._wildcard_removed[(account_name, task_name)] = True
+
+    def clear_wildcard_removed(self, account_name: str, task_name: str) -> None:
+        """通配任务被重新创建/更新时清除删除记录，允许再次铺开。"""
+        self._wildcard_removed.pop((account_name, task_name), None)
 
     def _resolve_account_names_from_config(
         self,
