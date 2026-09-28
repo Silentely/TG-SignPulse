@@ -1,4 +1,5 @@
 """关键词命中记录落盘 / 分组 / 导出测试。"""
+
 from pathlib import Path
 
 import pytest
@@ -26,7 +27,9 @@ def test_full_rewrite_batched_not_per_record(monkeypatch):
 
     def file_lines() -> int:
         path = hits_mod._hits_path()
-        return len(path.read_text(encoding="utf-8").splitlines()) if path.exists() else 0
+        return (
+            len(path.read_text(encoding="utf-8").splitlines()) if path.exists() else 0
+        )
 
     for i in range(55):
         hits_mod.record_keyword_hit(
@@ -307,7 +310,9 @@ def test_load_bad_lines_logs_warning_count(tmp_path: Path, monkeypatch, caplog):
 def test_account_session_suffix_normalized_in_queries_and_clear():
     """无论入参或数据是否包含 .session 后缀，过滤与清空均能统一匹配。"""
     hits_mod.record_keyword_hit(account_name="my_bot", task_name="t1", keyword="k1")
-    hits_mod.record_keyword_hit(account_name="other_bot.session", task_name="t1", keyword="k2")
+    hits_mod.record_keyword_hit(
+        account_name="other_bot.session", task_name="t1", keyword="k2"
+    )
 
     # 查询带 .session 匹配存量不带 .session
     res1 = hits_mod.list_keyword_hits(account_name="my_bot.session")

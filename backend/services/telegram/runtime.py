@@ -1,4 +1,5 @@
 """TelegramService 组合入口（mixin 组合）。"""
+
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional

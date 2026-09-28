@@ -1,4 +1,5 @@
 """关键词监听账号分片单元测试。"""
+
 from __future__ import annotations
 
 from backend.services.keyword_monitor.sharding import (

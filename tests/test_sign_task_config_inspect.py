@@ -3,6 +3,7 @@
 覆盖 sign_task_config_inspect 的 task_requires_updates /
 task_has_keyword_monitor，正常流程 + 边界条件 + 错误恢复。
 """
+
 from __future__ import annotations
 
 from backend.services.sign_task_config_inspect import (
@@ -105,7 +106,9 @@ def test_requires_updates_all_response_action_ids():
     """3-8 所有依赖动作都应返回 True。"""
     for action_id in (3, 4, 5, 6, 7, 8):
         config = {"chats": [{"actions": [{"action": action_id}]}]}
-        assert task_requires_updates(config) is True, f"action={action_id} 应依赖 update"
+        assert task_requires_updates(config) is True, (
+            f"action={action_id} 应依赖 update"
+        )
 
 
 def test_requires_updates_action_2_returns_false():

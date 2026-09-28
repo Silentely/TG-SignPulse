@@ -72,9 +72,7 @@ class TestAccountStoreCRUD:
             987654321,
             False,
         )
-        session_string = (
-            base64.urlsafe_b64encode(packed).decode("ascii").rstrip("=")
-        )
+        session_string = base64.urlsafe_b64encode(packed).decode("ascii").rstrip("=")
         _monkeypatch_store(tmp_path, monkeypatch)
 
         tg_session.set_account_session_string("acc1", f"  {session_string}  ")
@@ -94,11 +92,11 @@ class TestAccountStoreCRUD:
             987654321,
             False,
         )
-        session_string = (
-            base64.urlsafe_b64encode(packed).decode("ascii").rstrip("=")
-        )
+        session_string = base64.urlsafe_b64encode(packed).decode("ascii").rstrip("=")
         path = _monkeypatch_store(tmp_path, monkeypatch)
-        path.write_text(json.dumps({"accounts": {"acc1": "not-a-dict"}}), encoding="utf-8")
+        path.write_text(
+            json.dumps({"accounts": {"acc1": "not-a-dict"}}), encoding="utf-8"
+        )
 
         tg_session.set_account_session_string("acc1", session_string)
         assert tg_session.get_account_session_string("acc1") == session_string
@@ -116,18 +114,20 @@ class TestAccountStoreCRUD:
             987654321,
             False,
         )
-        session_string = (
-            base64.urlsafe_b64encode(packed).decode("ascii").rstrip("=")
-        )
+        session_string = base64.urlsafe_b64encode(packed).decode("ascii").rstrip("=")
         path = _monkeypatch_store(tmp_path, monkeypatch)
         path.write_text(json.dumps({"accounts": "oops"}), encoding="utf-8")
 
         tg_session.set_account_session_string("acc1", session_string)
         assert tg_session.get_account_session_string("acc1") == session_string
 
-    def test_get_session_string_non_dict_entry_returns_none(self, tmp_path, monkeypatch):
+    def test_get_session_string_non_dict_entry_returns_none(
+        self, tmp_path, monkeypatch
+    ):
         path = _monkeypatch_store(tmp_path, monkeypatch)
-        path.write_text(json.dumps({"accounts": {"acc1": "not-a-dict"}}), encoding="utf-8")
+        path.write_text(
+            json.dumps({"accounts": {"acc1": "not-a-dict"}}), encoding="utf-8"
+        )
         assert tg_session.get_account_session_string("acc1") is None
 
     def test_get_session_string_blank_entry_returns_none(self, tmp_path, monkeypatch):
@@ -140,7 +140,9 @@ class TestAccountStoreCRUD:
 
     def test_delete_account_session_string(self, tmp_path, monkeypatch):
         path = _monkeypatch_store(tmp_path, monkeypatch)
-        path.write_text(json.dumps({"accounts": {"a": {"x": 1}, "b": {"y": 2}}}), encoding="utf-8")
+        path.write_text(
+            json.dumps({"accounts": {"a": {"x": 1}, "b": {"y": 2}}}), encoding="utf-8"
+        )
         tg_session.delete_account_session_string("a")
         data = json.loads(path.read_text(encoding="utf-8"))
         assert data["accounts"] == {"b": {"y": 2}}
@@ -183,7 +185,9 @@ class TestAccountStoreCRUD:
 
     def test_rename_non_dict_entry_is_normalized(self, tmp_path, monkeypatch):
         path = _monkeypatch_store(tmp_path, monkeypatch)
-        path.write_text(json.dumps({"accounts": {"old": "not-a-dict"}}), encoding="utf-8")
+        path.write_text(
+            json.dumps({"accounts": {"old": "not-a-dict"}}), encoding="utf-8"
+        )
         tg_session.rename_account_entry("old", "new")
         data = json.loads(path.read_text(encoding="utf-8"))
         assert "old" not in data["accounts"]
@@ -273,14 +277,20 @@ class TestAccountStoreCRUD:
 
     def test_get_account_status_blank_status_falls_back(self, tmp_path, monkeypatch):
         path = _monkeypatch_store(tmp_path, monkeypatch)
-        path.write_text(json.dumps({"accounts": {"a": {"status": ""}}}), encoding="utf-8")
+        path.write_text(
+            json.dumps({"accounts": {"a": {"status": ""}}}), encoding="utf-8"
+        )
         assert tg_session.get_account_status("a")["status"] == "connected"
 
     def test_set_account_status_fields(self, tmp_path, monkeypatch):
         _monkeypatch_store(tmp_path, monkeypatch)
         tg_session.set_account_status(
-            "a", status="invalid", message="会话失效", code="SESSION_REVOKED",
-            needs_relogin=True, invalid_notified_at="2026-01-03T00:00:00Z",
+            "a",
+            status="invalid",
+            message="会话失效",
+            code="SESSION_REVOKED",
+            needs_relogin=True,
+            invalid_notified_at="2026-01-03T00:00:00Z",
         )
         status = tg_session.get_account_status("a")
         assert status["status"] == "invalid"
@@ -289,7 +299,9 @@ class TestAccountStoreCRUD:
         assert status["needs_relogin"] is True
         assert status["invalid_notified_at"] == "2026-01-03T00:00:00Z"
 
-    def test_set_account_status_non_invalid_clears_notified_at(self, tmp_path, monkeypatch):
+    def test_set_account_status_non_invalid_clears_notified_at(
+        self, tmp_path, monkeypatch
+    ):
         _monkeypatch_store(tmp_path, monkeypatch)
         tg_session.set_account_status(
             "a", status="invalid", invalid_notified_at="2026-01-03T00:00:00Z"
@@ -299,7 +311,9 @@ class TestAccountStoreCRUD:
         assert status["status"] == "connected"
         assert status["invalid_notified_at"] is None
 
-    def test_set_account_status_keeps_notified_at_when_invalid(self, tmp_path, monkeypatch):
+    def test_set_account_status_keeps_notified_at_when_invalid(
+        self, tmp_path, monkeypatch
+    ):
         _monkeypatch_store(tmp_path, monkeypatch)
         tg_session.set_account_status(
             "a", status="invalid", invalid_notified_at="2026-01-03T00:00:00Z"
@@ -448,9 +462,7 @@ class TestSessionModeAndStorePath:
 
 class TestSessionStringOldFormats:
     def _make_old_format(self, fmt: str, *, user_id: int = 111, dc_id: int = 1) -> str:
-        packed = struct.pack(
-            fmt, dc_id, False, bytes(range(256)), user_id, False
-        )
+        packed = struct.pack(fmt, dc_id, False, bytes(range(256)), user_id, False)
         return base64.urlsafe_b64encode(packed).decode("ascii").rstrip("=")
 
     def test_validates_351_old_format(self):
@@ -678,7 +690,9 @@ class TestSessionStringFileFallback:
     def test_delete_session_string_file_missing_noop(self, tmp_path):
         tg_session.delete_session_string_file(tmp_path, "ghost")
 
-    def test_delete_session_string_file_unlink_error_swallowed(self, tmp_path, monkeypatch):
+    def test_delete_session_string_file_unlink_error_swallowed(
+        self, tmp_path, monkeypatch
+    ):
         path = tg_session.session_string_file_path(tmp_path, "locked")
         path.write_text("x", encoding="utf-8")
 
@@ -710,7 +724,9 @@ class TestSessionStringFileFallback:
         tg_session.save_session_string_file(tmp_path, "rewrite", "second")
         assert path.read_text(encoding="utf-8") == "second"
 
-    def test_save_session_string_file_failure_keeps_previous(self, tmp_path, monkeypatch):
+    def test_save_session_string_file_failure_keeps_previous(
+        self, tmp_path, monkeypatch
+    ):
         """写入失败时旧内容必须保留，避免会话缓存被清空后误判为未登录。"""
         import os
 

@@ -8,6 +8,7 @@
   time, account_name, task_name, success, message, failure_category
 不存 flow_logs，详情仍走原 history 文件。
 """
+
 from __future__ import annotations
 
 import json
@@ -88,7 +89,9 @@ def _entry_key(entry: Dict[str, Any]) -> str:
     )
 
 
-def _sync_memory(run_history_dir: Path, entries_newest_first: List[Dict[str, Any]]) -> None:
+def _sync_memory(
+    run_history_dir: Path, entries_newest_first: List[Dict[str, Any]]
+) -> None:
     global _memory_recent, _memory_dir
     with _memory_lock:
         _memory_dir = str(run_history_dir.resolve())
@@ -271,7 +274,9 @@ def read_index_entries(
         if len(collected) >= limit:
             break
     if acc_filter or prefix:
-        _set_filtered_cache((str(run_history_dir), acc_filter, prefix, limit), collected)
+        _set_filtered_cache(
+            (str(run_history_dir), acc_filter, prefix, limit), collected
+        )
     return collected
 
 
@@ -398,7 +403,9 @@ def rebuild_index_from_history_files(
                 continue
             acc = str(item.get("account_name") or acc_part or "")
             task = str(item.get("task_name") or task_part or "")
-            entries.append(entry_from_history_item(item, task_name=task, account_name=acc))
+            entries.append(
+                entry_from_history_item(item, task_name=task, account_name=acc)
+            )
 
     # 按 time 升序写入，使文件尾部为最新
     entries.sort(key=lambda e: str(e.get("time") or ""))

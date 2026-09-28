@@ -3,6 +3,7 @@
 解析优先级：环境变量 TG_API_ID / TG_API_HASH > 配置服务 telegram 配置。
 缺失或无效时抛 ValueError，由调用方决定如何降级或报错。
 """
+
 from __future__ import annotations
 
 from typing import Any, Dict, Optional
@@ -26,7 +27,9 @@ def resolve_telegram_api_credentials(
         else None
     )
     raw_id = clean_env_id if clean_env_id is not None else tg_config.get("api_id")
-    raw_hash = clean_env_hash if clean_env_hash is not None else tg_config.get("api_hash")
+    raw_hash = (
+        clean_env_hash if clean_env_hash is not None else tg_config.get("api_hash")
+    )
     try:
         api_id = int(raw_id) if raw_id is not None else None
     except (TypeError, ValueError):

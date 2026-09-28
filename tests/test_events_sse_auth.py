@@ -1,4 +1,5 @@
 """SSE 鉴权回归：EventSource 先用 Bearer JWT 换一次性票据，再以 ?ticket= 建流。"""
+
 from __future__ import annotations
 
 from typing import Iterator
@@ -45,7 +46,9 @@ class TestSignHistorySSEAuth:
             headers={"Authorization": f"Bearer {token}"},
         ).json()["ticket"]
 
-        with patch("backend.api.routes.events._sign_history_event_stream") as mock_stream:
+        with patch(
+            "backend.api.routes.events._sign_history_event_stream"
+        ) as mock_stream:
 
             async def _empty():
                 yield b"event: ready\ndata: {}\n\n"

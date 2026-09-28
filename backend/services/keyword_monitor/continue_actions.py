@@ -7,6 +7,7 @@
 
 保持 runtime.KeywordMonitorService 原调用语义与日志输出完全一致。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -77,7 +78,9 @@ def prune_bot_cmd_rate_map(rate_map: Dict[str, float]) -> None:
         rate_map.pop(key, None)
 
 
-async def await_bot_cmd_slot(rate_map: Dict[str, float], rate_key: str, interval: float) -> None:
+async def await_bot_cmd_slot(
+    rate_map: Dict[str, float], rate_key: str, interval: float
+) -> None:
     """等待直到距离上次发送已满足间隔，避免硬跳过批量码。"""
     if interval <= 0:
         rate_map[rate_key] = time.monotonic()
@@ -117,9 +120,7 @@ def collect_bot_cmd_jobs(
     parse_deep_links = _as_bool(action.get("parse_deep_links"), True)
     multi_match = _as_bool(action.get("multi_match"), True)
     raw_max_batch = action.get("max_batch")
-    max_batch = _as_positive_int(
-        raw_max_batch, DEFAULT_BOT_CMD_MAX_BATCH, minimum=1
-    )
+    max_batch = _as_positive_int(raw_max_batch, DEFAULT_BOT_CMD_MAX_BATCH, minimum=1)
     # 显式调高批量上限时提醒风控风险
     if raw_max_batch is not None and max_batch > DEFAULT_BOT_CMD_MAX_BATCH:
         logger.warning(
@@ -160,15 +161,11 @@ def collect_bot_cmd_jobs(
         if multi_match and "{keyword}" in start_param_tpl and keyword_values:
             for keyword in keyword_values:
                 rendered = str(
-                    _render_template(
-                        start_param_tpl, {**variables, "keyword": keyword}
-                    )
+                    _render_template(start_param_tpl, {**variables, "keyword": keyword})
                 ).strip()
                 _append_job(configured_bot, rendered)
         else:
-            rendered = str(
-                _render_template(start_param_tpl, variables)
-            ).strip()
+            rendered = str(_render_template(start_param_tpl, variables)).strip()
             _append_job(configured_bot, rendered)
 
     if len(jobs) > max_batch:
@@ -476,7 +473,9 @@ async def wait_for_chat_advance(
     deadline = time.perf_counter() + max(timeout, 0.5)
     while time.perf_counter() < deadline:
         await asyncio.sleep(0.5)
-        messages = await load_recent_messages(service, client, chat_id, thread_id, limit)
+        messages = await load_recent_messages(
+            service, client, chat_id, thread_id, limit
+        )
         current_state = _messages_state(messages)
         for message_id, marker in current_state.items():
             if before_state.get(message_id) != marker:
@@ -499,7 +498,9 @@ async def wait_for_continue_action_candidate(
     deadline = time.perf_counter() + max(timeout, 0.5)
     while time.perf_counter() < deadline:
         await asyncio.sleep(0.5)
-        messages = await load_recent_messages(service, client, chat_id, thread_id, limit)
+        messages = await load_recent_messages(
+            service, client, chat_id, thread_id, limit
+        )
         current_state = _messages_state(messages)
         changed_ids = {
             message_id
@@ -507,9 +508,8 @@ async def wait_for_continue_action_candidate(
             if before_state.get(message_id) != marker
         }
         for message in messages:
-            if (
-                message.id in changed_ids
-                and _message_supports_continue_action(message, action)
+            if message.id in changed_ids and _message_supports_continue_action(
+                message, action
             ):
                 return True
     return False
@@ -529,7 +529,9 @@ async def wait_for_terminal_success(
     deadline = time.perf_counter() + max(timeout, 0.5)
     while time.perf_counter() < deadline:
         await asyncio.sleep(0.5)
-        messages = await load_recent_messages(service, client, chat_id, thread_id, limit)
+        messages = await load_recent_messages(
+            service, client, chat_id, thread_id, limit
+        )
         current_state = _messages_state(messages)
         changed_ids = {
             message_id
@@ -699,9 +701,8 @@ async def execute_ai_action(
             return False
         image_bytes = await download_photo_bytes(client, message)
         question_text = (
-            (message.caption or message.text or "").strip()
-            or "Choose the correct option"
-        )
+            message.caption or message.text or ""
+        ).strip() or "Choose the correct option"
         options = [button_text for _, _, button_text in clickable_buttons]
         model = ai_tools.default_model
         logger.debug(
@@ -776,8 +777,8 @@ async def execute_ai_action(
             else:
                 await service._call_client_with_retry(
                     client,
-                    lambda _button_text=button_text, _kwargs=dict(kwargs): client.send_message(
-                        target_chat_id, _button_text, **_kwargs
+                    lambda _button_text=button_text, _kwargs=dict(kwargs): (
+                        client.send_message(target_chat_id, _button_text, **_kwargs)
                     ),
                     operation=f"keyword monitor reply keyboard click {target_chat_id}",
                 )
@@ -888,8 +889,8 @@ async def execute_bot_link_action(
         try:
             result = await service._call_client_with_retry(
                 client,
-                lambda _bot=bot_username, _param=start_param, _cmd=command_prefix: client.send_message(
-                    _bot, f"{_cmd} {_param}"
+                lambda _bot=bot_username, _param=start_param, _cmd=command_prefix: (
+                    client.send_message(_bot, f"{_cmd} {_param}")
                 ),
                 operation=f"keyword monitor bot cmd {bot_username}",
             )
@@ -1250,17 +1251,11 @@ async def execute_continue_actions(
         service._append_rule_log(
             rule,
             f"开始执行关键词命中后续动作：{len(rendered_actions)} 步，目标 Chat={target_chat_id}"
-            + (
-                f"，话题ID={target_thread_id}"
-                if target_thread_id is not None
-                else ""
-            ),
+            + (f"，话题ID={target_thread_id}" if target_thread_id is not None else ""),
         )
         for index, action in enumerate(rendered_actions, start=1):
             next_action = (
-                rendered_actions[index]
-                if index < len(rendered_actions)
-                else None
+                rendered_actions[index] if index < len(rendered_actions) else None
             )
             action_desc = describe_continue_action(action)
             action_delay = _resolve_action_delay(
@@ -1289,9 +1284,7 @@ async def execute_continue_actions(
                         DEFAULT_BOT_CMD_MAX_BATCH,
                         minimum=1,
                     )
-                    action_timeout = max(
-                        timeout, send_interval * max_batch + 15.0
-                    )
+                    action_timeout = max(timeout, send_interval * max_batch + 15.0)
             except (TypeError, ValueError):
                 action_timeout = timeout
             try:

@@ -331,7 +331,15 @@ class SignerActionsMixin:
             return False
         if hasattr(image_buffer, "seek"):
             image_buffer.seek(0)
-        image_bytes = image_buffer.read() if hasattr(image_buffer, "read") else (bytes(image_buffer) if isinstance(image_buffer, (bytes, bytearray)) else b"")
+        image_bytes = (
+            image_buffer.read()
+            if hasattr(image_buffer, "read")
+            else (
+                bytes(image_buffer)
+                if isinstance(image_buffer, (bytes, bytearray))
+                else b""
+            )
+        )
         if not image_bytes:
             self.log("图片数据读取为空", level="WARNING")
             return False
@@ -483,8 +491,14 @@ class SignerActionsMixin:
         """
         if messages is None:
             chat_id = getattr(getattr(message, "chat", None), "id", None)
-            if hasattr(self, "context") and hasattr(self.context, "chat_messages") and chat_id is not None:
-                messages_snapshot = list((self.context.chat_messages.get(chat_id) or {}).values())
+            if (
+                hasattr(self, "context")
+                and hasattr(self.context, "chat_messages")
+                and chat_id is not None
+            ):
+                messages_snapshot = list(
+                    (self.context.chat_messages.get(chat_id) or {}).values()
+                )
             else:
                 messages_snapshot = []
         else:
@@ -506,8 +520,10 @@ class SignerActionsMixin:
             msg_id = getattr(message, "id", None)
             if isinstance(msg_id, int):
                 candidate_slice = [
-                    m for m in messages_snapshot
-                    if m is not None and (getattr(m, "id", None) is None or m.id < msg_id)
+                    m
+                    for m in messages_snapshot
+                    if m is not None
+                    and (getattr(m, "id", None) is None or m.id < msg_id)
                 ]
             else:
                 candidate_slice = [m for m in messages_snapshot if m is not message]
@@ -544,12 +560,22 @@ class SignerActionsMixin:
                 age: Optional[float] = None
                 if isinstance(curr_date, datetime) and isinstance(cand_date, datetime):
                     age = (curr_date - cand_date).total_seconds()
-                elif isinstance(curr_date, (int, float)) and isinstance(cand_date, (int, float)):
+                elif isinstance(curr_date, (int, float)) and isinstance(
+                    cand_date, (int, float)
+                ):
                     age = float(curr_date) - float(cand_date)
                 else:
                     try:
-                        c_ts = curr_date.timestamp() if isinstance(curr_date, datetime) else float(curr_date)
-                        p_ts = cand_date.timestamp() if isinstance(cand_date, datetime) else float(cand_date)
+                        c_ts = (
+                            curr_date.timestamp()
+                            if isinstance(curr_date, datetime)
+                            else float(curr_date)
+                        )
+                        p_ts = (
+                            cand_date.timestamp()
+                            if isinstance(cand_date, datetime)
+                            else float(cand_date)
+                        )
                         age = c_ts - p_ts
                     except Exception:
                         age = None
@@ -582,9 +608,17 @@ class SignerActionsMixin:
         if target_photo_msg is None:
             chat_id = getattr(getattr(message, "chat", None), "id", None)
             messages_snapshot: list[Any] = []
-            if hasattr(self, "context") and hasattr(self.context, "chat_messages") and chat_id is not None:
-                messages_snapshot = list((self.context.chat_messages.get(chat_id) or {}).values())
-            target_photo_msg = self._find_previous_photo_message(messages_snapshot, message)
+            if (
+                hasattr(self, "context")
+                and hasattr(self.context, "chat_messages")
+                and chat_id is not None
+            ):
+                messages_snapshot = list(
+                    (self.context.chat_messages.get(chat_id) or {}).values()
+                )
+            target_photo_msg = self._find_previous_photo_message(
+                messages_snapshot, message
+            )
             if not target_photo_msg or not getattr(target_photo_msg, "photo", None):
                 self.log("分离式验证码：未找到可供匹配的前序图片消息", level="WARNING")
                 return False
@@ -606,15 +640,21 @@ class SignerActionsMixin:
             self.log("图片消息中未找到有效的 photo.file_id", level="WARNING")
             return False
 
-        image_buffer = await self.app.download_media(
-            file_id, in_memory=True
-        )
+        image_buffer = await self.app.download_media(file_id, in_memory=True)
         if not image_buffer:
             self.log("下载图片数据为空", level="WARNING")
             return False
         if hasattr(image_buffer, "seek"):
             image_buffer.seek(0)
-        image_bytes = image_buffer.read() if hasattr(image_buffer, "read") else (bytes(image_buffer) if isinstance(image_buffer, (bytes, bytearray)) else b"")
+        image_bytes = (
+            image_buffer.read()
+            if hasattr(image_buffer, "read")
+            else (
+                bytes(image_buffer)
+                if isinstance(image_buffer, (bytes, bytearray))
+                else b""
+            )
+        )
         if not image_bytes:
             self.log("图片数据读取为空", level="WARNING")
             return False
@@ -656,9 +696,7 @@ class SignerActionsMixin:
                     options[0]
                     if idx == 0
                     else (
-                        options[idx - 1]
-                        if 1 <= idx <= len(options)
-                        else options[idx]
+                        options[idx - 1] if 1 <= idx <= len(options) else options[idx]
                     )
                     for idx in (result or [])
                     if idx == 0
@@ -701,7 +739,6 @@ class SignerActionsMixin:
             await asyncio.sleep(0.3)
         return clicked > 0
 
-
     def _record_plugin_task_execution(
         self,
         plugin_name: str,
@@ -742,8 +779,12 @@ class SignerActionsMixin:
             raise RuntimeError(
                 f"Plugin '{action.plugin_name}' not found in PluginRegistry"
             )
-        if not getattr(plugin, "enabled", True) or not PluginRegistry.is_enabled(action.plugin_name):
-            self.log(f"自定义插件「{action.plugin_name}」已被停用，跳过响应", level="WARNING")
+        if not getattr(plugin, "enabled", True) or not PluginRegistry.is_enabled(
+            action.plugin_name
+        ):
+            self.log(
+                f"自定义插件「{action.plugin_name}」已被停用，跳过响应", level="WARNING"
+            )
             return False
         ctx = PluginContext(
             app=self.app,
@@ -877,8 +918,13 @@ class SignerActionsMixin:
                 raise RuntimeError(
                     f"Plugin '{action.plugin_name}' not found in PluginRegistry"
                 )
-            if not getattr(plugin, "enabled", True) or not PluginRegistry.is_enabled(action.plugin_name):
-                self.log(f"自定义插件「{action.plugin_name}」已被停用，跳过执行", level="WARNING")
+            if not getattr(plugin, "enabled", True) or not PluginRegistry.is_enabled(
+                action.plugin_name
+            ):
+                self.log(
+                    f"自定义插件「{action.plugin_name}」已被停用，跳过执行",
+                    level="WARNING",
+                )
                 return False
             eff_timeout = action.timeout if action.timeout is not None else timeout
 
@@ -1416,5 +1462,6 @@ class SignerActionsMixin:
             messages = await self.app.get_scheduled_messages(chat_id)
             for message in messages:
                 print_to_user(f"{message.date}: {message.text}")
+
 
 UserSignerActionsMixin = SignerActionsMixin

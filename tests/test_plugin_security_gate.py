@@ -5,6 +5,7 @@
 - star-import / syntax-error / audit-error 一律失败关闭
 - 赋值别名覆盖 Name 右值与多元组/多目标
 """
+
 from __future__ import annotations
 
 import pytest

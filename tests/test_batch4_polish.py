@@ -48,7 +48,9 @@ def test_select_latest_last_run_type_safety():
     assert select_latest_last_run(None, None) is None
     assert select_latest_last_run("invalid", None) is None  # type: ignore[arg-type]
     assert select_latest_last_run(None, "invalid") is None  # type: ignore[arg-type]
-    assert select_latest_last_run({"time": "2026-01-01"}, "invalid") == {"time": "2026-01-01"}  # type: ignore[arg-type]
+    assert select_latest_last_run({"time": "2026-01-01"}, "invalid") == {
+        "time": "2026-01-01"
+    }  # type: ignore[arg-type]
 
     older = {"time": "2026-01-01T10:00:00Z"}
     newer = {"time": "2026-01-02T10:00:00Z"}
@@ -58,8 +60,13 @@ def test_select_latest_last_run_type_safety():
 
 def test_friendly_error_message_extensions():
     assert friendly_error_message(None) == ""  # type: ignore[arg-type]
-    assert friendly_error_message("nodename nor servname provided") == "DNS 域名解析失败"
-    assert friendly_error_message("RemoteProtocolError: server disconnected") == "服务器端断开连接"
+    assert (
+        friendly_error_message("nodename nor servname provided") == "DNS 域名解析失败"
+    )
+    assert (
+        friendly_error_message("RemoteProtocolError: server disconnected")
+        == "服务器端断开连接"
+    )
     assert friendly_error_message("random unmapped error") == "random unmapped error"
 
 

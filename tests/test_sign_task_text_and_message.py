@@ -4,6 +4,7 @@
 message_matches_thread / format_target_message_summary，
 正常流程 + 边界条件 + 错误恢复。
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -90,40 +91,44 @@ def test_match_no_thread_config_returns_true():
 def test_match_thread_none_empty_zero_returns_true():
     """message_thread_id 为 None/空/0 时视为不限制。"""
     for val in (None, "", 0):
-        assert message_matches_thread(_msg(thread_id=1), {"message_thread_id": val}) is True
+        assert (
+            message_matches_thread(_msg(thread_id=1), {"message_thread_id": val})
+            is True
+        )
 
 
 def test_match_thread_invalid_string_returns_true():
     """非数字 thread_id 视为不限制（防御性）。"""
-    assert message_matches_thread(
-        _msg(thread_id=1), {"message_thread_id": "abc"}
-    ) is True
+    assert (
+        message_matches_thread(_msg(thread_id=1), {"message_thread_id": "abc"}) is True
+    )
 
 
 def test_match_thread_equals_message_thread_id():
-    assert message_matches_thread(
-        _msg(thread_id=42), {"message_thread_id": 42}
-    ) is True
+    assert message_matches_thread(_msg(thread_id=42), {"message_thread_id": 42}) is True
 
 
 def test_match_thread_mismatch_returns_false():
-    assert message_matches_thread(
-        _msg(thread_id=42), {"message_thread_id": 99}
-    ) is False
+    assert (
+        message_matches_thread(_msg(thread_id=42), {"message_thread_id": 99}) is False
+    )
 
 
 def test_match_thread_falls_back_to_reply_to_top():
     """message_thread_id 缺失时回退到 reply_to_top_message_id。"""
-    assert message_matches_thread(
-        _msg(thread_id=None, reply_top=42), {"message_thread_id": 42}
-    ) is True
+    assert (
+        message_matches_thread(
+            _msg(thread_id=None, reply_top=42), {"message_thread_id": 42}
+        )
+        is True
+    )
 
 
 def test_match_thread_string_config_coerced():
     """字符串数字 thread_id 应被 int 转换后比较。"""
-    assert message_matches_thread(
-        _msg(thread_id=42), {"message_thread_id": "42"}
-    ) is True
+    assert (
+        message_matches_thread(_msg(thread_id=42), {"message_thread_id": "42"}) is True
+    )
 
 
 # ─── format_target_message_summary ───

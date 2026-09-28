@@ -1,4 +1,5 @@
 """关键词监控包。"""
+
 import asyncio  # noqa: F401  # 兼容测试 patch backend.services.keyword_monitor.asyncio
 
 from backend.services.keyword_monitor import rules as _rules

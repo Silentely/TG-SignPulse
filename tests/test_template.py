@@ -52,9 +52,15 @@ def test_render_template_security_sandbox():
     # 禁止访问私有属性
     assert render_template("{{ ().__class__ }}") == "{{ ().__class__ }}"
     # 禁止调用 eval 或 os
-    assert render_template("{{ __import__('os').system('ls') }}") == "{{ __import__('os').system('ls') }}"
+    assert (
+        render_template("{{ __import__('os').system('ls') }}")
+        == "{{ __import__('os').system('ls') }}"
+    )
     # 未定义变量保留原文本
-    assert render_template("Unknown: {{ nonexistent_var }}") == "Unknown: {{ nonexistent_var }}"
+    assert (
+        render_template("Unknown: {{ nonexistent_var }}")
+        == "Unknown: {{ nonexistent_var }}"
+    )
 
 
 def test_render_template_recursive():
@@ -91,9 +97,12 @@ def test_render_template_recursive_tuple():
     res = render_template_recursive(payload, {"name": "World"})
     assert res == ("Hello World", 123, ["nested World"])
 
+
 def test_render_template_convenience_aliases():
     now = datetime.datetime.now()
-    res = render_template("Year: {{ year }}, Month: {{ month }}, Day: {{ day }}, Weekday: {{ weekday }}")
+    res = render_template(
+        "Year: {{ year }}, Month: {{ month }}, Day: {{ day }}, Weekday: {{ weekday }}"
+    )
     assert f"Year: {now.year}" in res
     assert f"Month: {now.month:02d}" in res
     assert f"Day: {now.day:02d}" in res
@@ -103,4 +112,3 @@ def test_render_template_convenience_aliases():
     assert render_template("{{ randint(7, 7) }}") == "7"
     assert render_template("{{ choice('single') }}") == "single"
     assert render_template("{{ sum([1, 2, 3, 4]) }}") == "10"
-

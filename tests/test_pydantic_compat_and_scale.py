@@ -1,4 +1,5 @@
 """Pydantic 兼容层、数据库 URL 与调度锁基础测试。"""
+
 from __future__ import annotations
 
 import json
@@ -86,9 +87,7 @@ class TestDatabaseUrl:
 
     def test_override_postgres_url(self, tmp_path, monkeypatch):
         monkeypatch.setenv("APP_DATA_DIR", str(tmp_path))
-        monkeypatch.setenv(
-            "APP_DATABASE_URL", "postgresql+psycopg2://u:p@localhost/db"
-        )
+        monkeypatch.setenv("APP_DATABASE_URL", "postgresql+psycopg2://u:p@localhost/db")
         from backend.core import config as config_module
 
         config_module.get_settings.cache_clear()
@@ -120,7 +119,6 @@ class TestSchedulerLock:
         assert (Path(tmp_path) / ".scheduler.lock").exists()
         release_scheduler_lock()
         config_module.get_settings.cache_clear()
-
 
 
 class TestCorsAndProxySettings:

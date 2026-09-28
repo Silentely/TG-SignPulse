@@ -4,6 +4,7 @@
 在签到动作推进到该插件时，主动将当前对话信息、自定义消息与执行时间戳通过 HTTP POST
 发送给外部 Webhook（例如企业微信、飞书、钉钉、Bark 或自建监控 API）。
 """
+
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 from urllib.parse import urlparse
@@ -140,7 +141,10 @@ async def webhook_pusher_handler(ctx: PluginContext) -> bool:
                 ctx.log(f"Webhook 推送成功: HTTP {resp.status_code}")
                 return True
             else:
-                ctx.log(f"Webhook 推送响应异常: HTTP {resp.status_code}, 内容: {resp.text[:200]}", level="WARNING")
+                ctx.log(
+                    f"Webhook 推送响应异常: HTTP {resp.status_code}, 内容: {resp.text[:200]}",
+                    level="WARNING",
+                )
                 return False
     except Exception as exc:
         ctx.log(f"Webhook 推送发生网络异常: {exc}", level="ERROR")

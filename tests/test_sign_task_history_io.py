@@ -1,4 +1,5 @@
 """签到历史 IO 纯函数测试。"""
+
 from __future__ import annotations
 
 import json
@@ -18,7 +19,10 @@ from backend.services.sign_task_history_io import (
 def test_safe_history_key_and_path(tmp_path: Path):
     assert safe_history_key("a/b\\c") == "a%5Fb%5Fc"
     assert safe_history_key(".foo") != safe_history_key("foo")
-    assert history_file_path(tmp_path, ".foo").name != history_file_path(tmp_path, "foo").name
+    assert (
+        history_file_path(tmp_path, ".foo").name
+        != history_file_path(tmp_path, "foo").name
+    )
     p = history_file_path(tmp_path, "task1", "acc1")
     assert p.name == "acc1__task1.json"
     p2 = history_file_path(tmp_path, "task1")
@@ -123,7 +127,9 @@ def test_migrate_legacy_history_file_moves_entries(tmp_path: Path):
 
     legacy = legacy_history_file_path(tmp_path, "daily_task", "acct_1")
     legacy.write_text(
-        json.dumps([{"time": "2026-09-01", "account_name": "acct_1", "message": "old"}]),
+        json.dumps(
+            [{"time": "2026-09-01", "account_name": "acct_1", "message": "old"}]
+        ),
         encoding="utf-8",
     )
 
@@ -154,7 +160,9 @@ def test_migrate_legacy_history_file_keeps_other_accounts_entries(tmp_path: Path
     )
 
     migrate_legacy_history_file(tmp_path, "t_x", "acc")
-    assert [e["message"] for e in load_history_entries(tmp_path, "t_x", "acc")] == ["mine"]
+    assert [e["message"] for e in load_history_entries(tmp_path, "t_x", "acc")] == [
+        "mine"
+    ]
     kept = json.loads(legacy.read_text(encoding="utf-8"))
     assert [e["message"] for e in kept] == ["theirs"]
 
@@ -246,7 +254,10 @@ def test_resolve_task_config_dir_and_cache_patch(tmp_path: Path):
         cache, task_name="t1", account_name="a2", last_run=None
     )
     assert "last_run" not in cache[1]
-    assert patch_tasks_cache_last_run(None, task_name="t", account_name="a", last_run={}) is False
+    assert (
+        patch_tasks_cache_last_run(None, task_name="t", account_name="a", last_run={})
+        is False
+    )
 
 
 def test_plan_legacy_history_clear():

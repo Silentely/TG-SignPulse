@@ -144,8 +144,7 @@ class TTLCache(Generic[T]):
         now = time.monotonic()
         with self._lock:
             return [
-                key for key, (_, expire_at) in self._data.items()
-                if now < expire_at
+                key for key, (_, expire_at) in self._data.items() if now < expire_at
             ]
 
     def values(self) -> list[Any]:
@@ -153,8 +152,7 @@ class TTLCache(Generic[T]):
         now = time.monotonic()
         with self._lock:
             return [
-                value for _, (value, expire_at) in self._data.items()
-                if now < expire_at
+                value for _, (value, expire_at) in self._data.items() if now < expire_at
             ]
 
     def items(self) -> list[tuple[str, Any]]:
@@ -162,7 +160,8 @@ class TTLCache(Generic[T]):
         now = time.monotonic()
         with self._lock:
             return [
-                (key, value) for key, (value, expire_at) in self._data.items()
+                (key, value)
+                for key, (value, expire_at) in self._data.items()
                 if now < expire_at
             ]
 

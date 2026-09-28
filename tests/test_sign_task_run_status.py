@@ -1,4 +1,5 @@
 """运行状态纯函数测试。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -181,9 +182,14 @@ def test_summarize_active_run():
     assert s is not None
     assert s["phase"] == PHASE_COOLDOWN
     assert s["wait_seconds"] == 3
-    assert summarize_active_run(
-        build_run_status(run_id="x", state=RUN_STATE_FINISHED, default_started_at="t")
-    ) is None
+    assert (
+        summarize_active_run(
+            build_run_status(
+                run_id="x", state=RUN_STATE_FINISHED, default_started_at="t"
+            )
+        )
+        is None
+    )
 
 
 def test_is_timeout_error_message():
@@ -231,7 +237,10 @@ def test_list_active_runs_and_resolve_for_task():
     assert ar is not None
     assert ar["run_id"] == "r1"
 
-    attached = SignTaskService._attach_active_runs(svc, [task, {"name": "other", "account_name": "acc2", "account_names": ["acc2"]}])
+    attached = SignTaskService._attach_active_runs(
+        svc,
+        [task, {"name": "other", "account_name": "acc2", "account_names": ["acc2"]}],
+    )
     assert attached[0]["active_run"] is not None
     assert attached[1]["active_run"] is None
 

@@ -96,10 +96,7 @@ def _sign_log_sse_bytes(item: dict) -> bytes:
         "created_at": created,
         "failure_category": item.get("failure_category"),
     }
-    data = (
-        "event: sign_log\n"
-        f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
-    )
+    data = f"event: sign_log\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
     return data.encode("utf-8")
 
 
@@ -108,7 +105,6 @@ def _entry_dedupe_key(item: dict) -> str:
         f"{item.get('account_name')}|{item.get('task_name')}|"
         f"{item.get('created_at') or item.get('time')}|{item.get('success')}"
     )
-
 
 
 async def _sign_history_event_stream() -> AsyncGenerator[bytes, None]:
@@ -186,10 +182,11 @@ async def _sign_history_event_stream() -> AsyncGenerator[bytes, None]:
         unsubscribe(q)
 
 
-
 @router.get("/sign-history")
 async def sign_history_events(
-    ticket: Optional[str] = Query(None, description="一次性流接入票据，由 POST /api/events/ticket 签发"),
+    ticket: Optional[str] = Query(
+        None, description="一次性流接入票据，由 POST /api/events/ticket 签发"
+    ),
 ):
     """
     签到任务历史 SSE 流。

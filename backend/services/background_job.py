@@ -8,6 +8,7 @@
 
 签到 run 仍使用 sign_task_run_status；本模块面向「分钟级」运维作业。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -210,9 +211,7 @@ class BackgroundJobStore:
         if persist:
             self._write_job(job)
 
-    def request_cancel(
-        self, job_id: str, *, cancel_running_task: bool = False
-    ) -> bool:
+    def request_cancel(self, job_id: str, *, cancel_running_task: bool = False) -> bool:
         """请求取消；若已终态返回 False。可选择同时直接取消挂载的后台协程。"""
         job = self.jobs.get(str(job_id or ""))
         if not job or job.get("status") not in ACTIVE_STATUSES:

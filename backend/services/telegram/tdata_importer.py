@@ -62,12 +62,16 @@ def extract_tdata_zip(zip_path: Path, target_dir: Path) -> Path:
     with zipfile.ZipFile(zip_path, "r") as zf:
         members = zf.infolist()
         if len(members) > MAX_MEMBER_COUNT:
-            raise ValueError(f"ZIP archive contains too many files ({len(members)} > {MAX_MEMBER_COUNT})")
+            raise ValueError(
+                f"ZIP archive contains too many files ({len(members)} > {MAX_MEMBER_COUNT})"
+            )
         total_size = 0
         for member in members:
             total_size += member.file_size
             if total_size > MAX_TOTAL_UNCOMPRESSED_SIZE:
-                raise ValueError("ZIP uncompressed size exceeds safe limit (decompression bomb protection)")
+                raise ValueError(
+                    "ZIP uncompressed size exceeds safe limit (decompression bomb protection)"
+                )
             member_name = member.filename
             dest_path = (target_dir / member_name).resolve()
             if target_dir not in dest_path.parents and dest_path != target_dir:
@@ -126,7 +130,11 @@ def convert_tdata_to_session(
     td = None
     try:
         # Check if opentele.td.TData.Create exists (e.g. specialized wrappers)
-        if hasattr(opentele, "td") and hasattr(opentele.td, "TData") and hasattr(opentele.td.TData, "Create"):
+        if (
+            hasattr(opentele, "td")
+            and hasattr(opentele.td, "TData")
+            and hasattr(opentele.td.TData, "Create")
+        ):
             if password:
                 td = opentele.td.TData.Create(str(tdata_dir), password=password)
             else:
@@ -161,7 +169,12 @@ def convert_tdata_to_session(
                 raise ValueError("TDATA_PASSWORD_REQUIRED")
             raise ValueError("TDATA_PASSWORD_INVALID")
 
-    if hasattr(td, "hasPasscode") and callable(td.hasPasscode) and td.hasPasscode() and not password:
+    if (
+        hasattr(td, "hasPasscode")
+        and callable(td.hasPasscode)
+        and td.hasPasscode()
+        and not password
+    ):
         raise ValueError("TDATA_PASSWORD_REQUIRED")
 
     # If the converted result already created a file or is a path
@@ -205,7 +218,9 @@ def convert_tdata_to_session(
                 conn = sqlite3.connect(target_session_file)
                 try:
                     conn.executescript(SCHEMA)
-                    conn.execute("INSERT INTO version VALUES (?)", (SQLiteStorage.VERSION,))
+                    conn.execute(
+                        "INSERT INTO version VALUES (?)", (SQLiteStorage.VERSION,)
+                    )
                     insert_session_record(
                         conn.cursor(),
                         dc_id=int(dc_id),
@@ -220,7 +235,9 @@ def convert_tdata_to_session(
     if target_session_file.is_file():
         return target_session_file
 
-    raise RuntimeError("TDATA_CONVERSION_FAILED: Failed to generate session file from tdata archive")
+    raise RuntimeError(
+        "TDATA_CONVERSION_FAILED: Failed to generate session file from tdata archive"
+    )
 
 
 async def import_tdata_session(

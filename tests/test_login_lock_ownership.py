@@ -160,9 +160,7 @@ async def test_verify_login_keeps_foreign_lock_locked(phone_service):
         return_value=_SemaphoreStub(),
     ):
         with pytest.raises(ValueError):
-            await phone_service.verify_login(
-                account, "+8613800000000", "12345", "hash"
-            )
+            await phone_service.verify_login(account, "+8613800000000", "12345", "hash")
 
     # 他人的锁仍在，会话已被清理
     assert lock.locked() is True
@@ -194,9 +192,7 @@ async def test_verify_login_reacquires_free_lock(phone_service):
         return_value=_SemaphoreStub(),
     ):
         with pytest.raises(ValueError):
-            await phone_service.verify_login(
-                account, "+8613800000000", "12345", "hash"
-            )
+            await phone_service.verify_login(account, "+8613800000000", "12345", "hash")
 
     assert lock.locked() is False
     assert _login_sessions == {}
@@ -232,9 +228,7 @@ async def test_verify_login_keeps_lock_across_2fa_roundtrip(phone_service):
         return_value=_SemaphoreStub(),
     ):
         with pytest.raises(ValueError, match="两步验证"):
-            await phone_service.verify_login(
-                account, "+8613800000000", "12345", "hash"
-            )
+            await phone_service.verify_login(account, "+8613800000000", "12345", "hash")
 
     # 会话保留 → 锁继续由本流程持有，供下一次提交 2FA 密码使用
     assert f"{account}_+8613800000000" in _login_sessions
@@ -284,11 +278,15 @@ async def test_start_login_forces_stale_session_lock(phone_service, monkeypatch)
     config_service.get_global_proxy.return_value = None
     config_service.require_proxy_for_telegram.return_value = False
 
-    with patch("pyrogram.Client", return_value=fake_client), patch(
-        "backend.services.config.get_config_service", return_value=config_service
-    ), patch(
-        "backend.services.telegram.credentials.resolve_telegram_api_credentials",
-        return_value=(12345, "api-hash"),
+    with (
+        patch("pyrogram.Client", return_value=fake_client),
+        patch(
+            "backend.services.config.get_config_service", return_value=config_service
+        ),
+        patch(
+            "backend.services.telegram.credentials.resolve_telegram_api_credentials",
+            return_value=(12345, "api-hash"),
+        ),
     ):
         result = await phone_service.start_login(account, "+8613800000000")
 
@@ -327,11 +325,14 @@ async def test_start_login_releases_own_lock_on_api_error(phone_service, monkeyp
     config_service.get_global_proxy.return_value = None
     config_service.require_proxy_for_telegram.return_value = False
 
-    with patch(
-        "backend.services.config.get_config_service", return_value=config_service
-    ), patch(
-        "backend.services.telegram.credentials.resolve_telegram_api_credentials",
-        side_effect=ValueError("no api"),
+    with (
+        patch(
+            "backend.services.config.get_config_service", return_value=config_service
+        ),
+        patch(
+            "backend.services.telegram.credentials.resolve_telegram_api_credentials",
+            side_effect=ValueError("no api"),
+        ),
     ):
         with pytest.raises(ValueError, match="Telegram API ID"):
             await phone_service.start_login(account, "+8613800000000")
@@ -457,14 +458,19 @@ async def test_qr_start_force_releases_stale_session_lock(qr_service, monkeypatc
     fake_client.add_handler = MagicMock(return_value=("group", 0))
 
     with contextlib.suppress(Exception):
-        with patch("pyrogram.Client", return_value=fake_client), patch(
-            "backend.services.config.get_config_service",
-            return_value=config_service,
-        ), patch.object(
-            qr_service, "_resolve_api_credentials", return_value=(1, "hash")
-        ), patch(
-            "backend.services.telegram.login_qr.create_logged_task",
-            return_value=MagicMock(done=lambda: True),
+        with (
+            patch("pyrogram.Client", return_value=fake_client),
+            patch(
+                "backend.services.config.get_config_service",
+                return_value=config_service,
+            ),
+            patch.object(
+                qr_service, "_resolve_api_credentials", return_value=(1, "hash")
+            ),
+            patch(
+                "backend.services.telegram.login_qr.create_logged_task",
+                return_value=MagicMock(done=lambda: True),
+            ),
         ):
             monkeypatch.setattr(
                 "backend.services.telegram.login_qr.secrets.token_urlsafe",

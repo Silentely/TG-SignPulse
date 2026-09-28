@@ -1,4 +1,5 @@
 """登录会话临时存储与清理。"""
+
 from __future__ import annotations
 
 import contextlib
@@ -67,6 +68,7 @@ async def _cleanup_expired_login_sessions() -> None:
             keys_snapshot = list(store.keys())
             if not keys_snapshot:
                 break
+
             def _get_sort_key(k: str, s: dict = store) -> float:
                 entry = s.get(k)
                 if not isinstance(entry, dict):

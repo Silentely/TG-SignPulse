@@ -43,10 +43,9 @@ async def test_reset_account_authorizations_invokes_raw_rpc_under_lock():
     svc.client.connect.assert_not_awaited()
     assert svc.client.invoke.call_count == 1
     call_arg = svc.client.invoke.call_args[0][0]
-    expected_rpc_cls = (
-        getattr(raw.functions.account, "ResetAuthorizations", None)
-        or getattr(raw.functions.auth, "ResetAuthorizations", None)
-    )
+    expected_rpc_cls = getattr(
+        raw.functions.account, "ResetAuthorizations", None
+    ) or getattr(raw.functions.auth, "ResetAuthorizations", None)
     assert isinstance(call_arg, expected_rpc_cls)
     svc.client.__aexit__.assert_awaited_once()
     svc.client.disconnect.assert_not_awaited()
@@ -155,10 +154,19 @@ async def test_client_context_exits_before_lock_release():
             finally:
                 events.append("lock_released")
 
-    with patch.object(svc, "_build_account_client", return_value=(svc.client, None)), patch(
-        "backend.services.telegram.devices.acquire_account_lock_with_timeout",
-        _tracked,
+    with (
+        patch.object(svc, "_build_account_client", return_value=(svc.client, None)),
+        patch(
+            "backend.services.telegram.devices.acquire_account_lock_with_timeout",
+            _tracked,
+        ),
     ):
         await svc.list_account_devices(account_name, timeout_seconds=5.0)
 
-    assert events == ["lock_acquired", "enter", "invoke", "client_exit", "lock_released"]
+    assert events == [
+        "lock_acquired",
+        "enter",
+        "invoke",
+        "client_exit",
+        "lock_released",
+    ]

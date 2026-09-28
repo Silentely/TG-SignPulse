@@ -1,4 +1,5 @@
 """关键词监控规则模型与纯函数工具。"""
+
 from __future__ import annotations
 
 import contextlib
@@ -25,6 +26,7 @@ from tg_signer.utils import is_unsafe_keyword_regex
 # 自定义异常类：AI 调用不可恢复错误
 class TerminalAIActionError(Exception):
     """AI 调用发生不可恢复错误，后续动作应立即失败而非重试"""
+
     pass
 
 
@@ -88,9 +90,7 @@ def regex_match_deadline(seconds: float = _REGEX_MATCH_DEADLINE_SECONDS):
                 _regex_deadline_active += 1
 
     if not usable:
-        logger.debug(
-            "正则匹配墙钟上限不可用（非主线程或并发已满），仅依赖文本截断兜底"
-        )
+        logger.debug("正则匹配墙钟上限不可用（非主线程或并发已满），仅依赖文本截断兜底")
         yield
         return
 
@@ -257,15 +257,15 @@ def _match_all_keyword_values(action: Dict[str, Any], text: str) -> List[str]:
             flags = re.IGNORECASE if ignore_case else 0
             try:
                 with regex_match_deadline():
-                    for match in re.finditer(keyword, text[:_MAX_MATCH_TEXT_CHARS], flags=flags):
+                    for match in re.finditer(
+                        keyword, text[:_MAX_MATCH_TEXT_CHARS], flags=flags
+                    ):
                         value = _regex_keyword_value(match)
                         if value and value not in seen:
                             seen.add(value)
                             results.append(value)
             except _RegexDeadlineExceeded:
-                logger.warning(
-                    "关键词监听正则超时，已放弃本次正则分支: %r", keyword
-                )
+                logger.warning("关键词监听正则超时，已放弃本次正则分支: %r", keyword)
             except re.error as exc:
                 logger.warning("关键词监听正则无效 %r: %s", keyword, exc)
             continue
@@ -403,7 +403,9 @@ def _render_template(value: Any, variables: Dict[str, str]) -> Any:
     return _TEMPLATE_PATTERN.sub(replace, value)
 
 
-def _render_action_templates(action: Dict[str, Any], variables: Dict[str, str]) -> Dict[str, Any]:
+def _render_action_templates(
+    action: Dict[str, Any], variables: Dict[str, str]
+) -> Dict[str, Any]:
     rendered: Dict[str, Any] = {}
     for key, value in action.items():
         if isinstance(value, str):
@@ -439,7 +441,9 @@ def _parse_sender_filter(value: Any) -> Optional[List[str]]:
     return items if items else None
 
 
-def _message_matches_sender(message: Message, sender_filter: Optional[List[str]]) -> bool:
+def _message_matches_sender(
+    message: Message, sender_filter: Optional[List[str]]
+) -> bool:
     """检查消息发送者是否在白名单中。sender_filter 为 None 表示不过滤。"""
     if sender_filter is None:
         return True

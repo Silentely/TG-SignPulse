@@ -162,7 +162,9 @@ def build_sanitized_worker_env(
             continue
 
         # PLUGIN_* 与 LC_* 属于插件配置与区域变量，优先放行
-        if any(key.startswith(pfx) or key_upper.startswith(pfx) for pfx in allowed_prefixes):
+        if any(
+            key.startswith(pfx) or key_upper.startswith(pfx) for pfx in allowed_prefixes
+        ):
             sanitized[key] = val
             continue
 
@@ -216,7 +218,9 @@ class PluginProcessHost:
         return mids == trigger_mid
 
     @classmethod
-    def _resolve_forward_params(cls, ctx: Any, call_params: Dict[str, Any]) -> Dict[str, Any]:
+    def _resolve_forward_params(
+        cls, ctx: Any, call_params: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """归一化 forward_messages 的调用参数。
 
         转发是唯一能跨会话搬运消息内容的方法，因此把边界钉死：
@@ -357,11 +361,15 @@ class PluginProcessHost:
                             elif method == "send_photo":
                                 photo = call_params.pop("photo", "")
                                 caption = call_params.pop("caption", None)
-                                call_res = await self.ctx.send_photo(photo, caption=caption, **call_params)
+                                call_res = await self.ctx.send_photo(
+                                    photo, caption=caption, **call_params
+                                )
                             elif method == "send_document":
                                 doc = call_params.pop("document", "")
                                 caption = call_params.pop("caption", None)
-                                call_res = await self.ctx.send_document(doc, caption=caption, **call_params)
+                                call_res = await self.ctx.send_document(
+                                    doc, caption=caption, **call_params
+                                )
                             elif method == "click":
                                 text_or_index = call_params.pop("text_or_index", None)
                                 call_res = await self.ctx.click(
@@ -369,23 +377,29 @@ class PluginProcessHost:
                                 )
                             elif method == "react":
                                 emoji = call_params.pop("emoji", "👍")
-                                call_res = await self.ctx.react(
-                                    emoji, **call_params
-                                )
+                                call_res = await self.ctx.react(emoji, **call_params)
                             elif method == "edit_message":
                                 text = call_params.pop("text", "")
-                                call_res = await self.ctx.edit_message(text, **call_params)
+                                call_res = await self.ctx.edit_message(
+                                    text, **call_params
+                                )
                             elif method == "delete_message":
                                 call_res = await self.ctx.delete_message(**call_params)
                             elif method == "pin_message":
                                 mid = call_params.pop("message_id", None)
-                                call_res = await self.ctx.pin_message(message_id=mid, **call_params)
+                                call_res = await self.ctx.pin_message(
+                                    message_id=mid, **call_params
+                                )
                             elif method == "unpin_message":
                                 mid = call_params.pop("message_id", None)
-                                call_res = await self.ctx.unpin_message(message_id=mid, **call_params)
+                                call_res = await self.ctx.unpin_message(
+                                    message_id=mid, **call_params
+                                )
                             elif method == "get_messages":
                                 mids = call_params.pop("message_ids", None)
-                                call_res = await self.ctx.get_messages(message_ids=mids, **call_params)
+                                call_res = await self.ctx.get_messages(
+                                    message_ids=mids, **call_params
+                                )
                             elif method == "forward_messages":
                                 target_cid = call_params.pop("chat_id")
                                 # 转发源会话固定为触发消息所在会话，message_ids 仅限
@@ -399,14 +413,18 @@ class PluginProcessHost:
                             elif method.startswith("storage_"):
                                 is_global = bool(call_params.pop("is_global", False))
                                 target_storage = (
-                                    getattr(self.ctx, "global_storage", self.ctx.storage)
+                                    getattr(
+                                        self.ctx, "global_storage", self.ctx.storage
+                                    )
                                     if is_global
                                     else self.ctx.storage
                                 )
                                 if method == "storage_get":
                                     key = call_params.get("key", "")
                                     default = call_params.get("default", None)
-                                    call_res = await target_storage.get(key, default=default)
+                                    call_res = await target_storage.get(
+                                        key, default=default
+                                    )
                                 elif method == "storage_set":
                                     key = call_params.get("key", "")
                                     value = call_params.get("value", None)
@@ -430,7 +448,9 @@ class PluginProcessHost:
                                     call_res = await target_storage.keys(prefix=prefix)
                                 elif method == "storage_get_all":
                                     prefix = call_params.get("prefix", "")
-                                    call_res = await target_storage.get_all(prefix=prefix)
+                                    call_res = await target_storage.get_all(
+                                        prefix=prefix
+                                    )
                                 elif method == "storage_mget":
                                     keys = call_params.get("keys", [])
                                     call_res = await target_storage.mget(keys)
@@ -440,7 +460,9 @@ class PluginProcessHost:
                                     await target_storage.mset(mapping, ttl=ttl)
                                     call_res = True
                                 else:
-                                    raise ValueError(f"Unknown storage RPC method: {method}")
+                                    raise ValueError(
+                                        f"Unknown storage RPC method: {method}"
+                                    )
                             else:
                                 raise ValueError(f"Unknown RPC method: {method}")
 

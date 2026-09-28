@@ -1,4 +1,5 @@
 """登录审计日志 API 回归：naive UTC 序列化必须带时区标记，避免前端偏差 8 小时。"""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -32,7 +33,9 @@ class TestLoginAuditTimezone:
         db.commit()
 
         token = _login(client)
-        resp = client.get("/api/logs/login", headers={"Authorization": f"Bearer {token}"})
+        resp = client.get(
+            "/api/logs/login", headers={"Authorization": f"Bearer {token}"}
+        )
         assert resp.status_code == 200
         rows = resp.json()
         # 定位我们插入的记录（登录行为本身也会产生一条审计日志）

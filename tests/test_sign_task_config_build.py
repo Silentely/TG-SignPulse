@@ -1,4 +1,5 @@
 """sign_task_config_build 纯函数测试。"""
+
 from __future__ import annotations
 
 import pytest

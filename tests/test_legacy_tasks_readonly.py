@@ -1,4 +1,5 @@
 """旧版 /api/tasks 已完全移除：路由 404，readyz 标记 removed。"""
+
 from __future__ import annotations
 
 from datetime import timedelta

@@ -5,6 +5,7 @@
 严格匹配 device_model, system_version, app_version, lang_code, system_lang_code，
 杜绝特征违和拼装。
 """
+
 from __future__ import annotations
 
 import random
@@ -139,7 +140,9 @@ def validate_device_profile(profile: dict[str, Any]) -> dict[str, str]:
     if explicit_family is not None and str(explicit_family).strip():
         fam = str(explicit_family).strip().lower()
         if fam not in VALID_DEVICE_FAMILIES:
-            raise ValueError(f"Unknown device family: '{fam}'. Expected one of {VALID_DEVICE_FAMILIES}")
+            raise ValueError(
+                f"Unknown device family: '{fam}'. Expected one of {VALID_DEVICE_FAMILIES}"
+            )
         if model_family and model_family != fam:
             raise ValueError(
                 f"Cross-family device profile mismatch: explicit family '{fam}' conflicts with device_model '{profile['device_model']}' ({model_family})"

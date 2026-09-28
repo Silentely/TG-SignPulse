@@ -1,4 +1,5 @@
 """Telegram 对话文件夹（Dialog Filters）与论坛话题（Forum Topics）发现服务。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -68,7 +69,9 @@ def parse_dialog_filter(filter_item: Any) -> Optional[Dict[str, Any]]:
 
     if isinstance(filter_item, dict):
         return {
-            "id": filter_item.get("id", "all" if filter_item.get("title") == "全部" else 0),
+            "id": filter_item.get(
+                "id", "all" if filter_item.get("title") == "全部" else 0
+            ),
             "title": filter_item.get("title", ""),
             "emoticon": filter_item.get("emoticon"),
             "pinned_peers": filter_item.get("pinned_peers", []),
@@ -111,7 +114,9 @@ def parse_dialog_filter(filter_item: Any) -> Optional[Dict[str, Any]]:
             "title": _extract_title(getattr(filter_item, "title", "")),
             "emoticon": getattr(filter_item, "emoticon", None),
             "pinned_peers": extract_peer_ids(getattr(filter_item, "pinned_peers", [])),
-            "include_peers": extract_peer_ids(getattr(filter_item, "include_peers", [])),
+            "include_peers": extract_peer_ids(
+                getattr(filter_item, "include_peers", [])
+            ),
             "exclude_peers": [],
         }
 

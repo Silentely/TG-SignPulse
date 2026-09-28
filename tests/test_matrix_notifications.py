@@ -13,8 +13,15 @@ from backend.services.push_notifications import (
 
 @pytest.mark.asyncio
 async def test_send_wecom_message():
-    with patch("backend.services.push_notifications._http_post_retry_once", new_callable=AsyncMock) as mock_post:
-        await send_wecom_message("https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx", "Test Title", "Test Text")
+    with patch(
+        "backend.services.push_notifications._http_post_retry_once",
+        new_callable=AsyncMock,
+    ) as mock_post:
+        await send_wecom_message(
+            "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx",
+            "Test Title",
+            "Test Text",
+        )
         mock_post.assert_called_once()
         call_kwargs = mock_post.call_args[1]
         assert call_kwargs["channel"] == "WeCom"
@@ -24,8 +31,15 @@ async def test_send_wecom_message():
 
 @pytest.mark.asyncio
 async def test_send_feishu_message():
-    with patch("backend.services.push_notifications._http_post_retry_once", new_callable=AsyncMock) as mock_post:
-        await send_feishu_message("https://open.feishu.cn/open-apis/bot/v2/hook/xxx", "Feishu Title", "Feishu Text")
+    with patch(
+        "backend.services.push_notifications._http_post_retry_once",
+        new_callable=AsyncMock,
+    ) as mock_post:
+        await send_feishu_message(
+            "https://open.feishu.cn/open-apis/bot/v2/hook/xxx",
+            "Feishu Title",
+            "Feishu Text",
+        )
         mock_post.assert_called_once()
         call_kwargs = mock_post.call_args[1]
         assert call_kwargs["channel"] == "Feishu"
@@ -34,8 +48,15 @@ async def test_send_feishu_message():
 
 @pytest.mark.asyncio
 async def test_send_dingtalk_message():
-    with patch("backend.services.push_notifications._http_post_retry_once", new_callable=AsyncMock) as mock_post:
-        await send_dingtalk_message("https://oapi.dingtalk.com/robot/send?access_token=xxx", "Ding Title", "Ding Text")
+    with patch(
+        "backend.services.push_notifications._http_post_retry_once",
+        new_callable=AsyncMock,
+    ) as mock_post:
+        await send_dingtalk_message(
+            "https://oapi.dingtalk.com/robot/send?access_token=xxx",
+            "Ding Title",
+            "Ding Text",
+        )
         mock_post.assert_called_once()
         call_kwargs = mock_post.call_args[1]
         assert call_kwargs["channel"] == "DingTalk"
@@ -44,8 +65,13 @@ async def test_send_dingtalk_message():
 
 @pytest.mark.asyncio
 async def test_send_discord_message():
-    with patch("backend.services.push_notifications._http_post_retry_once", new_callable=AsyncMock) as mock_post:
-        await send_discord_message("https://discord.com/api/webhooks/xxx/yyy", "Discord Title", "Discord Text")
+    with patch(
+        "backend.services.push_notifications._http_post_retry_once",
+        new_callable=AsyncMock,
+    ) as mock_post:
+        await send_discord_message(
+            "https://discord.com/api/webhooks/xxx/yyy", "Discord Title", "Discord Text"
+        )
         mock_post.assert_called_once()
         call_kwargs = mock_post.call_args[1]
         assert call_kwargs["channel"] == "Discord"
@@ -60,11 +86,24 @@ async def test_dispatch_matrix_notification():
         "dingtalk_webhook_url": "https://oapi.dingtalk.com/webhook",
         "discord_webhook_url": "https://discord.com/webhook",
     }
-    with patch("backend.services.push_notifications.send_wecom_message", new_callable=AsyncMock) as mock_wecom, \
-         patch("backend.services.push_notifications.send_feishu_message", new_callable=AsyncMock) as mock_feishu, \
-         patch("backend.services.push_notifications.send_dingtalk_message", new_callable=AsyncMock) as mock_ding, \
-         patch("backend.services.push_notifications.send_discord_message", new_callable=AsyncMock) as mock_discord:
-
+    with (
+        patch(
+            "backend.services.push_notifications.send_wecom_message",
+            new_callable=AsyncMock,
+        ) as mock_wecom,
+        patch(
+            "backend.services.push_notifications.send_feishu_message",
+            new_callable=AsyncMock,
+        ) as mock_feishu,
+        patch(
+            "backend.services.push_notifications.send_dingtalk_message",
+            new_callable=AsyncMock,
+        ) as mock_ding,
+        patch(
+            "backend.services.push_notifications.send_discord_message",
+            new_callable=AsyncMock,
+        ) as mock_discord,
+    ):
         await dispatch_matrix_notification(
             settings,
             title="Matrix Notification Test",

@@ -4,6 +4,7 @@
 后写者会用自己读到的旧快照覆盖先写者的字段。用 threading.Event 做确定性交错，
 断言两项更改都存活。
 """
+
 from __future__ import annotations
 
 import json
@@ -21,7 +22,9 @@ class TestPathWriteLock:
         p.write_text("{}")
         assert path_write_lock(p) is path_write_lock(p)
         # 相对/绝对路径与是否存在都应归一到同一把锁
-        assert path_write_lock(tmp_path / "sub" / ".." / "config.json") is path_write_lock(p)
+        assert path_write_lock(
+            tmp_path / "sub" / ".." / "config.json"
+        ) is path_write_lock(p)
 
     def test_different_paths_get_different_locks(self, tmp_path: Path):
         a = tmp_path / "a.json"
@@ -228,7 +231,9 @@ class TestSignTaskMetadataUsesLock:
         stored = json.loads(config_file.read_text(encoding="utf-8"))
         assert stored["last_run"]["time"] == "2026-09-28T08:00:00Z"
 
-    def test_metadata_write_does_not_clobber_concurrent_field(self, service, monkeypatch):
+    def test_metadata_write_does_not_clobber_concurrent_field(
+        self, service, monkeypatch
+    ):
         """并发字段写与 last_run 回写都存活（无丢失更新）。"""
         config_file = self._create_task(service, monkeypatch)
         barrier = threading.Barrier(2)

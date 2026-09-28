@@ -74,11 +74,14 @@ class TestReleaseLoginSession:
         class _FailingLock:
             def locked(self):
                 return True
+
             def release(self):
                 raise RuntimeError("cannot release unacquired lock")
 
         client = _FakeClient()
-        await sessions_mod._release_login_session({"client": client, "lock": _FailingLock()})
+        await sessions_mod._release_login_session(
+            {"client": client, "lock": _FailingLock()}
+        )
         assert client.disconnect_calls == 1
 
     @pytest.mark.asyncio
@@ -104,7 +107,10 @@ class TestCleanupExpiredLoginSessions:
     @pytest.mark.asyncio
     async def test_fresh_and_timeless_sessions_kept(self):
         now = time.monotonic()
-        sessions_mod._login_sessions["fresh"] = {"client": _FakeClient(), "_created_at": now}
+        sessions_mod._login_sessions["fresh"] = {
+            "client": _FakeClient(),
+            "_created_at": now,
+        }
         sessions_mod._login_sessions["timeless"] = {"client": _FakeClient()}
         await sessions_mod._cleanup_expired_login_sessions()
         assert set(sessions_mod._login_sessions) == {"fresh", "timeless"}
@@ -115,8 +121,14 @@ class TestCleanupExpiredLoginSessions:
         client_qr = _FakeClient()
         client_login = _FakeClient()
         created = time.monotonic() - 700
-        sessions_mod._qr_login_sessions["qr"] = {"client": client_qr, "_created_at": created}
-        sessions_mod._login_sessions["login"] = {"client": client_login, "_created_at": created}
+        sessions_mod._qr_login_sessions["qr"] = {
+            "client": client_qr,
+            "_created_at": created,
+        }
+        sessions_mod._login_sessions["login"] = {
+            "client": client_login,
+            "_created_at": created,
+        }
         await sessions_mod._cleanup_expired_login_sessions()
         assert "qr" not in sessions_mod._qr_login_sessions
         assert "login" in sessions_mod._login_sessions
@@ -145,11 +157,15 @@ class TestCleanupExpiredLoginSessions:
         monkeypatch.setattr(sessions_mod, "_MAX_LOGIN_SESSIONS", 1)
         now = time.monotonic()
         old_client = _FakeClient()
-        sessions_mod._login_sessions["timed"] = {"client": old_client, "_created_at": now - 50}
+        sessions_mod._login_sessions["timed"] = {
+            "client": old_client,
+            "_created_at": now - 50,
+        }
         sessions_mod._login_sessions["timeless"] = {"client": _FakeClient()}
         await sessions_mod._cleanup_expired_login_sessions()
         assert set(sessions_mod._login_sessions) == {"timeless"}
         assert old_client.disconnect_calls == 1
+
     @pytest.mark.asyncio
     async def test_corrupted_session_handled_gracefully(self, monkeypatch):
         monkeypatch.setattr(sessions_mod, "_MAX_LOGIN_SESSIONS", 1)
@@ -157,4 +173,3 @@ class TestCleanupExpiredLoginSessions:
         sessions_mod._login_sessions["corrupt2"] = {"_created_at": "invalid_string"}
         await sessions_mod._cleanup_expired_login_sessions()
         assert len(sessions_mod._login_sessions) <= 1
-

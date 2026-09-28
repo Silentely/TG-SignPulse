@@ -94,29 +94,46 @@ class TestExtractLastTargetMessage:
 
         logs = ["收到回复：签到成功"]
         assert extract_last_target_message(logs) == "签到成功"
-        assert extract_last_target_message(["任务对象最后一条消息：全角冒号测试"]) == "全角冒号测试"
+        assert (
+            extract_last_target_message(["任务对象最后一条消息：全角冒号测试"])
+            == "全角冒号测试"
+        )
         assert extract_last_target_message(["Bot回复: 签到已完成"]) == "签到已完成"
-        assert extract_last_target_message(["机器人回复：获得 100 积分"]) == "获得 100 积分"
+        assert (
+            extract_last_target_message(["机器人回复：获得 100 积分"])
+            == "获得 100 积分"
+        )
 
     def test_normalize_log_line_cleans_null_bytes(self):
         from backend.utils.task_logs import normalize_log_line
 
-        assert normalize_log_line("2026-01-01 12:00:00 - hello\x00world") == "helloworld"
+        assert (
+            normalize_log_line("2026-01-01 12:00:00 - hello\x00world") == "helloworld"
+        )
 
     def test_mixed_colons_do_not_truncate_message(self):
         """半角标签分隔符后接全角冒号的正文不得被二次切分。"""
         from backend.utils.task_logs import extract_last_target_message
 
-        assert extract_last_target_message(["任务对象最后一条消息: 提示：明天再来"]) == "提示：明天再来"
+        assert (
+            extract_last_target_message(["任务对象最后一条消息: 提示：明天再来"])
+            == "提示：明天再来"
+        )
         assert extract_last_target_message(["收到回复: a: b"]) == "a: b"
         assert extract_last_target_message(["Bot回复: 结果：成功"]) == "结果：成功"
-        assert extract_last_target_message(["任务对象最后一条消息：提示: not yet"]) == "提示: not yet"
+        assert (
+            extract_last_target_message(["任务对象最后一条消息：提示: not yet"])
+            == "提示: not yet"
+        )
 
     def test_value_without_separator_returns_whole_line(self):
         """标签后没有冒号时原样返回，避免把正文吞掉。"""
         from backend.utils.task_logs import extract_last_target_message
 
-        assert extract_last_target_message(["任务对象最后一条消息: 无冒号正文"]) == "无冒号正文"
+        assert (
+            extract_last_target_message(["任务对象最后一条消息: 无冒号正文"])
+            == "无冒号正文"
+        )
         assert extract_last_target_message(["任务对象最后一条消息:   "]) == ""
 
     def test_fallback_to_text_marker(self):
@@ -295,13 +312,9 @@ class TestSessionStringExport:
         assert is_valid_session_string(exported)
         # 明确禁止 Issue #6：Telethon 前缀导致的 357 非法长度
         assert len(exported) != 357
-        assert not (
-            len(exported) == 357 and exported.startswith("1")
-        )
+        assert not (len(exported) == 357 and exported.startswith("1"))
 
-        decoded = base64.urlsafe_b64decode(
-            exported + "=" * (-len(exported) % 4)
-        )
+        decoded = base64.urlsafe_b64decode(exported + "=" * (-len(exported) % 4))
         dc_id, api_id, test_mode, key, user_id, is_bot = struct.unpack(
             _SESSION_STRING_FORMAT, decoded
         )
@@ -342,14 +355,16 @@ class TestSessionStringExport:
         from backend.utils import tg_session
 
         monkeypatch.setattr(
-            tg_session, "_load_account_store", lambda: {
+            tg_session,
+            "_load_account_store",
+            lambda: {
                 "accounts": {
                     "bad_acc": {"session_string": self._make_legacy_broken_export()},
                     "good_acc": {
                         "session_string": self._make_new_format_session_string()
                     },
                 }
-            }
+            },
         )
         assert tg_session.get_account_session_string("bad_acc") is None
         good = tg_session.get_account_session_string("good_acc")

@@ -4,6 +4,7 @@
 从 SignTaskService 抽离，行为保持不变；service 仅委托调用。
 按阶段拆分为独立 helper，每个阶段可独立单测。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -62,7 +63,9 @@ async def _runner_load_config(state: Dict[str, Any]) -> None:
         svc._load_task_config(task_dir, return_raw=True) if task_dir else (None, None)
     )
     if not task_cfg:
-        raise ValueError(f"Task {state['task_name']} does not exist or cannot be loaded")
+        raise ValueError(
+            f"Task {state['task_name']} does not exist or cannot be loaded"
+        )
     state.update(
         {
             "task_cfg": task_cfg,
@@ -89,6 +92,7 @@ async def _runner_check_account(state: Dict[str, Any]) -> None:
         phase_detail=f"检查账号 {state['account_name']}",
     )
     from backend.services.flood_backoff import get_flood_backoff_manager
+
     manager = get_flood_backoff_manager()
     is_cooling, remaining = manager.is_cooling_down(state["account_name"])
     if is_cooling:
@@ -237,11 +241,15 @@ async def _runner_resolve_credentials(state: Dict[str, Any]) -> None:
     if proxy_value and str(proxy_value).strip():
         proxy_dict = build_proxy_dict(str(proxy_value).strip())
         if not proxy_dict:
-            raise ValueError(f"PROXY_INVALID_BLOCKED: 账号 {account_name} 配置的代理格式非法")
+            raise ValueError(
+                f"PROXY_INVALID_BLOCKED: 账号 {account_name} 配置的代理格式非法"
+            )
 
     req_proxy_fn = getattr(config_service, "require_proxy_for_telegram", None)
     if callable(req_proxy_fn) and req_proxy_fn() and not proxy_dict:
-        raise ValueError(f"PROXY_REQUIRED_BLOCKED: 全局策略强制 Telegram 使用代理，但账号 {account_name} 未配置有效代理")
+        raise ValueError(
+            f"PROXY_REQUIRED_BLOCKED: 全局策略强制 Telegram 使用代理，但账号 {account_name} 未配置有效代理"
+        )
 
     if proxy_dict:
         from backend.services.telegram.accounts import get_telegram_account_service
@@ -342,15 +350,14 @@ async def _runner_execute_with_retry(state: Dict[str, Any]) -> None:
                 break
             except asyncio.TimeoutError:
                 state["timed_out"] = True
-                raise RuntimeError(
-                    f"任务执行超时（{int(task_timeout)}秒），已强制终止"
-                )
+                raise RuntimeError(f"任务执行超时（{int(task_timeout)}秒），已强制终止")
             except Exception as e:
                 # FloodWait 判定走类型优先的共享解析：str(FloodWait) 不含类名，
                 # 仅靠关键词匹配会漏判实例，进而漏登记 FloodWait 冷却。
                 wait_sec = extract_flood_wait_seconds(e)
                 if wait_sec is not None:
                     from backend.services.flood_backoff import get_flood_backoff_manager
+
                     get_flood_backoff_manager().record_flood_wait(
                         state["account_name"],
                         wait_seconds=wait_sec,
@@ -360,9 +367,8 @@ async def _runner_execute_with_retry(state: Dict[str, Any]) -> None:
                     if attempt < max_retries - 1:
                         # SQLite 锁等待用线性退避（与瞬态网络错误的指数退避
                         # compute_backoff 刻意区分）
-                        delay = (
-                            SQLITE_LOCK_BACKOFF_BASE_SECONDS
-                            + (attempt * SQLITE_LOCK_BACKOFF_STEP_SECONDS)
+                        delay = SQLITE_LOCK_BACKOFF_BASE_SECONDS + (
+                            attempt * SQLITE_LOCK_BACKOFF_STEP_SECONDS
                         )
                         svc._append_active_log(
                             task_key,
@@ -387,16 +393,27 @@ async def _runner_parse_reply(state: Dict[str, Any]) -> None:
 
     last_reply = ""
     for line in reversed(final_logs):
-        if "收到来自「" in line and ("」的消息:" in line or "」对消息的更新，消息:" in line):
+        if "收到来自「" in line and (
+            "」的消息:" in line or "」对消息的更新，消息:" in line
+        ):
             try:
-                splitter = "」的消息:" if "」的消息:" in line else "」对消息的更新，消息:"
+                splitter = (
+                    "」的消息:" if "」的消息:" in line else "」对消息的更新，消息:"
+                )
                 reply_part = line.split(splitter, 1)[-1].strip()
                 if reply_part.startswith("Message:"):
-                    reply_part = reply_part[len("Message:"):].strip()
+                    reply_part = reply_part[len("Message:") :].strip()
 
                 if "text: " in reply_part:
                     raw_text = reply_part.split("text: ", 1)[-1]
-                    for delimiter in ("\n  InlineKeyboard:", "\nInlineKeyboard:", "\n  ReplyKeyboard:", "\nReplyKeyboard:", "\n  图片:", "\n图片:"):
+                    for delimiter in (
+                        "\n  InlineKeyboard:",
+                        "\nInlineKeyboard:",
+                        "\n  ReplyKeyboard:",
+                        "\nReplyKeyboard:",
+                        "\n  图片:",
+                        "\n图片:",
+                    ):
                         if delimiter in raw_text:
                             raw_text = raw_text.split(delimiter, 1)[0]
                     text_content = " ".join(raw_text.split()).strip()
@@ -418,9 +435,7 @@ async def _runner_parse_reply(state: Dict[str, Any]) -> None:
                     last_reply = reply_part.replace("\n", " ").strip()
 
                 if len(last_reply) > LAST_REPLY_MAX_CHARS:
-                    last_reply = (
-                        last_reply[: LAST_REPLY_MAX_CHARS - 3] + "..."
-                    )
+                    last_reply = last_reply[: LAST_REPLY_MAX_CHARS - 3] + "..."
             except Exception as e:
                 _service_logger.debug("解析最近回复文本失败: %s", e)
             if last_reply:
@@ -436,10 +451,9 @@ async def _runner_parse_reply(state: Dict[str, Any]) -> None:
             "failure",
             "not found",
         )
-        if (
-            any(keyword in reply_lower for keyword in failure_keywords)
-            and svc._message_indicates_strong_failure(last_reply)
-        ):
+        if any(
+            keyword in reply_lower for keyword in failure_keywords
+        ) and svc._message_indicates_strong_failure(last_reply):
             state["success"] = False
             state["error_msg"] = f"机器人回复疑似失败: {last_reply}"
             final_logs.append(state["error_msg"])
@@ -478,17 +492,19 @@ async def _runner_fetch_target_message(state: Dict[str, Any]) -> None:
                 )
                 if last_target_fetch_timeout > 0:
                     last_target_message = await asyncio.wait_for(
-                        svc._fetch_last_target_message_from_chat_history(signer, task_cfg),
+                        svc._fetch_last_target_message_from_chat_history(
+                            signer, task_cfg
+                        ),
                         timeout=last_target_fetch_timeout,
                     )
                 else:
-                    last_target_message = await svc._fetch_last_target_message_from_chat_history(
-                        signer, task_cfg
+                    last_target_message = (
+                        await svc._fetch_last_target_message_from_chat_history(
+                            signer, task_cfg
+                        )
                     )
             except asyncio.TimeoutError:
-                timeout_log = (
-                    f"补抓任务对象最后消息超时 ({last_target_fetch_timeout:.1f}s)，已跳过"
-                )
+                timeout_log = f"补抓任务对象最后消息超时 ({last_target_fetch_timeout:.1f}s)，已跳过"
                 svc._append_active_log(task_key, timeout_log)
                 state["final_logs"] = list(svc._active_logs.get(task_key, []))
                 state["output_str"] = "\n".join(state["final_logs"])
@@ -515,8 +531,6 @@ async def _runner_fetch_target_message(state: Dict[str, Any]) -> None:
         svc._append_active_log(task_key, last_message_line)
         state["output_str"] = "\n".join(state["final_logs"])
         state["last_target_message"] = last_target_message
-
-
 
 
 async def _runner_adaptive_reschedule(state: Dict[str, Any]) -> None:
@@ -584,7 +598,9 @@ async def _runner_adaptive_reschedule(state: Dict[str, Any]) -> None:
 async def _runner_save_run_info(state: Dict[str, Any]) -> None:
     """Phase 11: 保存执行记录（无论成功失败）。"""
     svc: SignTaskService = state["svc"]
-    msg = state["error_msg"] if not state.get("success") else state.get("last_reply", "")
+    msg = (
+        state["error_msg"] if not state.get("success") else state.get("last_reply", "")
+    )
     svc._save_run_info(
         state["task_name"],
         state.get("success", False),
@@ -662,7 +678,9 @@ async def _runner_handle_error(state: Dict[str, Any], e: Exception) -> None:
         state["timed_out"] = True
     if state.get("account_invalid_detected") or svc._is_invalid_session_error(e):
         state["account_invalid_detected"] = True
-        invalid_message = str(e) or f"账号 {state['account_name']} 登录已失效，请重新登录"
+        invalid_message = (
+            str(e) or f"账号 {state['account_name']} 登录已失效，请重新登录"
+        )
         from backend.services.sign_task_notify import mark_account_invalid
 
         await mark_account_invalid(
@@ -704,9 +722,8 @@ async def _runner_trigger_chained_task(state: Dict[str, Any]) -> None:
     内置环路循环检测与最大执行深度保护。"""
     task_cfg = state.get("task_cfg") or {}
     raw_task_cfg = state.get("raw_task_cfg") or {}
-    next_task_name = (
-        task_cfg.get("next_task_on_success")
-        or raw_task_cfg.get("next_task_on_success")
+    next_task_name = task_cfg.get("next_task_on_success") or raw_task_cfg.get(
+        "next_task_on_success"
     )
     if not next_task_name or not isinstance(next_task_name, str):
         return
@@ -775,7 +792,9 @@ async def _runner_trigger_chained_task(state: Dict[str, Any]) -> None:
     async def _run_chained():
         try:
             await asyncio.sleep(delay_sec)
-            await svc.start_task_run(account_name, next_task_name, visited_chain=next_visited)
+            await svc.start_task_run(
+                account_name, next_task_name, visited_chain=next_visited
+            )
         except Exception as exc:
             _service_logger.error(
                 "Task chain: failed to start chained task '%s' for account '%s': %s",
@@ -913,7 +932,9 @@ async def execute_sign_task(
     # 定时任务同时触发时排队等待账号锁
     _service_logger.debug("等待获取账号锁 %s...", account_name)
     if run_id:
-        _service_logger.info("任务运行 run_id=%s [%s/%s]", run_id, account_name, task_name)
+        _service_logger.info(
+            "任务运行 run_id=%s [%s/%s]", run_id, account_name, task_name
+        )
 
     task_key = svc._task_key(account_name, task_name)
     svc._active_tasks[task_key] = True
@@ -967,7 +988,9 @@ async def execute_sign_task(
 
             await _runner_check_account(state)
 
-        if not state.get("account_invalid_detected") and not state.get("flood_wait_cooling"):
+        if not state.get("account_invalid_detected") and not state.get(
+            "flood_wait_cooling"
+        ):
             await _runner_refresh_keyword_monitor(state)
             await _runner_acquire_lock(state)
 

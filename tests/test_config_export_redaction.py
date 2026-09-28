@@ -4,6 +4,7 @@
 自定义推送 URL 内嵌凭据、Server 酱 sendkey、外部转发回调鉴权头）会随
 tar.gz/JSON 导出外泄。本文件锁定递归脱敏契约与导入往返行为。
 """
+
 from __future__ import annotations
 
 import json
@@ -81,7 +82,9 @@ class TestScrubPureFunction:
         assert headers["Content-Type"] == "application/json"
 
     def test_field_name_match_is_case_insensitive(self):
-        out = _scrub_export_secrets({"API_KEY": "sk-123", "Bark_URL": "https://api.day.app/K/t"})
+        out = _scrub_export_secrets(
+            {"API_KEY": "sk-123", "Bark_URL": "https://api.day.app/K/t"}
+        )
         assert out["API_KEY"] == "***MASKED***"
         assert "K/" not in out["Bark_URL"]
 

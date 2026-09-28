@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """生产上线边界自查脚本（本地只读检查，不连真实 TG）。"""
+
 from __future__ import annotations
 
 import os

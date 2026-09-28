@@ -4,6 +4,7 @@
 ``import datetime``，导致 croniter ``it.next(ret_type=datetime)`` 收到模块
 而非类、必抛 TypeError。本测试锁定该回归。
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone

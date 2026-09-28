@@ -32,7 +32,9 @@ _NEGATION_PATTERN = re.compile(r"(没有|未|无|并非|不是).{0,3}(失败|异
 
 _STRONG_FAILURE_PATTERNS = (
     # 中文常以 "动词 + 其他描述 + 失败/异常/超时" 出现，允许中间最多 6 个任意字符
-    re.compile(r"(签到|任务|执行|操作|请求|发送|点击|处理|删除|回退|检查|刷新|查找|获取|更新|写入|读取|解析|转换|初始化|加载|同步|上传|下载|打包|清理).{0,6}(失败|异常|超时)"),
+    re.compile(
+        r"(签到|任务|执行|操作|请求|发送|点击|处理|删除|回退|检查|刷新|查找|获取|更新|写入|读取|解析|转换|初始化|加载|同步|上传|下载|打包|清理).{0,6}(失败|异常|超时)"
+    ),
     re.compile(r"(未找到|找不到).*(按钮|消息|会话|聊天|目标)"),
     re.compile(r"(账号|会话|session).*(失效|无效|invalid)"),
     re.compile(
@@ -198,6 +200,7 @@ _CATEGORY_RULES: tuple[tuple[FailureCategory, tuple[str, ...]], ...] = (
         ),
     ),
 )
+
 
 def message_indicates_strong_failure(text: str) -> bool:
     """目标消息文本是否呈现强失败语义（排除成功标记与否定式成功表述）。"""

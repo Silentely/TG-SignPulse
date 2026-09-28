@@ -269,11 +269,16 @@ def test_kill_process_tree_posix_fallback_on_getpgid_error():
         kill_process_tree(mock_proc)
         mock_proc.kill.assert_called_once()
 
+
 def test_kill_process_tree_posix_same_pgid_fallback():
     mock_proc = MagicMock()
     mock_proc.returncode = None
     mock_proc.pid = 77777
 
-    with patch("os.name", "posix"), patch("os.getpgid", return_value=1234), patch("os.getpgrp", return_value=1234):
+    with (
+        patch("os.name", "posix"),
+        patch("os.getpgid", return_value=1234),
+        patch("os.getpgrp", return_value=1234),
+    ):
         kill_process_tree(mock_proc)
         mock_proc.kill.assert_called_once()

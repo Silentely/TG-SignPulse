@@ -70,14 +70,20 @@ async def _migrate_candidate_dc(client: Client, target_dc: int) -> None:
         from backend.services.telegram.session_importer import (
             get_default_dc_endpoint,
         )
+
         try:
-            default_addr, default_port = get_default_dc_endpoint(target_dc, bool(test_mode))
+            default_addr, default_port = get_default_dc_endpoint(
+                target_dc, bool(test_mode)
+            )
             server_address = server_address or default_addr
             port = port or default_port
         except Exception as exc:
-            raise ValueError(f"无法确定目标 DC {target_dc} 的连接端点，迁移中止: {exc}") from exc
+            raise ValueError(
+                f"无法确定目标 DC {target_dc} 的连接端点，迁移中止: {exc}"
+            ) from exc
 
     import inspect
+
     auth_sig = inspect.signature(Auth.__init__)
     if "server_address" in auth_sig.parameters:
         auth_obj = Auth(client, target_dc, server_address, port, test_mode)
@@ -88,7 +94,9 @@ async def _migrate_candidate_dc(client: Client, target_dc: int) -> None:
 
     session_sig = inspect.signature(Session.__init__)
     if "server_address" in session_sig.parameters:
-        client.session = Session(client, target_dc, server_address, port, auth_key, test_mode)
+        client.session = Session(
+            client, target_dc, server_address, port, auth_key, test_mode
+        )
     else:
         client.session = Session(client, target_dc, auth_key, test_mode)
     await client.session.start()
@@ -124,7 +132,10 @@ async def create_standalone_session_export(
     proxy_dict = build_proxy_dict(proxy_value) if proxy_value else None
 
     global_settings = get_config_service().get_global_settings()
-    if bool(global_settings.get("require_proxy_for_telegram", False)) and not proxy_dict:
+    if (
+        bool(global_settings.get("require_proxy_for_telegram", False))
+        and not proxy_dict
+    ):
         return SessionExportResult(
             success=False,
             error="PROXY_REQUIRED_BLOCKED: Global policy requires proxy",
@@ -211,7 +222,11 @@ async def create_standalone_session_export(
                         getattr(accept_res, "authorization", None), "hash", None
                     )
         except AccountLockTimeout as exc:
-            logger.warning("Account lock timeout while exporting session for %s: %s", account_name, exc)
+            logger.warning(
+                "Account lock timeout while exporting session for %s: %s",
+                account_name,
+                exc,
+            )
             return SessionExportResult(success=False, error="ACCOUNT_BUSY")
         except SessionPasswordNeeded:
             return SessionExportResult(
@@ -219,7 +234,9 @@ async def create_standalone_session_export(
                 error="2FA_NOT_SUPPORTED: Account has two-step verification enabled",
             )
         except Exception as exc:
-            logger.error("Failed to accept login token on main client: %s", exc, exc_info=True)
+            logger.error(
+                "Failed to accept login token on main client: %s", exc, exc_info=True
+            )
             return SessionExportResult(
                 success=False,
                 error=f"ACCEPT_LOGIN_TOKEN_FAILED: {exc}",
@@ -231,7 +248,9 @@ async def create_standalone_session_export(
             if not reset_auth_cls or not candidate_auth_hash:
                 return
             try:
-                async with acquire_account_lock_with_timeout(account_name, timeout=15.0):
+                async with acquire_account_lock_with_timeout(
+                    account_name, timeout=15.0
+                ):
                     rollback_client, _ = service._build_account_client(
                         account_name, no_updates=True
                     )
@@ -301,7 +320,12 @@ async def create_standalone_session_export(
         )
 
     except Exception as exc:
-        logger.error("Unexpected error during session export for %s: %s", account_name, exc, exc_info=True)
+        logger.error(
+            "Unexpected error during session export for %s: %s",
+            account_name,
+            exc,
+            exc_info=True,
+        )
         return SessionExportResult(success=False, error=str(exc))
     finally:
         if candidate_client is not None:

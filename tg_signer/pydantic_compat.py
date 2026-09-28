@@ -3,6 +3,7 @@ Pydantic v1/v2 兼容层
 
 集中封装 dump/validate 差异，业务代码应优先使用本模块，避免散落版本判断。
 """
+
 from __future__ import annotations
 
 from typing import Any, Type, TypeVar

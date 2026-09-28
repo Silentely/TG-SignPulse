@@ -31,7 +31,9 @@ def _sign(key: bytes, msg: str) -> bytes:
     return hmac.new(key, msg.encode("utf-8"), hashlib.sha256).digest()
 
 
-def _get_signature_key(key: str, date_stamp: str, region_name: str, service_name: str) -> bytes:
+def _get_signature_key(
+    key: str, date_stamp: str, region_name: str, service_name: str
+) -> bytes:
     k_date = _sign(("AWS4" + key).encode("utf-8"), date_stamp)
     k_region = _sign(k_date, region_name)
     k_service = _sign(k_region, service_name)
@@ -96,7 +98,11 @@ class S3BackupClient:
 
         # 默认使用通用 Path-Style: {endpoint}/{bucket}/{key}
         clean_key = object_key.lstrip("/")
-        canonical_uri = f"{path_prefix}/{self.bucket}/{clean_key}" if path_prefix else f"/{self.bucket}/{clean_key}"
+        canonical_uri = (
+            f"{path_prefix}/{self.bucket}/{clean_key}"
+            if path_prefix
+            else f"/{self.bucket}/{clean_key}"
+        )
         target_url = f"{self.endpoint_url}/{self.bucket}/{clean_key}"
         return target_url, host, canonical_uri
 
@@ -157,7 +163,9 @@ class S3BackupClient:
         )
 
         signing_key = _get_signature_key(self.secret_key, date_stamp, self.region, "s3")
-        signature = hmac.new(signing_key, string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
+        signature = hmac.new(
+            signing_key, string_to_sign.encode("utf-8"), hashlib.sha256
+        ).hexdigest()
 
         headers = dict(signed)
         headers["Authorization"] = (
@@ -181,7 +189,9 @@ class S3BackupClient:
             raise ValueError(f"非法的 S3 对象名称: {object_name!r}")
         return f"{self.prefix}{name}"
 
-    async def upload_file(self, file_path: Path, object_name: Optional[str] = None) -> Dict[str, Any]:
+    async def upload_file(
+        self, file_path: Path, object_name: Optional[str] = None
+    ) -> Dict[str, Any]:
         """上传本地文件到 S3 存储桶。"""
         if not file_path.exists():
             raise FileNotFoundError(f"文件不存在: {file_path}")
@@ -222,7 +232,9 @@ class S3BackupClient:
 
     @staticmethod
     def _content_type(name: str) -> str:
-        return "application/gzip" if name.endswith(".gz") else "application/octet-stream"
+        return (
+            "application/gzip" if name.endswith(".gz") else "application/octet-stream"
+        )
 
     async def list_objects(
         self,
@@ -241,15 +253,17 @@ class S3BackupClient:
             host=host,
             payload_hash=EMPTY_SHA256,
         )
-        async with httpx.AsyncClient(proxy=self._proxy_url(), timeout=timeout) as client:
+        async with httpx.AsyncClient(
+            proxy=self._proxy_url(), timeout=timeout
+        ) as client:
             resp = await client.get(target_url, headers=headers)
         if resp.status_code != 200:
-            raise RuntimeError(f"S3 列表失败 (HTTP {resp.status_code}): {resp.text[:300]}")
+            raise RuntimeError(
+                f"S3 列表失败 (HTTP {resp.status_code}): {resp.text[:300]}"
+            )
         return _parse_list_objects(resp.text, suffix=name_suffix, limit=limit)
 
-    async def get_object(
-        self, object_name: str, *, timeout: float = 60.0
-    ) -> bytes:
+    async def get_object(self, object_name: str, *, timeout: float = 60.0) -> bytes:
         """下载对象内容（仅备份包等小文件使用，调用方需自行限制大小）。"""
         key = self.object_key(object_name)
         target_url, host, canonical_uri = self._build_url_and_host(key)
@@ -260,10 +274,14 @@ class S3BackupClient:
             host=host,
             payload_hash=EMPTY_SHA256,
         )
-        async with httpx.AsyncClient(proxy=self._proxy_url(), timeout=timeout) as client:
+        async with httpx.AsyncClient(
+            proxy=self._proxy_url(), timeout=timeout
+        ) as client:
             resp = await client.get(target_url, headers=headers)
         if resp.status_code != 200:
-            raise RuntimeError(f"S3 下载失败 (HTTP {resp.status_code}): {resp.text[:300]}")
+            raise RuntimeError(
+                f"S3 下载失败 (HTTP {resp.status_code}): {resp.text[:300]}"
+            )
         return resp.content
 
     async def iter_object(
@@ -283,18 +301,22 @@ class S3BackupClient:
             host=host,
             payload_hash=EMPTY_SHA256,
         )
-        async with httpx.AsyncClient(proxy=self._proxy_url(), timeout=timeout) as client:
+        async with httpx.AsyncClient(
+            proxy=self._proxy_url(), timeout=timeout
+        ) as client:
             async with client.stream("GET", target_url, headers=headers) as resp:
                 if resp.status_code != 200:
-                    detail = (await resp.aread()).decode("utf-8", errors="replace")[:300]
-                    raise RuntimeError(f"S3 下载失败 (HTTP {resp.status_code}): {detail}")
+                    detail = (await resp.aread()).decode("utf-8", errors="replace")[
+                        :300
+                    ]
+                    raise RuntimeError(
+                        f"S3 下载失败 (HTTP {resp.status_code}): {detail}"
+                    )
                 async for chunk in resp.aiter_bytes(chunk_size=chunk_size):
                     if chunk:
                         yield chunk
 
-    async def delete_object(
-        self, object_name: str, *, timeout: float = 60.0
-    ) -> None:
+    async def delete_object(self, object_name: str, *, timeout: float = 60.0) -> None:
         key = self.object_key(object_name)
         target_url, host, canonical_uri = self._build_url_and_host(key)
         headers = self._sign_request(
@@ -304,10 +326,14 @@ class S3BackupClient:
             host=host,
             payload_hash=EMPTY_SHA256,
         )
-        async with httpx.AsyncClient(proxy=self._proxy_url(), timeout=timeout) as client:
+        async with httpx.AsyncClient(
+            proxy=self._proxy_url(), timeout=timeout
+        ) as client:
             resp = await client.delete(target_url, headers=headers)
         if resp.status_code not in _S3_DELETE_OK:
-            raise RuntimeError(f"S3 删除失败 (HTTP {resp.status_code}): {resp.text[:300]}")
+            raise RuntimeError(
+                f"S3 删除失败 (HTTP {resp.status_code}): {resp.text[:300]}"
+            )
 
     async def check_connection(self, *, timeout: float = 15.0) -> Dict[str, Any]:
         """列出 prefix 探测连通性与凭据有效性。"""

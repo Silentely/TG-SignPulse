@@ -337,20 +337,25 @@ async def cancel_qr_login(
         )
 
 
-
-
 def _is_zip_payload(payload: bytes | str) -> bool:
     """Check whether session payload is a ZIP archive (e.g. Telegram Desktop TData)."""
     if isinstance(payload, bytes):
-        return payload.startswith(b"PK") or payload.startswith(b"PK") or payload.startswith(b"PK")
+        return (
+            payload.startswith(b"PK")
+            or payload.startswith(b"PK")
+            or payload.startswith(b"PK")
+        )
     if isinstance(payload, str):
         cleaned = payload.strip()
         try:
             raw = base64.b64decode(cleaned)
-            return raw.startswith(b"PK") or raw.startswith(b"PK") or raw.startswith(b"PK")
+            return (
+                raw.startswith(b"PK") or raw.startswith(b"PK") or raw.startswith(b"PK")
+            )
         except Exception:
             return False
     return False
+
 
 @router.post("/import-session", response_model=ImportSessionResponse)
 async def import_session(
@@ -373,7 +378,9 @@ async def import_session(
         account_name = str(form.get("account_name") or "").strip()
         session_type = str(form.get("session_type") or "auto").strip()
         force_raw = form.get("force")
-        force = str(force_raw).lower() in ("true", "1") if force_raw is not None else False
+        force = (
+            str(force_raw).lower() in ("true", "1") if force_raw is not None else False
+        )
         proxy_raw = form.get("proxy")
         proxy = str(proxy_raw).strip() if proxy_raw else None
         tdata_pwd_raw = form.get("tdata_password")
@@ -442,7 +449,11 @@ async def import_session(
     svc = get_telegram_service()
     try:
         if _is_zip_payload(payload):
-            zip_bytes = payload if isinstance(payload, bytes) else base64.b64decode(payload.strip())
+            zip_bytes = (
+                payload
+                if isinstance(payload, bytes)
+                else base64.b64decode(payload.strip())
+            )
             res = await svc.import_tdata_session(
                 account_name=account_name,
                 zip_payload=zip_bytes,
@@ -509,9 +520,7 @@ async def import_session(
             detail=err_msg,
         )
     except Exception as e:
-        logger.error(
-            "Import session failed for %s: %s", account_name, e, exc_info=True
-        )
+        logger.error("Import session failed for %s: %s", account_name, e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Import session failed: {e}",
@@ -789,7 +798,6 @@ async def terminate_account_device(
         )
 
 
-
 @router.post(
     "/{account_name}/session-exports",
     response_model=StandaloneSessionExportResponse,
@@ -808,7 +816,9 @@ async def export_standalone_session(
                 detail="账号不存在",
             )
         device_model = (
-            request.device_model if request and request.device_model else "TG-SignPulse Exported Session"
+            request.device_model
+            if request and request.device_model
+            else "TG-SignPulse Exported Session"
         )
         timeout_seconds = (
             request.timeout_seconds if request and request.timeout_seconds else 60.0
@@ -1197,7 +1207,9 @@ def export_account_logs(
     from datetime import datetime, timezone
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    safe_acc = "".join(c for c in account_name if c.isalnum() or c in ("-", "_")) or "account"
+    safe_acc = (
+        "".join(c for c in account_name if c.isalnum() or c in ("-", "_")) or "account"
+    )
     filename = f"{safe_acc}_logs_{stamp}.txt"
     return Response(
         content=content,

@@ -3,6 +3,7 @@
 任务对象执行主流程（sign_a_chat / normal_run / 定时调度）与消息入口；
 CLI 配置见 signer_config.py，动作执行见 signer_actions.py。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -35,6 +36,8 @@ from tg_signer.log_utils import safe_text_preview
 from tg_signer.utils import read_positive_float_env, read_positive_int_env
 
 logger = logging.getLogger("tg_signer.runtime.runner")
+
+
 def _copy_action_with(action, **kwargs):
     if hasattr(action, "model_copy"):
         return action.model_copy(update=kwargs)
@@ -43,9 +46,7 @@ def _copy_action_with(action, **kwargs):
     return action
 
 
-
 class SignerRunnerMixin:
-
     async def sign_a_chat(
         self,
         chat: SignChatV3,
@@ -57,9 +58,12 @@ class SignerRunnerMixin:
             # 兼容历史配置：部分会话可能保存了缺失负号的 chat_id
             try:
                 from pyrogram.errors import ChannelInvalid, PeerIdInvalid
+
                 is_peer_invalid = isinstance(e, (PeerIdInvalid, ChannelInvalid))
             except Exception:
-                is_peer_invalid = any(x in str(e) for x in ("PEER_ID_INVALID", "CHANNEL_INVALID"))
+                is_peer_invalid = any(
+                    x in str(e) for x in ("PEER_ID_INVALID", "CHANNEL_INVALID")
+                )
 
             if is_peer_invalid and isinstance(chat.chat_id, int):
                 last_error = e
@@ -151,9 +155,7 @@ class SignerRunnerMixin:
                     f"预热会话失败: chat_id={chat.chat_id}, error={type(e).__name__}: {e}",
                     level="ERROR",
                 )
-                raise RuntimeError(
-                    f"预热会话失败 chat_id={chat.chat_id}: {e}"
-                ) from e
+                raise RuntimeError(f"预热会话失败 chat_id={chat.chat_id}: {e}") from e
         self.log(self._describe_chat_run(chat))
         total_actions = len(chat.actions)
         if total_actions == 0:
@@ -168,19 +170,27 @@ class SignerRunnerMixin:
                 max_flow_attempts = _ctx_val
         except (ImportError, LookupError):
             pass
-        retry_backoff_steps = read_positive_int_env("SIGN_TASK_RETRY_BACKOFF_STEPS", 0, 0)
+        retry_backoff_steps = read_positive_int_env(
+            "SIGN_TASK_RETRY_BACKOFF_STEPS", 0, 0
+        )
         last_error: Optional[Exception] = None
         last_successful_index = 0
 
         for flow_attempt in range(1, max_flow_attempts + 1):
             # 从失败步骤开始回退，而非从最后成功步骤；retry_backoff_steps=0 表示从失败步骤原地重试
             failed_index = last_successful_index + 1 if last_successful_index > 0 else 1
-            start_index = max(1, failed_index - retry_backoff_steps) if flow_attempt > 1 else 1
+            start_index = (
+                max(1, failed_index - retry_backoff_steps) if flow_attempt > 1 else 1
+            )
             if max_flow_attempts > 1:
                 if flow_attempt > 1 and start_index > 1:
-                    self.log(f"开始第 {flow_attempt}/{max_flow_attempts} 次脚本流程尝试，从第 {start_index} 步继续")
+                    self.log(
+                        f"开始第 {flow_attempt}/{max_flow_attempts} 次脚本流程尝试，从第 {start_index} 步继续"
+                    )
                 else:
-                    self.log(f"开始第 {flow_attempt}/{max_flow_attempts} 次脚本流程尝试")
+                    self.log(
+                        f"开始第 {flow_attempt}/{max_flow_attempts} 次脚本流程尝试"
+                    )
             try:
                 if start_index == 1:
                     if chat.chat_id in self.context.chat_messages:
@@ -236,8 +246,11 @@ class SignerRunnerMixin:
                         },
                         "step": getattr(self.context, "step_outputs", {}),
                         "prev_output": getattr(self.context, "last_output", "") or "",
-                        "prev": {"output": getattr(self.context, "last_output", "") or ""},
-                        "last_message": getattr(self.context, "last_received_text", "") or "",
+                        "prev": {
+                            "output": getattr(self.context, "last_output", "") or ""
+                        },
+                        "last_message": getattr(self.context, "last_received_text", "")
+                        or "",
                     }
 
                     exec_action = action
@@ -250,7 +263,9 @@ class SignerRunnerMixin:
                         if rendered_text != action.text:
                             exec_action = _copy_action_with(action, text=rendered_text)
                     elif isinstance(action, PluginAction):
-                        rendered_params = render_template_recursive(action.params, tmpl_ctx)
+                        rendered_params = render_template_recursive(
+                            action.params, tmpl_ctx
+                        )
                         exec_action = _copy_action_with(action, params=rendered_params)
                     elif hasattr(action, "ai_prompt") and action.ai_prompt:
                         # 渲染仅对携带 ai_prompt 字段的动作生效；当前承载该字段的均为
@@ -258,7 +273,9 @@ class SignerRunnerMixin:
                         # 对象会因既无 model_copy 也无 copy 而静默保持原值
                         rendered_prompt = render_template(action.ai_prompt, tmpl_ctx)
                         if rendered_prompt != action.ai_prompt:
-                            exec_action = _copy_action_with(action, ai_prompt=rendered_prompt)
+                            exec_action = _copy_action_with(
+                                action, ai_prompt=rendered_prompt
+                            )
 
                     action_description = self._set_current_action_context(
                         index,
@@ -294,7 +311,10 @@ class SignerRunnerMixin:
                                 )
                                 break
                             except Exception as step_exc:
-                                if self._is_transient_step_error(step_exc) and _step_attempt < _step_max_retries:
+                                if (
+                                    self._is_transient_step_error(step_exc)
+                                    and _step_attempt < _step_max_retries
+                                ):
                                     self.log(
                                         f"{self._current_action_step_label()}瞬时错误，"
                                         f"{_step_attempt}/{_step_max_retries} 次重试: "
@@ -333,14 +353,22 @@ class SignerRunnerMixin:
 
                         # 记录动作执行产出至上下文供管道引用
                         out_val = ""
-                        if isinstance(exec_action, (SendTextAction, ClickKeyboardByTextAction)):
+                        if isinstance(
+                            exec_action, (SendTextAction, ClickKeyboardByTextAction)
+                        ):
                             out_val = getattr(exec_action, "text", "")
                         elif isinstance(result, str):
                             out_val = result
-                        elif result is not None and result is not True and result is not False:
+                        elif (
+                            result is not None
+                            and result is not True
+                            and result is not False
+                        ):
                             out_val = str(result)
 
-                        if not hasattr(self.context, "step_outputs") or not isinstance(self.context.step_outputs, dict):
+                        if not hasattr(self.context, "step_outputs") or not isinstance(
+                            self.context.step_outputs, dict
+                        ):
                             self.context.step_outputs = {}
                         self.context.step_outputs[index] = {"output": out_val}
                         self.context.step_outputs[str(index)] = {"output": out_val}
@@ -364,8 +392,16 @@ class SignerRunnerMixin:
                 self.context.waiting_message = None
                 if flow_attempt >= max_flow_attempts:
                     break
-                _resume_idx = max(1, (last_successful_index + 1) - retry_backoff_steps) if last_successful_index > 0 else 1
-                backoff_info = f"，从第 {_resume_idx} 步继续" if _resume_idx > 1 else "，将从第 1 步重新开始"
+                _resume_idx = (
+                    max(1, (last_successful_index + 1) - retry_backoff_steps)
+                    if last_successful_index > 0
+                    else 1
+                )
+                backoff_info = (
+                    f"，从第 {_resume_idx} 步继续"
+                    if _resume_idx > 1
+                    else "，将从第 1 步重新开始"
+                )
                 self.log(
                     f"脚本流程第 {flow_attempt}/{max_flow_attempts} 次尝试失败"
                     f"{backoff_info}: {exc}",
@@ -377,7 +413,9 @@ class SignerRunnerMixin:
                     jitter = random.uniform(0.5, 1.5)
                     retry_sleep = round(exp_delay + jitter, 1)
                 else:
-                    retry_sleep = read_positive_float_env("SIGN_TASK_RETRY_DELAY", 1.0, 0.01)
+                    retry_sleep = read_positive_float_env(
+                        "SIGN_TASK_RETRY_DELAY", 1.0, 0.01
+                    )
                 self.log(
                     f"触发重试退避，将在 {retry_sleep:g} 秒后进行第 {flow_attempt + 1}/{max_flow_attempts} 次重试...",
                     level="INFO",
@@ -387,7 +425,6 @@ class SignerRunnerMixin:
         raise RuntimeError(
             f"脚本流程尝试 {max_flow_attempts} 次仍失败: {last_error}"
         ) from last_error
-
 
     async def run(
         self, num_of_dialogs=20, only_once: bool = False, force_rerun: bool = False
@@ -400,7 +437,6 @@ class SignerRunnerMixin:
             num_of_dialogs, only_once=only_once, force_rerun=force_rerun
         )
 
-
     async def in_memory_run(
         self, num_of_dialogs=20, only_once: bool = False, force_rerun: bool = False
     ):
@@ -411,7 +447,6 @@ class SignerRunnerMixin:
             await self.normal_run(
                 num_of_dialogs, only_once=only_once, force_rerun=force_rerun
             )
-
 
     async def _run_config_chats(self, config) -> int:
         success_count = 0
@@ -439,7 +474,6 @@ class SignerRunnerMixin:
 
         return success_count
 
-
     async def normal_run(
         self, num_of_dialogs=20, only_once: bool = False, force_rerun: bool = False
     ):
@@ -458,7 +492,6 @@ class SignerRunnerMixin:
         message_handler_ref = None
         edited_handler_ref = None
 
-
         async def sign_once():
             success_count = await self._run_config_chats(config)
             if success_count == 0 and len(config.chats) > 0:
@@ -472,7 +505,6 @@ class SignerRunnerMixin:
             except Exception:
                 with open(self.sign_record_file, "w", encoding="utf-8") as fp:
                     json.dump(sign_record, fp)
-
 
         def need_sign(last_date_str):
             if force_rerun:
@@ -493,7 +525,9 @@ class SignerRunnerMixin:
                         MessageHandler(self.on_message, filters.chat(chat_ids))
                     )
                     edited_handler_ref = self.app.add_handler(
-                        EditedMessageHandler(self.on_edited_message, filters.chat(chat_ids))
+                        EditedMessageHandler(
+                            self.on_edited_message, filters.chat(chat_ids)
+                        )
                     )
                 try:
                     started_here = False
@@ -553,14 +587,12 @@ class SignerRunnerMixin:
                 except Exception:
                     pass
             # Clear context to release message references
-            if hasattr(self, 'context') and self.context is not None:
+            if hasattr(self, "context") and self.context is not None:
                 self.context.chat_messages.clear()
                 self.context.sign_chats.clear()
 
-
     async def run_once(self, num_of_dialogs):
         return await self.run(num_of_dialogs, only_once=True, force_rerun=True)
-
 
     async def send_text(
         self, chat_id: int, text: str, delete_after: int = None, **kwargs
@@ -569,7 +601,6 @@ class SignerRunnerMixin:
             await self.login(print_chat=False)
         async with self.app:
             await self.send_message(chat_id, text, delete_after, **kwargs)
-
 
     async def send_dice_cli(
         self,
@@ -583,7 +614,6 @@ class SignerRunnerMixin:
         async with self.app:
             await self.send_dice(chat_id, emoji, delete_after, **kwargs)
 
-
     async def _on_message(self, client: Client, message: Message):
         chats = self.context.sign_chats.get(message.chat.id)
         if not chats:
@@ -594,7 +624,10 @@ class SignerRunnerMixin:
         )
         topic_matched = False
         for chat in chats:
-            if chat.message_thread_id is None or chat.message_thread_id == message_thread_id:
+            if (
+                chat.message_thread_id is None
+                or chat.message_thread_id == message_thread_id
+            ):
                 topic_matched = True
                 break
         if not topic_matched:
@@ -611,12 +644,8 @@ class SignerRunnerMixin:
             for k in oldest_keys:
                 chat_msgs.pop(k, None)
 
-
     async def on_message(self, client: Client, message: Message):
         await self._on_message(client, message)
 
-
     async def on_edited_message(self, client, message: Message):
         await self._on_message(client, message)
-
-

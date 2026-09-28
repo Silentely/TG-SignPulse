@@ -113,7 +113,9 @@ def test_api_plugin_storage_endpoints(tmp_path: Path):
         assert test_ns in ns_names
 
         # DELETE specific key in test namespace
-        del_key_resp = client.delete(f"/api/plugins/math_solver/storage?namespace={test_ns}&key=test_key")
+        del_key_resp = client.delete(
+            f"/api/plugins/math_solver/storage?namespace={test_ns}&key=test_key"
+        )
         assert del_key_resp.status_code == 200
         assert del_key_resp.json()["deleted_count"] == 1
         assert backend.get(test_ns, "test_key") is None
@@ -160,13 +162,13 @@ def test_plugin_json_auto_loading(tmp_path: Path):
     }
     (plugin_dir / "plugin.json").write_text(json.dumps(manifest), encoding="utf-8")
 
-    code = '''
+    code = """
 from tg_signer.core.plugins import PluginContext, PluginRegistry
 
 @PluginRegistry.register(name="custom_manifest_plugin", mode="reactive")
 async def handler(ctx: PluginContext):
     return True
-'''
+"""
     (plugin_dir / "main.py").write_text(code, encoding="utf-8")
 
     loaded = PluginRegistry.load_plugins_from_dir(tmp_path)
@@ -186,13 +188,13 @@ async def handler(ctx: PluginContext):
 def test_inspect_plugin_dependencies_with_package_mapping():
     from backend.api.routes.plugins import _inspect_plugin_dependencies
 
-    code = '''
+    code = """
 import yaml
 import bs4
 from PIL import Image
 import cv2
 import os
-'''
+"""
     with patch("importlib.util.find_spec", return_value=None):
         deps = _inspect_plugin_dependencies(code)
         dep_mods = {d["module"]: d for d in deps}
@@ -282,11 +284,13 @@ def test_inspect_plugin_dependencies_ignores_local_files(tmp_path: Path):
     sub_dir.mkdir()
     (sub_dir / "__init__.py").write_text("", encoding="utf-8")
 
-    code = "\n".join([
-        "import helpers",
-        "import subpkg",
-        "import yaml",
-    ])
+    code = "\n".join(
+        [
+            "import helpers",
+            "import subpkg",
+            "import yaml",
+        ]
+    )
     with patch("importlib.util.find_spec", return_value=None):
         deps = _inspect_plugin_dependencies(code, plugin_dir=plugin_dir)
         dep_names = [d["module"] for d in deps]
@@ -409,6 +413,7 @@ def test_storage_backend_closes_connection(tmp_path: Path):
 
 def test_load_plugins_from_dir_restores_syspath(tmp_path: Path):
     import sys
+
     plugin_dir = tmp_path / "my_isolated_plugin"
     plugin_dir.mkdir()
     code = 'from tg_signer.core.plugins import PluginRegistry\n@PluginRegistry.register(name="isolated_p", mode="active")\nasync def h(ctx): return True\n'

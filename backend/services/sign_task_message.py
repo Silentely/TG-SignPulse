@@ -3,6 +3,7 @@
 
 从聊天消息对象提取可读摘要，供 last_target 回填复用。
 """
+
 from __future__ import annotations
 
 from typing import Any, Dict, List
@@ -45,9 +46,7 @@ def format_target_message_summary(message: Any) -> str:
         for row in rows:
             row_texts: List[str] = []
             for button in row or []:
-                button_text = str(
-                    getattr(button, "text", None) or button or ""
-                ).strip()
+                button_text = str(getattr(button, "text", None) or button or "").strip()
                 if button_text:
                     row_texts.append(button_text)
             if row_texts:

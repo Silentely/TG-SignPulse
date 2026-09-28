@@ -60,7 +60,9 @@ class ChatConfig(BaseModel):
     delete_after: Optional[int] = Field(None, description="Delete delay seconds")
     action_interval: int = Field(1, description="Action interval seconds")
     message_thread_id: Optional[int] = Field(None, description="Thread ID")
-    source_account: Optional[str] = Field(None, description="Account used to look up this chat (for avatar)")
+    source_account: Optional[str] = Field(
+        None, description="Account used to look up this chat (for avatar)"
+    )
 
     class Config:
         extra = "allow"
@@ -69,24 +71,43 @@ class ChatConfig(BaseModel):
 class SignTaskCreate(BaseModel):
     name: str = Field(..., description="Task name")
     account_name: str = Field("", description="Primary account name for compatibility")
-    account_names: List[str] = Field(default_factory=list, description="Associated accounts")
+    account_names: List[str] = Field(
+        default_factory=list, description="Associated accounts"
+    )
     sign_at: str = Field(..., description="Schedule cron")
     chats: List[ChatConfig] = Field(..., description="Chat configs")
     random_seconds: int = Field(0, description="Random delay seconds")
-    jitter_seconds: Optional[int] = Field(0, ge=0, le=3600, description="Jitter random delay seconds, max 3600")
+    jitter_seconds: Optional[int] = Field(
+        0, ge=0, le=3600, description="Jitter random delay seconds, max 3600"
+    )
     sign_interval: Optional[int] = Field(None, description="Action interval seconds")
     execution_mode: Optional[str] = Field("fixed", description="fixed/range")
     range_start: Optional[str] = Field(None, description="Range start")
     range_end: Optional[str] = Field(None, description="Range end")
     notify_on_failure: bool = Field(True, description="Failure notification switch")
     notify_on_success: bool = Field(True, description="Success notification switch")
-    retry_count: Optional[int] = Field(None, ge=0, le=99, description="Retry count per task, default 3")
+    retry_count: Optional[int] = Field(
+        None, ge=0, le=99, description="Retry count per task, default 3"
+    )
     tags: List[str] = Field(default_factory=list, description="Task tags")
-    adaptive_schedule_enabled: bool = Field(False, description="Adaptive cooldown reschedule switch")
-    adaptive_schedule_patterns: List[str] = Field(default_factory=list, description="Custom regex patterns for adaptive cooldown")
-    adaptive_schedule_padding_seconds: int = Field(30, ge=0, le=86400, description="Padding seconds after cooldown")
-    next_task_on_success: Optional[str] = Field(None, description="Next task name to trigger on success within same account")
-    next_task_delay_seconds: Optional[float] = Field(2.0, ge=0.01, le=3600, description="Delay in seconds before triggering next task")
+    adaptive_schedule_enabled: bool = Field(
+        False, description="Adaptive cooldown reschedule switch"
+    )
+    adaptive_schedule_patterns: List[str] = Field(
+        default_factory=list, description="Custom regex patterns for adaptive cooldown"
+    )
+    adaptive_schedule_padding_seconds: int = Field(
+        30, ge=0, le=86400, description="Padding seconds after cooldown"
+    )
+    next_task_on_success: Optional[str] = Field(
+        None, description="Next task name to trigger on success within same account"
+    )
+    next_task_delay_seconds: Optional[float] = Field(
+        2.0,
+        ge=0.01,
+        le=3600,
+        description="Delay in seconds before triggering next task",
+    )
 
     @validator("name", allow_reuse=True)
     def name_must_be_valid_filename(cls, v: str) -> str:
@@ -97,25 +118,47 @@ class SignTaskCreate(BaseModel):
             raise ValueError("任务名称不能包含非法路径字符")
         return text
 
+
 class SignTaskUpdate(BaseModel):
     account_names: Optional[List[str]] = Field(None, description="Associated accounts")
     sign_at: Optional[str] = Field(None, description="Schedule cron")
     chats: Optional[List[ChatConfig]] = Field(None, description="Chat configs")
     random_seconds: Optional[int] = Field(None, description="Random delay seconds")
-    jitter_seconds: Optional[int] = Field(None, ge=0, le=3600, description="Jitter random delay seconds, max 3600")
+    jitter_seconds: Optional[int] = Field(
+        None, ge=0, le=3600, description="Jitter random delay seconds, max 3600"
+    )
     sign_interval: Optional[int] = Field(None, description="Action interval seconds")
     execution_mode: Optional[str] = Field(None, description="fixed/range")
     range_start: Optional[str] = Field(None, description="Range start")
     range_end: Optional[str] = Field(None, description="Range end")
-    notify_on_failure: Optional[bool] = Field(None, description="Failure notification switch")
-    notify_on_success: Optional[bool] = Field(None, description="Success notification switch")
-    retry_count: Optional[int] = Field(None, ge=0, le=99, description="Retry count per task")
+    notify_on_failure: Optional[bool] = Field(
+        None, description="Failure notification switch"
+    )
+    notify_on_success: Optional[bool] = Field(
+        None, description="Success notification switch"
+    )
+    retry_count: Optional[int] = Field(
+        None, ge=0, le=99, description="Retry count per task"
+    )
     tags: Optional[List[str]] = Field(None, description="Task tags")
-    adaptive_schedule_enabled: Optional[bool] = Field(None, description="Adaptive cooldown reschedule switch")
-    adaptive_schedule_patterns: Optional[List[str]] = Field(None, description="Custom regex patterns for adaptive cooldown")
-    adaptive_schedule_padding_seconds: Optional[int] = Field(None, ge=0, le=86400, description="Padding seconds after cooldown")
-    next_task_on_success: Optional[str] = Field(None, description="Next task name to trigger on success within same account")
-    next_task_delay_seconds: Optional[float] = Field(None, ge=0.01, le=3600, description="Delay in seconds before triggering next task")
+    adaptive_schedule_enabled: Optional[bool] = Field(
+        None, description="Adaptive cooldown reschedule switch"
+    )
+    adaptive_schedule_patterns: Optional[List[str]] = Field(
+        None, description="Custom regex patterns for adaptive cooldown"
+    )
+    adaptive_schedule_padding_seconds: Optional[int] = Field(
+        None, ge=0, le=86400, description="Padding seconds after cooldown"
+    )
+    next_task_on_success: Optional[str] = Field(
+        None, description="Next task name to trigger on success within same account"
+    )
+    next_task_delay_seconds: Optional[float] = Field(
+        None,
+        ge=0.01,
+        le=3600,
+        description="Delay in seconds before triggering next task",
+    )
 
 
 class LastRunInfo(BaseModel):
@@ -406,7 +449,9 @@ def delete_sign_task(
     current_user=Depends(get_current_user),
 ):
     try:
-        success = get_sign_task_service().delete_task(task_name, account_name=account_name)
+        success = get_sign_task_service().delete_task(
+            task_name, account_name=account_name
+        )
         if not success:
             raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
 
@@ -542,7 +587,9 @@ def _resolve_task_account(task_name: str, account_name: Optional[str]) -> str:
         if not resolved_account:
             raise HTTPException(status_code=400, detail="TASK_ACCOUNT_UNRESOLVED")
     else:
-        task = get_sign_task_service().get_task(task_name, account_name=resolved_account)
+        task = get_sign_task_service().get_task(
+            task_name, account_name=resolved_account
+        )
         if not task:
             raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
     return str(resolved_account)
@@ -616,7 +663,9 @@ def get_sign_task_logs(
     current_user=Depends(get_current_user),
 ):
     effective_account = _resolve_effective_account(account_name)
-    return get_sign_task_service().get_active_logs(task_name, account_name=effective_account)
+    return get_sign_task_service().get_active_logs(
+        task_name, account_name=effective_account
+    )
 
 
 @router.get("/{task_name}/history", response_model=List[TaskHistoryItem])
@@ -771,9 +820,7 @@ async def get_chat_avatar(
             avatar_bytes = await avatar_cache.get_avatar_bytes(
                 cache_file,
                 no_avatar_marker,
-                lambda a=try_account: telegram_service.download_chat_avatar(
-                    a, chat_id
-                ),
+                lambda a=try_account: telegram_service.download_chat_avatar(a, chat_id),
             )
             if avatar_bytes:
                 return Response(content=avatar_bytes, media_type="image/jpeg")
@@ -797,11 +844,15 @@ async def sign_task_logs_ws(
     websocket: WebSocket,
     task_name: str,
     account_name: str | None = Query(None),
-    ticket: str = Query(..., description="一次性流接入票据，由 POST /api/events/ticket 签发"),
+    ticket: str = Query(
+        ..., description="一次性流接入票据，由 POST /api/events/ticket 签发"
+    ),
 ):
     # 浏览器 WebSocket 同样无法设置 Authorization，改为一次性票据接入：
     # 票据绑定用途与 task_name，兑换后立即作废，URL 重放会直接握手失败
-    principal = get_stream_ticket_store().consume(ticket, PURPOSE_TASK_RUN_WS, task_name)
+    principal = get_stream_ticket_store().consume(
+        ticket, PURPOSE_TASK_RUN_WS, task_name
+    )
     if principal is None:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return

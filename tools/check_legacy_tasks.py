@@ -9,6 +9,7 @@
     python tools/check_legacy_tasks.py
     APP_DATA_DIR=./data python tools/check_legacy_tasks.py --json
 """
+
 from __future__ import annotations
 
 import argparse
@@ -93,9 +94,7 @@ def main() -> int:
     print(f"模型已移除: {report['models_removed']}")
     print(f"路由已移除: {report['routes_removed']}")
     for name, info in tables.items():
-        print(
-            f"  {name}: exists={info['exists']} rows={info['row_count']}"
-        )
+        print(f"  {name}: exists={info['exists']} rows={info['row_count']}")
     print(f"建议: {report['hint']}")
     return 0
 

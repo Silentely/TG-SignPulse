@@ -12,7 +12,9 @@ async def _noop_sleep(_seconds):
 @pytest.mark.asyncio
 async def test_chatops_help_command():
     worker = TelegramChatOpsWorker()
-    with patch("backend.services.chatops_bot.send_telegram_bot_message", new_callable=AsyncMock) as mock_send:
+    with patch(
+        "backend.services.chatops_bot.send_telegram_bot_message", new_callable=AsyncMock
+    ) as mock_send:
         await worker.handle_command("dummy_token", "12345", "/help", {})
         mock_send.assert_called_once()
         text = mock_send.call_args[1]["text"]
@@ -23,10 +25,14 @@ async def test_chatops_help_command():
 @pytest.mark.asyncio
 async def test_chatops_status_command():
     worker = TelegramChatOpsWorker()
-    with patch("backend.services.chatops_bot.send_telegram_bot_message", new_callable=AsyncMock) as mock_send, \
-         patch("backend.services.sign_tasks.get_sign_task_service") as mock_svc, \
-         patch("backend.services.telegram.get_telegram_service") as mock_acc_svc:
-
+    with (
+        patch(
+            "backend.services.chatops_bot.send_telegram_bot_message",
+            new_callable=AsyncMock,
+        ) as mock_send,
+        patch("backend.services.sign_tasks.get_sign_task_service") as mock_svc,
+        patch("backend.services.telegram.get_telegram_service") as mock_acc_svc,
+    ):
         mock_svc.return_value.list_tasks.return_value = [{"name": "task1"}]
         mock_svc.return_value.list_active_runs.return_value = []
         mock_acc_svc.return_value.list_accounts.return_value = ["acc1"]
@@ -41,10 +47,16 @@ async def test_chatops_status_command():
 @pytest.mark.asyncio
 async def test_chatops_run_command():
     worker = TelegramChatOpsWorker()
-    with patch("backend.services.chatops_bot.send_telegram_bot_message", new_callable=AsyncMock) as mock_send, \
-         patch("backend.services.sign_tasks.get_sign_task_service") as mock_svc:
-
-        mock_svc.return_value.list_tasks.return_value = [{"name": "my_sign", "account_name": "acc1"}]
+    with (
+        patch(
+            "backend.services.chatops_bot.send_telegram_bot_message",
+            new_callable=AsyncMock,
+        ) as mock_send,
+        patch("backend.services.sign_tasks.get_sign_task_service") as mock_svc,
+    ):
+        mock_svc.return_value.list_tasks.return_value = [
+            {"name": "my_sign", "account_name": "acc1"}
+        ]
         mock_svc.return_value.run_task_with_logs = AsyncMock()
 
         # 无参数提示
@@ -208,16 +220,15 @@ class TestChatOpsHtmlEscaping:
         from unittest.mock import AsyncMock, patch
 
         worker = TelegramChatOpsWorker()
-        with patch(
-            "backend.services.chatops_bot.send_telegram_bot_message",
-            new_callable=AsyncMock,
-        ) as mock_send, patch(
-            "backend.services.sign_tasks.get_sign_task_service"
-        ) as mock_svc:
+        with (
+            patch(
+                "backend.services.chatops_bot.send_telegram_bot_message",
+                new_callable=AsyncMock,
+            ) as mock_send,
+            patch("backend.services.sign_tasks.get_sign_task_service") as mock_svc,
+        ):
             mock_svc.return_value.list_tasks.return_value = []
-            await worker.handle_command(
-                "tok", "555", "/run <b>pwned</b>", {}
-            )
+            await worker.handle_command("tok", "555", "/run <b>pwned</b>", {})
             text = mock_send.call_args[1]["text"]
             assert "&lt;b&gt;pwned&lt;/b&gt;" in text
             assert "<b>pwned</b>" not in text
@@ -227,12 +238,13 @@ class TestChatOpsHtmlEscaping:
         from unittest.mock import AsyncMock, patch
 
         worker = TelegramChatOpsWorker()
-        with patch(
-            "backend.services.chatops_bot.send_telegram_bot_message",
-            new_callable=AsyncMock,
-        ) as mock_send, patch(
-            "backend.services.sign_tasks.get_sign_task_service"
-        ) as mock_svc:
+        with (
+            patch(
+                "backend.services.chatops_bot.send_telegram_bot_message",
+                new_callable=AsyncMock,
+            ) as mock_send,
+            patch("backend.services.sign_tasks.get_sign_task_service") as mock_svc,
+        ):
             mock_svc.return_value.list_tasks.return_value = [
                 {"name": "task<&", "account_name": "acc>"}
             ]

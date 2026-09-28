@@ -1,4 +1,5 @@
 """全局异常处理器测试 — 覆盖 main.py 的 global_exception_handler"""
+
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
@@ -109,11 +110,12 @@ class TestGlobalExceptionHandler:
         body = response.text
         # 不应包含 Python 堆栈信息
         assert "Traceback" not in body
-        assert "File \"" not in body  # 不应包含文件路径
+        assert 'File "' not in body  # 不应包含文件路径
 
     def test_fastapi_docs_endpoints_disabled_by_default(self, client: TestClient):
         """安全加固：生产环境下默认禁用 /docs, /redoc, /openapi.json，防止接口结构外泄"""
         from backend.main import app
+
         assert app.docs_url is None
         assert app.redoc_url is None
         assert app.openapi_url is None
@@ -121,7 +123,9 @@ class TestGlobalExceptionHandler:
         # 请求 /openapi.json 绝不应返回 OpenAPI 架构 JSON，默认应返回标准 404 JSON
         res_openapi = client.get("/openapi.json")
         assert res_openapi.status_code == 404
-        assert res_openapi.headers.get("content-type", "").startswith("application/json")
+        assert res_openapi.headers.get("content-type", "").startswith(
+            "application/json"
+        )
         assert res_openapi.json() == {"detail": "Not Found"}
 
     def test_docs_url_helper_respects_env(self, monkeypatch):

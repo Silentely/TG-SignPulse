@@ -4,6 +4,7 @@
 服务重启/重连后 Telegram 会补投停机期间的旧消息，
 按 (账号, 会话) 已处理水位跳过，避免重复命中、推送与命中记录。
 """
+
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -231,7 +232,9 @@ async def test_sync_cleans_up_client_on_aenter_failure(tmp_path: Path, monkeypat
 
     service = KeywordMonitorService()
     monkeypatch.setattr(service, "_load_rules", lambda: [_make_rule()])
-    monkeypatch.setattr("tg_signer.core.get_client", lambda *args, **kwargs: mock_client)
+    monkeypatch.setattr(
+        "tg_signer.core.get_client", lambda *args, **kwargs: mock_client
+    )
 
     await service.restart_from_tasks()
     assert "acc" in closed_accounts

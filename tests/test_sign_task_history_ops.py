@@ -36,9 +36,7 @@ class _StubHistoryService(SignTaskHistoryMixin):
 
     def register_task(self, task_name: str, account_name: str) -> None:
         """登记一个已知任务，供 clear_account_history_logs 枚举。"""
-        self._known_tasks.append(
-            {"name": task_name, "account_name": account_name}
-        )
+        self._known_tasks.append({"name": task_name, "account_name": account_name})
 
     def list_tasks(self, account_name: str = ""):
         if account_name:
@@ -259,7 +257,9 @@ class TestHistoryAccountIsolation:
         assert len(kept) == 1
         assert kept[0]["message"] == "theirs"
 
-    def test_clear_account_only_unlinks_when_all_entries_belong_to_it(self, tmp_path: Path):
+    def test_clear_account_only_unlinks_when_all_entries_belong_to_it(
+        self, tmp_path: Path
+    ):
         """文件里混有其他账号条目时不得整文件删除，只移除属于该账号的条目。"""
         svc = _make_service(tmp_path)
         svc.register_task("t", "a")
@@ -307,14 +307,22 @@ class TestHistoryAccountIsolation:
 class TestLegacyHistoryMigration:
     """升级前编码路径（未转义 _ / %）的历史在回写后必须仍然可见。"""
 
-    def _seed_legacy(self, svc: _StubHistoryService, task: str, account: str, message: str):
+    def _seed_legacy(
+        self, svc: _StubHistoryService, task: str, account: str, message: str
+    ):
         from backend.services.sign_task_history_io import legacy_history_file_path
 
         legacy = legacy_history_file_path(svc.run_history_dir, task, account)
         legacy.parent.mkdir(parents=True, exist_ok=True)
         legacy.write_text(
             json.dumps(
-                [{"time": "2026-09-01T00:00:00Z", "account_name": account, "message": message}]
+                [
+                    {
+                        "time": "2026-09-01T00:00:00Z",
+                        "account_name": account,
+                        "message": message,
+                    }
+                ]
             ),
             encoding="utf-8",
         )
@@ -325,7 +333,9 @@ class TestLegacyHistoryMigration:
         svc = _make_service(tmp_path)
         legacy = self._seed_legacy(svc, "daily_task", "acct_1", "old")
 
-        svc._save_run_info("daily_task", success=True, message="new", account_name="acct_1")
+        svc._save_run_info(
+            "daily_task", success=True, message="new", account_name="acct_1"
+        )
 
         history = _read_history(svc, "daily_task", "acct_1")
         assert [e["message"] for e in history] == ["new", "old"]

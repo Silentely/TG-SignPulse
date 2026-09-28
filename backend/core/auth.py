@@ -34,10 +34,10 @@ _TOTP_CODE_REUSE_WINDOW = 120  # 2 分钟（覆盖当前 + 上一个窗口）
 def _cleanup_used_totp_codes() -> None:
     """清理过期的已使用 code 记录（必须在 _totp_lock 内调用）"""
     import time
+
     now = time.monotonic()
     expired = [
-        k for k, v in _used_totp_codes.items()
-        if now - v > _TOTP_CODE_REUSE_WINDOW
+        k for k, v in _used_totp_codes.items() if now - v > _TOTP_CODE_REUSE_WINDOW
     ]
     for k in expired:
         _used_totp_codes.pop(k, None)
@@ -79,6 +79,7 @@ def verify_totp(secret: str, code: str) -> bool:
         # 重放保护：使用 secret+code 的哈希作为 key（线程安全）
         import hashlib
         import time
+
         code_hash = hashlib.sha256(f"{secret}:{code}".encode()).hexdigest()[:16]
         now = time.monotonic()
         with _totp_lock:
@@ -98,9 +99,7 @@ def verify_totp(secret: str, code: str) -> bool:
         return False
     except Exception:
         # 兜底：未知异常不能让认证接口崩溃
-        logging.getLogger("backend.auth").exception(
-            "TOTP 验证发生未知异常，按失败处理"
-        )
+        logging.getLogger("backend.auth").exception("TOTP 验证发生未知异常，按失败处理")
         return False
 
 
@@ -151,7 +150,11 @@ def _resolve_user_from_token(token: str, db: Session) -> Optional[User]:
     except (TypeError, ValueError):
         current_epoch = 1
     if int(token_epoch) != current_epoch:
-        logger.debug("JWT 世代号已过期（tep=%r, 当前=%d），按已吊销处理", token_epoch, current_epoch)
+        logger.debug(
+            "JWT 世代号已过期（tep=%r, 当前=%d），按已吊销处理",
+            token_epoch,
+            current_epoch,
+        )
         return None
     return user
 

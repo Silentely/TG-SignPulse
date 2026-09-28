@@ -1,4 +1,5 @@
 """关键词监控服务（规则见 rules.py，继续动作执行见 continue_actions.py）。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -125,7 +126,11 @@ class KeywordMonitorService:
             callback,
             operation=operation,
             max_retries=max_retries,
-            log=lambda level, msg: logger.warning("%s", msg) if level == "WARNING" else logger.info("%s", msg),
+            log=lambda level, msg: (
+                logger.warning("%s", msg)
+                if level == "WARNING"
+                else logger.info("%s", msg)
+            ),
             reconnect=lambda: self._ensure_client_ready(client),
         )
 
@@ -184,9 +189,13 @@ class KeywordMonitorService:
             active=active,
         )
 
-    def get_task_logs(self, task_name: str, account_name: Optional[str] = None) -> list[str]:
+    def get_task_logs(
+        self, task_name: str, account_name: Optional[str] = None
+    ) -> list[str]:
         if account_name:
-            return list(self._task_logs.get(self._task_key(account_name, task_name), []))
+            return list(
+                self._task_logs.get(self._task_key(account_name, task_name), [])
+            )
 
         for (_item_account, item_task), logs in self._task_logs.items():
             if item_task == task_name:
@@ -465,7 +474,10 @@ class KeywordMonitorService:
     def _maybe_persist_seen_state(self, *, force: bool = False) -> None:
         if not self._seen_dirty:
             return
-        if not force and time.monotonic() - self._last_seen_persist < _SEEN_PERSIST_INTERVAL:
+        if (
+            not force
+            and time.monotonic() - self._last_seen_persist < _SEEN_PERSIST_INTERVAL
+        ):
             return
         self._persist_seen_state()
 
@@ -504,7 +516,9 @@ class KeywordMonitorService:
 
         return False
 
-    async def _on_message(self, account_name: str, client: Any, message: Message) -> None:
+    async def _on_message(
+        self, account_name: str, client: Any, message: Message
+    ) -> None:
         try:
             from backend.services.config import get_config_service
 
@@ -515,14 +529,15 @@ class KeywordMonitorService:
             if chat_id is None:
                 return
             # 重启/重连后 Telegram 会补投停机期间的旧消息，按已处理水位跳过
-            if self._is_seen_message(account_name, chat_id, getattr(message, "id", None)):
+            if self._is_seen_message(
+                account_name, chat_id, getattr(message, "id", None)
+            ):
                 return
             message_thread_id = self._message_thread_id(message)
             same_chat_rules = [
                 rule
                 for rule in self._rules
-                if rule.account_name == account_name
-                and rule.chat_id == message.chat.id
+                if rule.account_name == account_name and rule.chat_id == message.chat.id
             ]
             if not same_chat_rules:
                 return
@@ -662,7 +677,9 @@ class KeywordMonitorService:
                     url=url,
                 )
 
-                push_channel = str(rule.action.get("push_channel") or "telegram").strip()
+                push_channel = str(
+                    rule.action.get("push_channel") or "telegram"
+                ).strip()
                 # 分派：转发 / 继续动作 / 推送三者互斥，按配置通道分发到对应 handler
                 if push_channel == "forward":
                     await self._handle_forward(
@@ -722,10 +739,12 @@ class KeywordMonitorService:
                 forward_payload += f"\n\n链接: {url}"
             await self._call_client_with_retry(
                 client,
-                lambda _forward_chat_id=forward_chat_id, _forward_payload=forward_payload[:3900], _forward_kwargs=dict(forward_kwargs): client.send_message(
-                    _forward_chat_id,
-                    _forward_payload,
-                    **_forward_kwargs,
+                lambda _forward_chat_id=forward_chat_id, _forward_payload=forward_payload[:3900], _forward_kwargs=dict(forward_kwargs): (
+                    client.send_message(
+                        _forward_chat_id,
+                        _forward_payload,
+                        **_forward_kwargs,
+                    )
                 ),
                 operation=f"keyword monitor forward match {forward_chat_id}",
             )
@@ -769,10 +788,9 @@ class KeywordMonitorService:
         push_settings["keyword_monitor_push_channel"] = push_channel
         push_settings["keyword_monitor_bark_url"] = rule.action.get("bark_url")
         push_settings["keyword_monitor_custom_url"] = rule.action.get("custom_url")
-        push_settings["keyword_monitor_server_chan_send_key"] = (
-            rule.action.get("server_chan_send_key")
-            or rule.action.get("server_chan_sendkey")
-        )
+        push_settings["keyword_monitor_server_chan_send_key"] = rule.action.get(
+            "server_chan_send_key"
+        ) or rule.action.get("server_chan_sendkey")
         try:
             await send_keyword_push(
                 push_settings,
@@ -907,7 +925,9 @@ class KeywordMonitorService:
             accounts = sorted({rule.account_name for rule in rules})
             started_accounts: set[str] = set()
             for account_name in accounts:
-                account_rules = [rule for rule in rules if rule.account_name == account_name]
+                account_rules = [
+                    rule for rule in rules if rule.account_name == account_name
+                ]
                 chat_ids = sorted({rule.chat_id for rule in account_rules})
                 proxy_value = resolve_effective_proxy(
                     account_name,
@@ -922,7 +942,10 @@ class KeywordMonitorService:
                             active=False,
                         )
                     continue
-                if bool(global_settings.get("require_proxy_for_telegram")) and not proxy:
+                if (
+                    bool(global_settings.get("require_proxy_for_telegram"))
+                    and not proxy
+                ):
                     for rule in account_rules:
                         self._append_rule_log(
                             rule,
@@ -1012,7 +1035,9 @@ class KeywordMonitorService:
                         except Exception:
                             pass
                         try:
-                            await close_client_by_name(account_name, workdir=session_dir)
+                            await close_client_by_name(
+                                account_name, workdir=session_dir
+                            )
                         except Exception:
                             pass
                         logger.warning(

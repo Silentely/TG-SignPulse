@@ -3,6 +3,7 @@
 支持用户自定义正则表达式从 Bot 消息中提取验证码、口令、答案等内容，
 并按模板渲染后自动回复。
 """
+
 import asyncio
 import json
 import sys
@@ -20,7 +21,7 @@ ICON = "code"
 _REGEX_TIMEOUT_SECONDS = 0.2
 _MAX_PATTERN_LENGTH = 512
 _MAX_MESSAGE_LENGTH = 4096
-_REGEX_WORKER = r'''
+_REGEX_WORKER = r"""
 import json
 import re
 import sys
@@ -37,7 +38,7 @@ try:
 except re.error as exc:
     result = {"ok": False, "error": str(exc)}
 print(json.dumps(result, ensure_ascii=False))
-'''
+"""
 
 PARAMS_SCHEMA = [
     {
@@ -125,7 +126,9 @@ async def regex_reply_handler(ctx: PluginContext) -> bool:
         ctx.log("[regex_reply] 正则匹配结果无法解析")
         return False
     if not result.get("ok"):
-        ctx.log(f"[regex_reply] 无效的正则表达式 {pattern_str!r}: {result.get('error', '')}")
+        ctx.log(
+            f"[regex_reply] 无效的正则表达式 {pattern_str!r}: {result.get('error', '')}"
+        )
         return False
     match_text = result.get("match")
     if match_text is None:

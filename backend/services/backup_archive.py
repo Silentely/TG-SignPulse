@@ -70,7 +70,15 @@ def create_backup_tarball(
                 for rel in paths:
                     # 拒绝绝对路径与父目录穿越
                     rel_p = Path(rel) if rel else None
-                    if not rel or not rel_p or rel_p.is_absolute() or rel.startswith(("/", chr(92))) or ":" in rel or chr(0) in rel or ".." in rel_p.parts:
+                    if (
+                        not rel
+                        or not rel_p
+                        or rel_p.is_absolute()
+                        or rel.startswith(("/", chr(92)))
+                        or ":" in rel
+                        or chr(0) in rel
+                        or ".." in rel_p.parts
+                    ):
                         logger.warning("跳过非法备份路径: %s", rel)
                         continue
                     src = (data_dir / rel).resolve()
@@ -189,7 +197,11 @@ def run_auto_backup(
 
     # 显式策略下若目标未就绪，记录 attempted 失败避免调度器静默漏报
     if target_mode in {"both", "webdav"} and not wd_ready:
-        webdav_result = {"success": False, "attempted": True, "error": "WebDAV 服务地址未配置"}
+        webdav_result = {
+            "success": False,
+            "attempted": True,
+            "error": "WebDAV 服务地址未配置",
+        }
     elif do_webdav:
         wd_proxy = str(wd.get("webdav_proxy") or wd.get("proxy") or "").strip() or None
         try:
@@ -227,7 +239,11 @@ def run_auto_backup(
                 remote_prune = {"success": False, "removed": 0, "error": str(exc)}
 
     if target_mode in {"both", "s3"} and not s3_is_ready:
-        s3_result = {"success": False, "attempted": True, "error": "对象存储未启用或凭据未配置完整"}
+        s3_result = {
+            "success": False,
+            "attempted": True,
+            "error": "对象存储未启用或凭据未配置完整",
+        }
     elif do_s3:
         try:
             s3_result = _run_coro_blocking(_upload_backup_to_s3(s3, dest))
@@ -256,8 +272,10 @@ def run_auto_backup(
     if target_mode == "both":
         if do_webdav and do_s3:
             upload_succeeded = bool(
-                webdav_result and webdav_result.get("success")
-                and s3_result and s3_result.get("success")
+                webdav_result
+                and webdav_result.get("success")
+                and s3_result
+                and s3_result.get("success")
             )
         elif do_webdav:
             upload_succeeded = bool(webdav_result and webdav_result.get("success"))
@@ -281,7 +299,9 @@ def run_auto_backup(
         except OSError as exc:
             logger.warning("删除本地自动备份失败 %s: %s", dest, exc)
     elif target_mode == "both" and (do_webdav or do_s3):
-        logger.info("备份模式为 both 且远端未全量完成，保留本地副本作为容灾兜底: %s", dest)
+        logger.info(
+            "备份模式为 both 且远端未全量完成，保留本地副本作为容灾兜底: %s", dest
+        )
 
     removed = prune_backups(backup_dir, keep)
     return {

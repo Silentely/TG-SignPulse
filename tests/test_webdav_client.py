@@ -132,9 +132,7 @@ def test_upload_nested_remote_dir_mkcol(tmp_path: Path):
             remote_dir="backups/tg/daily",
             local_path=f,
         )
-    mkcols = [
-        c for c in mock_client.request.call_args_list if c.args[0] == "MKCOL"
-    ]
+    mkcols = [c for c in mock_client.request.call_args_list if c.args[0] == "MKCOL"]
     assert len(mkcols) == 3
 
 
@@ -209,9 +207,7 @@ def test_list_webdav_files_filters_tar_gz():
     mock_client = MagicMock()
     mock_client.__enter__ = MagicMock(return_value=mock_client)
     mock_client.__exit__ = MagicMock(return_value=False)
-    mock_client.request.return_value = MagicMock(
-        status_code=207, text=_SAMPLE_PROPFIND
-    )
+    mock_client.request.return_value = MagicMock(status_code=207, text=_SAMPLE_PROPFIND)
     with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client):
         result = list_webdav_files(
             base_url="https://93.184.216.34/remote.php/dav/files/u",
@@ -277,6 +273,7 @@ def test_download_webdav_file(tmp_path: Path):
         )
     assert path.read_bytes() == b"abcdef"
     import stat
+
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert list(tmp_path.glob("*.tmp-*")) == []
 
@@ -351,13 +348,16 @@ def test_prune_webdav_backups_keeps_n():
         {"name": f"auto-{i}.tar.gz", "mtime": f"Wed, 0{i} Jan 2025 12:00:00 GMT"}
         for i in range(5, 0, -1)
     ]
-    with patch(
-        "backend.services.webdav_client.list_webdav_files",
-        return_value={"success": True, "files": files},
-    ), patch(
-        "backend.services.webdav_client.delete_webdav_file",
-        return_value={"success": True},
-    ) as del_m:
+    with (
+        patch(
+            "backend.services.webdav_client.list_webdav_files",
+            return_value={"success": True, "files": files},
+        ),
+        patch(
+            "backend.services.webdav_client.delete_webdav_file",
+            return_value={"success": True},
+        ) as del_m,
+    ):
         r = prune_webdav_backups(
             base_url="https://93.184.216.34/files/u",
             username="u",
@@ -379,9 +379,7 @@ def test_backup_sort_key_prefers_http_date_and_filename_ts():
     )
     assert newer > older
     by_name = _backup_sort_key({"name": "auto-20260102-010203.tar.gz", "mtime": ""})
-    by_name_old = _backup_sort_key(
-        {"name": "auto-20260101-010203.tar.gz", "mtime": ""}
-    )
+    by_name_old = _backup_sort_key({"name": "auto-20260101-010203.tar.gz", "mtime": ""})
     assert by_name > by_name_old
 
 
@@ -423,9 +421,7 @@ def _mock_httpx_client(request_side_effect=None, request_return=None, head_retur
 
 def test_webdav_connection_ok_when_dir_exists():
     """远端目录已存在：PROPFIND 207 → 成功。"""
-    mock_client = _mock_httpx_client(
-        request_return=MagicMock(status_code=207, text="")
-    )
+    mock_client = _mock_httpx_client(request_return=MagicMock(status_code=207, text=""))
     with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client):
         r = check_webdav_connection(
             base_url="https://93.184.216.34/files/u",
@@ -522,9 +518,7 @@ def test_webdav_connection_auth_fail_on_401():
 
 def test_webdav_connection_base_only_403_is_auth_fail():
     """未配置 remote_dir 时 base 403 直接鉴权失败。"""
-    mock_client = _mock_httpx_client(
-        request_return=MagicMock(status_code=403, text="")
-    )
+    mock_client = _mock_httpx_client(request_return=MagicMock(status_code=403, text=""))
     with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client):
         r = check_webdav_connection(
             base_url="https://93.184.216.34/files/u",
@@ -543,9 +537,13 @@ def test_webdav_operations_support_proxy(tmp_path: Path):
     mock_client.__enter__ = MagicMock(return_value=mock_client)
     mock_client.__exit__ = MagicMock(return_value=False)
     mock_client.request.return_value = MagicMock(status_code=201, text="")
-    mock_client.put.return_value = MagicMock(status_code=201, text="", reason_phrase="Created")
+    mock_client.put.return_value = MagicMock(
+        status_code=201, text="", reason_phrase="Created"
+    )
 
-    with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client) as mock_cls:
+    with patch(
+        "backend.services.webdav_client.httpx.Client", return_value=mock_client
+    ) as mock_cls:
         upload_file_to_webdav(
             base_url="https://93.184.216.34/files/u",
             username="u",
@@ -556,7 +554,9 @@ def test_webdav_operations_support_proxy(tmp_path: Path):
         )
         assert mock_cls.call_args.kwargs.get("proxy") == "http://127.0.0.1:7890"
 
-    with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client) as mock_cls:
+    with patch(
+        "backend.services.webdav_client.httpx.Client", return_value=mock_client
+    ) as mock_cls:
         check_webdav_connection(
             base_url="https://93.184.216.34/files/u",
             username="u",

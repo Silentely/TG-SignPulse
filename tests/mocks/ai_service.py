@@ -37,9 +37,7 @@ class MockCompletions:
     def __init__(self, responses: Optional[List[Any]] = None):
         self.responses = list(responses or [])
         self.calls: List[Dict[str, Any]] = []
-        self._default_response = MockCompletionResponse(
-            content='{"options": [1]}'
-        )
+        self._default_response = MockCompletionResponse(content='{"options": [1]}')
 
     def configure_responses(self, responses: List[Any]):
         """配置响应序列"""
@@ -116,12 +114,14 @@ class MockAITools:
         ai_prompt: Optional[str] = None,
     ) -> int:
         """模拟图片选项选择"""
-        self.choose_option_calls.append({
-            "image_size": len(image),
-            "query": query,
-            "options": options,
-            "ai_prompt": ai_prompt,
-        })
+        self.choose_option_calls.append(
+            {
+                "image_size": len(image),
+                "query": query,
+                "options": options,
+                "ai_prompt": ai_prompt,
+            }
+        )
         result = self._choose_option_result[0] if self._choose_option_result else 1
         return result
 
@@ -133,12 +133,14 @@ class MockAITools:
         ai_prompt: Optional[str] = None,
     ) -> List[int]:
         """模拟图片多选项选择"""
-        self.choose_options_calls.append({
-            "image_size": len(image),
-            "query": query,
-            "options": options,
-            "ai_prompt": ai_prompt,
-        })
+        self.choose_options_calls.append(
+            {
+                "image_size": len(image),
+                "query": query,
+                "options": options,
+                "ai_prompt": ai_prompt,
+            }
+        )
         return self._choose_options_by_image_result
 
     async def reply_calculation_problem(
@@ -147,10 +149,12 @@ class MockAITools:
         ai_prompt: Optional[str] = None,
     ) -> str:
         """模拟计算题解答"""
-        self.calculate_calls.append({
-            "text": text,
-            "ai_prompt": ai_prompt,
-        })
+        self.calculate_calls.append(
+            {
+                "text": text,
+                "ai_prompt": ai_prompt,
+            }
+        )
         return self._calculate_result
 
     async def extract_text_by_image(
@@ -159,10 +163,12 @@ class MockAITools:
         ai_prompt: Optional[str] = None,
     ) -> str:
         """模拟图片文字提取"""
-        self.extract_text_calls.append({
-            "image_size": len(image),
-            "ai_prompt": ai_prompt,
-        })
+        self.extract_text_calls.append(
+            {
+                "image_size": len(image),
+                "ai_prompt": ai_prompt,
+            }
+        )
         return self._extract_text_result
 
     async def calculate_and_click(
@@ -172,9 +178,11 @@ class MockAITools:
         ai_prompt: Optional[str] = None,
     ) -> int:
         """模拟计算后选择按钮"""
-        self.calculate_calls.append({
-            "text": text,
-            "options": options,
-            "ai_prompt": ai_prompt,
-        })
+        self.calculate_calls.append(
+            {
+                "text": text,
+                "options": options,
+                "ai_prompt": ai_prompt,
+            }
+        )
         return self._choose_option_result[0] if self._choose_option_result else 1

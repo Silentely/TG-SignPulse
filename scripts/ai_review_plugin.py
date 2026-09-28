@@ -96,9 +96,8 @@ def _call_llm(prompt: str) -> Tuple[Optional[Dict[str, Any]], str]:
         or os.environ.get("GEMINI_API_KEY")
         or os.environ.get("GOOGLE_API_KEY")
     )
-    openai_key = (
-        os.environ.get("PLUGIN_REVIEW_API_KEY")
-        or os.environ.get("OPENAI_API_KEY")
+    openai_key = os.environ.get("PLUGIN_REVIEW_API_KEY") or os.environ.get(
+        "OPENAI_API_KEY"
     )
 
     raw_text = ""
@@ -150,11 +149,12 @@ def _call_llm(prompt: str) -> Tuple[Optional[Dict[str, Any]], str]:
         return None, f"json_decode_error: {exc} (raw: {raw_text[:200]})"
 
 
-def build_review_prompt(plugin_manifest: Dict[str, Any], python_files: Dict[str, str], readme_text: str) -> str:
+def build_review_prompt(
+    plugin_manifest: Dict[str, Any], python_files: Dict[str, str], readme_text: str
+) -> str:
     """Construct a comprehensive prompt for security audit and metadata enrichment."""
     files_str = "\n\n".join(
-        f"--- File: {fname} ---\n{content}"
-        for fname, content in python_files.items()
+        f"--- File: {fname} ---\n{content}" for fname, content in python_files.items()
     )
 
     prompt = f"""
@@ -252,11 +252,18 @@ def review_plugin_directory(
             "verdict": "APPROVED",
             "risk_level": "SAFE",
             "security_findings": ["No security issues detected (Mock Mode)."],
-            "performance_diagnostics": ["Async event-loop clean, no blocking calls (Mock Mode)."],
+            "performance_diagnostics": [
+                "Async event-loop clean, no blocking calls (Mock Mode)."
+            ],
             "enriched_metadata": {
                 "description_zh": manifest.get("description", "优质社区插件"),
-                "description_en": manifest.get("description_en", "A high quality community plugin for TG-SignPulse."),
-                "tags": manifest.get("tags", ["community", manifest.get("category", "utility")]),
+                "description_en": manifest.get(
+                    "description_en",
+                    "A high quality community plugin for TG-SignPulse.",
+                ),
+                "tags": manifest.get(
+                    "tags", ["community", manifest.get("category", "utility")]
+                ),
                 "features": manifest.get("features", ["自动化处理", "轻量高效"]),
                 "suggested_category": manifest.get("category", "utility"),
             },
@@ -273,7 +280,9 @@ def review_plugin_directory(
     return True, result_data, backend
 
 
-def format_markdown_pr_comment(plugin_id: str, review_result: Dict[str, Any], backend: str) -> str:
+def format_markdown_pr_comment(
+    plugin_id: str, review_result: Dict[str, Any], backend: str
+) -> str:
     """Format review findings into a GitHub PR comment."""
     verdict = review_result.get("verdict", "NEEDS_DISCUSSION")
     risk = review_result.get("risk_level", "UNKNOWN")
@@ -316,8 +325,12 @@ def format_markdown_pr_comment(plugin_id: str, review_result: Dict[str, Any], ba
     lines.append("### 📝 AI 建议优化元数据")
     lines.append(f"- **中文简介 (zh-CN)**: {meta.get('description_zh', 'N/A')}")
     lines.append(f"- **英文简介 (en-US)**: {meta.get('description_en', 'N/A')}")
-    lines.append(f"- **推荐标签 (Tags)**: {', '.join(f'`{t}`' for t in meta.get('tags', []))}")
-    lines.append(f"- **推荐分类 (Category)**: `{meta.get('suggested_category', 'utility')}`")
+    lines.append(
+        f"- **推荐标签 (Tags)**: {', '.join(f'`{t}`' for t in meta.get('tags', []))}"
+    )
+    lines.append(
+        f"- **推荐分类 (Category)**: `{meta.get('suggested_category', 'utility')}`"
+    )
     if meta.get("features"):
         lines.append("- **核心特性亮点**:")
         for feat in meta.get("features", []):
@@ -333,12 +346,27 @@ def format_markdown_pr_comment(plugin_id: str, review_result: Dict[str, Any], ba
 
 
 def main():
-    parser = argparse.ArgumentParser(description="TG-SignPulse Community Plugin AI Reviewer")
-    parser.add_argument("plugin_dir", type=Path, help="Path to community plugin directory")
-    parser.add_argument("--format", choices=["markdown", "json"], default="markdown", help="Output format")
+    parser = argparse.ArgumentParser(
+        description="TG-SignPulse Community Plugin AI Reviewer"
+    )
+    parser.add_argument(
+        "plugin_dir", type=Path, help="Path to community plugin directory"
+    )
+    parser.add_argument(
+        "--format",
+        choices=["markdown", "json"],
+        default="markdown",
+        help="Output format",
+    )
     parser.add_argument("--output", type=Path, help="Save report to file")
-    parser.add_argument("--apply", action="store_true", help="Apply enriched metadata back to plugin.json")
-    parser.add_argument("--mock", action="store_true", help="Run with mock AI response (dry-run)")
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Apply enriched metadata back to plugin.json",
+    )
+    parser.add_argument(
+        "--mock", action="store_true", help="Run with mock AI response (dry-run)"
+    )
     args = parser.parse_args()
 
     plugin_dir = args.plugin_dir.resolve()
@@ -346,13 +374,24 @@ def main():
         print(f"Error: Directory not found: {plugin_dir}", file=sys.stderr)
         sys.exit(1)
 
-    has_key = bool(os.environ.get("PLUGIN_REVIEW_GEMINI_KEY") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("PLUGIN_REVIEW_API_KEY") or os.environ.get("OPENAI_API_KEY"))
+    has_key = bool(
+        os.environ.get("PLUGIN_REVIEW_GEMINI_KEY")
+        or os.environ.get("GEMINI_API_KEY")
+        or os.environ.get("GOOGLE_API_KEY")
+        or os.environ.get("PLUGIN_REVIEW_API_KEY")
+        or os.environ.get("OPENAI_API_KEY")
+    )
     mock_mode = args.mock or not has_key
 
     if not has_key and not args.mock:
-        print("[INFO] No AI API key detected (PLUGIN_REVIEW_API_KEY / GEMINI_API_KEY / OPENAI_API_KEY). Running in mock/dry-run mode.", file=sys.stderr)
+        print(
+            "[INFO] No AI API key detected (PLUGIN_REVIEW_API_KEY / GEMINI_API_KEY / OPENAI_API_KEY). Running in mock/dry-run mode.",
+            file=sys.stderr,
+        )
 
-    success, review_result, backend = review_plugin_directory(plugin_dir, mock_mode=mock_mode)
+    success, review_result, backend = review_plugin_directory(
+        plugin_dir, mock_mode=mock_mode
+    )
 
     if not success:
         print(f"Error reviewing plugin: {review_result.get('error')}", file=sys.stderr)
@@ -384,10 +423,15 @@ def main():
                 data["tags"] = sorted(existing_tags.union(set(meta["tags"])))
             if meta.get("features") and not data.get("features"):
                 data["features"] = meta["features"]
-            manifest_file.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            manifest_file.write_text(
+                json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+            )
             print(f"[OK] Enriched metadata applied to {manifest_file.name}!")
         except Exception as exc:
-            print(f"[WARN] Failed to apply metadata to plugin.json: {exc}", file=sys.stderr)
+            print(
+                f"[WARN] Failed to apply metadata to plugin.json: {exc}",
+                file=sys.stderr,
+            )
 
 
 if __name__ == "__main__":

@@ -58,6 +58,7 @@ def prefers_max_completion_tokens(model: Any) -> bool:
         for p in ("gpt-5", "o1", "o3", "o4")
     )
 
+
 DEFAULT_CHOOSE_OPTION_BY_IMAGE_PROMPT = (
     "You are a low-latency visual matcher for Telegram sign-in challenges. "
     "Choose exactly one option whose text best matches the main object or "
@@ -1153,10 +1154,7 @@ class AITools:
                         or kwargs.get("max_completion_tokens")
                         or 0
                     )
-                    if (
-                        attempt < attempts
-                        and current_tokens < _VISION_MAX_TOKENS_CAP
-                    ):
+                    if attempt < attempts and current_tokens < _VISION_MAX_TOKENS_CAP:
                         new_max = min(current_tokens * 2, _VISION_MAX_TOKENS_CAP)
                         for stage in stages:
                             if "max_tokens" in stage:
@@ -1171,7 +1169,11 @@ class AITools:
                             new_max,
                         )
                         break
-                    token_key = "max_tokens" if "max_tokens" in kwargs else "max_completion_tokens"
+                    token_key = (
+                        "max_tokens"
+                        if "max_tokens" in kwargs
+                        else "max_completion_tokens"
+                    )
                     raise RuntimeError(
                         f"AI 视觉输出在 {token_key}={current_tokens} 内被截断 | model={model}"
                     )

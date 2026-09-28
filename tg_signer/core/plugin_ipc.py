@@ -146,7 +146,9 @@ class ProxyButton:
 class ProxyMessage:
     """在 Worker 进程中模拟 pyrogram.types.Message 的轻量代理对象。"""
 
-    def __init__(self, data: Optional[Dict[str, Any]], rpc: Optional[Callable[..., Any]] = None):
+    def __init__(
+        self, data: Optional[Dict[str, Any]], rpc: Optional[Callable[..., Any]] = None
+    ):
         self._data = data or {}
         self._rpc = rpc
         self.id = self._data.get("id")
@@ -192,7 +194,9 @@ class ProxyMessage:
             return ProxyMessage(res, rpc=self._rpc)
         return res
 
-    async def reply_photo(self, photo: str, caption: Optional[str] = None, **kwargs: Any) -> Any:
+    async def reply_photo(
+        self, photo: str, caption: Optional[str] = None, **kwargs: Any
+    ) -> Any:
         if not self._rpc:
             raise RuntimeError("RPC client not attached to ProxyMessage")
         params = {"photo": photo, "caption": caption, "reply_to_message_id": self.id}
@@ -202,10 +206,16 @@ class ProxyMessage:
             return ProxyMessage(res, rpc=self._rpc)
         return res
 
-    async def reply_document(self, document: str, caption: Optional[str] = None, **kwargs: Any) -> Any:
+    async def reply_document(
+        self, document: str, caption: Optional[str] = None, **kwargs: Any
+    ) -> Any:
         if not self._rpc:
             raise RuntimeError("RPC client not attached to ProxyMessage")
-        params = {"document": document, "caption": caption, "reply_to_message_id": self.id}
+        params = {
+            "document": document,
+            "caption": caption,
+            "reply_to_message_id": self.id,
+        }
         params.update(kwargs)
         res = await self._rpc("send_document", **params)
         if isinstance(res, dict) and "id" in res and "chat" in res:
@@ -250,9 +260,16 @@ class ProxyMessage:
     async def forward(self, chat_id: Union[int, str], **kwargs: Any) -> Any:
         if not self._rpc:
             raise RuntimeError("RPC client not attached to ProxyMessage")
-        res = await self._rpc("forward_messages", chat_id=chat_id, message_ids=[self.id], **kwargs)
+        res = await self._rpc(
+            "forward_messages", chat_id=chat_id, message_ids=[self.id], **kwargs
+        )
         if isinstance(res, list):
-            return [ProxyMessage(m, rpc=self._rpc) if isinstance(m, dict) and "id" in m else m for m in res]
+            return [
+                ProxyMessage(m, rpc=self._rpc)
+                if isinstance(m, dict) and "id" in m
+                else m
+                for m in res
+            ]
         if isinstance(res, dict) and "id" in res and "chat" in res:
             return ProxyMessage(res, rpc=self._rpc)
         return res

@@ -24,9 +24,7 @@ _MINIMAL_TASK_BODY = {
     "name": "t1",
     "account_name": "acc1",
     "sign_at": "09:00",
-    "chats": [
-        {"chat_id": 1, "name": "c", "actions": [{"action": 1, "text": "x"}]}
-    ],
+    "chats": [{"chat_id": 1, "name": "c", "actions": [{"action": 1, "text": "x"}]}],
 }
 
 

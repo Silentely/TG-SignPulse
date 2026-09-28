@@ -4,6 +4,7 @@
 重新铺开而「复活」；filter_related_task_infos 也不得只返回一份副本，
 否则其余同名副本会在下次通配扩展时重新出现。
 """
+
 from __future__ import annotations
 
 from typing import Any, List, Optional, Sequence
@@ -13,7 +14,9 @@ import pytest
 from backend.services.sign_task_group import filter_related_task_infos
 
 
-def _norm(names: Optional[Sequence[Any]] = None, primary: Optional[str] = None) -> List[str]:
+def _norm(
+    names: Optional[Sequence[Any]] = None, primary: Optional[str] = None
+) -> List[str]:
     out: List[str] = []
     for n in list(names or []):
         s = str(n or "").strip()
@@ -50,8 +53,18 @@ class TestFilterRelatedSingleAccountWildcard:
     def test_group_id_still_scopes_to_group(self):
         """有 group_id 时仍按组收窄，不被新的同名兜底逻辑扩大。"""
         tasks = [
-            {"name": "t", "account_name": "a", "account_names": ["a"], "task_group_id": "g1"},
-            {"name": "t", "account_name": "b", "account_names": ["b"], "task_group_id": "g2"},
+            {
+                "name": "t",
+                "account_name": "a",
+                "account_names": ["a"],
+                "task_group_id": "g1",
+            },
+            {
+                "name": "t",
+                "account_name": "b",
+                "account_names": ["b"],
+                "task_group_id": "g2",
+            },
         ]
         related = filter_related_task_infos(
             tasks, "t", "a", normalize_account_names=_norm
@@ -168,7 +181,11 @@ class TestWildcardDeleteNotResurrected:
         svc = service
         self._accounts(monkeypatch, ["acc1", "acc2"])
         svc.create_task(
-            task_name="wild", sign_at="08:00", chats=[], account_name="acc1", account_names=["*"]
+            task_name="wild",
+            sign_at="08:00",
+            chats=[],
+            account_name="acc1",
+            account_names=["*"],
         )
         svc._expand_wildcard_tasks()
         assert set(self._dirs(svc)) == {("acc1", "wild"), ("acc2", "wild")}
@@ -178,12 +195,18 @@ class TestWildcardDeleteNotResurrected:
 
         # 重建后删除记录被清除，acc1/acc2 重新参与扩展
         svc.create_task(
-            task_name="wild", sign_at="08:00", chats=[], account_name="acc1", account_names=["*"]
+            task_name="wild",
+            sign_at="08:00",
+            chats=[],
+            account_name="acc1",
+            account_names=["*"],
         )
         svc._expand_wildcard_tasks()
         assert set(self._dirs(svc)) == {("acc1", "wild"), ("acc2", "wild")}
 
-    def test_delete_single_account_task_keeps_other_account_copy(self, service, monkeypatch):
+    def test_delete_single_account_task_keeps_other_account_copy(
+        self, service, monkeypatch
+    ):
         """端到端：删除某账号的单账号任务，不得连带删除其他账号的同名任务。
 
         回归：filter_related_task_infos 曾把所有同名副本整体收拢，导致
@@ -192,10 +215,18 @@ class TestWildcardDeleteNotResurrected:
         svc = service
         self._accounts(monkeypatch, ["acc1", "acc2"])
         svc.create_task(
-            task_name="daily", sign_at="08:00", chats=[], account_name="acc1", account_names=["acc1"]
+            task_name="daily",
+            sign_at="08:00",
+            chats=[],
+            account_name="acc1",
+            account_names=["acc1"],
         )
         svc.create_task(
-            task_name="daily", sign_at="08:00", chats=[], account_name="acc2", account_names=["acc2"]
+            task_name="daily",
+            sign_at="08:00",
+            chats=[],
+            account_name="acc2",
+            account_names=["acc2"],
         )
         assert set(self._dirs(svc)) == {("acc1", "daily"), ("acc2", "daily")}
 

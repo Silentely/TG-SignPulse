@@ -60,7 +60,9 @@ def aggregate_tasks(
                 **task,
                 "account_names": normalize_account_names(
                     task.get("account_names"),  # type: ignore[arg-type]
-                    task.get("account_name") if isinstance(task.get("account_name"), str) else None,
+                    task.get("account_name")
+                    if isinstance(task.get("account_name"), str)
+                    else None,
                 ),
             }
             if not merged.get("account_name") or merged.get("account_name") == "*":
@@ -82,7 +84,9 @@ def aggregate_tasks(
             ),
         )
         latest_last_run = select_latest_last_run(
-            existing.get("last_run") if isinstance(existing.get("last_run"), dict) else None,
+            existing.get("last_run")
+            if isinstance(existing.get("last_run"), dict)
+            else None,
             task.get("last_run") if isinstance(task.get("last_run"), dict) else None,
         )
         latest_last_run_account_name = str(existing.get("last_run_account_name") or "")
@@ -100,9 +104,7 @@ def aggregate_tasks(
         existing_tags = [
             str(t).strip() for t in (existing.get("tags") or []) if str(t).strip()
         ]
-        task_tags = [
-            str(t).strip() for t in (task.get("tags") or []) if str(t).strip()
-        ]
+        task_tags = [str(t).strip() for t in (task.get("tags") or []) if str(t).strip()]
         existing["tags"] = list(dict.fromkeys(existing_tags + task_tags))
 
     return sorted(
@@ -150,14 +152,18 @@ def filter_related_task_infos(
 
         current_accounts = normalize_account_names(
             current.get("account_names"),  # type: ignore[arg-type]
-            current.get("account_name") if isinstance(current.get("account_name"), str) else None,
+            current.get("account_name")
+            if isinstance(current.get("account_name"), str)
+            else None,
         )
         same_name = [task for task in raw_tasks if task.get("name") == task_name]
 
         def _has_wildcard(task: Dict[str, Any]) -> bool:
             return "*" in normalize_account_names(
                 task.get("account_names"),  # type: ignore[arg-type]
-                task.get("account_name") if isinstance(task.get("account_name"), str) else None,
+                task.get("account_name")
+                if isinstance(task.get("account_name"), str)
+                else None,
             )
 
         # 通配任务：副本带 "*" 标记，账号集比较会因 account_name 不同而失配，
@@ -172,7 +178,9 @@ def filter_related_task_infos(
                 if task.get("name") == task_name
                 and normalize_account_names(
                     task.get("account_names"),  # type: ignore[arg-type]
-                    task.get("account_name") if isinstance(task.get("account_name"), str) else None,
+                    task.get("account_name")
+                    if isinstance(task.get("account_name"), str)
+                    else None,
                 )
                 == current_accounts
             ]

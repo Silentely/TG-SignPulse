@@ -38,8 +38,8 @@ _HOST_IP_CACHE: TTLCache[str] = TTLCache(maxsize=1, ttl=600.0)
 
 class ProxyProbeStatus(str, Enum):
     OK = "OK"
-    FAILED = "PROXY_PROBE_FAILED"         # 出口 IP 等于服务器宿主机 IP
-    UNAVAILABLE = "PROXY_PROBE_UNAVAILABLE" # 探针端点无法访问/超时
+    FAILED = "PROXY_PROBE_FAILED"  # 出口 IP 等于服务器宿主机 IP
+    UNAVAILABLE = "PROXY_PROBE_UNAVAILABLE"  # 探针端点无法访问/超时
 
 
 def clear_proxy_probe_cache() -> None:
@@ -92,12 +92,12 @@ def build_proxy_dict(raw: str) -> Optional[dict]:
     return proxy
 
 
-
 def _format_host_for_url(hostname: str) -> str:
     """若 hostname 为未加括号的 IPv6 地址，包裹为 [ipv6]，以兼容标准 URL 解析。"""
     if ":" in hostname and not (hostname.startswith("[") and hostname.endswith("]")):
         return f"[{hostname}]"
     return hostname
+
 
 def format_proxy_url(raw: str | dict | None) -> Optional[str]:
     """将代理字符串或字典格式化为标准 URL（如 socks5://127.0.0.1:1080 或 http://user:pass@host:port）。"""
@@ -140,7 +140,9 @@ async def _fetch_ip_direct(endpoint: str, timeout: float = 5.0) -> Optional[str]
     """直连请求 IP 探测端点（禁止 trust_env）。"""
     try:
         async with httpx.AsyncClient(trust_env=False, timeout=timeout) as client:
-            resp = await client.get(endpoint, headers={"User-Agent": "TG-SignPulse-Probe/1.0"})
+            resp = await client.get(
+                endpoint, headers={"User-Agent": "TG-SignPulse-Probe/1.0"}
+            )
             resp.raise_for_status()
             text = resp.text.strip()
             ipaddress.ip_address(text)
@@ -178,7 +180,9 @@ def _fetch_socks_sync(proxy_dict: dict, endpoint: str, timeout: float) -> str:
         password=proxy_dict.get("password"),
     )
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), handler)
-    req = urllib.request.Request(endpoint, headers={"User-Agent": "TG-SignPulse-Probe/1.0"})
+    req = urllib.request.Request(
+        endpoint, headers={"User-Agent": "TG-SignPulse-Probe/1.0"}
+    )
     with opener.open(req, timeout=timeout) as resp:
         return resp.read().decode("utf-8").strip()
 
@@ -203,8 +207,12 @@ async def _fetch_ip_via_proxy(
         host = _format_host_for_url(str(proxy_dict["hostname"]))
         proxy_url = f"{scheme}://{auth}{host}:{proxy_dict['port']}"
         try:
-            async with httpx.AsyncClient(proxy=proxy_url, trust_env=False, timeout=timeout) as client:
-                resp = await client.get(endpoint, headers={"User-Agent": "TG-SignPulse-Probe/1.0"})
+            async with httpx.AsyncClient(
+                proxy=proxy_url, trust_env=False, timeout=timeout
+            ) as client:
+                resp = await client.get(
+                    endpoint, headers={"User-Agent": "TG-SignPulse-Probe/1.0"}
+                )
                 resp.raise_for_status()
                 text = resp.text.strip()
                 ipaddress.ip_address(text)
@@ -214,7 +222,9 @@ async def _fetch_ip_via_proxy(
             return None
     elif scheme in ("socks4", "socks5"):
         try:
-            text = await asyncio.to_thread(_fetch_socks_sync, proxy_dict, endpoint, timeout)
+            text = await asyncio.to_thread(
+                _fetch_socks_sync, proxy_dict, endpoint, timeout
+            )
             ipaddress.ip_address(text)
             return text
         except Exception as exc:

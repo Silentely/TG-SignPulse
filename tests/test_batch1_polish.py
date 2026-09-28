@@ -56,7 +56,9 @@ def test_validate_storage_name_rejects_invisible_unicode():
 def test_validate_storage_name_accepts_visible_unicode():
     """中文等可见字母数字名不受影响。"""
     assert validate_storage_name("账号一", field_name="account") == "账号一"
-    assert validate_storage_name("  spaced_name  ", field_name="account") == "spaced_name"
+    assert (
+        validate_storage_name("  spaced_name  ", field_name="account") == "spaced_name"
+    )
     assert validate_storage_name("日本語_2026", field_name="task") == "日本語_2026"
 
 

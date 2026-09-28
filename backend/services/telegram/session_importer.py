@@ -80,7 +80,9 @@ def insert_session_record(
         raise ValueError(
             f"Invalid auth_key length: {len(auth_key) if hasattr(auth_key, '__len__') else type(auth_key)} bytes (expected exactly 256 bytes)"
         )
-    columns = [row[1] for row in cursor.execute("PRAGMA table_info(sessions)").fetchall()]
+    columns = [
+        row[1] for row in cursor.execute("PRAGMA table_info(sessions)").fetchall()
+    ]
     if "server_address" in columns and "port" in columns:
         if not server_address or not port:
             addr, p = get_default_dc_endpoint(dc_id, bool(test_mode))
@@ -105,7 +107,15 @@ def insert_session_record(
         cursor.execute(
             """INSERT INTO sessions (dc_id, api_id, test_mode, auth_key, date, user_id, is_bot)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (int(dc_id), int(api_id), int(test_mode), auth_key, int(date), int(user_id), int(is_bot)),
+            (
+                int(dc_id),
+                int(api_id),
+                int(test_mode),
+                auth_key,
+                int(date),
+                int(user_id),
+                int(is_bot),
+            ),
         )
 
 
@@ -135,7 +145,9 @@ def detect_session_payload(payload: bytes | str) -> str:
         # Telethon StringSession: starts with "1" and unpadded base64 decodes to 263 (IPv4) or 275 (IPv6) bytes
         if payload_stripped.startswith("1") and len(payload_stripped) > 1:
             try:
-                t_raw = base64.urlsafe_b64decode(payload_stripped[1:] + "=" * (-len(payload_stripped[1:]) % 4))
+                t_raw = base64.urlsafe_b64decode(
+                    payload_stripped[1:] + "=" * (-len(payload_stripped[1:]) % 4)
+                )
                 if len(t_raw) in (263, 275):
                     return "telethon_string"
             except Exception:
@@ -143,7 +155,9 @@ def detect_session_payload(payload: bytes | str) -> str:
 
         # Pyrogram StringSession starts with '1' or 'B' (v2) and contains struct
         try:
-            raw = base64.urlsafe_b64decode(payload_stripped + "=" * (-len(payload_stripped) % 4))
+            raw = base64.urlsafe_b64decode(
+                payload_stripped + "=" * (-len(payload_stripped) % 4)
+            )
             if len(raw) in (271, 267, 263) or len(payload_stripped) in (
                 getattr(Storage, "SESSION_STRING_SIZE", 351),
                 getattr(Storage, "SESSION_STRING_SIZE_64", 356),
@@ -204,10 +218,7 @@ def _classify_sqlite_conn(conn: sqlite3.Connection) -> str:
     if "sessions" not in tables:
         return "unknown"
 
-    cols = {
-        row[1]
-        for row in conn.execute("PRAGMA table_info(sessions)").fetchall()
-    }
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()}
 
     # 1. 优先判定 Pyrogram 专属特征（Telethon 绝不包含 peers / usernames 表，而 Pyrogram 无论 V6 还是 V7 必含 peers）
     # 注：Kurigram 原生 SCHEMA 自身包含 update_state 表，绝不可将 update_state 视作 Telethon 独有特征！
@@ -216,19 +227,22 @@ def _classify_sqlite_conn(conn: sqlite3.Connection) -> str:
     if "test_mode" in cols or "is_bot" in cols or "api_id" in cols:
         return "pyrogram_sqlite"
     pyrogram_v7_cols = {
-        "dc_id", "server_address", "port", "api_id",
-        "test_mode", "auth_key", "date", "user_id", "is_bot"
+        "dc_id",
+        "server_address",
+        "port",
+        "api_id",
+        "test_mode",
+        "auth_key",
+        "date",
+        "user_id",
+        "is_bot",
     }
     if pyrogram_v7_cols.issubset(cols):
         return "pyrogram_sqlite"
 
     # 2. 判定 Telethon 独有特征（排除共有表 update_state）
     # Telethon 专属标志为 takeout_id 列，或 entities / sent_files 表
-    if (
-        "takeout_id" in cols
-        or "entities" in tables
-        or "sent_files" in tables
-    ):
+    if "takeout_id" in cols or "entities" in tables or "sent_files" in tables:
         return "telethon_sqlite"
 
     # 3. 兼容没有额外实体表的极简 Telethon sessions 表 (dc_id, server_address, port, auth_key)
@@ -358,7 +372,9 @@ def import_pyrogram_sqlite_session(
         cursor.execute("SELECT dc_id, auth_key FROM sessions")
         row = cursor.fetchone()
         if not row or not row[1] or len(row[1]) != 256:
-            raise ValueError("Invalid Pyrogram SQLite session: missing or invalid auth_key (must be 256 bytes).")
+            raise ValueError(
+                "Invalid Pyrogram SQLite session: missing or invalid auth_key (must be 256 bytes)."
+            )
     finally:
         conn.close()
 
@@ -381,15 +397,11 @@ def import_pyrogram_string_session(
         )
     # 2. 旧版 64 位 user_id 5 字段格式 (Pyrogram v2 / Kurigram <2.2.26): >B?256sQ? (267 bytes, 字符长度 356)
     elif len(raw) == 267:
-        dc_id, test_mode, auth_key, user_id, is_bot = struct.unpack(
-            ">B?256sQ?", raw
-        )
+        dc_id, test_mode, auth_key, user_id, is_bot = struct.unpack(">B?256sQ?", raw)
         api_id = 0
     # 3. 旧版 32 位 user_id 5 字段格式 (Pyrogram v1): >B?256sI? (263 bytes, 字符长度 351)
     elif len(raw) == 263:
-        dc_id, test_mode, auth_key, user_id, is_bot = struct.unpack(
-            ">B?256sI?", raw
-        )
+        dc_id, test_mode, auth_key, user_id, is_bot = struct.unpack(">B?256sI?", raw)
         api_id = 0
     else:
         raise ValueError(
@@ -462,10 +474,14 @@ async def verify_imported_session(
         proxy_dict = build_proxy_dict(proxy)
         if not proxy_dict:
             _cleanup_file_and_aux(temp_session_path)
-            raise ValueError("PROXY_INVALID_BLOCKED: Configured proxy string is invalid")
+            raise ValueError(
+                "PROXY_INVALID_BLOCKED: Configured proxy string is invalid"
+            )
     elif require_proxy:
         _cleanup_file_and_aux(temp_session_path)
-        raise ValueError("PROXY_REQUIRED_BLOCKED: Global policy requires a proxy for Telegram connections")
+        raise ValueError(
+            "PROXY_REQUIRED_BLOCKED: Global policy requires a proxy for Telegram connections"
+        )
 
     if proxy_dict:
         from backend.services.telegram.accounts import get_telegram_account_service
@@ -583,7 +599,11 @@ async def import_session(
     elif isinstance(payload, str):
         payload_stripped = payload.strip()
         is_file = False
-        if len(payload_stripped) < 1024 and "\n" not in payload_stripped and "\x00" not in payload_stripped:
+        if (
+            len(payload_stripped) < 1024
+            and "\n" not in payload_stripped
+            and "\x00" not in payload_stripped
+        ):
             try:
                 path_cand = Path(payload_stripped)
                 is_file = path_cand.is_file()
@@ -606,11 +626,17 @@ async def import_session(
 
     async with acquire_account_lock_with_timeout(account_name, timeout=15.0):
         if payload_type == "telethon_sqlite":
-            temp_path = import_telethon_sqlite_session(account_name, raw_bytes, target_dir)
+            temp_path = import_telethon_sqlite_session(
+                account_name, raw_bytes, target_dir
+            )
         elif payload_type == "pyrogram_sqlite":
-            temp_path = import_pyrogram_sqlite_session(account_name, raw_bytes, target_dir)
+            temp_path = import_pyrogram_sqlite_session(
+                account_name, raw_bytes, target_dir
+            )
         elif payload_type == "pyrogram_string":
-            temp_path = import_pyrogram_string_session(account_name, str_payload, target_dir)
+            temp_path = import_pyrogram_string_session(
+                account_name, str_payload, target_dir
+            )
         else:
             raise ValueError(f"Unsupported session payload type: {payload_type}")
 

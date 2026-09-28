@@ -82,7 +82,9 @@ class ProxyStorageClient:
         return kwargs
 
     async def get(self, key: str, default: Any = None) -> Any:
-        return await self._rpc("storage_get", **self._scope_kwargs(key=key, default=default))
+        return await self._rpc(
+            "storage_get", **self._scope_kwargs(key=key, default=default)
+        )
 
     async def set(self, key: str, value: Any, ttl: Optional[float] = None) -> None:
         return await self._rpc(
@@ -115,12 +117,8 @@ class ProxyStorageClient:
         res = await self._rpc("storage_mget", **self._scope_kwargs(keys=keys))
         return dict(res or {})
 
-    async def mset(
-        self, mapping: Dict[str, Any], ttl: Optional[float] = None
-    ) -> None:
-        await self._rpc(
-            "storage_mset", **self._scope_kwargs(mapping=mapping, ttl=ttl)
-        )
+    async def mset(self, mapping: Dict[str, Any], ttl: Optional[float] = None) -> None:
+        await self._rpc("storage_mset", **self._scope_kwargs(mapping=mapping, ttl=ttl))
 
 
 class ProxyPluginContext:
@@ -226,7 +224,9 @@ class ProxyPluginContext:
     ) -> Any:
         if self.message_thread_id is not None:
             kwargs.setdefault("message_thread_id", self.message_thread_id)
-        res = await self._rpc("send_document", document=document, caption=caption, **kwargs)
+        res = await self._rpc(
+            "send_document", document=document, caption=caption, **kwargs
+        )
         if isinstance(res, dict) and "id" in res and "chat" in res:
             return ProxyMessage(res, rpc=self._rpc)
         return res
@@ -236,9 +236,15 @@ class ProxyPluginContext:
             raise RuntimeError("当前上下文中无有效消息，无法执行点击按钮")
         return await self._rpc("click", text_or_index=text_or_index, **kwargs)
 
-    async def react(self, emoji: str, message_id: Optional[int] = None, **kwargs) -> Any:
+    async def react(
+        self, emoji: str, message_id: Optional[int] = None, **kwargs
+    ) -> Any:
         msg_id = message_id
-        if msg_id is None and self.message is not None and getattr(self.message, "id", None) is not None:
+        if (
+            msg_id is None
+            and self.message is not None
+            and getattr(self.message, "id", None) is not None
+        ):
             msg_id = self.message.id
         if msg_id is None:
             raise ValueError("当前上下文中没有有效消息 ID，无法执行表情表态")
@@ -246,9 +252,15 @@ class ProxyPluginContext:
         call_params.update(kwargs)
         return await self._rpc("react", **call_params)
 
-    async def edit_message(self, text: str, message_id: Optional[int] = None, **kwargs) -> Any:
+    async def edit_message(
+        self, text: str, message_id: Optional[int] = None, **kwargs
+    ) -> Any:
         msg_id = message_id
-        if msg_id is None and self.message is not None and getattr(self.message, "id", None) is not None:
+        if (
+            msg_id is None
+            and self.message is not None
+            and getattr(self.message, "id", None) is not None
+        ):
             msg_id = self.message.id
         if msg_id is None:
             raise ValueError("当前上下文中没有有效消息 ID，无法执行编辑")
@@ -263,7 +275,11 @@ class ProxyPluginContext:
 
     async def delete_message(self, message_id: Optional[int] = None, **kwargs) -> Any:
         msg_id = message_id
-        if msg_id is None and self.message is not None and getattr(self.message, "id", None) is not None:
+        if (
+            msg_id is None
+            and self.message is not None
+            and getattr(self.message, "id", None) is not None
+        ):
             msg_id = self.message.id
         if msg_id is None:
             raise ValueError("当前上下文中没有有效消息 ID，无法执行删除")
@@ -273,7 +289,11 @@ class ProxyPluginContext:
 
     async def pin_message(self, message_id: Optional[int] = None, **kwargs) -> Any:
         msg_id = message_id
-        if msg_id is None and self.message is not None and getattr(self.message, "id", None) is not None:
+        if (
+            msg_id is None
+            and self.message is not None
+            and getattr(self.message, "id", None) is not None
+        ):
             msg_id = self.message.id
         if msg_id is None:
             raise ValueError("当前上下文中没有有效消息 ID，无法执行置顶")
@@ -283,20 +303,27 @@ class ProxyPluginContext:
 
     async def unpin_message(self, message_id: Optional[int] = None, **kwargs) -> Any:
         msg_id = message_id
-        if msg_id is None and self.message is not None and getattr(self.message, "id", None) is not None:
+        if (
+            msg_id is None
+            and self.message is not None
+            and getattr(self.message, "id", None) is not None
+        ):
             msg_id = self.message.id
         call_params = {"message_id": msg_id}
         call_params.update(kwargs)
         return await self._rpc("unpin_message", **call_params)
 
-    async def get_messages(
-        self, message_ids: Union[int, List[int]], **kwargs
-    ) -> Any:
+    async def get_messages(self, message_ids: Union[int, List[int]], **kwargs) -> Any:
         call_params = {"message_ids": message_ids}
         call_params.update(kwargs)
         res = await self._rpc("get_messages", **call_params)
         if isinstance(res, list):
-            return [ProxyMessage(m, rpc=self._rpc) if isinstance(m, dict) and "id" in m else m for m in res]
+            return [
+                ProxyMessage(m, rpc=self._rpc)
+                if isinstance(m, dict) and "id" in m
+                else m
+                for m in res
+            ]
         if isinstance(res, dict) and "id" in res and "chat" in res:
             return ProxyMessage(res, rpc=self._rpc)
         return res
@@ -309,7 +336,11 @@ class ProxyPluginContext:
         **kwargs,
     ) -> Any:
         mids = message_ids
-        if mids is None and self.message is not None and getattr(self.message, "id", None) is not None:
+        if (
+            mids is None
+            and self.message is not None
+            and getattr(self.message, "id", None) is not None
+        ):
             mids = self.message.id
         if mids is None:
             raise ValueError("当前上下文中没有有效消息 ID，无法执行转发")
@@ -321,7 +352,12 @@ class ProxyPluginContext:
         call_params.update(kwargs)
         res = await self._rpc("forward_messages", **call_params)
         if isinstance(res, list):
-            return [ProxyMessage(m, rpc=self._rpc) if isinstance(m, dict) and "id" in m else m for m in res]
+            return [
+                ProxyMessage(m, rpc=self._rpc)
+                if isinstance(m, dict) and "id" in m
+                else m
+                for m in res
+            ]
         if isinstance(res, dict) and "id" in res and "chat" in res:
             return ProxyMessage(res, rpc=self._rpc)
         return res
@@ -336,12 +372,15 @@ async def run_worker_loop(
     if sys.platform != "win32" and "PYTEST_CURRENT_TEST" not in os.environ:
         try:
             import resource
+
             max_mb = int(os.environ.get("PLUGIN_MAX_MEMORY_MB", "1024"))
             if max_mb > 0:
                 max_bytes = max_mb * 1024 * 1024
                 soft, hard = resource.getrlimit(resource.RLIMIT_AS)
                 hard_limit = hard if hard > 0 else max_bytes
-                resource.setrlimit(resource.RLIMIT_AS, (min(max_bytes, hard_limit), hard_limit))
+                resource.setrlimit(
+                    resource.RLIMIT_AS, (min(max_bytes, hard_limit), hard_limit)
+                )
             cur_soft, cur_hard = resource.getrlimit(resource.RLIMIT_NOFILE)
             safe_nofile = min(cur_soft, 1024)
             if safe_nofile > 0:
@@ -419,7 +458,9 @@ async def run_worker_loop(
             meta = PluginRegistry.get(plugin_name)
     except ModuleNotFoundError as e:
         missing = getattr(e, "name", None) or str(e)
-        hint = f"缺少依赖模块 '{missing}'，可在环境中执行 pip install {missing} 进行安装"
+        hint = (
+            f"缺少依赖模块 '{missing}'，可在环境中执行 pip install {missing} 进行安装"
+        )
         exc_str = traceback.format_exc()
         send_payload_sync(
             {
@@ -500,9 +541,13 @@ async def run_worker_loop(
         send_payload_sync({"type": "return", "success": True, "result": bool(res)})
     except ModuleNotFoundError as e:
         missing = getattr(e, "name", None) or str(e)
-        hint = f"缺少依赖模块 '{missing}'，可在环境中执行 pip install {missing} 进行安装"
+        hint = (
+            f"缺少依赖模块 '{missing}'，可在环境中执行 pip install {missing} 进行安装"
+        )
         exc_str = traceback.format_exc()
-        send_payload_sync({"type": "return", "success": False, "error": f"{hint}\n\n{exc_str}"})
+        send_payload_sync(
+            {"type": "return", "success": False, "error": f"{hint}\n\n{exc_str}"}
+        )
     except Exception:
         exc_str = traceback.format_exc()
         send_payload_sync({"type": "return", "success": False, "error": exc_str})

@@ -4,6 +4,7 @@
 多实例挂载同一 data 目录时，仅持有锁的进程执行 APScheduler 业务 job，
 避免重复签到。Telegram 长连接监听仍不建议多实例共享同一 session。
 """
+
 from __future__ import annotations
 
 import atexit
@@ -71,7 +72,10 @@ def release_scheduler_lock() -> None:
     if _lock is not None and _held:
         try:
             _lock.release()
-        except (OSError, RuntimeError) as exc:  # pragma: no cover - 取决于 filelock 内部状态
+        except (
+            OSError,
+            RuntimeError,
+        ) as exc:  # pragma: no cover - 取决于 filelock 内部状态
             # filelock 3.x release 可能抛 ReleaseError(OSError) 或 RuntimeError
             logger.debug("释放调度锁失败: %s", exc, exc_info=True)
     _held = False

@@ -58,9 +58,7 @@ def sort_history_items_desc(
     limit: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
     """按 time 倒序排序，可选截断。"""
-    sorted_items = sorted(
-        items, key=lambda x: str(x.get("time") or ""), reverse=True
-    )
+    sorted_items = sorted(items, key=lambda x: str(x.get("time") or ""), reverse=True)
     if limit is None:
         return sorted_items
     try:

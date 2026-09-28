@@ -10,7 +10,9 @@ import pytest
 from pyrogram.storage.sqlite_storage import SQLiteStorage
 
 
-def _create_v6_session_file(db_path: Path, dc_id: int = 2, user_id: int = 123456789) -> bytes:
+def _create_v6_session_file(
+    db_path: Path, dc_id: int = 2, user_id: int = 123456789
+) -> bytes:
     """Create a realistic Pyrogram / Kurigram V6 SQLite session file (7 columns)."""
     fake_auth_key = b"V6_AUTH_KEY_EXACT_256_BYTES" + b"X" * (256 - 28)
     conn = sqlite3.connect(str(db_path))
@@ -46,15 +48,21 @@ def _create_v6_session_file(db_path: Path, dc_id: int = 2, user_id: int = 123456
 
 
 @pytest.mark.asyncio
-async def test_v6_session_automatically_migrates_to_v7_without_data_loss(tmp_path: Path):
+async def test_v6_session_automatically_migrates_to_v7_without_data_loss(
+    tmp_path: Path,
+):
     """Test that Kurigram 2.2.26 SQLiteStorage loads a legacy V6 session and migrates cleanly."""
     session_file = tmp_path / "prod_legacy_account.session"
-    expected_auth_key = _create_v6_session_file(session_file, dc_id=2, user_id=987654321)
+    expected_auth_key = _create_v6_session_file(
+        session_file, dc_id=2, user_id=987654321
+    )
 
     # 1. Verify pre-migration state is V6 (7 columns)
     pre_conn = sqlite3.connect(str(session_file))
     pre_ver = pre_conn.execute("SELECT number FROM version").fetchone()[0]
-    pre_cols = [r[1] for r in pre_conn.execute("PRAGMA table_info(sessions)").fetchall()]
+    pre_cols = [
+        r[1] for r in pre_conn.execute("PRAGMA table_info(sessions)").fetchall()
+    ]
     pre_conn.close()
 
     assert pre_ver == 6
@@ -82,7 +90,9 @@ async def test_v6_session_automatically_migrates_to_v7_without_data_loss(tmp_pat
     # 3. Verify post-migration SQLite database on disk has been migrated to V7 (9 columns)
     post_conn = sqlite3.connect(str(session_file))
     post_ver = post_conn.execute("SELECT number FROM version").fetchone()[0]
-    post_cols = [r[1] for r in post_conn.execute("PRAGMA table_info(sessions)").fetchall()]
+    post_cols = [
+        r[1] for r in post_conn.execute("PRAGMA table_info(sessions)").fetchall()
+    ]
     row = post_conn.execute(
         "SELECT dc_id, server_address, port, api_id, auth_key, user_id FROM sessions"
     ).fetchone()

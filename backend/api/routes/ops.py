@@ -35,9 +35,7 @@ class ScheduledJobOut(BaseModel):
     name: str = ""
     next_run_time: Optional[str] = None
     trigger: str = ""
-    kind: str = Field(
-        "other", description="sign / legacy_db / system / other"
-    )
+    kind: str = Field("other", description="sign / legacy_db / system / other")
     execution_mode: Optional[str] = None
     range_start: Optional[str] = None
     range_end: Optional[str] = None
@@ -71,6 +69,7 @@ class BackupStatusResponse(BaseModel):
 def _extract_webdav_proxy(cfg: Dict[str, Any]) -> Optional[str]:
     """从配置字典中提取 WebDAV 代理设置（优先 webdav_proxy，回退全局 proxy）。"""
     return str(cfg.get("webdav_proxy") or cfg.get("proxy") or "").strip() or None
+
 
 BACKUP_ARCHIVE_PATHS = (
     "db.sqlite",
@@ -198,10 +197,7 @@ def list_scheduled_jobs(current_user: User = Depends(get_current_user)):
             if getattr(job, "args", None) and len(job.args) >= 2:
                 account_name = str(job.args[0])
                 task_name = str(job.args[1])
-            task_info = (
-                task_map.get((account_name, task_name))
-                or task_map.get(jid)
-            )
+            task_info = task_map.get((account_name, task_name)) or task_map.get(jid)
             if task_info:
                 execution_mode = task_info.get("execution_mode") or "fixed"
                 range_start = task_info.get("range_start")
@@ -276,8 +272,7 @@ def backup_status(current_user: User = Depends(get_current_user)):
             except OSError:
                 continue
         files = [
-            p
-            for _, p in sorted(stat_entries, key=lambda item: item[0], reverse=True)
+            p for _, p in sorted(stat_entries, key=lambda item: item[0], reverse=True)
         ][:5]
         for f in files:
             try:
@@ -352,9 +347,10 @@ async def export_backup_archive(current_user: User = Depends(get_current_user)):
     s3_ready = s3_enabled(cfg)
     webdav_user = str(cfg.get("webdav_username") or "").strip()
     webdav_password = str(cfg.get("webdav_password") or "")
-    webdav_remote = str(
-        cfg.get("webdav_remote_dir") or "tg-signpulse-backups"
-    ).strip() or "tg-signpulse-backups"
+    webdav_remote = (
+        str(cfg.get("webdav_remote_dir") or "tg-signpulse-backups").strip()
+        or "tg-signpulse-backups"
+    )
 
     # 显式策略强校验，避免静默降级
     if backup_target == "both":
@@ -450,7 +446,9 @@ async def export_backup_archive(current_user: User = Depends(get_current_user)):
                 "filename": archive_path.name,
                 "webdav_url": wd_res.get("remote_url"),
                 "s3_url": s3_res.get("url"),
-                "size_bytes": wd_res.get("size_bytes") or s3_res.get("size") or archive_size,
+                "size_bytes": wd_res.get("size_bytes")
+                or s3_res.get("size")
+                or archive_size,
             }
 
         if do_webdav:
@@ -519,7 +517,9 @@ async def export_backup_archive(current_user: User = Depends(get_current_user)):
             path=str(archive_path),
             filename=archive_path.name,
             media_type="application/gzip",
-            headers={"Content-Disposition": f'attachment; filename="{archive_path.name}"'},
+            headers={
+                "Content-Disposition": f'attachment; filename="{archive_path.name}"'
+            },
             background=BackgroundTask(_cleanup),
         )
     except HTTPException:
@@ -743,7 +743,9 @@ async def list_s3_backup_files(current_user: User = Depends(get_current_user)):
         return S3ListResponse(success=False, message="对象存储未配置或必填项不完整")
     result = await list_s3_files(cfg, name_suffix=".tar.gz", limit=20)
     if not result.get("success"):
-        return S3ListResponse(success=False, message=str(result.get("message") or "列表失败"))
+        return S3ListResponse(
+            success=False, message=str(result.get("message") or "列表失败")
+        )
     files = [S3FileEntry(**f) for f in (result.get("files") or [])]
     return S3ListResponse(
         success=True,

@@ -1,4 +1,5 @@
 """sign_task_text / sign_task_config_inspect 纯函数测试。"""
+
 from __future__ import annotations
 
 from backend.services.sign_task_config_inspect import (
@@ -32,17 +33,10 @@ def test_task_requires_updates_conservative():
     assert task_requires_updates({}) is True
     assert task_requires_updates({"chats": []}) is False
     assert (
-        task_requires_updates(
-            {"chats": [{"actions": [{"action": 1, "text": "hi"}]}]}
-        )
+        task_requires_updates({"chats": [{"actions": [{"action": 1, "text": "hi"}]}]})
         is False
     )
-    assert (
-        task_requires_updates(
-            {"chats": [{"actions": [{"action": 3}]}]}
-        )
-        is True
-    )
+    assert task_requires_updates({"chats": [{"actions": [{"action": 3}]}]}) is True
 
 
 def test_task_has_keyword_monitor():
@@ -54,12 +48,7 @@ def test_task_has_keyword_monitor():
         )
         is True
     )
-    assert (
-        task_has_keyword_monitor(
-            {"chats": [{"actions": [{"action": 1}]}]}
-        )
-        is False
-    )
+    assert task_has_keyword_monitor({"chats": [{"actions": [{"action": 1}]}]}) is False
 
 
 def test_inspect_tolerates_malformed_structure():

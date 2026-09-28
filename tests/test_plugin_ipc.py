@@ -187,13 +187,16 @@ def test_encode_ipc_payload_default_str_fallback():
     assert "test value error" in decoded["exception"]
     assert "2026-09-09" in decoded["time"]
 
+
 def test_serialize_reply_to_message_and_raw_text():
     raw_reply = MagicMock()
     raw_reply.id = 5001
     raw_reply.text = "Original question"
     raw_reply.caption = None
     raw_reply.date = 1710000000
-    raw_reply.from_user = MagicMock(id=111, username="author", first_name="A", last_name=None)
+    raw_reply.from_user = MagicMock(
+        id=111, username="author", first_name="A", last_name=None
+    )
 
     raw_msg = MagicMock()
     raw_msg.id = 5002
@@ -203,7 +206,9 @@ def test_serialize_reply_to_message_and_raw_text():
     raw_msg.reply_to_message_id = 5001
     raw_msg.reply_to_message = raw_reply
     raw_msg.chat = MagicMock(id=999, title="Chat", type="group")
-    raw_msg.from_user = MagicMock(id=222, username="replier", first_name="B", last_name=None)
+    raw_msg.from_user = MagicMock(
+        id=222, username="replier", first_name="B", last_name=None
+    )
     raw_msg.reply_markup = None
 
     serialized = serialize_message_for_worker(raw_msg)
@@ -220,4 +225,3 @@ def test_serialize_reply_to_message_and_raw_text():
     assert proxy.reply_to_message.id == 5001
     assert proxy.reply_to_message.text == "Original question"
     assert proxy.reply_to_message.from_user.username == "author"
-

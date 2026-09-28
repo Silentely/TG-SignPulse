@@ -853,6 +853,7 @@ async def test_plugin_isolation_engine_in_process_override(monkeypatch):
         assert result is False
         mock_host.assert_not_called()
 
+
 @pytest.mark.asyncio
 async def test_plugin_storage_client_crud_and_ttl(tmp_path):
     """测试插件持久化 KV 存储 PluginStorageClient 的 CRUD、TTL 过期及命名空间隔离"""
@@ -945,7 +946,9 @@ async def test_disabled_plugin_skipped_in_signer_actions():
     signer = DummySigner()
     chat = SignChatV3(
         chat_id=123,
-        actions=[PluginAction(plugin_name="test_toggleable_action_plugin", mode="active")],
+        actions=[
+            PluginAction(plugin_name="test_toggleable_action_plugin", mode="active")
+        ],
     )
 
     # 默认启用状态
@@ -965,7 +968,9 @@ async def test_disabled_plugin_skipped_in_signer_actions():
     signer.log_entries.clear()
     msg = MagicMock()
     msg.text = "test hello"
-    reactive_action = PluginAction(plugin_name="test_toggleable_action_plugin", mode="reactive")
+    reactive_action = PluginAction(
+        plugin_name="test_toggleable_action_plugin", mode="reactive"
+    )
     ok_reactive = await signer._dispatch_reactive_plugin_message(
         reactive_action, chat, msg, eff_timeout=1.0
     )
@@ -1007,7 +1012,9 @@ async def test_keyword_reactor_plugin():
     )
     assert await meta.handler(ctx) is True
     mock_app.send_reaction.assert_awaited_once_with(2026, message_id=101, emoji="🎉")
-    mock_app.send_message.assert_awaited_once_with(2026, "收到通知！", reply_to_message_id=101)
+    mock_app.send_message.assert_awaited_once_with(
+        2026, "收到通知！", reply_to_message_id=101
+    )
 
     # 2. 未命中
     mock_msg.text = "无关消息"
@@ -1172,6 +1179,7 @@ async def test_keyword_reactor_with_caption_and_regex():
     )
     assert await meta.handler(ctx_oversized) is False
 
+
 @pytest.mark.asyncio
 async def test_regex_reply_with_caption():
     PluginRegistry.load_all_configured_plugins()
@@ -1198,7 +1206,9 @@ async def test_regex_reply_with_caption():
         },
     )
     assert await meta.handler(ctx) is True
-    mock_app.send_message.assert_awaited_once_with(2026, "code is ABC888", reply_to_message_id=555)
+    mock_app.send_message.assert_awaited_once_with(
+        2026, "code is ABC888", reply_to_message_id=555
+    )
 
 
 @pytest.mark.asyncio

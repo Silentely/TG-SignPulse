@@ -45,7 +45,7 @@ def test_load_sign_record_handles_corrupt_json(tmp_path: Path):
 
 def test_load_sign_record_handles_non_dict_json(tmp_path: Path):
     rec_path = tmp_path / "record.json"
-    rec_path.write_text('[1, 2, 3]', encoding="utf-8")
+    rec_path.write_text("[1, 2, 3]", encoding="utf-8")
     signer = DummySigner(rec_path)
     res = signer.load_sign_record()
     assert res == {}

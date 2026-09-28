@@ -93,12 +93,7 @@ async def close_shared_http_client() -> None:
 
 def _html_escape(value: Any) -> str:
     """转义 HTML 特殊字符，供 parse_mode=HTML 通知文本使用。"""
-    return (
-        str(value)
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-    )
+    return str(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def _safe_msg_truncate(text: str, parse_mode: Optional[str] = None) -> str:
@@ -213,9 +208,7 @@ def _bot_config(settings: Dict[str, Any]) -> tuple[str, str, Optional[int]]:
     return token, chat_id, thread_id
 
 
-def is_in_quiet_hours(
-    settings: Dict[str, Any], now: Optional[datetime] = None
-) -> bool:
+def is_in_quiet_hours(settings: Dict[str, Any], now: Optional[datetime] = None) -> bool:
     """判断当前是否处于通知静默时段（支持跨午夜，兼容 HH:MM 与 HH:MM:SS）。"""
     if not settings.get("telegram_bot_quiet_hours_enabled"):
         return False
@@ -296,7 +289,10 @@ async def send_telegram_bot_message(
                     pass
             return
         except (httpx.RequestError, httpx.HTTPStatusError) as exc:
-            if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code < 500:
+            if (
+                isinstance(exc, httpx.HTTPStatusError)
+                and exc.response.status_code < 500
+            ):
                 raise
             last_exc = exc
             if attempt == 1:
@@ -304,7 +300,6 @@ async def send_telegram_bot_message(
                 await asyncio.sleep(1.0)
     assert last_exc is not None
     raise last_exc
-
 
 
 def _validate_push_target_url(url: str) -> None:
@@ -346,7 +341,10 @@ async def _http_post_retry_once(
             response.raise_for_status()
             return response
         except (httpx.RequestError, httpx.HTTPStatusError) as exc:
-            if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code < 500:
+            if (
+                isinstance(exc, httpx.HTTPStatusError)
+                and exc.response.status_code < 500
+            ):
                 raise
             last_exc = exc
             if attempt == 1:
@@ -448,7 +446,9 @@ async def send_keyword_push(settings: Dict[str, Any], payload: Dict[str, Any]) -
         await _http_post_retry_once(url=final_url, channel="自定义推送", method="GET")
         return
 
-    await _http_post_retry_once(url=custom_url, channel="自定义推送", json_body=request_payload)
+    await _http_post_retry_once(
+        url=custom_url, channel="自定义推送", json_body=request_payload
+    )
 
 
 async def send_login_notification(
@@ -571,11 +571,10 @@ async def send_wecom_message(webhook_url: str, title: str, text: str) -> None:
     if not webhook_url or not webhook_url.strip():
         return
     content = f"### {title}\n{text}"
-    payload = {
-        "msgtype": "markdown",
-        "markdown": {"content": content[:4000]}
-    }
-    await _http_post_retry_once(url=webhook_url.strip(), channel="WeCom", json_body=payload)
+    payload = {"msgtype": "markdown", "markdown": {"content": content[:4000]}}
+    await _http_post_retry_once(
+        url=webhook_url.strip(), channel="WeCom", json_body=payload
+    )
 
 
 async def send_feishu_message(webhook_url: str, title: str, text: str) -> None:
@@ -585,18 +584,15 @@ async def send_feishu_message(webhook_url: str, title: str, text: str) -> None:
     payload = {
         "msg_type": "interactive",
         "card": {
-            "header": {
-                "title": {"tag": "plain_text", "content": title[:100]}
-            },
+            "header": {"title": {"tag": "plain_text", "content": title[:100]}},
             "elements": [
-                {
-                    "tag": "div",
-                    "text": {"tag": "lark_md", "content": text[:3000]}
-                }
-            ]
-        }
+                {"tag": "div", "text": {"tag": "lark_md", "content": text[:3000]}}
+            ],
+        },
     }
-    await _http_post_retry_once(url=webhook_url.strip(), channel="Feishu", json_body=payload)
+    await _http_post_retry_once(
+        url=webhook_url.strip(), channel="Feishu", json_body=payload
+    )
 
 
 async def send_dingtalk_message(webhook_url: str, title: str, text: str) -> None:
@@ -609,9 +605,11 @@ async def send_dingtalk_message(webhook_url: str, title: str, text: str) -> None
         "markdown": {
             "title": title[:100],
             "text": content[:4000],
-        }
+        },
     }
-    await _http_post_retry_once(url=webhook_url.strip(), channel="DingTalk", json_body=payload)
+    await _http_post_retry_once(
+        url=webhook_url.strip(), channel="DingTalk", json_body=payload
+    )
 
 
 async def send_discord_message(webhook_url: str, title: str, text: str) -> None:
@@ -626,9 +624,11 @@ async def send_discord_message(webhook_url: str, title: str, text: str) -> None:
                 "description": text[:4000],
                 "color": 3447003,
             }
-        ]
+        ],
     }
-    await _http_post_retry_once(url=webhook_url.strip(), channel="Discord", json_body=payload)
+    await _http_post_retry_once(
+        url=webhook_url.strip(), channel="Discord", json_body=payload
+    )
 
 
 async def dispatch_matrix_notification(

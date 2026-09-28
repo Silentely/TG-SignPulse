@@ -4,6 +4,7 @@
 从 SignTaskService 抽出的历史查询/删除/落盘逻辑，保持公开 API 不变。
 依赖宿主：run_history_dir, signs_dir, _tasks_cache, _history_max_* 与路径/列表 helper。
 """
+
 from __future__ import annotations
 
 import json
@@ -110,9 +111,7 @@ class SignTaskHistoryMixin:
                     self.run_history_dir, task_name, account_name
                 )
             )
-        candidates.append(
-            legacy_history_file_path_io(self.run_history_dir, task_name)
-        )
+        candidates.append(legacy_history_file_path_io(self.run_history_dir, task_name))
         target = self._history_file_path(task_name, account_name)
         return [path for path in candidates if path != target]
 
@@ -154,7 +153,10 @@ class SignTaskHistoryMixin:
             for task in self._tasks_cache:
                 if not isinstance(task, dict):
                     continue
-                if task.get("name") != task_name or task.get("account_name") != account_name:
+                if (
+                    task.get("name") != task_name
+                    or task.get("account_name") != account_name
+                ):
                     continue
                 if last_run:
                     task["last_run"] = last_run
@@ -312,7 +314,9 @@ class SignTaskHistoryMixin:
                 continue
             seen_pairs.add(pair)
 
-            history = self._load_history_entries(task_name, account_name=current_account)
+            history = self._load_history_entries(
+                task_name, account_name=current_account
+            )
             history_items.extend(
                 collect_formatted_history_items(
                     history,
@@ -381,7 +385,8 @@ class SignTaskHistoryMixin:
             # 无 account_name 的旧格式条目：仅在请求方就是该文件的宿主账号时
             # 才视为可删，避免删到其他账号共享文件里的条目
             account_matches = entry_account == normalized_account or (
-                not entry_account and history_file_owner(history_file) == normalized_account
+                not entry_account
+                and history_file_owner(history_file) == normalized_account
             )
 
             if not deleted and entry_time == target_time and account_matches:
@@ -405,9 +410,12 @@ class SignTaskHistoryMixin:
             entry
             for entry in kept_entries
             if isinstance(entry, dict)
-            and str(entry.get("account_name") or normalized_account) == normalized_account
+            and str(entry.get("account_name") or normalized_account)
+            == normalized_account
         ]
-        remaining_entries.sort(key=lambda item: str(item.get("time") or ""), reverse=True)
+        remaining_entries.sort(
+            key=lambda item: str(item.get("time") or ""), reverse=True
+        )
         latest_entry = remaining_entries[0] if remaining_entries else None
         self._set_task_last_run_metadata(
             normalized_task,
@@ -568,7 +576,9 @@ class SignTaskHistoryMixin:
                     else:
                         data_list = []
                 except Exception as exc:
-                    _logger.warning("读取遗留历史文件失败，跳过: %s (%s)", legacy_file, exc)
+                    _logger.warning(
+                        "读取遗留历史文件失败，跳过: %s (%s)", legacy_file, exc
+                    )
                     continue
 
                 if not data_list:
@@ -576,7 +586,9 @@ class SignTaskHistoryMixin:
                         legacy_file.unlink()
                         removed_files += 1
                     except Exception as exc:
-                        _logger.warning("删除遗留历史文件失败: %s (%s)", legacy_file, exc)
+                        _logger.warning(
+                            "删除遗留历史文件失败: %s (%s)", legacy_file, exc
+                        )
                     continue
 
                 from backend.services.sign_task_history_io import (
@@ -590,12 +602,16 @@ class SignTaskHistoryMixin:
                         legacy_file.unlink()
                         removed_files += 1
                     except Exception as exc:
-                        _logger.warning("删除遗留历史文件失败: %s (%s)", legacy_file, exc)
+                        _logger.warning(
+                            "删除遗留历史文件失败: %s (%s)", legacy_file, exc
+                        )
                 else:
                     try:
                         write_json_atomic(legacy_file, plan.get("kept") or [])
                     except Exception as exc:
-                        _logger.warning("回写遗留历史文件失败: %s (%s)", legacy_file, exc)
+                        _logger.warning(
+                            "回写遗留历史文件失败: %s (%s)", legacy_file, exc
+                        )
 
         try:
             remove_index_entries_matching(
@@ -678,7 +694,13 @@ class SignTaskHistoryMixin:
         if history_file.exists():
             try:
                 history_raw = read_json_safe(history_file, default=[])
-            except (OSError, json.JSONDecodeError, UnicodeDecodeError, TypeError, ValueError) as exc:
+            except (
+                OSError,
+                json.JSONDecodeError,
+                UnicodeDecodeError,
+                TypeError,
+                ValueError,
+            ) as exc:
                 _logger.warning(
                     "读取历史失败 task=%s account=%s file=%s: %s",
                     task_name,
@@ -765,6 +787,7 @@ class SignTaskHistoryMixin:
         try:
             ensure_history_index(self.run_history_dir)
             from backend.services.sign_task_history_index import read_index_entries
+
             entries = read_index_entries(self.run_history_dir, limit=5000)
         except Exception as e:
             _logger.debug("读取历史索引趋势失败: %s", e)
@@ -795,10 +818,14 @@ class SignTaskHistoryMixin:
         trends_list = []
         for d_str in sorted(daily_buckets.keys()):
             item = daily_buckets[d_str]
-            item["success_rate"] = round(item["success"] / item["total"], 2) if item["total"] > 0 else 1.0
+            item["success_rate"] = (
+                round(item["success"] / item["total"], 2) if item["total"] > 0 else 1.0
+            )
             trends_list.append(item)
 
-        overall_success_rate = round(total_success / total_runs, 2) if total_runs > 0 else 1.0
+        overall_success_rate = (
+            round(total_success / total_runs, 2) if total_runs > 0 else 1.0
+        )
 
         return {
             "days": days,

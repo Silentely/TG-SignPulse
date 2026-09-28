@@ -44,6 +44,12 @@ if [ -n "$RUFF" ]; then
         echo "   ❌ Ruff 检查失败，请修复后再推送"
         FAILED=1
     fi
+    if $RUFF format --check backend/ tg_signer/ tests/; then
+        echo "   ✅ Ruff 格式检查通过"
+    else
+        echo "   ❌ Ruff 格式检查失败，请执行：$RUFF format backend/ tg_signer/ tests/"
+        FAILED=1
+    fi
 else
     echo "   ❌ 未找到可用 ruff（PATH/.venv/uvx 均无），禁止带病推送"
     FAILED=1

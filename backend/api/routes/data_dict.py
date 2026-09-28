@@ -107,7 +107,9 @@ def delete_data_dict(
 @router.get("/{name}/sample", response_model=SampleEntryResponse)
 def sample_data_dict_entry(
     name: str,
-    mode: Literal["random", "round_robin"] = Query("random", description="抽取模式: random 或 round_robin"),
+    mode: Literal["random", "round_robin"] = Query(
+        "random", description="抽取模式: random 或 round_robin"
+    ),
     _user: User = Depends(get_current_user),
 ) -> Dict[str, str]:
     """抽取单条词条样本预览。"""

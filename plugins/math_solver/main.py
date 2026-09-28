@@ -3,6 +3,7 @@
 针对某些签到 Bot 会发送纯文本数学验证码，例如“请在 30 秒内输入 2*31 的答案”。
 本插件在 Bot 触发回复后秒级识别算式并直接给出答案回复。
 """
+
 import re
 from typing import Optional
 

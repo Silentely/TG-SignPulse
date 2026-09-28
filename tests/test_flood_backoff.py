@@ -35,7 +35,10 @@ def test_extract_flood_wait_seconds_text_fallback_and_guards():
     assert extract_flood_wait_seconds(ValueError("Please wait 300 seconds")) == 300
     assert extract_flood_wait_seconds(ValueError("flood wait 420")) == 420
     # 无引导词的秒数不得当成限流冷却
-    assert extract_flood_wait_seconds(ValueError("timeout after 300 seconds of waiting")) is None
+    assert (
+        extract_flood_wait_seconds(ValueError("timeout after 300 seconds of waiting"))
+        is None
+    )
     assert extract_flood_wait_seconds(ValueError("database is locked")) is None
     assert extract_flood_wait_seconds(RuntimeError("boom")) is None
 
@@ -113,7 +116,9 @@ async def test_runner_check_account_flood_wait_not_marking_account_invalid():
         "flood_wait_cooling": False,
     }
 
-    with patch("backend.services.flood_backoff.get_flood_backoff_manager", return_value=mgr):
+    with patch(
+        "backend.services.flood_backoff.get_flood_backoff_manager", return_value=mgr
+    ):
         await _runner_check_account(state)
 
     assert state["flood_wait_cooling"] is True
@@ -138,11 +143,14 @@ async def test_runner_send_notifications_suppressed_during_flood_cooldown():
         "last_reply": "",
         "last_target_message": None,
     }
-    with patch(
-        "backend.services.sign_task_notify.send_failure_notification"
-    ) as send_failure, patch(
-        "backend.services.sign_task_notify.send_success_notification"
-    ) as send_success:
+    with (
+        patch(
+            "backend.services.sign_task_notify.send_failure_notification"
+        ) as send_failure,
+        patch(
+            "backend.services.sign_task_notify.send_success_notification"
+        ) as send_success,
+    ):
         await _runner_send_notifications(state)
 
     send_failure.assert_not_called()
@@ -165,11 +173,14 @@ async def test_runner_send_notifications_failure_sent_when_not_cooldown():
         "last_reply": "",
         "last_target_message": None,
     }
-    with patch(
-        "backend.services.sign_task_notify.send_failure_notification"
-    ) as send_failure, patch(
-        "backend.services.sign_task_notify.send_success_notification"
-    ) as send_success:
+    with (
+        patch(
+            "backend.services.sign_task_notify.send_failure_notification"
+        ) as send_failure,
+        patch(
+            "backend.services.sign_task_notify.send_success_notification"
+        ) as send_success,
+    ):
         await _runner_send_notifications(state)
 
     send_failure.assert_called_once()

@@ -34,9 +34,7 @@ logger = logging.getLogger("backend.version_info")
 DEFAULT_UPDATE_CHECK_URL = (
     "https://api.github.com/repos/Silentely/TG-SignPulse/releases/latest"
 )
-DEFAULT_GITHUB_HTML_LATEST = (
-    "https://github.com/Silentely/TG-SignPulse/releases/latest"
-)
+DEFAULT_GITHUB_HTML_LATEST = "https://github.com/Silentely/TG-SignPulse/releases/latest"
 UPDATE_CACHE_TTL_SECONDS = 6 * 3600
 _HTTP_TIMEOUT_SECONDS = 8.0
 # Docker 未注入真实版本时的占位，不应覆盖包版本
@@ -168,6 +166,7 @@ def get_local_version_info() -> Dict[str, Any]:
         app_name = _read_env("APP_APP_NAME", "APP_NAME", default="tg-signer-panel")
 
     import platform
+
     return {
         "version": version,
         "git_sha": git_sha,
@@ -234,7 +233,9 @@ def _is_rate_limit_error(exc: BaseException) -> bool:
         return True
     if "403" in text and ("api.github.com" in text or "github" in text):
         return True
-    code = getattr(exc, "status", None) or getattr(getattr(exc, "response", None), "status_code", None)
+    code = getattr(exc, "status", None) or getattr(
+        getattr(exc, "response", None), "status_code", None
+    )
     if code in {403, 429}:
         return True
     return False
@@ -377,9 +378,7 @@ def _fetch_json_release(url: str) -> Dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError("release payload is not an object")
     source = (
-        "github_releases"
-        if "api.github.com" in safe_url
-        else "custom_release_json"
+        "github_releases" if "api.github.com" in safe_url else "custom_release_json"
     )
     return _payload_from_release_json(data, source=source)
 
@@ -422,11 +421,7 @@ def _cached_success_payload(*, allow_stale: bool) -> Optional[Dict[str, Any]]:
     with _cache_lock:
         payload = _cache.get("payload")
         expires_at = float(_cache.get("expires_at") or 0.0)
-        if (
-            payload is None
-            or payload.get("error")
-            or not payload.get("latest_version")
-        ):
+        if payload is None or payload.get("error") or not payload.get("latest_version"):
             return None
         if not allow_stale and now >= expires_at:
             return None
@@ -466,7 +461,9 @@ def check_remote_update(*, force: bool = False) -> Dict[str, Any]:
         # 有成功历史时返回过期缓存，避免面板直接 403 文案
         stale = _cached_success_payload(allow_stale=True)
         if stale is not None:
-            logger.info("版本检查失败，复用过期缓存 latest=%s", stale.get("latest_version"))
+            logger.info(
+                "版本检查失败，复用过期缓存 latest=%s", stale.get("latest_version")
+            )
             return stale
         return _empty_update_payload(enabled=True, error=friendly)
 

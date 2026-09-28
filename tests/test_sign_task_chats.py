@@ -1,4 +1,5 @@
 """sign_task_chats 纯函数测试。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -113,7 +114,9 @@ def test_resolve_telegram_api_credentials():
         ({"api_id": "111", "api_hash": "cfg"}, "   ", "env", (111, "env")),
     ],
 )
-def test_resolve_telegram_api_credentials_precedence(tg_config, env_id, env_hash, expected):
+def test_resolve_telegram_api_credentials_precedence(
+    tg_config, env_id, env_hash, expected
+):
     from backend.services.telegram.credentials import resolve_telegram_api_credentials
 
     assert (

@@ -1,4 +1,5 @@
 """签到历史轻量索引测试。"""
+
 from __future__ import annotations
 
 import json
@@ -71,7 +72,11 @@ def test_list_recent_prefers_memory_after_append(tmp_path: Path):
 
 
 def test_filter_by_account_and_date(tmp_path: Path):
-    for acc, ts in [("a1", "2026-01-01T01:00:00"), ("a2", "2026-01-02T01:00:00"), ("a1", "2026-01-02T02:00:00")]:
+    for acc, ts in [
+        ("a1", "2026-01-01T01:00:00"),
+        ("a2", "2026-01-02T01:00:00"),
+        ("a1", "2026-01-02T02:00:00"),
+    ]:
         append_index_entry(
             tmp_path,
             build_index_entry(
@@ -92,15 +97,11 @@ def test_filter_by_account_and_date(tmp_path: Path):
 def test_remove_and_clear(tmp_path: Path):
     append_index_entry(
         tmp_path,
-        build_index_entry(
-            time="t1", account_name="a", task_name="task", success=True
-        ),
+        build_index_entry(time="t1", account_name="a", task_name="task", success=True),
     )
     append_index_entry(
         tmp_path,
-        build_index_entry(
-            time="t2", account_name="a", task_name="task", success=False
-        ),
+        build_index_entry(time="t2", account_name="a", task_name="task", success=False),
     )
     n = remove_index_entries_matching(
         tmp_path, account_name="a", task_name="task", created_at="t1"

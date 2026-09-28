@@ -4,6 +4,7 @@
 1. `import *` 漏掉下划线私有名（accounts NameError）
 2. core 子模块 star-import 残缺导致 import 即 NameError
 """
+
 from __future__ import annotations
 
 import importlib

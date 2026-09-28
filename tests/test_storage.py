@@ -45,7 +45,10 @@ class TestProbeWritableDir:
 class TestDataDirOverride:
     def test_override_file_default_location(self, monkeypatch, tmp_path):
         monkeypatch.delenv("APP_DATA_DIR_OVERRIDE_FILE", raising=False)
-        assert storage.get_data_dir_override_file() == storage._DEFAULT_DATA_DIR_OVERRIDE_FILE
+        assert (
+            storage.get_data_dir_override_file()
+            == storage._DEFAULT_DATA_DIR_OVERRIDE_FILE
+        )
 
     def test_override_file_from_env(self, monkeypatch, tmp_path):
         target = tmp_path / "custom" / "override.txt"
@@ -123,14 +126,14 @@ class TestInitialDataDir:
         override_path = tmp_path / "override.txt"
         target = tmp_path / "override-data"
         override_path.write_text(str(target), encoding="utf-8")
-        monkeypatch.setattr(storage, "get_data_dir_override_file", lambda: override_path)
+        monkeypatch.setattr(
+            storage, "get_data_dir_override_file", lambda: override_path
+        )
         assert storage.get_initial_data_dir() == target
 
     def test_default_data_dir(self, monkeypatch, tmp_path):
         monkeypatch.delenv("APP_DATA_DIR", raising=False)
-        monkeypatch.setattr(
-            storage, "load_data_dir_override", lambda: None
-        )
+        monkeypatch.setattr(storage, "load_data_dir_override", lambda: None)
         assert storage.get_initial_data_dir() == Path("/data")
 
 

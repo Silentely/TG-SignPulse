@@ -136,7 +136,9 @@ def test_find_previous_photo_skips_other_sender_images():
         from_user=None,
         sender_chat=chat_sender,
     )
-    found_channel = signer._find_previous_photo_message([channel_photo_msg, channel_btn_msg], channel_btn_msg)
+    found_channel = signer._find_previous_photo_message(
+        [channel_photo_msg, channel_btn_msg], channel_btn_msg
+    )
     assert found_channel is not None
     assert found_channel.id == 204
 
@@ -158,7 +160,9 @@ def test_find_previous_photo_skips_other_sender_images():
         sender_chat=None,
     )
     signer.logs.clear()
-    found_anon = signer._find_previous_photo_message([anon_photo_msg, anon_btn_msg], anon_btn_msg)
+    found_anon = signer._find_previous_photo_message(
+        [anon_photo_msg, anon_btn_msg], anon_btn_msg
+    )
     assert found_anon is not None
     assert found_anon.id == 206
     assert any("WARNING" == level for level, _ in signer.logs)
@@ -186,7 +190,9 @@ def test_find_previous_photo_skips_expired_images():
         sender_chat=None,
     )
 
-    found = signer._find_previous_photo_message([expired_photo, button_msg], button_msg, max_age_seconds=120.0)
+    found = signer._find_previous_photo_message(
+        [expired_photo, button_msg], button_msg, max_age_seconds=120.0
+    )
     assert found is None
 
     # Max backtrack span exceeded
@@ -251,7 +257,12 @@ async def test_choose_option_by_image_uses_previous_photo_and_current_buttons():
         text="请点击图中的猫咪",
         caption=None,
         reply_markup=InlineKeyboardMarkup(
-            [[MockButton("猫咪", callback_data="cat"), MockButton("狗狗", callback_data="dog")]]
+            [
+                [
+                    MockButton("猫咪", callback_data="cat"),
+                    MockButton("狗狗", callback_data="dog"),
+                ]
+            ]
         ),
     )
 
@@ -268,7 +279,9 @@ async def test_choose_option_by_image_uses_previous_photo_and_current_buttons():
     ok = await signer._choose_option_by_image(action, button_msg)
 
     assert ok is True
-    signer.app.download_media.assert_awaited_once_with("split_captcha_photo_id", in_memory=True)
+    signer.app.download_media.assert_awaited_once_with(
+        "split_captcha_photo_id", in_memory=True
+    )
     signer._click_inline_button.assert_awaited_once()
     called_msg, called_btn = signer._click_inline_button.call_args[0]
     assert called_msg is button_msg

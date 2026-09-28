@@ -103,6 +103,12 @@ def read_json_safe(path, default: Any = None) -> Any:
         with path_write_lock(path):
             with open(path, "r", encoding="utf-8") as f:
                 return json.load(f)
-    except (json.JSONDecodeError, OSError, UnicodeDecodeError, TypeError, ValueError) as exc:
+    except (
+        json.JSONDecodeError,
+        OSError,
+        UnicodeDecodeError,
+        TypeError,
+        ValueError,
+    ) as exc:
         _logger.warning("读取 %s 失败，回退为默认值: %s", path, exc)
         return default

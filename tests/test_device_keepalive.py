@@ -25,9 +25,7 @@ def keepalive(tmp_path, monkeypatch):
     config_module.get_settings.cache_clear()
 
     settings = {"device_keepalive_enabled": True}
-    monkeypatch.setattr(
-        dk_mod, "get_config_service", lambda: _fake_cfg(settings)
-    )
+    monkeypatch.setattr(dk_mod, "get_config_service", lambda: _fake_cfg(settings))
     tg = MagicMock()
     tg.list_accounts.return_value = [{"name": "acc1"}]
     tg.check_account_status = AsyncMock(return_value={"ok": True})
@@ -142,7 +140,7 @@ class TestRunBehavior:
 
     def test_singleton_get_service(self):
         from backend.services.device_keepalive import get_device_keepalive_service
+
         s1 = get_device_keepalive_service()
         s2 = get_device_keepalive_service()
         assert s1 is s2
-

@@ -3,6 +3,7 @@
 覆盖：脚手架/克隆代码注入防护、调试存储命名空间隔离、ZIP 导入路径与布局防护、
 上传体积上限、格式化降级标识、注册冲突防护、执行指标口径与覆盖、历史条数约束。
 """
+
 import ast
 import io
 import zipfile
@@ -65,8 +66,11 @@ def test_api_create_plugin_author_injection_is_neutralized():
     # 生成源码必须可解析，且顶层不存在可执行的 __import__ 调用节点
     tree = ast.parse(source)
     exec_calls = [
-        n for n in ast.walk(tree)
-        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "__import__"
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Name)
+        and n.func.id == "__import__"
     ]
     assert not exec_calls
     # 注入载荷仅作为字符串值存在
@@ -78,12 +82,20 @@ def test_api_create_plugin_duplicate_conflict_returns_409():
     _cleanup_plugin("conflict_probe")
     first = client.post(
         "/api/plugins/create",
-        json={"name": "conflict_probe", "mode": "reactive", "template": "basic_reactive"},
+        json={
+            "name": "conflict_probe",
+            "mode": "reactive",
+            "template": "basic_reactive",
+        },
     )
     assert first.status_code == 200
     second = client.post(
         "/api/plugins/create",
-        json={"name": "conflict_probe", "mode": "reactive", "template": "basic_reactive"},
+        json={
+            "name": "conflict_probe",
+            "mode": "reactive",
+            "template": "basic_reactive",
+        },
     )
     assert second.status_code == 409
     _cleanup_plugin("conflict_probe")
@@ -95,7 +107,11 @@ def test_api_clone_plugin_description_injection_is_neutralized():
     _cleanup_plugin("clone_dst_probe")
     created = client.post(
         "/api/plugins/create",
-        json={"name": "clone_src_probe", "mode": "reactive", "template": "basic_reactive"},
+        json={
+            "name": "clone_src_probe",
+            "mode": "reactive",
+            "template": "basic_reactive",
+        },
     )
     assert created.status_code == 200
 
@@ -111,8 +127,11 @@ def test_api_clone_plugin_description_injection_is_neutralized():
     source = client.get("/api/plugins/clone_dst_probe/source").json()["source"]
     tree = ast.parse(source)
     exec_calls = [
-        n for n in ast.walk(tree)
-        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "__import__"
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Name)
+        and n.func.id == "__import__"
     ]
     assert not exec_calls
     assert PluginRegistry.get("clone_dst_probe") is not None
@@ -215,11 +234,13 @@ def _zip_bytes(members: dict) -> bytes:
 
 
 def test_api_import_bundle_rejects_zip_slip_paths():
-    payload = _zip_bytes({
-        "../evil_plugin.py": "x = 1",
-        "/abs/evil_plugin.py": "x = 1",
-        "sub\\evil_plugin.py": "x = 1",
-    })
+    payload = _zip_bytes(
+        {
+            "../evil_plugin.py": "x = 1",
+            "/abs/evil_plugin.py": "x = 1",
+            "sub\\evil_plugin.py": "x = 1",
+        }
+    )
     resp = client.post(
         "/api/plugins/import-bundle",
         files={"file": ("slip.zip", payload, "application/zip")},
@@ -235,9 +256,11 @@ def test_api_import_bundle_rejects_zip_slip_paths():
 
 def test_api_import_bundle_rejects_unsupported_layout():
     """嵌套子目录的普通 .py 文件不会被加载器识别，应显式拒绝而非假报导入成功。"""
-    payload = _zip_bytes({
-        "deep/nested/plugin.py": "x = 1",
-    })
+    payload = _zip_bytes(
+        {
+            "deep/nested/plugin.py": "x = 1",
+        }
+    )
     resp = client.post(
         "/api/plugins/import-bundle",
         files={"file": ("layout.zip", payload, "application/zip")},
@@ -354,7 +377,9 @@ def _write_plugin(tmp_path, stem: str, mode: str, body: str) -> None:
 @pytest.mark.asyncio
 async def test_host_records_single_failure_on_handler_exception(tmp_path):
     """插件抛异常时只记一条失败，不得出现 成功+失败 双重计数。"""
-    _write_plugin(tmp_path, "boom_plug", "active", "    raise RuntimeError('boom inside handler')")
+    _write_plugin(
+        tmp_path, "boom_plug", "active", "    raise RuntimeError('boom inside handler')"
+    )
     PluginRegistry.clear()
     assert PluginRegistry.load_plugins_from_dir(tmp_path) == 1
     PluginRegistry.reset_metrics("boom_plug")
@@ -465,6 +490,8 @@ def test_signer_task_execution_records_active_metrics(monkeypatch):
         "tg_signer.core.plugins.PluginRegistry.record_execution",
         lambda *args, **kwargs: recorded.append((args, kwargs)),
     )
-    mixin._record_plugin_task_execution("task_act_plug", 0.0, success=True, trigger_type="active")
+    mixin._record_plugin_task_execution(
+        "task_act_plug", 0.0, success=True, trigger_type="active"
+    )
     assert recorded and recorded[0][1]["trigger_type"] == "active"
     PluginRegistry.clear()

@@ -70,7 +70,9 @@ def test_market_readme_endpoint(api_client):
     token = _login(api_client)
     headers = _auth(token)
 
-    resp = api_client.get("/api/plugins/market/bing_daily_quote/readme", headers=headers)
+    resp = api_client.get(
+        "/api/plugins/market/bing_daily_quote/readme", headers=headers
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["id"] == "bing_daily_quote"
@@ -83,7 +85,9 @@ def test_market_install_update_and_uninstall(api_client):
     headers = _auth(token)
 
     # Ensure local source
-    api_client.put("/api/plugins/market/source", headers=headers, json={"source_type": "local"})
+    api_client.put(
+        "/api/plugins/market/source", headers=headers, json={"source_type": "local"}
+    )
 
     # 1. Install dice_roller
     resp = api_client.post("/api/plugins/market/dice_roller/install", headers=headers)
@@ -106,7 +110,9 @@ def test_market_install_update_and_uninstall(api_client):
     assert resp.json()["name"] == "dice_roller"
 
     # 4. Uninstall plugin
-    resp = api_client.delete("/api/plugins/market/dice_roller/uninstall", headers=headers)
+    resp = api_client.delete(
+        "/api/plugins/market/dice_roller/uninstall", headers=headers
+    )
     assert resp.status_code == 200
     assert resp.json()["success"] is True
     assert PluginRegistry.get("dice_roller") is None
@@ -117,7 +123,9 @@ def test_market_install_nonexistent_returns_404(api_client):
     token = _login(api_client)
     headers = _auth(token)
 
-    resp = api_client.post("/api/plugins/market/no_such_plugin_999/install", headers=headers)
+    resp = api_client.post(
+        "/api/plugins/market/no_such_plugin_999/install", headers=headers
+    )
     assert resp.status_code == 404
 
 
@@ -127,7 +135,9 @@ def test_market_uninstall_builtin_forbidden(api_client):
     headers = _auth(token)
 
     # math_solver is a builtin plugin
-    resp = api_client.delete("/api/plugins/market/math_solver/uninstall", headers=headers)
+    resp = api_client.delete(
+        "/api/plugins/market/math_solver/uninstall", headers=headers
+    )
     assert resp.status_code == 403
 
 
@@ -140,7 +150,10 @@ def test_market_source_ssrf_blocked(api_client):
     resp = api_client.put(
         "/api/plugins/market/source",
         headers=headers,
-        json={"source_type": "custom", "custom_url": "http://127.0.0.1:8000/marketplace.json"},
+        json={
+            "source_type": "custom",
+            "custom_url": "http://127.0.0.1:8000/marketplace.json",
+        },
     )
     assert resp.status_code == 400
     assert "不安全" in resp.json()["detail"]
@@ -152,7 +165,9 @@ def test_uninstall_market_plugin_invalid_id_blocked(api_client):
     headers = _auth(token)
 
     for bad_id in ["..", "foo/bar", "foo\\bar", "foo..bar", "bad id"]:
-        resp = api_client.delete(f"/api/plugins/market/{bad_id}/uninstall", headers=headers)
+        resp = api_client.delete(
+            f"/api/plugins/market/{bad_id}/uninstall", headers=headers
+        )
         assert resp.status_code in (400, 404, 405)
 
 
@@ -184,7 +199,7 @@ def test_install_market_plugin_zip_slip_blocked(api_client, monkeypatch):
                 "download_url": "local://malicious.zip",
                 "sha256": hashlib.sha256(malicious_bytes).hexdigest(),
             }
-        ]
+        ],
     }
 
     async def fake_fetch(refresh=False):
@@ -199,7 +214,9 @@ def test_install_market_plugin_zip_slip_blocked(api_client, monkeypatch):
     monkeypatch.setattr("pathlib.Path.read_bytes", fake_read_bytes)
     monkeypatch.setattr("pathlib.Path.is_file", lambda self: True)
 
-    resp = api_client.post("/api/plugins/market/malicious_zip_plugin/install", headers=headers)
+    resp = api_client.post(
+        "/api/plugins/market/malicious_zip_plugin/install", headers=headers
+    )
     assert resp.status_code == 400
     assert "Zip Slip" in resp.json()["detail"]
 
@@ -222,7 +239,7 @@ def test_install_market_plugin_subprocess_forbidden(api_client, monkeypatch):
             "@PluginRegistry.register('subp_plugin', name='Subp', mode='reactive')\n"
             "class SubpPlugin(BasePlugin):\n"
             "    async def run(self, event, context):\n"
-            "        subprocess.run(['ls', '-la'])\n"
+            "        subprocess.run(['ls', '-la'])\n",
         )
     subp_bytes = bio.getvalue()
 
@@ -238,7 +255,7 @@ def test_install_market_plugin_subprocess_forbidden(api_client, monkeypatch):
                 "download_url": "local://subp.zip",
                 "sha256": hashlib.sha256(subp_bytes).hexdigest(),
             }
-        ]
+        ],
     }
 
     async def fake_fetch(refresh=False):
@@ -277,7 +294,9 @@ def _market_zip(members: dict) -> bytes:
     return bio.getvalue()
 
 
-def _patch_catalog(monkeypatch, plugin_id: str, archive_bytes: bytes, sha: str | None = None):
+def _patch_catalog(
+    monkeypatch, plugin_id: str, archive_bytes: bytes, sha: str | None = None
+):
     """把市场目录替换为仅含指定条目，并让安装读到给定归档字节。"""
     from backend.api.routes import plugins as plugins_route
 
@@ -337,7 +356,9 @@ def test_market_install_rejects_empty_sha256_placeholder(api_client, monkeypatch
     archive = _market_zip({"main.py": _BASIC_PLUGIN.format(pid="emptysha_plugin")})
     _patch_catalog(monkeypatch, "emptysha_plugin", archive, sha="   ")
 
-    resp = api_client.post("/api/plugins/market/emptysha_plugin/install", headers=headers)
+    resp = api_client.post(
+        "/api/plugins/market/emptysha_plugin/install", headers=headers
+    )
     assert resp.status_code == 400
     assert "sha256" in resp.json()["detail"]
 
@@ -349,7 +370,9 @@ def test_market_install_rejects_sha256_mismatch(api_client, monkeypatch):
     archive = _market_zip({"main.py": _BASIC_PLUGIN.format(pid="mismatch_plugin")})
     _patch_catalog(monkeypatch, "mismatch_plugin", archive, sha="0" * 64)
 
-    resp = api_client.post("/api/plugins/market/mismatch_plugin/install", headers=headers)
+    resp = api_client.post(
+        "/api/plugins/market/mismatch_plugin/install", headers=headers
+    )
     assert resp.status_code == 400
     assert "SHA-256 不匹配" in resp.json()["detail"]
 
@@ -366,7 +389,9 @@ def test_market_install_rejects_non_whitelisted_member_suffix(api_client, monkey
     )
     _patch_catalog(monkeypatch, "sibling_plugin", archive)
 
-    resp = api_client.post("/api/plugins/market/sibling_plugin/install", headers=headers)
+    resp = api_client.post(
+        "/api/plugins/market/sibling_plugin/install", headers=headers
+    )
     assert resp.status_code == 400
     assert "不允许的文件类型" in resp.json()["detail"]
 

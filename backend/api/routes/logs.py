@@ -119,7 +119,9 @@ def clear_login_logs(
 
     cleared = db.query(LoginLog).delete()
     db.commit()
-    return ClearLogsResponse(success=True, cleared=cleared, message="Login logs cleared")
+    return ClearLogsResponse(
+        success=True, cleared=cleared, message="Login logs cleared"
+    )
 
 
 @router.delete("/login/{log_id}", response_model=DeleteLogResponse)
@@ -132,7 +134,9 @@ def delete_login_log(
 
     row = db.query(LoginLog).filter(LoginLog.id == log_id).first()
     if row is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="LOGIN_LOG_NOT_FOUND")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="LOGIN_LOG_NOT_FOUND"
+        )
 
     db.delete(row)
     db.commit()
@@ -163,14 +167,15 @@ def get_task_logs(
     for index, item in enumerate(history):
         task_name = str(item.get("task_name") or "未知任务")
         success = bool(item.get("success", False))
-        last_msg = (
-            str(item.get("last_target_message") or "").strip()
-            or extract_last_target_message(item.get("flow_logs"))
-        )
+        last_msg = str(
+            item.get("last_target_message") or ""
+        ).strip() or extract_last_target_message(item.get("flow_logs"))
         raw_message = str(item.get("message") or "").strip()
         # 列表摘要优先展示目标返回内容，其次原始 message，最后状态兜底
-        display_message = last_msg or raw_message or (
-            f"{task_name} · {'成功' if success else '失败'}"
+        display_message = (
+            last_msg
+            or raw_message
+            or (f"{task_name} · {'成功' if success else '失败'}")
         )
         failure_category = str(item.get("failure_category") or "").strip() or None
         items.append(
@@ -205,7 +210,9 @@ def get_task_log_detail(
         created_at=created_at,
     )
     if detail is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="TASK_LOG_NOT_FOUND")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="TASK_LOG_NOT_FOUND"
+        )
 
     failure_category = str(detail.get("failure_category") or "").strip() or None
     return TaskHistoryLogDetailItem(
@@ -225,7 +232,8 @@ def get_task_log_detail(
         failure_category=failure_category,
         flow_logs=[str(line) for line in detail.get("flow_logs") or []],
         flow_truncated=bool(detail.get("flow_truncated", False)),
-        last_target_message=str(detail.get("last_target_message") or "").strip() or None,
+        last_target_message=str(detail.get("last_target_message") or "").strip()
+        or None,
     )
 
 
@@ -256,6 +264,8 @@ def delete_task_log(
         created_at=created_at,
     )
     if not deleted:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="TASK_LOG_NOT_FOUND")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="TASK_LOG_NOT_FOUND"
+        )
 
     return DeleteLogResponse(success=True, message="Task log deleted")

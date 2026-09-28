@@ -47,7 +47,9 @@ async def test_global_require_proxy_blocks_unproxied_account(tmp_path, monkeypat
     session_file.write_text("dummy")
 
     cfg_svc = ConfigService()
-    cfg_svc.save_global_settings({"require_proxy_for_telegram": True, "global_proxy": None})
+    cfg_svc.save_global_settings(
+        {"require_proxy_for_telegram": True, "global_proxy": None}
+    )
 
     tg_svc = DummyTelegramService(session_dir, workdir)
 
@@ -84,8 +86,14 @@ async def test_probe_proxy_failed_when_exit_matches_host_ip(tmp_path, monkeypatc
     host_ip = "198.51.100.42"
 
     # probe_proxy_exit 直接调用验证
-    with patch("backend.utils.proxy._fetch_ip_via_proxy", new_callable=AsyncMock) as mock_proxy_ip, \
-         patch("backend.utils.proxy.get_host_direct_ip", new_callable=AsyncMock) as mock_host_ip:
+    with (
+        patch(
+            "backend.utils.proxy._fetch_ip_via_proxy", new_callable=AsyncMock
+        ) as mock_proxy_ip,
+        patch(
+            "backend.utils.proxy.get_host_direct_ip", new_callable=AsyncMock
+        ) as mock_host_ip,
+    ):
         mock_host_ip.return_value = host_ip
         mock_proxy_ip.return_value = host_ip  # 泄漏：出口 IP 与宿主机一致
 
@@ -94,14 +102,22 @@ async def test_probe_proxy_failed_when_exit_matches_host_ip(tmp_path, monkeypatc
         assert ip == host_ip
 
     # 门禁调用验证：即使配置 policy="warn"，FAILED 也必须无条件硬熔断
-    set_account_profile("leaking_acc", proxy="socks5://127.0.0.1:1080", proxy_probe_policy="warn")
+    set_account_profile(
+        "leaking_acc", proxy="socks5://127.0.0.1:1080", proxy_probe_policy="warn"
+    )
     cfg_svc = ConfigService()
 
     tg_svc = DummyTelegramService(session_dir, workdir)
-    with patch("backend.services.config.get_config_service", return_value=cfg_svc), \
-         patch("backend.utils.proxy.probe_proxy_exit", new_callable=AsyncMock) as mock_probe:
+    with (
+        patch("backend.services.config.get_config_service", return_value=cfg_svc),
+        patch(
+            "backend.utils.proxy.probe_proxy_exit", new_callable=AsyncMock
+        ) as mock_probe,
+    ):
         mock_probe.return_value = (ProxyProbeStatus.FAILED, host_ip)
-        with pytest.raises(RuntimeError, match="PROXY_PROBE_FAILED: Proxy leaks host IP"):
+        with pytest.raises(
+            RuntimeError, match="PROXY_PROBE_FAILED: Proxy leaks host IP"
+        ):
             await tg_svc.verify_account_proxy("leaking_acc", proxy_dict)
 
 
@@ -119,13 +135,19 @@ async def test_probe_proxy_unavailable_strict_blocks(tmp_path, monkeypatch):
     session_file.write_text("dummy")
 
     proxy_dict = {"scheme": "socks5", "hostname": "127.0.0.1", "port": 1080}
-    set_account_profile("strict_acc", proxy="socks5://127.0.0.1:1080", proxy_probe_policy="strict")
+    set_account_profile(
+        "strict_acc", proxy="socks5://127.0.0.1:1080", proxy_probe_policy="strict"
+    )
 
     tg_svc = DummyTelegramService(session_dir, workdir)
     cfg_svc = ConfigService()
 
-    with patch("backend.services.config.get_config_service", return_value=cfg_svc), \
-         patch("backend.utils.proxy.probe_proxy_exit", new_callable=AsyncMock) as mock_probe:
+    with (
+        patch("backend.services.config.get_config_service", return_value=cfg_svc),
+        patch(
+            "backend.utils.proxy.probe_proxy_exit", new_callable=AsyncMock
+        ) as mock_probe,
+    ):
         mock_probe.return_value = (ProxyProbeStatus.UNAVAILABLE, "Connection timed out")
         with pytest.raises(RuntimeError, match="PROXY_PROBE_UNAVAILABLE"):
             await tg_svc.verify_account_proxy("strict_acc", proxy_dict)
@@ -145,14 +167,20 @@ async def test_probe_proxy_unavailable_warn_policy_allows(tmp_path, monkeypatch)
     session_file.write_text("dummy")
 
     proxy_dict = {"scheme": "socks5", "hostname": "127.0.0.1", "port": 1080}
-    set_account_profile("warn_acc", proxy="socks5://127.0.0.1:1080", proxy_probe_policy="warn")
+    set_account_profile(
+        "warn_acc", proxy="socks5://127.0.0.1:1080", proxy_probe_policy="warn"
+    )
 
     tg_svc = DummyTelegramService(session_dir, workdir)
     cfg_svc = ConfigService()
 
-    with patch("backend.services.config.get_config_service", return_value=cfg_svc), \
-         patch("backend.utils.proxy.probe_proxy_exit", new_callable=AsyncMock) as mock_probe, \
-         patch("backend.services.telegram.accounts.logger.warning") as mock_warn:
+    with (
+        patch("backend.services.config.get_config_service", return_value=cfg_svc),
+        patch(
+            "backend.utils.proxy.probe_proxy_exit", new_callable=AsyncMock
+        ) as mock_probe,
+        patch("backend.services.telegram.accounts.logger.warning") as mock_warn,
+    ):
         mock_probe.return_value = (ProxyProbeStatus.UNAVAILABLE, "Connection timed out")
         # 不抛异常，平稳放行
         await tg_svc.verify_account_proxy("warn_acc", proxy_dict)
@@ -164,8 +192,14 @@ async def test_probe_proxy_cached_within_ttl():
     """验证相同代理探测结果在 600s TTL 内直接复用缓存，不重复发网络请求。"""
     proxy_dict = {"scheme": "socks5", "hostname": "10.0.0.1", "port": 1080}
 
-    with patch("backend.utils.proxy._fetch_ip_via_proxy", new_callable=AsyncMock) as mock_proxy_ip, \
-         patch("backend.utils.proxy.get_host_direct_ip", new_callable=AsyncMock) as mock_host_ip:
+    with (
+        patch(
+            "backend.utils.proxy._fetch_ip_via_proxy", new_callable=AsyncMock
+        ) as mock_proxy_ip,
+        patch(
+            "backend.utils.proxy.get_host_direct_ip", new_callable=AsyncMock
+        ) as mock_host_ip,
+    ):
         mock_host_ip.return_value = "1.1.1.1"
         mock_proxy_ip.return_value = "2.2.2.2"
 
@@ -186,8 +220,14 @@ async def test_probe_proxy_unavailable_is_cached():
     """代理不可达的探测结果同样入缓存，避免每次账号操作都重复阻塞探测。"""
     proxy_dict = {"scheme": "socks5", "hostname": "10.0.0.2", "port": 1080}
 
-    with patch("backend.utils.proxy._fetch_ip_via_proxy", new_callable=AsyncMock) as mock_proxy_ip, \
-         patch("backend.utils.proxy.get_host_direct_ip", new_callable=AsyncMock) as mock_host_ip:
+    with (
+        patch(
+            "backend.utils.proxy._fetch_ip_via_proxy", new_callable=AsyncMock
+        ) as mock_proxy_ip,
+        patch(
+            "backend.utils.proxy.get_host_direct_ip", new_callable=AsyncMock
+        ) as mock_host_ip,
+    ):
         mock_host_ip.return_value = "1.1.1.1"
         mock_proxy_ip.return_value = None  # 两个端点均不可达
 
@@ -202,7 +242,9 @@ async def test_probe_proxy_unavailable_is_cached():
 
 
 @pytest.mark.asyncio
-async def test_check_account_status_reports_invalid_proxy_as_blocked(tmp_path, monkeypatch):
+async def test_check_account_status_reports_invalid_proxy_as_blocked(
+    tmp_path, monkeypatch
+):
     """代理字符串非法时必须返回 blocked 状态与稳定错误码，而不是静默降级为直连。"""
     monkeypatch.setenv("APP_DATA_DIR", str(tmp_path))
     get_settings.cache_clear()
@@ -216,12 +258,15 @@ async def test_check_account_status_reports_invalid_proxy_as_blocked(tmp_path, m
 
     tg_svc = DummyTelegramService(session_dir, workdir)
 
-    with patch("backend.services.config.get_config_service", return_value=ConfigService()):
+    with patch(
+        "backend.services.config.get_config_service", return_value=ConfigService()
+    ):
         result = await tg_svc.check_account_status("bad_proxy_acc", timeout_seconds=1.0)
 
     assert result["ok"] is False
     assert result["status"] == "blocked"
     assert result["code"] == "PROXY_INVALID_BLOCKED"
+
 
 def test_format_proxy_url_ipv6_and_user():
     from backend.utils.proxy import format_proxy_url
@@ -230,10 +275,21 @@ def test_format_proxy_url_ipv6_and_user():
     p1 = {"scheme": "socks5", "hostname": "::1", "port": 1080}
     assert format_proxy_url(p1) == "socks5://[::1]:1080"
 
-    p2 = {"scheme": "http", "hostname": "2001:db8::1", "port": 8080, "username": "alice"}
+    p2 = {
+        "scheme": "http",
+        "hostname": "2001:db8::1",
+        "port": 8080,
+        "username": "alice",
+    }
     assert format_proxy_url(p2) == "http://alice@[2001:db8::1]:8080"
 
-    p3 = {"scheme": "http", "hostname": "2001:db8::1", "port": 8080, "username": "alice", "password": "pwd"}
+    p3 = {
+        "scheme": "http",
+        "hostname": "2001:db8::1",
+        "port": 8080,
+        "username": "alice",
+        "password": "pwd",
+    }
     assert format_proxy_url(p3) == "http://alice:pwd@[2001:db8::1]:8080"
 
     # 已经带有中括号的保持原样

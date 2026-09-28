@@ -51,7 +51,9 @@ def _read_app_secret_key() -> str:
             secret = ""
 
     if not isinstance(secret, str) or not secret.strip():
-        raise SecretKeyError("APP_SECRET_KEY is required to encrypt sensitive local configuration.")
+        raise SecretKeyError(
+            "APP_SECRET_KEY is required to encrypt sensitive local configuration."
+        )
     return secret.strip()
 
 
@@ -76,7 +78,7 @@ def encrypt_secret(value: Optional[str]) -> Optional[str]:
     if is_encrypted_secret(value):
         # 验证前缀字符串确实可解密，防止伪造前缀绕过加密
         try:
-            token = value[len(_ENCRYPTED_PREFIX):]
+            token = value[len(_ENCRYPTED_PREFIX) :]
             get_fernet().decrypt(token.encode("ascii"))
             return value  # 已正确加密，直接返回
         except InvalidToken:
@@ -93,7 +95,7 @@ def decrypt_secret(value: Optional[str]) -> Optional[str]:
     if not is_encrypted_secret(value):
         return value
     try:
-        token = value[len(_ENCRYPTED_PREFIX):]
+        token = value[len(_ENCRYPTED_PREFIX) :]
         return get_fernet().decrypt(token.encode("ascii")).decode("utf-8")
     except InvalidToken:
         raise InvalidToken(

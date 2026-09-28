@@ -2,6 +2,7 @@
 
 CLI 配置询问、签名记录与聊天缓存；执行编排见 signer_runner.py。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -44,7 +45,6 @@ FLOOD_WAIT_RETRY_MAX_SECONDS = 120
 
 
 class SignerConfigMixin:
-
     def ensure_ctx(self) -> UserSignerWorkerContext:
         return UserSignerWorkerContext(
             sign_chats=defaultdict(list),
@@ -101,7 +101,6 @@ class SignerConfigMixin:
         except (TypeError, ValueError):
             return fallback
 
-
     def _load_chat_cache(self) -> List[dict]:
         account_name = getattr(self, "_account", None)
         if not account_name:
@@ -118,7 +117,6 @@ class SignerConfigMixin:
             _logger.debug("读取聊天缓存失败 %s: %s", cache_file, exc)
             return []
 
-
     def _find_cached_chat(self, chat_id: int, name: Optional[str]) -> Optional[dict]:
         entries = self._load_chat_cache()
 
@@ -129,7 +127,6 @@ class SignerConfigMixin:
                 candidate_ids.add(int(f"-100{abs(chat_id)}"))
             except Exception:
                 pass
-
 
         def _search_entries(cache_entries: List[dict]) -> Optional[dict]:
             for entry in cache_entries:
@@ -169,7 +166,9 @@ class SignerConfigMixin:
                             if found:
                                 return found
                     except (OSError, json.JSONDecodeError) as exc:
-                        _logger.debug("读取其他账号聊天缓存失败 %s: %s", other_cache_file, exc)
+                        _logger.debug(
+                            "读取其他账号聊天缓存失败 %s: %s", other_cache_file, exc
+                        )
                         continue
         except OSError as exc:
             _logger.debug("遍历聊天缓存目录失败 %s: %s", self.tasks_dir, exc)
@@ -177,12 +176,10 @@ class SignerConfigMixin:
         return None
 
     @property
-
     def sign_record_file(self):
         sign_record_dir = self.task_dir / str(self.user.id)
         make_dirs(sign_record_dir)
         return sign_record_dir / "sign_record.json"
-
 
     def _ask_actions(
         self, input_: UserInput, available_actions: List[SupportAction] = None
@@ -226,14 +223,22 @@ class SignerConfigMixin:
                     print_to_user("计算题将使用大模型回答。")
                     actions.append(ReplyByCalculationProblemAction())
                 elif action == SupportAction.REPLY_BY_IMAGE_RECOGNITION:
-                    print_to_user("AI will recognize text from image and send it automatically.")
+                    print_to_user(
+                        "AI will recognize text from image and send it automatically."
+                    )
                     actions.append(ReplyByImageRecognitionAction())
                 elif action == SupportAction.CLICK_BUTTON_BY_CALCULATION_PROBLEM:
-                    print_to_user("AI will calculate the answer and click the matching button.")
+                    print_to_user(
+                        "AI will calculate the answer and click the matching button."
+                    )
                     actions.append(ClickButtonByCalculationProblemAction())
                 elif action == SupportAction.CUSTOM_PLUGIN:
-                    plugin_name = local_input_("输入插件名称 (如 math_solver): ").strip()
-                    mode_str = local_input_("选择插件执行模式 (1: 监听响应 reactive, 2: 主动执行 active) [默认 1]: ").strip()
+                    plugin_name = local_input_(
+                        "输入插件名称 (如 math_solver): "
+                    ).strip()
+                    mode_str = local_input_(
+                        "选择插件执行模式 (1: 监听响应 reactive, 2: 主动执行 active) [默认 1]: "
+                    ).strip()
                     mode = "active" if mode_str == "2" else "reactive"
                     actions.append(PluginAction(plugin_name=plugin_name, mode=mode))
                 else:
@@ -245,7 +250,6 @@ class SignerConfigMixin:
                 print_to_user(e)
         input_.incr()
         return actions
-
 
     def ask_one(self) -> SignChatV3:
         input_ = UserInput(numbering_lang="chinese_simple")
@@ -268,7 +272,6 @@ class SignerConfigMixin:
         }
 
         return model_validate(SignChatV3, cfgs)
-
 
     def ask_for_config(self) -> "SignConfigV3":
         chats = []
@@ -304,7 +307,7 @@ class SignerConfigMixin:
                 "chats": chats,
                 "sign_at": sign_at,
                 "random_seconds": random_seconds,
-            }
+            },
         )
         if config.requires_ai:
             print_to_user(OPENAI_USE_PROMPT)
@@ -334,7 +337,6 @@ class SignerConfigMixin:
     def _time_to_crontab(sign_at: dt_time) -> str:
         return f"{sign_at.minute} {sign_at.hour} * * *"
 
-
     def load_sign_record(self):
         sign_record = {}
         if not self.sign_record_file.is_file():
@@ -353,7 +355,11 @@ class SignerConfigMixin:
             if not isinstance(sign_record, dict):
                 sign_record = {}
         except Exception as exc:
-            _logger.warning("签到记录文件损坏或不可读，重置为空字典: %s (%s)", self.sign_record_file, exc)
+            _logger.warning(
+                "签到记录文件损坏或不可读，重置为空字典: %s (%s)",
+                self.sign_record_file,
+                exc,
+            )
             sign_record = {}
             try:
                 from backend.utils.atomic_io import write_json_atomic
@@ -364,7 +370,6 @@ class SignerConfigMixin:
         return sign_record
 
     @staticmethod
-
     def _is_transient_step_error(exc: Exception) -> bool:
         """判断步骤级错误是否为瞬时故障（值得在当前步骤重试）。
         仅用于流程内步级重试，避免因单步瞬时失败而重启整个脚本流程。

@@ -51,7 +51,9 @@ class StreamTicketStore:
         # value 存 StreamTicket；TTL 到期后 pop 视为未命中
         self._tickets: TTLCache[StreamTicket] = TTLCache(maxsize=max_entries, ttl=ttl)
 
-    def issue(self, user_id: int, username: str, purpose: str, resource: str = "") -> str:
+    def issue(
+        self, user_id: int, username: str, purpose: str, resource: str = ""
+    ) -> str:
         """签发一张绑定用途与资源的票据。
 
         purpose / resource 会编码进 key，兑换时不一致即视为无效——

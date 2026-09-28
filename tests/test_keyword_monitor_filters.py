@@ -1,4 +1,5 @@
 """关键词监听 ignore_self / 时间窗纯函数测试。"""
+
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -58,8 +59,6 @@ def test_action_time_window_uses_panel_timezone_when_now_omitted(monkeypatch):
     # UTC 10:00 + Asia/Shanghai = 18:00，窗 17:00-19:00 应命中
     action = {"active_time_start": "17:00", "active_time_end": "19:00"}
     assert (
-        _action_in_active_time_window(
-            action, now=fixed, tz_name="Asia/Shanghai"
-        )
+        _action_in_active_time_window(action, now=fixed, tz_name="Asia/Shanghai")
         is True
     )

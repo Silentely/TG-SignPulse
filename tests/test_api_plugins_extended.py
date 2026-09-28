@@ -96,6 +96,7 @@ def test_api_create_and_delete_custom_plugin():
 
 def test_api_get_plugin_diagnostics():
     from tg_signer.core.plugins import PluginLoadError
+
     # Clear and test clean state
     resp = client.get("/api/plugins/diagnostics")
     assert resp.status_code == 200
@@ -119,7 +120,9 @@ def test_api_get_plugin_diagnostics():
     assert resp2.status_code == 200
     data2 = resp2.json()
     assert data2["total_errors"] >= 1
-    fake_err = next((e for e in data2["load_errors"] if e["plugin_name"] == "fake_plugin"), None)
+    fake_err = next(
+        (e for e in data2["load_errors"] if e["plugin_name"] == "fake_plugin"), None
+    )
     assert fake_err is not None
     assert fake_err["missing_module"] == "bs4"
     assert fake_err["suggested_command"] == "pip install bs4"
@@ -189,7 +192,9 @@ def test_api_plugin_subprocess_test_records_metrics_once():
         )
         return True
 
-    with patch("backend.api.routes.plugins.PluginProcessHost.execute", new=fake_execute):
+    with patch(
+        "backend.api.routes.plugins.PluginProcessHost.execute", new=fake_execute
+    ):
         resp = client.post("/api/plugins/webhook_pusher/test", json={"text": ""})
 
     assert resp.status_code == 200
@@ -201,7 +206,9 @@ def test_api_plugin_subprocess_test_records_metrics_once():
 def test_api_plugin_export():
     resp = client.get("/api/plugins/math_solver/export")
     assert resp.status_code == 200
-    assert "attachment; filename=\"math_solver.py\"" in resp.headers.get("content-disposition", "")
+    assert 'attachment; filename="math_solver.py"' in resp.headers.get(
+        "content-disposition", ""
+    )
     assert "@PluginRegistry.register" in resp.text
 
     # Non-existent plugin
@@ -279,7 +286,12 @@ def test_api_update_plugin_source_for_custom_plugin():
     client.delete("/api/plugins/editable_plug")
     create_resp = client.post(
         "/api/plugins/create",
-        json={"name": "editable_plug", "mode": "reactive", "template": "basic_reactive", "description": "Original"},
+        json={
+            "name": "editable_plug",
+            "mode": "reactive",
+            "template": "basic_reactive",
+            "description": "Original",
+        },
     )
     assert create_resp.status_code == 200
 
@@ -319,7 +331,11 @@ def test_api_update_plugin_source_syntax_error():
     client.delete("/api/plugins/syntax_err_plug")
     create_resp = client.post(
         "/api/plugins/create",
-        json={"name": "syntax_err_plug", "mode": "reactive", "template": "basic_reactive"},
+        json={
+            "name": "syntax_err_plug",
+            "mode": "reactive",
+            "template": "basic_reactive",
+        },
     )
     assert create_resp.status_code == 200
 
@@ -487,7 +503,12 @@ def test_api_clone_plugin():
     # 1. Create source plugin
     resp_create = client.post(
         "/api/plugins/create",
-        json={"name": "plug_orig", "mode": "reactive", "template": "basic_reactive", "description": "源插件"},
+        json={
+            "name": "plug_orig",
+            "mode": "reactive",
+            "template": "basic_reactive",
+            "description": "源插件",
+        },
     )
     assert resp_create.status_code == 200
 
@@ -561,7 +582,10 @@ async def plug_deps_test_handler(ctx: PluginContext) -> bool:
     # 未安装缺失依赖检测
     assert "imaginary_missing_lib" in deps
     assert deps["imaginary_missing_lib"]["installed"] is False
-    assert "pip install imaginary_missing_lib" in deps["imaginary_missing_lib"]["install_command"]
+    assert (
+        "pip install imaginary_missing_lib"
+        in deps["imaginary_missing_lib"]["install_command"]
+    )
 
     # cleanup
     client.delete("/api/plugins/plug_deps_test")
@@ -617,12 +641,22 @@ def test_api_export_all_and_import_bundle_zip():
     # 1. 创建两个自定义插件
     r1 = client.post(
         "/api/plugins/create",
-        json={"name": "bundle_p1", "mode": "reactive", "template": "basic_reactive", "description": "插件1"},
+        json={
+            "name": "bundle_p1",
+            "mode": "reactive",
+            "template": "basic_reactive",
+            "description": "插件1",
+        },
     )
     assert r1.status_code == 200
     r2 = client.post(
         "/api/plugins/create",
-        json={"name": "bundle_p2", "mode": "active", "template": "basic_active", "description": "插件2"},
+        json={
+            "name": "bundle_p2",
+            "mode": "active",
+            "template": "basic_active",
+            "description": "插件2",
+        },
     )
     assert r2.status_code == 200
 
@@ -719,8 +753,12 @@ def test_api_clear_execution_history():
     from tg_signer.core.plugins import PluginRegistry
 
     # 1. 模拟记录 2 条历史
-    PluginRegistry.record_execution("math_solver", duration_ms=12.5, success=True, log_summary="log1")
-    PluginRegistry.record_execution("math_solver", duration_ms=30.0, success=False, error="Fail", log_summary="log2")
+    PluginRegistry.record_execution(
+        "math_solver", duration_ms=12.5, success=True, log_summary="log1"
+    )
+    PluginRegistry.record_execution(
+        "math_solver", duration_ms=30.0, success=False, error="Fail", log_summary="log2"
+    )
 
     # 2. 检查历史存在
     hist = PluginRegistry.get_execution_history("math_solver")
@@ -754,8 +792,14 @@ def check():
     assert data["passed"] is False
     assert len(data["warnings"]) >= 2
     rules = [w["rule"] for w in data["warnings"]]
-    assert any("eval" in r or "eval" in w["message"] for r, w in zip(rules, data["warnings"], strict=True))
-    assert any("os.system" in r or "os.system" in w["message"] for r, w in zip(rules, data["warnings"], strict=True))
+    assert any(
+        "eval" in r or "eval" in w["message"]
+        for r, w in zip(rules, data["warnings"], strict=True)
+    )
+    assert any(
+        "os.system" in r or "os.system" in w["message"]
+        for r, w in zip(rules, data["warnings"], strict=True)
+    )
 
     # 2. 安全的代码
     safe_code = """
@@ -822,7 +866,9 @@ def test_api_plugin_recent_results():
     from tg_signer.core.plugins import PluginRegistry
 
     PluginRegistry.record_execution("math_solver", duration_ms=10.0, success=True)
-    PluginRegistry.record_execution("math_solver", duration_ms=20.0, success=False, error="test-fail")
+    PluginRegistry.record_execution(
+        "math_solver", duration_ms=20.0, success=False, error="test-fail"
+    )
 
     resp = client.get("/api/plugins")
     assert resp.status_code == 200
@@ -867,6 +913,7 @@ def test_create_plugin_with_new_templates():
 
     import shutil
     from pathlib import Path
+
     for name, mode, tpl in templates_to_test:
         for base in (Path("data/plugins"), Path("plugins")):
             p_dir = base / name
@@ -933,6 +980,7 @@ def test_plugin_context_advanced_features():
 
     # 3. edit & delete message
     import asyncio
+
     res_edit = asyncio.run(ctx.edit_message("updated info"))
     assert res_edit["text"] == "updated info"
     assert asyncio.run(ctx.delete_message()) is True
@@ -946,7 +994,12 @@ def test_test_plugin_param_validation_and_traceback():
         name="schema_tb_plug",
         params_schema=[
             {"name": "api_key", "label": "API Key", "required": True},
-            {"name": "max_retries", "label": "重试次数", "type": "integer", "default": 3},
+            {
+                "name": "max_retries",
+                "label": "重试次数",
+                "type": "integer",
+                "default": 3,
+            },
         ],
     )
     async def handler(ctx: PluginContext):
@@ -1098,7 +1151,12 @@ ValueError: secret='my-very-secret-token'
     assert "<TOKEN_REDACTED>" in sanitized
 
     # 3. get_param bool safety
-    ctx = PluginContext(app=None, chat_id=123, plugin_name="test_p", params={"enabled": "maybe", "active": "yes", "flag": "false"})
+    ctx = PluginContext(
+        app=None,
+        chat_id=123,
+        plugin_name="test_p",
+        params={"enabled": "maybe", "active": "yes", "flag": "false"},
+    )
     assert ctx.get_param("enabled", default=True, param_type=bool) is True
     assert ctx.get_param("active", default=False, param_type=bool) is True
     assert ctx.get_param("flag", default=True, param_type=bool) is False
@@ -1117,7 +1175,10 @@ run(["whoami"])
 """
     rep_star = compute_plugin_security_report(code_star)
     assert rep_star["can_save_safely"] is False
-    assert any("star-import" in w.get("rule", "") or "dangerous-bare-call" in w.get("rule", "") for w in rep_star["warnings"])
+    assert any(
+        "star-import" in w.get("rule", "") or "dangerous-bare-call" in w.get("rule", "")
+        for w in rep_star["warnings"]
+    )
 
     # 2. Dynamic reflection and dangerous assignment alias
     code_reflect = """
@@ -1133,19 +1194,27 @@ f = subprocess.run
 f(["ls"])
 """
     rep_alias_assign = compute_plugin_security_report(code_alias_assign)
-    assert any("dangerous-alias" in w.get("rule", "") for w in rep_alias_assign["warnings"])
+    assert any(
+        "dangerous-alias" in w.get("rule", "") for w in rep_alias_assign["warnings"]
+    )
 
     # 3. Bundle import security gate skips unsafe plugin files
     archive = io.BytesIO()
     with zipfile.ZipFile(archive, "w") as zf:
-        zf.writestr("safe_plug_bundle.py", """from tg_signer.core.plugins import PluginRegistry, PluginContext
+        zf.writestr(
+            "safe_plug_bundle.py",
+            """from tg_signer.core.plugins import PluginRegistry, PluginContext
 @PluginRegistry.register(name="safe_plug_bundle")
 async def safe_plug_bundle_handler(ctx: PluginContext) -> bool:
     return True
-""")
-        zf.writestr("evil_plug_bundle.py", """import os
+""",
+        )
+        zf.writestr(
+            "evil_plug_bundle.py",
+            """import os
 os.system("rm -rf /tmp/danger")
-""")
+""",
+        )
 
     resp = client.post(
         "/api/plugins/import-bundle",

@@ -97,18 +97,12 @@ class MemoryMonitor:
         self._process = psutil.Process()
 
     # 内部状态
-    _process: Optional[psutil.Process] = field(
-        default=None, init=False, repr=False
-    )
+    _process: Optional[psutil.Process] = field(default=None, init=False, repr=False)
     _snapshots: List[MemorySnapshot] = field(
         default_factory=list, init=False, repr=False
     )
-    _alerts: List[AlertRecord] = field(
-        default_factory=list, init=False, repr=False
-    )
-    _gc_records: List[GCRecord] = field(
-        default_factory=list, init=False, repr=False
-    )
+    _alerts: List[AlertRecord] = field(default_factory=list, init=False, repr=False)
+    _gc_records: List[GCRecord] = field(default_factory=list, init=False, repr=False)
     _last_gc_forced: bool = field(default=False, init=False, repr=False)
     # 连续超阈值告警去重：True 表示当前处于告警中，回落复位前不再重复告警
     _in_alert: bool = field(default=False, init=False, repr=False)
@@ -231,8 +225,7 @@ class MemoryMonitor:
             rss_mb=round(snap.rss_mb, 2),
             threshold_mb=self.threshold_mb,
             message=(
-                f"内存使用 {snap.rss_mb:.1f} MB 超过阈值 "
-                f"{self.threshold_mb:.1f} MB"
+                f"内存使用 {snap.rss_mb:.1f} MB 超过阈值 {self.threshold_mb:.1f} MB"
             ),
         )
         self._alerts.append(alert)

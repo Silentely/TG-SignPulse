@@ -67,7 +67,9 @@ def test_auto_backup_helpers():
 
     assert auto_backup_interval_hours({"auto_backup_interval_hours": 12}) == 12
     assert auto_backup_interval_hours({"auto_backup_interval_hours": 0}) == 1  # clamped
-    assert auto_backup_interval_hours({"auto_backup_interval_hours": 200}) == 168  # clamped
+    assert (
+        auto_backup_interval_hours({"auto_backup_interval_hours": 200}) == 168
+    )  # clamped
     assert auto_backup_interval_hours(None) == 24
 
     # 调度器依赖该函数读取保留份数，范围须与设置层钳制一致（1–30）
@@ -103,10 +105,20 @@ def test_backup_target_normalization():
     from backend.services.config_mixins import normalize_global_settings
 
     assert normalize_global_settings({"backup_target": "s3"})["backup_target"] == "s3"
-    assert normalize_global_settings({"backup_target": "webdav"})["backup_target"] == "webdav"
-    assert normalize_global_settings({"backup_target": "both"})["backup_target"] == "both"
-    assert normalize_global_settings({"backup_target": "auto"})["backup_target"] == "auto"
-    assert normalize_global_settings({"backup_target": "INVALID"})["backup_target"] == "auto"
+    assert (
+        normalize_global_settings({"backup_target": "webdav"})["backup_target"]
+        == "webdav"
+    )
+    assert (
+        normalize_global_settings({"backup_target": "both"})["backup_target"] == "both"
+    )
+    assert (
+        normalize_global_settings({"backup_target": "auto"})["backup_target"] == "auto"
+    )
+    assert (
+        normalize_global_settings({"backup_target": "INVALID"})["backup_target"]
+        == "auto"
+    )
     assert normalize_global_settings({"backup_target": ""})["backup_target"] == "auto"
     assert normalize_global_settings({}).get("backup_target", "auto") == "auto"
 
@@ -135,17 +147,37 @@ def test_run_auto_backup_target_selection(tmp_path: Path, monkeypatch):
 
     import backend.services.webdav_client
 
-    monkeypatch.setattr(backend.services.webdav_client, "upload_file_to_webdav", mock_webdav)
-    monkeypatch.setattr(backend.services.webdav_client, "prune_webdav_backups", lambda **kw: {"removed": 0})
-    monkeypatch.setattr("backend.services.s3_backup.prune_s3_backups", lambda cfg, keep: {"removed": 0})
+    monkeypatch.setattr(
+        backend.services.webdav_client, "upload_file_to_webdav", mock_webdav
+    )
+    monkeypatch.setattr(
+        backend.services.webdav_client,
+        "prune_webdav_backups",
+        lambda **kw: {"removed": 0},
+    )
+    monkeypatch.setattr(
+        "backend.services.s3_backup.prune_s3_backups", lambda cfg, keep: {"removed": 0}
+    )
 
-    wd_cfg = {"webdav_url": "https://dav.test", "webdav_username": "u", "webdav_password": "p"}
-    s3_cfg = {"s3_enabled": True, "s3_endpoint_url": "https://s3.test", "s3_bucket": "b", "s3_access_key": "ak", "s3_secret_key": "sk"}
+    wd_cfg = {
+        "webdav_url": "https://dav.test",
+        "webdav_username": "u",
+        "webdav_password": "p",
+    }
+    s3_cfg = {
+        "s3_enabled": True,
+        "s3_endpoint_url": "https://s3.test",
+        "s3_bucket": "b",
+        "s3_access_key": "ak",
+        "s3_secret_key": "sk",
+    }
 
     # 1. 显式指定 s3，即使配置了 webdav 也仅上传 s3
     webdav_called.clear()
     s3_called.clear()
-    res = run_auto_backup(data_dir, webdav_settings=wd_cfg, s3_settings=s3_cfg, backup_target="s3")
+    res = run_auto_backup(
+        data_dir, webdav_settings=wd_cfg, s3_settings=s3_cfg, backup_target="s3"
+    )
     assert res["success"] is True
     assert len(webdav_called) == 0
     assert len(s3_called) == 1
@@ -153,7 +185,9 @@ def test_run_auto_backup_target_selection(tmp_path: Path, monkeypatch):
     # 2. 显式指定 both，两者都上传且均成功时清理本地副本
     webdav_called.clear()
     s3_called.clear()
-    res = run_auto_backup(data_dir, webdav_settings=wd_cfg, s3_settings=s3_cfg, backup_target="both")
+    res = run_auto_backup(
+        data_dir, webdav_settings=wd_cfg, s3_settings=s3_cfg, backup_target="both"
+    )
     assert res["success"] is True
     assert len(webdav_called) == 1
     assert len(s3_called) == 1
@@ -163,9 +197,13 @@ def test_run_auto_backup_target_selection(tmp_path: Path, monkeypatch):
     async def mock_s3_fail(cfg, path):
         raise RuntimeError("S3 upload simulated failure")
 
-    monkeypatch.setattr("backend.services.backup_archive._upload_backup_to_s3", mock_s3_fail)
+    monkeypatch.setattr(
+        "backend.services.backup_archive._upload_backup_to_s3", mock_s3_fail
+    )
     webdav_called.clear()
-    res_partial = run_auto_backup(data_dir, webdav_settings=wd_cfg, s3_settings=s3_cfg, backup_target="both")
+    res_partial = run_auto_backup(
+        data_dir, webdav_settings=wd_cfg, s3_settings=s3_cfg, backup_target="both"
+    )
     assert res_partial["success"] is True
     assert res_partial["webdav"]["success"] is True
     assert res_partial["s3"]["success"] is False
@@ -173,7 +211,9 @@ def test_run_auto_backup_target_selection(tmp_path: Path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_export_backup_archive_both_and_defensive_validation(tmp_path: Path, monkeypatch):
+async def test_export_backup_archive_both_and_defensive_validation(
+    tmp_path: Path, monkeypatch
+):
     from fastapi import HTTPException
 
     from backend.api.routes.ops import export_backup_archive
@@ -199,21 +239,35 @@ async def test_export_backup_archive_both_and_defensive_validation(tmp_path: Pat
         def get_global_settings(self):
             return dict(cfg_mock)
 
-    monkeypatch.setattr("backend.services.config.get_config_service", lambda: MockConfigService())
+    monkeypatch.setattr(
+        "backend.services.config.get_config_service", lambda: MockConfigService()
+    )
 
     def check_s3(cfg):
-        return bool(cfg.get("s3_enabled") and cfg.get("s3_bucket") and cfg.get("s3_access_key"))
+        return bool(
+            cfg.get("s3_enabled") and cfg.get("s3_bucket") and cfg.get("s3_access_key")
+        )
 
     monkeypatch.setattr("backend.services.s3_backup.s3_enabled", check_s3)
     monkeypatch.setattr("backend.api.routes.ops.s3_enabled", check_s3)
 
-    monkeypatch.setattr("backend.services.webdav_client.upload_file_to_webdav", lambda **kw: {"success": True, "remote_url": "https://dav.test/b.tar.gz"})
+    monkeypatch.setattr(
+        "backend.services.webdav_client.upload_file_to_webdav",
+        lambda **kw: {"success": True, "remote_url": "https://dav.test/b.tar.gz"},
+    )
 
     async def mock_upload_s3(cfg, path):
         return {"success": True, "url": "https://s3.test/b.tar.gz", "size": 2048}
 
-    monkeypatch.setattr("backend.services.s3_backup.upload_backup_to_s3", mock_upload_s3)
-    monkeypatch.setattr("backend.api.routes.ops.get_settings", lambda: type("MockSettings", (), {"resolve_base_dir": lambda self: str(data_dir)})())
+    monkeypatch.setattr(
+        "backend.services.s3_backup.upload_backup_to_s3", mock_upload_s3
+    )
+    monkeypatch.setattr(
+        "backend.api.routes.ops.get_settings",
+        lambda: type(
+            "MockSettings", (), {"resolve_base_dir": lambda self: str(data_dir)}
+        )(),
+    )
 
     class MockUser:
         id = 1
@@ -297,4 +351,3 @@ class TestBackupArchivePermissions:
         restored = extract_dir / "db.sqlite"
         assert restored.read_text() == "sqlite-data"
         assert stat.S_IMODE(os.stat(restored).st_mode) == 0o600
-

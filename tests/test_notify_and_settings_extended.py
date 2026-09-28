@@ -82,7 +82,11 @@ class TestBotTestApi:
         assert resp.status_code == 200
         body = resp.json()
         assert body["success"] is False
-        assert "配置" in body["message"] or "Token" in body["message"] or "token" in body["message"].lower()
+        assert (
+            "配置" in body["message"]
+            or "Token" in body["message"]
+            or "token" in body["message"].lower()
+        )
 
     def test_bot_test_success(self, client, db_session):
         client.post(
@@ -141,7 +145,11 @@ class TestQuietHours:
             ("23:00", "24:00", datetime(2026, 7, 18, 23, 30, tzinfo=ZoneInfo("UTC"))),
             ("-1:00", "07:00", datetime(2026, 7, 18, 6, 0, tzinfo=ZoneInfo("UTC"))),
             ("23:00:99", "07:00", datetime(2026, 7, 18, 6, 0, tzinfo=ZoneInfo("UTC"))),
-            ("23:00:anything", "07:00", datetime(2026, 7, 18, 23, 30, tzinfo=ZoneInfo("UTC"))),
+            (
+                "23:00:anything",
+                "07:00",
+                datetime(2026, 7, 18, 23, 30, tzinfo=ZoneInfo("UTC")),
+            ),
             ("23:", "07:00", datetime(2026, 7, 18, 6, 0, tzinfo=ZoneInfo("UTC"))),
             ("23:00", "07", datetime(2026, 7, 18, 23, 30, tzinfo=ZoneInfo("UTC"))),
         ],
@@ -263,7 +271,9 @@ class TestBackupPrune:
         (data / "ok.txt").write_text("x", encoding="utf-8")
         dest = tmp_path / "out.tar.gz"
         # 同时含合法与穿越路径时，应只打包合法文件
-        create_backup_tarball(data, dest, paths=("ok.txt", "../etc/passwd", "/etc/passwd"))
+        create_backup_tarball(
+            data, dest, paths=("ok.txt", "../etc/passwd", "/etc/passwd")
+        )
         assert dest.exists() and dest.stat().st_size > 0
 
     def test_run_auto_backup_empty_data(self, tmp_path: Path):
@@ -327,23 +337,29 @@ async def test_keyword_push_outside_quiet_hours():
         "timezone": "UTC",
     }
     # 窗口外：静默判定返回 False，推送应发送
-    with patch(
-        "backend.services.push_notifications.is_in_quiet_hours",
-        return_value=False,
-    ), patch(
-        "tg_signer.notification.server_chan.sc_send", new_callable=AsyncMock
-    ) as m:
+    with (
+        patch(
+            "backend.services.push_notifications.is_in_quiet_hours",
+            return_value=False,
+        ),
+        patch(
+            "tg_signer.notification.server_chan.sc_send", new_callable=AsyncMock
+        ) as m,
+    ):
         m.return_value = {"code": 0}
         await send_keyword_push(cfg, {"title": "hit", "body": "body"})
         m.assert_awaited()
 
     # 窗口内：静默判定返回 True，推送应跳过
-    with patch(
-        "backend.services.push_notifications.is_in_quiet_hours",
-        return_value=True,
-    ), patch(
-        "tg_signer.notification.server_chan.sc_send", new_callable=AsyncMock
-    ) as m:
+    with (
+        patch(
+            "backend.services.push_notifications.is_in_quiet_hours",
+            return_value=True,
+        ),
+        patch(
+            "tg_signer.notification.server_chan.sc_send", new_callable=AsyncMock
+        ) as m,
+    ):
         await send_keyword_push(cfg, {"title": "hit", "body": "body"})
         m.assert_not_awaited()
 
@@ -388,18 +404,23 @@ class TestCloneSignTask:
             from backend.services.sign_tasks import get_sign_task_service
 
             svc = get_sign_task_service()
-            with patch.object(
-                svc,
-                "_normalize_account_names",
-                return_value=["acc1"],
-            ), patch.object(
-                svc,
-                "_expand_account_names",
-                return_value=["acc1"],
-            ), patch(
-                "backend.scheduler.add_or_update_sign_task_job",
-            ), patch(
-                "backend.scheduler.remove_sign_task_job",
+            with (
+                patch.object(
+                    svc,
+                    "_normalize_account_names",
+                    return_value=["acc1"],
+                ),
+                patch.object(
+                    svc,
+                    "_expand_account_names",
+                    return_value=["acc1"],
+                ),
+                patch(
+                    "backend.scheduler.add_or_update_sign_task_job",
+                ),
+                patch(
+                    "backend.scheduler.remove_sign_task_job",
+                ),
             ):
                 task = svc.create_task(
                     task_name=name,
@@ -421,18 +442,21 @@ class TestCloneSignTask:
 
     def test_clone_success(self, client, db_session, isolated_env):
         self._create_minimal(client, "src_clone")
-        with patch("backend.api.routes.sign_tasks_v2.asyncio.ensure_future"), patch(
-            "backend.scheduler.add_or_update_sign_task_job",
-        ), patch(
-            "backend.scheduler.remove_sign_task_job",
+        with (
+            patch("backend.api.routes.sign_tasks_v2.asyncio.ensure_future"),
+            patch(
+                "backend.scheduler.add_or_update_sign_task_job",
+            ),
+            patch(
+                "backend.scheduler.remove_sign_task_job",
+            ),
         ):
             from backend.services.sign_tasks import get_sign_task_service
 
             svc = get_sign_task_service()
-            with patch.object(
-                svc, "_normalize_account_names", return_value=["acc1"]
-            ), patch.object(
-                svc, "_expand_account_names", return_value=["acc1"]
+            with (
+                patch.object(svc, "_normalize_account_names", return_value=["acc1"]),
+                patch.object(svc, "_expand_account_names", return_value=["acc1"]),
             ):
                 resp = client.post(
                     "/api/sign-tasks/src_clone/clone",
@@ -468,15 +492,19 @@ class TestCloneSignTask:
         from backend.services.sign_tasks import get_sign_task_service
 
         svc = get_sign_task_service()
-        with patch.object(svc, "_normalize_account_names", return_value=["acc1"]), patch.object(
-            svc, "_expand_account_names", return_value=["acc1"]
-        ), patch("backend.scheduler.add_or_update_sign_task_job"), patch(
-            "backend.scheduler.remove_sign_task_job"
-        ), patch("backend.api.routes.sign_tasks_v2.asyncio.ensure_future"):
+        with (
+            patch.object(svc, "_normalize_account_names", return_value=["acc1"]),
+            patch.object(svc, "_expand_account_names", return_value=["acc1"]),
+            patch("backend.scheduler.add_or_update_sign_task_job"),
+            patch("backend.scheduler.remove_sign_task_job"),
+            patch("backend.api.routes.sign_tasks_v2.asyncio.ensure_future"),
+        ):
             created = svc.create_task(
                 task_name="notify_ok",
                 sign_at="10:00",
-                chats=[{"chat_id": 1, "name": "c", "actions": [{"action": 1, "text": "x"}]}],
+                chats=[
+                    {"chat_id": 1, "name": "c", "actions": [{"action": 1, "text": "x"}]}
+                ],
                 account_name="acc1",
                 account_names=["acc1"],
                 notify_on_success=False,
@@ -548,7 +576,9 @@ class TestWebdavBackupChain:
         assert got["webdav_username"] == "u2"
         from backend.services.config import get_config_service
 
-        assert get_config_service().get_global_settings()["webdav_password"] == "keep-me"
+        assert (
+            get_config_service().get_global_settings()["webdav_password"] == "keep-me"
+        )
 
     def test_backup_export_uploads_when_webdav_configured(
         self, client, db_session, isolated_env
@@ -568,18 +598,21 @@ class TestWebdavBackupChain:
             Path(dest).write_bytes(b"fake-tar-gz")
             return Path(dest)
 
-        with patch(
-            "backend.services.backup_archive.create_backup_tarball",
-            side_effect=_fake_tarball,
-        ), patch(
-            "backend.services.webdav_client.upload_file_to_webdav",
-            return_value={
-                "success": True,
-                "remote_url": "https://93.184.216.34/x.tar.gz",
-                "filename": "x.tar.gz",
-                "size_bytes": 11,
-            },
-        ) as upload_m:
+        with (
+            patch(
+                "backend.services.backup_archive.create_backup_tarball",
+                side_effect=_fake_tarball,
+            ),
+            patch(
+                "backend.services.webdav_client.upload_file_to_webdav",
+                return_value={
+                    "success": True,
+                    "remote_url": "https://93.184.216.34/x.tar.gz",
+                    "filename": "x.tar.gz",
+                    "size_bytes": 11,
+                },
+            ) as upload_m,
+        ):
             resp = client.post("/api/ops/backup/export", headers=_auth_headers())
         assert resp.status_code == 200, resp.text
         body = resp.json()
@@ -767,7 +800,9 @@ class TestWebdavBackupChain:
         stored = get_config_service().get_global_settings()["telegram_bot_token"]
         assert stored == unique_token
 
-    def test_export_masks_webdav_and_bot_secrets(self, client, db_session, isolated_env):
+    def test_export_masks_webdav_and_bot_secrets(
+        self, client, db_session, isolated_env
+    ):
         client.post(
             "/api/config/settings",
             json={
@@ -818,9 +853,7 @@ class TestWebdavBackupChain:
                 "status_code": 207,
             },
         ) as m:
-            resp = client.get(
-                "/api/ops/backup/webdav/files", headers=_auth_headers()
-            )
+            resp = client.get("/api/ops/backup/webdav/files", headers=_auth_headers())
         assert resp.status_code == 200
         body = resp.json()
         assert body["success"] is True
@@ -869,18 +902,21 @@ class TestWebdavBackupChain:
 
         data = isolated_env
         (data / ".global_settings.json").write_text("{}", encoding="utf-8")
-        with patch(
-            "backend.services.webdav_client.upload_file_to_webdav",
-            return_value={
-                "success": True,
-                "remote_url": "https://x/a.tar.gz",
-                "filename": "a.tar.gz",
-                "size_bytes": 3,
-            },
-        ), patch(
-            "backend.services.webdav_client.prune_webdav_backups",
-            return_value={"success": True, "removed": 2, "kept": 3},
-        ) as prune_m:
+        with (
+            patch(
+                "backend.services.webdav_client.upload_file_to_webdav",
+                return_value={
+                    "success": True,
+                    "remote_url": "https://x/a.tar.gz",
+                    "filename": "a.tar.gz",
+                    "size_bytes": 3,
+                },
+            ),
+            patch(
+                "backend.services.webdav_client.prune_webdav_backups",
+                return_value={"success": True, "removed": 2, "kept": 3},
+            ) as prune_m,
+        ):
             result = run_auto_backup(
                 data,
                 keep=3,
@@ -1072,20 +1108,23 @@ class TestS3BackupApi:
             Path(dest).write_bytes(b"fake-tar-gz")
             return Path(dest)
 
-        with patch(
-            "backend.services.backup_archive.create_backup_tarball",
-            side_effect=_fake_tarball,
-        ), patch(
-            "backend.services.s3_backup.upload_backup_to_s3",
-            new_callable=AsyncMock,
-            return_value={
-                "success": True,
-                "bucket": "bk",
-                "key": "tg-signpulse-backups/auto-9.tar.gz",
-                "size": 11,
-                "url": "https://93.184.216.34/bk/tg-signpulse-backups/auto-9.tar.gz",
-            },
-        ) as m:
+        with (
+            patch(
+                "backend.services.backup_archive.create_backup_tarball",
+                side_effect=_fake_tarball,
+            ),
+            patch(
+                "backend.services.s3_backup.upload_backup_to_s3",
+                new_callable=AsyncMock,
+                return_value={
+                    "success": True,
+                    "bucket": "bk",
+                    "key": "tg-signpulse-backups/auto-9.tar.gz",
+                    "size": 11,
+                    "url": "https://93.184.216.34/bk/tg-signpulse-backups/auto-9.tar.gz",
+                },
+            ) as m,
+        ):
             resp = client.post("/api/ops/backup/export", headers=_auth_headers())
         assert resp.status_code == 200, resp.text
         body = resp.json()
@@ -1100,20 +1139,23 @@ class TestS3BackupApi:
 
         data = isolated_env
         (data / ".global_settings.json").write_text("{}", encoding="utf-8")
-        with patch(
-            "backend.services.s3_backup.upload_backup_to_s3",
-            new_callable=AsyncMock,
-            return_value={
-                "success": True,
-                "key": "tg-signpulse-backups/auto-9.tar.gz",
-                "size": 3,
-                "url": "https://93.184.216.34/bk/tg-signpulse-backups/auto-9.tar.gz",
-            },
-        ), patch(
-            "backend.services.s3_backup.prune_s3_backups",
-            new_callable=AsyncMock,
-            return_value={"success": True, "removed": 1, "kept": 2},
-        ) as prune_m:
+        with (
+            patch(
+                "backend.services.s3_backup.upload_backup_to_s3",
+                new_callable=AsyncMock,
+                return_value={
+                    "success": True,
+                    "key": "tg-signpulse-backups/auto-9.tar.gz",
+                    "size": 3,
+                    "url": "https://93.184.216.34/bk/tg-signpulse-backups/auto-9.tar.gz",
+                },
+            ),
+            patch(
+                "backend.services.s3_backup.prune_s3_backups",
+                new_callable=AsyncMock,
+                return_value={"success": True, "removed": 1, "kept": 2},
+            ) as prune_m,
+        ):
             result = run_auto_backup(
                 data,
                 keep=2,
@@ -1133,14 +1175,17 @@ class TestS3BackupApi:
 
         data = isolated_env
         (data / ".global_settings.json").write_text("{}", encoding="utf-8")
-        with patch(
-            "backend.services.s3_backup.upload_backup_to_s3",
-            new_callable=AsyncMock,
-            side_effect=RuntimeError("HTTP 502"),
-        ), patch(
-            "backend.services.s3_backup.prune_s3_backups",
-            new_callable=AsyncMock,
-        ) as prune_m:
+        with (
+            patch(
+                "backend.services.s3_backup.upload_backup_to_s3",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("HTTP 502"),
+            ),
+            patch(
+                "backend.services.s3_backup.prune_s3_backups",
+                new_callable=AsyncMock,
+            ) as prune_m,
+        ):
             result = run_auto_backup(
                 data,
                 keep=2,
@@ -1159,18 +1204,21 @@ class TestS3BackupApi:
 
         data = isolated_env
         (data / ".global_settings.json").write_text("{}", encoding="utf-8")
-        with patch(
-            "backend.services.webdav_client.upload_file_to_webdav",
-            return_value={
-                "success": True,
-                "remote_url": "https://dav/x/a.tar.gz",
-                "filename": "a.tar.gz",
-                "size_bytes": 3,
-            },
-        ), patch(
-            "backend.services.s3_backup.upload_backup_to_s3",
-            new_callable=AsyncMock,
-        ) as s3_m:
+        with (
+            patch(
+                "backend.services.webdav_client.upload_file_to_webdav",
+                return_value={
+                    "success": True,
+                    "remote_url": "https://dav/x/a.tar.gz",
+                    "filename": "a.tar.gz",
+                    "size_bytes": 3,
+                },
+            ),
+            patch(
+                "backend.services.s3_backup.upload_backup_to_s3",
+                new_callable=AsyncMock,
+            ) as s3_m,
+        ):
             result = run_auto_backup(
                 data,
                 keep=2,

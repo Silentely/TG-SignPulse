@@ -186,8 +186,7 @@ class TestExecuteAiAction:
         assert result == "有效内容"
         assert ("WARNING", "AI 返回空结果") not in logs
         assert any(
-            level == "DEBUG" and "得到结果: 有效内容" in msg
-            for level, msg in logs
+            level == "DEBUG" and "得到结果: 有效内容" in msg for level, msg in logs
         )
 
 
@@ -301,7 +300,9 @@ class TestClickInlineButton:
             id = 2
 
             async def click(self, *args, **kwargs):
-                raise AssertionError("Message.click should not be called when callback_data exists")
+                raise AssertionError(
+                    "Message.click should not be called when callback_data exists"
+                )
 
         ok = await signer._click_inline_button(Msg(), Btn())
         assert ok is True
@@ -339,15 +340,21 @@ class TestClickInlineButton:
         logs = []
         signer = UserSigner.__new__(UserSigner)
         signer.log = lambda msg, level="INFO", **kw: logs.append((level, msg))
-        signer.context = SimpleNamespace(last_callback_unconfirmed=False, last_callback_answer=None)
+        signer.context = SimpleNamespace(
+            last_callback_unconfirmed=False, last_callback_answer=None
+        )
 
         call_count = 0
 
         class FakeClient:
-            async def request_callback_answer(self, chat_id, message_id, callback_data, timeout):
+            async def request_callback_answer(
+                self, chat_id, message_id, callback_data, timeout
+            ):
                 nonlocal call_count
                 call_count += 1
-                raise TimeoutError('Failed to invoke "messages.GetBotCallbackAnswer" after 0 retries')
+                raise TimeoutError(
+                    'Failed to invoke "messages.GetBotCallbackAnswer" after 0 retries'
+                )
 
         res = await signer.request_callback_answer(
             FakeClient(),
@@ -366,15 +373,9 @@ class TestClickInlineButton:
         selected_options = [
             options[0]
             if idx == 0
-            else (
-                options[idx - 1]
-                if 1 <= idx <= len(options)
-                else options[idx]
-            )
+            else (options[idx - 1] if 1 <= idx <= len(options) else options[idx])
             for idx in (result or [])
-            if idx == 0
-            or (1 <= idx <= len(options))
-            or (0 <= idx < len(options))
+            if idx == 0 or (1 <= idx <= len(options)) or (0 <= idx < len(options))
         ]
         assert selected_options == ["打印机"]
 
@@ -644,6 +645,7 @@ class TestCloseClientDualMode:
         assert base_key not in _CLIENT_REFS
         assert base_key not in _CLIENT_ASYNC_LOCKS
 
+
 @pytest.mark.asyncio
 async def test_save_session_string_atomic_permissions(tmp_path):
     class DummyClient(Client):
@@ -660,12 +662,15 @@ async def test_save_session_string_atomic_permissions(tmp_path):
     assert target.is_file()
     assert target.read_text(encoding="utf-8") == "1BVtsdummy_session_string_12345"
     import os
+
     if hasattr(os, "stat"):
         mode = target.stat().st_mode & 0o777
         assert mode == 0o600
 
+
 def test_get_proxy_unquotes_credentials():
     from tg_signer.core.client import get_proxy
+
     proxy = get_proxy("socks5://user%40example.com:p%40ss%3Aword@127.0.0.1:1080")
     assert proxy is not None
     assert proxy["username"] == "user@example.com"
@@ -673,7 +678,9 @@ def test_get_proxy_unquotes_credentials():
 
 
 @pytest.mark.asyncio
-async def test_client_log_out_surfaces_local_session_cleanup_failure(tmp_path, monkeypatch):
+async def test_client_log_out_surfaces_local_session_cleanup_failure(
+    tmp_path, monkeypatch
+):
     class DummyClient(Client):
         def __init__(self, name, workdir):
             self.name = name

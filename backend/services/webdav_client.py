@@ -295,9 +295,7 @@ def list_webdav_files(
         suffix = (name_suffix or "").lower()
         if suffix:
             entries = [
-                e
-                for e in entries
-                if str(e.get("name") or "").lower().endswith(suffix)
+                e for e in entries if str(e.get("name") or "").lower().endswith(suffix)
             ]
         # 优先解析 HTTP-date；失败则回退文件名中的时间戳片段
         entries.sort(key=_backup_sort_key, reverse=True)
@@ -415,7 +413,9 @@ def download_webdav_file(
                 if resp.status_code != 200:
                     detail = ""
                     try:
-                        detail = (resp.read() or b"")[:200].decode("utf-8", errors="replace")
+                        detail = (resp.read() or b"")[:200].decode(
+                            "utf-8", errors="replace"
+                        )
                     except Exception:
                         detail = resp.reason_phrase or ""
                     raise RuntimeError(
@@ -485,9 +485,7 @@ def iter_webdav_file(
                     )
                 except Exception:
                     detail = resp.reason_phrase or ""
-                raise RuntimeError(
-                    f"WebDAV 下载失败 HTTP {resp.status_code}: {detail}"
-                )
+                raise RuntimeError(f"WebDAV 下载失败 HTTP {resp.status_code}: {detail}")
             got_any = False
             for chunk in resp.iter_bytes(chunk_size=chunk_size):
                 if chunk:

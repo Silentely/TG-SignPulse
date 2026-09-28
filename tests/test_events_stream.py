@@ -71,7 +71,6 @@ class TestEntryDedupeKey:
 
 
 class TestConsumeStreamTicket:
-
     def test_none_ticket_401(self, monkeypatch):
         monkeypatch.setattr(
             events.get_stream_ticket_store(), "consume", lambda *a, **k: None
@@ -219,9 +218,7 @@ class TestSignHistoryEventStream:
             def get_recent_history_logs(self, limit):
                 raise RuntimeError("index broken")
 
-        monkeypatch.setattr(
-            sign_tasks_mod, "get_sign_task_service", lambda: _BoomSvc()
-        )
+        monkeypatch.setattr(sign_tasks_mod, "get_sign_task_service", lambda: _BoomSvc())
         gen = events._sign_history_event_stream()
         try:
             ready = await asyncio.wait_for(gen.__anext__(), 1.0)

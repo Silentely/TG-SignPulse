@@ -3,6 +3,7 @@
 
 从 SignTaskService 抽出的 Telegram 推送 / 失效标记逻辑，供 runner 与 facade 复用。
 """
+
 from __future__ import annotations
 
 import logging
@@ -105,11 +106,16 @@ async def send_failure_notification(
         if category_label:
             fields.append(("失败分类", category_label))
         # 空错误原本显示「未知错误」，换成更准确的指引文案
-        raw_error = friendly_error_message(message) or "未捕获到错误明细，请展开流程日志查看"
+        raw_error = (
+            friendly_error_message(message) or "未捕获到错误明细，请展开流程日志查看"
+        )
         error_text = raw_error[:400] + ("..." if len(raw_error) > 400 else "")
         fields.append(("错误", error_text))
         # 错误与目标消息常同源（runner 会把最后回复同时填入两者），相同则只展示一处
-        if last_target_message and last_target_message.strip() != (message or "").strip():
+        if (
+            last_target_message
+            and last_target_message.strip() != (message or "").strip()
+        ):
             target_msg = last_target_message.strip()
             if len(target_msg) > 300:
                 target_msg = target_msg[:297] + "..."
@@ -206,7 +212,10 @@ async def send_account_invalid_notification(
                 ("时间 (UTC)", utc_now_iso_z_seconds()),
                 ("账号", account_name),
                 ("任务", task_name),
-                ("原因", (friendly_error_message(message) or "会话已失效，请重新登录")[:400]),
+                (
+                    "原因",
+                    (friendly_error_message(message) or "会话已失效，请重新登录")[:400],
+                ),
             ],
             footer="该账号下的任务已跳过。请到面板「账号管理」中重新登录该账号。",
         )
@@ -300,7 +309,11 @@ async def check_account_before_task(
     needs_relogin = bool(result.get("needs_relogin"))
     status = str(result.get("status") or "")
     code = str(result.get("code") or "")
-    if needs_relogin or status in {"invalid", "not_found"} or code == "ACCOUNT_SESSION_INVALID":
+    if (
+        needs_relogin
+        or status in {"invalid", "not_found"}
+        or code == "ACCOUNT_SESSION_INVALID"
+    ):
         message = (
             str(result.get("message") or "").strip()
             or f"账号 {account_name} 登录已失效，请重新登录"

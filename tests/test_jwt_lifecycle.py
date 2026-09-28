@@ -1,4 +1,5 @@
 """JWT Token 生命周期安全测试"""
+
 from __future__ import annotations
 
 from datetime import timedelta
@@ -90,9 +91,7 @@ class TestTokenTampering:
         payload = json.loads(base64.urlsafe_b64decode(parts[1] + padding))
         payload["sub"] = "attacker"
         new_payload = (
-            base64.urlsafe_b64encode(json.dumps(payload).encode())
-            .rstrip(b"=")
-            .decode()
+            base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
         )
         tampered = f"{parts[0]}.{new_payload}.{parts[2]}"
         response = client.get(
@@ -151,7 +150,11 @@ class TestTokenDecodeLogging:
         from backend.core.config import get_settings
 
         settings = get_settings()
-        payload = {"sub": "admin", "exp": datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=1)}
+        payload = {
+            "sub": "admin",
+            "exp": datetime.datetime.now(datetime.timezone.utc)
+            - datetime.timedelta(hours=1),
+        }
         expired = pyjwt.encode(payload, settings.secret_key, algorithm="HS256")
 
         import logging
@@ -209,16 +212,23 @@ class TestTokenRevocation:
         )
         assert resp.status_code == 200
         new_token = resp.json()["access_token"]
-        assert admin_client.get("/api/accounts", headers=_auth(new_token)).status_code == 200
+        assert (
+            admin_client.get("/api/accounts", headers=_auth(new_token)).status_code
+            == 200
+        )
 
     def test_logout_revokes_current_token(self, admin_client, db_session):
         """主动登出自增世代号，当前令牌与其他已签发令牌同时失效。"""
         token = _login(admin_client)
-        assert admin_client.get("/api/accounts", headers=_auth(token)).status_code == 200
+        assert (
+            admin_client.get("/api/accounts", headers=_auth(token)).status_code == 200
+        )
 
         resp = admin_client.post("/api/user/logout", headers=_auth(token))
         assert resp.status_code == 200, resp.text
-        assert admin_client.get("/api/accounts", headers=_auth(token)).status_code == 401
+        assert (
+            admin_client.get("/api/accounts", headers=_auth(token)).status_code == 401
+        )
 
     def test_logout_increments_token_epoch(self, admin_client, db_session):
         """登出后用户 token_epoch 自增，后续签发的令牌嵌入新世代号。"""
@@ -263,7 +273,9 @@ class TestTokenRevocation:
         assert me.status_code == 200
         assert me.json()["username"] == "admin_renamed"
 
-    def test_login_token_lifetime_follows_settings(self, admin_client, db_session, monkeypatch):
+    def test_login_token_lifetime_follows_settings(
+        self, admin_client, db_session, monkeypatch
+    ):
         """登录令牌寿命应取 APP_ACCESS_TOKEN_EXPIRE_HOURS，而非硬编码 12 小时。"""
         from backend.core import auth as auth_core
         from backend.core import config as config_module

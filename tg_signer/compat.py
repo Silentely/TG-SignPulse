@@ -508,8 +508,12 @@ async def safe_get_forum_topics(
     messages_fn = getattr(getattr(raw, "functions", None), "messages", None)
     channels_fn = getattr(getattr(raw, "functions", None), "channels", None)
 
-    has_messages_rpc = messages_fn is not None and hasattr(messages_fn, "GetForumTopics")
-    has_channels_rpc = channels_fn is not None and hasattr(channels_fn, "GetForumTopics")
+    has_messages_rpc = messages_fn is not None and hasattr(
+        messages_fn, "GetForumTopics"
+    )
+    has_channels_rpc = channels_fn is not None and hasattr(
+        channels_fn, "GetForumTopics"
+    )
 
     if not has_messages_rpc and not has_channels_rpc:
         return []
@@ -552,9 +556,12 @@ async def safe_get_forum_topics(
             "forumclosed",
         )
         if any(term in err_type for term in expected_forum_errors) or (
-            "forum" in err_msg and any(w in err_msg for w in ("not", "closed", "missing", "disabled"))
+            "forum" in err_msg
+            and any(w in err_msg for w in ("not", "closed", "missing", "disabled"))
         ):
-            logger.debug("Chat %s is not a forum or topics unavailable: %s", chat_id, exc)
+            logger.debug(
+                "Chat %s is not a forum or topics unavailable: %s", chat_id, exc
+            )
             return []
         logger.warning(
             "Unexpected error fetching forum topics for chat %s (%s: %s)",
@@ -612,6 +619,7 @@ async def get_dc_session(
         from pyrogram.methods.messages.inline_session import (
             get_session as _inline_get_session,
         )
+
         return await _inline_get_session(client, dc_id)
     except (ImportError, ModuleNotFoundError, AttributeError):
         pass

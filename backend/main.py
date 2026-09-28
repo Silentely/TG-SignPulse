@@ -54,11 +54,7 @@ from tg_signer.async_utils import create_logged_task  # noqa: E402
 class HealthCheckFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         msg = record.getMessage()
-        return (
-            "/health" not in msg
-            and "/healthz" not in msg
-            and "/readyz" not in msg
-        )
+        return "/health" not in msg and "/healthz" not in msg and "/readyz" not in msg
 
 
 class AccessLogLevelFilter(logging.Filter):
@@ -101,9 +97,11 @@ def _configure_backend_logging():
     if not root.handlers:
         _handler = logging.StreamHandler()
         _handler.setLevel(level_no)
-        _handler.setFormatter(logging.Formatter(
-            "[%(levelname)s] [%(name)s] %(asctime)s %(filename)s %(lineno)s %(message)s"
-        ))
+        _handler.setFormatter(
+            logging.Formatter(
+                "[%(levelname)s] [%(name)s] %(asctime)s %(filename)s %(lineno)s %(message)s"
+            )
+        )
         root.addHandler(_handler)
     logging.getLogger("backend").setLevel(level_no)
     logging.getLogger("uvicorn").setLevel(level_no)
@@ -128,9 +126,11 @@ def _configure_backend_logging():
         # 添加 stderr handler 输出访问日志（使用详细格式）
         handler = logging.StreamHandler()
         handler.setLevel(logging.DEBUG)
-        handler.setFormatter(logging.Formatter(
-            "[%(levelname)s] [%(name)s] %(asctime)s %(filename)s %(lineno)s %(message)s"
-        ))
+        handler.setFormatter(
+            logging.Formatter(
+                "[%(levelname)s] [%(name)s] %(asctime)s %(filename)s %(lineno)s %(message)s"
+            )
+        )
         access_logger.addHandler(handler)
 
 
@@ -138,6 +138,7 @@ def _configure_backend_logging():
 # 因为 uvicorn 启动后会重置 logging 配置，需要在 on_startup 事件中重新配置
 
 settings = get_settings()
+
 
 @asynccontextmanager
 async def lifespan(fastapi_app: FastAPI):
@@ -183,7 +184,9 @@ def _docs_urls() -> tuple[str | None, str | None, str | None]:
     ENABLE_API_DOCS=true/1 时启用。
     """
     flag = os.environ.get("ENABLE_API_DOCS", "").strip().lower()
-    enabled = flag in ("1", "true", "yes", "on") or getattr(settings, "enable_api_docs", False)
+    enabled = flag in ("1", "true", "yes", "on") or getattr(
+        settings, "enable_api_docs", False
+    )
     if enabled:
         return ("/docs", "/redoc", "/openapi.json")
     return (None, None, None)
@@ -208,6 +211,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     """全局异常处理器：仅捕获未处理的异常，不拦截 HTTPException"""
     # FastAPI 的 HTTPException（401/403/404 等）应由框架正常处理
     from fastapi.exceptions import HTTPException as FastAPIHTTPException
+
     if isinstance(exc, FastAPIHTTPException):
         raise exc
 
@@ -253,10 +257,10 @@ def _safe_request_context(request: Request) -> dict[str, str]:
             parts.append(f"{k}=***")
         else:
             parts.append(pair)
-    return {"client": client, "query": f" ?{ '&'.join(parts) }"}
+    return {"client": client, "query": f" ?{'&'.join(parts)}"}
+
 
 app.add_middleware(GZipMiddleware, minimum_size=1000)
-
 
 
 app.add_middleware(
@@ -381,7 +385,9 @@ async def serve_spa(full_path: str):
                 "",
             )
         )
-        return RedirectResponse(url=redirect_target, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+        return RedirectResponse(
+            url=redirect_target, status_code=status.HTTP_307_TEMPORARY_REDIRECT
+        )
 
     return Response(content="Not Found", status_code=status.HTTP_404_NOT_FOUND)
 
@@ -407,7 +413,9 @@ async def on_startup() -> None:
         for name in PluginRegistry.list_plugins():
             PluginRegistry.set_disabled(name, disabled=name in disabled_set)
         logging.getLogger("backend.startup").info(
-            "已扫描加载 %d 个自定义扩展插件 (已持久化禁用 %d 个)", count, len(disabled_set)
+            "已扫描加载 %d 个自定义扩展插件 (已持久化禁用 %d 个)",
+            count,
+            len(disabled_set),
         )
     except Exception as exc:
         logging.getLogger("backend.startup").warning("扫描插件目录异常: %s", exc)
@@ -459,6 +467,7 @@ async def on_startup() -> None:
 
             await get_keyword_monitor_service().restart_from_tasks()
             from backend.services.chatops_bot import get_chatops_worker
+
             get_chatops_worker().start()
         except Exception as exc:
             # 顶层兜底：启动阶段任何未处理异常都不能让进程崩溃
@@ -499,6 +508,7 @@ def _pre_export_session_strings() -> None:
         wildcard_dir = signs_dir / "*"
         if wildcard_dir.exists() and wildcard_dir.is_dir():
             import shutil
+
             shutil.rmtree(wildcard_dir)
             logger.info("已清理遗留的 '*' 任务目录")
     except OSError as exc:
@@ -587,6 +597,7 @@ async def on_shutdown() -> None:
 
         await get_keyword_monitor_service().stop()
         from backend.services.chatops_bot import get_chatops_worker
+
         get_chatops_worker().stop()
     except Exception:
         # 顶层兜底：关闭阶段任何异常不能阻止进程退出

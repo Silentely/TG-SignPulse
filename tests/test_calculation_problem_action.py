@@ -249,4 +249,7 @@ async def test_calculation_problem_empty_question_returns_false():
     assert await signer._reply_by_calculation_problem(reply_action, empty_msg) is False
 
     click_action = ClickButtonByCalculationProblemAction()
-    assert await signer._click_button_by_calculation_problem(click_action, empty_msg) is False
+    assert (
+        await signer._click_button_by_calculation_problem(click_action, empty_msg)
+        is False
+    )

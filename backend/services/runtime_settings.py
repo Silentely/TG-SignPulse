@@ -32,7 +32,11 @@ def resolve_int_setting(
     if min_v is not None and max_v is not None and min_v > max_v:
         min_v, max_v = max_v, min_v
     raw: Any = None
-    if key in global_cfg and global_cfg[key] is not None and str(global_cfg[key]).strip() != "":
+    if (
+        key in global_cfg
+        and global_cfg[key] is not None
+        and str(global_cfg[key]).strip() != ""
+    ):
         raw = global_cfg[key]
     else:
         env_raw = os.getenv(env_name)

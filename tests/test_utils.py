@@ -88,7 +88,9 @@ class TestUtcNowNaive:
     @patch("backend.utils.time.utc_now")
     def test_strips_tzinfo(self, mock_utc_now):
         """验证通过 replace(tzinfo=None) 去除时区"""
-        mock_utc_now.return_value = datetime(2025, 6, 15, 10, 30, 0, tzinfo=timezone.utc)
+        mock_utc_now.return_value = datetime(
+            2025, 6, 15, 10, 30, 0, tzinfo=timezone.utc
+        )
         result = utc_now_naive()
         assert result == datetime(2025, 6, 15, 10, 30, 0)
         assert result.tzinfo is None
@@ -268,7 +270,9 @@ class TestEnsureDataDirs:
 
         settings = self._make_settings(tmp_path)
         # 数据库路径在更深层目录
-        settings.resolve_db_path.return_value = tmp_path / "data" / "sub" / "deep" / "db.sqlite"
+        settings.resolve_db_path.return_value = (
+            tmp_path / "data" / "sub" / "deep" / "db.sqlite"
+        )
         ensure_data_dirs(settings)
 
         assert (tmp_path / "data" / "sub" / "deep").is_dir()

@@ -34,6 +34,7 @@ def is_unsafe_keyword_regex(pattern: str) -> bool:
         return False
     return bool(_UNSAFE_REGEX_GROUP_RE.search(pattern))
 
+
 NumberingLangT: TypeAlias = Literal[
     "arabic",
     "chinese_simple",
@@ -442,9 +443,7 @@ def format_sign_chat_box(chat) -> str:
             action_text = f"{i}. [{action_type}] {details}"
         else:
             action_text = f"{i}. [{action_type}]"
-        actions_lines.append(
-            f"║ {pad_text_to_width(action_text, content_width - 2)} ║"
-        )
+        actions_lines.append(f"║ {pad_text_to_width(action_text, content_width - 2)} ║")
 
     result = [
         top_border,
@@ -480,7 +479,9 @@ def validate_public_http_url(url: str) -> "tuple[str, str]":
     if not hostname:
         raise ValueError("无效的主机名")
 
-    def _is_forbidden_target(ip_obj: "ipaddress.IPv4Address | ipaddress.IPv6Address") -> bool:
+    def _is_forbidden_target(
+        ip_obj: "ipaddress.IPv4Address | ipaddress.IPv6Address",
+    ) -> bool:
         embedded: list[ipaddress.IPv4Address] = []
         if ip_obj.version == 6:
             # IPv4-mapped/6to4/Teredo 内嵌的 IPv4 地址需一并判定，防止 ::ffff:10.0.0.1 之类字面量绕过

@@ -2,6 +2,7 @@
 
 提供 PluginContext 运行上下文、PluginRegistry 注册表及动态隔离加载能力。
 """
+
 from __future__ import annotations
 
 import ast
@@ -35,7 +36,7 @@ class PluginStorageBackend:
 
     @staticmethod
     def _escape_like(text: str) -> str:
-        return text.replace('/', '//').replace('%', '/%').replace('_', '/_')
+        return text.replace("/", "//").replace("%", "/%").replace("_", "/_")
 
     def __init__(self, db_path: Optional[Union[str, Path]] = None):
         if db_path is not None:
@@ -123,7 +124,9 @@ class PluginStorageBackend:
             _logger.warning("插件读取存储失败 [%s:%s]: %s", namespace, key, exc)
             return default
 
-    def set(self, namespace: str, key: str, value: Any, ttl: Optional[float] = None) -> None:
+    def set(
+        self, namespace: str, key: str, value: Any, ttl: Optional[float] = None
+    ) -> None:
         now = time.time()
         expires_at = (now + ttl) if (ttl is not None and ttl > 0) else None
         val_str = json.dumps(value, ensure_ascii=False)
@@ -162,7 +165,9 @@ class PluginStorageBackend:
                 if row and (row[1] is None or row[1] >= now):
                     try:
                         parsed = json.loads(row[0])
-                        if isinstance(parsed, (int, float)) and not isinstance(parsed, bool):
+                        if isinstance(parsed, (int, float)) and not isinstance(
+                            parsed, bool
+                        ):
                             current = int(parsed)
                     except (TypeError, ValueError, json.JSONDecodeError):
                         pass
@@ -205,7 +210,9 @@ class PluginStorageBackend:
         try:
             with self._conn() as conn:
                 if namespace:
-                    cur = conn.execute("DELETE FROM plugin_kv WHERE namespace = ?", (namespace,))
+                    cur = conn.execute(
+                        "DELETE FROM plugin_kv WHERE namespace = ?", (namespace,)
+                    )
                 else:
                     cur = conn.execute("DELETE FROM plugin_kv")
                 conn.commit()
@@ -404,7 +411,11 @@ class PluginStorageBackend:
                            OR namespace LIKE ? ESCAPE '/'
                            OR namespace LIKE ? ESCAPE '/'
                         """,
-                        (plugin_name, f"%:{escaped_name}", f"__test__:%:{escaped_name}"),
+                        (
+                            plugin_name,
+                            f"%:{escaped_name}",
+                            f"__test__:%:{escaped_name}",
+                        ),
                     )
                 else:
                     cur = conn.execute("SELECT DISTINCT namespace FROM plugin_kv")
@@ -434,12 +445,16 @@ class PluginStorageBackend:
                         parsed_val = json.loads(val_str)
                     except Exception:
                         parsed_val = val_str
-                    records.append({
-                        "key": k,
-                        "value": parsed_val,
-                        "expires_at": exp,
-                        "ttl_remaining": round(exp - now, 1) if exp is not None else None,
-                    })
+                    records.append(
+                        {
+                            "key": k,
+                            "value": parsed_val,
+                            "expires_at": exp,
+                            "ttl_remaining": round(exp - now, 1)
+                            if exp is not None
+                            else None,
+                        }
+                    )
                 if expired_keys:
                     try:
                         conn.executemany(
@@ -465,14 +480,18 @@ class PluginStorageClient:
     async def get(self, key: str, default: Any = None) -> Any:
         try:
             loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(None, self._backend.get, self.namespace, key, default)
+            return await loop.run_in_executor(
+                None, self._backend.get, self.namespace, key, default
+            )
         except RuntimeError:
             return self._backend.get(self.namespace, key, default)
 
     async def set(self, key: str, value: Any, ttl: Optional[float] = None) -> None:
         try:
             loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, self._backend.set, self.namespace, key, value, ttl)
+            await loop.run_in_executor(
+                None, self._backend.set, self.namespace, key, value, ttl
+            )
         except RuntimeError:
             self._backend.set(self.namespace, key, value, ttl)
 
@@ -490,7 +509,9 @@ class PluginStorageClient:
     async def delete(self, key: str) -> bool:
         try:
             loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(None, self._backend.delete, self.namespace, key)
+            return await loop.run_in_executor(
+                None, self._backend.delete, self.namespace, key
+            )
         except RuntimeError:
             return self._backend.delete(self.namespace, key)
 
@@ -504,28 +525,36 @@ class PluginStorageClient:
     async def keys(self, prefix: str = "") -> List[str]:
         try:
             loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(None, self._backend.keys, self.namespace, prefix)
+            return await loop.run_in_executor(
+                None, self._backend.keys, self.namespace, prefix
+            )
         except RuntimeError:
             return self._backend.keys(self.namespace, prefix)
 
     async def mget(self, keys: List[str]) -> Dict[str, Any]:
         try:
             loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(None, self._backend.mget, self.namespace, keys)
+            return await loop.run_in_executor(
+                None, self._backend.mget, self.namespace, keys
+            )
         except RuntimeError:
             return self._backend.mget(self.namespace, keys)
 
     async def mset(self, mapping: Dict[str, Any], ttl: Optional[float] = None) -> None:
         try:
             loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, self._backend.mset, self.namespace, mapping, ttl)
+            await loop.run_in_executor(
+                None, self._backend.mset, self.namespace, mapping, ttl
+            )
         except RuntimeError:
             self._backend.mset(self.namespace, mapping, ttl)
 
     async def get_all(self, prefix: str = "") -> Dict[str, Any]:
         try:
             loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(None, self._backend.get_all, self.namespace, prefix)
+            return await loop.run_in_executor(
+                None, self._backend.get_all, self.namespace, prefix
+            )
         except RuntimeError:
             return self._backend.get_all(self.namespace, prefix)
 
@@ -545,7 +574,11 @@ class PluginContext:
     @property
     def storage(self) -> PluginStorageClient:
         if self._storage is None:
-            ns = f"{self.chat_id}:{self.plugin_name}" if self.plugin_name else str(self.chat_id)
+            ns = (
+                f"{self.chat_id}:{self.plugin_name}"
+                if self.plugin_name
+                else str(self.chat_id)
+            )
             self._storage = PluginStorageClient(namespace=ns)
         return self._storage
 
@@ -642,7 +675,9 @@ class PluginContext:
             raise RuntimeError("当前上下文中无有效消息，无法执行点击按钮")
         return await self.message.click(text_or_index, **kwargs)
 
-    async def react(self, emoji: str, message_id: Optional[int] = None, **kwargs) -> Any:
+    async def react(
+        self, emoji: str, message_id: Optional[int] = None, **kwargs
+    ) -> Any:
         """向消息添加 Emoji 表情表态（Reaction）。"""
         msg_id = message_id
         if msg_id is None and self.message is not None and hasattr(self.message, "id"):
@@ -661,10 +696,14 @@ class PluginContext:
                 pass
 
         if hasattr(self.app, "send_reaction") and callable(self.app.send_reaction):
-            return await self.app.send_reaction(self.chat_id, message_id=msg_id, emoji=emoji, **kwargs)
+            return await self.app.send_reaction(
+                self.chat_id, message_id=msg_id, emoji=emoji, **kwargs
+            )
         raise RuntimeError("Telegram Client 不支持 send_reaction 方法")
 
-    async def edit_message(self, text: str, message_id: Optional[int] = None, **kwargs) -> Any:
+    async def edit_message(
+        self, text: str, message_id: Optional[int] = None, **kwargs
+    ) -> Any:
         """编辑指定消息（默认编辑当前上下文触发的消息）。"""
         msg_id = message_id
         if msg_id is None and self.message is not None and hasattr(self.message, "id"):
@@ -684,8 +723,12 @@ class PluginContext:
             except TypeError:
                 pass
 
-        if hasattr(self.app, "edit_message_text") and callable(self.app.edit_message_text):
-            return await self.app.edit_message_text(self.chat_id, message_id=msg_id, text=text, **kwargs)
+        if hasattr(self.app, "edit_message_text") and callable(
+            self.app.edit_message_text
+        ):
+            return await self.app.edit_message_text(
+                self.chat_id, message_id=msg_id, text=text, **kwargs
+            )
         raise RuntimeError("Telegram Client 不支持 edit_message_text 方法")
 
     async def delete_message(self, message_id: Optional[int] = None, **kwargs) -> Any:
@@ -707,9 +750,10 @@ class PluginContext:
                 pass
 
         if hasattr(self.app, "delete_messages") and callable(self.app.delete_messages):
-            return await self.app.delete_messages(self.chat_id, message_ids=[msg_id], **kwargs)
+            return await self.app.delete_messages(
+                self.chat_id, message_ids=[msg_id], **kwargs
+            )
         raise RuntimeError("Telegram Client 不支持 delete_messages 方法")
-
 
     async def send_photo(
         self, photo: Union[str, bytes], caption: Optional[str] = None, **kwargs: Any
@@ -753,9 +797,7 @@ class PluginContext:
             return await self.app.send_document(self.chat_id, document, **kwargs)
         raise RuntimeError("Telegram Client 不支持 send_document 方法")
 
-    async def pin_message(
-        self, message_id: Optional[int] = None, **kwargs: Any
-    ) -> Any:
+    async def pin_message(self, message_id: Optional[int] = None, **kwargs: Any) -> Any:
         """置顶当前或指定消息。"""
         msg_id = message_id
         if msg_id is None and self.message is not None and hasattr(self.message, "id"):
@@ -771,8 +813,12 @@ class PluginContext:
                 return res
             except TypeError:
                 pass
-        if hasattr(self.app, "pin_chat_message") and callable(self.app.pin_chat_message):
-            return await self.app.pin_chat_message(self.chat_id, message_id=msg_id, **kwargs)
+        if hasattr(self.app, "pin_chat_message") and callable(
+            self.app.pin_chat_message
+        ):
+            return await self.app.pin_chat_message(
+                self.chat_id, message_id=msg_id, **kwargs
+            )
         raise RuntimeError("Telegram Client 不支持 pin_chat_message 方法")
 
     async def unpin_message(
@@ -791,9 +837,17 @@ class PluginContext:
                 return res
             except TypeError:
                 pass
-        if msg_id is not None and hasattr(self.app, "unpin_chat_message") and callable(self.app.unpin_chat_message):
-            return await self.app.unpin_chat_message(self.chat_id, message_id=msg_id, **kwargs)
-        if hasattr(self.app, "unpin_all_chat_messages") and callable(self.app.unpin_all_chat_messages):
+        if (
+            msg_id is not None
+            and hasattr(self.app, "unpin_chat_message")
+            and callable(self.app.unpin_chat_message)
+        ):
+            return await self.app.unpin_chat_message(
+                self.chat_id, message_id=msg_id, **kwargs
+            )
+        if hasattr(self.app, "unpin_all_chat_messages") and callable(
+            self.app.unpin_all_chat_messages
+        ):
             return await self.app.unpin_all_chat_messages(self.chat_id, **kwargs)
         raise RuntimeError("Telegram Client 不支持取消置顶方法")
 
@@ -811,7 +865,9 @@ class PluginContext:
             except TypeError:
                 pass
         if hasattr(self.app, "get_messages") and callable(self.app.get_messages):
-            return await self.app.get_messages(self.chat_id, message_ids=message_ids, **kwargs)
+            return await self.app.get_messages(
+                self.chat_id, message_ids=message_ids, **kwargs
+            )
         raise RuntimeError("Telegram Client 不支持 get_messages 方法")
 
     async def forward_messages(
@@ -831,15 +887,22 @@ class PluginContext:
         forwarder = getattr(self.logger, "forward_messages", None)
         if forwarder is not None and callable(forwarder):
             try:
-                res = forwarder(chat_id, from_chat_id=src_chat, message_ids=mids, **kwargs)
+                res = forwarder(
+                    chat_id, from_chat_id=src_chat, message_ids=mids, **kwargs
+                )
                 if inspect.isawaitable(res):
                     return await res
                 return res
             except TypeError:
                 pass
-        if hasattr(self.app, "forward_messages") and callable(self.app.forward_messages):
-            return await self.app.forward_messages(chat_id, from_chat_id=src_chat, message_ids=mids, **kwargs)
+        if hasattr(self.app, "forward_messages") and callable(
+            self.app.forward_messages
+        ):
+            return await self.app.forward_messages(
+                chat_id, from_chat_id=src_chat, message_ids=mids, **kwargs
+            )
         raise RuntimeError("Telegram Client 不支持 forward_messages 方法")
+
 
 @dataclass
 class PluginLoadError:
@@ -886,12 +949,20 @@ class PluginMetrics:
 
     @property
     def avg_duration_ms(self) -> float:
-        return round(self.total_duration_ms / self.run_count, 1) if self.run_count > 0 else 0.0
+        return (
+            round(self.total_duration_ms / self.run_count, 1)
+            if self.run_count > 0
+            else 0.0
+        )
 
     @property
     def success_rate(self) -> float:
         # 从未执行时无成功率可言，返回 0.0 而非 100.0，避免误导
-        return round((self.success_count / self.run_count) * 100, 1) if self.run_count > 0 else 0.0
+        return (
+            round((self.success_count / self.run_count) * 100, 1)
+            if self.run_count > 0
+            else 0.0
+        )
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -904,6 +975,7 @@ class PluginMetrics:
             "success_rate": self.success_rate,
             "last_error": self.last_error,
         }
+
 
 @dataclass
 class PluginExecutionRecord:
@@ -959,7 +1031,9 @@ class PluginRegistry:
     _execution_history: Dict[str, deque[PluginExecutionRecord]] = {}
 
     @staticmethod
-    def _is_same_registration(a: Callable[[PluginContext], Any], b: Callable[[PluginContext], Any]) -> bool:
+    def _is_same_registration(
+        a: Callable[[PluginContext], Any], b: Callable[[PluginContext], Any]
+    ) -> bool:
         """判断两个函数是否来自同一源文件的同一处定义（即同一插件的重复加载）。"""
         try:
             file_a = inspect.getsourcefile(a)
@@ -1071,7 +1145,9 @@ class PluginRegistry:
         homepage: Optional[str] = None,
         isolation_mode: Literal["subprocess", "in_process"] = "subprocess",
     ) -> Callable:
-        def decorator(fn: Callable[[PluginContext], Any]) -> Callable[[PluginContext], Any]:
+        def decorator(
+            fn: Callable[[PluginContext], Any],
+        ) -> Callable[[PluginContext], Any]:
             existing = cls._plugins.get(name)
             if existing is not None and existing.handler is not fn:
                 # 仅放行"同一源文件同一行号"的重复注册（模块被再次执行的重载场景）；
@@ -1116,6 +1192,7 @@ class PluginRegistry:
                 isolation_mode=isolation_mode,
             )
             return fn
+
         return decorator
 
     @classmethod
@@ -1174,7 +1251,9 @@ class PluginRegistry:
                 else plugin_file.stem
             )
             sanitized_name = re.sub(r"[^a-zA-Z0-9_]", "_", folder_name)
-            path_hash = hashlib.sha256(str(resolved_file).encode("utf-8")).hexdigest()[:12]
+            path_hash = hashlib.sha256(str(resolved_file).encode("utf-8")).hexdigest()[
+                :12
+            ]
             module_name = f"tg_signer_plugin_{sanitized_name}_{path_hash}"
 
             # 若为目录型插件，将其所在目录加入 sys.path 以支持目录内的子模块/相对引用
@@ -1189,7 +1268,9 @@ class PluginRegistry:
                 spec_kwargs = {}
                 if plugin_file.name in ("main.py", "__init__.py"):
                     # 目录型插件按包加载，保证 `from .helper import ...` 等相对导入可用。
-                    spec_kwargs["submodule_search_locations"] = [str(resolved_file.parent)]
+                    spec_kwargs["submodule_search_locations"] = [
+                        str(resolved_file.parent)
+                    ]
                 spec = importlib.util.spec_from_file_location(
                     module_name, plugin_file, **spec_kwargs
                 )
@@ -1209,7 +1290,8 @@ class PluginRegistry:
                 new_registered = [
                     meta
                     for name, meta in cls._plugins.items()
-                    if name not in pre_keys and (meta.source_path == str(resolved_file) or not meta.source_path)
+                    if name not in pre_keys
+                    and (meta.source_path == str(resolved_file) or not meta.source_path)
                 ]
 
                 # 模块级 PARAMS_SCHEMA 自动挂载
@@ -1224,25 +1306,33 @@ class PluginRegistry:
                     pjson_file = resolved_file.parent / "plugin.json"
                     if pjson_file.is_file():
                         try:
-                            pjson_data = json.loads(pjson_file.read_text(encoding="utf-8"))
+                            pjson_data = json.loads(
+                                pjson_file.read_text(encoding="utf-8")
+                            )
                         except Exception:
                             pass
 
                 # 模块级全局变量元数据提取（VERSION / UPDATED_AT / AUTHOR / CATEGORY / TAGS / ICON / HOMEPAGE）与 mtime 回退
                 mod_version = getattr(mod, "VERSION", getattr(mod, "__version__", None))
-                mod_updated_at = getattr(mod, "UPDATED_AT", getattr(mod, "__updated_at__", None))
+                mod_updated_at = getattr(
+                    mod, "UPDATED_AT", getattr(mod, "__updated_at__", None)
+                )
                 mod_author = getattr(mod, "AUTHOR", getattr(mod, "__author__", None))
-                mod_category = getattr(mod, "CATEGORY", getattr(mod, "__category__", None))
+                mod_category = getattr(
+                    mod, "CATEGORY", getattr(mod, "__category__", None)
+                )
                 mod_tags = getattr(mod, "TAGS", getattr(mod, "__tags__", None))
                 mod_icon = getattr(mod, "ICON", getattr(mod, "__icon__", None))
-                mod_homepage = getattr(mod, "HOMEPAGE", getattr(mod, "__homepage__", None))
+                mod_homepage = getattr(
+                    mod, "HOMEPAGE", getattr(mod, "__homepage__", None)
+                )
 
                 for meta in new_registered:
                     if not meta.source_path:
                         meta.source_path = str(resolved_file)
                         meta.builtin = is_builtin_plugin_path(resolved_file)
 
-                    if (not meta.version or meta.version == "1.0.0"):
+                    if not meta.version or meta.version == "1.0.0":
                         if mod_version and isinstance(mod_version, str):
                             meta.version = mod_version.strip()
                         elif pjson_data.get("version"):
@@ -1261,31 +1351,54 @@ class PluginRegistry:
                             meta.author = str(pjson_data["author"]).strip()
 
                     if not meta.category:
-                        meta.category = mod_category or pjson_data.get("category") or None
+                        meta.category = (
+                            mod_category or pjson_data.get("category") or None
+                        )
 
                     if not meta.tags:
-                        raw_tags = mod_tags if mod_tags is not None else pjson_data.get("tags")
+                        raw_tags = (
+                            mod_tags if mod_tags is not None else pjson_data.get("tags")
+                        )
                         if isinstance(raw_tags, (list, tuple)):
-                            meta.tags = [str(t).strip() for t in raw_tags if str(t).strip()]
+                            meta.tags = [
+                                str(t).strip() for t in raw_tags if str(t).strip()
+                            ]
                         elif isinstance(raw_tags, str) and raw_tags.strip():
-                            meta.tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
+                            meta.tags = [
+                                t.strip() for t in raw_tags.split(",") if t.strip()
+                            ]
 
                     if not meta.icon:
                         meta.icon = mod_icon or pjson_data.get("icon") or None
 
                     if not meta.homepage:
-                        meta.homepage = mod_homepage or pjson_data.get("homepage") or None
+                        meta.homepage = (
+                            mod_homepage or pjson_data.get("homepage") or None
+                        )
 
-                    if (not meta.description or meta.description == f"自定义插件 {meta.name}") and pjson_data.get("description"):
+                    if (
+                        not meta.description
+                        or meta.description == f"自定义插件 {meta.name}"
+                    ) and pjson_data.get("description"):
                         meta.description = str(pjson_data["description"]).strip()
 
-                    if not meta.permissions and pjson_data.get("permissions") and isinstance(pjson_data["permissions"], list):
+                    if (
+                        not meta.permissions
+                        and pjson_data.get("permissions")
+                        and isinstance(pjson_data["permissions"], list)
+                    ):
                         meta.permissions = list(pjson_data["permissions"])
 
                     # 若 updated_at 仍为空，则回退为文件 mtime
-                    if not meta.updated_at and meta.source_path and os.path.isfile(meta.source_path):
+                    if (
+                        not meta.updated_at
+                        and meta.source_path
+                        and os.path.isfile(meta.source_path)
+                    ):
                         try:
-                            meta.updated_at = datetime.fromtimestamp(os.path.getmtime(meta.source_path)).strftime("%Y-%m-%d")
+                            meta.updated_at = datetime.fromtimestamp(
+                                os.path.getmtime(meta.source_path)
+                            ).strftime("%Y-%m-%d")
                         except Exception:
                             meta.updated_at = datetime.now().strftime("%Y-%m-%d")
                     elif not meta.updated_at:
@@ -1296,7 +1409,9 @@ class PluginRegistry:
                 missing = getattr(exc, "name", None) or str(exc)
                 _logger.warning(
                     "加载插件 %s 失败：缺少依赖模块 '%s'，可在环境中执行 pip install %s 进行安装",
-                    plugin_file, missing, missing
+                    plugin_file,
+                    missing,
+                    missing,
                 )
                 cls._load_errors[str(resolved_file)] = PluginLoadError(
                     file_path=str(resolved_file),
@@ -1360,8 +1475,6 @@ class PluginRegistry:
         if cwd_plugins.is_dir():
             candidates.append(cwd_plugins)
 
-
-
         # 保持顺序并以解析路径去重
         deduped: list[Path] = []
         seen_resolved: set[Path] = set()
@@ -1419,14 +1532,41 @@ class PluginRegistry:
         cls.clear()
         return cls.load_all_configured_plugins()
 
+
 class _SecurityVisitor(ast.NodeVisitor):
-    _STAR_DANGEROUS_BARE_NAMES = frozenset({
-        "system", "popen", "kill", "killpg", "fork", "unlink", "remove", "rmdir",
-        "execv", "execve", "execvp", "spawnl", "spawnv", "posix_spawn",
-        "run", "Popen", "call", "check_output", "check_call", "getoutput", "getstatusoutput",
-        "CDLL", "LoadLibrary", "eval", "exec", "compile", "__import__",
-        "create_subprocess_shell", "create_subprocess_exec",
-    })
+    _STAR_DANGEROUS_BARE_NAMES = frozenset(
+        {
+            "system",
+            "popen",
+            "kill",
+            "killpg",
+            "fork",
+            "unlink",
+            "remove",
+            "rmdir",
+            "execv",
+            "execve",
+            "execvp",
+            "spawnl",
+            "spawnv",
+            "posix_spawn",
+            "run",
+            "Popen",
+            "call",
+            "check_output",
+            "check_call",
+            "getoutput",
+            "getstatusoutput",
+            "CDLL",
+            "LoadLibrary",
+            "eval",
+            "exec",
+            "compile",
+            "__import__",
+            "create_subprocess_shell",
+            "create_subprocess_exec",
+        }
+    )
 
     def __init__(self) -> None:
         self.warnings: List[Dict[str, Any]] = []
@@ -1439,35 +1579,41 @@ class _SecurityVisitor(ast.NodeVisitor):
             self._aliases[as_name] = alias.name
             root_mod = alias.name.split(".")[0]
             if root_mod in ("ctypes", "winreg", "msvcrt"):
-                self.warnings.append({
-                    "line": node.lineno,
-                    "column": node.col_offset,
-                    "severity": "high",
-                    "rule": f"disallowed-import:{root_mod}",
-                    "message": f"检测到导入底层系统原生操作库 '{root_mod}'",
-                })
+                self.warnings.append(
+                    {
+                        "line": node.lineno,
+                        "column": node.col_offset,
+                        "severity": "high",
+                        "rule": f"disallowed-import:{root_mod}",
+                        "message": f"检测到导入底层系统原生操作库 '{root_mod}'",
+                    }
+                )
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         mod = node.module or ""
         root_mod = mod.split(".")[0] if mod else ""
         if root_mod in ("ctypes", "winreg", "msvcrt"):
-            self.warnings.append({
-                "line": node.lineno,
-                "column": node.col_offset,
-                "severity": "high",
-                "rule": f"disallowed-import:{root_mod}",
-                "message": f"检测到导入底层系统原生操作库 '{root_mod}'",
-            })
-        for alias in node.names:
-            if alias.name == "*":
-                self.warnings.append({
+            self.warnings.append(
+                {
                     "line": node.lineno,
                     "column": node.col_offset,
                     "severity": "high",
-                    "rule": f"star-import:{root_mod or '<relative>'}",
-                    "message": f"检测到从系统或模块通配符导入 'from {mod or '<相对模块>'} import *'，静态审计无法追踪其命名空间",
-                })
+                    "rule": f"disallowed-import:{root_mod}",
+                    "message": f"检测到导入底层系统原生操作库 '{root_mod}'",
+                }
+            )
+        for alias in node.names:
+            if alias.name == "*":
+                self.warnings.append(
+                    {
+                        "line": node.lineno,
+                        "column": node.col_offset,
+                        "severity": "high",
+                        "rule": f"star-import:{root_mod or '<relative>'}",
+                        "message": f"检测到从系统或模块通配符导入 'from {mod or '<相对模块>'} import *'，静态审计无法追踪其命名空间",
+                    }
+                )
                 if root_mod:
                     self._star_import_roots.add(root_mod)
                 continue
@@ -1475,29 +1621,51 @@ class _SecurityVisitor(ast.NodeVisitor):
             target = f"{mod}.{alias.name}" if mod else alias.name
             self._aliases[as_name] = target
             if target in (
-                "os.system", "os.popen", "os.kill", "os.killpg", "os.posix_spawn",
-                "subprocess.run", "subprocess.Popen", "subprocess.call",
-                "subprocess.check_output", "subprocess.check_call",
-                "subprocess.getoutput", "subprocess.getstatusoutput",
-                "asyncio.create_subprocess_shell", "asyncio.create_subprocess_exec",
-                "eval", "exec", "compile",
+                "os.system",
+                "os.popen",
+                "os.kill",
+                "os.killpg",
+                "os.posix_spawn",
+                "subprocess.run",
+                "subprocess.Popen",
+                "subprocess.call",
+                "subprocess.check_output",
+                "subprocess.check_call",
+                "subprocess.getoutput",
+                "subprocess.getstatusoutput",
+                "asyncio.create_subprocess_shell",
+                "asyncio.create_subprocess_exec",
+                "eval",
+                "exec",
+                "compile",
             ):
-                self.warnings.append({
-                    "line": node.lineno,
-                    "column": node.col_offset,
-                    "severity": "high",
-                    "rule": f"dangerous-system-call:{target}",
-                    "message": f"检测到从模块导入高危执行函数 '{target}'",
-                })
+                self.warnings.append(
+                    {
+                        "line": node.lineno,
+                        "column": node.col_offset,
+                        "severity": "high",
+                        "rule": f"dangerous-system-call:{target}",
+                        "message": f"检测到从模块导入高危执行函数 '{target}'",
+                    }
+                )
         self.generic_visit(node)
 
     def visit_Assign(self, node: ast.Assign) -> None:
         # 高危函数名集合：与上方导入判定共用同一份名单
         dangerous_full_names = (
-            "os.system", "os.popen", "subprocess.run", "subprocess.Popen",
-            "subprocess.call", "subprocess.getoutput", "subprocess.getstatusoutput",
-            "eval", "exec", "compile", "__import__",
-            "asyncio.create_subprocess_shell", "asyncio.create_subprocess_exec",
+            "os.system",
+            "os.popen",
+            "subprocess.run",
+            "subprocess.Popen",
+            "subprocess.call",
+            "subprocess.getoutput",
+            "subprocess.getstatusoutput",
+            "eval",
+            "exec",
+            "compile",
+            "__import__",
+            "asyncio.create_subprocess_shell",
+            "asyncio.create_subprocess_exec",
         )
 
         def _resolve(value: ast.expr) -> Optional[str]:
@@ -1505,15 +1673,22 @@ class _SecurityVisitor(ast.NodeVisitor):
             if isinstance(value, ast.Name):
                 return self._aliases.get(value.id, value.id)
             if isinstance(value, ast.Attribute) and isinstance(value.value, ast.Name):
-                return f"{self._aliases.get(value.value.id, value.value.id)}.{value.attr}"
+                return (
+                    f"{self._aliases.get(value.value.id, value.value.id)}.{value.attr}"
+                )
             return None
 
         # 逐目标处理：覆盖 a = x、a = b = x、(a, b) = (x, y) 三种形态
         pairs: List[Tuple[str, Optional[str]]] = []
-        if len(node.targets) == 1 and isinstance(node.targets[0], (ast.Tuple, ast.List)) \
-                and isinstance(node.value, (ast.Tuple, ast.List)) \
-                and len(node.targets[0].elts) == len(node.value.elts):
-            for target_elt, value_elt in zip(node.targets[0].elts, node.value.elts, strict=False):
+        if (
+            len(node.targets) == 1
+            and isinstance(node.targets[0], (ast.Tuple, ast.List))
+            and isinstance(node.value, (ast.Tuple, ast.List))
+            and len(node.targets[0].elts) == len(node.value.elts)
+        ):
+            for target_elt, value_elt in zip(
+                node.targets[0].elts, node.value.elts, strict=False
+            ):
                 for name in self._assign_target_names(target_elt):
                     pairs.append((name, _resolve(value_elt)))
         else:
@@ -1526,13 +1701,15 @@ class _SecurityVisitor(ast.NodeVisitor):
                 continue
             if resolved in dangerous_full_names:
                 self._aliases[target_name] = resolved
-                self.warnings.append({
-                    "line": node.lineno,
-                    "column": node.col_offset,
-                    "severity": "high",
-                    "rule": f"dangerous-alias:{resolved}",
-                    "message": f"检测到将高危函数 '{resolved}' 赋值给别名 '{target_name}'",
-                })
+                self.warnings.append(
+                    {
+                        "line": node.lineno,
+                        "column": node.col_offset,
+                        "severity": "high",
+                        "rule": f"dangerous-alias:{resolved}",
+                        "message": f"检测到将高危函数 '{resolved}' 赋值给别名 '{target_name}'",
+                    }
+                )
             elif target_name not in self._aliases:
                 # 传播模块/普通别名（如 sp = subprocess），让后续 sp.run(...) 能被还原
                 self._aliases[target_name] = resolved
@@ -1550,14 +1727,24 @@ class _SecurityVisitor(ast.NodeVisitor):
         return names
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
-        if node.attr in ("__subclasses__", "__globals__", "__builtins__", "__code__", "__bases__", "__base__", "__mro__"):
-            self.warnings.append({
-                "line": node.lineno,
-                "column": node.col_offset,
-                "severity": "high",
-                "rule": f"sandbox-escape:{node.attr}",
-                "message": f"检测到使用沙箱逃逸反射属性 '{node.attr}'",
-            })
+        if node.attr in (
+            "__subclasses__",
+            "__globals__",
+            "__builtins__",
+            "__code__",
+            "__bases__",
+            "__base__",
+            "__mro__",
+        ):
+            self.warnings.append(
+                {
+                    "line": node.lineno,
+                    "column": node.col_offset,
+                    "severity": "high",
+                    "rule": f"sandbox-escape:{node.attr}",
+                    "message": f"检测到使用沙箱逃逸反射属性 '{node.attr}'",
+                }
+            )
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
@@ -1565,118 +1752,226 @@ class _SecurityVisitor(ast.NodeVisitor):
         if isinstance(node.func, ast.Name):
             raw_id = node.func.id
             func_name = self._aliases.get(raw_id, raw_id)
-            if raw_id not in self._aliases and raw_id in self._STAR_DANGEROUS_BARE_NAMES and self._star_import_roots:
-                self.warnings.append({
-                    "line": node.lineno,
-                    "column": node.col_offset,
-                    "severity": "high",
-                    "rule": f"dangerous-bare-call:{raw_id}",
-                    "message": f"插件存在星号导入，无法判定裸名调用 '{raw_id}' 的真实来源，请改为显式导入",
-                })
+            if (
+                raw_id not in self._aliases
+                and raw_id in self._STAR_DANGEROUS_BARE_NAMES
+                and self._star_import_roots
+            ):
+                self.warnings.append(
+                    {
+                        "line": node.lineno,
+                        "column": node.col_offset,
+                        "severity": "high",
+                        "rule": f"dangerous-bare-call:{raw_id}",
+                        "message": f"插件存在星号导入，无法判定裸名调用 '{raw_id}' 的真实来源，请改为显式导入",
+                    }
+                )
             elif raw_id in ("getattr", "vars"):
-                target_arg = node.args[-1] if raw_id == "getattr" and len(node.args) >= 2 else (node.args[0] if node.args else None)
-                if isinstance(target_arg, ast.Constant) and isinstance(target_arg.value, str):
+                target_arg = (
+                    node.args[-1]
+                    if raw_id == "getattr" and len(node.args) >= 2
+                    else (node.args[0] if node.args else None)
+                )
+                if isinstance(target_arg, ast.Constant) and isinstance(
+                    target_arg.value, str
+                ):
                     val = target_arg.value
-                    if val in self._STAR_DANGEROUS_BARE_NAMES or val in ("system", "popen", "run", "Popen", "exec", "eval", "__builtins__", "__subclasses__", "__globals__", "__code__", "__bases__", "__base__", "__mro__"):
-                        self.warnings.append({
-                            "line": node.lineno,
-                            "column": node.col_offset,
-                            "severity": "high",
-                            "rule": f"reflection-call:{raw_id}:{val}",
-                            "message": f"检测到通过 {raw_id}() 动态反射获取高危函数/属性 '{val}'",
-                        })
+                    if val in self._STAR_DANGEROUS_BARE_NAMES or val in (
+                        "system",
+                        "popen",
+                        "run",
+                        "Popen",
+                        "exec",
+                        "eval",
+                        "__builtins__",
+                        "__subclasses__",
+                        "__globals__",
+                        "__code__",
+                        "__bases__",
+                        "__base__",
+                        "__mro__",
+                    ):
+                        self.warnings.append(
+                            {
+                                "line": node.lineno,
+                                "column": node.col_offset,
+                                "severity": "high",
+                                "rule": f"reflection-call:{raw_id}:{val}",
+                                "message": f"检测到通过 {raw_id}() 动态反射获取高危函数/属性 '{val}'",
+                            }
+                        )
         elif isinstance(node.func, ast.Attribute):
             if isinstance(node.func.value, ast.Name):
                 base_id = self._aliases.get(node.func.value.id, node.func.value.id)
                 func_name = f"{base_id}.{node.func.attr}"
-            elif isinstance(node.func.value, ast.Attribute) and isinstance(node.func.value.value, ast.Name):
-                grand_base = self._aliases.get(node.func.value.value.id, node.func.value.value.id)
+            elif isinstance(node.func.value, ast.Attribute) and isinstance(
+                node.func.value.value, ast.Name
+            ):
+                grand_base = self._aliases.get(
+                    node.func.value.value.id, node.func.value.value.id
+                )
                 func_name = f"{grand_base}.{node.func.value.attr}.{node.func.attr}"
 
         if func_name in (
-            "eval", "exec", "compile", "__import__",
-            "builtins.eval", "builtins.exec", "builtins.compile",
-            "builtins.__import__", "importlib.import_module",
-            "pickle.loads", "pickle.load", "_pickle.loads", "_pickle.load",
-            "marshal.loads", "marshal.load", "shelve.open",
+            "eval",
+            "exec",
+            "compile",
+            "__import__",
+            "builtins.eval",
+            "builtins.exec",
+            "builtins.compile",
+            "builtins.__import__",
+            "importlib.import_module",
+            "pickle.loads",
+            "pickle.load",
+            "_pickle.loads",
+            "_pickle.load",
+            "marshal.loads",
+            "marshal.load",
+            "shelve.open",
         ):
-            self.warnings.append({
-                "line": node.lineno,
-                "column": node.col_offset,
-                "severity": "high",
-                "rule": f"disallowed-call:{func_name}",
-                "message": f"检测到使用动态执行、隐式导入或危险反序列化函数 '{func_name}'",
-            })
+            self.warnings.append(
+                {
+                    "line": node.lineno,
+                    "column": node.col_offset,
+                    "severity": "high",
+                    "rule": f"disallowed-call:{func_name}",
+                    "message": f"检测到使用动态执行、隐式导入或危险反序列化函数 '{func_name}'",
+                }
+            )
         elif func_name in (
-            "os.system", "os.popen", "os.kill", "os.killpg", "shutil.rmtree",
-            "shutil.move", "os.unlink", "os.remove", "os.rmdir", "os.removedirs", "os.renames",
-            "pty.spawn", "os.execv", "os.execve", "os.execvp", "os.spawnl", "os.spawnlp",
-            "os.spawnv", "os.spawnvp", "os.fork", "os.posix_spawn",
+            "os.system",
+            "os.popen",
+            "os.kill",
+            "os.killpg",
+            "shutil.rmtree",
+            "shutil.move",
+            "os.unlink",
+            "os.remove",
+            "os.rmdir",
+            "os.removedirs",
+            "os.renames",
+            "pty.spawn",
+            "os.execv",
+            "os.execve",
+            "os.execvp",
+            "os.spawnl",
+            "os.spawnlp",
+            "os.spawnv",
+            "os.spawnvp",
+            "os.fork",
+            "os.posix_spawn",
         ):
-            self.warnings.append({
-                "line": node.lineno,
-                "column": node.col_offset,
-                "severity": "high",
-                "rule": f"dangerous-system-call:{func_name}",
-                "message": f"检测到调用高危系统或破坏性文件操作 '{func_name}'",
-            })
-        elif func_name.startswith("ctypes.") or func_name in ("ctypes.CDLL", "ctypes.windll", "ctypes.pythonapi"):
-            self.warnings.append({
-                "line": node.lineno,
-                "column": node.col_offset,
-                "severity": "high",
-                "rule": f"ctypes-usage:{func_name}",
-                "message": f"检测到使用底层动态链接库调用 '{func_name}'",
-            })
+            self.warnings.append(
+                {
+                    "line": node.lineno,
+                    "column": node.col_offset,
+                    "severity": "high",
+                    "rule": f"dangerous-system-call:{func_name}",
+                    "message": f"检测到调用高危系统或破坏性文件操作 '{func_name}'",
+                }
+            )
+        elif func_name.startswith("ctypes.") or func_name in (
+            "ctypes.CDLL",
+            "ctypes.windll",
+            "ctypes.pythonapi",
+        ):
+            self.warnings.append(
+                {
+                    "line": node.lineno,
+                    "column": node.col_offset,
+                    "severity": "high",
+                    "rule": f"ctypes-usage:{func_name}",
+                    "message": f"检测到使用底层动态链接库调用 '{func_name}'",
+                }
+            )
         elif func_name in (
-            "subprocess.Popen", "subprocess.run", "subprocess.call",
-            "subprocess.check_output", "subprocess.check_call",
-            "subprocess.getoutput", "subprocess.getstatusoutput",
-            "asyncio.create_subprocess_shell", "asyncio.create_subprocess_exec",
+            "subprocess.Popen",
+            "subprocess.run",
+            "subprocess.call",
+            "subprocess.check_output",
+            "subprocess.check_call",
+            "subprocess.getoutput",
+            "subprocess.getstatusoutput",
+            "asyncio.create_subprocess_shell",
+            "asyncio.create_subprocess_exec",
         ):
-            self.warnings.append({
-                "line": node.lineno,
-                "column": node.col_offset,
-                "severity": "high",
-                "rule": f"process-execution:{func_name}",
-                "message": f"检测到调用外部进程执行命令 '{func_name}'",
-            })
-        elif func_name in ("ssl._create_unverified_context", "ssl._create_default_https_context"):
-            self.warnings.append({
-                "line": node.lineno,
-                "column": node.col_offset,
-                "severity": "medium",
-                "rule": f"insecure-ssl:{func_name}",
-                "message": f"检测到跳过全局 SSL 证书校验配置 '{func_name}'",
-            })
-        elif func_name == "open":
-            if len(node.args) >= 1 and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
-                target_path = node.args[0].value
-                mode = "r"
-                if len(node.args) >= 2 and isinstance(node.args[1], ast.Constant) and isinstance(node.args[1].value, str):
-                    mode = node.args[1].value
-                for kw in node.keywords:
-                    if kw.arg == "mode" and isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
-                        mode = kw.value.value
-                if any(m in mode for m in ("w", "a", "x", "+")):
-                    if target_path.startswith(("/etc", "/proc", "/sys", "/root", "/dev")) or "../" in target_path or "..\\" in target_path:
-                        self.warnings.append({
-                            "line": node.lineno,
-                            "column": node.col_offset,
-                            "severity": "high",
-                            "rule": "dangerous-path-write",
-                            "message": f"检测到尝试向系统保护路径或跨目录写文件: '{target_path}'",
-                        })
-
-        for kw in node.keywords:
-            if kw.arg == "verify" and isinstance(kw.value, ast.Constant) and kw.value.value is False:
-                self.warnings.append({
+            self.warnings.append(
+                {
+                    "line": node.lineno,
+                    "column": node.col_offset,
+                    "severity": "high",
+                    "rule": f"process-execution:{func_name}",
+                    "message": f"检测到调用外部进程执行命令 '{func_name}'",
+                }
+            )
+        elif func_name in (
+            "ssl._create_unverified_context",
+            "ssl._create_default_https_context",
+        ):
+            self.warnings.append(
+                {
                     "line": node.lineno,
                     "column": node.col_offset,
                     "severity": "medium",
-                    "rule": "insecure-ssl:verify-false",
-                    "message": "检测到 HTTP 请求参数配置了 verify=False 忽略证书校验",
-                })
+                    "rule": f"insecure-ssl:{func_name}",
+                    "message": f"检测到跳过全局 SSL 证书校验配置 '{func_name}'",
+                }
+            )
+        elif func_name == "open":
+            if (
+                len(node.args) >= 1
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+            ):
+                target_path = node.args[0].value
+                mode = "r"
+                if (
+                    len(node.args) >= 2
+                    and isinstance(node.args[1], ast.Constant)
+                    and isinstance(node.args[1].value, str)
+                ):
+                    mode = node.args[1].value
+                for kw in node.keywords:
+                    if (
+                        kw.arg == "mode"
+                        and isinstance(kw.value, ast.Constant)
+                        and isinstance(kw.value.value, str)
+                    ):
+                        mode = kw.value.value
+                if any(m in mode for m in ("w", "a", "x", "+")):
+                    if (
+                        target_path.startswith(
+                            ("/etc", "/proc", "/sys", "/root", "/dev")
+                        )
+                        or "../" in target_path
+                        or "..\\" in target_path
+                    ):
+                        self.warnings.append(
+                            {
+                                "line": node.lineno,
+                                "column": node.col_offset,
+                                "severity": "high",
+                                "rule": "dangerous-path-write",
+                                "message": f"检测到尝试向系统保护路径或跨目录写文件: '{target_path}'",
+                            }
+                        )
+
+        for kw in node.keywords:
+            if (
+                kw.arg == "verify"
+                and isinstance(kw.value, ast.Constant)
+                and kw.value.value is False
+            ):
+                self.warnings.append(
+                    {
+                        "line": node.lineno,
+                        "column": node.col_offset,
+                        "severity": "medium",
+                        "rule": "insecure-ssl:verify-false",
+                        "message": "检测到 HTTP 请求参数配置了 verify=False 忽略证书校验",
+                    }
+                )
 
         self.generic_visit(node)
 
@@ -1746,8 +2041,12 @@ def validate_plugin_params(
                         valid_vals.append(opt["value"])
                     else:
                         valid_vals.append(opt)
-                if val not in valid_vals and str(val) not in [str(v) for v in valid_vals]:
-                    warnings.append(f"参数 '{label}' ({key}) 的值 {val!r} 不在允许的预设选项列表中")
+                if val not in valid_vals and str(val) not in [
+                    str(v) for v in valid_vals
+                ]:
+                    warnings.append(
+                        f"参数 '{label}' ({key}) 的值 {val!r} 不在允许的预设选项列表中"
+                    )
 
     return eff, warnings
 
@@ -1764,12 +2063,28 @@ def detect_plugin_capabilities(source: str) -> List[str]:
         if isinstance(node, ast.Import):
             for alias in node.names:
                 root_mod = alias.name.split(".")[0]
-                if root_mod in ("urllib", "requests", "httpx", "aiohttp", "socket", "websocket", "websockets"):
+                if root_mod in (
+                    "urllib",
+                    "requests",
+                    "httpx",
+                    "aiohttp",
+                    "socket",
+                    "websocket",
+                    "websockets",
+                ):
                     capabilities.add("network")
         elif isinstance(node, ast.ImportFrom):
             if node.module:
                 root_mod = node.module.split(".")[0]
-                if root_mod in ("urllib", "requests", "httpx", "aiohttp", "socket", "websocket", "websockets"):
+                if root_mod in (
+                    "urllib",
+                    "requests",
+                    "httpx",
+                    "aiohttp",
+                    "socket",
+                    "websocket",
+                    "websockets",
+                ):
                     capabilities.add("network")
 
         if isinstance(node, ast.Attribute):
@@ -1788,8 +2103,16 @@ def detect_plugin_capabilities(source: str) -> List[str]:
 
 
 _SECRET_PATTERNS = [
-    (re.compile(r"\b\d{8,10}:[A-Za-z0-9_-]{35}\b"), "hardcoded-telegram-token", "检测到代码中疑似硬编码了 Telegram Bot Token，建议使用环境变量或插件配置参数传入"),
-    (re.compile(r"-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----"), "hardcoded-private-key", "检测到代码中包含明文私钥凭据"),
+    (
+        re.compile(r"\b\d{8,10}:[A-Za-z0-9_-]{35}\b"),
+        "hardcoded-telegram-token",
+        "检测到代码中疑似硬编码了 Telegram Bot Token，建议使用环境变量或插件配置参数传入",
+    ),
+    (
+        re.compile(r"-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----"),
+        "hardcoded-private-key",
+        "检测到代码中包含明文私钥凭据",
+    ),
 ]
 
 
@@ -1804,13 +2127,19 @@ def extract_plugin_declared_permissions(source: str) -> List[str]:
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign):
             for t in node.targets:
-                if isinstance(t, ast.Name) and t.id == "PERMISSIONS" and isinstance(node.value, (ast.List, ast.Tuple)):
+                if (
+                    isinstance(t, ast.Name)
+                    and t.id == "PERMISSIONS"
+                    and isinstance(node.value, (ast.List, ast.Tuple))
+                ):
                     for elt in node.value.elts:
                         if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
                             perms.add(elt.value)
         elif isinstance(node, ast.Call):
             for kw in node.keywords:
-                if kw.arg == "permissions" and isinstance(kw.value, (ast.List, ast.Tuple)):
+                if kw.arg == "permissions" and isinstance(
+                    kw.value, (ast.List, ast.Tuple)
+                ):
                     for elt in kw.value.elts:
                         if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
                             perms.add(elt.value)
@@ -1827,47 +2156,55 @@ def audit_plugin_source(source: str) -> List[Dict[str, Any]]:
         visitor.visit(tree)
         warnings.extend(visitor.warnings)
     except SyntaxError as e:
-        return [{
-            "line": e.lineno or 1,
-            "column": e.offset or 0,
-            "severity": "high",
-            "rule": "syntax-error",
-            "message": f"代码存在语法错误，无法完成安全审计: {e.msg}",
-        }]
+        return [
+            {
+                "line": e.lineno or 1,
+                "column": e.offset or 0,
+                "severity": "high",
+                "rule": "syntax-error",
+                "message": f"代码存在语法错误，无法完成安全审计: {e.msg}",
+            }
+        ]
     except Exception as e:
-        return [{
-            "line": 1,
-            "column": 0,
-            "severity": "medium",
-            "rule": "audit-error",
-            "message": f"审计解析异常: {e}",
-        }]
+        return [
+            {
+                "line": 1,
+                "column": 0,
+                "severity": "medium",
+                "rule": "audit-error",
+                "message": f"审计解析异常: {e}",
+            }
+        ]
 
     # 源码硬编码敏感秘钥扫描
     lines = source.splitlines()
     for line_no, line_content in enumerate(lines, start=1):
         for pattern, rule, msg in _SECRET_PATTERNS:
             if pattern.search(line_content):
-                warnings.append({
-                    "line": line_no,
-                    "column": 0,
-                    "severity": "medium",
-                    "rule": rule,
-                    "message": msg,
-                })
+                warnings.append(
+                    {
+                        "line": line_no,
+                        "column": 0,
+                        "severity": "medium",
+                        "rule": rule,
+                        "message": msg,
+                    }
+                )
 
     # 权限越界与未声明高级权限检查
     detected_caps = detect_plugin_capabilities(source)
     declared_perms = extract_plugin_declared_permissions(source)
     for cap in detected_caps:
         if cap in ("network", "storage") and cap not in declared_perms:
-            warnings.append({
-                "line": 1,
-                "column": 0,
-                "severity": "medium",
-                "rule": f"undeclared-capability:{cap}",
-                "message": f"源码使用了核心能力 '{cap}'，但未在 PERMISSIONS 声明中配置",
-            })
+            warnings.append(
+                {
+                    "line": 1,
+                    "column": 0,
+                    "severity": "medium",
+                    "rule": f"undeclared-capability:{cap}",
+                    "message": f"源码使用了核心能力 '{cap}'，但未在 PERMISSIONS 声明中配置",
+                }
+            )
 
     warnings.sort(key=lambda w: (w.get("line") or 1, w.get("column") or 0))
     return warnings
@@ -1886,7 +2223,11 @@ def compute_plugin_security_report(source: str) -> Dict[str, Any]:
     declared_perms = extract_plugin_declared_permissions(source)
     # 仅对需要显式治理的关键权限（网络、持久存储）进行越界检查，避免常规响应回复行为被误报为越界
     auditable_permissions = ("network", "storage")
-    undeclared = [c for c in detected_caps if c in auditable_permissions and c not in declared_perms]
+    undeclared = [
+        c
+        for c in detected_caps
+        if c in auditable_permissions and c not in declared_perms
+    ]
 
     deductions = 0
     has_high = False

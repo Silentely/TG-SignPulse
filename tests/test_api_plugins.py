@@ -200,7 +200,9 @@ def test_toggle_plugin_endpoint(api_client):
     assert item["enabled"] is True
 
     # 第一次 toggle: 变为停用
-    resp_toggle1 = api_client.post("/api/plugins/test_toggle_candidate/toggle", headers=headers)
+    resp_toggle1 = api_client.post(
+        "/api/plugins/test_toggle_candidate/toggle", headers=headers
+    )
     assert resp_toggle1.status_code == 200
     data1 = resp_toggle1.json()
     assert data1["name"] == "test_toggle_candidate"
@@ -212,7 +214,9 @@ def test_toggle_plugin_endpoint(api_client):
     assert item1["enabled"] is False
 
     # 第二次 toggle: 恢复启用
-    resp_toggle2 = api_client.post("/api/plugins/test_toggle_candidate/toggle", headers=headers)
+    resp_toggle2 = api_client.post(
+        "/api/plugins/test_toggle_candidate/toggle", headers=headers
+    )
     assert resp_toggle2.status_code == 200
     assert resp_toggle2.json()["enabled"] is True
 
@@ -338,7 +342,9 @@ def test_builtin_plugins_real_directory_load_and_api(api_client, monkeypatch, tm
         "def custom_single_handler(ctx):\n"
         "    return True\n"
     )
-    (custom_dir / "test_custom_single.py").write_text(custom_single_code, encoding="utf-8")
+    (custom_dir / "test_custom_single.py").write_text(
+        custom_single_code, encoding="utf-8"
+    )
 
     # 设置环境变量
     monkeypatch.setenv("BUILTIN_PLUGINS_DIR", str(builtin_dir))

@@ -29,6 +29,7 @@ from tg_signer.pydantic_compat import model_validate as _compat_model_validate
 try:
     from pyrogram.types import Chat, Message
 except Exception:  # pragma: no cover - import fallback for unsupported runtimes
+
     class Chat:  # type: ignore[no-redef]
         pass
 
@@ -47,6 +48,7 @@ class BaseJSONConfig(BaseModel):
             arbitrary_types_allowed=True,
         )
     else:
+
         class Config:
             keep_untouched = (cached_property,)
             arbitrary_types_allowed = True
@@ -225,6 +227,7 @@ class ReplyByCalculationProblemAction(SignAction):
     )
     ai_prompt: Optional[str] = None
 
+
 class ReplyByImageRecognitionAction(SignAction):
     action: Literal[SupportAction.REPLY_BY_IMAGE_RECOGNITION] = (
         SupportAction.REPLY_BY_IMAGE_RECOGNITION
@@ -249,7 +252,9 @@ class KeywordNotifyAction(SignAction):
     # 限定监听时间段（HH:MM，支持跨午夜）；均空表示全天
     active_time_start: Optional[str] = None
     active_time_end: Optional[str] = None
-    push_channel: Literal["telegram", "forward", "bark", "custom", "continue"] = "telegram"
+    push_channel: Literal["telegram", "forward", "bark", "custom", "continue"] = (
+        "telegram"
+    )
     bark_url: Optional[str] = None
     custom_url: Optional[str] = None
     forward_chat_id: Optional[Union[int, str]] = None
@@ -276,9 +281,7 @@ class KeywordNotifyAction(SignAction):
         raw = values.get("keywords")
         items = raw if isinstance(raw, list) else [raw]
         unsafe = [
-            str(k)
-            for k in (items or [])
-            if k and is_unsafe_keyword_regex(str(k))
+            str(k) for k in (items or []) if k and is_unsafe_keyword_regex(str(k))
         ]
         if unsafe:
             raise ValueError(
