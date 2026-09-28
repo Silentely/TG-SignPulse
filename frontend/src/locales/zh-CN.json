@@ -574,6 +574,7 @@
     "logRetentionPlaceholder": "例如 30（单位：天）",
     "dataDir": "数据目录",
     "proxy": "全局代理",
+    "proxyKeepHint": "已配置，留空保持不变",
     "concurrency": "Telegram 并发数",
     "concurrencyPlaceholder": "推荐 1-3（默认 1）",
     "deviceKeepalive": "设备保活",

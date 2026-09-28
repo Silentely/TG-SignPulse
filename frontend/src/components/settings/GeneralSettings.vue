@@ -22,6 +22,8 @@ const props = defineProps<{
   loading?: boolean
   /** 设备保活「立即执行」中 */
   keepaliveLoading?: boolean
+  /** 全局代理是否已配置（服务端不回传代理明文） */
+  proxySet?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -73,7 +75,7 @@ const onStringInput = (key: keyof SettingsFormState, e: Event) => {
       </div>
       <div class="space-y-1.5">
         <label class="ui-label" for="settings-proxy">{{ t('settings.proxy') }}</label>
-        <input id="settings-proxy" :value="modelValue.proxy" @input="onStringInput('proxy', $event)" type="text" placeholder="socks5://127.0.0.1:1080" class="ui-input">
+        <input id="settings-proxy" :value="modelValue.proxy" @input="onStringInput('proxy', $event)" type="text" :placeholder="proxySet ? t('settings.proxyKeepHint') : 'socks5://127.0.0.1:1080'" class="ui-input">
       </div>
       <div class="space-y-1.5">
         <label class="ui-label" for="settings-concurrency">{{ t('settings.concurrency') }}</label>

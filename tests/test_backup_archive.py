@@ -1,3 +1,5 @@
+import os
+import stat
 import tarfile
 from pathlib import Path
 
@@ -227,3 +229,68 @@ async def test_export_backup_archive_both_and_defensive_validation(tmp_path: Pat
         await export_backup_archive(current_user=MockUser())
     assert exc_info.value.status_code == 400
     assert "对象存储未启用" in exc_info.value.detail
+
+
+class TestBackupArchivePermissions:
+    """备份归档含 session/凭据/数据库，权限必须收敛，不受进程 umask 影响。"""
+
+    def test_archive_and_dir_are_0600_0700_under_permissive_umask(self, tmp_path: Path):
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        (data_dir / "db.sqlite").write_text("sqlite-data")
+        sessions_dir = data_dir / "sessions"
+        sessions_dir.mkdir()
+        (sessions_dir / "acc.session").write_text("session-payload")
+
+        backup_dir = tmp_path / "backups"
+        dest = backup_dir / "backup.tar.gz"
+
+        old_umask = os.umask(0o022)
+        try:
+            create_backup_tarball(data_dir, dest)
+        finally:
+            os.umask(old_umask)
+
+        assert stat.S_IMODE(os.stat(dest).st_mode) == 0o600
+        assert stat.S_IMODE(os.stat(backup_dir).st_mode) == 0o700
+
+    def test_members_are_normalized_to_0600_0700(self, tmp_path: Path):
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        db = data_dir / "db.sqlite"
+        db.write_text("sqlite-data")
+        os.chmod(db, 0o644)  # 源文件宽松权限，归档内必须被收敛
+
+        sessions_dir = data_dir / "sessions"
+        sessions_dir.mkdir()
+        os.chmod(sessions_dir, 0o755)
+        sess = sessions_dir / "acc.session"
+        sess.write_text("session-payload")
+        os.chmod(sess, 0o644)
+
+        dest = tmp_path / "backup.tar.gz"
+        create_backup_tarball(data_dir, dest)
+
+        with tarfile.open(dest, "r:gz") as tar:
+            modes = {m.name: stat.S_IMODE(m.mode) for m in tar.getmembers()}
+        assert modes["db.sqlite"] == 0o600
+        assert modes["sessions"] == 0o700
+        assert modes["sessions/acc.session"] == 0o600
+
+    def test_extracted_archive_keeps_restricted_permissions(self, tmp_path: Path):
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        (data_dir / "db.sqlite").write_text("sqlite-data")
+
+        dest = tmp_path / "backup.tar.gz"
+        create_backup_tarball(data_dir, dest)
+
+        extract_dir = tmp_path / "restored"
+        extract_dir.mkdir()
+        with tarfile.open(dest, "r:gz") as tar:
+            tar.extractall(extract_dir)
+
+        restored = extract_dir / "db.sqlite"
+        assert restored.read_text() == "sqlite-data"
+        assert stat.S_IMODE(os.stat(restored).st_mode) == 0o600
+

@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -168,6 +169,15 @@ def normalize_global_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
         except ValueError as exc:
             raise ValueError(f"WebDAV 地址不被允许: {exc}") from exc
 
+    # 全局代理：可能含 user:pass@host 内嵌凭据，空串表示不修改（保留旧值），
+    # 与 webdav_password 同口径；非空则去空白后写入
+    if "global_proxy" in normalized:
+        proxy = normalized["global_proxy"]
+        if proxy is None or str(proxy).strip() == "":
+            normalized.pop("global_proxy")
+        else:
+            normalized["global_proxy"] = str(proxy).strip()
+
     # WebDAV 目录：去空白，空值回落默认目录
     if "webdav_remote_dir" in normalized:
         stripped = (normalized["webdav_remote_dir"] or "").strip()
@@ -216,6 +226,12 @@ def normalize_global_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
             normalized["backup_target"] = "auto"
 
     return normalized
+
+
+# 导出脱敏占位符：导入侧 SECRET_MASKS 以此识别「不要用占位符覆盖真实密钥」，
+# 与 SignTaskConfigMixin.AI_KEY_MASK 同源，保证导出写入与导入跳过口径一致
+_EXPORT_MASK = "***MASKED***"
+_SECRET_MASKS = frozenset({_EXPORT_MASK, "***", "MASKED", "REDACTED"})
 
 
 class SignTaskConfigMixin:
@@ -394,7 +410,11 @@ class SignTaskConfigMixin:
             "config": config,
         }
 
-        return json.dumps(export_data, ensure_ascii=False, indent=2)
+        # 递归脱敏：任务配置内的推送凭据（Bark 密钥 / 自定义 URL 内嵌凭据）同样
+        # 不得随导出外泄；与全量导出口径一致
+        return json.dumps(
+            _scrub_export_secrets(export_data), ensure_ascii=False, indent=2
+        )
 
 
     def import_sign_task(
@@ -450,8 +470,133 @@ class SignTaskConfigMixin:
             return False
 
     # 导出脱敏占位；导入时若见到则跳过密钥写入，避免覆盖真实密钥
-    AI_KEY_MASK = "***MASKED***"
+    AI_KEY_MASK = _EXPORT_MASK
     SECRET_MASKS = frozenset({AI_KEY_MASK, "***", "MASKED", "REDACTED", "***MASKED***"})
+
+# 导出即整值脱敏的字段名（小写比较）：推送凭据、AI/WebDAV/S3 密钥等
+_SECRET_FIELD_NAMES = frozenset(
+    {
+        "api_key",
+        "apikey",
+        "webdav_password",
+        "telegram_bot_token",
+        "s3_secret_key",
+        "s3_access_key",
+        "server_chan_send_key",
+    }
+)
+
+# URL 型字段：设备密钥/令牌位于路径首段，只替换该段，保留其余可读结构
+_SECRET_PATH_KEY_FIELDS = frozenset({"bark_url"})
+
+# URL 型字段：仅脱敏 userinfo 内嵌凭据（https://user:pass@host/...）
+_URL_CREDENTIAL_FIELDS = frozenset({"custom_url", "url", "callback_url"})
+
+# 鉴权类响应头：整值脱敏，防止外部转发回调把令牌带出
+_AUTH_HEADERS = frozenset(
+    {
+        "authorization",
+        "proxy-authorization",
+        "x-api-key",
+        "api-key",
+        "apikey",
+        "x-auth-token",
+        "auth-token",
+        "x-access-token",
+        "access-token",
+        "x-token",
+        "cookie",
+    }
+)
+
+# URL userinfo 内嵌凭据
+_EMBEDDED_CRED_RE = re.compile(r"(?<=://)[^/@\s]+:[^/@\s]+@")
+
+# Bark 设备密钥：scheme://host/<KEY>/... 的首段路径
+_BARK_PATH_KEY_RE = re.compile(r"^(https?://[^/]+/)([^/]+)(/.*)?$", re.IGNORECASE)
+
+
+def _scrub_bark_url(value: Any) -> Any:
+    """Bark 设备密钥位于 URL 首段路径，按段替换保留其余结构。"""
+    if not isinstance(value, str) or not value.strip():
+        return value
+    match = _BARK_PATH_KEY_RE.match(value.strip())
+    if not match:
+        return _EMBEDDED_CRED_RE.sub("***@", value)
+    return f"{match.group(1)}{_EXPORT_MASK}{match.group(3) or ''}"
+
+
+def _scrub_url_credentials(value: Any) -> Any:
+    """仅脱敏 URL 中 userinfo 段的内嵌凭据。"""
+    if not isinstance(value, str) or not value.strip():
+        return value
+    return _EMBEDDED_CRED_RE.sub("***:***@", value)
+
+
+def _is_masked_secret_value(value: Any) -> bool:
+    """值是否为导出脱敏占位符（整值型或路径段型）。"""
+    if not isinstance(value, str) or not value.strip():
+        return False
+    text = value.strip()
+    if text in _SECRET_MASKS:
+        return True
+    # 路径段脱敏：https://api.day.app/***MASKED***/title
+    return any(f"/{mask}/" in text or text.endswith(f"/{mask}") for mask in _SECRET_MASKS)
+
+
+def _drop_masked_secret_fields(node: Any) -> Any:
+    """递归移除值为脱敏占位符的密钥字段，避免导入时用占位符覆盖真实凭据。
+
+    与 _scrub_export_secrets 对称：导出脱敏了哪些字段，导入就把哪些字段的
+    占位值丢弃（该键整体移除，保留调用方已有的真实值）。
+    """
+    if isinstance(node, dict):
+        cleaned: Dict[str, Any] = {}
+        for key, value in node.items():
+            name = str(key).strip().lower()
+            if (
+                name in _SECRET_FIELD_NAMES
+                or name in _SECRET_PATH_KEY_FIELDS
+                or name in _AUTH_HEADERS
+                or name in _URL_CREDENTIAL_FIELDS
+            ) and _is_masked_secret_value(value):
+                continue
+            cleaned[key] = _drop_masked_secret_fields(value)
+        return cleaned
+    if isinstance(node, list):
+        return [_drop_masked_secret_fields(item) for item in node]
+    return node
+
+
+def _scrub_export_secrets(node: Any) -> Any:
+    """递归脱敏导出载荷中的凭据字段（纯函数，可单独测试）。
+
+    覆盖导出侧此前只处理四个顶层密钥、漏掉任务/监控配置内推送凭据的问题：
+    Bark 设备密钥、自定义推送 URL 内嵌凭据、Server 酱 sendkey、
+    外部转发回调的鉴权响应头。字段名不区分大小写。
+    """
+    if isinstance(node, dict):
+        scrubbed: Dict[str, Any] = {}
+        for key, value in node.items():
+            name = str(key).strip().lower()
+            if isinstance(value, str) and value.strip() and name in _AUTH_HEADERS:
+                scrubbed[key] = _EXPORT_MASK
+            elif name in _SECRET_PATH_KEY_FIELDS:
+                scrubbed[key] = _scrub_bark_url(value)
+            elif name in _URL_CREDENTIAL_FIELDS:
+                scrubbed[key] = _scrub_url_credentials(value)
+            elif name in _SECRET_FIELD_NAMES:
+                scrubbed[key] = (
+                    _EXPORT_MASK
+                    if (isinstance(value, str) and value.strip())
+                    else value
+                )
+            else:
+                scrubbed[key] = _scrub_export_secrets(value)
+        return scrubbed
+    if isinstance(node, list):
+        return [_scrub_export_secrets(item) for item in node]
+    return node
 
 
 class ConfigExportMixin:
@@ -560,7 +705,11 @@ class ConfigExportMixin:
             "telegram": self.get_telegram_config(),
         }
 
-        return json.dumps(all_configs, ensure_ascii=False, indent=2)
+        # 收尾统一过一遍递归脱敏：四个文档化密钥已逐键替换（见上），
+        # 这里补齐任务/监控配置内的推送凭据与转发回调鉴权头
+        return json.dumps(
+            _scrub_export_secrets(all_configs), ensure_ascii=False, indent=2
+        )
 
 
     def import_all_configs(
@@ -621,6 +770,9 @@ class ConfigExportMixin:
                         result["signs_skipped"] += 1
                         continue
 
+                # 脱敏占位不得作为真实凭据落盘：见到 ***MASKED*** 即丢弃该字段
+                config = _drop_masked_secret_fields(config)
+
                 try:
                     if self.save_sign_config(task_name, config):
                         result["signs_imported"] += 1
@@ -652,6 +804,9 @@ class ConfigExportMixin:
                 if not overwrite and config_file.exists():
                     result["monitors_skipped"] += 1
                     continue
+
+                # 同签到任务：脱敏占位不得作为真实凭据落盘
+                config = _drop_masked_secret_fields(config)
 
                 task_dir.mkdir(parents=True, exist_ok=True)
                 if self._write_json_file(config_file, config):
@@ -1033,6 +1188,9 @@ class GlobalSettingsMixin:
             "telegram_bot_token": None,
             "telegram_bot_chat_id": None,
             "telegram_bot_message_thread_id": None,
+            # ChatOps 默认关闭：开启需显式配置管理员 chat_id 与发送者 user_id 白名单
+            "telegram_bot_chatops_enabled": False,
+            "telegram_bot_admin_user_ids": None,
             "sign_task_execution_timeout": None,
             "sign_task_account_cooldown": None,
             "sign_task_flow_retry_attempts": None,

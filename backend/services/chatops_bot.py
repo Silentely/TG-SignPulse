@@ -12,14 +12,40 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import Any, Dict, Optional
 
 import httpx
 
 from backend.services.flood_backoff import get_flood_backoff_manager
-from backend.services.push_notifications import send_telegram_bot_message
+from backend.services.push_notifications import (
+    _html_escape,
+    send_telegram_bot_message,
+)
 
 logger = logging.getLogger("backend.chatops_bot")
+
+
+def _parse_admin_user_ids(raw: Any) -> set[str]:
+    """解析管理员 user_id 白名单（逗号/分号/空白分隔）。"""
+    if not raw:
+        return set()
+    if isinstance(raw, (list, tuple, set)):
+        parts = [str(item) for item in raw]
+    else:
+        parts = re.split(r"[;,;\s]+", str(raw))
+    return {p.strip() for p in parts if p and p.strip()}
+
+
+def _extract_sender_user_id(message: dict) -> str:
+    """从 Telegram Update 的 message 中取出发送者 user_id（字符串形式，空串表示缺失）。"""
+    sender = message.get("from") or {}
+    if not isinstance(sender, dict):
+        return ""
+    user_id = sender.get("id")
+    if user_id is None or user_id == "":
+        return ""
+    return str(user_id).strip()
 
 
 class TelegramChatOpsWorker:
@@ -123,7 +149,9 @@ class TelegramChatOpsWorker:
             svc = get_sign_task_service()
             matched = [t for t in svc.list_tasks() if t.get("name") == target_task]
             if not matched:
-                reply = f"❌ 未找到名为 <code>{target_task}</code> 的任务。使用 <code>/tasks</code> 查看可用列表。"
+                # target_task 来自聊天输入，必须转义后再拼进 HTML 消息，
+                # 否则可注入任意 markup 破坏下发消息结构
+                reply = f"❌ 未找到名为 <code>{_html_escape(target_task)}</code> 的任务。使用 <code>/tasks</code> 查看可用列表。"
                 await send_telegram_bot_message(bot_token=bot_token, chat_id=chat_id, text=reply, parse_mode="HTML")
                 return
 
@@ -131,7 +159,7 @@ class TelegramChatOpsWorker:
             task_obj = matched[0]
             acc_name = task_obj.get("account_name") or (task_obj.get("account_names") or [""])[0]
             if not acc_name:
-                reply = f"❌ 任务 <code>{target_task}</code> 未关联有效账号。"
+                reply = f"❌ 任务 <code>{_html_escape(target_task)}</code> 未关联有效账号。"
                 await send_telegram_bot_message(bot_token=bot_token, chat_id=chat_id, text=reply, parse_mode="HTML")
                 return
 
@@ -155,7 +183,10 @@ class TelegramChatOpsWorker:
 
                     bot_token = (settings.get("telegram_bot_token") or "").strip()
                     allowed_chat_id = str(settings.get("telegram_bot_chat_id") or "").strip()
-                    chatops_enabled = settings.get("telegram_bot_chatops_enabled", True)
+                    # 默认关闭：未显式配置 chatops_enabled 时按未启用处理（fail-closed）
+                    chatops_enabled = settings.get(
+                        "telegram_bot_chatops_enabled", False
+                    )
 
                     if not bot_token or not allowed_chat_id or not chatops_enabled:
                         if client is not None and not getattr(client, "is_closed", True):
@@ -193,12 +224,34 @@ class TelegramChatOpsWorker:
                             chat_id = str(chat.get("id") or "")
                             text = msg.get("text") or ""
 
-                            # 鉴权：严格校验发送方 chat_id 是否与配置的管理员 chat_id 一致
-                            if chat_id == allowed_chat_id and text.startswith("/"):
+                            # 鉴权必须同时满足容器与发送者两个维度：
+                            # chat_id 匹配只证明消息来自管理员的会话容器，
+                            # 同群/同频道的任何成员都能在其中发言，
+                            # 故还需校验发送者 user_id 在白名单内。
+                            sender_id = _extract_sender_user_id(msg)
+                            allowed_sender_ids = _parse_admin_user_ids(
+                                settings.get("telegram_bot_admin_user_ids")
+                            )
+                            if (
+                                chat_id == allowed_chat_id
+                                and text.startswith("/")
+                                and sender_id
+                                and sender_id in allowed_sender_ids
+                            ):
                                 try:
-                                    await self.handle_command(bot_token, chat_id, text, settings)
+                                    await self.handle_command(
+                                        bot_token, chat_id, text, settings
+                                    )
                                 except Exception as exc:
-                                    logger.warning("处理 ChatOps 命令 [%s] 出错: %s", text, exc)
+                                    logger.warning(
+                                        "处理 ChatOps 命令 [%s] 出错: %s", text, exc
+                                    )
+                            elif chat_id == allowed_chat_id and text.startswith("/"):
+                                logger.warning(
+                                    "拒绝非白名单发送者的 ChatOps 命令: chat_id=%s sender_id=%s",
+                                    chat_id,
+                                    sender_id or "<缺失>",
+                                )
                     else:
                         await asyncio.sleep(5.0)
 

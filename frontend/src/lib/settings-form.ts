@@ -268,7 +268,9 @@ export function applyGlobalSettingsToForm(
     sign_interval?: number | null
     log_retention_days?: number
     data_dir?: string | null
+    /** 不回传代理明文，仅回传是否已配置 */
     global_proxy?: string | null
+    global_proxy_set?: boolean
     tg_global_concurrency?: number | null
     device_keepalive_enabled?: boolean
     device_keepalive_interval_days?: number
@@ -307,10 +309,16 @@ export function applyGlobalSettingsToForm(
     s3_proxy?: string | null
     backup_target?: string | null
   },
-): { botTokenSet: boolean; webdavPasswordSet: boolean; s3SecretKeySet: boolean } {
+): {
+    botTokenSet: boolean
+    webdavPasswordSet: boolean
+    s3SecretKeySet: boolean
+    proxySet: boolean
+  } {
   s.checkInterval = res.sign_interval ? String(res.sign_interval) : ''
   s.logDays = res.log_retention_days || 7
   s.dataDir = res.data_dir || ''
+  // 代理明文不再回传：有配置时留空并由占位提示「留空保持不变」
   s.proxy = res.global_proxy || ''
   s.concurrency = res.tg_global_concurrency || 1
   s.deviceKeepaliveEnabled = res.device_keepalive_enabled !== false
@@ -356,5 +364,6 @@ export function applyGlobalSettingsToForm(
     botTokenSet: !!res.telegram_bot_token_set,
     webdavPasswordSet: !!res.webdav_password_set,
     s3SecretKeySet: !!res.s3_secret_key_set,
+    proxySet: !!res.global_proxy_set,
   }
 }
