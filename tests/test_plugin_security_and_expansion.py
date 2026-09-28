@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timedelta
-import inspect
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -20,7 +19,6 @@ import pytest
 from backend.scheduler import _job_run_sign_task, _resolve_scheduler_timezone
 from backend.services.keyword_monitor.continue_actions import (
     execute_continue_action,
-    execute_custom_plugin_continue_action,
 )
 from backend.services.sign_task_runner import _runner_trigger_chained_task
 from tg_signer.core.plugin_host import (
@@ -35,7 +33,6 @@ from tg_signer.core.plugins import (
     PluginStorageBackend,
     PluginStorageClient,
 )
-
 
 # ============================================================================
 # 1. Subprocess Environment Sanitization
@@ -141,12 +138,12 @@ async def test_plugin_context_expanded_methods():
         plugin_name="test_expansion",
     )
 
-    photo_res = await ctx.send_photo("photo.jpg", caption="test photo")
+    await ctx.send_photo("photo.jpg", caption="test photo")
     mock_app.send_photo.assert_called_once_with(
         123, "photo.jpg", message_thread_id=44, caption="test photo"
     )
 
-    doc_res = await ctx.send_document("file.pdf", caption="doc")
+    await ctx.send_document("file.pdf", caption="doc")
     mock_app.send_document.assert_called_once_with(
         123, "file.pdf", message_thread_id=44, caption="doc"
     )
@@ -452,8 +449,10 @@ def test_remove_sign_task_job_cleans_oneshots():
 
 @pytest.mark.asyncio
 async def test_action_99_respects_disabled_plugin():
-    from backend.services.keyword_monitor.continue_actions import execute_custom_plugin_continue_action
-    from tg_signer.core.plugins import PluginRegistry, PluginMeta
+    from backend.services.keyword_monitor.continue_actions import (
+        execute_custom_plugin_continue_action,
+    )
+    from tg_signer.core.plugins import PluginMeta, PluginRegistry
 
     plugin_name = "test_disabled_plugin_cr"
     meta = PluginMeta(
@@ -513,8 +512,9 @@ def test_env_sanitizer_preserves_data_directories():
 
 
 def test_compute_range_compensation_skips_when_oneshot_pending():
-    from backend.scheduler import _compute_range_task_compensation
     from datetime import datetime
+
+    from backend.scheduler import _compute_range_task_compensation
 
     mock_scheduler = MagicMock()
     mock_scheduler.running = True

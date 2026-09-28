@@ -134,6 +134,7 @@ def test_run_auto_backup_target_selection(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("backend.services.backup_archive.prune_backups", lambda d, k: 0)
 
     import backend.services.webdav_client
+
     monkeypatch.setattr(backend.services.webdav_client, "upload_file_to_webdav", mock_webdav)
     monkeypatch.setattr(backend.services.webdav_client, "prune_webdav_backups", lambda **kw: {"removed": 0})
     monkeypatch.setattr("backend.services.s3_backup.prune_s3_backups", lambda cfg, keep: {"removed": 0})
@@ -174,6 +175,7 @@ def test_run_auto_backup_target_selection(tmp_path: Path, monkeypatch):
 @pytest.mark.asyncio
 async def test_export_backup_archive_both_and_defensive_validation(tmp_path: Path, monkeypatch):
     from fastapi import HTTPException
+
     from backend.api.routes.ops import export_backup_archive
 
     data_dir = tmp_path / "data"
@@ -198,11 +200,13 @@ async def test_export_backup_archive_both_and_defensive_validation(tmp_path: Pat
             return dict(cfg_mock)
 
     monkeypatch.setattr("backend.services.config.get_config_service", lambda: MockConfigService())
-    check_s3 = lambda cfg: bool(cfg.get("s3_enabled") and cfg.get("s3_bucket") and cfg.get("s3_access_key"))
+
+    def check_s3(cfg):
+        return bool(cfg.get("s3_enabled") and cfg.get("s3_bucket") and cfg.get("s3_access_key"))
+
     monkeypatch.setattr("backend.services.s3_backup.s3_enabled", check_s3)
     monkeypatch.setattr("backend.api.routes.ops.s3_enabled", check_s3)
 
-    import backend.services.webdav_client
     monkeypatch.setattr("backend.services.webdav_client.upload_file_to_webdav", lambda **kw: {"success": True, "remote_url": "https://dav.test/b.tar.gz"})
 
     async def mock_upload_s3(cfg, path):

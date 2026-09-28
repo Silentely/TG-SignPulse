@@ -68,6 +68,35 @@ class TestFilterRelatedSingleAccountWildcard:
         )
         assert [t["account_name"] for t in related] == ["a"]
 
+    def test_independent_single_account_tasks_are_not_merged(self):
+        """不同账号各自创建的同名单账号任务相互独立，只应作用于当前副本。
+
+        回归：兜底分支曾把所有同名副本当成同一任务集，删除账号 a 的任务会
+        连带删掉账号 b 独立创建的同名任务。
+        """
+        tasks = [
+            {"name": "daily", "account_name": "a", "account_names": ["a"]},
+            {"name": "daily", "account_name": "b", "account_names": ["b"]},
+        ]
+        related = filter_related_task_infos(
+            tasks, "daily", "a", normalize_account_names=_norm
+        )
+        assert [t["account_name"] for t in related] == ["a"]
+
+    def test_sibling_wildcard_marker_still_groups(self):
+        """当前副本已丢失 "*"、兄弟副本仍带通配标记时必须整体收拢。
+
+        否则残留的 "*" 会在下一次扩展时把已删副本重新铺开，删除被撤销。
+        """
+        tasks = [
+            {"name": "wild", "account_name": "a", "account_names": ["a"]},
+            {"name": "wild", "account_name": "b", "account_names": ["*"]},
+        ]
+        related = filter_related_task_infos(
+            tasks, "wild", "a", normalize_account_names=_norm
+        )
+        assert {t["account_name"] for t in related} == {"a", "b"}
+
 
 class TestWildcardDeleteNotResurrected:
     """端到端：单账号期创建 → 加账号 → expand → delete → expand，目录不得复活。"""
@@ -153,3 +182,22 @@ class TestWildcardDeleteNotResurrected:
         )
         svc._expand_wildcard_tasks()
         assert set(self._dirs(svc)) == {("acc1", "wild"), ("acc2", "wild")}
+
+    def test_delete_single_account_task_keeps_other_account_copy(self, service, monkeypatch):
+        """端到端：删除某账号的单账号任务，不得连带删除其他账号的同名任务。
+
+        回归：filter_related_task_infos 曾把所有同名副本整体收拢，导致
+        delete_task(name, acc1) 把 acc2 独立创建的同名任务一并删除。
+        """
+        svc = service
+        self._accounts(monkeypatch, ["acc1", "acc2"])
+        svc.create_task(
+            task_name="daily", sign_at="08:00", chats=[], account_name="acc1", account_names=["acc1"]
+        )
+        svc.create_task(
+            task_name="daily", sign_at="08:00", chats=[], account_name="acc2", account_names=["acc2"]
+        )
+        assert set(self._dirs(svc)) == {("acc1", "daily"), ("acc2", "daily")}
+
+        assert svc.delete_task("daily", "acc1") is True
+        assert set(self._dirs(svc)) == {("acc2", "daily")}

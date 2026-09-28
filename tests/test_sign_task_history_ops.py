@@ -302,3 +302,53 @@ class TestHistoryAccountIsolation:
 
         # 非宿主账号请求删除该文件中的旧格式条目必须失败
         assert svc.delete_history_log("other", "t", "2026-01-01T00:00:00Z") is False
+
+
+class TestLegacyHistoryMigration:
+    """升级前编码路径（未转义 _ / %）的历史在回写后必须仍然可见。"""
+
+    def _seed_legacy(self, svc: _StubHistoryService, task: str, account: str, message: str):
+        from backend.services.sign_task_history_io import legacy_history_file_path
+
+        legacy = legacy_history_file_path(svc.run_history_dir, task, account)
+        legacy.parent.mkdir(parents=True, exist_ok=True)
+        legacy.write_text(
+            json.dumps(
+                [{"time": "2026-09-01T00:00:00Z", "account_name": account, "message": message}]
+            ),
+            encoding="utf-8",
+        )
+        return legacy
+
+    def test_save_run_info_migrates_legacy_file(self, tmp_path: Path):
+        """名称含 "_" 时新旧文件名不同，回写先迁移，旧条目不得被新文件顶掉。"""
+        svc = _make_service(tmp_path)
+        legacy = self._seed_legacy(svc, "daily_task", "acct_1", "old")
+
+        svc._save_run_info("daily_task", success=True, message="new", account_name="acct_1")
+
+        history = _read_history(svc, "daily_task", "acct_1")
+        assert [e["message"] for e in history] == ["new", "old"]
+        assert not legacy.exists()
+
+    def test_get_last_run_info_reads_legacy_file(self, tmp_path: Path):
+        """last_run 读取需兼容旧编码路径，否则面板显示为「从未运行」。"""
+        svc = _make_service(tmp_path)
+        self._seed_legacy(svc, "daily_task", "acct_1", "old")
+        task_dir = svc.signs_dir / "acct_1" / "daily_task"
+        task_dir.mkdir(parents=True, exist_ok=True)
+
+        info = svc._get_last_run_info(task_dir, account_name="acct_1")
+
+        assert info is not None
+        assert info["message"] == "old"
+
+    def test_clear_account_history_removes_legacy_file(self, tmp_path: Path):
+        """清账号历史必须覆盖旧编码的账号维度文件，否则孤儿历史残留在磁盘。"""
+        svc = _make_service(tmp_path)
+        svc.register_task("daily_task", "acct_1")
+        legacy = self._seed_legacy(svc, "daily_task", "acct_1", "old")
+
+        svc.clear_account_history_logs("acct_1")
+
+        assert not legacy.exists()

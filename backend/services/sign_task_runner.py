@@ -12,7 +12,7 @@ import logging
 import os
 import time
 import traceback
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from backend.services.sign_task_failure import FailureCategory, classify_failure
 from backend.services.sign_task_run_status import (
