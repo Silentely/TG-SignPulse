@@ -27,5 +27,6 @@ ln -s "$SOURCE" "$HOOK"
 chmod +x "$SOURCE"
 
 echo "✅ pre-push 钩子已安装"
-echo "   推送时自动执行：ruff 检查 → 前端类型检查 → 后端测试"
+echo "   推送时自动执行：ruff 检查 → 前端类型检查 → 后端冒烟检查（约 2-3 秒）"
 echo "   跳过方式：SKIP_PUSH_HOOK=1 git push 或 git push --no-verify"
+echo "   本地跑全量测试：RUN_TESTS=1 git push"

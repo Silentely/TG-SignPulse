@@ -2,6 +2,7 @@
 # pre-push 钩子：推送前自动执行代码质量检查
 # 安装方式：bash scripts/install-hooks
 # 跳过方式：SKIP_PUSH_HOOK=1 git push 或 git push --no-verify
+# 本地跑全量测试：RUN_TESTS=1 git push
 
 set -euo pipefail
 
@@ -23,11 +24,11 @@ cd "$ROOT"
 
 FAILED=0
 
-echo "🔍 推送前代码质量检查..."
+echo "🔍 推送前快速代码质量检查..."
 echo ""
 
 # ── 1. Ruff 代码检查 ──
-echo "📦 [1/3] Ruff 代码检查..."
+echo "📦 [1/3] Ruff 代码检查与格式化..."
 # ruff 解析链：PATH → 项目 venv → uvx（版本对齐 pyproject 锁定的 <0.16）
 RUFF=""
 if command -v ruff &>/dev/null; then
@@ -38,16 +39,16 @@ elif command -v uvx &>/dev/null; then
     RUFF="uvx ruff@0.15"
 fi
 if [ -n "$RUFF" ]; then
-    if $RUFF check backend/ tg_signer/ tests/; then
+    if $RUFF check backend/ tg_signer/ tests/ scripts/; then
         echo "   ✅ Ruff 检查通过"
     else
         echo "   ❌ Ruff 检查失败，请修复后再推送"
         FAILED=1
     fi
-    if $RUFF format --check backend/ tg_signer/ tests/; then
+    if $RUFF format --check backend/ tg_signer/ tests/ scripts/; then
         echo "   ✅ Ruff 格式检查通过"
     else
-        echo "   ❌ Ruff 格式检查失败，请执行：$RUFF format backend/ tg_signer/ tests/"
+        echo "   ❌ Ruff 格式检查失败，请执行：$RUFF format backend/ tg_signer/ tests/ scripts/"
         FAILED=1
     fi
 else
@@ -76,18 +77,18 @@ else
 fi
 echo ""
 
-# ── 3. 后端测试（仅后端/引擎变更时，快速并行模式） ──
-echo "🧪 [3/3] 后端测试..."
+# ── 3. 后端轻量冒烟检查（全量测试交由 GitHub Actions CI 负责） ──
+echo "🧪 [3/3] 后端冒烟检查..."
 # 检测是否有后端相关文件变更
 BACKEND_CHANGED=0
-if git diff --name-only HEAD@{1}..HEAD 2>/dev/null | grep -qE "^(backend/|tg_signer/|tests/|pyproject\.toml)" || \
-   git diff --cached --name-only | grep -qE "^(backend/|tg_signer/|tests/|pyproject\.toml)" || \
-   [ -n "$(git status --porcelain backend/ tg_signer/ tests/ 2>/dev/null)" ]; then
+if git diff --name-only HEAD@{1}..HEAD 2>/dev/null | grep -qE "^(backend/|tg_signer/|tests/|scripts/|pyproject\.toml)" || \
+   git diff --cached --name-only | grep -qE "^(backend/|tg_signer/|tests/|scripts/|pyproject\.toml)" || \
+   [ -n "$(git status --porcelain backend/ tg_signer/ tests/ scripts/ 2>/dev/null)" ]; then
     BACKEND_CHANGED=1
 fi
 
 if [ "$BACKEND_CHANGED" -eq 0 ]; then
-    echo "   ⏭️  无后端变更，跳过测试"
+    echo "   ⏭️  无后端/脚本变更，跳过检查"
 else
     # python 解析链：项目 venv 优先（依赖齐全），PATH 兜底
     PYTHON=""
@@ -96,14 +97,23 @@ else
     elif command -v python &>/dev/null; then
         PYTHON="python"
     fi
-    if [ -n "$PYTHON" ] && [ -f "pyproject.toml" ]; then
-        # -n auto: 并行执行  --no-cov: 跳过覆盖率报告（pre-push 不需要）
-        # --lf: 优先跑上次失败的用例，快速失败  -x: 首个失败即停
-        if $PYTHON -m pytest tests/ -n auto -x -q --tb=short --no-header --no-cov --lf 2>&1; then
-            echo "   ✅ 测试通过"
+    if [ -n "$PYTHON" ]; then
+        if [ "${RUN_TESTS:-0}" = "1" ]; then
+            echo "   🏃 检测到 RUN_TESTS=1，运行全量后端测试..."
+            if $PYTHON -m pytest tests/ -n auto -x -q --tb=short --no-header --no-cov --lf 2>&1; then
+                echo "   ✅ 全量测试通过"
+            else
+                echo "   ❌ 全量测试失败，请修复后再推送"
+                FAILED=1
+            fi
         else
-            echo "   ❌ 测试失败，请修复后再推送"
-            FAILED=1
+            # 默认执行极速生产边界冒烟检查（约 1-2 秒完成，全量由 CI 兜底）
+            if $PYTHON scripts/prod_boundary_check.py 2>&1; then
+                echo "   ✅ 边界冒烟检查通过（全量测试由 CI 运行）"
+            else
+                echo "   ❌ 边界冒烟检查失败，请修复后再推送"
+                FAILED=1
+            fi
         fi
     else
         echo "   ❌ 未找到可用 python（.venv/PATH 均无），禁止带病推送"
