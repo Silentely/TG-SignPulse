@@ -3,11 +3,36 @@
 from __future__ import annotations
 
 import threading
-import time
 
 import pytest
 
 from backend.utils.cache import TTLCache
+
+
+class _FakeMonotonic:
+    """可手动拨动的单调时钟，替代真实 time.monotonic 与 sleep。
+
+    用例里的 TTL 很小（0.05s）+ 真实 sleep 的组合在高负载并行环境（CI）
+    下会因睡眠超时把「存活条目」也判成过期而偶发失败（assert 3 == 2）。
+    改用假时钟后不消耗真实时间即可确定性推进，消除这类环境相关抖动。
+    """
+
+    def __init__(self) -> None:
+        self.now: float = 0.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+@pytest.fixture
+def monotonic(monkeypatch):
+    """只替换 backend.utils.cache 持有的 time 引用，不动全局 time 模块。"""
+    clock = _FakeMonotonic()
+    monkeypatch.setattr("backend.utils.cache.time", clock)
+    return clock
 
 
 class TestTTLCache:
@@ -21,10 +46,10 @@ class TestTTLCache:
         assert cache.get("missing") is None
         assert cache.get("missing", "fallback") == "fallback"
 
-    def test_expire(self):
-        cache = TTLCache(maxsize=10, ttl=0.05)
+    def test_expire(self, monotonic):
+        cache = TTLCache(maxsize=10, ttl=5.0)
         cache.set("k", 1)
-        time.sleep(0.08)
+        monotonic.advance(10.0)
         assert cache.get("k") is None
 
     def test_lru_eviction(self):
@@ -59,17 +84,17 @@ class TestTTLCache:
         assert cache.pop("missing") is None
         assert cache.pop("missing", "fallback") == "fallback"
 
-    def test_pop_expired_returns_default(self):
-        cache = TTLCache(maxsize=10, ttl=0.05)
+    def test_pop_expired_returns_default(self, monotonic):
+        cache = TTLCache(maxsize=10, ttl=5.0)
         cache.set("k", 1)
-        time.sleep(0.08)
+        monotonic.advance(10.0)
         assert cache.pop("k") is None
 
-    def test_pop_expired_entry_is_removed(self):
+    def test_pop_expired_entry_is_removed(self, monotonic):
         """过期条目兑换时必须被真正删除，否则会残留在缓存里。"""
-        cache = TTLCache(maxsize=10, ttl=0.05)
+        cache = TTLCache(maxsize=10, ttl=5.0)
         cache.set("k", 1)
-        time.sleep(0.08)
+        monotonic.advance(10.0)
         assert cache.pop("k") is None
         assert len(cache) == 0
 
@@ -114,11 +139,11 @@ class TestTTLCache:
         with pytest.raises(ValueError):
             TTLCache(maxsize=1, ttl=0)
 
-    def test_purge_expired(self):
-        cache = TTLCache(maxsize=10, ttl=0.05)
+    def test_purge_expired(self, monotonic):
+        cache = TTLCache(maxsize=10, ttl=5.0)
         cache.set("a", 1)
         cache.set("b", 2)
-        time.sleep(0.08)
+        monotonic.advance(10.0)
         purged = cache.purge_expired()
         assert purged == 2
         assert len(cache) == 0
@@ -133,11 +158,11 @@ class TestTTLCache:
     # 边界与错误恢复补充
     # ------------------------------------------------------------------
 
-    def test_contains_expired_returns_false_and_cleans(self):
+    def test_contains_expired_returns_false_and_cleans(self, monotonic):
         """__contains__ 在条目过期时应返回 False 并惰性删除。"""
-        cache = TTLCache(maxsize=10, ttl=0.05)
+        cache = TTLCache(maxsize=10, ttl=5.0)
         cache.set("k", "v")
-        time.sleep(0.08)
+        monotonic.advance(10.0)
         # 过期后 contains 应返回 False，且内部删除该条目
         assert "k" not in cache
         # 再次 contains 仍安全（已删除路径）
@@ -158,12 +183,12 @@ class TestTTLCache:
         cache = TTLCache(maxsize=5, ttl=60.0)
         assert cache.purge_expired() == 0
 
-    def test_purge_expired_partial(self):
+    def test_purge_expired_partial(self, monotonic):
         """purge_expired 仅清理过期条目，存活条目保留。"""
-        cache = TTLCache(maxsize=10, ttl=0.05)
+        cache = TTLCache(maxsize=10, ttl=5.0)
         cache.set("old1", 1)
         cache.set("old2", 2)
-        time.sleep(0.08)
+        monotonic.advance(10.0)
         # 重新写入新条目（重置 ttl）
         cache.set("new", 3)
         purged = cache.purge_expired()
@@ -197,11 +222,11 @@ class TestTTLCache:
         repr_str = repr(cache)
         assert "size=1" in repr_str
 
-    def test_keys_values_items_filter_expired(self):
+    def test_keys_values_items_filter_expired(self, monotonic):
         """keys/values/items 方法应仅返回存活的条目快照并保持顺序。"""
-        cache = TTLCache(maxsize=10, ttl=0.05)
+        cache = TTLCache(maxsize=10, ttl=5.0)
         cache.set("a", 100)
-        time.sleep(0.08)
+        monotonic.advance(10.0)
         cache.set("b", 200)
         cache.set("c", 300)
 
