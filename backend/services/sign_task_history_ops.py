@@ -35,6 +35,9 @@ from backend.services.sign_task_history_io import (
     count_history_entries as count_history_entries_io,
 )
 from backend.services.sign_task_history_io import (
+    history_file_owner,
+)
+from backend.services.sign_task_history_io import (
     load_history_entries as load_history_entries_io,
 )
 from backend.services.sign_task_history_io import (
@@ -48,7 +51,11 @@ from backend.services.sign_task_history_query import (
     find_history_item_by_time,
     sort_history_items_desc,
 )
-from backend.utils.atomic_io import read_json_safe, write_json_atomic
+from backend.utils.atomic_io import (
+    path_write_lock,
+    read_json_safe,
+    write_json_atomic,
+)
 from backend.utils.names import validate_storage_name
 from backend.utils.task_logs import extract_last_target_message
 
@@ -104,14 +111,17 @@ class SignTaskHistoryMixin:
         if task_dir is not None:
             config_file = task_dir / "config.json"
             if config_file.exists():
+                # 读-改-写全程持路径锁：签到回写 last_run 与任务 CRUD 常并发，
+                # 无锁时后写者会覆盖对方的字段（丢失更新）
                 try:
-                    config = read_json_safe(config_file, default=None)
-                    if isinstance(config, dict):
-                        if last_run:
-                            config["last_run"] = last_run
-                        else:
-                            config.pop("last_run", None)
-                        write_json_atomic(config_file, config)
+                    with path_write_lock(config_file):
+                        config = read_json_safe(config_file, default=None)
+                        if isinstance(config, dict):
+                            if last_run:
+                                config["last_run"] = last_run
+                            else:
+                                config.pop("last_run", None)
+                            write_json_atomic(config_file, config)
                 except Exception as exc:
                     _logger.warning(
                         "回写任务元数据 last_run 失败: %s (%s)", config_file, exc
@@ -345,7 +355,11 @@ class SignTaskHistoryMixin:
 
             entry_time = str(entry.get("time") or "")
             entry_account = str(entry.get("account_name") or "")
-            account_matches = not entry_account or entry_account == normalized_account
+            # 无 account_name 的旧格式条目：仅在请求方就是该文件的宿主账号时
+            # 才视为可删，避免删到其他账号共享文件里的条目
+            account_matches = entry_account == normalized_account or (
+                not entry_account and history_file_owner(history_file) == normalized_account
+            )
 
             if not deleted and entry_time == target_time and account_matches:
                 deleted = True
@@ -487,14 +501,33 @@ class SignTaskHistoryMixin:
             if history_file.exists():
                 try:
                     data = read_json_safe(history_file, default=[])
-                    removed_entries += self._count_history_entries(data)
+                    entries = data if isinstance(data, list) else [data]
+                    # 按下标切分，避免用 dict 相等性误伤完全相同的重复条目
+                    own_idx = [
+                        i
+                        for i, e in enumerate(entries)
+                        if isinstance(e, dict)
+                        and str(e.get("account_name") or account_name) == account_name
+                    ]
+                    own_set = set(own_idx)
+                    removed_entries += len(own_idx)
+                    others = [e for i, e in enumerate(entries) if i not in own_set]
                 except Exception as exc:
                     _logger.warning("读取历史文件失败: %s (%s)", history_file, exc)
-                try:
-                    history_file.unlink()
-                    removed_files += 1
-                except Exception as exc:
-                    _logger.warning("删除历史文件失败: %s (%s)", history_file, exc)
+                    others = None
+                # 仅当剩余条目全部属于该账号时才整文件删除，
+                # 否则文件里还混着其他账号的条目（多账号共享文件名时会发生）
+                if not others:
+                    try:
+                        history_file.unlink()
+                        removed_files += 1
+                    except Exception as exc:
+                        _logger.warning("删除历史文件失败: %s (%s)", history_file, exc)
+                elif others is not None:
+                    try:
+                        write_json_atomic(history_file, others)
+                    except Exception as exc:
+                        _logger.warning("回写历史文件失败: %s (%s)", history_file, exc)
                 continue
 
             legacy_file = self.run_history_dir / f"{self._safe_history_key(task_name)}.json"

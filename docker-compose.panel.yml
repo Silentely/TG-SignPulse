@@ -27,6 +27,9 @@ services:
       # - APP_MONITOR_ACCOUNT_ALLOWLIST=
     ports:
       - "3000:3000"
+    # 显式以非 root 身份运行，与 Dockerfile 的 USER app 对齐；
+    # 若挂载卷属主不同，入口会 fail-closed 报错而非静默回退 root
+    user: "10001:10001"
     volumes:
       - ./data:/data
     healthcheck:

@@ -32,6 +32,20 @@ class _StubHistoryService(SignTaskHistoryMixin):
         self._history_max_entries = 20
         self._tasks_cache: List[Dict[str, Any]] = []
         self._task_configs: Dict[tuple, Optional[Dict[str, Any]]] = {}
+        self._known_tasks: List[Dict[str, Any]] = []
+
+    def register_task(self, task_name: str, account_name: str) -> None:
+        """登记一个已知任务，供 clear_account_history_logs 枚举。"""
+        self._known_tasks.append(
+            {"name": task_name, "account_name": account_name}
+        )
+
+    def list_tasks(self, account_name: str = ""):
+        if account_name:
+            return [
+                t for t in self._known_tasks if t.get("account_name") == account_name
+            ]
+        return list(self._known_tasks)
 
     def get_task(self, task_name: str, account_name: str = ""):
         return self._task_configs.get((task_name, account_name))
@@ -200,3 +214,91 @@ def test_save_run_info_no_account_single_file(tmp_path: Path):
     svc._save_run_info("t1", success=True, message="ok")
     history = _read_history(svc, "t1")
     assert history[0]["account_name"] == ""
+
+
+class TestHistoryAccountIsolation:
+    """历史文件名必须单射，清账号历史不得误删其他账号的数据。"""
+
+    def _seed(self, svc: _StubHistoryService, task: str, account: str, message: str):
+        svc.register_task(task, account)
+        svc._save_run_info(
+            task,
+            success=True,
+            message=message,
+            account_name=account,
+            flow_logs=["ok"],
+        )
+
+    def test_colliding_names_get_distinct_files(self, tmp_path: Path):
+        """(a__b, c) 与 (a, b__c) 曾撞到同一文件名，现在必须分开。"""
+        svc = _make_service(tmp_path)
+        self._seed(svc, "c", "a__b", "first")
+        self._seed(svc, "b__c", "a", "second")
+
+        left = svc._history_file_path("c", "a__b")
+        right = svc._history_file_path("b__c", "a")
+        assert left != right
+        assert left.exists() and right.exists()
+        assert len(_read_history(svc, "c", "a__b")) == 1
+        assert len(_read_history(svc, "b__c", "a")) == 1
+
+    def test_clear_account_does_not_touch_similarly_named_account(self, tmp_path: Path):
+        """清账号 a 的历史时，账号 a__b 的数据必须完好。"""
+        svc = _make_service(tmp_path)
+        self._seed(svc, "t", "a", "mine")
+        self._seed(svc, "t", "a__b", "theirs")
+
+        result = svc.clear_account_history_logs("a")
+
+        assert result["removed_entries"] >= 1
+        # 账号 a 的历史已清
+        assert not svc._history_file_path("t", "a").exists()
+        # 账号 a__b 的历史必须保留
+        assert svc._history_file_path("t", "a__b").exists()
+        kept = _read_history(svc, "t", "a__b")
+        assert len(kept) == 1
+        assert kept[0]["message"] == "theirs"
+
+    def test_clear_account_only_unlinks_when_all_entries_belong_to_it(self, tmp_path: Path):
+        """文件里混有其他账号条目时不得整文件删除，只移除属于该账号的条目。"""
+        svc = _make_service(tmp_path)
+        svc.register_task("t", "a")
+        shared = svc._history_file_path("t", "a")
+        shared.parent.mkdir(parents=True, exist_ok=True)
+        shared.write_text(
+            json.dumps(
+                [
+                    {"time": "2026-01-01T00:00:00Z", "account_name": "a"},
+                    {"time": "2026-01-02T00:00:00Z", "account_name": "b"},
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        svc.clear_account_history_logs("a")
+
+        assert shared.exists(), "混有他人条目的文件不得整文件删除"
+        kept = _read_history(svc, "t", "a")
+        assert [e["account_name"] for e in kept] == ["b"]
+
+    def test_delete_history_log_respects_owner(self, tmp_path: Path):
+        """删除单条历史时，无 account_name 的旧格式条目仅宿主账号可删。"""
+        svc = _make_service(tmp_path)
+        target = svc._history_file_path("t", "a")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            json.dumps(
+                [
+                    {"time": "2026-01-02T00:00:00Z", "account_name": "a"},
+                    {"time": "2026-01-01T00:00:00Z"},
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        assert svc.delete_history_log("a", "t", "2026-01-02T00:00:00Z") is True
+        kept = _read_history(svc, "t", "a")
+        assert [e["time"] for e in kept] == ["2026-01-01T00:00:00Z"]
+
+        # 非宿主账号请求删除该文件中的旧格式条目必须失败
+        assert svc.delete_history_log("other", "t", "2026-01-01T00:00:00Z") is False

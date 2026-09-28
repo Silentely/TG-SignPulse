@@ -152,6 +152,11 @@ def filter_related_task_infos(
             current.get("account_names"),  # type: ignore[arg-type]
             current.get("account_name") if isinstance(current.get("account_name"), str) else None,
         )
+        same_name = [task for task in raw_tasks if task.get("name") == task_name]
+        # 通配任务：所有副本都带 "*" 标记，账号集比较会因 account_name 不同而失配，
+        # 必须整体视为一个任务集，否则删除只清掉一份，其余副本里的 "*" 会把删除撤销
+        if "*" in current_accounts:
+            return same_name or [current]
         if len(current_accounts) > 1:
             return [
                 task
@@ -163,7 +168,10 @@ def filter_related_task_infos(
                 )
                 == current_accounts
             ]
-        return [current]
+        # 同名副本但账号集只有一项（含通配符场景下 *_task 未回填 group_id）：
+        # 此时不能回退为 [current] 只删一份——其余同名副本会被下次通配扩展
+        # 重新铺开，导致「删除」被撤销。把全部同名副本视为同一个任务集。
+        return same_name or [current]
 
     exact_matches = [task for task in raw_tasks if task.get("name") == task_name]
     if not exact_matches:

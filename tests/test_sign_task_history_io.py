@@ -16,13 +16,50 @@ from backend.services.sign_task_history_io import (
 
 
 def test_safe_history_key_and_path(tmp_path: Path):
-    assert safe_history_key("a/b\\c") == "a_b_c"
+    assert safe_history_key("a/b\\c") == "a%5Fb%5Fc"
     assert safe_history_key(".foo") != safe_history_key("foo")
     assert history_file_path(tmp_path, ".foo").name != history_file_path(tmp_path, "foo").name
     p = history_file_path(tmp_path, "task1", "acc1")
     assert p.name == "acc1__task1.json"
     p2 = history_file_path(tmp_path, "task1")
     assert p2.name == "task1.json"
+
+
+def test_safe_history_key_is_injective_across_separator():
+    """编码必须可逆且单射：(a__b, c) 与 (a, b__c) 不得撞到同一文件名。"""
+    left = history_file_path("/tmp/h", "c", "a__b")
+    right = history_file_path("/tmp/h", "b__c", "a")
+    assert left != right
+    assert left.name == "a%5F%5Fb__c.json"
+    assert right.name == "a__b%5F%5Fc.json"
+
+
+def test_safe_history_key_roundtrip():
+    """safe_history_key / unsafe_history_key 必须无损互逆。"""
+    from backend.services.sign_task_history_io import unsafe_history_key
+
+    # / 与 \ 在编码前已归一为 _（存储名本就不允许含路径分隔符），不参与互逆
+    for raw in ("a__b", "a%b", "plain", "%5F", "x_y_z", "%25"):
+        assert unsafe_history_key(safe_history_key(raw)) == raw, raw
+
+
+def test_history_file_owner_roundtrip():
+    """从文件名可反查账号宿主；旧版单账号布局返回 None。"""
+    from backend.services.sign_task_history_io import history_file_owner
+
+    p = history_file_path("/tmp/h", "task", "a__b")
+    assert history_file_owner(p) == "a__b"
+    assert history_file_owner(Path("/tmp/h/plain_task.json")) is None
+
+
+def test_legacy_encoded_history_file_still_resolves(tmp_path: Path):
+    """升级前落盘（未转义 _ / %）的文件仍可被解析，历史不凭空消失。"""
+    from backend.services.sign_task_history_io import legacy_history_file_path
+
+    legacy = legacy_history_file_path(tmp_path, "task", "a_b")
+    legacy.write_text("[]", encoding="utf-8")
+    resolved = resolve_existing_history_file(tmp_path, "task", "a_b")
+    assert resolved == legacy
 
 
 def test_load_and_filter_history(tmp_path: Path):

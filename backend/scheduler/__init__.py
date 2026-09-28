@@ -851,6 +851,30 @@ def add_or_update_sign_task_job(
         logger.exception("Scheduler: 添加任务 %s 发生未知异常", job_id)
 
 
+def has_sign_task_job(account_name: str, task_name: str) -> bool:
+    """该账号下是否仍存在签到任务的调度 Job（含 range 一次性任务）。
+
+    供删除路径做后置条件复验：配置删掉了但 Job 残留会让任务继续触发。
+    无调度器或未持锁时返回 False（本实例不负责调度，无从残留）。
+    """
+    from backend.scheduler.instance_lock import has_scheduler_lock
+
+    global scheduler
+    if not scheduler or not has_scheduler_lock():
+        return False
+
+    job_id = f"sign-{account_name}-{task_name}"
+    try:
+        if scheduler.get_job(job_id) is not None:
+            return True
+        oneshot_prefix = f"range-oneshot-{account_name}-{task_name}-"
+        return any(
+            str(j.id or "").startswith(oneshot_prefix) for j in scheduler.get_jobs()
+        )
+    except Exception:
+        return False
+
+
 def remove_sign_task_job(account_name: str, task_name: str) -> None:
     """动态移除签到任务 Job"""
     from apscheduler.jobstores.base import JobLookupError

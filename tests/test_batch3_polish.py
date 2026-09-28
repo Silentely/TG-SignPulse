@@ -32,7 +32,8 @@ def test_classify_failure_network_proxy_extensions():
 
 
 def test_safe_history_key_null_bytes_and_spaces():
-    assert safe_history_key("  foo/bar\\baz  ") == "foo_bar_baz"
+    # / 与 \ 归一为 _ 后再做百分号编码，保证键可逆
+    assert safe_history_key("  foo/bar\\baz  ") == "foo%5Fbar%5Fbaz"
     assert safe_history_key("account\x00name") == "accountname"
     assert safe_history_key("   ") == "default"
     assert safe_history_key("") == "default"

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
+from pathlib import Path
 
 # 避免误写真实数据目录
 os.environ.setdefault("APP_DATA_DIR", "/tmp/tg-signpulse-prod-check")
@@ -60,7 +62,7 @@ def main() -> int:
         "/api/ops/backup/export",
         "/api/ops/memory",
         "/api/events/sign-history",
-        "/api/events/logs",
+        "/api/events/ticket",
         "/api/sign-tasks",
         "/api/accounts",
         "/health",
@@ -116,6 +118,35 @@ def main() -> int:
     release_scheduler_lock()
     if has_scheduler_lock():
         errors.append("scheduler lock not released")
+
+    # 8) 容器身份：Dockerfile 必须降权到非 root，compose 不得以 root 运行
+    repo_root = Path(__file__).resolve().parent.parent
+    dockerfile_text = (repo_root / "Dockerfile").read_text(encoding="utf-8")
+    user_directives = [
+        line.split()[1]
+        for line in dockerfile_text.splitlines()
+        if line.strip().upper().startswith("USER ")
+    ]
+    if not user_directives:
+        errors.append("Dockerfile missing USER directive")
+    else:
+        final_user = user_directives[-1].split(":")[0]
+        if final_user.lower() in ("root", "0"):
+            errors.append(f"Dockerfile final USER must not be root (got {final_user})")
+
+    for compose_name in ("docker-compose.yml", "docker-compose.panel.yml"):
+        compose_file = repo_root / compose_name
+        if not compose_file.exists():
+            errors.append(f"missing {compose_name}")
+            continue
+        compose_text = compose_file.read_text(encoding="utf-8")
+        service_user = re.search(
+            r"^\s*user:\s*[\"']?(\d+):(\d+)", compose_text, re.MULTILINE
+        )
+        if not service_user:
+            errors.append(f"{compose_name} missing explicit non-root user:")
+        elif service_user.group(1) == "0" or service_user.group(2) == "0":
+            errors.append(f"{compose_name} must not run as uid/gid 0")
 
     if errors:
         print("FAIL:")
