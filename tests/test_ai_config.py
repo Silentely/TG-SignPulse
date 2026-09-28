@@ -1,4 +1,5 @@
 """AI 配置加密存储测试 — 覆盖 config.py 的 save/get/export/test 路径"""
+
 from __future__ import annotations
 
 import json
@@ -16,7 +17,11 @@ class TestSaveAiConfigEncryption:
     def test_save_encrypts_api_key(self, isolated_env: Path):
         """保存后磁盘上的 api_key 是 Fernet 密文而非明文"""
         service = ConfigService()
-        service.save_ai_config(api_key="sk-test-12345", base_url="https://api.openai.com/v1", model="gpt-4o")
+        service.save_ai_config(
+            api_key="sk-test-12345",
+            base_url="https://api.openai.com/v1",
+            model="gpt-4o",
+        )
 
         config_file = service.workdir / ".openai_config.json"
         raw = json.loads(config_file.read_text(encoding="utf-8"))
@@ -37,7 +42,9 @@ class TestSaveAiConfigEncryption:
     def test_save_preserves_base_url_and_model(self, isolated_env: Path):
         """保存时应保留 base_url 和 model"""
         service = ConfigService()
-        service.save_ai_config(api_key="sk-test", base_url="https://custom.api.com", model="gpt-4o")
+        service.save_ai_config(
+            api_key="sk-test", base_url="https://custom.api.com", model="gpt-4o"
+        )
 
         config_file = service.workdir / ".openai_config.json"
         raw = json.loads(config_file.read_text(encoding="utf-8"))
@@ -51,7 +58,9 @@ class TestSaveAiConfigEncryption:
         service.save_ai_config(
             api_key="sk-original-key", base_url="https://a.example", model="gpt-4o"
         )
-        service.save_ai_config(api_key=None, base_url="https://b.example", model="gpt-4o-mini")
+        service.save_ai_config(
+            api_key=None, base_url="https://b.example", model="gpt-4o-mini"
+        )
 
         config = service.get_ai_config()
         assert config is not None
@@ -225,7 +234,9 @@ class TestTestAiConnection:
         assert "max_tokens" not in kwargs
 
     @pytest.mark.asyncio
-    async def test_fallback_to_max_completion_tokens_on_unsupported_param(self, isolated_env: Path):
+    async def test_fallback_to_max_completion_tokens_on_unsupported_param(
+        self, isolated_env: Path
+    ):
         """当模型返回 max_tokens 不支持时，自动切换为 max_completion_tokens 重试并成功"""
         service = ConfigService()
         service.save_ai_config(
@@ -238,11 +249,13 @@ class TestTestAiConnection:
         mock_response.choices[0].message.content = "test ok"
 
         unsupported_err = Exception(
-            "Error code: 400 - {\"error\": {\"message\": \"Unsupported parameter: max_tokens is not supported with this model. Use max_completion_tokens instead.\", \"param\": \"max_tokens\"}}"
+            'Error code: 400 - {"error": {"message": "Unsupported parameter: max_tokens is not supported with this model. Use max_completion_tokens instead.", "param": "max_tokens"}}'
         )
 
         mock_client = MagicMock()
-        mock_client.chat.completions.create = AsyncMock(side_effect=[unsupported_err, mock_response])
+        mock_client.chat.completions.create = AsyncMock(
+            side_effect=[unsupported_err, mock_response]
+        )
 
         with patch("openai.AsyncOpenAI", return_value=mock_client):
             result = await service.test_ai_connection()
@@ -255,7 +268,9 @@ class TestTestAiConnection:
         assert "max_completion_tokens" in second_kwargs
 
     @pytest.mark.asyncio
-    async def test_fallback_to_max_tokens_when_max_completion_tokens_rejected(self, isolated_env: Path):
+    async def test_fallback_to_max_tokens_when_max_completion_tokens_rejected(
+        self, isolated_env: Path
+    ):
         """当配置为 gpt-5 模型但网关报错要求使用 max_tokens 时，自动反向 fallback 到 max_tokens 重试"""
         service = ConfigService()
         service.save_ai_config(
@@ -268,11 +283,13 @@ class TestTestAiConnection:
         mock_response.choices[0].message.content = "test ok"
 
         unsupported_err = Exception(
-            "Error code: 400 - {\"error\": {\"message\": \"Unsupported parameter: max_completion_tokens is not supported with this model. Use max_tokens instead.\", \"param\": \"max_completion_tokens\"}}"
+            'Error code: 400 - {"error": {"message": "Unsupported parameter: max_completion_tokens is not supported with this model. Use max_tokens instead.", "param": "max_completion_tokens"}}'
         )
 
         mock_client = MagicMock()
-        mock_client.chat.completions.create = AsyncMock(side_effect=[unsupported_err, mock_response])
+        mock_client.chat.completions.create = AsyncMock(
+            side_effect=[unsupported_err, mock_response]
+        )
 
         with patch("openai.AsyncOpenAI", return_value=mock_client):
             result = await service.test_ai_connection()

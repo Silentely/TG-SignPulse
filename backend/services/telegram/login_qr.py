@@ -1,4 +1,5 @@
 """TelegramService mixin: login_qr."""
+
 from __future__ import annotations
 
 import asyncio
@@ -30,7 +31,6 @@ _PASSWORD_REQUIRED = object()
 
 
 class TelegramQrLoginMixin:
-
     def _log_qr_state(
         self, login_id: str, state: str, data: Optional[Dict[str, Any]] = None
     ) -> None:
@@ -43,9 +43,9 @@ class TelegramQrLoginMixin:
             data["last_state_logged"] = state
         logger.info("QR 登录状态 state=%s login_id=%s", state, login_id)
 
-
     async def _apply_migrate_auth(self, client, data: Dict[str, Any]) -> None:
         import inspect
+
         migrate_dc_id = data.get("migrate_dc_id")
         migrate_auth_key = data.get("migrate_auth_key")
         migrate_server_address = data.get("migrate_server_address")
@@ -56,6 +56,7 @@ class TelegramQrLoginMixin:
                     from backend.services.telegram.session_importer import (
                         get_default_dc_endpoint,
                     )
+
                     test_mode = False
                     if hasattr(client.storage, "test_mode"):
                         tm_val = client.storage.test_mode()
@@ -68,17 +69,28 @@ class TelegramQrLoginMixin:
                         migrate_server_address = migrate_server_address or addr
                         migrate_port = migrate_port or p
                     except Exception as ep_exc:
-                        logger.debug("无法根据 DC %s 推导默认端点: %s", migrate_dc_id, ep_exc)
+                        logger.debug(
+                            "无法根据 DC %s 推导默认端点: %s", migrate_dc_id, ep_exc
+                        )
 
                 await client.storage.dc_id(migrate_dc_id)
-                if migrate_server_address and hasattr(client.storage, "server_address") and callable(client.storage.server_address):
+                if (
+                    migrate_server_address
+                    and hasattr(client.storage, "server_address")
+                    and callable(client.storage.server_address)
+                ):
                     await client.storage.server_address(migrate_server_address)
-                if migrate_port and hasattr(client.storage, "port") and callable(client.storage.port):
+                if (
+                    migrate_port
+                    and hasattr(client.storage, "port")
+                    and callable(client.storage.port)
+                ):
                     await client.storage.port(int(migrate_port))
                 await client.storage.auth_key(migrate_auth_key)
             except Exception as exc:
-                logger.warning("应用 QR 迁移 auth 失败 (dc_id=%s): %s", migrate_dc_id, exc)
-
+                logger.warning(
+                    "应用 QR 迁移 auth 失败 (dc_id=%s): %s", migrate_dc_id, exc
+                )
 
     @staticmethod
     def _capture_migrate_auth(data: Dict[str, Any], session: Any) -> None:
@@ -100,8 +112,9 @@ class TelegramQrLoginMixin:
         except Exception as exc:
             logger.warning("捕获 QR 迁移 auth 失败: %s", exc)
 
-
-    async def _cleanup_qr_login(self, login_id: str, preserve_session: bool = False) -> None:
+    async def _cleanup_qr_login(
+        self, login_id: str, preserve_session: bool = False
+    ) -> None:
         data = _qr_login_sessions.pop(login_id, None)
         if not data:
             return
@@ -121,7 +134,9 @@ class TelegramQrLoginMixin:
             try:
                 client.remove_handler(*handler)
             except Exception as exc:
-                logger.warning("QR 登录清理 remove_handler 失败 (login_id=%s): %s", login_id, exc)
+                logger.warning(
+                    "QR 登录清理 remove_handler 失败 (login_id=%s): %s", login_id, exc
+                )
         if client:
             try:
                 if getattr(client, "is_initialized", False):
@@ -143,7 +158,11 @@ class TelegramQrLoginMixin:
                     if session_file.exists():
                         try:
                             session_file.unlink()
-                            for ext in [".session-journal", ".session-wal", ".session-shm"]:
+                            for ext in [
+                                ".session-journal",
+                                ".session-wal",
+                                ".session-shm",
+                            ]:
                                 aux_file = self.session_dir / f"{account_name}{ext}"
                                 if aux_file.exists():
                                     aux_file.unlink()
@@ -158,7 +177,6 @@ class TelegramQrLoginMixin:
                 with contextlib.suppress(RuntimeError):
                     lock.release()
 
-
     def _extend_qr_expires(self, data: Dict[str, Any], min_seconds: int = 300) -> None:
         now = int(time.time())
         min_expires = now + min_seconds
@@ -166,7 +184,6 @@ class TelegramQrLoginMixin:
         if current < min_expires:
             data["expires_ts"] = min_expires
             data["expires_at"] = utc_from_timestamp_iso_z(min_expires)
-
 
     async def _expire_qr_login(self, login_id: str, expires_ts: int) -> None:
         while True:
@@ -184,7 +201,6 @@ class TelegramQrLoginMixin:
             self._log_qr_state(login_id, "expired", data)
             await self._cleanup_qr_login(login_id)
             return
-
 
     def _resolve_api_credentials(
         self, data: Optional[Dict[str, Any]] = None, *, strict: bool = False
@@ -221,7 +237,6 @@ class TelegramQrLoginMixin:
             data["api_hash"] = api_hash
         return api_id, api_hash
 
-
     async def _import_login_token(
         self, client, data: Dict[str, Any], token, migrate_dc_id
     ) -> tuple:
@@ -253,7 +268,10 @@ class TelegramQrLoginMixin:
 
                 if isinstance(result, raw.types.auth.LoginTokenMigrateTo):
                     migrate_dc_id = result.dc_id
-                    logger.info("QR login target DC %s differs from candidate DC, delegating export", migrate_dc_id)
+                    logger.info(
+                        "QR login target DC %s differs from candidate DC, delegating export",
+                        migrate_dc_id,
+                    )
                     token = result.token
                     data["migrate_dc_id"] = migrate_dc_id
                     data["token"] = token
@@ -265,18 +283,14 @@ class TelegramQrLoginMixin:
             error = exc
         return result, error
 
-
     def _apply_login_token_update(self, data: Dict[str, Any], result: Any) -> None:
         """将 LoginToken 轮询结果（token/过期时间）回写会话数据。"""
         token_expires = getattr(result, "expires", None)
         if token_expires:
             data["expires_ts"] = self._normalize_login_token_expires(token_expires)
-            data["expires_at"] = utc_from_timestamp_iso_z(
-                data["expires_ts"]
-            )
+            data["expires_at"] = utc_from_timestamp_iso_z(data["expires_ts"])
         if getattr(result, "token", None):
             data["token"] = result.token
-
 
     async def _export_login_token(self, client, data: Dict[str, Any]) -> Any:
         """ExportLoginToken 兜底轮询（含凭据兜底解析与 dc 迁移后再导入）。
@@ -309,10 +323,15 @@ class TelegramQrLoginMixin:
             return export_result
         if isinstance(export_result, raw.types.auth.LoginTokenMigrateTo):
             data["migrate_dc_id"] = export_result.dc_id
-            logger.info("QR login target DC %s differs from candidate DC, delegating export", export_result.dc_id)
+            logger.info(
+                "QR login target DC %s differs from candidate DC, delegating export",
+                export_result.dc_id,
+            )
             data["token"] = export_result.token
             try:
-                session = await get_session(client, export_result.dc_id, export_authorization=False)
+                session = await get_session(
+                    client, export_result.dc_id, export_authorization=False
+                )
                 self._capture_migrate_auth(data, session)
                 migrate_result = await session.invoke(
                     raw.functions.auth.ImportLoginToken(token=export_result.token)
@@ -329,7 +348,6 @@ class TelegramQrLoginMixin:
             self._apply_login_token_update(data, export_result)
             return export_result
         return None
-
 
     def _set_qr_password_required(
         self,
@@ -349,7 +367,6 @@ class TelegramQrLoginMixin:
         if login_id:
             self._log_qr_state(login_id, "password_required", data)
 
-
     @staticmethod
     def _password_required_response(data: Dict[str, Any]) -> Dict[str, Any]:
         return {
@@ -358,8 +375,9 @@ class TelegramQrLoginMixin:
             "message": "需要 2FA 密码",
         }
 
-
-    async def _store_qr_authorized_user(self, client, data: Dict[str, Any], login_result) -> Any:
+    async def _store_qr_authorized_user(
+        self, client, data: Dict[str, Any], login_result
+    ) -> Any:
         """从 LoginTokenSuccess 解析授权用户并写入会话存储。"""
         from pyrogram import types
 
@@ -369,7 +387,6 @@ class TelegramQrLoginMixin:
         data["authorized"] = True
         data["authorized_user"] = user
         return user
-
 
     async def _finalize_qr_login_success(
         self, login_id: str, data: Dict[str, Any], user
@@ -396,7 +413,6 @@ class TelegramQrLoginMixin:
             "first_name": getattr(user, "first_name", None),
             "username": getattr(user, "username", None),
         }
-
 
     async def _persist_qr_authorized(
         self, client, data: Dict[str, Any], login_id: str, user
@@ -428,7 +444,6 @@ class TelegramQrLoginMixin:
             return _PASSWORD_REQUIRED
         return me
 
-
     async def _finalize_qr_login(
         self, client, data: Dict[str, Any], login_id: str, login_result
     ) -> Dict[str, Any]:
@@ -442,9 +457,13 @@ class TelegramQrLoginMixin:
         self._log_qr_state(login_id, "success", data)
         return await self._finalize_qr_login_success(login_id, data, me)
 
-
     async def _finalize_qr_password_login(
-        self, client, data: Dict[str, Any], login_id: str, password: str, user_fallback=None
+        self,
+        client,
+        data: Dict[str, Any],
+        login_id: str,
+        password: str,
+        user_fallback=None,
     ) -> Dict[str, Any]:
         """2FA 密码校验后的授权收尾：校验密码、写入会话、持久化会话并返回结果。"""
         from pyrogram import raw, types
@@ -456,7 +475,9 @@ class TelegramQrLoginMixin:
         user_from_password = None
         try:
             if data.get("migrate_dc_id"):
-                session = await get_session(client, data.get("migrate_dc_id"), export_authorization=False)
+                session = await get_session(
+                    client, data.get("migrate_dc_id"), export_authorization=False
+                )
                 self._capture_migrate_auth(data, session)
                 auth = await session.invoke(
                     raw.functions.auth.CheckPassword(
@@ -494,7 +515,6 @@ class TelegramQrLoginMixin:
 
         self._log_qr_state(login_id, "success", data)
         return await self._finalize_qr_login_success(login_id, data, me)
-
 
     async def _ensure_qr_authorized(
         self, client, data: Dict[str, Any], login_id: str
@@ -536,7 +556,6 @@ class TelegramQrLoginMixin:
             except Exception:
                 pass
         return data.get("authorized_user")
-
 
     async def start_qr_login(
         self, account_name: str, proxy: Optional[str] = None
@@ -596,10 +615,14 @@ class TelegramQrLoginMixin:
         proxy_dict = build_proxy_dict(proxy) if proxy else None
         if proxy and not proxy_dict:
             _release_account_lock()
-            raise ValueError("PROXY_INVALID_BLOCKED: Configured proxy string is invalid")
+            raise ValueError(
+                "PROXY_INVALID_BLOCKED: Configured proxy string is invalid"
+            )
         if config_service.require_proxy_for_telegram() and not proxy_dict:
             _release_account_lock()
-            raise ValueError("PROXY_REQUIRED_BLOCKED: Global policy requires a proxy for Telegram connections")
+            raise ValueError(
+                "PROXY_REQUIRED_BLOCKED: Global policy requires a proxy for Telegram connections"
+            )
 
         if proxy_dict:
             try:
@@ -657,9 +680,9 @@ class TelegramQrLoginMixin:
             token_expires = getattr(result, "expires", None)
             expires_ts = self._normalize_login_token_expires(token_expires)
             expires_at = utc_from_timestamp_iso_z(expires_ts)
-            qr_uri = "tg://login?token=" + base64.urlsafe_b64encode(
-                token_bytes
-            ).decode("utf-8")
+            qr_uri = "tg://login?token=" + base64.urlsafe_b64encode(token_bytes).decode(
+                "utf-8"
+            )
 
             login_id = secrets.token_urlsafe(16)
 
@@ -700,7 +723,10 @@ class TelegramQrLoginMixin:
                     if not isinstance(update, raw.types.UpdateLoginToken):
                         return
                     data = _qr_login_sessions.get(login_id)
-                    if data and data.get("status") in ("waiting_scan", "scanned_wait_confirm"):
+                    if data and data.get("status") in (
+                        "waiting_scan",
+                        "scanned_wait_confirm",
+                    ):
                         new_token = getattr(update, "token", None)
                         if new_token:
                             data["token"] = new_token
@@ -752,7 +778,6 @@ class TelegramQrLoginMixin:
                 pass
             _release_account_lock()
             raise ValueError(f"获取二维码失败: {str(e)}")
-
 
     async def get_qr_login_status(self, login_id: str) -> Dict[str, Any]:
         from pyrogram import raw
@@ -880,7 +905,6 @@ class TelegramQrLoginMixin:
                 "message": "登录失败，请重试",
             }
 
-
     async def submit_qr_password(self, login_id: str, password: str) -> Dict[str, Any]:
         from pyrogram import raw
         from pyrogram.errors import (
@@ -946,7 +970,11 @@ class TelegramQrLoginMixin:
                 if data.get("status") == "password_required" or data.get("authorized"):
                     try:
                         return await self._finalize_qr_password_login(
-                            client, data, login_id, password, data.get("authorized_user")
+                            client,
+                            data,
+                            login_id,
+                            password,
+                            data.get("authorized_user"),
                         )
                     except Unauthorized:
                         user = await self._ensure_qr_authorized(client, data, login_id)
@@ -994,7 +1022,10 @@ class TelegramQrLoginMixin:
             await self._cleanup_qr_login(login_id)
             raise ValueError(f"请求过于频繁，请等待 {e.value} 秒后重试")
         except Unauthorized:
-            if data and data.get("status") in {"password_required", "scanned_wait_confirm"}:
+            if data and data.get("status") in {
+                "password_required",
+                "scanned_wait_confirm",
+            }:
                 self._extend_qr_expires(data)
                 raise ValueError("请先在手机端确认登录")
             await self._cleanup_qr_login(login_id)
@@ -1002,12 +1033,14 @@ class TelegramQrLoginMixin:
         except ValueError:
             raise
         except Exception:
-            if data and data.get("status") in {"password_required", "scanned_wait_confirm"}:
+            if data and data.get("status") in {
+                "password_required",
+                "scanned_wait_confirm",
+            }:
                 self._extend_qr_expires(data)
                 raise ValueError("登录失败，请重试")
             await self._cleanup_qr_login(login_id)
             raise ValueError("登录失败，请重试")
-
 
     async def cancel_qr_login(self, login_id: str) -> bool:
         login_id = str(login_id or "").strip()

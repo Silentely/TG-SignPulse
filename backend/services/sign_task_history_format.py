@@ -3,6 +3,7 @@
 
 从 SignTaskService 历史查询路径抽出的纯函数，减少重复拼装逻辑。
 """
+
 from __future__ import annotations
 
 from typing import Any, Callable, Dict, List, Optional
@@ -80,7 +81,11 @@ def normalize_and_trim_flow_logs(
     trimmed: List[str] = []
     for line in source:
         text = repair(str(line)).replace("\r", "").rstrip("\n")
-        if max_line_chars is not None and max_line_chars > 0 and len(text) > max_line_chars:
+        if (
+            max_line_chars is not None
+            and max_line_chars > 0
+            and len(text) > max_line_chars
+        ):
             text = text[: max_line_chars - 1] + "…"
             truncated = True
         trimmed.append(text)

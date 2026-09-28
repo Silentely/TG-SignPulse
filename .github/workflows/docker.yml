@@ -76,6 +76,10 @@ jobs:
           tests/test_pydantic_compat_and_scale.py
           --quiet
 
+      # 排版硬门槛：与 pre-push 钩子同源，防止排版再次漂移
+      - name: Ruff format check (排版硬门槛)
+        run: ruff format --check . --quiet
+
   frontend-test:
     runs-on: ubuntu-latest
     timeout-minutes: 8

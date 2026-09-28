@@ -3,6 +3,7 @@
 
 与 runtime 的文本日志互补：命中事件写入 JSONL，供面板列表/导出使用。
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -146,9 +147,7 @@ def _safe_url(url: Any) -> str:
 
 def _clean_keywords(keywords: Optional[List[Any]]) -> List[str]:
     """关键词列表：剔除 NUL、去空白截断、剔除空串，上限 20 条。"""
-    cleaned = [
-        _clip(k, 200) for k in (keywords or []) if _strip_nul(k)
-    ]
+    cleaned = [_clip(k, 200) for k in (keywords or []) if _strip_nul(k)]
     return cleaned[:20]
 
 
@@ -421,7 +420,10 @@ def export_keyword_hits_csv(
     data = list_keyword_hits(
         account_name=account_name,
         task_name=task_name,
-        limit=min(max(1, int(limit if limit is not None and str(limit).isdigit() else 2000)), MAX_RECORDS),
+        limit=min(
+            max(1, int(limit if limit is not None and str(limit).isdigit() else 2000)),
+            MAX_RECORDS,
+        ),
         offset=0,
         max_limit=MAX_RECORDS,
     )
@@ -483,7 +485,10 @@ def clear_keyword_hits(
                 item
                 for item in _records
                 if not (
-                    (not account or _normalize_account(item.get("account_name")) == account)
+                    (
+                        not account
+                        or _normalize_account(item.get("account_name")) == account
+                    )
                     and (not task or item.get("task_name") == task)
                 )
             ]

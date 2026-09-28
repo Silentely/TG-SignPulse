@@ -27,6 +27,7 @@ if str(_REPO_ROOT) not in sys.path:
 try:
     from tg_signer.core.plugins import audit_plugin_source
 except ImportError:
+
     class _SecurityVisitor(ast.NodeVisitor):  # type: ignore
         def __init__(self) -> None:
             self.warnings: List[Dict[str, Any]] = []
@@ -35,16 +36,20 @@ except ImportError:
             func_name = ""
             if isinstance(node.func, ast.Name):
                 func_name = node.func.id
-            elif isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
+            elif isinstance(node.func, ast.Attribute) and isinstance(
+                node.func.value, ast.Name
+            ):
                 func_name = f"{node.func.value.id}.{node.func.attr}"
             if func_name in ("eval", "exec", "compile", "__import__"):
-                self.warnings.append({
-                    "line": node.lineno,
-                    "column": node.col_offset,
-                    "severity": "high",
-                    "rule": "forbidden_dynamic_execution",
-                    "message": f"禁止调用动态执行函数: {func_name}()",
-                })
+                self.warnings.append(
+                    {
+                        "line": node.lineno,
+                        "column": node.col_offset,
+                        "severity": "high",
+                        "rule": "forbidden_dynamic_execution",
+                        "message": f"禁止调用动态执行函数: {func_name}()",
+                    }
+                )
             self.generic_visit(node)
 
     def audit_plugin_source(source: str) -> List[Dict[str, Any]]:
@@ -57,7 +62,14 @@ except ImportError:
 PLUGIN_ID_REGEX = re.compile(r"^[a-z0-9_]{3,32}$")
 SEMVER_REGEX = re.compile(r"^\d+\.\d+\.\d+$")
 VALID_MODES = {"reactive", "active"}
-VALID_CATEGORIES = {"utility", "notification", "message", "captcha", "helper", "entertainment"}
+VALID_CATEGORIES = {
+    "utility",
+    "notification",
+    "message",
+    "captcha",
+    "helper",
+    "entertainment",
+}
 
 
 def validate_plugin(plugin_dir: Path) -> Tuple[bool, List[str], Dict[str, Any]]:
@@ -67,7 +79,9 @@ def validate_plugin(plugin_dir: Path) -> Tuple[bool, List[str], Dict[str, Any]]:
     folder_name = plugin_dir.name
 
     if not PLUGIN_ID_REGEX.match(folder_name):
-        errors.append(f"目录名称 '{folder_name}' 不符合规范，必须为 3-32 位小写字母、数字或下划线")
+        errors.append(
+            f"目录名称 '{folder_name}' 不符合规范，必须为 3-32 位小写字母、数字或下划线"
+        )
 
     plugin_json_file = plugin_dir / "plugin.json"
     if not plugin_json_file.is_file():
@@ -77,18 +91,26 @@ def validate_plugin(plugin_dir: Path) -> Tuple[bool, List[str], Dict[str, Any]]:
             manifest = json.loads(plugin_json_file.read_text(encoding="utf-8"))
             pid = manifest.get("id")
             if pid != folder_name:
-                errors.append(f"plugin.json 中的 id '{pid}' 与目录名 '{folder_name}' 不一致")
+                errors.append(
+                    f"plugin.json 中的 id '{pid}' 与目录名 '{folder_name}' 不一致"
+                )
             if not manifest.get("name") or len(str(manifest.get("name")).strip()) < 2:
                 errors.append("plugin.json 缺少有效的 'name' 属性")
             ver = str(manifest.get("version", ""))
             if not SEMVER_REGEX.match(ver):
-                errors.append(f"plugin.json 中的 'version' '{ver}' 不符合语义化版本格式 (如 1.0.0)")
+                errors.append(
+                    f"plugin.json 中的 'version' '{ver}' 不符合语义化版本格式 (如 1.0.0)"
+                )
             mode = manifest.get("mode")
             if mode not in VALID_MODES:
-                errors.append(f"plugin.json 中的 'mode' '{mode}' 无效，必须为 reactive 或 active")
+                errors.append(
+                    f"plugin.json 中的 'mode' '{mode}' 无效，必须为 reactive 或 active"
+                )
             cat = manifest.get("category")
             if cat not in VALID_CATEGORIES:
-                errors.append(f"plugin.json 中的 'category' '{cat}' 无效，可用分类: {VALID_CATEGORIES}")
+                errors.append(
+                    f"plugin.json 中的 'category' '{cat}' 无效，可用分类: {VALID_CATEGORIES}"
+                )
             if not manifest.get("description"):
                 errors.append("plugin.json 缺少 'description' 属性")
             if not manifest.get("author"):
@@ -98,6 +120,7 @@ def validate_plugin(plugin_dir: Path) -> Tuple[bool, List[str], Dict[str, Any]]:
             if schema_file.is_file():
                 try:
                     import jsonschema
+
                     schema = json.loads(schema_file.read_text(encoding="utf-8"))
                     jsonschema.validate(instance=manifest, schema=schema)
                 except ImportError:
@@ -118,14 +141,17 @@ def validate_plugin(plugin_dir: Path) -> Tuple[bool, List[str], Dict[str, Any]]:
             code_text = py_file.read_text(encoding="utf-8")
             warnings = audit_plugin_source(code_text)
             forbidden = [
-                w for w in warnings
+                w
+                for w in warnings
                 if w.get("severity") in ("high", "critical")
                 or "subprocess" in str(w.get("message", "")).lower()
                 or "os.system" in str(w.get("message", "")).lower()
             ]
             if forbidden:
                 for w in forbidden:
-                    errors.append(f"{rel_name} 触发安全审计规则 (第 {w.get('line', 1)} 行): {w.get('message', '')}")
+                    errors.append(
+                        f"{rel_name} 触发安全审计规则 (第 {w.get('line', 1)} 行): {w.get('message', '')}"
+                    )
         except UnicodeDecodeError:
             errors.append(f"{rel_name} 编码错误，必须使用 UTF-8 编码")
         except SyntaxError as exc:
@@ -139,7 +165,9 @@ def validate_plugin(plugin_dir: Path) -> Tuple[bool, List[str], Dict[str, Any]]:
     return is_valid, errors, manifest
 
 
-def package_plugin(plugin_dir: Path, output_plugins_dir: Path, version: str) -> Tuple[Path, str, int]:
+def package_plugin(
+    plugin_dir: Path, output_plugins_dir: Path, version: str
+) -> Tuple[Path, str, int]:
     """Package plugin directory into zip and return (zip_path, sha256, file_size)."""
     pid = plugin_dir.name
     zip_name = f"{pid}-{version}.zip"
@@ -149,7 +177,11 @@ def package_plugin(plugin_dir: Path, output_plugins_dir: Path, version: str) -> 
 
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for root, dirs, files in os.walk(plugin_dir):
-            dirs[:] = [d for d in dirs if d not in ("__pycache__", ".pytest_cache") and not d.startswith(".")]
+            dirs[:] = [
+                d
+                for d in dirs
+                if d not in ("__pycache__", ".pytest_cache") and not d.startswith(".")
+            ]
             for file in sorted(files):
                 if file.startswith(".") or file.endswith(".pyc"):
                     continue
@@ -204,11 +236,14 @@ def main() -> int:
         return 1
 
     plugin_dirs = [
-        d for d in sorted(source_dir.iterdir())
+        d
+        for d in sorted(source_dir.iterdir())
         if d.is_dir() and not d.name.startswith(("_", "."))
     ]
 
-    print(f"[*] Found {len(plugin_dirs)} community plugin(s) to inspect in: {source_dir}")
+    print(
+        f"[*] Found {len(plugin_dirs)} community plugin(s) to inspect in: {source_dir}"
+    )
 
     total_valid = 0
     has_critical_errors = False
@@ -251,8 +286,16 @@ def main() -> int:
                             from scripts.ai_review_plugin import review_plugin_directory
                         except ImportError:
                             from ai_review_plugin import review_plugin_directory
-                        has_key = bool(os.environ.get("PLUGIN_REVIEW_GEMINI_KEY") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("PLUGIN_REVIEW_API_KEY") or os.environ.get("OPENAI_API_KEY"))
-                        ok, review_meta, _ = review_plugin_directory(pdir, mock_mode=not has_key)
+                        has_key = bool(
+                            os.environ.get("PLUGIN_REVIEW_GEMINI_KEY")
+                            or os.environ.get("GEMINI_API_KEY")
+                            or os.environ.get("GOOGLE_API_KEY")
+                            or os.environ.get("PLUGIN_REVIEW_API_KEY")
+                            or os.environ.get("OPENAI_API_KEY")
+                        )
+                        ok, review_meta, _ = review_plugin_directory(
+                            pdir, mock_mode=not has_key
+                        )
                         if ok and "enriched_metadata" in review_meta:
                             ai_meta = review_meta["enriched_metadata"]
                             if not description_en and ai_meta.get("description_en"):
@@ -261,7 +304,9 @@ def main() -> int:
                                 features = ai_meta["features"]
                             if ai_meta.get("tags"):
                                 tags = sorted(set(tags).union(set(ai_meta["tags"])))
-                            print(f"     ✨ AI 补全元数据: en-US 简介与 {len(tags)} 个标签")
+                            print(
+                                f"     ✨ AI 补全元数据: en-US 简介与 {len(tags)} 个标签"
+                            )
                     except Exception as exc:
                         print(f"     ⚠️ AI 补全跳过: {exc}")
                 item: Dict[str, Any] = {
@@ -305,8 +350,12 @@ def main() -> int:
     }
 
     marketplace_json = output_dir / "marketplace.json"
-    marketplace_json.write_text(json.dumps(catalog, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"\n[SUCCESS] Built {len(catalog_items)} marketplace plugin(s) into: {output_dir}")
+    marketplace_json.write_text(
+        json.dumps(catalog, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    print(
+        f"\n[SUCCESS] Built {len(catalog_items)} marketplace plugin(s) into: {output_dir}"
+    )
     print(f"          - Catalog: {marketplace_json}")
     print(f"          - Archives: {plugins_output_dir}")
     return 0

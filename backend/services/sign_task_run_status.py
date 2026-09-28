@@ -4,6 +4,7 @@
 纯函数构造 run status 字典，供 SignTaskService 内存状态复用。
 state 粗粒度兼容；phase 细粒度供面板展示。
 """
+
 from __future__ import annotations
 
 from typing import Any, Dict, Mapping, Optional, Tuple
@@ -23,6 +24,7 @@ PHASE_WAITING_LOCK = "waiting_lock"
 PHASE_COOLDOWN = "cooldown"
 PHASE_RUNNING = "running"
 PHASE_FINALIZING = "finalizing"
+
 
 def make_task_key(account_name: str, task_name: str) -> Tuple[str, str]:
     return str(account_name or "").strip(), str(task_name or "").strip()
@@ -161,7 +163,9 @@ def resolve_stored_run_status(
     return dict(status)
 
 
-def summarize_active_run(status: Optional[Mapping[str, Any]]) -> Optional[Dict[str, Any]]:
+def summarize_active_run(
+    status: Optional[Mapping[str, Any]],
+) -> Optional[Dict[str, Any]]:
     """列表 / active-runs 用的瘦身字段；非 running 返回 None。"""
     if not status:
         return None
@@ -182,8 +186,10 @@ def summarize_active_run(status: Optional[Mapping[str, Any]]) -> Optional[Dict[s
 def is_timeout_error_message(error: str) -> bool:
     """根据错误文案判断是否执行超时。"""
     text = str(error or "").lower()
-    return "任务执行超时" in text or "execution timeout" in text or (
-        "timeout" in text and "强制终止" in str(error or "")
+    return (
+        "任务执行超时" in text
+        or "execution timeout" in text
+        or ("timeout" in text and "强制终止" in str(error or ""))
     )
 
 
@@ -276,9 +282,7 @@ def build_cancel_run_response(
         "ok": bool(ok),
         "cancelled": bool(cancelled),
         "error": str(error or ""),
-        "status": resolve_stored_run_status(
-            status, requested_run_id=requested_run_id
-        ),
+        "status": resolve_stored_run_status(status, requested_run_id=requested_run_id),
     }
 
 

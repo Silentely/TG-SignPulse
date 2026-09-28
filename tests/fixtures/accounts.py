@@ -15,6 +15,7 @@ from tests.utils.helpers import utc_now_naive
 
 # ---------- 纯字典数据（不依赖 ORM 模型，可在无 DB 时使用） ----------
 
+
 def make_account_data(
     account_id: int = 1,
     account_name: str = "test_account",
@@ -46,11 +47,13 @@ ACCOUNT_BASIC = make_account_data()
 ACCOUNT_WITH_PROXY = make_account_data(
     account_id=2,
     account_name="proxy_account",
-    proxy=json.dumps({
-        "scheme": "socks5",
-        "hostname": "127.0.0.1",
-        "port": 1080,
-    }),
+    proxy=json.dumps(
+        {
+            "scheme": "socks5",
+            "hostname": "127.0.0.1",
+            "port": 1080,
+        }
+    ),
 )
 
 ACCOUNT_ACTIVE = make_account_data(

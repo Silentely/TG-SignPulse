@@ -214,7 +214,9 @@ async def import_all_configs(
         message = "; ".join(message_parts) if message_parts else "No config imported"
         # 导入成功后已同步调度；提示前端刷新
         if not result.get("errors"):
-            message = f"{message}; scheduler synced" if message_parts else "scheduler synced"
+            message = (
+                f"{message}; scheduler synced" if message_parts else "scheduler synced"
+            )
 
         from backend.scheduler import sync_jobs
 
@@ -374,7 +376,9 @@ async def test_ai_connection(current_user: User = Depends(get_current_user)):
         return AITestResponse(**result)
     except Exception as e:
         logger.error("AI 连接测试失败: %s", e, exc_info=True)
-        return AITestResponse(success=False, message="AI 连接测试失败，请检查配置后重试")
+        return AITestResponse(
+            success=False, message="AI 连接测试失败，请检查配置后重试"
+        )
 
 
 @router.delete("/ai", response_model=AIConfigSaveResponse)
@@ -497,6 +501,7 @@ def get_global_settings(current_user: User = Depends(get_current_user)):
     try:
         settings = dict(get_config_service().get_global_settings())
         from backend.core.config import get_settings
+
         settings.setdefault("timezone", get_settings().timezone)
         # 脱敏：API 响应不暴露 WebDAV 密码 / Bot Token / S3 Secret Key 明文
         raw_pwd = settings.get("webdav_password")
@@ -537,10 +542,11 @@ async def save_global_settings(
     try:
         # 只更新前端实际发送的字段，避免默认值覆盖已有配置；
         # 数值钳制与字符串归一化统一由服务层 normalize_global_settings 处理
-        fields_set = getattr(request, "model_fields_set", None) or getattr(request, "__fields_set__", set())
+        fields_set = getattr(request, "model_fields_set", None) or getattr(
+            request, "__fields_set__", set()
+        )
         settings = {
-            field_name: getattr(request, field_name)
-            for field_name in fields_set
+            field_name: getattr(request, field_name) for field_name in fields_set
         }
 
         if not settings:
@@ -552,7 +558,11 @@ async def save_global_settings(
                 detail="SETTINGS_SAVE_FAILED",
             )
         # 时区/自动备份变更时同步调度器（后台执行，不阻塞响应）
-        if "timezone" in settings or "auto_backup_enabled" in settings or "auto_backup_interval_hours" in settings:
+        if (
+            "timezone" in settings
+            or "auto_backup_enabled" in settings
+            or "auto_backup_interval_hours" in settings
+        ):
             import asyncio
 
             from backend.scheduler import sync_jobs
@@ -562,6 +572,7 @@ async def save_global_settings(
                     await sync_jobs()
                 except Exception as e:
                     logger.warning("设置变更调度同步失败: %s", e)
+
             asyncio.ensure_future(_safe_tz_sync())
         return AIConfigSaveResponse(success=True, message="Global settings saved")
     except HTTPException:

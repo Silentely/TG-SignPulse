@@ -309,7 +309,9 @@ class TestClientRequests:
         assert "list-type=2" in captured["url"]
         # prefix 经 quote 编码，尾部的 "/" 变成 %2F
         assert "prefix=tg-signpulse-backups%2F" in captured["url"]
-        assert captured["url"].endswith("/bk?list-type=2&prefix=tg-signpulse-backups%2F")
+        assert captured["url"].endswith(
+            "/bk?list-type=2&prefix=tg-signpulse-backups%2F"
+        )
         assert len(entries) == 2
         auth = captured["headers"]["Authorization"]
         assert "SignedHeaders=host;x-amz-content-sha256;x-amz-date" in auth
@@ -342,9 +344,7 @@ class TestClientRequests:
         with patch("httpx.AsyncClient", side_effect=_MockAsyncClient):
             data = await client.get_object("auto-1.tar.gz")
         assert data == b"archive-bytes"
-        assert captured["url"].endswith(
-            "/bk/tg-signpulse-backups/auto-1.tar.gz"
-        )
+        assert captured["url"].endswith("/bk/tg-signpulse-backups/auto-1.tar.gz")
 
     @pytest.mark.asyncio
     async def test_get_object_error_raises(self):
@@ -563,14 +563,14 @@ class TestPruneS3Backups:
         class _FakeClient:
             async def list_objects(self, name_suffix=".tar.gz", limit=100):
                 assert name_suffix == ".tar.gz"
-                return [
-                    {"name": f"auto-{i}.tar.gz", "key": f"k{i}"} for i in range(5)
-                ]
+                return [{"name": f"auto-{i}.tar.gz", "key": f"k{i}"} for i in range(5)]
 
             async def delete_object(self, name, timeout=60.0):
                 deleted.append(name)
 
-        with patch("backend.services.s3_backup._client_from_cfg", return_value=_FakeClient()):
+        with patch(
+            "backend.services.s3_backup._client_from_cfg", return_value=_FakeClient()
+        ):
             result = await prune_s3_backups(self.CFG, keep=2)
         assert result["success"] is True
         assert result["removed"] == 3
@@ -586,7 +586,9 @@ class TestPruneS3Backups:
             async def delete_object(self, name, timeout=60.0):
                 raise AssertionError("列表失败时不应删除")
 
-        with patch("backend.services.s3_backup._client_from_cfg", return_value=_FakeClient()):
+        with patch(
+            "backend.services.s3_backup._client_from_cfg", return_value=_FakeClient()
+        ):
             result = await prune_s3_backups(self.CFG, keep=2)
         assert result["success"] is False
         assert result["removed"] == 0
@@ -596,12 +598,17 @@ class TestPruneS3Backups:
     async def test_prune_collects_delete_errors(self):
         class _FakeClient:
             async def list_objects(self, name_suffix=".tar.gz", limit=100):
-                return [{"name": "a.tar.gz", "key": "a"}, {"name": "b.tar.gz", "key": "b"}]
+                return [
+                    {"name": "a.tar.gz", "key": "a"},
+                    {"name": "b.tar.gz", "key": "b"},
+                ]
 
             async def delete_object(self, name, timeout=60.0):
                 raise RuntimeError(f"denied:{name}")
 
-        with patch("backend.services.s3_backup._client_from_cfg", return_value=_FakeClient()):
+        with patch(
+            "backend.services.s3_backup._client_from_cfg", return_value=_FakeClient()
+        ):
             result = await prune_s3_backups(self.CFG, keep=1)
         assert result["success"] is False
         assert result["removed"] == 0
@@ -633,7 +640,9 @@ class TestModuleHelpers:
             "s3_access_key": "AK",
             "s3_secret_key": "SK",
         }
-        with patch("backend.services.s3_backup._client_from_cfg", return_value=_FakeClient()):
+        with patch(
+            "backend.services.s3_backup._client_from_cfg", return_value=_FakeClient()
+        ):
             result = await list_s3_files(cfg)
         assert result["success"] is True
         assert result["files"][0]["name"] == "auto-1.tar.gz"
@@ -656,8 +665,12 @@ class TestModuleHelpers:
 
 def test_s3_object_key_validation():
     client = _client()
-    assert client.object_key("auto-123.tar.gz") == "tg-signpulse-backups/auto-123.tar.gz"
-    assert client.object_key("/auto-123.tar.gz") == "tg-signpulse-backups/auto-123.tar.gz"
+    assert (
+        client.object_key("auto-123.tar.gz") == "tg-signpulse-backups/auto-123.tar.gz"
+    )
+    assert (
+        client.object_key("/auto-123.tar.gz") == "tg-signpulse-backups/auto-123.tar.gz"
+    )
 
     with pytest.raises(ValueError, match="非法的 S3 对象名称"):
         client.object_key("")

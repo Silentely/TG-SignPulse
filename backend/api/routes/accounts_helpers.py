@@ -50,7 +50,9 @@ def clamp_status_check_timeout(
     return max(minimum, min(value, maximum))
 
 
-def build_status_check_error_item(account_name: str, exc: BaseException) -> Dict[str, Any]:
+def build_status_check_error_item(
+    account_name: str, exc: BaseException
+) -> Dict[str, Any]:
     """单账号状态检测异常时的统一结果字典。"""
     return {
         "account_name": account_name,

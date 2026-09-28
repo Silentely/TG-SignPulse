@@ -3,6 +3,7 @@
 
 判断动作是否依赖 update、是否含关键词监听等纯函数。
 """
+
 from __future__ import annotations
 
 from typing import Any, Dict, Optional
@@ -41,7 +42,11 @@ def task_requires_updates(task_config: Optional[Dict[str, Any]]) -> bool:
     if not isinstance(task_config.get("chats"), list):
         return True
     for action in _iter_chat_actions(task_config):
-        raw_act = action.get("action") if isinstance(action, dict) else getattr(action, "action", None)
+        raw_act = (
+            action.get("action")
+            if isinstance(action, dict)
+            else getattr(action, "action", None)
+        )
         try:
             action_id = int(raw_act)
         except (TypeError, ValueError):
@@ -49,7 +54,11 @@ def task_requires_updates(task_config: Optional[Dict[str, Any]]) -> bool:
         if action_id in _RESPONSE_ACTION_IDS:
             return True
         if action_id == 99:
-            mode = action.get("mode") if isinstance(action, dict) else getattr(action, "mode", "reactive")
+            mode = (
+                action.get("mode")
+                if isinstance(action, dict)
+                else getattr(action, "mode", "reactive")
+            )
             if (mode or "reactive") == "reactive":
                 return True
     return False
@@ -58,7 +67,11 @@ def task_requires_updates(task_config: Optional[Dict[str, Any]]) -> bool:
 def task_has_keyword_monitor(task_config: Optional[Dict[str, Any]]) -> bool:
     """任务动作中是否包含关键词监听（action=8）。"""
     for action in _iter_chat_actions(task_config):
-        raw_act = action.get("action") if isinstance(action, dict) else getattr(action, "action", None)
+        raw_act = (
+            action.get("action")
+            if isinstance(action, dict)
+            else getattr(action, "action", None)
+        )
         try:
             if int(raw_act) == _KEYWORD_MONITOR_ACTION_ID:
                 return True

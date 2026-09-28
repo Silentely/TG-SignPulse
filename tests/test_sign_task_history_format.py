@@ -1,4 +1,5 @@
 """历史条目格式化纯函数测试。"""
+
 from __future__ import annotations
 
 from backend.services.sign_task_history_format import (

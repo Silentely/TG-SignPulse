@@ -56,7 +56,9 @@ def _resolve_scheduler_timezone():
         return None
 
 
-def create_cron_trigger(cron_str: str, timezone: str = "", jitter: int = 0) -> CronTrigger:
+def create_cron_trigger(
+    cron_str: str, timezone: str = "", jitter: int = 0
+) -> CronTrigger:
     """自动解析格式并创建 CronTrigger，支持 5位和6位 cron 表达式以及 HH:MM 或 HH:MM:SS。"""
     if ":" in cron_str:
         parts = cron_str.split(":")
@@ -259,7 +261,9 @@ async def _job_run_sign_task(
                 log_reason,
             )
 
-        logger.info("Scheduler: 正在运行签到任务 %s (账号: %s)", task_name, account_name)
+        logger.info(
+            "Scheduler: 正在运行签到任务 %s (账号: %s)", task_name, account_name
+        )
         if task_config and task_config.get("execution_mode") == "range":
             if not is_compensation and not is_direct:
                 range_start_str = task_config.get("range_start")
@@ -288,7 +292,9 @@ async def _job_run_sign_task(
                             # 生成随机延迟；misfire/迟到触发时截断到窗口剩余时间，
                             # 避免把执行推过 range_end
                             remaining = max(0.0, (end_dt - now).total_seconds())
-                            delay_seconds = min(random.uniform(0, total_seconds), remaining)
+                            delay_seconds = min(
+                                random.uniform(0, total_seconds), remaining
+                            )
                             logger.debug(
                                 "Scheduler: 任务 %s (账号=%s) 设置为随机时间段模式 (%s - %s)",
                                 task_name,
@@ -304,14 +310,21 @@ async def _job_run_sign_task(
 
                             if delay_seconds > 45.0 and scheduler and scheduler.running:
                                 from apscheduler.jobstores.base import JobLookupError
-                                oneshot_prefix = f"range-oneshot-{account_name}-{task_name}-"
+
+                                oneshot_prefix = (
+                                    f"range-oneshot-{account_name}-{task_name}-"
+                                )
                                 for existing_j in scheduler.get_jobs():
-                                    if str(existing_j.id or "").startswith(oneshot_prefix):
+                                    if str(existing_j.id or "").startswith(
+                                        oneshot_prefix
+                                    ):
                                         try:
                                             scheduler.remove_job(existing_j.id)
                                         except JobLookupError:
                                             pass
-                                one_shot_run_time = now + timedelta(seconds=delay_seconds)
+                                one_shot_run_time = now + timedelta(
+                                    seconds=delay_seconds
+                                )
                                 one_shot_id = f"range-oneshot-{account_name}-{task_name}-{int(one_shot_run_time.timestamp())}"
                                 logger.info(
                                     "Scheduler: 任务 %s (账号=%s) 随机时间段延迟较大 (%.1f 秒)，转为 APScheduler 单次触发任务 %s (计划执行: %s)",
@@ -323,7 +336,9 @@ async def _job_run_sign_task(
                                 )
                                 scheduler.add_job(
                                     _job_run_sign_task,
-                                    trigger=DateTrigger(run_date=one_shot_run_time, timezone=tz),
+                                    trigger=DateTrigger(
+                                        run_date=one_shot_run_time, timezone=tz
+                                    ),
                                     id=one_shot_id,
                                     args=[account_name, task_name, True],
                                     replace_existing=True,
@@ -355,7 +370,7 @@ async def _job_run_sign_task(
                 "Scheduler: 任务 %s 执行失败 (账号=%s): %s",
                 task_name,
                 account_name,
-                result.get('error'),
+                result.get("error"),
             )
     except asyncio.CancelledError:
         logger.info(
@@ -540,6 +555,7 @@ async def sync_jobs() -> None:
     from apscheduler.jobstores.base import JobLookupError
 
     from backend.scheduler.instance_lock import has_scheduler_lock
+
     _tz_logger = logging.getLogger("backend.scheduler")
     if not has_scheduler_lock():
         # 无锁副本：移除业务 job，避免误调度
@@ -561,9 +577,13 @@ async def sync_jobs() -> None:
         saved_settings = get_config_service().get_global_settings()
         saved_tz = saved_settings.get("timezone")
         desired_tz = saved_tz or get_settings().timezone
-        scheduler_tz = str(getattr(scheduler, 'timezone', ''))
+        scheduler_tz = str(getattr(scheduler, "timezone", ""))
         if desired_tz and desired_tz != scheduler_tz:
-            _tz_logger.info("时区已变更 (%s → %s)，将在下次调度器重启后生效", scheduler_tz, desired_tz)
+            _tz_logger.info(
+                "时区已变更 (%s → %s)，将在下次调度器重启后生效",
+                scheduler_tz,
+                desired_tz,
+            )
         _sync_auto_backup_job()
     except (ImportError, AttributeError, ValueError, KeyError) as e:
         _tz_logger.warning("时区变更检测失败: %s", e)
@@ -574,9 +594,7 @@ async def sync_jobs() -> None:
 
     # 同步签到任务 (SignTask)
     existing_ids = {
-        job.id
-        for job in scheduler.get_jobs()
-        if str(job.id or "").startswith("sign-")
+        job.id for job in scheduler.get_jobs() if str(job.id or "").startswith("sign-")
     }
     desired_ids = set()
 
@@ -635,7 +653,11 @@ async def sync_jobs() -> None:
 
             if job_id in _ADAPTIVE_NEXT_RUNS:
                 target_dt = _ADAPTIVE_NEXT_RUNS[job_id]
-                now_dt = datetime.now(target_dt.tzinfo) if target_dt.tzinfo else datetime.now()
+                now_dt = (
+                    datetime.now(target_dt.tzinfo)
+                    if target_dt.tzinfo
+                    else datetime.now()
+                )
                 if target_dt > now_dt:
                     job = scheduler.get_job(job_id)
                     if job:
@@ -643,7 +665,10 @@ async def sync_jobs() -> None:
                 else:
                     _ADAPTIVE_NEXT_RUNS.pop(job_id, None)
             elif st.get("execution_mode") == "range":
-                tz = getattr(scheduler, "timezone", None) or _resolve_scheduler_timezone()
+                tz = (
+                    getattr(scheduler, "timezone", None)
+                    or _resolve_scheduler_timezone()
+                )
                 oneshot_prefix = f"range-oneshot-{account_name}-{task_name}-"
                 has_pending_oneshot = any(
                     str(j.id or "").startswith(oneshot_prefix)
@@ -653,7 +678,11 @@ async def sync_jobs() -> None:
                     pass
                 elif job_id in _RANGE_COMPENSATION_RUNS:
                     target_dt = _RANGE_COMPENSATION_RUNS[job_id]
-                    now_dt = datetime.now(target_dt.tzinfo) if target_dt.tzinfo else datetime.now()
+                    now_dt = (
+                        datetime.now(target_dt.tzinfo)
+                        if target_dt.tzinfo
+                        else datetime.now()
+                    )
                     if target_dt > now_dt:
                         job = scheduler.get_job(job_id)
                         if job:
@@ -774,18 +803,14 @@ def shutdown_scheduler() -> None:
                 "调度器关闭时已停止运行: %s", exc
             )
         except Exception:
-            logging.getLogger("backend.scheduler").exception(
-                "调度器关闭发生未知异常"
-            )
+            logging.getLogger("backend.scheduler").exception("调度器关闭发生未知异常")
         scheduler = None
     try:
         from backend.scheduler.instance_lock import release_scheduler_lock
 
         release_scheduler_lock()
     except Exception:
-        logging.getLogger("backend.scheduler").exception(
-            "释放调度锁发生未知异常"
-        )
+        logging.getLogger("backend.scheduler").exception("释放调度锁发生未知异常")
         scheduler = None
 
 
@@ -822,7 +847,9 @@ def add_or_update_sign_task_job(
             args=[account_name, task_name],
             replace_existing=True,
         )
-        logger.info("Scheduler: 已添加/更新任务 %s -> %s (jitter=%s)", job_id, cron, jitter)
+        logger.info(
+            "Scheduler: 已添加/更新任务 %s -> %s (jitter=%s)", job_id, cron, jitter
+        )
 
         # 检查是否为 range 模式任务且需补偿调度
         try:
@@ -830,7 +857,10 @@ def add_or_update_sign_task_job(
 
             task_cfg = get_sign_task_service().get_task(task_name, account_name)
             if task_cfg and task_cfg.get("execution_mode") == "range":
-                tz = getattr(scheduler, "timezone", None) or _resolve_scheduler_timezone()
+                tz = (
+                    getattr(scheduler, "timezone", None)
+                    or _resolve_scheduler_timezone()
+                )
                 comp_dt = _compute_range_task_compensation(task_cfg, tz=tz)
                 if comp_dt:
                     _RANGE_COMPENSATION_RUNS[job_id] = comp_dt

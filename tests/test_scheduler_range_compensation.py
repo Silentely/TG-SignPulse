@@ -146,7 +146,9 @@ async def test_job_run_sign_task_cross_midnight_delay_stays_in_window():
     }
     mock_service.run_task_with_logs = AsyncMock(return_value={"success": True})
 
-    with patch("backend.services.sign_tasks.get_sign_task_service", return_value=mock_service):
+    with patch(
+        "backend.services.sign_tasks.get_sign_task_service", return_value=mock_service
+    ):
         with patch("backend.scheduler._resolve_scheduler_timezone", return_value=tz):
             with patch("backend.scheduler.datetime") as mock_dt:
                 mock_dt.now.side_effect = lambda t=None: late_now
@@ -178,7 +180,9 @@ async def test_job_run_sign_task_bypasses_sleep_on_compensation():
     }
     mock_service.run_task_with_logs = AsyncMock(return_value={"success": True})
 
-    with patch("backend.services.sign_tasks.get_sign_task_service", return_value=mock_service):
+    with patch(
+        "backend.services.sign_tasks.get_sign_task_service", return_value=mock_service
+    ):
         with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
             await _job_run_sign_task("acc1", "task1")
 
@@ -219,7 +223,10 @@ async def test_sync_jobs_schedules_compensation_for_midday_restart():
     ]
 
     with patch("backend.scheduler.instance_lock.has_scheduler_lock", return_value=True):
-        with patch("backend.services.sign_tasks.get_sign_task_service", return_value=mock_service):
+        with patch(
+            "backend.services.sign_tasks.get_sign_task_service",
+            return_value=mock_service,
+        ):
             with patch("backend.scheduler.datetime") as mock_dt:
                 mock_dt.now.side_effect = lambda t=None: now
                 mock_dt.strptime = datetime.strptime

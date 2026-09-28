@@ -3,6 +3,7 @@
 
 路径安全化、JSON 加载与条目过滤，供 SignTaskService 复用。
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -25,11 +26,7 @@ def safe_history_key(name: str) -> str:
     `%` → `%25`，`_` → `%5F`，保证编码结果不含裸 `_`/`%`，可无损还原。
     """
     cleaned = (
-        str(name or "")
-        .strip()
-        .replace(chr(0), "")
-        .replace("/", "_")
-        .replace("\\", "_")
+        str(name or "").strip().replace(chr(0), "").replace("/", "_").replace("\\", "_")
     )
     if cleaned in {".", ".."}:
         return "default"
@@ -66,11 +63,7 @@ def unsafe_history_key(name: str) -> str:
 def _legacy_history_key(name: str) -> str:
     """旧版编码：不做 _ / % 转义（保留用于读取升级前落盘的历史文件）。"""
     cleaned = (
-        str(name or "")
-        .strip()
-        .replace(chr(0), "")
-        .replace("/", "_")
-        .replace("\\", "_")
+        str(name or "").strip().replace(chr(0), "").replace("/", "_").replace("\\", "_")
     )
     if cleaned in {".", ".."}:
         return "default"
@@ -94,7 +87,10 @@ def legacy_history_file_path(
     """升级前（未对 _ / % 转义）落盘的历史文件路径，仅用于兼容读取。"""
     base = Path(run_history_dir)
     if account_name:
-        return base / f"{_legacy_history_key(account_name)}__{_legacy_history_key(task_name)}.json"
+        return (
+            base
+            / f"{_legacy_history_key(account_name)}__{_legacy_history_key(task_name)}.json"
+        )
     return base / f"{_legacy_history_key(task_name)}.json"
 
 
@@ -299,7 +295,9 @@ def clamp_max_age_days(max_age_days: int, *, default: int = 3, minimum: int = 1)
     return max(minimum, value)
 
 
-def cleanup_old_history_files(run_history_dir: Path | str, *, max_age_days: int = 3) -> int:
+def cleanup_old_history_files(
+    run_history_dir: Path | str, *, max_age_days: int = 3
+) -> int:
     """删除过期历史文件，返回删除数量。"""
     from datetime import timedelta
 

@@ -88,16 +88,16 @@ def _svc() -> MagicMock:
     svc.list_account_devices = AsyncMock(return_value=[{"hash": "42", "current": True}])
     svc.terminate_account_device = AsyncMock(return_value=True)
     svc.list_official_messages = AsyncMock(
-        return_value=[{"id": 1, "date": "2026-07-31", "text": "验证码", "outgoing": False}]
+        return_value=[
+            {"id": 1, "date": "2026-07-31", "text": "验证码", "outgoing": False}
+        ]
     )
     svc.download_account_avatar = AsyncMock(return_value=b"\xff\xd8\xffavatar")
     return svc
 
 
 def _patch_svc(svc: MagicMock):
-    return patch(
-        "backend.api.routes.accounts.get_telegram_service", return_value=svc
-    )
+    return patch("backend.api.routes.accounts.get_telegram_service", return_value=svc)
 
 
 class TestLoginFlow:
@@ -180,7 +180,9 @@ class TestLoginFlow:
         """需要 2FA 密码时返回稳定错误码，前端按码分支而非按文案匹配。"""
         token = _login(api_client)
         svc = _svc()
-        svc.verify_login.side_effect = ValueError("此账号启用了两步验证，请输入 2FA 密码")
+        svc.verify_login.side_effect = ValueError(
+            "此账号启用了两步验证，请输入 2FA 密码"
+        )
         with _patch_svc(svc):
             resp = api_client.post(
                 "/api/accounts/login/verify",
@@ -339,7 +341,8 @@ class TestStatusCheckJobs:
             raise ValueError("已有任务进行中")
 
         monkeypatch.setattr(
-            "backend.services.account_status_jobs.start_account_status_check_job", _raise
+            "backend.services.account_status_jobs.start_account_status_check_job",
+            _raise,
         )
         resp = api_client.post(
             "/api/accounts/status/check-jobs",
@@ -356,7 +359,9 @@ class TestStatusCheckJobs:
             lambda limit: seen.append(limit) or [],
         )
         api_client.get(
-            "/api/accounts/status/check-jobs", params={"limit": 999}, headers=_auth(token)
+            "/api/accounts/status/check-jobs",
+            params={"limit": 999},
+            headers=_auth(token),
         )
         api_client.get(
             "/api/accounts/status/check-jobs", params={"limit": 0}, headers=_auth(token)
@@ -406,9 +411,7 @@ def _sign_svc(**overrides) -> MagicMock:
 
 
 def _patch_sign_svc(svc: MagicMock):
-    return patch(
-        "backend.services.sign_tasks.get_sign_task_service", return_value=svc
-    )
+    return patch("backend.services.sign_tasks.get_sign_task_service", return_value=svc)
 
 
 class TestRecentLogs:
@@ -520,12 +523,13 @@ class TestClearAndAccountLogs:
 
     def test_clear_account_logs_success(self, api_client, db):  # noqa: F811
         token = _login(api_client)
-        with _patch_svc(_svc()), _patch_sign_svc(
-            _sign_svc(clear_account_history_logs={"removed_entries": 2})
+        with (
+            _patch_svc(_svc()),
+            _patch_sign_svc(
+                _sign_svc(clear_account_history_logs={"removed_entries": 2})
+            ),
         ):
-            resp = api_client.post(
-                "/api/accounts/a1/logs/clear", headers=_auth(token)
-            )
+            resp = api_client.post("/api/accounts/a1/logs/clear", headers=_auth(token))
         assert resp.status_code == 200
         assert resp.json()["cleared"] == 2
 
@@ -546,9 +550,7 @@ class TestClearAndAccountLogs:
             },
         ]
         with _patch_sign_svc(_sign_svc(get_account_history_logs=history)):
-            resp = api_client.get(
-                "/api/accounts/a1/logs/export", headers=_auth(token)
-            )
+            resp = api_client.get("/api/accounts/a1/logs/export", headers=_auth(token))
         assert resp.status_code == 200
         assert resp.headers["content-type"].startswith("text/plain")
         assert "attachment" in resp.headers["content-disposition"]
@@ -708,7 +710,10 @@ class TestStatusCheckExtended:
         assert results[0]["ok"] is True
         assert results[1]["ok"] is False
         # 超时参数被钳制到上限 20s
-        assert svc.check_account_status.await_args_list[0].kwargs["timeout_seconds"] == 20.0
+        assert (
+            svc.check_account_status.await_args_list[0].kwargs["timeout_seconds"]
+            == 20.0
+        )
 
     def test_default_names_from_list_accounts(self, api_client, db):  # noqa: F811
         token = _login(api_client)
@@ -856,7 +861,8 @@ class TestErrorBranchesRound2:
             raise RuntimeError("db locked")
 
         monkeypatch.setattr(
-            "backend.services.account_status_jobs.start_account_status_check_job", _raise
+            "backend.services.account_status_jobs.start_account_status_check_job",
+            _raise,
         )
         resp = api_client.post(
             "/api/accounts/status/check-jobs",
@@ -910,9 +916,7 @@ class TestErrorBranchesRound2:
         svc = _sign_svc()
         svc.clear_account_history_logs.side_effect = RuntimeError("io error")
         with _patch_svc(_svc()), _patch_sign_svc(svc):
-            resp = api_client.post(
-                "/api/accounts/a1/logs/clear", headers=_auth(token)
-            )
+            resp = api_client.post("/api/accounts/a1/logs/clear", headers=_auth(token))
         assert resp.status_code == 500
         assert resp.json()["detail"] == "CLEAR_LOGS_FAILED"
 
@@ -945,9 +949,7 @@ class TestAvatarStaleCache:
         # 把缓存文件 mtime 拨到 8 天前，使新鲜期失效
         from backend.core.config import get_settings
 
-        cache_file = (
-            get_settings().resolve_workdir() / "avatars" / "ava_e.jpg"
-        )
+        cache_file = get_settings().resolve_workdir() / "avatars" / "ava_e.jpg"
         stale = cache_file.stat().st_mtime - 8 * 86400
         os.utime(cache_file, (stale, stale))
         svc.download_account_avatar.side_effect = RuntimeError("flood wait")
@@ -969,9 +971,7 @@ class TestAvatarStaleCache:
         # 把无头像标记拨到 8 天前：应被视为过期并重新尝试下载
         from backend.core.config import get_settings
 
-        marker = (
-            get_settings().resolve_workdir() / "avatars" / "ava_f.no_avatar"
-        )
+        marker = get_settings().resolve_workdir() / "avatars" / "ava_f.no_avatar"
         stale = marker.stat().st_mtime - 8 * 86400
         os.utime(marker, (stale, stale))
         svc.download_account_avatar.return_value = b"\xff\xd8\xffnew"
@@ -989,9 +989,7 @@ class TestChatAvatarCache:
         token = _login(api_client)
         svc = _svc()
         svc.download_chat_avatar = AsyncMock(side_effect=RuntimeError("flood wait"))
-        with patch(
-            "backend.services.telegram.get_telegram_service", return_value=svc
-        ):
+        with patch("backend.services.telegram.get_telegram_service", return_value=svc):
             resp = api_client.get(
                 "/api/sign-tasks/chats/acc/avatar/123", headers=_auth(token)
             )
@@ -999,7 +997,10 @@ class TestChatAvatarCache:
         from backend.core.config import get_settings
 
         marker = (
-            get_settings().resolve_workdir() / "avatars" / "chats" / "chat_123.no_avatar"
+            get_settings().resolve_workdir()
+            / "avatars"
+            / "chats"
+            / "chat_123.no_avatar"
         )
         # 瞬时错误不得污染 7 天"无头像"缓存
         assert not marker.exists()
@@ -1008,9 +1009,7 @@ class TestChatAvatarCache:
         token = _login(api_client)
         svc = _svc()
         svc.download_chat_avatar = AsyncMock(return_value=None)
-        with patch(
-            "backend.services.telegram.get_telegram_service", return_value=svc
-        ):
+        with patch("backend.services.telegram.get_telegram_service", return_value=svc):
             first = api_client.get(
                 "/api/sign-tasks/chats/acc/avatar/456", headers=_auth(token)
             )
@@ -1026,9 +1025,7 @@ class TestChatAvatarCache:
         token = _login(api_client)
         svc = _svc()
         svc.download_chat_avatar = AsyncMock(return_value=b"\xff\xd8\xffchat")
-        with patch(
-            "backend.services.telegram.get_telegram_service", return_value=svc
-        ):
+        with patch("backend.services.telegram.get_telegram_service", return_value=svc):
             first = api_client.get(
                 "/api/sign-tasks/chats/acc/avatar/789", headers=_auth(token)
             )
@@ -1071,7 +1068,6 @@ class TestUpdateAccountRename:
         svc.rename_account.assert_awaited_once_with("old_acc", "new_acc")
 
 
-
 class TestAccountNameValidation:
     """路径参数输入校验：穿越名/路径分隔符统一 400，且不触达服务层。
 
@@ -1112,8 +1108,12 @@ class TestAccountNameValidation:
         svc = _svc()
         sign_svc = MagicMock()
         name = "%2e%2e"
-        with _patch_svc(svc), patch(
-            "backend.services.sign_tasks.get_sign_task_service", return_value=sign_svc
+        with (
+            _patch_svc(svc),
+            patch(
+                "backend.services.sign_tasks.get_sign_task_service",
+                return_value=sign_svc,
+            ),
         ):
             # 删除账号
             resp = api_client.delete(f"/api/accounts/{name}", headers=_auth(token))

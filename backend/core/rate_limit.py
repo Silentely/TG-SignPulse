@@ -129,7 +129,10 @@ def is_trusted_proxy(client_host: str, trusted_list: Iterable[str]) -> bool:
                     return True
             else:
                 target_ip = ipaddress.ip_address(trusted)
-                if isinstance(target_ip, ipaddress.IPv6Address) and target_ip.ipv4_mapped:
+                if (
+                    isinstance(target_ip, ipaddress.IPv6Address)
+                    and target_ip.ipv4_mapped
+                ):
                     target_ip = target_ip.ipv4_mapped
                 if client_ip == target_ip:
                     return True
@@ -158,7 +161,9 @@ def get_client_identifier(request: Request) -> str:
     # 若对端为空（如单元测试未伪造 client）或直连对端为可信反向代理，才解析转发头
     if not client_host or is_trusted_proxy(client_host, trusted):
         headers = getattr(request, "headers", {})
-        forwarded_for = headers.get("x-forwarded-for", "") if hasattr(headers, "get") else ""
+        forwarded_for = (
+            headers.get("x-forwarded-for", "") if hasattr(headers, "get") else ""
+        )
         if isinstance(forwarded_for, str) and forwarded_for.strip():
             hops = [h.strip() for h in forwarded_for.split(",") if h.strip()]
             if not client_host:

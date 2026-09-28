@@ -6,6 +6,7 @@
 3. regex_match_deadline 到点返回空而非挂起
 4. 写入侧（CRUD / 导入 / pydantic 模型）与运行期判据一致
 """
+
 from __future__ import annotations
 
 import time
@@ -172,18 +173,24 @@ class TestUnsafeActionDetection:
             _action_has_unsafe_keyword_regex,
         )
 
-        assert _action_has_unsafe_keyword_regex(
-            {"match_mode": "contains", "keywords": [r"^(\w+\s?)*$"]}
-        ) is False
+        assert (
+            _action_has_unsafe_keyword_regex(
+                {"match_mode": "contains", "keywords": [r"^(\w+\s?)*$"]}
+            )
+            is False
+        )
 
     def test_regex_mode_detects_unsafe_keyword(self):
         from backend.services.keyword_monitor.rules import (
             _action_has_unsafe_keyword_regex,
         )
 
-        assert _action_has_unsafe_keyword_regex(
-            {"match_mode": "regex", "keywords": [r"^\d+$", r"^(a+)+$"]}
-        ) is True
+        assert (
+            _action_has_unsafe_keyword_regex(
+                {"match_mode": "regex", "keywords": [r"^\d+$", r"^(a+)+$"]}
+            )
+            is True
+        )
 
     def test_validate_action_raises_with_readable_message(self):
         from backend.services.keyword_monitor.rules import (

@@ -149,9 +149,7 @@ class TestRemoteCheck:
         monkeypatch.setenv("APP_VERSION", "2.0.0")
         monkeypatch.delenv("APP_UPDATE_CHECK_URL", raising=False)
         mock_client = self._html_redirect_client("v2.1.0")
-        with patch(
-            "backend.utils.version_info.httpx.Client", return_value=mock_client
-        ):
+        with patch("backend.utils.version_info.httpx.Client", return_value=mock_client):
             result = check_remote_update(force=True)
         assert result["enabled"] is True
         assert result["latest_version"] == "2.1.0"
@@ -170,9 +168,7 @@ class TestRemoteCheck:
         monkeypatch.setenv("APP_VERSION", "2.0.0")
         monkeypatch.delenv("APP_UPDATE_CHECK_URL", raising=False)
         mock_client = self._html_redirect_client("v2.1.0")
-        with patch(
-            "backend.utils.version_info.httpx.Client", return_value=mock_client
-        ):
+        with patch("backend.utils.version_info.httpx.Client", return_value=mock_client):
             first = check_remote_update(force=True)
             second = check_remote_update(force=False)
         assert first["cached"] is False
@@ -187,9 +183,7 @@ class TestRemoteCheck:
         mock_client.__enter__.return_value = mock_client
         mock_client.__exit__.return_value = None
         mock_client.get.side_effect = Exception("connection refused")
-        with patch(
-            "backend.utils.version_info.httpx.Client", return_value=mock_client
-        ):
+        with patch("backend.utils.version_info.httpx.Client", return_value=mock_client):
             result = check_remote_update(force=True)
         assert result["enabled"] is True
         assert result["update_available"] is False
@@ -206,9 +200,7 @@ class TestRemoteCheck:
         mock_client.__enter__.return_value = mock_client
         mock_client.__exit__.return_value = None
         mock_client.get.side_effect = Exception("timeout")
-        with patch(
-            "backend.utils.version_info.httpx.Client", return_value=mock_client
-        ):
+        with patch("backend.utils.version_info.httpx.Client", return_value=mock_client):
             check_remote_update(force=True)
             check_remote_update(force=False)
         # 每次失败：HTML + JSON 兜底，故 call_count >= 2
@@ -231,9 +223,7 @@ class TestRemoteCheck:
         monkeypatch.delenv("APP_GITHUB_TOKEN", raising=False)
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
         mock_client = self._html_redirect_client("v2.5.0")
-        with patch(
-            "backend.utils.version_info.httpx.Client", return_value=mock_client
-        ):
+        with patch("backend.utils.version_info.httpx.Client", return_value=mock_client):
             result = check_remote_update(force=True)
         assert result["error"] is None
         assert result["latest_version"] == "2.5.0"
@@ -247,23 +237,26 @@ class TestRemoteCheck:
         monkeypatch.setenv("APP_VERSION", "2.0.0")
         monkeypatch.delenv("APP_UPDATE_CHECK_URL", raising=False)
 
-        with patch(
-            "backend.utils.version_info._fetch_via_html_redirect",
-            side_effect=Exception("html down"),
-        ), patch(
-            "backend.utils.version_info._fetch_json_release",
-            return_value={
-                "enabled": True,
-                "latest_version": "2.2.0",
-                "latest_url": (
-                    "https://github.com/Silentely/TG-SignPulse/releases/tag/v2.2.0"
-                ),
-                "update_available": True,
-                "checked_at": "2026-07-26T00:00:00+00:00",
-                "error": None,
-                "source": "github_releases",
-                "cached": False,
-            },
+        with (
+            patch(
+                "backend.utils.version_info._fetch_via_html_redirect",
+                side_effect=Exception("html down"),
+            ),
+            patch(
+                "backend.utils.version_info._fetch_json_release",
+                return_value={
+                    "enabled": True,
+                    "latest_version": "2.2.0",
+                    "latest_url": (
+                        "https://github.com/Silentely/TG-SignPulse/releases/tag/v2.2.0"
+                    ),
+                    "update_available": True,
+                    "checked_at": "2026-07-26T00:00:00+00:00",
+                    "error": None,
+                    "source": "github_releases",
+                    "cached": False,
+                },
+            ),
         ):
             result = check_remote_update(force=True)
         assert result["error"] is None
@@ -283,9 +276,7 @@ class TestRemoteCheck:
             request=MagicMock(),
             response=MagicMock(status_code=403),
         )
-        with patch(
-            "backend.utils.version_info.httpx.Client", return_value=mock_client
-        ):
+        with patch("backend.utils.version_info.httpx.Client", return_value=mock_client):
             result = check_remote_update(force=True)
         assert result["enabled"] is True
         assert result["latest_version"] is None
@@ -307,9 +298,7 @@ class TestRemoteCheck:
         fail_client.__exit__.return_value = None
         fail_client.get.side_effect = Exception("timeout")
 
-        with patch(
-            "backend.utils.version_info.httpx.Client", return_value=ok_client
-        ):
+        with patch("backend.utils.version_info.httpx.Client", return_value=ok_client):
             first = check_remote_update(force=True)
         assert first["latest_version"] == "2.1.0"
 
@@ -318,9 +307,7 @@ class TestRemoteCheck:
         with vi._cache_lock:
             vi._cache["expires_at"] = 0.0
 
-        with patch(
-            "backend.utils.version_info.httpx.Client", return_value=fail_client
-        ):
+        with patch("backend.utils.version_info.httpx.Client", return_value=fail_client):
             second = check_remote_update(force=True)
         assert second["latest_version"] == "2.1.0"
         assert second["cached"] is True
@@ -345,9 +332,7 @@ class TestRemoteCheck:
         mock_client.__enter__.return_value = mock_client
         mock_client.__exit__.return_value = None
         mock_client.get.return_value = mock_resp
-        with patch(
-            "backend.utils.version_info.httpx.Client", return_value=mock_client
-        ):
+        with patch("backend.utils.version_info.httpx.Client", return_value=mock_client):
             result = check_remote_update(force=True)
         assert result["latest_version"] == "3.0.0"
         assert result["source"] == "custom_release_json"
@@ -376,9 +361,7 @@ class TestRemoteCheck:
         mock_client.__exit__.return_value = None
         mock_client.get.return_value = api_resp
 
-        with patch(
-            "backend.utils.version_info.httpx.Client", return_value=mock_client
-        ):
+        with patch("backend.utils.version_info.httpx.Client", return_value=mock_client):
             result = check_remote_update(force=True)
         assert result["latest_version"] == "2.1.0"
         headers = mock_client.get.call_args.kwargs.get("headers") or {}

@@ -1,4 +1,5 @@
 """签到历史进程内事件总线测试。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -71,4 +72,6 @@ async def test_append_index_publishes_event(tmp_path):
 @pytest.mark.asyncio
 async def test_no_subscribers_publish_is_noop():
     assert subscriber_count() == 0
-    publish_sign_history({"time": "t", "account_name": "a", "task_name": "x", "success": True})
+    publish_sign_history(
+        {"time": "t", "account_name": "a", "task_name": "x", "success": True}
+    )

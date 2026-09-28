@@ -53,6 +53,7 @@ def _resolve_concurrency_limit() -> int:
             pass
     try:
         from backend.services.config import get_config_service
+
         settings = get_config_service().get_global_settings()
         val = settings.get("tg_global_concurrency")
         if val is not None:
@@ -256,7 +257,11 @@ def set_account_profile(
     if tags is not None:
         entry["tags"] = [str(t).strip() for t in tags if str(t).strip()]
     if device_family is not None:
-        entry["device_family"] = str(device_family).strip() if isinstance(device_family, str) else device_family
+        entry["device_family"] = (
+            str(device_family).strip()
+            if isinstance(device_family, str)
+            else device_family
+        )
     if device_profile is not None:
         entry["device_profile"] = device_profile
     if proxy_probe_policy is not None:
@@ -332,7 +337,9 @@ def load_session_string_file(session_dir: Path, account_name: str) -> Optional[s
     return _export_session_string_from_file(session_dir, account_name)
 
 
-def _export_session_string_from_file(session_dir: Path, account_name: str) -> Optional[str]:
+def _export_session_string_from_file(
+    session_dir: Path, account_name: str
+) -> Optional[str]:
     """从 .session SQLite 导出 Pyrogram 新版 session_string 并缓存。
 
     格式必须与 ``Client.export_session_string()`` 一致：
@@ -361,9 +368,7 @@ def _export_session_string_from_file(session_dir: Path, account_name: str) -> Op
             ).fetchone()
         except Exception as exc:
             # 未登录的 .session 无 sessions 表属常态，仅 debug；表损坏也会被归入此类
-            _logger.debug(
-                "读取 sessions 表失败 account=%s: %s", account_name, exc
-            )
+            _logger.debug("读取 sessions 表失败 account=%s: %s", account_name, exc)
             conn.close()
             return None
 

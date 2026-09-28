@@ -3,6 +3,7 @@ UserSigner / UserMonitor / BaseUserWorker 运行时实现。
 
 Client 生命周期与工厂见 `tg_signer.core.client`（本模块不再重复定义）。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -296,7 +297,9 @@ class BaseUserWorker(Generic[ConfigT]):
                             continue
                         chat_id = getattr(chat, "id", None)
                         if chat_id is None:
-                            self.log("get_dialogs 返回 chat.id 为空，已跳过", level="WARNING")
+                            self.log(
+                                "get_dialogs 返回 chat.id 为空，已跳过", level="WARNING"
+                            )
                             continue
                         latest_chats.append(
                             {
@@ -370,9 +373,7 @@ class BaseUserWorker(Generic[ConfigT]):
             )
         )
         if delete_after is not None:
-            self.log(
-                f"消息「{text}」将在 {delete_after} 秒后删除 (Chat {chat_id})"
-            )
+            self.log(f"消息「{text}」将在 {delete_after} 秒后删除 (Chat {chat_id})")
             self.log("等待删除...")
             await asyncio.sleep(delete_after)
             try:
@@ -416,9 +417,7 @@ class BaseUserWorker(Generic[ConfigT]):
             )
         )
         if message and delete_after is not None:
-            self.log(
-                f"骰子「{emoji}」将在 {delete_after} 秒后删除 (Chat {chat_id})"
-            )
+            self.log(f"骰子「{emoji}」将在 {delete_after} 秒后删除 (Chat {chat_id})")
             self.log("等待删除...")
             await asyncio.sleep(delete_after)
             try:

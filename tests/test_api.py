@@ -133,9 +133,13 @@ def _create_account(db, account_name: str = "test_account", **kwargs) -> Account
     return account
 
 
-def _login(client: TestClient, username: str = ADMIN_USERNAME, password: str = ADMIN_PASSWORD) -> str:
+def _login(
+    client: TestClient, username: str = ADMIN_USERNAME, password: str = ADMIN_PASSWORD
+) -> str:
     """登录并返回 Bearer token"""
-    resp = client.post("/api/auth/login", json={"username": username, "password": password})
+    resp = client.post(
+        "/api/auth/login", json={"username": username, "password": password}
+    )
     assert resp.status_code == 200, f"登录失败: {resp.status_code} {resp.text}"
     return resp.json()["access_token"]
 
@@ -201,7 +205,6 @@ class TestAuthAPI:
     def test_login_wrong_username(self, api_client, db):
         """登录失败：用户名不存在返回 401"""
 
-
         resp = api_client.post(
             "/api/auth/login",
             json={"username": "nonexistent", "password": ADMIN_PASSWORD},
@@ -211,7 +214,6 @@ class TestAuthAPI:
 
     def test_login_empty_credentials(self, api_client, db):
         """登录失败：空用户名返回 401"""
-
 
         resp = api_client.post(
             "/api/auth/login",
@@ -270,7 +272,9 @@ class TestAccountAPI:
         mock_svc = _mock_tg_service()
         mock_svc.list_accounts.return_value = []
 
-        with patch("backend.api.routes.accounts.get_telegram_service", return_value=mock_svc):
+        with patch(
+            "backend.api.routes.accounts.get_telegram_service", return_value=mock_svc
+        ):
             resp = api_client.get("/api/accounts", headers=_auth(token))
 
         assert resp.status_code == 200
@@ -313,7 +317,9 @@ class TestAccountAPI:
             },
         ]
 
-        with patch("backend.api.routes.accounts.get_telegram_service", return_value=mock_svc):
+        with patch(
+            "backend.api.routes.accounts.get_telegram_service", return_value=mock_svc
+        ):
             resp = api_client.get("/api/accounts", headers=_auth(token))
 
         assert resp.status_code == 200
@@ -337,8 +343,12 @@ class TestAccountAPI:
         mock_svc = _mock_tg_service()
         mock_svc.account_exists.return_value = True
 
-        with patch("backend.api.routes.accounts.get_telegram_service", return_value=mock_svc):
-            resp = api_client.get("/api/accounts/existing_acc/exists", headers=_auth(token))
+        with patch(
+            "backend.api.routes.accounts.get_telegram_service", return_value=mock_svc
+        ):
+            resp = api_client.get(
+                "/api/accounts/existing_acc/exists", headers=_auth(token)
+            )
 
         assert resp.status_code == 200
         data = resp.json()
@@ -353,8 +363,12 @@ class TestAccountAPI:
         mock_svc = _mock_tg_service()
         mock_svc.account_exists.return_value = False
 
-        with patch("backend.api.routes.accounts.get_telegram_service", return_value=mock_svc):
-            resp = api_client.get("/api/accounts/ghost_acc/exists", headers=_auth(token))
+        with patch(
+            "backend.api.routes.accounts.get_telegram_service", return_value=mock_svc
+        ):
+            resp = api_client.get(
+                "/api/accounts/ghost_acc/exists", headers=_auth(token)
+            )
 
         assert resp.status_code == 200
         data = resp.json()
@@ -368,7 +382,9 @@ class TestAccountAPI:
         mock_svc = _mock_tg_service()
         mock_svc.delete_account = AsyncMock(return_value=True)
 
-        with patch("backend.api.routes.accounts.get_telegram_service", return_value=mock_svc):
+        with patch(
+            "backend.api.routes.accounts.get_telegram_service", return_value=mock_svc
+        ):
             resp = api_client.delete("/api/accounts/old_account", headers=_auth(token))
 
         assert resp.status_code == 200
@@ -385,7 +401,9 @@ class TestAccountAPI:
         mock_svc = _mock_tg_service()
         mock_svc.delete_account = AsyncMock(return_value=False)
 
-        with patch("backend.api.routes.accounts.get_telegram_service", return_value=mock_svc):
+        with patch(
+            "backend.api.routes.accounts.get_telegram_service", return_value=mock_svc
+        ):
             resp = api_client.delete("/api/accounts/ghost", headers=_auth(token))
 
         assert resp.status_code == 404
@@ -420,8 +438,13 @@ class TestAccountAPI:
             [{**original_account, "remark": "新备注"}],
         ]
 
-        with patch("backend.api.routes.accounts.get_telegram_service", return_value=mock_svc), \
-             patch("backend.utils.tg_session.set_account_profile"):
+        with (
+            patch(
+                "backend.api.routes.accounts.get_telegram_service",
+                return_value=mock_svc,
+            ),
+            patch("backend.utils.tg_session.set_account_profile"),
+        ):
             resp = api_client.patch(
                 "/api/accounts/my_account",
                 json={"remark": "新备注"},
@@ -441,7 +464,9 @@ class TestAccountAPI:
         mock_svc = _mock_tg_service()
         mock_svc.list_accounts.return_value = []
 
-        with patch("backend.api.routes.accounts.get_telegram_service", return_value=mock_svc):
+        with patch(
+            "backend.api.routes.accounts.get_telegram_service", return_value=mock_svc
+        ):
             resp = api_client.patch(
                 "/api/accounts/ghost",
                 json={"remark": "test"},
@@ -462,8 +487,18 @@ class TestAccountAPI:
 
         mock_svc = _mock_tg_service()
         mock_svc.list_accounts.return_value = [
-            {"name": "acc_1", "session_file": "acc_1.session", "exists": True, "size": 1024},
-            {"name": "acc_2", "session_file": "acc_2.session", "exists": True, "size": 2048},
+            {
+                "name": "acc_1",
+                "session_file": "acc_1.session",
+                "exists": True,
+                "size": 1024,
+            },
+            {
+                "name": "acc_2",
+                "session_file": "acc_2.session",
+                "exists": True,
+                "size": 2048,
+            },
         ]
         mock_svc.check_account_status = AsyncMock(
             return_value={
@@ -477,7 +512,9 @@ class TestAccountAPI:
             }
         )
 
-        with patch("backend.api.routes.accounts.get_telegram_service", return_value=mock_svc):
+        with patch(
+            "backend.api.routes.accounts.get_telegram_service", return_value=mock_svc
+        ):
             resp = api_client.post(
                 "/api/accounts/status/check",
                 json={"account_names": ["acc_1", "acc_2"], "timeout_seconds": 5.0},
@@ -487,9 +524,6 @@ class TestAccountAPI:
         assert resp.status_code == 200
         data = resp.json()
         assert len(data["results"]) == 2
-
-
-
 
 
 # ============================================================================
@@ -513,13 +547,17 @@ class TestTaskAPI:
         assert_gone(
             api_client.post(
                 "/api/tasks",
-                json={"name": "x", "cron": "0 6 * * *", "enabled": True, "account_id": 1},
+                json={
+                    "name": "x",
+                    "cron": "0 6 * * *",
+                    "enabled": True,
+                    "account_id": 1,
+                },
                 headers=headers,
             )
         )
         assert_gone(api_client.delete("/api/tasks/1", headers=headers))
         assert_gone(api_client.post("/api/tasks/1/run", headers=headers))
-
 
 
 # ============================================================================
@@ -596,7 +634,13 @@ class TestRetryCountValidation:
                 "account_name": "acc1",
                 "account_names": ["acc1"],
                 "sign_at": "08:00",
-                "chats": [{"chat_id": 123, "name": "test", "actions": [{"action": 1, "text": "hi"}]}],
+                "chats": [
+                    {
+                        "chat_id": 123,
+                        "name": "test",
+                        "actions": [{"action": 1, "text": "hi"}],
+                    }
+                ],
                 "retry_count": -1,
             },
             headers=_auth(token),
@@ -615,7 +659,13 @@ class TestRetryCountValidation:
                 "account_name": "acc1",
                 "account_names": ["acc1"],
                 "sign_at": "08:00",
-                "chats": [{"chat_id": 123, "name": "test", "actions": [{"action": 1, "text": "hi"}]}],
+                "chats": [
+                    {
+                        "chat_id": 123,
+                        "name": "test",
+                        "actions": [{"action": 1, "text": "hi"}],
+                    }
+                ],
                 "retry_count": 100,
             },
             headers=_auth(token),
@@ -635,7 +685,13 @@ class TestRetryCountValidation:
                     "account_name": "acc1",
                     "account_names": ["acc1"],
                     "sign_at": "08:00",
-                    "chats": [{"chat_id": 123, "name": "test", "actions": [{"action": 1, "text": "hi"}]}],
+                    "chats": [
+                        {
+                            "chat_id": 123,
+                            "name": "test",
+                            "actions": [{"action": 1, "text": "hi"}],
+                        }
+                    ],
                     "retry_count": 5,
                 },
                 headers=_auth(token),

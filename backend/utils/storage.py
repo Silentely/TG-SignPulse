@@ -14,6 +14,7 @@ _BASE_DIR: Optional[Path] = None
 _DATA_DIR_OVERRIDE_FILE_ENV = "APP_DATA_DIR_OVERRIDE_FILE"
 _DEFAULT_DATA_DIR_OVERRIDE_FILE = Path.cwd() / ".tg_signpulse_data_dir"
 
+
 def _probe_writable_dir(base: Path) -> bool:
     probe_dir = base / ".probe"
     test_file = probe_dir / ".write_test"

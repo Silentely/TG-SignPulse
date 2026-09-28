@@ -103,7 +103,9 @@ class TestTDataDetectionAndExtraction:
 
 
 class TestTDataConversionAndCleanup:
-    def test_convert_tdata_missing_optional_dependency_has_clear_error(self, tmp_path: Path):
+    def test_convert_tdata_missing_optional_dependency_has_clear_error(
+        self, tmp_path: Path
+    ):
         tdata_dir = tmp_path / "tdata"
         tdata_dir.mkdir()
         (tdata_dir / "key_datas").write_bytes(b"mock")
@@ -113,12 +115,15 @@ class TestTDataConversionAndCleanup:
         with patch.dict(sys.modules, {"opentele": None, "opentele.td": None}):
             with pytest.raises(RuntimeError) as exc_info:
                 convert_tdata_to_session("test_account", tdata_dir, session_dir)
-            assert "TDATA_CONVERTER_UNAVAILABLE: Optional dependency 'opentele' is not installed" in str(
-                exc_info.value
+            assert (
+                "TDATA_CONVERTER_UNAVAILABLE: Optional dependency 'opentele' is not installed"
+                in str(exc_info.value)
             )
 
     @pytest.mark.asyncio
-    async def test_tdata_import_cleans_up_temp_dir_on_success_or_failure(self, tmp_path: Path):
+    async def test_tdata_import_cleans_up_temp_dir_on_success_or_failure(
+        self, tmp_path: Path
+    ):
         zip_bytes = _create_sample_tdata_zip(nested=True)
         created_temp_dirs: list[Path] = []
 
@@ -158,21 +163,33 @@ class TestTDataConversionAndCleanup:
         class MockPasscodeNeeded(Exception):
             pass
 
-        mock_td_module.TData.Create.side_effect = MockPasscodeNeeded("Passcode is needed to decrypt")
+        mock_td_module.TData.Create.side_effect = MockPasscodeNeeded(
+            "Passcode is needed to decrypt"
+        )
 
-        with patch.dict(sys.modules, {"opentele": mock_opentele, "opentele.td": mock_td_module}):
+        with patch.dict(
+            sys.modules, {"opentele": mock_opentele, "opentele.td": mock_td_module}
+        ):
             with pytest.raises(ValueError, match="TDATA_PASSWORD_REQUIRED"):
-                convert_tdata_to_session("test_acc", tdata_dir, session_dir, password=None)
+                convert_tdata_to_session(
+                    "test_acc", tdata_dir, session_dir, password=None
+                )
 
         # 2. Password invalid error
         class MockWrongPasscode(Exception):
             pass
 
-        mock_td_module.TData.Create.side_effect = MockWrongPasscode("Wrong passcode provided")
+        mock_td_module.TData.Create.side_effect = MockWrongPasscode(
+            "Wrong passcode provided"
+        )
 
-        with patch.dict(sys.modules, {"opentele": mock_opentele, "opentele.td": mock_td_module}):
+        with patch.dict(
+            sys.modules, {"opentele": mock_opentele, "opentele.td": mock_td_module}
+        ):
             with pytest.raises(ValueError, match="TDATA_PASSWORD_INVALID"):
-                convert_tdata_to_session("test_acc", tdata_dir, session_dir, password="wrong_pass")
+                convert_tdata_to_session(
+                    "test_acc", tdata_dir, session_dir, password="wrong_pass"
+                )
 
 
 class TestTDataApiEndpoints:
@@ -224,7 +241,9 @@ class TestTDataApiEndpoints:
         assert "TDATA_CONVERTER_UNAVAILABLE" in resp.text
 
 
-def _make_pyrogram_sqlite_bytes(dc_id: int = 2, auth_key: bytes | None = None, user_id: int = 123456) -> bytes:
+def _make_pyrogram_sqlite_bytes(
+    dc_id: int = 2, auth_key: bytes | None = None, user_id: int = 123456
+) -> bytes:
     key = auth_key or (b"K" * 256)
     conn = sqlite3.connect(":memory:")
     conn.execute("CREATE TABLE version (number INTEGER)")
@@ -259,8 +278,14 @@ class TestTDataSuccessFlow:
             sess_file.write_bytes(pyro_sqlite)
             return sess_file
 
-        with patch("backend.services.telegram.tdata_importer.convert_tdata_to_session", side_effect=mock_convert):
-            with patch("backend.services.telegram.session_importer.verify_imported_session", new_callable=AsyncMock) as mock_verify:
+        with patch(
+            "backend.services.telegram.tdata_importer.convert_tdata_to_session",
+            side_effect=mock_convert,
+        ):
+            with patch(
+                "backend.services.telegram.session_importer.verify_imported_session",
+                new_callable=AsyncMock,
+            ) as mock_verify:
                 mock_verify.return_value = {
                     "user_id": 88888,
                     "first_name": "TDataUser",
@@ -284,8 +309,14 @@ class TestTDataSuccessFlow:
             sess_file.write_bytes(pyro_sqlite)
             return sess_file
 
-        with patch("backend.services.telegram.tdata_importer.convert_tdata_to_session", side_effect=mock_convert):
-            with patch("backend.services.telegram.session_importer.verify_imported_session", new_callable=AsyncMock) as mock_verify:
+        with patch(
+            "backend.services.telegram.tdata_importer.convert_tdata_to_session",
+            side_effect=mock_convert,
+        ):
+            with patch(
+                "backend.services.telegram.session_importer.verify_imported_session",
+                new_callable=AsyncMock,
+            ) as mock_verify:
                 mock_verify.return_value = {
                     "user_id": 77777,
                     "first_name": "ApiTDataUser",

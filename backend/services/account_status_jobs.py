@@ -4,6 +4,7 @@
 基于 BackgroundJobStore：可取消、可落盘、服务重启后中断任务标记 failed。
 前端批量检测走异步 Job，避免账号多时 HTTP 长阻塞。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -79,7 +80,9 @@ def _clamp_timeout(value: Any) -> float:
     return clamp(timeout, MIN_TIMEOUT, MAX_TIMEOUT)
 
 
-async def _run_status_check(job_id: str, names: List[str], timeout_seconds: float) -> None:
+async def _run_status_check(
+    job_id: str, names: List[str], timeout_seconds: float
+) -> None:
     from backend.services.telegram import get_telegram_service
 
     store = get_account_status_job_store()
@@ -126,7 +129,9 @@ async def _run_status_check(job_id: str, names: List[str], timeout_seconds: floa
             store.append_log(job_id, "info", f"{name}: 正常", ref=name, persist=False)
         else:
             fail_count += 1
-            msg = item.get("message") or item.get("code") or item.get("status") or "异常"
+            msg = (
+                item.get("message") or item.get("code") or item.get("status") or "异常"
+            )
             store.append_log(job_id, "error", f"{name}: {msg}", ref=name, persist=False)
 
         # 过程结果落盘，供前端轮询渐进刷新卡片状态

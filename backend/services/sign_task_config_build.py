@@ -78,7 +78,9 @@ def build_sign_task_config(
     tags: Optional[List[str]] = None,
     adaptive_schedule_enabled: bool = _DEFAULT_TASK_FIELDS["adaptive_schedule_enabled"],
     adaptive_schedule_patterns: Optional[List[str]] = None,
-    adaptive_schedule_padding_seconds: int = _DEFAULT_TASK_FIELDS["adaptive_schedule_padding_seconds"],
+    adaptive_schedule_padding_seconds: int = _DEFAULT_TASK_FIELDS[
+        "adaptive_schedule_padding_seconds"
+    ],
     next_task_on_success: Optional[str] = None,
     next_task_delay_seconds: Optional[float] = None,
     last_run: Any = None,
@@ -107,7 +109,9 @@ def build_sign_task_config(
         "adaptive_schedule_patterns": list(adaptive_schedule_patterns or []),
         "adaptive_schedule_padding_seconds": int(adaptive_schedule_padding_seconds),
         "next_task_on_success": str(next_task_on_success or "").strip(),
-        "next_task_delay_seconds": float(next_task_delay_seconds) if next_task_delay_seconds is not None else 2.0,
+        "next_task_delay_seconds": float(next_task_delay_seconds)
+        if next_task_delay_seconds is not None
+        else 2.0,
     }
     if last_run is not None:
         config["last_run"] = last_run
@@ -138,26 +142,92 @@ def resolve_update_field_values(
 ) -> Dict[str, Any]:
     """合并更新入参与既有配置，返回下一版字段值。"""
     return {
-        "sign_at": sign_at if sign_at is not None else str(existing.get("sign_at") or _DEFAULT_TASK_FIELDS["sign_at"]),
-        "random_seconds": random_seconds if random_seconds is not None else int(existing.get("random_seconds", _DEFAULT_TASK_FIELDS["random_seconds"])),
-        "jitter_seconds": int(jitter_seconds) if jitter_seconds is not None else int(existing.get("jitter_seconds", _DEFAULT_TASK_FIELDS["jitter_seconds"]) or 0),
-        "sign_interval": sign_interval if sign_interval is not None else int(existing.get("sign_interval", _DEFAULT_TASK_FIELDS["sign_interval"])),
-        "chats": chats if chats is not None else list(existing.get("chats") or _DEFAULT_TASK_FIELDS["chats"]),
-        "execution_mode": execution_mode if execution_mode is not None else str(existing.get("execution_mode", _DEFAULT_TASK_FIELDS["execution_mode"])),
-        "range_start": range_start if range_start is not None else str(existing.get("range_start", _DEFAULT_TASK_FIELDS["range_start"])),
-        "range_end": range_end if range_end is not None else str(existing.get("range_end", _DEFAULT_TASK_FIELDS["range_end"])),
-        "notify_on_failure": notify_on_failure if notify_on_failure is not None else bool(existing.get("notify_on_failure", _DEFAULT_TASK_FIELDS["notify_on_failure"])),
-        "notify_on_success": notify_on_success if notify_on_success is not None else bool(existing.get("notify_on_success", _DEFAULT_TASK_FIELDS["notify_on_success"])),
-        "enabled": enabled if enabled is not None else bool(existing.get("enabled", _DEFAULT_TASK_FIELDS["enabled"])),
-        "retry_count": retry_count if retry_count is not None else int(existing.get("retry_count", _DEFAULT_TASK_FIELDS["retry_count"])),
-        "tags": normalize_task_tags(
-            tags if tags is not None else existing.get("tags") or _DEFAULT_TASK_FIELDS["tags"]
+        "sign_at": sign_at
+        if sign_at is not None
+        else str(existing.get("sign_at") or _DEFAULT_TASK_FIELDS["sign_at"]),
+        "random_seconds": random_seconds
+        if random_seconds is not None
+        else int(
+            existing.get("random_seconds", _DEFAULT_TASK_FIELDS["random_seconds"])
         ),
-        "adaptive_schedule_enabled": bool(existing.get("adaptive_schedule_enabled", _DEFAULT_TASK_FIELDS["adaptive_schedule_enabled"])) if adaptive_schedule_enabled is None else bool(adaptive_schedule_enabled),
-        "adaptive_schedule_patterns": list(existing.get("adaptive_schedule_patterns", _DEFAULT_TASK_FIELDS["adaptive_schedule_patterns"]) or []) if adaptive_schedule_patterns is None else list(adaptive_schedule_patterns),
-        "adaptive_schedule_padding_seconds": int(existing.get("adaptive_schedule_padding_seconds", _DEFAULT_TASK_FIELDS["adaptive_schedule_padding_seconds"])) if adaptive_schedule_padding_seconds is None else int(adaptive_schedule_padding_seconds),
-        "next_task_on_success": str(next_task_on_success if next_task_on_success is not None else existing.get("next_task_on_success", "")).strip(),
-        "next_task_delay_seconds": float(next_task_delay_seconds if next_task_delay_seconds is not None else existing.get("next_task_delay_seconds", 2.0)),
+        "jitter_seconds": int(jitter_seconds)
+        if jitter_seconds is not None
+        else int(
+            existing.get("jitter_seconds", _DEFAULT_TASK_FIELDS["jitter_seconds"]) or 0
+        ),
+        "sign_interval": sign_interval
+        if sign_interval is not None
+        else int(existing.get("sign_interval", _DEFAULT_TASK_FIELDS["sign_interval"])),
+        "chats": chats
+        if chats is not None
+        else list(existing.get("chats") or _DEFAULT_TASK_FIELDS["chats"]),
+        "execution_mode": execution_mode
+        if execution_mode is not None
+        else str(
+            existing.get("execution_mode", _DEFAULT_TASK_FIELDS["execution_mode"])
+        ),
+        "range_start": range_start
+        if range_start is not None
+        else str(existing.get("range_start", _DEFAULT_TASK_FIELDS["range_start"])),
+        "range_end": range_end
+        if range_end is not None
+        else str(existing.get("range_end", _DEFAULT_TASK_FIELDS["range_end"])),
+        "notify_on_failure": notify_on_failure
+        if notify_on_failure is not None
+        else bool(
+            existing.get("notify_on_failure", _DEFAULT_TASK_FIELDS["notify_on_failure"])
+        ),
+        "notify_on_success": notify_on_success
+        if notify_on_success is not None
+        else bool(
+            existing.get("notify_on_success", _DEFAULT_TASK_FIELDS["notify_on_success"])
+        ),
+        "enabled": enabled
+        if enabled is not None
+        else bool(existing.get("enabled", _DEFAULT_TASK_FIELDS["enabled"])),
+        "retry_count": retry_count
+        if retry_count is not None
+        else int(existing.get("retry_count", _DEFAULT_TASK_FIELDS["retry_count"])),
+        "tags": normalize_task_tags(
+            tags
+            if tags is not None
+            else existing.get("tags") or _DEFAULT_TASK_FIELDS["tags"]
+        ),
+        "adaptive_schedule_enabled": bool(
+            existing.get(
+                "adaptive_schedule_enabled",
+                _DEFAULT_TASK_FIELDS["adaptive_schedule_enabled"],
+            )
+        )
+        if adaptive_schedule_enabled is None
+        else bool(adaptive_schedule_enabled),
+        "adaptive_schedule_patterns": list(
+            existing.get(
+                "adaptive_schedule_patterns",
+                _DEFAULT_TASK_FIELDS["adaptive_schedule_patterns"],
+            )
+            or []
+        )
+        if adaptive_schedule_patterns is None
+        else list(adaptive_schedule_patterns),
+        "adaptive_schedule_padding_seconds": int(
+            existing.get(
+                "adaptive_schedule_padding_seconds",
+                _DEFAULT_TASK_FIELDS["adaptive_schedule_padding_seconds"],
+            )
+        )
+        if adaptive_schedule_padding_seconds is None
+        else int(adaptive_schedule_padding_seconds),
+        "next_task_on_success": str(
+            next_task_on_success
+            if next_task_on_success is not None
+            else existing.get("next_task_on_success", "")
+        ).strip(),
+        "next_task_delay_seconds": float(
+            next_task_delay_seconds
+            if next_task_delay_seconds is not None
+            else existing.get("next_task_delay_seconds", 2.0)
+        ),
     }
 
 
@@ -244,6 +314,7 @@ def last_run_map_from_related(
         acc = str(task.get("account_name") or "")
         out[acc] = task.get("last_run")
     return out
+
 
 def create_task_group_id(account_count: int) -> str:
     """新建任务：多账号生成 group id，单账号为空。"""

@@ -1,4 +1,5 @@
 """sign_task_group 纯函数测试。"""
+
 from __future__ import annotations
 
 from typing import Any, List, Optional, Sequence
@@ -12,7 +13,9 @@ from backend.services.sign_task_group import (
 )
 
 
-def _norm(names: Optional[Sequence[Any]] = None, primary: Optional[str] = None) -> List[str]:
+def _norm(
+    names: Optional[Sequence[Any]] = None, primary: Optional[str] = None
+) -> List[str]:
     out: List[str] = []
     for n in list(names or []):
         s = str(n or "").strip()
@@ -26,9 +29,10 @@ def _norm(names: Optional[Sequence[Any]] = None, primary: Optional[str] = None) 
 def test_first_real_and_last_run():
     assert first_real_account(["*", "a"], "x") == "a"
     assert first_real_account(["*"], "x") == "x"
-    assert select_latest_last_run(
-        {"time": "2026-01-01"}, {"time": "2026-01-02"}
-    )["time"] == "2026-01-02"
+    assert (
+        select_latest_last_run({"time": "2026-01-01"}, {"time": "2026-01-02"})["time"]
+        == "2026-01-02"
+    )
 
 
 def test_first_real_account_edge_cases():
@@ -67,9 +71,7 @@ def test_aggregate_and_related():
     assert set(agg[0]["account_names"]) == {"a", "b"}
     assert agg[0]["last_run"]["time"] == "2"
 
-    related = filter_related_task_infos(
-        tasks, "t1", "a", normalize_account_names=_norm
-    )
+    related = filter_related_task_infos(tasks, "t1", "a", normalize_account_names=_norm)
     assert len(related) == 2
     related2 = filter_related_task_infos(
         tasks, "missing", None, normalize_account_names=_norm

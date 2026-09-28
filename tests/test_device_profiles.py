@@ -167,7 +167,9 @@ def test_device_profile_persisted_in_account_profile(tmp_path, monkeypatch):
     assert matched.get("device_profile") == profile_data
 
 
-def test_update_account_device_profile_refuses_when_client_active(api_client, db, monkeypatch):
+def test_update_account_device_profile_refuses_when_client_active(
+    api_client, db, monkeypatch
+):
     """验证 Client 处于活跃引用 (_CLIENT_REFS > 0) 时，修改设备画像返回 HTTP 409 (ACCOUNT_BUSY)。"""
     from backend.services.telegram import get_telegram_service
 

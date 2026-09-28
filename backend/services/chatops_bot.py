@@ -80,7 +80,9 @@ class TelegramChatOpsWorker:
                 "• <code>/run &lt;task_name&gt;</code>: 立即触发指定任务执行\n"
                 "• <code>/help</code>: 显示此帮助信息"
             )
-            await send_telegram_bot_message(bot_token=bot_token, chat_id=chat_id, text=reply, parse_mode="HTML")
+            await send_telegram_bot_message(
+                bot_token=bot_token, chat_id=chat_id, text=reply, parse_mode="HTML"
+            )
             return
 
         if cmd == "/status":
@@ -109,11 +111,14 @@ class TelegramChatOpsWorker:
                         f"({_html_escape(r.get('account_name'))})\n"
                     )
 
-            await send_telegram_bot_message(bot_token=bot_token, chat_id=chat_id, text=reply, parse_mode="HTML")
+            await send_telegram_bot_message(
+                bot_token=bot_token, chat_id=chat_id, text=reply, parse_mode="HTML"
+            )
             return
 
         if cmd == "/tasks":
             from backend.services.sign_tasks import get_sign_task_service
+
             tasks = get_sign_task_service().list_tasks()
             if not tasks:
                 reply = "暂无任务配置。"
@@ -130,7 +135,9 @@ class TelegramChatOpsWorker:
                 if len(tasks) > 15:
                     reply += f"\n<i>...以及其余 {len(tasks) - 15} 个任务</i>"
 
-            await send_telegram_bot_message(bot_token=bot_token, chat_id=chat_id, text=reply, parse_mode="HTML")
+            await send_telegram_bot_message(
+                bot_token=bot_token, chat_id=chat_id, text=reply, parse_mode="HTML"
+            )
             return
 
         if cmd == "/cooldown":
@@ -146,31 +153,45 @@ class TelegramChatOpsWorker:
                         f"({_html_escape(info['reason'])})\n"
                     )
 
-            await send_telegram_bot_message(bot_token=bot_token, chat_id=chat_id, text=reply, parse_mode="HTML")
+            await send_telegram_bot_message(
+                bot_token=bot_token, chat_id=chat_id, text=reply, parse_mode="HTML"
+            )
             return
 
         if cmd == "/run":
             if len(parts) < 2:
                 reply = "⚠️ 请指定任务名称，例如: <code>/run my_task</code>"
-                await send_telegram_bot_message(bot_token=bot_token, chat_id=chat_id, text=reply, parse_mode="HTML")
+                await send_telegram_bot_message(
+                    bot_token=bot_token, chat_id=chat_id, text=reply, parse_mode="HTML"
+                )
                 return
             target_task = parts[1]
             from backend.services.sign_tasks import get_sign_task_service
+
             svc = get_sign_task_service()
             matched = [t for t in svc.list_tasks() if t.get("name") == target_task]
             if not matched:
                 # target_task 来自聊天输入，必须转义后再拼进 HTML 消息，
                 # 否则可注入任意 markup 破坏下发消息结构
                 reply = f"❌ 未找到名为 <code>{_html_escape(target_task)}</code> 的任务。使用 <code>/tasks</code> 查看可用列表。"
-                await send_telegram_bot_message(bot_token=bot_token, chat_id=chat_id, text=reply, parse_mode="HTML")
+                await send_telegram_bot_message(
+                    bot_token=bot_token, chat_id=chat_id, text=reply, parse_mode="HTML"
+                )
                 return
 
             # 触发后台执行
             task_obj = matched[0]
-            acc_name = task_obj.get("account_name") or (task_obj.get("account_names") or [""])[0]
+            acc_name = (
+                task_obj.get("account_name")
+                or (task_obj.get("account_names") or [""])[0]
+            )
             if not acc_name:
-                reply = f"❌ 任务 <code>{_html_escape(target_task)}</code> 未关联有效账号。"
-                await send_telegram_bot_message(bot_token=bot_token, chat_id=chat_id, text=reply, parse_mode="HTML")
+                reply = (
+                    f"❌ 任务 <code>{_html_escape(target_task)}</code> 未关联有效账号。"
+                )
+                await send_telegram_bot_message(
+                    bot_token=bot_token, chat_id=chat_id, text=reply, parse_mode="HTML"
+                )
                 return
 
             asyncio.create_task(svc.run_task_with_logs(acc_name, target_task))
@@ -180,7 +201,9 @@ class TelegramChatOpsWorker:
                 f"• 账号: <code>{_html_escape(acc_name)}</code>\n"
                 "结果将在完成后推送通知。"
             )
-            await send_telegram_bot_message(bot_token=bot_token, chat_id=chat_id, text=reply, parse_mode="HTML")
+            await send_telegram_bot_message(
+                bot_token=bot_token, chat_id=chat_id, text=reply, parse_mode="HTML"
+            )
             return
 
     async def _poll_loop(self) -> None:
@@ -197,14 +220,18 @@ class TelegramChatOpsWorker:
                     settings = cfg_svc.get_global_settings()
 
                     bot_token = (settings.get("telegram_bot_token") or "").strip()
-                    allowed_chat_id = str(settings.get("telegram_bot_chat_id") or "").strip()
+                    allowed_chat_id = str(
+                        settings.get("telegram_bot_chat_id") or ""
+                    ).strip()
                     # 默认关闭：未显式配置 chatops_enabled 时按未启用处理（fail-closed）
                     chatops_enabled = settings.get(
                         "telegram_bot_chatops_enabled", False
                     )
 
                     if not bot_token or not allowed_chat_id or not chatops_enabled:
-                        if client is not None and not getattr(client, "is_closed", True):
+                        if client is not None and not getattr(
+                            client, "is_closed", True
+                        ):
                             await client.aclose()
                             client = None
                             current_proxy = None
@@ -212,8 +239,14 @@ class TelegramChatOpsWorker:
                         continue
 
                     needed_proxy = format_proxy_url(cfg_svc.get_global_proxy())
-                    if client is None or getattr(client, "is_closed", True) or current_proxy != needed_proxy:
-                        if client is not None and not getattr(client, "is_closed", True):
+                    if (
+                        client is None
+                        or getattr(client, "is_closed", True)
+                        or current_proxy != needed_proxy
+                    ):
+                        if client is not None and not getattr(
+                            client, "is_closed", True
+                        ):
                             await client.aclose()
                         client = httpx.AsyncClient(proxy=needed_proxy, timeout=35.0)
                         current_proxy = needed_proxy

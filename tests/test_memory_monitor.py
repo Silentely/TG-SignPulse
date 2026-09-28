@@ -59,6 +59,7 @@ def test_invalid_max_history():
 
 def test_alert_callback_exception_does_not_propagate():
     """告警回调抛异常时不应影响 check 主流程，应被吞掉并记录日志。"""
+
     def bad_callback(_alert):
         raise RuntimeError("callback boom")
 

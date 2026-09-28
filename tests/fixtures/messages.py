@@ -18,6 +18,7 @@ from tests.mocks.telegram import (
 
 # ---------- 基础消息 ----------
 
+
 def make_text_message(
     message_id: int = 1,
     text: str = "签到",
@@ -73,6 +74,7 @@ def make_sign_fail_message(
 
 # ---------- 带按钮的消息 ----------
 
+
 def make_inline_keyboard_message(
     message_id: int = 20,
     text: str = "请选择正确的选项",
@@ -111,6 +113,7 @@ def make_reply_keyboard_message(
 
 # ---------- 图片消息 ----------
 
+
 def make_photo_message(
     message_id: int = 30,
     caption: str = "请根据图片选择正确选项",
@@ -148,6 +151,7 @@ def make_photo_no_keyboard_message(
 
 # ---------- 计算题消息 ----------
 
+
 def make_calculation_message(
     message_id: int = 40,
     text: str = "请计算: 12 + 34 = ?",
@@ -181,6 +185,7 @@ def make_calculation_with_buttons_message(
 
 # ---------- 辅助类 ----------
 
+
 class MockPhoto:
     """模拟 Telegram Photo 对象"""
 
@@ -192,6 +197,7 @@ class MockPhoto:
 
 
 # ---------- 预置消息序列 ----------
+
 
 def make_sign_flow_messages(
     chat_id: int = -1001234567890,

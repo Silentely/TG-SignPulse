@@ -30,7 +30,7 @@ def test_plugin_metadata_module_globals():
     with tempfile.TemporaryDirectory() as tmp_dir:
         plugin_file = Path(tmp_dir) / "sample_globals.py"
         plugin_file.write_text(
-            '''
+            """
 from tg_signer.core.plugins import PluginRegistry, PluginContext
 
 VERSION = "1.3.0"
@@ -40,7 +40,7 @@ AUTHOR = "Bob Developer"
 @PluginRegistry.register(name="sample_globals_plugin")
 async def handle_sample(ctx: PluginContext):
     return True
-''',
+""",
             encoding="utf-8",
         )
         loaded = PluginRegistry.load_plugins_from_dir(tmp_dir)
@@ -57,13 +57,13 @@ def test_plugin_metadata_fallback_to_defaults_and_mtime():
     with tempfile.TemporaryDirectory() as tmp_dir:
         plugin_file = Path(tmp_dir) / "sample_mtime.py"
         plugin_file.write_text(
-            '''
+            """
 from tg_signer.core.plugins import PluginRegistry, PluginContext
 
 @PluginRegistry.register(name="sample_mtime_plugin")
 async def handle_sample(ctx: PluginContext):
     return True
-''',
+""",
             encoding="utf-8",
         )
         loaded = PluginRegistry.load_plugins_from_dir(tmp_dir)

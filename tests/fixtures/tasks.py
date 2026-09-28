@@ -14,6 +14,7 @@ from tests.utils.helpers import utc_now_naive
 
 # ---------- 纯字典任务数据 ----------
 
+
 def make_task_data(
     task_id: int = 1,
     name: str = "daily_sign",

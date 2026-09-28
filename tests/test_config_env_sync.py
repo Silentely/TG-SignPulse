@@ -92,7 +92,9 @@ class TestApplyGlobalSettingsToEnv:
         apply_global_settings_to_env({"ai_vision_reasoning_effort": None})
         assert "AI_VISION_REASONING_EFFORT" not in os.environ
 
-    def test_string_sync_invalid_value_clears_env(self, isolated_env: Path, monkeypatch):
+    def test_string_sync_invalid_value_clears_env(
+        self, isolated_env: Path, monkeypatch
+    ):
         """apply 侧兜底：非法思考度值不应透传到 env。"""
         import os
 
@@ -163,4 +165,6 @@ class TestGetGlobalProxy:
     def test_matches_global_settings_value(self, isolated_env: Path):
         service = ConfigService()
         service.save_global_settings({"global_proxy": "http://u:p@h:8080"})
-        assert service.get_global_proxy() == service.get_global_settings()["global_proxy"]
+        assert (
+            service.get_global_proxy() == service.get_global_settings()["global_proxy"]
+        )

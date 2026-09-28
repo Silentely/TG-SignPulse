@@ -112,7 +112,9 @@ def _extract_tokens(text: str) -> List[_TimeToken]:
             unit_type = "seconds"
 
         if unit_type:
-            tokens.append(_TimeToken(unit=unit_type, val=val, start=m.start(), end=m.end()))
+            tokens.append(
+                _TimeToken(unit=unit_type, val=val, start=m.start(), end=m.end())
+            )
     return tokens
 
 

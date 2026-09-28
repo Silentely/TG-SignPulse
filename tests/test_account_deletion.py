@@ -77,10 +77,12 @@ async def test_delete_account_removes_store_only_account(service):
 async def test_delete_account_purges_pending_login_records(service):
     """删除账号时必须清理登录中会话，否则账号会继续出现在账号列表中。"""
     (service.session_dir / "acc_pending.session").write_bytes(b"sqlite")
+
     class _MockLoginClient:
         def __init__(self):
             self.is_initialized = True
             self.stopped = False
+
         async def stop(self):
             self.stopped = True
 
@@ -106,7 +108,9 @@ async def test_delete_account_purges_pending_login_records(service):
 async def test_delete_account_cleans_session_string_file_regardless_of_mode(service):
     """.session_string 残留与当前会话模式无关，必须一并清理。"""
     (service.session_dir / "acc_str.session").write_bytes(b"sqlite")
-    (service.session_dir / "acc_str.session_string").write_text("dummy", encoding="utf-8")
+    (service.session_dir / "acc_str.session_string").write_text(
+        "dummy", encoding="utf-8"
+    )
 
     with _patch_close_client():
         assert await service.delete_account("acc_str") is True

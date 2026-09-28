@@ -19,14 +19,18 @@ def test_sign_task_create_name_validation():
         SignTaskCreate(
             name="task/with/slash",
             sign_at="0 9 * * *",
-            chats=[{"chat_id": 123, "actions": [{"action": "send_text", "text": "hello"}]}],
+            chats=[
+                {"chat_id": 123, "actions": [{"action": "send_text", "text": "hello"}]}
+            ],
         )
 
     with pytest.raises(ValidationError):
         SignTaskCreate(
             name="task\x00null",
             sign_at="0 9 * * *",
-            chats=[{"chat_id": 123, "actions": [{"action": "send_text", "text": "hello"}]}],
+            chats=[
+                {"chat_id": 123, "actions": [{"action": "send_text", "text": "hello"}]}
+            ],
         )
 
 

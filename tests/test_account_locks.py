@@ -230,7 +230,9 @@ async def test_devices_timeout_raises_busy():
 
     with pytest.raises(RuntimeError) as exc_info2:
         with unittest.mock.patch.object(
-            svc, "list_account_devices", return_value=[{"hash": "123", "current": False}]
+            svc,
+            "list_account_devices",
+            return_value=[{"hash": "123", "current": False}],
         ):
             await svc.terminate_account_device(account, 123, timeout_seconds=0.1)
     assert "ACCOUNT_BUSY" in str(exc_info2.value)

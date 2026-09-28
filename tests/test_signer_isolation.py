@@ -72,7 +72,11 @@ class SignerIsolationTest(unittest.TestCase):
     def test_session_invalid_error_shows_chinese_hint(self):
         calls = []
         signers = [
-            ("task:first", _StubSigner(ConnectionError("Session invalid: unauthorized"), calls), 10),
+            (
+                "task:first",
+                _StubSigner(ConnectionError("Session invalid: unauthorized"), calls),
+                10,
+            ),
         ]
 
         with self.assertRaises(click.ClickException) as ctx:

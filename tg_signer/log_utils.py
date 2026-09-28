@@ -25,9 +25,15 @@ _SECRET_PATTERNS = [
     # 带凭据的 URL（http/https/socks4/socks5）
     re.compile(r"(?:https?|socks[45])://[^:]+:[^@]+@[^\s]+"),
     # Authorization header（支持带引号：'Authorization': 'Bearer xxx'）
-    re.compile(r"""(?:['"]?(?:authorization|x-api-key)['"]?\s*[:=]\s*)(?:\S+\s+)?\S+""", re.IGNORECASE),
+    re.compile(
+        r"""(?:['"]?(?:authorization|x-api-key)['"]?\s*[:=]\s*)(?:\S+\s+)?\S+""",
+        re.IGNORECASE,
+    ),
     # api_key=xxx 或 'api_key': xxx 字段值（支持带引号）
-    re.compile(r"""(?:['"]?(?:api_key|api_secret|access_token|refresh_token)['"]?\s*[:=]\s*)['"]?\S+['"]?""", re.IGNORECASE),
+    re.compile(
+        r"""(?:['"]?(?:api_key|api_secret|access_token|refresh_token)['"]?\s*[:=]\s*)['"]?\S+['"]?""",
+        re.IGNORECASE,
+    ),
 ]
 
 
@@ -90,7 +96,9 @@ def safe_ai_request_meta(
 
     # 增强：添加选项预览
     if options_preview:
-        safe_options = [safe_text_preview(opt, max_chars=30) for opt in options_preview[:5]]
+        safe_options = [
+            safe_text_preview(opt, max_chars=30) for opt in options_preview[:5]
+        ]
         options_str = ", ".join(safe_options)
         if len(options_preview) > 5:
             options_str += f", ...+{len(options_preview) - 5}"
@@ -108,7 +116,9 @@ def safe_exception_summary(exc: Exception, max_chars: int = 300) -> str:
     return f"{type(exc).__name__}: {text}"
 
 
-def safe_traceback_preview(tb: str, max_lines: int = 6, max_line_chars: int = 200) -> str:
+def safe_traceback_preview(
+    tb: str, max_lines: int = 6, max_line_chars: int = 200
+) -> str:
     """
     安全的 traceback 预览：脱敏每行内容，限制行数
     用于写入任务日志流（会持久化、API 展示、通知外发）
@@ -158,7 +168,9 @@ def safe_ai_result_meta(
 
     # 增强：添加选中的选项预览
     if selected_options:
-        safe_selected = [safe_text_preview(opt, max_chars=40) for opt in selected_options]
+        safe_selected = [
+            safe_text_preview(opt, max_chars=40) for opt in selected_options
+        ]
         selected_str = ", ".join(safe_selected)
         parts.append(f"selected=[{selected_str}]")
 

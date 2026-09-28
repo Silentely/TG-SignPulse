@@ -9,9 +9,7 @@ from backend.utils.time import utc_now_naive
 class Account(Base):
     __tablename__ = "accounts"
 
-    __table_args__ = (
-        Index("ix_accounts_status_created", "status", "created_at"),
-    )
+    __table_args__ = (Index("ix_accounts_status_created", "status", "created_at"),)
 
     id = Column(Integer, primary_key=True, index=True)
     account_name = Column(String(100), unique=True, nullable=False, index=True)
@@ -24,4 +22,3 @@ class Account(Base):
     updated_at = Column(
         DateTime, default=utc_now_naive, onupdate=utc_now_naive, nullable=False
     )
-

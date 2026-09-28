@@ -7,6 +7,7 @@
 - APP_MONITOR_ACCOUNT_ALLOWLIST: 逗号分隔账号白名单（优先）
 - APP_MONITOR_SHARD: 形如 ``i/n``，对账号名 CRC32 取模，仅处理余数为 i 的账号
 """
+
 from __future__ import annotations
 
 import os
@@ -31,9 +32,7 @@ def parse_monitor_shard(raw: Optional[str] = None) -> Optional[tuple[int, int]]:
 
 def parse_account_allowlist(raw: Optional[str] = None) -> Optional[set[str]]:
     value = (
-        raw
-        if raw is not None
-        else os.getenv("APP_MONITOR_ACCOUNT_ALLOWLIST", "")
+        raw if raw is not None else os.getenv("APP_MONITOR_ACCOUNT_ALLOWLIST", "")
     ).strip()
     if not value:
         return None

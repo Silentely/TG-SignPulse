@@ -47,10 +47,14 @@ def handler(ctx):
     ctx.log("running downloaded plugin")
 """
 
-    with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get, \
-         patch("socket.getaddrinfo", return_value=[_fake_addr("93.184.216.34")]), \
-         patch("tg_signer.core.plugins.PluginRegistry.get_search_directories", return_value=[tmp_path]):
-
+    with (
+        patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get,
+        patch("socket.getaddrinfo", return_value=[_fake_addr("93.184.216.34")]),
+        patch(
+            "tg_signer.core.plugins.PluginRegistry.get_search_directories",
+            return_value=[tmp_path],
+        ),
+    ):
         mock_get.return_value = mock_resp
         req = InstallRemotePluginRequest(
             url="https://raw.githubusercontent.com/example/repo/main/my_plugin.py",
@@ -89,10 +93,14 @@ async def test_install_remote_plugin_rejects_redirects():
     from backend.models.user import User
 
     fake_user = User(username="admin")
-    mock_resp = MagicMock(status_code=302, headers={"location": "http://127.0.0.1/evil.py"})
+    mock_resp = MagicMock(
+        status_code=302, headers={"location": "http://127.0.0.1/evil.py"}
+    )
 
-    with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get, \
-         patch("socket.getaddrinfo", return_value=[_fake_addr("93.184.216.34")]):
+    with (
+        patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get,
+        patch("socket.getaddrinfo", return_value=[_fake_addr("93.184.216.34")]),
+    ):
         mock_get.return_value = mock_resp
         req = InstallRemotePluginRequest(url="https://example.com/plugin.py")
         with pytest.raises(HTTPException) as exc_info:
@@ -150,7 +158,10 @@ async def test_install_remote_plugin_blocks_multihomed_private_record():
 
     fake_user = User(username="admin")
     req = InstallRemotePluginRequest(url="http://evil.example.com/plugin.py")
-    with patch("socket.getaddrinfo", return_value=[_fake_addr("93.184.216.34"), _fake_addr("10.0.0.5")]):
+    with patch(
+        "socket.getaddrinfo",
+        return_value=[_fake_addr("93.184.216.34"), _fake_addr("10.0.0.5")],
+    ):
         with pytest.raises(HTTPException) as exc_info:
             await install_remote_plugin(req, _user=fake_user)
 
@@ -168,7 +179,10 @@ async def test_install_remote_plugin_rejects_unresolvable_host():
 
     fake_user = User(username="admin")
     req = InstallRemotePluginRequest(url="http://nonexistent.invalid/plugin.py")
-    with patch("socket.getaddrinfo", side_effect=socket.gaierror(8, "nodename nor servname provided")):
+    with patch(
+        "socket.getaddrinfo",
+        side_effect=socket.gaierror(8, "nodename nor servname provided"),
+    ):
         with pytest.raises(HTTPException) as exc_info:
             await install_remote_plugin(req, _user=fake_user)
 

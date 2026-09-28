@@ -8,6 +8,7 @@
 - root 启动且 chown 失败：非零退出且绝不启动服务（fail-closed，不回退 root）
 - APP_AUTO_FIX_DATA_PERMS=0：跳过 chown，仍经 gosu 降权
 """
+
 from __future__ import annotations
 
 import re
@@ -103,7 +104,11 @@ def _run_entrypoint(stub_bin: Path, log: Path, env: dict, data_dir: Path):
 def _logged(log: Path) -> list[str]:
     if not log.exists():
         return []
-    return [line.strip() for line in log.read_text(encoding="utf-8").splitlines() if line.strip()]
+    return [
+        line.strip()
+        for line in log.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
 
 
 class TestEntrypointPrivilegeDrop:
@@ -112,9 +117,7 @@ class TestEntrypointPrivilegeDrop:
         data_dir = tmp_path / "data"
         data_dir.mkdir()
         log = data_dir / "calls.log"
-        result = _run_entrypoint(
-            stub_bin, log, {"STUB_CURRENT_UID": "10001"}, data_dir
-        )
+        result = _run_entrypoint(stub_bin, log, {"STUB_CURRENT_UID": "10001"}, data_dir)
         assert result.returncode == 0, result.stderr
         calls = _logged(log)
         assert any(c.startswith("uvicorn ") for c in calls)
@@ -123,7 +126,9 @@ class TestEntrypointPrivilegeDrop:
 
     def test_non_root_branch_checks_data_directory_before_exec(self):
         text = ENTRYPOINT.read_text(encoding="utf-8")
-        non_root_branch = text.split("if [ \"$(id -u)\" -ne 0 ]; then", 1)[1].split("fi", 1)[0]
+        non_root_branch = text.split('if [ "$(id -u)" -ne 0 ]; then', 1)[1].split(
+            "fi", 1
+        )[0]
         assert "-d /data" in non_root_branch
         assert "-w /data" in non_root_branch
 

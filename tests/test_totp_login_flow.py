@@ -48,7 +48,9 @@ def test_totp_challenge_flow_no_false_failure_log(api_client: TestClient, db):
         logs_step1 = (
             db.query(LoginLog).filter(LoginLog.username == ADMIN_USERNAME).all()
         )
-        assert len(logs_step1) == 0, "用户初次提交密码等待二步验证码时，绝不应记录失败日志"
+        assert len(logs_step1) == 0, (
+            "用户初次提交密码等待二步验证码时，绝不应记录失败日志"
+        )
 
         # Step 2: 提交错误的 totp_code
         resp2 = api_client.post(

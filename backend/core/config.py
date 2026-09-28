@@ -40,7 +40,9 @@ def _merged_env() -> dict[str, str]:
     return {**_load_env_file(Path(".env")), **os.environ}
 
 
-def _read_env(env: Mapping[str, str], *names: str, default: Optional[str] = None) -> Optional[str]:
+def _read_env(
+    env: Mapping[str, str], *names: str, default: Optional[str] = None
+) -> Optional[str]:
     for name in names:
         val = env.get(name)
         if val is not None and str(val).strip():
@@ -99,9 +101,7 @@ class Settings(BaseModel):
     app_name: str = "tg-signer-panel"
     host: str = "127.0.0.1"
     port: int = 3000
-    cors_allow_origins_raw: str = (
-        "http://127.0.0.1:3000,http://localhost:3000"
-    )
+    cors_allow_origins_raw: str = "http://127.0.0.1:3000,http://localhost:3000"
     trusted_proxies_raw: str = "127.0.0.1,::1"
     secret_key: str = Field(default_factory=get_default_secret_key)
     access_token_expire_hours: int = 12
@@ -120,7 +120,9 @@ class Settings(BaseModel):
     def from_environment(cls) -> "Settings":
         env = _merged_env()
         return cls(
-            app_name=_read_env(env, "APP_APP_NAME", "APP_NAME", default="tg-signer-panel"),
+            app_name=_read_env(
+                env, "APP_APP_NAME", "APP_NAME", default="tg-signer-panel"
+            ),
             host=_read_env(env, "APP_HOST", default="127.0.0.1"),
             port=_read_int_env(env, "APP_PORT", default=3000),
             cors_allow_origins_raw=_read_env(

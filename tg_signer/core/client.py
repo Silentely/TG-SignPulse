@@ -71,9 +71,7 @@ sqlite3.connect = _patched_sqlite3_connect
 # 2.2.26 虽新增了构造参数 use_wal，但 Client 不会传入、且上游 open() 仍会执行 VACUUM，
 # 因此本补丁（WAL + busy_timeout + 跳过 VACUUM）依然必要，不能以原生 use_wal 取代。
 # 若候选类不可用，必须显式告警而不是静默降级，避免补丁失效无人察觉。
-_STORAGE_CLASS_CANDIDATES = (
-    ("pyrogram.storage.sqlite_storage", "SQLiteStorage"),
-)
+_STORAGE_CLASS_CANDIDATES = (("pyrogram.storage.sqlite_storage", "SQLiteStorage"),)
 
 
 def _patch_storage_open(storage_cls) -> None:
@@ -150,9 +148,13 @@ async def _patched_invoke(self, query, *args, **kwargs):
         # Pyrogram Session.invoke loops `for attempt in range(1, retries + 1)`.
         # Passing retries=0 causes an empty range and raises TimeoutError immediately without attempting even once.
         # Must be at least 1 so it actually executes the network request.
-        invoke_retries = read_positive_int_env("TG_UPDATES_INVOKE_RETRIES", 1, minimum=1)
+        invoke_retries = read_positive_int_env(
+            "TG_UPDATES_INVOKE_RETRIES", 1, minimum=1
+        )
         kwargs["retries"] = invoke_retries
-        updates_timeout = read_positive_float_env("TG_UPDATES_TIMEOUT", 10.0, minimum=2.0)
+        updates_timeout = read_positive_float_env(
+            "TG_UPDATES_TIMEOUT", 10.0, minimum=2.0
+        )
         kwargs.setdefault("timeout", updates_timeout)
 
         async with _get_channel_diff_semaphore:

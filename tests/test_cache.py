@@ -208,4 +208,3 @@ class TestTTLCache:
         assert cache.keys() == ["b", "c"]
         assert cache.values() == [200, 300]
         assert cache.items() == [("b", 200), ("c", 300)]
-

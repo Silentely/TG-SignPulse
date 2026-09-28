@@ -1,4 +1,5 @@
 """时间窗匹配工具（支持跨午夜 HH:MM，可按任务时区判断）。"""
+
 from __future__ import annotations
 
 import re
@@ -26,9 +27,7 @@ def parse_hhmm(value: Any) -> Optional[time]:
     return time(hour=hour, minute=minute, second=second)
 
 
-def normalize_time_window(
-    start: Any, end: Any
-) -> Tuple[Optional[str], Optional[str]]:
+def normalize_time_window(start: Any, end: Any) -> Tuple[Optional[str], Optional[str]]:
     """
     规范化时间窗配置为 HH:MM。
     仅当起止都能解析时才启用；否则返回 (None, None) 表示全天。

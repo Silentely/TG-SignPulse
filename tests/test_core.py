@@ -35,9 +35,13 @@ from tg_signer.core import (
 from tg_signer.utils import read_positive_float_env, read_positive_int_env
 
 # 可通过 is_valid_session_string 校验的新版 session_string（含 api_id）
-_VALID_SESSION_STRING = base64.urlsafe_b64encode(
-    struct.pack(">BI?256sQ?", 2, 123456, False, bytes(range(256)), 777000, False)
-).decode("ascii").rstrip("=")
+_VALID_SESSION_STRING = (
+    base64.urlsafe_b64encode(
+        struct.pack(">BI?256sQ?", 2, 123456, False, bytes(range(256)), 777000, False)
+    )
+    .decode("ascii")
+    .rstrip("=")
+)
 
 # ============================================================================
 # 辅助函数测试
@@ -111,8 +115,13 @@ class TestReadableChat:
     """readable_chat 将 Chat 对象格式化为可读字符串"""
 
     @staticmethod
-    def _make_chat(chat_type: str, chat_id: int = -100123, username: str = "testchat",
-                   title: str = "Test Chat", first_name: str = None):
+    def _make_chat(
+        chat_type: str,
+        chat_id: int = -100123,
+        username: str = "testchat",
+        title: str = "Test Chat",
+        first_name: str = None,
+    ):
         return SimpleNamespace(
             id=chat_id,
             type=chat_type,
@@ -149,7 +158,7 @@ class TestReadableChat:
         assert "个人" in result
 
     def test_none_fields_show_dash(self):
-        """当 username/title/first_name 为 None 时应显示 '-' """
+        """当 username/title/first_name 为 None 时应显示 '-'"""
         chat = SimpleNamespace(
             id=111,
             type=ChatType.GROUP,
@@ -303,7 +312,9 @@ class TestClientInitialization:
                 api_id=12345,
                 api_hash="testhash",
             )
-            expected_key = str(pathlib.Path("/tmp/test_core").joinpath("test_init").resolve())
+            expected_key = str(
+                pathlib.Path("/tmp/test_core").joinpath("test_init").resolve()
+            )
             assert client.key == expected_key
         finally:
             for k in list(_CLIENT_INSTANCES.keys()):
@@ -317,6 +328,7 @@ class TestClientSessionString:
     def test_session_string_file_path(self, tmp_path):
         """session_string_file 属性返回正确的路径"""
         from tg_signer.core import _CLIENT_INSTANCES, get_client
+
         keys_before = set(_CLIENT_INSTANCES.keys())
         try:
             client = get_client(
@@ -335,6 +347,7 @@ class TestClientSessionString:
     def test_load_session_string_from_file(self, tmp_path):
         """load_session_string 从文件读取合法 session 字符串"""
         from tg_signer.core import _CLIENT_INSTANCES, get_client
+
         keys_before = set(_CLIENT_INSTANCES.keys())
         try:
             client = get_client(
@@ -356,6 +369,7 @@ class TestClientSessionString:
     def test_load_session_string_missing_file(self, tmp_path):
         """文件不存在时返回 None（Pyrogram BaseClient 默认值）"""
         from tg_signer.core import _CLIENT_INSTANCES, get_client
+
         keys_before = set(_CLIENT_INSTANCES.keys())
         try:
             client = get_client(
@@ -375,6 +389,7 @@ class TestClientSessionString:
     def test_load_session_string_rejects_corrupted_cache(self, tmp_path):
         """损坏的 session_string 缓存必须判坏、删除并按缺失处理（自愈路径）"""
         from tg_signer.core import _CLIENT_INSTANCES, get_client
+
         keys_before = set(_CLIENT_INSTANCES.keys())
         try:
             client = get_client(
@@ -411,31 +426,50 @@ class TestGetClientCaching:
 
     def test_same_name_returns_same_instance(self):
         """相同 name+workdir 返回同一个 Client 实例"""
-        c1 = get_client(name="cache_test", workdir="/tmp/cache_test", api_id=1, api_hash="h")
-        c2 = get_client(name="cache_test", workdir="/tmp/cache_test", api_id=1, api_hash="h")
+        c1 = get_client(
+            name="cache_test", workdir="/tmp/cache_test", api_id=1, api_hash="h"
+        )
+        c2 = get_client(
+            name="cache_test", workdir="/tmp/cache_test", api_id=1, api_hash="h"
+        )
         assert c1 is c2
 
     def test_different_name_returns_different_instance(self):
         """不同 name 返回不同实例"""
-        c1 = get_client(name="cache_a", workdir="/tmp/cache_diff", api_id=1, api_hash="h")
-        c2 = get_client(name="cache_b", workdir="/tmp/cache_diff", api_id=1, api_hash="h")
+        c1 = get_client(
+            name="cache_a", workdir="/tmp/cache_diff", api_id=1, api_hash="h"
+        )
+        c2 = get_client(
+            name="cache_b", workdir="/tmp/cache_diff", api_id=1, api_hash="h"
+        )
         assert c1 is not c2
 
     def test_in_memory_gets_separate_cache_key(self):
         """in_memory=True 且有 session_string 时使用独立缓存键"""
-        c1 = get_client(name="mem_test", workdir="/tmp/mem_test", api_id=1, api_hash="h")
+        c1 = get_client(
+            name="mem_test", workdir="/tmp/mem_test", api_id=1, api_hash="h"
+        )
         c2 = get_client(
-            name="mem_test", workdir="/tmp/mem_test", api_id=1, api_hash="h",
-            in_memory=True, session_string="some-session",
+            name="mem_test",
+            workdir="/tmp/mem_test",
+            api_id=1,
+            api_hash="h",
+            in_memory=True,
+            session_string="some-session",
         )
         # 两者缓存键不同
         assert c1.key != c2.key
 
     def test_in_memory_without_session_string_gets_separate_cache_key(self):
         """in_memory=True 未传 session_string 时也必须使用独立的 ::memory 缓存键"""
-        c1 = get_client(name="mem_test_ns", workdir="/tmp/mem_test_ns", api_id=1, api_hash="h")
+        c1 = get_client(
+            name="mem_test_ns", workdir="/tmp/mem_test_ns", api_id=1, api_hash="h"
+        )
         c2 = get_client(
-            name="mem_test_ns", workdir="/tmp/mem_test_ns", api_id=1, api_hash="h",
+            name="mem_test_ns",
+            workdir="/tmp/mem_test_ns",
+            api_id=1,
+            api_hash="h",
             in_memory=True,
         )
         assert c1.key != c2.key
@@ -592,7 +626,6 @@ class TestValidateSignAt:
         assert UserSigner._validate_sign_at("* * * * * * * * *") is None
 
 
-
 # ============================================================================
 # UserSigner._time_to_crontab 测试
 # ============================================================================
@@ -603,16 +636,19 @@ class TestTimeToCrontab:
 
     def test_morning(self):
         from datetime import time as dt_time
+
         result = UserSigner._time_to_crontab(dt_time(6, 30))
         assert result == "30 6 * * *"
 
     def test_midnight(self):
         from datetime import time as dt_time
+
         result = UserSigner._time_to_crontab(dt_time(0, 0))
         assert result == "0 0 * * *"
 
     def test_evening(self):
         from datetime import time as dt_time
+
         result = UserSigner._time_to_crontab(dt_time(23, 59))
         assert result == "59 23 * * *"
 
@@ -647,7 +683,10 @@ class TestUserSignerHelpers:
 
     def test_is_transient_step_error_timeout(self):
         """TimeoutError 判定为瞬时错误"""
-        assert UserSigner._is_transient_step_error(TimeoutError("request timed out")) is True
+        assert (
+            UserSigner._is_transient_step_error(TimeoutError("request timed out"))
+            is True
+        )
 
     def test_is_transient_step_error_asyncio_timeout(self):
         """asyncio.TimeoutError 判定为瞬时错误"""
@@ -655,19 +694,34 @@ class TestUserSignerHelpers:
 
     def test_is_transient_step_error_connection_reset(self):
         """连接重置判定为瞬时错误"""
-        assert UserSigner._is_transient_step_error(ConnectionError("Connection reset by peer")) is True
+        assert (
+            UserSigner._is_transient_step_error(
+                ConnectionError("Connection reset by peer")
+            )
+            is True
+        )
 
     def test_is_transient_step_error_flood_wait(self):
         """FloodWait 消息判定为瞬时错误"""
-        assert UserSigner._is_transient_step_error(Exception("FLOOD_WAIT: 30 seconds")) is True
+        assert (
+            UserSigner._is_transient_step_error(Exception("FLOOD_WAIT: 30 seconds"))
+            is True
+        )
 
     def test_is_transient_step_error_rate_limit(self):
         """rate limit 消息判定为瞬时错误"""
-        assert UserSigner._is_transient_step_error(Exception("Too Many Requests: rate limit exceeded")) is True
+        assert (
+            UserSigner._is_transient_step_error(
+                Exception("Too Many Requests: rate limit exceeded")
+            )
+            is True
+        )
 
     def test_is_transient_step_error_non_transient(self):
         """非瞬时错误返回 False"""
-        assert UserSigner._is_transient_step_error(ValueError("invalid config")) is False
+        assert (
+            UserSigner._is_transient_step_error(ValueError("invalid config")) is False
+        )
         assert UserSigner._is_transient_step_error(RuntimeError("step failed")) is False
 
     def test_is_transient_step_error_quota_exhausted(self):
@@ -676,21 +730,29 @@ class TestUserSignerHelpers:
 
     def test_is_transient_step_error_quota_with_429_not_transient(self):
         """429 + 配额不足的组合文本不误判为瞬时错误（Codex Major 3 回归测试）"""
-        assert UserSigner._is_transient_step_error(
-            Exception("429 Too Many Requests: insufficient_quota")
-        ) is False
-        assert UserSigner._is_transient_step_error(
-            Exception("You exceeded your current quota")
-        ) is False
-        assert UserSigner._is_transient_step_error(
-            Exception("billing hard limit reached")
-        ) is False
+        assert (
+            UserSigner._is_transient_step_error(
+                Exception("429 Too Many Requests: insufficient_quota")
+            )
+            is False
+        )
+        assert (
+            UserSigner._is_transient_step_error(
+                Exception("You exceeded your current quota")
+            )
+            is False
+        )
+        assert (
+            UserSigner._is_transient_step_error(Exception("billing hard limit reached"))
+            is False
+        )
 
     def test_is_transient_step_error_auth_error_not_transient(self):
         """认证错误不属于瞬时错误"""
-        assert UserSigner._is_transient_step_error(
-            Exception("Invalid API key provided")
-        ) is False
+        assert (
+            UserSigner._is_transient_step_error(Exception("Invalid API key provided"))
+            is False
+        )
 
 
 # ============================================================================
@@ -753,8 +815,10 @@ class TestGetClientFunction:
         monkeypatch.setenv("TG_API_ID", "11111")
         monkeypatch.setenv("TG_API_HASH", "env-hash")
         client = get_client(
-            name="override_test", workdir="/tmp/override",
-            api_id=22222, api_hash="explicit-hash",
+            name="override_test",
+            workdir="/tmp/override",
+            api_id=22222,
+            api_hash="explicit-hash",
         )
         assert client.api_id == 22222
         assert client.api_hash == "explicit-hash"
@@ -783,7 +847,9 @@ class TestPatchedInvoke:
         query = raw.functions.updates.GetChannelDifference(
             channel=MagicMock(), filter=MagicMock(), pts=1, limit=10, force=False
         )
-        with patch("tg_signer.core.client._original_invoke", side_effect=fake_original_invoke):
+        with patch(
+            "tg_signer.core.client._original_invoke", side_effect=fake_original_invoke
+        ):
             res = await _patched_invoke(mock_self, query)
             assert res == "ok"
             assert captured_kwargs.get("retries") >= 1
@@ -804,10 +870,10 @@ class TestPatchedInvoke:
             captured_kwargs.update(kwargs)
             return "ok"
 
-        query = raw.functions.updates.GetDifference(
-            pts=1, date=1000, qts=1
-        )
-        with patch("tg_signer.core.client._original_invoke", side_effect=fake_original_invoke):
+        query = raw.functions.updates.GetDifference(pts=1, date=1000, qts=1)
+        with patch(
+            "tg_signer.core.client._original_invoke", side_effect=fake_original_invoke
+        ):
             res = await _patched_invoke(mock_self, query)
             assert res == "ok"
             assert captured_kwargs.get("retries") == 3
@@ -827,7 +893,9 @@ class TestPatchedInvoke:
         query = raw.functions.updates.GetChannelDifference(
             channel=MagicMock(), filter=MagicMock(), pts=123, limit=10, force=False
         )
-        with patch("tg_signer.core.client._original_invoke", side_effect=fake_original_invoke):
+        with patch(
+            "tg_signer.core.client._original_invoke", side_effect=fake_original_invoke
+        ):
             res = await _patched_invoke(mock_self, query)
             assert isinstance(res, raw.types.updates.ChannelDifferenceEmpty)
             assert res.pts == 123

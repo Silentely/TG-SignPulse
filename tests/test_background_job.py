@@ -19,7 +19,9 @@ def test_public_job_view_strips_private_keys():
 
 def test_create_list_get_and_complete(tmp_path: Path):
     store = BackgroundJobStore(tmp_path / "jobs")
-    created = store.create_job(kind="demo", payload={"x": 1}, progress={"total": 2, "done": 0})
+    created = store.create_job(
+        kind="demo", payload={"x": 1}, progress={"total": 2, "done": 0}
+    )
     job_id = created["job_id"]
     assert created["status"] == "running"
     assert store.get_job(job_id)["kind"] == "demo"
@@ -108,6 +110,7 @@ def test_write_job_leaves_no_tmp_files_and_is_readable(tmp_path: Path):
     assert data["job_id"] == job_id
     assert any(item["message"] == "持久化内容" for item in data["logs"])
 
+
 @pytest.mark.asyncio
 async def test_request_cancel_with_cancel_running_task_marks_canceled(tmp_path: Path):
     store = BackgroundJobStore(tmp_path / "jobs")
@@ -147,4 +150,3 @@ async def test_task_canceled_without_cancel_request_marks_failed(tmp_path: Path)
     job = store.get_job(job_id)
     assert job["status"] == "failed"
     assert "任务被取消" in job["error"]
-

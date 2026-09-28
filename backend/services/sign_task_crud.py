@@ -4,6 +4,7 @@
 含 create / clone / update / rename_account / delete。
 门面 SignTaskService 继承本 Mixin，保持公开 API 不变。
 """
+
 from __future__ import annotations
 
 import json
@@ -231,8 +232,10 @@ class SignTaskCrudMixin:
         account_names = src.get("account_names") or []
         if not isinstance(account_names, list):
             account_names = []
-        primary = account_name or src.get("account_name") or (
-            account_names[0] if account_names else ""
+        primary = (
+            account_name
+            or src.get("account_name")
+            or (account_names[0] if account_names else "")
         )
         if not primary and not account_names:
             raise ValueError("源任务缺少账号信息，无法克隆")
@@ -257,10 +260,18 @@ class SignTaskCrudMixin:
             retry_count=src.get("retry_count"),
             tags=list(src.get("tags") or []),
             adaptive_schedule_enabled=bool(src.get("adaptive_schedule_enabled", False)),
-            adaptive_schedule_patterns=list(src.get("adaptive_schedule_patterns") or []),
-            adaptive_schedule_padding_seconds=int(src.get("adaptive_schedule_padding_seconds", 30) or 30),
+            adaptive_schedule_patterns=list(
+                src.get("adaptive_schedule_patterns") or []
+            ),
+            adaptive_schedule_padding_seconds=int(
+                src.get("adaptive_schedule_padding_seconds", 30) or 30
+            ),
             next_task_on_success=str(src.get("next_task_on_success") or "").strip(),
-            next_task_delay_seconds=float(src.get("next_task_delay_seconds", 2.0) if src.get("next_task_delay_seconds") is not None else 2.0),
+            next_task_delay_seconds=float(
+                src.get("next_task_delay_seconds", 2.0)
+                if src.get("next_task_delay_seconds") is not None
+                else 2.0
+            ),
         )
 
     def update_task(
@@ -326,7 +337,11 @@ class SignTaskCrudMixin:
             raise ValueError("没有可用的账号")
         # Also expand existing_accounts for proper diff calculation
         existing_accounts = self._expand_account_names(existing_accounts)
-        effective_next_task = next_task_on_success if next_task_on_success is not None else existing.get("next_task_on_success")
+        effective_next_task = (
+            next_task_on_success
+            if next_task_on_success is not None
+            else existing.get("next_task_on_success")
+        )
         self._validate_task_chain(target_accounts, task_name, effective_next_task)
 
         from backend.services.sign_task_config_build import (
@@ -379,7 +394,9 @@ class SignTaskCrudMixin:
         next_tags = fields["tags"]
         next_adaptive_schedule_enabled = fields["adaptive_schedule_enabled"]
         next_adaptive_schedule_patterns = fields["adaptive_schedule_patterns"]
-        next_adaptive_schedule_padding_seconds = fields["adaptive_schedule_padding_seconds"]
+        next_adaptive_schedule_padding_seconds = fields[
+            "adaptive_schedule_padding_seconds"
+        ]
         next_next_task_on_success = fields.get("next_task_on_success", "")
         next_next_task_delay_seconds = fields.get("next_task_delay_seconds", 2.0)
         schedule_plan = resolve_schedule_plan(
@@ -393,7 +410,6 @@ class SignTaskCrudMixin:
         existing_dirs = dict(self._iter_task_dirs(task_name, existing_accounts))
         existing_last_run_map = last_run_map_from_related(related_tasks)
         removed_accounts = removed_accounts_diff(existing_accounts, target_accounts)
-
 
         from backend.scheduler import add_or_update_sign_task_job, remove_sign_task_job
 
@@ -457,16 +473,12 @@ class SignTaskCrudMixin:
                         jitter=next_jitter_seconds,
                     )
                 except Exception as exc:
-                    warnings.append(
-                        f"账号 {current_account} 调度注册失败: {exc}"
-                    )
+                    warnings.append(f"账号 {current_account} 调度注册失败: {exc}")
             else:
                 try:
                     remove_sign_task_job(current_account, task_name)
                 except Exception as exc:
-                    warnings.append(
-                        f"账号 {current_account} 调度移除失败: {exc}"
-                    )
+                    warnings.append(f"账号 {current_account} 调度移除失败: {exc}")
 
         self._refresh_tasks_cache_after_write()
         if warnings:
@@ -519,7 +531,13 @@ class SignTaskCrudMixin:
         for config_path in self.signs_dir.glob("*/*/config.json"):
             try:
                 config = json.loads(config_path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError, UnicodeDecodeError, TypeError, ValueError) as exc:
+            except (
+                OSError,
+                json.JSONDecodeError,
+                UnicodeDecodeError,
+                TypeError,
+                ValueError,
+            ) as exc:
                 # 任务配置损坏：该任务在新账号下会静默消失，必须留下可观测线索
                 _logger.warning(
                     "账号重命名时读取任务配置失败，跳过（该任务不会迁移账号引用）: %s (%s)",
@@ -534,7 +552,9 @@ class SignTaskCrudMixin:
                 )
                 continue
 
-            if not apply_account_rename_to_config(config, old_account_name, new_account_name):
+            if not apply_account_rename_to_config(
+                config, old_account_name, new_account_name
+            ):
                 continue
 
             write_json_atomic(config_path, config)
@@ -564,7 +584,8 @@ class SignTaskCrudMixin:
                 for item in raw_data:
                     if (
                         isinstance(item, dict)
-                        and str(item.get("account_name") or "").strip() == old_account_name
+                        and str(item.get("account_name") or "").strip()
+                        == old_account_name
                     ):
                         item["account_name"] = new_account_name
                 write_json_atomic(history_file, raw_data)
@@ -642,9 +663,7 @@ class SignTaskCrudMixin:
             if status_clean and not status_clean.done():
                 status_clean.cancel()
 
-    def delete_task(
-        self, task_name: str, account_name: Optional[str] = None
-    ) -> bool:
+    def delete_task(self, task_name: str, account_name: Optional[str] = None) -> bool:
         """Delete one task or one shared multi-account task set.
 
         通配（account_names 含 "*"）任务的删除必须同时做两件事，否则删除会被撤销：
@@ -695,7 +714,9 @@ class SignTaskCrudMixin:
         self._refresh_tasks_cache_after_write()
         return True
 
-    def _strip_wildcard_marker(self, task_name: str, *, keep_accounts: set[str]) -> None:
+    def _strip_wildcard_marker(
+        self, task_name: str, *, keep_accounts: set[str]
+    ) -> None:
         """把存活兄弟任务配置中的 "*" 从 account_names 中剥离。
 
         仅处理本次删除未覆盖到的账号；若剥离后账号集为空则直接删除该副本，

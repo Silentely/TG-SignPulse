@@ -7,6 +7,7 @@ tg_signer.core 包
 - signer_runner/actions/matchers/config: UserSigner 各关注点 Mixin
 - context: UserSignerWorkerContext 工作上下文
 """
+
 from __future__ import annotations
 
 # 动态回退：其余符号仍可从 runtime 取

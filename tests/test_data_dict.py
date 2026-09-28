@@ -64,7 +64,15 @@ def test_data_dict_round_robin_wraps(tmp_path: Path):
 
 def test_data_dict_rejects_invalid_name(tmp_path: Path):
     service = DataDictService(base_dir=tmp_path)
-    invalid_names = ["", "hello world", "foo/bar", "foo\\bar", "foo.json", "@dict", "bad:name"]
+    invalid_names = [
+        "",
+        "hello world",
+        "foo/bar",
+        "foo\\bar",
+        "foo.json",
+        "@dict",
+        "bad:name",
+    ]
     for name in invalid_names:
         with pytest.raises(ValueError, match="INVALID_DICT_NAME"):
             service.save_dict(name, ["val"])
@@ -85,6 +93,7 @@ def test_template_resolves_dict_macro(tmp_path: Path, monkeypatch: pytest.Monkey
 
     # Monkeypatch the singleton accessor to return our test service
     import backend.services.data_dict as dd_module
+
     monkeypatch.setattr(dd_module, "get_data_dict_service", lambda: service)
 
     # Test random macro
@@ -106,17 +115,20 @@ def test_template_resolves_dict_macro(tmp_path: Path, monkeypatch: pytest.Monkey
     # Test recursive rendering with dict macro
     nested = {
         "msg": "Send: {dict:cheers:round_robin}",
-        "sub": ["Item: {dict:cheers:round_robin}"]
+        "sub": ["Item: {dict:cheers:round_robin}"],
     }
     rendered_nested = render_template_recursive(nested)
     assert rendered_nested["msg"] == "Send: Cheers"
     assert rendered_nested["sub"] == ["Item: Salute"]
 
 
-def test_data_dict_api_routes(api_client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_data_dict_api_routes(
+    api_client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     # Setup data_dict service using tmp_path
     service = DataDictService(base_dir=tmp_path)
     import backend.services.data_dict as dd_module
+
     monkeypatch.setattr(dd_module, "get_data_dict_service", lambda: service)
 
     # 1. Unauthenticated request should return 401
@@ -187,8 +199,12 @@ def test_data_dict_api_routes(api_client: TestClient, tmp_path: Path, monkeypatc
     assert sample_data["entry"] in ["To be, or not to be", "Knowledge is power"]
 
     # Sample round-robin
-    resp1 = api_client.get("/api/data-dict/quotes/sample?mode=round_robin", headers=headers)
-    resp2 = api_client.get("/api/data-dict/quotes/sample?mode=round_robin", headers=headers)
+    resp1 = api_client.get(
+        "/api/data-dict/quotes/sample?mode=round_robin", headers=headers
+    )
+    resp2 = api_client.get(
+        "/api/data-dict/quotes/sample?mode=round_robin", headers=headers
+    )
     assert resp1.status_code == 200
     assert resp2.status_code == 200
     assert resp1.json()["entry"] == "To be, or not to be"
@@ -203,6 +219,7 @@ def test_data_dict_api_routes(api_client: TestClient, tmp_path: Path, monkeypatc
     resp = api_client.get("/api/data-dict/quotes", headers=headers)
     assert resp.status_code == 404
 
+
 def test_data_dict_null_byte_filtering_and_negative_cursor(tmp_path: Path):
     service = DataDictService(base_dir=tmp_path)
     # 含有 null 字节与空白
@@ -214,6 +231,7 @@ def test_data_dict_null_byte_filtering_and_negative_cursor(tmp_path: Path):
     # 模拟人为或异常写入负数游标
     file_path = tmp_path / "data_dicts" / "cleantest.json"
     from backend.utils.atomic_io import read_json_safe, write_json_atomic
+
     data = read_json_safe(file_path)
     data["cursor"] = -5
     write_json_atomic(file_path, data)
@@ -221,4 +239,3 @@ def test_data_dict_null_byte_filtering_and_negative_cursor(tmp_path: Path):
     # 抽取时不崩溃且安全返回
     entry = service.get_entry("cleantest", mode="round_robin")
     assert entry in ("helloworld", "safe")
-

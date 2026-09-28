@@ -38,6 +38,7 @@ from tg_signer.core.plugins import (
 # 1. Subprocess Environment Sanitization
 # ============================================================================
 
+
 def test_build_sanitized_worker_env():
     raw_env = {
         "PATH": "/usr/bin:/bin",
@@ -79,6 +80,7 @@ def test_build_sanitized_worker_env():
 # 2. Plugin Storage Thread-local Connection Reuse & Batch Operations
 # ============================================================================
 
+
 @pytest.mark.asyncio
 async def test_plugin_storage_connection_reuse_and_batch_operations(tmp_path):
     db_file = tmp_path / "test_storage.db"
@@ -115,6 +117,7 @@ async def test_plugin_storage_connection_reuse_and_batch_operations(tmp_path):
 # 3. Plugin Context & RPC Telegram API Expansion
 # ============================================================================
 
+
 @pytest.mark.asyncio
 async def test_plugin_context_expanded_methods():
     mock_app = MagicMock()
@@ -124,7 +127,9 @@ async def test_plugin_context_expanded_methods():
     mock_app.unpin_chat_message = AsyncMock(return_value=True)
     mock_app.unpin_all_chat_messages = AsyncMock(return_value=True)
     mock_app.get_messages = AsyncMock(return_value=[{"id": 101, "chat": {"id": 123}}])
-    mock_app.forward_messages = AsyncMock(return_value=[{"id": 201, "chat": {"id": 456}}])
+    mock_app.forward_messages = AsyncMock(
+        return_value=[{"id": 201, "chat": {"id": 456}}]
+    )
 
     class FakeMsg:
         id = 99
@@ -170,7 +175,9 @@ async def test_proxy_message_convenience_methods():
 
     msg = ProxyMessage({"id": 100, "text": "hello", "chat": {"id": 123}}, rpc=mock_rpc)
     await msg.reply_photo("photo.png", caption="hi")
-    mock_rpc.assert_called_with("send_photo", photo="photo.png", caption="hi", reply_to_message_id=100)
+    mock_rpc.assert_called_with(
+        "send_photo", photo="photo.png", caption="hi", reply_to_message_id=100
+    )
 
     await msg.pin()
     mock_rpc.assert_called_with("pin_message", message_id=100)
@@ -182,6 +189,7 @@ async def test_proxy_message_convenience_methods():
 # ============================================================================
 # 4. Keyword Monitor Action 99 (CUSTOM_PLUGIN)
 # ============================================================================
+
 
 @pytest.mark.asyncio
 async def test_keyword_monitor_action_99_in_process():
@@ -215,15 +223,17 @@ async def test_keyword_monitor_action_99_in_process():
 # 5. Task Scheduler Range Mode DateTrigger Delegation
 # ============================================================================
 
+
 @pytest.mark.asyncio
 async def test_scheduler_range_large_delay_delegation():
     mock_scheduler = MagicMock()
     mock_scheduler.running = True
 
-    with patch("backend.scheduler.scheduler", mock_scheduler), \
-         patch("backend.services.sign_tasks.get_sign_task_service") as mock_get_svc, \
-         patch("backend.scheduler._get_range_window") as mock_get_window:
-
+    with (
+        patch("backend.scheduler.scheduler", mock_scheduler),
+        patch("backend.services.sign_tasks.get_sign_task_service") as mock_get_svc,
+        patch("backend.scheduler._get_range_window") as mock_get_window,
+    ):
         mock_svc = MagicMock()
         mock_svc.get_task.return_value = {
             "execution_mode": "range",
@@ -243,13 +253,21 @@ async def test_scheduler_range_large_delay_delegation():
 
         # Expected: scheduler.add_job called with DateTrigger because delay 120s > 45s
         assert mock_scheduler.add_job.called
-        assert mock_scheduler.add_job.call_args.kwargs.get("args") == ["acc1", "task1", True]
-        assert "range-oneshot-acc1-task1" in mock_scheduler.add_job.call_args.kwargs.get("id", "")
+        assert mock_scheduler.add_job.call_args.kwargs.get("args") == [
+            "acc1",
+            "task1",
+            True,
+        ]
+        assert (
+            "range-oneshot-acc1-task1"
+            in mock_scheduler.add_job.call_args.kwargs.get("id", "")
+        )
 
 
 # ============================================================================
 # 6. Task Chaining within Same Account (next_task_on_success)
 # ============================================================================
+
 
 @pytest.mark.asyncio
 async def test_sign_task_chained_execution_on_success():
@@ -272,12 +290,15 @@ async def test_sign_task_chained_execution_on_success():
     # Let the background chained task execute
     await asyncio.sleep(0.05)
 
-    mock_svc.start_task_run.assert_called_once_with("my_account", "second_task", visited_chain=["first_task"])
+    mock_svc.start_task_run.assert_called_once_with(
+        "my_account", "second_task", visited_chain=["first_task"]
+    )
 
 
 # ============================================================================
 # 7. Task Chaining in Config Build & CRUD
 # ============================================================================
+
 
 def test_task_chaining_config_build_and_crud(tmp_path):
     from backend.services.sign_task_config_build import (
@@ -306,6 +327,7 @@ def test_task_chaining_config_build_and_crud(tmp_path):
 # ============================================================================
 # 8. Regression tests for Code Review Fixes
 # ============================================================================
+
 
 def test_continue_actions_includes_action_99():
     from backend.services.keyword_monitor.continue_actions import continue_actions
@@ -420,7 +442,10 @@ def test_static_chain_cycle_detection():
 @pytest.mark.asyncio
 async def test_scheduler_skips_disabled_task():
     mock_scheduler = MagicMock()
-    with patch("backend.scheduler.scheduler", mock_scheduler),          patch("backend.services.sign_tasks.get_sign_task_service") as mock_get_svc:
+    with (
+        patch("backend.scheduler.scheduler", mock_scheduler),
+        patch("backend.services.sign_tasks.get_sign_task_service") as mock_get_svc,
+    ):
         mock_svc = MagicMock()
         mock_svc.get_task.return_value = {"enabled": False}
         mock_get_svc.return_value = mock_svc
@@ -438,9 +463,14 @@ def test_remove_sign_task_job_cleans_oneshots():
     job2 = MagicMock(id="range-oneshot-acc1-task1-123456")
     job3 = MagicMock(id="range-oneshot-acc2-other-123456")
     mock_scheduler.get_jobs.return_value = [job1, job2, job3]
-    mock_scheduler.get_job.side_effect = lambda jid: job1 if jid == "sign-acc1-task1" else None
+    mock_scheduler.get_job.side_effect = lambda jid: (
+        job1 if jid == "sign-acc1-task1" else None
+    )
 
-    with patch("backend.scheduler.scheduler", mock_scheduler),          patch("backend.scheduler.instance_lock.has_scheduler_lock", return_value=True):
+    with (
+        patch("backend.scheduler.scheduler", mock_scheduler),
+        patch("backend.scheduler.instance_lock.has_scheduler_lock", return_value=True),
+    ):
         remove_sign_task_job("acc1", "task1")
 
         mock_scheduler.remove_job.assert_any_call("sign-acc1-task1")

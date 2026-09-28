@@ -1,4 +1,5 @@
 """测试执行器在调度动作时对 ai_prompt 模板宏变量的渲染能力。"""
+
 from __future__ import annotations
 
 from tg_signer.config import ReplyByCalculationProblemAction
@@ -7,7 +8,9 @@ from tg_signer.core.template import render_template
 
 
 def test_ai_prompt_template_rendering():
-    action = ReplyByCalculationProblemAction(ai_prompt="当前账号: {{ account.name }}，请解决题目")
+    action = ReplyByCalculationProblemAction(
+        ai_prompt="当前账号: {{ account.name }}，请解决题目"
+    )
     tmpl_ctx = {
         "account": {"name": "test_bot_1"},
         "chat": {"id": 12345, "name": "Test Group"},

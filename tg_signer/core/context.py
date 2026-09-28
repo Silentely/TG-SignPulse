@@ -1,4 +1,5 @@
 """UserSigner 工作上下文（从 runtime.py 拆出，供配置/执行 Mixin 共用）。"""
+
 from __future__ import annotations
 
 from typing import Optional
@@ -21,6 +22,7 @@ class UserSignerWorkerContext(BaseModel):
     if _PYDANTIC_V2 and ConfigDict is not None:
         model_config = ConfigDict(arbitrary_types_allowed=True)
     else:
+
         class Config:
             arbitrary_types_allowed = True
 

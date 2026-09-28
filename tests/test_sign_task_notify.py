@@ -336,9 +336,7 @@ class TestSendAccountInvalidNotification:
             await sign_task_notify.send_account_invalid_notification(
                 account_name="a", task_name="t", message="失效"
             )
-        assert (
-            "Telegram 账号失效通知发送失败" in caplog.text
-        )
+        assert "Telegram 账号失效通知发送失败" in caplog.text
 
 
 @pytest.fixture()
@@ -364,9 +362,7 @@ def mark_env(monkeypatch):
     monkeypatch.setattr(
         sign_task_notify, "send_account_invalid_notification", _fake_notify
     )
-    monkeypatch.setattr(
-        sign_task_notify, "utc_now_iso", lambda: "2026-07-31T00:00:00Z"
-    )
+    monkeypatch.setattr(sign_task_notify, "utc_now_iso", lambda: "2026-07-31T00:00:00Z")
     return SimpleNamespace(state=state, set_calls=set_calls, notified=notified)
 
 

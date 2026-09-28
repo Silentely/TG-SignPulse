@@ -41,6 +41,7 @@ def test_format_proxy_url():
     assert "user%40domain" in formatted
     assert "proxy.example.com:8080" in formatted
     from backend.utils.proxy import build_proxy_dict
+
     assert build_proxy_dict(formatted) == p_dict
 
 
@@ -89,10 +90,13 @@ async def test_send_telegram_bot_message_auto_resolves_global_proxy():
     mock_cfg = MagicMock()
     mock_cfg.get_global_proxy.return_value = "socks5://127.0.0.1:1080"
 
-    with patch("backend.services.config.get_config_service", return_value=mock_cfg), patch(
-        "backend.services.push_notifications._get_shared_telegram_client",
-        return_value=mock_client,
-    ) as mock_get_client:
+    with (
+        patch("backend.services.config.get_config_service", return_value=mock_cfg),
+        patch(
+            "backend.services.push_notifications._get_shared_telegram_client",
+            return_value=mock_client,
+        ) as mock_get_client,
+    ):
         await send_telegram_bot_message(
             bot_token="token_abc",
             chat_id="12345",
@@ -112,8 +116,9 @@ async def test_close_shared_http_clients():
     mock_client2.aclose = AsyncMock()
     mock_client2.is_closed = False
 
-    with patch("backend.services.push_notifications._shared_http_client", mock_client1), patch(
-        "backend.services.push_notifications._shared_tg_client", mock_client2
+    with (
+        patch("backend.services.push_notifications._shared_http_client", mock_client1),
+        patch("backend.services.push_notifications._shared_tg_client", mock_client2),
     ):
         await close_shared_http_client()
         mock_client1.aclose.assert_awaited_once()
@@ -150,8 +155,9 @@ async def test_chatops_poll_loop_proxy_propagation():
         async def aclose(self):
             self.is_closed = True
 
-    with patch("backend.services.config.get_config_service", return_value=mock_cfg), patch(
-        "httpx.AsyncClient", side_effect=DummyClient
+    with (
+        patch("backend.services.config.get_config_service", return_value=mock_cfg),
+        patch("httpx.AsyncClient", side_effect=DummyClient),
     ):
         await worker._poll_loop()
 

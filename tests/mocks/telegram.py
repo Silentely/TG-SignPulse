@@ -211,7 +211,9 @@ class MockTelegramClient:
         for msg in messages[:limit]:
             yield msg
 
-    async def get_chat_members(self, chat_id: Union[int, str], query: str = "", **kwargs):
+    async def get_chat_members(
+        self, chat_id: Union[int, str], query: str = "", **kwargs
+    ):
         """获取聊天成员（异步迭代器）"""
         yield SimpleNamespace(user=MockUser())
 
@@ -227,11 +229,13 @@ class MockTelegramClient:
             text=text,
             chat_id=chat_id if isinstance(chat_id, int) else -1001234567890,
         )
-        self.sent_messages.append({
-            "chat_id": chat_id,
-            "text": text,
-            "kwargs": kwargs,
-        })
+        self.sent_messages.append(
+            {
+                "chat_id": chat_id,
+                "text": text,
+                "kwargs": kwargs,
+            }
+        )
         return msg
 
     async def send_dice(
@@ -246,11 +250,13 @@ class MockTelegramClient:
             text=emoji,
             chat_id=chat_id if isinstance(chat_id, int) else -1001234567890,
         )
-        self.sent_dices.append({
-            "chat_id": chat_id,
-            "emoji": emoji,
-            "kwargs": kwargs,
-        })
+        self.sent_dices.append(
+            {
+                "chat_id": chat_id,
+                "emoji": emoji,
+                "kwargs": kwargs,
+            }
+        )
         return msg
 
     async def invoke(self, query, *args, **kwargs):

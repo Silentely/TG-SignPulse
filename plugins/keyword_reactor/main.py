@@ -3,6 +3,7 @@
 当接收到的消息满足关键词匹配规则时，自动为消息添加表情表态（Reaction）或进行快捷回复。
 支持包含匹配 (contains)、精确匹配 (exact) 及正则表达式 (regex)。
 """
+
 import re
 from typing import Any, Dict, List
 
@@ -69,7 +70,9 @@ async def keyword_reactor_handler(ctx: PluginContext) -> bool:
     if not msg:
         return False
 
-    text = str(getattr(msg, "text", None) or getattr(msg, "caption", None) or "").strip()
+    text = str(
+        getattr(msg, "text", None) or getattr(msg, "caption", None) or ""
+    ).strip()
     if not text:
         return False
 
@@ -86,15 +89,17 @@ async def keyword_reactor_handler(ctx: PluginContext) -> bool:
 
     matched = False
     if match_mode == "exact":
-        matched = (text.strip() == keyword)
+        matched = text.strip() == keyword
     elif match_mode == "regex":
         try:
             matched = bool(re.search(keyword, text))
         except re.error as exc:
-            ctx.log(f"[keyword_reactor] 无效正则表达式 '{keyword}': {exc}", level="WARNING")
+            ctx.log(
+                f"[keyword_reactor] 无效正则表达式 '{keyword}': {exc}", level="WARNING"
+            )
             return False
     else:
-        matched = (keyword in text)
+        matched = keyword in text
 
     if not matched:
         return False

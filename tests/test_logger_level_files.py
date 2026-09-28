@@ -74,6 +74,11 @@ class TestMinLevelFilter:
 
 def _record(level: int) -> logging.LogRecord:
     return logging.LogRecord(
-        name="t", level=level, pathname=__file__, lineno=1,
-        msg="x", args=(), exc_info=None,
+        name="t",
+        level=level,
+        pathname=__file__,
+        lineno=1,
+        msg="x",
+        args=(),
+        exc_info=None,
     )

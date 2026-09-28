@@ -256,6 +256,7 @@ class TestOpsApi:
 
     def test_scheduled_jobs_with_range_task(self, client, db_session):
         """测试返回时间段任务配置的 execution_mode、range_start、range_end 等元数据"""
+
         class MockJob:
             id = "sign-testacc-mytask"
             name = "mytask"
@@ -265,6 +266,7 @@ class TestOpsApi:
 
         class MockScheduler:
             timezone = "Asia/Shanghai"
+
             def get_jobs(self):
                 return [MockJob()]
 
@@ -278,8 +280,10 @@ class TestOpsApi:
             }
         ]
 
-        with patch("backend.scheduler.scheduler", MockScheduler()), \
-             patch("backend.services.sign_tasks.get_sign_task_service") as mock_get_svc:
+        with (
+            patch("backend.scheduler.scheduler", MockScheduler()),
+            patch("backend.services.sign_tasks.get_sign_task_service") as mock_get_svc,
+        ):
             mock_svc = MagicMock()
             mock_svc.list_tasks.return_value = mock_tasks
             mock_get_svc.return_value = mock_svc
@@ -301,6 +305,7 @@ class TestOpsApi:
         self, client, db_session
     ):
         """账号参数不完整且任务重名时，不应把元数据错配到任一账号。"""
+
         class MockJob:
             id = "sign--shared"
             name = "shared"
@@ -355,7 +360,9 @@ class TestOpsApi:
         assert "recommended_paths" in body
         assert isinstance(body["entries"], list)
 
-    def test_backup_status_tolerates_ghost_backup_file(self, client, db_session, monkeypatch):
+    def test_backup_status_tolerates_ghost_backup_file(
+        self, client, db_session, monkeypatch
+    ):
         """glob 与 stat 之间备份文件被并发删除时接口不 500，跳过该文件。"""
         from pathlib import Path as _Path
 

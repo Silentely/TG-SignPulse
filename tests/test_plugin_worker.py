@@ -429,6 +429,7 @@ async def test_worker_subprocess_end_to_end(tmp_path):
     assert return_payload["success"] is True
     assert return_payload["result"] is True
 
+
 @pytest.mark.asyncio
 async def test_proxy_plugin_context_storage_and_react():
     rpc_mock = AsyncMock(return_value="stored_val")
@@ -472,6 +473,7 @@ async def test_proxy_plugin_context_storage_and_react():
     del_ok = await ctx.storage.delete("my_key")
     assert del_ok is True
     rpc_mock.assert_called_with("storage_delete", key="my_key")
+
 
 @pytest.mark.asyncio
 async def test_proxy_plugin_context_get_param():
@@ -522,5 +524,6 @@ async def test_proxy_plugin_context_global_storage():
     # Global storage
     rpc_mock.reset_mock()
     await ctx.global_storage.set("global_key", 123, ttl=60.0)
-    rpc_mock.assert_called_with("storage_set", key="global_key", value=123, ttl=60.0, is_global=True)
-
+    rpc_mock.assert_called_with(
+        "storage_set", key="global_key", value=123, ttl=60.0, is_global=True
+    )

@@ -35,7 +35,9 @@ async def test_export_standalone_session_success_flow():
     mock_candidate_client.is_connected = False
     mock_candidate_client.connect = AsyncMock()
     mock_candidate_client.disconnect = AsyncMock()
-    mock_candidate_client.export_session_string = AsyncMock(return_value="standalone_session_str_123")
+    mock_candidate_client.export_session_string = AsyncMock(
+        return_value="standalone_session_str_123"
+    )
     mock_candidate_client.storage = MagicMock()
     mock_candidate_client.storage.dc_id = AsyncMock(return_value=2)
     mock_candidate_client.storage.user_id = AsyncMock(return_value=999888)
@@ -52,12 +54,26 @@ async def test_export_standalone_session_success_flow():
     success_token = raw.types.auth.LoginTokenSuccess(authorization=fake_auth)
 
     # Candidate invokes: 1st ExportLoginToken -> LoginToken, 2nd ExportLoginToken -> LoginTokenSuccess
-    mock_candidate_client.invoke = AsyncMock(side_effect=[exported_token, success_token])
+    mock_candidate_client.invoke = AsyncMock(
+        side_effect=[exported_token, success_token]
+    )
 
-    with patch("backend.services.telegram.session_exporter.Client", return_value=mock_candidate_client), \
-         patch("backend.services.telegram.session_exporter.resolve_telegram_api_credentials", return_value=(12345, "test_hash")), \
-         patch("backend.services.telegram.session_exporter.get_config_service") as mock_cfg_svc:
-        mock_cfg_svc.return_value.get_global_settings.return_value = {"require_proxy_for_telegram": False}
+    with (
+        patch(
+            "backend.services.telegram.session_exporter.Client",
+            return_value=mock_candidate_client,
+        ),
+        patch(
+            "backend.services.telegram.session_exporter.resolve_telegram_api_credentials",
+            return_value=(12345, "test_hash"),
+        ),
+        patch(
+            "backend.services.telegram.session_exporter.get_config_service"
+        ) as mock_cfg_svc,
+    ):
+        mock_cfg_svc.return_value.get_global_settings.return_value = {
+            "require_proxy_for_telegram": False
+        }
         mock_cfg_svc.return_value.get_telegram_config.return_value = {}
 
         result = await create_standalone_session_export(
@@ -104,7 +120,9 @@ async def test_export_standalone_session_handles_dc_migration():
     mock_candidate_client.disconnect = AsyncMock()
     mock_candidate_client.session = MagicMock()
     mock_candidate_client.session.stop = AsyncMock()
-    mock_candidate_client.export_session_string = AsyncMock(return_value="migrated_dc4_session_str")
+    mock_candidate_client.export_session_string = AsyncMock(
+        return_value="migrated_dc4_session_str"
+    )
     mock_candidate_client.storage = MagicMock()
     mock_candidate_client.storage.dc_id = AsyncMock(return_value=4)
     mock_candidate_client.storage.auth_key = AsyncMock()
@@ -121,17 +139,33 @@ async def test_export_standalone_session_handles_dc_migration():
     # 2nd call on DC 4 -> LoginToken
     # 3rd call on DC 4 -> LoginTokenSuccess
     migrate_resp = raw.types.auth.LoginTokenMigrateTo(dc_id=4, token=b"migrate_tok")
-    exported_token = raw.types.auth.LoginToken(expires=100, token=b"migrated_token_bytes")
+    exported_token = raw.types.auth.LoginToken(
+        expires=100, token=b"migrated_token_bytes"
+    )
     success_token = raw.types.auth.LoginTokenSuccess(authorization=fake_auth)
 
-    mock_candidate_client.invoke = AsyncMock(side_effect=[migrate_resp, exported_token, success_token])
+    mock_candidate_client.invoke = AsyncMock(
+        side_effect=[migrate_resp, exported_token, success_token]
+    )
 
-    with patch("backend.services.telegram.session_exporter.Client", return_value=mock_candidate_client), \
-         patch("backend.services.telegram.session_exporter.resolve_telegram_api_credentials", return_value=(12345, "test_hash")), \
-         patch("backend.services.telegram.session_exporter.get_config_service") as mock_cfg_svc, \
-         patch("backend.services.telegram.session_exporter.Auth") as mock_auth_cls, \
-         patch("backend.services.telegram.session_exporter.Session") as mock_session_cls:
-        mock_cfg_svc.return_value.get_global_settings.return_value = {"require_proxy_for_telegram": False}
+    with (
+        patch(
+            "backend.services.telegram.session_exporter.Client",
+            return_value=mock_candidate_client,
+        ),
+        patch(
+            "backend.services.telegram.session_exporter.resolve_telegram_api_credentials",
+            return_value=(12345, "test_hash"),
+        ),
+        patch(
+            "backend.services.telegram.session_exporter.get_config_service"
+        ) as mock_cfg_svc,
+        patch("backend.services.telegram.session_exporter.Auth") as mock_auth_cls,
+        patch("backend.services.telegram.session_exporter.Session") as mock_session_cls,
+    ):
+        mock_cfg_svc.return_value.get_global_settings.return_value = {
+            "require_proxy_for_telegram": False
+        }
         mock_cfg_svc.return_value.get_telegram_config.return_value = {}
 
         mock_auth_instance = MagicMock()
@@ -188,11 +222,25 @@ async def test_export_standalone_session_handles_lock_timeout():
     exported_token = raw.types.auth.LoginToken(expires=100, token=b"tok_bytes")
     mock_candidate_client.invoke = AsyncMock(return_value=exported_token)
 
-    with patch("backend.services.telegram.session_exporter.Client", return_value=mock_candidate_client), \
-         patch("backend.services.telegram.session_exporter.resolve_telegram_api_credentials", return_value=(12345, "test_hash")), \
-         patch("backend.services.telegram.session_exporter.get_config_service") as mock_cfg_svc, \
-         patch("backend.services.telegram.session_exporter.acquire_account_lock_with_timeout") as mock_lock:
-        mock_cfg_svc.return_value.get_global_settings.return_value = {"require_proxy_for_telegram": False}
+    with (
+        patch(
+            "backend.services.telegram.session_exporter.Client",
+            return_value=mock_candidate_client,
+        ),
+        patch(
+            "backend.services.telegram.session_exporter.resolve_telegram_api_credentials",
+            return_value=(12345, "test_hash"),
+        ),
+        patch(
+            "backend.services.telegram.session_exporter.get_config_service"
+        ) as mock_cfg_svc,
+        patch(
+            "backend.services.telegram.session_exporter.acquire_account_lock_with_timeout"
+        ) as mock_lock,
+    ):
+        mock_cfg_svc.return_value.get_global_settings.return_value = {
+            "require_proxy_for_telegram": False
+        }
         mock_cfg_svc.return_value.get_telegram_config.return_value = {}
 
         mock_lock.side_effect = AccountLockTimeout("ACCOUNT_BUSY")
@@ -223,7 +271,9 @@ def test_export_standalone_session_route_success(api_client, db):  # noqa: F811
         )
     )
 
-    with patch("backend.api.routes.accounts.get_telegram_service", return_value=mock_svc):
+    with patch(
+        "backend.api.routes.accounts.get_telegram_service", return_value=mock_svc
+    ):
         resp = api_client.post(
             "/api/accounts/my_test_acc/session-exports",
             json={"device_model": "TG-SignPulse Export", "timeout_seconds": 30.0},
@@ -257,17 +307,31 @@ async def test_export_standalone_session_handles_2fa():
     mock_candidate_client.storage = MagicMock()
 
     exported_token = raw.types.auth.LoginToken(expires=100, token=b"tok_2fa")
-    mock_candidate_client.invoke = AsyncMock(side_effect=[exported_token, SessionPasswordNeeded()])
+    mock_candidate_client.invoke = AsyncMock(
+        side_effect=[exported_token, SessionPasswordNeeded()]
+    )
 
     mock_main_client = MagicMock()
     mock_main_client.is_connected = True
     mock_main_client.invoke = AsyncMock()
     mock_service._build_account_client.return_value = (mock_main_client, None)
 
-    with patch("backend.services.telegram.session_exporter.Client", return_value=mock_candidate_client), \
-         patch("backend.services.telegram.session_exporter.resolve_telegram_api_credentials", return_value=(12345, "test_hash")), \
-         patch("backend.services.telegram.session_exporter.get_config_service") as mock_cfg_svc:
-        mock_cfg_svc.return_value.get_global_settings.return_value = {"require_proxy_for_telegram": False}
+    with (
+        patch(
+            "backend.services.telegram.session_exporter.Client",
+            return_value=mock_candidate_client,
+        ),
+        patch(
+            "backend.services.telegram.session_exporter.resolve_telegram_api_credentials",
+            return_value=(12345, "test_hash"),
+        ),
+        patch(
+            "backend.services.telegram.session_exporter.get_config_service"
+        ) as mock_cfg_svc,
+    ):
+        mock_cfg_svc.return_value.get_global_settings.return_value = {
+            "require_proxy_for_telegram": False
+        }
         mock_cfg_svc.return_value.get_telegram_config.return_value = {}
 
         result = await create_standalone_session_export(
@@ -292,7 +356,9 @@ def test_export_standalone_session_route_busy_409(api_client, db):  # noqa: F811
         )
     )
 
-    with patch("backend.api.routes.accounts.get_telegram_service", return_value=mock_svc):
+    with patch(
+        "backend.api.routes.accounts.get_telegram_service", return_value=mock_svc
+    ):
         resp = api_client.post(
             "/api/accounts/busy_acc/session-exports",
             headers=_auth(token),
@@ -307,7 +373,9 @@ def test_export_standalone_session_route_not_found_404(api_client, db):  # noqa:
     mock_svc = MagicMock()
     mock_svc.account_exists.return_value = False
 
-    with patch("backend.api.routes.accounts.get_telegram_service", return_value=mock_svc):
+    with patch(
+        "backend.api.routes.accounts.get_telegram_service", return_value=mock_svc
+    ):
         resp = api_client.post(
             "/api/accounts/missing_acc/session-exports",
             headers=_auth(token),

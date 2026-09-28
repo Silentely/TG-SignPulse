@@ -1,4 +1,5 @@
 """TelegramService mixin: login_phone."""
+
 from __future__ import annotations
 
 import asyncio
@@ -29,7 +30,9 @@ settings = get_settings()
 logger = logging.getLogger("backend.telegram.login_phone")
 
 
-async def _discard_login_client(client, session_key: Optional[str], release_lock) -> None:
+async def _discard_login_client(
+    client, session_key: Optional[str], release_lock
+) -> None:
     """登录流程的统一清理：断连（容忍已断开/失败）→ 弹出会话 → 释放账号锁。
 
     各异常分支共用，避免断连/弹会话/放锁三环在新增分支时漏写。
@@ -45,7 +48,6 @@ async def _discard_login_client(client, session_key: Optional[str], release_lock
 
 
 class TelegramPhoneLoginMixin:
-
     @staticmethod
     def _normalize_login_token_expires(expires: Optional[int]) -> int:
         now = int(time.time())
@@ -63,7 +65,6 @@ class TelegramPhoneLoginMixin:
         if expires_ts <= now + 5:
             return now + 300
         return expires_ts
-
 
     async def start_login(
         self, account_name: str, phone_number: str, proxy: Optional[str] = None
@@ -172,10 +173,14 @@ class TelegramPhoneLoginMixin:
         proxy_dict = build_proxy_dict(proxy) if proxy else None
         if proxy and not proxy_dict:
             _release_account_lock()
-            raise ValueError("PROXY_INVALID_BLOCKED: Configured proxy string is invalid")
+            raise ValueError(
+                "PROXY_INVALID_BLOCKED: Configured proxy string is invalid"
+            )
         if config_service.require_proxy_for_telegram() and not proxy_dict:
             _release_account_lock()
-            raise ValueError("PROXY_REQUIRED_BLOCKED: Global policy requires a proxy for Telegram connections")
+            raise ValueError(
+                "PROXY_REQUIRED_BLOCKED: Global policy requires a proxy for Telegram connections"
+            )
 
         if proxy_dict:
             try:
@@ -270,7 +275,6 @@ class TelegramPhoneLoginMixin:
                 )
 
             raise ValueError(f"发送验证码失败: {error_details}")
-
 
     async def verify_login(
         self,
@@ -368,7 +372,9 @@ class TelegramPhoneLoginMixin:
                     await self._persist_client_session(client, account_name, proxy)
 
                     # 断开连接并清理（成功路径同样容忍断连抖动，避免已登录被误报失败）
-                    await _discard_login_client(client, session_key, _release_account_lock)
+                    await _discard_login_client(
+                        client, session_key, _release_account_lock
+                    )
 
                     return {
                         "success": True,
@@ -390,7 +396,9 @@ class TelegramPhoneLoginMixin:
                         await self._persist_client_session(client, account_name, proxy)
 
                         # 断开连接并清理
-                        await _discard_login_client(client, session_key, _release_account_lock)
+                        await _discard_login_client(
+                            client, session_key, _release_account_lock
+                        )
 
                         return {
                             "success": True,
@@ -426,7 +434,6 @@ class TelegramPhoneLoginMixin:
             else:
                 raise ValueError(f"登录失败: {error_msg}")
 
-
     async def _persist_client_session(
         self, client, account_name: str, proxy: Optional[str] = None
     ) -> None:
@@ -447,12 +454,15 @@ class TelegramPhoneLoginMixin:
             if session_string:
                 try:
                     set_account_session_string(account_name, session_string)
-                    save_session_string_file(self.session_dir, account_name, session_string)
+                    save_session_string_file(
+                        self.session_dir, account_name, session_string
+                    )
                     mark_account_connected(account_name)
                 except Exception:
                     pass
         if not proxy:
             from backend.services.config import get_config_service
+
             global_proxy = get_config_service().get_global_proxy()
             if global_proxy:
                 proxy = global_proxy
@@ -462,5 +472,3 @@ class TelegramPhoneLoginMixin:
             set_account_profile(account_name, proxy=proxy)
         mark_account_connected(account_name)
         self._accounts_cache = None
-
-

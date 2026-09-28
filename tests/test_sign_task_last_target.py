@@ -3,6 +3,7 @@
 覆盖：跨 chat 聚合取最新非自己消息、历史降序下不误取最旧候选、
 全自己消息回退、非自己优先、无候选返回空串（回归测试）。
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone

@@ -44,7 +44,9 @@ def _make_mock_forum_topic(**kwargs):
     return raw.types.ForumTopic(**filtered)
 
 
-def _make_valid_session_string(dc_id: int = 2, api_id: int = 123456, user_id: int = 777000) -> str:
+def _make_valid_session_string(
+    dc_id: int = 2, api_id: int = 123456, user_id: int = 777000
+) -> str:
     """构造可通过 is_valid_session_string 校验的新版 session_string。"""
     import base64
     import struct
@@ -156,12 +158,20 @@ def test_is_valid_session_string_accepts_and_rejects():
     import base64
     import struct
 
-    old_32 = base64.urlsafe_b64encode(
-        struct.pack(">B?256sI?", 2, False, bytes(range(256)), 777000, False)
-    ).decode("ascii").rstrip("=")
-    old_64 = base64.urlsafe_b64encode(
-        struct.pack(">B?256sQ?", 2, False, bytes(range(256)), 777000, False)
-    ).decode("ascii").rstrip("=")
+    old_32 = (
+        base64.urlsafe_b64encode(
+            struct.pack(">B?256sI?", 2, False, bytes(range(256)), 777000, False)
+        )
+        .decode("ascii")
+        .rstrip("=")
+    )
+    old_64 = (
+        base64.urlsafe_b64encode(
+            struct.pack(">B?256sQ?", 2, False, bytes(range(256)), 777000, False)
+        )
+        .decode("ascii")
+        .rstrip("=")
+    )
     assert len(old_32) == 351 and is_valid_session_string(old_32) is True
     assert len(old_64) == 356 and is_valid_session_string(old_64) is True
 
@@ -655,7 +665,10 @@ async def test_safe_get_forum_topics_unexpected_exception_logs_warning(caplog):
     with caplog.at_level(logging.WARNING):
         topics = await safe_get_forum_topics(mock_client, -1001234567)
     assert topics == []
-    assert any("Unexpected error fetching forum topics" in record.message for record in caplog.records)
+    assert any(
+        "Unexpected error fetching forum topics" in record.message
+        for record in caplog.records
+    )
 
 
 @pytest.mark.asyncio
@@ -674,7 +687,10 @@ async def test_safe_get_forum_topics_channel_private_logs_warning(caplog):
         topics = await safe_get_forum_topics(mock_client, -1001234567)
     assert topics == []
     # 确认 ChannelPrivate 作为真实权限异常记录了 warning，而没有被静默降级为非论坛
-    assert any("Unexpected error fetching forum topics" in record.message for record in caplog.records)
+    assert any(
+        "Unexpected error fetching forum topics" in record.message
+        for record in caplog.records
+    )
 
 
 @pytest.mark.asyncio

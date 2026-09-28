@@ -180,9 +180,12 @@ class TestActiveLogsSince:
 def test_task_tags_lifecycle(tmp_path, monkeypatch):
     monkeypatch.setenv("TG_SIGNER_WORKDIR", str(tmp_path))
     from backend.services.sign_tasks import SignTaskService
+
     svc = SignTaskService()
     account_name = f"acc_{tmp_path.name}"
-    monkeypatch.setattr("backend.scheduler.add_or_update_sign_task_job", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        "backend.scheduler.add_or_update_sign_task_job", lambda *a, **kw: None
+    )
     monkeypatch.setattr("backend.scheduler.remove_sign_task_job", lambda *a, **kw: None)
 
     created = svc.create_task(
@@ -219,15 +222,21 @@ def test_task_tags_lifecycle(tmp_path, monkeypatch):
     all_tasks = svc.list_tasks(account_name=account_name, force_refresh=True)
     assert len(all_tasks) == 2
 
-    vip_tasks = svc.list_tasks(account_name=account_name, force_refresh=False, tag="vip")
+    vip_tasks = svc.list_tasks(
+        account_name=account_name, force_refresh=False, tag="vip"
+    )
     assert len(vip_tasks) == 1
     assert vip_tasks[0]["name"] == "tagged_task"
 
-    crypto_tasks = svc.list_tasks(account_name=account_name, force_refresh=False, tag="crypto")
+    crypto_tasks = svc.list_tasks(
+        account_name=account_name, force_refresh=False, tag="crypto"
+    )
     assert len(crypto_tasks) == 1
     assert crypto_tasks[0]["name"] == "other_task"
 
-    none_tasks = svc.list_tasks(account_name=account_name, force_refresh=False, tag="nonexistent")
+    none_tasks = svc.list_tasks(
+        account_name=account_name, force_refresh=False, tag="nonexistent"
+    )
     assert len(none_tasks) == 0
 
     # Test deduplication on update
@@ -291,6 +300,7 @@ def test_aggregate_tasks_preserves_tag_insertion_order():
     assert len(merged) == 1
     assert merged[0]["tags"] == ["zebra", "alpha", "mid"]
 
+
 def test_delete_task_cleans_up_runtime_states(tmp_path, monkeypatch):
     monkeypatch.setenv("TG_SIGNER_WORKDIR", str(tmp_path))
     from backend.services.sign_tasks import SignTaskService
@@ -325,13 +335,14 @@ def test_rename_account_handles_non_tuple_keys(tmp_path, monkeypatch):
     assert "invalid_key_string" in svc._active_logs
 
 
-
 def test_delete_and_update_task_cleans_and_cancels_runtime(tmp_path, monkeypatch):
     class DummyTask:
         def __init__(self):
             self.cancelled = False
+
         def done(self):
             return False
+
         def cancel(self):
             self.cancelled = True
 

@@ -3,6 +3,7 @@
 纯判定、状态标记、日志摘要与等待轮询助手；动作执行见 signer_actions.py。
 方法经 self 解析，不依赖本模块之外的 Mixin 实现。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -35,7 +36,6 @@ from tg_signer.core.plugins import PluginRegistry
 
 
 class SignerMatchersMixin:
-
     def _message_matches_chat_thread(self, message: Message, chat: SignChatV3) -> bool:
         if message is None:
             return False
@@ -47,7 +47,6 @@ class SignerMatchersMixin:
         return msg_thread_id == chat.message_thread_id
 
     @staticmethod
-
     def _normalize_log_text(text: Optional[str], limit: int = 280) -> str:
         safe_limit = max(4, int(limit or 280))
         value = " / ".join(
@@ -57,7 +56,6 @@ class SignerMatchersMixin:
             return value[: safe_limit - 3] + "..."
         return value
 
-
     def _describe_chat_run(self, chat: SignChatV3) -> str:
         parts = [f"开始执行任务对象: Chat ID={chat.chat_id}"]
         if chat.message_thread_id is not None:
@@ -66,7 +64,6 @@ class SignerMatchersMixin:
             parts.append(f"名称={self._normalize_log_text(chat.name, 60)}")
         parts.append(f"动作数={len(chat.actions)}")
         return " | ".join(parts)
-
 
     def _describe_action(self, action: ActionT) -> str:
         if action is None:
@@ -100,7 +97,6 @@ class SignerMatchersMixin:
             return f"自定义插件「{action.plugin_name}」({mode})"
         return str(action)
 
-
     def _current_action_step_label(self) -> str:
         index = getattr(self.context, "current_action_index", None)
         total = getattr(self.context, "current_action_total", None)
@@ -109,7 +105,6 @@ class SignerMatchersMixin:
         if index:
             return f"第 {index} 步"
         return "当前步骤"
-
 
     def _set_current_action_context(
         self,
@@ -124,13 +119,11 @@ class SignerMatchersMixin:
         self.context.logged_action_message_markers.clear()
         return description
 
-
     def _clear_current_action_context(self) -> None:
         self.context.current_action_index = None
         self.context.current_action_total = None
         self.context.current_action_description = ""
         self.context.logged_action_message_markers.clear()
-
 
     def _log_received_target_message(
         self,
@@ -163,7 +156,6 @@ class SignerMatchersMixin:
                 prefix = "收到任务对象消息"
         self.log(f"{prefix}：{summary}")
 
-
     def _summarize_target_message(self, message: Optional[Message]) -> str:
         if message is None:
             return ""
@@ -190,8 +182,10 @@ class SignerMatchersMixin:
         elif isinstance(reply_markup, ReplyKeyboardMarkup):
             for row in reply_markup.keyboard:
                 for button in row:
-                    raw_text = button if isinstance(button, str) else getattr(
-                        button, "text", ""
+                    raw_text = (
+                        button
+                        if isinstance(button, str)
+                        else getattr(button, "text", "")
                     )
                     label = self._normalize_log_text(raw_text, 40)
                     if label:
@@ -208,7 +202,6 @@ class SignerMatchersMixin:
             summary = f"message_id={getattr(message, 'id', '-')}"
         return summary
 
-
     def _log_target_message(
         self,
         message: Optional[Message],
@@ -219,7 +212,6 @@ class SignerMatchersMixin:
         summary = self._summarize_target_message(message)
         if summary:
             self.log(f"{prefix}: {summary}", level=level)
-
 
     def _reply_markup_marker(self, reply_markup):
         if isinstance(reply_markup, InlineKeyboardMarkup):
@@ -235,14 +227,15 @@ class SignerMatchersMixin:
                 "reply",
                 tuple(
                     tuple(
-                        button if isinstance(button, str) else getattr(button, "text", "")
+                        button
+                        if isinstance(button, str)
+                        else getattr(button, "text", "")
                         for button in row
                     )
                     for row in reply_markup.keyboard
                 ),
             )
         return None
-
 
     def _message_state_marker(self, message: Message):
         return (
@@ -252,7 +245,6 @@ class SignerMatchersMixin:
             getattr(message, "edit_date", None),
             self._reply_markup_marker(getattr(message, "reply_markup", None)),
         )
-
 
     async def _chat_state_snapshot(
         self,
@@ -279,7 +271,6 @@ class SignerMatchersMixin:
             self.log(f"点击前消息状态快照失败: {e}", level="WARNING")
         return state
 
-
     async def _wait_for_chat_advance(
         self,
         chat: SignChatV3,
@@ -300,7 +291,6 @@ class SignerMatchersMixin:
                     return True
         return False
 
-
     def _message_has_button_text(
         self,
         message: Message,
@@ -314,12 +304,10 @@ class SignerMatchersMixin:
                 return True
         return False
 
-
     def _resolve_message_thread_id(self, message: Message) -> Optional[int]:
         return getattr(message, "message_thread_id", None) or getattr(
             message, "reply_to_top_message_id", None
         )
-
 
     def _message_supports_next_action(self, action: ActionT, message: Message) -> bool:
         if message is None:
@@ -336,7 +324,6 @@ class SignerMatchersMixin:
         if isinstance(action, ClickButtonByCalculationProblemAction):
             return bool((message.text or message.caption) and reply_markup)
         return False
-
 
     async def _chat_has_action_candidate(
         self,
@@ -364,7 +351,6 @@ class SignerMatchersMixin:
         except Exception as e:
             self.log(f"下一步动作候选消息检查失败: {e}", level="WARNING")
         return False
-
 
     async def _wait_for_next_action_candidate(
         self,
@@ -411,7 +397,6 @@ class SignerMatchersMixin:
             except Exception as e:
                 self.log(f"下一步动作候选消息检查失败: {e}", level="WARNING")
         return False
-
 
     def _text_has_terminal_success_text(self, text: Optional[str]) -> bool:
         normalized = str(text or "").strip().lower()
@@ -537,7 +522,6 @@ class SignerMatchersMixin:
             marker in normalized for marker in success_context_markers
         )
 
-
     def _callback_text_has_terminal_success_text(self, text: Optional[str]) -> bool:
         normalized = str(text or "").strip().lower()
         if not normalized:
@@ -580,7 +564,6 @@ class SignerMatchersMixin:
         )
         return any(marker in normalized for marker in callback_success_markers)
 
-
     def _message_has_terminal_success_text(self, message: Message) -> bool:
         text = "\n".join(
             item
@@ -591,7 +574,6 @@ class SignerMatchersMixin:
             if item
         )
         return self._text_has_terminal_success_text(text)
-
 
     def _message_is_actionable_target(self, message: Optional[Message]) -> bool:
         """当前步骤是否应处理该消息。
@@ -609,7 +591,6 @@ class SignerMatchersMixin:
             return False
         return True
 
-
     def _post_send_terminal_timeout(self) -> float:
         """发送文本/骰子后等待 bot 终态回复的秒数；0 表示不等待。"""
         raw = os.getenv("SIGN_TASK_POST_SEND_TERMINAL_TIMEOUT")
@@ -619,7 +600,6 @@ class SignerMatchersMixin:
             return max(float(raw), 0.0)
         except (TypeError, ValueError):
             return 3.0
-
 
     async def _maybe_stop_after_send(
         self,
@@ -647,7 +627,6 @@ class SignerMatchersMixin:
                 "发送后检测到任务完成响应，将停止后续动作"
                 + (f": {reason}" if reason else "")
             )
-
 
     async def _wait_for_terminal_success(
         self,
@@ -691,13 +670,14 @@ class SignerMatchersMixin:
                         and getattr(message, "id", None) in changed_ids
                         and self._message_has_terminal_success_text(message)
                     ):
-                        self.context.stop_reason = self._summarize_target_message(message)
+                        self.context.stop_reason = self._summarize_target_message(
+                            message
+                        )
                         self._log_received_target_message(message, prefix="收到回复")
                         return True
             except Exception as e:
                 self.log(f"最终成功消息检查失败: {e}", level="WARNING")
         return False
-
 
     async def _handle_post_click_followup(
         self,
@@ -739,4 +719,3 @@ class SignerMatchersMixin:
             return "next"
 
         return "none"
-

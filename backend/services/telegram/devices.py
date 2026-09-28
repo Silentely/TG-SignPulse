@@ -157,12 +157,13 @@ class TelegramDevicesMixin:
         await self.verify_account_proxy(account_name, proxy_dict)
 
         timeout_seconds = max(1.0, min(float(timeout_seconds or 12.0), 30.0))
-        reset_rpc_cls = (
-            getattr(raw.functions.account, "ResetAuthorizations", None)
-            or getattr(raw.functions.auth, "ResetAuthorizations", None)
-        )
+        reset_rpc_cls = getattr(
+            raw.functions.account, "ResetAuthorizations", None
+        ) or getattr(raw.functions.auth, "ResetAuthorizations", None)
         if not reset_rpc_cls:
-            raise RuntimeError("ResetAuthorizations RPC function not found in Pyrogram raw definitions")
+            raise RuntimeError(
+                "ResetAuthorizations RPC function not found in Pyrogram raw definitions"
+            )
 
         try:
             async with acquire_account_lock_with_timeout(

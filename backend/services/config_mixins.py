@@ -3,6 +3,7 @@
 按配置领域划分：签到任务/导出导入、AI 配置、全局设置、Telegram 凭据。
 共享的 JSON 读写、路径解析与单例组装仍留在 config.py。
 """
+
 from __future__ import annotations
 
 import json
@@ -121,9 +122,7 @@ def normalize_global_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
     for key, (low, high) in _GLOBAL_SETTING_INT_CLAMPS.items():
         if key in normalized:
             value = normalized[key]
-            normalized[key] = (
-                None if value is None else max(low, min(int(value), high))
-            )
+            normalized[key] = None if value is None else max(low, min(int(value), high))
 
     # 思考度：小写归一，空值清空（None），非法值忽略保留旧值
     if "ai_vision_reasoning_effort" in normalized:
@@ -193,7 +192,14 @@ def normalize_global_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
             normalized["s3_secret_key"] = str(secret)
 
     # S3 非密钥字段：去空白，空值归一为 None（前缀/区域回落默认值）
-    for key in ("s3_endpoint_url", "s3_bucket", "s3_access_key", "s3_region", "s3_prefix", "s3_proxy"):
+    for key in (
+        "s3_endpoint_url",
+        "s3_bucket",
+        "s3_access_key",
+        "s3_region",
+        "s3_prefix",
+        "s3_proxy",
+    ):
         if key in normalized:
             stripped = (normalized[key] or "").strip()
             normalized[key] = stripped or None
@@ -217,7 +223,9 @@ def normalize_global_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
 
     if "require_proxy_for_telegram" in normalized:
         val = normalized["require_proxy_for_telegram"]
-        normalized["require_proxy_for_telegram"] = bool(val) if val is not None else False
+        normalized["require_proxy_for_telegram"] = (
+            bool(val) if val is not None else False
+        )
 
     if "backup_target" in normalized:
         target_val = str(normalized["backup_target"] or "").strip().lower()
@@ -251,7 +259,6 @@ class SignTaskConfigMixin:
 
         return sorted(tasks)
 
-
     def _find_sign_task_dirs(self, task_name: str) -> List[Path]:
         matches = []
         if not self.signs_dir.exists():
@@ -271,7 +278,6 @@ class SignTaskConfigMixin:
 
         return matches
 
-
     def get_sign_config(
         self, task_name: str, account_name: Optional[str] = None
     ) -> Optional[Dict]:
@@ -287,7 +293,9 @@ class SignTaskConfigMixin:
         """
         task_name = validate_storage_name(task_name, field_name="task_name")
         if account_name:
-            account_name = validate_storage_name(account_name, field_name="account_name")
+            account_name = validate_storage_name(
+                account_name, field_name="account_name"
+            )
             task_dir = self.signs_dir / account_name / task_name
             config_file = task_dir / "config.json"
             if not config_file.exists():
@@ -297,12 +305,13 @@ class SignTaskConfigMixin:
             if not matches:
                 return None
             if len(matches) > 1:
-                raise ValueError(f"任务 {task_name} 存在于多个账号中，请指定 account_name")
+                raise ValueError(
+                    f"任务 {task_name} 存在于多个账号中，请指定 account_name"
+                )
             task_dir = matches[0]
             config_file = task_dir / "config.json"
 
         return self._read_json_file(config_file)
-
 
     def save_sign_config(self, task_name: str, config: Dict) -> bool:
         """
@@ -319,7 +328,9 @@ class SignTaskConfigMixin:
         account_name = config.get("account_name", "")
 
         if account_name:
-            account_name = validate_storage_name(account_name, field_name="account_name")
+            account_name = validate_storage_name(
+                account_name, field_name="account_name"
+            )
             # 使用新版结构: signs/account/task
             task_dir = self.signs_dir / account_name / task_name
         else:
@@ -330,7 +341,6 @@ class SignTaskConfigMixin:
         config_file = task_dir / "config.json"
 
         return self._write_json_file(config_file, config)
-
 
     def delete_sign_config(
         self, task_name: str, account_name: Optional[str] = None
@@ -347,7 +357,9 @@ class SignTaskConfigMixin:
         """
         task_name = validate_storage_name(task_name, field_name="task_name")
         if account_name:
-            account_name = validate_storage_name(account_name, field_name="account_name")
+            account_name = validate_storage_name(
+                account_name, field_name="account_name"
+            )
             task_dir = self.signs_dir / account_name / task_name
             if not task_dir.exists():
                 return False
@@ -356,7 +368,9 @@ class SignTaskConfigMixin:
             if not matches:
                 return False
             if len(matches) > 1:
-                raise ValueError(f"任务 {task_name} 存在于多个账号中，请指定 account_name")
+                raise ValueError(
+                    f"任务 {task_name} 存在于多个账号中，请指定 account_name"
+                )
             task_dir = matches[0]
 
         try:
@@ -374,12 +388,12 @@ class SignTaskConfigMixin:
             # 注意：如果是嵌套结构，这里只删除了任务目录，没有删除可能变空的账号目录
             # 这通常是可以接受的，或者我们可以检查父目录是否为空并删除
             import shutil
+
             shutil.rmtree(task_dir)
 
             return True
         except OSError:
             return False
-
 
     def export_sign_task(
         self, task_name: str, account_name: Optional[str] = None
@@ -416,7 +430,6 @@ class SignTaskConfigMixin:
         return json.dumps(
             _scrub_export_secrets(export_data), ensure_ascii=False, indent=2
         )
-
 
     def import_sign_task(
         self,
@@ -473,6 +486,7 @@ class SignTaskConfigMixin:
     # 导出脱敏占位；导入时若见到则跳过密钥写入，避免覆盖真实密钥
     AI_KEY_MASK = _EXPORT_MASK
     SECRET_MASKS = frozenset({AI_KEY_MASK, "***", "MASKED", "REDACTED", "***MASKED***"})
+
 
 # 导出即整值脱敏的字段名（小写比较）：推送凭据、AI/WebDAV/S3 密钥等
 _SECRET_FIELD_NAMES = frozenset(
@@ -669,6 +683,7 @@ class ConfigExportMixin:
 
                                 if key in all_configs["signs"]:
                                     import uuid
+
                                     key = f"{key}_{str(uuid.uuid4())[:8]}"
 
                                 all_configs["signs"][key] = config
@@ -720,7 +735,6 @@ class ConfigExportMixin:
             _scrub_export_secrets(all_configs), ensure_ascii=False, indent=2
         )
 
-
     def import_all_configs(
         self, json_str: str, overwrite: bool = False
     ) -> Dict[str, Any]:
@@ -759,7 +773,9 @@ class ConfigExportMixin:
             # 导入签到任务
             for key, config in signs.items():
                 if not isinstance(config, dict):
-                    result["errors"].append(f"Failed to import sign task (invalid entry): {key}")
+                    result["errors"].append(
+                        f"Failed to import sign task (invalid entry): {key}"
+                    )
                     continue
                 task_name = config.get("name")
                 if not task_name:
@@ -786,10 +802,14 @@ class ConfigExportMixin:
                     if self.save_sign_config(task_name, config):
                         result["signs_imported"] += 1
                     else:
-                        result["errors"].append(f"Failed to import sign task: {task_name}")
+                        result["errors"].append(
+                            f"Failed to import sign task: {task_name}"
+                        )
                 except ValueError as exc:
                     # 非法任务/账号名（save_sign_config 内部校验）不中断整体导入
-                    result["errors"].append(f"Failed to import sign task {task_name}: {exc}")
+                    result["errors"].append(
+                        f"Failed to import sign task {task_name}: {exc}"
+                    )
 
             # 导入监控任务
             for task_name, config in monitors.items():
@@ -853,9 +873,7 @@ class ConfigExportMixin:
                     raw_key = str(ai_conf.get("api_key") or "").strip()
                     if not raw_key:
                         result["settings_skipped"] += 1
-                        result["warnings"].append(
-                            "AI config skipped: empty api_key"
-                        )
+                        result["warnings"].append("AI config skipped: empty api_key")
                     elif raw_key in self.SECRET_MASKS:
                         result["settings_skipped"] += 1
                         result["warnings"].append(
@@ -923,7 +941,6 @@ class AIConfigMixin:
         """获取 AI 配置文件路径"""
         return self.workdir / ".openai_config.json"
 
-
     def get_ai_config(self) -> Optional[Dict]:
         """
         获取 AI 配置，优先解密加密的 API Key，兼容旧版明文。
@@ -965,7 +982,6 @@ class AIConfigMixin:
             "model": raw.get("model"),
             "api_key_decrypt_failed": decrypt_failed,
         }
-
 
     def save_ai_config(
         self,
@@ -1018,16 +1034,13 @@ class AIConfigMixin:
 
             existing_raw["api_key"] = encrypt_secret(str(final_api_key))
         except Exception as exc:
-            _logger.error(
-                "AI API Key 加密失败，拒绝保存明文: %s", exc
-            )
+            _logger.error("AI API Key 加密失败，拒绝保存明文: %s", exc)
             raise ValueError("API Key 加密失败，请检查 APP_SECRET_KEY 配置") from exc
 
         existing_raw["base_url"] = base_url if base_url else None
         existing_raw["model"] = model if model else None
 
         return self._write_json_file(config_file, existing_raw)
-
 
     def delete_ai_config(self) -> bool:
         """
@@ -1046,7 +1059,6 @@ class AIConfigMixin:
             return True
         except OSError:
             return False
-
 
     async def test_ai_connection(self) -> Dict:
         """
@@ -1151,7 +1163,6 @@ class GlobalSettingsMixin:
         """获取全局设置文件路径"""
         return self.workdir / ".global_settings.json"
 
-
     def get_global_settings(self) -> Dict:
         """
         获取全局设置
@@ -1253,6 +1264,7 @@ class GlobalSettingsMixin:
         if tz_value:
             try:
                 from zoneinfo import ZoneInfo
+
                 ZoneInfo(str(tz_value))
             except Exception:
                 raise ValueError(f"无效的时区: {tz_value}")
@@ -1282,6 +1294,7 @@ class GlobalSettingsMixin:
         if concurrency_val is not None:
             try:
                 from backend.utils.tg_session import update_global_semaphore
+
                 update_global_semaphore(int(concurrency_val))
             except Exception as exc:
                 # 已写盘成功但运行时未生效，必须可观测，避免面板显示与运行不一致
@@ -1295,7 +1308,6 @@ class GlobalSettingsMixin:
         apply_global_settings_to_env(merged)
 
         return True
-
 
     def preview_import_all(self, json_str: str) -> Dict[str, Any]:
         """预览导入内容，不写盘。"""
@@ -1385,7 +1397,6 @@ class TelegramConfigMixin:
         """获取 Telegram API 配置文件路径"""
         return self.workdir / ".telegram_api.json"
 
-
     def get_telegram_config(self) -> Dict:
         """
         获取 Telegram API 配置
@@ -1414,7 +1425,6 @@ class TelegramConfigMixin:
             _warn_default_tg_credentials_once()
             return default_config
 
-
     def save_telegram_config(self, api_id: str, api_hash: str) -> bool:
         """
         保存 Telegram API 配置
@@ -1434,7 +1444,6 @@ class TelegramConfigMixin:
         config_file = self._get_telegram_config_file()
 
         return self._write_json_file(config_file, config)
-
 
     def reset_telegram_config(self) -> bool:
         """

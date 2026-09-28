@@ -10,10 +10,12 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parent.parent
 TEST_DATA_DIR = Path("/tmp/tg_signpulse_e2e")
 
+
 def cleanup_data_dir():
     if TEST_DATA_DIR.exists():
         shutil.rmtree(TEST_DATA_DIR, ignore_errors=True)
     TEST_DATA_DIR.mkdir(parents=True, exist_ok=True)
+
 
 def wait_for_url(url: str, timeout: float = 20.0) -> bool:
     start = time.time()
@@ -27,10 +29,14 @@ def wait_for_url(url: str, timeout: float = 20.0) -> bool:
             time.sleep(0.4)
     return False
 
+
 def ensure_edge_running():
-    script_path = Path("/Users/adair/.gemini/config/skills/edge-cdp-test/scripts/launch-edge.sh")
+    script_path = Path(
+        "/Users/adair/.gemini/config/skills/edge-cdp-test/scripts/launch-edge.sh"
+    )
     res = subprocess.run(["bash", str(script_path)], capture_output=True, text=True)
     print("Edge 状态:\n", res.stdout.strip())
+
 
 def main():
     cleanup_data_dir()
@@ -42,12 +48,29 @@ def main():
     backend_env["PYTHONPATH"] = str(ROOT_DIR)
 
     backend_cmd = [
-        sys.executable, "-m", "uvicorn", "backend.main:app",
-        "--host", "127.0.0.1", "--port", "8080", "--log-level", "warning"
+        sys.executable,
+        "-m",
+        "uvicorn",
+        "backend.main:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8080",
+        "--log-level",
+        "warning",
     ]
 
     frontend_cmd = [
-        "npm", "--prefix", "frontend", "run", "dev", "--", "--port", "5173", "--host", "127.0.0.1"
+        "npm",
+        "--prefix",
+        "frontend",
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5173",
+        "--host",
+        "127.0.0.1",
     ]
 
     print("⚡ 启动后端服务 (FastAPI, 127.0.0.1:8080)...")
@@ -89,6 +112,7 @@ def main():
         print("✅ 服务已完全退出")
 
     sys.exit(0 if success else 1)
+
 
 if __name__ == "__main__":
     main()

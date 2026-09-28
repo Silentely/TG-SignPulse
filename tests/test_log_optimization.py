@@ -87,7 +87,9 @@ ValueError: invalid literal
         result = safe_traceback_preview("", max_lines=10, max_line_chars=200)
         assert result == ""
 
-        result = safe_traceback_preview("NoneType: None\n", max_lines=10, max_line_chars=200)
+        result = safe_traceback_preview(
+            "NoneType: None\n", max_lines=10, max_line_chars=200
+        )
         assert result == ""
 
     def test_whitespace_folding(self):
@@ -195,6 +197,7 @@ class TestBackendLoggingConfig:
         # 实际运行需要完整的 backend 环境
         try:
             from backend.main import _configure_backend_logging
+
             assert callable(_configure_backend_logging)
         except ImportError as e:
             pytest.skip(f"无法导入 backend.main: {e}")
@@ -251,10 +254,8 @@ class TestNoBarePrintInProduction:
         assert path.is_file(), f"扫描目标不存在（请更新 _TARGETS）: {rel_path}"
         src = path.read_text(encoding="utf-8")
         offending = [
-            f"{i+1}: {line.strip()}"
+            f"{i + 1}: {line.strip()}"
             for i, line in enumerate(src.splitlines())
             if line.strip().startswith("print(")
         ]
-        assert offending == [], (
-            f"{rel_path} 残留 bare print() 调试语句: {offending}"
-        )
+        assert offending == [], f"{rel_path} 残留 bare print() 调试语句: {offending}"

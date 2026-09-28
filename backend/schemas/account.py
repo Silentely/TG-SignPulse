@@ -46,5 +46,6 @@ class AccountOut(AccountBase):
     if _PYDANTIC_V2 and ConfigDict is not None:
         model_config = ConfigDict(from_attributes=True)
     else:
+
         class Config:
             orm_mode = True

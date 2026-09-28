@@ -23,9 +23,7 @@ def utc_now_iso_z() -> str:
 
 def utc_now_iso_z_seconds() -> str:
     """UTC ISO8601（秒精度，Z 后缀），供持久化时间戳使用。"""
-    return (
-        utc_now().replace(microsecond=0).isoformat().replace("+00:00", "Z")
-    )
+    return utc_now().replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def utc_from_timestamp(timestamp: int | float) -> datetime:

@@ -1,4 +1,5 @@
 """全局并发默认值测试 — 覆盖 tg_session.py 的 _resolve_concurrency_limit"""
+
 from __future__ import annotations
 
 import os
@@ -37,9 +38,16 @@ class TestResolveConcurrencyLimit:
 
         mock_service = MagicMock()
         mock_service.get_global_settings.return_value = {}
-        with patch.dict(os.environ, {}, clear=False), \
-             patch("backend.utils.tg_session.os.getenv", side_effect=lambda k, *a: os.environ.get(k, "")), \
-             patch("backend.services.config.get_config_service", return_value=mock_service):
+        with (
+            patch.dict(os.environ, {}, clear=False),
+            patch(
+                "backend.utils.tg_session.os.getenv",
+                side_effect=lambda k, *a: os.environ.get(k, ""),
+            ),
+            patch(
+                "backend.services.config.get_config_service", return_value=mock_service
+            ),
+        ):
             result = _resolve_concurrency_limit()
             cpu_count = os.cpu_count() or 4
             expected = min(cpu_count, 5)

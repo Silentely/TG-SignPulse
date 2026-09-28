@@ -10,6 +10,7 @@ Covers:
 7. Plugin AST security static analyzer (sandbox escape attribute & reflection checks)
 8. User endpoint TOTP reset blocking when 2FA is active
 """
+
 from __future__ import annotations
 
 import ast
@@ -109,7 +110,9 @@ class TestSecurityAuditFixes:
             _validate_push_target_url("http://169.254.169.254/latest/meta-data/")
 
         with pytest.raises(ValueError, match="禁止请求私有或内网地址"):
-            _validate_push_target_url("http://metadata.google.internal/computeMetadata/v1/")
+            _validate_push_target_url(
+                "http://metadata.google.internal/computeMetadata/v1/"
+            )
 
         with pytest.raises(ValueError, match="禁止请求私有或内网地址"):
             _validate_push_target_url("http://100.100.100.200/latest/meta-data/")
@@ -171,7 +174,9 @@ def exploit(cls):
         assert "reflection-call:getattr:__subclasses__" in detected_rules
 
     def test_totp_reset_blocks_password_only_by_default(self, client, db_session):
-        user = User(username="testuser_totp", password_hash=hash_password("mypassword123"))
+        user = User(
+            username="testuser_totp", password_hash=hash_password("mypassword123")
+        )
         user.totp_secret = "JBSWY3DPEHPK3PXP"
         db_session.add(user)
         db_session.commit()

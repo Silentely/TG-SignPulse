@@ -1,4 +1,5 @@
 """账号状态批量检测 Job 测试。"""
+
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -70,7 +71,9 @@ def test_normalize_names_dedupe_and_limit(monkeypatch):
     with patch("backend.services.telegram.get_telegram_service") as mock_get:
         mock_get.return_value.list_accounts.return_value = []
         with pytest.raises(ValueError, match="最多"):
-            jobs_mod._normalize_names([f"acc{i}" for i in range(jobs_mod.MAX_ACCOUNTS + 1)])
+            jobs_mod._normalize_names(
+                [f"acc{i}" for i in range(jobs_mod.MAX_ACCOUNTS + 1)]
+            )
 
 
 def test_normalize_names_rejects_path_segments():

@@ -10,24 +10,42 @@ from tg_signer.core.adaptive_schedule import parse_cooldown_timedelta
 
 def test_parse_cooldown_chinese_formats():
     assert parse_cooldown_timedelta("冷却中，请等待 15 分钟") == timedelta(minutes=15)
-    assert parse_cooldown_timedelta("距离下次签到还有 1天2小时") == timedelta(days=1, hours=2)
+    assert parse_cooldown_timedelta("距离下次签到还有 1天2小时") == timedelta(
+        days=1, hours=2
+    )
     assert parse_cooldown_timedelta("操作频繁，请 45秒 后重试") == timedelta(seconds=45)
     assert parse_cooldown_timedelta("请在2小时后再试") == timedelta(hours=2)
-    assert parse_cooldown_timedelta("冷却时间剩余 1天3小时20分10秒") == timedelta(days=1, hours=3, minutes=20, seconds=10)
-    assert parse_cooldown_timedelta("请在 3小时15分钟 后再试") == timedelta(hours=3, minutes=15)
+    assert parse_cooldown_timedelta("冷却时间剩余 1天3小时20分10秒") == timedelta(
+        days=1, hours=3, minutes=20, seconds=10
+    )
+    assert parse_cooldown_timedelta("请在 3小时15分钟 后再试") == timedelta(
+        hours=3, minutes=15
+    )
     assert parse_cooldown_timedelta("请等待半小时后再试") == timedelta(minutes=30)
-    assert parse_cooldown_timedelta("距离下次签到还有一个半小时") == timedelta(hours=1, minutes=30)
-    assert parse_cooldown_timedelta("冷却时间：1小时零5分钟") == timedelta(hours=1, minutes=5)
-    assert parse_cooldown_timedelta("请在2小时半后再试") == timedelta(hours=2, minutes=30)
+    assert parse_cooldown_timedelta("距离下次签到还有一个半小时") == timedelta(
+        hours=1, minutes=30
+    )
+    assert parse_cooldown_timedelta("冷却时间：1小时零5分钟") == timedelta(
+        hours=1, minutes=5
+    )
+    assert parse_cooldown_timedelta("请在2小时半后再试") == timedelta(
+        hours=2, minutes=30
+    )
     assert parse_cooldown_timedelta("请等待半天后再试") == timedelta(hours=12)
 
 
 def test_parse_cooldown_english_formats():
-    assert parse_cooldown_timedelta("Try again in 2h 30m") == timedelta(hours=2, minutes=30)
+    assert parse_cooldown_timedelta("Try again in 2h 30m") == timedelta(
+        hours=2, minutes=30
+    )
     assert parse_cooldown_timedelta("Cooldown: 45s") == timedelta(seconds=45)
-    assert parse_cooldown_timedelta("Please wait 1 day 2 hours") == timedelta(days=1, hours=2)
+    assert parse_cooldown_timedelta("Please wait 1 day 2 hours") == timedelta(
+        days=1, hours=2
+    )
     assert parse_cooldown_timedelta("Retry in 15 minutes") == timedelta(minutes=15)
-    assert parse_cooldown_timedelta("Wait 10s before next attempt") == timedelta(seconds=10)
+    assert parse_cooldown_timedelta("Wait 10s before next attempt") == timedelta(
+        seconds=10
+    )
     assert parse_cooldown_timedelta("Cooldown: 1h30m") == timedelta(hours=1, minutes=30)
 
 
@@ -35,13 +53,17 @@ def test_parse_cooldown_rejects_numeric_noise():
     # Strict unit anchoring must not treat random numbers as time units
     assert parse_cooldown_timedelta("获得 500 积分") is None
     assert parse_cooldown_timedelta("用户 ID: 12345") is None
-    assert parse_cooldown_timedelta("签到成功！当前连续签到 7 天，获得经验 100 点") is None
+    assert (
+        parse_cooldown_timedelta("签到成功！当前连续签到 7 天，获得经验 100 点") is None
+    )
 
 
 def test_parse_cooldown_custom_patterns_priority():
     text = "系统提示：距离下次签到限制还需 1800 秒，请知悉"
     custom_patterns = [r"还需\s*(\d+)\s*秒"]
-    assert parse_cooldown_timedelta(text, custom_patterns=custom_patterns) == timedelta(seconds=1800)
+    assert parse_cooldown_timedelta(text, custom_patterns=custom_patterns) == timedelta(
+        seconds=1800
+    )
 
 
 def test_reschedule_sign_task_once_modifies_next_run_time():
@@ -73,16 +95,35 @@ async def test_task_runner_triggers_adaptive_reschedule(monkeypatch):
     }
     svc = FakeSvc(task_cfg)
 
-    monkeypatch.setattr("backend.services.sign_task_notify.check_account_before_task", AsyncMock(return_value=None))
-    monkeypatch.setattr("backend.services.sign_task_notify.send_success_notification", AsyncMock())
-    monkeypatch.setattr("backend.services.sign_task_notify.send_failure_notification", AsyncMock())
-    monkeypatch.setattr("backend.utils.account_locks.get_account_lock", lambda a: asyncio.Lock())
+    monkeypatch.setattr(
+        "backend.services.sign_task_notify.check_account_before_task",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        "backend.services.sign_task_notify.send_success_notification", AsyncMock()
+    )
+    monkeypatch.setattr(
+        "backend.services.sign_task_notify.send_failure_notification", AsyncMock()
+    )
+    monkeypatch.setattr(
+        "backend.utils.account_locks.get_account_lock", lambda a: asyncio.Lock()
+    )
     monkeypatch.setattr("backend.utils.tg_session.get_session_mode", lambda: "file")
-    monkeypatch.setattr("backend.utils.tg_session.load_account_session_string", lambda *a, **k: None)
-    monkeypatch.setattr("backend.utils.tg_session.get_global_semaphore", lambda: asyncio.Semaphore(10))
-    monkeypatch.setattr("backend.services.runtime_settings.get_execution_timeout", lambda: 10.0)
-    monkeypatch.setattr("backend.services.runtime_settings.get_flow_retry_attempts", lambda: 0)
-    monkeypatch.setattr("backend.services.sign_task_runner.POST_RUN_LOCK_BUFFER_SECONDS", 0)
+    monkeypatch.setattr(
+        "backend.utils.tg_session.load_account_session_string", lambda *a, **k: None
+    )
+    monkeypatch.setattr(
+        "backend.utils.tg_session.get_global_semaphore", lambda: asyncio.Semaphore(10)
+    )
+    monkeypatch.setattr(
+        "backend.services.runtime_settings.get_execution_timeout", lambda: 10.0
+    )
+    monkeypatch.setattr(
+        "backend.services.runtime_settings.get_flow_retry_attempts", lambda: 0
+    )
+    monkeypatch.setattr(
+        "backend.services.sign_task_runner.POST_RUN_LOCK_BUFFER_SECONDS", 0
+    )
 
     # Wire up signer factory
     class MockBackendUserSigner:
@@ -92,10 +133,14 @@ async def test_task_runner_triggers_adaptive_reschedule(monkeypatch):
         async def run_once(self, *a, **kw):
             # Simulate bot response logged
             task_key = svc._task_key("user1", "daily_checkin")
-            svc._append_active_log(task_key, "收到来自「Bot」的消息: Message: text: 冷却中，请等待 15 分钟")
+            svc._append_active_log(
+                task_key, "收到来自「Bot」的消息: Message: text: 冷却中，请等待 15 分钟"
+            )
             return None
 
-    monkeypatch.setattr("backend.services.sign_task_backend.BackendUserSigner", MockBackendUserSigner)
+    monkeypatch.setattr(
+        "backend.services.sign_task_backend.BackendUserSigner", MockBackendUserSigner
+    )
 
     with patch("backend.scheduler.reschedule_sign_task_once") as mock_reschedule:
         mock_reschedule.return_value = True

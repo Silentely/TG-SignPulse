@@ -24,7 +24,9 @@ def test_is_in_quiet_hours_seconds_format():
     # 06:15 should be in quiet hours
     assert is_in_quiet_hours(cfg, datetime(2026, 7, 18, 6, 15, tzinfo=ZoneInfo("UTC")))
     # 12:00 should NOT be in quiet hours
-    assert not is_in_quiet_hours(cfg, datetime(2026, 7, 18, 12, 0, tzinfo=ZoneInfo("UTC")))
+    assert not is_in_quiet_hours(
+        cfg, datetime(2026, 7, 18, 12, 0, tzinfo=ZoneInfo("UTC"))
+    )
 
 
 def test_session_file_info_string_and_path(tmp_path: Path):

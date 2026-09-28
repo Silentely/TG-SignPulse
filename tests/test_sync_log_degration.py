@@ -66,9 +66,12 @@ def test_sync_jobs_failure_does_not_block_restart():
     async def _fake_restart(*, context: str = ""):
         calls.append("restart")
 
-    with patch("backend.scheduler.sync_jobs", side_effect=_fake_sync_jobs), patch(
-        "backend.services.sync_helpers.restart_keyword_monitors",
-        side_effect=_fake_restart,
+    with (
+        patch("backend.scheduler.sync_jobs", side_effect=_fake_sync_jobs),
+        patch(
+            "backend.services.sync_helpers.restart_keyword_monitors",
+            side_effect=_fake_restart,
+        ),
     ):
         import asyncio
 

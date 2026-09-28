@@ -5,6 +5,7 @@
 - 新鲜缓存命中直接返回；下载成功后写缓存并清除无头像标记
 - 下载明确返回空才允许调用方写无头像标记；瞬时异常不污染缓存
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -124,7 +125,11 @@ def cleanup_avatar_cache(cache_dir: Path, ttl: int = AVATAR_CACHE_TTL_SECONDS) -
                 continue
             name = entry.name
             # 针对中断遗留的 .tmp 文件使用更短的 1 小时过期阈值
-            file_ttl = _TMP_FILE_CLEANUP_TTL_SECONDS if name.startswith(".avatar_") and name.endswith(".tmp") else ttl
+            file_ttl = (
+                _TMP_FILE_CLEANUP_TTL_SECONDS
+                if name.startswith(".avatar_") and name.endswith(".tmp")
+                else ttl
+            )
             if now - entry.stat().st_mtime >= file_ttl:
                 entry.unlink(missing_ok=True)
                 removed += 1

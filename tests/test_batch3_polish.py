@@ -18,14 +18,12 @@ def test_clamp_chat_search_page_types_and_bounds():
 def test_classify_failure_network_proxy_extensions():
     cat1 = classify_failure(
         error="socket.gaierror: [Errno 8] nodename nor servname provided",
-
         success=False,
     )
     assert cat1 == FailureCategory.NETWORK_PROXY
 
     cat2 = classify_failure(
         error="httpx.RemoteProtocolError: Server disconnected",
-
         success=False,
     )
     assert cat2 == FailureCategory.NETWORK_PROXY

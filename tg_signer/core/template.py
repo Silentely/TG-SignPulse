@@ -88,25 +88,22 @@ class _SafeEvaluator(ast.NodeVisitor):
 
     def visit_Attribute(self, node: ast.Attribute) -> Any:
         attr_lower = node.attr.lower()
-        if (
-            node.attr.startswith("__")
-            or attr_lower in (
-                "format",
-                "format_map",
-                "__globals__",
-                "__code__",
-                "__closure__",
-                "__func__",
-                "__self__",
-                "__subclasses__",
-                "__bases__",
-                "__mro__",
-                "gi_frame",
-                "cr_frame",
-                "f_locals",
-                "f_globals",
-                "f_builtins",
-            )
+        if node.attr.startswith("__") or attr_lower in (
+            "format",
+            "format_map",
+            "__globals__",
+            "__code__",
+            "__closure__",
+            "__func__",
+            "__self__",
+            "__subclasses__",
+            "__bases__",
+            "__mro__",
+            "gi_frame",
+            "cr_frame",
+            "f_locals",
+            "f_globals",
+            "f_builtins",
         ):
             raise ValueError(f"安全限制：禁止访问受保护属性或格式化方法 {node.attr}")
         obj = self.visit(node.value)
@@ -333,10 +330,7 @@ def render_template_recursive(
     if isinstance(data, str):
         return render_template(data, context)
     elif isinstance(data, dict):
-        return {
-            k: render_template_recursive(v, context)
-            for k, v in data.items()
-        }
+        return {k: render_template_recursive(v, context) for k, v in data.items()}
     elif isinstance(data, list):
         return [render_template_recursive(item, context) for item in data]
     elif isinstance(data, tuple):

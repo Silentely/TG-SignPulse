@@ -14,7 +14,9 @@ def _limiter():
     return InMemoryRateLimiter()
 
 
-def _hit(limiter, scope="auth.login", key="1.2.3.4", max_attempts=5, window=300, block=900):
+def _hit(
+    limiter, scope="auth.login", key="1.2.3.4", max_attempts=5, window=300, block=900
+):
     return limiter.hit(
         scope=scope,
         key=key,
@@ -61,18 +63,18 @@ class TestRateLimiterSweep:
         limiter = _limiter()
         # 模拟一个 1 小时前有过一次尝试、此后无请求的桶
         stale = time.monotonic() - 7200
-        limiter._attempts[("auth.login", "ghost")] = __import__(
-            "collections"
-        ).deque([stale])
+        limiter._attempts[("auth.login", "ghost")] = __import__("collections").deque(
+            [stale]
+        )
         limiter._hits_since_sweep = limiter._SWEEP_INTERVAL - 1  # 下一次 hit 触发清扫
         _hit(limiter)
         assert ("auth.login", "ghost") not in limiter._attempts
 
     def test_sweep_keeps_recent_buckets(self):
         limiter = _limiter()
-        limiter._attempts[("auth.login", "live")] = __import__(
-            "collections"
-        ).deque([time.monotonic()])
+        limiter._attempts[("auth.login", "live")] = __import__("collections").deque(
+            [time.monotonic()]
+        )
         limiter._hits_since_sweep = limiter._SWEEP_INTERVAL - 1
         _hit(limiter)
         assert ("auth.login", "live") in limiter._attempts
@@ -88,9 +90,9 @@ class TestRateLimiterSweep:
 
     def test_sweep_runs_only_every_interval(self):
         limiter = _limiter()
-        limiter._attempts[("auth.login", "ghost")] = __import__(
-            "collections"
-        ).deque([time.monotonic() - 7200])
+        limiter._attempts[("auth.login", "ghost")] = __import__("collections").deque(
+            [time.monotonic() - 7200]
+        )
         # 未到间隔：不触发清扫，陈旧桶保留（每次用新 key 避免触发封锁）
         for i in range(limiter._SWEEP_INTERVAL - 1):
             _hit(limiter, key=f"other-{i}")

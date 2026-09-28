@@ -9,6 +9,7 @@ SSE `/api/events/sign-history` 订阅后阻塞等待，避免 2s 扫盘/扫索�
 - 慢消费者：队列满时丢弃最旧，保证写路径不阻塞
 - 无订阅者时 publish 为空操作
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -74,9 +75,7 @@ def publish_sign_history(entry: Dict[str, Any]) -> None:
         "task_name": str(entry.get("task_name") or ""),
         "success": bool(entry.get("success", False)),
         "message": str(entry.get("message") or entry.get("bot_message") or ""),
-        "created_at": str(
-            entry.get("created_at") or entry.get("time") or ""
-        ),
+        "created_at": str(entry.get("created_at") or entry.get("time") or ""),
         "failure_category": str(entry.get("failure_category") or ""),
         "time": str(entry.get("time") or entry.get("created_at") or ""),
     }

@@ -32,9 +32,7 @@ logger = logging.getLogger("backend.auth")
 rate_limiter = get_rate_limiter()
 
 LOGIN_RATE_LIMIT_DETAIL = "Too many login attempts. Please try again later."
-RESET_TOTP_RATE_LIMIT_DETAIL = (
-    "Too many TOTP reset attempts. Please try again later."
-)
+RESET_TOTP_RATE_LIMIT_DETAIL = "Too many TOTP reset attempts. Please try again later."
 
 
 def _resolve_request_ip(request: Request) -> str:
@@ -54,7 +52,8 @@ def _append_login_log(
             LoginLog(
                 username=(username or "").strip() or "unknown",
                 ip_address=_resolve_request_ip(request) or None,
-                user_agent=(request.headers.get("user-agent", "") or "").strip()[:255] or None,
+                user_agent=(request.headers.get("user-agent", "") or "").strip()[:255]
+                or None,
                 detail=(detail or "").strip()[:255] or None,
                 success=success,
             )

@@ -1,4 +1,5 @@
 """Chat Folders 与 Forum Topics 发现测试套件。"""
+
 from __future__ import annotations
 
 import inspect
@@ -90,9 +91,13 @@ def test_parse_dialog_filters_returns_safe_summary():
     # 4. 损坏的/异常的过滤器对象
     corrupted_filter = MagicMock()
     corrupted_filter.id = "bad"
-    type(corrupted_filter).title = property(lambda self: (_ for _ in ()).throw(RuntimeError("corrupted")))
+    type(corrupted_filter).title = property(
+        lambda self: (_ for _ in ()).throw(RuntimeError("corrupted"))
+    )
 
-    results = parse_dialog_filters([default_filter, chatlist_filter, regular_filter, corrupted_filter])
+    results = parse_dialog_filters(
+        [default_filter, chatlist_filter, regular_filter, corrupted_filter]
+    )
     assert len(results) == 3
 
     # 验证 default
@@ -140,7 +145,9 @@ async def test_list_account_folders_uses_account_lock():
     mock_response = raw.types.messages.DialogFilters(filters=[filter1, filter2])
     mock_client.invoke = AsyncMock(return_value=mock_response)
 
-    service._build_account_client = MagicMock(return_value=(mock_client, {"scheme": "socks5"}))
+    service._build_account_client = MagicMock(
+        return_value=(mock_client, {"scheme": "socks5"})
+    )
 
     lock_acquired = False
 
@@ -160,7 +167,9 @@ async def test_list_account_folders_uses_account_lock():
     ) as mock_acquire_lock:
         folders = await service.list_account_folders("my_acc", timeout_seconds=8.0)
 
-        service.verify_account_proxy.assert_awaited_once_with("my_acc", {"scheme": "socks5"})
+        service.verify_account_proxy.assert_awaited_once_with(
+            "my_acc", {"scheme": "socks5"}
+        )
         mock_acquire_lock.assert_called_once_with("my_acc", timeout=8.0)
         assert mock_client.connect.await_count == 1
         assert mock_client.disconnect.await_count == 1
@@ -205,7 +214,9 @@ async def test_list_forum_topics_returns_empty_for_non_forum():
             "backend.services.telegram.dialog_discovery.safe_get_forum_topics",
             new_callable=AsyncMock,
         ) as mock_safe_topics:
-            mock_safe_topics.side_effect = RuntimeError("ChannelInvalid: The channel is invalid or not a forum")
+            mock_safe_topics.side_effect = RuntimeError(
+                "ChannelInvalid: The channel is invalid or not a forum"
+            )
             topics = await service.list_forum_topics("my_acc", chat_id=-100123456789)
             assert topics == []
 
@@ -244,8 +255,20 @@ def test_folders_route_success(api_client, db):  # noqa: F811
     svc.account_exists.return_value = True
     svc.list_account_folders = AsyncMock(
         return_value=[
-            {"id": "all", "title": "全部", "include_peers": [], "pinned_peers": [], "exclude_peers": []},
-            {"id": 1, "title": "重要", "include_peers": [-100123], "pinned_peers": [], "exclude_peers": []},
+            {
+                "id": "all",
+                "title": "全部",
+                "include_peers": [],
+                "pinned_peers": [],
+                "exclude_peers": [],
+            },
+            {
+                "id": 1,
+                "title": "重要",
+                "include_peers": [-100123],
+                "pinned_peers": [],
+                "exclude_peers": [],
+            },
         ]
     )
 
@@ -280,8 +303,20 @@ def test_topics_route_success(api_client, db):  # noqa: F811
     svc.account_exists.return_value = True
     svc.list_forum_topics = AsyncMock(
         return_value=[
-            {"id": 101, "title": "日常讨论", "top_message": 50, "closed": False, "pinned": True},
-            {"id": 102, "title": "归档打卡", "top_message": 80, "closed": True, "pinned": False},
+            {
+                "id": 101,
+                "title": "日常讨论",
+                "top_message": 50,
+                "closed": False,
+                "pinned": True,
+            },
+            {
+                "id": 102,
+                "title": "归档打卡",
+                "top_message": 80,
+                "closed": True,
+                "pinned": False,
+            },
         ]
     )
 

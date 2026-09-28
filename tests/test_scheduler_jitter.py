@@ -40,16 +40,21 @@ async def test_job_run_sign_task_does_not_apply_jitter_twice_in_cron_mode():
     }
     mock_service.run_task_with_logs = AsyncMock(return_value={"success": True})
 
-    with patch(
-        "backend.services.sign_tasks.get_sign_task_service", return_value=mock_service
-    ), patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep, patch(
-        "random.uniform", return_value=12.5
-    ) as mock_uniform:
+    with (
+        patch(
+            "backend.services.sign_tasks.get_sign_task_service",
+            return_value=mock_service,
+        ),
+        patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+        patch("random.uniform", return_value=12.5) as mock_uniform,
+    ):
         await _job_run_sign_task("account1", "daily_task")
 
         mock_uniform.assert_not_called()
         mock_sleep.assert_not_called()
-        mock_service.run_task_with_logs.assert_awaited_once_with("account1", "daily_task")
+        mock_service.run_task_with_logs.assert_awaited_once_with(
+            "account1", "daily_task"
+        )
 
 
 @pytest.mark.asyncio
@@ -69,7 +74,8 @@ async def test_job_run_sign_task_clears_pending_adaptive_reschedule():
     _ADAPTIVE_NEXT_RUNS[job_id] = datetime(2026, 9, 19, 12, 0, 0)
     try:
         with patch(
-            "backend.services.sign_tasks.get_sign_task_service", return_value=mock_service
+            "backend.services.sign_tasks.get_sign_task_service",
+            return_value=mock_service,
         ):
             await _job_run_sign_task("account1", "daily_task")
         assert job_id not in _ADAPTIVE_NEXT_RUNS
@@ -87,13 +93,19 @@ async def test_job_run_sign_task_skips_jitter_when_zero():
     }
     mock_service.run_task_with_logs = AsyncMock(return_value={"success": True})
 
-    with patch(
-        "backend.services.sign_tasks.get_sign_task_service", return_value=mock_service
-    ), patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+    with (
+        patch(
+            "backend.services.sign_tasks.get_sign_task_service",
+            return_value=mock_service,
+        ),
+        patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+    ):
         await _job_run_sign_task("account1", "daily_task")
 
         mock_sleep.assert_not_called()
-        mock_service.run_task_with_logs.assert_awaited_once_with("account1", "daily_task")
+        mock_service.run_task_with_logs.assert_awaited_once_with(
+            "account1", "daily_task"
+        )
 
 
 @pytest.mark.asyncio
@@ -108,14 +120,17 @@ async def test_job_run_sign_task_range_mode_precedence():
     }
     mock_service.run_task_with_logs = AsyncMock(return_value={"success": True})
 
-    with patch(
-        "backend.services.sign_tasks.get_sign_task_service", return_value=mock_service
-    ), patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep, patch(
-        "backend.scheduler._parse_clock_time"
-    ) as mock_parse, patch(
-        "backend.scheduler.datetime"
-    ) as mock_dt:
+    with (
+        patch(
+            "backend.services.sign_tasks.get_sign_task_service",
+            return_value=mock_service,
+        ),
+        patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+        patch("backend.scheduler._parse_clock_time") as mock_parse,
+        patch("backend.scheduler.datetime") as mock_dt,
+    ):
         from datetime import datetime, time
+
         mock_parse.side_effect = lambda s: time(8, 0) if s == "08:00" else time(8, 30)
         fixed_now = datetime(2026, 9, 19, 8, 0, 0)
         mock_dt.now.return_value = fixed_now
@@ -125,14 +140,18 @@ async def test_job_run_sign_task_range_mode_precedence():
 
         # Range mode performs exactly one sleep based on range delay, not jitter_seconds
         assert mock_sleep.await_count == 1
-        mock_service.run_task_with_logs.assert_awaited_once_with("account1", "daily_task")
+        mock_service.run_task_with_logs.assert_awaited_once_with(
+            "account1", "daily_task"
+        )
 
 
 def test_sign_task_schema_jitter_validation():
     base_data = {
         "name": "test_jitter_task",
         "sign_at": "08:00",
-        "chats": [{"chat_id": 123456, "actions": [{"type": "text", "text": "checkin"}]}],
+        "chats": [
+            {"chat_id": 123456, "actions": [{"type": "text", "text": "checkin"}]}
+        ],
     }
     # Valid jitter_seconds in SignTaskCreate
     item = SignTaskCreate(**base_data, jitter_seconds=30)
@@ -185,6 +204,8 @@ async def test_job_run_sign_task_cancelled_error():
     mock_service.get_task.return_value = {"name": "t1", "execution_mode": "fixed"}
     mock_service.run_task_with_logs = AsyncMock(side_effect=asyncio.CancelledError())
 
-    with patch("backend.services.sign_tasks.get_sign_task_service", return_value=mock_service):
+    with patch(
+        "backend.services.sign_tasks.get_sign_task_service", return_value=mock_service
+    ):
         with pytest.raises(asyncio.CancelledError):
             await _job_run_sign_task("acc1", "t1")

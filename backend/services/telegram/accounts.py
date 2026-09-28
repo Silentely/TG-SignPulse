@@ -1,4 +1,5 @@
 """TelegramService mixin: accounts."""
+
 from __future__ import annotations
 
 import asyncio
@@ -114,11 +115,9 @@ def mark_account_connected(account_name: str) -> None:
 
 
 class TelegramAccountsMixin:
-
     @staticmethod
     def _normalize_account_name(account_name: str) -> str:
         return validate_storage_name(account_name, field_name="account_name")
-
 
     @staticmethod
     def _account_status_payload(account_name: str) -> Dict[str, Any]:
@@ -131,15 +130,15 @@ class TelegramAccountsMixin:
             "needs_relogin": bool(status.get("needs_relogin", False)),
         }
 
-
     @staticmethod
     def _move_path(source, target) -> None:
         # 实现上提至 backend.utils.storage，与签到任务目录改名共用同一份语义
         move_storage_path(source, target)
 
-
     @staticmethod
-    def _rename_pending_login_records(old_account_name: str, new_account_name: str) -> None:
+    def _rename_pending_login_records(
+        old_account_name: str, new_account_name: str
+    ) -> None:
         for store in (_login_sessions, _qr_login_sessions):
             replacements = []
             for key, value in list(store.items()):
@@ -152,12 +151,13 @@ class TelegramAccountsMixin:
                     if isinstance(key, str) and key.startswith(f"{old_account_name}_")
                     else key
                 )
-                replacements.append((key, next_key, {**value, "account_name": new_account_name}))
+                replacements.append(
+                    (key, next_key, {**value, "account_name": new_account_name})
+                )
 
             for old_key, next_key, next_value in replacements:
                 store.pop(old_key, None)
                 store[next_key] = next_value
-
 
     @staticmethod
     def _account_entry(
@@ -194,7 +194,10 @@ class TelegramAccountsMixin:
         # 账号列表缓存带短 TTL：防止 profile（备注/代理）变更后缓存永久过期，
         # 又不至于让每次请求都重扫 session 目录
         if self._accounts_cache is not None and not force_refresh:
-            if time.monotonic() - getattr(self, "_accounts_cache_ts", 0.0) < ACCOUNTS_CACHE_TTL_SECONDS:
+            if (
+                time.monotonic() - getattr(self, "_accounts_cache_ts", 0.0)
+                < ACCOUNTS_CACHE_TTL_SECONDS
+            ):
                 return [
                     {**acc, **self._account_status_payload(acc.get("name", ""))}
                     for acc in self._accounts_cache
@@ -298,7 +301,6 @@ class TelegramAccountsMixin:
             logger.warning("账号列表扫描失败，按空列表返回: %s", exc, exc_info=True)
             return []
 
-
     def account_exists(self, account_name: str) -> bool:
         """检查账号是否存在"""
         # 优先查缓存
@@ -322,7 +324,6 @@ class TelegramAccountsMixin:
 
         session_file = self.session_dir / f"{account_name}.session"
         return session_file.exists()
-
 
     async def download_account_avatar(self, account_name: str) -> Optional[bytes]:
         """
@@ -365,11 +366,8 @@ class TelegramAccountsMixin:
                     return None
         except Exception as e:
             # 瞬时错误（网络/限流/会话失效）不能与"无头像"混为一谈：抛出让路由层区分
-            logger.warning(
-                "下载账号头像失败 %s: %s", account_name, e, exc_info=True
-            )
+            logger.warning("下载账号头像失败 %s: %s", account_name, e, exc_info=True)
             raise
-
 
     async def download_chat_avatar(
         self, account_name: str, chat_id: int
@@ -399,16 +397,12 @@ class TelegramAccountsMixin:
         try:
             async with acquire_account_lock_with_timeout(account_name, timeout=15.0):
                 async with client:
-                    chat = await asyncio.wait_for(
-                        client.get_chat(chat_id), timeout=10
-                    )
+                    chat = await asyncio.wait_for(client.get_chat(chat_id), timeout=10)
                     if not chat or not getattr(chat, "photo", None):
                         return None
 
                     photo_bytes = await asyncio.wait_for(
-                        client.download_media(
-                            chat.photo.small_file_id, in_memory=True
-                        ),
+                        client.download_media(chat.photo.small_file_id, in_memory=True),
                         timeout=15,
                     )
                     if photo_bytes:
@@ -425,7 +419,6 @@ class TelegramAccountsMixin:
                 exc_info=True,
             )
             raise
-
 
     def _build_account_client(
         self,
@@ -458,9 +451,17 @@ class TelegramAccountsMixin:
 
         # 全局硬熔断检查：若开启但无任何代理，立即阻断
         from backend.services.config import get_config_service
+
         cfg_svc = get_config_service()
-        global_settings = cfg_svc.get_global_settings() if hasattr(cfg_svc, "get_global_settings") else {}
-        if bool(global_settings.get("require_proxy_for_telegram", False)) and not proxy_dict:
+        global_settings = (
+            cfg_svc.get_global_settings()
+            if hasattr(cfg_svc, "get_global_settings")
+            else {}
+        )
+        if (
+            bool(global_settings.get("require_proxy_for_telegram", False))
+            and not proxy_dict
+        ):
             raise RuntimeError("PROXY_REQUIRED_BLOCKED: Global policy requires proxy")
 
         client = get_client(
@@ -501,16 +502,27 @@ class TelegramAccountsMixin:
             proxy_value = profile.get("proxy")
             if not proxy_value:
                 from backend.services.config import get_config_service
+
                 proxy_value = get_config_service().get_global_proxy()
             if proxy_value and str(proxy_value).strip():
                 proxy_dict = build_proxy_dict(str(proxy_value).strip())
                 if not proxy_dict:
-                    raise ValueError("PROXY_INVALID_BLOCKED: Configured proxy string is invalid")
+                    raise ValueError(
+                        "PROXY_INVALID_BLOCKED: Configured proxy string is invalid"
+                    )
 
         from backend.services.config import get_config_service
+
         cfg_svc = get_config_service()
-        global_settings = cfg_svc.get_global_settings() if hasattr(cfg_svc, "get_global_settings") else {}
-        if bool(global_settings.get("require_proxy_for_telegram", False)) and not proxy_dict:
+        global_settings = (
+            cfg_svc.get_global_settings()
+            if hasattr(cfg_svc, "get_global_settings")
+            else {}
+        )
+        if (
+            bool(global_settings.get("require_proxy_for_telegram", False))
+            and not proxy_dict
+        ):
             raise RuntimeError("PROXY_REQUIRED_BLOCKED: Global policy requires proxy")
 
         if not proxy_dict:
@@ -541,8 +553,6 @@ class TelegramAccountsMixin:
                 raise RuntimeError(
                     f"PROXY_PROBE_UNAVAILABLE: Proxy endpoint unreachable ({detail})"
                 )
-
-
 
     async def check_account_status(
         self,
@@ -800,7 +810,6 @@ class TelegramAccountsMixin:
                 "needs_relogin": False,
             }
 
-
     async def delete_account(self, account_name: str) -> bool:
         """
         删除账号（删除 session 文件）
@@ -891,7 +900,6 @@ class TelegramAccountsMixin:
         self._accounts_cache = None
 
         return True
-
 
     async def rename_account(self, old_name: str, new_name: str) -> str:
         """
@@ -1029,4 +1037,5 @@ class TelegramAccountsMixin:
 
 def get_telegram_account_service():
     from backend.services.telegram.runtime import get_telegram_service
+
     return get_telegram_service()

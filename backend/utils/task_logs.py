@@ -55,7 +55,9 @@ def extract_last_target_message(flow_logs: Iterable[object] | None) -> str:
         return ""
 
     for line in reversed(lines):
-        if line.startswith("任务对象最后一条消息:") or line.startswith("任务对象最后一条消息："):
+        if line.startswith("任务对象最后一条消息:") or line.startswith(
+            "任务对象最后一条消息："
+        ):
             value = _value_after_label(line)
             if value:
                 return value
@@ -80,12 +82,12 @@ def extract_last_target_message(flow_logs: Iterable[object] | None) -> str:
         lower = line.lower()
         idx = lower.find("text:")
         if idx != -1:
-            value = line[idx + len("text:"):].strip()
+            value = line[idx + len("text:") :].strip()
             if value:
                 return value
         idx_zh = line.find("text：")
         if idx_zh != -1:
-            value = line[idx_zh + len("text："):].strip()
+            value = line[idx_zh + len("text：") :].strip()
             if value:
                 return value
 

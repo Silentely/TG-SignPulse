@@ -21,7 +21,12 @@ async def test_webhook_pusher_invalid_url():
     from plugins.webhook_pusher.main import webhook_pusher_handler
 
     logs = []
-    ctx = PluginContext(app=None, chat_id=123, params={"webhook_url": "ftp://invalid"}, logger=logs.append)
+    ctx = PluginContext(
+        app=None,
+        chat_id=123,
+        params={"webhook_url": "ftp://invalid"},
+        logger=logs.append,
+    )
     res = await webhook_pusher_handler(ctx)
     assert res is False
     assert any("http" in log.lower() or "无效" in log for log in logs)
@@ -91,7 +96,11 @@ async def test_webhook_pusher_success():
     ctx = PluginContext(
         app=None,
         chat_id=123456,
-        params={"webhook_url": "https://example.com/webhook", "secret_token": "token123", "custom_message": "test run"},
+        params={
+            "webhook_url": "https://example.com/webhook",
+            "secret_token": "token123",
+            "custom_message": "test run",
+        },
         logger=logs.append,
     )
     mock_resp = AsyncMock()
@@ -99,10 +108,13 @@ async def test_webhook_pusher_success():
     mock_resp.text = "ok"
 
     # 钉扎 IP 解析结果打桩：测试环境不依赖真实 DNS
-    with patch(
-        "plugins.webhook_pusher.main.validate_public_http_url",
-        return_value=("93.184.216.34", "example.com"),
-    ), patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+    with (
+        patch(
+            "plugins.webhook_pusher.main.validate_public_http_url",
+            return_value=("93.184.216.34", "example.com"),
+        ),
+        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post,
+    ):
         mock_post.return_value = mock_resp
         res = await webhook_pusher_handler(ctx)
         assert res is True
@@ -135,10 +147,13 @@ async def test_webhook_pusher_http_error_status():
     mock_resp.status_code = 500
     mock_resp.text = "boom"
 
-    with patch(
-        "plugins.webhook_pusher.main.validate_public_http_url",
-        return_value=("93.184.216.34", "example.com"),
-    ), patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+    with (
+        patch(
+            "plugins.webhook_pusher.main.validate_public_http_url",
+            return_value=("93.184.216.34", "example.com"),
+        ),
+        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post,
+    ):
         mock_post.return_value = mock_resp
         res = await webhook_pusher_handler(ctx)
     assert res is False
@@ -157,10 +172,17 @@ async def test_webhook_pusher_network_exception():
         params={"webhook_url": "https://example.com/webhook"},
         logger=logs.append,
     )
-    with patch(
-        "plugins.webhook_pusher.main.validate_public_http_url",
-        return_value=("93.184.216.34", "example.com"),
-    ), patch("httpx.AsyncClient.post", new_callable=AsyncMock, side_effect=OSError("network down")):
+    with (
+        patch(
+            "plugins.webhook_pusher.main.validate_public_http_url",
+            return_value=("93.184.216.34", "example.com"),
+        ),
+        patch(
+            "httpx.AsyncClient.post",
+            new_callable=AsyncMock,
+            side_effect=OSError("network down"),
+        ),
+    ):
         res = await webhook_pusher_handler(ctx)
     assert res is False
     assert any("异常" in log for log in logs)

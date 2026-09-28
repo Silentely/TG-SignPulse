@@ -84,6 +84,7 @@ def _safe_source_path(source_path: Optional[str]) -> Optional[str]:
 def _get_disabled_plugins() -> set[str]:
     try:
         from backend.services.config import get_config_service
+
         settings = get_config_service().get_global_settings() or {}
         return set(settings.get("disabled_plugins", []))
     except Exception:
@@ -92,7 +93,8 @@ def _get_disabled_plugins() -> set[str]:
 
 def _get_custom_plugins_dir() -> Path:
     custom_dirs = [
-        d for d in PluginRegistry.get_search_directories()
+        d
+        for d in PluginRegistry.get_search_directories()
         if not is_builtin_plugin_path(d)
     ]
     target_dir = custom_dirs[0] if custom_dirs else Path.cwd() / "data" / "plugins"
@@ -169,7 +171,9 @@ def _meta_to_info(p: PluginMeta, disabled_set: Optional[set[str]] = None) -> Plu
     if disabled_set is None:
         disabled_set = _get_disabled_plugins()
     metrics_data = PluginRegistry.get_metrics(p.name)
-    metrics_model = PluginMetricsModel(**metrics_data.to_dict()) if metrics_data else None
+    metrics_model = (
+        PluginMetricsModel(**metrics_data.to_dict()) if metrics_data else None
+    )
     hist = PluginRegistry.get_execution_history(p.name, limit=10)
     recent_bools = [r.success for r in reversed(hist)]
     return PluginInfo(
@@ -211,7 +215,11 @@ class UpdatePluginSourceRequest(BaseModel):
 
 
 class CreatePluginRequest(BaseModel):
-    name: str = Field(..., pattern=r"^[a-zA-Z0-9_]{3,32}$", description="插件英文标识（3-32位字母数字下划线）")
+    name: str = Field(
+        ...,
+        pattern=r"^[a-zA-Z0-9_]{3,32}$",
+        description="插件英文标识（3-32位字母数字下划线）",
+    )
     mode: Literal["reactive", "active"] = "reactive"
     template: Literal[
         "basic_reactive",
@@ -290,7 +298,9 @@ class ImportBundleResponse(BaseModel):
 
 
 class ClonePluginRequest(BaseModel):
-    new_name: str = Field(..., pattern=r"^[a-zA-Z0-9_]{3,32}$", description="新插件标识")
+    new_name: str = Field(
+        ..., pattern=r"^[a-zA-Z0-9_]{3,32}$", description="新插件标识"
+    )
     description: Optional[str] = Field(default=None, max_length=200)
 
 
@@ -322,7 +332,9 @@ class ReloadPluginsResponse(BaseModel):
 class PluginTestRequest(BaseModel):
     text: str = Field(default="", description="模拟接收到的 Telegram 消息文本")
     params: Dict[str, Any] = Field(default_factory=dict, description="插件自定义参数")
-    reset_storage: bool = Field(default=False, description="测试前是否重置测试命名空间内的持久化存储")
+    reset_storage: bool = Field(
+        default=False, description="测试前是否重置测试命名空间内的持久化存储"
+    )
     chat_id: Optional[Union[int, str]] = Field(default=None, description="模拟会话 ID")
     sender_name: Optional[str] = Field(default=None, description="模拟发送者名称")
     timeout: Optional[float] = Field(
@@ -353,6 +365,7 @@ class PluginTestResponse(BaseModel):
     traceback: Optional[str] = None
     error_line: Optional[int] = None
     param_warnings: List[str] = Field(default_factory=list)
+
 
 class MarketPluginItem(BaseModel):
     id: str
@@ -399,7 +412,9 @@ class MarketCatalogResponse(BaseModel):
 
 
 @router.get("/diagnostics", response_model=PluginDiagnosticsResponse)
-async def get_plugin_diagnostics(_user: User = Depends(get_current_user)) -> PluginDiagnosticsResponse:
+async def get_plugin_diagnostics(
+    _user: User = Depends(get_current_user),
+) -> PluginDiagnosticsResponse:
     """获取插件加载诊断与加载失败项。"""
     errs = PluginRegistry.get_load_errors()
     items = [
@@ -423,7 +438,9 @@ async def get_plugin_diagnostics(_user: User = Depends(get_current_user)) -> Plu
 
 @router.get("", response_model=List[PluginInfo])
 async def list_plugins(
-    mode: Optional[Literal["reactive", "active"]] = Query(default=None, description="按模式过滤 (reactive/active)"),
+    mode: Optional[Literal["reactive", "active"]] = Query(
+        default=None, description="按模式过滤 (reactive/active)"
+    ),
     category: Optional[str] = Query(default=None, description="按插件分类过滤"),
     enabled: Optional[bool] = Query(default=None, description="按启用状态过滤"),
     search: Optional[str] = Query(default=None, description="按名称、描述或标签搜索"),
@@ -439,19 +456,21 @@ async def list_plugins(
     if mode:
         infos = [p for p in infos if p.mode == mode]
     if category:
-        infos = [p for p in infos if p.category and p.category.lower() == category.lower()]
+        infos = [
+            p for p in infos if p.category and p.category.lower() == category.lower()
+        ]
     if enabled is not None:
         infos = [p for p in infos if p.enabled == enabled]
     if search:
         s_low = search.lower().strip()
         infos = [
-            p for p in infos
+            p
+            for p in infos
             if s_low in p.name.lower()
             or (p.description and s_low in p.description.lower())
             or any(s_low in t.lower() for t in (p.tags or []))
         ]
     return infos
-
 
 
 def _reload_plugins_preserving_state() -> None:
@@ -465,6 +484,7 @@ def _reload_plugins_preserving_state() -> None:
 def _enforce_plugin_security_check(source_code: str, file_label: str = "插件") -> None:
     """统一插件安全审查拦截门禁。"""
     from tg_signer.core.plugins import compute_plugin_security_report
+
     try:
         ast.parse(source_code)
     except SyntaxError as exc:
@@ -474,7 +494,11 @@ def _enforce_plugin_security_check(source_code: str, file_label: str = "插件")
         )
     sec_report = compute_plugin_security_report(source_code)
     if not sec_report["can_save_safely"]:
-        critical_msgs = [w["message"] for w in sec_report["warnings"] if w.get("severity") in ("critical", "high")]
+        critical_msgs = [
+            w["message"]
+            for w in sec_report["warnings"]
+            if w.get("severity") in ("critical", "high")
+        ]
         detail_msg = f"{file_label} 插件安全审计未通过（安全审查未通过，评分: {sec_report['score']}分，风险: {sec_report['risk_level']}）: {'; '.join(critical_msgs[:2])}"
         raise HTTPException(
             status_code=400,
@@ -488,11 +512,18 @@ def _sanitize_traceback(tb_str: str) -> str:
         return ""
     base_dir = str(Path.cwd())
     sanitized = tb_str.replace(base_dir, "<project>")
-    sanitized = re.sub(r"\b\d{8,10}:[A-Za-z0-9_-]{30,40}\b", "<TOKEN_REDACTED>", sanitized)
-    sanitized = re.sub(r"""(?i)(token|secret|password|api_key)=['"][^'"]+['"]""", r"\1='<REDACTED>'", sanitized)
+    sanitized = re.sub(
+        r"\b\d{8,10}:[A-Za-z0-9_-]{30,40}\b", "<TOKEN_REDACTED>", sanitized
+    )
+    sanitized = re.sub(
+        r"""(?i)(token|secret|password|api_key)=['"][^'"]+['"]""",
+        r"\1='<REDACTED>'",
+        sanitized,
+    )
     if len(sanitized) > 4000:
         sanitized = sanitized[:4000] + "\n... [Traceback truncated]"
     return sanitized
+
 
 @router.post("/reload", response_model=ReloadPluginsResponse)
 async def reload_plugins(
@@ -596,7 +627,11 @@ def _get_local_marketplace_catalog() -> Dict[str, Any]:
                         try:
                             manifest = json.loads(pjson.read_text(encoding="utf-8"))
                             readme_file = pdir / "README.md"
-                            readme_text = readme_file.read_text(encoding="utf-8") if readme_file.is_file() else ""
+                            readme_text = (
+                                readme_file.read_text(encoding="utf-8")
+                                if readme_file.is_file()
+                                else ""
+                            )
                             manifest.setdefault("download_url", f"local://{pdir.name}")
                             # 摘要按实际归档字节计算：安装侧失败关闭校验才有意义
                             archive_bytes = _build_local_plugin_archive(
@@ -607,9 +642,14 @@ def _get_local_marketplace_catalog() -> Dict[str, Any]:
                                 if archive_bytes
                                 else ""
                             )
-                            manifest["size"] = len(archive_bytes) if archive_bytes else 0
+                            manifest["size"] = (
+                                len(archive_bytes) if archive_bytes else 0
+                            )
                             manifest.setdefault("readme", readme_text)
-                            manifest.setdefault("updated_at", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+                            manifest.setdefault(
+                                "updated_at",
+                                datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                            )
                             plugins_list.append(manifest)
                         except Exception:
                             pass
@@ -624,7 +664,9 @@ def _get_local_marketplace_catalog() -> Dict[str, Any]:
     }
 
 
-async def _fetch_market_catalog(refresh: bool = False) -> Tuple[Dict[str, Any], str, str, bool]:
+async def _fetch_market_catalog(
+    refresh: bool = False,
+) -> Tuple[Dict[str, Any], str, str, bool]:
     global _market_cache, _market_cache_time, _market_cache_source, _market_cache_url
     from urllib.parse import urlparse
 
@@ -662,24 +704,40 @@ async def _fetch_market_catalog(refresh: bool = False) -> Tuple[Dict[str, Any], 
             parsed_url = urlparse(active_url)
             default_port = {"http": 80, "https": 443}.get(parsed_url.scheme)
             host_for_url = f"[{pinned_ip}]" if ":" in pinned_ip else pinned_ip
-            netloc = host_for_url if parsed_url.port is None else f"{host_for_url}:{parsed_url.port}"
+            netloc = (
+                host_for_url
+                if parsed_url.port is None
+                else f"{host_for_url}:{parsed_url.port}"
+            )
             if parsed_url.username:
                 cred = parsed_url.username
                 if parsed_url.password:
                     cred = f"{cred}:{parsed_url.password}"
                 netloc = f"{cred}@{netloc}"
             request_url = parsed_url._replace(netloc=netloc).geturl()
-            host_header = hostname if parsed_url.port in (None, default_port) else f"{hostname}:{parsed_url.port}"
+            host_header = (
+                hostname
+                if parsed_url.port in (None, default_port)
+                else f"{hostname}:{parsed_url.port}"
+            )
 
-            async with httpx.AsyncClient(timeout=10.0, follow_redirects=False, trust_env=False) as client:
+            async with httpx.AsyncClient(
+                timeout=10.0, follow_redirects=False, trust_env=False
+            ) as client:
                 if parsed_url.scheme == "https":
-                    resp = await client.get(request_url, headers={"Host": host_header}, extensions={"sni_hostname": hostname})
+                    resp = await client.get(
+                        request_url,
+                        headers={"Host": host_header},
+                        extensions={"sni_hostname": hostname},
+                    )
                 else:
                     resp = await client.get(request_url, headers={"Host": host_header})
                 if resp.status_code == 200:
                     catalog_data = resp.json()
         except Exception as exc:
-            logger.warning("拉取远程插件市场目录失败 (%s): %s，降级为本地市场缓存", active_url, exc)
+            logger.warning(
+                "拉取远程插件市场目录失败 (%s): %s，降级为本地市场缓存", active_url, exc
+            )
 
         if not catalog_data or "plugins" not in catalog_data:
             catalog_data = _get_local_marketplace_catalog()
@@ -697,7 +755,9 @@ async def list_market_plugins(
     _user: User = Depends(get_current_user),
 ) -> MarketCatalogResponse:
     """获取插件市场所有可用的插件清单，并附带当前环境的本地安装/可更新状态。"""
-    catalog_data, source_type, active_url, is_cached = await _fetch_market_catalog(refresh=refresh)
+    catalog_data, source_type, active_url, is_cached = await _fetch_market_catalog(
+        refresh=refresh
+    )
     installed_plugins = PluginRegistry.list_plugins()
 
     plugin_items: List[MarketPluginItem] = []
@@ -715,7 +775,9 @@ async def list_market_plugins(
             else False
         )
 
-        status_val: Literal["not_installed", "installed", "upgradable"] = "not_installed"
+        status_val: Literal["not_installed", "installed", "upgradable"] = (
+            "not_installed"
+        )
         if is_installed:
             if installed_version:
                 market_semver = _parse_semver(str(item.get("version", "0.0.0")))
@@ -769,6 +831,7 @@ async def get_market_source(
 ) -> MarketSourceConfig:
     """获取当前配置的插件市场源信息。"""
     from backend.services.config import get_config_service
+
     settings = get_config_service().get_global_settings() or {}
     source_type = str(settings.get("marketplace_source", "github"))
     custom_url = str(settings.get("marketplace_custom_url", ""))
@@ -792,6 +855,7 @@ async def update_market_source(
     """切换或设置插件市场镜像源（如 GitHub 官方源、jsDelivr CDN、国内代理或本地离线源）。"""
     global _market_cache, _market_cache_time
     from backend.services.config import get_config_service
+
     config_service = get_config_service()
 
     source_type = req.source_type
@@ -832,7 +896,9 @@ async def get_market_plugin_readme(
     if not PLUGIN_ID_REGEX.match(plugin_id):
         raise HTTPException(status_code=400, detail="无效的插件标识符")
     catalog_data, _, _, _ = await _fetch_market_catalog(refresh=False)
-    matched_item = next((p for p in catalog_data.get("plugins", []) if p.get("id") == plugin_id), None)
+    matched_item = next(
+        (p for p in catalog_data.get("plugins", []) if p.get("id") == plugin_id), None
+    )
 
     readme_text = ""
     if matched_item and matched_item.get("readme"):
@@ -852,20 +918,28 @@ async def get_market_plugin_readme(
     return {"id": plugin_id, "readme": readme_text}
 
 
-async def _do_install_market_plugin(plugin_id: str, is_update: bool = False) -> PluginInfo:
+async def _do_install_market_plugin(
+    plugin_id: str, is_update: bool = False
+) -> PluginInfo:
     if not PLUGIN_ID_REGEX.match(plugin_id):
         raise HTTPException(status_code=400, detail="无效的插件标识符")
 
     catalog_data, source_type, _, _ = await _fetch_market_catalog(refresh=False)
-    matched_item = next((p for p in catalog_data.get("plugins", []) if p.get("id") == plugin_id), None)
+    matched_item = next(
+        (p for p in catalog_data.get("plugins", []) if p.get("id") == plugin_id), None
+    )
     if not matched_item:
-        raise HTTPException(status_code=404, detail=f"未在插件市场中找到标识为 '{plugin_id}' 的插件")
+        raise HTTPException(
+            status_code=404, detail=f"未在插件市场中找到标识为 '{plugin_id}' 的插件"
+        )
 
     installed_plugins = PluginRegistry.list_plugins()
     if plugin_id in installed_plugins:
         existing = installed_plugins[plugin_id]
         if is_builtin_plugin_path(existing.source_path):
-            raise HTTPException(status_code=403, detail="该插件为系统内置插件，禁止覆盖或修改")
+            raise HTTPException(
+                status_code=403, detail="该插件为系统内置插件，禁止覆盖或修改"
+            )
 
     download_url = str(matched_item.get("download_url", ""))
     archive_bytes: Optional[bytes] = None
@@ -882,7 +956,9 @@ async def _do_install_market_plugin(plugin_id: str, is_update: bool = False) -> 
             plugin_id, str(matched_item.get("version") or "1.0.0")
         )
         if archive_bytes is None:
-            raise HTTPException(status_code=404, detail="本地市场未找到该插件的安装归档包")
+            raise HTTPException(
+                status_code=404, detail="本地市场未找到该插件的安装归档包"
+            )
     else:
         try:
             pinned_ip, hostname = validate_public_http_url(download_url)
@@ -897,25 +973,43 @@ async def _do_install_market_plugin(plugin_id: str, is_update: bool = False) -> 
         default_port = {"http": 80, "https": 443}.get(parsed_url.scheme)
 
         host_for_url = f"[{pinned_ip}]" if ":" in pinned_ip else pinned_ip
-        netloc = host_for_url if parsed_url.port is None else f"{host_for_url}:{parsed_url.port}"
+        netloc = (
+            host_for_url
+            if parsed_url.port is None
+            else f"{host_for_url}:{parsed_url.port}"
+        )
         if parsed_url.username:
             credential = parsed_url.username
             if parsed_url.password:
                 credential = f"{credential}:{parsed_url.password}"
             netloc = f"{credential}@{netloc}"
         request_url = parsed_url._replace(netloc=netloc).geturl()
-        host_header = hostname if parsed_url.port in (None, default_port) else f"{hostname}:{parsed_url.port}"
+        host_header = (
+            hostname
+            if parsed_url.port in (None, default_port)
+            else f"{hostname}:{parsed_url.port}"
+        )
 
         try:
-            async with httpx.AsyncClient(timeout=25.0, follow_redirects=False, trust_env=False) as client:
+            async with httpx.AsyncClient(
+                timeout=25.0, follow_redirects=False, trust_env=False
+            ) as client:
                 if parsed_url.scheme == "https":
-                    resp = await client.get(request_url, headers={"Host": host_header}, extensions={"sni_hostname": hostname})
+                    resp = await client.get(
+                        request_url,
+                        headers={"Host": host_header},
+                        extensions={"sni_hostname": hostname},
+                    )
                 else:
                     resp = await client.get(request_url, headers={"Host": host_header})
             if resp.status_code != 200:
-                raise HTTPException(status_code=400, detail=f"下载插件包失败: HTTP {resp.status_code}")
+                raise HTTPException(
+                    status_code=400, detail=f"下载插件包失败: HTTP {resp.status_code}"
+                )
             if len(resp.content) > 10 * 1024 * 1024:
-                raise HTTPException(status_code=413, detail="插件安装包大小超过 10MB 限制")
+                raise HTTPException(
+                    status_code=413, detail="插件安装包大小超过 10MB 限制"
+                )
             archive_bytes = resp.content
         except HTTPException:
             raise
@@ -938,7 +1032,9 @@ async def _do_install_market_plugin(plugin_id: str, is_update: bool = False) -> 
         raise HTTPException(status_code=400, detail="插件安装包内容为空")
     computed_sha = hashlib.sha256(archive_bytes).hexdigest()
     if computed_sha.lower() != expected_sha.lower():
-        raise HTTPException(status_code=400, detail="插件安装包完整性校验失败 (SHA-256 不匹配)")
+        raise HTTPException(
+            status_code=400, detail="插件安装包完整性校验失败 (SHA-256 不匹配)"
+        )
 
     import tempfile
     import uuid
@@ -966,10 +1062,14 @@ async def _do_install_market_plugin(plugin_id: str, is_update: bool = False) -> 
                 for member in zf.infolist():
                     member_count += 1
                     if member_count > 100:
-                        raise HTTPException(status_code=400, detail="压缩包内文件数量超过 100 个限制")
+                        raise HTTPException(
+                            status_code=400, detail="压缩包内文件数量超过 100 个限制"
+                        )
                     total_uncompressed += member.file_size
                     if total_uncompressed > 20 * 1024 * 1024:
-                        raise HTTPException(status_code=400, detail="压缩包解压总大小超过 20MB 限制")
+                        raise HTTPException(
+                            status_code=400, detail="压缩包解压总大小超过 20MB 限制"
+                        )
 
                     norm_name = os.path.normpath(member.filename)
                     if (
@@ -978,12 +1078,18 @@ async def _do_install_market_plugin(plugin_id: str, is_update: bool = False) -> 
                         or "/../" in norm_name
                         or "\\..\\" in norm_name
                     ):
-                        raise HTTPException(status_code=400, detail="检测到不安全的压缩包文件路径 (Zip Slip)")
+                        raise HTTPException(
+                            status_code=400,
+                            detail="检测到不安全的压缩包文件路径 (Zip Slip)",
+                        )
                     dest_file = (temp_dir / norm_name).resolve()
                     try:
                         dest_file.relative_to(temp_resolved)
                     except ValueError:
-                        raise HTTPException(status_code=400, detail="检测到不安全的压缩包文件路径 (Zip Slip)")
+                        raise HTTPException(
+                            status_code=400,
+                            detail="检测到不安全的压缩包文件路径 (Zip Slip)",
+                        )
                     if member.is_dir():
                         dest_file.mkdir(parents=True, exist_ok=True)
                         continue
@@ -999,7 +1105,10 @@ async def _do_install_market_plugin(plugin_id: str, is_update: bool = False) -> 
                 try:
                     code_text = ef.read_text(encoding="utf-8")
                 except UnicodeDecodeError:
-                    raise HTTPException(status_code=400, detail=f"插件代码不是合法的 UTF-8 编码 ({ef.name})")
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"插件代码不是合法的 UTF-8 编码 ({ef.name})",
+                    )
                 _enforce_plugin_security_check(code_text, ef.name)
             elif ef.suffix.lower() not in _PLUGIN_ALLOWED_DATA_SUFFIXES:
                 # 与 /import-bundle 对齐：只放行白名单内的数据文件，
@@ -1009,8 +1118,12 @@ async def _do_install_market_plugin(plugin_id: str, is_update: bool = False) -> 
                     detail=f"插件包含不允许的文件类型: {ef.name}",
                 )
 
-        if not ((temp_dir / "main.py").is_file() or (temp_dir / "__init__.py").is_file()):
-            raise HTTPException(status_code=400, detail="插件包缺少入口文件 (main.py 或 __init__.py)")
+        if not (
+            (temp_dir / "main.py").is_file() or (temp_dir / "__init__.py").is_file()
+        ):
+            raise HTTPException(
+                status_code=400, detail="插件包缺少入口文件 (main.py 或 __init__.py)"
+            )
 
         backup_dir = None
         if target_plugin_dir.exists():
@@ -1035,7 +1148,12 @@ async def _do_install_market_plugin(plugin_id: str, is_update: bool = False) -> 
             detail="插件解压成功，但未能成功注册至 PluginRegistry，请检查 @PluginRegistry.register 命名",
         )
 
-    logger.info("成功%s市场插件: %s (v%s)", "更新" if is_update else "安装", plugin_id, new_meta.version)
+    logger.info(
+        "成功%s市场插件: %s (v%s)",
+        "更新" if is_update else "安装",
+        plugin_id,
+        new_meta.version,
+    )
     return _meta_to_info(new_meta)
 
 
@@ -1067,7 +1185,9 @@ async def uninstall_market_plugin(
         raise HTTPException(status_code=400, detail="无效的插件标识符")
 
     meta = PluginRegistry.get(plugin_id)
-    if meta and (getattr(meta, "builtin", False) or is_builtin_plugin_path(meta.source_path)):
+    if meta and (
+        getattr(meta, "builtin", False) or is_builtin_plugin_path(meta.source_path)
+    ):
         raise HTTPException(status_code=403, detail="官方内置插件禁止卸载")
 
     custom_dir = _get_custom_plugins_dir()
@@ -1093,11 +1213,14 @@ async def uninstall_market_plugin(
         deleted = True
 
     if not deleted and not meta:
-        raise HTTPException(status_code=404, detail=f"未找到插件 '{plugin_id}'，无法卸载")
+        raise HTTPException(
+            status_code=404, detail=f"未找到插件 '{plugin_id}'，无法卸载"
+        )
 
     if deleted:
         try:
             from backend.services.config import get_config_service
+
             settings = get_config_service().get_global_settings() or {}
             disabled = set(settings.get("disabled_plugins", []))
             configs = dict(settings.get("plugin_configs", {}))
@@ -1109,17 +1232,18 @@ async def uninstall_market_plugin(
                 del configs[plugin_id]
                 changed = True
             if changed:
-                get_config_service().save_global_settings({
-                    "disabled_plugins": sorted(disabled),
-                    "plugin_configs": configs,
-                })
+                get_config_service().save_global_settings(
+                    {
+                        "disabled_plugins": sorted(disabled),
+                        "plugin_configs": configs,
+                    }
+                )
         except Exception as cfg_err:
             logger.warning("清理卸载插件配置失败 (%s): %s", plugin_id, cfg_err)
 
     _reload_plugins_preserving_state()
     logger.info("已成功卸载插件: %s", plugin_id)
     return {"success": True, "message": f"插件 '{plugin_id}' 已成功卸载"}
-
 
 
 @router.post("/{name}/toggle", response_model=PluginInfo)
@@ -1137,6 +1261,7 @@ async def toggle_plugin(
 
     try:
         from backend.services.config import get_config_service
+
         cfg_svc = get_config_service()
         settings = dict(cfg_svc.get_global_settings() or {})
         disabled_list = list(settings.get("disabled_plugins", []))
@@ -1186,7 +1311,10 @@ async def test_plugin(
         captured_logs.append(str(msg))
 
     from tg_signer.core.plugins import validate_plugin_params
-    validated_params, param_warnings = validate_plugin_params(meta.params_schema, req.params)
+
+    validated_params, param_warnings = validate_plugin_params(
+        meta.params_schema, req.params
+    )
     for pw in param_warnings:
         captured_logs.append(f"[param-warning] {pw}")
 
@@ -1247,7 +1375,9 @@ async def test_plugin(
             captured_logs.append(f"[mock] 对消息 {message_id} 表态表情: {emoji}")
             return True
 
-        async def edit_message_text(self, _chat_id, message_id: int, text: str, **_kwargs):
+        async def edit_message_text(
+            self, _chat_id, message_id: int, text: str, **_kwargs
+        ):
             reply_record.append(str(text))
             captured_logs.append(f"[mock] 编辑了消息 {message_id}: {text}")
             return MockMessage(text)
@@ -1259,7 +1389,10 @@ async def test_plugin(
     if req.reset_storage:
         try:
             from tg_signer.core.plugins import PluginStorageBackend
-            PluginStorageBackend().clear(namespace=_plugin_test_namespace(eff_chat_id, name))
+
+            PluginStorageBackend().clear(
+                namespace=_plugin_test_namespace(eff_chat_id, name)
+            )
             captured_logs.append("[mock] 已清空该插件测试命名空间持久化存储")
         except Exception as exc:
             captured_logs.append(f"[mock] 清空存储提示: {exc}")
@@ -1276,7 +1409,9 @@ async def test_plugin(
         plugin_name=name,
     )
     # 调试执行与重置共用独立的测试命名空间，与生产持久化数据（{chat_id}:{name}）完全隔离
-    ctx.storage = PluginStorageClient(namespace=_plugin_test_namespace(eff_chat_id, name))
+    ctx.storage = PluginStorageClient(
+        namespace=_plugin_test_namespace(eff_chat_id, name)
+    )
     ctx.global_storage = PluginStorageClient(namespace=f"global_test:{name}")
 
     if req.timeout is not None and req.timeout > 0:
@@ -1324,7 +1459,9 @@ async def test_plugin(
             captured_logs.append(f"[error] {err_str}")
             frames = traceback.extract_tb(exc.__traceback__)
             plugin_src_str = str(meta.source_path) if meta.source_path else ""
-            plugin_dir_prefix = str(Path(meta.source_path).parent) if meta.source_path else ""
+            plugin_dir_prefix = (
+                str(Path(meta.source_path).parent) if meta.source_path else ""
+            )
             for f in reversed(frames):
                 if plugin_src_str and f.filename == plugin_src_str:
                     error_line = f.lineno
@@ -1332,10 +1469,16 @@ async def test_plugin(
                 if plugin_dir_prefix and f.filename.startswith(plugin_dir_prefix):
                     error_line = f.lineno
                     break
-                if f.name == f"{meta.name}_handler" or (f.name == "handler" and "routes/plugins.py" not in f.filename):
+                if f.name == f"{meta.name}_handler" or (
+                    f.name == "handler" and "routes/plugins.py" not in f.filename
+                ):
                     error_line = f.lineno
                     break
-            if error_line is None and frames and "routes/plugins.py" not in frames[-1].filename:
+            if (
+                error_line is None
+                and frames
+                and "routes/plugins.py" not in frames[-1].filename
+            ):
                 error_line = frames[-1].lineno
     else:
         try:
@@ -1364,7 +1507,9 @@ async def test_plugin(
             captured_logs.append(f"[error] {err_str}")
             frames = traceback.extract_tb(exc.__traceback__)
             plugin_src_str = str(meta.source_path) if meta.source_path else ""
-            plugin_dir_prefix = str(Path(meta.source_path).parent) if meta.source_path else ""
+            plugin_dir_prefix = (
+                str(Path(meta.source_path).parent) if meta.source_path else ""
+            )
             for f in reversed(frames):
                 if plugin_src_str and f.filename == plugin_src_str:
                     error_line = f.lineno
@@ -1372,10 +1517,16 @@ async def test_plugin(
                 if plugin_dir_prefix and f.filename.startswith(plugin_dir_prefix):
                     error_line = f.lineno
                     break
-                if f.name == f"{meta.name}_handler" or (f.name == "handler" and "routes/plugins.py" not in f.filename):
+                if f.name == f"{meta.name}_handler" or (
+                    f.name == "handler" and "routes/plugins.py" not in f.filename
+                ):
                     error_line = f.lineno
                     break
-            if error_line is None and frames and "routes/plugins.py" not in frames[-1].filename:
+            if (
+                error_line is None
+                and frames
+                and "routes/plugins.py" not in frames[-1].filename
+            ):
                 error_line = frames[-1].lineno
 
     duration_ms = round((time.perf_counter() - start_t) * 1000, 2)
@@ -1416,7 +1567,9 @@ async def test_plugin(
 
 class InstallRemotePluginRequest(BaseModel):
     url: str = Field(description="远程插件文件 URL (.py 或 raw gist/github)")
-    filename: Optional[str] = Field(default=None, description="指定保存的文件名，如 custom_sign.py")
+    filename: Optional[str] = Field(
+        default=None, description="指定保存的文件名，如 custom_sign.py"
+    )
 
 
 @router.post("/install-remote", response_model=PluginInfo)
@@ -1443,7 +1596,11 @@ async def install_remote_plugin(
 
     def _build_pinned_url() -> str:
         host_for_url = f"[{pinned_ip}]" if ":" in pinned_ip else pinned_ip
-        netloc = host_for_url if parsed_url.port is None else f"{host_for_url}:{parsed_url.port}"
+        netloc = (
+            host_for_url
+            if parsed_url.port is None
+            else f"{host_for_url}:{parsed_url.port}"
+        )
         if parsed_url.username:
             credential = parsed_url.username
             if parsed_url.password:
@@ -1453,20 +1610,32 @@ async def install_remote_plugin(
 
     try:
         request_url = _build_pinned_url()
-        host_header = hostname if parsed_url.port in (None, default_port) else f"{hostname}:{parsed_url.port}"
+        host_header = (
+            hostname
+            if parsed_url.port in (None, default_port)
+            else f"{hostname}:{parsed_url.port}"
+        )
         request_headers = {"Host": host_header}
         # trust_env=False：禁用环境/系统代理，代理会以未受校验的解析建立连接，且其隧道
         # 路径不支持 sni_hostname 扩展；直连钉扎 IP 才能保证校验与实际连接目标一致
-        async with httpx.AsyncClient(timeout=15.0, follow_redirects=False, trust_env=False) as client:
+        async with httpx.AsyncClient(
+            timeout=15.0, follow_redirects=False, trust_env=False
+        ) as client:
             if parsed_url.scheme == "https":
                 # 钉扎 IP 后仍按原主机名完成 SNI 与证书校验
-                resp = await client.get(request_url, headers=request_headers, extensions={"sni_hostname": hostname})
+                resp = await client.get(
+                    request_url,
+                    headers=request_headers,
+                    extensions={"sni_hostname": hostname},
+                )
             else:
                 resp = await client.get(request_url, headers=request_headers)
         if 300 <= resp.status_code < 400:
             raise HTTPException(status_code=400, detail="远程插件 URL 不允许重定向")
         if resp.status_code != 200:
-            raise HTTPException(status_code=400, detail=f"下载失败: HTTP {resp.status_code}")
+            raise HTTPException(
+                status_code=400, detail=f"下载失败: HTTP {resp.status_code}"
+            )
         code_text = resp.text
     except HTTPException:
         raise
@@ -1479,7 +1648,11 @@ async def install_remote_plugin(
     _enforce_plugin_security_check(code_text, "远端插件")
 
     # 确定保存目录
-    custom_dirs = [d for d in PluginRegistry.get_search_directories() if not is_builtin_plugin_path(d)]
+    custom_dirs = [
+        d
+        for d in PluginRegistry.get_search_directories()
+        if not is_builtin_plugin_path(d)
+    ]
     target_dir = custom_dirs[0] if custom_dirs else Path.cwd() / "data" / "plugins"
     target_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1551,7 +1724,9 @@ async def get_plugin_source(
     # 路径防穿越安全校验：文件必须存在于合法搜索目录或内置插件目录中
     allowed_dirs = [d.resolve() for d in PluginRegistry.get_search_directories()]
     allowed_dirs.extend([d.resolve() for d in PluginRegistry.get_builtin_directories()])
-    is_allowed = any(d in source_path.parents or d == source_path.parent for d in allowed_dirs)
+    is_allowed = any(
+        d in source_path.parents or d == source_path.parent for d in allowed_dirs
+    )
     if not is_allowed:
         raise HTTPException(status_code=403, detail="非法插件源码路径访问")
 
@@ -1600,11 +1775,19 @@ async def update_plugin_source(
     if is_builtin:
         raise HTTPException(status_code=403, detail="官方内置插件受保护，禁止修改源码")
 
-    custom_dirs = [d.resolve() for d in PluginRegistry.get_search_directories() if not is_builtin_plugin_path(d)]
+    custom_dirs = [
+        d.resolve()
+        for d in PluginRegistry.get_search_directories()
+        if not is_builtin_plugin_path(d)
+    ]
     custom_dirs.append(_get_custom_plugins_dir().resolve())
-    is_in_custom_dir = any(d in source_path.parents or d == source_path.parent for d in custom_dirs)
+    is_in_custom_dir = any(
+        d in source_path.parents or d == source_path.parent for d in custom_dirs
+    )
     if not is_in_custom_dir:
-        raise HTTPException(status_code=403, detail="插件所在目录不是自定义插件目录，禁止修改")
+        raise HTTPException(
+            status_code=403, detail="插件所在目录不是自定义插件目录，禁止修改"
+        )
 
     if len(payload.source.encode("utf-8")) > 1024 * 1024:
         raise HTTPException(status_code=400, detail="插件源码大小超过 1MB 限制")
@@ -1618,9 +1801,14 @@ async def update_plugin_source(
         )
 
     from tg_signer.core.plugins import compute_plugin_security_report
+
     sec_report = compute_plugin_security_report(payload.source)
     if not sec_report["can_save_safely"] and not payload.force:
-        critical_msgs = [w["message"] for w in sec_report["warnings"] if w.get("severity") in ("critical", "high")]
+        critical_msgs = [
+            w["message"]
+            for w in sec_report["warnings"]
+            if w.get("severity") in ("critical", "high")
+        ]
         raise HTTPException(
             status_code=400,
             detail=f"安全审查未通过（评分: {sec_report['score']}分，风险: {sec_report['risk_level']}）。检测到高危调用: {'; '.join(critical_msgs[:2])}。如确认代码安全无害，请确认是否强制保存。",
@@ -1679,21 +1867,34 @@ async def delete_plugin(
         raise HTTPException(status_code=403, detail="官方内置插件禁止删除")
 
     if not meta.source_path:
-        raise HTTPException(status_code=400, detail="插件无物理源文件路径，无法物理删除")
+        raise HTTPException(
+            status_code=400, detail="插件无物理源文件路径，无法物理删除"
+        )
 
     source_path = Path(meta.source_path).resolve()
     if not source_path.exists():
         raise HTTPException(status_code=404, detail="插件文件在磁盘上不存在")
 
     # 安全检查：源文件必须位于自定义插件目录中
-    custom_dirs = [d.resolve() for d in PluginRegistry.get_search_directories() if not is_builtin_plugin_path(d)]
-    is_in_custom_dir = any(d in source_path.parents or d == source_path.parent for d in custom_dirs)
+    custom_dirs = [
+        d.resolve()
+        for d in PluginRegistry.get_search_directories()
+        if not is_builtin_plugin_path(d)
+    ]
+    is_in_custom_dir = any(
+        d in source_path.parents or d == source_path.parent for d in custom_dirs
+    )
     if not is_in_custom_dir:
-        raise HTTPException(status_code=403, detail="插件所在目录不是自定义插件目录，禁止删除")
+        raise HTTPException(
+            status_code=403, detail="插件所在目录不是自定义插件目录，禁止删除"
+        )
 
     try:
         # 如果是目录型插件（例如 /path/to/custom_plugins/my_plug/main.py），且父目录在 custom_dir 内部
-        if source_path.name in ("main.py", "__init__.py") and source_path.parent not in custom_dirs:
+        if (
+            source_path.name in ("main.py", "__init__.py")
+            and source_path.parent not in custom_dirs
+        ):
             shutil.rmtree(source_path.parent)
         else:
             source_path.unlink()
@@ -1705,6 +1906,7 @@ async def delete_plugin(
     # 避免重装同名插件时静默继承旧配置
     try:
         from backend.services.config import get_config_service
+
         cfg_service = get_config_service()
         settings = cfg_service.get_global_settings() or {}
         dirty = False
@@ -1736,14 +1938,19 @@ async def create_plugin_from_template(
     # 1. 检查名称是否重复
     existing = PluginRegistry.get(req.name)
     if existing:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"插件名称 '{req.name}' 已存在")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=f"插件名称 '{req.name}' 已存在"
+        )
 
     # 2. 确定自定义插件保存目录
     target_dir = _get_custom_plugins_dir()
 
     plugin_dir = target_dir / req.name
     if plugin_dir.exists():
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"目录 '{req.name}' 已存在于插件目录中")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"目录 '{req.name}' 已存在于插件目录中",
+        )
 
     today = datetime.now().strftime("%Y-%m-%d")
     version = req.version or "1.0.0"
@@ -2190,7 +2397,9 @@ async def upload_plugin(
 ) -> PluginInfo:
     """上传本地 .py 插件文件至自定义插件目录并热重载。"""
     if not file.filename or not file.filename.endswith(".py"):
-        raise HTTPException(status_code=400, detail="仅支持上传 .py 格式的 Python 插件文件")
+        raise HTTPException(
+            status_code=400, detail="仅支持上传 .py 格式的 Python 插件文件"
+        )
 
     raw_filename = Path(file.filename).name
     plugin_stem = raw_filename[:-3]
@@ -2213,17 +2422,26 @@ async def upload_plugin(
     try:
         content = content_bytes.decode("utf-8")
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"上传文件不是有效的 UTF-8 文本: {exc}")
+        raise HTTPException(
+            status_code=400, detail=f"上传文件不是有效的 UTF-8 文本: {exc}"
+        )
 
     try:
         ast.parse(content, filename=raw_filename)
     except SyntaxError as exc:
-        raise HTTPException(status_code=400, detail=f"Python 语法错误 [第 {exc.lineno} 行]: {exc.msg}")
+        raise HTTPException(
+            status_code=400, detail=f"Python 语法错误 [第 {exc.lineno} 行]: {exc.msg}"
+        )
 
     from tg_signer.core.plugins import compute_plugin_security_report
+
     sec_report = compute_plugin_security_report(content)
     if not sec_report["can_save_safely"]:
-        critical_msgs = [w["message"] for w in sec_report["warnings"] if w.get("severity") in ("critical", "high")]
+        critical_msgs = [
+            w["message"]
+            for w in sec_report["warnings"]
+            if w.get("severity") in ("critical", "high")
+        ]
         raise HTTPException(
             status_code=400,
             detail=f"上传插件未通过安全审查: {'; '.join(critical_msgs[:2])}，禁止直接上传高危插件",
@@ -2246,9 +2464,13 @@ async def upload_plugin(
 
     if not matched:
         dest_path.unlink(missing_ok=True)
-        raise HTTPException(status_code=400, detail="未在上传的文件中检测到有效插件注册（请检查 @PluginRegistry.register 装饰器）")
+        raise HTTPException(
+            status_code=400,
+            detail="未在上传的文件中检测到有效插件注册（请检查 @PluginRegistry.register 装饰器）",
+        )
 
     return _meta_to_info(matched)
+
 
 @router.post("/{name}/reset-metrics")
 async def reset_plugin_metrics(
@@ -2261,6 +2483,7 @@ async def reset_plugin_metrics(
         raise HTTPException(status_code=404, detail="插件未找到")
     PluginRegistry.reset_metrics(name)
     return {"success": True, "name": name, "message": "指标已重置"}
+
 
 @router.post("/batch-toggle")
 async def batch_toggle_plugins(
@@ -2315,10 +2538,13 @@ async def reset_all_plugin_metrics(
         PluginRegistry.reset_metrics(p.name)
     return {"success": True, "message": "已重置所有插件运行指标"}
 
+
 @router.get("/{name}/history")
 async def get_plugin_history(
     name: str,
-    limit: int = Query(20, ge=1, le=30, description="返回条数，上限 30（与内存环形缓冲一致）"),
+    limit: int = Query(
+        20, ge=1, le=30, description="返回条数，上限 30（与内存环形缓冲一致）"
+    ),
     _user: User = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """获取指定插件最近的执行调用历史记录。"""
@@ -2387,6 +2613,7 @@ async def clone_plugin(
     if not source_code and meta.handler:
         try:
             import inspect
+
             source_code = inspect.getsource(meta.handler)
         except Exception:
             pass
@@ -2406,15 +2633,15 @@ async def clone_plugin(
         new_code,
     )
     new_code = re.sub(
-        rf'def\s+{re.escape(name)}_handler',
-        lambda _m: f'def {req.new_name}_handler',
+        rf"def\s+{re.escape(name)}_handler",
+        lambda _m: f"def {req.new_name}_handler",
         new_code,
     )
     if req.description:
         # description 经 repr 生成合法 Python 字面量，引号/换行/反斜杠均被转义
         new_code = re.sub(
             r'description\s*=\s*["\'][^"\']*["\']',
-            lambda _m: f'description={req.description!r}',
+            lambda _m: f"description={req.description!r}",
             new_code,
             count=1,
         )
@@ -2450,7 +2677,10 @@ async def clone_plugin(
 
     return _meta_to_info(new_meta)
 
-def _inspect_plugin_dependencies(source_code: str, plugin_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
+
+def _inspect_plugin_dependencies(
+    source_code: str, plugin_dir: Optional[Path] = None
+) -> List[Dict[str, Any]]:
     """利用 AST 静态分析插件源码中的三方外部依赖模块与安装就绪情况。"""
     import ast
     import importlib.util
@@ -2459,9 +2689,27 @@ def _inspect_plugin_dependencies(source_code: str, plugin_dir: Optional[Path] = 
 
     stdlib_modules = set(getattr(sys, "stdlib_module_names", set()))
     ignore_modules = stdlib_modules | {
-        "tg_signer", "backend", "tests", "typing", "collections", "dataclasses",
-        "pathlib", "os", "sys", "json", "re", "time", "datetime", "asyncio",
-        "logging", "traceback", "urllib", "inspect", "enum", "math", "random",
+        "tg_signer",
+        "backend",
+        "tests",
+        "typing",
+        "collections",
+        "dataclasses",
+        "pathlib",
+        "os",
+        "sys",
+        "json",
+        "re",
+        "time",
+        "datetime",
+        "asyncio",
+        "logging",
+        "traceback",
+        "urllib",
+        "inspect",
+        "enum",
+        "math",
+        "random",
     }
 
     local_modules: set[str] = set()
@@ -2508,7 +2756,8 @@ def _inspect_plugin_dependencies(source_code: str, plugin_dir: Optional[Path] = 
     }
 
     third_party = [
-        m for m in sorted(imported_modules)
+        m
+        for m in sorted(imported_modules)
         if m not in ignore_modules and m not in local_modules
     ]
 
@@ -2523,18 +2772,21 @@ def _inspect_plugin_dependencies(source_code: str, plugin_dir: Optional[Path] = 
             except Exception:
                 pass
         pip_pkg = PIP_MODULE_MAP.get(mod, mod)
-        results.append({
-            "module": mod,
-            "installed": installed,
-            "version": pkg_ver,
-            "install_command": f"pip install {pip_pkg}" if not installed else None,
-        })
+        results.append(
+            {
+                "module": mod,
+                "installed": installed,
+                "version": pkg_ver,
+                "install_command": f"pip install {pip_pkg}" if not installed else None,
+            }
+        )
     return results
 
 
 def _get_all_plugin_configs() -> Dict[str, Dict[str, Any]]:
     try:
         from backend.services.config import get_config_service
+
         settings = get_config_service().get_global_settings() or {}
         return dict(settings.get("plugin_configs", {}))
     except Exception:
@@ -2543,13 +2795,16 @@ def _get_all_plugin_configs() -> Dict[str, Dict[str, Any]]:
 
 def _save_all_plugin_configs(configs: Dict[str, Dict[str, Any]]) -> None:
     from backend.services.config import get_config_service
+
     cfg_svc = get_config_service()
     settings = cfg_svc.get_global_settings() or {}
     settings["plugin_configs"] = configs
     cfg_svc.save_global_settings(settings)
 
 
-def _get_default_params_from_schema(params_schema: Optional[List[Dict[str, Any]]]) -> Dict[str, Any]:
+def _get_default_params_from_schema(
+    params_schema: Optional[List[Dict[str, Any]]],
+) -> Dict[str, Any]:
     defaults = {}
     if not params_schema:
         return defaults
@@ -2602,6 +2857,7 @@ async def get_plugin_dependencies(
     if not source_code and meta and meta.handler:
         try:
             import inspect
+
             source_code = inspect.getsource(meta.handler)
         except Exception:
             pass
@@ -2660,8 +2916,12 @@ async def get_plugin_storage(
 @router.delete("/{name}/storage", response_model=ClearPluginStorageResponse)
 async def clear_plugin_storage(
     name: str,
-    namespace: Optional[str] = Query(default=None, description="指定清理的命名空间；不传则清理该插件所有命名空间"),
-    key: Optional[str] = Query(default=None, description="指定清理的单个键名；需同时提供 namespace"),
+    namespace: Optional[str] = Query(
+        default=None, description="指定清理的命名空间；不传则清理该插件所有命名空间"
+    ),
+    key: Optional[str] = Query(
+        default=None, description="指定清理的单个键名；需同时提供 namespace"
+    ),
     _user: User = Depends(get_current_user),
 ) -> ClearPluginStorageResponse:
     """清理指定插件的持久化存储数据（支持全量清空、指定命名空间清空或删除指定键）。"""
@@ -2804,7 +3064,8 @@ async def export_all_plugins(
         )
 
     py_files = [
-        f for f in target_dir.rglob("*.py")
+        f
+        for f in target_dir.rglob("*.py")
         if not f.name.startswith(".") and not f.name.startswith("__pycache__")
     ]
     if not py_files:
@@ -2863,6 +3124,7 @@ async def audit_plugin_source_route(
 ) -> AuditPluginResponse:
     """静态审计插件源码中的高危调用与潜在安全隐患，并生成全方位安全评级报告。"""
     from tg_signer.core.plugins import compute_plugin_security_report
+
     report = compute_plugin_security_report(req.source)
     warnings = [
         AuditPluginWarning(
@@ -2910,6 +3172,7 @@ async def format_plugin_source_route(
     lossy = False
     try:
         import black
+
         formatted_code = black.format_str(req.source, mode=black.FileMode())
     except Exception:
         # black 缺失时降级 ast.unparse：会丢失全部注释，必须向前端显式标注
@@ -2997,7 +3260,10 @@ async def import_plugins_bundle(
 
             # 仅接受加载器可识别的布局：顶层单文件插件，或单层目录型插件（main.py/__init__.py）
             parts = [p for p in norm.parts if p != "."]
-            if not (len(parts) == 1 or (len(parts) == 2 and parts[1] in ("main.py", "__init__.py"))):
+            if not (
+                len(parts) == 1
+                or (len(parts) == 2 and parts[1] in ("main.py", "__init__.py"))
+            ):
                 errors.append(f"跳过不支持的插件布局: {member.filename}")
                 continue
 
@@ -3016,7 +3282,9 @@ async def import_plugins_bundle(
                 try:
                     _enforce_plugin_security_check(code_text, member.filename)
                 except HTTPException as gate_err:
-                    errors.append(f"跳过未通过安全审查的文件 {member.filename}: {gate_err.detail}")
+                    errors.append(
+                        f"跳过未通过安全审查的文件 {member.filename}: {gate_err.detail}"
+                    )
                     continue
 
             dest_path = target_dir / norm

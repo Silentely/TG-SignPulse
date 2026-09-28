@@ -43,7 +43,7 @@ class TestSafeMsgTruncate:
 
 class TestHtmlEscape:
     def test_escapes_special_chars(self):
-        assert _html_escape('a<b>&c"d') == "a&lt;b&gt;&amp;c\"d"
+        assert _html_escape('a<b>&c"d') == 'a&lt;b&gt;&amp;c"d'
 
     def test_plain_text_unchanged(self):
         assert _html_escape("账号-123_测试") == "账号-123_测试"
@@ -70,9 +70,7 @@ class TestBuildHtmlNotification:
 
     def test_long_text_truncated_by_lines(self):
         big = "x" * 5000
-        text = build_html_notification(
-            title="T", fields=[("大字段", big)], footer=big
-        )
+        text = build_html_notification(title="T", fields=[("大字段", big)], footer=big)
         # 逐行累积截断，绝不超限且标签保持闭合
         assert len(text) <= 3900
         assert text.count("<b>") == text.count("</b>")
@@ -120,9 +118,7 @@ class TestParseModePropagation:
             sent.update(json or {})
             return _FakeResp()
 
-        monkeypatch.setattr(
-            "httpx.AsyncClient.post", _fake_post, raising=False
-        )
+        monkeypatch.setattr("httpx.AsyncClient.post", _fake_post, raising=False)
         await send_telegram_bot_message(
             bot_token="tok",
             chat_id="chat",
@@ -144,12 +140,8 @@ class TestParseModePropagation:
             sent.update(json or {})
             return _FakeResp()
 
-        monkeypatch.setattr(
-            "httpx.AsyncClient.post", _fake_post, raising=False
-        )
-        await send_telegram_bot_message(
-            bot_token="tok", chat_id="chat", text="plain"
-        )
+        monkeypatch.setattr("httpx.AsyncClient.post", _fake_post, raising=False)
+        await send_telegram_bot_message(bot_token="tok", chat_id="chat", text="plain")
         assert "parse_mode" not in sent
 
     @pytest.mark.asyncio()
@@ -225,7 +217,10 @@ class TestParseModePropagation:
                 return None
 
             def json(self):
-                return {"ok": False, "description": "Forbidden: bot was blocked by the user"}
+                return {
+                    "ok": False,
+                    "description": "Forbidden: bot was blocked by the user",
+                }
 
         class _FakeClient:
             def __init__(self, *args, **kwargs):
@@ -237,7 +232,6 @@ class TestParseModePropagation:
         monkeypatch.setattr("httpx.AsyncClient", _FakeClient, raising=False)
         with pytest.raises(RuntimeError, match="Forbidden: bot was blocked"):
             await send_telegram_bot_message(bot_token="tok", chat_id="chat", text="hi")
-
 
 
 class TestNotificationTimeLabels:
@@ -317,9 +311,7 @@ class TestNotificationTimeLabels:
             sent.update(json or {})
             return _FakeResp()
 
-        monkeypatch.setattr(
-            "httpx.AsyncClient.post", _fake_post, raising=False
-        )
+        monkeypatch.setattr("httpx.AsyncClient.post", _fake_post, raising=False)
         await send_keyword_push(
             {
                 "keyword_monitor_push_channel": "telegram",
@@ -415,7 +407,9 @@ class TestHttpPostRetryOnce:
 
         from backend.services.push_notifications import _http_post_retry_once
 
-        await _http_post_retry_once(url="https://93.184.216.34/hook", channel="Bark", json_body={})
+        await _http_post_retry_once(
+            url="https://93.184.216.34/hook", channel="Bark", json_body={}
+        )
         assert calls["n"] == 2
 
     @pytest.mark.asyncio()
@@ -450,7 +444,9 @@ class TestHttpPostRetryOnce:
         from backend.services.push_notifications import _http_post_retry_once
 
         with pytest.raises(httpx.HTTPStatusError):
-            await _http_post_retry_once(url="https://93.184.216.34/hook", channel="自定义推送", json_body={})
+            await _http_post_retry_once(
+                url="https://93.184.216.34/hook", channel="自定义推送", json_body={}
+            )
         assert calls["n"] == 1
 
     @pytest.mark.asyncio()
@@ -479,7 +475,9 @@ class TestHttpPostRetryOnce:
 
         from backend.services.push_notifications import _http_post_retry_once
 
-        await _http_post_retry_once(url="https://93.184.216.34/hook", channel="自定义推送", method="GET")
+        await _http_post_retry_once(
+            url="https://93.184.216.34/hook", channel="自定义推送", method="GET"
+        )
         assert methods == ["GET"]
 
 

@@ -3,6 +3,7 @@
 覆盖：原子写回读、不可序列化数据失败时不残留 .tmp 文件、
 损坏 JSON 读取回退默认值、纯文本原子写入。
 """
+
 from __future__ import annotations
 
 import json
@@ -53,6 +54,7 @@ def test_read_safe_returns_default_on_corrupt(tmp_path):
 def test_read_safe_returns_default_on_missing(tmp_path):
     assert read_json_safe(tmp_path / "missing.json", default=[]) == []
 
+
 def test_write_bytes_atomic_and_read_back(tmp_path):
     target = tmp_path / "sub" / "avatar.jpg"
     data = b"\xff\xd8\xff\xe0\x00\x10JFIF"
@@ -60,8 +62,10 @@ def test_write_bytes_atomic_and_read_back(tmp_path):
     assert target.exists()
     assert target.read_bytes() == data
 
+
 def test_write_bytes_atomic_no_tmp_leak_on_error(tmp_path, monkeypatch):
     import os
+
     target = tmp_path / "sub" / "file.bin"
 
     def bad_fsync(fd):

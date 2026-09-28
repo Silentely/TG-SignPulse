@@ -3,6 +3,7 @@
 
 纯函数：乱码修复等，供历史/日志拼装复用。
 """
+
 from __future__ import annotations
 
 _MOJIBAKE_TOKENS = (

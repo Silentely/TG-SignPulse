@@ -116,8 +116,12 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         _service_logger.info(
             "SignTaskService initialized, signs_dir=%s", self.signs_dir
         )
-        self._active_logs: Dict[tuple[str, str], List[str]] = {}  # (account, task) -> logs
-        self._active_tasks: Dict[tuple[str, str], bool] = {}  # (account, task) -> running
+        self._active_logs: Dict[
+            tuple[str, str], List[str]
+        ] = {}  # (account, task) -> logs
+        self._active_tasks: Dict[
+            tuple[str, str], bool
+        ] = {}  # (account, task) -> running
         self._cleanup_tasks: Dict[tuple[str, str], asyncio.Task] = {}
         self._run_statuses: Dict[tuple[str, str], Dict[str, Any]] = {}
         self._run_status_cleanup_tasks: Dict[tuple[str, str], asyncio.Task] = {}
@@ -129,11 +133,15 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         self._wildcard_removed: Dict[tuple[str, str], bool] = {}
         self._cache_refresh_deferred = 0  # >0 时挂起写后全量缓存刷新（批量写优化）
         self._cache_refresh_dirty = False  # defer 期间确有写后刷新被抑制时置 True
-        self._cache_refresh_lock = threading.Lock()  # 保护计数器与脏位，兼容线程池路由并发
+        self._cache_refresh_lock = (
+            threading.Lock()
+        )  # 保护计数器与脏位，兼容线程池路由并发
         # TTL 列表缓存（与 _tasks_cache 同步），避免长时间持有过期扫描结果
         list_ttl = float(os.getenv("SIGN_TASK_LIST_CACHE_TTL", "30") or "30")
         self._tasks_list_ttl = TTLCache(maxsize=2, ttl=max(list_ttl, 1.0))
-        self._account_locks: MutableMapping[str, asyncio.Lock] = weakref.WeakValueDictionary()  # 账号锁（弱引用管理）
+        self._account_locks: MutableMapping[str, asyncio.Lock] = (
+            weakref.WeakValueDictionary()
+        )  # 账号锁（弱引用管理）
         self._account_last_run_end: Dict[str, float] = {}  # 账号最后一次结束时间
         # 冷却/历史天数通过 property 读 runtime_settings（面板可覆盖 env）
         self._history_max_entries = read_positive_int_env(
@@ -169,7 +177,10 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
 
         # Prune _active_logs for tasks that are no longer running and have no cleanup pending
         for key in list(self._active_logs.keys()):
-            if not self._active_tasks.get(key, False) and key not in self._cleanup_tasks:
+            if (
+                not self._active_tasks.get(key, False)
+                and key not in self._cleanup_tasks
+            ):
                 self._active_logs.pop(key, None)
 
         # Prune completed background run tasks
@@ -182,7 +193,9 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         for key in done_cleanup:
             self._cleanup_tasks.pop(key, None)
 
-        done_status_cleanup = [k for k, t in self._run_status_cleanup_tasks.items() if t.done()]
+        done_status_cleanup = [
+            k for k, t in self._run_status_cleanup_tasks.items() if t.done()
+        ]
         for key in done_status_cleanup:
             self._run_status_cleanup_tasks.pop(key, None)
 
@@ -272,7 +285,9 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         - 补刷失败降级为 warning：写已落盘，不应让请求失败或遮蔽体内异常。
         """
         with self._cache_refresh_lock:
-            self._cache_refresh_deferred = getattr(self, "_cache_refresh_deferred", 0) + 1
+            self._cache_refresh_deferred = (
+                getattr(self, "_cache_refresh_deferred", 0) + 1
+            )
         try:
             yield
         finally:
@@ -321,7 +336,9 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
             if app is None:
                 return ""
             # Check if client is still usable (not terminated)
-            if not getattr(app, "is_connected", False) and not getattr(app, "is_initialized", False):
+            if not getattr(app, "is_connected", False) and not getattr(
+                app, "is_initialized", False
+            ):
                 # Client already torn down - don't try to re-enter
                 return ""
         except Exception:
@@ -439,7 +456,9 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
     ) -> Optional[Path]:
         task_name = validate_storage_name(task_name, field_name="task_name")
         if account_name:
-            account_name = validate_storage_name(account_name, field_name="account_name")
+            account_name = validate_storage_name(
+                account_name, field_name="account_name"
+            )
             account_task_dir = self.signs_dir / account_name / task_name
             if (account_task_dir / "config.json").exists():
                 return account_task_dir
@@ -634,12 +653,16 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
             "task_group_id": task_group_id,
             "last_run_account_name": last_run_account_name,
             "retry_count": retry_count,
-            "tags": list(dict.fromkeys(str(t).strip() for t in (tags or []) if str(t).strip())),
+            "tags": list(
+                dict.fromkeys(str(t).strip() for t in (tags or []) if str(t).strip())
+            ),
             "adaptive_schedule_enabled": bool(adaptive_schedule_enabled),
             "adaptive_schedule_patterns": list(adaptive_schedule_patterns or []),
             "adaptive_schedule_padding_seconds": int(adaptive_schedule_padding_seconds),
             "next_task_on_success": str(next_task_on_success or "").strip(),
-            "next_task_delay_seconds": float(next_task_delay_seconds if next_task_delay_seconds is not None else 2.0),
+            "next_task_delay_seconds": float(
+                next_task_delay_seconds if next_task_delay_seconds is not None else 2.0
+            ),
         }
 
     def _aggregate_tasks(self, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -647,8 +670,8 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
 
         return aggregate_tasks(
             tasks,
-            normalize_account_names=lambda names, primary=None: self._normalize_account_names(
-                names, primary
+            normalize_account_names=lambda names, primary=None: (
+                self._normalize_account_names(names, primary)
             ),
         )
 
@@ -664,8 +687,8 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
             raw_tasks,
             task_name,
             account_name,
-            normalize_account_names=lambda names, primary=None: self._normalize_account_names(
-                names, primary
+            normalize_account_names=lambda names, primary=None: (
+                self._normalize_account_names(names, primary)
             ),
         )
 
@@ -690,12 +713,10 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
             logs_dir = settings.resolve_logs_dir()
             logs_dir.mkdir(parents=True, exist_ok=True)
             log_path = logs_dir / filename
-            with open(log_path, 'a', encoding='utf-8') as f:
-                f.write(f'{message}\n')
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(f"{message}\n")
         except OSError as e:
-            _service_logger.warning(
-                'Failed to write scheduler log %s: %s', filename, e
-            )
+            _service_logger.warning("Failed to write scheduler log %s: %s", filename, e)
 
     def _get_effective_proxy(self, account_name: str) -> Optional[str]:
         try:
@@ -821,7 +842,9 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
 
         if account_name:
             tasks = [
-                task for task in tasks if str(task.get("account_name") or "") == account_name
+                task
+                for task in tasks
+                if str(task.get("account_name") or "") == account_name
             ]
 
         if aggregate:
@@ -942,11 +965,23 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
                 ),
                 retry_count=int(config.get("retry_count", 3)),
                 tags=config.get("tags", []),
-                adaptive_schedule_enabled=bool(config.get("adaptive_schedule_enabled", False)),
-                adaptive_schedule_patterns=list(config.get("adaptive_schedule_patterns") or []),
-                adaptive_schedule_padding_seconds=int(config.get("adaptive_schedule_padding_seconds", 30) or 30),
-                next_task_on_success=str(config.get("next_task_on_success") or "").strip(),
-                next_task_delay_seconds=float(config.get("next_task_delay_seconds", 2.0) if config.get("next_task_delay_seconds") is not None else 2.0),
+                adaptive_schedule_enabled=bool(
+                    config.get("adaptive_schedule_enabled", False)
+                ),
+                adaptive_schedule_patterns=list(
+                    config.get("adaptive_schedule_patterns") or []
+                ),
+                adaptive_schedule_padding_seconds=int(
+                    config.get("adaptive_schedule_padding_seconds", 30) or 30
+                ),
+                next_task_on_success=str(
+                    config.get("next_task_on_success") or ""
+                ).strip(),
+                next_task_delay_seconds=float(
+                    config.get("next_task_delay_seconds", 2.0)
+                    if config.get("next_task_delay_seconds") is not None
+                    else 2.0
+                ),
             )
             if return_raw:
                 return normalized, config
@@ -983,7 +1018,6 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         return out
 
     # CRUD: create/clone/update/rename/delete 见 SignTaskCrudMixin
-
 
     async def get_account_chats(
         self, account_name: str, force_refresh: bool = False
@@ -1080,7 +1114,9 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
             monitor_logs = []
 
         if account_name:
-            logs = list(self._active_logs.get(self._task_key(account_name, task_name), []))
+            logs = list(
+                self._active_logs.get(self._task_key(account_name, task_name), [])
+            )
             return self._merge_active_and_monitor_logs(logs, monitor_logs)
         # 兼容旧接口：返回第一个同名任务的日志
         for key in self._find_task_keys(task_name):
@@ -1124,9 +1160,7 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         if total == prev_total:
             return [], total
 
-        merged = self._merge_active_and_monitor_logs(
-            list(active or []), monitor_logs
-        )
+        merged = self._merge_active_and_monitor_logs(list(active or []), monitor_logs)
         if total < prev_total:
             # 头部裁剪或任务重启导致索引失效：全量重推
             return merged, total
@@ -1297,7 +1331,9 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
             result: Dict[str, Any]
             state = RUN_STATE_FINISHED
             try:
-                result = await self.run_task_with_logs(account_name, task_name, run_id=run_id, visited_chain=visited_chain)
+                result = await self.run_task_with_logs(
+                    account_name, task_name, run_id=run_id, visited_chain=visited_chain
+                )
                 if result.get("timed_out") or is_timeout_error_message(
                     str(result.get("error") or "")
                 ):
@@ -1409,11 +1445,19 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
             requested_run_id=run_id,
         )
 
-    def is_task_running(self, task_name: str, account_name: Optional[str] = None) -> bool:
+    def is_task_running(
+        self, task_name: str, account_name: Optional[str] = None
+    ) -> bool:
         """检查任务是否正在运行"""
         if account_name:
-            return self._active_tasks.get(self._task_key(account_name, task_name), False)
-        return any(key[1] == task_name for key, running in self._active_tasks.items() if running)
+            return self._active_tasks.get(
+                self._task_key(account_name, task_name), False
+            )
+        return any(
+            key[1] == task_name
+            for key, running in self._active_tasks.items()
+            if running
+        )
 
     async def run_task_with_logs(
         self,
@@ -1435,9 +1479,16 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         self._register_background_run(task_key, current_task)
         try:
             import inspect
+
             sig = inspect.signature(execute_sign_task)
-            if 'visited_chain' in sig.parameters:
-                return await execute_sign_task(self, account_name, task_name, run_id=run_id, visited_chain=visited_chain)
+            if "visited_chain" in sig.parameters:
+                return await execute_sign_task(
+                    self,
+                    account_name,
+                    task_name,
+                    run_id=run_id,
+                    visited_chain=visited_chain,
+                )
             return await execute_sign_task(self, account_name, task_name, run_id=run_id)
         finally:
             self._unregister_background_run(task_key, current_task)

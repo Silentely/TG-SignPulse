@@ -4,6 +4,7 @@
 默认值必须为 0（未设置），否则 CLI 独立运行时 SIGN_TASK_FLOW_RETRY_ATTEMPTS
 环境变量失效（恒为 1）。本测试锁定该回归。
 """
+
 from __future__ import annotations
 
 import os

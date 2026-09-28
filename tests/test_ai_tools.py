@@ -18,13 +18,19 @@ class AIToolsOptionParsingTest(unittest.TestCase):
         self.assertEqual(AITools._coerce_option_index([{"option": 4}], self.options), 4)
 
     def test_coerce_option_index_accepts_answer_text(self):
-        self.assertEqual(AITools._coerce_option_index({"answer": "mask"}, self.options), 4)
+        self.assertEqual(
+            AITools._coerce_option_index({"answer": "mask"}, self.options), 4
+        )
 
     def test_coerce_option_indexes_accepts_list_payload(self):
-        self.assertEqual(AITools._coerce_option_indexes([{"options": [4]}], self.options), [4])
+        self.assertEqual(
+            AITools._coerce_option_indexes([{"options": [4]}], self.options), [4]
+        )
 
     def test_coerce_option_indexes_accepts_text_payload(self):
-        self.assertEqual(AITools._coerce_option_indexes({"answer": "mask"}, self.options), [4])
+        self.assertEqual(
+            AITools._coerce_option_indexes({"answer": "mask"}, self.options), [4]
+        )
 
     def test_coerce_option_index_rejects_unknown_response(self):
         with self.assertRaises(ValueError):
@@ -93,7 +99,9 @@ class AIToolsJsonFallbackTest(unittest.IsolatedAsyncioTestCase):
     async def test_choose_options_by_image_retries_without_json_mode(self):
         fake_completions = _FakeCompletions(
             [
-                RuntimeError("Error code: 403 - {'message': 'openai_error', 'code': 'bad_response_status_code', 'detail': 'response_format json_object unsupported'}"),
+                RuntimeError(
+                    "Error code: 403 - {'message': 'openai_error', 'code': 'bad_response_status_code', 'detail': 'response_format json_object unsupported'}"
+                ),
                 SimpleNamespace(
                     choices=[
                         SimpleNamespace(
@@ -299,9 +307,7 @@ class VisualCompletionRetryTest(unittest.IsolatedAsyncioTestCase):
                 raise TimeoutError("request timed out")
             return SimpleNamespace(
                 choices=[
-                    SimpleNamespace(
-                        message=SimpleNamespace(content='{"options":[1]}')
-                    )
+                    SimpleNamespace(message=SimpleNamespace(content='{"options":[1]}'))
                 ]
             )
 
@@ -327,7 +333,9 @@ class VisualCompletionRetryTest(unittest.IsolatedAsyncioTestCase):
             os.environ["AI_VISION_RETRY_ATTEMPTS"] = "1"
             fake_completions = _FakeCompletions(
                 [
-                    RuntimeError("Error code: 403 - {'message': 'openai_error', 'code': 'bad_response_status_code', 'detail': 'response_format json_object unsupported'}"),
+                    RuntimeError(
+                        "Error code: 403 - {'message': 'openai_error', 'code': 'bad_response_status_code', 'detail': 'response_format json_object unsupported'}"
+                    ),
                     SimpleNamespace(
                         choices=[
                             SimpleNamespace(
@@ -364,7 +372,9 @@ class VisualCompletionRetryTest(unittest.IsolatedAsyncioTestCase):
         """JSON fallback 后遇到 503 仍应按瞬时重试策略处理。"""
         fake_completions = _FakeCompletions(
             [
-                RuntimeError("Error code: 403 - response_format json_object unsupported"),
+                RuntimeError(
+                    "Error code: 403 - response_format json_object unsupported"
+                ),
                 RuntimeError("Error code: 503 - UNAVAILABLE"),
                 SimpleNamespace(
                     choices=[
@@ -442,7 +452,9 @@ class AIMaxTokensTest(unittest.IsolatedAsyncioTestCase):
 
     def _tools(self, responses):
         fake_completions = _FakeCompletions(responses)
-        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=fake_completions))
+        fake_client = SimpleNamespace(
+            chat=SimpleNamespace(completions=fake_completions)
+        )
         tools = AITools({"api_key": "test", "model": "gpt-4o"})
         tools.client = fake_client
         return tools, fake_completions
@@ -451,7 +463,11 @@ class AIMaxTokensTest(unittest.IsolatedAsyncioTestCase):
         tools, fake_completions = self._tools(
             [
                 SimpleNamespace(
-                    choices=[SimpleNamespace(message=SimpleNamespace(content='{"options":[2]}'))]
+                    choices=[
+                        SimpleNamespace(
+                            message=SimpleNamespace(content='{"options":[2]}')
+                        )
+                    ]
                 )
             ]
         )
@@ -470,7 +486,11 @@ class AIMaxTokensTest(unittest.IsolatedAsyncioTestCase):
         tools, fake_completions = self._tools(
             [
                 SimpleNamespace(
-                    choices=[SimpleNamespace(message=SimpleNamespace(content='{"options":[2]}'))]
+                    choices=[
+                        SimpleNamespace(
+                            message=SimpleNamespace(content='{"options":[2]}')
+                        )
+                    ]
                 )
             ]
         )
@@ -487,7 +507,9 @@ class AIMaxTokensTest(unittest.IsolatedAsyncioTestCase):
         tools, fake_completions = self._tools(
             [
                 SimpleNamespace(
-                    choices=[SimpleNamespace(message=SimpleNamespace(content='{"option":2}'))]
+                    choices=[
+                        SimpleNamespace(message=SimpleNamespace(content='{"option":2}'))
+                    ]
                 )
             ]
         )
@@ -506,7 +528,11 @@ class AIMaxTokensTest(unittest.IsolatedAsyncioTestCase):
         tools, fake_completions = self._tools(
             [
                 SimpleNamespace(
-                    choices=[SimpleNamespace(message=SimpleNamespace(content='{"options":[2]}'))]
+                    choices=[
+                        SimpleNamespace(
+                            message=SimpleNamespace(content='{"options":[2]}')
+                        )
+                    ]
                 )
             ]
         )
@@ -525,7 +551,11 @@ class AIMaxTokensTest(unittest.IsolatedAsyncioTestCase):
         tools, fake_completions = self._tools(
             [
                 SimpleNamespace(
-                    choices=[SimpleNamespace(message=SimpleNamespace(content='{"options":[2]}'))]
+                    choices=[
+                        SimpleNamespace(
+                            message=SimpleNamespace(content='{"options":[2]}')
+                        )
+                    ]
                 )
             ]
         )
@@ -544,7 +574,11 @@ class AIMaxTokensTest(unittest.IsolatedAsyncioTestCase):
         tools, fake_completions = self._tools(
             [
                 SimpleNamespace(
-                    choices=[SimpleNamespace(message=SimpleNamespace(content='{"options":[2]}'))]
+                    choices=[
+                        SimpleNamespace(
+                            message=SimpleNamespace(content='{"options":[2]}')
+                        )
+                    ]
                 )
             ]
         )
@@ -573,7 +607,9 @@ class ParamDegradationTest(unittest.IsolatedAsyncioTestCase):
     @staticmethod
     def _tools(responses):
         fake_completions = _FakeCompletions(responses)
-        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=fake_completions))
+        fake_client = SimpleNamespace(
+            chat=SimpleNamespace(completions=fake_completions)
+        )
         tools = AITools({"api_key": "test", "model": "gpt-4o"})
         tools.client = fake_client
         return tools, fake_completions
@@ -836,7 +872,9 @@ class VisualTruncationRetryTest(unittest.IsolatedAsyncioTestCase):
                 self._ok('{"options":[2]}'),
             ]
         )
-        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=fake_completions))
+        fake_client = SimpleNamespace(
+            chat=SimpleNamespace(completions=fake_completions)
+        )
         tools = AITools({"api_key": "test", "model": "gpt-4o"})
         tools.client = fake_client
 
@@ -859,7 +897,9 @@ class VisualTruncationRetryTest(unittest.IsolatedAsyncioTestCase):
                 self._truncated(content=None),
             ]
         )
-        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=fake_completions))
+        fake_client = SimpleNamespace(
+            chat=SimpleNamespace(completions=fake_completions)
+        )
         tools = AITools({"api_key": "test", "model": "gpt-4o"})
         tools.client = fake_client
 
@@ -879,7 +919,9 @@ class VisualTruncationRetryTest(unittest.IsolatedAsyncioTestCase):
                 self._truncated(content=None),
             ]
         )
-        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=fake_completions))
+        fake_client = SimpleNamespace(
+            chat=SimpleNamespace(completions=fake_completions)
+        )
         tools = AITools({"api_key": "test", "model": "gpt-4o"})
         tools.client = fake_client
 
@@ -968,7 +1010,9 @@ class ImageUrlFormatTest(unittest.IsolatedAsyncioTestCase):
                     [(1, "apple"), (2, "banana")],
                 )
 
-                image_url = fake_completions.calls[0]["messages"][1]["content"][1]["image_url"]["url"]
+                image_url = fake_completions.calls[0]["messages"][1]["content"][1][
+                    "image_url"
+                ]["url"]
                 self.assertEqual(image_url, "ZmFrZS1pbWFnZQ==")
 
     async def test_standard_base_url_sends_data_url(self):
@@ -1001,18 +1045,16 @@ class ImageUrlFormatTest(unittest.IsolatedAsyncioTestCase):
             [(1, "apple"), (2, "banana")],
         )
 
-        image_url = fake_completions.calls[0]["messages"][1]["content"][1]["image_url"]["url"]
+        image_url = fake_completions.calls[0]["messages"][1]["content"][1]["image_url"][
+            "url"
+        ]
         self.assertEqual(image_url, "data:image/jpeg;base64,ZmFrZS1pbWFnZQ==")
 
     async def test_extract_text_uses_correct_format_for_zhipu(self):
         fake_completions = _FakeCompletions(
             [
                 SimpleNamespace(
-                    choices=[
-                        SimpleNamespace(
-                            message=SimpleNamespace(content="IkKR")
-                        )
-                    ]
+                    choices=[SimpleNamespace(message=SimpleNamespace(content="IkKR"))]
                 ),
             ]
         )
@@ -1030,7 +1072,9 @@ class ImageUrlFormatTest(unittest.IsolatedAsyncioTestCase):
 
         await tools.extract_text_by_image(b"fake-image")
 
-        image_url = fake_completions.calls[0]["messages"][1]["content"][1]["image_url"]["url"]
+        image_url = fake_completions.calls[0]["messages"][1]["content"][1]["image_url"][
+            "url"
+        ]
         self.assertEqual(image_url, "ZmFrZS1pbWFnZQ==")
 
     async def test_similar_domain_not_mistaken_for_zhipu(self):
@@ -1071,7 +1115,9 @@ class ImageUrlFormatTest(unittest.IsolatedAsyncioTestCase):
                     [(1, "apple"), (2, "banana")],
                 )
 
-                image_url = fake_completions.calls[0]["messages"][1]["content"][1]["image_url"]["url"]
+                image_url = fake_completions.calls[0]["messages"][1]["content"][1][
+                    "image_url"
+                ]["url"]
                 self.assertTrue(
                     image_url.startswith("data:image/jpeg;base64,"),
                     f"Expected data URL for {base_url}, got: {image_url}",
@@ -1108,7 +1154,9 @@ class ImageUrlFormatTest(unittest.IsolatedAsyncioTestCase):
             [(1, "apple"), (2, "banana")],
         )
 
-        image_url = fake_completions.calls[0]["messages"][1]["content"][1]["image_url"]["url"]
+        image_url = fake_completions.calls[0]["messages"][1]["content"][1]["image_url"][
+            "url"
+        ]
         self.assertEqual(image_url, "ZmFrZS1pbWFnZQ==")
 
 
@@ -1134,9 +1182,7 @@ class MidFlowTerminalSuccessTest(unittest.IsolatedAsyncioTestCase):
         from tg_signer.core import UserSigner
 
         signer = object.__new__(UserSigner)
-        self.assertTrue(
-            signer._callback_text_has_terminal_success_text("今日已签到")
-        )
+        self.assertTrue(signer._callback_text_has_terminal_success_text("今日已签到"))
         self.assertTrue(
             signer._callback_text_has_terminal_success_text("您今天已经签到")
         )
@@ -1218,9 +1264,7 @@ class MidFlowTerminalSuccessTest(unittest.IsolatedAsyncioTestCase):
         signer._wait_for_terminal_success = AsyncMock(return_value=True)
 
         chat = SimpleNamespace(chat_id=1, message_thread_id=None)
-        await signer._maybe_stop_after_send(
-            chat, before_state={}, history_limit=8
-        )
+        await signer._maybe_stop_after_send(chat, before_state={}, history_limit=8)
         self.assertFalse(signer.context.stop_after_current_action)
         signer._wait_for_terminal_success.assert_not_called()
 
@@ -1241,12 +1285,16 @@ class SuccessTextDetectionTest(unittest.TestCase):
         from tg_signer.core import UserSigner
 
         signer = object.__new__(UserSigner)
-        self.assertTrue(signer._text_has_terminal_success_text("今日已完成签到，请明天再来"))
+        self.assertTrue(
+            signer._text_has_terminal_success_text("今日已完成签到，请明天再来")
+        )
         self.assertTrue(signer._text_has_terminal_success_text("打卡成功，获得 5 积分"))
         self.assertTrue(signer._text_has_terminal_success_text("今日已打卡"))
         self.assertTrue(signer._text_has_terminal_success_text("明天再来吧"))
         self.assertTrue(signer._callback_text_has_terminal_success_text("今日已打卡"))
-        self.assertTrue(signer._callback_text_has_terminal_success_text("今日已完成签到"))
+        self.assertTrue(
+            signer._callback_text_has_terminal_success_text("今日已完成签到")
+        )
 
     def test_sign_opportunity_exhausted_is_success(self):
         """签到机会已用完表示今日已签到。"""
@@ -1288,7 +1336,9 @@ class SuccessTextDetectionTest(unittest.TestCase):
         from tg_signer.core import UserSigner
 
         signer = object.__new__(UserSigner)
-        self.assertTrue(signer._text_has_terminal_success_text("验证码错误!\n签到成功，获得积分"))
+        self.assertTrue(
+            signer._text_has_terminal_success_text("验证码错误!\n签到成功，获得积分")
+        )
 
     def test_negated_time_markers_are_failure(self):
         """否定类时间/状态标记不得判成成功（Bot 告知当前不可签到）。"""
@@ -1306,8 +1356,12 @@ class SuccessTextDetectionTest(unittest.TestCase):
             signer._text_has_terminal_success_text("现在不是签到时间，签到成功请重试")
         )
         # 无强成功标记时，通用成功词同样受否定标记约束
-        self.assertFalse(signer._text_has_terminal_success_text("今日签到未开始，完成后通知"))
-        self.assertFalse(signer._text_has_terminal_success_text("活动还未开始，无法签到"))
+        self.assertFalse(
+            signer._text_has_terminal_success_text("今日签到未开始，完成后通知")
+        )
+        self.assertFalse(
+            signer._text_has_terminal_success_text("活动还未开始，无法签到")
+        )
 
     def test_negated_time_marker_with_generic_success_word_is_failure(self):
         """无强成功标记时，通用成功词 + 否定标记组合仍判失败。"""
@@ -1433,11 +1487,14 @@ class TokenBudgetCompatibilityTest(unittest.IsolatedAsyncioTestCase):
             "Error code: 400 - {'error': {'message': \"Unsupported parameter: 'max_completion_tokens' is not supported with this model. Use 'max_tokens' instead.\", 'param': 'max_completion_tokens'}}"
         )
         self.assertEqual(
-            AITools._is_token_param_rejection_error(exc_reverse), "max_completion_tokens"
+            AITools._is_token_param_rejection_error(exc_reverse),
+            "max_completion_tokens",
         )
 
         # 无关错误 (如 401 认证失败或无关 400)
-        exc_auth = SimpleNamespace(status_code=401, body={"error": {"code": "invalid_api_key"}})
+        exc_auth = SimpleNamespace(
+            status_code=401, body={"error": {"code": "invalid_api_key"}}
+        )
         self.assertIsNone(AITools._is_token_param_rejection_error(exc_auth))
 
     def test_build_visual_request_stages_token_param(self):
@@ -1472,10 +1529,19 @@ class TokenBudgetCompatibilityTest(unittest.IsolatedAsyncioTestCase):
                 Exception(
                     "Error code: 400 - {'error': {'message': \"Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.\", 'param': 'max_tokens', 'code': 'unsupported_parameter'}}"
                 ),
-                SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"options":[1]}'), finish_reason="stop")]),
+                SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            message=SimpleNamespace(content='{"options":[1]}'),
+                            finish_reason="stop",
+                        )
+                    ]
+                ),
             ]
         )
-        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=fake_completions))
+        fake_client = SimpleNamespace(
+            chat=SimpleNamespace(completions=fake_completions)
+        )
         tools = AITools({"api_key": "test", "model": "custom-unrecognized-gpt"})
         tools.client = fake_client
 
@@ -1498,12 +1564,26 @@ class TokenBudgetCompatibilityTest(unittest.IsolatedAsyncioTestCase):
         fake_completions = _FakeCompletions(
             [
                 SimpleNamespace(
-                    choices=[SimpleNamespace(finish_reason="length", message=SimpleNamespace(content="trunc"))]
+                    choices=[
+                        SimpleNamespace(
+                            finish_reason="length",
+                            message=SimpleNamespace(content="trunc"),
+                        )
+                    ]
                 ),
-                SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"options":[2]}'), finish_reason="stop")]),
+                SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            message=SimpleNamespace(content='{"options":[2]}'),
+                            finish_reason="stop",
+                        )
+                    ]
+                ),
             ]
         )
-        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=fake_completions))
+        fake_client = SimpleNamespace(
+            chat=SimpleNamespace(completions=fake_completions)
+        )
         tools = AITools({"api_key": "test", "model": "gpt-5-nano"})
         tools.client = fake_client
 
@@ -1523,11 +1603,19 @@ class TokenBudgetCompatibilityTest(unittest.IsolatedAsyncioTestCase):
 
         exc_invalid_val = SimpleNamespace(
             status_code=400,
-            body={"error": {"param": "max_tokens", "code": "invalid_value", "message": "max_tokens must be <= 4096"}},
+            body={
+                "error": {
+                    "param": "max_tokens",
+                    "code": "invalid_value",
+                    "message": "max_tokens must be <= 4096",
+                }
+            },
         )
         self.assertIsNone(is_token_param_rejection_error(exc_invalid_val))
 
-        exc_too_large = Exception("Error code: 400 - max_tokens is too large, must be at most 2048")
+        exc_too_large = Exception(
+            "Error code: 400 - max_tokens is too large, must be at most 2048"
+        )
         self.assertIsNone(is_token_param_rejection_error(exc_too_large))
 
     def test_unrelated_status_code_not_misidentified(self):
@@ -1549,7 +1637,9 @@ class TokenBudgetCompatibilityTest(unittest.IsolatedAsyncioTestCase):
             'Error code: 400 - {"error": {"message": "Unsupported parameter: \'max_completion_tokens\'. Use \'max_tokens\' instead.", "param": "max_completion_tokens", "code": "unsupported_parameter"}}'
         )
         fake_completions = _FakeCompletions([err1, err2, err2, err2])
-        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=fake_completions))
+        fake_client = SimpleNamespace(
+            chat=SimpleNamespace(completions=fake_completions)
+        )
         tools = AITools({"api_key": "test", "model": "oscillation-test-model"})
         tools.client = fake_client
 
@@ -1568,11 +1658,19 @@ class TokenBudgetCompatibilityTest(unittest.IsolatedAsyncioTestCase):
         fake_completions = _FakeCompletions(
             [
                 SimpleNamespace(
-                    choices=[SimpleNamespace(finish_reason="length", message=SimpleNamespace(content="trunc"))]
+                    choices=[
+                        SimpleNamespace(
+                            finish_reason="length",
+                            message=SimpleNamespace(content="trunc"),
+                        )
+                    ]
                 ),
-            ] * 5
+            ]
+            * 5
         )
-        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=fake_completions))
+        fake_client = SimpleNamespace(
+            chat=SimpleNamespace(completions=fake_completions)
+        )
         tools = AITools({"api_key": "test", "model": "gpt-5-nano"})
         tools.client = fake_client
 
@@ -1600,23 +1698,32 @@ class TokenBudgetCompatibilityTest(unittest.IsolatedAsyncioTestCase):
                 }
             },
         )
-        self.assertEqual(is_token_param_rejection_error(azure_err), "max_completion_tokens")
+        self.assertEqual(
+            is_token_param_rejection_error(azure_err), "max_completion_tokens"
+        )
 
         azure_err_old_tokens = Exception(
             "Error code: 400 - {'error': {'message': 'Unrecognized request argument supplied: max_tokens'}}"
         )
-        self.assertEqual(is_token_param_rejection_error(azure_err_old_tokens), "max_tokens")
+        self.assertEqual(
+            is_token_param_rejection_error(azure_err_old_tokens), "max_tokens"
+        )
 
     def test_flat_body_error_fields_extraction(self):
         """第三方代理返回顶层扁平结构（无 error 包装）时也能正确提取错误字段。"""
         tools = AITools({"api_key": "test", "model": "test-model"})
         flat_exc = SimpleNamespace(
             status_code=400,
-            body={"message": "Unrecognized request argument: max_completion_tokens", "param": "max_completion_tokens"},
+            body={
+                "message": "Unrecognized request argument: max_completion_tokens",
+                "param": "max_completion_tokens",
+            },
         )
         fields = tools._extract_error_fields(flat_exc)
         self.assertEqual(fields.get("param"), "max_completion_tokens")
-        self.assertEqual(tools._is_token_param_rejection_error(flat_exc), "max_completion_tokens")
+        self.assertEqual(
+            tools._is_token_param_rejection_error(flat_exc), "max_completion_tokens"
+        )
 
     def test_gpt5_stages_built_without_temperature(self):
         """GPT-5 / o 系列推理模型构建视觉请求 stages 时默认不带 temperature 参数。"""
@@ -1638,10 +1745,17 @@ class TokenBudgetCompatibilityTest(unittest.IsolatedAsyncioTestCase):
             'Error code: 400 - {"error": {"message": "Unsupported value: \'temperature\' does not support 0.1 with this model. Only the default (1) value is supported.", "param": "temperature", "code": "unsupported_value"}}'
         )
         success_resp = SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(content='{"options":[1]}'), finish_reason="stop")]
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content='{"options":[1]}'),
+                    finish_reason="stop",
+                )
+            ]
         )
         fake_completions = _FakeCompletions([temp_err, success_resp])
-        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=fake_completions))
+        fake_client = SimpleNamespace(
+            chat=SimpleNamespace(completions=fake_completions)
+        )
         tools = AITools({"api_key": "test", "model": "custom-reasoning-model"})
         tools.client = fake_client
 

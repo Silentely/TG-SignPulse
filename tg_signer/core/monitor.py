@@ -2,6 +2,7 @@
 
 依赖 BaseUserWorker（runtime.py 真源）；runtime.py 不反向引用本模块，无循环导入。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -235,7 +236,11 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                 )
                 response.raise_for_status()
                 return
-            except (httpx.TimeoutException, httpx.NetworkError, httpx.HTTPStatusError) as exc:
+            except (
+                httpx.TimeoutException,
+                httpx.NetworkError,
+                httpx.HTTPStatusError,
+            ) as exc:
                 last_error = exc
                 if attempt >= 3:
                     break
@@ -299,10 +304,9 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                             # 避免只有 chat_id 数字无法判断来源
                             from datetime import datetime, timezone
 
-                            chat_title = (
-                                getattr(getattr(message, "chat", None), "title", "")
-                                or str(match_cfg.chat_id)
-                            )
+                            chat_title = getattr(
+                                getattr(message, "chat", None), "title", ""
+                            ) or str(match_cfg.chat_id)
                             sender = getattr(message, "sender", None)
                             sender_name = (
                                 getattr(sender, "first_name", None)

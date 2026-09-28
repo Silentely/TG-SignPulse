@@ -4,6 +4,7 @@
 测试从 action 配置读取 bot_username，使用关键词捕获值作为命令参数。
 覆盖：深链批量解析、正则多匹配、间隔等待发送。
 """
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -33,11 +34,7 @@ class TestBotLinkHelpers:
         ]
 
     def test_extract_start_links_dedupe(self):
-        text = (
-            "t.me/bot_a?start=CODE1\n"
-            "t.me/bot_a?start=CODE1\n"
-            "t.me/bot_b?start=CODE1"
-        )
+        text = "t.me/bot_a?start=CODE1\nt.me/bot_a?start=CODE1\nt.me/bot_b?start=CODE1"
         links = _extract_tg_start_links(text)
         assert links == [("bot_a", "CODE1"), ("bot_b", "CODE1")]
 
@@ -74,8 +71,12 @@ class TestBotLinkAction:
         variables = {"keyword": "KsdaqumLAS", "message": source_msg.text}
 
         result = await service._execute_bot_link_action(
-            mock_client, -1001234567890, None, action,
-            source_message=source_msg, variables=variables,
+            mock_client,
+            -1001234567890,
+            None,
+            action,
+            source_message=source_msg,
+            variables=variables,
         )
         assert result is True
         mock_client.send_message.assert_called_once_with(
@@ -93,8 +94,12 @@ class TestBotLinkAction:
         variables = {"keyword": "test"}
 
         result = await service._execute_bot_link_action(
-            mock_client, -1001234567890, None, action,
-            source_message=source_msg, variables=variables,
+            mock_client,
+            -1001234567890,
+            None,
+            action,
+            source_message=source_msg,
+            variables=variables,
         )
         assert result is False
         mock_client.send_message.assert_not_called()
@@ -106,8 +111,12 @@ class TestBotLinkAction:
         variables = {"keyword": "test"}
 
         result = await service._execute_bot_link_action(
-            mock_client, -1001234567890, None, action,
-            source_message=None, variables=variables,
+            mock_client,
+            -1001234567890,
+            None,
+            action,
+            source_message=None,
+            variables=variables,
         )
         assert result is False
         mock_client.send_message.assert_not_called()
@@ -123,8 +132,12 @@ class TestBotLinkAction:
         variables = {"keyword": ""}
 
         result = await service._execute_bot_link_action(
-            mock_client, -1001234567890, None, action,
-            source_message=source_msg, variables=variables,
+            mock_client,
+            -1001234567890,
+            None,
+            action,
+            source_message=source_msg,
+            variables=variables,
         )
         assert result is False
         mock_client.send_message.assert_not_called()
@@ -149,15 +162,23 @@ class TestBotLinkAction:
             "backend.services.keyword_monitor.asyncio.sleep", new_callable=AsyncMock
         ) as mock_sleep:
             result1 = await service._execute_bot_link_action(
-                mock_client, -1001234567890, None, action,
-                source_message=source_msg, variables=variables,
+                mock_client,
+                -1001234567890,
+                None,
+                action,
+                source_message=source_msg,
+                variables=variables,
             )
             assert result1 is True
 
             variables["keyword"] = "code2"
             result2 = await service._execute_bot_link_action(
-                mock_client, -1001234567890, None, action,
-                source_message=source_msg, variables=variables,
+                mock_client,
+                -1001234567890,
+                None,
+                action,
+                source_message=source_msg,
+                variables=variables,
             )
             assert result2 is True
             assert mock_client.send_message.call_count == 2
@@ -176,8 +197,12 @@ class TestBotLinkAction:
         variables = {"keyword": "test"}
 
         result = await service._execute_bot_link_action(
-            mock_client, -1001234567890, None, action,
-            source_message=source_msg, variables=variables,
+            mock_client,
+            -1001234567890,
+            None,
+            action,
+            source_message=source_msg,
+            variables=variables,
         )
         assert result is False
 
@@ -219,13 +244,15 @@ class TestBotLinkAction:
         variables = {"keyword": "ABC123"}
 
         result = await service._execute_bot_link_action(
-            mock_client, -1001234567890, None, action,
-            source_message=source_msg, variables=variables,
+            mock_client,
+            -1001234567890,
+            None,
+            action,
+            source_message=source_msg,
+            variables=variables,
         )
         assert result is True
-        mock_client.send_message.assert_called_once_with(
-            "caption_bot", "/start ABC123"
-        )
+        mock_client.send_message.assert_called_once_with("caption_bot", "/start ABC123")
 
     @pytest.mark.asyncio
     async def test_bot_link_logs_account_and_task(self, service, mock_client):
@@ -238,15 +265,22 @@ class TestBotLinkAction:
         variables = {"keyword": "code1"}
 
         await service._execute_bot_link_action(
-            mock_client, -1001234567890, None, action,
-            source_message=source_msg, variables=variables,
-            account_name="my_account", task_name="my_task",
+            mock_client,
+            -1001234567890,
+            None,
+            action,
+            source_message=source_msg,
+            variables=variables,
+            account_name="my_account",
+            task_name="my_task",
         )
         logs = service.get_task_logs("my_task", "my_account")
         assert any("Bot 命令触发成功" in line for line in logs)
 
     @pytest.mark.asyncio
-    async def test_bot_link_no_variables_uses_default_template(self, service, mock_client):
+    async def test_bot_link_no_variables_uses_default_template(
+        self, service, mock_client
+    ):
         """variables=None 时默认 {keyword} 模板应渲染为空，返回 False"""
         source_msg = MagicMock()
         source_msg.text = "test"
@@ -255,8 +289,12 @@ class TestBotLinkAction:
         action = {"action": 9, "bot_username": "no_var_bot"}
 
         result = await service._execute_bot_link_action(
-            mock_client, -1001234567890, None, action,
-            source_message=source_msg, variables=None,
+            mock_client,
+            -1001234567890,
+            None,
+            action,
+            source_message=source_msg,
+            variables=None,
         )
         assert result is False
         mock_client.send_message.assert_not_called()
@@ -272,8 +310,12 @@ class TestBotLinkAction:
         variables = {"keyword": "test"}
 
         result = await service._execute_bot_link_action(
-            mock_client, -1001234567890, None, action,
-            source_message=source_msg, variables=variables,
+            mock_client,
+            -1001234567890,
+            None,
+            action,
+            source_message=source_msg,
+            variables=variables,
         )
         assert result is False
         mock_client.send_message.assert_not_called()
@@ -302,8 +344,12 @@ class TestBotLinkAction:
             "backend.services.keyword_monitor.asyncio.sleep", new_callable=AsyncMock
         ):
             result = await service._execute_bot_link_action(
-                mock_client, -1001234567890, None, action,
-                source_message=source_msg, variables={},
+                mock_client,
+                -1001234567890,
+                None,
+                action,
+                source_message=source_msg,
+                variables={},
             )
         assert result is True
         assert mock_client.send_message.call_count == 3
@@ -328,13 +374,15 @@ class TestBotLinkAction:
             "send_interval": 0,
         }
         result = await service._execute_bot_link_action(
-            mock_client, -1001234567890, None, action,
-            source_message=source_msg, variables={},
+            mock_client,
+            -1001234567890,
+            None,
+            action,
+            source_message=source_msg,
+            variables={},
         )
         assert result is True
-        mock_client.send_message.assert_called_once_with(
-            "PreferBot", "/start CODE_ABC"
-        )
+        mock_client.send_message.assert_called_once_with("PreferBot", "/start CODE_ABC")
 
     @pytest.mark.asyncio
     async def test_bot_link_multi_regex_match_action(self, service, mock_client):
@@ -349,7 +397,10 @@ class TestBotLinkAction:
             "match_mode": "regex",
         }
         result = await service._execute_bot_link_action(
-            mock_client, -1001234567890, None, action,
+            mock_client,
+            -1001234567890,
+            None,
+            action,
             source_message=source_msg,
             variables={"keyword": "aaa"},
             match_action=match_action,
@@ -369,8 +420,7 @@ class TestBotLinkAction:
         """存在深链时优先走深链完整 payload，而不是仅正则捕获后缀"""
         source_msg = MagicMock()
         source_msg.text = (
-            "t.me/shrekpublicbot?start=SAKURA-30-Register_FullCode1\n"
-            "Register_ignored"
+            "t.me/shrekpublicbot?start=SAKURA-30-Register_FullCode1\nRegister_ignored"
         )
         source_msg.caption = None
 
@@ -380,7 +430,10 @@ class TestBotLinkAction:
             "match_mode": "regex",
         }
         result = await service._execute_bot_link_action(
-            mock_client, -1001234567890, None, action,
+            mock_client,
+            -1001234567890,
+            None,
+            action,
             source_message=source_msg,
             variables={"keyword": "FullCode1"},
             match_action=match_action,
@@ -394,9 +447,7 @@ class TestBotLinkAction:
     async def test_bot_link_max_batch_cap(self, service, mock_client):
         """max_batch 限制单次最多发送条数"""
         source_msg = MagicMock()
-        source_msg.text = "\n".join(
-            f"t.me/cap_bot?start=CODE{i}" for i in range(5)
-        )
+        source_msg.text = "\n".join(f"t.me/cap_bot?start=CODE{i}" for i in range(5))
         source_msg.caption = None
 
         action = {
@@ -405,8 +456,12 @@ class TestBotLinkAction:
             "max_batch": 2,
         }
         result = await service._execute_bot_link_action(
-            mock_client, -1001234567890, None, action,
-            source_message=source_msg, variables={},
+            mock_client,
+            -1001234567890,
+            None,
+            action,
+            source_message=source_msg,
+            variables={},
         )
         assert result is True
         assert mock_client.send_message.call_count == 2
@@ -415,25 +470,23 @@ class TestBotLinkAction:
     async def test_bot_link_default_max_batch_is_five(self, service, mock_client):
         """默认最多发送 5 条，超出部分截断"""
         source_msg = MagicMock()
-        source_msg.text = "\n".join(
-            f"t.me/cap_bot?start=CODE{i}" for i in range(8)
-        )
+        source_msg.text = "\n".join(f"t.me/cap_bot?start=CODE{i}" for i in range(8))
         source_msg.caption = None
 
         action = {"action": 9, "send_interval": 0}
-        with patch(
-            "backend.services.keyword_monitor.logger.warning"
-        ) as mock_warn:
+        with patch("backend.services.keyword_monitor.logger.warning") as mock_warn:
             result = await service._execute_bot_link_action(
-                mock_client, -1001234567890, None, action,
-                source_message=source_msg, variables={},
+                mock_client,
+                -1001234567890,
+                None,
+                action,
+                source_message=source_msg,
+                variables={},
             )
         assert result is True
         assert mock_client.send_message.call_count == 5
         # 截断与风控提示应出现在 warning 日志中
-        warn_text = " ".join(
-            str(call_args) for call_args in mock_warn.call_args_list
-        )
+        warn_text = " ".join(str(call_args) for call_args in mock_warn.call_args_list)
         assert "批量截断" in warn_text
         assert "风控" in warn_text or "封禁" in warn_text
 
@@ -451,16 +504,19 @@ class TestBotLinkAction:
             "send_interval": 0,
             "max_batch": 10,
         }
-        with patch(
-            "backend.services.keyword_monitor.logger.warning"
-        ) as mock_warn:
+        with patch("backend.services.keyword_monitor.logger.warning") as mock_warn:
             result = await service._execute_bot_link_action(
-                mock_client, -1001234567890, None, action,
-                source_message=source_msg, variables={},
+                mock_client,
+                -1001234567890,
+                None,
+                action,
+                source_message=source_msg,
+                variables={},
             )
         assert result is True
         high_batch_calls = [
-            c for c in mock_warn.call_args_list
+            c
+            for c in mock_warn.call_args_list
             if c.args and "高于默认值" in str(c.args[0])
         ]
         assert high_batch_calls, "应记录 max_batch 高于默认的警告"
@@ -481,8 +537,12 @@ class TestBotLinkAction:
         variables = {"keyword": "123456", "message": "验证码: 123456"}
 
         result = await service._execute_bot_link_action(
-            mock_client, -1001234567890, None, action,
-            source_message=source_msg, variables=variables,
+            mock_client,
+            -1001234567890,
+            None,
+            action,
+            source_message=source_msg,
+            variables=variables,
         )
         assert result is True
         mock_client.send_message.assert_called_once_with(
@@ -500,8 +560,12 @@ class TestBotLinkAction:
         variables = {"keyword": "abc"}
 
         result = await service._execute_bot_link_action(
-            mock_client, -1001234567890, None, action,
-            source_message=source_msg, variables=variables,
+            mock_client,
+            -1001234567890,
+            None,
+            action,
+            source_message=source_msg,
+            variables=variables,
         )
         assert result is True
         mock_client.send_message.assert_called_once_with("test_bot", "/get abc")
@@ -517,15 +581,23 @@ class TestBotLinkAction:
         variables = {"keyword": "abc"}
 
         result = await service._execute_bot_link_action(
-            mock_client, -1001234567890, None, action,
-            source_message=source_msg, variables=variables,
+            mock_client,
+            -1001234567890,
+            None,
+            action,
+            source_message=source_msg,
+            variables=variables,
         )
         assert result is True
         mock_client.send_message.assert_called_once_with("test_bot", "/start abc")
 
     def test_describe_bot_command_with_prefix(self, service):
         """describe 输出包含命令前缀"""
-        action = {"action": 9, "bot_username": "GYFMsky_bot", "command_prefix": "/verify"}
+        action = {
+            "action": 9,
+            "bot_username": "GYFMsky_bot",
+            "command_prefix": "/verify",
+        }
         desc = service._describe_continue_action(action)
         assert desc == "触发 Bot 命令: @GYFMsky_bot /verify"
 
@@ -540,8 +612,12 @@ class TestBotLinkAction:
         variables = {"keyword": "abc"}
 
         result = await service._execute_bot_link_action(
-            mock_client, -1001234567890, None, action,
-            source_message=source_msg, variables=variables,
+            mock_client,
+            -1001234567890,
+            None,
+            action,
+            source_message=source_msg,
+            variables=variables,
         )
         assert result is True
         mock_client.send_message.assert_called_once_with("test_bot", "/get abc")
@@ -557,8 +633,12 @@ class TestBotLinkAction:
         variables = {"keyword": "abc"}
 
         result = await service._execute_bot_link_action(
-            mock_client, -1001234567890, None, action,
-            source_message=source_msg, variables=variables,
+            mock_client,
+            -1001234567890,
+            None,
+            action,
+            source_message=source_msg,
+            variables=variables,
         )
         assert result is True
         mock_client.send_message.assert_called_once_with("test_bot", "/start abc")
@@ -574,8 +654,12 @@ class TestBotLinkAction:
         variables = {"keyword": "abc"}
 
         result = await service._execute_bot_link_action(
-            mock_client, -1001234567890, None, action,
-            source_message=source_msg, variables=variables,
+            mock_client,
+            -1001234567890,
+            None,
+            action,
+            source_message=source_msg,
+            variables=variables,
         )
         assert result is True
         mock_client.send_message.assert_called_once_with("test_bot", "/start abc")
@@ -592,8 +676,12 @@ class TestBotLinkAction:
 
         # 账号 A 触发
         result1 = await service._execute_bot_link_action(
-            mock_client, -1001234567890, None, action,
-            source_message=source_msg, variables=variables,
+            mock_client,
+            -1001234567890,
+            None,
+            action,
+            source_message=source_msg,
+            variables=variables,
             account_name="account_A",
         )
         assert result1 is True
@@ -601,8 +689,12 @@ class TestBotLinkAction:
         # 账号 B 同一 Bot 应独立触发（不被阻塞）
         variables["keyword"] = "code2"
         result2 = await service._execute_bot_link_action(
-            mock_client, -1001234567890, None, action,
-            source_message=source_msg, variables=variables,
+            mock_client,
+            -1001234567890,
+            None,
+            action,
+            source_message=source_msg,
+            variables=variables,
             account_name="account_B",
         )
         assert result2 is True
@@ -619,10 +711,14 @@ class TestBotLinkAction:
         action = {"action": 9, "bot_username": "fail_bot", "command_prefix": "/get"}
         variables = {"keyword": "test"}
 
-        with patch.object(service, '_append_rule_log'):
+        with patch.object(service, "_append_rule_log"):
             result = await service._execute_bot_link_action(
-                mock_client, -1001234567890, None, action,
-                source_message=source_msg, variables=variables,
+                mock_client,
+                -1001234567890,
+                None,
+                action,
+                source_message=source_msg,
+                variables=variables,
             )
         assert result is False
 

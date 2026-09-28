@@ -40,6 +40,7 @@ def make_timestamp(days_ago: int = 0, hours_ago: int = 0) -> datetime:
 
 # ---------- 临时目录/文件管理 ----------
 
+
 class TempDirManager:
     """临时目录管理器，自动清理"""
 
@@ -55,6 +56,7 @@ class TempDirManager:
     def cleanup(self):
         """清理所有已创建的临时目录"""
         import shutil
+
         for d in self._dirs:
             try:
                 shutil.rmtree(d, ignore_errors=True)
@@ -80,6 +82,7 @@ def create_temp_config_file(
 
 # ---------- 异步测试辅助 ----------
 
+
 def run_async(coro: Coroutine[Any, Any, T]) -> T:
     """在新的事件循环中运行异步协程"""
     loop = asyncio.new_event_loop()
@@ -100,6 +103,7 @@ async def async_raise(exc: Exception):
 
 
 # ---------- 环境变量管理 ----------
+
 
 class EnvManager:
     """
@@ -139,11 +143,14 @@ class EnvManager:
 
 # ---------- 断言辅助 ----------
 
+
 def assert_dict_subset(subset: Dict[str, Any], full: Dict[str, Any]):
     """断言 subset 中的所有键值对都存在于 full 中"""
     for key, value in subset.items():
         assert key in full, f"缺少键: {key}"
-        assert full[key] == value, f"键 {key} 的值不匹配: 期望 {value}, 实际 {full[key]}"
+        assert full[key] == value, (
+            f"键 {key} 的值不匹配: 期望 {value}, 实际 {full[key]}"
+        )
 
 
 def assert_datetime_recent(dt: Optional[datetime], max_seconds: int = 60):
@@ -155,6 +162,7 @@ def assert_datetime_recent(dt: Optional[datetime], max_seconds: int = 60):
 
 
 # ---------- JSON 序列化辅助 ----------
+
 
 class DateTimeEncoder(json.JSONEncoder):
     """支持 datetime 的 JSON 编码器"""

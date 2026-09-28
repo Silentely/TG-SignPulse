@@ -1,4 +1,5 @@
 """时间窗匹配与规范化测试。"""
+
 from datetime import datetime, timezone
 
 from backend.utils.time_window import (
@@ -59,15 +60,11 @@ def test_timezone_conversion_affects_window():
     utc_moment = datetime(2026, 7, 22, 15, 0, tzinfo=timezone.utc)
     # 在上海时区应落在 22:00-02:00 跨夜窗
     assert (
-        is_within_time_window(
-            utc_moment, "22:00", "02:00", tz_name="Asia/Shanghai"
-        )
+        is_within_time_window(utc_moment, "22:00", "02:00", tz_name="Asia/Shanghai")
         is True
     )
     # 按 UTC 钟点 15:00 不在该窗
-    assert (
-        is_within_time_window(utc_moment, "22:00", "02:00", tz_name="UTC") is False
-    )
+    assert is_within_time_window(utc_moment, "22:00", "02:00", tz_name="UTC") is False
 
 
 def test_resolve_tz_fallback():

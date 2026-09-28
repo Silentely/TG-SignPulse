@@ -80,9 +80,7 @@ class TestReadAppSecretKey:
 
     def test_missing_everywhere_raises(self, monkeypatch):
         monkeypatch.delenv("APP_SECRET_KEY", raising=False)
-        monkeypatch.setattr(
-            "tg_signer.security._secret_key_provider", lambda: ""
-        )
+        monkeypatch.setattr("tg_signer.security._secret_key_provider", lambda: "")
         with pytest.raises(SecretKeyError, match="APP_SECRET_KEY"):
             _read_app_secret_key()
 

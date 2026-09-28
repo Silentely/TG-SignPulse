@@ -25,7 +25,9 @@ class DataDictService:
     """
 
     def __init__(self, base_dir: Optional[Path] = None) -> None:
-        self.base_dir = Path(base_dir) if base_dir else get_settings().resolve_base_dir()
+        self.base_dir = (
+            Path(base_dir) if base_dir else get_settings().resolve_base_dir()
+        )
         self.dict_dir = self.base_dir / "data_dicts"
         self.dict_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
@@ -47,12 +49,14 @@ class DataDictService:
                     continue
                 name = path.stem
                 entries = data.get("entries") or []
-                results.append({
-                    "name": name,
-                    "count": len(entries),
-                    "remark": str(data.get("remark") or ""),
-                    "updated_at": str(data.get("updated_at") or ""),
-                })
+                results.append(
+                    {
+                        "name": name,
+                        "count": len(entries),
+                        "remark": str(data.get("remark") or ""),
+                        "updated_at": str(data.get("updated_at") or ""),
+                    }
+                )
         return results
 
     def get_dict(self, name: str) -> Dict[str, Any]:
@@ -102,7 +106,9 @@ class DataDictService:
             cursor = 0
             if file_path.exists():
                 existing = read_json_safe(file_path)
-                if isinstance(existing, dict) and isinstance(existing.get("cursor"), int):
+                if isinstance(existing, dict) and isinstance(
+                    existing.get("cursor"), int
+                ):
                     cursor = max(0, int(existing["cursor"])) % len(clean_entries)
 
             now_iso = datetime.now(timezone.utc).isoformat()
@@ -114,7 +120,9 @@ class DataDictService:
                 "updated_at": now_iso,
             }
             write_json_atomic(file_path, dict_data)
-            logger.info("Saved data dict '%s' with %d entries", name, len(clean_entries))
+            logger.info(
+                "Saved data dict '%s' with %d entries", name, len(clean_entries)
+            )
 
     def delete_dict(self, name: str) -> bool:
         """删除指定字典。若不存在返回 False。"""
@@ -130,7 +138,9 @@ class DataDictService:
                 logger.error("Failed to delete data dict '%s': %s", name, exc)
                 return False
 
-    def get_entry(self, name: str, mode: Literal["random", "round_robin"] = "random") -> str:
+    def get_entry(
+        self, name: str, mode: Literal["random", "round_robin"] = "random"
+    ) -> str:
         """抽取词条。
 
         - random: 随机返回一条

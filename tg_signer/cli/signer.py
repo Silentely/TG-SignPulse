@@ -75,7 +75,9 @@ def _session_invalid_hint(exc: Exception) -> Optional[str]:
     return None
 
 
-async def _run_signers_isolated(signer_entries: list[tuple[str, UserSigner, int]]) -> None:
+async def _run_signers_isolated(
+    signer_entries: list[tuple[str, UserSigner, int]],
+) -> None:
     # 并发执行：定时任务的 run 是常驻循环，串行 await 会让后续任务永远轮不到；
     # return_exceptions 保持原有失败隔离语义（一个失败不影响其他任务）
     results = await asyncio.gather(
@@ -205,6 +207,7 @@ def tg_signer(
     # 如果 CLI 没有指定日志等级，尝试从环境变量读取，默认为 INFO
     if log_level is None:
         import os
+
         log_level = os.environ.get("LOG_LEVEL", "INFO").lower()
 
     logger = configure_logger(log_level=log_level, log_dir=log_dir, log_file=log_file)
@@ -518,6 +521,3 @@ def llm_config(obj):
 
     cfg_manager = OpenAIConfigManager(obj["workdir"])
     cfg_manager.ask_for_config()
-
-
-

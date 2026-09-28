@@ -26,6 +26,7 @@ logger = logging.getLogger("backend.batch")
 
 router = APIRouter()
 
+
 async def _restart_keyword_monitors() -> None:
     from backend.services.sync_helpers import restart_keyword_monitors
 

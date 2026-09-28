@@ -124,7 +124,13 @@ def load_chats_cache_file(cache_file: Path) -> Optional[List[Dict[str, Any]]]:
     try:
         with open(cache_file, "r", encoding="utf-8") as f:
             data = json.load(f)
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError, TypeError, ValueError) as exc:
+    except (
+        OSError,
+        json.JSONDecodeError,
+        UnicodeDecodeError,
+        TypeError,
+        ValueError,
+    ) as exc:
         # 缓存损坏：后续会触发全量 get_dialogs 拉取，属异常路径需留痕
         _logger.warning("读取 chat 缓存失败 %s: %s", cache_file, exc)
         return None
@@ -165,17 +171,15 @@ def resolve_account_session_for_chats(
     used_fallback_session = False
 
     if session_mode == "string":
-        session_string = (
-            get_session_string(account_name)
-            or load_session_string_file_fn(session_dir, account_name)
-        )
+        session_string = get_session_string(
+            account_name
+        ) or load_session_string_file_fn(session_dir, account_name)
         if not session_string:
             raise ValueError(f"账号 {account_name} 登录已失效，请重新登录")
     else:
-        fallback_session_string = (
-            get_session_string(account_name)
-            or load_session_string_file_fn(session_dir, account_name)
-        )
+        fallback_session_string = get_session_string(
+            account_name
+        ) or load_session_string_file_fn(session_dir, account_name)
         if not session_file.exists():
             if fallback_session_string:
                 session_string = fallback_session_string
@@ -409,14 +413,20 @@ async def refresh_account_chats(
     if proxy_value:
         proxy_dict = build_proxy_dict(proxy_value)
         if not proxy_dict:
-            raise ValueError("PROXY_INVALID_BLOCKED: Configured proxy string is invalid")
+            raise ValueError(
+                "PROXY_INVALID_BLOCKED: Configured proxy string is invalid"
+            )
     elif config_service.require_proxy_for_telegram():
-        raise ValueError("PROXY_REQUIRED_BLOCKED: Global policy requires a proxy for Telegram connections")
+        raise ValueError(
+            "PROXY_REQUIRED_BLOCKED: Global policy requires a proxy for Telegram connections"
+        )
 
     if proxy_dict:
         from backend.services.telegram.accounts import get_telegram_account_service
 
-        await get_telegram_account_service().verify_account_proxy(account_name, proxy_dict)
+        await get_telegram_account_service().verify_account_proxy(
+            account_name, proxy_dict
+        )
     client_kwargs = build_chat_client_kwargs(
         account_name=account_name,
         workdir=session_dir,
@@ -478,10 +488,15 @@ async def refresh_account_chats(
                                                 seen_ids=seen_ids,
                                             )
                                         except Exception as e:
-                                            logger.debug("映射 search_global 消息会话失败，跳过: %s", e)
+                                            logger.debug(
+                                                "映射 search_global 消息会话失败，跳过: %s",
+                                                e,
+                                            )
                                             continue
                                 except Exception as e:
-                                    logger.debug("search_global(%s) 失败，跳过: %s", term, e)
+                                    logger.debug(
+                                        "search_global(%s) 失败，跳过: %s", term, e
+                                    )
                                     continue
 
             return local_chats

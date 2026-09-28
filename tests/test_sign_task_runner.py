@@ -250,9 +250,8 @@ def runner_env(monkeypatch, tmp_path):
     monkeypatch.setattr(
         "backend.services.runtime_settings.get_flow_retry_attempts", lambda: 3
     )
-    monkeypatch.setattr(
-        "backend.services.sign_tasks.settings", _FakeSettings(tmp_path)
-    )
+    monkeypatch.setattr("backend.services.sign_tasks.settings", _FakeSettings(tmp_path))
+
     async def fake_verify_proxy(self, acc, p):
         return None
 
@@ -570,7 +569,7 @@ class TestStrongFailureFlip:
 
     @pytest.mark.asyncio
     async def test_reply_broad_keywords_no_longer_flip_success(self, runner_env):
-        """ narrowed keyword list should not flip on generic words like 错误/异常 """
+        """narrowed keyword list should not flip on generic words like 错误/异常"""
         import logging
 
         async def behavior(run_calls: int):
@@ -746,7 +745,6 @@ class TestMiscBranches:
             await asyncio.sleep(0)
         assert second.done()
 
-
     @pytest.mark.asyncio
     async def test_signer_app_stopped_on_finalize(self, runner_env):
         async def behavior(run_calls: int):
@@ -823,9 +821,7 @@ class TestMiscBranches:
         result = await execute_sign_task(svc, "acc", "t")
         assert result["success"] is True
         # 乱序（先 stop 再清理）时 cleanup_registered 为 False，断言失败
-        assert observed == [
-            {"cleanup_registered": True, "active_flag": False}
-        ]
+        assert observed == [{"cleanup_registered": True, "active_flag": False}]
 
     @pytest.mark.asyncio
     async def test_flood_wait_instance_registers_cooldown(
@@ -875,6 +871,7 @@ class TestNotificationFailureCategory:
         from backend.services.sign_task_runner import _runner_send_notifications
 
         captured: Dict[str, Any] = {}
+
         async def _fake_send_failure(**kwargs):
             captured.update(kwargs)
 
@@ -906,6 +903,7 @@ class TestNotificationFailureCategory:
         from backend.services.sign_task_runner import _runner_send_notifications
 
         captured: Dict[str, Any] = {}
+
         async def _fake_send_failure(**kwargs):
             captured.update(kwargs)
 
