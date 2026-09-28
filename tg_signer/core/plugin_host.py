@@ -206,6 +206,41 @@ class PluginProcessHost:
             return bool(res)
         return True
 
+    @staticmethod
+    def _is_trigger_message_ids(mids: Any, trigger_mid: Any) -> bool:
+        """请求的 message_ids 是否恰好就是触发消息本身（单值或单元素列表）。"""
+        if trigger_mid is None:
+            return False
+        if isinstance(mids, (list, tuple)):
+            return len(mids) == 1 and mids[0] == trigger_mid
+        return mids == trigger_mid
+
+    @classmethod
+    def _resolve_forward_params(cls, ctx: Any, call_params: Dict[str, Any]) -> Dict[str, Any]:
+        """归一化 forward_messages 的调用参数。
+
+        转发是唯一能跨会话搬运消息内容的方法，因此把边界钉死：
+        - 插件传入的 from_chat_id 一律丢弃，源会话强制为触发消息所在会话；
+        - message_ids 缺省取触发消息 id，显式传入非触发 id 时抛 ValueError。
+
+        返回可直接传给 ctx.forward_messages 的 kwargs。
+        """
+        params = dict(call_params)
+        params.pop("from_chat_id", None)
+        trigger_mid = getattr(getattr(ctx, "message", None), "id", None)
+        mids = params.pop("message_ids", None)
+        if mids is None:
+            mids = trigger_mid
+        if mids is None:
+            raise ValueError("当前上下文中没有有效消息 ID，无法执行转发")
+        if not cls._is_trigger_message_ids(mids, trigger_mid):
+            raise ValueError(
+                "forward_messages 仅允许转发触发消息本身，不得指定其他 message_ids"
+            )
+        params["from_chat_id"] = ctx.chat_id
+        params["message_ids"] = mids
+        return params
+
     async def execute(self) -> Any:
         start_time = time.perf_counter()
         try:
@@ -353,7 +388,14 @@ class PluginProcessHost:
                                 call_res = await self.ctx.get_messages(message_ids=mids, **call_params)
                             elif method == "forward_messages":
                                 target_cid = call_params.pop("chat_id")
-                                call_res = await self.ctx.forward_messages(target_cid, **call_params)
+                                # 转发源会话固定为触发消息所在会话，message_ids 仅限
+                                # 触发消息本身，防止插件越会话搬运其他聊天的内容
+                                forward_kwargs = self._resolve_forward_params(
+                                    self.ctx, call_params
+                                )
+                                call_res = await self.ctx.forward_messages(
+                                    target_cid, **forward_kwargs
+                                )
                             elif method.startswith("storage_"):
                                 is_global = bool(call_params.pop("is_global", False))
                                 target_storage = (

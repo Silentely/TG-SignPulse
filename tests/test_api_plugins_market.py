@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+
 from tests.test_api import _auth, _login
 from tg_signer.core.plugins import PluginRegistry
 
@@ -180,6 +182,7 @@ def test_install_market_plugin_zip_slip_blocked(api_client, monkeypatch):
                 "mode": "reactive",
                 "category": "utility",
                 "download_url": "local://malicious.zip",
+                "sha256": hashlib.sha256(malicious_bytes).hexdigest(),
             }
         ]
     }
@@ -233,6 +236,7 @@ def test_install_market_plugin_subprocess_forbidden(api_client, monkeypatch):
                 "mode": "reactive",
                 "category": "utility",
                 "download_url": "local://subp.zip",
+                "sha256": hashlib.sha256(subp_bytes).hexdigest(),
             }
         ]
     }
@@ -259,3 +263,174 @@ def test_market_source_presets_point_to_main():
     assert "@dev" not in MARKET_SOURCE_PRESETS["jsdelivr"]
     assert "main" in MARKET_SOURCE_PRESETS["ghproxy"]
     assert "dev" not in MARKET_SOURCE_PRESETS["ghproxy"]
+
+
+def _market_zip(members: dict) -> bytes:
+    """按 {文件名: 内容} 构造 zip 字节。"""
+    import io
+    import zipfile
+
+    bio = io.BytesIO()
+    with zipfile.ZipFile(bio, "w") as zf:
+        for name, content in members.items():
+            zf.writestr(name, content)
+    return bio.getvalue()
+
+
+def _patch_catalog(monkeypatch, plugin_id: str, archive_bytes: bytes, sha: str | None = None):
+    """把市场目录替换为仅含指定条目，并让安装读到给定归档字节。"""
+    from backend.api.routes import plugins as plugins_route
+
+    if sha is None:
+        sha = hashlib.sha256(archive_bytes).hexdigest()
+
+    fake_catalog = {
+        "version": "1.0",
+        "plugins": [
+            {
+                "id": plugin_id,
+                "name": plugin_id,
+                "version": "1.0.0",
+                "mode": "reactive",
+                "category": "utility",
+                "download_url": f"local://{plugin_id}.zip",
+                "sha256": sha,
+            }
+        ],
+    }
+
+    async def fake_fetch(refresh=False):
+        return fake_catalog, "local", "local://marketplace.json", False
+
+    monkeypatch.setattr(plugins_route, "_fetch_market_catalog", fake_fetch)
+    monkeypatch.setattr("pathlib.Path.read_bytes", lambda self: archive_bytes)
+    monkeypatch.setattr("pathlib.Path.is_file", lambda self: True)
+
+
+_BASIC_PLUGIN = '''"""test"""
+from tg_signer.core.plugins import PluginRegistry, BasePlugin
+
+
+@PluginRegistry.register("{pid}", name="Test", mode="reactive")
+class TestPlugin(BasePlugin):
+    async def run(self, event, context):
+        return True
+'''
+
+
+def test_market_install_rejects_missing_sha256(api_client, monkeypatch):
+    """目录项缺 sha256 时失败关闭：不跳过完整性校验。"""
+    token = _login(api_client)
+    headers = _auth(token)
+    archive = _market_zip({"main.py": _BASIC_PLUGIN.format(pid="nosha_plugin")})
+    _patch_catalog(monkeypatch, "nosha_plugin", archive, sha="")
+
+    resp = api_client.post("/api/plugins/market/nosha_plugin/install", headers=headers)
+    assert resp.status_code == 400
+    assert "sha256" in resp.json()["detail"]
+
+
+def test_market_install_rejects_empty_sha256_placeholder(api_client, monkeypatch):
+    """本地目录 setdefault("sha256", "") 产生的空串同样必须拒绝。"""
+    token = _login(api_client)
+    headers = _auth(token)
+    archive = _market_zip({"main.py": _BASIC_PLUGIN.format(pid="emptysha_plugin")})
+    _patch_catalog(monkeypatch, "emptysha_plugin", archive, sha="   ")
+
+    resp = api_client.post("/api/plugins/market/emptysha_plugin/install", headers=headers)
+    assert resp.status_code == 400
+    assert "sha256" in resp.json()["detail"]
+
+
+def test_market_install_rejects_sha256_mismatch(api_client, monkeypatch):
+    """摘要不匹配必须拒绝。"""
+    token = _login(api_client)
+    headers = _auth(token)
+    archive = _market_zip({"main.py": _BASIC_PLUGIN.format(pid="mismatch_plugin")})
+    _patch_catalog(monkeypatch, "mismatch_plugin", archive, sha="0" * 64)
+
+    resp = api_client.post("/api/plugins/market/mismatch_plugin/install", headers=headers)
+    assert resp.status_code == 400
+    assert "SHA-256 不匹配" in resp.json()["detail"]
+
+
+def test_market_install_rejects_non_whitelisted_member_suffix(api_client, monkeypatch):
+    """非 .py 成员必须落在数据文件白名单内，.pyc/.so 等一律拒绝。"""
+    token = _login(api_client)
+    headers = _auth(token)
+    archive = _market_zip(
+        {
+            "main.py": _BASIC_PLUGIN.format(pid="sibling_plugin"),
+            "payload.pyc": b"\x00\x01binary",
+        }
+    )
+    _patch_catalog(monkeypatch, "sibling_plugin", archive)
+
+    resp = api_client.post("/api/plugins/market/sibling_plugin/install", headers=headers)
+    assert resp.status_code == 400
+    assert "不允许的文件类型" in resp.json()["detail"]
+
+
+def test_market_install_rejects_star_import(api_client, monkeypatch):
+    """from shutil import * 使命名空间不可追踪，必须失败关闭。"""
+    token = _login(api_client)
+    headers = _auth(token)
+    source = (
+        "from shutil import *\n"
+        "from tg_signer.core.plugins import PluginRegistry, BasePlugin\n\n\n"
+        "@PluginRegistry.register('star_plugin', name='Star', mode='reactive')\n"
+        "class StarPlugin(BasePlugin):\n"
+        "    async def run(self, event, context):\n"
+        "        return True\n"
+    )
+    archive = _market_zip({"main.py": source})
+    _patch_catalog(monkeypatch, "star_plugin", archive)
+
+    resp = api_client.post("/api/plugins/market/star_plugin/install", headers=headers)
+    assert resp.status_code == 400
+    assert "安全审计未通过" in resp.json()["detail"]
+
+
+def test_clone_plugin_runs_security_gate(api_client, monkeypatch):
+    """克隆落盘前必须过与其余入口一致的安全门禁。"""
+    token = _login(api_client)
+    headers = _auth(token)
+
+    from backend.api.routes import plugins as plugins_route
+    from tg_signer.core.plugins import PluginMeta
+
+    malicious_source = (
+        "import subprocess\n"
+        "from tg_signer.core.plugins import PluginRegistry\n\n\n"
+        "@PluginRegistry.register('evil_src', name='Evil', mode='reactive')\n"
+        "async def evil_src_handler(ctx):\n"
+        "    subprocess.run(['rm', '-rf', '/'])\n"
+        "    return True\n"
+    )
+
+    async def _noop_handler(ctx):
+        return True
+
+    meta = PluginMeta(
+        name="evil_src",
+        handler=_noop_handler,
+        source_path="/tmp/evil_src.py",
+        builtin=False,
+    )
+
+    monkeypatch.setattr(plugins_route.PluginRegistry, "get", lambda name: meta)
+    monkeypatch.setattr(
+        plugins_route.PluginRegistry, "list_plugins", lambda: {"evil_src": meta}
+    )
+    monkeypatch.setattr(
+        "pathlib.Path.read_text", lambda self, *a, **kw: malicious_source
+    )
+    monkeypatch.setattr("pathlib.Path.is_file", lambda self: True)
+
+    resp = api_client.post(
+        "/api/plugins/evil_src/clone",
+        json={"new_name": "evil_clone"},
+        headers=headers,
+    )
+    assert resp.status_code == 400
+    assert "安全审计未通过" in resp.json()["detail"]
