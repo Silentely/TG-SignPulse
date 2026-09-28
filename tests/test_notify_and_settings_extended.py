@@ -676,15 +676,23 @@ class TestWebdavBackupChain:
         data = isolated_env
         (data / ".global_settings.json").write_text("{}", encoding="utf-8")
 
-        with patch(
-            "backend.services.webdav_client.upload_file_to_webdav",
-            return_value={
-                "success": True,
-                "remote_url": "https://x/a.tar.gz",
-                "filename": "a.tar.gz",
-                "size_bytes": 3,
-            },
-        ) as m:
+        with (
+            patch(
+                "backend.services.webdav_client.upload_file_to_webdav",
+                return_value={
+                    "success": True,
+                    "remote_url": "https://x/a.tar.gz",
+                    "filename": "a.tar.gz",
+                    "size_bytes": 3,
+                },
+            ) as m,
+            # 远端清理必须打桩：真实 prune_webdav_backups 会向 webdav_url 发起
+            # HTTPS 请求，CI 上出网被丢弃时会一路挂到 pytest-timeout
+            patch(
+                "backend.services.webdav_client.prune_webdav_backups",
+                return_value={"success": True, "removed": 0, "kept": 2},
+            ) as prune_m,
+        ):
             result = run_auto_backup(
                 data,
                 keep=2,
@@ -704,6 +712,8 @@ class TestWebdavBackupChain:
         m.assert_called_once()
         assert m.call_args.kwargs["remote_dir"] == "bk"
         assert m.call_args.kwargs["username"] == "u"
+        prune_m.assert_called_once()
+        assert prune_m.call_args.kwargs["keep"] == 2
 
     def test_auto_backup_keeps_local_when_webdav_fails(self, isolated_env: Path):
         from backend.services.backup_archive import run_auto_backup
@@ -1213,6 +1223,11 @@ class TestS3BackupApi:
                     "filename": "a.tar.gz",
                     "size_bytes": 3,
                 },
+            ),
+            # 同上：不打桩 prune 会向 93.184.216.34 发起真实 HTTPS 请求
+            patch(
+                "backend.services.webdav_client.prune_webdav_backups",
+                return_value={"success": True, "removed": 0, "kept": 2},
             ),
             patch(
                 "backend.services.s3_backup.upload_backup_to_s3",
