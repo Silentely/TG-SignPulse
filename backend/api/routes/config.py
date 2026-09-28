@@ -408,6 +408,8 @@ class GlobalSettingsRequest(BaseModel):
     telegram_bot_token: Optional[str] = None
     telegram_bot_chat_id: Optional[str] = None
     telegram_bot_message_thread_id: Optional[int] = None
+    telegram_bot_chatops_enabled: Optional[bool] = None
+    telegram_bot_admin_user_ids: Optional[str] = None
     timezone: Optional[str] = None
     sign_task_execution_timeout: Optional[int] = None
     sign_task_account_cooldown: Optional[int] = None
@@ -439,7 +441,10 @@ class GlobalSettingsResponse(BaseModel):
     sign_interval: Optional[int] = None
     log_retention_days: int = 7
     data_dir: Optional[str] = None
+    # 全局代理可能含 user:pass@host 内嵌凭据，GET 不回传明文，
+    # 用 global_proxy_set 表示已落盘；PUT 传空串表示保持原值
     global_proxy: Optional[str] = None
+    global_proxy_set: bool = False
     tg_global_concurrency: Optional[int] = 1
     device_keepalive_enabled: bool = True
     device_keepalive_interval_days: int = 30
@@ -454,6 +459,8 @@ class GlobalSettingsResponse(BaseModel):
     telegram_bot_token_set: bool = False
     telegram_bot_chat_id: Optional[str] = None
     telegram_bot_message_thread_id: Optional[int] = None
+    telegram_bot_chatops_enabled: bool = False
+    telegram_bot_admin_user_ids: Optional[str] = None
     timezone: str = "Asia/Hong_Kong"
     sign_task_execution_timeout: Optional[int] = None
     sign_task_account_cooldown: Optional[int] = None
@@ -508,6 +515,12 @@ def get_global_settings(current_user: User = Depends(get_current_user)):
             raw_s3_secret is not None and str(raw_s3_secret).strip() != ""
         )
         settings["s3_secret_key"] = None
+        # 全局代理同样只回传「是否已配置」，避免明文（可能含内嵌凭据）外泄
+        raw_proxy = settings.get("global_proxy")
+        settings["global_proxy_set"] = bool(
+            raw_proxy is not None and str(raw_proxy).strip() != ""
+        )
+        settings["global_proxy"] = None
         return GlobalSettingsResponse(**settings)
     except Exception as e:
         logger.error("读取全局设置失败: %s", e, exc_info=True)

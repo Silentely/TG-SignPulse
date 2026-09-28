@@ -134,6 +134,8 @@ export function useSettingsPage() {
   // 卸载标记：异步加载期间离开页面时停止后续副作用
   let disposed = false
   const botTokenSet = ref(false)
+  /** 全局代理是否已配置（服务端不回传代理明文） */
+  const proxySet = ref(false)
   const afterBotTokenSaved = () => {
     if (settings.value.botToken) {
       botTokenSet.value = true
@@ -305,6 +307,7 @@ export function useSettingsPage() {
       botTokenSet.value = flags.botTokenSet
       webdavPasswordSet.value = flags.webdavPasswordSet
       s3SecretKeySet.value = flags.s3SecretKeySet
+      proxySet.value = flags.proxySet
       // 同步面板展示时区：Settings 加载后，Dashboard/Logs 等页的时间格式跟随
       setPanelTimezone(res.timezone)
 
@@ -413,6 +416,7 @@ export function useSettingsPage() {
     remoteWebdavMessage,
     webdavPasswordSet,
     botTokenSet,
+    proxySet,
     remoteDownloadName,
     s3TestLoading,
     s3ListLoading,

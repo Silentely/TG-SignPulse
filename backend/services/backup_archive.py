@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
 import secrets
 import tarfile
 from datetime import datetime, timezone
@@ -35,6 +36,16 @@ def _safe_mtime(path: Path) -> float:
         return 0.0
 
 
+def _normalize_member_mode(info: tarfile.TarInfo) -> tarfile.TarInfo:
+    """把归档成员权限收敛为 0600（目录 0700）。
+
+    备份内含 session、凭据与数据库，属高敏感内容；tar.add 默认沿用源文件权限，
+    宽松的组/其他位会在解压后把凭据暴露给同机其他用户，故统一压低。
+    """
+    info.mode = 0o700 if info.isdir() else 0o600
+    return info
+
+
 def create_backup_tarball(
     data_dir: Path,
     dest: Path,
@@ -43,34 +54,40 @@ def create_backup_tarball(
     """将 data_dir 下推荐路径打包为 tar.gz。
 
     仅添加 data_dir 内真实存在的路径；拒绝指向目录外的符号链接逃逸。
-    若无任何可打包内容则抛出 ValueError。
+    归档文件与备份目录权限收敛为 0600/0700，若无任何可打包内容则抛 ValueError。
     """
     data_dir = data_dir.resolve()
     dest.parent.mkdir(parents=True, exist_ok=True)
+    with contextlib.suppress(OSError):
+        os.chmod(dest.parent, 0o700)
     temp_dest = dest.with_name(f"{dest.name}.tmp.{secrets.token_hex(4)}")
     added = 0
     try:
-        with tarfile.open(temp_dest, "w:gz") as tar:
-            for rel in paths:
-                # 拒绝绝对路径与父目录穿越
-                rel_p = Path(rel) if rel else None
-                if not rel or not rel_p or rel_p.is_absolute() or rel.startswith(("/", chr(92))) or ":" in rel or chr(0) in rel or ".." in rel_p.parts:
-                    logger.warning("跳过非法备份路径: %s", rel)
-                    continue
-                src = (data_dir / rel).resolve()
-                try:
-                    src.relative_to(data_dir)
-                except ValueError:
-                    logger.warning("跳过 data_dir 外路径: %s", rel)
-                    continue
-                if not src.exists():
-                    continue
-                tar.add(src, arcname=rel)
-                added += 1
+        # O_EXCL + 0600：临时文件自创建起即仅属主可读，不受进程 umask 影响
+        fd = os.open(temp_dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as raw:
+            with tarfile.open(fileobj=raw, mode="w:gz") as tar:
+                for rel in paths:
+                    # 拒绝绝对路径与父目录穿越
+                    rel_p = Path(rel) if rel else None
+                    if not rel or not rel_p or rel_p.is_absolute() or rel.startswith(("/", chr(92))) or ":" in rel or chr(0) in rel or ".." in rel_p.parts:
+                        logger.warning("跳过非法备份路径: %s", rel)
+                        continue
+                    src = (data_dir / rel).resolve()
+                    try:
+                        src.relative_to(data_dir)
+                    except ValueError:
+                        logger.warning("跳过 data_dir 外路径: %s", rel)
+                        continue
+                    if not src.exists():
+                        continue
+                    tar.add(src, arcname=rel, filter=_normalize_member_mode)
+                    added += 1
         if added == 0:
             with contextlib.suppress(OSError):
                 temp_dest.unlink(missing_ok=True)
             raise ValueError("没有可备份的文件")
+        os.chmod(temp_dest, 0o600)
         temp_dest.replace(dest)
         return dest
     except Exception:

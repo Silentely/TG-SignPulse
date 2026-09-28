@@ -44,6 +44,7 @@ const {
   remoteWebdavMessage,
   webdavPasswordSet,
   botTokenSet,
+  proxySet,
   remoteDownloadName,
   s3TestLoading,
   s3ListLoading,
@@ -122,6 +123,7 @@ const {
             :timezone-options="timezoneOptions"
             :loading="loading"
             :keepalive-loading="keepaliveLoading"
+            :proxy-set="proxySet"
             @save="saveSettings"
             @run-keepalive="runKeepaliveNow"
           />
