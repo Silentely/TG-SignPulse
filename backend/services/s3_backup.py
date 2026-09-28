@@ -46,7 +46,13 @@ def validate_s3_settings(
     access_key: str,
     secret_key: str,
 ) -> None:
-    """校验对象存储必填项，缺项抛 ValueError（与 WebDAV 侧校验口径一致）。"""
+    """校验对象存储必填项与端点公网属性，缺项或指向内网时抛 ValueError。
+
+    与 WebDAV 侧校验口径一致：endpoint 同样只允许公网地址，
+    防止备份凭据被用于探测内网或读取云元数据。
+    """
+    from tg_signer.utils import validate_public_http_url
+
     if not (endpoint_url or "").strip():
         raise ValueError("S3 Endpoint 未配置")
     if not (bucket or "").strip():
@@ -55,6 +61,7 @@ def validate_s3_settings(
         raise ValueError("S3 Access Key 未配置")
     if not (secret_key or "").strip():
         raise ValueError("S3 Secret Key 未配置")
+    validate_public_http_url(endpoint_url.strip())
 
 
 class S3BackupClient:

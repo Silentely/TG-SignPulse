@@ -11,11 +11,27 @@ import logging
 import shutil
 from typing import Any, Dict, List, Optional
 
+from backend.services.keyword_monitor.rules import validate_action_regex_safety
 from backend.services.sign_task_history_index import rebuild_index_from_history_files
 from backend.utils.atomic_io import write_json_atomic
 from backend.utils.names import validate_storage_name
 
 _logger = logging.getLogger("backend.sign_task_crud")
+
+
+def _validate_chats_regex_safety(chats: Optional[List[Dict[str, Any]]]) -> None:
+    """写入前校验 chats 内全部动作的正则关键词，阻断灾难性回溯正则落盘。
+
+    判据与运行期一致（validate_action_regex_safety），保证「能写入即可加载」。
+    """
+    if not chats:
+        return
+    for chat in chats:
+        if not isinstance(chat, dict):
+            continue
+        for action in chat.get("actions") or []:
+            if isinstance(action, dict):
+                validate_action_regex_safety(action)
 
 
 class SignTaskCrudMixin:
@@ -77,6 +93,7 @@ class SignTaskCrudMixin:
         from backend.services.config import get_config_service
 
         task_name = validate_storage_name(task_name, field_name="task_name")
+        _validate_chats_regex_safety(chats)
         target_accounts = self._normalize_account_names(account_names, account_name)
         if not target_accounts:
             raise ValueError("必须指定至少一个账号名称")
@@ -264,6 +281,9 @@ class SignTaskCrudMixin:
     ) -> Dict[str, Any]:
         """Update one task and fan out the config to all linked accounts."""
         task_name = validate_storage_name(task_name, field_name="task_name")
+        # 仅在调用方显式提供 chats 时校验；None 表示沿用已落盘配置
+        if chats is not None:
+            _validate_chats_regex_safety(chats)
 
         # Normalize account_name: skip wildcard, resolve to real account
         if account_name == "*":

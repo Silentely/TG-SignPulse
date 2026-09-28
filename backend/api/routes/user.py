@@ -15,6 +15,7 @@ from backend.core.auth import (
     create_access_token,
     get_current_user,
     get_user_by_username,
+    revoke_user_tokens,
     verify_totp,
 )
 from backend.core.database import get_db
@@ -139,7 +140,8 @@ def change_password(
         )
 
     current_user.password_hash = hash_password(request.new_password)
-    db.commit()
+    # 改密后吊销此前签发的所有令牌，防止已泄露的旧令牌继续可用
+    revoke_user_tokens(db, current_user)
 
     return ChangePasswordResponse(success=True, message="密码修改成功")
 
@@ -178,12 +180,27 @@ def change_username(
     current_user.username = new_username
     db.commit()
 
-    new_token = create_access_token(data={"sub": new_username})
+    # 重新签发的令牌必须嵌入当前世代号，否则默认 epoch=1 会与
+    # 此前自增过的 token_epoch 不符而被判为已吊销
+    new_token = create_access_token(
+        data={"sub": new_username},
+        token_epoch=int(current_user.token_epoch or 1),
+    )
     return ChangeUsernameResponse(
         success=True,
         message="用户名修改成功",
         access_token=new_token,
     )
+
+
+@router.post("/logout", response_model=ChangePasswordResponse)
+def logout(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """主动登出：自增令牌世代号，使当前会话及其他已签发令牌全部失效。"""
+    revoke_user_tokens(db, current_user)
+    return ChangePasswordResponse(success=True, message="已登出，令牌已吊销")
 
 
 @router.get("/totp/status", response_model=TOTPStatusResponse)

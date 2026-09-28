@@ -13,4 +13,8 @@ class User(Base):
     username = Column(String(50), unique=True, nullable=False, index=True)
     password_hash = Column(String(255), nullable=False)
     totp_secret = Column(String(64), nullable=True)
+    # 令牌世代号：改密码/主动登出自增，使此前签发的 JWT 立即失效（吊销）
+    token_epoch = Column(
+        Integer, default=1, nullable=False, server_default="1"
+    )
     created_at = Column(DateTime, default=utc_now_naive, nullable=False)

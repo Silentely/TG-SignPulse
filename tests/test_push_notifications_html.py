@@ -415,7 +415,7 @@ class TestHttpPostRetryOnce:
 
         from backend.services.push_notifications import _http_post_retry_once
 
-        await _http_post_retry_once(url="https://x", channel="Bark", json_body={})
+        await _http_post_retry_once(url="https://93.184.216.34/hook", channel="Bark", json_body={})
         assert calls["n"] == 2
 
     @pytest.mark.asyncio()
@@ -450,7 +450,7 @@ class TestHttpPostRetryOnce:
         from backend.services.push_notifications import _http_post_retry_once
 
         with pytest.raises(httpx.HTTPStatusError):
-            await _http_post_retry_once(url="https://x", channel="自定义推送", json_body={})
+            await _http_post_retry_once(url="https://93.184.216.34/hook", channel="自定义推送", json_body={})
         assert calls["n"] == 1
 
     @pytest.mark.asyncio()
@@ -479,5 +479,46 @@ class TestHttpPostRetryOnce:
 
         from backend.services.push_notifications import _http_post_retry_once
 
-        await _http_post_retry_once(url="https://x", channel="自定义推送", method="GET")
+        await _http_post_retry_once(url="https://93.184.216.34/hook", channel="自定义推送", method="GET")
         assert methods == ["GET"]
+
+
+class TestPushTargetUrlValidation:
+    """推送 webhook 目标地址必须仅指向公网（SSRF 防护）。"""
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://127.0.0.1/hook",
+            "http://localhost/hook",
+            "http://10.0.0.5/hook",
+            "http://192.168.1.10/hook",
+            "http://172.16.0.9/hook",
+            "http://169.254.169.254/latest/meta-data",
+            "http://169.254.169.254.nip.io/hook",
+            "http://2852039166/hook",
+            "http://[::1]/hook",
+            "http://[::ffff:127.0.0.1]/hook",
+            "not-a-url",
+            "",
+        ],
+    )
+    def test_internal_and_malformed_targets_rejected(self, url):
+        from backend.services.push_notifications import _validate_push_target_url
+
+        with pytest.raises(ValueError):
+            _validate_push_target_url(url)
+
+    def test_public_target_allowed(self):
+        from backend.services.push_notifications import _validate_push_target_url
+
+        # 公网 IP 字面量：不依赖 DNS 解析即可通过白名单校验
+        _validate_push_target_url("https://93.184.216.34/hook")
+
+    def test_enforcement_is_not_gated_by_env_flag(self, monkeypatch):
+        """公网校验不再由 ENFORCE_PUBLIC_PUSH_URLS 开关控制（默认强制）。"""
+        from backend.services.push_notifications import _validate_push_target_url
+
+        monkeypatch.delenv("ENFORCE_PUBLIC_PUSH_URLS", raising=False)
+        with pytest.raises(ValueError):
+            _validate_push_target_url("http://127.0.0.1/hook")

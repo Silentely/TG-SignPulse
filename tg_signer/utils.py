@@ -13,6 +13,27 @@ _FLOOD_WAIT_TEXT_RE = re.compile(
     re.IGNORECASE,
 )
 
+# 关键词正则灾难性回溯静态判据：
+# 捕获组体内含「无界量词 / 变长量词 / 分支」，且该组整体再被无界量词修饰时，
+# 组内可匹配长度的歧义会被外层重复放大为指数级回溯（如 ^(\w+\s?)*$）。
+# 组体的风险信号：| 分支、* 或 + 无界重复、{n,}/{,m}/{n,m} 变长或上界开放的重复。
+# 外层的风险信号：仅 * / + / {n,}/{,m}/{n,m} 这类无界重复；
+# {n} 这类固定次数重复整体路径有界（如 ^(\d{1,3}\.){3}\d{1,3}$），放行。
+_UNSAFE_REGEX_GROUP_RE = re.compile(
+    r"\([^()]*(?:\||[*+]|\{\d*,\d*\})[^()]*\)\s*(?:[*+]|\{\d*,\d*\})"
+)
+
+
+def is_unsafe_keyword_regex(pattern: str) -> bool:
+    """判断用户提供的正则是否存在灾难性回溯（ReDoS）风险。
+
+    纯文本结构判据，不执行匹配，可安全用于配置写入前的校验与运行期规则过滤。
+    对非法正则返回 False（语法问题交由编译期报错路径处理）。
+    """
+    if not isinstance(pattern, str) or not pattern:
+        return False
+    return bool(_UNSAFE_REGEX_GROUP_RE.search(pattern))
+
 NumberingLangT: TypeAlias = Literal[
     "arabic",
     "chinese_simple",

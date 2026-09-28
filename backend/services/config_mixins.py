@@ -159,6 +159,15 @@ def normalize_global_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
             stripped = (normalized[key] or "").strip()
             normalized[key] = stripped or None
 
+    # WebDAV 地址公网校验：保存即拒绝内网/元数据端点，避免配置落盘后才在执行期失败
+    if normalized.get("webdav_url"):
+        from backend.services.webdav_client import validate_webdav_url
+
+        try:
+            normalized["webdav_url"] = validate_webdav_url(normalized["webdav_url"])
+        except ValueError as exc:
+            raise ValueError(f"WebDAV 地址不被允许: {exc}") from exc
+
     # WebDAV 目录：去空白，空值回落默认目录
     if "webdav_remote_dir" in normalized:
         stripped = (normalized["webdav_remote_dir"] or "").strip()
@@ -177,6 +186,15 @@ def normalize_global_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
         if key in normalized:
             stripped = (normalized[key] or "").strip()
             normalized[key] = stripped or None
+
+    # S3 Endpoint 公网校验：与 WebDAV 同口径，保存即拒绝内网/元数据端点
+    if normalized.get("s3_endpoint_url"):
+        from tg_signer.utils import validate_public_http_url
+
+        try:
+            validate_public_http_url(normalized["s3_endpoint_url"])
+        except ValueError as exc:
+            raise ValueError(f"S3 Endpoint 不被允许: {exc}") from exc
     if "s3_region" in normalized:
         normalized["s3_region"] = normalized["s3_region"] or "auto"
     if "s3_prefix" in normalized:
@@ -416,9 +434,18 @@ class SignTaskConfigMixin:
                 )
                 config["account_name"] = account_name
 
+            # 导入同样要过正则安全判据，避免把灾难性回溯正则从导出文件带回
+            chats = config.get("chats")
+            if isinstance(chats, list):
+                from backend.services.sign_task_crud import _validate_chats_regex_safety
+
+                _validate_chats_regex_safety(chats)
+
             # 保存配置
             return self.save_sign_config(final_task_name, config)
 
+        # ValueError（非法任务名 / 账号名 / 高风险正则）不在此处吞掉，
+        # 向上抛给路由层转成带具体原因的 400
         except (json.JSONDecodeError, KeyError):
             return False
 

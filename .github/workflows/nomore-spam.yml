@@ -3,22 +3,25 @@ name: NoMore Spam
 on:
   issues:
     types: [opened]
-  pull_request_target:
+  pull_request:
     types: [opened]
 
 permissions:
   contents: read
   issues: write
   pull-requests: write
-  models: read
 
 jobs:
   spam-detection:
+    if: github.repository == 'Silentely/TG-SignPulse'
     runs-on: ubuntu-latest
-    
+    timeout-minutes: 10
+
     steps:
       - name: Detect and close spam
-        uses: JohnsonRan/nomore-spam@main
+        # 钉到完整 commit SHA（40-hex），由 .github/dependabot.yml 的
+        # github-actions 生态每周自动跟进上游更新
+        uses: JohnsonRan/nomore-spam@d29caa66a03c4855849bf7956c2f47b0c3401cd3
         with:
           github-token: ${{ github.token }}
           ai-base-url: ${{ secrets.AI_BASE_URL }}  # 可选：自定义API端点（去除 /chat/completions）

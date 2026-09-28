@@ -37,7 +37,7 @@ LIST_XML = """<?xml version="1.0" encoding="UTF-8"?>
 
 def _client(**kw) -> S3BackupClient:
     base = {
-        "endpoint_url": "https://s3.example.com",
+        "endpoint_url": "https://93.184.216.34",
         "bucket": "bk",
         "access_key": "AK",
         "secret_key": "SK",
@@ -134,16 +134,64 @@ class TestSettingsValidation:
             )
         with pytest.raises(ValueError, match="存储桶"):
             validate_s3_settings(
-                endpoint_url="https://x", bucket=" ", access_key="a", secret_key="s"
+                endpoint_url="https://93.184.216.34",
+                bucket=" ",
+                access_key="a",
+                secret_key="s",
             )
         with pytest.raises(ValueError, match="Access Key"):
             validate_s3_settings(
-                endpoint_url="https://x", bucket="b", access_key="", secret_key="s"
+                endpoint_url="https://93.184.216.34",
+                bucket="b",
+                access_key="",
+                secret_key="s",
             )
         with pytest.raises(ValueError, match="Secret Key"):
             validate_s3_settings(
-                endpoint_url="https://x", bucket="b", access_key="a", secret_key=""
+                endpoint_url="https://93.184.216.34",
+                bucket="b",
+                access_key="a",
+                secret_key="",
             )
+
+    @pytest.mark.parametrize(
+        "endpoint",
+        [
+            "http://127.0.0.1:9000",
+            "http://10.0.0.5:9000",
+            "http://192.168.1.10:9000",
+            "http://172.16.0.9:9000",
+            "http://169.254.169.254",
+            "http://[::1]:9000",
+            "http://[::ffff:10.0.0.5]:9000",
+            "not-a-url",
+            "",
+        ],
+    )
+    def test_internal_or_malformed_endpoint_raises(self, endpoint):
+        """对象存储端点只允许公网地址，内网/元数据/畸形一律 ValueError。"""
+        with pytest.raises(ValueError):
+            validate_s3_settings(
+                endpoint_url=endpoint,
+                bucket="b",
+                access_key="a",
+                secret_key="s",
+            )
+
+    def test_s3_enabled_fails_closed_on_internal_endpoint(self):
+        """端点为内网地址时 s3_enabled 返回 False（不静默放行）。"""
+        assert (
+            s3_enabled(
+                {
+                    "s3_enabled": True,
+                    "s3_endpoint_url": "http://127.0.0.1:9000",
+                    "s3_bucket": "b",
+                    "s3_access_key": "a",
+                    "s3_secret_key": "s",
+                }
+            )
+            is False
+        )
 
     def test_s3_enabled_requires_all_required_fields(self):
         assert s3_enabled({"s3_enabled": True, "s3_bucket": "b"}) is False
@@ -151,7 +199,7 @@ class TestSettingsValidation:
             s3_enabled(
                 {
                     "s3_enabled": True,
-                    "s3_endpoint_url": "https://s3.example.com",
+                    "s3_endpoint_url": "https://93.184.216.34",
                     "s3_bucket": "b",
                     "s3_access_key": "a",
                     "s3_secret_key": "s",
@@ -163,7 +211,7 @@ class TestSettingsValidation:
         assert (
             s3_enabled(
                 {
-                    "s3_endpoint_url": "https://s3.example.com",
+                    "s3_endpoint_url": "https://93.184.216.34",
                     "s3_bucket": "b",
                     "s3_access_key": "a",
                     "s3_secret_key": "s",
@@ -178,7 +226,7 @@ class TestClientFromCfg:
     def test_defaults_region_and_prefix(self):
         client = _client_from_cfg(
             {
-                "s3_endpoint_url": "https://s3.example.com/",
+                "s3_endpoint_url": "https://93.184.216.34/",
                 "s3_bucket": "bk",
                 "s3_access_key": "AK",
                 "s3_secret_key": "SK",
@@ -186,13 +234,13 @@ class TestClientFromCfg:
         )
         assert client.region == "auto"
         assert client.prefix == "tg-signpulse-backups/"
-        assert client.endpoint_url == "https://s3.example.com"
+        assert client.endpoint_url == "https://93.184.216.34"
         assert client.proxy is None
 
     def test_uses_configured_values(self):
         client = _client_from_cfg(
             {
-                "s3_endpoint_url": "https://minio.local:9000",
+                "s3_endpoint_url": "https://93.184.216.34:9000",
                 "s3_bucket": "bk",
                 "s3_access_key": "AK",
                 "s3_secret_key": "SK",
@@ -473,7 +521,7 @@ class TestClientRequests:
     @pytest.mark.asyncio
     async def test_path_style_endpoint_with_base_path(self):
         """endpoint 带子路径时（如 /minio）canonical URI 与 URL 都要带上该前缀。"""
-        client = _client(endpoint_url="https://minio.local/minio")
+        client = _client(endpoint_url="https://93.184.216.34/minio")
         captured = {}
 
         class _Resp:
@@ -502,7 +550,7 @@ class TestClientRequests:
 class TestPruneS3Backups:
     CFG = {
         "s3_enabled": True,
-        "s3_endpoint_url": "https://s3.example.com",
+        "s3_endpoint_url": "https://93.184.216.34",
         "s3_bucket": "bk",
         "s3_access_key": "AK",
         "s3_secret_key": "SK",
@@ -580,7 +628,7 @@ class TestModuleHelpers:
 
         cfg = {
             "s3_enabled": True,
-            "s3_endpoint_url": "https://s3.example.com",
+            "s3_endpoint_url": "https://93.184.216.34",
             "s3_bucket": "bk",
             "s3_access_key": "AK",
             "s3_secret_key": "SK",

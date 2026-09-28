@@ -19,6 +19,7 @@ from backend.services.keyword_monitor.continue_actions import (
 # IDE 跳转与重构全部失效，且 rules 新增符号会静默改变本模块命名空间
 from backend.services.keyword_monitor.rules import (
     KeywordMonitorRule,
+    _action_has_unsafe_keyword_regex,
     _action_ignore_self,
     _action_in_active_time_window,
     _as_int_or_none,
@@ -299,6 +300,30 @@ class KeywordMonitorService:
                         action.get("keywords"),
                         split_commas=_keyword_split_commas(action),
                     ):
+                        continue
+                    if _action_has_unsafe_keyword_regex(action):
+                        # 修复前已落盘的配置可能含灾难性回溯正则，加载期跳过并留痕，
+                        # 避免整个监听循环被单条规则挂起
+                        logger.warning(
+                            "跳过含高风险正则的关键词监听规则: 账号=%s 任务=%s 规则=%s",
+                            account_name,
+                            task_name,
+                            self._describe_rule(
+                                KeywordMonitorRule(
+                                    account_name=account_name,
+                                    task_name=task_name,
+                                    chat_id=chat_id_int,
+                                    chat_name=str(chat.get("name") or chat_id_int),
+                                    message_thread_id=_as_int_or_none(
+                                        chat.get("message_thread_id")
+                                    ),
+                                    sender_filter=_parse_sender_filter(
+                                        chat.get("sender_filter")
+                                    ),
+                                    action=dict(action),
+                                )
+                            ),
+                        )
                         continue
                     rules.append(
                         KeywordMonitorRule(
