@@ -221,3 +221,24 @@ class TestChatOpsHtmlEscaping:
             text = mock_send.call_args[1]["text"]
             assert "&lt;b&gt;pwned&lt;/b&gt;" in text
             assert "<b>pwned</b>" not in text
+
+    @pytest.mark.asyncio
+    async def test_run_success_escapes_task_and_account_markup(self):
+        from unittest.mock import AsyncMock, patch
+
+        worker = TelegramChatOpsWorker()
+        with patch(
+            "backend.services.chatops_bot.send_telegram_bot_message",
+            new_callable=AsyncMock,
+        ) as mock_send, patch(
+            "backend.services.sign_tasks.get_sign_task_service"
+        ) as mock_svc:
+            mock_svc.return_value.list_tasks.return_value = [
+                {"name": "task<&", "account_name": "acc>"}
+            ]
+            mock_svc.return_value.run_task_with_logs = AsyncMock()
+            await worker.handle_command("tok", "555", "/run task<&", {})
+            text = mock_send.call_args[1]["text"]
+            assert "&lt;&amp;" in text
+            assert "acc&gt;" in text
+            assert "<code>task<&</code>" not in text

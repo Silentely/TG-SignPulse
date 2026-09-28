@@ -18,6 +18,10 @@ DEFAULT_GID="${APP_GID:-10001}"
 
 # 非 root 启动（Dockerfile 已 USER app）：直接以当前身份运行。
 if [ "$(id -u)" -ne 0 ]; then
+  if [ ! -d /data ] || [ ! -w /data ]; then
+    echo "ERROR: 当前用户无法写入 /data；请修正挂载卷属主（chown -R 10001:10001 ./data）。" >&2
+    exit 1
+  fi
   exec uvicorn backend.main:app --host 0.0.0.0 --port "${PORT_VALUE}" ${ACCESS_LOG_OPT}
 fi
 

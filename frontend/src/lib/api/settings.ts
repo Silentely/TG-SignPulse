@@ -89,7 +89,7 @@ export interface GlobalSettings {
   sign_interval?: number | null;  // null 表示随机 1-120 秒
   log_retention_days?: number;    // 日志保留天数，默认 7
   data_dir?: string | null;
-  /** 服务端不回传代理明文（可能含内嵌凭据），仅回传是否已配置 */
+  /** 服务端不回传代理明文（可能含内嵌凭据），仅回传是否已配置；null 可显式清除 */
   global_proxy?: string | null;
   global_proxy_set?: boolean;
   tg_global_concurrency?: number | null;

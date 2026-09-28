@@ -42,6 +42,18 @@ class TestScrubPureFunction:
         assert "sup3rsecret" not in out["custom_url"]
         assert out["custom_url"] == "https://***:***@hook.example.com/push"
 
+    def test_proxy_url_embedded_credentials_redacted(self):
+        out = _scrub_export_secrets(
+            {"global_proxy": "socks5://user:sup3rsecret@proxy.example.com:1080"}
+        )
+        assert out["global_proxy"] == "socks5://***:***@proxy.example.com:1080"
+        assert "sup3rsecret" not in json.dumps(out)
+
+    def test_s3_access_key_is_redacted_and_dropped_on_import(self):
+        out = _scrub_export_secrets({"s3_access_key": "access-key"})
+        assert out["s3_access_key"] == "***MASKED***"
+        assert "s3_access_key" not in _drop_masked_secret_fields(out)
+
     def test_serverchan_sendkey_redacted(self):
         out = _scrub_export_secrets({"server_chan_send_key": "SCT123456ABC"})
         assert out["server_chan_send_key"] == "***MASKED***"
@@ -197,6 +209,14 @@ class TestExportRoundTrip:
         assert "super-secret" not in dumped
         assert "BOTSECRET" not in dumped
 
+    def test_export_global_proxy_redacts_embedded_credentials(self, seeded_service):
+        seeded_service.save_global_settings(
+            {"global_proxy": "socks5://user:proxypass@proxy.example.com:1080"}
+        )
+        dumped = seeded_service.export_all_configs()
+        assert "proxypass" not in dumped
+        assert "socks5://***:***@proxy.example.com:1080" in dumped
+
     def test_import_roundtrip_does_not_overwrite_real_secret(self, seeded_service):
         """导出→导入不得用占位符覆盖已落盘的真实凭据。"""
         exported = json.loads(seeded_service.export_all_configs())
@@ -257,10 +277,10 @@ class TestGlobalProxyMasking:
         )
         assert get_config_service().get_global_proxy() == "socks5://127.0.0.1:1080"
 
-        # 显式 None 同样保持
+        # 显式 None 清除
         client.post(
             "/api/config/settings",
             json={"global_proxy": None},
             headers=_auth_headers(),
         )
-        assert get_config_service().get_global_proxy() == "socks5://127.0.0.1:1080"
+        assert get_config_service().get_global_proxy() is None

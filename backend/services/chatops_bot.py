@@ -104,7 +104,10 @@ class TelegramChatOpsWorker:
             if active_runs:
                 reply += "\n<b>正在运行:</b>\n"
                 for r in active_runs[:5]:
-                    reply += f"• <code>{r.get('task_name')}</code> ({r.get('account_name')})\n"
+                    reply += (
+                        f"• <code>{_html_escape(r.get('task_name'))}</code> "
+                        f"({_html_escape(r.get('account_name'))})\n"
+                    )
 
             await send_telegram_bot_message(bot_token=bot_token, chat_id=chat_id, text=reply, parse_mode="HTML")
             return
@@ -120,7 +123,10 @@ class TelegramChatOpsWorker:
                     name = t.get("name") or "-"
                     status = "✅ 启用" if t.get("enabled", True) else "⏸️ 禁用"
                     mode = t.get("execution_mode") or "fixed"
-                    reply += f"• <code>{name}</code> [{status}] ({mode})\n"
+                    reply += (
+                        f"• <code>{_html_escape(name)}</code> "
+                        f"[{status}] ({_html_escape(mode)})\n"
+                    )
                 if len(tasks) > 15:
                     reply += f"\n<i>...以及其余 {len(tasks) - 15} 个任务</i>"
 
@@ -134,7 +140,11 @@ class TelegramChatOpsWorker:
             else:
                 reply = "⏳ <b>处于限频退避保护中的账号:</b>\n\n"
                 for name, info in cooling.items():
-                    reply += f"• <b>{name}</b>: 剩余 <code>{info['remaining_seconds']}</code> 秒 ({info['reason']})\n"
+                    reply += (
+                        f"• <b>{_html_escape(name)}</b>: 剩余 "
+                        f"<code>{_html_escape(info['remaining_seconds'])}</code> 秒 "
+                        f"({_html_escape(info['reason'])})\n"
+                    )
 
             await send_telegram_bot_message(bot_token=bot_token, chat_id=chat_id, text=reply, parse_mode="HTML")
             return
@@ -164,7 +174,12 @@ class TelegramChatOpsWorker:
                 return
 
             asyncio.create_task(svc.run_task_with_logs(acc_name, target_task))
-            reply = f"🚀 <b>已触发任务执行</b>\n\n• 任务: <code>{target_task}</code>\n• 账号: <code>{acc_name}</code>\n结果将在完成后推送通知。"
+            reply = (
+                "🚀 <b>已触发任务执行</b>\n\n"
+                f"• 任务: <code>{_html_escape(target_task)}</code>\n"
+                f"• 账号: <code>{_html_escape(acc_name)}</code>\n"
+                "结果将在完成后推送通知。"
+            )
             await send_telegram_bot_message(bot_token=bot_token, chat_id=chat_id, text=reply, parse_mode="HTML")
             return
 

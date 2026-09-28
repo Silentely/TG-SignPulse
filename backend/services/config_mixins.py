@@ -169,11 +169,12 @@ def normalize_global_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
         except ValueError as exc:
             raise ValueError(f"WebDAV 地址不被允许: {exc}") from exc
 
-    # 全局代理：可能含 user:pass@host 内嵌凭据，空串表示不修改（保留旧值），
-    # 与 webdav_password 同口径；非空则去空白后写入
+    # 全局代理：None 表示显式清除，空串表示不修改，非空则去空白后写入。
     if "global_proxy" in normalized:
         proxy = normalized["global_proxy"]
-        if proxy is None or str(proxy).strip() == "":
+        if proxy is None:
+            normalized["global_proxy"] = None
+        elif str(proxy).strip() == "":
             normalized.pop("global_proxy")
         else:
             normalized["global_proxy"] = str(proxy).strip()
@@ -490,7 +491,9 @@ _SECRET_FIELD_NAMES = frozenset(
 _SECRET_PATH_KEY_FIELDS = frozenset({"bark_url"})
 
 # URL 型字段：仅脱敏 userinfo 内嵌凭据（https://user:pass@host/...）
-_URL_CREDENTIAL_FIELDS = frozenset({"custom_url", "url", "callback_url"})
+_URL_CREDENTIAL_FIELDS = frozenset(
+    {"custom_url", "url", "callback_url", "global_proxy", "s3_proxy"}
+)
 
 # 鉴权类响应头：整值脱敏，防止外部转发回调把令牌带出
 _AUTH_HEADERS = frozenset(
@@ -541,7 +544,13 @@ def _is_masked_secret_value(value: Any) -> bool:
     if text in _SECRET_MASKS:
         return True
     # 路径段脱敏：https://api.day.app/***MASKED***/title
-    return any(f"/{mask}/" in text or text.endswith(f"/{mask}") for mask in _SECRET_MASKS)
+    return any(
+        f"/{mask}/" in text
+        or text.endswith(f"/{mask}")
+        or f"{mask}:{mask}@" in text
+        or f"{mask}@" in text
+        for mask in _SECRET_MASKS
+    )
 
 
 def _drop_masked_secret_fields(node: Any) -> Any:
@@ -822,28 +831,14 @@ class ConfigExportMixin:
             if "global" in settings_data:
                 try:
                     gs = dict(settings_data["global"] or {})
-                    # 脱敏占位不得覆盖已有 WebDAV 密码 / Bot Token / S3 Secret Key
-                    for secret_key, warn in (
-                        (
-                            "webdav_password",
-                            "webdav_password is masked in export; kept existing",
-                        ),
-                        (
-                            "telegram_bot_token",
-                            "telegram_bot_token is masked in export; kept existing",
-                        ),
-                        (
-                            "s3_secret_key",
-                            "s3_secret_key is masked in export; kept existing",
-                        ),
-                    ):
-                        raw = str(gs.get(secret_key) or "").strip()
-                        if raw in self.SECRET_MASKS:
-                            gs.pop(secret_key, None)
-                            result["warnings"].append(warn)
-                        elif not raw and secret_key in gs:
-                            # 空串：不覆盖
-                            gs.pop(secret_key, None)
+                    # 导出侧所有敏感字段统一经过同一套规则；导入时丢弃占位符，
+                    # 避免新增密钥字段后再次出现“导出脱敏、导入回写占位符”。
+                    masked_before = set(gs)
+                    gs = _drop_masked_secret_fields(gs)
+                    for secret_key in masked_before - set(gs):
+                        result["warnings"].append(
+                            f"{secret_key} is masked in export; kept existing"
+                        )
                     if self.save_global_settings(gs):
                         result["settings_imported"] += 1
                     else:

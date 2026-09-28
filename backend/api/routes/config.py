@@ -442,7 +442,7 @@ class GlobalSettingsResponse(BaseModel):
     log_retention_days: int = 7
     data_dir: Optional[str] = None
     # 全局代理可能含 user:pass@host 内嵌凭据，GET 不回传明文，
-    # 用 global_proxy_set 表示已落盘；PUT 传空串表示保持原值
+    # 用 global_proxy_set 表示已落盘；PUT 传空串保持原值、传 null 显式清除
     global_proxy: Optional[str] = None
     global_proxy_set: bool = False
     tg_global_concurrency: Optional[int] = 1

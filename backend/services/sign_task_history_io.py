@@ -160,16 +160,11 @@ def load_history_entries(
     task_name: str,
     account_name: str = "",
 ) -> List[Dict[str, Any]]:
-    history_file = history_file_path(run_history_dir, task_name, account_name)
-    legacy_file = run_history_dir / f"{safe_history_key(task_name)}.json"
-
-    if not history_file.exists():
-        if account_name and legacy_file.exists():
-            history_file = legacy_file
-        elif not account_name and legacy_file.exists():
-            history_file = legacy_file
-        else:
-            return []
+    history_file = resolve_existing_history_file(
+        run_history_dir, task_name, account_name
+    )
+    if history_file is None:
+        return []
 
     payload = load_history_payload_from_file(history_file)
     return filter_history_entries(payload, account_name=account_name)

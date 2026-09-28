@@ -48,6 +48,7 @@ export function useSettingsPage() {
     logDays: 7,
     dataDir: '',
     proxy: '',
+    proxyClearRequested: false,
     concurrency: 1,
     deviceKeepaliveEnabled: true,
     deviceKeepaliveIntervalDays: 30,

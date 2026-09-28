@@ -95,6 +95,18 @@ def test_load_history_entries_legacy_fallback(tmp_path: Path):
     assert entries[0]["time"] == "t1"
 
 
+def test_load_history_entries_legacy_account_file_fallback(tmp_path: Path):
+    from backend.services.sign_task_history_io import legacy_history_file_path
+
+    legacy = legacy_history_file_path(tmp_path, "task_a", "acc_b")
+    legacy.write_text(
+        json.dumps([{"time": "t2", "account_name": "acc_b", "success": True}]),
+        encoding="utf-8",
+    )
+    entries = load_history_entries(tmp_path, "task_a", account_name="acc_b")
+    assert entries[0]["time"] == "t2"
+
+
 def test_count_history_entries():
     assert count_history_entries([]) == 0
     assert count_history_entries([1, 2]) == 2

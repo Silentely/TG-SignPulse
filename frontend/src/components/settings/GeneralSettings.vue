@@ -47,7 +47,16 @@ const onNumberInput = (key: NumberInputKey, e: Event) => {
 }
 
 const onStringInput = (key: keyof SettingsFormState, e: Event) => {
-  update(key, (e.target as HTMLInputElement).value as never)
+  const value = (e.target as HTMLInputElement).value
+  if (key === 'proxy') {
+    emit('update:modelValue', {
+      ...props.modelValue,
+      proxy: value,
+      proxyClearRequested: value.trim() === '' && !!props.proxySet,
+    })
+    return
+  }
+  update(key, value as never)
 }
 </script>
 
