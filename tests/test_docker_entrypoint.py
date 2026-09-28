@@ -108,7 +108,7 @@ def _logged(log: Path) -> list[str]:
 
 class TestEntrypointPrivilegeDrop:
     def test_non_root_container_runs_directly(self, stub_bin, tmp_path):
-        """Dockerfile 已 USER app：非 root 启动直接 exec，不碰属主。"""
+        """非 root 启动也必须先验证 /data 存在且可写，再直接 exec。"""
         data_dir = tmp_path / "data"
         data_dir.mkdir()
         log = data_dir / "calls.log"
@@ -120,6 +120,12 @@ class TestEntrypointPrivilegeDrop:
         assert any(c.startswith("uvicorn ") for c in calls)
         assert not any(c.startswith("gosu ") for c in calls)
         assert not any(c.startswith("chown ") for c in calls)
+
+    def test_non_root_branch_checks_data_directory_before_exec(self):
+        text = ENTRYPOINT.read_text(encoding="utf-8")
+        non_root_branch = text.split("if [ \"$(id -u)\" -ne 0 ]; then", 1)[1].split("fi", 1)[0]
+        assert "-d /data" in non_root_branch
+        assert "-w /data" in non_root_branch
 
     def test_root_start_chowns_then_drops_via_gosu(self, stub_bin, tmp_path):
         """root 启动且 chown 成功：修正归属后经 gosu 降权到非 root。"""

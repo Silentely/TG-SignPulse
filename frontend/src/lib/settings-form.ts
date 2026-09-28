@@ -8,6 +8,7 @@ export type SettingsFormState = {
   logDays: number | ''
   dataDir: string
   proxy: string
+  proxyClearRequested?: boolean
   concurrency: number | ''
   deviceKeepaliveEnabled: boolean
   deviceKeepaliveIntervalDays: number | ''
@@ -84,7 +85,11 @@ export function buildGeneralPayload(s: SettingsFormState) {
     sign_interval: emptyToNull(s.checkInterval),
     log_retention_days: emptyToNull(s.logDays) ?? 7,
     data_dir: s.dataDir || null,
-    global_proxy: s.proxy || null,
+    ...(s.proxyClearRequested
+      ? { global_proxy: null }
+      : s.proxy.trim()
+        ? { global_proxy: s.proxy }
+        : {}),
     tg_global_concurrency: clampNumber(s.concurrency, 1, 10) ?? 1,
     device_keepalive_enabled: s.deviceKeepaliveEnabled,
     device_keepalive_interval_days: clampNumber(s.deviceKeepaliveIntervalDays, 1, 170) ?? 30,
@@ -167,6 +172,7 @@ export function snapSection(
         logDays: s.logDays,
         dataDir: s.dataDir,
         proxy: s.proxy,
+        proxyClearRequested: s.proxyClearRequested,
         concurrency: s.concurrency,
         deviceKeepaliveEnabled: s.deviceKeepaliveEnabled,
         deviceKeepaliveIntervalDays: s.deviceKeepaliveIntervalDays,
@@ -320,6 +326,7 @@ export function applyGlobalSettingsToForm(
   s.dataDir = res.data_dir || ''
   // 代理明文不再回传：有配置时留空并由占位提示「留空保持不变」
   s.proxy = res.global_proxy || ''
+  s.proxyClearRequested = false
   s.concurrency = res.tg_global_concurrency || 1
   s.deviceKeepaliveEnabled = res.device_keepalive_enabled !== false
   s.deviceKeepaliveIntervalDays = res.device_keepalive_interval_days || 30

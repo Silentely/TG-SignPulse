@@ -83,6 +83,23 @@ describe('settings-form', () => {
     expect(p.timezone).toBe('Asia/Hong_Kong')
   })
 
+  it('buildGeneralPayload distinguishes proxy keep from explicit clear', () => {
+    const keep = buildGeneralPayload(baseSettings()) as Record<string, unknown>
+    expect('global_proxy' in keep).toBe(false)
+
+    const clear = buildGeneralPayload({
+      ...baseSettings(),
+      proxyClearRequested: true,
+    }) as Record<string, unknown>
+    expect(clear.global_proxy).toBeNull()
+
+    const update = buildGeneralPayload({
+      ...baseSettings(),
+      proxy: 'socks5://127.0.0.1:1080',
+    }) as Record<string, unknown>
+    expect(update.global_proxy).toBe('socks5://127.0.0.1:1080')
+  })
+
   it('buildGeneralPayload normalizes empty numeric fields to safe defaults', () => {
     const s = baseSettings()
     s.logDays = ''
