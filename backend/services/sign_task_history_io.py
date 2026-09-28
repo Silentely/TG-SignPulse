@@ -5,11 +5,13 @@
 """
 from __future__ import annotations
 
+import contextlib
+import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from backend.utils.atomic_io import read_json_safe
+from backend.utils.atomic_io import path_write_lock, read_json_safe, write_json_atomic
 
 _logger = logging.getLogger("backend.sign_task_history_io")
 
@@ -131,10 +133,121 @@ def resolve_existing_history_file(
     legacy_encoded = legacy_history_file_path(run_history_dir, task_name, account_name)
     if legacy_encoded != history_file and legacy_encoded.exists():
         return legacy_encoded
-    legacy_file = run_history_dir / f"{safe_history_key(task_name)}.json"
-    if legacy_file.exists():
+    legacy_file = legacy_history_file_path(run_history_dir, task_name)
+    if legacy_file != history_file and legacy_file.exists():
         return legacy_file
     return None
+
+
+def split_history_entries_by_account(
+    data_list: List[Any],
+    account_name: str,
+) -> tuple[List[Any], List[Any]]:
+    """按账号归属切分历史条目，返回 (owned, others)。
+
+    条目无 account_name 字段时按旧版单账号布局处理，归入 owned；
+    非 dict 脏数据无法归属账号，保守留在 others（即保留在原文件里）。
+    """
+    owned: List[Any] = []
+    others: List[Any] = []
+    for item in data_list:
+        if not isinstance(item, dict):
+            others.append(item)
+            continue
+        entry_account = item.get("account_name")
+        if entry_account and str(entry_account) != account_name:
+            others.append(item)
+        else:
+            owned.append(item)
+    return owned, others
+
+
+def merge_history_payloads(
+    existing: List[Any],
+    incoming: List[Any],
+    *,
+    max_entries: Optional[int] = None,
+) -> List[Any]:
+    """把旧文件条目并入现有条目：existing 在前（更新），incoming 去重后追加。"""
+    merged: List[Any] = list(existing)
+    seen = {
+        json.dumps(item, sort_keys=True, ensure_ascii=False, default=str)
+        for item in existing
+        if isinstance(item, dict)
+    }
+    for item in incoming:
+        if isinstance(item, dict):
+            key = json.dumps(item, sort_keys=True, ensure_ascii=False, default=str)
+            if key in seen:
+                continue
+            seen.add(key)
+        merged.append(item)
+    if max_entries:
+        return merged[: max(1, int(max_entries))]
+    return merged
+
+
+def migrate_legacy_history_file(
+    run_history_dir: Path | str,
+    task_name: str,
+    account_name: str = "",
+    *,
+    max_entries: Optional[int] = None,
+) -> Optional[Path]:
+    """把升级前编码路径下的历史条目迁移到当前编码路径。
+
+    编码变更后新旧文件名不同（`acct_1` 与 `acct%5F1`），若直接按新路径写入，
+    旧文件里的条目会被新文件「顶掉」而永久不可见，旧文件也会留在磁盘上无人清理。
+    故在写入前先迁移：目标不存在则写入归属条目，目标已存在则合并去重；
+    旧文件中属于其他账号的条目保留在原文件，避免共享文件被整体搬走。
+
+    无旧文件、无归属条目或迁移失败时返回 None。
+    """
+    base = Path(run_history_dir)
+    target = history_file_path(base, task_name, account_name)
+    legacy = legacy_history_file_path(base, task_name, account_name)
+    if legacy == target or not legacy.is_file():
+        return None
+
+    payload = load_history_payload_from_file(legacy)
+    if not payload:
+        # 空文件或不可解析内容：清掉，避免继续被当成有效历史读取
+        with contextlib.suppress(OSError):
+            legacy.unlink()
+        return None
+
+    if account_name:
+        owned, others = split_history_entries_by_account(payload, account_name)
+    else:
+        owned, others = list(payload), []
+    if not owned:
+        return None
+
+    # 读-改-写全程持目标路径锁，避免与并发回写互相覆盖字段
+    with path_write_lock(target):
+        if target.is_file():
+            merged = merge_history_payloads(
+                load_history_payload_from_file(target), owned, max_entries=max_entries
+            )
+        elif max_entries:
+            merged = owned[: max(1, int(max_entries))]
+        else:
+            merged = owned
+
+        try:
+            write_json_atomic(target, merged)
+        except Exception as exc:
+            _logger.warning("迁移历史文件失败 %s -> %s: %s", legacy, target, exc)
+            return None
+
+    try:
+        if others:
+            write_json_atomic(legacy, others)
+        else:
+            legacy.unlink()
+    except Exception as exc:
+        _logger.warning("清理旧历史文件失败 %s: %s", legacy, exc)
+    return target
 
 
 def filter_history_entries(

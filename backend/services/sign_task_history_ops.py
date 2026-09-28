@@ -38,10 +38,16 @@ from backend.services.sign_task_history_io import (
     history_file_owner,
 )
 from backend.services.sign_task_history_io import (
+    legacy_history_file_path as legacy_history_file_path_io,
+)
+from backend.services.sign_task_history_io import (
     load_history_entries as load_history_entries_io,
 )
 from backend.services.sign_task_history_io import (
     load_history_payload_from_file as load_history_payload_from_file_io,
+)
+from backend.services.sign_task_history_io import (
+    migrate_legacy_history_file as migrate_legacy_history_file_io,
 )
 from backend.services.sign_task_history_io import (
     resolve_existing_history_file as resolve_existing_history_file_io,
@@ -92,6 +98,23 @@ class SignTaskHistoryMixin:
         return resolve_existing_history_file_io(
             self.run_history_dir, task_name, account_name
         )
+
+    def _legacy_history_candidates(
+        self, task_name: str, account_name: str
+    ) -> List[Path]:
+        """升级前可能落盘的遗留历史文件：账号维度旧编码 + 旧版单账号共享布局。"""
+        candidates: List[Path] = []
+        if account_name:
+            candidates.append(
+                legacy_history_file_path_io(
+                    self.run_history_dir, task_name, account_name
+                )
+            )
+        candidates.append(
+            legacy_history_file_path_io(self.run_history_dir, task_name)
+        )
+        target = self._history_file_path(task_name, account_name)
+        return [path for path in candidates if path != target]
 
     @staticmethod
     def _load_history_payload_from_file(history_file: Path) -> List[Any]:
@@ -530,45 +553,49 @@ class SignTaskHistoryMixin:
                         _logger.warning("回写历史文件失败: %s (%s)", history_file, exc)
                 continue
 
-            legacy_file = self.run_history_dir / f"{self._safe_history_key(task_name)}.json"
-            if not legacy_file.exists():
-                continue
+            # 遗留文件可能有两种布局（升级前的账号维度命名、旧版单账号共享文件），
+            # 只清当前编码路径会留下孤儿文件，账号改名/删除后历史仍残留在磁盘
+            for legacy_file in self._legacy_history_candidates(task_name, account_name):
+                if not legacy_file.exists():
+                    continue
 
-            try:
-                data = read_json_safe(legacy_file, default=[])
-                if isinstance(data, dict):
-                    data_list = [data]
-                elif isinstance(data, list):
-                    data_list = data
+                try:
+                    data = read_json_safe(legacy_file, default=[])
+                    if isinstance(data, dict):
+                        data_list = [data]
+                    elif isinstance(data, list):
+                        data_list = data
+                    else:
+                        data_list = []
+                except Exception as exc:
+                    _logger.warning("读取遗留历史文件失败，跳过: %s (%s)", legacy_file, exc)
+                    continue
+
+                if not data_list:
+                    try:
+                        legacy_file.unlink()
+                        removed_files += 1
+                    except Exception as exc:
+                        _logger.warning("删除遗留历史文件失败: %s (%s)", legacy_file, exc)
+                    continue
+
+                from backend.services.sign_task_history_io import (
+                    plan_legacy_history_clear,
+                )
+
+                plan = plan_legacy_history_clear(data_list, account_name)
+                removed_entries += int(plan.get("removed_entries") or 0)
+                if plan.get("remove_file"):
+                    try:
+                        legacy_file.unlink()
+                        removed_files += 1
+                    except Exception as exc:
+                        _logger.warning("删除遗留历史文件失败: %s (%s)", legacy_file, exc)
                 else:
-                    data_list = []
-            except Exception as exc:
-                _logger.warning("读取遗留历史文件失败，跳过: %s (%s)", legacy_file, exc)
-                continue
-
-            if not data_list:
-                try:
-                    legacy_file.unlink()
-                    removed_files += 1
-                except Exception as exc:
-                    _logger.warning("删除遗留历史文件失败: %s (%s)", legacy_file, exc)
-                continue
-
-            from backend.services.sign_task_history_io import plan_legacy_history_clear
-
-            plan = plan_legacy_history_clear(data_list, account_name)
-            removed_entries += int(plan.get("removed_entries") or 0)
-            if plan.get("remove_file"):
-                try:
-                    legacy_file.unlink()
-                    removed_files += 1
-                except Exception as exc:
-                    _logger.warning("删除遗留历史文件失败: %s (%s)", legacy_file, exc)
-            else:
-                try:
-                    write_json_atomic(legacy_file, plan.get("kept") or [])
-                except Exception as exc:
-                    _logger.warning("回写遗留历史文件失败: %s (%s)", legacy_file, exc)
+                    try:
+                        write_json_atomic(legacy_file, plan.get("kept") or [])
+                    except Exception as exc:
+                        _logger.warning("回写遗留历史文件失败: %s (%s)", legacy_file, exc)
 
         try:
             remove_index_entries_matching(
@@ -586,14 +613,11 @@ class SignTaskHistoryMixin:
         """
         获取任务的最后执行信息
         """
-        history_file = self._history_file_path(task_dir.name, account_name)
-        legacy_file = self.run_history_dir / f"{task_dir.name}.json"
-
-        if not history_file.exists():
-            if account_name and legacy_file.exists():
-                history_file = legacy_file
-            else:
-                return None
+        # 与 load_history_entries 共用同一套解析：当前编码路径 → 旧编码路径 →
+        # 旧版单账号布局，避免只认新路径时把升级前的历史判成「无记录」
+        history_file = self._resolve_existing_history_file(task_dir.name, account_name)
+        if history_file is None:
+            return None
 
         try:
             data = read_json_safe(history_file, default=None)
@@ -617,6 +641,14 @@ class SignTaskHistoryMixin:
         from backend.utils.time import utc_now_iso
 
         history_file = self._history_file_path(task_name, account_name)
+        # 编码变更前的旧文件先迁移到当前路径：否则本次写入会让旧历史条目被新文件
+        # 「顶掉」而不可见（名称含 _ / % 的账号或任务必然命中），旧文件也会残留
+        migrate_legacy_history_file_io(
+            self.run_history_dir,
+            task_name,
+            account_name,
+            max_entries=self._history_max_entries,
+        )
         normalized_logs, flow_truncated, flow_line_count = self._normalize_flow_logs(
             flow_logs
         )

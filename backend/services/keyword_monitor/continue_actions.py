@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-import os
 import logging
+import os
 import time
 from typing import Any, Dict, List, Optional, Union
 
@@ -941,8 +941,8 @@ async def execute_custom_plugin_continue_action(
         logger.warning("Keyword monitor plugin action missing 'plugin_name'")
         return False
 
-    from tg_signer.core.plugins import PluginContext, PluginRegistry
     from tg_signer.core.plugin_host import PluginProcessHost
+    from tg_signer.core.plugins import PluginContext, PluginRegistry
 
     meta = PluginRegistry.get(plugin_name)
     if not meta:

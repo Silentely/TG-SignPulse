@@ -114,6 +114,85 @@ def test_count_history_entries():
     assert count_history_entries("x") == 0
 
 
+def test_migrate_legacy_history_file_moves_entries(tmp_path: Path):
+    """升级前编码路径下的历史必须迁移到当前路径，否则首次回写后旧条目不可见。"""
+    from backend.services.sign_task_history_io import (
+        legacy_history_file_path,
+        migrate_legacy_history_file,
+    )
+
+    legacy = legacy_history_file_path(tmp_path, "daily_task", "acct_1")
+    legacy.write_text(
+        json.dumps([{"time": "2026-09-01", "account_name": "acct_1", "message": "old"}]),
+        encoding="utf-8",
+    )
+
+    assert migrate_legacy_history_file(tmp_path, "daily_task", "acct_1") is not None
+    entries = load_history_entries(tmp_path, "daily_task", account_name="acct_1")
+    assert [e["message"] for e in entries] == ["old"]
+    # 旧文件必须清理，避免残留孤儿历史
+    assert not legacy.exists()
+    assert history_file_path(tmp_path, "daily_task", "acct_1").exists()
+
+
+def test_migrate_legacy_history_file_keeps_other_accounts_entries(tmp_path: Path):
+    """旧文件混有其他账号条目时只搬走本账号条目，共享文件不得整体搬走。"""
+    from backend.services.sign_task_history_io import (
+        legacy_history_file_path,
+        migrate_legacy_history_file,
+    )
+
+    legacy = legacy_history_file_path(tmp_path, "t_x", "acc")
+    legacy.write_text(
+        json.dumps(
+            [
+                {"time": "2026-09-01", "account_name": "acc", "message": "mine"},
+                {"time": "2026-09-01", "account_name": "other", "message": "theirs"},
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    migrate_legacy_history_file(tmp_path, "t_x", "acc")
+    assert [e["message"] for e in load_history_entries(tmp_path, "t_x", "acc")] == ["mine"]
+    kept = json.loads(legacy.read_text(encoding="utf-8"))
+    assert [e["message"] for e in kept] == ["theirs"]
+
+
+def test_migrate_legacy_history_file_merges_when_target_exists(tmp_path: Path):
+    """目标文件已存在时合并去重：新条目在前，旧条目追加，不得整段覆盖。"""
+    from backend.services.sign_task_history_io import (
+        legacy_history_file_path,
+        migrate_legacy_history_file,
+    )
+
+    legacy = legacy_history_file_path(tmp_path, "t_x", "acc")
+    legacy.write_text(
+        json.dumps([{"time": "2026-09-01", "account_name": "acc", "message": "old"}]),
+        encoding="utf-8",
+    )
+    target = history_file_path(tmp_path, "t_x", "acc")
+    target.write_text(
+        json.dumps([{"time": "2026-09-03", "account_name": "acc", "message": "new"}]),
+        encoding="utf-8",
+    )
+
+    migrate_legacy_history_file(tmp_path, "t_x", "acc", max_entries=20)
+    assert [e["message"] for e in load_history_entries(tmp_path, "t_x", "acc")] == [
+        "new",
+        "old",
+    ]
+    assert not legacy.exists()
+
+
+def test_migrate_legacy_history_file_noop_without_legacy(tmp_path: Path):
+    """无旧文件时不做任何迁移，也不创建文件。"""
+    from backend.services.sign_task_history_io import migrate_legacy_history_file
+
+    assert migrate_legacy_history_file(tmp_path, "t", "acc") is None
+    assert not history_file_path(tmp_path, "t", "acc").exists()
+
+
 def test_cleanup_respects_max_age_days(tmp_path: Path, monkeypatch):
     import time
 
