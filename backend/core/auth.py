@@ -43,12 +43,16 @@ def _cleanup_used_totp_codes() -> None:
         _used_totp_codes.pop(k, None)
 
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+def create_access_token(
+    data: dict,
+    expires_delta: Optional[timedelta] = None,
+    token_epoch: int = 1,
+) -> str:
     to_encode = data.copy()
     expire = utc_now() + (
         expires_delta or timedelta(hours=settings.access_token_expire_hours)
     )
-    to_encode.update({"exp": expire})
+    to_encode.update({"exp": expire, "tep": int(token_epoch)})
     return jwt.encode(to_encode, settings.secret_key, algorithm="HS256")
 
 
@@ -115,7 +119,10 @@ def authenticate_user(db: Session, username: str, password: str) -> Optional[Use
 
 
 def _resolve_user_from_token(token: str, db: Session) -> Optional[User]:
-    """解码 JWT 并按 sub 查询用户；解码失败或用户不存在时返回 None。
+    """解码 JWT 并按 sub 查询用户；解码失败、用户不存在或令牌已吊销时返回 None。
+
+    吊销判据：JWT 的 `tep` 声明须与用户当前 `token_epoch` 一致。
+    缺失 `tep`（早期签发的令牌）或不匹配均视为已吊销，避免改密码后旧令牌继续可用。
 
     解码失败统一返回 None（与调用方 401 语义一致），但按失败类型留
     debug 日志便于排障区分 token 过期 / 篡改 / 格式错误。
@@ -126,13 +133,38 @@ def _resolve_user_from_token(token: str, db: Session) -> Optional[User]:
         if username is None:
             logger.debug("JWT 解码成功但缺少 sub，按未认证处理")
             return None
+        token_epoch = payload.get("tep")
+        if token_epoch is None:
+            logger.debug("JWT 缺少 tep 世代声明，按已吊销处理")
+            return None
     except jwt.ExpiredSignatureError:
         logger.debug("JWT 已过期，按未认证处理")
         return None
     except PyJWTError as exc:
         logger.debug("JWT 解码失败（无效/篡改/格式错误）: %s", exc)
         return None
-    return get_user_by_username(db, username)
+    user = get_user_by_username(db, username)
+    if user is None:
+        return None
+    try:
+        current_epoch = int(user.token_epoch or 1)
+    except (TypeError, ValueError):
+        current_epoch = 1
+    if int(token_epoch) != current_epoch:
+        logger.debug("JWT 世代号已过期（tep=%r, 当前=%d），按已吊销处理", token_epoch, current_epoch)
+        return None
+    return user
+
+
+def revoke_user_tokens(db: Session, user: User) -> int:
+    """自增用户令牌世代号，使此前签发的 JWT 全部失效。返回新的世代号。"""
+    try:
+        next_epoch = int(user.token_epoch or 1) + 1
+    except (TypeError, ValueError):
+        next_epoch = 2
+    user.token_epoch = next_epoch
+    db.commit()
+    return next_epoch
 
 
 def get_current_user(

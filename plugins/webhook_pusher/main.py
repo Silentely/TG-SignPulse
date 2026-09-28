@@ -124,7 +124,8 @@ async def webhook_pusher_handler(ctx: PluginContext) -> bool:
     request_url = parsed_url._replace(netloc=netloc).geturl()
 
     try:
-        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+        # 不跟随重定向：重定向目标未经过公网校验，可能把凭据/载荷导向内网
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
             # https 钉扎 IP 时按原主机名完成 SNI 与证书校验
             request_extensions = (
                 {"sni_hostname": hostname} if parsed_url.scheme == "https" else {}

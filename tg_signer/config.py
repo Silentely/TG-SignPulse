@@ -14,7 +14,7 @@ from typing import (
     Union,
 )
 
-from pydantic import AnyHttpUrl, BaseModel, Field, ValidationError
+from pydantic import AnyHttpUrl, BaseModel, Field, ValidationError, root_validator
 from typing_extensions import Self, TypeAlias
 
 try:
@@ -258,6 +258,35 @@ class KeywordNotifyAction(SignAction):
     continue_message_thread_id: Optional[int] = None
     continue_action_interval: float = 1
     continue_actions: List[Dict[str, Any]] = Field(default_factory=list)
+
+    @root_validator
+    def _check_keyword_regex_safety(cls, values):  # noqa: N805
+        """阻断灾难性回溯（ReDoS）关键词正则。
+
+        match_mode 定义在 keywords 之后，field validator 拿不到 match_mode，
+        必须用 root_validator 在字段校验完成后统一判定。
+        """
+        from tg_signer.utils import is_unsafe_keyword_regex
+
+        if not isinstance(values, dict):
+            return values
+        mode = str(values.get("match_mode") or "contains").strip()
+        if mode != "regex":
+            return values
+        raw = values.get("keywords")
+        items = raw if isinstance(raw, list) else [raw]
+        unsafe = [
+            str(k)
+            for k in (items or [])
+            if k and is_unsafe_keyword_regex(str(k))
+        ]
+        if unsafe:
+            raise ValueError(
+                "关键词正则存在灾难性回溯风险（可能导致服务无响应），请避免 "
+                "「组内含可变长度且整体被重复」的写法，如 ^(\\w+\\s?)*$："
+                + "; ".join(unsafe[:3])
+            )
+        return values
 
 
 class PluginAction(SignAction):

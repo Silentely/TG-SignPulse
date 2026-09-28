@@ -81,7 +81,7 @@ def test_upload_file_to_webdav_filename_traversal(tmp_path: Path):
 
     with pytest.raises(ValueError, match="非法备份文件名"):
         upload_file_to_webdav(
-            base_url="https://dav.example.com",
+            base_url="https://93.184.216.34",
             username="user",
             password="pwd",
             remote_dir="",

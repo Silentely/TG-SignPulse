@@ -1,9 +1,12 @@
 """关键词监控规则模型与纯函数工具。"""
 from __future__ import annotations
 
+import contextlib
 import logging
 import random
 import re
+import signal
+import threading
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Union
 
@@ -16,6 +19,7 @@ from tg_signer.compat import (
     clean_text_for_match,
     collect_clickable_buttons,
 )
+from tg_signer.utils import is_unsafe_keyword_regex
 
 
 # 自定义异常类：AI 调用不可恢复错误
@@ -46,6 +50,86 @@ _TG_START_LINK_RE = re.compile(
     r"\?start=([A-Za-z0-9_-]+)",
     re.IGNORECASE,
 )
+
+# 单次关键词匹配参与正则运算的文本上限：即使规则通过了静态判据，
+# 超长文本（转发合并消息、粘贴内容）也会把 O(n^2) 放大成可观耗时，
+# 截断后命中判定对首部关键词无实质影响。
+_MAX_MATCH_TEXT_CHARS = 4096
+# 单次正则匹配的墙钟上限；用户正则在极端输入下仍可能退化，
+# 到点即放弃本次正则分支，避免阻塞整个消息处理循环。
+_REGEX_MATCH_DEADLINE_SECONDS = 0.5
+# 同一进程内并发匹配计数：超出并发数时不再叠加定时器，降级为仅告警
+_REGEX_DEADLINE_MAX_CONCURRENCY = 8
+
+_regex_deadline_lock = threading.Lock()
+_regex_deadline_active = 0
+
+
+class _RegexDeadlineExceeded(Exception):
+    """内部信号：正则匹配超出墙钟上限。"""
+
+
+@contextlib.contextmanager
+def regex_match_deadline(seconds: float = _REGEX_MATCH_DEADLINE_SECONDS):
+    """限定正则匹配的墙钟上限，超时抛 _RegexDeadlineExceeded。
+
+    signal.setitimer 只能在主线程使用；非主线程或超出并发预算时降级为
+    不做中断（依赖文本截断与静态判据兜底）并告警，保证不改变行为语义。
+    """
+    global _regex_deadline_active
+
+    main_thread = threading.current_thread() is threading.main_thread()
+    usable = main_thread and hasattr(signal, "setitimer")
+    if usable:
+        with _regex_deadline_lock:
+            if _regex_deadline_active >= _REGEX_DEADLINE_MAX_CONCURRENCY:
+                usable = False
+            else:
+                _regex_deadline_active += 1
+
+    if not usable:
+        logger.debug(
+            "正则匹配墙钟上限不可用（非主线程或并发已满），仅依赖文本截断兜底"
+        )
+        yield
+        return
+
+    previous_handler = signal.getsignal(signal.SIGALRM)
+
+    def _on_deadline(signum, frame):  # pragma: no cover - 信号回调
+        raise _RegexDeadlineExceeded
+
+    try:
+        signal.signal(signal.SIGALRM, _on_deadline)
+        signal.setitimer(signal.ITIMER_REAL, max(float(seconds), 0.01))
+    except (ValueError, OSError):
+        # 极端环境下无法安装定时器：恢复计数后按无保护执行
+        with _regex_deadline_lock:
+            _regex_deadline_active -= 1
+        logger.debug("正则匹配墙钟上限安装失败，降级为无保护执行")
+        yield
+        return
+
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous_handler)
+        with _regex_deadline_lock:
+            _regex_deadline_active -= 1
+
+
+__all__ = [
+    "TerminalAIActionError",
+    "KeywordMonitorRule",
+    "is_unsafe_keyword_regex",
+    "regex_match_deadline",
+    "DEFAULT_CONTINUE_TIMEOUT",
+    "DEFAULT_HISTORY_LIMIT",
+    "DEFAULT_COMMAND_PREFIX",
+    "DEFAULT_BOT_CMD_INTERVAL",
+    "DEFAULT_BOT_CMD_MAX_BATCH",
+]
 
 
 def _is_callback_data_invalid(exc: BaseException) -> bool:
@@ -143,7 +227,11 @@ def _extract_tg_start_links(text: str) -> List[tuple[str, str]]:
 
 
 def _match_all_keyword_values(action: Dict[str, Any], text: str) -> List[str]:
-    """返回消息中全部命中值（正则 finditer；contains/exact 至多一个）。"""
+    """返回消息中全部命中值（正则 finditer；contains/exact 至多一个）。
+
+    正则分支受双重保护：文本先截断到 _MAX_MATCH_TEXT_CHARS，
+    匹配过程置于 regex_match_deadline 之内，超时按未命中处理而非挂起。
+    """
     keywords = _parse_keywords(
         action.get("keywords"),
         split_commas=_keyword_split_commas(action),
@@ -153,7 +241,8 @@ def _match_all_keyword_values(action: Dict[str, Any], text: str) -> List[str]:
 
     mode = (action.get("match_mode") or "contains").strip()
     ignore_case = bool(action.get("ignore_case", True))
-    haystack = text.lower() if ignore_case else text
+    # 截断在上：即使 lower 后的长度略有变化，也保证正则运算的输入有界
+    haystack = (text.lower() if ignore_case else text)[:_MAX_MATCH_TEXT_CHARS]
     results: List[str] = []
     seen: set[str] = set()
 
@@ -167,11 +256,16 @@ def _match_all_keyword_values(action: Dict[str, Any], text: str) -> List[str]:
         if mode == "regex":
             flags = re.IGNORECASE if ignore_case else 0
             try:
-                for match in re.finditer(keyword, text, flags=flags):
-                    value = _regex_keyword_value(match)
-                    if value and value not in seen:
-                        seen.add(value)
-                        results.append(value)
+                with regex_match_deadline():
+                    for match in re.finditer(keyword, text[:_MAX_MATCH_TEXT_CHARS], flags=flags):
+                        value = _regex_keyword_value(match)
+                        if value and value not in seen:
+                            seen.add(value)
+                            results.append(value)
+            except _RegexDeadlineExceeded:
+                logger.warning(
+                    "关键词监听正则超时，已放弃本次正则分支: %r", keyword
+                )
             except re.error as exc:
                 logger.warning("关键词监听正则无效 %r: %s", keyword, exc)
             continue
@@ -179,6 +273,46 @@ def _match_all_keyword_values(action: Dict[str, Any], text: str) -> List[str]:
             seen.add(keyword)
             results.append(keyword)
     return results
+
+
+def _action_has_unsafe_keyword_regex(action: Optional[Dict[str, Any]]) -> bool:
+    """动作内任一正则关键词具有灾难性回溯风险时为 True（非 regex 模式恒为 False）。"""
+    if not action:
+        return False
+    if (action.get("match_mode") or "contains").strip() != "regex":
+        return False
+    # 正则模式的关键词按行/逗号切分由 _keyword_split_commas 决定为不切分，
+    # 这里显式 split_commas=False，与 _match_all_keyword_values 的实际切分一致
+    return any(
+        is_unsafe_keyword_regex(keyword)
+        for keyword in _parse_keywords(
+            action.get("keywords"), split_commas=_keyword_split_commas(action)
+        )
+    )
+
+
+def validate_action_regex_safety(action: Optional[Dict[str, Any]]) -> None:
+    """配置写入前校验动作内正则关键词，命中灾难性回溯模式时抛 ValueError。
+
+    供签到任务 CRUD / 导入 / 模型校验共用，保证同一判据在写入侧与运行侧一致。
+    """
+    if not action:
+        return
+    if (action.get("match_mode") or "contains").strip() != "regex":
+        return
+    unsafe = [
+        keyword
+        for keyword in _parse_keywords(
+            action.get("keywords"), split_commas=_keyword_split_commas(action)
+        )
+        if is_unsafe_keyword_regex(keyword)
+    ]
+    if unsafe:
+        raise ValueError(
+            "关键词正则存在灾难性回溯风险（可能导致服务无响应），请避免 "
+            "「组内含可变长度且整体被重复」的写法，如 ^(\\w+\\s?)*$："
+            + "; ".join(unsafe[:3])
+        )
 
 
 def _is_immediate_continue_action(action: Optional[Dict[str, Any]]) -> bool:
@@ -498,15 +632,3 @@ def _message_has_terminal_success_text(message: Message) -> bool:
         "completed",
     )
     return any(marker in text for marker in success_markers)
-
-
-
-__all__ = [
-    "TerminalAIActionError",
-    "KeywordMonitorRule",
-    "DEFAULT_CONTINUE_TIMEOUT",
-    "DEFAULT_HISTORY_LIMIT",
-    "DEFAULT_COMMAND_PREFIX",
-    "DEFAULT_BOT_CMD_INTERVAL",
-    "DEFAULT_BOT_CMD_MAX_BATCH",
-]

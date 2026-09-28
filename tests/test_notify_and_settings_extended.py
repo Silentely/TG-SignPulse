@@ -506,7 +506,7 @@ class TestWebdavBackupChain:
         resp = client.post(
             "/api/config/settings",
             json={
-                "webdav_url": "https://dav.example.com/remote.php/dav/files/u",
+                "webdav_url": "https://93.184.216.34/remote.php/dav/files/u",
                 "webdav_username": "user1",
                 "webdav_password": "secret",
                 "webdav_remote_dir": "my-backups",
@@ -515,7 +515,7 @@ class TestWebdavBackupChain:
         )
         assert resp.status_code == 200
         got = client.get("/api/config/settings", headers=_auth_headers()).json()
-        assert got["webdav_url"] == "https://dav.example.com/remote.php/dav/files/u"
+        assert got["webdav_url"] == "https://93.184.216.34/remote.php/dav/files/u"
         assert got["webdav_username"] == "user1"
         # GET 脱敏：不回传明文，仅标记已设置
         assert got.get("webdav_password") in (None, "")
@@ -531,7 +531,7 @@ class TestWebdavBackupChain:
         client.post(
             "/api/config/settings",
             json={
-                "webdav_url": "https://dav.example.com/files/u",
+                "webdav_url": "https://93.184.216.34/files/u",
                 "webdav_username": "u",
                 "webdav_password": "keep-me",
             },
@@ -556,7 +556,7 @@ class TestWebdavBackupChain:
         client.post(
             "/api/config/settings",
             json={
-                "webdav_url": "https://dav.example.com/dav/files/u",
+                "webdav_url": "https://93.184.216.34/dav/files/u",
                 "webdav_username": "u",
                 "webdav_password": "p",
                 "webdav_remote_dir": "tg-backups",
@@ -575,7 +575,7 @@ class TestWebdavBackupChain:
             "backend.services.webdav_client.upload_file_to_webdav",
             return_value={
                 "success": True,
-                "remote_url": "https://dav.example.com/x.tar.gz",
+                "remote_url": "https://93.184.216.34/x.tar.gz",
                 "filename": "x.tar.gz",
                 "size_bytes": 11,
             },
@@ -589,7 +589,7 @@ class TestWebdavBackupChain:
         upload_m.assert_called_once()
         # 必须使用已落盘配置，而非请求体
         call_kw = upload_m.call_args.kwargs
-        assert call_kw["base_url"] == "https://dav.example.com/dav/files/u"
+        assert call_kw["base_url"] == "https://93.184.216.34/dav/files/u"
         assert call_kw["username"] == "u"
         assert call_kw["password"] == "p"
         assert call_kw["remote_dir"] == "tg-backups"
@@ -612,7 +612,7 @@ class TestWebdavBackupChain:
         client.post(
             "/api/config/settings",
             json={
-                "webdav_url": "https://dav.example.com/dav",
+                "webdav_url": "https://93.184.216.34/dav",
                 "webdav_username": "u",
                 "webdav_password": "p",
                 "webdav_remote_dir": "nested/dir",
@@ -631,7 +631,7 @@ class TestWebdavBackupChain:
         assert resp.json()["success"] is True
         test_m.assert_called_once()
         kw = test_m.call_args.kwargs
-        assert kw["base_url"] == "https://dav.example.com/dav"
+        assert kw["base_url"] == "https://93.184.216.34/dav"
         assert kw["username"] == "u"
         assert kw["password"] == "p"
         assert kw["remote_dir"] == "nested/dir"
@@ -656,7 +656,7 @@ class TestWebdavBackupChain:
                 data,
                 keep=2,
                 webdav_settings={
-                    "webdav_url": "https://dav.example.com/dav",
+                    "webdav_url": "https://93.184.216.34/dav",
                     "webdav_username": "u",
                     "webdav_password": "p",
                     "webdav_remote_dir": "bk",
@@ -686,7 +686,7 @@ class TestWebdavBackupChain:
                 data,
                 keep=2,
                 webdav_settings={
-                    "webdav_url": "https://dav.example.com/dav",
+                    "webdav_url": "https://93.184.216.34/dav",
                     "webdav_username": "u",
                     "webdav_password": "p",
                 },
@@ -700,7 +700,7 @@ class TestWebdavBackupChain:
         client.post(
             "/api/config/settings",
             json={
-                "webdav_url": "https://dav.example.com/dav",
+                "webdav_url": "https://93.184.216.34/dav",
                 "webdav_username": "",
                 "webdav_password": "p",
             },
@@ -709,7 +709,7 @@ class TestWebdavBackupChain:
         # 仅 URL、无用户名
         client.post(
             "/api/config/settings",
-            json={"webdav_url": "https://dav.example.com/dav", "webdav_username": None},
+            json={"webdav_url": "https://93.184.216.34/dav", "webdav_username": None},
             headers=_auth_headers(),
         )
         # 直接设内部配置：有 URL 无用户名
@@ -717,7 +717,7 @@ class TestWebdavBackupChain:
 
         get_config_service().save_global_settings(
             {
-                "webdav_url": "https://dav.example.com/dav",
+                "webdav_url": "https://93.184.216.34/dav",
                 "webdav_username": None,
                 "webdav_password": "p",
             }
@@ -730,7 +730,7 @@ class TestWebdavBackupChain:
         client.post(
             "/api/config/settings",
             json={
-                "webdav_url": "https://dav.example.com/dav",
+                "webdav_url": "https://93.184.216.34/dav",
                 "webdav_username": "u",
                 "webdav_password": "p",
                 "auto_backup_enabled": True,
@@ -771,7 +771,7 @@ class TestWebdavBackupChain:
         client.post(
             "/api/config/settings",
             json={
-                "webdav_url": "https://dav.example.com/dav",
+                "webdav_url": "https://93.184.216.34/dav",
                 "webdav_username": "u",
                 "webdav_password": "super-secret",
                 "telegram_bot_token": "999:BOTSECRET",
@@ -795,7 +795,7 @@ class TestWebdavBackupChain:
         client.post(
             "/api/config/settings",
             json={
-                "webdav_url": "https://dav.example.com/dav",
+                "webdav_url": "https://93.184.216.34/dav",
                 "webdav_username": "u",
                 "webdav_password": "p",
                 "webdav_remote_dir": "bk",
@@ -840,7 +840,7 @@ class TestWebdavBackupChain:
         client.post(
             "/api/config/settings",
             json={
-                "webdav_url": "https://dav.example.com/dav",
+                "webdav_url": "https://93.184.216.34/dav",
                 "webdav_username": "u",
                 "webdav_password": "p",
                 "webdav_remote_dir": "bk",
@@ -885,7 +885,7 @@ class TestWebdavBackupChain:
                 data,
                 keep=3,
                 webdav_settings={
-                    "webdav_url": "https://dav.example.com/dav",
+                    "webdav_url": "https://93.184.216.34/dav",
                     "webdav_username": "u",
                     "webdav_password": "p",
                     "webdav_remote_dir": "bk",
@@ -902,7 +902,7 @@ class TestS3BackupApi:
 
     S3_CFG = {
         "s3_enabled": True,
-        "s3_endpoint_url": "https://s3.example.com",
+        "s3_endpoint_url": "https://93.184.216.34",
         "s3_bucket": "bk",
         "s3_access_key": "AK",
         "s3_secret_key": "SK",
@@ -954,7 +954,7 @@ class TestS3BackupApi:
             "/api/config/settings",
             json={
                 "s3_enabled": True,
-                "s3_endpoint_url": "https://s3.example.com",
+                "s3_endpoint_url": "https://93.184.216.34",
                 "s3_bucket": "bk",
                 "s3_access_key": "AK",
                 "s3_secret_key": "SK",
@@ -1083,7 +1083,7 @@ class TestS3BackupApi:
                 "bucket": "bk",
                 "key": "tg-signpulse-backups/auto-9.tar.gz",
                 "size": 11,
-                "url": "https://s3.example.com/bk/tg-signpulse-backups/auto-9.tar.gz",
+                "url": "https://93.184.216.34/bk/tg-signpulse-backups/auto-9.tar.gz",
             },
         ) as m:
             resp = client.post("/api/ops/backup/export", headers=_auth_headers())
@@ -1107,7 +1107,7 @@ class TestS3BackupApi:
                 "success": True,
                 "key": "tg-signpulse-backups/auto-9.tar.gz",
                 "size": 3,
-                "url": "https://s3.example.com/bk/tg-signpulse-backups/auto-9.tar.gz",
+                "url": "https://93.184.216.34/bk/tg-signpulse-backups/auto-9.tar.gz",
             },
         ), patch(
             "backend.services.s3_backup.prune_s3_backups",
@@ -1175,7 +1175,7 @@ class TestS3BackupApi:
                 data,
                 keep=2,
                 webdav_settings={
-                    "webdav_url": "https://dav.example.com/dav",
+                    "webdav_url": "https://93.184.216.34/dav",
                     "webdav_username": "u",
                     "webdav_password": "p",
                     "webdav_remote_dir": "bk",

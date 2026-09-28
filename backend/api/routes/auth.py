@@ -15,6 +15,7 @@ from backend.core.auth import (
     get_user_by_username,
     verify_totp,
 )
+from backend.core.config import get_settings
 from backend.core.database import get_db
 from backend.core.rate_limit import (
     compose_rate_limit_key,
@@ -142,7 +143,8 @@ def login(
     rate_limiter.reset("auth.login", login_key)
     access_token = create_access_token(
         data={"sub": user.username},
-        expires_delta=timedelta(hours=12),
+        expires_delta=timedelta(hours=get_settings().access_token_expire_hours),
+        token_epoch=int(user.token_epoch or 1),
     )
     try:
         from backend.services.config import get_config_service

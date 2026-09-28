@@ -105,23 +105,23 @@ class TestSecurityAuditFixes:
 
     def test_push_notification_ssrf_blocks_cloud_metadata(self):
         # AWS / GCP / Alibaba cloud metadata IP and domains
-        with pytest.raises(ValueError, match="禁止向敏感云元数据地址发送推送"):
+        with pytest.raises(ValueError, match="禁止请求私有或内网地址"):
             _validate_push_target_url("http://169.254.169.254/latest/meta-data/")
 
-        with pytest.raises(ValueError, match="禁止向敏感云元数据地址发送推送"):
+        with pytest.raises(ValueError, match="禁止请求私有或内网地址"):
             _validate_push_target_url("http://metadata.google.internal/computeMetadata/v1/")
 
-        with pytest.raises(ValueError, match="禁止向敏感云元数据地址发送推送"):
+        with pytest.raises(ValueError, match="禁止请求私有或内网地址"):
             _validate_push_target_url("http://100.100.100.200/latest/meta-data/")
 
     def test_push_notification_ssrf_blocks_link_local(self):
-        with pytest.raises(ValueError, match="禁止向链路本地地址"):
+        with pytest.raises(ValueError, match="禁止请求私有或内网地址"):
             _validate_push_target_url("http://169.254.1.10/webhook")
 
     def test_push_notification_valid_url(self):
-        # Normal public and local addresses without metadata flag pass
-        _validate_push_target_url("https://api.telegram.org/bot123/send")
-        _validate_push_target_url("https://oapi.dingtalk.com/robot/send")
+        # 公网 IP 字面量通过校验（沙箱禁网，不使用需 DNS 解析的域名）
+        _validate_push_target_url("https://93.184.216.34/bot123/send")
+        _validate_push_target_url("https://93.184.216.34/robot/send")
 
     def test_atomic_io_sets_permissions_0600(self, tmp_path):
         target = tmp_path / "secret.json"

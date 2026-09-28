@@ -51,6 +51,13 @@ def _join_url(base: str, *parts: str) -> str:
 
 
 def validate_webdav_url(url: str) -> str:
+    """校验 WebDAV 基础 URL：scheme/主机非空，且仅允许公网地址（SSRF 防护）。
+
+    内网地址（含 127.0.0.1、10/172.16/192.168 私网、169.254 链路本地、
+    云元数据端点）一律拒绝，避免面板被用作内网探测跳板。
+    """
+    from tg_signer.utils import validate_public_http_url
+
     raw = (url or "").strip()
     if not raw:
         raise ValueError("WebDAV URL 不能为空")
@@ -59,6 +66,7 @@ def validate_webdav_url(url: str) -> str:
         raise ValueError("WebDAV URL 须为 http 或 https")
     if not parsed.netloc:
         raise ValueError("WebDAV URL 无效")
+    validate_public_http_url(raw)
     return raw.rstrip("/")
 
 
@@ -132,7 +140,7 @@ def upload_file_to_webdav(
 
     proxy_url = _format_client_proxy(proxy)
     with httpx.Client(
-        timeout=req_timeout, auth=auth, follow_redirects=True, proxy=proxy_url
+        timeout=req_timeout, auth=auth, follow_redirects=False, proxy=proxy_url
     ) as client:
         # 多级目录逐段创建（已存在时多数服务返回 405/409/301）
         if dir_rel:
@@ -252,7 +260,7 @@ def list_webdav_files(
 
     proxy_url = _format_client_proxy(proxy)
     with httpx.Client(
-        timeout=timeout, auth=auth, follow_redirects=True, proxy=proxy_url
+        timeout=timeout, auth=auth, follow_redirects=False, proxy=proxy_url
     ) as client:
         resp = client.request(
             "PROPFIND",
@@ -353,7 +361,7 @@ def delete_webdav_file(
 
     proxy_url = _format_client_proxy(proxy)
     with httpx.Client(
-        timeout=timeout, auth=auth, follow_redirects=True, proxy=proxy_url
+        timeout=timeout, auth=auth, follow_redirects=False, proxy=proxy_url
     ) as client:
         resp = client.delete(file_url)
         if resp.status_code not in _DELETE_OK:
@@ -398,7 +406,7 @@ def download_webdav_file(
 
     proxy_url = _format_client_proxy(proxy)
     with httpx.Client(
-        timeout=req_timeout, auth=auth, follow_redirects=True, proxy=proxy_url
+        timeout=req_timeout, auth=auth, follow_redirects=False, proxy=proxy_url
     ) as client:
         actual_tmp: Optional[Path] = None
         replaced = False
@@ -465,7 +473,7 @@ def iter_webdav_file(
 
     proxy_url = _format_client_proxy(proxy)
     client = httpx.Client(
-        timeout=req_timeout, auth=auth, follow_redirects=True, proxy=proxy_url
+        timeout=req_timeout, auth=auth, follow_redirects=False, proxy=proxy_url
     )
     try:
         with client.stream("GET", file_url) as resp:
@@ -659,7 +667,7 @@ def check_webdav_connection(
 
     proxy_url = _format_client_proxy(proxy)
     with httpx.Client(
-        timeout=timeout, auth=auth, follow_redirects=True, proxy=proxy_url
+        timeout=timeout, auth=auth, follow_redirects=False, proxy=proxy_url
     ) as client:
         resp = _propfind(client, target, depth="0")
 

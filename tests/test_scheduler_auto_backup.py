@@ -11,7 +11,7 @@ S3_CFG = {
     "auto_backup_interval_hours": 24,
     "auto_backup_keep": 2,
     "s3_enabled": True,
-    "s3_endpoint_url": "https://s3.example.com",
+    "s3_endpoint_url": "https://93.184.216.34",
     "s3_bucket": "bk",
     "s3_access_key": "AK",
     "s3_secret_key": "SK",
@@ -42,7 +42,7 @@ class TestAutoBackupJob:
             run_m = _drive(
                 {
                     "success": True,
-                    "path": "https://s3.example.com/bk/auto-1.tar.gz",
+                    "path": "https://93.184.216.34/bk/auto-1.tar.gz",
                     "size_bytes": 10,
                     "pruned": 0,
                     "remote_pruned": 1,
@@ -54,8 +54,8 @@ class TestAutoBackupJob:
 
         # 全局设置整体透传：对象存储字段随 cfg 一起下发给备份执行器
         kwargs = run_m.call_args.kwargs
-        assert kwargs["s3_settings"]["s3_endpoint_url"] == "https://s3.example.com"
-        assert kwargs["webdav_settings"]["s3_endpoint_url"] == "https://s3.example.com"
+        assert kwargs["s3_settings"]["s3_endpoint_url"] == "https://93.184.216.34"
+        assert kwargs["webdav_settings"]["s3_endpoint_url"] == "https://93.184.216.34"
         notify_m.assert_called_once()
         assert "HTTP 502" in notify_m.call_args.kwargs["error"]
 
@@ -71,7 +71,7 @@ class TestAutoBackupJob:
             _drive(
                 {
                     "success": True,
-                    "path": "https://s3.example.com/bk/auto-1.tar.gz",
+                    "path": "https://93.184.216.34/bk/auto-1.tar.gz",
                     "size_bytes": 10,
                     "pruned": 0,
                     "remote_pruned": 0,

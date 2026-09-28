@@ -25,7 +25,7 @@ from backend.services.webdav_client import (
 
 
 def test_validate_webdav_url_ok():
-    assert validate_webdav_url("https://dav.example.com/path").startswith("https://")
+    assert validate_webdav_url("https://93.184.216.34/path").startswith("https://")
 
 
 def test_validate_webdav_url_rejects_bad():
@@ -33,6 +33,33 @@ def test_validate_webdav_url_rejects_bad():
         validate_webdav_url("ftp://x")
     with pytest.raises(ValueError):
         validate_webdav_url("")
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        # 回环 / 私网 / 链路本地
+        "http://127.0.0.1/dav",
+        "http://localhost/dav",
+        "http://10.0.0.5/dav",
+        "http://192.168.1.10/dav",
+        "http://172.16.0.9/dav",
+        "http://169.254.1.1/dav",
+        "http://[::1]/dav",
+        # 云元数据端点与 IPv4-mapped 绕过
+        "http://169.254.169.254/latest/meta-data",
+        "http://[::ffff:127.0.0.1]/dav",
+        # 非 URL / 缺 scheme
+        "not-a-url",
+        "dav.example.com",
+        "",
+        "   ",
+    ],
+)
+def test_validate_webdav_url_rejects_internal_and_malformed(url):
+    """内网、元数据端点与畸形 URL 一律 ValueError（SSRF 防护）。"""
+    with pytest.raises(ValueError):
+        validate_webdav_url(url)
 
 
 def test_join_url():
@@ -45,7 +72,7 @@ def test_ensure_remote_dirs_nested():
     """多级目录应逐段 MKCOL。"""
     client = MagicMock()
     client.request.return_value = MagicMock(status_code=201, text="")
-    _ensure_remote_dirs(client, "https://dav.example.com/files/u", "a/b/c")
+    _ensure_remote_dirs(client, "https://93.184.216.34/files/u", "a/b/c")
     assert client.request.call_count == 3
     urls = [c.args[1] for c in client.request.call_args_list]
     assert all(c.args[0] == "MKCOL" for c in client.request.call_args_list)
@@ -68,7 +95,7 @@ def test_upload_file_to_webdav(tmp_path: Path):
 
     with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client):
         result = upload_file_to_webdav(
-            base_url="https://dav.example.com/remote.php/dav/files/u",
+            base_url="https://93.184.216.34/remote.php/dav/files/u",
             username="u",
             password="p",
             remote_dir="tg-backups",
@@ -99,7 +126,7 @@ def test_upload_nested_remote_dir_mkcol(tmp_path: Path):
     )
     with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client):
         upload_file_to_webdav(
-            base_url="https://dav.example.com/files/u",
+            base_url="https://93.184.216.34/files/u",
             username="u",
             password="p",
             remote_dir="backups/tg/daily",
@@ -124,7 +151,7 @@ def test_upload_http_error_raises(tmp_path: Path):
     with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client):
         with pytest.raises(RuntimeError, match="401"):
             upload_file_to_webdav(
-                base_url="https://dav.example.com/files/u",
+                base_url="https://93.184.216.34/files/u",
                 username="u",
                 password="bad",
                 remote_dir="bk",
@@ -170,7 +197,7 @@ _SAMPLE_PROPFIND = """<?xml version="1.0"?>
 
 def test_parse_propfind_entries_skips_collections():
     entries = _parse_propfind_entries(
-        _SAMPLE_PROPFIND, "https://dav.example.com/remote.php/dav/files/u/bk"
+        _SAMPLE_PROPFIND, "https://93.184.216.34/remote.php/dav/files/u/bk"
     )
     names = {e["name"] for e in entries}
     assert "auto-1.tar.gz" in names
@@ -187,7 +214,7 @@ def test_list_webdav_files_filters_tar_gz():
     )
     with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client):
         result = list_webdav_files(
-            base_url="https://dav.example.com/remote.php/dav/files/u",
+            base_url="https://93.184.216.34/remote.php/dav/files/u",
             username="u",
             password="p",
             remote_dir="bk",
@@ -216,7 +243,7 @@ def test_delete_webdav_file():
     mock_client.delete.return_value = MagicMock(status_code=204, text="")
     with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client):
         r = delete_webdav_file(
-            base_url="https://dav.example.com/files/u",
+            base_url="https://93.184.216.34/files/u",
             username="u",
             password="p",
             remote_dir="bk",
@@ -241,7 +268,7 @@ def test_download_webdav_file(tmp_path: Path):
 
     with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client):
         path = download_webdav_file(
-            base_url="https://dav.example.com/files/u",
+            base_url="https://93.184.216.34/files/u",
             username="u",
             password="p",
             remote_dir="bk",
@@ -275,7 +302,7 @@ def test_download_interrupted_preserves_existing_file(tmp_path: Path):
     with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client):
         with pytest.raises(RuntimeError, match="connection reset"):
             download_webdav_file(
-                base_url="https://dav.example.com/files/u",
+                base_url="https://93.184.216.34/files/u",
                 username="u",
                 password="p",
                 remote_dir="bk",
@@ -308,7 +335,7 @@ def test_download_empty_result_preserves_existing_file(tmp_path: Path):
     with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client):
         with pytest.raises(RuntimeError, match="下载结果为空"):
             download_webdav_file(
-                base_url="https://dav.example.com/files/u",
+                base_url="https://93.184.216.34/files/u",
                 username="u",
                 password="p",
                 remote_dir="bk",
@@ -332,7 +359,7 @@ def test_prune_webdav_backups_keeps_n():
         return_value={"success": True},
     ) as del_m:
         r = prune_webdav_backups(
-            base_url="https://dav.example.com/files/u",
+            base_url="https://93.184.216.34/files/u",
             username="u",
             password="p",
             remote_dir="bk",
@@ -371,7 +398,7 @@ def test_iter_webdav_file_yields_chunks():
     with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client):
         data = b"".join(
             iter_webdav_file(
-                base_url="https://dav.example.com/files/u",
+                base_url="https://93.184.216.34/files/u",
                 username="u",
                 password="p",
                 remote_dir="bk",
@@ -401,7 +428,7 @@ def test_webdav_connection_ok_when_dir_exists():
     )
     with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client):
         r = check_webdav_connection(
-            base_url="https://dav.example.com/files/u",
+            base_url="https://93.184.216.34/files/u",
             username="u",
             password="p",
             remote_dir="tg-signpulse-backups",
@@ -428,7 +455,7 @@ def test_webdav_connection_ok_when_remote_dir_missing_returns_403():
     mock_client = _mock_httpx_client(request_side_effect=_request)
     with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client):
         r = check_webdav_connection(
-            base_url="https://dav.example.com/files/u",
+            base_url="https://93.184.216.34/files/u",
             username="u",
             password="p",
             remote_dir="tg-signpulse-backups",
@@ -452,7 +479,7 @@ def test_webdav_connection_ok_when_remote_dir_missing_returns_404():
     mock_client = _mock_httpx_client(request_side_effect=_request)
     with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client):
         r = check_webdav_connection(
-            base_url="https://dav.example.com/files/u",
+            base_url="https://93.184.216.34/files/u",
             username="u",
             password="p",
             remote_dir="tg-signpulse-backups",
@@ -467,7 +494,7 @@ def test_webdav_connection_auth_fail_when_base_also_403():
     mock_client = _mock_httpx_client(request_return=always_403)
     with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client):
         r = check_webdav_connection(
-            base_url="https://dav.example.com/files/u",
+            base_url="https://93.184.216.34/files/u",
             username="u",
             password="bad",
             remote_dir="tg-signpulse-backups",
@@ -484,7 +511,7 @@ def test_webdav_connection_auth_fail_on_401():
     )
     with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client):
         r = check_webdav_connection(
-            base_url="https://dav.example.com/files/u",
+            base_url="https://93.184.216.34/files/u",
             username="u",
             password="bad",
             remote_dir="tg-signpulse-backups",
@@ -500,7 +527,7 @@ def test_webdav_connection_base_only_403_is_auth_fail():
     )
     with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client):
         r = check_webdav_connection(
-            base_url="https://dav.example.com/files/u",
+            base_url="https://93.184.216.34/files/u",
             username="u",
             password="p",
             remote_dir="",
@@ -520,7 +547,7 @@ def test_webdav_operations_support_proxy(tmp_path: Path):
 
     with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client) as mock_cls:
         upload_file_to_webdav(
-            base_url="https://dav.example.com/files/u",
+            base_url="https://93.184.216.34/files/u",
             username="u",
             password="p",
             remote_dir="bk",
@@ -531,7 +558,7 @@ def test_webdav_operations_support_proxy(tmp_path: Path):
 
     with patch("backend.services.webdav_client.httpx.Client", return_value=mock_client) as mock_cls:
         check_webdav_connection(
-            base_url="https://dav.example.com/files/u",
+            base_url="https://93.184.216.34/files/u",
             username="u",
             password="p",
             remote_dir="bk",
