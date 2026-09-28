@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta
 import inspect
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -531,3 +532,55 @@ def test_compute_range_compensation_skips_when_oneshot_pending():
     with patch("backend.scheduler.scheduler", mock_scheduler):
         dt = _compute_range_task_compensation(cfg, now=datetime(2026, 1, 1, 12, 0))
         assert dt is None
+
+
+class TestForwardMessagesSessionBoundary:
+    """forward_messages 不得越会话：源会话固定为触发会话，message_ids 仅限触发消息。"""
+
+    @staticmethod
+    def _ctx(chat_id=123, message_id=99):
+        class FakeMsg:
+            id = message_id
+
+        return SimpleNamespace(chat_id=chat_id, message=FakeMsg())
+
+    def test_plugin_supplied_from_chat_id_is_discarded(self):
+        params = PluginProcessHost._resolve_forward_params(
+            self._ctx(), {"from_chat_id": -100999, "message_ids": 99}
+        )
+        assert params["from_chat_id"] == 123
+        assert params["message_ids"] == 99
+
+    def test_default_message_ids_is_trigger_message(self):
+        params = PluginProcessHost._resolve_forward_params(self._ctx(), {})
+        assert params["message_ids"] == 99
+        assert params["from_chat_id"] == 123
+
+    def test_single_element_trigger_list_is_accepted(self):
+        params = PluginProcessHost._resolve_forward_params(
+            self._ctx(), {"message_ids": [99]}
+        )
+        assert params["message_ids"] == [99]
+
+    def test_non_trigger_message_ids_is_rejected(self):
+        with pytest.raises(ValueError, match="仅允许转发触发消息本身"):
+            PluginProcessHost._resolve_forward_params(
+                self._ctx(), {"message_ids": [99, 100]}
+            )
+
+        with pytest.raises(ValueError, match="仅允许转发触发消息本身"):
+            PluginProcessHost._resolve_forward_params(
+                self._ctx(), {"message_ids": 12345}
+            )
+
+    def test_missing_trigger_message_is_rejected(self):
+        ctx = SimpleNamespace(chat_id=123, message=None)
+        with pytest.raises(ValueError, match="没有有效消息 ID"):
+            PluginProcessHost._resolve_forward_params(ctx, {})
+
+    def test_other_params_pass_through(self):
+        params = PluginProcessHost._resolve_forward_params(
+            self._ctx(), {"message_ids": 99, "disable_notification": True}
+        )
+        assert params["disable_notification"] is True
+        assert "from_chat_id" in params

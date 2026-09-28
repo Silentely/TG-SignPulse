@@ -47,6 +47,31 @@ from tg_signer.utils import validate_public_http_url
 router = APIRouter()
 logger = logging.getLogger("backend.plugins_api")
 
+# 插件包内允许的非代码数据文件后缀（小写）。Python 源码单独走 AST 安全审查，
+# 其余文件必须落在此白名单内，防止借 .pyc/.so/.dll/.sh 夹带可执行体。
+_PLUGIN_ALLOWED_DATA_SUFFIXES = frozenset(
+    {
+        ".json",
+        ".txt",
+        ".md",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".cfg",
+        ".ini",
+        ".csv",
+        ".html",
+        ".css",
+        ".js",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".svg",
+        ".ico",
+    }
+)
+
 
 def _safe_source_path(source_path: Optional[str]) -> Optional[str]:
     """仅返回插件目录和文件名，避免泄露宿主机绝对路径。"""
@@ -510,6 +535,40 @@ def _parse_semver(v: str) -> tuple[int, ...]:
     return tuple(parts[:3])
 
 
+def _build_local_plugin_archive(plugin_id: str, version: str) -> Optional[bytes]:
+    """构建/读取本地市场插件的安装归档包字节。
+
+    目录生成与安装下载必须走同一实现，否则目录里声明的 sha256 与安装时
+    实际拿到的字节不一致，完整性校验会误报。
+    优先使用 dist/marketplace/plugins/<id>-<ver>.zip 预打包产物，
+    否则把 community_plugins/<id>/ 下的文件打包（跳过点号开头的文件）。
+    """
+    import io
+    import zipfile
+
+    for base in [
+        Path.cwd() / "dist" / "marketplace" / "plugins",
+        Path("/app/dist/marketplace/plugins"),
+    ]:
+        zip_file = base / f"{plugin_id}-{version}.zip"
+        if zip_file.is_file():
+            try:
+                return zip_file.read_bytes()
+            except Exception:
+                pass
+
+    for base in [Path.cwd() / "community_plugins", Path("/app/community_plugins")]:
+        pdir = base / plugin_id
+        if pdir.is_dir() and (pdir / "main.py").is_file():
+            bio = io.BytesIO()
+            with zipfile.ZipFile(bio, "w", zipfile.ZIP_DEFLATED) as zf:
+                for f in sorted(pdir.iterdir()):
+                    if f.is_file() and not f.name.startswith("."):
+                        zf.write(f, arcname=f.name)
+            return bio.getvalue()
+    return None
+
+
 def _get_local_marketplace_catalog() -> Dict[str, Any]:
     """优先读取本地构建的 marketplace.json，不存在则动态扫描 community_plugins 目录。"""
     candidates = [
@@ -539,8 +598,16 @@ def _get_local_marketplace_catalog() -> Dict[str, Any]:
                             readme_file = pdir / "README.md"
                             readme_text = readme_file.read_text(encoding="utf-8") if readme_file.is_file() else ""
                             manifest.setdefault("download_url", f"local://{pdir.name}")
-                            manifest.setdefault("sha256", "")
-                            manifest.setdefault("size", 0)
+                            # 摘要按实际归档字节计算：安装侧失败关闭校验才有意义
+                            archive_bytes = _build_local_plugin_archive(
+                                pdir.name, str(manifest.get("version") or "1.0.0")
+                            )
+                            manifest["sha256"] = (
+                                hashlib.sha256(archive_bytes).hexdigest()
+                                if archive_bytes
+                                else ""
+                            )
+                            manifest["size"] = len(archive_bytes) if archive_bytes else 0
                             manifest.setdefault("readme", readme_text)
                             manifest.setdefault("updated_at", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
                             plugins_list.append(manifest)
@@ -810,29 +877,10 @@ async def _do_install_market_plugin(plugin_id: str, is_update: bool = False) -> 
     )
 
     if is_local_download:
-        ver = matched_item.get("version", "1.0.0")
-        for base in [Path.cwd() / "dist" / "marketplace" / "plugins", Path("/app/dist/marketplace/plugins")]:
-            zip_file = base / f"{plugin_id}-{ver}.zip"
-            if zip_file.is_file():
-                try:
-                    archive_bytes = zip_file.read_bytes()
-                    break
-                except Exception:
-                    pass
-
-        if archive_bytes is None:
-            for base in [Path.cwd() / "community_plugins", Path("/app/community_plugins")]:
-                pdir = base / plugin_id
-                if pdir.is_dir() and (pdir / "main.py").is_file():
-                    bio = io.BytesIO()
-                    with zipfile.ZipFile(bio, "w", zipfile.ZIP_DEFLATED) as zf:
-                        for f in pdir.iterdir():
-                            if f.is_file() and not f.name.startswith("."):
-                                zf.write(f, arcname=f.name)
-                    bio.seek(0)
-                    archive_bytes = bio.read()
-                    break
-
+        # 与目录生成共用同一实现，保证声明的 sha256 与实际字节一致
+        archive_bytes = _build_local_plugin_archive(
+            plugin_id, str(matched_item.get("version") or "1.0.0")
+        )
         if archive_bytes is None:
             raise HTTPException(status_code=404, detail="本地市场未找到该插件的安装归档包")
     else:
@@ -877,11 +925,20 @@ async def _do_install_market_plugin(plugin_id: str, is_update: bool = False) -> 
     if not PLUGIN_ID_REGEX.match(plugin_id):
         raise HTTPException(status_code=400, detail="无效的插件标识符")
 
-    expected_sha = matched_item.get("sha256")
-    if expected_sha and archive_bytes:
-        computed_sha = hashlib.sha256(archive_bytes).hexdigest()
-        if computed_sha.lower() != str(expected_sha).lower():
-            raise HTTPException(status_code=400, detail="插件安装包完整性校验失败 (SHA-256 不匹配)")
+    expected_sha = str(matched_item.get("sha256") or "").strip()
+    # 失败关闭：目录项缺 sha256（或为空串）时直接拒绝，而不是跳过完整性校验。
+    # 本地市场目录由 _get_local_marketplace_catalog 兜底 setdefault("sha256", "")，
+    # 旧目录会因此全部为空串——那种情况下宁可拒绝安装，也不放行未校验的包。
+    if not expected_sha:
+        raise HTTPException(
+            status_code=400,
+            detail="市场目录缺少 sha256 摘要，拒绝安装（完整性无法校验）",
+        )
+    if not archive_bytes:
+        raise HTTPException(status_code=400, detail="插件安装包内容为空")
+    computed_sha = hashlib.sha256(archive_bytes).hexdigest()
+    if computed_sha.lower() != expected_sha.lower():
+        raise HTTPException(status_code=400, detail="插件安装包完整性校验失败 (SHA-256 不匹配)")
 
     import tempfile
     import uuid
@@ -944,6 +1001,13 @@ async def _do_install_market_plugin(plugin_id: str, is_update: bool = False) -> 
                 except UnicodeDecodeError:
                     raise HTTPException(status_code=400, detail=f"插件代码不是合法的 UTF-8 编码 ({ef.name})")
                 _enforce_plugin_security_check(code_text, ef.name)
+            elif ef.suffix.lower() not in _PLUGIN_ALLOWED_DATA_SUFFIXES:
+                # 与 /import-bundle 对齐：只放行白名单内的数据文件，
+                # 其余后缀（.pyc/.so/.dll/.sh/可执行体）一律拒绝
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"插件包含不允许的文件类型: {ef.name}",
+                )
 
         if not ((temp_dir / "main.py").is_file() or (temp_dir / "__init__.py").is_file()):
             raise HTTPException(status_code=400, detail="插件包缺少入口文件 (main.py 或 __init__.py)")
@@ -2355,14 +2419,8 @@ async def clone_plugin(
             count=1,
         )
 
-    # AST 自检：替换后的代码必须是合法 Python，防止拼接破坏源码结构
-    try:
-        ast.parse(new_code, filename=f"{req.new_name}.py")
-    except SyntaxError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"克隆生成的插件代码语法非法: {exc.msg} (第 {exc.lineno} 行)",
-        )
+    # 落盘前先过与其余入口一致的安全门禁：替换名称不会消除源码里的高危调用
+    _enforce_plugin_security_check(new_code, f"克隆插件 {req.new_name}")
 
     target_dir = _get_custom_plugins_dir()
     target_file = target_dir / f"{req.new_name}.py"

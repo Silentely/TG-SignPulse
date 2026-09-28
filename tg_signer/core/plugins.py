@@ -1493,26 +1493,62 @@ class _SecurityVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Assign(self, node: ast.Assign) -> None:
-        if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
-            target_name = node.targets[0].id
-            v = node.value
-            if isinstance(v, ast.Attribute) and isinstance(v.value, ast.Name):
-                full = f"{self._aliases.get(v.value.id, v.value.id)}.{v.attr}"
-                if full in (
-                    "os.system", "os.popen", "subprocess.run", "subprocess.Popen",
-                    "subprocess.call", "subprocess.getoutput", "subprocess.getstatusoutput",
-                    "eval", "exec", "compile", "__import__",
-                    "asyncio.create_subprocess_shell", "asyncio.create_subprocess_exec",
-                ):
-                    self._aliases[target_name] = full
-                    self.warnings.append({
-                        "line": node.lineno,
-                        "column": node.col_offset,
-                        "severity": "high",
-                        "rule": f"dangerous-alias:{full}",
-                        "message": f"检测到将高危函数 '{full}' 赋值给别名 '{target_name}'",
-                    })
+        # 高危函数名集合：与上方导入判定共用同一份名单
+        dangerous_full_names = (
+            "os.system", "os.popen", "subprocess.run", "subprocess.Popen",
+            "subprocess.call", "subprocess.getoutput", "subprocess.getstatusoutput",
+            "eval", "exec", "compile", "__import__",
+            "asyncio.create_subprocess_shell", "asyncio.create_subprocess_exec",
+        )
+
+        def _resolve(value: ast.expr) -> Optional[str]:
+            """把右值表达式解析为「已知全名」（Name 走别名表，Attribute 拼前缀）。"""
+            if isinstance(value, ast.Name):
+                return self._aliases.get(value.id, value.id)
+            if isinstance(value, ast.Attribute) and isinstance(value.value, ast.Name):
+                return f"{self._aliases.get(value.value.id, value.value.id)}.{value.attr}"
+            return None
+
+        # 逐目标处理：覆盖 a = x、a = b = x、(a, b) = (x, y) 三种形态
+        pairs: List[Tuple[str, Optional[str]]] = []
+        if len(node.targets) == 1 and isinstance(node.targets[0], (ast.Tuple, ast.List)) \
+                and isinstance(node.value, (ast.Tuple, ast.List)) \
+                and len(node.targets[0].elts) == len(node.value.elts):
+            for target_elt, value_elt in zip(node.targets[0].elts, node.value.elts, strict=False):
+                for name in self._assign_target_names(target_elt):
+                    pairs.append((name, _resolve(value_elt)))
+        else:
+            for target in node.targets:
+                for name in self._assign_target_names(target):
+                    pairs.append((name, _resolve(node.value)))
+
+        for target_name, resolved in pairs:
+            if resolved is None:
+                continue
+            if resolved in dangerous_full_names:
+                self._aliases[target_name] = resolved
+                self.warnings.append({
+                    "line": node.lineno,
+                    "column": node.col_offset,
+                    "severity": "high",
+                    "rule": f"dangerous-alias:{resolved}",
+                    "message": f"检测到将高危函数 '{resolved}' 赋值给别名 '{target_name}'",
+                })
+            elif target_name not in self._aliases:
+                # 传播模块/普通别名（如 sp = subprocess），让后续 sp.run(...) 能被还原
+                self._aliases[target_name] = resolved
         self.generic_visit(node)
+
+    @staticmethod
+    def _assign_target_names(target: ast.expr) -> List[str]:
+        """取出赋值目标的全部 Name 标识（支持 a = b = x 与 (a, b) = ...）。"""
+        names: List[str] = []
+        if isinstance(target, ast.Name):
+            names.append(target.id)
+        elif isinstance(target, (ast.Tuple, ast.List)):
+            for elt in target.elts:
+                names.extend(_SecurityVisitor._assign_target_names(elt))
+        return names
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
         if node.attr in ("__subclasses__", "__globals__", "__builtins__", "__code__", "__bases__", "__base__", "__mro__"):
@@ -1839,7 +1875,13 @@ def audit_plugin_source(source: str) -> List[Dict[str, Any]]:
 
 
 def compute_plugin_security_report(source: str) -> Dict[str, Any]:
-    """计算插件全方位安全体检报告，包含评分（0-100）、风险评级与阻断研判。"""
+    """计算插件全方位安全体检报告，包含评分（0-100）、风险评级与阻断研判。
+
+    阻断研判（has_critical）改为**基于告警严重度**：high/critical 一律阻断，
+    不再按规则名做子串匹配——规则名匹配会让新增/改名的规则静默绕过门禁。
+    另有两类审计失败形态必须失败关闭：star-import（星号导入使命名空间不可追踪）
+    与 syntax-error / audit-error（审计本身没跑成）。
+    """
     warnings = audit_plugin_source(source)
     detected_caps = detect_plugin_capabilities(source)
     declared_perms = extract_plugin_declared_permissions(source)
@@ -1853,14 +1895,20 @@ def compute_plugin_security_report(source: str) -> Dict[str, Any]:
 
     for w in warnings:
         sev = w.get("severity", "medium")
-        rule = w.get("rule", "")
+        rule = str(w.get("rule", ""))
         if sev in ("critical", "high"):
             deductions += 30
             has_high = True
-            if any(k in rule for k in ("disallowed", "dangerous", "sandbox", "escape", "ctypes", "process-execution")):
-                has_critical = True
+            has_critical = True
         else:
             deductions += 10
+        # 审计失败形态：星号导入 / 语法错误 / 审计异常，一律失败关闭
+        if rule.split(":", 1)[0] in (
+            "star-import",
+            "syntax-error",
+            "audit-error",
+        ):
+            has_critical = True
 
     score = max(0, 100 - deductions)
     if has_critical or score < 50:
