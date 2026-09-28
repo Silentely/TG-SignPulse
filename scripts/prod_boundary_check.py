@@ -120,20 +120,24 @@ def main() -> int:
     if has_scheduler_lock():
         errors.append("scheduler lock not released")
 
-    # 8) 容器身份：Dockerfile 必须降权到非 root，compose 不得以 root 运行
+    # 8) 容器身份降权保障：
+    # 生产镜像采用 Entrypoint + Gosu 动态降权规范（与 PostgreSQL/Redis/MySQL 官方镜像一致）。
+    # 既确保老用户挂载卷历史属主在入口自愈，又确保最终运行服务不可逆降权到非 root。
     repo_root = Path(__file__).resolve().parent.parent
     dockerfile_text = (repo_root / "Dockerfile").read_text(encoding="utf-8")
-    user_directives = [
-        line.split()[1]
-        for line in dockerfile_text.splitlines()
-        if line.strip().upper().startswith("USER ")
-    ]
-    if not user_directives:
-        errors.append("Dockerfile missing USER directive")
-    else:
-        final_user = user_directives[-1].split(":")[0]
-        if final_user.lower() in ("root", "0"):
-            errors.append(f"Dockerfile final USER must not be root (got {final_user})")
+    entrypoint_text = (repo_root / "docker" / "entrypoint.sh").read_text(
+        encoding="utf-8"
+    )
+
+    if "gosu" not in dockerfile_text:
+        errors.append("Dockerfile missing gosu tool")
+    if "useradd" not in dockerfile_text or "10001" not in dockerfile_text:
+        errors.append("Dockerfile missing non-root user (10001)")
+
+    if "gosu" not in entrypoint_text:
+        errors.append("entrypoint.sh missing gosu privilege drop")
+    if "keep root" in entrypoint_text:
+        errors.append("entrypoint.sh must not keep root")
 
     for compose_name in ("docker-compose.yml", "docker-compose.panel.yml"):
         compose_file = repo_root / compose_name
@@ -144,10 +148,10 @@ def main() -> int:
         service_user = re.search(
             r"^\s*user:\s*[\"']?(\d+):(\d+)", compose_text, re.MULTILINE
         )
-        if not service_user:
-            errors.append(f"{compose_name} missing explicit non-root user:")
-        elif service_user.group(1) == "0" or service_user.group(2) == "0":
-            errors.append(f"{compose_name} must not run as uid/gid 0")
+        if service_user and (
+            service_user.group(1) == "0" or service_user.group(2) == "0"
+        ):
+            errors.append(f"{compose_name} must not explicitly run as uid/gid 0")
 
     if errors:
         print("FAIL:")

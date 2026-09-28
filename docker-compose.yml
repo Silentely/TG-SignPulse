@@ -6,9 +6,10 @@ services:
       - "8080:8080"
     mem_limit: 768m
     cpus: 1.0
-    # 显式以非 root 身份运行，与 Dockerfile 的 USER app 对齐；
-    # 若挂载卷属主不同，入口会 fail-closed 报错而非静默回退 root
-    user: "10001:10001"
+    # 由 entrypoint.sh 自动检查并修复挂载卷权限（兼容旧版本平滑升级），
+    # 并强制通过 gosu 降权至 10001:10001 运行业务进程。
+    # 宿主机卷属主已预先修正为 10001:10001 时，亦可显式解开下行：
+    # user: "10001:10001"
     volumes:
       - ./data:/data
     environment:
