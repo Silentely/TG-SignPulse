@@ -151,6 +151,7 @@ AI、全局设置和 Telegram API 配置则单独保存在数据目录根部的 
 
 - **数据库**：**默认仍是 SQLite（WAL）**，并未取消或强制迁走。可通过 `APP_DATABASE_URL` / `DATABASE_URL` **可选**切换到 PostgreSQL 等（SQLAlchemy URL，需对应驱动）。面板元数据可外置，但 **Telegram session 仍不宜多进程共享同一账号文件**。
 - **调度锁**：启动时尝试获取 `data/.scheduler.lock`（`APP_SCHEDULER_LOCK=0` 可关闭）。仅锁持有者注册 `sign-` 业务 job（旧 ORM `db-` job 已随旧任务体系移除），降低多副本重复签到风险。
+- **文件配置并发（进程内锁限制）**：任务配置与状态回写（`config.json` 等）依赖 `path_write_lock` 进行“读-改-写”互斥。该锁为**进程内锁（threading.RLock）**，仅保证单 Python 进程内各线程与协程的读写串行化，**不支持多个 API 副本同时挂载共享文件目录进行跨进程并发写入**。若有多副本诉求，需保持单主写入或待后续架构演进（迁移至数据库事务或跨进程分布式锁）。
 - **监听分片**：`APP_MONITOR_SHARD=i/n` + 可选 `APP_MONITOR_ACCOUNT_ALLOWLIST`，按账号拆分关键词监听；**同一账号的 session 仍只能由一个进程持有**。
 - **旧任务 API**：`/api/tasks` 已移除，统一 `/api/sign-tasks`。
 - **任务队列**：完整队列化（Celery/RQ 等）尚未内置；当前以进程内 APScheduler + 文件锁 + 监听分片为过渡方案。

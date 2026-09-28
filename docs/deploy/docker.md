@@ -133,6 +133,12 @@ Docker 内置健康检查已配置，间隔 30s，超时 10s。
 
 > ⚠️ 如果 `/data` 不可写，程序会降级到 `/tmp/tg-signpulse`（非持久化），仅适合临时测试。
 
+> ⚠️ **防呆说明（单实例 / 单 Worker 约束）**：
+> 系统采用本地文件化配置与进程内互斥锁（`path_write_lock`）。生产部署时**请保持单副本（Single Replica）与单 Worker（默认 Uvicorn 启动项）运行**：
+> 1. **切勿**在 Kubernetes / 容器编排中使用多副本（`replicas > 1`）同时挂载同一个 NFS / 共享存储卷，否则多个 API 副本并发修改同一任务配置时会导致跨进程写入覆盖（丢失更新）。
+> 2. **切勿**在容器启动命令中添加 `--workers N` 启动多个 Worker 进程。
+> 高并发请求依靠 FastAPI / Uvicorn 异步 IO 即可满足；若需多实例容灾或监控分片，请参考 [架构设计 - 扩展约束](../reference/architecture.md#扩展约束)。
+
 ## 权限处理
 
 容器入口脚本会自动：
