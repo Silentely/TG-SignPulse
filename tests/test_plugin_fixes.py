@@ -6,7 +6,9 @@
 
 import ast
 import io
+import shutil
 import zipfile
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -39,6 +41,16 @@ def override_user():
 def _cleanup_plugin(name: str) -> None:
     client.delete(f"/api/plugins/{name}")
     PluginRegistry._plugins.pop(name, None)
+    # API 删除基于注册表，注册表被并发消费者清空后，残留的磁盘目录会让下次
+    # create 返回 409。这里直接兜底清理自定义插件目录下的同名目录/文件，
+    # 让用例可重复执行，避免并行互扰累积成永久性失败
+    for base in (Path.cwd() / "data" / "plugins", Path("plugins")):
+        p_dir = base / name
+        if p_dir.exists():
+            shutil.rmtree(p_dir, ignore_errors=True)
+        p_file = base / f"{name}.py"
+        if p_file.exists():
+            p_file.unlink(missing_ok=True)
 
 
 # ============================================================================
@@ -196,14 +208,16 @@ def test_api_test_plugin_uses_isolated_test_namespace():
     from tg_signer.core.plugins import PluginStorageBackend
 
     _cleanup_plugin("ns_probe")
-    created = client.post(
-        "/api/plugins/create",
-        json={"name": "ns_probe", "template": "storage_counter"},
-    )
-    assert created.status_code == 200
-
     backend = PluginStorageBackend()
     try:
+        # create 也放进 try：断言失败时同样要清理，否则残留目录会让后续每次
+        # 执行都在同一处 409 失败
+        created = client.post(
+            "/api/plugins/create",
+            json={"name": "ns_probe", "template": "storage_counter"},
+        )
+        assert created.status_code == 200
+
         resp = client.post(
             "/api/plugins/ns_probe/test",
             json={"text": "", "chat_id": 555000, "params": {}},

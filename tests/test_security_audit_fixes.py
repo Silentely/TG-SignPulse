@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import ast
 import os
+import socket
 import stat
 
 import pytest
@@ -104,11 +105,26 @@ class TestSecurityAuditFixes:
         # Must skip 10.0.0.1 (trusted) and select 198.51.100.22 (first untrusted), ignoring 9.9.9.9
         assert resolved == "198.51.100.22"
 
-    def test_push_notification_ssrf_blocks_cloud_metadata(self):
+    def test_push_notification_ssrf_blocks_cloud_metadata(self, monkeypatch):
         # AWS / GCP / Alibaba cloud metadata IP and domains
         with pytest.raises(ValueError, match="禁止请求私有或内网地址"):
             _validate_push_target_url("http://169.254.169.254/latest/meta-data/")
 
+        # 域名形式需先走 DNS 解析：固定解析结果，避免依赖外部解析环境
+        # （CI 上解析不到该域名会先抛「无法解析主机」，与预期告警不匹配）
+        def _fake_getaddrinfo(host, *args, **kwargs):
+            assert host == "metadata.google.internal"
+            return [
+                (
+                    socket.AF_INET,
+                    socket.SOCK_STREAM,
+                    socket.IPPROTO_TCP,
+                    "",
+                    ("169.254.169.254", 0),
+                )
+            ]
+
+        monkeypatch.setattr(socket, "getaddrinfo", _fake_getaddrinfo)
         with pytest.raises(ValueError, match="禁止请求私有或内网地址"):
             _validate_push_target_url(
                 "http://metadata.google.internal/computeMetadata/v1/"
