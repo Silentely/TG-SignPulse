@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 from backend.core.config import get_settings
+
+logger = logging.getLogger("backend.database")
 
 Base = declarative_base()
 
@@ -59,6 +62,36 @@ def init_engine() -> None:
 
     _engine = engine
     _SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+
+def run_migrations(engine: Optional[Engine] = None) -> None:
+    """轻量级数据库架构迁移，确保旧版本数据库平滑升级到当前模型结构。"""
+    if engine is None:
+        engine = get_engine()
+
+    try:
+        inspector = inspect(engine)
+        existing_tables = set(inspector.get_table_names())
+
+        # users 表列补齐迁移
+        if "users" in existing_tables:
+            columns = {col["name"] for col in inspector.get_columns("users")}
+            with engine.begin() as conn:
+                if "totp_secret" not in columns:
+                    logger.info("数据库迁移：补齐 users.totp_secret 列")
+                    conn.execute(
+                        text("ALTER TABLE users ADD COLUMN totp_secret VARCHAR(64)")
+                    )
+                if "token_epoch" not in columns:
+                    logger.info("数据库迁移：补齐 users.token_epoch 列")
+                    conn.execute(
+                        text(
+                            "ALTER TABLE users ADD COLUMN token_epoch INTEGER NOT NULL DEFAULT 1"
+                        )
+                    )
+    except Exception as exc:
+        logger.error("数据库轻量迁移检查失败: %s", exc, exc_info=True)
+        raise
 
 
 def get_engine() -> Engine:

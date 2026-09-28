@@ -76,9 +76,8 @@ RUN mkdir -p /data && \
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# 降权为非 root：后续所有层（包括 ENTRYPOINT 起点）都不再具备 root 能力。
-# 放在 chown / COPY entrypoint 之后，确保属主修正与入口落盘仍可用 root 完成。
-USER app
+# 运行期身份由 entrypoint.sh 统一通过 gosu 降权至 app (10001:10001)；
+# 入口保持 root 以便在启动时自动自愈挂载卷中历史文件的属主与读写权限（兼容旧版本平滑升级）。
 
 EXPOSE 8080
 

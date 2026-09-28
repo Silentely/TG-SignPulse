@@ -39,6 +39,7 @@ from backend.core.database import (  # noqa: E402
     get_engine,
     get_session_local,
     init_engine,
+    run_migrations,
 )
 from backend.scheduler import (  # noqa: E402
     init_scheduler,
@@ -444,6 +445,7 @@ async def on_startup() -> None:
         )
     init_engine()
     Base.metadata.create_all(bind=get_engine())
+    run_migrations(get_engine())
     with get_session_local()() as db:
         ensure_admin(db)
     await init_scheduler(sync_on_startup=False)
