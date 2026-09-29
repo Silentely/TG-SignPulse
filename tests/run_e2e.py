@@ -93,17 +93,23 @@ def main():
             raise RuntimeError("前端服务启动超时")
         print("✅ 前端服务已就绪")
 
-        print("🏁 执行 Edge CDP 浏览器自动化测试...")
-        suite_script = "tests/e2e_edge_test.mjs" if "--cdp" in sys.argv else "tests/e2e_playwright.mjs"
-        print(f"🏁 执行 E2E 自动化测试脚本 ({suite_script})...")
-        test_res = subprocess.run(
-            ["node", str(ROOT_DIR / suite_script)],
-            cwd=str(ROOT_DIR),
-        )
+        if "--cdp" in sys.argv:
+            print("🏁 执行 Edge CDP 自动化测试脚本 (tests/e2e_edge_test.mjs)...")
+            test_res = subprocess.run(["node", str(ROOT_DIR / "tests/e2e_edge_test.mjs")], cwd=str(ROOT_DIR))
+        elif "--mjs" in sys.argv:
+            print("🏁 执行单文件 Playwright 脚本 (tests/e2e_playwright.mjs)...")
+            test_res = subprocess.run(["node", str(ROOT_DIR / "tests/e2e_playwright.mjs")], cwd=str(ROOT_DIR))
+        else:
+            print("🏁 执行 Playwright 官方规范测试套件 (npm --prefix frontend run test:e2e)...")
+            cmd = ["npx", "playwright", "test"]
+            extra_args = [a for a in sys.argv[1:] if not a.startswith("--cdp") and not a.startswith("--mjs")]
+            cmd.extend(extra_args)
+            test_res = subprocess.run(cmd, cwd=str(ROOT_DIR / "frontend"))
+
         if test_res.returncode == 0:
             success = True
         else:
-            print(f"❌ 浏览器自动化测试返回非零退出码: {test_res.returncode}")
+            print(f"❌ Playwright E2E 测试返回非零退出码: {test_res.returncode}")
 
     finally:
         print("🧹 正在清理与关闭本地服务...")
