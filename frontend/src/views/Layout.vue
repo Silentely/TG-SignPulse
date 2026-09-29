@@ -231,6 +231,7 @@ const handleNavClick = () => {
       <div class="border-t border-[var(--sp-border)] p-3">
         <button
           type="button"
+          data-testid="user-profile-btn"
           class="flex items-center w-full h-10 px-3 transition-colors whitespace-nowrap rounded-md text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/[0.03]"
           @click="showProfileModal = true; isMobileMenuOpen = false"
         >
