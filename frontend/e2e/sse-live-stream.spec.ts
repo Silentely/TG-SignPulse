@@ -63,6 +63,8 @@ test.describe('SSE Real-time Event Stream & Dashboard Live Updates', () => {
     await expect(page).toHaveURL(/.*\/dashboard/);
     // Ensure dashboard pageLoading skeleton is dismissed
     await expect(page.locator('div[aria-busy="true"]')).toBeHidden();
+    // Ensure SSE instance is established before test steps proceed
+    await page.waitForFunction(() => ((window as any).__sseInstances?.length || 0) > 0, null, { timeout: 10000 });
   });
 
   test('should establish SSE connection and switch live badge to active state', async ({ page }) => {
