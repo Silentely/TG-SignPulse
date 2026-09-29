@@ -40,15 +40,17 @@ def ensure_edge_running():
 
 def main():
     cleanup_data_dir()
-    ensure_edge_running()
+    if "--cdp" in sys.argv:
+        ensure_edge_running()
 
     backend_env = os.environ.copy()
     backend_env["APP_DATA_DIR"] = str(TEST_DATA_DIR)
     backend_env["ADMIN_PASSWORD"] = "adminpassword123"
     backend_env["PYTHONPATH"] = str(ROOT_DIR)
 
+    py_bin = str(ROOT_DIR / ".venv" / "bin" / "python") if (ROOT_DIR / ".venv" / "bin" / "python").exists() else sys.executable
     backend_cmd = [
-        sys.executable,
+        py_bin,
         "-m",
         "uvicorn",
         "backend.main:app",
@@ -92,8 +94,10 @@ def main():
         print("✅ 前端服务已就绪")
 
         print("🏁 执行 Edge CDP 浏览器自动化测试...")
+        suite_script = "tests/e2e_edge_test.mjs" if "--cdp" in sys.argv else "tests/e2e_playwright.mjs"
+        print(f"🏁 执行 E2E 自动化测试脚本 ({suite_script})...")
         test_res = subprocess.run(
-            ["node", str(ROOT_DIR / "tests" / "e2e_edge_test.mjs")],
+            ["node", str(ROOT_DIR / suite_script)],
             cwd=str(ROOT_DIR),
         )
         if test_res.returncode == 0:

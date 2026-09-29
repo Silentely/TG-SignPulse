@@ -10,7 +10,7 @@ import { getErrorCode, getLocalizedErrorMessage } from '../lib/types'
 
 const router = useRouter()
 const authStore = useAuthStore()
-const { locale, toggleLanguage, t } = useI18n()
+const { locale, toggleLanguage, t, te } = useI18n()
 const { isDark, toggleTheme } = useTheme()
 
 const username = ref('')
@@ -25,8 +25,7 @@ const totpInput = ref<HTMLInputElement | null>(null)
 const mapLoginError = (detail: string): string => {
   const code = detail.trim()
   const key = `login.errors.${code}`
-  const translated = t(key)
-  if (translated !== key) return translated
+  if (te && te(key)) return t(key)
   if (code.includes('TOTP') || code === 'TOTP_REQUIRED_OR_INVALID') {
     return totpCode.value ? t('login.totpInvalid') : t('login.totpRequired')
   }

@@ -1372,7 +1372,8 @@
     "errors": {
       "INVALID_USERNAME_OR_PASSWORD": "Invalid username or password",
       "TOTP_REQUIRED_OR_INVALID": "2FA code invalid or missing",
-      "RATE_LIMITED": "Too many requests, please try later"
+      "RATE_LIMITED": "Too many requests, please try later",
+      "Invalid username or password": "Invalid username or password"
     }
   },
   "multiSelect": {
