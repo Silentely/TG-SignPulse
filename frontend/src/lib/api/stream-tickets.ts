@@ -5,7 +5,7 @@
  * 长效 JWT 放进查询串会随 URL 落入访问日志、反代日志与浏览器历史，
  * 因此改为：先用 Bearer JWT 换一张短期一次性票据，再用票据建流。
  */
-import { request } from "./core";
+import { getAuthToken, request } from "./core";
 
 /** 票据用途，与后端 `backend/services/stream_tickets.py` 的常量保持一致 */
 export const STREAM_TICKET_PURPOSE = {
@@ -30,12 +30,18 @@ export interface StreamTicketResponse {
  *
  * @param purpose 用途，后端会校验建流时声明的用途与此一致
  * @param resource 关联资源（如 task_name），进一步限制票据只能用于该条流
+ * @param token 可选的认证 token，默认取当前本地 token
  */
 export const issueStreamTicket = (
   purpose: StreamTicketPurpose,
   resource = "",
+  token: string | null = getAuthToken(),
 ) =>
-  request<StreamTicketResponse>("/events/ticket", {
-    method: "POST",
-    body: JSON.stringify({ purpose, resource }),
-  })
+  request<StreamTicketResponse>(
+    "/events/ticket",
+    {
+      method: "POST",
+      body: JSON.stringify({ purpose, resource }),
+    },
+    token,
+  )
