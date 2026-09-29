@@ -8,7 +8,7 @@ import { storageSet } from '../lib/safe-storage'
  * 此 composable 仅提供旧版 API 兼容接口，避免大规模修改已有组件。
  */
 export function useI18n() {
-  const { locale, t: vueT } = vueUseI18n()
+  const { locale, t: vueT, te: vueTe } = vueUseI18n()
 
   // 兼容旧版 locale 值：vue-i18n 使用 'zh-CN'/'en-US'，旧代码使用 'zh'/'en'
   const legacyLocale = computed({
@@ -30,5 +30,5 @@ export function useI18n() {
     return named ? String(vueT(key, named)) : String(vueT(key))
   }
 
-  return { locale: legacyLocale, toggleLanguage, t }
+  return { locale: legacyLocale, toggleLanguage, t, te: vueTe }
 }
