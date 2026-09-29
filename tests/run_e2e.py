@@ -48,7 +48,11 @@ def main():
     backend_env["ADMIN_PASSWORD"] = "adminpassword123"
     backend_env["PYTHONPATH"] = str(ROOT_DIR)
 
-    py_bin = str(ROOT_DIR / ".venv" / "bin" / "python") if (ROOT_DIR / ".venv" / "bin" / "python").exists() else sys.executable
+    py_bin = (
+        str(ROOT_DIR / ".venv" / "bin" / "python")
+        if (ROOT_DIR / ".venv" / "bin" / "python").exists()
+        else sys.executable
+    )
     backend_cmd = [
         py_bin,
         "-m",
@@ -95,14 +99,24 @@ def main():
 
         if "--cdp" in sys.argv:
             print("🏁 执行 Edge CDP 自动化测试脚本 (tests/e2e_edge_test.mjs)...")
-            test_res = subprocess.run(["node", str(ROOT_DIR / "tests/e2e_edge_test.mjs")], cwd=str(ROOT_DIR))
+            test_res = subprocess.run(
+                ["node", str(ROOT_DIR / "tests/e2e_edge_test.mjs")], cwd=str(ROOT_DIR)
+            )
         elif "--mjs" in sys.argv:
             print("🏁 执行单文件 Playwright 脚本 (tests/e2e_playwright.mjs)...")
-            test_res = subprocess.run(["node", str(ROOT_DIR / "tests/e2e_playwright.mjs")], cwd=str(ROOT_DIR))
+            test_res = subprocess.run(
+                ["node", str(ROOT_DIR / "tests/e2e_playwright.mjs")], cwd=str(ROOT_DIR)
+            )
         else:
-            print("🏁 执行 Playwright 官方规范测试套件 (npm --prefix frontend run test:e2e)...")
+            print(
+                "🏁 执行 Playwright 官方规范测试套件 (npm --prefix frontend run test:e2e)..."
+            )
             cmd = ["npx", "playwright", "test"]
-            extra_args = [a for a in sys.argv[1:] if not a.startswith("--cdp") and not a.startswith("--mjs")]
+            extra_args = [
+                a
+                for a in sys.argv[1:]
+                if not a.startswith("--cdp") and not a.startswith("--mjs")
+            ]
             cmd.extend(extra_args)
             test_res = subprocess.run(cmd, cwd=str(ROOT_DIR / "frontend"))
 
