@@ -182,9 +182,8 @@ describe('useSettingsBackup', () => {
     expect(toastSpy.success).toHaveBeenCalled()
   })
 
-  it('handleBackupExport validates webdav when target is webdav', async () => {
+  it('handleBackupExport defaults to webdav and validates webdav url', async () => {
     const { backup } = setup({
-      backupTarget: 'webdav',
       webdavUrl: '',
     })
     await backup.handleBackupExport()

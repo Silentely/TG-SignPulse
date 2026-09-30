@@ -18,7 +18,6 @@ import {
   AlertTriangle,
   Download,
   Archive,
-  Layers,
   Sparkles,
 } from 'lucide-vue-next'
 import { useI18n } from '../../composables/useI18n'
@@ -146,20 +145,7 @@ const applyWebdavPreset = (preset: WebdavPreset) => {
   })
 }
 
-// 动态计算立即备份按钮文案与说明
-const backupActionButtonInfo = computed(() => {
-  const target = props.modelValue.backupTarget || 'auto'
-  if (target === 'webdav') {
-    return {
-      label: t('settings.exportBackupWebdavAction'),
-      hint: t('settings.backupTargetWebdavHint'),
-    }
-  }
-  return {
-    label: t('settings.exportBackupAction'),
-    hint: t('settings.backupTargetAutoHint'),
-  }
-})
+
 
 // 灾难恢复命令与脚本
 const restoreCommand = computed(() => {
@@ -260,28 +246,7 @@ const copyRestoreCommand = async () => {
         </div>
       </div>
 
-      <!-- 落点策略配置 -->
-      <div class="p-4 bg-gray-50/50 dark:bg-white/[0.015] border border-gray-200/60 dark:border-gray-800/60 rounded-lg space-y-2">
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-          <div>
-            <label class="text-xs font-medium text-gray-800 dark:text-gray-200">{{ t('settings.backupTarget') }}</label>
-            <p class="text-[11px] text-gray-500 mt-0.5">{{ t('settings.backupTargetDesc') }}</p>
-          </div>
-          <select
-            id="backup-target"
-            :value="modelValue.backupTarget || 'auto'"
-            class="ui-input !w-auto text-xs py-1.5 px-3 min-w-[200px]"
-            @change="onStringInput('backupTarget', $event)"
-          >
-            <option value="auto">{{ t('settings.backupTargetAuto') }}</option>
-            <option value="webdav">{{ t('settings.backupTargetWebdav') }}</option>
-          </select>
-        </div>
-        <p class="text-[11px] text-brand-600/90 dark:text-brand-400/90 flex items-center gap-1 pt-1">
-          <Layers class="w-3.5 h-3.5 shrink-0" />
-          {{ backupActionButtonInfo.hint }}
-        </p>
-      </div>
+
 
       <!-- WebDAV 配置区块 -->
       <div class="space-y-4">
@@ -430,7 +395,7 @@ const copyRestoreCommand = async () => {
         >
           <RefreshCw v-if="backupLoading" class="w-4 h-4 animate-spin" />
           <Cloud v-else class="w-4 h-4" />
-          {{ backupLoading ? t('common.processing') : backupActionButtonInfo.label }}
+          {{ backupLoading ? t('common.processing') : t('settings.exportBackupAction') }}
         </button>
       </div>
     </div>

@@ -131,7 +131,7 @@ describe('设置页拆分组件契约', () => {
     expect(wrapper.emitted('webdav-download')?.[0]).toEqual(['auto-1.tar.gz'])
   })
 
-  it('DataManagementSettings 支持配置 backupTarget 与查看恢复指引', async () => {
+  it('DataManagementSettings 支持触发 WebDAV 备份与查看恢复指引', async () => {
     const wrapper = mount(DataManagementSettings, {
       props: {
         modelValue: settingsState(),
@@ -149,12 +149,9 @@ describe('设置页拆分组件契约', () => {
       global: { plugins: [i18n] },
     })
 
-    // 测试 backupTarget 变更
-    const select = wrapper.find('#backup-target')
-    expect(select.exists()).toBe(true)
-    await select.setValue('webdav')
-    const emitted = wrapper.emitted('update:modelValue')
-    expect((emitted?.at(-1)?.[0] as SettingsFormState).backupTarget).toBe('webdav')
+    // 测试点击立即上传至 WebDAV 按钮
+    const exportBtn = wrapper.findAll('button').find((b) => b.text().includes('WebDAV'))
+    expect(exportBtn).toBeTruthy()
 
     // 测试恢复指引弹窗
     const guideBtn = wrapper.findAll('button').find((b) => b.text().includes('恢复指引'))

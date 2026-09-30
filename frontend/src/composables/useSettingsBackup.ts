@@ -68,13 +68,7 @@ export function useSettingsBackup(options: {
     }
   }
 
-  const validateBackupExport = (): boolean => {
-    const target = options.settings.value.backupTarget || 'auto'
-    if (target === 'webdav') return validateWebdavForm()
-    // auto 模式：已配置 WebDAV 时进行校验
-    if (options.settings.value.webdavUrl.trim()) return validateWebdavForm()
-    return true
-  }
+
 
   const handleExport = async () => {
     const token = getAuthToken()
@@ -138,14 +132,12 @@ export function useSettingsBackup(options: {
     }
   }
 
-  const handleBackupExport = async (target?: 'auto' | 'webdav' | 'download') => {
+  const handleBackupExport = async (target: 'auto' | 'webdav' | 'download' = 'webdav') => {
     const token = getAuthToken()
     if (target === 'download') {
       // 直接下载不需要校验 WebDAV
-    } else if (target === 'webdav') {
+    } else {
       if (!validateWebdavForm()) return
-    } else if (!validateBackupExport()) {
-      return
     }
 
     backupLoading.value = true
