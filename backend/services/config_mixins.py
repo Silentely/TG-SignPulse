@@ -227,6 +227,25 @@ def normalize_global_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
             bool(val) if val is not None else False
         )
 
+    # 推送矩阵 Webhook 与密钥：None 表示清除，空串表示保持原值，非空则去空白写入
+    for key in (
+        "wecom_webhook_url",
+        "feishu_webhook_url",
+        "dingtalk_webhook_url",
+        "discord_webhook_url",
+        "server_chan_send_key",
+        "bark_url",
+        "custom_url",
+    ):
+        if key in normalized:
+            raw_v = normalized[key]
+            if raw_v is None:
+                normalized[key] = None
+            elif str(raw_v).strip() == "":
+                normalized.pop(key)
+            else:
+                normalized[key] = str(raw_v).strip()
+
     if "backup_target" in normalized:
         target_val = str(normalized["backup_target"] or "").strip().lower()
         if target_val in {"auto", "webdav", "s3", "both"}:

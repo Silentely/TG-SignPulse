@@ -110,29 +110,26 @@ def _configure_backend_logging():
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
 
-    # 暴力删除 uvicorn.access 的所有 handler，从根源禁用
+    # 默认启用 uvicorn.access 访问日志（保留生产审计轨迹），同时过滤健康检查端点噪音
     access_logger = logging.getLogger("uvicorn.access")
     access_logger.handlers.clear()
     access_logger.propagate = False
-    access_logger.disabled = True
 
-    # 只在 DEBUG 模式下重新启用访问日志
-    if level_no <= logging.DEBUG:
+    disable_access_log = os.getenv("DISABLE_ACCESS_LOG", "").strip().lower() in ("1", "true", "yes")
+    if not disable_access_log:
         access_logger.disabled = False
-        access_logger.setLevel(logging.DEBUG)
-        # DEBUG 模式下过滤健康检查端点，减少日志噪音
+        access_logger.setLevel(logging.INFO if level_no > logging.DEBUG else logging.DEBUG)
         access_logger.addFilter(HealthCheckFilter())
-        # 将 INFO 级别的访问日志强制转换为 DEBUG
-        access_logger.addFilter(AccessLogLevelFilter())
-        # 添加 stderr handler 输出访问日志（使用详细格式）
         handler = logging.StreamHandler()
-        handler.setLevel(logging.DEBUG)
+        handler.setLevel(access_logger.level)
         handler.setFormatter(
             logging.Formatter(
                 "[%(levelname)s] [%(name)s] %(asctime)s %(filename)s %(lineno)s %(message)s"
             )
         )
         access_logger.addHandler(handler)
+    else:
+        access_logger.disabled = True
 
 
 # 注意：不在此处调用 _configure_backend_logging()
@@ -584,6 +581,14 @@ async def on_shutdown() -> None:
         memory_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await memory_task
+
+    # 优先平滑排空进行中的签到任务（至多 15 秒），避免强制终止导致数据库损坏与会话锁死
+    try:
+        from backend.services.sign_tasks import get_sign_task_service
+
+        await get_sign_task_service().drain_background_runs(timeout=15.0)
+    except Exception:
+        log.exception("Drain sign tasks on shutdown failed")
 
     shutdown_scheduler()
 

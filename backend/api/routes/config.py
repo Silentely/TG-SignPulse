@@ -439,6 +439,13 @@ class GlobalSettingsRequest(BaseModel):
     s3_proxy: Optional[str] = None
     backup_target: Optional[str] = None
     require_proxy_for_telegram: Optional[bool] = None
+    wecom_webhook_url: Optional[str] = None
+    feishu_webhook_url: Optional[str] = None
+    dingtalk_webhook_url: Optional[str] = None
+    discord_webhook_url: Optional[str] = None
+    server_chan_send_key: Optional[str] = None
+    bark_url: Optional[str] = None
+    custom_url: Optional[str] = None
 
 
 class GlobalSettingsResponse(BaseModel):
@@ -494,6 +501,20 @@ class GlobalSettingsResponse(BaseModel):
     s3_proxy: Optional[str] = None
     backup_target: str = "auto"
     require_proxy_for_telegram: bool = False
+    wecom_webhook_url: Optional[str] = None
+    wecom_webhook_url_set: bool = False
+    feishu_webhook_url: Optional[str] = None
+    feishu_webhook_url_set: bool = False
+    dingtalk_webhook_url: Optional[str] = None
+    dingtalk_webhook_url_set: bool = False
+    discord_webhook_url: Optional[str] = None
+    discord_webhook_url_set: bool = False
+    server_chan_send_key: Optional[str] = None
+    server_chan_send_key_set: bool = False
+    bark_url: Optional[str] = None
+    bark_url_set: bool = False
+    custom_url: Optional[str] = None
+    custom_url_set: bool = False
 
 
 @router.get("/settings", response_model=GlobalSettingsResponse)
@@ -526,6 +547,21 @@ def get_global_settings(current_user: User = Depends(get_current_user)):
             raw_proxy is not None and str(raw_proxy).strip() != ""
         )
         settings["global_proxy"] = None
+
+        # 推送矩阵 Webhook 与密钥脱敏：不回传明文，用 _set 标识
+        for sec_field in (
+            "wecom_webhook_url",
+            "feishu_webhook_url",
+            "dingtalk_webhook_url",
+            "discord_webhook_url",
+            "server_chan_send_key",
+            "bark_url",
+            "custom_url",
+        ):
+            val = settings.get(sec_field)
+            settings[f"{sec_field}_set"] = bool(val is not None and str(val).strip() != "")
+            settings[sec_field] = None
+
         return GlobalSettingsResponse(**settings)
     except Exception as e:
         logger.error("读取全局设置失败: %s", e, exc_info=True)
