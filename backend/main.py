@@ -582,23 +582,18 @@ async def on_shutdown() -> None:
         with contextlib.suppress(asyncio.CancelledError):
             await memory_task
 
-    # 优先平滑排空进行中的签到任务（至多 15 秒），避免强制终止导致数据库损坏与会话锁死
+    # 先静默所有签到任务生产者，再排空进行中的任务，避免 drain 快照后又出现新任务。
+    sign_task_service = None
     try:
         from backend.services.sign_tasks import get_sign_task_service
 
-        await get_sign_task_service().drain_background_runs(timeout=15.0)
+        sign_task_service = get_sign_task_service()
+        sign_task_service.begin_shutdown()
     except Exception:
-        log.exception("Drain sign tasks on shutdown failed")
+        log.exception("Prepare sign task shutdown failed")
 
     shutdown_scheduler()
 
-    # 释放推送通知的共享 HTTP 连接池
-    try:
-        from backend.services.push_notifications import close_shared_http_client
-
-        await close_shared_http_client()
-    except Exception:
-        log.exception("Push HTTP client shutdown failed")
     try:
         from backend.services.keyword_monitor import get_keyword_monitor_service
 
@@ -609,6 +604,20 @@ async def on_shutdown() -> None:
     except Exception:
         # 顶层兜底：关闭阶段任何异常不能阻止进程退出
         log.exception("Keyword monitor shutdown failed")
+
+    if sign_task_service is not None:
+        try:
+            await sign_task_service.drain_background_runs(timeout=15.0)
+        except Exception:
+            log.exception("Drain sign tasks on shutdown failed")
+
+    # 释放推送通知的共享 HTTP 连接池
+    try:
+        from backend.services.push_notifications import close_shared_http_client
+
+        await close_shared_http_client()
+    except Exception:
+        log.exception("Push HTTP client shutdown failed")
 
     # 释放调度文件锁，避免异常退出后锁文件残留导致下一进程误判 replica
     try:

@@ -523,6 +523,14 @@ _SECRET_FIELD_NAMES = frozenset(
 # URL 型字段：设备密钥/令牌位于路径首段，只替换该段，保留其余可读结构
 _SECRET_PATH_KEY_FIELDS = frozenset({"bark_url"})
 
+# Webhook 型字段：令牌位于固定路径段，导出时保留服务商 URL 结构但替换令牌。
+_SECRET_PATH_TOKEN_FIELDS = frozenset({"feishu_webhook_url", "discord_webhook_url"})
+
+# Webhook 型字段：令牌位于 query 参数，导出时替换参数值。
+_URL_QUERY_SECRET_FIELDS = frozenset(
+    {"wecom_webhook_url", "dingtalk_webhook_url"}
+)
+
 # URL 型字段：仅脱敏 userinfo 内嵌凭据（https://user:pass@host/...）
 _URL_CREDENTIAL_FIELDS = frozenset(
     {"custom_url", "url", "callback_url", "global_proxy", "s3_proxy"}
@@ -547,6 +555,18 @@ _AUTH_HEADERS = frozenset(
 
 # URL userinfo 内嵌凭据
 _EMBEDDED_CRED_RE = re.compile(r"(?<=://)[^/@\s]+:[^/@\s]+@")
+_URL_QUERY_SECRET_RE = re.compile(
+    r"([?&](?:key|token|access_token|sendkey|secret)=)[^&#\s]+",
+    re.IGNORECASE,
+)
+_FEISHU_PATH_TOKEN_RE = re.compile(
+    r"(https?://[^/]+/open-apis/bot/v2/hook/)[^/?#\s]+",
+    re.IGNORECASE,
+)
+_DISCORD_PATH_TOKEN_RE = re.compile(
+    r"(https?://[^/]+/api/webhooks/\d+/)[^/?#\s]+",
+    re.IGNORECASE,
+)
 
 # Bark 设备密钥：scheme://host/<KEY>/... 的首段路径
 _BARK_PATH_KEY_RE = re.compile(r"^(https?://[^/]+/)([^/]+)(/.*)?$", re.IGNORECASE)
@@ -563,10 +583,19 @@ def _scrub_bark_url(value: Any) -> Any:
 
 
 def _scrub_url_credentials(value: Any) -> Any:
-    """仅脱敏 URL 中 userinfo 段的内嵌凭据。"""
+    """脱敏 URL 中 userinfo 与常见 query 参数凭据。"""
     if not isinstance(value, str) or not value.strip():
         return value
-    return _EMBEDDED_CRED_RE.sub("***:***@", value)
+    scrubbed = _EMBEDDED_CRED_RE.sub("***:***@", value)
+    return _URL_QUERY_SECRET_RE.sub(rf"\g<1>{_EXPORT_MASK}", scrubbed)
+
+
+def _scrub_path_token_url(value: Any) -> Any:
+    """替换 Feishu/Discord Webhook URL 中的路径令牌。"""
+    if not isinstance(value, str) or not value.strip():
+        return value
+    scrubbed = _FEISHU_PATH_TOKEN_RE.sub(rf"\g<1>{_EXPORT_MASK}", value.strip())
+    return _DISCORD_PATH_TOKEN_RE.sub(rf"\g<1>{_EXPORT_MASK}", scrubbed)
 
 
 def _is_masked_secret_value(value: Any) -> bool:
@@ -582,6 +611,7 @@ def _is_masked_secret_value(value: Any) -> bool:
         or text.endswith(f"/{mask}")
         or f"{mask}:{mask}@" in text
         or f"{mask}@" in text
+        or f"={mask}" in text
         for mask in _SECRET_MASKS
     )
 
@@ -599,6 +629,8 @@ def _drop_masked_secret_fields(node: Any) -> Any:
             if (
                 name in _SECRET_FIELD_NAMES
                 or name in _SECRET_PATH_KEY_FIELDS
+                or name in _SECRET_PATH_TOKEN_FIELDS
+                or name in _URL_QUERY_SECRET_FIELDS
                 or name in _AUTH_HEADERS
                 or name in _URL_CREDENTIAL_FIELDS
             ) and _is_masked_secret_value(value):
@@ -625,6 +657,10 @@ def _scrub_export_secrets(node: Any) -> Any:
                 scrubbed[key] = _EXPORT_MASK
             elif name in _SECRET_PATH_KEY_FIELDS:
                 scrubbed[key] = _scrub_bark_url(value)
+            elif name in _SECRET_PATH_TOKEN_FIELDS:
+                scrubbed[key] = _scrub_path_token_url(value)
+            elif name in _URL_QUERY_SECRET_FIELDS:
+                scrubbed[key] = _scrub_url_credentials(value)
             elif name in _URL_CREDENTIAL_FIELDS:
                 scrubbed[key] = _scrub_url_credentials(value)
             elif name in _SECRET_FIELD_NAMES:

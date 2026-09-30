@@ -13,6 +13,7 @@
 | `PORT` | `8080` | | Docker 容器内实际监听端口 |
 | `TZ` | `Asia/Hong_Kong` (本地) / `Asia/Shanghai` (容器) | | 时区，影响任务调度 |
 | `LOG_LEVEL` / `APP_LOG_LEVEL` | `INFO` | | 后端日志级别，可选 `DEBUG`、`INFO`、`WARNING`、`ERROR`、`CRITICAL` |
+| `DISABLE_ACCESS_LOG` | 未设置 | | 设为 `1`、`true` 或 `yes` 时禁用 Uvicorn 访问日志；默认保留访问日志，健康检查路径仍会过滤 |
 | `APP_DATABASE_URL` / `DATABASE_URL` | （空=本地 SQLite） | | SQLAlchemy URL，可切换 Postgres 等 |
 | `APP_SCHEDULER_LOCK` | `1` | | 多实例调度文件锁；`0` 关闭 |
 | `APP_LEGACY_TASKS_READONLY` | `1` | | 历史变量；旧 `/api/tasks` 路由已删除，无效果 |
@@ -277,7 +278,7 @@ environment:
 - `APP_SECRET_KEY` 未设置时，自动生成并持久化到 `.app_secret_key`
 - `TG_SESSION_MODE=string` 时，session string 存入 `sessions/accounts.json`
 - 任务日志默认保留 3 天，由每日凌晨 3 点的维护任务自动清理
-- `LOG_LEVEL=DEBUG` 会重新启用 uvicorn access log，但仍会过滤健康检查端点以减少噪音
+- 默认会记录 uvicorn access log，但仍会过滤健康检查端点以减少噪音；如需关闭可设置 `DISABLE_ACCESS_LOG=1`
 - TOTP 验证具有重放保护：同一验证码在 2 分钟窗口内不可重复使用
 - `TG_GLOBAL_CONCURRENCY` 未设置时，自动根据 CPU 核心数计算（上限为 5）
 

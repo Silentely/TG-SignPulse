@@ -1299,6 +1299,22 @@ class TestPushErrorSanitization:
         assert "secret=[REDACTED]" in sanitized2
         assert "my_ding_token" not in sanitized2
 
+    def test_sanitize_path_based_webhook_tokens(self):
+        from backend.services.push_notifications import sanitize_push_error
+
+        raw = (
+            "Client error '400 Bad Request' for url "
+            "'https://open.feishu.cn/open-apis/bot/v2/hook/feishu-secret'\n"
+            "Client error '400 Bad Request' for url "
+            "'https://discord.com/api/webhooks/123/discord-secret'\n"
+            "Client error '400 Bad Request' for url "
+            "'https://api.day.app/bark-device-secret/title/body'"
+        )
+        sanitized = sanitize_push_error(raw)
+        assert "feishu-secret" not in sanitized
+        assert "discord-secret" not in sanitized
+        assert "bark-device-secret" not in sanitized
+
 
 class TestPushMatrixSettings:
     """测试企业推送矩阵 Webhook 与密钥在 GlobalSettings 中的完整性与脱敏"""
