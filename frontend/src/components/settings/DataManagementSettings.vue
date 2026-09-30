@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 数据管理区块：配置 JSON 导入/导出、WebDAV 远端备份与灾备、自动备份策略、直接下载完整归档及灾难恢复指引。
+ * 数据管理区块：配置 JSON 导入/导出、WebDAV 远端备份、自动备份策略、直接下载完整归档及灾难恢复指引。
  * 父组件 Settings.vue 持有表单状态并实现 API 调用；本组件仅负责 UI 与事件转发。
  */
 import { ref, computed } from 'vue'
@@ -222,7 +222,7 @@ const copyRestoreCommand = async () => {
       </button>
     </div>
 
-    <!-- TAB 1: 远端灾备与存储 (WebDAV) -->
+    <!-- TAB 1: WebDAV 远端备份 -->
     <div v-show="activeTab === 'remote'" class="space-y-5">
       <!-- 状态指示条 -->
       <div v-if="backupStatus" class="p-3 bg-gray-50/80 dark:bg-white/[0.02] border border-gray-200/80 dark:border-gray-800/80 rounded-lg text-xs space-y-1.5">
@@ -476,7 +476,7 @@ const copyRestoreCommand = async () => {
       </div>
     </div>
 
-    <!-- TAB 3: 数据迁移与归档 -->
+    <!-- TAB 3: 完整数据备份与配置迁移 -->
     <div v-show="activeTab === 'migrate'" class="space-y-5">
       <!-- 完整数据归档直接下载 -->
       <div class="p-4 bg-gray-50/50 dark:bg-white/[0.015] border border-gray-200/60 dark:border-gray-800/60 rounded-lg space-y-3">
