@@ -156,16 +156,24 @@ def test_entry_from_history_item():
     assert e["success"] is True
 
 
-def test_list_recent_from_index_does_not_rebuild_if_index_exists_and_empty(tmp_path: Path, monkeypatch):
+def test_list_recent_from_index_does_not_rebuild_if_index_exists_and_empty(
+    tmp_path: Path, monkeypatch
+):
     # Setup: an index exists with an entry for acc1, and there is a history file on disk
-    entry = build_index_entry(time="t1", account_name="acc1", task_name="t", success=True)
+    entry = build_index_entry(
+        time="t1", account_name="acc1", task_name="t", success=True
+    )
     append_index_entry(tmp_path, entry)
-    
+
     # Also create a history json file
     hist_file = tmp_path / "acc1__t.json"
-    hist_file.write_text(json.dumps([{"time": "t1", "account_name": "acc1", "success": True}]), encoding="utf-8")
+    hist_file.write_text(
+        json.dumps([{"time": "t1", "account_name": "acc1", "success": True}]),
+        encoding="utf-8",
+    )
 
     rebuild_called = False
+
     def fake_rebuild(*args, **kwargs):
         nonlocal rebuild_called
         rebuild_called = True
@@ -179,4 +187,6 @@ def test_list_recent_from_index_does_not_rebuild_if_index_exists_and_empty(tmp_p
     # Query for nonexistent account acc2
     results = list_recent_from_index(tmp_path, account_name="acc2", prefer_memory=False)
     assert results == []
-    assert not rebuild_called, "rebuild_index_from_history_files should NOT be called when index exists"
+    assert not rebuild_called, (
+        "rebuild_index_from_history_files should NOT be called when index exists"
+    )

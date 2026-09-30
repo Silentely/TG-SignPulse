@@ -1,5 +1,6 @@
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 
 from backend.services.chatops_bot import TelegramChatOpsWorker
@@ -89,7 +90,7 @@ class TestChatOpsSenderBinding:
         base.update(overrides)
         return base
 
-    def _run_one_poll(self, updates, settings, monkeypatch):
+    def _run_one_poll(self, updates, settings, monkeypatch, handler=None):
         """跑一轮轮询：第一次 getUpdates 后即把 _running 置 False 结束循环。"""
         import asyncio
 
@@ -99,7 +100,7 @@ class TestChatOpsSenderBinding:
         async def _fake_handle(*args, **kwargs):
             handled.append(args)
 
-        worker.handle_command = _fake_handle
+        worker.handle_command = handler or _fake_handle
 
         class _Resp:
             status_code = 200
@@ -196,6 +197,28 @@ class TestChatOpsSenderBinding:
             monkeypatch,
         )
         assert handled == []
+
+    def test_command_failure_log_is_sanitized(self, monkeypatch, caplog):
+        """命令处理抛出的推送异常含 Bot Token URL，落日志前必须脱敏。"""
+        token = "123456789:AAHsecretTOKENvalue"
+
+        async def _failing_handle(*args, **kwargs):
+            request = httpx.Request(
+                "POST", f"https://api.telegram.org/bot{token}/sendMessage"
+            )
+            httpx.Response(400, request=request).raise_for_status()
+
+        with caplog.at_level("WARNING", logger="backend.chatops_bot"):
+            self._run_one_poll(
+                [self._update("555", "/status", from_id=222)],
+                self._settings(),
+                monkeypatch,
+                handler=_failing_handle,
+            )
+
+        assert any("处理 ChatOps 命令" in r.message for r in caplog.records)
+        assert token not in caplog.text
+        assert "bot[REDACTED]" in caplog.text
 
     def test_empty_admin_whitelist_drops_everything(self, monkeypatch):
         handled = self._run_one_poll(

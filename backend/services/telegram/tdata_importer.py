@@ -81,16 +81,20 @@ def extract_tdata_zip(zip_path: Path, target_dir: Path) -> Path:
                 )
             member_name = member.filename
             dest_path = (target_dir / member_name).resolve()
-            if target_dir_resolved not in dest_path.parents and dest_path != target_dir_resolved:
+            if (
+                target_dir_resolved not in dest_path.parents
+                and dest_path != target_dir_resolved
+            ):
                 raise ValueError(
                     f"Zip Slip vulnerability detected: '{member_name}' escapes target directory"
                 )
             # Verify parent directory resolution does not escape
             parent_resolved = dest_path.parent.resolve()
-            if target_dir_resolved not in parent_resolved.parents and parent_resolved != target_dir_resolved:
-                raise ValueError(
-                    f"Zip Slip parent traversal detected: '{member_name}'"
-                )
+            if (
+                target_dir_resolved not in parent_resolved.parents
+                and parent_resolved != target_dir_resolved
+            ):
+                raise ValueError(f"Zip Slip parent traversal detected: '{member_name}'")
             zf.extract(member, target_dir)
 
     nested_tdata = target_dir / "tdata"

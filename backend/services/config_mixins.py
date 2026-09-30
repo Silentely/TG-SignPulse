@@ -527,9 +527,7 @@ _SECRET_PATH_KEY_FIELDS = frozenset({"bark_url"})
 _SECRET_PATH_TOKEN_FIELDS = frozenset({"feishu_webhook_url", "discord_webhook_url"})
 
 # Webhook 型字段：令牌位于 query 参数，导出时替换参数值。
-_URL_QUERY_SECRET_FIELDS = frozenset(
-    {"wecom_webhook_url", "dingtalk_webhook_url"}
-)
+_URL_QUERY_SECRET_FIELDS = frozenset({"wecom_webhook_url", "dingtalk_webhook_url"})
 
 # URL 型字段：仅脱敏 userinfo 内嵌凭据（https://user:pass@host/...）
 _URL_CREDENTIAL_FIELDS = frozenset(

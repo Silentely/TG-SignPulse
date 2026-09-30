@@ -1315,6 +1315,59 @@ class TestPushErrorSanitization:
         assert "discord-secret" not in sanitized
         assert "bark-device-secret" not in sanitized
 
+    def test_sanitize_query_param_names_case_insensitive(self):
+        from backend.services.push_notifications import sanitize_push_error
+
+        sanitized = sanitize_push_error(
+            "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?Key=WECOM_KEY"
+        )
+        assert "WECOM_KEY" not in sanitized
+        assert "Key=[REDACTED]" in sanitized
+
+        sanitized2 = sanitize_push_error(
+            "https://oapi.dingtalk.com/robot/send?Access_Token=DING_TOKEN"
+        )
+        assert "DING_TOKEN" not in sanitized2
+        assert "Access_Token=[REDACTED]" in sanitized2
+
+    def test_sanitize_known_target_url_path_secret(self):
+        """自建 Bark / 自定义推送的密钥位于路径段：按已知目标地址整体掩码。"""
+        from backend.services.push_notifications import sanitize_push_error
+
+        raw = (
+            "Client error '404 Not Found' for url "
+            "'https://bark.myserver.com/DEVICEKEY/title/body'"
+        )
+        sanitized = sanitize_push_error(
+            raw, secret_urls=("https://bark.myserver.com/DEVICEKEY",)
+        )
+        assert "DEVICEKEY" not in sanitized
+        assert "https://bark.myserver.com/[REDACTED]" in sanitized
+
+        custom = "Client error '401' for url 'https://push.myserver.com/hook/CUSTOMKEY?title=x'"
+        sanitized2 = sanitize_push_error(
+            custom, secret_urls=("https://push.myserver.com/hook/CUSTOMKEY",)
+        )
+        assert "CUSTOMKEY" not in sanitized2
+        assert "https://push.myserver.com/[REDACTED]" in sanitized2
+
+    def test_sanitize_known_target_url_leaves_other_urls(self):
+        """按目标地址掩码不应误伤同一异常文本里的无关 URL。"""
+        from backend.services.push_notifications import sanitize_push_error
+
+        raw = (
+            "Client error '404 Not Found' for url 'https://bark.myserver.com/DEVICEKEY'\n"
+            "For more information check: "
+            "https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404"
+        )
+        sanitized = sanitize_push_error(
+            raw, secret_urls=("https://bark.myserver.com/DEVICEKEY",)
+        )
+        assert "DEVICEKEY" not in sanitized
+        assert (
+            "https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404" in sanitized
+        )
+
 
 class TestPushMatrixSettings:
     """测试企业推送矩阵 Webhook 与密钥在 GlobalSettings 中的完整性与脱敏"""

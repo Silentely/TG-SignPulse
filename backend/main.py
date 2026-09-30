@@ -58,16 +58,6 @@ class HealthCheckFilter(logging.Filter):
         return "/health" not in msg and "/healthz" not in msg and "/readyz" not in msg
 
 
-class AccessLogLevelFilter(logging.Filter):
-    """将 uvicorn access log 的级别从 INFO 强制转换为 DEBUG"""
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        if record.levelno == logging.INFO:
-            record.levelno = logging.DEBUG
-            record.levelname = "DEBUG"
-        return True
-
-
 # 配置后端日志等级，支持 LOG_LEVEL 环境变量
 def _configure_backend_logging():
     """配置后端日志等级，从环境变量 LOG_LEVEL 读取，默认为 INFO
@@ -115,10 +105,16 @@ def _configure_backend_logging():
     access_logger.handlers.clear()
     access_logger.propagate = False
 
-    disable_access_log = os.getenv("DISABLE_ACCESS_LOG", "").strip().lower() in ("1", "true", "yes")
+    disable_access_log = os.getenv("DISABLE_ACCESS_LOG", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
     if not disable_access_log:
         access_logger.disabled = False
-        access_logger.setLevel(logging.INFO if level_no > logging.DEBUG else logging.DEBUG)
+        access_logger.setLevel(
+            logging.INFO if level_no > logging.DEBUG else logging.DEBUG
+        )
         access_logger.addFilter(HealthCheckFilter())
         handler = logging.StreamHandler()
         handler.setLevel(access_logger.level)

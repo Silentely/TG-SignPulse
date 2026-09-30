@@ -768,6 +768,7 @@ class TestSessionStringEncryption:
         tg_session.set_account_session_string("acc_encrypted", session_string)
 
         import json
+
         raw_data = json.loads(store_path.read_text(encoding="utf-8"))
         stored_session = raw_data["accounts"]["acc_encrypted"]["session_string"]
         assert stored_session != session_string
@@ -775,11 +776,14 @@ class TestSessionStringEncryption:
 
         assert tg_session.get_account_session_string("acc_encrypted") == session_string
 
-    def test_load_session_string_file_decrypts_encrypted_cache(self, tmp_path, monkeypatch):
+    def test_load_session_string_file_decrypts_encrypted_cache(
+        self, tmp_path, monkeypatch
+    ):
         monkeypatch.setenv("APP_SECRET_KEY", "test-secret-key-32-bytes-long!")
-        from tg_signer.security import encrypt_secret
         import base64
         import struct
+
+        from tg_signer.security import encrypt_secret
 
         packed = struct.pack(
             tg_session._SESSION_STRING_FORMAT,

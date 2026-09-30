@@ -5,10 +5,12 @@
 按 (账号, 会话) 已处理水位跳过，避免重复命中、推送与命中记录。
 """
 
+import dataclasses
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 import pytest
 
 from backend.services.keyword_monitor import (
@@ -239,3 +241,43 @@ async def test_sync_cleans_up_client_on_aenter_failure(tmp_path: Path, monkeypat
     await service.restart_from_tasks()
     assert "acc" in closed_accounts
     mock_client.remove_handler.assert_called_once_with("handler_obj", 0)
+
+
+@pytest.mark.asyncio
+async def test_push_failure_rule_log_is_sanitized(tmp_path: Path, monkeypatch):
+    """推送失败写入规则日志（API 可见）前必须脱敏自建 Bark 的路径密钥。"""
+    monkeypatch.setattr(runtime_mod, "settings", _FakeSettings(tmp_path))
+    monkeypatch.setattr(
+        "backend.services.config.get_config_service", lambda: _FakeConfig()
+    )
+    monkeypatch.setattr(
+        "backend.services.keyword_monitor.hits.record_keyword_hit", MagicMock()
+    )
+
+    bark_key = "BARKDEVICEKEY123"
+    bark_url = f"https://bark.myserver.com/{bark_key}"
+    rule = dataclasses.replace(
+        _make_rule(),
+        action={
+            "keywords": ["code"],
+            "push_channel": "bark",
+            "bark_url": bark_url,
+        },
+    )
+
+    async def _failing_push(*args, **kwargs):
+        request = httpx.Request("POST", bark_url)
+        httpx.Response(404, request=request).raise_for_status()
+
+    monkeypatch.setattr(runtime_mod, "send_keyword_push", _failing_push)
+
+    service = KeywordMonitorService()
+    service._rules = [rule]
+
+    await service._on_message(
+        "acc", MagicMock(), _make_message(text="hello code", id=101, chat_id=1001)
+    )
+
+    logs = service.get_task_logs("listen_a", "acc")
+    assert any("关键词命中通知推送失败" in line for line in logs)
+    assert all(bark_key not in line for line in logs)

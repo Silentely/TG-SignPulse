@@ -831,7 +831,9 @@ def test_api_test_plugin_timeout():
     from tg_signer.core.plugins import PluginRegistry
 
     # 注册一个需要耗时 0.2s 的慢插件
-    @PluginRegistry.register(name="slow_sleep_test_p")
+    # 必须走进程内执行：插件仅在进程内注册、没有源文件，子进程沙箱无法解析，
+    # 那样超时会由子进程启动开销触发，测不到这里的 sleep
+    @PluginRegistry.register(name="slow_sleep_test_p", isolation_mode="in_process")
     def slow_plugin(ctx):
         time.sleep(0.15)
         return True
@@ -845,6 +847,7 @@ def test_api_test_plugin_timeout():
     )
     assert resp.status_code == 200
     data = resp.json()
+    assert data["isolation"] == "in_process"
     assert data["success"] is False
     assert "超时" in (data.get("error") or "")
 
@@ -992,6 +995,9 @@ def test_test_plugin_param_validation_and_traceback():
 
     @PluginRegistry.register(
         name="schema_tb_plug",
+        # 本插件仅在进程内注册、没有插件源文件，子进程沙箱按 source_path
+        # 加载时无法解析；调试台用例只需校验参数告警与异常行号，故走进程内执行
+        isolation_mode="in_process",
         params_schema=[
             {"name": "api_key", "label": "API Key", "required": True},
             {
@@ -1016,6 +1022,7 @@ def test_test_plugin_param_validation_and_traceback():
     assert resp.status_code == 200
     data = resp.json()
     assert data["success"] is True
+    assert data["isolation"] == "in_process"
     assert any("必填参数" in w for w in data.get("param_warnings", []))
 
     # 3. Test exception traceback & error_line

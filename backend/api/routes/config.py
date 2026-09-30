@@ -559,7 +559,9 @@ def get_global_settings(current_user: User = Depends(get_current_user)):
             "custom_url",
         ):
             val = settings.get(sec_field)
-            settings[f"{sec_field}_set"] = bool(val is not None and str(val).strip() != "")
+            settings[f"{sec_field}_set"] = bool(
+                val is not None and str(val).strip() != ""
+            )
             settings[sec_field] = None
 
         return GlobalSettingsResponse(**settings)

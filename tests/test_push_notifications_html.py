@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import socket
+
 import httpx
 import pytest
 
@@ -266,6 +268,34 @@ class TestNotificationTimeLabels:
         assert "<b>时间 (UTC)</b>" in sent["text"]
 
     @pytest.mark.asyncio()
+    async def test_login_notification_failure_is_swallowed_and_sanitized(
+        self, monkeypatch, caplog
+    ):
+        """登录通知由后台任务触发，失败必须就地吞掉并只记脱敏文本。"""
+        token = "123456789:AAHsecretTOKENvalue"
+
+        async def _failing_send(**kwargs):
+            request = httpx.Request(
+                "POST", f"https://api.telegram.org/bot{token}/sendMessage"
+            )
+            response = httpx.Response(400, request=request)
+            # 走生产同款路径：消息中含带 Token 的完整 URL
+            response.raise_for_status()
+
+        monkeypatch.setattr(
+            "backend.services.push_notifications.send_telegram_bot_message",
+            _failing_send,
+        )
+        with caplog.at_level("WARNING", logger="backend.push_notifications"):
+            await send_login_notification(
+                self._settings(), username="admin", ip_address="127.0.0.1"
+            )
+
+        assert any("登录通知发送失败" in r.message for r in caplog.records)
+        assert token not in caplog.text
+        assert "bot[REDACTED]" in caplog.text
+
+    @pytest.mark.asyncio()
     async def test_success_notification_marks_time_as_utc(self, monkeypatch):
         sent = {}
 
@@ -501,8 +531,22 @@ class TestPushTargetUrlValidation:
             "",
         ],
     )
-    def test_internal_and_malformed_targets_rejected(self, url):
+    def test_internal_and_malformed_targets_rejected(self, url, monkeypatch):
         from backend.services.push_notifications import _validate_push_target_url
+
+        # nip.io 是通配 DNS：真实解析结果取决于当前网络的解析器
+        # （透明代理 Fake-IP 会把任意域名解析成 198.18.0.0/15，从而绕开本用例的前提）。
+        # 这里钉死该域名的解析结果，稳定覆盖「主机名解析到链路本地地址」的分支。
+        real_getaddrinfo = socket.getaddrinfo
+
+        def _pinned_getaddrinfo(host, *args, **kwargs):
+            if isinstance(host, str) and host.endswith(".nip.io"):
+                embedded = host[: -len(".nip.io")]
+                family = socket.AF_INET6 if ":" in embedded else socket.AF_INET
+                return [(family, socket.SOCK_STREAM, 6, "", (embedded, 0, 0, 0))]
+            return real_getaddrinfo(host, *args, **kwargs)
+
+        monkeypatch.setattr(socket, "getaddrinfo", _pinned_getaddrinfo)
 
         with pytest.raises(ValueError):
             _validate_push_target_url(url)

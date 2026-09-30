@@ -813,14 +813,23 @@ class KeywordMonitorService:
             # 避免单条推送抖动把整个监听处理误判为失败
             from backend.services.push_notifications import sanitize_push_error
 
+            # Bark/自定义推送的密钥位于 URL 路径段，按规则无法识别，需传入目标地址整体掩码
+            safe_reason = sanitize_push_error(
+                exc,
+                secret_urls=(
+                    push_settings.get("keyword_monitor_bark_url"),
+                    push_settings.get("keyword_monitor_custom_url"),
+                ),
+            )
             logger.warning(
                 "关键词命中通知推送失败（推送方式=%s）: %s",
                 push_channel,
-                sanitize_push_error(exc),
+                safe_reason,
             )
+            # 规则日志会经 API 展示，同样只写脱敏文本
             self._append_rule_log(
                 rule,
-                f"关键词命中通知推送失败：推送方式={push_channel}，原因：{safe_exception_summary(exc, 120)}",
+                f"关键词命中通知推送失败：推送方式={push_channel}，原因：{safe_reason[:120]}",
             )
             return
         self._append_rule_log(
