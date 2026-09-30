@@ -159,6 +159,7 @@ def get_account_session_string(account_name: str) -> Optional[str]:
         cleaned = session_string.strip()
         try:
             from tg_signer.security import decrypt_secret
+
             cleaned = decrypt_secret(cleaned) or cleaned
         except Exception:
             pass
@@ -179,6 +180,7 @@ def set_account_session_string(account_name: str, session_string: str) -> None:
         raise ValueError("invalid pyrogram session_string")
     try:
         from tg_signer.security import encrypt_secret
+
         stored = encrypt_secret(cleaned) or cleaned
     except Exception:
         stored = cleaned
@@ -339,6 +341,7 @@ def load_session_string_file(session_dir: Path, account_name: str) -> Optional[s
             content = ""
         try:
             from tg_signer.security import decrypt_secret
+
             decrypted = decrypt_secret(content) or content
         except Exception:
             decrypted = content

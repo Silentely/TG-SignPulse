@@ -406,7 +406,9 @@ async def export_backup_archive(current_user: User = Depends(get_current_user)):
     archive_path = tmp_dir / f"tg-signpulse-backup-{ts}.tar.gz"
 
     try:
-        await asyncio.to_thread(create_backup_tarball, data_dir, archive_path, BACKUP_ARCHIVE_PATHS)
+        await asyncio.to_thread(
+            create_backup_tarball, data_dir, archive_path, BACKUP_ARCHIVE_PATHS
+        )
         if not archive_path.exists() or archive_path.stat().st_size == 0:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

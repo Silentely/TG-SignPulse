@@ -52,9 +52,23 @@ async def test_webhook_pusher_private_url_blocked():
 
 
 @pytest.mark.asyncio
-async def test_webhook_pusher_unresolvable_host_blocked():
+async def test_webhook_pusher_unresolvable_host_blocked(monkeypatch):
     """SSRF 防护：主机不可解析时拒绝执行且不发起请求。"""
+    import socket
+
     from plugins.webhook_pusher.main import webhook_pusher_handler
+
+    # 真实解析结果取决于当前网络的 DNS：透明代理 Fake-IP 会把任意域名
+    # 解析成 198.18.0.0/15，使本用例的前提失效。这里钉死解析失败，
+    # 稳定覆盖「无法解析主机」分支。
+    real_getaddrinfo = socket.getaddrinfo
+
+    def _failing_getaddrinfo(host, *args, **kwargs):
+        if isinstance(host, str) and host == "nonexistent.invalid":
+            raise socket.gaierror("Name or service not known")
+        return real_getaddrinfo(host, *args, **kwargs)
+
+    monkeypatch.setattr(socket, "getaddrinfo", _failing_getaddrinfo)
 
     logs = []
     ctx = PluginContext(

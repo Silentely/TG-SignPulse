@@ -498,7 +498,9 @@ def validate_public_http_url(url: str) -> "tuple[str, str]":
             return False
         if not ip_obj.is_global:
             return True
-        return any(not addr.is_global and addr not in BENCHMARK_NET for addr in embedded)
+        return any(
+            not addr.is_global and addr not in BENCHMARK_NET for addr in embedded
+        )
 
     # 解析候选地址并逐一校验；字面量 IP 直接采用，主机名则走 DNS 解析
     try:

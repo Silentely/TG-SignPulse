@@ -4,7 +4,7 @@ import asyncio
 import logging
 import re
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterable, Optional
 from urllib.parse import quote
 
 import httpx
@@ -14,7 +14,10 @@ from backend.utils.time import utc_now_iso_z_seconds
 logger = logging.getLogger("backend.push_notifications")
 
 _RE_BOT_TOKEN = re.compile(r"bot\d+:[A-Za-z0-9_-]+")
-_RE_URL_SECRET = re.compile(r"""([?&](?:key|token|access_token|sendkey|secret)=)[^\s&\x27\x22]+""")
+_RE_URL_SECRET = re.compile(
+    r"""([?&](?:key|token|access_token|sendkey|secret)=)[^\s&\x27\x22]+""",
+    re.IGNORECASE,
+)
 _RE_FEISHU_PATH_SECRET = re.compile(
     r"(https?://[^/]+/open-apis/bot/v2/hook/)[^/\s\x27\x22?#]+",
     re.IGNORECASE,
@@ -27,17 +30,35 @@ _RE_BARK_PATH_SECRET = re.compile(
     r"(https?://(?:api\.)?day\.app/)[^/\s\x27\x22?#]+",
     re.IGNORECASE,
 )
+# 仅有 scheme://host 的 URL 前缀；用于按已知目标地址掩码其后的路径与 query
+_RE_URL_HOST = re.compile(r"https?://[^/\s\x27\x22?#]+", re.IGNORECASE)
 
 
-def sanitize_push_error(exc: Any) -> str:
-    """脱敏推送异常信息中的 Telegram Bot Token 及 URL query 密钥，防止泄露至日志。"""
+def sanitize_push_error(exc: Any, *, secret_urls: Iterable[Optional[str]] = ()) -> str:
+    """脱敏推送异常信息中的 Telegram Bot Token 及 URL 密钥，防止泄露至日志。
+
+    固定规则覆盖 Telegram / 企微 / 钉钉 / 飞书 / Discord 与官方 Bark 域名；
+    ``secret_urls`` 供调用方传入本次实际推送的目标地址，命中时按整个 host 掩码其后
+    的路径与 query，覆盖自建 Bark 服务器、自定义推送地址等密钥位于路径段、
+    固定规则无法识别的场景。
+    """
     text = str(exc)
+    for raw_url in secret_urls:
+        host_match = _RE_URL_HOST.match(str(raw_url or "").strip())
+        if host_match is None:
+            continue
+        host = host_match.group(0)
+        if host in text:
+            text = re.sub(
+                rf"{re.escape(host)}[^\s\x27\x22]*", f"{host}/[REDACTED]", text
+            )
     text = _RE_BOT_TOKEN.sub("bot[REDACTED]", text)
     text = _RE_URL_SECRET.sub(r"\g<1>[REDACTED]", text)
     text = _RE_FEISHU_PATH_SECRET.sub(r"\g<1>[REDACTED]", text)
     text = _RE_DISCORD_PATH_SECRET.sub(r"\g<1>[REDACTED]", text)
     text = _RE_BARK_PATH_SECRET.sub(r"\g<1>[REDACTED]", text)
     return text
+
 
 # Telegram Bot API 单条消息上限；留余量避免 parse_mode=HTML 时超限报错
 _TG_MSG_LIMIT = 3900
@@ -323,7 +344,9 @@ async def send_telegram_bot_message(
                 raise
             last_exc = exc
             if attempt == 1:
-                logger.warning("Telegram 通知发送失败，准备重试: %s", sanitize_push_error(exc))
+                logger.warning(
+                    "Telegram 通知发送失败，准备重试: %s", sanitize_push_error(exc)
+                )
                 await asyncio.sleep(1.0)
     assert last_exc is not None
     raise last_exc
@@ -375,7 +398,11 @@ async def _http_post_retry_once(
                 raise
             last_exc = exc
             if attempt == 1:
-                logger.warning("%s 通知发送失败，准备重试: %s", channel, sanitize_push_error(exc))
+                logger.warning(
+                    "%s 通知发送失败，准备重试: %s",
+                    channel,
+                    sanitize_push_error(exc, secret_urls=(url,)),
+                )
                 await asyncio.sleep(1.0)
     assert last_exc is not None
     raise last_exc
@@ -504,13 +531,18 @@ async def send_login_notification(
             ("IP", ip_address or "未知"),
         ],
     )
-    await send_telegram_bot_message(
-        bot_token=bot_token,
-        chat_id=chat_id,
-        text=text,
-        message_thread_id=thread_id,
-        parse_mode="HTML",
-    )
+    # 登录通知由 FastAPI 后台任务触发，异常若逃逸会由 ASGI 服务器打出含
+    # Bot Token 的完整 traceback，故此处就地吞掉并按脱敏文本告警
+    try:
+        await send_telegram_bot_message(
+            bot_token=bot_token,
+            chat_id=chat_id,
+            text=text,
+            message_thread_id=thread_id,
+            parse_mode="HTML",
+        )
+    except Exception as exc:
+        logger.warning("Telegram 登录通知发送失败: %s", sanitize_push_error(exc))
 
 
 async def send_task_success_notification(

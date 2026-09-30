@@ -607,7 +607,9 @@ def test_start_task_run_registers_task_before_runner_first_yield(monkeypatch):
         assert ("acc", "task") in svc._background_run_tasks
         for task in tuple(svc._background_run_tasks.values()):
             task.cancel()
-        await asyncio.gather(*svc._background_run_tasks.values(), return_exceptions=True)
+        await asyncio.gather(
+            *svc._background_run_tasks.values(), return_exceptions=True
+        )
 
     asyncio.run(scenario())
 

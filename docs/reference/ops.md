@@ -41,8 +41,8 @@
 用户操作步骤见 **[备份与恢复](/guide/backup-webdav)**。实现要点：
 
 1. 上传/测试/列表前前端会先落盘备份连接配置；服务端只读已保存设置。
-2. `GET /api/config/settings` 不回传 WebDAV 密码、Bot Token 与对象存储 Secret Key 明文，仅 `*_set`。
-3. 配置 JSON 导出脱敏上述密钥；导入占位不覆盖已有值。
+2. `GET /api/config/settings` 不回传 WebDAV 密码、Bot Token、对象存储 Secret Key、全局代理与推送矩阵（企微/飞书/钉钉/Discord/Server酱/Bark/自定义推送）的明文，均仅 `*_set`。
+3. 配置 JSON 导出脱敏上述密钥（推送矩阵含企微/钉钉 query 密钥与飞书/Discord 路径令牌）；导入占位不覆盖已有值。
 4. **落点策略（`backup_target`）**：
    - `auto`（默认）：已配置 WebDAV 时上传 WebDAV；未配置 WebDAV 但对象存储已启用时上传对象存储；两者均未配置则回退为浏览器下载流。
    - `webdav`：仅上传至 WebDAV，未配置时报错阻止。

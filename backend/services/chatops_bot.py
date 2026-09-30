@@ -20,6 +20,7 @@ import httpx
 from backend.services.flood_backoff import get_flood_backoff_manager
 from backend.services.push_notifications import (
     _html_escape,
+    sanitize_push_error,
     send_telegram_bot_message,
 )
 
@@ -291,8 +292,12 @@ class TelegramChatOpsWorker:
                                         bot_token, chat_id, text, settings
                                     )
                                 except Exception as exc:
+                                    # 命令处理可能抛出含 Bot Token URL 的推送异常，
+                                    # 脱敏后再落日志
                                     logger.warning(
-                                        "处理 ChatOps 命令 [%s] 出错: %s", text, exc
+                                        "处理 ChatOps 命令 [%s] 出错: %s",
+                                        text,
+                                        sanitize_push_error(exc),
                                     )
                             elif chat_id == allowed_chat_id and text.startswith("/"):
                                 logger.warning(
@@ -306,7 +311,7 @@ class TelegramChatOpsWorker:
                 except asyncio.CancelledError:
                     break
                 except Exception as e:
-                    logger.debug("ChatOps 轮询异常: %s", e)
+                    logger.debug("ChatOps 轮询异常: %s", sanitize_push_error(e))
                     await asyncio.sleep(5.0)
         finally:
             if client is not None and not getattr(client, "is_closed", True):

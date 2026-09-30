@@ -413,7 +413,9 @@ class TestAiConfigSsrfDefense:
                 service.save_ai_config(api_key="sk-test", base_url=bad_url)
 
     @pytest.mark.asyncio
-    async def test_test_ai_connection_rejects_ssrf_url_without_calling_api(self, isolated_env: Path, monkeypatch):
+    async def test_test_ai_connection_rejects_ssrf_url_without_calling_api(
+        self, isolated_env: Path, monkeypatch
+    ):
         service = ConfigService()
         monkeypatch.setattr(
             service,
@@ -425,6 +427,7 @@ class TestAiConfigSsrfDefense:
             },
         )
         called = False
+
         def fake_openai(*args, **kwargs):
             nonlocal called
             called = True
