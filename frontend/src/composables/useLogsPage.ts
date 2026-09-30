@@ -1,7 +1,7 @@
 /**
  * 日志页：筛选、加载、详情与清空。
  */
-import { ref, onMounted, watch, computed } from 'vue'
+import { ref, shallowRef, onMounted, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   getTaskHistoryLogs,
@@ -47,7 +47,7 @@ export function useLogsPage() {
   const filterStatus = ref<'' | 'success' | 'error'>('')
   const filterCategory = ref('')
 
-  const rawTaskLogs = ref<TaskHistoryLog[]>([])
+  const rawTaskLogs = shallowRef<TaskHistoryLog[]>([])
   const pageLoading = ref(true)
   /** 日志加载失败标记：首屏失败时展示错误态而非空列表 */
   const loadFailed = ref(false)
@@ -57,7 +57,7 @@ export function useLogsPage() {
   const selectedLog = ref<TaskLogUiItem | null>(null)
   const logDetail = ref<TaskHistoryLogDetail | null>(null)
   const detailLoading = ref(false)
-  const loginLogs = ref<LoginLogUiItem[]>([])
+  const loginLogs = shallowRef<LoginLogUiItem[]>([])
 
   // 请求序号守卫：丢弃过期响应，避免慢请求覆盖新筛选/新选中日志
   const taskLogsGuard = useLatestResponseGuard()

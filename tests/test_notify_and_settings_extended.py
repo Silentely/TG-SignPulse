@@ -1272,3 +1272,62 @@ async def test_auto_backup_failure_notification_sends():
             error="WebDAV 上传失败",
         )
         m.assert_awaited()
+
+
+class TestPushErrorSanitization:
+    """测试推送异常日志中的敏感 Token 脱敏"""
+
+    def test_sanitize_bot_token(self):
+        from backend.services.push_notifications import sanitize_push_error
+
+        raw = "Client error 400 on https://api.telegram.org/bot123456789:ABCdef-GHI_jklmn/sendMessage"
+        sanitized = sanitize_push_error(raw)
+        assert "bot[REDACTED]" in sanitized
+        assert "123456789:ABCdef" not in sanitized
+
+    def test_sanitize_webhook_url_keys(self):
+        from backend.services.push_notifications import sanitize_push_error
+
+        raw = "Error calling https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=my_wecom_key_123"
+        sanitized = sanitize_push_error(raw)
+        assert "key=[REDACTED]" in sanitized
+        assert "my_wecom_key_123" not in sanitized
+
+        raw2 = "Error calling https://oapi.dingtalk.com/robot/send?access_token=my_ding_token&secret=my_sec"
+        sanitized2 = sanitize_push_error(raw2)
+        assert "access_token=[REDACTED]" in sanitized2
+        assert "secret=[REDACTED]" in sanitized2
+        assert "my_ding_token" not in sanitized2
+
+
+class TestPushMatrixSettings:
+    """测试企业推送矩阵 Webhook 与密钥在 GlobalSettings 中的完整性与脱敏"""
+
+    PUSH_CFG = {
+        "wecom_webhook_url": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=wecom123",
+        "feishu_webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/feishu123",
+        "dingtalk_webhook_url": "https://oapi.dingtalk.com/robot/send?access_token=ding123",
+        "discord_webhook_url": "https://discord.com/api/webhooks/123/tokenabc",
+        "server_chan_send_key": "SCT123456",
+        "bark_url": "https://api.day.app/devicekey123",
+        "custom_url": "https://example.com/notify?token=secret",
+    }
+
+    def test_push_matrix_masked_on_get_and_retained_on_empty(self, client, db_session):
+        from backend.services.config import get_config_service
+
+        client.post("/api/config/settings", json=self.PUSH_CFG, headers=_auth_headers())
+        got = client.get("/api/config/settings", headers=_auth_headers()).json()
+
+        for key in self.PUSH_CFG:
+            assert got.get(key) in (None, ""), f"{key} was leaked in GET response"
+            assert got.get(f"{key}_set") is True, f"{key}_set should be True"
+
+        # 传递空字符串保留原值
+        client.post(
+            "/api/config/settings",
+            json={"timezone": "UTC", "wecom_webhook_url": ""},
+            headers=_auth_headers(),
+        )
+        stored = get_config_service().get_global_settings()
+        assert stored["wecom_webhook_url"] == self.PUSH_CFG["wecom_webhook_url"]

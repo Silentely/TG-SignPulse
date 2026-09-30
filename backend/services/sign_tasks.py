@@ -11,6 +11,7 @@ import os
 import threading
 import uuid
 import weakref
+import contextlib
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, MutableMapping, Optional
@@ -1289,6 +1290,26 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         """
         if task is not None and self._background_run_tasks.get(task_key) is task:
             self._background_run_tasks.pop(task_key, None)
+
+    async def drain_background_runs(self, timeout: float = 15.0) -> None:
+        """平滑停机：等待进行中的签到任务完成，或在超时后协作式取消。"""
+        tasks = [t for t in self._background_run_tasks.values() if not t.done()]
+        if not tasks:
+            return
+        _service_logger.info("平滑停机：正在等待 %d 个进行中的签到任务完成 (至多 %.1f 秒)...", len(tasks), timeout)
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*tasks, return_exceptions=True),
+                timeout=timeout,
+            )
+            _service_logger.info("平滑停机：所有进行中的签到任务已平滑完成")
+        except asyncio.TimeoutError:
+            pending = [t for t in tasks if not t.done()]
+            _service_logger.warning("平滑停机超时 (%.1f 秒)，取消剩余 %d 个签到任务", timeout, len(pending))
+            for t in pending:
+                t.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await asyncio.gather(*pending, return_exceptions=True)
 
     async def start_task_run(
         self,

@@ -541,3 +541,41 @@ def test_schedule_run_status_cleanup_replacement_survives_old_cancel():
         assert second.done()
 
     asyncio.run(scenario())
+
+
+@pytest.mark.asyncio
+async def test_drain_background_runs():
+    from backend.services.sign_tasks import SignTaskService
+
+    svc = SignTaskService()
+    finished = []
+
+    async def _mock_task(name: str, delay: float):
+        await asyncio.sleep(delay)
+        finished.append(name)
+
+    t1 = asyncio.create_task(_mock_task("t1", 0.02))
+    t2 = asyncio.create_task(_mock_task("t2", 0.04))
+
+    svc._background_run_tasks[("acc", "t1")] = t1
+    svc._background_run_tasks[("acc", "t2")] = t2
+
+    await svc.drain_background_runs(timeout=2.0)
+    assert finished == ["t1", "t2"]
+    assert t1.done() and t2.done()
+
+
+@pytest.mark.asyncio
+async def test_drain_background_runs_timeout_cancels():
+    from backend.services.sign_tasks import SignTaskService
+
+    svc = SignTaskService()
+
+    async def _long_task():
+        await asyncio.sleep(10.0)
+
+    t = asyncio.create_task(_long_task())
+    svc._background_run_tasks[("acc", "long")] = t
+
+    await svc.drain_background_runs(timeout=0.05)
+    assert t.cancelled() or t.done()

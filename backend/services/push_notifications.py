@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from datetime import datetime
 from typing import Any, Dict, Optional
 from urllib.parse import quote
@@ -11,6 +12,17 @@ import httpx
 from backend.utils.time import utc_now_iso_z_seconds
 
 logger = logging.getLogger("backend.push_notifications")
+
+_RE_BOT_TOKEN = re.compile(r"bot\d+:[A-Za-z0-9_-]+")
+_RE_URL_SECRET = re.compile(r"""([?&](?:key|token|access_token|sendkey|secret)=)[^\s&\x27\x22]+""")
+
+
+def sanitize_push_error(exc: Any) -> str:
+    """脱敏推送异常信息中的 Telegram Bot Token 及 URL query 密钥，防止泄露至日志。"""
+    text = str(exc)
+    text = _RE_BOT_TOKEN.sub("bot[REDACTED]", text)
+    text = _RE_URL_SECRET.sub(r"\g<1>[REDACTED]", text)
+    return text
 
 # Telegram Bot API 单条消息上限；留余量避免 parse_mode=HTML 时超限报错
 _TG_MSG_LIMIT = 3900
@@ -296,7 +308,7 @@ async def send_telegram_bot_message(
                 raise
             last_exc = exc
             if attempt == 1:
-                logger.warning("Telegram 通知发送失败，准备重试: %s", exc)
+                logger.warning("Telegram 通知发送失败，准备重试: %s", sanitize_push_error(exc))
                 await asyncio.sleep(1.0)
     assert last_exc is not None
     raise last_exc
@@ -348,7 +360,7 @@ async def _http_post_retry_once(
                 raise
             last_exc = exc
             if attempt == 1:
-                logger.warning("%s 通知发送失败，准备重试: %s", channel, exc)
+                logger.warning("%s 通知发送失败，准备重试: %s", channel, sanitize_push_error(exc))
                 await asyncio.sleep(1.0)
     assert last_exc is not None
     raise last_exc
@@ -563,7 +575,7 @@ async def send_auto_backup_failure_notification(
             parse_mode="HTML",
         )
     except Exception as exc:
-        logger.warning("自动备份失败通知发送失败: %s", exc)
+        logger.warning("自动备份失败通知发送失败: %s", sanitize_push_error(exc))
 
 
 async def send_wecom_message(webhook_url: str, title: str, text: str) -> None:
@@ -655,25 +667,25 @@ async def dispatch_matrix_notification(
         try:
             await send_wecom_message(wecom_url, title, body_text)
         except Exception as exc:
-            logger.warning("企业微信通知发送失败: %s", exc)
+            logger.warning("企业微信通知发送失败: %s", sanitize_push_error(exc))
 
     feishu_url = (settings.get("feishu_webhook_url") or "").strip()
     if feishu_url:
         try:
             await send_feishu_message(feishu_url, title, body_text)
         except Exception as exc:
-            logger.warning("飞书通知发送失败: %s", exc)
+            logger.warning("飞书通知发送失败: %s", sanitize_push_error(exc))
 
     dingtalk_url = (settings.get("dingtalk_webhook_url") or "").strip()
     if dingtalk_url:
         try:
             await send_dingtalk_message(dingtalk_url, title, body_text)
         except Exception as exc:
-            logger.warning("钉钉通知发送失败: %s", exc)
+            logger.warning("钉钉通知发送失败: %s", sanitize_push_error(exc))
 
     discord_url = (settings.get("discord_webhook_url") or "").strip()
     if discord_url:
         try:
             await send_discord_message(discord_url, title, body_text)
         except Exception as exc:
-            logger.warning("Discord 通知发送失败: %s", exc)
+            logger.warning("Discord 通知发送失败: %s", sanitize_push_error(exc))
