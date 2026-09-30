@@ -53,7 +53,7 @@ data/.admin_bootstrap_password
 
 ## 如何配置 WebDAV 自动备份？
 
-见 [备份与恢复](guide/backup-webdav.md)：进入 **设置** → **数据管理** → **WebDAV 远端备份与灾备** 填写 WebDAV 连接信息（或选择坚果云/Nextcloud/InfiniCLOUD/Alist 等快捷预设），点击 **测试连接**。随后在 **定时与保留策略** 中开启自动备份并设定执行间隔与保留份数，点击 **保存备份设置**。WebDAV 远端上传成功后清理本地临时副本并轮转远端旧包；上传失败会保留本地副本兜底并发送 Telegram Bot 告警通知。
+见 [备份与恢复](guide/backup-webdav.md)：进入 **设置** → **数据管理** → **WebDAV 远端备份** 填写 WebDAV 连接信息（或选择坚果云/Nextcloud/InfiniCLOUD/Alist 等快捷预设），点击 **测试连接**。随后在 **定时与保留策略** 中开启自动备份并设定执行间隔与保留份数，点击 **保存备份设置**。WebDAV 远端上传成功后清理本地临时副本并轮转远端旧包；上传失败会保留本地副本兜底并发送 Telegram Bot 告警通知。
 
 ## 是否已经改成 PostgreSQL、取消 SQLite？
 
