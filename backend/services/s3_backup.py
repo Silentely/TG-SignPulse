@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import logging
@@ -199,10 +200,12 @@ class S3BackupClient:
         key = self.object_key(object_name or file_path.name)
         target_url, host, canonical_uri = self._build_url_and_host(key)
 
-        with open(file_path, "rb") as f:
-            data = f.read()
+        def _read_and_hash():
+            with open(file_path, "rb") as f:
+                content = f.read()
+            return content, hashlib.sha256(content).hexdigest()
 
-        payload_hash = hashlib.sha256(data).hexdigest()
+        data, payload_hash = await asyncio.to_thread(_read_and_hash)
         headers = self._sign_request(
             method="PUT",
             canonical_uri=canonical_uri,

@@ -127,7 +127,15 @@ describe('useSettingsSave', () => {
       ai: { base_url: 'http://x', model: 'm', api_key: 'k' },
     })
     await save.saveAllSettings()
-    expect(api.saveGlobalSettings).toHaveBeenCalled()
+    expect(api.saveGlobalSettings).toHaveBeenCalledWith(
+      'tok',
+      expect.objectContaining({
+        general: 1,
+        bot: 1,
+        adv: 1,
+        ai_rt: 1,
+      }),
+    )
     expect(api.saveTelegramConfig).toHaveBeenCalled()
     expect(api.saveAIConfig).toHaveBeenCalled()
     expect(markSectionClean).toHaveBeenCalledWith('general')

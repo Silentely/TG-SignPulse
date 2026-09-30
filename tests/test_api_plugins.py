@@ -34,6 +34,19 @@ def _register_sandbox_worker_fixtures():
     def crash_handler(ctx: PluginContext):
         raise RuntimeError("模拟插件执行崩溃")
 
+    PluginRegistry._plugins.pop("test_async_echo_sandbox", None)
+
+    @PluginRegistry.register(
+        name="test_async_echo_sandbox",
+        mode="reactive",
+        description="沙箱异步回显测试插件",
+    )
+    async def async_echo_handler(ctx: PluginContext):
+        if ctx.message and ctx.message.text:
+            await ctx.reply(f"echo:{ctx.message.text}")
+            return True
+        return False
+
 
 _register_sandbox_worker_fixtures()
 
@@ -101,6 +114,7 @@ def test_test_plugin_endpoint(api_client):
         name="test_calculator_sandbox",
         mode="reactive",
         description="计算器沙箱测试",
+        isolation_mode="in_process",
     )
     async def calc_handler(ctx: PluginContext):
         if "1+1" in ctx.message.text:
@@ -233,6 +247,7 @@ def test_test_plugin_reaction(api_client):
     @PluginRegistry.register(
         name="test_reaction_plugin",
         mode="reactive",
+        isolation_mode="in_process",
     )
     async def reaction_handler(ctx: PluginContext):
         await ctx.react("🎉")
@@ -390,3 +405,22 @@ def test_builtin_plugins_real_directory_load_and_api(api_client, monkeypatch, tm
     assert reloaded_plugins["test_real_builtin_single"]["builtin"] is True
     assert reloaded_plugins["test_real_custom_pkg"]["builtin"] is False
     assert reloaded_plugins["test_real_custom_single"]["builtin"] is False
+
+
+def test_test_plugin_endpoint_async_uses_subprocess(api_client):
+    """测试异步协程插件默认在子进程沙箱 (isolation=subprocess) 中执行，阻断进程内提权"""
+    _register_sandbox_worker_fixtures()
+    token = _login(api_client)
+    headers = _auth(token)
+
+    resp = api_client.post(
+        "/api/plugins/test_async_echo_sandbox/test",
+        headers=headers,
+        json={"text": "hello"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is True
+    assert data["handled"] is True
+    assert data["reply_text"] == "echo:hello"
+    assert data["isolation"] == "subprocess"

@@ -47,6 +47,11 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
     stop_grace_period: 30s
     logging:
       driver: "json-file"

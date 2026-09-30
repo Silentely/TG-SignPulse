@@ -157,6 +157,11 @@ def get_account_session_string(account_name: str) -> Optional[str]:
     session_string = entry.get("session_string")
     if isinstance(session_string, str) and session_string.strip():
         cleaned = session_string.strip()
+        try:
+            from tg_signer.security import decrypt_secret
+            cleaned = decrypt_secret(cleaned) or cleaned
+        except Exception:
+            pass
         # 非法串（含历史错误导出）视为不存在，便于调用方回退到文件导出
         if is_valid_session_string(cleaned):
             return cleaned
@@ -172,7 +177,12 @@ def set_account_session_string(account_name: str, session_string: str) -> None:
     cleaned = session_string.strip()
     if not is_valid_session_string(cleaned):
         raise ValueError("invalid pyrogram session_string")
-    entry["session_string"] = cleaned
+    try:
+        from tg_signer.security import encrypt_secret
+        stored = encrypt_secret(cleaned) or cleaned
+    except Exception:
+        stored = cleaned
+    entry["session_string"] = stored
     entry["updated_at"] = utc_now_iso()
     accounts[account_name] = entry
     _save_account_store(data)
@@ -327,8 +337,13 @@ def load_session_string_file(session_dir: Path, account_name: str) -> Optional[s
             content = path.read_text(encoding="utf-8").strip()
         except Exception:
             content = ""
-        if content and is_valid_session_string(content):
-            return content
+        try:
+            from tg_signer.security import decrypt_secret
+            decrypted = decrypt_secret(content) or content
+        except Exception:
+            decrypted = content
+        if decrypted and is_valid_session_string(decrypted):
+            return decrypted
         # 坏缓存（含历史错误导出的 357 字符串）：删除后从 .session 重导
         try:
             path.unlink()
@@ -410,8 +425,7 @@ def _export_session_string_from_file(
         # Cache it to .session_string file for future use
         # 原子写：会话字符串是登录态凭据，半截文件会让下次加载直接判定会话失效
         try:
-            cache_path = session_string_file_path(session_dir, account_name)
-            write_text_atomic(cache_path, session_string)
+            save_session_string_file(session_dir, account_name, session_string)
         except Exception:
             pass
 

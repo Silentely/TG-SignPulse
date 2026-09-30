@@ -741,3 +741,60 @@ class TestSessionStringFileFallback:
             tg_session.save_session_string_file(tmp_path, "keep", "next")
 
         assert path.read_text(encoding="utf-8") == "previous"
+
+
+class TestSessionStringEncryption:
+    """测试 Telegram Session 敏感 AuthKey 落盘加密"""
+
+    def test_session_string_encrypted_in_accounts_json(self, tmp_path, monkeypatch):
+        store_path = tmp_path / "accounts.json"
+        monkeypatch.setattr(tg_session, "_account_store_path", lambda: store_path)
+        monkeypatch.setenv("APP_SECRET_KEY", "test-secret-key-32-bytes-long!")
+
+        import base64
+        import struct
+
+        packed = struct.pack(
+            tg_session._SESSION_STRING_FORMAT,
+            2,
+            12345,
+            False,
+            b"K" * 256,
+            99999,
+            False,
+        )
+        session_string = base64.urlsafe_b64encode(packed).decode("ascii").rstrip("=")
+
+        tg_session.set_account_session_string("acc_encrypted", session_string)
+
+        import json
+        raw_data = json.loads(store_path.read_text(encoding="utf-8"))
+        stored_session = raw_data["accounts"]["acc_encrypted"]["session_string"]
+        assert stored_session != session_string
+        assert stored_session.startswith("fernet:")
+
+        assert tg_session.get_account_session_string("acc_encrypted") == session_string
+
+    def test_load_session_string_file_decrypts_encrypted_cache(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("APP_SECRET_KEY", "test-secret-key-32-bytes-long!")
+        from tg_signer.security import encrypt_secret
+        import base64
+        import struct
+
+        packed = struct.pack(
+            tg_session._SESSION_STRING_FORMAT,
+            2,
+            12345,
+            False,
+            b"K" * 256,
+            99999,
+            False,
+        )
+        session_string = base64.urlsafe_b64encode(packed).decode("ascii").rstrip("=")
+        encrypted_val = encrypt_secret(session_string)
+
+        cache_path = tg_session.session_string_file_path(tmp_path, "acc_cache")
+        cache_path.write_text(encrypted_val, encoding="utf-8")
+
+        result = tg_session.load_session_string_file(tmp_path, "acc_cache")
+        assert result == session_string
