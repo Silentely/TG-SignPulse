@@ -811,10 +811,12 @@ class KeywordMonitorService:
         except Exception as exc:
             # 推送失败不冒泡：命中记录已持久化，失败仅记为规则日志与告警，
             # 避免单条推送抖动把整个监听处理误判为失败
+            from backend.services.push_notifications import sanitize_push_error
+
             logger.warning(
                 "关键词命中通知推送失败（推送方式=%s）: %s",
                 push_channel,
-                exc,
+                sanitize_push_error(exc),
             )
             self._append_rule_log(
                 rule,

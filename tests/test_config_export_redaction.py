@@ -59,6 +59,43 @@ class TestScrubPureFunction:
         out = _scrub_export_secrets({"server_chan_send_key": "SCT123456ABC"})
         assert out["server_chan_send_key"] == "***MASKED***"
 
+    def test_push_matrix_urls_redact_query_and_path_tokens(self):
+        out = _scrub_export_secrets(
+            {
+                "wecom_webhook_url": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=wecom-secret",
+                "feishu_webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/feishu-secret",
+                "dingtalk_webhook_url": "https://oapi.dingtalk.com/robot/send?access_token=ding-secret&secret=sign-secret",
+                "discord_webhook_url": "https://discord.com/api/webhooks/123/discord-secret",
+                "custom_url": "https://example.com/notify?token=custom-secret",
+            }
+        )
+
+        dumped = json.dumps(out)
+        for secret in (
+            "wecom-secret",
+            "feishu-secret",
+            "ding-secret",
+            "sign-secret",
+            "discord-secret",
+            "custom-secret",
+        ):
+            assert secret not in dumped
+        assert "key=***MASKED***" in out["wecom_webhook_url"]
+        assert "/***MASKED***" in out["feishu_webhook_url"]
+        assert "access_token=***MASKED***" in out["dingtalk_webhook_url"]
+        assert "/123/***MASKED***" in out["discord_webhook_url"]
+
+    def test_push_matrix_masked_values_are_dropped_on_import(self):
+        payload = _scrub_export_secrets(
+            {
+                "wecom_webhook_url": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=wecom-secret",
+                "feishu_webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/feishu-secret",
+                "discord_webhook_url": "https://discord.com/api/webhooks/123/discord-secret",
+            }
+        )
+        cleaned = _drop_masked_secret_fields(payload)
+        assert cleaned == {}
+
     def test_forward_callback_auth_headers_redacted(self):
         out = _scrub_export_secrets(
             {
@@ -219,6 +256,29 @@ class TestExportRoundTrip:
         dumped = seeded_service.export_all_configs()
         assert "proxypass" not in dumped
         assert "socks5://***:***@proxy.example.com:1080" in dumped
+
+    def test_export_all_configs_redacts_global_push_matrix(self, seeded_service):
+        seeded_service.save_global_settings(
+            {
+                "wecom_webhook_url": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=wecom-secret",
+                "feishu_webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/feishu-secret",
+                "dingtalk_webhook_url": "https://oapi.dingtalk.com/robot/send?access_token=ding-secret",
+                "discord_webhook_url": "https://discord.com/api/webhooks/123/discord-secret",
+                "custom_url": "https://example.com/notify?token=custom-secret",
+            }
+        )
+
+        data = json.loads(seeded_service.export_all_configs())
+        global_settings = data["settings"]["global"]
+        dumped = json.dumps(global_settings)
+        for secret in (
+            "wecom-secret",
+            "feishu-secret",
+            "ding-secret",
+            "discord-secret",
+            "custom-secret",
+        ):
+            assert secret not in dumped
 
     def test_import_roundtrip_does_not_overwrite_real_secret(self, seeded_service):
         """导出→导入不得用占位符覆盖已落盘的真实凭据。"""

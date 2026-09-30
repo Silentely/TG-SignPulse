@@ -579,3 +579,47 @@ async def test_drain_background_runs_timeout_cancels():
 
     await svc.drain_background_runs(timeout=0.05)
     assert t.cancelled() or t.done()
+
+
+def test_start_task_run_registers_task_before_runner_first_yield(monkeypatch):
+    import asyncio
+
+    from backend.services.sign_tasks import SignTaskService
+
+    svc = SignTaskService.__new__(SignTaskService)
+    svc._active_tasks = {}
+    svc._run_statuses = {}
+    svc._run_status_cleanup_tasks = {}
+    svc._background_run_tasks = {}
+    svc._draining = False
+
+    async def fake_run_task_with_logs(*args, **kwargs):
+        await asyncio.sleep(0)
+        return {"success": True}
+
+    monkeypatch.setattr(svc, "get_task", lambda *args, **kwargs: {"name": "task"})
+    monkeypatch.setattr(svc, "run_task_with_logs", fake_run_task_with_logs)
+    monkeypatch.setattr(svc, "_set_run_status", lambda *args, **kwargs: kwargs)
+    monkeypatch.setattr(svc, "_schedule_run_status_cleanup", lambda *args: None)
+
+    async def scenario():
+        await svc.start_task_run("acc", "task")
+        assert ("acc", "task") in svc._background_run_tasks
+        for task in tuple(svc._background_run_tasks.values()):
+            task.cancel()
+        await asyncio.gather(*svc._background_run_tasks.values(), return_exceptions=True)
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.asyncio
+async def test_run_task_with_logs_rejects_new_runs_after_shutdown():
+    from backend.services.sign_tasks import SignTaskService
+
+    svc = SignTaskService.__new__(SignTaskService)
+    svc._background_run_tasks = {}
+    svc._draining = False
+    svc.begin_shutdown()
+
+    with pytest.raises(RuntimeError, match="正在停机"):
+        await svc.run_task_with_logs("acc", "task")

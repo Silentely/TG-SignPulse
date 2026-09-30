@@ -88,6 +88,7 @@ async def send_failure_notification(
             _bot_config,
             build_html_notification,
             is_in_quiet_hours,
+            sanitize_push_error,
             send_telegram_bot_message,
         )
 
@@ -149,7 +150,7 @@ async def send_failure_notification(
             "Telegram 失败通知发送失败 (账号=%s, 任务=%s): %s",
             account_name,
             task_name,
-            e,
+            sanitize_push_error(e),
         )
 
 
@@ -162,6 +163,7 @@ async def send_success_notification(
     try:
         from backend.services.config import get_config_service
         from backend.services.push_notifications import (
+            sanitize_push_error,
             send_task_success_notification,
         )
 
@@ -177,7 +179,7 @@ async def send_success_notification(
             "Telegram 成功通知发送失败 (账号=%s, 任务=%s): %s",
             account_name,
             task_name,
-            e,
+            sanitize_push_error(e),
         )
 
 
@@ -193,6 +195,7 @@ async def send_account_invalid_notification(
             _bot_config,
             build_html_notification,
             is_in_quiet_hours,
+            sanitize_push_error,
             send_telegram_bot_message,
         )
 
@@ -232,7 +235,7 @@ async def send_account_invalid_notification(
             "Telegram 账号失效通知发送失败 (账号=%s, 任务=%s): %s",
             account_name,
             task_name,
-            e,
+            sanitize_push_error(e),
         )
 
 

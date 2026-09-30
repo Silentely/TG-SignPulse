@@ -6,12 +6,12 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import threading
 import uuid
 import weakref
-import contextlib
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, MutableMapping, Optional
@@ -127,6 +127,7 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         self._run_statuses: Dict[tuple[str, str], Dict[str, Any]] = {}
         self._run_status_cleanup_tasks: Dict[tuple[str, str], asyncio.Task] = {}
         self._background_run_tasks: Dict[tuple[str, str], asyncio.Task] = {}
+        self._draining = False
         self._tasks_cache = None  # 兼容旧引用：list 或 None
         # 通配任务删除记录：{(account, task_name): True}。
         # 删除通配铺开的某账号副本后，必须记住该账号已删，
@@ -1281,6 +1282,10 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
             return
         self._background_run_tasks[task_key] = task
 
+    def begin_shutdown(self) -> None:
+        """阻止新的签到任务进入，供应用停机阶段先静默任务生产者。"""
+        self._draining = True
+
     def _unregister_background_run(
         self, task_key: tuple[str, str], task: Optional[asyncio.Task]
     ) -> None:
@@ -1317,6 +1322,8 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         task_name: str,
         visited_chain: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
+        if getattr(self, "_draining", False):
+            raise RuntimeError("签到任务服务正在停机，暂不接受新任务")
         account_name = validate_storage_name(account_name, field_name="account_name")
         task_name = validate_storage_name(task_name, field_name="task_name")
 
@@ -1395,11 +1402,12 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
                 self._schedule_run_status_cleanup(account_name, task_name)
             self._unregister_background_run(task_key, asyncio.current_task())
 
-        create_logged_task(
+        background_task = create_logged_task(
             runner(),
             logger=_service_logger,
             description=f"sign task run {account_name}/{task_name}",
         )
+        self._register_background_run(task_key, background_task)
         return status
 
     def cancel_task_run(
@@ -1496,6 +1504,8 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         # 此处只算 key 不做名校验：execute_sign_task 会校验并在失败时抛错，
         # finally 中的摘除保证不会留下残留句柄。
         task_key = self._task_key(account_name, task_name)
+        if getattr(self, "_draining", False):
+            raise RuntimeError("签到任务服务正在停机，暂不接受新任务")
         current_task = asyncio.current_task()
         self._register_background_run(task_key, current_task)
         try:

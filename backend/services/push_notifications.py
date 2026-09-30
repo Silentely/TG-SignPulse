@@ -15,6 +15,18 @@ logger = logging.getLogger("backend.push_notifications")
 
 _RE_BOT_TOKEN = re.compile(r"bot\d+:[A-Za-z0-9_-]+")
 _RE_URL_SECRET = re.compile(r"""([?&](?:key|token|access_token|sendkey|secret)=)[^\s&\x27\x22]+""")
+_RE_FEISHU_PATH_SECRET = re.compile(
+    r"(https?://[^/]+/open-apis/bot/v2/hook/)[^/\s\x27\x22?#]+",
+    re.IGNORECASE,
+)
+_RE_DISCORD_PATH_SECRET = re.compile(
+    r"(https?://[^/]+/api/webhooks/\d+/)[^/\s\x27\x22?#]+",
+    re.IGNORECASE,
+)
+_RE_BARK_PATH_SECRET = re.compile(
+    r"(https?://(?:api\.)?day\.app/)[^/\s\x27\x22?#]+",
+    re.IGNORECASE,
+)
 
 
 def sanitize_push_error(exc: Any) -> str:
@@ -22,6 +34,9 @@ def sanitize_push_error(exc: Any) -> str:
     text = str(exc)
     text = _RE_BOT_TOKEN.sub("bot[REDACTED]", text)
     text = _RE_URL_SECRET.sub(r"\g<1>[REDACTED]", text)
+    text = _RE_FEISHU_PATH_SECRET.sub(r"\g<1>[REDACTED]", text)
+    text = _RE_DISCORD_PATH_SECRET.sub(r"\g<1>[REDACTED]", text)
+    text = _RE_BARK_PATH_SECRET.sub(r"\g<1>[REDACTED]", text)
     return text
 
 # Telegram Bot API 单条消息上限；留余量避免 parse_mode=HTML 时超限报错
