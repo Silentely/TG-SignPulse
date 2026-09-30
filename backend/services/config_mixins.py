@@ -113,9 +113,8 @@ def normalize_global_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
     """钳制/归一化全局设置字段（路由层 fields_set 过滤后透传，服务层统一钳制）。
 
     - 数值字段按既定范围钳制，None 允许的字段保持 None
-    - telegram_bot_token/webdav_password/s3_secret_key 空串表示不修改（移除键保留旧值）
+    - telegram_bot_token/webdav_password 空串表示不修改（移除键保留旧值）
     - webdav_url/webdav_username/webdav_remote_dir 去首尾空白并兜底默认值
-    - s3_* 非密钥字段去空白并兜底默认值；s3_enabled 归一为布尔
     """
     normalized = dict(settings)
 
@@ -183,43 +182,9 @@ def normalize_global_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
         stripped = (normalized["webdav_remote_dir"] or "").strip()
         normalized["webdav_remote_dir"] = stripped or "tg-signpulse-backups"
 
-    # S3 Secret Key：与 WebDAV 密码同口径，空串不修改
-    if "s3_secret_key" in normalized:
-        secret = normalized["s3_secret_key"]
-        if secret is None or str(secret).strip() == "":
-            normalized.pop("s3_secret_key")
-        else:
-            normalized["s3_secret_key"] = str(secret)
-
-    # S3 非密钥字段：去空白，空值归一为 None（前缀/区域回落默认值）
-    for key in (
-        "s3_endpoint_url",
-        "s3_bucket",
-        "s3_access_key",
-        "s3_region",
-        "s3_prefix",
-        "s3_proxy",
-    ):
-        if key in normalized:
-            stripped = (normalized[key] or "").strip()
-            normalized[key] = stripped or None
-
-    # S3 Endpoint 公网校验：与 WebDAV 同口径，保存即拒绝内网/元数据端点
-    if normalized.get("s3_endpoint_url"):
-        from tg_signer.utils import validate_public_http_url
-
-        try:
-            validate_public_http_url(normalized["s3_endpoint_url"])
-        except ValueError as exc:
-            raise ValueError(f"S3 Endpoint 不被允许: {exc}") from exc
-    if "s3_region" in normalized:
-        normalized["s3_region"] = normalized["s3_region"] or "auto"
-    if "s3_prefix" in normalized:
-        normalized["s3_prefix"] = normalized["s3_prefix"] or "tg-signpulse-backups"
-
-    if "s3_enabled" in normalized:
-        val = normalized["s3_enabled"]
-        normalized["s3_enabled"] = bool(val) if val is not None else False
+    # 移除废弃的 s3_* 字段，避免遗留脏数据
+    for s3_k in [k for k in normalized if k.startswith("s3_")]:
+        normalized.pop(s3_k, None)
 
     if "require_proxy_for_telegram" in normalized:
         val = normalized["require_proxy_for_telegram"]
@@ -248,7 +213,7 @@ def normalize_global_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
 
     if "backup_target" in normalized:
         target_val = str(normalized["backup_target"] or "").strip().lower()
-        if target_val in {"auto", "webdav", "s3", "both"}:
+        if target_val in {"auto", "webdav"}:
             normalized["backup_target"] = target_val
         else:
             normalized["backup_target"] = "auto"
@@ -507,15 +472,13 @@ class SignTaskConfigMixin:
     SECRET_MASKS = frozenset({AI_KEY_MASK, "***", "MASKED", "REDACTED", "***MASKED***"})
 
 
-# 导出即整值脱敏的字段名（小写比较）：推送凭据、AI/WebDAV/S3 密钥等
+# 导出即整值脱敏的字段名（小写比较）：推送凭据、AI/WebDAV 密钥等
 _SECRET_FIELD_NAMES = frozenset(
     {
         "api_key",
         "apikey",
         "webdav_password",
         "telegram_bot_token",
-        "s3_secret_key",
-        "s3_access_key",
         "server_chan_send_key",
     }
 )
@@ -531,7 +494,7 @@ _URL_QUERY_SECRET_FIELDS = frozenset({"wecom_webhook_url", "dingtalk_webhook_url
 
 # URL 型字段：仅脱敏 userinfo 内嵌凭据（https://user:pass@host/...）
 _URL_CREDENTIAL_FIELDS = frozenset(
-    {"custom_url", "url", "callback_url", "global_proxy", "s3_proxy"}
+    {"custom_url", "url", "callback_url", "global_proxy"}
 )
 
 # 鉴权类响应头：整值脱敏，防止外部转发回调把令牌带出
@@ -683,7 +646,7 @@ class ConfigExportMixin:
         导出业务配置（任务 / 监控 / 设置）。
 
         不含 sessions、数据库、执行历史。
-        AI api_key / WebDAV 密码 / Bot Token / S3 Secret Key 默认脱敏。
+        AI api_key / WebDAV 密码 / Bot Token 默认脱敏。
         """
         all_configs: Dict[str, Any] = {
             "_meta": {
@@ -698,7 +661,7 @@ class ConfigExportMixin:
                 ],
                 "notes": [
                     "配置迁移用：可导入；不含 Telegram 登录会话。",
-                    "AI api_key / WebDAV 密码 / Bot Token / S3 Secret Key 已脱敏；导入时不会用占位符覆盖现有密钥。",
+                    "AI api_key / WebDAV 密码 / Bot Token 已脱敏；导入时不会用占位符覆盖现有密钥。",
                     "整机恢复请用面板「完整数据备份」tar.gz + 手动解压覆盖 data/。",
                 ],
             },
@@ -772,9 +735,6 @@ class ConfigExportMixin:
         if global_settings.get("telegram_bot_token"):
             global_settings["telegram_bot_token"] = self.AI_KEY_MASK
             all_configs["_meta"]["telegram_bot_token_masked"] = True
-        if global_settings.get("s3_secret_key"):
-            global_settings["s3_secret_key"] = self.AI_KEY_MASK
-            all_configs["_meta"]["s3_secret_key_masked"] = True
 
         all_configs["settings"] = {
             "global": global_settings,
@@ -1291,6 +1251,9 @@ class GlobalSettingsMixin:
             for key, value in default_settings.items():
                 if key not in settings:
                     settings[key] = value
+        # 彻底移除遗留废弃的 s3_* 历史字段
+        for s3_k in [k for k in list(settings.keys()) if k.startswith("s3_")]:
+            settings.pop(s3_k, None)
         # 时区：文件值优先，否则回退环境/核心配置（静默时段等依赖）
         if not settings.get("timezone"):
             try:
@@ -1326,6 +1289,9 @@ class GlobalSettingsMixin:
         config_file = self._get_global_settings_file()
         merged = dict(self.get_global_settings())
         merged.update(settings)
+        # 彻底清除历史 s3_* 字段，确保不会写回磁盘
+        for k in [k for k in list(merged.keys()) if k.startswith("s3_")]:
+            merged.pop(k, None)
 
         # 校验时区格式（防止导入配置等绕过路由层校验）
         tz_value = merged.get("timezone")

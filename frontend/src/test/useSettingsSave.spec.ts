@@ -51,7 +51,6 @@ describe('useSettingsSave', () => {
     const markSectionClean = vi.fn()
     const afterBotTokenSaved = vi.fn()
     const afterWebdavSettingsSaved = vi.fn()
-    const afterS3SettingsSaved = vi.fn()
     const loadBackupStatus = vi.fn(async () => {})
     const save = useSettingsSave({
       tgConfig: ref(over?.tg || { api_id: '', api_hash: '' }),
@@ -65,7 +64,6 @@ describe('useSettingsSave', () => {
       markSectionClean,
       afterBotTokenSaved,
       afterWebdavSettingsSaved,
-      afterS3SettingsSaved,
       loadBackupStatus,
     })
     return {
@@ -73,7 +71,6 @@ describe('useSettingsSave', () => {
       markSectionClean,
       afterBotTokenSaved,
       afterWebdavSettingsSaved,
-      afterS3SettingsSaved,
       loadBackupStatus,
     }
   }
@@ -201,7 +198,6 @@ describe('useSettingsSave', () => {
       markSectionClean: vi.fn(),
       afterBotTokenSaved: vi.fn(),
       afterWebdavSettingsSaved: vi.fn(),
-      afterS3SettingsSaved: vi.fn(),
       loadBackupStatus: vi.fn(async () => {}),
     })
     await save.resetTgConfig()
@@ -247,7 +243,6 @@ describe('useSettingsSave', () => {
       markSectionClean,
       afterBotTokenSaved: vi.fn(),
       afterWebdavSettingsSaved: vi.fn(),
-      afterS3SettingsSaved: vi.fn(),
       loadBackupStatus: vi.fn(async () => {}),
     })
     await save.saveAiConfig()

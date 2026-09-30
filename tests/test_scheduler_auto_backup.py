@@ -1,4 +1,4 @@
-"""自动备份调度任务：对象存储上传结果透传与失败通知。"""
+"""自动备份调度任务：WebDAV 上传结果透传与失败通知。"""
 
 from __future__ import annotations
 
@@ -6,15 +6,13 @@ import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-S3_CFG = {
+WEBDAV_CFG = {
     "auto_backup_enabled": True,
     "auto_backup_interval_hours": 24,
     "auto_backup_keep": 2,
-    "s3_enabled": True,
-    "s3_endpoint_url": "https://93.184.216.34",
-    "s3_bucket": "bk",
-    "s3_access_key": "AK",
-    "s3_secret_key": "SK",
+    "webdav_url": "https://93.184.216.34/dav",
+    "webdav_username": "u",
+    "webdav_password": "p",
 }
 
 
@@ -30,10 +28,10 @@ def _drive(result: dict) -> object:
 
 
 class TestAutoBackupJob:
-    def test_passes_s3_settings_and_notifies_on_failure(self, isolated_env: Path):
+    def test_passes_webdav_settings_and_notifies_on_failure(self, isolated_env: Path):
         from backend.services.config import get_config_service
 
-        get_config_service().save_global_settings(dict(S3_CFG))
+        get_config_service().save_global_settings(dict(WEBDAV_CFG))
 
         with patch(
             "backend.services.push_notifications.send_auto_backup_failure_notification",
@@ -42,27 +40,24 @@ class TestAutoBackupJob:
             run_m = _drive(
                 {
                     "success": True,
-                    "path": "https://93.184.216.34/bk/auto-1.tar.gz",
+                    "path": "https://93.184.216.34/dav/auto-1.tar.gz",
                     "size_bytes": 10,
                     "pruned": 0,
                     "remote_pruned": 1,
                     "local_removed": True,
-                    "webdav": None,
-                    "s3": {"success": False, "error": "HTTP 502"},
+                    "webdav": {"success": False, "error": "HTTP 502"},
                 }
             )
 
-        # 全局设置整体透传：对象存储字段随 cfg 一起下发给备份执行器
         kwargs = run_m.call_args.kwargs
-        assert kwargs["s3_settings"]["s3_endpoint_url"] == "https://93.184.216.34"
-        assert kwargs["webdav_settings"]["s3_endpoint_url"] == "https://93.184.216.34"
+        assert kwargs["webdav_settings"]["webdav_url"] == "https://93.184.216.34/dav"
         notify_m.assert_called_once()
         assert "HTTP 502" in notify_m.call_args.kwargs["error"]
 
-    def test_no_notification_when_s3_upload_succeeds(self, isolated_env: Path):
+    def test_no_notification_when_webdav_upload_succeeds(self, isolated_env: Path):
         from backend.services.config import get_config_service
 
-        get_config_service().save_global_settings(dict(S3_CFG))
+        get_config_service().save_global_settings(dict(WEBDAV_CFG))
 
         with patch(
             "backend.services.push_notifications.send_auto_backup_failure_notification",
@@ -71,13 +66,12 @@ class TestAutoBackupJob:
             _drive(
                 {
                     "success": True,
-                    "path": "https://93.184.216.34/bk/auto-1.tar.gz",
+                    "path": "https://93.184.216.34/dav/auto-1.tar.gz",
                     "size_bytes": 10,
                     "pruned": 0,
                     "remote_pruned": 0,
                     "local_removed": True,
-                    "webdav": None,
-                    "s3": {"success": True},
+                    "webdav": {"success": True},
                 }
             )
         notify_m.assert_not_called()

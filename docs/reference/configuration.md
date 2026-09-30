@@ -305,7 +305,6 @@ environment:
 | `telegram_bot_task_success_enabled` | 任务成功通知 |
 | `telegram_bot_quiet_hours_*` | 静默时段 |
 | `auto_backup_enabled` / `interval_hours` / `keep` | 自动备份（开启状态、执行间隔小时数与保留快照份数） |
-| `backup_target` | 备份目标策略，可选 `auto`（智能选择，WebDAV 优先）、`webdav`（仅 WebDAV）、`s3`（仅对象存储）、`both`（双端同时备份）。默认 `auto` |
-| `webdav_url` / `webdav_username` / `webdav_password` / `webdav_remote_dir` | 完整备份 WebDAV 目标（面板「完整备份」；用法见 [备份与恢复](/guide/backup-webdav)） |
-| `s3_enabled` / `s3_endpoint_url` / `s3_bucket` / `s3_access_key` / `s3_secret_key` / `s3_region` / `s3_prefix` / `s3_proxy` | 完整备份对象存储目标（S3 / R2 / MinIO / OSS）。按 `backup_target` 策略生效；`s3_region` 默认 `auto`、`s3_prefix` 默认 `tg-signpulse-backups` |
+| `backup_target` | 备份目标策略，可选 `auto`（智能选择：已配置 WebDAV 时上传远端，未配置时提供本地归档下载）、`webdav`（仅 WebDAV 备份）。默认 `auto` |
+| `webdav_url` / `webdav_username` / `webdav_password` / `webdav_remote_dir` | 完整备份 WebDAV 目标（面板「数据管理」；用法见 [备份与恢复](/guide/backup-webdav)） |
 | `require_proxy_for_telegram` | 强制 Telegram 连接使用代理；开启后无有效代理的连接一律阻断（`PROXY_REQUIRED_BLOCKED`），含登录、状态检测、设备/会话操作、签到执行与关键词监听 |

@@ -1,5 +1,5 @@
 /**
- * 设置页：配置导入导出、WebDAV / 对象存储备份与完整备份。
+ * 设置页：配置导入导出、WebDAV 备份与完整备份。
  */
 import { ref, type Ref } from 'vue'
 import {
@@ -11,9 +11,6 @@ import {
   testWebdavBackup,
   listWebdavBackupFiles,
   downloadWebdavBackup,
-  testS3Backup,
-  listS3BackupFiles,
-  downloadS3Backup,
   saveGlobalSettings,
   type BackupStatus,
   type RemoteBackupFile,
@@ -47,12 +44,6 @@ export function useSettingsBackup(options: {
   const remoteWebdavMessage = ref('')
   const webdavPasswordSet = ref(false)
   const remoteDownloadName = ref('')
-  const s3TestLoading = ref(false)
-  const s3ListLoading = ref(false)
-  const remoteS3Files = ref<RemoteBackupFile[]>([])
-  const remoteS3Message = ref('')
-  const s3SecretKeySet = ref(false)
-  const remoteS3DownloadName = ref('')
 
   const validateWebdavForm = (): boolean => {
     if (!options.settings.value.webdavUrl.trim()) {
@@ -77,48 +68,12 @@ export function useSettingsBackup(options: {
     }
   }
 
-  /** 对象存储必填项：endpoint / 桶 / Access Key / Secret Key（已保存的密钥可不再填） */
-  const validateS3Form = (): boolean => {
-    const s = options.settings.value
-    if (!s.s3EndpointUrl.trim()) {
-      notifyError(t('settings.s3EndpointRequired'))
-      return false
-    }
-    if (!s.s3Bucket.trim()) {
-      notifyError(t('settings.s3BucketRequired'))
-      return false
-    }
-    if (!s.s3AccessKey.trim()) {
-      notifyError(t('settings.s3AccessKeyRequired'))
-      return false
-    }
-    if (!s.s3SecretKey && !s3SecretKeySet.value) {
-      notifyError(t('settings.s3SecretKeyRequired'))
-      return false
-    }
-    return true
-  }
-
   const validateBackupExport = (): boolean => {
     const target = options.settings.value.backupTarget || 'auto'
-    if (target === 'both') {
-      const vWd = validateWebdavForm()
-      const vS3 = validateS3Form()
-      return vWd && vS3
-    }
     if (target === 'webdav') return validateWebdavForm()
-    if (target === 's3') return validateS3Form()
-    // auto 模式保持兼容：优先 WebDAV，其次 S3
+    // auto 模式：已配置 WebDAV 时进行校验
     if (options.settings.value.webdavUrl.trim()) return validateWebdavForm()
-    if (options.settings.value.s3Enabled) return validateS3Form()
     return true
-  }
-
-  const afterS3SettingsSaved = () => {
-    if (options.settings.value.s3SecretKey) {
-      s3SecretKeySet.value = true
-      options.settings.value.s3SecretKey = ''
-    }
   }
 
   const handleExport = async () => {
@@ -169,50 +124,6 @@ export function useSettingsBackup(options: {
     }
   }
 
-  const handleListS3RemoteBackups = async () => {
-    const token = getAuthToken()
-    if (!validateS3Form()) return
-    s3ListLoading.value = true
-    remoteS3Message.value = ''
-    try {
-      await saveGlobalSettings(token, options.buildBackupPayload())
-      afterS3SettingsSaved()
-      options.markSectionClean('advanced')
-      const res = await listS3BackupFiles(token)
-      if (!res.success) {
-        remoteS3Files.value = []
-        remoteS3Message.value = res.message || t('settings.s3ListFailed')
-        notifyError(remoteS3Message.value)
-        return
-      }
-      remoteS3Files.value = res.files || []
-      remoteS3Message.value =
-        res.message ||
-        (remoteS3Files.value.length
-          ? t('settings.s3ListOk')
-          : t('settings.s3ListEmpty'))
-    } catch (e: unknown) {
-      remoteS3Files.value = []
-      notifyError(resolveApiErrorMessage(e, 'settings.s3ListFailed'))
-    } finally {
-      s3ListLoading.value = false
-    }
-  }
-
-  const handleDownloadS3RemoteBackup = async (name: string) => {
-    const token = getAuthToken()
-    if (!name) return
-    remoteS3DownloadName.value = name
-    try {
-      const res = await downloadS3Backup(token, name)
-      notifySuccess(`${t('settings.s3DownloadOk')}: ${res.filename}`)
-    } catch (e: unknown) {
-      notifyError(resolveApiErrorMessage(e, 'settings.s3DownloadFailed'))
-    } finally {
-      remoteS3DownloadName.value = ''
-    }
-  }
-
   const handleDownloadRemoteBackup = async (name: string) => {
     const token = getAuthToken()
     if (!name) return
@@ -227,26 +138,28 @@ export function useSettingsBackup(options: {
     }
   }
 
-  const handleBackupExport = async () => {
+  const handleBackupExport = async (target?: 'auto' | 'webdav' | 'download') => {
     const token = getAuthToken()
-    if (!validateBackupExport()) return
+    if (target === 'download') {
+      // 直接下载不需要校验 WebDAV
+    } else if (target === 'webdav') {
+      if (!validateWebdavForm()) return
+    } else if (!validateBackupExport()) {
+      return
+    }
+
     backupLoading.value = true
     try {
-      await saveGlobalSettings(token, options.buildBackupPayload())
-      afterWebdavSettingsSaved()
-      afterS3SettingsSaved()
-      options.markSectionClean('advanced')
-      const res = await exportBackupArchive(token)
+      if (target !== 'download') {
+        await saveGlobalSettings(token, options.buildBackupPayload())
+        afterWebdavSettingsSaved()
+        options.markSectionClean('advanced')
+      }
+      const res = await exportBackupArchive(token, target)
       if (res.mode === 'download') {
         notifySuccess(t('settings.backupExportSuccess'))
       } else {
-        // 服务端按 backup_target 策略返回 mode，据此提示落点
-        let label = t('settings.backupWebdavSuccess')
-        if (res.mode === 'both') {
-          label = t('settings.backupBothSuccess')
-        } else if (res.mode === 's3') {
-          label = t('settings.backupS3Success')
-        }
+        const label = t('settings.backupWebdavSuccess')
         notifySuccess(res.filename ? `${label}: ${res.filename}` : label)
       }
       try {
@@ -260,6 +173,8 @@ export function useSettingsBackup(options: {
       backupLoading.value = false
     }
   }
+
+  const handleDirectDownloadBackup = () => handleBackupExport('download')
 
   const loadBackupStatus = async (token: string) => {
     backupStatus.value = await getBackupStatus(token)
@@ -291,36 +206,9 @@ export function useSettingsBackup(options: {
     }
   }
 
-  const handleS3Test = async () => {
-    const token = getAuthToken()
-    if (!validateS3Form()) return
-    s3TestLoading.value = true
-    try {
-      await saveGlobalSettings(token, options.buildBackupPayload())
-      afterS3SettingsSaved()
-      options.markSectionClean('advanced')
-      const res = await testS3Backup(token)
-      if (res.success) {
-        notifySuccess(res.message || t('settings.s3TestOk'))
-        try {
-          await loadBackupStatus(token)
-        } catch {
-          // non-blocking
-        }
-      } else {
-        notifyError(res.message || t('settings.s3TestFailed'))
-      }
-    } catch (e: unknown) {
-      notifyError(resolveApiErrorMessage(e, 'settings.s3TestFailed'))
-    } finally {
-      s3TestLoading.value = false
-    }
-  }
-
   const handleImportFile = async (file: File) => {
     const token = getAuthToken()
     const reader = new FileReader()
-    // 读取失败（权限/文件被删/损坏）必须给用户反馈，否则点击导入毫无反应
     reader.onerror = () => {
       notifyError(resolveApiErrorMessage(reader.error, 'settings.importFailed'))
     }
@@ -369,8 +257,6 @@ export function useSettingsBackup(options: {
     reader.readAsText(file)
   }
 
-
-
   return {
     dataLoading,
     backupLoading,
@@ -381,22 +267,13 @@ export function useSettingsBackup(options: {
     remoteWebdavMessage,
     webdavPasswordSet,
     remoteDownloadName,
-    s3TestLoading,
-    s3ListLoading,
-    remoteS3Files,
-    remoteS3Message,
-    s3SecretKeySet,
-    remoteS3DownloadName,
     afterWebdavSettingsSaved,
-    afterS3SettingsSaved,
     handleExport,
     handleListRemoteBackups,
     handleDownloadRemoteBackup,
-    handleListS3RemoteBackups,
-    handleDownloadS3RemoteBackup,
     handleBackupExport,
+    handleDirectDownloadBackup,
     handleWebdavTest,
-    handleS3Test,
     handleImportFile,
     loadBackupStatus,
   }

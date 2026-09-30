@@ -1,13 +1,17 @@
 /**
- * 系统设置表单纯函数：分段 payload 与脏检查快照。
- * 供 Settings.vue 使用，并便于单元测试。
+ * Settings 表单状态与分段保存/脏状态检测辅助。
+ *
+ * 页面将全局设置拆分为：通用、Bot 通知、高级（自动备份/WebDAV）、AI（运行时参数）。
+ * 此处集中定义表单类型、分段 payload 构造、字段归一化及比较基准快照。
  */
+export type SettingsSection = 'general' | 'tg' | 'ai' | 'bot' | 'advanced'
 
 export type SettingsFormState = {
   checkInterval: string
   logDays: number | ''
   dataDir: string
   proxy: string
+  /** 显式请求清空代理（输入框变空后保存时向后端下发 null） */
   proxyClearRequested?: boolean
   concurrency: number | ''
   deviceKeepaliveEnabled: boolean
@@ -31,27 +35,22 @@ export type SettingsFormState = {
   aiVisionRetry: string | number
   aiVisionReasoningEffort: string
   autoBackupEnabled: boolean
-  autoBackupInterval: number
-  autoBackupKeep: number
+  autoBackupInterval: number | ''
+  autoBackupKeep: number | ''
   webdavUrl: string
   webdavUsername: string
   webdavPassword: string
   webdavRemoteDir: string
-  s3Enabled: boolean
-  s3EndpointUrl: string
-  s3Bucket: string
-  s3AccessKey: string
-  s3SecretKey: string
-  s3Region: string
-  s3Prefix: string
-  s3Proxy: string
-  backupTarget: 'auto' | 'webdav' | 's3' | 'both'
+  backupTarget: 'auto' | 'webdav'
 }
 
 export type TgFormState = { api_id: string; api_hash: string }
-export type AiFormState = { base_url: string; model: string; api_key: string }
 
-export type SettingsSection = 'general' | 'bot' | 'advanced' | 'tg' | 'ai'
+export type AiFormState = {
+  base_url: string
+  model: string
+  api_key: string
+}
 
 export function emptyToNull(v: string | number | '' | null | undefined): number | null {
   if (v === '' || v === null || v === undefined) return null
@@ -69,18 +68,26 @@ export function parseNumberInputValue(raw: string): number | '' {
   return Number.isFinite(n) ? n : ''
 }
 
-/**
- * 数字字段 clamp：越界值收敛到 [lo, hi]，空值/非法返回 null。
- * 设置页输入框不在 <form> 内，浏览器 min/max 不生效，需在构造 payload 时归一。
- */
-function clampNumber(v: number | string | '', lo: number, hi: number): number | null {
-  if (v === '' || v === null || v === undefined) return null
-  const n = Number(v)
-  if (!Number.isFinite(n)) return null
+export function clampNumber(
+  v: string | number | '' | null | undefined,
+  lo: number,
+  hi: number,
+): number | null {
+  const n = emptyToNull(v)
+  if (n == null) return null
   return Math.min(hi, Math.max(lo, n))
 }
 
-export function buildGeneralPayload(s: SettingsFormState) {
+export function buildGeneralPayload(s: SettingsFormState): {
+  sign_interval: number | null
+  log_retention_days: number
+  data_dir: string | null
+  global_proxy?: string | null
+  tg_global_concurrency: number
+  device_keepalive_enabled: boolean
+  device_keepalive_interval_days: number
+  timezone: string
+} {
   return {
     sign_interval: emptyToNull(s.checkInterval),
     log_retention_days: emptyToNull(s.logDays) ?? 7,
@@ -88,7 +95,7 @@ export function buildGeneralPayload(s: SettingsFormState) {
     ...(s.proxyClearRequested
       ? { global_proxy: null }
       : s.proxy.trim()
-        ? { global_proxy: s.proxy }
+        ? { global_proxy: s.proxy.trim() }
         : {}),
     tg_global_concurrency: clampNumber(s.concurrency, 1, 10) ?? 1,
     device_keepalive_enabled: s.deviceKeepaliveEnabled,
@@ -126,7 +133,7 @@ export function buildAiRuntimePayload(s: SettingsFormState) {
   }
 }
 
-/** 数据管理区块：自动备份 + WebDAV + 对象存储，由「保存备份设置」提交 */
+/** 数据管理区块：自动备份 + WebDAV，由「保存备份设置」提交 */
 export function buildBackupPayload(s: SettingsFormState) {
   return {
     auto_backup_enabled: s.autoBackupEnabled,
@@ -137,20 +144,10 @@ export function buildBackupPayload(s: SettingsFormState) {
     // 空密码表示不覆盖服务端已有值
     ...(s.webdavPassword ? { webdav_password: s.webdavPassword } : {}),
     webdav_remote_dir: s.webdavRemoteDir || 'tg-signpulse-backups',
-    s3_enabled: s.s3Enabled,
-    s3_endpoint_url: s.s3EndpointUrl || null,
-    s3_bucket: s.s3Bucket || null,
-    s3_access_key: s.s3AccessKey || null,
-    // 空密钥表示不覆盖服务端已有值（与 WebDAV 密码同口径）
-    ...(s.s3SecretKey ? { s3_secret_key: s.s3SecretKey } : {}),
-    s3_region: s.s3Region || 'auto',
-    s3_prefix: s.s3Prefix || 'tg-signpulse-backups',
-    s3_proxy: s.s3Proxy || null,
     backup_target: s.backupTarget || 'auto',
   }
 }
 
-/** 兼容：运行时参数 + 备份/WebDAV 全量 advanced 字段（saveAll / WebDAV 操作） */
 export function buildAdvancedPayload(s: SettingsFormState) {
   return {
     ...buildAiRuntimePayload(s),
@@ -158,21 +155,24 @@ export function buildAdvancedPayload(s: SettingsFormState) {
   }
 }
 
-/** 分段快照：仅比较该区块相关字段 */
+/**
+ * 针对各区块生成「脱敏后」的比较快照。
+ * 密码/Token 字段仅用「是否有输入」占位，避免密码留空保存时误判为 dirty。
+ */
 export function snapSection(
-  section: SettingsSection,
+  sec: SettingsSection,
   s: SettingsFormState,
   tg: TgFormState,
   ai: AiFormState,
 ): string {
-  switch (section) {
+  switch (sec) {
     case 'general':
       return JSON.stringify({
         checkInterval: s.checkInterval,
         logDays: s.logDays,
         dataDir: s.dataDir,
         proxy: s.proxy,
-        proxyClearRequested: s.proxyClearRequested,
+        proxyClearRequested: !!s.proxyClearRequested,
         concurrency: s.concurrency,
         deviceKeepaliveEnabled: s.deviceKeepaliveEnabled,
         deviceKeepaliveIntervalDays: s.deviceKeepaliveIntervalDays,
@@ -192,7 +192,6 @@ export function snapSection(
         botThreadId: s.botThreadId,
       })
     case 'advanced':
-      // 仅备份/WebDAV/对象存储（数据管理区）；AI 运行时参数归入 ai 段
       return JSON.stringify({
         autoBackupEnabled: s.autoBackupEnabled,
         autoBackupInterval: s.autoBackupInterval,
@@ -201,20 +200,12 @@ export function snapSection(
         webdavUsername: s.webdavUsername,
         webdavPassword: s.webdavPassword ? '***set***' : '',
         webdavRemoteDir: s.webdavRemoteDir,
-        s3Enabled: s.s3Enabled,
-        s3EndpointUrl: s.s3EndpointUrl,
-        s3Bucket: s.s3Bucket,
-        s3AccessKey: s.s3AccessKey,
-        s3SecretKey: s.s3SecretKey ? '***set***' : '',
-        s3Region: s.s3Region,
-        s3Prefix: s.s3Prefix,
-        s3Proxy: s.s3Proxy,
         backupTarget: s.backupTarget || 'auto',
       })
     case 'tg':
       return JSON.stringify({
-        api_id: tg.api_id ? '***set***' : '',
-        api_hash: tg.api_hash ? '***set***' : '',
+        api_id: tg.api_id,
+        api_hash: tg.api_hash,
       })
     case 'ai':
       return JSON.stringify({
@@ -232,54 +223,63 @@ export function snapSection(
   }
 }
 
+export type SectionSnapshots = Record<SettingsSection, string>
+
 export function snapAllSections(
   s: SettingsFormState,
   tg: TgFormState,
   ai: AiFormState,
-): Record<SettingsSection, string> {
+): SectionSnapshots {
   return {
     general: snapSection('general', s, tg, ai),
-    bot: snapSection('bot', s, tg, ai),
-    advanced: snapSection('advanced', s, tg, ai),
     tg: snapSection('tg', s, tg, ai),
     ai: snapSection('ai', s, tg, ai),
+    bot: snapSection('bot', s, tg, ai),
+    advanced: snapSection('advanced', s, tg, ai),
   }
 }
 
-export function isAnySectionDirty(
-  baseline: Record<SettingsSection, string> | null,
-  current: Record<SettingsSection, string>,
+export function isSectionDirty(
+  sec: SettingsSection,
+  baseline: SectionSnapshots | null | undefined,
+  current: SectionSnapshots | null | undefined,
 ): boolean {
-  if (!baseline) return false
-  return (Object.keys(current) as SettingsSection[]).some(
-    (k) => baseline[k] !== current[k],
+  if (!baseline || !current) return false
+  return baseline[sec] !== current[sec]
+}
+
+export function isAnySectionDirty(
+  baseline: SectionSnapshots | null | undefined,
+  current: SectionSnapshots | null | undefined,
+): boolean {
+  if (!baseline || !current) return false
+  return (['general', 'tg', 'ai', 'bot', 'advanced'] as SettingsSection[]).some((k) =>
+    isSectionDirty(k, baseline, current),
   )
 }
 
 export function dirtySectionLabels(
-  baseline: Record<SettingsSection, string> | null,
-  current: Record<SettingsSection, string>,
+  baseline: SectionSnapshots | null | undefined,
+  current: SectionSnapshots | null | undefined,
   labels: Record<SettingsSection, string>,
 ): string[] {
-  if (!baseline) return []
-  return (Object.keys(current) as SettingsSection[])
-    .filter((k) => baseline[k] !== current[k])
+  if (!baseline || !current) return []
+  return (['general', 'tg', 'ai', 'bot', 'advanced'] as SettingsSection[])
+    .filter((k) => isSectionDirty(k, baseline, current))
     .map((k) => labels[k])
 }
 
-/** 服务端全局设置 → 表单字段（不含密钥明文） */
 export function applyGlobalSettingsToForm(
   s: SettingsFormState,
   res: {
     sign_interval?: number | null
-    log_retention_days?: number
+    log_retention_days?: number | null
     data_dir?: string | null
-    /** 不回传代理明文，仅回传是否已配置 */
     global_proxy?: string | null
     global_proxy_set?: boolean
     tg_global_concurrency?: number | null
     device_keepalive_enabled?: boolean
-    device_keepalive_interval_days?: number
+    device_keepalive_interval_days?: number | null
     telegram_bot_notify_enabled?: boolean
     telegram_bot_login_notify_enabled?: boolean
     telegram_bot_task_failure_enabled?: boolean
@@ -305,43 +305,31 @@ export function applyGlobalSettingsToForm(
     webdav_username?: string | null
     webdav_password_set?: boolean
     webdav_remote_dir?: string | null
-    s3_enabled?: boolean
-    s3_endpoint_url?: string | null
-    s3_bucket?: string | null
-    s3_access_key?: string | null
-    s3_secret_key_set?: boolean
-    s3_region?: string | null
-    s3_prefix?: string | null
-    s3_proxy?: string | null
     backup_target?: string | null
   },
 ): {
     botTokenSet: boolean
     webdavPasswordSet: boolean
-    s3SecretKeySet: boolean
     proxySet: boolean
   } {
   s.checkInterval = res.sign_interval ? String(res.sign_interval) : ''
-  s.logDays = res.log_retention_days || 7
+  s.logDays = res.log_retention_days ?? 7
   s.dataDir = res.data_dir || ''
-  // 代理明文不再回传：有配置时留空并由占位提示「留空保持不变」
   s.proxy = res.global_proxy || ''
   s.proxyClearRequested = false
-  s.concurrency = res.tg_global_concurrency || 1
-  s.deviceKeepaliveEnabled = res.device_keepalive_enabled !== false
-  s.deviceKeepaliveIntervalDays = res.device_keepalive_interval_days || 30
+  s.concurrency = res.tg_global_concurrency ?? 1
+  s.deviceKeepaliveEnabled = res.device_keepalive_enabled ?? true
+  s.deviceKeepaliveIntervalDays = res.device_keepalive_interval_days ?? 30
   s.botEnabled = res.telegram_bot_notify_enabled || false
   s.botLoginNotify = res.telegram_bot_login_notify_enabled || false
-  s.botTaskFailure = res.telegram_bot_task_failure_enabled || false
+  s.botTaskFailure = res.telegram_bot_task_failure_enabled !== false
   s.botTaskSuccess = res.telegram_bot_task_success_enabled || false
   s.quietEnabled = res.telegram_bot_quiet_hours_enabled || false
   s.quietStart = res.telegram_bot_quiet_hours_start || '23:00'
   s.quietEnd = res.telegram_bot_quiet_hours_end || '07:00'
   s.botToken = ''
   s.botChatId = res.telegram_bot_chat_id || ''
-  s.botThreadId = res.telegram_bot_message_thread_id
-    ? String(res.telegram_bot_message_thread_id)
-    : ''
+  s.botThreadId = res.telegram_bot_message_thread_id ? String(res.telegram_bot_message_thread_id) : ''
   s.timezone = res.timezone || 'Asia/Hong_Kong'
   s.execTimeout = res.sign_task_execution_timeout ?? ''
   s.accountCooldown = res.sign_task_account_cooldown ?? ''
@@ -357,20 +345,11 @@ export function applyGlobalSettingsToForm(
   s.webdavUsername = res.webdav_username || ''
   s.webdavPassword = ''
   s.webdavRemoteDir = res.webdav_remote_dir || 'tg-signpulse-backups'
-  s.s3Enabled = res.s3_enabled || false
-  s.s3EndpointUrl = res.s3_endpoint_url || ''
-  s.s3Bucket = res.s3_bucket || ''
-  s.s3AccessKey = res.s3_access_key || ''
-  s.s3SecretKey = ''
-  s.s3Region = res.s3_region || 'auto'
-  s.s3Prefix = res.s3_prefix || 'tg-signpulse-backups'
-  s.s3Proxy = res.s3_proxy || ''
   const bt = res.backup_target
-  s.backupTarget = bt === 'webdav' || bt === 's3' || bt === 'both' ? bt : 'auto'
+  s.backupTarget = bt === 'webdav' ? 'webdav' : 'auto'
   return {
     botTokenSet: !!res.telegram_bot_token_set,
     webdavPasswordSet: !!res.webdav_password_set,
-    s3SecretKeySet: !!res.s3_secret_key_set,
     proxySet: !!res.global_proxy_set,
   }
 }

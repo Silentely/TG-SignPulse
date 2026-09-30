@@ -133,12 +133,11 @@ def run_auto_backup(
     keep: int = 3,
     paths: Optional[Iterable[str]] = None,
     webdav_settings: Optional[dict] = None,
-    s3_settings: Optional[dict] = None,
     backup_target: str = "auto",
 ) -> dict:
-    """执行一次自动备份；远端（WebDAV / 对象存储）上传成功后删除本地副本以节省磁盘。
+    """执行一次自动备份；远端（WebDAV）上传成功后删除本地副本以节省磁盘。
 
-    支持 backup_target 显式指定：auto（WebDAV优先）、webdav、s3、both（双备份）。
+    支持 backup_target 显式指定：auto（配置了 WebDAV 则上传，未配置则留存本地）、webdav。
     """
     backup_dir = data_dir / "backups"
     backup_dir.mkdir(parents=True, exist_ok=True)
@@ -160,43 +159,25 @@ def run_auto_backup(
             "local_removed": False,
             "error": str(exc),
             "webdav": None,
-            "s3": None,
         }
     try:
         size = dest.stat().st_size if dest.exists() else 0
     except OSError:
         size = 0
     webdav_result = None
-    s3_result = None
     remote_prune = None
     local_removed = False
     path_out = str(dest)
     wd = webdav_settings or {}
-    s3 = s3_settings or {}
     wd_ready = bool((wd.get("webdav_url") or "").strip())
-    s3_is_ready = _s3_ready(s3)
 
     target_mode = (backup_target or "auto").strip().lower()
-    if target_mode not in {"auto", "webdav", "s3", "both"}:
+    if target_mode not in {"auto", "webdav"}:
         target_mode = "auto"
 
-    do_webdav = False
-    do_s3 = False
-    if target_mode == "both":
-        do_webdav = wd_ready
-        do_s3 = s3_is_ready
-    elif target_mode == "webdav":
-        do_webdav = wd_ready
-    elif target_mode == "s3":
-        do_s3 = s3_is_ready
-    else:  # auto
-        if wd_ready:
-            do_webdav = True
-        elif s3_is_ready:
-            do_s3 = True
+    do_webdav = wd_ready if target_mode == "auto" else (target_mode == "webdav")
 
-    # 显式策略下若目标未就绪，记录 attempted 失败避免调度器静默漏报
-    if target_mode in {"both", "webdav"} and not wd_ready:
+    if target_mode == "webdav" and not wd_ready:
         webdav_result = {
             "success": False,
             "attempted": True,
@@ -238,59 +219,12 @@ def run_auto_backup(
                 logger.warning("WebDAV 远端备份清理失败: %s", exc)
                 remote_prune = {"success": False, "removed": 0, "error": str(exc)}
 
-    if target_mode in {"both", "s3"} and not s3_is_ready:
-        s3_result = {
-            "success": False,
-            "attempted": True,
-            "error": "对象存储未启用或凭据未配置完整",
-        }
-    elif do_s3:
-        try:
-            s3_result = _run_coro_blocking(_upload_backup_to_s3(s3, dest))
-            if s3_result is None:
-                s3_result = {"success": True}
-            s3_result["attempted"] = True
-        except Exception as exc:
-            logger.warning("自动备份对象存储上传失败: %s", exc)
-            s3_result = {"success": False, "attempted": True, "error": str(exc)}
-
-        if s3_result.get("success"):
-            try:
-                from backend.services.s3_backup import prune_s3_backups
-
-                s3_prune = _run_coro_blocking(prune_s3_backups(s3, keep=keep))
-                if remote_prune is None:
-                    remote_prune = s3_prune
-            except Exception as exc:
-                logger.warning("对象存储远端备份清理失败: %s", exc)
-                if remote_prune is None:
-                    remote_prune = {"success": False, "removed": 0, "error": str(exc)}
-
-    # 远端上传成功判定：
-    # 若目标为 both 且同时尝试了 WebDAV 与 S3，要求两端均成功才清理本地，任一端失败则保留本地副本容灾
-    upload_succeeded = False
-    if target_mode == "both":
-        if do_webdav and do_s3:
-            upload_succeeded = bool(
-                webdav_result
-                and webdav_result.get("success")
-                and s3_result
-                and s3_result.get("success")
-            )
-        elif do_webdav:
-            upload_succeeded = bool(webdav_result and webdav_result.get("success"))
-        elif do_s3:
-            upload_succeeded = bool(s3_result and s3_result.get("success"))
-    else:
-        if do_webdav and webdav_result and webdav_result.get("success"):
-            upload_succeeded = True
-        elif do_s3 and s3_result and s3_result.get("success"):
-            upload_succeeded = True
+    upload_succeeded = bool(
+        do_webdav and webdav_result and webdav_result.get("success")
+    )
 
     if webdav_result and webdav_result.get("success"):
         path_out = str(webdav_result.get("remote_url") or path_out)
-    if s3_result and s3_result.get("success"):
-        path_out = str(s3_result.get("url") or path_out)
 
     if upload_succeeded:
         try:
@@ -298,10 +232,6 @@ def run_auto_backup(
             local_removed = True
         except OSError as exc:
             logger.warning("删除本地自动备份失败 %s: %s", dest, exc)
-    elif target_mode == "both" and (do_webdav or do_s3):
-        logger.info(
-            "备份模式为 both 且远端未全量完成，保留本地副本作为容灾兜底: %s", dest
-        )
 
     removed = prune_backups(backup_dir, keep)
     return {
@@ -313,57 +243,7 @@ def run_auto_backup(
         "remote_prune": remote_prune,
         "local_removed": local_removed,
         "webdav": webdav_result,
-        "s3": s3_result,
     }
-
-
-def _s3_ready(s3: dict) -> bool:
-    """对象存储是否已配置且启用（必填项齐全）。"""
-    if not s3.get("s3_enabled"):
-        return False
-    try:
-        from backend.services.s3_backup import validate_s3_settings
-
-        validate_s3_settings(
-            endpoint_url=str(s3.get("s3_endpoint_url") or ""),
-            bucket=str(s3.get("s3_bucket") or ""),
-            access_key=str(s3.get("s3_access_key") or ""),
-            secret_key=str(s3.get("s3_secret_key") or ""),
-        )
-    except ValueError:
-        return False
-    return True
-
-
-def _run_coro_blocking(coro):
-    """在同步函数内执行异步协程。
-
-    run_auto_backup 由调度器经 asyncio.to_thread 放进工作线程执行（打包耗时不能
-    冻结事件循环），而对象存储客户端是异步的。工作线程内没有运行中的事件循环，
-    因此这里新建一个专用 loop 跑完即关，避免影响主循环。
-    """
-    import asyncio
-
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        try:
-            return loop.run_until_complete(coro)
-        finally:
-            loop.close()
-    # 已被事件循环调用：此时阻塞等待会冻结主循环，直接报错让调用方改为 await
-    try:
-        coro.close()
-    except Exception:
-        pass
-    raise RuntimeError("run_auto_backup 不能在运行中的事件循环内直接调用")
-
-
-async def _upload_backup_to_s3(s3: dict, dest: Path) -> dict:
-    from backend.services.s3_backup import upload_backup_to_s3
-
-    return await upload_backup_to_s3(s3, dest)
 
 
 def should_run_auto_backup(settings: Optional[dict]) -> bool:
@@ -385,7 +265,7 @@ def auto_backup_interval_hours(settings: Optional[dict]) -> int:
 def auto_backup_keep(settings: Optional[dict]) -> int:
     """自动备份保留份数，范围与设置层钳制口径一致（1–30，默认 3）。
 
-    本地与远端（WebDAV / 对象存储）共用该值做轮转，避免两侧保留策略不一致。
+    本地与远端（WebDAV）共用该值做轮转，避免两侧保留策略不一致。
     """
     if not isinstance(settings, dict):
         return 3

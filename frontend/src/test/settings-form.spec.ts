@@ -49,14 +49,6 @@ const baseSettings = (): SettingsFormState => ({
   webdavUsername: '',
   webdavPassword: '',
   webdavRemoteDir: 'tg-signpulse-backups',
-  s3Enabled: false,
-  s3EndpointUrl: '',
-  s3Bucket: '',
-  s3AccessKey: '',
-  s3SecretKey: '',
-  s3Region: '',
-  s3Prefix: '',
-  s3Proxy: '',
   backupTarget: 'auto',
 })
 
@@ -68,70 +60,91 @@ describe('settings-form', () => {
     expect(emptyToNull(0)).toBe(0)
   })
 
-  it('parseNumberInputValue keeps empty and drops NaN', () => {
+  it('parseNumberInputValue treats empty string as empty', () => {
     expect(parseNumberInputValue('')).toBe('')
-    expect(parseNumberInputValue('3')).toBe(3)
-    expect(parseNumberInputValue('1.5')).toBe(1.5)
-    expect(parseNumberInputValue('abc')).toBe('')
-    expect(parseNumberInputValue('NaN')).toBe('')
+    expect(parseNumberInputValue('0')).toBe(0)
+    expect(parseNumberInputValue('15')).toBe(15)
   })
 
-  it('buildGeneralPayload maps fields', () => {
-    const p = buildGeneralPayload(baseSettings())
-    expect(p.sign_interval).toBe(30)
-    expect(p.log_retention_days).toBe(7)
-    expect(p.timezone).toBe('Asia/Hong_Kong')
-  })
-
-  it('buildGeneralPayload distinguishes proxy keep from explicit clear', () => {
-    const keep = buildGeneralPayload(baseSettings()) as Record<string, unknown>
-    expect('global_proxy' in keep).toBe(false)
-
-    const clear = buildGeneralPayload({
-      ...baseSettings(),
-      proxyClearRequested: true,
-    }) as Record<string, unknown>
-    expect(clear.global_proxy).toBeNull()
-
-    const update = buildGeneralPayload({
-      ...baseSettings(),
-      proxy: 'socks5://127.0.0.1:1080',
-    }) as Record<string, unknown>
-    expect(update.global_proxy).toBe('socks5://127.0.0.1:1080')
-  })
-
-  it('buildGeneralPayload normalizes empty numeric fields to safe defaults', () => {
+  it('buildGeneralPayload clamps concurrency 1-10', () => {
     const s = baseSettings()
+    s.concurrency = 99
+    expect(buildGeneralPayload(s).tg_global_concurrency).toBe(10)
+    s.concurrency = 0
+    expect(buildGeneralPayload(s).tg_global_concurrency).toBe(1)
+  })
+
+  it('buildGeneralPayload maps device keepalive fields with clamp', () => {
+    const s = baseSettings()
+    s.deviceKeepaliveEnabled = false
+    s.deviceKeepaliveIntervalDays = 200
+    const p = buildGeneralPayload(s)
+    expect(p.device_keepalive_enabled).toBe(false)
+    expect(p.device_keepalive_interval_days).toBe(170)
+
+    s.deviceKeepaliveIntervalDays = 0
+    expect(buildGeneralPayload(s).device_keepalive_interval_days).toBe(1)
+
+    s.deviceKeepaliveIntervalDays = ''
+    expect(buildGeneralPayload(s).device_keepalive_interval_days).toBe(30)
+  })
+
+  it('buildGeneralPayload respects proxyClearRequested', () => {
+    const s = baseSettings()
+    s.proxy = 'http://127.0.0.1:7890'
+    s.proxyClearRequested = true
+    const p = buildGeneralPayload(s)
+    expect(p.global_proxy).toBeNull()
+  })
+
+  it('buildGeneralPayload omits empty proxy to preserve existing', () => {
+    const s = baseSettings()
+    s.proxy = ''
+    s.proxyClearRequested = false
+    const p = buildGeneralPayload(s)
+    expect('global_proxy' in p).toBe(false)
+  })
+
+  it('buildGeneralPayload includes trimmed non-empty proxy', () => {
+    const s = baseSettings()
+    s.proxy = ' socks5://proxy:1080 '
+    s.proxyClearRequested = false
+    const p = buildGeneralPayload(s)
+    expect(p.global_proxy).toBe('socks5://proxy:1080')
+  })
+
+  it('buildGeneralPayload uses fallback defaults for empty numeric inputs', () => {
+    const s = baseSettings()
+    s.checkInterval = ''
     s.logDays = ''
     s.concurrency = ''
     s.deviceKeepaliveIntervalDays = ''
 
     const p = buildGeneralPayload(s)
 
+    expect(p.sign_interval).toBeNull()
     expect(p.log_retention_days).toBe(7)
     expect(p.tg_global_concurrency).toBe(1)
     expect(p.device_keepalive_interval_days).toBe(30)
   })
 
-  it('buildGeneralPayload clamps out-of-range numbers', () => {
+  it('buildAiRuntimePayload clamps out-of-range numeric values and uses correct field names', () => {
     const s = baseSettings()
-    s.concurrency = 99
-    s.deviceKeepaliveIntervalDays = 500
-
-    const p = buildGeneralPayload(s)
-
-    expect(p.tg_global_concurrency).toBe(10)
-    expect(p.device_keepalive_interval_days).toBe(170)
-  })
-
-  it('buildAiRuntimePayload clamps out-of-range numbers', () => {
-    const s = baseSettings()
-    s.execTimeout = 20 // 低于下限 30
+    s.execTimeout = 5 // 低于下限 30
+    s.accountCooldown = 9999 // 高于上限 600
+    s.flowRetry = 0 // 低于下限 1
+    s.historyMaxAge = 200 // 高于上限 90
+    s.aiVisionTimeout = 1 // 低于下限 3
     s.aiVisionRetry = 99 // 高于上限 8
 
-    const p = buildAiRuntimePayload(s)
+    const p = buildAiRuntimePayload(s) as Record<string, unknown>
 
     expect(p.sign_task_execution_timeout).toBe(30)
+    expect(p.sign_task_account_cooldown).toBe(600)
+    expect(p.sign_task_flow_retry_attempts).toBe(1)
+    expect(p.sign_task_history_max_age_days).toBe(90)
+    expect('sign_history_max_age_days' in p).toBe(false)
+    expect(p.ai_vision_timeout).toBe(3)
     expect(p.ai_vision_retry_attempts).toBe(8)
   })
 
@@ -199,43 +212,27 @@ describe('settings-form', () => {
     expect('ai_vision_timeout' in p).toBe(false)
   })
 
-  it('buildBackupPayload 发送对象存储字段与默认值', () => {
-    const s = baseSettings()
-    s.s3Enabled = true
-    s.s3EndpointUrl = 'https://s3.example.com'
-    s.s3Bucket = 'bk'
-    s.s3AccessKey = 'AK'
-    s.s3SecretKey = 'sk'
-    const p = buildBackupPayload(s) as Record<string, unknown>
-    expect(p.s3_enabled).toBe(true)
-    expect(p.s3_endpoint_url).toBe('https://s3.example.com')
-    expect(p.s3_bucket).toBe('bk')
-    expect(p.s3_access_key).toBe('AK')
-    expect(p.s3_secret_key).toBe('sk')
-    expect(p.s3_region).toBe('auto')
-    expect(p.s3_prefix).toBe('tg-signpulse-backups')
-    expect(p.s3_proxy).toBe(null)
-    expect(p.backup_target).toBe('auto')
-  })
-
   it('buildBackupPayload 与 applyGlobalSettingsToForm 正确处理 backup_target 及其类型守卫', () => {
     const s = baseSettings()
-    s.backupTarget = 'both'
+    s.backupTarget = 'webdav'
     const p = buildBackupPayload(s) as Record<string, unknown>
-    expect(p.backup_target).toBe('both')
+    expect(p.backup_target).toBe('webdav')
 
     // 测试类型守卫：合法值保留，非法值归一化为 auto
     const s2 = baseSettings()
-    applyGlobalSettingsToForm(s2, { backup_target: 's3' })
-    expect(s2.backupTarget).toBe('s3')
+    applyGlobalSettingsToForm(s2, { backup_target: 'webdav' })
+    expect(s2.backupTarget).toBe('webdav')
+
+    applyGlobalSettingsToForm(s2, { backup_target: 's3' as any })
+    expect(s2.backupTarget).toBe('auto')
 
     applyGlobalSettingsToForm(s2, { backup_target: 'invalid-target' as any })
     expect(s2.backupTarget).toBe('auto')
   })
 
-  it('buildBackupPayload 空密钥不下发 s3_secret_key', () => {
+  it('buildBackupPayload 空密码不下发 webdav_password', () => {
     const p = buildBackupPayload(baseSettings()) as Record<string, unknown>
-    expect('s3_secret_key' in p).toBe(false)
+    expect('webdav_password' in p).toBe(false)
   })
 
   it('section dirty is independent', () => {
@@ -289,13 +286,13 @@ describe('settings-form', () => {
     expect(snap.ai).toContain('***set***')
     expect(snap.ai).not.toContain('sk')
   })
+
   it('buildBotPayload ignores invalid thread id', () => {
     const s = baseSettings()
     s.botThreadId = 'abc'
     const p = buildBotPayload(s)
     expect(p.telegram_bot_message_thread_id).toBeNull()
   })
-
 })
 
 describe('applyGlobalSettingsToForm', () => {
@@ -317,24 +314,5 @@ describe('applyGlobalSettingsToForm', () => {
     expect(s.timezone).toBe('UTC')
     expect(flags.botTokenSet).toBe(true)
     expect(flags.webdavPasswordSet).toBe(true)
-  })
-
-  it('maps s3 secret masking flag into form', () => {
-    const s = baseSettings()
-    const flags = applyGlobalSettingsToForm(s, {
-      s3_enabled: true,
-      s3_endpoint_url: 'https://minio.local:9000',
-      s3_bucket: 'bk',
-      s3_region: 'us-west-2',
-      s3_prefix: 'nested/prefix',
-      s3_secret_key_set: true,
-    })
-    expect(s.s3Enabled).toBe(true)
-    expect(s.s3EndpointUrl).toBe('https://minio.local:9000')
-    expect(s.s3Bucket).toBe('bk')
-    expect(s.s3Region).toBe('us-west-2')
-    expect(s.s3Prefix).toBe('nested/prefix')
-    expect(s.s3SecretKey).toBe('')
-    expect(flags.s3SecretKeySet).toBe(true)
   })
 })

@@ -7,14 +7,11 @@
 | 端点 | 说明 |
 | --- | --- |
 | `GET /api/ops/scheduled-jobs` | 查看 APScheduler 下次执行时间 |
-| `GET /api/ops/backup/status` | 数据目录备份状态与关键路径体积（含 `backup_target`、WebDAV / S3 就绪状态） |
-| `POST /api/ops/backup/export` | 完整备份：根据设置的备份目标策略（`backup_target`：`auto` / `webdav` / `s3` / `both`）上传远端；均未配置时回退浏览器下载流 |
+| `GET /api/ops/backup/status` | 数据目录备份状态与关键路径体积（含 `backup_target`、WebDAV 就绪状态） |
+| `POST /api/ops/backup/export` | 完整备份：根据设置的备份目标策略（`backup_target`：`auto` / `webdav`）上传 WebDAV；未配置或参数 target=download 时回退浏览器下载流 |
 | `POST /api/ops/backup/webdav/test` | 测试全局设置中的 WebDAV 连通性 |
 | `GET /api/ops/backup/webdav/files` | 列出远端目录 `.tar.gz` 备份（PROPFIND） |
 | `GET /api/ops/backup/webdav/download?name=` | 流式下载指定远端 `.tar.gz`（安全文件名） |
-| `POST /api/ops/backup/s3/test` | 测试全局设置中的对象存储连通性（S3 / Cloudflare R2 / MinIO） |
-| `GET /api/ops/backup/s3/files` | 列出对象存储前缀下 `.tar.gz` 备份（ListObjectsV2） |
-| `GET /api/ops/backup/s3/download?name=` | 流式下载指定对象存储 `.tar.gz`（安全文件名） |
 | `GET /api/ops/memory` | 进程内存监控统计（若已启动） |
 | `GET /api/ops/version` | 本地版本、Git SHA/分支、构建时间、Python 版本 |
 | `POST /api/ops/version/check?force=false` | 远程更新检查（GitHub Releases；可关；失败 soft-fail） |
@@ -36,22 +33,19 @@
 | `GET /api/keyword-hits/export` | 导出命中记录 CSV（UTF-8 BOM） |
 | `DELETE /api/keyword-hits` | 清空命中记录（可按账号/任务过滤） |
 
-### 完整备份落点：WebDAV / 对象存储
+### 完整备份落点：WebDAV 与本地归档
 
 用户操作步骤见 **[备份与恢复](/guide/backup-webdav)**。实现要点：
 
 1. 上传/测试/列表前前端会先落盘备份连接配置；服务端只读已保存设置。
-2. `GET /api/config/settings` 不回传 WebDAV 密码、Bot Token、对象存储 Secret Key、全局代理与推送矩阵（企微/飞书/钉钉/Discord/Server酱/Bark/自定义推送）的明文，均仅 `*_set`。
-3. 配置 JSON 导出脱敏上述密钥（推送矩阵含企微/钉钉 query 密钥与飞书/Discord 路径令牌）；导入占位不覆盖已有值。
+2. `GET /api/config/settings` 不回传 WebDAV 密码、Bot Token、全局代理与推送矩阵的明文，均仅 `*_set`。
+3. 配置 JSON 导出脱敏上述密钥；导入占位不覆盖已有值。
 4. **落点策略（`backup_target`）**：
-   - `auto`（默认）：已配置 WebDAV 时上传 WebDAV；未配置 WebDAV 但对象存储已启用时上传对象存储；两者均未配置则回退为浏览器下载流。
+   - `auto`（默认）：已配置 WebDAV 时自动上传至 WebDAV 远端；未配置或参数携带 `target=download` 时回退为浏览器下载流。
    - `webdav`：仅上传至 WebDAV，未配置时报错阻止。
-   - `s3`：仅上传至对象存储，未启用或必填项不全时报错阻止。
-   - `both`：同时上传至 WebDAV 与对象存储，要求两端均配置完整；任一端未配置则报错阻止。
-5. **自动备份**：单端上传成功清理本地副本并按 `auto_backup_keep` 轮转远端旧包；双端模式（`both`）强制 WebDAV 与 S3 均上传成功后才清理本地副本；任一端失败保留本地副本并发送 Bot 告警通知。
+5. **自动备份**：WebDAV 上传成功后清理本地临时副本并按 `auto_backup_keep` 轮转远端旧包；上传失败保留本地副本并发送 Bot 告警通知。
 6. 下载为流式响应；恢复须停服后解压覆盖 `APP_DATA_DIR`（面板「灾难恢复指引」提供宿主机与 Docker 环境下的标准恢复命令）。
-7. `GET /api/ops/backup/status` 含 `webdav_configured`、`s3_configured`、`backup_target`、`auto_backup_enabled`、最近本地自动备份列表。
-8. 对象存储三个端点均以「已启用 + 必填项齐全」为门禁，否则返回「对象存储未配置或必填项不完整」。
+7. `GET /api/ops/backup/status` 含 `webdav_configured`、`backup_target`、`auto_backup_enabled`、最近本地自动备份列表。
 
 ### 多实例与数据库
 
@@ -161,7 +155,7 @@ docker logs -f tg-signpulse
 
 ### 完整备份（面板或命令行）
 
-面板 **完整备份**（WebDAV / 对象存储）的逐步说明见 [备份与恢复](/guide/backup-webdav)。
+面板 **完整备份**（WebDAV / 归档下载）的逐步说明见 [备份与恢复](/guide/backup-webdav)。
 
 面板上传/导出备份包会打包推荐路径（**不含** `.admin_bootstrap_password`）。
 

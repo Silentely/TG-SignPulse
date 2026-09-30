@@ -39,14 +39,6 @@ const settingsState = (): SettingsFormState => ({
   webdavUsername: '',
   webdavPassword: '',
   webdavRemoteDir: 'tg-signpulse-backups',
-  s3Enabled: false,
-  s3EndpointUrl: '',
-  s3Bucket: '',
-  s3AccessKey: '',
-  s3SecretKey: '',
-  s3Region: '',
-  s3Prefix: '',
-  s3Proxy: '',
   backupTarget: 'auto',
 })
 
@@ -89,7 +81,7 @@ describe('设置页拆分组件契约', () => {
     expect((updates?.at(-1)?.[0] as SettingsFormState).logDays).toBe('')
   })
 
-  it('DataManagementSettings 对象存储区块可编辑并转发事件', async () => {
+  it('DataManagementSettings WebDAV 区块可编辑并转发事件', async () => {
     const wrapper = mount(DataManagementSettings, {
       props: {
         modelValue: settingsState(),
@@ -97,59 +89,46 @@ describe('设置页拆分组件契约', () => {
         remoteFiles: [],
         remoteMessage: '',
         remoteDownloadName: '',
-        remoteS3Files: [],
-        remoteS3Message: '',
-        remoteS3DownloadName: '',
       },
       global: { plugins: [i18n] },
     })
 
-    await wrapper.find('#s3-endpoint-url').setValue('https://s3.example.com')
-    await wrapper.find('#s3-bucket').setValue('bk')
+    await wrapper.find('#webdav-url').setValue('https://dav.example.com')
+    await wrapper.find('#webdav-username').setValue('bk')
     const update = wrapper.emitted('update:modelValue')
-    // 无 v-model 回写时每次输入只携带自身字段的变更
-    expect((update?.at(-1)?.[0] as SettingsFormState).s3Bucket).toBe('bk')
-    expect((update?.at(-2)?.[0] as SettingsFormState).s3EndpointUrl).toBe(
-      'https://s3.example.com',
+    expect((update?.at(-1)?.[0] as SettingsFormState).webdavUsername).toBe('bk')
+    expect((update?.at(-2)?.[0] as SettingsFormState).webdavUrl).toBe(
+      'https://dav.example.com',
     )
 
-    await wrapper.find('[role="switch"]').trigger('click')
-    const last = update?.at(-1)?.[0] as SettingsFormState
-    expect(last.s3Enabled).toBe(true)
-
-    // WebDAV 与对象存储共用「测试连接 / 列出远端备份」文案，取最后一组即为对象存储
-    const pickLast = (label: string) => {
-      const found = wrapper.findAll('button').filter((b) => b.text().trim() === label)
-      return found.at(-1)
+    const findBtn = (label: string) => {
+      return wrapper.findAll('button').find((b) => b.text().trim() === label)
     }
-    const s3Test = pickLast('测试连接')
-    const s3List = pickLast('列出远端备份')
-    expect(s3Test).toBeTruthy()
-    expect(s3List).toBeTruthy()
-    await s3Test?.trigger('click')
-    await s3List?.trigger('click')
-    expect(wrapper.emitted('s3-test')).toBeTruthy()
-    expect(wrapper.emitted('s3-list')).toBeTruthy()
+    const wdTest = findBtn('测试连接')
+    const wdList = findBtn('列出远端备份')
+    expect(wdTest).toBeTruthy()
+    expect(wdList).toBeTruthy()
+    await wdTest?.trigger('click')
+    await wdList?.trigger('click')
+    expect(wrapper.emitted('webdav-test')).toBeTruthy()
+    expect(wrapper.emitted('webdav-list')).toBeTruthy()
   })
 
-  it('DataManagementSettings 对象存储远端列表逐条触发下载', async () => {
+  it('DataManagementSettings WebDAV 远端列表逐条触发下载', async () => {
     const wrapper = mount(DataManagementSettings, {
       props: {
         modelValue: settingsState(),
         backupStatus: null,
-        remoteFiles: [],
-        remoteMessage: '',
+        remoteFiles: [{ name: 'auto-1.tar.gz', size_bytes: 10, mtime: 't' }],
+        remoteMessage: 'settings.webdavListOk',
         remoteDownloadName: '',
-        remoteS3Files: [{ name: 'auto-1.tar.gz', size_bytes: 10, mtime: 't' }],
-        remoteS3Message: 'settings.s3ListOk',
-        remoteS3DownloadName: '',
       },
       global: { plugins: [i18n] },
     })
 
     expect(wrapper.text()).toContain('auto-1.tar.gz')
     await wrapper.find('li button').trigger('click')
-    expect(wrapper.emitted('s3-download')?.[0]).toEqual(['auto-1.tar.gz'])
+    expect(wrapper.emitted('webdav-download')?.[0]).toEqual(['auto-1.tar.gz'])
   })
 
   it('DataManagementSettings 支持配置 backupTarget 与查看恢复指引', async () => {
@@ -161,15 +140,11 @@ describe('设置页拆分组件契约', () => {
           writable: true,
           size_bytes: 1024,
           size_human: '1 KB',
-          entries: [],
           recommended_paths: [],
         },
         remoteFiles: [],
         remoteMessage: '',
         remoteDownloadName: '',
-        remoteS3Files: [],
-        remoteS3Message: '',
-        remoteS3DownloadName: '',
       },
       global: { plugins: [i18n] },
     })
@@ -177,16 +152,16 @@ describe('设置页拆分组件契约', () => {
     // 测试 backupTarget 变更
     const select = wrapper.find('#backup-target')
     expect(select.exists()).toBe(true)
-    await select.setValue('both')
+    await select.setValue('webdav')
     const emitted = wrapper.emitted('update:modelValue')
-    expect((emitted?.at(-1)?.[0] as SettingsFormState).backupTarget).toBe('both')
+    expect((emitted?.at(-1)?.[0] as SettingsFormState).backupTarget).toBe('webdav')
 
     // 测试恢复指引弹窗
     const guideBtn = wrapper.findAll('button').find((b) => b.text().includes('恢复指引'))
     expect(guideBtn).toBeTruthy()
     await guideBtn?.trigger('click')
     expect(document.body.textContent).toContain('docker stop tg-signpulse')
-    expect(document.body.textContent).toContain('tar -xzf tg-signpulse-backup-*.tar.gz -C "<宿主机挂载目录，如 ./data>"')
+    expect(document.body.textContent).toContain('tar -xzf tg-signpulse-backup-*.tar.gz -C "<宿主机数据挂载目录，如 ./data>"')
 
     // 切换到宿主机 Tab
     const hostTab = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.includes('宿主机'))
@@ -197,7 +172,7 @@ describe('设置页拆分组件契约', () => {
     expect(document.body.textContent).toContain('tar -xzf tg-signpulse-backup-*.tar.gz -C "/opt/tg-data"')
   })
 
-  it('DataManagementSettings 支持点击 S3 快捷预设填充模版', async () => {
+  it('DataManagementSettings 支持点击 WebDAV 快捷预设填充模版', async () => {
     const wrapper = mount(DataManagementSettings, {
       props: {
         modelValue: settingsState(),
@@ -205,20 +180,33 @@ describe('设置页拆分组件契约', () => {
         remoteFiles: [],
         remoteMessage: '',
         remoteDownloadName: '',
-        remoteS3Files: [],
-        remoteS3Message: '',
-        remoteS3DownloadName: '',
       },
       global: { plugins: [i18n] },
     })
 
-    const r2Btn = wrapper.findAll('button').find((b) => b.text().includes('Cloudflare R2'))
-    expect(r2Btn).toBeTruthy()
-    await r2Btn?.trigger('click')
+    const jgyBtn = wrapper.findAll('button').find((b) => b.text().includes('坚果云'))
+    expect(jgyBtn).toBeTruthy()
+    await jgyBtn?.trigger('click')
     const emitted = wrapper.emitted('update:modelValue')
     const last = emitted?.at(-1)?.[0] as SettingsFormState
-    expect(last.s3EndpointUrl).toContain('r2.cloudflarestorage.com')
-    expect(last.s3Region).toBe('auto')
-    expect(last.s3Enabled).toBe(true)
+    expect(last.webdavUrl).toContain('jianguoyun.com/dav')
+  })
+
+  it('DataManagementSettings 支持完整数据归档直接下载', async () => {
+    const wrapper = mount(DataManagementSettings, {
+      props: {
+        modelValue: settingsState(),
+        backupStatus: null,
+        remoteFiles: [],
+        remoteMessage: '',
+        remoteDownloadName: '',
+      },
+      global: { plugins: [i18n] },
+    })
+
+    const downloadBtn = wrapper.findAll('button').find((b) => b.text().includes('下载当前完整备份包'))
+    expect(downloadBtn).toBeTruthy()
+    await downloadBtn?.trigger('click')
+    expect(wrapper.emitted('backup-download')).toBeTruthy()
   })
 })
