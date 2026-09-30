@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import shutil
@@ -405,7 +406,7 @@ async def export_backup_archive(current_user: User = Depends(get_current_user)):
     archive_path = tmp_dir / f"tg-signpulse-backup-{ts}.tar.gz"
 
     try:
-        create_backup_tarball(data_dir, archive_path, BACKUP_ARCHIVE_PATHS)
+        await asyncio.to_thread(create_backup_tarball, data_dir, archive_path, BACKUP_ARCHIVE_PATHS)
         if not archive_path.exists() or archive_path.stat().st_size == 0:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -416,7 +417,8 @@ async def export_backup_archive(current_user: User = Depends(get_current_user)):
         if do_webdav and do_s3:
             wd_proxy = _extract_webdav_proxy(cfg)
             try:
-                wd_res = upload_file_to_webdav(
+                wd_res = await asyncio.to_thread(
+                    upload_file_to_webdav,
                     base_url=webdav_url,
                     username=webdav_user,
                     password=webdav_password,
@@ -454,7 +456,8 @@ async def export_backup_archive(current_user: User = Depends(get_current_user)):
         if do_webdav:
             try:
                 wd_proxy = _extract_webdav_proxy(cfg)
-                result = upload_file_to_webdav(
+                result = await asyncio.to_thread(
+                    upload_file_to_webdav,
                     base_url=webdav_url,
                     username=webdav_user,
                     password=webdav_password,

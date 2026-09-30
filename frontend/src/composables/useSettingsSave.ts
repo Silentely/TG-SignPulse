@@ -135,6 +135,7 @@ export function useSettingsSave(options: {
           ...options.buildGeneralPayload(),
           ...options.buildBotPayload(),
           ...options.buildAdvancedPayload(),
+          ...options.buildAiRuntimePayload(),
         })
         // 保存成功后立即同步面板展示时区，Dashboard/Logs 等页时间格式跟随
         setPanelTimezone(String(options.buildGeneralPayload().timezone || ''))

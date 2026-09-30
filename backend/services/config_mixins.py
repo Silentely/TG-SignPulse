@@ -989,6 +989,10 @@ class AIConfigMixin:
         base_url: Optional[str] = None,
         model: Optional[str] = None,
     ) -> bool:
+        if base_url:
+            from tg_signer.utils import validate_public_http_url
+
+            validate_public_http_url(str(base_url).strip())
         """
         保存 AI 配置，API Key 使用 Fernet 加密存储
 
@@ -1093,6 +1097,17 @@ class AIConfigMixin:
                 "success": False,
                 "message": "API Key 解密失败，请检查 APP_SECRET_KEY 后重新保存",
             }
+
+        if base_url:
+            from tg_signer.utils import validate_public_http_url
+
+            try:
+                validate_public_http_url(str(base_url).strip())
+            except ValueError as ve:
+                return {
+                    "success": False,
+                    "message": f"AI Base URL 不安全或格式无效: {ve}",
+                }
 
         try:
             from openai import AsyncOpenAI

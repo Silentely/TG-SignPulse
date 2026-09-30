@@ -395,3 +395,44 @@ class TestImportAllConfigsValidation:
         service = ConfigService()
         preview = service.preview_import_all(json.dumps("x"))
         assert preview["errors"]
+
+
+class TestAiConfigSsrfDefense:
+    """测试 AI 配置 base_url 的 SSRF 防护（禁止内网、回环、云元数据）"""
+
+    def test_save_ai_config_rejects_private_and_loopback_urls(self, isolated_env: Path):
+        service = ConfigService()
+        for bad_url in [
+            "http://127.0.0.1:8000/v1",
+            "http://localhost:11434/v1",
+            "http://169.254.169.254/latest/meta-data",
+            "http://10.0.0.1/v1",
+            "http://192.168.1.1/v1",
+        ]:
+            with pytest.raises(ValueError):
+                service.save_ai_config(api_key="sk-test", base_url=bad_url)
+
+    @pytest.mark.asyncio
+    async def test_test_ai_connection_rejects_ssrf_url_without_calling_api(self, isolated_env: Path, monkeypatch):
+        service = ConfigService()
+        monkeypatch.setattr(
+            service,
+            "get_ai_config",
+            lambda: {
+                "api_key": "sk-test",
+                "base_url": "http://127.0.0.1:9999/v1",
+                "model": "gpt-4o",
+            },
+        )
+        called = False
+        def fake_openai(*args, **kwargs):
+            nonlocal called
+            called = True
+            raise AssertionError("AsyncOpenAI should NOT be called for SSRF target!")
+
+        with patch("openai.AsyncOpenAI", side_effect=fake_openai):
+            result = await service.test_ai_connection()
+
+        assert result["success"] is False
+        assert "不安全" in result["message"]
+        assert not called

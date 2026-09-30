@@ -479,6 +479,8 @@ def validate_public_http_url(url: str) -> "tuple[str, str]":
     if not hostname:
         raise ValueError("无效的主机名")
 
+    BENCHMARK_NET = ipaddress.ip_network("198.18.0.0/15")
+
     def _is_forbidden_target(
         ip_obj: "ipaddress.IPv4Address | ipaddress.IPv6Address",
     ) -> bool:
@@ -491,9 +493,12 @@ def validate_public_http_url(url: str) -> "tuple[str, str]":
                 embedded.append(ip_obj.sixtofour)
             if ip_obj.teredo:
                 embedded.extend([ip_obj.teredo.server, ip_obj.teredo.client])
+        # 兼容透明代理/TUN 模式（Clash/Sing-box Fake-IP 198.18.0.0/15）
+        if ip_obj.version == 4 and ip_obj in BENCHMARK_NET:
+            return False
         if not ip_obj.is_global:
             return True
-        return any(not addr.is_global for addr in embedded)
+        return any(not addr.is_global and addr not in BENCHMARK_NET for addr in embedded)
 
     # 解析候选地址并逐一校验；字面量 IP 直接采用，主机名则走 DNS 解析
     try:

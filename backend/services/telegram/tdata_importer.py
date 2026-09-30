@@ -65,8 +65,15 @@ def extract_tdata_zip(zip_path: Path, target_dir: Path) -> Path:
             raise ValueError(
                 f"ZIP archive contains too many files ({len(members)} > {MAX_MEMBER_COUNT})"
             )
+        target_dir_resolved = target_dir.resolve()
         total_size = 0
         for member in members:
+            # Reject symlinks (0o120000) and device/fifo entries
+            mode = (member.external_attr >> 16) & 0o170000
+            if mode in (0o120000, 0o020000, 0o060000, 0o010000):
+                raise ValueError(
+                    f"Zip Slip vulnerability: symlink or device entry prohibited: '{member.filename}'"
+                )
             total_size += member.file_size
             if total_size > MAX_TOTAL_UNCOMPRESSED_SIZE:
                 raise ValueError(
@@ -74,12 +81,17 @@ def extract_tdata_zip(zip_path: Path, target_dir: Path) -> Path:
                 )
             member_name = member.filename
             dest_path = (target_dir / member_name).resolve()
-            if target_dir not in dest_path.parents and dest_path != target_dir:
+            if target_dir_resolved not in dest_path.parents and dest_path != target_dir_resolved:
                 raise ValueError(
                     f"Zip Slip vulnerability detected: '{member_name}' escapes target directory"
                 )
-
-        zf.extractall(target_dir)
+            # Verify parent directory resolution does not escape
+            parent_resolved = dest_path.parent.resolve()
+            if target_dir_resolved not in parent_resolved.parents and parent_resolved != target_dir_resolved:
+                raise ValueError(
+                    f"Zip Slip parent traversal detected: '{member_name}'"
+                )
+            zf.extract(member, target_dir)
 
     nested_tdata = target_dir / "tdata"
     if nested_tdata.is_dir():

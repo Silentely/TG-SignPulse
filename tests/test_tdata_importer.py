@@ -80,6 +80,22 @@ class TestTDataDetectionAndExtraction:
         # Ensure malicious file was not extracted outside
         assert not (tmp_path / "evil_escape.txt").exists()
 
+    def test_extract_tdata_zip_rejects_symlinks(self, tmp_path: Path):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zi = zipfile.ZipInfo("symlink_dir")
+            zi.external_attr = 0o120777 << 16
+            zf.writestr(zi, "/etc")
+            zf.writestr("symlink_dir/evil.txt", b"evil content")
+
+        bad_zip = tmp_path / "symlink.zip"
+        bad_zip.write_bytes(buf.getvalue())
+        target = tmp_path / "extracted_symlink"
+        target.mkdir()
+
+        with pytest.raises(ValueError, match="symlink"):
+            extract_tdata_zip(bad_zip, target)
+
     def test_extract_tdata_zip_handles_nested_tdata_folder(self, tmp_path: Path):
         # Nested zip (tdata/key_datas)
         nested_bytes = _create_sample_tdata_zip(nested=True)

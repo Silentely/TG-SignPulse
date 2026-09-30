@@ -469,14 +469,4 @@ def list_recent_from_index(
         if not account_name and not date_prefix:
             _sync_memory(run_history_dir, items)
         return items
-
-    # 索引空但可能有历史文件
-    if any(run_history_dir.glob("*.json")) if run_history_dir.exists() else False:
-        rebuild_index_from_history_files(run_history_dir)
-        return read_index_entries(
-            run_history_dir,
-            limit=limit,
-            account_name=account_name,
-            date_prefix=date_prefix,
-        )
     return []
