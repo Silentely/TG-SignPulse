@@ -2,13 +2,51 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
+import socket
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from backend.services.config import ConfigService
+
+# 用例中出现的示例域名（custom.api.com / *.example / api.test.com / api.orig.com）
+# 在 CI 上不可解析，而 save_ai_config 的 SSRF 校验需要解析主机名
+_FAKE_PUBLIC_IP = "93.184.216.34"
+
+
+@pytest.fixture(autouse=True)
+def _pin_hostname_dns(monkeypatch):
+    """把主机名解析钉死为公网 IP，使用例与外部 DNS 解耦。
+
+    save_ai_config 会调用 validate_public_http_url 做 SSRF 校验，其中包含 DNS 解析：
+    CI（普通网络）解析不到示例域名会先抛「无法解析主机」，用例随环境时红时绿。
+    这里统一钉死解析结果，localhost 保留回环语义以维持内网拒绝用例的判定。
+    """
+    real_getaddrinfo = socket.getaddrinfo
+
+    def _pinned_getaddrinfo(host, *args, **kwargs):
+        if isinstance(host, str):
+            name = host.strip("[]").lower()
+            if name in ("localhost", "localhost.localdomain"):
+                return real_getaddrinfo("127.0.0.1", *args, **kwargs)
+            try:
+                ipaddress.ip_address(name)
+            except ValueError:
+                return [
+                    (
+                        socket.AF_INET,
+                        socket.SOCK_STREAM,
+                        socket.IPPROTO_TCP,
+                        "",
+                        (_FAKE_PUBLIC_IP, 0),
+                    )
+                ]
+        return real_getaddrinfo(host, *args, **kwargs)
+
+    monkeypatch.setattr(socket, "getaddrinfo", _pinned_getaddrinfo)
 
 
 class TestSaveAiConfigEncryption:
