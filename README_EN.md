@@ -45,7 +45,7 @@ TG-SignPulse is a Telegram automation panel. Manage multiple accounts, configure
 | **Topic Support** | Send and filter by Telegram group Thread ID |
 | **Keyword Monitoring** | Contains/exact/regex match → Telegram Bot, forward, Bark, custom URL, continue actions |
 | **Notifications** | Alerts via TG Bot, WeCom, Feishu, DingTalk, Discord multi-channel matrix |
-| **ChatOps & Ops** | TG Bot control (/status, /run, etc.), dashboard trend charts, zero-dependency S3/R2 backup |
+| **ChatOps & Ops** | TG Bot control (/status, /run, etc.), dashboard trend charts, WebDAV remote backup & archive export |
 
 ---
 

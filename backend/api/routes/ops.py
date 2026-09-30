@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
@@ -24,7 +24,6 @@ from backend.core.auth import get_current_user
 from backend.core.config import get_settings
 from backend.models.user import User
 from backend.scheduler.instance_lock import has_scheduler_lock
-from backend.services.s3_backup import s3_enabled
 
 logger = logging.getLogger("backend.ops")
 
@@ -60,7 +59,6 @@ class BackupStatusResponse(BaseModel):
     notes: List[str] = Field(default_factory=list)
     restore_hint: str = ""
     webdav_configured: bool = False
-    s3_configured: bool = False
     backup_target: str = "auto"
     auto_backup_enabled: bool = False
     local_auto_backups: List[Dict[str, Any]] = Field(default_factory=list)
@@ -68,8 +66,13 @@ class BackupStatusResponse(BaseModel):
 
 # 完整备份包含的路径（不含初始密码文件，降低误传风险）
 def _extract_webdav_proxy(cfg: Dict[str, Any]) -> Optional[str]:
-    """从配置字典中提取 WebDAV 代理设置（优先 webdav_proxy，回退全局 proxy）。"""
-    return str(cfg.get("webdav_proxy") or cfg.get("proxy") or "").strip() or None
+    """从配置字典中提取 WebDAV 代理设置（优先 webdav_proxy，回退全局 global_proxy / proxy）。"""
+    return (
+        str(
+            cfg.get("webdav_proxy") or cfg.get("global_proxy") or cfg.get("proxy") or ""
+        ).strip()
+        or None
+    )
 
 
 BACKUP_ARCHIVE_PATHS = (
@@ -258,7 +261,6 @@ def backup_status(current_user: User = Depends(get_current_user)):
 
     cfg = get_config_service().get_global_settings()
     webdav_configured = bool((cfg.get("webdav_url") or "").strip())
-    s3_configured = s3_enabled(cfg)
     auto_backup_enabled = bool(cfg.get("auto_backup_enabled"))
 
     local_auto: List[Dict[str, Any]] = []
@@ -291,6 +293,9 @@ def backup_status(current_user: User = Depends(get_current_user)):
             except OSError:
                 continue
 
+    raw_target = str(cfg.get("backup_target") or "auto").strip().lower()
+    normalized_target = raw_target if raw_target in {"auto", "webdav"} else "auto"
+
     return BackupStatusResponse(
         data_dir=str(data_dir),
         writable=is_writable_dir(data_dir),
@@ -302,33 +307,33 @@ def backup_status(current_user: User = Depends(get_current_user)):
             "完整备份含数据库、会话与 .signer（任务配置与历史），敏感请妥善保管。",
             "JSON 配置导出不含会话；二者用途不同，勿混用。",
             "不含 .admin_bootstrap_password（避免初始密码随备份传播）。",
-            "自动备份在 WebDAV / 对象存储上传成功后会删除本地副本；失败时保留本地文件。",
-            "备份落点策略支持智能选择、仅 WebDAV、仅对象存储以及双端同时备份（both）。",
+            "自动备份在 WebDAV 上传成功后会删除本地副本；失败或未配置时保留本地文件。",
+            "备份落点支持 WebDAV 远端备份与本地直接导出。",
         ],
         restore_hint=(
             "恢复：停止服务 → 解压 tar.gz 到 APP_DATA_DIR 覆盖对应路径 → 重启。"
             "详见文档运维手册。"
         ),
         webdav_configured=webdav_configured,
-        backup_target=str(cfg.get("backup_target") or "auto"),
-        s3_configured=s3_configured,
+        backup_target=normalized_target,
         auto_backup_enabled=auto_backup_enabled,
         local_auto_backups=local_auto,
     )
 
 
 @router.post("/backup/export")
-async def export_backup_archive(current_user: User = Depends(get_current_user)):
+async def export_backup_archive(
+    target: Optional[str] = Query(None, description="webdav / download"),
+    current_user: User = Depends(get_current_user),
+):
     """
-    打包 data 目录关键路径为 tar.gz 并上传到远端。
+    打包 data 目录关键路径为 tar.gz 并上传到 WebDAV 或下载到本地。
 
-    优先级：WebDAV（webdav_url 已配置）→ 对象存储（s3_enabled 且必填项齐全）
-    → 浏览器下载（二者均未配置时的兼容回退）。
-    远端配置均取自全局设置。
+    若指定 target="download" 或 WebDAV 未配置，直接流式下载到浏览器。
+    若指定 target="webdav" 或 target 未指定且 WebDAV 已配置，上传至 WebDAV 服务端。
     """
     from backend.services.backup_archive import create_backup_tarball
     from backend.services.config import get_config_service
-    from backend.services.s3_backup import s3_enabled, upload_backup_to_s3
     from backend.services.webdav_client import upload_file_to_webdav
 
     settings = get_settings()
@@ -340,12 +345,18 @@ async def export_backup_archive(current_user: User = Depends(get_current_user)):
         )
 
     cfg = get_config_service().get_global_settings()
-    backup_target = str(cfg.get("backup_target") or "auto").strip().lower()
-    if backup_target not in {"auto", "webdav", "s3", "both"}:
-        backup_target = "auto"
+    if target is not None:
+        req_target = str(target).strip().lower()
+        if req_target not in {"auto", "webdav", "download"}:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="无效的备份目标，仅支持 auto、webdav、download",
+            )
+    else:
+        configured = str(cfg.get("backup_target") or "auto").strip().lower()
+        req_target = configured if configured in {"auto", "webdav"} else "auto"
 
     webdav_url = (cfg.get("webdav_url") or "").strip()
-    s3_ready = s3_enabled(cfg)
     webdav_user = str(cfg.get("webdav_username") or "").strip()
     webdav_password = str(cfg.get("webdav_password") or "")
     webdav_remote = (
@@ -353,41 +364,18 @@ async def export_backup_archive(current_user: User = Depends(get_current_user)):
         or "tg-signpulse-backups"
     )
 
-    # 显式策略强校验，避免静默降级
-    if backup_target == "both":
+    if req_target == "webdav":
         if not webdav_url:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="备份目标为双端备份（both），但 WebDAV 服务地址未配置",
-            )
-        if not s3_ready:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="备份目标为双端备份（both），但对象存储未启用或凭据未配置完整",
+                detail="备份目标为 WebDAV，但 WebDAV 服务地址未配置",
             )
         do_webdav = True
-        do_s3 = True
-    elif backup_target == "s3":
-        if not s3_ready:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="备份目标为仅对象存储（s3），但对象存储未启用或凭据未配置完整",
-            )
+    elif req_target == "download":
         do_webdav = False
-        do_s3 = True
-    elif backup_target == "webdav":
-        if not webdav_url:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="备份目标为仅 WebDAV，但 WebDAV 服务地址未配置",
-            )
-        do_webdav = True
-        do_s3 = False
     else:  # auto
         do_webdav = bool(webdav_url)
-        do_s3 = bool(not do_webdav and s3_ready)
 
-    # 校验 WebDAV 凭据
     if do_webdav:
         if not webdav_user:
             raise HTTPException(
@@ -400,7 +388,6 @@ async def export_backup_archive(current_user: User = Depends(get_current_user)):
                 detail="WebDAV 密码未配置，请先填写并保存密码",
             )
 
-    # 备份文件名用 UTC，与自动备份/命中导出的时间口径一致
     ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     tmp_dir = Path(tempfile.mkdtemp(prefix="tg-signpulse-backup-"))
     archive_path = tmp_dir / f"tg-signpulse-backup-{ts}.tar.gz"
@@ -414,46 +401,6 @@ async def export_backup_archive(current_user: User = Depends(get_current_user)):
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="没有可备份的文件",
             )
-        archive_size = archive_path.stat().st_size
-
-        if do_webdav and do_s3:
-            wd_proxy = _extract_webdav_proxy(cfg)
-            try:
-                wd_res = await asyncio.to_thread(
-                    upload_file_to_webdav,
-                    base_url=webdav_url,
-                    username=webdav_user,
-                    password=webdav_password,
-                    remote_dir=webdav_remote,
-                    local_path=archive_path,
-                    proxy=wd_proxy,
-                )
-                s3_res = await upload_backup_to_s3(cfg, archive_path)
-            except ValueError as exc:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=str(exc),
-                ) from exc
-            except Exception as exc:
-                logger.exception("多落点备份上传失败")
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=f"多落点备份上传失败: {exc}",
-                ) from exc
-            finally:
-                shutil.rmtree(tmp_dir, ignore_errors=True)
-
-            return {
-                "success": True,
-                "mode": "both",
-                "message": "备份已成功上传至 WebDAV 及对象存储",
-                "filename": archive_path.name,
-                "webdav_url": wd_res.get("remote_url"),
-                "s3_url": s3_res.get("url"),
-                "size_bytes": wd_res.get("size_bytes")
-                or s3_res.get("size")
-                or archive_size,
-            }
 
         if do_webdav:
             try:
@@ -489,32 +436,7 @@ async def export_backup_archive(current_user: User = Depends(get_current_user)):
                 "size_bytes": result.get("size_bytes"),
             }
 
-        if do_s3:
-            try:
-                result = await upload_backup_to_s3(cfg, archive_path)
-            except ValueError as exc:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=str(exc),
-                ) from exc
-            except Exception as exc:
-                logger.exception("对象存储上传失败")
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=f"对象存储上传失败: {exc}",
-                ) from exc
-            finally:
-                shutil.rmtree(tmp_dir, ignore_errors=True)
-            return {
-                "success": True,
-                "mode": "s3",
-                "message": "备份已上传到对象存储",
-                "filename": Path(str(result.get("key") or "")).name,
-                "size_bytes": result.get("size"),
-                "remote_url": result.get("url"),
-            }
-
-        # 未配置 WebDAV / 对象存储：回退为本地下载
+        # 回退为本地下载
         def _cleanup() -> None:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -702,133 +624,6 @@ def download_webdav_backup_file(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"WebDAV 下载失败: {exc}",
         ) from exc
-
-
-class S3TestResponse(BaseModel):
-    success: bool
-    message: str
-    status_code: Optional[int] = None
-
-
-@router.post("/backup/s3/test", response_model=S3TestResponse)
-async def test_s3_backup(current_user: User = Depends(get_current_user)):
-    """测试已保存的对象存储（S3/R2/MinIO）配置连通性。"""
-    from backend.services.config import get_config_service
-    from backend.services.s3_backup import check_s3_connection, s3_enabled
-
-    cfg = get_config_service().get_global_settings()
-    if not s3_enabled(cfg):
-        return S3TestResponse(success=False, message="对象存储未配置或必填项不完整")
-    result = await check_s3_connection(cfg)
-    return S3TestResponse(**result)
-
-
-class S3FileEntry(BaseModel):
-    name: str
-    href: str = ""
-    size_bytes: Optional[int] = None
-    mtime: Optional[str] = None
-
-
-class S3ListResponse(BaseModel):
-    success: bool
-    files: List[S3FileEntry] = Field(default_factory=list)
-    message: str = ""
-    status_code: Optional[int] = None
-
-
-@router.get("/backup/s3/files", response_model=S3ListResponse)
-async def list_s3_backup_files(current_user: User = Depends(get_current_user)):
-    """列出已保存对象存储配置下 prefix 中的 .tar.gz 备份。"""
-    from backend.services.config import get_config_service
-    from backend.services.s3_backup import list_s3_files, s3_enabled
-
-    cfg = get_config_service().get_global_settings()
-    if not s3_enabled(cfg):
-        return S3ListResponse(success=False, message="对象存储未配置或必填项不完整")
-    result = await list_s3_files(cfg, name_suffix=".tar.gz", limit=20)
-    if not result.get("success"):
-        return S3ListResponse(
-            success=False, message=str(result.get("message") or "列表失败")
-        )
-    files = [S3FileEntry(**f) for f in (result.get("files") or [])]
-    return S3ListResponse(
-        success=True,
-        files=files,
-        message="对象存储列表获取成功" if files else "远端暂无备份",
-    )
-
-
-@router.get("/backup/s3/download")
-async def download_s3_backup_file(
-    name: str,
-    current_user: User = Depends(get_current_user),
-):
-    """
-    从已配置对象存储下载指定备份包到浏览器。
-
-    仅允许安全的 .tar.gz 文件名；恢复请离线覆盖 data/，不在面板内解压。
-    """
-    from fastapi.responses import StreamingResponse
-
-    from backend.services.config import get_config_service
-    from backend.services.s3_backup import s3_enabled, stream_s3_file
-    from backend.services.webdav_client import validate_backup_filename
-
-    try:
-        safe_name = validate_backup_filename(name)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
-
-    cfg = get_config_service().get_global_settings()
-    if not s3_enabled(cfg):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="对象存储未配置或必填项不完整",
-        )
-    try:
-        stream = await stream_s3_file(cfg, safe_name)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
-    except Exception as exc:
-        logger.exception("对象存储下载失败")
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"对象存储下载失败: {exc}",
-        ) from exc
-
-    try:
-        first_chunk = await anext(stream)
-    except StopAsyncIteration as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="对象存储下载结果为空",
-        ) from exc
-    except Exception as exc:
-        logger.exception("对象存储读取失败")
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"对象存储读取失败: {exc}",
-        ) from exc
-
-    async def _body():
-        yield first_chunk
-        async for chunk in stream:
-            yield chunk
-
-    return StreamingResponse(
-        _body(),
-        media_type="application/gzip",
-        headers={
-            "Content-Disposition": f'attachment; filename="{safe_name}"',
-        },
-    )
 
 
 @router.get("/memory", response_model=MemoryStatsResponse)

@@ -77,14 +77,6 @@ export function useSettingsPage() {
     webdavUsername: '',
     webdavPassword: '',
     webdavRemoteDir: 'tg-signpulse-backups',
-    s3Enabled: false,
-    s3EndpointUrl: '',
-    s3Bucket: '',
-    s3AccessKey: '',
-    s3SecretKey: '',
-    s3Region: 'auto',
-    s3Prefix: 'tg-signpulse-backups',
-    s3Proxy: '',
     backupTarget: 'auto',
   })
 
@@ -232,22 +224,13 @@ export function useSettingsPage() {
     remoteWebdavMessage,
     webdavPasswordSet,
     remoteDownloadName,
-    s3TestLoading,
-    s3ListLoading,
-    remoteS3Files,
-    remoteS3Message,
-    s3SecretKeySet,
-    remoteS3DownloadName,
     afterWebdavSettingsSaved,
-    afterS3SettingsSaved,
     handleExport,
     handleListRemoteBackups,
     handleDownloadRemoteBackup,
-    handleListS3RemoteBackups,
-    handleDownloadS3RemoteBackup,
     handleBackupExport,
+    handleDirectDownloadBackup,
     handleWebdavTest,
-    handleS3Test,
     handleImportFile,
     loadBackupStatus,
   } = useSettingsBackup({
@@ -287,7 +270,6 @@ export function useSettingsPage() {
     markSectionClean,
     afterBotTokenSaved,
     afterWebdavSettingsSaved,
-    afterS3SettingsSaved,
     loadBackupStatus,
   })
 
@@ -307,7 +289,6 @@ export function useSettingsPage() {
       const flags = applyGlobalSettingsToForm(settings.value, res)
       botTokenSet.value = flags.botTokenSet
       webdavPasswordSet.value = flags.webdavPasswordSet
-      s3SecretKeySet.value = flags.s3SecretKeySet
       proxySet.value = flags.proxySet
       // 同步面板展示时区：Settings 加载后，Dashboard/Logs 等页的时间格式跟随
       setPanelTimezone(res.timezone)
@@ -419,12 +400,6 @@ export function useSettingsPage() {
     botTokenSet,
     proxySet,
     remoteDownloadName,
-    s3TestLoading,
-    s3ListLoading,
-    remoteS3Files,
-    remoteS3Message,
-    s3SecretKeySet,
-    remoteS3DownloadName,
     saveSettings,
     runKeepaliveNow,
     saveBotSettings,
@@ -438,14 +413,11 @@ export function useSettingsPage() {
     handleExport,
     handleImportFile,
     handleBackupExport,
+    handleDirectDownloadBackup,
     handleWebdavTest,
     handleListRemoteBackups,
     handleDownloadRemoteBackup,
-    handleListS3RemoteBackups,
-    handleDownloadS3RemoteBackup,
-    handleS3Test,
     afterWebdavSettingsSaved,
-    afterS3SettingsSaved,
     handleCheckUpdate,
     toggleReveal,
   }

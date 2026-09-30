@@ -452,14 +452,12 @@ async def _job_auto_backup() -> None:
             data_dir,
             keep=auto_backup_keep(cfg),
             webdav_settings=cfg,
-            s3_settings=cfg,
             backup_target=str(cfg.get("backup_target") or "auto"),
         )
         wd = result.get("webdav") or {}
-        s3 = result.get("s3") or {}
         logger.info(
             "Auto backup finished: path=%s size=%s pruned=%s remote_pruned=%s "
-            "local_removed=%s webdav=%s webdav_error=%s s3=%s s3_error=%s",
+            "local_removed=%s webdav=%s webdav_error=%s",
             result.get("path"),
             result.get("size_bytes"),
             result.get("pruned"),
@@ -467,17 +465,13 @@ async def _job_auto_backup() -> None:
             result.get("local_removed"),
             wd.get("success"),
             wd.get("error"),
-            s3.get("success"),
-            s3.get("error"),
         )
-        # 打包失败，或配置了远端但上传失败 → 通知（WebDAV 优先，与上传顺序一致）
+        # 打包失败，或配置了 WebDAV 但上传失败 → 通知
         fail_reasons = []
         if not result.get("success"):
             fail_reasons.append(str(result.get("error") or "备份打包失败"))
         if wd and wd.get("success") is False:
             fail_reasons.append(f"WebDAV 上传失败: {wd.get('error')}")
-        if s3 and s3.get("success") is False:
-            fail_reasons.append(f"对象存储上传失败: {s3.get('error')}")
         fail_reason = "；".join(fail_reasons)
         if fail_reason:
             await send_auto_backup_failure_notification(

@@ -49,7 +49,7 @@ TG-SignPulse 是一个 Telegram 自动化管理面板。你可以在网页中管
 | **关键词监听** | 包含/完全匹配/正则，命中后支持 Telegram Bot、转发、Bark、自定义 Webhook、后续动作 |
 | **时区管理** | Web 面板可切换时区（支持 22 个常用时区），调度器自动适配 |
 | **通知推送** | 任务/账号状态通知，支持 Telegram Bot、企微、飞书、钉钉、Discord 多渠道矩阵 |
-| **ChatOps 与运维**| TG Bot 双向指令控制 (/status, /run 等)、趋势大盘、零依赖 S3/R2 备份导出 |
+| **ChatOps 与运维**| TG Bot 双向指令控制 (/status, /run 等)、趋势大盘、WebDAV 远端备份与归档导出 |
 
 ---
 

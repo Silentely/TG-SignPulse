@@ -429,14 +429,6 @@ class GlobalSettingsRequest(BaseModel):
     webdav_username: Optional[str] = None
     webdav_password: Optional[str] = None
     webdav_remote_dir: Optional[str] = None
-    s3_enabled: Optional[bool] = None
-    s3_endpoint_url: Optional[str] = None
-    s3_bucket: Optional[str] = None
-    s3_access_key: Optional[str] = None
-    s3_secret_key: Optional[str] = None
-    s3_region: Optional[str] = None
-    s3_prefix: Optional[str] = None
-    s3_proxy: Optional[str] = None
     backup_target: Optional[str] = None
     require_proxy_for_telegram: Optional[bool] = None
     wecom_webhook_url: Optional[str] = None
@@ -489,16 +481,6 @@ class GlobalSettingsResponse(BaseModel):
     webdav_password: Optional[str] = None
     webdav_password_set: bool = False
     webdav_remote_dir: Optional[str] = "tg-signpulse-backups"
-    s3_enabled: bool = False
-    s3_endpoint_url: Optional[str] = None
-    s3_bucket: Optional[str] = None
-    s3_access_key: Optional[str] = None
-    # 同 webdav_password：GET 不回传明文，用 s3_secret_key_set 表示已落盘
-    s3_secret_key: Optional[str] = None
-    s3_secret_key_set: bool = False
-    s3_region: Optional[str] = "auto"
-    s3_prefix: Optional[str] = "tg-signpulse-backups"
-    s3_proxy: Optional[str] = None
     backup_target: str = "auto"
     require_proxy_for_telegram: bool = False
     wecom_webhook_url: Optional[str] = None
@@ -524,7 +506,7 @@ def get_global_settings(current_user: User = Depends(get_current_user)):
         from backend.core.config import get_settings
 
         settings.setdefault("timezone", get_settings().timezone)
-        # 脱敏：API 响应不暴露 WebDAV 密码 / Bot Token / S3 Secret Key 明文
+        # 脱敏：API 响应不暴露 WebDAV 密码 / Bot Token 明文
         raw_pwd = settings.get("webdav_password")
         settings["webdav_password_set"] = bool(
             raw_pwd is not None and str(raw_pwd).strip() != ""
@@ -535,12 +517,6 @@ def get_global_settings(current_user: User = Depends(get_current_user)):
             raw_token is not None and str(raw_token).strip() != ""
         )
         settings["telegram_bot_token"] = None
-        # S3 Secret Key 同样只回传「是否已配置」
-        raw_s3_secret = settings.get("s3_secret_key")
-        settings["s3_secret_key_set"] = bool(
-            raw_s3_secret is not None and str(raw_s3_secret).strip() != ""
-        )
-        settings["s3_secret_key"] = None
         # 全局代理同样只回传「是否已配置」，避免明文（可能含内嵌凭据）外泄
         raw_proxy = settings.get("global_proxy")
         settings["global_proxy_set"] = bool(

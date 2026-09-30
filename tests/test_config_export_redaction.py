@@ -50,11 +50,6 @@ class TestScrubPureFunction:
         assert out["global_proxy"] == "socks5://***:***@proxy.example.com:1080"
         assert "sup3rsecret" not in json.dumps(out)
 
-    def test_s3_access_key_is_redacted_and_dropped_on_import(self):
-        out = _scrub_export_secrets({"s3_access_key": "access-key"})
-        assert out["s3_access_key"] == "***MASKED***"
-        assert "s3_access_key" not in _drop_masked_secret_fields(out)
-
     def test_serverchan_sendkey_redacted(self):
         out = _scrub_export_secrets({"server_chan_send_key": "SCT123456ABC"})
         assert out["server_chan_send_key"] == "***MASKED***"
@@ -299,6 +294,43 @@ class TestExportRoundTrip:
         assert stored["sign_at"] == "08:00"
         dumped = json.dumps(stored)
         assert "***MASKED***" not in dumped
+
+    def test_legacy_s3_keys_purged_on_disk_and_export(self, seeded_service):
+        """写入含有历史 s3_* 键的设置文件，经 save_global_settings 后磁盘与导出中均被彻底清理。"""
+        settings_file = seeded_service._get_global_settings_file()
+        legacy_data = {
+            "s3_enabled": True,
+            "s3_secret_key": "topsecret-s3-key",
+            "s3_bucket": "my-legacy-bucket",
+            "s3_endpoint_url": "https://s3.example.com",
+            "webdav_url": "https://93.184.216.34/dav",
+            "webdav_username": "myuser",
+        }
+        settings_file.write_text(json.dumps(legacy_data), encoding="utf-8")
+        seeded_service._global_settings_cache().clear()
+
+        # 触发一次保存（例如修改 webdav_remote_dir）
+        seeded_service.save_global_settings({"webdav_remote_dir": "new-backups"})
+
+        # 1. 验证磁盘原始 JSON 文件已无任何 s3_* 键
+        disk_content = json.loads(settings_file.read_text(encoding="utf-8"))
+        assert "s3_enabled" not in disk_content
+        assert "s3_secret_key" not in disk_content
+        assert "s3_bucket" not in disk_content
+        assert not any(k.startswith("s3_") for k in disk_content)
+        assert "topsecret-s3-key" not in json.dumps(disk_content)
+        assert disk_content["webdav_remote_dir"] == "new-backups"
+
+        # 2. 验证 get_global_settings() 内存中亦无任何 s3_* 键
+        mem_settings = seeded_service.get_global_settings()
+        assert not any(k.startswith("s3_") for k in mem_settings)
+
+        # 3. 验证 export_all_configs() 导出结果中无 s3 密钥
+        exported = seeded_service.export_all_configs()
+        assert "topsecret-s3-key" not in exported
+        assert not any(
+            k.startswith("s3_") for k in json.loads(exported)["settings"]["global"]
+        )
 
 
 class TestGlobalProxyMasking:

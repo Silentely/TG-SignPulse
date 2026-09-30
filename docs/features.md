@@ -63,8 +63,9 @@ TG-SignPulse 是 Telegram 多账号自动化管理面板，把签到、消息交
 - 任务运行状态：`GET /api/sign-tasks/runs/active`、`/run/status`、`/run/cancel`（`state` + `phase` + `failure_category`）
 - Dashboard 活跃运行摘要与失败分类聚合（可点筛选日志 / 会话失效跳转账号）
 - 任务列表：冷却倒计时、多账号 phase、停止运行、账号失效提示
-- 备份目标策略（`backup_target`）：支持智能选择（auto）、仅 WebDAV、仅对象存储（s3）、双端同时备份（both）；双端模式强制两端均成功后清理本地
-- WebDAV 与 S3 兼容对象存储：支持测试连接、列出远端、流式下载、灾难恢复命令指引弹窗、自动备份失败 Bot 告警
+- 备份目标策略（`backup_target`）：支持智能选择（auto，配置 WebDAV 时自动上传，未配置时提供本地归档下载）、仅 WebDAV（webdav）
+- WebDAV 远端备份与灾备：内置坚果云/Nextcloud 等快捷预设、测试连接、列出远端、逐条下载、灾难恢复指引弹窗、自动备份失败 Bot 告警
+- 完整数据归档与迁移：支持直接下载当前系统完整 `.tar.gz` 备份包，以及轻量配置 JSON 导入导出与 dry-run 预览
 - 配置导入预览（dry-run）
 - 任务克隆与内置模板（文本/按钮/时段/骰子/关键词监听；预填动作后须选会话）
 - 系统设置未保存提示与「保存全部」
@@ -88,6 +89,6 @@ TG-SignPulse 是 Telegram 多账号自动化管理面板，把签到、消息交
 ## 下一步
 
 - [快速开始](/guide/quick-start)
-- [备份与恢复（WebDAV / 对象存储）](/guide/backup-webdav)
+- [备份与恢复（WebDAV / 本地归档）](/guide/backup-webdav)
 - [Docker 部署](/deploy/docker)
 - [配置参考](/reference/configuration)

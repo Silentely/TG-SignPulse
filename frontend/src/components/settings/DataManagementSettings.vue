@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 数据管理区块：配置 JSON 导入/导出、WebDAV / 对象存储完整备份、自动备份开关、远端备份列表及灾难恢复指引。
+ * 数据管理区块：配置 JSON 导入/导出、WebDAV 远端备份与灾备、自动备份策略、直接下载完整归档及灾难恢复指引。
  * 父组件 Settings.vue 持有表单状态并实现 API 调用；本组件仅负责 UI 与事件转发。
  */
 import { ref, computed } from 'vue'
@@ -38,14 +38,6 @@ const props = defineProps<{
   remoteMessage: string
   /** 当前下载的远端文件名 */
   remoteDownloadName: string
-  /** 服务端是否已保存对象存储 Secret Key */
-  s3SecretKeySet?: boolean
-  /** 远端对象存储文件列表 */
-  remoteS3Files: RemoteBackupFile[]
-  /** 对象存储远端列表提示消息 */
-  remoteS3Message: string
-  /** 当前下载的对象存储文件名 */
-  remoteS3DownloadName: string
   /** 数据加载中（导入/导出 JSON） */
   dataLoading?: boolean
   /** 完整备份导出中 */
@@ -54,10 +46,6 @@ const props = defineProps<{
   webdavTestLoading?: boolean
   /** WebDAV 列表中 */
   webdavListLoading?: boolean
-  /** 对象存储测试中 */
-  s3TestLoading?: boolean
-  /** 对象存储列表中 */
-  s3ListLoading?: boolean
   /** 高级设置保存中（影响多个按钮禁用态） */
   advancedLoading?: boolean
 }>()
@@ -67,12 +55,10 @@ const emit = defineEmits<{
   (e: 'export-json'): void
   (e: 'import-json', file: File): void
   (e: 'backup-export'): void
+  (e: 'backup-download'): void
   (e: 'webdav-test'): void
   (e: 'webdav-list'): void
   (e: 'webdav-download', name: string): void
-  (e: 's3-test'): void
-  (e: 's3-list'): void
-  (e: 's3-download', name: string): void
   (e: 'save-advanced'): void
 }>()
 
@@ -80,9 +66,6 @@ const { t } = useI18n()
 
 // 顶级 Tab 控制
 const activeTab = ref<'remote' | 'auto' | 'migrate'>('remote')
-
-// 远端存储分段控制（保留与原有 DOM 测试一致的顺序：WebDAV / S3）
-const remoteStorageType = ref<'webdav' | 's3'>('webdav')
 
 // 恢复指引弹窗
 const showRestoreModal = ref(false)
@@ -125,66 +108,47 @@ const formatBytes = (n?: number | null) => {
   return i === 0 ? `${Math.round(v)} ${units[i]}` : `${v.toFixed(1)} ${units[i]}`
 }
 
-// S3 服务商快捷预设
-interface S3Preset {
+// WebDAV 服务商快捷预设
+interface WebdavPreset {
   id: string
-  name: string
-  endpoint: string
-  region: string
+  labelKey: string
+  url: string
 }
 
-const s3Presets: S3Preset[] = [
+const webdavPresets: WebdavPreset[] = [
   {
-    id: 'r2',
-    name: 'Cloudflare R2',
-    endpoint: 'https://your-account-id.r2.cloudflarestorage.com',
-    region: 'auto',
+    id: 'jianguoyun',
+    labelKey: 'settings.presetJianguoyun',
+    url: 'https://dav.jianguoyun.com/dav/',
   },
   {
-    id: 'aws',
-    name: 'AWS S3',
-    endpoint: 'https://s3.us-east-1.amazonaws.com',
-    region: 'us-east-1',
+    id: 'nextcloud',
+    labelKey: 'settings.presetNextcloud',
+    url: 'https://your-domain/remote.php/dav/files/USERNAME/',
   },
   {
-    id: 'minio',
-    name: 'MinIO',
-    endpoint: 'http://127.0.0.1:9000',
-    region: 'us-east-1',
+    id: 'infinicloud',
+    labelKey: 'settings.presetInfinicloud',
+    url: 'https://teracloud.jp/dav/',
   },
   {
-    id: 'oss',
-    name: 'Aliyun OSS',
-    endpoint: 'https://oss-cn-hangzhou.aliyuncs.com',
-    region: 'oss-cn-hangzhou',
+    id: 'alist',
+    labelKey: 'settings.presetAlist',
+    url: 'https://your-alist-domain/dav',
   },
 ]
 
-const applyS3Preset = (preset: S3Preset) => {
+const applyWebdavPreset = (preset: WebdavPreset) => {
   emit('update:modelValue', {
     ...props.modelValue,
-    s3EndpointUrl: preset.endpoint,
-    s3Region: preset.region,
-    s3Enabled: true,
-    s3Prefix: props.modelValue.s3Prefix || 'tg-signpulse-backups',
+    webdavUrl: preset.url,
+    webdavRemoteDir: props.modelValue.webdavRemoteDir || 'tg-signpulse-backups',
   })
 }
 
 // 动态计算立即备份按钮文案与说明
 const backupActionButtonInfo = computed(() => {
   const target = props.modelValue.backupTarget || 'auto'
-  if (target === 'both') {
-    return {
-      label: t('settings.exportBackupBothAction'),
-      hint: t('settings.backupTargetBothHint'),
-    }
-  }
-  if (target === 's3') {
-    return {
-      label: t('settings.exportBackupS3Action'),
-      hint: t('settings.backupTargetS3Hint'),
-    }
-  }
   if (target === 'webdav') {
     return {
       label: t('settings.exportBackupWebdavAction'),
@@ -201,7 +165,7 @@ const backupActionButtonInfo = computed(() => {
 const restoreCommand = computed(() => {
   const dataDir = props.backupStatus?.data_dir || '/app/data'
   if (restoreEnvTab.value === 'docker') {
-    return `# 1. 停止运行中的容器\ndocker stop tg-signpulse\n\n# 2. 将备份包解压覆盖至宿主机挂载目录（请将 <宿主机数据挂载目录> 替换为实际宿主机路径，例如 ./data）\ntar -xzf tg-signpulse-backup-*.tar.gz -C "<宿主机挂载目录，如 ./data>"\n\n# 3. 重新启动容器\ndocker start tg-signpulse`
+    return `# 1. 停止运行中的容器\ndocker stop tg-signpulse\n\n# 2. 将备份包解压覆盖至宿主机挂载目录（请将 <宿主机数据挂载目录> 替换为实际宿主机路径，例如 ./data）\ntar -xzf tg-signpulse-backup-*.tar.gz -C "<宿主机数据挂载目录，如 ./data>"\n\n# 3. 重新启动容器\ndocker start tg-signpulse`
   }
   return `# 1. 停止后台服务进程\npkill -f "backend.main"\n\n# 2. 解压覆盖到数据目录\ntar -xzf tg-signpulse-backup-*.tar.gz -C "${dataDir}"\n\n# 3. 重新拉起后台服务\nnohup python3 -m backend.main > run.log 2>&1 &`
 })
@@ -272,7 +236,7 @@ const copyRestoreCommand = async () => {
       </button>
     </div>
 
-    <!-- TAB 1: 远端灾备与存储 (v-show 保留 DOM) -->
+    <!-- TAB 1: 远端灾备与存储 (WebDAV) -->
     <div v-show="activeTab === 'remote'" class="space-y-5">
       <!-- 状态指示条 -->
       <div v-if="backupStatus" class="p-3 bg-gray-50/80 dark:bg-white/[0.02] border border-gray-200/80 dark:border-gray-800/80 rounded-lg text-xs space-y-1.5">
@@ -290,12 +254,6 @@ const copyRestoreCommand = async () => {
               WebDAV:
               <span :class="backupStatus.webdav_configured ? 'text-emerald-600 dark:text-emerald-400 font-medium' : 'text-gray-400'">
                 {{ backupStatus.webdav_configured ? t('settings.webdavConfiguredYes') : t('settings.webdavConfiguredNo') }}
-              </span>
-            </span>
-            <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800">
-              S3:
-              <span :class="backupStatus.s3_configured ? 'text-emerald-600 dark:text-emerald-400 font-medium' : 'text-gray-400'">
-                {{ backupStatus.s3_configured ? t('settings.webdavConfiguredYes') : t('settings.webdavConfiguredNo') }}
               </span>
             </span>
           </div>
@@ -316,8 +274,6 @@ const copyRestoreCommand = async () => {
             @change="onStringInput('backupTarget', $event)"
           >
             <option value="auto">{{ t('settings.backupTargetAuto') }}</option>
-            <option value="both">{{ t('settings.backupTargetBoth') }}</option>
-            <option value="s3">{{ t('settings.backupTargetS3') }}</option>
             <option value="webdav">{{ t('settings.backupTargetWebdav') }}</option>
           </select>
         </div>
@@ -327,267 +283,140 @@ const copyRestoreCommand = async () => {
         </p>
       </div>
 
-      <!-- 存储配置切换分段 (Segmented Controls) -->
+      <!-- WebDAV 配置区块 -->
       <div class="space-y-4">
-        <div class="flex items-center justify-between border-b border-gray-200 dark:border-gray-800 pb-2">
-          <div class="inline-flex p-0.5 bg-gray-100 dark:bg-gray-800/80 rounded-lg text-xs">
-            <button
-              type="button"
-              class="px-3 py-1.5 rounded-md font-medium transition-all"
-              :class="remoteStorageType === 'webdav' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
-              @click="remoteStorageType = 'webdav'"
-            >
-              {{ t('settings.storageWebdav') }}
-              <span v-if="modelValue.webdavUrl" class="ml-1 w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
-            </button>
-            <button
-              type="button"
-              class="px-3 py-1.5 rounded-md font-medium transition-all"
-              :class="remoteStorageType === 's3' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
-              @click="remoteStorageType = 's3'"
-            >
-              {{ t('settings.storageS3') }}
-              <span v-if="modelValue.s3Enabled" class="ml-1 w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
-            </button>
-          </div>
+        <div>
+          <h3 class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ t('settings.fullBackup') }}</h3>
+          <p class="text-xs text-gray-500 mt-0.5 leading-relaxed">{{ t('settings.fullBackupDesc') }}</p>
+        </div>
 
-          <div class="text-[11px] text-gray-500">
-            <span v-if="remoteStorageType === 's3'">Cloudflare R2 / AWS S3 / MinIO</span>
-            <span v-else>Nextcloud / 坚果云 / WebDAV Server</span>
+        <!-- WebDAV 快捷预设 (Quick Presets) -->
+        <div class="p-2.5 rounded-lg bg-gray-50/70 dark:bg-white/[0.02] border border-gray-200/50 dark:border-gray-800/50 space-y-1.5">
+          <div class="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300 font-medium">
+            <Sparkles class="w-3.5 h-3.5 text-amber-500" />
+            <span>{{ t('settings.quickPresets') }}</span>
+            <span class="text-[10px] text-gray-400 font-normal">({{ t('settings.quickPresetsHint') }})</span>
+          </div>
+          <div class="flex flex-wrap gap-1.5">
+            <button
+              v-for="preset in webdavPresets"
+              :key="preset.id"
+              type="button"
+              class="px-2.5 py-1 text-[11px] rounded-md font-medium transition-colors bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:text-brand-600 dark:hover:text-brand-400 hover:border-brand-300 dark:hover:border-brand-700 border border-gray-200/80 dark:border-gray-700/80 shadow-xs"
+              @click="applyWebdavPreset(preset)"
+            >
+              {{ t(preset.labelKey) }}
+            </button>
           </div>
         </div>
 
-        <!-- WebDAV 表单区块 (位于 DOM 前列，保持兼容) -->
-        <div v-show="remoteStorageType === 'webdav'" class="space-y-3">
-          <div>
-            <h3 class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ t('settings.fullBackup') }}</h3>
-            <p class="text-xs text-gray-500 mt-0.5 leading-relaxed">{{ t('settings.fullBackupDesc') }}</p>
+        <div class="space-y-1.5">
+          <label class="ui-label" for="webdav-url">{{ t('settings.webdavUrl') }}</label>
+          <input
+            id="webdav-url"
+            :value="modelValue.webdavUrl"
+            @input="onStringInput('webdavUrl', $event)"
+            type="url"
+            :placeholder="t('settings.webdavUrlPlaceholder')"
+            class="ui-input"
+            autocomplete="off"
+          >
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div class="space-y-1.5">
+            <label class="ui-label" for="webdav-username">{{ t('settings.webdavUsername') }}</label>
+            <input
+              id="webdav-username"
+              :value="modelValue.webdavUsername"
+              @input="onStringInput('webdavUsername', $event)"
+              type="text"
+              class="ui-input"
+              autocomplete="username"
+            >
           </div>
           <div class="space-y-1.5">
-            <label class="ui-label" for="webdav-url">{{ t('settings.webdavUrl') }}</label>
-            <input id="webdav-url" :value="modelValue.webdavUrl" @input="onStringInput('webdavUrl', $event)" type="url" :placeholder="t('settings.webdavUrlPlaceholder')" class="ui-input" autocomplete="off">
-          </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <div class="space-y-1.5">
-              <label class="ui-label" for="webdav-username">{{ t('settings.webdavUsername') }}</label>
-              <input id="webdav-username" :value="modelValue.webdavUsername" @input="onStringInput('webdavUsername', $event)" type="text" class="ui-input" autocomplete="username">
-            </div>
-            <div class="space-y-1.5">
-              <label class="ui-label" for="webdav-password">{{ t('settings.webdavPassword') }}</label>
-              <input
-                id="webdav-password"
-                :value="modelValue.webdavPassword"
-                @input="onStringInput('webdavPassword', $event)"
-                type="password"
-                class="ui-input"
-                autocomplete="current-password"
-                :placeholder="webdavPasswordSet ? t('settings.webdavPasswordSavedHint') : t('settings.webdavPasswordHint')"
-              >
-            </div>
-          </div>
-          <div class="space-y-1.5">
-            <label class="ui-label" for="webdav-remote-dir">{{ t('settings.webdavRemoteDir') }}</label>
-            <input id="webdav-remote-dir" :value="modelValue.webdavRemoteDir" @input="onStringInput('webdavRemoteDir', $event)" type="text" placeholder="tg-signpulse-backups" class="ui-input">
-          </div>
-          <div class="flex flex-col sm:flex-row gap-2 pt-1">
-            <button
-              type="button"
-              class="ui-btn-secondary flex-1 !px-4 !py-2"
-              :disabled="webdavTestLoading || advancedLoading"
-              @click="emit('webdav-test')"
+            <label class="ui-label" for="webdav-password">{{ t('settings.webdavPassword') }}</label>
+            <input
+              id="webdav-password"
+              :value="modelValue.webdavPassword"
+              @input="onStringInput('webdavPassword', $event)"
+              type="password"
+              class="ui-input"
+              autocomplete="current-password"
+              :placeholder="webdavPasswordSet ? t('settings.webdavPasswordSavedHint') : t('settings.webdavPasswordHint')"
             >
-              {{ webdavTestLoading ? t('settings.testing') : t('settings.webdavTest') }}
-            </button>
-            <button
-              type="button"
-              class="ui-btn-secondary flex-1 !px-4 !py-2 flex items-center justify-center gap-1.5"
-              :disabled="webdavListLoading || advancedLoading"
-              @click="emit('webdav-list')"
-            >
-              <RefreshCw v-if="webdavListLoading" class="w-3.5 h-3.5 animate-spin" />
-              {{ webdavListLoading ? t('common.processing') : t('settings.webdavListRemote') }}
-            </button>
-          </div>
-
-          <!-- WebDAV 远端文件列表 -->
-          <div v-if="remoteFiles.length || remoteMessage" class="text-xs space-y-2 pt-2 border-t border-gray-100 dark:border-gray-800">
-            <div class="flex items-center justify-between text-gray-500">
-              <span v-if="remoteFiles.length" class="text-[11px] font-medium text-gray-700 dark:text-gray-300">
-                {{ t('settings.remoteFilesCount', { count: remoteFiles.length }) }}
-              </span>
-              <span v-else-if="remoteMessage" class="text-[11px]">{{ remoteMessage }}</span>
-              <span class="text-[10px] text-gray-400">{{ t('settings.webdavDownloadHint') }}</span>
-            </div>
-
-            <ul v-if="remoteFiles.length" class="space-y-1.5 max-h-44 overflow-y-auto">
-              <li
-                v-for="f in remoteFiles"
-                :key="f.name + (f.mtime || '')"
-                class="flex items-center justify-between gap-2 p-2 rounded-lg bg-gray-50/80 dark:bg-white/[0.02] border border-gray-200/60 dark:border-gray-800/60 hover:bg-gray-100/70 dark:hover:bg-gray-800/40 transition-colors"
-              >
-                <div class="flex items-center gap-2 min-w-0">
-                  <Archive class="w-3.5 h-3.5 text-brand-500 shrink-0" />
-                  <span class="font-mono text-xs text-gray-800 dark:text-gray-200 truncate">{{ f.name }}</span>
-                  <span v-if="f.size_bytes != null" class="text-[10px] px-1.5 py-0.2 rounded bg-gray-200/60 dark:bg-gray-700/60 text-gray-600 dark:text-gray-300 shrink-0">
-                    {{ formatBytes(f.size_bytes) }}
-                  </span>
-                  <span v-if="f.mtime" class="text-[10px] text-gray-400 hidden sm:inline shrink-0">· {{ f.mtime }}</span>
-                </div>
-                <button
-                  type="button"
-                  class="ui-btn-secondary shrink-0 !px-2.5 !py-1 !text-xs flex items-center gap-1"
-                  :disabled="remoteDownloadName === f.name"
-                  @click="emit('webdav-download', f.name)"
-                >
-                  <RefreshCw v-if="remoteDownloadName === f.name" class="w-3 h-3 animate-spin" />
-                  <Download v-else class="w-3 h-3" />
-                  {{ remoteDownloadName === f.name ? t('common.processing') : t('settings.webdavDownload') }}
-                </button>
-              </li>
-            </ul>
           </div>
         </div>
 
-        <!-- S3 表单区块 (位于 DOM 后列，保持单测查找顺序不变) -->
-        <div v-show="remoteStorageType === 's3'" class="space-y-3">
-          <div class="flex items-center justify-between">
-            <div>
-              <h3 class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ t('settings.s3Title') }}</h3>
-              <p class="text-xs text-gray-500 mt-0.5 leading-relaxed">{{ t('settings.s3Desc') }}</p>
-            </div>
-            <!-- 第一个 switch 严格兼容单测 wrapper.find('[role="switch"]') -->
-            <div class="flex items-center gap-2">
-              <span class="text-xs text-gray-600 dark:text-gray-400">{{ t('settings.s3Enabled') }}</span>
+        <div class="space-y-1.5">
+          <label class="ui-label" for="webdav-remote-dir">{{ t('settings.webdavRemoteDir') }}</label>
+          <input
+            id="webdav-remote-dir"
+            :value="modelValue.webdavRemoteDir"
+            @input="onStringInput('webdavRemoteDir', $event)"
+            type="text"
+            placeholder="tg-signpulse-backups"
+            class="ui-input"
+          >
+        </div>
+
+        <div class="flex flex-col sm:flex-row gap-2 pt-1">
+          <button
+            type="button"
+            class="ui-btn-secondary flex-1 !px-4 !py-2"
+            :disabled="webdavTestLoading || advancedLoading"
+            @click="emit('webdav-test')"
+          >
+            {{ webdavTestLoading ? t('settings.testing') : t('settings.webdavTest') }}
+          </button>
+          <button
+            type="button"
+            class="ui-btn-secondary flex-1 !px-4 !py-2 flex items-center justify-center gap-1.5"
+            :disabled="webdavListLoading || advancedLoading"
+            @click="emit('webdav-list')"
+          >
+            <RefreshCw v-if="webdavListLoading" class="w-3.5 h-3.5 animate-spin" />
+            {{ webdavListLoading ? t('common.processing') : t('settings.webdavListRemote') }}
+          </button>
+        </div>
+
+        <!-- WebDAV 远端文件列表 -->
+        <div v-if="remoteFiles.length || remoteMessage" class="text-xs space-y-2 pt-2 border-t border-gray-100 dark:border-gray-800">
+          <div class="flex items-center justify-between text-gray-500">
+            <span v-if="remoteFiles.length" class="text-[11px] font-medium text-gray-700 dark:text-gray-300">
+              {{ t('settings.remoteFilesCount', { count: remoteFiles.length }) }}
+            </span>
+            <span v-else-if="remoteMessage" class="text-[11px]">{{ remoteMessage }}</span>
+            <span class="text-[10px] text-gray-400">{{ t('settings.webdavDownloadHint') }}</span>
+          </div>
+
+          <ul v-if="remoteFiles.length" class="space-y-1.5 max-h-44 overflow-y-auto">
+            <li
+              v-for="f in remoteFiles"
+              :key="f.name + (f.mtime || '')"
+              class="flex items-center justify-between gap-2 p-2 rounded-lg bg-gray-50/80 dark:bg-white/[0.02] border border-gray-200/60 dark:border-gray-800/60 hover:bg-gray-100/70 dark:hover:bg-gray-800/40 transition-colors"
+            >
+              <div class="flex items-center gap-2 min-w-0">
+                <Archive class="w-3.5 h-3.5 text-brand-500 shrink-0" />
+                <span class="font-mono text-xs text-gray-800 dark:text-gray-200 truncate">{{ f.name }}</span>
+                <span v-if="f.size_bytes != null" class="text-[10px] px-1.5 py-0.2 rounded bg-gray-200/60 dark:bg-gray-700/60 text-gray-600 dark:text-gray-300 shrink-0">
+                  {{ formatBytes(f.size_bytes) }}
+                </span>
+                <span v-if="f.mtime" class="text-[10px] text-gray-400 hidden sm:inline shrink-0">· {{ f.mtime }}</span>
+              </div>
               <button
                 type="button"
-                class="ui-switch"
-                role="switch"
-                :aria-label="t('settings.s3Enabled')"
-                :aria-checked="modelValue.s3Enabled"
-                :class="modelValue.s3Enabled ? 'ui-switch-on' : ''"
-                @click="update('s3Enabled', !modelValue.s3Enabled)"
+                class="ui-btn-secondary shrink-0 !px-2.5 !py-1 !text-xs flex items-center gap-1"
+                :disabled="remoteDownloadName === f.name"
+                @click="emit('webdav-download', f.name)"
               >
-                <span class="ui-switch-knob" />
+                <RefreshCw v-if="remoteDownloadName === f.name" class="w-3 h-3 animate-spin" />
+                <Download v-else class="w-3 h-3" />
+                {{ remoteDownloadName === f.name ? t('common.processing') : t('settings.webdavDownload') }}
               </button>
-            </div>
-          </div>
-
-          <!-- S3 服务商快捷预设 (Quick Presets) -->
-          <div class="p-2.5 rounded-lg bg-gray-50/70 dark:bg-white/[0.02] border border-gray-200/50 dark:border-gray-800/50 space-y-1.5">
-            <div class="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300 font-medium">
-              <Sparkles class="w-3.5 h-3.5 text-amber-500" />
-              <span>{{ t('settings.quickPresets') }}</span>
-              <span class="text-[10px] text-gray-400 font-normal">({{ t('settings.quickPresetsHint') }})</span>
-            </div>
-            <div class="flex flex-wrap gap-1.5">
-              <button
-                v-for="preset in s3Presets"
-                :key="preset.id"
-                type="button"
-                class="px-2.5 py-1 text-[11px] rounded-md font-medium transition-colors bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:text-brand-600 dark:hover:text-brand-400 hover:border-brand-300 dark:hover:border-brand-700 border border-gray-200/80 dark:border-gray-700/80 shadow-xs"
-                @click="applyS3Preset(preset)"
-              >
-                {{ preset.name }}
-              </button>
-            </div>
-          </div>
-
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <div class="space-y-1.5">
-              <label class="ui-label" for="s3-endpoint-url">{{ t('settings.s3Endpoint') }}</label>
-              <input id="s3-endpoint-url" :value="modelValue.s3EndpointUrl" @input="onStringInput('s3EndpointUrl', $event)" type="url" :placeholder="t('settings.s3EndpointPlaceholder')" class="ui-input" autocomplete="off">
-            </div>
-            <div class="space-y-1.5">
-              <label class="ui-label" for="s3-bucket">{{ t('settings.s3Bucket') }}</label>
-              <input id="s3-bucket" :value="modelValue.s3Bucket" @input="onStringInput('s3Bucket', $event)" type="text" class="ui-input" autocomplete="off">
-            </div>
-            <div class="space-y-1.5">
-              <label class="ui-label" for="s3-access-key">{{ t('settings.s3AccessKey') }}</label>
-              <input id="s3-access-key" :value="modelValue.s3AccessKey" @input="onStringInput('s3AccessKey', $event)" type="text" class="ui-input" autocomplete="off">
-            </div>
-            <div class="space-y-1.5">
-              <label class="ui-label" for="s3-secret-key">{{ t('settings.s3SecretKey') }}</label>
-              <input
-                id="s3-secret-key"
-                :value="modelValue.s3SecretKey"
-                @input="onStringInput('s3SecretKey', $event)"
-                type="password"
-                class="ui-input"
-                autocomplete="new-password"
-                :placeholder="s3SecretKeySet ? t('settings.s3SecretKeySavedHint') : t('settings.s3SecretKeyHint')"
-              >
-            </div>
-            <div class="space-y-1.5">
-              <label class="ui-label" for="s3-region">{{ t('settings.s3Region') }}</label>
-              <input id="s3-region" :value="modelValue.s3Region" @input="onStringInput('s3Region', $event)" type="text" placeholder="auto" class="ui-input">
-            </div>
-            <div class="space-y-1.5">
-              <label class="ui-label" for="s3-prefix">{{ t('settings.s3Prefix') }}</label>
-              <input id="s3-prefix" :value="modelValue.s3Prefix" @input="onStringInput('s3Prefix', $event)" type="text" placeholder="tg-signpulse-backups" class="ui-input">
-            </div>
-            <div class="space-y-1.5 sm:col-span-2">
-              <label class="ui-label" for="s3-proxy">{{ t('settings.s3Proxy') }}</label>
-              <input id="s3-proxy" :value="modelValue.s3Proxy" @input="onStringInput('s3Proxy', $event)" type="text" :placeholder="t('settings.s3ProxyPlaceholder')" class="ui-input">
-            </div>
-          </div>
-
-          <div class="flex flex-col sm:flex-row gap-2 pt-1">
-            <button
-              type="button"
-              class="ui-btn-secondary flex-1 !px-4 !py-2"
-              :disabled="s3TestLoading || advancedLoading"
-              @click="emit('s3-test')"
-            >
-              {{ s3TestLoading ? t('settings.testing') : t('settings.s3Test') }}
-            </button>
-            <button
-              type="button"
-              class="ui-btn-secondary flex-1 !px-4 !py-2 flex items-center justify-center gap-1.5"
-              :disabled="s3ListLoading || advancedLoading"
-              @click="emit('s3-list')"
-            >
-              <RefreshCw v-if="s3ListLoading" class="w-3.5 h-3.5 animate-spin" />
-              {{ s3ListLoading ? t('common.processing') : t('settings.s3ListRemote') }}
-            </button>
-          </div>
-
-          <!-- S3 远端文件列表 -->
-          <div v-if="remoteS3Files.length || remoteS3Message" class="text-xs space-y-2 pt-2 border-t border-gray-100 dark:border-gray-800">
-            <div class="flex items-center justify-between text-gray-500">
-              <span v-if="remoteS3Files.length" class="text-[11px] font-medium text-gray-700 dark:text-gray-300">
-                {{ t('settings.remoteFilesCount', { count: remoteS3Files.length }) }}
-              </span>
-              <span v-else-if="remoteS3Message" class="text-[11px]">{{ remoteS3Message }}</span>
-              <span class="text-[10px] text-gray-400">{{ t('settings.s3DownloadHint') }}</span>
-            </div>
-
-            <ul v-if="remoteS3Files.length" class="space-y-1.5 max-h-44 overflow-y-auto">
-              <li
-                v-for="f in remoteS3Files"
-                :key="f.name + (f.mtime || '')"
-                class="flex items-center justify-between gap-2 p-2 rounded-lg bg-gray-50/80 dark:bg-white/[0.02] border border-gray-200/60 dark:border-gray-800/60 hover:bg-gray-100/70 dark:hover:bg-gray-800/40 transition-colors"
-              >
-                <div class="flex items-center gap-2 min-w-0">
-                  <Archive class="w-3.5 h-3.5 text-brand-500 shrink-0" />
-                  <span class="font-mono text-xs text-gray-800 dark:text-gray-200 truncate">{{ f.name }}</span>
-                  <span v-if="f.size_bytes != null" class="text-[10px] px-1.5 py-0.2 rounded bg-gray-200/60 dark:bg-gray-700/60 text-gray-600 dark:text-gray-300 shrink-0">
-                    {{ formatBytes(f.size_bytes) }}
-                  </span>
-                  <span v-if="f.mtime" class="text-[10px] text-gray-400 hidden sm:inline shrink-0">· {{ f.mtime }}</span>
-                </div>
-                <button
-                  type="button"
-                  class="ui-btn-secondary shrink-0 !px-2.5 !py-1 !text-xs flex items-center gap-1"
-                  :disabled="remoteS3DownloadName === f.name"
-                  @click="emit('s3-download', f.name)"
-                >
-                  <RefreshCw v-if="remoteS3DownloadName === f.name" class="w-3 h-3 animate-spin" />
-                  <Download v-else class="w-3 h-3" />
-                  {{ remoteS3DownloadName === f.name ? t('common.processing') : t('settings.s3Download') }}
-                </button>
-              </li>
-            </ul>
-          </div>
+            </li>
+          </ul>
         </div>
       </div>
 
@@ -682,41 +511,68 @@ const copyRestoreCommand = async () => {
       </div>
     </div>
 
-    <!-- TAB 3: 配置迁移 JSON -->
-    <div v-show="activeTab === 'migrate'" class="space-y-4">
-      <div>
-        <h3 class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ t('settings.configMigrateTitle') }}</h3>
-        <p class="text-xs text-gray-500 mt-1 leading-relaxed">{{ t('settings.configMigrateDesc') }}</p>
-      </div>
-
-      <div class="flex flex-col sm:flex-row gap-3 pt-2">
+    <!-- TAB 3: 数据迁移与归档 -->
+    <div v-show="activeTab === 'migrate'" class="space-y-5">
+      <!-- 完整数据归档直接下载 -->
+      <div class="p-4 bg-gray-50/50 dark:bg-white/[0.015] border border-gray-200/60 dark:border-gray-800/60 rounded-lg space-y-3">
+        <div>
+          <h3 class="text-sm font-medium text-gray-900 dark:text-gray-100 flex items-center gap-1.5">
+            <Archive class="w-4 h-4 text-brand-500" />
+            {{ t('settings.fullArchiveDownloadTitle') }}
+          </h3>
+          <p class="text-xs text-gray-500 mt-1 leading-relaxed">{{ t('settings.fullArchiveDownloadDesc') }}</p>
+        </div>
         <button
           type="button"
-          class="ui-btn-primary flex-1 !px-4 !py-2.5 flex items-center justify-center gap-1.5"
-          :disabled="dataLoading"
-          @click="emit('export-json')"
+          class="ui-btn-primary w-full !px-4 !py-2.5 flex items-center justify-center gap-2"
+          :disabled="backupLoading"
+          @click="emit('backup-download')"
         >
-          <FileJson class="w-4 h-4" />
-          {{ dataLoading ? t('common.processing') : t('settings.exportJson') }}
+          <RefreshCw v-if="backupLoading" class="w-4 h-4 animate-spin" />
+          <Download v-else class="w-4 h-4" />
+          {{ backupLoading ? t('common.processing') : t('settings.fullArchiveDownloadAction') }}
         </button>
-        <div class="relative flex-1">
-          <input
-            ref="importFileRef"
-            type="file"
-            accept="application/json,.json"
-            class="hidden"
-            :disabled="dataLoading"
-            @change="onFileChange"
-          />
+      </div>
+
+      <!-- 轻量配置 JSON 迁移 -->
+      <div class="p-4 bg-gray-50/50 dark:bg-white/[0.015] border border-gray-200/60 dark:border-gray-800/60 rounded-lg space-y-3">
+        <div>
+          <h3 class="text-sm font-medium text-gray-900 dark:text-gray-100 flex items-center gap-1.5">
+            <FileJson class="w-4 h-4 text-amber-500" />
+            {{ t('settings.configMigrateTitle') }}
+          </h3>
+          <p class="text-xs text-gray-500 mt-1 leading-relaxed">{{ t('settings.configMigrateDesc') }}</p>
+        </div>
+
+        <div class="flex flex-col sm:flex-row gap-3 pt-1">
           <button
             type="button"
-            class="ui-btn-secondary w-full !px-4 !py-2.5 flex items-center justify-center gap-1.5"
+            class="ui-btn-secondary flex-1 !px-4 !py-2 flex items-center justify-center gap-1.5"
             :disabled="dataLoading"
-            @click="importFileRef?.click()"
+            @click="emit('export-json')"
           >
-            <FolderGit2 class="w-4 h-4" />
-            {{ t('settings.importJson') }}
+            <Download class="w-4 h-4" />
+            {{ dataLoading ? t('common.processing') : t('settings.exportJson') }}
           </button>
+          <div class="relative flex-1">
+            <input
+              ref="importFileRef"
+              type="file"
+              accept="application/json,.json"
+              class="hidden"
+              :disabled="dataLoading"
+              @change="onFileChange"
+            />
+            <button
+              type="button"
+              class="ui-btn-secondary w-full !px-4 !py-2 flex items-center justify-center gap-1.5"
+              :disabled="dataLoading"
+              @click="importFileRef?.click()"
+            >
+              <FolderGit2 class="w-4 h-4" />
+              {{ t('settings.importJson') }}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -728,73 +584,75 @@ const copyRestoreCommand = async () => {
         class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in"
         @click.self="showRestoreModal = false"
       >
-        <div class="bg-white dark:bg-gray-900 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-800 max-w-lg w-full p-6 space-y-4 text-left">
-          <div class="flex items-start justify-between">
-            <div class="flex items-center gap-2.5">
-              <span class="p-2 rounded-lg bg-brand-50 dark:bg-brand-950/60 text-brand-600 dark:text-brand-400">
-                <HelpCircle class="w-5 h-5" />
-              </span>
-              <div>
-                <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">{{ t('settings.restoreGuideTitle') }}</h3>
-                <p class="text-xs text-gray-500 mt-0.5">{{ t('settings.restoreGuideSubtitle') }}</p>
-              </div>
+        <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl max-w-xl w-full border border-gray-200 dark:border-gray-800 p-5 space-y-4">
+          <div class="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-gray-800">
+            <div class="flex items-center gap-2">
+              <AlertTriangle class="w-4 h-4 text-amber-500" />
+              <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ t('settings.restoreGuideTitle') }}</h3>
+            </div>
+            <button
+              type="button"
+              class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-lg leading-none"
+              @click="showRestoreModal = false"
+            >
+              ×
+            </button>
+          </div>
+
+          <p class="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
+            {{ t('settings.restoreGuideSubtitle') }}
+          </p>
+
+          <!-- 停服警告提示 -->
+          <div class="p-2.5 rounded bg-amber-500/10 border border-amber-500/20 text-xs text-amber-700 dark:text-amber-400 flex items-start gap-2">
+            <AlertTriangle class="w-4 h-4 shrink-0 mt-0.5" />
+            <div class="space-y-1">
+              <p class="font-medium">{{ t('settings.restoreGuideStep1') }}</p>
+              <p class="text-[11px] opacity-90">{{ t('settings.restoreGuideStep2') }}</p>
             </div>
           </div>
 
-          <!-- 环境选项卡切换 (Docker / 宿主机) -->
-          <div class="flex gap-2 p-1 bg-gray-100 dark:bg-gray-800 rounded-lg text-xs font-medium">
+          <!-- 恢复环境切换 -->
+          <div class="flex border-b border-gray-100 dark:border-gray-800 gap-4 text-xs">
             <button
               type="button"
-              class="flex-1 py-1 px-3 rounded-md transition-all text-center"
-              :class="restoreEnvTab === 'docker' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-xs font-semibold' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+              class="pb-1.5 font-medium transition-colors border-b-2"
+              :class="restoreEnvTab === 'docker' ? 'border-brand-500 text-brand-600 dark:text-brand-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
               @click="restoreEnvTab = 'docker'"
             >
               {{ t('settings.restoreGuideTabDocker') }}
             </button>
             <button
               type="button"
-              class="flex-1 py-1 px-3 rounded-md transition-all text-center"
-              :class="restoreEnvTab === 'host' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-xs font-semibold' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+              class="pb-1.5 font-medium transition-colors border-b-2"
+              :class="restoreEnvTab === 'host' ? 'border-brand-500 text-brand-600 dark:text-brand-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
               @click="restoreEnvTab = 'host'"
             >
               {{ t('settings.restoreGuideTabHost') }}
             </button>
           </div>
 
-          <div class="space-y-3 text-xs text-gray-600 dark:text-gray-300">
-            <div class="p-3 bg-gray-50 dark:bg-gray-800/40 rounded-lg space-y-2 border border-gray-200/60 dark:border-gray-800/60">
-              <p class="font-medium text-gray-900 dark:text-gray-100">{{ t('settings.restoreGuideStep1') }}</p>
-              <p class="font-medium text-gray-900 dark:text-gray-100">{{ t('settings.restoreGuideStep2') }}</p>
-              <div class="relative group mt-1.5">
-                <pre class="bg-gray-950 text-gray-100 font-mono text-[11px] p-3 rounded-md overflow-x-auto select-all leading-relaxed whitespace-pre">{{ restoreCommand }}</pre>
-                <button
-                  type="button"
-                  class="absolute top-2 right-2 p-1.5 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors shadow-sm"
-                  :title="t('settings.restoreGuideCopyCmd')"
-                  @click="copyRestoreCommand"
-                >
-                  <Check v-if="copied" class="w-3.5 h-3.5 text-emerald-400" />
-                  <Copy v-else class="w-3.5 h-3.5" />
-                </button>
-              </div>
-              <p class="font-medium text-gray-900 dark:text-gray-100 pt-1">{{ t('settings.restoreGuideStep3') }}</p>
-            </div>
-
-            <div class="flex items-start gap-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg text-amber-700 dark:text-amber-400">
-              <AlertTriangle class="w-4 h-4 shrink-0 mt-0.5" />
-              <p class="text-[11px] leading-relaxed">
-                {{ t('settings.backupRestoreHint') }}
-              </p>
-            </div>
+          <!-- 命令展示区 -->
+          <div class="relative bg-gray-900 rounded-lg p-3 text-gray-100 font-mono text-xs overflow-x-auto">
+            <button
+              type="button"
+              class="absolute top-2.5 right-2.5 p-1 rounded hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors"
+              :title="t('common.copy')"
+              @click="copyRestoreCommand"
+            >
+              <Check v-if="copied" class="w-3.5 h-3.5 text-emerald-400" />
+              <Copy v-else class="w-3.5 h-3.5" />
+            </button>
+            <pre class="whitespace-pre-wrap leading-relaxed">{{ restoreCommand }}</pre>
           </div>
 
           <div class="flex justify-end pt-2">
             <button
               type="button"
-              class="ui-btn-primary !px-5 !py-2 text-xs"
+              class="ui-btn-secondary !text-xs !px-4 !py-1.5"
               @click="showRestoreModal = false"
             >
-              {{ t('settings.restoreGuideClose') }}
+              {{ t('common.close') }}
             </button>
           </div>
         </div>

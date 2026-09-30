@@ -1,5 +1,5 @@
 /**
- * 运维 Ops API：调度预览、备份导出、WebDAV / 对象存储备份、内存统计、版本检查、运行时状态。
+ * 运维 Ops API：调度预览、备份导出、WebDAV 备份、内存统计、版本检查、运行时状态。
  */
 import {
   createRequestAbort,
@@ -9,6 +9,7 @@ import {
   request,
 } from "./core";
 import { downloadBlob, normalizeNetworkError } from "../download";
+
 export interface ScheduledJob {
   id: string;
   name: string;
@@ -33,10 +34,13 @@ export const listScheduledJobs = (token: string) =>
 
 export interface BackupStatus {
   data_dir: string;
+  exists?: boolean;
   writable: boolean;
   size_bytes: number;
   size_human: string;
-  entries: Array<{
+  timestamp?: string;
+  sqlite_path?: string | null;
+  entries?: Array<{
     path: string;
     exists: boolean;
     size_bytes: number;
@@ -46,9 +50,7 @@ export interface BackupStatus {
   notes?: string[];
   restore_hint?: string;
   webdav_configured?: boolean;
-  /** 对象存储（S3/R2/MinIO）是否已配置且启用 */
-  s3_configured?: boolean;
-  backup_target?: 'auto' | 'webdav' | 's3' | 'both';
+  backup_target?: 'auto' | 'webdav';
   auto_backup_enabled?: boolean;
   local_auto_backups?: Array<{
     name: string;
@@ -61,20 +63,23 @@ export interface BackupStatus {
 export const getBackupStatus = (token: string) =>
   request<BackupStatus>("/ops/backup/status", {}, token);
 
-/** 完整备份：优先上传 WebDAV，其次对象存储；均未配置时服务端回退为下载流 */
-export async function exportBackupArchive(token: string): Promise<{
-  mode: "webdav" | "s3" | "both" | "download";
+/** 完整备份：配置 WebDAV 时上传至远端 WebDAV，未配置或指定 download 时服务端回退/返回浏览器下载流 */
+export async function exportBackupArchive(
+  token: string,
+  target?: 'auto' | 'webdav' | 'download',
+): Promise<{
+  mode: "webdav" | "download";
   message?: string;
   remote_url?: string;
   filename?: string;
   webdav_url?: string;
-  s3_url?: string;
 }> {
   // 整段墙钟超时：打包 + 上传/下载 body 均受 LONG_TIMEOUT 约束
   const abort = createRequestAbort(LONG_TIMEOUT_MS, null);
   try {
+    const url = target ? `/ops/backup/export?target=${encodeURIComponent(target)}` : "/ops/backup/export";
     const res = await fetchWithAuth(
-      "/ops/backup/export",
+      url,
       {},
       { method: "POST", signal: abort.signal },
       token,
@@ -88,18 +93,12 @@ export async function exportBackupArchive(token: string): Promise<{
           String(data.message || data.detail || "Backup upload failed"),
         );
       }
-      // mode 由服务端按 backup_target 策略返回，前端据此提示
-      let mode: "webdav" | "s3" | "both" = "webdav";
-      if (data.mode === "s3" || data.mode === "both") {
-        mode = data.mode;
-      }
       return {
-        mode,
+        mode: "webdav",
         message: data.message,
         remote_url: data.remote_url,
         filename: data.filename,
         webdav_url: data.webdav_url,
-        s3_url: data.s3_url,
       };
     }
     const blob = await res.blob();
@@ -123,7 +122,7 @@ export const testWebdavBackup = (token: string) =>
     MEDIUM_TIMEOUT_MS,
   );
 
-/** 远端备份包条目：WebDAV 与对象存储列表返回同构字段 */
+/** 远端备份包条目 */
 export interface RemoteBackupFile {
   name: string;
   href?: string;
@@ -149,50 +148,6 @@ export async function downloadWebdavBackup(
   try {
     const res = await fetchWithAuth(
       `/ops/backup/webdav/download?${qs.toString()}`,
-      {},
-      { signal: abort.signal },
-      token,
-      null,
-    );
-    const blob = await res.blob();
-    const cd = res.headers.get("Content-Disposition") || "";
-    const match = /filename="?([^"]+)"?/.exec(cd);
-    const filename = match?.[1] || name;
-    downloadBlob(blob, filename);
-    return { filename };
-  } catch (e: unknown) {
-    throw normalizeNetworkError(e, abort);
-  } finally {
-    abort.cleanup();
-  }
-}
-
-export const testS3Backup = (token: string) =>
-  request<{ success: boolean; message: string; status_code?: number }>(
-    "/ops/backup/s3/test",
-    { method: "POST" },
-    token,
-    MEDIUM_TIMEOUT_MS,
-  );
-
-export const listS3BackupFiles = (token: string) =>
-  request<{
-    success: boolean;
-    files: RemoteBackupFile[];
-    message?: string;
-    status_code?: number;
-  }>("/ops/backup/s3/files", {}, token, MEDIUM_TIMEOUT_MS);
-
-/** 从对象存储下载指定备份包到浏览器 */
-export async function downloadS3Backup(
-  token: string,
-  name: string,
-): Promise<{ filename: string }> {
-  const qs = new URLSearchParams({ name });
-  const abort = createRequestAbort(LONG_TIMEOUT_MS, null);
-  try {
-    const res = await fetchWithAuth(
-      `/ops/backup/s3/download?${qs.toString()}`,
       {},
       { signal: abort.signal },
       token,
