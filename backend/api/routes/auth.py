@@ -78,13 +78,8 @@ class ResetTOTPResponse(BaseModel):
     message: str
 
 
-@router.post("/login", response_model=TokenResponse)
-def login(
-    payload: LoginRequest,
-    request: Request,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
-):
+def check_login_rate_limit(payload: LoginRequest, request: Request) -> str:
+    """登录前置限流拦截门禁：在解析数据库会话依赖之前执行，避免暴力撞库/洪水耗尽 DB 连接池。"""
     login_key = compose_rate_limit_key(request, payload.username)
     try:
         rate_limiter.hit(
@@ -95,15 +90,26 @@ def login(
             block_seconds=900,
             detail=LOGIN_RATE_LIMIT_DETAIL,
         )
-    except HTTPException:
-        _append_login_log(
-            db,
-            username=payload.username,
-            request=request,
-            success=False,
-            detail="RATE_LIMITED",
-        )
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_429_TOO_MANY_REQUESTS:
+            logger.warning(
+                "登录限流触发拦截: username=%s client_ip=%s detail=%s",
+                payload.username,
+                getattr(request.client, "host", "unknown"),
+                exc.detail,
+            )
         raise
+    return login_key
+
+
+@router.post("/login", response_model=TokenResponse)
+def login(
+    payload: LoginRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    login_key: str = Depends(check_login_rate_limit),
+    db: Session = Depends(get_db),
+):
     user = authenticate_user(db, payload.username, payload.password)
     if not user:
         _append_login_log(
@@ -174,17 +180,10 @@ def me(current_user: User = Depends(auth_core.get_current_user)):
     return current_user
 
 
-@router.post("/reset-totp", response_model=ResetTOTPResponse)
-def reset_totp(
-    request: ResetTOTPRequest,
-    http_request: Request,
-    db: Session = Depends(get_db),
-):
-    """
-    强制重置 TOTP（用于解决用户启用了 TOTP 但无法登录的问题）。
-    需要提供正确的用户名和密码。出于安全考虑，若已启用 TOTP，默认需环境配置 ALLOW_PASSWORD_ONLY_TOTP_RESET=true 授权。
-    """
-    # 验证用户名和密码
+def check_reset_totp_rate_limit(
+    request: ResetTOTPRequest, http_request: Request
+) -> str:
+    """重置 TOTP 前置限流拦截门禁：在解析数据库会话依赖之前执行。"""
     reset_key = compose_rate_limit_key(http_request, request.username)
     rate_limiter.hit(
         scope="auth.reset_totp",
@@ -194,6 +193,20 @@ def reset_totp(
         block_seconds=1800,
         detail=RESET_TOTP_RATE_LIMIT_DETAIL,
     )
+    return reset_key
+
+
+@router.post("/reset-totp", response_model=ResetTOTPResponse)
+def reset_totp(
+    request: ResetTOTPRequest,
+    http_request: Request,
+    reset_key: str = Depends(check_reset_totp_rate_limit),
+    db: Session = Depends(get_db),
+):
+    """
+    强制重置 TOTP（用于解决用户启用了 TOTP 但无法登录的问题）。
+    需要提供正确的用户名和密码。出于安全考虑，若已启用 TOTP，默认需环境配置 ALLOW_PASSWORD_ONLY_TOTP_RESET=true 授权。
+    """
 
     user = get_user_by_username(db, request.username)
     if not user:

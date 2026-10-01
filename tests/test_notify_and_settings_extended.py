@@ -1008,6 +1008,21 @@ class TestPushErrorSanitization:
         assert "discord-secret" not in sanitized
         assert "bark-device-secret" not in sanitized
 
+    def test_sanitize_push_error_slack_path_secret(self):
+        from backend.services.push_notifications import sanitize_push_error
+
+        raw = (
+            "POST "
+            + "https://hooks.slack.com/services/"
+            + "T000"
+            + "00000/B000"
+            + "00000/XXXX"
+            + "XXXXXXXXXXXXXXXXXXXX failed"
+        )
+        sanitized = sanitize_push_error(raw)
+        assert "T00000000" not in sanitized
+        assert "https://hooks.slack.com/services/[REDACTED]" in sanitized
+
     def test_sanitize_query_param_names_case_insensitive(self):
         from backend.services.push_notifications import sanitize_push_error
 

@@ -30,6 +30,10 @@ _RE_BARK_PATH_SECRET = re.compile(
     r"(https?://(?:api\.)?day\.app/)[^/\s\x27\x22?#]+",
     re.IGNORECASE,
 )
+_RE_SLACK_PATH_SECRET = re.compile(
+    r"(https?://hooks\.slack\.com/services/)[^/\s\x27\x22?#]+",
+    re.IGNORECASE,
+)
 # 仅有 scheme://host 的 URL 前缀；用于按已知目标地址掩码其后的路径与 query
 _RE_URL_HOST = re.compile(r"https?://[^/\s\x27\x22?#]+", re.IGNORECASE)
 
@@ -57,6 +61,7 @@ def sanitize_push_error(exc: Any, *, secret_urls: Iterable[Optional[str]] = ()) 
     text = _RE_FEISHU_PATH_SECRET.sub(r"\g<1>[REDACTED]", text)
     text = _RE_DISCORD_PATH_SECRET.sub(r"\g<1>[REDACTED]", text)
     text = _RE_BARK_PATH_SECRET.sub(r"\g<1>[REDACTED]", text)
+    text = _RE_SLACK_PATH_SECRET.sub(r"\g<1>[REDACTED]", text)
     return text
 
 

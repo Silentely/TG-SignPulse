@@ -116,3 +116,35 @@ def test_failure_category_label_flexible():
     assert failure_category_label(FailureCategory.SESSION_INVALID) == "会话失效"
     assert failure_category_label("session_invalid") == "会话失效"
     assert failure_category_label("custom_failure") == "custom_failure"
+
+
+def test_get_current_user_optional_short_circuits_without_db():
+    from backend.core.auth import get_current_user_optional
+
+    # Without token, should immediately return None without touching database
+    assert get_current_user_optional(token=None) is None
+    assert get_current_user_optional(token="") is None
+
+
+def test_get_current_user_optional_with_valid_token(monkeypatch):
+    from unittest.mock import MagicMock
+
+    import backend.core.auth as auth_mod
+    from backend.core.auth import get_current_user_optional
+
+    mock_user = MagicMock()
+    mock_user.username = "test_admin"
+
+    monkeypatch.setattr(auth_mod, "verify_token", lambda tok, db: mock_user)
+
+    mock_db = MagicMock()
+    mock_factory = MagicMock(return_value=mock_db)
+
+    import backend.core.database as db_mod
+
+    monkeypatch.setattr(db_mod, "get_session_local", lambda: mock_factory)
+
+    result = get_current_user_optional(token="valid_token_xyz")
+    assert result == mock_user
+    mock_factory.assert_called_once()
+    mock_db.close.assert_called_once()

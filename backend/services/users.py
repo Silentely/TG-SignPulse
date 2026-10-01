@@ -48,6 +48,26 @@ def _get_or_create_bootstrap_password() -> tuple[str, Path]:
     return password, password_file
 
 
+def cleanup_bootstrap_password_file() -> None:
+    """当管理员显式修改密码后，安全清理磁盘上的明文引导密码文件，防止过期凭据残留。"""
+    try:
+        password_file = _bootstrap_password_file()
+        if password_file.is_file():
+            try:
+                length = password_file.stat().st_size
+                if length > 0:
+                    with open(password_file, "wb") as f:
+                        f.write(b"\x00" * length)
+                        f.flush()
+                        os.fsync(f.fileno())
+            except OSError:
+                pass
+            password_file.unlink(missing_ok=True)
+            logger.info("已安全清理初始化引导密码文件: %s", password_file)
+    except Exception as exc:
+        logger.warning("清理初始化引导密码文件失败: %s", exc)
+
+
 def ensure_admin(db: Session, username: str = "admin", password: str = None):
     """
     仅在用户表为空时创建一个默认管理员。
