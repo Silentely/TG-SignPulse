@@ -823,3 +823,40 @@ class TestTelegramConfigValidation:
         body = get_resp.json()
         assert body["api_id"] == "12345"
         assert body["is_custom"] is True
+
+
+class TestUserPasswordChangeAndCleanup:
+    """测试修改管理员密码及自动清理磁盘引导密码文件"""
+
+    def test_change_password_cleans_bootstrap_file(self, api_client):
+        from backend.services.users import _bootstrap_password_file
+
+        bootstrap_file = _bootstrap_password_file()
+        bootstrap_file.write_text("initial-secret-123", encoding="utf-8")
+        assert bootstrap_file.is_file()
+
+        token = _login(api_client)
+        resp = api_client.put(
+            "/api/user/password",
+            json={
+                "old_password": ADMIN_PASSWORD,
+                "new_password": "new_secret_pwd_456",
+            },
+            headers=_auth(token),
+        )
+        assert resp.status_code == 200
+        assert resp.json()["success"] is True
+
+        assert not bootstrap_file.is_file()
+
+        # 还原密码以便后续测试不被影响
+        new_token = _login(api_client, password="new_secret_pwd_456")
+        revert_resp = api_client.put(
+            "/api/user/password",
+            json={
+                "old_password": "new_secret_pwd_456",
+                "new_password": ADMIN_PASSWORD,
+            },
+            headers=_auth(new_token),
+        )
+        assert revert_resp.status_code == 200

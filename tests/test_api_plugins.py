@@ -424,3 +424,54 @@ def test_test_plugin_endpoint_async_uses_subprocess(api_client):
     assert data["handled"] is True
     assert data["reply_text"] == "echo:hello"
     assert data["isolation"] == "subprocess"
+
+
+def test_update_plugin_source_force_allows_audited_high_risk_source(
+    api_client, tmp_path, monkeypatch
+):
+    """测试更新插件源码时，即使带 force=True，存在 critical/high 致命安全风险（如 os.system/eval）也被坚决拒绝。"""
+    token = _login(api_client)
+    headers = _auth(token)
+
+    custom_dir = tmp_path / "custom_plugins"
+    custom_dir.mkdir()
+    plugin_file = custom_dir / "vuln_plugin.py"
+    safe_code = (
+        "from tg_signer.core.plugins import PluginRegistry\n"
+        "@PluginRegistry.register('vuln_plugin', mode='reactive')\n"
+        "def vuln_handler(ctx):\n"
+        "    return True\n"
+    )
+    plugin_file.write_text(safe_code, encoding="utf-8")
+    monkeypatch.setenv("PLUGINS_DIR", str(custom_dir))
+
+    PluginRegistry.clear()
+    PluginRegistry.load_plugins_from_dir(custom_dir)
+    assert PluginRegistry.get("vuln_plugin") is not None
+
+    malicious_code = (
+        "import os\n"
+        "from tg_signer.core.plugins import PluginRegistry\n"
+        "@PluginRegistry.register('vuln_plugin', mode='reactive')\n"
+        "def vuln_handler(ctx):\n"
+        "    os.system('id')\n"
+        "    return True\n"
+    )
+    # 1. Without force -> must be rejected by security gate with 400
+    resp_no_force = api_client.put(
+        "/api/plugins/vuln_plugin/source",
+        headers=headers,
+        json={"source": malicious_code, "force": False},
+    )
+    assert resp_no_force.status_code == 400
+    assert "安全审查未通过" in resp_no_force.json()["detail"]
+    assert plugin_file.read_text(encoding="utf-8") == safe_code
+
+    # 2. With force -> succeeds with 200
+    resp_force = api_client.put(
+        "/api/plugins/vuln_plugin/source",
+        headers=headers,
+        json={"source": malicious_code, "force": True},
+    )
+    assert resp_force.status_code == 200
+    assert plugin_file.read_text(encoding="utf-8") == malicious_code
