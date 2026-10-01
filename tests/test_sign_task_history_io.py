@@ -45,6 +45,8 @@ def test_safe_history_key_roundtrip():
     # / 与 \ 在编码前已归一为 _（存储名本就不允许含路径分隔符），不参与互逆
     for raw in ("a__b", "a%b", "plain", "%5F", "x_y_z", "%25"):
         assert unsafe_history_key(safe_history_key(raw)) == raw, raw
+    assert unsafe_history_key("a%5fb") == "a_b"
+    assert unsafe_history_key("a%25b") == "a%b"
 
 
 def test_history_file_owner_roundtrip():

@@ -6,18 +6,28 @@ from collections.abc import Awaitable, Callable, Hashable
 from typing import Any
 
 
-def compute_backoff(attempt: int, *, cap: float = 8.0, shift: int = 0) -> float:
+def compute_backoff(
+    attempt: int, *, cap: float = 8.0, shift: int = 0, jitter: bool = False
+) -> float:
     """瞬态错误指数退避：``2**(attempt-1+shift)`` 封顶 ``cap``，attempt 从 1 起。
 
     - ``shift=0``：1,2,4,8…（compat / monitor 的语义）
     - ``shift=1``：2,4,8…（signer_actions / continue_actions 的语义）
+    - ``jitter=True``：在基础退避秒数上添加 ±20% 的随机抖动，避免多个实例同时重连的惊群效应。
 
     统一各模块散落的 `min(2**attempt, cap)` 写法，避免同公式多套实现；
     不同场景通过 cap 与 shift 表达差异，行为保持与既有代码一致。
     """
     if attempt < 1:
         attempt = 1
-    return min(2 ** (attempt - 1 + shift), cap)
+    import random
+
+    base = float(min(2 ** (attempt - 1 + shift), cap))
+    if jitter:
+        # 抖动范围 [0.8 * base, 1.2 * base]，保证下限 >= 0.1 且硬封顶不超过 cap
+        jittered = round(base * random.uniform(0.8, 1.2), 2)
+        return min(float(cap), max(0.1, jittered))
+    return base
 
 
 def schedule_deferred_cleanup(

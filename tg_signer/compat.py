@@ -341,7 +341,7 @@ async def call_with_retry(
                 raise
             await asyncio.sleep(wait_seconds)
         except (TimeoutError, asyncio.TimeoutError, OSError, ConnectionError) as exc:
-            backoff = compute_backoff(attempt, cap=8)
+            backoff = compute_backoff(attempt, cap=8, jitter=True)
             if log:
                 log(
                     "WARNING",

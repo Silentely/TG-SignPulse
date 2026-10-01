@@ -48,6 +48,12 @@ class TestComputeBackoff:
     def test_lower_cap(self):
         assert [compute_backoff(i, cap=4, shift=1) for i in range(1, 5)] == [2, 4, 4, 4]
 
+    def test_jitter_within_expected_bounds(self):
+        for i in range(1, 6):
+            base = compute_backoff(i, cap=8)
+            val = compute_backoff(i, cap=8, jitter=True)
+            assert 0.79 * base <= val <= 1.21 * base
+
     def test_attempt_below_one_clamped(self):
         assert compute_backoff(0) == 1
         assert compute_backoff(-3) == 1

@@ -185,3 +185,23 @@ async def test_runner_send_notifications_failure_sent_when_not_cooldown():
 
     send_failure.assert_called_once()
     send_success.assert_not_called()
+
+
+def test_flood_backoff_manager_thread_safety():
+    """并发读写与遍历下 FloodBackoffManager 线程安全不报错。"""
+    import concurrent.futures
+
+    mgr = FloodBackoffManager()
+
+    def worker(i: int):
+        acc = f"acc_{i % 5}"
+        mgr.record_flood_wait(acc, wait_seconds=10)
+        mgr.is_cooling_down(acc)
+        mgr.get_all_cooling_accounts()
+        if i % 3 == 0:
+            mgr.clear_cooldown(acc)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        futures = [executor.submit(worker, i) for i in range(100)]
+        for f in concurrent.futures.as_completed(futures):
+            f.result()
