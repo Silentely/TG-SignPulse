@@ -24,6 +24,47 @@ if (initDark) {
 }
 applyThemeColor(initDark)
 
+let _systemThemeCleanup: (() => void) | null = null
+
+export const setupSystemThemeListener = () => {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
+  if (_systemThemeCleanup) return
+
+  const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+  const handleSystemThemeChange = (e: MediaQueryListEvent | MediaQueryList) => {
+    if (storageGet('theme') === null) {
+      isDark.value = Boolean(e.matches)
+      if (e.matches) {
+        document.documentElement.classList.add('dark')
+      } else {
+        document.documentElement.classList.remove('dark')
+      }
+      applyThemeColor(Boolean(e.matches))
+    }
+  }
+
+  if (typeof mediaQuery.addEventListener === 'function') {
+    mediaQuery.addEventListener('change', handleSystemThemeChange)
+    _systemThemeCleanup = () => mediaQuery.removeEventListener('change', handleSystemThemeChange)
+  } else if (typeof (mediaQuery as unknown as { addListener?: (cb: (e: MediaQueryListEvent) => void) => void }).addListener === 'function') {
+    const legacyMQ = mediaQuery as unknown as {
+      addListener: (cb: (e: MediaQueryListEvent) => void) => void
+      removeListener: (cb: (e: MediaQueryListEvent) => void) => void
+    }
+    legacyMQ.addListener(handleSystemThemeChange as (e: MediaQueryListEvent) => void)
+    _systemThemeCleanup = () => legacyMQ.removeListener(handleSystemThemeChange as (e: MediaQueryListEvent) => void)
+  }
+}
+
+export const teardownSystemThemeListener = () => {
+  if (_systemThemeCleanup) {
+    _systemThemeCleanup()
+    _systemThemeCleanup = null
+  }
+}
+
+setupSystemThemeListener()
+
 export const useTheme = () => {
   const toggleTheme = (event?: MouseEvent) => {
     const prefersReducedMotion = typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches

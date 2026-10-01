@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch, nextTick, useId } from 'vue'
+import { ref, onUnmounted, computed, watch, nextTick, useId } from 'vue'
 import { ChevronDown, Check } from 'lucide-vue-next'
 import { useI18n } from '../composables/useI18n'
 
@@ -127,25 +127,26 @@ const onKeydown = (e: KeyboardEvent) => {
   }
 }
 
-onMounted(() => document.addEventListener('click', handleClickOutside))
-onUnmounted(() => {
-  document.removeEventListener('click', handleClickOutside)
-  window.removeEventListener('scroll', updateDropdownPosition, true)
-  window.removeEventListener('resize', updateDropdownPosition)
-})
-
 watch(isOpen, async (open) => {
   if (open) {
+    document.addEventListener('click', handleClickOutside)
     await nextTick()
     if (!isOpen.value) return
     updateDropdownPosition()
     window.addEventListener('scroll', updateDropdownPosition, true)
     window.addEventListener('resize', updateDropdownPosition)
   } else {
+    document.removeEventListener('click', handleClickOutside)
     activeIndex.value = -1
     window.removeEventListener('scroll', updateDropdownPosition, true)
     window.removeEventListener('resize', updateDropdownPosition)
   }
+})
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutside)
+  window.removeEventListener('scroll', updateDropdownPosition, true)
+  window.removeEventListener('resize', updateDropdownPosition)
 })
 
 const selectedLabel = computed(() => {

@@ -1,7 +1,7 @@
 /**
  * 签到日志弹窗：WebSocket 实时流 + HTTP 轮询降级。
  */
-import { ref, nextTick, computed, type Ref, type ComputedRef } from 'vue'
+import { ref, nextTick, computed, onScopeDispose, getCurrentScope, type Ref, type ComputedRef } from 'vue'
 import {
   getSignTaskLogs,
   getSignTaskRunStatus,
@@ -252,6 +252,13 @@ export function useTaskRunStream(options: {
 
   const clearRealtimeLogs = () => {
     realtimeLogs.value = []
+  }
+
+  // 组件卸载或 effect 作用域注销时自动断开实时流与轮询句柄，防止孤儿连接与内存泄漏
+  if (getCurrentScope()) {
+    onScopeDispose(() => {
+      disconnect()
+    })
   }
 
   return {

@@ -109,6 +109,7 @@ import { useConfirm } from '../../composables/useConfirm'
 import { withToken } from '../../lib/api/core'
 import { computeLineDiff, type DiffLine } from '../../lib/diff'
 import { copyToClipboard } from '../../lib/clipboard'
+import { storageGet, storageSet } from '../../lib/safe-storage'
 import { getLocalizedErrorMessage } from '../../lib/types'
 
 const { t } = useI18n()
@@ -592,14 +593,14 @@ function savePlaygroundPreset() {
     mockTimeout: mockTimeout.value,
     resetStorage: resetStorage.value,
   }
-  localStorage.setItem(key, JSON.stringify(payload))
+  storageSet(key, JSON.stringify(payload))
   toast.success(t('settings.pluginsPlaygroundPresetSaved'))
 }
 
 function loadPlaygroundPreset() {
   if (!currentTestPlugin.value) return
   const key = `tg_signer_test_preset_${currentTestPlugin.value.name}`
-  const saved = localStorage.getItem(key)
+  const saved = storageGet(key)
   if (!saved) {
     toast.info(t('settings.pluginsPlaygroundNoPreset'))
     return
@@ -1486,8 +1487,8 @@ async function fetchMarketCatalog(refresh = false) {
         marketSourceType.value = res.source_type as any
       }
     })
-  } catch (err: any) {
-    const msg = err.message || t('settings.marketFetchFailed')
+  } catch (err: unknown) {
+    const msg = getLocalizedErrorMessage(err, t, t('settings.marketFetchFailed'))
     marketCatalogError.value = msg
     toast.error(msg)
   } finally {
@@ -1529,8 +1530,8 @@ async function handleBatchUpdateAll() {
           await updateMarketPlugin(p.id, token)
         })
         successCount++
-      } catch (err: any) {
-        toast.error(`${p.name}: ${err.message || '更新失败'}`)
+      } catch (err: unknown) {
+        toast.error(`${p.name}: ${getLocalizedErrorMessage(err, t, '更新失败')}`)
       }
     }
     if (successCount > 0) {
@@ -1569,8 +1570,8 @@ async function handleSourceChange() {
       toast.success(t('settings.marketSourceSaveSuccess'))
       await fetchMarketCatalog(true)
     })
-  } catch (err: any) {
-    toast.error(err.message || '切换市场源失败')
+  } catch (err: unknown) {
+    toast.error(getLocalizedErrorMessage(err, t, '切换市场源失败'))
   } finally {
     isSavingSource.value = false
   }
@@ -1584,8 +1585,8 @@ async function handleInstallMarketPlugin(item: MarketPluginItem) {
       toast.success(t('settings.marketInstallSuccess', { name: item.name }))
       await Promise.all([loadPluginList(), fetchMarketCatalog(true)])
     })
-  } catch (err: any) {
-    toast.error(err.message || '安装插件失败')
+  } catch (err: unknown) {
+    toast.error(getLocalizedErrorMessage(err, t, '安装插件失败'))
   } finally {
     installingPluginId.value = null
   }
@@ -1599,8 +1600,8 @@ async function handleUpdateMarketPlugin(item: MarketPluginItem) {
       toast.success(t('settings.marketUpdateSuccess', { name: item.name }))
       await Promise.all([loadPluginList(), fetchMarketCatalog(true)])
     })
-  } catch (err: any) {
-    toast.error(err.message || '更新插件失败')
+  } catch (err: unknown) {
+    toast.error(getLocalizedErrorMessage(err, t, '更新插件失败'))
   } finally {
     installingPluginId.value = null
   }
@@ -1623,8 +1624,8 @@ async function handleUninstallMarketPlugin(item: MarketPluginItem) {
       toast.success(t('settings.marketUninstallSuccess', { name: item.name }))
       await Promise.all([loadPluginList(), fetchMarketCatalog(true)])
     })
-  } catch (err: any) {
-    toast.error(err.message || '卸载插件失败')
+  } catch (err: unknown) {
+    toast.error(getLocalizedErrorMessage(err, t, '卸载插件失败'))
   } finally {
     uninstallingPluginId.value = null
   }

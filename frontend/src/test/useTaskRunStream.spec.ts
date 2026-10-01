@@ -314,4 +314,21 @@ describe('useTaskRunStream', () => {
     expect(stream.realtimeLogs.value).toEqual(['hidden-line'])
     Object.defineProperty(document, 'hidden', { value: false, configurable: true })
   })
+
+  it('automatically disconnects when effect scope is stopped', async () => {
+    const { effectScope } = await import('vue')
+    const scope = effectScope()
+    let stream!: ReturnType<typeof setup>
+    scope.run(() => {
+      stream = setup('acc-a')
+    })
+    await stream.connect()
+    expect(MockWebSocket.instances).toHaveLength(1)
+    const ws = MockWebSocket.instances[0]
+    expect(ws.readyState).toBe(1)
+
+    scope.stop()
+    expect(ws.readyState).toBe(3)
+    expect(stream.isRunning.value).toBe(false)
+  })
 })
