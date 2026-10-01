@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, Tuple
@@ -24,10 +25,11 @@ class FloodCooldownInfo:
 
 
 class FloodBackoffManager:
-    """进程内单例退避管理器。"""
+    """进程内单例退避管理器（线程安全）。"""
 
     def __init__(self) -> None:
         self._cooldowns: Dict[str, FloodCooldownInfo] = {}
+        self._lock = threading.Lock()
 
     def record_flood_wait(
         self,
@@ -47,7 +49,8 @@ class FloodBackoffManager:
             reason=reason,
             created_at=now,
         )
-        self._cooldowns[account_name] = info
+        with self._lock:
+            self._cooldowns[account_name] = info
         logger.warning(
             "账号 [%s] 触发限频退避保护，冷却 %d 秒 (直至 %d): %s",
             account_name,
@@ -63,39 +66,44 @@ class FloodBackoffManager:
         返回 (is_cooling, remaining_seconds)。
         """
         now = time.time()
-        info = self._cooldowns.get(account_name)
-        if not info:
+        with self._lock:
+            info = self._cooldowns.get(account_name)
+            if not info:
+                return False, 0
+            remaining = int(info.cooldown_until - now)
+            if remaining > 0:
+                return True, remaining
+            # 已经过期，自动清除
+            self._cooldowns.pop(account_name, None)
             return False, 0
-        remaining = int(info.cooldown_until - now)
-        if remaining > 0:
-            return True, remaining
-        # 已经过期，自动清除
-        self._cooldowns.pop(account_name, None)
-        return False, 0
 
     def clear_cooldown(self, account_name: str) -> None:
         """手动清除指定账号的冷却状态。"""
-        self._cooldowns.pop(account_name, None)
+        with self._lock:
+            self._cooldowns.pop(account_name, None)
 
     def get_all_cooling_accounts(self) -> Dict[str, Dict[str, Any]]:
         """获取所有当前正在冷却中的账号及其状态。"""
         now = time.time()
         active: Dict[str, Dict[str, Any]] = {}
         expired_keys = []
-        for name, info in self._cooldowns.items():
-            rem = int(info.cooldown_until - now)
-            if rem > 0:
-                active[name] = {
-                    "account_name": name,
-                    "remaining_seconds": rem,
-                    "duration": info.duration,
-                    "reason": info.reason,
-                    "cooldown_until": info.cooldown_until,
-                }
-            else:
-                expired_keys.append(name)
-        for k in expired_keys:
-            self._cooldowns.pop(k, None)
+        with self._lock:
+            # 浅拷贝字典条目，防止并发修改迭代冲突
+            items = list(self._cooldowns.items())
+            for name, info in items:
+                rem = int(info.cooldown_until - now)
+                if rem > 0:
+                    active[name] = {
+                        "account_name": name,
+                        "remaining_seconds": rem,
+                        "duration": info.duration,
+                        "reason": info.reason,
+                        "cooldown_until": info.cooldown_until,
+                    }
+                else:
+                    expired_keys.append(name)
+            for k in expired_keys:
+                self._cooldowns.pop(k, None)
         return active
 
 

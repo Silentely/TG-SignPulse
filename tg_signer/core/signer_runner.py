@@ -499,7 +499,7 @@ class SignerRunnerMixin:
 
             sign_record[str(now.date())] = now.isoformat()
             try:
-                from backend.utils.atomic_io import write_json_atomic
+                from tg_signer.atomic_io import write_json_atomic
 
                 write_json_atomic(self.sign_record_file, sign_record)
             except Exception:

@@ -46,7 +46,7 @@ def unsafe_history_key(name: str) -> str:
     while i < len(text):
         ch = text[i]
         if ch == "%" and i + 3 <= len(text):
-            code = text[i + 1 : i + 3]
+            code = text[i + 1 : i + 3].upper()
             if code == "25":
                 out.append("%")
                 i += 3

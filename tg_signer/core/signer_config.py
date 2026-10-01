@@ -341,7 +341,7 @@ class SignerConfigMixin:
         sign_record = {}
         if not self.sign_record_file.is_file():
             try:
-                from backend.utils.atomic_io import write_json_atomic
+                from tg_signer.atomic_io import write_json_atomic
 
                 write_json_atomic(self.sign_record_file, sign_record)
             except Exception:
@@ -362,7 +362,7 @@ class SignerConfigMixin:
             )
             sign_record = {}
             try:
-                from backend.utils.atomic_io import write_json_atomic
+                from tg_signer.atomic_io import write_json_atomic
 
                 write_json_atomic(self.sign_record_file, sign_record)
             except Exception:
