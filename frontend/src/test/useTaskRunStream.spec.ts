@@ -331,4 +331,55 @@ describe('useTaskRunStream', () => {
     expect(ws.readyState).toBe(3)
     expect(stream.isRunning.value).toBe(false)
   })
+
+  it('tracks connectionMode through connecting -> websocket -> polling -> closed lifecycle', async () => {
+    const stream = setup('acc-a')
+    expect(stream.connectionMode.value).toBe('closed')
+
+    const connectPromise = stream.connect()
+    expect(stream.connectionMode.value).toBe('connecting')
+    await connectPromise
+
+    const ws = MockWebSocket.instances[0]
+    expect(stream.connectionMode.value).toBe('connecting')
+
+    ws.onopen?.({})
+    expect(stream.connectionMode.value).toBe('websocket')
+
+    // 发生网络错误，退化为轮询
+    ws.onerror?.({})
+    expect(stream.connectionMode.value).toBe('polling')
+
+    // 主动断开连接，模式回归 closed
+    stream.disconnect()
+    expect(stream.connectionMode.value).toBe('closed')
+  })
+
+  it('drops in-flight poll response if generation changed during request', async () => {
+    let resolveLogs!: (val: string[]) => void
+    const pendingLogs = new Promise<string[]>((res) => { resolveLogs = res })
+    api.getSignTaskLogs.mockReturnValueOnce(pendingLogs)
+    api.getSignTaskRunStatus.mockResolvedValueOnce({ state: 'running', phase: 'running' })
+
+    const stream = setup('acc-a')
+    await stream.connect()
+    MockWebSocket.instances[0].onerror?.({})
+    expect(pollHandles).toHaveLength(1)
+
+    // 发起轮询，此时 Promise 在途未决
+    const pollTick = pollHandles[0].cb()
+
+    // 用户此时快速调用了重新 connect（步进世代并建立新一代活跃轮询句柄）
+    await stream.connect()
+    MockWebSocket.instances[1].onerror?.({})
+    expect(pollHandles).toHaveLength(2)
+    expect(pollHandles[1].active).toBe(true)
+
+    // 第一代迟到的 HTTP 轮询结果终于返回
+    resolveLogs(['late-poll-line-from-gen-1'])
+    await pollTick
+
+    // 跨代响应必须被丢弃（即使当前新一代句柄 pollHandles[1].active 为 true），不可污染新状态
+    expect(stream.realtimeLogs.value).toEqual([])
+  })
 })

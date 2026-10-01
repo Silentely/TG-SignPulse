@@ -123,6 +123,7 @@ const {
   liveState,
   liveStatusLabel,
   liveStatusToneClass,
+  connectionMode,
   connect: connectWebSocket,
   disconnect: disconnectWebSocket,
   resetLiveFailure,
@@ -324,6 +325,7 @@ const hitLink = (hit: KeywordHitRecord) => safeHitUrl(hit.url)
         :live-state="liveState"
         :live-status-label="liveStatusLabel"
         :live-status-tone-class="liveStatusToneClass"
+        :connection-mode="connectionMode"
         :realtime-logs="realtimeLogs"
         :display-realtime-lines="displayRealtimeLines"
         :loading="loading"

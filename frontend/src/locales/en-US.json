@@ -509,7 +509,10 @@
     "hitsClearFailed": "Failed to clear hits",
     "hitsOpenMessage": "Open message",
     "hitsLoadMore": "Load more",
-    "hitsAutoRefreshHint": "Auto-refreshes about every 8s while open"
+    "hitsAutoRefreshHint": "Auto-refreshes about every 8s while open",
+    "modeWs": "WS Live",
+    "modePolling": "Polling",
+    "modeConnecting": "Connecting"
   },
   "logs": {
     "taskLogs": "Task Execution Logs",

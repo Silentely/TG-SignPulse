@@ -21,9 +21,11 @@ import {
 import { useI18n } from './useI18n'
 
 const POLL_INTERVAL_MS = 1500
-// WS 实时日志行上限：长时运行任务只增不减会攒数千行字符串+DOM 节点；
+// WS 实时日志行上限：长时间运行任务只增不减会攒数千行字符串+DOM 节点；
 // 截尾与轮询降级分支（整体替换、天然有界）的语义对齐
 const MAX_REALTIME_LOG_LINES = 1000
+
+export type ConnectionMode = 'connecting' | 'websocket' | 'polling' | 'closed'
 
 export function useTaskRunStream(options: {
   taskName: ComputedRef<string>
@@ -41,6 +43,7 @@ export function useTaskRunStream(options: {
   const livePhaseDetail = ref('')
   const liveFailureCategory = ref<string | null>(null)
   const liveState = ref<string | null>(null)
+  const connectionMode = ref<ConnectionMode>('closed')
 
   let ws: WebSocket | null = null
   let pollHandle: ChainPollHandle | null = null
@@ -88,14 +91,20 @@ export function useTaskRunStream(options: {
   const stopPolling = () => {
     pollHandle?.stop()
     pollHandle = null
+    if (connectionMode.value === 'polling') {
+      connectionMode.value = 'closed'
+    }
   }
 
   const startPolling = () => {
+    connectionMode.value = 'polling'
     if (pollHandle?.active) return
+    const pollGen = connectGeneration
     pollHandle = startChainPoll(async () => {
       // 弹窗开着但标签页切后台时不发请求；WS 连接保留，恢复可见由
       // 浏览器节流解除后继续（无独立心跳需求）
       if (typeof document !== 'undefined' && document.hidden) return
+      if (!pollHandle?.active || pollGen !== connectGeneration) return
       const name = options.taskName.value
       if (!name) return
       const token = getAuthToken()
@@ -104,7 +113,7 @@ export function useTaskRunStream(options: {
         getSignTaskLogs(token, name, accountName),
         getSignTaskRunStatus(token, name, accountName),
       ])
-      if (!pollHandle?.active) return
+      if (!pollHandle?.active || pollGen !== connectGeneration) return
       if (logsResult.status === 'fulfilled') {
         const data = logsResult.value
         if (Array.isArray(data) && data.length > 0) {
@@ -116,6 +125,7 @@ export function useTaskRunStream(options: {
         applyStatusPayload(statusResult.value)
         if (statusResult.value.state !== 'running') {
           isRunning.value = false
+          connectionMode.value = 'closed'
           stopPolling()
         }
       }
@@ -136,6 +146,7 @@ export function useTaskRunStream(options: {
       socket.close()
     }
     stopPolling()
+    connectionMode.value = 'connecting'
 
     const taskName = encodeURIComponent(name)
     const accountName = options.accountName.value || ''
@@ -154,7 +165,10 @@ export function useTaskRunStream(options: {
       // 仅当本次仍是最新一次调用时才退化为轮询，避免旧调用接管当前状态
       if (gen === connectGeneration && runAccount) {
         isRunning.value = false
+        connectionMode.value = 'polling'
         startPolling()
+      } else if (gen === connectGeneration) {
+        connectionMode.value = 'closed'
       }
       return
     }
@@ -175,12 +189,17 @@ export function useTaskRunStream(options: {
     } catch {
       if (runAccount) {
         isRunning.value = false
+        connectionMode.value = 'polling'
         startPolling()
+      } else {
+        connectionMode.value = 'closed'
       }
       return
     }
 
     ws.onopen = () => {
+      if (gen !== connectGeneration) return
+      connectionMode.value = 'websocket'
       devLog.info('任务日志 WebSocket 已连接:', wsUrl)
     }
     ws.onmessage = (event) => {
@@ -198,6 +217,7 @@ export function useTaskRunStream(options: {
           isRunning.value = msg.is_running !== false
         } else if (msg.type === 'done') {
           isRunning.value = false
+          connectionMode.value = 'closed'
           if (!liveState.value || liveState.value === 'running') {
             liveState.value = msg.state || 'finished'
           }
@@ -210,13 +230,17 @@ export function useTaskRunStream(options: {
       if (gen !== connectGeneration) return
       if (options.runAccount.value) {
         isRunning.value = true
+        connectionMode.value = 'polling'
         startPolling()
       }
     }
     ws.onclose = () => {
       if (gen !== connectGeneration) return
       if (isRunning.value && options.runAccount.value) {
+        connectionMode.value = 'polling'
         startPolling()
+      } else {
+        connectionMode.value = 'closed'
       }
       ws = null
     }
@@ -235,6 +259,7 @@ export function useTaskRunStream(options: {
       socket.close()
     }
     stopPolling()
+    connectionMode.value = 'closed'
     isRunning.value = false
     livePhase.value = null
     livePhaseDetail.value = ''
@@ -270,6 +295,7 @@ export function useTaskRunStream(options: {
     liveState,
     liveStatusLabel,
     liveStatusToneClass,
+    connectionMode,
     connect,
     disconnect,
     resetLiveFailure,

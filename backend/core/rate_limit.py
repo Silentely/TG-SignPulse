@@ -2,14 +2,30 @@ from __future__ import annotations
 
 import ipaddress
 import math
+import os
 import time
-from collections import deque
+from collections import OrderedDict, deque
 from threading import Lock
 from typing import Deque, Dict, Iterable, Tuple
 
 from fastapi import HTTPException, Request, status
 
 BucketKey = Tuple[str, str]
+
+_DEFAULT_MAX_BUCKETS = 10_000
+_MIN_MAX_BUCKETS = 100
+_MAX_MAX_BUCKETS = 100_000
+
+
+def _resolve_max_buckets() -> int:
+    raw = os.getenv("RATE_LIMIT_MAX_BUCKETS", "").strip()
+    if not raw:
+        return _DEFAULT_MAX_BUCKETS
+    try:
+        val = int(raw)
+        return max(_MIN_MAX_BUCKETS, min(val, _MAX_MAX_BUCKETS))
+    except (ValueError, TypeError):
+        return _DEFAULT_MAX_BUCKETS
 
 
 class InMemoryRateLimiter:
@@ -18,17 +34,22 @@ class InMemoryRateLimiter:
     # 每 N 次 hit 触发一次全局清扫，摊薄 O(n) 成本
     _SWEEP_INTERVAL = 256
 
-    def __init__(self) -> None:
+    def __init__(self, max_buckets: int | None = None) -> None:
         self._lock = Lock()
         self._attempts: Dict[BucketKey, Deque[float]] = {}
         self._blocked_until: Dict[BucketKey, float] = {}
+        self._last_seen: OrderedDict[BucketKey, float] = OrderedDict()
         self._hits_since_sweep = 0
+        self._max_buckets = (
+            max_buckets if max_buckets is not None else _resolve_max_buckets()
+        )
 
     def reset(self, scope: str, key: str) -> None:
         bucket = (scope, key)
         with self._lock:
             self._attempts.pop(bucket, None)
             self._blocked_until.pop(bucket, None)
+            self._last_seen.pop(bucket, None)
 
     def discard_latest_attempt(self, scope: str, key: str) -> None:
         """撤销当前请求的计数，但保留此前失败次数与封锁状态。"""
@@ -45,6 +66,7 @@ class InMemoryRateLimiter:
         with self._lock:
             self._attempts.clear()
             self._blocked_until.clear()
+            self._last_seen.clear()
             self._hits_since_sweep = 0
 
     def _sweep_expired(self, now: float) -> None:
@@ -56,6 +78,43 @@ class InMemoryRateLimiter:
         for bucket, blocked_until in list(self._blocked_until.items()):
             if blocked_until <= now:
                 self._blocked_until.pop(bucket, None)
+        for bucket in list(self._last_seen.keys()):
+            if bucket not in self._attempts and bucket not in self._blocked_until:
+                self._last_seen.pop(bucket, None)
+
+    def _prune_capacity(self, now: float, keep: BucketKey | None = None) -> None:
+        """当桶表达到或超出上限时执行两阶段 LRU 容量修剪。
+
+        keep: 正在计数的当前桶，两阶段修剪中均予以保护，防止饱和态下新 key 计数被连带清零而绕过限流。
+        """
+        self._sweep_expired(now)
+        if len(self._last_seen) < self._max_buckets:
+            return
+
+        target_size = int(self._max_buckets * 0.9)
+        # 第一阶段：优先淘汰未处于活跃封禁期的普通桶
+        for bucket in list(self._last_seen.keys()):
+            if len(self._last_seen) <= target_size:
+                break
+            if bucket == keep:
+                continue
+            if self._blocked_until.get(bucket, 0.0) > now:
+                continue
+            self._attempts.pop(bucket, None)
+            self._blocked_until.pop(bucket, None)
+            self._last_seen.pop(bucket, None)
+
+        # 第二阶段（保底兜底）：若普通桶淘汰完毕后依然达到或超出 max_buckets（说明全量或绝大多数桶均处于活跃封禁），
+        # 强制按 LRU 淘汰最老封禁桶，确保进程内存严格有界在 max_buckets 以内
+        if len(self._last_seen) >= self._max_buckets:
+            for bucket in list(self._last_seen.keys()):
+                if len(self._last_seen) <= target_size:
+                    break
+                if bucket == keep:
+                    continue
+                self._attempts.pop(bucket, None)
+                self._blocked_until.pop(bucket, None)
+                self._last_seen.pop(bucket, None)
 
     def hit(
         self,
@@ -76,6 +135,12 @@ class InMemoryRateLimiter:
                 self._hits_since_sweep = 0
                 self._sweep_expired(now)
 
+            if len(self._last_seen) >= self._max_buckets:
+                self._prune_capacity(now, keep=bucket)
+
+            self._last_seen[bucket] = now
+            self._last_seen.move_to_end(bucket)
+
             blocked_until = self._blocked_until.get(bucket, 0.0)
             if blocked_until > now:
                 retry_after = max(int(math.ceil(blocked_until - now)), 1)
@@ -91,6 +156,8 @@ class InMemoryRateLimiter:
                 attempts.popleft()
 
             attempts.append(now)
+            if len(attempts) > max(max_attempts, 1) + 2:
+                attempts.popleft()
             if len(attempts) <= max(max_attempts, 1):
                 return
 

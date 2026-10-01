@@ -75,3 +75,34 @@ async def test_no_subscribers_publish_is_noop():
     publish_sign_history(
         {"time": "t", "account_name": "a", "task_name": "x", "success": True}
     )
+
+
+@pytest.mark.asyncio
+async def test_bounded_queue_overflow_drop_oldest():
+    """测试队列达到 maxsize 上限时，触发 drop-oldest 丢弃最老条目而不阻塞发布者。"""
+    q = subscribe()
+    total_messages = 80
+    for i in range(total_messages):
+        publish_sign_history(
+            {
+                "time": f"2026-07-26T12:00:{i:02d}",
+                "account_name": "acc",
+                "task_name": f"task_{i}",
+                "success": True,
+                "message": f"msg_{i}",
+            }
+        )
+
+    # 调度让 loop.call_soon_threadsafe 回调执行
+    await asyncio.sleep(0.02)
+
+    # 队列长度必须受到严格有界约束（64）
+    assert q.qsize() == 64
+
+    # 弹出的首个元素应当是最旧但未被挤压丢弃的元素（即第 80 - 64 = 16 号）
+    first_item = await asyncio.wait_for(q.get(), timeout=1.0)
+    assert first_item["task_name"] == "task_16"
+
+    # 清理注销
+    unsubscribe(q)
+    assert subscriber_count() == 0
