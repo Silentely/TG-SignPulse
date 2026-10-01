@@ -1811,53 +1811,67 @@ async def update_plugin_source(
 
     sec_report = compute_plugin_security_report(payload.source)
     if not sec_report["can_save_safely"] and not payload.force:
-        critical_msgs = [
+        warning_msgs = [
             w["message"]
             for w in sec_report["warnings"]
             if w.get("severity") in ("critical", "high")
-        ]
+        ] or [w["message"] for w in sec_report.get("warnings", [])]
+        msgs_str = (
+            f"检测到风险调用: {'; '.join(warning_msgs[:2])}。" if warning_msgs else ""
+        )
         raise HTTPException(
             status_code=400,
-            detail=f"安全审查未通过（评分: {sec_report['score']}分，风险: {sec_report['risk_level']}）。检测到高危调用: {'; '.join(critical_msgs[:2])}。如确认代码安全无害，请确认是否强制保存。",
+            detail=f"安全审查未通过（评分: {sec_report['score']}分，风险: {sec_report['risk_level']}）。{msgs_str}如确认代码安全无害，请确认是否强制保存。",
+        )
+    if payload.force and sec_report.get("warnings"):
+        logger.warning(
+            "管理员强制保存包含安全风险的插件源码 %s: %s",
+            source_path,
+            [w.get("message") for w in sec_report.get("warnings", [])],
         )
 
-    # 先备份旧源码，写入或重载失败时回滚，避免一次坏编辑永久丢失可用插件
-    try:
-        old_source = source_path.read_text(encoding="utf-8")
-    except Exception:
-        old_source = None
+    # 对同一源码文件加排他锁，保证「读旧版 -> 写新版 -> 校验重载 -> 失败回滚」全流程事务原子性
+    from backend.utils.atomic_io import path_write_lock
 
-    try:
-        write_text_atomic(source_path, payload.source)
-    except Exception as exc:
-        logger.error("保存插件源码失败 %s: %s", source_path, exc, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"保存插件源码失败: {exc}")
+    with path_write_lock(source_path):
+        try:
+            old_source = source_path.read_text(encoding="utf-8")
+        except Exception:
+            old_source = None
 
-    try:
-        _reload_plugins_preserving_state()
-    except Exception as exc:
-        logger.warning("插件重载异常: %s", exc)
+        try:
+            write_text_atomic(source_path, payload.source)
+        except Exception as exc:
+            logger.error("保存插件源码失败 %s: %s", source_path, exc, exc_info=True)
+            raise HTTPException(status_code=500, detail=f"保存插件源码失败: {exc}")
 
-    updated_meta = PluginRegistry.get(name)
-    if not updated_meta:
-        for p in PluginRegistry.list_plugins().values():
-            if p.source_path and Path(p.source_path).resolve() == source_path:
-                updated_meta = p
-                break
+        try:
+            _reload_plugins_preserving_state()
+        except Exception as exc:
+            logger.warning("插件重载异常: %s", exc)
 
-    if not updated_meta:
-        if old_source is not None:
-            try:
-                write_text_atomic(source_path, old_source)
-                _reload_plugins_preserving_state()
-            except Exception as exc:
-                logger.error("回滚插件源码失败 %s: %s", source_path, exc, exc_info=True)
-        raise HTTPException(
-            status_code=400,
-            detail="插件代码已保存，但重载时未注册有效插件，已回滚至旧版本，请检查 @PluginRegistry.register 装饰器",
-        )
+        updated_meta = PluginRegistry.get(name)
+        if not updated_meta:
+            for p in PluginRegistry.list_plugins().values():
+                if p.source_path and Path(p.source_path).resolve() == source_path:
+                    updated_meta = p
+                    break
 
-    return _meta_to_info(updated_meta)
+        if not updated_meta:
+            if old_source is not None:
+                try:
+                    write_text_atomic(source_path, old_source)
+                    _reload_plugins_preserving_state()
+                except Exception as exc:
+                    logger.error(
+                        "回滚插件源码失败 %s: %s", source_path, exc, exc_info=True
+                    )
+            raise HTTPException(
+                status_code=400,
+                detail="插件代码已保存，但重载时未注册有效插件，已回滚至旧版本，请检查 @PluginRegistry.register 装饰器",
+            )
+
+        return _meta_to_info(updated_meta)
 
 
 @router.delete("/{name}")
@@ -3082,10 +3096,31 @@ async def export_all_plugins(
         )
 
     zip_buffer = io.BytesIO()
+    written_count = 0
+    failed_files: list[str] = []
     with zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for py_path in py_files:
+            if not py_path.is_file():
+                continue
             rel_path = py_path.relative_to(target_dir)
-            zf.write(py_path, arcname=str(rel_path))
+            try:
+                zf.write(py_path, arcname=str(rel_path))
+                written_count += 1
+            except OSError as exc:
+                failed_files.append(f"{rel_path}: {exc}")
+
+    if failed_files:
+        logger.error("插件导出不完整，部分文件读取失败: %s", failed_files)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"部分插件文件读取失败，导出已取消: {', '.join(failed_files)}",
+        )
+
+    if written_count == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="当前没有可导出的自定义插件",
+        )
 
     zip_bytes = zip_buffer.getvalue()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
