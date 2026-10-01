@@ -277,3 +277,28 @@ class TestChatOpsHtmlEscaping:
             assert "&lt;&amp;" in text
             assert "acc&gt;" in text
             assert "<code>task<&</code>" not in text
+
+
+@pytest.mark.asyncio
+async def test_chatops_ping_command():
+    worker = TelegramChatOpsWorker()
+    with patch(
+        "backend.services.chatops_bot.send_telegram_bot_message", new_callable=AsyncMock
+    ) as mock_send:
+        await worker.handle_command("dummy_token", "12345", "/ping", {})
+        mock_send.assert_called_once()
+        text = mock_send.call_args[1]["text"]
+        assert "Pong!" in text
+
+
+@pytest.mark.asyncio
+async def test_chatops_unknown_command_fallback():
+    worker = TelegramChatOpsWorker()
+    with patch(
+        "backend.services.chatops_bot.send_telegram_bot_message", new_callable=AsyncMock
+    ) as mock_send:
+        await worker.handle_command("dummy_token", "12345", "/unknown_action", {})
+        mock_send.assert_called_once()
+        text = mock_send.call_args[1]["text"]
+        assert "未知指令" in text
+        assert "/help" in text

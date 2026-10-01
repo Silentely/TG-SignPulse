@@ -18,6 +18,9 @@ from backend.services.backup_archive import (
 def test_default_backup_paths_includes_plugins():
     assert "plugins" in DEFAULT_BACKUP_PATHS
     assert "plugin_storage.db" in DEFAULT_BACKUP_PATHS
+    assert "data_dicts" in DEFAULT_BACKUP_PATHS
+    assert ".signer/keyword_monitor" in DEFAULT_BACKUP_PATHS
+    assert ".signer/.device_keepalive_state.json" in DEFAULT_BACKUP_PATHS
 
 
 def test_create_backup_tarball_with_plugins(tmp_path: Path):

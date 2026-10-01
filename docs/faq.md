@@ -116,3 +116,38 @@ gpt-5-nano
 - 避免分散的会话文件
 
 否则默认 `file` 模式就足够用。
+
+
+## 两步验证（TOTP / 2FA）遗失或无法登录怎么办？（应急容灾恢复）
+
+若您开启了两步验证（TOTP），但手机更换、验证器丢失或时间偏移无法生成正确验证码时，系统提供两种应急恢复途径：
+
+### 途径一：容器内部/命令行一键重置（推荐）
+
+通过命令行运行项目内置的安全重置工具：
+
+- **Docker Compose 容器环境**：
+  ```bash
+  docker compose exec backend python -m scripts.reset_user_totp <用户名>
+  ```
+  例如重置 admin 用户的 2FA：
+  ```bash
+  docker compose exec backend python -m scripts.reset_user_totp admin
+  ```
+- **纯 Python / 本地运行环境**：
+  ```bash
+  .venv/bin/python -m scripts.reset_user_totp <用户名>
+  ```
+
+该命令会直接清空指定用户的 `totp_secret`，并清除会话中待验证状态。执行后即可使用原有密码直接登录，随后进入「用户设置」重新绑定 TOTP。
+
+### 途径二：临时开启环境变量应急放行
+
+出于安全防御考虑，Web 端默认禁止仅凭密码重置两步验证。若无法方便登录容器执行命令，可在环境变量中临时配置放行开关：
+
+1. 在 `docker-compose.yml` 或 `.env` 中添加环境变量：
+   ```env
+   ALLOW_PASSWORD_ONLY_TOTP_RESET=true
+   ```
+2. 重启服务后，在登录页面点击「重置两步验证」，输入正确的账号密码即可一键重置。
+3. **完成登录并重新配置验证器后，务必移除该环境变量**并重启容器，保持最高安全防护等级。

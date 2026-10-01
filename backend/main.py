@@ -302,17 +302,17 @@ def ready_check(response: Response) -> dict:
     return payload
 
 
-# 静态前端托管（Mode A: 单容器，FastAPI 提供静态文件）
-# 挂载 Next.js 静态资源
+# 静态前端托管（单容器生产环境，FastAPI 提供前端 SPA 静态文件）
+# 挂载 Vite 构建产物静态资源
 web_dir = Path("/web")
-next_static_dir = web_dir / "_next"
+assets_dir = web_dir / "assets"
 frontend_dev_url = os.getenv("FRONTEND_DEV_SERVER_URL", "http://127.0.0.1:3000")
 
-if next_static_dir.exists():
+if assets_dir.exists():
     app.mount(
-        "/_next",
-        StaticFiles(directory=str(next_static_dir)),
-        name="nextjs_static",
+        "/assets",
+        StaticFiles(directory=str(assets_dir)),
+        name="spa_assets",
     )
 
 
