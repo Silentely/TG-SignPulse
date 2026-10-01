@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -302,3 +303,91 @@ async def test_chatops_unknown_command_fallback():
         text = mock_send.call_args[1]["text"]
         assert "未知指令" in text
         assert "/help" in text
+
+
+@pytest.mark.asyncio
+async def test_chatops_run_retains_strong_background_task_ref_and_cleans_up():
+    worker = TelegramChatOpsWorker()
+    with (
+        patch(
+            "backend.services.chatops_bot.send_telegram_bot_message",
+            new_callable=AsyncMock,
+        ),
+        patch("backend.services.sign_tasks.get_sign_task_service") as mock_svc,
+    ):
+        finish_event = asyncio.Event()
+
+        async def _fake_run(*args, **kwargs):
+            await finish_event.wait()
+
+        mock_svc.return_value.list_tasks.return_value = [
+            {"name": "long_task", "account_name": "acc1"}
+        ]
+        mock_svc.return_value.run_task_with_logs = _fake_run
+
+        await worker.handle_command("dummy_token", "12345", "/run long_task", {})
+        # 验证后台任务被集合强引用
+        assert len(worker._background_tasks) == 1
+        task = next(iter(worker._background_tasks))
+        assert not task.done()
+
+        # 释放任务完成
+        finish_event.set()
+        await asyncio.sleep(0.01)
+        # 验证任务完成回调自动从集合中移除
+        assert len(worker._background_tasks) == 0
+
+
+@pytest.mark.asyncio
+async def test_chatops_stop_cancels_background_tasks():
+    worker = TelegramChatOpsWorker()
+    with (
+        patch(
+            "backend.services.chatops_bot.send_telegram_bot_message",
+            new_callable=AsyncMock,
+        ),
+        patch("backend.services.sign_tasks.get_sign_task_service") as mock_svc,
+    ):
+        mock_svc.return_value.list_tasks.return_value = [
+            {"name": "infinite_task", "account_name": "acc1"}
+        ]
+        mock_svc.return_value.run_task_with_logs = AsyncMock(
+            side_effect=lambda *a: asyncio.sleep(100)
+        )
+
+        await worker.handle_command("dummy_token", "12345", "/run infinite_task", {})
+        assert len(worker._background_tasks) == 1
+
+        # 异步停止 Worker
+        await worker.stop(timeout=1.0)
+        assert len(worker._background_tasks) == 0
+
+
+def test_extract_telegram_retry_after():
+    from backend.services.chatops_bot import _extract_telegram_retry_after
+
+    class _Resp:
+        def __init__(self, data=None, headers=None):
+            self._data = data or {}
+            self.headers = headers or {}
+
+        def json(self):
+            return self._data
+
+    # JSON parameters.retry_after
+    resp1 = _Resp(
+        data={"ok": False, "error_code": 429, "parameters": {"retry_after": 15}}
+    )
+    assert _extract_telegram_retry_after(resp1) == 15.0
+
+    # Header Retry-After
+    resp2 = _Resp(data=None, headers={"Retry-After": "25"})
+    assert _extract_telegram_retry_after(resp2) == 25.0
+
+    # 上限保护 (max 300)
+    resp3 = _Resp(data={"parameters": {"retry_after": 9999}})
+    assert _extract_telegram_retry_after(resp3) == 300.0
+
+    # 无效响应
+    resp4 = _Resp(data={"error": "other"})
+    assert _extract_telegram_retry_after(resp4) is None

@@ -596,10 +596,10 @@ async def on_shutdown() -> None:
         await get_keyword_monitor_service().stop()
         from backend.services.chatops_bot import get_chatops_worker
 
-        get_chatops_worker().stop()
+        await get_chatops_worker().stop()
     except Exception:
         # 顶层兜底：关闭阶段任何异常不能阻止进程退出
-        log.exception("Keyword monitor shutdown failed")
+        log.exception("Background services shutdown failed")
 
     if sign_task_service is not None:
         try:
