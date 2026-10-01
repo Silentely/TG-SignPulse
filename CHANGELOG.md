@@ -1,63 +1,86 @@
 # TG-SignPulse 变更记录
 
-> 从 CLAUDE.md 拆分的变更记录，保持 CLAUDE.md 精简。
+> 记录 TG-SignPulse 各版本的更新内容与演进历史。变更记录撰写规范参见 [CLAUDE.md](./CLAUDE.md)。
 
-| 日期 | 变更内容 |
-|------|----------|
-| 2026-09-25 | 修复签到执行链路：收尾顺序调整为「调度日志清理 → 复位运行标记 → 停止客户端」，并且仅在该客户端引用计数为 0 时才断开——计数 >0 说明关键词监听或其它任务正持有同一连接，此前无条件 `app.stop()` 会中断它们的消息接收；`tg_signer.core.client` 新增 `get_client_refcount(key)` 供上层查询引用计数。长 FloodWait（等待秒数超过 120s）不再纳入步级重试：`signer_actions` 由 `return None` 改为上抛，让 runner 走失败历史与 FloodWait 冷却登记，不再把未点击成功的运行记为成功；新增 `tg_signer.utils.extract_flood_wait_seconds`（类型优先读 `FloodWait.value`，回退文本正则且要求 flood/wait 引导词紧邻秒数），runner 的冷却注册与 `SignerConfigMixin._is_transient_step_error` 共用该入口，修复 `str(FloodWait)` 不含类名导致实例被漏判、漏登记冷却的问题。调度器与 ChatOps 直接调用的执行现在也登记 `_background_run_tasks` 句柄（身份比较摘除，避免误删同键新运行的句柄），取消接口不再回「无可取消的后台句柄」。任务日志解析改为按标签后首个冒号（半角/全角）切分，含 ASCII 冒号的消息不再被截断。设备列表、踢下线设备、清退其他设备、读取官方消息与会话导出的客户端连接改在账号锁内经引用计数上下文管理器进出，锁释放前即断开，异常路径不再泄漏连接。登录（手机验证码与扫码）跨请求流程新增 `AccountLockLease` 锁所有权租约，只释放本流程真正获取的锁，发现锁被他人持有时告警跳过；接管残留登录会话时作废旧租约后强制放锁，避免账号锁永久滞留导致后续登录与签到全部拿不到锁。账号名校验改按 Unicode 类别拒绝控制/格式/代理区/私用区/未分配字符；关键词命中落盘统一剥离 `\x00`；会话字符串缓存改原子写（临时文件 + 权限 0600 + fsync + rename），替换原先 write_text + chmod 的半截文件风险。签到判定补充「未到/尚未/还未/未开始/不是签到时间」等否定类失败标记，同一行内强成功标记与失败标记并存时判为矛盾行；「明天再来」仍属成功终态。自适应冷却的时段区间屏蔽允许端点带单位（「1个半小时-2小时」）并拒绝「0-3」「0-3h」等歧义串。推送通知删除恒为真的内部事件循环判断，共享 httpx 客户端改为按事件循环归属缓存、跨循环丢弃重建，有序释放统一走 `close_shared_http_client()`。前端：`fetchWithAuth` 的 abort 清理从「响应头到达」推迟到「响应体读取完成」，读取期间的取消也走统一 `normalizeNetworkError` 归一化；下载文件名清洗补 Windows 保留设备名（CON/PRN/AUX/NUL/COM1-9/LPT1-9）、控制字符与首尾点空格处理；日志页切换选中日志前先作废在途详情请求，旧响应不再覆盖新选中项。测试：后端新增引用计数不断连、清理先于停止、调度触发运行可取消、FloodWait 实例登记冷却、锁所有权归属、会话串原子写等用例，前端新增 body 读取期间中止、保留名与空名回退、详情守卫失效用例；后端 2057 条测试全绿，ruff 全绿，前端 72 个文件 578 条测试与 typecheck 全绿 |
-| 2026-09-22 | 依赖：核心 Telegram 引擎升级锁定 `kurigram==2.2.26`（替代原 `>=2.2.7,<2.2.10` 区间），并完成生产适配：内存会话改走 kurigram 原生 `SQLiteStorage(in_memory=True, session_string=...)` 装配，删除自研 MemoryStorage 适配层与构造签名分派（约 60 行补丁面，后续升级自动继承上游修复）；会话存储 open 补丁保留 WAL + busy_timeout 并跳过 VACUUM（2.2.26 新增的构造参数 `use_wal` 无法取代：Client 不会传入且上游仍执行 VACUUM）；旧版 V6 会话库经上游 `update()` 迁移链就地升级，授权数据（auth_key/dc_id/user_id）不脱钩；`Animation._parse_chat_animation`（同步）/`ChatPhoto._parse`（协程）双契约补丁按当前安装版本实际形态分支；`GetForumTopics` 在新版 `messages` 命名空间不可用时回退 `channels` 并优雅降级。健壮性：CLI 侧 session_string 缓存加载补齐格式校验——历史错误导出产生的超长坏串（如 357 长度）此前会直接注入内存存储、在上游解码阶段抛错导致任务无自愈全失败，现统一按缓存失效处理（删除坏文件并从 `.session` 重导），与面板侧判定收敛到 `tg_signer.compat.is_valid_session_string` 单一入口；内存模式无可用 session_string 时改报明确的缺参错误，不再伪装为「Session invalid」避免账号被误判需重新登录。测试：新增 V6→V7 就地迁移、坏 session_string 自愈、内存模式缺参 fail-closed、session_string 校验接受/拒绝矩阵等用例；`Client.__new__` 替身补齐 `in_memory`/`session_string` 属性声明（此前绕过 `__init__` 的用例在新增 fail-closed 守卫处抛 AttributeError），并修正回滚用例 finally 未清理全局引用计数导致同键后续用例被掩盖的问题；清理 `test_scheduler_range_compensation.py` 未使用的导入；后端 1863 测试全绿（覆盖 66.02%），ruff 全绿。发布工程：`uv.lock` 纳入版本控制并作为依赖唯一真相来源，`Dockerfile` 与 CI 均改为 `uv export --format requirements-txt` 后 `pip install -r`（镜像 amd64 附加 `--extra speedup`，CI 附加 `--extra dev`），删除 Dockerfile 内手工罗列的依赖覆盖清单——该清单曾把 `fastapi` 钉在 0.109.2，迫使 `starlette<0.37`，而其 0.36.3 的 TestClient 仍会传递已被 httpx 0.28 移除的 `app=` 参数，导致镜像内测试集全崩（218 errors / 1 failed）而 CI 因使用新版 fastapi 完全测不到；依赖分层与源码分层拆开，仅 `pyproject.toml`/`uv.lock` 变化才失效依赖层。移除 `passlib` 与 `aiofiles` 两个无引用依赖；`CLAUDE.md` 镜像基线由 3.12-slim 更正为 3.11-slim 并补依赖解析说明 |
-| 2026-09-22 | 修复：AI 适配 GPT-5 / o 系列模型及 `max_tokens` 与 `max_completion_tokens` 参数自适应兼容（Issue #11）。`prefers_max_completion_tokens` 智能预判新模型首选参数；针对推理模型默认禁用 `temperature` 参数，并在视觉识别中支持 `temperature` 报错自动剔除重试；`is_token_param_rejection_error` 统一在连接测试与视觉识别中实现严密的双向参数互斥检测（兼容 OpenAI、Azure 及各类中转网关），并具备单次请求防振荡死循环保护；截断重试动态对齐当前 token 键名与预算翻倍；同步 `docs/reference/configuration.md`；新增 17 条专项测试用例（107 条 AI 专项测试全绿，ruff 全绿）。 |
-| 2026-09-19 | 功能：会话导入（Telethon/Pyrogram `.session`、Pyrogram StringSession、TData `.zip`，格式自动识别 + `get_me` 首次连接校验 + 50MB/解压炸弹防护 + `force` 覆盖）、派生独立 SessionString 导出（官方 `ExportLoginToken`/`AcceptLoginToken`，独立 AuthKey、失败自动回收临时授权）、一键清退其他设备（`ResetAuthorizations`，保护期 406 转可读错误）；账号设备指纹画像池（desktop/android/macos/ios 预设 + 跨族拼装校验 + 活跃连接时拒改）；代理出口探测与熔断（出口 IP 等于宿主机 IP 硬阻断、不可达按 `strict`/`warn` 分级、结果缓存 10 分钟）与全局 `require_proxy_for_telegram` 强制代理；账号锁改 WeakValueDictionary + `acquire_account_lock_with_timeout`/`acquire_multi_account_locks`；调度新增 `jitter_seconds` 错峰与自适应动态冷却调度（解析机器人冷却倒计时动态调整下次运行时间，内置中英多语言解析 + 自定义正则 + 10s~72h 区间约束），调度器实例锁改为未持锁时只读备用；素材数据字典（`{dict:name}` / `{dict:name:round_robin}` 宏 + 轮询游标持久化 + 面板管理页）；目标会话支持对话文件夹筛选与论坛话题发现；AI 选按钮新增文本兜底路径与 `robust_json_loads` 健壮解析；Kurigram 兼容补丁（mp4/emoji 头像解析、`GetForumTopics` 非论坛优雅降级）。审查修复：`delete_account` 恢复清理仅存在于账号库的账号与残留登录会话记录（否则删除后账号仍出现在列表）；`check_account_status` 对非法代理返回 `blocked` 状态而非逃逸为通用失败，并收敛 4 处被 `except Exception` 吞掉的 `PROXY_INVALID_BLOCKED` 硬阻断；`acquire_multi_account_locks` 在取消时释放已获取的锁；Jitter 不再由触发器与任务体重复叠加（实际延迟回归到配置上限）；设备列表标题计数与渲染列表一致；`reset-others` 账号不存在改返回 404；补齐 18 个缺失文案键（中英文各一套，并清理 3 个未被引用的重复键）并新增全量静态文案键完整性守卫（防止 key 原样渲染到界面）。文档：features/tasks/accounts/device-management/configuration 同步新能力与配置项，`.global_settings.json` 补 `require_proxy_for_telegram`，TData 导入补充 `tg-signer[tdata]` 可选依赖说明。后端 1791 测试全绿（覆盖 65.39%），前端 515 测试/typecheck/构建全绿，ruff 全绿 |
-| 2026-08-17 | 内存监控：自动 GC 冷却语义修正——`_last_gc_at` 改用 `None` 表示「从未自动执行过」，首次超阈值必定触发 GC，不再依赖机器开机时长（原实现以 0.0 为初值，刚开机的环境前 5 分钟首次超阈值会被冷却误跳过，CI 全新 runner 上触发用例失败）；冷却仍只约束两次自动 GC 之间。tests/test_memory_monitor.py 15 条用例全绿 |
-| 2026-08-17 | AI 视觉健壮性：识图请求改为「参数兼容降级阶梯」——先按完整参数（`response_format` json_object + `reasoning_effort`）发起，被网关以 400/403/422 参数校验类错误拒绝（如 Vercel AI Gateway 的 `Invalid input`）时自动依次降级：去掉 `reasoning_effort`、改用 Vercel 官方 `reasoning:{"enabled":false}` 关闭思考（仅 `none` 时启用，优先与 JSON mode 组合）、去掉 `response_format`、最后退回裸请求，无需按模型/渠道配置；`low/medium/high` 不引入关闭思考的降级档；降级位置跨瞬时重试保留，认证/配额/5xx 不触发降级，上下文超长/内容策略等非参数错误通过结构化 code/param 与文本标记排除。docs/reference/configuration.md 补说明；tests/test_ai_tools.py 新增 9 条用例。后端 1322 测试全绿，ruff 全绿 |
-| 2026-08-12 | 后端：关键词监听内存状态按当前规则键集合适时裁剪（含 seen.json 去重水位，删除的账号/任务不再滞留）；内存监控自动 GC 加 300s 冷却（长时间超限时不再每轮 collect 阻塞事件循环）；随机时间段窗口用应用时区锚定并把延迟截断到窗口剩余（修复 DST/misfire 越界，与 cron 触发语义一致）。前端：登录方式分段控件 label 修正（原误用「账号名称」）；任务列表工具栏 label 修正（原误用「全选」）并为模式筛选按钮补 aria-pressed；任务日志/个人中心弹窗切换补 tab 语义（role=tab/aria-selected）；会话搜索补 combobox/listbox 键盘导航（方向键+Enter+高亮）；命中视图切换补 aria-pressed；设置页数字输入补齐说明（AI 冷却/历史保留/AI 识图超时与重试/自动备份间隔与保留/日志保留）。测试补强：全量保存半填 Telegram 配置不丢数据、设置数值越界 clamp、GC 冷却语义、keyword 状态裁剪，新增 24 条用例。后端 1317 测试全绿（覆盖 57.53%），前端 361 测试/typecheck/构建全绿，ruff 全绿 |
-| 2026-08-15 | 面板 AI 模型配置新增「AI 视觉思考度」下拉（低/中/高/none 四档 + 默认不设置，小字提示部分模型不支持关闭思考或 none），保存/重启回灌 `AI_VISION_REASONING_EFFORT`（字符串型 env 同步：小写透传、None/空值清除 env、非法值忽略），后端 GlobalSettings 请求/响应模型、normalize_global_settings、前端 settings-form/AiSettings/i18n 中英文案同步；tests/test_config_env_sync.py 新增 9 条字符串同步/归一化用例。后端 1316 测试全绿，前端 typecheck/测试全绿，ruff 全绿 |
-| 2026-08-15 | AI 视觉健壮性：识图 max_tokens 由硬编码 24/32 改为 `AI_VISION_MAX_TOKENS`（默认 512，最小 16），适配带思考（reasoning）的模型；响应被截断（finish_reason=length）时自动翻倍重试（封顶 4096，避免超出厂商输出上限），全部尝试截断时抛明确 RuntimeError 替代 json_repair 的 TypeError；新增 `AI_VISION_REASONING_EFFORT` 透传（low/medium/high/none，none 关闭思考，仅部分厂商/模型支持，未配置或非法值不发送）；docs/reference/configuration.md 补两变量说明；tests/test_ai_tools.py 新增 10 条用例。后端 1307 测试全绿，ruff 全绿 |
-| 2026-08-12 | 后端健壮性：活跃运行/任务日志/任务键的线程池读取改快照（消除字典尺寸变化导致的偶发 500）；账号名推断按当前会话模式只扫对应后缀（修复 string→file 切换后的「幽灵账号」）；备份文件名统一 UTC（与历史/命中导出时间口径一致）。前端：全量保存不再静默丢弃只填一半的 Telegram API 配置（原 AND 守卫导致输入丢失仍提示「全部已保存」）；设置页数字输入越界在 payload 构造时 clamp（浏览器 min/max 不在表单内不生效）；时间范围补 HH:MM/HH:MM-HH:MM 格式校验与行内错误；批量勾选会话列表补截断提示（仅显示前 40 个）；UserProfileModal 二维码加载失败补错误态与重试（原永久「加载中」）；动作序列全部输入补可访问名称；高级选项折叠补 aria-controls 关联；重试次数提示修正语义并补范围（0–99）；DatePicker 清除按钮移出触发按钮（消除 button 嵌套无效 HTML）。文档：architecture 移除已删除的 db- job 描述、quick-start 澄清 PORT 与 APP_PORT 两个端口变量、ops 补任务日志 60 秒回收的观测性说明。后端 1297 测试全绿（覆盖 57.38%），前端 355 测试/typecheck/构建全绿，ruff 全绿 |
-| 2026-08-12 | 前端体验：下拉 Escape 不再连带关闭整个弹窗（CustomSelect/MultiSelect 补 stopPropagation，防止未保存内容丢失）；登录 TOTP 空码禁用提交、校验失败保留已输入并全选聚焦；扫码登录无密码时保留轮询等待（修复「等待扫码完成」被自身打断）；日志行补键盘入口（role=button + Enter/Space）；AI/Bot 通知/账号弹窗 label 与 input 关联（for/id），新增 13 处；UserProfileModal 二维码 alt 中文化；空态 padding 收敛统一。后端一致性与并发：accounts.json 写改走 `write_json_atomic`（进程内锁 + 唯一临时名 + fsync，防多线程交错覆盖）；删除账号清理登录中会话、签到冷却时间戳与账号锁（防同名重建继承旧状态）；历史索引带过滤读取加 2s TTL 缓存（写路径失效）。测试补强：`get_active_logs_since` 增量语义 4 例、`_build_history_log_item` 兜底 3 例、`first_real_account` 边界 5 例、FilterEmptyState/PageRetry 组件 4 例，新增 16 条用例。后端 1297 测试全绿（覆盖 57.39%），前端 355 测试/typecheck/构建全绿，ruff 全绿 |
-| 2026-08-12 | 后端性能与一致性：任务关联信息查询吃 30s 列表缓存（消除批量循环/轮询路径反复整树扫描）；账号列表缓存加 5s TTL（profile 变更后自动刷新，与登录/删除显式失效互补）；任务日志 WebSocket 改增量拉取（`get_active_logs_since`，空闲 tick O(1) 免每 tick 全量拷贝，含头部裁剪后全量重推）；`backend/CLAUDE.md` 记录列表端点返回约定。前端：占位符暗色反色修复（3 个下拉组件）；日志时间列宽统一 140px（修复跨天时间被截断）；次要文本与空态补 dark 变体；设置页 label/input 关联（通用设置与 Telegram API 两组高频表单）；任务弹窗 aria-label 中文化、命中分组 select 补可访问名称；中文文案括号/冒号统一全角（含占位符）、「移除/删除」用词统一；快捷入口图标尺寸回归统一。测试补强：useTaskHits 导出/清空防连点、formatLogTime 跨天与时区边界、task-list-map 会话名兜底与话题 ID 拼接、useLogsPage 失败态闭环、useTaskListActions 删除防连点，新增 13 条用例。后端 1289 测试全绿（覆盖 57.20%），前端 351 测试/typecheck/构建全绿，ruff 全绿 |
-| 2026-08-12 | 后端收敛：账号通配符解析统一复用 `first_real_account`（update/toggle/run/batch 四处）；`RunTaskResult` 抽公共基类消除响应字段漂移；SSE 推送参数提常量并改插入序去重截断（修复长时间运行后去重集截断不准确）；历史日志条目构造抽共享 builder；`/logs/tasks` 无过滤时复用内存索引（减少整文件读取）；活跃运行上限与 SQLite 锁退避底数提常量。前端：修复 `common.processing` 裸键（批量操作 tooltip 原样显示键名）；英文文案 4 处修正（taskSuccessNotify/tgApiDesc/apiWarning/webdavDownloadHint）；深色模式日志时间戳对比度提升；删除确认改用 i18n 占位符（去除问号前空格）；API ID/Hash、话题 ID、日志保留天数补 placeholder/hint；createModeHint/botUsernamePlaceholder 等中文提示去内部术语；upcomingJobs 时间统一带秒；Dashboard 轮询刷新补轻量反馈；任务弹窗补通知通道来源提示。后端 1289 测试全绿（覆盖 57.26%），前端 338 测试/typecheck/构建全绿，ruff 全绿 |
-| 2026-08-12 | 前端结构抽取（账号筛选条列表态去重、新增 `FilterEmptyState` 统一筛选空态）；时间展示统一（datetime 时区可配置并随设置页保存生效、Logs 与 Dashboard 日志时间格式一致、About 构建时间格式化、登录审计时间序列化补 UTC 标记修复 8 小时偏差，含回归测试）；防连点接线（`runBusyKey` 首次接线、任务删除/命中导出/清空补 busy 态）；加载与错误态（Tasks/Logs/Settings 首屏失败改错误态+重试、Dashboard 局部失败重试按钮、历史/命中面板骨架屏）；后端延迟清理协程收敛为 `schedule_deferred_cleanup`（间隔提常量，含 3 条测试）；后端 500 响应不再泄漏内部异常并补服务端日志（accounts/config 登录与配置路径 20 处）、静默吞异常补留痕；通知补盲（Bark/Server酱 命中推送补账号与 UTC 时间、失败/成功/账号失效通知标题带账号任务上下文、账号失效通知尊重静默时段、成功通知摘要兜底）；文案统一（execTimeoutHint 去内部术语、监听/监控与 Thread ID/话题 ID 用词统一、aria-label 中文化、会话名兜底前缀本地化）；分页钳制与时区解析复用 `clamp`/`resolve_tz`。后端 1289 测试全绿（覆盖 57.19%），前端 338 测试/typecheck/构建全绿，ruff 全绿 |
-| 2026-08-11 | 打磨：修复验证码重发倒计时插值 bug（`{{s}}`→`{s}`，双语言，补双花括号回归测试）；FAB 可访问名称修正（原误用空状态文案）；「登 录」取字间距；前端无障碍批量补齐：动作序列上移/下移/删除、任务日志刷新、任务选择复选框、关联账号下拉、4 处设置开关的 aria-label（含首末项禁用）；目标会话删除改独立按钮、搜索结果改可聚焦按钮、移动端抽屉 inert + 焦点移入归还；确认框标题按操作类型化（下线设备/清空命中/清空日志不再误标「确认删除」）、模式筛选按钮 hover 反馈、批量检测进度移动端可见、日志页骨架屏；后端性能：自动备份打包+WebDAV 上传入线程池、SSE 路由 JWT 校验入线程池、active_logs 运行中统一封顶 2000 行（新增 `_append_active_log`，TaskLogHandler 上限可配）；后端健壮性：accounts.json 损坏先备份再回退、聊天缓存读取失败补 debug 日志、登录/刷新会话 5 处 get_me 补 10s 超时、会话失效判定统一收敛（补 UNAUTHORIZED）；代码质量：新增 `compute_backoff` 统一 4 处指数退避、runner 魔法数字提常量、`clamp` 助手收敛 3 处钳制；通知：关键词命中 Telegram 通知补时间/任务/发送者字段并去重 footer、失败通知按分类附可操作建议、FloodWait 等英文异常映射中文摘要、「session 已失效」中文化、账号失效通知补重新登录指引、登录通知标题对齐；CLI 监控 Server酱 推送结构化（标题带会话名，正文含账号/会话/关键词/发送者/时间）；docs 版本号统一 2.3.0、按钮名/时间格式表述与前端对齐；重试提示文案去内部字段名、scheduler 日志不打印整条任务配置、监听日志节流间隔提常量、config_mixins 收敛模块级 logger。后端 1285 测试全绿（覆盖 57.14%），前端 336 测试/typecheck/构建全绿，ruff 全绿 |
-| 2026-08-08 | 打磨：修复 TOTP 设置二维码 blob URL 泄漏（关闭/重新获取/卸载时统一 revoke，消除会话内累积）；UserProfileModal 两处 TOTP 输入补 inputmode=numeric 与 autocomplete=one-time-code（与登录页一致，移动端数字键盘 + 短信验证码自动填充）；sign_tasks 后台清理/运行任务的 create_logged_task logger 统一为模块级 `_service_logger`；quick-start 部署文档补端口说明（镜像默认监听 8080，改端口需同步 PORT 与映射）。后端 1269 测试全绿（覆盖 57.01%），前端 335 测试/typecheck/构建全绿，ruff 全绿 |
-| 2026-08-08 | 打磨：CLI monitor 代理日志 lazy 化（消除 f-string+%s 双重格式化）并统一中文；send_text/send_dice 删除相关 6 处英文过程日志中文化（消息/骰子删除成功、等待删除等）；signer_actions 空目标文本英文日志中文化；sign_task_config_inspect 抽取共享 `_iter_chat_actions` 遍历（requires_updates/has_keyword 两函数重复结构收敛，保留 chats 缺失时保守 True 语义），补畸形结构边界测试；Dashboard 失败分类徽章补「点击查看」提示。后端 1269 测试全绿（覆盖 57.01%），前端 335 测试/typecheck/构建全绿，ruff 全绿 |
-| 2026-08-08 | 打磨：Server酱 `sc_send` 补 HTTP 状态检查（raise_for_status）与非 JSON 响应兜底（返回原始文本供上层告警，不再抛裸 JSONDecodeError，含 2 条测试）；签到历史清理基准时间统一 UTC（原 naive 本地时间与 UTC 存储历史比较存在偏移风险）；scheduler_update 日志时间戳改 UTC Z 后缀（统一时区，删除冗余 datetime import）；任务列表模板菜单按钮补 aria-expanded/aria-haspopup（读屏可感知展开状态）；设备保活 results message 中文化（未到期/保活成功/保活失败，进 API 响应，含回归断言）。后端 1268 测试全绿（覆盖 57.04%），前端 335 测试/typecheck/构建全绿，ruff 全绿 |
-| 2026-08-08 | 打磨：scheduler 冗余函数内 import（logging/datetime）清理、随机时间段 f-string 日志 lazy 化、`get_sign_task_service` 重复获取合并为一次；account_locks 锁表加容量上限与未持锁清理（防账号删除后 Lock 永久滞留，含回归测试）；`.env.example` 删除已从代码移除的 `TG_SESSION_NO_UPDATES`（与文档记录对齐）；`_resolve_action_delay` 重复 fallback 计算提取局部变量；历史文件 JSON 读取异常捕获收窄（OSError/JSONDecodeError 等，不吞编程错误）；TaskForm 单行箭头函数格式对齐。后端 1266 测试全绿（覆盖 57.04%），前端 335 测试/typecheck/构建全绿，ruff 全量扫描全绿 |
-| 2026-08-08 | 打磨：repair_mojibake 异常捕获收窄为 UnicodeError（编码/解码类失败才回退，不吞编程错误）；TaskLogHandler 日志队列超限改批量删除（消除每行 O(n) pop(0)），补溢出回归测试；账号头像加载失败补诊断日志（保留首字母占位）；任务日志 WebSocket 连接成功补 debug 日志；任务触发运行（doRun）补防连点 busy（启动请求在途忽略重复触发，含回归测试）；useTaskRunStream 补 devLog 导入。后端 1265 测试全绿（覆盖 57.02%），前端 335 测试/typecheck/构建全绿，ruff 全绿 |
-| 2026-08-08 | 打磨：批量签到任务失败 message 收敛为稳定文案（内部异常详情只进服务端日志，不再透出到 API 响应）；关键词命中 CSV 导出文件名带 UTC 时间戳（连续导出不重名覆盖）；任务启停操作补单任务 busy 防护（请求在途禁用按钮防连点竞态翻转，含回归测试）；账号改名历史文件读取失败补诊断日志（损坏单文件跳过不影响其余）；模板下拉菜单点击外部自动关闭（capture 监听 + ref 判定）；config 路由日志收敛到模块级 logger 并 lazy 化（消除函数内 import 与 f-string 日志）；PWA includeAssets 修正（引用实际存在的 favicon.svg，原 favicon.ico 不存在）。后端 1264 测试全绿（覆盖 57.01%），前端 334 测试/typecheck/构建全绿，ruff 全绿 |
-| 2026-08-08 | 打磨：手机验证码重发 60s 倒计时（防重复点击触发限流，卸载/重置清理计时器）；二维码过期/加载失败兜底（失效码自动清空、错误占位与重新获取入口）；登录页用户名自动聚焦、TOTP 输入补 autocomplete=one-time-code 与数字键盘；添加账号表单补 autocomplete/inputmode（手机号/验证码/两步验证密码的浏览器填充）；telegram 服务与 accounts 路由 6 处误用的 `backend.qr_login` logger 名修正为模块归属（backend.telegram.* / backend.accounts_api）；BackgroundJobStore 落盘复用共享原子写 `write_json_atomic`（fsync+锁+rename，消除手写 temp+replace 无 fsync 的半截文件风险）并补回归测试；MultiSelect 补键盘导航（方向键/Enter/Escape、活跃项高亮、aria-selected，与 CustomSelect 对齐）；Dashboard 实时/轮询徽章补释义 tooltip。后端 1264 测试全绿（覆盖 57.00%），前端 333 测试/typecheck/构建全绿，ruff 全绿 |
-| 2026-08-08 | 打磨：浏览器标签栏/地址栏主题色跟随实际主题（useTheme 切换时同步 theme-color meta，index.html 首帧内联脚本与 PWA manifest 颜色对齐 #ffffff/#0f172a）；移动端抽屉侧栏关闭时正确设置 aria-hidden（原逻辑反向，桌面端/读屏行为修正）；PWA Service Worker 运行时缓存排除敏感/动态 API（auth 鉴权、events SSE 流、ops 运行时状态、keyword-hits 命中记录，避免令牌过期旧响应与流式响应被缓存）；Dashboard 即将执行调度行补完整信息 tooltip（下次运行/类型/任务名）；Logs 页刷新/清空 icon 按钮补 aria-label；账号页批量检测按钮禁用时补原因提示；新增 useTheme 单元测试（theme-color 同步，含 matchMedia stub）；Logs 页日期筛选补可一键清除的 chip 与中英文案；路由切换同步浏览器标签标题（页面名 - TG-SignPulse）。前端 333 测试/typecheck/构建全绿（sw.js 排除逻辑验证生效），ruff 全绿 |
-| 2026-08-08 | 打磨：语言切换同步 `<html lang>`（i18n 单例 watch，首帧与运行时切换一致，屏读器/SEO 语言声明正确）；Dashboard 账号状态检测 Job 状态码本地化（running/canceling/failed/done 中英文案替换英文直出）；任务列表批量操作按钮禁用原因提示（未选中「请先选择任务」/处理中 title 与 aria-disabled）；events 路由 `_require_token` 数据库会话改用 `with` 管理（消除手写 try/finally）；启动完成汇总日志（一次携带版本/监听地址/数据目录，便于部署排障）；任务失败通知日志尾部标注「仅保留最近 20 条流程日志」（超出时提示截断，避免误以为日志不完整）；DatePicker 日历日按钮补完整日期 aria-label、日历面板补月份 aria-label（读屏可达性）；新增 i18n html lang 同步回归测试；内存监控连续超阈值告警去重（回落复位后才重新告警，GC 仍按轮执行，防长期超限告警刷屏）。后端 1263 测试全绿（覆盖 57.00%），前端 330 测试/typecheck/构建全绿，ruff 全绿 |
-| 2026-08-08 | 打磨：AddAccountModal QR 轮询停止处缩进错乱修复；index.html 首帧前同步应用主题与语言（内联脚本消除浅色用户首屏闪黑/闪白 FOUC，lang 随用户语言动态设置，补 description 与深浅色 theme-color meta）；关键词命中推送失败局部容错（不冒泡误报整个命中处理失败，失败原因写入规则日志，与转发通道容错对齐）；sign_tasks 调度日志 logger 统一到模块级 `_service_logger`；Dashboard 日志行跨天补日期前缀（近午夜日志不再歧义）并悬停显示完整日期时间；datetime 工具 `formatDateTime` 默认 locale 显式化（消除浏览器区域导致的格式混排）；Toast 相同文案合并计数（连续重复通知折叠为一条 ×N 并重置计时，防刷屏顶掉其它消息）；`getErrorMessage` 对未知错误的 message/detail/序列化统一截断（防超长或敏感信息刷屏）；Telegram 通知发送网络层失败与 5xx 重试一次（4xx 不重试），提升通知到达率。后端 1262 测试全绿（覆盖 56.99%），前端 327 测试/typecheck/构建全绿，ruff 全绿 |
-| 2026-08-08 | 打磨：API 错误码化——任务/账号核心路径 500 不再暴露 `str(e)` 内部异常、404 改稳定错误码（TASK_NOT_FOUND/ACCOUNT_NOT_FOUND 等），前端 apiErrors 补齐 12 个映射并记录日志堆栈；Toast 支持 hover/touch 暂停倒计时（阅读长错误不消失）；Modal 增加焦点逃逸拉回与无可聚焦元素兜底（tabindex=-1）；后台同步/监控重启失败日志降噪（首次 ERROR+堆栈、连续失败 WARNING 抑制）；sync_jobs+restart_monitors 三处重复逻辑抽取 `backend/services/sync_helpers.py`；avatar 缓存新增过期文件清理（启动时执行，防长期运行累积）；chat 头像路由函数内 import 上移模块级；Dashboard 统计数字增加悬停解释、空状态样式统一；失败通知携带可读失败分类标签（FloodWait→频率限制等）并标注时间 (UTC)。后端 1248 测试全绿（覆盖 56.84%），前端 312 测试/typecheck/构建全绿，ruff 全绿 |
-| 2026-08-08 | 打磨：日期选择器星期缩写/年月文案改用 Intl 按 locale 生成并 i18n 化（消除硬编码中文数组）；手机登录 2FA 分支区分「首次需密码」与「密码错误」，修复密码错误被误提示为需输入密码；后端与 tg_signer 日志消息语言统一为简体中文（含测试断言同步）；关键词命中推送/转发文案中文化（任务/会话/关键词/发送者，多关键词带共 N 个计数）；账号/日志接口兜底文案收敛（recent logs 与 account logs 统一执行成功/执行失败，summary 改「任务: xxx 成功/失败」，导出文件改中文，Unknown Task 统一为未知任务）；Dashboard 页面隐藏时暂停 30s 轮询、回到前台立即刷新；Bot 通知凭据读取收敛为共享 `_bot_config`（关键词推送/登录通知/任务成功/自动备份失败 4 处魔法键读取去重，删除重复 `_bot_thread_id`）。后端 1228 测试全绿（覆盖 56.45%），前端 307 测试/typecheck 全绿，ruff 全绿 |
-| 2026-08-07 | 打磨：Bot 通知升级为 HTML 格式化（加粗标题/状态 emoji/code 字段；字段先截断后转义、HTML 模式标签栈保持闭合避免 parse_mode 400），多通道关键词命中标题统一带 🔔；通知时间戳统一 UTC Z 后缀；Toast 增加 warning 语义（部分成功/部分失败归位琥珀色警示）；日志调用 lazy 化（%s 占位避免 DEBUG 过滤时无谓求值）；前端无障碍与 UI 细节对齐（聚焦环/aria/空态）。后端 1227 测试、前端 306 测试 + typecheck + 构建全绿，ruff 全绿 |
-| 2026-08-06 | 打磨：全局代理读取收敛到 ConfigService.get_global_proxy() 统一入口（替换 sign_tasks/telegram 登录与账号模块 7 处散落魔法键读取）；accounts.py 4 处 string 模式 session 解析复用 load_account_session_string；Dashboard 首屏 7 个相互独立的数据请求改为 Promise.allSettled 并行拉取，缩短首屏等待且各请求独立成败。后端 1210 条测试全绿，前端 304 条/typecheck/构建全绿 |
-| 2026-08-05 | /ccg:init 二轮补扫：tg_signer CLI 全局选项与子命令参数表；frontend Accounts/Logs/Dashboard/Settings 全链路；backend CRUD/config_build/group/chats 专章；清空 init gaps |
-| 2026-08-05 | /ccg:init 补扫：sign_task_runner/历史栈、keyword_monitor continue、frontend Tasks 全链路写入模块 CLAUDE；新增 docs/tests CLAUDE；根文档补 Docker/CI 与执行摘要；architecture.md 交叉对齐；刷新 .claude/index.json |
-| 2026-08-05 | /ccg:init 全仓扫描刷新 CLAUDE.md 与 .claude/index.json |
-| 2026-08-05 | 文档：将根/backend/frontend 三处 CLAUDE.md 内嵌变更记录拆分至同级 CHANGELOG.md，CLAUDE.md 仅保留链接指针，减轻 AI 上下文体积 |
-| 2026-08-05 | 打磨：面板全局设置重启后回灌环境变量（提取 apply_global_settings_to_env，保存与 on_startup 共用，修复 AI_VISION_TIMEOUT 等 6 项重启后静默回退默认值；删死包装函数，新增 5 条测试）；前端 Tasks 列表 last_run 收敛到统一面板时区格式化（formatTaskListDate 重复实现删除，补 UTC→HK 回归测试）；删除无消费死端点 GET /api/config/tasks 与同步 POST /api/sign-tasks/{name}/run（服务方法保留）；version_info/device_keepalive 直用 datetime.now 收敛到 utils.time；keyword_monitor 内存日志时间戳统一 UTC（updated_at 改 Z 后缀 ISO，前端可正确解析）；Login.vue 移除对本地化文案的脆弱 TOTP 判断；log_utils 删零引用死函数；文档同步 backend/CLAUDE.md 接口章节、keyword-monitor.md Server酱通道表述、根 CLAUDE.md 组件表（13→32）与 docs README 目录树。后端 1205 条测试全绿，前端 304 条/typecheck 全绿 |
-| 2026-08-04 | 关键词监听重启去重：按 (账号, 会话) 持久化已处理消息水位（keyword_monitor/seen.json，30s 节流原子写盘、停机/重启加载），重连补投的旧消息不再重复命中、推送与落记录，新增 6 条测试。前端账号名解析统一收敛：resolveTaskAccountName 兼容 TaskUiItem 自动解 raw，Tasks 视图/useTaskListActions/TaskLogsModal 移除重复封装，新增 resolveTaskAccountNames 供 useTaskListRuntime 复用；修复克隆任务把 '*' 当账号名传后端的缺陷并补回归测试。后端 1186 条测试全绿，前端 304 条/typecheck/构建全绿 |
-| 2026-08-04 | 打磨：删除 config 路由死类 ExportTaskResponse 与 tg_session 内 6 处不可达防御分支（_load_account_store 已归一化 accounts 为 dict）；测试密钥统一升级至 ≥32 字节消除 PyJWT InsecureKeyLengthWarning 噪音；backend/utils/tg_session 覆盖率 54%→99%（新增 68 条用例覆盖账号存储 CRUD、并发信号量、会话串旧格式、导出兜底），backend/utils/storage 覆盖率 68%→98%（新增 18 条用例）。前端：删除死导出 AccountUiStatus 与 AsyncPoolTask。后端 1162 条测试全绿且无警告，前端 301 条/typecheck 全绿 |
-| 2026-08-04 | 后端：限流器补过期桶清扫（1h 陈旧/解封清理，防内存缓增）；任务运行状态迁移补 3 张内存映射；运行配置改单次读取（return_raw 消除双读，重试语义修正）；任务历史时间戳改 UTC；收敛账号解析与 JobLookupError 兜底、QR 注册失败可见化、头像缓存失败清理。前端：删除 16 个死 API 导出；会话头像 blob URL 追踪回收（列表替换/卸载统一 revoke）；会话搜索/复制提示/重登弹窗延时与 AbortController 卸载清理；DatePicker 与 AboutSettings 硬编码文案 i18n 化（含键一致性回归测试）；账号名解析收敛到共享 resolveTaskAccountName。后端 1094 条测试全绿，前端 301 条/typecheck/构建全绿 |
-| 2026-08-03 | 修复任务清理竞态（cancel 后 finally 误删新条目）与日志页/会话搜索过期响应竞态（各配回归测试）；修复 F821 未导入与 config.json 非原子回写；头像 blob URL 泄漏改 AvatarUrlCache 会话复用；收敛 hits 字段截断、6 处时间格式化、账号日志双循环；清理 write-only 字段与死导出并补静默异常诊断日志。后端 1076 条测试覆盖率 52.19%，前端 299 条/typecheck/构建全绿 |
-| 2026-08-03 | 任务取消不再误写失败历史/误发通知（CancelledError 单独捕获，收尾仍执行）；头像下载瞬时错误不再写 7 天无头像标记（服务层上抛与空结果区分，accounts/chat 双路由补回归测试）；AI 空结果检查修复（原 not lambda 恒 False 恒不触发）；Server酱 推送异常隔离不再中断监控匹配循环；补抓最后消息失败补诊断日志；list_accounts 三处 exists+stat 双重系统调用收敛单次 stat；清理死方法 login_sync、click text= 死分支与 __aexit__ 锁弹出竞态；前端竞态守卫/时区统一/卸载标记/死导出清理。后端 1086 条测试覆盖率 52.97%，前端 299 条/typecheck/构建全绿 |
-| 2026-06-30 | 初始化根级 CLAUDE.md，含架构总览、模块索引、Mermaid 结构图 |
-| 2026-06-30 | 补扫：TelegramService 登录流程、4 个后端路由、3 个前端 Views、tg_signer 核心类 |
-| 2026-06-30 | 补扫：backend/utils/ 13 个工具模块、tools/ 迁移脚本、前端剩余 3 个 Views |
-| 2026-06-30 | 补扫：前端 Composables、tg_signer/config.py 配置模型；验证 5 项关键发现 |
-| 2026-06-30 | 补扫：tg_signer/core.py 前半段（Client 生命周期）、前端 13 个 Components；规划 token/any 修复方案 |
-| 2026-07-01 | 新增账号设备管理、设备保活、官方消息查看、批量状态检查功能 |
-| 2026-07-30 | 删除 pyotp 根 shim 与四处死代码；收敛凭据解析/JWT/前端通知/账号状态公共入口；批量写延迟缓存刷新；覆盖率门槛升至 40% |
-| 2026-07-31 | print_exc 收敛为结构化日志并清理注释死代码；历史清理/回复解析/空备份清理等 6 处静默异常补诊断日志；修复历史运维模块乱码 docstring；print_to_user 编码兜底改为 ascii 使回退真正生效；tg_signer/utils 覆盖率 35%→100%（新增 14 条测试） |
-| 2026-07-31 | 静默 except 收尾 11 处（通配任务配置写入失败升 warning，其余按级别补诊断日志，过期历史清理收窄为 OSError）；tg_signer/security 覆盖率 56%→100%（新增 18 条测试）；前端 typecheck/vitest 287 条/生产构建全绿 |
-| 2026-07-31 | 集中补测长尾模块——telegram/sessions 23%→96%（登录会话释放与过期/超量清理）、tg_signer/pydantic_compat 57%→97%（鸭子类型命中 v2 分支与 dump_json）、backend/utils/task_logs 71%→98%（日志提取器全分支）；新增 23 条测试 |
-| 2026-07-31 | 修复配置接口输入边界：设备保活手动执行响应补回并发提示字段；导入签到任务非法名称返回 400 且回显规范化后的落盘名称；Telegram 凭据保存时校验 api_id 为正整数；新增 10 条接口守钉测试 |
-| 2026-07-31 | 攻克 sign_task_runner 覆盖率 1%→93%——FakeSvc/FakeSigner 替身穿透成功/失败/超时/重试/冷却/强失败翻转/session 双模式/补抓超时分支，新增 24 条测试，总覆盖率 46%→48% |
-| 2026-07-31 | 文档一致性：tg_signer/core.py 单文件行号锚点重锚为 client.py/runtime.py 拆分后真实结构（README 中英文同步）；删除 pyproject 中已不存在 shim 文件的 per-file-ignores 死配置 |
-| 2026-07-31 | 修正 tasks 指南中旧 `/api/tasks` "默认只读"过时表述（实际已完全移除，改链 FAQ）；sign_task_backend 覆盖率 54%→100%（TaskLogHandler 规范化/回退/溢出/容错与 task_dir 三级解析/交互禁令，新增 10 条测试）；前端 bundle 分析确认分包健康无需干预 |
-| 2026-07-31 | 通知链路补测——sign_task_notify 10%→100%（门控/静默时段/话题 ID 解析/失败与成功推送容错/mark_account_invalid 幂等通知/check_account_before_task 预检全分支含 fail-open）、server_chan 12%→100%（标准与 sctp 双 URL、参数合并、非法 sendkey 报错）；新增 36 条测试 |
-| 2026-07-31 | 提交信息规范化：未推送历史中的过程性字眼改写为描述式表述，变更记录同步去除编号前缀 |
-| 2026-07-31 | 功能修复四处：设备保活间隔配置非数字值不再导致整轮 500（容错解析并夹取 1~170 天），运行中响应的 enabled 改为如实读取而非硬编码 True；账号日志 task_name 为空串时统一回落默认名并删除第二兜底；logs 路由校验式日期调用补意图注释。device_keepalive 覆盖 16%→84%（新增 13 条用例含间隔夹取/启停门控/忙响应/状态持久化），总测试 1047 条 |
-| 2026-07-31 | 路由层补测——routes/accounts 33%→96%（登录/QR 全流程错误映射、批量状态 Job 增删查消、最近/账号日志映射与限长夹取、导出内容断言、设备/官方消息、头像缓存三级回退、改名更新路径）、routes/events 36%→91%（SSE 字节编码/去重键/令牌校验、事件流种子去重/兜底扫描与容错/心跳）；新增 69 条测试，总覆盖 48.86%→50.48% |
+## 2026-10-01
+- **修复**：修复限流器在容量饱和时误将新 Key 计数清零的漏洞，并增加总容量上限避免内存无界增长。
+- **修复**：修复 ChatOps 停止退出时抛出 `CancelledError` 异常的问题，保障服务优雅下线。
+- **优化**：ChatOps 增加 Telegram 429 频率限制指数退避重试，并增加后台任务强引用与异常回收，避免任务静默丢失。
+- **优化**：前端任务实时日志弹窗新增「WS 实时 / 轮询中 / 连接中」状态徽标，并丢弃跨代旧响应，防止切换任务时日志串台。
+- **优化**：日期选择器改为仅在面板展开时监听全局点击事件，并在组件卸载时彻底清理，防止事件监听泄漏。
+
+## 2026-09-28
+- **修复**：修复删除通配任务时连带误删其他账号独立同名任务的 bug。
+- **修复**：修复历史日志文件名特殊字符编码变更导致旧历史记录不可见的问题，增加启动自动迁移与清理。
+- **安全**：增加用户修改密码与登出时的 JWT 令牌世代号吊销机制，旧令牌立即失效。
+- **安全**：关键词监听增加正则匹配超时机制，防止恶意或复杂正则导致 ReDoS 卡死事件循环。
+- **安全**：出站 Webhook 与代理请求增加公网地址校验，拦截内网探测请求；配置文件导出时对敏感密钥统一脱敏。
+
+## 2026-09-25
+- **修复**：修复多任务并发执行时因底层连接被提前断开导致后台监听中断的问题，引入连接引用计数管理。
+- **修复**：修复 Telegram 长时间 `FloodWait`（>120s）未正常登记冷却时间而被误判为成功的 bug。
+- **修复**：修复账号登录流程中残留旧锁导致后续登录与签到卡死拿不到锁的问题。
+- **修复**：修复会话文件并发写入冲突，改用原子写盘与权限保护。
+- **优化**：优化签到结果状态判定规则，修复「明天再来」与特定失败标记并存时的冲突问题。
+- **优化**：前端网络请求清理逻辑后置至响应体完全读取，修复下载文件名包含特殊字符时的兼容性。
+
+## 2026-09-22
+- **依赖**：升级 Telegram 核心引擎至 `kurigram==2.2.26`，原生支持内存会话存储并优化 SQLite WAL 并发。
+- **修复**：修复历史异常 session_string 导致启动报错的问题，增加格式校验与自动容灾自愈。
+- **优化**：AI 模块适配 GPT-5 及推理系列新模型，自适应兼容 `max_tokens` 与 `max_completion_tokens` 参数。
+- **优化**：AI 视觉识别在遇到不支持的思考参数或 JSON 模式报错时，支持多级自动降级重试。
+
+## 2026-09-19
+- **功能**：新增多格式会话导入功能（支持 Telethon / Pyrogram `.session`、StringSession、TData `.zip`）。
+- **功能**：支持导出独立的 SessionString，支持一键清退其他在线设备。
+- **功能**：新增账号设备指纹池（支持模拟桌面端、Android、macOS、iOS 等设备特性）。
+- **功能**：新增代理出口 IP 探测与熔断机制，支持全局强制代理设置。
+- **功能**：新增随机时段错峰与自适应动态冷却，支持解析机器人冷却倒计时并自动调整下次签到时间。
+- **功能**：新增常用词条字典宏功能（如 `{dict:name}`），支持按会话文件夹筛选目标。
+
+## 2026-08-17
+- **修复**：修复系统首次超出内存阈值时未正常触发自动垃圾回收（GC）的判定问题。
+- **优化**：AI 视觉识别请求增加阶梯降级策略，遇到网关参数校验错误时逐级去除高级参数重试。
+
+## 2026-08-15
+- **功能**：面板新增「AI 视觉思考度」设置选项（支持低/中/高/关闭）。
+- **优化**：AI 视觉最大 Token 数支持环境变量配置，并在遇到长度截断时自动翻倍重试。
+
+## 2026-08-12
+- **性能**：关键词监听与任务状态查询增加短期缓存，消除频繁整树扫描导致的性能消耗。
+- **优化**：任务实时日志支持增量拉取，大幅降低空闲轮询时的内存与 CPU 占用。
+- **优化**：前端下拉框按 Escape 键不再误关整个弹窗，表单数字输入增加上下限自动修正。
+- **优化**：全量统一日志与历史文件的时间戳展示为带时区的规范格式，修复跨时区 8 小时偏差。
+
+## 2026-08-11
+- **修复**：修复手机验证码倒计时文案占位符渲染错误的问题。
+- **体验**：优化登录页与弹窗的键盘无障碍交互（支持 Enter/空格导航、焦点自动回归）。
+- **优化**：统一 Telegram、Bark、Server酱等推送通道的通知格式与错误重试策略。
+
+## 2026-08-08
+- **修复**：修复两步验证设置二维码内存对象泄漏的问题。
+- **修复**：修复手机登录两步验证时「首次需密码」与「密码输入错误」提示混淆的问题。
+- **优化**：后端核心 API 统一标准化错误码返回，不再直接向前端暴露底层异常堆栈。
+- **优化**：前端页面增加深浅色主题切换时的首屏防闪烁处理，支持根据系统自动跟随。
+
+## 2026-08-05
+- **文档**：整理后端与前端模块架构文档，梳理命令行选项与接口清单。
+- **优化**：修复面板全局配置在系统重启后未能正确同步至环境变量的 bug。
+
+## 2026-08-04
+- **优化**：关键词监听增加已读消息水位线持久化，重连或重启后不再重复推送旧消息。
+- **修复**：修复任务克隆时将通配符当作普通账号名保存的 bug。
+- **优化**：限流器增加定时过期清理机制，防止长期运行内存缓慢上涨。
+
+## 2026-08-03
+- **修复**：修复手动取消任务时误记为「执行失败」并触发失败通知的 bug。
+- **修复**：修复账号头像下载瞬时网络错误被错误标记为永久无头像的问题。
+- **优化**：消除任务并发清理时的状态覆盖竞态，优化各模块异常日志规范。
+
+## 2026-07-31
+- **功能**：新增账号设备列表查看、踢下线、设备定时保活与官方消息查看功能。
+- **优化**：完善签到任务、登录会话管理与消息通知等核心模块的容错与边界测试用例。
+
+## 2026-07-01
+- **架构**：梳理 Telegram 核心运行时生命周期，规范 Client 启动、重试与退出流程。
+- **初始化**：完成 TG-SignPulse 统一管理面板的架构设计与基础模块初始化。
