@@ -293,3 +293,23 @@ class TestTokenRevocation:
         finally:
             monkeypatch.delenv("APP_ACCESS_TOKEN_EXPIRE_HOURS", raising=False)
             config_module.get_settings.cache_clear()
+
+
+def test_resolve_user_from_token_non_numeric_tep_claim():
+    """非数字或异常格式的 tep claim 返回 None，不抛出 500 异常。"""
+    from unittest.mock import MagicMock
+
+    import jwt
+
+    from backend.core.auth import _resolve_user_from_token
+    from backend.core.config import get_settings
+
+    settings = get_settings()
+    mock_db = MagicMock()
+    token_invalid_tep = jwt.encode(
+        {"sub": "admin", "tep": "invalid_string_not_number"},
+        settings.secret_key,
+        algorithm="HS256",
+    )
+    result = _resolve_user_from_token(token_invalid_tep, mock_db)
+    assert result is None

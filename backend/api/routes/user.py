@@ -21,6 +21,7 @@ from backend.core.auth import (
 from backend.core.database import get_db
 from backend.core.security import hash_password, verify_password
 from backend.models.user import User
+from backend.services.users import cleanup_bootstrap_password_file
 
 try:
     import qrcode
@@ -142,6 +143,8 @@ def change_password(
     current_user.password_hash = hash_password(request.new_password)
     # 改密后吊销此前签发的所有令牌，防止已泄露的旧令牌继续可用
     revoke_user_tokens(db, current_user)
+    if current_user.username == "admin":
+        cleanup_bootstrap_password_file()
 
     return ChangePasswordResponse(success=True, message="密码修改成功")
 

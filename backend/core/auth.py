@@ -147,9 +147,11 @@ def _resolve_user_from_token(token: str, db: Session) -> Optional[User]:
         return None
     try:
         current_epoch = int(user.token_epoch or 1)
+        parsed_token_epoch = int(token_epoch)
     except (TypeError, ValueError):
-        current_epoch = 1
-    if int(token_epoch) != current_epoch:
+        logger.debug("JWT tep 格式非法或当前世代号异常，按认证失败处理")
+        return None
+    if parsed_token_epoch != current_epoch:
         logger.debug(
             "JWT 世代号已过期（tep=%r, 当前=%d），按已吊销处理",
             token_epoch,
@@ -192,12 +194,21 @@ oauth2_scheme_optional = OAuth2PasswordBearer(
 
 def get_current_user_optional(
     token: Optional[str] = Depends(oauth2_scheme_optional),
-    db: Session = Depends(get_db),
 ) -> Optional[User]:
-    """获取当前用户，如果无法认证则返回 None（不抛出异常）"""
+    """获取当前用户，如果无法认证则返回 None（不抛出异常）。
+
+    若未携带 Token 则直接短路返回 None，避免无谓检出数据库连接池。
+    """
     if not token:
         return None
-    return verify_token(token, db)
+    from backend.core.database import get_session_local
+
+    session_factory = get_session_local()
+    db = session_factory()
+    try:
+        return verify_token(token, db)
+    finally:
+        db.close()
 
 
 def verify_token(token: str, db: Session) -> Optional[User]:
