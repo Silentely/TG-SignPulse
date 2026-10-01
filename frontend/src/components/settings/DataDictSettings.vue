@@ -4,6 +4,7 @@ import { BookOpen, Plus, Trash2, Edit2, Play, Sparkles, X, RefreshCw, Layers } f
 import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
 import { useAuthStore } from '../../stores/auth'
+import { getLocalizedErrorMessage } from '../../lib/types'
 import {
   listDataDicts,
   getDataDict,
@@ -42,8 +43,8 @@ const loadDicts = async () => {
   loading.value = true
   try {
     dicts.value = await listDataDicts(token)
-  } catch (err: any) {
-    error(err?.message || t('common.loadFailed'))
+  } catch (err: unknown) {
+    error(getLocalizedErrorMessage(err, t, t('common.loadFailed')))
   } finally {
     loading.value = false
   }
@@ -73,8 +74,8 @@ const openEditModal = async (name: string) => {
     const detail = await getDataDict(token, name)
     formRemark.value = detail.remark || ''
     formEntries.value = (detail.entries || []).join('\n')
-  } catch (err: any) {
-    error(err?.message || t('common.loadFailed'))
+  } catch (err: unknown) {
+    error(getLocalizedErrorMessage(err, t, t('common.loadFailed')))
     showModal.value = false
   } finally {
     saving.value = false
@@ -116,8 +117,8 @@ const handleSave = async () => {
     success(t('settings.dataDictSaveSuccess'))
     showModal.value = false
     await loadDicts()
-  } catch (err: any) {
-    formError.value = err?.message || t('settings.saveFailed')
+  } catch (err: unknown) {
+    formError.value = getLocalizedErrorMessage(err, t, t('settings.saveFailed'))
   } finally {
     saving.value = false
   }
@@ -135,8 +136,8 @@ const handleDelete = async (name: string) => {
     await deleteDataDict(token, name)
     success(t('settings.dataDictDeleteSuccess'))
     await loadDicts()
-  } catch (err: any) {
-    error(err?.message || t('tasks.deleteFailed'))
+  } catch (err: unknown) {
+    error(getLocalizedErrorMessage(err, t, t('tasks.deleteFailed')))
   } finally {
     loading.value = false
   }
@@ -158,8 +159,8 @@ const runSample = async () => {
   try {
     const res = await sampleDataDictEntry(token, sampleDictName.value, sampleMode.value)
     sampleResult.value = res.entry
-  } catch (err: any) {
-    error(err?.message || t('tasks.triggerFailed'))
+  } catch (err: unknown) {
+    error(getLocalizedErrorMessage(err, t, t('tasks.triggerFailed')))
   } finally {
     sampling.value = false
   }

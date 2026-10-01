@@ -6,16 +6,22 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
  */
 describe('useTheme theme-color 同步', () => {
   // jsdom 不实现 matchMedia，useTheme 模块加载时会读取系统偏好，需 stub
+  let lastMediaListener: ((e: any) => void) | null = null
   const stubMatchMedia = (matches: boolean) => {
+    lastMediaListener = null
     Object.defineProperty(window, 'matchMedia', {
       writable: true,
       configurable: true,
       value: vi.fn().mockImplementation((query: string) => ({
         matches,
         media: query,
-        addEventListener: vi.fn(),
+        addEventListener: vi.fn().mockImplementation((event: string, cb: any) => {
+          if (event === 'change') lastMediaListener = cb
+        }),
         removeEventListener: vi.fn(),
-        addListener: vi.fn(),
+        addListener: vi.fn().mockImplementation((cb: any) => {
+          lastMediaListener = cb
+        }),
         removeListener: vi.fn(),
         dispatchEvent: vi.fn(),
       })),
@@ -63,5 +69,18 @@ describe('useTheme theme-color 同步', () => {
     expect(themeColorMeta()?.getAttribute('content')).toBe('#0f172a')
     toggleTheme()
     expect(themeColorMeta()?.getAttribute('content')).toBe('#ffffff')
+  })
+  it('未手动配置主题时跟随系统 prefers-color-scheme 变化实时切换', async () => {
+    stubMatchMedia(false)
+    const { useTheme } = await import('../composables/useTheme')
+    useTheme()
+    expect(document.documentElement.classList.contains('dark')).toBe(false)
+
+    // 系统切换为深色模式
+    if (lastMediaListener) {
+      lastMediaListener({ matches: true })
+    }
+    expect(document.documentElement.classList.contains('dark')).toBe(true)
+    expect(themeColorMeta()?.getAttribute('content')).toBe('#0f172a')
   })
 })
