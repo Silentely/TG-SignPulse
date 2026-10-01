@@ -79,6 +79,7 @@ class TelegramChatOpsWorker:
                 "• <code>/tasks</code>: 查看已启用的任务列表\n"
                 "• <code>/cooldown</code>: 查看处于限频冷却保护中的账号\n"
                 "• <code>/run &lt;task_name&gt;</code>: 立即触发指定任务执行\n"
+                "• <code>/ping</code>: 测试 ChatOps 机器人连通性\n"
                 "• <code>/help</code>: 显示此帮助信息"
             )
             await send_telegram_bot_message(
@@ -201,6 +202,23 @@ class TelegramChatOpsWorker:
                 f"• 任务: <code>{_html_escape(target_task)}</code>\n"
                 f"• 账号: <code>{_html_escape(acc_name)}</code>\n"
                 "结果将在完成后推送通知。"
+            )
+            await send_telegram_bot_message(
+                bot_token=bot_token, chat_id=chat_id, text=reply, parse_mode="HTML"
+            )
+            return
+
+        if cmd == "/ping":
+            reply = "🏓 <b>Pong!</b> TG-SignPulse ChatOps 服务运行正常。"
+            await send_telegram_bot_message(
+                bot_token=bot_token, chat_id=chat_id, text=reply, parse_mode="HTML"
+            )
+            return
+
+        if cmd.startswith("/"):
+            reply = (
+                f"❓ 未知指令 <code>{_html_escape(cmd)}</code>。\n\n"
+                "输入 <code>/help</code> 查看可用指令列表。"
             )
             await send_telegram_bot_message(
                 bot_token=bot_token, chat_id=chat_id, text=reply, parse_mode="HTML"

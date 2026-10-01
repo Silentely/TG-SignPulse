@@ -26,6 +26,9 @@ DEFAULT_BACKUP_PATHS: Tuple[str, ...] = (
     ".global_settings.json",
     ".openai_config.json",
     ".telegram_api.json",
+    "data_dicts",
+    ".signer/keyword_monitor",
+    ".signer/.device_keepalive_state.json",
 )
 
 

@@ -61,8 +61,11 @@ test_*.py
 .coverage
 htmlcov/
 
-# Frontend development files
+# Frontend build & development files
 frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.output/
 frontend/.next/
 frontend/out/
 frontend/.env.local
