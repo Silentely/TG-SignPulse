@@ -176,4 +176,12 @@ def get_data_dict_service() -> DataDictService:
         with _instance_lock:
             if _instance is None:
                 _instance = DataDictService()
+                try:
+                    from tg_signer.core.template import set_data_dict_resolver
+
+                    set_data_dict_resolver(
+                        lambda name, mode: _instance.get_entry(name, mode=mode)
+                    )
+                except Exception:
+                    pass
     return _instance

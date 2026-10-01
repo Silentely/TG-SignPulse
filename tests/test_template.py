@@ -112,3 +112,17 @@ def test_render_template_convenience_aliases():
     assert render_template("{{ randint(7, 7) }}") == "7"
     assert render_template("{{ choice('single') }}") == "single"
     assert render_template("{{ sum([1, 2, 3, 4]) }}") == "10"
+
+
+def test_render_template_custom_data_dict_resolver():
+    from tg_signer.core.template import get_data_dict_resolver, set_data_dict_resolver
+
+    prev_resolver = get_data_dict_resolver()
+    try:
+        set_data_dict_resolver(lambda name, mode: f"mocked_{name}_{mode}")
+        res = render_template("Prefix {dict:greetings:round_robin} Suffix")
+        assert res == "Prefix mocked_greetings_round_robin Suffix"
+        res2 = render_template("Prefix {{ dict_entry('test', 'random') }} Suffix")
+        assert res2 == "Prefix mocked_test_random Suffix"
+    finally:
+        set_data_dict_resolver(prev_resolver)

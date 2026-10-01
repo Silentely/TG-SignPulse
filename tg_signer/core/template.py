@@ -5,7 +5,43 @@ import datetime
 import random
 import re
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
+
+# 数据字典条目解析器（由宿主应用注册，解耦独立 CLI 与 Web 宿主）
+DataDictResolver = Callable[[str, str], Optional[str]]
+_DATA_DICT_RESOLVER: Optional[DataDictResolver] = None
+
+
+def set_data_dict_resolver(resolver: Optional[DataDictResolver]) -> None:
+    """注册外部数据字典条目解析器（由宿主应用注册，避免 tg_signer 逆向依赖 backend）。"""
+    global _DATA_DICT_RESOLVER
+    _DATA_DICT_RESOLVER = resolver
+
+
+def get_data_dict_resolver() -> Optional[DataDictResolver]:
+    """获取当前注册的数据字典解析器。"""
+    return _DATA_DICT_RESOLVER
+
+
+def _resolve_dict_entry(name: str, mode: str) -> Optional[str]:
+    """通过依赖注入的解析器读取数据字典；若未注入且处于完整应用环境，兼容性回退。"""
+    if _DATA_DICT_RESOLVER is not None:
+        try:
+            return _DATA_DICT_RESOLVER(name, mode)
+        except Exception:
+            pass
+    # 宿主回退：允许在未显式调用 set_data_dict_resolver 时按需获取单例
+    try:
+        import sys
+
+        if "backend.services.data_dict" in sys.modules or "backend" in sys.modules:
+            from backend.services.data_dict import get_data_dict_service
+
+            return get_data_dict_service().get_entry(name, mode=mode)
+    except Exception:
+        pass
+    return None
+
 
 # 匹配 {{ expression }}
 _TEMPLATE_PATTERN = re.compile(r"\{\{\s*(.*?)\s*\}\}")
@@ -22,13 +58,8 @@ def _render_dict_macros(template_str: str) -> str:
     def _replace_dict_macro(match: re.Match) -> str:
         name = match.group(1)
         mode = match.group(2) or "random"
-        try:
-            from backend.services.data_dict import get_data_dict_service
-
-            svc = get_data_dict_service()
-            return svc.get_entry(name, mode=mode)
-        except Exception:
-            return match.group(0)
+        val = _resolve_dict_entry(name, mode)
+        return val if val is not None else match.group(0)
 
     return _DICT_MACRO_PATTERN.sub(_replace_dict_macro, template_str)
 
@@ -249,13 +280,8 @@ def _build_default_template_context(
         return uid.replace("-", "")[:8] if short else uid
 
     def _dict_entry(name: str, mode: str = "random") -> str:
-        try:
-            from backend.services.data_dict import get_data_dict_service
-
-            svc = get_data_dict_service()
-            return svc.get_entry(name, mode=mode)
-        except Exception:
-            return ""
+        val = _resolve_dict_entry(name, mode)
+        return val if val is not None else ""
 
     ctx: Dict[str, Any] = {
         "now": now,
