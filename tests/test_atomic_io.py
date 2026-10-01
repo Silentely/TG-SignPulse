@@ -10,6 +10,7 @@ import json
 
 from backend.utils.atomic_io import (
     read_json_safe,
+    read_text_safe,
     write_bytes_atomic,
     write_json_atomic,
     write_text_atomic,
@@ -81,3 +82,28 @@ def test_write_bytes_atomic_no_tmp_leak_on_error(tmp_path, monkeypatch):
     assert not target.exists()
     leftovers = list((tmp_path / "sub").glob("*.tmp-*"))
     assert leftovers == []
+
+
+def test_read_text_safe_success_and_fallback(tmp_path):
+    target = tmp_path / "hello.txt"
+    target.write_text("sample content", encoding="utf-8")
+    assert read_text_safe(target) == "sample content"
+    assert (
+        read_text_safe(tmp_path / "non_existing.txt", default="fallback") == "fallback"
+    )
+
+
+def test_path_write_lock_weakref_lifecycle(tmp_path):
+    """验证 path_write_lock 的弱引用自动回收与互斥特性。"""
+    import gc
+
+    from tg_signer.atomic_io import _path_locks, path_write_lock
+
+    test_file = tmp_path / "weakref_test.txt"
+    lock1 = path_write_lock(test_file)
+    assert path_write_lock(test_file) is lock1
+    assert str(test_file.resolve()) in _path_locks
+
+    del lock1
+    gc.collect()
+    assert str(test_file.resolve()) not in _path_locks
