@@ -163,7 +163,7 @@ def get_local_version_info() -> Dict[str, Any]:
 
         app_name = get_settings().app_name
     except Exception:
-        app_name = _read_env("APP_APP_NAME", "APP_NAME", default="tg-signer-panel")
+        app_name = _read_env("APP_APP_NAME", "APP_NAME", default="TG-SignPulse")
 
     import platform
 
