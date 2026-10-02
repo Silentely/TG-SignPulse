@@ -98,7 +98,7 @@ def get_default_secret_key(env: Optional[Mapping[str, str]] = None) -> str:
 
 
 class Settings(BaseModel):
-    app_name: str = "tg-signer-panel"
+    app_name: str = "TG-SignPulse"
     host: str = "127.0.0.1"
     port: int = 3000
     cors_allow_origins_raw: str = "http://127.0.0.1:3000,http://localhost:3000"
@@ -121,7 +121,7 @@ class Settings(BaseModel):
         env = _merged_env()
         return cls(
             app_name=_read_env(
-                env, "APP_APP_NAME", "APP_NAME", default="tg-signer-panel"
+                env, "APP_APP_NAME", "APP_NAME", default="TG-SignPulse"
             ),
             host=_read_env(env, "APP_HOST", default="127.0.0.1"),
             port=_read_int_env(env, "APP_PORT", default=3000),
