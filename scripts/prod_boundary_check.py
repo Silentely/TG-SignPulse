@@ -139,7 +139,7 @@ def main() -> int:
     if "keep root" in entrypoint_text:
         errors.append("entrypoint.sh must not keep root")
 
-    for compose_name in ("docker-compose.yml", "docker-compose.panel.yml"):
+    for compose_name in ("docker-compose.yml",):
         compose_file = repo_root / compose_name
         if not compose_file.exists():
             errors.append(f"missing {compose_name}")

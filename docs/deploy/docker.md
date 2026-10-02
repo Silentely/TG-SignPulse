@@ -95,10 +95,18 @@ curl -sS -H "Authorization: Bearer <token>" http://127.0.0.1:8080/api/ops/runtim
 
 ### 本地源码构建
 
-仓库根目录已提供 `docker-compose.yml`，默认本地构建：
+仓库根目录的 `Dockerfile` 为多阶段构建（Node 构建前端 → Python 运行时）。需要基于未发布的本地改动构建镜像时：
 
 ```bash
-docker compose up -d --build
+docker build -t tg-signpulse:local .
+
+docker run -d \
+  --name tg-signpulse \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  -v $(pwd)/data:/data \
+  -e TZ=Asia/Shanghai \
+  tg-signpulse:local
 ```
 
 ## 端口与健康检查

@@ -80,4 +80,4 @@ docs/
 - `docs/README.md`、`docs/index.md`
 - `docs/guide/*`、`docs/deploy/*`、`docs/reference/*`
 - 根 `package.json` 的 `docs:*` 脚本
-- `docker-compose.panel.yml` / `Dockerfile`（部署章节的真实来源）
+- `docker-compose.yml` / `Dockerfile`（部署章节的真实来源）
