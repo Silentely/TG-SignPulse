@@ -269,7 +269,7 @@ const emit = defineEmits<{
       <div
         v-for="(action, idx) in actions"
         :key="action.id"
-        class="border border-gray-100 dark:border-gray-800/60 bg-gray-50/80 dark:bg-white/[0.02] rounded transition-all"
+        class="border border-[var(--sp-border)] dark:border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] bg-[var(--sp-surface)]/[0.02] rounded transition-all"
         :class="{
           'opacity-40 border-dashed border-sky-400': draggedIdx === idx,
           'border-sky-500 ring-1 ring-sky-500': dragOverIdx === idx && draggedIdx !== idx
@@ -281,7 +281,7 @@ const emit = defineEmits<{
         <div class="flex items-start gap-2 p-2 sm:p-3">
           <!-- 拖拽把手 -->
           <div
-            class="shrink-0 pt-2 cursor-grab active:cursor-grabbing text-gray-400 hover:text-sky-500 transition-colors"
+            class="shrink-0 pt-2 cursor-grab active:cursor-grabbing text-[var(--sp-text-muted)] hover:text-sky-500 transition-colors"
             draggable="true"
             title="拖拽以重新排序"
             @dragstart="onDragStart(idx, $event)"
@@ -330,7 +330,7 @@ const emit = defineEmits<{
                 :placeholder="t('taskForm.buttonPlaceholder')"
                 class="ui-input !h-9 !text-xs !px-2 w-full"
               />
-              <div class="text-[11px] text-gray-500 dark:text-gray-400 flex items-center gap-1 px-0.5">
+              <div class="text-[11px] text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)] flex items-center gap-1 px-0.5">
                 <span class="text-sky-500 shrink-0">💡</span>
                 <span>{{ t('taskForm.buttonHint') }}</span>
               </div>
@@ -354,7 +354,7 @@ const emit = defineEmits<{
                   class="ui-input !h-9 !text-xs !px-2 flex-1"
                 />
               </div>
-              <div class="text-[11px] text-gray-500 dark:text-gray-400 flex items-center gap-1 px-0.5">
+              <div class="text-[11px] text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)] flex items-center gap-1 px-0.5">
                 <span class="text-sky-500 shrink-0">💡</span>
                 <span>{{ t('taskForm.sendDiceHint') }}</span>
               </div>
@@ -444,10 +444,10 @@ const emit = defineEmits<{
               <!-- 参数配置区域 (若插件声明了 params_schema) -->
               <div
                 v-if="getPluginInfo(action.value)?.params_schema?.length"
-                class="mt-1.5 p-2.5 bg-gray-50/70 dark:bg-white/[0.02] border border-gray-200/80 dark:border-gray-800/80 rounded-md flex flex-col gap-2.5"
+                class="mt-1.5 p-2.5 bg-[var(--sp-surface-subtle)] bg-[var(--sp-surface)]/[0.02] border border-[var(--sp-border)] dark:border-[var(--sp-border)] rounded-[var(--sp-radius)] flex flex-col gap-2.5"
               >
-                <div class="text-[11px] font-medium text-gray-700 dark:text-gray-300 flex items-center justify-between">
-                  <span class="flex items-center gap-1.5 font-semibold text-gray-800 dark:text-gray-200">
+                <div class="text-[11px] font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] flex items-center justify-between">
+                  <span class="flex items-center gap-1.5 font-semibold text-[var(--sp-text-secondary)] dark:text-[var(--sp-text)]">
                     <SlidersHorizontal class="w-3.5 h-3.5 text-sky-500" />
                     <span>{{ t('taskForm.pluginParams') }}</span>
                   </span>
@@ -459,13 +459,13 @@ const emit = defineEmits<{
                 >
                   <div class="flex items-baseline gap-1.5 flex-wrap">
                     <label
-                      class="text-[11px] text-gray-700 dark:text-gray-300 font-medium cursor-help"
+                      class="text-[11px] text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] font-medium cursor-help"
                       :title="field.name"
                     >
                       {{ field.label || field.name }}
                     </label>
                     <span v-if="field.required" class="text-rose-500 text-xs font-bold leading-none" title="必填">*</span>
-                    <span v-if="field.description" class="text-[10px] text-gray-400 dark:text-gray-500 truncate" :title="field.description">
+                    <span v-if="field.description" class="text-[10px] text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)] truncate" :title="field.description">
                       - {{ field.description }}
                     </span>
                   </div>
@@ -478,7 +478,7 @@ const emit = defineEmits<{
                       class="rounded text-sky-600 focus:ring-sky-500 h-3.5 w-3.5"
                       @change="setParamValue(action, field.name, ($event.target as HTMLInputElement).checked)"
                     />
-                    <span class="text-[11px] text-gray-600 dark:text-gray-300">
+                    <span class="text-[11px] text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
                       {{ getParamValue(action, field.name, field.default) ? t('common.enabled') : t('common.disabled') }}
                     </span>
                   </label>
@@ -487,7 +487,7 @@ const emit = defineEmits<{
                   <select
                     v-else-if="(field.type === 'select' || (field.options && field.options.length > 0)) && field.options"
                     :value="getParamValue(action, field.name, field.default)"
-                    class="ui-input !h-8 !text-xs !px-2 w-full bg-white dark:bg-gray-900"
+                    class="ui-input !h-8 !text-xs !px-2 w-full bg-[var(--sp-surface)] dark:bg-[var(--sp-surface-elevated)]"
                     @change="setParamValue(action, field.name, ($event.target as HTMLSelectElement).value)"
                   >
                     <option
@@ -523,7 +523,7 @@ const emit = defineEmits<{
 
               <!-- 插件超时设置 -->
               <div v-if="getPluginInfo(action.value)" class="flex items-center gap-2 text-xs pt-1">
-                <span class="text-[11px] text-gray-500 dark:text-gray-400 whitespace-nowrap">{{ t('taskForm.pluginTimeout') }}:</span>
+                <span class="text-[11px] text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)] whitespace-nowrap">{{ t('taskForm.pluginTimeout') }}:</span>
                 <input
                   type="number"
                   min="1"
@@ -547,7 +547,7 @@ const emit = defineEmits<{
                 :placeholder="t('taskForm.aiPromptPlaceholder')"
                 class="ui-input !h-9 !text-xs !px-2 w-full"
               />
-              <div class="text-[11px] text-gray-500 dark:text-gray-400 flex items-center gap-1 px-0.5">
+              <div class="text-[11px] text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)] flex items-center gap-1 px-0.5">
                 <span class="text-sky-500 shrink-0">💡</span>
                 <span v-if="action.type === 'vision_send'">{{ t('taskForm.visionSendHint') }}</span>
                 <span v-else-if="action.type === 'vision_click'">{{ t('taskForm.visionClickHint') }}</span>
@@ -556,7 +556,7 @@ const emit = defineEmits<{
               </div>
             </div>
 
-            <span v-else class="h-9 flex items-center text-xs text-gray-400 px-2">-</span>
+            <span v-else class="h-9 flex items-center text-xs text-[var(--sp-text-muted)] px-2">-</span>
           </div>
 
           <!-- 操作按钮：高级设置/上移/下移/删除 -->
@@ -564,7 +564,7 @@ const emit = defineEmits<{
             <button
               v-if="action.type !== 'delay'"
               type="button"
-              class="p-1.5 text-gray-400 hover:text-sky-600 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/30 rounded-sm transition-colors"
+              class="p-1.5 text-[var(--sp-text-muted)] hover:text-sky-600 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/30 rounded-sm transition-colors"
               :class="{ '!text-sky-600 dark:!text-sky-400 bg-sky-50/80 dark:bg-sky-950/40': expandedAdvanced[action.id] || action.continue_on_error || action.skip_if_matched }"
               :title="expandedAdvanced[action.id] ? t('taskForm.collapseOptions') : t('taskForm.advancedActionOptions')"
               @click="toggleAdvanced(action.id)"
@@ -573,7 +573,7 @@ const emit = defineEmits<{
             </button>
             <button
               type="button"
-              class="p-1.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/[0.05] rounded-sm transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              class="p-1.5 text-[var(--sp-text-muted)] hover:text-[var(--sp-text-secondary)] dark:hover:text-[var(--sp-text)] hover:bg-[var(--sp-surface-muted)] bg-[var(--sp-surface)]/[0.05] rounded-sm transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               :aria-label="t('taskForm.moveUp')"
               :title="t('taskForm.moveUp')"
               :disabled="idx === 0"
@@ -583,7 +583,7 @@ const emit = defineEmits<{
             </button>
             <button
               type="button"
-              class="p-1.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/[0.05] rounded-sm transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              class="p-1.5 text-[var(--sp-text-muted)] hover:text-[var(--sp-text-secondary)] dark:hover:text-[var(--sp-text)] hover:bg-[var(--sp-surface-muted)] bg-[var(--sp-surface)]/[0.05] rounded-sm transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               :aria-label="t('taskForm.moveDown')"
               :title="t('taskForm.moveDown')"
               :disabled="idx === actions.length - 1"
@@ -593,7 +593,7 @@ const emit = defineEmits<{
             </button>
             <button
               type="button"
-              class="p-1.5 text-gray-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-sm transition-colors"
+              class="p-1.5 text-[var(--sp-text-muted)] hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-sm transition-colors"
               :aria-label="t('taskForm.removeAction')"
               :title="t('taskForm.removeAction')"
               @click="emit('remove', idx)"
@@ -606,7 +606,7 @@ const emit = defineEmits<{
         <!-- 高级管道配置抽屉：容错继续、条件跳过与宏变量 -->
         <div
           v-if="expandedAdvanced[action.id] && action.type !== 'delay'"
-          class="border-t border-gray-100 dark:border-gray-800/80 p-2.5 sm:px-3 sm:py-2.5 bg-white/60 dark:bg-black/20 flex flex-col gap-2 text-xs"
+          class="border-t border-[var(--sp-border)] dark:border-[var(--sp-border)] p-2.5 sm:px-3 sm:py-2.5 bg-[var(--sp-surface)] dark:bg-black/20 flex flex-col gap-2 text-xs"
         >
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <!-- 容错继续开关 -->
@@ -617,26 +617,26 @@ const emit = defineEmits<{
                 class="rounded text-sky-600 focus:ring-sky-500 h-3.5 w-3.5 mt-0.5"
               />
               <div class="flex flex-col">
-                <span class="font-medium text-gray-700 dark:text-gray-200">{{ t('taskForm.continueOnError') }}</span>
-                <span class="text-[11px] text-gray-400 leading-snug">{{ t('taskForm.continueOnErrorDesc') }}</span>
+                <span class="font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text)]">{{ t('taskForm.continueOnError') }}</span>
+                <span class="text-[11px] text-[var(--sp-text-muted)] leading-snug">{{ t('taskForm.continueOnErrorDesc') }}</span>
               </div>
             </label>
 
             <!-- 条件跳过输入 -->
             <div class="flex flex-col gap-1">
-              <span class="font-medium text-gray-700 dark:text-gray-200">{{ t('taskForm.skipIfMatched') }}</span>
+              <span class="font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text)]">{{ t('taskForm.skipIfMatched') }}</span>
               <input
                 v-model="action.skip_if_matched"
                 :placeholder="t('taskForm.skipIfMatchedPlaceholder')"
                 class="ui-input !h-7 !text-xs !px-2 w-full"
               />
-              <span class="text-[10px] text-gray-400">{{ t('taskForm.skipIfMatchedDesc') }}</span>
+              <span class="text-[10px] text-[var(--sp-text-muted)]">{{ t('taskForm.skipIfMatchedDesc') }}</span>
             </div>
           </div>
 
           <!-- 宏变量快速填入 -->
-          <div class="flex flex-wrap items-center gap-1.5 pt-1 border-t border-gray-100 dark:border-gray-800/50">
-            <span class="text-[11px] text-gray-400 flex items-center gap-1">
+          <div class="flex flex-wrap items-center gap-1.5 pt-1 border-t border-[var(--sp-border)] dark:border-[var(--sp-border)]">
+            <span class="text-[11px] text-[var(--sp-text-muted)] flex items-center gap-1">
               <Sparkles class="w-3 h-3 text-amber-500" />
               {{ t('taskForm.macroHelper') }}:
             </span>
@@ -657,7 +657,7 @@ const emit = defineEmits<{
       <!-- 添加动作按钮 -->
       <button
         type="button"
-        class="flex items-center gap-1.5 px-3 py-2.5 text-xs text-gray-500 hover:text-sky-600 dark:hover:text-sky-400 border border-dashed border-gray-300 dark:border-gray-700 hover:border-sky-400/60 dark:hover:border-sky-500/40 hover:bg-sky-50/50 dark:hover:bg-sky-500/5 transition-colors w-full justify-center"
+        class="flex items-center gap-1.5 px-3 py-2.5 text-xs text-[var(--sp-text-muted)] hover:text-sky-600 dark:hover:text-sky-400 border border-dashed border-[var(--sp-border-strong)] dark:border-[var(--sp-border)] hover:border-sky-400/60 dark:hover:border-sky-500/40 hover:bg-sky-50/50 dark:hover:bg-sky-500/5 transition-colors w-full justify-center"
         @click="emit('add')"
       >
         <Plus class="w-3.5 h-3.5" /> {{ t('taskForm.addAction') }}
@@ -665,13 +665,13 @@ const emit = defineEmits<{
     </div>
 
     <!-- 自适应动态冷却调度 (Adaptive Cooldown Rescheduling) -->
-    <div class="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800/80 space-y-3">
+    <div class="mt-4 pt-3 border-t border-[var(--sp-border)] dark:border-[var(--sp-border)] space-y-3">
       <div class="flex items-center justify-between">
         <div class="flex flex-col">
-          <span class="text-xs font-semibold text-gray-700 dark:text-gray-200">
+          <span class="text-xs font-semibold text-[var(--sp-text-secondary)] dark:text-[var(--sp-text)]">
             {{ t('taskForm.adaptiveSchedule') }}
           </span>
-          <span class="text-[11px] text-gray-500 dark:text-gray-400">
+          <span class="text-[11px] text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)]">
             {{ t('taskForm.adaptiveScheduleDesc') }}
           </span>
         </div>
@@ -685,7 +685,7 @@ const emit = defineEmits<{
 
       <div v-if="adaptiveScheduleEnabled" class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
         <div class="flex flex-col gap-1">
-          <span class="text-[11px] font-medium text-gray-700 dark:text-gray-300">
+          <span class="text-[11px] font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
             {{ t('taskForm.paddingSeconds') }}
           </span>
           <input
@@ -697,13 +697,13 @@ const emit = defineEmits<{
             class="ui-input !h-8 !text-xs !px-2 w-full"
             @input="emit('update:adaptiveSchedulePaddingSeconds', Number(($event.target as HTMLInputElement).value) || 0)"
           />
-          <span class="text-[10px] text-gray-400">
+          <span class="text-[10px] text-[var(--sp-text-muted)]">
             {{ t('taskForm.paddingSecondsHint') }}
           </span>
         </div>
 
         <div class="flex flex-col gap-1">
-          <span class="text-[11px] font-medium text-gray-700 dark:text-gray-300">
+          <span class="text-[11px] font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
             {{ t('taskForm.customPatterns') }}
           </span>
           <input
@@ -713,7 +713,7 @@ const emit = defineEmits<{
             class="ui-input !h-8 !text-xs !px-2 w-full"
             @input="emit('update:adaptiveSchedulePatterns', ($event.target as HTMLInputElement).value.split(',').map(s => s.trim()).filter(Boolean))"
           />
-          <span class="text-[10px] text-gray-400">
+          <span class="text-[10px] text-[var(--sp-text-muted)]">
             {{ t('taskForm.customPatternsHint') }}
           </span>
         </div>
@@ -730,7 +730,7 @@ const emit = defineEmits<{
     @close="isActionDebugModalOpen = false"
   >
     <div v-if="debugAction" class="space-y-4 text-xs">
-      <div class="flex items-center justify-between gap-2 text-gray-500 dark:text-gray-400 text-[11px]">
+      <div class="flex items-center justify-between gap-2 text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)] text-[11px]">
         <span class="truncate">{{ debugPluginInfo?.description || debugAction.value }}</span>
         <span class="shrink-0 font-mono px-1.5 py-0.5 rounded text-[10px] bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300">
           {{ debugPluginInfo?.mode || 'reactive' }}
@@ -747,7 +747,7 @@ const emit = defineEmits<{
 
       <!-- 模拟触发消息 (仅 reactive 或提供时输入) -->
       <div v-if="debugPluginInfo?.mode !== 'active'" class="space-y-1">
-        <label class="font-medium text-gray-700 dark:text-gray-300">
+        <label class="font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
           {{ t('settings.pluginsTestInputLabel') }}
         </label>
         <textarea
@@ -759,8 +759,8 @@ const emit = defineEmits<{
       </div>
 
       <!-- 参数调试配置 -->
-      <div v-if="debugPluginInfo?.params_schema && debugPluginInfo.params_schema.length" class="p-3 bg-gray-50/80 dark:bg-white/[0.02] border border-gray-200 dark:border-gray-800 rounded space-y-2">
-        <div class="font-medium text-[11px] text-gray-700 dark:text-gray-300">
+      <div v-if="debugPluginInfo?.params_schema && debugPluginInfo.params_schema.length" class="p-3 bg-[var(--sp-surface-subtle)] bg-[var(--sp-surface)]/[0.02] border border-[var(--sp-border)] dark:border-[var(--sp-border)] rounded space-y-2">
+        <div class="font-medium text-[11px] text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
           {{ t('settings.pluginsTestParamsLabel') }}
         </div>
         <div
@@ -768,10 +768,10 @@ const emit = defineEmits<{
           :key="field.name"
           class="flex flex-col gap-1"
         >
-          <div class="flex items-baseline gap-1.5 flex-wrap text-[10px] text-gray-500">
-            <span class="font-medium text-gray-700 dark:text-gray-300" :title="field.name">{{ field.label || field.name }}</span>
+          <div class="flex items-baseline gap-1.5 flex-wrap text-[10px] text-[var(--sp-text-muted)]">
+            <span class="font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]" :title="field.name">{{ field.label || field.name }}</span>
             <span v-if="field.required" class="text-rose-500 text-xs font-bold leading-none" title="必填">*</span>
-            <span v-if="field.description" class="text-[10px] text-gray-400 dark:text-gray-500 truncate" :title="field.description">
+            <span v-if="field.description" class="text-[10px] text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)] truncate" :title="field.description">
               - {{ field.description }}
             </span>
           </div>
@@ -782,14 +782,14 @@ const emit = defineEmits<{
               class="rounded text-sky-600 focus:ring-sky-500 h-3.5 w-3.5"
               @change="debugParams[field.name] = ($event.target as HTMLInputElement).checked"
             />
-            <span class="text-[11px] text-gray-600 dark:text-gray-300">
+            <span class="text-[11px] text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
               {{ debugParams[field.name] ? t('common.enabled') : t('common.disabled') }}
             </span>
           </label>
           <select
             v-else-if="(field.type === 'select' || (field.options && field.options.length > 0)) && field.options"
             :value="debugParams[field.name]"
-            class="ui-input !h-8 !text-xs !px-2 w-full bg-white dark:bg-gray-900"
+            class="ui-input !h-8 !text-xs !px-2 w-full bg-[var(--sp-surface)] dark:bg-[var(--sp-surface-elevated)]"
             @change="debugParams[field.name] = ($event.target as HTMLSelectElement).value"
           >
             <option
@@ -847,22 +847,22 @@ const emit = defineEmits<{
             <AlertCircle v-else class="w-4 h-4 text-amber-600 dark:text-amber-400" />
             <span>{{ debugResult.handled ? t('settings.pluginsHandledTrue') : (debugResult.error ? t('settings.pluginsHandledError') : t('settings.pluginsHandledFalse')) }}</span>
           </div>
-          <div class="flex items-center gap-1 text-[11px] text-gray-500 font-mono">
+          <div class="flex items-center gap-1 text-[11px] text-[var(--sp-text-muted)] font-mono">
             <Clock class="w-3 h-3" />
             <span>{{ debugResult.duration_ms }} ms</span>
           </div>
         </div>
 
-        <div v-if="debugResult.reply_text" class="p-2 bg-white/80 dark:bg-black/30 rounded border border-gray-200 dark:border-gray-800">
-          <span class="text-[10px] text-gray-400 block mb-0.5">{{ t('settings.pluginsReplyOutput') }}</span>
+        <div v-if="debugResult.reply_text" class="p-2 bg-[var(--sp-surface)] dark:bg-black/30 rounded border border-[var(--sp-border)] dark:border-[var(--sp-border)]">
+          <span class="text-[10px] text-[var(--sp-text-muted)] block mb-0.5">{{ t('settings.pluginsReplyOutput') }}</span>
           <div class="font-mono text-xs text-sky-600 dark:text-sky-300 font-semibold select-all">
             {{ debugResult.reply_text }}
           </div>
         </div>
 
         <div v-if="debugResult.logs && debugResult.logs.length" class="space-y-1">
-          <span class="text-[10px] text-gray-400 block">{{ t('settings.pluginsLogsLabel') }}</span>
-          <div class="p-2 bg-gray-900 text-gray-200 rounded font-mono text-[11px] max-h-28 overflow-y-auto space-y-0.5 select-all">
+          <span class="text-[10px] text-[var(--sp-text-muted)] block">{{ t('settings.pluginsLogsLabel') }}</span>
+          <div class="p-2 bg-[var(--sp-terminal-bg)] text-[var(--sp-text)] rounded font-mono text-[11px] max-h-28 overflow-y-auto space-y-0.5 select-all">
             <div v-for="(log, idx) in debugResult.logs" :key="idx">{{ log }}</div>
           </div>
         </div>

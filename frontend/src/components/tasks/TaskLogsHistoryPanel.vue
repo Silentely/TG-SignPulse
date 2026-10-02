@@ -90,7 +90,7 @@ const extractPluginFromLog = (log: SignTaskHistoryItem): { pluginName?: string; 
       >
         {{ line }}
       </div>
-      <div v-if="isRunning && realtimeLogs.length === 0" class="text-gray-500 flex items-center gap-2">
+      <div v-if="isRunning && realtimeLogs.length === 0" class="text-[var(--sp-text-muted)] flex items-center gap-2">
         <Loader2 class="w-3 h-3 animate-spin" /> {{ t('taskLogs.waitingOutput') }}
       </div>
     </div>
@@ -99,8 +99,8 @@ const extractPluginFromLog = (log: SignTaskHistoryItem): { pluginName?: string; 
   <!-- Loading / empty -->
   <div v-if="loading && logs.length === 0 && realtimeLogs.length === 0" class="animate-pulse space-y-2 !py-4" role="status" :aria-label="t('common.loading')">
     <div v-for="i in 3" :key="i" class="flex items-center gap-3 px-2 py-2">
-      <span class="h-3 w-24 shrink-0 rounded bg-gray-200 dark:bg-gray-800" />
-      <span class="h-3 flex-1 min-w-0 rounded bg-gray-200 dark:bg-gray-800" />
+      <span class="h-3 w-24 shrink-0 rounded bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)]" />
+      <span class="h-3 flex-1 min-w-0 rounded bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)]" />
     </div>
   </div>
 
@@ -117,7 +117,7 @@ const extractPluginFromLog = (log: SignTaskHistoryItem): { pluginName?: string; 
       class="ui-card p-3 text-sm"
     >
       <div class="flex items-center justify-between mb-2 gap-2">
-        <span class="font-medium flex items-center gap-3 text-gray-900 dark:text-gray-200 flex-wrap">
+        <span class="font-medium flex items-center gap-3 text-[var(--sp-text)] dark:text-[var(--sp-text)] flex-wrap">
           <span>{{ t('taskLogs.account') }}{{ log.account_name || t('taskLogs.unknown') }}</span>
           <span
             class="ui-badge"
@@ -127,12 +127,12 @@ const extractPluginFromLog = (log: SignTaskHistoryItem): { pluginName?: string; 
             {{ log.success ? t('taskLogs.success') : t('taskLogs.failed') }}
           </span>
         </span>
-        <span class="text-xs text-gray-500 dark:text-gray-400 font-mono shrink-0">{{ formatDate(log.time || log.created_at || '') }}</span>
+        <span class="text-xs text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)] font-mono shrink-0">{{ formatDate(log.time || log.created_at || '') }}</span>
       </div>
 
-      <div v-if="log.last_target_message || log.bot_message" class="mt-2 text-sm text-gray-700 dark:text-gray-300">
+      <div v-if="log.last_target_message || log.bot_message" class="mt-2 text-sm text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
         <div class="ui-section-label mb-1">{{ t('taskLogs.lastResponse') }}</div>
-        <div class="whitespace-pre-wrap break-all p-2 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 text-xs">
+        <div class="whitespace-pre-wrap break-all p-2 bg-[var(--sp-surface)] dark:bg-[var(--sp-surface-elevated)] border border-[var(--sp-border)] dark:border-[var(--sp-border)] text-xs">
           {{ log.last_target_message || log.bot_message }}
         </div>
       </div>

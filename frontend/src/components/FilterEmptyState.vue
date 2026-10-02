@@ -18,12 +18,12 @@ const emit = defineEmits<{
 
 <template>
   <div class="ui-empty">
-    <p class="ui-empty-title !text-gray-500 dark:!text-gray-400 font-normal">{{ title }}</p>
+    <p class="ui-empty-title !text-[var(--sp-text-muted)] font-normal">{{ title }}</p>
     <p v-if="hint" class="ui-empty-desc mb-3">{{ hint }}</p>
     <button
       v-if="actionText"
       type="button"
-      class="ui-btn-secondary !text-xs !px-3 !py-2"
+      class="ui-btn-secondary !text-xs !px-3 !py-2 cursor-pointer"
       @click="emit('action')"
     >
       {{ actionText }}

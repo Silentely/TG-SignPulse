@@ -70,21 +70,21 @@ const {
 </script>
 
 <template>
-  <div class="max-w-7xl pb-10">
+  <div class="max-w-7xl mx-auto pb-10">
     <div
       v-if="isDirty && !pageLoading"
-      class="sticky top-[3.75rem] z-20 mb-4 flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs border border-amber-200 dark:border-amber-800/50 bg-amber-50/95 dark:bg-amber-950/90 backdrop-blur-xs text-amber-800 dark:text-amber-200 shadow-sm"
+      class="sticky top-[3.75rem] z-20 mb-4 flex flex-wrap items-center justify-between gap-2 px-3.5 py-2 text-xs border border-amber-500/30 bg-amber-500/10 rounded-[var(--sp-radius)] backdrop-blur-md text-amber-800 dark:text-amber-200 shadow-sm"
       role="status"
     >
       <div class="min-w-0">
-        <div>{{ t('settings.unsavedBanner') }}</div>
+        <div class="font-medium">{{ t('settings.unsavedBanner') }}</div>
         <div v-if="dirtyLabels.length" class="mt-0.5 text-[10px] opacity-90">
           {{ t('settings.dirtySections') }}: {{ dirtyLabels.join(' · ') }}
         </div>
       </div>
       <button
         type="button"
-        class="ui-btn-primary !px-3 !py-1.5 !text-xs shrink-0"
+        class="ui-btn-primary !px-3 !py-1.5 !text-xs shrink-0 cursor-pointer"
         :disabled="saveAllLoading || loading || botLoading || advancedLoading || tgLoading || aiLoading"
         @click="saveAllSettings"
       >
@@ -176,19 +176,16 @@ const {
         </div>
       </div>
 
-      <!-- 关于 / 版本：始终固定在所有配置卡片的最底部 -->
-      <div>
-        <AboutSettings
-          :app-version="appVersion"
-          :runtime-status="runtimeStatus"
-          :memory-stats="memoryStats"
-          :version-banner="versionBanner"
-          :version-loading="versionLoading"
-          :check-loading="checkLoading"
-          @check-update="handleCheckUpdate(true)"
-        />
-      </div>
-
+      <!-- 关于与系统信息卡片（底部通栏） -->
+      <AboutSettings
+        :app-version="appVersion"
+        :version-loading="versionLoading"
+        :check-loading="checkLoading"
+        :version-banner="versionBanner"
+        :runtime-status="runtimeStatus"
+        :memory-stats="memoryStats"
+        @check-update="handleCheckUpdate(true)"
+      />
     </div>
   </div>
 </template>

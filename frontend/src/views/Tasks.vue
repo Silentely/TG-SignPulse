@@ -358,7 +358,7 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
 </script>
 
 <template>
-  <div class="relative min-h-[80vh]" @click="closeRunMenu">
+  <div class="relative min-h-[80vh] max-w-7xl mx-auto" @click="closeRunMenu">
     <!-- Page Loading skeleton -->
     <div v-if="pageLoading" class="space-y-2" aria-busy="true">
       <div class="ui-card p-3">
@@ -405,7 +405,7 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
         <p class="ui-empty-desc mb-4">{{ t('tasks.emptyHint') }}</p>
         <div class="flex flex-wrap items-center justify-center gap-2">
           <div class="relative" @click.stop>
-            <button type="button" class="ui-btn-secondary !text-xs !px-3 !py-2" :aria-expanded="showTemplateMenu" aria-haspopup="menu" @click="toggleTemplateMenu">
+            <button type="button" class="ui-btn-secondary !text-xs !px-3 !py-2 cursor-pointer" :aria-expanded="showTemplateMenu" aria-haspopup="menu" @click="toggleTemplateMenu">
               {{ t('tasks.fromTemplate') }}
             </button>
             <div
@@ -416,15 +416,15 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
                 v-for="tpl in BUILT_IN_TEMPLATES"
                 :key="tpl.id"
                 type="button"
-                class="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-white/[0.04] rounded-sm"
+                class="w-full text-left px-3 py-2 text-xs hover:bg-[var(--sp-surface-muted)] rounded-[var(--sp-radius-sm)] cursor-pointer"
                 @click="pickTemplate(tpl.id)"
               >
                 <div class="font-medium">{{ t(tpl.nameKey) }}</div>
-                <div class="text-[10px] text-gray-500">{{ t(tpl.descKey) }}</div>
+                <div class="text-[10px] text-[var(--sp-text-muted)]">{{ t(tpl.descKey) }}</div>
               </button>
             </div>
           </div>
-          <button type="button" class="ui-btn-primary !text-xs !px-3 !py-2" @click="openAddBlank">
+          <button type="button" class="ui-btn-primary !text-xs !px-3 !py-2 cursor-pointer" @click="openAddBlank">
             <Plus class="w-3.5 h-3.5" /> {{ t('taskModal.addTitle') }}
           </button>
         </div>
@@ -493,7 +493,7 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
     <div class="fixed ui-safe-fab z-40 flex flex-col items-end gap-2">
       <button 
         type="button"
-        class="ui-fab"
+        class="ui-fab cursor-pointer"
         :aria-label="t('taskModal.addTitle')"
         :title="t('taskModal.addTitle')"
         @click="openAddBlank"

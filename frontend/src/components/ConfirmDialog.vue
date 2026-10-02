@@ -19,12 +19,12 @@ const { t } = useI18n()
     <div class="flex gap-3">
       <div
         v-if="state.danger"
-        class="shrink-0 w-9 h-9 flex items-center justify-center border border-rose-200 dark:border-rose-800/50 bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400"
+        class="shrink-0 w-9 h-9 rounded-[var(--sp-radius)] flex items-center justify-center border border-rose-200 dark:border-rose-800/50 bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400"
         aria-hidden="true"
       >
         <AlertTriangle class="w-4 h-4" />
       </div>
-      <p class="text-sm text-gray-600 dark:text-gray-300 leading-relaxed whitespace-pre-wrap break-words">
+      <p class="text-sm text-[var(--sp-text-secondary)] leading-relaxed whitespace-pre-wrap break-words">
         {{ state.message }}
       </p>
     </div>
@@ -32,14 +32,14 @@ const { t } = useI18n()
     <template #footer>
       <button
         type="button"
-        class="ui-btn-secondary !border-transparent !bg-transparent !px-4 !py-2"
+        class="ui-btn-secondary !border-transparent !bg-transparent !px-4 !py-2 cursor-pointer"
         @click="cancel"
       >
         {{ state.cancelText || t('common.cancel') }}
       </button>
       <button
         type="button"
-        class="!px-4 !py-2"
+        class="!px-4 !py-2 cursor-pointer"
         :class="state.danger ? 'ui-btn-danger' : 'ui-btn-primary'"
         @click="accept"
       >

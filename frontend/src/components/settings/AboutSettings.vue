@@ -66,12 +66,12 @@ const memoryHealthText = computed(() => {
 
 <template>
   <section class="ui-card p-6">
-    <div class="mb-6 border-b border-gray-200 dark:border-gray-800/60 pb-3 flex items-start justify-between gap-3">
+    <div class="mb-6 border-b border-[var(--sp-border)] pb-3 flex items-start justify-between gap-3">
       <div class="flex items-start gap-3 min-w-0">
         <span class="ui-section-icon" aria-hidden="true"><Info class="w-3.5 h-3.5" /></span>
         <div class="min-w-0">
-          <h2 class="text-base font-medium text-gray-900 dark:text-gray-100">{{ t('settings.aboutTitle') }}</h2>
-          <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.aboutDesc') }}</p>
+          <h2 class="text-base font-medium text-[var(--sp-text)] font-semibold">{{ t('settings.aboutTitle') }}</h2>
+          <p class="text-[10px] text-[var(--sp-text-muted)] mt-1">{{ t('settings.aboutDesc') }}</p>
         </div>
       </div>
       <button
@@ -90,86 +90,86 @@ const memoryHealthText = computed(() => {
         <!-- 版本与构建信息 (7项) -->
         <div
           v-if="appVersion"
-          class="p-3 border border-gray-200 dark:border-gray-800/60 bg-gray-50/50 dark:bg-white/[0.02] text-xs space-y-1.5 font-mono"
+          class="p-3 border border-[var(--sp-border)] rounded-[var(--sp-radius-sm)] bg-[var(--sp-surface-muted)] text-xs space-y-1.5 font-mono"
         >
-          <div class="font-medium font-sans text-gray-700 dark:text-gray-300 mb-1">{{ t('settings.versionBuildTitle') }}</div>
-          <div class="text-gray-600 dark:text-gray-400">
-            <span class="text-gray-500">{{ t('settings.appName') }}:</span>
-            <span class="ml-1 text-gray-900 dark:text-gray-100 font-medium">{{ appVersion.app_name || 'TG-SignPulse' }}</span>
+          <div class="font-medium font-sans text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] mb-1">{{ t('settings.versionBuildTitle') }}</div>
+          <div class="text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
+            <span class="text-[var(--sp-text-muted)]">{{ t('settings.appName') }}:</span>
+            <span class="ml-1 text-[var(--sp-text)] font-semibold font-medium">{{ appVersion.app_name || 'TG-SignPulse' }}</span>
           </div>
-          <div class="text-gray-600 dark:text-gray-400">
-            <span class="text-gray-500">{{ t('settings.currentVersion') }}:</span>
-            <span class="ml-1 text-gray-900 dark:text-gray-100 font-medium">v{{ appVersion.version }}</span>
+          <div class="text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
+            <span class="text-[var(--sp-text-muted)]">{{ t('settings.currentVersion') }}:</span>
+            <span class="ml-1 text-[var(--sp-text)] font-semibold font-medium">v{{ appVersion.version }}</span>
           </div>
-          <div class="text-gray-600 dark:text-gray-400">
-            <span class="text-gray-500">{{ t('settings.osPlatform') }}:</span>
+          <div class="text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
+            <span class="text-[var(--sp-text-muted)]">{{ t('settings.osPlatform') }}:</span>
             <span class="ml-1">{{ appVersion.os_platform || t('settings.unknownValue') }}</span>
           </div>
-          <div class="text-gray-600 dark:text-gray-400">
-            <span class="text-gray-500">{{ t('settings.gitSha') }}:</span>
+          <div class="text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
+            <span class="text-[var(--sp-text-muted)]">{{ t('settings.gitSha') }}:</span>
             <span class="ml-1">{{ shortSha(appVersion.git_sha) }}</span>
           </div>
-          <div class="text-gray-600 dark:text-gray-400">
-            <span class="text-gray-500">{{ t('settings.gitBranch') }}:</span>
+          <div class="text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
+            <span class="text-[var(--sp-text-muted)]">{{ t('settings.gitBranch') }}:</span>
             <span class="ml-1">{{ appVersion.git_branch || t('settings.unknownValue') }}</span>
           </div>
-          <div class="text-gray-600 dark:text-gray-400">
-            <span class="text-gray-500">{{ t('settings.buildTime') }}:</span>
+          <div class="text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
+            <span class="text-[var(--sp-text-muted)]">{{ t('settings.buildTime') }}:</span>
             <span class="ml-1">{{ appVersion.build_time ? formatDateTime(appVersion.build_time) : t('settings.unknownValue') }}</span>
           </div>
-          <div class="text-gray-600 dark:text-gray-400">
-            <span class="text-gray-500">{{ t('settings.pythonRuntime') }}:</span>
+          <div class="text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
+            <span class="text-[var(--sp-text-muted)]">{{ t('settings.pythonRuntime') }}:</span>
             <span class="ml-1">{{ appVersion.python }}</span>
           </div>
         </div>
-        <p v-else-if="versionLoading" class="text-xs text-gray-500">{{ t('common.processing') }}</p>
+        <p v-else-if="versionLoading" class="text-xs text-[var(--sp-text-muted)]">{{ t('common.processing') }}</p>
 
         <!-- 运行状态 (7项) -->
-        <div v-if="runtimeStatus" class="p-3 border border-gray-200 dark:border-gray-800/60 bg-gray-50/50 dark:bg-white/[0.02] text-xs space-y-1.5">
-          <div class="font-medium text-gray-700 dark:text-gray-300 mb-1">{{ t('settings.runtimeStatus') }}</div>
-          <div class="text-gray-600 dark:text-gray-400 flex items-center gap-1.5">
-            <span class="text-gray-500">{{ t('settings.serviceStatus') }}:</span>
+        <div v-if="runtimeStatus" class="p-3 border border-[var(--sp-border)] rounded-[var(--sp-radius-sm)] bg-[var(--sp-surface-muted)] text-xs space-y-1.5">
+          <div class="font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] mb-1">{{ t('settings.runtimeStatus') }}</div>
+          <div class="text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] flex items-center gap-1.5">
+            <span class="text-[var(--sp-text-muted)]">{{ t('settings.serviceStatus') }}:</span>
             <span class="inline-flex items-center gap-1 font-medium" :class="runtimeStatus.ready ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'">
               <span class="w-1.5 h-1.5 rounded-full" :class="runtimeStatus.ready ? 'bg-emerald-500' : 'bg-amber-500'"></span>
               {{ runtimeStatus.ready ? t('settings.serviceReady') : t('settings.serviceNotReady') }}
             </span>
           </div>
-          <div class="text-gray-600 dark:text-gray-400">
-            <span class="text-gray-500">{{ t('settings.uptime') }}:</span>
-            <span class="ml-1 font-medium text-gray-800 dark:text-gray-200">{{ formatUptime(runtimeStatus.uptime_seconds) }}</span>
+          <div class="text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
+            <span class="text-[var(--sp-text-muted)]">{{ t('settings.uptime') }}:</span>
+            <span class="ml-1 font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text)]">{{ formatUptime(runtimeStatus.uptime_seconds) }}</span>
           </div>
-          <div class="text-gray-600 dark:text-gray-400">
-            <span class="text-gray-500">{{ t('settings.schedulerRole') }}:</span>
+          <div class="text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
+            <span class="text-[var(--sp-text-muted)]">{{ t('settings.schedulerRole') }}:</span>
             <span class="ml-1 font-medium" :class="runtimeStatus.scheduler_lock_held ? 'text-emerald-600 dark:text-emerald-400' : 'text-blue-600 dark:text-blue-400'">
               {{ runtimeStatus.scheduler_lock_held ? t('settings.rolePrimary') : t('settings.roleReplica') }}
             </span>
           </div>
-          <div class="text-gray-600 dark:text-gray-400">
-            <span class="text-gray-500">{{ t('settings.schedulerLock') }}:</span>
+          <div class="text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
+            <span class="text-[var(--sp-text-muted)]">{{ t('settings.schedulerLock') }}:</span>
             <span class="ml-1" :class="runtimeStatus.scheduler_lock_held ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'">
               {{ runtimeStatus.scheduler_lock_held ? t('settings.lockHeld') : t('settings.lockNotHeld') }}
             </span>
           </div>
-          <div class="text-gray-600 dark:text-gray-400">
-            <span class="text-gray-500">{{ t('settings.dbLabel') }}:</span>
+          <div class="text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
+            <span class="text-[var(--sp-text-muted)]">{{ t('settings.dbLabel') }}:</span>
             <span class="ml-1">{{ runtimeStatus.database_is_sqlite ? t('settings.dbSqlite') : t('settings.dbExternal') }}</span>
             <span v-if="runtimeStatus.monitor_shard"> · {{ t('settings.monitorShard', { shard: runtimeStatus.monitor_shard }) }}</span>
-            <span v-if="runtimeStatus.monitor_allowlist" class="text-[10px] text-gray-500"> ({{ runtimeStatus.monitor_allowlist }})</span>
+            <span v-if="runtimeStatus.monitor_allowlist" class="text-[10px] text-[var(--sp-text-muted)]"> ({{ runtimeStatus.monitor_allowlist }})</span>
           </div>
-          <div class="text-gray-600 dark:text-gray-400 flex items-center gap-1.5 flex-wrap">
-            <span class="text-gray-500">{{ t('settings.memoryRss') }}:</span>
-            <span class="ml-1 font-medium" :class="memoryStats?.stats?.in_alert ? 'text-rose-600 dark:text-rose-400 font-semibold' : 'text-gray-700 dark:text-gray-300'">
+          <div class="text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] flex items-center gap-1.5 flex-wrap">
+            <span class="text-[var(--sp-text-muted)]">{{ t('settings.memoryRss') }}:</span>
+            <span class="ml-1 font-medium" :class="memoryStats?.stats?.in_alert ? 'text-rose-600 dark:text-rose-400 font-semibold' : 'text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]'">
               {{ formatMemoryRss() }}
             </span>
-            <span v-if="memoryStats?.stats?.threshold_mb" class="text-[10px] text-gray-400">
+            <span v-if="memoryStats?.stats?.threshold_mb" class="text-[10px] text-[var(--sp-text-muted)]">
               ({{ t('settings.memoryThreshold') }} {{ memoryStats.stats.threshold_mb }} MB)
             </span>
             <span v-if="memoryStats?.stats?.in_alert" class="px-1 py-0.2 rounded text-[10px] bg-rose-100 dark:bg-rose-950 text-rose-600 dark:text-rose-400">
               {{ t('common.warning') }}
             </span>
           </div>
-          <div class="text-gray-600 dark:text-gray-400">
-            <span class="text-gray-500">{{ t('settings.memoryHealth') }}:</span>
+          <div class="text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
+            <span class="text-[var(--sp-text-muted)]">{{ t('settings.memoryHealth') }}:</span>
             <span class="ml-1" :class="memoryStats?.stats?.in_alert ? 'text-rose-600 dark:text-rose-400 font-medium' : 'text-emerald-600 dark:text-emerald-400'">
               {{ memoryHealthText }}
             </span>
@@ -179,7 +179,7 @@ const memoryHealthText = computed(() => {
 
       <div
         v-if="versionBanner"
-        class="text-xs rounded-md px-3 py-2 border"
+        class="text-xs rounded-[var(--sp-radius)] px-3 py-2 border"
         :class="{
           'border-sky-300/80 bg-sky-50 text-sky-900 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-100': versionBanner.kind === 'update' || versionBanner.kind === 'info',
           'border-emerald-300/80 bg-emerald-50 text-emerald-900 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-100': versionBanner.kind === 'latest',

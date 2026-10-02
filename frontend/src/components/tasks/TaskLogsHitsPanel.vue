@@ -37,7 +37,7 @@ const emit = defineEmits<{
         type="button"
         class="px-2 py-1 rounded-sm border"
         :aria-pressed="hitsView === 'list'"
-        :class="hitsView === 'list' ? 'border-sky-400 text-sky-700 dark:text-sky-300' : 'border-gray-200 dark:border-gray-700 text-gray-500'"
+        :class="hitsView === 'list' ? 'border-sky-400 text-sky-700 dark:text-sky-300' : 'border-[var(--sp-border)] dark:border-[var(--sp-border)] text-[var(--sp-text-muted)]'"
         @click="emit('update:hitsView', 'list')"
       >
         {{ t('taskLogs.hitsList') }}
@@ -46,7 +46,7 @@ const emit = defineEmits<{
         type="button"
         class="px-2 py-1 rounded-sm border"
         :aria-pressed="hitsView === 'groups'"
-        :class="hitsView === 'groups' ? 'border-sky-400 text-sky-700 dark:text-sky-300' : 'border-gray-200 dark:border-gray-700 text-gray-500'"
+        :class="hitsView === 'groups' ? 'border-sky-400 text-sky-700 dark:text-sky-300' : 'border-[var(--sp-border)] dark:border-[var(--sp-border)] text-[var(--sp-text-muted)]'"
         @click="emit('update:hitsView', 'groups')"
       >
         {{ t('taskLogs.hitsGroups') }}
@@ -63,7 +63,7 @@ const emit = defineEmits<{
       <option value="account">{{ t('taskLogs.groupByAccount') }}</option>
       <option value="task">{{ t('taskLogs.groupByTask') }}</option>
     </select>
-    <span class="text-[10px] text-gray-500 hidden md:inline">{{ t('taskLogs.hitsAutoRefreshHint') }}</span>
+    <span class="text-[10px] text-[var(--sp-text-muted)] hidden md:inline">{{ t('taskLogs.hitsAutoRefreshHint') }}</span>
     <button
       type="button"
       class="ml-auto text-[11px] text-rose-600 dark:text-rose-400 hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
@@ -77,9 +77,9 @@ const emit = defineEmits<{
 
   <div v-if="hitsLoading" class="animate-pulse space-y-2 !py-4" role="status" :aria-label="t('common.loading')">
     <div v-for="i in 4" :key="i" class="flex items-center gap-3 px-2 py-2">
-      <span class="h-3 w-32 shrink-0 rounded bg-gray-200 dark:bg-gray-800" />
-      <span class="h-3 w-20 shrink-0 rounded bg-gray-200 dark:bg-gray-800" />
-      <span class="h-3 flex-1 min-w-0 rounded bg-gray-200 dark:bg-gray-800" />
+      <span class="h-3 w-32 shrink-0 rounded bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)]" />
+      <span class="h-3 w-20 shrink-0 rounded bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)]" />
+      <span class="h-3 flex-1 min-w-0 rounded bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)]" />
     </div>
   </div>
   <div v-else-if="hitsView === 'list' && hitRecords.length === 0" class="ui-empty !py-10">
@@ -97,14 +97,14 @@ const emit = defineEmits<{
     >
       <div class="flex items-center justify-between gap-2">
         <span class="font-mono text-sky-700 dark:text-sky-300 truncate">{{ hit.keyword || '-' }}</span>
-        <span class="text-gray-500 dark:text-gray-400 font-mono shrink-0">{{ formatDate(hit.time) }}</span>
+        <span class="text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)] font-mono shrink-0">{{ formatDate(hit.time) }}</span>
       </div>
-      <div class="text-gray-600 dark:text-gray-400 truncate">
+      <div class="text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] truncate">
         {{ hit.chat_title || hit.chat_id || '-' }}
-        <span v-if="hit.sender" class="text-gray-400"> · {{ hit.sender }}</span>
-        <span v-if="hit.push_channel" class="text-gray-400"> · {{ hit.push_channel }}</span>
+        <span v-if="hit.sender" class="text-[var(--sp-text-muted)]"> · {{ hit.sender }}</span>
+        <span v-if="hit.push_channel" class="text-[var(--sp-text-muted)]"> · {{ hit.push_channel }}</span>
       </div>
-      <div class="text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-all line-clamp-3">
+      <div class="text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] whitespace-pre-wrap break-all line-clamp-3">
         {{ hit.message_text || '-' }}
       </div>
       <template v-if="hitLink(hit)">
@@ -137,10 +137,10 @@ const emit = defineEmits<{
       class="ui-card p-3 space-y-2"
     >
       <div class="flex items-center justify-between gap-2 text-xs">
-        <span class="font-medium text-gray-900 dark:text-gray-100 truncate">{{ group.label }}</span>
+        <span class="font-medium text-[var(--sp-text)] dark:text-[var(--sp-text)] truncate">{{ group.label }}</span>
         <span class="ui-badge ui-badge-neutral !text-[11px] font-mono">{{ group.count }}</span>
       </div>
-      <div class="space-y-1.5 border-t border-gray-100 dark:border-gray-800/50 pt-2">
+      <div class="space-y-1.5 border-t border-[var(--sp-border)] dark:border-[var(--sp-border)] pt-2">
         <div
           v-for="hit in group.items"
           :key="hit.id"
@@ -148,9 +148,9 @@ const emit = defineEmits<{
         >
           <div class="min-w-0">
             <span class="font-mono text-sky-700 dark:text-sky-300">{{ hit.keyword || '-' }}</span>
-            <span class="text-gray-500 ml-1 truncate">{{ hit.message_text || '' }}</span>
+            <span class="text-[var(--sp-text-muted)] ml-1 truncate">{{ hit.message_text || '' }}</span>
           </div>
-          <span class="text-gray-400 font-mono shrink-0">{{ formatDate(hit.time) }}</span>
+          <span class="text-[var(--sp-text-muted)] font-mono shrink-0">{{ formatDate(hit.time) }}</span>
         </div>
       </div>
     </div>

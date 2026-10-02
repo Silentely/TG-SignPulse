@@ -554,12 +554,12 @@ onUnmounted(() => {
         <div class="space-y-3">
           <!-- Import Subtype Radio -->
           <div class="flex gap-4 items-center">
-            <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ t('addAccount.importType') }}:</span>
-            <label class="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400 cursor-pointer">
+            <span class="text-xs font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">{{ t('addAccount.importType') }}:</span>
+            <label class="flex items-center gap-1.5 text-xs text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] cursor-pointer">
               <input type="radio" value="file" v-model="importSubtype" class="text-sky-600 focus:ring-sky-500" />
               {{ t('addAccount.importFile') }}
             </label>
-            <label class="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400 cursor-pointer">
+            <label class="flex items-center gap-1.5 text-xs text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] cursor-pointer">
               <input type="radio" value="string" v-model="importSubtype" class="text-sky-600 focus:ring-sky-500" />
               {{ t('addAccount.importString') }}
             </label>
@@ -578,7 +578,7 @@ onUnmounted(() => {
                   @change="handleFileChange"
                 />
               </label>
-              <span class="text-xs text-gray-500 truncate max-w-xs">{{ selectedFileName || t('addAccount.sessionFileHint') }}</span>
+              <span class="text-xs text-[var(--sp-text-muted)] truncate max-w-xs">{{ selectedFileName || t('addAccount.sessionFileHint') }}</span>
             </div>
           </div>
 
@@ -616,11 +616,11 @@ onUnmounted(() => {
               id="add-account-force"
               type="checkbox"
               v-model="forceOverwrite"
-              class="h-4 w-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500"
+              class="h-4 w-4 rounded border-[var(--sp-border-strong)] text-sky-600 focus:ring-sky-500"
             />
-            <label for="add-account-force" class="text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
+            <label for="add-account-force" class="text-xs text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] cursor-pointer">
               {{ t('addAccount.forceOverwrite') }}
-              <span class="text-gray-400 text-[11px] ml-1">({{ t('addAccount.forceOverwriteHint') }})</span>
+              <span class="text-[var(--sp-text-muted)] text-[11px] ml-1">({{ t('addAccount.forceOverwriteHint') }})</span>
             </label>
           </div>
         </div>
@@ -654,19 +654,19 @@ onUnmounted(() => {
       <!-- QR specific block -->
       <div v-if="loginMethod === 'qr'" class="ui-form-section mt-2">
         <div class="flex justify-between items-center mb-4">
-          <span class="text-sm text-gray-700 dark:text-gray-300 font-medium">{{ t('addAccount.qrHint') }}</span>
+          <span class="text-sm text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] font-medium">{{ t('addAccount.qrHint') }}</span>
           <button 
             @click="handleGetQr"
             :disabled="loading"
-            class="px-3 py-1.5 text-xs bg-white dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-sm border border-gray-300 dark:border-gray-600 transition-colors disabled:opacity-50"
+            class="px-3 py-1.5 text-xs bg-[var(--sp-surface)] dark:bg-[var(--sp-surface-muted)] hover:bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] text-[var(--sp-text-secondary)] dark:text-[var(--sp-text)] rounded-sm border border-[var(--sp-border-strong)] dark:border-[var(--sp-border)] transition-colors disabled:opacity-50"
           >
             {{ t('addAccount.getQr') }}
           </button>
         </div>
-        <div class="flex justify-center items-center h-48 w-full bg-white dark:bg-gray-900 rounded-md border border-gray-200 dark:border-gray-700">
+        <div class="flex justify-center items-center h-48 w-full bg-[var(--sp-surface)] dark:bg-[var(--sp-surface-elevated)] rounded-[var(--sp-radius)] border border-[var(--sp-border)] dark:border-[var(--sp-border)]">
           <img v-if="qrImage" :src="qrImage" class="w-40 h-40" alt="" @error="handleQrImageError" />
           <div v-else class="flex flex-col items-center gap-2">
-            <span class="text-sm text-gray-400">{{ qrLoadFailed ? t('addAccount.qrLoadFailed') : t('addAccount.qrArea') }}</span>
+            <span class="text-sm text-[var(--sp-text-muted)]">{{ qrLoadFailed ? t('addAccount.qrLoadFailed') : t('addAccount.qrArea') }}</span>
             <button
               v-if="qrLoadFailed"
               type="button"

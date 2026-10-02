@@ -86,7 +86,7 @@ const emit = defineEmits<{
         />
       </div>
       <div class="md:col-span-2 flex flex-col gap-1">
-        <label class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 cursor-pointer select-none">
+        <label class="flex items-center gap-2 text-xs text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] cursor-pointer select-none">
           <input
             type="checkbox"
             class="ui-checkbox"
@@ -95,10 +95,10 @@ const emit = defineEmits<{
           />
           {{ t('taskForm.ignoreSelfMessages') }}
         </label>
-        <p class="text-[10px] text-gray-500 leading-relaxed pl-6">{{ t('taskForm.ignoreSelfHint') }}</p>
+        <p class="text-[10px] text-[var(--sp-text-muted)] leading-relaxed pl-6">{{ t('taskForm.ignoreSelfHint') }}</p>
       </div>
       <div class="md:col-span-2 space-y-2">
-        <label class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 cursor-pointer select-none">
+        <label class="flex items-center gap-2 text-xs text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] cursor-pointer select-none">
           <input
             type="checkbox"
             class="ui-checkbox"
@@ -129,7 +129,7 @@ const emit = defineEmits<{
             />
           </div>
         </div>
-        <p class="text-[10px] text-gray-500 leading-relaxed pl-6">{{ t('taskForm.timeWindowHint') }}</p>
+        <p class="text-[10px] text-[var(--sp-text-muted)] leading-relaxed pl-6">{{ t('taskForm.timeWindowHint') }}</p>
       </div>
       <template v-if="pushChannel === 'forward'">
         <div class="space-y-1.5">

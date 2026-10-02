@@ -66,12 +66,12 @@ const handleSave = async () => {
     <template #header-extra>
       <div class="flex flex-wrap items-center gap-x-3 gap-y-1 ml-4">
         <label class="flex items-center gap-1.5 cursor-pointer" :title="t('taskForm.notifyChannelHint')">
-          <input type="checkbox" v-model="notifyOnFailure" class="rounded border-gray-300 accent-sky-500 w-3.5 h-3.5">
-          <span class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('taskForm.notifyOnFailure') }}</span>
+          <input type="checkbox" v-model="notifyOnFailure" class="rounded border-[var(--sp-border-strong)] accent-sky-500 w-3.5 h-3.5">
+          <span class="text-xs font-medium text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)]">{{ t('taskForm.notifyOnFailure') }}</span>
         </label>
         <label class="flex items-center gap-1.5 cursor-pointer" :title="t('taskForm.notifyChannelHint')">
-          <input type="checkbox" v-model="notifyOnSuccess" class="rounded border-gray-300 accent-sky-500 w-3.5 h-3.5">
-          <span class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('taskForm.notifyOnSuccess') }}</span>
+          <input type="checkbox" v-model="notifyOnSuccess" class="rounded border-[var(--sp-border-strong)] accent-sky-500 w-3.5 h-3.5">
+          <span class="text-xs font-medium text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)]">{{ t('taskForm.notifyOnSuccess') }}</span>
         </label>
       </div>
     </template>

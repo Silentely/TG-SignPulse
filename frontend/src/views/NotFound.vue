@@ -45,19 +45,19 @@ const openGithub = () => {
 <template>
   <main class="min-h-screen flex flex-col items-center justify-center font-sans px-4 py-10" role="main">
     <div class="w-full max-w-sm ui-card shadow-[var(--sp-shadow-md)] px-8 py-10 text-center">
-      <div class="w-14 h-14 bg-gray-100 dark:bg-gray-800/80 mx-auto flex items-center justify-center text-gray-700 dark:text-gray-200 mb-6 rounded-full">
+      <div class="w-14 h-14 bg-[var(--sp-surface-muted)] border border-[var(--sp-border)] mx-auto flex items-center justify-center text-[var(--sp-text-muted)] mb-6 rounded-full">
         <FileQuestion class="w-7 h-7 stroke-[1.5]" />
       </div>
 
-      <div class="text-5xl font-mono font-bold text-gray-900 dark:text-gray-100 tracking-wider mb-2">404</div>
-      <h1 class="text-base font-medium text-gray-900 dark:text-gray-100 mb-2">{{ t('notFound.title') }}</h1>
-      <p class="text-xs text-gray-500 dark:text-gray-400 mb-8 leading-relaxed">{{ t('notFound.desc') }}</p>
+      <div class="text-5xl font-mono font-bold text-[var(--sp-text)] tracking-wider mb-2">404</div>
+      <h1 class="text-base font-medium text-[var(--sp-text)] mb-2">{{ t('notFound.title') }}</h1>
+      <p class="text-xs text-[var(--sp-text-muted)] mb-8 leading-relaxed">{{ t('notFound.desc') }}</p>
 
       <div class="space-y-2.5">
         <button
           type="button"
           @click="handleRedirect"
-          class="ui-btn-primary w-full py-2.5 flex items-center justify-center gap-2"
+          class="ui-btn-primary w-full py-2.5 flex items-center justify-center gap-2 cursor-pointer"
         >
           <ArrowLeft class="w-4 h-4" />
           <span>{{ isAuthed ? t('notFound.backHome') : t('notFound.goToLogin') }}</span>
@@ -67,7 +67,7 @@ const openGithub = () => {
           v-if="hasHistory"
           type="button"
           @click="handleGoBack"
-          class="ui-btn-secondary w-full py-2 flex items-center justify-center gap-2 text-xs"
+          class="ui-btn-secondary w-full py-2 flex items-center justify-center gap-2 text-xs cursor-pointer"
         >
           <RotateCcw class="w-3.5 h-3.5" />
           <span>{{ t('notFound.goBack') }}</span>
@@ -75,10 +75,10 @@ const openGithub = () => {
       </div>
 
       <!-- Footer icons -->
-      <div class="flex items-center justify-center gap-2 mt-7 pt-5 border-t border-gray-200 dark:border-gray-800/60">
+      <div class="flex items-center justify-center gap-2 mt-7 pt-5 border-t border-[var(--sp-border)]">
         <button
           type="button"
-          class="ui-icon-btn"
+          class="ui-icon-btn cursor-pointer"
           :title="t('common.github')"
           :aria-label="t('common.github')"
           @click="openGithub"
@@ -87,7 +87,7 @@ const openGithub = () => {
         </button>
         <button
           type="button"
-          class="ui-icon-btn"
+          class="ui-icon-btn cursor-pointer"
           :title="locale === 'zh' ? t('language.switchToEn') : t('language.switchToZh')"
           :aria-label="t('common.changeLanguage')"
           @click="toggleLanguage"
@@ -96,7 +96,7 @@ const openGithub = () => {
         </button>
         <button
           type="button"
-          class="ui-icon-btn"
+          class="ui-icon-btn cursor-pointer"
           :title="isDark ? t('common.lightMode') : t('common.darkMode')"
           :aria-label="isDark ? t('common.lightMode') : t('common.darkMode')"
           @click="toggleTheme($event)"

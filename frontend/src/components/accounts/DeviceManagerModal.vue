@@ -262,12 +262,12 @@ onUnmounted(() => {
 <template>
   <Modal :isOpen="isOpen" :title="title" maxWidthClass="max-w-3xl" @close="emit('close')">
     <template #header-extra>
-      <span class="text-[11px] text-gray-500">{{ devices.length }} {{ t('accounts.deviceCount') }}</span>
+      <span class="text-[11px] text-[var(--sp-text-muted)]">{{ devices.length }} {{ t('accounts.deviceCount') }}</span>
     </template>
 
     <div class="space-y-4">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <p class="text-xs text-gray-500 leading-relaxed">
+        <p class="text-xs text-[var(--sp-text-muted)] leading-relaxed">
           {{ t('accounts.devicesHint') }}
         </p>
         <div class="flex items-center gap-2 shrink-0">
@@ -305,14 +305,14 @@ onUnmounted(() => {
 
       <div
         v-if="error"
-        class="text-xs text-red-600 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-lg p-3"
+        class="text-xs text-red-600 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-[var(--sp-radius-lg)] p-3"
       >
         {{ error }}
       </div>
 
       <div
         v-if="successMessage"
-        class="text-xs text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 rounded-lg p-3"
+        class="text-xs text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 rounded-[var(--sp-radius-lg)] p-3"
       >
         {{ successMessage }}
       </div>
@@ -320,14 +320,14 @@ onUnmounted(() => {
       <div class="space-y-4">
         <div>
           <div class="flex items-center justify-between mb-2">
-            <h4 class="text-xs font-semibold text-gray-700 dark:text-gray-300">
+            <h4 class="text-xs font-semibold text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
               {{ t('accounts.authorizedDevices') }} ({{ devices.length }})
             </h4>
           </div>
 
           <div
             v-if="loading && devices.length === 0"
-            class="py-10 text-center text-xs text-gray-400"
+            class="py-10 text-center text-xs text-[var(--sp-text-muted)]"
           >
             <RefreshCw class="w-4 h-4 animate-spin mx-auto mb-2 text-primary-500" />
             {{ t('accounts.loadingDevices') }}
@@ -335,7 +335,7 @@ onUnmounted(() => {
 
           <div
             v-else-if="devices.length === 0"
-            class="py-8 text-center text-xs text-gray-400 border border-dashed border-gray-200 dark:border-gray-800 rounded-lg"
+            class="py-8 text-center text-xs text-[var(--sp-text-muted)] border border-dashed border-[var(--sp-border)] dark:border-[var(--sp-border)] rounded-[var(--sp-radius-lg)]"
           >
             {{ t('accounts.noDevices') }}
           </div>
@@ -344,17 +344,17 @@ onUnmounted(() => {
             <div
               v-for="device in sortedDevices"
               :key="device.hash"
-              class="border rounded-lg p-3 text-xs transition-colors"
+              class="border rounded-[var(--sp-radius-lg)] p-3 text-xs transition-colors"
               :class="
                 device.current
                   ? 'border-primary-500/40 bg-primary-50/30 dark:bg-primary-950/20'
-                  : 'border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/40'
+                  : 'border-[var(--sp-border)] dark:border-[var(--sp-border)] hover:bg-[var(--sp-surface-subtle)] dark:bg-[var(--sp-surface-muted)]'
               "
             >
               <div class="flex items-start justify-between gap-3">
                 <div class="space-y-1 min-w-0 flex-1">
                   <div class="flex items-center gap-2 flex-wrap">
-                    <span class="font-medium text-gray-900 dark:text-gray-100 truncate">
+                    <span class="font-medium text-[var(--sp-text)] dark:text-[var(--sp-text)] truncate">
                       {{ device.device_model || t('accounts.unknownDevice') }}
                     </span>
                     <span
@@ -377,13 +377,13 @@ onUnmounted(() => {
                     </span>
                   </div>
 
-                  <div class="text-[11px] text-gray-500 space-x-2">
+                  <div class="text-[11px] text-[var(--sp-text-muted)] space-x-2">
                     <span>{{ device.app_name }} {{ device.app_version }}</span>
                     <span>•</span>
                     <span>{{ device.platform }} {{ device.system_version }}</span>
                   </div>
 
-                  <div class="text-[11px] text-gray-400 space-x-2 flex-wrap">
+                  <div class="text-[11px] text-[var(--sp-text-muted)] space-x-2 flex-wrap">
                     <span>IP: {{ device.ip || '-' }} ({{ device.country || '-' }})</span>
                     <span>•</span>
                     <span>{{ t('accounts.lastActive') }}: {{ formatDateTime(device.date_active) }}</span>
@@ -414,16 +414,16 @@ onUnmounted(() => {
 
         <div>
           <div class="flex items-center justify-between mb-2">
-            <h4 class="text-xs font-semibold text-gray-700 dark:text-gray-300 inline-flex items-center gap-1.5">
+            <h4 class="text-xs font-semibold text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] inline-flex items-center gap-1.5">
               <ShieldCheck class="w-3.5 h-3.5 text-primary-500" />
               {{ t('accounts.officialMessagesTitle') }}
             </h4>
-            <span class="text-[10px] text-gray-400">{{ t('accounts.officialMessagesHint') }}</span>
+            <span class="text-[10px] text-[var(--sp-text-muted)]">{{ t('accounts.officialMessagesHint') }}</span>
           </div>
 
           <div
             v-if="officialLoading && officialMessages.length === 0"
-            class="py-6 text-center text-xs text-gray-400"
+            class="py-6 text-center text-xs text-[var(--sp-text-muted)]"
           >
             <RefreshCw class="w-3.5 h-3.5 animate-spin mx-auto mb-1 text-primary-500" />
             {{ t('accounts.loadingOfficialMessages') }}
@@ -431,7 +431,7 @@ onUnmounted(() => {
 
           <div
             v-else-if="officialMessages.length === 0"
-            class="py-6 text-center text-xs text-gray-400 border border-dashed border-gray-200 dark:border-gray-800 rounded-lg"
+            class="py-6 text-center text-xs text-[var(--sp-text-muted)] border border-dashed border-[var(--sp-border)] dark:border-[var(--sp-border)] rounded-[var(--sp-radius-lg)]"
           >
             {{ t('accounts.noOfficialMessages') }}
           </div>
@@ -440,13 +440,13 @@ onUnmounted(() => {
             <div
               v-for="(msg, index) in sortedOfficialMessages"
               :key="msg.id ?? index"
-              class="border border-gray-200 dark:border-gray-800 rounded-lg p-3 text-xs bg-gray-50/60 dark:bg-gray-800/30"
+              class="border border-[var(--sp-border)] dark:border-[var(--sp-border)] rounded-[var(--sp-radius-lg)] p-3 text-xs bg-[var(--sp-surface-subtle)] dark:bg-[var(--sp-surface-muted)]"
             >
-              <div class="flex items-center justify-between gap-2 text-[11px] text-gray-400 mb-1">
+              <div class="flex items-center justify-between gap-2 text-[11px] text-[var(--sp-text-muted)] mb-1">
                 <span class="font-mono">#{{ msg.id ?? '-' }}</span>
                 <span>{{ formatDateTime(msg.date) }}</span>
               </div>
-              <p class="text-gray-800 dark:text-gray-200 whitespace-pre-wrap leading-relaxed break-words">
+              <p class="text-[var(--sp-text-secondary)] dark:text-[var(--sp-text)] whitespace-pre-wrap leading-relaxed break-words">
                 {{ msg.text }}
               </p>
             </div>
@@ -476,23 +476,23 @@ onUnmounted(() => {
     @close="exportedModalOpen = false"
   >
     <div class="space-y-3 text-xs">
-      <p class="text-gray-600 dark:text-gray-400 leading-relaxed">
+      <p class="text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] leading-relaxed">
         {{ t("accounts.exportStandaloneSessionNotice") }}
       </p>
 
-      <div class="grid grid-cols-2 gap-2 text-[11px] bg-gray-50 dark:bg-gray-800/60 p-2.5 rounded border border-gray-200 dark:border-gray-700">
-        <div><span class="text-gray-400">DC ID:</span> <span class="font-mono font-medium">{{ exportedDcId ?? "-" }}</span></div>
-        <div><span class="text-gray-400">User ID:</span> <span class="font-mono font-medium">{{ exportedUserId ?? "-" }}</span></div>
+      <div class="grid grid-cols-2 gap-2 text-[11px] bg-[var(--sp-surface-subtle)] dark:bg-[var(--sp-surface-muted)] p-2.5 rounded border border-[var(--sp-border)] dark:border-[var(--sp-border)]">
+        <div><span class="text-[var(--sp-text-muted)]">DC ID:</span> <span class="font-mono font-medium">{{ exportedDcId ?? "-" }}</span></div>
+        <div><span class="text-[var(--sp-text-muted)]">User ID:</span> <span class="font-mono font-medium">{{ exportedUserId ?? "-" }}</span></div>
       </div>
 
       <div>
-        <label class="block text-[11px] font-medium text-gray-500 mb-1">
+        <label class="block text-[11px] font-medium text-[var(--sp-text-muted)] mb-1">
           Pyrogram / Kurigram SessionString
         </label>
         <textarea
           readonly
           rows="4"
-          class="w-full font-mono text-[11px] p-2 rounded border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-900 select-all break-all"
+          class="w-full font-mono text-[11px] p-2 rounded border border-[var(--sp-border-strong)] dark:border-[var(--sp-border)] bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-elevated)] select-all break-all"
           :value="exportedSessionString"
         />
       </div>

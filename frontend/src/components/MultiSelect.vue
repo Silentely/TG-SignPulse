@@ -213,9 +213,9 @@ const selectedLabel = computed(() => {
         class="truncate"
         :class="allMode
           ? 'text-sky-600 dark:text-sky-400 font-medium'
-          : modelValue.length === 0 ? 'text-gray-400 dark:text-gray-400' : ''"
+          : modelValue.length === 0 ? 'text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)]' : ''"
       >{{ selectedLabel }}</span>
-      <ChevronDown class="w-4 h-4 text-gray-400 transition-transform duration-200 shrink-0" :class="isOpen ? 'rotate-180' : ''" />
+      <ChevronDown class="w-4 h-4 text-[var(--sp-text-muted)] transition-transform duration-200 shrink-0" :class="isOpen ? 'rotate-180' : ''" />
     </button>
 
     <Teleport to="body">
@@ -226,10 +226,10 @@ const selectedLabel = computed(() => {
             type="button"
             role="option"
             :aria-selected="allMode"
-            class="ui-dropdown-item border-b border-gray-100 dark:border-gray-800/50 mb-0.5"
+            class="ui-dropdown-item border-b border-[var(--sp-border)] dark:border-[var(--sp-border)] mb-0.5"
             :class="[
               allMode ? 'ui-dropdown-item-active !text-sky-600 dark:!text-sky-400' : '',
-              activeIndex === -1 ? 'bg-gray-100 dark:bg-white/[0.06]' : '',
+              activeIndex === -1 ? 'bg-[var(--sp-surface-muted)] bg-[var(--sp-surface)]/[0.06]' : '',
             ]"
             @mousedown.prevent
             @click.stop="toggleAllMode"
@@ -247,7 +247,7 @@ const selectedLabel = computed(() => {
             :class="[
               allMode ? 'opacity-40 pointer-events-none' : '',
               !allMode && modelValue.includes(opt.value) ? 'ui-dropdown-item-active !text-sky-600 dark:!text-sky-400' : '',
-              activeIndex === idx ? 'bg-gray-100 dark:bg-white/[0.06]' : '',
+              activeIndex === idx ? 'bg-[var(--sp-surface-muted)] bg-[var(--sp-surface)]/[0.06]' : '',
             ]"
             :aria-selected="!allMode && modelValue.includes(opt.value)"
             @mousedown.prevent
@@ -256,7 +256,7 @@ const selectedLabel = computed(() => {
             <span class="truncate">{{ opt.label }}</span>
             <Check v-if="!allMode && modelValue.includes(opt.value)" class="w-3.5 h-3.5 shrink-0 text-sky-500" />
           </button>
-          <div v-if="!options.length" class="px-3 py-2.5 text-sm text-gray-400">{{ t('multiSelect.noOptions') }}</div>
+          <div v-if="!options.length" class="px-3 py-2.5 text-sm text-[var(--sp-text-muted)]">{{ t('multiSelect.noOptions') }}</div>
         </div>
       </Transition>
     </Teleport>

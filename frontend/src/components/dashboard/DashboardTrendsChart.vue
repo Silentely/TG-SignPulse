@@ -101,21 +101,21 @@ const hoveredPoint = computed(() => {
     <div class="flex items-center justify-between flex-wrap gap-2">
       <div class="flex items-center gap-2">
         <span class="ui-section-icon">
-          <TrendingUp class="w-3.5 h-3.5 text-sky-500" stroke-width="2" />
+          <TrendingUp class="w-3.5 h-3.5 text-[var(--sp-accent)]" stroke-width="2" />
         </span>
-        <span class="text-sm font-medium text-gray-900 dark:text-gray-100">签到执行与成功率趋势</span>
+        <span class="text-sm font-medium text-[var(--sp-text)]">签到执行与成功率趋势</span>
       </div>
 
       <!-- 7天 / 30天 切换 -->
-      <div class="inline-flex items-center bg-gray-100 dark:bg-white/[0.05] p-0.5 rounded text-xs">
+      <div class="inline-flex items-center bg-[var(--sp-surface-muted)] border border-[var(--sp-border)] p-0.5 rounded-[var(--sp-radius-sm)] text-xs">
         <button
           v-for="opt in daysOptions"
           :key="opt.value"
           type="button"
-          class="px-2.5 py-1 rounded-sm font-medium transition-colors"
+          class="px-2.5 py-1 rounded-[var(--sp-radius-sm)] font-medium transition-colors"
           :class="selectedDays === opt.value
-            ? 'bg-white dark:bg-gray-800 text-sky-600 dark:text-sky-400 shadow-xs'
-            : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+            ? 'bg-[var(--sp-surface)] text-[var(--sp-accent)] shadow-xs'
+            : 'text-[var(--sp-text-muted)] hover:text-[var(--sp-text)]'"
           @click="selectedDays = opt.value"
         >
           {{ opt.label }}
@@ -125,23 +125,23 @@ const hoveredPoint = computed(() => {
 
     <!-- 指标汇总一览 -->
     <div class="grid grid-cols-3 gap-2 sm:gap-3 py-1">
-      <div class="bg-gray-50/80 dark:bg-white/[0.02] border border-gray-100 dark:border-gray-800/60 p-2.5 rounded">
-        <span class="text-[11px] text-gray-500 block mb-1">期间执行总计</span>
-        <span class="text-lg sm:text-xl font-mono font-semibold text-gray-900 dark:text-gray-100">
+      <div class="bg-[var(--sp-surface-muted)] border border-[var(--sp-border)] p-2.5 rounded-[var(--sp-radius)]">
+        <span class="text-[11px] text-[var(--sp-text-muted)] block mb-1">期间执行总计</span>
+        <span class="text-lg sm:text-xl font-mono font-semibold text-[var(--sp-text)]">
           {{ trendsData?.total_runs ?? 0 }}
         </span>
       </div>
-      <div class="bg-gray-50/80 dark:bg-white/[0.02] border border-gray-100 dark:border-gray-800/60 p-2.5 rounded">
-        <span class="text-[11px] text-gray-500 block mb-1">综合成功率</span>
-        <span class="text-lg sm:text-xl font-mono font-semibold text-emerald-600 dark:text-emerald-400">
+      <div class="bg-[var(--sp-surface-muted)] border border-[var(--sp-border)] p-2.5 rounded-[var(--sp-radius)]">
+        <span class="text-[11px] text-[var(--sp-text-muted)] block mb-1">综合成功率</span>
+        <span class="text-lg sm:text-xl font-mono font-semibold text-[var(--sp-success)]">
           {{ trendsData ? Math.round(trendsData.overall_success_rate * 100) : 100 }}%
         </span>
       </div>
-      <div class="bg-gray-50/80 dark:bg-white/[0.02] border border-gray-100 dark:border-gray-800/60 p-2.5 rounded">
-        <span class="text-[11px] text-gray-500 block mb-1">失败或异常</span>
+      <div class="bg-[var(--sp-surface-muted)] border border-[var(--sp-border)] p-2.5 rounded-[var(--sp-radius)]">
+        <span class="text-[11px] text-[var(--sp-text-muted)] block mb-1">失败或异常</span>
         <span
           class="text-lg sm:text-xl font-mono font-semibold"
-          :class="(trendsData?.total_failed ?? 0) > 0 ? 'text-rose-500' : 'text-gray-700 dark:text-gray-300'"
+          :class="(trendsData?.total_failed ?? 0) > 0 ? 'text-[var(--sp-danger)]' : 'text-[var(--sp-text)]'"
         >
           {{ trendsData?.total_failed ?? 0 }}
         </span>
@@ -150,11 +150,11 @@ const hoveredPoint = computed(() => {
 
     <!-- SVG 趋势图表区 -->
     <div v-if="loading" class="h-44 flex items-center justify-center">
-      <div class="ui-skeleton h-36 w-full rounded" />
+      <div class="ui-skeleton h-36 w-full rounded-[var(--sp-radius)]" />
     </div>
 
     <div v-else-if="!trendsData || trendsData.trends.length === 0" class="ui-empty !py-8">
-      <Calendar class="w-8 h-8 mx-auto text-gray-300 dark:text-gray-600 mb-2" />
+      <Calendar class="w-8 h-8 mx-auto text-[var(--sp-text-muted)] mb-2 opacity-50" />
       <p class="ui-empty-desc">暂无近 {{ selectedDays }} 天签到数据</p>
     </div>
 
@@ -162,9 +162,9 @@ const hoveredPoint = computed(() => {
       <!-- 悬停信息浮层 -->
       <div
         v-if="hoveredPoint"
-        class="absolute top-1 left-1/2 -translate-x-1/2 bg-gray-900/90 dark:bg-gray-800/95 text-white text-[11px] px-3 py-1.5 rounded shadow-lg backdrop-blur-xs flex items-center gap-3 pointer-events-none z-10 font-mono"
+        class="absolute top-1 left-1/2 -translate-x-1/2 bg-[var(--sp-terminal-bg)] dark:bg-[var(--sp-surface-muted)] text-white text-[11px] px-3 py-1.5 rounded-[var(--sp-radius)] shadow-lg backdrop-blur-xs flex items-center gap-3 pointer-events-none z-10 font-mono border border-[var(--sp-border)]"
       >
-        <span class="text-gray-300">{{ hoveredPoint.date }}</span>
+        <span class="text-[var(--sp-text-muted)]">{{ hoveredPoint.date }}</span>
         <span>执行: <b>{{ hoveredPoint.total }}</b></span>
         <span class="text-emerald-400">成功: <b>{{ hoveredPoint.success }}</b></span>
         <span v-if="hoveredPoint.failed > 0" class="text-rose-400">失败: <b>{{ hoveredPoint.failed }}</b></span>
@@ -183,7 +183,7 @@ const hoveredPoint = computed(() => {
           :y1="padding.top"
           :x2="svgWidth - padding.right"
           :y2="padding.top"
-          class="stroke-gray-200 dark:stroke-gray-800/60"
+          class="stroke-[var(--sp-border)]"
           stroke-dasharray="3 3"
         />
         <line
@@ -191,7 +191,7 @@ const hoveredPoint = computed(() => {
           :y1="padding.top + chartHeight / 2"
           :x2="svgWidth - padding.right"
           :y2="padding.top + chartHeight / 2"
-          class="stroke-gray-200 dark:stroke-gray-800/60"
+          class="stroke-[var(--sp-border)]"
           stroke-dasharray="3 3"
         />
         <line
@@ -199,7 +199,7 @@ const hoveredPoint = computed(() => {
           :y1="padding.top + chartHeight"
           :x2="svgWidth - padding.right"
           :y2="padding.top + chartHeight"
-          class="stroke-gray-200 dark:stroke-gray-800"
+          class="stroke-[var(--sp-border)]"
         />
 
         <!-- 柱状图（执行次数） -->
@@ -218,7 +218,7 @@ const hoveredPoint = computed(() => {
           <rect
             :x="p.x - (selectedDays === 30 ? 3 : 6)"
             :y="p.barY"
-            :width="selectedDays === 30 ? 6 : 12"
+            :width="(selectedDays === 30 ? 6 : 12)"
             :height="p.barH"
             class="transition-all duration-200 cursor-pointer"
             :class="hoveredIndex === idx
@@ -267,7 +267,7 @@ const hoveredPoint = computed(() => {
     </div>
 
     <!-- 底部图例说明 -->
-    <div class="flex items-center justify-between text-[11px] text-gray-500 border-t border-gray-100 dark:border-gray-800/60 pt-2.5">
+    <div class="flex items-center justify-between text-[11px] text-[var(--sp-text-muted)] border-t border-[var(--sp-border)] pt-2.5">
       <div class="flex items-center gap-4">
         <div class="flex items-center gap-1.5">
           <span class="w-2.5 h-2.5 rounded-xs bg-sky-400/60 dark:bg-sky-500/40" />
@@ -279,11 +279,11 @@ const hoveredPoint = computed(() => {
         </div>
       </div>
       <div v-if="trendsData?.categories && Object.keys(trendsData.categories).length > 0" class="hidden sm:flex items-center gap-2">
-        <span class="text-gray-400">常见故障:</span>
+        <span class="text-[var(--sp-text-muted)]">常见故障:</span>
         <span
           v-for="(count, cat) in trendsData.categories"
           :key="cat"
-          class="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-white/[0.05] text-[10px] font-mono text-gray-600 dark:text-gray-300"
+          class="px-1.5 py-0.5 rounded-[var(--sp-radius-sm)] bg-[var(--sp-surface-muted)] border border-[var(--sp-border)] text-[10px] font-mono text-[var(--sp-text-secondary)]"
         >
           {{ cat }}: {{ count }}
         </span>

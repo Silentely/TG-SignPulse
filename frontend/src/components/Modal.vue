@@ -158,18 +158,18 @@ onUnmounted(() => {
     <Transition name="modal" @after-leave="emit('closed')">
       <div
         v-if="isOpen"
-        class="fixed inset-0 flex items-center justify-center p-4"
+        class="fixed inset-0 flex items-center justify-center p-4 font-sans"
         :class="zIndexClass"
         role="presentation"
       >
         <!-- Backdrop -->
         <div
-          class="absolute inset-0 bg-gray-900/45 dark:bg-black/65 backdrop-blur-[3px]"
+          class="absolute inset-0 bg-black/50 dark:bg-black/70 backdrop-blur-[4px]"
           aria-hidden="true"
           @click="emit('close')"
         />
 
-        <!-- Modal Panel -->
+        <!-- Modal Panel (Linear / SST Elevation) -->
         <div
           ref="panelRef"
           role="dialog"
@@ -177,19 +177,19 @@ onUnmounted(() => {
           tabindex="-1"
           :aria-label="title"
           :class="[
-            'relative w-full ui-card shadow-[var(--sp-shadow-md)] overflow-hidden flex flex-col max-h-[90vh]',
+            'relative w-full ui-card shadow-[var(--sp-shadow-lg)] overflow-hidden flex flex-col max-h-[90vh]',
             maxWidthClass,
           ]"
         >
           <!-- Header -->
-          <div class="flex items-center justify-between px-5 h-13 min-h-[3.25rem] border-b border-gray-200 dark:border-gray-800/60 bg-gray-50/80 dark:bg-white/[0.02] shrink-0">
+          <div class="flex items-center justify-between px-5 h-13 min-h-[3.25rem] border-b border-[var(--sp-border)] bg-[var(--sp-surface-muted)]/50 shrink-0">
             <div class="flex items-center gap-3 min-w-0">
-              <h3 class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{{ title }}</h3>
+              <h3 class="text-sm font-medium text-[var(--sp-text)] truncate">{{ title }}</h3>
               <slot name="header-extra" />
             </div>
             <button
               type="button"
-              class="ui-icon-btn shrink-0"
+              class="ui-icon-btn shrink-0 cursor-pointer"
               :aria-label="t('common.close')"
               @click="emit('close')"
             >
@@ -198,14 +198,14 @@ onUnmounted(() => {
           </div>
 
           <!-- Content -->
-          <div class="p-5 overflow-y-auto max-h-[70vh] custom-scrollbar">
+          <div class="p-5 overflow-y-auto max-h-[70vh] custom-scrollbar text-[var(--sp-text)]">
             <slot />
           </div>
 
           <!-- Footer -->
           <div
             v-if="$slots.footer"
-            class="px-5 py-3.5 border-t border-gray-200 dark:border-gray-800/60 bg-gray-50/80 dark:bg-white/[0.02] flex justify-end gap-3 shrink-0"
+            class="px-5 py-3.5 border-t border-[var(--sp-border)] bg-[var(--sp-surface-muted)]/50 flex justify-end gap-3 shrink-0"
           >
             <slot name="footer" />
           </div>

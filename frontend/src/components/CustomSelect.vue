@@ -177,8 +177,8 @@ const hasValue = computed(() => {
       @click="toggle"
       @keydown="onKeydown"
     >
-      <span class="truncate" :class="!hasValue ? 'text-gray-400 dark:text-gray-400' : ''">{{ selectedLabel }}</span>
-      <ChevronDown class="w-4 h-4 text-gray-400 transition-transform duration-200 shrink-0" :class="isOpen ? 'rotate-180' : ''" />
+      <span class="truncate" :class="!hasValue ? 'text-[var(--sp-text-muted)]' : ''">{{ selectedLabel }}</span>
+      <ChevronDown class="w-4 h-4 text-[var(--sp-text-muted)] transition-transform duration-200 shrink-0" :class="isOpen ? 'rotate-180' : ''" />
     </button>
 
     <Teleport to="body">
@@ -210,9 +210,9 @@ const hasValue = computed(() => {
             @click="!opt.disabled && select(opt.value)"
           >
             <span class="truncate">{{ opt.label }}</span>
-            <Check v-if="modelValue === opt.value && !opt.disabled" class="w-3.5 h-3.5 shrink-0 text-sky-500" />
+            <Check v-if="modelValue === opt.value && !opt.disabled" class="w-3.5 h-3.5 shrink-0 text-[var(--sp-accent)]" />
           </button>
-          <div v-if="!options.length" class="px-3 py-2.5 text-sm text-gray-400">{{ t('common.noOptions') }}</div>
+          <div v-if="!options.length" class="px-3 py-2.5 text-sm text-[var(--sp-text-muted)]">{{ t('common.noOptions') }}</div>
         </div>
       </Transition>
     </Teleport>

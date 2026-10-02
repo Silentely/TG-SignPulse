@@ -214,16 +214,16 @@ const displayValue = computed(() => {
         aria-haspopup="dialog"
         @click="toggle"
       >
-        <span class="truncate" :class="!modelValue ? 'text-gray-400 dark:text-gray-400' : ''">
+        <span class="truncate" :class="!modelValue ? 'text-[var(--sp-text-muted)]' : ''">
           {{ displayValue || placeholder || t('datePicker.selectDate') }}
         </span>
-        <ChevronDown class="w-4 h-4 text-gray-400 transition-transform duration-200 shrink-0" :class="isOpen ? 'rotate-180' : ''" />
+        <ChevronDown class="w-4 h-4 text-[var(--sp-text-muted)] transition-transform duration-200 shrink-0" :class="isOpen ? 'rotate-180' : ''" />
       </button>
       <!-- 清除按钮独立于触发按钮，避免 button 嵌套的无效 HTML -->
       <button
         v-if="modelValue"
         type="button"
-        class="ui-icon-btn !w-8 !h-8 shrink-0"
+        class="ui-icon-btn !w-8 !h-8 shrink-0 cursor-pointer"
         :aria-label="t('datePicker.clearDate')"
         @click="clear"
       >
@@ -239,17 +239,17 @@ const displayValue = computed(() => {
         :aria-label="monthLabel"
       >
         <div class="flex items-center justify-between mb-2.5">
-          <button type="button" class="ui-icon-btn !w-7 !h-7" :aria-label="t('datePicker.prevMonth')" @click="prevMonth">
+          <button type="button" class="ui-icon-btn !w-7 !h-7 cursor-pointer" :aria-label="t('datePicker.prevMonth')" @click="prevMonth">
             <ChevronLeft class="w-4 h-4" />
           </button>
-          <span class="text-xs font-medium text-gray-900 dark:text-gray-100 tracking-wide">{{ monthLabel }}</span>
-          <button type="button" class="ui-icon-btn !w-7 !h-7" :aria-label="t('datePicker.nextMonth')" @click="nextMonth">
+          <span class="text-xs font-medium text-[var(--sp-text)] tracking-wide">{{ monthLabel }}</span>
+          <button type="button" class="ui-icon-btn !w-7 !h-7 cursor-pointer" :aria-label="t('datePicker.nextMonth')" @click="nextMonth">
             <ChevronRight class="w-4 h-4" />
           </button>
         </div>
 
         <div class="grid grid-cols-7 gap-0.5 mb-1">
-          <div v-for="wd in weekDays" :key="wd" class="text-center text-[10px] text-gray-400 font-medium py-1">{{ wd }}</div>
+          <div v-for="wd in weekDays" :key="wd" class="text-center text-[10px] text-[var(--sp-text-muted)] font-medium py-1">{{ wd }}</div>
         </div>
 
         <div class="grid grid-cols-7 gap-0.5">
@@ -269,12 +269,12 @@ const displayValue = computed(() => {
                   day: item.day,
                 })
               : undefined"
-            class="h-8 w-8 mx-auto flex items-center justify-center text-xs rounded-sm transition-colors"
+            class="h-8 w-8 mx-auto flex items-center justify-center text-xs rounded-[var(--sp-radius-sm)] transition-colors cursor-pointer"
             :class="[
               !item.day ? 'invisible' : '',
               item.isSelected ? 'bg-sky-500 text-white font-medium shadow-sm' : '',
               item.isToday && !item.isSelected ? 'border border-sky-400/60 text-sky-700 dark:text-sky-300' : '',
-              !item.isSelected && !item.isToday && item.day ? 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/[0.06]' : '',
+              !item.isSelected && !item.isToday && item.day ? 'text-[var(--sp-text-secondary)] hover:bg-[var(--sp-surface-muted)] hover:text-[var(--sp-text)]' : '',
             ]"
             @click="selectDate(item.date)"
             @keydown="onDayKeydown"
@@ -283,10 +283,10 @@ const displayValue = computed(() => {
           </button>
         </div>
 
-        <div class="mt-2.5 pt-2 border-t border-gray-100 dark:border-gray-800/60 flex justify-end">
+        <div class="mt-2.5 pt-2 border-t border-[var(--sp-border)] flex justify-end">
           <button
             type="button"
-            class="text-[11px] text-sky-600 dark:text-sky-400 hover:underline font-medium"
+            class="text-[11px] text-[var(--sp-accent)] hover:underline cursor-pointer font-medium"
             @click="goToday"
           >
             {{ t('datePicker.today') }}

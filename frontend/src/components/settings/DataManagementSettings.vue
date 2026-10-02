@@ -172,18 +172,18 @@ const copyRestoreCommand = async () => {
 <template>
   <section class="ui-card p-6">
     <!-- Header -->
-    <div class="mb-5 border-b border-gray-200 dark:border-gray-800/60 pb-3 flex items-start justify-between gap-3">
+    <div class="mb-5 border-b border-[var(--sp-border)] pb-3 flex items-start justify-between gap-3">
       <div class="flex items-start gap-3">
         <span class="ui-section-icon" aria-hidden="true"><Database class="w-3.5 h-3.5" /></span>
         <div>
-          <h2 class="text-base font-medium text-gray-900 dark:text-gray-100">{{ t('settings.dataManagement') }}</h2>
-          <p class="text-[11px] text-gray-500 mt-0.5">{{ t('settings.dataManagementDesc') }}</p>
+          <h2 class="text-base font-medium text-[var(--sp-text)] font-semibold">{{ t('settings.dataManagement') }}</h2>
+          <p class="text-[11px] text-[var(--sp-text-muted)] mt-0.5">{{ t('settings.dataManagementDesc') }}</p>
         </div>
       </div>
       <!-- 快速灾难恢复指引入口 -->
       <button
         type="button"
-        class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-brand-600 dark:text-brand-400 bg-brand-50/60 dark:bg-brand-950/30 hover:bg-brand-100/70 dark:hover:bg-brand-900/40 rounded-lg transition-colors border border-brand-200/50 dark:border-brand-800/50 shrink-0"
+        class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-brand-600 dark:text-brand-400 bg-brand-50/60 dark:bg-brand-950/30 hover:bg-brand-100/70 dark:hover:bg-brand-900/40 rounded-[var(--sp-radius-lg)] transition-colors border border-brand-200/50 dark:border-brand-800/50 shrink-0"
         @click="showRestoreModal = true"
       >
         <HelpCircle class="w-3.5 h-3.5" />
@@ -192,11 +192,11 @@ const copyRestoreCommand = async () => {
     </div>
 
     <!-- Navigation Tabs -->
-    <div class="flex border-b border-gray-200 dark:border-gray-800 mb-5 gap-6 text-xs font-medium">
+    <div class="flex border-b border-[var(--sp-border)] mb-5 gap-6 text-xs font-medium">
       <button
         type="button"
         class="pb-2.5 flex items-center gap-1.5 border-b-2 transition-colors"
-        :class="activeTab === 'remote' ? 'border-brand-500 text-brand-600 dark:text-brand-400 font-semibold' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+        :class="activeTab === 'remote' ? 'border-brand-500 text-brand-600 dark:text-brand-400 font-semibold' : 'border-transparent text-[var(--sp-text-muted)] hover:text-[var(--sp-text-secondary)] dark:hover:text-[var(--sp-text-muted)]'"
         @click="activeTab = 'remote'"
       >
         <Cloud class="w-3.5 h-3.5" />
@@ -205,7 +205,7 @@ const copyRestoreCommand = async () => {
       <button
         type="button"
         class="pb-2.5 flex items-center gap-1.5 border-b-2 transition-colors"
-        :class="activeTab === 'auto' ? 'border-brand-500 text-brand-600 dark:text-brand-400 font-semibold' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+        :class="activeTab === 'auto' ? 'border-brand-500 text-brand-600 dark:text-brand-400 font-semibold' : 'border-transparent text-[var(--sp-text-muted)] hover:text-[var(--sp-text-secondary)] dark:hover:text-[var(--sp-text-muted)]'"
         @click="activeTab = 'auto'"
       >
         <Clock class="w-3.5 h-3.5" />
@@ -214,7 +214,7 @@ const copyRestoreCommand = async () => {
       <button
         type="button"
         class="pb-2.5 flex items-center gap-1.5 border-b-2 transition-colors"
-        :class="activeTab === 'migrate' ? 'border-brand-500 text-brand-600 dark:text-brand-400 font-semibold' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+        :class="activeTab === 'migrate' ? 'border-brand-500 text-brand-600 dark:text-brand-400 font-semibold' : 'border-transparent text-[var(--sp-text-muted)] hover:text-[var(--sp-text-secondary)] dark:hover:text-[var(--sp-text-muted)]'"
         @click="activeTab = 'migrate'"
       >
         <FileJson class="w-3.5 h-3.5" />
@@ -225,20 +225,20 @@ const copyRestoreCommand = async () => {
     <!-- TAB 1: WebDAV 远端备份 -->
     <div v-show="activeTab === 'remote'" class="space-y-5">
       <!-- 状态指示条 -->
-      <div v-if="backupStatus" class="p-3 bg-gray-50/80 dark:bg-white/[0.02] border border-gray-200/80 dark:border-gray-800/80 rounded-lg text-xs space-y-1.5">
-        <div class="flex flex-wrap items-center justify-between gap-2 text-gray-600 dark:text-gray-300">
+      <div v-if="backupStatus" class="p-3 bg-[var(--sp-surface-subtle)] bg-[var(--sp-surface)]/[0.02] border border-[var(--sp-border)] dark:border-[var(--sp-border)] rounded-[var(--sp-radius-lg)] text-xs space-y-1.5">
+        <div class="flex flex-wrap items-center justify-between gap-2 text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
           <span class="font-mono flex items-center gap-1.5 truncate">
-            <HardDrive class="w-3.5 h-3.5 text-gray-400 shrink-0" />
+            <HardDrive class="w-3.5 h-3.5 text-[var(--sp-text-muted)] shrink-0" />
             {{ backupStatus.data_dir }}
-            <span class="text-gray-400">· {{ backupStatus.size_human }}</span>
+            <span class="text-[var(--sp-text-muted)]">· {{ backupStatus.size_human }}</span>
             <span :class="backupStatus.writable ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'">
               ({{ backupStatus.writable ? t('settings.backupWritable') : t('settings.backupReadonly') }})
             </span>
           </span>
           <div class="flex items-center gap-2 text-[11px]">
-            <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800">
+            <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)]">
               WebDAV:
-              <span :class="backupStatus.webdav_configured ? 'text-emerald-600 dark:text-emerald-400 font-medium' : 'text-gray-400'">
+              <span :class="backupStatus.webdav_configured ? 'text-emerald-600 dark:text-emerald-400 font-medium' : 'text-[var(--sp-text-muted)]'">
                 {{ backupStatus.webdav_configured ? t('settings.webdavConfiguredYes') : t('settings.webdavConfiguredNo') }}
               </span>
             </span>
@@ -251,23 +251,23 @@ const copyRestoreCommand = async () => {
       <!-- WebDAV 配置区块 -->
       <div class="space-y-4">
         <div>
-          <h3 class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ t('settings.fullBackup') }}</h3>
-          <p class="text-xs text-gray-500 mt-0.5 leading-relaxed">{{ t('settings.fullBackupDesc') }}</p>
+          <h3 class="text-sm font-medium text-[var(--sp-text)] font-semibold">{{ t('settings.fullBackup') }}</h3>
+          <p class="text-xs text-[var(--sp-text-muted)] mt-0.5 leading-relaxed">{{ t('settings.fullBackupDesc') }}</p>
         </div>
 
         <!-- WebDAV 快捷预设 (Quick Presets) -->
-        <div class="p-2.5 rounded-lg bg-gray-50/70 dark:bg-white/[0.02] border border-gray-200/50 dark:border-gray-800/50 space-y-1.5">
-          <div class="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300 font-medium">
+        <div class="p-2.5 rounded-[var(--sp-radius-lg)] bg-[var(--sp-surface-subtle)] bg-[var(--sp-surface)]/[0.02] border border-[var(--sp-border)] dark:border-[var(--sp-border)] space-y-1.5">
+          <div class="flex items-center gap-1.5 text-xs text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] font-medium">
             <Sparkles class="w-3.5 h-3.5 text-amber-500" />
             <span>{{ t('settings.quickPresets') }}</span>
-            <span class="text-[10px] text-gray-400 font-normal">({{ t('settings.quickPresetsHint') }})</span>
+            <span class="text-[10px] text-[var(--sp-text-muted)] font-normal">({{ t('settings.quickPresetsHint') }})</span>
           </div>
           <div class="flex flex-wrap gap-1.5">
             <button
               v-for="preset in webdavPresets"
               :key="preset.id"
               type="button"
-              class="px-2.5 py-1 text-[11px] rounded-md font-medium transition-colors bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:text-brand-600 dark:hover:text-brand-400 hover:border-brand-300 dark:hover:border-brand-700 border border-gray-200/80 dark:border-gray-700/80 shadow-xs"
+              class="px-2.5 py-1 text-[11px] rounded-[var(--sp-radius)] font-medium transition-colors bg-[var(--sp-surface)] dark:bg-[var(--sp-surface-muted)] text-[var(--sp-text-secondary)] dark:text-[var(--sp-text)] hover:text-brand-600 dark:hover:text-brand-400 hover:border-brand-300 dark:hover:border-brand-700 border border-[var(--sp-border)] dark:border-[var(--sp-border)] shadow-xs"
               @click="applyWebdavPreset(preset)"
             >
               {{ t(preset.labelKey) }}
@@ -347,28 +347,28 @@ const copyRestoreCommand = async () => {
         </div>
 
         <!-- WebDAV 远端文件列表 -->
-        <div v-if="remoteFiles.length || remoteMessage" class="text-xs space-y-2 pt-2 border-t border-gray-100 dark:border-gray-800">
-          <div class="flex items-center justify-between text-gray-500">
-            <span v-if="remoteFiles.length" class="text-[11px] font-medium text-gray-700 dark:text-gray-300">
+        <div v-if="remoteFiles.length || remoteMessage" class="text-xs space-y-2 pt-2 border-t border-[var(--sp-border)] dark:border-[var(--sp-border)]">
+          <div class="flex items-center justify-between text-[var(--sp-text-muted)]">
+            <span v-if="remoteFiles.length" class="text-[11px] font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
               {{ t('settings.remoteFilesCount', { count: remoteFiles.length }) }}
             </span>
             <span v-else-if="remoteMessage" class="text-[11px]">{{ remoteMessage }}</span>
-            <span class="text-[10px] text-gray-400">{{ t('settings.webdavDownloadHint') }}</span>
+            <span class="text-[10px] text-[var(--sp-text-muted)]">{{ t('settings.webdavDownloadHint') }}</span>
           </div>
 
           <ul v-if="remoteFiles.length" class="space-y-1.5 max-h-44 overflow-y-auto">
             <li
               v-for="f in remoteFiles"
               :key="f.name + (f.mtime || '')"
-              class="flex items-center justify-between gap-2 p-2 rounded-lg bg-gray-50/80 dark:bg-white/[0.02] border border-gray-200/60 dark:border-gray-800/60 hover:bg-gray-100/70 dark:hover:bg-gray-800/40 transition-colors"
+              class="flex items-center justify-between gap-2 p-2 rounded-[var(--sp-radius-lg)] bg-[var(--sp-surface-subtle)] bg-[var(--sp-surface)]/[0.02] border border-[var(--sp-border)] dark:border-[var(--sp-border)] hover:bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] transition-colors"
             >
               <div class="flex items-center gap-2 min-w-0">
                 <Archive class="w-3.5 h-3.5 text-brand-500 shrink-0" />
-                <span class="font-mono text-xs text-gray-800 dark:text-gray-200 truncate">{{ f.name }}</span>
-                <span v-if="f.size_bytes != null" class="text-[10px] px-1.5 py-0.2 rounded bg-gray-200/60 dark:bg-gray-700/60 text-gray-600 dark:text-gray-300 shrink-0">
+                <span class="font-mono text-xs text-[var(--sp-text-secondary)] dark:text-[var(--sp-text)] truncate">{{ f.name }}</span>
+                <span v-if="f.size_bytes != null" class="text-[10px] px-1.5 py-0.2 rounded bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] shrink-0">
                   {{ formatBytes(f.size_bytes) }}
                 </span>
-                <span v-if="f.mtime" class="text-[10px] text-gray-400 hidden sm:inline shrink-0">· {{ f.mtime }}</span>
+                <span v-if="f.mtime" class="text-[10px] text-[var(--sp-text-muted)] hidden sm:inline shrink-0">· {{ f.mtime }}</span>
               </div>
               <button
                 type="button"
@@ -386,7 +386,7 @@ const copyRestoreCommand = async () => {
       </div>
 
       <!-- 立即创建备份主按钮 -->
-      <div class="pt-4 border-t border-gray-200 dark:border-gray-800/60 space-y-1.5">
+      <div class="pt-4 border-t border-[var(--sp-border)] space-y-1.5">
         <button
           type="button"
           class="ui-btn-primary w-full !px-4 !py-2.5 flex items-center justify-center gap-2"
@@ -402,11 +402,11 @@ const copyRestoreCommand = async () => {
 
     <!-- TAB 2: 定时与生命周期 -->
     <div v-show="activeTab === 'auto'" class="space-y-4">
-      <div class="p-4 bg-gray-50/50 dark:bg-white/[0.015] border border-gray-200/60 dark:border-gray-800/60 rounded-lg space-y-4">
+      <div class="p-4 bg-[var(--sp-surface-subtle)] bg-[var(--sp-surface)]/[0.015] border border-[var(--sp-border)] dark:border-[var(--sp-border)] rounded-[var(--sp-radius-lg)] space-y-4">
         <div class="flex items-center justify-between gap-3">
           <div>
-            <label class="text-xs font-medium text-gray-800 dark:text-gray-200 block">{{ t('settings.autoBackup') }}</label>
-            <p class="text-[11px] text-gray-500 mt-0.5 leading-relaxed">{{ t('settings.autoBackupDesc') }}</p>
+            <label class="text-xs font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text)] block">{{ t('settings.autoBackup') }}</label>
+            <p class="text-[11px] text-[var(--sp-text-muted)] mt-0.5 leading-relaxed">{{ t('settings.autoBackupDesc') }}</p>
           </div>
           <button
             type="button"
@@ -423,7 +423,7 @@ const copyRestoreCommand = async () => {
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
           <div class="space-y-1">
-            <label class="text-xs text-gray-600 dark:text-gray-400">{{ t('settings.autoBackupInterval') }}</label>
+            <label class="text-xs text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">{{ t('settings.autoBackupInterval') }}</label>
             <input
               :value="modelValue.autoBackupInterval"
               @input="onNumberInput('autoBackupInterval', $event)"
@@ -433,10 +433,10 @@ const copyRestoreCommand = async () => {
               class="ui-input"
               :disabled="!modelValue.autoBackupEnabled"
             />
-            <p class="text-[10px] text-gray-500">{{ t('settings.autoBackupIntervalHint') }}</p>
+            <p class="text-[10px] text-[var(--sp-text-muted)]">{{ t('settings.autoBackupIntervalHint') }}</p>
           </div>
           <div class="space-y-1">
-            <label class="text-xs text-gray-600 dark:text-gray-400">{{ t('settings.autoBackupKeep') }}</label>
+            <label class="text-xs text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">{{ t('settings.autoBackupKeep') }}</label>
             <input
               :value="modelValue.autoBackupKeep"
               @input="onNumberInput('autoBackupKeep', $event)"
@@ -446,7 +446,7 @@ const copyRestoreCommand = async () => {
               class="ui-input"
               :disabled="!modelValue.autoBackupEnabled"
             />
-            <p class="text-[10px] text-gray-500">{{ t('settings.autoBackupKeepHint') }}</p>
+            <p class="text-[10px] text-[var(--sp-text-muted)]">{{ t('settings.autoBackupKeepHint') }}</p>
           </div>
         </div>
 
@@ -462,15 +462,15 @@ const copyRestoreCommand = async () => {
 
       <!-- 本地自动备份记录展示 -->
       <div v-if="backupStatus?.local_auto_backups?.length" class="space-y-2 pt-2">
-        <h4 class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ t('settings.localAutoBackups') }}</h4>
+        <h4 class="text-xs font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">{{ t('settings.localAutoBackups') }}</h4>
         <div class="space-y-1.5 max-h-40 overflow-y-auto">
           <div
             v-for="b in backupStatus.local_auto_backups"
             :key="b.name"
-            class="flex items-center justify-between p-2 rounded bg-gray-50 dark:bg-white/[0.02] border border-gray-200/50 dark:border-gray-800/50 text-xs font-mono"
+            class="flex items-center justify-between p-2 rounded bg-[var(--sp-surface-subtle)] bg-[var(--sp-surface)]/[0.02] border border-[var(--sp-border)] dark:border-[var(--sp-border)] text-xs font-mono"
           >
             <span class="truncate">{{ b.name }}</span>
-            <span class="text-gray-400 text-[11px] shrink-0">{{ b.size_human }}</span>
+            <span class="text-[var(--sp-text-muted)] text-[11px] shrink-0">{{ b.size_human }}</span>
           </div>
         </div>
       </div>
@@ -479,13 +479,13 @@ const copyRestoreCommand = async () => {
     <!-- TAB 3: 完整数据备份与配置迁移 -->
     <div v-show="activeTab === 'migrate'" class="space-y-5">
       <!-- 完整数据归档直接下载 -->
-      <div class="p-4 bg-gray-50/50 dark:bg-white/[0.015] border border-gray-200/60 dark:border-gray-800/60 rounded-lg space-y-3">
+      <div class="p-4 bg-[var(--sp-surface-subtle)] bg-[var(--sp-surface)]/[0.015] border border-[var(--sp-border)] dark:border-[var(--sp-border)] rounded-[var(--sp-radius-lg)] space-y-3">
         <div>
-          <h3 class="text-sm font-medium text-gray-900 dark:text-gray-100 flex items-center gap-1.5">
+          <h3 class="text-sm font-medium text-[var(--sp-text)] font-semibold flex items-center gap-1.5">
             <Archive class="w-4 h-4 text-brand-500" />
             {{ t('settings.fullArchiveDownloadTitle') }}
           </h3>
-          <p class="text-xs text-gray-500 mt-1 leading-relaxed">{{ t('settings.fullArchiveDownloadDesc') }}</p>
+          <p class="text-xs text-[var(--sp-text-muted)] mt-1 leading-relaxed">{{ t('settings.fullArchiveDownloadDesc') }}</p>
         </div>
         <button
           type="button"
@@ -500,13 +500,13 @@ const copyRestoreCommand = async () => {
       </div>
 
       <!-- 轻量配置 JSON 迁移 -->
-      <div class="p-4 bg-gray-50/50 dark:bg-white/[0.015] border border-gray-200/60 dark:border-gray-800/60 rounded-lg space-y-3">
+      <div class="p-4 bg-[var(--sp-surface-subtle)] bg-[var(--sp-surface)]/[0.015] border border-[var(--sp-border)] dark:border-[var(--sp-border)] rounded-[var(--sp-radius-lg)] space-y-3">
         <div>
-          <h3 class="text-sm font-medium text-gray-900 dark:text-gray-100 flex items-center gap-1.5">
+          <h3 class="text-sm font-medium text-[var(--sp-text)] font-semibold flex items-center gap-1.5">
             <FileJson class="w-4 h-4 text-amber-500" />
             {{ t('settings.configMigrateTitle') }}
           </h3>
-          <p class="text-xs text-gray-500 mt-1 leading-relaxed">{{ t('settings.configMigrateDesc') }}</p>
+          <p class="text-xs text-[var(--sp-text-muted)] mt-1 leading-relaxed">{{ t('settings.configMigrateDesc') }}</p>
         </div>
 
         <div class="flex flex-col sm:flex-row gap-3 pt-1">
@@ -549,22 +549,22 @@ const copyRestoreCommand = async () => {
         class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in"
         @click.self="showRestoreModal = false"
       >
-        <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl max-w-xl w-full border border-gray-200 dark:border-gray-800 p-5 space-y-4">
-          <div class="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-gray-800">
+        <div class="bg-[var(--sp-surface)] dark:bg-[var(--sp-surface-elevated)] rounded-[var(--sp-radius-card)] shadow-xl max-w-xl w-full border border-[var(--sp-border)] dark:border-[var(--sp-border)] p-5 space-y-4">
+          <div class="flex items-center justify-between pb-3 border-b border-[var(--sp-border)] dark:border-[var(--sp-border)]">
             <div class="flex items-center gap-2">
               <AlertTriangle class="w-4 h-4 text-amber-500" />
-              <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ t('settings.restoreGuideTitle') }}</h3>
+              <h3 class="text-sm font-semibold text-[var(--sp-text)] font-semibold">{{ t('settings.restoreGuideTitle') }}</h3>
             </div>
             <button
               type="button"
-              class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-lg leading-none"
+              class="text-[var(--sp-text-muted)] hover:text-[var(--sp-text-secondary)] dark:hover:text-[var(--sp-text)] text-lg leading-none"
               @click="showRestoreModal = false"
             >
               ×
             </button>
           </div>
 
-          <p class="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
+          <p class="text-xs text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] leading-relaxed">
             {{ t('settings.restoreGuideSubtitle') }}
           </p>
 
@@ -578,11 +578,11 @@ const copyRestoreCommand = async () => {
           </div>
 
           <!-- 恢复环境切换 -->
-          <div class="flex border-b border-gray-100 dark:border-gray-800 gap-4 text-xs">
+          <div class="flex border-b border-[var(--sp-border)] dark:border-[var(--sp-border)] gap-4 text-xs">
             <button
               type="button"
               class="pb-1.5 font-medium transition-colors border-b-2"
-              :class="restoreEnvTab === 'docker' ? 'border-brand-500 text-brand-600 dark:text-brand-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+              :class="restoreEnvTab === 'docker' ? 'border-brand-500 text-brand-600 dark:text-brand-400' : 'border-transparent text-[var(--sp-text-muted)] hover:text-[var(--sp-text-secondary)] dark:hover:text-[var(--sp-text-muted)]'"
               @click="restoreEnvTab = 'docker'"
             >
               {{ t('settings.restoreGuideTabDocker') }}
@@ -590,7 +590,7 @@ const copyRestoreCommand = async () => {
             <button
               type="button"
               class="pb-1.5 font-medium transition-colors border-b-2"
-              :class="restoreEnvTab === 'host' ? 'border-brand-500 text-brand-600 dark:text-brand-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+              :class="restoreEnvTab === 'host' ? 'border-brand-500 text-brand-600 dark:text-brand-400' : 'border-transparent text-[var(--sp-text-muted)] hover:text-[var(--sp-text-secondary)] dark:hover:text-[var(--sp-text-muted)]'"
               @click="restoreEnvTab = 'host'"
             >
               {{ t('settings.restoreGuideTabHost') }}
@@ -598,10 +598,10 @@ const copyRestoreCommand = async () => {
           </div>
 
           <!-- 命令展示区 -->
-          <div class="relative bg-gray-900 rounded-lg p-3 text-gray-100 font-mono text-xs overflow-x-auto">
+          <div class="relative bg-[var(--sp-terminal-bg)] rounded-[var(--sp-radius-lg)] p-3 text-[var(--sp-text)] font-mono text-xs overflow-x-auto">
             <button
               type="button"
-              class="absolute top-2.5 right-2.5 p-1 rounded hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors"
+              class="absolute top-2.5 right-2.5 p-1 rounded bg-[var(--sp-surface-muted)] text-[var(--sp-text-muted)] hover:text-[var(--sp-text)] transition-colors"
               :title="t('common.copy')"
               @click="copyRestoreCommand"
             >
