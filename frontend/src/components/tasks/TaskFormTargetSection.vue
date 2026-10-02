@@ -248,7 +248,7 @@ const onTopicChange = (val: string | number) => {
         ]"
         @update:model-value="emit('update:createMode', $event as 'shared' | 'split')"
       />
-      <p class="text-[10px] text-gray-500 leading-relaxed">{{ t('tasks.createModeHint') }}</p>
+      <p class="text-[10px] text-[var(--sp-text-muted)] leading-relaxed">{{ t('tasks.createModeHint') }}</p>
     </div>
     <div v-if="targetChats.length > 1" class="flex flex-wrap gap-2 mb-4">
       <div
@@ -257,7 +257,7 @@ const onTopicChange = (val: string | number) => {
         class="flex items-center max-w-[16rem] border transition-colors"
         :class="activeChatIndex === idx
           ? 'border-sky-400 bg-sky-50 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300'
-          : 'border-gray-200 dark:border-gray-700 text-gray-500'"
+          : 'border-[var(--sp-border)] dark:border-[var(--sp-border)] text-[var(--sp-text-muted)]'"
       >
         <button
           type="button"
@@ -268,7 +268,7 @@ const onTopicChange = (val: string | number) => {
         </button>
         <button
           type="button"
-          class="shrink-0 pl-0.5 pr-1.5 py-1 text-[11px] text-gray-400 hover:text-rose-500 rounded-sm"
+          class="shrink-0 pl-0.5 pr-1.5 py-1 text-[11px] text-[var(--sp-text-muted)] hover:text-rose-500 rounded-sm"
           :aria-label="t('taskForm.removeTargetChat', { name: chat.chatName || chat.chatId || String(idx + 1) })"
           :title="t('taskForm.removeTargetChat', { name: chat.chatName || chat.chatId || String(idx + 1) })"
           @click="emit('remove-target', idx)"
@@ -278,7 +278,7 @@ const onTopicChange = (val: string | number) => {
 
     <!-- Chat Folders 快速筛选 -->
     <div v-if="folders.length > 1" class="mb-3 flex items-center gap-1.5 flex-wrap">
-      <span class="text-[11px] text-gray-500 dark:text-gray-400 font-medium shrink-0 flex items-center gap-1">
+      <span class="text-[11px] text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)] font-medium shrink-0 flex items-center gap-1">
         <Folder class="w-3.5 h-3.5 text-sky-500" />
         {{ t('taskForm.filterByFolder') }}:
       </span>
@@ -289,7 +289,7 @@ const onTopicChange = (val: string | number) => {
         class="px-2 py-0.5 rounded text-[11px] font-medium transition-colors shrink-0 cursor-pointer"
         :class="String(selectedFolderId) === String(folder.id)
           ? 'bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300 border border-sky-300 dark:border-sky-700'
-          : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 border border-transparent'"
+          : 'bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] hover:bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] border border-transparent'"
         @click="selectedFolderId = folder.id"
       >
         <span v-if="folder.emoticon" class="mr-1">{{ folder.emoticon }}</span>
@@ -355,7 +355,7 @@ const onTopicChange = (val: string | number) => {
             role="listbox"
             class="absolute top-11 left-0 right-0 z-10 max-h-40 overflow-y-auto ui-dropdown shadow-[var(--sp-shadow-md)]"
           >
-            <div v-if="chatSearchLoading" class="p-3 text-xs text-gray-400">{{ t('taskForm.searching') }}</div>
+            <div v-if="chatSearchLoading" class="p-3 text-xs text-[var(--sp-text-muted)]">{{ t('taskForm.searching') }}</div>
             <template v-else>
               <button
                 v-for="(chat, idx) in chatSearchResults"
@@ -364,15 +364,15 @@ const onTopicChange = (val: string | number) => {
                 type="button"
                 role="option"
                 :aria-selected="activeSearchIndex === idx"
-                class="w-full text-left p-2 border-b border-gray-100 dark:border-gray-800/60 hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer text-sm"
-                :class="activeSearchIndex === idx ? 'bg-gray-50 dark:bg-gray-800/60' : ''"
+                class="w-full text-left p-2 border-b border-[var(--sp-border)] dark:border-[var(--sp-border)] hover:bg-[var(--sp-surface-subtle)] dark:bg-[var(--sp-surface-muted)] cursor-pointer text-sm"
+                :class="activeSearchIndex === idx ? 'bg-[var(--sp-surface-subtle)] dark:bg-[var(--sp-surface-muted)]' : ''"
                 @mouseenter="activeSearchIndex = idx"
                 @click="activeSearchIndex = -1; emit('select-chat', chat)"
               >
                 <span class="block font-medium truncate">{{ chat.title || chat.username || chat.id }}</span>
-                <span class="block text-[10px] text-gray-400 font-mono">{{ chat.id }}</span>
+                <span class="block text-[10px] text-[var(--sp-text-muted)] font-mono">{{ chat.id }}</span>
               </button>
-              <div v-if="!chatSearchResults.length" class="p-3 text-xs text-gray-400">{{ t('taskForm.noResults') }}</div>
+              <div v-if="!chatSearchResults.length" class="p-3 text-xs text-[var(--sp-text-muted)]">{{ t('taskForm.noResults') }}</div>
             </template>
           </div>
         </div>
@@ -385,7 +385,7 @@ const onTopicChange = (val: string | number) => {
         <label class="ui-label mb-0 flex items-center gap-1 text-sky-700 dark:text-sky-300 font-medium">
           <MessageSquare class="w-3.5 h-3.5" />
           {{ t('taskForm.forumTopic') }}
-          <span class="text-[10px] text-gray-500 dark:text-gray-400 font-normal">({{ t('taskForm.forumGroupDetected') }})</span>
+          <span class="text-[10px] text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)] font-normal">({{ t('taskForm.forumGroupDetected') }})</span>
         </label>
         <span v-if="topicsLoading" class="text-[10px] text-sky-500 animate-pulse">
           {{ t('taskForm.loadingTopics') }}
@@ -402,7 +402,7 @@ const onTopicChange = (val: string | number) => {
 
     <div
       v-if="showAdvanced || isCustomTopic || activeTopicValue === '__custom__'"
-      class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4 pt-3 border-t border-dashed border-gray-200 dark:border-gray-700/60"
+      class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4 pt-3 border-t border-dashed border-[var(--sp-border)] dark:border-[var(--sp-border)]"
     >
       <div class="space-y-1.5">
         <label class="ui-label" for="task-form-thread">{{ t('taskForm.threadId') }}</label>
@@ -425,11 +425,11 @@ const onTopicChange = (val: string | number) => {
         />
       </div>
     </div>
-    <div v-if="filteredAvailableChats.length" class="mt-4 border border-dashed border-gray-200 dark:border-gray-700/60 p-3 space-y-2">
+    <div v-if="filteredAvailableChats.length" class="mt-4 border border-dashed border-[var(--sp-border)] dark:border-[var(--sp-border)] p-3 space-y-2">
       <div class="flex items-center justify-between gap-2">
         <div>
-          <div class="text-[11px] font-medium text-gray-700 dark:text-gray-300">{{ t('taskForm.pickFromChatList') }}</div>
-          <p class="text-[10px] text-gray-500">{{ t('taskForm.bulkPickHint') }}</p>
+          <div class="text-[11px] font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">{{ t('taskForm.pickFromChatList') }}</div>
+          <p class="text-[10px] text-[var(--sp-text-muted)]">{{ t('taskForm.bulkPickHint') }}</p>
         </div>
         <button
           type="button"
@@ -445,7 +445,7 @@ const onTopicChange = (val: string | number) => {
         <label
           v-for="chat in filteredAvailableChats.slice(0, 40)"
           :key="chat.id"
-          class="flex items-center gap-2 px-1.5 py-1 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/[0.03] cursor-pointer rounded-sm"
+          class="flex items-center gap-2 px-1.5 py-1 text-xs text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] hover:bg-[var(--sp-surface-subtle)] bg-[var(--sp-surface)]/[0.03] cursor-pointer rounded-sm"
         >
           <input
             type="checkbox"
@@ -454,11 +454,11 @@ const onTopicChange = (val: string | number) => {
             @change="emit('toggle-bulk-chat', chat.id)"
           />
           <span class="truncate flex-1">{{ chat.title || chat.username || chat.id }}</span>
-          <span class="font-mono text-[10px] text-gray-400 shrink-0">{{ chat.id }}</span>
+          <span class="font-mono text-[10px] text-[var(--sp-text-muted)] shrink-0">{{ chat.id }}</span>
         </label>
         <p
           v-if="filteredAvailableChats.length > 40"
-          class="px-1.5 py-1 text-[10px] text-gray-400"
+          class="px-1.5 py-1 text-[10px] text-[var(--sp-text-muted)]"
         >
           {{ t('taskForm.bulkPickTruncated', { shown: 40, total: filteredAvailableChats.length }) }}
         </p>

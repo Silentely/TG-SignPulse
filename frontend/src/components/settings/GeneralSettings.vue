@@ -62,21 +62,21 @@ const onStringInput = (key: keyof SettingsFormState, e: Event) => {
 
 <template>
   <section class="ui-card p-6">
-    <div class="mb-6 border-b border-gray-200 dark:border-gray-800/60 pb-3 flex items-center justify-between gap-3">
+    <div class="mb-6 border-b border-[var(--sp-border)] pb-3 flex items-center justify-between gap-3">
       <div class="flex items-start gap-3 min-w-0">
         <span class="ui-section-icon" aria-hidden="true"><Settings2 class="w-3.5 h-3.5" /></span>
         <div class="min-w-0">
-          <h2 class="text-base font-medium text-gray-900 dark:text-gray-100">{{ t('settings.general') }}</h2>
-          <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.generalDesc') }}</p>
+          <h2 class="text-base font-medium text-[var(--sp-text)] font-semibold">{{ t('settings.general') }}</h2>
+          <p class="text-[10px] text-[var(--sp-text-muted)] mt-1">{{ t('settings.generalDesc') }}</p>
         </div>
       </div>
-      <span v-if="loading" class="text-xs text-gray-500 shrink-0">{{ t('common.saving') }}</span>
+      <span v-if="loading" class="text-xs text-[var(--sp-text-muted)] shrink-0">{{ t('common.saving') }}</span>
     </div>
     <div class="space-y-5">
       <div class="space-y-1.5">
         <label class="ui-label" for="settings-log-retention">{{ t('settings.logRetention') }}</label>
         <input id="settings-log-retention" :value="modelValue.logDays" @input="onNumberInput('logDays', $event)" type="number" :placeholder="t('settings.logRetentionPlaceholder')" class="ui-input">
-        <p class="text-[10px] text-gray-500">{{ t('settings.logRetentionHint') }}</p>
+        <p class="text-[10px] text-[var(--sp-text-muted)]">{{ t('settings.logRetentionHint') }}</p>
       </div>
       <div class="space-y-1.5">
         <label class="ui-label" for="settings-data-dir">{{ t('settings.dataDir') }}</label>
@@ -93,13 +93,13 @@ const onStringInput = (key: keyof SettingsFormState, e: Event) => {
       <div class="space-y-1.5">
         <label class="ui-label" for="settings-sign-interval">{{ t('settings.signInterval') }}</label>
         <input id="settings-sign-interval" :value="modelValue.checkInterval" @input="onStringInput('checkInterval', $event)" type="number" min="0" max="3600" :placeholder="t('settings.signIntervalPlaceholder')" class="ui-input">
-        <p class="text-[10px] text-gray-500">{{ t('settings.signIntervalHint') }}</p>
+        <p class="text-[10px] text-[var(--sp-text-muted)]">{{ t('settings.signIntervalHint') }}</p>
       </div>
-      <div class="p-3 bg-gray-50 dark:bg-white/[0.02] border border-gray-200 dark:border-gray-800/60 space-y-3">
+      <div class="p-3.5 bg-[var(--sp-surface-muted)] border border-[var(--sp-border)] rounded-[var(--sp-radius-sm)] space-y-3">
         <div class="flex items-center justify-between gap-3">
           <div>
-            <label class="text-xs text-gray-600 dark:text-gray-300 block">{{ t('settings.deviceKeepalive') }}</label>
-            <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.deviceKeepaliveDesc') }}</p>
+            <label class="text-xs text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] block">{{ t('settings.deviceKeepalive') }}</label>
+            <p class="text-[10px] text-[var(--sp-text-muted)] mt-1">{{ t('settings.deviceKeepaliveDesc') }}</p>
           </div>
           <button
             type="button"
@@ -119,7 +119,7 @@ const onStringInput = (key: keyof SettingsFormState, e: Event) => {
             {{ keepaliveLoading ? t('common.saving') : t('settings.keepaliveNow') }}
           </button>
         </div>
-        <p class="text-[10px] text-gray-500">{{ t('settings.deviceKeepaliveIntervalHint') }}</p>
+        <p class="text-[10px] text-[var(--sp-text-muted)]">{{ t('settings.deviceKeepaliveIntervalHint') }}</p>
       </div>
       <div class="space-y-1.5">
         <label class="ui-label">{{ t('settings.timezone') }}</label>

@@ -211,16 +211,16 @@ const handleSave = async () => {
         :prefer-account="preferAccount"
       />
       <div class="flex flex-wrap gap-4 pt-1">
-        <label class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 cursor-pointer">
+        <label class="flex items-center gap-2 text-xs text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] cursor-pointer">
           <input v-model="notifyOnFailure" type="checkbox" class="ui-checkbox" />
           {{ t('taskForm.notifyOnFailure') }}
         </label>
-        <label class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 cursor-pointer">
+        <label class="flex items-center gap-2 text-xs text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] cursor-pointer">
           <input v-model="notifyOnSuccess" type="checkbox" class="ui-checkbox" />
           {{ t('taskForm.notifyOnSuccess') }}
         </label>
       </div>
-      <p class="text-[10px] text-gray-500 leading-relaxed">{{ t('taskForm.notifyChannelHint') }}</p>
+      <p class="text-[10px] text-[var(--sp-text-muted)] leading-relaxed">{{ t('taskForm.notifyChannelHint') }}</p>
       <p v-if="error" class="text-xs text-rose-600 dark:text-rose-400">{{ error }}</p>
     </div>
     <template #footer>

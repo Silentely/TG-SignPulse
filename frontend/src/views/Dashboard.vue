@@ -144,7 +144,7 @@ const jobStatusLabel = (status: string) => {
 </script>
 
 <template>
-  <div class="space-y-6">
+  <div class="space-y-6 max-w-7xl mx-auto">
     <!-- Page Loading skeleton -->
     <div v-if="pageLoading" class="space-y-6" aria-busy="true" aria-live="polite">
       <div class="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
@@ -170,7 +170,7 @@ const jobStatusLabel = (status: string) => {
         v-for="stat in stats"
         :key="stat.key"
         type="button"
-        class="ui-card ui-card-hover ui-stat p-5 flex flex-col justify-between min-h-[96px] text-left"
+        class="ui-card ui-card-hover ui-stat p-5 flex flex-col justify-between min-h-[96px] text-left cursor-pointer"
         :style="{
           '--sp-stat-accent':
             stat.key === 'dashboard.activeAccounts' ? 'var(--sp-accent)'
@@ -186,7 +186,7 @@ const jobStatusLabel = (status: string) => {
       >
         <span class="ui-section-label">{{ t(stat.key) }}</span>
         <span
-          class="text-2xl sm:text-3xl font-mono font-medium text-gray-900 dark:text-gray-100 mt-3 tracking-tight transition-opacity duration-300"
+          class="text-2xl sm:text-3xl font-mono font-semibold text-[var(--sp-text)] mt-3 tracking-tight transition-opacity duration-300"
           :class="refreshing ? 'opacity-50' : 'opacity-100'"
           :title="t(stat.hintKey)"
         >{{ stat.value }}</span>
@@ -204,16 +204,16 @@ const jobStatusLabel = (status: string) => {
           v-for="link in quickLinks"
           :key="link.name"
           type="button"
-          class="ui-card ui-card-hover text-left p-4 group"
+          class="ui-card ui-card-hover text-left p-4 group cursor-pointer"
           @click="router.push({ name: link.name })"
         >
           <div class="flex items-center gap-2.5 mb-2">
             <span class="ui-section-icon group-hover:scale-105 transition-transform">
               <component :is="link.icon" class="w-3.5 h-3.5" stroke-width="1.75" />
             </span>
-            <span class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ t(link.titleKey) }}</span>
+            <span class="text-sm font-medium text-[var(--sp-text)]">{{ t(link.titleKey) }}</span>
           </div>
-          <p class="text-[11px] text-gray-500 leading-relaxed line-clamp-2">{{ t(link.descKey) }}</p>
+          <p class="text-[11px] text-[var(--sp-text-muted)] leading-relaxed line-clamp-2">{{ t(link.descKey) }}</p>
         </button>
       </div>
     </div>
@@ -222,7 +222,7 @@ const jobStatusLabel = (status: string) => {
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <div class="ui-card p-5">
         <div class="ui-section-label mb-4">{{ t('dashboard.activeRuns') }}</div>
-        <div v-if="activeRuns.length === 0" class="ui-empty !py-12">
+        <div v-if="activeRuns.length === 0" class="ui-empty !py-10">
           <p class="ui-empty-desc">{{ t('dashboard.noActiveRuns') }}</p>
         </div>
         <div v-else class="space-y-1">
@@ -230,15 +230,15 @@ const jobStatusLabel = (status: string) => {
             v-for="(run, idx) in activeRuns"
             :key="`${run.task_name}-${run.account_name}-${run.run_id}-${idx}`"
             type="button"
-            class="ui-list-row w-full flex items-center gap-2 text-xs px-2 py-2 rounded-sm text-left"
+            class="ui-list-row w-full flex items-center gap-2 text-xs px-2.5 py-2 rounded-[var(--sp-radius-sm)] text-left cursor-pointer"
             @click="openActiveRun(run)"
           >
             <ToneBadge :status="run" extra-class="!text-[10px]" pulse>
               {{ phaseLabel(run.phase, t) || formatPhaseDetail(run, t) || t('runStatus.inProgress') }}
             </ToneBadge>
-            <span class="font-mono truncate text-gray-800 dark:text-gray-200" :title="run.task_name">{{ run.task_name || '-' }}</span>
-            <span class="text-gray-500 dark:text-gray-400 truncate shrink-0 max-w-[6rem]" :title="run.account_name">{{ run.account_name || '-' }}</span>
-            <span class="ml-auto text-[10px] text-gray-400 font-mono shrink-0 truncate max-w-[40%]" :title="formatPhaseDetail(run, t)">
+            <span class="font-mono truncate text-[var(--sp-text)]" :title="run.task_name">{{ run.task_name || '-' }}</span>
+            <span class="text-[var(--sp-text-muted)] truncate shrink-0 max-w-[6rem]" :title="run.account_name">{{ run.account_name || '-' }}</span>
+            <span class="ml-auto text-[10px] text-[var(--sp-text-muted)] font-mono shrink-0 truncate max-w-[40%]" :title="formatPhaseDetail(run, t)">
               {{ formatPhaseDetail(run, t) }}
             </span>
           </button>
@@ -246,7 +246,7 @@ const jobStatusLabel = (status: string) => {
       </div>
       <div class="ui-card p-5">
         <div class="ui-section-label mb-4">{{ t('dashboard.failureBreakdown') }}</div>
-        <div v-if="failureBreakdown.length === 0" class="ui-empty !py-12">
+        <div v-if="failureBreakdown.length === 0" class="ui-empty !py-10">
           <p class="ui-empty-desc">{{ t('dashboard.noFailureBreakdown') }}</p>
         </div>
         <div v-else class="flex flex-wrap gap-2">
@@ -271,13 +271,13 @@ const jobStatusLabel = (status: string) => {
           <span>{{ t('dashboard.recentHits') }}</span>
           <button
             type="button"
-            class="text-[11px] text-sky-600 dark:text-sky-400 hover:underline"
+            class="text-[11px] text-[var(--sp-accent)] hover:underline cursor-pointer"
             @click="router.push({ name: 'tasks' })"
           >
             {{ t('dashboard.viewTasks') }}
           </button>
         </div>
-        <div v-if="recentHits.length === 0" class="ui-empty !py-12">
+        <div v-if="recentHits.length === 0" class="ui-empty !py-10">
           <p class="ui-empty-desc">{{ t('dashboard.noRecentHits') }}</p>
         </div>
         <div v-else class="space-y-1">
@@ -285,19 +285,19 @@ const jobStatusLabel = (status: string) => {
             v-for="hit in recentHits"
             :key="hit.id"
             type="button"
-            class="ui-list-row w-full flex items-center gap-2 text-xs px-2 py-2 rounded-sm text-left"
+            class="ui-list-row w-full flex items-center gap-2 text-xs px-2.5 py-2 rounded-[var(--sp-radius-sm)] text-left cursor-pointer"
             @click="openKeywordHit(hit)"
           >
-            <span class="font-mono text-sky-700 dark:text-sky-300 shrink-0 max-w-[5.5rem] truncate" :title="hit.keyword">
+            <span class="font-mono text-sky-600 dark:text-sky-400 shrink-0 max-w-[5.5rem] truncate" :title="hit.keyword">
               {{ hit.keyword || '-' }}
             </span>
-            <span class="truncate text-gray-700 dark:text-gray-300" :title="hit.task_name">
+            <span class="truncate text-[var(--sp-text)]" :title="hit.task_name">
               {{ hit.task_name || '-' }}
             </span>
-            <span class="text-gray-500 dark:text-gray-400 truncate shrink-0 max-w-[5rem]" :title="hit.account_name">
+            <span class="text-[var(--sp-text-muted)] truncate shrink-0 max-w-[5rem]" :title="hit.account_name">
               {{ hit.account_name || '-' }}
             </span>
-            <span class="ml-auto text-[10px] text-gray-400 font-mono shrink-0">
+            <span class="ml-auto text-[10px] text-[var(--sp-text-muted)] font-mono shrink-0">
               {{ formatTime(hit.time) }}
             </span>
           </button>
@@ -308,13 +308,13 @@ const jobStatusLabel = (status: string) => {
           <span>{{ t('dashboard.statusJobs') }}</span>
           <button
             type="button"
-            class="text-[11px] text-sky-600 dark:text-sky-400 hover:underline"
+            class="text-[11px] text-[var(--sp-accent)] hover:underline cursor-pointer"
             @click="openStatusJob"
           >
             {{ t('dashboard.goAccounts') }}
           </button>
         </div>
-        <div v-if="statusJobs.length === 0" class="ui-empty !py-12">
+        <div v-if="statusJobs.length === 0" class="ui-empty !py-10">
           <p class="ui-empty-desc">{{ t('dashboard.noStatusJobs') }}</p>
         </div>
         <div v-else class="space-y-1">
@@ -322,13 +322,13 @@ const jobStatusLabel = (status: string) => {
             v-for="job in statusJobs"
             :key="job.job_id"
             type="button"
-            class="ui-list-row w-full flex items-center gap-2 text-xs px-2 py-2 rounded-sm text-left"
+            class="ui-list-row w-full flex items-center gap-2 text-xs px-2.5 py-2 rounded-[var(--sp-radius-sm)] text-left cursor-pointer"
             @click="openStatusJob"
           >
             <span
               class="ui-badge shrink-0 !text-[10px]"
               :class="job.status === 'running' || job.status === 'canceling'
-                ? 'border-sky-200 text-sky-700 dark:border-sky-800 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/40'
+                ? 'border-sky-300 dark:border-sky-800 text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/40'
                 : job.status === 'failed'
                   ? 'ui-badge-error'
                   : 'ui-badge-neutral'"
@@ -339,10 +339,10 @@ const jobStatusLabel = (status: string) => {
               />
               {{ jobStatusLabel(job.status) }}
             </span>
-            <span class="font-mono text-gray-700 dark:text-gray-300 truncate">
+            <span class="font-mono text-[var(--sp-text)] truncate">
               {{ statusJobLabel(job) }}
             </span>
-            <span class="ml-auto text-[10px] text-gray-400 font-mono shrink-0">
+            <span class="ml-auto text-[10px] text-[var(--sp-text-muted)] font-mono shrink-0">
               {{ formatTime(job.updated_at || job.created_at || '') }}
             </span>
           </button>
@@ -353,33 +353,33 @@ const jobStatusLabel = (status: string) => {
     <!-- Upcoming schedule -->
     <div class="ui-card p-5">
       <div class="ui-section-label mb-4">{{ t('dashboard.upcomingJobs') }}</div>
-      <div v-if="upcomingJobs.length === 0" class="ui-empty !py-12">
+      <div v-if="upcomingJobs.length === 0" class="ui-empty !py-10">
         <p class="ui-empty-desc">{{ t('dashboard.noUpcoming') }}</p>
       </div>
       <div v-else class="space-y-0.5">
         <div
           v-for="job in upcomingJobs"
           :key="job.id"
-          class="ui-list-row flex items-center gap-3 text-xs px-2 py-2 rounded-sm"
+          class="ui-list-row flex items-center gap-3 text-xs px-2.5 py-2 rounded-[var(--sp-radius-sm)]"
           :title="job.execution_mode === 'range' && job.range_start && job.range_end
             ? `${t('dashboard.modeRangeHint', { start: job.range_start, end: job.range_end })} · ${job.id}`
             : `${t('dashboard.nextRun')}: ${formatJobTime(job.next_run_time)} · ${jobKindLabel(job.kind)} · ${job.id}`"
         >
-          <span class="font-mono text-gray-500 dark:text-gray-400 w-36 shrink-0">{{ formatJobScheduleDisplay(job) }}</span>
+          <span class="font-mono text-[var(--sp-text-muted)] w-36 shrink-0">{{ formatJobScheduleDisplay(job) }}</span>
           <span
             class="ui-badge shrink-0"
-            :class="job.kind === 'sign' ? 'border-sky-200 text-sky-700 dark:border-sky-800 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/40' : 'ui-badge-neutral'"
+            :class="job.kind === 'sign' ? 'border-sky-300 dark:border-sky-800 text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/40' : 'ui-badge-neutral'"
           >
             {{ jobKindLabel(job.kind) }}
           </span>
           <span
             v-if="job.execution_mode === 'range'"
-            class="ui-badge shrink-0 border-amber-200 text-amber-700 dark:border-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 text-[10px]"
+            class="ui-badge shrink-0 border-amber-300 text-amber-700 dark:border-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 text-[10px]"
             :title="t('dashboard.modeRangeHint', { start: job.range_start || '', end: job.range_end || '' })"
           >
             {{ t('dashboard.modeRange') }}
           </span>
-          <span class="truncate text-gray-800 dark:text-gray-200 font-mono" :title="job.id">{{ job.id }}</span>
+          <span class="truncate text-[var(--sp-text)] font-mono" :title="job.id">{{ job.id }}</span>
         </div>
       </div>
     </div>
@@ -407,7 +407,7 @@ const jobStatusLabel = (status: string) => {
         <button
           v-if="partialLoad"
           type="button"
-          class="inline-flex items-center gap-1 text-[11px] text-sky-600 dark:text-sky-400 hover:underline shrink-0"
+          class="inline-flex items-center gap-1 text-[11px] text-[var(--sp-accent)] hover:underline shrink-0 cursor-pointer"
           :title="t('common.retry')"
           @click="reloadData"
         >
@@ -416,14 +416,14 @@ const jobStatusLabel = (status: string) => {
         </button>
       </div>
       <div v-if="logs.length === 0" class="ui-empty !py-12">
-        <p class="ui-empty-title !text-gray-500 dark:!text-gray-400 font-normal">{{ t('logs.empty') }}</p>
+        <p class="ui-empty-title !text-[var(--sp-text-muted)] font-normal">{{ t('logs.empty') }}</p>
         <p class="ui-empty-desc">{{ t('logs.emptyHint') }}</p>
       </div>
-      <div v-else class="text-xs overflow-x-auto space-y-0">
+      <div v-else class="text-xs overflow-x-auto space-y-0.5">
         <div
           v-for="log in logs"
           :key="logKey(log)"
-          class="ui-list-row flex items-center gap-3 px-2 py-2 cursor-pointer rounded-sm"
+          class="ui-list-row flex items-center gap-3 px-2.5 py-2 cursor-pointer rounded-[var(--sp-radius-sm)]"
           role="button"
           tabindex="0"
           :aria-label="`${log.account} ${log.task} ${log.time}`"
@@ -433,9 +433,9 @@ const jobStatusLabel = (status: string) => {
           @keydown.enter="selectedLog = log"
           @keydown.space.prevent="selectedLog = log"
         >
-          <span class="font-mono text-gray-500 dark:text-gray-400 shrink-0 w-[140px] text-[11px] truncate" :title="formatTime(log.created_at)">{{ log.time }}</span>
-          <span class="text-gray-700 dark:text-gray-400 shrink-0 w-24 truncate font-medium">{{ log.account }}</span>
-          <span class="text-gray-600 dark:text-gray-500 shrink-0 w-28 truncate">{{ log.task }}</span>
+          <span class="font-mono text-[var(--sp-text-muted)] shrink-0 w-[140px] text-[11px] truncate" :title="formatTime(log.created_at)">{{ log.time }}</span>
+          <span class="text-[var(--sp-text)] shrink-0 w-24 truncate font-medium">{{ log.account }}</span>
+          <span class="text-[var(--sp-text-secondary)] shrink-0 w-28 truncate">{{ log.task }}</span>
           <span
             class="ui-badge shrink-0"
             :class="log.status === 'success' ? 'ui-badge-success' : 'ui-badge-error'"
@@ -453,8 +453,8 @@ const jobStatusLabel = (status: string) => {
             {{ failureCategoryLabel(log.failure_category) }}
           </button>
           <span
-            class="truncate flex-1 min-w-0"
-            :class="log.status === 'success' ? 'text-gray-700 dark:text-gray-300' : 'text-rose-600 dark:text-rose-400/90'"
+            class="truncate flex-1 min-w-0 font-mono text-[11px]"
+            :class="log.status === 'success' ? 'text-[var(--sp-text-secondary)]' : 'text-rose-600 dark:text-rose-400/90'"
             :title="log.text"
           >
             {{ log.text }}
@@ -477,37 +477,31 @@ const jobStatusLabel = (status: string) => {
         </div>
         <div class="grid grid-cols-2 gap-3 text-xs">
           <div class="space-y-0.5">
-            <div class="text-gray-500">{{ t('logs.time') }}</div>
-            <div class="text-gray-900 dark:text-gray-200 font-mono">{{ selectedLog.time }}</div>
+            <div class="text-[var(--sp-text-muted)]">{{ t('logs.time') }}</div>
+            <div class="text-[var(--sp-text)] font-mono">{{ selectedLog.time }}</div>
           </div>
           <div class="space-y-0.5">
-            <div class="text-gray-500">{{ t('logs.account') }}</div>
-            <div class="text-gray-900 dark:text-gray-200">{{ selectedLog.account }}</div>
+            <div class="text-[var(--sp-text-muted)]">{{ t('logs.account') }}</div>
+            <div class="text-[var(--sp-text)]">{{ selectedLog.account }}</div>
           </div>
           <div class="col-span-2 space-y-0.5">
-            <div class="text-gray-500">{{ t('logs.task') }}</div>
-            <div class="text-gray-900 dark:text-gray-200">{{ selectedLog.task }}</div>
-          </div>
-          <div v-if="selectedLog.status === 'error' && failureCategoryLabel(selectedLog.failure_category)" class="col-span-2 space-y-0.5">
-            <div class="text-gray-500">{{ t('dashboard.failureCategory') }}</div>
-            <button
-              type="button"
-              class="text-amber-700 dark:text-amber-400 hover:underline text-left"
-              :title="t('dashboard.openFailureInLogs')"
-              @click="openFailureCategory(String(selectedLog.failure_category)); selectedLog = null"
-            >
-              {{ failureCategoryLabel(selectedLog.failure_category) }}
-            </button>
+            <div class="text-[var(--sp-text-muted)]">{{ t('logs.task') }}</div>
+            <div class="text-[var(--sp-text)]">{{ selectedLog.task }}</div>
           </div>
         </div>
-        <div class="pt-2 border-t border-gray-200 dark:border-gray-800/60">
-          <div class="text-xs text-gray-500 mb-1.5 font-medium">{{ t('logs.execInfo') }}</div>
-          <div class="p-2.5 bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-gray-800/60 text-xs whitespace-pre-wrap break-all max-h-60 overflow-y-auto text-gray-800 dark:text-gray-300">{{ selectedLog.text || t('logs.noDetail') }}</div>
+        <div class="space-y-1">
+          <div class="text-xs text-[var(--sp-text-muted)]">{{ t('logs.execInfo') }}</div>
+          <div
+            class="ui-terminal !max-h-60"
+            :class="selectedLog.status === 'success' ? 'text-emerald-400' : 'text-rose-400'"
+          >
+            {{ selectedLog.text }}
+          </div>
         </div>
         <div class="pt-1 flex justify-end">
           <button
             type="button"
-            class="text-xs text-sky-600 dark:text-sky-400 hover:underline"
+            class="text-xs text-[var(--sp-accent)] hover:underline cursor-pointer"
             @click="goToLogs(selectedLog); selectedLog = null"
           >
             {{ t('dashboard.openInLogs') }}

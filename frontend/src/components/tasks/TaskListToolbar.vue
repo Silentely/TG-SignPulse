@@ -91,13 +91,13 @@ onUnmounted(() => document.removeEventListener('click', closeTemplateMenuOnOutsi
 <template>
   <div
     class="ui-card p-3 space-y-2.5"
-    :class="selectedCount ? 'ring-1 ring-sky-400/30 border-sky-300/40 dark:border-sky-700/40' : ''"
+    :class="selectedCount ? 'ring-1 ring-[var(--sp-accent)]/30 border-[var(--sp-accent)]/40' : ''"
     role="toolbar"
     :aria-label="t('tasks.toolbarLabel')"
   >
     <div class="flex flex-col sm:flex-row sm:items-center gap-2">
       <label
-        class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 cursor-pointer select-none shrink-0"
+        class="flex items-center gap-2 text-xs text-[var(--sp-text-secondary)] cursor-pointer select-none shrink-0"
         :title="searchQuery.trim() ? t('tasks.selectAllFilteredHint') : undefined"
       >
         <input
@@ -110,7 +110,7 @@ onUnmounted(() => document.removeEventListener('click', closeTemplateMenuOnOutsi
         {{ searchQuery.trim() ? t('tasks.selectAllFiltered') : t('tasks.selectAll') }}
       </label>
       <div class="relative flex-1 min-w-0">
-        <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+        <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--sp-text-muted)] pointer-events-none" />
         <input
           :value="localSearchQuery"
           type="search"
@@ -123,22 +123,22 @@ onUnmounted(() => document.removeEventListener('click', closeTemplateMenuOnOutsi
       <div class="flex items-center gap-1 shrink-0 text-[11px]">
         <button
           type="button"
-          class="px-2 py-1 rounded-sm border transition-colors"
+          class="px-2.5 py-1 rounded-[var(--sp-radius-sm)] border transition-colors cursor-pointer"
           :aria-pressed="modeFilter === 'all'"
           :class="modeFilter === 'all'
-            ? 'border-sky-400 text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/30'
-            : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-white/[0.04]'"
+            ? 'border-sky-400 text-[var(--sp-accent)] bg-sky-50 dark:bg-sky-950/40 border-[var(--sp-accent)]'
+            : 'border-[var(--sp-border)] text-[var(--sp-text-secondary)] hover:border-[var(--sp-border-strong)] hover:bg-[var(--sp-surface-muted)]'"
           @click="emit('update:modeFilter', 'all')"
         >
           {{ t('tasks.filterAll') }}
         </button>
         <button
           type="button"
-          class="px-2 py-1 rounded-sm border transition-colors"
+          class="px-2.5 py-1 rounded-[var(--sp-radius-sm)] border transition-colors cursor-pointer"
           :aria-pressed="modeFilter === 'listen'"
           :class="modeFilter === 'listen'
-            ? 'border-orange-400 text-orange-700 dark:text-orange-300 bg-orange-50 dark:bg-orange-950/30'
-            : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-white/[0.04]'"
+            ? 'border-orange-400 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border-amber-400 dark:border-amber-600'
+            : 'border-[var(--sp-border)] text-[var(--sp-text-secondary)] hover:border-[var(--sp-border-strong)] hover:bg-[var(--sp-surface-muted)]'"
           @click="emit('update:modeFilter', 'listen')"
         >
           {{ t('tasks.filterListen') }}
@@ -146,23 +146,23 @@ onUnmounted(() => document.removeEventListener('click', closeTemplateMenuOnOutsi
         </button>
         <button
           type="button"
-          class="px-2 py-1 rounded-sm border transition-colors"
+          class="px-2.5 py-1 rounded-[var(--sp-radius-sm)] border transition-colors cursor-pointer"
           :aria-pressed="modeFilter === 'scheduled'"
           :class="modeFilter === 'scheduled'
-            ? 'border-violet-400 text-violet-700 dark:text-violet-300 bg-violet-50 dark:bg-violet-950/30'
-            : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-white/[0.04]'"
+            ? 'border-violet-400 text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40 border-indigo-400 dark:border-indigo-600'
+            : 'border-[var(--sp-border)] text-[var(--sp-text-secondary)] hover:border-[var(--sp-border-strong)] hover:bg-[var(--sp-surface-muted)]'"
           @click="emit('update:modeFilter', 'scheduled')"
         >
           {{ t('tasks.filterScheduled') }}
         </button>
       </div>
       <div v-if="selectedCount" class="flex items-center gap-2 shrink-0">
-        <span class="text-xs font-mono text-sky-700 dark:text-sky-300">
+        <span class="text-xs font-mono text-[var(--sp-accent)]">
           {{ t('tasks.selectedCount') }}: {{ selectedCount }}
         </span>
         <button
           type="button"
-          class="text-[11px] text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 underline-offset-2 hover:underline"
+          class="text-[11px] text-[var(--sp-text-muted)] hover:text-[var(--sp-text)] underline-offset-2 hover:underline cursor-pointer"
           @click="emit('clear-selection')"
         >
           {{ t('common.cancel') }}
@@ -170,24 +170,24 @@ onUnmounted(() => document.removeEventListener('click', closeTemplateMenuOnOutsi
       </div>
     </div>
     <div class="flex flex-wrap items-center gap-1.5">
-      <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs inline-flex items-center gap-1" :disabled="!selectedCount || batchBusy" :title="batchDisabledTitle" :aria-disabled="!selectedCount || batchBusy" @click="emit('batch', 'enable')">
+      <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs inline-flex items-center gap-1 cursor-pointer" :disabled="!selectedCount || batchBusy" :title="batchDisabledTitle" :aria-disabled="!selectedCount || batchBusy" @click="emit('batch', 'enable')">
         <Power class="w-3.5 h-3.5" />
         {{ t('tasks.batchEnable') }}
       </button>
-      <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs inline-flex items-center gap-1" :disabled="!selectedCount || batchBusy" :title="batchDisabledTitle" :aria-disabled="!selectedCount || batchBusy" @click="emit('batch', 'disable')">
+      <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs inline-flex items-center gap-1 cursor-pointer" :disabled="!selectedCount || batchBusy" :title="batchDisabledTitle" :aria-disabled="!selectedCount || batchBusy" @click="emit('batch', 'disable')">
         <Pause class="w-3.5 h-3.5" />
         {{ t('tasks.batchDisable') }}
       </button>
-      <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs inline-flex items-center gap-1" :disabled="!selectedCount || batchBusy" :title="batchDisabledTitle" :aria-disabled="!selectedCount || batchBusy" @click="emit('batch', 'run')">
+      <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs inline-flex items-center gap-1 cursor-pointer" :disabled="!selectedCount || batchBusy" :title="batchDisabledTitle" :aria-disabled="!selectedCount || batchBusy" @click="emit('batch', 'run')">
         <Play class="w-3.5 h-3.5" />
         {{ t('tasks.batchRun') }}
       </button>
-      <button type="button" class="ui-btn-danger !px-2.5 !py-1.5 !text-xs inline-flex items-center gap-1" :disabled="!selectedCount || batchBusy" :title="batchDisabledTitle" :aria-disabled="!selectedCount || batchBusy" @click="emit('batch', 'delete')">
+      <button type="button" class="ui-btn-danger !px-2.5 !py-1.5 !text-xs inline-flex items-center gap-1 cursor-pointer" :disabled="!selectedCount || batchBusy" :title="batchDisabledTitle" :aria-disabled="!selectedCount || batchBusy" @click="emit('batch', 'delete')">
         <Trash2 class="w-3.5 h-3.5" />
         {{ t('tasks.batchDelete') }}
       </button>
       <div class="relative ml-auto" ref="menuRef" @click.stop>
-        <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs inline-flex items-center gap-1" :aria-expanded="showTemplateMenu" aria-haspopup="menu" @click="emit('toggle-template-menu')">
+        <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs inline-flex items-center gap-1 cursor-pointer" :aria-expanded="showTemplateMenu" aria-haspopup="menu" @click="emit('toggle-template-menu')">
           <LayoutTemplate class="w-3.5 h-3.5" />
           {{ t('tasks.fromTemplate') }}
         </button>
@@ -199,29 +199,29 @@ onUnmounted(() => document.removeEventListener('click', closeTemplateMenuOnOutsi
             v-for="tpl in BUILT_IN_TEMPLATES"
             :key="tpl.id"
             type="button"
-            class="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-white/[0.04] rounded-sm"
+            class="w-full text-left px-3 py-2 text-xs hover:bg-[var(--sp-surface-muted)] rounded-[var(--sp-radius-sm)] cursor-pointer"
             @click="emit('pick-template', tpl.id)"
           >
             <div class="font-medium">{{ t(tpl.nameKey) }}</div>
-            <div class="text-[10px] text-gray-500">{{ t(tpl.descKey) }}</div>
+            <div class="text-[10px] text-[var(--sp-text-muted)]">{{ t(tpl.descKey) }}</div>
           </button>
         </div>
       </div>
-      <button type="button" class="ui-btn-primary !px-2.5 !py-1.5 !text-xs" @click="emit('open-add')">
+      <button type="button" class="ui-btn-primary !px-2.5 !py-1.5 !text-xs cursor-pointer" @click="emit('open-add')">
         <Plus class="w-3.5 h-3.5" /> {{ t('taskModal.addTitle') }}
       </button>
       <span v-if="batchBusy" class="ui-spinner !w-3.5 !h-3.5 !border-2" aria-hidden="true" />
     </div>
     <div
       v-if="allTags && allTags.length > 0"
-      class="flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-gray-100 dark:border-gray-800/40 text-[11px]"
+      class="flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-[var(--sp-border)] text-[11px]"
     >
-      <span class="text-[10px] text-gray-400 shrink-0">{{ t('tasks.tagsLabel') || '标签' }}:</span>
+      <span class="text-[10px] text-[var(--sp-text-muted)] shrink-0">{{ t('tasks.tagsLabel') || '标签' }}:</span>
       <button
         v-for="tag in allTags"
         :key="tag"
         type="button"
-        class="px-2 py-0.5 rounded text-[10px] font-mono transition-colors"
+        class="px-2 py-0.5 rounded-[var(--sp-radius-sm)] text-[10px] font-mono transition-colors cursor-pointer"
         :class="selectedTag === tag
           ? 'bg-teal-600 text-white dark:bg-teal-500 font-medium'
           : 'bg-teal-50 text-teal-700 dark:bg-teal-950/40 dark:text-teal-300 border border-teal-200 dark:border-teal-800/50 hover:bg-teal-100 dark:hover:bg-teal-900/40'"
@@ -232,7 +232,7 @@ onUnmounted(() => document.removeEventListener('click', closeTemplateMenuOnOutsi
       <button
         v-if="selectedTag"
         type="button"
-        class="text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 underline ml-1"
+        class="text-[10px] text-[var(--sp-text-muted)] hover:text-[var(--sp-text-secondary)] dark:hover:text-[var(--sp-text)] underline ml-1"
         @click="emit('update:selectedTag', '')"
       >
         {{ t('common.clear') }}
@@ -240,9 +240,9 @@ onUnmounted(() => document.removeEventListener('click', closeTemplateMenuOnOutsi
     </div>
     <div
       v-if="hasListFilters"
-      class="flex flex-wrap items-center gap-1.5 pt-0.5 border-t border-gray-100 dark:border-gray-800/50"
+      class="flex flex-wrap items-center gap-1.5 pt-0.5 border-t border-[var(--sp-border)] dark:border-[var(--sp-border)]"
     >
-      <span class="text-[10px] text-gray-400 shrink-0">{{ t('common.activeFilters') }}</span>
+      <span class="text-[10px] text-[var(--sp-text-muted)] shrink-0">{{ t('common.activeFilters') }}</span>
       <FilterChip
         v-if="searchQuery.trim()"
         tone="sky"
@@ -284,7 +284,7 @@ onUnmounted(() => document.removeEventListener('click', closeTemplateMenuOnOutsi
       </FilterChip>
       <button
         type="button"
-        class="text-[11px] text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 underline-offset-2 hover:underline ml-auto shrink-0"
+        class="text-[11px] text-[var(--sp-text-muted)] hover:text-[var(--sp-text)] underline-offset-2 hover:underline cursor-pointer ml-auto shrink-0"
         @click="emit('clear-list-filters')"
       >
         {{ t('common.clearFilters') }}

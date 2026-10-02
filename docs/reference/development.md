@@ -173,3 +173,20 @@ Vitest 的 jsdom 环境和 Node/Undici 可能分别提供 `Blob`、`File`、`Res
 - 直接 `fetchWithAuth`：仅 TTFB；长任务应外层 `createRequestAbort` 覆盖 body。
 - 超时 → `NETWORK_TIMEOUT`；调用方 `AbortSignal` 取消 → `NETWORK_ABORTED`。
 - 页面轮询优先用 `startChainPoll`，避免 `setInterval` + async 叠请求。
+
+## 前端 UI 设计系统规范
+
+项目 Web 前端基于 Vue 3 + Tailwind CSS v4，并建立了统一的设计系统（融合 Linear、SST 与 Warp 视觉语言）：
+
+- 完整规范详见 [frontend/DESIGN.md](../../frontend/DESIGN.md)。
+- 视觉参考详见 [frontend/DESIGN.reference.md](../../frontend/DESIGN.reference.md)。
+
+### 组件与设置子页开发强制要求
+
+后续新增任何页面、设置子选项卡（如 `Settings.vue` 中的新 Tab/子面板）、弹窗或子组件时，**必须统一遵从以下规范，严禁散落硬编码颜色**：
+
+1. **容器卡片**：统一使用 `.ui-card` 类，次级背景使用 `bg-[var(--sp-surface-muted)]`，边框使用 `border-[var(--sp-border)]`。禁止手写 `border-gray-200 dark:border-gray-800` 或 `bg-gray-100` 等非语义 Tailwind 类。
+2. **操作按钮**：主要按钮使用 `.ui-btn-primary`，次要按钮使用 `.ui-btn-secondary`，危险按钮使用 `.ui-btn-danger`，行内表格操作使用 `.ui-row-action`。
+3. **排版文字**：正文使用 `text-[var(--sp-text)]`，次级使用 `text-[var(--sp-text-secondary)]`，说明文案使用 `text-[var(--sp-text-muted)]`，分区标题使用 `.ui-section-label`。
+4. **表单控件**：输入框使用 `.ui-input`，下拉选择使用 `<CustomSelect>`，状态徽标使用 `.ui-badge` 或 `.ui-chip-*`。
+5. **双主题自查**：提交前确保在浅色模式与深色模式下均通过对比度验证，且运行 `npm run typecheck && npm test && npm run build` 保证零报错。

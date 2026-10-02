@@ -31,7 +31,7 @@ const { t } = useI18n()
           @touchend="resume(toast.id)"
           @touchcancel="resume(toast.id)"
           :class="{
-            'bg-white/95 dark:bg-[var(--sp-bg-elevated)]/95 border-gray-200 dark:border-[var(--sp-border)] text-gray-900 dark:text-gray-100': toast.type === 'info',
+            'bg-[var(--sp-surface)] dark:bg-[var(--sp-bg-elevated)]/95 border-[var(--sp-border)] dark:border-[var(--sp-border)] text-[var(--sp-text)] dark:text-[var(--sp-text)]': toast.type === 'info',
             'bg-emerald-50/95 dark:bg-emerald-950/80 border-emerald-200 dark:border-emerald-800/50 text-emerald-800 dark:text-emerald-300': toast.type === 'success',
             'bg-rose-50/95 dark:bg-rose-950/80 border-rose-200 dark:border-rose-800/50 text-rose-800 dark:text-rose-300': toast.type === 'error',
             'bg-amber-50/95 dark:bg-amber-950/80 border-amber-200 dark:border-amber-800/50 text-amber-800 dark:text-amber-300': toast.type === 'warning',

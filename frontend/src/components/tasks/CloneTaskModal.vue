@@ -35,7 +35,7 @@ const handleSubmit = () => {
 <template>
   <Modal :isOpen="isOpen" :title="t('tasks.cloneTitle')" maxWidthClass="max-w-sm" @close="emit('close')">
     <div class="space-y-3">
-      <p class="text-xs text-gray-500">
+      <p class="text-xs text-[var(--sp-text-muted)]">
         {{ t('tasks.cloneFrom', { name: sourceName || '' }) }}
       </p>
       <div class="space-y-1.5">

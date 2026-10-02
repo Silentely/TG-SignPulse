@@ -1703,18 +1703,18 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="ui-card p-6">
-    <div class="mb-6 border-b border-gray-200 dark:border-gray-800/60 pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+    <div class="mb-6 border-b border-[var(--sp-border)] pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
       <div class="flex items-start gap-3 min-w-0">
         <span class="ui-section-icon" aria-hidden="true"><Puzzle class="w-3.5 h-3.5" /></span>
         <div class="min-w-0">
-          <h2 class="text-base font-medium text-gray-900 dark:text-gray-100">{{ t('settings.pluginsTitle') }}</h2>
-          <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.pluginsDesc') }}</p>
+          <h2 class="text-base font-medium text-[var(--sp-text)] font-semibold">{{ t('settings.pluginsTitle') }}</h2>
+          <p class="text-[10px] text-[var(--sp-text-muted)] mt-1">{{ t('settings.pluginsDesc') }}</p>
         </div>
       </div>
       <div class="flex items-center gap-2 flex-wrap shrink-0">
         <button
           type="button"
-          class="ui-btn-secondary shrink-0 !px-3 !py-1 !text-xs inline-flex items-center gap-1.5 text-slate-700 dark:text-slate-300 hover:text-slate-900"
+          class="ui-btn-secondary shrink-0 !px-3 !py-1 !text-xs inline-flex items-center gap-1.5 text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] hover:text-[var(--sp-text-secondary)]"
           :disabled="exportingManifest"
           :title="t('settings.pluginsExportManifest')"
           @click="handleExportManifest"
@@ -1779,18 +1779,18 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- 顶部主标签页切换：已安装插件 / 插件市场 -->
-    <div class="flex items-center gap-2 border-b border-gray-200 dark:border-gray-800/80 mb-5">
+    <div class="flex items-center gap-2 border-b border-[var(--sp-border)] mb-5">
       <button
         type="button"
         class="pb-2.5 px-3 text-xs font-medium border-b-2 flex items-center gap-2 transition-colors"
         :class="activeTab === 'installed'
           ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400 font-semibold'
-          : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'"
+          : 'border-transparent text-[var(--sp-text-muted)] hover:text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] dark:hover:text-[var(--sp-text)]'"
         @click="activeTab = 'installed'"
       >
         <Puzzle class="w-3.5 h-3.5" />
         {{ t('settings.pluginsTabInstalled') }}
-        <span class="ml-1 px-1.5 py-0.2 text-[10px] rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 font-mono">
+        <span class="ml-1 px-1.5 py-0.2 text-[10px] rounded-full bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] font-mono">
           {{ plugins.length }}
         </span>
       </button>
@@ -1799,7 +1799,7 @@ onBeforeUnmount(() => {
         class="pb-2.5 px-3 text-xs font-medium border-b-2 flex items-center gap-2 transition-colors"
         :class="activeTab === 'market'
           ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400 font-semibold'
-          : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'"
+          : 'border-transparent text-[var(--sp-text-muted)] hover:text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] dark:hover:text-[var(--sp-text)]'"
         @click="switchTab('market')"
       >
         <Store class="w-3.5 h-3.5" />
@@ -1819,7 +1819,7 @@ onBeforeUnmount(() => {
     <!-- 插件健康与依赖诊断警示面板 -->
     <div
       v-if="loadErrors.length > 0"
-      class="mb-4 rounded-lg border border-amber-300 dark:border-amber-700/70 bg-amber-50/80 dark:bg-amber-950/30 p-3.5 text-xs transition-all"
+      class="mb-4 rounded-[var(--sp-radius-lg)] border border-amber-300 dark:border-amber-700/70 bg-amber-50/80 dark:bg-amber-950/30 p-3.5 text-xs transition-all"
     >
       <div class="flex items-center justify-between gap-2 flex-wrap">
         <div class="flex items-center gap-2 font-medium text-amber-800 dark:text-amber-300">
@@ -1841,7 +1841,7 @@ onBeforeUnmount(() => {
         <div
           v-for="(err, idx) in loadErrors"
           :key="idx"
-          class="p-2.5 rounded bg-white/70 dark:bg-black/30 border border-amber-200/80 dark:border-amber-900/50 flex flex-col sm:flex-row sm:items-center justify-between gap-2 font-mono text-[11px]"
+          class="p-2.5 rounded bg-[var(--sp-surface)] dark:bg-black/30 border border-amber-200/80 dark:border-amber-900/50 flex flex-col sm:flex-row sm:items-center justify-between gap-2 font-mono text-[11px]"
         >
           <div class="min-w-0 space-y-1">
             <div class="flex items-center gap-2 flex-wrap">
@@ -1852,15 +1852,15 @@ onBeforeUnmount(() => {
               >
                 {{ err.error_type === 'missing_dependency' ? t('settings.pluginsDiagMissingDep') : (err.error_type === 'syntax_error' ? t('settings.pluginsDiagSyntaxErr') : t('settings.pluginsDiagLoadErr')) }}
               </span>
-              <span class="text-[10px] text-gray-400 truncate max-w-xs">{{ err.file_path }}</span>
+              <span class="text-[10px] text-[var(--sp-text-muted)] truncate max-w-xs">{{ err.file_path }}</span>
             </div>
-            <div class="text-gray-600 dark:text-gray-400 font-sans text-xs">
+            <div class="text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] font-sans text-xs">
               {{ err.error_message }}
             </div>
           </div>
 
           <div v-if="err.suggested_command" class="flex items-center gap-2 shrink-0">
-            <code class="px-2 py-1 rounded bg-gray-900 text-amber-300 text-[11px]">
+            <code class="px-2 py-1 rounded bg-[var(--sp-terminal-bg)] text-amber-300 text-[11px]">
               {{ err.suggested_command }}
             </code>
             <button
@@ -1878,12 +1878,12 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- 挂载目录与说明 -->
-    <div class="mb-4 p-3 border border-sky-200/60 dark:border-sky-800/40 bg-sky-50/40 dark:bg-sky-500/5 text-xs text-gray-600 dark:text-gray-400 space-y-1">
+    <div class="mb-4 p-3 border border-sky-200/60 dark:border-sky-800/40 bg-sky-50/40 dark:bg-sky-500/5 text-xs text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] space-y-1">
       <div class="flex items-center gap-1.5 font-medium text-sky-700 dark:text-sky-300">
         <Folder class="w-3.5 h-3.5 shrink-0" />
         <span>{{ t('settings.pluginsMountTipTitle') }}</span>
       </div>
-      <p class="text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
+      <p class="text-[11px] leading-relaxed text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)]">
         {{ t('settings.pluginsMountTip') }}
       </p>
     </div>
@@ -1893,7 +1893,7 @@ onBeforeUnmount(() => {
       <!-- 第一行：搜索框与右侧排序选择，水平等高严格对齐 -->
       <div class="flex items-center justify-between gap-3">
         <div class="relative flex-1 max-w-sm">
-          <Search class="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+          <Search class="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--sp-text-muted)] pointer-events-none" />
           <input
             v-model="searchQuery"
             type="text"
@@ -1905,7 +1905,7 @@ onBeforeUnmount(() => {
         <select
           v-model="sortBy"
           aria-label="排序方式"
-          class="ui-input !h-8 !text-xs !px-2.5 !py-0 !w-36 shrink-0 bg-gray-50/50 dark:bg-gray-900/50 border-gray-200 dark:border-gray-800"
+          class="ui-input !h-8 !text-xs !px-2.5 !py-0 !w-36 shrink-0 bg-[var(--sp-surface-subtle)] dark:bg-[var(--sp-surface-elevated)] border-[var(--sp-border)] dark:border-[var(--sp-border)]"
         >
           <option value="default">{{ t('settings.pluginsSortDefault') }}</option>
           <option value="runs">{{ t('settings.pluginsSortRuns') }}</option>
@@ -1919,11 +1919,11 @@ onBeforeUnmount(() => {
       <div class="flex items-center justify-between gap-2 flex-wrap text-xs">
         <div class="flex items-center gap-2 flex-wrap">
           <!-- 模式筛选 -->
-          <div class="inline-flex rounded-lg border border-gray-200 dark:border-gray-800 p-0.5 bg-gray-50/50 dark:bg-gray-900/50">
+          <div class="inline-flex rounded-[var(--sp-radius-lg)] border border-[var(--sp-border)] dark:border-[var(--sp-border)] p-0.5 bg-[var(--sp-surface-subtle)] dark:bg-[var(--sp-surface-elevated)]">
             <button
               type="button"
               class="px-2 py-1 rounded text-[11px] font-medium transition-colors"
-              :class="filterMode === 'all' ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300'"
+              :class="filterMode === 'all' ? 'bg-[var(--sp-surface)] dark:bg-[var(--sp-surface-muted)] text-[var(--sp-text)] dark:text-[var(--sp-text)] shadow-sm' : 'text-[var(--sp-text-muted)] hover:text-[var(--sp-text)] dark:hover:text-[var(--sp-text-muted)]'"
               @click="filterMode = 'all'"
             >
               {{ t('settings.pluginsFilterAll') }}
@@ -1931,7 +1931,7 @@ onBeforeUnmount(() => {
             <button
               type="button"
               class="px-2 py-1 rounded text-[11px] font-medium transition-colors"
-              :class="filterMode === 'reactive' ? 'bg-white dark:bg-gray-800 text-sky-600 dark:text-sky-400 shadow-sm' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300'"
+              :class="filterMode === 'reactive' ? 'bg-[var(--sp-surface)] dark:bg-[var(--sp-surface-muted)] text-sky-600 dark:text-sky-400 shadow-sm' : 'text-[var(--sp-text-muted)] hover:text-[var(--sp-text)] dark:hover:text-[var(--sp-text-muted)]'"
               @click="filterMode = 'reactive'"
             >
               {{ t('settings.pluginsFilterReactive') }}
@@ -1939,7 +1939,7 @@ onBeforeUnmount(() => {
             <button
               type="button"
               class="px-2 py-1 rounded text-[11px] font-medium transition-colors"
-              :class="filterMode === 'active' ? 'bg-white dark:bg-gray-800 text-emerald-600 dark:text-emerald-400 shadow-sm' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300'"
+              :class="filterMode === 'active' ? 'bg-[var(--sp-surface)] dark:bg-[var(--sp-surface-muted)] text-emerald-600 dark:text-emerald-400 shadow-sm' : 'text-[var(--sp-text-muted)] hover:text-[var(--sp-text)] dark:hover:text-[var(--sp-text-muted)]'"
               @click="filterMode = 'active'"
             >
               {{ t('settings.pluginsFilterActive') }}
@@ -1947,11 +1947,11 @@ onBeforeUnmount(() => {
           </div>
 
           <!-- 来源筛选 -->
-          <div class="inline-flex rounded-lg border border-gray-200 dark:border-gray-800 p-0.5 bg-gray-50/50 dark:bg-gray-900/50">
+          <div class="inline-flex rounded-[var(--sp-radius-lg)] border border-[var(--sp-border)] dark:border-[var(--sp-border)] p-0.5 bg-[var(--sp-surface-subtle)] dark:bg-[var(--sp-surface-elevated)]">
             <button
               type="button"
               class="px-2 py-1 rounded text-[11px] font-medium transition-colors"
-              :class="filterType === 'all' ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300'"
+              :class="filterType === 'all' ? 'bg-[var(--sp-surface)] dark:bg-[var(--sp-surface-muted)] text-[var(--sp-text)] dark:text-[var(--sp-text)] shadow-sm' : 'text-[var(--sp-text-muted)] hover:text-[var(--sp-text)] dark:hover:text-[var(--sp-text-muted)]'"
               @click="filterType = 'all'"
             >
               {{ t('settings.pluginsFilterAll') }}
@@ -1959,7 +1959,7 @@ onBeforeUnmount(() => {
             <button
               type="button"
               class="px-2 py-1 rounded text-[11px] font-medium transition-colors"
-              :class="filterType === 'builtin' ? 'bg-white dark:bg-gray-800 text-purple-600 dark:text-purple-400 shadow-sm' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300'"
+              :class="filterType === 'builtin' ? 'bg-[var(--sp-surface)] dark:bg-[var(--sp-surface-muted)] text-purple-600 dark:text-purple-400 shadow-sm' : 'text-[var(--sp-text-muted)] hover:text-[var(--sp-text)] dark:hover:text-[var(--sp-text-muted)]'"
               @click="filterType = 'builtin'"
             >
               {{ t('settings.pluginsFilterBuiltin') }}
@@ -1967,7 +1967,7 @@ onBeforeUnmount(() => {
             <button
               type="button"
               class="px-2 py-1 rounded text-[11px] font-medium transition-colors"
-              :class="filterType === 'custom' ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300'"
+              :class="filterType === 'custom' ? 'bg-[var(--sp-surface)] dark:bg-[var(--sp-surface-muted)] text-blue-600 dark:text-blue-400 shadow-sm' : 'text-[var(--sp-text-muted)] hover:text-[var(--sp-text)] dark:hover:text-[var(--sp-text-muted)]'"
               @click="filterType = 'custom'"
             >
               {{ t('settings.pluginsFilterCustom') }}
@@ -1978,7 +1978,7 @@ onBeforeUnmount(() => {
           <button
             v-if="issuePluginsCount > 0"
             type="button"
-            class="px-2 py-1 rounded-lg text-[11px] font-medium transition-colors border inline-flex items-center gap-1.5"
+            class="px-2 py-1 rounded-[var(--sp-radius-lg)] text-[11px] font-medium transition-colors border inline-flex items-center gap-1.5"
             :class="filterType === 'issue' ? 'bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border-rose-300 dark:border-rose-800 shadow-sm' : 'text-rose-600 dark:text-rose-400 bg-rose-50/40 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/60 hover:bg-rose-100 dark:hover:bg-rose-900/40'"
             @click="filterType = filterType === 'issue' ? 'all' : 'issue'"
           >
@@ -1991,10 +1991,10 @@ onBeforeUnmount(() => {
         </div>
 
         <!-- 批量管理与指标复位 -->
-        <div class="inline-flex items-center rounded-lg border border-gray-200 dark:border-gray-800 p-0.5 bg-gray-50/50 dark:bg-gray-900/50">
+        <div class="inline-flex items-center rounded-[var(--sp-radius-lg)] border border-[var(--sp-border)] dark:border-[var(--sp-border)] p-0.5 bg-[var(--sp-surface-subtle)] dark:bg-[var(--sp-surface-elevated)]">
           <button
             type="button"
-            class="px-2 py-1 rounded text-[11px] font-medium text-emerald-600 dark:text-emerald-400 hover:bg-white dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
+            class="px-2 py-1 rounded text-[11px] font-medium text-emerald-600 dark:text-emerald-400 bg-[var(--sp-surface)] dark:bg-[var(--sp-surface-muted)] transition-colors disabled:opacity-50"
             :disabled="batchToggling"
             @click="handleBatchToggle(true)"
           >
@@ -2002,7 +2002,7 @@ onBeforeUnmount(() => {
           </button>
           <button
             type="button"
-            class="px-2 py-1 rounded text-[11px] font-medium text-gray-500 hover:text-gray-900 dark:hover:text-gray-300 hover:bg-white dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
+            class="px-2 py-1 rounded text-[11px] font-medium text-[var(--sp-text-muted)] hover:text-[var(--sp-text)] dark:hover:text-[var(--sp-text-muted)] bg-[var(--sp-surface)] dark:bg-[var(--sp-surface-muted)] transition-colors disabled:opacity-50"
             :disabled="batchToggling"
             @click="handleBatchToggle(false)"
           >
@@ -2010,7 +2010,7 @@ onBeforeUnmount(() => {
           </button>
           <button
             type="button"
-            class="px-2 py-1 rounded text-[11px] font-medium text-amber-600 dark:text-amber-400 hover:bg-white dark:hover:bg-gray-800 transition-colors disabled:opacity-50 inline-flex items-center"
+            class="px-2 py-1 rounded text-[11px] font-medium text-amber-600 dark:text-amber-400 bg-[var(--sp-surface)] dark:bg-[var(--sp-surface-muted)] transition-colors disabled:opacity-50 inline-flex items-center"
             :title="t('settings.pluginsResetAllMetrics')"
             :aria-label="t('settings.pluginsResetAllMetrics')"
             :disabled="resettingAllMetrics"
@@ -2030,7 +2030,7 @@ onBeforeUnmount(() => {
           class="px-2.5 py-0.5 rounded-full text-[11px] font-medium transition-all"
           :class="filterCategory === cat.key
             ? 'bg-indigo-600 text-white shadow-xs font-semibold'
-            : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'"
+            : 'bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] hover:bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)]'"
           @click="filterCategory = cat.key"
         >
           <span>{{ cat.label }}</span>
@@ -2047,8 +2047,8 @@ onBeforeUnmount(() => {
       <div class="ui-skeleton h-12 w-full" />
     </div>
 
-    <div v-else-if="!plugins.length" class="p-6 text-center border border-dashed border-gray-200 dark:border-gray-800 rounded text-xs text-gray-400">
-      <Info class="w-5 h-5 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
+    <div v-else-if="!plugins.length" class="p-6 text-center border border-dashed border-[var(--sp-border)] dark:border-[var(--sp-border)] rounded text-xs text-[var(--sp-text-muted)]">
+      <Info class="w-5 h-5 mx-auto mb-2 text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)]" />
       <p>{{ t('settings.pluginsEmpty') }}</p>
     </div>
 
@@ -2058,13 +2058,13 @@ onBeforeUnmount(() => {
         :key="plugin.name"
         class="p-3 border rounded flex flex-col xl:flex-row xl:items-center justify-between gap-3 text-xs transition-colors"
         :class="plugin.enabled !== false
-          ? 'border-gray-100 dark:border-gray-800/60 bg-gray-50/60 dark:bg-white/[0.02] hover:border-gray-300 dark:hover:border-gray-700'
-          : 'border-dashed border-gray-300 dark:border-gray-700/60 bg-gray-100/40 dark:bg-white/[0.01] opacity-75'"
+          ? 'border-[var(--sp-border)] dark:border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] bg-[var(--sp-surface)]/[0.02] hover:border-[var(--sp-border-strong)] dark:border-[var(--sp-border)]'
+          : 'border-dashed border-[var(--sp-border-strong)] dark:border-[var(--sp-border)] bg-[var(--sp-surface-muted)] bg-[var(--sp-surface)]/[0.01] opacity-75'"
       >
         <div class="min-w-0 flex-1 space-y-1.5">
           <!-- 第一排：统一固定显示「插件名称 + 官方内置/自定义 + 版本号 + 停用状态」 -->
           <div class="flex items-center gap-2 flex-wrap">
-            <span class="font-mono font-semibold text-gray-900 dark:text-gray-100 text-xs">
+            <span class="font-mono font-semibold text-[var(--sp-text)] dark:text-[var(--sp-text)] text-xs">
               {{ plugin.name }}
             </span>
             <span
@@ -2077,7 +2077,7 @@ onBeforeUnmount(() => {
             </span>
             <span
               v-if="plugin.version"
-              class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700"
+              class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] border border-[var(--sp-border)] dark:border-[var(--sp-border)]"
             >
               v{{ plugin.version }}
             </span>
@@ -2090,7 +2090,7 @@ onBeforeUnmount(() => {
           </div>
 
           <!-- 第二排：统一以「执行模式标签（reactive/active）」开头，后接参数配置、更新日期等元数据 -->
-          <div class="flex items-center gap-2 flex-wrap text-gray-500">
+          <div class="flex items-center gap-2 flex-wrap text-[var(--sp-text-muted)]">
             <span
               v-if="plugin.mode === 'reactive'"
               class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-sky-100 dark:bg-sky-950/80 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800/50"
@@ -2105,19 +2105,19 @@ onBeforeUnmount(() => {
             </span>
             <span
               v-if="plugin.params_schema && plugin.params_schema.length"
-              class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300"
+              class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]"
             >
               {{ plugin.params_schema.length }} {{ t('settings.pluginsParamsCount') }}
             </span>
             <span
               v-if="plugin.updated_at"
-              class="text-[10px] text-gray-400 dark:text-gray-500 font-mono"
+              class="text-[10px] text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)] font-mono"
             >
               {{ plugin.updated_at }}
             </span>
             <span
               v-if="plugin.author"
-              class="text-[10px] text-gray-400 dark:text-gray-500"
+              class="text-[10px] text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)]"
             >
               {{ plugin.author }}
             </span>
@@ -2137,7 +2137,7 @@ onBeforeUnmount(() => {
             <span
               v-for="tag in (plugin.tags || [])"
               :key="tag"
-              class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400"
+              class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)]"
             >
               #{{ tag }}
             </span>
@@ -2153,20 +2153,20 @@ onBeforeUnmount(() => {
               <span>{{ t('settings.pluginsHomepage') }}</span>
             </a>
           </div>
-          <p class="text-gray-600 dark:text-gray-300 text-[11px] leading-relaxed">
+          <p class="text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] text-[11px] leading-relaxed">
             {{ plugin.description || t('settings.pluginsNoDesc') }}
           </p>
-          <div v-if="plugin.source_path" class="text-[10px] text-gray-400 dark:text-gray-500 font-mono truncate max-w-lg">
+          <div v-if="plugin.source_path" class="text-[10px] text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)] font-mono truncate max-w-lg">
             {{ plugin.source_path }}
           </div>
 
           <!-- 运行统计指标 -->
           <div
             v-if="plugin.metrics && (plugin.metrics.run_count > 0 || plugin.metrics.last_error)"
-            class="mt-2 pt-1.5 border-t border-gray-200/50 dark:border-gray-800/50 flex flex-col gap-1.5"
+            class="mt-2 pt-1.5 border-t border-[var(--sp-border)] dark:border-[var(--sp-border)] flex flex-col gap-1.5"
           >
             <div class="flex items-center flex-wrap gap-2 text-[11px]">
-            <span class="inline-flex items-center gap-1 font-mono text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">
+            <span class="inline-flex items-center gap-1 font-mono text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] px-1.5 py-0.5 rounded">
               <Activity class="w-3 h-3 text-blue-500" />
               {{ t('settings.pluginsMetricsRuns', { n: plugin.metrics.run_count }) }}
             </span>
@@ -2178,16 +2178,16 @@ onBeforeUnmount(() => {
             >
               {{ t('settings.pluginsMetricsSuccess', { rate: plugin.metrics.success_rate }) }}
             </span>
-            <span class="inline-flex items-center gap-1 font-mono text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">
+            <span class="inline-flex items-center gap-1 font-mono text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] px-1.5 py-0.5 rounded">
               <Clock class="w-3 h-3 text-amber-500" />
               {{ t('settings.pluginsMetricsAvg', { ms: plugin.metrics.avg_duration_ms }) }}
             </span>
-            <span v-if="plugin.metrics.last_run_at" class="text-[10px] text-gray-400 dark:text-gray-500 font-mono">
+            <span v-if="plugin.metrics.last_run_at" class="text-[10px] text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)] font-mono">
               {{ t('settings.pluginsMetricsLastRun', { time: plugin.metrics.last_run_at.slice(11, 19) }) }}
             </span>
             <button
               type="button"
-              class="ml-auto text-gray-400 hover:text-rose-500 transition-colors p-0.5"
+              class="ml-auto text-[var(--sp-text-muted)] hover:text-rose-500 transition-colors p-0.5"
               :title="t('settings.pluginsMetricsReset')"
               :disabled="resettingMetricsPlugin === plugin.name"
               @click.stop="handleResetMetrics(plugin)"
@@ -2212,7 +2212,7 @@ onBeforeUnmount(() => {
               class="flex items-center gap-1 py-0.5"
               :title="t('settings.pluginsRecentRunsPulse')"
             >
-              <span class="text-[10px] text-gray-400 font-mono mr-1">{{ t('settings.pluginsRecentRunsPulseLabel') }}:</span>
+              <span class="text-[10px] text-[var(--sp-text-muted)] font-mono mr-1">{{ t('settings.pluginsRecentRunsPulseLabel') }}:</span>
               <span
                 v-for="(res, rIdx) in plugin.recent_results"
                 :key="rIdx"
@@ -2237,7 +2237,7 @@ onBeforeUnmount(() => {
           <button
             type="button"
             class="ui-btn-secondary !py-1 !px-2.5 !text-xs inline-flex items-center gap-1 transition-colors"
-            :class="plugin.enabled !== false ? 'text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 bg-emerald-50/40 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800/50' : 'text-gray-400 dark:text-gray-500 hover:text-gray-600'"
+            :class="plugin.enabled !== false ? 'text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 bg-emerald-50/40 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800/50' : 'text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)] hover:text-[var(--sp-text-secondary)]'"
             :disabled="togglingPluginName === plugin.name"
             @click="handleToggle(plugin)"
           >
@@ -2259,7 +2259,7 @@ onBeforeUnmount(() => {
           <!-- 查看源码 -->
           <button
             type="button"
-            class="ui-btn-secondary !py-1 !px-2.5 !text-xs inline-flex items-center gap-1 text-slate-600 dark:text-slate-400 hover:text-slate-700"
+            class="ui-btn-secondary !py-1 !px-2.5 !text-xs inline-flex items-center gap-1 text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] hover:text-[var(--sp-text-secondary)]"
             @click="openSourceModal(plugin)"
           >
             <Code class="w-3 h-3" />
@@ -2281,7 +2281,7 @@ onBeforeUnmount(() => {
           <div class="relative plugin-more-dropdown-container">
             <button
               type="button"
-              class="ui-btn-secondary !py-1 !px-2 !text-xs inline-flex items-center gap-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              class="ui-btn-secondary !py-1 !px-2 !text-xs inline-flex items-center gap-1 text-[var(--sp-text-muted)] hover:text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] dark:hover:text-[var(--sp-text)]"
               :title="t('settings.pluginsCardMoreActions')"
               @click.stop="toggleMoreDropdown(plugin.name)"
             >
@@ -2290,12 +2290,12 @@ onBeforeUnmount(() => {
 
             <div
               v-show="activeMoreDropdownPlugin === plugin.name"
-              class="absolute right-0 top-full mt-1 w-36 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg py-1 z-30 text-xs flex flex-col"
+              class="absolute right-0 top-full mt-1 w-36 bg-[var(--sp-surface)] dark:bg-[var(--sp-surface-muted)] border border-[var(--sp-border)] dark:border-[var(--sp-border)] rounded-[var(--sp-radius-lg)] shadow-lg py-1 z-30 text-xs flex flex-col"
             >
               <!-- 调用历史 -->
               <button
                 type="button"
-                class="w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700/60 flex items-center gap-2 text-indigo-600 dark:text-indigo-400"
+                class="w-full text-left px-3 py-1.5 hover:bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] flex items-center gap-2 text-indigo-600 dark:text-indigo-400"
                 :title="t('settings.pluginsHistoryBtn')"
                 @click="openHistoryModal(plugin); activeMoreDropdownPlugin = null"
               >
@@ -2307,7 +2307,7 @@ onBeforeUnmount(() => {
               <button
                 v-if="plugin.doc"
                 type="button"
-                class="w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700/60 flex items-center gap-2 text-teal-600 dark:text-teal-400"
+                class="w-full text-left px-3 py-1.5 hover:bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] flex items-center gap-2 text-teal-600 dark:text-teal-400"
                 :title="t('settings.pluginsViewDoc')"
                 @click="openDocModal(plugin); activeMoreDropdownPlugin = null"
               >
@@ -2318,7 +2318,7 @@ onBeforeUnmount(() => {
               <!-- 克隆 -->
               <button
                 type="button"
-                class="w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700/60 flex items-center gap-2 text-purple-600 dark:text-purple-400"
+                class="w-full text-left px-3 py-1.5 hover:bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] flex items-center gap-2 text-purple-600 dark:text-purple-400"
                 :title="t('settings.pluginsCloneBtn')"
                 @click="openCloneModal(plugin); activeMoreDropdownPlugin = null"
               >
@@ -2329,7 +2329,7 @@ onBeforeUnmount(() => {
               <!-- 导出源码 -->
               <button
                 type="button"
-                class="w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700/60 flex items-center gap-2 text-slate-600 dark:text-slate-400"
+                class="w-full text-left px-3 py-1.5 hover:bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] flex items-center gap-2 text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]"
                 :disabled="exportingPluginName === plugin.name"
                 :title="t('settings.pluginsExport')"
                 @click="handleExportPlugin(plugin); activeMoreDropdownPlugin = null"
@@ -2340,7 +2340,7 @@ onBeforeUnmount(() => {
               </button>
 
               <!-- 删除（仅自定义插件） -->
-              <div v-if="!plugin.builtin" class="border-t border-gray-100 dark:border-gray-700 my-0.5"></div>
+              <div v-if="!plugin.builtin" class="border-t border-[var(--sp-border)] dark:border-[var(--sp-border)] my-0.5"></div>
               <button
                 v-if="!plugin.builtin"
                 type="button"
@@ -2361,7 +2361,7 @@ onBeforeUnmount(() => {
 
     <div
       v-if="!loading && plugins.length > 0 && filteredPlugins.length === 0"
-      class="p-8 text-center text-xs text-gray-400 border border-dashed border-gray-200 dark:border-gray-800 rounded-lg"
+      class="p-8 text-center text-xs text-[var(--sp-text-muted)] border border-dashed border-[var(--sp-border)] dark:border-[var(--sp-border)] rounded-[var(--sp-radius-lg)]"
     >
       {{ t('settings.pluginsEmptyFilter') }}
     </div>    </div>
@@ -2369,13 +2369,13 @@ onBeforeUnmount(() => {
     <!-- 标签内容区：插件市场 -->
     <div v-else-if="activeTab === 'market'" class="space-y-4">
       <!-- 市场源切换与贡献入口工具条 -->
-      <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 p-3 bg-slate-50/80 dark:bg-slate-900/40 rounded-lg border border-slate-200/70 dark:border-slate-800/60">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 p-3 bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] rounded-[var(--sp-radius-lg)] border border-[var(--sp-border)] dark:border-[var(--sp-border)]">
         <div class="flex items-center gap-2 flex-wrap text-xs">
           <Globe class="w-4 h-4 text-indigo-500 shrink-0" />
-          <span class="font-medium text-slate-700 dark:text-slate-300">{{ t('settings.marketSourceLabel') }}:</span>
+          <span class="font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">{{ t('settings.marketSourceLabel') }}:</span>
           <select
             v-model="marketSourceType"
-            class="ui-input !py-1 !px-2 !text-xs !w-auto bg-white dark:bg-slate-800"
+            class="ui-input !py-1 !px-2 !text-xs !w-auto bg-[var(--sp-surface)] dark:bg-[var(--sp-surface-muted)]"
             @change="handleSourceChange"
           >
             <option value="github">{{ t('settings.marketSourceGithub') }}</option>
@@ -2400,7 +2400,7 @@ onBeforeUnmount(() => {
               <Save class="w-3 h-3" />
             </button>
           </div>
-          <span v-if="marketSourceConfig?.active_url" class="text-[10px] text-slate-400 truncate max-w-xs hidden sm:inline" :title="marketSourceConfig.active_url">
+          <span v-if="marketSourceConfig?.active_url" class="text-[10px] text-[var(--sp-text-secondary)] truncate max-w-xs hidden sm:inline" :title="marketSourceConfig.active_url">
             ({{ marketSourceConfig.active_url }})
           </span>
         </div>
@@ -2447,7 +2447,7 @@ onBeforeUnmount(() => {
       <div class="flex flex-col lg:flex-row gap-3 items-start lg:items-center justify-between">
         <!-- 搜索框 -->
         <div class="relative w-full sm:w-72">
-          <Search class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+          <Search class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--sp-text-muted)]" />
           <input
             v-model="marketSearchQuery"
             type="text"
@@ -2458,7 +2458,7 @@ onBeforeUnmount(() => {
 
         <div class="flex items-center gap-3 flex-wrap w-full lg:w-auto justify-between lg:justify-end">
           <!-- 排序选择 -->
-          <div class="flex items-center gap-1.5 text-xs text-gray-500">
+          <div class="flex items-center gap-1.5 text-xs text-[var(--sp-text-muted)]">
             <span class="text-[11px] shrink-0">{{ t('settings.marketSortLabel') }}:</span>
             <select
               v-model="marketSortBy"
@@ -2485,7 +2485,7 @@ onBeforeUnmount(() => {
               class="px-2.5 py-1 rounded-full text-xs transition-colors"
               :class="marketSelectedStatus === st.key
                 ? 'bg-indigo-600 text-white font-medium'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'"
+                : 'bg-[var(--sp-surface-muted)] text-[var(--sp-text-secondary)] hover:bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] dark:text-[var(--sp-text-secondary)] dark:bg-[var(--sp-surface-muted)]'"
               @click="marketSelectedStatus = st.key as any"
             >
               {{ st.label }}
@@ -2510,8 +2510,8 @@ onBeforeUnmount(() => {
           type="button"
           class="px-2 py-0.5 rounded text-[11px] transition-colors"
           :class="marketSelectedCategory === cat.key
-            ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900 font-medium'
-            : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'"
+            ? 'bg-[var(--sp-surface-muted)] text-white dark:bg-[var(--sp-surface-muted)] dark:text-[var(--sp-text-secondary)] font-medium'
+            : 'text-[var(--sp-text-secondary)] hover:text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] dark:hover:text-[var(--sp-text-secondary)] hover:bg-[var(--sp-surface-muted)] dark:hover:bg-[var(--sp-surface-muted)]'"
           @click="marketSelectedCategory = cat.key"
         >
           {{ cat.label }}
@@ -2519,7 +2519,7 @@ onBeforeUnmount(() => {
       </div>
 
       <!-- 镜像源网络拉取异常提示与快速切换 -->
-      <div v-if="marketCatalogError && marketCatalog.length === 0" class="p-4 rounded-lg border border-rose-200 dark:border-rose-900/50 bg-rose-50/60 dark:bg-rose-950/20 text-xs space-y-2.5">
+      <div v-if="marketCatalogError && marketCatalog.length === 0" class="p-4 rounded-[var(--sp-radius-lg)] border border-rose-200 dark:border-rose-900/50 bg-rose-50/60 dark:bg-rose-950/20 text-xs space-y-2.5">
         <div class="flex items-start gap-2.5">
           <AlertCircle class="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
           <div class="space-y-1">
@@ -2568,7 +2568,7 @@ onBeforeUnmount(() => {
       </div>
 
       <!-- 加载状态 -->
-      <div v-if="marketLoading" class="py-12 flex flex-col items-center justify-center gap-2 text-slate-400">
+      <div v-if="marketLoading" class="py-12 flex flex-col items-center justify-center gap-2 text-[var(--sp-text-secondary)]">
         <RefreshCw class="w-6 h-6 animate-spin text-indigo-500" />
         <span class="text-xs">{{ t('settings.pluginsReloading') }}</span>
       </div>
@@ -2578,20 +2578,20 @@ onBeforeUnmount(() => {
         <div
           v-for="p in filteredMarketPlugins"
           :key="p.id"
-          class="flex flex-col justify-between p-4 rounded-lg border border-gray-200/80 dark:border-gray-800/70 bg-white/50 dark:bg-gray-900/40 hover:border-indigo-300 dark:hover:border-indigo-700/60 transition-all hover:shadow-sm"
+          class="flex flex-col justify-between p-4 rounded-[var(--sp-radius-lg)] border border-[var(--sp-border)] dark:border-[var(--sp-border)] bg-[var(--sp-surface)] dark:bg-[var(--sp-surface-elevated)] hover:border-indigo-300 dark:hover:border-indigo-700/60 transition-all hover:shadow-sm"
         >
           <!-- 卡片上部 -->
           <div class="space-y-2.5">
             <div class="flex items-start justify-between gap-2">
               <div class="flex items-center gap-2 min-w-0">
-                <div class="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0 font-bold text-xs">
+                <div class="w-8 h-8 rounded-[var(--sp-radius-lg)] bg-indigo-50 dark:bg-indigo-950/60 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0 font-bold text-xs">
                   <Puzzle class="w-4 h-4" />
                 </div>
                 <div class="min-w-0">
-                  <h3 class="font-medium text-xs text-gray-900 dark:text-gray-100 truncate" :title="p.name">
+                  <h3 class="font-medium text-xs text-[var(--sp-text)] dark:text-[var(--sp-text)] truncate" :title="p.name">
                     {{ p.name }}
                   </h3>
-                  <div class="flex items-center gap-1.5 text-[10px] text-gray-400">
+                  <div class="flex items-center gap-1.5 text-[10px] text-[var(--sp-text-muted)]">
                     <span
                       v-if="p.status === 'upgradable'"
                       class="font-mono text-amber-600 dark:text-amber-400 font-semibold"
@@ -2624,14 +2624,14 @@ onBeforeUnmount(() => {
               </span>
               <span
                 v-else
-                class="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+                class="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-medium bg-[var(--sp-surface-muted)] text-[var(--sp-text-muted)] dark:bg-[var(--sp-surface-muted)] dark:text-[var(--sp-text-secondary)]"
               >
                 {{ t('settings.marketStatusNotInstalled') }}
               </span>
             </div>
 
             <!-- 描述 -->
-            <p class="text-xs text-gray-600 dark:text-gray-400 line-clamp-2 min-h-[2.5rem]">
+            <p class="text-xs text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] line-clamp-2 min-h-[2.5rem]">
               {{ p.description || t('settings.pluginsNoDesc') }}
             </p>
 
@@ -2643,7 +2643,7 @@ onBeforeUnmount(() => {
               <span
                 v-for="tag in (p.tags || []).slice(0, 3)"
                 :key="tag"
-                class="px-1.5 py-0.5 rounded text-[10px] bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400"
+                class="px-1.5 py-0.5 rounded text-[10px] bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]"
               >
                 #{{ tag }}
               </span>
@@ -2651,10 +2651,10 @@ onBeforeUnmount(() => {
           </div>
 
           <!-- 卡片下部操作栏 -->
-          <div class="pt-3 mt-3 border-t border-gray-100 dark:border-gray-800/60 flex items-center justify-between gap-2">
+          <div class="pt-3 mt-3 border-t border-[var(--sp-border)] dark:border-[var(--sp-border)] flex items-center justify-between gap-2">
             <button
               type="button"
-              class="text-xs text-slate-600 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400 inline-flex items-center gap-1 transition-colors"
+              class="text-xs text-[var(--sp-text-secondary)] hover:text-indigo-600 dark:text-[var(--sp-text-secondary)] dark:hover:text-indigo-400 inline-flex items-center gap-1 transition-colors"
               @click="openMarketReadme(p)"
             >
               <Eye class="w-3.5 h-3.5" />
@@ -2708,7 +2708,7 @@ onBeforeUnmount(() => {
       <!-- 空结果状态 -->
       <div
         v-else
-        class="p-8 text-center text-xs text-gray-400 border border-dashed border-gray-200 dark:border-gray-800 rounded-lg"
+        class="p-8 text-center text-xs text-[var(--sp-text-muted)] border border-dashed border-[var(--sp-border)] dark:border-[var(--sp-border)] rounded-[var(--sp-radius-lg)]"
       >
         {{ t('settings.marketEmpty') }}
       </div>
@@ -2766,18 +2766,18 @@ onBeforeUnmount(() => {
 
       <div class="space-y-3 text-xs">
         <!-- 依赖体检栏 -->
-        <div class="p-2 rounded bg-gray-50 dark:bg-gray-900 border border-gray-200/60 dark:border-gray-800 text-[11px] flex flex-col gap-1.5">
-          <div class="flex items-center justify-between text-gray-500 dark:text-gray-400 font-medium">
+        <div class="p-2 rounded bg-[var(--sp-surface-subtle)] dark:bg-[var(--sp-surface-elevated)] border border-[var(--sp-border)] dark:border-[var(--sp-border)] text-[11px] flex flex-col gap-1.5">
+          <div class="flex items-center justify-between text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)] font-medium">
             <span class="inline-flex items-center gap-1">
               <Package class="w-3.5 h-3.5 text-indigo-500" />
               {{ t('settings.pluginsDependenciesTitle') }}
             </span>
-            <span v-if="loadingDeps" class="inline-flex items-center gap-1 text-[10px] text-gray-400">
+            <span v-if="loadingDeps" class="inline-flex items-center gap-1 text-[10px] text-[var(--sp-text-muted)]">
               <RefreshCw class="w-3 h-3 animate-spin" />
               {{ t('common.loading') }}
             </span>
           </div>
-          <div v-if="!loadingDeps && !pluginDeps.length" class="text-[10px] text-gray-400 dark:text-gray-500">
+          <div v-if="!loadingDeps && !pluginDeps.length" class="text-[10px] text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)]">
             {{ t('settings.pluginsDependenciesNone') }}
           </div>
           <div v-else-if="pluginDeps.length" class="flex items-center gap-1.5 flex-wrap">
@@ -2809,16 +2809,16 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div class="flex items-center gap-3 text-gray-500 dark:text-gray-400 text-[11px] font-mono flex-wrap">
+        <div class="flex items-center gap-3 text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)] text-[11px] font-mono flex-wrap">
           <span v-if="currentSourcePlugin?.version">v{{ currentSourcePlugin.version }}</span>
           <span v-if="currentSourcePlugin?.author">By {{ currentSourcePlugin.author }}</span>
           <span v-if="currentSourcePlugin?.updated_at">{{ currentSourcePlugin.updated_at }}</span>
-          <span v-if="currentSourcePlugin?.source_path" class="text-gray-400 truncate max-w-md">
+          <span v-if="currentSourcePlugin?.source_path" class="text-[var(--sp-text-muted)] truncate max-w-md">
             {{ currentSourcePlugin.source_path }}
           </span>
         </div>
 
-        <div v-if="sourceLoading" class="p-8 text-center text-gray-400">
+        <div v-if="sourceLoading" class="p-8 text-center text-[var(--sp-text-muted)]">
           <RefreshCw class="w-5 h-5 mx-auto animate-spin mb-2" />
           <p>{{ t('settings.pluginsSourceLoading') }}</p>
         </div>
@@ -2826,9 +2826,9 @@ onBeforeUnmount(() => {
           <!-- 改动差异对比视图 -->
           <div
             v-if="showDiffView"
-            class="w-full h-96 overflow-auto font-mono text-[11px] bg-gray-950 text-gray-200 rounded-lg border border-gray-800 p-2 space-y-0.5 select-text"
+            class="w-full h-96 overflow-auto font-mono text-[11px] bg-[var(--sp-terminal-bg)] text-[var(--sp-text)] rounded-[var(--sp-radius-lg)] border border-[var(--sp-border)] p-2 space-y-0.5 select-text"
           >
-            <div v-if="!sourceDiffLines.some((l) => l.type !== 'same')" class="p-8 text-center text-gray-500">
+            <div v-if="!sourceDiffLines.some((l) => l.type !== 'same')" class="p-8 text-center text-[var(--sp-text-muted)]">
               {{ t('settings.pluginsDiffNoChanges') }}
             </div>
             <div
@@ -2838,10 +2838,10 @@ onBeforeUnmount(() => {
               :class="{
                 'bg-emerald-950/60 text-emerald-300': diffLine.type === 'add',
                 'bg-rose-950/60 text-rose-300': diffLine.type === 'del',
-                'text-gray-400': diffLine.type === 'same'
+                'text-[var(--sp-text-muted)]': diffLine.type === 'same'
               }"
             >
-              <span class="w-10 shrink-0 select-none text-[10px] text-gray-600 text-right pr-2">
+              <span class="w-10 shrink-0 select-none text-[10px] text-[var(--sp-text-secondary)] text-right pr-2">
                 <template v-if="diffLine.type === 'del'">-{{ diffLine.oldLine }}</template>
                 <template v-else-if="diffLine.type === 'add'">+{{ diffLine.newLine }}</template>
                 <template v-else>{{ diffLine.newLine }}</template>
@@ -2864,14 +2864,14 @@ onBeforeUnmount(() => {
             ref="sourceEditorTextarea"
             v-model="editedSourceCode"
             :rows="isEditorFullscreen ? 30 : 18"
-            class="w-full bg-gray-950 text-gray-100 font-mono text-[11px] leading-relaxed p-4 rounded-lg border border-gray-800 focus:outline-none focus:ring-1 focus:ring-amber-500 resize-y"
+            class="w-full bg-[var(--sp-terminal-bg)] text-[var(--sp-text)] font-mono text-[11px] leading-relaxed p-4 rounded-[var(--sp-radius-lg)] border border-[var(--sp-border)] focus:outline-none focus:ring-1 focus:ring-amber-500 resize-y"
             spellcheck="false"
           ></textarea>
 
           <!-- 安全审计与全方位体检面板 -->
           <div
             v-if="auditWarnings.length > 0 || auditScore !== null"
-            class="p-3 rounded-lg border text-[11px] font-mono space-y-2 transition-all"
+            class="p-3 rounded-[var(--sp-radius-lg)] border text-[11px] font-mono space-y-2 transition-all"
             :class="{
               'bg-emerald-50/80 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/60': auditRiskLevel === 'safe' && auditWarnings.length === 0,
               'bg-blue-50/80 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800/60': auditRiskLevel === 'notice',
@@ -2916,7 +2916,7 @@ onBeforeUnmount(() => {
                   {{ t(`settings.pluginsAuditRisk_${auditRiskLevel}`) }}
                 </span>
               </div>
-              <span v-if="auditWarnings.length > 0" class="text-xs text-gray-500 dark:text-gray-400">
+              <span v-if="auditWarnings.length > 0" class="text-xs text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)]">
                 {{ t('settings.pluginsAuditWarnings', { n: auditWarnings.length }) }}
               </span>
               <span v-else class="text-xs text-emerald-600 dark:text-emerald-400">
@@ -2941,7 +2941,7 @@ onBeforeUnmount(() => {
               <div
                 v-for="(warn, wIdx) in auditWarnings"
                 :key="wIdx"
-                class="flex items-start justify-between gap-2 p-1.5 rounded hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer group transition-colors"
+                class="flex items-start justify-between gap-2 p-1.5 rounded hover:bg-black/5 bg-[var(--sp-surface)] cursor-pointer group transition-colors"
                 @click="jumpToSourceLine(warn.line)"
                 :title="t('settings.pluginsAuditClickJump')"
               >
@@ -2952,8 +2952,8 @@ onBeforeUnmount(() => {
                   >
                     {{ warn.severity }}
                   </span>
-                  <span class="font-bold text-gray-700 dark:text-gray-300 shrink-0">L{{ warn.line }}:</span>
-                  <span class="text-gray-800 dark:text-gray-200 break-words">{{ warn.message }}</span>
+                  <span class="font-bold text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] shrink-0">L{{ warn.line }}:</span>
+                  <span class="text-[var(--sp-text-secondary)] dark:text-[var(--sp-text)] break-words">{{ warn.message }}</span>
                 </div>
                 <span class="text-[10px] text-sky-600 dark:text-sky-400 opacity-0 group-hover:opacity-100 shrink-0 underline">
                   {{ t('settings.pluginsAuditJumpLine') }}
@@ -2964,7 +2964,7 @@ onBeforeUnmount(() => {
 
           <!-- 静态识别能力标签 -->
           <div v-if="auditCapabilities.length > 0" class="flex items-center gap-1.5 flex-wrap text-[11px] px-1">
-            <span class="text-gray-400 font-medium">{{ t('settings.pluginsCapabilitiesDetected') }}:</span>
+            <span class="text-[var(--sp-text-muted)] font-medium">{{ t('settings.pluginsCapabilitiesDetected') }}:</span>
             <span
               v-for="cap in auditCapabilities"
               :key="cap"
@@ -2987,18 +2987,18 @@ onBeforeUnmount(() => {
               >
                 <Code class="w-3.5 h-3.5" />
                 <span>{{ t('settings.pluginsSnippetsTitle') }}</span>
-                <ChevronDown class="w-3 h-3 text-gray-400" />
+                <ChevronDown class="w-3 h-3 text-[var(--sp-text-muted)]" />
               </button>
 
               <div
                 v-if="showSnippetDropdown"
-                class="absolute left-0 bottom-full mb-1 w-60 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl py-1 z-30 text-xs flex flex-col"
+                class="absolute left-0 bottom-full mb-1 w-60 bg-[var(--sp-surface)] dark:bg-[var(--sp-surface-muted)] border border-[var(--sp-border)] dark:border-[var(--sp-border)] rounded-[var(--sp-radius-lg)] shadow-xl py-1 z-30 text-xs flex flex-col"
               >
                 <button
                   v-for="s in SDK_SNIPPETS"
                   :key="s.labelKey"
                   type="button"
-                  class="w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700/60 font-mono text-[11px] truncate"
+                  class="w-full text-left px-3 py-1.5 hover:bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] font-mono text-[11px] truncate"
                   @click="insertSnippet(s.code)"
                 >
                   {{ t(s.labelKey) }}
@@ -3065,7 +3065,7 @@ onBeforeUnmount(() => {
             </button>
           </div>
         </div>
-        <div v-else class="relative bg-gray-950 text-gray-100 rounded-lg p-4 font-mono text-[11px] leading-relaxed max-h-[60vh] overflow-y-auto border border-gray-800 select-all custom-scrollbar">
+        <div v-else class="relative bg-[var(--sp-terminal-bg)] text-[var(--sp-text)] rounded-[var(--sp-radius-lg)] p-4 font-mono text-[11px] leading-relaxed max-h-[60vh] overflow-y-auto border border-[var(--sp-border)] select-all custom-scrollbar">
           <pre class="whitespace-pre overflow-x-auto">{{ sourceCode }}</pre>
         </div>
       </div>
@@ -3079,7 +3079,7 @@ onBeforeUnmount(() => {
       @close="isTestModalOpen = false"
     >
       <div v-if="currentTestPlugin" class="space-y-4 text-xs">
-        <p class="text-gray-500 dark:text-gray-400 text-[11px]">
+        <p class="text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)] text-[11px]">
           {{ currentTestPlugin.description }}
         </p>
 
@@ -3093,10 +3093,10 @@ onBeforeUnmount(() => {
 
         <!-- 模拟消息输入 (仅 reactive 模式为主要必填，active 模式作为可选扩展) -->
         <div class="space-y-1">
-          <div class="flex flex-wrap items-center justify-between gap-2 text-gray-700 dark:text-gray-300">
+          <div class="flex flex-wrap items-center justify-between gap-2 text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
             <label class="font-medium">
               {{ t('settings.pluginsTestInputLabel') }}
-              <span v-if="currentTestPlugin.mode === 'active'" class="text-gray-400 font-normal text-[10px]">({{ t('common.optional') }})</span>
+              <span v-if="currentTestPlugin.mode === 'active'" class="text-[var(--sp-text-muted)] font-normal text-[10px]">({{ t('common.optional') }})</span>
             </label>
             <div class="flex items-center gap-2 flex-wrap">
               <!-- 最近调试用例快照 -->
@@ -3113,24 +3113,24 @@ onBeforeUnmount(() => {
                 </button>
               </div>
               <div class="flex items-center gap-1.5">
-              <span class="text-[10px] text-gray-400">{{ t('settings.pluginsQuickPresets') }}:</span>
+              <span class="text-[10px] text-[var(--sp-text-muted)]">{{ t('settings.pluginsQuickPresets') }}:</span>
               <button
                 type="button"
-                class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                class="text-[10px] px-1.5 py-0.5 rounded bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] hover:bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] transition-colors"
                 @click="testInputText = '12 + 34 = ?'"
               >
                 {{ t('settings.pluginsPresetMath') }}
               </button>
               <button
                 type="button"
-                class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                class="text-[10px] px-1.5 py-0.5 rounded bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] hover:bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] transition-colors"
                 @click="testInputText = '【Telegram】您的验证码是 982143，请勿泄露'"
               >
                 {{ t('settings.pluginsPresetCode') }}
               </button>
               <button
                 type="button"
-                class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                class="text-[10px] px-1.5 py-0.5 rounded bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] hover:bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] transition-colors"
                 @click="testInputText = '/hello'"
               >
                 {{ t('settings.pluginsPresetGreeting') }}
@@ -3147,8 +3147,8 @@ onBeforeUnmount(() => {
         </div>
 
         <!-- 参数配置表单 (若存在 schema) -->
-        <div v-if="currentTestPlugin.params_schema && currentTestPlugin.params_schema.length" class="p-3 bg-gray-50/80 dark:bg-white/[0.02] border border-gray-200 dark:border-gray-800/80 rounded space-y-2">
-          <div class="flex items-center justify-between font-medium text-[11px] text-gray-700 dark:text-gray-300">
+        <div v-if="currentTestPlugin.params_schema && currentTestPlugin.params_schema.length" class="p-3 bg-[var(--sp-surface-subtle)] bg-[var(--sp-surface)]/[0.02] border border-[var(--sp-border)] dark:border-[var(--sp-border)] rounded space-y-2">
+          <div class="flex items-center justify-between font-medium text-[11px] text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
             <span>{{ t('settings.pluginsTestParamsLabel') }}</span>
             <button
               type="button"
@@ -3164,10 +3164,10 @@ onBeforeUnmount(() => {
             :key="field.name"
             class="flex flex-col gap-1"
           >
-            <div class="flex items-baseline gap-1.5 flex-wrap text-[10px] text-gray-500">
-              <span class="font-medium text-gray-700 dark:text-gray-300" :title="field.name">{{ field.label || field.name }}</span>
+            <div class="flex items-baseline gap-1.5 flex-wrap text-[10px] text-[var(--sp-text-muted)]">
+              <span class="font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]" :title="field.name">{{ field.label || field.name }}</span>
               <span v-if="field.required" class="text-rose-500 text-xs font-bold leading-none" title="必填">*</span>
-              <span v-if="field.description" class="text-[10px] text-gray-400 dark:text-gray-500 truncate" :title="field.description">
+              <span v-if="field.description" class="text-[10px] text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)] truncate" :title="field.description">
                 - {{ field.description }}
               </span>
             </div>
@@ -3178,14 +3178,14 @@ onBeforeUnmount(() => {
                 class="rounded text-sky-600 focus:ring-sky-500 h-3.5 w-3.5"
                 @change="testParams[field.name] = ($event.target as HTMLInputElement).checked"
               />
-              <span class="text-[11px] text-gray-600 dark:text-gray-300">
+              <span class="text-[11px] text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
                 {{ testParams[field.name] ? t('common.enabled') : t('common.disabled') }}
               </span>
             </label>
             <select
               v-else-if="(field.type === 'select' || (field.options && field.options.length > 0)) && field.options"
               :value="testParams[field.name]"
-              class="ui-input !h-8 !text-xs !px-2 w-full bg-white dark:bg-gray-900"
+              class="ui-input !h-8 !text-xs !px-2 w-full bg-[var(--sp-surface)] dark:bg-[var(--sp-surface-elevated)]"
               @change="testParams[field.name] = ($event.target as HTMLSelectElement).value"
             >
               <option
@@ -3216,21 +3216,21 @@ onBeforeUnmount(() => {
         </div>
 
         <!-- 高级会话模拟 -->
-        <div class="border border-gray-200 dark:border-gray-800 rounded p-2.5 bg-gray-50/50 dark:bg-gray-900/30">
+        <div class="border border-[var(--sp-border)] dark:border-[var(--sp-border)] rounded p-2.5 bg-[var(--sp-surface-subtle)] dark:bg-[var(--sp-surface-elevated)]">
           <button
             type="button"
-            class="w-full flex items-center justify-between text-xs font-medium text-gray-700 dark:text-gray-300"
+            class="w-full flex items-center justify-between text-xs font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]"
             @click="showAdvancedMock = !showAdvancedMock"
           >
             <span class="inline-flex items-center gap-1.5">
               <span>⚙️ {{ t('settings.pluginsAdvancedMock') }}</span>
             </span>
-            <ChevronDown v-if="!showAdvancedMock" class="w-3.5 h-3.5 text-gray-400" />
-            <ChevronUp v-else class="w-3.5 h-3.5 text-gray-400" />
+            <ChevronDown v-if="!showAdvancedMock" class="w-3.5 h-3.5 text-[var(--sp-text-muted)]" />
+            <ChevronUp v-else class="w-3.5 h-3.5 text-[var(--sp-text-muted)]" />
           </button>
           <div v-if="showAdvancedMock" class="mt-2.5 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
             <div>
-              <label class="block text-[11px] text-gray-500 dark:text-gray-400 mb-1">{{ t('settings.pluginsMockChatId') }}</label>
+              <label class="block text-[11px] text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)] mb-1">{{ t('settings.pluginsMockChatId') }}</label>
               <input
                 v-model="mockChatId"
                 type="text"
@@ -3239,7 +3239,7 @@ onBeforeUnmount(() => {
               />
             </div>
             <div>
-              <label class="block text-[11px] text-gray-500 dark:text-gray-400 mb-1">{{ t('settings.pluginsMockSender') }}</label>
+              <label class="block text-[11px] text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)] mb-1">{{ t('settings.pluginsMockSender') }}</label>
               <input
                 v-model="mockSenderName"
                 type="text"
@@ -3248,7 +3248,7 @@ onBeforeUnmount(() => {
               />
             </div>
             <div>
-              <label class="block text-[11px] text-gray-500 dark:text-gray-400 mb-1">{{ t('settings.pluginsPlaygroundTimeout') }}</label>
+              <label class="block text-[11px] text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)] mb-1">{{ t('settings.pluginsPlaygroundTimeout') }}</label>
               <input
                 v-model="mockTimeout"
                 type="number"
@@ -3263,7 +3263,7 @@ onBeforeUnmount(() => {
 
         <!-- 执行与存储重置控制 -->
         <div class="flex items-center justify-between gap-2 pt-1">
-          <label class="inline-flex items-center gap-1.5 cursor-pointer text-[11px] text-gray-600 dark:text-gray-400" :title="t('settings.pluginsPlaygroundResetStorageTip')">
+          <label class="inline-flex items-center gap-1.5 cursor-pointer text-[11px] text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]" :title="t('settings.pluginsPlaygroundResetStorageTip')">
             <input
               v-model="resetStorage"
               type="checkbox"
@@ -3275,7 +3275,7 @@ onBeforeUnmount(() => {
           <div class="flex items-center gap-1.5">
             <button
               type="button"
-              class="ui-btn-secondary !px-2 !py-1.5 !text-xs inline-flex items-center gap-1 text-gray-600 dark:text-gray-300"
+              class="ui-btn-secondary !px-2 !py-1.5 !text-xs inline-flex items-center gap-1 text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]"
               :title="t('settings.pluginsPlaygroundLoadPreset')"
               @click="loadPlaygroundPreset"
             >
@@ -3284,7 +3284,7 @@ onBeforeUnmount(() => {
             </button>
             <button
               type="button"
-              class="ui-btn-secondary !px-2 !py-1.5 !text-xs inline-flex items-center gap-1 text-gray-600 dark:text-gray-300"
+              class="ui-btn-secondary !px-2 !py-1.5 !text-xs inline-flex items-center gap-1 text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]"
               :title="t('settings.pluginsPlaygroundSavePreset')"
               @click="savePlaygroundPreset"
             >
@@ -3293,7 +3293,7 @@ onBeforeUnmount(() => {
             </button>
             <button
               type="button"
-              class="ui-btn-secondary !px-2 !py-1.5 !text-xs inline-flex items-center gap-1 text-gray-500 hover:text-gray-700"
+              class="ui-btn-secondary !px-2 !py-1.5 !text-xs inline-flex items-center gap-1 text-[var(--sp-text-muted)] hover:text-[var(--sp-text-secondary)]"
               :disabled="testRunning"
               @click="handleResetPlaygroundInputs"
             >
@@ -3329,10 +3329,10 @@ onBeforeUnmount(() => {
                 ⛔ {{ t('settings.pluginsHardKilled') }}
               </span>
             </div>
-            <div class="flex items-center gap-1.5 text-[11px] text-gray-500 font-mono">
+            <div class="flex items-center gap-1.5 text-[11px] text-[var(--sp-text-muted)] font-mono">
               <span
                 v-if="testResult.isolation"
-                class="px-1 py-0.5 rounded text-[10px] font-mono bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400"
+                class="px-1 py-0.5 rounded text-[10px] font-mono bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)]"
               >
                 {{ t('settings.pluginsIsolation') }}: {{ testResult.isolation }}
               </span>
@@ -3340,7 +3340,7 @@ onBeforeUnmount(() => {
               <span>{{ testResult.duration_ms }} ms</span>
               <button
                 type="button"
-                class="ui-btn-secondary !py-0.5 !px-1.5 !text-[10px] inline-flex items-center gap-1 text-gray-600 dark:text-gray-300 ml-1"
+                class="ui-btn-secondary !py-0.5 !px-1.5 !text-[10px] inline-flex items-center gap-1 text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] ml-1"
                 :title="t('settings.pluginsCopyTestResult')"
                 @click="handleCopyTestResult"
               >
@@ -3389,9 +3389,9 @@ onBeforeUnmount(() => {
           </div>
 
           <!-- 回复文本 -->
-          <div v-if="testResult.reply_text !== undefined && testResult.reply_text !== null" class="p-2 bg-white/80 dark:bg-black/30 rounded border border-gray-200 dark:border-gray-800">
+          <div v-if="testResult.reply_text !== undefined && testResult.reply_text !== null" class="p-2 bg-[var(--sp-surface)] dark:bg-black/30 rounded border border-[var(--sp-border)] dark:border-[var(--sp-border)]">
             <div class="flex items-center justify-between mb-0.5">
-              <span class="text-[10px] text-gray-400">{{ t('settings.pluginsReplyOutput') }}</span>
+              <span class="text-[10px] text-[var(--sp-text-muted)]">{{ t('settings.pluginsReplyOutput') }}</span>
               <button
                 v-if="canFormatReplyJson"
                 type="button"
@@ -3408,8 +3408,8 @@ onBeforeUnmount(() => {
           </div>
 
           <!-- 表情表态 (Reactions) -->
-          <div v-if="testResult.reacted_emojis && testResult.reacted_emojis.length" class="p-2 bg-white/80 dark:bg-black/30 rounded border border-gray-200 dark:border-gray-800">
-            <span class="text-[10px] text-gray-400 block mb-1">{{ t('settings.pluginsReactionOutput') }}</span>
+          <div v-if="testResult.reacted_emojis && testResult.reacted_emojis.length" class="p-2 bg-[var(--sp-surface)] dark:bg-black/30 rounded border border-[var(--sp-border)] dark:border-[var(--sp-border)]">
+            <span class="text-[10px] text-[var(--sp-text-muted)] block mb-1">{{ t('settings.pluginsReactionOutput') }}</span>
             <div class="flex items-center gap-1.5 flex-wrap">
               <span
                 v-for="(emoji, idx) in testResult.reacted_emojis"
@@ -3423,8 +3423,8 @@ onBeforeUnmount(() => {
 
           <!-- 日志输出 -->
           <div v-if="testResult.logs && testResult.logs.length" class="space-y-1">
-            <span class="text-[10px] text-gray-400 block">{{ t('settings.pluginsLogsLabel') }}</span>
-            <div class="p-2 bg-gray-900 text-gray-200 rounded font-mono text-[11px] max-h-36 overflow-y-auto space-y-0.5 select-all">
+            <span class="text-[10px] text-[var(--sp-text-muted)] block">{{ t('settings.pluginsLogsLabel') }}</span>
+            <div class="p-2 bg-[var(--sp-terminal-bg)] text-[var(--sp-text)] rounded font-mono text-[11px] max-h-36 overflow-y-auto space-y-0.5 select-all">
               <div v-for="(log, idx) in testResult.logs" :key="idx" class="leading-relaxed">
                 {{ log }}
               </div>
@@ -3443,7 +3443,7 @@ onBeforeUnmount(() => {
     >
       <form class="space-y-3.5 text-xs" @submit.prevent="submitCreatePlugin">
         <div class="space-y-1">
-          <label class="font-medium text-gray-700 dark:text-gray-300">
+          <label class="font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
             {{ t('settings.pluginsCreateName') }} <span class="text-red-500">*</span>
           </label>
           <input
@@ -3457,7 +3457,7 @@ onBeforeUnmount(() => {
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div class="space-y-1">
-            <label class="font-medium text-gray-700 dark:text-gray-300">
+            <label class="font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
               {{ t('settings.pluginsCreateTemplate') }}
             </label>
             <select
@@ -3477,7 +3477,7 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="space-y-1">
-            <label class="font-medium text-gray-700 dark:text-gray-300">
+            <label class="font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
               {{ t('settings.pluginsCreateVersion') }}
             </label>
             <input
@@ -3490,7 +3490,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="space-y-1">
-          <label class="font-medium text-gray-700 dark:text-gray-300">
+          <label class="font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
             {{ t('settings.pluginsCreateDesc') }}
           </label>
           <input
@@ -3502,7 +3502,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="space-y-1">
-          <label class="font-medium text-gray-700 dark:text-gray-300">
+          <label class="font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
             {{ t('settings.pluginsCreateAuthor') }}
           </label>
           <input
@@ -3513,7 +3513,7 @@ onBeforeUnmount(() => {
           />
         </div>
 
-        <div class="flex justify-end gap-2 pt-2 border-t border-gray-100 dark:border-gray-800">
+        <div class="flex justify-end gap-2 pt-2 border-t border-[var(--sp-border)] dark:border-[var(--sp-border)]">
           <button
             type="button"
             class="ui-btn-secondary !px-3 !py-1.5 !text-xs"
@@ -3540,32 +3540,32 @@ onBeforeUnmount(() => {
       max-width-class="max-w-3xl"
       @close="isDevGuideOpen = false"
     >
-      <div class="space-y-4 text-xs text-gray-700 dark:text-gray-300 leading-relaxed max-h-[70vh] overflow-y-auto pr-2 custom-scrollbar">
+      <div class="space-y-4 text-xs text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] leading-relaxed max-h-[70vh] overflow-y-auto pr-2 custom-scrollbar">
         <!-- 1. 架构定位 -->
         <div class="p-3 bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-200/60 dark:border-indigo-800/40 rounded space-y-1.5">
           <h4 class="font-semibold text-indigo-900 dark:text-indigo-200 text-[13px]">
             {{ t('settings.pluginsGuideIntroTitle') }}
           </h4>
-          <p class="text-[11px] text-gray-600 dark:text-gray-300">
+          <p class="text-[11px] text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
             {{ t('settings.pluginsGuideIntroDesc') }}
           </p>
         </div>
 
         <!-- 2. 执行模式 -->
         <div class="space-y-2">
-          <h4 class="font-semibold text-gray-900 dark:text-gray-100 text-[12px]">
+          <h4 class="font-semibold text-[var(--sp-text)] dark:text-[var(--sp-text)] text-[12px]">
             {{ t('settings.pluginsGuideModeTitle') }}
           </h4>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             <div class="p-2.5 border border-sky-200/80 dark:border-sky-800/50 rounded bg-sky-50/30 dark:bg-sky-950/10 space-y-1">
               <span class="font-mono font-bold text-sky-700 dark:text-sky-300 text-[11px]">{{ t('settings.pluginsGuideModeReactiveName') }}</span>
-              <p class="text-[11px] text-gray-600 dark:text-gray-400">
+              <p class="text-[11px] text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
                 {{ t('settings.pluginsGuideModeReactiveDesc') }}
               </p>
             </div>
             <div class="p-2.5 border border-emerald-200/80 dark:border-emerald-800/50 rounded bg-emerald-50/30 dark:bg-emerald-950/10 space-y-1">
               <span class="font-mono font-bold text-emerald-700 dark:text-emerald-300 text-[11px]">{{ t('settings.pluginsGuideModeActiveName') }}</span>
-              <p class="text-[11px] text-gray-600 dark:text-gray-400">
+              <p class="text-[11px] text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
                 {{ t('settings.pluginsGuideModeActiveDesc') }}
               </p>
             </div>
@@ -3574,41 +3574,41 @@ onBeforeUnmount(() => {
 
         <!-- 3. PluginContext 核心能力 -->
         <div class="space-y-2">
-          <h4 class="font-semibold text-gray-900 dark:text-gray-100 text-[12px]">
+          <h4 class="font-semibold text-[var(--sp-text)] dark:text-[var(--sp-text)] text-[12px]">
             {{ t('settings.pluginsGuideContextTitle') }}
           </h4>
-          <div class="border border-gray-200 dark:border-gray-800 rounded overflow-hidden">
+          <div class="border border-[var(--sp-border)] dark:border-[var(--sp-border)] rounded overflow-hidden">
             <table class="w-full text-left text-[11px]">
-              <thead class="bg-gray-50 dark:bg-gray-800/60 text-gray-500 font-mono">
+              <thead class="bg-[var(--sp-surface-subtle)] dark:bg-[var(--sp-surface-muted)] text-[var(--sp-text-muted)] font-mono">
                 <tr>
-                  <th class="p-2 border-b border-gray-200 dark:border-gray-800">{{ t('settings.pluginsGuideContextMethod') }}</th>
-                  <th class="p-2 border-b border-gray-200 dark:border-gray-800">{{ t('settings.pluginsGuideContextDesc') }}</th>
+                  <th class="p-2 border-b border-[var(--sp-border)] dark:border-[var(--sp-border)]">{{ t('settings.pluginsGuideContextMethod') }}</th>
+                  <th class="p-2 border-b border-[var(--sp-border)] dark:border-[var(--sp-border)]">{{ t('settings.pluginsGuideContextDesc') }}</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-100 dark:divide-gray-800/60 font-mono">
                 <tr>
                   <td class="p-2 text-sky-600 dark:text-sky-400 font-semibold">ctx.message</td>
-                  <td class="p-2 text-gray-600 dark:text-gray-300 font-sans">{{ t('settings.pluginsGuideCtxMessage') }}</td>
+                  <td class="p-2 text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] font-sans">{{ t('settings.pluginsGuideCtxMessage') }}</td>
                 </tr>
                 <tr>
                   <td class="p-2 text-sky-600 dark:text-sky-400 font-semibold">await ctx.reply(text)</td>
-                  <td class="p-2 text-gray-600 dark:text-gray-300 font-sans">{{ t('settings.pluginsGuideCtxReply') }}</td>
+                  <td class="p-2 text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] font-sans">{{ t('settings.pluginsGuideCtxReply') }}</td>
                 </tr>
                 <tr>
                   <td class="p-2 text-sky-600 dark:text-sky-400 font-semibold">await ctx.send_message(text)</td>
-                  <td class="p-2 text-gray-600 dark:text-gray-300 font-sans">{{ t('settings.pluginsGuideCtxSend') }}</td>
+                  <td class="p-2 text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] font-sans">{{ t('settings.pluginsGuideCtxSend') }}</td>
                 </tr>
                 <tr>
                   <td class="p-2 text-sky-600 dark:text-sky-400 font-semibold">await ctx.react(emoji)</td>
-                  <td class="p-2 text-gray-600 dark:text-gray-300 font-sans">{{ t('settings.pluginsGuideCtxReact') }}</td>
+                  <td class="p-2 text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] font-sans">{{ t('settings.pluginsGuideCtxReact') }}</td>
                 </tr>
                 <tr>
                   <td class="p-2 text-sky-600 dark:text-sky-400 font-semibold">ctx.storage</td>
-                  <td class="p-2 text-gray-600 dark:text-gray-300 font-sans">{{ t('settings.pluginsGuideCtxStorage') }}</td>
+                  <td class="p-2 text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] font-sans">{{ t('settings.pluginsGuideCtxStorage') }}</td>
                 </tr>
                 <tr>
                   <td class="p-2 text-sky-600 dark:text-sky-400 font-semibold">ctx.log(message)</td>
-                  <td class="p-2 text-gray-600 dark:text-gray-300 font-sans">{{ t('settings.pluginsGuideCtxLog') }}</td>
+                  <td class="p-2 text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] font-sans">{{ t('settings.pluginsGuideCtxLog') }}</td>
                 </tr>
               </tbody>
             </table>
@@ -3617,13 +3617,13 @@ onBeforeUnmount(() => {
 
         <!-- 4. 元数据规范 -->
         <div class="space-y-1.5">
-          <h4 class="font-semibold text-gray-900 dark:text-gray-100 text-[12px]">
+          <h4 class="font-semibold text-[var(--sp-text)] dark:text-[var(--sp-text)] text-[12px]">
             {{ t('settings.pluginsGuideMetaTitle') }}
           </h4>
-          <p class="text-[11px] text-gray-600 dark:text-gray-400">
+          <p class="text-[11px] text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
             {{ t('settings.pluginsGuideMetaDesc') }}
           </p>
-          <pre class="p-3 bg-gray-950 text-gray-200 rounded font-mono text-[11px] leading-relaxed overflow-x-auto">VERSION = "1.0.0"
+          <pre class="p-3 bg-[var(--sp-terminal-bg)] text-[var(--sp-text)] rounded font-mono text-[11px] leading-relaxed overflow-x-auto">VERSION = "1.0.0"
 UPDATED_AT = "2026-09-11"
 AUTHOR = "YourName"
 
@@ -3647,7 +3647,7 @@ AUTHOR = "YourName"
     >
       <form class="space-y-4 text-xs" @submit.prevent="submitClonePlugin">
         <div class="space-y-1">
-          <label class="font-medium text-gray-700 dark:text-gray-300">
+          <label class="font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
             {{ t('settings.pluginsCloneNewName') }}
           </label>
           <input
@@ -3659,7 +3659,7 @@ AUTHOR = "YourName"
           />
         </div>
         <div class="space-y-1">
-          <label class="font-medium text-gray-700 dark:text-gray-300">
+          <label class="font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
             {{ t('settings.pluginsCloneDesc') }}
           </label>
           <input
@@ -3695,7 +3695,7 @@ AUTHOR = "YourName"
       @close="isDocModalOpen = false"
     >
       <div class="space-y-3 text-xs max-h-[60vh] overflow-y-auto pr-1">
-        <div class="p-3.5 rounded-lg bg-gray-50 dark:bg-gray-900/60 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 font-mono text-[11px] leading-relaxed whitespace-pre-wrap select-text">
+        <div class="p-3.5 rounded-[var(--sp-radius-lg)] bg-[var(--sp-surface-subtle)] dark:bg-[var(--sp-surface-elevated)] border border-[var(--sp-border)] dark:border-[var(--sp-border)] text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] font-mono text-[11px] leading-relaxed whitespace-pre-wrap select-text">
           {{ docPluginContent || t('settings.pluginsDocEmpty') }}
         </div>
       </div>
@@ -3709,8 +3709,8 @@ AUTHOR = "YourName"
     >
       <div class="space-y-3 text-xs max-h-[60vh] overflow-y-auto pr-1">
         <!-- 历史操作工具栏 -->
-        <div v-if="executionHistory.length" class="flex items-center justify-between gap-2 pb-2 border-b border-gray-200/60 dark:border-gray-800/60">
-          <span class="text-[11px] text-gray-500 font-mono">{{ t('settings.pluginsHistoryCount', { n: executionHistory.length }) }}</span>
+        <div v-if="executionHistory.length" class="flex items-center justify-between gap-2 pb-2 border-b border-[var(--sp-border)] dark:border-[var(--sp-border)]">
+          <span class="text-[11px] text-[var(--sp-text-muted)] font-mono">{{ t('settings.pluginsHistoryCount', { n: executionHistory.length }) }}</span>
           <div class="flex items-center gap-2">
             <button
               type="button"
@@ -3731,18 +3731,18 @@ AUTHOR = "YourName"
             </button>
           </div>
         </div>
-        <div v-if="loadingHistory" class="py-8 text-center text-gray-400 flex items-center justify-center gap-2">
+        <div v-if="loadingHistory" class="py-8 text-center text-[var(--sp-text-muted)] flex items-center justify-center gap-2">
           <RefreshCw class="w-4 h-4 animate-spin text-indigo-500" />
           <span>{{ t('common.loading') }}</span>
         </div>
-        <div v-else-if="!executionHistory.length" class="py-8 text-center text-gray-400">
+        <div v-else-if="!executionHistory.length" class="py-8 text-center text-[var(--sp-text-muted)]">
           {{ t('settings.pluginsHistoryEmpty') }}
         </div>
         <div v-else class="space-y-2">
           <div
             v-for="(rec, idx) in executionHistory"
             :key="idx"
-            class="p-2.5 rounded border border-gray-200/80 dark:border-gray-800/80 bg-white/70 dark:bg-black/20 space-y-1.5"
+            class="p-2.5 rounded border border-[var(--sp-border)] dark:border-[var(--sp-border)] bg-[var(--sp-surface)] dark:bg-black/20 space-y-1.5"
           >
             <div class="flex items-center justify-between gap-2 flex-wrap text-[11px] font-mono">
               <div class="flex items-center gap-2">
@@ -3752,17 +3752,17 @@ AUTHOR = "YourName"
                 >
                   {{ rec.success ? t('common.success') : t('common.failed') }}
                 </span>
-                <span class="text-gray-500">{{ rec.timestamp }}</span>
-                <span class="text-gray-400">({{ rec.duration_ms }} ms)</span>
+                <span class="text-[var(--sp-text-muted)]">{{ rec.timestamp }}</span>
+                <span class="text-[var(--sp-text-muted)]">({{ rec.duration_ms }} ms)</span>
               </div>
-              <span class="text-gray-400 text-[10px]">
+              <span class="text-[var(--sp-text-muted)] text-[10px]">
                 {{ triggerTypeLabel(rec.trigger_type) }}
               </span>
             </div>
             <div v-if="rec.error" class="text-rose-600 dark:text-rose-400 text-[10px] font-mono break-all bg-rose-50/50 dark:bg-rose-950/30 p-1.5 rounded">
               {{ rec.error }}
             </div>
-            <div v-if="rec.log_summary" class="text-gray-600 dark:text-gray-300 text-[10px] font-mono break-all line-clamp-2">
+            <div v-if="rec.log_summary" class="text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] text-[10px] font-mono break-all line-clamp-2">
               {{ rec.log_summary }}
             </div>
           </div>
@@ -3777,11 +3777,11 @@ AUTHOR = "YourName"
       max-width-class="max-w-3xl"
       @close="isMarketReadmeOpen = false"
     >
-      <div v-if="loadingMarketReadme" class="py-12 flex flex-col items-center justify-center gap-2 text-slate-400">
+      <div v-if="loadingMarketReadme" class="py-12 flex flex-col items-center justify-center gap-2 text-[var(--sp-text-secondary)]">
         <RefreshCw class="w-6 h-6 animate-spin text-indigo-500" />
         <span class="text-xs">{{ t('settings.pluginsReloading') }}</span>
       </div>
-      <div v-else class="space-y-4 text-xs text-gray-700 dark:text-gray-300 leading-relaxed max-h-[70vh] overflow-y-auto pr-2 custom-scrollbar">
+      <div v-else class="space-y-4 text-xs text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] leading-relaxed max-h-[70vh] overflow-y-auto pr-2 custom-scrollbar">
         <!-- 插件基础元信息卡片 -->
         <div v-if="marketReadmePlugin" class="p-3 bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-200/60 dark:border-indigo-800/40 rounded space-y-2">
           <div class="flex items-center justify-between">
@@ -3792,10 +3792,10 @@ AUTHOR = "YourName"
               v{{ marketReadmePlugin.version }}
             </span>
           </div>
-          <p class="text-xs text-gray-600 dark:text-gray-400">
+          <p class="text-xs text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
             {{ marketReadmePlugin.description }}
           </p>
-          <div class="flex items-center gap-3 text-[11px] text-gray-500 flex-wrap">
+          <div class="flex items-center gap-3 text-[11px] text-[var(--sp-text-muted)] flex-wrap">
             <span>{{ t('common.author') || '作者' }}: {{ marketReadmePlugin.author }}</span>
             <span v-if="marketReadmePlugin.min_app_version">{{ t('settings.marketMinAppVersion', { v: marketReadmePlugin.min_app_version }) }}</span>
             <span v-if="marketReadmePlugin.updated_at">{{ t('settings.marketUpdatedAt', { d: marketReadmePlugin.updated_at }) }}</span>
@@ -3813,16 +3813,16 @@ AUTHOR = "YourName"
         </div>
 
         <!-- README Markdown 内容 -->
-        <div class="p-4 bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-lg whitespace-pre-wrap font-sans text-xs leading-relaxed select-text">
+        <div class="p-4 bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] border border-[var(--sp-border)] dark:border-[var(--sp-border)] rounded-[var(--sp-radius-lg)] whitespace-pre-wrap font-sans text-xs leading-relaxed select-text">
           {{ marketReadmeContent }}
         </div>
 
         <!-- 参数配置规范提示 -->
         <div v-if="marketReadmePlugin?.params_schema && marketReadmePlugin.params_schema.length > 0" class="space-y-1.5">
-          <h5 class="font-medium text-slate-800 dark:text-slate-200 text-xs">{{ t('settings.marketParamsSchemaTitle') }}</h5>
-          <div class="border border-slate-200 dark:border-slate-800 rounded overflow-hidden">
+          <h5 class="font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] text-xs">{{ t('settings.marketParamsSchemaTitle') }}</h5>
+          <div class="border border-[var(--sp-border)] dark:border-[var(--sp-border)] rounded overflow-hidden">
             <table class="w-full text-[11px]">
-              <thead class="bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400">
+              <thead class="bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
                 <tr>
                   <th class="p-2 text-left font-medium">{{ t('settings.marketParamName') }}</th>
                   <th class="p-2 text-left font-medium">{{ t('settings.marketParamType') }}</th>
@@ -3832,8 +3832,8 @@ AUTHOR = "YourName"
               <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
                 <tr v-for="param in marketReadmePlugin.params_schema" :key="param.name">
                   <td class="p-2 font-mono text-indigo-600 dark:text-indigo-400">{{ param.name }}</td>
-                  <td class="p-2 font-mono text-slate-500">{{ param.type || 'string' }}</td>
-                  <td class="p-2 text-slate-600 dark:text-slate-300">{{ param.description || param.label || '-' }}</td>
+                  <td class="p-2 font-mono text-[var(--sp-text-secondary)]">{{ param.type || 'string' }}</td>
+                  <td class="p-2 text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">{{ param.description || param.label || '-' }}</td>
                 </tr>
               </tbody>
             </table>
@@ -3884,12 +3884,12 @@ AUTHOR = "YourName"
     >
       <div class="space-y-3.5 text-xs max-h-[70vh] overflow-y-auto pr-1">
         <!-- 头部统计与操作 -->
-        <div class="flex items-center justify-between gap-2 pb-2.5 border-b border-gray-200/60 dark:border-gray-800/60 flex-wrap">
+        <div class="flex items-center justify-between gap-2 pb-2.5 border-b border-[var(--sp-border)] dark:border-[var(--sp-border)] flex-wrap">
           <div class="flex items-center gap-2 text-[11px] font-mono">
-            <span class="px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+            <span class="px-2 py-0.5 rounded bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
               {{ t('settings.pluginsStorageTotalRecords', { count: storageData?.total_records ?? 0 }) }}
             </span>
-            <span class="px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+            <span class="px-2 py-0.5 rounded bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
               {{ t('settings.pluginsStorageTotalNamespaces', { count: storageData?.namespaces?.length ?? 0 }) }}
             </span>
           </div>
@@ -3923,7 +3923,7 @@ AUTHOR = "YourName"
             class="px-2 py-0.5 rounded text-[11px] font-mono transition-colors"
             :class="selectedStorageNamespace === 'all'
               ? 'bg-indigo-600 text-white font-semibold'
-              : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200'"
+              : 'bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] hover:bg-[var(--sp-surface-muted)]'"
             @click="selectedStorageNamespace = 'all'"
           >
             {{ t('settings.pluginsStorageFilterAll') }}
@@ -3935,7 +3935,7 @@ AUTHOR = "YourName"
             class="px-2 py-0.5 rounded text-[11px] font-mono transition-colors inline-flex items-center gap-1"
             :class="selectedStorageNamespace === ns.namespace
               ? 'bg-indigo-600 text-white font-semibold'
-              : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200'"
+              : 'bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] hover:bg-[var(--sp-surface-muted)]'"
             @click="selectedStorageNamespace = ns.namespace"
           >
             <span class="truncate max-w-[160px]">{{ ns.namespace }}</span>
@@ -3950,14 +3950,14 @@ AUTHOR = "YourName"
         </div>
 
         <!-- 加载中 -->
-        <div v-if="storageLoading && !storageData" class="py-8 text-center text-gray-400 flex items-center justify-center gap-2">
+        <div v-if="storageLoading && !storageData" class="py-8 text-center text-[var(--sp-text-muted)] flex items-center justify-center gap-2">
           <RefreshCw class="w-4 h-4 animate-spin text-indigo-500" />
           <span>{{ t('common.loading') }}</span>
         </div>
 
         <!-- 空状态 -->
-        <div v-else-if="!visibleStorageRecords.length" class="py-10 text-center text-gray-400 space-y-2">
-          <Database class="w-8 h-8 mx-auto text-gray-300 dark:text-gray-600" />
+        <div v-else-if="!visibleStorageRecords.length" class="py-10 text-center text-[var(--sp-text-muted)] space-y-2">
+          <Database class="w-8 h-8 mx-auto text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)]" />
           <p>{{ t('settings.pluginsStorageEmpty') }}</p>
         </div>
 
@@ -3966,12 +3966,12 @@ AUTHOR = "YourName"
           <div
             v-for="(item, idx) in visibleStorageRecords"
             :key="idx"
-            class="p-2.5 rounded border border-gray-200/80 dark:border-gray-800/80 bg-white/70 dark:bg-black/20 space-y-1.5"
+            class="p-2.5 rounded border border-[var(--sp-border)] dark:border-[var(--sp-border)] bg-[var(--sp-surface)] dark:bg-black/20 space-y-1.5"
           >
             <div class="flex items-center justify-between gap-2 flex-wrap text-[11px]">
               <div class="flex items-center gap-2 flex-wrap">
-                <span class="font-mono font-bold text-gray-900 dark:text-gray-100">{{ item.record.key }}</span>
-                <span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-gray-100 dark:bg-gray-800 text-gray-500">
+                <span class="font-mono font-bold text-[var(--sp-text)] dark:text-[var(--sp-text)]">{{ item.record.key }}</span>
+                <span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] text-[var(--sp-text-muted)]">
                   {{ item.namespace }}
                 </span>
                 <span
@@ -3985,13 +3985,13 @@ AUTHOR = "YourName"
               <div class="flex items-center gap-2">
                 <span
                   class="text-[10px] font-mono px-1.5 py-0.2 rounded"
-                  :class="item.record.expires_at ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/40' : 'bg-gray-50 dark:bg-gray-800/50 text-gray-400'"
+                  :class="item.record.expires_at ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/40' : 'bg-[var(--sp-surface-subtle)] dark:bg-[var(--sp-surface-muted)] text-[var(--sp-text-muted)]'"
                 >
                   {{ item.record.expires_at ? `TTL: ${Math.round(item.record.ttl_remaining ?? 0)}s` : t('settings.pluginsStoragePermanent') }}
                 </span>
                 <button
                   type="button"
-                  class="text-gray-400 hover:text-sky-500 transition-colors p-0.5"
+                  class="text-[var(--sp-text-muted)] hover:text-sky-500 transition-colors p-0.5"
                   :title="t('common.copy')"
                   @click="copyStorageValue(item.record.value)"
                 >
@@ -3999,7 +3999,7 @@ AUTHOR = "YourName"
                 </button>
                 <button
                   type="button"
-                  class="text-gray-400 hover:text-rose-500 transition-colors p-0.5"
+                  class="text-[var(--sp-text-muted)] hover:text-rose-500 transition-colors p-0.5"
                   :title="t('settings.pluginsStorageDeleteKey')"
                   @click="handleDeleteStorageKey(item.namespace, item.record.key)"
                 >
@@ -4009,7 +4009,7 @@ AUTHOR = "YourName"
             </div>
 
             <!-- 值渲染 -->
-            <pre class="p-2 rounded bg-gray-950 text-gray-200 font-mono text-[11px] overflow-x-auto max-h-32 custom-scrollbar select-text">{{ typeof item.record.value === 'object' ? JSON.stringify(item.record.value, null, 2) : item.record.value }}</pre>
+            <pre class="p-2 rounded bg-[var(--sp-terminal-bg)] text-[var(--sp-text)] font-mono text-[11px] overflow-x-auto max-h-32 custom-scrollbar select-text">{{ typeof item.record.value === 'object' ? JSON.stringify(item.record.value, null, 2) : item.record.value }}</pre>
           </div>
         </div>
       </div>

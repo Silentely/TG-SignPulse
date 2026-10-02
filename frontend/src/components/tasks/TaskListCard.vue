@@ -70,15 +70,15 @@ const runTaskBusy = computed(() => Boolean(props.runBusyKey?.startsWith(`${props
           @change="emit('toggle-select', task.id)"
         />
       </label>
-      <div class="w-10 h-10 shrink-0 bg-gray-100 dark:bg-gray-800/80 flex items-center justify-center text-gray-500 border border-gray-200 dark:border-gray-700/60 overflow-hidden">
+      <div class="w-10 h-10 shrink-0 bg-[var(--sp-surface-muted)] rounded-[var(--sp-radius)] flex items-center justify-center text-[var(--sp-text-muted)] border border-[var(--sp-border)] overflow-hidden">
         <img v-if="task.chatAvatarUrl" :src="task.chatAvatarUrl" class="w-full h-full object-cover" alt="" loading="lazy" decoding="async" />
         <component v-else :is="task.modeIcon" class="w-5 h-5 opacity-70" />
       </div>
       <div class="flex-1 min-w-0 space-y-1.5">
-        <div class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate" :title="task.name">
+        <div class="text-sm font-medium text-[var(--sp-text)] truncate" :title="task.name">
           {{ task.name }}
         </div>
-        <div class="flex flex-wrap items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+        <div class="flex flex-wrap items-center gap-1.5 text-[11px] text-[var(--sp-text-muted)]">
           <span
             class="ui-badge !text-[10px] font-mono ui-chip-sky max-w-[min(12rem,100%)] truncate"
             :title="task.scheduleMode"
@@ -158,10 +158,10 @@ const runTaskBusy = computed(() => Boolean(props.runBusyKey?.startsWith(`${props
       </div>
     </div>
 
-    <div class="flex flex-wrap items-center gap-1 border-t border-gray-100 dark:border-gray-800/50 pt-2.5">
+    <div class="flex flex-wrap items-center gap-1 border-t border-[var(--sp-border)] pt-2.5">
       <button
         type="button"
-        class="ui-row-action"
+        class="ui-row-action cursor-pointer"
         :class="task.enabled ? 'ui-row-action--positive' : ''"
         :title="task.enabled ? t('tasks.pause') : t('tasks.resume')"
         :aria-pressed="task.enabled"
@@ -174,7 +174,7 @@ const runTaskBusy = computed(() => Boolean(props.runBusyKey?.startsWith(`${props
       <button
         v-if="taskActiveRun && isRunInProgress(taskActiveRun)"
         type="button"
-        class="ui-row-action ui-row-action--danger-strong"
+        class="ui-row-action ui-row-action--danger-strong cursor-pointer"
         :title="t('tasks.cancelRun')"
         :disabled="cancelBusyKey === cancelKey()"
         @click="emit('cancel-run', task)"
@@ -190,7 +190,7 @@ const runTaskBusy = computed(() => Boolean(props.runBusyKey?.startsWith(`${props
       <div class="relative" @click.stop>
         <button
           type="button"
-          class="ui-row-action"
+          class="ui-row-action cursor-pointer"
           :title="hasInvalidAccount
             ? t('tasks.accountInvalidHint')
             : (!task.enabled ? t('tasks.pausedHint')
@@ -210,14 +210,14 @@ const runTaskBusy = computed(() => Boolean(props.runBusyKey?.startsWith(`${props
           v-if="runMenuOpen"
           class="absolute top-full left-0 mt-1 z-50 min-w-[140px] ui-card shadow-[var(--sp-shadow-md)] py-1"
         >
-          <div class="px-3 py-1.5 text-[10px] text-gray-400 font-medium uppercase tracking-wide border-b border-gray-100 dark:border-gray-800">
+          <div class="px-3 py-1.5 text-[10px] text-[var(--sp-text-muted)] font-medium uppercase tracking-wide border-b border-[var(--sp-border)]">
             {{ t('tasks.selectAccount') }}
           </div>
           <button
             v-for="acc in (runMenuAccounts || [])"
             :key="acc"
             type="button"
-            class="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/[0.04] transition-colors truncate disabled:opacity-50 disabled:cursor-not-allowed"
+            class="w-full text-left px-3 py-1.5 text-xs text-[var(--sp-text)] hover:bg-[var(--sp-surface-muted)] transition-colors truncate disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             :disabled="runBusyKey === `${task.name}:${acc}`"
             @click="runBusyKey !== `${task.name}:${acc}` && emit('run-account', task, acc)"
           >
@@ -228,7 +228,7 @@ const runTaskBusy = computed(() => Boolean(props.runBusyKey?.startsWith(`${props
       </div>
       <button
         type="button"
-        class="ui-row-action"
+        class="ui-row-action cursor-pointer"
         :title="t('tasks.viewLogs')"
         @click="emit('open-logs', task)"
       >
@@ -237,7 +237,7 @@ const runTaskBusy = computed(() => Boolean(props.runBusyKey?.startsWith(`${props
       </button>
       <button
         type="button"
-        class="ui-row-action"
+        class="ui-row-action cursor-pointer"
         :title="t('tasks.clone')"
         :disabled="cloneBusy"
         @click="emit('clone', task)"
@@ -248,7 +248,7 @@ const runTaskBusy = computed(() => Boolean(props.runBusyKey?.startsWith(`${props
       </button>
       <button
         type="button"
-        class="ui-row-action"
+        class="ui-row-action cursor-pointer"
         :title="t('tasks.edit')"
         @click="emit('edit', task)"
       >
@@ -257,7 +257,7 @@ const runTaskBusy = computed(() => Boolean(props.runBusyKey?.startsWith(`${props
       </button>
       <button
         type="button"
-        class="ui-row-action ui-row-action--danger"
+        class="ui-row-action ui-row-action--danger cursor-pointer"
         :title="t('tasks.delete')"
         :disabled="deleteBusyKey === task.name"
         @click="deleteBusyKey !== task.name && emit('delete', task)"

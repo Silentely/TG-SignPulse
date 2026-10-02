@@ -269,7 +269,7 @@ const hitLink = (hit: KeywordHitRecord) => safeHitUrl(hit.url)
 
     <div class="px-1 min-h-[400px] max-h-[60vh] overflow-y-auto flex flex-col">
       <!-- 监听任务：历史 / 命中 Tab -->
-      <div v-if="isListenTask" class="mb-3 flex flex-wrap items-center gap-1 border-b border-gray-100 dark:border-gray-800/60 pb-2" role="tablist">
+      <div v-if="isListenTask" class="mb-3 flex flex-wrap items-center gap-1 border-b border-[var(--sp-border)] dark:border-[var(--sp-border)] pb-2" role="tablist">
         <button
           type="button"
           role="tab"
@@ -277,7 +277,7 @@ const hitLink = (hit: KeywordHitRecord) => safeHitUrl(hit.url)
           :aria-selected="panelTab === 'history'"
           :class="panelTab === 'history'
             ? 'bg-sky-50 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300'
-            : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-white/[0.04]'"
+            : 'text-[var(--sp-text-muted)] hover:bg-[var(--sp-surface-subtle)] bg-[var(--sp-surface)]/[0.04]'"
           @click="panelTab = 'history'"
         >
           {{ t('taskLogs.history') }}
@@ -289,7 +289,7 @@ const hitLink = (hit: KeywordHitRecord) => safeHitUrl(hit.url)
           :aria-selected="panelTab === 'hits'"
           :class="panelTab === 'hits'
             ? 'bg-sky-50 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300'
-            : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-white/[0.04]'"
+            : 'text-[var(--sp-text-muted)] hover:bg-[var(--sp-surface-subtle)] bg-[var(--sp-surface)]/[0.04]'"
           @click="panelTab = 'hits'; loadHits()"
         >
           {{ t('taskLogs.hitsTab') }}

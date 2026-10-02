@@ -173,16 +173,16 @@ onMounted(() => {
 
 <template>
   <section class="ui-card p-6">
-    <div class="mb-6 border-b border-gray-200 dark:border-gray-800/60 pb-3 flex items-center justify-between gap-3">
+    <div class="mb-6 border-b border-[var(--sp-border)] pb-3 flex items-center justify-between gap-3">
       <div class="flex items-start gap-3 min-w-0">
         <span class="ui-section-icon" aria-hidden="true">
           <BookOpen class="w-3.5 h-3.5" />
         </span>
         <div class="min-w-0">
-          <h2 class="text-base font-medium text-gray-900 dark:text-gray-100">
+          <h2 class="text-base font-medium text-[var(--sp-text)] font-semibold">
             {{ t('settings.dataDict') }}
           </h2>
-          <p class="text-[10px] text-gray-500 mt-1">
+          <p class="text-[10px] text-[var(--sp-text-muted)] mt-1">
             {{ t('settings.dataDictDesc') }}
           </p>
         </div>
@@ -198,13 +198,13 @@ onMounted(() => {
     </div>
 
     <!-- Dicts list -->
-    <div v-if="loading && dicts.length === 0" class="py-6 text-center text-xs text-gray-400">
+    <div v-if="loading && dicts.length === 0" class="py-6 text-center text-xs text-[var(--sp-text-muted)]">
       <RefreshCw class="w-4 h-4 animate-spin mx-auto mb-2 opacity-60" />
       {{ t('common.loading') }}
     </div>
 
-    <div v-else-if="dicts.length === 0" class="py-8 text-center text-xs text-gray-400 dark:text-gray-500 border border-dashed border-gray-200 dark:border-gray-800 rounded-lg">
-      <Layers class="w-6 h-6 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
+    <div v-else-if="dicts.length === 0" class="py-8 text-center text-xs text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)] border border-dashed border-[var(--sp-border)] dark:border-[var(--sp-border)] rounded-[var(--sp-radius-lg)]">
+      <Layers class="w-6 h-6 mx-auto mb-2 text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)]" />
       {{ t('settings.dataDictEmpty') }}
     </div>
 
@@ -212,7 +212,7 @@ onMounted(() => {
       <div
         v-for="dict in dicts"
         :key="dict.name"
-        class="p-3.5 border border-gray-200 dark:border-gray-800 rounded-lg bg-gray-50/50 dark:bg-gray-800/30 hover:border-gray-300 dark:hover:border-gray-700 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+        class="p-3.5 border border-[var(--sp-border)] dark:border-[var(--sp-border)] rounded-[var(--sp-radius-lg)] bg-[var(--sp-surface-subtle)] dark:bg-[var(--sp-surface-muted)] hover:border-[var(--sp-border-strong)] dark:border-[var(--sp-border)] transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3"
       >
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-2 flex-wrap">
@@ -222,14 +222,14 @@ onMounted(() => {
             <span class="px-2 py-0.5 text-[11px] rounded-full bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300">
               {{ t('settings.dataDictCount', { count: dict.count }) }}
             </span>
-            <span v-if="dict.updated_at" class="text-[10px] text-gray-400">
+            <span v-if="dict.updated_at" class="text-[10px] text-[var(--sp-text-muted)]">
               {{ dict.updated_at.replace('T', ' ').slice(0, 19) }}
             </span>
           </div>
-          <p v-if="dict.remark" class="text-xs text-gray-600 dark:text-gray-400 mt-1 truncate">
+          <p v-if="dict.remark" class="text-xs text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] mt-1 truncate">
             {{ dict.remark }}
           </p>
-          <div class="mt-1 text-[11px] font-mono text-gray-400 dark:text-gray-500 select-all">
+          <div class="mt-1 text-[11px] font-mono text-[var(--sp-text-muted)] dark:text-[var(--sp-text-secondary)] select-all">
             &#123;dict:{{ dict.name }}&#125; &middot; &#123;dict:{{ dict.name }}:round_robin&#125;
           </div>
         </div>
@@ -237,7 +237,7 @@ onMounted(() => {
         <div class="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
           <button
             type="button"
-            class="ui-btn-secondary !p-1.5 !text-xs text-gray-600 dark:text-gray-300 hover:text-sky-600 dark:hover:text-sky-400"
+            class="ui-btn-secondary !p-1.5 !text-xs text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] hover:text-sky-600 dark:hover:text-sky-400"
             :title="t('settings.dataDictSample')"
             @click="openSampleModal(dict.name)"
           >
@@ -245,7 +245,7 @@ onMounted(() => {
           </button>
           <button
             type="button"
-            class="ui-btn-secondary !p-1.5 !text-xs text-gray-600 dark:text-gray-300 hover:text-emerald-600 dark:hover:text-emerald-400"
+            class="ui-btn-secondary !p-1.5 !text-xs text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] hover:text-emerald-600 dark:hover:text-emerald-400"
             :title="t('settings.dataDictEdit')"
             @click="openEditModal(dict.name)"
           >
@@ -270,14 +270,14 @@ onMounted(() => {
       role="dialog"
       aria-modal="true"
     >
-      <div class="ui-card w-full max-w-lg p-6 space-y-4 shadow-xl border border-gray-200 dark:border-gray-700">
-        <div class="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 pb-3">
-          <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+      <div class="ui-card w-full max-w-lg p-6 space-y-4 shadow-xl border border-[var(--sp-border)] dark:border-[var(--sp-border)]">
+        <div class="flex items-center justify-between border-b border-[var(--sp-border)] dark:border-[var(--sp-border)] pb-3">
+          <h3 class="text-sm font-semibold text-[var(--sp-text)] font-semibold">
             {{ isEditing ? t('settings.dataDictEdit') : t('settings.dataDictAdd') }}
           </h3>
           <button
             type="button"
-            class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+            class="text-[var(--sp-text-muted)] hover:text-[var(--sp-text-secondary)] dark:hover:text-[var(--sp-text)]"
             @click="showModal = false"
           >
             <X class="w-4 h-4" />
@@ -315,7 +315,7 @@ onMounted(() => {
           <div class="space-y-1">
             <div class="flex justify-between items-center">
               <label class="ui-label" for="dict-entries">{{ t('settings.dataDictEntries') }}</label>
-              <span class="text-[11px] text-gray-400">
+              <span class="text-[11px] text-[var(--sp-text-muted)]">
                 {{ t('settings.dataDictEntryLines', { count: formEntries.split('\n').filter(s => s.trim()).length }) }}
               </span>
             </div>
@@ -326,13 +326,13 @@ onMounted(() => {
               class="ui-input text-xs font-mono resize-y"
               :placeholder="t('settings.dataDictEntriesPlaceholder')"
             />
-            <p class="text-[11px] text-gray-500 mt-1">
+            <p class="text-[11px] text-[var(--sp-text-muted)] mt-1">
               {{ t('settings.dataDictMacroHint', { name: formName || 'name' }) }}
             </p>
           </div>
         </div>
 
-        <div class="flex justify-end gap-2 pt-2 border-t border-gray-100 dark:border-gray-800">
+        <div class="flex justify-end gap-2 pt-2 border-t border-[var(--sp-border)] dark:border-[var(--sp-border)]">
           <button
             type="button"
             class="ui-btn-secondary !px-4 !py-1.5 !text-xs"
@@ -360,17 +360,17 @@ onMounted(() => {
       role="dialog"
       aria-modal="true"
     >
-      <div class="ui-card w-full max-w-md p-6 space-y-4 shadow-xl border border-gray-200 dark:border-gray-700">
-        <div class="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 pb-3">
+      <div class="ui-card w-full max-w-md p-6 space-y-4 shadow-xl border border-[var(--sp-border)] dark:border-[var(--sp-border)]">
+        <div class="flex items-center justify-between border-b border-[var(--sp-border)] dark:border-[var(--sp-border)] pb-3">
           <div class="flex items-center gap-2">
             <Sparkles class="w-4 h-4 text-sky-500" />
-            <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+            <h3 class="text-sm font-semibold text-[var(--sp-text)] font-semibold">
               {{ t('settings.dataDictSample') }} - {{ sampleDictName }}
             </h3>
           </div>
           <button
             type="button"
-            class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+            class="text-[var(--sp-text-muted)] hover:text-[var(--sp-text-secondary)] dark:hover:text-[var(--sp-text)]"
             @click="showSampleModal = false"
           >
             <X class="w-4 h-4" />
@@ -400,20 +400,20 @@ onMounted(() => {
           </label>
         </div>
 
-        <div class="p-3.5 rounded-lg bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700/80 min-h-[4rem] flex flex-col justify-center">
-          <div v-if="sampling" class="flex items-center gap-2 text-xs text-gray-400">
+        <div class="p-3.5 rounded-[var(--sp-radius-lg)] bg-[var(--sp-surface-subtle)] dark:bg-[var(--sp-surface-muted)] border border-[var(--sp-border)] dark:border-[var(--sp-border)] min-h-[4rem] flex flex-col justify-center">
+          <div v-if="sampling" class="flex items-center gap-2 text-xs text-[var(--sp-text-muted)]">
             <RefreshCw class="w-3.5 h-3.5 animate-spin" />
             {{ t('common.loading') }}
           </div>
-          <div v-else-if="sampleResult" class="text-xs font-medium text-gray-800 dark:text-gray-200 whitespace-pre-wrap break-words">
+          <div v-else-if="sampleResult" class="text-xs font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text)] whitespace-pre-wrap break-words">
             {{ sampleResult }}
           </div>
-          <div v-else class="text-xs text-gray-400">
+          <div v-else class="text-xs text-[var(--sp-text-muted)]">
             {{ t('common.noData') }}
           </div>
         </div>
 
-        <div class="flex justify-end gap-2 pt-2 border-t border-gray-100 dark:border-gray-800">
+        <div class="flex justify-end gap-2 pt-2 border-t border-[var(--sp-border)] dark:border-[var(--sp-border)]">
           <button
             type="button"
             class="ui-btn-secondary !px-4 !py-1.5 !text-xs"

@@ -6,5 +6,5 @@ defineProps<{ text: string }>()
 </script>
 
 <template>
-  <p class="text-[10px] text-gray-500 leading-relaxed">{{ text }}</p>
+  <p class="text-[10px] text-[var(--sp-text-muted)] leading-relaxed">{{ text }}</p>
 </template>

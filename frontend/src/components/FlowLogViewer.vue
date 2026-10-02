@@ -90,11 +90,11 @@ const copyLogs = async () => {
   }
 }
 
-/** 实时/原始行着色 */
+/** 实时/原始行着色 (Warp 终端调色规范) */
 function lineTone(text: string): string {
   const s = text.toLowerCase()
   if (/失败|错误|exception|error|failed|traceback/.test(s)) {
-    return 'text-rose-400'
+    return 'text-rose-400 font-medium'
   }
   if (/成功|完成|success|done|ok\b/.test(s)) {
     return 'text-emerald-400'
@@ -102,19 +102,19 @@ function lineTone(text: string): string {
   if (/警告|warning|warn|超时|timeout|retry|重试/.test(s)) {
     return 'text-amber-400'
   }
-  return 'text-gray-300'
+  return 'text-[var(--sp-text-muted)]'
 }
 </script>
 
 <template>
-  <div class="space-y-3">
+  <div class="space-y-3 font-sans">
     <!-- 最后返回 -->
     <div v-if="lastTargetItems.length > 0">
       <div class="flex items-center justify-between mb-1.5">
         <div class="ui-section-label">{{ t('taskLogs.lastResponse') }}</div>
       </div>
       <div
-        class="p-2.5 bg-emerald-50/80 dark:bg-emerald-950/30 border border-emerald-200/70 dark:border-emerald-900/40 text-xs whitespace-pre-wrap break-all max-h-40 overflow-y-auto text-gray-800 dark:text-gray-200"
+        class="p-3 bg-emerald-950/20 border border-emerald-500/25 rounded-[var(--sp-radius)] text-xs whitespace-pre-wrap break-all max-h-40 overflow-y-auto text-emerald-100 font-mono shadow-inner"
         :class="compact ? 'text-[11px]' : ''"
       >
         <div v-for="(item, i) in lastTargetItems" :key="i" class="leading-relaxed">
@@ -123,14 +123,14 @@ function lineTone(text: string): string {
       </div>
     </div>
 
-    <!-- 结构化流程 -->
+    <!-- 结构化流程 (Warp Stepped Obsidian Terminal) -->
     <div v-if="viewModel.blocks.length > 0 || (lines && lines.length > 0)">
       <div class="flex items-center justify-between mb-1.5">
         <div class="ui-section-label">{{ t('taskLogs.logDetail') }}</div>
         <button
           v-if="showCopy && copyText"
           type="button"
-          class="inline-flex items-center gap-1 text-[11px] text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 transition-colors px-1.5 py-0.5 rounded-sm hover:bg-gray-100 dark:hover:bg-white/[0.05]"
+          class="inline-flex items-center gap-1 text-[11px] text-[var(--sp-text-muted)] hover:text-[var(--sp-text)] transition-colors px-2 py-0.5 rounded-[var(--sp-radius-sm)] hover:bg-[var(--sp-surface-muted)] cursor-pointer"
           @click="copyLogs"
         >
           <Check v-if="copied" class="w-3 h-3 text-emerald-500" />
@@ -140,7 +140,7 @@ function lineTone(text: string): string {
       </div>
 
       <div
-        class="ui-terminal space-y-2"
+        class="ui-terminal space-y-2.5"
         :class="compact ? 'text-[11px] !max-h-48' : ''"
       >
         <template v-if="viewModel.blocks.length > 0">
@@ -154,19 +154,19 @@ function lineTone(text: string): string {
             </div>
 
             <div v-else class="ui-terminal-block">
-              <div class="flex items-center gap-2 px-2.5 py-1.5 border-b border-gray-800/80 bg-gray-900/90">
+              <div class="flex items-center gap-2 px-3 py-1.5 border-b border-[var(--sp-terminal-border)] bg-[var(--sp-terminal-surface)]">
                 <span
-                  class="inline-flex items-center justify-center w-4 h-4 text-[10px] font-semibold rounded-sm bg-sky-500/15 text-sky-300 border border-sky-500/25"
+                  class="inline-flex items-center justify-center w-4 h-4 text-[10px] font-mono font-semibold rounded-[var(--sp-radius-sm)] bg-sky-500/15 text-sky-300 border border-sky-500/30 shrink-0"
                 >
                   {{ block.label }}
                 </span>
-                <span class="text-gray-200 text-[11px] font-medium truncate">{{ block.title }}</span>
+                <span class="text-[var(--sp-text)] text-[11px] font-medium truncate">{{ block.title }}</span>
               </div>
-              <div class="px-2.5 py-1.5 space-y-0.5">
+              <div class="px-3 py-2 space-y-1">
                 <div
                   v-for="(item, ii) in block.items"
                   :key="`${bi}-${ii}-${item.slice(0, 64)}`"
-                  class="leading-relaxed break-all pl-1.5 border-l border-gray-700/80"
+                  class="leading-relaxed break-all pl-2 border-l border-[var(--sp-border)]"
                   :class="lineTone(item)"
                 >
                   {{ item }}
@@ -187,7 +187,7 @@ function lineTone(text: string): string {
           </div>
         </template>
 
-        <div v-if="truncated" class="text-gray-500 italic pt-1 border-t border-gray-800/60">
+        <div v-if="truncated" class="text-[var(--sp-text-muted)] italic pt-1.5 border-t border-[var(--sp-terminal-border)]">
           {{ t('taskLogs.truncated') }}
         </div>
       </div>
@@ -195,7 +195,7 @@ function lineTone(text: string): string {
 
     <div
       v-else-if="!hasContent"
-      class="text-xs text-gray-500 py-4 text-center border border-dashed border-gray-200 dark:border-gray-800/60"
+      class="text-xs text-[var(--sp-text-muted)] py-6 text-center border border-dashed border-[var(--sp-border)] rounded-[var(--sp-radius)]"
     >
       {{ emptyText || t('logs.noDetail') }}
     </div>

@@ -23,7 +23,7 @@ const emit = defineEmits<{
 <template>
   <button
     type="button"
-    class="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-[11px]"
+    class="inline-flex items-center gap-1 px-2 py-0.5 rounded-[var(--sp-radius-sm)] text-[11px] cursor-pointer"
     :class="[`ui-chip-${tone || 'sky'}`, truncate ? 'max-w-[12rem]' : '']"
     :title="title"
     @click="emit('clear')"

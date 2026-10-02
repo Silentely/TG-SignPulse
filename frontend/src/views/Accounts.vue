@@ -222,7 +222,7 @@ const goTasks = (name: string) => {
       <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
         <div v-for="i in 4" :key="i" class="ui-card p-5 space-y-4">
           <div class="flex items-center gap-3">
-            <div class="ui-skeleton w-10 h-10 shrink-0" />
+            <div class="ui-skeleton w-10 h-10 shrink-0 rounded-[var(--sp-radius)]" />
             <div class="flex-1 space-y-2">
               <div class="ui-skeleton h-3.5 w-24" />
               <div class="ui-skeleton h-3 w-16" />
@@ -250,10 +250,10 @@ const goTasks = (name: string) => {
       <p class="ui-empty-title">{{ t('accounts.empty') }}</p>
       <p class="ui-empty-desc mb-4">{{ t('accounts.emptyHint') }}</p>
       <div class="flex flex-wrap items-center justify-center gap-2">
-        <button type="button" class="ui-btn-primary !text-xs !px-3 !py-2" @click="openAddModal('code')">
+        <button type="button" class="ui-btn-primary !text-xs !px-3 !py-2 cursor-pointer" @click="openAddModal('code')">
           <Phone class="w-3.5 h-3.5" /> {{ t('accounts.codeLogin') }}
         </button>
-        <button type="button" class="ui-btn-secondary !text-xs !px-3 !py-2" @click="openAddModal('qr')">
+        <button type="button" class="ui-btn-secondary !text-xs !px-3 !py-2 cursor-pointer" @click="openAddModal('qr')">
           <QrCode class="w-3.5 h-3.5" /> {{ t('accounts.qrLogin') }}
         </button>
       </div>
@@ -261,12 +261,12 @@ const goTasks = (name: string) => {
 
     <div v-else class="space-y-4 pb-20">
       <div class="ui-card flex flex-col sm:flex-row sm:items-center gap-3 p-3">
-        <div class="text-xs text-gray-500 shrink-0">
-          {{ t('accounts.total') }}：<span class="font-mono text-gray-800 dark:text-gray-200">{{ filteredAccounts.length }}</span>
-          <span v-if="searchQuery.trim()" class="text-gray-400"> / {{ accounts.length }}</span>
+        <div class="text-xs text-[var(--sp-text-muted)] shrink-0">
+          {{ t('accounts.total') }}：<span class="font-mono text-[var(--sp-text)] font-semibold">{{ filteredAccounts.length }}</span>
+          <span v-if="searchQuery.trim()" class="text-[var(--sp-text-muted)]"> / {{ accounts.length }}</span>
         </div>
         <div class="relative flex-1 min-w-0 max-w-md">
-          <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+          <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--sp-text-muted)] pointer-events-none" />
           <input
             v-model="searchQuery"
             type="search"
@@ -278,7 +278,7 @@ const goTasks = (name: string) => {
           <button
             v-if="searchQuery.trim()"
             type="button"
-            class="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded-sm"
+            class="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-[var(--sp-text-muted)] hover:text-[var(--sp-text-secondary)] dark:hover:text-[var(--sp-text)] rounded-[var(--sp-radius-sm)] cursor-pointer"
             :title="t('common.clearFilters')"
             :aria-label="t('common.clearFilters')"
             @click="clearListFilters"
@@ -324,7 +324,7 @@ const goTasks = (name: string) => {
           <button
             v-if="batchChecking && batchJob?.job_id"
             type="button"
-            class="ui-btn-secondary !px-3 !py-2 !text-xs inline-flex items-center gap-1"
+            class="ui-btn-secondary !px-3 !py-2 !text-xs inline-flex items-center gap-1 cursor-pointer"
             @click="handleCancelBatchCheck"
           >
             <XCircle class="w-3.5 h-3.5" />
@@ -333,7 +333,7 @@ const goTasks = (name: string) => {
           <button
             v-if="!batchChecking && lastFailedAccountNames.length > 0"
             type="button"
-            class="ui-btn-secondary !px-3 !py-2 !text-xs inline-flex items-center gap-1"
+            class="ui-btn-secondary !px-3 !py-2 !text-xs inline-flex items-center gap-1 cursor-pointer"
             :title="t('accounts.batchRecheckFailedHint')"
             @click="handleRecheckFailed"
           >
@@ -343,7 +343,7 @@ const goTasks = (name: string) => {
           </button>
           <button
             type="button"
-            class="ui-btn-primary !px-3 !py-2 !text-xs inline-flex items-center gap-1"
+            class="ui-btn-primary !px-3 !py-2 !text-xs inline-flex items-center gap-1 cursor-pointer"
             :disabled="batchChecking"
             :title="batchChecking ? t('accounts.batchChecking') : undefined"
             @click="handleBatchCheck"
@@ -371,7 +371,7 @@ const goTasks = (name: string) => {
     >
       <div class="flex justify-between items-start mb-4">
         <div class="flex items-center gap-3 truncate max-w-[70%]">
-          <div class="w-10 h-10 shrink-0 bg-gray-50 dark:bg-gray-950 flex items-center justify-center text-xs text-gray-500 font-mono border border-gray-200 dark:border-gray-800/40 overflow-hidden">
+          <div class="w-10 h-10 shrink-0 bg-[var(--sp-surface-muted)] rounded-[var(--sp-radius)] flex items-center justify-center text-xs text-[var(--sp-text-muted)] font-mono border border-[var(--sp-border)] overflow-hidden">
             <img 
               v-if="acc.avatarUrl" 
               :src="acc.avatarUrl" 
@@ -383,8 +383,8 @@ const goTasks = (name: string) => {
             <span v-else>{{ acc.name.substring(0, 2) }}</span>
           </div>
           <div class="truncate">
-            <div class="text-sm font-medium text-gray-900 dark:text-gray-200 truncate" :title="acc.name">{{ acc.name }}</div>
-            <div class="text-xs text-gray-500 mt-0.5 font-mono truncate" :title="acc.remark || t('accounts.noRemark')">{{ acc.remark || t('accounts.noRemark') }}</div>
+            <div class="text-sm font-medium text-[var(--sp-text)] truncate" :title="acc.name">{{ acc.name }}</div>
+            <div class="text-xs text-[var(--sp-text-muted)] mt-0.5 font-mono truncate" :title="acc.remark || t('accounts.noRemark')">{{ acc.remark || t('accounts.noRemark') }}</div>
           </div>
         </div>
         
@@ -408,7 +408,7 @@ const goTasks = (name: string) => {
       </div>
 
       <!-- Actions：竖排布局保留，语义走 ui-row-action -->
-      <div class="mt-auto pt-3 border-t border-gray-100 dark:border-gray-800/40 grid grid-cols-7 gap-0.5">
+      <div class="mt-auto pt-3 border-t border-[var(--sp-border)] grid grid-cols-7 gap-0.5">
         <button type="button" class="ui-row-action ui-row-action--stack" :disabled="checkingAccount === acc.name" :title="t('accounts.checkStatus')" @click="handleCheck(acc.name)">
           <span v-if="checkingAccount === acc.name" class="ui-spinner !w-3.5 !h-3.5 !border-2" />
           <Play v-else class="w-3.5 h-3.5" />
@@ -447,18 +447,18 @@ const goTasks = (name: string) => {
     <div class="fixed ui-safe-fab z-40 flex flex-col items-end gap-2">
       <transition enter-active-class="transition duration-200 ease-out" enter-from-class="opacity-0 translate-y-2" enter-to-class="opacity-100 translate-y-0" leave-active-class="transition duration-150 ease-in" leave-from-class="opacity-100 translate-y-0" leave-to-class="opacity-0 translate-y-2">
         <div v-if="showAddMenu" class="flex flex-col gap-1.5 mb-1">
-          <button type="button" class="ui-card ui-card-hover flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 shadow-[var(--sp-shadow-md)]" @click="openAddModal('qr')">
-            <QrCode class="w-4 h-4 text-gray-500" /> {{ t('accounts.qrLogin') }}
+          <button type="button" class="ui-card ui-card-hover flex items-center gap-2.5 px-4 py-2.5 text-sm text-[var(--sp-text)] shadow-[var(--sp-shadow-md)] rounded-[var(--sp-radius)] cursor-pointer" @click="openAddModal('qr')">
+            <QrCode class="w-4 h-4 text-[var(--sp-text-muted)]" /> {{ t('accounts.qrLogin') }}
           </button>
-          <button type="button" class="ui-card ui-card-hover flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 shadow-[var(--sp-shadow-md)]" @click="openAddModal('code')">
-            <Phone class="w-4 h-4 text-gray-500" /> {{ t('accounts.codeLogin') }}
+          <button type="button" class="ui-card ui-card-hover flex items-center gap-2.5 px-4 py-2.5 text-sm text-[var(--sp-text)] shadow-[var(--sp-shadow-md)] rounded-[var(--sp-radius)] cursor-pointer" @click="openAddModal('code')">
+            <Phone class="w-4 h-4 text-[var(--sp-text-muted)]" /> {{ t('accounts.codeLogin') }}
           </button>
         </div>
       </transition>
       
       <button 
         type="button"
-        class="ui-fab"
+        class="ui-fab cursor-pointer"
         :aria-expanded="showAddMenu"
         :aria-label="showAddMenu ? t('common.close') : t('accounts.addAccount')"
         :title="showAddMenu ? t('common.close') : t('accounts.addAccount')"

@@ -48,12 +48,12 @@ const onCheckbox = (key: keyof SettingsFormState, e: Event) => {
 
 <template>
   <section class="ui-card p-6">
-    <div class="mb-6 border-b border-gray-200 dark:border-gray-800/60 pb-3 flex items-center justify-between gap-3">
+    <div class="mb-6 border-b border-[var(--sp-border)] pb-3 flex items-center justify-between gap-3">
       <div class="flex items-start gap-3 min-w-0">
         <span class="ui-section-icon" aria-hidden="true"><Bot class="w-3.5 h-3.5" /></span>
         <div class="min-w-0">
-          <h2 class="text-base font-medium text-gray-900 dark:text-gray-100">{{ t('settings.botNotify') }}</h2>
-          <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.botDesc') }}</p>
+          <h2 class="text-base font-medium text-[var(--sp-text)] font-semibold">{{ t('settings.botNotify') }}</h2>
+          <p class="text-[10px] text-[var(--sp-text-muted)] mt-1">{{ t('settings.botDesc') }}</p>
         </div>
       </div>
       <button
@@ -81,7 +81,7 @@ const onCheckbox = (key: keyof SettingsFormState, e: Event) => {
             :placeholder="botTokenSet ? t('settings.botTokenSavedHint') : '123456:ABC-DEF...'"
             class="ui-input pr-10"
           >
-          <button type="button" class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200" :aria-label="reveal.botToken ? t('settings.hideSecret') : t('settings.showSecret')" @click="emit('toggle-reveal', 'botToken')">
+          <button type="button" class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-[var(--sp-text-muted)] hover:text-[var(--sp-text-secondary)] dark:hover:text-[var(--sp-text)]" :aria-label="reveal.botToken ? t('settings.hideSecret') : t('settings.showSecret')" @click="emit('toggle-reveal', 'botToken')">
             <EyeOff v-if="reveal.botToken" class="w-4 h-4" /><Eye v-else class="w-4 h-4" />
           </button>
         </div>
@@ -96,23 +96,23 @@ const onCheckbox = (key: keyof SettingsFormState, e: Event) => {
       </div>
       <div class="flex flex-wrap gap-x-6 gap-y-3 pt-2">
         <label class="flex items-center gap-2 cursor-pointer group">
-          <input :checked="modelValue.botLoginNotify" @change="onCheckbox('botLoginNotify', $event)" type="checkbox" class="w-4 h-4 accent-sky-500 bg-gray-100 border-gray-300 rounded focus:ring-0 dark:bg-gray-800 dark:border-gray-600">
-          <span class="text-sm text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-gray-100 transition-colors">{{ t('settings.loginFailNotify') }}</span>
+          <input :checked="modelValue.botLoginNotify" @change="onCheckbox('botLoginNotify', $event)" type="checkbox" class="w-4 h-4 accent-sky-500 bg-[var(--sp-surface-muted)] border-[var(--sp-border-strong)] rounded focus:ring-0 dark:bg-[var(--sp-surface-muted)] dark:border-[var(--sp-border)]">
+          <span class="text-sm text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] group-hover:text-[var(--sp-text)] dark:group-hover:text-[var(--sp-text)] transition-colors">{{ t('settings.loginFailNotify') }}</span>
         </label>
         <label class="flex items-center gap-2 cursor-pointer group">
-          <input :checked="modelValue.botTaskFailure" @change="onCheckbox('botTaskFailure', $event)" type="checkbox" class="w-4 h-4 accent-sky-500 bg-gray-100 border-gray-300 rounded focus:ring-0 dark:bg-gray-800 dark:border-gray-600">
-          <span class="text-sm text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-gray-100 transition-colors">{{ t('settings.taskFailNotify') }}</span>
+          <input :checked="modelValue.botTaskFailure" @change="onCheckbox('botTaskFailure', $event)" type="checkbox" class="w-4 h-4 accent-sky-500 bg-[var(--sp-surface-muted)] border-[var(--sp-border-strong)] rounded focus:ring-0 dark:bg-[var(--sp-surface-muted)] dark:border-[var(--sp-border)]">
+          <span class="text-sm text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] group-hover:text-[var(--sp-text)] dark:group-hover:text-[var(--sp-text)] transition-colors">{{ t('settings.taskFailNotify') }}</span>
         </label>
         <label class="flex items-center gap-2 cursor-pointer group">
-          <input :checked="modelValue.botTaskSuccess" @change="onCheckbox('botTaskSuccess', $event)" type="checkbox" class="w-4 h-4 accent-sky-500 bg-gray-100 border-gray-300 rounded focus:ring-0 dark:bg-gray-800 dark:border-gray-600">
-          <span class="text-sm text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-gray-100 transition-colors">{{ t('settings.taskSuccessNotify') }}</span>
+          <input :checked="modelValue.botTaskSuccess" @change="onCheckbox('botTaskSuccess', $event)" type="checkbox" class="w-4 h-4 accent-sky-500 bg-[var(--sp-surface-muted)] border-[var(--sp-border-strong)] rounded focus:ring-0 dark:bg-[var(--sp-surface-muted)] dark:border-[var(--sp-border)]">
+          <span class="text-sm text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] group-hover:text-[var(--sp-text)] dark:group-hover:text-[var(--sp-text)] transition-colors">{{ t('settings.taskSuccessNotify') }}</span>
         </label>
       </div>
-      <div class="p-3 bg-gray-50 dark:bg-white/[0.02] border border-gray-200 dark:border-gray-800/60 space-y-3">
+      <div class="p-3.5 bg-[var(--sp-surface-muted)] border border-[var(--sp-border)] rounded-[var(--sp-radius-sm)] space-y-3">
         <div class="flex items-center justify-between gap-3">
           <div>
-            <label class="text-xs text-gray-600 dark:text-gray-300 block">{{ t('settings.quietHours') }}</label>
-            <p class="text-[10px] text-gray-500 mt-1">{{ t('settings.quietHoursDesc') }}</p>
+            <label class="text-xs text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] block">{{ t('settings.quietHours') }}</label>
+            <p class="text-[10px] text-[var(--sp-text-muted)] mt-1">{{ t('settings.quietHoursDesc') }}</p>
           </div>
           <button
             type="button"
@@ -128,11 +128,11 @@ const onCheckbox = (key: keyof SettingsFormState, e: Event) => {
         </div>
         <div class="grid grid-cols-2 gap-2" v-if="modelValue.quietEnabled">
           <div class="space-y-1">
-            <label class="text-[10px] text-gray-500" for="bot-quiet-start">{{ t('settings.quietStart') }}</label>
+            <label class="text-[10px] text-[var(--sp-text-muted)]" for="bot-quiet-start">{{ t('settings.quietStart') }}</label>
             <input id="bot-quiet-start" :value="modelValue.quietStart" @input="onStringInput('quietStart', $event)" type="text" placeholder="23:00" class="ui-input" />
           </div>
           <div class="space-y-1">
-            <label class="text-[10px] text-gray-500" for="bot-quiet-end">{{ t('settings.quietEnd') }}</label>
+            <label class="text-[10px] text-[var(--sp-text-muted)]" for="bot-quiet-end">{{ t('settings.quietEnd') }}</label>
             <input id="bot-quiet-end" :value="modelValue.quietEnd" @input="onStringInput('quietEnd', $event)" type="text" placeholder="07:00" class="ui-input" />
           </div>
         </div>

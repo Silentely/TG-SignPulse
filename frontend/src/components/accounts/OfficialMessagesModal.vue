@@ -97,10 +97,10 @@ watch(
           class="ui-card p-3"
         >
           <div class="flex items-center justify-between gap-3 mb-2">
-            <span class="text-xs font-medium text-gray-700 dark:text-gray-200">Telegram · 777000</span>
-            <span class="text-[10px] text-gray-500 shrink-0">{{ formatTime(message.date) }}</span>
+            <span class="text-xs font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text)]">Telegram · 777000</span>
+            <span class="text-[10px] text-[var(--sp-text-muted)] shrink-0">{{ formatTime(message.date) }}</span>
           </div>
-          <pre class="whitespace-pre-wrap break-words text-sm leading-relaxed text-gray-800 dark:text-gray-200 font-sans">{{ message.text || t('accounts.emptyMessage') }}</pre>
+          <pre class="whitespace-pre-wrap break-words text-sm leading-relaxed text-[var(--sp-text-secondary)] dark:text-[var(--sp-text)] font-sans">{{ message.text || t('accounts.emptyMessage') }}</pre>
         </div>
       </div>
     </div>

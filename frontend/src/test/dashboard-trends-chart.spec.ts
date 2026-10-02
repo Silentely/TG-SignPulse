@@ -43,5 +43,6 @@ describe('DashboardTrendsChart', () => {
     expect(wrapper.text()).toContain('10') // total_runs
     expect(wrapper.text()).toContain('90%') // overall_success_rate
     expect(wrapper.find('svg').exists()).toBe(true)
+    expect(wrapper.text()).toContain('timeout: 1')
   })
 })

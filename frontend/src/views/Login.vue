@@ -85,13 +85,13 @@ const openGithub = () => {
     <div class="w-full max-w-sm ui-card shadow-[var(--sp-shadow-md)] px-8 py-10">
       <div class="mb-8 text-center">
         <div class="ui-brand-mark w-12 h-12 mx-auto text-lg mb-4">TG</div>
-        <h1 class="text-xl font-medium text-gray-900 dark:text-gray-100 tracking-[0.2em]">SIGNPULSE</h1>
-        <p class="text-xs text-gray-500 mt-2 leading-relaxed">{{ t('login.subtitle') }}</p>
+        <h1 class="text-xl font-medium text-[var(--sp-text)] font-semibold tracking-[0.2em]">SIGNPULSE</h1>
+        <p class="text-xs text-[var(--sp-text-muted)] mt-2 leading-relaxed">{{ t('login.subtitle') }}</p>
       </div>
 
       <form class="space-y-4" @submit.prevent="handleLogin">
         <div>
-          <label class="block text-xs text-gray-500 mb-1.5" for="login-username">{{ t('login.username') }}</label>
+          <label class="block text-xs text-[var(--sp-text-muted)] mb-1.5" for="login-username">{{ t('login.username') }}</label>
           <input
             id="login-username"
             v-model="username"
@@ -104,7 +104,7 @@ const openGithub = () => {
           >
         </div>
         <div>
-          <label class="block text-xs text-gray-500 mb-1.5" for="login-password">{{ t('login.password') }}</label>
+          <label class="block text-xs text-[var(--sp-text-muted)] mb-1.5" for="login-password">{{ t('login.password') }}</label>
           <div class="relative">
             <input
               id="login-password"
@@ -117,7 +117,7 @@ const openGithub = () => {
             >
             <button
               type="button"
-              class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded"
+              class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-[var(--sp-text-muted)] hover:text-[var(--sp-text)] rounded-[var(--sp-radius-sm)] cursor-pointer"
               :aria-label="showPassword ? t('login.hidePassword') : t('login.showPassword')"
               @click="showPassword = !showPassword"
             >
@@ -128,7 +128,7 @@ const openGithub = () => {
         </div>
 
         <div v-if="showTotp">
-          <label class="block text-xs text-gray-500 mb-1.5" for="login-totp">{{ t('login.totpCode') }}</label>
+          <label class="block text-xs text-[var(--sp-text-muted)] mb-1.5" for="login-totp">{{ t('login.totpCode') }}</label>
           <input
             id="login-totp"
             ref="totpInput"
@@ -147,7 +147,7 @@ const openGithub = () => {
         <div
           v-if="errorMsg"
           role="alert"
-          class="text-xs text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10 p-2.5 border border-rose-200 dark:border-rose-800/40"
+          class="text-xs text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10 p-2.5 border border-rose-200 dark:border-rose-800/40 rounded-[var(--sp-radius-sm)]"
         >
           {{ errorMsg }}
         </div>
@@ -155,17 +155,17 @@ const openGithub = () => {
         <button
           type="submit"
           :disabled="loading || !username.trim() || !password || (showTotp && !totpCode.trim())"
-          class="ui-btn-primary w-full mt-2 py-2.5"
+          class="ui-btn-primary w-full mt-2 py-2.5 cursor-pointer"
         >
           <span v-if="loading" class="ui-spinner !w-4 !h-4 !border-2" />
           {{ loading ? t('login.authenticating') : t('login.signIn') }}
         </button>
       </form>
 
-      <div class="flex items-center justify-center gap-2 mt-7 pt-5 border-t border-gray-200 dark:border-gray-800/60">
+      <div class="flex items-center justify-center gap-2 mt-7 pt-5 border-t border-[var(--sp-border)]">
         <button
           type="button"
-          class="ui-icon-btn"
+          class="ui-icon-btn cursor-pointer"
           :title="t('common.github')"
           :aria-label="t('common.github')"
           @click="openGithub"
@@ -174,7 +174,7 @@ const openGithub = () => {
         </button>
         <button
           type="button"
-          class="ui-icon-btn"
+          class="ui-icon-btn cursor-pointer"
           :title="locale === 'zh' ? t('language.switchToEn') : t('language.switchToZh')"
           :aria-label="t('common.changeLanguage')"
           @click="toggleLanguage"
@@ -183,7 +183,7 @@ const openGithub = () => {
         </button>
         <button
           type="button"
-          class="ui-icon-btn"
+          class="ui-icon-btn cursor-pointer"
           :title="isDark ? t('common.lightMode') : t('common.darkMode')"
           :aria-label="isDark ? t('common.lightMode') : t('common.darkMode')"
           @click="toggleTheme($event)"

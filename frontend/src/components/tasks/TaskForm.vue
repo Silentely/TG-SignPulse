@@ -499,7 +499,7 @@ onMounted(() => { loadAccounts() })
       </div>
       <div class="space-y-1.5">
         <label class="ui-label-strong" for="task-form-time-range">{{ t('taskForm.timeRange') }}</label>
-        <input id="task-form-time-range" v-model="timeRange" :disabled="scheduleMode === 'listen'" :placeholder="scheduleMode === 'listen' ? t('taskForm.timeRangeListenPlaceholder') : t('taskForm.timeRangePlaceholder')" class="ui-input disabled:opacity-50 disabled:bg-gray-50 dark:disabled:bg-gray-950" :class="timeRangeError ? '!border-rose-400 dark:!border-rose-500' : ''" :aria-invalid="!!timeRangeError" @blur="validateTimeRange" />
+        <input id="task-form-time-range" v-model="timeRange" :disabled="scheduleMode === 'listen'" :placeholder="scheduleMode === 'listen' ? t('taskForm.timeRangeListenPlaceholder') : t('taskForm.timeRangePlaceholder')" class="ui-input disabled:opacity-50 disabled:bg-[var(--sp-surface-subtle)] dark:disabled:bg-[var(--sp-terminal-bg)]" :class="timeRangeError ? '!border-rose-400 dark:!border-rose-500' : ''" :aria-invalid="!!timeRangeError" @blur="validateTimeRange" />
         <p v-if="timeRangeError" class="text-[10px] text-rose-600 dark:text-rose-400" role="alert">{{ timeRangeError }}</p>
       </div>
       <div class="space-y-1.5 md:col-span-2">
@@ -535,10 +535,10 @@ onMounted(() => { loadAccounts() })
       </div>
     </div>
     <!-- 高级选项：重试等，降低主路径认知负担 -->
-    <div class="mt-4 border-t border-gray-100 dark:border-gray-800/50 pt-3">
+    <div class="mt-4 border-t border-[var(--sp-border)] dark:border-[var(--sp-border)] pt-3">
       <button
         type="button"
-        class="inline-flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
+        class="inline-flex items-center gap-1 text-xs text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] hover:text-[var(--sp-text)] dark:hover:text-[var(--sp-text)]"
         :aria-expanded="showAdvanced"
         :aria-controls="'task-form-advanced'"
         @click="showAdvanced = !showAdvanced"
@@ -550,7 +550,7 @@ onMounted(() => { loadAccounts() })
         <div class="space-y-1.5">
           <label class="ui-label-strong" for="task-form-retry">{{ t('taskForm.retryCount') }}</label>
           <input id="task-form-retry" v-model.number="retryCount" type="number" min="0" max="99" class="ui-input" />
-          <p class="text-[10px] text-gray-500 mt-1 leading-relaxed">{{ t('taskForm.retryCountHint') }}</p>
+          <p class="text-[10px] text-[var(--sp-text-muted)] mt-1 leading-relaxed">{{ t('taskForm.retryCountHint') }}</p>
         </div>
         <div class="space-y-1.5">
           <label class="ui-label-strong" for="task-form-next-task">{{ t('taskForm.nextTaskOnSuccess') }}</label>
@@ -561,7 +561,7 @@ onMounted(() => { loadAccounts() })
             class="ui-input"
             placeholder="任务名称（同账号下）"
           />
-          <p class="text-[10px] text-gray-500 mt-1 leading-relaxed">{{ t('taskForm.nextTaskOnSuccessHint') }}</p>
+          <p class="text-[10px] text-[var(--sp-text-muted)] mt-1 leading-relaxed">{{ t('taskForm.nextTaskOnSuccessHint') }}</p>
         </div>
         <div class="space-y-1.5">
           <label class="ui-label-strong" for="task-form-next-task-delay">{{ t('taskForm.nextTaskDelaySeconds') }}</label>
@@ -575,7 +575,7 @@ onMounted(() => { loadAccounts() })
             class="ui-input"
             placeholder="2"
           />
-          <p class="text-[10px] text-gray-500 mt-1 leading-relaxed">{{ t('taskForm.nextTaskDelaySecondsHint') }}</p>
+          <p class="text-[10px] text-[var(--sp-text-muted)] mt-1 leading-relaxed">{{ t('taskForm.nextTaskDelaySecondsHint') }}</p>
         </div>
       </div>
     </div>
