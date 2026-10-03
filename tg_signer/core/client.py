@@ -8,9 +8,12 @@ import os
 import pathlib
 import random
 import sqlite3
+import weakref
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import (
+    Any,
+    Optional,
     Union,
 )
 from urllib import parse
@@ -272,7 +275,156 @@ _CLIENT_INSTANCES: dict[str, "Client"] = {}
 # Keyed by account name. Use asyncio locks to serialize start/stop operations
 # so multiple coroutines in the same process can safely share one Client.
 _CLIENT_REFS: defaultdict[str, int] = defaultdict(int)
-_CLIENT_ASYNC_LOCKS: dict[str, asyncio.Lock] = {}
+
+
+def _resolve_loop(
+    loop: Optional[asyncio.AbstractEventLoop] = None,
+) -> asyncio.AbstractEventLoop:
+    if loop is not None:
+        return loop
+    try:
+        return asyncio.get_running_loop()
+    except RuntimeError:
+        pass
+    try:
+        return asyncio.get_event_loop_policy().get_event_loop()
+    except RuntimeError:
+        new_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(new_loop)
+        return new_loop
+
+
+class _ClientLocksWeakRegistry(weakref.WeakKeyDictionary):
+    """Event-loop-keyed WeakKeyDictionary mapping AbstractEventLoop to dict[str, asyncio.Lock].
+
+    Provides backward compatibility for direct dict operations using client key strings on the
+    current running event loop.
+    """
+
+    def _get_loop_dict(
+        self, loop: Optional[asyncio.AbstractEventLoop] = None
+    ) -> dict[str, asyncio.Lock]:
+        target_loop = _resolve_loop(loop)
+        loop_dict = super().get(target_loop)
+        if loop_dict is None:
+            loop_dict = {}
+            super().__setitem__(target_loop, loop_dict)
+        return loop_dict
+
+    def __getitem__(self, key: Any) -> Any:
+        if isinstance(key, asyncio.AbstractEventLoop):
+            return super().__getitem__(key)
+        return self._get_loop_dict()[key]
+
+    def __setitem__(self, key: Any, value: Any) -> None:
+        if isinstance(key, asyncio.AbstractEventLoop):
+            super().__setitem__(key, value)
+            return
+        self._get_loop_dict()[key] = value
+
+    def __delitem__(self, key: Any) -> None:
+        if isinstance(key, asyncio.AbstractEventLoop):
+            super().__delitem__(key)
+            return
+        target_loop = _resolve_loop()
+        loop_dict = super().get(target_loop)
+        if loop_dict is None or key not in loop_dict:
+            raise KeyError(key)
+        del loop_dict[key]
+
+    def __contains__(self, key: Any) -> bool:
+        if isinstance(key, asyncio.AbstractEventLoop):
+            return super().__contains__(key)
+        try:
+            target_loop = _resolve_loop()
+        except Exception:
+            return False
+        loop_dict = super().get(target_loop)
+        if loop_dict is None:
+            return False
+        return key in loop_dict
+
+    def get(self, key: Any, default: Any = None) -> Any:
+        if isinstance(key, asyncio.AbstractEventLoop):
+            return super().get(key, default)
+        try:
+            target_loop = _resolve_loop()
+        except Exception:
+            return default
+        loop_dict = super().get(target_loop)
+        if loop_dict is None:
+            return default
+        return loop_dict.get(key, default)
+
+    def pop(self, key: Any, *args) -> Any:
+        if isinstance(key, asyncio.AbstractEventLoop):
+            return super().pop(key, *args)
+        try:
+            target_loop = _resolve_loop()
+        except Exception:
+            if args:
+                return args[0]
+            raise KeyError(key)
+        loop_dict = super().get(target_loop)
+        if loop_dict is None:
+            if args:
+                return args[0]
+            raise KeyError(key)
+        return loop_dict.pop(key, *args)
+
+
+_CLIENT_ASYNC_LOCKS: _ClientLocksWeakRegistry = _ClientLocksWeakRegistry()
+
+
+def get_client_lock(
+    key: str, loop: Optional[asyncio.AbstractEventLoop] = None
+) -> asyncio.Lock:
+    """Return an asyncio.Lock bound to the given (or active) event loop for key."""
+    target_loop = _resolve_loop(loop)
+    loop_dict = _CLIENT_ASYNC_LOCKS._get_loop_dict(target_loop)
+    lock = loop_dict.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        loop_dict[key] = lock
+    return lock
+
+
+def invalidate_cached_client(key: str) -> None:
+    """Safely reset cached client instance, refcounts, and locks across event loops.
+
+    Removes any cached Client instance associated with `key` (or prefixed variations
+    like memory mode), resets its reference count, and invalidates its lock across
+    all registered event loops.
+    """
+    keys_to_clean = {key}
+    for k in list(_CLIENT_INSTANCES.keys()):
+        if k == key or k.startswith(f"{key}::") or k.endswith(f"::{key}"):
+            keys_to_clean.add(k)
+        try:
+            p = pathlib.Path(k.split("::")[0])
+            if p.stem == key or p.name == key:
+                keys_to_clean.add(k)
+        except Exception:
+            pass
+
+    for loop_dict in list(_CLIENT_ASYNC_LOCKS.values()):
+        if isinstance(loop_dict, dict):
+            for k in list(loop_dict.keys()):
+                if k == key or k.startswith(f"{key}::") or k.endswith(f"::{key}"):
+                    keys_to_clean.add(k)
+                try:
+                    p = pathlib.Path(k.split("::")[0])
+                    if p.stem == key or p.name == key:
+                        keys_to_clean.add(k)
+                except Exception:
+                    pass
+
+    for k in keys_to_clean:
+        _CLIENT_INSTANCES.pop(k, None)
+        _CLIENT_REFS.pop(k, None)
+        for loop_dict in list(_CLIENT_ASYNC_LOCKS.values()):
+            if isinstance(loop_dict, dict):
+                loop_dict.pop(k, None)
 
 
 def is_account_client_active(
@@ -372,10 +524,7 @@ class Client(BaseClient):
         return content
 
     async def __aenter__(self):
-        lock = _CLIENT_ASYNC_LOCKS.get(self.key)
-        if lock is None:
-            lock = asyncio.Lock()
-            _CLIENT_ASYNC_LOCKS[self.key] = lock
+        lock = get_client_lock(self.key)
         async with lock:
             _CLIENT_REFS[self.key] += 1
             if _CLIENT_REFS[self.key] == 1:
@@ -481,9 +630,7 @@ class Client(BaseClient):
             return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        lock = _CLIENT_ASYNC_LOCKS.get(self.key)
-        if lock is None:
-            return
+        lock = get_client_lock(self.key)
         async with lock:
             _CLIENT_REFS[self.key] -= 1
             if _CLIENT_REFS[self.key] <= 0:
@@ -722,8 +869,7 @@ async def close_client_by_name(name: str, workdir: Union[str, pathlib.Path] = ".
         finally:
             if acquired and lock:
                 lock.release()
-            if key in _CLIENT_ASYNC_LOCKS:
-                _CLIENT_ASYNC_LOCKS.pop(key, None)
+            invalidate_cached_client(key)
 
 
 def get_task_timezone():
