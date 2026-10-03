@@ -47,6 +47,8 @@ def _append_login_log(
     success: bool,
     detail: str,
 ) -> None:
+    if db is None:
+        return
     try:
         db.add(
             LoginLog(
@@ -81,6 +83,8 @@ class ResetTOTPResponse(BaseModel):
 def check_login_rate_limit(payload: LoginRequest, request: Request) -> str:
     """登录前置限流拦截门禁：在解析数据库会话依赖之前执行，避免暴力撞库/洪水耗尽 DB 连接池。"""
     login_key = compose_rate_limit_key(request, payload.username)
+    if getattr(request.state, "rate_limit_checked_auth.login", False):
+        return login_key
     try:
         rate_limiter.hit(
             scope="auth.login",
@@ -185,6 +189,8 @@ def check_reset_totp_rate_limit(
 ) -> str:
     """重置 TOTP 前置限流拦截门禁：在解析数据库会话依赖之前执行。"""
     reset_key = compose_rate_limit_key(http_request, request.username)
+    if getattr(http_request.state, "rate_limit_checked_auth.reset_totp", False):
+        return reset_key
     rate_limiter.hit(
         scope="auth.reset_totp",
         key=reset_key,

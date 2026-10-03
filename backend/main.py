@@ -41,6 +41,7 @@ from backend.core.database import (  # noqa: E402
     init_engine,
     run_migrations,
 )
+from backend.core.rate_limit_middleware import RateLimitMiddleware  # noqa: E402
 from backend.scheduler import (  # noqa: E402
     init_scheduler,
     shutdown_scheduler,
@@ -256,6 +257,7 @@ def _safe_request_context(request: Request) -> dict[str, str]:
 
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
+app.add_middleware(RateLimitMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
