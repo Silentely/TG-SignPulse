@@ -2,7 +2,7 @@
 /**
  * 签到日志弹窗：实时流 + 历史执行记录。
  */
-import { Loader2, Play } from 'lucide-vue-next'
+import { Play } from 'lucide-vue-next'
 import FlowLogViewer from '../FlowLogViewer.vue'
 import type { SignTaskHistoryItem } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
@@ -32,9 +32,6 @@ const emit = defineEmits<{
   (e: 'toggle-expand', idx: number): void
   (e: 'set-log-container', el: HTMLElement | null): void
 }>()
-
-/** 追加式日志流的稳定 key：行号 + 内容前缀，避免整表替换时 DOM 复用错位 */
-const realtimeLineKey = (i: number, line: string) => `${i}|${line.slice(0, 64)}`
 
 /** 历史条目无后端 id，用 账号+时间+结果 组合稳定键 */
 const historyItemKey = (log: SignTaskHistoryItem) =>
@@ -73,27 +70,6 @@ const extractPluginFromLog = (log: SignTaskHistoryItem): { pluginName?: string; 
     >
       {{ connectionMode === 'websocket' ? t('taskLogs.modeWs') : connectionMode === 'polling' ? t('taskLogs.modePolling') : t('taskLogs.modeConnecting') }}
     </span>
-  </div>
-
-  <!-- Real-time logs -->
-  <div v-if="realtimeLogs.length > 0 || isRunning" class="mb-4">
-    <div class="ui-section-label mb-2">{{ t('taskLogs.realtimeLogs') }}</div>
-    <div
-      class="ui-terminal whitespace-pre-wrap break-all !max-h-60"
-      :ref="(el) => emit('set-log-container', el as HTMLElement | null)"
-    >
-      <div
-        v-for="(line, i) in (displayRealtimeLines.length ? displayRealtimeLines : realtimeLogs)"
-        :key="realtimeLineKey(i, String(line))"
-        class="leading-relaxed"
-        :class="lineTone(String(line))"
-      >
-        {{ line }}
-      </div>
-      <div v-if="isRunning && realtimeLogs.length === 0" class="text-[var(--sp-text-muted)] flex items-center gap-2">
-        <Loader2 class="w-3 h-3 animate-spin" /> {{ t('taskLogs.waitingOutput') }}
-      </div>
-    </div>
   </div>
 
   <!-- Loading / empty -->

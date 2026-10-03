@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref, watch, computed, onUnmounted } from 'vue'
-import { Download, RefreshCw } from 'lucide-vue-next'
+import { Download, RefreshCw, Loader2 } from 'lucide-vue-next'
 import Modal from '../Modal.vue'
 import TaskLogsHitsPanel from './TaskLogsHitsPanel.vue'
 import TaskLogsHistoryPanel from './TaskLogsHistoryPanel.vue'
+import VirtualLogViewer from '../common/VirtualLogViewer.vue'
 import { getSignTaskHistory } from '../../lib/api'
 import { getAuthToken } from '../../lib/api/core'
 import { useLatestResponseGuard } from '../../lib/latest-response'
@@ -38,6 +39,11 @@ const loading = ref(false)
 /** 监听任务：命中记录 Tab */
 const panelTab = ref<'history' | 'hits'>('history')
 const logContainer = ref<HTMLElement | null>(null)
+const virtualViewerRef = ref<{ containerRef: HTMLElement | null; scrollToBottom: () => void } | null>(null)
+
+watch(() => virtualViewerRef.value?.containerRef, (el) => {
+  if (el) logContainer.value = el
+}, { immediate: true })
 
 /** 展开查看原始流日志的历史条目索引 */
 const expandedIdx = ref<number | null>(null)
@@ -316,26 +322,42 @@ const hitLink = (hit: KeywordHitRecord) => safeHitUrl(hit.url)
         @load-more="loadMoreHits"
       />
 
-      <TaskLogsHistoryPanel
-        v-else
-        :run-account="runAccount"
-        :is-running="isRunning"
-        :live-phase="livePhase"
-        :live-phase-detail="livePhaseDetail"
-        :live-state="liveState"
-        :live-status-label="liveStatusLabel"
-        :live-status-tone-class="liveStatusToneClass"
-        :connection-mode="connectionMode"
-        :realtime-logs="realtimeLogs"
-        :display-realtime-lines="displayRealtimeLines"
-        :loading="loading"
-        :logs="logs"
-        :expanded-idx="expandedIdx"
-        :format-date="formatDate"
-        :line-tone="lineTone"
-        @toggle-expand="toggleExpand"
-        @set-log-container="logContainer = $event"
-      />
+      <div v-else class="space-y-4">
+        <!-- 实时日志虚拟滚动渲染 -->
+        <div v-if="realtimeLogs.length > 0 || isRunning" class="mb-4">
+          <div class="ui-section-label mb-2">{{ t('taskLogs.realtimeLogs') }}</div>
+          <VirtualLogViewer
+            ref="virtualViewerRef"
+            :lines="displayRealtimeLines"
+            :item-height="24"
+            :container-height="240"
+            :line-tone="lineTone"
+          />
+          <div v-if="isRunning && realtimeLogs.length === 0" class="text-[var(--sp-text-muted)] flex items-center gap-2 mt-2">
+            <Loader2 class="w-3 h-3 animate-spin" /> {{ t('taskLogs.waitingOutput') }}
+          </div>
+        </div>
+
+        <TaskLogsHistoryPanel
+          :run-account="runAccount"
+          :is-running="isRunning"
+          :live-phase="livePhase"
+          :live-phase-detail="livePhaseDetail"
+          :live-state="liveState"
+          :live-status-label="liveStatusLabel"
+          :live-status-tone-class="liveStatusToneClass"
+          :connection-mode="connectionMode"
+          :realtime-logs="realtimeLogs"
+          :display-realtime-lines="displayRealtimeLines"
+          :loading="loading"
+          :logs="logs"
+          :expanded-idx="expandedIdx"
+          :format-date="formatDate"
+          :line-tone="lineTone"
+          @toggle-expand="toggleExpand"
+          @set-log-container="logContainer = $event"
+        />
+      </div>
     </div>
   </Modal>
 </template>
