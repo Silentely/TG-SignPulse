@@ -49,6 +49,7 @@ if TYPE_CHECKING:
 
 
 _service_logger = logging.getLogger("backend.sign_tasks")
+logger = _service_logger
 
 
 # ========== Phase helpers ==========
@@ -852,10 +853,40 @@ async def _runner_finalize(state: Dict[str, Any]) -> None:
 
         # 取消的任务不落历史、不通知：调用方已单独置为 CANCELLED 状态
         if not state.get("cancelled"):
-            with contextlib.suppress(Exception):
+            try:
                 await _runner_save_run_info(state)
-            with contextlib.suppress(Exception):
+            except Exception as exc:
+                exc_type = "IOError" if type(exc) is OSError else type(exc).__name__
+                state["persistence_error"] = {
+                    "message": str(exc),
+                    "type": exc_type,
+                    "timestamp": time.time(),
+                }
+                _service_logger.error(
+                    "Failed to save run info for task '%s' (account '%s'): %s",
+                    state.get("task_name"),
+                    state.get("account_name"),
+                    exc,
+                    exc_info=True,
+                )
+
+            try:
                 await _runner_send_notifications(state)
+            except Exception as exc:
+                exc_type = "IOError" if type(exc) is OSError else type(exc).__name__
+                state["notification_error"] = {
+                    "message": str(exc),
+                    "type": exc_type,
+                    "timestamp": time.time(),
+                }
+                _service_logger.error(
+                    "Failed to send notifications for task '%s' (account '%s'): %s",
+                    state.get("task_name"),
+                    state.get("account_name"),
+                    exc,
+                    exc_info=True,
+                )
+
             if state.get("success"):
                 try:
                     await _runner_trigger_chained_task(state)
