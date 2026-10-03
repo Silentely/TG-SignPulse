@@ -185,27 +185,28 @@ async def test_click_inline_button_unified_variations():
     from tg_signer.compat import errors
     from tg_signer.core.telegram_actions import click_inline_button_unified
 
-    # Case 1: callback_data present (str)
+    # Case 1: btn.text and btn.callback_data are both present -> msg.click called with btn.text
     msg = MagicMock()
     msg.click = AsyncMock(return_value=True)
     btn = MagicMock()
     btn.callback_data = "cb_sign"
     btn.text = "Sign In"
     assert await click_inline_button_unified(msg, btn) is True
+    msg.click.assert_called_with("Sign In")
+
+    # Case 2: btn.text is None and btn.callback_data is present -> msg.click called with btn.callback_data
+    msg.click.reset_mock()
+    btn.text = None
+    btn.callback_data = "cb_sign"
+    assert await click_inline_button_unified(msg, btn) is True
     msg.click.assert_called_with("cb_sign")
 
-    # Case 1b: callback_data present (bytes)
+    # Case 2b: btn.text is empty/whitespace -> falls back to btn.callback_data
     msg.click.reset_mock()
+    btn.text = "   "
     btn.callback_data = b"cb_bytes"
-    btn.text = "Sign In"
     assert await click_inline_button_unified(msg, btn) is True
     msg.click.assert_called_with(b"cb_bytes")
-
-    # Case 2: callback_data None, text fallback
-    msg.click.reset_mock()
-    btn.callback_data = None
-    assert await click_inline_button_unified(msg, btn) is True
-    msg.click.assert_called_with("Sign In")
 
     # Case 3: Non-existent attribute doesn't raise AttributeError or TypeError
     class EmptyBtn:
@@ -219,6 +220,10 @@ async def test_click_inline_button_unified_variations():
         pass
 
     assert await click_inline_button_unified(EmptyMsg(), btn) is False
+
+    # Missing click callable or click method raising exceptions
+    msg.click = "not_callable"
+    assert await click_inline_button_unified(msg, btn) is False
 
     msg.click = AsyncMock(side_effect=TypeError("Bad param"))
     assert await click_inline_button_unified(msg, btn) is False

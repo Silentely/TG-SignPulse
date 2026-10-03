@@ -37,7 +37,7 @@ async def click_inline_button_unified(
 ) -> bool:
     """Click an inline button on a message in a unified, safe manner.
 
-    Prioritizes button callback_data (str or bytes), falling back to button text.
+    Prioritizes button text, falling back to button callback_data.
     Guards against missing attributes without raising AttributeError or TypeError.
     Catches Pyrogram RPC exceptions and unexpected errors, returning False.
     """
@@ -48,8 +48,13 @@ async def click_inline_button_unified(
     if not callable(click):
         return False
 
+    btn_text = getattr(button, "text", None)
     callback_data = getattr(button, "callback_data", None)
-    target = callback_data if callback_data is not None else getattr(button, "text", None)
+    target = (
+        btn_text
+        if (btn_text is not None and str(btn_text).strip() != "")
+        else callback_data
+    )
 
     if target is None:
         return False
