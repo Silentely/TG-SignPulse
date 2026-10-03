@@ -844,6 +844,8 @@ async def sign_task_logs_ws(
     websocket: WebSocket,
     task_name: str,
     account_name: str | None = Query(None),
+    run_id: str | None = Query(None),
+    after_seq: int | None = Query(None),
     ticket: str = Query(
         ..., description="一次性流接入票据，由 POST /api/events/ticket 签发"
     ),
@@ -861,99 +863,206 @@ async def sign_task_logs_ws(
 
     # Resolve empty/wildcard account_name to None for broader matching
     effective_account = _resolve_effective_account(account_name)
+    if not effective_account:
+        keys = get_sign_task_service()._find_task_keys(task_name)
+        if keys:
+            effective_account = keys[0][0]
 
-    last_idx = 0
-    connected_at = asyncio.get_running_loop().time()
-    seen_activity = False
-    # 仅在 phase/state 等变化时推 status，避免 0.5s 心跳刷屏
-    last_status_sig = None  # type: ignore[var-annotated]
-    try:
-        while True:
-            # 增量拉取：总数未变时 O(1) 返回空，避免每 tick 全量拷贝 2000 行
-            active_logs, log_total = get_sign_task_service().get_active_logs_since(
-                task_name,
-                account_name=effective_account,
-                prev_total=last_idx,
-            )
+    from backend.services.task_log_broadcaster import (
+        StreamKey,
+        get_task_log_broadcaster,
+    )
+
+    def _get_current_run_status() -> dict[str, Any]:
+        try:
+            if effective_account:
+                return get_sign_task_service().get_task_run_status(
+                    effective_account,
+                    task_name,
+                )
+        except Exception:
+            pass
+        return {}
+
+    def _build_status_payload(run_status: dict[str, Any], is_running: bool) -> dict[str, Any]:
+        return {
+            "phase": run_status.get("phase"),
+            "phase_detail": run_status.get("phase_detail") or "",
+            "failure_category": run_status.get("failure_category"),
+            "state": run_status.get("state"),
+            "wait_seconds": run_status.get("wait_seconds"),
+            "is_running": is_running,
+        }
+
+    initial_status = _get_current_run_status()
+    target_run_id = run_id or initial_status.get("run_id") or ""
+    stream_key = StreamKey(
+        account_name=effective_account or "",
+        task_name=task_name,
+        run_id=target_run_id,
+    )
+
+    broadcaster = get_task_log_broadcaster()
+    queue = broadcaster.subscribe(
+        stream_key,
+        after_seq=0 if after_seq is None else after_seq,
+    )
+
+    # 兜底：如果 after_seq is None 且 queue 为空，但已有 active_logs，补发历史日志
+    if after_seq is None and queue.empty():
+        init_logs = get_sign_task_service().get_active_logs(
+            task_name,
+            account_name=effective_account,
+        )
+        if init_logs:
             is_running = get_sign_task_service().is_task_running(
                 task_name,
                 account_name=effective_account,
             )
-            if is_running or bool(active_logs):
-                seen_activity = True
-
-            run_status = {}
-            try:
-                if effective_account:
-                    run_status = get_sign_task_service().get_task_run_status(
-                        effective_account,
-                        task_name,
-                    )
-            except Exception:
-                run_status = {}
-
-            status_payload = {
-                "phase": run_status.get("phase"),
-                "phase_detail": run_status.get("phase_detail") or "",
-                "failure_category": run_status.get("failure_category"),
-                "state": run_status.get("state"),
-                "wait_seconds": run_status.get("wait_seconds"),
-            }
-            status_sig = (
-                status_payload.get("phase"),
-                status_payload.get("phase_detail"),
-                status_payload.get("state"),
-                status_payload.get("failure_category"),
-                status_payload.get("wait_seconds"),
-                is_running,
+            status_payload = _build_status_payload(initial_status, is_running)
+            await websocket.send_json(
+                {
+                    "type": "logs",
+                    "data": init_logs,
+                    **status_payload,
+                }
             )
 
-            if active_logs:
-                await websocket.send_json(
-                    {
-                        "type": "logs",
-                        "data": active_logs,
-                        "is_running": is_running,
-                        **status_payload,
-                    }
-                )
-                last_idx = log_total
-                last_status_sig = status_sig
-            elif is_running and run_status and status_sig != last_status_sig:
-                # phase 变化时推送，避免卡在 starting 展示
-                await websocket.send_json(
-                    {
-                        "type": "status",
-                        "is_running": True,
-                        **status_payload,
-                    }
-                )
-                last_status_sig = status_sig
+    connected_at = asyncio.get_running_loop().time()
+    seen_activity = bool(not queue.empty())
 
-            if (
-                not is_running
-                and last_idx >= log_total
-                and (
-                    seen_activity
-                    or asyncio.get_running_loop().time() - connected_at >= 15
-                )
-            ):
+    try:
+        while True:
+            # 动态适应在连接时 run_id 尚未确定的情况（任务稍后启动）
+            if not stream_key.run_id:
+                curr_status = _get_current_run_status()
+                new_run_id = curr_status.get("run_id")
+                if new_run_id:
+                    broadcaster.unsubscribe(stream_key, queue)
+                    stream_key = StreamKey(
+                        account_name=stream_key.account_name,
+                        task_name=task_name,
+                        run_id=new_run_id,
+                    )
+                    queue = broadcaster.subscribe(stream_key, after_seq=0)
+
+            is_running = get_sign_task_service().is_task_running(
+                task_name,
+                account_name=effective_account,
+            )
+            if queue.empty() and not is_running and seen_activity:
+                run_status = _get_current_run_status()
+                status_payload = _build_status_payload(run_status, False)
                 await websocket.send_json(
                     {
                         "type": "done",
-                        "is_running": False,
                         **status_payload,
                     }
                 )
                 break
 
-            await asyncio.sleep(0.5)
+            try:
+                # 15s 心跳等待事件
+                event = await asyncio.wait_for(queue.get(), timeout=15.0)
+            except asyncio.TimeoutError:
+                is_running = get_sign_task_service().is_task_running(
+                    task_name,
+                    account_name=effective_account,
+                )
+                run_status = _get_current_run_status()
+                status_payload = _build_status_payload(run_status, is_running)
+                if not is_running and (
+                    seen_activity
+                    or (asyncio.get_running_loop().time() - connected_at >= 15)
+                ):
+                    await websocket.send_json(
+                        {
+                            "type": "done",
+                            **status_payload,
+                        }
+                    )
+                    break
+                await websocket.send_json(
+                    {
+                        "type": "status",
+                        **status_payload,
+                    }
+                )
+                continue
+
+            seen_activity = True
+            event_type = event.get("type", "logs")
+
+            if event_type == "done":
+                run_status = _get_current_run_status()
+                status_payload = _build_status_payload(run_status, False)
+                merged = {**status_payload, **event}
+                merged["type"] = "done"
+                merged["is_running"] = False
+                await websocket.send_json(merged)
+                break
+            elif event_type in ("logs", "log"):
+                lines = list(
+                    event.get("data")
+                    or ([event.get("text")] if event.get("text") is not None else [])
+                )
+                last_seq = event.get("seq")
+                while not queue.empty():
+                    peek = (
+                        queue._queue[0]
+                        if hasattr(queue, "_queue") and queue._queue
+                        else None
+                    )
+                    if peek and peek.get("type", "logs") in ("logs", "log"):
+                        next_evt = queue.get_nowait()
+                        nxt_lines = (
+                            next_evt.get("data")
+                            or (
+                                [next_evt.get("text")]
+                                if next_evt.get("text") is not None
+                                else []
+                            )
+                        )
+                        lines.extend(nxt_lines)
+                        last_seq = next_evt.get("seq")
+                    else:
+                        break
+
+                is_running = get_sign_task_service().is_task_running(
+                    task_name,
+                    account_name=effective_account,
+                )
+                run_status = _get_current_run_status()
+                status_payload = _build_status_payload(run_status, is_running)
+                payload_to_send: dict[str, Any] = {
+                    "type": "logs",
+                    "data": lines,
+                    **status_payload,
+                }
+                if last_seq is not None:
+                    payload_to_send["seq"] = last_seq
+                await websocket.send_json(payload_to_send)
+            elif event_type == "status":
+                is_running = get_sign_task_service().is_task_running(
+                    task_name,
+                    account_name=effective_account,
+                )
+                run_status = _get_current_run_status()
+                status_payload = _build_status_payload(run_status, is_running)
+                await websocket.send_json(
+                    {
+                        "type": "status",
+                        **status_payload,
+                        **event,
+                    }
+                )
     except WebSocketDisconnect:
         pass
     except Exception:
         # 读取/发送循环异常不应静默断连，记录便于排障
         _sync_logger.debug("任务日志 WebSocket 流异常中断", exc_info=True)
     finally:
+        broadcaster.unsubscribe(stream_key, queue)
         try:
             await websocket.close()
         except Exception:

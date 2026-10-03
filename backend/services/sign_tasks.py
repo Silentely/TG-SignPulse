@@ -1086,13 +1086,64 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
     # 把 _active_logs 撑到无界（内存与 get_active_logs 全量拷贝都受控）
     MAX_ACTIVE_LOG_LINES = 2000
 
-    def _append_active_log(self, task_key: tuple[str, str], line: str) -> None:
-        """向运行中日志追加一行，超上限时从头部批量裁剪（与历史截断策略一致）。"""
+    def _append_active_log(
+        self,
+        task_key: tuple[str, str],
+        line: str,
+        run_id: Optional[str] = None,
+    ) -> None:
+        """向运行中日志追加一行，超上限时从头部批量裁剪（与历史截断策略一致）。
+        同时作为唯一事件发布入口，向 TaskLogBroadcaster 发布实时日志事件。
+        """
         logs = self._active_logs.setdefault(task_key, [])
         logs.append(line)
         overflow = len(logs) - self.MAX_ACTIVE_LOG_LINES
         if overflow > 0:
             del logs[:overflow]
+
+        try:
+            account_name = (
+                task_key[0]
+                if isinstance(task_key, (tuple, list)) and len(task_key) > 0
+                else ""
+            )
+            task_name = (
+                task_key[1]
+                if isinstance(task_key, (tuple, list)) and len(task_key) > 1
+                else str(task_key)
+            )
+            eff_run_id = (
+                run_id
+                or (
+                    self._run_statuses.get(task_key, {}).get("run_id")
+                    if hasattr(self, "_run_statuses")
+                    else None
+                )
+                or ""
+            )
+            from backend.services.task_log_broadcaster import (
+                StreamKey,
+                get_task_log_broadcaster,
+            )
+
+            key = StreamKey(
+                account_name=account_name,
+                task_name=task_name,
+                run_id=eff_run_id,
+            )
+            get_task_log_broadcaster().publish_nowait(
+                key,
+                {
+                    "type": "logs",
+                    "data": [line],
+                    "text": line,
+                    "account_name": account_name,
+                    "task_name": task_name,
+                    "run_id": eff_run_id,
+                },
+            )
+        except Exception as exc:
+            _service_logger.debug("广播实时日志失败: %s", exc)
 
     def get_active_logs(
         self, task_name: str, account_name: Optional[str] = None
@@ -1229,6 +1280,31 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
             retry_count_effective=retry_count_effective,
         )
         self._run_statuses[task_key] = status
+        if state in ("success", "failed", "timeout", "cancelled"):
+            try:
+                from backend.services.task_log_broadcaster import (
+                    StreamKey,
+                    get_task_log_broadcaster,
+                )
+
+                key = StreamKey(
+                    account_name=account_name,
+                    task_name=task_name,
+                    run_id=run_id or "",
+                )
+                get_task_log_broadcaster().publish_done_nowait(
+                    key,
+                    {
+                        "type": "done",
+                        "is_running": False,
+                        "state": state,
+                        "success": success,
+                        "error": error,
+                        "failure_category": failure_category,
+                    },
+                )
+            except Exception as exc:
+                _service_logger.debug("广播终端状态失败: %s", exc)
         return dict(status)
 
     def _update_run_phase(
@@ -1485,13 +1561,18 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
     ) -> bool:
         """检查任务是否正在运行"""
         if account_name:
-            return self._active_tasks.get(
-                self._task_key(account_name, task_name), False
-            )
+            task_key = self._task_key(account_name, task_name)
+            if self._active_tasks.get(task_key, False):
+                return True
+            return (self._run_statuses.get(task_key) or {}).get("state") == "running"
         return any(
             key[1] == task_name
             for key, running in self._active_tasks.items()
             if running
+        ) or any(
+            key[1] == task_name
+            and (self._run_statuses.get(key) or {}).get("state") == "running"
+            for key in list(self._run_statuses.keys())
         )
 
     async def run_task_with_logs(
