@@ -340,15 +340,22 @@ def load_session_string_file(session_dir: Path, account_name: str) -> Optional[s
         except Exception:
             content = ""
 
-        from tg_signer.security import decrypt_secret, is_encrypted_secret
+        from tg_signer.security import (
+            SecretKeyError,
+            decrypt_secret,
+            is_encrypted_secret,
+        )
 
         if is_encrypted_secret(content):
             try:
                 decrypted = decrypt_secret(content)
+            except SecretKeyError:
+                raise
             except Exception:
                 decrypted = None
             if decrypted and is_valid_session_string(decrypted):
                 return decrypted
+            return None
         elif content and is_valid_session_string(content):
             # Legacy plaintext: migrate atomically to ciphertext.
             # Fail-closed: if migration fails (e.g. SecretKeyError), let it raise

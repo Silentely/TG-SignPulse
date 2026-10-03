@@ -61,3 +61,24 @@ def test_session_string_file_encryption_and_fail_closed(tmp_path: Path):
         with pytest.raises(SecretKeyError):
             load_session_string_file(tmp_path, fail_acc)
     assert fail_file.read_text(encoding="utf-8") == valid_session
+
+    # 6. Read failure on SecretKeyError re-raises and preserves file
+    enc_acc = "acc_enc_key_error"
+    save_session_string_file(tmp_path, enc_acc, valid_session)
+    enc_file = tmp_path / f"{enc_acc}.session_string"
+    orig_content = enc_file.read_text(encoding="utf-8")
+    with patch("tg_signer.security.decrypt_secret", side_effect=SecretKeyError("key missing")):
+        with pytest.raises(SecretKeyError):
+            load_session_string_file(tmp_path, enc_acc)
+    assert enc_file.exists(), "Encrypted file must not be deleted on SecretKeyError!"
+    assert enc_file.read_text(encoding="utf-8") == orig_content
+
+    # 7. Corrupted ciphertext returns None and does not unlink file
+    corrupt_acc = "acc_corrupt_sec"
+    corrupt_file = tmp_path / f"{corrupt_acc}.session_string"
+    corrupt_content = "fernet:corrupted"
+    corrupt_file.write_text(corrupt_content, encoding="utf-8")
+    res = load_session_string_file(tmp_path, corrupt_acc)
+    assert res is None
+    assert corrupt_file.exists(), "Corrupted ciphertext file must not be unlinked!"
+    assert corrupt_file.read_text(encoding="utf-8") == corrupt_content
