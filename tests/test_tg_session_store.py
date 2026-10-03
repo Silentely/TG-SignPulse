@@ -677,9 +677,13 @@ class TestSessionStringFileFallback:
         assert tg_session.is_valid_session_string(result)
 
     def test_save_session_string_file(self, tmp_path):
+        from tg_signer.security import decrypt_secret
+
         path = tg_session.session_string_file_path(tmp_path, "saved")
         tg_session.save_session_string_file(tmp_path, "saved", "  abc-def  ")
-        assert path.read_text(encoding="utf-8") == "abc-def"
+        raw = path.read_text(encoding="utf-8")
+        assert raw.startswith("fernet:")
+        assert decrypt_secret(raw) == "abc-def"
 
     def test_delete_session_string_file(self, tmp_path):
         path = tg_session.session_string_file_path(tmp_path, "del")
@@ -707,10 +711,14 @@ class TestSessionStringFileFallback:
         import os
         import stat
 
+        from tg_signer.security import decrypt_secret
+
         path = tg_session.session_string_file_path(tmp_path, "atomic")
         tg_session.save_session_string_file(tmp_path, "atomic", "secret-session")
 
-        assert path.read_text(encoding="utf-8") == "secret-session"
+        raw = path.read_text(encoding="utf-8")
+        assert raw.startswith("fernet:")
+        assert decrypt_secret(raw) == "secret-session"
         mode = stat.S_IMODE(os.stat(path).st_mode)
         assert mode == 0o600
         # 原子写通过 rename 落地：目录里不允许残留临时文件
@@ -719,10 +727,14 @@ class TestSessionStringFileFallback:
 
     def test_save_session_string_file_overwrites_atomically(self, tmp_path):
         """覆盖写同样走 rename：不会出现目标文件被清空又写失败的中间态。"""
+        from tg_signer.security import decrypt_secret
+
         path = tg_session.session_string_file_path(tmp_path, "rewrite")
         tg_session.save_session_string_file(tmp_path, "rewrite", "first")
         tg_session.save_session_string_file(tmp_path, "rewrite", "second")
-        assert path.read_text(encoding="utf-8") == "second"
+        raw = path.read_text(encoding="utf-8")
+        assert raw.startswith("fernet:")
+        assert decrypt_secret(raw) == "second"
 
     def test_save_session_string_file_failure_keeps_previous(
         self, tmp_path, monkeypatch
@@ -730,8 +742,11 @@ class TestSessionStringFileFallback:
         """写入失败时旧内容必须保留，避免会话缓存被清空后误判为未登录。"""
         import os
 
+        from tg_signer.security import decrypt_secret
+
         path = tg_session.session_string_file_path(tmp_path, "keep")
         tg_session.save_session_string_file(tmp_path, "keep", "previous")
+        previous_raw = path.read_text(encoding="utf-8")
 
         def _boom_replace(src, dst):
             raise OSError("disk full")
@@ -740,7 +755,8 @@ class TestSessionStringFileFallback:
         with pytest.raises(OSError):
             tg_session.save_session_string_file(tmp_path, "keep", "next")
 
-        assert path.read_text(encoding="utf-8") == "previous"
+        assert path.read_text(encoding="utf-8") == previous_raw
+        assert decrypt_secret(path.read_text(encoding="utf-8")) == "previous"
 
 
 class TestSessionStringEncryption:

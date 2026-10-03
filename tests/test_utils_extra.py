@@ -349,7 +349,11 @@ class TestSessionStringExport:
         assert healed is not None
         assert is_valid_session_string(healed)
         assert healed != broken
-        assert cache_path.read_text(encoding="utf-8").strip() == healed
+        from tg_signer.security import decrypt_secret
+
+        cache_raw = cache_path.read_text(encoding="utf-8").strip()
+        assert cache_raw.startswith("fernet:")
+        assert decrypt_secret(cache_raw) == healed
 
     def test_get_account_session_string_ignores_invalid(self, tmp_path, monkeypatch):
         from backend.utils import tg_session

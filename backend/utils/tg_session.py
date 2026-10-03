@@ -339,14 +339,23 @@ def load_session_string_file(session_dir: Path, account_name: str) -> Optional[s
             content = path.read_text(encoding="utf-8").strip()
         except Exception:
             content = ""
-        try:
-            from tg_signer.security import decrypt_secret
 
-            decrypted = decrypt_secret(content) or content
-        except Exception:
-            decrypted = content
-        if decrypted and is_valid_session_string(decrypted):
-            return decrypted
+        from tg_signer.security import decrypt_secret, is_encrypted_secret
+
+        if is_encrypted_secret(content):
+            try:
+                decrypted = decrypt_secret(content)
+            except Exception:
+                decrypted = None
+            if decrypted and is_valid_session_string(decrypted):
+                return decrypted
+        elif content and is_valid_session_string(content):
+            # Legacy plaintext: migrate atomically to ciphertext.
+            # Fail-closed: if migration fails (e.g. SecretKeyError), let it raise
+            # without corrupting the original file.
+            save_session_string_file(session_dir, account_name, content)
+            return content
+
         # 坏缓存（含历史错误导出的 357 字符串）：删除后从 .session 重导
         try:
             path.unlink()
@@ -442,9 +451,16 @@ def _export_session_string_from_file(
 def save_session_string_file(
     session_dir: Path, account_name: str, session_string: str
 ) -> None:
-    """原子写入会话字符串缓存（临时文件 + 权限收敛 0600 + fsync + rename）。"""
+    """原子写入加密会话字符串缓存（临时文件 + 权限收敛 0600 + fsync + rename）。
+
+    Fail-closed: 遇到 SecretKeyError 必须抛出异常，绝不写入明文。
+    """
     path = session_string_file_path(session_dir, account_name)
-    write_text_atomic(path, session_string.strip())
+    cleaned = session_string.strip()
+    from tg_signer.security import encrypt_secret
+
+    stored = encrypt_secret(cleaned)
+    write_text_atomic(path, stored)
 
 
 def delete_session_string_file(session_dir: Path, account_name: str) -> None:
