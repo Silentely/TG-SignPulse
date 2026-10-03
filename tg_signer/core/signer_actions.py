@@ -48,6 +48,7 @@ from tg_signer.core.client import (
 from tg_signer.core.plugin_host import PluginProcessHost
 from tg_signer.core.plugins import PluginContext, PluginRegistry, PluginTimeoutError
 from tg_signer.core.signer_config import FLOOD_WAIT_RETRY_MAX_SECONDS
+from tg_signer.core.telegram_actions import click_inline_button_unified
 from tg_signer.log_utils import (
     safe_ai_request_meta,
     safe_ai_result_meta,
@@ -106,25 +107,8 @@ class SignerActionsMixin:
                 return True
             return False
 
-        click = getattr(message, "click", None)
-        if callable(click):
-            # pyrogram Message.click(x=0, y=None, ...)：x 为字符串时按按钮文本点击；
-            # 不存在 text 关键字参数，历史上第二个 ((), {"text": ...}) 兜底必然 TypeError，已移除
-            try:
-                await click(getattr(btn, "text", None))
-                self.log("点击完成")
-                return True
-            except TypeError:
-                # 按钮文本不可点击（如 None/非法文本），回落等待后续消息确认
-                pass
-            except Exception as e:
-                if _is_callback_data_invalid(e):
-                    self.log(
-                        "Message.click 也无法确认按钮回调，继续等待机器人后续消息确认",
-                        level="WARNING",
-                    )
-                else:
-                    self.log(f"Message.click 无法确认按钮回调: {e}", level="WARNING")
+        if await click_inline_button_unified(message, btn, log_func=self.log):
+            return True
 
         if callback_data is None:
             self.log(

@@ -56,6 +56,7 @@ from tg_signer.compat import (
     collect_clickable_buttons,
     errors,
 )
+from tg_signer.core.telegram_actions import click_inline_button_unified
 from tg_signer.log_utils import (
     safe_ai_request_meta,
     safe_ai_result_meta,
@@ -333,7 +334,7 @@ async def request_callback_answer(
 async def click_inline_button(
     service: Any, client: Any, message: Message, button: Any
 ) -> bool:
-    """点击 inline 按钮：优先走回执，回退 Message.click 按文本点击。"""
+    """点击 inline 按钮：优先走回执，回退统一 click_inline_button_unified。"""
     callback_data = getattr(button, "callback_data", None)
     if callback_data is not None:
         if await request_callback_answer(
@@ -341,29 +342,13 @@ async def click_inline_button(
         ):
             return True
 
-    click = getattr(message, "click", None)
-    if callable(click):
-        for args, kwargs in (
-            ((getattr(button, "text", None),), {}),
-            ((), {"text": getattr(button, "text", None)}),
-        ):
-            try:
-                await click(*args, **kwargs)
-                return True
-            except TypeError:
-                continue
-            except Exception as exc:
-                if _is_callback_data_invalid(exc):
-                    logger.warning(
-                        "Keyword monitor Message.click could not confirm callback; waiting for follow-up messages"
-                    )
-                else:
-                    logger.warning(
-                        "Keyword monitor Message.click could not confirm callback: %s",
-                        exc,
-                    )
-                return False
-    return False
+    def _log(msg: str, level: str = "INFO") -> None:
+        if level == "WARNING":
+            logger.warning("Keyword monitor %s", msg)
+        else:
+            logger.info("Keyword monitor %s", msg)
+
+    return await click_inline_button_unified(message, button, log_func=_log)
 
 
 async def click_keyboard_by_text_result(

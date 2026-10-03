@@ -178,3 +178,65 @@ async def test_action_continue_on_error():
     assert len(executed_actions) == 2
     assert executed_actions[1].text == "Should execute next"
     assert any("容错继续" in log[1] for log in signer.logs)
+
+
+@pytest.mark.asyncio
+async def test_click_inline_button_unified_variations():
+    from tg_signer.compat import errors
+    from tg_signer.core.telegram_actions import click_inline_button_unified
+
+    # Case 1: callback_data present (str)
+    msg = MagicMock()
+    msg.click = AsyncMock(return_value=True)
+    btn = MagicMock()
+    btn.callback_data = "cb_sign"
+    btn.text = "Sign In"
+    assert await click_inline_button_unified(msg, btn) is True
+    msg.click.assert_called_with("cb_sign")
+
+    # Case 1b: callback_data present (bytes)
+    msg.click.reset_mock()
+    btn.callback_data = b"cb_bytes"
+    btn.text = "Sign In"
+    assert await click_inline_button_unified(msg, btn) is True
+    msg.click.assert_called_with(b"cb_bytes")
+
+    # Case 2: callback_data None, text fallback
+    msg.click.reset_mock()
+    btn.callback_data = None
+    assert await click_inline_button_unified(msg, btn) is True
+    msg.click.assert_called_with("Sign In")
+
+    # Case 3: Non-existent attribute doesn't raise AttributeError or TypeError
+    class EmptyBtn:
+        pass
+
+    assert await click_inline_button_unified(msg, EmptyBtn()) is False
+    assert await click_inline_button_unified(msg, None) is False
+    assert await click_inline_button_unified(None, btn) is False
+
+    class EmptyMsg:
+        pass
+
+    assert await click_inline_button_unified(EmptyMsg(), btn) is False
+
+    msg.click = AsyncMock(side_effect=TypeError("Bad param"))
+    assert await click_inline_button_unified(msg, btn) is False
+    msg.click = AsyncMock(side_effect=AttributeError("No attr"))
+    assert await click_inline_button_unified(msg, btn) is False
+
+    # Case 4: Pyrogram RPC exceptions are caught and return False
+    logs = []
+
+    def mock_log(message, level="INFO"):
+        logs.append((level, message))
+
+    msg.click = AsyncMock(side_effect=errors.RPCError("RPC Error"))
+    assert await click_inline_button_unified(msg, btn, log_func=mock_log) is False
+    assert any("Message.click 无法确认按钮回调" in m[1] for m in logs)
+
+    logs.clear()
+    msg.click = AsyncMock(side_effect=errors.RPCError("MESSAGE_ID_INVALID DATA_INVALID"))
+    assert await click_inline_button_unified(msg, btn, log_func=mock_log) is False
+    assert any("也无法确认按钮回调" in m[1] for m in logs)
+
