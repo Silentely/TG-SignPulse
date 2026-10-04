@@ -12,19 +12,24 @@ import concurrent.futures
 import os
 import sqlite3
 import tempfile
-import threading
 import time
 
+import pytest
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker
 
 
 def test_reproduce_disk_concurrency_lock():
     """
-    Step 1 & 2: Baseline reproduction.
-    Using standard rollback journal (DELETE) and 0s busy timeout, concurrent threads
-    performing exclusive transactions synchronized by a barrier against a disk file
-    will reliably encounter 'database is locked'.
+    Step 1 & 2: Baseline reproduction (deterministic).
+
+    Using standard rollback journal (DELETE) and 0s busy timeout, a second
+    connection attempting BEGIN EXCLUSIVE while another connection holds an
+    exclusive write lock must fail with 'database is locked'.
+
+    说明：早期版本用 16 线程 + barrier 制造并发冲突，依赖线程调度时机，
+    在高负载全量套件下锁冲突未必发生（flaky）。改为单连接持锁 +
+    零超时连接撞锁的确定性复现，结果与负载无关。
     """
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         db_path = f.name
@@ -38,35 +43,35 @@ def test_reproduce_disk_concurrency_lock():
         init_conn.commit()
         init_conn.close()
 
-        num_threads = 16
-        barrier = threading.Barrier(num_threads)
-        lock_errors = []
+        # Holder 持 EXCLUSIVE 写锁，模拟并发写方占锁
+        holder = sqlite3.connect(db_path, timeout=15)
+        holder.execute("PRAGMA journal_mode=DELETE")
+        holder.execute("BEGIN EXCLUSIVE")
+        holder.execute("UPDATE counter SET val = val + 1 WHERE id=1")
 
-        def worker(w_id: int):
-            barrier.wait()
-            try:
-                # timeout=0.0 to force immediate failure if lock is held
-                conn = sqlite3.connect(db_path, timeout=0.0)
-                for _ in range(5):
-                    conn.execute("BEGIN EXCLUSIVE")
-                    cur = conn.execute("SELECT val FROM counter WHERE id=1")
-                    val = cur.fetchone()[0]
-                    time.sleep(0.01)  # hold write lock to guarantee collision
-                    conn.execute("UPDATE counter SET val=? WHERE id=1", (val + 1,))
-                    conn.commit()
-                conn.close()
-            except sqlite3.OperationalError as exc:
-                if "locked" in str(exc).lower():
-                    lock_errors.append(str(exc))
+        # timeout=0.0 的连接在锁被占用时立即失败
+        blocked = sqlite3.connect(db_path, timeout=0.0)
+        try:
+            with pytest.raises(sqlite3.OperationalError, match="locked"):
+                blocked.execute("BEGIN EXCLUSIVE")
+                blocked.execute("UPDATE counter SET val = val + 1 WHERE id=1")
+                blocked.commit()
+        finally:
+            blocked.close()
 
-        threads = [threading.Thread(target=worker, args=(i,)) for i in range(num_threads)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
+        holder.rollback()
+        holder.close()
 
-        # At least one thread should have encountered 'database is locked'
-        assert len(lock_errors) > 0, "Expected lock contention under zero busy_timeout and DELETE journal"
+        # 收尾验证：持有锁回滚后，普通连接可正常读写
+        check = sqlite3.connect(db_path, timeout=15)
+        try:
+            check.execute("BEGIN")
+            check.execute("UPDATE counter SET val = val + 1 WHERE id=1")
+            check.commit()
+            val = check.execute("SELECT val FROM counter WHERE id=1").fetchone()[0]
+            assert val == 1
+        finally:
+            check.close()
     finally:
         if os.path.exists(db_path):
             os.remove(db_path)
@@ -102,7 +107,9 @@ def test_sqlite_wal_and_busy_timeout_stress_suite():
             cursor.close()
 
         with engine.begin() as conn:
-            conn.execute(text("CREATE TABLE test_data (id INTEGER PRIMARY KEY, counter INTEGER)"))
+            conn.execute(
+                text("CREATE TABLE test_data (id INTEGER PRIMARY KEY, counter INTEGER)")
+            )
             conn.execute(text("INSERT INTO test_data (id, counter) VALUES (1, 0)"))
 
         SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
@@ -123,7 +130,9 @@ def test_sqlite_wal_and_busy_timeout_stress_suite():
                         # Small delay to simulate app work
                         time.sleep(0.002)
                         session.execute(
-                            text("UPDATE test_data SET counter = counter + 1 WHERE id=1")
+                            text(
+                                "UPDATE test_data SET counter = counter + 1 WHERE id=1"
+                            )
                         )
                 except Exception as exc:
                     errors.append((thread_id, str(exc)))
@@ -138,7 +147,9 @@ def test_sqlite_wal_and_busy_timeout_stress_suite():
 
         # Verify final state matches exactly the total operations
         with engine.connect() as conn:
-            final_count = conn.execute(text("SELECT counter FROM test_data WHERE id=1")).scalar()
+            final_count = conn.execute(
+                text("SELECT counter FROM test_data WHERE id=1")
+            ).scalar()
             assert final_count == num_threads * tx_per_thread
 
             # Verify WAL journal mode is active

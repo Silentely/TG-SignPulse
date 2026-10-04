@@ -1250,6 +1250,8 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         failure_category: Optional[str] = None,
         timeout_seconds: Optional[float] = None,
         retry_count_effective: Optional[int] = None,
+        persistence_error: Optional[Dict[str, Any]] = None,
+        notification_error: Optional[Dict[str, Any]] = None,
         preserve_started_at: bool = True,
     ) -> Dict[str, Any]:
         task_key = self._task_key(account_name, task_name)
@@ -1261,6 +1263,11 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
             timeout_seconds = prev.get("timeout_seconds")
         if retry_count_effective is None and prev.get("run_id") == run_id:
             retry_count_effective = prev.get("retry_count_effective")
+        # 收尾异常在 phase 刷新时保留，避免中途刷新被清空
+        if persistence_error is None and prev.get("run_id") == run_id:
+            persistence_error = prev.get("persistence_error")
+        if notification_error is None and prev.get("run_id") == run_id:
+            notification_error = prev.get("notification_error")
         status = build_run_status(
             run_id=run_id,
             state=state,
@@ -1278,6 +1285,8 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
             failure_category=failure_category,
             timeout_seconds=timeout_seconds,
             retry_count_effective=retry_count_effective,
+            persistence_error=persistence_error,
+            notification_error=notification_error,
         )
         self._run_statuses[task_key] = status
         if state in ("success", "failed", "timeout", "cancelled"):
@@ -1480,6 +1489,8 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
                     finished_at=utc_now_iso(),
                     phase=None,
                     failure_category=category,
+                    persistence_error=result.get("persistence_error"),
+                    notification_error=result.get("notification_error"),
                 )
                 self._schedule_run_status_cleanup(account_name, task_name)
             self._unregister_background_run(task_key, asyncio.current_task())

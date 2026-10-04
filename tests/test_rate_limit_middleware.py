@@ -8,7 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from backend.core.rate_limit import get_rate_limiter
-from backend.core.rate_limit_middleware import RateLimitMiddleware, SENSITIVE_RULES
+from backend.core.rate_limit_middleware import SENSITIVE_RULES, RateLimitMiddleware
 from backend.main import app
 
 
@@ -43,9 +43,9 @@ def test_login_rate_limiting_never_calls_db():
             if resp.status_code == 429:
                 blocked_found = True
                 assert resp.headers.get("Retry-After") is not None
-                assert (
-                    req_id not in db_called_request_ids
-                ), f"Request {req_id} triggered DB session on 429!"
+                assert req_id not in db_called_request_ids, (
+                    f"Request {req_id} triggered DB session on 429!"
+                )
         assert blocked_found is True
     finally:
         app.dependency_overrides.pop(get_db, None)
@@ -83,9 +83,9 @@ def test_totp_reset_rate_limiting_never_calls_db():
             if resp.status_code == 429:
                 blocked_found = True
                 assert resp.headers.get("Retry-After") is not None
-                assert (
-                    req_id not in db_called_request_ids
-                ), f"Request {req_id} triggered DB session on 429!"
+                assert req_id not in db_called_request_ids, (
+                    f"Request {req_id} triggered DB session on 429!"
+                )
         assert blocked_found is True
     finally:
         app.dependency_overrides.pop(get_db, None)
@@ -169,18 +169,14 @@ def test_rate_limit_headers_and_body_format():
 
 def test_account_login_rule_uses_same_composite_key_as_route():
     rule = next(
-        rule
-        for rule in SENSITIVE_RULES
-        if rule.scope == "accounts.login.start"
+        rule for rule in SENSITIVE_RULES if rule.scope == "accounts.login.start"
     )
     assert rule.key_fields == ("account_name", "phone_number")
 
 
 def test_qr_password_rule_uses_login_id_field():
     rule = next(
-        rule
-        for rule in SENSITIVE_RULES
-        if rule.scope == "accounts.qr.password"
+        rule for rule in SENSITIVE_RULES if rule.scope == "accounts.qr.password"
     )
     assert rule.key_fields == ("login_id",)
 

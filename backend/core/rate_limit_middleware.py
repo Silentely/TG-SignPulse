@@ -113,9 +113,7 @@ class RateLimitMiddleware:
     ) -> None:
         self.app = app
         self.rules = rules if rules is not None else SENSITIVE_RULES
-        self._rules_by_method_path = {
-            (r.method, r.path): r for r in self.rules
-        }
+        self._rules_by_method_path = {(r.method, r.path): r for r in self.rules}
 
         # Optional general API rate limit (requests per minute per client)
         if general_rpm is None:
@@ -268,9 +266,7 @@ class RateLimitMiddleware:
 
         await self.app(scope, receive, send)
 
-    async def _send_429(
-        self, scope: Scope, send: Send, exc: HTTPException
-    ) -> None:
+    async def _send_429(self, scope: Scope, send: Send, exc: HTTPException) -> None:
         retry_after = "60"
         if exc.headers and "Retry-After" in exc.headers:
             retry_after = str(exc.headers["Retry-After"])
@@ -289,29 +285,37 @@ class RateLimitMiddleware:
         if req_id:
             headers.append((b"x-request-id", req_id.encode("latin-1")))
 
-        await send({
-            "type": "http.response.start",
-            "status": 429,
-            "headers": headers,
-        })
-        await send({
-            "type": "http.response.body",
-            "body": body,
-            "more_body": False,
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 429,
+                "headers": headers,
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": body,
+                "more_body": False,
+            }
+        )
 
     async def _send_error(self, send: Send, *, status_code: int, detail: str) -> None:
         body = json.dumps({"detail": detail}).encode("utf-8")
-        await send({
-            "type": "http.response.start",
-            "status": status_code,
-            "headers": [
-                (b"content-type", b"application/json"),
-                (b"content-length", str(len(body)).encode("ascii")),
-            ],
-        })
-        await send({
-            "type": "http.response.body",
-            "body": body,
-            "more_body": False,
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": status_code,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(body)).encode("ascii")),
+                ],
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": body,
+                "more_body": False,
+            }
+        )

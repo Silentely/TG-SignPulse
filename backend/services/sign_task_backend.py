@@ -5,23 +5,37 @@
 from __future__ import annotations
 
 import logging
-from typing import List
+from typing import Callable, List, Optional
 
 from backend.utils.task_logs import normalize_log_line
 from tg_signer.core import UserSigner
 
 
 class TaskLogHandler(logging.Handler):
-    """将日志实时写入内存列表，供 WebSocket / 轮询读取。"""
+    """将日志实时写入内存列表，供 WebSocket / 轮询读取。
 
-    def __init__(self, log_list: List[str], max_lines: int = 2000):
+    传入 sink 时改为单一路径回调（由 SignTaskService._append_active_log 统一
+    落库并发布到 TaskLogBroadcaster），避免执行日志绕过广播器只进本地列表。
+    """
+
+    def __init__(
+        self,
+        log_list: List[str],
+        max_lines: int = 2000,
+        sink: Optional[Callable[[str], None]] = None,
+    ):
         super().__init__()
         self.log_list = log_list
         self.max_lines = max_lines
+        self._sink = sink
 
     def emit(self, record):
         try:
             msg = normalize_log_line(self.format(record)) or record.getMessage()
+            if self._sink is not None:
+                # 统一发布入口：落库 + 广播，裁剪由 _append_active_log 负责
+                self._sink(msg)
+                return
             self.log_list.append(msg)
             # 批量删除头部，避免每行日志 O(n) 的 pop(0)
             overflow = len(self.log_list) - self.max_lines

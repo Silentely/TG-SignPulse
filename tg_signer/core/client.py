@@ -529,11 +529,16 @@ class Client(BaseClient):
                 pass
             return None
         if not encrypted_content:
-            path.write_text(encrypt_secret(content), encoding="utf-8")
+            # 明文缓存迁移为密文：走原子写，避免中途崩溃留下半截文件。
+            # 密钥不可用（SecretKeyError）不吞掉，保持 fail-closed；写入 IO 失败仅告警，
+            # 仍返回已校验的明文，避免因缓存迁移失败阻断本次会话加载。
+            from tg_signer.atomic_io import write_text_atomic
+
+            encrypted = encrypt_secret(content)
             try:
-                os.chmod(path, 0o600)
-            except OSError:
-                pass
+                write_text_atomic(path, encrypted)
+            except OSError as exc:
+                logger.warning("迁移 session_string 缓存为密文失败 %s: %s", path, exc)
         logger.info("从本地文件加载 session_string。")
         return content
 

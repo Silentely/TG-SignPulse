@@ -35,7 +35,6 @@ vi.mock('../composables/useTaskRunStream', () => ({
     liveState: ref(''),
     liveStatusLabel: ref(''),
     liveStatusToneClass: ref(''),
-    connectionMode: ref('closed'),
     connectionState: ref('closed'),
     connectionStateText: ref(''),
     retryAttempt: ref(0),

@@ -127,6 +127,37 @@ class TaskExecutionContext:
 
         self.phase = target
 
+    def start_finalizing(self) -> None:
+        """进入收尾阶段，保证任意非终态都能走到 FINALIZING。
+
+        正常路径为 RUNNING -> FINALIZING；若任务在达到 RUNNING 之前即失败
+        （配置加载失败、账号失效、冷却短路等），也允许从 STARTING/WAITING_LOCK
+        直接进入收尾，否则该运行将永远停留在启动阶段、无法落到终态。
+        已是 FINALIZING 或终态时为幂等空操作。
+        """
+        if self.phase in _TERMINAL_PHASES or self.phase == TaskPhase.FINALIZING:
+            return
+        self.phase = TaskPhase.FINALIZING
+
+    def finish(self, *, cancelled: bool, success: bool) -> None:
+        """收尾结束，按结果落到 FINISHED / FAILED / CANCELLED。
+
+        必须在 start_finalizing() 之后调用；处于终态时为幂等空操作。
+        """
+        if self.phase in _TERMINAL_PHASES:
+            return
+        if self.phase != TaskPhase.FINALIZING:
+            raise ValueError(
+                f"Cannot finish from phase {self.phase.value}; call start_finalizing() first"
+            )
+        if cancelled:
+            target = TaskPhase.CANCELLED
+        elif success:
+            target = TaskPhase.FINISHED
+        else:
+            target = TaskPhase.FAILED
+        self.phase = target
+
     # Read-only dictionary adapter for backwards compatibility with legacy readers
     def __getitem__(self, key: str) -> Any:
         if hasattr(self, key):

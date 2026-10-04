@@ -38,12 +38,6 @@ const logs = ref<SignTaskHistoryItem[]>([])
 const loading = ref(false)
 /** 监听任务：命中记录 Tab */
 const panelTab = ref<'history' | 'hits'>('history')
-const logContainer = ref<HTMLElement | null>(null)
-const virtualViewerRef = ref<{ containerRef: HTMLElement | null; scrollToBottom: () => void } | null>(null)
-
-watch(() => virtualViewerRef.value?.containerRef, (el) => {
-  if (el) logContainer.value = el
-}, { immediate: true })
 
 /** 展开查看原始流日志的历史条目索引 */
 const expandedIdx = ref<number | null>(null)
@@ -129,7 +123,6 @@ const {
   liveState,
   liveStatusLabel,
   liveStatusToneClass,
-  connectionMode,
   connectionState,
   connectionStateText,
   connect: connectWebSocket,
@@ -141,7 +134,6 @@ const {
   taskName: taskNameRef,
   accountName: accountNameForStream,
   runAccount: runAccountRef,
-  logContainer,
 })
 
 const displayRealtimeLines = computed(() => normalizeFlowLogLines(realtimeLogs.value))
@@ -344,7 +336,6 @@ const hitLink = (hit: KeywordHitRecord) => safeHitUrl(hit.url)
         <div v-if="realtimeLogs.length > 0 || isRunning" class="mb-4">
           <div class="ui-section-label mb-2">{{ t('taskLogs.realtimeLogs') }}</div>
           <VirtualLogViewer
-            ref="virtualViewerRef"
             :lines="displayRealtimeLines"
             :item-height="24"
             :container-height="240"
@@ -363,16 +354,12 @@ const hitLink = (hit: KeywordHitRecord) => safeHitUrl(hit.url)
           :live-state="liveState"
           :live-status-label="liveStatusLabel"
           :live-status-tone-class="liveStatusToneClass"
-          :connection-mode="connectionMode"
           :realtime-logs="realtimeLogs"
-          :display-realtime-lines="displayRealtimeLines"
           :loading="loading"
           :logs="logs"
           :expanded-idx="expandedIdx"
           :format-date="formatDate"
-          :line-tone="lineTone"
           @toggle-expand="toggleExpand"
-          @set-log-container="logContainer = $event"
         />
       </div>
     </div>

@@ -37,7 +37,6 @@ const sharedLiveFailureCategory = ref('')
 const sharedLiveState = ref('')
 const sharedLiveStatusLabel = ref('')
 const sharedLiveStatusToneClass = ref('')
-const sharedConnectionMode = ref('closed')
 const sharedConnectionState = ref<'connected' | 'reconnecting' | 'polling' | 'closed'>('closed')
 const sharedConnectionStateText = ref('')
 const sharedRetryAttempt = ref(0)
@@ -61,7 +60,6 @@ vi.mock('../composables/useTaskRunStream', () => ({
     liveState: sharedLiveState,
     liveStatusLabel: sharedLiveStatusLabel,
     liveStatusToneClass: sharedLiveStatusToneClass,
-    connectionMode: sharedConnectionMode,
     connectionState: sharedConnectionState,
     connectionStateText: sharedConnectionStateText,
     retryAttempt: sharedRetryAttempt,

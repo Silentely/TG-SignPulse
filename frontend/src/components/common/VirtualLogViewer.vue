@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, onMounted } from 'vue'
 
 const props = withDefaults(
   defineProps<{
@@ -80,6 +80,15 @@ watch(
     }
   }
 )
+
+// 挂载时若已有日志（如切回历史 Tab、任务已结束），直接定位到最新尾部；
+// watch 在 setup 期触发时 containerRef 尚未绑定，无法覆盖这一场景。
+// 同步执行（onMounted 时 DOM 已就绪），避免与外部 nextTick 滚动竞争。
+onMounted(() => {
+  if (props.autoScroll && props.lines.length > 0) {
+    scrollToBottom()
+  }
+})
 
 function defaultLineTone(text: string): string {
   const s = String(text || '').toLowerCase()

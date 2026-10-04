@@ -39,10 +39,14 @@ def test_session_string_file_encryption_and_fail_closed(tmp_path: Path):
     # 3. Fail-closed: SecretKeyError must NOT write plaintext file
     bad_acc = "acc_bad_sec"
     target_file = tmp_path / f"{bad_acc}.session_string"
-    with patch("tg_signer.security.encrypt_secret", side_effect=SecretKeyError("No secret key")):
+    with patch(
+        "tg_signer.security.encrypt_secret", side_effect=SecretKeyError("No secret key")
+    ):
         with pytest.raises(SecretKeyError):
             save_session_string_file(tmp_path, bad_acc, valid_session)
-    assert not target_file.exists(), "Target file must not be created on encryption failure!"
+    assert not target_file.exists(), (
+        "Target file must not be created on encryption failure!"
+    )
 
     # 4. Legacy plaintext auto-migrates atomically
     plain_acc = "acc_legacy"
@@ -57,7 +61,9 @@ def test_session_string_file_encryption_and_fail_closed(tmp_path: Path):
     fail_acc = "acc_fail_migration"
     fail_file = tmp_path / f"{fail_acc}.session_string"
     fail_file.write_text(valid_session, encoding="utf-8")
-    with patch("tg_signer.security.encrypt_secret", side_effect=SecretKeyError("key missing")):
+    with patch(
+        "tg_signer.security.encrypt_secret", side_effect=SecretKeyError("key missing")
+    ):
         with pytest.raises(SecretKeyError):
             load_session_string_file(tmp_path, fail_acc)
     assert fail_file.read_text(encoding="utf-8") == valid_session
@@ -67,7 +73,9 @@ def test_session_string_file_encryption_and_fail_closed(tmp_path: Path):
     save_session_string_file(tmp_path, enc_acc, valid_session)
     enc_file = tmp_path / f"{enc_acc}.session_string"
     orig_content = enc_file.read_text(encoding="utf-8")
-    with patch("tg_signer.security.decrypt_secret", side_effect=SecretKeyError("key missing")):
+    with patch(
+        "tg_signer.security.decrypt_secret", side_effect=SecretKeyError("key missing")
+    ):
         with pytest.raises(SecretKeyError):
             load_session_string_file(tmp_path, enc_acc)
     assert enc_file.exists(), "Encrypted file must not be deleted on SecretKeyError!"

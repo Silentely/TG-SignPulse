@@ -190,20 +190,27 @@ async def test_runner_phases_lifecycle_transitions():
     assert ctx.phase == TaskPhase.STARTING
 
     # Step through acquire lock -> run_task
-    with patch(
-        "backend.services.sign_task_runner._runner_setup_logging", new_callable=AsyncMock
-    ), patch(
-        "backend.services.sign_task_runner._runner_resolve_credentials",
-        new_callable=AsyncMock,
-    ), patch(
-        "backend.services.sign_task_runner._runner_instantiate_signer",
-        new_callable=AsyncMock,
-    ), patch(
-        "backend.services.sign_task_runner._runner_prepare_execution",
-        new_callable=AsyncMock,
-    ), patch(
-        "backend.services.sign_task_runner._runner_execute_with_retry",
-        new_callable=AsyncMock,
+    with (
+        patch(
+            "backend.services.sign_task_runner._runner_setup_logging",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "backend.services.sign_task_runner._runner_resolve_credentials",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "backend.services.sign_task_runner._runner_instantiate_signer",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "backend.services.sign_task_runner._runner_prepare_execution",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "backend.services.sign_task_runner._runner_execute_with_retry",
+            new_callable=AsyncMock,
+        ),
     ):
         await _runner_acquire_lock(ctx)
 
@@ -248,20 +255,27 @@ async def test_runner_phases_lifecycle_transitions_failed():
         account_lock=account_lock,
     )
 
-    with patch(
-        "backend.services.sign_task_runner._runner_setup_logging", new_callable=AsyncMock
-    ), patch(
-        "backend.services.sign_task_runner._runner_resolve_credentials",
-        new_callable=AsyncMock,
-    ), patch(
-        "backend.services.sign_task_runner._runner_instantiate_signer",
-        new_callable=AsyncMock,
-    ), patch(
-        "backend.services.sign_task_runner._runner_prepare_execution",
-        new_callable=AsyncMock,
-    ), patch(
-        "backend.services.sign_task_runner._runner_execute_with_retry",
-        new_callable=AsyncMock,
+    with (
+        patch(
+            "backend.services.sign_task_runner._runner_setup_logging",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "backend.services.sign_task_runner._runner_resolve_credentials",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "backend.services.sign_task_runner._runner_instantiate_signer",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "backend.services.sign_task_runner._runner_prepare_execution",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "backend.services.sign_task_runner._runner_execute_with_retry",
+            new_callable=AsyncMock,
+        ),
     ):
         await _runner_acquire_lock(ctx)
 
@@ -306,20 +320,27 @@ async def test_runner_phases_lifecycle_transitions_cancelled():
         account_lock=account_lock,
     )
 
-    with patch(
-        "backend.services.sign_task_runner._runner_setup_logging", new_callable=AsyncMock
-    ), patch(
-        "backend.services.sign_task_runner._runner_resolve_credentials",
-        new_callable=AsyncMock,
-    ), patch(
-        "backend.services.sign_task_runner._runner_instantiate_signer",
-        new_callable=AsyncMock,
-    ), patch(
-        "backend.services.sign_task_runner._runner_prepare_execution",
-        new_callable=AsyncMock,
-    ), patch(
-        "backend.services.sign_task_runner._runner_execute_with_retry",
-        new_callable=AsyncMock,
+    with (
+        patch(
+            "backend.services.sign_task_runner._runner_setup_logging",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "backend.services.sign_task_runner._runner_resolve_credentials",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "backend.services.sign_task_runner._runner_instantiate_signer",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "backend.services.sign_task_runner._runner_prepare_execution",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "backend.services.sign_task_runner._runner_execute_with_retry",
+            new_callable=AsyncMock,
+        ),
     ):
         await _runner_acquire_lock(ctx)
 
@@ -334,3 +355,38 @@ async def test_runner_phases_lifecycle_transitions_cancelled():
         await _runner_finalize(ctx)
 
     assert ctx.phase == TaskPhase.CANCELLED
+
+
+def test_task_context_early_exit_finishes_to_terminal():
+    """启动阶段即失败（未到 RUNNING）也能落终态。
+
+    回归：早期 _runner_finalize 只在 phase==RUNNING 时推进 FINALIZING，
+    导致配置加载失败等早退路径的 ctx 永远停在 STARTING/WAITING_LOCK。
+    """
+    # STARTING 直接收尾
+    ctx = TaskExecutionContext(account_name="acc1", task_name="task1")
+    ctx.start_finalizing()
+    assert ctx.phase == TaskPhase.FINALIZING
+    ctx.finish(cancelled=False, success=False)
+    assert ctx.phase == TaskPhase.FAILED
+
+    # WAITING_LOCK 收尾（如锁等待中被取消）
+    ctx2 = TaskExecutionContext(account_name="acc1", task_name="task1")
+    ctx2.transition_to(TaskPhase.WAITING_LOCK)
+    ctx2.start_finalizing()
+    ctx2.finish(cancelled=True, success=False)
+    assert ctx2.phase == TaskPhase.CANCELLED
+
+
+def test_task_context_finish_requires_finalizing():
+    """未进入 FINALIZING 直接 finish 应抛错；已终态则幂等。"""
+    ctx = TaskExecutionContext(account_name="acc1", task_name="task1")
+    with pytest.raises(ValueError):
+        ctx.finish(cancelled=False, success=False)
+
+    ctx.start_finalizing()
+    ctx.finish(cancelled=False, success=True)
+    assert ctx.phase == TaskPhase.FINISHED
+    # 终态幂等
+    ctx.finish(cancelled=True, success=False)
+    assert ctx.phase == TaskPhase.FINISHED

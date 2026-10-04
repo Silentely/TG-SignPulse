@@ -53,7 +53,10 @@ async def test_runner_finalize_records_structured_errors():
         "success": True,
         "lock_acquired": False,
     }
-    with patch("backend.services.sign_task_runner._runner_save_run_info", side_effect=IOError("Disk full")):
+    with patch(
+        "backend.services.sign_task_runner._runner_save_run_info",
+        side_effect=IOError("Disk full"),
+    ):
         await _runner_finalize(state)
         assert state.get("persistence_error", {}).get("message") == "Disk full"
         assert state.get("persistence_error", {}).get("type") == "IOError"
@@ -64,14 +67,18 @@ async def test_runner_finalize_records_persistence_error(base_state):
     state = base_state
     start_time = time.time()
 
-    with patch(
-        "backend.services.sign_task_runner._runner_save_run_info",
-        side_effect=IOError("Disk full"),
-    ), patch(
-        "backend.services.sign_task_runner._runner_send_notifications",
-    ) as mock_send_notifications, patch(
-        "backend.services.sign_task_runner._service_logger.error",
-    ) as mock_log_error:
+    with (
+        patch(
+            "backend.services.sign_task_runner._runner_save_run_info",
+            side_effect=IOError("Disk full"),
+        ),
+        patch(
+            "backend.services.sign_task_runner._runner_send_notifications",
+        ) as mock_send_notifications,
+        patch(
+            "backend.services.sign_task_runner._service_logger.error",
+        ) as mock_log_error,
+    ):
         await _runner_finalize(state)
 
         # Assert persistence_error is captured
@@ -95,14 +102,18 @@ async def test_runner_finalize_records_notification_error(base_state):
     state = base_state
     start_time = time.time()
 
-    with patch(
-        "backend.services.sign_task_runner._runner_save_run_info",
-    ) as mock_save_run_info, patch(
-        "backend.services.sign_task_runner._runner_send_notifications",
-        side_effect=RuntimeError("Notification network timeout"),
-    ), patch(
-        "backend.services.sign_task_runner._service_logger.error",
-    ) as mock_log_error:
+    with (
+        patch(
+            "backend.services.sign_task_runner._runner_save_run_info",
+        ) as mock_save_run_info,
+        patch(
+            "backend.services.sign_task_runner._runner_send_notifications",
+            side_effect=RuntimeError("Notification network timeout"),
+        ),
+        patch(
+            "backend.services.sign_task_runner._service_logger.error",
+        ) as mock_log_error,
+    ):
         await _runner_finalize(state)
 
         # Persistence succeeded
@@ -127,15 +138,19 @@ async def test_runner_finalize_records_notification_error(base_state):
 async def test_runner_finalize_records_both_errors(base_state):
     state = base_state
 
-    with patch(
-        "backend.services.sign_task_runner._runner_save_run_info",
-        side_effect=IOError("Disk failure"),
-    ), patch(
-        "backend.services.sign_task_runner._runner_send_notifications",
-        side_effect=ValueError("Invalid webhook"),
-    ), patch(
-        "backend.services.sign_task_runner._service_logger.error",
-    ) as mock_log_error:
+    with (
+        patch(
+            "backend.services.sign_task_runner._runner_save_run_info",
+            side_effect=IOError("Disk failure"),
+        ),
+        patch(
+            "backend.services.sign_task_runner._runner_send_notifications",
+            side_effect=ValueError("Invalid webhook"),
+        ),
+        patch(
+            "backend.services.sign_task_runner._service_logger.error",
+        ) as mock_log_error,
+    ):
         await _runner_finalize(state)
 
         assert state.get("persistence_error", {}).get("message") == "Disk failure"
@@ -148,17 +163,22 @@ async def test_runner_finalize_records_both_errors(base_state):
 
 
 @pytest.mark.asyncio
-async def test_runner_finalize_cancelled_skips_persistence_and_notifications(base_state):
+async def test_runner_finalize_cancelled_skips_persistence_and_notifications(
+    base_state,
+):
     state = base_state
     state["cancelled"] = True
 
-    with patch(
-        "backend.services.sign_task_runner._runner_save_run_info",
-        side_effect=IOError("Should not be called"),
-    ) as mock_save, patch(
-        "backend.services.sign_task_runner._runner_send_notifications",
-        side_effect=RuntimeError("Should not be called"),
-    ) as mock_notify:
+    with (
+        patch(
+            "backend.services.sign_task_runner._runner_save_run_info",
+            side_effect=IOError("Should not be called"),
+        ) as mock_save,
+        patch(
+            "backend.services.sign_task_runner._runner_send_notifications",
+            side_effect=RuntimeError("Should not be called"),
+        ) as mock_notify,
+    ):
         await _runner_finalize(state)
 
         mock_save.assert_not_called()
@@ -166,3 +186,45 @@ async def test_runner_finalize_cancelled_skips_persistence_and_notifications(bas
         assert "persistence_error" not in state
         assert "notification_error" not in state
         assert state["svc"]._active_tasks[state["task_key"]] is False
+
+
+def test_run_status_exposes_finalize_errors():
+    """收尾异常必须写入运行状态并跨 phase 刷新保留。"""
+    from backend.services.sign_tasks import get_sign_task_service
+
+    svc = get_sign_task_service()
+    task_key = ("acc-err", "task-err")
+    svc._run_statuses.pop(task_key, None)
+    svc._active_logs.pop(task_key, None)
+    try:
+        svc._set_run_status("acc-err", "task-err", run_id="r1", state="running")
+        svc._set_run_status(
+            "acc-err",
+            "task-err",
+            run_id="r1",
+            state="finished",
+            success=False,
+            persistence_error={
+                "message": "Disk full",
+                "type": "IOError",
+                "timestamp": 1.0,
+            },
+            notification_error={
+                "message": "Bad webhook",
+                "type": "ValueError",
+                "timestamp": 2.0,
+            },
+        )
+        status = svc.get_task_run_status("acc-err", "task-err")
+        assert status.get("persistence_error", {}).get("message") == "Disk full"
+        assert status.get("notification_error", {}).get("type") == "ValueError"
+
+        # phase 丢失后刷新不得清空收尾异常
+        svc._set_run_status(
+            "acc-err", "task-err", run_id="r1", state="running", phase="RUNNING"
+        )
+        status2 = svc.get_task_run_status("acc-err", "task-err")
+        assert status2.get("persistence_error", {}).get("message") == "Disk full"
+    finally:
+        svc._run_statuses.pop(task_key, None)
+        svc._active_logs.pop(task_key, None)

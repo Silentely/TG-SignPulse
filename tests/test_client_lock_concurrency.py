@@ -39,6 +39,7 @@ def test_client_lock_distinct_loops_separate():
 @pytest.mark.asyncio
 async def test_client_lock_weakref_and_isolation():
     """Garbage collecting a closed event loop automatically cleans up its lock registry without memory leaks."""
+
     def _create_and_destroy_loop():
         loop = asyncio.new_event_loop()
         ref = weakref.ref(loop)

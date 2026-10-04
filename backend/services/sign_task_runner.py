@@ -215,10 +215,12 @@ async def _runner_setup_logging(state: TaskExecutionContext | Dict[str, Any]) ->
     """Phase 4: 配置 TaskLogHandler 将日志注入 active_logs。"""
     svc: SignTaskService = state["svc"]
     task_key = state["task_key"]
+    run_id = state.get("run_id")
     tg_logger = logging.getLogger("tg-signer")
     log_handler = state["TaskLogHandler"](
         svc._active_logs[task_key],
         max_lines=svc.MAX_ACTIVE_LOG_LINES,
+        sink=lambda line: svc._append_active_log(task_key, line, run_id),
     )
     log_handler.setLevel(logging.INFO)
     log_handler.setFormatter(logging.Formatter("%(asctime)s - %(message)s"))
@@ -884,8 +886,9 @@ async def _runner_finalize(state: TaskExecutionContext | Dict[str, Any]) -> None
             phase=PHASE_FINALIZING,
             phase_detail="写入执行历史",
         )
-    if isinstance(state, TaskExecutionContext) and state.phase == TaskPhase.RUNNING:
-        state.transition_to(TaskPhase.FINALIZING)
+    if isinstance(state, TaskExecutionContext):
+        # 兼容启动阶段即失败/取消的早退路径：保证终态可达（详见 start_finalizing）
+        state.start_finalizing()
 
     if log_handler is not None and tg_logger is not None:
         tg_logger.removeHandler(log_handler)
@@ -978,16 +981,8 @@ async def _runner_finalize(state: TaskExecutionContext | Dict[str, Any]) -> None
                     with contextlib.suppress(Exception):
                         await app.stop()
 
-        if (
-            isinstance(state, TaskExecutionContext)
-            and state.phase == TaskPhase.FINALIZING
-        ):
-            if state.cancelled:
-                state.transition_to(TaskPhase.CANCELLED)
-            elif state.success:
-                state.transition_to(TaskPhase.FINISHED)
-            else:
-                state.transition_to(TaskPhase.FAILED)
+        if isinstance(state, TaskExecutionContext):
+            state.finish(cancelled=state.cancelled, success=state.success)
 
 
 # ========== Main orchestrator ==========
@@ -1110,8 +1105,11 @@ async def execute_sign_task(
         "error": ctx.error_msg,
         "timed_out": ctx.timed_out,
         "failure_category": ctx.failure_category,
+        # 收尾阶段的结构化异常，供调用方写入运行记录便于面板排障
+        "persistence_error": ctx.persistence_error,
+        "notification_error": ctx.notification_error,
     }
 
 
-# Main runner orchestrator loop alias
+# 兼容旧调用名：部分外部集成按 _runner_loop 引用主编排入口
 _runner_loop = execute_sign_task

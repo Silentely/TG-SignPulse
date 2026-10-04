@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick } from 'vue'
 import { mockI18nPassthrough } from './composable-test-utils'
 
 vi.mock('../composables/useI18n', () => ({
@@ -94,12 +94,10 @@ describe('useTaskRunStream', () => {
       enableJitter?: boolean
     },
   ) {
-    const logContainer = ref<HTMLElement | null>(null)
     const stream = useTaskRunStream({
       taskName: computed(() => 'task-a'),
       accountName: computed(() => 'acc-a'),
       runAccount: computed(() => runAccount),
-      logContainer,
       ...extraOptions,
     })
     return stream
@@ -254,10 +252,11 @@ describe('useTaskRunStream', () => {
     expect(pollHandles).toHaveLength(0)
   })
 
-  it('falls back to polling on error when runAccount set', async () => {
+  it('falls back to polling on error when retries are exhausted', async () => {
     api.getSignTaskLogs.mockResolvedValue(['poll-line'])
     api.getSignTaskRunStatus.mockResolvedValue({ state: 'running', phase: 'running' })
-    const stream = setup('acc-a')
+    // maxRetries=0：首次失败即降级轮询，聚焦轮询行为本身
+    const stream = setup('acc-a', { maxRetries: 0 })
     await stream.connect()
     MockWebSocket.instances[0].onerror?.({})
     expect(pollHandles.length).toBeGreaterThan(0)
@@ -265,10 +264,47 @@ describe('useTaskRunStream', () => {
     expect(stream.realtimeLogs.value).toEqual(['poll-line'])
   })
 
+  it('first drop enters exponential backoff instead of jumping to polling', async () => {
+    vi.useFakeTimers()
+    const stream = setup('acc-a')
+    await stream.connect()
+    MockWebSocket.instances[0].onopen?.({})
+
+    // 浏览器真实事件序：先 error 后 close，只应计一次重试
+    MockWebSocket.instances[0].onerror?.({})
+    MockWebSocket.instances[0].onclose?.({})
+
+    expect(stream.connectionState.value).toBe('reconnecting')
+    expect(stream.connectionMode.value).toBe('connecting')
+    expect(stream.retryAttempt.value).toBe(1)
+    expect(pollHandles).toHaveLength(0)
+
+    vi.useRealTimers()
+  })
+
+  it('reconnect attempt preserves accumulated realtime logs', async () => {
+    vi.useFakeTimers()
+    const stream = setup('acc-a')
+    await stream.connect()
+    const ws = MockWebSocket.instances[0]
+    ws.emitMessage({ type: 'logs', data: ['keep-line'], is_running: true })
+    expect(stream.realtimeLogs.value).toEqual(['keep-line'])
+
+    // 掉线触发退避，随后定时器驱动重连
+    ws.onclose?.({})
+    expect(stream.connectionState.value).toBe('reconnecting')
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(MockWebSocket.instances).toHaveLength(2)
+    expect(stream.realtimeLogs.value).toEqual(['keep-line'])
+
+    vi.useRealTimers()
+  })
+
   it('polling stops when status not running', async () => {
     api.getSignTaskLogs.mockResolvedValue([])
     api.getSignTaskRunStatus.mockResolvedValue({ state: 'finished' })
-    const stream = setup('acc-a')
+    const stream = setup('acc-a', { maxRetries: 0 })
     await stream.connect()
     MockWebSocket.instances[0].onerror?.({})
     const handle = pollHandles[0]
@@ -306,7 +342,7 @@ describe('useTaskRunStream', () => {
   it('polling skips requests while tab hidden', async () => {
     api.getSignTaskLogs.mockResolvedValue(['hidden-line'])
     api.getSignTaskRunStatus.mockResolvedValue({ state: 'running', phase: 'running' })
-    const stream = setup('acc-a')
+    const stream = setup('acc-a', { maxRetries: 0 })
     await stream.connect()
     MockWebSocket.instances[0].onerror?.({})
     const handle = pollHandles[0]
@@ -342,7 +378,7 @@ describe('useTaskRunStream', () => {
   })
 
   it('tracks connectionMode through connecting -> websocket -> polling -> closed lifecycle', async () => {
-    const stream = setup('acc-a')
+    const stream = setup('acc-a', { maxRetries: 0 })
     expect(stream.connectionMode.value).toBe('closed')
 
     const connectPromise = stream.connect()
@@ -370,7 +406,7 @@ describe('useTaskRunStream', () => {
     api.getSignTaskLogs.mockReturnValueOnce(pendingLogs)
     api.getSignTaskRunStatus.mockResolvedValueOnce({ state: 'running', phase: 'running' })
 
-    const stream = setup('acc-a')
+    const stream = setup('acc-a', { maxRetries: 0 })
     await stream.connect()
     MockWebSocket.instances[0].onerror?.({})
     expect(pollHandles).toHaveLength(1)

@@ -1,7 +1,7 @@
 /**
  * 签到日志弹窗：WebSocket 实时流 + HTTP 轮询降级。
  */
-import { ref, nextTick, computed, onScopeDispose, getCurrentScope, type Ref, type ComputedRef } from 'vue'
+import { ref, computed, onScopeDispose, getCurrentScope, type ComputedRef } from 'vue'
 import {
   getSignTaskLogs,
   getSignTaskRunStatus,
@@ -53,7 +53,6 @@ export function useTaskRunStream(options: {
   accountName: ComputedRef<string>
   /** 打开时若带 runAccount，视为本次执行中 */
   runAccount: ComputedRef<string | undefined>
-  logContainer: Ref<HTMLElement | null>
   maxRetries?: number
   baseDelayMs?: number
   maxDelayMs?: number
@@ -85,6 +84,27 @@ export function useTaskRunStream(options: {
   // 换票返回后必须核对世代，旧一代直接放弃建连，避免关闭或切换任务后
   // 仍开出孤儿 WebSocket，令日志重复、isRunning 被错误复活。
   let connectGeneration = 0
+
+  // 同一次物理断连只处理一次：浏览器通常先触发 onerror 再触发 onclose，
+  // 若两者都调度重连会把一次失败计成两次（退避步长翻倍、重试次数减半）。
+  let failureHandled = false
+
+  // 上次收到的流位置：重连时携带 after_seq/run_id 续传，避免服务端
+  // 从 seq=0 全量重放导致已保留的日志重复
+  let lastSeq: number | undefined
+  let lastRunId: string | undefined
+
+  const handleSocketFailure = () => {
+    if (failureHandled) return
+    failureHandled = true
+    if (isRunning.value && options.runAccount.value) {
+      // 统一走指数退避；达到 maxRetries 后由 scheduleReconnect 降级为轮询
+      scheduleReconnect()
+      return
+    }
+    connectionMode.value = 'closed'
+    connectionState.value = 'closed'
+  }
 
   const connectionStateText = computed(() => {
     switch (connectionState.value) {
@@ -131,14 +151,6 @@ export function useTaskRunStream(options: {
       }),
     ),
   )
-
-  const scrollLogToBottom = () => {
-    nextTick(() => {
-      if (options.logContainer.value) {
-        options.logContainer.value.scrollTop = options.logContainer.value.scrollHeight
-      }
-    })
-  }
 
   const clearReconnectTimer = () => {
     if (reconnectTimer) {
@@ -209,7 +221,6 @@ export function useTaskRunStream(options: {
         const data = logsResult.value
         if (Array.isArray(data) && data.length > 0) {
           realtimeLogs.value = data
-          scrollLogToBottom()
         }
       }
       if (statusResult.status === 'fulfilled') {
@@ -228,6 +239,9 @@ export function useTaskRunStream(options: {
     const name = options.taskName.value
     if (!name) return
     const gen = ++connectGeneration
+    failureHandled = false
+    // 由退避定时器驱动的重连尝试保留既有日志与实时状态；首次建连才清空
+    const isReconnectAttempt = connectionState.value === 'reconnecting'
     if (ws) {
       const socket = ws
       ws = null
@@ -239,7 +253,7 @@ export function useTaskRunStream(options: {
     }
     stopPolling()
     clearReconnectTimer()
-    if (connectionState.value !== 'reconnecting') {
+    if (!isReconnectAttempt) {
       retryAttempt.value = 0
       backoffDelayMs.value = 0
     }
@@ -278,14 +292,25 @@ export function useTaskRunStream(options: {
     const wsProtocol =
       typeof window !== 'undefined' && window.location?.protocol === 'https:' ? 'wss:' : 'ws:'
     const wsHost = typeof window !== 'undefined' && window.location?.host ? window.location.host : ''
-    const wsUrl = `${wsProtocol}//${wsHost}/api/sign-tasks/ws/${taskName}?ticket=${encodeURIComponent(ticket)}&account_name=${encodeURIComponent(accountName)}`
+    let wsUrl = `${wsProtocol}//${wsHost}/api/sign-tasks/ws/${taskName}?ticket=${encodeURIComponent(ticket)}&account_name=${encodeURIComponent(accountName)}`
+    // 重连续传：带上次 run_id 与 seq，服务端只回放 seq 之后的事件，
+    // 与保留的 realtimeLogs 衔接而不重复
+    if (isReconnectAttempt && lastRunId) {
+      wsUrl += `&run_id=${encodeURIComponent(lastRunId)}&after_seq=${lastSeq ?? 0}`
+    }
 
-    realtimeLogs.value = []
+    // 首次建连才清空日志与实时状态；重连尝试保留现场，避免用户已看到的日志
+    // 与已展示的 phase 被清空（新连接会通过 status/logs 帧自行补齐）
+    if (!isReconnectAttempt) {
+      realtimeLogs.value = []
+      livePhase.value = runAccount ? 'starting' : null
+      livePhaseDetail.value = ''
+      liveFailureCategory.value = null
+      liveState.value = runAccount ? 'running' : null
+      lastSeq = undefined
+      lastRunId = undefined
+    }
     isRunning.value = !!runAccount
-    livePhase.value = runAccount ? 'starting' : null
-    livePhaseDetail.value = ''
-    liveFailureCategory.value = null
-    liveState.value = runAccount ? 'running' : null
 
     try {
       ws = new WebSocket(wsUrl)
@@ -324,7 +349,9 @@ export function useTaskRunStream(options: {
           const overflow = realtimeLogs.value.length - MAX_REALTIME_LOG_LINES
           if (overflow > 0) realtimeLogs.value.splice(0, overflow)
           isRunning.value = msg.is_running !== false
-          scrollLogToBottom()
+          // 记录续传游标，供重连时携带
+          if (msg.run_id) lastRunId = String(msg.run_id)
+          if (typeof msg.seq === 'number') lastSeq = msg.seq
         } else if (msg.type === 'status') {
           isRunning.value = msg.is_running !== false
         } else if (msg.type === 'done') {
@@ -334,6 +361,8 @@ export function useTaskRunStream(options: {
           connectionState.value = 'closed'
           retryAttempt.value = 0
           backoffDelayMs.value = 0
+          lastSeq = undefined
+          lastRunId = undefined
           if (!liveState.value || liveState.value === 'running') {
             liveState.value = msg.state || 'finished'
           }
@@ -344,16 +373,9 @@ export function useTaskRunStream(options: {
     }
     ws.onerror = () => {
       if (gen !== connectGeneration) return
-      if (options.runAccount.value) {
-        if (connectionState.value === 'reconnecting') {
-          scheduleReconnect()
-        } else {
-          isRunning.value = true
-          connectionMode.value = 'polling'
-          connectionState.value = 'polling'
-          startPolling()
-        }
-      }
+      // 与 onclose 共用去重入口：浏览器通常先 error 再 close，
+      // 若各自调度重连会把一次失败计成两次
+      handleSocketFailure()
     }
     ws.onclose = () => {
       if (gen !== connectGeneration) return
@@ -361,12 +383,7 @@ export function useTaskRunStream(options: {
         ws = null
         return
       }
-      if (isRunning.value && options.runAccount.value) {
-        scheduleReconnect()
-      } else {
-        connectionMode.value = 'closed'
-        connectionState.value = 'closed'
-      }
+      handleSocketFailure()
       ws = null
     }
   }

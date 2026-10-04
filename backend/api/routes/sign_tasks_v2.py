@@ -245,6 +245,8 @@ class RunTaskResultBase(BaseModel):
     failure_category: Optional[str] = None
     timeout_seconds: Optional[float] = None
     retry_count_effective: Optional[int] = None
+    persistence_error: Optional[Dict[str, Any]] = None
+    notification_error: Optional[Dict[str, Any]] = None
 
 
 class RunTaskStartResult(RunTaskResultBase):
@@ -884,7 +886,9 @@ async def sign_task_logs_ws(
             pass
         return {}
 
-    def _build_status_payload(run_status: dict[str, Any], is_running: bool) -> dict[str, Any]:
+    def _build_status_payload(
+        run_status: dict[str, Any], is_running: bool
+    ) -> dict[str, Any]:
         return {
             "phase": run_status.get("phase"),
             "phase_detail": run_status.get("phase_detail") or "",
@@ -908,8 +912,10 @@ async def sign_task_logs_ws(
         after_seq=0 if after_seq is None else after_seq,
     )
 
-    # 兜底：如果 after_seq is None 且 queue 为空，但已有 active_logs，补发历史日志
-    if after_seq is None and queue.empty():
+    # 兜底：广播器历史为空（如被 max_streams 淘汰）时补发内存中的实时日志。
+    # 仅在已确定 run_id 时补发，避免把“上一次运行”的遗留 active_logs 当作
+    # 本次运行的日志推给订阅空 run_id 的新连接。
+    if after_seq is None and queue.empty() and target_run_id:
         init_logs = get_sign_task_service().get_active_logs(
             task_name,
             account_name=effective_account,
@@ -1008,25 +1014,25 @@ async def sign_task_logs_ws(
                 )
                 last_seq = event.get("seq")
                 while not queue.empty():
-                    peek = (
-                        queue._queue[0]
-                        if hasattr(queue, "_queue") and queue._queue
-                        else None
-                    )
-                    if peek and peek.get("type", "logs") in ("logs", "log"):
+                    # 不依赖 asyncio.Queue 私有属性：取出队首判定类型，
+                    # 日志事件消费合并，非日志事件原样放回交由主循环处理
+                    try:
                         next_evt = queue.get_nowait()
-                        nxt_lines = (
-                            next_evt.get("data")
-                            or (
-                                [next_evt.get("text")]
-                                if next_evt.get("text") is not None
-                                else []
-                            )
-                        )
-                        lines.extend(nxt_lines)
-                        last_seq = next_evt.get("seq")
-                    else:
+                    except asyncio.QueueEmpty:
                         break
+                    if next_evt.get("type", "logs") not in ("logs", "log"):
+                        try:
+                            queue.put_nowait(next_evt)
+                        except asyncio.QueueFull:
+                            pass
+                        break
+                    nxt_lines = next_evt.get("data") or (
+                        [next_evt.get("text")]
+                        if next_evt.get("text") is not None
+                        else []
+                    )
+                    lines.extend(nxt_lines)
+                    last_seq = next_evt.get("seq")
 
                 is_running = get_sign_task_service().is_task_running(
                     task_name,

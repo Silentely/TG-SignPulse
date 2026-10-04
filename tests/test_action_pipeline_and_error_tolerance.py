@@ -241,7 +241,8 @@ async def test_click_inline_button_unified_variations():
     assert any("Message.click 无法确认按钮回调" in m[1] for m in logs)
 
     logs.clear()
-    msg.click = AsyncMock(side_effect=errors.RPCError("MESSAGE_ID_INVALID DATA_INVALID"))
+    msg.click = AsyncMock(
+        side_effect=errors.RPCError("MESSAGE_ID_INVALID DATA_INVALID")
+    )
     assert await click_inline_button_unified(msg, btn, log_func=mock_log) is False
     assert any("也无法确认按钮回调" in m[1] for m in logs)
-

@@ -18,19 +18,15 @@ defineProps<{
   liveState: string | null
   liveStatusLabel: string
   liveStatusToneClass: string
-  connectionMode?: 'connecting' | 'websocket' | 'polling' | 'closed'
   realtimeLogs: string[]
-  displayRealtimeLines: string[]
   loading: boolean
   logs: SignTaskHistoryItem[]
   expandedIdx: number | null
   formatDate: (dateStr: string) => string
-  lineTone: (text: string) => string
 }>()
 
 const emit = defineEmits<{
   (e: 'toggle-expand', idx: number): void
-  (e: 'set-log-container', el: HTMLElement | null): void
 }>()
 
 /** 历史条目无后端 id，用 账号+时间+结果 组合稳定键 */
@@ -63,13 +59,6 @@ const extractPluginFromLog = (log: SignTaskHistoryItem): { pluginName?: string; 
   >
     <span class="font-medium">{{ formatPhaseDetail({ phase: livePhase, phase_detail: livePhaseDetail }, t) || liveStatusLabel }}</span>
     <span v-if="liveState && liveState !== 'running'" class="opacity-80">· {{ stateLabel(liveState, t) }}</span>
-    <span
-      v-if="connectionMode && connectionMode !== 'closed'"
-      class="text-[10px] px-1.5 py-0.5 rounded font-mono tracking-tight"
-      :class="connectionMode === 'websocket' ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300' : connectionMode === 'polling' ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300' : 'bg-sky-500/20 text-sky-700 dark:text-sky-300'"
-    >
-      {{ connectionMode === 'websocket' ? t('taskLogs.modeWs') : connectionMode === 'polling' ? t('taskLogs.modePolling') : t('taskLogs.modeConnecting') }}
-    </span>
   </div>
 
   <!-- Loading / empty -->

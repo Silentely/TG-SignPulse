@@ -172,6 +172,8 @@ export interface SignTaskRunStatus {
   failure_category?: string | null;
   timeout_seconds?: number | null;
   retry_count_effective?: number | null;
+  persistence_error?: { message?: string; type?: string; timestamp?: number } | null;
+  notification_error?: { message?: string; type?: string; timestamp?: number } | null;
 }
 
 export const startSignTaskRun = (token: string, name: string, accountName: string) =>

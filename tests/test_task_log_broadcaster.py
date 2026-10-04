@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
@@ -32,7 +34,9 @@ async def test_task_log_broadcaster_isolation_and_replay():
     # Publish to main key
     await broadcaster.publish(key_main, {"seq": 1, "text": "log 1"})
     await broadcaster.publish(key_main, {"seq": 2, "text": "log 2"})
-    await broadcaster.publish(key_main, {"seq": 3, "text": "log 3"})  # triggers drop in q_main
+    await broadcaster.publish(
+        key_main, {"seq": 3, "text": "log 3"}
+    )  # triggers drop in q_main
 
     # Triplet isolation verification
     assert q_diff_acc.empty(), "Leaked to different account!"
@@ -87,7 +91,7 @@ async def test_task_log_broadcaster_does_not_exceed_history_stream_cap():
     assert len(broadcaster._history) == 2
     assert not broadcaster._history.get(active_keys[2])
 
-    for key, queue in zip(active_keys, queues):
+    for key, queue in zip(active_keys, queues, strict=True):
         broadcaster.unsubscribe(key, queue)
 
 
@@ -131,7 +135,9 @@ async def test_sign_task_service_append_active_log_publishes_event():
     run_id = "run_abc"
     svc._set_run_status("my_account", "my_task", run_id=run_id, state="running")
 
-    stream_key = StreamKey(account_name="my_account", task_name="my_task", run_id=run_id)
+    stream_key = StreamKey(
+        account_name="my_account", task_name="my_task", run_id=run_id
+    )
     queue = broadcaster.subscribe(stream_key)
 
     try:
@@ -155,7 +161,9 @@ async def test_sign_task_service_append_active_log_publishes_event():
 def test_sign_task_logs_ws_unauthorized():
     client = TestClient(app)
     with pytest.raises(WebSocketDisconnect) as exc_info:
-        with client.websocket_connect("/api/sign-tasks/ws/test_task?ticket=invalid_ticket"):
+        with client.websocket_connect(
+            "/api/sign-tasks/ws/test_task?ticket=invalid_ticket"
+        ):
             pass
     assert exc_info.value.code == 1008
 
@@ -178,7 +186,9 @@ def test_sign_task_logs_ws_streaming_and_disconnect():
     )
 
     broadcaster = get_task_log_broadcaster()
-    stream_key = StreamKey(account_name=account_name, task_name=task_name, run_id=run_id)
+    stream_key = StreamKey(
+        account_name=account_name, task_name=task_name, run_id=run_id
+    )
 
     url = f"/api/sign-tasks/ws/{task_name}?ticket={ticket}&account_name={account_name}&run_id={run_id}"
     with client.websocket_connect(url) as ws:
@@ -205,3 +215,99 @@ def test_sign_task_logs_ws_streaming_and_disconnect():
 
     # After websocket closes, subscriber should be cleaned up
     assert not broadcaster.has_subscribers(stream_key)
+
+
+def test_task_log_handler_sink_publishes_real_execution_logs():
+    """TaskLogHandler 经 sink 走 _append_active_log，执行日志必须进广播器。
+
+    回归：早期 TaskLogHandler.emit 直接 append 列表，绕过广播器，
+    导致 WebSocket 实时流只推编排日志、拿不到真正的执行日志。
+    """
+    import logging
+
+    from backend.services.sign_task_backend import TaskLogHandler
+
+    svc = get_sign_task_service()
+    broadcaster = get_task_log_broadcaster()
+    task_key = ("sink_acc", "sink_task")
+    run_id = "sink_run"
+    svc._active_logs[task_key] = []
+    svc._set_run_status("sink_acc", "sink_task", run_id=run_id, state="running")
+
+    stream_key = StreamKey(
+        account_name="sink_acc", task_name="sink_task", run_id=run_id
+    )
+    queue = broadcaster.subscribe(stream_key)
+    logger = logging.getLogger("tg-signer-sink-test")
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    handler = TaskLogHandler(
+        svc._active_logs[task_key],
+        max_lines=2000,
+        sink=lambda line: svc._append_active_log(task_key, line, run_id),
+    )
+    logger.addHandler(handler)
+    try:
+        logger.info("real execution log via sink")
+    finally:
+        logger.removeHandler(handler)
+
+    try:
+        assert svc._active_logs[task_key][-1] == "real execution log via sink"
+        assert not queue.empty(), "handler 日志未进入广播器"
+        event = queue.get_nowait()
+        assert event["type"] == "logs"
+        assert "real execution log via sink" in event["data"]
+        assert event["run_id"] == run_id
+    finally:
+        broadcaster.unsubscribe(stream_key, queue)
+
+
+def test_task_log_handler_without_sink_keeps_legacy_list_behavior():
+    """未传 sink 时保持旧行为：仅写入列表，供既有调用方使用。"""
+    import logging
+
+    from backend.services.sign_task_backend import TaskLogHandler
+
+    logs: list[str] = []
+    logger = logging.getLogger("tg-signer-legacy-test")
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    handler = TaskLogHandler(logs, max_lines=2)
+    logger.addHandler(handler)
+    try:
+        logger.info("l1")
+        logger.info("l2")
+        logger.info("l3")
+    finally:
+        logger.removeHandler(handler)
+
+    assert len(logs) == 2
+    assert logs[-1] == "l3"
+
+
+@pytest.mark.asyncio
+async def test_publish_from_worker_thread_delivers_to_subscriber():
+    """跨线程发布（如同步取消路由走 threadpool）必须投递到订阅队列。"""
+    import threading
+
+    broadcaster = TaskLogBroadcaster(max_queue_size=10)
+    key = StreamKey(account_name="thr_acc", task_name="thr_task", run_id="thr_run")
+    queue = broadcaster.subscribe(key)
+
+    done = threading.Event()
+
+    def worker():
+        broadcaster.publish_nowait(key, {"type": "logs", "text": "from-worker"})
+        done.set()
+
+    thread = threading.Thread(target=worker)
+    thread.start()
+    thread.join()
+    assert done.is_set()
+
+    # call_soon_threadsafe 需要事件循环转一圈
+    event = await asyncio.wait_for(queue.get(), timeout=2.0)
+    assert event["text"] == "from-worker"
+
+    broadcaster.unsubscribe(key, queue)

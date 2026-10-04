@@ -1,11 +1,57 @@
 import asyncio
 import logging
+import os
+import secrets
+from pathlib import Path
 from typing import Optional
 
 import click
 from click import Context, HelpFormatter
 
 from tg_signer.core import UserSigner, get_proxy
+
+
+def _register_cli_secret_key(workdir: str) -> None:
+    """为 CLI 注册持久化的 APP_SECRET_KEY 提供者。
+
+    CLI 没有 backend 的密钥引导（backend/core/config.py 在启动时注册）；
+    未显式设置 APP_SECRET_KEY 时，在 workdir 下生成并持久化 `.app_secret_key`，
+    与 backend 的自动生成语义一致，避免缺密钥时 session 加密/解密直接失败。
+    """
+    from tg_signer.security import register_secret_key_provider
+
+    env_key = os.environ.get("APP_SECRET_KEY", "").strip()
+    if env_key:
+        register_secret_key_provider(lambda: env_key)
+        return
+
+    base = Path(workdir).expanduser()
+    try:
+        base.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        base = Path.cwd()
+    secret_file = base / ".app_secret_key"
+
+    def _provider() -> str:
+        try:
+            existing = (
+                secret_file.read_text(encoding="utf-8").strip()
+                if secret_file.exists()
+                else ""
+            )
+        except OSError:
+            existing = ""
+        if existing:
+            return existing
+        generated = secrets.token_urlsafe(48)
+        try:
+            secret_file.write_text(generated, encoding="utf-8")
+            os.chmod(secret_file, 0o600)
+        except OSError:
+            pass
+        return generated
+
+    register_secret_key_provider(_provider)
 
 
 class AliasedGroup(click.Group):
@@ -211,6 +257,7 @@ def tg_signer(
         log_level = os.environ.get("LOG_LEVEL", "INFO").lower()
 
     logger = configure_logger(log_level=log_level, log_dir=log_dir, log_file=log_file)
+    _register_cli_secret_key(workdir)
     ctx.ensure_object(dict)
     proxy = get_proxy(proxy)
     if ctx.invoked_subcommand in [
