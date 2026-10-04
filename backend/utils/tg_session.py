@@ -157,12 +157,21 @@ def get_account_session_string(account_name: str) -> Optional[str]:
     session_string = entry.get("session_string")
     if isinstance(session_string, str) and session_string.strip():
         cleaned = session_string.strip()
-        try:
-            from tg_signer.security import decrypt_secret
+        from tg_signer.security import (
+            SecretKeyError,
+            decrypt_secret,
+            is_encrypted_secret,
+        )
 
-            cleaned = decrypt_secret(cleaned) or cleaned
-        except Exception:
-            pass
+        if is_encrypted_secret(cleaned):
+            try:
+                cleaned = decrypt_secret(cleaned) or ""
+            except SecretKeyError:
+                raise
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Failed to decrypt session_string for account {account_name}"
+                ) from exc
         # 非法串（含历史错误导出）视为不存在，便于调用方回退到文件导出
         if is_valid_session_string(cleaned):
             return cleaned
@@ -178,12 +187,9 @@ def set_account_session_string(account_name: str, session_string: str) -> None:
     cleaned = session_string.strip()
     if not is_valid_session_string(cleaned):
         raise ValueError("invalid pyrogram session_string")
-    try:
-        from tg_signer.security import encrypt_secret
+    from tg_signer.security import encrypt_secret
 
-        stored = encrypt_secret(cleaned) or cleaned
-    except Exception:
-        stored = cleaned
+    stored = encrypt_secret(cleaned)
     entry["session_string"] = stored
     entry["updated_at"] = utc_now_iso()
     accounts[account_name] = entry

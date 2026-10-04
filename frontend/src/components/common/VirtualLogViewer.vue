@@ -106,7 +106,7 @@ defineExpose({
 <template>
   <div
     ref="containerRef"
-    class="virtual-log-viewer ui-terminal whitespace-pre-wrap break-all select-text overflow-y-auto"
+    class="virtual-log-viewer ui-terminal whitespace-pre select-text overflow-x-auto overflow-y-auto"
     :style="{ height: `${containerHeight}px`, maxHeight: `${containerHeight}px` }"
     tabindex="0"
     role="region"

@@ -105,8 +105,6 @@ def verify_totp(secret: str, code: str) -> bool:
 
 def get_user_by_username(db: Session, username: str) -> Optional[User]:
     """按用户名查询用户（统一入口，避免各处内联重复查询）。"""
-    if db is None:
-        return None
     return db.query(User).filter(User.username == username).first()
 
 

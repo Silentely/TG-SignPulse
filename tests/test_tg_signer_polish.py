@@ -666,7 +666,11 @@ async def test_save_session_string_atomic_permissions(tmp_path):
     await dummy.save_session_string()
     target = tmp_path / "acc_test.session_string"
     assert target.is_file()
-    assert target.read_text(encoding="utf-8") == "1BVtsdummy_session_string_12345"
+    from tg_signer.security import decrypt_secret
+
+    raw = target.read_text(encoding="utf-8")
+    assert raw.startswith("fernet:")
+    assert decrypt_secret(raw) == "1BVtsdummy_session_string_12345"
     import os
 
     if hasattr(os, "stat"):

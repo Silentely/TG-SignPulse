@@ -78,9 +78,9 @@ def _apply_rate_limit(
     window_seconds: int,
     block_seconds: int,
 ) -> str:
-    key = compose_rate_limit_key(request, *parts)
     if getattr(request.state, f"rate_limit_checked_{scope}", False):
-        return key
+        return getattr(request.state, f"rate_limit_key_{scope}")
+    key = compose_rate_limit_key(request, *parts)
     rate_limiter.hit(
         scope=scope,
         key=key,

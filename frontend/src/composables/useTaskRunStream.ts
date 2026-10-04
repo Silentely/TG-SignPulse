@@ -312,7 +312,7 @@ export function useTaskRunStream(options: {
       connectionState.value = 'connected'
       retryAttempt.value = 0
       backoffDelayMs.value = 0
-      devLog.info('任务日志 WebSocket 已连接:', wsUrl)
+      devLog.info('任务日志 WebSocket 已连接:', `${wsProtocol}//${wsHost}/api/sign-tasks/ws/${taskName}`)
     }
     ws.onmessage = (event) => {
       if (gen !== connectGeneration) return

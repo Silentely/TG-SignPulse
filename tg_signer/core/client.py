@@ -43,6 +43,11 @@ from tg_signer.compat import (  # noqa: E402
     raw,
     session_check_failure,
 )
+from tg_signer.security import (  # noqa: E402
+    decrypt_secret,
+    encrypt_secret,
+    is_encrypted_secret,
+)
 from tg_signer.utils import read_positive_float_env, read_positive_int_env  # noqa: E402
 
 patch_kurigram_compat()
@@ -510,6 +515,9 @@ class Client(BaseClient):
             return None
         if not content:
             return None
+        encrypted_content = is_encrypted_secret(content)
+        if encrypted_content:
+            content = decrypt_secret(content) or ""
         if not is_valid_session_string(content):
             logger.warning(
                 "session_string 缓存损坏或为不受支持的格式，已删除并按缺失处理: %s",
@@ -520,6 +528,12 @@ class Client(BaseClient):
             except OSError:
                 pass
             return None
+        if not encrypted_content:
+            path.write_text(encrypt_secret(content), encoding="utf-8")
+            try:
+                os.chmod(path, 0o600)
+            except OSError:
+                pass
         logger.info("从本地文件加载 session_string。")
         return content
 
@@ -661,7 +675,7 @@ class Client(BaseClient):
         try:
             fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             with open(fd, "w", encoding="utf-8") as fp:
-                fp.write(exported)
+                fp.write(encrypt_secret(exported))
                 fp.flush()
                 os.fsync(fd)
             os.replace(tmp, target)

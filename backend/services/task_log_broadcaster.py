@@ -126,13 +126,16 @@ class TaskLogBroadcaster:
         else:
             self._seq_counters[key] = max(self._seq_counters[key], int(seq))
 
+        can_store_history = True
         if len(self._history) >= self.max_streams and key not in self._history:
             # Clean oldest inactive stream without subscribers
             for old_key in list(self._history.keys()):
                 if not self._subscribers.get(old_key):
                     self.clear_stream(old_key)
                     break
-        self._history[key].append(payload)
+            can_store_history = len(self._history) < self.max_streams
+        if can_store_history:
+            self._history[key].append(payload)
 
         subscribers = list(self._subscribers.get(key, ()))
         for q in subscribers:

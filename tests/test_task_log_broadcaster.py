@@ -73,6 +73,25 @@ async def test_task_log_broadcaster_backpressure_drop_oldest():
 
 
 @pytest.mark.asyncio
+async def test_task_log_broadcaster_does_not_exceed_history_stream_cap():
+    broadcaster = TaskLogBroadcaster(max_streams=2)
+    active_keys = [
+        StreamKey(account_name="acc", task_name=f"task-{i}", run_id="run")
+        for i in range(3)
+    ]
+    queues = [broadcaster.subscribe(key) for key in active_keys]
+
+    for index, key in enumerate(active_keys):
+        await broadcaster.publish(key, {"text": f"line-{index}"})
+
+    assert len(broadcaster._history) == 2
+    assert not broadcaster._history.get(active_keys[2])
+
+    for key, queue in zip(active_keys, queues):
+        broadcaster.unsubscribe(key, queue)
+
+
+@pytest.mark.asyncio
 async def test_task_log_broadcaster_terminal_event_and_cleanup():
     broadcaster = TaskLogBroadcaster(max_queue_size=10)
     key = StreamKey(account_name="acc", task_name="task", run_id="r1")

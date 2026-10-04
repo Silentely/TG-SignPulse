@@ -28,7 +28,7 @@ class SensitiveRouteRule:
     window_seconds: int
     block_seconds: int
     detail: str
-    key_field: Optional[str] = None
+    key_fields: tuple[str, ...] = ()
 
 
 SENSITIVE_RULES: tuple[SensitiveRouteRule, ...] = (
@@ -40,7 +40,7 @@ SENSITIVE_RULES: tuple[SensitiveRouteRule, ...] = (
         window_seconds=300,
         block_seconds=900,
         detail="Too many login attempts. Please try again later.",
-        key_field="username",
+        key_fields=("username",),
     ),
     SensitiveRouteRule(
         method="POST",
@@ -50,47 +50,47 @@ SENSITIVE_RULES: tuple[SensitiveRouteRule, ...] = (
         window_seconds=600,
         block_seconds=1800,
         detail="Too many TOTP reset attempts. Please try again later.",
-        key_field="username",
+        key_fields=("username",),
     ),
     SensitiveRouteRule(
         method="POST",
         path="/api/accounts/login/start",
         scope="accounts.login.start",
-        max_attempts=5,
-        window_seconds=300,
-        block_seconds=300,
+        max_attempts=6,
+        window_seconds=600,
+        block_seconds=900,
         detail="Too many requests. Please try again later.",
-        key_field="phone",
+        key_fields=("account_name", "phone_number"),
     ),
     SensitiveRouteRule(
         method="POST",
         path="/api/accounts/login/verify",
         scope="accounts.login.verify",
-        max_attempts=5,
-        window_seconds=300,
-        block_seconds=300,
+        max_attempts=8,
+        window_seconds=600,
+        block_seconds=900,
         detail="Too many requests. Please try again later.",
-        key_field="phone_code_hash",
+        key_fields=("account_name", "phone_number"),
     ),
     SensitiveRouteRule(
         method="POST",
         path="/api/accounts/qr/start",
         scope="accounts.qr.start",
-        max_attempts=5,
-        window_seconds=300,
-        block_seconds=300,
+        max_attempts=8,
+        window_seconds=600,
+        block_seconds=900,
         detail="Too many requests. Please try again later.",
-        key_field=None,
+        key_fields=("account_name",),
     ),
     SensitiveRouteRule(
         method="POST",
         path="/api/accounts/qr/password",
         scope="accounts.qr.password",
         max_attempts=5,
-        window_seconds=300,
-        block_seconds=300,
+        window_seconds=600,
+        block_seconds=900,
         detail="Too many requests. Please try again later.",
-        key_field="qr_id",
+        key_fields=("login_id",),
     ),
 )
 
@@ -102,6 +102,8 @@ class RateLimitMiddleware:
     DB sessions, or handler execution. Over-limit requests are immediately
     rejected with HTTP 429 and a Retry-After header.
     """
+
+    MAX_BODY_BYTES = 256 * 1024
 
     def __init__(
         self,
@@ -145,14 +147,36 @@ class RateLimitMiddleware:
             # Sensitive route matched
             body = b""
             cached_receive = receive
-            field_val = ""
+            field_values: list[str] = []
 
-            if rule.key_field and method in ("POST", "PUT", "PATCH"):
+            if rule.key_fields and method in ("POST", "PUT", "PATCH"):
+                content_length = Headers(scope=scope).get("content-length")
+                try:
+                    if content_length and int(content_length) > self.MAX_BODY_BYTES:
+                        await self._send_error(
+                            send,
+                            status_code=413,
+                            detail="Request body is too large.",
+                        )
+                        return
+                except ValueError:
+                    pass
+
                 body_chunks = []
+                body_size = 0
                 while True:
                     message = await receive()
                     if message["type"] == "http.request":
-                        body_chunks.append(message.get("body", b""))
+                        chunk = message.get("body", b"")
+                        body_size += len(chunk)
+                        if body_size > self.MAX_BODY_BYTES:
+                            await self._send_error(
+                                send,
+                                status_code=413,
+                                detail="Request body is too large.",
+                            )
+                            return
+                        body_chunks.append(chunk)
                         if not message.get("more_body", False):
                             break
                     elif message["type"] == "http.disconnect":
@@ -163,9 +187,11 @@ class RateLimitMiddleware:
                     try:
                         data = json.loads(body)
                         if isinstance(data, dict):
-                            val = data.get(rule.key_field)
-                            if val is not None:
-                                field_val = str(val).strip()
+                            for field_name in rule.key_fields:
+                                val = data.get(field_name)
+                                field_values.append(
+                                    str(val).strip() if val is not None else ""
+                                )
                     except (ValueError, TypeError, UnicodeDecodeError):
                         pass
 
@@ -185,10 +211,7 @@ class RateLimitMiddleware:
                 cached_receive = _cached_receive
 
             request = Request(scope)
-            if field_val:
-                key = compose_rate_limit_key(request, field_val)
-            else:
-                key = compose_rate_limit_key(request)
+            key = compose_rate_limit_key(request, *field_values)
 
             try:
                 rate_limiter.hit(
@@ -215,6 +238,7 @@ class RateLimitMiddleware:
             # Under limit: flag request state to prevent double-counting in downstream dependencies
             state = scope.setdefault("state", {})
             state[f"rate_limit_checked_{rule.scope}"] = True
+            state[f"rate_limit_key_{rule.scope}"] = key
             await self.app(scope, cached_receive, send)
             return
 
@@ -269,6 +293,22 @@ class RateLimitMiddleware:
             "type": "http.response.start",
             "status": 429,
             "headers": headers,
+        })
+        await send({
+            "type": "http.response.body",
+            "body": body,
+            "more_body": False,
+        })
+
+    async def _send_error(self, send: Send, *, status_code: int, detail: str) -> None:
+        body = json.dumps({"detail": detail}).encode("utf-8")
+        await send({
+            "type": "http.response.start",
+            "status": status_code,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body)).encode("ascii")),
+            ],
         })
         await send({
             "type": "http.response.body",

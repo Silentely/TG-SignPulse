@@ -77,7 +77,6 @@ def test_task_context_transition_to_cancelled():
     ctx.transition_to(TaskPhase.FINALIZING)
     ctx.transition_to(TaskPhase.CANCELLED)
     assert ctx.phase == TaskPhase.CANCELLED
-
     for terminal_target in (
         TaskPhase.STARTING,
         TaskPhase.WAITING_LOCK,
@@ -335,4 +334,3 @@ async def test_runner_phases_lifecycle_transitions_cancelled():
         await _runner_finalize(ctx)
 
     assert ctx.phase == TaskPhase.CANCELLED
-
