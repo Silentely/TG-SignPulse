@@ -139,6 +139,28 @@ describe('useTaskRunStream', () => {
     expect(stream.liveState.value).toBe('finished')
   })
 
+  it('reconnect carries the last run_id and sequence cursor', async () => {
+    vi.useFakeTimers()
+    const stream = setup('acc-a')
+    await stream.connect()
+    const first = MockWebSocket.instances[0]
+    first.emitMessage({
+      type: 'logs',
+      data: ['line-1'],
+      run_id: 'run-1',
+      seq: 7,
+      is_running: true,
+    })
+
+    first.onclose?.({})
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(MockWebSocket.instances).toHaveLength(2)
+    expect(MockWebSocket.instances[1].url).toContain('run_id=run-1')
+    expect(MockWebSocket.instances[1].url).toContain('after_seq=7')
+    vi.useRealTimers()
+  })
+
   it('WS 日志行超出上限时截尾，保持有界', async () => {
     const stream = setup('acc-a')
     await stream.connect()

@@ -890,6 +890,7 @@ async def sign_task_logs_ws(
         run_status: dict[str, Any], is_running: bool
     ) -> dict[str, Any]:
         return {
+            "run_id": run_status.get("run_id") or "",
             "phase": run_status.get("phase"),
             "phase_detail": run_status.get("phase_detail") or "",
             "failure_category": run_status.get("failure_category"),
@@ -1043,6 +1044,10 @@ async def sign_task_logs_ws(
                 payload_to_send: dict[str, Any] = {
                     "type": "logs",
                     "data": lines,
+                    "run_id": event.get("run_id")
+                    or stream_key.run_id
+                    or run_status.get("run_id")
+                    or "",
                     **status_payload,
                 }
                 if last_seq is not None:

@@ -56,6 +56,7 @@ from backend.services.sign_task_run_status import (
     build_run_status,
     build_runner_failure_result,
     idle_running_placeholder,
+    is_terminal_run_state,
     is_timeout_error_message,
     make_task_key,
     resolve_stored_run_status,
@@ -1289,7 +1290,7 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
             notification_error=notification_error,
         )
         self._run_statuses[task_key] = status
-        if state in ("success", "failed", "timeout", "cancelled"):
+        if is_terminal_run_state(state):
             try:
                 from backend.services.task_log_broadcaster import (
                     StreamKey,

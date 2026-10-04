@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from backend.main import app
+from backend.services.sign_task_run_status import RUN_STATE_FINISHED
 from backend.services.sign_tasks import get_sign_task_service
 from backend.services.stream_tickets import (
     PURPOSE_TASK_RUN_WS,
@@ -149,11 +150,17 @@ async def test_sign_task_service_append_active_log_publishes_event():
         assert event["run_id"] == run_id
 
         # Terminal status transition
-        svc._set_run_status("my_account", "my_task", run_id=run_id, state="success")
+        svc._set_run_status(
+            "my_account",
+            "my_task",
+            run_id=run_id,
+            state=RUN_STATE_FINISHED,
+            success=True,
+        )
         assert not queue.empty()
         done_event = await queue.get()
         assert done_event["type"] == "done"
-        assert done_event["state"] == "success"
+        assert done_event["state"] == RUN_STATE_FINISHED
     finally:
         broadcaster.unsubscribe(stream_key, queue)
 
@@ -200,18 +207,26 @@ def test_sign_task_logs_ws_streaming_and_disconnect():
         msg = ws.receive_json()
         assert msg["type"] == "logs"
         assert "WS live line 1" in msg["data"]
+        assert msg["run_id"] == run_id
 
         # Emit second log
         svc._append_active_log((account_name, task_name), "WS live line 2")
         msg2 = ws.receive_json()
         assert msg2["type"] == "logs"
         assert "WS live line 2" in msg2["data"]
+        assert msg2["run_id"] == run_id
 
         # Finish task
-        svc._set_run_status(account_name, task_name, run_id=run_id, state="success")
+        svc._set_run_status(
+            account_name,
+            task_name,
+            run_id=run_id,
+            state=RUN_STATE_FINISHED,
+            success=True,
+        )
         done_msg = ws.receive_json()
         assert done_msg["type"] == "done"
-        assert done_msg["state"] == "success"
+        assert done_msg["state"] == RUN_STATE_FINISHED
 
     # After websocket closes, subscriber should be cleaned up
     assert not broadcaster.has_subscribers(stream_key)
