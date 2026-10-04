@@ -26,6 +26,26 @@ const POLL_INTERVAL_MS = 1500
 const MAX_REALTIME_LOG_LINES = 1000
 
 export type ConnectionMode = 'connecting' | 'websocket' | 'polling' | 'closed'
+export type ConnectionState = 'connected' | 'reconnecting' | 'polling' | 'closed'
+
+/**
+ * 计算指数退避延迟时间（毫秒），支持最大上限与可选抖动。
+ * attempt 1 -> 1s, attempt 2 -> 2s, attempt 3 -> 4s, attempt 4 -> 8s, attempt 5+ -> max 10s
+ */
+export function computeBackoffDelay(
+  attempt: number,
+  baseMs = 1000,
+  maxMs = 10000,
+  jitter = false,
+): number {
+  if (attempt <= 0) return 0
+  const exp = Math.min(maxMs, baseMs * Math.pow(2, attempt - 1))
+  if (jitter) {
+    const factor = 0.8 + Math.random() * 0.4
+    return Math.min(maxMs, Math.round(exp * factor))
+  }
+  return exp
+}
 
 export function useTaskRunStream(options: {
   taskName: ComputedRef<string>
@@ -34,6 +54,10 @@ export function useTaskRunStream(options: {
   /** 打开时若带 runAccount，视为本次执行中 */
   runAccount: ComputedRef<string | undefined>
   logContainer: Ref<HTMLElement | null>
+  maxRetries?: number
+  baseDelayMs?: number
+  maxDelayMs?: number
+  enableJitter?: boolean
 }) {
   const { t } = useI18n()
 
@@ -44,14 +68,42 @@ export function useTaskRunStream(options: {
   const liveFailureCategory = ref<string | null>(null)
   const liveState = ref<string | null>(null)
   const connectionMode = ref<ConnectionMode>('closed')
+  const connectionState = ref<ConnectionState>('closed')
+  const retryAttempt = ref<number>(0)
+  const backoffDelayMs = ref<number>(0)
+
+  const maxRetries = options.maxRetries ?? 5
+  const baseDelayMs = options.baseDelayMs ?? 1000
+  const maxDelayMs = options.maxDelayMs ?? 10000
+  const enableJitter = options.enableJitter ?? false
 
   let ws: WebSocket | null = null
   let pollHandle: ChainPollHandle | null = null
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
   // 连接世代：connect 在换票 await 期间可被更新的 connect / disconnect 取代。
   // 换票返回后必须核对世代，旧一代直接放弃建连，避免关闭或切换任务后
   // 仍开出孤儿 WebSocket，令日志重复、isRunning 被错误复活。
   let connectGeneration = 0
+
+  const connectionStateText = computed(() => {
+    switch (connectionState.value) {
+      case 'connected':
+        return t('taskLogs.streamConnected')
+      case 'reconnecting': {
+        const seconds = Math.max(1, Math.round(backoffDelayMs.value / 1000))
+        return t('taskLogs.streamReconnecting', {
+          attempt: retryAttempt.value,
+          seconds,
+        })
+      }
+      case 'polling':
+        return t('taskLogs.streamPolling')
+      case 'closed':
+      default:
+        return t('taskLogs.streamClosed')
+    }
+  })
 
   const applyStatusPayload = (msg: Record<string, unknown> | SignTaskRunStatus) => {
     if (msg.phase !== undefined) livePhase.value = (msg.phase as string) || null
@@ -88,16 +140,55 @@ export function useTaskRunStream(options: {
     })
   }
 
+  const clearReconnectTimer = () => {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
+  }
+
   const stopPolling = () => {
     pollHandle?.stop()
     pollHandle = null
     if (connectionMode.value === 'polling') {
       connectionMode.value = 'closed'
     }
+    if (connectionState.value === 'polling') {
+      connectionState.value = 'closed'
+    }
+  }
+
+  const scheduleReconnect = () => {
+    if (!options.runAccount.value && !isRunning.value) {
+      connectionMode.value = 'closed'
+      connectionState.value = 'closed'
+      return
+    }
+    clearReconnectTimer()
+    if (retryAttempt.value >= maxRetries) {
+      connectionState.value = 'polling'
+      connectionMode.value = 'polling'
+      startPolling()
+      return
+    }
+    retryAttempt.value += 1
+    const delay = computeBackoffDelay(retryAttempt.value, baseDelayMs, maxDelayMs, enableJitter)
+    backoffDelayMs.value = delay
+    connectionState.value = 'reconnecting'
+    connectionMode.value = 'connecting'
+
+    const reconnectGen = connectGeneration
+    reconnectTimer = setTimeout(async () => {
+      if (reconnectGen !== connectGeneration) return
+      if (connectionState.value !== 'reconnecting') return
+      await connect()
+    }, delay)
   }
 
   const startPolling = () => {
+    clearReconnectTimer()
     connectionMode.value = 'polling'
+    connectionState.value = 'polling'
     if (pollHandle?.active) return
     const pollGen = connectGeneration
     pollHandle = startChainPoll(async () => {
@@ -126,6 +217,7 @@ export function useTaskRunStream(options: {
         if (statusResult.value.state !== 'running') {
           isRunning.value = false
           connectionMode.value = 'closed'
+          connectionState.value = 'closed'
           stopPolling()
         }
       }
@@ -146,6 +238,11 @@ export function useTaskRunStream(options: {
       socket.close()
     }
     stopPolling()
+    clearReconnectTimer()
+    if (connectionState.value !== 'reconnecting') {
+      retryAttempt.value = 0
+      backoffDelayMs.value = 0
+    }
     connectionMode.value = 'connecting'
 
     const taskName = encodeURIComponent(name)
@@ -164,11 +261,17 @@ export function useTaskRunStream(options: {
       devLog.error('issue WS ticket failed', e)
       // 仅当本次仍是最新一次调用时才退化为轮询，避免旧调用接管当前状态
       if (gen === connectGeneration && runAccount) {
-        isRunning.value = false
-        connectionMode.value = 'polling'
-        startPolling()
+        if (connectionState.value === 'reconnecting') {
+          scheduleReconnect()
+        } else {
+          isRunning.value = false
+          connectionMode.value = 'polling'
+          connectionState.value = 'polling'
+          startPolling()
+        }
       } else if (gen === connectGeneration) {
         connectionMode.value = 'closed'
+        connectionState.value = 'closed'
       }
       return
     }
@@ -188,11 +291,17 @@ export function useTaskRunStream(options: {
       ws = new WebSocket(wsUrl)
     } catch {
       if (runAccount) {
-        isRunning.value = false
-        connectionMode.value = 'polling'
-        startPolling()
+        if (connectionState.value === 'reconnecting') {
+          scheduleReconnect()
+        } else {
+          isRunning.value = false
+          connectionMode.value = 'polling'
+          connectionState.value = 'polling'
+          startPolling()
+        }
       } else {
         connectionMode.value = 'closed'
+        connectionState.value = 'closed'
       }
       return
     }
@@ -200,6 +309,9 @@ export function useTaskRunStream(options: {
     ws.onopen = () => {
       if (gen !== connectGeneration) return
       connectionMode.value = 'websocket'
+      connectionState.value = 'connected'
+      retryAttempt.value = 0
+      backoffDelayMs.value = 0
       devLog.info('任务日志 WebSocket 已连接:', wsUrl)
     }
     ws.onmessage = (event) => {
@@ -217,7 +329,11 @@ export function useTaskRunStream(options: {
           isRunning.value = msg.is_running !== false
         } else if (msg.type === 'done') {
           isRunning.value = false
+          clearReconnectTimer()
           connectionMode.value = 'closed'
+          connectionState.value = 'closed'
+          retryAttempt.value = 0
+          backoffDelayMs.value = 0
           if (!liveState.value || liveState.value === 'running') {
             liveState.value = msg.state || 'finished'
           }
@@ -229,18 +345,27 @@ export function useTaskRunStream(options: {
     ws.onerror = () => {
       if (gen !== connectGeneration) return
       if (options.runAccount.value) {
-        isRunning.value = true
-        connectionMode.value = 'polling'
-        startPolling()
+        if (connectionState.value === 'reconnecting') {
+          scheduleReconnect()
+        } else {
+          isRunning.value = true
+          connectionMode.value = 'polling'
+          connectionState.value = 'polling'
+          startPolling()
+        }
       }
     }
     ws.onclose = () => {
       if (gen !== connectGeneration) return
+      if (connectionState.value === 'polling') {
+        ws = null
+        return
+      }
       if (isRunning.value && options.runAccount.value) {
-        connectionMode.value = 'polling'
-        startPolling()
+        scheduleReconnect()
       } else {
         connectionMode.value = 'closed'
+        connectionState.value = 'closed'
       }
       ws = null
     }
@@ -249,6 +374,7 @@ export function useTaskRunStream(options: {
   const disconnect = () => {
     // 失效在途 connect：换票返回后不会再建连
     connectGeneration += 1
+    clearReconnectTimer()
     if (ws) {
       const socket = ws
       ws = null
@@ -260,6 +386,9 @@ export function useTaskRunStream(options: {
     }
     stopPolling()
     connectionMode.value = 'closed'
+    connectionState.value = 'closed'
+    retryAttempt.value = 0
+    backoffDelayMs.value = 0
     isRunning.value = false
     livePhase.value = null
     livePhaseDetail.value = ''
@@ -296,6 +425,12 @@ export function useTaskRunStream(options: {
     liveStatusLabel,
     liveStatusToneClass,
     connectionMode,
+    connectionState,
+    connectionStateText,
+    retryAttempt,
+    backoffDelayMs,
+    scheduleReconnect,
+    reconnect: scheduleReconnect,
     connect,
     disconnect,
     resetLiveFailure,

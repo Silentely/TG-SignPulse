@@ -130,6 +130,8 @@ const {
   liveStatusLabel,
   liveStatusToneClass,
   connectionMode,
+  connectionState,
+  connectionStateText,
   connect: connectWebSocket,
   disconnect: disconnectWebSocket,
   resetLiveFailure,
@@ -233,6 +235,21 @@ const hitLink = (hit: KeywordHitRecord) => safeHitUrl(hit.url)
   <Modal :isOpen="isOpen" @close="emit('close')" :title="t('taskLogs.title')" maxWidthClass="max-w-4xl">
     <template #header-extra>
       <div class="flex items-center gap-2 flex-wrap justify-end">
+        <!-- 实时流连接状态徽章 -->
+        <span
+          v-if="connectionState && connectionState !== 'closed'"
+          class="ui-badge !text-[11px] font-mono border"
+          :class="{
+            'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30': connectionState === 'connected',
+            'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30 animate-pulse': connectionState === 'reconnecting',
+            'bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/30': connectionState === 'polling',
+          }"
+          :title="connectionStateText"
+        >
+          <span v-if="connectionState === 'connected'" class="ui-pulse-dot !bg-emerald-500 mr-1" />
+          <span v-else-if="connectionState === 'reconnecting'" class="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block mr-1 animate-ping" />
+          {{ connectionStateText }}
+        </span>
         <span
           v-if="isRunning || (liveState && liveState !== 'idle')"
           class="ui-badge !text-[11px] border max-w-[18rem] truncate"

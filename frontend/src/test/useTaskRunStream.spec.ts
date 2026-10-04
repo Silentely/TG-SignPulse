@@ -53,7 +53,7 @@ class MockWebSocket {
   }
 }
 
-import { useTaskRunStream } from '../composables/useTaskRunStream'
+import { useTaskRunStream, computeBackoffDelay } from '../composables/useTaskRunStream'
 import { useAuthStore } from '../stores/auth'
 
 describe('useTaskRunStream', () => {
@@ -85,13 +85,22 @@ describe('useTaskRunStream', () => {
     globalThis.WebSocket = OriginalWebSocket
   })
 
-  function setup(runAccount?: string) {
+  function setup(
+    runAccount?: string,
+    extraOptions?: {
+      maxRetries?: number
+      baseDelayMs?: number
+      maxDelayMs?: number
+      enableJitter?: boolean
+    },
+  ) {
     const logContainer = ref<HTMLElement | null>(null)
     const stream = useTaskRunStream({
       taskName: computed(() => 'task-a'),
       accountName: computed(() => 'acc-a'),
       runAccount: computed(() => runAccount),
       logContainer,
+      ...extraOptions,
     })
     return stream
   }
@@ -381,5 +390,118 @@ describe('useTaskRunStream', () => {
 
     // 跨代响应必须被丢弃（即使当前新一代句柄 pollHandles[1].active 为 true），不可污染新状态
     expect(stream.realtimeLogs.value).toEqual([])
+  })
+
+  it('computes exponential backoff with max cap (1s -> 2s -> 4s -> max 10s) and updates connectionState on reconnection attempts', async () => {
+    vi.useFakeTimers()
+    const stream = setup('acc-a')
+    await stream.connect()
+    MockWebSocket.instances[0].onopen?.({})
+
+    expect(stream.connectionState.value).toBe('connected')
+    expect(stream.retryAttempt.value).toBe(0)
+    expect(stream.backoffDelayMs.value).toBe(0)
+
+    // Trigger first reconnection (attempt 1 -> 1000ms)
+    MockWebSocket.instances[0].onclose?.({})
+    expect(stream.connectionState.value).toBe('reconnecting')
+    expect(stream.retryAttempt.value).toBe(1)
+    expect(stream.backoffDelayMs.value).toBe(1000)
+    expect(stream.connectionStateText.value).toContain('taskLogs.streamReconnecting')
+
+    // Advance 1000ms to attempt 2 (delay 2000ms)
+    await vi.advanceTimersByTimeAsync(1000)
+    MockWebSocket.instances[1].onclose?.({})
+    expect(stream.connectionState.value).toBe('reconnecting')
+    expect(stream.retryAttempt.value).toBe(2)
+    expect(stream.backoffDelayMs.value).toBe(2000)
+
+    // Advance 2000ms to attempt 3 (delay 4000ms)
+    await vi.advanceTimersByTimeAsync(2000)
+    MockWebSocket.instances[2].onclose?.({})
+    expect(stream.connectionState.value).toBe('reconnecting')
+    expect(stream.retryAttempt.value).toBe(3)
+    expect(stream.backoffDelayMs.value).toBe(4000)
+
+    // Advance 4000ms to attempt 4 (delay 8000ms)
+    await vi.advanceTimersByTimeAsync(4000)
+    MockWebSocket.instances[3].onclose?.({})
+    expect(stream.connectionState.value).toBe('reconnecting')
+    expect(stream.retryAttempt.value).toBe(4)
+    expect(stream.backoffDelayMs.value).toBe(8000)
+
+    // Advance 8000ms to attempt 5 (capped at max 10000ms = 10s)
+    await vi.advanceTimersByTimeAsync(8000)
+    MockWebSocket.instances[4].onclose?.({})
+    expect(stream.connectionState.value).toBe('reconnecting')
+    expect(stream.retryAttempt.value).toBe(5)
+    expect(stream.backoffDelayMs.value).toBe(10000)
+
+    vi.useRealTimers()
+  })
+
+  it('computeBackoffDelay calculates exponential backoff with cap and optional jitter', () => {
+    expect(computeBackoffDelay(0)).toBe(0)
+    expect(computeBackoffDelay(1)).toBe(1000)
+    expect(computeBackoffDelay(2)).toBe(2000)
+    expect(computeBackoffDelay(3)).toBe(4000)
+    expect(computeBackoffDelay(4)).toBe(8000)
+    expect(computeBackoffDelay(5)).toBe(10000)
+    expect(computeBackoffDelay(6)).toBe(10000)
+
+    // With jitter enabled, value stays within [0.8 * cap, cap]
+    for (let i = 1; i <= 6; i++) {
+      const delay = computeBackoffDelay(i, 1000, 10000, true)
+      expect(delay).toBeGreaterThan(0)
+      expect(delay).toBeLessThanOrEqual(10000)
+    }
+  })
+
+  it('resets retryAttempt and backoffDelayMs when reconnect succeeds', async () => {
+    vi.useFakeTimers()
+    const stream = setup('acc-a')
+    await stream.connect()
+    MockWebSocket.instances[0].onopen?.({})
+
+    MockWebSocket.instances[0].onclose?.({})
+    expect(stream.retryAttempt.value).toBe(1)
+    expect(stream.connectionState.value).toBe('reconnecting')
+
+    await vi.advanceTimersByTimeAsync(1000)
+    const newWs = MockWebSocket.instances[1]
+    newWs.onopen?.({})
+
+    expect(stream.connectionState.value).toBe('connected')
+    expect(stream.retryAttempt.value).toBe(0)
+    expect(stream.backoffDelayMs.value).toBe(0)
+
+    vi.useRealTimers()
+  })
+
+  it('falls back to polling after max retry attempts exceeded during reconnection', async () => {
+    vi.useFakeTimers()
+    const stream = setup('acc-a', { maxRetries: 2 })
+    await stream.connect()
+    MockWebSocket.instances[0].onopen?.({})
+
+    // Retry 1
+    MockWebSocket.instances[0].onclose?.({})
+    expect(stream.connectionState.value).toBe('reconnecting')
+    expect(stream.retryAttempt.value).toBe(1)
+
+    // Retry 2
+    await vi.advanceTimersByTimeAsync(1000)
+    MockWebSocket.instances[1].onclose?.({})
+    expect(stream.connectionState.value).toBe('reconnecting')
+    expect(stream.retryAttempt.value).toBe(2)
+
+    // Retry 3 exceeds maxRetries (2) -> falls back to polling
+    await vi.advanceTimersByTimeAsync(2000)
+    MockWebSocket.instances[2].onclose?.({})
+    expect(stream.connectionState.value).toBe('polling')
+    expect(stream.connectionMode.value).toBe('polling')
+    expect(pollHandles.length).toBeGreaterThan(0)
+
+    vi.useRealTimers()
   })
 })

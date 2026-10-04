@@ -512,7 +512,11 @@
     "hitsAutoRefreshHint": "Auto-refreshes about every 8s while open",
     "modeWs": "WS Live",
     "modePolling": "Polling",
-    "modeConnecting": "Connecting"
+    "modeConnecting": "Connecting",
+    "streamConnected": "Stream Connected",
+    "streamReconnecting": "Reconnecting (attempt {attempt}, retry in {seconds}s)",
+    "streamPolling": "Polling",
+    "streamClosed": "Closed"
   },
   "logs": {
     "taskLogs": "Task Execution Logs",

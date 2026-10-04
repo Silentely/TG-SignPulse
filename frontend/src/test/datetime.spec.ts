@@ -1,7 +1,7 @@
 /**
  * datetime 格式化：24 小时制、空值兜底、解析失败回退原值、时区可切换。
  */
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   formatDateTime,
   formatLogTime,
@@ -15,8 +15,9 @@ describe('datetime 格式化', () => {
   const iso = '2026-07-01T10:05:09Z'
 
   afterEach(() => {
-    // 恢复默认时区，避免用例间互相污染
+    // 恢复默认时区与系统时间，避免用例间互相污染
     setPanelTimezone('Asia/Hong_Kong')
+    vi.useRealTimers()
   })
 
   it("支持秒级与毫秒级时间戳（数字与数字字符串）及 Date 实例", () => {
@@ -103,13 +104,21 @@ describe('datetime 格式化', () => {
   })
 
   it('formatLogTime 随面板时区判定今天边界', () => {
-    // 今天的 16:00 UTC：在 UTC+8 已是次日 00:00（跨天带前缀），
-    // 切到 UTC 时区后仍是当天（仅时刻）
-    const todayUtcIso = `${new Date().toISOString().slice(0, 10)}T16:00:00Z`
+    // 模拟基准时刻为 UTC 2026-10-04 12:00:00（在 UTC 与 HK 均为 2026-10-04）
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-04T12:00:00Z'))
+
+    // 2026-10-04 16:00 UTC：
+    // 在 UTC 时区仍是 10-04（与系统当前时间同天，仅输出时刻）
+    // 在 Asia/Hong_Kong 时区（+8）已是 10-05 00:00（跨天，带日期前缀）
+    const targetUtcIso = '2026-10-04T16:00:00Z'
+
     setPanelTimezone('Asia/Hong_Kong')
-    const hkOut = formatLogTime(todayUtcIso, '')
+    const hkOut = formatLogTime(targetUtcIso, '')
+
     setPanelTimezone('UTC')
-    const utcOut = formatLogTime(todayUtcIso, '')
+    const utcOut = formatLogTime(targetUtcIso, '')
+
     expect(hkOut).toMatch(/^\d{2}\/\d{2} /) // 跨天：带日期前缀
     expect(utcOut).toMatch(/^\d{2}:\d{2}:\d{2}$/) // 当天：仅时刻
   })

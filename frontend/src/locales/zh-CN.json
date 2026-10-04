@@ -512,7 +512,11 @@
     "hitsAutoRefreshHint": "打开本页时约每 8 秒自动刷新",
     "modeWs": "WS 实时",
     "modePolling": "轮询中",
-    "modeConnecting": "连接中"
+    "modeConnecting": "连接中",
+    "streamConnected": "实时流已连接",
+    "streamReconnecting": "重连中 (第 {attempt} 次，{seconds} 秒后重试)",
+    "streamPolling": "轮询中",
+    "streamClosed": "已关闭"
   },
   "logs": {
     "taskLogs": "任务执行日志",
