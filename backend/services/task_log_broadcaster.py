@@ -31,9 +31,15 @@ class TaskLogBroadcaster:
     - 自动清理无订阅者的注册表项
     """
 
-    def __init__(self, max_queue_size: int = 1000, history_size: int = 1000) -> None:
+    def __init__(
+        self,
+        max_queue_size: int = 1000,
+        history_size: int = 1000,
+        max_streams: int = 200,
+    ) -> None:
         self.max_queue_size = max_queue_size
         self.history_size = history_size
+        self.max_streams = max_streams
 
         self._subscribers: dict[StreamKey, Set[asyncio.Queue[Dict[str, Any]]]] = (
             collections.defaultdict(set)
@@ -120,6 +126,12 @@ class TaskLogBroadcaster:
         else:
             self._seq_counters[key] = max(self._seq_counters[key], int(seq))
 
+        if len(self._history) >= self.max_streams and key not in self._history:
+            # Clean oldest inactive stream without subscribers
+            for old_key in list(self._history.keys()):
+                if not self._subscribers.get(old_key):
+                    self.clear_stream(old_key)
+                    break
         self._history[key].append(payload)
 
         subscribers = list(self._subscribers.get(key, ()))

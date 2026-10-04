@@ -29,7 +29,7 @@ const totalCount = computed(() => props.lines.length)
 
 const startIndex = computed(() => {
   const raw = Math.floor(scrollTop.value / props.itemHeight) - props.buffer
-  return Math.max(0, raw)
+  return Math.max(0, Math.min(totalCount.value, raw))
 })
 
 const endIndex = computed(() => {
