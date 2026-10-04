@@ -16,7 +16,7 @@ jobs:
     if: github.repository == 'Silentely/TG-SignPulse'
     steps:
       - name: Check if PR modifies community plugins and retarget to dev
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const pr = context.payload.pull_request;
