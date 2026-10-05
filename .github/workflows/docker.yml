@@ -79,8 +79,16 @@ jobs:
       - name: Ruff format check (排版硬门槛)
         run: ruff format --check . --quiet
 
-      - name: Run pytest (parallel)
-        run: pytest tests/ -n auto --dist loadgroup -x -q --tb=short --no-header --ignore=tools --timeout=60 -o addopts=
+      - name: Run Pytest Test Suite with Coverage
+        run: |
+          coverage erase
+          pytest tests/ -n auto --dist loadfile -q --tb=short \
+            --ignore=tools --timeout=60 \
+            --cov=tg_signer --cov=backend \
+            --cov-append \
+            --cov-fail-under=40 \
+            --cov-report=xml:coverage.xml \
+            --cov-report=term-missing
 
   frontend-test:
     runs-on: ubuntu-latest
