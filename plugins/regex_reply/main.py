@@ -18,7 +18,7 @@ CATEGORY = "message"
 TAGS = ["regex", "auto-reply", "matcher"]
 ICON = "code"
 
-_REGEX_TIMEOUT_SECONDS = 2.0
+_REGEX_TIMEOUT_SECONDS = 0.5
 _MAX_PATTERN_LENGTH = 512
 _MAX_MESSAGE_LENGTH = 4096
 _REGEX_WORKER = r"""
