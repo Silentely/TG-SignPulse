@@ -826,7 +826,6 @@ def test_api_plugins_include_doc():
 
 
 def test_api_test_plugin_timeout():
-    import time
 
     from tg_signer.core.plugins import PluginRegistry
 
