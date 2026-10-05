@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from typing import Any, Dict
+
 from fastapi import HTTPException
+
 from tg_signer.core.plugins import compute_plugin_security_report
 
 FAIL_CLOSED_RULES = {"star-import", "syntax-error", "audit-error"}

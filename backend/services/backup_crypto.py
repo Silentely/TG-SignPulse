@@ -119,8 +119,6 @@ def decrypt_backup(spbak_bytes: bytes, password: Optional[str] = None) -> bytes:
     try:
         decrypted = aesgcm.decrypt(nonce, ciphertext, header)
     except Exception as e:
-        raise BackupDecryptionError(
-            "备份解密认证失败，密码错误或归档已被篡改"
-        ) from e
+        raise BackupDecryptionError("备份解密认证失败，密码错误或归档已被篡改") from e
 
     return decrypted

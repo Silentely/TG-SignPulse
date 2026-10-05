@@ -279,7 +279,11 @@ def backup_status(current_user: User = Depends(get_current_user)):
         # glob 到 stat 之间文件可能被并发清理（prune/上传后删副本）：
         # 先带容错收集 (mtime, path)，避免 FileNotFoundError 使整个接口 500
         stat_entries: List[tuple[float, Path]] = []
-        for p in [f for f in backup_dir.glob("auto-*.*") if f.name.endswith((".tar.gz", ".spbak"))]:
+        for p in [
+            f
+            for f in backup_dir.glob("auto-*.*")
+            if f.name.endswith((".tar.gz", ".spbak"))
+        ]:
             try:
                 stat_entries.append((p.stat().st_mtime, p))
             except OSError:
@@ -337,9 +341,7 @@ async def export_backup_archive(
     format: Optional[str] = Query(
         None, description="备份格式: spbak (默认加密) 或 tar.gz"
     ),
-    password: Optional[str] = Query(
-        None, description="可选的用户自定义备份加密密码"
-    ),
+    password: Optional[str] = Query(None, description="可选的用户自定义备份加密密码"),
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -413,7 +415,9 @@ async def export_backup_archive(
 
     req_password = password if isinstance(password, str) else None
     secret_key = getattr(settings, "secret_key", None)
-    use_spbak = (req_format == "spbak") or (not req_format and bool(secret_key or req_password))
+    use_spbak = (req_format == "spbak") or (
+        not req_format and bool(secret_key or req_password)
+    )
     if req_format == "tar.gz":
         use_spbak = False
 
@@ -482,9 +486,7 @@ async def export_backup_archive(
         def _cleanup() -> None:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
-        media_type = (
-            "application/octet-stream" if use_spbak else "application/gzip"
-        )
+        media_type = "application/octet-stream" if use_spbak else "application/gzip"
         return FileResponse(
             path=str(archive_path),
             filename=archive_path.name,
@@ -521,8 +523,8 @@ async def import_backup_archive(
     """上传 .spbak（加密）或 .tar.gz 归档并恢复到数据目录。"""
     from backend.services.backup_archive import extract_backup_archive
     from backend.services.backup_crypto import (
-        BackupDecryptionError,
         MAX_EXTRACT_BYTES,
+        BackupDecryptionError,
     )
 
     settings = get_settings()

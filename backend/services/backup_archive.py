@@ -104,9 +104,8 @@ def create_backup_tarball(
                 temp_dest.unlink(missing_ok=True)
             raise ValueError("没有可备份的文件")
 
-        should_encrypt = (
-            encrypt is True
-            or (encrypt is None and (dest.name.endswith(".spbak") or password is not None))
+        should_encrypt = encrypt is True or (
+            encrypt is None and (dest.name.endswith(".spbak") or password is not None)
         )
         if should_encrypt:
             from backend.services.backup_crypto import encrypt_backup
@@ -195,7 +194,9 @@ def extract_backup_archive(
                     os.chmod(dest_file, 0o700)
                 extracted_f = tar.extractfile(member)
                 if extracted_f is not None:
-                    fd = os.open(dest_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                    fd = os.open(
+                        dest_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600
+                    )
                     with os.fdopen(fd, "wb") as out:
                         shutil.copyfileobj(extracted_f, out)
                     with contextlib.suppress(OSError):

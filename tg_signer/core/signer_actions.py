@@ -7,9 +7,7 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
-import os
 import random
 import time
 from datetime import datetime, timedelta
@@ -792,9 +790,7 @@ class SignerActionsMixin:
             return bool(res)
         except TimeoutError:
             msg_kind = "单条历史消息" if is_history else "单条消息"
-            self.log(
-                f"插件「{action.plugin_name}」处理{msg_kind}超时", level="WARNING"
-            )
+            self.log(f"插件「{action.plugin_name}」处理{msg_kind}超时", level="WARNING")
             return False
         except Exception as e:
             msg_kind = "历史消息" if is_history else "消息"

@@ -11,8 +11,10 @@ from typing import Any, Dict, List, Literal, Optional, Union
 try:
     from tg_signer.core.plugins import is_builtin_plugin_path
 except ImportError:
+
     def is_builtin_plugin_path(path: Any) -> bool:
         return False
+
 
 logger = logging.getLogger("backend.plugin_catalog")
 
@@ -110,13 +112,24 @@ class StaticPluginCatalog:
         if pjson_file.is_file():
             try:
                 pjson_data = json.loads(pjson_file.read_text(encoding="utf-8"))
-                for k in ("name", "version", "description", "author", "mode", "category", "icon", "homepage"):
+                for k in (
+                    "name",
+                    "version",
+                    "description",
+                    "author",
+                    "mode",
+                    "category",
+                    "icon",
+                    "homepage",
+                ):
                     if pjson_data.get(k):
                         extracted[k] = str(pjson_data[k]).strip()
                 if isinstance(pjson_data.get("tags"), list):
                     extracted["tags"] = [str(x) for x in pjson_data["tags"]]
                 if isinstance(pjson_data.get("permissions"), list):
-                    extracted["permissions"] = [str(x) for x in pjson_data["permissions"]]
+                    extracted["permissions"] = [
+                        str(x) for x in pjson_data["permissions"]
+                    ]
                 if isinstance(pjson_data.get("params_schema"), list):
                     extracted["params_schema"] = pjson_data["params_schema"]
             except Exception:
@@ -175,9 +188,15 @@ class StaticPluginCatalog:
                     if isinstance(deco, ast.Call):
                         # 判断是否为 PluginRegistry.register 或 register_plugin
                         is_reg = False
-                        if isinstance(deco.func, ast.Attribute) and deco.func.attr == "register":
+                        if (
+                            isinstance(deco.func, ast.Attribute)
+                            and deco.func.attr == "register"
+                        ):
                             is_reg = True
-                        elif isinstance(deco.func, ast.Name) and "register" in deco.func.id:
+                        elif (
+                            isinstance(deco.func, ast.Name)
+                            and "register" in deco.func.id
+                        ):
                             is_reg = True
 
                         if is_reg:
@@ -206,12 +225,18 @@ class StaticPluginCatalog:
                                         "doc",
                                     }:
                                         extracted[k] = str(kw_val)
-                                    elif k == "params_schema" and isinstance(kw_val, list):
+                                    elif k == "params_schema" and isinstance(
+                                        kw_val, list
+                                    ):
                                         extracted["params_schema"] = kw_val
                                     elif k == "tags" and isinstance(kw_val, list):
                                         extracted["tags"] = [str(x) for x in kw_val]
-                                    elif k == "permissions" and isinstance(kw_val, list):
-                                        extracted["permissions"] = [str(x) for x in kw_val]
+                                    elif k == "permissions" and isinstance(
+                                        kw_val, list
+                                    ):
+                                        extracted["permissions"] = [
+                                            str(x) for x in kw_val
+                                        ]
 
         return StaticPluginMetadata(**extracted)
 
@@ -224,7 +249,9 @@ class StaticPluginCatalog:
                 if item.name.startswith((".", "_")):
                     continue
                 meta: Optional[StaticPluginMetadata] = None
-                if item.is_dir() and ((item / "main.py").exists() or (item / "__init__.py").exists()):
+                if item.is_dir() and (
+                    (item / "main.py").exists() or (item / "__init__.py").exists()
+                ):
                     meta = self.scan_plugin(item)
                 elif item.is_file() and item.suffix == ".py":
                     meta = self.scan_plugin(item)

@@ -5,11 +5,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from sqlalchemy.exc import OperationalError
-from backend.core.database import get_session_local
-from backend.models.wildcard_tombstone import WildcardTombstoneModel
-
 import asyncio
 import contextlib
 import logging
@@ -18,10 +13,15 @@ import threading
 import uuid
 import weakref
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, MutableMapping, Optional
 
+from sqlalchemy.exc import OperationalError
+
 from backend.core.config import get_settings
+from backend.core.database import get_session_local
+from backend.models.wildcard_tombstone import WildcardTombstoneModel
 from backend.services.sign_task_backend import BackendUserSigner
 from backend.services.sign_task_config_inspect import (
     task_has_keyword_monitor,
@@ -689,7 +689,11 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
                         raise
         except Exception as exc:
             _service_logger.error(
-                "写入通配任务墓碑失败 (%s, %s): %s", account_name, task_name, exc, exc_info=True
+                "写入通配任务墓碑失败 (%s, %s): %s",
+                account_name,
+                task_name,
+                exc,
+                exc_info=True,
             )
 
     def clear_wildcard_removed(self, account_name: str, task_name: str) -> None:
@@ -700,7 +704,9 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
             with get_session_local()() as db:
                 for attempt in range(2):
                     try:
-                        query = db.query(WildcardTombstoneModel).filter_by(task_name=task_name)
+                        query = db.query(WildcardTombstoneModel).filter_by(
+                            task_name=task_name
+                        )
                         if account_name and account_name != "*":
                             query = query.filter_by(account_name=account_name)
                         query.delete()
@@ -717,7 +723,11 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
                         raise
         except Exception as exc:
             _service_logger.error(
-                "清除通配任务墓碑失败 (%s, %s): %s", account_name, task_name, exc, exc_info=True
+                "清除通配任务墓碑失败 (%s, %s): %s",
+                account_name,
+                task_name,
+                exc,
+                exc_info=True,
             )
 
     def _resolve_account_names_from_config(
