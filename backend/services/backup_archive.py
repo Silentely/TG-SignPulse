@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import contextlib
+import io
 import logging
 import os
 import secrets
+import shutil
 import tarfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -53,8 +55,11 @@ def create_backup_tarball(
     data_dir: Path,
     dest: Path,
     paths: Sequence[str] = DEFAULT_BACKUP_PATHS,
+    *,
+    password: Optional[str] = None,
+    encrypt: Optional[bool] = None,
 ) -> Path:
-    """将 data_dir 下推荐路径打包为 tar.gz。
+    """将 data_dir 下推荐路径打包为 tar.gz 或 .spbak（加密归档）。
 
     仅添加 data_dir 内真实存在的路径；拒绝指向目录外的符号链接逃逸。
     归档文件与备份目录权限收敛为 0600/0700，若无任何可打包内容则抛 ValueError。
@@ -98,6 +103,18 @@ def create_backup_tarball(
             with contextlib.suppress(OSError):
                 temp_dest.unlink(missing_ok=True)
             raise ValueError("没有可备份的文件")
+
+        should_encrypt = (
+            encrypt is True
+            or (encrypt is None and (dest.name.endswith(".spbak") or password is not None))
+        )
+        if should_encrypt:
+            from backend.services.backup_crypto import encrypt_backup
+
+            raw_bytes = temp_dest.read_bytes()
+            encrypted_bytes = encrypt_backup(raw_bytes, password=password)
+            temp_dest.write_bytes(encrypted_bytes)
+
         os.chmod(temp_dest, 0o600)
         temp_dest.replace(dest)
         return dest
@@ -107,8 +124,89 @@ def create_backup_tarball(
         raise
 
 
+def extract_backup_archive(
+    archive_path: Path,
+    target_dir: Path,
+    *,
+    password: Optional[str] = None,
+    max_extract_bytes: Optional[int] = None,
+) -> int:
+    """解密（如为 .spbak）并安全解压备份归档到 target_dir。
+
+    防护措施：
+    - 路径遍历防护（拒绝绝对路径、.. 逃逸、符号链接外部逃逸）
+    - 解压炸弹防护（累计解压字节上限 max_extract_bytes）
+    - 权限收敛（目录 0700，文件 0600）
+    返回成功解压的文件数量。
+    """
+    from backend.services.backup_crypto import (
+        MAGIC,
+        MAX_EXTRACT_BYTES,
+        decrypt_backup,
+    )
+
+    limit = max_extract_bytes if max_extract_bytes is not None else MAX_EXTRACT_BYTES
+    archive_path = Path(archive_path)
+    if not archive_path.exists() or not archive_path.is_file():
+        raise ValueError(f"备份文件不存在: {archive_path}")
+
+    target_dir = Path(target_dir).resolve()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    with contextlib.suppress(OSError):
+        os.chmod(target_dir, 0o700)
+
+    raw = archive_path.read_bytes()
+    if raw.startswith(MAGIC) or archive_path.name.endswith(".spbak"):
+        tar_bytes = decrypt_backup(raw, password=password)
+    else:
+        tar_bytes = raw
+
+    extracted_count = 0
+    total_bytes = 0
+    with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r:*") as tar:
+        for member in tar.getmembers():
+            name = member.name
+            if not name or name.startswith(("/", "\\")) or ":" in name or "\0" in name:
+                logger.warning("跳过非法归档成员: %s", name)
+                continue
+            dest_file = (target_dir / name).resolve()
+            try:
+                dest_file.relative_to(target_dir)
+            except ValueError:
+                logger.warning("跳过越界归档成员: %s", name)
+                continue
+
+            if member.issym() or member.islnk():
+                logger.warning("跳过符号链接成员: %s", name)
+                continue
+
+            if member.isreg():
+                total_bytes += member.size
+                if total_bytes > limit:
+                    raise ValueError(f"解压数据超过上限 ({limit} 字节)，疑似解压炸弹")
+
+            if member.isdir():
+                dest_file.mkdir(parents=True, exist_ok=True)
+                with contextlib.suppress(OSError):
+                    os.chmod(dest_file, 0o700)
+            else:
+                dest_file.parent.mkdir(parents=True, exist_ok=True)
+                with contextlib.suppress(OSError):
+                    os.chmod(dest_file, 0o700)
+                extracted_f = tar.extractfile(member)
+                if extracted_f is not None:
+                    fd = os.open(dest_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                    with os.fdopen(fd, "wb") as out:
+                        shutil.copyfileobj(extracted_f, out)
+                    with contextlib.suppress(OSError):
+                        os.chmod(dest_file, 0o600)
+                    extracted_count += 1
+
+    return extracted_count
+
+
 def prune_backups(backup_dir: Path, keep: int) -> int:
-    """保留最近 keep 份 auto-*.tar.gz，删除更旧文件。返回删除数量。"""
+    """保留最近 keep 份备份，删除更旧文件。返回删除数量。"""
     try:
         keep = max(0, int(keep))
     except (TypeError, ValueError):
@@ -116,7 +214,11 @@ def prune_backups(backup_dir: Path, keep: int) -> int:
     if not backup_dir.exists():
         return 0
     files = sorted(
-        backup_dir.glob("auto-*.tar.gz"),
+        [
+            f
+            for f in backup_dir.glob("auto-*.*")
+            if f.name.endswith((".tar.gz", ".spbak"))
+        ],
         key=_safe_mtime,
         reverse=True,
     )

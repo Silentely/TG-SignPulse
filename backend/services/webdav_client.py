@@ -32,7 +32,7 @@ _PROPFIND_PROP = (
     b"<d:resourcetype/></d:prop></d:propfind>"
 )
 # 仅允许安全备份文件名，防止路径穿越
-_SAFE_BACKUP_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,200}\.tar\.gz$")
+_SAFE_BACKUP_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,200}\.(?:tar\.gz|spbak)$")
 
 
 def _join_url(base: str, *parts: str) -> str:
@@ -71,13 +71,13 @@ def validate_webdav_url(url: str) -> str:
 
 
 def validate_backup_filename(name: str) -> str:
-    """校验远端备份文件名（仅 basename + .tar.gz）。"""
+    """校验远端备份文件名（仅 basename + .tar.gz 或 .spbak）。"""
     raw = (name or "").strip()
     if not raw or "/" in raw or "\\" in raw or ".." in raw:
         raise ValueError("非法备份文件名")
     base = Path(raw).name
     if base != raw or not _SAFE_BACKUP_NAME.match(base):
-        raise ValueError("备份文件名须为安全的 .tar.gz 名称")
+        raise ValueError("备份文件名须为安全的 .tar.gz 或 .spbak 名称")
     return base
 
 
@@ -152,7 +152,7 @@ def upload_file_to_webdav(
                 file_url,
                 content=fh,
                 headers={
-                    "Content-Type": "application/gzip",
+                    "Content-Type": "application/octet-stream" if name.endswith(".spbak") else "application/gzip",
                     "Content-Length": str(local_path.stat().st_size),
                 },
             )

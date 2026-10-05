@@ -15,7 +15,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+    status,
+)
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
@@ -269,7 +279,7 @@ def backup_status(current_user: User = Depends(get_current_user)):
         # glob 到 stat 之间文件可能被并发清理（prune/上传后删副本）：
         # 先带容错收集 (mtime, path)，避免 FileNotFoundError 使整个接口 500
         stat_entries: List[tuple[float, Path]] = []
-        for p in backup_dir.glob("auto-*.tar.gz"):
+        for p in [f for f in backup_dir.glob("auto-*.*") if f.name.endswith((".tar.gz", ".spbak"))]:
             try:
                 stat_entries.append((p.stat().st_mtime, p))
             except OSError:
@@ -324,6 +334,12 @@ def backup_status(current_user: User = Depends(get_current_user)):
 @router.post("/backup/export")
 async def export_backup_archive(
     target: Optional[str] = Query(None, description="webdav / download"),
+    format: Optional[str] = Query(
+        None, description="备份格式: spbak (默认加密) 或 tar.gz"
+    ),
+    password: Optional[str] = Query(
+        None, description="可选的用户自定义备份加密密码"
+    ),
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -388,13 +404,39 @@ async def export_backup_archive(
                 detail="WebDAV 密码未配置，请先填写并保存密码",
             )
 
+    req_format = format.strip().lower() if isinstance(format, str) else ""
+    if req_format and req_format not in {"spbak", "tar.gz"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="无效的备份格式，仅支持 spbak 或 tar.gz",
+        )
+
+    req_password = password if isinstance(password, str) else None
+    secret_key = getattr(settings, "secret_key", None)
+    use_spbak = (req_format == "spbak") or (not req_format and bool(secret_key or req_password))
+    if req_format == "tar.gz":
+        use_spbak = False
+
+    ext = "spbak" if use_spbak else "tar.gz"
     ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     tmp_dir = Path(tempfile.mkdtemp(prefix="tg-signpulse-backup-"))
-    archive_path = tmp_dir / f"tg-signpulse-backup-{ts}.tar.gz"
+    archive_path = tmp_dir / f"tg-signpulse-backup-{ts}.{ext}"
+
+    tar_kwargs = {}
+    if req_password:
+        tar_kwargs["password"] = req_password
+    if req_format == "tar.gz":
+        tar_kwargs["encrypt"] = False
+    elif req_format == "spbak":
+        tar_kwargs["encrypt"] = True
 
     try:
         await asyncio.to_thread(
-            create_backup_tarball, data_dir, archive_path, BACKUP_ARCHIVE_PATHS
+            create_backup_tarball,
+            data_dir,
+            archive_path,
+            BACKUP_ARCHIVE_PATHS,
+            **tar_kwargs,
         )
         if not archive_path.exists() or archive_path.stat().st_size == 0:
             raise HTTPException(
@@ -440,10 +482,13 @@ async def export_backup_archive(
         def _cleanup() -> None:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
+        media_type = (
+            "application/octet-stream" if use_spbak else "application/gzip"
+        )
         return FileResponse(
             path=str(archive_path),
             filename=archive_path.name,
-            media_type="application/gzip",
+            media_type=media_type,
             headers={
                 "Content-Disposition": f'attachment; filename="{archive_path.name}"'
             },
@@ -465,6 +510,78 @@ async def export_backup_archive(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"导出备份失败: {exc}",
         ) from exc
+
+
+@router.post("/backup/import")
+async def import_backup_archive(
+    file: UploadFile = File(...),
+    password: Optional[str] = Form(None),
+    current_user: User = Depends(get_current_user),
+):
+    """上传 .spbak（加密）或 .tar.gz 归档并恢复到数据目录。"""
+    from backend.services.backup_archive import extract_backup_archive
+    from backend.services.backup_crypto import (
+        BackupDecryptionError,
+        MAX_EXTRACT_BYTES,
+    )
+
+    settings = get_settings()
+    data_dir = Path(settings.resolve_base_dir())
+    if not data_dir.exists():
+        data_dir.mkdir(parents=True, exist_ok=True)
+
+    filename = (file.filename or "").strip()
+    if not (filename.endswith(".spbak") or filename.endswith(".tar.gz")):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="仅支持导入 .spbak 或 .tar.gz 格式的备份归档",
+        )
+
+    tmp_dir = Path(tempfile.mkdtemp(prefix="tg-signpulse-restore-"))
+    tmp_file = tmp_dir / "upload_archive"
+    try:
+        content = await file.read()
+        if not content:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="上传的文件为空",
+            )
+        if len(content) > MAX_EXTRACT_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"备份文件大小超出限制 ({MAX_EXTRACT_BYTES} 字节)",
+            )
+        tmp_file.write_bytes(content)
+
+        extracted_count = await asyncio.to_thread(
+            extract_backup_archive,
+            tmp_file,
+            data_dir,
+            password=password,
+        )
+        return {
+            "success": True,
+            "message": "备份归档解密与导入成功",
+            "extracted_files": extracted_count,
+        }
+    except BackupDecryptionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"备份解密失败: {exc}",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except Exception as exc:
+        logger.exception("导入备份归档失败")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"导入备份失败: {exc}",
+        ) from exc
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 class WebDavTestResponse(BaseModel):
@@ -531,7 +648,7 @@ def list_webdav_backup_files(current_user: User = Depends(get_current_user)):
             username=str(cfg.get("webdav_username") or ""),
             password=str(cfg.get("webdav_password") or ""),
             remote_dir=str(cfg.get("webdav_remote_dir") or "tg-signpulse-backups"),
-            name_suffix=".tar.gz",
+            name_suffix=None,
             limit=20,
             proxy=wd_proxy,
         )
@@ -601,9 +718,14 @@ def download_webdav_backup_file(
             yield first
             yield from stream
 
+        media_type = (
+            "application/octet-stream"
+            if safe_name.endswith(".spbak")
+            else "application/gzip"
+        )
         return StreamingResponse(
             _body(),
-            media_type="application/gzip",
+            media_type=media_type,
             headers={
                 "Content-Disposition": f'attachment; filename="{safe_name}"',
             },
