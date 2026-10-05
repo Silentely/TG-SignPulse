@@ -1153,9 +1153,8 @@ class PluginRegistry:
         ) -> Callable[[PluginContext], Any]:
             existing = cls._plugins.get(name)
             if existing is not None and existing.handler is not fn:
-                # 仅放行"同一源文件同一行号"的重复注册（模块被再次执行的重载场景）；
-                # 跨文件同名注册一律拒绝，防止后加载者静默覆盖先加载者
-                if not cls._is_same_registration(existing.handler, fn):
+                is_placeholder = getattr(existing.handler, "_is_placeholder", False)
+                if not is_placeholder and not cls._is_same_registration(existing.handler, fn):
                     raise ValueError(f"插件名称已注册: {name}")
             source_file = None
             try:
@@ -1268,40 +1267,33 @@ class PluginRegistry:
                     inserted_syspath = True
 
             try:
-                spec_kwargs = {}
-                if plugin_file.name in ("main.py", "__init__.py"):
-                    # 目录型插件按包加载，保证 `from .helper import ...` 等相对导入可用。
-                    spec_kwargs["submodule_search_locations"] = [
-                        str(resolved_file.parent)
-                    ]
-                spec = importlib.util.spec_from_file_location(
-                    module_name, plugin_file, **spec_kwargs
-                )
-                if spec is None or spec.loader is None:
-                    _logger.warning("无法创建插件规范: %s", plugin_file)
-                    continue
-                mod = importlib.util.module_from_spec(spec)
-                sys.modules[module_name] = mod
-                pre_keys = set(cls._plugins.keys())
-                spec.loader.exec_module(mod)
-                cls._loaded_files.add(resolved_file)
-                cls._load_errors.pop(str(resolved_file), None)
-                for meta in cls._plugins.values():
-                    if meta.source_path and is_builtin_plugin_path(meta.source_path):
-                        meta.builtin = True
+                content_text = plugin_file.read_text(encoding="utf-8", errors="replace")
+                tree = ast.parse(content_text, filename=str(plugin_file))
 
-                new_registered = [
-                    meta
-                    for name, meta in cls._plugins.items()
-                    if name not in pre_keys
-                    and (meta.source_path == str(resolved_file) or not meta.source_path)
-                ]
-
-                # 模块级 PARAMS_SCHEMA 自动挂载
-                if hasattr(mod, "PARAMS_SCHEMA"):
-                    pending = [m for m in new_registered if not m.params_schema]
-                    if len(pending) == 1:
-                        pending[0].params_schema = mod.PARAMS_SCHEMA
+                # 静态依赖检查：检测是否存在缺失的顶层模块依赖（无需动态导入）
+                for stmt in tree.body:
+                    if isinstance(stmt, ast.Import):
+                        for alias in stmt.names:
+                            top_pkg = alias.name.split(".")[0]
+                            if importlib.util.find_spec(top_pkg) is None:
+                                if (
+                                    not (resolved_file.parent / f"{top_pkg}.py").is_file()
+                                    and not (resolved_file.parent / top_pkg).is_dir()
+                                ):
+                                    raise ModuleNotFoundError(
+                                        f"No module named '{top_pkg}'", name=top_pkg
+                                    )
+                    elif isinstance(stmt, ast.ImportFrom):
+                        if getattr(stmt, "level", 0) == 0 and stmt.module:
+                            top_pkg = stmt.module.split(".")[0]
+                            if importlib.util.find_spec(top_pkg) is None:
+                                if (
+                                    not (resolved_file.parent / f"{top_pkg}.py").is_file()
+                                    and not (resolved_file.parent / top_pkg).is_dir()
+                                ):
+                                    raise ModuleNotFoundError(
+                                        f"No module named '{top_pkg}'", name=top_pkg
+                                    )
 
                 # 检查目录型插件是否附带 plugin.json 描述文件
                 pjson_data: Dict[str, Any] = {}
@@ -1315,100 +1307,261 @@ class PluginRegistry:
                         except Exception:
                             pass
 
-                # 模块级全局变量元数据提取（VERSION / UPDATED_AT / AUTHOR / CATEGORY / TAGS / ICON / HOMEPAGE）与 mtime 回退
-                mod_version = getattr(mod, "VERSION", getattr(mod, "__version__", None))
-                mod_updated_at = getattr(
-                    mod, "UPDATED_AT", getattr(mod, "__updated_at__", None)
-                )
-                mod_author = getattr(mod, "AUTHOR", getattr(mod, "__author__", None))
-                mod_category = getattr(
-                    mod, "CATEGORY", getattr(mod, "__category__", None)
-                )
-                mod_tags = getattr(mod, "TAGS", getattr(mod, "__tags__", None))
-                mod_icon = getattr(mod, "ICON", getattr(mod, "__icon__", None))
-                mod_homepage = getattr(
-                    mod, "HOMEPAGE", getattr(mod, "__homepage__", None)
-                )
+                def _safe_eval(node: ast.AST) -> Any:
+                    try:
+                        return ast.literal_eval(node)
+                    except Exception:
+                        return None
 
-                for meta in new_registered:
-                    if not meta.source_path:
-                        meta.source_path = str(resolved_file)
-                        meta.builtin = is_builtin_plugin_path(resolved_file)
+                # 模块级全局变量元数据提取（支持 Assign 与 AnnAssign）
+                mod_globals: Dict[str, Any] = {}
+                for stmt in tree.body:
+                    if isinstance(stmt, ast.Assign):
+                        for target in stmt.targets:
+                            if isinstance(target, ast.Name):
+                                val = _safe_eval(stmt.value)
+                                if val is not None:
+                                    mod_globals[target.id.upper()] = val
+                    elif isinstance(stmt, ast.AnnAssign):
+                        if isinstance(stmt.target, ast.Name) and stmt.value is not None:
+                            val = _safe_eval(stmt.value)
+                            if val is not None:
+                                mod_globals[stmt.target.id.upper()] = val
 
-                    if not meta.version or meta.version == "1.0.0":
-                        if mod_version and isinstance(mod_version, str):
-                            meta.version = mod_version.strip()
-                        elif pjson_data.get("version"):
-                            meta.version = str(pjson_data["version"]).strip()
+                mod_version = mod_globals.get("VERSION") or mod_globals.get("__VERSION__")
+                mod_updated_at = mod_globals.get("UPDATED_AT") or mod_globals.get("__UPDATED_AT__")
+                mod_author = mod_globals.get("AUTHOR") or mod_globals.get("__AUTHOR__")
+                mod_category = mod_globals.get("CATEGORY") or mod_globals.get("__CATEGORY__")
+                mod_tags = mod_globals.get("TAGS") or mod_globals.get("__TAGS__")
+                mod_icon = mod_globals.get("ICON") or mod_globals.get("__ICON__")
+                mod_homepage = mod_globals.get("HOMEPAGE") or mod_globals.get("__HOMEPAGE__")
+                mod_params_schema = mod_globals.get("PARAMS_SCHEMA")
 
-                    if not meta.updated_at:
-                        if mod_updated_at and isinstance(mod_updated_at, str):
-                            meta.updated_at = mod_updated_at.strip()
-                        elif pjson_data.get("updated_at"):
-                            meta.updated_at = str(pjson_data["updated_at"]).strip()
+                # 扫描所有带 @PluginRegistry.register 装饰器的函数
+                found_registrations = []
+                module_doc = ast.get_docstring(tree) or ""
 
-                    if not meta.author:
-                        if mod_author and isinstance(mod_author, str):
-                            meta.author = mod_author.strip()
-                        elif pjson_data.get("author"):
-                            meta.author = str(pjson_data["author"]).strip()
+                for stmt in tree.body:
+                    if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        for deco in stmt.decorator_list:
+                            if isinstance(deco, ast.Call):
+                                is_reg = False
+                                if (
+                                    isinstance(deco.func, ast.Attribute)
+                                    and deco.func.attr == "register"
+                                ):
+                                    is_reg = True
+                                elif (
+                                    isinstance(deco.func, ast.Name)
+                                    and "register" in deco.func.id
+                                ):
+                                    is_reg = True
 
-                    if not meta.category:
-                        meta.category = (
-                            mod_category or pjson_data.get("category") or None
-                        )
+                                if is_reg:
+                                    reg_info: Dict[str, Any] = {
+                                        "name": stmt.name,
+                                        "fn_name": stmt.name,
+                                        "is_async": isinstance(stmt, ast.AsyncFunctionDef),
+                                        "doc": ast.get_docstring(stmt) or module_doc,
+                                    }
+                                    if deco.args:
+                                        first_arg = _safe_eval(deco.args[0])
+                                        if first_arg and isinstance(first_arg, str):
+                                            reg_info["name"] = first_arg
+                                    for kw in deco.keywords:
+                                        if not kw.arg:
+                                            continue
+                                        kw_val = _safe_eval(kw.value)
+                                        if kw_val is not None:
+                                            reg_info[kw.arg.lower()] = kw_val
+                                    found_registrations.append(reg_info)
 
-                    if not meta.tags:
-                        raw_tags = (
-                            mod_tags if mod_tags is not None else pjson_data.get("tags")
-                        )
-                        if isinstance(raw_tags, (list, tuple)):
-                            meta.tags = [
-                                str(t).strip() for t in raw_tags if str(t).strip()
-                            ]
-                        elif isinstance(raw_tags, str) and raw_tags.strip():
-                            meta.tags = [
-                                t.strip() for t in raw_tags.split(",") if t.strip()
-                            ]
+                if not found_registrations:
+                    found_registrations.append({
+                        "name": folder_name,
+                        "doc": module_doc,
+                    })
 
-                    if not meta.icon:
-                        meta.icon = mod_icon or pjson_data.get("icon") or None
+                file_mtime_str = ""
+                if os.path.isfile(str(resolved_file)):
+                    try:
+                        file_mtime_str = datetime.fromtimestamp(
+                            os.path.getmtime(str(resolved_file))
+                        ).strftime("%Y-%m-%d")
+                    except Exception:
+                        file_mtime_str = datetime.now().strftime("%Y-%m-%d")
+                else:
+                    file_mtime_str = datetime.now().strftime("%Y-%m-%d")
 
-                    if not meta.homepage:
-                        meta.homepage = (
-                            mod_homepage or pjson_data.get("homepage") or None
-                        )
+                for reg in found_registrations:
+                    meta_name = str(reg.get("name") or folder_name)
 
-                    if (
-                        not meta.description
-                        or meta.description == f"自定义插件 {meta.name}"
-                    ) and pjson_data.get("description"):
-                        meta.description = str(pjson_data["description"]).strip()
+                    # 版本提取
+                    final_version = "1.0.0"
+                    if reg.get("version"):
+                        final_version = str(reg["version"]).strip()
+                    elif mod_version and isinstance(mod_version, str):
+                        final_version = mod_version.strip()
+                    elif pjson_data.get("version"):
+                        final_version = str(pjson_data["version"]).strip()
 
-                    if (
-                        not meta.permissions
-                        and pjson_data.get("permissions")
-                        and isinstance(pjson_data["permissions"], list)
-                    ):
-                        meta.permissions = list(pjson_data["permissions"])
+                    # 更新时间
+                    final_updated_at = ""
+                    if reg.get("updated_at"):
+                        final_updated_at = str(reg["updated_at"]).strip()
+                    elif mod_updated_at and isinstance(mod_updated_at, str):
+                        final_updated_at = mod_updated_at.strip()
+                    elif pjson_data.get("updated_at"):
+                        final_updated_at = str(pjson_data["updated_at"]).strip()
+                    else:
+                        final_updated_at = file_mtime_str
 
-                    # 若 updated_at 仍为空，则回退为文件 mtime
-                    if (
-                        not meta.updated_at
-                        and meta.source_path
-                        and os.path.isfile(meta.source_path)
-                    ):
-                        try:
-                            meta.updated_at = datetime.fromtimestamp(
-                                os.path.getmtime(meta.source_path)
-                            ).strftime("%Y-%m-%d")
-                        except Exception:
-                            meta.updated_at = datetime.now().strftime("%Y-%m-%d")
-                    elif not meta.updated_at:
-                        meta.updated_at = datetime.now().strftime("%Y-%m-%d")
-                _logger.info("已成功加载插件: %s (来自 %s)", folder_name, plugin_file)
+                    # 作者
+                    final_author = ""
+                    if reg.get("author"):
+                        final_author = str(reg["author"]).strip()
+                    elif mod_author and isinstance(mod_author, str):
+                        final_author = mod_author.strip()
+                    elif pjson_data.get("author"):
+                        final_author = str(pjson_data["author"]).strip()
+
+                    # 模式
+                    final_mode = reg.get("mode") or mod_globals.get("MODE") or "reactive"
+                    if final_mode not in ("reactive", "active"):
+                        final_mode = "reactive"
+
+                    # 分类
+                    final_category = (
+                        reg.get("category")
+                        or mod_category
+                        or pjson_data.get("category")
+                        or None
+                    )
+
+                    # 标签
+                    raw_tags = reg.get("tags") or mod_tags or pjson_data.get("tags")
+                    final_tags: List[str] = []
+                    if isinstance(raw_tags, (list, tuple)):
+                        final_tags = [str(t).strip() for t in raw_tags if str(t).strip()]
+                    elif isinstance(raw_tags, str) and raw_tags.strip():
+                        final_tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
+
+                    # 图标与主页
+                    final_icon = reg.get("icon") or mod_icon or pjson_data.get("icon") or None
+                    final_homepage = (
+                        reg.get("homepage")
+                        or mod_homepage
+                        or pjson_data.get("homepage")
+                        or None
+                    )
+
+                    # 描述
+                    final_desc = str(reg.get("description") or "").strip()
+                    if not final_desc or final_desc == f"自定义插件 {meta_name}":
+                        if pjson_data.get("description"):
+                            final_desc = str(pjson_data["description"]).strip()
+                        elif reg.get("doc"):
+                            final_desc = str(reg["doc"]).strip().split("\n")[0].strip()
+
+                    # 权限
+                    raw_perms = reg.get("permissions") or mod_globals.get("PERMISSIONS") or pjson_data.get("permissions")
+                    final_permissions: List[str] = []
+                    if isinstance(raw_perms, (list, tuple)):
+                        final_permissions = [str(x) for x in raw_perms]
+
+                    # 参数定义 schema
+                    final_schema = reg.get("params_schema") or mod_params_schema or pjson_data.get("params_schema")
+                    if not isinstance(final_schema, list):
+                        final_schema = []
+
+                    fn_real_name = reg.get("fn_name") or meta_name
+                    is_async_fn = reg.get("is_async", True)
+
+                    def _make_lazy_handler(t_file, t_mod, m_name, f_name, is_async):
+                        real_fn = None
+
+                        def _load_and_get_real_fn() -> Any:
+                            nonlocal real_fn
+                            if real_fn is not None:
+                                return real_fn
+                            spec_kw = {}
+                            if t_file.name in ("main.py", "__init__.py"):
+                                spec_kw["submodule_search_locations"] = [str(t_file.parent)]
+                            spec = importlib.util.spec_from_file_location(t_mod, t_file, **spec_kw)
+                            if spec is None or spec.loader is None:
+                                return None
+                            mod = importlib.util.module_from_spec(spec)
+                            sys.modules[t_mod] = mod
+                            ins = False
+                            p_str = str(t_file.parent)
+                            if t_file.name in ("main.py", "__init__.py") and p_str not in sys.path:
+                                sys.path.insert(0, p_str)
+                                ins = True
+                            try:
+                                spec.loader.exec_module(mod)
+                            finally:
+                                if ins and p_str in sys.path:
+                                    try:
+                                        sys.path.remove(p_str)
+                                    except ValueError:
+                                        pass
+                            m = cls._plugins.get(m_name)
+                            if m and m.handler and not getattr(m.handler, "_is_placeholder", False):
+                                real_fn = m.handler
+                            else:
+                                real_fn = getattr(mod, f_name, None)
+                            return real_fn
+
+                        if is_async:
+                            async def _lazy_handler(*args: Any, **kwargs: Any) -> Any:
+                                real_f = _load_and_get_real_fn()
+                                if real_f is None:
+                                    return None
+                                res = real_f(*args, **kwargs)
+                                if inspect.iscoroutine(res):
+                                    return await res
+                                return res
+                            _lazy_handler._is_placeholder = True
+                            return _lazy_handler
+                        else:
+                            def _lazy_handler(*args: Any, **kwargs: Any) -> Any:
+                                real_f = _load_and_get_real_fn()
+                                if real_f is None:
+                                    return None
+                                return real_f(*args, **kwargs)
+                            _lazy_handler._is_placeholder = True
+                            return _lazy_handler
+
+                    active_handler = _make_lazy_handler(
+                        resolved_file, module_name, meta_name, fn_real_name, is_async_fn
+                    )
+
+                    meta = PluginMeta(
+                        name=meta_name,
+                        handler=active_handler,
+                        mode=final_mode,
+                        description=final_desc,
+                        version=final_version,
+                        updated_at=final_updated_at,
+                        author=final_author,
+                        source_path=str(resolved_file),
+                        params_schema=final_schema,
+                        enabled=cls.is_enabled(meta_name),
+                        builtin=is_builtin_plugin_path(resolved_file),
+                        permissions=final_permissions,
+                        doc=reg.get("doc") or None,
+                        category=final_category,
+                        tags=final_tags,
+                        icon=final_icon,
+                        homepage=final_homepage,
+                        isolation_mode="subprocess",
+                    )
+                    cls._plugins[meta_name] = meta
+
+                cls._loaded_files.add(resolved_file)
+                cls._load_errors.pop(str(resolved_file), None)
+                _logger.info("已成功静态加载插件: %s (来自 %s)", folder_name, plugin_file)
             except ModuleNotFoundError as exc:
-                sys.modules.pop(module_name, None)
                 missing = getattr(exc, "name", None) or str(exc)
                 _logger.warning(
                     "加载插件 %s 失败：缺少依赖模块 '%s'，可在环境中执行 pip install %s 进行安装",
@@ -1426,7 +1579,6 @@ class PluginRegistry:
                     timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 )
             except SyntaxError as exc:
-                sys.modules.pop(module_name, None)
                 _logger.error("加载插件 %s 语法错误: %s", plugin_file, exc)
                 cls._load_errors[str(resolved_file)] = PluginLoadError(
                     file_path=str(resolved_file),
@@ -1438,8 +1590,6 @@ class PluginRegistry:
                     timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 )
             except Exception as exc:
-                # 严密捕获单插件的语法/加载错误，绝不雪崩
-                sys.modules.pop(module_name, None)
                 _logger.error("加载插件 %s 失败: %s", plugin_file, exc, exc_info=True)
                 cls._load_errors[str(resolved_file)] = PluginLoadError(
                     file_path=str(resolved_file),

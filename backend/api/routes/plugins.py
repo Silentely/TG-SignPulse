@@ -474,8 +474,12 @@ async def list_plugins(
 
 
 def _reload_plugins_preserving_state() -> None:
-    """重新扫描加载插件并完整保留持久化的禁用状态。"""
+    """重新静态扫描解析插件目录元数据并完整保留持久化的禁用状态（零执行）。"""
     disabled_set = _get_disabled_plugins()
+    from backend.services.plugin_catalog import StaticPluginCatalog
+
+    catalog = StaticPluginCatalog(plugins_dir=PluginRegistry.get_search_directories())
+    catalog.refresh_catalog()
     PluginRegistry.reload_all_plugins()
     for name in PluginRegistry.list_plugins():
         PluginRegistry.set_disabled(name, disabled=name in disabled_set)
@@ -758,6 +762,10 @@ async def list_market_plugins(
     catalog_data, source_type, active_url, is_cached = await _fetch_market_catalog(
         refresh=refresh
     )
+    from backend.services.plugin_catalog import StaticPluginCatalog
+
+    catalog = StaticPluginCatalog(plugins_dir=PluginRegistry.get_search_directories())
+    static_plugins = {p.name: p for p in catalog.refresh_catalog()}
     installed_plugins = PluginRegistry.list_plugins()
 
     plugin_items: List[MarketPluginItem] = []
@@ -766,12 +774,13 @@ async def list_market_plugins(
         if not pid:
             continue
 
-        installed_meta = installed_plugins.get(pid)
+        installed_meta = installed_plugins.get(pid) or static_plugins.get(pid)
         is_installed = installed_meta is not None
         installed_version = installed_meta.version if installed_meta else None
+        installed_source = getattr(installed_meta, "source_path", None)
         installed_is_builtin = (
-            is_builtin_plugin_path(installed_meta.source_path)
-            if (installed_meta and installed_meta.source_path)
+            is_builtin_plugin_path(installed_source)
+            if (installed_meta and installed_source)
             else False
         )
 
