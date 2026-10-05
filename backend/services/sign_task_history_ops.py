@@ -203,7 +203,7 @@ class SignTaskHistoryMixin:
                 limit=limit,
                 prefer_memory=True,
             )
-            if indexed:
+            if indexed is not None:
                 # 索引条目已是列表展示结构（无 flow_logs）；补齐兼容字段
                 return [
                     {
@@ -278,7 +278,7 @@ class SignTaskHistoryMixin:
                 date_prefix=normalized_date,
                 prefer_memory=prefer_memory,
             )
-            if indexed:
+            if indexed is not None:
                 return [
                     {
                         **item,
