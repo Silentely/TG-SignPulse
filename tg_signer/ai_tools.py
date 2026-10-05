@@ -517,6 +517,7 @@ class AITools:
                 result = result["options"][0]
             else:
                 for key in (
+                    "selected_index",
                     "options",
                     "option",
                     "result",
