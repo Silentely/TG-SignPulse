@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -830,26 +830,27 @@ def test_api_test_plugin_timeout():
 
     from tg_signer.core.plugins import PluginRegistry
 
-    # 注册一个需要耗时 0.2s 的慢插件
-    # 必须走进程内执行：插件仅在进程内注册、没有源文件，子进程沙箱无法解析，
-    # 那样超时会由子进程启动开销触发，测不到这里的 sleep
-    @PluginRegistry.register(name="slow_sleep_test_p", isolation_mode="in_process")
+    @PluginRegistry.register(name="slow_sleep_test_p")
     def slow_plugin(ctx):
-        time.sleep(0.15)
         return True
 
-    resp = client.post(
-        "/api/plugins/slow_sleep_test_p/test",
-        json={
-            "text": "hi",
-            "timeout": 0.05,  # 0.05s < 0.15s，必定超时
-        },
-    )
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["isolation"] == "in_process"
-    assert data["success"] is False
-    assert "超时" in (data.get("error") or "")
+    with patch("backend.api.routes.plugins.PluginProcessHost") as mock_host:
+        instance = mock_host.return_value
+        instance.execute = AsyncMock(side_effect=TimeoutError("插件执行超时（沙箱限制 0.05 秒）"))
+        instance.process_terminated_by_kill = False
+
+        resp = client.post(
+            "/api/plugins/slow_sleep_test_p/test",
+            json={
+                "text": "hi",
+                "timeout": 0.05,
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["isolation"] == "subprocess"
+        assert data["success"] is False
+        assert "超时" in (data.get("error") or "")
 
 
 def test_api_plugins_manifest():
@@ -995,9 +996,6 @@ def test_test_plugin_param_validation_and_traceback():
 
     @PluginRegistry.register(
         name="schema_tb_plug",
-        # 本插件仅在进程内注册、没有插件源文件，子进程沙箱按 source_path
-        # 加载时无法解析；调试台用例只需校验参数告警与异常行号，故走进程内执行
-        isolation_mode="in_process",
         params_schema=[
             {"name": "api_key", "label": "API Key", "required": True},
             {
@@ -1015,26 +1013,36 @@ def test_test_plugin_param_validation_and_traceback():
         return True
 
     # 2. Test missing required param
-    resp = client.post(
-        "/api/plugins/schema_tb_plug/test",
-        json={"params": {"trigger_fail": False}},
-    )
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["success"] is True
-    assert data["isolation"] == "in_process"
-    assert any("必填参数" in w for w in data.get("param_warnings", []))
+    with patch("backend.api.routes.plugins.PluginProcessHost") as mock_host:
+        async def fake_execute():
+            return await handler(mock_host.call_args.kwargs["ctx"])
+        mock_host.return_value.execute = AsyncMock(side_effect=fake_execute)
+
+        resp = client.post(
+            "/api/plugins/schema_tb_plug/test",
+            json={"params": {"trigger_fail": False}},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["isolation"] == "subprocess"
+        assert any("必填参数" in w for w in data.get("param_warnings", []))
 
     # 3. Test exception traceback & error_line
-    resp_err = client.post(
-        "/api/plugins/schema_tb_plug/test",
-        json={"params": {"api_key": "secret", "trigger_fail": True}},
-    )
-    assert resp_err.status_code == 200
-    err_data = resp_err.json()
-    assert err_data["success"] is False
-    assert "ZeroDivisionError" in (err_data.get("traceback") or "")
-    assert err_data.get("error_line") is not None
+    with patch("backend.api.routes.plugins.PluginProcessHost") as mock_host:
+        async def fake_fail_execute():
+            return await handler(mock_host.call_args.kwargs["ctx"])
+        mock_host.return_value.execute = AsyncMock(side_effect=fake_fail_execute)
+
+        resp_err = client.post(
+            "/api/plugins/schema_tb_plug/test",
+            json={"params": {"api_key": "secret", "trigger_fail": True}},
+        )
+        assert resp_err.status_code == 200
+        err_data = resp_err.json()
+        assert err_data["success"] is False
+        assert "ZeroDivisionError" in (err_data.get("traceback") or "")
+        assert err_data.get("error_line") is not None
 
 
 def test_detect_plugin_capabilities_and_audit():

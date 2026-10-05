@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 from tests.test_api import _auth, _login
 from tg_signer.core.plugins import PluginContext, PluginRegistry, is_builtin_plugin_path
@@ -114,7 +115,6 @@ def test_test_plugin_endpoint(api_client):
         name="test_calculator_sandbox",
         mode="reactive",
         description="计算器沙箱测试",
-        isolation_mode="in_process",
     )
     async def calc_handler(ctx: PluginContext):
         if "1+1" in ctx.message.text:
@@ -124,34 +124,44 @@ def test_test_plugin_endpoint(api_client):
         return False
 
     # 命中测试
-    resp_match = api_client.post(
-        "/api/plugins/test_calculator_sandbox/test",
-        headers=headers,
-        json={"text": "请回答 1+1=?"},
-    )
-    assert resp_match.status_code == 200
-    data = resp_match.json()
-    assert data["success"] is True
-    assert data["handled"] is True
-    assert data["reply_text"] == "2"
-    assert data["isolation"] == "in_process"
-    assert data["killed"] is False
-    assert any("计算表达式 1+1" in log for log in data["logs"])
-    assert data["duration_ms"] >= 0
+    with patch("backend.api.routes.plugins.PluginProcessHost") as mock_host:
+        async def fake_execute():
+            return await calc_handler(mock_host.call_args.kwargs["ctx"])
+        mock_host.return_value.execute = AsyncMock(side_effect=fake_execute)
+
+        resp_match = api_client.post(
+            "/api/plugins/test_calculator_sandbox/test",
+            headers=headers,
+            json={"text": "请回答 1+1=?"},
+        )
+        assert resp_match.status_code == 200
+        data = resp_match.json()
+        assert data["success"] is True
+        assert data["handled"] is True
+        assert data["reply_text"] == "2"
+        assert data["isolation"] == "subprocess"
+        assert data["killed"] is False
+        assert any("计算表达式 1+1" in log for log in data["logs"])
+        assert data["duration_ms"] >= 0
 
     # 未命中测试
-    resp_no_match = api_client.post(
-        "/api/plugins/test_calculator_sandbox/test",
-        headers=headers,
-        json={"text": "无关消息"},
-    )
-    assert resp_no_match.status_code == 200
-    data_no_match = resp_no_match.json()
-    assert data_no_match["success"] is True
-    assert data_no_match["handled"] is False
-    assert data_no_match["reply_text"] is None
-    assert data_no_match["isolation"] == "in_process"
-    assert data_no_match["killed"] is False
+    with patch("backend.api.routes.plugins.PluginProcessHost") as mock_host:
+        async def fake_execute_no_match():
+            return await calc_handler(mock_host.call_args.kwargs["ctx"])
+        mock_host.return_value.execute = AsyncMock(side_effect=fake_execute_no_match)
+
+        resp_no_match = api_client.post(
+            "/api/plugins/test_calculator_sandbox/test",
+            headers=headers,
+            json={"text": "无关消息"},
+        )
+        assert resp_no_match.status_code == 200
+        data_no_match = resp_no_match.json()
+        assert data_no_match["success"] is True
+        assert data_no_match["handled"] is False
+        assert data_no_match["reply_text"] is None
+        assert data_no_match["isolation"] == "subprocess"
+        assert data_no_match["killed"] is False
 
 
 def test_test_plugin_endpoint_error_and_timeout(api_client, monkeypatch):
@@ -247,22 +257,27 @@ def test_test_plugin_reaction(api_client):
     @PluginRegistry.register(
         name="test_reaction_plugin",
         mode="reactive",
-        isolation_mode="in_process",
     )
     async def reaction_handler(ctx: PluginContext):
         await ctx.react("🎉")
         return True
 
-    resp = api_client.post(
-        "/api/plugins/test_reaction_plugin/test",
-        headers=headers,
-        json={"text": "congrats"},
-    )
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["success"] is True
-    assert data["handled"] is True
-    assert "🎉" in data["reacted_emojis"]
+    with patch("backend.api.routes.plugins.PluginProcessHost") as mock_host:
+        async def fake_execute():
+            return await reaction_handler(mock_host.call_args.kwargs["ctx"])
+        mock_host.return_value.execute = AsyncMock(side_effect=fake_execute)
+
+        resp = api_client.post(
+            "/api/plugins/test_reaction_plugin/test",
+            headers=headers,
+            json={"text": "congrats"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["handled"] is True
+        assert "🎉" in data["reacted_emojis"]
+        assert data["isolation"] == "subprocess"
 
 
 def test_is_builtin_plugin_path_edge_cases(monkeypatch, tmp_path):

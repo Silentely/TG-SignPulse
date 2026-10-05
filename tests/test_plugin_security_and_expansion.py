@@ -208,15 +208,20 @@ async def test_keyword_monitor_action_99_in_process():
     mock_client = MagicMock()
     action = {"action": 99, "plugin_name": "test_km_plugin_action", "params": {"p1": 1}}
 
-    success = await execute_continue_action(
-        service=mock_service,
-        client=mock_client,
-        target_chat_id=12345,
-        target_thread_id=None,
-        action=action,
-        timeout=5.0,
-    )
-    assert success is True
+    with patch("tg_signer.core.plugin_host.PluginProcessHost") as mock_host:
+        mock_host.return_value.execute = AsyncMock(return_value=True)
+        success = await execute_continue_action(
+            service=mock_service,
+            client=mock_client,
+            target_chat_id=12345,
+            target_thread_id=None,
+            action=action,
+            timeout=5.0,
+        )
+        assert success is True
+        mock_host.assert_called_once()
+        assert mock_host.call_args.kwargs["plugin_name"] == "test_km_plugin_action"
+        assert mock_host.call_args.kwargs["trigger_type"] == "reactive"
 
 
 # ============================================================================
