@@ -1,8 +1,9 @@
 import pytest
 from fastapi import HTTPException
-from backend.services.plugin_security_gate import enforce_plugin_security
+
 from backend.core.auth import get_current_user
 from backend.main import app
+from backend.services.plugin_security_gate import enforce_plugin_security
 from tg_signer.core.plugins import PluginRegistry
 
 pytest_plugins = ("tests.test_api",)
@@ -54,10 +55,7 @@ def test_security_gate_hard_blocks_fail_closed_rules():
 
 def test_security_gate_medium_risk_confirmation():
     # 中危告警：ssl._create_unverified_context
-    code_with_warning = (
-        "import ssl\n"
-        "ctx = ssl._create_unverified_context()\n"
-    )
+    code_with_warning = "import ssl\nctx = ssl._create_unverified_context()\n"
     # force=False 抛出 409
     with pytest.raises(HTTPException) as exc_info:
         enforce_plugin_security(code_with_warning, force=False)

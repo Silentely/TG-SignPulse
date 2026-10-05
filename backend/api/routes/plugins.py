@@ -481,7 +481,9 @@ def _reload_plugins_preserving_state() -> None:
         PluginRegistry.set_disabled(name, disabled=name in disabled_set)
 
 
-def _enforce_plugin_security_check(source_code: str, file_label: str = "插件") -> Dict[str, Any]:
+def _enforce_plugin_security_check(
+    source_code: str, file_label: str = "插件"
+) -> Dict[str, Any]:
     """统一插件安全审查拦截门禁。"""
     from backend.services.plugin_security_gate import enforce_plugin_security
 

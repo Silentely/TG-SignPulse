@@ -836,7 +836,9 @@ def test_api_test_plugin_timeout():
 
     with patch("backend.api.routes.plugins.PluginProcessHost") as mock_host:
         instance = mock_host.return_value
-        instance.execute = AsyncMock(side_effect=TimeoutError("插件执行超时（沙箱限制 0.05 秒）"))
+        instance.execute = AsyncMock(
+            side_effect=TimeoutError("插件执行超时（沙箱限制 0.05 秒）")
+        )
         instance.process_terminated_by_kill = False
 
         resp = client.post(
@@ -1014,8 +1016,10 @@ def test_test_plugin_param_validation_and_traceback():
 
     # 2. Test missing required param
     with patch("backend.api.routes.plugins.PluginProcessHost") as mock_host:
+
         async def fake_execute():
             return await handler(mock_host.call_args.kwargs["ctx"])
+
         mock_host.return_value.execute = AsyncMock(side_effect=fake_execute)
 
         resp = client.post(
@@ -1030,8 +1034,10 @@ def test_test_plugin_param_validation_and_traceback():
 
     # 3. Test exception traceback & error_line
     with patch("backend.api.routes.plugins.PluginProcessHost") as mock_host:
+
         async def fake_fail_execute():
             return await handler(mock_host.call_args.kwargs["ctx"])
+
         mock_host.return_value.execute = AsyncMock(side_effect=fake_fail_execute)
 
         resp_err = client.post(

@@ -152,7 +152,9 @@ def upload_file_to_webdav(
                 file_url,
                 content=fh,
                 headers={
-                    "Content-Type": "application/octet-stream" if name.endswith(".spbak") else "application/gzip",
+                    "Content-Type": "application/octet-stream"
+                    if name.endswith(".spbak")
+                    else "application/gzip",
                     "Content-Length": str(local_path.stat().st_size),
                 },
             )

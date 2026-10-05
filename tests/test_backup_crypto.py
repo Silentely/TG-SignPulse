@@ -1,30 +1,29 @@
 import io
-import os
 import tarfile
 from datetime import timedelta
 from pathlib import Path
 from unittest.mock import patch
+
 import pytest
 
 from backend.core.auth import create_access_token
 from backend.core.config import get_settings
-from backend.services.backup_crypto import (
-    MAGIC,
-    FORMAT_VERSION,
-    HEADER_LENGTH,
-    DEFAULT_ITERATIONS,
-    MIN_ITERATIONS,
-    MAX_ITERATIONS,
-    MODE_APP_SECRET,
-    MODE_USER_PASSWORD,
-    BackupDecryptionError,
-    encrypt_backup,
-    decrypt_backup,
-)
 from backend.services.backup_archive import (
     create_backup_tarball,
     extract_backup_archive,
     prune_backups,
+)
+from backend.services.backup_crypto import (
+    FORMAT_VERSION,
+    HEADER_LENGTH,
+    MAGIC,
+    MAX_ITERATIONS,
+    MIN_ITERATIONS,
+    MODE_APP_SECRET,
+    MODE_USER_PASSWORD,
+    BackupDecryptionError,
+    decrypt_backup,
+    encrypt_backup,
 )
 
 
@@ -178,7 +177,9 @@ def test_backup_archive_create_and_extract_spbak(isolated_env, tmp_path: Path):
     count = extract_backup_archive(dest_spbak, restore_dir)
     assert count >= 2
     assert (restore_dir / "db.sqlite").read_text() == "sqlite database content"
-    assert (restore_dir / "sessions" / "test.session").read_text() == "session credentials"
+    assert (
+        restore_dir / "sessions" / "test.session"
+    ).read_text() == "session credentials"
 
 
 def test_backup_archive_create_and_extract_with_password(tmp_path: Path):

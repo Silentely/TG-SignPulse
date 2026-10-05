@@ -1154,7 +1154,9 @@ class PluginRegistry:
             existing = cls._plugins.get(name)
             if existing is not None and existing.handler is not fn:
                 is_placeholder = getattr(existing.handler, "_is_placeholder", False)
-                if not is_placeholder and not cls._is_same_registration(existing.handler, fn):
+                if not is_placeholder and not cls._is_same_registration(
+                    existing.handler, fn
+                ):
                     raise ValueError(f"插件名称已注册: {name}")
             source_file = None
             try:
@@ -1277,7 +1279,9 @@ class PluginRegistry:
                             top_pkg = alias.name.split(".")[0]
                             if importlib.util.find_spec(top_pkg) is None:
                                 if (
-                                    not (resolved_file.parent / f"{top_pkg}.py").is_file()
+                                    not (
+                                        resolved_file.parent / f"{top_pkg}.py"
+                                    ).is_file()
                                     and not (resolved_file.parent / top_pkg).is_dir()
                                 ):
                                     raise ModuleNotFoundError(
@@ -1288,7 +1292,9 @@ class PluginRegistry:
                             top_pkg = stmt.module.split(".")[0]
                             if importlib.util.find_spec(top_pkg) is None:
                                 if (
-                                    not (resolved_file.parent / f"{top_pkg}.py").is_file()
+                                    not (
+                                        resolved_file.parent / f"{top_pkg}.py"
+                                    ).is_file()
                                     and not (resolved_file.parent / top_pkg).is_dir()
                                 ):
                                     raise ModuleNotFoundError(
@@ -1328,13 +1334,21 @@ class PluginRegistry:
                             if val is not None:
                                 mod_globals[stmt.target.id.upper()] = val
 
-                mod_version = mod_globals.get("VERSION") or mod_globals.get("__VERSION__")
-                mod_updated_at = mod_globals.get("UPDATED_AT") or mod_globals.get("__UPDATED_AT__")
+                mod_version = mod_globals.get("VERSION") or mod_globals.get(
+                    "__VERSION__"
+                )
+                mod_updated_at = mod_globals.get("UPDATED_AT") or mod_globals.get(
+                    "__UPDATED_AT__"
+                )
                 mod_author = mod_globals.get("AUTHOR") or mod_globals.get("__AUTHOR__")
-                mod_category = mod_globals.get("CATEGORY") or mod_globals.get("__CATEGORY__")
+                mod_category = mod_globals.get("CATEGORY") or mod_globals.get(
+                    "__CATEGORY__"
+                )
                 mod_tags = mod_globals.get("TAGS") or mod_globals.get("__TAGS__")
                 mod_icon = mod_globals.get("ICON") or mod_globals.get("__ICON__")
-                mod_homepage = mod_globals.get("HOMEPAGE") or mod_globals.get("__HOMEPAGE__")
+                mod_homepage = mod_globals.get("HOMEPAGE") or mod_globals.get(
+                    "__HOMEPAGE__"
+                )
                 mod_params_schema = mod_globals.get("PARAMS_SCHEMA")
 
                 # 扫描所有带 @PluginRegistry.register 装饰器的函数
@@ -1361,7 +1375,9 @@ class PluginRegistry:
                                     reg_info: Dict[str, Any] = {
                                         "name": stmt.name,
                                         "fn_name": stmt.name,
-                                        "is_async": isinstance(stmt, ast.AsyncFunctionDef),
+                                        "is_async": isinstance(
+                                            stmt, ast.AsyncFunctionDef
+                                        ),
                                         "doc": ast.get_docstring(stmt) or module_doc,
                                     }
                                     if deco.args:
@@ -1377,10 +1393,12 @@ class PluginRegistry:
                                     found_registrations.append(reg_info)
 
                 if not found_registrations:
-                    found_registrations.append({
-                        "name": folder_name,
-                        "doc": module_doc,
-                    })
+                    found_registrations.append(
+                        {
+                            "name": folder_name,
+                            "doc": module_doc,
+                        }
+                    )
 
                 file_mtime_str = ""
                 if os.path.isfile(str(resolved_file)):
@@ -1426,7 +1444,9 @@ class PluginRegistry:
                         final_author = str(pjson_data["author"]).strip()
 
                     # 模式
-                    final_mode = reg.get("mode") or mod_globals.get("MODE") or "reactive"
+                    final_mode = (
+                        reg.get("mode") or mod_globals.get("MODE") or "reactive"
+                    )
                     if final_mode not in ("reactive", "active"):
                         final_mode = "reactive"
 
@@ -1442,12 +1462,18 @@ class PluginRegistry:
                     raw_tags = reg.get("tags") or mod_tags or pjson_data.get("tags")
                     final_tags: List[str] = []
                     if isinstance(raw_tags, (list, tuple)):
-                        final_tags = [str(t).strip() for t in raw_tags if str(t).strip()]
+                        final_tags = [
+                            str(t).strip() for t in raw_tags if str(t).strip()
+                        ]
                     elif isinstance(raw_tags, str) and raw_tags.strip():
-                        final_tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
+                        final_tags = [
+                            t.strip() for t in raw_tags.split(",") if t.strip()
+                        ]
 
                     # 图标与主页
-                    final_icon = reg.get("icon") or mod_icon or pjson_data.get("icon") or None
+                    final_icon = (
+                        reg.get("icon") or mod_icon or pjson_data.get("icon") or None
+                    )
                     final_homepage = (
                         reg.get("homepage")
                         or mod_homepage
@@ -1464,13 +1490,21 @@ class PluginRegistry:
                             final_desc = str(reg["doc"]).strip().split("\n")[0].strip()
 
                     # 权限
-                    raw_perms = reg.get("permissions") or mod_globals.get("PERMISSIONS") or pjson_data.get("permissions")
+                    raw_perms = (
+                        reg.get("permissions")
+                        or mod_globals.get("PERMISSIONS")
+                        or pjson_data.get("permissions")
+                    )
                     final_permissions: List[str] = []
                     if isinstance(raw_perms, (list, tuple)):
                         final_permissions = [str(x) for x in raw_perms]
 
                     # 参数定义 schema
-                    final_schema = reg.get("params_schema") or mod_params_schema or pjson_data.get("params_schema")
+                    final_schema = (
+                        reg.get("params_schema")
+                        or mod_params_schema
+                        or pjson_data.get("params_schema")
+                    )
                     if not isinstance(final_schema, list):
                         final_schema = []
 
@@ -1486,15 +1520,22 @@ class PluginRegistry:
                                 return real_fn
                             spec_kw = {}
                             if t_file.name in ("main.py", "__init__.py"):
-                                spec_kw["submodule_search_locations"] = [str(t_file.parent)]
-                            spec = importlib.util.spec_from_file_location(t_mod, t_file, **spec_kw)
+                                spec_kw["submodule_search_locations"] = [
+                                    str(t_file.parent)
+                                ]
+                            spec = importlib.util.spec_from_file_location(
+                                t_mod, t_file, **spec_kw
+                            )
                             if spec is None or spec.loader is None:
                                 return None
                             mod = importlib.util.module_from_spec(spec)
                             sys.modules[t_mod] = mod
                             ins = False
                             p_str = str(t_file.parent)
-                            if t_file.name in ("main.py", "__init__.py") and p_str not in sys.path:
+                            if (
+                                t_file.name in ("main.py", "__init__.py")
+                                and p_str not in sys.path
+                            ):
                                 sys.path.insert(0, p_str)
                                 ins = True
                             try:
@@ -1506,13 +1547,18 @@ class PluginRegistry:
                                     except ValueError:
                                         pass
                             m = cls._plugins.get(m_name)
-                            if m and m.handler and not getattr(m.handler, "_is_placeholder", False):
+                            if (
+                                m
+                                and m.handler
+                                and not getattr(m.handler, "_is_placeholder", False)
+                            ):
                                 real_fn = m.handler
                             else:
                                 real_fn = getattr(mod, f_name, None)
                             return real_fn
 
                         if is_async:
+
                             async def _lazy_handler(*args: Any, **kwargs: Any) -> Any:
                                 real_f = _load_and_get_real_fn()
                                 if real_f is None:
@@ -1521,14 +1567,17 @@ class PluginRegistry:
                                 if inspect.iscoroutine(res):
                                     return await res
                                 return res
+
                             _lazy_handler._is_placeholder = True
                             return _lazy_handler
                         else:
+
                             def _lazy_handler(*args: Any, **kwargs: Any) -> Any:
                                 real_f = _load_and_get_real_fn()
                                 if real_f is None:
                                     return None
                                 return real_f(*args, **kwargs)
+
                             _lazy_handler._is_placeholder = True
                             return _lazy_handler
 
@@ -1560,7 +1609,9 @@ class PluginRegistry:
 
                 cls._loaded_files.add(resolved_file)
                 cls._load_errors.pop(str(resolved_file), None)
-                _logger.info("已成功静态加载插件: %s (来自 %s)", folder_name, plugin_file)
+                _logger.info(
+                    "已成功静态加载插件: %s (来自 %s)", folder_name, plugin_file
+                )
             except ModuleNotFoundError as exc:
                 missing = getattr(exc, "name", None) or str(exc)
                 _logger.warning(

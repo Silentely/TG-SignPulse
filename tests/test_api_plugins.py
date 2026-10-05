@@ -125,8 +125,10 @@ def test_test_plugin_endpoint(api_client):
 
     # 命中测试
     with patch("backend.api.routes.plugins.PluginProcessHost") as mock_host:
+
         async def fake_execute():
             return await calc_handler(mock_host.call_args.kwargs["ctx"])
+
         mock_host.return_value.execute = AsyncMock(side_effect=fake_execute)
 
         resp_match = api_client.post(
@@ -146,8 +148,10 @@ def test_test_plugin_endpoint(api_client):
 
     # 未命中测试
     with patch("backend.api.routes.plugins.PluginProcessHost") as mock_host:
+
         async def fake_execute_no_match():
             return await calc_handler(mock_host.call_args.kwargs["ctx"])
+
         mock_host.return_value.execute = AsyncMock(side_effect=fake_execute_no_match)
 
         resp_no_match = api_client.post(
@@ -263,8 +267,10 @@ def test_test_plugin_reaction(api_client):
         return True
 
     with patch("backend.api.routes.plugins.PluginProcessHost") as mock_host:
+
         async def fake_execute():
             return await reaction_handler(mock_host.call_args.kwargs["ctx"])
+
         mock_host.return_value.execute = AsyncMock(side_effect=fake_execute)
 
         resp = api_client.post(

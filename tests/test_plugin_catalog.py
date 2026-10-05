@@ -1,7 +1,7 @@
 import tempfile
 from pathlib import Path
-import pytest
-from backend.services.plugin_catalog import StaticPluginCatalog, StaticPluginMetadata
+
+from backend.services.plugin_catalog import StaticPluginCatalog
 
 
 def test_static_plugin_catalog_extracts_metadata_without_executing_code():

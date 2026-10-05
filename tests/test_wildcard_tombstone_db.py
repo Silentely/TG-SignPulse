@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+
 import pytest
 
 import backend.core.database as db_mod

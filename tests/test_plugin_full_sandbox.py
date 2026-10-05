@@ -57,7 +57,9 @@ async def test_async_plugin_enforces_subprocess_in_reactive_path():
 async def test_async_plugin_enforces_subprocess_in_active_wait_for():
     """验证即便是 async def 异步插件，在 wait_for 主动执行动作中也强制走 PluginProcessHost 子进程"""
     runner = DummyRunner()
-    action = PluginAction(plugin_name="demo_async_active_plugin", mode="active", params={})
+    action = PluginAction(
+        plugin_name="demo_async_active_plugin", mode="active", params={}
+    )
     chat = SignChatV3(chat_id="123456", actions=[action])
 
     async def fake_async_handler(context):
