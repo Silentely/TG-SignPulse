@@ -27,7 +27,7 @@ _logger = logging.getLogger("backend.sign_task_crud")
 def _validate_chats_regex_safety(chats: Optional[List[Dict[str, Any]]]) -> None:
     """写入前校验 chats 内全部动作的正则关键词，阻断灾难性回溯正则落盘。
 
-    判据与运行期一致（validate_action_regex_safety），保证「能写入即可加载」。
+    判据与运行时一致（validate_action_regex_safety），保证「能写入即可加载」。
     """
     if not chats:
         return
@@ -70,6 +70,22 @@ class SignTaskCrudMixin:
                 depth += 1
 
     """依赖 SignTaskService 实例属性：signs_dir, run_history_dir 及各类 helper。"""
+
+    def record_wildcard_removed(
+        self,
+        account_name: str,
+        task_name: str,
+        *,
+        parent_task_id: str = "",
+        parent_revision: int = 1,
+    ) -> None:
+        pass
+
+    def clear_wildcard_removed(self, account_name: str, task_name: str) -> None:
+        pass
+
+    def is_wildcard_removed(self, account_name: str, task_name: str) -> bool:
+        return False
 
     def create_task(
         self,
@@ -702,7 +718,23 @@ class SignTaskCrudMixin:
                 remove_sign_task_job(current_account, task_name)
                 self._cancel_and_clean_runtime_state(current_account, task_name)
                 # 记住该账号副本已删，抑制通配重扩展
-                self.record_wildcard_removed(current_account, task_name)
+                parent_task_id = ""
+                parent_rev = 1
+                for r_task in related_tasks:
+                    if str(r_task.get("account_name") or "") == current_account:
+                        parent_task_id = str(
+                            r_task.get("parent_task_id")
+                            or r_task.get("task_group_id")
+                            or ""
+                        )
+                        parent_rev = int(r_task.get("parent_revision") or 1)
+                        break
+                self.record_wildcard_removed(
+                    current_account,
+                    task_name,
+                    parent_task_id=parent_task_id,
+                    parent_revision=parent_rev,
+                )
 
         # 剥离存活兄弟配置里的通配标记：没有 "*" 就不会再触发整体重扩展
         self._strip_wildcard_marker(task_name, keep_accounts=target_accounts)

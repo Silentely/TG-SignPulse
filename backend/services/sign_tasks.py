@@ -5,6 +5,11 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from sqlalchemy.exc import OperationalError
+from backend.core.database import get_session_local
+from backend.models.wildcard_tombstone import WildcardTombstoneModel
+
 import asyncio
 import contextlib
 import logging
@@ -103,6 +108,13 @@ __all__ = [
 ]
 
 
+def _ensure_wildcard_tombstone_table(db: Any) -> None:
+    try:
+        WildcardTombstoneModel.__table__.create(bind=db.get_bind(), checkfirst=True)
+    except Exception as e:
+        _service_logger.debug("Failed to auto-create wildcard_tombstones table: %s", e)
+
+
 class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
     """签到任务服务类（历史见 SignTaskHistoryMixin，CRUD 见 SignTaskCrudMixin）"""
 
@@ -130,10 +142,8 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         self._background_run_tasks: Dict[tuple[str, str], asyncio.Task] = {}
         self._draining = False
         self._tasks_cache = None  # 兼容旧引用：list 或 None
-        # 通配任务删除记录：{(account, task_name): True}。
-        # 删除通配铺开的某账号副本后，必须记住该账号已删，
-        # 否则 _expand_wildcard_tasks 会因残留的 * 标记重新铺开，把删除撤销。
-        self._wildcard_removed: Dict[tuple[str, str], bool] = {}
+        # 通配任务删除记录：已持久化至数据库 wildcard_tombstones 表 (WildcardTombstoneModel)，
+        # 彻底替换原有的易失内存字典 self._wildcard_removed，确保服务重启后不复活。
         self._cache_refresh_deferred = 0  # >0 时挂起写后全量缓存刷新（批量写优化）
         self._cache_refresh_dirty = False  # defer 期间确有写后刷新被抑制时置 True
         self._cache_refresh_lock = (
@@ -557,7 +567,7 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         # For each wildcard task, ensure all accounts have a directory
         for task_name, base_config, _ in seen_wildcard_tasks:
             for acc in all_accounts:
-                if self._wildcard_removed.get((acc, task_name)):
+                if self.is_wildcard_removed(acc, task_name):
                     continue
                 # Create task for this account
                 target_dir = self.signs_dir / acc / task_name
@@ -582,15 +592,132 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
 
         self._refresh_tasks_cache_after_write()
 
-    def record_wildcard_removed(self, account_name: str, task_name: str) -> None:
-        """记录某账号的通配任务副本已被显式删除，抑制后续通配重扩展。"""
+    @property
+    def _wildcard_removed(self) -> Dict[tuple[str, str], bool]:
+        """向后兼容属性：返回当前数据库中所有墓碑的映射字典。"""
+        try:
+            with get_session_local()() as db:
+                for attempt in range(2):
+                    try:
+                        tombstones = db.query(
+                            WildcardTombstoneModel.account_name,
+                            WildcardTombstoneModel.task_name,
+                        ).all()
+                        return {(t.account_name, t.task_name): True for t in tombstones}
+                    except OperationalError:
+                        db.rollback()
+                        if attempt == 0:
+                            _ensure_wildcard_tombstone_table(db)
+                            continue
+                        raise
+        except Exception:
+            pass
+        return {}
+
+    def is_wildcard_removed(self, account_name: str, task_name: str) -> bool:
+        """检查某账号的通配任务副本是否已被墓碑标记删除。"""
+        if not account_name or not task_name:
+            return False
+        try:
+            with get_session_local()() as db:
+                for attempt in range(2):
+                    try:
+                        record = (
+                            db.query(WildcardTombstoneModel.id)
+                            .filter_by(account_name=account_name, task_name=task_name)
+                            .first()
+                        )
+                        return record is not None
+                    except OperationalError:
+                        db.rollback()
+                        if attempt == 0:
+                            _ensure_wildcard_tombstone_table(db)
+                            continue
+                        raise
+        except Exception as exc:
+            _service_logger.warning(
+                "查询通配任务墓碑失败 (%s, %s): %s", account_name, task_name, exc
+            )
+            return False
+
+    def record_wildcard_removed(
+        self,
+        account_name: str,
+        task_name: str,
+        *,
+        parent_task_id: str = "",
+        parent_revision: int = 1,
+    ) -> None:
+        """记录某账号的通配任务副本已被显式删除，持久化墓碑到数据库以抑制后续通配重扩展。"""
         if not account_name or not task_name:
             return
-        self._wildcard_removed[(account_name, task_name)] = True
+        try:
+            with get_session_local()() as db:
+                for attempt in range(2):
+                    try:
+                        record = (
+                            db.query(WildcardTombstoneModel)
+                            .filter_by(account_name=account_name, task_name=task_name)
+                            .first()
+                        )
+                        if record is not None:
+                            record.removed_at = datetime.now(timezone.utc)
+                            if parent_task_id:
+                                record.parent_task_id = parent_task_id
+                            if parent_revision:
+                                record.parent_revision = parent_revision
+                        else:
+                            record = WildcardTombstoneModel(
+                                account_name=account_name,
+                                task_name=task_name,
+                                parent_task_id=parent_task_id or "",
+                                parent_revision=parent_revision or 1,
+                                removed_at=datetime.now(timezone.utc),
+                            )
+                            db.add(record)
+                        db.commit()
+                        break
+                    except OperationalError:
+                        db.rollback()
+                        if attempt == 0:
+                            _ensure_wildcard_tombstone_table(db)
+                            continue
+                        raise
+                    except Exception:
+                        db.rollback()
+                        raise
+        except Exception as exc:
+            _service_logger.error(
+                "写入通配任务墓碑失败 (%s, %s): %s", account_name, task_name, exc, exc_info=True
+            )
 
     def clear_wildcard_removed(self, account_name: str, task_name: str) -> None:
-        """通配任务被重新创建/更新时清除删除记录，允许再次铺开。"""
-        self._wildcard_removed.pop((account_name, task_name), None)
+        """通配任务被重新创建/更新时清除删除记录（墓碑），允许再次铺开。"""
+        if not task_name:
+            return
+        try:
+            with get_session_local()() as db:
+                for attempt in range(2):
+                    try:
+                        query = db.query(WildcardTombstoneModel).filter_by(task_name=task_name)
+                        if account_name and account_name != "*":
+                            query = query.filter_by(account_name=account_name)
+                        query.delete()
+                        db.commit()
+                        break
+                    except OperationalError:
+                        db.rollback()
+                        if attempt == 0:
+                            _ensure_wildcard_tombstone_table(db)
+                            continue
+                        raise
+                    except Exception:
+                        db.rollback()
+                        raise
+        except Exception as exc:
+            _service_logger.error(
+                "清除通配任务墓碑失败 (%s, %s): %s", account_name, task_name, exc, exc_info=True
+            )
 
     def _resolve_account_names_from_config(
         self,
