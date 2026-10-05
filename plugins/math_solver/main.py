@@ -7,6 +7,7 @@
 import re
 from typing import Optional
 
+from tg_signer.core.local_solver import ArithmeticFastSolver
 from tg_signer.core.plugins import PluginContext, PluginRegistry
 
 VERSION = "1.0.0"
@@ -16,10 +17,16 @@ CATEGORY = "utility"
 TAGS = ["math", "captcha", "calculator"]
 ICON = "calculator"
 
-_MATH_PATTERN = re.compile(r"(?<![\d\-])(\d+)\s*([\+\-\*\/\×\÷])\s*(\d+)(?![\d\-])")
+_MATH_PATTERN = re.compile(
+    r"(?<![\d\-])(\d+)\s*([\+\-\*\/\u00d7\u00f7])\s*(\d+)(?![\d\-])"
+)
 
 
 def _evaluate_expression(text: str) -> Optional[int]:
+    fast_ans = ArithmeticFastSolver.solve(text)
+    if fast_ans is not None:
+        return fast_ans
+
     match = _MATH_PATTERN.search(text)
     if not match:
         return None
@@ -31,9 +38,9 @@ def _evaluate_expression(text: str) -> Optional[int]:
         return left + right
     elif op == "-":
         return left - right
-    elif op in ("*", "×"):
+    elif op in ("*", "\u00d7"):
         return left * right
-    elif op in ("/", "÷"):
+    elif op in ("/", "\u00f7"):
         return left // right if right != 0 else None
     return None
 
