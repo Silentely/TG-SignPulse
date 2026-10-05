@@ -565,9 +565,10 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
                     seen_wildcard_tasks.append((task_dir.name, config, task_dir))
 
         # For each wildcard task, ensure all accounts have a directory
+        removed_tombstones = self._wildcard_removed
         for task_name, base_config, _ in seen_wildcard_tasks:
             for acc in all_accounts:
-                if self.is_wildcard_removed(acc, task_name):
+                if (acc, task_name) in removed_tombstones:
                     continue
                 # Create task for this account
                 target_dir = self.signs_dir / acc / task_name
