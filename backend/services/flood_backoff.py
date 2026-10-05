@@ -77,10 +77,25 @@ class FloodBackoffManager:
             self._cooldowns.pop(account_name, None)
             return False, 0
 
+    def is_account_in_flood(self, account_name: str) -> bool:
+        """检查指定账号是否正处于限频避让惩罚中。"""
+        is_cooling, _ = self.is_cooling_down(account_name)
+        return is_cooling
+
+    def get_remaining_wait(self, account_name: str) -> int:
+        """获取指定账号的剩余避让惩罚秒数。若未处于避让中则返回 0。"""
+        _, rem = self.is_cooling_down(account_name)
+        return rem
+
     def clear_cooldown(self, account_name: str) -> None:
         """手动清除指定账号的冷却状态。"""
         with self._lock:
             self._cooldowns.pop(account_name, None)
+
+    def clear(self) -> None:
+        """清空所有账号的避让冷却状态。"""
+        with self._lock:
+            self._cooldowns.clear()
 
     def get_all_cooling_accounts(self) -> Dict[str, Dict[str, Any]]:
         """获取所有当前正在冷却中的账号及其状态。"""

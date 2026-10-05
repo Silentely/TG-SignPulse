@@ -8,9 +8,11 @@ from typing import Any, Dict, List
 
 from backend.core.config import get_settings
 from backend.services.config import get_config_service
+from backend.services.flood_backoff import get_flood_backoff_manager
 from backend.services.telegram import get_telegram_service
 from backend.utils.atomic_io import read_json_safe, write_json_atomic
 from backend.utils.time import utc_now, utc_now_iso_z
+from tg_signer.utils import extract_flood_wait_seconds
 
 logger = logging.getLogger("backend.device_keepalive")
 
@@ -61,11 +63,69 @@ class DeviceKeepaliveService:
         except ValueError:
             return None
 
+    def get_status(self) -> Dict[str, Any]:
+        config_service = get_config_service()
+        if hasattr(config_service, "get_global_settings"):
+            raw_settings = config_service.get_global_settings()
+        else:
+            raw_settings = config_service.load_global_settings()
+
+        enabled = bool(
+            raw_settings.get(
+                "device_keepalive_enabled",
+                raw_settings.get("enable_device_keepalive", True),
+            )
+        )
+        interval_days = self._parse_interval_days(
+            raw_settings.get("device_keepalive_interval_days")
+        )
+
+        state = self._load_state()
+        accounts_state = state.get("accounts", {})
+        account_list: List[Dict[str, Any]] = []
+
+        service = get_telegram_service()
+        configured_accounts = service.list_accounts(force_refresh=False)
+        for acc in configured_accounts:
+            name = str(acc.get("name") or "").strip()
+            if not name:
+                continue
+            acc_info = accounts_state.get(name, {})
+            last_ok_at = acc_info.get("last_ok_at")
+            last_attempt_at = acc_info.get("last_attempt_at")
+            last_error = acc_info.get("last_error")
+
+            account_list.append(
+                {
+                    "account_name": name,
+                    "last_ok_at": last_ok_at,
+                    "last_attempt_at": last_attempt_at,
+                    "last_error": last_error,
+                }
+            )
+
+        return {
+            "enabled": enabled,
+            "interval_days": interval_days,
+            "last_run_at": state.get("last_run_at"),
+            "accounts": account_list,
+        }
+
     async def run_due(self, force: bool = False) -> Dict[str, Any]:
         """执行设备保活检查。force=True 时忽略上次检查时间。"""
-        # 防止并发执行（调度器和手动端点可能重叠）
-        config = get_config_service().get_global_settings()
-        enabled = bool(config.get("device_keepalive_enabled", True))
+        config_service = get_config_service()
+        if hasattr(config_service, "get_global_settings"):
+            raw_settings = config_service.get_global_settings()
+        else:
+            raw_settings = config_service.load_global_settings()
+
+        enabled = bool(
+            raw_settings.get(
+                "device_keepalive_enabled",
+                raw_settings.get("enable_device_keepalive", True),
+            )
+        )
+
         if self._running_lock.locked():
             return {
                 "success": False,
@@ -81,12 +141,26 @@ class DeviceKeepaliveService:
         async with self._running_lock:
             return await self._run_due_impl(force)
 
+    async def run_keepalive(self, force: bool = False) -> Dict[str, Any]:
+        """别名兼容 run_due。"""
+        return await self.run_due(force=force)
+
     async def _run_due_impl(self, force: bool = False) -> Dict[str, Any]:
         """实际执行设备保活检查的内部方法。"""
-        config = get_config_service().get_global_settings()
-        enabled = bool(config.get("device_keepalive_enabled", True))
+        config_service = get_config_service()
+        if hasattr(config_service, "get_global_settings"):
+            raw_settings = config_service.get_global_settings()
+        else:
+            raw_settings = config_service.load_global_settings()
+
+        enabled = bool(
+            raw_settings.get(
+                "device_keepalive_enabled",
+                raw_settings.get("enable_device_keepalive", True),
+            )
+        )
         interval_days = self._parse_interval_days(
-            config.get("device_keepalive_interval_days")
+            raw_settings.get("device_keepalive_interval_days")
         )
 
         if not enabled and not force:
@@ -97,6 +171,7 @@ class DeviceKeepaliveService:
                 "kept_alive": 0,
                 "skipped": 0,
                 "failed": 0,
+                "interval_days": interval_days,
                 "results": [],
             }
 
@@ -109,10 +184,26 @@ class DeviceKeepaliveService:
         accounts = service.list_accounts(force_refresh=True)
         results: List[Dict[str, Any]] = []
         kept_alive = skipped = failed = 0
+        flood_mgr = get_flood_backoff_manager()
 
         for item in accounts:
             account_name = str(item.get("name") or "").strip()
             if not account_name:
+                continue
+
+            if flood_mgr.is_account_in_flood(account_name):
+                rem = flood_mgr.get_remaining_wait(account_name)
+                skipped += 1
+                results.append(
+                    {
+                        "account_name": account_name,
+                        "status": "skipped",
+                        "message": f"FloodWait避让中 (剩余{rem}s)",
+                        "last_ok_at": account_state.get(account_name, {}).get(
+                            "last_ok_at"
+                        ),
+                    }
+                )
                 continue
 
             last_ok = self._parse_time(
@@ -152,6 +243,13 @@ class DeviceKeepaliveService:
                     message = str(
                         status.get("message") or status.get("code") or "保活失败"
                     )
+                    wait_sec = extract_flood_wait_seconds(message)
+                    if wait_sec:
+                        flood_mgr.record_flood_wait(
+                            account_name,
+                            wait_sec,
+                            reason=f"Device keepalive FloodWait: {message}",
+                        )
                     entry["last_error"] = message
                     failed += 1
                     results.append(
@@ -162,6 +260,13 @@ class DeviceKeepaliveService:
                         }
                     )
             except Exception as exc:
+                wait_sec = extract_flood_wait_seconds(exc)
+                if wait_sec:
+                    flood_mgr.record_flood_wait(
+                        account_name,
+                        wait_sec,
+                        reason=f"Device keepalive FloodWait: {exc}",
+                    )
                 entry = account_state.setdefault(account_name, {})
                 entry["last_attempt_at"] = utc_now_iso_z()
                 entry["last_error"] = str(exc)
