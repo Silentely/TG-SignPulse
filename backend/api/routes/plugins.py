@@ -1425,13 +1425,7 @@ async def test_plugin(
         except (ValueError, TypeError):
             test_timeout = 5.0
 
-    isolation_mode = getattr(meta, "isolation_mode", "subprocess")
-    if isolation_mode == "in_process":
-        use_subprocess = False
-    else:
-        # 强制走子进程沙箱，无论 sync 还是 async 均不放行宿主执行
-        use_subprocess = True
-    isolation = "subprocess" if use_subprocess else "in_process"
+    isolation = "subprocess"
     killed = False
 
     start_t = time.perf_counter()
@@ -1441,109 +1435,48 @@ async def test_plugin(
     tb_str = None
     error_line = None
 
-    if use_subprocess:
-        host = PluginProcessHost(plugin_name=name, ctx=ctx, timeout=test_timeout)
-        try:
-            res = await host.execute()
-            handled = bool(res) if res is not None else False
-        except TimeoutError:
-            success = False
-            killed = host.process_terminated_by_kill
-            timeout_display = (
-                int(test_timeout) if test_timeout.is_integer() else test_timeout
-            )
-            err_str = f"插件执行超时（沙箱限制 {timeout_display} 秒）"
-            captured_logs.append(f"[error] {err_str}")
-        except Exception as exc:
-            success = False
-            err_str = f"插件执行异常: {exc}"
-            tb_str = _sanitize_traceback(traceback.format_exc())
-            captured_logs.append(f"[error] {err_str}")
-            frames = traceback.extract_tb(exc.__traceback__)
-            plugin_src_str = str(meta.source_path) if meta.source_path else ""
-            plugin_dir_prefix = (
-                str(Path(meta.source_path).parent) if meta.source_path else ""
-            )
-            for f in reversed(frames):
-                if plugin_src_str and f.filename == plugin_src_str:
-                    error_line = f.lineno
-                    break
-                if plugin_dir_prefix and f.filename.startswith(plugin_dir_prefix):
-                    error_line = f.lineno
-                    break
-                if f.name == f"{meta.name}_handler" or (
-                    f.name == "handler" and "routes/plugins.py" not in f.filename
-                ):
-                    error_line = f.lineno
-                    break
-            if (
-                error_line is None
-                and frames
-                and "routes/plugins.py" not in frames[-1].filename
+    host = PluginProcessHost(plugin_name=name, ctx=ctx, timeout=test_timeout)
+    try:
+        res = await host.execute()
+        handled = bool(res) if res is not None else False
+    except TimeoutError:
+        success = False
+        killed = host.process_terminated_by_kill
+        timeout_display = (
+            int(test_timeout) if test_timeout.is_integer() else test_timeout
+        )
+        err_str = f"插件执行超时（沙箱限制 {timeout_display} 秒）"
+        captured_logs.append(f"[error] {err_str}")
+    except Exception as exc:
+        success = False
+        err_str = f"插件执行异常: {exc}"
+        tb_str = _sanitize_traceback(traceback.format_exc())
+        captured_logs.append(f"[error] {err_str}")
+        frames = traceback.extract_tb(exc.__traceback__)
+        plugin_src_str = str(meta.source_path) if meta.source_path else ""
+        plugin_dir_prefix = (
+            str(Path(meta.source_path).parent) if meta.source_path else ""
+        )
+        for f in reversed(frames):
+            if plugin_src_str and f.filename == plugin_src_str:
+                error_line = f.lineno
+                break
+            if plugin_dir_prefix and f.filename.startswith(plugin_dir_prefix):
+                error_line = f.lineno
+                break
+            if f.name == f"{meta.name}_handler" or (
+                f.name == "handler" and "routes/plugins.py" not in f.filename
             ):
-                error_line = frames[-1].lineno
-    else:
-        try:
-            # 支持同步或异步执行
-            if inspect.iscoroutinefunction(meta.handler):
-                res = await asyncio.wait_for(meta.handler(ctx), timeout=test_timeout)
-            else:
-                loop = asyncio.get_running_loop()
-                res = await asyncio.wait_for(
-                    loop.run_in_executor(None, meta.handler, ctx),
-                    timeout=test_timeout,
-                )
-
-            handled = bool(res) if res is not None else False
-        except asyncio.TimeoutError:
-            success = False
-            timeout_display = (
-                int(test_timeout) if test_timeout.is_integer() else test_timeout
-            )
-            err_str = f"插件执行超时（沙箱限制 {timeout_display} 秒）"
-            captured_logs.append(f"[error] {err_str}")
-        except Exception as exc:
-            success = False
-            err_str = f"插件执行异常: {exc}"
-            tb_str = _sanitize_traceback(traceback.format_exc())
-            captured_logs.append(f"[error] {err_str}")
-            frames = traceback.extract_tb(exc.__traceback__)
-            plugin_src_str = str(meta.source_path) if meta.source_path else ""
-            plugin_dir_prefix = (
-                str(Path(meta.source_path).parent) if meta.source_path else ""
-            )
-            for f in reversed(frames):
-                if plugin_src_str and f.filename == plugin_src_str:
-                    error_line = f.lineno
-                    break
-                if plugin_dir_prefix and f.filename.startswith(plugin_dir_prefix):
-                    error_line = f.lineno
-                    break
-                if f.name == f"{meta.name}_handler" or (
-                    f.name == "handler" and "routes/plugins.py" not in f.filename
-                ):
-                    error_line = f.lineno
-                    break
-            if (
-                error_line is None
-                and frames
-                and "routes/plugins.py" not in frames[-1].filename
-            ):
-                error_line = frames[-1].lineno
+                error_line = f.lineno
+                break
+        if (
+            error_line is None
+            and frames
+            and "routes/plugins.py" not in frames[-1].filename
+        ):
+            error_line = frames[-1].lineno
 
     duration_ms = round((time.perf_counter() - start_t) * 1000, 2)
-    summary = " | ".join(captured_logs[-2:]) if captured_logs else None
-    # 子进程宿主已经记录了完整执行结果，路由只负责记录进程内执行，避免一次调试计数两次。
-    if not use_subprocess:
-        PluginRegistry.record_execution(
-            name,
-            duration_ms=duration_ms,
-            success=bool(success and not err_str),
-            error=err_str,
-            trigger_type="manual_test",
-            log_summary=summary,
-        )
-
     return PluginTestResponse(
         name=name,
         mode=meta.mode,

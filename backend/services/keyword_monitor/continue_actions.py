@@ -960,47 +960,22 @@ async def execute_custom_plugin_continue_action(
         "KEYWORD_MONITOR_CONTINUE_ACTION_TIMEOUT", DEFAULT_CONTINUE_TIMEOUT, 1.0
     )
 
-    isolation_mode = getattr(meta, "isolation_mode", "subprocess")
-    if isolation_mode == "in_process":
-        use_subprocess = False
-    else:
-        # 强制走子进程沙箱，无论 sync 还是 async 均不放行宿主执行
-        use_subprocess = True
-
-    if not use_subprocess:
-        try:
-            handler = meta.handler
-            if inspect.iscoroutinefunction(handler):
-                res = await asyncio.wait_for(handler(ctx), timeout=action_timeout)
-            else:
-                res = await asyncio.wait_for(
-                    asyncio.to_thread(handler, ctx), timeout=action_timeout
-                )
-            return bool(res) if res is not None else True
-        except Exception as exc:
-            logger.error(
-                "Keyword monitor in-process plugin '%s' execution failed: %s",
-                plugin_name,
-                exc,
-            )
-            return False
-    else:
-        try:
-            host = PluginProcessHost(
-                plugin_name=plugin_name,
-                ctx=ctx,
-                timeout=action_timeout,
-                trigger_type="reactive",
-            )
-            res = await host.execute()
-            return bool(res) if res is not None else True
-        except Exception as exc:
-            logger.error(
-                "Keyword monitor subprocess plugin '%s' execution failed: %s",
-                plugin_name,
-                exc,
-            )
-            return False
+    try:
+        host = PluginProcessHost(
+            plugin_name=plugin_name,
+            ctx=ctx,
+            timeout=action_timeout,
+            trigger_type="reactive",
+        )
+        res = await host.execute()
+        return bool(res) if res is not None else True
+    except Exception as exc:
+        logger.error(
+            "Keyword monitor subprocess plugin '%s' execution failed: %s",
+            plugin_name,
+            exc,
+        )
+        return False
 
 
 async def execute_continue_action(

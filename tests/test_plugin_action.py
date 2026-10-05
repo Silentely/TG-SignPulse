@@ -339,13 +339,9 @@ class DummySigner(SignerActionsMixin):
 @pytest.mark.asyncio
 async def test_active_plugin_execution_success():
     PluginRegistry.clear()
-    executed_params = None
 
     @PluginRegistry.register("test_act", mode="active")
     async def act_handler(ctx: PluginContext):
-        nonlocal executed_params
-        executed_params = ctx.params
-        ctx.log("插件运行正常")
         return True
 
     signer = DummySigner()
@@ -357,10 +353,14 @@ async def test_active_plugin_execution_success():
     )
     action = chat.actions[0]
 
-    result = await signer.wait_for(chat, action, timeout=2.0)
-    assert result is True
-    assert executed_params == {"foo": "bar"}
-    assert any("插件运行正常" in entry[1] for entry in signer.log_entries)
+    with patch("tg_signer.core.signer_actions.PluginProcessHost") as mock_host:
+        mock_host.return_value.execute = AsyncMock(return_value=True)
+        result = await signer.wait_for(chat, action, timeout=2.0)
+        assert result is True
+        mock_host.assert_called_once()
+        assert mock_host.call_args.kwargs["plugin_name"] == "test_act"
+        assert mock_host.call_args.kwargs["trigger_type"] == "active"
+        assert mock_host.call_args.kwargs["ctx"].params == {"foo": "bar"}
 
 
 @pytest.mark.asyncio
@@ -414,9 +414,12 @@ async def test_reactive_plugin_matching_and_retry():
     )
     action = chat.actions[0]
 
-    result = await signer.wait_for(chat, action, timeout=2.0)
-    assert result is None  # wait_for 返回 None 代表响应式步骤成功完成
-    assert signer.context.chat_messages[123][2] is None
+    with patch("tg_signer.core.signer_actions.PluginProcessHost") as mock_host:
+        mock_host.return_value.execute = AsyncMock(side_effect=[False, True])
+        result = await signer.wait_for(chat, action, timeout=2.0)
+        assert result is None  # wait_for 返回 None 代表响应式步骤成功完成
+        assert signer.context.chat_messages[123][2] is None
+        assert mock_host.call_count == 2
 
 
 @pytest.mark.asyncio
@@ -476,8 +479,12 @@ async def test_reactive_plugin_history_fallback():
     )
     action = chat.actions[0]
 
-    result = await signer.wait_for(chat, action, timeout=0.1)
-    assert result is None
+    with patch("tg_signer.core.signer_actions.PluginProcessHost") as mock_host:
+        mock_host.return_value.execute = AsyncMock(return_value=True)
+        result = await signer.wait_for(chat, action, timeout=0.1)
+        assert result is None
+        mock_host.assert_called_once()
+        assert mock_host.call_args.kwargs["trigger_type"] == "reactive"
 
 
 @pytest.mark.asyncio
@@ -837,7 +844,7 @@ async def test_reactive_plugin_fast_circuits_on_empty_message():
 
 @pytest.mark.asyncio
 async def test_plugin_isolation_engine_in_process_override(monkeypatch):
-    """测试 PLUGIN_ISOLATION_ENGINE=in_process 时，即使同步插件也不启动子进程"""
+    """测试废除 PLUGIN_ISOLATION_ENGINE=in_process，始终强制启动子进程沙箱"""
     monkeypatch.setenv("PLUGIN_ISOLATION_ENGINE", "in_process")
     _register_action_worker_fixtures()
 
@@ -849,9 +856,10 @@ async def test_plugin_isolation_engine_in_process_override(monkeypatch):
         ],
     )
     with patch("tg_signer.core.signer_actions.PluginProcessHost") as mock_host:
+        mock_host.return_value.execute = AsyncMock(return_value=False)
         result = await signer.wait_for(chat, chat.actions[0])
         assert result is False
-        mock_host.assert_not_called()
+        mock_host.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -953,8 +961,11 @@ async def test_disabled_plugin_skipped_in_signer_actions():
 
     # 默认启用状态
     assert PluginRegistry.is_enabled("test_toggleable_action_plugin") is True
-    ok = await signer.wait_for(chat, chat.actions[0])
-    assert ok is True
+    with patch("tg_signer.core.signer_actions.PluginProcessHost") as mock_host:
+        mock_host.return_value.execute = AsyncMock(return_value=True)
+        ok = await signer.wait_for(chat, chat.actions[0])
+        assert ok is True
+        mock_host.assert_called_once()
 
     # 标记停用
     PluginRegistry.set_disabled("test_toggleable_action_plugin", True)
@@ -1229,6 +1240,9 @@ async def test_active_plugin_auto_mode_from_registry():
     action = PluginAction(plugin_name="auto_active_sample")
     chat = SignChatV3(chat_id=888, actions=[action])
 
-    ok = await signer.wait_for(chat, action)
-    assert ok is True
-    assert called is True
+    with patch("tg_signer.core.signer_actions.PluginProcessHost") as mock_host:
+        mock_host.return_value.execute = AsyncMock(return_value=True)
+        ok = await signer.wait_for(chat, action)
+        assert ok is True
+        mock_host.assert_called_once()
+        assert mock_host.call_args.kwargs["trigger_type"] == "active"
