@@ -43,6 +43,7 @@ from tg_signer.core.client import (
     _is_callback_data_invalid,
     get_now,
 )
+from tg_signer.core.humanize import simulate_typing_action
 from tg_signer.core.plugin_host import PluginProcessHost
 from tg_signer.core.plugins import PluginContext, PluginRegistry, PluginTimeoutError
 from tg_signer.core.signer_config import FLOOD_WAIT_RETRY_MAX_SECONDS
@@ -172,7 +173,12 @@ class SignerActionsMixin:
                                 kwargs["message_thread_id"] = message_thread_id
                             if before_click:
                                 await before_click()
-                            await self.send_message(message.chat.id, btn_text, **kwargs)
+                            async with simulate_typing_action(
+                                getattr(self, "app", None), message.chat.id, btn_text
+                            ):
+                                await self.send_message(
+                                    message.chat.id, btn_text, **kwargs
+                                )
                             return True, True
                 if log_not_found:
                     self.log(
@@ -291,7 +297,10 @@ class SignerActionsMixin:
             answer = answer.strip()
             if not answer:
                 return False
-            await self.send_message(message.chat.id, answer)
+            async with simulate_typing_action(
+                getattr(self, "app", None), message.chat.id, answer
+            ):
+                await self.send_message(message.chat.id, answer)
             return True
         return False
 
@@ -357,7 +366,10 @@ class SignerActionsMixin:
         text = text.strip()
         if not text:
             return False
-        await self.send_message(message.chat.id, text)
+        async with simulate_typing_action(
+            getattr(self, "app", None), message.chat.id, text
+        ):
+            await self.send_message(message.chat.id, text)
         return True
 
     async def _click_button_by_calculation_problem(
@@ -820,9 +832,12 @@ class SignerActionsMixin:
             before_state = await self._chat_state_snapshot(
                 chat, history_limit=history_limit
             )
-            result = await self.send_message(
-                chat.chat_id, action.text, chat.delete_after, **kwargs
-            )
+            async with simulate_typing_action(
+                getattr(self, "app", None), chat.chat_id, action.text
+            ):
+                result = await self.send_message(
+                    chat.chat_id, action.text, chat.delete_after, **kwargs
+                )
             await self._maybe_stop_after_send(
                 chat, before_state=before_state, history_limit=history_limit
             )
