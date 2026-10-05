@@ -46,6 +46,14 @@ def clear_proxy_probe_cache() -> None:
     """清空代理探测与宿主机 IP 缓存（供测试与重载使用）。"""
     _PROBE_CACHE.clear()
     _HOST_IP_CACHE.clear()
+    try:
+        from backend.services.proxy_circuit_breaker import (
+            get_proxy_circuit_breaker,
+        )
+
+        get_proxy_circuit_breaker().clear()
+    except Exception:
+        pass
 
 
 def normalize_proxy_url(raw: str) -> str:
@@ -254,6 +262,15 @@ async def probe_proxy_exit(
     if cached is not None:
         return cached
 
+    from backend.services.proxy_circuit_breaker import get_proxy_circuit_breaker
+
+    breaker = get_proxy_circuit_breaker()
+    if not await breaker.is_available(proxy_dict):
+        return (
+            ProxyProbeStatus.UNAVAILABLE,
+            "Proxy circuit breaker tripped (cooling down or unreachable)",
+        )
+
     if host_ip is None:
         host_ip = await get_host_direct_ip(timeout=min(timeout, 5.0))
 
@@ -277,12 +294,16 @@ async def probe_proxy_exit(
                 ProxyProbeStatus.UNAVAILABLE,
                 "Host direct IP baseline probe unavailable",
             )
+            breaker.record_failure(proxy_dict)
         elif detected_ip == host_ip:
             result = (ProxyProbeStatus.FAILED, detected_ip)
+            breaker.record_failure(proxy_dict)
         else:
             result = (ProxyProbeStatus.OK, detected_ip)
+            breaker.record_success(proxy_dict)
     else:
         result = (ProxyProbeStatus.UNAVAILABLE, last_err or "Connection timed out")
+        breaker.record_failure(proxy_dict)
 
     _PROBE_CACHE.set(cache_key, result)
     return result
