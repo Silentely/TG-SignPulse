@@ -1,0 +1,86 @@
+import json
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+
+import pytest
+
+import backend.core.database as db_mod
+from backend.core.config import get_settings
+from backend.core.database import Base, get_session_local, init_engine
+from backend.models.sign_task import SignTaskModel, StorageMigrationRunModel
+from tools.migrate_json_to_orm import rollback_migration, run_migration
+
+
+@pytest.fixture(autouse=True)
+def setup_isolated_db(isolated_env):
+    get_settings.cache_clear()
+    db_mod._engine = None
+    db_mod._SessionLocal = None
+    init_engine()
+    session_local = get_session_local()
+    engine = session_local().get_bind()
+    Base.metadata.create_all(bind=engine)
+    yield
+    get_settings.cache_clear()
+    db_mod._engine = None
+    db_mod._SessionLocal = None
+
+
+def test_migration_lifecycle_dryrun_execute_and_batch_rollback():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        signs_dir = Path(tmpdir) / ".signer" / "signs"
+        task_dir = signs_dir / "userA" / "task1"
+        task_dir.mkdir(parents=True)
+        (task_dir / "config.json").write_text(
+            json.dumps({"name": "task1", "enabled": True})
+        )
+
+        # 0. 先写入一条独立的不属于该迁移批次的数据
+        session_local = get_session_local()
+        with session_local() as db:
+            other_task = SignTaskModel(
+                account_name="other_user",
+                task_name="untouched_task",
+                config_json="{}",
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+            db.add(other_task)
+            db.commit()
+
+        # 1. 运行 dry-run
+        summary_dry = run_migration(signs_dir=signs_dir, dry_run=True)
+        assert summary_dry["scanned_count"] == 1
+        assert summary_dry["migrated_count"] == 0
+
+        # 断言数据库只保持原有的 1 条独立任务
+        with session_local() as db:
+            assert db.query(SignTaskModel).count() == 1
+
+        # 2. 运行正式 execute
+        summary_exec = run_migration(signs_dir=signs_dir, dry_run=False)
+        run_id = summary_exec["run_id"]
+        assert summary_exec["migrated_count"] == 1
+
+        with session_local() as db:
+            assert db.query(SignTaskModel).count() == 2
+            journal = (
+                db.query(StorageMigrationRunModel).filter_by(run_id=run_id).first()
+            )
+            assert journal is not None
+            assert journal.status == "COMPLETED"
+
+        # 3. 运行 rollback 撤销：必须仅撤销本次迁移批次的 task1，绝不能误删 other_user 的任务！
+        rb_res = rollback_migration(run_id=run_id)
+        assert rb_res["rolled_back_count"] == 1
+
+        with session_local() as db:
+            # 核心断言：批次撤销后，other_user 的任务依然完好无损！
+            assert db.query(SignTaskModel).count() == 1
+            remaining = db.query(SignTaskModel).first()
+            assert remaining.account_name == "other_user"
+            journal = (
+                db.query(StorageMigrationRunModel).filter_by(run_id=run_id).first()
+            )
+            assert journal.status == "ROLLED_BACK"
