@@ -960,17 +960,12 @@ async def execute_custom_plugin_continue_action(
         "KEYWORD_MONITOR_CONTINUE_ACTION_TIMEOUT", DEFAULT_CONTINUE_TIMEOUT, 1.0
     )
 
-    engine = os.getenv("PLUGIN_ISOLATION_ENGINE", "auto").lower()
     isolation_mode = getattr(meta, "isolation_mode", "subprocess")
-    if engine in ("process", "subprocess"):
-        use_subprocess = True
-    elif engine in ("in_process", "thread"):
+    if isolation_mode == "in_process":
         use_subprocess = False
-    else:  # auto
-        if isolation_mode == "in_process":
-            use_subprocess = False
-        else:
-            use_subprocess = not inspect.iscoroutinefunction(meta.handler)
+    else:
+        # 强制走子进程沙箱，无论 sync 还是 async 均不放行宿主执行
+        use_subprocess = True
 
     if not use_subprocess:
         try:

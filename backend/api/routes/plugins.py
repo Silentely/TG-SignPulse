@@ -1425,16 +1425,11 @@ async def test_plugin(
         except (ValueError, TypeError):
             test_timeout = 5.0
 
-    engine = os.getenv("PLUGIN_ISOLATION_ENGINE", "auto").lower()
     isolation_mode = getattr(meta, "isolation_mode", "subprocess")
-    if engine in ("process", "subprocess"):
-        use_subprocess = True
-    elif engine in ("in_process", "thread"):
-        use_subprocess = False
-    elif isolation_mode == "in_process":
+    if isolation_mode == "in_process":
         use_subprocess = False
     else:
-        # Default auto: Enforce subprocess isolation for both sync and coroutines to prevent RCE
+        # 强制走子进程沙箱，无论 sync 还是 async 均不放行宿主执行
         use_subprocess = True
     isolation = "subprocess" if use_subprocess else "in_process"
     killed = False
