@@ -343,8 +343,8 @@ def test_api_update_plugin_source_syntax_error():
         "/api/plugins/syntax_err_plug/source",
         json={"source": "def syntax_err(: pass"},
     )
-    assert resp.status_code == 400
-    assert "Python 语法错误" in resp.json()["detail"]
+    assert resp.status_code == 422
+    assert resp.json()["detail"]["code"] == "PLUGIN_SECURITY_BLOCKED"
 
     client.delete("/api/plugins/syntax_err_plug")
 
@@ -1090,6 +1090,7 @@ def run():
 
 
 def test_update_plugin_source_security_gate():
+    client.delete("/api/plugins/sec_gate_plug")
     # 1. Create a dummy plugin
     resp = client.post(
         "/api/plugins/create",
@@ -1116,15 +1117,16 @@ async def sec_gate_plug_handler(ctx: PluginContext) -> bool:
         "/api/plugins/sec_gate_plug/source",
         json={"source": dangerous_source, "force": False},
     )
-    assert err_resp.status_code == 400
-    assert "安全审查未通过" in err_resp.json()["detail"]
+    assert err_resp.status_code == 422
+    assert err_resp.json()["detail"]["code"] == "PLUGIN_SECURITY_BLOCKED"
 
-    # 3. Update with force=True
+    # 3. Update with force=True (must still be blocked with 422)
     ok_resp = client.put(
         "/api/plugins/sec_gate_plug/source",
         json={"source": dangerous_source, "force": True},
     )
-    assert ok_resp.status_code == 200
+    assert ok_resp.status_code == 422
+    assert ok_resp.json()["detail"]["code"] == "PLUGIN_SECURITY_BLOCKED"
 
     # Clean up
     client.delete("/api/plugins/sec_gate_plug")

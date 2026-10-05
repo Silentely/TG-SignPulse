@@ -472,21 +472,23 @@ def test_update_plugin_source_force_allows_audited_high_risk_source(
         "    os.system('id')\n"
         "    return True\n"
     )
-    # 1. Without force -> must be rejected by security gate with 400
+    # 1. Without force -> must be rejected by security gate with 422 PLUGIN_SECURITY_BLOCKED
     resp_no_force = api_client.put(
         "/api/plugins/vuln_plugin/source",
         headers=headers,
         json={"source": malicious_code, "force": False},
     )
-    assert resp_no_force.status_code == 400
-    assert "安全审查未通过" in resp_no_force.json()["detail"]
+    assert resp_no_force.status_code == 422
+    assert resp_no_force.json()["detail"]["code"] == "PLUGIN_SECURITY_BLOCKED"
     assert plugin_file.read_text(encoding="utf-8") == safe_code
 
-    # 2. With force -> succeeds with 200
+    # 2. With force -> even with force=True, Critical/High must be hard blocked with 422
     resp_force = api_client.put(
         "/api/plugins/vuln_plugin/source",
         headers=headers,
         json={"source": malicious_code, "force": True},
     )
-    assert resp_force.status_code == 200
-    assert plugin_file.read_text(encoding="utf-8") == malicious_code
+    assert resp_force.status_code == 422
+    assert resp_force.json()["detail"]["code"] == "PLUGIN_SECURITY_BLOCKED"
+    assert plugin_file.read_text(encoding="utf-8") == safe_code
+    PluginRegistry.reload_all_plugins()

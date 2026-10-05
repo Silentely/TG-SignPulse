@@ -266,8 +266,8 @@ def test_install_market_plugin_subprocess_forbidden(api_client, monkeypatch):
     monkeypatch.setattr("pathlib.Path.is_file", lambda self: True)
 
     resp = api_client.post("/api/plugins/market/subp_plugin/install", headers=headers)
-    assert resp.status_code == 400
-    assert "安全审计未通过" in resp.json()["detail"]
+    assert resp.status_code == 422
+    assert resp.json()["detail"]["code"] == "PLUGIN_SECURITY_BLOCKED"
 
 
 def test_market_source_presets_point_to_main():
@@ -412,8 +412,8 @@ def test_market_install_rejects_star_import(api_client, monkeypatch):
     _patch_catalog(monkeypatch, "star_plugin", archive)
 
     resp = api_client.post("/api/plugins/market/star_plugin/install", headers=headers)
-    assert resp.status_code == 400
-    assert "安全审计未通过" in resp.json()["detail"]
+    assert resp.status_code == 422
+    assert resp.json()["detail"]["code"] == "PLUGIN_SECURITY_BLOCKED"
 
 
 def test_clone_plugin_runs_security_gate(api_client, monkeypatch):
@@ -457,5 +457,5 @@ def test_clone_plugin_runs_security_gate(api_client, monkeypatch):
         json={"new_name": "evil_clone"},
         headers=headers,
     )
-    assert resp.status_code == 400
-    assert "安全审计未通过" in resp.json()["detail"]
+    assert resp.status_code == 422
+    assert resp.json()["detail"]["code"] == "PLUGIN_SECURITY_BLOCKED"

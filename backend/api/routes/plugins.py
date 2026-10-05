@@ -476,38 +476,16 @@ async def list_plugins(
 def _reload_plugins_preserving_state() -> None:
     """重新静态扫描解析插件目录元数据并完整保留持久化的禁用状态（零执行）。"""
     disabled_set = _get_disabled_plugins()
-    from backend.services.plugin_catalog import StaticPluginCatalog
-
-    catalog = StaticPluginCatalog(plugins_dir=PluginRegistry.get_search_directories())
-    catalog.refresh_catalog()
     PluginRegistry.reload_all_plugins()
     for name in PluginRegistry.list_plugins():
         PluginRegistry.set_disabled(name, disabled=name in disabled_set)
 
 
-def _enforce_plugin_security_check(source_code: str, file_label: str = "插件") -> None:
+def _enforce_plugin_security_check(source_code: str, file_label: str = "插件") -> Dict[str, Any]:
     """统一插件安全审查拦截门禁。"""
-    from tg_signer.core.plugins import compute_plugin_security_report
+    from backend.services.plugin_security_gate import enforce_plugin_security
 
-    try:
-        ast.parse(source_code)
-    except SyntaxError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=f"{file_label} Python 语法错误: {exc.msg} (第 {exc.lineno} 行)",
-        )
-    sec_report = compute_plugin_security_report(source_code)
-    if not sec_report["can_save_safely"]:
-        critical_msgs = [
-            w["message"]
-            for w in sec_report["warnings"]
-            if w.get("severity") in ("critical", "high")
-        ]
-        detail_msg = f"{file_label} 插件安全审计未通过（安全审查未通过，评分: {sec_report['score']}分，风险: {sec_report['risk_level']}）: {'; '.join(critical_msgs[:2])}"
-        raise HTTPException(
-            status_code=400,
-            detail=detail_msg,
-        )
+    return enforce_plugin_security(source_code, force=True)
 
 
 def _sanitize_traceback(tb_str: str) -> str:
@@ -1736,30 +1714,9 @@ async def update_plugin_source(
     if len(payload.source.encode("utf-8")) > 1024 * 1024:
         raise HTTPException(status_code=400, detail="插件源码大小超过 1MB 限制")
 
-    try:
-        ast.parse(payload.source, filename=source_path.name)
-    except SyntaxError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Python 语法错误: {exc.msg} (第 {exc.lineno} 行)",
-        )
+    from backend.services.plugin_security_gate import enforce_plugin_security
 
-    from tg_signer.core.plugins import compute_plugin_security_report
-
-    sec_report = compute_plugin_security_report(payload.source)
-    if not sec_report["can_save_safely"] and not payload.force:
-        warning_msgs = [
-            w["message"]
-            for w in sec_report["warnings"]
-            if w.get("severity") in ("critical", "high")
-        ] or [w["message"] for w in sec_report.get("warnings", [])]
-        msgs_str = (
-            f"检测到风险调用: {'; '.join(warning_msgs[:2])}。" if warning_msgs else ""
-        )
-        raise HTTPException(
-            status_code=400,
-            detail=f"安全审查未通过（评分: {sec_report['score']}分，风险: {sec_report['risk_level']}）。{msgs_str}如确认代码安全无害，请确认是否强制保存。",
-        )
+    sec_report = enforce_plugin_security(payload.source, force=payload.force)
     if payload.force and sec_report.get("warnings"):
         logger.warning(
             "管理员强制保存包含安全风险的插件源码 %s: %s",
@@ -2391,19 +2348,9 @@ async def upload_plugin(
             status_code=400, detail=f"Python 语法错误 [第 {exc.lineno} 行]: {exc.msg}"
         )
 
-    from tg_signer.core.plugins import compute_plugin_security_report
+    from backend.services.plugin_security_gate import enforce_plugin_security
 
-    sec_report = compute_plugin_security_report(content)
-    if not sec_report["can_save_safely"]:
-        critical_msgs = [
-            w["message"]
-            for w in sec_report["warnings"]
-            if w.get("severity") in ("critical", "high")
-        ]
-        raise HTTPException(
-            status_code=400,
-            detail=f"上传插件未通过安全审查: {'; '.join(critical_msgs[:2])}，禁止直接上传高危插件",
-        )
+    enforce_plugin_security(content, force=True)
 
     target_dir = _get_custom_plugins_dir()
     dest_path = target_dir / raw_filename
