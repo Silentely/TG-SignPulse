@@ -39,6 +39,43 @@ def _validate_chats_regex_safety(chats: Optional[List[Dict[str, Any]]]) -> None:
                 validate_action_regex_safety(action)
 
 
+def _validate_chats_workflow(chats: Optional[List[Dict[str, Any]]]) -> None:
+    """写入前校验 chats 的 actions/steps 互斥与工作流拓扑。
+
+    判据与运行时一致（交由 SignChatV3 校验 steps 与拓扑），保证「能写入即可加载」；
+    违反时抛 WorkflowConfigError（ValueError 子类），由路由层转成 400。
+    """
+    if not chats:
+        return
+    from tg_signer.config import SignChatV3, WorkflowConfigError
+
+    validator = getattr(SignChatV3, "model_validate", None) or getattr(
+        SignChatV3, "parse_obj", None
+    )
+    for idx, chat in enumerate(chats):
+        if not isinstance(chat, dict):
+            continue
+        actions = chat.get("actions")
+        steps = chat.get("steps")
+        if actions is None and steps is None:
+            raise WorkflowConfigError(
+                f"chats[{idx}] actions 与 steps 互斥，必须且只能配置其中之一"
+            )
+        if actions is not None and steps is not None:
+            raise WorkflowConfigError(f"chats[{idx}] actions 与 steps 互斥，不能同时配置")
+        if steps is None:
+            continue
+        try:
+            if validator is not None:
+                validator(chat)
+            else:
+                SignChatV3(**chat)
+        except WorkflowConfigError:
+            raise
+        except Exception as exc:
+            raise WorkflowConfigError(f"chats[{idx}] 工作流配置无效: {exc}") from exc
+
+
 class SignTaskCrudMixin:
     def _validate_task_chain(
         self,
@@ -115,6 +152,7 @@ class SignTaskCrudMixin:
 
         task_name = validate_storage_name(task_name, field_name="task_name")
         _validate_chats_regex_safety(chats)
+        _validate_chats_workflow(chats)
         target_accounts = self._normalize_account_names(account_names, account_name)
         if not target_accounts:
             raise ValueError("必须指定至少一个账号名称")
@@ -319,6 +357,7 @@ class SignTaskCrudMixin:
         # 仅在调用方显式提供 chats 时校验；None 表示沿用已落盘配置
         if chats is not None:
             _validate_chats_regex_safety(chats)
+            _validate_chats_workflow(chats)
 
         # Normalize account_name: skip wildcard, resolve to real account
         if account_name == "*":

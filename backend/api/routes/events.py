@@ -96,6 +96,8 @@ def _sign_log_sse_bytes(item: dict) -> bytes:
         "created_at": created,
         "failure_category": item.get("failure_category"),
     }
+    if "workflow_path" in item:
+        payload["workflow_path"] = item.get("workflow_path")
     data = f"event: sign_log\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
     return data.encode("utf-8")
 

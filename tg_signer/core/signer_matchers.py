@@ -62,7 +62,10 @@ class SignerMatchersMixin:
             parts.append(f"话题ID={chat.message_thread_id}")
         if chat.name:
             parts.append(f"名称={self._normalize_log_text(chat.name, 60)}")
-        parts.append(f"动作数={len(chat.actions)}")
+        if getattr(chat, "steps", None) is not None:
+            parts.append(f"工作流步骤数={len(chat.steps)}")
+        else:
+            parts.append(f"动作数={len(chat.actions or [])}")
         return " | ".join(parts)
 
     def _describe_action(self, action: ActionT) -> str:

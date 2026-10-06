@@ -652,6 +652,7 @@ class SignTaskHistoryMixin:
         message: str = "",
         account_name: str = "",
         flow_logs: Optional[List[str]] = None,
+        workflow_path: Optional[List[str]] = None,
     ):
         """保存任务执行历史 (保留列表)"""
         from backend.utils.time import utc_now_iso
@@ -688,6 +689,7 @@ class SignTaskHistoryMixin:
             last_target_message=last_target_message,
             failure_category=category.value,
             repair=self._repair_mojibake,
+            workflow_path=workflow_path,
         )
 
         history_raw: Any = []
@@ -749,6 +751,7 @@ class SignTaskHistoryMixin:
                         failure_category=str(
                             new_entry.get("failure_category") or category.value or ""
                         ),
+                        workflow_path=workflow_path,
                     ),
                 )
             except Exception as idx_exc:

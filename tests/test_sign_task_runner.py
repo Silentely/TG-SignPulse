@@ -93,7 +93,15 @@ class FakeSvc:
     def _is_invalid_session_error(self, e: Exception) -> bool:
         return False
 
-    def _save_run_info(self, task_name, success, msg, account_name, flow_logs=None):
+    def _save_run_info(
+        self,
+        task_name,
+        success,
+        msg,
+        account_name,
+        flow_logs=None,
+        workflow_path=None,
+    ):
         self.saved.append(
             {
                 "task": task_name,
@@ -101,6 +109,7 @@ class FakeSvc:
                 "msg": msg,
                 "account": account_name,
                 "logs": list(flow_logs or []),
+                "workflow_path": workflow_path,
             }
         )
 

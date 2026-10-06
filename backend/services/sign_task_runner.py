@@ -28,6 +28,7 @@ from backend.services.sign_task_run_status import (
 )
 from backend.utils.task_logs import extract_last_target_message
 from tg_signer.core import get_client_refcount
+from tg_signer.core.workflow_engine import WorkflowLoopExceededError
 from tg_signer.log_utils import safe_exception_summary, safe_traceback_preview
 from tg_signer.utils import extract_flood_wait_seconds
 
@@ -646,12 +647,21 @@ async def _runner_save_run_info(state: TaskExecutionContext | Dict[str, Any]) ->
     msg = (
         state["error_msg"] if not state.get("success") else state.get("last_reply", "")
     )
+    signer = state.get("signer")
+    workflow_path = state.get("workflow_path")
+    if not workflow_path and signer and hasattr(signer, "context"):
+        wf_path = getattr(signer.context, "workflow_path", None)
+        if wf_path:
+            workflow_path = list(wf_path)
+            _set_ctx(state, "workflow_path", workflow_path)
+
     svc._save_run_info(
         state["task_name"],
         state.get("success", False),
         msg,
         state["account_name"],
         flow_logs=state.get("final_logs", []),
+        workflow_path=workflow_path,
     )
 
 
@@ -727,6 +737,9 @@ async def _runner_handle_error(
 
     if is_timeout_error_message(str(e)) or state.get("timed_out"):
         _set_ctx(state, "timed_out", True)
+
+    if isinstance(e, WorkflowLoopExceededError) or "WorkflowLoopExceededError" in type(e).__name__:
+        _set_ctx(state, "failure_category", FailureCategory.TASK_LOOP_EXCEEDED.value)
     if state.get("account_invalid_detected") or svc._is_invalid_session_error(e):
         _set_ctx(state, "account_invalid_detected", True)
         invalid_message = (
@@ -1090,7 +1103,7 @@ async def execute_sign_task(
 
     # 失败分类（优先用原始异常摘要，error_msg 已做用户友好映射，关键词命中率低）
     if not ctx.success:
-        failure_category = classify_failure(
+        failure_category = ctx.failure_category or classify_failure(
             error=ctx.error_raw or ctx.error_msg,
             output=ctx.output_str,
             success=False,
@@ -1105,6 +1118,7 @@ async def execute_sign_task(
         "error": ctx.error_msg,
         "timed_out": ctx.timed_out,
         "failure_category": ctx.failure_category,
+        "workflow_path": ctx.workflow_path,
         # 收尾阶段的结构化异常，供调用方写入运行记录便于面板排障
         "persistence_error": ctx.persistence_error,
         "notification_error": ctx.notification_error,

@@ -51,9 +51,10 @@ def build_index_entry(
     success: bool,
     message: str = "",
     failure_category: str = "",
+    workflow_path: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """构造索引摘要行（无 flow_logs）。"""
-    return {
+    res = {
         "time": str(time or ""),
         "created_at": str(time or ""),
         "account_name": str(account_name or ""),
@@ -62,6 +63,9 @@ def build_index_entry(
         "message": str(message or "")[:500],
         "failure_category": str(failure_category or ""),
     }
+    if workflow_path is not None:
+        res["workflow_path"] = list(workflow_path)
+    return res
 
 
 def entry_from_history_item(
@@ -79,6 +83,7 @@ def entry_from_history_item(
         success=bool(item.get("success", False)),
         message=str(item.get("message") or ""),
         failure_category=str(item.get("failure_category") or ""),
+        workflow_path=item.get("workflow_path"),
     )
 
 

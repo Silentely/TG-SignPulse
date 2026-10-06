@@ -101,6 +101,7 @@ class TaskExecutionContext:
     # Observability
     persistence_error: Optional[Dict[str, Any]] = None
     notification_error: Optional[Dict[str, Any]] = None
+    workflow_path: Optional[List[str]] = None
 
     def transition_to(self, target: TaskPhase) -> None:
         """Advance the execution context state machine to target phase.

@@ -14,7 +14,14 @@ from typing import (
     Union,
 )
 
-from pydantic import AnyHttpUrl, BaseModel, Field, ValidationError, root_validator
+from pydantic import (
+    AnyHttpUrl,
+    BaseModel,
+    Field,
+    ValidationError,
+    root_validator,
+    validator,
+)
 from typing_extensions import Self, TypeAlias
 
 try:
@@ -313,27 +320,223 @@ ActionT: TypeAlias = Union[
 ]
 
 
+class WorkflowConfigError(ValueError):
+    """工作流配置与拓扑结构异常基类"""
+
+
+class WorkflowStepConfig(BaseModel):
+    step_id: str
+    action_type: SupportAction
+    config: Dict[str, Any] = Field(default_factory=dict)
+    next_step_id: Optional[str] = None
+    on_failure_step_id: Optional[str] = None
+    allow_loop: bool = False
+    max_retries: Optional[int] = None
+
+    @validator("action_type", pre=True)
+    def _parse_action_type(cls, v):
+        if isinstance(v, SupportAction):
+            return v
+        if isinstance(v, int):
+            try:
+                return SupportAction(v)
+            except ValueError:
+                return v
+        if isinstance(v, str):
+            v_clean = v.strip().upper()
+            if hasattr(SupportAction, v_clean):
+                return getattr(SupportAction, v_clean)
+            try:
+                return SupportAction(int(v))
+            except (ValueError, TypeError):
+                pass
+        return v
+
+    if _PYDANTIC_V2 and ConfigDict is not None:
+        model_config = ConfigDict(
+            use_enum_values=False,
+            arbitrary_types_allowed=True,
+        )
+
+    @root_validator
+    def _validate_step_config(cls, values):
+        if not isinstance(values, dict):
+            return values
+        raw_id = values.get("step_id")
+        step_id = str(raw_id or "").strip()
+        if not step_id:
+            raise WorkflowConfigError("step_id 不能为空")
+        if step_id in {"COMPLETE", "FAIL"}:
+            raise WorkflowConfigError(f"step_id 不能使用保留哨兵名: {step_id}")
+        values["step_id"] = step_id
+
+        allow_loop = bool(values.get("allow_loop", False))
+        max_retries = values.get("max_retries")
+        if allow_loop:
+            if max_retries is None or max_retries < 0:
+                raise WorkflowConfigError(
+                    f"步骤 '{step_id}' 允许循环 (allow_loop=True) 时必须配置非负 max_retries"
+                )
+        else:
+            if max_retries is not None:
+                raise WorkflowConfigError(
+                    f"步骤 '{step_id}' 未允许循环 (allow_loop=False)，max_retries 必须为 None"
+                )
+
+        cfg = values.get("config") or {}
+        action_type = values.get("action_type")
+        if "action" in cfg:
+            raw_action = cfg["action"]
+            raw_val = raw_action.value if hasattr(raw_action, "value") else raw_action
+            act_val = (
+                action_type.value if hasattr(action_type, "value") else action_type
+            )
+            if raw_val != act_val:
+                raise WorkflowConfigError(
+                    f"步骤 '{step_id}' config 中的 action ({raw_val}) 与 action_type ({act_val}) 不一致"
+                )
+        return values
+
+    def to_workflow_step(self):
+        from tg_signer.core.workflow_engine import WorkflowStep
+
+        return WorkflowStep(
+            step_id=self.step_id,
+            action_type=self.action_type,
+            next_step_id=self.next_step_id,
+            on_failure_step_id=self.on_failure_step_id,
+            allow_loop=self.allow_loop,
+            max_retries=self.max_retries,
+            config=self.config,
+        )
+
+
+ACTION_MODEL_MAP: Dict[SupportAction, Type[SignAction]] = {
+    SupportAction.SEND_TEXT: SendTextAction,
+    SupportAction.SEND_DICE: SendDiceAction,
+    SupportAction.CLICK_KEYBOARD_BY_TEXT: ClickKeyboardByTextAction,
+    SupportAction.CHOOSE_OPTION_BY_IMAGE: ChooseOptionByImageAction,
+    SupportAction.REPLY_BY_CALCULATION_PROBLEM: ReplyByCalculationProblemAction,
+    SupportAction.REPLY_BY_IMAGE_RECOGNITION: ReplyByImageRecognitionAction,
+    SupportAction.CLICK_BUTTON_BY_CALCULATION_PROBLEM: ClickButtonByCalculationProblemAction,
+    SupportAction.KEYWORD_NOTIFY: KeywordNotifyAction,
+    SupportAction.CUSTOM_PLUGIN: PluginAction,
+}
+
+
+def action_from_step(step: WorkflowStepConfig) -> ActionT:
+    model_cls = ACTION_MODEL_MAP.get(step.action_type)
+    if model_cls is None:
+        raise WorkflowConfigError(
+            f"步骤 '{step.step_id}' 未知的动作类型: {step.action_type}"
+        )
+    data = dict(step.config or {})
+    data["action"] = step.action_type
+    try:
+        return model_cls(**data)
+    except (ValidationError, ValueError) as err:
+        raise WorkflowConfigError(f"步骤 '{step.step_id}' 动作配置无效: {err}") from err
+
+
+
+
 class SignChatV3(BaseJSONConfig):
     version: ClassVar = 3
     chat_id: int
     name: Optional[str] = None
     delete_after: Optional[int] = None
-    actions: List[ActionT]
+    actions: Optional[List[ActionT]] = None
+    steps: Optional[List[WorkflowStepConfig]] = None
+    initial_step_id: Optional[str] = None
     action_interval: float = 1  # actions的间隔时间，单位秒
     message_thread_id: Optional[int] = None
     next_task_on_success: Optional[str] = None
     next_task_delay_seconds: Optional[float] = None
 
+    @root_validator
+    def _validate_actions_or_steps(cls, values):
+        if not isinstance(values, dict):
+            return values
+        actions = values.get("actions")
+        steps = values.get("steps")
+        initial_step_id = values.get("initial_step_id")
+
+        if actions is None and steps is None:
+            raise WorkflowConfigError("actions 与 steps 互斥，必须且只能配置其中之一")
+        if actions is not None and steps is not None:
+            raise WorkflowConfigError("actions 与 steps 互斥，不能同时配置")
+
+        if actions is not None:
+            return values
+
+        if steps is not None:
+            if len(steps) == 0:
+                raise WorkflowConfigError("工作流 steps 列表不能为空")
+            if not initial_step_id or not str(initial_step_id).strip():
+                raise WorkflowConfigError("配置工作流 steps 时必须提供 initial_step_id")
+            step_ids = []
+            for s in steps:
+                s_id = (
+                    getattr(s, "step_id", None)
+                    or (s.get("step_id") if isinstance(s, dict) else None)
+                )
+                if not s_id:
+                    raise WorkflowConfigError("步骤必须包含非空 step_id")
+                if s_id in step_ids:
+                    raise WorkflowConfigError(f"存在重复的 step_id: {s_id}")
+                step_ids.append(s_id)
+            if initial_step_id not in step_ids:
+                raise WorkflowConfigError(
+                    f"initial_step_id '{initial_step_id}' 不在 steps 列表中"
+                )
+
+            # 静态拓扑校验
+            from tg_signer.core.workflow_engine import (
+                WorkflowDefinition,
+                WorkflowEngine,
+            )
+
+            wf_steps = [
+                s.to_workflow_step()
+                if hasattr(s, "to_workflow_step")
+                else WorkflowStepConfig(**s).to_workflow_step()
+                for s in steps
+            ]
+            wf_def = WorkflowDefinition(steps=wf_steps, initial_step_id=initial_step_id)
+            try:
+                WorkflowEngine.validate_topology(wf_def)
+            except Exception as err:
+                raise WorkflowConfigError(f"工作流拓扑结构无效: {err}") from err
+
+        return values
+
+    def to_jsonable(self):
+        data = super().to_jsonable()
+        if self.steps is None:
+            data.pop("steps", None)
+            data.pop("initial_step_id", None)
+        elif self.actions is None:
+            data.pop("actions", None)
+        return data
+
     def __repr__(self) -> str:
+        if self.steps is not None:
+            return (
+                f"SignChatV3(chat_id={self.chat_id}, "
+                f"delete_after={self.delete_after}, "
+                f"steps=[{len(self.steps)} steps], "
+                f"initial_step_id='{self.initial_step_id}'),"
+                f"action_interval={self.action_interval}"
+            )
+        act_len = len(self.actions) if self.actions is not None else 0
         return (
             f"SignChatV3(chat_id={self.chat_id}, "
             f"delete_after={self.delete_after}, "
-            f"actions=[{len(self.actions)} actions]),"
+            f"actions=[{act_len} actions]),"
             f"action_interval={self.action_interval}"
         )
 
     def __str__(self) -> str:
-        # 盒式终端展示移出到 utils.format_sign_chat_box，保持配置模型纯净
         from tg_signer.utils import format_sign_chat_box
 
         return format_sign_chat_box(self)
@@ -346,7 +549,11 @@ class SignChatV3(BaseJSONConfig):
             SupportAction.REPLY_BY_IMAGE_RECOGNITION,
             SupportAction.CLICK_BUTTON_BY_CALCULATION_PROBLEM,
         }
-        return any(action.action in ai_actions for action in self.actions)
+        if self.steps is not None:
+            return any(s.action_type in ai_actions for s in self.steps)
+        if self.actions is not None:
+            return any(action.action in ai_actions for action in self.actions)
+        return False
 
     @property
     def requires_updates(self) -> bool:
@@ -358,14 +565,26 @@ class SignChatV3(BaseJSONConfig):
             SupportAction.CLICK_BUTTON_BY_CALCULATION_PROBLEM,
             SupportAction.KEYWORD_NOTIFY,
         }
-        for action in self.actions:
-            if action.action in response_actions:
-                return True
-            if (
-                action.action == SupportAction.CUSTOM_PLUGIN
-                and getattr(action, "mode", "reactive") == "reactive"
-            ):
-                return True
+        if self.steps is not None:
+            for s in self.steps:
+                if s.action_type in response_actions:
+                    return True
+                if (
+                    s.action_type == SupportAction.CUSTOM_PLUGIN
+                    and (s.config or {}).get("mode", "reactive") == "reactive"
+                ):
+                    return True
+            return False
+
+        if self.actions is not None:
+            for action in self.actions:
+                if action.action in response_actions:
+                    return True
+                if (
+                    action.action == SupportAction.CUSTOM_PLUGIN
+                    and getattr(action, "mode", "reactive") == "reactive"
+                ):
+                    return True
         return False
 
 

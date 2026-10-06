@@ -25,6 +25,7 @@ class FailureCategory(str, Enum):
     NETWORK_PROXY = "network_proxy"
     TIMEOUT = "timeout"
     STRONG_FAILURE = "strong_failure"
+    TASK_LOOP_EXCEEDED = "task_loop_exceeded"
     UNKNOWN = "unknown"
 
 
@@ -186,6 +187,16 @@ _CATEGORY_RULES: tuple[tuple[FailureCategory, tuple[str, ...]], ...] = (
         ),
     ),
     (
+        FailureCategory.TASK_LOOP_EXCEEDED,
+        (
+            "workflowloopexceedederror",
+            "超过允许上限",
+            "执行已达最大步数硬上限",
+            "未允许的环路",
+            "任务步骤循环熔断",
+        ),
+    ),
+    (
         FailureCategory.TIMEOUT,
         (
             "timeout",
@@ -257,6 +268,7 @@ _FAILURE_CATEGORY_LABELS = {
     FailureCategory.NETWORK_PROXY: "网络/代理",
     FailureCategory.TIMEOUT: "超时",
     FailureCategory.STRONG_FAILURE: "业务失败",
+    FailureCategory.TASK_LOOP_EXCEEDED: "工作流循环熔断",
     FailureCategory.UNKNOWN: "未知失败",
 }
 

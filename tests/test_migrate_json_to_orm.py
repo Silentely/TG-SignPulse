@@ -105,3 +105,51 @@ def test_dry_run_does_not_initialize_database_schema(monkeypatch, tmp_path):
 
     assert result["scanned_count"] == 1
     assert result["migrated_count"] == 0
+
+
+def test_migration_supports_workflow_steps_configuration():
+    from tg_signer.config import SignChatV3
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        signs_dir = Path(tmpdir) / ".signer" / "signs"
+        task_dir = signs_dir / "user_wf" / "wf_task"
+        task_dir.mkdir(parents=True)
+        raw_config = {
+            "name": "wf_task",
+            "enabled": True,
+            "chats": [
+                {
+                    "chat_id": 999888,
+                    "name": "wf_group",
+                    "steps": [
+                        {
+                            "step_id": "s1",
+                            "action_type": "send_text",
+                            "config": {"text": "hello wf"},
+                            "next_step_id": "COMPLETE",
+                        }
+                    ],
+                    "initial_step_id": "s1",
+                }
+            ],
+        }
+        (task_dir / "config.json").write_text(json.dumps(raw_config))
+
+        summary = run_migration(signs_dir=signs_dir, dry_run=False)
+        assert summary["migrated_count"] == 1
+
+        session_local = get_session_local()
+        with session_local() as db:
+            record = (
+                db.query(SignTaskModel)
+                .filter_by(account_name="user_wf", task_name="wf_task")
+                .first()
+            )
+            assert record is not None
+            loaded_cfg = json.loads(record.config_json)
+            assert "steps" in loaded_cfg["chats"][0]
+            assert loaded_cfg["chats"][0]["initial_step_id"] == "s1"
+            validate_func = getattr(SignChatV3, "model_validate", getattr(SignChatV3, "parse_obj", None))
+            chat_obj = validate_func(loaded_cfg["chats"][0]) if validate_func else SignChatV3(**loaded_cfg["chats"][0])
+            assert len(chat_obj.steps) == 1
+            assert chat_obj.steps[0].step_id == "s1"

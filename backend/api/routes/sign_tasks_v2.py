@@ -29,6 +29,7 @@ from backend.services.stream_tickets import (
     PURPOSE_TASK_RUN_WS,
     get_stream_ticket_store,
 )
+from tg_signer.config import WorkflowConfigError
 
 router = APIRouter()
 
@@ -56,7 +57,9 @@ def _resolve_effective_account(account_name: Optional[str]) -> Optional[str]:
 class ChatConfig(BaseModel):
     chat_id: int = Field(..., description="Chat ID")
     name: str = Field("", description="Chat name")
-    actions: List[Dict[str, Any]] = Field(..., description="Actions")
+    actions: Optional[List[Dict[str, Any]]] = Field(None, description="Actions")
+    steps: Optional[List[Dict[str, Any]]] = Field(None, description="Workflow steps")
+    initial_step_id: Optional[str] = Field(None, description="Initial step ID")
     delete_after: Optional[int] = Field(None, description="Delete delay seconds")
     action_interval: int = Field(1, description="Action interval seconds")
     message_thread_id: Optional[int] = Field(None, description="Thread ID")
@@ -247,6 +250,7 @@ class RunTaskResultBase(BaseModel):
     retry_count_effective: Optional[int] = None
     persistence_error: Optional[Dict[str, Any]] = None
     notification_error: Optional[Dict[str, Any]] = None
+    workflow_path: Optional[List[str]] = None
 
 
 class RunTaskStartResult(RunTaskResultBase):
@@ -273,6 +277,8 @@ class TaskHistoryItem(BaseModel):
     flow_line_count: int = 0
     account_name: str = ""
     last_target_message: str = ""
+    failure_category: Optional[str] = None
+    workflow_path: Optional[List[str]] = None
 
 
 @router.get("", response_model=List[SignTaskOut])
@@ -336,6 +342,12 @@ def create_sign_task(
         return task
     except HTTPException:
         raise
+    except WorkflowConfigError as e:
+        # 工作流配置非法（服务层 _validate_chats_workflow 校验）：按契约返回 400
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -433,6 +445,12 @@ def update_sign_task(
         return task
     except HTTPException:
         raise
+    except WorkflowConfigError as e:
+        # 工作流配置非法（服务层 _validate_chats_workflow 校验）：按契约返回 400
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

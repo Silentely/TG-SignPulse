@@ -14,7 +14,7 @@ _KEYWORD_MONITOR_ACTION_ID = 8
 
 
 def _iter_chat_actions(task_config: Optional[Dict[str, Any]]):
-    """遍历配置中所有 action；跳过非法结构，供探测函数复用。"""
+    """遍历旧 actions 与 workflow steps 的统一动作描述。"""
     if not isinstance(task_config, dict):
         return
     chats = task_config.get("chats")
@@ -24,11 +24,22 @@ def _iter_chat_actions(task_config: Optional[Dict[str, Any]]):
         if not isinstance(chat, dict):
             continue
         actions = chat.get("actions")
-        if not isinstance(actions, (list, tuple)):
-            continue
-        for action in actions:
-            if isinstance(action, dict) or hasattr(action, "action"):
-                yield action
+        if isinstance(actions, (list, tuple)):
+            for action in actions:
+                if isinstance(action, dict) or hasattr(action, "action"):
+                    yield action
+
+        steps = chat.get("steps")
+        if isinstance(steps, (list, tuple)):
+            for step in steps:
+                if not isinstance(step, dict):
+                    continue
+                config = step.get("config")
+                config = config if isinstance(config, dict) else {}
+                yield {
+                    "action": step.get("action_type"),
+                    "mode": config.get("mode"),
+                }
 
 
 def task_requires_updates(task_config: Optional[Dict[str, Any]]) -> bool:

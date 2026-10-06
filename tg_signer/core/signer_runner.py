@@ -157,6 +157,30 @@ class SignerRunnerMixin:
                 )
                 raise RuntimeError(f"预热会话失败 chat_id={chat.chat_id}: {e}") from e
         self.log(self._describe_chat_run(chat))
+        if getattr(chat, "steps", None) is not None:
+            # 与旧版 actions 流程保持一致：任务级 retry_count 控制整个工作流重试次数。
+            max_workflow_attempts = max(
+                1,
+                int(
+                    task_retry_count_var.get()
+                    or read_positive_int_env("SIGN_TASK_FLOW_RETRY_ATTEMPTS", 1, 1)
+                ),
+            )
+            last_error: Optional[Exception] = None
+            for attempt in range(1, max_workflow_attempts + 1):
+                try:
+                    return await self._run_workflow_chat(chat)
+                except Exception as exc:
+                    last_error = exc
+                    if attempt >= max_workflow_attempts:
+                        raise
+                    self.log(
+                        f"工作流第 {attempt}/{max_workflow_attempts} 次执行失败，准备重试: {exc}",
+                        level="WARNING",
+                    )
+            if last_error is not None:  # pragma: no cover - loop always returns/raises
+                raise last_error
+            return None
         total_actions = len(chat.actions)
         if total_actions == 0:
             raise RuntimeError("任务没有配置任何执行动作")
@@ -473,6 +497,238 @@ class SignerRunnerMixin:
             await asyncio.sleep(config.sign_interval)
 
         return success_count
+
+    async def _run_workflow_chat(self, chat: SignChatV3):
+        from tg_signer.config import action_from_step
+        from tg_signer.core.workflow_engine import (
+            WorkflowContext,
+            WorkflowDefinition,
+            WorkflowEngine,
+            WorkflowStep,
+        )
+
+        wf_steps = [s.to_workflow_step() for s in (chat.steps or [])]
+        wf_def = WorkflowDefinition(steps=wf_steps, initial_step_id=str(chat.initial_step_id or ""))
+
+        run_id = str(getattr(self.context, "run_id", "") or int(asyncio.get_event_loop().time()))
+        account_name = str(getattr(self, "_account", "") or "")
+        task_name = str(getattr(self, "_task_name", "") or "")
+        wf_ctx = WorkflowContext(
+            run_id=run_id,
+            account_name=account_name,
+            task_name=task_name,
+        )
+
+        if chat.chat_id in self.context.chat_messages:
+            self.context.chat_messages[chat.chat_id].clear()
+        else:
+            self.context.chat_messages[chat.chat_id] = {}
+        self.context.step_outputs = {}
+        self.context.last_output = ""
+        self.context.last_received_text = ""
+        self.context.stop_after_current_action = False
+        self.context.stop_reason = None
+        self.context.last_callback_answer = None
+
+        step_cfg_map = {s.step_id: s for s in (chat.steps or [])}
+        engine = WorkflowEngine()
+
+        async def _execute_step(step: WorkflowStep, ctx: WorkflowContext) -> bool:
+            step_cfg = step_cfg_map.get(step.step_id)
+            if not step_cfg:
+                raise RuntimeError(f"未找到步骤配置: {step.step_id}")
+
+            action = action_from_step(step_cfg)
+
+            # 1. 检查 skip_if_matched 条件跳过
+            if getattr(action, "skip_if_matched", None):
+                skip_pat = str(action.skip_if_matched).strip()
+                match_src = str(
+                    getattr(self.context, "last_output", "")
+                    or getattr(self.context, "last_received_text", "")
+                    or ""
+                )
+                matched = False
+                if skip_pat and match_src:
+                    if skip_pat in match_src:
+                        matched = True
+                    else:
+                        try:
+                            if re.search(skip_pat, match_src, re.IGNORECASE):
+                                matched = True
+                        except re.error:
+                            pass
+                if matched:
+                    self.log(
+                        f"步骤 {step.step_id} 满足跳过条件（skip_if_matched='{skip_pat}'），跳过此步骤"
+                    )
+                    return True
+
+            # 2. 构建模板上下文并渲染动态宏变量
+            me_user = getattr(self, "me", None)
+            tmpl_ctx = {
+                "account": {
+                    "name": str(getattr(self, "_account", "") or ""),
+                    "phone": getattr(me_user, "phone_number", ""),
+                    "username": getattr(me_user, "username", ""),
+                    "first_name": getattr(me_user, "first_name", ""),
+                },
+                "chat": {
+                    "id": chat.chat_id,
+                    "name": getattr(chat, "name", ""),
+                },
+                "step": getattr(self.context, "step_outputs", {}),
+                "prev_output": getattr(self.context, "last_output", "") or "",
+                "prev": {
+                    "output": getattr(self.context, "last_output", "") or ""
+                },
+                "last_message": getattr(self.context, "last_received_text", "") or "",
+            }
+
+            exec_action = action
+            if isinstance(action, SendTextAction):
+                rendered_text = render_template(action.text, tmpl_ctx)
+                if rendered_text != action.text:
+                    exec_action = _copy_action_with(action, text=rendered_text)
+            elif isinstance(action, ClickKeyboardByTextAction):
+                rendered_text = render_template(action.text, tmpl_ctx)
+                if rendered_text != action.text:
+                    exec_action = _copy_action_with(action, text=rendered_text)
+            elif isinstance(action, PluginAction):
+                rendered_params = render_template_recursive(action.params, tmpl_ctx)
+                exec_action = _copy_action_with(action, params=rendered_params)
+            elif hasattr(action, "ai_prompt") and action.ai_prompt:
+                rendered_prompt = render_template(action.ai_prompt, tmpl_ctx)
+                if rendered_prompt != action.ai_prompt:
+                    exec_action = _copy_action_with(action, ai_prompt=rendered_prompt)
+
+            total_steps = len(chat.steps or [])
+            # WorkflowEngine.run 在调用 step_executor 之前已将 total_steps_executed +1，
+            # 因此进入此处时该值即为当前步骤的 1-based 执行序号。
+            step_index = ctx.total_steps_executed
+            action_description = self._set_current_action_context(
+                step_index,
+                total_steps,
+                exec_action,
+            )
+            action_delay = self._resolve_action_delay(
+                exec_action,
+                float(chat.action_interval or 0) if ctx.total_steps_executed > 1 else 0.0,
+            )
+            try:
+                if action_delay > 0:
+                    self.log(
+                        f"步骤 {step.step_id} 将在 {action_delay:g} 秒后执行：{action_description}"
+                    )
+                self.log(
+                    f"正在执行步骤 {step.step_id}：{action_description}"
+                )
+                if action_delay > 0:
+                    await asyncio.sleep(action_delay)
+
+                next_step_cfg = step_cfg_map.get(step.next_step_id) if step.next_step_id else None
+                next_action = action_from_step(next_step_cfg) if next_step_cfg else None
+
+                # 单步骤瞬时错误重试保持既有动作语义；任务级 retry_count 在外层重跑整个工作流。
+                _step_max_retries = 2
+                result = None
+                step_failed = False
+                for _step_attempt in range(1, _step_max_retries + 1):
+                    try:
+                        result = await self.wait_for(
+                            chat,
+                            exec_action,
+                            next_action=next_action,
+                        )
+                        break
+                    except Exception as step_exc:
+                        if (
+                            self._is_transient_step_error(step_exc)
+                            and _step_attempt < _step_max_retries
+                        ):
+                            self.log(
+                                f"步骤 {step.step_id} 瞬时错误，"
+                                f"{_step_attempt}/{_step_max_retries} 次重试: "
+                                f"{type(step_exc).__name__}: {safe_text_preview(step_exc, 120)}",
+                                level="WARNING",
+                            )
+                            await asyncio.sleep(1.0)
+                            continue
+                        if getattr(action, "continue_on_error", False):
+                            self.log(
+                                f"步骤 {step.step_id} 出现错误，已配置容错继续（continue_on_error）: {step_exc}",
+                                level="WARNING",
+                            )
+                            result = True
+                        else:
+                            self.log(
+                                f"步骤 {step.step_id} 出现错误: {step_exc}",
+                                level="WARNING",
+                            )
+                            step_failed = True
+                            result = None
+                        break
+
+                if result is False and getattr(action, "continue_on_error", False):
+                    self.log(
+                        f"步骤 {step.step_id} 执行返回失败，已配置容错继续（continue_on_error）",
+                        level="WARNING",
+                    )
+                    result = True
+
+                if result is False or step_failed:
+                    self.log(
+                        f"步骤 {step.step_id} 执行失败：{action_description}",
+                        level="WARNING",
+                    )
+                    return False
+
+                self.log(f"步骤 {step.step_id} 执行完成：{action_description}")
+
+                out_val = ""
+                if isinstance(exec_action, (SendTextAction, ClickKeyboardByTextAction)):
+                    out_val = getattr(exec_action, "text", "")
+                elif isinstance(result, str):
+                    out_val = result
+                elif result is not None and result is not True and result is not False:
+                    out_val = str(result)
+
+                if not hasattr(self.context, "step_outputs") or not isinstance(
+                    self.context.step_outputs, dict
+                ):
+                    self.context.step_outputs = {}
+                self.context.step_outputs[step.step_id] = {"output": out_val}
+                self.context.step_outputs[step_index] = {"output": out_val}
+                self.context.step_outputs[str(step_index)] = {"output": out_val}
+                self.context.last_output = out_val
+
+                if self.context.stop_after_current_action:
+                    stop_reason = (self.context.stop_reason or "").strip()
+                    self.log(
+                        "检测到任务已完成，停止执行后续动作"
+                        + (f": {stop_reason}" if stop_reason else "")
+                    )
+                    self.context.stop_after_current_action = False
+                    self.context.stop_reason = None
+                    self.context.last_callback_answer = None
+                    ctx.current_step_id = "COMPLETE"
+                    return True
+
+                return True
+            finally:
+                self.context.waiting_message = None
+                self._clear_current_action_context()
+
+        try:
+            res = await engine.run(wf_def, wf_ctx, step_executor=_execute_step)
+        finally:
+            self.context.workflow_path = wf_ctx.execution_path
+            self.context.workflow_steps = wf_ctx.total_steps_executed
+
+        if res.get("status") != "success":
+            failed_step = wf_ctx.execution_path[-1] if wf_ctx.execution_path else "unknown"
+            raise RuntimeError(f"工作流执行失败，终止于步骤: {failed_step}")
+        return
 
     async def normal_run(
         self, num_of_dialogs=20, only_once: bool = False, force_rerun: bool = False

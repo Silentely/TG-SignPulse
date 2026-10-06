@@ -117,6 +117,29 @@ def test_requires_updates_action_2_returns_false():
     assert task_requires_updates(config) is False
 
 
+def test_requires_updates_workflow_step_response_action_returns_true():
+    config = {
+        "chats": [{"steps": [{"action_type": 3, "config": {"text": "按钮"}}]}]
+    }
+    assert task_requires_updates(config) is True
+
+
+def test_requires_updates_workflow_reactive_plugin_returns_true():
+    config = {
+        "chats": [
+            {
+                "steps": [
+                    {
+                        "action_type": 99,
+                        "config": {"plugin_name": "demo", "mode": "reactive"},
+                    }
+                ]
+            }
+        ]
+    }
+    assert task_requires_updates(config) is True
+
+
 # ─── task_has_keyword_monitor ───
 
 
@@ -138,6 +161,11 @@ def test_has_keyword_monitor_empty_chats_returns_false():
 
 def test_has_keyword_monitor_action_8_returns_true():
     config = {"chats": [{"actions": [{"action": 8}]}]}
+    assert task_has_keyword_monitor(config) is True
+
+
+def test_has_keyword_monitor_workflow_step_action_type_8_returns_true():
+    config = {"chats": [{"steps": [{"action_type": 8}]}]}
     assert task_has_keyword_monitor(config) is True
 
 

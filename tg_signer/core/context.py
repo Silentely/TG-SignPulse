@@ -40,3 +40,5 @@ class UserSignerWorkerContext(BaseModel):
     step_outputs: dict = Field(default_factory=dict)
     last_output: Optional[str] = None
     last_received_text: Optional[str] = None
+    workflow_path: Optional[list] = None
+    workflow_steps: Optional[int] = None

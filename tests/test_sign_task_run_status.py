@@ -75,6 +75,16 @@ def test_build_run_status_timeout_and_fields():
     assert st["phase"] is None
 
 
+def test_build_run_status_preserves_workflow_path_field():
+    st = build_run_status(
+        run_id="r1",
+        state=RUN_STATE_FINISHED,
+        success=True,
+        workflow_path=["s1", "s2"],
+    )
+    assert st["workflow_path"] == ["s1", "s2"]
+
+
 def test_idle_running_placeholder():
     st = idle_running_placeholder(started_at="t0")
     assert st["state"] == "running"

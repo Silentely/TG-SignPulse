@@ -421,29 +421,37 @@ def format_sign_chat_box(chat) -> str:
     delete_info = (
         f"║ {pad_text_to_width(f'Delete After: {delete_value}', content_width - 2)} ║"
     )
-    actions_header = f"║ {pad_text_to_width('Actions Flow:', content_width - 2)} ║"
-
-    actions_lines = []
-    for i, action in enumerate(chat.actions, 1):
-        action_type = action.action.desc
-        details = ""
-        if isinstance(action, SendTextAction):
-            text_preview = (
-                action.text[:15] + "..." if len(action.text) > 15 else action.text
-            )
-            details = f"Text: {text_preview}"
-        elif isinstance(action, SendDiceAction):
-            details = f"Dice: {action.dice}"
-        elif isinstance(action, ClickKeyboardByTextAction):
-            text_preview = (
-                action.text[:15] + "..." if len(action.text) > 15 else action.text
-            )
-            details = f"Click: {text_preview}"
-        if details:
-            action_text = f"{i}. [{action_type}] {details}"
-        else:
-            action_text = f"{i}. [{action_type}]"
-        actions_lines.append(f"║ {pad_text_to_width(action_text, content_width - 2)} ║")
+    if getattr(chat, "steps", None) is not None:
+        actions_header = f"║ {pad_text_to_width('Workflow Steps Flow:', content_width - 2)} ║"
+        actions_lines = []
+        for i, step in enumerate(chat.steps, 1):
+            act_type = getattr(step.action_type, "desc", str(step.action_type))
+            next_id = step.next_step_id or "COMPLETE"
+            action_text = f"{i}. [{step.step_id}] {act_type} -> {next_id}"
+            actions_lines.append(f"║ {pad_text_to_width(action_text, content_width - 2)} ║")
+    else:
+        actions_header = f"║ {pad_text_to_width('Actions Flow:', content_width - 2)} ║"
+        actions_lines = []
+        for i, action in enumerate(chat.actions or [], 1):
+            action_type = action.action.desc
+            details = ""
+            if isinstance(action, SendTextAction):
+                text_preview = (
+                    action.text[:15] + "..." if len(action.text) > 15 else action.text
+                )
+                details = f"Text: {text_preview}"
+            elif isinstance(action, SendDiceAction):
+                details = f"Dice: {action.dice}"
+            elif isinstance(action, ClickKeyboardByTextAction):
+                text_preview = (
+                    action.text[:15] + "..." if len(action.text) > 15 else action.text
+                )
+                details = f"Click: {text_preview}"
+            if details:
+                action_text = f"{i}. [{action_type}] {details}"
+            else:
+                action_text = f"{i}. [{action_type}]"
+            actions_lines.append(f"║ {pad_text_to_width(action_text, content_width - 2)} ║")
 
     result = [
         top_border,

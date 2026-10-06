@@ -32,7 +32,7 @@ def build_history_list_item(
         flow_line_count = int(raw_flc if raw_flc is not None else len(flow_logs))
     except (TypeError, ValueError):
         flow_line_count = len(flow_logs)
-    return {
+    res = {
         "time": timestamp,
         "created_at": timestamp,
         "success": bool(item.get("success", False)),
@@ -46,6 +46,9 @@ def build_history_list_item(
         or extract_last_target(flow_logs),
         "failure_category": str(item.get("failure_category") or ""),
     }
+    if "workflow_path" in item:
+        res["workflow_path"] = item.get("workflow_path")
+    return res
 
 
 def clamp_limit(limit: int, *, minimum: int = 1, maximum: int = 200) -> int:
@@ -104,9 +107,10 @@ def build_history_run_entry(
     last_target_message: str,
     failure_category: str,
     repair: Callable[[str], str],
+    workflow_path: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """构造写入 history 文件的单条执行记录。"""
-    return {
+    entry = {
         "time": timestamp,
         "success": bool(success),
         "message": repair(str(message or "")),
@@ -117,6 +121,9 @@ def build_history_run_entry(
         "last_target_message": str(last_target_message or "").strip(),
         "failure_category": str(failure_category or ""),
     }
+    if workflow_path is not None:
+        entry["workflow_path"] = list(workflow_path)
+    return entry
 
 
 def prepend_history_entry(

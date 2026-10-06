@@ -77,6 +77,7 @@ def build_run_status(
     retry_count_effective: Optional[int] = None,
     persistence_error: Optional[Dict[str, Any]] = None,
     notification_error: Optional[Dict[str, Any]] = None,
+    workflow_path: Optional[list[str]] = None,
 ) -> Dict[str, Any]:
     """构造统一 run status 字典。终态时 phase 强制为 None。"""
     normalized_state = str(state or RUN_STATE_IDLE)
@@ -111,6 +112,7 @@ def build_run_status(
         "retry_count_effective": retry_count_effective,
         "persistence_error": persistence_error,
         "notification_error": notification_error,
+        "workflow_path": list(workflow_path) if workflow_path is not None else None,
     }
     return payload
 
