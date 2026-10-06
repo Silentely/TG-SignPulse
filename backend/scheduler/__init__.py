@@ -453,6 +453,7 @@ async def _job_auto_backup() -> None:
             keep=auto_backup_keep(cfg),
             webdav_settings=cfg,
             backup_target=str(cfg.get("backup_target") or "auto"),
+            encrypt=True,
         )
         wd = result.get("webdav") or {}
         logger.info(

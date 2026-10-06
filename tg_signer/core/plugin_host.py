@@ -145,12 +145,9 @@ def build_sanitized_worker_env(
         "PROGRAMDATA",
         "TERM",
         "PYTEST_CURRENT_TEST",
-        # 插件系统与工作区数据目录
-        "APP_DATA_DIR",
-        "TG_SIGNER_DATA_DIR",
+        # 插件目录与持久化存储通过宿主 RPC 提供，不把宿主数据目录暴露给插件进程。
         "PLUGINS_DIR",
         "BUILTIN_PLUGINS_DIR",
-        "PLUGIN_STORAGE_PATH",
         "PLUGIN_ISOLATION_ENGINE",
         "PLUGIN_MAX_MEMORY_MB",
     }

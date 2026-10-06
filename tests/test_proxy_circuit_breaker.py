@@ -12,6 +12,13 @@ from backend.services.proxy_circuit_breaker import (
 from backend.utils.proxy import ProxyProbeStatus, probe_proxy_exit
 
 
+@pytest.fixture(autouse=True)
+def clear_shared_breaker_state(isolated_env):
+    get_proxy_circuit_breaker().clear()
+    yield
+    get_proxy_circuit_breaker().clear()
+
+
 @pytest.mark.asyncio
 async def test_proxy_circuit_breaker_trips_after_3_failures(isolated_env):
     breaker = ProxyCircuitBreaker()
@@ -71,6 +78,25 @@ async def test_proxy_circuit_breaker_cooldown_to_half_open(isolated_env):
 
     await asyncio.sleep(0.15)
     assert breaker.get_state(proxy) == CircuitState.HALF_OPEN
+
+
+@pytest.mark.asyncio
+async def test_probe_uses_the_configured_proxy(monkeypatch, isolated_env):
+    from backend.utils import proxy as proxy_module
+
+    breaker = ProxyCircuitBreaker()
+    proxy = {"scheme": "socks5", "hostname": "proxy.example", "port": 1080}
+    observed = []
+
+    async def fake_fetch(proxy_dict, endpoint, timeout):
+        observed.append((proxy_dict, endpoint, timeout))
+        return "203.0.113.10"
+
+    monkeypatch.setattr(proxy_module, "_fetch_ip_via_proxy", fake_fetch)
+
+    assert await breaker._probe_telegram_dc(proxy) is True
+    assert observed
+    assert all(item[0] is proxy for item in observed)
 
 
 @pytest.mark.asyncio

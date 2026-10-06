@@ -84,3 +84,24 @@ def test_migration_lifecycle_dryrun_execute_and_batch_rollback():
                 db.query(StorageMigrationRunModel).filter_by(run_id=run_id).first()
             )
             assert journal.status == "ROLLED_BACK"
+
+
+def test_dry_run_does_not_initialize_database_schema(monkeypatch, tmp_path):
+    import tools.migrate_json_to_orm as migration_module
+
+    signs_dir = tmp_path / "signs"
+    task_dir = signs_dir / "account" / "task"
+    task_dir.mkdir(parents=True)
+    (task_dir / "config.json").write_text("{}")
+
+    def fail_if_database_is_touched():
+        raise AssertionError("dry-run must not initialize the database")
+
+    monkeypatch.setattr(
+        migration_module, "get_session_local", fail_if_database_is_touched
+    )
+
+    result = migration_module.run_migration(signs_dir, dry_run=True)
+
+    assert result["scanned_count"] == 1
+    assert result["migrated_count"] == 0

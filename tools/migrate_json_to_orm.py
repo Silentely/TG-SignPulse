@@ -36,10 +36,6 @@ def run_migration(signs_dir: Path, dry_run: bool = True) -> Dict[str, Any]:
             "dry_run": dry_run,
         }
 
-    session_local = get_session_local()
-    engine = session_local().get_bind()
-    Base.metadata.create_all(bind=engine)
-
     tasks_to_insert = []
     for acc_dir in signs_dir.iterdir():
         if not acc_dir.is_dir():
@@ -73,6 +69,9 @@ def run_migration(signs_dir: Path, dry_run: bool = True) -> Dict[str, Any]:
                 logger.error("解析 %s 失败: %s", config_file, e)
 
     if not dry_run and tasks_to_insert:
+        session_local = get_session_local()
+        engine = session_local().get_bind()
+        Base.metadata.create_all(bind=engine)
         now = datetime.now(timezone.utc)
         with session_local() as db:
             for item in tasks_to_insert:

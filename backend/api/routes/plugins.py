@@ -1119,21 +1119,32 @@ async def _do_install_market_plugin(
 
         try:
             shutil.copytree(temp_dir, target_plugin_dir)
-            if backup_dir and backup_dir.exists():
-                shutil.rmtree(backup_dir, ignore_errors=True)
         except Exception as exc:
             if backup_dir and backup_dir.exists():
                 backup_dir.rename(target_plugin_dir)
             raise HTTPException(status_code=500, detail=f"写入插件目录失败: {exc}")
 
-    _reload_plugins_preserving_state()
-    new_meta = PluginRegistry.get(plugin_id)
-    if not new_meta:
+    try:
+        _reload_plugins_preserving_state()
+        new_meta = PluginRegistry.get(plugin_id)
+        if not new_meta:
+            raise ValueError(
+                "插件解压成功，但未能成功注册至 PluginRegistry，请检查 @PluginRegistry.register 命名"
+            )
+    except Exception as exc:
+        # 只有新版本完成重载并成功注册后才能删除旧版本；否则恢复旧目录。
         shutil.rmtree(target_plugin_dir, ignore_errors=True)
+        if backup_dir and backup_dir.exists():
+            backup_dir.rename(target_plugin_dir)
+            _reload_plugins_preserving_state()
+        if isinstance(exc, ValueError):
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         raise HTTPException(
-            status_code=400,
-            detail="插件解压成功，但未能成功注册至 PluginRegistry，请检查 @PluginRegistry.register 命名",
-        )
+            status_code=500, detail=f"插件重载失败，已恢复旧版本: {exc}"
+        ) from exc
+
+    if backup_dir and backup_dir.exists():
+        shutil.rmtree(backup_dir, ignore_errors=True)
 
     logger.info(
         "成功%s市场插件: %s (v%s)",

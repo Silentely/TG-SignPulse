@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
-import socket
 import time
 from enum import Enum
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from filelock import FileLock, Timeout
@@ -36,49 +37,170 @@ class ProxyCircuitBreaker:
         self._cooldown = cooldown
         self._local_lock = asyncio.Lock()
 
+    def _state_file(self) -> Path:
+        """返回跨进程共享状态文件；状态与半开租约使用同一工作目录。"""
+        return get_settings().resolve_workdir() / ".proxy_circuit_breaker.json"
+
+    def _load_shared_state(self) -> Dict[str, Dict[str, Any]]:
+        state_file = self._state_file()
+        try:
+            with FileLock(f"{state_file}.lock", timeout=2.0):
+                if not state_file.is_file():
+                    return {}
+                payload = json.loads(state_file.read_text(encoding="utf-8"))
+                return payload if isinstance(payload, dict) else {}
+        except (OSError, Timeout, ValueError, TypeError, json.JSONDecodeError):
+            logger.warning("读取代理熔断共享状态失败: %s", state_file, exc_info=True)
+            return {}
+
+    def _update_shared_state(self, key: str, entry: Optional[Dict[str, Any]]) -> None:
+        state_file = self._state_file()
+        state_file.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with FileLock(f"{state_file}.lock", timeout=2.0):
+                payload: Dict[str, Dict[str, Any]] = {}
+                if state_file.is_file():
+                    try:
+                        loaded = json.loads(state_file.read_text(encoding="utf-8"))
+                        if isinstance(loaded, dict):
+                            payload = loaded
+                    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                        logger.warning(
+                            "代理熔断共享状态损坏，将重新建立: %s", state_file
+                        )
+                if entry is None:
+                    payload.pop(key, None)
+                else:
+                    payload[key] = entry
+                state_file.write_text(
+                    json.dumps(payload, ensure_ascii=False, sort_keys=True),
+                    encoding="utf-8",
+                )
+        except (OSError, Timeout):
+            logger.warning("写入代理熔断共享状态失败: %s", state_file, exc_info=True)
+
+    def _mutate_shared_state(self, key: str, mutate: Any) -> Dict[str, Any]:
+        """在跨进程锁内读改写单个代理状态，避免失败计数丢失更新。"""
+        state_file = self._state_file()
+        state_file.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with FileLock(f"{state_file}.lock", timeout=2.0):
+                payload: Dict[str, Dict[str, Any]] = {}
+                if state_file.is_file():
+                    try:
+                        loaded = json.loads(state_file.read_text(encoding="utf-8"))
+                        if isinstance(loaded, dict):
+                            payload = loaded
+                    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                        logger.warning(
+                            "代理熔断共享状态损坏，将重新建立: %s", state_file
+                        )
+                entry = mutate(dict(payload.get(key) or {}))
+                payload[key] = entry
+                state_file.write_text(
+                    json.dumps(payload, ensure_ascii=False, sort_keys=True),
+                    encoding="utf-8",
+                )
+                return entry
+        except (OSError, Timeout):
+            logger.warning("更新代理熔断共享状态失败: %s", state_file, exc_info=True)
+            return self._shared_entry(key)
+
+    def _shared_entry(self, key: str) -> Dict[str, Any]:
+        return {
+            "state": self._states.get(key, CircuitState.HEALTHY).value,
+            "fail_count": self._fail_counts.get(key, 0),
+            "tripped_at": self._tripped_at.get(key, 0.0),
+        }
+
     def _proxy_key(self, proxy: Dict[str, Any]) -> str:
-        s = f"{proxy.get('scheme')}://{proxy.get('hostname')}:{proxy.get('port')}"
+        # 凭据不同的同址代理不能共享熔断状态；只持久化哈希，不泄露密码。
+        s = (
+            f"{proxy.get('scheme')}://{proxy.get('username', '')}:"
+            f"{proxy.get('password', '')}@{proxy.get('hostname')}:{proxy.get('port')}"
+        )
         return hashlib.sha256(s.encode("utf-8")).hexdigest()[:16]
 
     def get_state(self, proxy: Dict[str, Any]) -> CircuitState:
         key = self._proxy_key(proxy)
-        state = self._states.get(key, CircuitState.HEALTHY)
+        shared = self._load_shared_state().get(key)
+        if isinstance(shared, dict):
+            try:
+                state = CircuitState(str(shared.get("state", CircuitState.HEALTHY)))
+                self._states[key] = state
+                self._fail_counts[key] = int(shared.get("fail_count", 0) or 0)
+                self._tripped_at[key] = float(shared.get("tripped_at", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                state = self._states.get(key, CircuitState.HEALTHY)
+        else:
+            state = self._states.get(key, CircuitState.HEALTHY)
         if state == CircuitState.TRIPPED:
             if time.time() - self._tripped_at.get(key, 0) > self._cooldown:
                 self._states[key] = CircuitState.HALF_OPEN
+                self._update_shared_state(key, self._shared_entry(key))
                 return CircuitState.HALF_OPEN
         return state
 
     def _set_state(self, proxy: Dict[str, Any], state: CircuitState) -> None:
         key = self._proxy_key(proxy)
-        self._states[key] = state
+
+        def mutate(entry: Dict[str, Any]) -> Dict[str, Any]:
+            entry["state"] = state.value
+            entry.setdefault("fail_count", self._fail_counts.get(key, 0))
+            entry.setdefault("tripped_at", self._tripped_at.get(key, 0.0))
+            return entry
+
+        updated = self._mutate_shared_state(key, mutate)
+        self._states[key] = CircuitState(str(updated.get("state", state.value)))
+        self._fail_counts[key] = int(updated.get("fail_count", 0) or 0)
+        self._tripped_at[key] = float(updated.get("tripped_at", 0.0) or 0.0)
 
     def record_failure(self, proxy: Dict[str, Any]) -> None:
         key = self._proxy_key(proxy)
-        count = self._fail_counts.get(key, 0) + 1
-        self._fail_counts[key] = count
-        if count >= 3:
-            self._states[key] = CircuitState.TRIPPED
-            self._tripped_at[key] = time.time()
-        elif count >= 2:
-            self._states[key] = CircuitState.DEGRADED
+        now = time.time()
+
+        def mutate(entry: Dict[str, Any]) -> Dict[str, Any]:
+            count = int(entry.get("fail_count", 0) or 0) + 1
+            entry["fail_count"] = count
+            if count >= 3:
+                entry["state"] = CircuitState.TRIPPED.value
+                entry["tripped_at"] = now
+            elif count >= 2:
+                entry["state"] = CircuitState.DEGRADED.value
+            else:
+                entry["state"] = CircuitState.HEALTHY.value
+            entry.setdefault("tripped_at", 0.0)
+            return entry
+
+        updated = self._mutate_shared_state(key, mutate)
+        self._states[key] = CircuitState(str(updated["state"]))
+        self._fail_counts[key] = int(updated["fail_count"])
+        self._tripped_at[key] = float(updated.get("tripped_at", 0.0) or 0.0)
 
     def record_success(self, proxy: Dict[str, Any]) -> None:
         key = self._proxy_key(proxy)
+        updated = self._mutate_shared_state(
+            key,
+            lambda _entry: {
+                "state": CircuitState.HEALTHY.value,
+                "fail_count": 0,
+                "tripped_at": 0.0,
+            },
+        )
         self._fail_counts[key] = 0
-        self._states[key] = CircuitState.HEALTHY
+        self._states[key] = CircuitState(str(updated["state"]))
+        self._tripped_at.pop(key, None)
 
     async def _probe_telegram_dc(self, proxy: Dict[str, Any]) -> bool:
-        for host, port in TG_DCS:
+        """通过真实代理链路探测出口，而不是探测宿主机直连状态。"""
+        from backend.utils.proxy import DEFAULT_PROBE_ENDPOINTS, _fetch_ip_via_proxy
+
+        for endpoint in DEFAULT_PROBE_ENDPOINTS:
             try:
-                loop = asyncio.get_running_loop()
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(3.0)
-                await loop.sock_connect(sock, (host, port))
-                sock.close()
-                return True
+                if await _fetch_ip_via_proxy(proxy, endpoint, timeout=3.0):
+                    return True
             except Exception:
-                continue
+                logger.debug("代理探测失败 (%s): %s", endpoint, proxy, exc_info=True)
         return False
 
     async def is_available(self, proxy: Dict[str, Any]) -> bool:
@@ -122,6 +244,12 @@ class ProxyCircuitBreaker:
         self._states.clear()
         self._fail_counts.clear()
         self._tripped_at.clear()
+        state_file = self._state_file()
+        try:
+            with FileLock(f"{state_file}.lock", timeout=2.0):
+                state_file.unlink(missing_ok=True)
+        except (OSError, Timeout):
+            logger.warning("清理代理熔断共享状态失败: %s", state_file, exc_info=True)
 
 
 _CIRCUIT_BREAKER_INSTANCE: Optional[ProxyCircuitBreaker] = None

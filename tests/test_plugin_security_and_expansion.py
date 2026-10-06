@@ -527,7 +527,7 @@ def test_mget_chunking_large_keys(tmp_path):
     assert res["key_1199"] == "val_1199"
 
 
-def test_env_sanitizer_preserves_data_directories():
+def test_env_sanitizer_hides_host_data_directories():
     raw_env = {
         "PATH": "/bin",
         "APP_DATA_DIR": "/var/app_data",
@@ -538,8 +538,9 @@ def test_env_sanitizer_preserves_data_directories():
         "SECRET_TOKEN": "sensitive",
     }
     sanitized = build_sanitized_worker_env(raw_env)
-    assert sanitized.get("APP_DATA_DIR") == "/var/app_data"
-    assert sanitized.get("TG_SIGNER_DATA_DIR") == "/var/tg_data"
+    assert "APP_DATA_DIR" not in sanitized
+    assert "TG_SIGNER_DATA_DIR" not in sanitized
+    assert "PLUGIN_STORAGE_PATH" not in sanitized
     assert sanitized.get("PLUGINS_DIR") == "/var/plugins"
     assert sanitized.get("BUILTIN_PLUGINS_DIR") == "/var/builtin"
     assert sanitized.get("PLUGIN_ISOLATION_ENGINE") == "auto"

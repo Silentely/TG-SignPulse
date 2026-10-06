@@ -22,6 +22,7 @@ DEFAULT_ITERATIONS = 600_000
 MIN_ITERATIONS = 200_000
 MAX_ITERATIONS = 2_000_000
 MAX_EXTRACT_BYTES = 500 * 1024 * 1024  # 500MB 解压炸弹上限
+MAX_ENCRYPT_INPUT_BYTES = 100 * 1024 * 1024  # AES-GCM 单包加密内存上限
 
 
 class BackupDecryptionError(Exception):
@@ -92,6 +93,11 @@ def decrypt_backup(spbak_bytes: bytes, password: Optional[str] = None) -> bytes:
     version = header[5]
     if version != FORMAT_VERSION:
         raise BackupDecryptionError(f"不支持的归档格式版本: {version}")
+
+    if header[6] != KDF_PBKDF2_SHA256:
+        raise BackupDecryptionError("不支持的 KDF 算法")
+    if header[7] != CIPHER_AES_256_GCM:
+        raise BackupDecryptionError("不支持的加密算法")
 
     mode = header[8]
     iterations = struct.unpack(">I", header[9:13])[0]

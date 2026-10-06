@@ -108,8 +108,15 @@ def create_backup_tarball(
             encrypt is None and (dest.name.endswith(".spbak") or password is not None)
         )
         if should_encrypt:
-            from backend.services.backup_crypto import encrypt_backup
+            from backend.services.backup_crypto import (
+                MAX_ENCRYPT_INPUT_BYTES,
+                encrypt_backup,
+            )
 
+            if temp_dest.stat().st_size > MAX_ENCRYPT_INPUT_BYTES:
+                raise ValueError(
+                    f"加密备份原始归档超过内存安全上限 ({MAX_ENCRYPT_INPUT_BYTES} 字节)"
+                )
             raw_bytes = temp_dest.read_bytes()
             encrypted_bytes = encrypt_backup(raw_bytes, password=password)
             temp_dest.write_bytes(encrypted_bytes)
@@ -240,6 +247,7 @@ def run_auto_backup(
     paths: Optional[Iterable[str]] = None,
     webdav_settings: Optional[dict] = None,
     backup_target: str = "auto",
+    encrypt: bool = False,
 ) -> dict:
     """执行一次自动备份；远端（WebDAV）上传成功后删除本地副本以节省磁盘。
 
@@ -249,10 +257,14 @@ def run_auto_backup(
     backup_dir.mkdir(parents=True, exist_ok=True)
     # 备份文件名用 UTC，与历史记录/命中导出的时间口径一致，避免跨时区部署错位
     ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    dest = backup_dir / f"auto-{ts}.tar.gz"
+    extension = "spbak" if encrypt else "tar.gz"
+    dest = backup_dir / f"auto-{ts}.{extension}"
     path_tuple = tuple(paths) if paths is not None else DEFAULT_BACKUP_PATHS
     try:
-        create_backup_tarball(data_dir, dest, path_tuple)
+        if encrypt:
+            create_backup_tarball(data_dir, dest, path_tuple, encrypt=True)
+        else:
+            create_backup_tarball(data_dir, dest, path_tuple)
     except ValueError as exc:
         logger.warning("自动备份跳过: %s", exc)
         return {

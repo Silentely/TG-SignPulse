@@ -11,6 +11,7 @@ import shutil
 import tempfile
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -27,6 +28,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse
+from filelock import FileLock, Timeout
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
@@ -341,7 +343,9 @@ async def export_backup_archive(
     format: Optional[str] = Query(
         None, description="备份格式: spbak (默认加密) 或 tar.gz"
     ),
-    password: Optional[str] = Query(None, description="可选的用户自定义备份加密密码"),
+    password: Optional[str] = Form(
+        None, description="可选的用户自定义备份加密密码（不得放入 URL）"
+    ),
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -541,26 +545,66 @@ async def import_backup_archive(
 
     tmp_dir = Path(tempfile.mkdtemp(prefix="tg-signpulse-restore-"))
     tmp_file = tmp_dir / "upload_archive"
+    staging_dir = Path(
+        tempfile.mkdtemp(
+            prefix=f".{data_dir.name}.restore-staging-", dir=data_dir.parent
+        )
+    )
+    old_data_dir: Optional[Path] = None
+    switched = False
     try:
-        content = await file.read()
-        if not content:
+        total_bytes = 0
+        with tmp_file.open("wb") as output:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                total_bytes += len(chunk)
+                if total_bytes > MAX_EXTRACT_BYTES:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"备份文件大小超出限制 ({MAX_EXTRACT_BYTES} 字节)",
+                    )
+                output.write(chunk)
+
+        if total_bytes == 0:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="上传的文件为空",
             )
-        if len(content) > MAX_EXTRACT_BYTES:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"备份文件大小超出限制 ({MAX_EXTRACT_BYTES} 字节)",
-            )
-        tmp_file.write_bytes(content)
 
         extracted_count = await asyncio.to_thread(
             extract_backup_archive,
             tmp_file,
-            data_dir,
+            staging_dir,
             password=password,
         )
+
+        restore_lock = FileLock(str(data_dir.parent / f".{data_dir.name}.restore.lock"))
+        try:
+            restore_lock.acquire(timeout=0)
+            try:
+                old_data_dir = (
+                    data_dir.parent / f".{data_dir.name}.restore-old-{uuid.uuid4().hex}"
+                )
+                if data_dir.exists():
+                    data_dir.rename(old_data_dir)
+                try:
+                    staging_dir.rename(data_dir)
+                    switched = True
+                except Exception:
+                    if old_data_dir.exists() and not data_dir.exists():
+                        old_data_dir.rename(data_dir)
+                    raise
+                if old_data_dir.exists():
+                    shutil.rmtree(old_data_dir, ignore_errors=True)
+            finally:
+                restore_lock.release()
+        except Timeout as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="已有其他备份恢复操作正在进行，请稍后重试",
+            ) from exc
         return {
             "success": True,
             "message": "备份归档解密与导入成功",
@@ -584,6 +628,10 @@ async def import_backup_archive(
         ) from exc
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
+        if not switched:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+        if old_data_dir and old_data_dir.exists():
+            shutil.rmtree(old_data_dir, ignore_errors=True)
 
 
 class WebDavTestResponse(BaseModel):

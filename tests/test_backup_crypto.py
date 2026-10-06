@@ -75,6 +75,22 @@ def test_spbak_tampered_header_fails_aead_verification():
         decrypt_backup(bytes(encrypted), password=password)
 
 
+def test_spbak_rejects_unsupported_kdf_before_decryption():
+    encrypted = bytearray(encrypt_backup(b"payload", password="secret"))
+    encrypted[6] = 0x7F  # 未声明支持的 KDF
+
+    with pytest.raises(BackupDecryptionError, match="KDF"):
+        decrypt_backup(bytes(encrypted), password="secret")
+
+
+def test_spbak_rejects_unsupported_cipher_before_decryption():
+    encrypted = bytearray(encrypt_backup(b"payload", password="secret"))
+    encrypted[7] = 0x7F  # 未声明支持的 cipher
+
+    with pytest.raises(BackupDecryptionError, match="加密算法"):
+        decrypt_backup(bytes(encrypted), password="secret")
+
+
 def test_spbak_tampered_ciphertext_fails_aead_verification():
     raw_data = b"demo tar gz archive payload"
     password = "MySecurePassword123!"
