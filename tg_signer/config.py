@@ -438,8 +438,6 @@ def action_from_step(step: WorkflowStepConfig) -> ActionT:
         raise WorkflowConfigError(f"步骤 '{step.step_id}' 动作配置无效: {err}") from err
 
 
-
-
 class SignChatV3(BaseJSONConfig):
     version: ClassVar = 3
     chat_id: int
@@ -476,9 +474,8 @@ class SignChatV3(BaseJSONConfig):
                 raise WorkflowConfigError("配置工作流 steps 时必须提供 initial_step_id")
             step_ids = []
             for s in steps:
-                s_id = (
-                    getattr(s, "step_id", None)
-                    or (s.get("step_id") if isinstance(s, dict) else None)
+                s_id = getattr(s, "step_id", None) or (
+                    s.get("step_id") if isinstance(s, dict) else None
                 )
                 if not s_id:
                     raise WorkflowConfigError("步骤必须包含非空 step_id")

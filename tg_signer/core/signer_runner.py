@@ -508,9 +508,13 @@ class SignerRunnerMixin:
         )
 
         wf_steps = [s.to_workflow_step() for s in (chat.steps or [])]
-        wf_def = WorkflowDefinition(steps=wf_steps, initial_step_id=str(chat.initial_step_id or ""))
+        wf_def = WorkflowDefinition(
+            steps=wf_steps, initial_step_id=str(chat.initial_step_id or "")
+        )
 
-        run_id = str(getattr(self.context, "run_id", "") or int(asyncio.get_event_loop().time()))
+        run_id = str(
+            getattr(self.context, "run_id", "") or int(asyncio.get_event_loop().time())
+        )
         account_name = str(getattr(self, "_account", "") or "")
         task_name = str(getattr(self, "_task_name", "") or "")
         wf_ctx = WorkflowContext(
@@ -579,9 +583,7 @@ class SignerRunnerMixin:
                 },
                 "step": getattr(self.context, "step_outputs", {}),
                 "prev_output": getattr(self.context, "last_output", "") or "",
-                "prev": {
-                    "output": getattr(self.context, "last_output", "") or ""
-                },
+                "prev": {"output": getattr(self.context, "last_output", "") or ""},
                 "last_message": getattr(self.context, "last_received_text", "") or "",
             }
 
@@ -613,20 +615,22 @@ class SignerRunnerMixin:
             )
             action_delay = self._resolve_action_delay(
                 exec_action,
-                float(chat.action_interval or 0) if ctx.total_steps_executed > 1 else 0.0,
+                float(chat.action_interval or 0)
+                if ctx.total_steps_executed > 1
+                else 0.0,
             )
             try:
                 if action_delay > 0:
                     self.log(
                         f"步骤 {step.step_id} 将在 {action_delay:g} 秒后执行：{action_description}"
                     )
-                self.log(
-                    f"正在执行步骤 {step.step_id}：{action_description}"
-                )
+                self.log(f"正在执行步骤 {step.step_id}：{action_description}")
                 if action_delay > 0:
                     await asyncio.sleep(action_delay)
 
-                next_step_cfg = step_cfg_map.get(step.next_step_id) if step.next_step_id else None
+                next_step_cfg = (
+                    step_cfg_map.get(step.next_step_id) if step.next_step_id else None
+                )
                 next_action = action_from_step(next_step_cfg) if next_step_cfg else None
 
                 # 单步骤瞬时错误重试保持既有动作语义；任务级 retry_count 在外层重跑整个工作流。
@@ -726,7 +730,9 @@ class SignerRunnerMixin:
             self.context.workflow_steps = wf_ctx.total_steps_executed
 
         if res.get("status") != "success":
-            failed_step = wf_ctx.execution_path[-1] if wf_ctx.execution_path else "unknown"
+            failed_step = (
+                wf_ctx.execution_path[-1] if wf_ctx.execution_path else "unknown"
+            )
             raise RuntimeError(f"工作流执行失败，终止于步骤: {failed_step}")
         return
 

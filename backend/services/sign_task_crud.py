@@ -62,7 +62,9 @@ def _validate_chats_workflow(chats: Optional[List[Dict[str, Any]]]) -> None:
                 f"chats[{idx}] actions 与 steps 互斥，必须且只能配置其中之一"
             )
         if actions is not None and steps is not None:
-            raise WorkflowConfigError(f"chats[{idx}] actions 与 steps 互斥，不能同时配置")
+            raise WorkflowConfigError(
+                f"chats[{idx}] actions 与 steps 互斥，不能同时配置"
+            )
         if steps is None:
             continue
         try:

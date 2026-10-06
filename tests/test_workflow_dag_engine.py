@@ -171,7 +171,11 @@ async def test_runtime_non_loop_visited_twice_raises():
         while ctx.current_step_id and ctx.current_step_id not in {"COMPLETE", "FAIL"}:
             step = step_map[ctx.current_step_id]
             current_count = step_counts.get(ctx.current_step_id, 0)
-            limit = (step.max_retries + 1) if (step.allow_loop and step.max_retries is not None) else 1
+            limit = (
+                (step.max_retries + 1)
+                if (step.allow_loop and step.max_retries is not None)
+                else 1
+            )
             if current_count >= limit:
                 raise WorkflowLoopExceededError(
                     f"步骤 {step.step_id} 执行次数 ({current_count + 1}) 超过允许上限 {limit}"
@@ -210,6 +214,7 @@ async def test_runtime_step_executor_branching():
 
     # Case 1: step1 fails -> goes to step_failure -> FAIL
     ctx1 = WorkflowContext(run_id="run_1", account_name="user", task_name="task")
+
     async def failing_executor(step: WorkflowStep, ctx: WorkflowContext) -> bool:
         if step.step_id == "step1":
             return False
@@ -221,6 +226,7 @@ async def test_runtime_step_executor_branching():
 
     # Case 2: step1 succeeds -> goes to step_success -> COMPLETE
     ctx2 = WorkflowContext(run_id="run_2", account_name="user", task_name="task")
+
     async def passing_executor(step: WorkflowStep, ctx: WorkflowContext) -> bool:
         return True
 

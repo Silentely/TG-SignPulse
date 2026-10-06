@@ -239,7 +239,9 @@ class TestWorkflowConfigModels:
         assert "initial_step_id" not in dump_actions
 
         # Steps chat
-        step = WorkflowStepConfig(step_id="s1", action_type=SupportAction.SEND_TEXT, config={"text": "hi"})
+        step = WorkflowStepConfig(
+            step_id="s1", action_type=SupportAction.SEND_TEXT, config={"text": "hi"}
+        )
         chat_steps = SignChatV3(chat_id=123, steps=[step], initial_step_id="s1")
         dump_steps = chat_steps.to_jsonable()
         assert "steps" in dump_steps
@@ -249,7 +251,9 @@ class TestWorkflowConfigModels:
     def test_sign_chat_v3_str_formatting(self):
         from tg_signer.config import WorkflowStepConfig
 
-        step = WorkflowStepConfig(step_id="s1", action_type=SupportAction.SEND_TEXT, config={"text": "hi"})
+        step = WorkflowStepConfig(
+            step_id="s1", action_type=SupportAction.SEND_TEXT, config={"text": "hi"}
+        )
         chat_steps = SignChatV3(chat_id=123, steps=[step], initial_step_id="s1")
         s = str(chat_steps)
         assert "Workflow Steps Flow:" in s

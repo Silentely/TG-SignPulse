@@ -89,7 +89,9 @@ def test_api_create_and_get_workflow_task(client: TestClient, db_session):
     assert chat["steps"][1]["step_id"] == "step_end"
 
 
-def test_api_create_workflow_task_rejects_cycle_topology(client: TestClient, db_session):
+def test_api_create_workflow_task_rejects_cycle_topology(
+    client: TestClient, db_session
+):
     headers = _get_auth_header(db_session)
     _create_account(db_session, account_name="acc_wf_bad")
 
@@ -128,10 +130,16 @@ def test_api_create_workflow_task_rejects_cycle_topology(client: TestClient, db_
         headers=headers,
     )
     assert create_resp.status_code == 400, create_resp.text
-    assert "环路" in create_resp.text or "loop" in create_resp.text.lower() or "topology" in create_resp.text.lower()
+    assert (
+        "环路" in create_resp.text
+        or "loop" in create_resp.text.lower()
+        or "topology" in create_resp.text.lower()
+    )
 
 
-def test_api_create_workflow_task_rejects_both_actions_and_steps(client: TestClient, db_session):
+def test_api_create_workflow_task_rejects_both_actions_and_steps(
+    client: TestClient, db_session
+):
     headers = _get_auth_header(db_session)
     _create_account(db_session, account_name="acc_wf_bad2")
 
@@ -167,7 +175,9 @@ def test_api_create_workflow_task_rejects_both_actions_and_steps(client: TestCli
     assert "互斥" in create_resp.text
 
 
-def test_api_create_workflow_task_rejects_missing_initial_step(client: TestClient, db_session):
+def test_api_create_workflow_task_rejects_missing_initial_step(
+    client: TestClient, db_session
+):
     headers = _get_auth_header(db_session)
     _create_account(db_session, account_name="acc_wf_bad3")
 
@@ -203,6 +213,7 @@ def test_api_create_workflow_task_rejects_missing_initial_step(client: TestClien
 
 def test_sse_endpoint_serializes_workflow_path():
     from backend.api.routes.events import _sign_log_sse_bytes
+
     record = {
         "time": "2026-10-06T12:00:00Z",
         "success": True,
@@ -215,7 +226,7 @@ def test_sse_endpoint_serializes_workflow_path():
     payload = None
     for line in text.strip().splitlines():
         if line.startswith("data: "):
-            payload = json.loads(line[len("data: "):])
+            payload = json.loads(line[len("data: ") :])
             break
     assert payload is not None
     assert payload["workflow_path"] == ["step1", "step2"]
@@ -232,17 +243,21 @@ def test_api_get_task_history_includes_workflow_path(client: TestClient, db_sess
         account_name="acc_wf_hist",
         account_names=["acc_wf_hist"],
         sign_at="08:00",
-        chats=[{
-            "chat_id": 123456,
-            "name": "test_chat",
-            "initial_step_id": "step_start",
-            "steps": [{
-                "step_id": "step_start",
-                "action_type": 1,
-                "config": {"text": "hello"},
-                "next_step_id": "COMPLETE",
-            }]
-        }],
+        chats=[
+            {
+                "chat_id": 123456,
+                "name": "test_chat",
+                "initial_step_id": "step_start",
+                "steps": [
+                    {
+                        "step_id": "step_start",
+                        "action_type": 1,
+                        "config": {"text": "hello"},
+                        "next_step_id": "COMPLETE",
+                    }
+                ],
+            }
+        ],
     )
 
     svc._save_run_info(

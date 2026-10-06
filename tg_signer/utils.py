@@ -422,13 +422,17 @@ def format_sign_chat_box(chat) -> str:
         f"║ {pad_text_to_width(f'Delete After: {delete_value}', content_width - 2)} ║"
     )
     if getattr(chat, "steps", None) is not None:
-        actions_header = f"║ {pad_text_to_width('Workflow Steps Flow:', content_width - 2)} ║"
+        actions_header = (
+            f"║ {pad_text_to_width('Workflow Steps Flow:', content_width - 2)} ║"
+        )
         actions_lines = []
         for i, step in enumerate(chat.steps, 1):
             act_type = getattr(step.action_type, "desc", str(step.action_type))
             next_id = step.next_step_id or "COMPLETE"
             action_text = f"{i}. [{step.step_id}] {act_type} -> {next_id}"
-            actions_lines.append(f"║ {pad_text_to_width(action_text, content_width - 2)} ║")
+            actions_lines.append(
+                f"║ {pad_text_to_width(action_text, content_width - 2)} ║"
+            )
     else:
         actions_header = f"║ {pad_text_to_width('Actions Flow:', content_width - 2)} ║"
         actions_lines = []
@@ -451,7 +455,9 @@ def format_sign_chat_box(chat) -> str:
                 action_text = f"{i}. [{action_type}] {details}"
             else:
                 action_text = f"{i}. [{action_type}]"
-            actions_lines.append(f"║ {pad_text_to_width(action_text, content_width - 2)} ║")
+            actions_lines.append(
+                f"║ {pad_text_to_width(action_text, content_width - 2)} ║"
+            )
 
     result = [
         top_border,

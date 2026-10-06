@@ -738,7 +738,10 @@ async def _runner_handle_error(
     if is_timeout_error_message(str(e)) or state.get("timed_out"):
         _set_ctx(state, "timed_out", True)
 
-    if isinstance(e, WorkflowLoopExceededError) or "WorkflowLoopExceededError" in type(e).__name__:
+    if (
+        isinstance(e, WorkflowLoopExceededError)
+        or "WorkflowLoopExceededError" in type(e).__name__
+    ):
         _set_ctx(state, "failure_category", FailureCategory.TASK_LOOP_EXCEEDED.value)
     if state.get("account_invalid_detected") or svc._is_invalid_session_error(e):
         _set_ctx(state, "account_invalid_detected", True)
@@ -1103,11 +1106,14 @@ async def execute_sign_task(
 
     # 失败分类（优先用原始异常摘要，error_msg 已做用户友好映射，关键词命中率低）
     if not ctx.success:
-        failure_category = ctx.failure_category or classify_failure(
-            error=ctx.error_raw or ctx.error_msg,
-            output=ctx.output_str,
-            success=False,
-        ).value
+        failure_category = (
+            ctx.failure_category
+            or classify_failure(
+                error=ctx.error_raw or ctx.error_msg,
+                output=ctx.output_str,
+                success=False,
+            ).value
+        )
         if ctx.timed_out:
             failure_category = FailureCategory.TIMEOUT.value
         _set_ctx(ctx, "failure_category", failure_category)

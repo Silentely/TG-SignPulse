@@ -23,7 +23,9 @@ def test_workflow_loop_exceeded_classification():
         success=False,
     )
     assert cat == FailureCategory.TASK_LOOP_EXCEEDED
-    assert failure_category_label(FailureCategory.TASK_LOOP_EXCEEDED) == "工作流循环熔断"
+    assert (
+        failure_category_label(FailureCategory.TASK_LOOP_EXCEEDED) == "工作流循环熔断"
+    )
 
 
 @pytest.mark.asyncio
@@ -46,8 +48,13 @@ async def test_runner_workflow_loop_exceeded_sets_category_and_no_chain(monkeypa
         }
     )
 
-    with patch("backend.services.sign_task_backend.BackendUserSigner", FailingSigner),          patch("backend.services.sign_task_runner._runner_check_account"),          patch("backend.services.sign_task_runner._runner_trigger_chained_task") as mock_chain:
-
+    with (
+        patch("backend.services.sign_task_backend.BackendUserSigner", FailingSigner),
+        patch("backend.services.sign_task_runner._runner_check_account"),
+        patch(
+            "backend.services.sign_task_runner._runner_trigger_chained_task"
+        ) as mock_chain,
+    ):
         res = await execute_sign_task(
             fake_svc,
             "acc1",
@@ -87,7 +94,15 @@ async def test_runner_workflow_path_passed_to_save_run_info(monkeypatch):
             return True
 
     class FakeWfSvc(FakeSvc):
-        def _save_run_info(self, task_name, success, msg, account_name, flow_logs=None, workflow_path=None):
+        def _save_run_info(
+            self,
+            task_name,
+            success,
+            msg,
+            account_name,
+            flow_logs=None,
+            workflow_path=None,
+        ):
             self.saved.append(
                 {
                     "task": task_name,
@@ -105,8 +120,10 @@ async def test_runner_workflow_path_passed_to_save_run_info(monkeypatch):
         }
     )
 
-    with patch("backend.services.sign_task_backend.BackendUserSigner", SuccessSigner),          patch("backend.services.sign_task_runner._runner_check_account"):
-
+    with (
+        patch("backend.services.sign_task_backend.BackendUserSigner", SuccessSigner),
+        patch("backend.services.sign_task_runner._runner_check_account"),
+    ):
         res = await execute_sign_task(
             fake_svc,
             "acc1",

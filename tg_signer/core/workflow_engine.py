@@ -56,7 +56,10 @@ class WorkflowEngine:
                     raise WorkflowTopologyError(
                         f"步骤 {s.step_id} 指向的后续步骤 {s.next_step_id} 不存在"
                     )
-            if s.on_failure_step_id and s.on_failure_step_id not in {"COMPLETE", "FAIL"}:
+            if s.on_failure_step_id and s.on_failure_step_id not in {
+                "COMPLETE",
+                "FAIL",
+            }:
                 if s.on_failure_step_id not in step_map:
                     raise WorkflowTopologyError(
                         f"步骤 {s.step_id} 指向的失败后步骤 {s.on_failure_step_id} 不存在"
@@ -78,7 +81,12 @@ class WorkflowEngine:
                 # 检查环路上的每一个步骤
                 for sid in cycle_steps:
                     st = step_map.get(sid)
-                    if not st or not st.allow_loop or st.max_retries is None or st.max_retries < 0:
+                    if (
+                        not st
+                        or not st.allow_loop
+                        or st.max_retries is None
+                        or st.max_retries < 0
+                    ):
                         raise WorkflowTopologyError(
                             f"检测到未允许的环路: {' -> '.join(cycle_steps)} -> {step_id}"
                         )
@@ -113,7 +121,9 @@ class WorkflowEngine:
         self,
         wf: WorkflowDefinition,
         ctx: WorkflowContext,
-        step_executor: Optional[Callable[[WorkflowStep, WorkflowContext], Awaitable[bool]]] = None,
+        step_executor: Optional[
+            Callable[[WorkflowStep, WorkflowContext], Awaitable[bool]]
+        ] = None,
     ) -> Dict[str, Any]:
         self.validate_topology(wf)
         step_map = {s.step_id: s for s in wf.steps}

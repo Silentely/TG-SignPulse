@@ -118,9 +118,7 @@ def test_requires_updates_action_2_returns_false():
 
 
 def test_requires_updates_workflow_step_response_action_returns_true():
-    config = {
-        "chats": [{"steps": [{"action_type": 3, "config": {"text": "按钮"}}]}]
-    }
+    config = {"chats": [{"steps": [{"action_type": 3, "config": {"text": "按钮"}}]}]}
     assert task_requires_updates(config) is True
 
 

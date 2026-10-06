@@ -149,7 +149,13 @@ def test_migration_supports_workflow_steps_configuration():
             loaded_cfg = json.loads(record.config_json)
             assert "steps" in loaded_cfg["chats"][0]
             assert loaded_cfg["chats"][0]["initial_step_id"] == "s1"
-            validate_func = getattr(SignChatV3, "model_validate", getattr(SignChatV3, "parse_obj", None))
-            chat_obj = validate_func(loaded_cfg["chats"][0]) if validate_func else SignChatV3(**loaded_cfg["chats"][0])
+            validate_func = getattr(
+                SignChatV3, "model_validate", getattr(SignChatV3, "parse_obj", None)
+            )
+            chat_obj = (
+                validate_func(loaded_cfg["chats"][0])
+                if validate_func
+                else SignChatV3(**loaded_cfg["chats"][0])
+            )
             assert len(chat_obj.steps) == 1
             assert chat_obj.steps[0].step_id == "s1"
