@@ -989,11 +989,35 @@ class AIConfigMixin:
                 api_key = None
                 decrypt_failed = True
 
+        fallback_raw = raw.get("fallback_providers")
+        fallback_providers: list[dict] = []
+        if isinstance(fallback_raw, list):
+            from tg_signer.security import decrypt_secret as _decrypt_secret
+
+            for entry in fallback_raw:
+                if not isinstance(entry, dict):
+                    continue
+                entry = dict(entry)
+                enc_key = entry.get("api_key")
+                if enc_key:
+                    try:
+                        entry["api_key"] = _decrypt_secret(enc_key) or ""
+                    except Exception as exc:
+                        # 单个备用密钥损坏不应拖垮整份配置
+                        _logger.warning(
+                            "备用 AI 节点密钥解密失败，跳过该节点 (%s): %s",
+                            entry.get("base_url"),
+                            exc,
+                        )
+                        continue
+                fallback_providers.append(entry)
+
         return {
             "api_key": api_key,
             "base_url": raw.get("base_url"),
             "model": raw.get("model"),
             "api_key_decrypt_failed": decrypt_failed,
+            "fallback_providers": fallback_providers,
         }
 
     def save_ai_config(
@@ -1001,11 +1025,18 @@ class AIConfigMixin:
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         model: Optional[str] = None,
+        fallback_providers: Optional[list[dict]] = None,
     ) -> bool:
         if base_url:
             from tg_signer.utils import validate_public_http_url
 
             validate_public_http_url(str(base_url).strip())
+        for entry in fallback_providers or []:
+            entry_base = entry.get("base_url") if isinstance(entry, dict) else None
+            if entry_base:
+                from tg_signer.utils import validate_public_http_url
+
+                validate_public_http_url(str(entry_base).strip())
         """
         保存 AI 配置，API Key 使用 Fernet 加密存储
 
@@ -1043,6 +1074,10 @@ class AIConfigMixin:
             # 密文保持不动，仅写元数据字段
             existing_raw["base_url"] = base_url if base_url else None
             existing_raw["model"] = model if model else None
+            if fallback_providers is not None:
+                existing_raw["fallback_providers"] = self._encode_encrypted_fallbacks(
+                    fallback_providers, existing_raw.get("fallback_providers")
+                )
             return self._write_json_file(config_file, existing_raw)
 
         # 使用 Fernet 加密，但存储为 api_key 字段以兼容 OpenAIConfigManager
@@ -1056,8 +1091,54 @@ class AIConfigMixin:
 
         existing_raw["base_url"] = base_url if base_url else None
         existing_raw["model"] = model if model else None
+        if fallback_providers is not None:
+            existing_raw["fallback_providers"] = self._encode_encrypted_fallbacks(
+                fallback_providers, existing_raw.get("fallback_providers")
+            )
 
         return self._write_json_file(config_file, existing_raw)
+
+    @staticmethod
+    def _encode_encrypted_fallbacks(
+        fallback_providers: Optional[list[dict]],
+        existing_raw: Optional[list[dict]] = None,
+    ) -> Optional[list[dict]]:
+        """把备用节点明文密钥加密为 Fernet 密文；空列表表示清空。
+
+        api_key 留空时按 (base_url, model) 复用磁盘上已有的密文，
+        以支持前端"留空表示不修改该节点密钥"的编辑体验。
+        """
+        if not fallback_providers:
+            return None
+        from tg_signer.security import encrypt_secret
+
+        reused: dict[tuple, str] = {}
+        for old in existing_raw or []:
+            if not isinstance(old, dict):
+                continue
+            key = (old.get("base_url"), old.get("model"))
+            if old.get("api_key"):
+                reused[key] = old["api_key"]
+
+        encoded: list[dict] = []
+        for entry in fallback_providers:
+            if not isinstance(entry, dict):
+                continue
+            api_key = str(entry.get("api_key") or "").strip()
+            if api_key:
+                ciphertext = encrypt_secret(api_key)
+            else:
+                ciphertext = reused.get((entry.get("base_url"), entry.get("model")))
+            if not ciphertext:
+                continue
+            encoded.append(
+                {
+                    "base_url": entry.get("base_url"),
+                    "model": entry.get("model"),
+                    "api_key": ciphertext,
+                }
+            )
+        return encoded
 
     def delete_ai_config(self) -> bool:
         """

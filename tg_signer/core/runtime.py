@@ -128,7 +128,7 @@ class BaseUserWorker(Generic[ConfigT]):
         self.user: Optional[User] = None
         self._config = None
         self._ai_tools: Optional[AITools] = None
-        self._ai_cfg_signature: Optional[tuple[str, str, str]] = None
+        self._ai_cfg_signature: Optional[tuple[str, str, str, str]] = None
         self.context = self.ensure_ctx()
 
     def ensure_ctx(self):

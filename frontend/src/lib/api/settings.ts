@@ -51,6 +51,12 @@ export const changeUsername = (token: string, newUsername: string, password: str
 
 // ─── AI 配置 ───
 
+export interface AIFallbackProvider {
+  base_url?: string | null;
+  model?: string | null;
+  api_key_masked?: string | null;
+}
+
 export interface AIConfig {
   has_config: boolean;
   base_url?: string;
@@ -58,6 +64,8 @@ export interface AIConfig {
   api_key_masked?: string;
   /** 磁盘有配置但 APP_SECRET_KEY 不匹配，需重填 Key */
   api_key_decrypt_failed?: boolean;
+  /** 备用 AI 节点（仅含 URL/模型与掩码后的密钥） */
+  fallback_providers?: AIFallbackProvider[];
 }
 
 export interface AITestResult {
@@ -71,7 +79,16 @@ export const getAIConfig = (token: string) =>
 
 export const saveAIConfig = (
   token: string,
-  config: { api_key?: string; base_url?: string; model?: string }
+  config: {
+    api_key?: string;
+    base_url?: string;
+    model?: string;
+    fallback_providers?: Array<{
+      base_url?: string | null;
+      model?: string | null;
+      api_key?: string;
+    }>;
+  }
 ) =>
   request<{ success: boolean; message: string }>("/config/ai", {
     method: "POST",

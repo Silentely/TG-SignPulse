@@ -98,3 +98,21 @@ def test_wildcard_tombstone_prevents_expansion_after_restart(monkeypatch):
     acc2_dir = svc2.signs_dir / "acc2" / "wild_job" / "config.json"
     assert not acc2_dir.exists()
     assert svc2.is_wildcard_removed("acc2", "wild_job") is True
+
+
+def test_wildcard_tombstone_falls_back_to_memory_on_db_failure(monkeypatch):
+    """数据库不可用时不得失败开放返回空集，必须回退到进程内镜像，避免已删副本复活。"""
+    import backend.services.sign_tasks as st_module
+
+    service = SignTaskService()
+    service.record_wildcard_removed("acc_fb", "task_fb")
+    assert service._wildcard_removed_cache.get(("acc_fb", "task_fb")) is True
+
+    def _boom():
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(st_module, "get_session_local", _boom)
+
+    removed = service._wildcard_removed
+    assert removed.get(("acc_fb", "task_fb")) is True
+    assert service.is_wildcard_removed("acc_fb", "task_fb") is True

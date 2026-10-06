@@ -50,6 +50,13 @@ export type AiFormState = {
   base_url: string
   model: string
   api_key: string
+  /** 备用 AI 节点（故障转移）：api_key 留空表示沿用已保存密钥 */
+  fallback_providers: Array<{
+    base_url: string
+    model: string
+    api_key: string
+    api_key_masked?: string | null
+  }>
 }
 
 export function emptyToNull(v: string | number | '' | null | undefined): number | null {
@@ -212,6 +219,11 @@ export function snapSection(
         base_url: ai.base_url,
         model: ai.model,
         api_key: ai.api_key ? '***set***' : '',
+        fallback_providers: (ai.fallback_providers || []).map((p) => ({
+          base_url: p.base_url,
+          model: p.model,
+          api_key: p.api_key ? '***set***' : (p.api_key_masked || ''),
+        })),
         execTimeout: s.execTimeout,
         accountCooldown: s.accountCooldown,
         flowRetry: s.flowRetry,

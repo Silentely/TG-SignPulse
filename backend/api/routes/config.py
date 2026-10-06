@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import (
     APIRouter,
@@ -287,6 +287,8 @@ class AIConfigRequest(BaseModel):
     api_key: Optional[str] = None
     base_url: Optional[str] = None
     model: Optional[str] = None
+    # 备用 AI 节点列表（故障转移）：每项含 base_url/api_key/model
+    fallback_providers: Optional[list[dict[str, Any]]] = None
 
 
 class AIConfigResponse(BaseModel):
@@ -296,6 +298,8 @@ class AIConfigResponse(BaseModel):
     api_key_masked: Optional[str] = None
     # 磁盘有配置但 APP_SECRET_KEY 不匹配时为 True，前端提示需重填 Key
     api_key_decrypt_failed: bool = False
+    # 备用节点仅回传 URL 与模型，绝不回传明文密钥
+    fallback_providers: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class AIConfigSaveResponse(BaseModel):
@@ -327,12 +331,29 @@ def get_ai_config(current_user: User = Depends(get_current_user)):
         else:
             masked = None
 
+        # 备用节点只暴露 base_url/model（及是否已配置密钥），不回传明文
+        fallback_out: list[dict[str, Any]] = []
+        for entry in config.get("fallback_providers") or []:
+            fk = str(entry.get("api_key") or "").strip()
+            fallback_out.append(
+                {
+                    "base_url": entry.get("base_url"),
+                    "model": entry.get("model"),
+                    "api_key_masked": (
+                        fk[:4] + "*" * max(len(fk) - 8, 0) + fk[-4:]
+                        if len(fk) > 4
+                        else ("****" if fk else None)
+                    ),
+                }
+            )
+
         return AIConfigResponse(
             has_config=True,
             base_url=config.get("base_url"),
             model=config.get("model"),
             api_key_masked=masked,
             api_key_decrypt_failed=decrypt_failed,
+            fallback_providers=fallback_out,
         )
     except Exception as e:
         logger.error("读取 AI 配置失败: %s", e, exc_info=True)
@@ -351,6 +372,7 @@ def save_ai_config(
             api_key=request.api_key,
             base_url=request.base_url,
             model=request.model,
+            fallback_providers=request.fallback_providers,
         ):
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

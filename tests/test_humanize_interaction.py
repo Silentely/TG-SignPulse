@@ -56,6 +56,25 @@ async def test_simulate_typing_action_cancels_on_exit():
 
 
 @pytest.mark.asyncio
+async def test_simulate_typing_action_yields_actual_presend_delay():
+    """as 拿到的值必须是实际等待的秒数（不超过 max_presend_delay），而非未被限制的理论时长。"""
+    mock_client = MagicMock()
+    mock_client.send_chat_action = AsyncMock()
+
+    long_text = "这是一段非常长用于测试打字时长的中文文本内容测试打字时长的中文文本内容测试打字时长的中文文本内容"
+    async with simulate_typing_action(
+        mock_client, chat_id=1, text=long_text, max_presend_delay=1.0
+    ) as waited:
+        # 长文本理论延迟会被 clamp 到 ~8s，但进入前等待被限制到 1.0s
+        assert 0.0 <= waited <= 1.0
+
+    async with simulate_typing_action(
+        mock_client, chat_id=1, text=long_text, max_presend_delay=0.0
+    ) as waited:
+        assert waited == 0.0
+
+
+@pytest.mark.asyncio
 async def test_simulate_typing_action_graceful_degradation():
     # client is None
     async with simulate_typing_action(None, chat_id=12345, text="test"):

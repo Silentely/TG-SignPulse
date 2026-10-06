@@ -44,6 +44,10 @@ def encrypt_backup(
     password: Optional[str] = None,
     iterations: int = DEFAULT_ITERATIONS,
 ) -> bytes:
+    if len(data) > MAX_ENCRYPT_INPUT_BYTES:
+        raise ValueError(
+            f"待加密数据超过单包内存安全上限 ({MAX_ENCRYPT_INPUT_BYTES} 字节)"
+        )
     if not (MIN_ITERATIONS <= iterations <= MAX_ITERATIONS):
         raise ValueError(
             f"iterations 必须在 {MIN_ITERATIONS} 到 {MAX_ITERATIONS} 之间，当前为 {iterations}"
@@ -70,9 +74,9 @@ def encrypt_backup(
         + salt
         + nonce
     )
-    assert len(canonical_header) == HEADER_LENGTH, (
-        f"头部长度必须为 41 字节，当前为 {len(canonical_header)}"
-    )
+    if len(canonical_header) != HEADER_LENGTH:
+        # 头部长度是格式契约，用显式校验而非 assert（-O 下 assert 会被剥离）
+        raise ValueError(f"头部长度必须为 41 字节，当前为 {len(canonical_header)}")
 
     aesgcm = AESGCM(key)
     ciphertext = aesgcm.encrypt(nonce, data, canonical_header)

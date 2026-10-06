@@ -238,7 +238,7 @@ describe('settings-form', () => {
   it('section dirty is independent', () => {
     const s = baseSettings()
     const tg: TgFormState = { api_id: '', api_hash: '' }
-    const ai: AiFormState = { base_url: '', model: '', api_key: '' }
+    const ai: AiFormState = { base_url: '', model: '', api_key: '', fallback_providers: [] }
     const baseline = snapAllSections(s, tg, ai)
 
     const s2 = { ...s, botEnabled: true }
@@ -261,7 +261,7 @@ describe('settings-form', () => {
   it('ai runtime fields dirty ai section; backup fields dirty advanced', () => {
     const s = baseSettings()
     const tg: TgFormState = { api_id: '', api_hash: '' }
-    const ai: AiFormState = { base_url: '', model: '', api_key: '' }
+    const ai: AiFormState = { base_url: '', model: '', api_key: '', fallback_providers: [] }
     const baseline = snapAllSections(s, tg, ai)
 
     const sRuntime = { ...s, execTimeout: 90 }
@@ -279,7 +279,7 @@ describe('settings-form', () => {
     const s = baseSettings()
     s.botToken = '123:ABC'
     const tg: TgFormState = { api_id: '1', api_hash: 'h' }
-    const ai: AiFormState = { base_url: 'u', model: 'm', api_key: 'sk' }
+    const ai: AiFormState = { base_url: 'u', model: 'm', api_key: 'sk', fallback_providers: [] }
     const snap = snapAllSections(s, tg, ai)
     expect(snap.bot).toContain('***set***')
     expect(snap.bot).not.toContain('123:ABC')

@@ -79,7 +79,7 @@ class KeywordMonitorService:
         self._task_status: dict[tuple[str, str], dict[str, Any]] = {}
         self._skip_log_times: dict[tuple[str, str, str], float] = {}
         self._ai_tools: Optional[Any] = None
-        self._ai_cfg_signature: Optional[tuple[str, str, str]] = None
+        self._ai_cfg_signature: Optional[tuple[str, str, str, str]] = None
         self._bot_cmd_last_sent: dict[str, float] = {}
         self._seen: dict[str, int] = {}
         self._seen_baseline: dict[str, int] = {}

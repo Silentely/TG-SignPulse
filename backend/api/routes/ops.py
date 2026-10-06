@@ -579,6 +579,11 @@ async def import_backup_archive(
             staging_dir,
             password=password,
         )
+        if extracted_count == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="备份归档未包含任何可恢复的文件，已取消导入以避免清空现有数据",
+            )
 
         restore_lock = FileLock(str(data_dir.parent / f".{data_dir.name}.restore.lock"))
         try:
@@ -621,10 +626,11 @@ async def import_backup_archive(
             detail=str(exc),
         ) from exc
     except Exception as exc:
+        # 记录完整异常供排查，但不把内部细节回传给客户端
         logger.exception("导入备份归档失败")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"导入备份失败: {exc}",
+            detail="备份归档导入失败，请查看服务端日志",
         ) from exc
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -698,7 +704,7 @@ def list_webdav_backup_files(current_user: User = Depends(get_current_user)):
             username=str(cfg.get("webdav_username") or ""),
             password=str(cfg.get("webdav_password") or ""),
             remote_dir=str(cfg.get("webdav_remote_dir") or "tg-signpulse-backups"),
-            name_suffix=None,
+            name_suffixes=(".tar.gz", ".spbak"),
             limit=20,
             proxy=wd_proxy,
         )

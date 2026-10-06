@@ -477,3 +477,88 @@ class TestAiConfigSsrfDefense:
         assert result["success"] is False
         assert "不安全" in result["message"]
         assert not called
+
+
+class TestAiFallbackProviders:
+    """备用 AI 节点的加密存储、解密读取与密钥复用"""
+
+    def test_fallback_keys_encrypted_at_rest_and_decrypted_on_read(
+        self, isolated_env: Path
+    ):
+        service = ConfigService()
+        service.save_ai_config(
+            api_key="sk-primary",
+            base_url="https://custom.api.com/v1",
+            model="m1",
+            fallback_providers=[
+                {
+                    "api_key": "sk-fallback",
+                    "base_url": "https://fb.example.com/v1",
+                    "model": "m2",
+                }
+            ],
+        )
+
+        raw = json.loads(service._get_ai_config_file().read_text(encoding="utf-8"))
+        stored = raw["fallback_providers"]
+        assert len(stored) == 1
+        # 磁盘上必须是密文
+        assert stored[0]["api_key"] != "sk-fallback"
+        assert stored[0]["base_url"] == "https://fb.example.com/v1"
+
+        cfg = service.get_ai_config()
+        assert cfg is not None
+        assert cfg["fallback_providers"][0]["api_key"] == "sk-fallback"
+        assert cfg["fallback_providers"][0]["model"] == "m2"
+
+    def test_empty_fallback_key_reuses_existing_ciphertext(self, isolated_env: Path):
+        service = ConfigService()
+        service.save_ai_config(
+            api_key="sk-primary",
+            base_url="https://custom.api.com/v1",
+            model="m1",
+            fallback_providers=[
+                {
+                    "api_key": "sk-fallback",
+                    "base_url": "https://fb.example.com/v1",
+                    "model": "m2",
+                }
+            ],
+        )
+
+        # 前端编辑时密钥留空：应沿用磁盘密文，而不是丢弃该节点
+        service.save_ai_config(
+            api_key="sk-primary",
+            base_url="https://custom.api.com/v1",
+            model="m1",
+            fallback_providers=[
+                {"api_key": "", "base_url": "https://fb.example.com/v1", "model": "m2"}
+            ],
+        )
+        cfg = service.get_ai_config()
+        assert cfg is not None
+        assert cfg["fallback_providers"][0]["api_key"] == "sk-fallback"
+
+    def test_empty_fallback_list_clears_providers(self, isolated_env: Path):
+        service = ConfigService()
+        service.save_ai_config(
+            api_key="sk-primary",
+            base_url="https://custom.api.com/v1",
+            model="m1",
+            fallback_providers=[
+                {
+                    "api_key": "sk-fallback",
+                    "base_url": "https://fb.example.com/v1",
+                    "model": "m2",
+                }
+            ],
+        )
+        service.save_ai_config(
+            api_key="sk-primary",
+            base_url="https://custom.api.com/v1",
+            model="m1",
+            fallback_providers=[],
+        )
+        cfg = service.get_ai_config()
+        assert cfg is not None
+        assert not cfg["fallback_providers"]

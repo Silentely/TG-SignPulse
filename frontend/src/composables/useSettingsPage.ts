@@ -114,10 +114,13 @@ export function useSettingsPage() {
   const aiConfig = ref<AiFormState>({
     base_url: '',
     model: '',
-    api_key: ''
+    api_key: '',
+    fallback_providers: []
   })
   /** 服务端 AI Key 解密失败标记（APP_SECRET_KEY 不匹配） */
   const aiKeyDecryptFailed = ref(false)
+  /** 服务端 AI 配置是否已成功加载（决定保存时是否提交备用节点，避免误清空） */
+  const aiConfigLoaded = ref(false)
 
   const runtimeStatus = ref<RuntimeStatus | null>(null)
   const memoryStats = ref<MemoryStatsResponse | null>(null)
@@ -230,6 +233,7 @@ export function useSettingsPage() {
     handleDownloadRemoteBackup,
     handleBackupExport,
     handleDirectDownloadBackup,
+    handleArchiveImport,
     handleWebdavTest,
     handleImportFile,
     loadBackupStatus,
@@ -262,6 +266,7 @@ export function useSettingsPage() {
     tgConfig,
     aiConfig,
     aiKeyDecryptFailed,
+    aiConfigLoaded,
     buildGeneralPayload,
     buildBotPayload,
     buildAdvancedPayload,
@@ -302,8 +307,20 @@ export function useSettingsPage() {
         aiConfig.value.base_url = aiRes.base_url || ''
         aiConfig.value.model = aiRes.model || ''
         aiKeyDecryptFailed.value = !!aiRes.api_key_decrypt_failed
+        aiConfig.value.fallback_providers = (aiRes.fallback_providers || []).map(
+          (p) => ({
+            base_url: p.base_url || '',
+            model: p.model || '',
+            api_key: '',
+            api_key_masked: p.api_key_masked ?? null
+          })
+        )
+        aiConfigLoaded.value = true
       } else {
         aiKeyDecryptFailed.value = false
+        aiConfig.value.fallback_providers = []
+        // 未成功读取到 AI 配置：标记为未加载，保存时不得提交空备用节点覆盖服务端
+        aiConfigLoaded.value = !!aiRes
       }
 
       // 运行信息互不依赖，并行请求可以减少设置页首屏等待；单项失败仍然降级。
@@ -414,6 +431,7 @@ export function useSettingsPage() {
     handleImportFile,
     handleBackupExport,
     handleDirectDownloadBackup,
+    handleArchiveImport,
     handleWebdavTest,
     handleListRemoteBackups,
     handleDownloadRemoteBackup,

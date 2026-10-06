@@ -143,7 +143,10 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         self._draining = False
         self._tasks_cache = None  # 兼容旧引用：list 或 None
         # 通配任务删除记录：已持久化至数据库 wildcard_tombstones 表 (WildcardTombstoneModel)，
-        # 彻底替换原有的易失内存字典 self._wildcard_removed，确保服务重启后不复活。
+        # 彻底替换原有的易失内存字典，确保服务重启后不复活。
+        # _wildcard_removed_cache 作为进程内镜像：当数据库短暂不可用时，回退到该镜像而非
+        # 直接失败开放返回空集，避免已删除副本被 _expand_wildcard_tasks 重新铺开而"复活"。
+        self._wildcard_removed_cache: Dict[tuple[str, str], bool] = {}
         self._cache_refresh_deferred = 0  # >0 时挂起写后全量缓存刷新（批量写优化）
         self._cache_refresh_dirty = False  # defer 期间确有写后刷新被抑制时置 True
         self._cache_refresh_lock = (
@@ -604,16 +607,19 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
                             WildcardTombstoneModel.account_name,
                             WildcardTombstoneModel.task_name,
                         ).all()
-                        return {(t.account_name, t.task_name): True for t in tombstones}
+                        self._wildcard_removed_cache = {
+                            (t.account_name, t.task_name): True for t in tombstones
+                        }
+                        return self._wildcard_removed_cache
                     except OperationalError:
                         db.rollback()
                         if attempt == 0:
                             _ensure_wildcard_tombstone_table(db)
                             continue
                         raise
-        except Exception:
-            pass
-        return {}
+        except Exception as exc:
+            _service_logger.warning("读取通配任务墓碑失败，回退到进程内镜像: %s", exc)
+        return dict(self._wildcard_removed_cache)
 
     def is_wildcard_removed(self, account_name: str, task_name: str) -> bool:
         """检查某账号的通配任务副本是否已被墓碑标记删除。"""
@@ -628,7 +634,11 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
                             .filter_by(account_name=account_name, task_name=task_name)
                             .first()
                         )
-                        return record is not None
+                        removed = record is not None
+                        self._wildcard_removed_cache[(account_name, task_name)] = (
+                            removed
+                        )
+                        return removed
                     except OperationalError:
                         db.rollback()
                         if attempt == 0:
@@ -637,9 +647,12 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
                         raise
         except Exception as exc:
             _service_logger.warning(
-                "查询通配任务墓碑失败 (%s, %s): %s", account_name, task_name, exc
+                "查询通配任务墓碑失败 (%s, %s)，回退到进程内镜像: %s",
+                account_name,
+                task_name,
+                exc,
             )
-            return False
+            return self._wildcard_removed_cache.get((account_name, task_name), False)
 
     def record_wildcard_removed(
         self,
@@ -695,11 +708,24 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
                 exc,
                 exc_info=True,
             )
+            # 写库失败也要更新进程内镜像，保证本进程内不再对该副本重扩展
+            self._wildcard_removed_cache[(account_name, task_name)] = True
+        else:
+            self._wildcard_removed_cache[(account_name, task_name)] = True
 
     def clear_wildcard_removed(self, account_name: str, task_name: str) -> None:
         """通配任务被重新创建/更新时清除删除记录（墓碑），允许再次铺开。"""
         if not task_name:
             return
+        # 无论写库是否成功，先同步进程内镜像
+        if account_name and account_name != "*":
+            self._wildcard_removed_cache.pop((account_name, task_name), None)
+        else:
+            self._wildcard_removed_cache = {
+                k: v
+                for k, v in self._wildcard_removed_cache.items()
+                if k[1] != task_name
+            }
         try:
             with get_session_local()() as db:
                 for attempt in range(2):

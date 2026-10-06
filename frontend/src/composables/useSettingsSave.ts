@@ -33,6 +33,8 @@ export function useSettingsSave(options: {
   afterBotTokenSaved: () => void
   afterWebdavSettingsSaved: () => void
   loadBackupStatus: (token: string) => Promise<void>
+  /** 服务端 AI 配置是否已成功加载；未加载时不得用空列表覆盖已保存的备用节点 */
+  aiConfigLoaded?: Ref<boolean>
 }) {
   const { t } = useI18n()
   const toast = useToast()
@@ -257,10 +259,24 @@ export function useSettingsSave(options: {
         options.aiConfig.value.api_key
       )
       try {
+        // 仅当服务端 AI 配置已成功加载时才提交备用节点，避免用空数组清空已保存的密钥
+        const fallbackPayload =
+          options.aiConfigLoaded?.value === false
+            ? undefined
+            : (options.aiConfig.value.fallback_providers || [])
+                // 无 base_url 的空行不提交
+                .filter((p) => (p.base_url || '').trim() || (p.api_key || '').trim())
+                .map((p) => ({
+                  base_url: p.base_url || undefined,
+                  model: p.model || undefined,
+                  // 留空表示沿用已保存密钥，不发送该字段
+                  api_key: p.api_key || undefined,
+                }))
         await saveAIConfig(token, {
           base_url: options.aiConfig.value.base_url || undefined,
           model: options.aiConfig.value.model || undefined,
           api_key: options.aiConfig.value.api_key || undefined,
+          fallback_providers: fallbackPayload,
         })
         if (options.aiConfig.value.api_key) {
           options.aiKeyDecryptFailed.value = false

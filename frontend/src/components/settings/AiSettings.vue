@@ -4,7 +4,7 @@
  * 内嵌「高级执行 / AI 视觉」子区块（execTimeout / accountCooldown / flowRetry /
  * historyMaxAge / aiVisionTimeout / aiVisionRetry），与模型配置一并由「保存 AI 配置」提交。
  */
-import { Sparkles, Eye, EyeOff } from 'lucide-vue-next'
+import { Sparkles, Eye, EyeOff, Plus, X } from 'lucide-vue-next'
 import { useI18n } from '../../composables/useI18n'
 import SettingsFieldHint from './SettingsFieldHint.vue'
 import {
@@ -52,6 +52,36 @@ const onAiInput = (key: keyof AiFormState, e: Event) => {
   updateAi(key, (e.target as HTMLInputElement).value as never)
 }
 
+type FallbackProvider = AiFormState['fallback_providers'][number]
+
+const fallbackProviders = (): FallbackProvider[] =>
+  props.aiModelValue.fallback_providers || []
+
+const updateFallbackProvider = (
+  index: number,
+  key: keyof FallbackProvider,
+  value: string,
+) => {
+  const next = fallbackProviders().map((p, i) =>
+    i === index ? { ...p, [key]: value } : p,
+  )
+  updateAi('fallback_providers', next)
+}
+
+const addFallbackProvider = () => {
+  updateAi('fallback_providers', [
+    ...fallbackProviders(),
+    { base_url: '', model: '', api_key: '', api_key_masked: null },
+  ])
+}
+
+const removeFallbackProvider = (index: number) => {
+  updateAi(
+    'fallback_providers',
+    fallbackProviders().filter((_, i) => i !== index),
+  )
+}
+
 const onSettingsNumberInput = (key: keyof SettingsFormState, e: Event) => {
   const v = (e.target as HTMLInputElement).value
   updateSettings(key, parseNumberInputValue(v) as never)
@@ -94,6 +124,54 @@ const onSettingsSelectChange = (key: keyof SettingsFormState, e: Event) => {
         <p v-if="keyDecryptFailed" class="text-[11px] text-amber-600 dark:text-amber-400 leading-snug">
           {{ t('settings.aiKeyDecryptFailed') }}
         </p>
+      </div>
+      <!-- 备用 AI 节点（故障转移）：主节点失败后按顺序尝试 -->
+      <div class="pt-4 border-t border-[var(--sp-border)] space-y-2.5">
+        <div>
+          <h3 class="text-sm font-medium text-[var(--sp-text)] font-semibold">{{ t('settings.fallbackProviders') }}</h3>
+          <p class="text-[10px] text-[var(--sp-text-muted)] mt-1">{{ t('settings.fallbackProvidersDesc') }}</p>
+        </div>
+        <div v-for="(p, idx) in fallbackProviders()" :key="idx" class="p-3 bg-[var(--sp-surface-subtle)] bg-[var(--sp-surface)]/[0.02] border border-[var(--sp-border)] rounded-[var(--sp-radius-md)] space-y-2">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <input
+              :value="p.base_url"
+              @input="updateFallbackProvider(idx, 'base_url', ($event.target as HTMLInputElement).value)"
+              type="text"
+              :placeholder="t('settings.apiBaseUrl')"
+              class="ui-input"
+            />
+            <input
+              :value="p.model"
+              @input="updateFallbackProvider(idx, 'model', ($event.target as HTMLInputElement).value)"
+              type="text"
+              :placeholder="t('settings.model')"
+              class="ui-input"
+            />
+          </div>
+          <div class="flex items-center gap-2">
+            <div class="relative flex-1">
+              <input
+                :value="p.api_key"
+                @input="updateFallbackProvider(idx, 'api_key', ($event.target as HTMLInputElement).value)"
+                type="password"
+                :placeholder="p.api_key_masked ? p.api_key_masked : (t('settings.fallbackApiKeyPlaceholder'))"
+                class="ui-input pr-9"
+              />
+            </div>
+            <button
+              type="button"
+              class="shrink-0 p-1.5 text-[var(--sp-text-muted)] hover:text-red-500"
+              :aria-label="t('settings.removeFallbackProvider')"
+              @click="removeFallbackProvider(idx)"
+            >
+              <X class="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+        <button type="button" class="ui-btn-secondary w-full !px-3 !py-1.5 !text-xs flex items-center justify-center gap-1.5" @click="addFallbackProvider">
+          <Plus class="w-3.5 h-3.5" />
+          {{ t('settings.addFallbackProvider') }}
+        </button>
       </div>
       <!-- 高级执行 / AI 视觉（从关于页移入） -->
       <div class="pt-4 border-t border-[var(--sp-border)] space-y-3">

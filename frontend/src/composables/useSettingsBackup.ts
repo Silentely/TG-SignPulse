@@ -8,11 +8,13 @@ import {
   importConfigPreview,
   getBackupStatus,
   exportBackupArchive,
+  importBackupArchive,
   testWebdavBackup,
   listWebdavBackupFiles,
   downloadWebdavBackup,
   saveGlobalSettings,
   type BackupStatus,
+  type BackupArchiveOptions,
   type RemoteBackupFile,
 } from '../lib/api'
 import { getAuthToken } from '../lib/api/core'
@@ -132,7 +134,10 @@ export function useSettingsBackup(options: {
     }
   }
 
-  const handleBackupExport = async (target: 'auto' | 'webdav' | 'download' = 'webdav') => {
+  const handleBackupExport = async (
+    target: 'auto' | 'webdav' | 'download' = 'webdav',
+    archiveOpts?: BackupArchiveOptions,
+  ) => {
     const token = getAuthToken()
     if (target === 'download') {
       // 直接下载不需要校验 WebDAV
@@ -147,7 +152,7 @@ export function useSettingsBackup(options: {
         afterWebdavSettingsSaved()
         options.markSectionClean('advanced')
       }
-      const res = await exportBackupArchive(token, target)
+      const res = await exportBackupArchive(token, target, archiveOpts)
       if (res.mode === 'download') {
         notifySuccess(t('settings.backupExportSuccess'))
       } else {
@@ -166,7 +171,28 @@ export function useSettingsBackup(options: {
     }
   }
 
-  const handleDirectDownloadBackup = () => handleBackupExport('download')
+  const handleDirectDownloadBackup = (archiveOpts?: BackupArchiveOptions) =>
+    handleBackupExport('download', archiveOpts)
+
+  const handleArchiveImport = async (file: File, password?: string) => {
+    const token = getAuthToken()
+    backupLoading.value = true
+    try {
+      const res = await importBackupArchive(token, file, password)
+      notifySuccess(res.message || t('settings.backupImportSuccess'))
+      try {
+        backupStatus.value = await getBackupStatus(token)
+      } catch {
+        /* ignore refresh errors */
+      }
+      return res
+    } catch (e: unknown) {
+      notifyError(resolveApiErrorMessage(e, 'settings.backupImportFailed'))
+      throw e
+    } finally {
+      backupLoading.value = false
+    }
+  }
 
   const loadBackupStatus = async (token: string) => {
     backupStatus.value = await getBackupStatus(token)
@@ -265,6 +291,7 @@ export function useSettingsBackup(options: {
     handleDownloadRemoteBackup,
     handleBackupExport,
     handleDirectDownloadBackup,
+    handleArchiveImport,
     handleWebdavTest,
     handleImportFile,
     loadBackupStatus,

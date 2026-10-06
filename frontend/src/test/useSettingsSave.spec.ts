@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
 import { mockI18nPassthrough } from './composable-test-utils'
+import type { AiFormState } from '../lib/settings-form'
 
 const { toastSpy, confirmMock, api } = vi.hoisted(() => ({
   toastSpy: {
@@ -46,7 +47,8 @@ describe('useSettingsSave', () => {
 
   function setup(over?: {
     tg?: { api_id: string; api_hash: string }
-    ai?: { base_url: string; model: string; api_key: string }
+    ai?: { base_url: string; model: string; api_key: string; fallback_providers: AiFormState['fallback_providers'] }
+    aiConfigLoaded?: boolean
   }) {
     const markSectionClean = vi.fn()
     const afterBotTokenSaved = vi.fn()
@@ -54,8 +56,9 @@ describe('useSettingsSave', () => {
     const loadBackupStatus = vi.fn(async () => {})
     const save = useSettingsSave({
       tgConfig: ref(over?.tg || { api_id: '', api_hash: '' }),
-      aiConfig: ref(over?.ai || { base_url: '', model: '', api_key: '' }),
+      aiConfig: ref(over?.ai || { base_url: '', model: '', api_key: '', fallback_providers: [] }),
       aiKeyDecryptFailed: ref(false),
+      aiConfigLoaded: ref(over?.aiConfigLoaded ?? true),
       buildGeneralPayload: () => ({ general: 1 }),
       buildBotPayload: () => ({ bot: 1 }),
       buildAdvancedPayload: () => ({ adv: 1 }),
@@ -121,7 +124,7 @@ describe('useSettingsSave', () => {
     api.saveAIConfig.mockResolvedValue({})
     const { save, markSectionClean } = setup({
       tg: { api_id: '1', api_hash: 'h' },
-      ai: { base_url: 'http://x', model: 'm', api_key: 'k' },
+      ai: { base_url: 'http://x', model: 'm', api_key: 'k', fallback_providers: [] },
     })
     await save.saveAllSettings()
     expect(api.saveGlobalSettings).toHaveBeenCalledWith(
@@ -188,7 +191,7 @@ describe('useSettingsSave', () => {
     const tg = ref({ api_id: '1', api_hash: 'h' })
     const save = useSettingsSave({
       tgConfig: tg,
-      aiConfig: ref({ base_url: '', model: '', api_key: '' }),
+      aiConfig: ref({ base_url: '', model: '', api_key: '', fallback_providers: [] }),
       aiKeyDecryptFailed: ref(false),
       buildGeneralPayload: () => ({}),
       buildBotPayload: () => ({}),
@@ -228,7 +231,7 @@ describe('useSettingsSave', () => {
   it('saveAiConfig writes runtime then model', async () => {
     api.saveGlobalSettings.mockResolvedValue({})
     api.saveAIConfig.mockResolvedValue({})
-    const ai = ref({ base_url: 'u', model: 'm', api_key: 'secret' })
+    const ai = ref({ base_url: 'u', model: 'm', api_key: 'secret', fallback_providers: [] })
     const aiKeyDecryptFailed = ref(true)
     const markSectionClean = vi.fn()
     const save = useSettingsSave({
@@ -251,5 +254,46 @@ describe('useSettingsSave', () => {
     expect(ai.value.api_key).toBe('')
     expect(aiKeyDecryptFailed.value).toBe(false)
     expect(markSectionClean).toHaveBeenCalledWith('ai')
+  })
+
+  it('saveAiConfig forwards fallback providers when AI config was loaded', async () => {
+    api.saveGlobalSettings.mockResolvedValue({})
+    api.saveAIConfig.mockResolvedValue({})
+    const { save } = setup({
+      ai: {
+        base_url: 'u',
+        model: 'm',
+        api_key: '',
+        fallback_providers: [
+          { base_url: 'https://fb.example.com/v1', model: 'm2', api_key: '', api_key_masked: 'sk-****' },
+        ],
+      },
+      aiConfigLoaded: true,
+    })
+    await save.saveAiConfig()
+    expect(api.saveAIConfig).toHaveBeenCalledWith('tok', {
+      base_url: 'u',
+      model: 'm',
+      api_key: undefined,
+      fallback_providers: [
+        // 留空的 api_key 不发，由后端沿用已保存密文
+        { base_url: 'https://fb.example.com/v1', model: 'm2', api_key: undefined },
+      ],
+    })
+  })
+
+  it('saveAiConfig omits fallback providers when AI config was not loaded', async () => {
+    api.saveGlobalSettings.mockResolvedValue({})
+    api.saveAIConfig.mockResolvedValue({})
+    api.saveAIConfig.mockClear()
+    const { save } = setup({ aiConfigLoaded: false })
+    await save.saveAiConfig()
+    expect(api.saveAIConfig).toHaveBeenCalledWith('tok', {
+      base_url: undefined,
+      model: undefined,
+      api_key: undefined,
+      // fallback_providers 字段必须缺失，避免空数组清空服务端已保存密钥
+      fallback_providers: undefined,
+    })
   })
 })

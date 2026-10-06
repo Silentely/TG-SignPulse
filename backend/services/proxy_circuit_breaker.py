@@ -232,13 +232,16 @@ class ProxyCircuitBreaker:
             finally:
                 file_lock.release()
         except Timeout:
-            # 未获取到租约，主动轮询探测终态（最多等待 2.0s），彻底杜绝半开误放行
-            for _ in range(20):
+            # 未获取到租约，主动轮询探测终态（最多等待 4.0s）。
+            # 若到时限仍未解析出终态（探测仍在飞行），按失败关闭处理返回不可用，
+            # 杜绝"探测未完成却放行流量"的半开误放行。
+            for _ in range(40):
                 await asyncio.sleep(0.1)
                 curr_state = self.get_state(proxy)
                 if curr_state != CircuitState.HALF_OPEN:
                     return curr_state != CircuitState.TRIPPED
-            return self.get_state(proxy) != CircuitState.TRIPPED
+            logger.warning("代理 %s 半开探测未在限定时间内完成，按不可用处理", proxy)
+            return False
 
     def clear(self) -> None:
         self._states.clear()

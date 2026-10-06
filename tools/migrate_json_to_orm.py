@@ -15,6 +15,7 @@ from backend.models.sign_task import (
     SignTaskModel,
     StorageMigrationItemModel,
     StorageMigrationRunModel,
+    cas_update_sign_task,
 )
 
 logger = logging.getLogger("tools.migrate_json_to_orm")
@@ -70,10 +71,9 @@ def run_migration(signs_dir: Path, dry_run: bool = True) -> Dict[str, Any]:
 
     if not dry_run and tasks_to_insert:
         session_local = get_session_local()
-        engine = session_local().get_bind()
-        Base.metadata.create_all(bind=engine)
         now = datetime.now(timezone.utc)
         with session_local() as db:
+            Base.metadata.create_all(bind=db.get_bind())
             for item in tasks_to_insert:
                 existing = (
                     db.query(SignTaskModel)
@@ -83,28 +83,45 @@ def run_migration(signs_dir: Path, dry_run: bool = True) -> Dict[str, Any]:
                     )
                     .first()
                 )
-                if not existing:
-                    task = SignTaskModel(
-                        account_name=item["account_name"],
-                        task_name=item["task_name"],
-                        is_wildcard=item["is_wildcard"],
-                        cron_expr=item["cron_expr"],
-                        random_window=item["random_window"],
-                        enabled=item["enabled"],
-                        config_json=item["config_json"],
-                        revision=1,
-                        created_at=now,
-                        updated_at=now,
-                    )
-                    db.add(task)
-                    migrated_item = StorageMigrationItemModel(
-                        run_id=run_id,
-                        account_name=item["account_name"],
-                        task_name=item["task_name"],
-                        source_sha256=item["sha256"],
-                    )
-                    db.add(migrated_item)
-                    migrated += 1
+                if existing is not None:
+                    # 已存在的行不做覆盖；仅当配置确实变化时用乐观锁条件更新，
+                    # 若版本已被并发写入者推进（CAS 返回 False）则跳过，交由人工复核。
+                    if existing.config_json != item["config_json"]:
+                        if cas_update_sign_task(
+                            db,
+                            existing.id,
+                            existing.revision,
+                            config_json=item["config_json"],
+                            is_wildcard=item["is_wildcard"],
+                            cron_expr=item["cron_expr"],
+                            random_window=item["random_window"],
+                            enabled=item["enabled"],
+                            updated_at=now,
+                        ):
+                            migrated += 1
+                    continue
+
+                task = SignTaskModel(
+                    account_name=item["account_name"],
+                    task_name=item["task_name"],
+                    is_wildcard=item["is_wildcard"],
+                    cron_expr=item["cron_expr"],
+                    random_window=item["random_window"],
+                    enabled=item["enabled"],
+                    config_json=item["config_json"],
+                    revision=1,
+                    created_at=now,
+                    updated_at=now,
+                )
+                db.add(task)
+                migrated_item = StorageMigrationItemModel(
+                    run_id=run_id,
+                    account_name=item["account_name"],
+                    task_name=item["task_name"],
+                    source_sha256=item["sha256"],
+                )
+                db.add(migrated_item)
+                migrated += 1
 
             journal = StorageMigrationRunModel(
                 run_id=run_id,

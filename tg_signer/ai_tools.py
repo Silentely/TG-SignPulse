@@ -27,12 +27,51 @@ from tg_signer.security import decrypt_secret, encrypt_secret
 from tg_signer.utils import UserInput, print_to_user, read_positive_int_env
 
 
-def ai_cfg_signature(cfg: Any) -> tuple[str, str, str]:
-    """AI 配置指纹：api_key/base_url/model 三元组，用于判断配置是否变化。"""
+def parse_fallback_providers(raw: Any) -> list[dict]:
+    """解析并校验备用 AI 节点列表，过滤掉缺少 api_key 的非法项。
+
+    接受列表，或 JSON 字符串（便于环境变量 OPENAI_FALLBACK_PROVIDERS 配置）。
+    """
+    if not raw:
+        return []
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except (ValueError, TypeError):
+            return []
+    if not isinstance(raw, list):
+        return []
+    providers: list[dict] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        api_key = str(item.get("api_key") or "").strip()
+        if not api_key:
+            continue
+        base_url = item.get("base_url")
+        model = item.get("model")
+        providers.append(
+            {
+                "api_key": api_key,
+                "base_url": str(base_url).strip() if base_url else None,
+                "model": str(model).strip() if model else None,
+            }
+        )
+    return providers
+
+
+def ai_cfg_signature(cfg: Any) -> tuple[str, str, str, str]:
+    """AI 配置指纹：主节点三元组 + 备用节点列表，用于判断配置是否变化。"""
+    fallback = parse_fallback_providers(cfg.get("fallback_providers"))
+    fallback_sig = "|".join(
+        f"{p.get('base_url') or ''}::{p.get('api_key') or ''}::{p.get('model') or ''}"
+        for p in fallback
+    )
     return (
         str(cfg.get("api_key") or ""),
         str(cfg.get("base_url") or ""),
         str(cfg.get("model") or ""),
+        fallback_sig,
     )
 
 
@@ -220,6 +259,8 @@ class OpenAIConfig(TypedDict, total=False):
     api_key: Required[str]
     base_url: Optional[str]
     model: Optional[str]
+    # 备用 AI 节点（故障转移）：每项含 base_url/api_key/model
+    fallback_providers: Optional[list[dict]]
 
 
 # 文件配置的进程级缓存（按 mtime 失效）：AI 动作每次都会走 load_config，
@@ -273,13 +314,57 @@ class OpenAIConfigManager:
             except InvalidToken:
                 logger.warning("存储的 API Key 解密失败，返回 None")
                 return None
+            # 备用节点同样以密文存储，逐个解密
+            fallback = c.get("fallback_providers")
+            if isinstance(fallback, list):
+                decrypted: list[dict] = []
+                for entry in fallback:
+                    if not isinstance(entry, dict):
+                        continue
+                    entry = dict(entry)
+                    enc_key = entry.get("api_key")
+                    if enc_key:
+                        try:
+                            entry["api_key"] = decrypt_secret(enc_key)
+                        except InvalidToken:
+                            # 单个备用密钥损坏不应拖垮整个配置
+                            logger.warning(
+                                "备用 AI 节点密钥解密失败，跳过该节点: %s",
+                                entry.get("base_url"),
+                            )
+                            continue
+                    decrypted.append(entry)
+                c["fallback_providers"] = decrypted
             return c
         return None
 
-    def save_config(self, api_key: str, base_url: str = None, model: str = None):
+    def save_config(
+        self,
+        api_key: str,
+        base_url: str = None,
+        model: str = None,
+        fallback_providers: Optional[list[dict]] = None,
+    ):
         config_file = self.get_config_file()
         encrypted_key = encrypt_secret(api_key)
-        config = OpenAIConfig(api_key=encrypted_key, base_url=base_url, model=model)
+        config: dict = {
+            "api_key": encrypted_key,
+            "base_url": base_url,
+            "model": model,
+        }
+        # 未显式传入时保留磁盘现有的备用节点，避免覆盖
+        if fallback_providers is None:
+            existing = self.load_file_config()
+            fallback_providers = (existing or {}).get("fallback_providers")
+        if fallback_providers:
+            config["fallback_providers"] = [
+                {
+                    "base_url": p.get("base_url"),
+                    "model": p.get("model"),
+                    "api_key": encrypt_secret(str(p.get("api_key") or "")),
+                }
+                for p in fallback_providers
+            ]
         with open(config_file, "w", encoding="utf-8") as fp:
             json.dump(config, fp, ensure_ascii=False, indent=2)
         # 显式失效缓存（兜底同 mtime 边缘场景；常规写盘靠 mtime 变化失效）
@@ -292,6 +377,9 @@ class OpenAIConfigManager:
                 api_key=os.environ["OPENAI_API_KEY"],
                 base_url=os.environ.get("OPENAI_BASE_URL"),
                 model=os.environ.get("OPENAI_MODEL", DEFAULT_MODEL),
+                fallback_providers=parse_fallback_providers(
+                    os.environ.get("OPENAI_FALLBACK_PROVIDERS")
+                ),
             )
         return self.load_file_config()
 
@@ -374,6 +462,7 @@ class AITools:
         )
         self.base_url = cfg.get("base_url") or ""
         self.default_model = cfg.get("model") or DEFAULT_MODEL
+        self._fallback_entries = parse_fallback_providers(cfg.get("fallback_providers"))
 
     @staticmethod
     def _normalize_option_text(text: Any) -> str:
@@ -1036,6 +1125,98 @@ class AITools:
         return stages
 
     async def _create_visual_completion(
+        self,
+        *,
+        client: "AsyncOpenAI",
+        model: str,
+        messages: list[dict[str, Any]],
+        temperature: float,
+        max_tokens: int,
+        expect_json: bool,
+    ):
+        """主节点走 SDK（含完整参数兼容降级）；主节点彻底失败后转备用节点。
+
+        备用节点复用核心包的 AIProviderManager：以 OpenAI 兼容 HTTP 直接调用，
+        携带全局预算与单节点隔离，避免某个备用节点拖垮整条链路。
+        """
+        try:
+            return await self._run_visual_completion_with_client(
+                client=client,
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                expect_json=expect_json,
+            )
+        except Exception as primary_exc:
+            if not self._fallback_entries:
+                raise
+            logger.warning(
+                "AI 主节点失败，进入备用节点故障转移: %s",
+                safe_text_preview(primary_exc, 200),
+            )
+            return await self._dispatch_fallback_completion(
+                primary_exc=primary_exc,
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                expect_json=expect_json,
+            )
+
+    async def _dispatch_fallback_completion(
+        self,
+        *,
+        primary_exc: Exception,
+        model: str,
+        messages: list[dict[str, Any]],
+        temperature: float,
+        max_tokens: int,
+        expect_json: bool,
+    ):
+        from tg_signer.core.ai_failover import (
+            AIAllProvidersFailedError,
+            AIProviderManager,
+            as_attribute_object,
+            build_provider_configs,
+        )
+
+        timeout = self._ai_timeout()
+        providers = build_provider_configs(
+            self._fallback_entries,
+            default_model=model or self.default_model,
+            timeout=timeout,
+        )
+        if not providers:
+            raise primary_exc
+
+        # 备用节点同样按"由严格到保守"的阶梯尝试：单个节点拒绝某参数时不放弃其余节点
+        stages = self._build_visual_request_stages(
+            messages=messages,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            expect_json=expect_json,
+        )
+        manager = AIProviderManager(
+            total_deadline=max(timeout, timeout * len(providers))
+        )
+        last_error: Exception = primary_exc
+        for stage in stages:
+            payload = {k: v for k, v in stage.items() if k != "model"}
+            try:
+                data = await manager.dispatch_request(
+                    payload, providers, abort_on_config_error=False
+                )
+                return as_attribute_object(data)
+            except AIAllProvidersFailedError as exc:
+                last_error = exc
+                continue
+        raise RuntimeError(
+            f"AI 主节点与全部备用节点均失败: {last_error}"
+        ) from primary_exc
+
+    async def _run_visual_completion_with_client(
         self,
         *,
         client: "AsyncOpenAI",

@@ -7,6 +7,7 @@ import {
   LONG_TIMEOUT_MS,
   MEDIUM_TIMEOUT_MS,
   request,
+  requestFormData,
 } from "./core";
 import { downloadBlob, normalizeNetworkError } from "../download";
 
@@ -63,10 +64,19 @@ export interface BackupStatus {
 export const getBackupStatus = (token: string) =>
   request<BackupStatus>("/ops/backup/status", {}, token);
 
+/** 完整备份的可选归档参数 */
+export interface BackupArchiveOptions {
+  /** 归档格式：auto 交服务端按密钥决定；tar.gz 不加密；spbak 强制加密 */
+  format?: 'auto' | 'tar.gz' | 'spbak';
+  /** 自定义加密密码（仅 spbak 生效；经表单体提交，绝不放入 URL） */
+  password?: string;
+}
+
 /** 完整备份：配置 WebDAV 时上传至远端 WebDAV，未配置或指定 download 时服务端回退/返回浏览器下载流 */
 export async function exportBackupArchive(
   token: string,
   target?: 'auto' | 'webdav' | 'download',
+  options?: BackupArchiveOptions,
 ): Promise<{
   mode: "webdav" | "download";
   message?: string;
@@ -77,11 +87,22 @@ export async function exportBackupArchive(
   // 整段墙钟超时：打包 + 上传/下载 body 均受 LONG_TIMEOUT 约束
   const abort = createRequestAbort(LONG_TIMEOUT_MS, null);
   try {
-    const url = target ? `/ops/backup/export?target=${encodeURIComponent(target)}` : "/ops/backup/export";
+    const query = new URLSearchParams();
+    if (target) query.set("target", target);
+    const format = options?.format;
+    if (format && format !== "auto") query.set("format", format);
+    const queryStr = query.toString();
+    const url = queryStr ? `/ops/backup/export?${queryStr}` : "/ops/backup/export";
+
+    // 密码通过 multipart 表单体提交，避免出现在 URL、访问日志或浏览器历史中
+    const password = options?.password?.trim();
+    const body = password ? new FormData() : undefined;
+    if (body && password) body.append("password", password);
+
     const res = await fetchWithAuth(
       url,
       {},
-      { method: "POST", signal: abort.signal },
+      { method: "POST", body, signal: abort.signal },
       token,
       null,
     );
@@ -104,7 +125,8 @@ export async function exportBackupArchive(
     const blob = await res.blob();
     const cd = res.headers.get("Content-Disposition") || "";
     const match = /filename="?([^"]+)"?/.exec(cd);
-    const filename = match?.[1] || `tg-signpulse-backup-${Date.now()}.tar.gz`;
+    const fallbackExt = options?.format === "spbak" ? "spbak" : "tar.gz";
+    const filename = match?.[1] || `tg-signpulse-backup-${Date.now()}.${fallbackExt}`;
     downloadBlob(blob, filename);
     return { mode: "download", filename };
   } catch (e: unknown) {
@@ -112,6 +134,23 @@ export async function exportBackupArchive(
   } finally {
     abort.cleanup();
   }
+}
+
+/** 导入 .spbak/.tar.gz 备份归档并恢复到数据目录 */
+export async function importBackupArchive(
+  token: string,
+  file: File,
+  password?: string,
+): Promise<{ success: boolean; message: string; extracted_files: number }> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const pwd = password?.trim();
+  if (pwd) formData.append("password", pwd);
+  return requestFormData<{
+    success: boolean;
+    message: string;
+    extracted_files: number;
+  }>("/ops/backup/import", formData, token);
 }
 
 export const testWebdavBackup = (token: string) =>

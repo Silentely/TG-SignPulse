@@ -11,7 +11,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-from typing import Any, Iterator, List, Optional, Union
+from typing import Any, Iterator, List, Optional, Sequence, Union
 from urllib.parse import quote, unquote, urljoin, urlparse
 
 import httpx
@@ -242,6 +242,7 @@ def list_webdav_files(
     password: str,
     remote_dir: str = "",
     name_suffix: str = ".tar.gz",
+    name_suffixes: Optional[Sequence[str]] = None,
     limit: int = 20,
     timeout: float = 30.0,
     proxy: Optional[str] = None,
@@ -294,10 +295,16 @@ def list_webdav_files(
             }
 
         entries = _parse_propfind_entries(resp.text or "", target)
-        suffix = (name_suffix or "").lower()
-        if suffix:
+        # name_suffixes 优先：支持同时匹配多种备份后缀（.tar.gz/.spbak），
+        # 避免列出远端目录里与备份无关的文件。传空集合表示不做后缀过滤。
+        if name_suffixes is not None:
+            wanted = tuple(s.lower() for s in name_suffixes if s)
+        else:
+            wanted = ((name_suffix or "").lower(),)
+        wanted = tuple(s for s in wanted if s)
+        if wanted:
             entries = [
-                e for e in entries if str(e.get("name") or "").lower().endswith(suffix)
+                e for e in entries if str(e.get("name") or "").lower().endswith(wanted)
             ]
         # 优先解析 HTTP-date；失败则回退文件名中的时间戳片段
         entries.sort(key=_backup_sort_key, reverse=True)
@@ -507,10 +514,11 @@ def prune_webdav_backups(
     remote_dir: str,
     keep: int = 3,
     name_suffix: str = ".tar.gz",
+    name_suffixes: Optional[Sequence[str]] = None,
     timeout: float = 60.0,
     proxy: Optional[str] = None,
 ) -> dict:
-    """保留远端最近 keep 份备份，删除更旧的 .tar.gz。"""
+    """保留远端最近 keep 份备份，删除更旧的 .tar.gz / .spbak。"""
     keep = max(0, int(keep))
     listed = list_webdav_files(
         base_url=base_url,
@@ -518,6 +526,7 @@ def prune_webdav_backups(
         password=password,
         remote_dir=remote_dir,
         name_suffix=name_suffix,
+        name_suffixes=name_suffixes,
         limit=100,
         timeout=timeout,
         proxy=proxy,

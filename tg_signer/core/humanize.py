@@ -47,14 +47,19 @@ def calculate_typing_delay(text: str) -> float:
 
 @asynccontextmanager
 async def simulate_typing_action(
-    client: Any, chat_id: Any, text: str
+    client: Any, chat_id: Any, text: str, max_presend_delay: float = 2.0
 ) -> AsyncIterator[float]:
     """异步上下文管理器：在发送消息前模拟拟人打字行为及 periodic typing 状态心跳。
 
     在打字期间定期（每 4 秒）向目标会话发送 'typing' 聊天动作，并在退出上下文后干净取消后台心跳任务。
     若 client 不可用或 send_chat_action 抛出异常，支持优雅降级不阻断主流程。
+
+    为避免超长文本把发送延迟拉到 8 秒，进入上下文时的等待被限制在 max_presend_delay 以内；
+    `as` 拿到的返回值是**实际等待**的秒数（不再是未经限制的理论时长），调用方据此判断更可靠。
+    文本越长，超出的拟人时长由心跳在消息发送前后继续覆盖。
     """
     duration = calculate_typing_delay(text)
+    presend_delay = min(duration, max(0.0, max_presend_delay))
     stop_event = asyncio.Event()
 
     async def _keep_typing() -> None:
@@ -78,12 +83,16 @@ async def simulate_typing_action(
 
     task = asyncio.create_task(_keep_typing())
     try:
-        await asyncio.sleep(min(duration, 2.0))
-        yield duration
+        await asyncio.sleep(presend_delay)
+        yield presend_delay
     finally:
         stop_event.set()
         task.cancel()
         try:
             await task
-        except (asyncio.CancelledError, Exception):
-            pass
+        except asyncio.CancelledError:
+            # 心跳任务内部已吞掉自身取消；此处若仍收到 CancelledError，
+            # 说明是外层任务被取消，必须原样向上传播，不能吞掉取消信号。
+            raise
+        except Exception as e:
+            logger.debug("typing 心跳任务异常退出: %s", e)

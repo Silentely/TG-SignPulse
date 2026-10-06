@@ -22,7 +22,7 @@ import {
 } from 'lucide-vue-next'
 import { useI18n } from '../../composables/useI18n'
 import { parseNumberInputValue, type SettingsFormState } from '../../lib/settings-form'
-import type { BackupStatus, RemoteBackupFile } from '../../lib/api'
+import type { BackupStatus, RemoteBackupFile, BackupArchiveOptions } from '../../lib/api'
 
 const props = defineProps<{
   /** 全局表单状态（v-model） */
@@ -53,13 +53,36 @@ const emit = defineEmits<{
   (e: 'update:modelValue', value: SettingsFormState): void
   (e: 'export-json'): void
   (e: 'import-json', file: File): void
-  (e: 'backup-export'): void
-  (e: 'backup-download'): void
+  (e: 'backup-export', options?: BackupArchiveOptions): void
+  (e: 'backup-download', options?: BackupArchiveOptions): void
+  (e: 'archive-import', payload: { file: File; password?: string }): void
   (e: 'webdav-test'): void
   (e: 'webdav-list'): void
   (e: 'webdav-download', name: string): void
   (e: 'save-advanced'): void
 }>()
+
+/** 完整备份归档的格式与可选自定义加密密码（由父组件转发给 API） */
+const archiveFormat = ref<'auto' | 'tar.gz' | 'spbak'>('auto')
+const archivePassword = ref('')
+const archiveOptions = (): BackupArchiveOptions => ({
+  format: archiveFormat.value,
+  password: archivePassword.value.trim() || undefined,
+})
+
+/** 隐藏的归档恢复文件输入 */
+const archiveFileRef = ref<HTMLInputElement | null>(null)
+
+const onArchiveFileChange = (e: Event) => {
+  const target = e.target as HTMLInputElement
+  if (target.files && target.files[0]) {
+    emit('archive-import', {
+      file: target.files[0],
+      password: archivePassword.value.trim() || undefined,
+    })
+    target.value = ''
+  }
+}
 
 const { t } = useI18n()
 
@@ -386,12 +409,34 @@ const copyRestoreCommand = async () => {
       </div>
 
       <!-- 立即创建备份主按钮 -->
-      <div class="pt-4 border-t border-[var(--sp-border)] space-y-1.5">
+      <div class="pt-4 border-t border-[var(--sp-border)] space-y-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <label class="block">
+            <span class="text-xs font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text)]">{{ t('settings.archiveFormatLabel') }}</span>
+            <select
+              v-model="archiveFormat"
+              class="ui-input mt-1 w-full"
+            >
+              <option value="auto">{{ t('settings.archiveFormatAuto') }}</option>
+              <option value="tar.gz">{{ t('settings.archiveFormatTarGz') }}</option>
+              <option value="spbak">{{ t('settings.archiveFormatSpbak') }}</option>
+            </select>
+          </label>
+          <label class="block">
+            <span class="text-xs font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text)]">{{ t('settings.archivePasswordLabel') }}</span>
+            <input
+              v-model="archivePassword"
+              type="password"
+              :placeholder="t('settings.archivePasswordPlaceholder')"
+              class="ui-input mt-1 w-full"
+            />
+          </label>
+        </div>
         <button
           type="button"
           class="ui-btn-primary w-full !px-4 !py-2.5 flex items-center justify-center gap-2"
           :disabled="backupLoading"
-          @click="emit('backup-export')"
+          @click="emit('backup-export', archiveOptions())"
         >
           <RefreshCw v-if="backupLoading" class="w-4 h-4 animate-spin" />
           <Cloud v-else class="w-4 h-4" />
@@ -491,12 +536,34 @@ const copyRestoreCommand = async () => {
           type="button"
           class="ui-btn-primary w-full !px-4 !py-2.5 flex items-center justify-center gap-2"
           :disabled="backupLoading"
-          @click="emit('backup-download')"
+          @click="emit('backup-download', archiveOptions())"
         >
           <RefreshCw v-if="backupLoading" class="w-4 h-4 animate-spin" />
           <Download v-else class="w-4 h-4" />
           {{ backupLoading ? t('common.processing') : t('settings.fullArchiveDownloadAction') }}
         </button>
+
+        <!-- 归档恢复：上传 .spbak / .tar.gz 覆盖恢复数据目录 -->
+        <div class="pt-3 border-t border-[var(--sp-border)] space-y-2">
+          <p class="text-[11px] text-[var(--sp-text-muted)] leading-relaxed">{{ t('settings.backupImportHint') }}</p>
+          <input
+            ref="archiveFileRef"
+            type="file"
+            accept=".spbak,.tar.gz"
+            class="hidden"
+            @change="onArchiveFileChange"
+          />
+          <button
+            type="button"
+            class="ui-btn-secondary w-full !px-4 !py-2 flex items-center justify-center gap-2"
+            :disabled="backupLoading"
+            @click="archiveFileRef?.click()"
+          >
+            <RefreshCw v-if="backupLoading" class="w-4 h-4 animate-spin" />
+            <Archive v-else class="w-4 h-4" />
+            {{ backupLoading ? t('common.processing') : t('settings.backupImportAction') }}
+          </button>
+        </div>
       </div>
 
       <!-- 轻量配置 JSON 迁移 -->

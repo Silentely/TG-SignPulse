@@ -104,6 +104,21 @@ http://127.0.0.1:3000
 - 自定义 Action 插件执行（动作类型 `99`）：独立 Worker 子进程沙箱与双向 JSON-RPC IPC 通信
 - 处理 FloodWait、重试和部分异常恢复
 
+### AI 调用与故障转移
+
+AI 请求汇聚在 `tg_signer/ai_tools.py` 的 `_create_visual_completion`：
+
+- 主节点使用 `AsyncOpenAI`，走完整的参数兼容降级阶梯（`reasoning_effort` / `response_format` /
+  `temperature` 等逐步裁剪），并带视觉重试。
+- 主节点彻底失败后转「备用节点」，复用核心包 `tg_signer/core/ai_failover.py` 的
+  `AIProviderManager`：以 OpenAI 兼容 HTTP 直连，携带全局预算与单节点隔离
+  （`abort_on_config_error=False`，单个节点配置错误不中断其余节点）。
+- 备用节点来源：`.openai_config.json` 的 `fallback_providers` 字段，或环境变量
+  `OPENAI_FALLBACK_PROVIDERS`（JSON 数组）。备用节点密钥以 Fernet 密文落盘，
+  读取时逐个解密；前端「留空」表示沿用已保存密钥。
+- `AIProviderManager` 同时被后端复用（经 `backend/services/ai_provider_manager.py`
+  兼容再导出），保证 CLI 与后端共用同一套故障转移逻辑。
+
 ## 数据流
 
 ### 定时任务

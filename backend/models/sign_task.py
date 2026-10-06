@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy import (
     Boolean,
     Column,
@@ -77,3 +79,28 @@ class StorageMigrationItemModel(Base):
             "run_id", "account_name", "task_name", name="uq_migration_item"
         ),
     )
+
+
+def cas_update_sign_task(
+    session: Any,
+    task_id: int,
+    expected_revision: int,
+    **fields: Any,
+) -> bool:
+    """对单个签到任务执行乐观锁条件更新（CAS）。
+
+    仅当数据库中的 ``revision`` 与 ``expected_revision`` 一致时，才写入字段并在同一条
+    UPDATE 中把 ``revision`` 自增 1。返回 True 表示本次更新生效；返回 False 表示版本
+    已被其他写入者推进（并发冲突），调用方应重新读取后再决定是否重试。
+
+    ``revision`` 由本函数自行维护，调用方不得在 ``fields`` 中传入。
+    """
+    if "revision" in fields:
+        raise ValueError("revision 由 CAS 自身维护，不得由调用方指定")
+    payload = {**fields, "revision": expected_revision + 1}
+    updated = (
+        session.query(SignTaskModel)
+        .filter_by(id=task_id, revision=expected_revision)
+        .update(payload)
+    )
+    return updated == 1

@@ -60,6 +60,7 @@ const {
   handleImportFile,
   handleBackupExport,
   handleDirectDownloadBackup,
+  handleArchiveImport,
   handleWebdavTest,
   handleListRemoteBackups,
   handleDownloadRemoteBackup,
@@ -141,8 +142,9 @@ const {
             :advanced-loading="advancedLoading"
             @export-json="handleExport"
             @import-json="handleImportFile"
-            @backup-export="handleBackupExport"
-            @backup-download="handleDirectDownloadBackup"
+            @backup-export="(opts) => handleBackupExport('webdav', opts)"
+            @backup-download="(opts) => handleDirectDownloadBackup(opts)"
+            @archive-import="(payload) => handleArchiveImport(payload.file, payload.password)"
             @webdav-test="handleWebdavTest"
             @webdav-list="handleListRemoteBackups"
             @webdav-download="handleDownloadRemoteBackup"

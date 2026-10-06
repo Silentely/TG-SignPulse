@@ -39,6 +39,11 @@ class StaticPluginMetadata:
     permissions: List[str] = field(default_factory=list)
     syntax_unverified: bool = False
 
+    def __post_init__(self) -> None:
+        # plugin.json 的 mode 是不可信输入，这里做运行时收敛，避免非法取值向下游扩散
+        if self.mode not in ("reactive", "active"):
+            object.__setattr__(self, "mode", "reactive")
+
 
 class StaticPluginCatalog:
     """基于 AST 静态分析的插件目录元数据解析器。

@@ -19,6 +19,7 @@ const { toastSpy, confirmMock, api } = vi.hoisted(() => ({
     importConfigPreview: vi.fn(),
     getBackupStatus: vi.fn(),
     exportBackupArchive: vi.fn(),
+    importBackupArchive: vi.fn(),
     testWebdavBackup: vi.fn(),
     listWebdavBackupFiles: vi.fn(),
     downloadWebdavBackup: vi.fn(),
@@ -197,8 +198,34 @@ describe('useSettingsBackup', () => {
     const { backup } = setup()
     await backup.handleDirectDownloadBackup()
     expect(api.saveGlobalSettings).not.toHaveBeenCalled()
-    expect(api.exportBackupArchive).toHaveBeenCalledWith('tok', 'download')
+    expect(api.exportBackupArchive).toHaveBeenCalledWith('tok', 'download', undefined)
     expect(toastSpy.success).toHaveBeenCalledWith('settings.backupExportSuccess')
+  })
+
+  it('handleDirectDownloadBackup forwards archive format and password options', async () => {
+    api.exportBackupArchive.mockResolvedValue({ mode: 'download', filename: 'archive.spbak' })
+    api.getBackupStatus.mockResolvedValue({ webdav_configured: true })
+    const { backup } = setup()
+    await backup.handleDirectDownloadBackup({ format: 'spbak', password: 'secret' })
+    expect(api.exportBackupArchive).toHaveBeenCalledWith('tok', 'download', {
+      format: 'spbak',
+      password: 'secret',
+    })
+  })
+
+  it('handleArchiveImport forwards file and password to the API', async () => {
+    api.importBackupArchive.mockResolvedValue({
+      success: true,
+      message: 'ok',
+      extracted_files: 3,
+    })
+    api.getBackupStatus.mockResolvedValue({ webdav_configured: true })
+    const { backup } = setup()
+    const file = new File(['x'], 'backup.spbak')
+    const res = await backup.handleArchiveImport(file, 'secret')
+    expect(api.importBackupArchive).toHaveBeenCalledWith('tok', file, 'secret')
+    expect(res.extracted_files).toBe(3)
+    expect(toastSpy.success).toHaveBeenCalled()
   })
 
   it('handleWebdavTest reports success/failure from API', async () => {
