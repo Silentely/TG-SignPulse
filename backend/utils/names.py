@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import re
+from typing import Union
+
 
 def validate_storage_name(value: str, *, field_name: str) -> str:
     if not isinstance(value, str):
@@ -22,3 +25,11 @@ def validate_storage_name(value: str, *, field_name: str) -> str:
     if byte_length > 128:
         raise ValueError(f"{field_name} length cannot exceed 128 bytes")
     return cleaned
+
+
+def natural_sort_key(s: str) -> list[Union[int, str]]:
+    """自然排序键函数（数字按数值大小，文本按不区分大小写排序）。"""
+    return [
+        int(text) if text.isdigit() else text.lower()
+        for text in re.split(r"(\d+)", s or "")
+    ]

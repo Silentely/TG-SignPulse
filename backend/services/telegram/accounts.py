@@ -15,7 +15,7 @@ from backend.services.telegram.sessions import (
     _qr_login_sessions,
 )
 from backend.utils.account_locks import get_account_lock
-from backend.utils.names import validate_storage_name
+from backend.utils.names import natural_sort_key, validate_storage_name
 from backend.utils.proxy import build_proxy_dict
 from backend.utils.tg_session import (
     delete_account_session_string,
@@ -100,7 +100,10 @@ class TelegramAccountsMixin:
             return
 
         if target.exists():
-            raise ValueError(f"目标路径已存在: {target}")
+            if target.is_file() and target.stat().st_size == 0:
+                target.unlink(missing_ok=True)
+            else:
+                raise ValueError(f"目标路径已存在: {target}")
 
         target.parent.mkdir(parents=True, exist_ok=True)
         source.replace(target)
@@ -174,6 +177,12 @@ class TelegramAccountsMixin:
                     profile = get_account_profile(account_name)
                     # 单次 stat 取两值：避免 exists/stat 双调用的开销与间隙不一致
                     session_exists, session_size = _session_file_info(session_file)
+                    if session_size == 0:
+                        try:
+                            session_file.unlink(missing_ok=True)
+                        except Exception:
+                            pass
+                        continue
                     accounts.append(
                         {
                             "name": account_name,
@@ -229,7 +238,7 @@ class TelegramAccountsMixin:
                         }
                     )
 
-            self._accounts_cache = sorted(accounts, key=lambda x: x["name"])
+            self._accounts_cache = sorted(accounts, key=lambda x: natural_sort_key(x["name"]))
             self._accounts_cache_ts = time.monotonic()
             return self._accounts_cache
         except Exception as exc:
@@ -261,7 +270,7 @@ class TelegramAccountsMixin:
             return False
 
         session_file = self.session_dir / f"{account_name}.session"
-        return session_file.exists()
+        return session_file.is_file() and session_file.stat().st_size > 0
 
 
     async def download_account_avatar(self, account_name: str) -> Optional[bytes]:
@@ -497,6 +506,18 @@ class TelegramAccountsMixin:
         checked_at = utc_now_iso_z()
 
         if not self.account_exists(account_name):
+            return {
+                "account_name": account_name,
+                "ok": False,
+                "status": "not_found",
+                "message": "账号不存在",
+                "code": "ACCOUNT_NOT_FOUND",
+                "checked_at": checked_at,
+                "needs_relogin": True,
+            }
+
+        session_file = self.session_dir / f"{account_name}.session"
+        if not is_string_session_mode() and not (session_file.is_file() and session_file.stat().st_size > 0):
             return {
                 "account_name": account_name,
                 "ok": False,
@@ -883,13 +904,35 @@ class TelegramAccountsMixin:
                 new_account_name,
             )
 
+            try:
+                avatar_dir = settings.resolve_workdir() / "avatars"
+                for ext in (".jpg", ".no_avatar"):
+                    old_av = avatar_dir / f"{actual_account_name}{ext}"
+                    new_av = avatar_dir / f"{new_account_name}{ext}"
+                    if old_av.exists():
+                        self._move_path(old_av, new_av)
+            except Exception:
+                pass
+
             self._accounts_cache = None
 
-        async with first_lock:
-            if second_lock is first_lock:
+        try:
+            await asyncio.wait_for(first_lock.acquire(), timeout=10.0)
+        except asyncio.TimeoutError:
+            raise RuntimeError(f"等待账号 {ordered_names[0]} 锁超时，账号正在被其他任务使用")
+
+        try:
+            if second_lock is not first_lock:
+                try:
+                    await asyncio.wait_for(second_lock.acquire(), timeout=10.0)
+                except asyncio.TimeoutError:
+                    raise RuntimeError(f"等待账号 {ordered_names[-1]} 锁超时，账号正在被其他任务使用")
+            try:
                 await _perform_rename()
-            else:
-                async with second_lock:
-                    await _perform_rename()
+            finally:
+                if second_lock is not first_lock:
+                    second_lock.release()
+        finally:
+            first_lock.release()
 
         return new_account_name

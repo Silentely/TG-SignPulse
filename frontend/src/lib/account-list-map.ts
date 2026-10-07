@@ -57,3 +57,7 @@ export function filterAccountsByQuery<
       (a.message || '').toLowerCase().includes(q),
   )
 }
+
+export function compareAccountNames(a: string, b: string): number {
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" })
+}

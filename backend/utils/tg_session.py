@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from backend.core.config import get_settings
+from backend.utils.names import natural_sort_key
 from backend.utils.time import utc_now, utc_now_iso
 
 _logger = logging.getLogger("backend.tg_session")
@@ -139,7 +140,7 @@ def _save_account_store(data: dict) -> None:
 
 def list_account_names() -> list[str]:
     data = _load_account_store()
-    return sorted(data["accounts"].keys())
+    return sorted(data["accounts"].keys(), key=natural_sort_key)
 
 
 def get_account_session_string(account_name: str) -> Optional[str]:

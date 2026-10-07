@@ -24,6 +24,7 @@ import { devLog } from '../lib/devLog'
 import { AVATAR_FETCH_CONCURRENCY, mapPool } from '../lib/async-pool'
 import { AvatarUrlCache } from '../lib/avatar-cache'
 import {
+  compareAccountNames,
   filterAccountsByQuery,
   mapAccountInfoToUiItem,
 } from '../lib/account-list-map'
@@ -76,7 +77,8 @@ const loadAccounts = async () => {
       loginExpired: t('accounts.loginExpired'),
       checking: t('accounts.checking'),
     }
-    accounts.value = list.map((acc) => {
+    const sortedList = [...list].sort((a, b) => compareAccountNames(a.name, b.name))
+    accounts.value = sortedList.map((acc) => {
       const ui = mapAccountInfoToUiItem(acc, labels)
       // 复用已加载的头像 URL，未缓存项交由 loadAvatars 补充
       const cached = avatarCache.get(acc.name)

@@ -375,7 +375,7 @@
     "loadChatsFailed": "Failed to load chats",
     "notifyOnSuccess": "Notify on success",
     "retryCountHint": "Failure retries (0-99). Leave empty to use the system default.",
-    "targetCreateMode": "Multi-target create mode",
+    "targetCreateMode": "Multi-target creation mode (create only)",
     "pickFromChatList": "Pick from chat list",
     "ignoreSelfMessages": "Ignore own messages",
     "ignoreSelfHint": "On by default to avoid reply loops",
@@ -422,7 +422,11 @@
     "debugPlugin": "Debug Plugin",
     "debugPluginTip": "Debug this plugin online with current parameters",
     "pluginTimeout": "Timeout (s)",
-    "pluginTimeoutPlaceholder": "Default 25"
+    "pluginTimeoutPlaceholder": "Default 25",
+    "editModeSharedNoticeTitle": "Multi-chat task (shared)",
+    "editModeSharedNoticeDesc": "This task runs actions sequentially across multiple target chats. The creation mode is a one-time generation option at task creation. If you need each chat to run independently, create separate tasks using \"Separate tasks per chat\" or clone this task.",
+    "editModeSingleNoticeTitle": "Single-chat task",
+    "editModeSingleNoticeDesc": "This task targets one chat. You can click \"+ Add Target\" above to add more chats."
   },
   "taskModal": {
     "addTitle": "Add Task",

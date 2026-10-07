@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  compareAccountNames,
   filterAccountsByQuery,
   mapAccountInfoToUiItem,
 } from '../lib/account-list-map'
@@ -32,5 +33,11 @@ describe('account-list-map', () => {
     expect(filterAccountsByQuery(list, '主')).toHaveLength(1)
     expect(filterAccountsByQuery(list, '额度')).toHaveLength(1)
     expect(filterAccountsByQuery(list, '')).toHaveLength(2)
+  })
+
+  it("sorts account names with natural numeric order", () => {
+    const names = ["11", "1", "9", "账号11", "账号9", "账号1"]
+    names.sort(compareAccountNames)
+    expect(names).toEqual(["1", "9", "11", "账号1", "账号9", "账号11"])
   })
 })

@@ -119,6 +119,17 @@ const onChatIdUpdate = (id: number) => {
       />
       <p class="text-[10px] text-gray-500 leading-relaxed">{{ t('tasks.createModeHint') }}</p>
     </div>
+    <div
+      v-else
+      class="mb-4 p-2.5 rounded bg-sky-50/70 dark:bg-sky-950/20 border border-sky-100 dark:border-sky-900/40 text-[11px] text-sky-800 dark:text-sky-300"
+    >
+      <div class="font-medium mb-0.5">
+        {{ targetChats.length > 1 ? t('taskForm.editModeSharedNoticeTitle') : t('taskForm.editModeSingleNoticeTitle') }}
+      </div>
+      <p class="text-[10px] text-sky-700/80 dark:text-sky-400/80 leading-relaxed">
+        {{ targetChats.length > 1 ? t('taskForm.editModeSharedNoticeDesc') : t('taskForm.editModeSingleNoticeDesc') }}
+      </p>
+    </div>
     <div v-if="targetChats.length > 1" class="flex flex-wrap gap-2 mb-4">
       <div
         v-for="(chat, idx) in targetChats"
