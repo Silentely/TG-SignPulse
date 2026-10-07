@@ -2,6 +2,11 @@
 
 > 记录后端服务的主要改动。变更记录撰写规范参见 [CLAUDE.md](../CLAUDE.md)。
 
+## 2026-10-07 (v2.5.1)
+- **修复**：新增 `natural_sort_key` 自然排序算法，统一 `tg_session` 与 `accounts` 列表排序，修复纯数字账号（1, 9, 11）字典序倒挂（Issue #12）。
+- **修复**：Client 新增 `_safe_close_client` 安全关闭底层存储，重命名时在 `finally` 块中关闭连接避免 SQLite 锁死（Issue #12）。
+- **修复**：`rename_account` 覆盖 0 字节目标无效文件并同步迁移头像缓存；`list_accounts` 与 `account_exists` 自动检测并清理 0 字节幽灵 session（Issue #12）。
+
 ## 2026-10-01
 - **修复**：修复限流器高并发下新 Key 计数清零的漏洞，增加总容量上限防内存泄漏。
 - **修复**：修复 ChatOps 停止时的 CancelledError 异常，优化优雅退出逻辑。
