@@ -4,6 +4,7 @@
 
 | 日期 | 变更内容 |
 |------|----------|
+| 2026-10-07 | 表单与体验优化：WebDAV 用户名/密码输入增加 autocomplete="off" / autocomplete="new-password" 与反注入属性，阻断密码管理器自动填充引发的脏表单误报；TaskForm 编辑模式展示多目标执行类型只读说明框；Accounts 列表引入 compareAccountNames 自然排序解决纯数字账号（1, 9, 11）字典序倒挂（Issue #12） |
 | 2026-08-05 | /ccg:init 二轮：Accounts/Logs/Dashboard/Settings 全链路（batch Job、SSE、脏检查分节保存） |
 | 2026-08-05 | /ccg:init 补扫：Tasks.vue 与 useTaskListRuntime/Actions 全链路、深链 query、blob 头像回收写入 CLAUDE |
 | 2026-08-05 | /ccg:init 全仓扫描刷新 CLAUDE.md 与 .claude/index.json |
