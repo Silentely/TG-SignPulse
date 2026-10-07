@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from backend.api.routes.accounts_helpers import (
     build_status_check_error_item,
     clamp_status_check_timeout,
@@ -70,3 +72,56 @@ def test_extract_last_bot_message_prefers_stored_field():
         == "签到成功"
     )
     assert _extract_last_bot_message({}) == ""
+
+
+def test_natural_sort_key():
+    from backend.utils.names import natural_sort_key
+
+    names = ["11", "1", "9", "账号11", "账号9", "账号1"]
+    sorted_names = sorted(names, key=natural_sort_key)
+    assert sorted_names == ["1", "9", "11", "账号1", "账号9", "账号11"]
+
+
+@pytest.mark.asyncio
+async def test_safe_close_client_handles_uninitialized_client():
+    from tg_signer.core.client import _safe_close_client
+
+    class UninitializedClient:
+        def __init__(self):
+            self.is_connected = True
+            self.is_initialized = False
+            self.disconnected = False
+            self.stopped = False
+
+        async def stop(self):
+            self.stopped = True
+            raise ConnectionError("Client is already terminated")
+
+        async def disconnect(self):
+            self.disconnected = True
+
+    client = UninitializedClient()
+    await _safe_close_client(client)
+    assert client.stopped is False
+    assert client.disconnected is True
+
+
+@pytest.mark.asyncio
+async def test_safe_close_client_handles_initialized_client():
+    from tg_signer.core.client import _safe_close_client
+
+    class InitializedClient:
+        def __init__(self):
+            self.is_connected = True
+            self.is_initialized = True
+            self.stopped = False
+
+        async def stop(self):
+            self.stopped = True
+
+        async def disconnect(self):
+            pass
+
+    client = InitializedClient()
+    await _safe_close_client(client)
+    assert client.stopped is True

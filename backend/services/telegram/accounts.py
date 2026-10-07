@@ -19,7 +19,7 @@ from backend.utils.account_locks import (
     AccountLockTimeout,
     acquire_account_lock_with_timeout,
 )
-from backend.utils.names import validate_storage_name
+from backend.utils.names import natural_sort_key, validate_storage_name
 from backend.utils.proxy import build_proxy_dict
 from backend.utils.storage import move_storage_path
 from backend.utils.tg_session import (
@@ -276,6 +276,12 @@ class TelegramAccountsMixin:
                         continue
 
                     session_exists, session_size = _session_file_info(session_file)
+                    if session_size == 0:
+                        try:
+                            session_file.unlink(missing_ok=True)
+                        except Exception:
+                            pass
+                        continue
                     accounts.append(
                         {
                             **self._account_entry(
@@ -289,7 +295,9 @@ class TelegramAccountsMixin:
                         }
                     )
 
-            self._accounts_cache = sorted(accounts, key=lambda x: x["name"])
+            self._accounts_cache = sorted(
+                accounts, key=lambda x: natural_sort_key(x["name"])
+            )
             self._accounts_cache_ts = time.monotonic()
             return [
                 {**acc, **self._account_status_payload(acc.get("name", ""))}
@@ -323,7 +331,7 @@ class TelegramAccountsMixin:
             return False
 
         session_file = self.session_dir / f"{account_name}.session"
-        return session_file.exists()
+        return session_file.is_file() and session_file.stat().st_size > 0
 
     async def download_account_avatar(self, account_name: str) -> Optional[bytes]:
         """
@@ -435,6 +443,12 @@ class TelegramAccountsMixin:
         account_name = self._normalize_account_name(account_name)
 
         proxy_dict, device_kwargs = _resolve_proxy_and_device_kwargs(account_name)
+
+        session_file = self.session_dir / f"{account_name}.session"
+        if not is_string_session_mode() and not (
+            session_file.is_file() and session_file.stat().st_size > 0
+        ):
+            raise FileNotFoundError(f"账号 {account_name} 的 session 文件不存在或为空")
 
         session_mode = get_session_mode()
         session_string = None
@@ -951,6 +965,17 @@ class TelegramAccountsMixin:
                 get_sign_task_service().rename_account_references(old_name, new_name)
             except Exception as e:
                 logger.warning("迁移账号签到任务引用失败: %s", e)
+
+            try:
+                settings = get_settings()
+                avatar_dir = settings.resolve_workdir() / "avatars"
+                for ext in (".jpg", ".no_avatar"):
+                    old_av = avatar_dir / f"{old_name}{ext}"
+                    new_av = avatar_dir / f"{new_name}{ext}"
+                    if old_av.exists():
+                        self._move_path(old_av, new_av)
+            except Exception:
+                pass
 
             # 刷新缓存
             self._accounts_cache = None

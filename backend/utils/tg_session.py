@@ -10,6 +10,7 @@ from typing import Any, Optional
 
 from backend.core.config import get_settings
 from backend.utils.atomic_io import write_text_atomic
+from backend.utils.names import natural_sort_key
 from backend.utils.time import utc_now, utc_now_iso
 
 # session_string 校验与格式常量统一收敛到 tg_signer.compat（全项目唯一判定入口），
@@ -146,7 +147,7 @@ def _save_account_store(data: dict) -> None:
 
 def list_account_names() -> list[str]:
     data = _load_account_store()
-    return sorted(data["accounts"].keys())
+    return sorted(data["accounts"].keys(), key=natural_sort_key)
 
 
 def get_account_session_string(account_name: str) -> Optional[str]:

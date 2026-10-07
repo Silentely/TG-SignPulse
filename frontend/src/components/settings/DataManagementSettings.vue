@@ -308,6 +308,10 @@ const copyRestoreCommand = async () => {
             :placeholder="t('settings.webdavUrlPlaceholder')"
             class="ui-input"
             autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+            data-lpignore="true"
+            data-form-type="other"
           >
         </div>
 
@@ -316,22 +320,30 @@ const copyRestoreCommand = async () => {
             <label class="ui-label" for="webdav-username">{{ t('settings.webdavUsername') }}</label>
             <input
               id="webdav-username"
+              name="webdav-account-user"
               :value="modelValue.webdavUsername"
               @input="onStringInput('webdavUsername', $event)"
               type="text"
               class="ui-input"
-              autocomplete="username"
+              autocomplete="off"
+              autocapitalize="off"
+              spellcheck="false"
+              data-lpignore="true"
+              data-form-type="other"
             >
           </div>
           <div class="space-y-1.5">
             <label class="ui-label" for="webdav-password">{{ t('settings.webdavPassword') }}</label>
             <input
               id="webdav-password"
+              name="webdav-account-pass"
               :value="modelValue.webdavPassword"
               @input="onStringInput('webdavPassword', $event)"
               type="password"
               class="ui-input"
-              autocomplete="current-password"
+              autocomplete="new-password"
+              data-lpignore="true"
+              data-form-type="other"
               :placeholder="webdavPasswordSet ? t('settings.webdavPasswordSavedHint') : t('settings.webdavPasswordHint')"
             >
           </div>
@@ -346,6 +358,11 @@ const copyRestoreCommand = async () => {
             type="text"
             placeholder="tg-signpulse-backups"
             class="ui-input"
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+            data-lpignore="true"
+            data-form-type="other"
           >
         </div>
 

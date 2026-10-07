@@ -614,7 +614,7 @@ class Client(BaseClient):
                                 # Cleanup before retry
                                 try:
                                     if self.is_connected:
-                                        await self.stop()
+                                        await _safe_close_client(self, timeout=3.0)
                                 except Exception:
                                     pass
 
@@ -642,7 +642,7 @@ class Client(BaseClient):
                             _CLIENT_INSTANCES.pop(self.key, None)
                             try:
                                 if getattr(self, "is_connected", False):
-                                    await self.stop()
+                                    await _safe_close_client(self, timeout=3.0)
                             except Exception:
                                 pass
                     raise exc
@@ -655,7 +655,7 @@ class Client(BaseClient):
             if _CLIENT_REFS[self.key] <= 0:
                 _CLIENT_REFS[self.key] = 0
                 try:
-                    await self.stop()
+                    await _safe_close_client(self, timeout=5.0)
                 except Exception:
                     pass
                 # Remove from cache when no longer in use to prevent memory growth
@@ -764,6 +764,48 @@ def get_proxy(proxy: str = None):
         "username": parse.unquote(r.username) if r.username is not None else None,
         "password": parse.unquote(r.password) if r.password is not None else None,
     }
+
+
+async def _safe_close_client(client, timeout: float = 5.0) -> None:
+    """安全停止/断开 Pyrogram client，避免未初始化的连接调用 stop() 报错且未释放 SQLite。"""
+    try:
+        if (
+            getattr(client, "is_connected", False)
+            and getattr(client, "is_initialized", None) is False
+            and hasattr(client, "disconnect")
+        ):
+            await asyncio.wait_for(client.disconnect(), timeout=timeout)
+        elif hasattr(client, "stop"):
+            await asyncio.wait_for(client.stop(), timeout=timeout)
+        elif hasattr(client, "disconnect") and getattr(client, "is_connected", False):
+            await asyncio.wait_for(client.disconnect(), timeout=timeout)
+    except ConnectionError:
+        # Pyrogram 在未初始化时调用 stop() 会抛出 ConnectionError("Client is already terminated")
+        try:
+            if hasattr(client, "disconnect") and getattr(client, "is_connected", False):
+                await asyncio.wait_for(
+                    client.disconnect(), timeout=max(1.0, timeout / 2)
+                )
+        except Exception:
+            pass
+    except Exception as e:
+        logger.warning("安全关闭客户端失败: %s", e)
+        try:
+            if hasattr(client, "disconnect") and getattr(client, "is_connected", False):
+                await asyncio.wait_for(
+                    client.disconnect(), timeout=max(1.0, timeout / 2)
+                )
+        except Exception:
+            pass
+    finally:
+        try:
+            storage = getattr(client, "storage", None)
+            if storage and hasattr(storage, "close"):
+                res = storage.close()
+                if asyncio.iscoroutine(res):
+                    await asyncio.wait_for(res, timeout=2.0)
+        except Exception:
+            pass
 
 
 def get_client(
@@ -879,7 +921,7 @@ async def close_client_by_name(name: str, workdir: Union[str, pathlib.Path] = ".
             if client:
                 try:
                     if getattr(client, "is_connected", False):
-                        await client.stop()
+                        await _safe_close_client(client, timeout=5.0)
                 except Exception as e:
                     logger.warning("停止客户端 %s 失败: %s", name, e)
                 finally:

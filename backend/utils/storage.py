@@ -140,7 +140,10 @@ def move_storage_path(source: Path, target: Path) -> None:
         return
 
     if target.exists():
-        raise ValueError(f"目标路径已存在: {target}")
+        if target.is_file() and target.stat().st_size == 0:
+            target.unlink(missing_ok=True)
+        else:
+            raise ValueError(f"目标路径已存在: {target}")
 
     target.parent.mkdir(parents=True, exist_ok=True)
     source.replace(target)
