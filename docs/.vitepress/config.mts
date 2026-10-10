@@ -30,8 +30,9 @@ export default defineConfig({
   cleanUrls: true,
   lastUpdated: true,
   ignoreDeadLinks: true,
-  // public/ 为静态资源目录；其中的 .md 仅供 Agent 发现，不作为文档页编译
-  srcExclude: ["**/public/**", "**/superpowers/**"],
+  // public/ 为静态资源目录，其中的 .md 仅供 Agent 发现；superpowers/ 与 rfcs/
+  // 是内部文档，均不作为文档页编译（rfcs/ 与 research/ 同步列在 .gitignore）
+  srcExclude: ["**/public/**", "**/superpowers/**", "**/rfcs/**"],
 
   head: [
     ["link", { rel: "icon", href: `${base}logo.svg`, type: "image/svg+xml" }],
