@@ -114,7 +114,9 @@ def build_sign_task_config(
         "next_task_delay_seconds": float(next_task_delay_seconds)
         if next_task_delay_seconds is not None
         else 2.0,
-        "execution_engine": str(execution_engine).strip() if execution_engine and str(execution_engine).strip() else None,
+        "execution_engine": str(execution_engine).strip()
+        if execution_engine and str(execution_engine).strip()
+        else None,
     }
     if last_run is not None:
         config["last_run"] = last_run

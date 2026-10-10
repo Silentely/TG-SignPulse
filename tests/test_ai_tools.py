@@ -1270,6 +1270,7 @@ class MidFlowTerminalSuccessTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_maybe_stop_after_send_continues_when_next_action_exists(self):
         from types import SimpleNamespace
+
         from tg_signer.core import UserSigner
 
         signer = object.__new__(UserSigner)
@@ -1295,8 +1296,11 @@ class MidFlowTerminalSuccessTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertFalse(signer.context.stop_after_current_action)
 
-    async def test_maybe_stop_after_send_stops_when_stop_flow_on_terminal_explicit(self):
+    async def test_maybe_stop_after_send_stops_when_stop_flow_on_terminal_explicit(
+        self,
+    ):
         from types import SimpleNamespace
+
         from tg_signer.core import UserSigner
 
         signer = object.__new__(UserSigner)

@@ -67,6 +67,7 @@ async def test_terminal_policy_not_triggered_on_action_failure():
         },
     )
     ctx = ScopedFlowContext()
+
     async def mock_executor(node, context):
         return StepOutcome(
             node_id="step_failed",
@@ -94,7 +95,10 @@ async def test_extractor_and_condition_nodes_pipeline():
             "cond_node": ConditionNode(
                 id="cond_node",
                 cases=[
-                    {"condition": "'ABC' in vars.auth_token", "target_id": "step_target"},
+                    {
+                        "condition": "'ABC' in vars.auth_token",
+                        "target_id": "step_target",
+                    },
                 ],
                 default_target_id=TERMINAL_FAIL_ID,
             ),
@@ -135,7 +139,11 @@ async def test_extractor_with_custom_source_field():
         },
     )
     ctx = ScopedFlowContext()
-    ctx.record_step_outcome(StepOutcome(node_id="first_step", status=NodeStatus.SUCCESS, output_text="Code: 665544"))
+    ctx.record_step_outcome(
+        StepOutcome(
+            node_id="first_step", status=NodeStatus.SUCCESS, output_text="Code: 665544"
+        )
+    )
     # 设置中间输出覆盖 last_output
     ctx.last_output = "Another step output without code"
 

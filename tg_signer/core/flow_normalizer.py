@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List
+
 from tg_signer.config import (
     ChooseOptionByImageAction,
     ClickButtonByCalculationProblemAction,
@@ -13,22 +14,23 @@ from tg_signer.config import (
     SendDiceAction,
     SendTextAction,
     SignChatV3,
-    WorkflowStepConfig,
     action_from_step,
 )
 from tg_signer.core.flow_models import (
+    TERMINAL_COMPLETE_ID,
+    TERMINAL_FAIL_ID,
     ActionNode,
     BaseFlowNode,
     ConditionNode,
     ExecutionGraph,
     LoopPolicy,
     TerminalPolicy,
-    TERMINAL_COMPLETE_ID,
-    TERMINAL_FAIL_ID,
 )
+
 
 class GraphValidationError(ValueError):
     """图拓扑结构静态校验失败"""
+
 
 class GraphNormalizer:
     """负责将旧版 SignChatV3 (actions/steps) 归一化为统一的 ExecutionGraph IR"""
@@ -82,7 +84,9 @@ class GraphNormalizer:
     @classmethod
     def _from_workflow_steps(cls, chat: SignChatV3) -> ExecutionGraph:
         nodes: Dict[str, BaseFlowNode] = {}
-        entry_id = chat.initial_step_id or (chat.steps[0].step_id if chat.steps else TERMINAL_COMPLETE_ID)
+        entry_id = chat.initial_step_id or (
+            chat.steps[0].step_id if chat.steps else TERMINAL_COMPLETE_ID
+        )
 
         for step in chat.steps:
             raw_act = action_from_step(step)
@@ -172,7 +176,9 @@ class GraphNormalizer:
         if hasattr(act, "continue_on_error"):
             params["continue_on_error"] = getattr(act, "continue_on_error", False)
         if hasattr(act, "stop_flow_on_terminal"):
-            params["stop_flow_on_terminal"] = getattr(act, "stop_flow_on_terminal", False)
+            params["stop_flow_on_terminal"] = getattr(
+                act, "stop_flow_on_terminal", False
+            )
 
         return action_type, params
 
@@ -185,7 +191,7 @@ class GraphNormalizer:
             raise GraphValidationError(f"初始步骤 {graph.entry_node_id} 不在图节点中")
 
         sentinels = {TERMINAL_COMPLETE_ID, TERMINAL_FAIL_ID, "COMPLETE", "FAIL"}
-        
+
         # 1. 检查边完整性
         for node_id, node in graph.nodes.items():
             if node.next_node_id and node.next_node_id not in sentinels:
@@ -198,7 +204,10 @@ class GraphNormalizer:
                     raise GraphValidationError(
                         f"步骤 {node_id} 的 on_failure_node_id '{node.on_failure_node_id}' 指向不存在的节点"
                     )
-            if node.terminal_branch_target and node.terminal_branch_target not in sentinels:
+            if (
+                node.terminal_branch_target
+                and node.terminal_branch_target not in sentinels
+            ):
                 if node.terminal_branch_target not in graph.nodes:
                     raise GraphValidationError(
                         f"步骤 {node_id} 的 terminal_branch_target '{node.terminal_branch_target}' 指向不存在的节点"
@@ -210,7 +219,11 @@ class GraphNormalizer:
                         raise GraphValidationError(
                             f"条件节点 {node_id} 的目标 '{t_id}' 指向不存在的节点"
                         )
-                if node.default_target_id and node.default_target_id not in sentinels and node.default_target_id not in graph.nodes:
+                if (
+                    node.default_target_id
+                    and node.default_target_id not in sentinels
+                    and node.default_target_id not in graph.nodes
+                ):
                     raise GraphValidationError(
                         f"条件节点 {node_id} 的默认目标 '{node.default_target_id}' 指向不存在的节点"
                     )
@@ -227,7 +240,10 @@ class GraphNormalizer:
                 cycle_steps = rec_stack[cycle_start:]
                 # 环路中若至少存在一个显式声明 allow_loop=True 且 max_visits > 1 的节点，则认为属于合法的循环重试流
                 has_allowed = any(
-                    (graph.nodes[sid].loop_policy.allow_loop and graph.nodes[sid].loop_policy.max_visits > 1)
+                    (
+                        graph.nodes[sid].loop_policy.allow_loop
+                        and graph.nodes[sid].loop_policy.max_visits > 1
+                    )
                     for sid in cycle_steps
                     if sid in graph.nodes
                 )

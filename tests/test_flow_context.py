@@ -18,8 +18,11 @@ def test_scoped_context_variable_resolution():
         )
     )
 
-    rendered = ctx.render("欢迎 {{ account.username }}，验证码是 {{ vars.captcha_code }}，令牌是 {{ steps.login_step.token }}")
+    rendered = ctx.render(
+        "欢迎 {{ account.username }}，验证码是 {{ vars.captcha_code }}，令牌是 {{ steps.login_step.token }}"
+    )
     assert rendered == "欢迎 alice，验证码是 4521，令牌是 XYZ-123"
+
 
 def test_scoped_context_condition_evaluation():
     ctx = ScopedFlowContext()
@@ -36,4 +39,7 @@ def test_scoped_context_condition_evaluation():
     ctx.set_var("non_numeric", "abc")
     assert ctx.eval_condition("vars.non_numeric < 50") is False
     assert ctx.eval_condition("vars.not_exist < 50") is False
-    assert ctx.eval_condition("'XYZ' in prev.output", default_output="Token: XYZ-123") is True
+    assert (
+        ctx.eval_condition("'XYZ' in prev.output", default_output="Token: XYZ-123")
+        is True
+    )

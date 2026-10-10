@@ -832,7 +832,7 @@ class RuntimeStatusResponse(BaseModel):
     uptime_seconds: int = 0
     execution_engine: str = "v3"
     execution_engine_name: str = "Classic (v3)"
-    execution_engine_source: str = "default" 
+    execution_engine_source: str = "default"
 
 
 @router.get("/runtime-status", response_model=RuntimeStatusResponse)
@@ -847,6 +847,7 @@ def runtime_status(
     uptime_seconds = int(time.time() - start_time) if start_time else 0
 
     from tg_signer.core.flow_routing import resolve_execution_engine
+
     eng_code, eng_name, eng_src = resolve_execution_engine(None)
 
     return RuntimeStatusResponse(

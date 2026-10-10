@@ -41,7 +41,9 @@ class TelegramNodeExecutor:
         log_fn = getattr(logger, level.lower(), logger.info)
         log_fn(msg)
 
-    async def __call__(self, node: BaseFlowNode, context: ScopedFlowContext) -> StepOutcome:
+    async def __call__(
+        self, node: BaseFlowNode, context: ScopedFlowContext
+    ) -> StepOutcome:
         raw_act = node.metadata.get("raw_action")
         if raw_act is None:
             raw_act = node.params
@@ -52,8 +54,12 @@ class TelegramNodeExecutor:
         skip_pat = getattr(raw_act, "skip_if_matched", None)
         if skip_pat:
             skip_pat_str = str(skip_pat).strip()
-            legacy_last_out = getattr(runner_ctx, "last_output", "") if runner_ctx else ""
-            legacy_last_recv = getattr(runner_ctx, "last_received_text", "") if runner_ctx else ""
+            legacy_last_out = (
+                getattr(runner_ctx, "last_output", "") if runner_ctx else ""
+            )
+            legacy_last_recv = (
+                getattr(runner_ctx, "last_received_text", "") if runner_ctx else ""
+            )
             match_src = str(
                 context.last_output
                 or (isinstance(legacy_last_out, str) and legacy_last_out)
@@ -71,7 +77,9 @@ class TelegramNodeExecutor:
                     except re.error:
                         pass
             if matched:
-                self._log(f"步骤 {node.id} 满足跳过条件（skip_if_matched='{skip_pat_str}'），跳过此步骤")
+                self._log(
+                    f"步骤 {node.id} 满足跳过条件（skip_if_matched='{skip_pat_str}'），跳过此步骤"
+                )
                 return StepOutcome(
                     node_id=node.id,
                     status=NodeStatus.SKIPPED,
@@ -83,7 +91,9 @@ class TelegramNodeExecutor:
         step_outs = getattr(runner_ctx, "step_outputs", None) if runner_ctx else None
         if not isinstance(step_outs, dict):
             step_outs = {}
-        legacy_last_recv = getattr(runner_ctx, "last_received_text", "") if runner_ctx else ""
+        legacy_last_recv = (
+            getattr(runner_ctx, "last_received_text", "") if runner_ctx else ""
+        )
         if not isinstance(legacy_last_recv, str):
             legacy_last_recv = ""
 
@@ -142,7 +152,7 @@ class TelegramNodeExecutor:
                 action_delay = 0.0
         elif getattr(exec_action, "delay", None) is not None:
             try:
-                action_delay = float(getattr(exec_action, "delay") or 0.0)
+                action_delay = float(exec_action.delay or 0.0)
             except (ValueError, TypeError):
                 action_delay = 0.0
 
@@ -167,12 +177,19 @@ class TelegramNodeExecutor:
                 matched_term = True
                 runner_ctx.stop_after_current_action = False  # 物理清零，阻止扩散
 
-            legacy_last_out = getattr(runner_ctx, "last_output", "") if runner_ctx else ""
-            output_text = str(legacy_last_out if isinstance(legacy_last_out, str) else "")
+            legacy_last_out = (
+                getattr(runner_ctx, "last_output", "") if runner_ctx else ""
+            )
+            output_text = str(
+                legacy_last_out if isinstance(legacy_last_out, str) else ""
+            )
 
             if res is False:
                 if cont_on_error:
-                    self._log(f"步骤 {node.id} 执行返回失败，已配置容错继续（continue_on_error）", level="WARNING")
+                    self._log(
+                        f"步骤 {node.id} 执行返回失败，已配置容错继续（continue_on_error）",
+                        level="WARNING",
+                    )
                     return StepOutcome(
                         node_id=node.id,
                         status=NodeStatus.SKIPPED,
@@ -195,7 +212,10 @@ class TelegramNodeExecutor:
         except Exception as exc:
             self._log(f"步骤 {node.id} 执行抛出异常: {exc}", level="ERROR")
             if cont_on_error:
-                self._log(f"步骤 {node.id} 出现错误，已配置容错继续（continue_on_error）: {exc}", level="WARNING")
+                self._log(
+                    f"步骤 {node.id} 出现错误，已配置容错继续（continue_on_error）: {exc}",
+                    level="WARNING",
+                )
                 return StepOutcome(
                     node_id=node.id,
                     status=NodeStatus.SKIPPED,

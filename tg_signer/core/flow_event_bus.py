@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger("tg_signer.flow_event_bus")
 
+
 @dataclass(frozen=True)
 class TelegramMessageEvent:
     event_id: str
@@ -20,12 +21,15 @@ class TelegramMessageEvent:
     text: str
     occurred_at: float
 
+
 class TelegramEventBus:
     """带话题隔离、水位线回补与有界通道的响应式消息事件分发器"""
 
     def __init__(self, buffer_size: int = 50, buffer_ttl_seconds: float = 300.0):
         self._subscribers: Dict[Tuple[int, Optional[int]], List[asyncio.Queue]] = {}
-        self._history_buffers: Dict[Tuple[int, Optional[int]], List[TelegramMessageEvent]] = {}
+        self._history_buffers: Dict[
+            Tuple[int, Optional[int]], List[TelegramMessageEvent]
+        ] = {}
         self._buffer_size = buffer_size
         self._buffer_ttl = buffer_ttl_seconds
 
@@ -68,7 +72,9 @@ class TelegramEventBus:
         buf = self._history_buffers.setdefault(key, [])
         buf.append(event)
         self._history_buffers[key] = [
-            e for e in buf[-self._buffer_size:] if now - e.occurred_at <= self._buffer_ttl
+            e
+            for e in buf[-self._buffer_size :]
+            if now - e.occurred_at <= self._buffer_ttl
         ]
 
         for q in self._subscribers.get(key, []):

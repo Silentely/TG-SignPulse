@@ -268,13 +268,17 @@ async def test_issue_13_multi_step_actions_not_stopped_by_terminal_success():
     async def mock_wait_for(c, a, next_action=None):
         executed_actions.append(a)
         if a.text == "/qd":
-            if not signer._should_stop_flow_after_action(action=a, next_action=next_action):
+            if not signer._should_stop_flow_after_action(
+                action=a, next_action=next_action
+            ):
                 signer.context.stop_after_current_action = False
             else:
                 signer.context.stop_after_current_action = True
         return True
 
-    signer._should_stop_flow_after_action = SignerMatchersMixin._should_stop_flow_after_action.__get__(signer)
+    signer._should_stop_flow_after_action = (
+        SignerMatchersMixin._should_stop_flow_after_action.__get__(signer)
+    )
     signer.wait_for = mock_wait_for
     await signer.sign_a_chat(chat)
 
@@ -293,7 +297,9 @@ async def test_action_stop_flow_on_terminal_explicit():
         chat_id=12345,
         name="test_bot",
         actions=[
-            SendTextAction(action=SupportAction.SEND_TEXT, text="/qd", stop_flow_on_terminal=True),
+            SendTextAction(
+                action=SupportAction.SEND_TEXT, text="/qd", stop_flow_on_terminal=True
+            ),
             SendTextAction(action=SupportAction.SEND_TEXT, text="/start"),
         ],
     )
@@ -307,7 +313,9 @@ async def test_action_stop_flow_on_terminal_explicit():
                 signer.context.stop_after_current_action = True
         return True
 
-    signer._should_stop_flow_after_action = SignerMatchersMixin._should_stop_flow_after_action.__get__(signer)
+    signer._should_stop_flow_after_action = (
+        SignerMatchersMixin._should_stop_flow_after_action.__get__(signer)
+    )
     signer.wait_for = mock_wait_for
     await signer.sign_a_chat(chat)
 

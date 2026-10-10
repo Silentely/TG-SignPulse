@@ -58,7 +58,13 @@ async def test_adapter_skip_if_matched():
     )
     graph = GraphNormalizer.from_chat(chat)
     ctx = ScopedFlowContext()
-    ctx.record_step_outcome(StepOutcome(node_id="step_0", status=NodeStatus.SUCCESS, output_text="今日已签到，请明日再来"))
+    ctx.record_step_outcome(
+        StepOutcome(
+            node_id="step_0",
+            status=NodeStatus.SUCCESS,
+            output_text="今日已签到，请明日再来",
+        )
+    )
 
     mock_runner = MagicMock()
     mock_runner.wait_for = AsyncMock(return_value=True)
@@ -142,7 +148,9 @@ async def test_adapter_retry_policy_with_transient_error():
 
     mock_runner = MagicMock()
     # 前2次抛出网络异常，第3次成功
-    mock_runner.wait_for = AsyncMock(side_effect=[ConnectionError("Net reset"), TimeoutError("Timed out"), True])
+    mock_runner.wait_for = AsyncMock(
+        side_effect=[ConnectionError("Net reset"), TimeoutError("Timed out"), True]
+    )
     mock_runner.context = None
 
     chat = SignChatV3(chat_id=123, actions=[])

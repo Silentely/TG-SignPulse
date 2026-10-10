@@ -751,7 +751,9 @@ class SignerMatchersMixin:
             if not self._should_stop_flow_after_action(
                 action=action, next_action=next_action
             ):
-                self.log(f"按钮「{action_text}」后已检测到当前步骤完成响应，继续后续动作")
+                self.log(
+                    f"按钮「{action_text}」后已检测到当前步骤完成响应，继续后续动作"
+                )
                 return "next"
             self.context.stop_after_current_action = True
             self.log(f"按钮「{action_text}」后已检测到任务完成响应，将跳过后续动作")

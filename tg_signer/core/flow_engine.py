@@ -51,7 +51,11 @@ class PulseFlowEngine:
             node = graph.nodes.get(current_id)
             if not node:
                 logger.error(f"工作流引用了不存在的步骤: {current_id}")
-                return {"status": "failed", "path": executed_path, "error": f"NodeNotFound: {current_id}"}
+                return {
+                    "status": "failed",
+                    "path": executed_path,
+                    "error": f"NodeNotFound: {current_id}",
+                }
 
             visits = visit_counts.get(node.id, 0)
             if visits >= node.loop_policy.max_visits:
@@ -74,7 +78,9 @@ class PulseFlowEngine:
                     elif isinstance(node, ConditionNode):
                         outcome = self._run_condition_node(node, ctx)
                     else:
-                        outcome = await asyncio.wait_for(executor(node, ctx), timeout=node.timeout_seconds)
+                        outcome = await asyncio.wait_for(
+                            executor(node, ctx), timeout=node.timeout_seconds
+                        )
 
                     if outcome.signal != FlowSignal.RETRY_NODE:
                         break
@@ -82,14 +88,25 @@ class PulseFlowEngine:
                     exc_name = type(exc).__name__
                     allowed = node.retry_policy.retry_on_exceptions
                     if allowed and exc_name not in allowed:
-                        outcome = StepOutcome(node_id=node.id, status=NodeStatus.FAILED, error=exc, output_text=str(exc))
+                        outcome = StepOutcome(
+                            node_id=node.id,
+                            status=NodeStatus.FAILED,
+                            error=exc,
+                            output_text=str(exc),
+                        )
                         break
 
                     if attempt >= node.retry_policy.max_attempts:
-                        outcome = StepOutcome(node_id=node.id, status=NodeStatus.FAILED, error=exc, output_text=str(exc))
+                        outcome = StepOutcome(
+                            node_id=node.id,
+                            status=NodeStatus.FAILED,
+                            error=exc,
+                            output_text=str(exc),
+                        )
                         break
                     backoff = min(
-                        node.retry_policy.backoff_seconds * (node.retry_policy.backoff_multiplier ** (attempt - 1)),
+                        node.retry_policy.backoff_seconds
+                        * (node.retry_policy.backoff_multiplier ** (attempt - 1)),
                         node.retry_policy.max_backoff_seconds,
                     )
                     await asyncio.sleep(backoff)
@@ -116,23 +133,40 @@ class PulseFlowEngine:
                 continue
 
             # 处理终态拦截策略（安全闸门：必须成功执行动作才允许触发终态成功）
-            if outcome.matched_terminal and outcome.status in {NodeStatus.SUCCESS, NodeStatus.TERMINAL_EARLY}:
+            if outcome.matched_terminal and outcome.status in {
+                NodeStatus.SUCCESS,
+                NodeStatus.TERMINAL_EARLY,
+            }:
                 if node.terminal_policy == TerminalPolicy.STOP_FLOW:
-                    logger.info(f"节点 {node.id} 匹配到终态且配置了 STOP_FLOW，流程成功提前结束")
+                    logger.info(
+                        f"节点 {node.id} 匹配到终态且配置了 STOP_FLOW，流程成功提前结束"
+                    )
                     current_id = TERMINAL_COMPLETE_ID
                     break
                 elif node.terminal_policy == TerminalPolicy.BRANCH_TO:
-                    current_id = node.terminal_branch_target or node.next_node_id or TERMINAL_COMPLETE_ID
+                    current_id = (
+                        node.terminal_branch_target
+                        or node.next_node_id
+                        or TERMINAL_COMPLETE_ID
+                    )
                     continue
 
             # 拓扑推进（SKIPPED 正常推进，严禁失败流入成功终态）
-            if outcome.status in {NodeStatus.SUCCESS, NodeStatus.TERMINAL_EARLY, NodeStatus.SKIPPED}:
+            if outcome.status in {
+                NodeStatus.SUCCESS,
+                NodeStatus.TERMINAL_EARLY,
+                NodeStatus.SKIPPED,
+            }:
                 current_id = node.next_node_id or TERMINAL_COMPLETE_ID
             else:
-                last_failure_error = outcome.output_text or (str(outcome.error) if outcome.error else None) or f"Node {node.id} failed"
+                last_failure_error = (
+                    outcome.output_text
+                    or (str(outcome.error) if outcome.error else None)
+                    or f"Node {node.id} failed"
+                )
                 current_id = node.on_failure_node_id or TERMINAL_FAIL_ID
 
-        is_success = (current_id == TERMINAL_COMPLETE_ID)
+        is_success = current_id == TERMINAL_COMPLETE_ID
         res = {
             "status": "success" if is_success else "failed",
             "path": executed_path,
@@ -142,7 +176,9 @@ class PulseFlowEngine:
             res["error"] = last_failure_error
         return res
 
-    def _run_extractor_node(self, node: ExtractorNode, ctx: ScopedFlowContext) -> StepOutcome:
+    def _run_extractor_node(
+        self, node: ExtractorNode, ctx: ScopedFlowContext
+    ) -> StepOutcome:
         src_text = ""
         if node.source_field:
             raw_src = ctx._resolve_path(ctx.build_scope_dict(), node.source_field)
@@ -167,7 +203,9 @@ class PulseFlowEngine:
             output_text=f"Extracted {len(extracted)} vars",
         )
 
-    def _run_condition_node(self, node: ConditionNode, ctx: ScopedFlowContext) -> StepOutcome:
+    def _run_condition_node(
+        self, node: ConditionNode, ctx: ScopedFlowContext
+    ) -> StepOutcome:
         for case in node.cases:
             cond_expr = case.get("condition", "")
             target_id = case.get("target_id")

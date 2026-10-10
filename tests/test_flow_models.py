@@ -30,6 +30,7 @@ def test_flow_node_types_and_defaults():
     assert action_node.loop_policy.max_visits == 3
     assert action_node.params["text"] == "/checkin"
 
+
 def test_condition_and_extractor_nodes():
     cond_node = ConditionNode(
         id="check_balance",
@@ -51,6 +52,7 @@ def test_condition_and_extractor_nodes():
     )
     assert ext_node.node_type == NodeType.EXTRACTOR
     assert ext_node.regex == r"验证码：(?P<code>\d+)"
+
 
 def test_step_outcome_defaults():
     outcome = StepOutcome(

@@ -9,12 +9,12 @@ from tg_signer.config import (
     WorkflowStepConfig,
 )
 from tg_signer.core.flow_models import (
+    TERMINAL_COMPLETE_ID,
+    TERMINAL_FAIL_ID,
     ActionNode,
     ConditionNode,
     ExecutionGraph,
     LoopPolicy,
-    TERMINAL_COMPLETE_ID,
-    TERMINAL_FAIL_ID,
     TerminalPolicy,
 )
 from tg_signer.core.flow_normalizer import GraphNormalizer, GraphValidationError
@@ -100,7 +100,10 @@ def test_graph_validator_detects_dangling_branch_and_condition_targets():
             )
         },
     )
-    with pytest.raises(GraphValidationError, match="terminal_branch_target 's_missing' 指向不存在的节点"):
+    with pytest.raises(
+        GraphValidationError,
+        match="terminal_branch_target 's_missing' 指向不存在的节点",
+    ):
         GraphNormalizer.validate_graph(bad_branch_graph)
 
     # 2. ConditionNode 分支目标悬空
@@ -114,7 +117,9 @@ def test_graph_validator_detects_dangling_branch_and_condition_targets():
             )
         },
     )
-    with pytest.raises(GraphValidationError, match="条件节点 c1 的目标 'c_missing' 指向不存在的节点"):
+    with pytest.raises(
+        GraphValidationError, match="条件节点 c1 的目标 'c_missing' 指向不存在的节点"
+    ):
         GraphNormalizer.validate_graph(bad_cond_graph)
 
 
@@ -124,10 +129,14 @@ def test_graph_validator_detects_unallowed_cycle():
         entry_node_id="s1",
         nodes={
             "s1": ActionNode(id="s1", next_node_id="s2"),
-            "s2": ActionNode(id="s2", next_node_id="s1", loop_policy=LoopPolicy(allow_loop=False)),
+            "s2": ActionNode(
+                id="s2", next_node_id="s1", loop_policy=LoopPolicy(allow_loop=False)
+            ),
         },
     )
-    with pytest.raises(GraphValidationError, match="检测到未允许的环路: s1 -> s2 -> s1"):
+    with pytest.raises(
+        GraphValidationError, match="检测到未允许的环路: s1 -> s2 -> s1"
+    ):
         GraphNormalizer.validate_graph(cycle_graph)
 
 
@@ -136,7 +145,11 @@ def test_graph_validator_accepts_allowed_cycle():
     allowed_cycle_graph = ExecutionGraph(
         entry_node_id="s1",
         nodes={
-            "s1": ActionNode(id="s1", next_node_id="s2", loop_policy=LoopPolicy(allow_loop=True, max_visits=3)),
+            "s1": ActionNode(
+                id="s1",
+                next_node_id="s2",
+                loop_policy=LoopPolicy(allow_loop=True, max_visits=3),
+            ),
             "s2": ActionNode(id="s2", next_node_id="s1"),
         },
     )

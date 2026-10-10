@@ -160,11 +160,11 @@ class SignerRunnerMixin:
         from tg_signer.core.flow_routing import ENGINE_V4, resolve_execution_engine
 
         task_engine = getattr(getattr(self, "config", None), "execution_engine", None)
-        engine_code, engine_display, engine_source = resolve_execution_engine(chat, task_engine=task_engine)
+        engine_code, engine_display, engine_source = resolve_execution_engine(
+            chat, task_engine=task_engine
+        )
         if engine_code == ENGINE_V4:
-            self.log(
-                f"当前任务使用执行引擎: {engine_display} (来源: {engine_source})"
-            )
+            self.log(f"当前任务使用执行引擎: {engine_display} (来源: {engine_source})")
             from tg_signer.core.flow_adapter import TelegramNodeExecutor
             from tg_signer.core.flow_context import ScopedFlowContext
             from tg_signer.core.flow_engine import PulseFlowEngine
@@ -176,7 +176,10 @@ class SignerRunnerMixin:
             engine = PulseFlowEngine()
             flow_res = await engine.run(graph, ctx, executor)
             if flow_res.get("status") != "success":
-                err_detail = flow_res.get("error") or f"steps={flow_res.get('steps')}, path={flow_res.get('path')}"
+                err_detail = (
+                    flow_res.get("error")
+                    or f"steps={flow_res.get('steps')}, path={flow_res.get('path')}"
+                )
                 err_msg = f"PulseFlow 执行失败: {err_detail}"
                 raise RuntimeError(err_msg)
             return True

@@ -158,7 +158,9 @@ def normalize_global_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
             normalized["execution_engine"] = "v3"
         else:
             val_eng = str(raw_eng).strip().lower()
-            normalized["execution_engine"] = val_eng if val_eng in {"v4", "v3"} else "v3"
+            normalized["execution_engine"] = (
+                val_eng if val_eng in {"v4", "v3"} else "v3"
+            )
 
     # WebDAV 地址/用户名：去空白，空值归一为 None
     for key in ("webdav_url", "webdav_username"):

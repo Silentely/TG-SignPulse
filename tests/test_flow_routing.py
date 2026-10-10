@@ -2,15 +2,15 @@
 import os
 from unittest.mock import MagicMock, patch
 
+from backend.services.sign_task_config_build import (
+    build_sign_task_config,
+    resolve_update_field_values,
+)
 from tg_signer.config import SignChatV3
 from tg_signer.core.flow_routing import (
     ENGINE_V3,
     ENGINE_V4,
     resolve_execution_engine,
-)
-from backend.services.sign_task_config_build import (
-    build_sign_task_config,
-    resolve_update_field_values,
 )
 
 
@@ -123,6 +123,7 @@ def test_routing_env_boolean_variants():
 
 def test_sign_config_v3_parses_execution_engine():
     from tg_signer.config import SignConfigV3
+
     cfg = SignConfigV3(
         chats=[SignChatV3(chat_id=123, actions=[])],
         sign_at="08:00",
@@ -135,24 +136,34 @@ def test_aggregate_tasks_preserves_execution_engine():
     from backend.services.sign_task_group import aggregate_tasks
 
     tasks = [
-        {"task_group_id": "grp1", "name": "task1", "account_name": "acc1", "execution_engine": "v4"},
+        {
+            "task_group_id": "grp1",
+            "name": "task1",
+            "account_name": "acc1",
+            "execution_engine": "v4",
+        },
         {"task_group_id": "grp1", "name": "task1", "account_name": "acc2"},
     ]
-    grouped = aggregate_tasks(tasks, normalize_account_names=lambda names, primary: list(names or [primary]))
+    grouped = aggregate_tasks(
+        tasks, normalize_account_names=lambda names, primary: list(names or [primary])
+    )
     assert len(grouped) == 1
     assert grouped[0]["execution_engine"] == "v4"
 
 
 def test_clone_task_preserves_execution_engine():
     from backend.services.sign_tasks import SignTaskService
+
     svc = SignTaskService.__new__(SignTaskService)
-    svc.get_task = MagicMock(return_value={
-        "name": "task1",
-        "sign_at": "08:00",
-        "chats": [],
-        "account_name": "acc1",
-        "execution_engine": "v4",
-    })
+    svc.get_task = MagicMock(
+        return_value={
+            "name": "task1",
+            "sign_at": "08:00",
+            "chats": [],
+            "account_name": "acc1",
+            "execution_engine": "v4",
+        }
+    )
     svc._find_related_task_infos = MagicMock(return_value=[])
     svc.create_task = MagicMock(return_value={"status": "ok"})
 
