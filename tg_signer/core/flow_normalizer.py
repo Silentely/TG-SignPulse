@@ -1,8 +1,7 @@
 # tg_signer/core/flow_normalizer.py
 from __future__ import annotations
 
-from typing import Any, Dict
-
+from typing import Any, Dict, List
 from tg_signer.config import (
     ChooseOptionByImageAction,
     ClickButtonByCalculationProblemAction,
@@ -17,15 +16,15 @@ from tg_signer.config import (
     action_from_step,
 )
 from tg_signer.core.flow_models import (
-    TERMINAL_COMPLETE_ID,
-    TERMINAL_FAIL_ID,
     ActionNode,
     BaseFlowNode,
+    ConditionNode,
     ExecutionGraph,
     LoopPolicy,
     TerminalPolicy,
+    TERMINAL_COMPLETE_ID,
+    TERMINAL_FAIL_ID,
 )
-
 
 class GraphValidationError(ValueError):
     """图拓扑结构静态校验失败"""
@@ -62,13 +61,17 @@ class GraphNormalizer:
 
             action_type, params = cls._extract_action_type_and_params(act)
 
+            # 若配置了 continue_on_error，失败后亦可继续走向下一步
+            cont_on_err = getattr(act, "continue_on_error", False)
+            fail_id = next_id if cont_on_err else TERMINAL_FAIL_ID
+
             node = ActionNode(
                 id=node_id,
                 name=f"Action-{i + 1}",
                 action_type=action_type,
                 params=params,
                 next_node_id=next_id,
-                on_failure_node_id=TERMINAL_FAIL_ID,
+                on_failure_node_id=fail_id,
                 terminal_policy=term_policy,
                 metadata={"raw_action": act},
             )
@@ -164,13 +167,15 @@ class GraphNormalizer:
 
     @classmethod
     def validate_graph(cls, graph: ExecutionGraph) -> None:
-        """检查悬空边与死循环"""
+        """检查悬空边、分支目标与死循环"""
         if not graph.nodes:
             raise GraphValidationError("执行图不能为空")
         if graph.entry_node_id not in graph.nodes:
             raise GraphValidationError(f"初始步骤 {graph.entry_node_id} 不在图节点中")
 
         sentinels = {TERMINAL_COMPLETE_ID, TERMINAL_FAIL_ID, "COMPLETE", "FAIL"}
+        
+        # 1. 检查边完整性
         for node_id, node in graph.nodes.items():
             if node.next_node_id and node.next_node_id not in sentinels:
                 if node.next_node_id not in graph.nodes:
@@ -182,3 +187,65 @@ class GraphNormalizer:
                     raise GraphValidationError(
                         f"步骤 {node_id} 的 on_failure_node_id '{node.on_failure_node_id}' 指向不存在的节点"
                     )
+            if node.terminal_branch_target and node.terminal_branch_target not in sentinels:
+                if node.terminal_branch_target not in graph.nodes:
+                    raise GraphValidationError(
+                        f"步骤 {node_id} 的 terminal_branch_target '{node.terminal_branch_target}' 指向不存在的节点"
+                    )
+            if isinstance(node, ConditionNode):
+                for c in node.cases:
+                    t_id = c.get("target_id")
+                    if t_id and t_id not in sentinels and t_id not in graph.nodes:
+                        raise GraphValidationError(
+                            f"条件节点 {node_id} 的目标 '{t_id}' 指向不存在的节点"
+                        )
+                if node.default_target_id and node.default_target_id not in sentinels and node.default_target_id not in graph.nodes:
+                    raise GraphValidationError(
+                        f"条件节点 {node_id} 的默认目标 '{node.default_target_id}' 指向不存在的节点"
+                    )
+
+        # 2. 环路检测 (DFS)
+        visited = set()
+        rec_stack: List[str] = []
+
+        def _dfs(cur: str):
+            if cur in sentinels or cur not in graph.nodes:
+                return
+            if cur in rec_stack:
+                cycle_start = rec_stack.index(cur)
+                cycle_steps = rec_stack[cycle_start:]
+                for sid in cycle_steps:
+                    st = graph.nodes.get(sid)
+                    if not st or not st.loop_policy.allow_loop:
+                        raise GraphValidationError(
+                            f"检测到未允许的环路: {' -> '.join(cycle_steps)} -> {cur}"
+                        )
+                return
+
+            if cur in visited:
+                return
+
+            visited.add(cur)
+            rec_stack.append(cur)
+
+            cur_node = graph.nodes[cur]
+            neighbors = []
+            if cur_node.next_node_id:
+                neighbors.append(cur_node.next_node_id)
+            if cur_node.on_failure_node_id:
+                neighbors.append(cur_node.on_failure_node_id)
+            if cur_node.terminal_branch_target:
+                neighbors.append(cur_node.terminal_branch_target)
+            if isinstance(cur_node, ConditionNode):
+                for c in cur_node.cases:
+                    if c.get("target_id"):
+                        neighbors.append(c["target_id"])
+                if cur_node.default_target_id:
+                    neighbors.append(cur_node.default_target_id)
+
+            for nxt in neighbors:
+                _dfs(nxt)
+
+            rec_stack.pop()
+
+        _dfs(graph.entry_node_id)

@@ -9,6 +9,10 @@ from tg_signer.config import (
     WorkflowStepConfig,
 )
 from tg_signer.core.flow_models import (
+    ActionNode,
+    ConditionNode,
+    ExecutionGraph,
+    LoopPolicy,
     TERMINAL_COMPLETE_ID,
     TERMINAL_FAIL_ID,
     TerminalPolicy,
@@ -17,7 +21,6 @@ from tg_signer.core.flow_normalizer import GraphNormalizer, GraphValidationError
 
 
 def test_normalize_legacy_actions_with_exact_fields():
-    # 严格对齐真实模型字段：ChooseOptionByImageAction 只有 ai_prompt 字段
     chat = SignChatV3(
         chat_id=12345,
         actions=[
@@ -44,8 +47,8 @@ def test_normalize_legacy_actions_with_exact_fields():
     assert node2.next_node_id == TERMINAL_COMPLETE_ID
     assert node2.terminal_policy == TerminalPolicy.STOP_FLOW
 
+
 def test_normalize_workflow_steps_with_config_dict():
-    # 严格对齐真实模型字段：WorkflowStepConfig 使用 config 字典
     chat = SignChatV3(
         chat_id=12345,
         initial_step_id="step_a",
@@ -75,12 +78,54 @@ def test_normalize_workflow_steps_with_config_dict():
     assert node_a.loop_policy.allow_loop is True
     assert node_a.loop_policy.max_visits == 3
 
+
 def test_graph_validator_detects_dangling_nodes():
-    # 验证静态拓扑校验器检测悬空目标节点
-    from tg_signer.core.flow_models import ActionNode, ExecutionGraph
     bad_graph = ExecutionGraph(
         entry_node_id="s1",
         nodes={"s1": ActionNode(id="s1", next_node_id="s_missing")},
     )
     with pytest.raises(GraphValidationError, match="指向不存在的节点"):
         GraphNormalizer.validate_graph(bad_graph)
+
+
+def test_graph_validator_detects_dangling_branch_and_condition_targets():
+    # 1. terminal_branch_target 悬空
+    bad_branch_graph = ExecutionGraph(
+        entry_node_id="s1",
+        nodes={
+            "s1": ActionNode(
+                id="s1",
+                next_node_id=TERMINAL_COMPLETE_ID,
+                terminal_branch_target="s_missing",
+            )
+        },
+    )
+    with pytest.raises(GraphValidationError, match="terminal_branch_target 's_missing' 指向不存在的节点"):
+        GraphNormalizer.validate_graph(bad_branch_graph)
+
+    # 2. ConditionNode 分支目标悬空
+    bad_cond_graph = ExecutionGraph(
+        entry_node_id="c1",
+        nodes={
+            "c1": ConditionNode(
+                id="c1",
+                cases=[{"condition": "x > 1", "target_id": "c_missing"}],
+                default_target_id=TERMINAL_COMPLETE_ID,
+            )
+        },
+    )
+    with pytest.raises(GraphValidationError, match="条件节点 c1 的目标 'c_missing' 指向不存在的节点"):
+        GraphNormalizer.validate_graph(bad_cond_graph)
+
+
+def test_graph_validator_detects_unallowed_cycle():
+    # 检测未声明 allow_loop 的自环或环路
+    cycle_graph = ExecutionGraph(
+        entry_node_id="s1",
+        nodes={
+            "s1": ActionNode(id="s1", next_node_id="s2"),
+            "s2": ActionNode(id="s2", next_node_id="s1", loop_policy=LoopPolicy(allow_loop=False)),
+        },
+    )
+    with pytest.raises(GraphValidationError, match="检测到未允许的环路: s1 -> s2 -> s1"):
+        GraphNormalizer.validate_graph(cycle_graph)
