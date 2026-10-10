@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import threading
-
 import pytest
 
 from backend.utils.cache import TTLCache
+from tests.utils.helpers import run_threads_together
 
 
 class _FakeMonotonic:
@@ -102,21 +101,8 @@ class TestTTLCache:
         """一次性消费：并发 pop 同一 key 只应有一次成功。"""
         cache = TTLCache(maxsize=10, ttl=60.0)
         cache.set("once", "v")
-        results: list[object] = []
-        lock = threading.Lock()
-        barrier = threading.Barrier(8)
 
-        def _pop():
-            barrier.wait()
-            value = cache.pop("once")
-            with lock:
-                results.append(value)
-
-        threads = [threading.Thread(target=_pop) for _ in range(8)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
+        results = run_threads_together(lambda _index: cache.pop("once"), 8)
 
         assert results.count("v") == 1
         assert results.count(None) == 7

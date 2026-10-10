@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -11,6 +10,7 @@ from backend.services.stream_tickets import (
     PURPOSE_TASK_RUN_WS,
     StreamTicketStore,
 )
+from tests.utils.helpers import run_threads_together
 
 
 class TestStreamTicketStore:
@@ -41,14 +41,9 @@ class TestStreamTicketStore:
         ticket = store.issue(user_id=7, username="u", purpose=PURPOSE_SIGN_HISTORY_SSE)
 
         workers = 16
-        barrier = threading.Barrier(workers)
-
-        def consume_once(_index: int) -> object:
-            barrier.wait()
-            return store.consume(ticket, PURPOSE_SIGN_HISTORY_SSE)
-
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            results = list(pool.map(consume_once, range(workers)))
+        results = run_threads_together(
+            lambda _index: store.consume(ticket, PURPOSE_SIGN_HISTORY_SSE), workers
+        )
 
         winners = [r for r in results if r is not None]
         assert len(winners) == 1

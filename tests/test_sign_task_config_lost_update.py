@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from backend.utils.atomic_io import path_write_lock, read_json_safe, write_json_atomic
+from tests.utils.helpers import run_threads_together
 
 
 class TestPathWriteLock:
@@ -46,21 +47,14 @@ class TestPathWriteLock:
         p = tmp_path / "config.json"
         write_json_atomic(p, {"n": 0})
 
-        barrier = threading.Barrier(2)
-
-        def worker():
-            barrier.wait()
+        def worker(_index: int):
             for _ in range(20):
                 with path_write_lock(p):
                     data = read_json_safe(p, default={}) or {}
                     data["n"] = data.get("n", 0) + 1
                     write_json_atomic(p, data)
 
-        threads = [threading.Thread(target=worker) for _ in range(2)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join(timeout=20)
+        run_threads_together(worker, 2)
 
         assert read_json_safe(p, default={})["n"] == 40
 
@@ -112,24 +106,16 @@ class TestNoLostUpdate:
 
     def test_with_lock_both_changes_survive(self, config_file):
         """持路径锁并发读-改-写不同字段时，两项更改都存活。"""
-        barrier = threading.Barrier(2)
+        changes = [("sign_at", "09:00"), ("jitter_seconds", 30)]
 
-        def write_field(field: str, value):
-            barrier.wait()
+        def write_field(index: int):
+            field, value = changes[index]
             with path_write_lock(config_file):
                 data = read_json_safe(config_file, default={}) or {}
                 data[field] = value
                 write_json_atomic(config_file, data)
 
-        threads = [
-            threading.Thread(target=write_field, args=("sign_at", "09:00")),
-            threading.Thread(target=write_field, args=("jitter_seconds", 30)),
-        ]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join(timeout=20)
-        assert not any(t.is_alive() for t in threads)
+        run_threads_together(write_field, len(changes))
 
         result = read_json_safe(config_file, default={}) or {}
         assert result["sign_at"] == "09:00"
@@ -143,21 +129,15 @@ class TestNoLostUpdate:
 
         workers = 4
         rounds = 15
-        barrier = threading.Barrier(workers)
 
-        def worker():
-            barrier.wait()
+        def worker(_index: int):
             for _ in range(rounds):
                 with path_write_lock(p):
                     data = read_json_safe(p, default={}) or {}
                     data["n"] = data.get("n", 0) + 1
                     write_json_atomic(p, data)
 
-        threads = [threading.Thread(target=worker) for _ in range(workers)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join(timeout=30)
+        run_threads_together(worker, workers)
 
         assert read_json_safe(p, default={})["n"] == workers * rounds
 
@@ -236,30 +216,19 @@ class TestSignTaskMetadataUsesLock:
     ):
         """并发字段写与 last_run 回写都存活（无丢失更新）。"""
         config_file = self._create_task(service, monkeypatch)
-        barrier = threading.Barrier(2)
 
-        def metadata_writer():
-            barrier.wait()
-            service._set_task_last_run_metadata(
-                "t", "acc1", {"time": "2026-09-28T08:00:00Z", "success": True}
-            )
-
-        def field_writer():
-            barrier.wait()
+        def write(index: int):
+            if index == 0:
+                service._set_task_last_run_metadata(
+                    "t", "acc1", {"time": "2026-09-28T08:00:00Z", "success": True}
+                )
+                return
             with path_write_lock(config_file):
                 data = read_json_safe(config_file, default={}) or {}
                 data["sign_at"] = "10:00"
                 write_json_atomic(config_file, data)
 
-        threads = [
-            threading.Thread(target=metadata_writer),
-            threading.Thread(target=field_writer),
-        ]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join(timeout=20)
-        assert not any(t.is_alive() for t in threads)
+        run_threads_together(write, 2)
 
         stored = json.loads(config_file.read_text(encoding="utf-8"))
         assert stored["sign_at"] == "10:00"

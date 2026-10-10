@@ -11,9 +11,11 @@ import asyncio
 import json
 import os
 import tempfile
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Coroutine, Dict, List, Optional, TypeVar
+from typing import Any, Callable, Coroutine, Dict, List, Optional, TypeVar
 
 T = TypeVar("T")
 
@@ -100,6 +102,97 @@ async def async_return(value: T) -> T:
 async def async_raise(exc: Exception):
     """包装异常为异步抛出"""
     raise exc
+
+
+# ---------- 并发测试辅助 ----------
+
+
+class ThreadStartupError(RuntimeError):
+    """并发线程未能全部进入就绪状态，或未能在限时内结束。
+
+    典型成因是解释器级竞态：覆盖追踪器会给每个新线程安装追踪函数
+    （threading._trace_hook 在 _bootstrap_inner 中调用 _sys.settrace），多个
+    线程同时启动时可能抛出 RuntimeError，使该线程在进入目标函数前死亡。
+    此时线程不会执行 work，因此重拉一个不产生副作用。
+    """
+
+
+def run_threads_together(
+    work: Callable[[int], T],
+    count: int,
+    *,
+    ready_timeout: float = 10.0,
+    join_timeout: float = 10.0,
+) -> List[T]:
+    """启动 count 个线程，待全部就绪后同时放行，按序号返回各线程的返回值。
+
+    相对 threading.Barrier 的差别：Barrier 少一个参与者就永久等待，而线程在
+    启动阶段死亡（见 ThreadStartupError）属环境级偶发事件。这里改用「就绪标记
+    + 事件门闸」：为每个序号启动线程，就绪前死亡的线程会被重新拉起（work 尚未
+    执行，重拉无副作用），全部就绪后才放行。启动竞态最多拖慢用例，不会挂死 CI；
+    超过 ready_timeout 仍未凑齐或超过 join_timeout 仍未结束，则抛
+    ThreadStartupError，而不是无限阻塞。
+
+    work 收到线程序号，返回值按序号收集；work 内抛出的异常会在主线程重抛。
+    """
+    if count < 1:
+        raise ValueError(f"count 必须 >= 1，收到 {count}")
+
+    results: List[Any] = [None] * count
+    failures: List[BaseException] = []
+    lock = threading.Lock()
+    ready_cond = threading.Condition(lock)
+    ready_flags = [False] * count
+    start_gate = threading.Event()
+    cancelled = threading.Event()
+    threads: Dict[int, threading.Thread] = {}
+
+    def _run(index: int) -> None:
+        with ready_cond:
+            ready_flags[index] = True
+            ready_cond.notify_all()
+        start_gate.wait(timeout=join_timeout)
+        if cancelled.is_set():
+            # 就绪阶段已判定失败：不再执行 work，避免失败回合产生副作用
+            return
+        try:
+            results[index] = work(index)
+        except BaseException as exc:  # 带回主线程，由调用方断言
+            with lock:
+                failures.append(exc)
+
+    deadline = time.monotonic() + ready_timeout
+    try:
+        while not all(ready_flags):
+            for index in range(count):
+                current = threads.get(index)
+                if ready_flags[index] or (current is not None and current.is_alive()):
+                    continue
+                thread = threading.Thread(
+                    target=_run, args=(index,), name=f"together-{index}"
+                )
+                threads[index] = thread
+                thread.start()
+            if time.monotonic() >= deadline:
+                raise ThreadStartupError(
+                    f"{count} 个线程在 {ready_timeout}s 内仅 {sum(ready_flags)} 个就绪"
+                )
+            with ready_cond:
+                ready_cond.wait_for(lambda: all(ready_flags), timeout=0.05)
+    except ThreadStartupError:
+        cancelled.set()
+        raise
+    finally:
+        start_gate.set()
+
+    for thread in threads.values():
+        thread.join(timeout=join_timeout)
+    stuck = [index for index, thread in threads.items() if thread.is_alive()]
+    if stuck:
+        raise ThreadStartupError(f"线程 {stuck} 在 {join_timeout}s 内未结束")
+    if failures:
+        raise failures[0]
+    return results
 
 
 # ---------- 环境变量管理 ----------
