@@ -52,9 +52,10 @@ async def test_flow_engine_executes_linear_graph_ignoring_terminal():
     assert result["status"] == "success"
     assert executed_steps == ["step_1", "step_2"]
 
+
 @pytest.mark.asyncio
 async def test_terminal_policy_not_triggered_on_action_failure():
-    # 修复 Grok 指出的安全漏洞：动作失败时即使 matched_terminal=True，绝不提前成功退出
+    # 动作失败时即使 matched_terminal=True，绝不提前成功退出
     graph = ExecutionGraph(
         entry_node_id="step_failed",
         nodes={
@@ -76,6 +77,7 @@ async def test_terminal_policy_not_triggered_on_action_failure():
     engine = PulseFlowEngine()
     result = await engine.run(graph, ctx, mock_executor)
     assert result["status"] == "failed"
+
 
 @pytest.mark.asyncio
 async def test_extractor_and_condition_nodes_pipeline():
@@ -115,3 +117,32 @@ async def test_extractor_and_condition_nodes_pipeline():
     assert result["status"] == "success"
     assert "step_target" in executed
     assert ctx.get_var("auth_token") == "ABC889"
+
+
+@pytest.mark.asyncio
+async def test_extractor_with_custom_source_field():
+    # 验证指定 source_field 路径提取变量（而非仅限制于 prev.output）
+    graph = ExecutionGraph(
+        entry_node_id="ext_custom",
+        nodes={
+            "ext_custom": ExtractorNode(
+                id="ext_custom",
+                source_field="steps.first_step.output",
+                regex=r"Code: (?P<code>\d+)",
+                export_vars={"code": "auth_code"},
+                next_node_id=TERMINAL_COMPLETE_ID,
+            ),
+        },
+    )
+    ctx = ScopedFlowContext()
+    ctx.record_step_outcome(StepOutcome(node_id="first_step", status=NodeStatus.SUCCESS, output_text="Code: 665544"))
+    # 设置中间输出覆盖 last_output
+    ctx.last_output = "Another step output without code"
+
+    async def mock_executor(node, context):
+        return StepOutcome(node_id=node.id, status=NodeStatus.SUCCESS)
+
+    engine = PulseFlowEngine()
+    result = await engine.run(graph, ctx, mock_executor)
+    assert result["status"] == "success"
+    assert ctx.get_var("auth_code") == "665544"

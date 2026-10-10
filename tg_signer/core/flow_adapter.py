@@ -31,6 +31,16 @@ class TelegramNodeExecutor:
         self.runner = runner
         self.chat = chat
 
+    def _log(self, msg: str, level: str = "INFO") -> None:
+        """同时向 runner 日志流（供前端实时查看）和系统标准日志输出"""
+        if hasattr(self.runner, "log"):
+            try:
+                self.runner.log(msg, level=level)
+            except Exception:
+                pass
+        log_fn = getattr(logger, level.lower(), logger.info)
+        log_fn(msg)
+
     async def __call__(self, node: BaseFlowNode, context: ScopedFlowContext) -> StepOutcome:
         raw_act = node.metadata.get("raw_action")
         if raw_act is None:
@@ -61,7 +71,7 @@ class TelegramNodeExecutor:
                     except re.error:
                         pass
             if matched:
-                logger.info(f"节点 {node.id} 满足跳过条件（skip_if_matched='{skip_pat_str}'），跳过此步骤")
+                self._log(f"步骤 {node.id} 满足跳过条件（skip_if_matched='{skip_pat_str}'），跳过此步骤")
                 return StepOutcome(
                     node_id=node.id,
                     status=NodeStatus.SKIPPED,
@@ -137,7 +147,7 @@ class TelegramNodeExecutor:
                 action_delay = 0.0
 
         if action_delay > 0:
-            logger.info(f"节点 {node.id} 将在 {action_delay:g} 秒后执行")
+            self._log(f"步骤 {node.id} 将在 {action_delay:g} 秒后执行")
             await asyncio.sleep(action_delay)
 
         # 4. 严格重置并隔离旧 context 污染
@@ -162,7 +172,7 @@ class TelegramNodeExecutor:
 
             if res is False:
                 if cont_on_error:
-                    logger.warning(f"节点 {node.id} 执行返回失败，已配置容错继续（continue_on_error）")
+                    self._log(f"步骤 {node.id} 执行返回失败，已配置容错继续（continue_on_error）", level="WARNING")
                     return StepOutcome(
                         node_id=node.id,
                         status=NodeStatus.SKIPPED,
@@ -183,9 +193,9 @@ class TelegramNodeExecutor:
                 output_text=output_text,
             )
         except Exception as exc:
-            logger.error(f"步骤 {node.id} 执行抛出异常: {exc}")
+            self._log(f"步骤 {node.id} 执行抛出异常: {exc}", level="ERROR")
             if cont_on_error:
-                logger.warning(f"节点 {node.id} 出现错误，已配置容错继续（continue_on_error）: {exc}")
+                self._log(f"步骤 {node.id} 出现错误，已配置容错继续（continue_on_error）: {exc}", level="WARNING")
                 return StepOutcome(
                     node_id=node.id,
                     status=NodeStatus.SKIPPED,

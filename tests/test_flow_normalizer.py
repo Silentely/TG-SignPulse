@@ -129,3 +129,16 @@ def test_graph_validator_detects_unallowed_cycle():
     )
     with pytest.raises(GraphValidationError, match="检测到未允许的环路: s1 -> s2 -> s1"):
         GraphNormalizer.validate_graph(cycle_graph)
+
+
+def test_graph_validator_accepts_allowed_cycle():
+    # 检测声明了 allow_loop 且 max_visits > 1 的合法循环
+    allowed_cycle_graph = ExecutionGraph(
+        entry_node_id="s1",
+        nodes={
+            "s1": ActionNode(id="s1", next_node_id="s2", loop_policy=LoopPolicy(allow_loop=True, max_visits=3)),
+            "s2": ActionNode(id="s2", next_node_id="s1"),
+        },
+    )
+    # 不应抛出异常
+    GraphNormalizer.validate_graph(allowed_cycle_graph)

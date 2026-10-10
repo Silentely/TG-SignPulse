@@ -93,9 +93,16 @@ class ScopedFlowContext:
                 return v1 < v2
             except (ValueError, TypeError):
                 return False
+        elif " != " in expr:
+            parts = expr.split(" != ", 1)
+            raw_v1 = self._resolve_path(scope, parts[0].strip())
+            v1 = "" if raw_v1 is None else str(raw_v1)
+            v2 = str(parts[1].strip().strip("'\""))
+            return v1 != v2
         elif " == " in expr:
             parts = expr.split(" == ", 1)
-            v1 = str(self._resolve_path(scope, parts[0].strip()))
+            raw_v1 = self._resolve_path(scope, parts[0].strip())
+            v1 = "" if raw_v1 is None else str(raw_v1)
             v2 = str(parts[1].strip().strip("'\""))
             return v1 == v2
         return True

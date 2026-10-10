@@ -22,8 +22,10 @@ from tg_signer.core.flow_models import (
 
 logger = logging.getLogger("tg_signer.flow_engine")
 
+
 class FlowLoopLimitExceededError(RuntimeError):
     """工作流执行步骤超过上限熔断"""
+
 
 class PulseFlowEngine:
     """下一代无副作用状态机调度引擎"""
@@ -136,7 +138,13 @@ class PulseFlowEngine:
         }
 
     def _run_extractor_node(self, node: ExtractorNode, ctx: ScopedFlowContext) -> StepOutcome:
-        src_text = ctx.last_output or ""
+        src_text = ""
+        if node.source_field:
+            raw_src = ctx._resolve_path(ctx.build_scope_dict(), node.source_field)
+            src_text = str(raw_src or "") if raw_src is not None else ""
+        if not src_text:
+            src_text = ctx.last_output or ""
+
         extracted = {}
         if node.regex and src_text:
             match = re.search(node.regex, src_text)

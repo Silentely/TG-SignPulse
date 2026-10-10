@@ -13,6 +13,7 @@ from tg_signer.config import (
     SendDiceAction,
     SendTextAction,
     SignChatV3,
+    WorkflowStepConfig,
     action_from_step,
 )
 from tg_signer.core.flow_models import (
@@ -30,30 +31,27 @@ class GraphValidationError(ValueError):
     """图拓扑结构静态校验失败"""
 
 class GraphNormalizer:
-    """将既有配置模型无损编译归一化为标准的 ExecutionGraph 并完成拓扑校验"""
+    """负责将旧版 SignChatV3 (actions/steps) 归一化为统一的 ExecutionGraph IR"""
 
     @classmethod
     def from_chat(cls, chat: SignChatV3) -> ExecutionGraph:
-        if getattr(chat, "steps", None):
-            graph = cls._normalize_workflow_steps(chat)
-        else:
-            graph = cls._normalize_legacy_actions(chat)
-
-        cls.validate_graph(graph)
-        return graph
+        if getattr(chat, "steps", None) and len(chat.steps) > 0:
+            return cls._from_workflow_steps(chat)
+        return cls._from_linear_actions(chat)
 
     @classmethod
-    def _normalize_legacy_actions(cls, chat: SignChatV3) -> ExecutionGraph:
-        actions = chat.actions or []
-        if not actions:
-            raise ValueError("任务配置不合法：没有配置任何可执行动作或工作流步骤")
-
+    def _from_linear_actions(cls, chat: SignChatV3) -> ExecutionGraph:
         nodes: Dict[str, BaseFlowNode] = {}
-        total = len(actions)
-        for i, act in enumerate(actions):
+        total = len(chat.actions)
+        if total == 0:
+            return ExecutionGraph(entry_node_id=TERMINAL_COMPLETE_ID, nodes={})
+
+        entry_id = "step_0"
+        for i, act in enumerate(chat.actions):
             node_id = f"step_{i}"
             next_id = f"step_{i + 1}" if i + 1 < total else TERMINAL_COMPLETE_ID
 
+            # 向后兼容：只有当动作显式标记了 stop_flow_on_terminal 时才设置 STOP_FLOW
             is_stop_on_term = getattr(act, "stop_flow_on_terminal", False)
             term_policy = (
                 TerminalPolicy.STOP_FLOW if is_stop_on_term else TerminalPolicy.IGNORE
@@ -77,93 +75,106 @@ class GraphNormalizer:
             )
             nodes[node_id] = node
 
-        return ExecutionGraph(entry_node_id="step_0", nodes=nodes)
+        graph = ExecutionGraph(entry_node_id=entry_id, nodes=nodes)
+        cls.validate_graph(graph)
+        return graph
 
     @classmethod
-    def _normalize_workflow_steps(cls, chat: SignChatV3) -> ExecutionGraph:
-        steps = chat.steps or []
+    def _from_workflow_steps(cls, chat: SignChatV3) -> ExecutionGraph:
         nodes: Dict[str, BaseFlowNode] = {}
-        for s in steps:
-            raw_act = action_from_step(s)
+        entry_id = chat.initial_step_id or (chat.steps[0].step_id if chat.steps else TERMINAL_COMPLETE_ID)
+
+        for step in chat.steps:
+            raw_act = action_from_step(step)
             action_type, params = cls._extract_action_type_and_params(raw_act)
+            if step.config:
+                params.update(step.config)
 
-            next_target = s.next_step_id
-            if next_target == "COMPLETE" or not next_target:
-                next_id = TERMINAL_COMPLETE_ID
-            elif next_target == "FAIL":
-                next_id = TERMINAL_FAIL_ID
-            else:
-                next_id = next_target
+            next_id = cls._resolve_sentinel_id(step.next_step_id)
+            fail_id = cls._resolve_sentinel_id(step.on_failure_step_id)
 
-            fail_target = s.on_failure_step_id
-            if fail_target == "FAIL" or not fail_target:
-                fail_id = TERMINAL_FAIL_ID
-            elif fail_target == "COMPLETE":
-                fail_id = TERMINAL_COMPLETE_ID
-            else:
-                fail_id = fail_target
+            loop_pol = LoopPolicy(
+                allow_loop=step.allow_loop,
+                max_visits=step.max_retries + 1 if step.allow_loop else 1,
+            )
 
-            loop_policy = LoopPolicy(
-                allow_loop=bool(getattr(s, "allow_loop", False)),
-                max_visits=(s.max_retries + 1) if getattr(s, "allow_loop", False) and s.max_retries is not None else 1,
+            is_stop_on_term = getattr(raw_act, "stop_flow_on_terminal", False)
+            term_policy = (
+                TerminalPolicy.STOP_FLOW if is_stop_on_term else TerminalPolicy.IGNORE
             )
 
             node = ActionNode(
-                id=s.step_id,
-                name=getattr(s, "name", "") or s.step_id,
+                id=step.step_id,
+                name=f"Step-{step.step_id}",
                 action_type=action_type,
                 params=params,
                 next_node_id=next_id,
                 on_failure_node_id=fail_id,
-                loop_policy=loop_policy,
-                metadata={"raw_action": raw_act, "step_cfg": s},
+                loop_policy=loop_pol,
+                terminal_policy=term_policy,
+                metadata={"raw_action": raw_act, "workflow_step": step},
             )
-            nodes[s.step_id] = node
+            nodes[step.step_id] = node
 
-        initial_id = str(chat.initial_step_id or (steps[0].step_id if steps else ""))
-        return ExecutionGraph(entry_node_id=initial_id, nodes=nodes)
+        graph = ExecutionGraph(entry_node_id=entry_id, nodes=nodes)
+        cls.validate_graph(graph)
+        return graph
+
+    @staticmethod
+    def _resolve_sentinel_id(step_id: str | None) -> str | None:
+        if not step_id:
+            return None
+        sid = step_id.strip()
+        if sid.upper() == "COMPLETE":
+            return TERMINAL_COMPLETE_ID
+        if sid.upper() == "FAIL":
+            return TERMINAL_FAIL_ID
+        return sid
 
     @classmethod
     def _extract_action_type_and_params(cls, act: Any) -> tuple[str, Dict[str, Any]]:
-        # 保留所有公共属性
-        params: Dict[str, Any] = {
-            "delay": getattr(act, "delay", None),
-            "continue_on_error": getattr(act, "continue_on_error", False),
-            "skip_if_matched": getattr(act, "skip_if_matched", None),
-            "stop_flow_on_terminal": getattr(act, "stop_flow_on_terminal", False),
-        }
+        params: Dict[str, Any] = {}
+        action_type = "UNKNOWN"
+
         if isinstance(act, SendTextAction):
+            action_type = "SEND_TEXT"
             params["text"] = act.text
-            return "SEND_TEXT", params
         elif isinstance(act, SendDiceAction):
-            params["dice"] = act.dice
-            return "SEND_DICE", params
+            action_type = "SEND_DICE"
+            params["emoji"] = act.emoji
         elif isinstance(act, ClickKeyboardByTextAction):
+            action_type = "CLICK_KEYBOARD_BY_TEXT"
             params["text"] = act.text
-            return "CLICK_KEYBOARD", params
         elif isinstance(act, ChooseOptionByImageAction):
+            action_type = "CHOOSE_OPTION_BY_IMAGE"
             params["ai_prompt"] = act.ai_prompt
-            return "CHOOSE_OPTION_BY_IMAGE", params
-        elif isinstance(act, ReplyByCalculationProblemAction):
-            params["ai_prompt"] = act.ai_prompt
-            return "REPLY_CALCULATION", params
-        elif isinstance(act, ReplyByImageRecognitionAction):
-            params["ai_prompt"] = act.ai_prompt
-            return "REPLY_IMAGE_RECOGNITION", params
         elif isinstance(act, ClickButtonByCalculationProblemAction):
+            action_type = "CLICK_BUTTON_BY_CALCULATION"
             params["ai_prompt"] = act.ai_prompt
-            return "CLICK_BUTTON_CALCULATION", params
+        elif isinstance(act, ReplyByCalculationProblemAction):
+            action_type = "REPLY_BY_CALCULATION"
+            params["ai_prompt"] = act.ai_prompt
+        elif isinstance(act, ReplyByImageRecognitionAction):
+            action_type = "REPLY_BY_IMAGE_RECOGNITION"
+            params["ai_prompt"] = act.ai_prompt
         elif isinstance(act, KeywordNotifyAction):
+            action_type = "KEYWORD_NOTIFY"
             params["keywords"] = act.keywords
-            return "KEYWORD_NOTIFY", params
         elif isinstance(act, PluginAction):
-            params["plugin_name"] = act.plugin_name
+            action_type = "PLUGIN"
+            params["plugin_id"] = act.plugin_id
             params["params"] = act.params
-            params["mode"] = act.mode
-            params["timeout"] = act.timeout
-            return "PLUGIN", params
-        else:
-            return getattr(act, "__class__", type(act)).__name__, getattr(act, "__dict__", {})
+
+        if hasattr(act, "delay") and act.delay is not None:
+            params["delay"] = act.delay
+        if hasattr(act, "skip_if_matched"):
+            params["skip_if_matched"] = getattr(act, "skip_if_matched", None)
+        if hasattr(act, "continue_on_error"):
+            params["continue_on_error"] = getattr(act, "continue_on_error", False)
+        if hasattr(act, "stop_flow_on_terminal"):
+            params["stop_flow_on_terminal"] = getattr(act, "stop_flow_on_terminal", False)
+
+        return action_type, params
 
     @classmethod
     def validate_graph(cls, graph: ExecutionGraph) -> None:
@@ -214,12 +225,16 @@ class GraphNormalizer:
             if cur in rec_stack:
                 cycle_start = rec_stack.index(cur)
                 cycle_steps = rec_stack[cycle_start:]
-                for sid in cycle_steps:
-                    st = graph.nodes.get(sid)
-                    if not st or not st.loop_policy.allow_loop:
-                        raise GraphValidationError(
-                            f"检测到未允许的环路: {' -> '.join(cycle_steps)} -> {cur}"
-                        )
+                # 环路中若至少存在一个显式声明 allow_loop=True 且 max_visits > 1 的节点，则认为属于合法的循环重试流
+                has_allowed = any(
+                    (graph.nodes[sid].loop_policy.allow_loop and graph.nodes[sid].loop_policy.max_visits > 1)
+                    for sid in cycle_steps
+                    if sid in graph.nodes
+                )
+                if not has_allowed:
+                    raise GraphValidationError(
+                        f"检测到未允许的环路: {' -> '.join(cycle_steps)} -> {cur}"
+                    )
                 return
 
             if cur in visited:
