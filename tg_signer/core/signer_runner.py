@@ -174,7 +174,10 @@ class SignerRunnerMixin:
             executor = TelegramNodeExecutor(self, chat)
             engine = PulseFlowEngine()
             flow_res = await engine.run(graph, ctx, executor)
-            return flow_res["status"] == "success"
+            if flow_res.get("status") != "success":
+                err_msg = flow_res.get("error") or f"PulseFlow 执行失败: steps={flow_res.get('steps')}, path={flow_res.get('path')}"
+                raise RuntimeError(err_msg)
+            return True
 
         if getattr(chat, "steps", None) is not None:
             # 与旧版 actions 流程保持一致：任务级 retry_count 控制整个工作流重试次数。

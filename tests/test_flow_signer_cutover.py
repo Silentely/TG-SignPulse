@@ -54,3 +54,25 @@ async def test_user_signer_task_override_cutover():
         assert signer.wait_for.call_count == 1
         log_msgs = [call[0][0] for call in signer.log.call_args_list]
         assert any("PulseFlow (v4)" in m and "task" in m for m in log_msgs)
+
+
+@pytest.mark.asyncio
+async def test_user_signer_pulseflow_failure_raises_runtime_error():
+    # 核心契约防线：PulseFlow 失败时必须抛出 RuntimeError，供 _run_config_chats 捕获记入失败
+    signer = UserSigner.__new__(UserSigner)
+    signer._account = "test_acc"
+    signer.app = MagicMock()
+    signer.app.get_chat = AsyncMock()
+    signer.context = MagicMock()
+    signer.log = MagicMock()
+    # 模拟 wait_for 返回 False 且未配置容错
+    signer.wait_for = AsyncMock(return_value=False)
+
+    chat = SignChatV3(
+        chat_id=88888,
+        actions=[SendTextAction(text="/ping")],
+        execution_engine="v4",
+    )
+
+    with pytest.raises(RuntimeError, match="PulseFlow 执行失败"):
+        await signer.sign_a_chat(chat)
