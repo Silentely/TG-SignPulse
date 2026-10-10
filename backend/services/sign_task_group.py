@@ -106,6 +106,8 @@ def aggregate_tasks(
         ]
         task_tags = [str(t).strip() for t in (task.get("tags") or []) if str(t).strip()]
         existing["tags"] = list(dict.fromkeys(existing_tags + task_tags))
+        if not existing.get("execution_engine") and task.get("execution_engine"):
+            existing["execution_engine"] = task.get("execution_engine")
 
     return sorted(
         grouped.values(),

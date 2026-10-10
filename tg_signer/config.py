@@ -135,6 +135,7 @@ class SignConfigV2(BaseJSONConfig):
     sign_at: str  # 签到时间，time或crontab表达式
     random_seconds: int = 0
     sign_interval: int = 1  # 连续签到的间隔时间，单位秒
+    execution_engine: Optional[str] = None
 
     @classmethod
     def to_current(cls, obj: Union["SignConfigV2", "SignConfigV1"]):
@@ -597,6 +598,7 @@ class SignConfigV3(BaseJSONConfig):
     sign_at: str  # 签到时间，time或crontab表达式
     random_seconds: int = 0
     sign_interval: int = 1  # 连续签到的间隔时间，单位秒
+    execution_engine: Optional[str] = None
 
     @property
     def requires_ai(self) -> bool:

@@ -40,6 +40,7 @@ class PulseFlowEngine:
         executed_path = []
         visit_counts: Dict[str, int] = {}
         total_steps = 0
+        last_failure_error: Optional[str] = None
 
         while current_id not in {TERMINAL_COMPLETE_ID, TERMINAL_FAIL_ID, None}:
             if total_steps >= graph.max_total_steps:
@@ -128,14 +129,18 @@ class PulseFlowEngine:
             if outcome.status in {NodeStatus.SUCCESS, NodeStatus.TERMINAL_EARLY, NodeStatus.SKIPPED}:
                 current_id = node.next_node_id or TERMINAL_COMPLETE_ID
             else:
+                last_failure_error = outcome.output_text or (str(outcome.error) if outcome.error else None) or f"Node {node.id} failed"
                 current_id = node.on_failure_node_id or TERMINAL_FAIL_ID
 
         is_success = (current_id == TERMINAL_COMPLETE_ID)
-        return {
+        res = {
             "status": "success" if is_success else "failed",
             "path": executed_path,
             "steps": total_steps,
         }
+        if not is_success and last_failure_error:
+            res["error"] = last_failure_error
+        return res
 
     def _run_extractor_node(self, node: ExtractorNode, ctx: ScopedFlowContext) -> StepOutcome:
         src_text = ""

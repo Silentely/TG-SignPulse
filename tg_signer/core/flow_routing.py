@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Optional, Tuple
 
 from tg_signer.config import SignChatV3
@@ -20,29 +21,42 @@ ENGINE_DISPLAY_NAMES = {
 
 def resolve_execution_engine(
     chat: Optional[SignChatV3] = None,
+    task_engine: Optional[str] = None,
 ) -> Tuple[str, str, str]:
     """
     根据四级渐进切流策略解析生效的执行引擎：
-    1. 任务级覆盖 (Task Override): chat.execution_engine 为 'v4' 或 'v3'
+    1. 任务/目标级覆盖 (Task/Chat Override):
+       - chat.execution_engine 为 'v4' 或 'v3' (来源: 'chat' 或 'task')
+       - task_engine 为 'v4' 或 'v3' (来源: 'task')
     2. 系统全局配置 (Global Settings): global_settings.execution_engine
-    3. 环境变量兜底 (Environment Variable): USE_PULSEFLOW_ENGINE=1
+    3. 环境变量兜底 (Environment Variable): USE_PULSEFLOW_ENGINE=1/true/yes/v4
     4. 默认经典模式 (Default): 'v3'
 
     Returns:
         Tuple[engine_code, engine_display_name, source]
         如: ('v4', 'PulseFlow (v4)', 'task') 或 ('v3', 'Classic (v3)', 'settings')
     """
-    # 1. 任务级显式指定
+    # 1a. 单目标 Chat 级显式指定
     if chat is not None:
-        raw_task_engine = getattr(chat, "execution_engine", None)
-        if raw_task_engine is not None:
-            engine_norm = str(raw_task_engine).strip().lower()
+        raw_chat_engine = getattr(chat, "execution_engine", None)
+        if raw_chat_engine is not None:
+            engine_norm = str(raw_chat_engine).strip().lower()
             if engine_norm in {ENGINE_V4, ENGINE_V3}:
                 return (
                     engine_norm,
                     ENGINE_DISPLAY_NAMES[engine_norm],
                     "task",
                 )
+
+    # 1b. 单任务 Task 级显式指定
+    if task_engine is not None:
+        engine_norm = str(task_engine).strip().lower()
+        if engine_norm in {ENGINE_V4, ENGINE_V3}:
+            return (
+                engine_norm,
+                ENGINE_DISPLAY_NAMES[engine_norm],
+                "task",
+            )
 
     # 2. 系统全局配置（UI 开关）
     try:
@@ -59,11 +73,14 @@ def resolve_execution_engine(
                     "settings",
                 )
     except Exception as exc:
-        # 在某些纯 CLI 模式或测试环境中，backend 服务层未初始化，静默降级到下一优先级
         logger.debug("读取全局配置 execution_engine 降级: %s", exc)
 
     # 3. 环境变量兜底
-    if read_positive_int_env("USE_PULSEFLOW_ENGINE", 0, 0) == 1:
+    env_raw = os.getenv("USE_PULSEFLOW_ENGINE", "").strip().lower()
+    if (
+        env_raw in {"1", "true", "yes", "on", "v4"}
+        or read_positive_int_env("USE_PULSEFLOW_ENGINE", 0, 0) == 1
+    ):
         return (
             ENGINE_V4,
             ENGINE_DISPLAY_NAMES[ENGINE_V4],

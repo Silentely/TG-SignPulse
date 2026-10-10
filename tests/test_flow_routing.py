@@ -98,3 +98,64 @@ def test_task_config_build_preserves_execution_engine():
         execution_engine=None,
     )
     assert retained_fields["execution_engine"] == "v4"
+
+
+def test_routing_task_engine_arg_override():
+    # 任务级参数覆盖（chat.execution_engine 为 None 时，task_engine 能够生效）
+    with patch.dict(os.environ, {}, clear=True):
+        mock_svc = MagicMock()
+        mock_svc.get_global_settings.return_value = {"execution_engine": "v3"}
+        with patch("backend.services.config.get_config_service", return_value=mock_svc):
+            chat = SignChatV3(chat_id=123, actions=[])
+            code, name, source = resolve_execution_engine(chat, task_engine="v4")
+            assert code == ENGINE_V4
+            assert name == "PulseFlow (v4)"
+            assert source == "task"
+
+
+def test_routing_env_boolean_variants():
+    for val in ["true", "True", "yes", "YES", "on", "v4"]:
+        with patch.dict(os.environ, {"USE_PULSEFLOW_ENGINE": val}):
+            code, name, source = resolve_execution_engine(None)
+            assert code == ENGINE_V4
+            assert source == "env"
+
+
+def test_sign_config_v3_parses_execution_engine():
+    from tg_signer.config import SignConfigV3
+    cfg = SignConfigV3(
+        chats=[SignChatV3(chat_id=123, actions=[])],
+        sign_at="08:00",
+        execution_engine="v4",
+    )
+    assert cfg.execution_engine == "v4"
+
+
+def test_aggregate_tasks_preserves_execution_engine():
+    from backend.services.sign_task_group import aggregate_tasks
+
+    tasks = [
+        {"task_group_id": "grp1", "name": "task1", "account_name": "acc1", "execution_engine": "v4"},
+        {"task_group_id": "grp1", "name": "task1", "account_name": "acc2"},
+    ]
+    grouped = aggregate_tasks(tasks, normalize_account_names=lambda names, primary: list(names or [primary]))
+    assert len(grouped) == 1
+    assert grouped[0]["execution_engine"] == "v4"
+
+
+def test_clone_task_preserves_execution_engine():
+    from backend.services.sign_tasks import SignTaskService
+    svc = SignTaskService.__new__(SignTaskService)
+    svc.get_task = MagicMock(return_value={
+        "name": "task1",
+        "sign_at": "08:00",
+        "chats": [],
+        "account_name": "acc1",
+        "execution_engine": "v4",
+    })
+    svc._find_related_task_infos = MagicMock(return_value=[])
+    svc.create_task = MagicMock(return_value={"status": "ok"})
+
+    svc.clone_task("task1", "task1_clone", account_name="acc1")
+    svc.create_task.assert_called_once()
+    assert svc.create_task.call_args[1].get("execution_engine") == "v4"

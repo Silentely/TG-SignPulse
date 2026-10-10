@@ -330,6 +330,7 @@ class SignTaskCrudMixin:
                 if src.get("next_task_delay_seconds") is not None
                 else 2.0
             ),
+            execution_engine=src.get("execution_engine"),
         )
 
     def update_task(
