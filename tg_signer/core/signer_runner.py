@@ -157,6 +157,19 @@ class SignerRunnerMixin:
                 )
                 raise RuntimeError(f"预热会话失败 chat_id={chat.chat_id}: {e}") from e
         self.log(self._describe_chat_run(chat))
+        if read_positive_int_env("USE_PULSEFLOW_ENGINE", 0, 0) == 1:
+            from tg_signer.core.flow_normalizer import GraphNormalizer
+            from tg_signer.core.flow_engine import PulseFlowEngine
+            from tg_signer.core.flow_adapter import TelegramNodeExecutor
+            from tg_signer.core.flow_context import ScopedFlowContext
+
+            graph = GraphNormalizer.from_chat(chat)
+            ctx = ScopedFlowContext(account={"name": getattr(self, "_account", "")})
+            executor = TelegramNodeExecutor(self, chat)
+            engine = PulseFlowEngine()
+            flow_res = await engine.run(graph, ctx, executor)
+            return flow_res["status"] == "success"
+
         if getattr(chat, "steps", None) is not None:
             # 与旧版 actions 流程保持一致：任务级 retry_count 控制整个工作流重试次数。
             max_workflow_attempts = max(
