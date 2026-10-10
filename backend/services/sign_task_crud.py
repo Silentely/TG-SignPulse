@@ -148,6 +148,7 @@ class SignTaskCrudMixin:
         adaptive_schedule_padding_seconds: int = 30,
         next_task_on_success: Optional[str] = None,
         next_task_delay_seconds: Optional[float] = None,
+        execution_engine: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create a sign task that can be shared by multiple accounts."""
         from backend.services.config import get_config_service
@@ -222,6 +223,7 @@ class SignTaskCrudMixin:
                 adaptive_schedule_padding_seconds=adaptive_schedule_padding_seconds,
                 next_task_on_success=next_task_on_success,
                 next_task_delay_seconds=next_task_delay_seconds,
+                execution_engine=execution_engine,
             )
 
             # 同一任务配置的创建/更新/删除必须串行，否则并发写会互相覆盖字段
@@ -353,6 +355,7 @@ class SignTaskCrudMixin:
         adaptive_schedule_padding_seconds: Optional[int] = None,
         next_task_on_success: Optional[str] = None,
         next_task_delay_seconds: Optional[float] = None,
+        execution_engine: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Update one task and fan out the config to all linked accounts."""
         task_name = validate_storage_name(task_name, field_name="task_name")
@@ -435,6 +438,7 @@ class SignTaskCrudMixin:
             adaptive_schedule_padding_seconds=adaptive_schedule_padding_seconds,
             next_task_on_success=next_task_on_success,
             next_task_delay_seconds=next_task_delay_seconds,
+            execution_engine=execution_engine,
         )
         next_sign_at = fields["sign_at"]
         next_random_seconds = fields["random_seconds"]
@@ -456,6 +460,7 @@ class SignTaskCrudMixin:
         ]
         next_next_task_on_success = fields.get("next_task_on_success", "")
         next_next_task_delay_seconds = fields.get("next_task_delay_seconds", 2.0)
+        next_execution_engine = fields.get("execution_engine")
         schedule_plan = resolve_schedule_plan(
             next_execution_mode,
             sign_at=next_sign_at,
@@ -503,6 +508,7 @@ class SignTaskCrudMixin:
                 adaptive_schedule_padding_seconds=next_adaptive_schedule_padding_seconds,
                 next_task_on_success=next_next_task_on_success,
                 next_task_delay_seconds=next_next_task_delay_seconds,
+                execution_engine=next_execution_engine,
                 last_run=existing_last_run_map.get(current_account),
             )
 

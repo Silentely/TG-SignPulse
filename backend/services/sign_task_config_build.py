@@ -29,6 +29,7 @@ _DEFAULT_TASK_FIELDS: Dict[str, Any] = {
     "adaptive_schedule_padding_seconds": 30,
     "next_task_on_success": "",
     "next_task_delay_seconds": 2,
+    "execution_engine": None,
 }
 
 MAX_TASK_TAGS = 20
@@ -83,6 +84,7 @@ def build_sign_task_config(
     ],
     next_task_on_success: Optional[str] = None,
     next_task_delay_seconds: Optional[float] = None,
+    execution_engine: Optional[str] = None,
     last_run: Any = None,
     version: int = 4,
 ) -> Dict[str, Any]:
@@ -112,6 +114,7 @@ def build_sign_task_config(
         "next_task_delay_seconds": float(next_task_delay_seconds)
         if next_task_delay_seconds is not None
         else 2.0,
+        "execution_engine": str(execution_engine).strip() if execution_engine and str(execution_engine).strip() else None,
     }
     if last_run is not None:
         config["last_run"] = last_run
@@ -139,6 +142,7 @@ def resolve_update_field_values(
     adaptive_schedule_padding_seconds: Optional[int] = None,
     next_task_on_success: Optional[str] = None,
     next_task_delay_seconds: Optional[float] = None,
+    execution_engine: Optional[str] = None,
 ) -> Dict[str, Any]:
     """合并更新入参与既有配置，返回下一版字段值。"""
     return {
@@ -227,6 +231,11 @@ def resolve_update_field_values(
             next_task_delay_seconds
             if next_task_delay_seconds is not None
             else existing.get("next_task_delay_seconds", 2.0)
+        ),
+        "execution_engine": (
+            str(execution_engine).strip()
+            if execution_engine is not None and str(execution_engine).strip()
+            else (None if execution_engine == "" else existing.get("execution_engine"))
         ),
     }
 

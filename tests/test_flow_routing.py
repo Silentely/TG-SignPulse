@@ -8,6 +8,10 @@ from tg_signer.core.flow_routing import (
     ENGINE_V4,
     resolve_execution_engine,
 )
+from backend.services.sign_task_config_build import (
+    build_sign_task_config,
+    resolve_update_field_values,
+)
 
 
 def test_routing_default_fallback():
@@ -68,3 +72,29 @@ def test_routing_task_explicit_v3_override():
             assert code == ENGINE_V3
             assert name == "Classic (v3)"
             assert source == "task"
+
+
+def test_task_config_build_preserves_execution_engine():
+    # 验证任务配置生成器在创建和更新时正确保留 execution_engine
+    cfg = build_sign_task_config(
+        account_name="acc1",
+        account_names=["acc1"],
+        sign_at="08:00",
+        chats=[],
+        execution_engine="v4",
+    )
+    assert cfg["execution_engine"] == "v4"
+
+    # 更新合并测试：显式更新为 v3
+    updated_fields = resolve_update_field_values(
+        cfg,
+        execution_engine="v3",
+    )
+    assert updated_fields["execution_engine"] == "v3"
+
+    # 更新合并测试：传 None 表示不修改沿用旧值
+    retained_fields = resolve_update_field_values(
+        cfg,
+        execution_engine=None,
+    )
+    assert retained_fields["execution_engine"] == "v4"

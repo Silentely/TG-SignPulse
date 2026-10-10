@@ -66,6 +66,9 @@ class ChatConfig(BaseModel):
     source_account: Optional[str] = Field(
         None, description="Account used to look up this chat (for avatar)"
     )
+    execution_engine: Optional[str] = Field(
+        None, description="Execution engine override for this chat"
+    )
 
     class Config:
         extra = "allow"
@@ -110,6 +113,9 @@ class SignTaskCreate(BaseModel):
         ge=0.01,
         le=3600,
         description="Delay in seconds before triggering next task",
+    )
+    execution_engine: Optional[str] = Field(
+        None, description="Execution engine override for this task"
     )
 
     @validator("name", allow_reuse=True)
@@ -162,6 +168,9 @@ class SignTaskUpdate(BaseModel):
         le=3600,
         description="Delay in seconds before triggering next task",
     )
+    execution_engine: Optional[str] = Field(
+        None, description="Execution engine override for this task"
+    )
 
 
 class LastRunInfo(BaseModel):
@@ -213,6 +222,7 @@ class SignTaskOut(BaseModel):
     next_task_on_success: Optional[str] = ""
     next_task_delay_seconds: Optional[float] = 2.0
     active_run: Optional[ActiveRunSummary] = None
+    execution_engine: Optional[str] = None
 
 
 class ChatOut(BaseModel):
@@ -335,6 +345,7 @@ def create_sign_task(
             adaptive_schedule_padding_seconds=payload.adaptive_schedule_padding_seconds,
             next_task_on_success=payload.next_task_on_success,
             next_task_delay_seconds=payload.next_task_delay_seconds,
+            execution_engine=payload.execution_engine,
         )
 
         # 调度同步和监控重启放到后台执行，避免阻塞 HTTP 响应
@@ -438,6 +449,7 @@ def update_sign_task(
             adaptive_schedule_padding_seconds=payload.adaptive_schedule_padding_seconds,
             next_task_on_success=payload.next_task_on_success,
             next_task_delay_seconds=payload.next_task_delay_seconds,
+            execution_engine=payload.execution_engine,
         )
 
         # 调度同步和监控重启放到后台执行，避免阻塞 HTTP 响应
