@@ -187,3 +187,4 @@ coding-trajectories.jsonl
 .env.evolver
 .env.evolver.local
 docs/research
+docs/rfcs
