@@ -1,8 +1,11 @@
 # tests/test_flow_signer_cutover.py
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from tg_signer.config import SignChatV3, SendTextAction
+
+import pytest
+
+from tg_signer.config import SendTextAction, SignChatV3
 from tg_signer.core.runtime import UserSigner
+
 
 @pytest.mark.asyncio
 async def test_user_signer_pulseflow_cutover():

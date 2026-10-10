@@ -1,11 +1,14 @@
 # tests/test_flow_adapter.py
-import pytest
 from unittest.mock import AsyncMock, MagicMock
-from tg_signer.config import SignChatV3, SendTextAction, ClickKeyboardByTextAction
-from tg_signer.core.flow_normalizer import GraphNormalizer
-from tg_signer.core.flow_engine import PulseFlowEngine
-from tg_signer.core.flow_context import ScopedFlowContext
+
+import pytest
+
+from tg_signer.config import ClickKeyboardByTextAction, SendTextAction, SignChatV3
 from tg_signer.core.flow_adapter import TelegramNodeExecutor
+from tg_signer.core.flow_context import ScopedFlowContext
+from tg_signer.core.flow_engine import PulseFlowEngine
+from tg_signer.core.flow_normalizer import GraphNormalizer
+
 
 @pytest.mark.asyncio
 async def test_full_pipeline_with_telegram_adapter_barrier():
@@ -18,13 +21,13 @@ async def test_full_pipeline_with_telegram_adapter_barrier():
     )
     graph = GraphNormalizer.from_chat(chat)
     ctx = ScopedFlowContext(account={"username": "test_bot"})
-    
+
     mock_runner = MagicMock()
     # 模拟真实 wait_for 执行成功
     mock_runner.wait_for = AsyncMock(return_value=True)
     mock_runner.context = MagicMock()
     # 模拟旧代码中 Matcher 恶意残留的副作用写入
-    mock_runner.context.stop_after_current_action = True 
+    mock_runner.context.stop_after_current_action = True
 
     executor = TelegramNodeExecutor(mock_runner, chat)
     engine = PulseFlowEngine()

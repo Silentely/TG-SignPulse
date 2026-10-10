@@ -1,20 +1,18 @@
 # tests/test_flow_models.py
-import pytest
 from tg_signer.core.flow_models import (
-    TERMINAL_COMPLETE_ID,
     TERMINAL_FAIL_ID,
-    NodeType,
-    TerminalPolicy,
-    NodeStatus,
-    FlowSignal,
-    StepOutcome,
-    RetryPolicy,
-    LoopPolicy,
     ActionNode,
     ConditionNode,
     ExtractorNode,
-    ExecutionGraph,
+    FlowSignal,
+    LoopPolicy,
+    NodeStatus,
+    NodeType,
+    RetryPolicy,
+    StepOutcome,
+    TerminalPolicy,
 )
+
 
 def test_flow_node_types_and_defaults():
     action_node = ActionNode(

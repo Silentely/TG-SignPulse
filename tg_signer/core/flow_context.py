@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 from typing import Any, Dict, Optional
+
 from tg_signer.core.flow_models import StepOutcome
 from tg_signer.core.template import render_template
+
 
 class ScopedFlowContext:
     """四级作用域上下文管理器：system -> account -> vars -> steps"""
@@ -71,9 +73,26 @@ class ScopedFlowContext:
             return target in src_val
         elif " > " in expr:
             parts = expr.split(" > ", 1)
-            v1 = float(self._resolve_path(scope, parts[0].strip()) or 0)
-            v2 = float(parts[1].strip())
-            return v1 > v2
+            raw_val = self._resolve_path(scope, parts[0].strip())
+            if raw_val is None:
+                return False
+            try:
+                v1 = float(raw_val)
+                v2 = float(parts[1].strip())
+                return v1 > v2
+            except (ValueError, TypeError):
+                return False
+        elif " < " in expr:
+            parts = expr.split(" < ", 1)
+            raw_val = self._resolve_path(scope, parts[0].strip())
+            if raw_val is None:
+                return False
+            try:
+                v1 = float(raw_val)
+                v2 = float(parts[1].strip())
+                return v1 < v2
+            except (ValueError, TypeError):
+                return False
         elif " == " in expr:
             parts = expr.split(" == ", 1)
             v1 = str(self._resolve_path(scope, parts[0].strip()))

@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+
 from tg_signer.config import SignChatV3
+from tg_signer.core.flow_context import ScopedFlowContext
 from tg_signer.core.flow_models import (
     BaseFlowNode,
     NodeStatus,
     StepOutcome,
 )
-from tg_signer.core.flow_context import ScopedFlowContext
 
 logger = logging.getLogger("tg_signer.flow_adapter")
 

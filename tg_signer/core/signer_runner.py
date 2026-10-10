@@ -158,10 +158,10 @@ class SignerRunnerMixin:
                 raise RuntimeError(f"预热会话失败 chat_id={chat.chat_id}: {e}") from e
         self.log(self._describe_chat_run(chat))
         if read_positive_int_env("USE_PULSEFLOW_ENGINE", 0, 0) == 1:
-            from tg_signer.core.flow_normalizer import GraphNormalizer
-            from tg_signer.core.flow_engine import PulseFlowEngine
             from tg_signer.core.flow_adapter import TelegramNodeExecutor
             from tg_signer.core.flow_context import ScopedFlowContext
+            from tg_signer.core.flow_engine import PulseFlowEngine
+            from tg_signer.core.flow_normalizer import GraphNormalizer
 
             graph = GraphNormalizer.from_chat(chat)
             ctx = ScopedFlowContext(account={"name": getattr(self, "_account", "")})

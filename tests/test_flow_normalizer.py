@@ -1,19 +1,20 @@
 # tests/test_flow_normalizer.py
 import pytest
+
 from tg_signer.config import (
-    SignChatV3,
-    SendTextAction,
-    ClickKeyboardByTextAction,
     ChooseOptionByImageAction,
+    ClickKeyboardByTextAction,
+    SendTextAction,
+    SignChatV3,
     WorkflowStepConfig,
 )
 from tg_signer.core.flow_models import (
     TERMINAL_COMPLETE_ID,
     TERMINAL_FAIL_ID,
-    NodeType,
     TerminalPolicy,
 )
 from tg_signer.core.flow_normalizer import GraphNormalizer, GraphValidationError
+
 
 def test_normalize_legacy_actions_with_exact_fields():
     # 严格对齐真实模型字段：ChooseOptionByImageAction 只有 ai_prompt 字段
@@ -28,7 +29,7 @@ def test_normalize_legacy_actions_with_exact_fields():
     graph = GraphNormalizer.from_chat(chat)
     assert graph.entry_node_id == "step_0"
     assert len(graph.nodes) == 3
-    
+
     node0 = graph.nodes["step_0"]
     assert node0.next_node_id == "step_1"
     assert node0.params["text"] == "/start"
@@ -76,7 +77,7 @@ def test_normalize_workflow_steps_with_config_dict():
 
 def test_graph_validator_detects_dangling_nodes():
     # 验证静态拓扑校验器检测悬空目标节点
-    from tg_signer.core.flow_models import ExecutionGraph, ActionNode
+    from tg_signer.core.flow_models import ActionNode, ExecutionGraph
     bad_graph = ExecutionGraph(
         entry_node_id="s1",
         nodes={"s1": ActionNode(id="s1", next_node_id="s_missing")},

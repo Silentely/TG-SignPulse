@@ -64,7 +64,7 @@ class TelegramEventBus:
     async def publish(self, event: TelegramMessageEvent) -> None:
         key = (event.chat_id, event.message_thread_id)
         now = time.time()
-        
+
         buf = self._history_buffers.setdefault(key, [])
         buf.append(event)
         self._history_buffers[key] = [

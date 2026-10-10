@@ -1,7 +1,7 @@
 # tests/test_flow_context.py
-import pytest
-from tg_signer.core.flow_models import NodeStatus, StepOutcome
 from tg_signer.core.flow_context import ScopedFlowContext
+from tg_signer.core.flow_models import NodeStatus, StepOutcome
+
 
 def test_scoped_context_variable_resolution():
     ctx = ScopedFlowContext(
@@ -24,6 +24,11 @@ def test_scoped_context_variable_resolution():
 def test_scoped_context_condition_evaluation():
     ctx = ScopedFlowContext()
     ctx.set_var("balance", "150")
-    
+
     assert ctx.eval_condition("vars.balance > 100") is True
+    assert ctx.eval_condition("vars.balance < 200") is True
+    assert ctx.eval_condition("vars.balance < 50") is False
+    ctx.set_var("non_numeric", "abc")
+    assert ctx.eval_condition("vars.non_numeric < 50") is False
+    assert ctx.eval_condition("vars.not_exist < 50") is False
     assert ctx.eval_condition("'XYZ' in prev.output", default_output="Token: XYZ-123") is True
