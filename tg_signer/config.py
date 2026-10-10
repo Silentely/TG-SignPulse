@@ -202,6 +202,7 @@ class SignAction(BaseModel):
     delay: Optional[str] = None
     continue_on_error: bool = False
     skip_if_matched: Optional[str] = None
+    stop_flow_on_terminal: bool = False
 
 
 class SendTextAction(SignAction):

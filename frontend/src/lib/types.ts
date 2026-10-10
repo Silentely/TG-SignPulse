@@ -100,6 +100,7 @@ export interface TaskActionItem {
   timeout?: number;
   continue_on_error?: boolean;
   skip_if_matched?: string;
+  stop_flow_on_terminal?: boolean;
 }
 
 // 后端原始 action 结构
@@ -129,6 +130,7 @@ export interface RawTaskAction {
   timeout?: number;
   continue_on_error?: boolean;
   skip_if_matched?: string;
+  stop_flow_on_terminal?: boolean;
 }
 
 // 构建 API 请求体时的中间类型
@@ -158,6 +160,7 @@ export interface BuiltAction {
   timeout?: number;
   continue_on_error?: boolean;
   skip_if_matched?: string;
+  stop_flow_on_terminal?: boolean;
 }
 
 // ─── API 错误类型 ───

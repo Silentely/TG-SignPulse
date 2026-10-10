@@ -604,14 +604,35 @@ class SignerMatchersMixin:
         except (TypeError, ValueError):
             return 3.0
 
+    def _should_stop_flow_after_action(
+        self,
+        *,
+        action: Optional[ActionT] = None,
+        next_action: Optional[ActionT] = None,
+    ) -> bool:
+        """判断是否应在当前动作完成后终止后续动作流程。
+
+        - 若当前动作显式配置了 stop_flow_on_terminal=True，则允许终止流程；
+        - 若没有后续动作（next_action is None），则当前已是最后一步，允许标记终态收尾；
+        - 若存在后续动作（next_action is not None）且未显式配置 stop_flow_on_terminal=True，
+          则默认继续执行后续动作，不应中断编排流水线。
+        """
+        if getattr(action, "stop_flow_on_terminal", False):
+            return True
+        if next_action is None:
+            return True
+        return False
+
     async def _maybe_stop_after_send(
         self,
         chat: SignChatV3,
         *,
         before_state: dict,
         history_limit: int,
+        next_action: Optional[ActionT] = None,
+        action: Optional[ActionT] = None,
     ) -> None:
-        """发送后短等 bot 终态（已签到/签到成功），命中则停止后续步骤。
+        """发送后短等 bot 终态（已签到/签到成功），命中则视策略停止后续步骤。
 
         before_state 必须在 send 之前快照；仅认发送后的消息变更，不会把未变更的历史成功当完成。
         """
@@ -624,6 +645,18 @@ class SignerMatchersMixin:
             history_limit=history_limit,
             timeout=timeout,
         ):
+            if not self._should_stop_flow_after_action(
+                action=action, next_action=next_action
+            ):
+                reason = (self.context.stop_reason or "").strip()
+                self.log(
+                    "发送后检测到步骤成功响应"
+                    + (f": {reason}" if reason else "")
+                    + "，继续执行后续动作"
+                )
+                self.context.stop_after_current_action = False
+                return
+
             self.context.stop_after_current_action = True
             reason = (self.context.stop_reason or "").strip()
             self.log(
@@ -691,9 +724,17 @@ class SignerMatchersMixin:
         before_click_state: dict[int, tuple],
         history_limit: int,
         timeout: float,
+        action: Optional[ActionT] = None,
     ) -> str:
         callback_text = (self.context.last_callback_answer or "").strip()
         if self._callback_text_has_terminal_success_text(callback_text):
+            if not self._should_stop_flow_after_action(
+                action=action, next_action=next_action
+            ):
+                self.log(
+                    f"按钮「{action_text}」回调提示表明当前步骤完成: {callback_text}，继续后续动作"
+                )
+                return "next"
             self.context.stop_after_current_action = True
             self.context.stop_reason = callback_text
             self.log(
@@ -707,6 +748,11 @@ class SignerMatchersMixin:
             history_limit=history_limit,
             timeout=timeout,
         ):
+            if not self._should_stop_flow_after_action(
+                action=action, next_action=next_action
+            ):
+                self.log(f"按钮「{action_text}」后已检测到当前步骤完成响应，继续后续动作")
+                return "next"
             self.context.stop_after_current_action = True
             self.log(f"按钮「{action_text}」后已检测到任务完成响应，将跳过后续动作")
             return "success"

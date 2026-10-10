@@ -88,6 +88,9 @@ export function parseSingleAction(raw: RawTaskAction): TaskActionItem[] {
   if (raw.skip_if_matched) {
     item.skip_if_matched = String(raw.skip_if_matched)
   }
+  if (raw.stop_flow_on_terminal !== undefined) {
+    item.stop_flow_on_terminal = Boolean(raw.stop_flow_on_terminal)
+  }
   items.push(item)
   return items
 }
@@ -161,6 +164,9 @@ export function buildSingleAction(
   }
   if (action.skip_if_matched && action.skip_if_matched.trim()) {
     result.skip_if_matched = action.skip_if_matched.trim()
+  }
+  if (action.stop_flow_on_terminal) {
+    result.stop_flow_on_terminal = true
   }
   return result
 }

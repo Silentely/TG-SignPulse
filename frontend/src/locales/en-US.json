@@ -433,6 +433,8 @@
     "calcClickHint": "AI solves text math challenge and clicks the matching answer button (leave blank for default)",
     "continueOnError": "Continue on Error (Skip failure)",
     "continueOnErrorDesc": "Log error and proceed to the next step if this action fails",
+    "stopFlowOnTerminal": "Stop Flow on Terminal (End on success)",
+    "stopFlowOnTerminalDesc": "Stop the entire task flow when this action receives a terminal response (default off, ensures subsequent actions run)",
     "skipIfMatched": "Skip if Matched (Text/Regex)",
     "skipIfMatchedPlaceholder": "e.g. SIGNED_IN or Checked-in",
     "skipIfMatchedDesc": "Automatically skip this step if previous output or message matches",

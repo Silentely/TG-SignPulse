@@ -433,6 +433,8 @@
     "calcClickHint": "AI 自动计算文本数学题，并点击匹配答案的选项按钮（通常留空即可）",
     "continueOnError": "容错继续执行 (失败不中断)",
     "continueOnErrorDesc": "当此步骤发生异常或错误时，记录日志并继续执行下一步",
+    "stopFlowOnTerminal": "终态停止流程 (收到成功即结束)",
+    "stopFlowOnTerminalDesc": "当此步骤收到签到成功/已签到等终态回复后，提前结束整个任务流（默认不勾选，保证后续动作执行）",
     "skipIfMatched": "条件跳过关键字/正则",
     "skipIfMatchedPlaceholder": "如：SIGNED_IN 或 已签到",
     "skipIfMatchedDesc": "当上一动作输出或当前消息匹配时，自动跳过本步骤",

@@ -565,7 +565,7 @@ const emit = defineEmits<{
               v-if="action.type !== 'delay'"
               type="button"
               class="p-1.5 text-[var(--sp-text-muted)] hover:text-sky-600 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/30 rounded-sm transition-colors"
-              :class="{ '!text-sky-600 dark:!text-sky-400 bg-sky-50/80 dark:bg-sky-950/40': expandedAdvanced[action.id] || action.continue_on_error || action.skip_if_matched }"
+              :class="{ '!text-sky-600 dark:!text-sky-400 bg-sky-50/80 dark:bg-sky-950/40': expandedAdvanced[action.id] || action.continue_on_error || action.skip_if_matched || action.stop_flow_on_terminal }"
               :title="expandedAdvanced[action.id] ? t('taskForm.collapseOptions') : t('taskForm.advancedActionOptions')"
               @click="toggleAdvanced(action.id)"
             >
@@ -619,6 +619,19 @@ const emit = defineEmits<{
               <div class="flex flex-col">
                 <span class="font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text)]">{{ t('taskForm.continueOnError') }}</span>
                 <span class="text-[11px] text-[var(--sp-text-muted)] leading-snug">{{ t('taskForm.continueOnErrorDesc') }}</span>
+              </div>
+            </label>
+
+            <!-- 终态停止流程开关 -->
+            <label class="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                v-model="action.stop_flow_on_terminal"
+                class="rounded text-sky-600 focus:ring-sky-500 h-3.5 w-3.5 mt-0.5"
+              />
+              <div class="flex flex-col">
+                <span class="font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text)]">{{ t('taskForm.stopFlowOnTerminal') }}</span>
+                <span class="text-[11px] text-[var(--sp-text-muted)] leading-snug">{{ t('taskForm.stopFlowOnTerminalDesc') }}</span>
               </div>
             </label>
 

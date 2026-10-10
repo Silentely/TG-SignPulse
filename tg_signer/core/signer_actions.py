@@ -839,7 +839,11 @@ class SignerActionsMixin:
                     chat.chat_id, action.text, chat.delete_after, **kwargs
                 )
             await self._maybe_stop_after_send(
-                chat, before_state=before_state, history_limit=history_limit
+                chat,
+                before_state=before_state,
+                history_limit=history_limit,
+                next_action=next_action,
+                action=action,
             )
             return result
         elif isinstance(action, SendDiceAction):
@@ -850,7 +854,11 @@ class SignerActionsMixin:
                 chat.chat_id, action.dice, chat.delete_after, **kwargs
             )
             await self._maybe_stop_after_send(
-                chat, before_state=before_state, history_limit=history_limit
+                chat,
+                before_state=before_state,
+                history_limit=history_limit,
+                next_action=next_action,
+                action=action,
             )
             return result
         elif isinstance(action, KeywordNotifyAction):
@@ -966,6 +974,7 @@ class SignerActionsMixin:
                                     before_click_state=before_click_state,
                                     history_limit=history_limit,
                                     timeout=follow_timeout,
+                                    action=action,
                                 )
                             self.context.chat_messages[chat.chat_id][message.id] = None
                             return True
@@ -980,6 +989,7 @@ class SignerActionsMixin:
                                     before_click_state=before_click_state,
                                     history_limit=history_limit,
                                     timeout=follow_timeout,
+                                    action=action,
                                 )
                                 if followup_state in {"success", "next"}:
                                     return True
@@ -1052,6 +1062,7 @@ class SignerActionsMixin:
                                             before_click_state=before_click_state,
                                             history_limit=history_limit,
                                             timeout=follow_timeout,
+                                            action=action,
                                         )
                                     return True
                                 if matched:
@@ -1066,6 +1077,7 @@ class SignerActionsMixin:
                                                 before_click_state=before_click_state,
                                                 history_limit=history_limit,
                                                 timeout=follow_timeout,
+                                                action=action,
                                             )
                                         )
                                         if followup_state in {"success", "next"}:

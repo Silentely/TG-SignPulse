@@ -246,3 +246,71 @@ async def test_click_inline_button_unified_variations():
     )
     assert await click_inline_button_unified(msg, btn, log_func=mock_log) is False
     assert any("也无法确认按钮回调" in m[1] for m in logs)
+
+
+@pytest.mark.asyncio
+async def test_issue_13_multi_step_actions_not_stopped_by_terminal_success():
+    """验证 Issue #13 场景：动作1收到「签到成功」终态回复，动作2不会被错误跳过"""
+    from tg_signer.core.signer_matchers import SignerMatchersMixin
+
+    signer = DummySigner()
+    chat = SignChatV3(
+        chat_id=12345,
+        name="test_bot",
+        actions=[
+            SendTextAction(action=SupportAction.SEND_TEXT, text="/qd"),
+            SendTextAction(action=SupportAction.SEND_TEXT, text="/start"),
+        ],
+    )
+
+    executed_actions = []
+
+    async def mock_wait_for(c, a, next_action=None):
+        executed_actions.append(a)
+        if a.text == "/qd":
+            if not signer._should_stop_flow_after_action(action=a, next_action=next_action):
+                signer.context.stop_after_current_action = False
+            else:
+                signer.context.stop_after_current_action = True
+        return True
+
+    signer._should_stop_flow_after_action = SignerMatchersMixin._should_stop_flow_after_action.__get__(signer)
+    signer.wait_for = mock_wait_for
+    await signer.sign_a_chat(chat)
+
+    assert len(executed_actions) == 2
+    assert executed_actions[0].text == "/qd"
+    assert executed_actions[1].text == "/start"
+
+
+@pytest.mark.asyncio
+async def test_action_stop_flow_on_terminal_explicit():
+    """验证显式开启 stop_flow_on_terminal=True 时，能够按预期在终态提前终止"""
+    from tg_signer.core.signer_matchers import SignerMatchersMixin
+
+    signer = DummySigner()
+    chat = SignChatV3(
+        chat_id=12345,
+        name="test_bot",
+        actions=[
+            SendTextAction(action=SupportAction.SEND_TEXT, text="/qd", stop_flow_on_terminal=True),
+            SendTextAction(action=SupportAction.SEND_TEXT, text="/start"),
+        ],
+    )
+
+    executed_actions = []
+
+    async def mock_wait_for(c, a, next_action=None):
+        executed_actions.append(a)
+        if a.text == "/qd":
+            if signer._should_stop_flow_after_action(action=a, next_action=next_action):
+                signer.context.stop_after_current_action = True
+        return True
+
+    signer._should_stop_flow_after_action = SignerMatchersMixin._should_stop_flow_after_action.__get__(signer)
+    signer.wait_for = mock_wait_for
+    await signer.sign_a_chat(chat)
+
+    assert len(executed_actions) == 1
+    assert executed_actions[0].text == "/qd"
+    assert any("检测到任务已完成，停止执行后续动作" in log[1] for log in signer.logs)

@@ -1268,6 +1268,61 @@ class MidFlowTerminalSuccessTest(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(signer.context.stop_after_current_action)
         signer._wait_for_terminal_success.assert_not_called()
 
+    async def test_maybe_stop_after_send_continues_when_next_action_exists(self):
+        from types import SimpleNamespace
+        from tg_signer.core import UserSigner
+
+        signer = object.__new__(UserSigner)
+        signer.log = lambda *a, **k: None
+        signer.context = signer.ensure_ctx()
+        signer._post_send_terminal_timeout = lambda: 1.0
+
+        async def fake_wait(*args, **kwargs):
+            signer.context.stop_reason = "签到成功"
+            return True
+
+        signer._wait_for_terminal_success = fake_wait
+
+        chat = SimpleNamespace(chat_id=1, message_thread_id=None)
+        action = SimpleNamespace(action=1, stop_flow_on_terminal=False)
+        next_action = SimpleNamespace(action=1)
+        await signer._maybe_stop_after_send(
+            chat,
+            before_state={1: ("x",)},
+            history_limit=8,
+            next_action=next_action,
+            action=action,
+        )
+        self.assertFalse(signer.context.stop_after_current_action)
+
+    async def test_maybe_stop_after_send_stops_when_stop_flow_on_terminal_explicit(self):
+        from types import SimpleNamespace
+        from tg_signer.core import UserSigner
+
+        signer = object.__new__(UserSigner)
+        signer.log = lambda *a, **k: None
+        signer.context = signer.ensure_ctx()
+        signer._post_send_terminal_timeout = lambda: 1.0
+
+        async def fake_wait(*args, **kwargs):
+            signer.context.stop_reason = "签到成功"
+            return True
+
+        signer._wait_for_terminal_success = fake_wait
+
+        chat = SimpleNamespace(chat_id=1, message_thread_id=None)
+        action = SimpleNamespace(action=1, stop_flow_on_terminal=True)
+        next_action = SimpleNamespace(action=1)
+        await signer._maybe_stop_after_send(
+            chat,
+            before_state={1: ("x",)},
+            history_limit=8,
+            next_action=next_action,
+            action=action,
+        )
+        self.assertTrue(signer.context.stop_after_current_action)
+        self.assertEqual(signer.context.stop_reason, "签到成功")
+
 
 class SuccessTextDetectionTest(unittest.TestCase):
     """签到成功文本检测增强测试。"""
