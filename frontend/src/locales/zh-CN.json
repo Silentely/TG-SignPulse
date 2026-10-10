@@ -467,7 +467,10 @@
     "nextTaskOnSuccess": "成功后触发任务",
     "nextTaskOnSuccessHint": "当前任务执行成功后，将自动流水线触发同账号下的指定后续任务",
     "nextTaskDelaySeconds": "后续任务延迟（秒）",
-    "nextTaskDelaySecondsHint": "触发下一个任务前等待的间隔秒数（默认 2 秒）"
+    "nextTaskDelaySecondsHint": "触发下一个任务前等待的间隔秒数（默认 2 秒）",
+    "executionEngine": "执行引擎覆盖",
+    "executionEngineHint": "留空或选择跟随全局时使用系统全局配置；亦可显式指定强制使用 PulseFlow (v4) 或 Classic (v3)。",
+    "engineGlobal": "跟随全局系统设置 (默认)"
   },
   "taskModal": {
     "addTitle": "添加任务",
@@ -1184,7 +1187,15 @@
     "presetJianguoyun": "坚果云",
     "presetNextcloud": "Nextcloud",
     "presetInfinicloud": "InfiniCLOUD",
-    "presetAlist": "Alist / 自建"
+    "presetAlist": "Alist / 自建",
+    "executionEngine": "执行引擎",
+    "executionEngineHint": "选择全局默认的签到执行引擎。PulseFlow (v4) 提供状态机调度、变量上下文与动作隔离；Classic (v3) 保持经典线性执行。",
+    "engineV3Label": "Classic (v3) 经典模式",
+    "engineV4Label": "PulseFlow (v4) 下一代状态机 (推荐)",
+    "engineSourceTask": "任务指定",
+    "engineSourceSettings": "系统设置",
+    "engineSourceEnv": "环境变量",
+    "engineSourceDefault": "系统默认"
   },
   "profile": {
     "title": "个人中心",

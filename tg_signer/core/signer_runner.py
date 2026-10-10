@@ -157,7 +157,13 @@ class SignerRunnerMixin:
                 )
                 raise RuntimeError(f"预热会话失败 chat_id={chat.chat_id}: {e}") from e
         self.log(self._describe_chat_run(chat))
-        if read_positive_int_env("USE_PULSEFLOW_ENGINE", 0, 0) == 1:
+        from tg_signer.core.flow_routing import ENGINE_V4, resolve_execution_engine
+
+        engine_code, engine_display, engine_source = resolve_execution_engine(chat)
+        if engine_code == ENGINE_V4:
+            self.log(
+                f"当前任务使用执行引擎: {engine_display} (来源: {engine_source})"
+            )
             from tg_signer.core.flow_adapter import TelegramNodeExecutor
             from tg_signer.core.flow_context import ScopedFlowContext
             from tg_signer.core.flow_engine import PulseFlowEngine

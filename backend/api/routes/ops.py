@@ -830,6 +830,9 @@ class RuntimeStatusResponse(BaseModel):
     monitor_shard: str = ""
     monitor_allowlist: str = ""
     uptime_seconds: int = 0
+    execution_engine: str = "v3"
+    execution_engine_name: str = "Classic (v3)"
+    execution_engine_source: str = "default" 
 
 
 @router.get("/runtime-status", response_model=RuntimeStatusResponse)
@@ -843,6 +846,9 @@ def runtime_status(
     start_time = getattr(request.app.state, "start_time", None)
     uptime_seconds = int(time.time() - start_time) if start_time else 0
 
+    from tg_signer.core.flow_routing import resolve_execution_engine
+    eng_code, eng_name, eng_src = resolve_execution_engine(None)
+
     return RuntimeStatusResponse(
         ready=bool(getattr(request.app.state, "ready", False)),
         scheduler_lock_held=lock_held,
@@ -853,6 +859,9 @@ def runtime_status(
         monitor_shard=os.getenv("APP_MONITOR_SHARD", "") or "",
         monitor_allowlist=os.getenv("APP_MONITOR_ACCOUNT_ALLOWLIST", "") or "",
         uptime_seconds=uptime_seconds,
+        execution_engine=eng_code,
+        execution_engine_name=eng_name,
+        execution_engine_source=eng_src,
     )
 
 

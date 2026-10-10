@@ -41,6 +41,12 @@ const scheduleMode = ref<'scheduled' | 'listen'>('scheduled')
 const timeRange = ref('08:00-19:00')
 const taskName = ref('')
 const retryCount = ref(3)
+const executionEngine = ref("")
+const executionEngineOptions = computed(() => [
+  { label: t("taskForm.engineGlobal"), value: "" },
+  { label: "PulseFlow (v4)", value: "v4" },
+  { label: "Classic (v3)", value: "v3" },
+])
 /** 高级选项：重试 / 话题 ID / 发送者过滤，新建默认折叠 */
 const showAdvanced = ref(false)
 /** 任务名字段级提示（失焦后） */
@@ -144,6 +150,7 @@ const handleTagsKeydown = (e: KeyboardEvent) => {
 const shouldAutoExpandAdvanced = () => {
   if (!props.initialTask) return false
   if (props.initialTask.next_task_on_success) return true
+  if (props.initialTask.execution_engine || props.initialTask.chats?.[0]?.execution_engine) return true
   const retry = props.initialTask.retry_count
   if (retry != null && retry !== 3) return true
   for (const chat of props.initialTask.chats || []) {
@@ -189,6 +196,7 @@ const loadAccounts = async () => {
         : []
       nextTaskOnSuccess.value = props.initialTask.next_task_on_success || ''
       nextTaskDelaySeconds.value = props.initialTask.next_task_delay_seconds ?? 2
+      executionEngine.value = props.initialTask.execution_engine || props.initialTask.chats?.[0]?.execution_engine || ""
       showAdvanced.value = shouldAutoExpandAdvanced()
       scheduleMode.value = props.initialTask.execution_mode === 'listen' ? 'listen' : 'scheduled'
       if (props.initialTask.execution_mode === 'range') timeRange.value = props.initialTask.range_start + '-' + props.initialTask.range_end
@@ -443,6 +451,7 @@ const buildPayload = () => {
     adaptiveSchedulePatterns: adaptiveSchedulePatterns.value,
     nextTaskOnSuccess: nextTaskOnSuccess.value,
     nextTaskDelaySeconds: nextTaskDelaySeconds.value,
+    executionEngine: executionEngine.value,
   })
 }
 /** 供父组件提交前触发；返回是否通过 */
@@ -576,6 +585,16 @@ onMounted(() => { loadAccounts() })
             placeholder="2"
           />
           <p class="text-[10px] text-[var(--sp-text-muted)] mt-1 leading-relaxed">{{ t('taskForm.nextTaskDelaySecondsHint') }}</p>
+        </div>
+        <div class="space-y-1.5">
+          <label class="ui-label-strong" for="task-form-execution-engine">{{ t('taskForm.executionEngine') }}</label>
+          <CustomSelect
+            id="task-form-execution-engine"
+            :model-value="executionEngine"
+            :options="executionEngineOptions"
+            @update:model-value="executionEngine = String($event ?? '')"
+          />
+          <p class="text-[10px] text-[var(--sp-text-muted)] mt-1 leading-relaxed">{{ t('taskForm.executionEngineHint') }}</p>
         </div>
       </div>
     </div>

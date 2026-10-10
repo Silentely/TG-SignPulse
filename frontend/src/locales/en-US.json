@@ -467,7 +467,10 @@
     "nextTaskOnSuccess": "Next Task On Success",
     "nextTaskOnSuccessHint": "Automatically trigger another task under the same account after this task succeeds",
     "nextTaskDelaySeconds": "Chained Task Delay (seconds)",
-    "nextTaskDelaySecondsHint": "Delay in seconds before triggering the next task (default: 2s)"
+    "nextTaskDelaySecondsHint": "Delay in seconds before triggering the next task (default: 2s)",
+    "executionEngine": "Execution Engine Override",
+    "executionEngineHint": "Follows global system settings by default; or explicitly enforce PulseFlow (v4) or Classic (v3) for this task.",
+    "engineGlobal": "Follow Global Settings (Default)"
   },
   "taskModal": {
     "addTitle": "Add Task",
@@ -1184,7 +1187,15 @@
     "presetJianguoyun": "Jianguoyun",
     "presetNextcloud": "Nextcloud",
     "presetInfinicloud": "InfiniCLOUD",
-    "presetAlist": "Alist / Self-hosted"
+    "presetAlist": "Alist / Self-hosted",
+    "executionEngine": "Execution Engine",
+    "executionEngineHint": "Select default execution engine. PulseFlow (v4) provides FSM scheduling, variable scopes, and action isolation; Classic (v3) preserves legacy linear execution.",
+    "engineV3Label": "Classic (v3) Legacy",
+    "engineV4Label": "PulseFlow (v4) Next-Gen FSM (Recommended)",
+    "engineSourceTask": "Task Override",
+    "engineSourceSettings": "System Settings",
+    "engineSourceEnv": "Environment",
+    "engineSourceDefault": "Default"
   },
   "profile": {
     "title": "Profile",

@@ -460,6 +460,7 @@ class GlobalSettingsRequest(BaseModel):
     server_chan_send_key: Optional[str] = None
     bark_url: Optional[str] = None
     custom_url: Optional[str] = None
+    execution_engine: Optional[str] = None
 
 
 class GlobalSettingsResponse(BaseModel):
@@ -519,6 +520,7 @@ class GlobalSettingsResponse(BaseModel):
     bark_url_set: bool = False
     custom_url: Optional[str] = None
     custom_url_set: bool = False
+    execution_engine: str = "v3"
 
 
 @router.get("/settings", response_model=GlobalSettingsResponse)

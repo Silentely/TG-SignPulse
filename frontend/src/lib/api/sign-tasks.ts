@@ -13,6 +13,7 @@ export interface SignTaskChat {
   message_thread_id?: number;
   sender_filter?: string;
   source_account?: string;
+  execution_engine?: string | null;
 }
 
 export interface LastRunInfo {
@@ -58,6 +59,7 @@ export interface SignTask {
   next_task_on_success?: string;
   next_task_delay_seconds?: number;
   active_run?: ActiveRunSummary | null;
+  execution_engine?: string | null;
 }
 
 export interface CreateSignTaskRequest {
@@ -81,6 +83,7 @@ export interface CreateSignTaskRequest {
   adaptive_schedule_padding_seconds?: number;
   next_task_on_success?: string;
   next_task_delay_seconds?: number;
+  execution_engine?: string | null;
 }
 
 export interface UpdateSignTaskRequest {

@@ -62,6 +62,13 @@ const memoryHealthText = computed(() => {
   if (props.memoryStats.stats?.in_alert) return t('settings.memoryInAlert')
   return props.memoryStats.stats?.gc_enabled ? t('settings.gcActive') : t('settings.gcInactive')
 })
+
+const formatEngineSource = (source?: string) => {
+  if (source === 'task') return t('settings.engineSourceTask')
+  if (source === 'settings') return t('settings.engineSourceSettings')
+  if (source === 'env') return t('settings.engineSourceEnv')
+  return t('settings.engineSourceDefault')
+}
 </script>
 
 <template>
@@ -172,6 +179,14 @@ const memoryHealthText = computed(() => {
             <span class="text-[var(--sp-text-muted)]">{{ t('settings.memoryHealth') }}:</span>
             <span class="ml-1" :class="memoryStats?.stats?.in_alert ? 'text-rose-600 dark:text-rose-400 font-medium' : 'text-emerald-600 dark:text-emerald-400'">
               {{ memoryHealthText }}
+            </span>
+          </div>
+          <div class="text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] flex items-center gap-1.5 flex-wrap">
+            <span class="text-[var(--sp-text-muted)]">{{ t('settings.executionEngine') }}:</span>
+            <span class="inline-flex items-center gap-1 font-medium font-sans" :class="runtimeStatus.execution_engine === 'v4' ? 'text-indigo-600 dark:text-indigo-400 font-semibold' : 'text-[var(--sp-text-secondary)]'">
+              <span class="w-1.5 h-1.5 rounded-full" :class="runtimeStatus.execution_engine === 'v4' ? 'bg-indigo-500' : 'bg-slate-400'"></span>
+              {{ runtimeStatus.execution_engine_name || (runtimeStatus.execution_engine === 'v4' ? 'PulseFlow (v4)' : 'Classic (v3)') }}
+              <span class="text-[10px] text-[var(--sp-text-muted)] font-normal">({{ formatEngineSource(runtimeStatus.execution_engine_source) }})</span>
             </span>
           </div>
         </div>

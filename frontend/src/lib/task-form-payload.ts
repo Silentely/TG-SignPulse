@@ -48,6 +48,7 @@ export type TaskFormPayloadInput = {
   adaptiveSchedulePatterns?: string[]
   nextTaskOnSuccess?: string
   nextTaskDelaySeconds?: number
+  executionEngine?: string | null
 }
 
 function normalizeTimeHm(v: string): string {
@@ -158,6 +159,7 @@ export function buildTaskFormPayload(
       message_thread_id: c.messageThreadId ? Number(c.messageThreadId) : undefined,
       sender_filter: c.senderFilter.trim() || undefined,
       source_account: c.sourceAccount || undefined,
+      execution_engine: input.executionEngine?.trim() || undefined,
     }))
 
   const safeChats = chats.length
@@ -173,6 +175,7 @@ export function buildTaskFormPayload(
             : undefined,
           sender_filter: input.fallbackSenderFilter.trim() || undefined,
           source_account: input.fallbackSourceAccount || undefined,
+          execution_engine: input.executionEngine?.trim() || undefined,
         },
       ]
 
@@ -194,6 +197,7 @@ export function buildTaskFormPayload(
     adaptive_schedule_patterns: input.adaptiveSchedulePatterns || [],
     next_task_on_success: input.nextTaskOnSuccess?.trim() ? input.nextTaskOnSuccess.trim() : undefined,
     next_task_delay_seconds: input.nextTaskDelaySeconds !== undefined && String(input.nextTaskDelaySeconds).trim() !== '' ? Number(input.nextTaskDelaySeconds) : undefined,
+    execution_engine: input.executionEngine?.trim() || undefined,
     chats: safeChats,
   }
 }

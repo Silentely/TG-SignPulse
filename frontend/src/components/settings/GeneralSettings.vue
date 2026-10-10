@@ -3,6 +3,7 @@
  * 通用设置区块：日志保留、数据目录、代理、并发、签到间隔、设备保活、时区。
  * 父组件 Settings.vue 持有表单状态，本组件通过 v-model 双向同步并触发保存/立即保活事件。
  */
+import { computed } from 'vue'
 import { Settings2 } from 'lucide-vue-next'
 import CustomSelect from '../CustomSelect.vue'
 import { useI18n } from '../../composables/useI18n'
@@ -33,6 +34,11 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+
+const executionEngineOptions = computed(() => [
+  { label: t("settings.engineV3Label"), value: "v3" },
+  { label: t("settings.engineV4Label"), value: "v4" },
+])
 
 type NumberInputKey = 'logDays' | 'concurrency' | 'deviceKeepaliveIntervalDays'
 
@@ -130,6 +136,17 @@ const onStringInput = (key: keyof SettingsFormState, e: Event) => {
           :options="timezoneOptions"
           className="w-full"
         />
+      </div>
+      <div class="space-y-1.5">
+        <label class="ui-label">{{ t('settings.executionEngine') }}</label>
+        <CustomSelect
+          :modelValue="modelValue.executionEngine || 'v3'"
+          :aria-label="t('settings.executionEngine')"
+          @update:modelValue="update('executionEngine', String($event ?? 'v3'))"
+          :options="executionEngineOptions"
+          className="w-full"
+        />
+        <p class="text-[10px] text-[var(--sp-text-muted)]">{{ t('settings.executionEngineHint') }}</p>
       </div>
       <div class="pt-2">
         <button type="button" class="ui-btn-primary w-full py-2.5" :disabled="loading" @click="emit('save')">{{ loading ? t('common.saving') : t('settings.saveGeneral') }}</button>

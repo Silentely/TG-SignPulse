@@ -78,6 +78,7 @@ export function useSettingsPage() {
     webdavPassword: '',
     webdavRemoteDir: 'tg-signpulse-backups',
     backupTarget: 'auto',
+    executionEngine: 'v3',
   })
 
   // 时区选项列表

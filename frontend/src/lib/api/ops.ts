@@ -224,6 +224,9 @@ export interface RuntimeStatus {
   monitor_allowlist: string;
   scheduler_role?: string;
   uptime_seconds?: number;
+  execution_engine?: string;
+  execution_engine_name?: string;
+  execution_engine_source?: string;
 }
 
 export const getRuntimeStatus = (token: string) =>

@@ -451,6 +451,7 @@ class SignChatV3(BaseJSONConfig):
     message_thread_id: Optional[int] = None
     next_task_on_success: Optional[str] = None
     next_task_delay_seconds: Optional[float] = None
+    execution_engine: Optional[str] = None
 
     @root_validator
     def _validate_actions_or_steps(cls, values):

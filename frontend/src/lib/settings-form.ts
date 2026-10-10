@@ -42,6 +42,7 @@ export type SettingsFormState = {
   webdavPassword: string
   webdavRemoteDir: string
   backupTarget: 'auto' | 'webdav'
+  executionEngine?: string
 }
 
 export type TgFormState = { api_id: string; api_hash: string }
@@ -94,6 +95,7 @@ export function buildGeneralPayload(s: SettingsFormState): {
   device_keepalive_enabled: boolean
   device_keepalive_interval_days: number
   timezone: string
+  execution_engine: string
 } {
   return {
     sign_interval: emptyToNull(s.checkInterval),
@@ -108,6 +110,7 @@ export function buildGeneralPayload(s: SettingsFormState): {
     device_keepalive_enabled: s.deviceKeepaliveEnabled,
     device_keepalive_interval_days: clampNumber(s.deviceKeepaliveIntervalDays, 1, 170) ?? 30,
     timezone: s.timezone,
+    execution_engine: s.executionEngine || 'v3',
   }
 }
 
@@ -184,6 +187,7 @@ export function snapSection(
         deviceKeepaliveEnabled: s.deviceKeepaliveEnabled,
         deviceKeepaliveIntervalDays: s.deviceKeepaliveIntervalDays,
         timezone: s.timezone,
+        executionEngine: s.executionEngine || 'v3',
       })
     case 'bot':
       return JSON.stringify({
@@ -318,6 +322,7 @@ export function applyGlobalSettingsToForm(
     webdav_password_set?: boolean
     webdav_remote_dir?: string | null
     backup_target?: string | null
+    execution_engine?: string | null
   },
 ): {
     botTokenSet: boolean
@@ -338,6 +343,7 @@ export function applyGlobalSettingsToForm(
   s.botTaskSuccess = res.telegram_bot_task_success_enabled || false
   s.quietEnabled = res.telegram_bot_quiet_hours_enabled || false
   s.quietStart = res.telegram_bot_quiet_hours_start || '23:00'
+  s.executionEngine = res.execution_engine || 'v3'
   s.quietEnd = res.telegram_bot_quiet_hours_end || '07:00'
   s.botToken = ''
   s.botChatId = res.telegram_bot_chat_id || ''

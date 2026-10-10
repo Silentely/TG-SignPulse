@@ -125,6 +125,7 @@ export interface GlobalSettings {
   telegram_bot_chat_id?: string | null;
   telegram_bot_message_thread_id?: number | null;
   timezone?: string;
+  execution_engine?: string;
   sign_task_execution_timeout?: number | null;
   sign_task_account_cooldown?: number | null;
   sign_task_flow_retry_attempts?: number | null;
