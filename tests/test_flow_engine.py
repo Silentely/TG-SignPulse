@@ -1,4 +1,6 @@
 # tests/test_flow_engine.py
+from unittest.mock import AsyncMock, patch
+
 import pytest
 
 from tg_signer.core.flow_context import ScopedFlowContext
@@ -10,7 +12,9 @@ from tg_signer.core.flow_models import (
     ConditionNode,
     ExecutionGraph,
     ExtractorNode,
+    FlowSignal,
     NodeStatus,
+    RetryPolicy,
     StepOutcome,
     TerminalPolicy,
 )
@@ -154,3 +158,47 @@ async def test_extractor_with_custom_source_field():
     result = await engine.run(graph, ctx, mock_executor)
     assert result["status"] == "success"
     assert ctx.get_var("auth_code") == "665544"
+
+
+@pytest.mark.asyncio
+async def test_retry_signal_uses_exponential_backoff_before_next_attempt():
+    graph = ExecutionGraph(
+        entry_node_id="retry_step",
+        nodes={
+            "retry_step": ActionNode(
+                id="retry_step",
+                next_node_id=TERMINAL_COMPLETE_ID,
+                retry_policy=RetryPolicy(
+                    max_attempts=3,
+                    backoff_seconds=0.1,
+                    backoff_multiplier=2.0,
+                    max_backoff_seconds=1.0,
+                ),
+            )
+        },
+    )
+    ctx = ScopedFlowContext()
+    outcomes = [
+        StepOutcome(
+            node_id="retry_step",
+            status=NodeStatus.PENDING,
+            signal=FlowSignal.RETRY_NODE,
+        ),
+        StepOutcome(
+            node_id="retry_step",
+            status=NodeStatus.PENDING,
+            signal=FlowSignal.RETRY_NODE,
+        ),
+        StepOutcome(node_id="retry_step", status=NodeStatus.SUCCESS),
+    ]
+
+    async def mock_executor(node, context):
+        return outcomes.pop(0)
+
+    with patch(
+        "tg_signer.core.flow_engine.asyncio.sleep", new_callable=AsyncMock
+    ) as sleep:
+        result = await PulseFlowEngine().run(graph, ctx, mock_executor)
+
+    assert result["status"] == "success"
+    assert [call.args for call in sleep.await_args_list] == [(0.1,), (0.2,)]

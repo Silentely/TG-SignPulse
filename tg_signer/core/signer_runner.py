@@ -171,18 +171,53 @@ class SignerRunnerMixin:
             from tg_signer.core.flow_normalizer import GraphNormalizer
 
             graph = GraphNormalizer.from_chat(chat)
-            ctx = ScopedFlowContext(account={"name": getattr(self, "_account", "")})
-            executor = TelegramNodeExecutor(self, chat)
+
+            def _reset_v4_legacy_context() -> None:
+                # v4 使用独立 ScopedFlowContext；清理旧 runner context，避免跨 chat
+                # 或跨重试的 last_output/step_outputs/终态标记被兼容适配器误读。
+                if chat.chat_id in self.context.chat_messages:
+                    self.context.chat_messages[chat.chat_id].clear()
+                else:
+                    self.context.chat_messages[chat.chat_id] = {}
+                self.context.step_outputs = {}
+                self.context.last_output = ""
+                self.context.last_received_text = ""
+                self.context.stop_after_current_action = False
+                self.context.stop_reason = None
+                self.context.last_callback_answer = None
+
+            max_flow_attempts = max(
+                1,
+                int(
+                    task_retry_count_var.get()
+                    or read_positive_int_env("SIGN_TASK_FLOW_RETRY_ATTEMPTS", 1, 1)
+                ),
+            )
             engine = PulseFlowEngine()
-            flow_res = await engine.run(graph, ctx, executor)
-            if flow_res.get("status") != "success":
-                err_detail = (
-                    flow_res.get("error")
-                    or f"steps={flow_res.get('steps')}, path={flow_res.get('path')}"
-                )
-                err_msg = f"PulseFlow 执行失败: {err_detail}"
-                raise RuntimeError(err_msg)
-            return True
+            last_error: Optional[Exception] = None
+            for flow_attempt in range(1, max_flow_attempts + 1):
+                _reset_v4_legacy_context()
+                ctx = ScopedFlowContext(account={"name": getattr(self, "_account", "")})
+                executor = TelegramNodeExecutor(self, chat, graph)
+                try:
+                    flow_res = await engine.run(graph, ctx, executor)
+                    if flow_res.get("status") == "success":
+                        return True
+                    err_detail = (
+                        flow_res.get("error")
+                        or f"steps={flow_res.get('steps')}, path={flow_res.get('path')}"
+                    )
+                    last_error = RuntimeError(f"PulseFlow 执行失败: {err_detail}")
+                except Exception as exc:
+                    last_error = exc
+                if flow_attempt < max_flow_attempts:
+                    self.log(
+                        f"PulseFlow 第 {flow_attempt}/{max_flow_attempts} 次执行失败，准备重试: {last_error}",
+                        level="WARNING",
+                    )
+            if last_error is not None:
+                raise last_error
+            raise RuntimeError("PulseFlow 执行失败：没有得到执行结果")
 
         if getattr(chat, "steps", None) is not None:
             # 与旧版 actions 流程保持一致：任务级 retry_count 控制整个工作流重试次数。

@@ -27,9 +27,10 @@ logger = logging.getLogger("tg_signer.flow_adapter")
 class TelegramNodeExecutor:
     """隔离旧系统副作用的动作执行适配器，支持跳过判定、动态模板渲染、延迟与容错重试闭环"""
 
-    def __init__(self, runner: Any, chat: SignChatV3):
+    def __init__(self, runner: Any, chat: SignChatV3, graph: Any = None):
         self.runner = runner
         self.chat = chat
+        self.graph = graph
 
     def _log(self, msg: str, level: str = "INFO") -> None:
         """同时向 runner 日志流（供前端实时查看）和系统标准日志输出"""
@@ -89,8 +90,6 @@ class TelegramNodeExecutor:
         # 2. 构建模板上下文并渲染动态变量
         me_user = getattr(self.runner, "me", None)
         step_outs = getattr(runner_ctx, "step_outputs", None) if runner_ctx else None
-        if not isinstance(step_outs, dict):
-            step_outs = {}
         legacy_last_recv = (
             getattr(runner_ctx, "last_received_text", "") if runner_ctx else ""
         )
@@ -98,6 +97,9 @@ class TelegramNodeExecutor:
             legacy_last_recv = ""
 
         scope_dict = context.build_scope_dict()
+        scoped_steps = scope_dict.get("steps", {})
+        if not isinstance(step_outs, dict) or not step_outs:
+            step_outs = scoped_steps if isinstance(scoped_steps, dict) else {}
         account_dict = dict(scope_dict.get("account") or {})
         if me_user:
             if getattr(me_user, "phone_number", None):
@@ -171,7 +173,15 @@ class TelegramNodeExecutor:
 
         # 5. 调用 runner.wait_for 执行动作
         try:
-            res = await self.runner.wait_for(self.chat, exec_action)
+            next_action = None
+            next_node_id = getattr(node, "next_node_id", None)
+            if self.graph is not None and next_node_id:
+                next_node = self.graph.nodes.get(next_node_id)
+                if next_node is not None:
+                    next_action = next_node.metadata.get("raw_action")
+            res = await self.runner.wait_for(
+                self.chat, exec_action, next_action=next_action
+            )
             matched_term = False
             if runner_ctx and getattr(runner_ctx, "stop_after_current_action", False):
                 matched_term = True

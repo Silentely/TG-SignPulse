@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from functools import lru_cache
 from typing import Any, Awaitable, Callable, Dict, Optional
 
 from tg_signer.core.flow_context import ScopedFlowContext
@@ -84,6 +85,8 @@ class PulseFlowEngine:
 
                     if outcome.signal != FlowSignal.RETRY_NODE:
                         break
+                    if attempt < node.retry_policy.max_attempts:
+                        await self._sleep_before_retry(node, attempt)
                 except Exception as exc:
                     exc_name = type(exc).__name__
                     allowed = node.retry_policy.retry_on_exceptions
@@ -104,12 +107,7 @@ class PulseFlowEngine:
                             output_text=str(exc),
                         )
                         break
-                    backoff = min(
-                        node.retry_policy.backoff_seconds
-                        * (node.retry_policy.backoff_multiplier ** (attempt - 1)),
-                        node.retry_policy.max_backoff_seconds,
-                    )
-                    await asyncio.sleep(backoff)
+                    await self._sleep_before_retry(node, attempt)
 
             # RETRY_NODE 耗尽安全防护
             if outcome and outcome.signal == FlowSignal.RETRY_NODE:
@@ -188,7 +186,7 @@ class PulseFlowEngine:
 
         extracted = {}
         if node.regex and src_text:
-            match = re.search(node.regex, src_text)
+            match = self._compile_regex(node.regex).search(src_text)
             if match:
                 group_dict = match.groupdict()
                 for k, var_name in node.export_vars.items():
@@ -222,3 +220,20 @@ class PulseFlowEngine:
             signal=FlowSignal.BRANCH if node.default_target_id else FlowSignal.PROCEED,
             target_node_id=node.default_target_id,
         )
+
+    @staticmethod
+    async def _sleep_before_retry(node: BaseFlowNode, attempt: int) -> None:
+        """按统一退避策略暂停，覆盖异常和显式 RETRY_NODE 两条路径。"""
+        policy = node.retry_policy
+        backoff = min(
+            policy.backoff_seconds * (policy.backoff_multiplier ** (attempt - 1)),
+            policy.max_backoff_seconds,
+        )
+        if backoff > 0:
+            await asyncio.sleep(backoff)
+
+    @staticmethod
+    @lru_cache(maxsize=128)
+    def _compile_regex(pattern: str) -> re.Pattern[str]:
+        """缓存重复循环中使用的提取正则，避免每次访问节点都重新编译。"""
+        return re.compile(pattern)

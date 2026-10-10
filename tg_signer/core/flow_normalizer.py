@@ -46,7 +46,7 @@ class GraphNormalizer:
         nodes: Dict[str, BaseFlowNode] = {}
         total = len(chat.actions)
         if total == 0:
-            return ExecutionGraph(entry_node_id=TERMINAL_COMPLETE_ID, nodes={})
+            raise GraphValidationError("任务配置不合法：没有配置任何可执行动作")
 
         entry_id = "step_0"
         for i, act in enumerate(chat.actions):
@@ -145,7 +145,7 @@ class GraphNormalizer:
             params["text"] = act.text
         elif isinstance(act, SendDiceAction):
             action_type = "SEND_DICE"
-            params["emoji"] = act.emoji
+            params["dice"] = act.dice
         elif isinstance(act, ClickKeyboardByTextAction):
             action_type = "CLICK_KEYBOARD_BY_TEXT"
             params["text"] = act.text
@@ -166,7 +166,9 @@ class GraphNormalizer:
             params["keywords"] = act.keywords
         elif isinstance(act, PluginAction):
             action_type = "PLUGIN"
-            params["plugin_id"] = act.plugin_id
+            params["plugin_name"] = act.plugin_name
+            params["mode"] = act.mode
+            params["timeout"] = act.timeout
             params["params"] = act.params
 
         if hasattr(act, "delay") and act.delay is not None:
@@ -238,8 +240,8 @@ class GraphNormalizer:
             if cur in rec_stack:
                 cycle_start = rec_stack.index(cur)
                 cycle_steps = rec_stack[cycle_start:]
-                # 环路中若至少存在一个显式声明 allow_loop=True 且 max_visits > 1 的节点，则认为属于合法的循环重试流
-                has_allowed = any(
+                # 环路中的每个节点都必须允许重复访问，否则运行时必然在某个节点熔断。
+                all_allowed = all(
                     (
                         graph.nodes[sid].loop_policy.allow_loop
                         and graph.nodes[sid].loop_policy.max_visits > 1
@@ -247,7 +249,7 @@ class GraphNormalizer:
                     for sid in cycle_steps
                     if sid in graph.nodes
                 )
-                if not has_allowed:
+                if not all_allowed:
                     raise GraphValidationError(
                         f"检测到未允许的环路: {' -> '.join(cycle_steps)} -> {cur}"
                     )

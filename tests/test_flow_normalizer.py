@@ -4,6 +4,8 @@ import pytest
 from tg_signer.config import (
     ChooseOptionByImageAction,
     ClickKeyboardByTextAction,
+    PluginAction,
+    SendDiceAction,
     SendTextAction,
     SignChatV3,
     WorkflowStepConfig,
@@ -46,6 +48,28 @@ def test_normalize_legacy_actions_with_exact_fields():
     node2 = graph.nodes["step_2"]
     assert node2.next_node_id == TERMINAL_COMPLETE_ID
     assert node2.terminal_policy == TerminalPolicy.STOP_FLOW
+
+
+def test_normalize_dice_and_plugin_actions_uses_current_model_fields():
+    chat = SignChatV3(
+        chat_id=12345,
+        actions=[
+            SendDiceAction(dice="🎲"),
+            PluginAction(plugin_name="daily_bonus", mode="active", timeout=3.0),
+        ],
+    )
+
+    graph = GraphNormalizer.from_chat(chat)
+
+    assert graph.nodes["step_0"].params["dice"] == "🎲"
+    assert graph.nodes["step_1"].params["plugin_name"] == "daily_bonus"
+    assert graph.nodes["step_1"].params["mode"] == "active"
+    assert graph.nodes["step_1"].params["timeout"] == 3.0
+
+
+def test_normalize_empty_actions_rejects_invalid_v4_graph():
+    with pytest.raises(GraphValidationError, match="没有配置任何可执行动作"):
+        GraphNormalizer.from_chat(SignChatV3(chat_id=12345, actions=[]))
 
 
 def test_normalize_workflow_steps_with_config_dict():
@@ -141,7 +165,7 @@ def test_graph_validator_detects_unallowed_cycle():
 
 
 def test_graph_validator_accepts_allowed_cycle():
-    # 检测声明了 allow_loop 且 max_visits > 1 的合法循环
+    # 环路上的每个节点都必须声明可循环，才能与运行时访问上限一致
     allowed_cycle_graph = ExecutionGraph(
         entry_node_id="s1",
         nodes={
@@ -150,7 +174,11 @@ def test_graph_validator_accepts_allowed_cycle():
                 next_node_id="s2",
                 loop_policy=LoopPolicy(allow_loop=True, max_visits=3),
             ),
-            "s2": ActionNode(id="s2", next_node_id="s1"),
+            "s2": ActionNode(
+                id="s2",
+                next_node_id="s1",
+                loop_policy=LoopPolicy(allow_loop=True, max_visits=3),
+            ),
         },
     )
     # 不应抛出异常

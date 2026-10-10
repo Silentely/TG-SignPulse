@@ -38,13 +38,17 @@ async def test_full_pipeline_with_telegram_adapter_barrier():
     mock_runner.context = MagicMock()
     mock_runner.context.stop_after_current_action = True
 
-    executor = TelegramNodeExecutor(mock_runner, chat)
+    executor = TelegramNodeExecutor(mock_runner, chat, graph)
     engine = PulseFlowEngine()
     result = await engine.run(graph, ctx, executor)
 
     assert result["status"] == "success"
     assert result["path"] == ["step_0", "step_1"]
     assert mock_runner.wait_for.call_count == 2
+    assert (
+        mock_runner.wait_for.call_args_list[0].kwargs["next_action"].text == "确认领奖"
+    )
+    assert mock_runner.wait_for.call_args_list[1].kwargs["next_action"] is None
 
 
 @pytest.mark.asyncio
