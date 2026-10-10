@@ -109,7 +109,7 @@ class DummyActionSigner(SignerActionsMixin):
     async def _chat_state_snapshot(self, chat, history_limit=12):
         return None
 
-    async def _maybe_stop_after_send(self, chat, before_state=None, history_limit=12):
+    async def _maybe_stop_after_send(self, chat, before_state=None, history_limit=12, *args, **kwargs):
         pass
 
 

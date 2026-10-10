@@ -838,13 +838,20 @@ class SignerActionsMixin:
                 result = await self.send_message(
                     chat.chat_id, action.text, chat.delete_after, **kwargs
                 )
-            await self._maybe_stop_after_send(
-                chat,
-                before_state=before_state,
-                history_limit=history_limit,
-                next_action=next_action,
-                action=action,
-            )
+            try:
+                await self._maybe_stop_after_send(
+                    chat,
+                    before_state=before_state,
+                    history_limit=history_limit,
+                    next_action=next_action,
+                    action=action,
+                )
+            except TypeError:
+                await self._maybe_stop_after_send(
+                    chat,
+                    before_state=before_state,
+                    history_limit=history_limit,
+                )
             return result
         elif isinstance(action, SendDiceAction):
             before_state = await self._chat_state_snapshot(
@@ -853,13 +860,20 @@ class SignerActionsMixin:
             result = await self.send_dice(
                 chat.chat_id, action.dice, chat.delete_after, **kwargs
             )
-            await self._maybe_stop_after_send(
-                chat,
-                before_state=before_state,
-                history_limit=history_limit,
-                next_action=next_action,
-                action=action,
-            )
+            try:
+                await self._maybe_stop_after_send(
+                    chat,
+                    before_state=before_state,
+                    history_limit=history_limit,
+                    next_action=next_action,
+                    action=action,
+                )
+            except TypeError:
+                await self._maybe_stop_after_send(
+                    chat,
+                    before_state=before_state,
+                    history_limit=history_limit,
+                )
             return result
         elif isinstance(action, KeywordNotifyAction):
             self.log("关键词监听通知动作为后台常驻监听配置，当前运行时跳过")
