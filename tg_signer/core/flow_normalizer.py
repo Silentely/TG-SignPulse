@@ -22,11 +22,16 @@ from tg_signer.core.flow_models import (
     ActionNode,
     BaseFlowNode,
     ConditionNode,
+    DelayNode,
     ExecutionGraph,
+    ExtractorNode,
     LoopPolicy,
+    ParallelMode,
     ParallelNode,
+    RetryPolicy,
     SubflowNode,
     TerminalPolicy,
+    WaitEventNode,
 )
 
 
@@ -39,9 +44,32 @@ class GraphNormalizer:
 
     @classmethod
     def from_chat(cls, chat: SignChatV3) -> ExecutionGraph:
+        if getattr(chat, "flow_graph", None):
+            return cls._from_flow_graph(chat)
         if getattr(chat, "steps", None) and len(chat.steps) > 0:
             return cls._from_workflow_steps(chat)
         return cls._from_linear_actions(chat)
+
+    @classmethod
+    def _from_flow_graph(cls, chat: SignChatV3) -> ExecutionGraph:
+        raw_graph = chat.flow_graph
+        if isinstance(raw_graph, ExecutionGraph):
+            graph = raw_graph
+        elif isinstance(raw_graph, dict):
+            graph = ExecutionGraph.from_dict(raw_graph)
+        else:
+            raise GraphValidationError("flow_graph 必须为字典对象或 ExecutionGraph")
+
+        # 为 wait_event 节点自动注入 chat 上下文
+        for node in graph.nodes.values():
+            if isinstance(node, WaitEventNode):
+                node.metadata.setdefault("chat_id", chat.chat_id)
+                node.metadata.setdefault("chat_name", getattr(chat, "name", None))
+
+        # 动态对齐单流程最大执行步数
+        graph.max_total_steps = max(60, len(graph.nodes) * 2)
+        cls.validate_graph(graph)
+        return graph
 
     @classmethod
     def _from_linear_actions(cls, chat: SignChatV3) -> ExecutionGraph:
@@ -92,57 +120,218 @@ class GraphNormalizer:
 
     @classmethod
     def _from_workflow_steps(cls, chat: SignChatV3) -> ExecutionGraph:
+        from tg_signer.config import FlowNodeType, FlowStepConfig
+
         nodes: Dict[str, BaseFlowNode] = {}
         entry_id = chat.initial_step_id or (
             chat.steps[0].step_id if chat.steps else TERMINAL_COMPLETE_ID
         )
 
         for step in chat.steps or []:
-            raw_act = action_from_step(step)
-            action_type, params = cls._extract_action_type_and_params(raw_act)
-            if step.config:
-                params.update(step.config)
-
             next_id = cls._resolve_sentinel_id(step.next_step_id)
             fail_id = cls._resolve_sentinel_id(step.on_failure_step_id)
 
-            loop_pol = LoopPolicy(
-                allow_loop=step.allow_loop,
-                max_visits=step.max_retries + 1 if step.allow_loop else 1,
-            )
+            # 区分 FlowStepConfig 与 WorkflowStepConfig
+            if isinstance(step, FlowStepConfig):
+                node = cls._build_node_from_flow_step(step, chat, next_id, fail_id)
+            else:
+                raw_act = action_from_step(step)
+                action_type, params = cls._extract_action_type_and_params(raw_act)
+                if step.config:
+                    params.update(step.config)
 
-            is_stop_on_term = getattr(raw_act, "stop_flow_on_terminal", False) or bool(
-                step.config.get("stop_flow_on_terminal", False)
-                if step.config
-                else False
-            )
-            term_policy = (
-                TerminalPolicy.STOP_FLOW if is_stop_on_term else TerminalPolicy.IGNORE
-            )
+                loop_pol = LoopPolicy(
+                    allow_loop=step.allow_loop,
+                    max_visits=step.max_retries + 1 if step.allow_loop else 1,
+                )
 
-            run_if = (step.config.get("run_if") if step.config else None) or (
-                step.config.get("condition") if step.config else None
-            )
-            skip_if = step.config.get("skip_if") if step.config else None
+                is_stop_on_term = getattr(raw_act, "stop_flow_on_terminal", False) or bool(
+                    step.config.get("stop_flow_on_terminal", False)
+                    if step.config
+                    else False
+                )
+                term_policy = (
+                    TerminalPolicy.STOP_FLOW if is_stop_on_term else TerminalPolicy.IGNORE
+                )
 
-            node = ActionNode(
-                id=step.step_id,
-                name=f"Step-{step.step_id}",
-                action_type=action_type,
-                params=params,
-                next_node_id=next_id,
-                on_failure_node_id=fail_id,
-                loop_policy=loop_pol,
-                terminal_policy=term_policy,
-                run_if=run_if,
-                skip_if=skip_if,
-                metadata={"raw_action": raw_act, "workflow_step": step},
-            )
+                run_if = (step.config.get("run_if") if step.config else None) or (
+                    step.config.get("condition") if step.config else None
+                )
+                skip_if = step.config.get("skip_if") if step.config else None
+
+                node = ActionNode(
+                    id=step.step_id,
+                    name=f"Step-{step.step_id}",
+                    action_type=action_type,
+                    params=params,
+                    next_node_id=next_id,
+                    on_failure_node_id=fail_id,
+                    loop_policy=loop_pol,
+                    terminal_policy=term_policy,
+                    run_if=run_if,
+                    skip_if=skip_if,
+                    metadata={"raw_action": raw_act, "workflow_step": step},
+                )
             nodes[step.step_id] = node
 
         graph = ExecutionGraph(entry_node_id=entry_id, nodes=nodes)
+        graph.max_total_steps = max(60, len(graph.nodes) * 2)
         cls.validate_graph(graph)
         return graph
+
+    @classmethod
+    def _build_node_from_flow_step(
+        cls,
+        step: Any,
+        chat: SignChatV3,
+        next_id: Optional[str],
+        fail_id: Optional[str],
+    ) -> BaseFlowNode:
+        from tg_signer.config import FlowNodeType
+
+        # 解析 terminal policy
+        term_policy_str = str(getattr(step, "terminal_policy", "ignore") or "ignore").lower()
+        if term_policy_str == "stop_flow":
+            term_policy = TerminalPolicy.STOP_FLOW
+        elif term_policy_str == "branch_to":
+            term_policy = TerminalPolicy.BRANCH_TO
+        else:
+            term_policy = TerminalPolicy.IGNORE
+
+        term_target = cls._resolve_sentinel_id(getattr(step, "terminal_branch_target", None))
+
+        # 解析 retry policy
+        rp_data = getattr(step, "retry_policy", None)
+        if isinstance(rp_data, RetryPolicy):
+            retry_pol = rp_data
+        elif isinstance(rp_data, dict) and rp_data:
+            retry_pol = RetryPolicy(**rp_data)
+        else:
+            retry_pol = RetryPolicy()
+
+        # 解析 loop policy
+        lp_data = getattr(step, "loop_policy", None)
+        if isinstance(lp_data, LoopPolicy):
+            loop_pol = lp_data
+        elif isinstance(lp_data, dict) and lp_data:
+            loop_pol = LoopPolicy(**lp_data)
+        else:
+            allow_loop = getattr(step, "allow_loop", False)
+            max_retries = getattr(step, "max_retries", None)
+            max_visits = (max_retries + 1) if (allow_loop and max_retries is not None) else 1
+            loop_pol = LoopPolicy(allow_loop=allow_loop, max_visits=max_visits)
+
+        common_kwargs = dict(
+            id=step.step_id,
+            name=step.name or f"{step.node_type.value.capitalize()}-{step.step_id}",
+            next_node_id=next_id,
+            on_failure_node_id=fail_id,
+            terminal_policy=term_policy,
+            terminal_branch_target=term_target,
+            retry_policy=retry_pol,
+            loop_policy=loop_pol,
+            timeout_seconds=getattr(step, "timeout_seconds", 25.0) or 25.0,
+            run_if=step.run_if,
+            skip_if=step.skip_if,
+            metadata=dict(getattr(step, "metadata", {}) or {}),
+        )
+
+        ntype = step.node_type
+        if ntype == FlowNodeType.ACTION:
+            raw_act = None
+            try:
+                raw_act = action_from_step(step)
+            except Exception:
+                pass
+            if raw_act is not None:
+                action_type, params = cls._extract_action_type_and_params(raw_act)
+            else:
+                action_type = (
+                    step.action_type.name
+                    if hasattr(step.action_type, "name")
+                    else str(step.action_type or "SEND_TEXT").upper()
+                )
+                params = dict(step.params or {})
+            if step.config:
+                params.update(step.config)
+            common_kwargs["metadata"]["raw_action"] = raw_act
+            common_kwargs["metadata"]["workflow_step"] = step
+            return ActionNode(action_type=action_type, params=params, **common_kwargs)
+
+        elif ntype == FlowNodeType.WAIT_EVENT:
+            common_kwargs["metadata"].setdefault("chat_id", chat.chat_id)
+            common_kwargs["metadata"].setdefault("chat_name", getattr(chat, "name", None))
+            return WaitEventNode(
+                event_type=step.event_type,
+                filter_patterns=list(step.filter_patterns or []),
+                **common_kwargs,
+            )
+
+        elif ntype == FlowNodeType.CONDITION:
+            parsed_cases = [
+                {
+                    "condition": c.get("condition", ""),
+                    "target_id": cls._resolve_sentinel_id(c.get("target_id")),
+                }
+                for c in (step.cases or [])
+            ]
+            default_target = cls._resolve_sentinel_id(step.default_target_id)
+            return ConditionNode(
+                cases=parsed_cases,
+                default_target_id=default_target,
+                **common_kwargs,
+            )
+
+        elif ntype == FlowNodeType.DELAY:
+            return DelayNode(
+                seconds=float(getattr(step, "delay_seconds", 1.0) or 1.0),
+                **common_kwargs,
+            )
+
+        elif ntype == FlowNodeType.EXTRACTOR:
+            return ExtractorNode(
+                source_field=step.source_field,
+                regex=step.regex,
+                export_vars=dict(step.export_vars or {}),
+                **common_kwargs,
+            )
+
+        elif ntype == FlowNodeType.SUBFLOW:
+            sub_graph = None
+            if step.subflow_graph:
+                sub_graph = (
+                    step.subflow_graph
+                    if isinstance(step.subflow_graph, ExecutionGraph)
+                    else ExecutionGraph.from_dict(step.subflow_graph)
+                )
+            return SubflowNode(
+                subflow_graph=sub_graph,
+                subflow_id=step.subflow_id,
+                input_vars=dict(step.input_vars or {}),
+                output_vars=dict(step.output_vars or {}),
+                **common_kwargs,
+            )
+
+        elif ntype == FlowNodeType.PARALLEL:
+            branches = []
+            for b in step.branches or []:
+                branches.append(
+                    b if isinstance(b, ExecutionGraph) else ExecutionGraph.from_dict(b)
+                )
+            mode_str = str(getattr(step, "parallel_mode", "all") or "all").lower()
+            try:
+                parallel_mode = ParallelMode(mode_str)
+            except ValueError:
+                parallel_mode = ParallelMode.ALL
+            return ParallelNode(
+                branches=branches,
+                mode=parallel_mode,
+                max_concurrency=step.max_concurrency,
+                join_strategy=getattr(step, "join_strategy", "merge"),
+                **common_kwargs,
+            )
+
+        raise GraphValidationError(f"不支持的节点类型: {ntype}")
 
     @staticmethod
     def _resolve_sentinel_id(step_id: str | None) -> str | None:

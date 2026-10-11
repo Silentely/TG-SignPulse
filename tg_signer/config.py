@@ -523,13 +523,15 @@ ACTION_MODEL_MAP: Dict[SupportAction, Type[SignAction]] = {
 }
 
 
-def action_from_step(step: WorkflowStepConfig) -> ActionT:
+def action_from_step(step: Union[WorkflowStepConfig, FlowStepConfig]) -> ActionT:
     model_cls = ACTION_MODEL_MAP.get(step.action_type)
     if model_cls is None:
         raise WorkflowConfigError(
             f"步骤 '{step.step_id}' 未知的动作类型: {step.action_type}"
         )
-    data = dict(step.config or {})
+    data = dict(getattr(step, "config", None) or {})
+    if hasattr(step, "params") and isinstance(step.params, dict):
+        data.update(step.params)
     data["action"] = step.action_type
     try:
         return model_cls(**data)
