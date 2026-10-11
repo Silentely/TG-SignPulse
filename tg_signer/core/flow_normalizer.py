@@ -16,7 +16,12 @@ from tg_signer.config import (
     SignChatV3,
     action_from_step,
 )
+import html
 from tg_signer.core.flow_models import (
+    MAX_NODES_PER_GRAPH,
+    MAX_PARALLEL_BRANCHES,
+    MAX_SUBFLOW_DEPTH,
+
     TERMINAL_COMPLETE_ID,
     TERMINAL_FAIL_ID,
     ActionNode,
@@ -398,10 +403,14 @@ class GraphNormalizer:
         return action_type, params
 
     @classmethod
-    def validate_graph(cls, graph: ExecutionGraph) -> None:
-        """检查悬空边、分支目标与死循环"""
+    def validate_graph(cls, graph: ExecutionGraph, depth: int = 1) -> None:
+        """检查悬空边、分支目标与全连通分量死循环及资源上限"""
         if not graph.nodes:
             raise GraphValidationError("执行图不能为空")
+        if len(graph.nodes) > MAX_NODES_PER_GRAPH:
+            raise GraphValidationError(f"节点总数超过上限: 当前 {len(graph.nodes)} > 最大允许 {MAX_NODES_PER_GRAPH}")
+        if depth > MAX_SUBFLOW_DEPTH:
+            raise GraphValidationError(f"子图嵌套深度超过上限: 当前 {depth} > 最大允许 {MAX_SUBFLOW_DEPTH}")
         if graph.entry_node_id not in graph.nodes:
             raise GraphValidationError(f"初始步骤 {graph.entry_node_id} 不在图节点中")
 
@@ -501,17 +510,25 @@ class GraphNormalizer:
                 if cur_node.default_target_id:
                     neighbors.append(cur_node.default_target_id)
             if isinstance(cur_node, SubflowNode) and cur_node.subflow_graph:
-                cls.validate_graph(cur_node.subflow_graph)
+                cls.validate_graph(cur_node.subflow_graph, depth=depth + 1)
             if isinstance(cur_node, ParallelNode) and cur_node.branches:
+                if len(cur_node.branches) > MAX_PARALLEL_BRANCHES:
+                    raise GraphValidationError(f"并行分支数超过上限: 当前 {len(cur_node.branches)} > 最大允许 {MAX_PARALLEL_BRANCHES}")
                 for branch in cur_node.branches:
-                    cls.validate_graph(branch)
+                    cls.validate_graph(branch, depth=depth + 1)
 
             for nxt in neighbors:
                 _dfs(nxt)
 
             rec_stack.pop()
 
+        # 1. 从入口节点出发做 DFS
         _dfs(graph.entry_node_id)
+
+        # 2. 遍历全图中所有未访问到的连通分量，检测孤立子图中的死循环
+        for nid in list(graph.nodes.keys()):
+            if nid not in visited:
+                _dfs(nid)
 
     @classmethod
     def to_mermaid(cls, graph: ExecutionGraph) -> str:
@@ -520,8 +537,9 @@ class GraphNormalizer:
         lines.append(f"    Start([开始]) --> {graph.entry_node_id}")
 
         for nid, node in graph.nodes.items():
-            label = f"{node.name or nid} [{node.node_type.value}]"
-            lines.append(f'    {nid}["{label}"]')
+            raw_label = f"{node.name or nid} [{node.node_type.value}]"
+            sanitized_label = html.escape(raw_label).replace('"', '&quot;')
+            lines.append(f'    {nid}["{sanitized_label}"]')
 
             if node.next_node_id:
                 target = (
