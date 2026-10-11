@@ -50,6 +50,13 @@ class NodeType(str, Enum):
     EXTRACTOR = "extractor"
     DELAY = "delay"
     SUBFLOW = "subflow"
+    PARALLEL = "parallel"
+
+
+class ParallelMode(str, Enum):
+    ALL = "all"
+    ANY = "any"
+    ALL_SETTLED = "all_settled"
 
 
 class TerminalPolicy(str, Enum):
@@ -206,6 +213,14 @@ class SubflowNode(BaseFlowNode):
     export_vars: List[str] = Field(default_factory=list)
 
 
+class ParallelNode(BaseFlowNode):
+    node_type: NodeType = NodeType.PARALLEL
+    branches: List[ExecutionGraph] = Field(default_factory=list)
+    mode: ParallelMode = ParallelMode.ALL
+    max_concurrency: Optional[int] = None
+    join_strategy: str = "merge"
+
+
 NODE_TYPE_MAP: Dict[NodeType, type[BaseFlowNode]] = {
     NodeType.ACTION: ActionNode,
     NodeType.WAIT_EVENT: WaitEventNode,
@@ -213,6 +228,7 @@ NODE_TYPE_MAP: Dict[NodeType, type[BaseFlowNode]] = {
     NodeType.EXTRACTOR: ExtractorNode,
     NodeType.DELAY: DelayNode,
     NodeType.SUBFLOW: SubflowNode,
+    NodeType.PARALLEL: ParallelNode,
 }
 
 
@@ -251,6 +267,16 @@ class ExecutionGraph(BaseModel):
                         node_kwargs["subflow_graph"]
                     )
                     parsed_nodes[nid] = SubflowNode(**node_kwargs)
+                elif (
+                    target_cls is ParallelNode
+                    and "branches" in node_kwargs
+                    and isinstance(node_kwargs["branches"], list)
+                ):
+                    node_kwargs["branches"] = [
+                        cls.from_dict(b) if isinstance(b, dict) else b
+                        for b in node_kwargs["branches"]
+                    ]
+                    parsed_nodes[nid] = ParallelNode(**node_kwargs)
                 else:
                     parsed_nodes[nid] = target_cls(**node_kwargs)
             else:
@@ -266,3 +292,4 @@ class ExecutionGraph(BaseModel):
 
 
 SubflowNode.update_forward_refs(ExecutionGraph=ExecutionGraph)
+ParallelNode.update_forward_refs(ExecutionGraph=ExecutionGraph)

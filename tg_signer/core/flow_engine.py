@@ -21,6 +21,8 @@ from tg_signer.core.flow_models import (
     ExtractorNode,
     FlowSignal,
     NodeStatus,
+    ParallelMode,
+    ParallelNode,
     StepOutcome,
     SubflowNode,
     TerminalPolicy,
@@ -45,6 +47,7 @@ class PulseFlowEngine:
     - 自适应指数退避重试 (Exponential Backoff)
     - 响应式事件驱动与水位线回补 (TelegramEventBus)
     - 子工作流 (SubflowNode) 嵌套调度
+    - 并发分支与聚拢调度 (ParallelNode Fork-Join)
     - 生命周期事件监听器 (on_step_start / on_step_finish)
     - 全局错误处理器降级 (graph.error_handler_node_id)
     - 节点级条件守卫 (node.run_if / node.skip_if)
@@ -85,6 +88,15 @@ class PulseFlowEngine:
             return await self._run_delay_node(node)
         elif isinstance(node, SubflowNode):
             return await self._run_subflow_node(
+                node,
+                ctx,
+                executor,
+                bus,
+                on_step_start,
+                on_step_finish,
+            )
+        elif isinstance(node, ParallelNode):
+            return await self._run_parallel_node(
                 node,
                 ctx,
                 executor,
@@ -537,6 +549,106 @@ class PulseFlowEngine:
             output_text=f"Subflow finished with status: {sub_res.get('status')}",
             extracted_vars=extracted,
             updates_last_output=True,
+        )
+
+    async def _run_parallel_node(
+        self,
+        node: ParallelNode,
+        ctx: ScopedFlowContext,
+        executor: Callable[[BaseFlowNode, ScopedFlowContext], Awaitable[StepOutcome]],
+        bus: Optional[TelegramEventBus] = None,
+        on_step_start: Optional[
+            Callable[[BaseFlowNode, ScopedFlowContext], Any]
+        ] = None,
+        on_step_finish: Optional[
+            Callable[[BaseFlowNode, StepOutcome, ScopedFlowContext], Any]
+        ] = None,
+    ) -> StepOutcome:
+        """并发执行多个子执行图分支 (Fork-Join)"""
+        if not node.branches:
+            return StepOutcome(
+                node_id=node.id,
+                status=NodeStatus.SUCCESS,
+                output_text="ParallelNode has no branches",
+                updates_last_output=False,
+            )
+
+        sem = (
+            asyncio.Semaphore(node.max_concurrency)
+            if node.max_concurrency and node.max_concurrency > 0
+            else None
+        )
+
+        async def _run_single_branch(
+            branch_graph: ExecutionGraph,
+        ) -> tuple[Dict[str, Any], ScopedFlowContext]:
+            branch_ctx = ScopedFlowContext(
+                system=copy.deepcopy(ctx.system),
+                account=copy.deepcopy(ctx.account),
+            )
+            branch_ctx.vars = copy.deepcopy(ctx.vars)
+            branch_ctx.last_output = ctx.last_output
+
+            if sem is not None:
+                async with sem:
+                    res = await self.run(
+                        branch_graph,
+                        branch_ctx,
+                        executor,
+                        event_bus=bus,
+                        on_step_start=on_step_start,
+                        on_step_finish=on_step_finish,
+                    )
+            else:
+                res = await self.run(
+                    branch_graph,
+                    branch_ctx,
+                    executor,
+                    event_bus=bus,
+                    on_step_start=on_step_start,
+                    on_step_finish=on_step_finish,
+                )
+            return res, branch_ctx
+
+        branch_coros = [_run_single_branch(bg) for bg in node.branches]
+        results = await asyncio.gather(*branch_coros, return_exceptions=True)
+
+        merged_vars: Dict[str, Any] = {}
+        succeeded_count = 0
+        failed_count = 0
+
+        for r in results:
+            if isinstance(r, Exception):
+                failed_count += 1
+                continue
+            branch_res, branch_ctx = r
+            if branch_res.get("status") == "success":
+                succeeded_count += 1
+                if node.join_strategy == "merge":
+                    merged_vars.update(branch_ctx.vars)
+            else:
+                failed_count += 1
+
+        is_overall_success = False
+        if node.mode == ParallelMode.ALL:
+            is_overall_success = failed_count == 0
+        elif node.mode == ParallelMode.ANY:
+            is_overall_success = succeeded_count > 0
+        elif node.mode == ParallelMode.ALL_SETTLED:
+            is_overall_success = succeeded_count > 0 or failed_count == 0
+
+        if is_overall_success and node.join_strategy == "merge":
+            ctx.vars.update(merged_vars)
+
+        return StepOutcome(
+            node_id=node.id,
+            status=NodeStatus.SUCCESS if is_overall_success else NodeStatus.FAILED,
+            output_text=(
+                f"ParallelNode branches finished: {succeeded_count} succeeded, "
+                f"{failed_count} failed (mode={node.mode.value})"
+            ),
+            extracted_vars=merged_vars,
+            updates_last_output=False,
         )
 
     def _run_extractor_node(

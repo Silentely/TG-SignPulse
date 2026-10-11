@@ -24,6 +24,7 @@ from tg_signer.core.flow_models import (
     ConditionNode,
     ExecutionGraph,
     LoopPolicy,
+    ParallelNode,
     SubflowNode,
     TerminalPolicy,
 )
@@ -34,7 +35,7 @@ class GraphValidationError(ValueError):
 
 
 class GraphNormalizer:
-    """负责将旧版 SignChatV3 (actions/steps) 归一化为统一的 ExecutionGraph IR"""
+    """负责将旧版 SignChatV3 (actions/steps) 归一化为统一的 ExecutionGraph IR，并支持静态分析与可视化导出"""
 
     @classmethod
     def from_chat(cls, chat: SignChatV3) -> ExecutionGraph:
@@ -304,6 +305,9 @@ class GraphNormalizer:
                     neighbors.append(cur_node.default_target_id)
             if isinstance(cur_node, SubflowNode) and cur_node.subflow_graph:
                 cls.validate_graph(cur_node.subflow_graph)
+            if isinstance(cur_node, ParallelNode) and cur_node.branches:
+                for branch in cur_node.branches:
+                    cls.validate_graph(branch)
 
             for nxt in neighbors:
                 _dfs(nxt)
@@ -311,3 +315,61 @@ class GraphNormalizer:
             rec_stack.pop()
 
         _dfs(graph.entry_node_id)
+
+    @classmethod
+    def to_mermaid(cls, graph: ExecutionGraph) -> str:
+        """将执行图导出为标准 Mermaid 流程图文本 (graph TD)"""
+        lines = ["graph TD"]
+        lines.append(f"    Start([开始]) --> {graph.entry_node_id}")
+
+        for nid, node in graph.nodes.items():
+            label = f"{node.name or nid} [{node.node_type.value}]"
+            lines.append(f'    {nid}["{label}"]')
+
+            if node.next_node_id:
+                target = (
+                    "End([完成])"
+                    if node.next_node_id == TERMINAL_COMPLETE_ID
+                    else node.next_node_id
+                )
+                if target == TERMINAL_FAIL_ID:
+                    target = "Fail([失败])"
+                lines.append(f"    {nid} -->|next| {target}")
+
+            if node.on_failure_node_id:
+                target = (
+                    "Fail([失败])"
+                    if node.on_failure_node_id == TERMINAL_FAIL_ID
+                    else node.on_failure_node_id
+                )
+                lines.append(f"    {nid} -.->|on_failure| {target}")
+
+            if isinstance(node, ConditionNode):
+                for c in node.cases:
+                    t = c.get("target_id")
+                    cond = c.get("condition", "")
+                    if t:
+                        t_lbl = (
+                            "End([完成])"
+                            if t == TERMINAL_COMPLETE_ID
+                            else ("Fail([失败])" if t == TERMINAL_FAIL_ID else t)
+                        )
+                        lines.append(f'    {nid} -->|"{cond}"| {t_lbl}')
+                if node.default_target_id:
+                    def_t = (
+                        "End([完成])"
+                        if node.default_target_id == TERMINAL_COMPLETE_ID
+                        else (
+                            "Fail([失败])"
+                            if node.default_target_id == TERMINAL_FAIL_ID
+                            else node.default_target_id
+                        )
+                    )
+                    lines.append(f"    {nid} -->|default| {def_t}")
+
+        if graph.error_handler_node_id:
+            lines.append(
+                f"    ErrorHandler[全局降级错误处理] -.-> {graph.error_handler_node_id}"
+            )
+
+        return "\n".join(lines)

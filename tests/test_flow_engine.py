@@ -18,6 +18,8 @@ from tg_signer.core.flow_models import (
     ExtractorNode,
     FlowSignal,
     NodeStatus,
+    ParallelMode,
+    ParallelNode,
     RetryPolicy,
     StepOutcome,
     SubflowNode,
@@ -866,3 +868,53 @@ async def test_flow_engine_metrics_calculation():
     assert metrics["avg_step_duration_ms"] > 0
     assert metrics["slowest_step"]["node_id"] == "step_slow"
     assert metrics["slowest_step"]["duration_ms"] == 50.0
+
+
+@pytest.mark.asyncio
+async def test_flow_engine_parallel_node_execution():
+    # 验证 ParallelNode 并发驱动两个子分支，并合并导出的变量
+    branch_a = ExecutionGraph(
+        entry_node_id="sub_a",
+        nodes={
+            "sub_a": ActionNode(id="sub_a", next_node_id=TERMINAL_COMPLETE_ID),
+        },
+    )
+    branch_b = ExecutionGraph(
+        entry_node_id="sub_b",
+        nodes={
+            "sub_b": ActionNode(id="sub_b", next_node_id=TERMINAL_COMPLETE_ID),
+        },
+    )
+
+    graph = ExecutionGraph(
+        entry_node_id="fork_step",
+        nodes={
+            "fork_step": ParallelNode(
+                id="fork_step",
+                branches=[branch_a, branch_b],
+                mode=ParallelMode.ALL,
+                join_strategy="merge",
+                next_node_id=TERMINAL_COMPLETE_ID,
+            ),
+        },
+    )
+    ctx = ScopedFlowContext()
+    executed = []
+
+    async def mock_executor(node, context):
+        executed.append(node.id)
+        if node.id == "sub_a":
+            context.set_var("var_a", "res_a")
+        elif node.id == "sub_b":
+            context.set_var("var_b", "res_b")
+        return StepOutcome(node_id=node.id, status=NodeStatus.SUCCESS)
+
+    engine = PulseFlowEngine()
+    result = await engine.run(graph, ctx, mock_executor)
+
+    assert result["status"] == "success"
+    assert "sub_a" in executed
+    assert "sub_b" in executed
+    # 验证 join_strategy="merge" 成功将分支变量合并到主 context
+    assert ctx.get_var("var_a") == "res_a"
+    assert ctx.get_var("var_b") == "res_b"

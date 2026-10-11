@@ -242,3 +242,36 @@ def test_graph_validator_detects_dangling_resume_node():
         match="断点恢复节点 resume_from_node_id 's_nonexistent' 不在图节点中",
     ):
         GraphNormalizer.validate_graph(bad_resume_graph)
+
+
+def test_graph_normalizer_to_mermaid():
+    graph = ExecutionGraph(
+        entry_node_id="step_1",
+        error_handler_node_id="step_err",
+        nodes={
+            "step_1": ActionNode(
+                id="step_1",
+                name="发送签到",
+                next_node_id="step_cond",
+                on_failure_node_id="step_err",
+            ),
+            "step_cond": ConditionNode(
+                id="step_cond",
+                cases=[{"condition": "vars.ok == true", "target_id": "COMPLETE"}],
+                default_target_id="FAIL",
+            ),
+            "step_err": ActionNode(
+                id="step_err",
+                next_node_id=TERMINAL_FAIL_ID,
+            ),
+        },
+    )
+
+    mermaid_str = GraphNormalizer.to_mermaid(graph)
+    assert "graph TD" in mermaid_str
+    assert "Start([开始]) --> step_1" in mermaid_str
+    assert "发送签到 [action]" in mermaid_str
+    assert "step_1 -->|next| step_cond" in mermaid_str
+    assert "step_1 -.->|on_failure| step_err" in mermaid_str
+    assert "vars.ok == true" in mermaid_str
+    assert "ErrorHandler[全局降级错误处理] -.-> step_err" in mermaid_str
