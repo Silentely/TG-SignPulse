@@ -1,8 +1,11 @@
 # tests/test_flow_models.py
 from tg_signer.core.flow_models import (
+    TERMINAL_COMPLETE_ID,
     TERMINAL_FAIL_ID,
     ActionNode,
     ConditionNode,
+    DelayNode,
+    ExecutionGraph,
     ExtractorNode,
     FlowSignal,
     LoopPolicy,
@@ -10,6 +13,7 @@ from tg_signer.core.flow_models import (
     NodeType,
     RetryPolicy,
     StepOutcome,
+    SubflowNode,
     TerminalPolicy,
 )
 
@@ -65,3 +69,45 @@ def test_step_outcome_defaults():
     assert outcome.matched_terminal is True
     assert outcome.extracted_vars == {}
     assert outcome.error is None
+
+
+def test_execution_graph_from_dict_polymorphic():
+    data = {
+        "entry_node_id": "step_delay",
+        "nodes": {
+            "step_delay": {
+                "node_type": "delay",
+                "seconds": 2.5,
+                "next_node_id": "step_action",
+            },
+            "step_action": {
+                "node_type": "action",
+                "action_type": "SEND_TEXT",
+                "params": {"text": "/ping"},
+                "next_node_id": "step_subflow",
+            },
+            "step_subflow": {
+                "node_type": "subflow",
+                "subflow_graph": {
+                    "entry_node_id": "sub_act",
+                    "nodes": {
+                        "sub_act": {
+                            "node_type": "action",
+                            "action_type": "SEND_TEXT",
+                            "params": {"text": "/inner"},
+                            "next_node_id": TERMINAL_COMPLETE_ID,
+                        }
+                    },
+                },
+                "next_node_id": TERMINAL_COMPLETE_ID,
+            },
+        },
+    }
+    graph = ExecutionGraph.from_dict(data)
+    assert graph.entry_node_id == "step_delay"
+    assert isinstance(graph.nodes["step_delay"], DelayNode)
+    assert graph.nodes["step_delay"].seconds == 2.5
+    assert isinstance(graph.nodes["step_action"], ActionNode)
+    assert isinstance(graph.nodes["step_subflow"], SubflowNode)
+    assert isinstance(graph.nodes["step_subflow"].subflow_graph, ExecutionGraph)
+    assert graph.nodes["step_subflow"].subflow_graph.entry_node_id == "sub_act"

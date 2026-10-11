@@ -82,3 +82,30 @@ class TelegramEventBus:
                 q.put_nowait(event)
             except asyncio.QueueFull:
                 logger.warning(f"订阅队列已满，丢弃慢消费者事件: {event.event_id}")
+
+    def clear(self, chat_id: Optional[int] = None) -> None:
+        """重置所有（或指定会话）订阅与历史缓冲区，避免跨任务或测试间相互干扰"""
+        if chat_id is None:
+            self._subscribers.clear()
+            self._history_buffers.clear()
+        else:
+            to_del_sub = [k for k in self._subscribers if k[0] == chat_id]
+            for k in to_del_sub:
+                self._subscribers.pop(k, None)
+            to_del_buf = [k for k in self._history_buffers if k[0] == chat_id]
+            for k in to_del_buf:
+                self._history_buffers.pop(k, None)
+
+    def get_history(
+        self,
+        chat_id: int,
+        message_thread_id: Optional[int] = None,
+        min_message_id: Optional[int] = None,
+        limit: int = 10,
+    ) -> List[TelegramMessageEvent]:
+        """获取指定会话与话题的最近事件历史，支持调试回溯与状态核验"""
+        key = (chat_id, message_thread_id)
+        buf = self._history_buffers.get(key, [])
+        if min_message_id is not None:
+            buf = [ev for ev in buf if ev.message_id >= min_message_id]
+        return buf[-max(1, limit) :]

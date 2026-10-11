@@ -95,3 +95,33 @@ def test_scoped_context_extended_operators():
     # list indexing
     assert ctx.eval_condition("vars.tags.0 == 'active'") is True
     assert ctx.eval_condition("vars.tags.1 == 'premium'") is True
+
+
+def test_scoped_context_compound_conditions_and_get():
+    ctx = ScopedFlowContext(
+        system={"env": "prod"},
+        account={"name": "account_a"},
+    )
+    ctx.set_var("score", 85)
+    ctx.set_var("role", "admin")
+    ctx.last_output = "Task successfully completed"
+
+    # 测试 ctx.get() 统一读取
+    assert ctx.get("system.env") == "prod"
+    assert ctx.get("account.name") == "account_a"
+    assert ctx.get("vars.score") == 85
+    assert ctx.get("vars.not_exist", "default_val") == "default_val"
+
+    # 测试复合 and / or 条件
+    assert ctx.eval_condition("vars.score >= 80 and vars.role == 'admin'") is True
+    assert ctx.eval_condition("vars.score >= 90 and vars.role == 'admin'") is False
+    assert ctx.eval_condition("vars.score >= 90 or vars.role == 'admin'") is True
+    assert (
+        ctx.eval_condition(
+            "prev.output contains 'failed' or prev.output contains 'completed'"
+        )
+        is True
+    )
+    assert (
+        ctx.eval_condition("prev.output contains 'failed' or vars.score < 50") is False
+    )

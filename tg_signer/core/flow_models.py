@@ -116,7 +116,66 @@ class DelayNode(BaseFlowNode):
     seconds: float = 1.0
 
 
+class SubflowNode(BaseFlowNode):
+    node_type: NodeType = NodeType.SUBFLOW
+    subflow_graph: Optional[ExecutionGraph] = None
+    subflow_id: Optional[str] = None
+    input_vars: Dict[str, str] = Field(default_factory=dict)
+    output_vars: Dict[str, str] = Field(default_factory=dict)
+    export_vars: List[str] = Field(default_factory=list)
+
+
+NODE_TYPE_MAP: Dict[NodeType, type[BaseFlowNode]] = {
+    NodeType.ACTION: ActionNode,
+    NodeType.WAIT_EVENT: WaitEventNode,
+    NodeType.CONDITION: ConditionNode,
+    NodeType.EXTRACTOR: ExtractorNode,
+    NodeType.DELAY: DelayNode,
+    NodeType.SUBFLOW: SubflowNode,
+}
+
+
 class ExecutionGraph(BaseModel):
     entry_node_id: str
     nodes: Dict[str, BaseFlowNode]
     max_total_steps: int = 30
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> ExecutionGraph:
+        """从字典反序列化图，自动将节点字典转换为对应的多态子类实例。"""
+        raw_nodes = data.get("nodes", {})
+        parsed_nodes: Dict[str, BaseFlowNode] = {}
+        for nid, n_data in raw_nodes.items():
+            if isinstance(n_data, BaseFlowNode):
+                parsed_nodes[nid] = n_data
+                continue
+            if isinstance(n_data, dict):
+                node_kwargs = dict(n_data)
+                node_kwargs.setdefault("id", nid)
+                ntype_str = node_kwargs.get("node_type", NodeType.ACTION.value)
+                try:
+                    ntype = NodeType(ntype_str)
+                except ValueError:
+                    ntype = NodeType.ACTION
+                target_cls = NODE_TYPE_MAP.get(ntype, ActionNode)
+                if (
+                    target_cls is SubflowNode
+                    and "subflow_graph" in node_kwargs
+                    and isinstance(node_kwargs["subflow_graph"], dict)
+                ):
+                    node_kwargs["subflow_graph"] = cls.from_dict(
+                        node_kwargs["subflow_graph"]
+                    )
+                    parsed_nodes[nid] = SubflowNode(**node_kwargs)
+                else:
+                    parsed_nodes[nid] = target_cls(**node_kwargs)
+            else:
+                parsed_nodes[nid] = n_data
+        return cls(
+            entry_node_id=data.get("entry_node_id", ""),
+            nodes=parsed_nodes,
+            max_total_steps=data.get("max_total_steps", 30),
+        )
+
+
+SubflowNode.update_forward_refs(ExecutionGraph=ExecutionGraph)

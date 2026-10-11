@@ -24,6 +24,7 @@ from tg_signer.core.flow_models import (
     ConditionNode,
     ExecutionGraph,
     LoopPolicy,
+    SubflowNode,
     TerminalPolicy,
 )
 
@@ -279,6 +280,8 @@ class GraphNormalizer:
                         neighbors.append(c["target_id"])
                 if cur_node.default_target_id:
                     neighbors.append(cur_node.default_target_id)
+            if isinstance(cur_node, SubflowNode) and cur_node.subflow_graph:
+                cls.validate_graph(cur_node.subflow_graph)
 
             for nxt in neighbors:
                 _dfs(nxt)

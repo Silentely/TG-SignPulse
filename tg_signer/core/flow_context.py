@@ -28,6 +28,15 @@ class ScopedFlowContext:
     def get_var(self, key: str, default: Any = None) -> Any:
         return self.vars.get(key, default)
 
+    def has_var(self, key: str) -> bool:
+        return key in self.vars
+
+    def get(self, path: str, default: Any = None) -> Any:
+        """支持点号路径安全读取任意作用域变量（如 vars.token、account.name 等）"""
+        scope = self.build_scope_dict()
+        val = self._resolve_path(scope, path)
+        return val if val is not None else default
+
     def record_step_outcome(self, outcome: StepOutcome) -> None:
         self.step_outcomes[outcome.node_id] = outcome
         if outcome.output_text and outcome.updates_last_output:
@@ -70,6 +79,18 @@ class ScopedFlowContext:
             return True
         scope = self.build_scope_dict(default_output)
         expr = expr.strip()
+
+        # 0. 复合逻辑或/与判定（支持表达式组合）
+        if " or " in expr:
+            sub_exprs = expr.split(" or ")
+            return any(
+                self.eval_condition(sub.strip(), default_output) for sub in sub_exprs
+            )
+        if " and " in expr:
+            sub_exprs = expr.split(" and ")
+            return all(
+                self.eval_condition(sub.strip(), default_output) for sub in sub_exprs
+            )
 
         # 1. 成员包含关系判定（优先检测非包含）
         if " not in " in expr:
@@ -143,35 +164,47 @@ class ScopedFlowContext:
             except (ValueError, TypeError):
                 return False
 
-        # 5. 等值/不等值比较
+        # 5. 相等性判定
+        if " == " in expr:
+            parts = expr.split(" == ", 1)
+            left = self._resolve_path(scope, parts[0].strip())
+            right_str = parts[1].strip()
+            if right_str.lower() == "true":
+                return bool(left is True or str(left).lower() == "true")
+            if right_str.lower() == "false":
+                return bool(left is False or str(left).lower() == "false")
+            if right_str.isdigit():
+                return left == int(right_str) or str(left) == right_str
+            return str(left) == right_str.strip("'\"")
+
         if " != " in expr:
             parts = expr.split(" != ", 1)
-            raw_v1 = self._resolve_path(scope, parts[0].strip())
-            v2_str = parts[1].strip().strip("'\"")
-            if v2_str.lower() in ("true", "false") and isinstance(raw_v1, bool):
-                return raw_v1 != (v2_str.lower() == "true")
-            v1 = "" if raw_v1 is None else str(raw_v1)
-            return v1 != v2_str
-        elif " == " in expr:
-            parts = expr.split(" == ", 1)
-            raw_v1 = self._resolve_path(scope, parts[0].strip())
-            v2_str = parts[1].strip().strip("'\"")
-            if v2_str.lower() in ("true", "false") and isinstance(raw_v1, bool):
-                return raw_v1 == (v2_str.lower() == "true")
-            v1 = "" if raw_v1 is None else str(raw_v1)
-            return v1 == v2_str
+            left = self._resolve_path(scope, parts[0].strip())
+            right_str = parts[1].strip()
+            if right_str.lower() == "true":
+                return not (left is True or str(left).lower() == "true")
+            if right_str.lower() == "false":
+                return not (left is False or str(left).lower() == "false")
+            if right_str.isdigit():
+                return left != int(right_str) and str(left) != right_str
+            return str(left) != right_str.strip("'\"")
 
-        # 6. 单一变量真值判断或取反
+        # 6. 单一变量真值或取反（如 !vars.disabled, not vars.disabled, vars.enabled）
         if expr.startswith("!"):
-            target_path = expr[1:].strip()
-            return not bool(self._resolve_path(scope, target_path))
+            var_path = expr[1:].strip()
+            return not bool(self._resolve_path(scope, var_path))
         if expr.startswith("not "):
-            target_path = expr[4:].strip()
-            return not bool(self._resolve_path(scope, target_path))
-        if " " not in expr:
+            var_path = expr[4:].strip()
+            return not bool(self._resolve_path(scope, var_path))
+
+        # 7. 单一变量真值直接判定
+        if expr:
             return bool(self._resolve_path(scope, expr))
 
         return True
+
+    # 别名，保持与引擎调用语义一致
+    evaluate_condition = eval_condition
 
     def _resolve_path(self, data: Dict[str, Any], path: str) -> Any:
         tokens = path.split(".")

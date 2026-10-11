@@ -20,6 +20,7 @@ from tg_signer.core.flow_models import (
     NodeStatus,
     RetryPolicy,
     StepOutcome,
+    SubflowNode,
     TerminalPolicy,
     WaitEventNode,
 )
@@ -277,7 +278,7 @@ async def test_delay_node_native_execution():
 @pytest.mark.asyncio
 async def test_wait_event_node_with_event_bus():
     bus = TelegramEventBus(buffer_size=10, buffer_ttl_seconds=300)
-    # 发布消息到公交线
+    # 发布消息到总线
     event = TelegramMessageEvent(
         event_id="ev_101",
         chat_id=12345,
@@ -412,3 +413,167 @@ async def test_condition_node_sentinel_normalization():
     ctx.set_var("finish", False)
     result_fail = await engine.run(graph, ctx, mock_executor)
     assert result_fail["status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_subflow_node_execution():
+    # 验证 SubflowNode 嵌套图执行及父子变量传递
+    sub_graph = ExecutionGraph(
+        entry_node_id="sub_step",
+        nodes={
+            "sub_step": ActionNode(
+                id="sub_step",
+                next_node_id=TERMINAL_COMPLETE_ID,
+            )
+        },
+    )
+    graph = ExecutionGraph(
+        entry_node_id="call_subflow",
+        nodes={
+            "call_subflow": SubflowNode(
+                id="call_subflow",
+                subflow_graph=sub_graph,
+                input_vars={"parent_token": "token"},
+                output_vars={"inner_res": "out_res"},
+                next_node_id=TERMINAL_COMPLETE_ID,
+            )
+        },
+    )
+    ctx = ScopedFlowContext()
+    ctx.set_var("token", "secret123")
+    executed = []
+
+    async def mock_executor(node, context):
+        executed.append(node.id)
+        if node.id == "sub_step":
+            assert context.get_var("parent_token") == "secret123"
+            context.set_var("inner_res", "val_xyz")
+            return StepOutcome(
+                node_id="sub_step",
+                status=NodeStatus.SUCCESS,
+                output_text="sub finished",
+            )
+        return StepOutcome(node_id=node.id, status=NodeStatus.SUCCESS)
+
+    engine = PulseFlowEngine()
+    result = await engine.run(graph, ctx, mock_executor)
+    assert result["status"] == "success"
+    assert "sub_step" in executed
+    assert ctx.get_var("out_res") == "val_xyz"
+
+
+@pytest.mark.asyncio
+async def test_extractor_embedded_json_fallback():
+    # 验证当文本夹杂其他内容时，通过正则提取嵌入的 JSON 块
+    json_node = ExtractorNode(
+        id="ext_embed_json",
+        metadata={"extract_json": True},
+        export_vars={"data.code": "auth_code"},
+        next_node_id=TERMINAL_COMPLETE_ID,
+    )
+    ctx = ScopedFlowContext()
+    ctx.last_output = 'Bot response: ```json\n{"data": {"code": 998811}}\n```'
+    engine = PulseFlowEngine()
+
+    outcome = engine._run_extractor_node(json_node, ctx)
+    assert outcome.status == NodeStatus.SUCCESS
+    assert outcome.extracted_vars["auth_code"] == 998811
+
+
+@pytest.mark.asyncio
+async def test_engine_result_contains_trace():
+    graph = ExecutionGraph(
+        entry_node_id="step_a",
+        nodes={
+            "step_a": ActionNode(
+                id="step_a",
+                next_node_id=TERMINAL_COMPLETE_ID,
+            )
+        },
+    )
+    ctx = ScopedFlowContext()
+
+    async def mock_executor(node, context):
+        return StepOutcome(
+            node_id=node.id,
+            status=NodeStatus.SUCCESS,
+            output_text="Done A",
+            extracted_vars={"res": 1},
+        )
+
+    engine = PulseFlowEngine()
+    result = await engine.run(graph, ctx, mock_executor)
+    assert "trace" in result
+    assert len(result["trace"]) == 1
+    trace_item = result["trace"][0]
+    assert trace_item["node_id"] == "step_a"
+    assert trace_item["status"] == "success"
+    assert trace_item["output_text"] == "Done A"
+    assert trace_item["extracted_vars"] == {"res": 1}
+
+
+@pytest.mark.asyncio
+async def test_engine_cancellation_preserves_context():
+    graph = ExecutionGraph(
+        entry_node_id="cancel_step",
+        nodes={
+            "cancel_step": ActionNode(
+                id="cancel_step",
+                next_node_id=TERMINAL_COMPLETE_ID,
+            )
+        },
+    )
+    ctx = ScopedFlowContext()
+
+    async def mock_executor(node, context):
+        await asyncio.sleep(10)
+        return StepOutcome(node_id=node.id, status=NodeStatus.SUCCESS)
+
+    engine = PulseFlowEngine()
+    task = asyncio.create_task(engine.run(graph, ctx, mock_executor))
+    await asyncio.sleep(0.01)
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+@pytest.mark.asyncio
+async def test_subflow_deepcopy_isolation():
+    # 验证子工作流内部修改字典/列表不会污染父工作流
+    sub_graph = ExecutionGraph(
+        entry_node_id="sub_mod",
+        nodes={
+            "sub_mod": ActionNode(
+                id="sub_mod",
+                next_node_id=TERMINAL_COMPLETE_ID,
+            )
+        },
+    )
+    graph = ExecutionGraph(
+        entry_node_id="call_sub",
+        nodes={
+            "call_sub": SubflowNode(
+                id="call_sub",
+                subflow_graph=sub_graph,
+                next_node_id=TERMINAL_COMPLETE_ID,
+            )
+        },
+    )
+    ctx = ScopedFlowContext()
+    ctx.set_var("config", {"timeout": 30, "nested": [1, 2, 3]})
+
+    async def mock_executor(node, context):
+        if node.id == "sub_mod":
+            sub_cfg = context.get_var("config")
+            sub_cfg["timeout"] = 999
+            sub_cfg["nested"].append(999)
+            return StepOutcome(node_id=node.id, status=NodeStatus.SUCCESS)
+        return StepOutcome(node_id=node.id, status=NodeStatus.SUCCESS)
+
+    engine = PulseFlowEngine()
+    result = await engine.run(graph, ctx, mock_executor)
+    assert result["status"] == "success"
+    # 父级配置保持未被意外修改
+    assert ctx.get_var("config")["timeout"] == 30
+    assert ctx.get_var("config")["nested"] == [1, 2, 3]
