@@ -817,3 +817,52 @@ async def test_flow_engine_trace_redaction():
     assert (
         trace_item["extracted_vars"]["session_token"] != "tg_super_private_token_12345"
     )
+
+
+@pytest.mark.asyncio
+async def test_flow_engine_metrics_calculation():
+    # 验证执行结果中返回的结构化指标 metrics
+    graph = ExecutionGraph(
+        entry_node_id="step_fast",
+        nodes={
+            "step_fast": ActionNode(
+                id="step_fast",
+                next_node_id="step_guard_skip",
+            ),
+            "step_guard_skip": ActionNode(
+                id="step_guard_skip",
+                skip_if="vars.flag == true",
+                next_node_id="step_slow",
+            ),
+            "step_slow": ActionNode(
+                id="step_slow",
+                next_node_id=TERMINAL_COMPLETE_ID,
+            ),
+        },
+    )
+    ctx = ScopedFlowContext()
+    ctx.set_var("flag", True)
+
+    async def mock_executor(node, context):
+        dur = 10.0 if node.id == "step_fast" else 50.0
+        return StepOutcome(
+            node_id=node.id,
+            status=NodeStatus.SUCCESS,
+            output_text=f"Done {node.id}",
+            duration_ms=dur,
+        )
+
+    engine = PulseFlowEngine()
+    result = await engine.run(graph, ctx, mock_executor)
+
+    assert result["status"] == "success"
+    assert "metrics" in result
+    metrics = result["metrics"]
+    assert metrics["total_steps"] == 3
+    assert metrics["unique_nodes_count"] == 3
+    assert metrics["succeeded_steps"] == 2
+    assert metrics["skipped_steps"] == 1
+    assert metrics["failed_steps"] == 0
+    assert metrics["avg_step_duration_ms"] > 0
+    assert metrics["slowest_step"]["node_id"] == "step_slow"
+    assert metrics["slowest_step"]["duration_ms"] == 50.0

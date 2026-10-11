@@ -177,3 +177,35 @@ def test_template_math_and_ternary_expressions():
     # AST 三元语法支持
     assert render_template('{{ score >= 60 ? "及格" : "不及格" }}', ctx) == "及格"
     assert render_template('{{ "及格" if score >= 60 else "不及格" }}', ctx) == "及格"
+
+
+def test_template_codec_and_string_utilities():
+    ctx = {
+        "token": "hello_tg_bot",
+        "raw_url": "https://example.com/api?user=alice&tag=签到",
+        "words": "apple,banana,orange",
+    }
+
+    # Base64
+    b64 = render_template("{{ base64_encode(token) }}", ctx)
+    assert b64 == "aGVsbG9fdGdfYm90"
+    assert render_template("{{ base64_decode('aGVsbG9fdGdfYm90') }}") == "hello_tg_bot"
+
+    # Hash
+    assert render_template("{{ md5('123456') }}") == "e10adc3949ba59abbe56e057f20f883e"
+    assert len(render_template("{{ sha256(token) }}", ctx)) == 64
+
+    # URL 编解码
+    encoded_url = render_template("{{ url_encode(raw_url) }}", ctx)
+    assert "%E7%AD%BE%E5%88%B0" in encoded_url
+    assert render_template("{{ url_decode('%E7%AD%BE%E5%88%B0') }}") == "签到"
+
+    # 字符串变换
+    assert render_template("{{ upper('hello') }}") == "HELLO"
+    assert render_template("{{ lower('WORLD') }}") == "world"
+    assert render_template("{{ strip('  spaced  ') }}") == "spaced"
+    assert render_template("{{ replace('foo-bar', '-', '_') }}") == "foo_bar"
+    assert (
+        render_template("{{ join(split(words, ','), '|') }}", ctx)
+        == "apple|banana|orange"
+    )

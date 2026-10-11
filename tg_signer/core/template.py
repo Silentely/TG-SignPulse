@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import ast
+import base64
 import datetime
+import hashlib
 import json
 import random
 import re
+import urllib.parse
 import uuid
 from typing import Any, Callable, Dict, Optional
 
@@ -398,6 +401,62 @@ def _build_default_template_context(
     def _ternary(cond: Any, val_true: Any, val_false: Any) -> Any:
         return val_true if cond else val_false
 
+    def _base64_encode(text: Any) -> str:
+        try:
+            return base64.b64encode(str(text).encode("utf-8")).decode("utf-8")
+        except Exception:
+            return ""
+
+    def _base64_decode(text: Any) -> str:
+        try:
+            return base64.b64decode(str(text)).decode("utf-8", errors="replace")
+        except Exception:
+            return ""
+
+    def _md5(text: Any) -> str:
+        try:
+            return hashlib.md5(str(text).encode("utf-8")).hexdigest()
+        except Exception:
+            return ""
+
+    def _sha256(text: Any) -> str:
+        try:
+            return hashlib.sha256(str(text).encode("utf-8")).hexdigest()
+        except Exception:
+            return ""
+
+    def _url_encode(text: Any) -> str:
+        try:
+            return urllib.parse.quote(str(text))
+        except Exception:
+            return ""
+
+    def _url_decode(text: Any) -> str:
+        try:
+            return urllib.parse.unquote(str(text))
+        except Exception:
+            return ""
+
+    def _replace_str(text: Any, old: Any, new: Any) -> str:
+        try:
+            return str(text).replace(str(old), str(new))
+        except Exception:
+            return str(text)
+
+    def _split_str(text: Any, sep: Any = None) -> list[str]:
+        try:
+            return str(text).split(sep if sep is not None else None)
+        except Exception:
+            return [str(text)]
+
+    def _join_seq(items: Any, sep: Any = "") -> str:
+        try:
+            if isinstance(items, (list, tuple, set)):
+                return str(sep).join(str(i) for i in items)
+            return str(items)
+        except Exception:
+            return ""
+
     ctx: Dict[str, Any] = {
         "now": now,
         "utcnow": utcnow,
@@ -427,6 +486,21 @@ def _build_default_template_context(
         "clamp": _clamp,
         "ternary": _ternary,
         "iff": _ternary,
+        "base64_encode": _base64_encode,
+        "b64encode": _base64_encode,
+        "base64_decode": _base64_decode,
+        "b64decode": _base64_decode,
+        "md5": _md5,
+        "sha256": _sha256,
+        "url_encode": _url_encode,
+        "url_decode": _url_decode,
+        "trim": lambda s: str(s).strip(),
+        "strip": lambda s: str(s).strip(),
+        "upper": lambda s: str(s).upper(),
+        "lower": lambda s: str(s).lower(),
+        "replace": _replace_str,
+        "split": _split_str,
+        "join": _join_seq,
         "str": str,
         "int": int,
         "float": float,

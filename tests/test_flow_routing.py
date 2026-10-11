@@ -187,3 +187,32 @@ def test_clone_task_preserves_execution_engine():
     svc.clone_task("task1", "task1_clone", account_name="acc1")
     svc.create_task.assert_called_once()
     assert svc.create_task.call_args[1].get("execution_engine") == "v4"
+
+
+def test_routing_canary_traffic_splitting():
+    from tg_signer.core.flow_routing import canary_hash_bucket
+
+    # 1. 验证一致性哈希分桶稳定性
+    assert canary_hash_bucket("chat_123") == canary_hash_bucket("chat_123")
+    assert 0 <= canary_hash_bucket("any_random_chat_key") < 100
+
+    # 2. 100% 灰度切流全量命中 v4
+    chat = SignChatV3(chat_id=99999, actions=[])
+    with patch.dict(os.environ, {}, clear=True):
+        code, name, source = resolve_execution_engine(chat, canary_percentage=100)
+        assert code == ENGINE_V4
+        assert source == "canary"
+
+    # 3. 0% 灰度切流不命中，回退到默认
+    with patch.dict(os.environ, {}, clear=True):
+        code, name, source = resolve_execution_engine(chat, canary_percentage=0)
+        assert code == ENGINE_V3
+        assert source == "default"
+
+    # 4. 显式 chat/task 级别设定优先于灰度切流
+    chat_v3 = SignChatV3(chat_id=99999, execution_engine="v3", actions=[])
+    code_override, _, source_override = resolve_execution_engine(
+        chat_v3, canary_percentage=100
+    )
+    assert code_override == ENGINE_V3
+    assert source_override == "task"

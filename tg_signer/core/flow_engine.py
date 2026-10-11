@@ -51,6 +51,7 @@ class PulseFlowEngine:
     - 断点恢复执行 (graph.resume_from_node_id)
     - 全局节点异步超时保护与连续失败熔断 (consecutive_failure_limit)
     - 敏感变量与凭据自动脱敏输出
+    - 结构化执行性能与健康度指标度量 (metrics)
     """
 
     def __init__(self, event_bus: Optional[TelegramEventBus] = None):
@@ -380,16 +381,63 @@ class PulseFlowEngine:
             raise
 
         is_success = current_id == TERMINAL_COMPLETE_ID
+        total_duration = round((time.perf_counter() - run_start) * 1000, 2)
         res = {
             "status": "success" if is_success else "failed",
             "path": executed_path,
             "steps": total_steps,
-            "duration_ms": round((time.perf_counter() - run_start) * 1000, 2),
+            "duration_ms": total_duration,
             "trace": self._build_trace(executed_path, ctx),
+            "metrics": self._calculate_metrics(executed_path, ctx, total_duration),
         }
         if not is_success and last_failure_error:
             res["error"] = last_failure_error
         return res
+
+    @staticmethod
+    def _calculate_metrics(
+        executed_path: list[str], ctx: ScopedFlowContext, total_duration_ms: float
+    ) -> Dict[str, Any]:
+        """计算流程运行的性能与健康度指标摘要"""
+        total_steps = len(executed_path)
+        visited_nodes = list(dict.fromkeys(executed_path))
+        succeeded = 0
+        failed = 0
+        skipped = 0
+        timeouts = 0
+        durations = []
+        slowest_node = None
+        max_dur = -1.0
+
+        for nid in executed_path:
+            so = ctx.step_outcomes.get(nid)
+            if so is not None:
+                durations.append(so.duration_ms)
+                if so.duration_ms > max_dur:
+                    max_dur = so.duration_ms
+                    slowest_node = {"node_id": nid, "duration_ms": so.duration_ms}
+                if so.status in {NodeStatus.SUCCESS, NodeStatus.TERMINAL_EARLY}:
+                    succeeded += 1
+                elif so.status == NodeStatus.SKIPPED:
+                    skipped += 1
+                elif so.status == NodeStatus.TIMEOUT:
+                    timeouts += 1
+                    failed += 1
+                elif so.status == NodeStatus.FAILED:
+                    failed += 1
+
+        avg_dur = round(sum(durations) / len(durations), 2) if durations else 0.0
+        return {
+            "total_steps": total_steps,
+            "unique_nodes_count": len(visited_nodes),
+            "succeeded_steps": succeeded,
+            "failed_steps": failed,
+            "skipped_steps": skipped,
+            "timeout_steps": timeouts,
+            "total_duration_ms": total_duration_ms,
+            "avg_step_duration_ms": avg_dur,
+            "slowest_step": slowest_node,
+        }
 
     @staticmethod
     def _build_trace(
