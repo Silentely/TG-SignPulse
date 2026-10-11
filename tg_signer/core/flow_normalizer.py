@@ -46,12 +46,14 @@ class GraphNormalizer:
     @classmethod
     def _from_linear_actions(cls, chat: SignChatV3) -> ExecutionGraph:
         nodes: Dict[str, BaseFlowNode] = {}
-        total = len(chat.actions)
+        raw_actions = getattr(chat, "actions", None) or []
+        actions = list(raw_actions)
+        total = len(actions)
         if total == 0:
             raise GraphValidationError("任务配置不合法：没有配置任何可执行动作")
 
         entry_id = "step_0"
-        for i, act in enumerate(chat.actions):
+        for i, act in enumerate(actions):
             node_id = f"step_{i}"
             next_id = f"step_{i + 1}" if i + 1 < total else TERMINAL_COMPLETE_ID
 
@@ -67,7 +69,7 @@ class GraphNormalizer:
             cont_on_err = getattr(act, "continue_on_error", False)
             fail_id = next_id if cont_on_err else TERMINAL_FAIL_ID
 
-            run_if = getattr(act, "run_if", None)
+            run_if = getattr(act, "run_if", None) or getattr(act, "condition", None)
             skip_if = getattr(act, "skip_if", None)
 
             node = ActionNode(
@@ -95,7 +97,7 @@ class GraphNormalizer:
             chat.steps[0].step_id if chat.steps else TERMINAL_COMPLETE_ID
         )
 
-        for step in chat.steps:
+        for step in chat.steps or []:
             raw_act = action_from_step(step)
             action_type, params = cls._extract_action_type_and_params(raw_act)
             if step.config:
@@ -118,7 +120,9 @@ class GraphNormalizer:
                 TerminalPolicy.STOP_FLOW if is_stop_on_term else TerminalPolicy.IGNORE
             )
 
-            run_if = step.config.get("run_if") if step.config else None
+            run_if = (step.config.get("run_if") if step.config else None) or (
+                step.config.get("condition") if step.config else None
+            )
             skip_if = step.config.get("skip_if") if step.config else None
 
             node = ActionNode(
@@ -186,6 +190,10 @@ class GraphNormalizer:
             params["mode"] = act.mode
             params["timeout"] = act.timeout
             params["params"] = act.params
+        elif isinstance(act, dict):
+            raw_act_type = act.get("action") or act.get("action_type") or "UNKNOWN"
+            action_type = str(raw_act_type).upper()
+            params.update(act)
 
         if hasattr(act, "delay") and act.delay is not None:
             params["delay"] = act.delay

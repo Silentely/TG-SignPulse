@@ -88,6 +88,10 @@ class FlowCompatibilityBridge:
             if step_data is not None:
                 steps.setdefault(index, step_data)
                 steps.setdefault(str(index), step_data)
+
+        curr_output = (
+            context.last_output or getattr(self.runner_context, "last_output", "") or ""
+        )
         return {
             **scope_dict,
             "account": account_dict,
@@ -98,17 +102,18 @@ class FlowCompatibilityBridge:
             # 同时支持 steps 与 step 别名访问
             "steps": steps,
             "step": steps,
-            "prev_output": context.last_output or "",
-            "prev": {"output": context.last_output or ""},
+            "prev_output": curr_output,
+            "prev": {"output": curr_output},
             "last_message": last_received,
         }
 
     def reset_before_action(self) -> None:
-        """清理一次性终态标记，避免上一步状态扩散到当前动作。"""
+        """清理一次性终态标记与历史输出，避免上一步状态扩散到当前动作。"""
         runner_context = self.runner_context
         if runner_context is not None:
             try:
                 runner_context.stop_after_current_action = False
+                runner_context.last_output = ""
             except Exception:
                 pass
 

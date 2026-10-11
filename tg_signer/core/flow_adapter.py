@@ -76,6 +76,8 @@ class TelegramNodeExecutor:
 
         # 1. 检查 skip_if_matched 条件跳过
         skip_pat = getattr(raw_act, "skip_if_matched", None)
+        if isinstance(raw_act, dict) and skip_pat is None:
+            skip_pat = raw_act.get("skip_if_matched")
         if skip_pat:
             skip_pat_str = str(skip_pat).strip()
             match_src = self.compat.skip_match_source(context)
@@ -173,6 +175,8 @@ class TelegramNodeExecutor:
         self.compat.reset_before_action()
 
         cont_on_error = getattr(exec_action, "continue_on_error", False)
+        if isinstance(exec_action, dict) and not cont_on_error:
+            cont_on_error = exec_action.get("continue_on_error", False)
 
         # 5. 调用 runner.wait_for 执行动作
         action_desc = (
@@ -181,6 +185,30 @@ class TelegramNodeExecutor:
             or f"Action-{node.id}"
         )
         self._log(f"步骤 [{node.id}] 开始执行：{action_desc}")
+
+        # 同步 runner 当前动作上下文，保证消息标记去重与进度展示不脱钩
+        total_nodes = (
+            len(self.compat.graph.nodes)
+            if (
+                self.compat
+                and self.compat.graph
+                and getattr(self.compat.graph, "nodes", None)
+            )
+            else 1
+        )
+        step_idx = 1
+        if node.id.startswith("step_") and node.id[5:].isdigit():
+            step_idx = int(node.id[5:]) + 1
+        elif node.id.isdigit():
+            step_idx = int(node.id)
+
+        if hasattr(self.runner, "_set_current_action_context"):
+            try:
+                self.runner._set_current_action_context(
+                    step_idx, total_nodes, exec_action
+                )
+            except Exception:
+                pass
 
         try:
             next_action = self.compat.resolve_next_action(node)
@@ -254,3 +282,9 @@ class TelegramNodeExecutor:
                 )
             # 未配置 continue_on_error 的异常向上抛出，使 PulseFlowEngine 的 RetryPolicy 重试机制生效
             raise
+        finally:
+            if hasattr(self.runner, "_clear_current_action_context"):
+                try:
+                    self.runner._clear_current_action_context()
+                except Exception:
+                    pass
