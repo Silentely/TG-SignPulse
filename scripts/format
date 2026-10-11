@@ -1,0 +1,27 @@
+#!/bin/bash
+# 一键自动格式化项目代码 (ruff check --fix + ruff format)
+# 用法：bash scripts/format 或 ./scripts/format
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+RUFF=""
+if command -v ruff &>/dev/null; then
+    RUFF="ruff"
+elif [ -x ".venv/bin/ruff" ]; then
+    RUFF=".venv/bin/ruff"
+elif command -v uvx &>/dev/null; then
+    RUFF="uvx ruff@0.15"
+fi
+
+if [ -z "$RUFF" ]; then
+    echo "❌ 未找到可用 ruff（PATH / .venv / uvx 均无）"
+    exit 1
+fi
+
+echo "🎨 正在自动格式化并修复 Python 代码 (ruff check --fix & format)..."
+$RUFF check --fix backend/ tg_signer/ tests/ scripts/
+$RUFF format backend/ tg_signer/ tests/ scripts/
+echo "✅ Python 代码格式化与规范修复完成！"

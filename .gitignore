@@ -104,7 +104,9 @@ data_test/
 *.sublime-workspace
 .idea/
 *.swp
-.vscode
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
 *.bak
 
 # db

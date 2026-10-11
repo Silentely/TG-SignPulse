@@ -11,22 +11,34 @@ SCRIPTS_DIR="$ROOT/scripts"
 # 确保 .git/hooks 目录存在
 mkdir -p "$HOOKS_DIR"
 
-# 链接 pre-push 钩子
-HOOK="$HOOKS_DIR/pre-push"
-SOURCE="$SCRIPTS_DIR/pre-push"
+install_hook() {
+    local name="$1"
+    local hook_dest="$HOOKS_DIR/$name"
+    local hook_src="$SCRIPTS_DIR/$name"
 
-if [ -L "$HOOK" ]; then
-    echo "♻️  更新 pre-push 钩子"
-    rm "$HOOK"
-elif [ -f "$HOOK" ]; then
-    echo "⚠️  已存在 pre-push 钩子，备份为 pre-push.bak"
-    mv "$HOOK" "$HOOK.bak"
-fi
+    if [ -f "$hook_src" ]; then
+        chmod +x "$hook_src"
+        if [ -L "$hook_dest" ]; then
+            echo "♻️  更新 $name 钩子"
+            rm "$hook_dest"
+        elif [ -f "$hook_dest" ]; then
+            echo "⚠️  已存在 $name 钩子，备份为 $name.bak"
+            mv "$hook_dest" "$hook_dest.bak"
+        fi
+        ln -s "$hook_src" "$hook_dest"
+        echo "✅ $name 钩子已安装 ($hook_dest -> $hook_src)"
+    fi
+}
 
-ln -s "$SOURCE" "$HOOK"
-chmod +x "$SOURCE"
+# 安装 pre-commit 钩子（提交前自动格式化）
+install_hook "pre-commit"
 
-echo "✅ pre-push 钩子已安装"
-echo "   推送时自动执行：ruff 检查 → 前端类型检查 → 后端冒烟检查（约 2-3 秒）"
-echo "   跳过方式：SKIP_PUSH_HOOK=1 git push 或 git push --no-verify"
-echo "   本地跑全量测试：RUN_TESTS=1 git push"
+# 安装 pre-push 钩子（推送前质量冒烟检查）
+install_hook "pre-push"
+
+echo ""
+echo "🎉 Git 钩子安装就绪！"
+echo "   1. git commit: 自动对暂存代码执行 ruff 修复与格式化 (pre-commit)，无需手动格式化"
+echo "   2. git push:   自动执行轻量质量门禁 (pre-push，ruff/前端类型/后端冒烟)"
+echo "   3. 手动全量格式化：bash scripts/format"
+echo "   4. 紧急跳过：SKIP_PRE_COMMIT=1 / SKIP_PUSH_HOOK=1 或使用 --no-verify"

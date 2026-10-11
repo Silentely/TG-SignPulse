@@ -131,8 +131,13 @@ docker run -d -p 8080:8080 -v ./data:/data ghcr.io/<owner>/tg-signpulse:latest
 
 ## 编码规范
 
-- **Python**: PEP 8，ruff 静态检查（`line-length=88`，规则集显式 select）
+- **Python**: PEP 8，ruff 静态检查（`line-length=88`，规则集显式 select，见 `pyproject.toml`）
 - **TypeScript**: `vue-tsc` 严格模式 + Vite 构建
+- **代码自动格式化与质量门禁**:
+  - **IDE 保存自动格式化**：根目录配置了 `.vscode/settings.json`，保存文件时自动触发 Ruff 格式化与 import 排序
+  - **Git 自动修复钩子**：运行 `bash scripts/install-hooks` 安装 `pre-commit`（提交时自动格式化并暂存）与 `pre-push`（质量门禁）
+  - **全量一键格式化**：`bash scripts/format`（或 `./.venv/bin/ruff format backend/ tg_signer/ tests/ scripts/`）
+  - **开发规范文档**：详见 [`CONTRIBUTING.md`](./CONTRIBUTING.md)
 - **注释**: 简体中文，描述意图与约束
 - **提交语言**: 中文 Commit 信息（禁止过程性/AI 署名字眼）
 - **文档与变更记录规范**:

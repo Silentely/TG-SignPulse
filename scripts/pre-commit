@@ -1,0 +1,46 @@
+#!/bin/bash
+# pre-commit 钩子：提交前自动修复 import 并格式化暂存的 Python 文件，杜绝推送时被拦截
+# 跳过方式：SKIP_PRE_COMMIT=1 git commit 或 git commit --no-verify
+
+set -euo pipefail
+
+# 跳过机制
+if [ "${SKIP_PRE_COMMIT:-0}" = "1" ]; then
+    exit 0
+fi
+
+# 获取项目根目录（兼容 symlink）
+HOOK_PATH="$(cd "$(dirname "$0")" && pwd)"
+case "$HOOK_PATH" in
+    */.git/hooks) ROOT="$(cd "$HOOK_PATH/../.." && pwd)" ;;
+    */scripts)    ROOT="$(cd "$HOOK_PATH/.." && pwd)" ;;
+    *)            ROOT="$(cd "$(dirname "$0")/.." && pwd)" ;;
+esac
+cd "$ROOT"
+
+# ruff 解析链：PATH → 项目 venv → uvx
+RUFF=""
+if command -v ruff &>/dev/null; then
+    RUFF="ruff"
+elif [ -x ".venv/bin/ruff" ]; then
+    RUFF=".venv/bin/ruff"
+elif command -v uvx &>/dev/null; then
+    RUFF="uvx ruff@0.15"
+fi
+
+if [ -z "$RUFF" ]; then
+    # 未检测到 ruff，放行提交，留给 pre-push 或 CI 进行校验
+    exit 0
+fi
+
+# 获取暂存区中被修改/新增的 Python 文件
+STAGED_PY_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.py$' || true)
+
+if [ -n "$STAGED_PY_FILES" ]; then
+    # 自动执行检查与修复（如 isort import 重新排序、自动补齐等）
+    echo "$STAGED_PY_FILES" | xargs $RUFF check --fix --quiet 2>/dev/null || true
+    # 自动执行代码美化与格式化
+    echo "$STAGED_PY_FILES" | xargs $RUFF format --quiet 2>/dev/null || true
+    # 将自动格式化后的变更同步更新进暂存区
+    echo "$STAGED_PY_FILES" | xargs git add
+fi
