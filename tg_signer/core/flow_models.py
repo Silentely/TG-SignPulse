@@ -10,6 +10,12 @@ from pydantic import BaseModel, Field
 TERMINAL_COMPLETE_ID = "_TERMINAL_COMPLETE"
 TERMINAL_FAIL_ID = "_TERMINAL_FAIL"
 
+# 流程图安全资源限制硬边界常量
+MAX_NODES_PER_GRAPH = 50
+MAX_SUBFLOW_DEPTH = 3
+MAX_PARALLEL_BRANCHES = 10
+MAX_TOTAL_TASK_NODES = 150
+
 SENSITIVE_KEY_PATTERNS = (
     "token",
     "password",
@@ -255,12 +261,20 @@ class ExecutionGraph(BaseModel):
                 continue
             if isinstance(n_data, dict):
                 node_kwargs = dict(n_data)
+                node_id_val = node_kwargs.get("id")
+                if node_id_val is not None and str(node_id_val) != str(nid):
+                    raise ValueError(f"节点 ID 不一致: key '{nid}' vs id '{node_id_val}'")
                 node_kwargs.setdefault("id", nid)
-                ntype_str = node_kwargs.get("node_type", NodeType.ACTION.value)
-                try:
-                    ntype = NodeType(ntype_str)
-                except ValueError:
+
+                ntype_raw = node_kwargs.get("node_type")
+                if not ntype_raw:
                     ntype = NodeType.ACTION
+                else:
+                    try:
+                        ntype = NodeType(str(ntype_raw).lower())
+                    except ValueError:
+                        raise ValueError(f"未知或不支持的节点类型: {ntype_raw}")
+
                 target_cls = NODE_TYPE_MAP.get(ntype, ActionNode)
                 if (
                     target_cls is SubflowNode
