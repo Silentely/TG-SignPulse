@@ -37,6 +37,35 @@ class ScopedFlowContext:
         val = self._resolve_path(scope, path)
         return val if val is not None else default
 
+    def to_dict(self) -> Dict[str, Any]:
+        """将上下文完整状态序列化为字典，支持断点备份与还原"""
+        return {
+            "system": dict(self.system),
+            "account": dict(self.account),
+            "vars": dict(self.vars),
+            "last_output": self.last_output,
+            "step_outcomes": {
+                nid: so.to_dict() for nid, so in self.step_outcomes.items()
+            },
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> ScopedFlowContext:
+        """从字典无损还原上下文状态"""
+        ctx = cls(
+            system=dict(data.get("system", {})),
+            account=dict(data.get("account", {})),
+        )
+        ctx.vars = dict(data.get("vars", {}))
+        ctx.last_output = data.get("last_output", "")
+        raw_outcomes = data.get("step_outcomes", {})
+        for nid, o_dict in raw_outcomes.items():
+            if isinstance(o_dict, StepOutcome):
+                ctx.step_outcomes[nid] = o_dict
+            elif isinstance(o_dict, dict):
+                ctx.step_outcomes[nid] = StepOutcome.from_dict(o_dict)
+        return ctx
+
     def record_step_outcome(self, outcome: StepOutcome) -> None:
         self.step_outcomes[outcome.node_id] = outcome
         if outcome.output_text and outcome.updates_last_output:

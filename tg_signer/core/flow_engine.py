@@ -46,6 +46,8 @@ class PulseFlowEngine:
     - 子工作流 (SubflowNode) 嵌套调度
     - 生命周期事件监听器 (on_step_start / on_step_finish)
     - 全局错误处理器降级 (graph.error_handler_node_id)
+    - 节点级条件守卫 (node.run_if / node.skip_if)
+    - 断点恢复执行 (graph.resume_from_node_id)
     """
 
     def __init__(self, event_bus: Optional[TelegramEventBus] = None):
@@ -72,7 +74,7 @@ class PulseFlowEngine:
     ) -> Dict[str, Any]:
         """运行执行图"""
         bus = event_bus or self._event_bus
-        current_id: Optional[str] = graph.entry_node_id
+        current_id: Optional[str] = graph.resume_from_node_id or graph.entry_node_id
         executed_path: list[str] = []
         node_visit_counts: Dict[str, int] = {}
         total_steps = 0
@@ -134,6 +136,41 @@ class PulseFlowEngine:
                             f"on_step_start 钩子执行异常 ({node.id}): {hook_err}"
                         )
 
+                # 节点级条件守卫 (skip_if / run_if)
+                should_skip = False
+                skip_reason = ""
+                if node.skip_if and ctx.evaluate_condition(node.skip_if):
+                    should_skip = True
+                    skip_reason = (
+                        f"Condition skip_if '{node.skip_if}' evaluated to True"
+                    )
+                elif node.run_if and not ctx.evaluate_condition(node.run_if):
+                    should_skip = True
+                    skip_reason = f"Condition run_if '{node.run_if}' evaluated to False"
+
+                if should_skip:
+                    logger.info(f"节点 {node.id} 命中守卫条件跳过: {skip_reason}")
+                    outcome = StepOutcome(
+                        node_id=node.id,
+                        status=NodeStatus.SKIPPED,
+                        output_text=skip_reason,
+                        updates_last_output=False,
+                    )
+                    ctx.record_step_outcome(outcome)
+                    if on_step_finish is not None:
+                        try:
+                            hook_res = on_step_finish(node, outcome, ctx)
+                            if asyncio.iscoroutine(hook_res):
+                                await hook_res
+                        except Exception as hook_err:
+                            logger.warning(
+                                f"on_step_finish 钩子执行异常 ({node.id}): {hook_err}"
+                            )
+                    current_id = self._normalize_target(
+                        node.next_node_id or TERMINAL_COMPLETE_ID
+                    )
+                    continue
+
                 # 节点执行与重试循环
                 attempt = 0
                 outcome: Optional[StepOutcome] = None
@@ -161,12 +198,8 @@ class PulseFlowEngine:
                             outcome = await self._run_wait_event_node(node, ctx, bus)
                         else:
                             outcome = await asyncio.wait_for(
-                                executor(node, ctx), timeout=node.timeout_seconds
-                            )
-
-                        if outcome.duration_ms <= 0:
-                            outcome.duration_ms = round(
-                                (time.perf_counter() - step_start) * 1000, 2
+                                executor(node, ctx),
+                                timeout=node.timeout_seconds,
                             )
 
                         if outcome.signal != FlowSignal.RETRY_NODE:

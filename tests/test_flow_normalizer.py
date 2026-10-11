@@ -201,3 +201,44 @@ def test_graph_validator_detects_dangling_error_handler():
         match="全局错误处理节点 error_handler_node_id 'missing_err_handler' 指向不存在的节点",
     ):
         GraphNormalizer.validate_graph(bad_err_graph)
+
+
+def test_normalize_workflow_steps_node_guards():
+    chat = SignChatV3(
+        chat_id=12345,
+        initial_step_id="step_guarded",
+        steps=[
+            WorkflowStepConfig(
+                step_id="step_guarded",
+                action_type=1,
+                config={
+                    "text": "/hello",
+                    "run_if": "vars.enabled == true",
+                    "skip_if": "vars.balance < 10",
+                },
+                next_step_id="COMPLETE",
+            )
+        ],
+    )
+    graph = GraphNormalizer.from_chat(chat)
+    node = graph.nodes["step_guarded"]
+    assert node.run_if == "vars.enabled == true"
+    assert node.skip_if == "vars.balance < 10"
+
+
+def test_graph_validator_detects_dangling_resume_node():
+    bad_resume_graph = ExecutionGraph(
+        entry_node_id="s1",
+        resume_from_node_id="s_nonexistent",
+        nodes={
+            "s1": ActionNode(
+                id="s1",
+                next_node_id=TERMINAL_COMPLETE_ID,
+            )
+        },
+    )
+    with pytest.raises(
+        GraphValidationError,
+        match="断点恢复节点 resume_from_node_id 's_nonexistent' 不在图节点中",
+    ):
+        GraphNormalizer.validate_graph(bad_resume_graph)

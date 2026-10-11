@@ -58,6 +58,48 @@ class StepOutcome:
     # 内部控制节点的诊断文本不应覆盖后续动作可见的 Telegram 输出。
     updates_last_output: bool = True
 
+    def to_dict(self) -> Dict[str, Any]:
+        """序列化步骤执行结果"""
+        return {
+            "node_id": self.node_id,
+            "status": self.status.value,
+            "output_text": self.output_text,
+            "extracted_vars": dict(self.extracted_vars),
+            "matched_terminal": self.matched_terminal,
+            "signal": self.signal.value,
+            "target_node_id": self.target_node_id,
+            "error": str(self.error) if self.error else None,
+            "duration_ms": self.duration_ms,
+            "updates_last_output": self.updates_last_output,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> StepOutcome:
+        """从字典反序列化步骤结果"""
+        status_val = data.get("status", NodeStatus.SUCCESS.value)
+        try:
+            status = NodeStatus(status_val)
+        except ValueError:
+            status = NodeStatus.SUCCESS
+        signal_val = data.get("signal", FlowSignal.PROCEED.value)
+        try:
+            sig = FlowSignal(signal_val)
+        except ValueError:
+            sig = FlowSignal.PROCEED
+        err_str = data.get("error")
+        return cls(
+            node_id=data["node_id"],
+            status=status,
+            output_text=data.get("output_text", ""),
+            extracted_vars=dict(data.get("extracted_vars", {})),
+            matched_terminal=bool(data.get("matched_terminal", False)),
+            signal=sig,
+            target_node_id=data.get("target_node_id"),
+            error=RuntimeError(err_str) if err_str else None,
+            duration_ms=float(data.get("duration_ms", 0.0)),
+            updates_last_output=bool(data.get("updates_last_output", True)),
+        )
+
 
 class RetryPolicy(BaseModel):
     max_attempts: int = 1
@@ -83,6 +125,8 @@ class BaseFlowNode(BaseModel):
     retry_policy: RetryPolicy = Field(default_factory=RetryPolicy)
     loop_policy: LoopPolicy = Field(default_factory=LoopPolicy)
     timeout_seconds: float = 25.0
+    run_if: Optional[str] = None
+    skip_if: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -140,6 +184,7 @@ class ExecutionGraph(BaseModel):
     nodes: Dict[str, BaseFlowNode]
     max_total_steps: int = 30
     error_handler_node_id: Optional[str] = None
+    resume_from_node_id: Optional[str] = None
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> ExecutionGraph:
@@ -177,6 +222,7 @@ class ExecutionGraph(BaseModel):
             nodes=parsed_nodes,
             max_total_steps=data.get("max_total_steps", 30),
             error_handler_node_id=data.get("error_handler_node_id"),
+            resume_from_node_id=data.get("resume_from_node_id"),
         )
 
 

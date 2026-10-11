@@ -66,6 +66,9 @@ class GraphNormalizer:
             cont_on_err = getattr(act, "continue_on_error", False)
             fail_id = next_id if cont_on_err else TERMINAL_FAIL_ID
 
+            run_if = getattr(act, "run_if", None)
+            skip_if = getattr(act, "skip_if", None)
+
             node = ActionNode(
                 id=node_id,
                 name=f"Action-{i + 1}",
@@ -74,6 +77,8 @@ class GraphNormalizer:
                 next_node_id=next_id,
                 on_failure_node_id=fail_id,
                 terminal_policy=term_policy,
+                run_if=run_if,
+                skip_if=skip_if,
                 metadata={"raw_action": act},
             )
             nodes[node_id] = node
@@ -112,6 +117,9 @@ class GraphNormalizer:
                 TerminalPolicy.STOP_FLOW if is_stop_on_term else TerminalPolicy.IGNORE
             )
 
+            run_if = step.config.get("run_if") if step.config else None
+            skip_if = step.config.get("skip_if") if step.config else None
+
             node = ActionNode(
                 id=step.step_id,
                 name=f"Step-{step.step_id}",
@@ -121,6 +129,8 @@ class GraphNormalizer:
                 on_failure_node_id=fail_id,
                 loop_policy=loop_pol,
                 terminal_policy=term_policy,
+                run_if=run_if,
+                skip_if=skip_if,
                 metadata={"raw_action": raw_act, "workflow_step": step},
             )
             nodes[step.step_id] = node
@@ -198,6 +208,12 @@ class GraphNormalizer:
             raise GraphValidationError(f"初始步骤 {graph.entry_node_id} 不在图节点中")
 
         sentinels = {TERMINAL_COMPLETE_ID, TERMINAL_FAIL_ID, "COMPLETE", "FAIL"}
+
+        if graph.resume_from_node_id and graph.resume_from_node_id not in sentinels:
+            if graph.resume_from_node_id not in graph.nodes:
+                raise GraphValidationError(
+                    f"断点恢复节点 resume_from_node_id '{graph.resume_from_node_id}' 不在图节点中"
+                )
 
         # 1. 检查边完整性
         for node_id, node in graph.nodes.items():

@@ -147,3 +147,50 @@ def test_scoped_context_variable_to_variable_and_collection_eval():
     assert ctx.eval_condition("'guest' not in vars.vip_tags") is True
     assert ctx.eval_condition("vars.current_tag in vars.vip_tags") is True
     assert ctx.eval_condition("vars.vip_tags contains vars.current_tag") is True
+
+
+def test_scoped_context_serialization_and_restoration():
+    ctx = ScopedFlowContext(
+        system={"env": "prod", "version": "4.0.0"},
+        account={"username": "bob", "user_id": 12345},
+    )
+    ctx.set_var("token", "secret-xyz")
+    ctx.set_var("retries", 2)
+    ctx.last_output = "Welcome bob!"
+    ctx.record_step_outcome(
+        StepOutcome(
+            node_id="step_1",
+            status=NodeStatus.SUCCESS,
+            output_text="Init completed",
+            extracted_vars={"init": True},
+            duration_ms=45.2,
+        )
+    )
+    ctx.record_step_outcome(
+        StepOutcome(
+            node_id="step_2",
+            status=NodeStatus.FAILED,
+            output_text="Failed step",
+            error=RuntimeError("Network timeout"),
+            duration_ms=102.5,
+        )
+    )
+
+    data = ctx.to_dict()
+    assert data["system"]["env"] == "prod"
+    assert data["account"]["username"] == "bob"
+    assert data["vars"]["token"] == "secret-xyz"
+    assert data["last_output"] == "Failed step"
+    assert len(data["step_outcomes"]) == 2
+
+    # 反序列化还原
+    restored = ScopedFlowContext.from_dict(data)
+    assert restored.system == ctx.system
+    assert restored.account == ctx.account
+    assert restored.vars == ctx.vars
+    assert restored.last_output == ctx.last_output
+    assert "step_1" in restored.step_outcomes
+    assert restored.step_outcomes["step_1"].status == NodeStatus.SUCCESS
+    assert restored.step_outcomes["step_1"].extracted_vars == {"init": True}
+    assert restored.step_outcomes["step_2"].status == NodeStatus.FAILED
+    assert str(restored.step_outcomes["step_2"].error) == "Network timeout"

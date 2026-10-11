@@ -660,3 +660,85 @@ async def test_flow_engine_global_error_handler_fallback():
     assert result["status"] == "success"
     assert executed == ["step_error", "step_cleanup"]
     assert result["path"] == ["step_error", "step_cleanup"]
+
+
+@pytest.mark.asyncio
+async def test_flow_engine_node_guards_run_if_and_skip_if():
+    # 验证节点级 run_if 与 skip_if 守卫
+    graph = ExecutionGraph(
+        entry_node_id="step_1",
+        nodes={
+            "step_1": ActionNode(
+                id="step_1",
+                next_node_id="step_skipped_by_skip_if",
+            ),
+            "step_skipped_by_skip_if": ActionNode(
+                id="step_skipped_by_skip_if",
+                skip_if="vars.is_vip == true",
+                next_node_id="step_skipped_by_run_if",
+            ),
+            "step_skipped_by_run_if": ActionNode(
+                id="step_skipped_by_run_if",
+                run_if="vars.score > 100",
+                next_node_id="step_final",
+            ),
+            "step_final": ActionNode(
+                id="step_final",
+                run_if="vars.is_vip == true",
+                next_node_id=TERMINAL_COMPLETE_ID,
+            ),
+        },
+    )
+    ctx = ScopedFlowContext()
+    ctx.set_var("is_vip", True)
+    ctx.set_var("score", 80)
+    executed = []
+
+    async def mock_executor(node, context):
+        executed.append(node.id)
+        return StepOutcome(node_id=node.id, status=NodeStatus.SUCCESS)
+
+    engine = PulseFlowEngine()
+    result = await engine.run(graph, ctx, mock_executor)
+    assert result["status"] == "success"
+    # 只有 step_1 和 step_final 真正被 executor 执行
+    assert executed == ["step_1", "step_final"]
+    assert result["path"] == [
+        "step_1",
+        "step_skipped_by_skip_if",
+        "step_skipped_by_run_if",
+        "step_final",
+    ]
+    assert ctx.step_outcomes["step_skipped_by_skip_if"].status == NodeStatus.SKIPPED
+    assert ctx.step_outcomes["step_skipped_by_run_if"].status == NodeStatus.SKIPPED
+
+
+@pytest.mark.asyncio
+async def test_flow_engine_resume_from_node_id():
+    # 验证 ExecutionGraph 断点恢复执行
+    graph = ExecutionGraph(
+        entry_node_id="step_start",
+        resume_from_node_id="step_resume",
+        nodes={
+            "step_start": ActionNode(
+                id="step_start",
+                next_node_id="step_resume",
+            ),
+            "step_resume": ActionNode(
+                id="step_resume",
+                next_node_id=TERMINAL_COMPLETE_ID,
+            ),
+        },
+    )
+    ctx = ScopedFlowContext()
+    executed = []
+
+    async def mock_executor(node, context):
+        executed.append(node.id)
+        return StepOutcome(node_id=node.id, status=NodeStatus.SUCCESS)
+
+    engine = PulseFlowEngine()
+    result = await engine.run(graph, ctx, mock_executor)
+    assert result["status"] == "success"
+    assert executed == ["step_resume"]
+    assert result["path"] == ["step_resume"]

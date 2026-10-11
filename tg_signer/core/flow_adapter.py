@@ -5,7 +5,7 @@ import asyncio
 import logging
 import random
 import re
-from typing import Any
+from typing import Any, Optional
 
 from tg_signer.config import (
     ClickKeyboardByTextAction,
@@ -43,6 +43,29 @@ class TelegramNodeExecutor:
                 pass
         log_fn = getattr(logger, level.lower(), logger.info)
         log_fn(msg)
+
+    @staticmethod
+    def _extract_flood_wait_seconds(exc: Exception) -> Optional[int]:
+        """提取 FloodWait 异常中的等待秒数"""
+        for attr in ("value", "x", "seconds"):
+            val = getattr(exc, attr, None)
+            if isinstance(val, (int, float)) and val > 0:
+                return int(val)
+        msg = str(exc)
+        exc_type = type(exc).__name__
+        m = re.search(r"FLOOD_WAIT_?(\d+)", f"{exc_type} {msg}", re.IGNORECASE)
+        if m:
+            try:
+                return int(m.group(1))
+            except (ValueError, TypeError):
+                pass
+        m2 = re.search(r"wait(?:ing)?(?:\s+of)?\s+(\d+)\s+seconds", msg, re.IGNORECASE)
+        if m2:
+            try:
+                return int(m2.group(1))
+            except (ValueError, TypeError):
+                pass
+        return None
 
     async def __call__(
         self, node: BaseFlowNode, context: ScopedFlowContext
@@ -193,6 +216,30 @@ class TelegramNodeExecutor:
                 output_text=output_text,
             )
         except Exception as exc:
+            flood_sec = self._extract_flood_wait_seconds(exc)
+            if flood_sec is not None and flood_sec <= 60:
+                self._log(
+                    f"步骤 {node.id} 触发 Telegram FloodWait ({flood_sec}s)，自适应休眠后重试...",
+                    level="WARNING",
+                )
+                await asyncio.sleep(flood_sec + 1)
+                try:
+                    res = await self.runner.wait_for(
+                        self.chat, exec_action, next_action=next_action
+                    )
+                    matched_term = self.compat.consume_matched_terminal()
+                    output_text = self.compat.output_text(res=res, action=exec_action)
+                    if res is not False:
+                        self._log(f"步骤 {node.id} FloodWait 休眠后重试执行成功")
+                        return StepOutcome(
+                            node_id=node.id,
+                            status=NodeStatus.SUCCESS,
+                            matched_terminal=matched_term,
+                            output_text=output_text,
+                        )
+                except Exception as retry_exc:
+                    exc = retry_exc
+
             self._log(f"步骤 {node.id} 执行抛出异常: {exc}", level="ERROR")
             if cont_on_error:
                 self._log(

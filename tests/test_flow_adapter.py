@@ -300,3 +300,37 @@ async def test_issue_13_skip_if_matched_detects_realtime_bot_reply():
     # 动作1执行过，动作2由于满足 skip_if_matched 判定被跳过，因此 wait_for 仅调用了一次
     assert mock_runner.wait_for.call_count == 1
     assert ctx.step_outcomes["step_1"].status == NodeStatus.SKIPPED
+
+
+@pytest.mark.asyncio
+async def test_adapter_flood_wait_auto_recovery():
+    # 验证 Telegram FloodWait 异常时的自适应休眠与恢复重试
+    class MockFloodWait(Exception):
+        def __init__(self, value):
+            self.value = value
+            super().__init__(f"FLOOD_WAIT_{value}")
+
+    node = ActionNode(
+        id="flood_node",
+        metadata={"raw_action": SendTextAction(text="/flood_cmd")},
+    )
+    graph = ExecutionGraph(entry_node_id="flood_node", nodes={"flood_node": node})
+    ctx = ScopedFlowContext()
+
+    mock_runner = MagicMock()
+    # 第一次抛出 FloodWait(2)，第二次成功返回 True
+    mock_runner.wait_for = AsyncMock(side_effect=[MockFloodWait(2), True])
+    mock_runner.context = None
+
+    chat = SignChatV3(chat_id=123, actions=[])
+    executor = TelegramNodeExecutor(mock_runner, chat)
+    engine = PulseFlowEngine()
+
+    with patch(
+        "tg_signer.core.flow_adapter.asyncio.sleep", new_callable=AsyncMock
+    ) as sleep:
+        result = await engine.run(graph, ctx, executor)
+
+    assert result["status"] == "success"
+    assert mock_runner.wait_for.call_count == 2
+    assert any(call.args[0] == 3 for call in sleep.await_args_list)
