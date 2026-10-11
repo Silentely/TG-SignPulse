@@ -8,7 +8,7 @@ import asyncio
 import logging
 import shutil
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import (
     APIRouter,
@@ -66,7 +66,7 @@ class ChatConfig(BaseModel):
     source_account: Optional[str] = Field(
         None, description="Account used to look up this chat (for avatar)"
     )
-    execution_engine: Optional[str] = Field(
+    execution_engine: Optional[Literal["v3", "v4"]] = Field(
         None, description="Execution engine override for this chat"
     )
 
@@ -114,7 +114,7 @@ class SignTaskCreate(BaseModel):
         le=3600,
         description="Delay in seconds before triggering next task",
     )
-    execution_engine: Optional[str] = Field(
+    execution_engine: Optional[Literal["v3", "v4"]] = Field(
         None, description="Execution engine override for this task"
     )
 
@@ -168,7 +168,7 @@ class SignTaskUpdate(BaseModel):
         le=3600,
         description="Delay in seconds before triggering next task",
     )
-    execution_engine: Optional[str] = Field(
+    execution_engine: Optional[Literal["v3", "v4"]] = Field(
         None, description="Execution engine override for this task"
     )
 

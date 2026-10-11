@@ -33,6 +33,17 @@ _DEFAULT_TASK_FIELDS: Dict[str, Any] = {
 }
 
 MAX_TASK_TAGS = 20
+
+
+def _normalize_execution_engine(value: Optional[str]) -> Optional[str]:
+    if value is None or str(value).strip() == "":
+        return None
+    normalized = str(value).strip().lower()
+    if normalized not in {"v3", "v4"}:
+        raise ValueError("execution_engine must be either 'v3' or 'v4'")
+    return normalized
+
+
 MAX_TASK_TAG_LENGTH = 50
 MAX_TASK_TAGS_TOTAL_LENGTH = 500
 
@@ -114,9 +125,7 @@ def build_sign_task_config(
         "next_task_delay_seconds": float(next_task_delay_seconds)
         if next_task_delay_seconds is not None
         else 2.0,
-        "execution_engine": str(execution_engine).strip()
-        if execution_engine and str(execution_engine).strip()
-        else None,
+        "execution_engine": _normalize_execution_engine(execution_engine),
     }
     if last_run is not None:
         config["last_run"] = last_run
@@ -235,9 +244,9 @@ def resolve_update_field_values(
             else existing.get("next_task_delay_seconds", 2.0)
         ),
         "execution_engine": (
-            str(execution_engine).strip()
-            if execution_engine is not None and str(execution_engine).strip()
-            else (None if execution_engine == "" else existing.get("execution_engine"))
+            _normalize_execution_engine(execution_engine)
+            if execution_engine is not None
+            else _normalize_execution_engine(existing.get("execution_engine"))
         ),
     }
 

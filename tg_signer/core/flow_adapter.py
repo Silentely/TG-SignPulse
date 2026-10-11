@@ -33,6 +33,7 @@ class TelegramNodeExecutor:
         self.runner = runner
         self.chat = chat
         self.compat = FlowCompatibilityBridge(runner, chat, graph)
+        self._runner_state_lock = asyncio.Lock()
 
     def _log(self, msg: str, level: str = "INFO") -> None:
         """同时向 runner 日志流（供前端实时查看）和系统标准日志输出"""
@@ -68,6 +69,14 @@ class TelegramNodeExecutor:
         return None
 
     async def __call__(
+        self, node: BaseFlowNode, context: ScopedFlowContext
+    ) -> StepOutcome:
+        # The legacy runner and Pyrogram client are stateful. Keep the complete
+        # action transaction serialized even when graph branches are concurrent.
+        async with self._runner_state_lock:
+            return await self._call_unlocked(node, context)
+
+    async def _call_unlocked(
         self, node: BaseFlowNode, context: ScopedFlowContext
     ) -> StepOutcome:
         raw_act = node.metadata.get("raw_action")
@@ -215,6 +224,10 @@ class TelegramNodeExecutor:
             res = await self.runner.wait_for(
                 self.chat, exec_action, next_action=next_action
             )
+            if res is not False:
+                runner_context = getattr(self.runner, "context", None)
+                if runner_context is not None:
+                    runner_context.pulseflow_side_effect_started = True
             matched_term = self.compat.consume_matched_terminal()
             output_text = self.compat.output_text(res=res, action=exec_action)
 
@@ -255,6 +268,10 @@ class TelegramNodeExecutor:
                     res = await self.runner.wait_for(
                         self.chat, exec_action, next_action=next_action
                     )
+                    if res is not False:
+                        runner_context = getattr(self.runner, "context", None)
+                        if runner_context is not None:
+                            runner_context.pulseflow_side_effect_started = True
                     matched_term = self.compat.consume_matched_terminal()
                     output_text = self.compat.output_text(res=res, action=exec_action)
                     if res is not False:

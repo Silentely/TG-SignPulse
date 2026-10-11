@@ -38,14 +38,20 @@ class TelegramEventBus:
         chat_id: int,
         message_thread_id: Optional[int] = None,
         min_message_id: Optional[int] = None,
+        event_type: Optional[str] = "NEW_MESSAGE",
     ) -> asyncio.Queue:
         key = (chat_id, message_thread_id)
         queue: asyncio.Queue = asyncio.Queue(maxsize=100)
         self._subscribers.setdefault(key, []).append(queue)
 
         if min_message_id is not None and key in self._history_buffers:
+            now = time.time()
             for ev in self._history_buffers[key]:
-                if ev.message_id > min_message_id and ev.event_type == "NEW_MESSAGE":
+                if (
+                    ev.message_id > min_message_id
+                    and (event_type is None or ev.event_type == event_type)
+                    and now - ev.occurred_at <= self._buffer_ttl
+                ):
                     try:
                         queue.put_nowait(ev)
                     except asyncio.QueueFull:
@@ -105,7 +111,12 @@ class TelegramEventBus:
     ) -> List[TelegramMessageEvent]:
         """获取指定会话与话题的最近事件历史，支持调试回溯与状态核验"""
         key = (chat_id, message_thread_id)
-        buf = self._history_buffers.get(key, [])
+        now = time.time()
+        buf = [
+            ev
+            for ev in self._history_buffers.get(key, [])
+            if now - ev.occurred_at <= self._buffer_ttl
+        ]
         if min_message_id is not None:
             buf = [ev for ev in buf if ev.message_id >= min_message_id]
         return buf[-max(1, limit) :]

@@ -142,13 +142,15 @@ export function buildTaskFormPayload(
     ca = [buildListenAction(input, ba)]
   }
 
-  const seenChatIds = new Set<number>()
+  const seenChatTargets = new Set<string>()
   const chats = input.targetChats
     .filter((c) => {
       const id = Number(c.chatId)
       if (!Number.isFinite(id) || id === 0) return false
-      if (seenChatIds.has(id)) return false
-      seenChatIds.add(id)
+      const threadId = c.messageThreadId ? Number(c.messageThreadId) : ''
+      const targetKey = `${id}:${threadId}`
+      if (seenChatTargets.has(targetKey)) return false
+      seenChatTargets.add(targetKey)
       return true
     })
     .map((c) => ({

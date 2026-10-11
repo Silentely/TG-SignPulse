@@ -196,12 +196,15 @@ class SignerRunnerMixin:
                 engine_source in {"canary", "settings", "env", "default"}
                 and auto_fallback_env not in {"0", "false", "no", "off"}
             )
+            self.context.pulseflow_side_effect_started = False
 
             graph = None
             try:
                 graph = GraphNormalizer.from_chat(chat)
             except Exception as norm_err:
-                if allow_fallback:
+                if allow_fallback and not getattr(
+                    self.context, "pulseflow_side_effect_started", False
+                ):
                     self.log(
                         f"⚠️ PulseFlow 图构建失败 ({norm_err})，启动安全兜底机制：自动降级回退至经典引擎执行，确保上线不脱钩",
                         level="WARNING",
@@ -276,7 +279,9 @@ class SignerRunnerMixin:
                         )
 
                 if not flow_succeeded:
-                    if allow_fallback:
+                    if allow_fallback and not getattr(
+                        self.context, "pulseflow_side_effect_started", False
+                    ):
                         self.log(
                             f"⚠️ PulseFlow (v4) 执行未成功 ({last_error})，启动安全兜底机制：自动降级回退至经典引擎执行，确保上线不脱钩",
                             level="WARNING",
@@ -285,6 +290,13 @@ class SignerRunnerMixin:
                         self.context.pulseflow_fallback_reason = str(last_error)
                         _reset_v4_legacy_context()
                     else:
+                        if getattr(
+                            self.context, "pulseflow_side_effect_started", False
+                        ):
+                            self.log(
+                                "PulseFlow 已产生外部副作用，禁止自动回退 Classic，避免重复执行",
+                                level="ERROR",
+                            )
                         if last_error is not None:
                             raise last_error
                         raise RuntimeError("PulseFlow 执行失败：没有得到执行结果")

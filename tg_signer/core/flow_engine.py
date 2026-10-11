@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import time
+from collections import OrderedDict
 from typing import Any, Awaitable, Callable, Dict, Optional, Pattern
 
 from tg_signer.core.flow_context import ScopedFlowContext
@@ -31,6 +32,17 @@ from tg_signer.core.flow_models import (
 )
 
 logger = logging.getLogger("tg_signer.flow_engine")
+
+
+def _redact_trace_text(value: str) -> str:
+    """Mask credential-like key/value pairs without masking ordinary Telegram text."""
+    if not value:
+        return value
+    return re.sub(
+        r"(?i)\b(token|password|secret|api[_-]?key|session|credential)\b\s*[:=]\s*([^\s,;]+)",
+        lambda m: f"{m.group(1)}=***",
+        str(value),
+    )
 
 
 class FlowLoopLimitExceededError(RuntimeError):
@@ -58,12 +70,16 @@ class PulseFlowEngine:
     """
 
     def __init__(self, event_bus: Optional[TelegramEventBus] = None):
-        self._compiled_regexes: Dict[str, Pattern] = {}
+        self._compiled_regexes: OrderedDict[str, Pattern] = OrderedDict()
         self._event_bus = event_bus
 
     def _compile_regex(self, pattern: str) -> Pattern:
         if pattern not in self._compiled_regexes:
             self._compiled_regexes[pattern] = re.compile(pattern)
+            if len(self._compiled_regexes) > 256:
+                self._compiled_regexes.popitem(last=False)
+        else:
+            self._compiled_regexes.move_to_end(pattern)
         return self._compiled_regexes[pattern]
 
     async def _execute_node(
@@ -403,7 +419,7 @@ class PulseFlowEngine:
             "metrics": self._calculate_metrics(executed_path, ctx, total_duration),
         }
         if not is_success and last_failure_error:
-            res["error"] = last_failure_error
+            res["error"] = _redact_trace_text(last_failure_error)
         return res
 
     @staticmethod
@@ -421,22 +437,23 @@ class PulseFlowEngine:
         slowest_node = None
         max_dur = -1.0
 
-        for nid in executed_path:
-            so = ctx.step_outcomes.get(nid)
-            if so is not None:
-                durations.append(so.duration_ms)
-                if so.duration_ms > max_dur:
-                    max_dur = so.duration_ms
-                    slowest_node = {"node_id": nid, "duration_ms": so.duration_ms}
-                if so.status in {NodeStatus.SUCCESS, NodeStatus.TERMINAL_EARLY}:
-                    succeeded += 1
-                elif so.status == NodeStatus.SKIPPED:
-                    skipped += 1
-                elif so.status == NodeStatus.TIMEOUT:
-                    timeouts += 1
-                    failed += 1
-                elif so.status == NodeStatus.FAILED:
-                    failed += 1
+        outcomes = ctx.step_history or [
+            ctx.step_outcomes[nid] for nid in executed_path if nid in ctx.step_outcomes
+        ]
+        for so in outcomes:
+            durations.append(so.duration_ms)
+            if so.duration_ms > max_dur:
+                max_dur = so.duration_ms
+                slowest_node = {"node_id": so.node_id, "duration_ms": so.duration_ms}
+            if so.status in {NodeStatus.SUCCESS, NodeStatus.TERMINAL_EARLY}:
+                succeeded += 1
+            elif so.status == NodeStatus.SKIPPED:
+                skipped += 1
+            elif so.status == NodeStatus.TIMEOUT:
+                timeouts += 1
+                failed += 1
+            elif so.status == NodeStatus.FAILED:
+                failed += 1
 
         avg_dur = round(sum(durations) / len(durations), 2) if durations else 0.0
         return {
@@ -459,8 +476,10 @@ class PulseFlowEngine:
     ) -> list[Dict[str, Any]]:
         """为全流程生成节点级执行快照序列，支持端到端调试与可视化展示"""
         trace = []
-        for nid in executed_path:
-            so = ctx.step_outcomes.get(nid)
+        outcomes = ctx.step_history or [
+            ctx.step_outcomes[nid] for nid in executed_path if nid in ctx.step_outcomes
+        ]
+        for so in outcomes:
             if so is not None:
                 extracted = (
                     redact_sensitive_value(so.extracted_vars)
@@ -469,16 +488,17 @@ class PulseFlowEngine:
                 )
                 trace.append(
                     {
-                        "node_id": nid,
+                        "node_id": so.node_id,
                         "status": so.status.value,
                         "duration_ms": so.duration_ms,
-                        "output": so.output_text,
-                        "output_text": so.output_text,
+                        "output": _redact_trace_text(so.output_text),
+                        "output_text": _redact_trace_text(so.output_text),
                         "extracted_vars": extracted,
                         "matched_terminal": so.matched_terminal,
                         "signal": so.signal.value,
                         "target_node_id": so.target_node_id,
-                        "error": str(so.error) if so.error else None,
+                        "error": _redact_trace_text(str(so.error)) if so.error else None,
+                        "details": so.details,
                     }
                 )
         return trace
@@ -635,10 +655,30 @@ class PulseFlowEngine:
         elif node.mode == ParallelMode.ANY:
             is_overall_success = succeeded_count > 0
         elif node.mode == ParallelMode.ALL_SETTLED:
-            is_overall_success = succeeded_count > 0 or failed_count == 0
+            # ALL_SETTLED reports completion of every branch, including failures.
+            is_overall_success = True
 
         if is_overall_success and node.join_strategy == "merge":
             ctx.vars.update(merged_vars)
+
+        branch_details = []
+        for index, result in enumerate(results):
+            if isinstance(result, Exception):
+                branch_details.append(
+                    {"branch_index": index, "status": "failed", "error": str(result)}
+                )
+                continue
+            branch_res, _branch_ctx = result
+            branch_details.append(
+                {
+                    "branch_index": index,
+                    "status": branch_res.get("status"),
+                    "path": branch_res.get("path", []),
+                    "trace": branch_res.get("trace", []),
+                    "metrics": branch_res.get("metrics", {}),
+                    "error": branch_res.get("error"),
+                }
+            )
 
         return StepOutcome(
             node_id=node.id,
@@ -649,6 +689,7 @@ class PulseFlowEngine:
             ),
             extracted_vars=merged_vars,
             updates_last_output=False,
+            details={"branches": branch_details},
         )
 
     def _run_extractor_node(
@@ -774,6 +815,7 @@ class PulseFlowEngine:
             chat_id=chat_id,
             message_thread_id=thread_id,
             min_message_id=min_msg_id,
+            event_type=node.event_type,
         )
         try:
             deadline = time.perf_counter() + timeout
@@ -795,6 +837,9 @@ class PulseFlowEngine:
                         output_text=f"WaitEventNode {node.id} timed out after {timeout}s",
                         updates_last_output=False,
                     )
+
+                if node.event_type and event.event_type != node.event_type:
+                    continue
 
                 text = event.text or ""
                 if not node.filter_patterns:

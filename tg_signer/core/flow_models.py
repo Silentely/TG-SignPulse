@@ -96,6 +96,7 @@ class StepOutcome:
     duration_ms: float = 0.0
     # 内部控制节点的诊断文本不应覆盖后续动作可见的 Telegram 输出。
     updates_last_output: bool = True
+    details: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self, redact_sensitive: bool = False) -> Dict[str, Any]:
         """序列化步骤执行结果，支持敏感数据可选脱敏"""
@@ -115,6 +116,7 @@ class StepOutcome:
             "error": str(self.error) if self.error else None,
             "duration_ms": self.duration_ms,
             "updates_last_output": self.updates_last_output,
+            "details": dict(self.details),
         }
 
     @classmethod
@@ -142,6 +144,7 @@ class StepOutcome:
             error=RuntimeError(err_str) if err_str else None,
             duration_ms=float(data.get("duration_ms", 0.0)),
             updates_last_output=bool(data.get("updates_last_output", True)),
+            details=dict(data.get("details", {})),
         )
 
 

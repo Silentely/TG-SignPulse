@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import (
     APIRouter,
@@ -460,7 +460,7 @@ class GlobalSettingsRequest(BaseModel):
     server_chan_send_key: Optional[str] = None
     bark_url: Optional[str] = None
     custom_url: Optional[str] = None
-    execution_engine: Optional[str] = None
+    execution_engine: Optional[Literal["v3", "v4"]] = None
 
 
 class GlobalSettingsResponse(BaseModel):

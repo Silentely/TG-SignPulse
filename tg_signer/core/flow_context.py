@@ -20,6 +20,7 @@ class ScopedFlowContext:
         self.account = account or {}
         self.vars: Dict[str, Any] = {}
         self.step_outcomes: Dict[str, StepOutcome] = {}
+        self.step_history: list[StepOutcome] = []
         self.last_output: str = ""
 
     def set_var(self, key: str, value: Any) -> None:
@@ -56,6 +57,10 @@ class ScopedFlowContext:
                 nid: so.to_dict(redact_sensitive=redact_sensitive)
                 for nid, so in self.step_outcomes.items()
             },
+            "step_history": [
+                so.to_dict(redact_sensitive=redact_sensitive)
+                for so in self.step_history
+            ],
         }
 
     @classmethod
@@ -73,10 +78,20 @@ class ScopedFlowContext:
                 ctx.step_outcomes[nid] = o_dict
             elif isinstance(o_dict, dict):
                 ctx.step_outcomes[nid] = StepOutcome.from_dict(o_dict)
+        raw_history = data.get("step_history")
+        if isinstance(raw_history, list):
+            ctx.step_history = [
+                StepOutcome.from_dict(item)
+                for item in raw_history
+                if isinstance(item, dict)
+            ]
+        else:
+            ctx.step_history = list(ctx.step_outcomes.values())
         return ctx
 
     def record_step_outcome(self, outcome: StepOutcome) -> None:
         self.step_outcomes[outcome.node_id] = outcome
+        self.step_history.append(outcome)
         if outcome.output_text and outcome.updates_last_output:
             self.last_output = outcome.output_text
         if outcome.extracted_vars:
