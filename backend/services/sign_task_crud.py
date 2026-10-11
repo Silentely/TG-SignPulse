@@ -40,14 +40,15 @@ def _validate_chats_regex_safety(chats: Optional[List[Dict[str, Any]]]) -> None:
 
 
 def _validate_chats_workflow(chats: Optional[List[Dict[str, Any]]]) -> None:
-    """写入前校验 chats 的 actions/steps 互斥与工作流拓扑。
+    """写入前校验 chats 的 actions/steps/flow_graph 互斥与工作流拓扑。
 
-    判据与运行时一致（交由 SignChatV3 校验 steps 与拓扑），保证「能写入即可加载」；
+    判据与运行时一致（交由 SignChatV3 校验并在使用流图时前置建图校验），保证「能写入即可加载」；
     违反时抛 WorkflowConfigError（ValueError 子类），由路由层转成 400。
     """
     if not chats:
         return
-    from tg_signer.config import SignChatV3, WorkflowConfigError
+    from tg_signer.config import FlowStepConfig, SignChatV3, WorkflowConfigError
+    from tg_signer.core.flow_normalizer import GraphNormalizer
 
     validator = getattr(SignChatV3, "model_validate", None) or getattr(
         SignChatV3, "parse_obj", None
@@ -57,25 +58,35 @@ def _validate_chats_workflow(chats: Optional[List[Dict[str, Any]]]) -> None:
             continue
         actions = chat.get("actions")
         steps = chat.get("steps")
-        if actions is None and steps is None:
+        flow_graph = chat.get("flow_graph")
+        sources_count = sum(1 for flag in (actions is not None, steps is not None, flow_graph is not None) if flag)
+        if sources_count != 1:
             raise WorkflowConfigError(
-                f"chats[{idx}] actions 与 steps 互斥，必须且只能配置其中之一"
+                f"chats[{idx}] actions、steps、flow_graph 互斥，必须且只能配置其中之一"
             )
-        if actions is not None and steps is not None:
-            raise WorkflowConfigError(
-                f"chats[{idx}] actions 与 steps 互斥，不能同时配置"
-            )
-        if steps is None:
+        if actions is not None:
             continue
         try:
             if validator is not None:
-                validator(chat)
+                chat_obj = validator(chat)
             else:
-                SignChatV3(**chat)
+                chat_obj = SignChatV3(**chat)
         except WorkflowConfigError:
             raise
         except Exception as exc:
             raise WorkflowConfigError(f"chats[{idx}] 工作流配置无效: {exc}") from exc
+
+        try:
+            has_flow = chat_obj.flow_graph is not None or any(
+                isinstance(s, FlowStepConfig) for s in (chat_obj.steps or [])
+            )
+            if has_flow:
+                graph = GraphNormalizer.from_chat(chat_obj)
+                GraphNormalizer.validate_graph(graph)
+        except WorkflowConfigError:
+            raise
+        except Exception as exc:
+            raise WorkflowConfigError(f"chats[{idx}] 工作流图结构校验失败: {exc}") from exc
 
 
 class SignTaskCrudMixin:
