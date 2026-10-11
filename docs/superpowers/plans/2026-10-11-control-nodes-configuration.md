@@ -4,7 +4,7 @@
 
 **Goal:** 打通任务配置到控制流节点的接线，支持在任务配置中声明条件分支、事件等待、延时、提取器、子流程与并发分支节点，并提供结构化图校验与 Mermaid 流程图安全预览闭环。
 
-**Architecture:** 采用三路互斥配置模式（`flow_graph` 原生图直通、`FlowStepConfig` 多态步骤列表、`actions` 遗留兼容）；独立保留旧版 `WorkflowStepConfig` 避免破坏现有系统；升级 `GraphNormalizer` 支持全连通分量死循环检测、自动注入 WaitEvent `chat_id` 上下文；打通后端 CRUD 持久化与结构化 Preview API，前端对齐 `buildTaskFormPayload` 与拓扑预览。
+**Architecture:** 采用三路互斥配置模式（`flow_graph` 原生图直通、`FlowStepConfig` 多态步骤列表、`actions` 遗留兼容）；Pre-validator 逐元素分流保留旧版 `WorkflowStepConfig`；自适应引擎路由自动将新流程分流至 PulseFlow (v4)；升级 `GraphNormalizer` 支持全连通分量死循环检测、自动注入 WaitEvent `chat_id` 上下文；打通写路径前置校验、CRUD 持久化与结构化 Preview API，前端对齐 `buildTaskFormPayload` 与拓扑预览。
 
 **Tech Stack:** Python 3.10+, Pydantic, Pytest, FastAPI, TypeScript, Vue 3, Mermaid.js
 
@@ -14,6 +14,8 @@
 - **完全向后兼容**：历史任务中的 `actions` 线性列表与现有 `WorkflowStepConfig` 步骤配置行为 100% 保持不变，已有测试不可破坏。
 - **配置源严格互斥**：`SignChatV3` 中的 `actions`、`steps`、`flow_graph` 必须且只能有一个非空，多源冲突直接报错拒绝。
 - **零静默降级**：未知 `node_type` 坚决报错，禁止静默当成 `ActionNode`。
+- **自适应引擎路由**：新配置在无显式配置时自动路由至 `"v4"`，禁止走经典引擎导致属性崩溃。
+- **写路径前置图校验**：坚持“能写入即可加载执行”，保存前必须通过 `GraphNormalizer.validate_graph`。
 - **全图死循环检测**：拓扑校验必须遍历所有连通分量，不可达死循环必须拦截。
 - **运行时上下文安全注入**：`WaitEventNode` 必须由 Normalizer 自动注入 `metadata.chat_id`。
 
@@ -24,6 +26,7 @@
 **Files:**
 - Test: `tests/test_flow_compat.py`
 - Test: `tests/test_flow_normalizer.py`
+- Test: `tests/test_flow_adapter.py`
 
 **Interfaces:**
 - Consumes: 现有测试套件
@@ -34,22 +37,22 @@
 Run: `pytest tests/test_flow_compat.py tests/test_flow_normalizer.py tests/test_flow_adapter.py -v`
 Expected: PASS
 
-- [ ] **Step 2: 验证现有工作流步骤校验行为**
+- [ ] **Step 2: 验证现有工作流步骤与路由测试**
 
-Run: `pytest -k "test_workflow" -v`
+Run: `pytest tests/test_flow_routing.py -k "test_workflow or test_routing" -v`
 Expected: PASS
 
 ---
 
-### Task 1: 补齐统一 IR 映射模型与资源预算常量
+### Task 1: 补齐统一 IR 映射模型与资源预算常量接线
 
 **Files:**
-- Modify: `tg_signer/core/flow_models.py:15-40, 245-285`
+- Modify: `tg_signer/core/flow_models.py:20-40, 245-285`
 - Create: `tests/test_flow_models_security.py`
 
 **Interfaces:**
-- Produces: `MAX_FLOW_NODES_PER_GRAPH = 50`, `MAX_SUBFLOW_DEPTH = 3`, `MAX_PARALLEL_BRANCHES = 10`
-- Consumes: `flow_models.py` 反序列化逻辑修复（禁止对未知类型静默降级为 Action）
+- Produces: `MAX_NODES_PER_GRAPH = 50`, `MAX_SUBFLOW_DEPTH = 3`, `MAX_PARALLEL_BRANCHES = 10`, `MAX_TOTAL_TASK_NODES = 150`
+- Consumes: `flow_models.py` 反序列化逻辑修复（禁止对未知类型静默降级为 Action，校验 key 与 id 一致性）
 
 - [ ] **Step 1: 编写未知节点类型拒绝与资源上限测试**
 
@@ -79,7 +82,7 @@ def test_reject_mismatched_key_and_node_id():
         "entry_node_id": "step_1",
         "nodes": {
             "step_1": {
-                "id": "step_2",  # key 与 node.id 不一致
+                "id": "step_2",
                 "node_type": "delay",
                 "next_node_id": "_TERMINAL_COMPLETE",
             }
@@ -94,28 +97,28 @@ def test_reject_mismatched_key_and_node_id():
 Run: `pytest tests/test_flow_models_security.py -v`
 Expected: FAIL
 
-- [ ] **Step 3: 修复 `ExecutionGraph.from_dict` 并增加安全常量**
+- [ ] **Step 3: 修复 `ExecutionGraph.from_dict` 并定义资源安全常量**
 
 在 `tg_signer/core/flow_models.py` 中：
-1. 定义资源限制常量：
-   ```python
-   MAX_NODES_PER_GRAPH = 50
-   MAX_SUBFLOW_DEPTH = 3
-   MAX_PARALLEL_BRANCHES = 10
-   ```
-2. 在 `from_dict` 中严格校验 `node_type`：
-   ```python
-   ntype_str = node_kwargs.get("node_type")
-   if not ntype_str:
-       ntype = NodeType.ACTION
-   else:
-       try:
-           ntype = NodeType(str(ntype_str).lower())
-       except ValueError:
-           raise ValueError(f"未知或不支持的节点类型: {ntype_str}")
-   if nid != node_kwargs.get("id"):
-       raise ValueError(f"节点 ID 不一致: key '{nid}' vs id '{node_kwargs.get('id')}'")
-   ```
+```python
+MAX_NODES_PER_GRAPH = 50
+MAX_SUBFLOW_DEPTH = 3
+MAX_PARALLEL_BRANCHES = 10
+MAX_TOTAL_TASK_NODES = 150
+```
+在 `from_dict` 中：
+```python
+ntype_str = node_kwargs.get("node_type")
+if not ntype_str:
+    ntype = NodeType.ACTION
+else:
+    try:
+        ntype = NodeType(str(ntype_str).lower())
+    except ValueError:
+        raise ValueError(f"未知或不支持的节点类型: {ntype_str}")
+if nid != node_kwargs.get("id"):
+    raise ValueError(f"节点 ID 不一致: key '{nid}' vs id '{node_kwargs.get('id')}'")
+```
 
 - [ ] **Step 4: 运行测试验证通过**
 
@@ -131,17 +134,17 @@ git commit -m "fix(flow): reject unknown node types and validate node ID consist
 
 ---
 
-### Task 2: 独立 `FlowStepConfig` 与 `SignChatV3` 三路互斥配置模型
+### Task 2: 独立 `FlowStepConfig`、Pre-Validator 逐元素分流与三路互斥模型
 
 **Files:**
 - Modify: `tg_signer/config.py:320-530`
 - Create: `tests/test_flow_step_config.py`
 
 **Interfaces:**
-- Produces: `FlowNodeType`, `FlowStepConfig`, `SignChatV3.flow_graph`
-- Consumes: `WorkflowStepConfig`（完全保持独立不变），`SignChatV3` 三选一互斥校验器
+- Produces: `FlowNodeType`, `FlowStepConfig`, `SignChatV3._parse_steps_discriminator`
+- Consumes: `WorkflowStepConfig` 保持原样独立，`SignChatV3` 三路互斥且双模式校验并存
 
-- [ ] **Step 1: 编写配置互斥与多态步骤测试**
+- [ ] **Step 1: 编写配置互斥、逐元素分流与参数保全测试**
 
 ```python
 # tests/test_flow_step_config.py
@@ -166,17 +169,22 @@ def test_legacy_workflow_step_intact():
     assert step.action_type == SupportAction.SEND_TEXT
 
 
-def test_sign_chat_v3_flow_graph_only_valid():
+def test_steps_discriminator_preserves_params_without_dropping():
+    # 验证 Action 步骤解析为 FlowStepConfig 时，params 字段不被吞掉
     chat = SignChatV3(
         chat_id=123,
-        flow_graph={
-            "entry_node_id": "s1",
-            "nodes": {
-                "s1": {"node_type": "delay", "seconds": 2.0, "next_node_id": "_TERMINAL_COMPLETE"}
-            },
-        },
+        steps=[
+            {
+                "step_id": "act_1",
+                "node_type": "action",
+                "action_type": "SEND_TEXT",
+                "params": {"text": "hello params"},
+                "next_step_id": "COMPLETE",
+            }
+        ],
     )
-    assert chat.flow_graph is not None
+    assert isinstance(chat.steps[0], FlowStepConfig)
+    assert chat.steps[0].params["text"] == "hello params"
 
 
 def test_sign_chat_v3_rejects_conflicting_sources():
@@ -186,17 +194,6 @@ def test_sign_chat_v3_rejects_conflicting_sources():
             actions=[SendTextAction(text="hi")],
             flow_graph={"entry_node_id": "s1", "nodes": {}},
         )
-
-
-def test_flow_step_config_cases_and_params():
-    step = FlowStepConfig(
-        step_id="cond_1",
-        node_type=FlowNodeType.CONDITION,
-        cases=[{"condition": "'OK' in prev.output", "target_id": "step_2"}],
-        default_target_id="COMPLETE",
-    )
-    assert step.node_type == FlowNodeType.CONDITION
-    assert len(step.cases) == 1
 ```
 
 - [ ] **Step 2: 运行测试验证失败**
@@ -204,25 +201,30 @@ def test_flow_step_config_cases_and_params():
 Run: `pytest tests/test_flow_step_config.py -v`
 Expected: FAIL
 
-- [ ] **Step 3: 实现 `FlowStepConfig` 与 `SignChatV3` 互斥校验**
+- [ ] **Step 3: 实现 `FlowStepConfig` 与 `SignChatV3` 逐元素分流解析器**
 
 在 `tg_signer/config.py` 中：
-1. 保持现有 `WorkflowStepConfig` 原封不动。
-2. 定义 `FlowNodeType` 与独立 `FlowStepConfig`（包含 7 类节点字段、`retry_policy`、`loop_policy`、`terminal_policy`、`terminal_branch_target`）。
-3. 扩展 `SignChatV3`：
+1. 保持现有的 `WorkflowStepConfig` 完全不变。
+2. 定义 `FlowNodeType` 与 `FlowStepConfig`（涵盖 7 类节点字段、`retry_policy`、`loop_policy`、`terminal_policy`、`terminal_branch_target`）。
+3. 在 `SignChatV3` 中加入 `flow_graph` 字段，并在 `steps` 上挂载前置分流器：
    ```python
-   flow_graph: Optional[Dict[str, Any]] = None
-   steps: Optional[Union[List[WorkflowStepConfig], List[FlowStepConfig], List[Dict[str, Any]]]] = None
+   @validator("steps", pre=True)
+   def _parse_steps_discriminator(cls, v):
+       if not v:
+           return v
+       parsed = []
+       for item in v:
+           if isinstance(item, (FlowStepConfig, WorkflowStepConfig)):
+               parsed.append(item)
+               continue
+           if isinstance(item, dict):
+               if "node_type" in item or any(k in item for k in ("cases", "filter_patterns", "delay_seconds", "regex", "subflow_graph", "branches")):
+                   parsed.append(FlowStepConfig(**item))
+               else:
+                   parsed.append(WorkflowStepConfig(**item))
+       return parsed
    ```
-4. 升级 `_validate_actions_or_steps` 为 `_validate_flow_sources`：
-   ```python
-   has_actions = bool(values.get("actions"))
-   has_steps = bool(values.get("steps"))
-   has_graph = bool(values.get("flow_graph"))
-   sources = sum([1 if has_actions else 0, 1 if has_steps else 0, 1 if has_graph else 0])
-   if sources != 1:
-       raise ValueError("actions、steps、flow_graph 只能配置且必须配置其中一个非空来源")
-   ```
+4. 校验三路互斥（`actions` / `steps` / `flow_graph` 必须有且仅有一个非空）；若为旧 steps 跑原有拓扑校验，若含新节点跑 `GraphNormalizer.validate_graph`。
 
 - [ ] **Step 4: 运行测试验证通过**
 
@@ -233,12 +235,12 @@ Expected: PASS
 
 ```bash
 git add tg_signer/config.py tests/test_flow_step_config.py
-git commit -m "feat(config): add FlowStepConfig and three-way mutual exclusivity to SignChatV3"
+git commit -m "feat(config): implement FlowStepConfig, element-wise discriminator and 3-way mutual exclusivity"
 ```
 
 ---
 
-### Task 3: Normalizer 双轨转换与 WaitEvent 运行时上下文注入
+### Task 3: Normalizer 双轨转换、WaitEvent `chat_id` 注入与 Action 动作还原
 
 **Files:**
 - Modify: `tg_signer/core/flow_normalizer.py:35-210`
@@ -246,15 +248,15 @@ git commit -m "feat(config): add FlowStepConfig and three-way mutual exclusivity
 
 **Interfaces:**
 - Consumes: `SignChatV3`
-- Produces: `GraphNormalizer.from_chat` 转换全类型节点，并自动向 `WaitEventNode` 注入 `metadata={"chat_id": chat.chat_id}`
+- Produces: `GraphNormalizer.from_chat` 转换全类型节点，自动注入 WaitEvent `metadata.chat_id`，且 Action 节点生成合法的 `metadata["raw_action"]`
 
-- [ ] **Step 1: 编写 Normalizer 转换与上下文注入测试**
+- [ ] **Step 1: 编写 Normalizer 转换、WaitEvent 注入与 Action 动作还原测试**
 
 ```python
 # tests/test_flow_normalizer_polymorphic.py
 import pytest
 from tg_signer.config import FlowNodeType, FlowStepConfig, SignChatV3
-from tg_signer.core.flow_models import ConditionNode, DelayNode, WaitEventNode
+from tg_signer.core.flow_models import ActionNode, ConditionNode, DelayNode, WaitEventNode
 from tg_signer.core.flow_normalizer import GraphNormalizer
 
 
@@ -277,19 +279,23 @@ def test_normalizer_injects_chat_id_to_wait_event():
     assert node.metadata.get("chat_id") == 999888
 
 
-def test_normalizer_from_flow_graph_direct():
+def test_action_node_reconstructs_raw_action_for_executor():
     chat = SignChatV3(
-        chat_id=111,
-        flow_graph={
-            "entry_node_id": "d1",
-            "nodes": {
-                "d1": {"id": "d1", "node_type": "delay", "seconds": 3.0, "next_node_id": "_TERMINAL_COMPLETE"}
-            },
-        },
+        chat_id=123,
+        steps=[
+            FlowStepConfig(
+                step_id="act_1",
+                node_type=FlowNodeType.ACTION,
+                action_type="SEND_TEXT",
+                params={"text": "/checkin"},
+                next_step_id="COMPLETE",
+            )
+        ],
     )
     graph = GraphNormalizer.from_chat(chat)
-    assert "d1" in graph.nodes
-    assert isinstance(graph.nodes["d1"], DelayNode)
+    node = graph.nodes["act_1"]
+    assert isinstance(node, ActionNode)
+    assert node.metadata.get("raw_action") is not None
 ```
 
 - [ ] **Step 2: 运行测试验证失败**
@@ -297,26 +303,13 @@ def test_normalizer_from_flow_graph_direct():
 Run: `pytest tests/test_flow_normalizer_polymorphic.py -v`
 Expected: FAIL
 
-- [ ] **Step 3: 实现 `_from_flow_graph` 与各节点类型映射分发**
+- [ ] **Step 3: 实现 `_from_flow_graph`、`_from_workflow_steps` 多态分发与动作还原**
 
 在 `flow_normalizer.py` 中：
-1. 在 `from_chat` 中按 `flow_graph` > `steps` > `actions` 分发；
-2. 在处理 `WaitEventNode` 时：
-   ```python
-   metadata = dict(getattr(step, "metadata", {}) or {})
-   metadata.setdefault("chat_id", chat.chat_id)
-   metadata.setdefault("chat_name", getattr(chat, "name", None))
-   node = WaitEventNode(
-       id=step.step_id,
-       event_type=step.event_type,
-       filter_patterns=step.filter_patterns,
-       next_node_id=next_id,
-       on_failure_node_id=fail_id,
-       metadata=metadata,
-       ...
-   )
-   ```
-3. 实现对 `ConditionNode`, `DelayNode`, `ExtractorNode`, `SubflowNode`, `ParallelNode` 的规范化字段装配。
+1. `from_chat` 按优先级支持 `flow_graph` > `steps` > `actions`；
+2. 对于 `WaitEventNode`：自动注入 `metadata={"chat_id": chat.chat_id, "chat_name": chat.name}`；
+3. 对于 `ActionNode`：根据 `action_type` 和 `params`（或 `config`）还原标准 `SignAction` 实例挂入 `metadata["raw_action"]`，使 `TelegramNodeExecutor` 能正确调度执行；
+4. 动态对齐图步数：`graph.max_total_steps = max(60, len(graph.nodes) * 2)`。
 
 - [ ] **Step 4: 运行测试验证通过**
 
@@ -327,22 +320,22 @@ Expected: PASS
 
 ```bash
 git add tg_signer/core/flow_normalizer.py tests/test_flow_normalizer_polymorphic.py
-git commit -m "feat(flow): implement polymorphic steps normalization and wait_event context injection"
+git commit -m "feat(flow): implement polymorphic normalization, wait_event context injection, and raw_action reconstruction"
 ```
 
 ---
 
-### Task 4: 完整全图静态拓扑校验体系（全连通分量死循环检测）
+### Task 4: 完整全图拓扑静态校验、资源预算上限与 Mermaid 安全转义
 
 **Files:**
-- Modify: `tg_signer/core/flow_normalizer.py:215-330`
+- Modify: `tg_signer/core/flow_normalizer.py:215-370`
 - Create: `tests/test_flow_validation_full_graph.py`
 
 **Interfaces:**
-- Produces: `GraphNormalizer.validate_graph` 具备不可达死循环拦截能力
+- Produces: `GraphNormalizer.validate_graph` 具备全连通分量死循环检测、资源上限校验；`to_mermaid` 具备 XSS 安全转义
 - Consumes: `ExecutionGraph`
 
-- [ ] **Step 1: 编写不可达孤立死循环拦截测试**
+- [ ] **Step 1: 编写孤立死循环拦截与 Mermaid 转义测试**
 
 ```python
 # tests/test_flow_validation_full_graph.py
@@ -352,7 +345,6 @@ from tg_signer.core.flow_normalizer import GraphNormalizer, GraphValidationError
 
 
 def test_reject_unreachable_dead_cycle():
-    # entry 正常指向完成，但存在孤立的死循环 dead_1 <-> dead_2
     nodes = {
         "entry": ActionNode(id="entry", next_node_id="_TERMINAL_COMPLETE"),
         "dead_1": ActionNode(id="dead_1", next_node_id="dead_2"),
@@ -361,28 +353,29 @@ def test_reject_unreachable_dead_cycle():
     graph = ExecutionGraph(entry_node_id="entry", nodes=nodes)
     with pytest.raises(GraphValidationError, match="检测到未允许的环路"):
         GraphNormalizer.validate_graph(graph)
+
+
+def test_to_mermaid_escapes_special_characters():
+    nodes = {
+        "s1": ActionNode(id="s1", name='User "Inject" <script>', next_node_id="_TERMINAL_COMPLETE")
+    }
+    graph = ExecutionGraph(entry_node_id="s1", nodes=nodes)
+    mermaid = GraphNormalizer.to_mermaid(graph)
+    assert "<script>" not in mermaid
+    assert '&quot;' in mermaid or '#quot;' in mermaid
 ```
 
 - [ ] **Step 2: 运行测试验证失败**
 
 Run: `pytest tests/test_flow_validation_full_graph.py -v`
-Expected: FAIL (现有逻辑只从 entry_node_id DFS，漏检该死循环)
+Expected: FAIL
 
-- [ ] **Step 3: 升级 `validate_graph` 支持全连通分量遍历**
+- [ ] **Step 3: 升级 `validate_graph` 连通分量检测与资源上限，增强 `to_mermaid` 转义**
 
-在 `flow_normalizer.py` 的 `validate_graph` 中：
-```python
-visited = set()
-rec_stack = []
-
-# 1. 首先从 entry_node_id 出发做 DFS 校验可达拓扑与循环
-_dfs(graph.entry_node_id)
-
-# 2. 对全图中尚未访问到的所有连通分量继续检测潜在非法环路
-for nid in list(graph.nodes.keys()):
-    if nid not in visited:
-        _dfs(nid)
-```
+在 `flow_normalizer.py` 中：
+1. 校验节点总数不超过 `MAX_NODES_PER_GRAPH` (50)；
+2. 环路 DFS 遍历所有未访问的连通分量，拦截任何不可达死循环；
+3. `to_mermaid` 中使用 `html.escape` 并替换 `"` 为 `&quot;`、去除方括号/换行破坏符。
 
 - [ ] **Step 4: 运行测试验证通过**
 
@@ -393,163 +386,177 @@ Expected: PASS
 
 ```bash
 git add tg_signer/core/flow_normalizer.py tests/test_flow_validation_full_graph.py
-git commit -m "fix(flow): enable full connected components cycle detection in validate_graph"
+git commit -m "fix(flow): add full-graph cycle detection, resource budget checks, and mermaid sanitization"
 ```
 
 ---
 
-### Task 5: 后端服务层持久化打通与安全 Preview API
+### Task 5: 引擎自适应路由 (`flow_routing.py`) 与写路径前置建图校验
 
 **Files:**
-- Modify: `backend/api/routes/sign_tasks_v2.py:50-80`
-- Modify: `backend/services/sign_task_config_build.py:100-145`
-- Modify: `backend/services/sign_task_crud.py:50-80`
-- Create: `tests/test_sign_task_api_flow.py`
+- Modify: `tg_signer/core/flow_routing.py:40-80`
+- Modify: `backend/services/sign_task_crud.py:45-80`
+- Create: `tests/test_flow_routing_adaptive.py`
 
 **Interfaces:**
-- Produces: `ChatConfig` 显式支持 `flow_graph` 与 `steps`，`POST /api/v2/sign-tasks/preview-flow` 返回 `PreviewFlowResponse`
-- Consumes: FastAPI 依赖与校验管道
+- Produces: `resolve_execution_engine` 遇到新控制节点自动分流至 `"v4"`；`_validate_chats_workflow` 写路径前置跑图校验
+- Consumes: `SignChatV3`, 任务配置字典
 
-- [ ] **Step 1: 编写 API 保存与安全流程图预览测试**
+- [ ] **Step 1: 编写自适应路由与写路径图校验测试**
 
 ```python
-# tests/test_sign_task_api_flow.py
+# tests/test_flow_routing_adaptive.py
 import pytest
-from backend.api.routes.sign_tasks_v2 import ChatConfig, preview_flow_graph
+from tg_signer.core.flow_routing import resolve_execution_engine
+from backend.services.sign_task_crud import _validate_chats_workflow
+from tg_signer.config import WorkflowConfigError
 
 
-def test_chat_config_accepts_flow_graph_explicitly():
-    cfg = ChatConfig(
-        chat_id=123,
-        flow_graph={"entry_node_id": "s1", "nodes": {"s1": {"node_type": "delay", "seconds": 1.0}}},
-    )
-    assert cfg.flow_graph is not None
-
-
-@pytest.mark.asyncio
-async def test_preview_flow_returns_structured_response():
-    payload = {
-        "chat_id": 123,
-        "steps": [
-            {"step_id": "s1", "node_type": "delay", "delay_seconds": 1.0, "next_step_id": "COMPLETE"}
-        ],
+def test_adaptive_routing_promotes_flow_graph_to_v4():
+    task_cfg = {
+        "execution_engine": None,
+        "chats": [{"chat_id": 123, "flow_graph": {"entry_node_id": "s1", "nodes": {}}}],
     }
-    resp = await preview_flow_graph(payload)
-    assert resp.valid is True
-    assert resp.node_count == 1
-    assert "graph TD" in resp.mermaid
+    engine = resolve_execution_engine(task_cfg)
+    assert engine == "v4"
+
+
+def test_adaptive_routing_rejects_v3_on_flow_graph():
+    task_cfg = {
+        "execution_engine": "v3",
+        "chats": [{"chat_id": 123, "flow_graph": {"entry_node_id": "s1", "nodes": {}}}],
+    }
+    with pytest.raises(ValueError, match="无法在经典执行引擎上运行"):
+        resolve_execution_engine(task_cfg)
+
+
+def test_validate_chats_workflow_rejects_dangling_edge_on_save():
+    # 验证在写入持久化前就会拦截非法悬空边
+    chats = [
+        {
+            "chat_id": 123,
+            "steps": [
+                {"step_id": "s1", "node_type": "delay", "delay_seconds": 1, "next_step_id": "non_exist"}
+            ],
+        }
+    ]
+    with pytest.raises(WorkflowConfigError):
+        _validate_chats_workflow(chats)
 ```
 
 - [ ] **Step 2: 运行测试验证失败**
 
-Run: `pytest tests/test_sign_task_api_flow.py -v`
+Run: `pytest tests/test_flow_routing_adaptive.py -v`
 Expected: FAIL
 
-- [ ] **Step 3: 更新 `ChatConfig` 模型并实现 `preview-flow` 结构化响应**
+- [ ] **Step 3: 更新 `flow_routing.py` 与 `sign_task_crud.py`**
 
-1. 在 `sign_tasks_v2.py` 的 `ChatConfig` 中增加：
-   ```python
-   flow_graph: Optional[Dict[str, Any]] = None
-   steps: Optional[List[Dict[str, Any]]] = None
-   ```
-2. 定义 `FlowValidationIssue` 与 `PreviewFlowResponse`。
-3. 实现 `preview_flow_graph` 路由，捕获 `GraphValidationError` 返回包含精确 `errors` 的 422 响应，成功返回 200 + 安全转义的 Mermaid 代码。
+1. 在 `tg_signer/core/flow_routing.py` 中：
+   检测 chats 中是否包含 `flow_graph` 或具有 `node_type` 的 steps：若用户显式指定 `"v3"` 则报错；否则强制返回 `"v4"`。
+2. 在 `backend/services/sign_task_crud.py` 的 `_validate_chats_workflow` 中：
+   对含有 `flow_graph` 或 `FlowStepConfig` 的 chat，统一构造 `SignChatV3`，执行 `GraphNormalizer.from_chat` 并 `validate_graph`，捕获异常转为 `WorkflowConfigError`。
 
 - [ ] **Step 4: 运行测试验证通过**
 
-Run: `pytest tests/test_sign_task_api_flow.py -v`
+Run: `pytest tests/test_flow_routing_adaptive.py -v`
 Expected: PASS
 
 - [ ] **Step 5: 提交更改**
 
 ```bash
-git add backend/api/routes/sign_tasks_v2.py backend/services/sign_task_config_build.py backend/services/sign_task_crud.py tests/test_sign_task_api_flow.py
-git commit -m "feat(api): explicitly support flow_graph in ChatConfig and implement structured preview-flow API"
+git add tg_signer/core/flow_routing.py backend/services/sign_task_crud.py tests/test_flow_routing_adaptive.py
+git commit -m "feat(routing): add adaptive v4 engine routing and pre-persistence graph validation"
 ```
 
 ---
 
-### Task 6: 递归监听器依赖检查器与全局同步
+### Task 6: 递归防环监听器 (`task_requires_updates`)、`requires_ai` 同步与 ReDoS 防护
 
 **Files:**
 - Modify: `backend/services/sign_task_config_inspect.py:15-75`
-- Modify: `tg_signer/config.py:555-585`
-- Create: `tests/test_flow_requires_updates_recursive.py`
+- Modify: `tg_signer/config.py:555-600`
+- Create: `tests/test_flow_inspectors_comprehensive.py`
 
 **Interfaces:**
-- Produces: `task_requires_updates` 能够递归扫描 `flow_graph`、Subflow 子图和 Parallel 分支中的 `wait_event` 节点
-- Consumes: 任务配置字典
+- Produces: `task_requires_updates` 递归防环，`SignChatV3.requires_ai` 覆盖 `flow_graph`
+- Consumes: 流程图节点字典
 
-- [ ] **Step 1: 编写递归扫描 WaitEvent 测试**
+- [ ] **Step 1: 编写监听器防环、AI 动作识别与 ReDoS 检查测试**
 
 ```python
-# tests/test_flow_requires_updates_recursive.py
+# tests/test_flow_inspectors_comprehensive.py
 from backend.services.sign_task_config_inspect import task_requires_updates
+from tg_signer.config import SignChatV3
 
 
-def test_recursive_inspect_detects_nested_wait_event():
-    # 在 flow_graph 嵌套的 subflow 中存在 wait_event
-    cfg = {
-        "chats": [
-            {
-                "chat_id": 123,
-                "flow_graph": {
-                    "nodes": {
-                        "sub1": {
-                            "node_type": "subflow",
-                            "subflow_graph": {
-                                "nodes": {
-                                    "w_nested": {"node_type": "wait_event", "event_type": "NEW_MESSAGE"}
-                                }
-                            },
-                        }
-                    }
-                },
-            }
-        ]
-    }
-    assert task_requires_updates(cfg) is True
+def test_inspect_detects_wait_event_with_visited_anti_loop():
+    subflow_data = {"nodes": {}}
+    # 制造逻辑自引用结构测试防环
+    subflow_data["nodes"]["sub"] = {"node_type": "subflow", "subflow_graph": subflow_data}
+    cfg = {"chats": [{"chat_id": 123, "flow_graph": subflow_data}]}
+    # 不应发生 RecursionError
+    res = task_requires_updates(cfg)
+    assert res is False
+
+
+def test_requires_ai_detects_ai_actions_in_flow_graph():
+    chat = SignChatV3(
+        chat_id=123,
+        flow_graph={
+            "entry_node_id": "ai_1",
+            "nodes": {
+                "ai_1": {
+                    "id": "ai_1",
+                    "node_type": "action",
+                    "action_type": "CHOOSE_OPTION_BY_IMAGE",
+                    "params": {"ai_prompt": "choose"},
+                    "next_node_id": "_TERMINAL_COMPLETE",
+                }
+            },
+        },
+    )
+    assert chat.requires_ai is True
 ```
 
 - [ ] **Step 2: 运行测试验证失败**
 
-Run: `pytest tests/test_flow_requires_updates_recursive.py -v`
+Run: `pytest tests/test_flow_inspectors_comprehensive.py -v`
 Expected: FAIL
 
-- [ ] **Step 3: 实现递归节点生成器与同步 `requires_updates` 属性**
+- [ ] **Step 3: 优化递归检查器、同步 `requires_ai` 并增加正则安全验证**
 
-在 `backend/services/sign_task_config_inspect.py` 中编写 `_iter_all_nodes(chat_or_graph)`：
-- 递归解析 `actions`, `steps`, `flow_graph.nodes`, `subflow_graph.nodes`, `parallel.branches`；
-- 凡包含 `node_type == "wait_event"`，立即返回 True；
-- 同步更新 `SignChatV3.requires_updates` 与 `SignConfigV3.requires_updates`。
+1. 在 `sign_task_config_inspect.py` 中增加 `visited_graphs = set()`；
+2. 在 `tg_signer/config.py` 中更新 `requires_ai` 属性以遍历 `flow_graph` 和 `steps`；
+3. 在 `_validate_chats_regex_safety` 中同步校验 `ExtractorNode.regex`。
 
 - [ ] **Step 4: 运行测试验证通过**
 
-Run: `pytest tests/test_flow_requires_updates_recursive.py -v`
+Run: `pytest tests/test_flow_inspectors_comprehensive.py -v`
 Expected: PASS
 
 - [ ] **Step 5: 提交更改**
 
 ```bash
-git add backend/services/sign_task_config_inspect.py tg_signer/config.py tests/test_flow_requires_updates_recursive.py
-git commit -m "feat(flow): implement recursive task_requires_updates inspection for nested wait_event"
+git add backend/services/sign_task_config_inspect.py tg_signer/config.py tests/test_flow_inspectors_comprehensive.py
+git commit -m "feat(inspect): add loop-protected task inspection and comprehensive requires_ai support"
 ```
 
 ---
 
-### Task 7: 前端契约对齐与 Mermaid 流程图安全预览
+### Task 7: 结构化 `PreviewFlowResponse` API、前端类型扩展与 Mermaid 预览组件
 
 **Files:**
+- Modify: `backend/api/routes/sign_tasks_v2.py:50-95`
 - Modify: `frontend/src/lib/types.ts`
 - Modify: `frontend/src/lib/task-form-payload.ts:120-175`
 - Create: `frontend/src/components/tasks/FlowMermaidPreviewModal.vue`
 - Create: `frontend/src/test/flow-payload.spec.ts`
 
 **Interfaces:**
-- Produces: `buildTaskFormPayload` 正确输出高级流程 Payload；`FlowMermaidPreviewModal.vue` 渲染预览
-- Consumes: `/api/v2/sign-tasks/preview-flow`
+- Produces: `POST /api/v2/sign-tasks/preview-flow` 返回 `PreviewFlowResponse`；前端 `FlowMermaidPreviewModal.vue`
+- Consumes: Mermaid.js, 前端 Payload 管道
 
-- [ ] **Step 1: 编写前端 payload 序列化测试**
+- [ ] **Step 1: 编写前端 payload 序列化测试与 API 结构化响应测试**
 
 ```typescript
 // frontend/src/test/flow-payload.spec.ts
@@ -557,7 +564,7 @@ import { describe, it, expect } from 'vitest'
 import { buildTaskFormPayload } from '@/lib/task-form-payload'
 
 describe('flow payload serializer', () => {
-  it('correctly handles flowMode and preserves steps without dummy actions', () => {
+  it('handles advanced flowMode and links execution_engine to v4', () => {
     const input: any = {
       accountName: 'acc_1',
       flowMode: 'advanced',
@@ -574,9 +581,8 @@ describe('flow payload serializer', () => {
     }
     const payload = buildTaskFormPayload(input)
     expect(payload.chats[0].steps).toBeDefined()
-    expect(payload.chats[0].steps[0].node_type).toBe('delay')
-    // 高级模式下不应生成污染的 actions
     expect(payload.chats[0].actions).toBeUndefined()
+    expect(payload.execution_engine).toBe('v4')
   })
 })
 ```
@@ -586,11 +592,11 @@ describe('flow payload serializer', () => {
 Run: `pnpm test frontend/src/test/flow-payload.spec.ts`
 Expected: FAIL
 
-- [ ] **Step 3: 更新前端模型与实现预览组件**
+- [ ] **Step 3: 完善 API 结构化响应与前端表单组件**
 
-1. 更新 `frontend/src/lib/types.ts`，加入 `FlowStepConfig` 与 `SignTaskChat.flow_graph`。
-2. 更新 `frontend/src/lib/task-form-payload.ts` 中的 `buildTaskFormPayload`，支持 `flowMode`。
-3. 创建 `frontend/src/components/tasks/FlowMermaidPreviewModal.vue`，向 `preview-flow` 请求数据并调用 `mermaid.render`，对错误信息做友好 Alert 展示。
+1. 在 `sign_tasks_v2.py` 中定义 `FlowValidationIssue` 与 `PreviewFlowResponse`，合法时返回 200，图校验失败时返回 422 伴随结构化 issue 列表；
+2. 更新 `frontend/src/lib/types.ts` 与 `task-form-payload.ts`；
+3. 创建 `frontend/src/components/tasks/FlowMermaidPreviewModal.vue`，展示节点数、警告信息并渲染 Mermaid 图形。
 
 - [ ] **Step 4: 运行前端测试验证通过**
 
@@ -600,60 +606,49 @@ Expected: PASS
 - [ ] **Step 5: 提交更改**
 
 ```bash
-git add frontend/src/lib/types.ts frontend/src/lib/task-form-payload.ts frontend/src/components/tasks/FlowMermaidPreviewModal.vue frontend/src/test/flow-payload.spec.ts
-git commit -m "feat(frontend): align buildTaskFormPayload with flowMode and add FlowMermaidPreviewModal"
+git add backend/api/routes/sign_tasks_v2.py frontend/src/lib/types.ts frontend/src/lib/task-form-payload.ts frontend/src/components/tasks/FlowMermaidPreviewModal.vue frontend/src/test/flow-payload.spec.ts
+git commit -m "feat(ui): add structured preview-flow API response and flow modal preview component"
 ```
 
 ---
 
-### Task 8: 全链路端到端集成测试与回滚演练
+### Task 8: 全链路端到端集成测试、真实执行器接线与回归演练
 
 **Files:**
 - Create: `tests/test_flow_full_lifecycle.py`
 
 **Interfaces:**
 - Consumes: 全流程链路 (`SignChatV3` -> `GraphNormalizer` -> `PulseFlowEngine` -> `TelegramNodeExecutor`)
-- Produces: 验证真实任务配置下 7 种节点的端到端执行一致性，以及旧任务回滚演练
+- Produces: 验证真实任务配置下 7 种节点通过真实 NodeExecutor 调度的端到端一致性，以及旧任务零回归验证
 
-- [ ] **Step 1: 编写全链路端到端集成与安全降级测试**
+- [ ] **Step 1: 编写真实 Executor 调度与全节点端到端测试**
 
 ```python
 # tests/test_flow_full_lifecycle.py
 import pytest
 from tg_signer.config import FlowNodeType, FlowStepConfig, SignChatV3
+from tg_signer.core.flow_adapter import TelegramNodeExecutor
 from tg_signer.core.flow_engine import PulseFlowEngine
 from tg_signer.core.flow_normalizer import GraphNormalizer
 from tg_signer.core.flow_context import ScopedFlowContext
-from tg_signer.core.flow_models import NodeStatus, StepOutcome
 
 
 @pytest.mark.asyncio
-async def test_full_flow_condition_branching_execution():
+async def test_full_lifecycle_with_real_telegram_node_executor(monkeypatch):
     chat = SignChatV3(
         chat_id=888,
         steps=[
             FlowStepConfig(
                 step_id="step_action",
                 node_type=FlowNodeType.ACTION,
-                params={"text": "/status"},
-                next_step_id="step_check",
+                action_type="SEND_TEXT",
+                params={"text": "/checkin"},
+                next_step_id="step_delay",
             ),
             FlowStepConfig(
-                step_id="step_check",
-                node_type=FlowNodeType.CONDITION,
-                cases=[{"condition": "'VIP' in prev.output", "target_id": "step_vip"}],
-                default_target_id="step_regular",
-            ),
-            FlowStepConfig(
-                step_id="step_vip",
-                node_type=FlowNodeType.ACTION,
-                params={"text": "/vip_sign"},
-                next_step_id="COMPLETE",
-            ),
-            FlowStepConfig(
-                step_id="step_regular",
-                node_type=FlowNodeType.ACTION,
-                params={"text": "/normal_sign"},
+                step_id="step_delay",
+                node_type=FlowNodeType.DELAY,
+                delay_seconds=0.1,
                 next_step_id="COMPLETE",
             ),
         ],
@@ -663,17 +658,17 @@ async def test_full_flow_condition_branching_execution():
     engine = PulseFlowEngine()
     ctx = ScopedFlowContext()
 
-    executed_nodes = []
+    # 模拟真实 runner
+    class MockRunner:
+        def __init__(self):
+            self.context = type("Ctx", (), {"last_output": ""})()
+        async def send_text(self, *args, **kwargs):
+            return "签到成功"
 
-    async def mock_executor(node, context):
-        executed_nodes.append(node.id)
-        if node.id == "step_action":
-            return StepOutcome(node_id=node.id, status=NodeStatus.SUCCESS, output_text="User is VIP level 3")
-        return StepOutcome(node_id=node.id, status=NodeStatus.SUCCESS, output_text="OK")
-
-    res = await engine.run(graph, ctx, mock_executor)
+    executor = TelegramNodeExecutor(MockRunner(), chat, graph)
+    res = await engine.run(graph, ctx, executor)
     assert res["status"] == "success"
-    assert executed_nodes == ["step_action", "step_vip"]
+    assert res["steps"] == 2
 ```
 
 - [ ] **Step 2: 运行全量集成测试**
@@ -690,5 +685,5 @@ Expected: PASS
 
 ```bash
 git add tests/test_flow_full_lifecycle.py
-git commit -m "test(flow): add end-to-end full lifecycle integration tests and rollback verification"
+git commit -m "test(flow): verify full lifecycle execution with real TelegramNodeExecutor and zero-regression baseline"
 ```

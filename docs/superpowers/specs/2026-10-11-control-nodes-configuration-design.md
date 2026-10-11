@@ -10,7 +10,7 @@
 
 ## 2. 总体架构与数据契约
 
-### 2.1 三路输入互斥与优先级设计
+### 2.1 三路输入互斥与自适应引擎路由
 任务会话配置层（`SignChatV3`）支持三路独立的配置来源，并在模型层执行**严格的三选一互斥校验**：
 
 ```mermaid
@@ -19,22 +19,27 @@ flowchart TD
     Exclusivity -->|"来源 1: 原生图直通"| NativeIR["chat.flow_graph<br/>(ExecutionGraph IR 字典)"]
     Exclusivity -->|"来源 2: 多态步骤列表"| PolySteps["chat.steps<br/>(List[FlowStepConfig])"]
     Exclusivity -->|"来源 3: 线性动作列表"| LegacyActions["chat.actions<br/>(List[ActionT])"]
-    Exclusivity -->|"多源并存或全空"| Reject["抛出 422 校验拒绝"]
+    Exclusivity -->|"多源并存或全空"| Reject["抛出 400/422 校验拒绝"]
 
-    NativeIR --> Normalizer["GraphNormalizer.from_chat()"]
-    PolySteps --> Normalizer
-    LegacyActions --> Normalizer
+    NativeIR --> Routing{"引擎自动路由 (flow_routing.py)"}
+    PolySteps --> Routing
+    LegacyActions --> Routing
 
+    Routing -->|"含 flow_graph/FlowStepConfig"| AutoV4["自动锁定 PulseFlow (v4) 引擎<br/>(强配 v3 则报错拒绝)"]
+    Routing -->|"纯 actions/旧 steps"| LegacyEngine["按常规路由策略 (默认 v3 / 可选 v4)"]
+
+    AutoV4 --> Normalizer["GraphNormalizer.from_chat()"]
     Normalizer --> OutputGraph["统一规范化 ExecutionGraph"]
     OutputGraph --> Engine["PulseFlowEngine 调度执行"]
 ```
 
 #### 规则定义：
 1. **合法性条件**：`flow_graph`、`steps`、`actions` 必须且只能有一个非空（非 None 且长度/节点数 > 0）。
-2. **冲突拒绝**：若同时提供多个非空来源（如既传入 `actions` 又传入 `flow_graph`），直接拒绝抛出 `ValueError` / HTTP 422，杜绝静默覆盖。
-3. **旧版步骤兼容**：为避免破坏已有使用旧版工作流引擎的任务，**独立保留 `WorkflowStepConfig`**，新多态步骤采用独立的 `FlowStepConfig`。当解析 `steps` 时：
-   - 若元素具有明确的 `node_type`，或不含单一 `action_type` 约束，使用 `FlowStepConfig`；
-   - 若元素为旧版单动作步骤结构，保持原样解析，并在 Normalizer 阶段平滑映射。
+2. **冲突拒绝**：若同时提供多个非空来源，直接抛出 `WorkflowConfigError`，杜绝静默覆盖。
+3. **自适应引擎路由（解决 P0 崩溃点）**：
+   - 在 `tg_signer/core/flow_routing.py: resolve_execution_engine` 中，若检测到会话使用了 `flow_graph` 或新控制节点 `FlowStepConfig`：
+     - 若用户强制配置为经典引擎 `"v3"`：直接报错拒绝（经典引擎无法表达图结构）；
+     - 否则：**自动提升路由为 `"v4"`（PulseFlow）**，彻底避免新任务因默认路由走 v3 而在运行时崩溃。
 
 ---
 
@@ -44,12 +49,13 @@ flowchart TD
 flow_graph: Optional[Dict[str, Any]] = None
 ```
 - **契约定义**：结构严格符合 `ExecutionGraph` 模型字典（包含 `entry_node_id`, `nodes`, 可选 `max_total_steps`, `error_handler_node_id`, `resume_from_node_id`）。
-- **拒绝未知节点类型**：反序列化时严格校验 `node_type`，未知类型必须抛出异常拒绝，禁止静默降级为 `ActionNode`。
+- **拒绝未知节点类型（解决 P1 降级隐患）**：反序列化时严格校验 `node_type`，未知类型必须抛出异常拒绝，禁止静默降级为 `ActionNode`。
 
 ---
 
-### 2.3 轨道二：多态步骤模型 (`FlowStepConfig`)
-在 `tg_signer/config.py` 中新增独立的 `FlowStepConfig` 模型：
+### 2.3 轨道二：多态步骤模型 (`FlowStepConfig`) 与分流解析器
+
+为彻底解决 P0 级联合类型解析歧义（避免 Action 步骤的 `params` 被 `WorkflowStepConfig` 误判吞掉），采用**前置分流解析器（Pre-Validator）**：
 
 ```python
 class FlowNodeType(str, Enum):
@@ -79,10 +85,10 @@ class FlowStepConfig(BaseModel):
     # 1. Action 专用
     action_type: Optional[SupportAction] = None
     params: Dict[str, Any] = Field(default_factory=dict)
-    config: Optional[Dict[str, Any]] = None  # 兼容旧版 config 字段输入
+    config: Optional[Dict[str, Any]] = None
 
     # 2. Condition 专用
-    cases: List[Dict[str, str]] = Field(default_factory=list)  # [{"condition": "...", "target_id": "..."}]
+    cases: List[Dict[str, str]] = Field(default_factory=list)
     default_target_id: Optional[str] = None
 
     # 3. WaitEvent 专用
@@ -110,62 +116,91 @@ class FlowStepConfig(BaseModel):
     join_strategy: str = "merge"
 ```
 
+#### Pre-Validator 分流策略：
+在 `SignChatV3` 中针对 `steps` 字段引入逐元素检查：
+```python
+@validator("steps", pre=True)
+def _parse_steps_discriminator(cls, v):
+    if not v:
+        return v
+    parsed = []
+    for item in v:
+        if isinstance(item, (FlowStepConfig, WorkflowStepConfig)):
+            parsed.append(item)
+            continue
+        if isinstance(item, dict):
+            # 若显式指定 node_type，或包含新控制节点专有字段，则作为 FlowStepConfig 解析
+            if "node_type" in item or any(k in item for k in ("cases", "filter_patterns", "delay_seconds", "regex", "subflow_graph", "branches")):
+                parsed.append(FlowStepConfig(**item))
+            else:
+                parsed.append(WorkflowStepConfig(**item))
+    return parsed
+```
+
+#### 双轨拓扑校验共存（解决 P0 旧校验丢失）：
+- 若 `steps` 元素为旧版 `WorkflowStepConfig`：**完整保留并执行**原有 `initial_step_id` 必填检查、step_id 唯一性检查及 `WorkflowEngine.validate_topology`。
+- 若 `steps` 包含 `FlowStepConfig` 或使用了 `flow_graph`：**执行 `GraphNormalizer.validate_graph`**，默认以首个步骤为入口，无需强求旧版 `initial_step_id`。
+
 ---
 
-## 3. 7 类节点字段到 IR 的完整闭环映射
+## 3. 7 类节点字段到 IR 的完整闭环映射与执行器接线
 
 | 节点类型 | 配置字段 (`FlowStepConfig`) | 底层 IR 模型 (`flow_models.py`) | 转换与规范化规则 |
 |---|---|---|---|
-| **Action** | `action_type`, `params`, `config` | `ActionNode(action_type, params)` | 若提供 `config`，自动合并至 `params`；`action_type` 统一转为大写枚举字符串；保留原始动作对象至 metadata |
+| **Action** | `action_type`, `params`, `config` | `ActionNode(action_type, params)` | 若提供 `config`，自动合并至 `params`；`action_type` 统一转大写枚举；**关键执行器接线**：根据 action_type 和 params 重建标准 `SignAction` 实例挂入 `metadata["raw_action"]`，使 `TelegramNodeExecutor` 能够正确分发 |
 | **Condition** | `cases`, `default_target_id` | `ConditionNode(cases, default_target_id)` | target_id 自动解析哨兵（`COMPLETE` / `FAIL`）；cases 中的 target_id 必须通过拓扑存在性校验 |
-| **WaitEvent** | `event_type`, `filter_patterns`, `timeout_seconds` | `WaitEventNode(event_type, filter_patterns)` | **关键注入**：Normalizer 必须自动从会话上下文注入 `metadata={"chat_id": chat.chat_id, "account": ...}`，彻底规避运行期找不到 chat_id 的问题 |
+| **WaitEvent** | `event_type`, `filter_patterns`, `timeout_seconds` | `WaitEventNode(event_type, filter_patterns)` | **关键注入**：Normalizer 必须自动从会话上下文注入 `metadata={"chat_id": chat.chat_id, "chat_name": chat.name}`，杜绝运行期找不到 chat_id 的问题 |
 | **Delay** | `delay_seconds` | `DelayNode(seconds)` | `delay_seconds` 必须大于等于 0 且小于等于单步最大超时限制 |
-| **Extractor** | `source_field`, `regex`, `export_vars` | `ExtractorNode(source_field, regex, export_vars)` | 静态编译验证 `regex` 正则表达式有效性，杜绝运行期 ReDoS 或 SyntaxError |
+| **Extractor** | `source_field`, `regex`, `export_vars` | `ExtractorNode(source_field, regex, export_vars)` | 静态编译验证 `regex` 正则表达式有效性，结合 `is_unsafe_keyword_regex` 杜绝 ReDoS 漏洞 |
 | **Subflow** | `subflow_graph`, `input_vars`, `output_vars` | `SubflowNode(subflow_graph, ...)` | 递归反序列化并校验子图；禁止循环自引用；限制嵌套深度不超过 3 层 |
 | **Parallel** | `branches`, `parallel_mode`, `max_concurrency`, `join_strategy` | `ParallelNode(branches, mode, max_concurrency, join_strategy)` | 递归校验每个分支子图；`parallel_mode` 映射为 `ParallelMode` 枚举；`max_concurrency` 范围校验 (1~10) |
 
-### 公共控制策略映射：
-- `retry_policy`: 统一转为 `RetryPolicy(max_attempts=..., backoff_seconds=..., retry_on_exceptions=...)`。
-- `loop_policy`: 明确分离：`allow_loop` 允许节点被后续步骤回跳；`max_visits` 限制单流程内最大访问次数（防死循环）。
-- `terminal_policy`: 枚举类型 `TerminalPolicy`；当为 `branch_to` 时，强制校验 `terminal_branch_target` 非空且目标存在。
+### 执行步数预算动态对齐（解决 P1 步数超限）：
+- 引擎默认单流程步数 `max_total_steps` 与图规模动态对齐：`max_total_steps = max(60, len(graph.nodes) * 2)`，确保即使 40 节点的复杂图也能完整推进。
 
 ---
 
 ## 4. 全图静态拓扑校验增强体系 (`validate_graph`)
 
-静态拓扑校验必须覆盖全图连通性，分为 5 大步骤：
+静态拓扑校验必须覆盖全图连通性与资源安全边界：
 
 1. **基本完整性校验**：
    - 节点列表非空，`entry_node_id` 存在于 `nodes` 中；
-   - 节点 ID 必须符合命名规范（字母数字下划线短横线），禁止保留字（`COMPLETE`, `FAIL`）。
+   - 节点 ID 必须符合命名规范，禁止使用哨兵保留字（`COMPLETE`, `FAIL`）。
 2. **跳转指针（边）完整性**：
    - `next_node_id`, `on_failure_node_id`, `terminal_branch_target`, `cases[].target_id`, `default_target_id` 必须指向图中已存在的有效节点，或哨兵（`_TERMINAL_COMPLETE`, `_TERMINAL_FAIL`）。
 3. **全图死循环检测 (Full Graph DFS)**：
    - 不仅从 `entry_node_id` 进行 DFS，而且对图中的**所有未访问连通分量**继续执行环路检测；
    - 若存在不可达孤立子图中的死循环（如 `dead_a -> dead_b -> dead_a`），坚决拦截报错；
    - 任何形成的环路，其中所有节点必须显式开启 `loop_policy.allow_loop=True` 且 `max_visits > 1`。
-4. **不可达节点与挂起检查**：
-   - 从 `entry_node_id` 出发计算可达节点集合；
-   - 对未可达节点进行严格告警或拒绝配置，防止隐藏失效步骤。
-5. **递归子图与资源预算限制**：
-   - 单图最大节点数限制为 50；
-   - 子图最大嵌套深度限制为 3 层；
-   - 并行分支数限制为最多 10 个分支；
-   - 单任务累计总节点预算不超过 150。
+4. **不可达节点检查**：
+   - 计算从 entry 可达的节点集，若存在不可达节点，在图校验中输出 Warning 提示。
+5. **安全资源硬边界接线**：
+   - `MAX_NODES_PER_GRAPH = 50`（单图最多 50 节点）；
+   - `MAX_SUBFLOW_DEPTH = 3`（子流程嵌套最多 3 层）；
+   - `MAX_PARALLEL_BRANCHES = 10`（并行分支最多 10 条）；
+   - `MAX_TOTAL_TASK_NODES = 150`（全任务所有图累计最多 150 节点）；
+   - `validate_graph` 必须显式执行上述常量上限校验，超标立即抛出 `GraphValidationError`。
 
 ---
 
-## 5. 后端服务、监听器与 API 规范
+## 5. 后端持久化、监听器与 API 规范
 
-### 5.1 监听器递归依赖检查 (`task_requires_updates`)
-更新 `backend/services/sign_task_config_inspect.py` 与 `tg_signer/config.py` 中的 `requires_updates` 检查器：
-- 编写递归生成器 `iter_all_flow_nodes(chat_or_graph)`；
-- 能够遍历 `actions`、`steps`、`flow_graph` 以及递归遍历 `subflow_graph` 和 `parallel.branches`；
-- 凡检测到 `node_type == "wait_event"`，或依赖响应的动态动作，立即判定为需要挂载监听器。
+### 5.1 写入路径前置校验（保证“能写入即可加载执行”）
+在 `backend/services/sign_task_crud.py: _validate_chats_workflow` 中：
+- 对任何包含 `flow_graph` 或 `FlowStepConfig` 的任务，在写入持久化存储（落盘）前，**强制调用 `GraphNormalizer.from_chat(chat)` 并执行 `GraphNormalizer.validate_graph(graph)`**；
+- 杜绝非法图被存入数据库后在调度执行时才爆雷。
 
-### 5.2 流程拓扑分析与预览 API (`preview-flow`)
-在 `backend/api/routes/sign_tasks_v2.py` 提供强类型端点：
-- **请求格式**：`POST /api/v2/sign-tasks/preview-flow` 接收单个 `chat` 规范化字典。
+### 5.2 监听器与 AI 动作递归防环扫描
+更新 `backend/services/sign_task_config_inspect.py` 与 `tg_signer/config.py`：
+- 编写递归生成器 `iter_all_flow_nodes(chat_or_graph, visited=None)`，引入 `visited` 集合防环；
+- **WaitEvent 检测**：凡包含 `node_type == "wait_event"`，`task_requires_updates` 立即返回 True，同步更新 `SignChatV3.requires_updates`；
+- **AI 动作检测**：递归扫描包含 AI 动作（如图片选择、计算题、图像识别）的节点，同步激活 `SignChatV3.requires_ai`，确保运行时 AI 配置正确预热；
+- **ReDoS 安全校验**：`_validate_chats_regex_safety` 同步检测 `ExtractorNode.regex` 和 `WaitEventNode.filter_patterns`。
+
+### 5.3 流程拓扑分析与预览 API (`preview-flow`)
+在 `backend/api/routes/sign_tasks_v2.py` 提供端点：
+- **请求格式**：`POST /api/v2/sign-tasks/preview-flow` 接收单个 `chat` 字典。
 - **响应模型**：
 ```python
 class FlowValidationIssue(BaseModel):
@@ -181,25 +216,32 @@ class PreviewFlowResponse(BaseModel):
     errors: List[FlowValidationIssue] = []
     warnings: List[FlowValidationIssue] = []
 ```
-- **安全与防护**：
-  - 若图校验失败，返回 HTTP 422 伴随结构化错误列表（包含具体问题节点与原因），不泄露内部调用栈；
-  - 对节点名称、输出文本中的 HTML 与特殊符号进行安全转义，杜绝 Mermaid XSS 注入。
+- **Mermaid 安全转义**：
+  - `to_mermaid` 中对所有节点名称、分支标签、条件表达式中的双引号、反斜杠、方括号与 HTML 标签进行严格实体转义，杜绝 XSS 注入。
 
 ---
 
 ## 6. 前端交互与数据契约对齐
 
 1. **API 数据模型 (`frontend/src/lib/types.ts`)**：
-   - 扩展 `SignTaskChat`，显式加入 `flow_graph?: Record<string, any>` 与 `steps?: FlowStepConfig[]`。
+   - 扩展 `SignTaskChat` 与 `TargetChatDraftLike`，显式加入 `flow_graph?: Record<string, any>` 与 `steps?: FlowStepConfig[]`。
 2. **表单构建器对齐 (`frontend/src/lib/task-form-payload.ts`)**：
    - 对齐现有函数 `buildTaskFormPayload`；
-   - 支持根据当前配置模式（普通动作模式 / 高级流程模式）输出互斥的 Payload；
-   - 高级流程模式下不再生成伪造的空 `actions: []`。
+   - 当表单处于高级流程模式（`flowMode: 'advanced'`）时，直接输出 `steps` 或 `flow_graph`，不再生成污染的假 `actions: []`；
+   - 自动联动将任务的 `execution_engine` 设定为 `"v4"`。
 3. **流程预览组件 (`FlowMermaidPreviewModal.vue`)**：
-   - 接入 `preview-flow` API，支持查看结构化校验告警与渲染流程图拓扑。
+   - 接入 `preview-flow` API，支持展示结构化告警列表，并使用 `mermaid.render` 呈现安全的流程拓扑图。
 
 ---
 
-## 7. 上线与回滚安全保障
-- **老任务零迁移代价**：旧版任务文件无需任何数据迁移脚本，直接按原样读取、校验和执行。
-- **安全兜底回退**：若新流程在解析或构建期发生不可预期异常，`SignerRunner` 自动激活安全降级兜底，无缝回退至旧版执行路径，确保任务不中断。
+## 7. 生产部署与安全验收基线
+
+在代码合并与上线前，必须全部达成以下验收标准：
+- [ ] 现有测试套件（`test_flow_compat`, `test_flow_normalizer`, `test_flow_adapter` 等）零回归，全部 PASS。
+- [ ] 引擎路由（`flow_routing.py`）能正确将 `flow_graph` 与 `FlowStepConfig` 自动分流至 PulseFlow (v4)。
+- [ ] `steps` 预分流解析器能精准区分新旧步骤，Action 节点的 `params` 不发生静默丢失。
+- [ ] `WaitEventNode` 自动获得正确的 `chat_id` 与事件总线上下文。
+- [ ] 7 类控制节点完整映射且动作节点可由 `TelegramNodeExecutor` 正常执行。
+- [ ] 全连通分量 DFS 能准确拦截不可达死循环，资源预算常量（50/3/10/150）全面接线。
+- [ ] 写入路径强制执行前置建图校验，API 返回结构化 `PreviewFlowResponse` 且 Mermaid 输出已转义。
+- [ ] `task_requires_updates` 与 `requires_ai` 递归防环扫描准确无误。
