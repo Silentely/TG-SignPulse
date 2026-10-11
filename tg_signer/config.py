@@ -326,6 +326,103 @@ class WorkflowConfigError(ValueError):
     """工作流配置与拓扑结构异常基类"""
 
 
+
+class FlowNodeType(str, Enum):
+    ACTION = "action"
+    CONDITION = "condition"
+    WAIT_EVENT = "wait_event"
+    DELAY = "delay"
+    EXTRACTOR = "extractor"
+    SUBFLOW = "subflow"
+    PARALLEL = "parallel"
+
+
+class FlowStepConfig(BaseModel):
+    step_id: str
+    node_type: FlowNodeType = FlowNodeType.ACTION
+    name: Optional[str] = None
+    next_step_id: Optional[str] = None
+    on_failure_step_id: Optional[str] = None
+    terminal_policy: str = "ignore"
+    terminal_branch_target: Optional[str] = None
+    run_if: Optional[str] = None
+    skip_if: Optional[str] = None
+    timeout_seconds: float = 25.0
+    retry_policy: Dict[str, Any] = Field(default_factory=dict)
+    loop_policy: Dict[str, Any] = Field(default_factory=dict)
+
+    # 1. Action 专用
+    action_type: Optional[SupportAction] = None
+    params: Dict[str, Any] = Field(default_factory=dict)
+    config: Optional[Dict[str, Any]] = None
+
+    # 2. Condition 专用
+    cases: List[Dict[str, str]] = Field(default_factory=list)
+    default_target_id: Optional[str] = None
+
+    # 3. WaitEvent 专用
+    event_type: str = "NEW_MESSAGE"
+    filter_patterns: List[str] = Field(default_factory=list)
+
+    # 4. Delay 专用
+    delay_seconds: float = 1.0
+
+    # 5. Extractor 专用
+    source_field: str = "prev.output"
+    regex: str = ""
+    export_vars: Dict[str, str] = Field(default_factory=dict)
+
+    # 6. Subflow 专用
+    subflow_graph: Optional[Dict[str, Any]] = None
+    subflow_id: Optional[str] = None
+    input_vars: Dict[str, str] = Field(default_factory=dict)
+    output_vars: Dict[str, str] = Field(default_factory=dict)
+
+    # 7. Parallel 专用
+    branches: List[Dict[str, Any]] = Field(default_factory=list)
+    parallel_mode: str = "all"
+    max_concurrency: Optional[int] = None
+    join_strategy: str = "merge"
+
+    @validator("node_type", pre=True)
+    def _parse_node_type(cls, v):
+        if not v:
+            return FlowNodeType.ACTION
+        if isinstance(v, FlowNodeType):
+            return v
+        try:
+            return FlowNodeType(str(v).lower())
+        except ValueError:
+            raise ValueError(f"未知或不支持的节点类型: {v}")
+
+    @validator("action_type", pre=True)
+    def _parse_action_type(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, SupportAction):
+            return v
+        if isinstance(v, int):
+            try:
+                return SupportAction(v)
+            except ValueError:
+                return v
+        if isinstance(v, str):
+            v_clean = v.strip().upper()
+            if hasattr(SupportAction, v_clean):
+                return getattr(SupportAction, v_clean)
+            try:
+                return SupportAction(int(v))
+            except (ValueError, TypeError):
+                pass
+        return v
+
+    if _PYDANTIC_V2 and ConfigDict is not None:
+        model_config = ConfigDict(
+            use_enum_values=False,
+            arbitrary_types_allowed=True,
+        )
+
+
 class WorkflowStepConfig(BaseModel):
     step_id: str
     action_type: SupportAction
@@ -446,7 +543,8 @@ class SignChatV3(BaseJSONConfig):
     name: Optional[str] = None
     delete_after: Optional[int] = None
     actions: Optional[List[ActionT]] = None
-    steps: Optional[List[WorkflowStepConfig]] = None
+    steps: Optional[List[Union[WorkflowStepConfig, FlowStepConfig]]] = None
+    flow_graph: Optional[Dict[str, Any]] = None
     initial_step_id: Optional[str] = None
     action_interval: float = 1  # actions的间隔时间，单位秒
     message_thread_id: Optional[int] = None
@@ -454,72 +552,147 @@ class SignChatV3(BaseJSONConfig):
     next_task_delay_seconds: Optional[float] = None
     execution_engine: Optional[str] = None
 
+    @validator("steps", pre=True)
+    def _parse_steps_discriminator(cls, v):
+        if not v:
+            return v
+        parsed = []
+        for item in v:
+            if isinstance(item, (FlowStepConfig, WorkflowStepConfig)):
+                parsed.append(item)
+                continue
+            if isinstance(item, dict):
+                has_node_type = "node_type" in item
+                has_flow_specific_fields = any(
+                    k in item
+                    for k in (
+                        "cases",
+                        "filter_patterns",
+                        "delay_seconds",
+                        "regex",
+                        "subflow_graph",
+                        "branches",
+                        "terminal_branch_target",
+                    )
+                )
+                if has_node_type or has_flow_specific_fields:
+                    parsed.append(FlowStepConfig(**item))
+                else:
+                    parsed.append(WorkflowStepConfig(**item))
+            else:
+                parsed.append(item)
+        return parsed
+
     @root_validator
-    def _validate_actions_or_steps(cls, values):
+    def _validate_flow_sources(cls, values):
         if not isinstance(values, dict):
             return values
         actions = values.get("actions")
         steps = values.get("steps")
+        flow_graph = values.get("flow_graph")
         initial_step_id = values.get("initial_step_id")
 
-        if actions is None and steps is None:
-            raise WorkflowConfigError("actions 与 steps 互斥，必须且只能配置其中之一")
-        if actions is not None and steps is not None:
-            raise WorkflowConfigError("actions 与 steps 互斥，不能同时配置")
+        has_actions = actions is not None
+        has_steps = steps is not None
+        has_flow_graph = flow_graph is not None
+
+        sources_count = sum(1 for flag in (has_actions, has_steps, has_flow_graph) if flag)
+        if sources_count != 1:
+            raise WorkflowConfigError(
+                "actions、steps、flow_graph 只能配置且必须配置其中一个非空来源"
+            )
 
         if actions is not None:
+            return values
+
+        if flow_graph is not None:
+            if not isinstance(flow_graph, dict):
+                raise WorkflowConfigError("flow_graph 必须为字典对象")
             return values
 
         if steps is not None:
             if len(steps) == 0:
                 raise WorkflowConfigError("工作流 steps 列表不能为空")
-            if not initial_step_id or not str(initial_step_id).strip():
-                raise WorkflowConfigError("配置工作流 steps 时必须提供 initial_step_id")
-            step_ids = []
-            for s in steps:
-                s_id = getattr(s, "step_id", None) or (
-                    s.get("step_id") if isinstance(s, dict) else None
-                )
-                if not s_id:
-                    raise WorkflowConfigError("步骤必须包含非空 step_id")
-                if s_id in step_ids:
-                    raise WorkflowConfigError(f"存在重复的 step_id: {s_id}")
-                step_ids.append(s_id)
-            if initial_step_id not in step_ids:
-                raise WorkflowConfigError(
-                    f"initial_step_id '{initial_step_id}' 不在 steps 列表中"
+
+            has_flow_step = any(isinstance(s, FlowStepConfig) for s in steps)
+            if not has_flow_step:
+                # 纯旧版 WorkflowStepConfig 流程：完整保留旧校验
+                if not initial_step_id or not str(initial_step_id).strip():
+                    raise WorkflowConfigError("配置工作流 steps 时必须提供 initial_step_id")
+                step_ids = []
+                for s in steps:
+                    s_id = getattr(s, "step_id", None) or (
+                        s.get("step_id") if isinstance(s, dict) else None
+                    )
+                    if not s_id:
+                        raise WorkflowConfigError("步骤必须包含非空 step_id")
+                    if s_id in step_ids:
+                        raise WorkflowConfigError(f"存在重复的 step_id: {s_id}")
+                    step_ids.append(s_id)
+                if initial_step_id not in step_ids:
+                    raise WorkflowConfigError(
+                        f"initial_step_id '{initial_step_id}' 不在 steps 列表中"
+                    )
+
+                # 静态拓扑校验
+                from tg_signer.core.workflow_engine import (
+                    WorkflowDefinition,
+                    WorkflowEngine,
                 )
 
-            # 静态拓扑校验
-            from tg_signer.core.workflow_engine import (
-                WorkflowDefinition,
-                WorkflowEngine,
-            )
-
-            wf_steps = [
-                s.to_workflow_step()
-                if hasattr(s, "to_workflow_step")
-                else WorkflowStepConfig(**s).to_workflow_step()
-                for s in steps
-            ]
-            wf_def = WorkflowDefinition(steps=wf_steps, initial_step_id=initial_step_id)
-            try:
-                WorkflowEngine.validate_topology(wf_def)
-            except Exception as err:
-                raise WorkflowConfigError(f"工作流拓扑结构无效: {err}") from err
+                wf_steps = [
+                    s.to_workflow_step()
+                    if hasattr(s, "to_workflow_step")
+                    else WorkflowStepConfig(**s).to_workflow_step()
+                    for s in steps
+                ]
+                wf_def = WorkflowDefinition(
+                    steps=wf_steps, initial_step_id=initial_step_id
+                )
+                try:
+                    WorkflowEngine.validate_topology(wf_def)
+                except Exception as err:
+                    raise WorkflowConfigError(
+                        f"工作流拓扑结构无效: {err}"
+                    ) from err
+            else:
+                # 含有新版 FlowStepConfig 的流程：校验 step_id 唯一性
+                step_ids = []
+                for s in steps:
+                    s_id = getattr(s, "step_id", None) or (
+                        s.get("step_id") if isinstance(s, dict) else None
+                    )
+                    if not s_id:
+                        raise WorkflowConfigError("步骤必须包含非空 step_id")
+                    if s_id in step_ids:
+                        raise WorkflowConfigError(f"存在重复的 step_id: {s_id}")
+                    step_ids.append(s_id)
 
         return values
 
     def to_jsonable(self):
         data = super().to_jsonable()
-        if self.steps is None:
+        if self.flow_graph is not None:
+            data.pop("actions", None)
             data.pop("steps", None)
             data.pop("initial_step_id", None)
-        elif self.actions is None:
+        elif self.steps is not None:
             data.pop("actions", None)
+            data.pop("flow_graph", None)
+        elif self.actions is not None:
+            data.pop("steps", None)
+            data.pop("flow_graph", None)
+            data.pop("initial_step_id", None)
         return data
 
     def __repr__(self) -> str:
+        if self.flow_graph is not None:
+            return (
+                f"SignChatV3(chat_id={self.chat_id}, "
+                f"delete_after={self.delete_after}, "
+                f"flow_graph=[graph IR]), "
+                f"action_interval={self.action_interval}"
+            )
         if self.steps is not None:
             return (
                 f"SignChatV3(chat_id={self.chat_id}, "
