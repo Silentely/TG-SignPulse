@@ -27,6 +27,8 @@ def test_bridge_builds_legacy_template_aliases_from_scoped_context():
 
     assert scope["steps"]["step_0"]["token"] == "ABC"
     assert scope["step"]["step_0"]["output"] == "Token: ABC"
+    assert scope["step"][1]["output"] == "Token: ABC"
+    assert scope["step"]["1"]["output"] == "Token: ABC"
     assert scope["prev_output"] == "Token: ABC"
     assert scope["last_message"] == "收到验证码"
 

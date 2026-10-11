@@ -161,6 +161,35 @@ async def test_extractor_with_custom_source_field():
 
 
 @pytest.mark.asyncio
+async def test_extractor_diagnostic_does_not_replace_user_visible_previous_output():
+    graph = ExecutionGraph(
+        entry_node_id="extract",
+        nodes={
+            "extract": ExtractorNode(
+                id="extract",
+                regex=r"Token=(?P<token>[A-Z0-9]+)",
+                export_vars={"token": "auth_token"},
+                next_node_id="action",
+            ),
+            "action": ActionNode(id="action", next_node_id=TERMINAL_COMPLETE_ID),
+        },
+    )
+    ctx = ScopedFlowContext()
+    ctx.last_output = "Telegram response: Token=ABC889"
+    observed_outputs = []
+
+    async def mock_executor(node, context):
+        observed_outputs.append(context.last_output)
+        return StepOutcome(node_id=node.id, status=NodeStatus.SUCCESS)
+
+    result = await PulseFlowEngine().run(graph, ctx, mock_executor)
+
+    assert result["status"] == "success"
+    assert observed_outputs == ["Telegram response: Token=ABC889"]
+    assert ctx.get_var("auth_token") == "ABC889"
+
+
+@pytest.mark.asyncio
 async def test_retry_signal_uses_exponential_backoff_before_next_attempt():
     graph = ExecutionGraph(
         entry_node_id="retry_step",

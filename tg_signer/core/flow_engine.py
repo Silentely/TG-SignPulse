@@ -199,6 +199,7 @@ class PulseFlowEngine:
             status=NodeStatus.SUCCESS,
             extracted_vars=extracted,
             output_text=f"Extracted {len(extracted)} vars",
+            updates_last_output=False,
         )
 
     def _run_condition_node(
@@ -213,12 +214,14 @@ class PulseFlowEngine:
                     status=NodeStatus.SUCCESS,
                     signal=FlowSignal.BRANCH,
                     target_node_id=target_id,
+                    updates_last_output=False,
                 )
         return StepOutcome(
             node_id=node.id,
             status=NodeStatus.SUCCESS,
             signal=FlowSignal.BRANCH if node.default_target_id else FlowSignal.PROCEED,
             target_node_id=node.default_target_id,
+            updates_last_output=False,
         )
 
     @staticmethod

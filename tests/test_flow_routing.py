@@ -124,6 +124,20 @@ def test_global_engine_setting_syncs_through_explicit_environment_boundary():
         assert source == "settings"
 
 
+def test_missing_global_engine_setting_preserves_cli_environment_override():
+    with patch.dict(
+        os.environ,
+        {"USE_PULSEFLOW_ENGINE": "v4", "PULSEFLOW_ENGINE_SOURCE": "env"},
+        clear=True,
+    ):
+        apply_global_settings_to_env({"sign_interval": 30})
+
+        code, _, source = resolve_execution_engine(None)
+
+    assert code == ENGINE_V4
+    assert source == "env"
+
+
 def test_sign_config_v3_parses_execution_engine():
     from tg_signer.config import SignConfigV3
 

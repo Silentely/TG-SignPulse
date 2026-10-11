@@ -54,7 +54,14 @@ class FlowCompatibilityBridge:
         last_received = getattr(self.runner_context, "last_received_text", "")
         if not isinstance(last_received, str):
             last_received = ""
-        steps = scope_dict.get("steps", {})
+        scoped_steps = scope_dict.get("steps", {})
+        steps = dict(scoped_steps) if isinstance(scoped_steps, dict) else {}
+        # 旧版 actions/workflow 模板同时支持 step_id 与 1-based 数字键。
+        for index, step_id in enumerate(context.step_outcomes, start=1):
+            step_data = steps.get(step_id)
+            if step_data is not None:
+                steps.setdefault(index, step_data)
+                steps.setdefault(str(index), step_data)
         return {
             **scope_dict,
             "account": account_dict,

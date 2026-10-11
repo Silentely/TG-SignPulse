@@ -55,6 +55,8 @@ class StepOutcome:
     target_node_id: Optional[str] = None
     error: Optional[Exception] = None
     duration_ms: float = 0.0
+    # 内部控制节点的诊断文本不应覆盖后续动作可见的 Telegram 输出。
+    updates_last_output: bool = True
 
 
 class RetryPolicy(BaseModel):

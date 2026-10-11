@@ -29,7 +29,7 @@ class ScopedFlowContext:
 
     def record_step_outcome(self, outcome: StepOutcome) -> None:
         self.step_outcomes[outcome.node_id] = outcome
-        if outcome.output_text:
+        if outcome.output_text and outcome.updates_last_output:
             self.last_output = outcome.output_text
         if outcome.extracted_vars:
             self.vars.update(outcome.extracted_vars)
