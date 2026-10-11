@@ -183,3 +183,21 @@ def test_graph_validator_accepts_allowed_cycle():
     )
     # 不应抛出异常
     GraphNormalizer.validate_graph(allowed_cycle_graph)
+
+
+def test_graph_validator_detects_dangling_error_handler():
+    bad_err_graph = ExecutionGraph(
+        entry_node_id="s1",
+        error_handler_node_id="missing_err_handler",
+        nodes={
+            "s1": ActionNode(
+                id="s1",
+                next_node_id=TERMINAL_COMPLETE_ID,
+            )
+        },
+    )
+    with pytest.raises(
+        GraphValidationError,
+        match="全局错误处理节点 error_handler_node_id 'missing_err_handler' 指向不存在的节点",
+    ):
+        GraphNormalizer.validate_graph(bad_err_graph)

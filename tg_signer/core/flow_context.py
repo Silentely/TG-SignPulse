@@ -74,6 +74,40 @@ class ScopedFlowContext:
             return ""
         return render_template(template_str, self.build_scope_dict())
 
+    def _eval_operand(self, scope: Dict[str, Any], text: str) -> Any:
+        """安全解析操作数：支持带引号字符串、布尔/空值、数值、或变量路径解析。"""
+        text = text.strip()
+        if not text:
+            return ""
+        # 1. 引号包裹的字符串字面量
+        if (text.startswith("'") and text.endswith("'")) or (
+            text.startswith('"') and text.endswith('"')
+        ):
+            return text[1:-1]
+        # 2. 布尔与空值字面量
+        low = text.lower()
+        if low == "true":
+            return True
+        if low == "false":
+            return False
+        if low in ("none", "null"):
+            return None
+        # 3. 整型或浮点数字面量
+        if text.isdigit() or (text.startswith("-") and text[1:].isdigit()):
+            try:
+                return int(text)
+            except ValueError:
+                pass
+        try:
+            return float(text)
+        except ValueError:
+            pass
+        # 4. 尝试变量路径解析
+        resolved = self._resolve_path(scope, text)
+        if resolved is not None:
+            return resolved
+        return text
+
     def eval_condition(self, expr: str, default_output: str = "") -> bool:
         if not expr:
             return True
@@ -92,35 +126,43 @@ class ScopedFlowContext:
                 self.eval_condition(sub.strip(), default_output) for sub in sub_exprs
             )
 
-        # 1. 成员包含关系判定（优先检测非包含）
+        # 1. 成员包含关系判定
         if " not in " in expr:
             parts = expr.split(" not in ", 1)
-            target = parts[0].strip().strip("'\"")
-            src_val = str(self._resolve_path(scope, parts[1].strip()) or "")
-            return target not in src_val
+            target = self._eval_operand(scope, parts[0])
+            src = self._eval_operand(scope, parts[1])
+            if isinstance(src, (list, tuple, set)):
+                return target not in src
+            return str(target) not in str(src)
         elif " in " in expr:
             parts = expr.split(" in ", 1)
-            target = parts[0].strip().strip("'\"")
-            src_val = str(self._resolve_path(scope, parts[1].strip()) or "")
-            return target in src_val
+            target = self._eval_operand(scope, parts[0])
+            src = self._eval_operand(scope, parts[1])
+            if isinstance(src, (list, tuple, set)):
+                return target in src
+            return str(target) in str(src)
 
         # 2. 文本包含关系判定
         if " not contains " in expr:
             parts = expr.split(" not contains ", 1)
-            src_val = str(self._resolve_path(scope, parts[0].strip()) or "")
-            target = parts[1].strip().strip("'\"")
-            return target not in src_val
+            src = self._eval_operand(scope, parts[0])
+            target = self._eval_operand(scope, parts[1])
+            if isinstance(src, (list, tuple, set)):
+                return target not in src
+            return str(target) not in str(src)
         elif " contains " in expr:
             parts = expr.split(" contains ", 1)
-            src_val = str(self._resolve_path(scope, parts[0].strip()) or "")
-            target = parts[1].strip().strip("'\"")
-            return target in src_val
+            src = self._eval_operand(scope, parts[0])
+            target = self._eval_operand(scope, parts[1])
+            if isinstance(src, (list, tuple, set)):
+                return target in src
+            return str(target) in str(src)
 
         # 3. 正则匹配
         if " matches " in expr:
             parts = expr.split(" matches ", 1)
-            src_val = str(self._resolve_path(scope, parts[0].strip()) or "")
-            pattern = parts[1].strip().strip("'\"")
+            src_val = str(self._eval_operand(scope, parts[0]) or "")
+            pattern = str(self._eval_operand(scope, parts[1]) or "")
             try:
                 return bool(re.search(pattern, src_val))
             except re.error:
@@ -129,65 +171,57 @@ class ScopedFlowContext:
         # 4. 数值大小比较（优先检测复合比较符号）
         if " >= " in expr:
             parts = expr.split(" >= ", 1)
-            raw_val = self._resolve_path(scope, parts[0].strip())
-            if raw_val is None:
-                return False
+            v1 = self._eval_operand(scope, parts[0])
+            v2 = self._eval_operand(scope, parts[1])
             try:
-                return float(raw_val) >= float(parts[1].strip())
+                return float(v1) >= float(v2)
             except (ValueError, TypeError):
                 return False
         elif " <= " in expr:
             parts = expr.split(" <= ", 1)
-            raw_val = self._resolve_path(scope, parts[0].strip())
-            if raw_val is None:
-                return False
+            v1 = self._eval_operand(scope, parts[0])
+            v2 = self._eval_operand(scope, parts[1])
             try:
-                return float(raw_val) <= float(parts[1].strip())
+                return float(v1) <= float(v2)
             except (ValueError, TypeError):
                 return False
         elif " > " in expr:
             parts = expr.split(" > ", 1)
-            raw_val = self._resolve_path(scope, parts[0].strip())
-            if raw_val is None:
-                return False
+            v1 = self._eval_operand(scope, parts[0])
+            v2 = self._eval_operand(scope, parts[1])
             try:
-                return float(raw_val) > float(parts[1].strip())
+                return float(v1) > float(v2)
             except (ValueError, TypeError):
                 return False
         elif " < " in expr:
             parts = expr.split(" < ", 1)
-            raw_val = self._resolve_path(scope, parts[0].strip())
-            if raw_val is None:
-                return False
+            v1 = self._eval_operand(scope, parts[0])
+            v2 = self._eval_operand(scope, parts[1])
             try:
-                return float(raw_val) < float(parts[1].strip())
+                return float(v1) < float(v2)
             except (ValueError, TypeError):
                 return False
 
         # 5. 相等性判定
         if " == " in expr:
             parts = expr.split(" == ", 1)
-            left = self._resolve_path(scope, parts[0].strip())
-            right_str = parts[1].strip()
-            if right_str.lower() == "true":
-                return bool(left is True or str(left).lower() == "true")
-            if right_str.lower() == "false":
-                return bool(left is False or str(left).lower() == "false")
-            if right_str.isdigit():
-                return left == int(right_str) or str(left) == right_str
-            return str(left) == right_str.strip("'\"")
+            v1 = self._eval_operand(scope, parts[0])
+            v2 = self._eval_operand(scope, parts[1])
+            if isinstance(v1, (int, float)) and isinstance(v2, (int, float)):
+                return v1 == v2
+            if isinstance(v1, bool) or isinstance(v2, bool):
+                return bool(v1) is bool(v2)
+            return str(v1) == str(v2)
 
         if " != " in expr:
             parts = expr.split(" != ", 1)
-            left = self._resolve_path(scope, parts[0].strip())
-            right_str = parts[1].strip()
-            if right_str.lower() == "true":
-                return not (left is True or str(left).lower() == "true")
-            if right_str.lower() == "false":
-                return not (left is False or str(left).lower() == "false")
-            if right_str.isdigit():
-                return left != int(right_str) and str(left) != right_str
-            return str(left) != right_str.strip("'\"")
+            v1 = self._eval_operand(scope, parts[0])
+            v2 = self._eval_operand(scope, parts[1])
+            if isinstance(v1, (int, float)) and isinstance(v2, (int, float)):
+                return v1 != v2
+            if isinstance(v1, bool) or isinstance(v2, bool):
+                return bool(v1) is not bool(v2)
+            return str(v1) != str(v2)
 
         # 6. 单一变量真值或取反（如 !vars.disabled, not vars.disabled, vars.enabled）
         if expr.startswith("!"):

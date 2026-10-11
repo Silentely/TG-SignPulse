@@ -44,6 +44,8 @@ class PulseFlowEngine:
     - 自适应指数退避重试 (Exponential Backoff)
     - 响应式事件驱动与水位线回补 (TelegramEventBus)
     - 子工作流 (SubflowNode) 嵌套调度
+    - 生命周期事件监听器 (on_step_start / on_step_finish)
+    - 全局错误处理器降级 (graph.error_handler_node_id)
     """
 
     def __init__(self, event_bus: Optional[TelegramEventBus] = None):
@@ -61,6 +63,12 @@ class PulseFlowEngine:
         ctx: ScopedFlowContext,
         executor: Callable[[BaseFlowNode, ScopedFlowContext], Awaitable[StepOutcome]],
         event_bus: Optional[TelegramEventBus] = None,
+        on_step_start: Optional[
+            Callable[[BaseFlowNode, ScopedFlowContext], Any]
+        ] = None,
+        on_step_finish: Optional[
+            Callable[[BaseFlowNode, StepOutcome, ScopedFlowContext], Any]
+        ] = None,
     ) -> Dict[str, Any]:
         """运行执行图"""
         bus = event_bus or self._event_bus
@@ -115,6 +123,17 @@ class PulseFlowEngine:
                         f"Node {node.id} loop limit exceeded ({visit_count}/{node.loop_policy.max_visits}, path: {' -> '.join(executed_path)})"
                     )
 
+                # 生命周期前置钩子
+                if on_step_start is not None:
+                    try:
+                        hook_res = on_step_start(node, ctx)
+                        if asyncio.iscoroutine(hook_res):
+                            await hook_res
+                    except Exception as hook_err:
+                        logger.warning(
+                            f"on_step_start 钩子执行异常 ({node.id}): {hook_err}"
+                        )
+
                 # 节点执行与重试循环
                 attempt = 0
                 outcome: Optional[StepOutcome] = None
@@ -131,7 +150,12 @@ class PulseFlowEngine:
                             outcome = await self._run_delay_node(node)
                         elif isinstance(node, SubflowNode):
                             outcome = await self._run_subflow_node(
-                                node, ctx, executor, bus
+                                node,
+                                ctx,
+                                executor,
+                                bus,
+                                on_step_start,
+                                on_step_finish,
                             )
                         elif isinstance(node, WaitEventNode) and bus is not None:
                             outcome = await self._run_wait_event_node(node, ctx, bus)
@@ -201,6 +225,17 @@ class PulseFlowEngine:
 
                 ctx.record_step_outcome(outcome)
 
+                # 生命周期后置钩子
+                if on_step_finish is not None:
+                    try:
+                        hook_res = on_step_finish(node, outcome, ctx)
+                        if asyncio.iscoroutine(hook_res):
+                            await hook_res
+                    except Exception as hook_err:
+                        logger.warning(
+                            f"on_step_finish 钩子执行异常 ({node.id}): {hook_err}"
+                        )
+
                 # 处理显式控制流信号
                 if outcome.signal == FlowSignal.HALT_SUCCESS:
                     current_id = TERMINAL_COMPLETE_ID
@@ -246,8 +281,16 @@ class PulseFlowEngine:
                         or (str(outcome.error) if outcome.error else None)
                         or f"Node {node.id} failed"
                     )
+                    # 优先节点 on_failure_node_id，次选全局 error_handler_node_id（避免自身循环错误）
+                    fallback_target = node.on_failure_node_id
+                    if (
+                        not fallback_target
+                        and graph.error_handler_node_id
+                        and node.id != graph.error_handler_node_id
+                    ):
+                        fallback_target = graph.error_handler_node_id
                     current_id = self._normalize_target(
-                        node.on_failure_node_id or TERMINAL_FAIL_ID
+                        fallback_target or TERMINAL_FAIL_ID
                     )
         except asyncio.CancelledError:
             logger.warning(
@@ -298,6 +341,12 @@ class PulseFlowEngine:
         ctx: ScopedFlowContext,
         executor: Callable[[BaseFlowNode, ScopedFlowContext], Awaitable[StepOutcome]],
         bus: Optional[TelegramEventBus] = None,
+        on_step_start: Optional[
+            Callable[[BaseFlowNode, ScopedFlowContext], Any]
+        ] = None,
+        on_step_finish: Optional[
+            Callable[[BaseFlowNode, StepOutcome, ScopedFlowContext], Any]
+        ] = None,
     ) -> StepOutcome:
         if node.subflow_graph is None:
             return StepOutcome(
@@ -320,7 +369,14 @@ class PulseFlowEngine:
                 if ctx.has_var(src_k):
                     sub_ctx.set_var(target_k, ctx.get_var(src_k))
 
-        sub_res = await self.run(node.subflow_graph, sub_ctx, executor, event_bus=bus)
+        sub_res = await self.run(
+            node.subflow_graph,
+            sub_ctx,
+            executor,
+            event_bus=bus,
+            on_step_start=on_step_start,
+            on_step_finish=on_step_finish,
+        )
         is_sub_ok = sub_res.get("status") == "success"
 
         extracted = {}

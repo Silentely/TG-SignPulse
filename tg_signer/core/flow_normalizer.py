@@ -235,6 +235,12 @@ class GraphNormalizer:
                         f"条件节点 {node_id} 的默认目标 '{node.default_target_id}' 指向不存在的节点"
                     )
 
+        if graph.error_handler_node_id and graph.error_handler_node_id not in sentinels:
+            if graph.error_handler_node_id not in graph.nodes:
+                raise GraphValidationError(
+                    f"全局错误处理节点 error_handler_node_id '{graph.error_handler_node_id}' 指向不存在的节点"
+                )
+
         # 2. 环路检测 (DFS)
         visited = set()
         rec_stack: List[str] = []

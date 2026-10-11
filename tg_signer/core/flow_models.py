@@ -139,6 +139,7 @@ class ExecutionGraph(BaseModel):
     entry_node_id: str
     nodes: Dict[str, BaseFlowNode]
     max_total_steps: int = 30
+    error_handler_node_id: Optional[str] = None
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> ExecutionGraph:
@@ -175,6 +176,7 @@ class ExecutionGraph(BaseModel):
             entry_node_id=data.get("entry_node_id", ""),
             nodes=parsed_nodes,
             max_total_steps=data.get("max_total_steps", 30),
+            error_handler_node_id=data.get("error_handler_node_id"),
         )
 
 

@@ -126,3 +126,26 @@ def test_render_template_custom_data_dict_resolver():
         assert res2 == "Prefix mocked_test_random Suffix"
     finally:
         set_data_dict_resolver(prev_resolver)
+
+
+def test_render_template_extended_json_and_extract_builtins():
+    # 测试 timestamp_ms
+    res_ts = render_template("{{ timestamp_ms }}")
+    assert res_ts.isdigit() and len(res_ts) >= 13
+
+    # 测试 json_dumps 与 json_loads
+    res_json = render_template("{{ json_dumps({'name': 'tg', 'val': 100}) }}")
+    assert '"name": "tg"' in res_json
+    assert '"val": 100' in res_json
+
+    res_load = render_template("{{ json_loads('{\"score\": 99}')['score'] }}")
+    assert res_load == "99"
+
+    # 测试 extract 与 re_search
+    sample_text = "Verification code is: 8848."
+    res_ext = render_template("{{ extract(r'\\d{4}', text) }}", {"text": sample_text})
+    assert res_ext == "8848"
+    res_re = render_template(
+        "{{ re_search(r'code is: (\\d+)', text, 1) }}", {"text": sample_text}
+    )
+    assert res_re == "8848"

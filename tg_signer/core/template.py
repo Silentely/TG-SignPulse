@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import datetime
+import json
 import random
 import re
 import uuid
@@ -97,7 +98,9 @@ class _SafeEvaluator(ast.NodeVisitor):
         if not expr_str:
             return ""
         # 兼容模板点号数字索引，如 steps.1.output 转换为 steps[1].output
-        norm_expr = re.sub(r"([a-zA-Z0-9_\]])\.([0-9]+)(?=\.|$|\[)", r"\1[\2]", expr_str)
+        norm_expr = re.sub(
+            r"([a-zA-Z0-9_\]])\.([0-9]+)(?=\.|$|\[)", r"\1[\2]", expr_str
+        )
         parsed = ast.parse(norm_expr, mode="eval")
         return self.visit(parsed)
 
@@ -178,7 +181,7 @@ class _SafeEvaluator(ast.NodeVisitor):
     def visit_Call(self, node: ast.Call) -> Any:
         func = self.visit(node.func)
         if not callable(func):
-            raise TypeError(f"\x27{func}\x27 不是可调用对象")
+            raise TypeError(f"'{func}' 不是可调用对象")
         args = []
         for arg in node.args:
             if isinstance(arg, ast.Starred):
@@ -285,12 +288,34 @@ def _build_default_template_context(
         val = _resolve_dict_entry(name, mode)
         return val if val is not None else ""
 
+    def _extract_re(pattern: str, text: Any, group: int | str = 1) -> str:
+        if not text:
+            return ""
+        m = re.search(str(pattern), str(text))
+        if not m:
+            return ""
+        try:
+            if isinstance(group, int):
+                return m.group(group)
+            return m.groupdict().get(str(group), "")
+        except (IndexError, KeyError):
+            return m.group(0)
+
+    def _json_dumps(obj: Any) -> str:
+        return json.dumps(obj, ensure_ascii=False)
+
+    def _json_loads(text: Any) -> Any:
+        if not text:
+            return None
+        return json.loads(str(text))
+
     ctx: Dict[str, Any] = {
         "now": now,
         "utcnow": utcnow,
         "date": now.strftime("%Y-%m-%d"),
         "time": now.strftime("%H:%M:%S"),
         "timestamp": int(now.timestamp()),
+        "timestamp_ms": int(now.timestamp() * 1000),
         "year": now.year,
         "month": f"{now.month:02d}",
         "day": f"{now.day:02d}",
@@ -301,6 +326,10 @@ def _build_default_template_context(
         "choice": _random_choice,
         "uuid": _gen_uuid,
         "dict_entry": _dict_entry,
+        "extract": _extract_re,
+        "re_search": _extract_re,
+        "json_dumps": _json_dumps,
+        "json_loads": _json_loads,
         "str": str,
         "int": int,
         "float": float,
@@ -354,7 +383,7 @@ def render_template_recursive(
     data: Any,
     context: Optional[Dict[str, Any]] = None,
 ) -> Any:
-    """递归渲染字典、列表或字符串中的模板宏变量。"""
+    """递归渲染字典、列表、元组或字符串中的模板宏变量。"""
     if isinstance(data, str):
         return render_template(data, context)
     elif isinstance(data, dict):

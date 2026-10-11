@@ -125,3 +125,25 @@ def test_scoped_context_compound_conditions_and_get():
     assert (
         ctx.eval_condition("prev.output contains 'failed' or vars.score < 50") is False
     )
+
+
+def test_scoped_context_variable_to_variable_and_collection_eval():
+    ctx = ScopedFlowContext()
+    ctx.set_var("current_score", 95)
+    ctx.set_var("threshold", 90)
+    ctx.set_var("status_a", "running")
+    ctx.set_var("status_b", "running")
+    ctx.set_var("vip_tags", ["vip_1", "vip_2", "svip"])
+    ctx.set_var("current_tag", "vip_2")
+
+    # 变量 vs 变量对比
+    assert ctx.eval_condition("vars.current_score >= vars.threshold") is True
+    assert ctx.eval_condition("vars.threshold > vars.current_score") is False
+    assert ctx.eval_condition("vars.status_a == vars.status_b") is True
+    assert ctx.eval_condition("vars.status_a != vars.status_b") is False
+
+    # 列表成员判断
+    assert ctx.eval_condition("'vip_1' in vars.vip_tags") is True
+    assert ctx.eval_condition("'guest' not in vars.vip_tags") is True
+    assert ctx.eval_condition("vars.current_tag in vars.vip_tags") is True
+    assert ctx.eval_condition("vars.vip_tags contains vars.current_tag") is True
