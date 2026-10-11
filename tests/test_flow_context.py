@@ -23,6 +23,14 @@ def test_scoped_context_variable_resolution():
     )
     assert rendered == "欢迎 alice，验证码是 4521，令牌是 XYZ-123"
 
+    # 验证 1-based 数字索引在 steps 与 step 别名中的一致性
+    rendered_by_index = ctx.render(
+        "第1步输出: {{ steps.1.output }}，step别名输出: {{ step.1.output }}"
+    )
+    assert (
+        rendered_by_index == "第1步输出: Token: XYZ-123，step别名输出: Token: XYZ-123"
+    )
+
 
 def test_scoped_context_condition_evaluation():
     ctx = ScopedFlowContext()
@@ -43,3 +51,47 @@ def test_scoped_context_condition_evaluation():
         ctx.eval_condition("'XYZ' in prev.output", default_output="Token: XYZ-123")
         is True
     )
+
+
+def test_scoped_context_extended_operators():
+    ctx = ScopedFlowContext()
+    ctx.set_var("points", 100)
+    ctx.set_var("is_vip", True)
+    ctx.set_var("has_error", False)
+    ctx.set_var("code", "AUTH-98765")
+    ctx.set_var("tags", ["active", "premium"])
+    ctx.last_output = "Welcome back, your verification code is 123456"
+
+    # >= and <=
+    assert ctx.eval_condition("vars.points >= 100") is True
+    assert ctx.eval_condition("vars.points >= 101") is False
+    assert ctx.eval_condition("vars.points <= 100") is True
+    assert ctx.eval_condition("vars.points <= 99") is False
+
+    # not in and in
+    assert ctx.eval_condition("'error' not in prev.output") is True
+    assert ctx.eval_condition("'Welcome' in prev.output") is True
+
+    # contains and not contains
+    assert ctx.eval_condition("prev.output contains 'verification'") is True
+    assert ctx.eval_condition("prev.output not contains 'failure'") is True
+
+    # matches (regex)
+    assert ctx.eval_condition(r"prev.output matches \d{6}") is True
+    assert ctx.eval_condition(r"vars.code matches ^AUTH-\d+$") is True
+    assert ctx.eval_condition(r"vars.code matches ^FAIL") is False
+
+    # boolean flag and negation
+    assert ctx.eval_condition("vars.is_vip") is True
+    assert ctx.eval_condition("!vars.has_error") is True
+    assert ctx.eval_condition("not vars.has_error") is True
+    assert ctx.eval_condition("vars.has_error") is False
+
+    # boolean string comparison
+    assert ctx.eval_condition("vars.is_vip == true") is True
+    assert ctx.eval_condition("vars.is_vip == false") is False
+    assert ctx.eval_condition("vars.has_error != true") is True
+
+    # list indexing
+    assert ctx.eval_condition("vars.tags.0 == 'active'") is True
+    assert ctx.eval_condition("vars.tags.1 == 'premium'") is True

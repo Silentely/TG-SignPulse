@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import re
 from typing import Any
 
@@ -100,20 +101,46 @@ class TelegramNodeExecutor:
             if rendered_prompt != raw_act.ai_prompt:
                 exec_action = _copy_action_with(raw_act, ai_prompt=rendered_prompt)
 
-        # 3. 处理执行延迟 delay
+        # 3. 处理执行延迟 delay（支持固定秒数、随机区间 "1-3" 及 chat.action_interval 兜底）
         action_delay = 0.0
+        fallback_delay = 0.0
+        if getattr(self.chat, "action_interval", None) is not None:
+            try:
+                fallback_delay = float(self.chat.action_interval or 0.0)
+            except (ValueError, TypeError):
+                fallback_delay = 0.0
+
         if hasattr(self.runner, "_resolve_action_delay"):
             try:
-                res_delay = self.runner._resolve_action_delay(exec_action)
+                res_delay = self.runner._resolve_action_delay(
+                    exec_action, fallback_delay
+                )
                 if isinstance(res_delay, (int, float)):
                     action_delay = float(res_delay)
+            except TypeError:
+                try:
+                    res_delay = self.runner._resolve_action_delay(exec_action)
+                    if isinstance(res_delay, (int, float)):
+                        action_delay = float(res_delay)
+                except Exception:
+                    action_delay = 0.0
             except Exception:
                 action_delay = 0.0
         elif getattr(exec_action, "delay", None) is not None:
-            try:
-                action_delay = float(exec_action.delay or 0.0)
-            except (ValueError, TypeError):
-                action_delay = 0.0
+            raw_d = str(exec_action.delay).strip()
+            if "-" in raw_d:
+                try:
+                    p1, p2 = raw_d.split("-", 1)
+                    action_delay = random.uniform(float(p1), float(p2))
+                except Exception:
+                    action_delay = 0.0
+            else:
+                try:
+                    action_delay = float(raw_d or 0.0)
+                except (ValueError, TypeError):
+                    action_delay = 0.0
+        elif fallback_delay > 0:
+            action_delay = fallback_delay
 
         if action_delay > 0:
             self._log(f"步骤 {node.id} 将在 {action_delay:g} 秒后执行")
@@ -125,6 +152,13 @@ class TelegramNodeExecutor:
         cont_on_error = getattr(exec_action, "continue_on_error", False)
 
         # 5. 调用 runner.wait_for 执行动作
+        action_desc = (
+            getattr(exec_action, "description", None)
+            or getattr(node, "name", "")
+            or f"Action-{node.id}"
+        )
+        self._log(f"步骤 [{node.id}] 开始执行：{action_desc}")
+
         try:
             next_action = self.compat.resolve_next_action(node)
             res = await self.runner.wait_for(

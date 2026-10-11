@@ -96,7 +96,9 @@ class _SafeEvaluator(ast.NodeVisitor):
         expr_str = expr_str.strip()
         if not expr_str:
             return ""
-        parsed = ast.parse(expr_str, mode="eval")
+        # 兼容模板点号数字索引，如 steps.1.output 转换为 steps[1].output
+        norm_expr = re.sub(r"([a-zA-Z0-9_\]])\.([0-9]+)(?=\.|$|\[)", r"\1[\2]", expr_str)
+        parsed = ast.parse(norm_expr, mode="eval")
         return self.visit(parsed)
 
     def generic_visit(self, node: ast.AST) -> Any:

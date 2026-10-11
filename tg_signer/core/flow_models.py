@@ -111,6 +111,11 @@ class ExtractorNode(BaseFlowNode):
     export_vars: Dict[str, str] = Field(default_factory=dict)
 
 
+class DelayNode(BaseFlowNode):
+    node_type: NodeType = NodeType.DELAY
+    seconds: float = 1.0
+
+
 class ExecutionGraph(BaseModel):
     entry_node_id: str
     nodes: Dict[str, BaseFlowNode]

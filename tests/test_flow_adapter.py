@@ -1,5 +1,5 @@
 # tests/test_flow_adapter.py
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -164,3 +164,47 @@ async def test_adapter_retry_policy_with_transient_error():
     result = await engine.run(graph, ctx, executor)
     assert result["status"] == "success"
     assert mock_runner.wait_for.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_adapter_delay_with_range_and_chat_fallback():
+    # 验证随机区间延迟 "1-3" 以及 chat.action_interval 回退延迟
+    chat = SignChatV3(
+        chat_id=777,
+        action_interval=2.5,
+        actions=[
+            SendTextAction(text="/cmd1", delay="1-2"),
+            SendTextAction(text="/cmd2"),  # 没有显式 delay，应使用 action_interval
+        ],
+    )
+    graph = GraphNormalizer.from_chat(chat)
+    ctx = ScopedFlowContext()
+
+    mock_runner = MagicMock()
+    mock_runner.wait_for = AsyncMock(return_value=True)
+    mock_runner.context = None
+
+    # 模拟真实 runner._resolve_action_delay 支持 fallback_delay
+    def mock_resolve_delay(act, fallback=0.0):
+        if getattr(act, "delay", None) is not None:
+            raw = str(act.delay)
+            if "-" in raw:
+                return 1.5
+            return float(raw)
+        return float(fallback)
+
+    mock_runner._resolve_action_delay = MagicMock(side_effect=mock_resolve_delay)
+
+    executor = TelegramNodeExecutor(mock_runner, chat)
+    engine = PulseFlowEngine()
+
+    with patch(
+        "tg_signer.core.flow_adapter.asyncio.sleep", new_callable=AsyncMock
+    ) as sleep:
+        result = await engine.run(graph, ctx, executor)
+
+    assert result["status"] == "success"
+    assert sleep.call_count == 2
+    delays = [call.args[0] for call in sleep.await_args_list]
+    assert delays[0] == 1.5
+    assert delays[1] == 2.5

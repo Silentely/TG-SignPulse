@@ -203,6 +203,11 @@ class SignerRunnerMixin:
                 try:
                     flow_res = await engine.run(graph, ctx, executor)
                     if flow_res.get("status") == "success":
+                        dur = flow_res.get("duration_ms", 0.0)
+                        steps = flow_res.get("steps", 0)
+                        self.log(
+                            f"PulseFlow (v4) 执行成功：共推进 {steps} 个节点，耗时 {dur:.1f}ms"
+                        )
                         return True
                     err_detail = (
                         flow_res.get("error")

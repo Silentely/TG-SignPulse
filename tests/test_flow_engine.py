@@ -1,15 +1,19 @@
 # tests/test_flow_engine.py
+import asyncio
+import time
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from tg_signer.core.flow_context import ScopedFlowContext
 from tg_signer.core.flow_engine import PulseFlowEngine
+from tg_signer.core.flow_event_bus import TelegramEventBus, TelegramMessageEvent
 from tg_signer.core.flow_models import (
     TERMINAL_COMPLETE_ID,
     TERMINAL_FAIL_ID,
     ActionNode,
     ConditionNode,
+    DelayNode,
     ExecutionGraph,
     ExtractorNode,
     FlowSignal,
@@ -17,6 +21,7 @@ from tg_signer.core.flow_models import (
     RetryPolicy,
     StepOutcome,
     TerminalPolicy,
+    WaitEventNode,
 )
 
 
@@ -55,6 +60,8 @@ async def test_flow_engine_executes_linear_graph_ignoring_terminal():
     result = await engine.run(graph, ctx, mock_executor)
     assert result["status"] == "success"
     assert executed_steps == ["step_1", "step_2"]
+    assert "duration_ms" in result
+    assert result["duration_ms"] >= 0
 
 
 @pytest.mark.asyncio
@@ -231,3 +238,177 @@ async def test_retry_signal_uses_exponential_backoff_before_next_attempt():
 
     assert result["status"] == "success"
     assert [call.args for call in sleep.await_args_list] == [(0.1,), (0.2,)]
+
+
+@pytest.mark.asyncio
+async def test_delay_node_native_execution():
+    graph = ExecutionGraph(
+        entry_node_id="delay_1",
+        nodes={
+            "delay_1": DelayNode(
+                id="delay_1",
+                seconds=0.01,
+                next_node_id="action_done",
+            ),
+            "action_done": ActionNode(
+                id="action_done",
+                next_node_id=TERMINAL_COMPLETE_ID,
+            ),
+        },
+    )
+    ctx = ScopedFlowContext()
+    executed = []
+
+    async def mock_executor(node, context):
+        executed.append(node.id)
+        return StepOutcome(node_id=node.id, status=NodeStatus.SUCCESS)
+
+    engine = PulseFlowEngine()
+    result = await engine.run(graph, ctx, mock_executor)
+
+    assert result["status"] == "success"
+    assert result["path"] == ["delay_1", "action_done"]
+    assert executed == ["action_done"]
+    delay_outcome = ctx.step_outcomes["delay_1"]
+    assert delay_outcome.status == NodeStatus.SUCCESS
+    assert "0.01" in delay_outcome.output_text
+
+
+@pytest.mark.asyncio
+async def test_wait_event_node_with_event_bus():
+    bus = TelegramEventBus(buffer_size=10, buffer_ttl_seconds=300)
+    # 发布消息到公交线
+    event = TelegramMessageEvent(
+        event_id="ev_101",
+        chat_id=12345,
+        message_thread_id=None,
+        message_id=50,
+        sender_id=999,
+        event_type="NEW_MESSAGE",
+        text="验证码: 778899",
+        occurred_at=time.time(),
+    )
+    await bus.publish(event)
+
+    graph = ExecutionGraph(
+        entry_node_id="wait_code",
+        nodes={
+            "wait_code": WaitEventNode(
+                id="wait_code",
+                filter_patterns=[r"\d{6}"],
+                timeout_seconds=2.0,
+                metadata={"chat_id": 12345, "min_message_id": 0},
+                next_node_id=TERMINAL_COMPLETE_ID,
+            )
+        },
+    )
+    ctx = ScopedFlowContext()
+
+    async def mock_executor(node, context):
+        return StepOutcome(node_id=node.id, status=NodeStatus.SUCCESS)
+
+    engine = PulseFlowEngine(event_bus=bus)
+    result = await engine.run(graph, ctx, mock_executor)
+
+    assert result["status"] == "success"
+    assert ctx.last_output == "验证码: 778899"
+
+
+@pytest.mark.asyncio
+async def test_node_execution_records_duration_and_timeout_status():
+    graph = ExecutionGraph(
+        entry_node_id="slow_node",
+        nodes={
+            "slow_node": ActionNode(
+                id="slow_node",
+                timeout_seconds=0.05,
+                next_node_id=TERMINAL_COMPLETE_ID,
+                on_failure_node_id=TERMINAL_FAIL_ID,
+            )
+        },
+    )
+    ctx = ScopedFlowContext()
+
+    async def mock_executor(node, context):
+        await asyncio.sleep(0.2)
+        return StepOutcome(node_id=node.id, status=NodeStatus.SUCCESS)
+
+    engine = PulseFlowEngine()
+    result = await engine.run(graph, ctx, mock_executor)
+
+    assert result["status"] == "failed"
+    outcome = ctx.step_outcomes["slow_node"]
+    assert outcome.status == NodeStatus.TIMEOUT
+    assert outcome.duration_ms > 0
+
+
+@pytest.mark.asyncio
+async def test_extractor_numeric_groups_json_and_required():
+    # 测试数字索引捕获组
+    ext_node = ExtractorNode(
+        id="ext_numeric",
+        regex=r"User:\s+(\w+)\s+ID:\s+(\d+)",
+        export_vars={"0": "full_match", "1": "username", "2": "user_id"},
+        next_node_id=TERMINAL_COMPLETE_ID,
+    )
+    ctx = ScopedFlowContext()
+    ctx.last_output = "User: bob ID: 1002"
+    engine = PulseFlowEngine()
+
+    outcome = engine._run_extractor_node(ext_node, ctx)
+    assert outcome.status == NodeStatus.SUCCESS
+    assert outcome.extracted_vars["full_match"] == "User: bob ID: 1002"
+    assert outcome.extracted_vars["username"] == "bob"
+    assert outcome.extracted_vars["user_id"] == "1002"
+
+    # 测试 JSON 提取
+    json_node = ExtractorNode(
+        id="ext_json",
+        metadata={"extract_json": True},
+        export_vars={"profile.score": "score", "token": "token"},
+        next_node_id=TERMINAL_COMPLETE_ID,
+    )
+    ctx.last_output = '{"token": "xyz99", "profile": {"score": 98}}'
+    outcome_json = engine._run_extractor_node(json_node, ctx)
+    assert outcome_json.status == NodeStatus.SUCCESS
+    assert outcome_json.extracted_vars["token"] == "xyz99"
+    assert outcome_json.extracted_vars["score"] == 98
+
+    # 测试 required 提取失败
+    req_node = ExtractorNode(
+        id="ext_req",
+        regex=r"MISSING_PATTERN",
+        metadata={"required": True},
+    )
+    outcome_req = engine._run_extractor_node(req_node, ctx)
+    assert outcome_req.status == NodeStatus.FAILED
+
+
+@pytest.mark.asyncio
+async def test_condition_node_sentinel_normalization():
+    # 验证 ConditionNode 目标为 "COMPLETE" 或 "FAIL" 字符串时自动正规化为 _TERMINAL_COMPLETE / _TERMINAL_FAIL
+    graph = ExecutionGraph(
+        entry_node_id="cond_sentinel",
+        nodes={
+            "cond_sentinel": ConditionNode(
+                id="cond_sentinel",
+                cases=[
+                    {"condition": "vars.finish == true", "target_id": "COMPLETE"},
+                ],
+                default_target_id="FAIL",
+            )
+        },
+    )
+    ctx = ScopedFlowContext()
+    ctx.set_var("finish", True)
+
+    async def mock_executor(node, context):
+        return StepOutcome(node_id=node.id, status=NodeStatus.SUCCESS)
+
+    engine = PulseFlowEngine()
+    result = await engine.run(graph, ctx, mock_executor)
+    assert result["status"] == "success"
+
+    ctx.set_var("finish", False)
+    result_fail = await engine.run(graph, ctx, mock_executor)
+    assert result_fail["status"] == "failed"

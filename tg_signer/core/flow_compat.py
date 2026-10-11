@@ -69,7 +69,8 @@ class FlowCompatibilityBridge:
                 "id": self.chat.chat_id,
                 "name": getattr(self.chat, "name", ""),
             },
-            # step 是 legacy 别名，数据源仍然只有 scoped steps。
+            # 同时支持 steps 与 step 别名访问
+            "steps": steps,
             "step": steps,
             "prev_output": context.last_output or "",
             "prev": {"output": context.last_output or ""},
