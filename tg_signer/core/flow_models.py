@@ -10,6 +10,38 @@ from pydantic import BaseModel, Field
 TERMINAL_COMPLETE_ID = "_TERMINAL_COMPLETE"
 TERMINAL_FAIL_ID = "_TERMINAL_FAIL"
 
+SENSITIVE_KEY_PATTERNS = (
+    "token",
+    "password",
+    "secret",
+    "api_key",
+    "apikey",
+    "auth_key",
+    "session",
+    "private_key",
+    "credential",
+)
+
+
+def redact_sensitive_value(val: Any) -> Any:
+    """递归脱敏敏感字段，保留结构并保护私密信息"""
+    if isinstance(val, str):
+        if len(val) <= 6:
+            return "***"
+        return f"{val[:2]}***{val[-2:]}"
+    elif isinstance(val, dict):
+        return {
+            k: (
+                redact_sensitive_value(v)
+                if any(p in str(k).lower() for p in SENSITIVE_KEY_PATTERNS)
+                else (redact_sensitive_value(v) if isinstance(v, (dict, list)) else v)
+            )
+            for k, v in val.items()
+        }
+    elif isinstance(val, list):
+        return [redact_sensitive_value(item) for item in val]
+    return val
+
 
 class NodeType(str, Enum):
     ACTION = "action"
@@ -58,13 +90,18 @@ class StepOutcome:
     # 内部控制节点的诊断文本不应覆盖后续动作可见的 Telegram 输出。
     updates_last_output: bool = True
 
-    def to_dict(self) -> Dict[str, Any]:
-        """序列化步骤执行结果"""
+    def to_dict(self, redact_sensitive: bool = False) -> Dict[str, Any]:
+        """序列化步骤执行结果，支持敏感数据可选脱敏"""
+        extracted = (
+            redact_sensitive_value(self.extracted_vars)
+            if redact_sensitive
+            else dict(self.extracted_vars)
+        )
         return {
             "node_id": self.node_id,
             "status": self.status.value,
             "output_text": self.output_text,
-            "extracted_vars": dict(self.extracted_vars),
+            "extracted_vars": extracted,
             "matched_terminal": self.matched_terminal,
             "signal": self.signal.value,
             "target_node_id": self.target_node_id,
@@ -185,6 +222,7 @@ class ExecutionGraph(BaseModel):
     max_total_steps: int = 30
     error_handler_node_id: Optional[str] = None
     resume_from_node_id: Optional[str] = None
+    consecutive_failure_limit: Optional[int] = None
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> ExecutionGraph:
@@ -223,6 +261,7 @@ class ExecutionGraph(BaseModel):
             max_total_steps=data.get("max_total_steps", 30),
             error_handler_node_id=data.get("error_handler_node_id"),
             resume_from_node_id=data.get("resume_from_node_id"),
+            consecutive_failure_limit=data.get("consecutive_failure_limit"),
         )
 
 

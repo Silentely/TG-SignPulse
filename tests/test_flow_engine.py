@@ -742,3 +742,78 @@ async def test_flow_engine_resume_from_node_id():
     assert result["status"] == "success"
     assert executed == ["step_resume"]
     assert result["path"] == ["step_resume"]
+
+
+@pytest.mark.asyncio
+async def test_flow_engine_circuit_breaker():
+    # 验证连续失败达到 consecutive_failure_limit 时触发熔断
+    graph = ExecutionGraph(
+        entry_node_id="fail_1",
+        consecutive_failure_limit=2,
+        nodes={
+            "fail_1": ActionNode(
+                id="fail_1",
+                next_node_id="fail_2",
+                on_failure_node_id="fail_2",
+            ),
+            "fail_2": ActionNode(
+                id="fail_2",
+                next_node_id="fail_3",
+                on_failure_node_id="fail_3",
+            ),
+            "fail_3": ActionNode(
+                id="fail_3",
+                next_node_id=TERMINAL_COMPLETE_ID,
+            ),
+        },
+    )
+    ctx = ScopedFlowContext()
+
+    async def mock_executor(node, context):
+        return StepOutcome(node_id=node.id, status=NodeStatus.FAILED, output_text="Err")
+
+    engine = PulseFlowEngine()
+    result = await engine.run(graph, ctx, mock_executor)
+
+    assert result["status"] == "failed"
+    # 连续失败2次后直接熔断，fail_3 不被执行
+    assert result["path"] == ["fail_1", "fail_2"]
+    assert "Circuit breaker triggered" in result.get("error", "")
+
+
+@pytest.mark.asyncio
+async def test_flow_engine_trace_redaction():
+    # 验证 trace 输出自动脱敏敏感字段
+    graph = ExecutionGraph(
+        entry_node_id="step_auth",
+        nodes={
+            "step_auth": ActionNode(
+                id="step_auth",
+                next_node_id=TERMINAL_COMPLETE_ID,
+            )
+        },
+    )
+    ctx = ScopedFlowContext()
+
+    async def mock_executor(node, context):
+        return StepOutcome(
+            node_id=node.id,
+            status=NodeStatus.SUCCESS,
+            output_text="Login OK",
+            extracted_vars={
+                "session_token": "tg_super_private_token_12345",
+                "user": "tom",
+            },
+        )
+
+    engine = PulseFlowEngine()
+    result = await engine.run(graph, ctx, mock_executor)
+
+    assert result["status"] == "success"
+    trace_item = result["trace"][0]
+    # user 正常展示，session_token 自动脱敏为掩码
+    assert trace_item["extracted_vars"]["user"] == "tom"
+    assert "***" in trace_item["extracted_vars"]["session_token"]
+    assert (
+        trace_item["extracted_vars"]["session_token"] != "tg_super_private_token_12345"
+    )

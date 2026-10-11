@@ -88,6 +88,16 @@ class _SafeEvaluator(ast.NodeVisitor):
         ast.Tuple,
         ast.Dict,
         ast.Starred,
+        ast.IfExp,
+        ast.Compare,
+        ast.Eq,
+        ast.NotEq,
+        ast.Lt,
+        ast.LtE,
+        ast.Gt,
+        ast.GtE,
+        ast.In,
+        ast.NotIn,
     )
 
     def __init__(self, context: Dict[str, Any]):
@@ -101,6 +111,11 @@ class _SafeEvaluator(ast.NodeVisitor):
         norm_expr = re.sub(
             r"([a-zA-Z0-9_\]])\.([0-9]+)(?=\.|$|\[)", r"\1[\2]", expr_str
         )
+        # 兼容三元表达式 cond ? val1 : val2 转换为标准 if-else 表达式
+        if "?" in norm_expr and ":" in norm_expr:
+            m = re.match(r"^(.+?)\s*\?\s*(.+?)\s*:\s*(.+)$", norm_expr)
+            if m:
+                norm_expr = f"({m.group(2).strip()}) if ({m.group(1).strip()}) else ({m.group(3).strip()})"
         parsed = ast.parse(norm_expr, mode="eval")
         return self.visit(parsed)
 
@@ -225,6 +240,39 @@ class _SafeEvaluator(ast.NodeVisitor):
             return +operand
         raise ValueError(f"不支持的一元运算符 {type(node.op).__name__}")
 
+    def visit_IfExp(self, node: ast.IfExp) -> Any:
+        test_val = self.visit(node.test)
+        if test_val:
+            return self.visit(node.body)
+        return self.visit(node.orelse)
+
+    def visit_Compare(self, node: ast.Compare) -> Any:
+        left = self.visit(node.left)
+        for op, comparator in zip(node.ops, node.comparators, strict=True):
+            right = self.visit(comparator)
+            if isinstance(op, ast.Eq):
+                res = left == right
+            elif isinstance(op, ast.NotEq):
+                res = left != right
+            elif isinstance(op, ast.Lt):
+                res = left < right
+            elif isinstance(op, ast.LtE):
+                res = left <= right
+            elif isinstance(op, ast.Gt):
+                res = left > right
+            elif isinstance(op, ast.GtE):
+                res = left >= right
+            elif isinstance(op, ast.In):
+                res = left in right
+            elif isinstance(op, ast.NotIn):
+                res = left not in right
+            else:
+                raise ValueError(f"不支持的比较运算符 {type(op).__name__}")
+            if not res:
+                return False
+            left = right
+        return True
+
     def visit_List(self, node: ast.List) -> Any:
         res = []
         for elt in node.elts:
@@ -309,6 +357,47 @@ def _build_default_template_context(
             return None
         return json.loads(str(text))
 
+    def _add(a: Any, b: Any) -> Any:
+        try:
+            return a + b
+        except Exception:
+            return float(a) + float(b)
+
+    def _sub(a: Any, b: Any) -> Any:
+        try:
+            return a - b
+        except Exception:
+            return float(a) - float(b)
+
+    def _mul(a: Any, b: Any) -> Any:
+        try:
+            return a * b
+        except Exception:
+            return float(a) * float(b)
+
+    def _div(a: Any, b: Any) -> Any:
+        try:
+            divisor = float(b)
+            return 0 if divisor == 0 else float(a) / divisor
+        except Exception:
+            return 0
+
+    def _mod(a: Any, b: Any) -> Any:
+        try:
+            divisor = int(b)
+            return 0 if divisor == 0 else int(a) % divisor
+        except Exception:
+            return 0
+
+    def _clamp(val: Any, min_v: Any, max_v: Any) -> Any:
+        try:
+            return max(min_v, min(val, max_v))
+        except Exception:
+            return val
+
+    def _ternary(cond: Any, val_true: Any, val_false: Any) -> Any:
+        return val_true if cond else val_false
+
     ctx: Dict[str, Any] = {
         "now": now,
         "utcnow": utcnow,
@@ -330,6 +419,14 @@ def _build_default_template_context(
         "re_search": _extract_re,
         "json_dumps": _json_dumps,
         "json_loads": _json_loads,
+        "add": _add,
+        "sub": _sub,
+        "mul": _mul,
+        "div": _div,
+        "mod": _mod,
+        "clamp": _clamp,
+        "ternary": _ternary,
+        "iff": _ternary,
         "str": str,
         "int": int,
         "float": float,

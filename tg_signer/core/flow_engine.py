@@ -25,6 +25,7 @@ from tg_signer.core.flow_models import (
     SubflowNode,
     TerminalPolicy,
     WaitEventNode,
+    redact_sensitive_value,
 )
 
 logger = logging.getLogger("tg_signer.flow_engine")
@@ -48,6 +49,8 @@ class PulseFlowEngine:
     - 全局错误处理器降级 (graph.error_handler_node_id)
     - 节点级条件守卫 (node.run_if / node.skip_if)
     - 断点恢复执行 (graph.resume_from_node_id)
+    - 全局节点异步超时保护与连续失败熔断 (consecutive_failure_limit)
+    - 敏感变量与凭据自动脱敏输出
     """
 
     def __init__(self, event_bus: Optional[TelegramEventBus] = None):
@@ -58,6 +61,40 @@ class PulseFlowEngine:
         if pattern not in self._compiled_regexes:
             self._compiled_regexes[pattern] = re.compile(pattern)
         return self._compiled_regexes[pattern]
+
+    async def _execute_node(
+        self,
+        node: BaseFlowNode,
+        ctx: ScopedFlowContext,
+        executor: Callable[[BaseFlowNode, ScopedFlowContext], Awaitable[StepOutcome]],
+        bus: Optional[TelegramEventBus] = None,
+        on_step_start: Optional[
+            Callable[[BaseFlowNode, ScopedFlowContext], Any]
+        ] = None,
+        on_step_finish: Optional[
+            Callable[[BaseFlowNode, StepOutcome, ScopedFlowContext], Any]
+        ] = None,
+    ) -> StepOutcome:
+        """派发单节点多态执行"""
+        if isinstance(node, ConditionNode):
+            return self._run_condition_node(node, ctx)
+        elif isinstance(node, ExtractorNode):
+            return self._run_extractor_node(node, ctx)
+        elif isinstance(node, DelayNode):
+            return await self._run_delay_node(node)
+        elif isinstance(node, SubflowNode):
+            return await self._run_subflow_node(
+                node,
+                ctx,
+                executor,
+                bus,
+                on_step_start,
+                on_step_finish,
+            )
+        elif isinstance(node, WaitEventNode) and bus is not None:
+            return await self._run_wait_event_node(node, ctx, bus)
+        else:
+            return await executor(node, ctx)
 
     async def run(
         self,
@@ -78,6 +115,7 @@ class PulseFlowEngine:
         executed_path: list[str] = []
         node_visit_counts: Dict[str, int] = {}
         total_steps = 0
+        consecutive_failures = 0
         run_start = time.perf_counter()
         last_failure_error: Optional[str] = None
 
@@ -179,28 +217,22 @@ class PulseFlowEngine:
                     attempt += 1
                     step_start = time.perf_counter()
                     try:
-                        if isinstance(node, ConditionNode):
-                            outcome = self._run_condition_node(node, ctx)
-                        elif isinstance(node, ExtractorNode):
-                            outcome = self._run_extractor_node(node, ctx)
-                        elif isinstance(node, DelayNode):
-                            outcome = await self._run_delay_node(node)
-                        elif isinstance(node, SubflowNode):
-                            outcome = await self._run_subflow_node(
+                        timeout_sec = (
+                            float(node.timeout_seconds)
+                            if node.timeout_seconds and node.timeout_seconds > 0
+                            else 25.0
+                        )
+                        outcome = await asyncio.wait_for(
+                            self._execute_node(
                                 node,
                                 ctx,
                                 executor,
                                 bus,
                                 on_step_start,
                                 on_step_finish,
-                            )
-                        elif isinstance(node, WaitEventNode) and bus is not None:
-                            outcome = await self._run_wait_event_node(node, ctx, bus)
-                        else:
-                            outcome = await asyncio.wait_for(
-                                executor(node, ctx),
-                                timeout=node.timeout_seconds,
-                            )
+                            ),
+                            timeout=timeout_sec,
+                        )
 
                         if outcome.signal != FlowSignal.RETRY_NODE:
                             break
@@ -257,6 +289,22 @@ class PulseFlowEngine:
                     outcome = StepOutcome(node_id=node.id, status=NodeStatus.FAILED)
 
                 ctx.record_step_outcome(outcome)
+
+                # 统计连续失败与熔断检测
+                if outcome.status in {NodeStatus.SUCCESS, NodeStatus.TERMINAL_EARLY}:
+                    consecutive_failures = 0
+                elif outcome.status in {NodeStatus.FAILED, NodeStatus.TIMEOUT}:
+                    consecutive_failures += 1
+                    if (
+                        graph.consecutive_failure_limit is not None
+                        and consecutive_failures >= graph.consecutive_failure_limit
+                    ):
+                        logger.error(
+                            f"工作流触发连续失败熔断: 连续失败 {consecutive_failures} 次 (上限 {graph.consecutive_failure_limit})"
+                        )
+                        current_id = TERMINAL_FAIL_ID
+                        last_failure_error = f"Circuit breaker triggered: consecutive failures reached {graph.consecutive_failure_limit}"
+                        break
 
                 # 生命周期后置钩子
                 if on_step_finish is not None:
@@ -345,13 +393,20 @@ class PulseFlowEngine:
 
     @staticmethod
     def _build_trace(
-        executed_path: list[str], ctx: ScopedFlowContext
+        executed_path: list[str],
+        ctx: ScopedFlowContext,
+        redact_sensitive: bool = True,
     ) -> list[Dict[str, Any]]:
         """为全流程生成节点级执行快照序列，支持端到端调试与可视化展示"""
         trace = []
         for nid in executed_path:
             so = ctx.step_outcomes.get(nid)
             if so is not None:
+                extracted = (
+                    redact_sensitive_value(so.extracted_vars)
+                    if redact_sensitive
+                    else dict(so.extracted_vars)
+                )
                 trace.append(
                     {
                         "node_id": nid,
@@ -359,7 +414,7 @@ class PulseFlowEngine:
                         "duration_ms": so.duration_ms,
                         "output": so.output_text,
                         "output_text": so.output_text,
-                        "extracted_vars": dict(so.extracted_vars),
+                        "extracted_vars": extracted,
                         "matched_terminal": so.matched_terminal,
                         "signal": so.signal.value,
                         "target_node_id": so.target_node_id,

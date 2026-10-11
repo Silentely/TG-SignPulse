@@ -149,3 +149,31 @@ def test_render_template_extended_json_and_extract_builtins():
         "{{ re_search(r'code is: (\\d+)', text, 1) }}", {"text": sample_text}
     )
     assert res_re == "8848"
+
+
+def test_template_math_and_ternary_expressions():
+    ctx = {"score": 85, "threshold": 60, "val": 15, "min_val": 10, "max_val": 20}
+
+    # 算术运算函数
+    assert render_template("{{ add(score, 5) }}", ctx) == "90"
+    assert render_template("{{ sub(score, 10) }}", ctx) == "75"
+    assert render_template("{{ mul(score, 2) }}", ctx) == "170"
+    assert render_template("{{ div(100, 4) }}", ctx) == "25.0"
+    assert render_template("{{ div(100, 0) }}", ctx) == "0"
+    assert render_template("{{ mod(17, 5) }}", ctx) == "2"
+    assert render_template("{{ clamp(25, 10, 20) }}", ctx) == "20"
+    assert render_template("{{ clamp(5, 10, 20) }}", ctx) == "10"
+
+    # 三元运算函数
+    assert (
+        render_template('{{ ternary(score >= threshold, "通过", "未通过") }}', ctx)
+        == "通过"
+    )
+    assert (
+        render_template('{{ iff(score < threshold, "通过", "未通过") }}', ctx)
+        == "未通过"
+    )
+
+    # AST 三元语法支持
+    assert render_template('{{ score >= 60 ? "及格" : "不及格" }}', ctx) == "及格"
+    assert render_template('{{ "及格" if score >= 60 else "不及格" }}', ctx) == "及格"

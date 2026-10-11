@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, Optional
 
-from tg_signer.core.flow_models import StepOutcome
+from tg_signer.core.flow_models import StepOutcome, redact_sensitive_value
 from tg_signer.core.template import render_template
 
 
@@ -37,15 +37,24 @@ class ScopedFlowContext:
         val = self._resolve_path(scope, path)
         return val if val is not None else default
 
-    def to_dict(self) -> Dict[str, Any]:
-        """将上下文完整状态序列化为字典，支持断点备份与还原"""
+    def to_dict(self, redact_sensitive: bool = False) -> Dict[str, Any]:
+        """将上下文完整状态序列化为字典，支持断点备份与脱敏输出"""
+        vars_dict = (
+            redact_sensitive_value(self.vars) if redact_sensitive else dict(self.vars)
+        )
+        account_dict = (
+            redact_sensitive_value(self.account)
+            if redact_sensitive
+            else dict(self.account)
+        )
         return {
             "system": dict(self.system),
-            "account": dict(self.account),
-            "vars": dict(self.vars),
+            "account": account_dict,
+            "vars": vars_dict,
             "last_output": self.last_output,
             "step_outcomes": {
-                nid: so.to_dict() for nid, so in self.step_outcomes.items()
+                nid: so.to_dict(redact_sensitive=redact_sensitive)
+                for nid, so in self.step_outcomes.items()
             },
         }
 
@@ -74,38 +83,40 @@ class ScopedFlowContext:
             self.vars.update(outcome.extracted_vars)
 
     def build_scope_dict(self, default_output: str = "") -> Dict[str, Any]:
-        prev_out = self.last_output or default_output
-        steps_dict: Dict[Any, Any] = {}
-        for sid, sc in self.step_outcomes.items():
-            s_data = {"output": sc.output_text, "status": sc.status.value}
-            s_data.update(sc.extracted_vars)
-            steps_dict[sid] = s_data
+        """构建渲染与条件判定时可见的完整层次结构字典"""
+        curr_output = self.last_output or default_output
+        steps_dict: Dict[str, Any] = {}
+        ordered_outcomes: list[StepOutcome] = list(self.step_outcomes.values())
 
-        # 增加 1-based 数字索引别名，使 steps.1 与 step.1 保持一致性
-        for index, sid in enumerate(self.step_outcomes, start=1):
-            s_data = steps_dict.get(sid)
-            if s_data is not None:
-                steps_dict.setdefault(str(index), s_data)
-                steps_dict.setdefault(index, s_data)
+        for idx, so in enumerate(ordered_outcomes, start=1):
+            step_obj: Dict[str, Any] = {
+                "output": so.output_text,
+                "status": so.status.value,
+                "matched_terminal": so.matched_terminal,
+            }
+            if so.extracted_vars:
+                step_obj.update(so.extracted_vars)
+            steps_dict[so.node_id] = step_obj
+            steps_dict[str(idx)] = step_obj
 
-        return {
+        scope = {
             "system": self.system,
             "account": self.account,
             "vars": self.vars,
             "steps": steps_dict,
             "step": steps_dict,
-            "prev": {"output": prev_out},
-            "last_output": prev_out,
+            "prev": {"output": curr_output},
         }
+        return scope
 
     def render(self, template_str: str) -> str:
-        if not template_str:
-            return ""
-        return render_template(template_str, self.build_scope_dict())
+        """将模板中的四级作用域插值渲染为实际文本"""
+        scope = self.build_scope_dict()
+        return render_template(template_str, scope)
 
-    def _eval_operand(self, scope: Dict[str, Any], text: str) -> Any:
-        """安全解析操作数：支持带引号字符串、布尔/空值、数值、或变量路径解析。"""
-        text = text.strip()
+    def _eval_operand(self, scope: Dict[str, Any], raw_part: str) -> Any:
+        """智能解析判定操作数：支持字符串字面量、布尔值、数值与作用域变量"""
+        text = raw_part.strip()
         if not text:
             return ""
         # 1. 引号包裹的字符串字面量
@@ -136,6 +147,24 @@ class ScopedFlowContext:
         if resolved is not None:
             return resolved
         return text
+
+    def eval_expression(self, expr: str, default: Any = None) -> Any:
+        """安全求值表达式，支持三元表达式 cond ? val1 : val2 与直接变量解析"""
+        if not expr:
+            return default
+        expr = expr.strip()
+        scope = self.build_scope_dict()
+        if "?" in expr and ":" in expr:
+            m = re.match(r"^(.+?)\s*\?\s*(.+?)\s*:\s*(.+)$", expr)
+            if m:
+                cond_part = m.group(1).strip()
+                val_true = m.group(2).strip()
+                val_false = m.group(3).strip()
+                if self.eval_condition(cond_part):
+                    return self._eval_operand(scope, val_true)
+                else:
+                    return self._eval_operand(scope, val_false)
+        return self._eval_operand(scope, expr)
 
     def eval_condition(self, expr: str, default_output: str = "") -> bool:
         if not expr:

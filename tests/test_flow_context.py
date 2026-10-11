@@ -194,3 +194,41 @@ def test_scoped_context_serialization_and_restoration():
     assert restored.step_outcomes["step_1"].extracted_vars == {"init": True}
     assert restored.step_outcomes["step_2"].status == NodeStatus.FAILED
     assert str(restored.step_outcomes["step_2"].error) == "Network timeout"
+
+
+def test_scoped_context_redaction_and_eval_expression():
+    ctx = ScopedFlowContext(
+        account={"username": "alice", "api_token": "tg_super_secret_9988"},
+    )
+    ctx.set_var("app_secret", "secret_key_123456")
+    ctx.set_var("normal_tag", "daily_user")
+    ctx.record_step_outcome(
+        StepOutcome(
+            node_id="login",
+            status=NodeStatus.SUCCESS,
+            extracted_vars={"auth_token": "tok_xyz888", "score": 90},
+        )
+    )
+
+    # 1. 未脱敏时保存原值
+    raw_dict = ctx.to_dict(redact_sensitive=False)
+    assert raw_dict["vars"]["app_secret"] == "secret_key_123456"
+    assert raw_dict["account"]["api_token"] == "tg_super_secret_9988"
+    assert (
+        raw_dict["step_outcomes"]["login"]["extracted_vars"]["auth_token"]
+        == "tok_xyz888"
+    )
+
+    # 2. 脱敏后敏感字段自动掩码
+    redacted = ctx.to_dict(redact_sensitive=True)
+    assert redacted["vars"]["normal_tag"] == "daily_user"
+    assert redacted["vars"]["app_secret"] != "secret_key_123456"
+    assert "***" in redacted["vars"]["app_secret"]
+    assert "***" in redacted["account"]["api_token"]
+    assert "***" in redacted["step_outcomes"]["login"]["extracted_vars"]["auth_token"]
+    assert redacted["step_outcomes"]["login"]["extracted_vars"]["score"] == 90
+
+    # 3. 三元表达式求值
+    ctx.set_var("points", 75)
+    assert ctx.eval_expression('vars.points >= 60 ? "PASS" : "FAIL"') == "PASS"
+    assert ctx.eval_expression('vars.points < 60 ? "PASS" : "FAIL"') == "FAIL"
