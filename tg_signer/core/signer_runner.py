@@ -161,7 +161,8 @@ class SignerRunnerMixin:
 
         task_engine = getattr(getattr(self, "config", None), "execution_engine", None)
         engine_code, engine_display, engine_source = resolve_execution_engine(
-            chat, task_engine=task_engine
+            chat,
+            task_engine=task_engine,
         )
         if engine_code == ENGINE_V4:
             self.log(f"当前任务使用执行引擎: {engine_display} (来源: {engine_source})")

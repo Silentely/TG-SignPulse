@@ -57,6 +57,17 @@ def apply_global_settings_to_env(merged: Dict[str, Any]) -> None:
     （env_sync 若仅发生在保存路径，重启后会静默回退到默认值）。
     """
     logger = _logger
+    # execution_engine 是 tg_signer core 需要的全局路由设置，通过环境变量跨层传递，
+    # 避免 core 反向 import backend.services.config。
+    raw_engine = merged.get("execution_engine")
+    engine = str(raw_engine or "").strip().lower()
+    if engine in {"v3", "v4"}:
+        os.environ["USE_PULSEFLOW_ENGINE"] = engine
+        os.environ["PULSEFLOW_ENGINE_SOURCE"] = "settings"
+    else:
+        os.environ.pop("USE_PULSEFLOW_ENGINE", None)
+        os.environ.pop("PULSEFLOW_ENGINE_SOURCE", None)
+
     for gkey, ekey in GLOBAL_SETTINGS_ENV_SYNC.items():
         val = merged.get(gkey)
         if val is None or str(val).strip() == "":

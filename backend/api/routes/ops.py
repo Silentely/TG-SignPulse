@@ -846,9 +846,13 @@ def runtime_status(
     start_time = getattr(request.app.state, "start_time", None)
     uptime_seconds = int(time.time() - start_time) if start_time else 0
 
+    from backend.services.config import get_config_service
     from tg_signer.core.flow_routing import resolve_execution_engine
 
-    eng_code, eng_name, eng_src = resolve_execution_engine(None)
+    global_settings = get_config_service().get_global_settings()
+    eng_code, eng_name, eng_src = resolve_execution_engine(
+        None, global_engine=global_settings.get("execution_engine")
+    )
 
     return RuntimeStatusResponse(
         ready=bool(getattr(request.app.state, "ready", False)),
