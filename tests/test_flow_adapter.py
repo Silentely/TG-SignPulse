@@ -208,3 +208,95 @@ async def test_adapter_delay_with_range_and_chat_fallback():
     delays = [call.args[0] for call in sleep.await_args_list]
     assert delays[0] == 1.5
     assert delays[1] == 2.5
+
+
+@pytest.mark.asyncio
+async def test_issue_13_multi_step_actions_flow_preservation_and_output_propagation():
+    """验证 Issue #13 场景：动作1触发「签到成功」终态时，不被底层标记错误截断，且动作2能正常消费动作1的Telegram回复。"""
+    chat = SignChatV3(
+        chat_id=98765,
+        actions=[
+            SendTextAction(text="/qd"),  # stop_flow_on_terminal 为 False
+            SendTextAction(text="下一动作，收到前一步: {{ prev.output }}"),
+        ],
+    )
+    graph = GraphNormalizer.from_chat(chat)
+    ctx = ScopedFlowContext()
+
+    executed_actions = []
+
+    mock_runner = MagicMock()
+    mock_runner.context = MagicMock()
+    mock_runner.context.chat_messages = {98765: {}}
+    mock_runner.context.stop_after_current_action = False
+    mock_runner.context.last_output = ""
+    mock_runner.context.stop_reason = ""
+
+    async def mock_wait_for(chat_obj, action_obj, next_action=None):
+        executed_actions.append(action_obj)
+        if action_obj.text == "/qd":
+            # 模拟底层 Matcher 检测到「签到成功」并试图通过全局副作用截断
+            mock_runner.context.stop_after_current_action = True
+            mock_runner.context.stop_reason = "签到成功，获得50积分"
+            # 模拟收到 Bot 回复消息
+            mock_msg = MagicMock()
+            mock_msg.id = 100
+            mock_msg.text = "签到成功，获得50积分"
+            mock_runner.context.chat_messages[98765][100] = mock_msg
+        return True
+
+    mock_runner.wait_for = AsyncMock(side_effect=mock_wait_for)
+
+    executor = TelegramNodeExecutor(mock_runner, chat, graph)
+    engine = PulseFlowEngine()
+    result = await engine.run(graph, ctx, executor)
+
+    # 1. 确保整个流程没有因动作1的“签到成功”而被丢弃截断
+    assert result["status"] == "success"
+    assert result["path"] == ["step_0", "step_1"]
+    assert len(executed_actions) == 2
+
+    # 2. 确保动作2正确渲染并获取到了动作1从 Telegram 拿到的回复输出
+    second_action = executed_actions[1]
+    assert "签到成功，获得50积分" in second_action.text
+
+
+@pytest.mark.asyncio
+async def test_issue_13_skip_if_matched_detects_realtime_bot_reply():
+    """验证 Issue #13 场景：动作1执行后 Bot 回复“今日已签到”，动作2的 skip_if_matched 能及时感知该更新并顺利跳过。"""
+    chat = SignChatV3(
+        chat_id=55555,
+        actions=[
+            SendTextAction(text="/start"),
+            SendTextAction(text="/daily_claim", skip_if_matched="今日已签到"),
+        ],
+    )
+    graph = GraphNormalizer.from_chat(chat)
+    ctx = ScopedFlowContext()
+
+    mock_runner = MagicMock()
+    mock_runner.context = MagicMock()
+    mock_runner.context.chat_messages = {55555: {}}
+    mock_runner.context.stop_after_current_action = False
+    mock_runner.context.last_output = ""
+
+    async def mock_wait_for(chat_obj, action_obj, next_action=None):
+        if action_obj.text == "/start":
+            # Bot 秒回消息写入 chat_messages
+            mock_msg = MagicMock()
+            mock_msg.id = 200
+            mock_msg.text = "欢迎回来！今日已签到，请明天再来打卡。"
+            mock_runner.context.chat_messages[55555][200] = mock_msg
+        return True
+
+    mock_runner.wait_for = AsyncMock(side_effect=mock_wait_for)
+
+    executor = TelegramNodeExecutor(mock_runner, chat, graph)
+    engine = PulseFlowEngine()
+    result = await engine.run(graph, ctx, executor)
+
+    assert result["status"] == "success"
+    assert result["path"] == ["step_0", "step_1"]
+    # 动作1执行过，动作2由于满足 skip_if_matched 判定被跳过，因此 wait_for 仅调用了一次
+    assert mock_runner.wait_for.call_count == 1
+    assert ctx.step_outcomes["step_1"].status == NodeStatus.SKIPPED

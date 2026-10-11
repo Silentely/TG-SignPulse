@@ -102,7 +102,11 @@ class GraphNormalizer:
                 max_visits=step.max_retries + 1 if step.allow_loop else 1,
             )
 
-            is_stop_on_term = getattr(raw_act, "stop_flow_on_terminal", False)
+            is_stop_on_term = getattr(raw_act, "stop_flow_on_terminal", False) or bool(
+                step.config.get("stop_flow_on_terminal", False)
+                if step.config
+                else False
+            )
             term_policy = (
                 TerminalPolicy.STOP_FLOW if is_stop_on_term else TerminalPolicy.IGNORE
             )

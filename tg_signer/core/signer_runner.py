@@ -194,14 +194,18 @@ class SignerRunnerMixin:
                     or read_positive_int_env("SIGN_TASK_FLOW_RETRY_ATTEMPTS", 1, 1)
                 ),
             )
-            engine = PulseFlowEngine()
+            from tg_signer.core.flow_event_bus import TelegramEventBus
+
+            bus = TelegramEventBus()
+            self._event_bus = bus
+            engine = PulseFlowEngine(event_bus=bus)
             last_error: Optional[Exception] = None
             for flow_attempt in range(1, max_flow_attempts + 1):
                 _reset_v4_legacy_context()
                 ctx = ScopedFlowContext(account={"name": getattr(self, "_account", "")})
                 executor = TelegramNodeExecutor(self, chat, graph)
                 try:
-                    flow_res = await engine.run(graph, ctx, executor)
+                    flow_res = await engine.run(graph, ctx, executor, event_bus=bus)
                     if flow_res.get("status") == "success":
                         dur = flow_res.get("duration_ms", 0.0)
                         steps = flow_res.get("steps", 0)
@@ -973,6 +977,31 @@ class SignerRunnerMixin:
             oldest_keys = sorted(chat_msgs.keys())[:100]
             for k in oldest_keys:
                 chat_msgs.pop(k, None)
+        msg_text = getattr(message, "text", None) or getattr(message, "caption", None)
+        if msg_text:
+            self.context.last_received_text = str(msg_text)
+            bus = getattr(self, "_event_bus", None)
+            if bus is not None:
+                try:
+                    import time
+
+                    from tg_signer.core.flow_event_bus import TelegramMessageEvent
+
+                    ev = TelegramMessageEvent(
+                        event_id=f"msg_{message.chat.id}_{message.id}",
+                        chat_id=message.chat.id,
+                        message_thread_id=message_thread_id,
+                        message_id=message.id,
+                        sender_id=getattr(
+                            getattr(message, "from_user", None), "id", None
+                        ),
+                        event_type="NEW_MESSAGE",
+                        text=str(msg_text),
+                        occurred_at=time.time(),
+                    )
+                    asyncio.create_task(bus.publish(ev))
+                except Exception:
+                    pass
 
     async def on_message(self, client: Client, message: Message):
         await self._on_message(client, message)

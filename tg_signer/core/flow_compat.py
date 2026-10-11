@@ -27,11 +27,37 @@ class FlowCompatibilityBridge:
         return getattr(self.runner, "context", None)
 
     def skip_match_source(self, context: ScopedFlowContext) -> str:
-        """只允许当前 scoped 输出和当前收到的消息参与 skip 判定。"""
+        """从 scoped 上下文、实时消息缓冲与终态原因汇总完整匹配源，杜绝内部漏跟 Telegram 更新。"""
+        sources = []
         if context.last_output:
-            return str(context.last_output)
-        last_received = getattr(self.runner_context, "last_received_text", "")
-        return last_received if isinstance(last_received, str) else ""
+            sources.append(str(context.last_output))
+
+        runner_ctx = self.runner_context
+        if runner_ctx is not None:
+            last_received = getattr(runner_ctx, "last_received_text", "")
+            if isinstance(last_received, str) and last_received:
+                sources.append(last_received)
+
+            stop_reason = getattr(runner_ctx, "stop_reason", "")
+            if isinstance(stop_reason, str) and stop_reason:
+                sources.append(stop_reason)
+
+            last_cb = getattr(runner_ctx, "last_callback_answer", "")
+            if isinstance(last_cb, str) and last_cb:
+                sources.append(last_cb)
+
+            if hasattr(runner_ctx, "chat_messages"):
+                chat_msgs = runner_ctx.chat_messages.get(self.chat.chat_id) or {}
+                for msg in reversed(list(chat_msgs.values())):
+                    if msg is not None:
+                        txt = getattr(msg, "text", None) or getattr(
+                            msg, "caption", None
+                        )
+                        if txt:
+                            sources.append(str(txt))
+                            break
+
+        return "\n".join(sources)
 
     def build_template_context(
         self,
@@ -99,10 +125,60 @@ class FlowCompatibilityBridge:
         except Exception:
             return False
 
-    def output_text(self) -> str:
-        """读取旧 runner 产生的 Telegram 输出，作为副作用层的返回值。"""
-        output = getattr(self.runner_context, "last_output", "")
-        return output if isinstance(output, str) else ""
+    def output_text(self, res: Any = None, action: Any = None) -> str:
+        """多重来源回填 Telegram 输出文本，确保动作响应不丢失、状态跟得上更新。"""
+        runner_ctx = self.runner_context
+
+        # 1. 优先读取旧 runner context 中显式设置的 last_output
+        output = getattr(runner_ctx, "last_output", "")
+        if isinstance(output, str) and output:
+            return output
+
+        # 2. 从当前会话收到的最新 Telegram 消息提取文本
+        if runner_ctx is not None and hasattr(runner_ctx, "chat_messages"):
+            chat_msgs = runner_ctx.chat_messages.get(self.chat.chat_id) or {}
+            for msg in reversed(list(chat_msgs.values())):
+                if msg is not None:
+                    txt = getattr(msg, "text", None) or getattr(msg, "caption", None)
+                    if txt:
+                        out_str = str(txt)
+                        runner_ctx.last_output = out_str
+                        return out_str
+
+        # 3. 从终态命中原因或回调通知文本提取
+        if runner_ctx is not None:
+            stop_reason = getattr(runner_ctx, "stop_reason", "")
+            if isinstance(stop_reason, str) and stop_reason:
+                runner_ctx.last_output = stop_reason
+                return stop_reason
+
+            last_cb = getattr(runner_ctx, "last_callback_answer", "")
+            if isinstance(last_cb, str) and last_cb:
+                runner_ctx.last_output = last_cb
+                return last_cb
+
+            last_recv = getattr(runner_ctx, "last_received_text", "")
+            if isinstance(last_recv, str) and last_recv:
+                runner_ctx.last_output = last_recv
+                return last_recv
+
+        # 4. 从动作返回值提取（如插件返回、计算结果或 Message 对象）
+        if isinstance(res, str) and res:
+            if runner_ctx is not None:
+                runner_ctx.last_output = res
+            return res
+        if hasattr(res, "text") and getattr(res, "text", None):
+            txt = str(res.text)
+            if runner_ctx is not None:
+                runner_ctx.last_output = txt
+            return txt
+        if hasattr(res, "caption") and getattr(res, "caption", None):
+            txt = str(res.caption)
+            if runner_ctx is not None:
+                runner_ctx.last_output = txt
+            return txt
+
+        return ""
 
     def resolve_next_action(self, node: BaseFlowNode) -> Any:
         if self.graph is None or not node.next_node_id:

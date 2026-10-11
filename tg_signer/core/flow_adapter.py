@@ -165,7 +165,7 @@ class TelegramNodeExecutor:
                 self.chat, exec_action, next_action=next_action
             )
             matched_term = self.compat.consume_matched_terminal()
-            output_text = self.compat.output_text()
+            output_text = self.compat.output_text(res=res, action=exec_action)
 
             if res is False:
                 if cont_on_error:
