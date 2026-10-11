@@ -12,6 +12,7 @@ from tg_signer.config import (
     SendTextAction,
     SignChatV3,
 )
+from tg_signer.core.flow_compat import FlowCompatibilityBridge
 from tg_signer.core.flow_context import ScopedFlowContext
 from tg_signer.core.flow_models import (
     BaseFlowNode,
@@ -30,7 +31,7 @@ class TelegramNodeExecutor:
     def __init__(self, runner: Any, chat: SignChatV3, graph: Any = None):
         self.runner = runner
         self.chat = chat
-        self.graph = graph
+        self.compat = FlowCompatibilityBridge(runner, chat, graph)
 
     def _log(self, msg: str, level: str = "INFO") -> None:
         """同时向 runner 日志流（供前端实时查看）和系统标准日志输出"""
@@ -49,24 +50,11 @@ class TelegramNodeExecutor:
         if raw_act is None:
             raw_act = node.params
 
-        runner_ctx = getattr(self.runner, "context", None)
-
         # 1. 检查 skip_if_matched 条件跳过
         skip_pat = getattr(raw_act, "skip_if_matched", None)
         if skip_pat:
             skip_pat_str = str(skip_pat).strip()
-            legacy_last_out = (
-                getattr(runner_ctx, "last_output", "") if runner_ctx else ""
-            )
-            legacy_last_recv = (
-                getattr(runner_ctx, "last_received_text", "") if runner_ctx else ""
-            )
-            match_src = str(
-                context.last_output
-                or (isinstance(legacy_last_out, str) and legacy_last_out)
-                or (isinstance(legacy_last_recv, str) and legacy_last_recv)
-                or ""
-            )
+            match_src = self.compat.skip_match_source(context)
             matched = False
             if skip_pat_str and match_src:
                 if skip_pat_str in match_src:
@@ -89,42 +77,11 @@ class TelegramNodeExecutor:
 
         # 2. 构建模板上下文并渲染动态变量
         me_user = getattr(self.runner, "me", None)
-        step_outs = getattr(runner_ctx, "step_outputs", None) if runner_ctx else None
-        legacy_last_recv = (
-            getattr(runner_ctx, "last_received_text", "") if runner_ctx else ""
+        tmpl_ctx = self.compat.build_template_context(
+            context,
+            me_user=me_user,
+            account_name=getattr(self.runner, "_account", ""),
         )
-        if not isinstance(legacy_last_recv, str):
-            legacy_last_recv = ""
-
-        scope_dict = context.build_scope_dict()
-        scoped_steps = scope_dict.get("steps", {})
-        if not isinstance(step_outs, dict) or not step_outs:
-            step_outs = scoped_steps if isinstance(scoped_steps, dict) else {}
-        account_dict = dict(scope_dict.get("account") or {})
-        if me_user:
-            if getattr(me_user, "phone_number", None):
-                account_dict["phone"] = str(me_user.phone_number)
-            if getattr(me_user, "username", None):
-                account_dict["username"] = str(me_user.username)
-            if getattr(me_user, "first_name", None):
-                account_dict["first_name"] = str(me_user.first_name)
-        if getattr(self.runner, "_account", None):
-            account_dict["name"] = str(self.runner._account)
-
-        tmpl_ctx = {
-            **scope_dict,
-            "account": account_dict,
-            "chat": {
-                "id": self.chat.chat_id,
-                "name": getattr(self.chat, "name", ""),
-            },
-            "step": step_outs,
-            "prev_output": context.last_output or "",
-            "prev": {
-                "output": context.last_output or "",
-            },
-            "last_message": legacy_last_recv,
-        }
 
         exec_action = raw_act
         if isinstance(raw_act, SendTextAction):
@@ -163,36 +120,18 @@ class TelegramNodeExecutor:
             await asyncio.sleep(action_delay)
 
         # 4. 严格重置并隔离旧 context 污染
-        if runner_ctx is not None:
-            try:
-                runner_ctx.stop_after_current_action = False
-            except Exception:
-                pass
+        self.compat.reset_before_action()
 
         cont_on_error = getattr(exec_action, "continue_on_error", False)
 
         # 5. 调用 runner.wait_for 执行动作
         try:
-            next_action = None
-            next_node_id = getattr(node, "next_node_id", None)
-            if self.graph is not None and next_node_id:
-                next_node = self.graph.nodes.get(next_node_id)
-                if next_node is not None:
-                    next_action = next_node.metadata.get("raw_action")
+            next_action = self.compat.resolve_next_action(node)
             res = await self.runner.wait_for(
                 self.chat, exec_action, next_action=next_action
             )
-            matched_term = False
-            if runner_ctx and getattr(runner_ctx, "stop_after_current_action", False):
-                matched_term = True
-                runner_ctx.stop_after_current_action = False  # 物理清零，阻止扩散
-
-            legacy_last_out = (
-                getattr(runner_ctx, "last_output", "") if runner_ctx else ""
-            )
-            output_text = str(
-                legacy_last_out if isinstance(legacy_last_out, str) else ""
-            )
+            matched_term = self.compat.consume_matched_terminal()
+            output_text = self.compat.output_text()
 
             if res is False:
                 if cont_on_error:
