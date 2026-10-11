@@ -206,4 +206,29 @@ describe('设置页拆分组件契约', () => {
     await downloadBtn?.trigger('click')
     expect(wrapper.emitted('backup-download')).toBeTruthy()
   })
+
+  it('AboutSettings 展示灰度分流引擎来源', () => {
+    const wrapper = mount(AboutSettings, {
+      props: {
+        appVersion: null,
+        runtimeStatus: {
+          ready: true,
+          scheduler_lock_held: true,
+          legacy_tasks_writable: false,
+          legacy_tasks_removed: true,
+          database_is_sqlite: true,
+          monitor_shard: '',
+          monitor_allowlist: '',
+          execution_engine: 'v4',
+          execution_engine_name: 'PulseFlow (v4)',
+          execution_engine_source: 'canary',
+        },
+        memoryStats: { available: true, stats: { current_rss_mb: 128.456 } },
+        versionBanner: null,
+      },
+      global: { plugins: [i18n] },
+    })
+
+    expect(wrapper.text()).toContain('灰度分流')
+  })
 })

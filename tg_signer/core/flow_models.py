@@ -153,6 +153,7 @@ class RetryPolicy(BaseModel):
     backoff_seconds: float = 1.0
     backoff_multiplier: float = 2.0
     max_backoff_seconds: float = 15.0
+    # 留空表示任意异常均可重试；填入异常类名（如 "TimeoutError"）后仅这些异常触发重试。
     retry_on_exceptions: List[str] = Field(default_factory=list)
 
 

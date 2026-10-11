@@ -497,7 +497,9 @@ class PulseFlowEngine:
                         "matched_terminal": so.matched_terminal,
                         "signal": so.signal.value,
                         "target_node_id": so.target_node_id,
-                        "error": _redact_trace_text(str(so.error)) if so.error else None,
+                        "error": _redact_trace_text(str(so.error))
+                        if so.error
+                        else None,
                         "details": so.details,
                     }
                 )
@@ -807,6 +809,14 @@ class PulseFlowEngine:
         self, node: WaitEventNode, ctx: ScopedFlowContext, bus: TelegramEventBus
     ) -> StepOutcome:
         chat_id = node.metadata.get("chat_id")
+        if chat_id is None:
+            # 订阅键与 publish 的 chat_id 必须一致，缺失时立即失败而不是必然超时。
+            return StepOutcome(
+                node_id=node.id,
+                status=NodeStatus.FAILED,
+                output_text=f"WaitEventNode {node.id} 缺少 chat_id 配置，无法订阅消息事件",
+                updates_last_output=False,
+            )
         thread_id = node.metadata.get("message_thread_id")
         min_msg_id = node.metadata.get("min_message_id")
         timeout = float(node.timeout_seconds or 25.0)

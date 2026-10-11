@@ -264,6 +264,8 @@ class SignerRunnerMixin:
                             self.context.flow_trace = flow_res.get("trace")
                             self.context.flow_metrics = flow_res.get("metrics")
                             flow_succeeded = True
+                            if getattr(self, "_event_bus", None) is bus:
+                                self._event_bus = None
                             return True
                         err_detail = (
                             flow_res.get("error")
@@ -273,10 +275,21 @@ class SignerRunnerMixin:
                     except Exception as exc:
                         last_error = exc
                     if flow_attempt < max_flow_attempts:
+                        if getattr(
+                            self.context, "pulseflow_side_effect_started", False
+                        ):
+                            self.log(
+                                "PulseFlow 已产生外部副作用（消息/按钮等），跳过整流程重试以避免重复执行",
+                                level="ERROR",
+                            )
+                            break
                         self.log(
                             f"PulseFlow 第 {flow_attempt}/{max_flow_attempts} 次执行失败，准备重试: {last_error}",
                             level="WARNING",
                         )
+
+                if getattr(self, "_event_bus", None) is bus:
+                    self._event_bus = None
 
                 if not flow_succeeded:
                     if allow_fallback and not getattr(

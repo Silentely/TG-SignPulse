@@ -216,3 +216,11 @@ def test_routing_canary_traffic_splitting():
     )
     assert code_override == ENGINE_V3
     assert source_override == "task"
+
+
+def test_routing_canary_without_target_skips_splitting():
+    """缺少分流目标时不参与灰度，避免用占位键得到稳定但无意义的分桶结果。"""
+    with patch.dict(os.environ, {}, clear=True):
+        code, _, source = resolve_execution_engine(None, canary_percentage=100)
+        assert code == ENGINE_V3
+        assert source == "default"

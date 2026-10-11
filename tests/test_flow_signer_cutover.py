@@ -233,3 +233,37 @@ async def test_user_signer_pulseflow_action_context_progress_wiring():
     assert result is True
     signer._set_current_action_context.assert_called_once()
     signer._clear_current_action_context.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_user_signer_pulseflow_skips_retry_after_side_effect():
+    """首次动作已产生外部副作用时，整流程不得重试，避免重复发送。"""
+    signer = UserSigner.__new__(UserSigner)
+    signer._account = "test_acc"
+    signer.app = MagicMock()
+    signer.app.get_chat = AsyncMock()
+    signer.context = MagicMock()
+    signer.log = MagicMock()
+    calls = 0
+
+    async def wait_for(chat, action, next_action=None):
+        nonlocal calls
+        calls += 1
+        if calls > 1:
+            raise RuntimeError("second action failed")
+        return True
+
+    signer.wait_for = wait_for
+    chat = SignChatV3(
+        chat_id=88888,
+        actions=[SendTextAction(text="/ping"), SendTextAction(text="/pong")],
+        execution_engine="v4",
+    )
+    token = task_retry_count_var.set(3)
+    try:
+        with pytest.raises(RuntimeError):
+            await signer.sign_a_chat(chat)
+    finally:
+        task_retry_count_var.reset(token)
+
+    assert calls == 2

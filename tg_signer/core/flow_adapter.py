@@ -108,6 +108,8 @@ class TelegramNodeExecutor:
                     node_id=node.id,
                     status=NodeStatus.SKIPPED,
                     output_text=f"Skipped by skip_if_matched: {skip_pat_str}",
+                    # 跳过诊断文本属于内部控制信息，不应覆盖后续动作可见的 Telegram 输出。
+                    updates_last_output=False,
                 )
 
         # 2. 构建模板上下文并渲染动态变量
@@ -296,6 +298,7 @@ class TelegramNodeExecutor:
                     status=NodeStatus.SKIPPED,
                     error=exc,
                     output_text=str(exc),
+                    updates_last_output=False,
                 )
             # 未配置 continue_on_error 的异常向上抛出，使 PulseFlowEngine 的 RetryPolicy 重试机制生效
             raise

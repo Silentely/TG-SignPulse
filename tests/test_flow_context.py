@@ -232,3 +232,19 @@ def test_scoped_context_redaction_and_eval_expression():
     ctx.set_var("points", 75)
     assert ctx.eval_expression('vars.points >= 60 ? "PASS" : "FAIL"') == "PASS"
     assert ctx.eval_expression('vars.points < 60 ? "PASS" : "FAIL"') == "FAIL"
+
+
+def test_scoped_context_condition_ignores_operators_inside_literals():
+    ctx = ScopedFlowContext()
+    ctx.set_var("text", "cats and dogs")
+    ctx.set_var("note", "please log in now")
+    ctx.set_var("role", "admin")
+
+    assert ctx.eval_condition('vars.text == "cats and dogs"') is True
+    assert ctx.eval_condition('vars.note == "please log in now"') is True
+    assert ctx.eval_condition('"cats and dogs" == vars.text') is True
+    assert (
+        ctx.eval_condition('vars.text == "cats and dogs" and vars.role == "admin"')
+        is True
+    )
+    assert ctx.eval_condition('vars.text == "cats or dogs"') is False

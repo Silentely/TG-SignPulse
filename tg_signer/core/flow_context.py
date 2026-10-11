@@ -8,6 +8,42 @@ from tg_signer.core.flow_models import StepOutcome, redact_sensitive_value
 from tg_signer.core.template import render_template
 
 
+def _split_top_level(expr: str, sep: str, maxsplit: int = -1) -> list:
+    """按分隔符切分表达式，跳过单/双引号内的字面量内容。
+
+    避免 `vars.name == "cats and dogs"` 这类字面量被误当作逻辑组合式或运算符切分。
+    maxsplit < 0 表示不限制切分次数；未命中分隔符时返回单元素列表。
+    """
+    parts: list = []
+    buf: list = []
+    quote: Optional[str] = None
+    splits = 0
+    idx = 0
+    while idx < len(expr):
+        ch = expr[idx]
+        if quote is not None:
+            buf.append(ch)
+            if ch == quote:
+                quote = None
+            idx += 1
+            continue
+        if ch in {"'", '"'}:
+            quote = ch
+            buf.append(ch)
+            idx += 1
+            continue
+        if (maxsplit < 0 or splits < maxsplit) and expr.startswith(sep, idx):
+            parts.append("".join(buf))
+            buf = []
+            splits += 1
+            idx += len(sep)
+            continue
+        buf.append(ch)
+        idx += 1
+    parts.append("".join(buf))
+    return parts
+
+
 class ScopedFlowContext:
     """四级作用域上下文管理器：system -> account -> vars -> steps"""
 
@@ -189,112 +225,127 @@ class ScopedFlowContext:
 
         # 0. 复合逻辑或/与判定（支持表达式组合）
         if " or " in expr:
-            sub_exprs = expr.split(" or ")
-            return any(
-                self.eval_condition(sub.strip(), default_output) for sub in sub_exprs
-            )
+            sub_exprs = _split_top_level(expr, " or ")
+            if len(sub_exprs) > 1:
+                return any(
+                    self.eval_condition(sub.strip(), default_output)
+                    for sub in sub_exprs
+                )
         if " and " in expr:
-            sub_exprs = expr.split(" and ")
-            return all(
-                self.eval_condition(sub.strip(), default_output) for sub in sub_exprs
-            )
+            sub_exprs = _split_top_level(expr, " and ")
+            if len(sub_exprs) > 1:
+                return all(
+                    self.eval_condition(sub.strip(), default_output)
+                    for sub in sub_exprs
+                )
 
         # 1. 成员包含关系判定
         if " not in " in expr:
-            parts = expr.split(" not in ", 1)
-            target = self._eval_operand(scope, parts[0])
-            src = self._eval_operand(scope, parts[1])
-            if isinstance(src, (list, tuple, set)):
-                return target not in src
-            return str(target) not in str(src)
+            parts = _split_top_level(expr, " not in ", 1)
+            if len(parts) == 2:
+                target = self._eval_operand(scope, parts[0])
+                src = self._eval_operand(scope, parts[1])
+                if isinstance(src, (list, tuple, set)):
+                    return target not in src
+                return str(target) not in str(src)
         elif " in " in expr:
-            parts = expr.split(" in ", 1)
-            target = self._eval_operand(scope, parts[0])
-            src = self._eval_operand(scope, parts[1])
-            if isinstance(src, (list, tuple, set)):
-                return target in src
-            return str(target) in str(src)
+            parts = _split_top_level(expr, " in ", 1)
+            if len(parts) == 2:
+                target = self._eval_operand(scope, parts[0])
+                src = self._eval_operand(scope, parts[1])
+                if isinstance(src, (list, tuple, set)):
+                    return target in src
+                return str(target) in str(src)
 
         # 2. 文本包含关系判定
         if " not contains " in expr:
-            parts = expr.split(" not contains ", 1)
-            src = self._eval_operand(scope, parts[0])
-            target = self._eval_operand(scope, parts[1])
-            if isinstance(src, (list, tuple, set)):
-                return target not in src
-            return str(target) not in str(src)
+            parts = _split_top_level(expr, " not contains ", 1)
+            if len(parts) == 2:
+                src = self._eval_operand(scope, parts[0])
+                target = self._eval_operand(scope, parts[1])
+                if isinstance(src, (list, tuple, set)):
+                    return target not in src
+                return str(target) not in str(src)
         elif " contains " in expr:
-            parts = expr.split(" contains ", 1)
-            src = self._eval_operand(scope, parts[0])
-            target = self._eval_operand(scope, parts[1])
-            if isinstance(src, (list, tuple, set)):
-                return target in src
-            return str(target) in str(src)
+            parts = _split_top_level(expr, " contains ", 1)
+            if len(parts) == 2:
+                src = self._eval_operand(scope, parts[0])
+                target = self._eval_operand(scope, parts[1])
+                if isinstance(src, (list, tuple, set)):
+                    return target in src
+                return str(target) in str(src)
 
         # 3. 正则匹配
         if " matches " in expr:
-            parts = expr.split(" matches ", 1)
-            src_val = str(self._eval_operand(scope, parts[0]) or "")
-            pattern = str(self._eval_operand(scope, parts[1]) or "")
-            try:
-                return bool(re.search(pattern, src_val))
-            except re.error:
-                return False
+            parts = _split_top_level(expr, " matches ", 1)
+            if len(parts) == 2:
+                src_val = str(self._eval_operand(scope, parts[0]) or "")
+                pattern = str(self._eval_operand(scope, parts[1]) or "")
+                try:
+                    return bool(re.search(pattern, src_val))
+                except re.error:
+                    return False
 
         # 4. 数值大小比较（优先检测复合比较符号）
         if " >= " in expr:
-            parts = expr.split(" >= ", 1)
-            v1 = self._eval_operand(scope, parts[0])
-            v2 = self._eval_operand(scope, parts[1])
-            try:
-                return float(v1) >= float(v2)
-            except (ValueError, TypeError):
-                return False
+            parts = _split_top_level(expr, " >= ", 1)
+            if len(parts) == 2:
+                v1 = self._eval_operand(scope, parts[0])
+                v2 = self._eval_operand(scope, parts[1])
+                try:
+                    return float(v1) >= float(v2)
+                except (ValueError, TypeError):
+                    return False
         elif " <= " in expr:
-            parts = expr.split(" <= ", 1)
-            v1 = self._eval_operand(scope, parts[0])
-            v2 = self._eval_operand(scope, parts[1])
-            try:
-                return float(v1) <= float(v2)
-            except (ValueError, TypeError):
-                return False
+            parts = _split_top_level(expr, " <= ", 1)
+            if len(parts) == 2:
+                v1 = self._eval_operand(scope, parts[0])
+                v2 = self._eval_operand(scope, parts[1])
+                try:
+                    return float(v1) <= float(v2)
+                except (ValueError, TypeError):
+                    return False
         elif " > " in expr:
-            parts = expr.split(" > ", 1)
-            v1 = self._eval_operand(scope, parts[0])
-            v2 = self._eval_operand(scope, parts[1])
-            try:
-                return float(v1) > float(v2)
-            except (ValueError, TypeError):
-                return False
+            parts = _split_top_level(expr, " > ", 1)
+            if len(parts) == 2:
+                v1 = self._eval_operand(scope, parts[0])
+                v2 = self._eval_operand(scope, parts[1])
+                try:
+                    return float(v1) > float(v2)
+                except (ValueError, TypeError):
+                    return False
         elif " < " in expr:
-            parts = expr.split(" < ", 1)
-            v1 = self._eval_operand(scope, parts[0])
-            v2 = self._eval_operand(scope, parts[1])
-            try:
-                return float(v1) < float(v2)
-            except (ValueError, TypeError):
-                return False
+            parts = _split_top_level(expr, " < ", 1)
+            if len(parts) == 2:
+                v1 = self._eval_operand(scope, parts[0])
+                v2 = self._eval_operand(scope, parts[1])
+                try:
+                    return float(v1) < float(v2)
+                except (ValueError, TypeError):
+                    return False
 
         # 5. 相等性判定
         if " == " in expr:
-            parts = expr.split(" == ", 1)
-            v1 = self._eval_operand(scope, parts[0])
-            v2 = self._eval_operand(scope, parts[1])
-            if isinstance(v1, (int, float)) and isinstance(v2, (int, float)):
-                return v1 == v2
-            if isinstance(v1, bool) or isinstance(v2, bool):
-                return bool(v1) is bool(v2)
-            return str(v1) == str(v2)
+            parts = _split_top_level(expr, " == ", 1)
+            if len(parts) == 2:
+                v1 = self._eval_operand(scope, parts[0])
+                v2 = self._eval_operand(scope, parts[1])
+                if isinstance(v1, (int, float)) and isinstance(v2, (int, float)):
+                    return v1 == v2
+                if isinstance(v1, bool) or isinstance(v2, bool):
+                    return bool(v1) is bool(v2)
+                return str(v1) == str(v2)
 
         if " != " in expr:
-            parts = expr.split(" != ", 1)
-            v1 = self._eval_operand(scope, parts[0])
-            v2 = self._eval_operand(scope, parts[1])
-            if isinstance(v1, (int, float)) and isinstance(v2, (int, float)):
-                return v1 != v2
-            if isinstance(v1, bool) or isinstance(v2, bool):
-                return bool(v1) is not bool(v2)
-            return str(v1) != str(v2)
+            parts = _split_top_level(expr, " != ", 1)
+            if len(parts) == 2:
+                v1 = self._eval_operand(scope, parts[0])
+                v2 = self._eval_operand(scope, parts[1])
+                if isinstance(v1, (int, float)) and isinstance(v2, (int, float)):
+                    return v1 != v2
+                if isinstance(v1, bool) or isinstance(v2, bool):
+                    return bool(v1) is not bool(v2)
+                return str(v1) != str(v2)
 
         # 6. 单一变量真值或取反（如 !vars.disabled, not vars.disabled, vars.enabled）
         if expr.startswith("!"):

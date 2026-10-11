@@ -1195,6 +1195,7 @@
     "engineSourceTask": "任务指定",
     "engineSourceSettings": "系统设置",
     "engineSourceEnv": "环境变量",
+    "engineSourceCanary": "灰度分流",
     "engineSourceDefault": "系统默认"
   },
   "profile": {

@@ -67,6 +67,7 @@ const formatEngineSource = (source?: string) => {
   if (source === 'task') return t('settings.engineSourceTask')
   if (source === 'settings') return t('settings.engineSourceSettings')
   if (source === 'env') return t('settings.engineSourceEnv')
+  if (source === 'canary') return t('settings.engineSourceCanary')
   return t('settings.engineSourceDefault')
 }
 </script>

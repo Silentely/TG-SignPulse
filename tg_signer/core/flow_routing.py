@@ -93,16 +93,17 @@ def resolve_execution_engine(
             pct = None
 
     if pct is not None and 0 < pct <= 100:
-        hash_key = str(
-            getattr(chat, "chat_id", "") or getattr(chat, "name", "") or "default_chat"
-        )
-        bucket = canary_hash_bucket(hash_key, 100)
-        if bucket < pct:
-            return (
-                ENGINE_V4,
-                ENGINE_DISPLAY_NAMES[ENGINE_V4],
-                "canary",
-            )
+        # 缺少具体分流目标（例如运维面板查询全局状态）时不参与灰度，
+        # 避免用 "default_chat" 占位键算出一个无意义的稳定分桶。
+        hash_target = getattr(chat, "chat_id", None) or getattr(chat, "name", None)
+        if hash_target:
+            bucket = canary_hash_bucket(str(hash_target), 100)
+            if bucket < pct:
+                return (
+                    ENGINE_V4,
+                    ENGINE_DISPLAY_NAMES[ENGINE_V4],
+                    "canary",
+                )
 
     # 4. 环境变量兜底
     env_raw = os.getenv("USE_PULSEFLOW_ENGINE", "").strip().lower()
